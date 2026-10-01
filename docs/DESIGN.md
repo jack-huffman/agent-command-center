@@ -499,6 +499,22 @@ one has:
 through them in a terminal. Later, ONBOARDING.md is generated from the same
 list. The walkthrough, the CLI and the docs can't drift apart.
 
+**As built in M2:**
+
+- **The walkthrough is generated.** VSCode declares walkthrough steps in the
+  extension's manifest, not at runtime, so `extension/scripts/generate.ts`
+  writes them, and a page per step, from the step list. A test fails if the
+  committed files are out of date.
+- **Ticks stay ticked.** Once VSCode ticks a step, it stays ticked even if the
+  check later fails. The status bar and **Check setup** always show the current
+  state.
+- **Checks are throttled.** Startup reuses machine results for 12 hours.
+  Project checks run only in folders with `.acc/config.json` or
+  `sfdx-project.json`. The status bar stays hidden elsewhere, unless the
+  machine needs something.
+- **The extension runs its own copy of `acc`** with VSCode's runtime, so it
+  works before Node is on PATH. Every VSCode terminal gets `acc` on its PATH.
+
 ## 15. Safety
 
 - Agents work only in their own worktree, on their own branch.

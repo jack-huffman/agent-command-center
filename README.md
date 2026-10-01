@@ -7,8 +7,13 @@ the project's checks, opens the pull request, and shows all of it in one panel.
 It is built for Salesforce work first, but the core assumes nothing about
 Salesforce. Project types plug in as profiles.
 
-**Status:** M1 done: the task ledger, the config, and onboarding checks you run
-with `acc doctor`. Next is M2, the setup walkthrough in VSCode. See [docs/DESIGN.md](docs/DESIGN.md) for how
+**Status:**
+
+- **M1 done:** the task ledger, the config, and onboarding checks
+  (`acc doctor`).
+- **M2 built:** the VSCode extension with setup walkthroughs. It's being tested
+  in real use. Install it with `npm run package && npm run install-extension`,
+  then reload the VSCode window. See [docs/DESIGN.md](docs/DESIGN.md) for how
 it works, [docs/ROADMAP.md](docs/ROADMAP.md) for the build order, and
 [docs/DECISIONS.md](docs/DECISIONS.md) for what has been decided and why.
 [docs/ONBOARDING.md](docs/ONBOARDING.md) lists every setup step, for the machine
