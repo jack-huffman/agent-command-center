@@ -341,6 +341,7 @@ A retrieve doesn't change the org.
 | The same file changed on every retrieve | Data Cloud geolocation and `formFactor` ordering | List it in `known-drift.txt` |
 | A Profile retrieved alone looked very different | Profile content depends on what else is in the same retrieve | Compare profiles only from full baseline retrieves |
 | A promotion pull request would delete hundreds of files | The Partial Copy was 19 months behind Production | Reconcile before promoting (B10) |
+| B0.repo fails: "This folder isn't a git repo" | VSCode has an old per-org folder open (such as `<Client> Production`), not the repo clone | Open the repo folder. B0.repo names it, and **Do it** opens it |
 | A copied conversation was missing its last reply | The copy ran while the session was still writing | Copy only after the session is idle (Part A) |
 | `npm install` failed with `EACCES … _cacache` | Files in `~/.npm` owned by `root` after a `sudo npm` | `sudo chown -R "$(whoami)":staff ~/.npm`. It needs `sudo`; without it, the root-owned files stay. Check with `find ~/.npm ! -user "$(whoami)" \| wc -l`, which should print 0 |
 
