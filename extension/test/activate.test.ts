@@ -2,6 +2,8 @@
 // keys are tested without a VSCode window. Run after npm run build.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import Module, { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -94,7 +96,12 @@ async function until(fn: () => boolean, ms = 20_000): Promise<void> {
 }
 
 test('activation registers the commands, adds acc to PATH, and ticks the steps that pass', { timeout: 60_000 }, async () => {
-  const repo = makeRepo({ '.acc/config.json': JSON.stringify({ schema: 1, project: 'Tool', environments: [{ name: 'main', default: true }] }) });
+  const repo = makeRepo({ '.acc/config.json': JSON.stringify({ schema: 1, project: 'Tool', environments: [{ name: 'main', default: true }] }), '.gitignore': '.claude/worktrees/\n' });
+  // Claude Code state that trusts the repo, as accepting the prompt once leaves it (B12.trust).
+  const claudeDir = mkdtempSync(join(tmpdir(), 'claude-state-'));
+  writeFileSync(join(claudeDir, '.claude.json'), JSON.stringify({ projects: { [realpathSync(repo)]: { hasTrustDialogAccepted: true } } }));
+  const savedClaudeDir = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CLAUDE_CONFIG_DIR = claudeDir;
   const { api, calls, status, trees, panels } = fakeVscode(repo);
   const load = (Module as unknown as { _load: (r: string, ...a: unknown[]) => unknown })._load;
   (Module as unknown as { _load: unknown })._load = function (request: string, ...rest: unknown[]) {
@@ -164,6 +171,7 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     assert.match(calls.info.at(-1) ?? '', /^✓ Inside the project's repo: Repo at /);
   } finally {
     for (const s of ctx.subscriptions as { dispose?: () => void }[]) s.dispose?.();
+    if (savedClaudeDir === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = savedClaudeDir;
     (Module as unknown as { _load: unknown })._load = load;
   }
 });

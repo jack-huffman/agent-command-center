@@ -228,15 +228,16 @@ Intake is idempotent, keyed by tracker key, and it never changes the tracker.
 1. **Checks.** The task is ready, running sessions are below `agents.max`, and
    the environment isn't protected, and its branch matches its org (D-015).
 2. **Creates the worktree.** It fetches, then runs
-   `git worktree add <root>/<id> -b task/<id>-<slug> origin/<branch>`, where `<branch>` is the environment's branch. On a
+   `git worktree add <root>/<id> -b task/<id>-<slug> origin/<branch>`, where `<branch>` is the environment's branch. `<root>` is `.claude/worktrees/` inside the repo (D-022). On a
    rework, it reuses the existing worktree.
 3. **Sets up the worktree.** In the `generic` profile, that means running
    `worktrees.setup` commands, such as `npm ci`. In the `salesforce` profile, it
    means writing `.sf/config.json` with the environment's org and linking
    `node_modules` from the main checkout.
 4. **Writes the instructions.** It renders the packet ([section 8](#8-the-packet)).
-5. **Launches the agent.** With the worktree as the working directory, it runs
+5. **Launches the agent.** From the main checkout, which you trust once (D-022), it runs
    `claude --bg --name <id> --permission-mode <mode> --settings <json> "<packet>"`.
+   The packet's first instruction is to call EnterWorktree on the task's worktree.
    The settings JSON sets `ACC_TASK` and `ACC_ROLE=builder` in the session's
    environment, plus an allowlist of routine commands.
 6. **Records the run.** It stores the background id and session id, and moves

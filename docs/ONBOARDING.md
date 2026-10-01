@@ -314,6 +314,23 @@ Source: [Enable Source Tracking in Sandboxes](https://developer.salesforce.com/d
   Production.** For example, a Partial Copy that hasn't been refreshed in months
   would propose deleting Production files. Reconcile it first.
 
+### B12. Trust the repo for background agents
+
+- [ ] Background agents start in your main checkout, and Claude Code only starts
+  one in a folder you've trusted. VSCode's own Claude sessions don't record this
+  trust, so do it once in a terminal:
+
+  ```bash
+  cd <repo>
+  claude        # accept the "trust this folder" prompt, then type /exit
+  ```
+
+- [ ] Make sure `.claude/worktrees/` is in `.gitignore`. Task worktrees live
+  there (D-022).
+
+`acc doctor` checks both (B12.trust and B10.ignore-worktrees). The walkthrough's
+**Do it** opens the terminal and runs `claude` for you.
+
 ### B11. Drift check (any time)
 
 ```bash
@@ -342,6 +359,8 @@ A retrieve doesn't change the org.
 | A Profile retrieved alone looked very different | Profile content depends on what else is in the same retrieve | Compare profiles only from full baseline retrieves |
 | A promotion pull request would delete hundreds of files | The Partial Copy was 19 months behind Production | Reconcile before promoting (B10) |
 | B0.repo fails: "This folder isn't a git repo" | VSCode has an old per-org folder open (such as `<Client> Production`), not the repo clone | Open the repo folder. B0.repo names it, and **Do it** opens it |
+| `acc dispatch` failed: "Workspace not trusted" | Claude Code only starts background sessions in folders you've trusted, and trust doesn't carry from a parent folder into a worktree | Trust the main checkout once (B12). Worktrees live in `.claude/worktrees/`, and agents enter them from there (D-022) |
+| Every new task worktree looked dirty (`?? node_modules`) | The linked `node_modules` is a symlink, and a `node_modules/` ignore rule only matches folders | `acc dispatch` adds `node_modules` to the repo's shared `info/exclude` |
 | A copied conversation was missing its last reply | The copy ran while the session was still writing | Copy only after the session is idle (Part A) |
 | `npm install` failed with `EACCES … _cacache` | Files in `~/.npm` owned by `root` after a `sudo npm` | `sudo chown -R "$(whoami)":staff ~/.npm`. It needs `sudo`; without it, the root-owned files stay. Check with `find ~/.npm ! -user "$(whoami)" \| wc -l`, which should print 0 |
 
@@ -364,3 +383,4 @@ step to do. The VSCode walkthrough (M2) shows the same steps.
 | B9 | `acc drift --classify` | The drift check is empty after both lists are applied |
 | B10 | `acc init` | Default branch, local default org, and the README sections exist |
 | B11 | `acc drift <environment>` | |
+| B12 | `acc doctor` | Claude Code's state lists the main checkout as trusted, and `.claude/worktrees/` is ignored |

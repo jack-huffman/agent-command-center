@@ -2,7 +2,7 @@
   "name": "agent-command-center",
   "displayName": "Agent Command Center",
   "description": "Set up projects for parallel Claude Code agents, then run and watch them from VSCode.",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "publisher": "JackHuffman",
   "private": true,
   "license": "UNLICENSED",
@@ -989,6 +989,17 @@
             "when": "acc.profile != generic"
           },
           {
+            "id": "B10.ignore-worktrees",
+            "title": "Task worktrees are git-ignored",
+            "description": "Task worktrees live in .claude/worktrees/ inside the repo (D-022). Ignoring it keeps them out of your main checkout's changes and out of VSCode search.\n\n[Check](command:acc.step.check?%5B%22B10.ignore-worktrees%22%5D)\n[Do it](command:acc.step.fix?%5B%22B10.ignore-worktrees%22%5D)",
+            "media": {
+              "markdown": "media/steps/B10.ignore-worktrees.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B10.ignore-worktrees"
+            ]
+          },
+          {
             "id": "B10.readme",
             "title": "README names every environment",
             "description": "Anyone opening the repo sees which branch is which org, and how changes flow.\n\n[Check](command:acc.step.check?%5B%22B10.readme%22%5D)",
@@ -997,6 +1008,17 @@
             },
             "completionEvents": [
               "onContext:acc.step.B10.readme"
+            ]
+          },
+          {
+            "id": "B12.trust",
+            "title": "Claude Code trusts the repo for background agents",
+            "description": "Background agents start in the main checkout, and Claude Code only starts one in a folder you've trusted. VSCode's own Claude sessions don't record this, so it takes one run of claude in a terminal.\n\n[Check](command:acc.step.check?%5B%22B12.trust%22%5D)\n[Do it](command:acc.step.fix?%5B%22B12.trust%22%5D)",
+            "media": {
+              "markdown": "media/steps/B12.trust.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B12.trust"
             ]
           }
         ]

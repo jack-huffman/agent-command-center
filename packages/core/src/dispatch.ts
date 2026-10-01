@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { type Config, type Environment, environmentByBranch } from './config.ts';
 import { AccError, type Runner } from './exec.ts';
 import { type Actor, applyMove, checkMove, mutate, noGateHooks, readLedger, type Task } from './ledger.ts';
@@ -30,11 +31,40 @@ export function mainCheckout(run: Runner, cwd: string): string {
   return first;
 }
 
-/** `worktrees.root` from the config, relative to the main checkout. The default is a sibling folder (D-013). */
+/**
+ * `worktrees.root` from the config, relative to the main checkout. The default is Claude Code's own
+ * `.claude/worktrees/` inside the repo (D-022): a background agent started from the trusted main checkout
+ * can enter a worktree there without a trust prompt, and Claude Code then enforces the isolation.
+ */
 export function worktreeRoot(config: Config, main: string): string {
   const root = config.worktrees.root;
-  if (!root) return `${main}.worktrees`;
+  if (!root) return join(main, '.claude', 'worktrees');
   return isAbsolute(root) ? root : resolve(main, root);
+}
+
+/** Whether a worktree is under the repo's `.claude/worktrees/`, where an agent can enter it without approval. */
+export const isClaudeWorktree = (main: string, wt: string): boolean => wt.startsWith(join(main, '.claude', 'worktrees') + sep);
+
+/** Claude Code's state file, where it records which folders you've trusted. Read only, never written. */
+export function claudeStatePath(env: NodeJS.ProcessEnv = process.env): string {
+  return env.CLAUDE_CONFIG_DIR ? join(env.CLAUDE_CONFIG_DIR, '.claude.json') : join(env.HOME || homedir(), '.claude.json');
+}
+
+/** Whether Claude Code trusts this folder for background sessions: accepted once with \`claude\` there. */
+export function isTrusted(folder: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  let state: { projects?: Record<string, { hasTrustDialogAccepted?: boolean }> };
+  try {
+    state = JSON.parse(readFileSync(claudeStatePath(env), 'utf8'));
+  } catch {
+    return false;
+  }
+  const keys = new Set([folder, folder.normalize('NFC')]);
+  try {
+    keys.add(realpathSync(folder));
+  } catch {
+    // keep the raw path
+  }
+  return [...keys].some((k) => state.projects?.[k]?.hasTrustDialogAccepted === true);
 }
 
 // ---------------------------------------------------------------- the packet (DESIGN.md section 8)
@@ -54,7 +84,7 @@ function commitRef(task: Task): string {
   return '';
 }
 
-export function renderPacket(p: PacketInput): string {
+export function renderPacket(p: PacketInput & { enterWorktree?: boolean }): string {
   const { task, config, env } = p;
   const sf = config.profile === 'salesforce';
   const required = config.gates.required;
@@ -63,6 +93,16 @@ export function renderPacket(p: PacketInput): string {
     '',
     `You are the builder for ${task.id}. Work only on this task, only in this worktree, and stop when it's done.`,
     '',
+  ];
+  if (p.enterWorktree) {
+    lines.push(
+      '## First, before anything else',
+      '',
+      `Call the **EnterWorktree** tool with the path \`${p.worktree}\`. Do this before reading or editing any file. Your session starts in the main checkout, which you must never change. Claude Code keeps you inside the worktree once you've entered it.`,
+      '',
+    );
+  }
+  lines.push(
     '## The task',
     '',
     task.brief.trim() || '_No details were given beyond the title. If the title alone is too vague to build from, block (see the finish line) and say what you need._',
@@ -73,7 +113,7 @@ export function renderPacket(p: PacketInput): string {
     '',
     `- **Worktree:** \`${p.worktree}\`. This is your only workspace.`,
     `- **Branch:** \`${p.branch}\`, started from \`${env.branch}\`, the ${env.name} environment's branch.`,
-  ];
+  );
   if (sf && env.org) lines.push(`- **Org:** \`${env.org}\` (${env.name}). It's already this worktree's default org.`);
   lines.push(
     '',
@@ -194,11 +234,28 @@ function setupWorktree(run: Runner, config: Config, env: Environment, main: stri
     mkdirSync(join(wt, '.sf'), { recursive: true });
     writeFileSync(join(wt, '.sf', 'config.json'), JSON.stringify({ 'target-org': env.org }, null, 2) + '\n');
   }
-  if (existsSync(join(main, 'node_modules')) && !existsSync(join(wt, 'node_modules'))) symlinkSync(join(main, 'node_modules'), join(wt, 'node_modules'), 'dir');
+  if (existsSync(join(main, 'node_modules')) && !existsSync(join(wt, 'node_modules'))) {
+    symlinkSync(join(main, 'node_modules'), join(wt, 'node_modules'), 'dir');
+    excludeEverywhere(run, main, 'node_modules');
+  }
   for (const cmd of config.worktrees.setup) {
     const r = run('sh', ['-c', cmd], { cwd: wt });
     if (r.code !== 0) throw new AccError('dispatch', `Setup command failed in the worktree: ${cmd}\n${(r.stderr || r.stdout).trim()}`);
   }
+}
+
+/**
+ * Adds a pattern to the repo's shared exclude file, which every worktree reads. A linked node_modules
+ * is a symlink, which a "node_modules/" ignore rule (folders only) doesn't match.
+ */
+function excludeEverywhere(run: Runner, main: string, pattern: string): void {
+  const common = run('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: main }).stdout.trim();
+  if (!common) return;
+  const file = join(common, 'info', 'exclude');
+  const text = existsSync(file) ? readFileSync(file, 'utf8') : '';
+  if (text.split('\n').some((l) => l.trim() === pattern)) return;
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, `${text}${text && !text.endsWith('\n') ? '\n' : ''}# Added by acc: worktrees link node_modules from the main checkout.\n${pattern}\n`);
 }
 
 function readList(wt: string, rel: string | null): string[] {
@@ -245,12 +302,18 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
 
   const main = mainCheckout(run, paths.root);
   const wt = join(worktreeRoot(config, main), found.id);
+  const enter = isClaudeWorktree(main, wt);
+  // Background sessions need a trusted folder (D-022): the main checkout when entering a .claude worktree.
+  const launchDir = enter ? main : wt;
+  if (!opts.foreground && enter && !isTrusted(main, deps.env)) {
+    throw new AccError('not-trusted', `Claude Code doesn't trust ${main} yet, so it won't start a background agent there. Run \`claude\` once in that folder, accept the trust prompt, then type /exit and dispatch again.`);
+  }
   const branch = found.run?.branch ?? taskBranch(found);
   const reused = ensureWorktree(run, main, wt, branch, env);
   setupWorktree(run, config, env, main, wt);
 
   const rules = existsSync(join(wt, '.acc', 'rules.md')) ? readFileSync(join(wt, '.acc', 'rules.md'), 'utf8') : null;
-  const packet = renderPacket({ task: found, config, env, worktree: wt, branch, rules, environmentSpecific: readList(wt, config.environmentSpecific) });
+  const packet = renderPacket({ task: found, config, env, worktree: wt, branch, rules, environmentSpecific: readList(wt, config.environmentSpecific), enterWorktree: enter && !opts.foreground });
   mkdirSync(paths.packets, { recursive: true });
   const packetPath = join(paths.packets, `${found.id}.md`);
   writeFileSync(packetPath, packet);
@@ -275,9 +338,9 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
     return { task, worktree: wt, branch, reused, packetPath, bgId: null, sessionId: null };
   }
 
-  const launched = run('claude', ['--bg', ...base, prompt], { cwd: wt, env: deps.env, timeoutMs: 60_000 });
+  const launched = run('claude', ['--bg', ...base, prompt], { cwd: launchDir, env: deps.env, timeoutMs: 60_000 });
   if (launched.code !== 0) throw new AccError('dispatch', `Claude Code didn't start the agent: ${(launched.stderr || launched.stdout).trim().split('\n')[0]}. The worktree is kept at ${wt}.`);
-  const { bgId, sessionId } = findSession(run, wt, found.id, deps.findSessionMs ?? 8_000);
+  const { bgId, sessionId } = findSession(run, launchDir, found.id, deps.findSessionMs ?? 8_000);
   try {
     const task = record(bgId, sessionId);
     return { task, worktree: wt, branch, reused, packetPath, bgId, sessionId };

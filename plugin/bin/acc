@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // packages/cli/src/main.ts
-import { existsSync as existsSync8, readFileSync as readFileSync7, realpathSync } from "node:fs";
+import { existsSync as existsSync8, readFileSync as readFileSync7, realpathSync as realpathSync2 } from "node:fs";
 import { dirname as dirname5, resolve as resolve2 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -625,8 +625,9 @@ function githubIssuesToTasks(issues, environment) {
 
 // packages/core/src/dispatch.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
-import { existsSync as existsSync4, mkdirSync as mkdirSync4, readFileSync as readFileSync5, symlinkSync, writeFileSync as writeFileSync4 } from "node:fs";
-import { basename, dirname as dirname3, isAbsolute, join as join4, resolve } from "node:path";
+import { existsSync as existsSync4, mkdirSync as mkdirSync4, readFileSync as readFileSync5, realpathSync, symlinkSync, writeFileSync as writeFileSync4 } from "node:fs";
+import { homedir } from "node:os";
+import { basename, dirname as dirname3, isAbsolute, join as join4, resolve, sep } from "node:path";
 function slugify(title, max = 40) {
   const words = title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).filter(Boolean);
   let out2 = "";
@@ -646,8 +647,26 @@ function mainCheckout(run2, cwd) {
 }
 function worktreeRoot(config, main2) {
   const root = config.worktrees.root;
-  if (!root) return `${main2}.worktrees`;
+  if (!root) return join4(main2, ".claude", "worktrees");
   return isAbsolute(root) ? root : resolve(main2, root);
+}
+var isClaudeWorktree = (main2, wt) => wt.startsWith(join4(main2, ".claude", "worktrees") + sep);
+function claudeStatePath(env = process.env) {
+  return env.CLAUDE_CONFIG_DIR ? join4(env.CLAUDE_CONFIG_DIR, ".claude.json") : join4(env.HOME || homedir(), ".claude.json");
+}
+function isTrusted(folder, env = process.env) {
+  let state;
+  try {
+    state = JSON.parse(readFileSync5(claudeStatePath(env), "utf8"));
+  } catch {
+    return false;
+  }
+  const keys = /* @__PURE__ */ new Set([folder, folder.normalize("NFC")]);
+  try {
+    keys.add(realpathSync(folder));
+  } catch {
+  }
+  return [...keys].some((k) => state.projects?.[k]?.hasTrustDialogAccepted === true);
 }
 function commitRef(task) {
   if (task.source.kind === "github") return ` Add \`refs #${task.id.replace(/^GH-/, "")}\` on its own line, so GitHub links the commit to the issue.`;
@@ -661,7 +680,17 @@ function renderPacket(p) {
     `# Task ${task.id}: ${task.title}`,
     "",
     `You are the builder for ${task.id}. Work only on this task, only in this worktree, and stop when it's done.`,
-    "",
+    ""
+  ];
+  if (p.enterWorktree) {
+    lines.push(
+      "## First, before anything else",
+      "",
+      `Call the **EnterWorktree** tool with the path \`${p.worktree}\`. Do this before reading or editing any file. Your session starts in the main checkout, which you must never change. Claude Code keeps you inside the worktree once you've entered it.`,
+      ""
+    );
+  }
+  lines.push(
     "## The task",
     "",
     task.brief.trim() || "_No details were given beyond the title. If the title alone is too vague to build from, block (see the finish line) and say what you need._",
@@ -672,7 +701,7 @@ function renderPacket(p) {
     "",
     `- **Worktree:** \`${p.worktree}\`. This is your only workspace.`,
     `- **Branch:** \`${p.branch}\`, started from \`${env.branch}\`, the ${env.name} environment's branch.`
-  ];
+  );
   if (sf && env.org) lines.push(`- **Org:** \`${env.org}\` (${env.name}). It's already this worktree's default org.`);
   lines.push(
     "",
@@ -779,12 +808,26 @@ function setupWorktree(run2, config, env, main2, wt) {
     mkdirSync4(join4(wt, ".sf"), { recursive: true });
     writeFileSync4(join4(wt, ".sf", "config.json"), JSON.stringify({ "target-org": env.org }, null, 2) + "\n");
   }
-  if (existsSync4(join4(main2, "node_modules")) && !existsSync4(join4(wt, "node_modules"))) symlinkSync(join4(main2, "node_modules"), join4(wt, "node_modules"), "dir");
+  if (existsSync4(join4(main2, "node_modules")) && !existsSync4(join4(wt, "node_modules"))) {
+    symlinkSync(join4(main2, "node_modules"), join4(wt, "node_modules"), "dir");
+    excludeEverywhere(run2, main2, "node_modules");
+  }
   for (const cmd of config.worktrees.setup) {
     const r = run2("sh", ["-c", cmd], { cwd: wt });
     if (r.code !== 0) throw new AccError("dispatch", `Setup command failed in the worktree: ${cmd}
 ${(r.stderr || r.stdout).trim()}`);
   }
+}
+function excludeEverywhere(run2, main2, pattern) {
+  const common = run2("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: main2 }).stdout.trim();
+  if (!common) return;
+  const file = join4(common, "info", "exclude");
+  const text = existsSync4(file) ? readFileSync5(file, "utf8") : "";
+  if (text.split("\n").some((l) => l.trim() === pattern)) return;
+  mkdirSync4(dirname3(file), { recursive: true });
+  writeFileSync4(file, `${text}${text && !text.endsWith("\n") ? "\n" : ""}# Added by acc: worktrees link node_modules from the main checkout.
+${pattern}
+`);
 }
 function readList(wt, rel) {
   if (!rel || !existsSync4(join4(wt, rel))) return [];
@@ -818,11 +861,16 @@ function dispatch(paths, config, id, deps, opts) {
   if (!env) throw new AccError("dispatch", `${id}'s environment "${found.environment}" isn't in the config.`);
   const main2 = mainCheckout(run2, paths.root);
   const wt = join4(worktreeRoot(config, main2), found.id);
+  const enter = isClaudeWorktree(main2, wt);
+  const launchDir = enter ? main2 : wt;
+  if (!opts.foreground && enter && !isTrusted(main2, deps.env)) {
+    throw new AccError("not-trusted", `Claude Code doesn't trust ${main2} yet, so it won't start a background agent there. Run \`claude\` once in that folder, accept the trust prompt, then type /exit and dispatch again.`);
+  }
   const branch = found.run?.branch ?? taskBranch(found);
   const reused = ensureWorktree(run2, main2, wt, branch, env);
   setupWorktree(run2, config, env, main2, wt);
   const rules = existsSync4(join4(wt, ".acc", "rules.md")) ? readFileSync5(join4(wt, ".acc", "rules.md"), "utf8") : null;
-  const packet = renderPacket({ task: found, config, env, worktree: wt, branch, rules, environmentSpecific: readList(wt, config.environmentSpecific) });
+  const packet = renderPacket({ task: found, config, env, worktree: wt, branch, rules, environmentSpecific: readList(wt, config.environmentSpecific), enterWorktree: enter && !opts.foreground });
   mkdirSync4(paths.packets, { recursive: true });
   const packetPath = join4(paths.packets, `${found.id}.md`);
   writeFileSync4(packetPath, packet);
@@ -846,9 +894,9 @@ ${packet}`;
     spawnSync2("claude", [...base, prompt], { cwd: wt, stdio: "inherit", env: deps.env });
     return { task, worktree: wt, branch, reused, packetPath, bgId: null, sessionId: null };
   }
-  const launched = run2("claude", ["--bg", ...base, prompt], { cwd: wt, env: deps.env, timeoutMs: 6e4 });
+  const launched = run2("claude", ["--bg", ...base, prompt], { cwd: launchDir, env: deps.env, timeoutMs: 6e4 });
   if (launched.code !== 0) throw new AccError("dispatch", `Claude Code didn't start the agent: ${(launched.stderr || launched.stdout).trim().split("\n")[0]}. The worktree is kept at ${wt}.`);
-  const { bgId, sessionId } = findSession(run2, wt, found.id, deps.findSessionMs ?? 8e3);
+  const { bgId, sessionId } = findSession(run2, launchDir, found.id, deps.findSessionMs ?? 8e3);
   try {
     const task = record(bgId, sessionId);
     return { task, worktree: wt, branch, reused, packetPath, bgId, sessionId };
@@ -1607,6 +1655,20 @@ var STEPS = [
     }
   },
   {
+    id: "B10.ignore-worktrees",
+    part: "project",
+    group: "B10",
+    title: "Task worktrees are git-ignored",
+    why: "Task worktrees live in .claude/worktrees/ inside the repo (D-022). Ignoring it keeps them out of your main checkout's changes and out of VSCode search.",
+    fix: { fromCheck: true },
+    check(ctx) {
+      const need = needsProject(ctx);
+      if (need) return need;
+      const r = ctx.run("git", ["check-ignore", "-q", ".claude/worktrees/probe"], { cwd: ctx.paths.root });
+      return r.code === 0 ? pass(".claude/worktrees/ is ignored.") : fail(".claude/worktrees/ isn't in .gitignore.", "printf '.claude/worktrees/\\n' >> .gitignore");
+    }
+  },
+  {
     id: "B10.readme",
     part: "project",
     group: "B10",
@@ -1620,6 +1682,24 @@ var STEPS = [
       if (!text) return fail("There's no README.md.");
       const missing = ctx.config.environments.filter((e) => !text.includes(`\`${e.branch}\``)).map((e) => e.branch);
       return missing.length ? fail(`README.md doesn't mention ${missing.join(", ")}.`) : pass("Every environment is in the README.");
+    }
+  },
+  {
+    id: "B12.trust",
+    part: "project",
+    group: "B12",
+    title: "Claude Code trusts the repo for background agents",
+    why: "Background agents start in the main checkout, and Claude Code only starts one in a folder you've trusted. VSCode's own Claude sessions don't record this, so it takes one run of claude in a terminal.",
+    fix: { command: "claude", text: 'In the terminal that opens, accept the "trust this folder" prompt, then type /exit.' },
+    check(ctx) {
+      const need = needsProject(ctx);
+      if (need) return need;
+      let main2 = ctx.paths.root;
+      try {
+        main2 = mainCheckout(ctx.run, ctx.paths.root);
+      } catch {
+      }
+      return isTrusted(main2, ctx.env) ? pass(`Trusted: ${main2}`) : fail(`Claude Code hasn't been trusted in ${main2} yet.`, "claude   # then accept the trust prompt and type /exit");
     }
   },
   {
@@ -1856,7 +1936,7 @@ function taskIdFrom(arg) {
 }
 var accBinDir = () => {
   try {
-    return dirname5(realpathSync(process.argv[1]));
+    return dirname5(realpathSync2(process.argv[1]));
   } catch {
     return dirname5(process.argv[1] ?? ".");
   }
@@ -2035,7 +2115,7 @@ async function main(argv) {
 }
 var isEntry = (() => {
   try {
-    return !!process.argv[1] && realpathSync(fileURLToPath(import.meta.url)) === realpathSync(resolve2(process.argv[1]));
+    return !!process.argv[1] && realpathSync2(fileURLToPath(import.meta.url)) === realpathSync2(resolve2(process.argv[1]));
   } catch {
     return false;
   }

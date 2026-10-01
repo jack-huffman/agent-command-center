@@ -1,6 +1,7 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { branchFor, type Environment } from '../config.ts';
+import { isTrusted, mainCheckout } from '../dispatch.ts';
 import {
   fail, firstVersion, ghEnv, LICENSE_TO_TYPE, parseOrgUrl, pass, readText, SECRET_PATTERN, sfJson, skip, unknown, versionAtLeast,
 } from './helpers.ts';
@@ -419,6 +420,17 @@ export const STEPS: Step[] = [
     },
   },
   {
+    id: 'B10.ignore-worktrees', part: 'project', group: 'B10', title: 'Task worktrees are git-ignored',
+    why: 'Task worktrees live in .claude/worktrees/ inside the repo (D-022). Ignoring it keeps them out of your main checkout\'s changes and out of VSCode search.',
+    fix: { fromCheck: true },
+    check(ctx) {
+      const need = needsProject(ctx);
+      if (need) return need;
+      const r = ctx.run('git', ['check-ignore', '-q', '.claude/worktrees/probe'], { cwd: ctx.paths!.root });
+      return r.code === 0 ? pass('.claude/worktrees/ is ignored.') : fail('.claude/worktrees/ isn\'t in .gitignore.', "printf '.claude/worktrees/\\n' >> .gitignore");
+    },
+  },
+  {
     id: 'B10.readme', part: 'project', group: 'B10', title: 'README names every environment',
     why: 'Anyone opening the repo sees which branch is which org, and how changes flow.',
     check(ctx) {
@@ -429,6 +441,22 @@ export const STEPS: Step[] = [
       if (!text) return fail('There\'s no README.md.');
       const missing = ctx.config!.environments.filter((e) => !text.includes(`\`${e.branch}\``)).map((e) => e.branch);
       return missing.length ? fail(`README.md doesn't mention ${missing.join(', ')}.`) : pass('Every environment is in the README.');
+    },
+  },
+  {
+    id: 'B12.trust', part: 'project', group: 'B12', title: 'Claude Code trusts the repo for background agents',
+    why: 'Background agents start in the main checkout, and Claude Code only starts one in a folder you\'ve trusted. VSCode\'s own Claude sessions don\'t record this, so it takes one run of claude in a terminal.',
+    fix: { command: 'claude', text: 'In the terminal that opens, accept the "trust this folder" prompt, then type /exit.' },
+    check(ctx) {
+      const need = needsProject(ctx);
+      if (need) return need;
+      let main = ctx.paths!.root;
+      try {
+        main = mainCheckout(ctx.run, ctx.paths!.root);
+      } catch {
+        // fall back to this checkout
+      }
+      return isTrusted(main, ctx.env) ? pass(`Trusted: ${main}`) : fail(`Claude Code hasn't been trusted in ${main} yet.`, 'claude   # then accept the trust prompt and type /exit');
     },
   },
   {

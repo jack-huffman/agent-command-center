@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import type { RunResult } from '../src/exec.ts';
@@ -37,7 +37,7 @@ function sfRepo(over: { config?: unknown; files?: Record<string, string> } = {})
   const repo = makeRepo({
     '.acc/config.json': JSON.stringify(over.config ?? SF_CONFIG, null, 2),
     'README.md': '| `production` | `uat` | `dev` |\n',
-    '.gitignore': '.sf/\n/*.csv\n/*.xls\n/*.xlsx\n/*.eml\n',
+    '.gitignore': '.sf/\n/*.csv\n/*.xls\n/*.xlsx\n/*.eml\n.claude/worktrees/\n',
     'sfdx-project.json': JSON.stringify({ packageDirectories: [{ path: 'force-app', default: true }] }),
     'manifest/baseline-package.xml': '<Package><types><members>A</members><members>B</members><name>ApexClass</name></types></Package>',
     'manifest/environment-specific.txt': '# env\nforce-app/main/default/settings/MyDomain.settings-meta.xml\n',
@@ -54,8 +54,15 @@ function sfRepo(over: { config?: unknown; files?: Record<string, string> } = {})
   return repo;
 }
 
+/** Claude Code state that trusts the repo, as accepting the prompt once would leave it (D-022). */
+function trustDir(repo: string): string {
+  const dir = tempDir('claude-state-');
+  writeFileSync(join(dir, '.claude.json'), JSON.stringify({ projects: { [realpathSync(repo)]: { hasTrustDialogAccepted: true } } }));
+  return dir;
+}
+
 function statuses(repo: string, fixtures = healthy()): Record<string, { status: CheckStatus; detail: string }> {
-  const ctx = makeContext(repo, fakeRunner(fixtures), { ...process.env, GIT_CONFIG_NOSYSTEM: '1' });
+  const ctx = makeContext(repo, fakeRunner(fixtures), { ...process.env, GIT_CONFIG_NOSYSTEM: '1', CLAUDE_CONFIG_DIR: trustDir(repo) });
   return Object.fromEntries(runSteps(ctx).map(({ step, result }) => [step.id, result]));
 }
 
@@ -206,4 +213,14 @@ test('outside a repo, B0.repo points at the project repo next to an old folder',
   const none = runSteps(makeContext(lonely, fakeRunner({})), 'project').find((x) => x.step.id === 'B0.repo')!.result;
   assert.equal(none.open, undefined);
   assert.match(none.detail, /isn't a git repo yet. Onboarding starts with the client's repo/);
+});
+
+test('B12.trust fails until Claude Code has been trusted in the main checkout, and B10 wants worktrees ignored', () => {
+  const repo = sfRepo({ files: { '.gitignore': '.sf/\n' } });
+  const ctx = makeContext(repo, fakeRunner(healthy()), { ...process.env, CLAUDE_CONFIG_DIR: tempDir('claude-state-') });
+  const r = Object.fromEntries(runSteps(ctx, 'project').map(({ step, result }) => [step.id, result]));
+  assert.equal(r['B12.trust']!.status, 'fail');
+  assert.match(r['B12.trust']!.detail, /hasn't been trusted in/);
+  assert.equal(r['B10.ignore-worktrees']!.status, 'fail');
+  assert.match(r['B10.ignore-worktrees']!.fix ?? '', /\.claude\/worktrees\//);
 });
