@@ -342,7 +342,7 @@ A retrieve doesn't change the org.
 | A Profile retrieved alone looked very different | Profile content depends on what else is in the same retrieve | Compare profiles only from full baseline retrieves |
 | A promotion pull request would delete hundreds of files | The Partial Copy was 19 months behind Production | Reconcile before promoting (B10) |
 | A copied conversation was missing its last reply | The copy ran while the session was still writing | Copy only after the session is idle (Part A) |
-| `npm install` failed with `EACCES … _cacache` | Folders in `~/.npm` owned by another user, usually after a `sudo npm` | `sudo chown -R $(whoami) ~/.npm`, or install with `--cache <other dir>` |
+| `npm install` failed with `EACCES … _cacache` | Files in `~/.npm` owned by `root` after a `sudo npm` | `sudo chown -R "$(whoami)":staff ~/.npm`. It needs `sudo`; without it, the root-owned files stay. Check with `find ~/.npm ! -user "$(whoami)" \| wc -l`, which should print 0 |
 
 ---
 
