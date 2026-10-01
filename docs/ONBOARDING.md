@@ -78,6 +78,26 @@ To continue a conversation from another folder:
 
   Older per-org folders stay where they are until they're retired.
 
+- [ ] **List every org the client has**, not just the ones you'll use first.
+  Production's sandbox list is the full set:
+
+  ```bash
+  sf data query --use-tooling-api -q "SELECT SandboxName, LicenseType FROM SandboxInfo" -o "<prod>"
+  ```
+
+  For each org, record its environment name (the sandbox name), its type
+  (`DEVELOPER`, `DEVELOPER_PRO`, `PARTIAL` or `FULL`) and an alias. Then decide
+  where it promotes to. Pipelines differ by client:
+
+  | Shape | Promotes |
+  |---|---|
+  | Strict | Dev → Full Copy → Production |
+  | Small org | Sandbox → Production |
+  | QA when it's worth it | Dev → QA *or* straight to Production, then QA → Production |
+
+  An org on no path, such as a training sandbox, is still listed so that drift
+  checks cover it.
+
 ### B2. Clone the repo and pin its GitHub account
 
 - [ ] Clone the repo, then set its commit identity and credentials **in that repo only**:
@@ -327,7 +347,8 @@ A retrieve doesn't change the org.
 |---|---|---|
 | A1 | `acc doctor` | Version checks |
 | A2 | `acc doctor` | `gh auth status` lists the configured account |
-| B1–B2 | `acc init` | `credential fill` resolves to `github.account`, and commit identity matches |
+| B1 | `acc init` | Every sandbox in `SandboxInfo` appears in `environments`, with its type |
+| B2 | `acc init` | `credential fill` resolves to `github.account`, and commit identity matches |
 | B3 | `acc init` | `.gitignore` has the backstop patterns, and the secret scan is clean |
 | B5–B6 | `acc baseline` | One branch per environment, each named to match its org's sandbox name |
 | B8 | `acc doctor` | Each Developer environment answers `SourceMember` |

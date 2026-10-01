@@ -1,6 +1,6 @@
 # Design
 
-**Status:** draft for review, 2026-10-01. It introduces decisions D-008 to D-017
+**Status:** agreed with the user on 2026-10-01. Later changes are recorded in [DECISIONS.md](DECISIONS.md). It introduces decisions D-008 to D-018
 (see [DECISIONS.md](DECISIONS.md)). Behaviour that comes from Claude Code itself
 was checked against version 2.1.287 and its docs on that date.
 
@@ -76,9 +76,9 @@ branches and the pull requests.
   "github": { "repo": "acme-co/acme-salesforce", "account": "work-account" },
   "commitIdentity": { "name": "Jane Doe", "email": "jane@example.com" },
   "environments": [
-    { "name": "Dev", "org": "Acme Dev", "default": true, "promotesTo": "uat" },
-    { "name": "UAT", "org": "Acme UAT", "promotesTo": "production" },
-    { "name": "Production", "org": "Acme Production", "protected": true }
+    { "name": "Dev", "type": "developer", "org": "Acme Dev", "default": true, "promotesTo": ["uat", "production"] },
+    { "name": "UAT", "type": "full", "org": "Acme UAT", "promotesTo": ["production"] },
+    { "name": "Production", "type": "production", "org": "Acme Production", "protected": true }
   ],
   "environmentSpecific": "manifest/environment-specific.txt",
   "knownDrift": "manifest/known-drift.txt",
@@ -104,10 +104,28 @@ Salesforce puts in the org's URL (`acme--uat.sandbox.my.salesforce.com` →
 `acc doctor` checks every environment's org against its branch and refuses to
 dispatch if one doesn't match.
 
+**Every org is known, and each project chooses its own path (D-018).** Clients
+run very different pipelines, so the path isn't fixed. `acc init` reads
+Production's sandbox list (`SandboxInfo`) and the logged-in aliases on the same
+My Domain. It proposes an environment for each org, with its type. You then say
+where each one promotes to.
+
+| Pipeline shape | `promotesTo` |
+|---|---|
+| Dev → Full Copy → Production | `dev: [fullcopy]`, `fullcopy: [production]` |
+| Sandbox → Production (smaller orgs) | `sandbox: [production]` |
+| Dev → QA → Production, with QA optional | `dev: [qa, production]`, `qa: [production]` |
+
+The type changes what the tool can do. Only `developer` and `developer_pro`
+sandboxes support source tracking, so `acc doctor` checks it only there. A
+`full` or `partial` sandbox gets validation and drift checks. `production` is
+always protected. An org that's on no path, such as a training sandbox, is still
+listed so that drift checks and `doctor` cover it.
+
 | Field | Meaning |
 |---|---|
 | `github.account` | The `gh` account for this repo (D-007). `acc` passes `GH_TOKEN` on every call and sets the repo's commit identity and credential helper on `acc init` |
-| `environments` | Where work lands. Each has a name, a branch (by default the lower-cased name) and, in the `salesforce` profile, an org alias. A task builds from one environment's branch, and its pull request goes back into it. **Protected** environments never receive agent work. `promotesTo` gives the promotion path ([section 11](#11-landing)) |
+| `environments` | Every org the project has, whether or not it's on a promotion path. Each has a name, a branch (by default the lower-cased name), a `type` (`production`, `full`, `partial`, `developer`, `developer_pro`) and, in the `salesforce` profile, an org alias. A task builds from one environment's branch, and its pull request goes back into it. **Protected** environments never receive agent work. `promotesTo` lists where it can promote to, usual step first ([section 11](#11-landing)) |
 | `environmentSpecific` | A list of files that differ by design in every environment, such as email service addresses, SSO and org settings. These are never edited by a task, never deployed, and never promoted (D-016) |
 | `knownDrift` | Files that a drift check should expect to differ, such as features a sandbox lacks or ordering noise. They can still be edited and promoted |
 | `trackers` | Where intake reads from. Several are allowed |
@@ -352,12 +370,21 @@ It never merges.
 
 ### Promotion
 
-Promotion moves merged work one step along the `promotesTo` path. A person
-starts it with `acc promote <environment>`. That opens a pull request from the
-environment's branch into the next one, and validates the change against the
-next environment's org. Environment-specific files are left out. If the pull
-request would delete files in the next environment, `acc` warns before opening
-it, because that usually means the two branches have drifted apart.
+Promotion moves merged work from one environment's branch to another, along a
+path its `promotesTo` allows. A person starts every promotion:
+
+- `acc promote <environment>` goes to the first entry in `promotesTo`.
+- `acc promote <environment> --to <other>` goes to any other listed entry.
+
+`acc` opens a pull request into the destination branch and validates the change
+against the destination's org. Environment-specific files are left out.
+
+**Skipping is allowed, and stated.** If the chosen route bypasses an
+environment that the usual path goes through, `acc` names it in the warning and
+in the pull request body. For example: "Skips `qa`: this change hasn't been
+validated there." If the pull request would delete files in the destination,
+`acc` warns before opening it, because that usually means the two branches have
+drifted apart.
 
 ## 12. The orchestrator loop
 
@@ -537,11 +564,10 @@ already exists.
 
 ## 20. Open questions
 
-1. **Default autonomy.** This draft says `manual` until the loop has earned
-   trust. Is that right?
-2. **Skipping an environment.** Must promotion always pass through every step
-   in `promotesTo`? Or may a person skip one, for example a QA sandbox that's
-   out of date?
+None right now. Answered on 2026-10-01:
 
-Answered: the Salesforce pilot's tracker is Jira. Its tickets move there from
-Azure DevOps first, so Azure DevOps intake isn't needed.
+- **Default autonomy:** `manual`, confirmed (D-014).
+- **Promotion paths:** each project sets its own, every org is listed, and
+  skipping a step is allowed but named (D-018).
+- **The Salesforce pilot's tracker:** Jira. Its tickets move there from Azure
+  DevOps first, so Azure DevOps intake isn't needed.
