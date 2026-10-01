@@ -160,7 +160,6 @@ export interface WorktreeRow {
   place: string;
   state: Look;
   main: boolean;
-  actions: Action[];
 }
 
 export interface WorktreesModel {
@@ -174,19 +173,12 @@ export function worktreesModel(hub: HubLike): WorktreesModel {
     projects: hub.projects.map((p) => ({
       name: p.name, root: p.root,
       worktrees: p.worktrees.map((w) => {
-        const ref: Ref = { project: p.root, worktree: w.path };
         const state: Look = w.prunable ? { label: 'Missing on disk', icon: 'warning', tone: 'orange' }
           : w.changed < 0 ? { label: 'Status unknown', icon: 'question', tone: 'orange' }
             : w.changed > 0 ? { label: `${w.changed} changed`, icon: 'diff-modified', tone: 'orange' }
               : { label: 'Clean', icon: 'check', tone: 'blue' };
-        const actions: Action[] = [
-          { command: 'acc.worktree.open', label: 'Open', icon: 'empty-window', ref, primary: true },
-          { command: 'acc.worktree.terminal', label: 'Terminal', icon: 'terminal', ref },
-          { command: 'acc.worktree.reveal', label: 'Finder', icon: 'folder-opened', ref },
-        ];
-        if (!w.main) actions.push({ command: 'acc.worktree.remove', label: 'Remove', icon: 'trash', ref, danger: true });
         const place = w.main ? 'Main checkout' : w.path.replace(p.root.replace(/\/[^/]+$/, ''), '…');
-        return { path: w.path, branch: w.branch ?? `detached at ${w.head.slice(0, 7)}`, place: w.locked ? `${place} · locked` : place, state, main: w.main, actions };
+        return { path: w.path, branch: w.branch ?? `detached at ${w.head.slice(0, 7)}`, place: w.locked ? `${place} · locked` : place, state, main: w.main };
       }),
     })),
   };

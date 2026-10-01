@@ -6,6 +6,9 @@
   `salesforce` profile (D-003).
 - Run builds and tests one at a time, under `nice -n 15`. Parallel compiles make
   the author's machine stutter.
+- Look at UI changes before shipping them: `npm run build`, then
+  `npm run screenshot`, then read the PNGs in `dist/screenshots/`. Tests can't
+  see a broken layout.
 - UI states use an icon and a label. Use orange against blue, never red against
   green. The author is colourblind.
 - Commit as `jack-huffman <jack.huffman17@gmail.com>`. This is set in the repo's

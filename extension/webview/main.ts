@@ -1,7 +1,7 @@
 // Renders one editor tab. Every element is built with DOM calls and every string is set as text,
 // so nothing from a ticket, branch or session can become markup. No HTML string is ever parsed.
 import type {
-  Action, AgentsModel, EnvironmentsModel, Look, Model, SetupModel, TasksModel, ViewKind, WorktreesModel,
+  Action, AgentsModel, EnvironmentsModel, Look, Model, Ref, SetupModel, TasksModel, ViewKind, WorktreesModel,
 } from '../src/model.ts';
 
 declare function acquireVsCodeApi(): { postMessage(m: unknown): void; getState(): unknown; setState(s: unknown): void };
@@ -89,6 +89,15 @@ function menuButton(label: string): HTMLElement {
   return b;
 }
 
+/**
+ * Gives a row VSCode's own context menu: right-click anywhere on it, or its caret. package.json picks
+ * the items under webview/context by section and flags; the command gets `accRef` back.
+ */
+function withMenu(row: HTMLElement, section: string, ref: Ref, flags: Record<string, boolean>): HTMLElement {
+  row.dataset.vscodeContext = JSON.stringify({ webviewSection: section, preventDefaultContextMenuItems: true, ...flags, accRef: ref });
+  return row;
+}
+
 function since(ms: number): string {
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
   if (s < 60) return 'just now';
@@ -111,7 +120,7 @@ function renderTasks(m: TasksModel): Node[] {
     tools.push(toolbarButton('acc.task.importJira', 'Jira', 'cloud-download', p.root));
     const ready = p.columns.find((c) => c.group === 'ready')?.cards.length ?? 0;
     const needs = p.columns.find((c) => c.group === 'needs-you')?.cards.length ?? 0;
-    const summary = p.total ? `${p.name}: ${plural(p.total, 'task')}, ${ready} ready${needs ? `, ${needs} need${needs === 1 ? 's' : ''} you` : ''}. Dispatching to agents arrives with M3.` : `${p.name}: no tasks yet.`;
+    const summary = p.total ? `${p.name}: ${plural(p.total, 'task')}, ${ready} ready${needs ? `, ${needs} need${needs === 1 ? 's' : ''} you` : ''}.` : `${p.name}: no tasks yet.`;
     const board = el('div', 'board');
     for (const c of p.columns) {
       const col = el('section', `column tone-edge-${c.tone}`, el('h2', '', icon(c.icon, c.tone), c.label, el('span', 'count', String(c.cards.length))));
@@ -153,9 +162,7 @@ function renderAgents(m: AgentsModel): Node[] {
       const row = el('tr', a.needsYou ? 'attention' : '',
         clipped(a.name, 'strong name'), el('td', 'nowrap', status(a.look)), el('td', 'nowrap muted kind', a.kind), clipped(a.where, 'mono'), el('td', 'nowrap muted started', since(a.startedAt)),
         el('td', 'actions', menuButton(a.name)));
-      // Right-click anywhere on the row, or the caret, opens VSCode's own menu for this session.
-      row.dataset.vscodeContext = JSON.stringify({ webviewSection: 'agent', preventDefaultContextMenuItems: true, agentBackground: a.background, accRef: { session: a.key } });
-      body.append(row);
+      body.append(withMenu(row, 'agent', { session: a.key }, { agentBackground: a.background }));
     }
     table.append(body);
   }
@@ -166,18 +173,22 @@ function renderAgents(m: AgentsModel): Node[] {
 function renderWorktrees(m: WorktreesModel): Node[] {
   if (!m.projects.length) return [header('Worktrees', 'No onboarded project in this workspace.'), empty('Worktrees appear here once this folder is an onboarded project.', toolbarButton('acc.openProjectWalkthrough', 'Onboard this project', 'rocket', undefined, true))];
   const out: Node[] = [header('Worktrees', 'Each checkout of the repo. Agents get their own, so your folder stays as you left it.')];
+  // One table with a heading row per project, like Agents, so the columns line up.
+  const table = el('table', 'grid');
+  table.append(el('thead', '', el('tr', '', ...[['Branch', ''], ['Location', 'wide'], ['Changes', ''], ['', '']].map(([h, c]) => el('th', c!, h!)))));
   for (const p of m.projects) {
-    const table = el('table', 'grid');
-    table.append(el('thead', '', el('tr', '', ...[['Branch', ''], ['Location', 'wide'], ['Changes', ''], ['', '']].map(([h, c]) => el('th', c!, h!)))));
     const body = el('tbody');
+    body.append(el('tr', 'group', span(el('th', '', icon('repo'), p.name, el('span', 'count', String(p.worktrees.length))), 4)));
     for (const w of p.worktrees) {
-      body.append(el('tr', w.state.tone === 'orange' ? 'attention' : '',
-        el('td', 'strong nowrap', icon(w.main ? 'repo' : 'git-branch'), w.branch), clipped(w.place, 'mono'), el('td', 'nowrap', status(w.state)),
-        el('td', 'actions', ...w.actions.map(actionButton))));
+      const branch = el('td', 'clip name strong', icon(w.main ? 'repo' : 'git-branch'), w.branch);
+      branch.title = w.branch;
+      const row = el('tr', w.state.tone === 'orange' ? 'attention' : '',
+        branch, clipped(w.place, 'mono'), el('td', 'nowrap', status(w.state)), el('td', 'actions', menuButton(w.branch)));
+      body.append(withMenu(row, 'worktree', { project: p.root, worktree: w.path }, { worktreeLinked: !w.main }));
     }
     table.append(body);
-    out.push(el('section', 'block', el('h2', '', icon('repo'), p.name, el('span', 'count', String(p.worktrees.length))), wrap(table)));
   }
+  out.push(wrap(table));
   return out;
 }
 

@@ -2,7 +2,7 @@
   "name": "agent-command-center",
   "displayName": "Agent Command Center",
   "description": "Set up projects for parallel Claude Code agents, then run and watch them from VSCode.",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "publisher": "JackHuffman",
   "private": true,
   "license": "UNLICENSED",
@@ -692,6 +692,26 @@
           "command": "acc.agent.stop",
           "when": "webviewId == 'acc.agents' && webviewSection == 'agent' && agentBackground",
           "group": "3_stop@1"
+        },
+        {
+          "command": "acc.worktree.open",
+          "when": "webviewId == 'acc.worktrees' && webviewSection == 'worktree'",
+          "group": "1_open@1"
+        },
+        {
+          "command": "acc.worktree.terminal",
+          "when": "webviewId == 'acc.worktrees' && webviewSection == 'worktree'",
+          "group": "1_open@2"
+        },
+        {
+          "command": "acc.worktree.reveal",
+          "when": "webviewId == 'acc.worktrees' && webviewSection == 'worktree'",
+          "group": "1_open@3"
+        },
+        {
+          "command": "acc.worktree.remove",
+          "when": "webviewId == 'acc.worktrees' && webviewSection == 'worktree' && worktreeLinked",
+          "group": "9_remove@1"
         }
       ]
     },

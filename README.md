@@ -64,7 +64,14 @@ npm install            # dev dependencies: typescript, esbuild, @types/node
 npm run check          # type-check, run the tests, rebuild plugin/bin/acc
 npm run acc -- doctor  # run the CLI from source
 ./plugin/bin/acc doctor
+npm run screenshot     # render the editor tabs with sample data, into dist/screenshots/
 ```
+
+`npm run screenshot` renders each tab in headless Chrome, in dark and light
+themes, at 1000, 620 and 480 pixels wide, with one row shown hovered. Name tabs
+to shoot only those (`npm run screenshot -- agents worktrees`), or pass
+`--width`, `--theme`, `--height` and `--out`. It renders the built webview, so
+run `npm run build` after a change. Set `CHROME` if Chrome isn't found.
 
 `plugin/bin/acc` is committed, because a plugin has no build step. Rebuild it
 with `npm run build` whenever the CLI changes. Run builds and tests one at a

@@ -77,7 +77,9 @@ export class Panels implements vscode.Disposable {
       enableScripts: true,
       localResourceRoots: [base],
     });
-    panel.iconPath = vscode.Uri.joinPath(this.ctx.extensionUri, 'media', 'acc.svg');
+    // Built from media/acc.svg with a fixed colour each, since a tab can't use currentColor.
+    const tabIcon = (theme: 'light' | 'dark') => vscode.Uri.joinPath(this.ctx.extensionUri, 'dist', 'media', `acc-${theme}.svg`);
+    panel.iconPath = { light: tabIcon('light'), dark: tabIcon('dark') };
     panel.webview.html = htmlFor(panel.webview, base, kind, randomBytes(16).toString('base64'));
     panel.webview.onDidReceiveMessage((m: unknown) => this.receive(kind, m));
     panel.onDidChangeViewState((e) => {

@@ -59,30 +59,54 @@ test('agents: this project first, needs-you on top, background sessions can be s
   assert.equal(m.places[1]!.agents[0]!.background, false, 'interactive sessions are managed where they run');
 });
 
-test('agent rows hide their actions behind one menu: background sessions get all four, interactive ones only the folder', () => {
-  const menu = manifest.contributes.menus['webview/context'] as { command: string; when: string; group: string }[];
-  const shown = (background: boolean) => menu
-    .filter((i) => i.when.includes("webviewId == 'acc.agents'") && i.when.includes("webviewSection == 'agent'") && (background || !/\bagentBackground\b/.test(i.when)))
+/** The webview/context items VSCode would show for a row with these context keys, in menu order. */
+function menuFor(webviewId: string, keys: Record<string, string | boolean>): string[] {
+  const ctx: Record<string, string | boolean> = { webviewId, ...keys };
+  const holds = (term: string): boolean => {
+    const eq = /^(\w+) == '([^']*)'$/.exec(term);
+    if (eq) return ctx[eq[1]!] === eq[2];
+    if (term.startsWith('!')) return !ctx[term.slice(1)];
+    assert.match(term, /^\w+$/, `a when-clause term this test can't read: ${term}`);
+    return !!ctx[term];
+  };
+  return (manifest.contributes.menus['webview/context'] as { command: string; when: string; group: string }[])
+    .filter((i) => i.when.split('&&').every((t) => holds(t.trim())))
     .sort((a, b) => a.group.localeCompare(b.group))
     .map((i) => i.command);
-  assert.deepEqual(shown(true), ['acc.agent.attach', 'acc.agent.logs', 'acc.agent.openFolder', 'acc.agent.stop'], 'Stop sits alone at the bottom');
-  assert.deepEqual(shown(false), ['acc.agent.openFolder']);
-  const commands = new Set((manifest.contributes.commands as { command: string }[]).map((c) => c.command));
-  for (const i of menu) assert.ok(commands.has(i.command), `${i.command} is a declared command`);
-  // The row carries the keys those when-clauses test, and the caret opens the same menu.
-  const src = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
-  assert.ok(src.includes("webviewSection: 'agent'") && src.includes('agentBackground: a.background'));
-  assert.ok(src.includes("new MouseEvent('contextmenu'"));
-  assert.ok(!/renderAgents[\s\S]*?a\.actions/.test(src.slice(src.indexOf('function renderAgents'), src.indexOf('function renderWorktrees'))), 'no inline buttons left on agent rows');
+}
+
+test('agent rows hide their actions behind one menu: background sessions get all four, interactive ones only the folder', () => {
+  assert.deepEqual(menuFor('acc.agents', { webviewSection: 'agent', agentBackground: true }), ['acc.agent.attach', 'acc.agent.logs', 'acc.agent.openFolder', 'acc.agent.stop'], 'Stop sits alone at the bottom');
+  assert.deepEqual(menuFor('acc.agents', { webviewSection: 'agent', agentBackground: false }), ['acc.agent.openFolder']);
 });
 
-test('worktrees show changes in words, and the main checkout can\'t be removed', () => {
+test('worktree rows hide their actions behind one menu, and the main checkout has no Remove', () => {
+  assert.deepEqual(menuFor('acc.worktrees', { webviewSection: 'worktree', worktreeLinked: true }), ['acc.worktree.open', 'acc.worktree.terminal', 'acc.worktree.reveal', 'acc.worktree.remove']);
+  assert.deepEqual(menuFor('acc.worktrees', { webviewSection: 'worktree', worktreeLinked: false }), ['acc.worktree.open', 'acc.worktree.terminal', 'acc.worktree.reveal']);
+  assert.deepEqual(menuFor('acc.agents', { webviewSection: 'worktree', worktreeLinked: true }), [], 'items stay in their own tab');
+});
+
+test('row menus: every item is a declared command, and the rows set the keys the menus test', () => {
+  const commands = new Set((manifest.contributes.commands as { command: string }[]).map((c) => c.command));
+  const menu = manifest.contributes.menus['webview/context'] as { command: string; when: string }[];
+  for (const i of menu) assert.ok(commands.has(i.command), `${i.command} is a declared command`);
+  const src = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
+  assert.ok(src.includes("withMenu(row, 'agent', { session: a.key }, { agentBackground: a.background })"));
+  assert.ok(src.includes("withMenu(row, 'worktree', { project: p.root, worktree: w.path }, { worktreeLinked: !w.main })"));
+  for (const section of new Set(menu.map((i) => /webviewSection == '(\w+)'/.exec(i.when)?.[1]))) assert.ok(src.includes(`withMenu(row, '${section}'`), `some row opens the ${section} menu`);
+  assert.ok(src.includes("new MouseEvent('contextmenu'"), 'the caret opens the same menu');
+  for (const [from, to] of [['function renderAgents', 'function renderWorktrees'], ['function renderWorktrees', 'function renderEnvironments']] as const) {
+    assert.ok(!/\.actions\.map/.test(src.slice(src.indexOf(from), src.indexOf(to))), `no inline buttons left in ${from.slice(9)}`);
+  }
+});
+
+test('worktrees show changes in words, and say which one is the main checkout', () => {
   const [main, linked] = worktreesModel(hub()).projects[0]!.worktrees;
   assert.equal(main!.state.label, 'Clean');
   assert.equal(linked!.state.label, '3 changed');
   assert.equal(linked!.state.tone, 'orange');
-  assert.ok(!main!.actions.some((a) => a.label === 'Remove'));
-  assert.ok(linked!.actions.some((a) => a.label === 'Remove' && a.danger));
+  assert.equal(main!.main, true);
+  assert.equal(linked!.main, false);
 });
 
 test('environments draw every promotion path, including skipping QA (D-018)', () => {
@@ -158,4 +182,15 @@ test('table cells keep table layout (a flex cell misaligns its row\'s lines)', (
       assert.deepEqual(hits, [], `${sel.trim()} sets display on a table cell or row`);
     }
   }
+});
+
+test('tab icons are built from the sidebar icon, white for dark themes and dark grey for light ones', () => {
+  const source = readFileSync(join(root, 'media', 'acc.svg'), 'utf8');
+  assert.ok(source.includes('currentColor'), 'the sidebar icon follows the theme');
+  for (const [theme, colour] of [['dark', '#ffffff'], ['light', '#424242']] as const) {
+    const built = readFileSync(join(root, 'dist', 'media', `acc-${theme}.svg`), 'utf8');
+    assert.equal(built, source.replaceAll('currentColor', colour), `${theme} tab icon`);
+  }
+  const panels = readFileSync(join(root, 'src', 'panels.ts'), 'utf8');
+  assert.ok(panels.includes("panel.iconPath = { light: tabIcon('light'), dark: tabIcon('dark') }"));
 });

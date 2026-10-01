@@ -1,7 +1,7 @@
 // Builds the CLI bundle the plugin ships (D-012), regenerates the walkthrough from core's step list
 // (D-017), and bundles the extension with its own copy of the CLI and the onboarding guide.
 import { build } from 'esbuild';
-import { chmodSync, copyFileSync, mkdirSync } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -58,4 +58,9 @@ await build({
 mkdirSync(join(ext, 'dist', 'webview', 'codicons'), { recursive: true });
 copyFileSync(join(ext, 'webview', 'styles.css'), join(ext, 'dist', 'webview', 'styles.css'));
 for (const f of ['codicon.css', 'codicon.ttf']) copyFileSync(join(root, 'node_modules', '@vscode', 'codicons', 'dist', f), join(ext, 'dist', 'webview', 'codicons', f));
+// Editor tabs show their icon as a plain image, so currentColor comes out black. Give them a fixed
+// colour per theme: white on dark tab bars, dark grey on light ones.
+const icon = readFileSync(join(ext, 'media', 'acc.svg'), 'utf8');
+mkdirSync(join(ext, 'dist', 'media'), { recursive: true });
+for (const [theme, colour] of [['dark', '#ffffff'], ['light', '#424242']]) writeFileSync(join(ext, 'dist', 'media', `acc-${theme}.svg`), icon.replaceAll('currentColor', colour));
 console.log(`built ${join(ext, 'dist', 'extension.js')}`);

@@ -229,9 +229,9 @@ added to the repo's shared exclude, so worktrees start clean.
 
 ## D-023 Row actions in tabs open VSCode's own context menu (2026-10-01)
 
-Each agent row in the Agents tab has one caret button instead of four. The
-caret, or a right-click anywhere on the row, opens VSCode's native context
-menu.
+Each row in the Agents and Worktrees tabs has one caret button instead of a row
+of buttons. The caret, or a right-click anywhere on the row, opens VSCode's
+native context menu.
 
 **Why.** Four buttons per row crowded the table. A native menu looks like every
 other VSCode menu, follows the theme, and works from the keyboard. It needs no
@@ -256,4 +256,4 @@ menu code of our own in the webview.
 - The actions column sticks to the right edge. A narrow tab drops the minor
   columns, then scrolls the table under the actions column instead of hiding it.
 
-Other tables and cards can adopt this as they grow crowded.
+Board cards still carry their buttons inline. They can adopt this too.
