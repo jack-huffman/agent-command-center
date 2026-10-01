@@ -123,3 +123,13 @@ test('cards follow a task through dispatch: Dispatch, then Attach and Abandon, t
   assert.deepEqual(labels({ state: 'done', display: 'done', run: { worktree: '/w/AV-9' } }), ['Worktree', 'Move', 'Clean up', 'Details']);
   assert.equal(cardActions({ ...row('AV-9', 'todo', 'ready'), deps: [] }, {})[0]!.primary, true, 'Dispatch is the main action on a ready card');
 });
+
+test('table cells keep table layout (a flex cell misaligns its row\'s lines)', () => {
+  const css = readFileSync(join(root, 'webview', 'styles.css'), 'utf8');
+  for (const rule of css.matchAll(/([^{}]+)\{([^}]*)\}/g)) {
+    const [selector, body] = [rule[1]!.trim(), rule[2]!];
+    if (/\b(td|th|tr)\b/.test(selector.split(',').map((s) => s.trim().split(/\s+/).pop()).join(' '))) {
+      assert.doesNotMatch(body, /display:\s*(flex|grid|block)/, `${selector} changes a table cell's display`);
+    }
+  }
+});

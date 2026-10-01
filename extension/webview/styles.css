@@ -89,7 +89,14 @@ table.grid { width: 100%; border-collapse: collapse; }
 .grid td .codicon { margin-right: 4px; vertical-align: text-bottom; }
 .grid tr:hover td { background: var(--vscode-list-hoverBackground); }
 .grid tr.attention td:first-child { box-shadow: inset 3px 0 0 var(--orange); }
-.grid td.actions { display: flex; gap: 4px; justify-content: flex-end; }
+/* Cells stay table cells: a flex cell leaves its row's height and border, which misaligns the lines. */
+.grid td.actions { text-align: right; white-space: nowrap; width: 1%; }
+.grid td.actions .btn + .btn { margin-left: 4px; }
+.grid .nowrap { white-space: nowrap; }
+.grid th.wide { width: 100%; }
+.grid td.clip { max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.table-wrap { overflow-x: auto; }
+.quiet { margin: 2px 0 0; font-size: 0.93em; }
 
 /* Environments */
 .flows { display: grid; gap: 6px; margin-bottom: 12px; }

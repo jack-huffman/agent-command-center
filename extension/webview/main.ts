@@ -55,6 +55,16 @@ function empty(text: string, ...tools: Child[]): HTMLElement {
   return el('div', 'empty', el('p', '', text), el('div', 'toolbar', ...tools));
 }
 
+/** A cell that truncates with an ellipsis and shows the full text on hover. */
+function clipped(text: string, cls = ''): HTMLElement {
+  const td = el('td', `clip ${cls}`.trim(), text);
+  td.title = text;
+  return td;
+}
+
+/** Tables scroll sideways in a narrow tab instead of squeezing or wrapping their cells. */
+const wrap = (table: HTMLElement): HTMLElement => el('div', 'table-wrap', table);
+
 function since(ms: number): string {
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
   if (s < 60) return 'just now';
@@ -109,17 +119,21 @@ function renderAgents(m: AgentsModel): Node[] {
   }
   for (const place of m.places) {
     if (!place.agents.length && !place.root) continue;
+    const heading = el('h2', '', icon(place.root ? 'repo' : 'device-desktop'), place.label, el('span', 'count', String(place.agents.length)));
+    if (!place.agents.length) {
+      out.push(el('section', 'block', heading, el('p', 'muted quiet', 'No agent sessions in this project right now.')));
+      continue;
+    }
     const table = el('table', 'grid');
-    table.append(el('thead', '', el('tr', '', ...['Session', 'State', 'Kind', 'Where', 'Started', ''].map((h) => el('th', '', h)))));
+    table.append(el('thead', '', el('tr', '', ...[['Session', ''], ['State', ''], ['Kind', ''], ['Where', 'wide'], ['Started', ''], ['', '']].map(([h, c]) => el('th', c!, h!)))));
     const body = el('tbody');
-    if (!place.agents.length) body.append(el('tr', '', Object.assign(el('td', 'muted', 'No sessions in this project.'), { colSpan: 6 })));
     for (const a of place.agents) {
       body.append(el('tr', a.needsYou ? 'attention' : '',
-        el('td', 'strong', a.name), el('td', '', status(a.look)), el('td', '', a.kind), el('td', 'mono', a.where), el('td', 'muted', since(a.startedAt)),
+        el('td', 'strong nowrap', a.name), el('td', 'nowrap', status(a.look)), el('td', 'nowrap muted', a.kind), clipped(a.where, 'mono'), el('td', 'nowrap muted', since(a.startedAt)),
         el('td', 'actions', ...a.actions.map(actionButton))));
     }
     table.append(body);
-    out.push(el('section', 'block', el('h2', '', icon(place.root ? 'repo' : 'device-desktop'), place.label, el('span', 'count', String(place.agents.length))), table));
+    out.push(el('section', 'block', heading, wrap(table)));
   }
   return out;
 }
@@ -129,15 +143,15 @@ function renderWorktrees(m: WorktreesModel): Node[] {
   const out: Node[] = [header('Worktrees', 'Each checkout of the repo. Agents get their own, so your folder stays as you left it.')];
   for (const p of m.projects) {
     const table = el('table', 'grid');
-    table.append(el('thead', '', el('tr', '', ...['Branch', 'Location', 'Changes', ''].map((h) => el('th', '', h)))));
+    table.append(el('thead', '', el('tr', '', ...[['Branch', ''], ['Location', 'wide'], ['Changes', ''], ['', '']].map(([h, c]) => el('th', c!, h!)))));
     const body = el('tbody');
     for (const w of p.worktrees) {
       body.append(el('tr', w.state.tone === 'orange' ? 'attention' : '',
-        el('td', 'strong', icon(w.main ? 'repo' : 'git-branch'), w.branch), el('td', 'mono', w.place), el('td', '', status(w.state)),
+        el('td', 'strong nowrap', icon(w.main ? 'repo' : 'git-branch'), w.branch), clipped(w.place, 'mono'), el('td', 'nowrap', status(w.state)),
         el('td', 'actions', ...w.actions.map(actionButton))));
     }
     table.append(body);
-    out.push(el('section', 'block', el('h2', '', icon('repo'), p.name, el('span', 'count', String(p.worktrees.length))), table));
+    out.push(el('section', 'block', el('h2', '', icon('repo'), p.name, el('span', 'count', String(p.worktrees.length))), wrap(table)));
   }
   return out;
 }
