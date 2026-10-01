@@ -2,7 +2,7 @@
   "name": "agent-command-center",
   "displayName": "Agent Command Center",
   "description": "Set up projects for parallel Claude Code agents, then run and watch them from VSCode.",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "publisher": "JackHuffman",
   "private": true,
   "license": "UNLICENSED",
@@ -670,6 +670,28 @@
           "command": "acc.openGuide",
           "when": "view == acc.setup && viewItem =~ /\\bstepDocs\\b/",
           "group": "1_step@4"
+        }
+      ],
+      "webview/context": [
+        {
+          "command": "acc.agent.attach",
+          "when": "webviewId == 'acc.agents' && webviewSection == 'agent' && agentBackground",
+          "group": "1_use@1"
+        },
+        {
+          "command": "acc.agent.logs",
+          "when": "webviewId == 'acc.agents' && webviewSection == 'agent' && agentBackground",
+          "group": "1_use@2"
+        },
+        {
+          "command": "acc.agent.openFolder",
+          "when": "webviewId == 'acc.agents' && webviewSection == 'agent'",
+          "group": "2_open@1"
+        },
+        {
+          "command": "acc.agent.stop",
+          "when": "webviewId == 'acc.agents' && webviewSection == 'agent' && agentBackground",
+          "group": "3_stop@1"
         }
       ]
     },

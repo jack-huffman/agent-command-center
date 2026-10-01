@@ -226,3 +226,26 @@ rewrite it, so we don't do that.
 
 Dispatch checks trust before touching anything. A linked `node_modules` is
 added to the repo's shared exclude, so worktrees start clean.
+
+## D-023 Row actions in tabs open VSCode's own context menu (2026-10-01)
+
+Each agent row in the Agents tab has one caret button instead of four. The
+caret, or a right-click anywhere on the row, opens VSCode's native context
+menu.
+
+**Why.** Four buttons per row crowded the table. A native menu looks like every
+other VSCode menu, follows the theme, and works from the keyboard. It needs no
+menu code of our own in the webview.
+
+**How it works:**
+
+- The row carries `data-vscode-context` with its section, its flags (such as
+  `agentBackground`) and its `accRef`.
+- `package.json` lists the items under `webview/context`, with when-clauses on
+  those keys. Only items that apply are shown.
+- Commands run from that menu receive the row context. `extension.ts` turns its
+  `accRef` into the same node the sidebar passes, so one handler serves both.
+- The caret dispatches a `contextmenu` event at its own position, which VSCode
+  handles like a right-click.
+
+Other tables and cards can adopt this as they grow crowded.

@@ -65,6 +65,24 @@ function clipped(text: string, cls = ''): HTMLElement {
 /** Tables scroll sideways in a narrow tab instead of squeezing or wrapping their cells. */
 const wrap = (table: HTMLElement): HTMLElement => el('div', 'table-wrap', table);
 
+/**
+ * A caret that opens the row's native VSCode context menu. VSCode builds the menu from the row's
+ * data-vscode-context when a contextmenu event reaches it, so the caret dispatches one.
+ */
+function menuButton(label: string): HTMLElement {
+  const b = el('button', 'btn icon-only menu-caret', icon('chevron-down')) as HTMLButtonElement;
+  b.type = 'button';
+  b.title = `Actions for ${label}`;
+  b.setAttribute('aria-label', `Actions for ${label}`);
+  b.setAttribute('aria-haspopup', 'menu');
+  b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const r = b.getBoundingClientRect();
+    b.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left, clientY: r.bottom + 2, button: 2 }));
+  });
+  return b;
+}
+
 function since(ms: number): string {
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
   if (s < 60) return 'just now';
@@ -128,9 +146,12 @@ function renderAgents(m: AgentsModel): Node[] {
     table.append(el('thead', '', el('tr', '', ...[['Session', ''], ['State', ''], ['Kind', ''], ['Where', 'wide'], ['Started', ''], ['', '']].map(([h, c]) => el('th', c!, h!)))));
     const body = el('tbody');
     for (const a of place.agents) {
-      body.append(el('tr', a.needsYou ? 'attention' : '',
+      const row = el('tr', a.needsYou ? 'attention' : '',
         el('td', 'strong nowrap', a.name), el('td', 'nowrap', status(a.look)), el('td', 'nowrap muted', a.kind), clipped(a.where, 'mono'), el('td', 'nowrap muted', since(a.startedAt)),
-        el('td', 'actions', ...a.actions.map(actionButton))));
+        el('td', 'actions', menuButton(a.name)));
+      // Right-click anywhere on the row, or the caret, opens VSCode's own menu for this session.
+      row.dataset.vscodeContext = JSON.stringify({ webviewSection: 'agent', preventDefaultContextMenuItems: true, agentBackground: a.background, accRef: { session: a.key } });
+      body.append(row);
     }
     table.append(body);
     out.push(el('section', 'block', heading, wrap(table)));

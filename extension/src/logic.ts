@@ -289,3 +289,17 @@ export function agentName(prompt: string): string {
 }
 
 export const githubBranchUrl = (repo: string, branch: string): string => `https://github.com/${repo}/tree/${encodeURIComponent(branch)}`;
+
+/**
+ * What VSCode passes a command run from a webview's native context menu: the row's data-vscode-context,
+ * which carries the same Ref the tab's buttons use.
+ */
+export interface WebviewMenuContext {
+  webviewSection: string;
+  accRef: Record<string, string>;
+}
+
+export function isWebviewMenuContext(a: unknown): a is WebviewMenuContext {
+  const x = a as { webviewSection?: unknown; accRef?: unknown } | null;
+  return !!x && typeof x === 'object' && typeof x.webviewSection === 'string' && !!x.accRef && typeof x.accRef === 'object';
+}

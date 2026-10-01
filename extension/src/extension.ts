@@ -1,7 +1,7 @@
 import { delimiter, dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { Hub } from './hub.ts';
-import { COMMANDS, WALKTHROUGHS } from './logic.ts';
+import { COMMANDS, isWebviewMenuContext, WALKTHROUGHS } from './logic.ts';
 import { type Ref, VIEW_KINDS, type ViewKind } from './model.ts';
 import { Panels } from './panels.ts';
 import { accRunner } from './run.ts';
@@ -48,7 +48,6 @@ export function activate(context: vscode.ExtensionContext): void {
     setup: vscode.window.createTreeView('acc.setup', { treeDataProvider: steps }),
   };
   context.subscriptions.push(...Object.values(views));
-  new Sidebar(hub, accRunner(accScript), setup.log).register(reg);
 
 
   // Poll only what's on screen, sidebar or tab, so VSCode stays light (the author's machine stutters under load).
@@ -76,29 +75,35 @@ export function activate(context: vscode.ExtensionContext): void {
   }
 
   // ------------------------------------------------------------ the same views as editor tabs
-  const resolve = (command: string, ref: Ref): unknown => {
+  /** Turns a tab's Ref back into the sidebar's node, so every command works the same from either place. */
+  const nodeFor = (ref: Ref): unknown => {
     const project = ref.project ? hub.project(ref.project) : undefined;
-    let arg: unknown;
-    if (ref.step) arg = ref.step;
-    else if (ref.task) {
+    if (ref.step) return ref.step;
+    if (ref.task) {
       const task = project && hub.taskRows(project.root).find((t) => t.id === ref.task);
-      if (!task) return;
-      arg = { kind: 'task', project, task };
-    } else if (ref.session) {
-      const session = hub.agents.find((a) => (a.sessionId ?? a.id ?? `${a.pid ?? ''}:${a.startedAt}`) === ref.session);
-      if (!session) return;
-      arg = { kind: 'agent', session, project: hub.projectFor(session.cwd) };
-    } else if (ref.worktree) {
-      const worktree = project?.worktrees.find((w) => w.path === ref.worktree);
-      if (!worktree) return;
-      arg = { kind: 'worktree', project, worktree };
-    } else if (ref.env) {
-      const env = project?.config.environments.find((e) => e.branch === ref.env);
-      if (!env) return;
-      arg = { kind: 'env', project, env };
+      return task ? { kind: 'task', project, task } : undefined;
     }
-    return vscode.commands.executeCommand(command, arg);
+    if (ref.session) {
+      const session = hub.agents.find((a) => (a.sessionId ?? a.id ?? `${a.pid ?? ''}:${a.startedAt}`) === ref.session);
+      return session ? { kind: 'agent', session, project: hub.projectFor(session.cwd) } : undefined;
+    }
+    if (ref.worktree) {
+      const worktree = project?.worktrees.find((w) => w.path === ref.worktree);
+      return worktree ? { kind: 'worktree', project, worktree } : undefined;
+    }
+    if (ref.env) {
+      const env = project?.config.environments.find((e) => e.branch === ref.env);
+      return env ? { kind: 'env', project, env } : undefined;
+    }
+    return undefined;
   };
+  const resolve = (command: string, ref: Ref): unknown => {
+    const arg = nodeFor(ref);
+    return arg === undefined ? undefined : vscode.commands.executeCommand(command, arg);
+  };
+  // Commands run from a tab's native context menu get the row's data-vscode-context; turn it into the node.
+  const regNode = (id: string, fn: (...args: any[]) => unknown) => reg(id, (a: unknown, ...rest: unknown[]) => fn(isWebviewMenuContext(a) ? nodeFor(a.accRef as Ref) : a, ...rest));
+  new Sidebar(hub, accRunner(accScript), setup.log).register(regNode);
   const panels = new Panels(context, hub, setup, resolve, (kind, visible) => want(kind, 'tab', visible));
   context.subscriptions.push(panels);
   for (const kind of VIEW_KINDS) reg(`acc.open.${kind}`, () => panels.show(kind));

@@ -121,13 +121,14 @@ export function tasksModel(hub: HubLike): TasksModel {
 
 export interface AgentRow {
   key: string;
+  /** Background sessions can be attached to, logged and stopped from here; interactive ones can't. */
+  background: boolean;
   name: string;
   look: Look;
   needsYou: boolean;
   kind: string;
   where: string;
   startedAt: number;
-  actions: Action[];
 }
 
 export interface AgentsModel {
@@ -141,13 +142,8 @@ export function agentsModel(hub: HubLike): AgentsModel {
     const look = agentLook(s);
     const p = hub.projectFor(s.cwd);
     const key = s.sessionId ?? s.id ?? `${s.pid ?? ''}:${s.startedAt}`;
-    const ref: Ref = { session: key };
     const where = p ? (isUnder(s.cwd, p.root) ? s.cwd.slice(p.root.length + 1) || 'main checkout' : s.cwd.split('/').pop() ?? s.cwd) : s.cwd;
-    const actions: Action[] = s.id
-      ? [{ command: 'acc.agent.attach', label: 'Attach', icon: 'terminal', ref, primary: true }, { command: 'acc.agent.logs', label: 'Logs', icon: 'output', ref }, { command: 'acc.agent.stop', label: 'Stop', icon: 'debug-stop', ref, danger: true }]
-      : [];
-    actions.push({ command: 'acc.agent.openFolder', label: 'Folder', icon: 'folder-opened', ref });
-    return { key, name: s.name ?? s.sessionId?.slice(0, 8) ?? 'session', look: { label: look.label, icon: look.icon, tone: look.tone }, needsYou: look.needsYou, kind: s.kind, where, startedAt: s.startedAt, actions };
+    return { key, background: !!s.id, name: s.name ?? s.sessionId?.slice(0, 8) ?? 'session', look: { label: look.label, icon: look.icon, tone: look.tone }, needsYou: look.needsYou, kind: s.kind, where, startedAt: s.startedAt };
   };
   const sorted = [...hub.agents].sort((a, b) => Number(agentLook(b).needsYou) - Number(agentLook(a).needsYou) || b.startedAt - a.startedAt);
   const places = hub.projects.map((p) => ({ label: p.name, root: p.root as string | null, agents: sorted.filter((s) => hub.projectFor(s.cwd) === p).map(rowFor) }));

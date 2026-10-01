@@ -55,8 +55,25 @@ test('agents: this project first, needs-you on top, background sessions can be s
   const bg = m.places[0]!.agents[0]!;
   assert.equal(bg.look.label, 'Needs you: permission prompt');
   assert.equal(bg.where, 'AV-2');
-  assert.deepEqual(bg.actions.map((a) => a.label), ['Attach', 'Logs', 'Stop', 'Folder']);
-  assert.deepEqual(m.places[1]!.agents[0]!.actions.map((a) => a.label), ['Folder'], 'interactive sessions are managed where they run');
+  assert.equal(bg.background, true);
+  assert.equal(m.places[1]!.agents[0]!.background, false, 'interactive sessions are managed where they run');
+});
+
+test('agent rows hide their actions behind one menu: background sessions get all four, interactive ones only the folder', () => {
+  const menu = manifest.contributes.menus['webview/context'] as { command: string; when: string; group: string }[];
+  const shown = (background: boolean) => menu
+    .filter((i) => i.when.includes("webviewId == 'acc.agents'") && i.when.includes("webviewSection == 'agent'") && (background || !/\bagentBackground\b/.test(i.when)))
+    .sort((a, b) => a.group.localeCompare(b.group))
+    .map((i) => i.command);
+  assert.deepEqual(shown(true), ['acc.agent.attach', 'acc.agent.logs', 'acc.agent.openFolder', 'acc.agent.stop'], 'Stop sits alone at the bottom');
+  assert.deepEqual(shown(false), ['acc.agent.openFolder']);
+  const commands = new Set((manifest.contributes.commands as { command: string }[]).map((c) => c.command));
+  for (const i of menu) assert.ok(commands.has(i.command), `${i.command} is a declared command`);
+  // The row carries the keys those when-clauses test, and the caret opens the same menu.
+  const src = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
+  assert.ok(src.includes("webviewSection: 'agent'") && src.includes('agentBackground: a.background'));
+  assert.ok(src.includes("new MouseEvent('contextmenu'"));
+  assert.ok(!/renderAgents[\s\S]*?a\.actions/.test(src.slice(src.indexOf('function renderAgents'), src.indexOf('function renderWorktrees'))), 'no inline buttons left on agent rows');
 });
 
 test('worktrees show changes in words, and the main checkout can\'t be removed', () => {

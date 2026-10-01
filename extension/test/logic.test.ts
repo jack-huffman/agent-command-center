@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import {
-  buildWalkthroughs, commandLink, COMMANDS, contextKey, EXTENSION_ID, hasPlaceholder, initCommand, isComplete, mediaPath,
+  buildWalkthroughs, commandLink, COMMANDS, contextKey, EXTENSION_ID, hasPlaceholder, initCommand, isComplete, isWebviewMenuContext, mediaPath,
   productionOrgs, setupOrgChoices, statusText, stepDescription, summarize, walkthroughSteps, type DoctorItem,
 } from '../src/logic.ts';
 import { staleFiles } from '../scripts/generate.ts';
@@ -126,4 +126,11 @@ test('acc init offers only logged-in Production orgs', () => {
   assert.deepEqual(productionOrgs(list), ['Acme Production']);
   assert.equal(initCommand('salesforce', 'Acme Production'), 'acc init --profile salesforce --production-org "Acme Production"');
   assert.equal(initCommand('generic'), 'acc init --profile generic');
+});
+
+test('a webview menu passes its row context, which is told apart from a sidebar node', () => {
+  assert.ok(isWebviewMenuContext({ webviewSection: 'agent', accRef: { session: 's1' }, webview: 'acc.agents' }));
+  assert.ok(!isWebviewMenuContext({ kind: 'agent', session: {} }));
+  assert.ok(!isWebviewMenuContext(undefined));
+  assert.ok(!isWebviewMenuContext('acc.agents'));
 });
