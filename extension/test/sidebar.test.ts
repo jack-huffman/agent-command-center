@@ -37,6 +37,12 @@ test('item menus show on the right items (the when-clause regexes really match)'
   assert.ok(!shows('acc.tasks', 'task task-done', 'acc.task.block'), 'done tasks can\'t be blocked');
   assert.ok(shows('acc.tasks', 'task task-blocked', 'acc.task.unblock'));
   assert.ok(!shows('acc.tasks', 'task task-todo', 'acc.task.openTicket'), 'no link, no button');
+  assert.ok(shows('acc.tasks', 'task task-todo dispatchable', 'acc.task.dispatch'));
+  assert.ok(!shows('acc.tasks', 'task task-todo moveInline', 'acc.task.dispatch'), 'only ready tasks dispatch');
+  assert.ok(shows('acc.tasks', 'task task-running hasAgent hasWorktree', 'acc.task.attach'));
+  assert.ok(shows('acc.tasks', 'task task-running hasAgent hasWorktree', 'acc.task.abandon'));
+  assert.ok(shows('acc.tasks', 'task task-done hasWorktree cleanable', 'acc.task.cleanup'));
+  assert.ok(!shows('acc.tasks', 'task task-running hasAgent', 'acc.task.cleanup'), 'running work is never cleaned up');
   assert.ok(shows('acc.agents', 'agent agentBackground', 'acc.agent.stop'));
   assert.ok(!shows('acc.agents', 'agent agentInteractive', 'acc.agent.stop'), 'interactive sessions are stopped where they run');
   assert.ok(shows('acc.worktrees', 'worktree worktreeLinked', 'acc.worktree.remove'));

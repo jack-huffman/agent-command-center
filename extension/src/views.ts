@@ -72,9 +72,16 @@ export class TasksProvider extends Provider<TaskNode> {
     const item = new vscode.TreeItem(`${t.id}  ${t.title}`, vscode.TreeItemCollapsibleState.None);
     item.id = `${e.project.root}#task#${t.id}`;
     item.iconPath = icon(d.icon, d.tone);
-    item.description = [d.label, t.environment, t.deps.length ? `waiting on ${t.deps.join(', ')}` : ''].filter(Boolean).join(' · ');
+    item.description = [d.label, t.agent ? `agent: ${t.agent.label}` : '', t.environment, t.deps.length ? `waiting on ${t.deps.join(', ')}` : ''].filter(Boolean).join(' · ');
     item.tooltip = md([`**${t.id}**: ${t.title}`, '', `${d.label} · environment \`${t.environment}\``, t.deps.length ? `Waiting on ${t.deps.join(', ')}` : '', t.source.url ? `[Open the ticket](${t.source.url})` : ''].filter(Boolean).join('\n\n'));
-    item.contextValue = ['task', `task-${t.state}`, t.source.url ? 'hasUrl' : ''].filter(Boolean).join(' ');
+    item.contextValue = [
+      'task', `task-${t.state}`, t.source.url ? 'hasUrl' : '',
+      t.display === 'ready' || t.state === 'rework' ? 'dispatchable' : '',
+      t.state === 'running' && t.run?.bgId ? 'hasAgent' : '',
+      t.run?.worktree && t.state !== 'todo' ? 'hasWorktree' : '',
+      (t.state === 'done' || t.state === 'blocked' || t.state === 'todo') && t.run?.worktree ? 'cleanable' : '',
+      !(t.display === 'ready' || t.state === 'rework') && !(t.state === 'running' && t.run?.bgId) ? 'moveInline' : '',
+    ].filter(Boolean).join(' ');
     item.command = { command: 'acc.task.show', title: 'Show task', arguments: [e] };
     return item;
   }

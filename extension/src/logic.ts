@@ -200,6 +200,15 @@ export interface TaskRow {
   environment: string;
   deps: string[];
   source: { kind: string; url: string | null };
+  run?: { bgId?: string; sessionId?: string; worktree?: string; branch?: string } | null;
+  /** The live state of the task's agent session, when one is known. */
+  agent?: { label: string; icon: string; tone: Tone } | null;
+}
+
+/** A task's agent: its background id or session id, or a background session named after the task. */
+export function sessionFor(row: Pick<TaskRow, 'id' | 'run'>, sessions: AgentSession[]): AgentSession | undefined {
+  return sessions.find((s) => (row.run?.bgId && s.id === row.run.bgId) || (row.run?.sessionId && s.sessionId === row.run.sessionId))
+    ?? sessions.find((s) => s.kind === 'background' && s.name === row.id);
 }
 
 export function groupTasks(rows: TaskRow[]): { group: TaskGroup; tasks: TaskRow[] }[] {

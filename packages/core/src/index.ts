@@ -5,6 +5,7 @@ export * from './lock.ts';
 export * from './ledger.ts';
 export * from './receipts.ts';
 export * from './intake.ts';
+export * from './dispatch.ts';
 export * from './init.ts';
 export * from './onboarding/types.ts';
 export { makeContext, parseOrgUrl, SECRET_PATTERN, versionAtLeast } from './onboarding/helpers.ts';

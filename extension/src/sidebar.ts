@@ -35,6 +35,11 @@ export class Sidebar {
     reg('acc.task.openTicket', (n: TaskNode) => n.kind === 'task' && n.task.source.url && vscode.env.openExternal(vscode.Uri.parse(n.task.source.url)));
     reg('acc.task.copyId', (n: TaskNode) => n.kind === 'task' && vscode.env.clipboard.writeText(n.task.id));
     reg('acc.tasks.refresh', () => this.hub.loadTasks(true));
+    reg('acc.task.dispatch', (n: TaskNode) => this.dispatchTask(n));
+    reg('acc.task.attach', (n: TaskNode) => n.kind === 'task' && n.task.run?.bgId && this.send(n.task.run.worktree ?? n.project.root, `claude attach ${n.task.run.bgId}`, `claude: ${n.task.id}`));
+    reg('acc.task.openWorktree', (n: TaskNode) => n.kind === 'task' && n.task.run?.worktree && vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(n.task.run.worktree), { forceNewWindow: true }));
+    reg('acc.task.abandon', (n: TaskNode) => this.abandonTask(n));
+    reg('acc.task.cleanup', (n: TaskNode) => this.cleanupTask(n));
     reg('acc.agent.new', (n?: AgentNode) => this.newAgent(n));
     reg('acc.agent.attach', (n: AgentNode) => this.agentTerminal(n, 'attach'));
     reg('acc.agent.logs', (n: AgentNode) => this.agentTerminal(n, 'logs'));
@@ -163,6 +168,56 @@ export class Sidebar {
       if (!reason) return;
     }
     await this.runAcc(n.project, ['set', n.task.id, to, ...(reason ? ['--reason', reason] : [])], () => `${n.task.id} → ${DISPLAY[to].label}.`);
+  }
+
+  /** Dispatch (D-009, D-013): worktree, setup, packet, background session, task → Running. */
+  private async dispatchTask(n: TaskNode): Promise<void> {
+    if (n.kind !== 'task') return;
+    const { project, task } = n;
+    let result: { worktree?: string; bgId?: string | null; reused?: boolean } | null = null;
+    await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Dispatching ${task.id}`, cancellable: false }, async (progress) => {
+      progress.report({ message: 'creating the worktree and starting the agent…' });
+      await this.runAcc(project, ['dispatch', task.id], (out) => {
+        result = out;
+        return undefined;
+      });
+    });
+    if (!result) return;
+    const r = result as { worktree?: string; bgId?: string | null; reused?: boolean };
+    await Promise.all([this.hub.loadAgents(), this.hub.loadWorktrees()]);
+    const where = r.worktree ? basename(r.worktree) : 'its worktree';
+    const pick = await vscode.window.showInformationMessage(
+      `${task.id} is running: an agent is working in ${where}${r.reused ? ' (reused)' : ''}. It will finish with acc done, or block if it needs you.`,
+      ...(r.bgId ? ['Attach'] : []), 'Open worktree');
+    if (pick === 'Attach' && r.bgId) this.send(r.worktree ?? project.root, `claude attach ${r.bgId}`, `claude: ${task.id}`);
+    if (pick === 'Open worktree' && r.worktree) await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(r.worktree), { forceNewWindow: true });
+  }
+
+  /** Stops the task's agent and moves it back to To do. The worktree and its commits are kept. */
+  private async abandonTask(n: TaskNode): Promise<void> {
+    if (n.kind !== 'task') return;
+    const reason = await vscode.window.showInputBox({ title: `Abandon ${n.task.id}?`, prompt: 'Why? Its agent stops, the task goes back to To do, and the worktree and commits are kept.', validateInput: (v) => (v.trim() ? undefined : 'A reason is required.') });
+    if (!reason) return;
+    const session = this.hub.agents.find((s) => s.id && s.id === n.task.run?.bgId);
+    if (session?.id && session.pid) await runFile('claude', ['stop', session.id], n.project.root, process.env, undefined, 30_000);
+    await this.runAcc(n.project, ['set', n.task.id, 'todo', '--reason', reason], () => `${n.task.id} is back in To do. Its worktree is kept.`);
+    await this.hub.loadAgents();
+  }
+
+  private async cleanupTask(n: TaskNode): Promise<void> {
+    if (n.kind !== 'task' || !n.task.run?.worktree) return;
+    const ok = await vscode.window.showWarningMessage(`Clean up ${n.task.id}'s worktree?`, { modal: true, detail: `${n.task.run.worktree}\n\nacc removes it only if nothing would be lost: no uncommitted changes, and every commit already merged.` }, 'Clean up');
+    if (ok !== 'Clean up') return;
+    const r = await this.acc(['cleanup', n.task.id, '--json'], n.project.root);
+    let out: { removed?: boolean; reasons?: string[] } = {};
+    try {
+      out = JSON.parse(r.stdout);
+    } catch {
+      out = {};
+    }
+    if (out.removed) void vscode.window.showInformationMessage(`Removed ${basename(n.task.run.worktree)}.`);
+    else void vscode.window.showWarningMessage(`Kept the worktree: ${(out.reasons ?? [(r.stderr || r.stdout).trim()]).join(' ')}`);
+    await Promise.all([this.hub.loadTasks(true), this.hub.loadWorktrees()]);
   }
 
   // ------------------------------------------------------------ agents

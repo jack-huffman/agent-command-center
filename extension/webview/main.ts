@@ -88,6 +88,8 @@ function renderTasks(m: TasksModel): Node[] {
           el('div', 'card-id', card.id, el('span', 'chip', card.environment)),
           el('div', 'card-title', card.title),
           card.waitingOn.length ? el('div', 'card-note', icon('clock'), `Waiting on ${card.waitingOn.join(', ')}`) : null,
+          card.agent ? el('div', 'card-agent', el('span', 'muted', 'Agent: '), status(card.agent)) : null,
+          card.worktree ? el('div', 'card-where mono muted', icon('git-branch'), card.worktree.split('/').slice(-2).join('/')) : null,
           el('div', 'actions', ...card.actions.map(actionButton)),
         ));
       }

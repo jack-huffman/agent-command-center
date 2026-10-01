@@ -2,7 +2,7 @@
   "name": "agent-command-center",
   "displayName": "Agent Command Center",
   "description": "Set up projects for parallel Claude Code agents, then run and watch them from VSCode.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "JackHuffman",
   "private": true,
   "license": "UNLICENSED",
@@ -260,6 +260,36 @@
         "title": "Open Setup as a tab",
         "category": "Agent Command Center",
         "icon": "$(link-external)"
+      },
+      {
+        "command": "acc.task.dispatch",
+        "title": "Dispatch to an agent",
+        "category": "Agent Command Center",
+        "icon": "$(rocket)"
+      },
+      {
+        "command": "acc.task.attach",
+        "title": "Attach to its agent",
+        "category": "Agent Command Center",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "acc.task.openWorktree",
+        "title": "Open its worktree",
+        "category": "Agent Command Center",
+        "icon": "$(empty-window)"
+      },
+      {
+        "command": "acc.task.abandon",
+        "title": "Abandon…",
+        "category": "Agent Command Center",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "acc.task.cleanup",
+        "title": "Clean up its worktree…",
+        "category": "Agent Command Center",
+        "icon": "$(trash)"
       }
     ],
     "menus": {
@@ -351,6 +381,26 @@
         {
           "command": "acc.env.copyBranch",
           "when": "false"
+        },
+        {
+          "command": "acc.task.dispatch",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.attach",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.openWorktree",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.abandon",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.cleanup",
+          "when": "false"
         }
       ],
       "view/title": [
@@ -432,8 +482,43 @@
       ],
       "view/item/context": [
         {
+          "command": "acc.task.dispatch",
+          "when": "view == acc.tasks && viewItem =~ /\\bdispatchable\\b/",
+          "group": "inline@0"
+        },
+        {
+          "command": "acc.task.attach",
+          "when": "view == acc.tasks && viewItem =~ /\\bhasAgent\\b/",
+          "group": "inline@0"
+        },
+        {
+          "command": "acc.task.dispatch",
+          "when": "view == acc.tasks && viewItem =~ /\\bdispatchable\\b/",
+          "group": "0_agent@1"
+        },
+        {
+          "command": "acc.task.attach",
+          "when": "view == acc.tasks && viewItem =~ /\\bhasAgent\\b/",
+          "group": "0_agent@2"
+        },
+        {
+          "command": "acc.task.openWorktree",
+          "when": "view == acc.tasks && viewItem =~ /\\bhasWorktree\\b/",
+          "group": "0_agent@3"
+        },
+        {
+          "command": "acc.task.abandon",
+          "when": "view == acc.tasks && viewItem =~ /\\btask-running\\b/",
+          "group": "0_agent@4"
+        },
+        {
+          "command": "acc.task.cleanup",
+          "when": "view == acc.tasks && viewItem =~ /\\bcleanable\\b/",
+          "group": "0_agent@5"
+        },
+        {
           "command": "acc.task.move",
-          "when": "view == acc.tasks && viewItem =~ /\\btask\\b/",
+          "when": "view == acc.tasks && viewItem =~ /\\bmoveInline\\b/",
           "group": "inline@1"
         },
         {
@@ -962,7 +1047,7 @@
       {
         "view": "acc.tasks",
         "when": "acc.hasProject",
-        "contents": "No tasks yet. Tasks are tickets for agents to work on.\n[Add a task](command:acc.task.add)\n[Import GitHub issues](command:acc.task.importGithub)\nJira import arrives with the plugin (M6). Dispatching tasks to agents arrives with M3."
+        "contents": "No tasks yet. Tasks are tickets for agents to work on.\n[Add a task](command:acc.task.add)\n[Import GitHub issues](command:acc.task.importGithub)\nJira import arrives with the plugin (M6). Ready tasks get a Dispatch button that hands them to an agent in its own worktree."
       },
       {
         "view": "acc.agents",

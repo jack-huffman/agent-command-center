@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 // packages/cli/src/main.ts
-import { existsSync as existsSync7, readFileSync as readFileSync6, realpathSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync as existsSync8, readFileSync as readFileSync7, realpathSync } from "node:fs";
+import { dirname as dirname5, resolve as resolve2 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
@@ -487,6 +487,7 @@ var RULES = [
   { from: "blocked", to: "todo", actors: ["human"], requires: [] },
   { from: "any", to: "blocked", actors: [...ACTORS], requires: ["reason"] }
 ];
+var noGateHooks = { missingGates: () => [] };
 function findRule(from, to) {
   return RULES.find((r) => r.from === from && r.to === to) ?? RULES.find((r) => r.from === "any" && r.to === to && from !== "blocked" && from !== "done");
 }
@@ -622,13 +623,280 @@ function githubIssuesToTasks(issues, environment) {
   }));
 }
 
+// packages/core/src/dispatch.ts
+import { spawnSync as spawnSync2 } from "node:child_process";
+import { existsSync as existsSync4, mkdirSync as mkdirSync4, readFileSync as readFileSync5, symlinkSync, writeFileSync as writeFileSync4 } from "node:fs";
+import { basename, dirname as dirname3, isAbsolute, join as join4, resolve } from "node:path";
+function slugify(title, max = 40) {
+  const words = title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).filter(Boolean);
+  let out2 = "";
+  for (const w of words) {
+    const next = out2 ? `${out2}-${w}` : w;
+    if (next.length > max) break;
+    out2 = next;
+  }
+  return out2 || "task";
+}
+var taskBranch = (task) => `task/${task.id}-${slugify(task.title)}`;
+function mainCheckout(run2, cwd) {
+  const r = run2("git", ["worktree", "list", "--porcelain"], { cwd });
+  const first = /^worktree (.+)$/m.exec(r.stdout)?.[1];
+  if (r.code !== 0 || !first) throw new AccError("not-a-repo", `${cwd} isn't inside a git repository.`);
+  return first;
+}
+function worktreeRoot(config, main2) {
+  const root = config.worktrees.root;
+  if (!root) return `${main2}.worktrees`;
+  return isAbsolute(root) ? root : resolve(main2, root);
+}
+function commitRef(task) {
+  if (task.source.kind === "github") return ` Add \`refs #${task.id.replace(/^GH-/, "")}\` on its own line, so GitHub links the commit to the issue.`;
+  return "";
+}
+function renderPacket(p) {
+  const { task, config, env } = p;
+  const sf = config.profile === "salesforce";
+  const required = config.gates.required;
+  const lines = [
+    `# Task ${task.id}: ${task.title}`,
+    "",
+    `You are the builder for ${task.id}. Work only on this task, only in this worktree, and stop when it's done.`,
+    "",
+    "## The task",
+    "",
+    task.brief.trim() || "_No details were given beyond the title. If the title alone is too vague to build from, block (see the finish line) and say what you need._",
+    "",
+    task.source.url ? `Ticket: ${task.source.url}` : `Source: ${task.source.kind}`,
+    "",
+    "## Where you are",
+    "",
+    `- **Worktree:** \`${p.worktree}\`. This is your only workspace.`,
+    `- **Branch:** \`${p.branch}\`, started from \`${env.branch}\`, the ${env.name} environment's branch.`
+  ];
+  if (sf && env.org) lines.push(`- **Org:** \`${env.org}\` (${env.name}). It's already this worktree's default org.`);
+  lines.push(
+    "",
+    "## How to work",
+    "",
+    `- **Commits:** \`${task.id}: <what changed>\`, one logical change per commit.${commitRef(task)} Never write "fixes", "closes" or "resolves" in a commit message; the ticket is closed by a person.`,
+    "- **Changes:** keep them to what the task asks. If you find something else that needs fixing, mention it in your final message instead of fixing it."
+  );
+  if (sf) {
+    lines.push(
+      "- **Salesforce:** validate, never deploy. Use `sf project deploy validate` against the default org to prove a change works. Real deploys happen after a person merges.",
+      "- **Tests:** if you change Apex, name the test classes that cover it and say why each one is the right test."
+    );
+  }
+  lines.push("", "## The finish line", "");
+  if (required.length) {
+    lines.push(
+      `1. **Required checks:** ${required.map((g) => `\`${g}\``).join(", ")}. \`acc gate run <name>\` records a passing result for each; \`acc done\` refuses until every one has passed on your latest commit.`,
+      '   If `acc gate run` says it doesn\'t exist yet (it arrives with milestone M4), run the equivalent checks by hand, then finish with `acc block "Checks run by hand: <each result>"` instead of `acc done`, so a person can review them.'
+    );
+  } else {
+    lines.push("1. **Checks:** run the project's tests or build if it has them, and report the results.");
+  }
+  lines.push(
+    "2. **Commit** everything the task needs. Leave nothing uncommitted.",
+    `3. **Finish** with \`acc done\`. If you're stuck, run \`acc block "<what you need>"\` instead, and stop.`,
+    "4. **Summarize** in your final message: what changed, how you checked it, and anything a reviewer should look at.",
+    "",
+    "## Never",
+    "",
+    "- push, merge, or open a pull request (a person and `acc land` do that)"
+  );
+  if (sf) lines.push("- deploy to any org (`sf project deploy start`)");
+  lines.push(
+    "- edit files outside this worktree, or check out another branch",
+    "- change the ticket or the task list, apart from `acc done` and `acc block`"
+  );
+  if (p.environmentSpecific.length) {
+    lines.push("- edit an environment-specific file (D-016). Each org keeps its own version of these:", ...p.environmentSpecific.map((f) => `  - \`${f}\``));
+  }
+  if (p.rules?.trim()) lines.push("", "## Project rules", "", p.rules.trim());
+  return lines.join("\n") + "\n";
+}
+function builderSettings(task, config, accBinDir2, basePath) {
+  const sf = config.profile === "salesforce";
+  const allow = [
+    "Bash(acc done*)",
+    "Bash(acc block *)",
+    "Bash(acc show *)",
+    "Bash(acc gate run *)",
+    "Bash(git status*)",
+    "Bash(git diff*)",
+    "Bash(git add *)",
+    "Bash(git commit *)",
+    "Bash(git log*)",
+    "Bash(git show *)",
+    "Bash(npm test*)",
+    "Bash(npm run *)",
+    "Bash(npx prettier *)",
+    "Bash(npx eslint *)",
+    ...sf ? ["Bash(sf project deploy validate *)", "Bash(sf code-analyzer run *)", "Bash(sf apex run test *)", "Bash(sf data query *)"] : []
+  ];
+  const deny = [
+    "Bash(git push*)",
+    "Bash(gh pr *)",
+    "Bash(git checkout *)",
+    "Bash(git switch *)",
+    "Bash(git worktree *)",
+    "Bash(git reset --hard*)",
+    "Bash(acc set *)",
+    "Bash(acc dispatch *)",
+    "Bash(acc init*)",
+    ...sf ? ["Bash(sf project deploy start*)", "Bash(sf project deploy quick*)", "Bash(sf org delete *)"] : []
+  ];
+  return {
+    env: { ACC_TASK: task.id, ACC_ROLE: "builder", PATH: `${accBinDir2}:${basePath}` },
+    permissions: { allow, deny }
+  };
+}
+var git = (run2, cwd, ...args) => run2("git", args, { cwd });
+function ensureWorktree(run2, main2, wt, branch, env) {
+  if (existsSync4(wt)) {
+    const inside = git(run2, wt, "rev-parse", "--abbrev-ref", "HEAD");
+    if (inside.code !== 0) throw new AccError("dispatch", `${wt} exists but isn't a git worktree. Move it aside and dispatch again.`);
+    if (inside.stdout.trim() !== branch) throw new AccError("dispatch", `${wt} is on ${inside.stdout.trim()}, not ${branch}.`);
+    return true;
+  }
+  mkdirSync4(dirname3(wt), { recursive: true });
+  git(run2, main2, "fetch", "--quiet", "origin", env.branch);
+  const hasLocal = git(run2, main2, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`).code === 0;
+  let r;
+  if (hasLocal) r = git(run2, main2, "worktree", "add", wt, branch);
+  else {
+    const remote = `refs/remotes/origin/${env.branch}`;
+    const base = git(run2, main2, "rev-parse", "--verify", "--quiet", remote).code === 0 ? `origin/${env.branch}` : env.branch;
+    if (git(run2, main2, "rev-parse", "--verify", "--quiet", base).code !== 0) throw new AccError("dispatch", `There's no "${env.branch}" branch to start from.`);
+    r = git(run2, main2, "worktree", "add", "--no-track", "-b", branch, wt, base);
+  }
+  if (r.code !== 0) throw new AccError("dispatch", `git couldn't create the worktree: ${r.stderr.trim()}`);
+  return false;
+}
+function setupWorktree(run2, config, env, main2, wt) {
+  if (config.profile === "salesforce" && env.org) {
+    mkdirSync4(join4(wt, ".sf"), { recursive: true });
+    writeFileSync4(join4(wt, ".sf", "config.json"), JSON.stringify({ "target-org": env.org }, null, 2) + "\n");
+  }
+  if (existsSync4(join4(main2, "node_modules")) && !existsSync4(join4(wt, "node_modules"))) symlinkSync(join4(main2, "node_modules"), join4(wt, "node_modules"), "dir");
+  for (const cmd of config.worktrees.setup) {
+    const r = run2("sh", ["-c", cmd], { cwd: wt });
+    if (r.code !== 0) throw new AccError("dispatch", `Setup command failed in the worktree: ${cmd}
+${(r.stderr || r.stdout).trim()}`);
+  }
+}
+function readList(wt, rel) {
+  if (!rel || !existsSync4(join4(wt, rel))) return [];
+  return readFileSync5(join4(wt, rel), "utf8").split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
+}
+var sleep2 = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+function findSession(run2, wt, name, waitMs) {
+  const until = Date.now() + waitMs;
+  do {
+    const r = run2("claude", ["agents", "--json"], { cwd: wt, timeoutMs: 2e4 });
+    try {
+      const list = JSON.parse(r.stdout);
+      const s = list.filter((x) => x.name === name && x.kind === "background").sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))[0];
+      if (s) return { bgId: s.id ?? null, sessionId: s.sessionId ?? null };
+    } catch {
+    }
+    if (Date.now() < until) sleep2(500);
+  } while (Date.now() < until);
+  return { bgId: null, sessionId: null };
+}
+function dispatch(paths, config, id, deps, opts) {
+  const { run: run2, now: now2 } = deps;
+  const before = readLedger(paths.ledger);
+  const found = before.tasks.find((t) => t.id === id);
+  if (!found) throw new AccError("no-task", `No task ${id}.`);
+  const req = { to: "running", actor: opts.actor, by: opts.by };
+  const problems = checkMove(before, config, found, req, noGateHooks);
+  if (problems.length) throw new AccError("move-refused", `Can't dispatch ${id}:
+- ${problems.join("\n- ")}`);
+  const env = environmentByBranch(config, found.environment);
+  if (!env) throw new AccError("dispatch", `${id}'s environment "${found.environment}" isn't in the config.`);
+  const main2 = mainCheckout(run2, paths.root);
+  const wt = join4(worktreeRoot(config, main2), found.id);
+  const branch = found.run?.branch ?? taskBranch(found);
+  const reused = ensureWorktree(run2, main2, wt, branch, env);
+  setupWorktree(run2, config, env, main2, wt);
+  const rules = existsSync4(join4(wt, ".acc", "rules.md")) ? readFileSync5(join4(wt, ".acc", "rules.md"), "utf8") : null;
+  const packet = renderPacket({ task: found, config, env, worktree: wt, branch, rules, environmentSpecific: readList(wt, config.environmentSpecific) });
+  mkdirSync4(paths.packets, { recursive: true });
+  const packetPath = join4(paths.packets, `${found.id}.md`);
+  writeFileSync4(packetPath, packet);
+  const settings = JSON.stringify(builderSettings(found, config, deps.accBinDir, deps.env.PATH ?? ""));
+  const prompt = `Read your task instructions below and do the task.
+
+${packet}`;
+  const base = ["--name", found.id, "--permission-mode", config.agents.permissionMode, "--settings", settings];
+  const record = (bgId2, sessionId2) => mutate(paths, now2, (ledger, emit) => {
+    const task = ledger.tasks.find((t) => t.id === id);
+    const again = checkMove(ledger, config, task, req, noGateHooks);
+    if (again.length) throw new AccError("move-refused", `Can't dispatch ${id}:
+- ${again.join("\n- ")}`);
+    applyMove(task, { ...req, reason: reused ? `re-dispatched in ${basename(wt)}` : null }, emit, now2);
+    task.run = { worktree: wt, branch, startedAt: now2().toISOString(), ...bgId2 ? { bgId: bgId2 } : {}, ...sessionId2 ? { sessionId: sessionId2 } : {} };
+    emit({ type: "task.updated", task: id, actor: opts.actor, by: opts.by, data: { run: task.run } });
+    return task;
+  });
+  if (opts.foreground) {
+    const task = record(null, null);
+    spawnSync2("claude", [...base, prompt], { cwd: wt, stdio: "inherit", env: deps.env });
+    return { task, worktree: wt, branch, reused, packetPath, bgId: null, sessionId: null };
+  }
+  const launched = run2("claude", ["--bg", ...base, prompt], { cwd: wt, env: deps.env, timeoutMs: 6e4 });
+  if (launched.code !== 0) throw new AccError("dispatch", `Claude Code didn't start the agent: ${(launched.stderr || launched.stdout).trim().split("\n")[0]}. The worktree is kept at ${wt}.`);
+  const { bgId, sessionId } = findSession(run2, wt, found.id, deps.findSessionMs ?? 8e3);
+  try {
+    const task = record(bgId, sessionId);
+    return { task, worktree: wt, branch, reused, packetPath, bgId, sessionId };
+  } catch (e) {
+    if (bgId) run2("claude", ["stop", bgId], { cwd: wt });
+    throw e;
+  }
+}
+function cleanup(paths, config, id, run2, now2) {
+  const ledger = readLedger(paths.ledger);
+  const task = ledger.tasks.find((t) => t.id === id);
+  if (!task) throw new AccError("no-task", `No task ${id}.`);
+  const wt = task.run?.worktree ?? null;
+  if (!wt || !existsSync4(wt)) return { removed: false, reasons: ["It has no worktree on disk."], worktree: wt };
+  const reasons = [];
+  if (task.state === "running") reasons.push(`${id} is still running. Abandon it or let it finish first.`);
+  const dirty = git(run2, wt, "status", "--porcelain").stdout.trim();
+  if (dirty) reasons.push(`The worktree has ${dirty.split("\n").length} uncommitted change(s).`);
+  const env = environmentByBranch(config, task.environment);
+  const branch = task.run?.branch;
+  if (branch && env) {
+    const main3 = mainCheckout(run2, paths.root);
+    git(run2, main3, "fetch", "--quiet", "origin", env.branch);
+    const target = git(run2, main3, "rev-parse", "--verify", "--quiet", `refs/remotes/origin/${env.branch}`).code === 0 ? `origin/${env.branch}` : env.branch;
+    const ahead = Number(git(run2, main3, "rev-list", "--count", `${target}..${branch}`).stdout.trim() || "0");
+    const merged = git(run2, main3, "merge-base", "--is-ancestor", branch, target).code === 0;
+    if (ahead > 0 && !merged) reasons.push(`${branch} has ${ahead} commit(s) that aren't in ${target} yet.`);
+  }
+  if (reasons.length) return { removed: false, reasons, worktree: wt };
+  const main2 = mainCheckout(run2, paths.root);
+  const r = git(run2, main2, "worktree", "remove", wt);
+  if (r.code !== 0) return { removed: false, reasons: [`git refused: ${r.stderr.trim()}`], worktree: wt };
+  if (branch) git(run2, main2, "branch", "-D", branch);
+  mutate(paths, now2, (l, emit) => {
+    const t = l.tasks.find((x) => x.id === id);
+    if (t.run) delete t.run.worktree;
+    emit({ type: "task.updated", task: id, actor: "human", by: "acc cleanup", data: { worktreeRemoved: wt } });
+  });
+  return { removed: true, reasons: [], worktree: wt };
+}
+
 // packages/core/src/init.ts
-import { existsSync as existsSync5 } from "node:fs";
-import { join as join5 } from "node:path";
+import { existsSync as existsSync6 } from "node:fs";
+import { join as join6 } from "node:path";
 
 // packages/core/src/onboarding/helpers.ts
-import { existsSync as existsSync4, readFileSync as readFileSync5 } from "node:fs";
-import { join as join4 } from "node:path";
+import { existsSync as existsSync5, readFileSync as readFileSync6 } from "node:fs";
+import { join as join5 } from "node:path";
 var pass = (detail) => ({ status: "pass", detail });
 var fail = (detail, fix) => fix ? { status: "fail", detail, fix } : { status: "fail", detail };
 var unknown = (detail) => ({ status: "unknown", detail });
@@ -642,9 +910,9 @@ function makeContext(cwd, run2, env = process.env) {
   }
   let config = null;
   let configErrors = [];
-  if (paths && existsSync4(paths.config)) {
+  if (paths && existsSync5(paths.config)) {
     try {
-      const r = parseConfig(JSON.parse(readFileSync5(paths.config, "utf8")));
+      const r = parseConfig(JSON.parse(readFileSync6(paths.config, "utf8")));
       config = r.config;
       configErrors = r.errors;
     } catch (e) {
@@ -708,8 +976,8 @@ var LICENSE_TO_TYPE = {
   FULL: "full"
 };
 function readText(root, rel) {
-  const f = join4(root, rel);
-  return existsSync4(f) ? readFileSync5(f, "utf8") : null;
+  const f = join5(root, rel);
+  return existsSync5(f) ? readFileSync6(f, "utf8") : null;
 }
 var SECRET_PATTERN = [
   "force://[A-Za-z0-9._~-]+:[^@[:space:]]+@",
@@ -801,7 +1069,7 @@ function planInit(run2, opts) {
   if (repo && !account) notes.push("Couldn't tell which GitHub account this repo pushes as. Pass --github-account.");
   const name = opts.commitName ?? gitGet("user.name");
   const email = opts.commitEmail ?? gitGet("user.email");
-  const listIfPresent = (rel) => existsSync5(join5(root, rel)) ? rel : void 0;
+  const listIfPresent = (rel) => existsSync6(join6(root, rel)) ? rel : void 0;
   const raw = {
     schema: 1,
     project: opts.project ?? root.split("/").filter(Boolean).pop() ?? "project",
@@ -825,22 +1093,22 @@ function planInit(run2, opts) {
   return { config: parsed.config, notes };
 }
 function configureRepoAccess(run2, root, account, identity) {
-  const git = (...args) => {
+  const git2 = (...args) => {
     const r = run2("git", args, { cwd: root });
     if (r.code !== 0) throw new AccError("init", `git ${args.join(" ")} failed: ${r.stderr.trim()}`);
   };
   if (identity) {
-    git("config", "user.name", identity.name);
-    git("config", "user.email", identity.email);
+    git2("config", "user.name", identity.name);
+    git2("config", "user.email", identity.email);
   }
   run2("git", ["config", "--unset-all", "credential.helper"], { cwd: root });
-  git("config", "credential.helper", "");
-  git("config", "--add", "credential.helper", `!f() { test "$1" = get || exit 0; echo username=${account}; echo "password=$(gh auth token -u ${account})"; }; f`);
+  git2("config", "credential.helper", "");
+  git2("config", "--add", "credential.helper", `!f() { test "$1" = get || exit 0; echo username=${account}; echo "password=$(gh auth token -u ${account})"; }; f`);
 }
 
 // packages/core/src/onboarding/steps.ts
-import { existsSync as existsSync6, readdirSync } from "node:fs";
-import { dirname as dirname3, join as join6 } from "node:path";
+import { existsSync as existsSync7, readdirSync } from "node:fs";
+import { dirname as dirname4, join as join7 } from "node:path";
 var DOCS = "docs/ONBOARDING.md";
 var DATA_EXT = /\.(csv|xls|xlsx|eml)$/i;
 var BACKSTOP = ["/*.csv", "/*.xls", "/*.xlsx", "/*.eml"];
@@ -850,16 +1118,16 @@ function needsProject(ctx) {
   return null;
 }
 function nearbyRepo(cwd) {
-  const isRepo = (d) => existsSync6(join6(d, ".git"));
-  const parent = dirname3(cwd);
+  const isRepo = (d) => existsSync7(join7(d, ".git"));
+  const parent = dirname4(cwd);
   let siblings = [];
   try {
-    siblings = readdirSync(parent, { withFileTypes: true }).filter((e) => e.isDirectory() && !e.name.startsWith(".")).map((e) => join6(parent, e.name));
+    siblings = readdirSync(parent, { withFileTypes: true }).filter((e) => e.isDirectory() && !e.name.startsWith(".")).map((e) => join7(parent, e.name));
   } catch {
     siblings = [];
   }
   const candidates = [...siblings.filter((d) => d !== cwd), parent].filter(isRepo);
-  return candidates.find((d) => existsSync6(join6(d, ".acc", "config.json"))) ?? candidates.find((d) => existsSync6(join6(d, "sfdx-project.json"))) ?? null;
+  return candidates.find((d) => existsSync7(join7(d, ".acc", "config.json"))) ?? candidates.find((d) => existsSync7(join7(d, "sfdx-project.json"))) ?? null;
 }
 var sfEnvs = (ctx) => (ctx.config?.environments ?? []).filter((e) => e.type !== "none");
 var devEnvs = (ctx) => sfEnvs(ctx).filter((e) => (e.type === "developer" || e.type === "developer_pro") && e.org);
@@ -968,7 +1236,7 @@ var STEPS = [
       if (ctx.paths) return pass(`Repo at ${ctx.paths.root}`);
       const near = nearbyRepo(ctx.cwd);
       if (near) return { status: "fail", detail: `This folder isn't a git repo. The project's repo looks like ${near}. Open that folder instead.`, open: near };
-      const sfdx = existsSync6(join6(ctx.cwd, "sfdx-project.json"));
+      const sfdx = existsSync7(join7(ctx.cwd, "sfdx-project.json"));
       return fail(sfdx ? "This Salesforce folder isn't a git repo yet. Onboarding starts with the client's repo (guide steps B1 and B2)." : "This folder isn't a git repo. Open the project's repo folder.");
     }
   },
@@ -985,7 +1253,7 @@ var STEPS = [
         const n = ctx.config.environments.length;
         return pass(`${ctx.config.project}: ${ctx.config.profile}, ${n} environment${n === 1 ? "" : "s"}`);
       }
-      if (!existsSync6(ctx.paths.config)) return fail("There's no .acc/config.json yet.");
+      if (!existsSync7(ctx.paths.config)) return fail("There's no .acc/config.json yet.");
       return fail(`.acc/config.json has problems: ${ctx.configErrors.join(" ")}`);
     }
   },
@@ -1288,7 +1556,7 @@ var STEPS = [
         const lines = text.replace(/\n$/, "").split("\n");
         if (lines.some((l) => l.trim() === "")) problems.push(`${rel} has a blank line. As a grep pattern, that matches everything.`);
         const paths = lines.filter((l) => l.trim() && !l.startsWith("#"));
-        const gone = paths.filter((p) => !existsSync6(join6(ctx.paths.root, p)));
+        const gone = paths.filter((p) => !existsSync7(join7(ctx.paths.root, p)));
         if (gone.length) problems.push(`${rel} lists files that don't exist: ${gone.slice(0, 3).join(", ")}${gone.length > 3 ? " \u2026" : ""}.`);
         counts.push(`${paths.length} ${label}`);
       }
@@ -1431,6 +1699,12 @@ Tasks
   acc show <id>
   acc set <id> <state> [--reason <text>] [--force] [--as <actor>] [--by <name>]
 
+Agents
+  acc dispatch <id> [--foreground]      Worktree, setup, instructions, and a background builder session
+  acc done [<id>]                       A builder's finish line: moves its task to review
+  acc block [<id>] "<reason>"           A builder's way out when stuck
+  acc cleanup <id>                      Remove a finished task's worktree, only if nothing would be lost
+
 Every command takes --json. Docs: docs/ONBOARDING.md, docs/DESIGN.md.`;
 function out(o, human, data) {
   if (o.json) process.stdout.write(JSON.stringify(data, null, 2) + "\n");
@@ -1504,7 +1778,7 @@ function cmdInit(o) {
   const paths = repoPaths(process.cwd(), run);
   const profile = o.profile ?? "generic";
   if (profile !== "generic" && profile !== "salesforce") throw new AccError("usage", "--profile must be generic or salesforce.");
-  if (existsSync7(paths.config) && !o.force && !o["dry-run"]) throw new AccError("exists", `${paths.config} already exists. Use --force to replace it.`);
+  if (existsSync8(paths.config) && !o.force && !o["dry-run"]) throw new AccError("exists", `${paths.config} already exists. Use --force to replace it.`);
   const plan = planInit(run, {
     root: paths.root,
     profile,
@@ -1544,7 +1818,7 @@ function cmdInit(o) {
   return 0;
 }
 function readInput(file) {
-  const text = file ? readFileSync6(file, "utf8") : readFileSync6(0, "utf8");
+  const text = file ? readFileSync7(file, "utf8") : readFileSync7(0, "utf8");
   try {
     return JSON.parse(text);
   } catch (e) {
@@ -1574,6 +1848,40 @@ function cmdIntakeGithub(o) {
   const r = run("gh", args, { env: { ...process.env, GH_TOKEN: token.stdout.trim() } });
   if (r.code !== 0) throw new AccError("github", `Couldn't list issues on ${gh.repo}: ${r.stderr.trim().split("\n")[0]}`);
   return upsert(o, githubIssuesToTasks(JSON.parse(r.stdout)));
+}
+function taskIdFrom(arg) {
+  const id = arg ?? process.env.ACC_TASK;
+  if (!id) throw new AccError("usage", "Name the task, for example: acc done GH-12. Builders get it from ACC_TASK.");
+  return id;
+}
+var accBinDir = () => {
+  try {
+    return dirname5(realpathSync(process.argv[1]));
+  } catch {
+    return dirname5(process.argv[1] ?? ".");
+  }
+};
+function cmdDispatch(o, id) {
+  const { paths, config } = project(process.cwd());
+  const { actor, by } = actorFrom(o);
+  if (o.foreground && !o.json) process.stdout.write(`Starting ${id.toUpperCase()} in this terminal. Leave the session when it's done.
+`);
+  const r = dispatch(paths, config, id.toUpperCase(), { run, now, accBinDir: accBinDir(), env: process.env }, { actor, by, foreground: o.foreground === true });
+  out(o, () => [
+    `${r.task.id} \u2192 ${stateLabel("running")}`,
+    `  worktree: ${r.worktree}${r.reused ? " (reused)" : ""}`,
+    `  branch:   ${r.branch}`,
+    `  agent:    ${r.bgId ? `background session ${r.bgId}. Watch it with: claude attach ${r.bgId}` : o.foreground ? "ran in this terminal" : "started; it will appear in claude agents shortly"}`,
+    `  packet:   ${r.packetPath}`
+  ].join("\n"), r);
+  return 0;
+}
+function cmdCleanup(o, id) {
+  const { paths, config } = project(process.cwd());
+  const r = cleanup(paths, config, id.toUpperCase(), run, now);
+  out(o, () => r.removed ? `Removed ${r.worktree}.` : `Kept ${r.worktree ?? "the worktree"}:
+- ${r.reasons.join("\n- ")}`, r);
+  return r.removed ? 0 : 1;
 }
 function cmdList(o, onlyReady) {
   const { paths } = project(process.cwd());
@@ -1655,7 +1963,8 @@ async function main(argv) {
       reason: { type: "string" },
       as: { type: "string" },
       by: { type: "string" },
-      label: { type: "string" }
+      label: { type: "string" },
+      foreground: { type: "boolean", default: false }
     }
   });
   const o = values;
@@ -1690,6 +1999,24 @@ async function main(argv) {
       if (rest[0] !== "github") throw new AccError("usage", "acc intake github [--label <label>]. Jira intake runs through the plugin's skill (M6).");
       return cmdIntakeGithub(o);
     }
+    case "dispatch": {
+      if (!rest[0]) throw new AccError("usage", "acc dispatch <id> [--foreground]");
+      return cmdDispatch(o, rest[0]);
+    }
+    case "done":
+      return cmdSet(o, taskIdFrom(rest[0]), "review");
+    case "block": {
+      const [first, ...more] = rest;
+      const looksLikeId = !!first && /^[A-Z][A-Z0-9_]*-\d+$/i.test(first) && more.length > 0;
+      const id = taskIdFrom(looksLikeId ? first : void 0);
+      const reason = o.reason ?? (looksLikeId ? more : rest).join(" ").trim();
+      if (!reason) throw new AccError("usage", 'acc block "<what you need>"');
+      return cmdSet({ ...o, reason }, id, "blocked");
+    }
+    case "cleanup": {
+      if (!rest[0]) throw new AccError("usage", "acc cleanup <id>");
+      return cmdCleanup(o, rest[0]);
+    }
     case "list":
       return cmdList(o, false);
     case "ready":
@@ -1708,7 +2035,7 @@ async function main(argv) {
 }
 var isEntry = (() => {
   try {
-    return !!process.argv[1] && realpathSync(fileURLToPath(import.meta.url)) === realpathSync(resolve(process.argv[1]));
+    return !!process.argv[1] && realpathSync(fileURLToPath(import.meta.url)) === realpathSync(resolve2(process.argv[1]));
   } catch {
     return false;
   }

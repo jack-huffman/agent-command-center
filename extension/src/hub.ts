@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import * as vscode from 'vscode';
 import { type Config, parseConfig } from '../../packages/core/src/config.ts';
 import { displayState, readLedger, type Ledger } from '../../packages/core/src/ledger.ts';
-import { type AgentSession, isUnder, parseWorktrees, type TaskRow, type Worktree } from './logic.ts';
+import { type AgentSession, agentLook, isUnder, parseWorktrees, sessionFor, type TaskRow, type Worktree } from './logic.ts';
 import { runFile } from './run.ts';
 
 export interface WorktreeInfo extends Worktree {
@@ -103,19 +103,31 @@ export class Hub implements vscode.Disposable {
       } catch {
         continue; // mid-write or unreadable: keep what we had
       }
-      const rows: TaskRow[] = ledger.tasks.map((t) => ({
-        id: t.id,
-        title: t.title,
-        state: t.state,
-        display: displayState(ledger, t) as TaskRow['display'],
-        environment: t.environment,
-        deps: t.deps.filter((d) => ledger.tasks.find((x) => x.id === d)?.state !== 'done'),
-        source: { kind: t.source.kind, url: t.source.url },
-      }));
+      const rows = this.deriveRows(ledger);
       this.tasks.set(p.root, { mtime, ledger, rows });
       changed = true;
     }
     if (changed || force) this.emitter.fire('tasks');
+  }
+
+  /** Task rows with each running task's agent state, so a waiting agent shows as Needs you. */
+  private deriveRows(ledger: Ledger): TaskRow[] {
+    return ledger.tasks.map((t) => {
+      const base = { id: t.id, run: t.run };
+      const session = t.state === 'running' || t.state === 'review' || t.state === 'blocked' ? sessionFor(base, this.agents) : undefined;
+      const look = session ? agentLook(session) : null;
+      return {
+        id: t.id,
+        title: t.title,
+        state: t.state,
+        display: displayState(ledger, t, session ? { state: session.state, status: session.status } : undefined) as TaskRow['display'],
+        environment: t.environment,
+        deps: t.deps.filter((d) => ledger.tasks.find((x) => x.id === d)?.state !== 'done'),
+        source: { kind: t.source.kind, url: t.source.url },
+        run: t.run,
+        agent: look ? { label: look.label, icon: look.icon, tone: look.tone } : null,
+      };
+    });
   }
 
   // ------------------------------------------------------------ agents
@@ -135,6 +147,9 @@ export class Hub implements vscode.Disposable {
       }
     }
     this.emitter.fire('agents');
+    // Agent state feeds task display (Needs you), so re-derive the rows.
+    for (const [root, cached] of this.tasks) this.tasks.set(root, { ...cached, rows: this.deriveRows(cached.ledger) });
+    if (this.tasks.size) this.emitter.fire('tasks');
   }
 
   // ------------------------------------------------------------ worktrees and branches

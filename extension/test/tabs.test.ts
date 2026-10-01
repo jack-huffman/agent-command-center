@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import type { TaskRow } from '../src/logic.ts';
-import { agentsModel, environmentsModel, type HubLike, isFromWebview, promotionPaths, setupModel, tasksModel, VIEW_KINDS, worktreesModel } from '../src/model.ts';
+import { agentsModel, cardActions, environmentsModel, type HubLike, isFromWebview, promotionPaths, setupModel, tasksModel, VIEW_KINDS, worktreesModel } from '../src/model.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
@@ -113,4 +113,13 @@ test('every view has an "open as tab" button', () => {
     assert.ok(commands.has(`acc.open.${k}`), k);
     assert.ok(manifest.contributes.menus['view/title'].some((m: { command: string; when: string }) => m.command === `acc.open.${k}` && m.when === `view == acc.${k}`), k);
   }
+});
+
+test('cards follow a task through dispatch: Dispatch, then Attach and Abandon, then Clean up', () => {
+  const labels = (r: Partial<TaskRow>) => cardActions({ ...row('AV-9', 'todo', 'ready'), deps: [], ...r } as TaskRow, {}).map((a) => a.label);
+  assert.deepEqual(labels({}), ['Dispatch', 'Move', 'Block', 'Details']);
+  assert.deepEqual(labels({ state: 'running', display: 'running', run: { bgId: 'bg1', worktree: '/w/AV-9' } }), ['Attach', 'Worktree', 'Move', 'Abandon', 'Details']);
+  assert.deepEqual(labels({ state: 'rework', display: 'rework', run: { worktree: '/w/AV-9' } }), ['Re-dispatch', 'Worktree', 'Move', 'Block', 'Details']);
+  assert.deepEqual(labels({ state: 'done', display: 'done', run: { worktree: '/w/AV-9' } }), ['Worktree', 'Move', 'Clean up', 'Details']);
+  assert.equal(cardActions({ ...row('AV-9', 'todo', 'ready'), deps: [] }, {})[0]!.primary, true, 'Dispatch is the main action on a ready card');
 });

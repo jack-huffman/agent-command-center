@@ -1,10 +1,10 @@
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
   ACTORS, AccError, type Actor, configureRepoAccess, displayState, isReady, loadConfig, makeContext, moveTask, mutate,
-  githubIssuesToTasks, planInit, type Profile, readLedger, STEPS, receiptHooks, repoPaths, run, runSteps, type State, type StepResult, type TaskInput,
+  cleanup, dispatch, githubIssuesToTasks, planInit, type Profile, readLedger, STEPS, receiptHooks, repoPaths, run, runSteps, type State, type StepResult, type TaskInput,
   upsertTasks, writeConfig,
 } from '../../core/src/index.ts';
 import { checkLabel, stateLabel, table, tone } from './format.ts';
@@ -31,6 +31,12 @@ Tasks
   acc ready
   acc show <id>
   acc set <id> <state> [--reason <text>] [--force] [--as <actor>] [--by <name>]
+
+Agents
+  acc dispatch <id> [--foreground]      Worktree, setup, instructions, and a background builder session
+  acc done [<id>]                       A builder's finish line: moves its task to review
+  acc block [<id>] "<reason>"           A builder's way out when stuck
+  acc cleanup <id>                      Remove a finished task's worktree, only if nothing would be lost
 
 Every command takes --json. Docs: docs/ONBOARDING.md, docs/DESIGN.md.`;
 
@@ -183,6 +189,44 @@ function cmdIntakeGithub(o: Opts): number {
   return upsert(o, githubIssuesToTasks(JSON.parse(r.stdout)));
 }
 
+/** The task a command is about: the argument, or the builder session's own task. */
+function taskIdFrom(arg: string | undefined): string {
+  const id = arg ?? process.env.ACC_TASK;
+  if (!id) throw new AccError('usage', 'Name the task, for example: acc done GH-12. Builders get it from ACC_TASK.');
+  return id;
+}
+
+/** acc's own folder, so builders can run it with no install (D-012). */
+const accBinDir = (): string => {
+  try {
+    return dirname(realpathSync(process.argv[1]!));
+  } catch {
+    return dirname(process.argv[1] ?? '.');
+  }
+};
+
+function cmdDispatch(o: Opts, id: string): number {
+  const { paths, config } = project(process.cwd());
+  const { actor, by } = actorFrom(o);
+  if (o.foreground && !o.json) process.stdout.write(`Starting ${id.toUpperCase()} in this terminal. Leave the session when it's done.\n`);
+  const r = dispatch(paths, config, id.toUpperCase(), { run, now, accBinDir: accBinDir(), env: process.env }, { actor, by, foreground: o.foreground === true });
+  out(o, () => [
+    `${r.task.id} → ${stateLabel('running')}`,
+    `  worktree: ${r.worktree}${r.reused ? ' (reused)' : ''}`,
+    `  branch:   ${r.branch}`,
+    `  agent:    ${r.bgId ? `background session ${r.bgId}. Watch it with: claude attach ${r.bgId}` : o.foreground ? 'ran in this terminal' : 'started; it will appear in claude agents shortly'}`,
+    `  packet:   ${r.packetPath}`,
+  ].join('\n'), r);
+  return 0;
+}
+
+function cmdCleanup(o: Opts, id: string): number {
+  const { paths, config } = project(process.cwd());
+  const r = cleanup(paths, config, id.toUpperCase(), run, now);
+  out(o, () => (r.removed ? `Removed ${r.worktree}.` : `Kept ${r.worktree ?? 'the worktree'}:\n- ${r.reasons.join('\n- ')}`), r);
+  return r.removed ? 0 : 1;
+}
+
 function cmdList(o: Opts, onlyReady: boolean): number {
   const { paths } = project(process.cwd());
   const ledger = readLedger(paths.ledger);
@@ -260,6 +304,7 @@ export async function main(argv: string[]): Promise<number> {
       as: { type: 'string' },
       by: { type: 'string' },
       label: { type: 'string' },
+      foreground: { type: 'boolean', default: false },
     },
   });
   const o = values as Opts;
@@ -283,6 +328,23 @@ export async function main(argv: string[]): Promise<number> {
     case 'intake': {
       if (rest[0] !== 'github') throw new AccError('usage', 'acc intake github [--label <label>]. Jira intake runs through the plugin\'s skill (M6).');
       return cmdIntakeGithub(o);
+    }
+    case 'dispatch': {
+      if (!rest[0]) throw new AccError('usage', 'acc dispatch <id> [--foreground]');
+      return cmdDispatch(o, rest[0]);
+    }
+    case 'done': return cmdSet(o, taskIdFrom(rest[0]), 'review');
+    case 'block': {
+      const [first, ...more] = rest;
+      const looksLikeId = !!first && /^[A-Z][A-Z0-9_]*-\d+$/i.test(first) && more.length > 0;
+      const id = taskIdFrom(looksLikeId ? first : undefined);
+      const reason = (o.reason as string | undefined) ?? (looksLikeId ? more : rest).join(' ').trim();
+      if (!reason) throw new AccError('usage', 'acc block "<what you need>"');
+      return cmdSet({ ...o, reason }, id, 'blocked');
+    }
+    case 'cleanup': {
+      if (!rest[0]) throw new AccError('usage', 'acc cleanup <id>');
+      return cmdCleanup(o, rest[0]);
     }
     case 'list': return cmdList(o, false);
     case 'ready': return cmdList(o, true);

@@ -63,7 +63,26 @@ export interface Card {
   environment: string;
   waitingOn: string[];
   url: string | null;
+  agent: Look | null;
+  worktree: string | null;
   actions: Action[];
+}
+
+/** What a task's card offers, by where it is in its life. Dispatch comes first wherever it applies. */
+export function cardActions(t: TaskRow, ref: Ref): Action[] {
+  const a: Action[] = [];
+  const canDispatch = t.display === 'ready' || t.state === 'rework';
+  if (canDispatch) a.push({ command: 'acc.task.dispatch', label: t.state === 'rework' ? 'Re-dispatch' : 'Dispatch', icon: 'rocket', ref, primary: true });
+  if (t.state === 'running' && t.run?.bgId) a.push({ command: 'acc.task.attach', label: 'Attach', icon: 'terminal', ref, primary: !canDispatch });
+  if (t.run?.worktree && t.state !== 'todo') a.push({ command: 'acc.task.openWorktree', label: 'Worktree', icon: 'empty-window', ref });
+  a.push({ command: 'acc.task.move', label: 'Move', icon: 'arrow-swap', ref, primary: !a.some((x) => x.primary) });
+  if (t.state === 'running') a.push({ command: 'acc.task.abandon', label: 'Abandon', icon: 'debug-stop', ref, danger: true });
+  else if (t.state === 'blocked') a.push({ command: 'acc.task.unblock', label: 'Unblock', icon: 'debug-restart', ref });
+  else if (t.state !== 'done') a.push({ command: 'acc.task.block', label: 'Block', icon: 'circle-slash', ref });
+  if ((t.state === 'done' || t.state === 'blocked' || t.state === 'todo') && t.run?.worktree) a.push({ command: 'acc.task.cleanup', label: 'Clean up', icon: 'trash', ref });
+  if (t.source.url) a.push({ command: 'acc.task.openTicket', label: 'Ticket', icon: 'link-external', ref });
+  a.push({ command: 'acc.task.show', label: 'Details', icon: 'note', ref });
+  return a;
 }
 
 export interface Column extends Look {
@@ -86,15 +105,11 @@ export function tasksModel(hub: HubLike): TasksModel {
         const d = DISPLAY[group];
         return {
           group, label: d.label, icon: d.icon, tone: d.tone,
-          cards: (byGroup.get(group) ?? []).map((t) => {
-            const ref: Ref = { project: p.root, task: t.id };
-            const actions: Action[] = [{ command: 'acc.task.move', label: 'Move', icon: 'arrow-swap', ref, primary: true }];
-            if (t.state === 'blocked') actions.push({ command: 'acc.task.unblock', label: 'Unblock', icon: 'debug-restart', ref });
-            else if (t.state !== 'done') actions.push({ command: 'acc.task.block', label: 'Block', icon: 'circle-slash', ref });
-            if (t.source.url) actions.push({ command: 'acc.task.openTicket', label: 'Ticket', icon: 'link-external', ref });
-            actions.push({ command: 'acc.task.show', label: 'Details', icon: 'note', ref });
-            return { id: t.id, title: t.title, environment: t.environment, waitingOn: t.deps, url: t.source.url, actions };
-          }),
+          cards: (byGroup.get(group) ?? []).map((t) => ({
+            id: t.id, title: t.title, environment: t.environment, waitingOn: t.deps, url: t.source.url,
+            agent: t.agent ?? null, worktree: t.run?.worktree ?? null,
+            actions: cardActions(t, { project: p.root, task: t.id }),
+          })),
         };
       });
       return { name: p.name, root: p.root, github: !!p.config.github, columns, total: rows.length };
