@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -111,4 +111,23 @@ test('doctor --step runs only the named checks, and rejects unknown ids', () => 
   const r = acc(dir, ['doctor', '--step', 'B0.config', '--step', 'B0.repo', '--json']).json() as { id: string }[];
   assert.deepEqual(r.map((x) => x.id).sort(), ['B0.config', 'B0.repo']);
   assert.equal(acc(dir, ['doctor', '--step', 'Z9.nope']).code, 2);
+});
+
+test('intake github reads open issues as the repo\'s account and upserts them', () => {
+  const dir = repoWithConfig({ ...GENERIC_CONFIG, github: { repo: 'o/r', account: 'me' } });
+  const bin = join(dir, '.fakebin');
+  mkdirSync(bin);
+  const issues = JSON.stringify([{ number: 4, title: 'Fix login', body: 'Depends on #3', url: 'https://github.com/o/r/issues/4', labels: [] }]);
+  writeFileSync(join(bin, 'gh'), `#!/bin/sh
+case "$1 $2" in
+  "auth token") [ "$4" = "me" ] && echo tok-me || exit 1 ;;
+  "issue list") [ "$GH_TOKEN" = "tok-me" ] || { echo "wrong account" >&2; exit 1; }; echo '${issues}' ;;
+  *) exit 1 ;;
+esac
+`);
+  chmodSync(join(bin, 'gh'), 0o755);
+  const r = acc(dir, ['intake', 'github', '--json'], undefined, { PATH: `${bin}:${process.env.PATH}` });
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual(r.json().added, ['GH-4']);
+  assert.equal(acc(dir, ['intake', 'jira']).code, 2, 'Jira intake goes through the plugin');
 });

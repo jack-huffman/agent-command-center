@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
   ACTORS, AccError, type Actor, configureRepoAccess, displayState, isReady, loadConfig, makeContext, moveTask, mutate,
-  planInit, type Profile, readLedger, STEPS, receiptHooks, repoPaths, run, runSteps, type State, type StepResult, type TaskInput,
+  githubIssuesToTasks, planInit, type Profile, readLedger, STEPS, receiptHooks, repoPaths, run, runSteps, type State, type StepResult, type TaskInput,
   upsertTasks, writeConfig,
 } from '../../core/src/index.ts';
 import { checkLabel, stateLabel, table, tone } from './format.ts';
@@ -26,6 +26,7 @@ Setup
 Tasks
   acc add "<title>" [--brief <text>] [--dep <id>]... [--env <branch>] [--key <T-n>]
   acc import [--file <tasks.json>]      Add or refresh tasks from JSON (stdin by default)
+  acc intake github [--label <l>]       Add or refresh tasks from the repo's open GitHub issues
   acc list [--state <state>]
   acc ready
   acc show <id>
@@ -168,6 +169,20 @@ function upsert(o: Opts, inputs: TaskInput[]): number {
   return res.errors.length ? 1 : 0;
 }
 
+/** Reads open issues as the repo's own GitHub account (D-007) and upserts them. Never changes GitHub. */
+function cmdIntakeGithub(o: Opts): number {
+  const { config } = project(process.cwd());
+  const gh = config.github;
+  if (!gh) throw new AccError('no-github', 'This project has no "github" section in .acc/config.json.');
+  const token = run('gh', ['auth', 'token', '-u', gh.account]);
+  if (token.code !== 0) throw new AccError('no-github', `gh isn't logged in as ${gh.account}. Run: gh auth login`);
+  const args = ['issue', 'list', '-R', gh.repo, '--state', 'open', '--limit', '500', '--json', 'number,title,body,url,labels'];
+  if (o.label) args.push('--label', o.label as string);
+  const r = run('gh', args, { env: { ...process.env, GH_TOKEN: token.stdout.trim() } });
+  if (r.code !== 0) throw new AccError('github', `Couldn't list issues on ${gh.repo}: ${r.stderr.trim().split('\n')[0]}`);
+  return upsert(o, githubIssuesToTasks(JSON.parse(r.stdout)));
+}
+
 function cmdList(o: Opts, onlyReady: boolean): number {
   const { paths } = project(process.cwd());
   const ledger = readLedger(paths.ledger);
@@ -244,6 +259,7 @@ export async function main(argv: string[]): Promise<number> {
       reason: { type: 'string' },
       as: { type: 'string' },
       by: { type: 'string' },
+      label: { type: 'string' },
     },
   });
   const o = values as Opts;
@@ -263,6 +279,10 @@ export async function main(argv: string[]): Promise<number> {
       const data = readInput(o.file as string | undefined);
       if (!Array.isArray(data)) throw new AccError('usage', 'acc import expects a JSON list of tasks.');
       return upsert(o, data as TaskInput[]);
+    }
+    case 'intake': {
+      if (rest[0] !== 'github') throw new AccError('usage', 'acc intake github [--label <label>]. Jira intake runs through the plugin\'s skill (M6).');
+      return cmdIntakeGithub(o);
     }
     case 'list': return cmdList(o, false);
     case 'ready': return cmdList(o, true);

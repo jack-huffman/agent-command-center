@@ -2,7 +2,7 @@
   "name": "agent-command-center",
   "displayName": "Agent Command Center",
   "description": "Set up projects for parallel Claude Code agents, then run and watch them from VSCode.",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "publisher": "JackHuffman",
   "private": true,
   "license": "UNLICENSED",
@@ -58,21 +58,177 @@
       {
         "command": "acc.step.check",
         "title": "Check step",
-        "category": "Agent Command Center"
+        "category": "Agent Command Center",
+        "icon": "$(refresh)"
       },
       {
         "command": "acc.step.fix",
         "title": "Fix step",
-        "category": "Agent Command Center"
+        "category": "Agent Command Center",
+        "icon": "$(wrench)"
       },
       {
         "command": "acc.step.openSetup",
         "title": "Open step in Salesforce",
-        "category": "Agent Command Center"
+        "category": "Agent Command Center",
+        "icon": "$(globe)"
       },
       {
         "command": "acc.step.confirm",
         "title": "Mark step done",
+        "category": "Agent Command Center"
+      },
+      {
+        "command": "acc.setup.refresh",
+        "title": "Re-check setup",
+        "category": "Agent Command Center",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "acc.task.add",
+        "title": "Add task",
+        "category": "Agent Command Center",
+        "icon": "$(add)"
+      },
+      {
+        "command": "acc.task.importGithub",
+        "title": "Import GitHub issues",
+        "category": "Agent Command Center",
+        "icon": "$(github)"
+      },
+      {
+        "command": "acc.task.importJira",
+        "title": "Import from Jira",
+        "category": "Agent Command Center",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "acc.task.show",
+        "title": "Show task details",
+        "category": "Agent Command Center"
+      },
+      {
+        "command": "acc.task.move",
+        "title": "Move task…",
+        "category": "Agent Command Center",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "acc.task.block",
+        "title": "Block task…",
+        "category": "Agent Command Center",
+        "icon": "$(circle-slash)"
+      },
+      {
+        "command": "acc.task.unblock",
+        "title": "Unblock task",
+        "category": "Agent Command Center",
+        "icon": "$(debug-restart)"
+      },
+      {
+        "command": "acc.task.openTicket",
+        "title": "Open ticket",
+        "category": "Agent Command Center",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "acc.task.copyId",
+        "title": "Copy task id",
+        "category": "Agent Command Center"
+      },
+      {
+        "command": "acc.tasks.refresh",
+        "title": "Refresh tasks",
+        "category": "Agent Command Center",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "acc.agent.new",
+        "title": "Start a background agent…",
+        "category": "Agent Command Center",
+        "icon": "$(add)"
+      },
+      {
+        "command": "acc.agent.attach",
+        "title": "Attach",
+        "category": "Agent Command Center",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "acc.agent.logs",
+        "title": "Show logs",
+        "category": "Agent Command Center",
+        "icon": "$(output)"
+      },
+      {
+        "command": "acc.agent.stop",
+        "title": "Stop agent",
+        "category": "Agent Command Center",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "acc.agent.openFolder",
+        "title": "Open its folder",
+        "category": "Agent Command Center",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "acc.agents.refresh",
+        "title": "Refresh agents",
+        "category": "Agent Command Center",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "acc.worktree.open",
+        "title": "Open in new window",
+        "category": "Agent Command Center",
+        "icon": "$(empty-window)"
+      },
+      {
+        "command": "acc.worktree.terminal",
+        "title": "Open terminal here",
+        "category": "Agent Command Center",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "acc.worktree.reveal",
+        "title": "Reveal in Finder",
+        "category": "Agent Command Center",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "acc.worktree.remove",
+        "title": "Remove worktree…",
+        "category": "Agent Command Center",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "acc.worktrees.refresh",
+        "title": "Refresh worktrees",
+        "category": "Agent Command Center",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "acc.env.openOrg",
+        "title": "Open org",
+        "category": "Agent Command Center",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "acc.env.openGithub",
+        "title": "Open branch on GitHub",
+        "category": "Agent Command Center",
+        "icon": "$(github)"
+      },
+      {
+        "command": "acc.env.compare",
+        "title": "Compare with production",
+        "category": "Agent Command Center",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "acc.env.copyBranch",
+        "title": "Copy branch name",
         "category": "Agent Command Center"
       }
     ],
@@ -93,6 +249,287 @@
         {
           "command": "acc.step.confirm",
           "when": "false"
+        },
+        {
+          "command": "acc.task.show",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.move",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.block",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.unblock",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.openTicket",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.copyId",
+          "when": "false"
+        },
+        {
+          "command": "acc.agent.attach",
+          "when": "false"
+        },
+        {
+          "command": "acc.agent.logs",
+          "when": "false"
+        },
+        {
+          "command": "acc.agent.stop",
+          "when": "false"
+        },
+        {
+          "command": "acc.agent.openFolder",
+          "when": "false"
+        },
+        {
+          "command": "acc.worktree.open",
+          "when": "false"
+        },
+        {
+          "command": "acc.worktree.terminal",
+          "when": "false"
+        },
+        {
+          "command": "acc.worktree.reveal",
+          "when": "false"
+        },
+        {
+          "command": "acc.worktree.remove",
+          "when": "false"
+        },
+        {
+          "command": "acc.env.openOrg",
+          "when": "false"
+        },
+        {
+          "command": "acc.env.openGithub",
+          "when": "false"
+        },
+        {
+          "command": "acc.env.compare",
+          "when": "false"
+        },
+        {
+          "command": "acc.env.copyBranch",
+          "when": "false"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "acc.task.add",
+          "when": "view == acc.tasks && acc.hasProject",
+          "group": "navigation@1"
+        },
+        {
+          "command": "acc.task.importGithub",
+          "when": "view == acc.tasks && acc.hasProject",
+          "group": "navigation@2"
+        },
+        {
+          "command": "acc.tasks.refresh",
+          "when": "view == acc.tasks",
+          "group": "navigation@3"
+        },
+        {
+          "command": "acc.task.importJira",
+          "when": "view == acc.tasks && acc.hasProject",
+          "group": "more@1"
+        },
+        {
+          "command": "acc.agent.new",
+          "when": "view == acc.agents",
+          "group": "navigation@1"
+        },
+        {
+          "command": "acc.agents.refresh",
+          "when": "view == acc.agents",
+          "group": "navigation@2"
+        },
+        {
+          "command": "acc.worktrees.refresh",
+          "when": "view == acc.worktrees",
+          "group": "navigation@1"
+        },
+        {
+          "command": "acc.setup.refresh",
+          "when": "view == acc.setup",
+          "group": "navigation@1"
+        },
+        {
+          "command": "acc.openProjectWalkthrough",
+          "when": "view == acc.setup",
+          "group": "more@1"
+        },
+        {
+          "command": "acc.openMachineWalkthrough",
+          "when": "view == acc.setup",
+          "group": "more@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "acc.task.move",
+          "when": "view == acc.tasks && viewItem =~ /\\btask\\b/",
+          "group": "inline@1"
+        },
+        {
+          "command": "acc.task.openTicket",
+          "when": "view == acc.tasks && viewItem =~ /\\bhasUrl\\b/",
+          "group": "inline@2"
+        },
+        {
+          "command": "acc.task.show",
+          "when": "view == acc.tasks && viewItem =~ /\\btask\\b/",
+          "group": "1_view@1"
+        },
+        {
+          "command": "acc.task.openTicket",
+          "when": "view == acc.tasks && viewItem =~ /\\bhasUrl\\b/",
+          "group": "1_view@2"
+        },
+        {
+          "command": "acc.task.move",
+          "when": "view == acc.tasks && viewItem =~ /\\btask\\b/",
+          "group": "2_change@1"
+        },
+        {
+          "command": "acc.task.block",
+          "when": "view == acc.tasks && viewItem =~ /\\btask-(todo|running|review|rework)\\b/",
+          "group": "2_change@2"
+        },
+        {
+          "command": "acc.task.unblock",
+          "when": "view == acc.tasks && viewItem =~ /\\btask-blocked\\b/",
+          "group": "2_change@3"
+        },
+        {
+          "command": "acc.task.copyId",
+          "when": "view == acc.tasks && viewItem =~ /\\btask\\b/",
+          "group": "3_copy@1"
+        },
+        {
+          "command": "acc.agent.new",
+          "when": "view == acc.agents && viewItem =~ /\\bagentPlace\\b/",
+          "group": "inline@1"
+        },
+        {
+          "command": "acc.agent.attach",
+          "when": "view == acc.agents && viewItem =~ /\\bagentBackground\\b/",
+          "group": "inline@1"
+        },
+        {
+          "command": "acc.agent.stop",
+          "when": "view == acc.agents && viewItem =~ /\\bagentBackground\\b/",
+          "group": "inline@2"
+        },
+        {
+          "command": "acc.agent.attach",
+          "when": "view == acc.agents && viewItem =~ /\\bagentBackground\\b/",
+          "group": "1_use@1"
+        },
+        {
+          "command": "acc.agent.logs",
+          "when": "view == acc.agents && viewItem =~ /\\bagentBackground\\b/",
+          "group": "1_use@2"
+        },
+        {
+          "command": "acc.agent.openFolder",
+          "when": "view == acc.agents && viewItem =~ /\\bagent\\b/",
+          "group": "1_use@3"
+        },
+        {
+          "command": "acc.agent.stop",
+          "when": "view == acc.agents && viewItem =~ /\\bagentBackground\\b/",
+          "group": "2_stop@1"
+        },
+        {
+          "command": "acc.worktree.terminal",
+          "when": "view == acc.worktrees && viewItem =~ /\\bworktree\\b/",
+          "group": "inline@1"
+        },
+        {
+          "command": "acc.worktree.open",
+          "when": "view == acc.worktrees && viewItem =~ /\\bworktree\\b/",
+          "group": "1_open@1"
+        },
+        {
+          "command": "acc.worktree.terminal",
+          "when": "view == acc.worktrees && viewItem =~ /\\bworktree\\b/",
+          "group": "1_open@2"
+        },
+        {
+          "command": "acc.worktree.reveal",
+          "when": "view == acc.worktrees && viewItem =~ /\\bworktree\\b/",
+          "group": "1_open@3"
+        },
+        {
+          "command": "acc.worktree.remove",
+          "when": "view == acc.worktrees && viewItem =~ /\\bworktreeLinked\\b/",
+          "group": "2_remove@1"
+        },
+        {
+          "command": "acc.env.openOrg",
+          "when": "view == acc.environments && viewItem =~ /\\benvWithOrg\\b/",
+          "group": "inline@1"
+        },
+        {
+          "command": "acc.env.openGithub",
+          "when": "view == acc.environments && viewItem =~ /\\benvOnGithub\\b/",
+          "group": "inline@2"
+        },
+        {
+          "command": "acc.env.openOrg",
+          "when": "view == acc.environments && viewItem =~ /\\benvWithOrg\\b/",
+          "group": "1_open@1"
+        },
+        {
+          "command": "acc.env.openGithub",
+          "when": "view == acc.environments && viewItem =~ /\\benvOnGithub\\b/",
+          "group": "1_open@2"
+        },
+        {
+          "command": "acc.env.compare",
+          "when": "view == acc.environments && viewItem =~ /\\benvNotCurrent\\b/",
+          "group": "2_compare@1"
+        },
+        {
+          "command": "acc.env.copyBranch",
+          "when": "view == acc.environments && viewItem =~ /\\benv\\b/",
+          "group": "3_copy@1"
+        },
+        {
+          "command": "acc.step.fix",
+          "when": "view == acc.setup && viewItem =~ /\\bstepFixable\\b/",
+          "group": "inline@1"
+        },
+        {
+          "command": "acc.step.check",
+          "when": "view == acc.setup && viewItem =~ /\\bstep\\b/",
+          "group": "1_step@1"
+        },
+        {
+          "command": "acc.step.fix",
+          "when": "view == acc.setup && viewItem =~ /\\bstepFixable\\b/",
+          "group": "1_step@2"
+        },
+        {
+          "command": "acc.step.openSetup",
+          "when": "view == acc.setup && viewItem =~ /\\bstepSetup\\b/",
+          "group": "1_step@3"
+        },
+        {
+          "command": "acc.openGuide",
+          "when": "view == acc.setup && viewItem =~ /\\bstepDocs\\b/",
+          "group": "1_step@4"
         }
       ]
     },
@@ -423,6 +860,72 @@
             ]
           }
         ]
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "acc",
+          "title": "Agent Command Center",
+          "icon": "media/acc.svg"
+        }
+      ]
+    },
+    "views": {
+      "acc": [
+        {
+          "id": "acc.tasks",
+          "name": "Tasks",
+          "icon": "media/acc.svg",
+          "contextualTitle": "Agent Command Center"
+        },
+        {
+          "id": "acc.agents",
+          "name": "Agents"
+        },
+        {
+          "id": "acc.worktrees",
+          "name": "Worktrees"
+        },
+        {
+          "id": "acc.environments",
+          "name": "Environments"
+        },
+        {
+          "id": "acc.setup",
+          "name": "Setup",
+          "visibility": "collapsed"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "acc.tasks",
+        "when": "!acc.hasProject",
+        "contents": "This workspace has no Agent Command Center project yet.\n[Onboard this project](command:acc.openProjectWalkthrough)\nThe walkthrough sets up the config, GitHub account, branches and checks."
+      },
+      {
+        "view": "acc.tasks",
+        "when": "acc.hasProject",
+        "contents": "No tasks yet. Tasks are tickets for agents to work on.\n[Add a task](command:acc.task.add)\n[Import GitHub issues](command:acc.task.importGithub)\nJira import arrives with the plugin (M6). Dispatching tasks to agents arrives with M3."
+      },
+      {
+        "view": "acc.agents",
+        "contents": "No Claude Code sessions are running on this machine.\n[Start a background agent](command:acc.agent.new)\nBackground agents keep working when the terminal closes, and edit in their own worktree."
+      },
+      {
+        "view": "acc.worktrees",
+        "when": "!acc.hasProject",
+        "contents": "Worktrees appear here once this folder is an onboarded project.\n[Onboard this project](command:acc.openProjectWalkthrough)"
+      },
+      {
+        "view": "acc.environments",
+        "when": "!acc.hasProject",
+        "contents": "Environments (branches and their orgs) appear here once this folder is an onboarded project.\n[Onboard this project](command:acc.openProjectWalkthrough)"
+      },
+      {
+        "view": "acc.setup",
+        "contents": "Checking setup…\n[Check now](command:acc.setup.refresh)"
       }
     ]
   }

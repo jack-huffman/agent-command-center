@@ -339,6 +339,27 @@ export function moveTask(
   });
 }
 
+export interface AllowedMove {
+  to: State;
+  needsReason: boolean;
+  /** Why the move would be refused right now, apart from a missing reason. Empty means it would go through. */
+  problems: string[];
+}
+
+/** The moves a given actor may make from a task's current state, with what would stop each one. */
+export function allowedMoves(ledger: Ledger, config: Config, task: Task, actor: Actor, hooks: Hooks): AllowedMove[] {
+  const moves: AllowedMove[] = [];
+  for (const to of STATES) {
+    if (to === task.state) continue;
+    const rule = findRule(task.state, to);
+    if (!rule || !rule.actors.includes(actor)) continue;
+    const needsReason = rule.requires.includes('reason');
+    const problems = checkMove(ledger, config, task, { to, actor, by: actor, reason: needsReason ? 'reason given' : null }, hooks);
+    moves.push({ to, needsReason, problems });
+  }
+  return moves;
+}
+
 // ---------------------------------------------------------------- derived states
 
 export function isReady(ledger: Ledger, task: Task): boolean {

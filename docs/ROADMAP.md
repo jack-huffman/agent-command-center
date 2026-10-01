@@ -14,12 +14,13 @@ extension. Its open questions are listed at the end.
 The build follows the milestones in [DESIGN.md section 18](DESIGN.md#18-build-order):
 
 1. **M1** Core, CLI and onboarding checks
-2. **M2** Walkthrough: the first GUI, a guided setup in VSCode
+2. **M2** Walkthrough: the first GUI, a guided setup in VSCode. Then the sidebar,
+   pulled forward from M7 (D-020): Tasks, Agents, Worktrees, Environments, Setup
 3. **M3** Dispatch
 4. **M4** Gates
 5. **M5** Review and landing
 6. **M6** Plugin
-7. **M7** Extension views
+7. **M7** Extension views: the board webview, notifications, richer agent controls
 8. **M8** Pilots
 
 Each milestone is filed as GitHub Issues on this repo. From M3 on, the work is

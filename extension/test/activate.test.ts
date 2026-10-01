@@ -1,6 +1,7 @@
 // Loads the built extension with a stand-in for the vscode API, so activation, commands and context
 // keys are tested without a VSCode window. Run after npm run build.
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import Module, { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -15,7 +16,13 @@ const event = () => () => disposable;
 function fakeVscode(folder: string) {
   const calls = { commands: new Map<string, (...a: unknown[]) => unknown>(), contexts: new Map<string, unknown>(), info: [] as string[], warn: [] as string[], terminal: [] as string[] };
   const status = { text: '', tooltip: '', command: '', backgroundColor: undefined as unknown, name: '', shown: false, show() { this.shown = true; }, hide() { this.shown = false; }, dispose() {} };
+  const trees = new Map<string, { getChildren(e?: unknown): unknown[]; getTreeItem(e: unknown): { label: string; description?: string } }>();
+  class EventEmitter { private ls: ((e: unknown) => void)[] = []; event = (l: (e: unknown) => void) => { this.ls.push(l); return disposable; }; fire(e?: unknown) { for (const l of this.ls) l(e); } dispose() {} }
+  class TreeItem { label: string; collapsibleState: number; [k: string]: unknown; constructor(label: string, state = 0) { this.label = label; this.collapsibleState = state; } }
+  class MarkdownString { value: string; supportThemeIcons = false; constructor(v = '') { this.value = v; } }
   const api = {
+    EventEmitter, TreeItem, MarkdownString,
+    TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 },
     StatusBarAlignment: { Left: 1, Right: 2 },
     ProgressLocation: { SourceControl: 1, Window: 10, Notification: 15 },
     ThemeIcon: class { id: string; constructor(id: string) { this.id = id; } },
@@ -33,20 +40,24 @@ function fakeVscode(folder: string) {
       onDidCloseTerminal: event(),
       onDidChangeActiveTextEditor: event(),
       activeTextEditor: undefined,
+      createTreeView: (id: string, o: { treeDataProvider: never }) => { trees.set(id, o.treeDataProvider); return { visible: false, onDidChangeVisibility: event(), badge: undefined, dispose() {} }; },
+      showInputBox: async () => undefined,
+      showTextDocument: async () => undefined,
     },
     workspace: {
       workspaceFolders: [{ uri: { fsPath: folder }, name: 'repo', index: 0 }],
       getWorkspaceFolder: () => undefined,
       createFileSystemWatcher: () => ({ onDidChange: event(), onDidCreate: event(), onDidDelete: event(), dispose() {} }),
       onDidChangeWorkspaceFolders: event(),
+      openTextDocument: async () => ({}),
     },
     commands: {
       registerCommand: (id: string, fn: (...a: unknown[]) => unknown) => { calls.commands.set(id, fn); return disposable; },
       executeCommand: async (id: string, ...args: unknown[]) => { if (id === 'setContext') calls.contexts.set(args[0] as string, args[1]); return undefined; },
     },
-    env: { openExternal: async () => true },
+    env: { openExternal: async () => true, clipboard: { writeText: async () => {} } },
   };
-  return { api, calls, status };
+  return { api, calls, status, trees };
 }
 
 function memento(initial: Record<string, unknown> = {}) {
@@ -64,7 +75,7 @@ async function until(fn: () => boolean, ms = 20_000): Promise<void> {
 
 test('activation registers the commands, adds acc to PATH, and ticks the steps that pass', async () => {
   const repo = makeRepo({ '.acc/config.json': JSON.stringify({ schema: 1, project: 'Tool', environments: [{ name: 'main', default: true }] }) });
-  const { api, calls, status } = fakeVscode(repo);
+  const { api, calls, status, trees } = fakeVscode(repo);
   const load = (Module as unknown as { _load: (r: string, ...a: unknown[]) => unknown })._load;
   (Module as unknown as { _load: unknown })._load = function (request: string, ...rest: unknown[]) {
     return request === 'vscode' ? api : load.call(this, request, ...rest);
@@ -94,6 +105,25 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     assert.equal(calls.contexts.get('acc.step.A1.git'), true, 'reused machine results are applied');
     assert.equal(status.shown, true);
     assert.equal(status.text, '$(check) Setup done');
+
+    // The sidebar: five views, and a task added through acc shows up grouped as Ready.
+    assert.deepEqual([...trees.keys()].sort(), ['acc.agents', 'acc.environments', 'acc.setup', 'acc.tasks', 'acc.worktrees']);
+    await until(() => calls.contexts.get('acc.hasProject') === true);
+    const accBin = join(extDir, 'dist', 'bin', 'acc');
+    const added = spawnSync(process.execPath, [accBin, 'add', 'Try the sidebar'], { cwd: repo, encoding: 'utf8' });
+    assert.equal(added.status, 0, added.stderr);
+    await calls.commands.get('acc.tasks.refresh')!();
+    const tasks = trees.get('acc.tasks')!;
+    const [group] = tasks.getChildren() as { group: string; tasks: unknown[] }[];
+    assert.equal(group?.group, 'ready');
+    assert.equal(tasks.getTreeItem(group).label, 'Ready (1)');
+    const [task] = tasks.getChildren(group);
+    assert.equal(tasks.getTreeItem(task).label, 'T-1  Try the sidebar');
+    const envs = trees.get('acc.environments')!;
+    assert.equal(envs.getTreeItem(envs.getChildren()[0]).label, 'main');
+    const wts = trees.get('acc.worktrees')!;
+    await calls.commands.get('acc.worktrees.refresh')!();
+    assert.match(String(wts.getTreeItem(wts.getChildren()[0]).description), /main checkout · clean/);
 
     await calls.commands.get(COMMANDS.check)!('B0.repo');
     assert.match(calls.info.at(-1) ?? '', /^✓ Inside the project's repo: Repo at /);

@@ -462,6 +462,22 @@ Clean up, Intake, Open packet, Open pull request, Block or unblock, and Refresh.
 
 The extension handles every workspace folder that has `.acc/config.json`.
 
+### Sidebar (built after M2, D-020)
+
+The Activity Bar's **Agent Command Center** container holds five views. Each
+polls only while it's visible.
+
+| View | Source | Actions |
+|---|---|---|
+| **Tasks** | The ledger, read directly; changes go through `acc` | Add, import GitHub issues, move (only moves the rules allow, with what stops each), block, unblock, open ticket, details |
+| **Agents** | `claude agents --json`, every 5 s | Start a background agent, attach, logs, stop, open folder. Items that need a person sort first and show an activity-bar badge |
+| **Worktrees** | `git worktree list` and `git status` | Open in a window, terminal, Finder. Remove refuses uncommitted or unpushed work |
+| **Environments** | Config and the checked-out branch | Open the org, open the branch on GitHub, compare with Production |
+| **Setup** | The same checks as `acc doctor`, live | Check, Do it, Open in Salesforce, guide |
+
+Every item states its condition in words, with an icon in the theme's orange
+(look at this) or blue (moving or fine).
+
 ### Walkthrough
 
 The extension's first feature is a guided setup, built on VSCode's walkthroughs

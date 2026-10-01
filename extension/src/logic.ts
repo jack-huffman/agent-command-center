@@ -182,3 +182,101 @@ export function productionOrgs(sfOrgList: unknown): string[] {
 
 export const initCommand = (profile: 'salesforce' | 'generic', productionOrg?: string): string =>
   profile === 'salesforce' ? `acc init --profile salesforce --production-org "${productionOrg}"` : 'acc init --profile generic';
+
+// ---------------------------------------------------------------- sidebar (views)
+
+export type Tone = 'orange' | 'blue' | 'neutral';
+/** Orange means look at this, blue means moving or fine. Every item also carries its meaning in words. */
+export const TONE_COLOR: Record<Tone, string | undefined> = { orange: 'charts.orange', blue: 'charts.blue', neutral: undefined };
+
+export const TASK_GROUPS = ['needs-you', 'ready', 'running', 'review', 'rework', 'blocked', 'todo', 'done'] as const;
+export type TaskGroup = (typeof TASK_GROUPS)[number];
+
+export interface TaskRow {
+  id: string;
+  title: string;
+  state: string;
+  display: TaskGroup;
+  environment: string;
+  deps: string[];
+  source: { kind: string; url: string | null };
+}
+
+export function groupTasks(rows: TaskRow[]): { group: TaskGroup; tasks: TaskRow[] }[] {
+  return TASK_GROUPS.map((group) => ({ group, tasks: rows.filter((r) => r.display === group) })).filter((g) => g.tasks.length);
+}
+
+/** A Claude Code session as `claude agents --json` reports it. Background-only fields are optional. */
+export interface AgentSession {
+  cwd: string;
+  kind: 'interactive' | 'background' | string;
+  startedAt: number;
+  sessionId?: string;
+  name?: string;
+  pid?: number;
+  status?: 'busy' | 'waiting' | 'idle' | string;
+  /** Background sessions only: working, blocked, done, failed, stopped. */
+  state?: string;
+  waitingFor?: string;
+  /** Background sessions only: the short id `claude attach` takes. */
+  id?: string;
+}
+
+export interface AgentLook {
+  label: string;
+  icon: string;
+  tone: Tone;
+  needsYou: boolean;
+}
+
+export function agentLook(s: AgentSession): AgentLook {
+  if (s.state === 'blocked' || s.status === 'waiting') return { label: s.waitingFor ? `Needs you: ${s.waitingFor}` : 'Needs you', icon: 'bell', tone: 'orange', needsYou: true };
+  if (s.state === 'failed') return { label: 'Failed', icon: 'warning', tone: 'orange', needsYou: true };
+  if (s.state === 'working' || s.status === 'busy') return { label: 'Working', icon: 'sync~spin', tone: 'blue', needsYou: false };
+  if (s.state === 'done') return { label: 'Done', icon: 'check', tone: 'neutral', needsYou: false };
+  if (s.state === 'stopped') return { label: 'Stopped', icon: 'debug-stop', tone: 'neutral', needsYou: false };
+  return { label: s.pid ? 'Idle' : 'Idle (exited)', icon: 'circle-outline', tone: 'neutral', needsYou: false };
+}
+
+export const isUnder = (path: string, root: string): boolean => path === root || path.startsWith(root.endsWith('/') ? root : `${root}/`);
+
+export interface Worktree {
+  path: string;
+  head: string;
+  branch: string | null;
+  bare: boolean;
+  locked: boolean;
+  prunable: boolean;
+}
+
+/** Parses `git worktree list --porcelain`. The first entry is the main checkout. */
+export function parseWorktrees(porcelain: string): Worktree[] {
+  const out: Worktree[] = [];
+  for (const block of porcelain.trim().split(/\n\s*\n/)) {
+    if (!block.trim()) continue;
+    const w: Worktree = { path: '', head: '', branch: null, bare: false, locked: false, prunable: false };
+    for (const line of block.split('\n')) {
+      const [key, ...restParts] = line.split(' ');
+      const rest = restParts.join(' ');
+      if (key === 'worktree') w.path = rest;
+      else if (key === 'HEAD') w.head = rest;
+      else if (key === 'branch') w.branch = rest.replace(/^refs\/heads\//, '');
+      else if (key === 'bare') w.bare = true;
+      else if (key === 'locked') w.locked = true;
+      else if (key === 'prunable') w.prunable = true;
+    }
+    if (w.path) out.push(w);
+  }
+  return out;
+}
+
+export const ENV_ICON: Record<string, string> = {
+  production: 'shield', full: 'server-environment', partial: 'server-environment', developer: 'beaker', developer_pro: 'beaker', none: 'git-branch',
+};
+
+/** A short session name from an agent prompt: "Fix the login page" → "fix-the-login-page". */
+export function agentName(prompt: string): string {
+  return prompt.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').split('-').slice(0, 5).join('-') || 'agent';
+}
+
+export const githubBranchUrl = (repo: string, branch: string): string => `https://github.com/${repo}/tree/${encodeURIComponent(branch)}`;
