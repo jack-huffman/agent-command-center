@@ -8,7 +8,8 @@ change once earlier ones show what is actually needed.
 Write `docs/DESIGN.md` and review it before building anything:
 
 - the ledger schema (task fields, states, legal transitions, history)
-- the per-repo config file (trackers, trunk branch, profile, checks, agent cap)
+- the per-repo config file (trackers, trunk branch, profile, checks, agent cap,
+  GitHub account and commit identity)
 - profiles: what `generic` and `salesforce` run at each gate
 - the dispatch packet: what a new agent is told about its task
 - the hooks: which events, what each one guards or records
