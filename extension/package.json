@@ -2,7 +2,7 @@
   "name": "agent-command-center",
   "displayName": "Agent Command Center",
   "description": "Set up projects for parallel Claude Code agents, then run and watch them from VSCode.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "JackHuffman",
   "private": true,
   "license": "UNLICENSED",
@@ -206,7 +206,7 @@
           {
             "id": "B0.repo",
             "title": "Inside the project's repo",
-            "description": "Everything per-project hangs off the repo: config, branches, and the ledger in the git directory (D-008).\n\n[Check](command:acc.step.check?%5B%22B0.repo%22%5D)",
+            "description": "Everything per-project hangs off the repo: config, branches, and the ledger in the git directory (D-008).\n\n[Check](command:acc.step.check?%5B%22B0.repo%22%5D)\n[Do it](command:acc.step.fix?%5B%22B0.repo%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B0.repo%22%5D)",
             "media": {
               "markdown": "media/steps/B0.repo.md"
             },

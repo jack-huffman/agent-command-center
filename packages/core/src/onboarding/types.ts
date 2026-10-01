@@ -9,6 +9,8 @@ export interface CheckResult {
   detail: string;
   /** A fix specific to this result, when it differs from the step's usual fix. */
   fix?: string;
+  /** A folder the person should open instead, such as the project's repo next to an old copy. */
+  open?: string;
 }
 
 export interface Fix {

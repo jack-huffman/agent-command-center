@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, dirname, join } from 'node:path';
+import { basename, delimiter, dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { type Config, parseConfig } from '../../packages/core/src/config.ts';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
@@ -228,9 +228,11 @@ class Setup implements vscode.Disposable {
       const pick = await vscode.window.showInformationMessage(`? ${step.title}: ${item.detail}`, 'I\'ve done this');
       if (pick) await this.confirm(id);
     } else {
-      const actions = [item.fix || step.fix?.command ? 'Do it' : undefined, step.fix?.docs ? 'Read the guide' : undefined, 'Show log'].filter(Boolean) as string[];
+      const openLabel = item.open ? `Open ${basename(item.open)}` : undefined;
+      const actions = [openLabel, !item.open && (item.fix || step.fix?.command) ? 'Do it' : undefined, step.fix?.docs ? 'Read the guide' : undefined, 'Show log'].filter(Boolean) as string[];
       const pick = await vscode.window.showWarningMessage(`✗ ${step.title}: ${item.detail}`, ...actions);
-      if (pick === 'Do it') await this.fix(id);
+      if (pick && pick === openLabel) await this.openFolder(item.open!);
+      else if (pick === 'Do it') await this.fix(id);
       else if (pick === 'Read the guide') await this.openGuide(id);
       else if (pick === 'Show log') this.log.show();
     }
@@ -246,6 +248,7 @@ class Setup implements vscode.Disposable {
       void vscode.window.showInformationMessage(`✓ ${step.title} is already done: ${item.detail}`);
       return;
     }
+    if (item?.open) return this.openFolder(item.open);
     const command = item?.fix || step.fix?.command;
     if (command) return this.runInTerminal(command, id);
     const pick = await vscode.window.showWarningMessage(`${step.title}: ${item?.detail ?? 'needs attention'}. There's no single command for this one.`, ...(step.fix?.docs ? ['Read the guide'] : []));
@@ -268,6 +271,12 @@ class Setup implements vscode.Disposable {
     if (!env?.org) return;
     this.runInTerminal(sfOpenCommand(env.org, path));
     if (step.fix?.text) void vscode.window.showInformationMessage(`In ${env.name}: ${step.fix.text} Then click Check.`, 'Check').then((p) => p && this.check(id));
+  }
+
+  async openFolder(path: string): Promise<void> {
+    const pick = await vscode.window.showInformationMessage(`Open ${path}?`, { modal: true, detail: 'This replaces the folder open in this window.' }, 'Open', 'Open in New Window');
+    if (!pick) return;
+    await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(path), { forceNewWindow: pick === 'Open in New Window' });
   }
 
   async confirm(id: string): Promise<void> {

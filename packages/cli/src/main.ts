@@ -74,6 +74,7 @@ function renderSteps(results: StepResult[], guided: boolean): string {
     if (result.status === 'fail' || result.status === 'unknown') {
       const fix = result.fix ?? step.fix?.command ?? step.fix?.text;
       if (fix) lines.push(`      fix: ${fix}`);
+      if (result.open) lines.push(`      open: ${result.open}`);
       if (step.fix?.docs) lines.push(`      docs: ${step.fix.docs}`);
     }
   }
@@ -98,7 +99,7 @@ function cmdDoctor(o: Opts, guided: boolean): number {
   const results = runSteps(ctx, part, only);
   out(o, () => renderSteps(results, guided), results.map(({ step, result }) => ({
     id: step.id, part: step.part, group: step.group, title: step.title, why: step.why, planned: step.planned ?? null,
-    status: result.status, detail: result.detail, fix: result.fix ?? null, howTo: step.fix ?? null,
+    status: result.status, detail: result.detail, fix: result.fix ?? null, howTo: step.fix ?? null, open: result.open ?? null,
   })));
   return results.some((r) => r.result.status === 'fail') ? 1 : 0;
 }

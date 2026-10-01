@@ -1,5 +1,5 @@
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { branchFor, type Environment } from '../config.ts';
 import {
   fail, firstVersion, ghEnv, LICENSE_TO_TYPE, parseOrgUrl, pass, readText, SECRET_PATTERN, sfJson, skip, unknown, versionAtLeast,
@@ -15,6 +15,25 @@ function needsProject(ctx: CheckContext): CheckResult | null {
   if (!ctx.paths) return skip('Not inside a repo.');
   if (!ctx.config) return skip('Needs a valid .acc/config.json first (step B0).');
   return null;
+}
+
+/**
+ * A repo near an old project folder: the folder itself, its siblings, or their parent. A repo that has
+ * an acc config wins over one that only has sfdx-project.json. Only the filesystem is read.
+ */
+export function nearbyRepo(cwd: string): string | null {
+  const isRepo = (d: string) => existsSync(join(d, '.git'));
+  const parent = dirname(cwd);
+  let siblings: string[] = [];
+  try {
+    siblings = readdirSync(parent, { withFileTypes: true }).filter((e) => e.isDirectory() && !e.name.startsWith('.')).map((e) => join(parent, e.name));
+  } catch {
+    siblings = [];
+  }
+  const candidates = [...siblings.filter((d) => d !== cwd), parent].filter(isRepo);
+  return candidates.find((d) => existsSync(join(d, '.acc', 'config.json')))
+    ?? candidates.find((d) => existsSync(join(d, 'sfdx-project.json')))
+    ?? null;
 }
 
 const sfEnvs = (ctx: CheckContext): Environment[] => (ctx.config?.environments ?? []).filter((e) => e.type !== 'none');
@@ -97,7 +116,16 @@ export const STEPS: Step[] = [
   {
     id: 'B0.repo', part: 'project', group: 'B0', title: 'Inside the project\'s repo',
     why: 'Everything per-project hangs off the repo: config, branches, and the ledger in the git directory (D-008).',
-    check: (ctx) => (ctx.paths ? pass(`Repo at ${ctx.paths.root}`) : fail('Run this inside the project\'s repo.')),
+    fix: { fromCheck: true, docs: `${DOCS}#b1-decide-where-everything-lives` },
+    check(ctx) {
+      if (ctx.paths) return pass(`Repo at ${ctx.paths.root}`);
+      const near = nearbyRepo(ctx.cwd);
+      if (near) return { status: 'fail', detail: `This folder isn't a git repo. The project's repo looks like ${near}. Open that folder instead.`, open: near };
+      const sfdx = existsSync(join(ctx.cwd, 'sfdx-project.json'));
+      return fail(sfdx
+        ? 'This Salesforce folder isn\'t a git repo yet. Onboarding starts with the client\'s repo (guide steps B1 and B2).'
+        : 'This folder isn\'t a git repo. Open the project\'s repo folder.');
+    },
   },
   {
     id: 'B0.config', part: 'project', group: 'B0', title: 'Project config',

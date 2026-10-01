@@ -186,3 +186,24 @@ test('a single-environment project skips the README environment map', () => {
   const res = runSteps(ctx, 'project').find((x) => x.step.id === 'B10.readme')!.result;
   assert.equal(res.status, 'skip');
 });
+
+test('outside a repo, B0.repo points at the project repo next to an old folder', () => {
+  const parent = tempDir();
+  const old = join(parent, 'Client Production');
+  mkdirSync(old);
+  writeFileSync(join(old, 'sfdx-project.json'), '{}');
+  const repo = join(parent, 'Client');
+  mkdirSync(join(repo, '.git'), { recursive: true });
+  mkdirSync(join(repo, '.acc'));
+  writeFileSync(join(repo, '.acc', 'config.json'), '{}');
+  const res = runSteps(makeContext(old, fakeRunner({})), 'project').find((x) => x.step.id === 'B0.repo')!.result;
+  assert.equal(res.status, 'fail');
+  assert.equal(res.open, repo);
+  assert.match(res.detail, /isn't a git repo. The project's repo looks like .*Client. Open that folder instead/);
+  const lonely = join(tempDir(), 'Other Sandbox');
+  mkdirSync(lonely);
+  writeFileSync(join(lonely, 'sfdx-project.json'), '{}');
+  const none = runSteps(makeContext(lonely, fakeRunner({})), 'project').find((x) => x.step.id === 'B0.repo')!.result;
+  assert.equal(none.open, undefined);
+  assert.match(none.detail, /isn't a git repo yet. Onboarding starts with the client's repo/);
+});

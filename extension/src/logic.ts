@@ -108,7 +108,9 @@ export interface DoctorItem {
   title: string;
   status: CheckStatus;
   detail: string;
-  fix?: string;
+  fix?: string | null;
+  /** A folder to open instead, when the current one is an old copy beside the repo. */
+  open?: string | null;
 }
 
 /** A step counts as complete when it passes, doesn't apply (skip), or a person confirmed it. */

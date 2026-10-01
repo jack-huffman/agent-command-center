@@ -64,7 +64,7 @@ test('buttons match what each step needs', () => {
   assert.deepEqual(labels('B2.identity'), ['Check', 'Do it'], 'the check supplies the exact command');
   assert.deepEqual(labels('B8.tracking'), ['Check', 'Open in Salesforce', 'Read the guide'], 'a click only a person can make');
   assert.deepEqual(labels('A3.trackers'), ['Check', 'I\'ve done this'], 'nothing here can check claude.ai connectors');
-  assert.deepEqual(labels('B0.repo'), ['Check']);
+  assert.deepEqual(labels('B0.repo'), ['Check', 'Do it', 'Read the guide'], 'opens the repo beside an old folder');
 });
 
 test('internal step commands are hidden from the Command Palette', () => {
