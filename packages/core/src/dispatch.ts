@@ -77,6 +77,8 @@ export interface PacketInput {
   branch: string;
   rules: string | null;
   environmentSpecific: string[];
+  /** The full path of the acc executable, given as a fallback in case an agent doubts it's on PATH. */
+  accPath?: string;
 }
 
 function commitRef(task: Task): string {
@@ -139,7 +141,8 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean }): stri
   }
   lines.push(
     '2. **Commit** everything the task needs. Leave nothing uncommitted.',
-    `3. **Finish** with \`acc done\`. If you're stuck, run \`acc block "<what you need>"\` instead, and stop.`,
+    '3. **Finish** by running exactly `acc done`, as its own command. It is already on your PATH and pre-approved. Don\'t run it through npm scripts, `npx`, or other wrappers, and don\'t chain it with other commands, or it will stop for permission. If you\'re stuck, run exactly `acc block "<what you need>"` instead, and stop.',
+    ...(p.accPath ? [`   If \`acc\` really isn't found, its full path is \`${p.accPath}\`.`] : []),
     '4. **Summarize** in your final message: what changed, how you checked it, and anything a reviewer should look at.',
     '',
     '## Never',
@@ -313,7 +316,7 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
   setupWorktree(run, config, env, main, wt);
 
   const rules = existsSync(join(wt, '.acc', 'rules.md')) ? readFileSync(join(wt, '.acc', 'rules.md'), 'utf8') : null;
-  const packet = renderPacket({ task: found, config, env, worktree: wt, branch, rules, environmentSpecific: readList(wt, config.environmentSpecific), enterWorktree: enter && !opts.foreground });
+  const packet = renderPacket({ task: found, config, env, worktree: wt, branch, rules, environmentSpecific: readList(wt, config.environmentSpecific), enterWorktree: enter && !opts.foreground, accPath: join(deps.accBinDir, 'acc') });
   mkdirSync(paths.packets, { recursive: true });
   const packetPath = join(paths.packets, `${found.id}.md`);
   writeFileSync(packetPath, packet);

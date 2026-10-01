@@ -727,7 +727,8 @@ function renderPacket(p) {
   }
   lines.push(
     "2. **Commit** everything the task needs. Leave nothing uncommitted.",
-    `3. **Finish** with \`acc done\`. If you're stuck, run \`acc block "<what you need>"\` instead, and stop.`,
+    "3. **Finish** by running exactly `acc done`, as its own command. It is already on your PATH and pre-approved. Don't run it through npm scripts, `npx`, or other wrappers, and don't chain it with other commands, or it will stop for permission. If you're stuck, run exactly `acc block \"<what you need>\"` instead, and stop.",
+    ...p.accPath ? [`   If \`acc\` really isn't found, its full path is \`${p.accPath}\`.`] : [],
     "4. **Summarize** in your final message: what changed, how you checked it, and anything a reviewer should look at.",
     "",
     "## Never",
@@ -870,7 +871,7 @@ function dispatch(paths, config, id, deps, opts) {
   const reused = ensureWorktree(run2, main2, wt, branch, env);
   setupWorktree(run2, config, env, main2, wt);
   const rules = existsSync4(join4(wt, ".acc", "rules.md")) ? readFileSync5(join4(wt, ".acc", "rules.md"), "utf8") : null;
-  const packet = renderPacket({ task: found, config, env, worktree: wt, branch, rules, environmentSpecific: readList(wt, config.environmentSpecific), enterWorktree: enter && !opts.foreground });
+  const packet = renderPacket({ task: found, config, env, worktree: wt, branch, rules, environmentSpecific: readList(wt, config.environmentSpecific), enterWorktree: enter && !opts.foreground, accPath: join4(deps.accBinDir, "acc") });
   mkdirSync4(paths.packets, { recursive: true });
   const packetPath = join4(paths.packets, `${found.id}.md`);
   writeFileSync4(packetPath, packet);

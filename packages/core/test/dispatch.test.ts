@@ -74,6 +74,10 @@ test('the packet tells a Salesforce builder where it is, how to finish, and what
     assert.ok(p.includes(must), must);
   }
   assert.ok(!p.includes('refs #'), 'Jira tasks don\'t get GitHub refs');
+  assert.ok(p.includes('running exactly `acc done`, as its own command'), 'the finish line is a bare acc done');
+  assert.ok(p.includes('npm scripts'), 'wrappers are ruled out');
+  const withPath = renderPacket({ task: l.tasks[0]!, config, env, worktree: '/w', branch: 'b', rules: null, environmentSpecific: [], accPath: '/opt/acc/bin/acc' });
+  assert.ok(withPath.includes('its full path is `/opt/acc/bin/acc`'));
 });
 
 test('builder settings: identity, acc on PATH, and the dangerous commands denied even if the user allows them', () => {
