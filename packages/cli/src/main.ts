@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
   ACTORS, AccError, type Actor, configureRepoAccess, displayState, isReady, loadConfig, makeContext, moveTask, mutate,
-  planInit, type Profile, readLedger, receiptHooks, repoPaths, run, runSteps, type State, type StepResult, type TaskInput,
+  planInit, type Profile, readLedger, STEPS, receiptHooks, repoPaths, run, runSteps, type State, type StepResult, type TaskInput,
   upsertTasks, writeConfig,
 } from '../../core/src/index.ts';
 import { checkLabel, stateLabel, table, tone } from './format.ts';
@@ -15,7 +15,8 @@ const now = () => new Date();
 const HELP = `acc ${VERSION}: Agent Command Center
 
 Setup
-  acc doctor [--part machine|project]   Check every onboarding step and print the fixes
+  acc doctor [--part machine|project] [--step <id>]...
+                                        Check the onboarding steps and print the fixes
   acc onboard                           The same checks as a guided list, with the next step to do
   acc init --profile salesforce --production-org <alias> [--project <name>] [--github-repo <o/r>]
            [--github-account <a>] [--commit-name <n> --commit-email <e>] [--configure-git]
@@ -91,9 +92,13 @@ function cmdDoctor(o: Opts, guided: boolean): number {
   const ctx = makeContext(process.cwd(), run);
   const part = o.part as 'machine' | 'project' | undefined;
   if (part && part !== 'machine' && part !== 'project') throw new AccError('usage', '--part must be machine or project.');
-  const results = runSteps(ctx, part);
+  const only = (o.step as string[] | undefined) ?? [];
+  const unknownIds = only.filter((id) => !STEPS.some((s) => s.id === id));
+  if (unknownIds.length) throw new AccError('usage', `No step ${unknownIds.join(', ')}. Run acc doctor to see them all.`);
+  const results = runSteps(ctx, part, only);
   out(o, () => renderSteps(results, guided), results.map(({ step, result }) => ({
-    id: step.id, part: step.part, group: step.group, title: step.title, why: step.why, fix: step.fix ?? null, ...result,
+    id: step.id, part: step.part, group: step.group, title: step.title, why: step.why, planned: step.planned ?? null,
+    status: result.status, detail: result.detail, fix: result.fix ?? null, howTo: step.fix ?? null,
   })));
   return results.some((r) => r.result.status === 'fail') ? 1 : 0;
 }
@@ -216,6 +221,7 @@ export async function main(argv: string[]): Promise<number> {
       help: { type: 'boolean', short: 'h', default: false },
       version: { type: 'boolean', default: false },
       part: { type: 'string' },
+      step: { type: 'string', multiple: true },
       profile: { type: 'string' },
       project: { type: 'string' },
       'production-org': { type: 'string' },

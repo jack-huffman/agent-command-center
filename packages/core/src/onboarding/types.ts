@@ -19,6 +19,8 @@ export interface Fix {
   /** Plain instructions, for clicks only a person can make. */
   text?: string;
   docs?: string;
+  /** The check returns the exact command for this repo (CheckResult.fix), so "Do it" can run it. */
+  fromCheck?: true;
 }
 
 export interface CheckContext {
@@ -44,6 +46,8 @@ export interface Step {
   /** Profiles this step applies to. Absent means every profile. */
   profiles?: Profile[];
   fix?: Fix;
+  /** The milestone that builds this step's check. Planned steps show in doctor but not in the walkthrough. */
+  planned?: string;
   check(ctx: CheckContext): CheckResult;
 }
 

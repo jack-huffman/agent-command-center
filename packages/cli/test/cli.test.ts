@@ -105,3 +105,10 @@ test('commands that need a config say how to get one', () => {
   assert.match(r.err, /Run "acc init" first/);
   assert.match(acc(makeRepo(), ['list', '--json']).out, /"error":\s*"no-config"/);
 });
+
+test('doctor --step runs only the named checks, and rejects unknown ids', () => {
+  const dir = repoWithConfig();
+  const r = acc(dir, ['doctor', '--step', 'B0.config', '--step', 'B0.repo', '--json']).json() as { id: string }[];
+  assert.deepEqual(r.map((x) => x.id).sort(), ['B0.config', 'B0.repo']);
+  assert.equal(acc(dir, ['doctor', '--step', 'Z9.nope']).code, 2);
+});

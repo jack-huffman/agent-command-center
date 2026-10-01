@@ -89,6 +89,7 @@ export const STEPS: Step[] = [
   {
     id: 'A4.plugin', part: 'machine', group: 'A4', title: 'The acc plugin',
     why: 'Gives every agent the acc command, the guard hooks and the skills.',
+    planned: 'M6',
     check: () => skip('The plugin arrives with milestone M6.'),
   },
 
@@ -144,6 +145,7 @@ export const STEPS: Step[] = [
   {
     id: 'B2.identity', part: 'project', group: 'B2', title: 'Commit identity',
     why: 'Commits in this repo carry its own name and email, set in the repo only.',
+    fix: { fromCheck: true },
     check(ctx) {
       const need = needsProject(ctx);
       if (need) return need;
@@ -160,6 +162,7 @@ export const STEPS: Step[] = [
   {
     id: 'B2.account', part: 'project', group: 'B2', title: 'The repo\'s GitHub account is logged in',
     why: 'acc runs every gh call for this repo as its own account (D-007).',
+    fix: { fromCheck: true },
     check(ctx) {
       const need = needsProject(ctx);
       if (need) return need;
@@ -171,6 +174,7 @@ export const STEPS: Step[] = [
   {
     id: 'B2.credentials', part: 'project', group: 'B2', title: 'git pushes as the right account',
     why: 'gh\'s own credential helper ignores the username and uses the active account, so a repo can silently push as the wrong one.',
+    fix: { fromCheck: true },
     check(ctx) {
       const need = needsProject(ctx);
       if (need) return need;
@@ -191,6 +195,7 @@ export const STEPS: Step[] = [
   {
     id: 'B3.gitignore', part: 'project', group: 'B3', title: 'Client data blocked at the repo root', profiles: ['salesforce'],
     why: 'A backstop. The real safeguard is keeping client data in the Working Files folder.',
+    fix: { fromCheck: true },
     check(ctx) {
       const need = needsProject(ctx);
       if (need) return need;
@@ -202,6 +207,7 @@ export const STEPS: Step[] = [
   {
     id: 'B3.data-files', part: 'project', group: 'B3', title: 'No client data files in git', profiles: ['salesforce'],
     why: 'Contact imports and workbooks belong in the Working Files folder, outside the repo.',
+    fix: { fromCheck: true },
     check(ctx) {
       const need = needsProject(ctx);
       if (need) return need;
@@ -269,6 +275,7 @@ export const STEPS: Step[] = [
   {
     id: 'B6.org-match', part: 'project', group: 'B6', title: 'Each branch points at the right org', profiles: ['salesforce'],
     why: 'A sandbox\'s name is in its URL, so the tool can prove a branch deploys where its name says (D-015).',
+    fix: { fromCheck: true },
     check(ctx) {
       const need = needsProject(ctx);
       if (need) return need;
@@ -309,6 +316,7 @@ export const STEPS: Step[] = [
   {
     id: 'B8.cli-tracking', part: 'project', group: 'B8', title: 'The CLI knows they\'re tracked', profiles: ['salesforce'],
     why: 'An org logged in before tracking was switched on is remembered as untracked.',
+    fix: { fromCheck: true },
     check(ctx) {
       const need = needsProject(ctx);
       if (need) return need;
@@ -349,6 +357,7 @@ export const STEPS: Step[] = [
   {
     id: 'B10.default-branch', part: 'project', group: 'B10', title: 'GitHub\'s default branch is the day-to-day one',
     why: 'New pull requests then target day-to-day work, not a protected environment.',
+    fix: { fromCheck: true },
     check(ctx) {
       const need = needsProject(ctx);
       if (need) return need;
@@ -366,6 +375,7 @@ export const STEPS: Step[] = [
   {
     id: 'B10.default-org', part: 'project', group: 'B10', title: 'The local default org is the day-to-day one', profiles: ['salesforce'],
     why: 'A deploy without --target-org then can\'t reach Production.',
+    fix: { fromCheck: true },
     check(ctx) {
       const need = needsProject(ctx);
       if (need) return need;
@@ -396,6 +406,7 @@ export const STEPS: Step[] = [
   {
     id: 'B11.drift', part: 'project', group: 'B11', title: 'Drift check', profiles: ['salesforce'],
     why: 'Shows what changed in an org since its branch was last updated.',
+    planned: 'M4',
     check: () => skip('acc drift arrives with milestone M4.'),
   },
 ];
@@ -406,8 +417,8 @@ export function applies(step: Step, ctx: CheckContext): boolean {
   return step.profiles.includes(ctx.config.profile);
 }
 
-export function runSteps(ctx: CheckContext, part?: Step['part']): StepResult[] {
-  return STEPS.filter((s) => (!part || s.part === part) && applies(s, ctx)).map((step) => {
+export function runSteps(ctx: CheckContext, part?: Step['part'], only?: string[]): StepResult[] {
+  return STEPS.filter((s) => (!part || s.part === part) && (!only?.length || only.includes(s.id)) && applies(s, ctx)).map((step) => {
     try {
       return { step, result: step.check(ctx) };
     } catch (e) {

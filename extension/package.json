@@ -1,0 +1,429 @@
+{
+  "name": "agent-command-center",
+  "displayName": "Agent Command Center",
+  "description": "Set up projects for parallel Claude Code agents, then run and watch them from VSCode.",
+  "version": "0.1.0",
+  "publisher": "JackHuffman",
+  "private": true,
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jack-huffman/agent-command-center.git"
+  },
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "claude",
+    "agents",
+    "salesforce",
+    "worktrees",
+    "orchestration"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "acc.doctor",
+        "title": "Check setup",
+        "category": "Agent Command Center",
+        "icon": "$(checklist)"
+      },
+      {
+        "command": "acc.openMachineWalkthrough",
+        "title": "Set up this machine",
+        "category": "Agent Command Center"
+      },
+      {
+        "command": "acc.openProjectWalkthrough",
+        "title": "Onboard this project",
+        "category": "Agent Command Center"
+      },
+      {
+        "command": "acc.chooseFolder",
+        "title": "Choose the project folder",
+        "category": "Agent Command Center"
+      },
+      {
+        "command": "acc.openGuide",
+        "title": "Open the onboarding guide",
+        "category": "Agent Command Center"
+      },
+      {
+        "command": "acc.step.check",
+        "title": "Check step",
+        "category": "Agent Command Center"
+      },
+      {
+        "command": "acc.step.fix",
+        "title": "Fix step",
+        "category": "Agent Command Center"
+      },
+      {
+        "command": "acc.step.openSetup",
+        "title": "Open step in Salesforce",
+        "category": "Agent Command Center"
+      },
+      {
+        "command": "acc.step.confirm",
+        "title": "Mark step done",
+        "category": "Agent Command Center"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "acc.step.check",
+          "when": "false"
+        },
+        {
+          "command": "acc.step.fix",
+          "when": "false"
+        },
+        {
+          "command": "acc.step.openSetup",
+          "when": "false"
+        },
+        {
+          "command": "acc.step.confirm",
+          "when": "false"
+        }
+      ]
+    },
+    "walkthroughs": [
+      {
+        "id": "acc.machine",
+        "title": "Agent Command Center: set up this machine",
+        "description": "Tools and accounts the orchestrator needs. Each step ticks itself when its check passes.",
+        "steps": [
+          {
+            "id": "A1.git",
+            "title": "git 2.40 or later",
+            "description": "Worktrees and the shared git directory need a recent git.\n\n[Check](command:acc.step.check?%5B%22A1.git%22%5D)\n[Do it](command:acc.step.fix?%5B%22A1.git%22%5D)",
+            "media": {
+              "markdown": "media/steps/A1.git.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.A1.git"
+            ]
+          },
+          {
+            "id": "A1.node",
+            "title": "Node 20 or later",
+            "description": "The acc CLI runs on Node.\n\n[Check](command:acc.step.check?%5B%22A1.node%22%5D)\n[Do it](command:acc.step.fix?%5B%22A1.node%22%5D)",
+            "media": {
+              "markdown": "media/steps/A1.node.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.A1.node"
+            ]
+          },
+          {
+            "id": "A1.gh",
+            "title": "GitHub CLI",
+            "description": "Pull requests, issues and the per-repo account all go through gh.\n\n[Check](command:acc.step.check?%5B%22A1.gh%22%5D)\n[Do it](command:acc.step.fix?%5B%22A1.gh%22%5D)",
+            "media": {
+              "markdown": "media/steps/A1.gh.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.A1.gh"
+            ]
+          },
+          {
+            "id": "A1.claude",
+            "title": "Claude Code CLI with background sessions",
+            "description": "Builders run as `claude --bg` sessions (D-009). The VSCode extension ships its own copy, so the terminal CLI can fall far behind.\n\n[Check](command:acc.step.check?%5B%22A1.claude%22%5D)\n[Do it](command:acc.step.fix?%5B%22A1.claude%22%5D)",
+            "media": {
+              "markdown": "media/steps/A1.claude.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.A1.claude"
+            ]
+          },
+          {
+            "id": "A1.sf",
+            "title": "Salesforce CLI",
+            "description": "Validation, retrieves and org checks use sf.\n\n[Check](command:acc.step.check?%5B%22A1.sf%22%5D)\n[Do it](command:acc.step.fix?%5B%22A1.sf%22%5D)",
+            "media": {
+              "markdown": "media/steps/A1.sf.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.A1.sf"
+            ],
+            "when": "acc.profile != generic"
+          },
+          {
+            "id": "A1.code-analyzer",
+            "title": "Salesforce Code Analyzer",
+            "description": "The `static` check runs `sf code-analyzer`.\n\n[Check](command:acc.step.check?%5B%22A1.code-analyzer%22%5D)\n[Do it](command:acc.step.fix?%5B%22A1.code-analyzer%22%5D)",
+            "media": {
+              "markdown": "media/steps/A1.code-analyzer.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.A1.code-analyzer"
+            ],
+            "when": "acc.profile != generic"
+          },
+          {
+            "id": "A2.gh-login",
+            "title": "Logged in to GitHub",
+            "description": "Each repo uses its own account through `gh auth token -u`. Never `gh auth switch`, which changes every session.\n\n[Check](command:acc.step.check?%5B%22A2.gh-login%22%5D)\n[Do it](command:acc.step.fix?%5B%22A2.gh-login%22%5D)",
+            "media": {
+              "markdown": "media/steps/A2.gh-login.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.A2.gh-login"
+            ]
+          },
+          {
+            "id": "A3.trackers",
+            "title": "Tracker connectors",
+            "description": "Jira intake goes through the Atlassian connector. GitHub Issues need nothing extra.\n\n[Check](command:acc.step.check?%5B%22A3.trackers%22%5D)\n[I've done this](command:acc.step.confirm?%5B%22A3.trackers%22%5D)",
+            "media": {
+              "markdown": "media/steps/A3.trackers.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.A3.trackers"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "acc.project",
+        "title": "Agent Command Center: onboard a project",
+        "description": "Get a repo ready for parallel agents: config, GitHub account, branches per environment, source tracking and safe defaults.",
+        "featuredFor": [
+          "sfdx-project.json",
+          ".acc/config.json"
+        ],
+        "steps": [
+          {
+            "id": "B0.repo",
+            "title": "Inside the project's repo",
+            "description": "Everything per-project hangs off the repo: config, branches, and the ledger in the git directory (D-008).\n\n[Check](command:acc.step.check?%5B%22B0.repo%22%5D)",
+            "media": {
+              "markdown": "media/steps/B0.repo.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B0.repo"
+            ]
+          },
+          {
+            "id": "B0.config",
+            "title": "Project config",
+            "description": "`.acc/config.json` names the environments, GitHub account and checks.\n\n[Check](command:acc.step.check?%5B%22B0.config%22%5D)\n[Do it](command:acc.step.fix?%5B%22B0.config%22%5D)",
+            "media": {
+              "markdown": "media/steps/B0.config.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B0.config"
+            ]
+          },
+          {
+            "id": "B1.orgs",
+            "title": "Every org is listed",
+            "description": "Pipelines differ by client, so the config lists every sandbox Production has, with its type (D-018).\n\n[Check](command:acc.step.check?%5B%22B1.orgs%22%5D)\n[Do it](command:acc.step.fix?%5B%22B1.orgs%22%5D)",
+            "media": {
+              "markdown": "media/steps/B1.orgs.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B1.orgs"
+            ],
+            "when": "acc.profile != generic"
+          },
+          {
+            "id": "B2.identity",
+            "title": "Commit identity",
+            "description": "Commits in this repo carry its own name and email, set in the repo only.\n\n[Check](command:acc.step.check?%5B%22B2.identity%22%5D)\n[Do it](command:acc.step.fix?%5B%22B2.identity%22%5D)",
+            "media": {
+              "markdown": "media/steps/B2.identity.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B2.identity"
+            ]
+          },
+          {
+            "id": "B2.account",
+            "title": "The repo's GitHub account is logged in",
+            "description": "acc runs every gh call for this repo as its own account (D-007).\n\n[Check](command:acc.step.check?%5B%22B2.account%22%5D)\n[Do it](command:acc.step.fix?%5B%22B2.account%22%5D)",
+            "media": {
+              "markdown": "media/steps/B2.account.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B2.account"
+            ]
+          },
+          {
+            "id": "B2.credentials",
+            "title": "git pushes as the right account",
+            "description": "gh's own credential helper ignores the username and uses the active account, so a repo can silently push as the wrong one.\n\n[Check](command:acc.step.check?%5B%22B2.credentials%22%5D)\n[Do it](command:acc.step.fix?%5B%22B2.credentials%22%5D)",
+            "media": {
+              "markdown": "media/steps/B2.credentials.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B2.credentials"
+            ]
+          },
+          {
+            "id": "B3.gitignore",
+            "title": "Client data blocked at the repo root",
+            "description": "A backstop. The real safeguard is keeping client data in the Working Files folder.\n\n[Check](command:acc.step.check?%5B%22B3.gitignore%22%5D)\n[Do it](command:acc.step.fix?%5B%22B3.gitignore%22%5D)",
+            "media": {
+              "markdown": "media/steps/B3.gitignore.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B3.gitignore"
+            ],
+            "when": "acc.profile != generic"
+          },
+          {
+            "id": "B3.data-files",
+            "title": "No client data files in git",
+            "description": "Contact imports and workbooks belong in the Working Files folder, outside the repo.\n\n[Check](command:acc.step.check?%5B%22B3.data-files%22%5D)\n[Do it](command:acc.step.fix?%5B%22B3.data-files%22%5D)",
+            "media": {
+              "markdown": "media/steps/B3.data-files.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B3.data-files"
+            ],
+            "when": "acc.profile != generic"
+          },
+          {
+            "id": "B3.secrets",
+            "title": "No credentials in tracked files",
+            "description": "Org auth URLs, tokens and private keys must never be committed.\n\n[Check](command:acc.step.check?%5B%22B3.secrets%22%5D)",
+            "media": {
+              "markdown": "media/steps/B3.secrets.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B3.secrets"
+            ]
+          },
+          {
+            "id": "B4.skeleton",
+            "title": "Salesforce project skeleton",
+            "description": "sfdx-project.json defines the source folders, and local tool state must stay out of git.\n\n[Check](command:acc.step.check?%5B%22B4.skeleton%22%5D)",
+            "media": {
+              "markdown": "media/steps/B4.skeleton.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B4.skeleton"
+            ],
+            "when": "acc.profile != generic"
+          },
+          {
+            "id": "B5.baseline",
+            "title": "Baseline manifest",
+            "description": "Every branch is retrieved with the same component list, so a diff between branches is real drift.\n\n[Check](command:acc.step.check?%5B%22B5.baseline%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B5.baseline%22%5D)",
+            "media": {
+              "markdown": "media/steps/B5.baseline.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B5.baseline"
+            ],
+            "when": "acc.profile != generic"
+          },
+          {
+            "id": "B6.branches",
+            "title": "A branch for every environment",
+            "description": "Each environment has its own branch, named after it (D-015).\n\n[Check](command:acc.step.check?%5B%22B6.branches%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B6.branches%22%5D)",
+            "media": {
+              "markdown": "media/steps/B6.branches.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B6.branches"
+            ]
+          },
+          {
+            "id": "B6.org-match",
+            "title": "Each branch points at the right org",
+            "description": "A sandbox's name is in its URL, so the tool can prove a branch deploys where its name says (D-015).\n\n[Check](command:acc.step.check?%5B%22B6.org-match%22%5D)\n[Do it](command:acc.step.fix?%5B%22B6.org-match%22%5D)",
+            "media": {
+              "markdown": "media/steps/B6.org-match.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B6.org-match"
+            ],
+            "when": "acc.profile != generic"
+          },
+          {
+            "id": "B8.tracking",
+            "title": "Developer sandboxes are source tracked",
+            "description": "A Developer sandbox is tracked only if tracking was on when it was created, or switched on inside it afterwards.\n\n[Check](command:acc.step.check?%5B%22B8.tracking%22%5D)\n[Open in Salesforce](command:acc.step.openSetup?%5B%22B8.tracking%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B8.tracking%22%5D)",
+            "media": {
+              "markdown": "media/steps/B8.tracking.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B8.tracking"
+            ],
+            "when": "acc.profile != generic"
+          },
+          {
+            "id": "B8.cli-tracking",
+            "title": "The CLI knows they're tracked",
+            "description": "An org logged in before tracking was switched on is remembered as untracked.\n\n[Check](command:acc.step.check?%5B%22B8.cli-tracking%22%5D)\n[Do it](command:acc.step.fix?%5B%22B8.cli-tracking%22%5D)",
+            "media": {
+              "markdown": "media/steps/B8.cli-tracking.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B8.cli-tracking"
+            ],
+            "when": "acc.profile != generic"
+          },
+          {
+            "id": "B9.lists",
+            "title": "Environment-specific and known-drift lists",
+            "description": "Environment config is never promoted or deployed (D-016), and drift checks need to know what differs by design.\n\n[Check](command:acc.step.check?%5B%22B9.lists%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B9.lists%22%5D)",
+            "media": {
+              "markdown": "media/steps/B9.lists.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B9.lists"
+            ],
+            "when": "acc.profile != generic"
+          },
+          {
+            "id": "B10.default-branch",
+            "title": "GitHub's default branch is the day-to-day one",
+            "description": "New pull requests then target day-to-day work, not a protected environment.\n\n[Check](command:acc.step.check?%5B%22B10.default-branch%22%5D)\n[Do it](command:acc.step.fix?%5B%22B10.default-branch%22%5D)",
+            "media": {
+              "markdown": "media/steps/B10.default-branch.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B10.default-branch"
+            ]
+          },
+          {
+            "id": "B10.default-org",
+            "title": "The local default org is the day-to-day one",
+            "description": "A deploy without --target-org then can't reach Production.\n\n[Check](command:acc.step.check?%5B%22B10.default-org%22%5D)\n[Do it](command:acc.step.fix?%5B%22B10.default-org%22%5D)",
+            "media": {
+              "markdown": "media/steps/B10.default-org.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B10.default-org"
+            ],
+            "when": "acc.profile != generic"
+          },
+          {
+            "id": "B10.readme",
+            "title": "README names every environment",
+            "description": "Anyone opening the repo sees which branch is which org, and how changes flow.\n\n[Check](command:acc.step.check?%5B%22B10.readme%22%5D)",
+            "media": {
+              "markdown": "media/steps/B10.readme.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B10.readme"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
