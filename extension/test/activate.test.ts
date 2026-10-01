@@ -20,14 +20,20 @@ function fakeVscode(folder: string) {
   class EventEmitter { private ls: ((e: unknown) => void)[] = []; event = (l: (e: unknown) => void) => { this.ls.push(l); return disposable; }; fire(e?: unknown) { for (const l of this.ls) l(e); } dispose() {} }
   class TreeItem { label: string; collapsibleState: number; [k: string]: unknown; constructor(label: string, state = 0) { this.label = label; this.collapsibleState = state; } }
   class MarkdownString { value: string; supportThemeIcons = false; constructor(v = '') { this.value = v; } }
+  const panels: { html: string; posted: unknown[]; receive?: (m: unknown) => void }[] = [];
   const api = {
     EventEmitter, TreeItem, MarkdownString,
+    ViewColumn: { Active: -1 },
     TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 },
     StatusBarAlignment: { Left: 1, Right: 2 },
     ProgressLocation: { SourceControl: 1, Window: 10, Notification: 15 },
     ThemeIcon: class { id: string; constructor(id: string) { this.id = id; } },
     ThemeColor: class { id: string; constructor(id: string) { this.id = id; } },
-    Uri: { file: (p: string) => ({ fsPath: p }), parse: (p: string) => ({ fsPath: p }) },
+    Uri: {
+      file: (p: string) => ({ fsPath: p, toString: () => `file://${p}` }),
+      parse: (p: string) => ({ fsPath: p }),
+      joinPath: (u: { fsPath: string }, ...parts: string[]) => ({ fsPath: join(u.fsPath, ...parts), toString: () => `file://${join(u.fsPath, ...parts)}` }),
+    },
     window: {
       createOutputChannel: () => ({ info() {}, warn() {}, error() {}, show() {}, dispose() {} }),
       createStatusBarItem: () => status,
@@ -42,6 +48,20 @@ function fakeVscode(folder: string) {
       activeTextEditor: undefined,
       createTreeView: (id: string, o: { treeDataProvider: never }) => { trees.set(id, o.treeDataProvider); return { visible: false, onDidChangeVisibility: event(), badge: undefined, dispose() {} }; },
       showInputBox: async () => undefined,
+      createWebviewPanel: () => {
+        const rec: { html: string; posted: unknown[]; receive?: (m: unknown) => void } = { html: '', posted: [] };
+        panels.push(rec);
+        return {
+          visible: true, iconPath: undefined, reveal() {}, dispose() {},
+          onDidChangeViewState: event(), onDidDispose: event(),
+          webview: {
+            cspSource: 'vscode-resource:', asWebviewUri: (u: { toString(): string }) => u,
+            set html(v: string) { rec.html = v; }, get html() { return rec.html; },
+            postMessage: async (m: unknown) => { rec.posted.push(m); return true; },
+            onDidReceiveMessage: (l: (m: unknown) => void) => { rec.receive = l; return disposable; },
+          },
+        };
+      },
       showTextDocument: async () => undefined,
     },
     workspace: {
@@ -57,7 +77,7 @@ function fakeVscode(folder: string) {
     },
     env: { openExternal: async () => true, clipboard: { writeText: async () => {} } },
   };
-  return { api, calls, status, trees };
+  return { api, calls, status, trees, panels };
 }
 
 function memento(initial: Record<string, unknown> = {}) {
@@ -73,9 +93,9 @@ async function until(fn: () => boolean, ms = 20_000): Promise<void> {
   }
 }
 
-test('activation registers the commands, adds acc to PATH, and ticks the steps that pass', async () => {
+test('activation registers the commands, adds acc to PATH, and ticks the steps that pass', { timeout: 60_000 }, async () => {
   const repo = makeRepo({ '.acc/config.json': JSON.stringify({ schema: 1, project: 'Tool', environments: [{ name: 'main', default: true }] }) });
-  const { api, calls, status, trees } = fakeVscode(repo);
+  const { api, calls, status, trees, panels } = fakeVscode(repo);
   const load = (Module as unknown as { _load: (r: string, ...a: unknown[]) => unknown })._load;
   (Module as unknown as { _load: unknown })._load = function (request: string, ...rest: unknown[]) {
     return request === 'vscode' ? api : load.call(this, request, ...rest);
@@ -85,6 +105,7 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
   const ctx = {
     subscriptions: [] as unknown[],
     asAbsolutePath: (p: string) => join(extDir, p),
+    extensionUri: { fsPath: extDir, toString: () => `file://${extDir}` },
     // Fresh machine results, so the test doesn't call slow machine CLIs.
     globalState: memento({ 'acc.welcomed': true, 'acc.machineItems': { at: Date.now(), items: [{ id: 'A1.git', part: 'machine', title: 'git', status: 'pass', detail: 'git 2.54.0' }] } }),
     workspaceState: memento(),
@@ -125,9 +146,24 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     await calls.commands.get('acc.worktrees.refresh')!();
     assert.match(String(wts.getTreeItem(wts.getChildren()[0]).description), /main checkout · clean/);
 
+    // The Tasks board as an editor tab: strict CSP, and the board data arrives once the page is ready.
+    await calls.commands.get('acc.open.tasks')!();
+    const tab = panels[0]!;
+    assert.match(tab.html, /Content-Security-Policy" content="default-src 'none'; [^"]*script-src 'nonce-[A-Za-z0-9+/=]+'/);
+    assert.doesNotMatch(tab.html, /unsafe-inline|unsafe-eval/);
+    assert.match(tab.html, /<script nonce="[A-Za-z0-9+/=]+" src=/);
+    tab.receive!({ type: 'ready' });
+    const state = tab.posted.at(-1) as { model: { kind: string; projects: { columns: { group: string; cards: { id: string }[] }[] }[] } };
+    assert.equal(state.model.kind, 'tasks');
+    assert.deepEqual(state.model.projects[0]!.columns.find((c) => c.group === 'ready')!.cards.map((c) => c.id), ['T-1']);
+    await calls.commands.get('acc.open.tasks')!();
+    assert.equal(panels.length, 1, 'opening again reveals the same tab');
+    tab.receive!({ type: 'run', command: 'workbench.action.quit', ref: {} });
+
     await calls.commands.get(COMMANDS.check)!('B0.repo');
     assert.match(calls.info.at(-1) ?? '', /^✓ Inside the project's repo: Repo at /);
   } finally {
+    for (const s of ctx.subscriptions as { dispose?: () => void }[]) s.dispose?.();
     (Module as unknown as { _load: unknown })._load = load;
   }
 });

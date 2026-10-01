@@ -478,6 +478,19 @@ polls only while it's visible.
 Every item states its condition in words, with an icon in the theme's orange
 (look at this) or blue (moving or fine).
 
+**Open as tab** (D-021) opens each view full-width in the editor area:
+
+| Tab | Layout |
+|---|---|
+| Tasks | A board, one column per status |
+| Agents | A table |
+| Worktrees | A table |
+| Environments | Cards, plus the promotion paths drawn out |
+| Setup | A checklist with progress |
+
+Each tab is a webview under a nonce content security policy. It renders text
+only and accepts only allow-listed `acc.*` commands.
+
 ### Walkthrough
 
 The extension's first feature is a guided setup, built on VSCode's walkthroughs

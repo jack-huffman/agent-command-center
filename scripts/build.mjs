@@ -43,4 +43,19 @@ mkdirSync(join(ext, 'dist', 'bin'), { recursive: true });
 copyFileSync(cli, join(ext, 'dist', 'bin', 'acc'));
 chmodSync(join(ext, 'dist', 'bin', 'acc'), 0o755);
 copyFileSync(join(root, 'docs', 'ONBOARDING.md'), join(ext, 'dist', 'ONBOARDING.md'));
+
+// The editor tabs: a browser bundle, its styles, and VSCode's own icon font.
+await build({
+  entryPoints: [join(ext, 'webview', 'main.ts')],
+  outfile: join(ext, 'dist', 'webview', 'main.js'),
+  bundle: true,
+  platform: 'browser',
+  target: 'es2022',
+  format: 'iife',
+  legalComments: 'none',
+  logLevel: 'warning',
+});
+mkdirSync(join(ext, 'dist', 'webview', 'codicons'), { recursive: true });
+copyFileSync(join(ext, 'webview', 'styles.css'), join(ext, 'dist', 'webview', 'styles.css'));
+for (const f of ['codicon.css', 'codicon.ttf']) copyFileSync(join(root, 'node_modules', '@vscode', 'codicons', 'dist', f), join(ext, 'dist', 'webview', 'codicons', f));
 console.log(`built ${join(ext, 'dist', 'extension.js')}`);

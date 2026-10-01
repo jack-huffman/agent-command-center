@@ -2,7 +2,7 @@
   "name": "agent-command-center",
   "displayName": "Agent Command Center",
   "description": "Set up projects for parallel Claude Code agents, then run and watch them from VSCode.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "JackHuffman",
   "private": true,
   "license": "UNLICENSED",
@@ -230,6 +230,36 @@
         "command": "acc.env.copyBranch",
         "title": "Copy branch name",
         "category": "Agent Command Center"
+      },
+      {
+        "command": "acc.open.tasks",
+        "title": "Open the Tasks board as a tab",
+        "category": "Agent Command Center",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "acc.open.agents",
+        "title": "Open Agents as a tab",
+        "category": "Agent Command Center",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "acc.open.worktrees",
+        "title": "Open Worktrees as a tab",
+        "category": "Agent Command Center",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "acc.open.environments",
+        "title": "Open Environments as a tab",
+        "category": "Agent Command Center",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "acc.open.setup",
+        "title": "Open Setup as a tab",
+        "category": "Agent Command Center",
+        "icon": "$(link-external)"
       }
     ],
     "menus": {
@@ -324,6 +354,31 @@
         }
       ],
       "view/title": [
+        {
+          "command": "acc.open.setup",
+          "when": "view == acc.setup",
+          "group": "navigation@0"
+        },
+        {
+          "command": "acc.open.environments",
+          "when": "view == acc.environments",
+          "group": "navigation@0"
+        },
+        {
+          "command": "acc.open.worktrees",
+          "when": "view == acc.worktrees",
+          "group": "navigation@0"
+        },
+        {
+          "command": "acc.open.agents",
+          "when": "view == acc.agents",
+          "group": "navigation@0"
+        },
+        {
+          "command": "acc.open.tasks",
+          "when": "view == acc.tasks",
+          "group": "navigation@0"
+        },
         {
           "command": "acc.task.add",
           "when": "view == acc.tasks && acc.hasProject",

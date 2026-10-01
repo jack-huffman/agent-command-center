@@ -2,6 +2,8 @@ import { delimiter, dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { Hub } from './hub.ts';
 import { COMMANDS, WALKTHROUGHS } from './logic.ts';
+import { type Ref, VIEW_KINDS, type ViewKind } from './model.ts';
+import { Panels } from './panels.ts';
 import { accRunner } from './run.ts';
 import { openWalkthrough, Setup } from './setup.ts';
 import { Sidebar } from './sidebar.ts';
@@ -48,23 +50,66 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(...Object.values(views));
   new Sidebar(hub, accRunner(accScript), setup.log).register(reg);
 
-  hub.onDidChange((part) => {
-    if (part === 'projects') { tasks.refresh(); envs.refresh(); worktrees.refresh(); agents.refresh(); }
-    if (part === 'tasks') tasks.refresh();
-    if (part === 'agents') { agents.refresh(); views.agents.badge = agentBadge(hub); }
-    if (part === 'worktrees') { worktrees.refresh(); envs.refresh(); agents.refresh(); }
-  });
-  setup.onDidChange(() => steps.set(setup.results(), setup.allConfirmed()));
 
-  // Poll only what's on screen, so VSCode stays light (the author's machine stutters under load).
-  const follow = (view: vscode.TreeView<unknown>, key: string, everyMs: number, fn: () => Promise<void>) => {
-    hub.poll(key, everyMs, fn, view.visible);
-    context.subscriptions.push(view.onDidChangeVisibility((e) => hub.poll(key, everyMs, fn, e.visible)));
+  // Poll only what's on screen, sidebar or tab, so VSCode stays light (the author's machine stutters under load).
+  const POLLS: Record<string, { everyMs: number; fn: () => Promise<void> }> = {
+    tasks: { everyMs: 3_000, fn: () => hub.loadTasks() },
+    agents: { everyMs: 5_000, fn: () => hub.loadAgents() },
+    worktrees: { everyMs: 15_000, fn: () => hub.loadWorktrees() },
   };
-  follow(views.tasks, 'tasks', 3_000, () => hub.loadTasks());
-  follow(views.agents, 'agents', 5_000, () => hub.loadAgents());
-  follow(views.worktrees, 'worktrees', 15_000, () => hub.loadWorktrees());
-  follow(views.environments, 'environments', 15_000, () => hub.loadWorktrees());
+  const pollKey: Record<ViewKind, string | null> = { tasks: 'tasks', agents: 'agents', worktrees: 'worktrees', environments: 'worktrees', setup: null };
+  const watching = new Map<string, Set<string>>();
+  const want = (kind: ViewKind, source: 'tree' | 'tab', on: boolean) => {
+    const key = pollKey[kind];
+    if (!key) return;
+    const who = watching.get(key) ?? new Set<string>();
+    const id = `${source}:${kind}`;
+    const before = who.size > 0;
+    if (on) who.add(id); else who.delete(id);
+    watching.set(key, who);
+    if (before !== who.size > 0) hub.poll(key, POLLS[key]!.everyMs, POLLS[key]!.fn, who.size > 0);
+  };
+  for (const kind of VIEW_KINDS) {
+    const view = views[kind];
+    want(kind, 'tree', view.visible);
+    context.subscriptions.push(view.onDidChangeVisibility((e) => want(kind, 'tree', e.visible)));
+  }
+
+  // ------------------------------------------------------------ the same views as editor tabs
+  const resolve = (command: string, ref: Ref): unknown => {
+    const project = ref.project ? hub.project(ref.project) : undefined;
+    let arg: unknown;
+    if (ref.step) arg = ref.step;
+    else if (ref.task) {
+      const task = project && hub.taskRows(project.root).find((t) => t.id === ref.task);
+      if (!task) return;
+      arg = { kind: 'task', project, task };
+    } else if (ref.session) {
+      const session = hub.agents.find((a) => (a.sessionId ?? a.id ?? `${a.pid ?? ''}:${a.startedAt}`) === ref.session);
+      if (!session) return;
+      arg = { kind: 'agent', session, project: hub.projectFor(session.cwd) };
+    } else if (ref.worktree) {
+      const worktree = project?.worktrees.find((w) => w.path === ref.worktree);
+      if (!worktree) return;
+      arg = { kind: 'worktree', project, worktree };
+    } else if (ref.env) {
+      const env = project?.config.environments.find((e) => e.branch === ref.env);
+      if (!env) return;
+      arg = { kind: 'env', project, env };
+    }
+    return vscode.commands.executeCommand(command, arg);
+  };
+  const panels = new Panels(context, hub, setup, resolve, (kind, visible) => want(kind, 'tab', visible));
+  context.subscriptions.push(panels);
+  for (const kind of VIEW_KINDS) reg(`acc.open.${kind}`, () => panels.show(kind));
+
+  hub.onDidChange((part) => {
+    if (part === 'projects') { tasks.refresh(); envs.refresh(); worktrees.refresh(); agents.refresh(); panels.post(); }
+    if (part === 'tasks') { tasks.refresh(); panels.post('tasks'); }
+    if (part === 'agents') { agents.refresh(); views.agents.badge = agentBadge(hub); panels.post('agents'); }
+    if (part === 'worktrees') { worktrees.refresh(); envs.refresh(); agents.refresh(); panels.post('worktrees'); panels.post('environments'); panels.post('agents'); }
+  });
+  setup.onDidChange(() => { steps.set(setup.results(), setup.allConfirmed()); panels.post('setup'); });
 
   context.subscriptions.push(
     vscode.window.onDidEndTerminalShellExecution((e) => setup.onShellEnd(e)),

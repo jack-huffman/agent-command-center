@@ -164,6 +164,8 @@ export class Hub implements vscode.Disposable {
     this.timers.delete(key);
     if (!on) return;
     void fn();
-    this.timers.set(key, setInterval(() => void fn(), everyMs));
+    const timer = setInterval(() => void fn(), everyMs);
+    timer.unref?.(); // a timer alone never keeps a process alive
+    this.timers.set(key, timer);
   }
 }
