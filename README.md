@@ -7,7 +7,8 @@ the project's checks, opens the pull request, and shows all of it in one panel.
 It is built for Salesforce work first, but the core assumes nothing about
 Salesforce. Project types plug in as profiles.
 
-**Status:** planning. See [docs/ROADMAP.md](docs/ROADMAP.md) for the phases and
+**Status:** design draft in review. See [docs/DESIGN.md](docs/DESIGN.md) for how
+it works, [docs/ROADMAP.md](docs/ROADMAP.md) for the build order, and
 [docs/DECISIONS.md](docs/DECISIONS.md) for what has been decided and why.
 
 ## Principles
@@ -15,9 +16,9 @@ Salesforce. Project types plug in as profiles.
 - **Self-contained.** The project ships its own skills, hooks and agents as one
   Claude Code plugin, and works with no other skills installed. It borrows ideas
   from other tools, not dependencies.
-- **Claude Code is the engine.** Agents run through `claude --worktree`,
-  subagents, hooks and the local session registry. This project does not write an
-  agent runtime.
+- **Claude Code is the engine.** Agents run as Claude Code background sessions
+  (`claude --bg`), and status comes from `claude agents --json` and hooks. This
+  project does not write an agent runtime.
 - **One ledger per repo, one writer.** Task state lives in a JSON file in the
   repo. Only the CLI changes it, with atomic writes. The extension and the skills
   read it.
@@ -33,10 +34,12 @@ Salesforce. Project types plug in as profiles.
 
 ## Planned layout
 
-```
-plugin/      Claude Code plugin: skills, hooks, agents, and the `acc` CLI
-extension/   VSCode extension: Agents, Worktrees and Board views
-docs/        roadmap, decisions, design, research
+```text
+packages/core   ledger, config and state rules, shared by everything below
+packages/cli    the acc CLI, bundled into plugin/bin/acc
+plugin/         Claude Code plugin: skills, hooks, reviewer agent, bin/acc
+extension/      VSCode extension: Board, Sessions and Worktrees views
+docs/           design, roadmap, decisions, research
 ```
 
 ## Trackers
