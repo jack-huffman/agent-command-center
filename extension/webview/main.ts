@@ -62,6 +62,12 @@ function clipped(text: string, cls = ''): HTMLElement {
   return td;
 }
 
+/** A cell that spans several columns, such as a group's heading row. */
+function span(cell: HTMLElement, columns: number): HTMLElement {
+  (cell as HTMLTableCellElement).colSpan = columns;
+  return cell;
+}
+
 /** Tables scroll sideways in a narrow tab instead of squeezing or wrapping their cells. */
 const wrap = (table: HTMLElement): HTMLElement => el('div', 'table-wrap', table);
 
@@ -135,27 +141,25 @@ function renderAgents(m: AgentsModel): Node[] {
     out.push(empty('No Claude Code sessions are running. Background agents keep working when the terminal closes, and edit in their own worktree.'));
     return out;
   }
+  // One table with a heading row per place, so the columns line up all the way down.
+  const table = el('table', 'grid');
+  table.append(el('thead', '', el('tr', '', ...[['Session', ''], ['State', ''], ['Kind', 'kind'], ['Where', 'wide'], ['Started', 'started'], ['', '']].map(([h, c]) => el('th', c!, h!)))));
   for (const place of m.places) {
     if (!place.agents.length && !place.root) continue;
-    const heading = el('h2', '', icon(place.root ? 'repo' : 'device-desktop'), place.label, el('span', 'count', String(place.agents.length)));
-    if (!place.agents.length) {
-      out.push(el('section', 'block', heading, el('p', 'muted quiet', 'No agent sessions in this project right now.')));
-      continue;
-    }
-    const table = el('table', 'grid');
-    table.append(el('thead', '', el('tr', '', ...[['Session', ''], ['State', ''], ['Kind', ''], ['Where', 'wide'], ['Started', ''], ['', '']].map(([h, c]) => el('th', c!, h!)))));
     const body = el('tbody');
+    body.append(el('tr', 'group', span(el('th', '', icon(place.root ? 'repo' : 'device-desktop'), place.label, el('span', 'count', String(place.agents.length))), 6)));
+    if (!place.agents.length) body.append(el('tr', 'none', span(el('td', 'muted', 'No agent sessions in this project right now.'), 6)));
     for (const a of place.agents) {
       const row = el('tr', a.needsYou ? 'attention' : '',
-        el('td', 'strong nowrap', a.name), el('td', 'nowrap', status(a.look)), el('td', 'nowrap muted', a.kind), clipped(a.where, 'mono'), el('td', 'nowrap muted', since(a.startedAt)),
+        clipped(a.name, 'strong name'), el('td', 'nowrap', status(a.look)), el('td', 'nowrap muted kind', a.kind), clipped(a.where, 'mono'), el('td', 'nowrap muted started', since(a.startedAt)),
         el('td', 'actions', menuButton(a.name)));
       // Right-click anywhere on the row, or the caret, opens VSCode's own menu for this session.
       row.dataset.vscodeContext = JSON.stringify({ webviewSection: 'agent', preventDefaultContextMenuItems: true, agentBackground: a.background, accRef: { session: a.key } });
       body.append(row);
     }
     table.append(body);
-    out.push(el('section', 'block', heading, wrap(table)));
   }
+  out.push(wrap(table));
   return out;
 }
 

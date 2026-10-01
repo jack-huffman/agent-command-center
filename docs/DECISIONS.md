@@ -248,4 +248,12 @@ menu code of our own in the webview.
 - The caret dispatches a `contextmenu` event at its own position, which VSCode
   handles like a right-click.
 
+**Table layout rules,** learned from the first two attempts:
+
+- A grouped list is one table with a heading row per group, so the columns line
+  up from group to group.
+- Cells stay table cells. A test fails any rule that would make a cell flex.
+- The actions column sticks to the right edge. A narrow tab drops the minor
+  columns, then scrolls the table under the actions column instead of hiding it.
+
 Other tables and cards can adopt this as they grow crowded.

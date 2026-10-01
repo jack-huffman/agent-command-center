@@ -143,10 +143,19 @@ test('cards follow a task through dispatch: Dispatch, then Attach and Abandon, t
 
 test('table cells keep table layout (a flex cell misaligns its row\'s lines)', () => {
   const css = readFileSync(join(root, 'webview', 'styles.css'), 'utf8');
-  for (const rule of css.matchAll(/([^{}]+)\{([^}]*)\}/g)) {
+  const src = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
+  // Every class the page puts on a cell or row, so a bare `.actions` rule can't slip past by not naming td.
+  const cellClasses = new Set([...src.matchAll(/el\('(?:td|th|tr)', '([^']*)'/g)].flatMap((m) => m[1]!.split(/\s+/)).concat('clip').filter(Boolean));
+  // Comments and @media wrappers out, so rules inside a media query are checked too.
+  for (const rule of css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/@media[^{]*\{/g, '').matchAll(/([^{}]+)\{([^}]*)\}/g)) {
     const [selector, body] = [rule[1]!.trim(), rule[2]!];
-    if (/\b(td|th|tr)\b/.test(selector.split(',').map((s) => s.trim().split(/\s+/).pop()).join(' '))) {
-      assert.doesNotMatch(body, /display:\s*(flex|grid|block)/, `${selector} changes a table cell's display`);
+    if (!/(^|;)\s*display\s*:(?!\s*none\b)/.test(body)) continue; // hiding a column is fine
+    for (const sel of selector.split(',')) {
+      const target = sel.trim().split(/[\s>+~]+/).pop()!; // the element the rule styles
+      const tag = /^[a-z]+/.exec(target)?.[0];
+      if (tag && !['td', 'th', 'tr'].includes(tag)) continue; // div.actions can't reach a cell
+      const hits = tag ? [tag] : [...cellClasses].filter((c) => new RegExp(`\\.${c}(?![\\w-])`).test(target));
+      assert.deepEqual(hits, [], `${sel.trim()} sets display on a table cell or row`);
     }
   }
 });
