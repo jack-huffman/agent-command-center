@@ -1,0 +1,1654 @@
+#!/usr/bin/env node
+
+// packages/cli/src/main.ts
+import { existsSync as existsSync7, readFileSync as readFileSync6, realpathSync } from "node:fs";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
+
+// packages/core/src/exec.ts
+import { spawnSync } from "node:child_process";
+var run = (cmd, args, opts = {}) => {
+  const r = spawnSync(cmd, args, {
+    cwd: opts.cwd,
+    env: opts.env ?? process.env,
+    input: opts.input,
+    encoding: "utf8",
+    timeout: opts.timeoutMs ?? 12e4,
+    maxBuffer: 64 * 1024 * 1024
+  });
+  if (r.error) return { code: 127, stdout: "", stderr: r.error.message };
+  return { code: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+};
+var AccError = class extends Error {
+  code;
+  constructor(code, message) {
+    super(message);
+    this.code = code;
+    this.name = "AccError";
+  }
+};
+
+// packages/core/src/paths.ts
+import { join } from "node:path";
+function repoPaths(cwd, run2) {
+  const top = run2("git", ["rev-parse", "--show-toplevel"], { cwd });
+  if (top.code !== 0) throw new AccError("not-a-repo", `${cwd} isn't inside a git repository.`);
+  const common = run2("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd });
+  if (common.code !== 0) throw new AccError("not-a-repo", `Couldn't find the git directory for ${cwd}.`);
+  const root = top.stdout.trim();
+  const commonDir = common.stdout.trim();
+  const stateDir = join(commonDir, "acc");
+  return {
+    root,
+    commonDir,
+    stateDir,
+    ledger: join(stateDir, "ledger.json"),
+    events: join(stateDir, "events.jsonl"),
+    lock: join(stateDir, "ledger.lock"),
+    receipts: join(stateDir, "receipts"),
+    reviews: join(stateDir, "reviews"),
+    packets: join(stateDir, "packets"),
+    logs: join(stateDir, "logs"),
+    config: join(root, ".acc", "config.json")
+  };
+}
+
+// packages/core/src/config.ts
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+var PROFILES = ["generic", "salesforce"];
+var ENV_TYPES = ["production", "full", "partial", "developer", "developer_pro", "none"];
+var AUTONOMY = ["manual", "dispatch", "review", "full"];
+var PERMISSION_MODES = ["default", "acceptEdits", "plan", "auto", "dontAsk"];
+var TOP_KEYS = /* @__PURE__ */ new Set([
+  "schema",
+  "project",
+  "profile",
+  "github",
+  "commitIdentity",
+  "environments",
+  "environmentSpecific",
+  "knownDrift",
+  "trackers",
+  "agents",
+  "autonomy",
+  "worktrees",
+  "gates",
+  "secretScan"
+]);
+function branchFor(name) {
+  return name.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+}
+var isObj = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+var isStr = (v) => typeof v === "string" && v.trim() !== "";
+var strList = (v) => Array.isArray(v) && v.every(isStr);
+function parseConfig(raw) {
+  const errors = [];
+  const warnings = [];
+  if (!isObj(raw)) return { config: null, errors: ["The config must be a JSON object."], warnings };
+  for (const k of Object.keys(raw)) if (!TOP_KEYS.has(k)) warnings.push(`Unknown key "${k}" is ignored.`);
+  if (raw.schema !== 1) errors.push('"schema" must be 1.');
+  if (!isStr(raw.project)) errors.push('"project" must be a name.');
+  const profile = raw.profile ?? "generic";
+  if (!PROFILES.includes(profile)) errors.push(`"profile" must be one of ${PROFILES.join(", ")}.`);
+  let github = null;
+  if (raw.github !== void 0 && raw.github !== null) {
+    const g2 = raw.github;
+    if (!isObj(g2) || !isStr(g2.repo) || !/^[\w.-]+\/[\w.-]+$/.test(g2.repo) || !isStr(g2.account)) {
+      errors.push('"github" needs "repo" (owner/name) and "account" (the gh account for this repo).');
+    } else github = { repo: g2.repo, account: g2.account };
+  }
+  let commitIdentity = null;
+  if (raw.commitIdentity !== void 0 && raw.commitIdentity !== null) {
+    const c = raw.commitIdentity;
+    if (!isObj(c) || !isStr(c.name) || !isStr(c.email)) errors.push('"commitIdentity" needs "name" and "email".');
+    else commitIdentity = { name: c.name, email: c.email };
+  }
+  const environments = parseEnvironments(raw.environments, profile, errors);
+  const optPath = (key) => {
+    const v = raw[key];
+    if (v === void 0 || v === null) return null;
+    if (!isStr(v)) {
+      errors.push(`"${key}" must be a path inside the repo.`);
+      return null;
+    }
+    return v;
+  };
+  const environmentSpecific = optPath("environmentSpecific");
+  const knownDrift = optPath("knownDrift");
+  const trackers = [];
+  if (raw.trackers !== void 0) {
+    if (!Array.isArray(raw.trackers)) errors.push('"trackers" must be a list.');
+    else raw.trackers.forEach((t, i) => {
+      if (!isObj(t) || t.kind !== "github" && t.kind !== "jira") {
+        errors.push(`trackers[${i}]: "kind" must be github or jira.`);
+        return;
+      }
+      if (t.kind === "jira" && (!isStr(t.site) || !isStr(t.project))) {
+        errors.push(`trackers[${i}]: a Jira tracker needs "site" and "project".`);
+        return;
+      }
+      trackers.push({
+        kind: t.kind,
+        site: isStr(t.site) ? t.site : null,
+        project: isStr(t.project) ? t.project : null,
+        repo: isStr(t.repo) ? t.repo : null
+      });
+    });
+  }
+  const a = isObj(raw.agents) ? raw.agents : {};
+  const max = a.max ?? 3;
+  if (typeof max !== "number" || !Number.isInteger(max) || max < 1 || max > 16) errors.push('"agents.max" must be a whole number from 1 to 16.');
+  const permissionMode = a.permissionMode ?? "acceptEdits";
+  if (typeof permissionMode !== "string" || !PERMISSION_MODES.includes(permissionMode)) {
+    errors.push(`"agents.permissionMode" must be one of ${PERMISSION_MODES.join(", ")}. bypassPermissions is never allowed for builders.`);
+  }
+  const autonomy = raw.autonomy ?? "manual";
+  if (!AUTONOMY.includes(autonomy)) errors.push(`"autonomy" must be one of ${AUTONOMY.join(", ")}.`);
+  const w = isObj(raw.worktrees) ? raw.worktrees : {};
+  if (w.root !== void 0 && w.root !== null && !isStr(w.root)) errors.push('"worktrees.root" must be a path.');
+  if (w.setup !== void 0 && !strList(w.setup)) errors.push('"worktrees.setup" must be a list of commands.');
+  const g = isObj(raw.gates) ? raw.gates : {};
+  if (g.required !== void 0 && !strList(g.required)) errors.push('"gates.required" must be a list of gate names.');
+  const commands = {};
+  if (g.commands !== void 0) {
+    if (!isObj(g.commands) || !Object.values(g.commands).every(isStr)) errors.push('"gates.commands" must map gate names to commands.');
+    else Object.assign(commands, g.commands);
+  }
+  const s = isObj(raw.secretScan) ? raw.secretScan : {};
+  if (s.paths !== void 0 && !strList(s.paths)) errors.push('"secretScan.paths" must be a list.');
+  if (s.exclude !== void 0 && !strList(s.exclude)) errors.push('"secretScan.exclude" must be a list.');
+  const defaultScan = profile === "salesforce" ? ["force-app", "config", "scripts"] : ["."];
+  if (errors.length) return { config: null, errors, warnings };
+  return {
+    config: {
+      schema: 1,
+      project: raw.project,
+      profile,
+      github,
+      commitIdentity,
+      environments,
+      environmentSpecific,
+      knownDrift,
+      trackers,
+      agents: { max, permissionMode },
+      autonomy,
+      worktrees: { root: isStr(w.root) ? w.root : null, setup: strList(w.setup) ? w.setup : [] },
+      gates: { required: strList(g.required) ? g.required : [], commands },
+      secretScan: {
+        paths: strList(s.paths) ? s.paths : defaultScan,
+        exclude: strList(s.exclude) ? s.exclude : []
+      }
+    },
+    errors,
+    warnings
+  };
+}
+function parseEnvironments(raw, profile, errors) {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    errors.push('"environments" must list at least one environment.');
+    return [];
+  }
+  const envs = [];
+  raw.forEach((e, i) => {
+    const at = `environments[${i}]`;
+    if (!isObj(e) || !isStr(e.name)) {
+      errors.push(`${at}: needs a "name".`);
+      return;
+    }
+    const branch = branchFor(e.name);
+    if (e.branch !== void 0 && e.branch !== branch) {
+      errors.push(`${at}: the branch for "${e.name}" must be "${branch}", the environment name in lower case (D-015).`);
+    }
+    const type = e.type ?? (profile === "salesforce" ? void 0 : "none");
+    if (type === void 0 || !ENV_TYPES.includes(type)) {
+      errors.push(`${at}: "type" must be one of ${ENV_TYPES.join(", ")}.`);
+      return;
+    }
+    if (profile === "salesforce" && type === "none") errors.push(`${at}: a Salesforce environment needs its org type.`);
+    if (e.org !== void 0 && e.org !== null && !isStr(e.org)) errors.push(`${at}: "org" must be an org alias.`);
+    const isProd = type === "production";
+    if (isProd && e.protected === false) errors.push(`${at}: Production is always protected.`);
+    if (e.promotesTo !== void 0 && !strList(e.promotesTo)) errors.push(`${at}: "promotesTo" must be a list of branches.`);
+    envs.push({
+      name: e.name,
+      branch,
+      type,
+      org: isStr(e.org) ? e.org : null,
+      default: e.default === true,
+      protected: isProd || e.protected === true,
+      promotesTo: strList(e.promotesTo) ? e.promotesTo.map(branchFor) : []
+    });
+  });
+  const seen = /* @__PURE__ */ new Set();
+  for (const env of envs) {
+    if (seen.has(env.branch)) errors.push(`Two environments share the branch "${env.branch}".`);
+    seen.add(env.branch);
+  }
+  const defaults = envs.filter((e) => e.default);
+  if (envs.length && defaults.length !== 1) errors.push('Mark exactly one environment as "default": the one day-to-day work starts from.');
+  for (const d of defaults) if (d.protected) errors.push(`The default environment "${d.name}" can't be protected.`);
+  for (const env of envs) {
+    for (const to of env.promotesTo) {
+      if (to === env.branch) errors.push(`"${env.name}" can't promote to itself.`);
+      else if (!seen.has(to)) errors.push(`"${env.name}" promotes to "${to}", which isn't a listed environment.`);
+    }
+  }
+  const cycle = findCycle(envs);
+  if (cycle) errors.push(`The promotion paths loop: ${cycle.join(" \u2192 ")}.`);
+  return envs;
+}
+function findCycle(envs) {
+  const next = new Map(envs.map((e) => [e.branch, e.promotesTo]));
+  const state = /* @__PURE__ */ new Map();
+  const stack = [];
+  const visit = (b) => {
+    if (state.get(b) === "done") return null;
+    if (state.get(b) === "visiting") return [...stack.slice(stack.indexOf(b)), b];
+    state.set(b, "visiting");
+    stack.push(b);
+    for (const to of next.get(b) ?? []) {
+      const c = visit(to);
+      if (c) return c;
+    }
+    stack.pop();
+    state.set(b, "done");
+    return null;
+  };
+  for (const e of envs) {
+    const c = visit(e.branch);
+    if (c) return c;
+  }
+  return null;
+}
+function loadConfig(file) {
+  if (!existsSync(file)) throw new AccError("no-config", `No ${file}. Run "acc init" first.`);
+  let raw;
+  try {
+    raw = JSON.parse(readFileSync(file, "utf8"));
+  } catch (e) {
+    throw new AccError("bad-config", `${file} isn't valid JSON: ${e.message}`);
+  }
+  const r = parseConfig(raw);
+  if (!r.config) throw new AccError("bad-config", `${file} has problems:
+- ${r.errors.join("\n- ")}`);
+  return r;
+}
+function writeConfig(file, config) {
+  mkdirSync(dirname(file), { recursive: true });
+  const out2 = {
+    ...config,
+    environments: config.environments.map(({ branch: _branch, ...e }) => e)
+  };
+  writeFileSync(file, JSON.stringify(out2, null, 2) + "\n");
+}
+function defaultEnvironment(config) {
+  const env = config.environments.find((e) => e.default);
+  if (!env) throw new AccError("bad-config", "No default environment.");
+  return env;
+}
+function environmentByBranch(config, branch) {
+  return config.environments.find((e) => e.branch === branch);
+}
+
+// packages/core/src/lock.ts
+import { mkdirSync as mkdirSync2, readFileSync as readFileSync2, rmSync, statSync, writeFileSync as writeFileSync2 } from "node:fs";
+import { join as join2 } from "node:path";
+var sleep = (ms) => {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+};
+function alive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code === "EPERM";
+  }
+}
+function withLock(lockDir, fn, opts = {}) {
+  const timeoutMs = opts.timeoutMs ?? 15e3;
+  const staleMs = opts.staleMs ?? 6e4;
+  const started = Date.now();
+  for (; ; ) {
+    try {
+      mkdirSync2(lockDir);
+      writeFileSync2(join2(lockDir, "owner"), JSON.stringify({ pid: process.pid, at: Date.now() }));
+      break;
+    } catch (e) {
+      if (e.code !== "EEXIST") throw e;
+      let owner = null;
+      try {
+        owner = JSON.parse(readFileSync2(join2(lockDir, "owner"), "utf8"));
+      } catch {
+        owner = null;
+      }
+      let age = 0;
+      try {
+        age = Date.now() - (owner?.at ?? statSync(lockDir).mtimeMs);
+      } catch {
+        continue;
+      }
+      if (owner && !alive(owner.pid) || age > staleMs) {
+        rmSync(lockDir, { recursive: true, force: true });
+        continue;
+      }
+      if (Date.now() - started > timeoutMs) {
+        throw new AccError("lock-timeout", `Another acc process is holding ${lockDir}. Try again in a moment.`);
+      }
+      sleep(20 + Math.floor(Math.random() * 40));
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    rmSync(lockDir, { recursive: true, force: true });
+  }
+}
+
+// packages/core/src/ledger.ts
+import { appendFileSync, existsSync as existsSync2, mkdirSync as mkdirSync3, readFileSync as readFileSync3, renameSync, writeFileSync as writeFileSync3 } from "node:fs";
+import { dirname as dirname2 } from "node:path";
+var STATES = ["todo", "running", "review", "rework", "blocked", "done"];
+var ACTORS = ["human", "orchestrator", "builder", "reviewer", "sync"];
+var SOURCE_KINDS = ["github", "jira", "manual"];
+var emptyLedger = () => ({ schema: 1, seq: 0, tasks: [] });
+function readLedger(file) {
+  if (!existsSync2(file)) return emptyLedger();
+  const l = JSON.parse(readFileSync3(file, "utf8"));
+  if (l.schema !== 1 || !Array.isArray(l.tasks)) throw new AccError("bad-ledger", `${file} isn't a ledger this version understands.`);
+  return l;
+}
+function writeAtomic(file, text) {
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync3(tmp, text);
+  renameSync(tmp, file);
+}
+function mutate(paths, now2, fn) {
+  mkdirSync3(paths.stateDir, { recursive: true });
+  return withLock(paths.lock, () => {
+    const ledger = readLedger(paths.ledger);
+    const events = [];
+    const emit = (e) => events.push({ ...e, seq: ++ledger.seq, at: now2().toISOString() });
+    const result = fn(ledger, emit);
+    if (events.length) {
+      mkdirSync3(dirname2(paths.events), { recursive: true });
+      appendFileSync(paths.events, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+      writeAtomic(paths.ledger, JSON.stringify(ledger, null, 2) + "\n");
+    }
+    return result;
+  });
+}
+var JIRA_KEY = /^[A-Z][A-Z0-9_]*-\d+$/;
+function normalizeId(ref, defaultKind = "jira") {
+  const r = ref.trim();
+  const gh = /^(?:#|GH-)?(\d+)$/i.exec(r);
+  if (gh && (defaultKind === "github" || /^(#|GH-)/i.test(r))) return `GH-${gh[1]}`;
+  return r.toUpperCase();
+}
+function isValidId(id) {
+  return JIRA_KEY.test(id);
+}
+function nextManualId(ledger) {
+  const n = ledger.tasks.map((t) => /^T-(\d+)$/.exec(t.id)?.[1]).filter(Boolean).map(Number);
+  return `T-${(n.length ? Math.max(...n) : 0) + 1}`;
+}
+function upsertTasks(ledger, config, inputs, actor, by, emit, now2) {
+  const res = { added: [], updated: [], unchanged: [], errors: [] };
+  const defaultEnv = defaultEnvironment(config).branch;
+  inputs.forEach((input, i) => {
+    const at = `item ${i + 1}`;
+    if (!input || typeof input.title !== "string" || !input.title.trim()) {
+      res.errors.push(`${at}: needs a title.`);
+      return;
+    }
+    const kind = input.source?.kind;
+    if (!SOURCE_KINDS.includes(kind)) {
+      res.errors.push(`${at}: source kind must be ${SOURCE_KINDS.join(", ")}.`);
+      return;
+    }
+    let id;
+    if (kind === "manual") id = input.source.key ? normalizeId(input.source.key) : nextManualId(ledger);
+    else {
+      if (!input.source.key) {
+        res.errors.push(`${at}: a ${kind} task needs its tracker key.`);
+        return;
+      }
+      id = normalizeId(input.source.key, kind);
+    }
+    if (!isValidId(id)) {
+      res.errors.push(`${at}: "${id}" isn't a valid task id.`);
+      return;
+    }
+    const env = input.environment ?? defaultEnv;
+    const envDef = environmentByBranch(config, env);
+    if (!envDef) {
+      res.errors.push(`${id}: environment "${env}" isn't in the config.`);
+      return;
+    }
+    if (envDef.protected) {
+      res.errors.push(`${id}: "${env}" is protected, so no task can build on it directly.`);
+      return;
+    }
+    const deps = (input.deps ?? []).map((d) => normalizeId(d, kind));
+    const fields = {
+      title: input.title.trim(),
+      brief: (input.brief ?? "").trim(),
+      deps,
+      labels: input.labels ?? [],
+      url: input.source.url ?? null
+    };
+    const existing = ledger.tasks.find((t) => t.id === id);
+    const stamp = now2().toISOString();
+    if (!existing) {
+      const task = {
+        id,
+        title: fields.title,
+        brief: fields.brief,
+        source: { kind, key: kind === "manual" ? null : input.source.key ?? null, url: fields.url },
+        environment: env,
+        deps,
+        labels: fields.labels,
+        state: "todo",
+        blocker: null,
+        run: null,
+        pr: null,
+        history: [{ at: stamp, actor, by, from: null, to: "todo", reason: null }],
+        createdAt: stamp,
+        updatedAt: stamp
+      };
+      ledger.tasks.push(task);
+      emit({ type: "task.added", task: id, actor, by, data: { title: task.title, source: task.source } });
+      res.added.push(id);
+      return;
+    }
+    const changed = {};
+    if (existing.title !== fields.title) changed.title = existing.title = fields.title;
+    if (existing.brief !== fields.brief) changed.brief = existing.brief = fields.brief;
+    if (existing.source.url !== fields.url) changed.url = existing.source.url = fields.url;
+    if (JSON.stringify(existing.deps) !== JSON.stringify(deps)) changed.deps = existing.deps = deps;
+    if (JSON.stringify(existing.labels) !== JSON.stringify(fields.labels)) changed.labels = existing.labels = fields.labels;
+    if (Object.keys(changed).length) {
+      existing.updatedAt = stamp;
+      emit({ type: "task.updated", task: id, actor, by, data: changed });
+      res.updated.push(id);
+    } else res.unchanged.push(id);
+  });
+  return res;
+}
+var RULES = [
+  { from: "todo", to: "running", actors: ["human", "orchestrator"], requires: ["depsDone", "underCap", "envNotProtected"] },
+  { from: "running", to: "review", actors: ["builder", "human"], requires: ["gatesPassed"] },
+  { from: "review", to: "rework", actors: ["reviewer", "human"], requires: ["reason"] },
+  { from: "rework", to: "running", actors: ["human", "orchestrator"], requires: ["underCap", "envNotProtected"] },
+  { from: "review", to: "done", actors: ["sync", "human"], requires: [] },
+  { from: "running", to: "todo", actors: ["human"], requires: ["reason"] },
+  { from: "done", to: "rework", actors: ["human", "sync"], requires: ["reason"] },
+  { from: "blocked", to: "todo", actors: ["human"], requires: [] },
+  { from: "any", to: "blocked", actors: [...ACTORS], requires: ["reason"] }
+];
+function findRule(from, to) {
+  return RULES.find((r) => r.from === from && r.to === to) ?? RULES.find((r) => r.from === "any" && r.to === to && from !== "blocked" && from !== "done");
+}
+function checkMove(ledger, config, task, req, hooks) {
+  if (!STATES.includes(req.to)) return [`"${req.to}" isn't a state. States: ${STATES.join(", ")}.`];
+  if (!ACTORS.includes(req.actor)) return [`"${req.actor}" isn't an actor.`];
+  if (task.state === req.to) return [`${task.id} is already ${req.to}.`];
+  const reason = req.reason?.trim() ?? "";
+  if (req.force) {
+    const p = [];
+    if (req.actor !== "human") p.push("Only a person can force a move.");
+    if (!reason) p.push("A forced move needs --reason.");
+    return p;
+  }
+  const rule = findRule(task.state, req.to);
+  if (!rule) return [`There's no rule for ${task.state} \u2192 ${req.to}. A person can force it with --force --reason.`];
+  if (!rule.actors.includes(req.actor)) {
+    return [`A ${req.actor} can't move a task from ${task.state} to ${req.to}. Allowed: ${rule.actors.join(", ")}.`];
+  }
+  const problems = [];
+  for (const r of rule.requires) {
+    if (r === "reason" && !reason) problems.push(`Moving to ${req.to} needs a reason.`);
+    if (r === "depsDone") {
+      for (const d of task.deps) {
+        const dep = ledger.tasks.find((t) => t.id === d);
+        if (!dep) problems.push(`It depends on ${d}, which isn't in the ledger.`);
+        else if (dep.state !== "done") problems.push(`It's waiting on ${d}, which is ${dep.state}.`);
+      }
+    }
+    if (r === "underCap") {
+      const running = ledger.tasks.filter((t) => t.state === "running" && t.id !== task.id).length;
+      if (running >= config.agents.max) problems.push(`${running} tasks are already running. The limit is ${config.agents.max}.`);
+    }
+    if (r === "envNotProtected") {
+      const env = environmentByBranch(config, task.environment);
+      if (!env) problems.push(`Its environment "${task.environment}" isn't in the config.`);
+      else if (env.protected) problems.push(`"${env.name}" is protected. Agents never work on it directly.`);
+    }
+    if (r === "gatesPassed") {
+      const missing = hooks.missingGates(task);
+      if (missing.length) problems.push(`These required checks haven't passed on the current commit: ${missing.join(", ")}.`);
+    }
+  }
+  return problems;
+}
+function applyMove(task, req, emit, now2) {
+  const at = now2().toISOString();
+  const entry = { at, actor: req.actor, by: req.by, from: task.state, to: req.to, reason: req.reason?.trim() || null };
+  if (req.force) entry.override = true;
+  task.blocker = req.to === "blocked" ? entry.reason ?? null : null;
+  task.state = req.to;
+  task.updatedAt = at;
+  task.history.push(entry);
+  emit({ type: "task.moved", task: task.id, actor: req.actor, by: req.by, data: { from: entry.from, to: entry.to, reason: entry.reason, override: req.force ?? false } });
+  return entry;
+}
+function moveTask(paths, config, id, req, hooks, now2) {
+  return mutate(paths, now2, (ledger, emit) => {
+    const task = ledger.tasks.find((t) => t.id === id);
+    if (!task) throw new AccError("no-task", `No task ${id}.`);
+    const problems = checkMove(ledger, config, task, req, hooks);
+    if (problems.length) throw new AccError("move-refused", `Can't move ${id} to ${req.to}:
+- ${problems.join("\n- ")}`);
+    const entry = applyMove(task, req, emit, now2);
+    return { task, entry };
+  });
+}
+function isReady(ledger, task) {
+  return task.state === "todo" && task.deps.every((d) => ledger.tasks.find((t) => t.id === d)?.state === "done");
+}
+function displayState(ledger, task, session) {
+  if (task.state === "todo" && isReady(ledger, task)) return "ready";
+  if (task.state === "running" && (session?.state === "blocked" || session?.status === "waiting")) return "needs-you";
+  return task.state;
+}
+var DISPLAY = {
+  todo: { label: "To do", icon: "circle-outline", glyph: "\u25CB", tone: "neutral" },
+  ready: { label: "Ready", icon: "play-circle", glyph: "\u25B7", tone: "blue" },
+  running: { label: "Running", icon: "sync", glyph: "\u21BB", tone: "blue" },
+  "needs-you": { label: "Needs you", icon: "bell", glyph: "!", tone: "orange" },
+  review: { label: "In review", icon: "eye", glyph: "\u25CE", tone: "blue" },
+  rework: { label: "Rework", icon: "debug-restart", glyph: "\u21BA", tone: "orange" },
+  blocked: { label: "Blocked", icon: "circle-slash", glyph: "\u2298", tone: "orange" },
+  done: { label: "Done", icon: "check", glyph: "\u2713", tone: "neutral" }
+};
+
+// packages/core/src/receipts.ts
+import { existsSync as existsSync3, readFileSync as readFileSync4 } from "node:fs";
+import { join as join3 } from "node:path";
+function receiptPath(paths, sha, gate) {
+  return join3(paths.receipts, sha, `${gate}.json`);
+}
+function readReceipt(paths, sha, gate) {
+  const f = receiptPath(paths, sha, gate);
+  if (!existsSync3(f)) return null;
+  try {
+    return JSON.parse(readFileSync4(f, "utf8"));
+  } catch {
+    return null;
+  }
+}
+function receiptHooks(paths, config, run2) {
+  return {
+    missingGates(task) {
+      const required = config.gates.required;
+      if (!required.length) return [];
+      const branch = task.run?.branch;
+      if (!branch) return required;
+      const sha = run2("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], { cwd: paths.root });
+      if (sha.code !== 0) return required;
+      const head = sha.stdout.trim();
+      return required.filter((g) => readReceipt(paths, head, g)?.status !== "pass");
+    }
+  };
+}
+
+// packages/core/src/init.ts
+import { existsSync as existsSync5 } from "node:fs";
+import { join as join5 } from "node:path";
+
+// packages/core/src/onboarding/helpers.ts
+import { existsSync as existsSync4, readFileSync as readFileSync5 } from "node:fs";
+import { join as join4 } from "node:path";
+var pass = (detail) => ({ status: "pass", detail });
+var fail = (detail, fix) => fix ? { status: "fail", detail, fix } : { status: "fail", detail };
+var unknown = (detail) => ({ status: "unknown", detail });
+var skip = (detail) => ({ status: "skip", detail });
+function makeContext(cwd, run2, env = process.env) {
+  let paths = null;
+  try {
+    paths = repoPaths(cwd, run2);
+  } catch {
+    paths = null;
+  }
+  let config = null;
+  let configErrors = [];
+  if (paths && existsSync4(paths.config)) {
+    try {
+      const r = parseConfig(JSON.parse(readFileSync5(paths.config, "utf8")));
+      config = r.config;
+      configErrors = r.errors;
+    } catch (e) {
+      configErrors = [`.acc/config.json isn't valid JSON: ${e.message}`];
+    }
+  }
+  return { cwd, run: run2, env, paths, config, configErrors, cache: /* @__PURE__ */ new Map() };
+}
+function cached(ctx, key, fn) {
+  if (!ctx.cache.has(key)) ctx.cache.set(key, fn());
+  return ctx.cache.get(key);
+}
+function versionAtLeast(version, min) {
+  const a = version.split(".").map(Number);
+  const b = min.split(".").map(Number);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i] ?? 0;
+    const y = b[i] ?? 0;
+    if (x !== y) return x > y;
+  }
+  return true;
+}
+var firstVersion = (text) => /(\d+\.\d+(?:\.\d+)?)/.exec(text)?.[1] ?? null;
+function sfJson(ctx, args) {
+  return cached(ctx, `sf ${args.join("\0")}`, () => {
+    const r = ctx.run("sf", [...args, "--json"], { cwd: ctx.paths?.root ?? ctx.cwd, env: { ...ctx.env, SF_NO_UPDATE_NOTIFIER: "true", SF_DISABLE_TELEMETRY: "true" } });
+    if (r.code === 127) return { status: 127, message: "The Salesforce CLI (sf) isn't installed." };
+    try {
+      return JSON.parse(r.stdout);
+    } catch {
+      return { status: r.code || 1, message: (r.stderr || r.stdout).trim().split("\n")[0] ?? "sf failed" };
+    }
+  });
+}
+function ghEnv(ctx) {
+  const account = ctx.config?.github?.account;
+  if (!account) return null;
+  return cached(ctx, `gh-token ${account}`, () => {
+    const t = ctx.run("gh", ["auth", "token", "-u", account], { env: ctx.env });
+    if (t.code !== 0 || !t.stdout.trim()) return null;
+    return { ...ctx.env, GH_TOKEN: t.stdout.trim() };
+  });
+}
+function parseOrgUrl(url) {
+  let host;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return { kind: "unknown" };
+  }
+  const sb = /^([a-z0-9-]+?)--([a-z0-9]+)\.sandbox\.my\.salesforce\.com$/.exec(host);
+  if (sb) return { kind: "sandbox", domain: sb[1], sandbox: sb[2] };
+  const prod = /^([a-z0-9-]+)\.my\.salesforce\.com$/.exec(host);
+  if (prod) return { kind: "production", domain: prod[1] };
+  return { kind: "unknown" };
+}
+var LICENSE_TO_TYPE = {
+  DEVELOPER: "developer",
+  DEVELOPER_PRO: "developer_pro",
+  PARTIAL: "partial",
+  FULL: "full"
+};
+function readText(root, rel) {
+  const f = join4(root, rel);
+  return existsSync4(f) ? readFileSync5(f, "utf8") : null;
+}
+var SECRET_PATTERN = [
+  "force://[A-Za-z0-9._~-]+:[^@[:space:]]+@",
+  '"access_token"[[:space:]]*:[[:space:]]*"[^"]{20,}"',
+  "<consumerSecret>[A-Za-z0-9]{8,}</consumerSecret>",
+  "<password>[^<[:space:]]{6,}</password>",
+  "sk_live_[0-9a-zA-Z]{20,}",
+  "-----BEGIN [A-Z ]*PRIVATE KEY-----",
+  "gh[pousr]_[0-9A-Za-z]{30,}",
+  "AKIA[0-9A-Z]{16}"
+].join("|");
+
+// packages/core/src/init.ts
+var sfJson2 = (run2, root, args) => {
+  const r = run2("sf", [...args, "--json"], { cwd: root, env: { ...process.env, SF_NO_UPDATE_NOTIFIER: "true", SF_DISABLE_TELEMETRY: "true" } });
+  try {
+    return JSON.parse(r.stdout);
+  } catch {
+    return { status: r.code || 1, message: (r.stderr || r.stdout).trim().split("\n")[0] };
+  }
+};
+function discoverSalesforce(run2, root, productionOrg, notes) {
+  const prod = sfJson2(run2, root, ["org", "display", "-o", productionOrg]);
+  if (prod.status !== 0) throw new AccError("init", `"${productionOrg}" isn't logged in: ${prod.message ?? "sf failed"}`);
+  const url = parseOrgUrl(String(prod.result?.instanceUrl ?? ""));
+  if (url.kind !== "production") throw new AccError("init", `"${productionOrg}" isn't a Production org (${prod.result?.instanceUrl}).`);
+  const q = sfJson2(run2, root, ["data", "query", "--use-tooling-api", "-q", "SELECT SandboxName, LicenseType FROM SandboxInfo ORDER BY SandboxName", "-o", productionOrg]);
+  if (q.status !== 0) throw new AccError("init", `Couldn't read Production's sandbox list: ${q.message ?? "sf failed"}`);
+  const sandboxes = q.result?.records ?? [];
+  const list = sfJson2(run2, root, ["org", "list"]);
+  const orgs = list.status === 0 ? Object.values(list.result ?? {}).filter(Array.isArray).flat() : [];
+  const aliasFor = /* @__PURE__ */ new Map();
+  for (const o of [...orgs].sort((a, b) => String(a.alias).localeCompare(String(b.alias)))) {
+    if (!o.alias || !o.instanceUrl) continue;
+    const u = parseOrgUrl(o.instanceUrl);
+    if (u.kind === "sandbox" && u.domain === url.domain && !aliasFor.has(u.sandbox)) aliasFor.set(u.sandbox, o.alias);
+  }
+  const envs = [{ name: "Production", type: "production", org: productionOrg, default: false, protected: true, promotesTo: [] }];
+  for (const s of sandboxes) {
+    const branch = branchFor(s.SandboxName);
+    const type = LICENSE_TO_TYPE[s.LicenseType] ?? "partial";
+    const org = aliasFor.get(branch) ?? null;
+    if (!org) notes.push(`${s.SandboxName} (${type}) has no logged-in alias yet. Run: sf org login web --alias "<alias>" --instance-url https://${url.domain}--${branch}.sandbox.my.salesforce.com`);
+    envs.push({ name: s.SandboxName, type, org, default: false, protected: false, promotesTo: [] });
+  }
+  const first = (t) => envs.find((e) => e.type === t && e.org)?.name ?? envs.find((e) => e.type === t)?.name;
+  const partial = first("partial");
+  const full = first("full");
+  const uniq = (xs) => [...new Set(xs.filter((x) => !!x).map(branchFor))];
+  for (const e of envs) {
+    if (e.type === "developer" || e.type === "developer_pro") e.promotesTo = uniq([partial, full, "Production"]);
+    else if (e.type === "partial") e.promotesTo = uniq([full, "Production"]);
+    else if (e.type === "full") e.promotesTo = ["production"];
+  }
+  const candidates = envs.filter((e) => e.org && (e.type === "developer" || e.type === "developer_pro"));
+  const fallback = envs.filter((e) => e.org && e.type !== "production");
+  const def = candidates[0] ?? fallback[0];
+  if (!def) throw new AccError("init", "Log in to at least one sandbox first, so day-to-day work has somewhere to go.");
+  def.default = true;
+  if (!candidates.length) notes.push(`There's no logged-in Developer sandbox, so "${def.name}" is the default. Agents work best against a source-tracked Developer sandbox.`);
+  return envs;
+}
+function originRepo(run2, root) {
+  const r = run2("git", ["remote", "get-url", "origin"], { cwd: root });
+  return /github\.com[:/]([\w.-]+\/[\w.-]+?)(?:\.git)?$/.exec(r.stdout.trim())?.[1];
+}
+function pushingAccount(run2, root) {
+  const fill = run2("git", ["credential", "fill"], { cwd: root, input: "protocol=https\nhost=github.com\n\n", env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
+  const token = /^password=(.*)$/m.exec(fill.stdout)?.[1];
+  if (!token) return void 0;
+  const who = run2("gh", ["api", "user", "--jq", ".login"], { env: { ...process.env, GH_TOKEN: token } });
+  return who.code === 0 ? who.stdout.trim() : void 0;
+}
+function planInit(run2, opts) {
+  const notes = [];
+  const root = opts.root;
+  const gitGet = (k) => run2("git", ["config", "--local", "--get", k], { cwd: root }).stdout.trim() || void 0;
+  let environments;
+  if (opts.profile === "salesforce") {
+    if (!opts.productionOrg) throw new AccError("init", "A Salesforce project needs --production-org <alias>, so its sandboxes can be found.");
+    environments = discoverSalesforce(run2, root, opts.productionOrg, notes);
+  } else {
+    const head = run2("git", ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], { cwd: root }).stdout.trim().replace(/^origin\//, "");
+    const cur = run2("git", ["branch", "--show-current"], { cwd: root }).stdout.trim();
+    environments = [{ name: head || cur || "main", type: "none", org: null, default: true, protected: false, promotesTo: [] }];
+  }
+  const repo = opts.githubRepo ?? originRepo(run2, root);
+  const account = opts.githubAccount ?? (repo ? pushingAccount(run2, root) : void 0);
+  if (repo && !account) notes.push("Couldn't tell which GitHub account this repo pushes as. Pass --github-account.");
+  const name = opts.commitName ?? gitGet("user.name");
+  const email = opts.commitEmail ?? gitGet("user.email");
+  const listIfPresent = (rel) => existsSync5(join5(root, rel)) ? rel : void 0;
+  const raw = {
+    schema: 1,
+    project: opts.project ?? root.split("/").filter(Boolean).pop() ?? "project",
+    profile: opts.profile,
+    ...repo && account ? { github: { repo, account } } : {},
+    ...name && email ? { commitIdentity: { name, email } } : {},
+    environments,
+    ...opts.profile === "salesforce" ? {
+      environmentSpecific: listIfPresent("manifest/environment-specific.txt"),
+      knownDrift: listIfPresent("manifest/known-drift.txt")
+    } : {},
+    trackers: opts.jiraSite && opts.jiraProject ? [{ kind: "jira", site: opts.jiraSite, project: opts.jiraProject }] : [],
+    agents: { max: 3, permissionMode: "acceptEdits" },
+    autonomy: "manual",
+    worktrees: { root: null, setup: [] },
+    gates: { required: opts.profile === "salesforce" ? ["format", "static", "validate"] : [], commands: {} }
+  };
+  const parsed = parseConfig(JSON.parse(JSON.stringify(raw)));
+  if (!parsed.config) throw new AccError("init", `The discovered config doesn't validate:
+- ${parsed.errors.join("\n- ")}`);
+  return { config: parsed.config, notes };
+}
+function configureRepoAccess(run2, root, account, identity) {
+  const git = (...args) => {
+    const r = run2("git", args, { cwd: root });
+    if (r.code !== 0) throw new AccError("init", `git ${args.join(" ")} failed: ${r.stderr.trim()}`);
+  };
+  if (identity) {
+    git("config", "user.name", identity.name);
+    git("config", "user.email", identity.email);
+  }
+  run2("git", ["config", "--unset-all", "credential.helper"], { cwd: root });
+  git("config", "credential.helper", "");
+  git("config", "--add", "credential.helper", `!f() { test "$1" = get || exit 0; echo username=${account}; echo "password=$(gh auth token -u ${account})"; }; f`);
+}
+
+// packages/core/src/onboarding/steps.ts
+import { existsSync as existsSync6 } from "node:fs";
+import { join as join6 } from "node:path";
+var DOCS = "docs/ONBOARDING.md";
+var DATA_EXT = /\.(csv|xls|xlsx|eml)$/i;
+var BACKSTOP = ["/*.csv", "/*.xls", "/*.xlsx", "/*.eml"];
+function needsProject(ctx) {
+  if (!ctx.paths) return skip("Not inside a repo.");
+  if (!ctx.config) return skip("Needs a valid .acc/config.json first (step B0).");
+  return null;
+}
+var sfEnvs = (ctx) => (ctx.config?.environments ?? []).filter((e) => e.type !== "none");
+var devEnvs = (ctx) => sfEnvs(ctx).filter((e) => (e.type === "developer" || e.type === "developer_pro") && e.org);
+function versionStep(id, title, why, cmd, args, min, fix, profiles) {
+  return {
+    id,
+    part: "machine",
+    group: "A1",
+    title,
+    why,
+    profiles,
+    fix: { command: fix },
+    check(ctx) {
+      const r = ctx.run(cmd, args, { env: ctx.env });
+      if (r.code === 127) return fail(`${cmd} isn't installed.`);
+      if (r.code !== 0) return fail(`${cmd} didn't run: ${(r.stderr || r.stdout).trim().split("\n")[0]}`);
+      const v = firstVersion(r.stdout + r.stderr);
+      if (min && (!v || !versionAtLeast(v, min))) return fail(`${cmd} ${v ?? "(unknown version)"} is older than ${min}.`);
+      return pass(`${cmd} ${v ?? ""}`.trim());
+    }
+  };
+}
+var STEPS = [
+  // ------------------------------------------------------------ Part A: this machine
+  versionStep("A1.git", "git 2.40 or later", "Worktrees and the shared git directory need a recent git.", "git", ["--version"], "2.40", "brew install git"),
+  versionStep("A1.node", "Node 20 or later", "The acc CLI runs on Node.", "node", ["--version"], "20", "brew install node"),
+  versionStep("A1.gh", "GitHub CLI", "Pull requests, issues and the per-repo account all go through gh.", "gh", ["--version"], null, "brew install gh"),
+  {
+    id: "A1.claude",
+    part: "machine",
+    group: "A1",
+    title: "Claude Code CLI with background sessions",
+    why: "Builders run as `claude --bg` sessions (D-009). The VSCode extension ships its own copy, so the terminal CLI can fall far behind.",
+    fix: { command: "claude update" },
+    check(ctx) {
+      const v = ctx.run("claude", ["--version"], { env: ctx.env });
+      if (v.code === 127) return fail("claude isn't installed.", "npm install -g @anthropic-ai/claude-code");
+      const h = ctx.run("claude", ["--help"], { env: ctx.env });
+      if (!/--bg\b/.test(h.stdout)) return fail(`claude ${firstVersion(v.stdout) ?? ""} has no --bg. Update it.`);
+      return pass(`claude ${firstVersion(v.stdout) ?? ""}`.trim());
+    }
+  },
+  versionStep("A1.sf", "Salesforce CLI", "Validation, retrieves and org checks use sf.", "sf", ["--version"], null, "npm install -g @salesforce/cli", ["salesforce"]),
+  {
+    id: "A1.code-analyzer",
+    part: "machine",
+    group: "A1",
+    title: "Salesforce Code Analyzer",
+    profiles: ["salesforce"],
+    why: "The `static` check runs `sf code-analyzer`.",
+    fix: { command: "sf plugins install code-analyzer" },
+    check(ctx) {
+      const r = ctx.run("sf", ["plugins"], { env: { ...ctx.env, SF_NO_UPDATE_NOTIFIER: "true" } });
+      if (r.code === 127) return fail("sf isn't installed.");
+      return /code-analyzer/.test(r.stdout) ? pass("code-analyzer plugin installed") : fail("The code-analyzer plugin isn't installed.");
+    }
+  },
+  {
+    id: "A2.gh-login",
+    part: "machine",
+    group: "A2",
+    title: "Logged in to GitHub",
+    why: "Each repo uses its own account through `gh auth token -u`. Never `gh auth switch`, which changes every session.",
+    fix: { command: "gh auth login" },
+    check(ctx) {
+      const r = ctx.run("gh", ["auth", "status"], { env: ctx.env });
+      if (r.code === 127) return fail("gh isn't installed.");
+      const accounts = [...(r.stdout + r.stderr).matchAll(/account (\S+)/g)].map((m) => m[1]);
+      if (!accounts.length) return fail("gh isn't logged in to any account.");
+      const want = ctx.config?.github?.account;
+      if (want && !accounts.includes(want)) return fail(`gh isn't logged in as ${want}. Logged in: ${accounts.join(", ")}.`, `gh auth login   # as ${want}`);
+      return pass(`Logged in as ${accounts.join(", ")}`);
+    }
+  },
+  {
+    id: "A3.trackers",
+    part: "machine",
+    group: "A3",
+    title: "Tracker connectors",
+    why: "Jira intake goes through the Atlassian connector. GitHub Issues need nothing extra.",
+    fix: { text: "claude.ai \u2192 Settings \u2192 Connectors \u2192 connect Atlassian." },
+    check(ctx) {
+      const jira = ctx.config?.trackers.some((t) => t.kind === "jira");
+      if (ctx.config && !jira) return skip("This project doesn't use Jira.");
+      return unknown("Connectors live in claude.ai, so this can't be checked from here.");
+    }
+  },
+  {
+    id: "A4.plugin",
+    part: "machine",
+    group: "A4",
+    title: "The acc plugin",
+    why: "Gives every agent the acc command, the guard hooks and the skills.",
+    check: () => skip("The plugin arrives with milestone M6.")
+  },
+  // ------------------------------------------------------------ Part B: this project
+  {
+    id: "B0.repo",
+    part: "project",
+    group: "B0",
+    title: "Inside the project's repo",
+    why: "Everything per-project hangs off the repo: config, branches, and the ledger in the git directory (D-008).",
+    check: (ctx) => ctx.paths ? pass(`Repo at ${ctx.paths.root}`) : fail("Run this inside the project's repo.")
+  },
+  {
+    id: "B0.config",
+    part: "project",
+    group: "B0",
+    title: "Project config",
+    why: "`.acc/config.json` names the environments, GitHub account and checks.",
+    fix: { command: "acc init" },
+    check(ctx) {
+      if (!ctx.paths) return skip("Not inside a repo.");
+      if (ctx.config) {
+        const n = ctx.config.environments.length;
+        return pass(`${ctx.config.project}: ${ctx.config.profile}, ${n} environment${n === 1 ? "" : "s"}`);
+      }
+      if (!existsSync6(ctx.paths.config)) return fail("There's no .acc/config.json yet.");
+      return fail(`.acc/config.json has problems: ${ctx.configErrors.join(" ")}`);
+    }
+  },
+  {
+    id: "B1.orgs",
+    part: "project",
+    group: "B1",
+    title: "Every org is listed",
+    profiles: ["salesforce"],
+    why: "Pipelines differ by client, so the config lists every sandbox Production has, with its type (D-018).",
+    fix: { command: "acc init --force" },
+    check(ctx) {
+      const need = needsProject(ctx);
+      if (need) return need;
+      const prod = ctx.config.environments.find((e) => e.type === "production");
+      if (!prod) return fail("There's no Production environment.");
+      if (!prod.org) return fail("Production has no org alias.");
+      const q = sfJson(ctx, ["data", "query", "--use-tooling-api", "-q", "SELECT SandboxName, LicenseType FROM SandboxInfo", "-o", prod.org]);
+      if (q.status !== 0) return unknown(`Couldn't read Production's sandbox list: ${q.message ?? "sf failed"}`);
+      const records = q.result?.records ?? [];
+      const problems = [];
+      const listed = [];
+      for (const r of records) {
+        const env = ctx.config.environments.find((e) => e.branch === branchFor(r.SandboxName));
+        const type = LICENSE_TO_TYPE[r.LicenseType] ?? r.LicenseType.toLowerCase();
+        if (!env) problems.push(`${r.SandboxName} (${type}) isn't in the config.`);
+        else if (env.type !== type) problems.push(`${env.name} is ${type} in Salesforce but "${env.type}" in the config.`);
+        else listed.push(`${env.branch} (${type})`);
+      }
+      const known = new Set(records.map((r) => branchFor(r.SandboxName)));
+      for (const e of ctx.config.environments) {
+        if (e.type !== "production" && e.type !== "none" && !known.has(e.branch)) problems.push(`${e.name} is in the config but not in Production's sandbox list.`);
+      }
+      return problems.length ? fail(problems.join(" ")) : pass(`All ${records.length} sandboxes are listed: ${listed.join(", ")}`);
+    }
+  },
+  {
+    id: "B2.identity",
+    part: "project",
+    group: "B2",
+    title: "Commit identity",
+    why: "Commits in this repo carry its own name and email, set in the repo only.",
+    check(ctx) {
+      const need = needsProject(ctx);
+      if (need) return need;
+      const want = ctx.config.commitIdentity;
+      if (!want) return skip("No commitIdentity in the config.");
+      const get = (k) => ctx.run("git", ["config", "--local", "--get", k], { cwd: ctx.paths.root }).stdout.trim();
+      const name = get("user.name");
+      const email = get("user.email");
+      if (name === want.name && email === want.email) return pass(`${name} <${email}>`);
+      return fail(
+        `Commits would be ${name || "(no name)"} <${email || "no email"}>, not ${want.name} <${want.email}>.`,
+        `git config user.name "${want.name}" && git config user.email "${want.email}"`
+      );
+    }
+  },
+  {
+    id: "B2.account",
+    part: "project",
+    group: "B2",
+    title: "The repo's GitHub account is logged in",
+    why: "acc runs every gh call for this repo as its own account (D-007).",
+    check(ctx) {
+      const need = needsProject(ctx);
+      if (need) return need;
+      const account = ctx.config.github?.account;
+      if (!account) return skip("No GitHub account in the config.");
+      return ghEnv(ctx) ? pass(`gh can act as ${account}`) : fail(`gh isn't logged in as ${account}.`, `gh auth login   # as ${account}`);
+    }
+  },
+  {
+    id: "B2.credentials",
+    part: "project",
+    group: "B2",
+    title: "git pushes as the right account",
+    why: "gh's own credential helper ignores the username and uses the active account, so a repo can silently push as the wrong one.",
+    check(ctx) {
+      const need = needsProject(ctx);
+      if (need) return need;
+      const account = ctx.config.github?.account;
+      if (!account) return skip("No GitHub account in the config.");
+      const helper = `git config credential.helper '' && git config --add credential.helper '!f() { test "$1" = get || exit 0; echo username=${account}; echo "password=$(gh auth token -u ${account})"; }; f'`;
+      const fill = ctx.run("git", ["credential", "fill"], {
+        cwd: ctx.paths.root,
+        input: "protocol=https\nhost=github.com\n\n",
+        env: { ...ctx.env, GIT_TERMINAL_PROMPT: "0" }
+      });
+      const token = /^password=(.*)$/m.exec(fill.stdout)?.[1];
+      if (fill.code !== 0 || !token) return fail("git has no GitHub credential for this repo.", helper);
+      const who = ctx.run("gh", ["api", "user", "--jq", ".login"], { env: { ...ctx.env, GH_TOKEN: token } });
+      const login = who.stdout.trim();
+      if (who.code !== 0) return unknown("git returned a credential, but GitHub didn't accept it.");
+      return login === account ? pass(`git pushes as ${login}`) : fail(`git would push as ${login}, not ${account}.`, helper);
+    }
+  },
+  {
+    id: "B3.gitignore",
+    part: "project",
+    group: "B3",
+    title: "Client data blocked at the repo root",
+    profiles: ["salesforce"],
+    why: "A backstop. The real safeguard is keeping client data in the Working Files folder.",
+    check(ctx) {
+      const need = needsProject(ctx);
+      if (need) return need;
+      const lines = new Set((readText(ctx.paths.root, ".gitignore") ?? "").split("\n").map((l) => l.trim()));
+      const missing = BACKSTOP.filter((p) => !lines.has(p));
+      return missing.length ? fail(`.gitignore is missing ${missing.join(", ")}.`, `printf '${missing.join("\\n")}\\n' >> .gitignore`) : pass("CSV, XLS, XLSX and EML are blocked at the root.");
+    }
+  },
+  {
+    id: "B3.data-files",
+    part: "project",
+    group: "B3",
+    title: "No client data files in git",
+    profiles: ["salesforce"],
+    why: "Contact imports and workbooks belong in the Working Files folder, outside the repo.",
+    check(ctx) {
+      const need = needsProject(ctx);
+      if (need) return need;
+      const files = ctx.run("git", ["ls-files"], { cwd: ctx.paths.root }).stdout.split("\n").filter((f) => f && !f.includes("/") && DATA_EXT.test(f));
+      return files.length ? fail(`Tracked data files: ${files.join(", ")}.`, `git rm --cached ${files.map((f) => JSON.stringify(f)).join(" ")}`) : pass("No data files at the repo root.");
+    }
+  },
+  {
+    id: "B3.secrets",
+    part: "project",
+    group: "B3",
+    title: "No credentials in tracked files",
+    why: "Org auth URLs, tokens and private keys must never be committed.",
+    check(ctx) {
+      const need = needsProject(ctx);
+      if (need) return need;
+      const scan = ctx.config.secretScan;
+      const spec = [...scan.paths, ...scan.exclude.map((x) => `:(exclude)${x}`)];
+      const r = ctx.run("git", ["grep", "-I", "-l", "-E", SECRET_PATTERN, "--", ...spec], { cwd: ctx.paths.root });
+      if (r.code === 1) return pass(`No credentials found (scanned: ${scan.paths.join(", ")})`);
+      if (r.code === 0) return fail(`Possible credentials in: ${r.stdout.trim().split("\n").join(", ")}.`, "Remove them, rotate the credential, and rewrite history if it was pushed.");
+      return unknown(`The scan didn't run: ${r.stderr.trim().split("\n")[0]}`);
+    }
+  },
+  {
+    id: "B4.skeleton",
+    part: "project",
+    group: "B4",
+    title: "Salesforce project skeleton",
+    profiles: ["salesforce"],
+    why: "sfdx-project.json defines the source folders, and local tool state must stay out of git.",
+    check(ctx) {
+      const need = needsProject(ctx);
+      if (need) return need;
+      const sfdx = readText(ctx.paths.root, "sfdx-project.json");
+      if (!sfdx) return fail("There's no sfdx-project.json.");
+      const local = ctx.run("git", ["ls-files", ".sf", ".sfdx", ".claude/settings.local.json"], { cwd: ctx.paths.root }).stdout.trim();
+      if (local) return fail(`Local tool state is tracked: ${local.split("\n").join(", ")}.`, "git rm -r --cached .sf .sfdx");
+      try {
+        const dirs = (JSON.parse(sfdx).packageDirectories ?? []).map((d) => d.path);
+        return pass(`Source in ${dirs.join(", ") || "(none listed)"}`);
+      } catch {
+        return fail("sfdx-project.json isn't valid JSON.");
+      }
+    }
+  },
+  {
+    id: "B5.baseline",
+    part: "project",
+    group: "B5",
+    title: "Baseline manifest",
+    profiles: ["salesforce"],
+    why: "Every branch is retrieved with the same component list, so a diff between branches is real drift.",
+    fix: { docs: `${DOCS}#b5-make-one-baseline-manifest-for-every-environment` },
+    check(ctx) {
+      const need = needsProject(ctx);
+      if (need) return need;
+      const xml = readText(ctx.paths.root, "manifest/baseline-package.xml");
+      if (!xml) return fail("There's no manifest/baseline-package.xml.");
+      const members = (xml.match(/<members>/g) ?? []).length;
+      return members ? pass(`${members} components`) : fail("manifest/baseline-package.xml lists no components.");
+    }
+  },
+  {
+    id: "B6.branches",
+    part: "project",
+    group: "B6",
+    title: "A branch for every environment",
+    why: "Each environment has its own branch, named after it (D-015).",
+    fix: { docs: `${DOCS}#b6-create-a-branch-per-environment-named-after-it-and-seed-each-from-its-org` },
+    check(ctx) {
+      const need = needsProject(ctx);
+      if (need) return need;
+      const has = (ref) => ctx.run("git", ["rev-parse", "--verify", "--quiet", ref], { cwd: ctx.paths.root }).code === 0;
+      const missing = ctx.config.environments.filter((e) => !has(`refs/heads/${e.branch}`) && !has(`refs/remotes/origin/${e.branch}`)).map((e) => e.branch);
+      return missing.length ? fail(`No branch for ${missing.join(", ")}.`) : pass(ctx.config.environments.map((e) => e.branch).join(", "));
+    }
+  },
+  {
+    id: "B6.org-match",
+    part: "project",
+    group: "B6",
+    title: "Each branch points at the right org",
+    profiles: ["salesforce"],
+    why: "A sandbox's name is in its URL, so the tool can prove a branch deploys where its name says (D-015).",
+    check(ctx) {
+      const need = needsProject(ctx);
+      if (need) return need;
+      const problems = [];
+      const ok = [];
+      for (const e of sfEnvs(ctx)) {
+        if (!e.org) {
+          problems.push(`${e.name} has no org alias.`);
+          continue;
+        }
+        const d = sfJson(ctx, ["org", "display", "-o", e.org]);
+        if (d.status !== 0) {
+          problems.push(`"${e.org}" isn't logged in (${d.message ?? "sf failed"}).`);
+          continue;
+        }
+        const url = parseOrgUrl(String(d.result?.instanceUrl ?? ""));
+        if (e.type === "production") {
+          if (url.kind !== "production") problems.push(`"${e.org}" isn't a Production org.`);
+          else ok.push(`${e.branch} \u2192 ${url.domain}`);
+        } else if (url.kind !== "sandbox") problems.push(`"${e.org}" isn't a sandbox.`);
+        else if (url.sandbox !== e.branch) problems.push(`"${e.org}" is the "${url.sandbox}" sandbox, but its branch is "${e.branch}".`);
+        else ok.push(`${e.branch} \u2192 ${url.domain}--${url.sandbox}`);
+      }
+      return problems.length ? fail(problems.join(" "), 'sf org login web --alias "<alias>" --instance-url <My Domain URL>') : pass(ok.join(", "));
+    }
+  },
+  {
+    id: "B8.tracking",
+    part: "project",
+    group: "B8",
+    title: "Developer sandboxes are source tracked",
+    profiles: ["salesforce"],
+    why: "A Developer sandbox is tracked only if tracking was on when it was created, or switched on inside it afterwards.",
+    fix: {
+      text: "Log in to the sandbox: Setup \u2192 Sandbox Settings \u2192 Enable Source Tracking in This Sandbox.",
+      setupPath: "/lightning/setup/SetupOneHome/home",
+      docs: "https://developer.salesforce.com/docs/platform/sfdx-dev/guide/sfdx-setup-enable-source-tracking-sandboxes.html"
+    },
+    check(ctx) {
+      const need = needsProject(ctx);
+      if (need) return need;
+      const envs = devEnvs(ctx);
+      if (!envs.length) return skip("No Developer sandboxes in this project.");
+      const off = envs.filter((e) => sfJson(ctx, ["data", "query", "--use-tooling-api", "-q", "SELECT COUNT() FROM SourceMember", "-o", e.org]).status !== 0);
+      return off.length ? fail(`Not tracked: ${off.map((e) => e.name).join(", ")}.`) : pass(`Tracked: ${envs.map((e) => e.name).join(", ")}`);
+    }
+  },
+  {
+    id: "B8.cli-tracking",
+    part: "project",
+    group: "B8",
+    title: "The CLI knows they're tracked",
+    profiles: ["salesforce"],
+    why: "An org logged in before tracking was switched on is remembered as untracked.",
+    check(ctx) {
+      const need = needsProject(ctx);
+      if (need) return need;
+      const envs = devEnvs(ctx);
+      if (!envs.length) return skip("No Developer sandboxes in this project.");
+      const list = sfJson(ctx, ["org", "list"]);
+      if (list.status !== 0) return unknown(`Couldn't list orgs: ${list.message ?? "sf failed"}`);
+      const all = Object.values(list.result ?? {}).filter(Array.isArray).flat();
+      const off = envs.filter((e) => !all.some((o) => o.alias === e.org && o.tracksSource === true));
+      return off.length ? fail(`The CLI treats ${off.map((e) => `"${e.org}"`).join(", ")} as untracked.`, off.map((e) => `sf org enable tracking -o "${e.org}"`).join(" && ")) : pass("The CLI tracks source for every Developer sandbox.");
+    }
+  },
+  {
+    id: "B9.lists",
+    part: "project",
+    group: "B9",
+    title: "Environment-specific and known-drift lists",
+    profiles: ["salesforce"],
+    why: "Environment config is never promoted or deployed (D-016), and drift checks need to know what differs by design.",
+    fix: { docs: `${DOCS}#b9-sort-out-the-environment-specific-differences` },
+    check(ctx) {
+      const need = needsProject(ctx);
+      if (need) return need;
+      const problems = [];
+      const counts = [];
+      for (const [label, rel] of [["environment-specific", ctx.config.environmentSpecific], ["known-drift", ctx.config.knownDrift]]) {
+        if (!rel) {
+          problems.push(`No ${label} list in the config.`);
+          continue;
+        }
+        const text = readText(ctx.paths.root, rel);
+        if (text === null) {
+          problems.push(`${rel} doesn't exist.`);
+          continue;
+        }
+        const lines = text.replace(/\n$/, "").split("\n");
+        if (lines.some((l) => l.trim() === "")) problems.push(`${rel} has a blank line. As a grep pattern, that matches everything.`);
+        const paths = lines.filter((l) => l.trim() && !l.startsWith("#"));
+        const gone = paths.filter((p) => !existsSync6(join6(ctx.paths.root, p)));
+        if (gone.length) problems.push(`${rel} lists files that don't exist: ${gone.slice(0, 3).join(", ")}${gone.length > 3 ? " \u2026" : ""}.`);
+        counts.push(`${paths.length} ${label}`);
+      }
+      return problems.length ? fail(problems.join(" ")) : pass(counts.join(", "));
+    }
+  },
+  {
+    id: "B10.default-branch",
+    part: "project",
+    group: "B10",
+    title: "GitHub's default branch is the day-to-day one",
+    why: "New pull requests then target day-to-day work, not a protected environment.",
+    check(ctx) {
+      const need = needsProject(ctx);
+      if (need) return need;
+      const gh = ctx.config.github;
+      if (!gh) return skip("No GitHub repo in the config.");
+      const env = ghEnv(ctx);
+      if (!env) return unknown(`gh isn't logged in as ${gh.account}.`);
+      const want = ctx.config.environments.find((e) => e.default).branch;
+      const r = ctx.run("gh", ["api", `repos/${gh.repo}`, "--jq", ".default_branch"], { env });
+      if (r.code !== 0) return unknown(`Couldn't read ${gh.repo}: ${r.stderr.trim().split("\n")[0]}`);
+      const got = r.stdout.trim();
+      return got === want ? pass(`${gh.repo} defaults to ${got}`) : fail(`${gh.repo} defaults to ${got}, not ${want}.`, `gh repo edit ${gh.repo} --default-branch ${want}`);
+    }
+  },
+  {
+    id: "B10.default-org",
+    part: "project",
+    group: "B10",
+    title: "The local default org is the day-to-day one",
+    profiles: ["salesforce"],
+    why: "A deploy without --target-org then can't reach Production.",
+    check(ctx) {
+      const need = needsProject(ctx);
+      if (need) return need;
+      const want = ctx.config.environments.find((e) => e.default).org;
+      if (!want) return fail("The default environment has no org alias.");
+      let got;
+      try {
+        got = JSON.parse(readText(ctx.paths.root, ".sf/config.json") ?? "{}")["target-org"];
+      } catch {
+        got = void 0;
+      }
+      return got === want ? pass(`Default org: ${got}`) : fail(`The default org is ${got ? `"${got}"` : "not set"}, not "${want}".`, `sf config set target-org "${want}"`);
+    }
+  },
+  {
+    id: "B10.readme",
+    part: "project",
+    group: "B10",
+    title: "README names every environment",
+    why: "Anyone opening the repo sees which branch is which org, and how changes flow.",
+    check(ctx) {
+      const need = needsProject(ctx);
+      if (need) return need;
+      if (ctx.config.environments.length < 2) return skip("Only one environment, so there's no map to document.");
+      const text = readText(ctx.paths.root, "README.md");
+      if (!text) return fail("There's no README.md.");
+      const missing = ctx.config.environments.filter((e) => !text.includes(`\`${e.branch}\``)).map((e) => e.branch);
+      return missing.length ? fail(`README.md doesn't mention ${missing.join(", ")}.`) : pass("Every environment is in the README.");
+    }
+  },
+  {
+    id: "B11.drift",
+    part: "project",
+    group: "B11",
+    title: "Drift check",
+    profiles: ["salesforce"],
+    why: "Shows what changed in an org since its branch was last updated.",
+    check: () => skip("acc drift arrives with milestone M4.")
+  }
+];
+function applies(step, ctx) {
+  if (!step.profiles) return true;
+  if (!ctx.config) return step.part === "machine";
+  return step.profiles.includes(ctx.config.profile);
+}
+function runSteps(ctx, part) {
+  return STEPS.filter((s) => (!part || s.part === part) && applies(s, ctx)).map((step) => {
+    try {
+      return { step, result: step.check(ctx) };
+    } catch (e) {
+      return { step, result: unknown(`The check failed to run: ${e.message}`) };
+    }
+  });
+}
+
+// packages/cli/src/format.ts
+var useColor = () => !process.env.NO_COLOR && !!process.stdout.isTTY;
+var TONES = { orange: "\x1B[38;5;208m", blue: "\x1B[38;5;33m", neutral: "", dim: "\x1B[2m" };
+function tone(text, t) {
+  if (!useColor() || !TONES[t]) return text;
+  return `${TONES[t]}${text}\x1B[0m`;
+}
+function stateLabel(s) {
+  const d = DISPLAY[s];
+  return tone(`${d.glyph} ${d.label}`, d.tone);
+}
+var CHECK = {
+  pass: { glyph: "\u2713", label: "pass", tone: "blue" },
+  fail: { glyph: "\u2717", label: "fail", tone: "orange" },
+  unknown: { glyph: "?", label: "check by hand", tone: "orange" },
+  skip: { glyph: "\u2013", label: "skip", tone: "dim" }
+};
+var LABEL_WIDTH = Math.max(...Object.values(CHECK).map((c) => c.label.length)) + 2;
+function checkLabel(s) {
+  const c = CHECK[s];
+  return tone(`${c.glyph} ${c.label}`.padEnd(LABEL_WIDTH), c.tone);
+}
+function table(rows) {
+  const strip = (s) => s.replace(/\x1b\[[0-9;]*m/g, "");
+  const widths = rows[0]?.map((_, i) => Math.max(...rows.map((r) => strip(r[i] ?? "").length))) ?? [];
+  return rows.map((r) => r.map((c, i) => i === r.length - 1 ? c : c + " ".repeat((widths[i] ?? 0) - strip(c).length)).join("  ")).join("\n");
+}
+
+// packages/cli/src/main.ts
+var VERSION = "0.1.0";
+var now = () => /* @__PURE__ */ new Date();
+var HELP = `acc ${VERSION}: Agent Command Center
+
+Setup
+  acc doctor [--part machine|project]   Check every onboarding step and print the fixes
+  acc onboard                           The same checks as a guided list, with the next step to do
+  acc init --profile salesforce --production-org <alias> [--project <name>] [--github-repo <o/r>]
+           [--github-account <a>] [--commit-name <n> --commit-email <e>] [--configure-git]
+           [--jira-site <site> --jira-project <key>] [--dry-run] [--force]
+  acc init --profile generic [...]
+
+Tasks
+  acc add "<title>" [--brief <text>] [--dep <id>]... [--env <branch>] [--key <T-n>]
+  acc import [--file <tasks.json>]      Add or refresh tasks from JSON (stdin by default)
+  acc list [--state <state>]
+  acc ready
+  acc show <id>
+  acc set <id> <state> [--reason <text>] [--force] [--as <actor>] [--by <name>]
+
+Every command takes --json. Docs: docs/ONBOARDING.md, docs/DESIGN.md.`;
+function out(o, human, data) {
+  if (o.json) process.stdout.write(JSON.stringify(data, null, 2) + "\n");
+  else process.stdout.write(human() + "\n");
+}
+function project(cwd) {
+  const paths = repoPaths(cwd, run);
+  const { config, warnings } = loadConfig(paths.config);
+  for (const w of warnings) process.stderr.write(`warning: ${w}
+`);
+  return { paths, config };
+}
+function actorFrom(o) {
+  const role = o.as || process.env.ACC_ROLE || "human";
+  if (!ACTORS.includes(role)) throw new AccError("usage", `--as must be one of ${ACTORS.join(", ")}.`);
+  const by = o.by ?? (role === "builder" && process.env.ACC_TASK ? `builder:${process.env.ACC_TASK}` : `${role}:${process.env.USER ?? "unknown"}`);
+  return { actor: role, by };
+}
+function renderSteps(results, guided) {
+  const lines = [];
+  let part = "";
+  for (const { step, result } of results) {
+    if (step.part !== part) {
+      part = step.part;
+      lines.push("", part === "machine" ? "This machine" : "This project");
+    }
+    lines.push(`  ${checkLabel(result.status)}  ${step.id.padEnd(18)} ${step.title}`);
+    if (result.status !== "pass" && result.status !== "skip") lines.push(`      ${result.detail}`);
+    else if (!guided) lines.push(tone(`      ${result.detail}`, "dim"));
+    if (result.status === "fail" || result.status === "unknown") {
+      const fix = result.fix ?? step.fix?.command ?? step.fix?.text;
+      if (fix) lines.push(`      fix: ${fix}`);
+      if (step.fix?.docs) lines.push(`      docs: ${step.fix.docs}`);
+    }
+  }
+  const failing = results.filter((r) => r.result.status === "fail");
+  const byHand = results.filter((r) => r.result.status === "unknown");
+  const passed = results.filter((r) => r.result.status === "pass").length;
+  lines.push("", `${passed} passed, ${failing.length} failing, ${byHand.length} to check by hand.`);
+  if (guided && failing[0]) {
+    const { step, result } = failing[0];
+    lines.push("", tone(`Next: ${step.id}, ${step.title}`, "orange"), `  Why: ${step.why}`, `  Do:  ${result.fix ?? step.fix?.command ?? step.fix?.text ?? `see ${step.fix?.docs ?? "docs/ONBOARDING.md"}`}`);
+  }
+  return lines.join("\n").replace(/^\n/, "");
+}
+function cmdDoctor(o, guided) {
+  const ctx = makeContext(process.cwd(), run);
+  const part = o.part;
+  if (part && part !== "machine" && part !== "project") throw new AccError("usage", "--part must be machine or project.");
+  const results = runSteps(ctx, part);
+  out(o, () => renderSteps(results, guided), results.map(({ step, result }) => ({
+    id: step.id,
+    part: step.part,
+    group: step.group,
+    title: step.title,
+    why: step.why,
+    fix: step.fix ?? null,
+    ...result
+  })));
+  return results.some((r) => r.result.status === "fail") ? 1 : 0;
+}
+function cmdInit(o) {
+  const paths = repoPaths(process.cwd(), run);
+  const profile = o.profile ?? "generic";
+  if (profile !== "generic" && profile !== "salesforce") throw new AccError("usage", "--profile must be generic or salesforce.");
+  if (existsSync7(paths.config) && !o.force && !o["dry-run"]) throw new AccError("exists", `${paths.config} already exists. Use --force to replace it.`);
+  const plan = planInit(run, {
+    root: paths.root,
+    profile,
+    project: o.project,
+    productionOrg: o["production-org"],
+    githubRepo: o["github-repo"],
+    githubAccount: o["github-account"],
+    commitName: o["commit-name"],
+    commitEmail: o["commit-email"],
+    jiraSite: o["jira-site"],
+    jiraProject: o["jira-project"]
+  });
+  if (!o["dry-run"]) {
+    writeConfig(paths.config, plan.config);
+    if (o["configure-git"] && plan.config.github) configureRepoAccess(run, paths.root, plan.config.github.account, plan.config.commitIdentity);
+  }
+  out(o, () => {
+    const c = plan.config;
+    const rows = [["Environment", "Branch", "Type", "Org alias", "Promotes to"], ...c.environments.map((e) => [
+      e.name + (e.default ? " (default)" : "") + (e.protected ? " (protected)" : ""),
+      e.branch,
+      e.type,
+      e.org ?? "(not logged in)",
+      e.promotesTo.join(", ") || "\u2013"
+    ])];
+    return [
+      `${o["dry-run"] ? "Would write" : "Wrote"} ${paths.config}`,
+      "",
+      table(rows),
+      "",
+      `GitHub: ${c.github ? `${c.github.repo} as ${c.github.account}` : "(none)"}   Commits: ${c.commitIdentity ? `${c.commitIdentity.name} <${c.commitIdentity.email}>` : "(not set)"}`,
+      ...plan.notes.map((n) => `note: ${n}`),
+      "",
+      "Next: acc doctor"
+    ].join("\n");
+  }, { written: !o["dry-run"], path: paths.config, config: plan.config, notes: plan.notes });
+  return 0;
+}
+function readInput(file) {
+  const text = file ? readFileSync6(file, "utf8") : readFileSync6(0, "utf8");
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    throw new AccError("usage", `The input isn't valid JSON: ${e.message}`);
+  }
+}
+function upsert(o, inputs) {
+  const { paths, config } = project(process.cwd());
+  const { actor, by } = actorFrom(o);
+  const res = mutate(paths, now, (ledger, emit) => upsertTasks(ledger, config, inputs, actor, by, emit, now));
+  out(o, () => [
+    res.added.length ? `Added ${res.added.join(", ")}` : "",
+    res.updated.length ? `Updated ${res.updated.join(", ")}` : "",
+    res.unchanged.length ? `Unchanged ${res.unchanged.join(", ")}` : "",
+    ...res.errors.map((e) => tone(`\u2717 ${e}`, "orange"))
+  ].filter(Boolean).join("\n") || "Nothing to do.", res);
+  return res.errors.length ? 1 : 0;
+}
+function cmdList(o, onlyReady) {
+  const { paths } = project(process.cwd());
+  const ledger = readLedger(paths.ledger);
+  const want = o.state;
+  const tasks = ledger.tasks.filter((t) => onlyReady ? isReady(ledger, t) : !want || t.state === want || displayState(ledger, t) === want);
+  out(o, () => {
+    if (!tasks.length) return onlyReady ? "Nothing is ready." : "No tasks.";
+    return table([["Id", "State", "Env", "Title", "Waiting on"], ...tasks.map((t) => [
+      t.id,
+      stateLabel(displayState(ledger, t)),
+      t.environment,
+      t.title,
+      t.deps.filter((d) => ledger.tasks.find((x) => x.id === d)?.state !== "done").join(", ")
+    ])]);
+  }, tasks.map((t) => ({ ...t, display: displayState(ledger, t), ready: isReady(ledger, t) })));
+  return 0;
+}
+function cmdShow(o, id) {
+  const { paths } = project(process.cwd());
+  const ledger = readLedger(paths.ledger);
+  const t = ledger.tasks.find((x) => x.id === id.toUpperCase());
+  if (!t) throw new AccError("no-task", `No task ${id}.`);
+  out(o, () => [
+    `${t.id}  ${stateLabel(displayState(ledger, t))}  ${t.title}`,
+    `Environment: ${t.environment}   Source: ${t.source.kind}${t.source.url ? ` ${t.source.url}` : ""}`,
+    t.deps.length ? `Depends on: ${t.deps.join(", ")}` : "",
+    t.blocker ? `Blocked: ${t.blocker}` : "",
+    t.brief ? `
+${t.brief}
+` : "",
+    "History:",
+    ...t.history.map((h) => `  ${h.at}  ${h.from ?? "\u2013"} \u2192 ${h.to}  by ${h.by}${h.reason ? `: ${h.reason}` : ""}${h.override ? " (override)" : ""}`)
+  ].filter(Boolean).join("\n"), t);
+  return 0;
+}
+function cmdSet(o, id, to) {
+  const { paths, config } = project(process.cwd());
+  const { actor, by } = actorFrom(o);
+  const { task, entry } = moveTask(paths, config, id.toUpperCase(), {
+    to,
+    actor,
+    by,
+    reason: o.reason ?? null,
+    force: o.force === true
+  }, receiptHooks(paths, config, run), now);
+  out(o, () => `${task.id}: ${entry.from} \u2192 ${stateLabel(displayState(readLedger(paths.ledger), task))}${entry.override ? " (override recorded)" : ""}`, { task, entry });
+  return 0;
+}
+async function main(argv) {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    strict: true,
+    options: {
+      json: { type: "boolean", default: false },
+      help: { type: "boolean", short: "h", default: false },
+      version: { type: "boolean", default: false },
+      part: { type: "string" },
+      profile: { type: "string" },
+      project: { type: "string" },
+      "production-org": { type: "string" },
+      "github-repo": { type: "string" },
+      "github-account": { type: "string" },
+      "commit-name": { type: "string" },
+      "commit-email": { type: "string" },
+      "configure-git": { type: "boolean", default: false },
+      "jira-site": { type: "string" },
+      "jira-project": { type: "string" },
+      "dry-run": { type: "boolean", default: false },
+      force: { type: "boolean", default: false },
+      brief: { type: "string" },
+      dep: { type: "string", multiple: true },
+      env: { type: "string" },
+      key: { type: "string" },
+      file: { type: "string" },
+      state: { type: "string" },
+      reason: { type: "string" },
+      as: { type: "string" },
+      by: { type: "string" }
+    }
+  });
+  const o = values;
+  const [cmd, ...rest] = positionals;
+  if (values.version) {
+    process.stdout.write(`${VERSION}
+`);
+    return 0;
+  }
+  if (!cmd || values.help || cmd === "help") {
+    process.stdout.write(HELP + "\n");
+    return cmd ? 0 : values.help ? 0 : 2;
+  }
+  switch (cmd) {
+    case "doctor":
+      return cmdDoctor(o, false);
+    case "onboard":
+      return cmdDoctor(o, true);
+    case "init":
+      return cmdInit(o);
+    case "add": {
+      const title = rest.join(" ").trim();
+      if (!title) throw new AccError("usage", 'acc add "<title>"');
+      return upsert(o, [{ source: { kind: "manual", key: o.key ?? null }, title, brief: o.brief, deps: o.dep ?? [], environment: o.env }]);
+    }
+    case "import": {
+      const data = readInput(o.file);
+      if (!Array.isArray(data)) throw new AccError("usage", "acc import expects a JSON list of tasks.");
+      return upsert(o, data);
+    }
+    case "list":
+      return cmdList(o, false);
+    case "ready":
+      return cmdList(o, true);
+    case "show": {
+      if (!rest[0]) throw new AccError("usage", "acc show <id>");
+      return cmdShow(o, rest[0]);
+    }
+    case "set": {
+      if (!rest[0] || !rest[1]) throw new AccError("usage", "acc set <id> <state> [--reason <text>]");
+      return cmdSet(o, rest[0], rest[1]);
+    }
+    default:
+      throw new AccError("usage", `Unknown command "${cmd}". Run acc help.`);
+  }
+}
+var isEntry = (() => {
+  try {
+    return !!process.argv[1] && realpathSync(fileURLToPath(import.meta.url)) === realpathSync(resolve(process.argv[1]));
+  } catch {
+    return false;
+  }
+})();
+if (isEntry) {
+  main(process.argv.slice(2)).then(
+    (code) => process.exit(code),
+    (e) => {
+      const err = e;
+      const json = process.argv.includes("--json");
+      if (json) process.stdout.write(JSON.stringify({ error: err.code ?? "error", message: err.message }) + "\n");
+      else process.stderr.write(tone(`\u2717 ${err.message}`, "orange") + "\n");
+      const usage = err.code === "usage" || String(err.code ?? "").startsWith("ERR_PARSE_ARGS");
+      process.exit(usage ? 2 : err instanceof AccError ? 1 : 3);
+    }
+  );
+}
+export {
+  main
+};

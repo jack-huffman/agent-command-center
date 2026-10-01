@@ -131,11 +131,15 @@ For any `gh` command you run for this repo, prefix it with
   their relative paths keep working.
 - [ ] Add root-level patterns to `.gitignore` as a backstop: `/*.csv`, `/*.xls`,
   `/*.xlsx`, `/*.eml`, plus any export folders.
-- [ ] **Scan for secrets before the first commit:**
+- [ ] **Scan for secrets before the first commit.** `acc doctor` runs this scan
+  as check B3.secrets. By hand:
 
   ```bash
-  grep -rIlE 'force://|access_token|refresh_token|<consumerSecret>[^<]+|<password>[^<]+|sk_live_|BEGIN (RSA |OPENSSH )?PRIVATE|ghp_|gho_|AKIA[0-9A-Z]{16}' force-app config scripts
+  git grep -I -l -E 'force://[A-Za-z0-9._~-]+:[^@[:space:]]+@|"access_token"[[:space:]]*:[[:space:]]*"[^"]{20,}"|<consumerSecret>[A-Za-z0-9]{8,}</consumerSecret>|<password>[^<[:space:]]{6,}</password>|sk_live_[0-9a-zA-Z]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|gh[pousr]_[0-9A-Za-z]{30,}|AKIA[0-9A-Z]{16}' -- force-app config scripts
   ```
+
+  The pattern matches credential *values*, not words like `access_token`, so
+  documentation doesn't set it off.
 
 ### B4. Build the project skeleton
 
@@ -338,12 +342,16 @@ A retrieve doesn't change the org.
 | A Profile retrieved alone looked very different | Profile content depends on what else is in the same retrieve | Compare profiles only from full baseline retrieves |
 | A promotion pull request would delete hundreds of files | The Partial Copy was 19 months behind Production | Reconcile before promoting (B10) |
 | A copied conversation was missing its last reply | The copy ran while the session was still writing | Copy only after the session is idle (Part A) |
+| `npm install` failed with `EACCES … _cacache` | Folders in `~/.npm` owned by another user, usually after a `sudo npm` | `sudo chown -R $(whoami) ~/.npm`, or install with `--cache <other dir>` |
 
 ---
 
-## Part D: What the walkthrough will automate
+## Part D: What `acc` automates
 
-| Step | Becomes | Checked automatically by |
+`acc doctor` runs every check below as of M1. Run `acc onboard` to see the next
+step to do. The VSCode walkthrough (M2) shows the same steps.
+
+| Step | Command | Checked by |
 |---|---|---|
 | A1 | `acc doctor` | Version checks |
 | A2 | `acc doctor` | `gh auth status` lists the configured account |

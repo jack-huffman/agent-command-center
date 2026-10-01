@@ -7,7 +7,8 @@ the project's checks, opens the pull request, and shows all of it in one panel.
 It is built for Salesforce work first, but the core assumes nothing about
 Salesforce. Project types plug in as profiles.
 
-**Status:** design draft in review. See [docs/DESIGN.md](docs/DESIGN.md) for how
+**Status:** M1 done: the task ledger, the config, and onboarding checks you run
+with `acc doctor`. Next is M2, the setup walkthrough in VSCode. See [docs/DESIGN.md](docs/DESIGN.md) for how
 it works, [docs/ROADMAP.md](docs/ROADMAP.md) for the build order, and
 [docs/DECISIONS.md](docs/DECISIONS.md) for what has been decided and why.
 [docs/ONBOARDING.md](docs/ONBOARDING.md) lists every setup step, for the machine
@@ -47,3 +48,19 @@ docs/           design, roadmap, decisions, research
 ## Trackers
 
 GitHub Issues and Jira first. monday.com and Slack come later.
+
+## Development
+
+Development needs Node 23.6 or later, which runs the TypeScript directly. The
+bundled CLI in `plugin/bin/acc` runs on Node 20 or later.
+
+```bash
+npm install            # dev dependencies: typescript, esbuild, @types/node
+npm run check          # type-check, run the tests, rebuild plugin/bin/acc
+npm run acc -- doctor  # run the CLI from source
+./plugin/bin/acc doctor
+```
+
+`plugin/bin/acc` is committed, because a plugin has no build step. Rebuild it
+with `npm run build` whenever the CLI changes. Run builds and tests one at a
+time, under `nice -n 15`.

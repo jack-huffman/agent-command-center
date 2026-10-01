@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "project": "Agent Command Center",
+  "profile": "generic",
+  "github": {
+    "repo": "jack-huffman/agent-command-center",
+    "account": "jack-huffman"
+  },
+  "commitIdentity": {
+    "name": "jack-huffman",
+    "email": "jack.huffman17@gmail.com"
+  },
+  "environments": [
+    {
+      "name": "main",
+      "type": "none",
+      "org": null,
+      "default": true,
+      "protected": false,
+      "promotesTo": []
+    }
+  ],
+  "environmentSpecific": null,
+  "knownDrift": null,
+  "trackers": [],
+  "agents": {
+    "max": 3,
+    "permissionMode": "acceptEdits"
+  },
+  "autonomy": "manual",
+  "worktrees": {
+    "root": null,
+    "setup": []
+  },
+  "gates": {
+    "required": [],
+    "commands": {}
+  },
+  "secretScan": {
+    "paths": [
+      "."
+    ],
+    "exclude": []
+  }
+}

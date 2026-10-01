@@ -1,8 +1,8 @@
+*.vsix
+.DS_Store
+.claude/settings.local.json
+.claude/worktrees/
+coverage/
+dist/
 node_modules/
 out/
-dist/
-*.vsix
-coverage/
-.DS_Store
-.claude/worktrees/
-.claude/settings.local.json

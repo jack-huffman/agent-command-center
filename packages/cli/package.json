@@ -1,0 +1,1 @@
+{ "name": "@acc/cli", "private": true, "type": "module", "bin": { "acc": "./src/main.ts" } }
