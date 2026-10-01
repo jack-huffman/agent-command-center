@@ -1,6 +1,6 @@
 # Design
 
-**Status:** draft for review, 2026-10-01. It introduces decisions D-008 to D-016
+**Status:** draft for review, 2026-10-01. It introduces decisions D-008 to D-017
 (see [DECISIONS.md](DECISIONS.md)). Behaviour that comes from Claude Code itself
 was checked against version 2.1.287 and its docs on that date.
 
@@ -435,6 +435,43 @@ Clean up, Intake, Open packet, Open pull request, Block or unblock, and Refresh.
 
 The extension handles every workspace folder that has `.acc/config.json`.
 
+### Walkthrough
+
+The extension's first feature is a guided setup, built on VSCode's walkthroughs
+(the **Get Started** pages). It opens on its own the first time a folder has no
+`.acc/config.json`. There are two walkthroughs:
+
+1. **Set up this machine:** steps A1 to A4 in [ONBOARDING.md](ONBOARDING.md).
+2. **Onboard a project:** steps B1 to B11. The Salesforce-only steps are hidden
+   for a `generic` project.
+
+Each step explains why it matters and has up to three buttons:
+
+- **Do it:** runs the `acc` command in a visible terminal, so you see exactly
+  what runs.
+- **Open in Salesforce:** opens the right Setup page with `sf org open --path`.
+  Some steps are clicks only a person can make, such as switching on source
+  tracking.
+- **Check:** runs the step's check.
+
+When a check passes, the extension sets that step's context key, and the step
+ticks itself (`completionEvents: ["onContext:acc.step.<id>"]`). The extension
+re-runs every check when a folder opens, so the walkthrough always reflects the
+real state, not what was clicked.
+
+**One list of steps drives everything (D-017).** Steps are data in `core`. Each
+one has:
+
+- an `id`, such as `B8.tracking`
+- a title and a "why"
+- the profiles it applies to
+- a `check()` that returns pass, fail or unknown, with detail
+- a fix: an `acc` command, a Setup path, or a docs link
+
+`acc doctor` runs the same checks and prints the same text. `acc onboard` walks
+through them in a terminal. Later, ONBOARDING.md is generated from the same
+list. The walkthrough, the CLI and the docs can't drift apart.
+
 ## 15. Safety
 
 - Agents work only in their own worktree, on their own branch.
@@ -476,15 +513,16 @@ first thing it pulls in.
 
 | Milestone | Delivers | Done when |
 |---|---|---|
-| M1 Core and CLI | Ledger, config, state rules, lock, events. `init`, `add`, `import`, `list`, `ready`, `set`, `doctor` | Unit tests cover every rule |
-| M2 Dispatch | Worktrees, setup, packet, background launch, session linking, `done`, `block`, `cleanup` | A real task runs end to end in this repo |
-| M3 Gates | Gate runner, receipts, semaphore, the Salesforce gates, `drift` | `validate` passes against a sandbox from a worktree |
-| M4 Review and land | Reviewer agent, verdicts, pull request, comments, `sync`, `deploy`, `promote` | A task goes from ticket to an open pull request |
-| M5 Plugin | Manifest, `bin/acc`, hooks, skills, marketplace | `claude plugin validate --strict` passes, and the hook tests pass |
-| M6 Extension | Board, Sessions, Worktrees, status bar, notifications | Three tasks run at once, all watched from VSCode |
-| M7 Pilots | This repo (generic), then a Salesforce client repo | One sprint of real tickets lands through it |
+| M1 Core, CLI and onboarding checks | Ledger, config, state rules, lock, events. The onboarding step list. `init`, `add`, `import`, `list`, `ready`, `set`, `doctor`, `onboard` | Unit tests cover every rule. `acc doctor` passes on a fully set-up pilot repo and fails, with the right fix, on a fresh one |
+| M2 Walkthrough | Extension skeleton plus the two walkthroughs, driven by the onboarding checks | A new project is onboarded from the walkthrough alone, and every step ticks itself |
+| M3 Dispatch | Worktrees, setup, packet, background launch, session linking, `done`, `block`, `cleanup` | A real task runs end to end in this repo |
+| M4 Gates | Gate runner, receipts, semaphore, the Salesforce gates, `drift` | `validate` passes against a sandbox from a worktree |
+| M5 Review and land | Reviewer agent, verdicts, pull request, comments, `sync`, `deploy`, `promote` | A task goes from ticket to an open pull request |
+| M6 Plugin | Manifest, `bin/acc`, hooks, skills, marketplace | `claude plugin validate --strict` passes, and the hook tests pass |
+| M7 Extension views | Board, Sessions, Worktrees, status bar, notifications | Three tasks run at once, all watched from VSCode |
+| M8 Pilots | This repo (generic), then a Salesforce client repo | One sprint of real tickets lands through it |
 
-From M2 on, the remaining milestones are built by dispatching agents with what
+From M3 on, the remaining milestones are built by dispatching agents with what
 already exists.
 
 ## 19. Left out of v1

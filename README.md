@@ -10,6 +10,8 @@ Salesforce. Project types plug in as profiles.
 **Status:** design draft in review. See [docs/DESIGN.md](docs/DESIGN.md) for how
 it works, [docs/ROADMAP.md](docs/ROADMAP.md) for the build order, and
 [docs/DECISIONS.md](docs/DECISIONS.md) for what has been decided and why.
+[docs/ONBOARDING.md](docs/ONBOARDING.md) lists every setup step, for the machine
+and for each project.
 
 ## Principles
 
