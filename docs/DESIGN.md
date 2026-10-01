@@ -1,6 +1,6 @@
 # Design
 
-**Status:** draft for review, 2026-10-01. It introduces decisions D-008 to D-014
+**Status:** draft for review, 2026-10-01. It introduces decisions D-008 to D-016
 (see [DECISIONS.md](DECISIONS.md)). Behaviour that comes from Claude Code itself
 was checked against version 2.1.287 and its docs on that date.
 
@@ -66,7 +66,7 @@ branches and the pull requests.
 
 ## 4. Config
 
-`.acc/config.json` for a Salesforce project with an org per branch:
+`.acc/config.json` for a Salesforce project with an org per environment:
 
 ```json
 {
@@ -75,10 +75,13 @@ branches and the pull requests.
   "profile": "salesforce",
   "github": { "repo": "acme-co/acme-salesforce", "account": "work-account" },
   "commitIdentity": { "name": "Jane Doe", "email": "jane@example.com" },
-  "targets": [
-    { "branch": "sandbox", "org": "Acme Sandbox", "default": true },
-    { "branch": "main", "org": "Acme Production", "protected": true }
+  "environments": [
+    { "name": "Dev", "org": "Acme Dev", "default": true, "promotesTo": "uat" },
+    { "name": "UAT", "org": "Acme UAT", "promotesTo": "production" },
+    { "name": "Production", "org": "Acme Production", "protected": true }
   ],
+  "environmentSpecific": "manifest/environment-specific.txt",
+  "knownDrift": "manifest/known-drift.txt",
   "trackers": [{ "kind": "jira", "site": "example.atlassian.net", "project": "ACME" }],
   "agents": { "max": 3, "permissionMode": "acceptEdits" },
   "autonomy": "manual",
@@ -88,13 +91,25 @@ branches and the pull requests.
 ```
 
 A project with no Salesforce in it, such as this repo, sets
-`"profile": "generic"`, gives one target (`main`, no org), and lists its check
-commands under `gates`.
+`"profile": "generic"`, gives one environment (`main`, no org), and lists its
+check commands under `gates`.
+
+**A branch is named after its environment (D-015).** The branch is the
+environment name in lower case: `dev`, `uat`, `production`. Nobody has to
+remember a mapping, and the tool can check it.
+
+In the `salesforce` profile, the environment name *is* the sandbox name, which
+Salesforce puts in the org's URL (`acme--uat.sandbox.my.salesforce.com` →
+`uat`). Production's org isn't a sandbox and its branch is `production`.
+`acc doctor` checks every environment's org against its branch and refuses to
+dispatch if one doesn't match.
 
 | Field | Meaning |
 |---|---|
 | `github.account` | The `gh` account for this repo (D-007). `acc` passes `GH_TOKEN` on every call and sets the repo's commit identity and credential helper on `acc init` |
-| `targets` | Branches that work lands on. In the `salesforce` profile, each names its org. A task builds from one target and its pull request goes back into it. **Protected** targets never receive agent work. They change only through a promotion pull request a human opens |
+| `environments` | Where work lands. Each has a name, a branch (by default the lower-cased name) and, in the `salesforce` profile, an org alias. A task builds from one environment's branch, and its pull request goes back into it. **Protected** environments never receive agent work. `promotesTo` gives the promotion path ([section 11](#11-landing)) |
+| `environmentSpecific` | A list of files that differ by design in every environment, such as email service addresses, SSO and org settings. These are never edited by a task, never deployed, and never promoted (D-016) |
+| `knownDrift` | Files that a drift check should expect to differ, such as features a sandbox lacks or ordering noise. They can still be edited and promoted |
 | `trackers` | Where intake reads from. Several are allowed |
 | `agents.max` | Most builder sessions at once, default 3 |
 | `autonomy` | How much the loop does on its own ([section 12](#12-the-orchestrator-loop)) |
@@ -110,7 +125,7 @@ A task is one unit of work, usually one ticket.
 | `id` | `ACME-34`, `GH-12`, `T-3` | Tracker key, or `T-n` for a manual task. Used in branch, worktree and session names |
 | `title`, `brief` | | Copied from the ticket at intake. `brief` holds the body and acceptance criteria |
 | `source` | `{ "kind": "jira", "key": "ACME-34", "url": "…" }` | |
-| `target` | `sandbox` | One of the config targets. Defaults to the `default` one |
+| `environment` | `dev` | One of the config environments. Defaults to the `default` one |
 | `deps` | `["ACME-30"]` | Tasks that must be `done` first |
 | `state` | `running` | See below |
 | `run` | `{ "bgId", "sessionId", "worktree", "branch", "startedAt" }` | Set on dispatch |
@@ -159,7 +174,7 @@ has an icon and a label, so colour never carries the meaning alone.
 
 | Change | Who may make it | Requires |
 |---|---|---|
-| todo → running | human, orchestrator | Every dependency done, below `agents.max`, target not protected |
+| todo → running | human, orchestrator | Every dependency done, below `agents.max`, environment not protected |
 | running → review | builder (`acc done`), human | A passing receipt for every required check, on the current `HEAD` |
 | review → rework | reviewer, human | Findings or a reason |
 | rework → running | human, orchestrator | |
@@ -193,13 +208,13 @@ Intake is idempotent, keyed by tracker key, and it never changes the tracker.
 `acc dispatch <id>` does the following:
 
 1. **Checks.** The task is ready, running sessions are below `agents.max`, and
-   the target isn't protected.
+   the environment isn't protected, and its branch matches its org (D-015).
 2. **Creates the worktree.** It fetches, then runs
-   `git worktree add <root>/<id> -b task/<id>-<slug> origin/<target>`. On a
+   `git worktree add <root>/<id> -b task/<id>-<slug> origin/<branch>`, where `<branch>` is the environment's branch. On a
    rework, it reuses the existing worktree.
 3. **Sets up the worktree.** In the `generic` profile, that means running
    `worktrees.setup` commands, such as `npm ci`. In the `salesforce` profile, it
-   means writing `.sf/config.json` with the target's org and linking
+   means writing `.sf/config.json` with the environment's org and linking
    `node_modules` from the main checkout.
 4. **Writes the instructions.** It renders the packet ([section 8](#8-the-packet)).
 5. **Launches the agent.** With the worktree as the working directory, it runs
@@ -221,7 +236,7 @@ logs and stop come for free. The feature is a research preview, so
 **Why the tool makes its own worktrees.** There are three reasons:
 
 - `claude --worktree` can only branch from the default branch or `HEAD`. A task
-  has to start from its target branch.
+  has to start from its environment's branch.
 - A sibling folder keeps duplicate source trees out of VSCode search and out of
   the Salesforce extensions' indexing.
 - Claude Code's cleanup sweep leaves worktrees it didn't create alone. Cleanup is
@@ -233,7 +248,8 @@ The packet is what a builder is told. It's rendered from `templates/packet.md`,
 or from the project's `.acc/packet.md` if there is one. It contains:
 
 - **The task:** id, title, link, brief and acceptance criteria.
-- **Where:** the worktree path, target branch and, for Salesforce, the target org.
+- **Where:** the worktree path, the environment's branch and, for Salesforce,
+  its org.
 - **The finish line:**
   - Run each required check with `acc gate run <name>`.
   - Commit as `<id>: <summary>`. For GitHub, add `refs #N`. Never write `fixes`
@@ -242,6 +258,7 @@ or from the project's `.acc/packet.md` if there is one. It contains:
 - **Never:**
   - push, merge or deploy
   - edit files outside the worktree
+  - edit an environment-specific file
   - change the ticket
 - **Rules:** the profile's rules and the project's `.acc/rules.md`.
 
@@ -251,7 +268,7 @@ version again.
 ## 9. Gates and receipts
 
 A gate is a named check. It has a command, a scope (usually the files changed
-since the target branch), whether it's required, and whether it's heavy.
+since the environment's branch), whether it's required, and whether it's heavy.
 
 **Generic profile.** `format`, `lint`, `test` and `build` run the commands in
 config.
@@ -264,9 +281,10 @@ config.
 | `lint` | ESLint on changed LWC and Aura JavaScript | when any changed |
 | `static` | `sf code-analyzer run` on changed files. Fails at severity 2 or worse, which is configurable | yes |
 | `lwc-tests` | `sfdx-lwc-jest --findRelatedTests` | when an LWC changed |
-| `validate` | `sf project deploy validate` of the changed source against the target org. Uses `NoTestRun` when no Apex changed. Otherwise `RunSpecifiedTests`, with the tests the builder names and its reason for each | yes |
+| `validate` | `sf project deploy validate` of the changed source against the environment's org. Uses `NoTestRun` when no Apex changed. Otherwise `RunSpecifiedTests`, with the tests the builder names and its reason for each | yes |
 
-- **Changed files** come from `git diff --name-only <target>...HEAD`.
+- **Changed files** come from `git diff --name-only <branch>...HEAD`, minus
+  environment-specific files.
 - **Deletions** are out of scope for agents in v1. A task that needs destructive
   changes goes to a person.
 - **Receipts** record the gate, commit, pass or fail, timings, a summary, the log
@@ -277,15 +295,21 @@ config.
 
 **Agents validate; they never deploy (D-011).** Parallel branches deploying to
 one shared sandbox would overwrite each other's work. A deploy happens after
-merge, from the target branch, one at a time, through `acc deploy <target>`.
-For a protected target, that also needs a person's `--confirm-production`.
+merge, from the environment's branch, one at a time, through
+`acc deploy <environment>`. It sends only the changed components and never an
+environment-specific file. For a protected environment, it also needs a person's
+`--confirm-production`.
+
+**Drift.** `acc drift <environment>` retrieves the baseline manifest into a
+throwaway worktree. It reports what changed in the org since its branch was last
+updated, ignoring `knownDrift` and `environmentSpecific`. The org isn't changed.
 
 ## 10. Review
 
 `acc review <id>` gives a fresh agent four things:
 
 - the packet
-- the diff against the target branch
+- the diff against the environment's branch
 - the receipts
 - the project's rules
 
@@ -309,7 +333,7 @@ review, and passing receipts for every required check. Then it:
 
 1. Pushes `task/<id>-…` with the repo's account.
 2. Opens the pull request:
-   `gh pr create --base <target> --title "<id>: <title>"`. The generated body
+   `gh pr create --base <branch> --title "<id>: <title>"`. The generated body
    holds a summary, an acceptance checklist, the check table, the review verdict
    and the ticket link.
 3. Comments the pull request link on the ticket. For GitHub, it does this
@@ -326,6 +350,15 @@ It never merges.
 - `acc cleanup <id>` removes the worktree and local branch, but only once the
   pull request is merged and the worktree is clean.
 
+### Promotion
+
+Promotion moves merged work one step along the `promotesTo` path. A person
+starts it with `acc promote <environment>`. That opens a pull request from the
+environment's branch into the next one, and validates the change against the
+next environment's org. Environment-specific files are left out. If the pull
+request would delete files in the next environment, `acc` warns before opening
+it, because that usually means the two branches have drifted apart.
+
 ## 12. The orchestrator loop
 
 The loop is ordinary code, not an agent (D-010). `acc tick` works out the next
@@ -339,7 +372,7 @@ tick-and-act on a timer, and the extension can host it.
 | `review` | Also starting the reviewer when a builder finishes |
 | `full` | Also opening pull requests for reviewed work |
 
-Nothing merges automatically, and nothing deploys to a protected target. An
+Nothing merges automatically, and nothing deploys to a protected environment. An
 agent is used for judgment, not routing. The `acc:orchestrate` skill helps break
 a large ticket into tasks, triage a blocked task, or write rework guidance.
 
@@ -365,7 +398,7 @@ Hooks return immediately unless the working directory is inside a repo with
 | Event | Matcher | Does |
 |---|---|---|
 | SessionStart | | In a task worktree, links `session_id` to the task. On resume or compact, re-injects the short packet |
-| PreToolUse | `Edit\|Write\|NotebookEdit` | Stops a builder editing outside its worktree |
+| PreToolUse | `Edit\|Write\|NotebookEdit` | Stops a builder editing outside its worktree, or editing an environment-specific file |
 | PreToolUse | `Bash` | Stops a builder from: pushing to any branch except its own, `gh pr merge`, a real `sf project deploy start`, `fixes` or `closes` keywords in a commit message, `--no-verify`, and `acc set` beyond `done` and `block` |
 | Stop | | If a builder's task is still running and not finished, reminds it of the finish line once |
 
@@ -383,7 +416,7 @@ An **Agents** container in the activity bar holds three views:
 - **Sessions** (tree). Every Claude Code session from `claude agents --json`,
   with task-linked ones first. Each shows its state and what it's waiting for.
 - **Worktrees** (tree). For each task: branch, uncommitted files, ahead or behind
-  the target, pull request and CI.
+  the environment's branch, pull request and CI.
 
 **Status bar:** running, needs you, and in review counts, each with its icon.
 
@@ -405,8 +438,9 @@ The extension handles every workspace folder that has `.acc/config.json`.
 ## 15. Safety
 
 - Agents work only in their own worktree, on their own branch.
-- Agents can't push to a target branch, merge, deploy, or touch the tracker.
-- Protected targets change only through a person's promotion pull request.
+- Agents can't push to an environment branch, merge, deploy, or touch the tracker.
+- Protected environments change only through a person's promotion pull request.
+- Environment-specific files are never edited by a task, deployed or promoted.
 - Every state change records who made it and why.
 - Credentials never enter a repo: `GH_TOKEN` is passed per call, and the org
   logins stay in the `sf` keychain.
@@ -420,7 +454,8 @@ The extension handles every workspace folder that has `.acc/config.json`.
 - Node 20 or later, and git 2.40 or later
 - Claude Code with `--bg` support
 - `gh`, logged in as the configured account
-- for Salesforce: `sf`, Code Analyzer, and each target org's alias logged in
+- for Salesforce: `sf` and Code Analyzer, plus each environment's org logged in
+  with its sandbox name matching its branch
 - the config is valid, and the ledger directory can be written
 
 ## 17. Testing
@@ -443,8 +478,8 @@ first thing it pulls in.
 |---|---|---|
 | M1 Core and CLI | Ledger, config, state rules, lock, events. `init`, `add`, `import`, `list`, `ready`, `set`, `doctor` | Unit tests cover every rule |
 | M2 Dispatch | Worktrees, setup, packet, background launch, session linking, `done`, `block`, `cleanup` | A real task runs end to end in this repo |
-| M3 Gates | Gate runner, receipts, semaphore, the Salesforce gates | `validate` passes against a sandbox from a worktree |
-| M4 Review and land | Reviewer agent, verdicts, pull request, comments, `sync`, `deploy` | A task goes from ticket to an open pull request |
+| M3 Gates | Gate runner, receipts, semaphore, the Salesforce gates, `drift` | `validate` passes against a sandbox from a worktree |
+| M4 Review and land | Reviewer agent, verdicts, pull request, comments, `sync`, `deploy`, `promote` | A task goes from ticket to an open pull request |
 | M5 Plugin | Manifest, `bin/acc`, hooks, skills, marketplace | `claude plugin validate --strict` passes, and the hook tests pass |
 | M6 Extension | Board, Sessions, Worktrees, status bar, notifications | Three tasks run at once, all watched from VSCode |
 | M7 Pilots | This repo (generic), then a Salesforce client repo | One sprint of real tickets lands through it |
@@ -464,7 +499,11 @@ already exists.
 
 ## 20. Open questions
 
-1. **The Salesforce pilot's tracker.** Is it a Jira project (which key?) or
-   GitHub Issues on the client repo?
-2. **Default autonomy.** This draft says `manual` until the loop has earned
+1. **Default autonomy.** This draft says `manual` until the loop has earned
    trust. Is that right?
+2. **Skipping an environment.** Must promotion always pass through every step
+   in `promotesTo`? Or may a person skip one, for example a QA sandbox that's
+   out of date?
+
+Answered: the Salesforce pilot's tracker is Jira. Its tickets move there from
+Azure DevOps first, so Azure DevOps intake isn't needed.

@@ -107,3 +107,24 @@ delete uncommitted or unmerged work.
 The loop suggests and a person clicks until it has earned trust. Then
 `dispatch`, `review` or `full` can be turned on per repo. Merging, and deploying
 to a protected target, are always a person's call.
+
+## D-015 Each branch is named after its environment (2026-10-01)
+
+The branch for an environment is its name in lower case: a sandbox's name, or
+`production`. The user asked for this so the branches say what they are. It
+also gives the tool a rule it can check, because Salesforce puts a sandbox's
+name in its URL (`<domain>--<name>.sandbox.my.salesforce.com`). `acc doctor`
+refuses to dispatch when an environment's org and branch don't match.
+Environments list `promotesTo`, so the tool knows the promotion path too.
+
+## D-016 Environment-specific files are never edited by a task, deployed or promoted (2026-10-01)
+
+Some metadata differs by design in every org: email service addresses,
+Email-to-Case routing, SSO and org settings. Copying one environment's version
+into another breaks things. Each repo lists these files (`environmentSpecific`).
+Builders can't edit them, deploys and promotions leave them out, and drift
+checks ignore them.
+
+A second list (`knownDrift`) covers files that differ for less important
+reasons, such as features a sandbox lacks or ordering noise. Drift checks ignore
+these too, but they can still be changed and promoted.
