@@ -77,6 +77,17 @@ const exitRead = (r: RunResult): Outcome => (r.code === 0 ? pass('Passed.') : r.
 
 // ---------------------------------------------------------------- the gates
 
+/**
+ * The environment a check runs in: acc's own, without a builder's identity, so a check gives the same
+ * answer inside a builder as outside one (D-044). GH-13's builder found tests that ran acc, saw its
+ * ACC_TASK and failed. A heavy check's own heavy work is part of it: it gets a slot folder of its own,
+ * so it never waits for the slot its check holds. GH-12's check did, until it was stopped.
+ */
+export function checkEnv(env: NodeJS.ProcessEnv = process.env, heavyDir?: string): NodeJS.ProcessEnv {
+  const { ACC_ROLE: _role, ACC_TASK: _task, ...rest } = env;
+  return heavyDir ? { ...rest, ACC_HEAVY_DIR: heavyDir } : rest;
+}
+
 /** A gate from `gates.commands`, run by the shell in the checkout. */
 function commandGate(name: string, command: string, heavy: boolean): Gate {
   return { name, heavy, about: command, plan: () => ({ cmd: 'sh', args: ['-c', command], read: exitRead }) };
@@ -420,7 +431,7 @@ export function runGates(paths: RepoPaths, config: Config, env: Environment, nam
       command = shellLine(plan.cmd, plan.args);
       const [cmd, args] = niced(plan.cmd, plan.args);
       // sf gets a plain environment, so its --json output stays parseable whatever shell ran acc.
-      const exec = () => deps.run(cmd, args, { cwd: root, timeoutMs: (gate.heavy ? 90 : 20) * 60_000, env: plan.cmd === 'sf' ? sfEnv() : process.env });
+      const exec = () => deps.run(cmd, args, { cwd: root, timeoutMs: (gate.heavy ? 90 : 20) * 60_000, env: plan.cmd === 'sf' ? sfEnv() : checkEnv(process.env, gate.heavy ? join(input.scratch, 'heavy') : undefined) });
       const r = gate.heavy ? withSlot(exec, { ...deps.slots, onWait: () => deps.onWait?.(gate) }) : exec();
       log = join(input.scratch, `${gate.name}.log`);
       writeFileSync(log, `$ ${command}\n# exit ${r.code}\n\n${r.stdout}${r.stderr ? `\n--- stderr ---\n${r.stderr}` : ''}`);

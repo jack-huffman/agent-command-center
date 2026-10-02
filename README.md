@@ -52,7 +52,13 @@ Salesforce. Project types plug in as profiles.
 - **M6 done: the plugin.** `claude --plugin-dir plugin` (or the marketplace in
   this repo) adds acc's skills, the reviewer agent and the hooks that keep
   builders in their worktree and away from pushes, merges and deploys.
-- **Next:** M7 (three agents at once, watched from VSCode), then M8, the pilots.
+- **M7: three agents at once.** Three builders ran together on issues #11 to
+  #13, each in its own worktree, with their checks taking turns on the
+  machine's heavy slot. A status bar item says what needs you, what's running
+  and what's in review. A notice says when a builder finishes, a review passes
+  or asks for changes, or a pull request's checks fail. **Intake** gathers the
+  ways work comes in, and **Instructions** opens a builder's packet.
+- **Next:** M8, the pilots.
 
 Install the extension with `npm run package && npm run install-extension`, then
 reload the VSCode window.

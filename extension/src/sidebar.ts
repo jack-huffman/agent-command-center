@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { basename } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { allowedMoves, DISPLAY, findRule, type State } from '../../packages/core/src/ledger.ts';
 import { skippedOn } from '../../packages/core/src/promote.ts';
@@ -60,6 +60,8 @@ export class Sidebar {
         ? 'Jira tickets are on the Tasks board. Open one and choose Track in acc to hand it to an agent.'
         : 'Add a Jira tracker to .acc/config.json ("trackers": [{ "kind": "jira", "site": "…atlassian.net", "project": "KEY" }]), and its board shows on the Tasks tab.');
     });
+    reg('acc.task.intake', (n?: TaskNode) => this.intake(n));
+    reg('acc.task.openPacket', (n: TaskNode) => this.openPacket(n));
     reg('acc.task.show', (n: TaskNode) => this.showTask(n));
     reg('acc.task.move', (n: TaskNode) => this.moveTask(n));
     reg('acc.task.block', (n: TaskNode) => this.setState(n, 'blocked'));
@@ -178,6 +180,33 @@ export class Sidebar {
         const parts = [out?.added?.length ? `added ${out.added.length}` : '', out?.updated?.length ? `updated ${out.updated.length}` : '', out?.unchanged?.length ? `${out.unchanged.length} unchanged` : ''].filter(Boolean);
         return `GitHub issues: ${parts.join(', ') || 'no open issues'}.`;
       }));
+  }
+
+  /** Every way work comes in, in one list: write a task, import the repo's issues, or track a Jira ticket. */
+  private async intake(n?: TaskNode): Promise<void> {
+    const project = await this.pickProject(n);
+    if (!project) return void vscode.window.showInformationMessage('Onboard a project first: Agent Command Center: Onboard this project.');
+    const node: TaskNode = { kind: 'project', project };
+    const jira = project.config.trackers.some((t) => t.kind === 'jira');
+    const items = [
+      { label: '$(add) Write a task', detail: 'A title and details, kept by acc.', go: () => this.addTask(node) },
+      ...(project.config.github ? [{ label: '$(github) Import GitHub issues', description: project.config.github.repo, detail: 'Adds a task for each open issue, and refreshes the ones already here.', go: () => this.importGithub(node) }] : []),
+      ...(jira ? [{ label: '$(issues) Track a Jira ticket', detail: 'Its board is on the Tasks tab: open a ticket and choose Track in acc.', go: () => vscode.commands.executeCommand('acc.open.tasks') }] : []),
+    ];
+    const pick = await vscode.window.showQuickPick(items, { title: `New work for ${project.name}` });
+    await pick?.go();
+  }
+
+  /** The instructions acc wrote for the task's builder when it dispatched it. */
+  private async openPacket(n: TaskNode): Promise<void> {
+    if (n?.kind !== 'task') return;
+    const file = vscode.Uri.file(join(dirname(n.project.ledgerPath), 'packets', `${n.task.id}.md`));
+    if (!existsSync(file.fsPath)) return void vscode.window.showInformationMessage(`${n.task.id} has no instructions yet. acc writes them when it dispatches the task.`);
+    try {
+      await vscode.commands.executeCommand('markdown.showPreview', file);
+    } catch {
+      await vscode.window.showTextDocument(file, { preview: true });
+    }
   }
 
   private async showTask(n: TaskNode): Promise<void> {

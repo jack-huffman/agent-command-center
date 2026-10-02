@@ -782,6 +782,10 @@ function lastLine(text) {
 }
 var shellLine = (cmd, args) => [cmd, ...args].map((a) => /^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`).join(" ");
 var exitRead = (r) => r.code === 0 ? pass("Passed.") : r.code === 127 ? error(lastLine(r.stderr) || "The command wasn't found.") : fail(lastLine(r.stdout + "\n" + r.stderr) || `Exited with ${r.code}.`);
+function checkEnv(env = process.env, heavyDir2) {
+  const { ACC_ROLE: _role, ACC_TASK: _task, ...rest } = env;
+  return heavyDir2 ? { ...rest, ACC_HEAVY_DIR: heavyDir2 } : rest;
+}
 function commandGate(name, command, heavy) {
   return { name, heavy, about: command, plan: () => ({ cmd: "sh", args: ["-c", command], read: exitRead }) };
 }
@@ -1063,7 +1067,7 @@ function runGates(paths, config, env, names, tests, deps) {
       assertCheckOnly(plan.cmd, plan.args);
       command = shellLine(plan.cmd, plan.args);
       const [cmd, args] = niced(plan.cmd, plan.args);
-      const exec = () => deps.run(cmd, args, { cwd: root, timeoutMs: (gate.heavy ? 90 : 20) * 6e4, env: plan.cmd === "sf" ? sfEnv() : process.env });
+      const exec = () => deps.run(cmd, args, { cwd: root, timeoutMs: (gate.heavy ? 90 : 20) * 6e4, env: plan.cmd === "sf" ? sfEnv() : checkEnv(process.env, gate.heavy ? join5(input.scratch, "heavy") : void 0) });
       const r = gate.heavy ? withSlot(exec, { ...deps.slots, onWait: () => deps.onWait?.(gate) }) : exec();
       log = join5(input.scratch, `${gate.name}.log`);
       writeFileSync6(log, `$ ${command}

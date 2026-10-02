@@ -5,6 +5,7 @@ import type { Answer } from '../../packages/core/src/questions.ts';
 import { AgentPages } from './activity.ts';
 import { CLAUDE_EXTENSION, claudeSessionUri, COMMANDS, isSessionId, isWebviewMenuContext, WALKTHROUGHS } from './logic.ts';
 import { type NavItem, needsYouCount, type Ref, sessionKey, VIEW_KINDS, type ViewKind } from './model.ts';
+import { Notices } from './notices.ts';
 import { Panels } from './panels.ts';
 import { accShellCommand, Questions, sessionSettings } from './questions.ts';
 import { Runs } from './runs.ts';
@@ -61,15 +62,18 @@ export function activate(context: vscode.ExtensionContext): void {
   reg('acc.github.switch', (arg?: unknown) => identity.switch(arg));
   reg('acc.sf.login', () => setup.sfLogin());
 
-  // Poll only while the page is on screen, so VSCode stays light (the author's machine stutters under load).
-  const POLLS: Record<string, { everyMs: number; fn: () => Promise<void> }> = {
-    tasks: { everyMs: 3_000, fn: () => hub.loadTasks() },
-    agents: { everyMs: 5_000, fn: () => hub.loadAgents() },
+  // Poll quickly while the page is on screen, and slowly, for the status bar and notices, while it isn't
+  // (D-044). VSCode stays light: the author's machine stutters under load.
+  let pageVisible = false;
+  const inPlay = () => hub.projects.some((p) => hub.taskRows(p.root).some((t) => t.state === 'running' || !!t.reviewing));
+  const POLLS: Record<string, { everyMs: number; hiddenMs?: number; fn: () => Promise<void> }> = {
+    tasks: { everyMs: 3_000, hiddenMs: 15_000, fn: () => hub.loadTasks() },
+    agents: { everyMs: 5_000, hiddenMs: 30_000, fn: () => (pageVisible || inPlay() ? hub.loadAgents() : Promise.resolve()) },
     worktrees: { everyMs: 15_000, fn: () => hub.loadWorktrees() },
     // Tracker boards are network calls, so they refresh slowly, and at once after any move.
     boards: { everyMs: 120_000, fn: () => trackers.loadBoards() },
     // Open pull requests (D-033): merged → done, closed → blocked, failing checks → needs you.
-    prs: { everyMs: 120_000, fn: async () => {
+    prs: { everyMs: 120_000, hiddenMs: 300_000, fn: async () => {
       for (const p of hub.projects) {
         if (!hub.taskRows(p.root).some((t) => t.pr?.state === 'open')) continue;
         const r = await accRunner(accScript)(['sync', '--json'], p.root);
@@ -78,7 +82,13 @@ export function activate(context: vscode.ExtensionContext): void {
       await hub.loadTasks();
     } },
   };
-  const pagePolls = (on: boolean) => { for (const [key, p] of Object.entries(POLLS)) hub.poll(key, p.everyMs, p.fn, on); };
+  const pagePolls = (visible: boolean) => {
+    pageVisible = visible;
+    for (const [key, p] of Object.entries(POLLS)) {
+      const ms = visible ? p.everyMs : p.hiddenMs;
+      hub.poll(key, ms ?? 0, p.fn, !!ms);
+    }
+  };
 
   // ------------------------------------------------------------ the same views as editor tabs
   /** Turns a tab's Ref back into the sidebar's node, so every command works the same from either place. */
@@ -158,6 +168,8 @@ export function activate(context: vscode.ExtensionContext): void {
     runControl: (id, action) => runs.control(id, action),
   });
   context.subscriptions.push(panels, tickets);
+  const notices = new Notices(hub, resolve, () => panels.visible() && ['overview', 'tasks'].includes(panels.current()));
+  context.subscriptions.push(notices);
   questions = new Questions(hub, setup.log,
     (card) => { if (!pages.open(card.session)) panels.show('overview'); },
     (card) => (panels.visible() && panels.current() === 'overview') || pages.showing(card.sessionId));
@@ -188,6 +200,7 @@ export function activate(context: vscode.ExtensionContext): void {
     launcher.refresh();
     const n = needsYouCount(panels.model().overview);
     launcherView.badge = n ? { value: n, tooltip: `${n} thing${n === 1 ? '' : 's'} need${n === 1 ? 's' : ''} you` } : undefined;
+    notices.update(n);
   };
   trackers.onDidChange(changed);
   identity.onDidChange(changed);
@@ -232,7 +245,10 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(configWatch);
   setup.watch();
 
-  void hub.loadProjects().then(() => { questions?.start(); return hub.loadAgents(); });
+  void hub.loadProjects().then(() => { questions?.start(); return hub.loadAgents(); }).then(() => {
+    notices.arm();
+    pagePolls(panels.visible());
+  });
   void openPendingConversation(context);
   void setup.refresh('startup', { reuseMachine: true }).then(() => setup.maybeOpenWalkthroughs());
 }
