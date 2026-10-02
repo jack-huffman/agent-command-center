@@ -1155,11 +1155,24 @@ function renderSetup(m: SetupModel, live: RunCard[] = []): Node[] {
 
 let last: Model | null = null;
 
+/** Marks each board with the edges that have more lanes past them, for the fade. */
+function boardEdges(board: HTMLElement): void {
+  const update = () => {
+    board.classList.toggle('more-left', board.scrollLeft > 2);
+    board.classList.toggle('more-right', board.scrollLeft + board.clientWidth < board.scrollWidth - 2);
+  };
+  board.addEventListener('scroll', update, { passive: true });
+  new ResizeObserver(update).observe(board);
+  update();
+}
+
 function render(model: Model): void {
   last = model;
   if (model.kind === 'home') runs = model.runs;
   const scroller = document.querySelector('.home-main') ?? document.scrollingElement;
-  const scroll = { x: document.querySelector('.board')?.scrollLeft ?? 0, y: scroller?.scrollTop ?? 0 };
+  // Each board, and each of its lanes, keeps where it was scrolled to.
+  const boards = [...document.querySelectorAll<HTMLElement>('.board')].map((b) => ({ x: b.scrollLeft, lanes: [...b.querySelectorAll<HTMLElement>('.column')].map((c) => c.scrollTop) }));
+  const scroll = { y: scroller?.scrollTop ?? 0 };
   // An agent's page follows its newest step, unless you've scrolled up to read.
   const following = model.kind === 'agent' && !!scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
   const dockBox = document.querySelector<HTMLElement>('.dock-out');
@@ -1175,8 +1188,14 @@ function render(model: Model): void {
         : model.kind === 'environments' ? renderEnvironments(model)
           : renderSetup(model);
   app.replaceChildren(...nodes);
-  const board = document.querySelector('.board');
-  if (board) board.scrollLeft = scroll.x;
+  document.querySelectorAll<HTMLElement>('.board').forEach((b, i) => {
+    const was = boards[i];
+    if (was) {
+      b.scrollLeft = was.x;
+      b.querySelectorAll<HTMLElement>('.column').forEach((c, j) => { c.scrollTop = was.lanes[j] ?? 0; });
+    }
+    boardEdges(b);
+  });
   const main = document.querySelector('.home-main');
   if (main && !scrolledTo) main.scrollTop = scroll.y;
   else if (following) window.scrollTo(0, document.body.scrollHeight);

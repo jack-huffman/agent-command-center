@@ -203,7 +203,7 @@ export function builderSettings(task: Task, config: Config, accBinDir: string, b
   ];
   const deny = [
     'Bash(git push*)', 'Bash(gh pr *)', 'Bash(git checkout *)', 'Bash(git switch *)', 'Bash(git worktree *)', 'Bash(git reset --hard*)',
-    'Bash(acc set *)', 'Bash(acc dispatch *)', 'Bash(acc init*)', 'Bash(acc gate waive*)', 'Bash(acc land*)', 'Bash(acc review*)',
+    'Bash(acc set *)', 'Bash(acc dispatch *)', 'Bash(acc init*)', 'Bash(acc gate waive*)', 'Bash(acc land*)', 'Bash(acc review*)', 'Bash(acc promote*)', 'Bash(acc deploy*)',
     ...(sf ? ['Bash(sf project deploy start*)', 'Bash(sf project deploy quick*)', 'Bash(sf org delete *)'] : []),
   ];
   return {

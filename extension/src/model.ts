@@ -504,6 +504,9 @@ export function environmentsModel(hub: HubLike, identity: (root: string) => Iden
         if (e.org) actions.push({ command: 'acc.env.openOrg', label: 'Open org', icon: 'globe', ref, primary: true });
         if (p.config.github) actions.push({ command: 'acc.env.openGithub', label: 'GitHub', icon: 'github', ref });
         if (p.branch !== e.branch) actions.push({ command: 'acc.env.compare', label: 'Compare', icon: 'diff', ref });
+        // A person moves work between environments (D-034): a pull request onward, then a deploy after it merges.
+        if (e.promotesTo.length && p.config.github) actions.push({ command: 'acc.env.promote', label: 'Promote…', icon: 'git-merge', ref });
+        if (p.config.profile === 'salesforce' && e.org) actions.push({ command: 'acc.env.deploy', label: 'Deploy…', icon: 'cloud-upload', ref });
         const current = p.branch === e.branch;
         const badges = [e.default ? 'default' : '', e.protected ? 'protected' : '', current ? 'checked out' : ''].filter(Boolean);
         return { name: e.name, branch: e.branch, type: e.type, icon: ENV_ICON[e.type] ?? 'git-branch', org: e.org, badges, current, promotesTo: e.promotesTo, actions };

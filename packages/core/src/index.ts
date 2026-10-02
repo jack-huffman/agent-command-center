@@ -15,6 +15,8 @@ export * from './questions.ts';
 export * from './review.ts';
 export * from './land.ts';
 export * from './sync.ts';
+export * from './promote.ts';
+export * from './deploy.ts';
 export * from './onboarding/types.ts';
 export { makeContext, parseOrgUrl, SECRET_PATTERN, versionAtLeast } from './onboarding/helpers.ts';
 export { STEPS, runSteps, applies } from './onboarding/steps.ts';

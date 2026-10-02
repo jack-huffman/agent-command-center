@@ -406,7 +406,29 @@ path its `promotesTo` allows. A person starts every promotion:
 - `acc promote <environment> --to <other>` goes to any other listed entry.
 
 `acc` opens a pull request into the destination branch and validates the change
-against the destination's org. Environment-specific files are left out.
+against the destination's org. Environment-specific files are left out (D-034):
+
+- **The promotion branch starts from the destination** and takes only what the
+  source changed since the two branches last shared history. A fix made straight
+  in the destination is never undone. A file the destination already has as the
+  source does is skipped.
+- **The check is its own** check-only deploy to the destination's org, protected
+  or not, with the org's local tests when Apex changes. If it fails, no pull
+  request opens.
+- **Deletions need `--allow-deletions`,** or the page's "with the deletions".
+
+**Deploying.** `acc deploy <environment>` runs after a person merges, from the
+environment's branch on GitHub. It deploys what changed since the last deploy acc
+recorded (`<git-common-dir>/acc/deploys/<branch>.json`). A first deploy names its
+starting commit with `--since`.
+
+- It never deploys an environment-specific file or a deletion.
+- It runs the org's local tests when Apex changes.
+- It takes the machine's heavy slot, so it runs one at a time.
+- A protected org needs `--confirm-production`. On the page, you type the
+  environment's name.
+- Builders and reviewers can't run `promote` or `deploy`: the CLI refuses them,
+  and their settings deny both commands.
 
 **Skipping is allowed, and stated.** If the chosen route bypasses an
 environment that the usual path goes through, `acc` names it in the warning and

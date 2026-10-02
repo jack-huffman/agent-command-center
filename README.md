@@ -34,7 +34,11 @@ Salesforce. Project types plug in as profiles.
 - **M5, under way:** `acc review` has a read-only agent judge each commit's
   change against its ticket. `acc land` pushes and opens the pull request, and
   `acc sync` follows it to done. A person approves each step on the page.
-- **Next:** promotion, deploys, and the last guided setup steps.
+- **Promotion and deploys:** **Promote…** on an environment opens a pull
+  request to the next one. It's checked against that org first, leaves out
+  environment-specific files, and names anything it skips. **Deploy…** sends
+  what merged since the last deploy, and a protected org needs its name typed.
+- **Next:** the last guided setup steps.
 
 Install the extension with `npm run package && npm run install-extension`, then
 reload the VSCode window.

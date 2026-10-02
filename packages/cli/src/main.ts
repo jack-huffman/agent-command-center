@@ -5,7 +5,7 @@ import { parseArgs } from 'node:util';
 import {
   ACTORS, AccError, type Actor, type ApexTest, configureRepoAccess, displayState, drift, gatesFor, gateTarget, isReady, loadConfig, makeContext, moveTask, mutate,
   cleanup, dispatch, githubIdentity, githubIssuesToTasks, planInit, useGithubAccount, withCloneAccount, type Profile, readLedger, receiptsAt, STEPS, receiptHooks, repoPaths, run, runGates, runSteps, satisfies, type State, type StepResult, type TaskInput,
-  upsertTasks, writeConfig, ask, hookOutput, parseHookInput, waiveGates, review, land, sync,
+  upsertTasks, writeConfig, ask, hookOutput, parseHookInput, waiveGates, review, land, sync, planPromotion, promote, skipWarning, planDeploy, deploy, lastDeploy,
 } from '../../core/src/index.ts';
 import { checkLabel, gateLabel, stateLabel, table, tone } from './format.ts';
 
@@ -41,6 +41,12 @@ Agents
                                         pass, or changes (back to rework, with its findings)
   acc land <id>                         Push a reviewed task's branch and open its pull request; never merges
   acc sync                              Follow open pull requests: merged → done, closed → blocked, failing checks → needs you
+
+Environments
+  acc promote <env> [--to <env>] [--plan] [--allow-deletions] [--skip-validate]
+                                        A pull request taking <env>'s merged changes to the next environment
+  acc deploy <env> [--plan] [--since <commit>] [--confirm-production]
+                                        Deploy what changed on <env>'s branch since its last deploy to its org
   acc hook permission                   Claude Code's PermissionRequest hook: puts an agent's prompt in the
                                         Command Center, when one is open, and waits for the answer
 
@@ -312,6 +318,54 @@ function cmdSync(o: Opts): number {
   return 0;
 }
 
+/** Promotion and deploys are a person's: an agent never moves work between environments (D-011, D-034). */
+function personOnly(o: Opts, what: string): string {
+  const role = process.env.ACC_ROLE;
+  if (role === 'builder' || role === 'reviewer') throw new AccError('refused', `A ${role} can't ${what}. A person does that.`);
+  const { actor, by } = actorFrom(o);
+  if (actor !== 'human') throw new AccError('refused', `Only a person can ${what}.`);
+  return by;
+}
+
+function cmdPromote(o: Opts, from: string): number {
+  personOnly(o, 'promote');
+  const { paths, config } = project(process.cwd());
+  const say = (line: string) => { if (!o.json) process.stderr.write(tone(line, 'dim') + '\n'); };
+  const show = (p: ReturnType<typeof planPromotion>) => [
+    `${p.from.name} (${p.from.branch} at ${p.fromSha.slice(0, 7)}) → ${p.to.name} (${p.to.branch} at ${p.toSha.slice(0, 7)})`,
+    ...skipWarning(p).map((l) => tone(`  ! ${l}`, 'orange')),
+    `  ${p.files.length} to bring over${p.deleted.length ? tone(`, ${p.deleted.length} to delete`, 'orange') : ''}${p.leftOut.length ? `, ${p.leftOut.length} environment-specific left out` : ''}`,
+    ...p.files.slice(0, 20).map((f) => `    ${f}`), ...(p.files.length > 20 ? [`    …and ${p.files.length - 20} more`] : []),
+    ...p.deleted.map((f) => tone(`    deletes ${f}`, 'orange')),
+  ];
+  if (o.plan) {
+    const p = planPromotion(paths, config, from, o.to as string | undefined, { run });
+    out(o, () => show(p).join('\n'), p);
+    return 0;
+  }
+  const r = promote(paths, config, from, o.to as string | undefined, { run, now, env: process.env, onStep: say }, { allowDeletions: o['allow-deletions'] === true, validate: o['skip-validate'] !== true });
+  out(o, () => [...show(r.plan), '', r.pr ? `Opened pull request #${r.pr.number}  ${r.pr.url}` : r.stopped ?? '', r.pr ? tone('It merges only when a person merges it. Deploy after that with acc deploy.', 'dim') : ''].filter(Boolean).join('\n'), r);
+  return r.pr || !r.stopped?.startsWith('Validation') ? 0 : 1;
+}
+
+function cmdDeploy(o: Opts, envName: string): number {
+  const by = personOnly(o, 'deploy');
+  const { paths, config } = project(process.cwd());
+  const show = (p: ReturnType<typeof planDeploy>) => [
+    `${p.env.name} (${p.org}): ${p.env.branch} from ${p.base.slice(0, 7)} to ${p.head.slice(0, 7)}${p.confirm ? tone('  protected: needs --confirm-production', 'orange') : ''}`,
+    `  ${p.files.length} to deploy, tests: ${p.testLevel}${p.leftOut.length ? `, ${p.leftOut.length} environment-specific left out` : ''}${p.deleted.length ? tone(`, ${p.deleted.length} deleted (not deployed by acc)`, 'orange') : ''}`,
+    ...p.files.slice(0, 20).map((f) => `    ${f}`), ...(p.files.length > 20 ? [`    …and ${p.files.length - 20} more`] : []),
+  ];
+  if (o.plan) {
+    const p = planDeploy(paths, config, envName, { run }, { since: o.since as string | undefined });
+    out(o, () => show(p).join('\n'), { ...p, last: lastDeploy(paths, p.env.branch) });
+    return 0;
+  }
+  const r = deploy(paths, config, envName, { run, now, onWait: () => { if (!o.json) process.stderr.write(tone('Waiting for another heavy check or deploy on this machine to finish…\n', 'dim')); } }, { since: o.since as string | undefined, confirmed: o['confirm-production'] === true, by });
+  out(o, () => [...show(r.plan), '', r.deployed ? tone(`✓ ${r.summary}`, 'blue') : r.summary].join('\n'), r);
+  return r.deployed || !r.plan.files.length ? 0 : 1;
+}
+
 function cmdDispatch(o: Opts, id: string): number {
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
@@ -550,6 +604,12 @@ export async function main(argv: string[]): Promise<number> {
       manifest: { type: 'string' },
       keep: { type: 'boolean', default: false },
       default: { type: 'boolean', default: false },
+      to: { type: 'string' },
+      plan: { type: 'boolean', default: false },
+      'allow-deletions': { type: 'boolean', default: false },
+      'skip-validate': { type: 'boolean', default: false },
+      since: { type: 'string' },
+      'confirm-production': { type: 'boolean', default: false },
     },
   });
   const o = values as Opts;
@@ -596,6 +656,14 @@ export async function main(argv: string[]): Promise<number> {
       return cmdLand(o, rest[0]);
     }
     case 'sync': return cmdSync(o);
+    case 'promote': {
+      if (!rest[0]) throw new AccError('usage', 'acc promote <env> [--to <env>]');
+      return cmdPromote(o, rest[0]);
+    }
+    case 'deploy': {
+      if (!rest[0]) throw new AccError('usage', 'acc deploy <env> [--since <commit>] [--confirm-production]');
+      return cmdDeploy(o, rest[0]);
+    }
     case 'cleanup': {
       if (!rest[0]) throw new AccError('usage', 'acc cleanup <id>');
       return cmdCleanup(o, rest[0]);

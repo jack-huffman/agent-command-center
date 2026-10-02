@@ -2,7 +2,7 @@
   "name": "agent-command-center",
   "displayName": "Agent Command Center",
   "description": "Set up projects for parallel Claude Code agents, then run and watch them from VSCode.",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "publisher": "JackHuffman",
   "private": true,
   "license": "UNLICENSED",
@@ -237,6 +237,18 @@
         "title": "Compare with production",
         "category": "Agent Command Center",
         "icon": "$(diff)"
+      },
+      {
+        "command": "acc.env.promote",
+        "title": "Promote…",
+        "category": "Agent Command Center",
+        "icon": "$(git-merge)"
+      },
+      {
+        "command": "acc.env.deploy",
+        "title": "Deploy…",
+        "category": "Agent Command Center",
+        "icon": "$(cloud-upload)"
       },
       {
         "command": "acc.env.copyBranch",
@@ -514,6 +526,14 @@
         },
         {
           "command": "acc.task.openPr",
+          "when": "false"
+        },
+        {
+          "command": "acc.env.promote",
+          "when": "false"
+        },
+        {
+          "command": "acc.env.deploy",
           "when": "false"
         }
       ],

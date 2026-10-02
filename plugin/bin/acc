@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // packages/cli/src/main.ts
-import { existsSync as existsSync11, readFileSync as readFileSync12, realpathSync as realpathSync2 } from "node:fs";
+import { existsSync as existsSync12, readFileSync as readFileSync13, realpathSync as realpathSync2 } from "node:fs";
 import { dirname as dirname5, resolve as resolve2 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -1184,15 +1184,15 @@ function drift(paths, config, envName, deps, opts = {}) {
   const env = environmentNamed(config, envName);
   if (!env.org) throw new AccError("usage", `${env.name} has no org alias in .acc/config.json.`);
   const manifest = opts.manifest ?? BASELINE_MANIFEST;
-  const git4 = (args, cwd = paths.root) => deps.run("git", args, { cwd });
-  if (git4(["remote", "get-url", "origin"]).code === 0) git4(["fetch", "--quiet", "origin", env.branch]);
-  const ref = [`origin/${env.branch}`, env.branch].find((r) => git4(["rev-parse", "--verify", "--quiet", `${r}^{commit}`]).code === 0);
+  const git6 = (args, cwd = paths.root) => deps.run("git", args, { cwd });
+  if (git6(["remote", "get-url", "origin"]).code === 0) git6(["fetch", "--quiet", "origin", env.branch]);
+  const ref = [`origin/${env.branch}`, env.branch].find((r) => git6(["rev-parse", "--verify", "--quiet", `${r}^{commit}`]).code === 0);
   if (!ref) throw new AccError("no-base", `There's no ${env.branch} or origin/${env.branch} branch to compare ${env.name} with.`);
-  const base = git4(["rev-parse", ref]).stdout.trim();
-  if (git4(["cat-file", "-e", `${base}:${manifest}`]).code !== 0) throw new AccError("usage", `${ref} has no ${manifest}. Make the baseline manifest first (ONBOARDING.md, B5), or pass --manifest.`);
+  const base = git6(["rev-parse", ref]).stdout.trim();
+  if (git6(["cat-file", "-e", `${base}:${manifest}`]).code !== 0) throw new AccError("usage", `${ref} has no ${manifest}. Make the baseline manifest first (ONBOARDING.md, B5), or pass --manifest.`);
   const dir = join6(paths.stateDir, "drift", `${env.branch}-${deps.now().getTime()}`);
   mkdirSync7(join6(paths.stateDir, "drift"), { recursive: true });
-  const add = git4(["worktree", "add", "--detach", "--quiet", dir, base]);
+  const add = git6(["worktree", "add", "--detach", "--quiet", dir, base]);
   if (add.code !== 0) throw new AccError("git", `Couldn't make a throwaway worktree: ${lastLine(add.stderr)}`);
   try {
     const args = ["project", "retrieve", "start", "--manifest", manifest, "--target-org", env.org, "--ignore-conflicts", "--wait", "60", "--json"];
@@ -1225,7 +1225,7 @@ ${r.stderr}` : ""}`);
     const changed = found.changed.filter(keep);
     const added = found.added.filter(keep);
     const { lacking, other } = failures(r.stdout);
-    const tracked = under(git4(["ls-files"], dir).stdout.split("\n").filter(Boolean), source);
+    const tracked = under(git6(["ls-files"], dir).stdout.split("\n").filter(Boolean), source);
     const lackingFiles = [...new Set(lacking.flatMap((c) => filesFor(c.type, c.fullName, tracked)))].sort();
     const missing = lackingFiles.filter(keep);
     const result = {
@@ -1244,9 +1244,9 @@ ${r.stderr}` : ""}`);
     return result;
   } finally {
     if (!opts.keep) {
-      git4(["worktree", "remove", "--force", dir]);
+      git6(["worktree", "remove", "--force", dir]);
       if (existsSync5(dir)) rmSync3(dir, { recursive: true, force: true });
-      git4(["worktree", "prune"]);
+      git6(["worktree", "prune"]);
     }
   }
 }
@@ -1668,16 +1668,16 @@ function isTrusted(folder, env = process.env) {
 function reviewSection(v) {
   if (!v || v.verdict !== "changes") return [];
   const where = (f) => f.file ? `\`${f.file}${f.line ? `:${f.line}` : ""}\`: ` : "";
-  const must = v.findings.filter((f) => f.must);
+  const must2 = v.findings.filter((f) => f.must);
   const unmet = v.criteria.filter((c) => !c.met);
   return [
     "## What the review asked for",
     "",
     `This is a rework. The reviewer looked at ${v.sha.slice(0, 7)} and asked for changes: ${v.summary}`,
     "",
-    ...must.map((f) => `- ${where(f)}${f.message}${f.rule ? ` (rule: ${f.rule})` : ""}`),
+    ...must2.map((f) => `- ${where(f)}${f.message}${f.rule ? ` (rule: ${f.rule})` : ""}`),
     ...unmet.map((c) => `- Not met yet: ${c.text}. ${c.evidence}`),
-    ...must.length || unmet.length ? [""] : [],
+    ...must2.length || unmet.length ? [""] : [],
     "Fix these, and keep the rest of the change as it is. Then finish as below.",
     ""
   ];
@@ -1797,6 +1797,8 @@ function builderSettings(task, config, accBinDir2, basePath, accCommand2) {
     "Bash(acc gate waive*)",
     "Bash(acc land*)",
     "Bash(acc review*)",
+    "Bash(acc promote*)",
+    "Bash(acc deploy*)",
     ...sf ? ["Bash(sf project deploy start*)", "Bash(sf project deploy quick*)", "Bash(sf org delete *)"] : []
   ];
   return {
@@ -2020,7 +2022,7 @@ function githubIdentity(config, root, run2, env = process.env) {
   const mine = cloneAccount(run2, root);
   const account = mine ?? config.github.account;
   const accounts = ghAccounts(run2, env);
-  const git4 = (k) => {
+  const git6 = (k) => {
     const r = run2("git", ["config", "--get", k], { cwd: root });
     return r.code === 0 ? r.stdout.trim() || null : null;
   };
@@ -2032,7 +2034,7 @@ function githubIdentity(config, root, run2, env = process.env) {
     projectAccount: config.github.account,
     signedIn: !!accounts?.some((a) => a.login.toLowerCase() === account.toLowerCase()),
     accounts,
-    commit: { name: git4("user.name"), email: git4("user.email") },
+    commit: { name: git6("user.name"), email: git6("user.email") },
     pushesAs: push.kind === "follows" ? account : push.account,
     push: push.kind
   };
@@ -2045,13 +2047,13 @@ function useGithubAccount(config, root, run2, account, env = process.env) {
   if (accounts && !accounts.some((a) => a.login.toLowerCase() === want.toLowerCase())) {
     throw new AccError("not-signed-in", `gh isn't logged in as ${want}. Sign in first: in VSCode, "Sign in to GitHub as this repo's account"; in a terminal, gh auth login.`);
   }
-  const git4 = (...args) => run2("git", args, { cwd: root });
-  if (want === config.github.account) git4("config", "--unset", CLONE_ACCOUNT_KEY);
-  else if (git4("config", CLONE_ACCOUNT_KEY, want).code !== 0) throw new AccError("git", `Couldn't record ${want} in this clone's git config.`);
+  const git6 = (...args) => run2("git", args, { cwd: root });
+  if (want === config.github.account) git6("config", "--unset", CLONE_ACCOUNT_KEY);
+  else if (git6("config", CLONE_ACCOUNT_KEY, want).code !== 0) throw new AccError("git", `Couldn't record ${want} in this clone's git config.`);
   if (pushSetup(run2, root).kind !== "follows") {
-    git4("config", "--unset-all", "credential.helper");
-    git4("config", "credential.helper", "");
-    git4("config", "--add", "credential.helper", credentialHelper(config.github.account));
+    git6("config", "--unset-all", "credential.helper");
+    git6("config", "credential.helper", "");
+    git6("config", "--add", "credential.helper", credentialHelper(config.github.account));
   }
   return githubIdentity(config, root, run2, env);
 }
@@ -2256,17 +2258,17 @@ function planInit(run2, opts) {
   return { config: parsed.config, notes };
 }
 function configureRepoAccess(run2, root, account, identity) {
-  const git4 = (...args) => {
+  const git6 = (...args) => {
     const r = run2("git", args, { cwd: root });
     if (r.code !== 0) throw new AccError("init", `git ${args.join(" ")} failed: ${r.stderr.trim()}`);
   };
   if (identity) {
-    git4("config", "user.name", identity.name);
-    git4("config", "user.email", identity.email);
+    git6("config", "user.name", identity.name);
+    git6("config", "user.email", identity.email);
   }
   run2("git", ["config", "--unset-all", "credential.helper"], { cwd: root });
-  git4("config", "credential.helper", "");
-  git4("config", "--add", "credential.helper", credentialHelper(account));
+  git6("config", "credential.helper", "");
+  git6("config", "--add", "credential.helper", credentialHelper(account));
 }
 
 // packages/core/src/land.ts
@@ -2440,9 +2442,255 @@ function sync(paths, config, deps) {
   return { checked: seen.size, changes };
 }
 
+// packages/core/src/promote.ts
+import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync11, mkdtempSync as mkdtempSync2, rmSync as rmSync7, writeFileSync as writeFileSync12 } from "node:fs";
+import { tmpdir as tmpdir2 } from "node:os";
+import { join as join13 } from "node:path";
+var git4 = (run2, cwd, ...args) => run2("git", args, { cwd });
+var must = (r, what) => {
+  if (r.code !== 0) throw new AccError("git", `${what}: ${(r.stderr || r.stdout).trim().split("\n").pop() ?? ""}`);
+  return r.stdout;
+};
+function envByName(config, name) {
+  const e = config.environments.find((x) => x.branch === name.toLowerCase() || x.name.toLowerCase() === name.toLowerCase());
+  if (!e) throw new AccError("usage", `No environment "${name}". The config has: ${config.environments.map((x) => x.branch).join(", ")}.`);
+  return e;
+}
+function skippedOn(config, from, to) {
+  const usual = from.promotesTo[0];
+  if (!usual || usual === to.branch) return [];
+  const path = [];
+  let at = from;
+  while (at?.promotesTo[0] && at.promotesTo[0] !== to.branch) {
+    const next = config.environments.find((e) => e.branch === at.promotesTo[0]);
+    if (!next || path.includes(next)) break;
+    path.push(next);
+    at = next;
+  }
+  return at?.promotesTo[0] === to.branch ? path : path.slice(0, 1);
+}
+function specificOn(run2, root, config, refs) {
+  if (!config.environmentSpecific) return [];
+  const out2 = /* @__PURE__ */ new Set();
+  for (const ref of refs) {
+    const r = git4(run2, root, "show", `${ref}:${config.environmentSpecific}`);
+    if (r.code !== 0) continue;
+    for (const l of r.stdout.split("\n").map((x) => x.trim()).filter((x) => x && !x.startsWith("#"))) out2.add(l);
+  }
+  return [...out2];
+}
+function planPromotion(paths, config, fromName, toName, deps) {
+  const { run: run2 } = deps;
+  const from = envByName(config, fromName);
+  if (!from.promotesTo.length) throw new AccError("refused", `${from.name} doesn't promote anywhere: its "promotesTo" is empty.`);
+  const to = toName ? envByName(config, toName) : envByName(config, from.promotesTo[0]);
+  if (!from.promotesTo.includes(to.branch)) throw new AccError("refused", `${from.name} can't promote to ${to.name}. Its "promotesTo" allows: ${from.promotesTo.join(", ")}.`);
+  must(git4(run2, paths.root, "fetch", "--quiet", "origin", from.branch, to.branch), `Couldn't fetch ${from.branch} and ${to.branch}`);
+  const src = `origin/${from.branch}`;
+  const dst = `origin/${to.branch}`;
+  const fromSha = must(git4(run2, paths.root, "rev-parse", src), `No ${src}`).trim();
+  const toSha = must(git4(run2, paths.root, "rev-parse", dst), `No ${dst}`).trim();
+  const parts = must(git4(run2, paths.root, "diff", "--name-status", "--no-renames", "-z", `${dst}...${src}`), "git diff failed").split("\0").filter(Boolean);
+  const specific = specificOn(run2, paths.root, config, [src, dst]);
+  const blob = (ref, f) => git4(run2, paths.root, "rev-parse", "--verify", "--quiet", `${ref}:${f}`).stdout.trim();
+  const files = [];
+  const deleted = [];
+  const leftOut = [];
+  for (let i = 0; i + 1 < parts.length; i += 2) {
+    const [status, f] = [parts[i], parts[i + 1]];
+    if (listed(f, specific)) {
+      leftOut.push(f);
+      continue;
+    }
+    const there = blob(dst, f);
+    if (status.startsWith("D")) {
+      if (there) deleted.push(f);
+      continue;
+    }
+    if (there && there === blob(src, f)) continue;
+    files.push(f);
+  }
+  return { from, to, skipped: skippedOn(config, from, to), files, deleted, leftOut, fromSha, toSha };
+}
+var describeSkip = (plan) => plan.skipped.map((e) => `Skips \`${e.branch}\` (${e.name}): this change hasn't been validated there.`);
+function promotionBody(plan, validation) {
+  const list = (xs) => xs.length > 60 ? [...xs.slice(0, 60).map((f) => `- \`${f}\``), `- \u2026and ${xs.length - 60} more`] : xs.map((f) => `- \`${f}\``);
+  return [
+    `Promotes \`${plan.from.branch}\` (${plan.from.name}) at ${plan.fromSha.slice(0, 7)} into \`${plan.to.branch}\` (${plan.to.name}).`,
+    "",
+    ...plan.skipped.length ? ["> [!WARNING]", ...describeSkip(plan).map((l) => `> ${l}`), ""] : [],
+    ...plan.deleted.length ? ["> [!WARNING]", `> Deletes ${plan.deleted.length} file${plan.deleted.length === 1 ? "" : "s"} in \`${plan.to.branch}\`. That usually means the branches have drifted apart.`, ""] : [],
+    `## Changes (${plan.files.length})`,
+    "",
+    ...list(plan.files),
+    ...plan.deleted.length ? ["", `## Deleted (${plan.deleted.length})`, "", ...list(plan.deleted)] : [],
+    ...plan.leftOut.length ? ["", "## Left out: environment-specific", "", ...list(plan.leftOut)] : [],
+    ...validation ? ["", "## Validation", "", `Check-only deploy to ${plan.to.name}: ${validation.status}. ${validation.summary}`] : [],
+    "",
+    "---",
+    `Opened by \`acc promote\`. It merges only when a person merges it; deploying to ${plan.to.name} is a separate step after that.`
+  ].join("\n") + "\n";
+}
+function promotionCheckArgs(org, source) {
+  const apex = source.some((f) => /\.(cls|trigger)(-meta\.xml)?$/.test(f));
+  return ["project", "deploy", "start", "--dry-run", "--target-org", org, "--wait", "90", "--json", "--ignore-conflicts", ...source.flatMap((f) => ["--source-dir", f]), "--test-level", apex ? "RunLocalTests" : "NoTestRun"];
+}
+function promote(paths, config, fromName, toName, deps, opts = {}) {
+  const { run: run2, now: now2 } = deps;
+  const plan = planPromotion(paths, config, fromName, toName, deps);
+  if (!plan.files.length && !plan.deleted.length) return { plan, branch: null, pr: null, validation: null, stopped: `${plan.to.name} already has everything from ${plan.from.name}.` };
+  if (plan.deleted.length && !opts.allowDeletions) {
+    throw new AccError("refused", `Promoting would delete ${plan.deleted.length} file(s) in ${plan.to.branch}, which usually means the branches have drifted apart: ${plan.deleted.slice(0, 5).join(", ")}${plan.deleted.length > 5 ? ", \u2026" : ""}. Check them, then add --allow-deletions.`);
+  }
+  const gh = config.github;
+  if (!gh) throw new AccError("no-github", 'acc promote opens a pull request on GitHub, and this project has no "github" section.');
+  const stamp = now2().toISOString().replace(/[-:]/g, "").slice(0, 13).replace("T", "-");
+  const branch = `promote/${plan.from.branch}-to-${plan.to.branch}-${stamp}`;
+  const dir = mkdtempSync2(join13(tmpdir2(), "acc-promote-"));
+  const wt = join13(dir, "wt");
+  let validation = null;
+  try {
+    deps.onStep?.(`Building ${branch} from ${plan.to.branch}`);
+    must(git4(run2, paths.root, "worktree", "add", "--quiet", "-b", branch, wt, plan.toSha), "Couldn't make the promotion worktree");
+    for (let i = 0; i < plan.files.length; i += 200) must(git4(run2, wt, "checkout", plan.fromSha, "--", ...plan.files.slice(i, i + 200)), "Couldn't bring the changes over");
+    for (let i = 0; i < plan.deleted.length; i += 200) must(git4(run2, wt, "rm", "--quiet", "--", ...plan.deleted.slice(i, i + 200)), "Couldn't remove the deleted files");
+    must(git4(run2, wt, "commit", "--quiet", "-m", `Promote ${plan.from.branch} to ${plan.to.branch}`, "-m", `${plan.files.length} changed, ${plan.deleted.length} deleted, from ${plan.fromSha.slice(0, 7)}.`), "Couldn't commit the promotion");
+    const source = config.profile === "salesforce" ? under(plan.files, packageDirs(wt)) : [];
+    if (source.length && plan.to.org && opts.validate !== false) {
+      deps.onStep?.(`Validating against ${plan.to.name} (${plan.to.org}). Nothing is saved to the org.`);
+      const args = promotionCheckArgs(plan.to.org, source);
+      assertCheckOnly("sf", args);
+      const [cmd, a] = niced("sf", args);
+      const r = withSlot(() => run2(cmd, a, { cwd: wt, env: sfEnv(), timeoutMs: 120 * 6e4 }), { ...deps.slots });
+      validation = readDeploy(r, plan.to.org, [], source.length);
+      if (validation.status !== "pass") {
+        return { plan, branch: null, pr: null, validation, stopped: `Validation against ${plan.to.name} didn't pass: ${validation.summary}` };
+      }
+    }
+    deps.onStep?.(`Pushing ${branch}`);
+    must(run2("git", ["push", "--quiet", "--set-upstream", "origin", `${branch}:${branch}`], { cwd: wt, env: deps.env, timeoutMs: 5 * 6e4 }), `git push refused ${branch}`);
+    const token = run2("gh", ["auth", "token", "-u", gh.account]);
+    if (token.code !== 0) throw new AccError("no-github", `gh isn't logged in as ${gh.account}. The branch ${branch} is pushed; open its pull request on GitHub.`);
+    const bodyFile = join13(dir, "body.md");
+    writeFileSync12(bodyFile, promotionBody(plan, validation));
+    const title = `Promote ${plan.from.name} to ${plan.to.name}${plan.skipped.length ? ` (skips ${plan.skipped.map((e) => e.branch).join(", ")})` : ""}`;
+    const create = run2("gh", ["pr", "create", "-R", gh.repo, "--base", plan.to.branch, "--head", branch, "--title", title, "--body-file", bodyFile], { cwd: paths.root, env: { ...deps.env, GH_TOKEN: token.stdout.trim() }, timeoutMs: 2 * 6e4 });
+    const url = create.stdout.trim().split("\n").find((l) => /\/pull\/\d+/.test(l))?.trim();
+    if (create.code !== 0 || !url) throw new AccError("land", `gh couldn't open the pull request: ${(create.stderr || create.stdout).trim().split("\n")[0]}. The branch ${branch} is pushed.`);
+    const pr = { number: Number(/\/pull\/(\d+)/.exec(url)[1]), url };
+    mkdirSync11(paths.stateDir, { recursive: true });
+    appendFileSync2(join13(paths.stateDir, "promotions.jsonl"), JSON.stringify({ at: now2().toISOString(), from: plan.from.branch, to: plan.to.branch, fromSha: plan.fromSha, branch, pr, files: plan.files.length, deleted: plan.deleted.length, skipped: plan.skipped.map((e) => e.branch) }) + "\n");
+    return { plan, branch, pr, validation, stopped: null };
+  } finally {
+    git4(run2, paths.root, "worktree", "remove", "--force", wt);
+    git4(run2, paths.root, "branch", "-D", branch);
+    git4(run2, paths.root, "worktree", "prune");
+    rmSync7(dir, { recursive: true, force: true });
+  }
+}
+var skipWarning = describeSkip;
+
+// packages/core/src/deploy.ts
+import { existsSync as existsSync10, mkdirSync as mkdirSync12, mkdtempSync as mkdtempSync3, readFileSync as readFileSync11, renameSync as renameSync5, rmSync as rmSync8, writeFileSync as writeFileSync13 } from "node:fs";
+import { tmpdir as tmpdir3 } from "node:os";
+import { join as join14 } from "node:path";
+var deployRecordPath = (paths, env) => join14(paths.stateDir, "deploys", `${env}.json`);
+function lastDeploy(paths, env) {
+  try {
+    return JSON.parse(readFileSync11(deployRecordPath(paths, env), "utf8"));
+  } catch {
+    return null;
+  }
+}
+var git5 = (run2, cwd, ...args) => run2("git", args, { cwd });
+function planDeploy(paths, config, envName, deps, opts = {}) {
+  const { run: run2 } = deps;
+  if (config.profile !== "salesforce") throw new AccError("refused", "acc deploy deploys Salesforce source to an org; this project isn't a Salesforce one.");
+  const env = envByName(config, envName);
+  if (!env.org) throw new AccError("refused", `${env.name} has no org alias in .acc/config.json.`);
+  const fetched = git5(run2, paths.root, "fetch", "--quiet", "origin", env.branch);
+  if (fetched.code !== 0) throw new AccError("git", `Couldn't fetch ${env.branch}: ${fetched.stderr.trim().split("\n").pop()}`);
+  const head = git5(run2, paths.root, "rev-parse", `origin/${env.branch}`).stdout.trim();
+  const last = lastDeploy(paths, env.branch);
+  const since = opts.since ?? last?.sha;
+  if (!since) throw new AccError("usage", `${env.name} hasn't been deployed by acc before, so say where to start: --since <the commit or tag the org already has>.`);
+  const base = git5(run2, paths.root, "rev-parse", "--verify", "--quiet", `${since}^{commit}`).stdout.trim();
+  if (!base) throw new AccError("usage", `There's no commit "${since}" here.`);
+  if (git5(run2, paths.root, "merge-base", "--is-ancestor", base, head).code !== 0) throw new AccError("refused", `${since} isn't on ${env.branch}, so it can't be where the org's deploy starts.`);
+  const r = git5(run2, paths.root, "diff", "--name-status", "--no-renames", "-z", base, head);
+  const parts = r.stdout.split("\0").filter(Boolean);
+  const show = (f) => git5(run2, paths.root, "show", `${head}:${f}`);
+  const sfdx = show("sfdx-project.json");
+  const dirs = (() => {
+    if (sfdx.code !== 0) return ["force-app"];
+    const tmp = mkdtempSync3(join14(tmpdir3(), "acc-sfdx-"));
+    try {
+      writeFileSync13(join14(tmp, "sfdx-project.json"), sfdx.stdout);
+      return packageDirs(tmp);
+    } finally {
+      rmSync8(tmp, { recursive: true, force: true });
+    }
+  })();
+  const specific = config.environmentSpecific ? show(config.environmentSpecific).stdout.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#")) : [];
+  const files = [];
+  const deleted = [];
+  const leftOut = [];
+  for (let i = 0; i + 1 < parts.length; i += 2) {
+    const [status, f] = [parts[i], parts[i + 1]];
+    if (!under([f], dirs).length) continue;
+    if (listed(f, specific)) leftOut.push(f);
+    else if (status.startsWith("D")) deleted.push(f);
+    else files.push(f);
+  }
+  const apex = files.some((f) => /\.(cls|trigger)(-meta\.xml)?$/.test(f));
+  return { env, org: env.org, base, head, files, deleted, leftOut, testLevel: apex ? "RunLocalTests" : "NoTestRun", confirm: env.protected };
+}
+function deployArgs(plan) {
+  return ["project", "deploy", "start", "--target-org", plan.org, "--wait", "90", "--json", "--test-level", plan.testLevel, ...plan.files.flatMap((f) => ["--source-dir", f])];
+}
+function deploy(paths, config, envName, deps, opts) {
+  const { run: run2, now: now2 } = deps;
+  const plan = planDeploy(paths, config, envName, deps, opts);
+  if (!plan.files.length && !plan.deleted.length) return { plan, deployed: false, jobId: null, summary: `${plan.env.name} already has ${plan.env.branch} at ${plan.head.slice(0, 7)}.` };
+  if (plan.deleted.length) {
+    throw new AccError("refused", `${plan.deleted.length} file(s) were deleted on ${plan.env.branch} since the last deploy (${plan.deleted.slice(0, 5).join(", ")}${plan.deleted.length > 5 ? ", \u2026" : ""}). acc doesn't deploy deletions; remove them from the org by hand, or with a destructive-changes manifest.`);
+  }
+  if (plan.confirm && !opts.confirmed) throw new AccError("refused", `${plan.env.name} is protected. Deploying to it needs a person's confirmation: add --confirm-production.`);
+  if (!plan.files.length) return { plan, deployed: false, jobId: null, summary: "Nothing deployable changed." };
+  const dir = mkdtempSync3(join14(tmpdir3(), "acc-deploy-"));
+  const wt = join14(dir, "wt");
+  try {
+    const add = git5(run2, paths.root, "worktree", "add", "--quiet", "--detach", wt, plan.head);
+    if (add.code !== 0) throw new AccError("git", `Couldn't check out ${plan.head.slice(0, 7)}: ${add.stderr.trim()}`);
+    const [cmd, args] = niced("sf", deployArgs(plan));
+    const r = withSlot(() => run2(cmd, args, { cwd: wt, env: sfEnv(), timeoutMs: 120 * 6e4 }), { ...deps.slots, onWait: deps.onWait });
+    let result;
+    try {
+      result = parseJsonOutput(r.stdout);
+    } catch {
+      throw new AccError("deploy", `sf gave no result: ${(r.stderr || r.stdout).trim().split("\n").pop() ?? ""}`);
+    }
+    const jobId = result.result?.id ?? null;
+    if (r.code !== 0 || result.status !== 0 || result.result?.success === false) {
+      const failures2 = result.result?.details?.componentFailures;
+      const list = (Array.isArray(failures2) ? failures2 : failures2 ? [failures2] : []).slice(0, 3).map((f) => `${f.fullName}: ${f.problem}`);
+      return { plan, deployed: false, jobId, summary: `The deploy to ${plan.env.name} failed${jobId ? ` (job ${jobId})` : ""}: ${list.join("; ") || result.message || "see sf's output"}` };
+    }
+    const record = { env: plan.env.branch, org: plan.org, sha: plan.head, at: now2().toISOString(), by: opts.by, jobId, files: plan.files.length };
+    const file = deployRecordPath(paths, plan.env.branch);
+    mkdirSync12(join14(paths.stateDir, "deploys"), { recursive: true });
+    writeFileSync13(`${file}.tmp`, JSON.stringify(record, null, 2) + "\n");
+    renameSync5(`${file}.tmp`, file);
+    return { plan, deployed: true, jobId, summary: `Deployed ${plan.files.length} file(s) from ${plan.env.branch} at ${plan.head.slice(0, 7)} to ${plan.env.name}${jobId ? ` (job ${jobId})` : ""}.` };
+  } finally {
+    git5(run2, paths.root, "worktree", "remove", "--force", wt);
+    if (existsSync10(dir)) rmSync8(dir, { recursive: true, force: true });
+  }
+}
+
 // packages/core/src/onboarding/steps.ts
-import { existsSync as existsSync10, readdirSync as readdirSync4, readFileSync as readFileSync11 } from "node:fs";
-import { dirname as dirname4, join as join13 } from "node:path";
+import { existsSync as existsSync11, readdirSync as readdirSync4, readFileSync as readFileSync12 } from "node:fs";
+import { dirname as dirname4, join as join15 } from "node:path";
 var DOCS = "docs/ONBOARDING.md";
 var GH_SIGN_IN = `"Do it" opens VSCode's GitHub sign-in: pick this repo's account, or add it, and gh gets that login, with access to GitHub Projects for the board. gh's active account stays as it was. In a terminal: gh auth login.`;
 var DATA_EXT = /\.(csv|xls|xlsx|eml)$/i;
@@ -2453,16 +2701,16 @@ function needsProject(ctx) {
   return null;
 }
 function nearbyRepo(cwd) {
-  const isRepo = (d) => existsSync10(join13(d, ".git"));
+  const isRepo = (d) => existsSync11(join15(d, ".git"));
   const parent = dirname4(cwd);
   let siblings = [];
   try {
-    siblings = readdirSync4(parent, { withFileTypes: true }).filter((e) => e.isDirectory() && !e.name.startsWith(".")).map((e) => join13(parent, e.name));
+    siblings = readdirSync4(parent, { withFileTypes: true }).filter((e) => e.isDirectory() && !e.name.startsWith(".")).map((e) => join15(parent, e.name));
   } catch {
     siblings = [];
   }
   const candidates = [...siblings.filter((d) => d !== cwd), parent].filter(isRepo);
-  return candidates.find((d) => existsSync10(join13(d, ".acc", "config.json"))) ?? candidates.find((d) => existsSync10(join13(d, "sfdx-project.json"))) ?? null;
+  return candidates.find((d) => existsSync11(join15(d, ".acc", "config.json"))) ?? candidates.find((d) => existsSync11(join15(d, "sfdx-project.json"))) ?? null;
 }
 function filesOnEnvironmentBranches(ctx) {
   return cached(ctx, "env-branch-files", () => {
@@ -2572,7 +2820,7 @@ var STEPS = [
       if (ctx.paths) return pass2(`Repo at ${ctx.paths.root}`);
       const near = nearbyRepo(ctx.cwd);
       if (near) return { status: "fail", detail: `This folder isn't a git repo. The project's repo looks like ${near}. Open that folder instead.`, open: near };
-      const sfdx = existsSync10(join13(ctx.cwd, "sfdx-project.json"));
+      const sfdx = existsSync11(join15(ctx.cwd, "sfdx-project.json"));
       return fail2(sfdx ? "This Salesforce folder isn't a git repo yet. Onboarding starts with the client's repo (guide steps B1 and B2)." : "This folder isn't a git repo. Open the project's repo folder.");
     }
   },
@@ -2589,7 +2837,7 @@ var STEPS = [
         const n = ctx.config.environments.length;
         return pass2(`${ctx.config.project}: ${ctx.config.profile}, ${n} environment${n === 1 ? "" : "s"}`);
       }
-      if (!existsSync10(ctx.paths.config)) return fail2("There's no .acc/config.json yet.");
+      if (!existsSync11(ctx.paths.config)) return fail2("There's no .acc/config.json yet.");
       return fail2(`.acc/config.json has problems: ${ctx.configErrors.join(" ")}`);
     }
   },
@@ -2892,7 +3140,7 @@ var STEPS = [
         const lines = text.replace(/\n$/, "").split("\n");
         if (lines.some((l) => l.trim() === "")) problems.push(`${rel} has a blank line. As a grep pattern, that matches everything.`);
         const paths = lines.filter((l) => l.trim() && !l.startsWith("#"));
-        const here = paths.filter((p) => !existsSync10(join13(ctx.paths.root, p)));
+        const here = paths.filter((p) => !existsSync11(join15(ctx.paths.root, p)));
         const elsewhere = here.length ? filesOnEnvironmentBranches(ctx) : /* @__PURE__ */ new Set();
         const gone = here.filter((p) => !elsewhere.has(p));
         if (gone.length) problems.push(`${rel} lists files that don't exist: ${gone.slice(0, 3).join(", ")}${gone.length > 3 ? " \u2026" : ""}.`);
@@ -3014,7 +3262,7 @@ var STEPS = [
       } catch {
       }
       const TOOLS = { format: "prettier", lint: "eslint", "lwc-tests": "sfdx-lwc-jest" };
-      const absent = config.profile !== "salesforce" ? [] : required.filter((n) => TOOLS[n] && !config.gates.commands[n] && !existsSync10(join13(main2, "node_modules", ".bin", TOOLS[n]))).map((n) => TOOLS[n]);
+      const absent = config.profile !== "salesforce" ? [] : required.filter((n) => TOOLS[n] && !config.gates.commands[n] && !existsSync11(join15(main2, "node_modules", ".bin", TOOLS[n]))).map((n) => TOOLS[n]);
       if (absent.length) return fail2(`Not installed in ${main2}: ${absent.join(", ")}.`, `cd "${main2}" && npm install`);
       return pass2(`Ready: ${required.join(", ")}.`);
     }
@@ -3056,7 +3304,7 @@ var STEPS = [
       const cmd = `acc drift ${env.branch}`;
       let report = null;
       try {
-        report = JSON.parse(readFileSync11(driftReportPath(ctx.paths, env.branch), "utf8"));
+        report = JSON.parse(readFileSync12(driftReportPath(ctx.paths, env.branch), "utf8"));
       } catch {
         report = null;
       }
@@ -3156,6 +3404,12 @@ Agents
                                         pass, or changes (back to rework, with its findings)
   acc land <id>                         Push a reviewed task's branch and open its pull request; never merges
   acc sync                              Follow open pull requests: merged \u2192 done, closed \u2192 blocked, failing checks \u2192 needs you
+
+Environments
+  acc promote <env> [--to <env>] [--plan] [--allow-deletions] [--skip-validate]
+                                        A pull request taking <env>'s merged changes to the next environment
+  acc deploy <env> [--plan] [--since <commit>] [--confirm-production]
+                                        Deploy what changed on <env>'s branch since its last deploy to its org
   acc hook permission                   Claude Code's PermissionRequest hook: puts an agent's prompt in the
                                         Command Center, when one is open, and waits for the answer
 
@@ -3246,7 +3500,7 @@ function cmdInit(o) {
   const paths = repoPaths(process.cwd(), run);
   const profile = o.profile ?? "generic";
   if (profile !== "generic" && profile !== "salesforce") throw new AccError("usage", "--profile must be generic or salesforce.");
-  if (existsSync11(paths.config) && !o.force && !o["dry-run"]) throw new AccError("exists", `${paths.config} already exists. Use --force to replace it.`);
+  if (existsSync12(paths.config) && !o.force && !o["dry-run"]) throw new AccError("exists", `${paths.config} already exists. Use --force to replace it.`);
   const plan = planInit(run, {
     root: paths.root,
     profile,
@@ -3286,7 +3540,7 @@ function cmdInit(o) {
   return 0;
 }
 function readInput(file) {
-  const text = file ? readFileSync12(file, "utf8") : readFileSync12(0, "utf8");
+  const text = file ? readFileSync13(file, "utf8") : readFileSync13(0, "utf8");
   try {
     return JSON.parse(text);
   } catch (e) {
@@ -3405,6 +3659,56 @@ function cmdSync(o) {
   const r = sync(paths, config, { run, now, env: process.env });
   out(o, () => r.checked ? [`Checked ${r.checked} open pull request${r.checked === 1 ? "" : "s"}.`, ...r.changes.map((c) => `  ${c.task}: ${c.note}${c.moved ? ` \u2192 ${stateLabel(c.moved.to)}` : ""}`)].join("\n") : "No open pull requests to follow.", r);
   return 0;
+}
+function personOnly(o, what) {
+  const role = process.env.ACC_ROLE;
+  if (role === "builder" || role === "reviewer") throw new AccError("refused", `A ${role} can't ${what}. A person does that.`);
+  const { actor, by } = actorFrom(o);
+  if (actor !== "human") throw new AccError("refused", `Only a person can ${what}.`);
+  return by;
+}
+function cmdPromote(o, from) {
+  personOnly(o, "promote");
+  const { paths, config } = project(process.cwd());
+  const say = (line) => {
+    if (!o.json) process.stderr.write(tone(line, "dim") + "\n");
+  };
+  const show = (p) => [
+    `${p.from.name} (${p.from.branch} at ${p.fromSha.slice(0, 7)}) \u2192 ${p.to.name} (${p.to.branch} at ${p.toSha.slice(0, 7)})`,
+    ...skipWarning(p).map((l) => tone(`  ! ${l}`, "orange")),
+    `  ${p.files.length} to bring over${p.deleted.length ? tone(`, ${p.deleted.length} to delete`, "orange") : ""}${p.leftOut.length ? `, ${p.leftOut.length} environment-specific left out` : ""}`,
+    ...p.files.slice(0, 20).map((f) => `    ${f}`),
+    ...p.files.length > 20 ? [`    \u2026and ${p.files.length - 20} more`] : [],
+    ...p.deleted.map((f) => tone(`    deletes ${f}`, "orange"))
+  ];
+  if (o.plan) {
+    const p = planPromotion(paths, config, from, o.to, { run });
+    out(o, () => show(p).join("\n"), p);
+    return 0;
+  }
+  const r = promote(paths, config, from, o.to, { run, now, env: process.env, onStep: say }, { allowDeletions: o["allow-deletions"] === true, validate: o["skip-validate"] !== true });
+  out(o, () => [...show(r.plan), "", r.pr ? `Opened pull request #${r.pr.number}  ${r.pr.url}` : r.stopped ?? "", r.pr ? tone("It merges only when a person merges it. Deploy after that with acc deploy.", "dim") : ""].filter(Boolean).join("\n"), r);
+  return r.pr || !r.stopped?.startsWith("Validation") ? 0 : 1;
+}
+function cmdDeploy(o, envName) {
+  const by = personOnly(o, "deploy");
+  const { paths, config } = project(process.cwd());
+  const show = (p) => [
+    `${p.env.name} (${p.org}): ${p.env.branch} from ${p.base.slice(0, 7)} to ${p.head.slice(0, 7)}${p.confirm ? tone("  protected: needs --confirm-production", "orange") : ""}`,
+    `  ${p.files.length} to deploy, tests: ${p.testLevel}${p.leftOut.length ? `, ${p.leftOut.length} environment-specific left out` : ""}${p.deleted.length ? tone(`, ${p.deleted.length} deleted (not deployed by acc)`, "orange") : ""}`,
+    ...p.files.slice(0, 20).map((f) => `    ${f}`),
+    ...p.files.length > 20 ? [`    \u2026and ${p.files.length - 20} more`] : []
+  ];
+  if (o.plan) {
+    const p = planDeploy(paths, config, envName, { run }, { since: o.since });
+    out(o, () => show(p).join("\n"), { ...p, last: lastDeploy(paths, p.env.branch) });
+    return 0;
+  }
+  const r = deploy(paths, config, envName, { run, now, onWait: () => {
+    if (!o.json) process.stderr.write(tone("Waiting for another heavy check or deploy on this machine to finish\u2026\n", "dim"));
+  } }, { since: o.since, confirmed: o["confirm-production"] === true, by });
+  out(o, () => [...show(r.plan), "", r.deployed ? tone(`\u2713 ${r.summary}`, "blue") : r.summary].join("\n"), r);
+  return r.deployed || !r.plan.files.length ? 0 : 1;
 }
 function cmdDispatch(o, id) {
   const { paths, config } = project(process.cwd());
@@ -3636,7 +3940,13 @@ async function main(argv) {
       task: { type: "string" },
       manifest: { type: "string" },
       keep: { type: "boolean", default: false },
-      default: { type: "boolean", default: false }
+      default: { type: "boolean", default: false },
+      to: { type: "string" },
+      plan: { type: "boolean", default: false },
+      "allow-deletions": { type: "boolean", default: false },
+      "skip-validate": { type: "boolean", default: false },
+      since: { type: "string" },
+      "confirm-production": { type: "boolean", default: false }
     }
   });
   const o = values;
@@ -3695,6 +4005,14 @@ async function main(argv) {
     }
     case "sync":
       return cmdSync(o);
+    case "promote": {
+      if (!rest[0]) throw new AccError("usage", "acc promote <env> [--to <env>]");
+      return cmdPromote(o, rest[0]);
+    }
+    case "deploy": {
+      if (!rest[0]) throw new AccError("usage", "acc deploy <env> [--since <commit>] [--confirm-production]");
+      return cmdDeploy(o, rest[0]);
+    }
     case "cleanup": {
       if (!rest[0]) throw new AccError("usage", "acc cleanup <id>");
       return cmdCleanup(o, rest[0]);
