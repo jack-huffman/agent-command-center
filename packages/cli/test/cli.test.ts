@@ -87,7 +87,7 @@ test('status: one line of counts by display state, nothing in play, and every st
   put([{ title: 'Merged' }], { 'T-1': { state: 'done' } });
   assert.equal(status().out.trim(), 'Nothing in play.', 'done is left out');
 
-  put(['Fails CI', 'In review', 'Building', 'Next up', 'Also next', 'Stuck'].map((title) => ({ title })).concat({ title: 'Later', deps: ['T-5'] }), {
+  put([{ title: 'Fails CI' }, { title: 'In review' }, { title: 'Building' }, { title: 'Next up' }, { title: 'Also next' }, { title: 'Stuck' }, { title: 'Later', deps: ['T-5'] }], {
     'T-2': { state: 'review', pr: { number: 2, url: 'https://github.com/o/r/pull/2', state: 'open', ci: 'failing' } },
     'T-3': { state: 'review' },
     'T-4': { state: 'running' },
