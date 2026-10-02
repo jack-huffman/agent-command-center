@@ -64,7 +64,7 @@ test('buttons match what each step needs', () => {
   assert.deepEqual(labels('B0.config'), ['Check', 'Do it']);
   assert.deepEqual(labels('B2.identity'), ['Check', 'Do it'], 'the check supplies the exact command');
   assert.deepEqual(labels('B8.tracking'), ['Check', 'Open in Salesforce', 'Read the guide'], 'a click only a person can make');
-  assert.deepEqual(labels('A3.trackers'), ['Check', 'I\'ve done this'], 'nothing here can check claude.ai connectors');
+  assert.deepEqual(labels('B14.tickets'), ['Check', 'Do it', 'I\'ve done this', 'Read the guide'], 'Do it runs Add a tracker; a repo with no tracker can be marked done');
   assert.deepEqual(labels('B0.repo'), ['Check', 'Do it', 'Read the guide'], 'opens the repo beside an old folder');
 });
 
@@ -89,7 +89,7 @@ test('commands with <placeholders> are typed but not run', () => {
 test('status text counts what is left, and attention means something failed', () => {
   const items: DoctorItem[] = [
     { id: 'A1.git', part: 'machine', title: 'git', status: 'pass', detail: '' },
-    { id: 'A3.trackers', part: 'machine', title: 'Trackers', status: 'unknown', detail: '' },
+    { id: 'B14.tickets', part: 'project', title: 'Tickets', status: 'unknown', detail: '' },
     { id: 'B8.tracking', part: 'project', title: 'Tracking', status: 'fail', detail: '' },
     { id: 'B11.drift', part: 'project', title: 'Drift', status: 'skip', detail: '' },
   ];
@@ -97,7 +97,7 @@ test('status text counts what is left, and attention means something failed', ()
   assert.equal(s.text, '$(checklist) Setup: 2 to do');
   assert.equal(s.attention, true);
   assert.match(s.tooltip, /2 of 4 setup steps done. Next: Tracking \(B8.tracking\)/);
-  const confirmed = statusText(summarize(items.filter((i) => i.status !== 'fail'), new Set(['A3.trackers'])));
+  const confirmed = statusText(summarize(items.filter((i) => i.status !== 'fail'), new Set(['B14.tickets'])));
   assert.equal(confirmed.text, '$(check) Setup done');
   assert.equal(isComplete('skip'), true);
   assert.equal(isComplete('unknown', true), true);

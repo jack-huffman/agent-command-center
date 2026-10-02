@@ -129,15 +129,24 @@ export function activate(context: vscode.ExtensionContext): void {
   });
   context.subscriptions.push(panels, tickets);
   trackers.onDidChange(() => panels.post('tasks'));
-  reg('acc.trackers.add', () => trackers.add());
-  reg('acc.trackers.signIn', async (arg?: unknown) => { if (await trackers.signIn(arg)) tickets.refresh(); });
-  reg('acc.trackers.signOut', (arg?: unknown) => trackers.signOut(arg));
+  reg('acc.trackers.add', async () => { await trackers.add(); await setup.recheck('B14.tickets'); });
+  reg('acc.trackers.signIn', async (arg?: unknown) => { if (await trackers.signIn(arg)) tickets.refresh(); await setup.recheck('B14.tickets'); });
+  reg('acc.trackers.signOut', async (arg?: unknown) => { await trackers.signOut(arg); await setup.recheck('B14.tickets'); });
+  // B14: acc doctor sees the config; only the extension can see this repo's sign-ins.
+  setup.setOverlay(async (items, cwd) => {
+    const p = hub.project(cwd) ?? hub.projectFor(cwd);
+    if (!p) return items;
+    const missing = await trackers.missingSignIns(p);
+    return items.map((i) => (i.id === 'B14.tickets' && i.status === 'pass' && missing.length
+      ? { ...i, status: 'fail', detail: `${i.detail} This repo isn't signed in to ${missing.join(' or ')} yet.`, fix: 'acc.trackers.signIn' }
+      : i));
+  });
   reg('acc.trackers.refresh', () => trackers.loadBoards());
   for (const kind of VIEW_KINDS) reg(`acc.open.${kind}`, () => panels.show(kind));
 
   hub.onDidChange((part) => {
     if (part === 'projects') { tasks.refresh(); envs.refresh(); worktrees.refresh(); agents.refresh(); panels.post(); }
-    if (part === 'projects') void trackers.loadBoards();
+    if (part === 'projects') { void trackers.loadBoards(); void setup.recheck('B14.tickets'); }
     if (part === 'tasks') { tasks.refresh(); panels.post('tasks'); tickets.refresh(); }
     if (part === 'agents') { agents.refresh(); views.agents.badge = agentBadge(hub); panels.post('agents'); tickets.refresh(); }
     if (part === 'worktrees') { worktrees.refresh(); envs.refresh(); agents.refresh(); panels.post('worktrees'); panels.post('environments'); panels.post('agents'); }

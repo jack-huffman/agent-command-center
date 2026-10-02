@@ -113,16 +113,6 @@ export const STEPS: Step[] = [
     },
   },
   {
-    id: 'A3.trackers', part: 'machine', group: 'A3', title: 'Trackers connected',
-    why: 'The Tasks board and ticket pages read Jira, Azure DevOps and GitHub directly (D-026), each signed in for this repo only (D-027).',
-    fix: { text: 'In VSCode: Command Palette → "Agent Command Center: Add a tracker…" (or "Sign in to a tracker" if it\'s already in the config). For a GitHub Project\'s columns, run gh auth refresh -s project as the repo\'s account.' },
-    check(ctx) {
-      const signIn = ctx.config?.trackers.some((t) => t.kind === 'jira' || t.kind === 'azure');
-      if (ctx.config && !signIn) return skip('No tracker here needs a sign-in. GitHub Issues work through gh.');
-      return unknown('Sign-ins live in VSCode\'s secret storage, so this can\'t be checked from a terminal. The Tasks board says if one is missing.');
-    },
-  },
-  {
     id: 'A4.plugin', part: 'machine', group: 'A4', title: 'The acc plugin',
     why: 'Gives every agent the acc command, the guard hooks and the skills.',
     planned: 'M6',
@@ -504,6 +494,23 @@ export const STEPS: Step[] = [
         .map((n) => TOOLS[n]!);
       if (absent.length) return fail(`Not installed in ${main}: ${absent.join(', ')}.`, `cd "${main}" && npm install`);
       return pass(`Ready: ${required.join(', ')}.`);
+    },
+  },
+  {
+    id: 'B14.tickets', part: 'project', group: 'B14', title: 'The repo\'s ticket source',
+    why: 'The Tasks board shows this repo\'s own tickets: a Jira project, an Azure DevOps board or GitHub Issues, signed in for this repo only (D-027). If this repo keeps its tasks in acc alone, mark this done.',
+    fix: {
+      vscode: 'acc.trackers.add',
+      text: '"Do it" walks you through it in VSCode: pick Azure DevOps, Jira or GitHub Issues, sign in, then pick the project, team and board. It writes them to this repo\'s .acc/config.json.',
+      docs: `${DOCS}#b14-connect-the-ticket-source`,
+    },
+    check(ctx) {
+      const need = needsProject(ctx);
+      if (need) return need;
+      const list = ctx.config!.trackers;
+      if (!list.length) return unknown('No ticket source yet, so tasks come from acc alone. Add one, or mark this done if that\'s how this repo works.');
+      const names = list.map((t) => (t.kind === 'github' ? `GitHub Issues${t.repo ? ` (${t.repo})` : ''}` : t.kind === 'jira' ? `Jira ${t.project} on ${t.site}` : `Azure DevOps ${t.project} in ${t.organization}`));
+      return pass(`Tickets come from ${names.join(' and ')}.`);
     },
   },
   {

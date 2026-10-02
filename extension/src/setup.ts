@@ -110,7 +110,21 @@ export class Setup implements vscode.Disposable {
     }
   }
 
-  private async apply(items: DoctorItem[]): Promise<void> {
+  /** Adds what only the extension can see, such as whether this repo is signed in to its tracker. */
+  private overlay: ((items: DoctorItem[], cwd: string) => Promise<DoctorItem[]>) | null = null;
+
+  setOverlay(fn: (items: DoctorItem[], cwd: string) => Promise<DoctorItem[]>): void {
+    this.overlay = fn;
+  }
+
+  /** Re-runs one step quietly, for instance after a sign-in changed. */
+  async recheck(id: string): Promise<void> {
+    const items = await this.doctor(['--step', id]);
+    if (items.length) await this.apply(items);
+  }
+
+  private async apply(raw: DoctorItem[]): Promise<void> {
+    const items = this.overlay ? await this.overlay(raw, this.cwd()).catch(() => raw) : raw;
     const confirmed = this.allConfirmed();
     for (const it of items) {
       this.items.set(it.id, it);
@@ -232,13 +246,20 @@ export class Setup implements vscode.Disposable {
   async fix(id: string): Promise<void> {
     if (id === 'B0.config') return this.initFlow();
     const step = this.step(id);
-    const [item] = await this.doctor(['--step', id]);
-    if (item) await this.apply([item]);
+    const [raw] = await this.doctor(['--step', id]);
+    if (raw) await this.apply([raw]);
+    const item = this.items.get(id) ?? raw;
     if (item && isComplete(item.status)) {
       void vscode.window.showInformationMessage(`✓ ${step.title} is already done: ${item.detail}`);
       return;
     }
     if (item?.open) return this.openFolder(item.open);
+    // A step done in VSCode itself: the check may name a more fitting command, such as signing in.
+    if (step.fix?.vscode) {
+      await vscode.commands.executeCommand(item?.fix?.startsWith('acc.') ? item.fix : step.fix.vscode);
+      await this.recheck(id);
+      return;
+    }
     const command = item?.fix || step.fix?.command;
     if (command) return this.runInTerminal(command, id);
     const pick = await vscode.window.showWarningMessage(`${step.title}: ${item?.detail ?? 'needs attention'}. There's no single command for this one.`, ...(step.fix?.docs ? ['Read the guide'] : []));

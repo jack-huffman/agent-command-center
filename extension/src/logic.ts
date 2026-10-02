@@ -35,7 +35,7 @@ export function commandLink(label: string, command: string, args: unknown[] = []
 /** Steps a person must confirm, because nothing on this machine can check them. */
 export const needsConfirmation = (step: Step): boolean => !!step.fix?.text && !step.fix.command && !step.fix.setupPath;
 
-export const hasRunnableFix = (step: Step): boolean => !!step.fix?.command || !!step.fix?.fromCheck;
+export const hasRunnableFix = (step: Step): boolean => !!step.fix?.command || !!step.fix?.fromCheck || !!step.fix?.vscode;
 
 export function walkthroughSteps(steps: Step[]): Step[] {
   return steps.filter((s) => !s.planned);
@@ -55,7 +55,7 @@ export function stepDescription(step: Step): string {
 export function stepMedia(step: Step): string {
   const out = [`# ${step.title}`, '', `\`${step.id}\``, '', step.why, ''];
   const f = step.fix;
-  if (f?.command || f?.fromCheck || f?.text || f?.setupPath || f?.docs) out.push('## How to fix it', '');
+  if (f?.command || f?.fromCheck || f?.vscode || f?.text || f?.setupPath || f?.docs) out.push('## How to fix it', '');
   if (f?.command) out.push('**Do it** runs this in a terminal, so you see exactly what happens:', '', '```bash', f.command, '```', '');
   if (f?.fromCheck) out.push('**Do it** runs the exact command the check works out for this repo, in a terminal you can see.', '');
   if (f?.text) out.push(f.text, '');

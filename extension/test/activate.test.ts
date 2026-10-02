@@ -96,7 +96,7 @@ async function until(fn: () => boolean, ms = 20_000): Promise<void> {
 }
 
 test('activation registers the commands, adds acc to PATH, and ticks the steps that pass', { timeout: 60_000 }, async () => {
-  const repo = makeRepo({ '.acc/config.json': JSON.stringify({ schema: 1, project: 'Tool', environments: [{ name: 'main', default: true }] }), '.gitignore': '.claude/worktrees/\n' });
+  const repo = makeRepo({ '.acc/config.json': JSON.stringify({ schema: 1, project: 'Tool', environments: [{ name: 'main', default: true }], trackers: [{ kind: 'github' }] }), '.gitignore': '.claude/worktrees/\n' });
   // Claude Code state that trusts the repo, as accepting the prompt once leaves it (B12.trust).
   const claudeDir = mkdtempSync(join(tmpdir(), 'claude-state-'));
   writeFileSync(join(claudeDir, '.claude.json'), JSON.stringify({ projects: { [realpathSync(repo)]: { hasTrustDialogAccepted: true } } }));
@@ -125,7 +125,8 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     assert.equal(prepends[0]?.[0], 'PATH');
     assert.match(prepends[0]![1], /extension\/dist\/bin:$/);
 
-    await until(() => calls.contexts.get('acc.profile') === 'generic').catch((e) => {
+    // The full setup pass, not just an early single-step re-check (B14 re-checks as soon as projects load).
+    await until(() => calls.contexts.get('acc.profile') === 'generic' && calls.contexts.has('acc.step.B0.config') && calls.contexts.has('acc.step.A1.git')).catch((e) => {
       throw new Error(`${e.message}. Contexts: ${JSON.stringify([...calls.contexts])}. Warnings: ${JSON.stringify(calls.warn)}. Info: ${JSON.stringify(calls.info)}`);
     });
     assert.equal(calls.contexts.get('acc.step.B0.config'), true);

@@ -35,7 +35,8 @@ function healthy(): Record<string, RunResult | ((o?: { env?: NodeJS.ProcessEnv }
 
 function sfRepo(over: { config?: unknown; files?: Record<string, string> } = {}): string {
   const repo = makeRepo({
-    '.acc/config.json': JSON.stringify(over.config ?? SF_CONFIG, null, 2),
+    // A fully set-up repo names its ticket source (B14).
+    '.acc/config.json': JSON.stringify(over.config ?? { ...SF_CONFIG, trackers: [{ kind: 'jira', site: 'acme.atlassian.net', project: 'ACME' }] }, null, 2),
     'README.md': '| `production` | `uat` | `dev` |\n',
     '.gitignore': '.sf/\n/*.csv\n/*.xls\n/*.xlsx\n/*.eml\n.claude/worktrees/\nnode_modules/\n',
     'sfdx-project.json': JSON.stringify({ packageDirectories: [{ path: 'force-app', default: true }] }),
@@ -89,6 +90,7 @@ test('a fully set-up Salesforce project passes every check that can be automated
   assert.equal(r['A4.plugin']!.status, 'skip');
   assert.equal(r['B11.drift']!.status, 'pass');
   assert.equal(r['B13.gate-tools']!.detail, 'Ready: format, validate.');
+  assert.equal(r['B14.tickets']!.detail, 'Tickets come from Jira ACME on acme.atlassian.net.');
 });
 
 test('outside a repo, project steps say so instead of failing one by one', () => {
@@ -253,4 +255,11 @@ test('B9 accepts a listed file that only another environment\'s branch has, sinc
   assert.equal(statuses(repo)['B9.lists']!.status, 'pass');
   const typo = sfRepo({ files: { 'manifest/known-drift.txt': '# noise\nforce-app/main/default/objects/Case/Cse.object-meta.xml\n' } });
   assert.match(statuses(typo)['B9.lists']!.detail, /lists files that don't exist: .*Cse\.object-meta\.xml/);
+});
+
+test('B14 asks for a ticket source until the repo names one, then says where tickets come from', () => {
+  const none = statuses(sfRepo({ config: SF_CONFIG }))['B14.tickets']!;
+  assert.deepEqual([none.status, /tasks come from acc alone/.test(none.detail)], ['unknown', true]);
+  const azure = statuses(sfRepo({ config: { ...SF_CONFIG, trackers: [{ kind: 'azure', organization: 'acme', project: 'CRM' }, { kind: 'github' }] } }))['B14.tickets']!;
+  assert.equal(azure.detail, 'Tickets come from Azure DevOps CRM in acme and GitHub Issues.');
 });

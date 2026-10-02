@@ -478,11 +478,12 @@ export function setupModel(items: DoctorItem[], confirmed: Set<string>): SetupMo
     const ref: Ref = { step: i.id };
     const actions: Action[] = [{ command: 'acc.step.check', label: 'Check', icon: 'refresh', ref }];
     const open = status === 'fail' || status === 'unknown';
-    if (open && (step?.fix?.command || step?.fix?.fromCheck)) actions.unshift({ command: 'acc.step.fix', label: 'Do it', icon: 'wrench', ref, primary: true });
+    if (open && (step?.fix?.command || step?.fix?.fromCheck || step?.fix?.vscode)) actions.unshift({ command: 'acc.step.fix', label: 'Do it', icon: 'wrench', ref, primary: true });
     if (open && step?.fix?.setupPath) actions.push({ command: 'acc.step.openSetup', label: 'Open in Salesforce', icon: 'globe', ref });
     if (status === 'unknown') actions.push({ command: 'acc.step.confirm', label: 'I\'ve done this', icon: 'check', ref });
     if (step?.fix?.docs) actions.push({ command: 'acc.openGuide', label: 'Guide', icon: 'book', ref });
-    return { id: i.id, title: i.title, look: STATUS[status] ?? STATUS.skip!, detail: i.detail, why: step?.why ?? '', fix: i.fix ?? null, actions };
+    // A fix that's a VSCode command runs from Do it; only terminal commands are shown to copy.
+    return { id: i.id, title: i.title, look: STATUS[status] ?? STATUS.skip!, detail: i.detail, why: step?.why ?? '', fix: step?.fix?.vscode ? null : i.fix ?? null, actions };
   });
   const parts = (['machine', 'project'] as const).map((part) => {
     const steps = rows(part);

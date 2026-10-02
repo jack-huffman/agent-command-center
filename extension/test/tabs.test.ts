@@ -122,14 +122,16 @@ test('setup counts steps done, and offers fixes only where something is open', (
   const m = setupModel([
     { id: 'B0.repo', part: 'project', title: 'Repo', status: 'pass', detail: 'ok' },
     { id: 'B2.identity', part: 'project', title: 'Identity', status: 'fail', detail: 'wrong', fix: 'git config user.name x' },
-    { id: 'A3.trackers', part: 'machine', title: 'Trackers', status: 'unknown', detail: '?' },
+    { id: 'B14.tickets', part: 'project', title: 'Tickets', status: 'fail', detail: 'Not signed in', fix: 'acc.trackers.signIn' },
     { id: 'A4.plugin', part: 'machine', title: 'Plugin', status: 'skip', detail: 'later' },
   ], new Set());
   assert.equal(m.total, 3, 'planned steps stay out');
   assert.equal(m.done, 1);
   const steps = m.parts.flatMap((p) => p.steps);
   assert.deepEqual(steps.find((s) => s.id === 'B2.identity')!.actions.map((a) => a.label), ['Do it', 'Check']);
-  assert.deepEqual(steps.find((s) => s.id === 'A3.trackers')!.actions.map((a) => a.label), ['Check', 'I\'ve done this']);
+  const tickets = steps.find((s) => s.id === 'B14.tickets')!;
+  assert.deepEqual(tickets.actions.map((a) => a.label), ['Do it', 'Check', 'Guide'], 'Do it runs Add a tracker or Sign in, in VSCode');
+  assert.equal(tickets.fix, null, 'a VSCode command isn\'t shown as one to copy');
   assert.deepEqual(steps.find((s) => s.id === 'B0.repo')!.actions.map((a) => a.label), ['Check', 'Guide'], 'passing steps keep only Check and the guide')
 });
 

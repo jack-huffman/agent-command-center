@@ -23,6 +23,8 @@ export interface Fix {
   docs?: string;
   /** The check returns the exact command for this repo (CheckResult.fix), so "Do it" can run it. */
   fromCheck?: true;
+  /** A VSCode command "Do it" runs, for a step done in VSCode's own UI, such as Add a tracker. */
+  vscode?: string;
 }
 
 export interface CheckContext {

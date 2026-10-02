@@ -32,30 +32,6 @@ Placeholders: `<client>` is the project's short name. `<prod>`, `<qa>` and
     changes the account for every session on the machine.
   - Each repo pins its own account instead (step B2).
 
-- [ ] **A3. Connect the trackers.** Each repo names its own in `.acc/config.json`
-  (`"trackers"`). The Tasks tab shows that tracker's board, and every ticket
-  opens as a page you can work from (D-026). The easy way is the Command
-  Palette's **Agent Command Center: Add a tracker…**, run in the repo's window.
-  You pick the kind and sign in, then pick the project, team and board from
-  lists, and it writes the config. Sign-ins belong to that repo only (D-027).
-  Sign in again, or sign out, with **Sign in to a tracker** and **Sign out of a
-  tracker**.
-  - **Azure DevOps:** choose **Sign in with Microsoft** and pick the account
-    that belongs to that client. If the client's tenant blocks it, use a
-    personal access token with Work Items: Read & write instead.
-    `{ "kind": "azure", "organization": "acme", "project": "CRM", "board": "Stories" }`,
-    plus `"team"` for a team other than the default.
-  - **Jira:** create an API token at
-    [id.atlassian.com](https://id.atlassian.com/manage-profile/security/api-tokens),
-    then paste it with your email when asked.
-    `{ "kind": "jira", "site": "acme.atlassian.net", "project": "ACME" }`, with
-    `"board": <id>` to pick a board other than the project's first.
-  - **GitHub Issues:** `{ "kind": "github" }` uses the project's repo and
-    account through `gh`, with nothing else to set up. To use a GitHub
-    Project's columns rather than Open and Closed, give the account Projects
-    access once: `gh auth refresh -s project` while it's the active account.
-    Add `"board": <project number>` to pick a Project.
-  - **monday.com and Slack:** later.
 
 - [ ] **A4. Install the plugin.** This becomes available once milestone M5 lands:
   `claude plugin marketplace add <path or repo>` and then
@@ -370,6 +346,38 @@ Source: [Enable Source Tracking in Sandboxes](https://developer.salesforce.com/d
 
 `acc doctor` checks this (B13.gate-tools). `acc gate list` shows each check, and
 `acc gate run` runs them on the current commit.
+
+### B14. Connect the ticket source
+
+- [ ] Each repo names its own ticket source in `.acc/config.json`
+  (`"trackers"`). The Tasks tab shows that tracker's board, and every ticket
+  opens as a page you can work from (D-026). The easy way is this step's **Do it** in the project walkthrough. It runs
+  **Agent Command Center: Add a tracker…**, which you can also run from the
+  Command Palette in the repo's window.
+  You pick the kind and sign in, then pick the project, team and board from
+  lists, and it writes the config. Sign-ins belong to that repo only (D-027).
+  Sign in again, or sign out, with **Sign in to a tracker** and **Sign out of a
+  tracker**.
+  - **Azure DevOps:** choose **Sign in with Microsoft** and pick the account
+    that belongs to that client. If the client's tenant blocks it, use a
+    personal access token with Work Items: Read & write instead.
+    `{ "kind": "azure", "organization": "acme", "project": "CRM", "board": "Stories" }`,
+    plus `"team"` for a team other than the default.
+  - **Jira:** create an API token at
+    [id.atlassian.com](https://id.atlassian.com/manage-profile/security/api-tokens),
+    then paste it with your email when asked.
+    `{ "kind": "jira", "site": "acme.atlassian.net", "project": "ACME" }`, with
+    `"board": <id>` to pick a board other than the project's first.
+  - **GitHub Issues:** `{ "kind": "github" }` uses the project's repo and
+    account through `gh`, with nothing else to set up. To use a GitHub
+    Project's columns rather than Open and Closed, give the account Projects
+    access once: `gh auth refresh -s project` while it's the active account.
+    Add `"board": <project number>` to pick a Project.
+  - **monday.com and Slack:** later.
+
+If a repo keeps its tasks in acc alone, mark the step done. `acc doctor` checks
+that the config names a source (B14.tickets). The walkthrough also checks that
+this repo is signed in to it, which a terminal can't see.
 
 ### B11. Drift check (any time)
 

@@ -58,9 +58,9 @@ export class Trackers implements vscode.Disposable {
   readonly onDidChange = this.emitter.event;
   private readonly secrets: vscode.SecretStorage;
   private readonly hub: Hub;
-  private readonly log: vscode.OutputChannel;
+  private readonly log: vscode.LogOutputChannel;
 
-  constructor(secrets: vscode.SecretStorage, hub: Hub, log: vscode.OutputChannel) {
+  constructor(secrets: vscode.SecretStorage, hub: Hub, log: vscode.LogOutputChannel) {
     this.secrets = secrets;
     this.hub = hub;
     this.log = log;
@@ -98,6 +98,13 @@ export class Trackers implements vscode.Disposable {
     } catch {
       return null;
     }
+  }
+
+  /** The trackers this repo names but hasn't signed in to yet. GitHub signs in through gh, so it's never listed. */
+  async missingSignIns(p: Project): Promise<string[]> {
+    const out: string[] = [];
+    for (const t of this.trackers(p)) if (t.kind !== 'github' && !(await this.cred(p, t))) out.push(this.title(t));
+    return out;
   }
 
   /** Which tracker a ticket key belongs to: GH-12 to GitHub, AB-123 to Azure, MSP-7 to the Jira project MSP. */
@@ -177,7 +184,7 @@ export class Trackers implements vscode.Disposable {
         } catch (e) {
           s.error = (e as Error).message;
           if (e instanceof TrackerError && e.kind === 'auth') s.connect = this.signInButton(p, s.index, list[s.index]!);
-          this.log.appendLine(`[trackers] ${s.title}: ${s.error}`);
+          this.log.warn(`[trackers] ${s.title}: ${s.error}`);
         } finally {
           s.loading = false;
         }
