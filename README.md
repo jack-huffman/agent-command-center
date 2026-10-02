@@ -47,7 +47,12 @@ Salesforce. Project types plug in as profiles.
 - **History:** what agents asked and what you answered stays on the page: in
   each agent's timeline, and in the Overview's History with the task moves and
   commands.
-- **Next:** M5's first real pull request, then M6, the plugin.
+- **M5 done:** the first real ticket went all the way: issue #9, built by an
+  agent, checked, reviewed by another agent, and opened as pull request #10.
+- **M6 done: the plugin.** `claude --plugin-dir plugin` (or the marketplace in
+  this repo) adds acc's skills, the reviewer agent and the hooks that keep
+  builders in their worktree and away from pushes, merges and deploys.
+- **Next:** M7 (three agents at once, watched from VSCode), then M8, the pilots.
 
 Install the extension with `npm run package && npm run install-extension`, then
 reload the VSCode window.

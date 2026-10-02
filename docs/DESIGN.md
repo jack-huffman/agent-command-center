@@ -459,30 +459,37 @@ a large ticket into tasks, triage a blocked task, or write rework guidance.
 ```
 plugin/
   .claude-plugin/plugin.json   name "acc"
-  bin/acc                      bundled CLI; on agents' PATH while the plugin is enabled
-  hooks/hooks.json
-  agents/reviewer.md
+  bin/acc                      the bundled CLI, on the Bash tool's PATH while the plugin is enabled
+  hooks/hooks.json             SessionStart, PreToolUse and Stop, each `acc hook <event>`
+  agents/reviewer.md           the read-only reviewer, for use in a session
   skills/intake/  task/  orchestrate/  land/
-  profiles/generic.json  salesforce.json
-  templates/packet.md  pr-body.md
 ```
 
 A `.claude-plugin/marketplace.json` at the repo root lists `./plugin`. During
-development, `claude plugin marketplace add <this repo>` loads it in place.
+development, `claude --plugin-dir plugin` loads it in place, and
+`claude plugin marketplace add <this repo>` installs it. `npm run validate-plugin`
+runs `claude plugin validate --strict` on both (D-042).
 
-Hooks return immediately unless the working directory is inside a repo with
-`.acc/config.json`:
+`plugin/bin/acc` is generated, but it's committed, because a plugin installed
+from git has no build step. It's refreshed only by a release build
+(`npm run package`), so a branch's checks never touch it.
+
+Hooks return at once unless the working directory is inside a repo with
+`.acc/config.json`, and they do nothing for a session that isn't a builder. A
+builder is known by `ACC_ROLE=builder` and `ACC_TASK` in its environment, or by
+its folder being a running task's worktree. A hook never blocks by failing: on
+anything unexpected it prints nothing and exits 0.
 
 | Event | Matcher | Does |
 |---|---|---|
-| SessionStart | | In a task worktree, links `session_id` to the task. On resume or compact, re-injects the short packet |
-| PreToolUse | `Edit\|Write\|NotebookEdit` | Stops a builder editing outside its worktree, or editing an environment-specific file |
-| PreToolUse | `Bash` | Stops a builder from: pushing to any branch except its own, `gh pr merge`, a real `sf project deploy start`, `fixes` or `closes` keywords in a commit message, `--no-verify`, and `acc set` beyond `done` and `block` |
-| Stop | | If a builder's task is still running and not finished, reminds it of the finish line once |
+| SessionStart | | Links the session to its task. On a resume or compaction, gives the builder its short instructions again |
+| PreToolUse | `Edit\|Write\|MultiEdit\|NotebookEdit` | Stops a builder editing outside its worktree, or editing an environment-specific file |
+| PreToolUse | `Bash` | Stops a builder from pushing at all, `gh pr merge`/`create`/`close`, a real `sf project deploy` (anything but `--dry-run`), deleting an org, `fixes` or `closes` keywords in a commit message, `--no-verify`, switching branch, `git worktree`, `reset --hard`, and the acc commands that are a person's (`set`, `dispatch`, `review`, `land`, `gate waive`, `promote`, `deploy`, `init`, `cleanup`) |
+| Stop | | If a builder's task is still running, reminds it of the finish line, once a session |
 
-The builder is identified by `ACC_TASK` and `ACC_ROLE` in its environment.
-Whether `--settings` env values reach hook processes is checked in M2. The
-fallback is matching the hook's `cwd` to a task worktree.
+The plugin doesn't install the permission hook (D-030) everywhere: it would
+send your own interactive sessions' prompts to the page. `acc dispatch` adds it
+to builders.
 
 ## 14. VSCode extension
 

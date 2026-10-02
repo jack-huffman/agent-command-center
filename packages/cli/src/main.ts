@@ -6,7 +6,7 @@ import {
   ACTORS, AccError, type Actor, type ApexTest, configureRepoAccess, displayState, drift, gatesFor, gateTarget, isReady, loadConfig, makeContext, moveTask, mutate,
   cleanup, dispatch, githubIdentity, githubIssuesToTasks, planInit, useGithubAccount, withCloneAccount, type Profile, readLedger, receiptsAt, STEPS, receiptHooks, repoPaths, run, runGates, runSteps, satisfies, type State, type StepResult, type TaskInput,
   upsertTasks, writeConfig, ask, hookOutput, parseHookInput, waiveGates, review, land, sync, planPromotion, promote, skipWarning, planDeploy, deploy, lastDeploy,
-  buildBaseline, seedBranches, draftLists, writeReadme, AGENT_ROLES, type AgentRole, profileView, setProfile, withCloneAgents, type ProfileChange,
+  buildBaseline, seedBranches, draftLists, writeReadme, parseEventInput, preToolUseHook, sessionStartHook, stopHook, AGENT_ROLES, type AgentRole, profileView, setProfile, withCloneAgents, type ProfileChange,
 } from '../../core/src/index.ts';
 import { checkLabel, gateLabel, stateLabel, table, tone } from './format.ts';
 
@@ -270,6 +270,23 @@ async function readStdin(limit = 4 * 1024 * 1024): Promise<string> {
  * The PermissionRequest hook (D-030). It never blocks a tool by failing: on anything unexpected it prints
  * nothing and exits 0, so Claude Code asks in its own prompt as usual.
  */
+/**
+ * The plugin's hooks (D-042). Like the permission hook, they never block by failing: anything unexpected
+ * prints nothing, and Claude Code carries on as it would without acc.
+ */
+async function cmdHookEvent(event: 'session-start' | 'pre-tool-use' | 'stop'): Promise<number> {
+  try {
+    const input = parseEventInput(await readStdin());
+    if (!input) return 0;
+    const ctx = { cwd: input.cwd || process.cwd(), env: process.env, run, now };
+    const out = event === 'session-start' ? sessionStartHook(input, ctx) : event === 'pre-tool-use' ? preToolUseHook(input, ctx) : stopHook(input, ctx);
+    if (out) process.stdout.write(JSON.stringify(out));
+  } catch (e) {
+    process.stderr.write(`acc hook ${event}: ${(e as Error).message}\n`);
+  }
+  return 0;
+}
+
 async function cmdHookPermission(): Promise<number> {
   const stop = new AbortController();
   for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) process.once(sig, () => stop.abort());
@@ -762,8 +779,9 @@ export async function main(argv: string[]): Promise<number> {
     case 'github': return cmdGithub(o, rest[0], rest[1]);
     case 'hook': {
       if (rest[0] === 'permission') return cmdHookPermission();
+      if (rest[0] === 'session-start' || rest[0] === 'pre-tool-use' || rest[0] === 'stop') return cmdHookEvent(rest[0]);
       // Exit 1, never 2: for a hook, 2 would block the tool.
-      process.stderr.write('acc hook permission is the only hook.\n');
+      process.stderr.write('acc hook takes permission, session-start, pre-tool-use or stop.\n');
       return 1;
     }
     case 'drift': {

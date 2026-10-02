@@ -1,0 +1,14 @@
+{
+  "event": "session-start",
+  "env": {
+    "ACC_ROLE": "builder",
+    "ACC_TASK": "T-1"
+  },
+  "input": {
+    "source": "resume",
+    "session_id": "sess-new",
+    "hook_event_name": "SessionStart",
+    "cwd": "{wt}"
+  },
+  "expect": "context:You are the builder for T-1"
+}

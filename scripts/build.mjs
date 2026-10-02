@@ -6,7 +6,11 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const cli = join(root, 'plugin', 'bin', 'acc');
+// The CLI bundle builds into dist/, which git ignores. The plugin's tracked copy, plugin/bin/acc, is
+// refreshed only for a release (--release, as npm run package does), so a branch's checks never change
+// it and pull requests don't conflict over a generated file (D-042).
+const release = process.argv.includes('--release');
+const cli = join(root, 'dist', 'acc');
 const ext = join(root, 'extension');
 
 await build({
@@ -22,6 +26,13 @@ await build({
 });
 chmodSync(cli, 0o755);
 console.log(`built ${cli}`);
+if (release) {
+  const shipped = join(root, 'plugin', 'bin', 'acc');
+  mkdirSync(dirname(shipped), { recursive: true });
+  copyFileSync(cli, shipped);
+  chmodSync(shipped, 0o755);
+  console.log(`released ${shipped}`);
+}
 
 const { generate } = await import('../extension/scripts/generate.ts');
 const changed = generate();

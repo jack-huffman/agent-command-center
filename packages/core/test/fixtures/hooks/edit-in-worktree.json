@@ -1,0 +1,16 @@
+{
+  "event": "pre-tool-use",
+  "env": {
+    "ACC_ROLE": "builder",
+    "ACC_TASK": "T-1"
+  },
+  "input": {
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "{wt}/src/a.ts"
+    },
+    "hook_event_name": "PreToolUse",
+    "cwd": "{wt}"
+  },
+  "expect": "none"
+}

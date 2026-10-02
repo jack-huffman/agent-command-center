@@ -1,0 +1,14 @@
+{
+  "event": "session-start",
+  "env": {
+    "ACC_ROLE": "builder",
+    "ACC_TASK": "T-1"
+  },
+  "input": {
+    "source": "startup",
+    "session_id": "sess-new",
+    "hook_event_name": "SessionStart",
+    "cwd": "{wt}"
+  },
+  "expect": "none+linked"
+}
