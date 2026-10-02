@@ -25,12 +25,14 @@ export interface Transcript {
   cwd: string | null;
   /** When the last record was written, for "last active". */
   lastAt: string | null;
+  /** The model its latest answer came from (D-036). */
+  model: string | null;
   /** Records read, and how many of them meant something here. */
   read: number;
   used: number;
 }
 
-export const emptyTranscript = (): Transcript => ({ entries: [], open: new Map(), cwd: null, lastAt: null, read: 0, used: 0 });
+export const emptyTranscript = (): Transcript => ({ entries: [], open: new Map(), cwd: null, lastAt: null, model: null, read: 0, used: 0 });
 
 /** Where Claude Code keeps a session's transcript: its folder, with every other character a dash. */
 export const transcriptDir = (projectsDir: string, cwd: string): string => `${projectsDir}/${cwd.replace(/[^A-Za-z0-9]/g, '-')}`;
@@ -161,6 +163,7 @@ export function foldTranscript(t: Transcript, lines: string[]): Transcript {
         }
       }
     } else if (r.type === 'assistant' && Array.isArray(content)) {
+      if (typeof r.message?.model === 'string' && r.message.model !== '<synthetic>') t.model = r.message.model;
       for (const [n, b] of content.entries()) {
         if (b?.type === 'text' && str(b.text)) {
           t.entries.push({ k: 'say', id: `${id}:${n}`, at, text: b.text.trim() });

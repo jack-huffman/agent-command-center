@@ -10,7 +10,7 @@ import type { GithubIdentity } from '../../packages/core/src/github.ts';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import type { Environment } from '../../packages/core/src/config.ts';
 import { promotionPaths } from '../../packages/core/src/promote.ts';
-import type { Answer, Question } from '../../packages/core/src/questions.ts';
+import type { Answer, HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import { agentLook, type AgentSession, type DoctorItem, ENV_ICON, groupTasks, isUnder, type RunPrompt, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
 import type { Entry } from './transcript.ts';
 
@@ -47,9 +47,18 @@ export interface Look {
   tone: Tone;
 }
 
+/** What a kind of agent runs with, as the Agents section shows it (D-036). */
+export interface ProfileLike {
+  model: string | null;
+  effort: string | null;
+  fallbackModel: string | null;
+  from: { model: string; effort: string; fallbackModel: string };
+}
+
 export interface ProjectLike {
   name: string;
   root: string;
+  agents?: { builder: ProfileLike; reviewer: ProfileLike };
   config: { github: { repo: string; account: string } | null; environments: Environment[]; profile: string };
   branch: string | null;
   worktrees: { path: string; head: string; branch: string | null; main: boolean; changed: number; locked: boolean; prunable: boolean }[];
@@ -65,6 +74,8 @@ export interface HubLike {
   history?(root: string): ActivityItem[];
   /** Agents' questions waiting in the Command Center (D-030). */
   questions?: Question[];
+  /** How earlier questions ended (D-037). */
+  answers?: HistoryRecord[];
   askingFor?(s: AgentSession): string | null;
 }
 
@@ -404,13 +415,48 @@ export interface AgentRow {
   startedAt: number;
 }
 
+export interface AgentSetting {
+  role: 'builder' | 'reviewer';
+  label: string;
+  icon: string;
+  /** Each part in words, with where it's set. */
+  parts: { name: string; value: string; from: string }[];
+}
+
 export interface AgentsModel {
   kind: 'agents';
   error: string | null;
   places: { label: string; root: string | null; agents: AgentRow[] }[];
+  /** Each project's agent settings, and what its agents bill (D-036). */
+  settings: { root: string; project: string; roles: AgentSetting[]; billing: Look | null }[];
 }
 
-export function agentsModel(hub: HubLike): AgentsModel {
+const FROM_WORDS: Record<string, string> = { clone: 'this clone', project: 'project default', default: 'Claude Code\'s default' };
+
+export function agentSettings(p: ProjectLike): AgentSetting[] {
+  if (!p.agents) return [];
+  const role = (r: 'builder' | 'reviewer'): AgentSetting => {
+    const v = p.agents![r];
+    return {
+      role: r, label: r === 'builder' ? 'Builders' : 'Reviewers', icon: r === 'builder' ? 'tools' : 'checklist',
+      parts: [
+        { name: 'Model', value: v.model ?? 'default', from: FROM_WORDS[v.from.model] ?? v.from.model },
+        { name: 'Effort', value: v.effort ?? 'default', from: FROM_WORDS[v.from.effort] ?? v.from.effort },
+        ...(v.fallbackModel ? [{ name: 'Falls back to', value: v.fallbackModel, from: FROM_WORDS[v.from.fallbackModel] ?? v.from.fallbackModel }] : []),
+      ],
+    };
+  };
+  return [role('builder'), role('reviewer')];
+}
+
+/** What the billing check says, as a line in the Agents settings. Null until that check has run. */
+export function billingLook(items: DoctorItem[]): Look | null {
+  const i = items.find((x) => x.id === 'A1.claude-billing');
+  if (!i || i.status === 'skip') return null;
+  return i.status === 'pass' ? { label: 'Agents use your Claude subscription', icon: 'pass', tone: 'blue' } : { label: `Per-token billing: ${i.detail}`, icon: 'warning', tone: 'orange' };
+}
+
+export function agentsModel(hub: HubLike, setupItems: DoctorItem[] = []): AgentsModel {
   const lookOf = (s: AgentSession) => agentLook(s, hub.askingFor?.(s));
   const rowFor = (s: AgentSession): AgentRow => {
     const look = lookOf(s);
@@ -423,7 +469,9 @@ export function agentsModel(hub: HubLike): AgentsModel {
   const places = hub.projects.map((p) => ({ label: p.name, root: p.root as string | null, agents: sorted.filter((s) => hub.projectFor(s.cwd) === p).map(rowFor) }));
   const elsewhere = sorted.filter((s) => !hub.projectFor(s.cwd));
   if (elsewhere.length) places.push({ label: 'Elsewhere on this machine', root: null, agents: elsewhere.map(rowFor) });
-  return { kind: 'agents', error: hub.agentsError, places };
+  const billing = billingLook(setupItems);
+  const settings = hub.projects.filter((p) => p.agents).map((p) => ({ root: p.root, project: p.name, roles: agentSettings(p), billing }));
+  return { kind: 'agents', error: hub.agentsError, places, settings };
 }
 
 // ---------------------------------------------------------------- worktrees
@@ -648,9 +696,75 @@ export function questionCards(hub: HubLike): QuestionCard[] {
   });
 }
 
+// ---------------------------------------------------------------- what happened to each question (D-037)
+
+/** A question that has ended, in words: what was asked, and what you decided. */
+export interface Decision {
+  id: string;
+  at: number;
+  askedAt: number;
+  sessionId: string;
+  icon: string;
+  /** What it asked for, after its name: "wanted to run a command". */
+  asked: string;
+  code: string | null;
+  /** What happened, with an icon and words. Blue for your yes and your answers; neutral otherwise. */
+  look: Look;
+  /** Your answers, or your reason for saying no. */
+  detail: string | null;
+}
+
+const PAST: Record<string, string> = { 'wants to': 'wanted to', 'has a plan for you to approve': 'had a plan for you to approve', 'has a question for you': 'asked you' };
+
+export function decisionOf(h: HistoryRecord): Decision {
+  const ask = h.tool === 'AskUserQuestion';
+  const d = ask ? { icon: 'comment-discussion', title: 'asked you', code: null as string | null, detail: null } : describePermission(h.tool, h.input, h.cwd);
+  const asked = Object.entries(PAST).reduce((t, [now, then]) => t.replace(now, then), d.title);
+  const questions = ask ? questionsOf(h.input).map((q) => q.question) : [];
+  const answers = h.answers ? Object.entries(h.answers).map(([q, a]) => `${q} → ${a}`).join('\n') : null;
+  const look: Record<string, Look> = {
+    allowed: LOOK('You allowed it', 'pass', 'blue'),
+    'allowed-for-session': LOOK('You allowed it for the session', 'check-all', 'blue'),
+    denied: ask ? LOOK('You let it decide', 'sparkle', 'neutral') : LOOK('You said no', 'circle-slash', 'neutral'),
+    answered: LOOK('You answered', 'comment', 'blue'),
+    terminal: LOOK('Handed to its own terminal', 'terminal', 'neutral'),
+    'no-window': LOOK('Asked in its own terminal: no Command Center was open for its folder', 'terminal', 'neutral'),
+    'window-closed': LOOK('The Command Center closed, so it asked in its terminal', 'terminal', 'neutral'),
+    'timed-out': LOOK('No answer within the hour, so it asked in its terminal', 'clock', 'neutral'),
+    stopped: LOOK('Answered in its own terminal, or the session stopped', 'debug-stop', 'neutral'),
+  };
+  return {
+    id: h.id, at: h.endedAt, askedAt: h.askedAt, sessionId: h.sessionId, icon: d.icon, asked: ask && questions.length ? `asked: ${questions.join(' · ')}` : asked,
+    code: d.code, look: look[h.outcome] ?? LOOK(h.outcome, 'question', 'neutral'), detail: answers ?? (h.message ? `"${h.message}"` : null),
+  };
+}
+
+export type HistoryItem =
+  | { kind: 'move'; at: string; project: string; task: string; title: string; from: string | null; to: string; by: string }
+  | { kind: 'answer'; at: string; project: string; who: string; session: string; decision: Decision }
+  | { kind: 'run'; at: string; label: string; command: string; look: Look; lines: string[] };
+
+/** Everything that happened, newest first: your answers, task moves and the commands acc ran. */
+export function historyItems(hub: HubLike, runs: RunInput[] = [], limit = 300): HistoryItem[] {
+  const moves: HistoryItem[] = hub.projects.flatMap((p) => (hub.history?.(p.root) ?? []).map((h) => ({ kind: 'move' as const, at: h.at, project: p.name, task: h.task, title: h.title, from: h.from, to: h.to, by: h.by })));
+  const answers: HistoryItem[] = (hub.answers ?? []).map((h) => {
+    const project = hub.projectFor(h.cwd);
+    const session = hub.agents.find((s) => s.sessionId === h.sessionId);
+    const row = project ? hub.taskRows(project.root).find((r) => r.run?.sessionId === h.sessionId || (!!r.run?.worktree && isUnder(h.cwd, r.run.worktree))) : undefined;
+    return { kind: 'answer' as const, at: new Date(h.endedAt).toISOString(), project: project?.name ?? '', who: row?.id ?? session?.name ?? 'An agent', session: session ? sessionKey(session) : h.sessionId, decision: decisionOf(h) };
+  });
+  const done: HistoryItem[] = runs.filter((r) => r.endedAt !== null).map((r) => {
+    const c = runCard(r, 30);
+    return { kind: 'run' as const, at: new Date(r.endedAt!).toISOString(), label: r.label, command: r.command, look: c.look, lines: c.lines };
+  });
+  return [...moves, ...answers, ...done].sort((a, b) => b.at.localeCompare(a.at)).slice(0, limit);
+}
+
 // ---------------------------------------------------------------- an agent's page (D-030)
 
 export type EntryView =
+  /** Your decision on one of its questions (D-037), in the timeline where it happened. */
+  | { k: 'decision'; id: string; at: string | null; decision: Decision }
   | { k: 'prompt'; id: string; at: string | null; body: Doc; instructions: boolean }
   | { k: 'say'; id: string; at: string | null; body: Doc }
   | { k: 'recap'; id: string; at: string | null; text: string }
@@ -669,6 +783,7 @@ export interface AgentModel {
   where: string;
   startedAt: number | null;
   lastAt: string | null;
+  model: string | null;
   entries: EntryView[];
   /** Earlier entries left off the page. */
   hidden: number;
@@ -686,6 +801,8 @@ export interface AgentInput {
   entries: Entry[];
   readable: boolean;
   lastAt: string | null;
+  /** The model its latest answer came from, from the transcript. */
+  model?: string | null;
   limit?: number;
   /** A session Claude Code doesn't list but that's still working, such as a review (D-032). */
   active?: boolean;
@@ -699,8 +816,18 @@ export function agentModel(i: AgentInput): AgentModel {
   const row = project && s ? hub.taskRows(project.root).find((r) => (s.sessionId && r.run?.sessionId === s.sessionId) || (s.id && r.run?.bgId === s.id) || (s.kind === 'background' && s.name === r.id)) : undefined;
   const look = s && live ? agentLook(s, hub.askingFor?.(s)) : i.active ? { label: 'Working', icon: 'sync~spin', tone: 'blue' as Tone, needsYou: false } : { label: 'Ended', icon: 'circle-slash', tone: 'neutral' as Tone, needsYou: false };
   const limit = i.limit ?? 400;
-  const shown = i.entries.slice(-limit).map((e): EntryView => (e.k === 'prompt' ? { k: 'prompt', id: e.id, at: e.at, body: fromMarkdown(e.text), instructions: e.instructions }
+  const views = i.entries.slice(-limit).map((e): EntryView => (e.k === 'prompt' ? { k: 'prompt', id: e.id, at: e.at, body: fromMarkdown(e.text), instructions: e.instructions }
     : e.k === 'say' ? { k: 'say', id: e.id, at: e.at, body: fromMarkdown(e.text) } : e));
+  // Each decision goes in after the last step before you made it, so the timeline reads as it happened.
+  const decisions = (s?.sessionId ? (hub.answers ?? []).filter((h) => h.sessionId === s.sessionId) : []).map(decisionOf).sort((a, b) => a.at - b.at);
+  const shown: EntryView[] = [];
+  let next = 0;
+  for (const v of views) {
+    const t = v.at ? Date.parse(v.at) : NaN;
+    while (next < decisions.length && Number.isFinite(t) && decisions[next]!.at <= t) { const d = decisions[next++]!; shown.push({ k: 'decision', id: `d:${d.id}`, at: new Date(d.at).toISOString(), decision: d }); }
+    shown.push(v);
+  }
+  while (next < decisions.length) { const d = decisions[next++]!; shown.push({ k: 'decision', id: `d:${d.id}`, at: new Date(d.at).toISOString(), decision: d }); }
   const key = s ? sessionKey(s) : i.key;
   const ref: Ref = { session: key };
   const actions: Action[] = [];
@@ -710,8 +837,8 @@ export function agentModel(i: AgentInput): AgentModel {
   const where = !s ? '' : project ? (isUnder(s.cwd, project.root) ? s.cwd.slice(project.root.length + 1) || 'main checkout' : s.cwd.split('/').slice(-2).join('/')) : s.cwd;
   return {
     kind: 'agent', key, name: s?.name ?? row?.id ?? key.slice(0, 8), task: row && project ? { id: row.id, title: row.title, project: project.root } : null,
-    look: { label: look.label, icon: look.icon, tone: look.tone }, live: !!live || !!i.active, background: !!s?.id, where, startedAt: s?.startedAt ?? null, lastAt: i.lastAt,
-    entries: shown, hidden: Math.max(0, i.entries.length - shown.length), readable: i.readable,
+    look: { label: look.label, icon: look.icon, tone: look.tone }, live: !!live || !!i.active, background: !!s?.id, where, startedAt: s?.startedAt ?? null, lastAt: i.lastAt, model: i.model ?? null,
+    entries: shown, hidden: Math.max(0, i.entries.length - views.length), readable: i.readable || decisions.length > 0,
     questions: s?.sessionId ? questionCards(hub).filter((q) => q.sessionId === s.sessionId) : [],
     actions,
   };
@@ -809,7 +936,8 @@ export interface OverviewModel {
   attention: AttentionItem[];
   stats: StatTile[];
   ready: { project: string; id: string; title: string; environment: string; action: Action }[];
-  activity: (ActivityItem & { project: string })[];
+  /** Everything that happened, newest first (D-037). */
+  history: HistoryItem[];
 }
 
 export interface HomeModel {
@@ -846,7 +974,7 @@ export const needsYouCount = (o: Pick<OverviewModel, 'questions' | 'attention'>)
 export function homeModel(i: HomeInput): HomeModel {
   const { hub } = i;
   const tasks = tasksModel(hub, i.boards);
-  const agents = agentsModel(hub);
+  const agents = agentsModel(hub, i.setup.items);
   const worktrees = worktreesModel(hub);
   const environments = environmentsModel(hub, i.identity);
   const setup = setupModel(i.setup.items, i.setup.confirmed);
@@ -928,8 +1056,7 @@ export function homeModel(i: HomeInput): HomeModel {
     { label: 'Setup', value: `${setup.done}/${setup.total}`, icon: 'checklist', tone: failing ? 'orange' : 'neutral', section: 'setup', hint: failing ? `${failing} step${failing === 1 ? '' : 's'} failing` : 'Steps done' },
   ];
 
-  const activity = hub.projects.flatMap((p) => (hub.history?.(p.root) ?? []).map((h) => ({ ...h, project: p.name })))
-    .sort((a, b) => b.at.localeCompare(a.at)).slice(0, 12);
+  const history = historyItems(hub, i.runs ?? []);
   const projects = hub.projects.map((p) => ({ name: p.name, root: p.root, branch: p.branch, account: p.config.github?.account ?? null, trackers: i.boards(p.root).map((b) => b.title) }));
 
   const people = needsYouCount({ questions, attention });
@@ -945,7 +1072,7 @@ export function homeModel(i: HomeInput): HomeModel {
     { section: 'setup', label: 'Setup', icon: 'checklist', count: todo || null, attention: failing > 0, hint: todo ? `${todo} to do` : 'All done' },
   ];
   const runs = (i.runs ?? []).map((r) => runCard(r));
-  return { kind: 'home', section: i.section, nav, overview: { projects, questions, attention, stats, ready, activity }, tasks, agents, worktrees, environments, setup, runs };
+  return { kind: 'home', section: i.section, nav, overview: { projects, questions, attention, stats, ready, history }, tasks, agents, worktrees, environments, setup, runs };
 }
 
 export type Model = TasksModel | AgentsModel | WorktreesModel | EnvironmentsModel | SetupModel | TicketModel | HomeModel | AgentModel;

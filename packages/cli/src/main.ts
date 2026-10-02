@@ -6,7 +6,7 @@ import {
   ACTORS, AccError, type Actor, type ApexTest, configureRepoAccess, displayState, drift, gatesFor, gateTarget, isReady, loadConfig, makeContext, moveTask, mutate,
   cleanup, dispatch, githubIdentity, githubIssuesToTasks, planInit, useGithubAccount, withCloneAccount, type Profile, readLedger, receiptsAt, STEPS, receiptHooks, repoPaths, run, runGates, runSteps, satisfies, type State, type StepResult, type TaskInput,
   upsertTasks, writeConfig, ask, hookOutput, parseHookInput, waiveGates, review, land, sync, planPromotion, promote, skipWarning, planDeploy, deploy, lastDeploy,
-  buildBaseline, seedBranches, draftLists, writeReadme,
+  buildBaseline, seedBranches, draftLists, writeReadme, AGENT_ROLES, type AgentRole, profileView, setProfile, withCloneAgents, type ProfileChange,
 } from '../../core/src/index.ts';
 import { checkLabel, gateLabel, stateLabel, table, tone } from './format.ts';
 
@@ -42,6 +42,10 @@ Agents
   acc done [<id>]                       A builder's finish line: moves its task to review
   acc block [<id>] "<reason>"           A builder's way out when stuck
   acc cleanup <id>                      Remove a finished task's worktree, only if nothing would be lost
+  acc agents                            The model and effort builders and reviewers run with, and where each is set
+  acc agents set <builder|reviewer> [--model <m>] [--effort <low|medium|high|xhigh|max>] [--fallback-model <m>]
+                [--clear <model|effort|fallback-model>]... [--project]
+                                        Change them for this clone, or with --project in .acc/config.json
   acc review <id>                       A read-only reviewer agent judges the task's latest commit:
                                         pass, or changes (back to rework, with its findings)
   acc land <id>                         Push a reviewed task's branch and open its pull request; never merges
@@ -86,7 +90,8 @@ function project(cwd: string) {
   const { config: loaded, warnings } = loadConfig(paths.config);
   for (const w of warnings) process.stderr.write(`warning: ${w}\n`);
   // This clone's own choice of GitHub account, when it made one (D-028).
-  return { paths, config: withCloneAccount(loaded, paths.root, run) };
+  // This clone's own choices of agent model and effort (D-036).
+  return { paths, config: withCloneAgents(withCloneAccount(loaded, paths.root, run), paths.root, run) };
 }
 
 /** Builders are identified by ACC_ROLE, set when they're dispatched. Everyone else is a person. */
@@ -320,6 +325,39 @@ function cmdSync(o: Opts): number {
   out(o, () => (r.checked
     ? [`Checked ${r.checked} open pull request${r.checked === 1 ? '' : 's'}.`, ...r.changes.map((c) => `  ${c.task}: ${c.note}${c.moved ? ` → ${stateLabel(c.moved.to)}` : ''}`)].join('\n')
     : 'No open pull requests to follow.'), r);
+  return 0;
+}
+
+/** Builders' and reviewers' model and effort (D-036). */
+function cmdAgents(o: Opts, sub: string | undefined, roleArg: string | undefined): number {
+  const { paths } = project(process.cwd());
+  // Shown from the project's own config, so where each value comes from is clear.
+  const { config: projectConfig } = loadConfig(paths.config);
+  const views = () => Object.fromEntries(AGENT_ROLES.map((r) => [r, profileView(projectConfig, run, paths.root, r)]));
+  if (!sub || sub === 'show') {
+    const v = views();
+    const from = { clone: ' (this clone)', project: ' (project)', default: '' };
+    out(o, () => AGENT_ROLES.map((r) => {
+      const p = v[r]!;
+      return `${r.padEnd(9)} model ${p.model ?? 'Claude Code\'s default'}${from[p.from.model]}, effort ${p.effort ?? 'default'}${from[p.from.effort]}${p.fallbackModel ? `, falls back to ${p.fallbackModel}${from[p.from.fallbackModel]}` : ''}`;
+    }).join('\n'), v);
+    return 0;
+  }
+  if (sub !== 'set' || !roleArg || !(AGENT_ROLES as readonly string[]).includes(roleArg)) throw new AccError('usage', 'acc agents set <builder|reviewer> [--model <m>] [--effort <e>] [--fallback-model <m>] [--clear <field>] [--project]');
+  personOnly(o, 'change what agents run with');
+  const change: ProfileChange = {};
+  if (o.model !== undefined) change.model = o.model as string;
+  if (o.effort !== undefined) change.effort = o.effort as never;
+  if (o['fallback-model'] !== undefined) change.fallbackModel = o['fallback-model'] as string;
+  for (const f of (o.clear as string[] | undefined) ?? []) {
+    const key = f === 'model' ? 'model' : f === 'effort' ? 'effort' : f === 'fallback-model' ? 'fallbackModel' : null;
+    if (!key) throw new AccError('usage', '--clear takes model, effort or fallback-model.');
+    change[key] = null;
+  }
+  if (!Object.keys(change).length) throw new AccError('usage', 'Say what to change: --model, --effort, --fallback-model or --clear.');
+  setProfile(run, paths.root, paths.config, roleArg as AgentRole, change, o.project ? 'project' : 'clone');
+  const after = profileView(loadConfig(paths.config).config, run, paths.root, roleArg as AgentRole);
+  out(o, () => `${roleArg}: model ${after.model ?? 'Claude Code\'s default'}, effort ${after.effort ?? 'default'}${after.fallbackModel ? `, falls back to ${after.fallbackModel}` : ''}. ${o.project ? 'Set in .acc/config.json: commit it to share it.' : 'Set for this clone only.'} The next ${roleArg} uses it.`, after);
   return 0;
 }
 
@@ -650,6 +688,10 @@ export async function main(argv: string[]): Promise<number> {
       since: { type: 'string' },
       'confirm-production': { type: 'boolean', default: false },
       push: { type: 'boolean', default: false },
+      model: { type: 'string' },
+      effort: { type: 'string' },
+      'fallback-model': { type: 'string' },
+      clear: { type: 'string', multiple: true },
     },
   });
   const o = values as Opts;
@@ -661,6 +703,7 @@ export async function main(argv: string[]): Promise<number> {
     case 'onboard': return cmdDoctor(o, true);
     case 'init': return cmdInit(o);
     case 'setup': return cmdSetup(o, rest[0]);
+    case 'agents': return cmdAgents(o, rest[0], rest[1]);
     case 'add': {
       const title = rest.join(' ').trim();
       if (!title) throw new AccError('usage', 'acc add "<title>"');

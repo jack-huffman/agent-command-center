@@ -1,4 +1,4 @@
-import { chmodSync, linkSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, linkSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -14,6 +14,7 @@ import { alive } from './lock.ts';
  *   <id>.json             a question, written by the hook that waits for it
  *   <id>.answer.json      its answer, written once by whoever answers first
  *   listeners/<pid>.json  a window that shows questions for these folders, refreshed while it's open
+ *   history.jsonl         how each question ended, so the page can show the conversation (D-037)
  */
 export const questionsDir = (env: NodeJS.ProcessEnv = process.env): string => env.ACC_QUESTIONS_DIR || join(homedir(), '.acc', 'questions');
 
@@ -88,6 +89,76 @@ function ensureDir(dir: string): void {
   }
 }
 
+// ---------------------------------------------------------------- what happened to each question (D-037)
+
+/** How a question ended. Written by the hook, which is the one place that knows. */
+export type QuestionOutcome =
+  | 'allowed' | 'allowed-for-session' | 'denied' | 'answered'
+  /** Handed back to Claude Code's own prompt: chosen, no window listening, the window closed, or the wait ran out. */
+  | 'terminal' | 'no-window' | 'window-closed' | 'timed-out'
+  /** The session stopped waiting: it was stopped, or answered in its own prompt. */
+  | 'stopped';
+
+export interface HistoryRecord {
+  v: 1;
+  id: string;
+  sessionId: string;
+  cwd: string;
+  tool: string;
+  input: Record<string, unknown>;
+  askedAt: number;
+  endedAt: number;
+  outcome: QuestionOutcome;
+  answers?: Record<string, string>;
+  message?: string;
+}
+
+const HISTORY_MAX_BYTES = 2 * 1024 * 1024;
+
+/** Appends a record. When the file grows past its limit, the older half is dropped. */
+export function appendHistory(dir: string, rec: HistoryRecord): void {
+  ensureDir(dir);
+  const file = join(dir, 'history.jsonl');
+  appendFileSync(file, JSON.stringify(rec) + '\n', { mode: 0o600 });
+  try {
+    if (statSync(file).size > HISTORY_MAX_BYTES) {
+      const lines = readFileSync(file, 'utf8').split('\n').filter(Boolean);
+      writePrivateText(file, lines.slice(Math.floor(lines.length / 2)).join('\n') + '\n');
+    }
+  } catch {
+    // trimming is best effort; the record is written
+  }
+}
+
+function writePrivateText(file: string, text: string): void {
+  const tmp = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
+  writeFileSync(tmp, text, { mode: 0o600 });
+  renameSync(tmp, file);
+}
+
+/** The newest records, newest last. Lines that don't read are skipped. */
+export function questionHistory(dir: string, limit = 500): HistoryRecord[] {
+  let text = '';
+  try {
+    text = readFileSync(join(dir, 'history.jsonl'), 'utf8');
+  } catch {
+    return [];
+  }
+  const out: HistoryRecord[] = [];
+  for (const line of text.split('\n').filter(Boolean).slice(-limit)) {
+    try {
+      const r = JSON.parse(line) as HistoryRecord;
+      if (r?.v === 1 && typeof r.id === 'string' && typeof r.outcome === 'string') out.push(r);
+    } catch {
+      // a torn line from a crash: skip it
+    }
+  }
+  return out;
+}
+
+const outcomeOf = (q: Question, a: Answer): QuestionOutcome =>
+  a.decision === 'terminal' ? 'terminal' : a.decision === 'deny' ? 'denied' : q.tool === 'AskUserQuestion' ? 'answered' : a.always ? 'allowed-for-session' : 'allowed';
+
 // ---------------------------------------------------------------- windows that listen
 
 /** Says this window shows questions for these folders. Called again every LISTENER_EVERY_MS. */
@@ -116,6 +187,15 @@ export function listeners(dir: string, now = Date.now()): Listener[] {
 
 /** Whether a window open now would show a question asked in this folder. */
 export const covered = (ls: Listener[], cwd: string): boolean => ls.some((l) => l.roots.some((r) => typeof r === 'string' && isUnder(cwd, r)));
+
+/** Whether this machine has ever had a Command Center listening: no history is kept before then. */
+function existsQuestionsDir(dir: string): boolean {
+  try {
+    return statSync(join(dir, 'listeners')).isDirectory();
+  } catch {
+    return false;
+  }
+}
 
 // ---------------------------------------------------------------- the hook's side
 
@@ -171,7 +251,21 @@ export async function ask(input: HookInput, opts: AskOptions = {}): Promise<{ qu
   const wait = opts.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const pollMs = opts.pollMs ?? 300;
   const maxWaitMs = opts.maxWaitMs ?? MAX_WAIT_MS;
-  if (!covered(listeners(dir, now()), input.cwd)) return null;
+  const record = (q: Pick<Question, 'id' | 'at'>, outcome: QuestionOutcome, a?: Answer) => {
+    try {
+      appendHistory(dir, {
+        v: 1, id: q.id, sessionId: input.session_id, cwd: input.cwd, tool: input.tool_name, input: input.tool_input, askedAt: q.at, endedAt: now(), outcome,
+        ...(a?.decision === 'allow' && a.answers ? { answers: a.answers } : {}), ...(a?.decision === 'deny' && a.message ? { message: a.message } : {}),
+      });
+    } catch {
+      // the history is for showing; the answer matters more
+    }
+  };
+  if (!covered(listeners(dir, now()), input.cwd)) {
+    // Asked in its own terminal, with no window listening: noted, so the page can say so.
+    if (listeners(dir, now()).length || existsQuestionsDir(dir)) record({ id: `${now().toString(36)}-${randomBytes(4).toString('hex')}`, at: now() }, 'no-window');
+    return null;
+  }
   ensureDir(dir);
   const question: Question = {
     v: 1, id: `${now().toString(36)}-${randomBytes(4).toString('hex')}`, pid: opts.pid ?? process.pid, at: now(),
@@ -185,10 +279,14 @@ export async function ask(input: HookInput, opts: AskOptions = {}): Promise<{ qu
   try {
     for (let i = 0; ; i++) {
       const a = readJson(answerFile);
-      if (isAnswer(a)) return a.decision === 'terminal' ? null : { question, answer: a };
-      if (opts.signal?.aborted || now() - started > maxWaitMs) return null;
+      if (isAnswer(a)) {
+        record(question, outcomeOf(question, a), a);
+        return a.decision === 'terminal' ? null : { question, answer: a };
+      }
+      if (opts.signal?.aborted) { record(question, 'stopped'); return null; }
+      if (now() - started > maxWaitMs) { record(question, 'timed-out'); return null; }
       // Every few seconds: is a window still showing it? If the last one closed, step aside.
-      if (i % 10 === 9 && !covered(listeners(dir, now()), input.cwd)) return null;
+      if (i % 10 === 9 && !covered(listeners(dir, now()), input.cwd)) { record(question, 'window-closed'); return null; }
       await wait(pollMs);
     }
   } finally {

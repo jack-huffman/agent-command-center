@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { builderSettings } from '../src/dispatch.ts';
 import {
-  answerQuestion, ask, covered, type HookInput, hookOutput, isAnswer, listen, listeners, parseHookInput, pendingQuestions, permissionHook, type Question, stopListening,
+  answerQuestion, ask, covered, type HookInput, hookOutput, isAnswer, listen, listeners, parseHookInput, pendingQuestions, permissionHook, type Question, questionHistory, stopListening,
 } from '../src/questions.ts';
 import { tempDir } from './support.ts';
 
@@ -166,4 +166,29 @@ test('acc hook permission: an answer from the Command Center comes back as the h
   const r = await running;
   assert.equal(r.code, 0);
   assert.deepEqual(JSON.parse(r.out).hookSpecificOutput.decision.updatedInput.answers, { 'Which colour?': 'Orange' });
+});
+
+// ---------------------------------------------------------------- history (D-037)
+
+test('every question leaves a record of how it ended: answered, allowed for the session, denied with the reason, or handed back', async () => {
+  const dir = tempDir();
+  listen(dir, ['/work/repo']);
+  const answerWith = async (over: Partial<HookInput>, a: Parameters<typeof answerQuestion>[2]) => {
+    const waiting = ask(input(over), { dir, pollMs: 5 });
+    answerQuestion(dir, (await questionIn(dir)).id, a);
+    await waiting;
+  };
+  await answerWith({}, { decision: 'allow', always: true });
+  await answerWith({ tool_name: 'AskUserQuestion', tool_input: { questions: [{ question: 'Which?' }] } }, { decision: 'allow', answers: { 'Which?': 'Blue' } });
+  await answerWith({}, { decision: 'deny', message: 'not today' });
+  await answerWith({}, { decision: 'terminal' });
+  const h = questionHistory(dir);
+  assert.deepEqual(h.map((r) => r.outcome), ['allowed-for-session', 'answered', 'denied', 'terminal']);
+  assert.deepEqual(h[1]!.answers, { 'Which?': 'Blue' });
+  assert.equal(h[2]!.message, 'not today');
+  assert.equal(h[0]!.input.command, 'npm run deploy', 'what it asked is kept with it');
+  assert.ok(h.every((r) => r.endedAt >= r.askedAt));
+  stopListening(dir);
+  assert.equal(await ask(input(), { dir }), null);
+  assert.equal(questionHistory(dir).at(-1)!.outcome, 'no-window', 'asked in its own terminal, with no window: noted too');
 });

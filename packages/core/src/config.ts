@@ -14,6 +14,24 @@ export type Autonomy = (typeof AUTONOMY)[number];
 /** bypassPermissions is deliberately absent: builders never run unguarded. */
 export const PERMISSION_MODES = ['default', 'acceptEdits', 'plan', 'auto', 'dontAsk'] as const;
 
+/** How hard Claude thinks, as Claude Code's --effort takes it (D-036). */
+export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+export type Effort = (typeof EFFORTS)[number];
+
+/** The model and effort a kind of agent runs with. Anything left out is Claude Code's own default (D-036). */
+export interface AgentProfile {
+  /** An alias such as opus, sonnet or fable, or a full model name. */
+  model: string | null;
+  effort: Effort | null;
+  /** The model Claude Code falls back to when the first is overloaded. */
+  fallbackModel: string | null;
+}
+
+export const MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,79}$/;
+export const AGENT_ROLES = ['builder', 'reviewer'] as const;
+export type AgentRole = (typeof AGENT_ROLES)[number];
+export const noProfile = (): AgentProfile => ({ model: null, effort: null, fallbackModel: null });
+
 export interface Environment {
   name: string;
   /** Always the lower-cased environment name (D-015). */
@@ -54,7 +72,7 @@ export interface Config {
   environmentSpecific: string | null;
   knownDrift: string | null;
   trackers: Tracker[];
-  agents: { max: number; permissionMode: string };
+  agents: { max: number; permissionMode: string; builder: AgentProfile; reviewer: AgentProfile };
   autonomy: Autonomy;
   worktrees: { root: string | null; setup: string[] };
   /** heavy: gates that take the machine-wide slot (D-024). severity: Code Analyzer's failing level, 1 to 5. */
@@ -172,6 +190,25 @@ export function parseConfig(raw: unknown): ParseResult {
     errors.push(`"agents.permissionMode" must be one of ${PERMISSION_MODES.join(', ')}. bypassPermissions is never allowed for builders.`);
   }
 
+  const profileOf = (role: AgentRole): AgentProfile => {
+    const p = a[role];
+    if (p === undefined || p === null) return noProfile();
+    if (!isObj(p)) { errors.push(`"agents.${role}" must be an object with model, effort and fallbackModel.`); return noProfile(); }
+    const model = (v: unknown, key: string): string | null => {
+      if (v === undefined || v === null) return null;
+      if (typeof v !== 'string' || !MODEL_NAME.test(v)) { errors.push(`"agents.${role}.${key}" must be a model alias, such as sonnet, or a full model name.`); return null; }
+      return v;
+    };
+    let effort: Effort | null = null;
+    if (p.effort !== undefined && p.effort !== null) {
+      if ((EFFORTS as readonly unknown[]).includes(p.effort)) effort = p.effort as Effort;
+      else errors.push(`"agents.${role}.effort" must be one of ${EFFORTS.join(', ')}.`);
+    }
+    return { model: model(p.model, 'model'), effort, fallbackModel: model(p.fallbackModel, 'fallbackModel') };
+  };
+  const builder = profileOf('builder');
+  const reviewer = profileOf('reviewer');
+
   const autonomy = (raw.autonomy ?? 'manual') as Autonomy;
   if (!AUTONOMY.includes(autonomy)) errors.push(`"autonomy" must be one of ${AUTONOMY.join(', ')}.`);
 
@@ -208,7 +245,7 @@ export function parseConfig(raw: unknown): ParseResult {
       environmentSpecific,
       knownDrift,
       trackers,
-      agents: { max: max as number, permissionMode: permissionMode as string },
+      agents: { max: max as number, permissionMode: permissionMode as string, builder, reviewer },
       autonomy,
       worktrees: { root: isStr(w.root) ? w.root : null, setup: strList(w.setup) ? w.setup : [] },
       gates: {
@@ -320,9 +357,13 @@ export function loadConfig(file: string): ParseResult & { config: Config } {
 /** Writes the config in a stable, readable shape. Branch names are derived, so they aren't written. */
 export function writeConfig(file: string, config: Config): void {
   mkdirSync(dirname(file), { recursive: true });
+  // A profile with nothing set is left out, so the file says only what was chosen (D-036).
+  const profile = (p: AgentProfile) => Object.fromEntries(Object.entries(p).filter(([, v]) => v !== null));
+  const { builder, reviewer, ...agents } = config.agents;
   const out = {
     ...config,
     environments: config.environments.map(({ branch: _branch, ...e }) => e),
+    agents: { ...agents, ...(Object.keys(profile(builder)).length ? { builder: profile(builder) } : {}), ...(Object.keys(profile(reviewer)).length ? { reviewer: profile(reviewer) } : {}) },
   };
   writeFileSync(file, JSON.stringify(out, null, 2) + '\n');
 }

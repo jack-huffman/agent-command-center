@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { appendOutput, needsTerminal, promptOf } from '../src/logic.ts';
 import {
-  agentModel, alwaysLabel, answerOf, describePermission, homeModel, isFromWebview, needsYouCount, questionCards, runCard, type RunInput,
+  agentModel, alwaysLabel, answerOf, decisionOf, describePermission, historyItems, homeModel, isFromWebview, needsYouCount, questionCards, runCard, type RunInput,
 } from '../src/model.ts';
 import { describeTool, emptyTranscript, foldTranscript, splitLines, transcriptDir } from '../src/transcript.ts';
 import { sampleBoards, sampleHub, sampleIdentity, sampleRuns, sampleSetup } from '../scripts/fixtures.ts';
@@ -152,4 +152,33 @@ test('answers from the page are checked, and only the fields a decision has reac
   assert.ok(!isFromWebview({ type: 'run-control', run: 'r', action: 'kill-all' }));
   assert.deepEqual(answerOf({ type: 'answer', id: 'x', decision: 'deny', message: '  ', always: true }), { decision: 'deny' });
   assert.deepEqual(answerOf({ type: 'answer', id: 'x', decision: 'allow', always: true }), { decision: 'allow', always: true });
+});
+
+// ---------------------------------------------------------------- history (D-037)
+
+test('a question that has ended reads as what it asked and what you decided, blue for your yes and neutral otherwise', () => {
+  const base = { v: 1 as const, id: 'h', sessionId: 's', cwd: '/w', askedAt: 1, endedAt: 2 };
+  const allowed = decisionOf({ ...base, tool: 'Bash', input: { command: 'npm test' }, outcome: 'allowed-for-session' });
+  assert.deepEqual([allowed.asked, allowed.code, allowed.look.label, allowed.look.tone], ['wanted to run a command', 'npm test', 'You allowed it for the session', 'blue']);
+  const no = decisionOf({ ...base, tool: 'Bash', input: { command: 'git push' }, outcome: 'denied', message: 'never push' });
+  assert.deepEqual([no.look.label, no.look.tone, no.detail], ['You said no', 'neutral', '"never push"']);
+  const q = decisionOf({ ...base, tool: 'AskUserQuestion', input: { questions: [{ question: 'Which?', options: [] }] }, outcome: 'answered', answers: { 'Which?': 'Blue' } });
+  assert.deepEqual([q.asked, q.detail, q.look.label], ['asked: Which?', 'Which? → Blue', 'You answered']);
+  assert.equal(decisionOf({ ...base, tool: 'AskUserQuestion', input: {}, outcome: 'denied' }).look.label, 'You let it decide');
+  assert.match(decisionOf({ ...base, tool: 'Bash', input: {}, outcome: 'no-window' }).look.label, /no Command Center was open/);
+});
+
+test('the history holds your answers, task moves and finished commands, newest first, and an agent\'s page shows its own decisions in place', () => {
+  const hub = sampleHub();
+  const items = historyItems(hub, sampleRuns());
+  assert.deepEqual([...new Set(items.map((i) => i.kind))].sort(), ['answer', 'move', 'run']);
+  assert.ok(items.every((it, i) => i === 0 || items[i - 1]!.at >= it.at), 'newest first');
+  const answer = items.find((i) => i.kind === 'answer' && i.decision.look.label === 'You answered');
+  assert.ok(answer && answer.kind === 'answer' && answer.who === 'ACME-12');
+  assert.ok(!items.some((i) => i.kind === 'run' && i.label === 'Each branch points at the right org'), 'a command still running isn\'t history yet');
+  const page = agentModel({ hub, key: 's-acme-14', seen: null, entries: [
+    { k: 'say', id: 'a', at: new Date(Date.now() - 30 * 60_000).toISOString(), text: 'start' },
+    { k: 'say', id: 'b', at: new Date(Date.now() - 20 * 60_000).toISOString(), text: 'after the lint fix' },
+  ], readable: true, lastAt: null });
+  assert.deepEqual(page.entries.map((e) => e.k), ['say', 'decision', 'say', 'decision'], 'each decision where it happened in the conversation');
 });

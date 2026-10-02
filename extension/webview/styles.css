@@ -442,6 +442,44 @@ body.vscode-light .logo-light, body.vscode-high-contrast-light .logo-light { dis
 @media (max-width: 820px) { .dock { position: sticky; bottom: 0; z-index: 3; } }
 @media (max-width: 560px) { .dock-title { max-width: none; flex: 1; } .dock-pick, .dock-count { display: none; } .dock-title .status { display: none; } }
 
+/* History (D-037): its own scrolling box, newest first, with filters. */
+.history-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.history-head h2 { margin: 0; }
+.history-filters { flex-wrap: wrap; }
+.history-filters .seg { font-size: 0.88em; padding: 2px 8px; white-space: nowrap; }
+.panel-box.history { margin-top: 18px; }
+.history-line { display: flex; align-items: baseline; gap: 4px; min-width: 0; flex-wrap: wrap; }
+.history-line > strong, .history-line > span { flex: none; white-space: nowrap; }
+.history-line .tool-code { margin-left: 6px; flex: 0 1 auto; min-width: 0; max-width: 100%; }
+.history-meta { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.history-meta .sep { margin: 0 2px; }
+.history-feed { max-height: min(560px, 60vh); overflow-y: auto; overscroll-behavior: contain; margin: 0; padding-right: 4px; }
+.history-feed:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+.feed-icon { flex: none; display: inline-flex; margin-top: 2px; }
+.feed-icon.tone-neutral { color: var(--vscode-descriptionForeground); }
+.history-item { min-width: 0; flex: 1; }
+.history-item > summary { cursor: pointer; list-style: none; }
+.history-item > summary::-webkit-details-marker { display: none; }
+.history-item > summary:hover { color: var(--vscode-textLink-foreground); }
+.history-body { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin: 6px 0 4px; }
+.history-body .q-code, .history-body .history-out { margin: 0; width: 100%; max-height: 220px; }
+.history-detail { white-space: pre-wrap; padding: 6px 10px; border-left: 3px solid var(--line); color: var(--vscode-foreground); }
+.entry.decision { margin: 10px 0 10px 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); }
+.entry.decision .entry-who .codicon { color: var(--blue); }
+.decision-body { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; margin-left: 22px; }
+.decision-body .q-code { margin: 0; width: 100%; }
+
+/* How builders and reviewers run (D-036): model, effort and where each is set. */
+.agent-settings { border: 1px solid var(--line); border-radius: 8px; background: var(--card); padding: 12px 16px 8px; margin-bottom: 18px; }
+.agent-settings h2 { margin-bottom: 4px; }
+.setting-row { display: grid; grid-template-columns: 150px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
+.agent-settings h2 + .setting-row { border-top: 0; }
+.setting-name { display: inline-flex; align-items: center; gap: 6px; }
+.setting-parts { display: flex; flex-wrap: wrap; gap: 4px 18px; min-width: 0; }
+.setting-part { white-space: nowrap; }
+.setting-billing { padding: 8px 0 4px; border-top: 1px solid var(--line); }
+@media (max-width: 620px) { .setting-row { grid-template-columns: minmax(0, 1fr) auto; } .setting-parts { grid-column: 1 / -1; grid-row: 2; } }
+
 /* An agent's page: its timeline, newest at the bottom, like a chat. */
 body[data-view="agent"] { padding: 18px 28px 40px; max-width: 1100px; margin: 0 auto; }
 .agent-head .ticket-bar { flex-wrap: wrap; row-gap: 8px; margin-top: 10px; }

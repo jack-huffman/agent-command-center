@@ -1,7 +1,8 @@
-import { existsSync, type FSWatcher, mkdirSync, watch } from 'node:fs';
+import { existsSync, type FSWatcher, mkdirSync, statSync, watch } from 'node:fs';
+import { join } from 'node:path';
 import * as vscode from 'vscode';
 import {
-  type Answer, answerQuestion, listen, LISTENER_EVERY_MS, pendingQuestions, permissionHook, type Question, questionsDir, stopListening,
+  type Answer, answerQuestion, listen, LISTENER_EVERY_MS, pendingQuestions, permissionHook, type Question, questionHistory, questionsDir, stopListening,
 } from '../../packages/core/src/questions.ts';
 import type { Hub } from './hub.ts';
 import { isUnder, shq } from './logic.ts';
@@ -34,6 +35,7 @@ export class Questions implements vscode.Disposable {
   /** For each question, the agent snapshots since it was asked that showed its session working again. */
   private readonly movedOn = new Map<string, number>();
   private lastLook = 0;
+  private historyMtime = -1;
 
   constructor(hub: Hub, log: vscode.LogOutputChannel, show: (q: QuestionCard) => void, onScreen: (q: QuestionCard) => boolean, dir = questionsDir()) {
     this.hub = hub;
@@ -127,6 +129,17 @@ export class Questions implements vscode.Disposable {
     const gone = new Set(this.answeredElsewhere(all).map((q) => q.id));
     const mine = all.filter((q) => !gone.has(q.id));
     for (const id of this.movedOn.keys()) if (!mine.some((q) => q.id === id)) this.movedOn.delete(id);
+    // How earlier questions ended (D-037): read again only when the file has changed.
+    let mtime = 0;
+    try {
+      mtime = statSync(join(this.dir, 'history.jsonl')).mtimeMs;
+    } catch {
+      mtime = 0;
+    }
+    if (mtime !== this.historyMtime) {
+      this.historyMtime = mtime;
+      this.hub.setAnswers(questionHistory(this.dir).filter((h) => roots.some((r) => isUnder(h.cwd, r))));
+    }
     const before = this.hub.questions.map((q) => q.id).join(',');
     if (mine.map((q) => q.id).join(',') !== before) this.hub.setQuestions(mine);
     for (const q of mine) {

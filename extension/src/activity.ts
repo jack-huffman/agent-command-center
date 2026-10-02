@@ -168,7 +168,7 @@ export class AgentPages implements vscode.Disposable {
   private post(page: Page): void {
     if (!page.panel.visible) return;
     const t = page.transcript;
-    const model = agentModel({ hub: this.hub, key: page.key, seen: page.seen, entries: t.entries, readable: !!page.file && t.used > 0, lastAt: t.lastAt, active: page.active?.() });
+    const model = agentModel({ hub: this.hub, key: page.key, seen: page.seen, entries: t.entries, readable: !!page.file && t.used > 0, lastAt: t.lastAt, model: t.model, active: page.active?.() });
     void page.panel.webview.postMessage({ type: 'state', model });
   }
 

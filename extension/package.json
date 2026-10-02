@@ -2,7 +2,7 @@
   "name": "agent-command-center",
   "displayName": "Agent Command Center",
   "description": "Set up projects for parallel Claude Code agents, then run and watch them from VSCode.",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "publisher": "JackHuffman",
   "private": true,
   "license": "UNLICENSED",
@@ -189,6 +189,12 @@
         "title": "Refresh agents",
         "category": "Agent Command Center",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "acc.agents.configure",
+        "title": "Change what agents run with…",
+        "category": "Agent Command Center",
+        "icon": "$(settings-gear)"
       },
       {
         "command": "acc.worktree.open",

@@ -40,7 +40,7 @@ export function activate(context: vscode.ExtensionContext): void {
     t.show();
     t.sendText(command, true);
   };
-  const runs = new Runs(setup.log, inTerminal, dirname(accScript));
+  const runs = new Runs(setup.log, inTerminal, dirname(accScript), context.workspaceState);
   setup.useRuns(runs);
   context.subscriptions.push(runs);
   reg(COMMANDS.check, (a: unknown) => setup.check(stepId(a)));

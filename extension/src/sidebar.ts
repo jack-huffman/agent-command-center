@@ -2,6 +2,8 @@ import { basename } from 'node:path';
 import * as vscode from 'vscode';
 import { allowedMoves, DISPLAY, type State } from '../../packages/core/src/ledger.ts';
 import { skippedOn } from '../../packages/core/src/promote.ts';
+import { agentArgs } from '../../packages/core/src/agents.ts';
+import { EFFORTS } from '../../packages/core/src/config.ts';
 import { run as runSync } from '../../packages/core/src/exec.ts';
 import { repoPaths } from '../../packages/core/src/paths.ts';
 import { receiptHooks } from '../../packages/core/src/receipts.ts';
@@ -80,6 +82,7 @@ export class Sidebar {
     reg('acc.agent.stop', (n: AgentNode) => this.stopAgent(n));
     reg('acc.agent.openFolder', (n: AgentNode) => n.kind === 'agent' && vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(n.session.cwd), { forceNewWindow: true }));
     reg('acc.agents.refresh', () => this.hub.loadAgents());
+    reg('acc.agents.configure', (arg?: unknown) => this.configureAgents(arg));
     reg('acc.worktree.open', (n: WorktreeNode) => n.kind === 'worktree' && vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(n.worktree.path), { forceNewWindow: true }));
     reg('acc.worktree.terminal', (n: WorktreeNode) => n.kind === 'worktree' && this.terminal(`acc: ${n.worktree.branch ?? basename(n.worktree.path)}`, n.worktree.path).show());
     reg('acc.worktree.reveal', (n: WorktreeNode) => n.kind === 'worktree' && vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(n.worktree.path)));
@@ -280,7 +283,8 @@ export class Sidebar {
     const name = await vscode.window.showInputBox({ title: 'Session name', value: agentName(prompt), validateInput: (v) => (/^[\w.-]+$/.test(v) ? undefined : 'Letters, digits, dots, dashes and underscores only.') });
     if (!name) return;
     const settings = this.helpers.sessionSettings ? ['--settings', this.helpers.sessionSettings] : [];
-    const r = await runFile('claude', ['--bg', '--name', name, ...settings, prompt.trim()], cwd, process.env, undefined, 60_000);
+    // A free-form agent runs like a builder: the same model and effort (D-036).
+    const r = await runFile('claude', ['--bg', '--name', name, ...agentArgs(project?.agents.builder), ...settings, prompt.trim()], cwd, process.env, undefined, 60_000);
     if (r.code !== 0) return void vscode.window.showWarningMessage(`Claude Code didn't start the agent: ${(r.stderr || r.stdout).trim().split('\n')[0]}`);
     this.log.info(`Started background agent ${name} in ${cwd}: ${r.stdout.trim()}`);
     await this.hub.loadAgents();
@@ -289,6 +293,62 @@ export class Sidebar {
     const pick = await vscode.window.showInformationMessage(`Started ${name}. It shows in Agents as it works, and asks you here if it needs anything.`, ...(started ? ['Watch', 'Attach'] : []));
     if (pick === 'Watch' && started) this.helpers.watch?.(sessionKey(started));
     if (pick === 'Attach' && started?.id) this.send(cwd, `claude attach ${started.id}`, `claude: ${name}`);
+  }
+
+  // ------------------------------------------------------------ what agents run with (D-036)
+
+  /** Change a role's model, effort or fallback, for this clone or as the project's default. */
+  private async configureAgents(arg: unknown): Promise<void> {
+    const [role, root] = typeof arg === 'string' ? arg.split('|') : [];
+    const project = root ? this.hub.project(root) : await this.pickProject();
+    if (!project || (role !== 'builder' && role !== 'reviewer')) return;
+    const now = project.agents[role];
+    const label = role === 'builder' ? 'Builders' : 'Reviewers';
+    const what = await vscode.window.showQuickPick([
+      { label: '$(symbol-class) Model', description: now.model ?? 'Claude Code\'s default', key: 'model' as const },
+      { label: '$(lightbulb) Effort', description: now.effort ?? 'default', detail: 'How hard it thinks: more effort is slower and uses more of your plan', key: 'effort' as const },
+      { label: '$(debug-step-back) Fallback model', description: now.fallbackModel ?? 'none', detail: 'Used when the model is overloaded', key: 'fallback' as const },
+      { label: '$(discard) Back to the defaults', key: 'reset' as const },
+    ], { title: `${label}: what to change?` });
+    if (!what) return;
+    const models = (current: string | null, none: string) => vscode.window.showQuickPick([
+      { label: none, value: null as string | null },
+      { label: 'opus', description: 'Claude Opus, the latest', value: 'opus' },
+      { label: 'sonnet', description: 'Claude Sonnet, the latest: lighter on your plan', value: 'sonnet' },
+      { label: 'fable', description: 'Claude Fable, the latest', value: 'fable' },
+      { label: 'haiku', description: 'Claude Haiku, the latest: the lightest', value: 'haiku' },
+      { label: 'Another model…', description: 'a full model name', value: '?' },
+    ].map((m) => ({ ...m, picked: m.value === current, description: m.value === current ? `${m.description ?? ''} · now`.replace(/^ · /, '') : m.description })), { title: `${label}: which model?` });
+    const args: string[] = [];
+    if (what.key === 'model' || what.key === 'fallback') {
+      const pick = await models(what.key === 'model' ? now.model : now.fallbackModel, what.key === 'model' ? 'Claude Code\'s default' : 'No fallback');
+      if (!pick) return;
+      let value = pick.value;
+      if (value === '?') {
+        value = (await vscode.window.showInputBox({ title: `${label}: model name`, prompt: 'A model alias or full name, as claude --model takes it', validateInput: (v) => (/^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,79}$/.test(v.trim()) ? undefined : 'Letters, digits, dots, dashes, colons and brackets') }))?.trim() ?? null;
+        if (!value) return;
+      }
+      const flag = what.key === 'model' ? 'model' : 'fallback-model';
+      args.push(...(value ? [`--${flag}`, value] : ['--clear', flag]));
+    } else if (what.key === 'effort') {
+      const words: Record<string, string> = { low: 'Quickest, the least thinking', medium: 'Balanced', high: 'Thinks it through', xhigh: 'Thinks hard', max: 'The most thinking: slowest, uses the most' };
+      const pick = await vscode.window.showQuickPick([{ label: 'Default', description: 'Claude Code\'s own', value: null as string | null }, ...EFFORTS.map((e) => ({ label: e, description: words[e], value: e as string | null }))]
+        .map((x) => ({ ...x, description: x.value === now.effort ? `${x.description} · now` : x.description })), { title: `${label}: how much effort?` });
+      if (!pick) return;
+      args.push(...(pick.value ? ['--effort', pick.value] : ['--clear', 'effort']));
+    } else {
+      args.push('--clear', 'model', '--clear', 'effort', '--clear', 'fallback-model');
+    }
+    const scope = await vscode.window.showQuickPick([
+      { label: '$(device-desktop) This clone only', description: 'git config: nobody else sees it', project: false },
+      { label: '$(repo) The project\'s default', description: 'edits .acc/config.json, for you to commit and share', project: true },
+    ], { title: `${label}: for whom?` });
+    if (!scope) return;
+    const ok = await this.runAcc(project, ['agents', 'set', role, ...args, ...(scope.project ? ['--project'] : [])], () => undefined);
+    if (ok) {
+      await this.hub.loadProjects();
+      void vscode.window.showInformationMessage(`${label} changed${scope.project ? ' in .acc/config.json: commit it to share it' : ' for this clone'}. The next one started uses it.`);
+    }
   }
 
   // ------------------------------------------------------------ review and land (D-032, D-033)

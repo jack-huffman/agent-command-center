@@ -1,7 +1,7 @@
 // Renders one editor tab. Every element is built with DOM calls and every string is set as text,
 // so nothing from a ticket, branch or session can become markup. No HTML string is ever parsed.
 import type {
-  Action, AgentModel, AgentsModel, EntryView, EnvironmentsModel, HomeModel, HomeSection, IdentityCard, Look, Model, PersonChip, QuestionCard, Ref, RunCard, SetupModel, TasksModel, TicketModel, TrackerBoard, TrackerCard, ViewKind, WorktreesModel,
+  Action, AgentModel, AgentsModel, EntryView, EnvironmentsModel, HistoryItem, HomeModel, HomeSection, IdentityCard, Look, Model, PersonChip, QuestionCard, Ref, RunCard, SetupModel, TasksModel, TicketModel, TrackerBoard, TrackerCard, ViewKind, WorktreesModel,
 } from '../src/model.ts';
 import type { Block, Doc, Inline } from '../../packages/core/src/trackers/doc.ts';
 
@@ -70,10 +70,12 @@ interface Memory {
   answers: Record<string, Draft>;
   dock: { open: boolean; run: string | null };
   opened: string[];
+  /** Which kind of history the Overview shows. */
+  history?: 'all' | 'answer' | 'move' | 'run';
 }
 function memory(): Memory {
   const s = (api.getState() as Partial<Memory> | undefined) ?? {};
-  return { modes: s.modes ?? {}, drafts: s.drafts ?? {}, section: s.section, answers: s.answers ?? {}, dock: s.dock ?? { open: false, run: null }, opened: s.opened ?? [] };
+  return { modes: s.modes ?? {}, drafts: s.drafts ?? {}, section: s.section, answers: s.answers ?? {}, dock: s.dock ?? { open: false, run: null }, opened: s.opened ?? [], history: s.history };
 }
 function remember(change: (m: Memory) => void): void {
   const m = memory();
@@ -794,6 +796,7 @@ function renderAgent(m: AgentModel): Node[] {
   const crumbs = el('div', 'crumbs', icon('hubot'), el('span', '', m.task ? 'Builder' : 'Agent'), el('span', 'muted', '/'), name, m.task && m.name !== m.task.id ? el('span', 'muted', `· ${m.name}`) : null);
   const facts = el('div', 'agent-facts muted small',
     m.startedAt ? el('span', '', `Started ${since(m.startedAt)}`) : null,
+    m.model ? el('span', '', el('span', 'sep', '·'), el('span', 'mono', m.model)) : null,
     m.lastAt ? el('span', '', el('span', 'sep', '·'), 'last active ', when(m.lastAt)) : null,
     m.where ? el('span', '', el('span', 'sep', '·'), el('span', 'mono', m.where)) : null);
   const out: Node[] = [el('header', 'ticket-head agent-head', crumbs, el('h1', 'ticket-title', m.task?.title ?? m.name), facts,
@@ -811,6 +814,14 @@ function renderAgent(m: AgentModel): Node[] {
   for (const e of m.entries) {
     if (e.k === 'recap') continue;
     if (e.k === 'tool') { list.append(toolEntry(e)); continue; }
+    if (e.k === 'decision') {
+      // Your part of the conversation: what it asked, and what you said.
+      const d = e.decision;
+      list.append(el('li', `entry decision tone-row-${d.look.tone}`,
+        el('div', 'entry-who', icon('account'), el('span', 'strong', 'You'), e.at ? when(e.at) : null),
+        el('div', 'decision-body', el('div', 'muted small', `It ${d.asked}`), d.code ? el('pre', 'q-code', d.code) : null, status(d.look), d.detail ? el('div', 'history-detail', d.detail) : null)));
+      continue;
+    }
     if (e.k === 'prompt' && e.instructions) {
       const d = el('details', 'prompt-details', el('summary', '', icon('note'), el('strong', '', 'Task instructions'), el('span', 'muted small', ' · what it was given to do')), renderDoc(e.body, '')) as HTMLDetailsElement;
       d.open = memory().opened.includes(e.id);
@@ -962,17 +973,64 @@ function renderOverview(m: HomeModel): Node[] {
     ready.append(el('div', 'list-row', openable(el('div', 'list-text', el('span', 'tcard-key', r.id), el('span', '', r.title)), { type: 'run', command: 'acc.task.show', ref: r.action.ref }),
       el('span', 'chip', r.environment), actionButton(r.action)));
   }
-  const activity = el('section', 'panel-box', el('h2', '', icon('history'), 'Recent activity'));
-  if (!o.activity.length) activity.append(el('p', 'muted quiet', 'Moves tasks make show up here.'));
-  const feed = el('ol', 'feed');
-  for (const a of o.activity) {
-    feed.append(el('li', '', el('span', 'feed-dot'), el('div', '',
-      el('div', '', el('span', 'tcard-key', a.task), ' ', el('span', '', a.title)),
-      el('div', 'muted small', when(a.at), ` · ${a.from ?? 'new'} → `, el('strong', '', a.to), ` · ${a.by.replace(/^human:/, '')}`, o.projects.length > 1 ? ` · ${a.project}` : ''))));
-  }
-  if (o.activity.length) activity.append(feed);
-  out.push(el('div', 'two-up', ready, activity));
+  // Ready work, then the full history below it, with the width to read it.
+  out.push(ready, renderHistory(o.history, o.projects.length > 1));
   return out;
+}
+
+/** History filters: everything, or one kind. Remembered for the tab. */
+const HISTORY_KINDS = [['all', 'All', 'list-flat'], ['answer', 'Your answers', 'comment-discussion'], ['move', 'Tasks', 'project'], ['run', 'Commands', 'terminal']] as const;
+
+/**
+ * Everything that happened, newest first, in its own scrolling box (D-037): your answers to agents'
+ * questions, task moves, and the commands acc ran. An answered question leaves this record behind.
+ */
+function renderHistory(items: HistoryItem[], manyProjects: boolean): HTMLElement {
+  const kind = memory().history ?? 'all';
+  const filters = el('div', 'segmented history-filters');
+  filters.setAttribute('role', 'group');
+  filters.setAttribute('aria-label', 'Show');
+  for (const [k, label, ic] of HISTORY_KINDS) {
+    const n = k === 'all' ? items.length : items.filter((i) => i.kind === k).length;
+    const b = el('button', `seg${kind === k ? ' on' : ''}`, icon(ic), label, n ? el('span', 'count', String(n)) : null) as HTMLButtonElement;
+    b.type = 'button';
+    b.setAttribute('aria-pressed', String(kind === k));
+    b.addEventListener('click', () => { remember((m) => { m.history = k; }); if (last) render(last); });
+    filters.append(b);
+  }
+  const box = el('section', 'panel-box history', el('div', 'history-head', el('h2', '', icon('history'), 'History'), filters));
+  const shown = items.filter((i) => kind === 'all' || i.kind === kind);
+  if (!shown.length) {
+    box.append(el('p', 'muted quiet', kind === 'answer' ? 'When you answer an agent, it\'s kept here.' : kind === 'run' ? 'Commands acc runs for you are kept here.' : 'What agents and tasks do shows up here.'));
+    return box;
+  }
+  const feed = el('ol', 'feed history-feed');
+  feed.tabIndex = 0;
+  feed.setAttribute('aria-label', 'History, newest first');
+  const where = (project: string) => (manyProjects && project ? ` · ${project}` : '');
+  for (const it of shown) {
+    if (it.kind === 'move') {
+      feed.append(el('li', '', el('span', 'feed-dot'), el('div', '',
+        el('div', '', el('span', 'tcard-key', it.task), ' ', el('span', '', it.title)),
+        el('div', 'muted small', when(it.at), ` · ${it.from ?? 'new'} → `, el('strong', '', it.to), ` · ${it.by.replace(/^human:/, '')}${where(it.project)}`))));
+    } else if (it.kind === 'answer') {
+      const d = it.decision;
+      // What it asked and what you decided, on the line itself; the full command and your words open below.
+      const summary = el('summary', '', el('div', 'history-line', el('strong', '', it.who), el('span', '', ` ${d.asked}`), d.code ? el('code', 'tool-code', d.code.split('\n')[0]!) : null),
+        el('div', 'muted small history-meta', when(it.at), where(it.project), el('span', 'sep', '·'), status(d.look)));
+      const body = el('div', 'history-body',
+        d.code ? el('pre', 'q-code', d.code) : null,
+        d.detail ? el('div', 'history-detail', d.detail) : null,
+        button('Watch', 'pulse', () => api.postMessage({ type: 'run', command: 'acc.agent.watch', ref: { session: it.session } }), 'ghost small'));
+      feed.append(el('li', 'history-answer', el('span', `feed-icon tone-${d.look.tone}`, icon(d.icon)), el('details', 'history-item', summary, body)));
+    } else {
+      const summary = el('summary', '', el('span', '', el('strong', '', it.label)), el('div', 'muted small', when(it.at), ' · ', status(it.look)));
+      feed.append(el('li', 'history-run', el('span', `feed-icon tone-${it.look.tone}`, icon('terminal')), el('details', 'history-item', summary,
+        el('div', 'history-body', el('div', 'mono muted small', `$ ${it.command}`), it.lines.length ? el('pre', 'tool-pre history-out', it.lines.join('\n')) : null))));
+    }
+  }
+  box.append(feed);
+  return box;
 }
 
 function renderHome(m: HomeModel): Node[] {
@@ -994,6 +1052,18 @@ function renderAgents(m: AgentsModel): Node[] {
   const all = m.places.flatMap((p) => p.agents);
   const needs = all.filter((a) => a.needsYou).length;
   const out: Node[] = [header('Agents', m.error ?? `${plural(all.length, 'session')} on this machine${needs ? `, ${needs} need${needs === 1 ? 's' : ''} you` : ''}.`, toolbarButton('acc.agent.new', 'Start a background agent', 'add', m.places.find((p) => p.root)?.root ?? undefined, true))];
+  // What builders and reviewers run with, and what they bill (D-036).
+  for (const s of m.settings) {
+    const box = el('section', 'agent-settings', el('h2', '', icon('settings-gear'), m.settings.length > 1 ? `How agents run · ${s.project}` : 'How agents run'));
+    for (const r of s.roles) {
+      box.append(el('div', 'setting-row',
+        el('span', 'setting-name', icon(r.icon), el('span', 'strong', r.label)),
+        el('span', 'setting-parts', ...r.parts.map((p) => el('span', 'setting-part', el('span', 'muted', `${p.name} `), el('span', 'mono strong', p.value), el('span', 'muted small', ` · ${p.from}`)))),
+        argButton('acc.agents.configure', 'Change…', 'edit', `${r.role}|${s.root}`)));
+    }
+    if (s.billing) box.append(el('div', 'setting-billing', status(s.billing)));
+    out.push(box);
+  }
   if (!all.length) {
     out.push(empty('No Claude Code sessions are running. Background agents keep working when the terminal closes, and edit in their own worktree.'));
     return out;

@@ -680,3 +680,58 @@ B5, B6, B9 and B10 were terminal recipes in ONBOARDING.md. Each is now an
 
 None of them commits to an existing branch. A person reads the drafts and
 commits them on each environment's branch.
+
+## D-036 Builders and reviewers each have a model and effort, set per clone or per project (2026-10-02)
+
+Agents ran on whatever Claude Code defaulted to, which is its heaviest model at
+high effort. That's right for some work and wasteful for a quick review. Each
+kind of agent now has a profile: a model (an alias such as `opus`, `sonnet` or
+`fable`, or a full name), an effort from `low` to `max` (how hard it thinks),
+and a fallback model for when the first is overloaded.
+
+- **Two places to set it, like the GitHub account (D-028).** This clone's
+  choice lives in git config (`acc.builder.model`, `acc.reviewer.effort`, …),
+  and nobody else sees it. The project's default lives in `.acc/config.json`
+  under `agents.builder` and `agents.reviewer`, for a team to share. A clone's
+  choice wins, part by part. Anything unset is Claude Code's own default.
+- **They're Claude Code's own flags.** `--model`, `--effort` and
+  `--fallback-model`, on the builder's background session, the reviewer's
+  `claude -p`, and free-form agents started from the page, which run like
+  builders.
+- **On the page:** the Agents section opens with **How agents run**. Each
+  profile shows every part and where it's set, and **Change…** walks through
+  model, effort or fallback, then asks whether it's for this clone or the
+  project. An agent's page shows the model its answers came from, read from
+  the transcript.
+- **What they bill.** Under the profiles, the setup check `A1.claude-billing`
+  (GH-9) says whether agents use your Claude subscription, or would bill per
+  token through an API key.
+- **`acc agents` and `acc agents set`** do the same from a terminal. A project
+  change edits only that part of `.acc/config.json`.
+
+Also: builders may now run their tests and builds under `nice -n 15` without a
+prompt, as this repo's own rules ask. The first real run of GH-9 stopped on
+exactly that.
+
+## D-037 What you answered stays on the page (2026-10-02)
+
+Once a question was answered, its card vanished, and nothing on the page said
+what had been asked or decided.
+
+- **The hook keeps a record.** It's the one place that knows how each question
+  ended, so it appends it to `~/.acc/questions/history.jsonl` (only you can
+  read it; trimmed past 2 MB). The record holds:
+  - what was asked, and when
+  - the outcome: allowed, allowed for the session, said no (with your reason),
+    answered (with the answers), let it decide, handed to its terminal, or
+    stopped
+  - when no window was listening, so it asked in its own terminal
+- **Each agent's page shows its decisions in place.** A "You" entry sits after
+  the step before you decided, with what it asked, the command, and what you
+  said.
+- **The Overview's History** replaces Recent activity. It's a scrolling box,
+  newest first, holding your answers, task moves, and the commands acc ran.
+  Each line says what happened in words; open one for the full command, your
+  words or the command's output. Filters: All, Your answers, Tasks, Commands.
+- **Finished commands are kept** in the workspace with the end of their output,
+  so the output panel and History still have them after a reload.

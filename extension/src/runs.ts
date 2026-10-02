@@ -23,7 +23,9 @@ export interface StartOptions {
 
 /** A command that has gone this long without output may be waiting for an answer. */
 const QUIET_MS = 700;
-const KEEP_RUNS = 8;
+const KEEP_RUNS = 20;
+const KEPT_KEY = 'acc.runs.finished';
+const KEPT_LINES = 300;
 
 /**
  * Commands acc runs for you (D-030): setup's fixes, opening an org, comparing branches. Each runs as a
@@ -43,13 +45,21 @@ export class Runs implements vscode.Disposable {
   private readonly log: vscode.LogOutputChannel;
   private readonly toTerminal: (command: string, cwd: string) => void;
   private readonly accBin: string;
+  private readonly store: vscode.Memento | null;
   private pending: NodeJS.Timeout | undefined;
 
-  /** accBin: the folder with the bundled acc, put first on each run's PATH as in VSCode's terminals. */
-  constructor(log: vscode.LogOutputChannel, toTerminal: (command: string, cwd: string) => void, accBin: string) {
+  /**
+   * accBin: the folder with the bundled acc, put first on each run's PATH as in VSCode's terminals.
+   * store: where finished runs are kept, so their output is still there after a reload (D-037).
+   */
+  constructor(log: vscode.LogOutputChannel, toTerminal: (command: string, cwd: string) => void, accBin: string, store: vscode.Memento | null = null) {
     this.log = log;
     this.toTerminal = toTerminal;
     this.accBin = accBin;
+    this.store = store;
+    for (const r of store?.get<(RunInput & { cwd: string })[]>(KEPT_KEY) ?? []) {
+      if (r && typeof r.id === 'string' && r.endedAt !== null) this.list.push({ ...r, prompt: null, child: null, quiet: undefined });
+    }
     this.status.name = 'Agent Command Center: running command';
     this.status.command = 'acc.runs.show';
   }
@@ -134,7 +144,14 @@ export class Runs implements vscode.Disposable {
       if (r.endedAt === null) { r.stopped = true; this.kill(r); }
       this.list.splice(this.list.indexOf(r), 1);
       this.changed(true);
+      this.keep();
     }
+  }
+
+  /** Saves the finished runs, each with the end of its output. */
+  private keep(): void {
+    const done = this.list.filter((r) => r.endedAt !== null).map((r) => ({ ...this.view(r), cwd: r.cwd, lines: r.lines.slice(-KEPT_LINES) }));
+    void this.store?.update(KEPT_KEY, done);
   }
 
   private kill(r: Run): void {
@@ -177,6 +194,7 @@ export class Runs implements vscode.Disposable {
     this.log.info(`${r.stopped ? 'Stopped' : code === 0 ? 'Finished' : `Failed (exit ${code})`}: ${r.command}`);
     this.changed(true);
     this.events.fire({ kind: 'end', run: this.view(r) });
+    this.keep();
     try {
       r.onExit?.(code);
     } catch (e) {

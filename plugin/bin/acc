@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // packages/cli/src/main.ts
-import { existsSync as existsSync13, readFileSync as readFileSync14, realpathSync as realpathSync2 } from "node:fs";
+import { existsSync as existsSync13, readFileSync as readFileSync15, realpathSync as realpathSync2 } from "node:fs";
 import { dirname as dirname6, resolve as resolve2 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -79,6 +79,10 @@ var PROFILES = ["generic", "salesforce"];
 var ENV_TYPES = ["production", "full", "partial", "developer", "developer_pro", "none"];
 var AUTONOMY = ["manual", "dispatch", "review", "full"];
 var PERMISSION_MODES = ["default", "acceptEdits", "plan", "auto", "dontAsk"];
+var EFFORTS = ["low", "medium", "high", "xhigh", "max"];
+var MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,79}$/;
+var AGENT_ROLES = ["builder", "reviewer"];
+var noProfile = () => ({ model: null, effort: null, fallbackModel: null });
 var TOP_KEYS = /* @__PURE__ */ new Set([
   "schema",
   "project",
@@ -183,6 +187,30 @@ function parseConfig(raw) {
   if (typeof permissionMode !== "string" || !PERMISSION_MODES.includes(permissionMode)) {
     errors.push(`"agents.permissionMode" must be one of ${PERMISSION_MODES.join(", ")}. bypassPermissions is never allowed for builders.`);
   }
+  const profileOf = (role) => {
+    const p = a[role];
+    if (p === void 0 || p === null) return noProfile();
+    if (!isObj(p)) {
+      errors.push(`"agents.${role}" must be an object with model, effort and fallbackModel.`);
+      return noProfile();
+    }
+    const model = (v, key) => {
+      if (v === void 0 || v === null) return null;
+      if (typeof v !== "string" || !MODEL_NAME.test(v)) {
+        errors.push(`"agents.${role}.${key}" must be a model alias, such as sonnet, or a full model name.`);
+        return null;
+      }
+      return v;
+    };
+    let effort = null;
+    if (p.effort !== void 0 && p.effort !== null) {
+      if (EFFORTS.includes(p.effort)) effort = p.effort;
+      else errors.push(`"agents.${role}.effort" must be one of ${EFFORTS.join(", ")}.`);
+    }
+    return { model: model(p.model, "model"), effort, fallbackModel: model(p.fallbackModel, "fallbackModel") };
+  };
+  const builder = profileOf("builder");
+  const reviewer = profileOf("reviewer");
   const autonomy = raw.autonomy ?? "manual";
   if (!AUTONOMY.includes(autonomy)) errors.push(`"autonomy" must be one of ${AUTONOMY.join(", ")}.`);
   const w = isObj(raw.worktrees) ? raw.worktrees : {};
@@ -215,7 +243,7 @@ function parseConfig(raw) {
       environmentSpecific,
       knownDrift,
       trackers,
-      agents: { max, permissionMode },
+      agents: { max, permissionMode, builder, reviewer },
       autonomy,
       worktrees: { root: isStr(w.root) ? w.root : null, setup: strList(w.setup) ? w.setup : [] },
       gates: {
@@ -325,9 +353,12 @@ function loadConfig(file) {
 }
 function writeConfig(file, config) {
   mkdirSync(dirname(file), { recursive: true });
+  const profile = (p) => Object.fromEntries(Object.entries(p).filter(([, v]) => v !== null));
+  const { builder, reviewer, ...agents } = config.agents;
   const out2 = {
     ...config,
-    environments: config.environments.map(({ branch: _branch, ...e }) => e)
+    environments: config.environments.map(({ branch: _branch, ...e }) => e),
+    agents: { ...agents, ...Object.keys(profile(builder)).length ? { builder: profile(builder) } : {}, ...Object.keys(profile(reviewer)).length ? { reviewer: profile(reviewer) } : {} }
   };
   writeFileSync(file, JSON.stringify(out2, null, 2) + "\n");
 }
@@ -1272,12 +1303,12 @@ function githubIssuesToTasks(issues, environment) {
 
 // packages/core/src/dispatch.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
-import { existsSync as existsSync7, mkdirSync as mkdirSync10, readFileSync as readFileSync9, realpathSync, symlinkSync, writeFileSync as writeFileSync10 } from "node:fs";
+import { existsSync as existsSync7, mkdirSync as mkdirSync10, readFileSync as readFileSync10, realpathSync, symlinkSync, writeFileSync as writeFileSync11 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
 import { basename, dirname as dirname3, isAbsolute, join as join9, resolve, sep } from "node:path";
 
 // packages/core/src/questions.ts
-import { chmodSync, linkSync, mkdirSync as mkdirSync8, readdirSync as readdirSync2, readFileSync as readFileSync7, renameSync as renameSync3, rmSync as rmSync4, writeFileSync as writeFileSync8 } from "node:fs";
+import { appendFileSync as appendFileSync2, chmodSync, linkSync, mkdirSync as mkdirSync8, readdirSync as readdirSync2, readFileSync as readFileSync7, renameSync as renameSync3, rmSync as rmSync4, statSync as statSync3, writeFileSync as writeFileSync8 } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { homedir as homedir2 } from "node:os";
 import { join as join7 } from "node:path";
@@ -1305,6 +1336,25 @@ function ensureDir(dir) {
   } catch {
   }
 }
+var HISTORY_MAX_BYTES = 2 * 1024 * 1024;
+function appendHistory(dir, rec) {
+  ensureDir(dir);
+  const file = join7(dir, "history.jsonl");
+  appendFileSync2(file, JSON.stringify(rec) + "\n", { mode: 384 });
+  try {
+    if (statSync3(file).size > HISTORY_MAX_BYTES) {
+      const lines = readFileSync7(file, "utf8").split("\n").filter(Boolean);
+      writePrivateText(file, lines.slice(Math.floor(lines.length / 2)).join("\n") + "\n");
+    }
+  } catch {
+  }
+}
+function writePrivateText(file, text) {
+  const tmp = `${file}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
+  writeFileSync8(tmp, text, { mode: 384 });
+  renameSync3(tmp, file);
+}
+var outcomeOf = (q, a) => a.decision === "terminal" ? "terminal" : a.decision === "deny" ? "denied" : q.tool === "AskUserQuestion" ? "answered" : a.always ? "allowed-for-session" : "allowed";
 function listeners(dir, now2 = Date.now()) {
   let names = [];
   try {
@@ -1319,6 +1369,13 @@ function listeners(dir, now2 = Date.now()) {
   });
 }
 var covered = (ls, cwd) => ls.some((l) => l.roots.some((r) => typeof r === "string" && isUnder(cwd, r)));
+function existsQuestionsDir(dir) {
+  try {
+    return statSync3(join7(dir, "listeners")).isDirectory();
+  } catch {
+    return false;
+  }
+}
 function parseHookInput(text) {
   let x = null;
   try {
@@ -1356,7 +1413,28 @@ async function ask(input, opts = {}) {
   const wait = opts.wait ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
   const pollMs = opts.pollMs ?? 300;
   const maxWaitMs = opts.maxWaitMs ?? MAX_WAIT_MS;
-  if (!covered(listeners(dir, now2()), input.cwd)) return null;
+  const record = (q, outcome, a) => {
+    try {
+      appendHistory(dir, {
+        v: 1,
+        id: q.id,
+        sessionId: input.session_id,
+        cwd: input.cwd,
+        tool: input.tool_name,
+        input: input.tool_input,
+        askedAt: q.at,
+        endedAt: now2(),
+        outcome,
+        ...a?.decision === "allow" && a.answers ? { answers: a.answers } : {},
+        ...a?.decision === "deny" && a.message ? { message: a.message } : {}
+      });
+    } catch {
+    }
+  };
+  if (!covered(listeners(dir, now2()), input.cwd)) {
+    if (listeners(dir, now2()).length || existsQuestionsDir(dir)) record({ id: `${now2().toString(36)}-${randomBytes(4).toString("hex")}`, at: now2() }, "no-window");
+    return null;
+  }
   ensureDir(dir);
   const question = {
     v: 1,
@@ -1377,9 +1455,22 @@ async function ask(input, opts = {}) {
   try {
     for (let i = 0; ; i++) {
       const a = readJson(answerFile);
-      if (isAnswer(a)) return a.decision === "terminal" ? null : { question, answer: a };
-      if (opts.signal?.aborted || now2() - started > maxWaitMs) return null;
-      if (i % 10 === 9 && !covered(listeners(dir, now2()), input.cwd)) return null;
+      if (isAnswer(a)) {
+        record(question, outcomeOf(question, a), a);
+        return a.decision === "terminal" ? null : { question, answer: a };
+      }
+      if (opts.signal?.aborted) {
+        record(question, "stopped");
+        return null;
+      }
+      if (now2() - started > maxWaitMs) {
+        record(question, "timed-out");
+        return null;
+      }
+      if (i % 10 === 9 && !covered(listeners(dir, now2()), input.cwd)) {
+        record(question, "window-closed");
+        return null;
+      }
       await wait(pollMs);
     }
   } finally {
@@ -1406,8 +1497,80 @@ function permissionHook(command) {
 
 // packages/core/src/review.ts
 import { randomUUID } from "node:crypto";
-import { existsSync as existsSync6, mkdirSync as mkdirSync9, readdirSync as readdirSync3, readFileSync as readFileSync8, renameSync as renameSync4, rmSync as rmSync5, writeFileSync as writeFileSync9 } from "node:fs";
+import { existsSync as existsSync6, mkdirSync as mkdirSync9, readdirSync as readdirSync3, readFileSync as readFileSync9, renameSync as renameSync4, rmSync as rmSync5, writeFileSync as writeFileSync10 } from "node:fs";
 import { join as join8 } from "node:path";
+
+// packages/core/src/agents.ts
+import { readFileSync as readFileSync8, writeFileSync as writeFileSync9 } from "node:fs";
+var KEYS = { model: "model", effort: "effort", fallbackModel: "fallbackmodel" };
+var gitKey = (role, field) => `acc.${role}.${KEYS[field]}`;
+function cloneProfile(run2, root, role) {
+  const out2 = {};
+  for (const field of Object.keys(KEYS)) {
+    const r = run2("git", ["config", "--get", gitKey(role, field)], { cwd: root });
+    const v = r.code === 0 ? r.stdout.trim() : "";
+    if (!v) continue;
+    if (field === "effort") {
+      if (EFFORTS.includes(v)) out2.effort = v;
+    } else if (MODEL_NAME.test(v)) out2[field] = v;
+  }
+  return out2;
+}
+function profileView(config, run2, root, role) {
+  const project2 = config.agents[role];
+  const mine = cloneProfile(run2, root, role);
+  const pick = (f) => mine[f] != null ? { v: mine[f], from: "clone" } : project2[f] != null ? { v: project2[f], from: "project" } : { v: null, from: "default" };
+  const m = pick("model");
+  const e = pick("effort");
+  const fb = pick("fallbackModel");
+  return { model: m.v, effort: e.v, fallbackModel: fb.v, from: { model: m.from, effort: e.from, fallbackModel: fb.from } };
+}
+function withCloneAgents(config, root, run2) {
+  const merge = (role) => ({ ...config.agents[role], ...cloneProfile(run2, root, role) });
+  return { ...config, agents: { ...config.agents, builder: merge("builder"), reviewer: merge("reviewer") } };
+}
+function agentArgs(p) {
+  if (!p) return [];
+  return [...p.model ? ["--model", p.model] : [], ...p.effort ? ["--effort", p.effort] : [], ...p.fallbackModel ? ["--fallback-model", p.fallbackModel] : []];
+}
+function check(change) {
+  for (const f of ["model", "fallbackModel"]) {
+    const v = change[f];
+    if (v != null && !MODEL_NAME.test(v)) throw new AccError("usage", `"${v}" isn't a model name. Use an alias such as opus, sonnet or fable, or a full model name.`);
+  }
+  if (change.effort != null && !EFFORTS.includes(change.effort)) throw new AccError("usage", `Effort is one of ${EFFORTS.join(", ")}.`);
+}
+function setProfile(run2, root, configFile, role, change, scope) {
+  check(change);
+  if (scope === "clone") {
+    for (const f of Object.keys(change)) {
+      const v = change[f];
+      if (v === void 0) continue;
+      const r = v === null ? run2("git", ["config", "--unset", gitKey(role, f)], { cwd: root }) : run2("git", ["config", gitKey(role, f), v], { cwd: root });
+      if (r.code !== 0 && !(v === null && r.code === 5)) throw new AccError("git", `git config refused ${gitKey(role, f)}: ${r.stderr.trim()}`);
+    }
+    return;
+  }
+  let raw;
+  try {
+    raw = JSON.parse(readFileSync8(configFile, "utf8"));
+  } catch (e) {
+    throw new AccError("bad-config", `Couldn't read ${configFile}: ${e.message}`);
+  }
+  raw.agents ??= {};
+  const p = { ...raw.agents[role] ?? {} };
+  for (const f of Object.keys(change)) {
+    const v = change[f];
+    if (v === void 0) continue;
+    if (v === null) delete p[f];
+    else p[f] = v;
+  }
+  if (Object.keys(p).length) raw.agents[role] = p;
+  else delete raw.agents[role];
+  writeFileSync9(configFile, JSON.stringify(raw, null, 2) + "\n");
+}
+
+// packages/core/src/review.ts
 var VERDICT_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -1442,7 +1605,7 @@ var reviewPath = (paths, task, sha) => join8(paths.reviews, `${task}-${sha}.json
 var runningPath = (paths, task) => join8(paths.reviews, `${task}.running.json`);
 function readVerdict(paths, task, sha) {
   try {
-    return JSON.parse(readFileSync8(reviewPath(paths, task, sha), "utf8"));
+    return JSON.parse(readFileSync9(reviewPath(paths, task, sha), "utf8"));
   } catch {
     return null;
   }
@@ -1548,17 +1711,17 @@ function review(paths, config, id, deps, opts = {}) {
   const receipts = receiptsAt(paths, sha);
   const checks = Object.values(receipts).map((r) => `- ${r.gate}: ${r.waived ? `waived (it was ${r.waived.was ?? "not run"}), because ${r.waived.reason}` : `${r.status}. ${r.summary}`}`);
   const packetFile = join8(paths.packets, `${id}.md`);
-  const packet = existsSync6(packetFile) ? readFileSync8(packetFile, "utf8") : `# ${task.id}: ${task.title}
+  const packet = existsSync6(packetFile) ? readFileSync9(packetFile, "utf8") : `# ${task.id}: ${task.title}
 
 ${task.brief}`;
   const rulesFile = join8(worktree, ".acc", "rules.md");
-  const rules = existsSync6(rulesFile) ? readFileSync8(rulesFile, "utf8") : null;
+  const rules = existsSync6(rulesFile) ? readFileSync9(rulesFile, "utf8") : null;
   const { system, prompt } = reviewPrompt({ task, config, envName: env.name, envBranch: env.branch, sha, packet, diff, stat, checks, rules });
   const sessionId = (deps.uuid ?? randomUUID)();
   mkdirSync9(paths.reviews, { recursive: true });
   const marker = runningPath(paths, id);
   const startedAt = now2();
-  writeFileSync9(marker, JSON.stringify({ sessionId, sha, startedAt: startedAt.toISOString(), pid: process.pid }));
+  writeFileSync10(marker, JSON.stringify({ sessionId, sha, startedAt: startedAt.toISOString(), pid: process.pid }));
   deps.onStart?.(sessionId, sha);
   let out2;
   try {
@@ -1568,6 +1731,7 @@ ${task.brief}`;
       sessionId,
       "--permission-mode",
       "dontAsk",
+      ...agentArgs(config.agents.reviewer),
       "--output-format",
       "json",
       "--json-schema",
@@ -1604,7 +1768,7 @@ ${task.brief}`;
     costUsd: parsed.costUsd
   };
   const file = reviewPath(paths, id, sha);
-  writeFileSync9(`${file}.tmp`, JSON.stringify(verdict, null, 2) + "\n");
+  writeFileSync10(`${file}.tmp`, JSON.stringify(verdict, null, 2) + "\n");
   renameSync4(`${file}.tmp`, file);
   const actor = opts.actor ?? "reviewer";
   const by = opts.by ?? `reviewer:${id}`;
@@ -1654,7 +1818,7 @@ function claudeStatePath(env = process.env) {
 function isTrusted(folder, env = process.env) {
   let state;
   try {
-    state = JSON.parse(readFileSync9(claudeStatePath(env), "utf8"));
+    state = JSON.parse(readFileSync10(claudeStatePath(env), "utf8"));
   } catch {
     return false;
   }
@@ -1782,6 +1946,15 @@ function builderSettings(task, config, accBinDir2, basePath, accCommand2) {
     "Bash(npm run *)",
     "Bash(npx prettier *)",
     "Bash(npx eslint *)",
+    "Bash(node --test*)",
+    "Bash(node --no-warnings --test*)",
+    // A project may ask for builds and tests under nice, so the machine stays usable: the same commands, niced.
+    "Bash(nice -n 15 npm test*)",
+    "Bash(nice -n 15 npm run *)",
+    "Bash(nice -n 15 npx prettier *)",
+    "Bash(nice -n 15 npx eslint *)",
+    "Bash(nice -n 15 node --test*)",
+    "Bash(nice -n 15 node --no-warnings --test*)",
     ...sf ? ["Bash(sf project deploy validate *)", "Bash(sf code-analyzer run *)", "Bash(sf apex run test *)", "Bash(sf data query *)"] : []
   ];
   const deny = [
@@ -1833,7 +2006,7 @@ function ensureWorktree(run2, main2, wt, branch, env) {
 function setupWorktree(run2, config, env, main2, wt) {
   if (config.profile === "salesforce" && env.org) {
     mkdirSync10(join9(wt, ".sf"), { recursive: true });
-    writeFileSync10(join9(wt, ".sf", "config.json"), JSON.stringify({ "target-org": env.org }, null, 2) + "\n");
+    writeFileSync11(join9(wt, ".sf", "config.json"), JSON.stringify({ "target-org": env.org }, null, 2) + "\n");
   }
   if (existsSync7(join9(main2, "node_modules")) && !existsSync7(join9(wt, "node_modules"))) {
     symlinkSync(join9(main2, "node_modules"), join9(wt, "node_modules"), "dir");
@@ -1849,16 +2022,16 @@ function excludeEverywhere(run2, main2, pattern) {
   const common = run2("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: main2 }).stdout.trim();
   if (!common) return;
   const file = join9(common, "info", "exclude");
-  const text = existsSync7(file) ? readFileSync9(file, "utf8") : "";
+  const text = existsSync7(file) ? readFileSync10(file, "utf8") : "";
   if (text.split("\n").some((l) => l.trim() === pattern)) return;
   mkdirSync10(dirname3(file), { recursive: true });
-  writeFileSync10(file, `${text}${text && !text.endsWith("\n") ? "\n" : ""}# Added by acc: worktrees link node_modules from the main checkout.
+  writeFileSync11(file, `${text}${text && !text.endsWith("\n") ? "\n" : ""}# Added by acc: worktrees link node_modules from the main checkout.
 ${pattern}
 `);
 }
 function readList2(wt, rel) {
   if (!rel || !existsSync7(join9(wt, rel))) return [];
-  return readFileSync9(join9(wt, rel), "utf8").split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
+  return readFileSync10(join9(wt, rel), "utf8").split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
 }
 var sleep2 = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 function findSession(run2, wt, name, waitMs) {
@@ -1896,7 +2069,7 @@ function dispatch(paths, config, id, deps, opts) {
   const branch = found.run?.branch ?? taskBranch(found);
   const reused = ensureWorktree(run2, main2, wt, branch, env);
   setupWorktree(run2, config, env, main2, wt);
-  const rules = existsSync7(join9(wt, ".acc", "rules.md")) ? readFileSync9(join9(wt, ".acc", "rules.md"), "utf8") : null;
+  const rules = existsSync7(join9(wt, ".acc", "rules.md")) ? readFileSync10(join9(wt, ".acc", "rules.md"), "utf8") : null;
   const packet = renderPacket({
     task: found,
     config,
@@ -1911,12 +2084,12 @@ function dispatch(paths, config, id, deps, opts) {
   });
   mkdirSync10(paths.packets, { recursive: true });
   const packetPath = join9(paths.packets, `${found.id}.md`);
-  writeFileSync10(packetPath, packet);
+  writeFileSync11(packetPath, packet);
   const settings = JSON.stringify(builderSettings(found, config, deps.accBinDir, deps.env.PATH ?? "", deps.accCommand));
   const prompt = `Read your task instructions below and do the task.
 
 ${packet}`;
-  const base = ["--name", found.id, "--permission-mode", config.agents.permissionMode, "--settings", settings];
+  const base = ["--name", found.id, "--permission-mode", config.agents.permissionMode, ...agentArgs(config.agents.builder), "--settings", settings];
   const record = (bgId2, sessionId2) => mutate(paths, now2, (ledger, emit) => {
     const task = ledger.tasks.find((t) => t.id === id);
     const again = checkMove(ledger, config, task, req, noGateHooks);
@@ -2059,7 +2232,7 @@ function useGithubAccount(config, root, run2, account, env = process.env) {
 }
 
 // packages/core/src/onboarding/helpers.ts
-import { existsSync as existsSync8, readFileSync as readFileSync10 } from "node:fs";
+import { existsSync as existsSync8, readFileSync as readFileSync11 } from "node:fs";
 import { join as join10 } from "node:path";
 var pass2 = (detail) => ({ status: "pass", detail });
 var fail2 = (detail, fix) => fix ? { status: "fail", detail, fix } : { status: "fail", detail };
@@ -2076,7 +2249,7 @@ function makeContext(cwd, run2, env = process.env) {
   let configErrors = [];
   if (paths && existsSync8(paths.config)) {
     try {
-      const r = parseConfig(JSON.parse(readFileSync10(paths.config, "utf8")));
+      const r = parseConfig(JSON.parse(readFileSync11(paths.config, "utf8")));
       config = r.config;
       configErrors = r.errors;
     } catch (e) {
@@ -2142,7 +2315,7 @@ var LICENSE_TO_TYPE = {
 };
 function readText(root, rel) {
   const f = join10(root, rel);
-  return existsSync8(f) ? readFileSync10(f, "utf8") : null;
+  return existsSync8(f) ? readFileSync11(f, "utf8") : null;
 }
 var SECRET_PATTERN = [
   "force://[A-Za-z0-9._~-]+:[^@[:space:]]+@",
@@ -2272,7 +2445,7 @@ function configureRepoAccess(run2, root, account, identity) {
 }
 
 // packages/core/src/land.ts
-import { mkdtempSync, rmSync as rmSync6, writeFileSync as writeFileSync11 } from "node:fs";
+import { mkdtempSync, rmSync as rmSync6, writeFileSync as writeFileSync12 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as join12 } from "node:path";
 var STATUS_WORD = { pass: "Passed", fail: "Failed", error: "Couldn't run", skip: "Didn't apply" };
@@ -2339,7 +2512,7 @@ function land(paths, config, id, deps, opts = {}) {
   let opened;
   try {
     const bodyFile = join12(dir, "body.md");
-    writeFileSync11(bodyFile, body);
+    writeFileSync12(bodyFile, body);
     const open = ghRun(["pr", "list", "-R", gh.repo, "--head", branch, "--state", "open", "--json", "number,url"]);
     const existing = open.code === 0 ? JSON.parse(open.stdout || "[]")[0] : void 0;
     if (existing) {
@@ -2443,7 +2616,7 @@ function sync(paths, config, deps) {
 }
 
 // packages/core/src/promote.ts
-import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync11, mkdtempSync as mkdtempSync2, rmSync as rmSync7, writeFileSync as writeFileSync12 } from "node:fs";
+import { appendFileSync as appendFileSync3, mkdirSync as mkdirSync11, mkdtempSync as mkdtempSync2, rmSync as rmSync7, writeFileSync as writeFileSync13 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
 import { join as join13 } from "node:path";
 var git4 = (run2, cwd, ...args) => run2("git", args, { cwd });
@@ -2588,14 +2761,14 @@ function promote(paths, config, fromName, toName, deps, opts = {}) {
     const token = run2("gh", ["auth", "token", "-u", gh.account]);
     if (token.code !== 0) throw new AccError("no-github", `gh isn't logged in as ${gh.account}. The branch ${branch} is pushed; open its pull request on GitHub.`);
     const bodyFile = join13(dir, "body.md");
-    writeFileSync12(bodyFile, promotionBody(plan, validation));
+    writeFileSync13(bodyFile, promotionBody(plan, validation));
     const title = `Promote ${plan.from.name} to ${plan.to.name}${plan.skipped.length ? ` (skips ${plan.skipped.map((e) => e.branch).join(", ")})` : ""}`;
     const create = run2("gh", ["pr", "create", "-R", gh.repo, "--base", plan.to.branch, "--head", branch, "--title", title, "--body-file", bodyFile], { cwd: paths.root, env: { ...deps.env, GH_TOKEN: token.stdout.trim() }, timeoutMs: 2 * 6e4 });
     const url = create.stdout.trim().split("\n").find((l) => /\/pull\/\d+/.test(l))?.trim();
     if (create.code !== 0 || !url) throw new AccError("land", `gh couldn't open the pull request: ${(create.stderr || create.stdout).trim().split("\n")[0]}. The branch ${branch} is pushed.`);
     const pr = { number: Number(/\/pull\/(\d+)/.exec(url)[1]), url };
     mkdirSync11(paths.stateDir, { recursive: true });
-    appendFileSync2(join13(paths.stateDir, "promotions.jsonl"), JSON.stringify({ at: now2().toISOString(), from: plan.from.branch, to: plan.to.branch, fromSha: plan.fromSha, branch, pr, files: plan.files.length, deleted: plan.deleted.length, skipped: plan.skipped.map((e) => e.branch) }) + "\n");
+    appendFileSync3(join13(paths.stateDir, "promotions.jsonl"), JSON.stringify({ at: now2().toISOString(), from: plan.from.branch, to: plan.to.branch, fromSha: plan.fromSha, branch, pr, files: plan.files.length, deleted: plan.deleted.length, skipped: plan.skipped.map((e) => e.branch) }) + "\n");
     return { plan, branch, pr, validation, stopped: null };
   } finally {
     git4(run2, paths.root, "worktree", "remove", "--force", wt);
@@ -2607,13 +2780,13 @@ function promote(paths, config, fromName, toName, deps, opts = {}) {
 var skipWarning = describeSkip;
 
 // packages/core/src/deploy.ts
-import { existsSync as existsSync10, mkdirSync as mkdirSync12, mkdtempSync as mkdtempSync3, readFileSync as readFileSync11, renameSync as renameSync5, rmSync as rmSync8, writeFileSync as writeFileSync13 } from "node:fs";
+import { existsSync as existsSync10, mkdirSync as mkdirSync12, mkdtempSync as mkdtempSync3, readFileSync as readFileSync12, renameSync as renameSync5, rmSync as rmSync8, writeFileSync as writeFileSync14 } from "node:fs";
 import { tmpdir as tmpdir3 } from "node:os";
 import { join as join14 } from "node:path";
 var deployRecordPath = (paths, env) => join14(paths.stateDir, "deploys", `${env}.json`);
 function lastDeploy(paths, env) {
   try {
-    return JSON.parse(readFileSync11(deployRecordPath(paths, env), "utf8"));
+    return JSON.parse(readFileSync12(deployRecordPath(paths, env), "utf8"));
   } catch {
     return null;
   }
@@ -2641,7 +2814,7 @@ function planDeploy(paths, config, envName, deps, opts = {}) {
     if (sfdx.code !== 0) return ["force-app"];
     const tmp = mkdtempSync3(join14(tmpdir3(), "acc-sfdx-"));
     try {
-      writeFileSync13(join14(tmp, "sfdx-project.json"), sfdx.stdout);
+      writeFileSync14(join14(tmp, "sfdx-project.json"), sfdx.stdout);
       return packageDirs(tmp);
     } finally {
       rmSync8(tmp, { recursive: true, force: true });
@@ -2695,7 +2868,7 @@ function deploy(paths, config, envName, deps, opts) {
     const record = { env: plan.env.branch, org: plan.org, sha: plan.head, at: now2().toISOString(), by: opts.by, jobId, files: plan.files.length };
     const file = deployRecordPath(paths, plan.env.branch);
     mkdirSync12(join14(paths.stateDir, "deploys"), { recursive: true });
-    writeFileSync13(`${file}.tmp`, JSON.stringify(record, null, 2) + "\n");
+    writeFileSync14(`${file}.tmp`, JSON.stringify(record, null, 2) + "\n");
     renameSync5(`${file}.tmp`, file);
     return { plan, deployed: true, jobId, summary: `Deployed ${plan.files.length} file(s) from ${plan.env.branch} at ${plan.head.slice(0, 7)} to ${plan.env.name}${jobId ? ` (job ${jobId})` : ""}.` };
   } finally {
@@ -2705,7 +2878,7 @@ function deploy(paths, config, envName, deps, opts) {
 }
 
 // packages/core/src/setup.ts
-import { copyFileSync, existsSync as existsSync11, mkdirSync as mkdirSync13, mkdtempSync as mkdtempSync4, readFileSync as readFileSync12, rmSync as rmSync9, writeFileSync as writeFileSync14 } from "node:fs";
+import { copyFileSync, existsSync as existsSync11, mkdirSync as mkdirSync13, mkdtempSync as mkdtempSync4, readFileSync as readFileSync13, rmSync as rmSync9, writeFileSync as writeFileSync15 } from "node:fs";
 import { tmpdir as tmpdir4 } from "node:os";
 import { dirname as dirname4, join as join15 } from "node:path";
 var git6 = (run2, cwd, ...args) => run2("git", args, { cwd });
@@ -2771,7 +2944,7 @@ function buildBaseline(paths, config, deps) {
     const r = run2(...niced("sf", ["project", "generate", "manifest", ...dirs.flatMap((d) => ["--source-dir", d]), "--output-dir", out2, "--name", name, "--json"]), { cwd: dir, env: sfEnv(), timeoutMs: 10 * 6e4 });
     const file2 = join15(out2, `${name}.xml`);
     if (r.code !== 0 || !existsSync11(file2)) throw new AccError("sf", `sf couldn't list the components on ${name}: ${lastLine(r.stderr || r.stdout)}`);
-    xmls.push(readFileSync12(file2, "utf8"));
+    xmls.push(readFileSync13(file2, "utf8"));
     from.push(name);
   };
   try {
@@ -2785,7 +2958,7 @@ function buildBaseline(paths, config, deps) {
   const xml = unionManifests(xmls);
   const file = join15(paths.root, BASELINE_MANIFEST);
   mkdirSync13(dirname4(file), { recursive: true });
-  writeFileSync14(file, xml);
+  writeFileSync15(file, xml);
   const parsed = parseManifest(xml);
   return { file, from, types: parsed.types.size, members: [...parsed.types.values()].reduce((n, s) => n + s.size, 0) };
 }
@@ -2930,7 +3103,7 @@ function draftLists(paths, config, deps) {
     const entries = [...found].filter((f) => !listed(f, have)).sort();
     if (existsSync11(file)) return { file, written: false, entries };
     mkdirSync13(dirname4(file), { recursive: true });
-    writeFileSync14(file, entries.length ? `${entries.join("\n")}
+    writeFileSync15(file, entries.length ? `${entries.join("\n")}
 ` : "");
     return { file, written: true, entries };
   };
@@ -2968,20 +3141,20 @@ function writeReadme(paths, config) {
   const file = join15(paths.root, "README.md");
   const section = environmentsSection(config);
   if (!existsSync11(file)) {
-    writeFileSync14(file, `# ${config.project}
+    writeFileSync15(file, `# ${config.project}
 
 ${section}
 `);
     return { file, created: true, replaced: false };
   }
-  const text = readFileSync12(file, "utf8");
+  const text = readFileSync13(file, "utf8");
   const a = text.indexOf(README_START);
   const b = text.indexOf(README_END);
   if (a >= 0 && b > a) {
-    writeFileSync14(file, `${text.slice(0, a)}${section}${text.slice(b + README_END.length)}`);
+    writeFileSync15(file, `${text.slice(0, a)}${section}${text.slice(b + README_END.length)}`);
     return { file, created: false, replaced: true };
   }
-  writeFileSync14(file, `${text.replace(/\s*$/, "")}
+  writeFileSync15(file, `${text.replace(/\s*$/, "")}
 
 ${section}
 `);
@@ -2989,7 +3162,7 @@ ${section}
 }
 
 // packages/core/src/onboarding/steps.ts
-import { existsSync as existsSync12, readdirSync as readdirSync4, readFileSync as readFileSync13 } from "node:fs";
+import { existsSync as existsSync12, readdirSync as readdirSync4, readFileSync as readFileSync14 } from "node:fs";
 import { dirname as dirname5, join as join16 } from "node:path";
 var DOCS = "docs/ONBOARDING.md";
 var GH_SIGN_IN = `"Do it" opens VSCode's GitHub sign-in: pick this repo's account, or add it, and gh gets that login, with access to GitHub Projects for the board. gh's active account stays as it was. In a terminal: gh auth login.`;
@@ -3605,7 +3778,7 @@ var STEPS = [
       const cmd = `acc drift ${env.branch}`;
       let report = null;
       try {
-        report = JSON.parse(readFileSync13(driftReportPath(ctx.paths, env.branch), "utf8"));
+        report = JSON.parse(readFileSync14(driftReportPath(ctx.paths, env.branch), "utf8"));
       } catch {
         report = null;
       }
@@ -3705,6 +3878,10 @@ Agents
   acc done [<id>]                       A builder's finish line: moves its task to review
   acc block [<id>] "<reason>"           A builder's way out when stuck
   acc cleanup <id>                      Remove a finished task's worktree, only if nothing would be lost
+  acc agents                            The model and effort builders and reviewers run with, and where each is set
+  acc agents set <builder|reviewer> [--model <m>] [--effort <low|medium|high|xhigh|max>] [--fallback-model <m>]
+                [--clear <model|effort|fallback-model>]... [--project]
+                                        Change them for this clone, or with --project in .acc/config.json
   acc review <id>                       A read-only reviewer agent judges the task's latest commit:
                                         pass, or changes (back to rework, with its findings)
   acc land <id>                         Push a reviewed task's branch and open its pull request; never merges
@@ -3742,7 +3919,7 @@ function project(cwd) {
   const { config: loaded, warnings } = loadConfig(paths.config);
   for (const w of warnings) process.stderr.write(`warning: ${w}
 `);
-  return { paths, config: withCloneAccount(loaded, paths.root, run) };
+  return { paths, config: withCloneAgents(withCloneAccount(loaded, paths.root, run), paths.root, run) };
 }
 function actorFrom(o) {
   const role = o.as || process.env.ACC_ROLE || "human";
@@ -3845,7 +4022,7 @@ function cmdInit(o) {
   return 0;
 }
 function readInput(file) {
-  const text = file ? readFileSync14(file, "utf8") : readFileSync14(0, "utf8");
+  const text = file ? readFileSync15(file, "utf8") : readFileSync15(0, "utf8");
   try {
     return JSON.parse(text);
   } catch (e) {
@@ -3963,6 +4140,36 @@ function cmdSync(o) {
   const { paths, config } = project(process.cwd());
   const r = sync(paths, config, { run, now, env: process.env });
   out(o, () => r.checked ? [`Checked ${r.checked} open pull request${r.checked === 1 ? "" : "s"}.`, ...r.changes.map((c) => `  ${c.task}: ${c.note}${c.moved ? ` \u2192 ${stateLabel(c.moved.to)}` : ""}`)].join("\n") : "No open pull requests to follow.", r);
+  return 0;
+}
+function cmdAgents(o, sub, roleArg) {
+  const { paths } = project(process.cwd());
+  const { config: projectConfig } = loadConfig(paths.config);
+  const views = () => Object.fromEntries(AGENT_ROLES.map((r) => [r, profileView(projectConfig, run, paths.root, r)]));
+  if (!sub || sub === "show") {
+    const v = views();
+    const from = { clone: " (this clone)", project: " (project)", default: "" };
+    out(o, () => AGENT_ROLES.map((r) => {
+      const p = v[r];
+      return `${r.padEnd(9)} model ${p.model ?? "Claude Code's default"}${from[p.from.model]}, effort ${p.effort ?? "default"}${from[p.from.effort]}${p.fallbackModel ? `, falls back to ${p.fallbackModel}${from[p.from.fallbackModel]}` : ""}`;
+    }).join("\n"), v);
+    return 0;
+  }
+  if (sub !== "set" || !roleArg || !AGENT_ROLES.includes(roleArg)) throw new AccError("usage", "acc agents set <builder|reviewer> [--model <m>] [--effort <e>] [--fallback-model <m>] [--clear <field>] [--project]");
+  personOnly(o, "change what agents run with");
+  const change = {};
+  if (o.model !== void 0) change.model = o.model;
+  if (o.effort !== void 0) change.effort = o.effort;
+  if (o["fallback-model"] !== void 0) change.fallbackModel = o["fallback-model"];
+  for (const f of o.clear ?? []) {
+    const key = f === "model" ? "model" : f === "effort" ? "effort" : f === "fallback-model" ? "fallbackModel" : null;
+    if (!key) throw new AccError("usage", "--clear takes model, effort or fallback-model.");
+    change[key] = null;
+  }
+  if (!Object.keys(change).length) throw new AccError("usage", "Say what to change: --model, --effort, --fallback-model or --clear.");
+  setProfile(run, paths.root, paths.config, roleArg, change, o.project ? "project" : "clone");
+  const after = profileView(loadConfig(paths.config).config, run, paths.root, roleArg);
+  out(o, () => `${roleArg}: model ${after.model ?? "Claude Code's default"}, effort ${after.effort ?? "default"}${after.fallbackModel ? `, falls back to ${after.fallbackModel}` : ""}. ${o.project ? "Set in .acc/config.json: commit it to share it." : "Set for this clone only."} The next ${roleArg} uses it.`, after);
   return 0;
 }
 function cmdSetup(o, what) {
@@ -4288,7 +4495,11 @@ async function main(argv) {
       "skip-validate": { type: "boolean", default: false },
       since: { type: "string" },
       "confirm-production": { type: "boolean", default: false },
-      push: { type: "boolean", default: false }
+      push: { type: "boolean", default: false },
+      model: { type: "string" },
+      effort: { type: "string" },
+      "fallback-model": { type: "string" },
+      clear: { type: "string", multiple: true }
     }
   });
   const o = values;
@@ -4311,6 +4522,8 @@ async function main(argv) {
       return cmdInit(o);
     case "setup":
       return cmdSetup(o, rest[0]);
+    case "agents":
+      return cmdAgents(o, rest[0], rest[1]);
     case "add": {
       const title = rest.join(" ").trim();
       if (!title) throw new AccError("usage", 'acc add "<title>"');

@@ -1,11 +1,13 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import * as vscode from 'vscode';
+import { profileView, type ProfileView } from '../../packages/core/src/agents.ts';
 import { type Config, parseConfig } from '../../packages/core/src/config.ts';
+import { run as runSync } from '../../packages/core/src/exec.ts';
 import { CLONE_ACCOUNT_KEY } from '../../packages/core/src/github.ts';
 import { displayState, readLedger, type Ledger } from '../../packages/core/src/ledger.ts';
 import type { RepoPaths } from '../../packages/core/src/paths.ts';
-import type { Question } from '../../packages/core/src/questions.ts';
+import type { HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import { latestVerdict, reviewing } from '../../packages/core/src/review.ts';
 import { type AgentSession, agentLook, askingLabel, isUnder, parseWorktrees, sessionFor, type TaskRow, type Worktree } from './logic.ts';
 import { runFile } from './run.ts';
@@ -26,6 +28,8 @@ export interface Project {
   ledgerPath: string;
   branch: string | null;
   worktrees: WorktreeInfo[];
+  /** What builders and reviewers run with in this clone, and where each part is set (D-036). */
+  agents: { builder: ProfileView; reviewer: ProfileView };
 }
 
 export type HubPart = 'projects' | 'tasks' | 'agents' | 'worktrees';
@@ -42,6 +46,8 @@ export class Hub implements vscode.Disposable {
   agentsAt = 0;
   /** Agents' questions waiting in the Command Center (D-030), set by Questions. */
   questions: Question[] = [];
+  /** How earlier questions ended, newest last (D-037), set by Questions. */
+  answers: HistoryRecord[] = [];
   private readonly tasks = new Map<string, { mtime: number; ledger: Ledger; rows: TaskRow[] }>();
   private readonly emitter = new vscode.EventEmitter<HubPart>();
   readonly onDidChange = this.emitter.event;
@@ -72,7 +78,8 @@ export class Hub implements vscode.Disposable {
       const chosen = !!config.github && /^[A-Za-z0-9-]+$/.test(mine) && mine !== config.github.account;
       if (chosen) config = { ...config, github: { ...config.github!, account: mine } };
       const old = this.projects.find((p) => p.root === root);
-      found.push({ name: config.project, root, config, githubFrom: config.github ? (chosen ? 'clone' : 'config') : null, ledgerPath: join(common.stdout.trim(), 'acc', 'ledger.json'), branch: old?.branch ?? null, worktrees: old?.worktrees ?? [] });
+      const agents = { builder: profileView(config, runSync, root, 'builder'), reviewer: profileView(config, runSync, root, 'reviewer') };
+      found.push({ name: config.project, root, config, githubFrom: config.github ? (chosen ? 'clone' : 'config') : null, ledgerPath: join(common.stdout.trim(), 'acc', 'ledger.json'), branch: old?.branch ?? null, worktrees: old?.worktrees ?? [], agents });
     }
     this.projects = found;
     await vscode.commands.executeCommand('setContext', 'acc.hasProject', found.length > 0);
@@ -166,6 +173,11 @@ export class Hub implements vscode.Disposable {
   askingFor(s: AgentSession): string | null {
     const q = s.sessionId ? this.questions.find((x) => x.sessionId === s.sessionId) : undefined;
     return q ? askingLabel(q.tool) : null;
+  }
+
+  setAnswers(answers: HistoryRecord[]): void {
+    this.answers = answers;
+    this.emitter.fire('agents');
   }
 
   setQuestions(questions: Question[]): void {
