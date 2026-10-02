@@ -29,7 +29,7 @@
   ],
   "agents": {
     "max": 3,
-    "permissionMode": "acceptEdits"
+    "permissionMode": "auto"
   },
   "autonomy": "manual",
   "worktrees": {
@@ -42,7 +42,10 @@
     ],
     "commands": {
       "check": "npm run check"
-    }
+    },
+    "heavy": [
+      "check"
+    ]
   },
   "secretScan": {
     "paths": [
