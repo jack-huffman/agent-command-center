@@ -36,6 +36,8 @@ export function activate(context: vscode.ExtensionContext): void {
   reg(COMMANDS.project, () => openWalkthrough(WALKTHROUGHS.project.id));
   reg(COMMANDS.chooseFolder, () => setup.chooseFolder());
   reg('acc.setup.refresh', () => setup.refresh('refresh clicked'));
+  reg('acc.github.signIn', () => setup.githubSignIn());
+  reg('acc.sf.login', () => setup.sfLogin());
 
   // ------------------------------------------------------------ the sidebar
   const tasks = new TasksProvider(hub);

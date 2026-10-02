@@ -66,6 +66,9 @@ test('buttons match what each step needs', () => {
   assert.deepEqual(labels('B8.tracking'), ['Check', 'Open in Salesforce', 'Read the guide'], 'a click only a person can make');
   assert.deepEqual(labels('B14.tickets'), ['Check', 'Do it', 'I\'ve done this', 'Read the guide'], 'Do it runs Add a tracker; a repo with no tracker can be marked done');
   assert.deepEqual(labels('B0.repo'), ['Check', 'Do it', 'Read the guide'], 'opens the repo beside an old folder');
+  assert.deepEqual(labels('A2.gh-login'), ['Check', 'Do it'], 'GitHub sign-in through VSCode, nothing to confirm by hand');
+  assert.deepEqual(labels('B2.account'), ['Check', 'Do it']);
+  assert.deepEqual(labels('B6.org-match'), ['Check', 'Do it'], 'pick an environment; the login opens in the browser');
 });
 
 test('internal step commands are hidden from the Command Palette', () => {
@@ -134,4 +137,22 @@ test('a webview menu passes its row context, which is told apart from a sidebar 
   assert.ok(!isWebviewMenuContext({ kind: 'agent', session: {} }));
   assert.ok(!isWebviewMenuContext(undefined));
   assert.ok(!isWebviewMenuContext('acc.agents'));
+});
+
+test('org logins go where an environment\'s name says, gh\'s active account is read, and aliases with spaces stay whole', async () => {
+  const { activeGhAccount, expectedOrgUrl, shq } = await import('../src/logic.ts');
+  assert.equal(expectedOrgUrl('acme', { type: 'production', branch: 'production' }), 'https://acme.my.salesforce.com');
+  assert.equal(expectedOrgUrl('acme', { type: 'developer', branch: 'dev' }), 'https://acme--dev.sandbox.my.salesforce.com');
+  const status = `github.com
+  ✓ Logged in to github.com account work-acct (keyring)
+  - Active account: true
+  - Token scopes: 'gist', 'read:org', 'repo'
+
+  ✓ Logged in to github.com account me (keyring)
+  - Active account: false`;
+  assert.equal(activeGhAccount(status), 'work-acct');
+  assert.equal(activeGhAccount('You are not logged into any GitHub hosts.'), null);
+  assert.equal(shq('Acme Dev SB'), "'Acme Dev SB'");
+  assert.equal(shq("Pat's org"), "'Pat'\\''s org'");
+  assert.equal(shq('acme-dev'), 'acme-dev');
 });

@@ -7,9 +7,11 @@ import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import type { Step } from '../../packages/core/src/onboarding/types.ts';
 import {
   COMMANDS, contextKey, type DoctorItem, EXTENSION_ID, type EnvLike, hasPlaceholder, initCommand, isComplete, productionOrgs,
-  setupOrgChoices, sfOpenCommand, statusText, summarize, WALKTHROUGHS,
+  setupOrgChoices, sfOpenCommand, statusText, summarize, WALKTHROUGHS, activeGhAccount, expectedOrgUrl, shq,
 } from './logic.ts';
+import { parseOrgUrl } from '../../packages/core/src/onboarding/helpers.ts';
 import { type RunResult, runFile } from './run.ts';
+import { exec } from './trackers.ts';
 
 const TERMINAL_NAME = 'acc setup';
 /** Machine checks change rarely and call slow CLIs, so startup reuses results this fresh. */
@@ -308,6 +310,83 @@ export class Setup implements vscode.Disposable {
       return;
     }
     await vscode.commands.executeCommand('markdown.showPreview', vscode.Uri.file(this.guide));
+  }
+
+  /**
+   * A2 and B2's "Do it": VSCode's own GitHub sign-in, handed to gh. The account is the one this repo uses
+   * (D-007), and gh's active account is put back afterwards, so no other repo or session is affected.
+   */
+  async githubSignIn(): Promise<void> {
+    const want = this.config()?.github?.account ?? null;
+    // repo and read:org are gh's minimum; workflow for pushing workflows; project for a GitHub Project's board.
+    const scopes = ['repo', 'read:org', 'workflow', 'project'];
+    let session: vscode.AuthenticationSession | undefined;
+    for (;;) {
+      try {
+        session = await vscode.authentication.getSession('github', scopes, { createIfNone: true, clearSessionPreference: true });
+      } catch {
+        return; // closed the sign-in
+      }
+      if (!want || session.account.label.toLowerCase() === want.toLowerCase()) break;
+      const again = 'Pick another account';
+      const pick = await vscode.window.showWarningMessage(`That's ${session.account.label}, but this repo works as ${want}.`, { modal: true, detail: `Pick ${want}, or add it with "Sign in to another account".` }, again);
+      if (pick !== again) return;
+    }
+    const status = await exec('gh', ['auth', 'status', '--hostname', 'github.com']);
+    if (status.code === 127) {
+      void vscode.window.showErrorMessage('gh isn\'t installed yet. Do step A1 (GitHub CLI) first.');
+      return;
+    }
+    const before = activeGhAccount(status.stdout + status.stderr);
+    const login = await exec('gh', ['auth', 'login', '--hostname', 'github.com', '--with-token'], { input: `${session.accessToken}\n` });
+    if (login.code !== 0) {
+      this.log.error(`gh auth login --with-token failed: ${(login.stderr || login.stdout).trim()}`);
+      void vscode.window.showErrorMessage(`gh didn't take the login: ${(login.stderr || login.stdout).trim().split('\n')[0]}`);
+      return;
+    }
+    // Logging in makes that account gh's active one; put the previous one back.
+    if (before && before.toLowerCase() !== session.account.label.toLowerCase()) await exec('gh', ['auth', 'switch', '--hostname', 'github.com', '--user', before]);
+    this.log.info(`gh is logged in as ${session.account.label}${before ? `; its active account is still ${before}` : ''}.`);
+    void vscode.window.showInformationMessage(`gh is logged in as ${session.account.label}.${before && before !== session.account.label ? ` Its active account is still ${before}.` : ''}`);
+    for (const id of ['A2.gh-login', 'B2.account', 'B2.credentials']) await this.recheck(id);
+  }
+
+  /**
+   * B6's "Do it": checks each environment's org, offers the ones that need a login first, and opens
+   * Salesforce's login at the URL the environment's name implies (D-015). Nothing to type.
+   */
+  async sfLogin(): Promise<void> {
+    const envs = (this.config()?.environments ?? []).filter((e) => e.org && e.type !== 'none');
+    if (!envs.length) {
+      void vscode.window.showInformationMessage('No environment in .acc/config.json has an org alias. Run step B1 first.');
+      return;
+    }
+    const looks = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Checking each environment\'s org…' }, () => Promise.all(envs.map(async (e) => {
+      const r = await runFile('sf', ['org', 'display', '--target-org', e.org!, '--json'], this.cwd(), process.env, undefined, 60_000);
+      let url = '';
+      try {
+        url = String((JSON.parse(r.stdout) as { result?: { instanceUrl?: string } }).result?.instanceUrl ?? '');
+      } catch {
+        url = '';
+      }
+      const u = parseOrgUrl(url);
+      const ok = r.code === 0 && (e.type === 'production' ? u.kind === 'production' : u.kind === 'sandbox' && u.sandbox === e.branch);
+      const why = r.code !== 0 ? 'Not logged in' : ok ? 'Logged in to the right org' : u.kind === 'sandbox' ? `Points at the "${u.sandbox}" sandbox` : 'Points at a different org';
+      return { e, u, ok, why };
+    })));
+    let domain = looks.map((l) => (l.u.kind === 'unknown' ? null : l.u.domain)).find(Boolean) ?? null;
+    if (!domain) {
+      domain = (await vscode.window.showInputBox({ title: 'Your Salesforce My Domain', prompt: 'The part before .my.salesforce.com in your Production URL', placeHolder: 'acme', ignoreFocusOut: true, validateInput: (v) => (/^[a-z0-9-]+$/i.test(v.trim()) ? null : 'Letters, digits and dashes, such as acme') }))?.trim().toLowerCase() ?? null;
+      if (!domain) return;
+    }
+    const sorted = [...looks].sort((a, b) => Number(a.ok) - Number(b.ok));
+    const pick = await vscode.window.showQuickPick(sorted.map((l) => ({
+      label: `${l.ok ? '$(pass)' : '$(warning)'} ${l.e.name}`, description: l.e.org!, detail: `${l.why}. Logs in at ${expectedOrgUrl(domain!, l.e)}`, l,
+    })), { title: 'Log in to which environment\'s org?', placeHolder: looks.every((l) => l.ok) ? 'Every environment is already logged in to the right org' : 'The ones that need it are first' });
+    if (!pick) return;
+    const e = pick.l.e;
+    this.runInTerminal(`sf org login web --alias ${shq(e.org!)} --instance-url ${expectedOrgUrl(domain, e)}`, 'B6.org-match');
+    void vscode.window.showInformationMessage(`Sign in to ${e.name} in the browser that opens. The step re-checks itself when you're done.`);
   }
 
   /** B0.config's "Do it": choose the profile and, for Salesforce, the Production org, then run acc init. */

@@ -10,6 +10,7 @@ import {
 import type { CheckContext, CheckResult, Step, StepResult } from './types.ts';
 
 const DOCS = 'docs/ONBOARDING.md';
+const GH_SIGN_IN = '"Do it" opens VSCode\'s GitHub sign-in: pick this repo\'s account, or add it, and gh gets that login, with access to GitHub Projects for the board. gh\'s active account stays as it was. In a terminal: gh auth login.';
 const DATA_EXT = /\.(csv|xls|xlsx|eml)$/i;
 const BACKSTOP = ['/*.csv', '/*.xls', '/*.xlsx', '/*.eml'];
 
@@ -101,7 +102,7 @@ export const STEPS: Step[] = [
   {
     id: 'A2.gh-login', part: 'machine', group: 'A2', title: 'Logged in to GitHub',
     why: 'Each repo uses its own account through `gh auth token -u`. Never `gh auth switch`, which changes every session.',
-    fix: { command: 'gh auth login' },
+    fix: { vscode: 'acc.github.signIn', text: GH_SIGN_IN },
     check(ctx) {
       const r = ctx.run('gh', ['auth', 'status'], { env: ctx.env });
       if (r.code === 127) return fail('gh isn\'t installed.');
@@ -197,7 +198,7 @@ export const STEPS: Step[] = [
   {
     id: 'B2.account', part: 'project', group: 'B2', title: 'The repo\'s GitHub account is logged in',
     why: 'acc runs every gh call for this repo as its own account (D-007).',
-    fix: { fromCheck: true },
+    fix: { vscode: 'acc.github.signIn', text: GH_SIGN_IN },
     check(ctx) {
       const need = needsProject(ctx);
       if (need) return need;
@@ -310,7 +311,7 @@ export const STEPS: Step[] = [
   {
     id: 'B6.org-match', part: 'project', group: 'B6', title: 'Each branch points at the right org', profiles: ['salesforce'],
     why: 'A sandbox\'s name is in its URL, so the tool can prove a branch deploys where its name says (D-015).',
-    fix: { fromCheck: true },
+    fix: { vscode: 'acc.sf.login', text: '"Do it" checks each environment\'s org, lists the ones that need a login first, and opens Salesforce\'s login for the one you pick, at the URL its name implies. Nothing to type: you sign in in the browser.' },
     check(ctx) {
       const need = needsProject(ctx);
       if (need) return need;
@@ -501,6 +502,7 @@ export const STEPS: Step[] = [
     why: 'The Tasks board shows this repo\'s own tickets: a Jira project, an Azure DevOps board or GitHub Issues, signed in for this repo only (D-027). If this repo keeps its tasks in acc alone, mark this done.',
     fix: {
       vscode: 'acc.trackers.add',
+      confirm: true,
       text: '"Do it" walks you through it in VSCode: pick Azure DevOps, Jira or GitHub Issues, sign in, then pick the project, team and board. It writes them to this repo\'s .acc/config.json.',
       docs: `${DOCS}#b14-connect-the-ticket-source`,
     },

@@ -25,6 +25,8 @@ export interface Fix {
   fromCheck?: true;
   /** A VSCode command "Do it" runs, for a step done in VSCode's own UI, such as Add a tracker. */
   vscode?: string;
+  /** Offer "I've done this" even with a Do it: the step is a choice a person can settle by hand. */
+  confirm?: true;
 }
 
 export interface CheckContext {

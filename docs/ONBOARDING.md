@@ -26,8 +26,11 @@ Placeholders: `<client>` is the project's short name. `<prod>`, `<qa>` and
   | Salesforce CLI | `sf --version` | |
   | Code Analyzer | `sf plugins` lists `code-analyzer` | `sf plugins install code-analyzer` |
 
-- [ ] **A2. Log in to every GitHub account you'll use.** Run `gh auth login`
-  once per account, then check with `gh auth status`.
+- [ ] **A2. Log in to every GitHub account you'll use.** The walkthrough's
+  **Do it** uses VSCode's own GitHub sign-in: pick the account, or add it, and
+  `gh` gets that login, with access to GitHub Projects for the board. gh's active
+  account stays as it was. From a terminal instead: `gh auth login` once per
+  account, then check with `gh auth status`.
   - Only one account is "active". **Never run `gh auth switch`**, because it
     changes the account for every session on the machine.
   - Each repo pins its own account instead (step B2).
@@ -251,6 +254,10 @@ the sandbox name for each sandbox. The sandbox name is in its URL,
   ```bash
   sf org login web --alias "<dev>" --instance-url https://<domain>--<name>.sandbox.my.salesforce.com
   ```
+
+  The project walkthrough's B6 **Do it** does this for you. It checks each
+  environment's org, lists the ones that need a login first, and opens the
+  login at the URL the environment's name implies.
 
 - [ ] **Check** that tracking really works. If the CLI lists tracking as unknown,
   run `sf org enable tracking -o "<dev>"`.

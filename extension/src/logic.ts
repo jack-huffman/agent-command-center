@@ -33,7 +33,8 @@ export function commandLink(label: string, command: string, args: unknown[] = []
 }
 
 /** Steps a person must confirm, because nothing on this machine can check them. */
-export const needsConfirmation = (step: Step): boolean => !!step.fix?.text && !step.fix.command && !step.fix.setupPath;
+/** "I've done this" is for steps only a person can finish, or ones that say a person may decide (fix.confirm). */
+export const needsConfirmation = (step: Step): boolean => (!!step.fix?.text && !step.fix.command && !step.fix.setupPath && !step.fix.vscode) || !!step.fix?.confirm;
 
 export const hasRunnableFix = (step: Step): boolean => !!step.fix?.command || !!step.fix?.fromCheck || !!step.fix?.vscode;
 
@@ -314,3 +315,20 @@ export function parseHost(kind: 'jira' | 'azure', input: string): string | null 
   const m = /^([a-z0-9-]+\.atlassian\.net)/i.exec(s) ?? /^([a-z0-9-]+)$/i.exec(s);
   return m ? (m[1]!.includes('.') ? m[1]!.toLowerCase() : `${m[1]!.toLowerCase()}.atlassian.net`) : null;
 }
+
+/** The org URL an environment should have (D-015): Production at <domain>.my.salesforce.com, a sandbox named after its branch. */
+export function expectedOrgUrl(domain: string, env: { type: string; branch: string }): string {
+  return env.type === 'production' ? `https://${domain}.my.salesforce.com` : `https://${domain}--${env.branch}.sandbox.my.salesforce.com`;
+}
+
+/** The account gh is using right now, from `gh auth status`. */
+export function activeGhAccount(status: string): string | null {
+  for (const block of status.split(/(?=Logged in to )/)) {
+    const m = /^Logged in to \S+ account (\S+)/.exec(block);
+    if (m && /Active account: true/.test(block)) return m[1]!;
+  }
+  return null;
+}
+
+/** Quotes one word for a POSIX shell, so an org alias with spaces stays one argument. */
+export const shq = (s: string): string => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`);
