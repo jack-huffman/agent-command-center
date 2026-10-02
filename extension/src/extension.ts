@@ -2,7 +2,7 @@ import { delimiter, dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { Hub } from './hub.ts';
 import { COMMANDS, isWebviewMenuContext, WALKTHROUGHS } from './logic.ts';
-import { type Ref, VIEW_KINDS, type ViewKind } from './model.ts';
+import { type NavItem, type Ref, VIEW_KINDS, type ViewKind } from './model.ts';
 import { Panels } from './panels.ts';
 import { accRunner } from './run.ts';
 import { openWalkthrough, Setup } from './setup.ts';
@@ -10,7 +10,6 @@ import { Sidebar } from './sidebar.ts';
 import { RepoIdentity } from './identity.ts';
 import { TicketPanels } from './ticket.ts';
 import { Trackers } from './trackers.ts';
-import { AgentsProvider, EnvironmentsProvider, SetupProvider, TasksProvider, WorktreesProvider } from './views.ts';
 
 /** Step commands get a step id from walkthrough buttons, or a Setup view item from menus. */
 const stepId = (a: unknown): string => (typeof a === 'string' ? a : (a as { item?: { id: string } })?.item?.id ?? '');
@@ -45,23 +44,7 @@ export function activate(context: vscode.ExtensionContext): void {
   reg('acc.github.switch', (arg?: unknown) => identity.switch(arg));
   reg('acc.sf.login', () => setup.sfLogin());
 
-  // ------------------------------------------------------------ the sidebar
-  const tasks = new TasksProvider(hub);
-  const agents = new AgentsProvider(hub);
-  const worktrees = new WorktreesProvider(hub);
-  const envs = new EnvironmentsProvider(hub);
-  const steps = new SetupProvider();
-  const views = {
-    tasks: vscode.window.createTreeView('acc.tasks', { treeDataProvider: tasks, showCollapseAll: true }),
-    agents: vscode.window.createTreeView('acc.agents', { treeDataProvider: agents }),
-    worktrees: vscode.window.createTreeView('acc.worktrees', { treeDataProvider: worktrees }),
-    environments: vscode.window.createTreeView('acc.environments', { treeDataProvider: envs }),
-    setup: vscode.window.createTreeView('acc.setup', { treeDataProvider: steps }),
-  };
-  context.subscriptions.push(...Object.values(views));
-
-
-  // Poll only what's on screen, sidebar or tab, so VSCode stays light (the author's machine stutters under load).
+  // Poll only while the page is on screen, so VSCode stays light (the author's machine stutters under load).
   const POLLS: Record<string, { everyMs: number; fn: () => Promise<void> }> = {
     tasks: { everyMs: 3_000, fn: () => hub.loadTasks() },
     agents: { everyMs: 5_000, fn: () => hub.loadAgents() },
@@ -69,25 +52,7 @@ export function activate(context: vscode.ExtensionContext): void {
     // Tracker boards are network calls, so they refresh slowly, and at once after any move.
     boards: { everyMs: 120_000, fn: () => trackers.loadBoards() },
   };
-  const pollKeys: Record<ViewKind, string[]> = { tasks: ['tasks', 'boards'], agents: ['agents'], worktrees: ['worktrees'], environments: ['worktrees'], setup: [] };
-  const watching = new Map<string, Set<string>>();
-  const want = (kind: ViewKind, source: 'tree' | 'tab', on: boolean) => {
-    for (const key of pollKeys[kind]) {
-      // The sidebar's Tasks tree lists acc's tasks only; the boards poll for the tab.
-      if (key === 'boards' && source === 'tree') continue;
-      const who = watching.get(key) ?? new Set<string>();
-      const id = `${source}:${kind}`;
-      const before = who.size > 0;
-      if (on) who.add(id); else who.delete(id);
-      watching.set(key, who);
-      if (before !== who.size > 0) hub.poll(key, POLLS[key]!.everyMs, POLLS[key]!.fn, who.size > 0);
-    }
-  };
-  for (const kind of VIEW_KINDS) {
-    const view = views[kind];
-    want(kind, 'tree', view.visible);
-    context.subscriptions.push(view.onDidChangeVisibility((e) => want(kind, 'tree', e.visible)));
-  }
+  const pagePolls = (on: boolean) => { for (const [key, p] of Object.entries(POLLS)) hub.poll(key, p.everyMs, p.fn, on); };
 
   // ------------------------------------------------------------ the same views as editor tabs
   /** Turns a tab's Ref back into the sidebar's node, so every command works the same from either place. */
@@ -120,7 +85,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const regNode = (id: string, fn: (...args: any[]) => unknown) => reg(id, (a: unknown, ...rest: unknown[]) => fn(isWebviewMenuContext(a) ? nodeFor(a.accRef as Ref) : a, ...rest));
   const tickets = new TicketPanels(context, hub, trackers, resolve, accRunner(accScript));
   new Sidebar(hub, accRunner(accScript), setup.log, (root, key) => tickets.show(root, undefined, key)).register(regNode);
-  const panels = new Panels(context, hub, setup, resolve, (kind, visible) => want(kind, 'tab', visible), {
+  const panels = new Panels(context, hub, setup, resolve, (visible) => pagePolls(visible), {
     boards: (root) => trackers.boardStates(root),
     identity: (root) => identity.card(root),
     openTicket: (root, tracker, key) => tickets.show(root, tracker, key),
@@ -129,16 +94,33 @@ export function activate(context: vscode.ExtensionContext): void {
       if (!p) return;
       try {
         if (await trackers.move(p, tracker, key, to)) await trackers.loadBoards(root);
-        else panels.post('tasks'); // put the card back where it was
+        else panels.post(); // put the card back where it was
       } catch (e) {
         void vscode.window.showErrorMessage(`Couldn't move ${key}: ${(e as Error).message}`);
-        panels.post('tasks');
+        panels.post();
       }
     },
   });
   context.subscriptions.push(panels, tickets);
-  trackers.onDidChange(() => panels.post('tasks'));
-  identity.onDidChange(() => panels.post('environments'));
+  // ------------------------------------------------------------ the launcher (D-029)
+  // The activity bar icon opens the page. Its one view lists the sections, for anyone who keeps the sidebar.
+  const launcher = new HomeLauncher(() => panels.model().nav);
+  const launcherView = vscode.window.createTreeView('acc.home', { treeDataProvider: launcher });
+  context.subscriptions.push(launcherView, launcher);
+  context.subscriptions.push(launcherView.onDidChangeVisibility((e) => {
+    if (!e.visible) return;
+    panels.show();
+    if (vscode.workspace.getConfiguration('agentCommandCenter').get<boolean>('openFromActivityBar', true)) void vscode.commands.executeCommand('workbench.action.closeSidebar');
+  }));
+  /** Everything the page shows changed: redraw it, and the launcher's counts and badge. */
+  const changed = () => {
+    panels.post();
+    launcher.refresh();
+    const n = panels.model().overview.attention.filter((a) => a.look.tone === 'orange').length;
+    launcherView.badge = n ? { value: n, tooltip: `${n} thing${n === 1 ? '' : 's'} need${n === 1 ? 's' : ''} you` } : undefined;
+  };
+  trackers.onDidChange(changed);
+  identity.onDidChange(changed);
   reg('acc.trackers.add', async () => { await trackers.add(); await setup.recheck('B14.tickets'); });
   reg('acc.trackers.signIn', async (arg?: unknown) => { if (await trackers.signIn(arg)) tickets.refresh(); await setup.recheck('B14.tickets'); });
   reg('acc.trackers.signOut', async (arg?: unknown) => { await trackers.signOut(arg); await setup.recheck('B14.tickets'); });
@@ -152,16 +134,15 @@ export function activate(context: vscode.ExtensionContext): void {
       : i));
   });
   reg('acc.trackers.refresh', () => trackers.loadBoards());
+  reg('acc.open.home', (section?: unknown) => panels.show(typeof section === 'string' ? (section as ViewKind) : undefined));
   for (const kind of VIEW_KINDS) reg(`acc.open.${kind}`, () => panels.show(kind));
 
   hub.onDidChange((part) => {
-    if (part === 'projects') { tasks.refresh(); envs.refresh(); worktrees.refresh(); agents.refresh(); panels.post(); }
     if (part === 'projects') { void trackers.loadBoards(); void setup.recheck('B14.tickets'); void identity.refresh(); }
-    if (part === 'tasks') { tasks.refresh(); panels.post('tasks'); tickets.refresh(); }
-    if (part === 'agents') { agents.refresh(); views.agents.badge = agentBadge(hub); panels.post('agents'); tickets.refresh(); }
-    if (part === 'worktrees') { worktrees.refresh(); envs.refresh(); agents.refresh(); panels.post('worktrees'); panels.post('environments'); panels.post('agents'); }
+    if (part === 'tasks' || part === 'agents') tickets.refresh();
+    changed();
   });
-  setup.onDidChange(() => { steps.set(setup.results(), setup.allConfirmed()); panels.post('setup'); });
+  setup.onDidChange(changed);
 
   context.subscriptions.push(
     vscode.window.onDidEndTerminalShellExecution((e) => setup.onShellEnd(e)),
@@ -183,10 +164,36 @@ export function activate(context: vscode.ExtensionContext): void {
   void setup.refresh('startup', { reuseMachine: true }).then(() => setup.maybeOpenWalkthroughs());
 }
 
-/** The Agents view's activity-bar badge: sessions that need a person. */
-function agentBadge(hub: Hub): vscode.ViewBadge | undefined {
-  const n = hub.agents.filter((s) => s.state === 'blocked' || s.status === 'waiting' || s.state === 'failed').length;
-  return n ? { value: n, tooltip: `${n} agent${n === 1 ? '' : 's'} need${n === 1 ? 's' : ''} you` } : undefined;
+/** The sidebar's one view: the page's sections, each opening it there, with what needs you beside it. */
+class HomeLauncher implements vscode.TreeDataProvider<NavItem>, vscode.Disposable {
+  private readonly emitter = new vscode.EventEmitter<void>();
+  readonly onDidChangeTreeData = this.emitter.event;
+  private readonly nav: () => NavItem[];
+
+  constructor(nav: () => NavItem[]) {
+    this.nav = nav;
+  }
+
+  dispose(): void {
+    this.emitter.dispose();
+  }
+
+  refresh(): void {
+    this.emitter.fire();
+  }
+
+  getChildren(): NavItem[] {
+    return this.nav();
+  }
+
+  getTreeItem(n: NavItem): vscode.TreeItem {
+    const item = new vscode.TreeItem(n.label, vscode.TreeItemCollapsibleState.None);
+    item.iconPath = new vscode.ThemeIcon(n.icon, n.attention ? new vscode.ThemeColor('charts.orange') : undefined);
+    item.description = n.attention ? `${n.count ?? ''} · ${n.hint}`.replace(/^ · /, '') : n.hint;
+    item.tooltip = `${n.label}: ${n.hint}`;
+    item.command = { command: 'acc.open.home', title: `Open ${n.label}`, arguments: [n.section] };
+    return item;
+  }
 }
 
 export function deactivate(): void {}

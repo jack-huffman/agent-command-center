@@ -490,34 +490,30 @@ The extension handles every workspace folder that has `.acc/config.json`.
   ticket keeps its words and loses its tags. Links open in the browser, and only
   web links. Images and attachments aren't loaded; they're shown as links.
 
-### Sidebar (built after M2, D-020)
+### The Command Center page (D-029)
 
-The Activity Bar's **Agent Command Center** container holds five views. Each
-polls only while it's visible.
+Clicking the Activity Bar's **Command Center** icon opens one full editor page,
+and tucks the sidebar away. That replaces the five sidebar views of D-020 and
+the per-view tabs of D-021. A rail on the left holds the sections, each with a
+count; under 820 px wide, it becomes a tab strip along the top.
 
-| View | Source | Actions |
-|---|---|---|
-| **Tasks** | The ledger, read directly; changes go through `acc` | Add, import GitHub issues, move (only moves the rules allow, with what stops each), block, unblock, open ticket, details |
-| **Agents** | `claude agents --json`, every 5 s | Start a background agent, attach, logs, stop, open folder. Items that need a person sort first and show an activity-bar badge |
-| **Worktrees** | `git worktree list` and `git status` | Open in a window, terminal, Finder. Remove refuses uncommitted or unpushed work |
-| **Environments** | Config and the checked-out branch | Open the org, open the branch on GitHub, compare with Production |
-| **Setup** | The same checks as `acc doctor`, live | Check, Do it, Open in Salesforce, guide |
-
-Every item states its condition in words, with an icon in the theme's orange
-(look at this) or blue (moving or fine).
-
-**Open as tab** (D-021) opens each view full-width in the editor area:
-
-| Tab | Layout |
+| Section | What it holds |
 |---|---|
-| Tasks | A board, one column per status |
-| Agents | A table |
-| Worktrees | A table |
-| Environments | Cards, plus the promotion paths drawn out |
-| Setup | A checklist with progress |
+| **Overview** | **Needs you:** agents waiting on a prompt, blocked tasks, missing tracker sign-ins and setup still to do, each with its button. Then, apart, work waiting for review. Stat tiles open their sections. **Ready for an agent** has Dispatch buttons, and **Recent activity** lists every task's latest moves |
+| **Tasks** | The tracker's own board, or acc's agent board (D-026) |
+| **Agents** | Sessions by project, with a menu on each row (D-023) |
+| **Worktrees** | Every checkout, with a menu on each row |
+| **Environments** | The GitHub identity card (D-028), promotion paths, and one card per environment |
+| **Setup** | The checklist, with Do it on each step |
 
-Each tab is a webview under a nonce content security policy. It renders text
-only and accepts only allow-listed `acc.*` commands.
+The page polls only while it's visible. The section you leave it on is where it
+opens next. The sidebar keeps a single launcher view listing the sections; set
+`agentCommandCenter.openFromActivityBar` to false to keep it open instead. The
+icon's badge counts what needs you.
+
+The page is a webview under a nonce content security policy. It renders text
+only and accepts only allow-listed `acc.*` commands. Ticket pages stay their
+own tabs, since each is a document.
 
 ### Walkthrough
 

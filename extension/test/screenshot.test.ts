@@ -3,23 +3,28 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { type AgentsModel, type TasksModel, VIEW_KINDS, type WorktreesModel } from '../src/model.ts';
+import { HOME_SECTIONS, type HomeModel } from '../src/model.ts';
 import { findChrome, PAGES, pageFor, sampleModel, THEMES } from '../scripts/screenshot.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-test('every tab has sample data, built by the real model functions', () => {
-  for (const kind of PAGES) assert.equal(sampleModel(kind).kind, kind);
-  assert.deepEqual(PAGES.filter((p) => !(VIEW_KINDS as readonly string[]).includes(p)), ['ticket'], 'plus a ticket\'s page');
+test('every section of the page, and a ticket, has sample data built by the real model functions', () => {
+  for (const kind of PAGES) {
+    const m = sampleModel(kind);
+    if (kind === 'ticket') assert.equal(m.kind, 'ticket');
+    else assert.deepEqual([m.kind, (m as HomeModel).section], ['home', kind]);
+  }
+  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['ticket']);
 });
 
 test('the sample data shows every style: each board column, each kind of session, each kind of worktree', () => {
-  const tasks = sampleModel('tasks') as TasksModel;
+  const home = sampleModel('tasks') as HomeModel;
+  const tasks = home.tasks;
   for (const c of tasks.projects[0]!.columns) assert.ok(c.cards.length, `the ${c.group} column has a card`);
-  const agents = (sampleModel('agents') as AgentsModel).places.flatMap((p) => p.agents);
+  const agents = home.agents.places.flatMap((p) => p.agents);
   assert.ok(agents.some((a) => a.needsYou) && agents.some((a) => a.background && !a.needsYou) && agents.some((a) => !a.background));
-  assert.ok((sampleModel('agents') as AgentsModel).places.some((p) => p.root === null), 'some sessions are elsewhere on the machine');
-  const worktrees = (sampleModel('worktrees') as WorktreesModel).projects[0]!.worktrees;
+  assert.ok(home.agents.places.some((p) => p.root === null), 'some sessions are elsewhere on the machine');
+  const worktrees = home.worktrees.projects[0]!.worktrees;
   assert.deepEqual([...new Set(worktrees.map((w) => w.state.label.replace(/^\d+/, 'N')))].sort(), ['Clean', 'Missing on disk', 'N changed']);
 });
 
@@ -32,11 +37,11 @@ test('both themes define every VSCode colour and font the tabs read', () => {
 });
 
 test('the page hands the model to the real webview, and no string in it can close the script', () => {
-  const model = sampleModel('agents') as AgentsModel;
-  model.places[0]!.agents[0]!.name = '</script><img src=x onerror=alert(1)>';
+  const model = sampleModel('agents') as HomeModel;
+  model.agents.places[0]!.agents[0]!.name = '</script><img src=x onerror=alert(1)>';
   const page = pageFor('agents', 'dark', model);
   assert.ok(!page.includes('</script><img'));
-  assert.ok(page.includes('src="webview/main.js"') && page.includes('data-view="agents"'));
+  assert.ok(page.includes('src="webview/main.js"') && page.includes('data-view="home"'));
   assert.ok(page.includes('--vscode-editor-background: #1f1f1f'));
 });
 

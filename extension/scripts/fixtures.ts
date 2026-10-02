@@ -23,7 +23,7 @@ export function sampleHub(now = Date.now()): HubLike {
   ];
   const project: ProjectLike = {
     name: 'Acme Service', root, branch: 'dev',
-    config: { github: { repo: 'acme/service', account: 'me' }, environments, profile: 'salesforce' },
+    config: { github: { repo: 'acme/service', account: 'jordan-kim' }, environments, profile: 'salesforce' },
     worktrees: [
       { path: root, head: 'a1b2c3d', branch: 'dev', main: true, changed: 0, locked: false, prunable: false },
       { path: wt('ACME-12'), head: 'b2c3d4e', branch: 'task/ACME-12-case-escalation-rules', main: false, changed: 4, locked: false, prunable: false },
@@ -55,6 +55,13 @@ export function sampleHub(now = Date.now()): HubLike {
     projects: [project], agents, agentsError: null,
     taskRows: () => tasks,
     projectFor: (p: string) => (p === root || p.startsWith(`${root}/`) ? project : undefined),
+    history: () => [
+      { at: new Date(now - 4 * MIN).toISOString(), task: 'ACME-14', title: 'Route web-to-case submissions by product line', from: 'todo', to: 'running', by: 'human:jordan' },
+      { at: new Date(now - 12 * MIN).toISOString(), task: 'ACME-12', title: 'Case escalation rules for the premium tier', from: 'todo', to: 'running', by: 'human:jordan' },
+      { at: new Date(now - 95 * MIN).toISOString(), task: 'ACME-15', title: 'Rename the Region picklist values', from: 'running', to: 'review', by: 'builder:ACME-15' },
+      { at: new Date(now - 26 * 60 * MIN).toISOString(), task: 'ACME-19', title: 'Fix the flow that double-sends welcome emails', from: 'review', to: 'rework', by: 'reviewer' },
+      { at: new Date(now - 3 * 24 * 60 * MIN).toISOString(), task: 'ACME-10', title: 'Add a CHANGELOG', from: 'review', to: 'done', by: 'sync' },
+    ],
   };
 }
 

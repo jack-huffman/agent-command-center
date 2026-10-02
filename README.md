@@ -10,8 +10,9 @@ Salesforce. Project types plug in as profiles.
 **Status:**
 
 - **M1 done:** the task ledger, the config, and onboarding checks (`acc doctor`).
-- **M2 done:** setup walkthroughs, plus a sidebar and editor tabs for tasks,
-  agents, worktrees, environments and setup.
+- **M2 done:** setup walkthroughs, and one Command Center page, with an
+  Overview, tasks, agents, worktrees, environments and setup. Click the icon in
+  the activity bar to open it.
 - **M3 done:** **Dispatch** hands a ready task to a background agent in its own
   worktree. The first real run went from Ready to In review on its own.
 - **M4 done:** **Checks.** `acc gate run` runs a project's checks on the

@@ -1,14 +1,14 @@
 // Renders one editor tab. Every element is built with DOM calls and every string is set as text,
 // so nothing from a ticket, branch or session can become markup. No HTML string is ever parsed.
 import type {
-  Action, AgentsModel, EnvironmentsModel, IdentityCard, Look, Model, PersonChip, Ref, SetupModel, TasksModel, TicketModel, TrackerBoard, TrackerCard, ViewKind, WorktreesModel,
+  Action, AgentsModel, EnvironmentsModel, HomeModel, HomeSection, IdentityCard, Look, Model, PersonChip, Ref, SetupModel, TasksModel, TicketModel, TrackerBoard, TrackerCard, ViewKind, WorktreesModel,
 } from '../src/model.ts';
 import type { Block, Doc, Inline } from '../../packages/core/src/trackers/doc.ts';
 
 declare function acquireVsCodeApi(): { postMessage(m: unknown): void; getState(): unknown; setState(s: unknown): void };
 const api = acquireVsCodeApi();
 const app = document.getElementById('app')!;
-const view = document.body.dataset.view as ViewKind | 'ticket';
+const view = document.body.dataset.view as ViewKind | 'ticket' | 'home';
 
 type Child = Node | string | null | undefined | false;
 
@@ -57,10 +57,10 @@ function empty(text: string, ...tools: Child[]): HTMLElement {
 }
 
 /** Per-tab memory that survives re-renders and the tab being hidden: board modes and comment drafts. */
-interface Memory { modes: Record<string, 'tracker' | 'agents'>; drafts: Record<string, string> }
+interface Memory { modes: Record<string, 'tracker' | 'agents'>; drafts: Record<string, string>; section?: HomeSection }
 function memory(): Memory {
   const s = (api.getState() as Partial<Memory> | undefined) ?? {};
-  return { modes: s.modes ?? {}, drafts: s.drafts ?? {} };
+  return { modes: s.modes ?? {}, drafts: s.drafts ?? {}, section: s.section };
 }
 function remember(change: (m: Memory) => void): void {
   const m = memory();
@@ -521,6 +521,165 @@ function clippedSpan(text: string): HTMLElement {
   return s;
 }
 
+// ---------------------------------------------------------------- the Command Center page (D-029)
+
+let section: HomeSection | null = memory().section ?? null;
+let scrolledTo = false;
+
+function setSection(s: HomeSection, tell = true): void {
+  if (s !== section) scrolledTo = true;
+  section = s;
+  remember((m) => { m.section = s; });
+  if (tell) api.postMessage({ type: 'nav', section: s });
+}
+
+function go(s: HomeSection): void {
+  setSection(s);
+  if (last) render(last);
+  document.querySelector<HTMLElement>('.home-main')?.focus({ preventScroll: true });
+}
+
+function logo(): HTMLElement {
+  const wrap = el('span', 'brand-mark');
+  for (const theme of ['dark', 'light'] as const) {
+    const src = document.body.dataset[theme === 'dark' ? 'logoDark' : 'logoLight'];
+    if (!src) continue;
+    const img = document.createElement('img');
+    img.src = src;
+    img.alt = '';
+    img.className = `logo-${theme}`;
+    wrap.append(img);
+  }
+  return wrap;
+}
+
+function renderNav(m: HomeModel, current: HomeSection): HTMLElement {
+  const list = el('div', 'nav-list');
+  list.setAttribute('role', 'tablist');
+  list.setAttribute('aria-orientation', 'vertical');
+  for (const n of m.nav) {
+    const on = n.section === current;
+    const b = el('button', `nav-item${on ? ' on' : ''}`, icon(n.icon), el('span', 'nav-label', n.label),
+      n.count !== null ? el('span', `nav-count${n.attention ? ' attention' : ''}`, String(n.count)) : n.attention ? el('span', 'nav-count attention', icon('warning')) : null) as HTMLButtonElement;
+    b.type = 'button';
+    b.title = n.hint;
+    b.setAttribute('role', 'tab');
+    b.setAttribute('aria-selected', String(on));
+    b.setAttribute('aria-label', `${n.label}: ${n.hint}`);
+    b.tabIndex = on ? 0 : -1;
+    b.addEventListener('click', () => go(n.section));
+    list.append(b);
+  }
+  // Arrow keys move between sections, as in any tab list.
+  list.addEventListener('keydown', (e) => {
+    const items = [...list.querySelectorAll<HTMLButtonElement>('.nav-item')];
+    const i = items.indexOf(document.activeElement as HTMLButtonElement);
+    const next = e.key === 'ArrowDown' || e.key === 'ArrowRight' ? i + 1 : e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? i - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : null;
+    if (next === null || i < 0) return;
+    e.preventDefault();
+    const target = items[(next + items.length) % items.length]!;
+    target.focus();
+    target.click();
+  });
+  const people = m.overview.projects.filter((p) => p.account).map((p) => {
+    const b = el('button', 'rail-account', icon('github'), el('span', 'rail-account-name', p.account!), m.overview.projects.length > 1 ? el('span', 'muted small', p.name) : null) as HTMLButtonElement;
+    b.type = 'button';
+    b.title = `${p.name} works as ${p.account} on GitHub. Switch account`;
+    b.addEventListener('click', () => api.postMessage({ type: 'toolbar', command: 'acc.github.switch', arg: p.root }));
+    return b;
+  });
+  return el('nav', 'rail', el('div', 'brand', logo(), el('div', 'brand-text', el('span', 'brand-name', 'Command Center'),
+    el('span', 'muted small', m.overview.projects.map((p) => p.name).join(', ') || 'No project yet'))), list, el('div', 'rail-foot', ...people));
+}
+
+function sectionTitle(title: string, summary: string, ...tools: Child[]): HTMLElement {
+  return header(title, summary, ...tools);
+}
+
+function renderOverview(m: HomeModel): Node[] {
+  const o = m.overview;
+  const people = o.attention.filter((a) => a.look.tone === 'orange').length;
+  const project = o.projects[0];
+  const summary = [
+    people ? `${people} thing${people === 1 ? '' : 's'} need${people === 1 ? 's' : ''} you` : 'Nothing needs you right now',
+    project ? `${project.name}${project.branch ? ` on ${project.branch}` : ''}` : '',
+    project?.trackers.length ? project.trackers.join(' and ') : '',
+  ].filter(Boolean).join(' · ');
+  const root = project?.root;
+  const tools: Child[] = root ? [
+    toolbarButton('acc.task.add', 'Add task', 'add', root, true),
+    toolbarButton('acc.agent.new', 'Start an agent', 'hubot', root),
+    toolbarButton('acc.trackers.add', 'Add a tracker', 'plug', root),
+  ] : [toolbarButton('acc.openProjectWalkthrough', 'Onboard this project', 'rocket', undefined, true)];
+  const out: Node[] = [sectionTitle('Overview', summary, ...tools)];
+
+  // What needs a person, first and alone at the top. Work waiting for review follows, as its own group.
+  const inbox = el('section', `inbox${people ? ' attention' : ''}`, el('h2', '', icon(people ? 'bell-dot' : 'pass', people ? 'orange' : 'blue'), people ? 'Needs you' : 'All clear',
+    people ? el('span', 'count', String(people)) : null));
+  if (!people) inbox.append(el('p', 'muted quiet', 'No agent is waiting, nothing is blocked, and setup is done.'));
+  let captioned = false;
+  for (const a of o.attention) {
+    if (a.look.tone !== 'orange' && !captioned) {
+      captioned = true;
+      inbox.append(el('div', 'inbox-caption', 'Waiting on you, when you have a moment'));
+    }
+    const buttons: Child[] = a.actions.map(actionButton);
+    if (a.extra) buttons.push(argButton(a.extra.command, a.extra.label, a.extra.icon, a.extra.arg, true));
+    if (a.go) {
+      const g = a.go;
+      const b = el('button', 'btn', icon('arrow-right'), g.label) as HTMLButtonElement;
+      b.type = 'button';
+      b.addEventListener('click', () => go(g.section));
+      buttons.push(b);
+    }
+    inbox.append(el('div', `inbox-row tone-row-${a.look.tone}`, status(a.look), el('div', 'inbox-text', el('div', 'strong inbox-title', a.title), el('div', 'muted small', a.detail)), el('div', 'actions', ...buttons)));
+  }
+  out.push(inbox);
+
+  // At a glance: each tile opens its section.
+  const tiles = el('div', 'tiles');
+  for (const s of o.stats) {
+    const tile = el('button', `tile tone-edge-${s.tone}`, el('div', 'tile-top', icon(s.icon, s.tone === 'neutral' ? undefined : s.tone), el('span', 'tile-label', s.label)), el('div', 'tile-value', s.value), el('div', 'muted small', s.hint)) as HTMLButtonElement;
+    tile.type = 'button';
+    tile.addEventListener('click', () => go(s.section));
+    tiles.append(tile);
+  }
+  out.push(tiles);
+
+  // Ready work beside what just happened.
+  const ready = el('section', 'panel-box', el('h2', '', icon('rocket'), 'Ready for an agent', o.ready.length ? el('span', 'count', String(o.ready.length)) : null));
+  if (!o.ready.length) ready.append(el('p', 'muted quiet', 'Nothing is ready to dispatch. Track a ticket from a board, or add a task.'));
+  for (const r of o.ready.slice(0, 8)) {
+    ready.append(el('div', 'list-row', openable(el('div', 'list-text', el('span', 'tcard-key', r.id), el('span', '', r.title)), { type: 'run', command: 'acc.task.show', ref: r.action.ref }),
+      el('span', 'chip', r.environment), actionButton(r.action)));
+  }
+  const activity = el('section', 'panel-box', el('h2', '', icon('history'), 'Recent activity'));
+  if (!o.activity.length) activity.append(el('p', 'muted quiet', 'Moves tasks make show up here.'));
+  const feed = el('ol', 'feed');
+  for (const a of o.activity) {
+    feed.append(el('li', '', el('span', 'feed-dot'), el('div', '',
+      el('div', '', el('span', 'tcard-key', a.task), ' ', el('span', '', a.title)),
+      el('div', 'muted small', when(a.at), ` · ${a.from ?? 'new'} → `, el('strong', '', a.to), ` · ${a.by.replace(/^human:/, '')}`, o.projects.length > 1 ? ` · ${a.project}` : ''))));
+  }
+  if (o.activity.length) activity.append(feed);
+  out.push(el('div', 'two-up', ready, activity));
+  return out;
+}
+
+function renderHome(m: HomeModel): Node[] {
+  const current = section ?? m.section;
+  const content = current === 'overview' ? renderOverview(m)
+    : current === 'tasks' ? renderTasks(m.tasks)
+      : current === 'agents' ? renderAgents(m.agents)
+        : current === 'worktrees' ? renderWorktrees(m.worktrees)
+          : current === 'environments' ? renderEnvironments(m.environments)
+            : renderSetup(m.setup);
+  const main = el('div', 'home-main', ...content);
+  main.tabIndex = -1;
+  main.setAttribute('role', 'tabpanel');
+  return [el('div', 'home', renderNav(m, current), main)];
+}
+
 function renderAgents(m: AgentsModel): Node[] {
   const all = m.places.flatMap((p) => p.agents);
   const needs = all.filter((a) => a.needsYou).length;
@@ -679,8 +838,9 @@ let last: Model | null = null;
 
 function render(model: Model): void {
   last = model;
-  const scroll = { x: document.querySelector('.board')?.scrollLeft ?? 0, y: window.scrollY };
-  const nodes = model.kind === 'tasks' ? renderTasks(model)
+  const scroll = { x: document.querySelector('.board')?.scrollLeft ?? 0, y: (document.querySelector('.home-main') ?? document.scrollingElement)?.scrollTop ?? 0 };
+  const nodes = model.kind === 'home' ? renderHome(model)
+    : model.kind === 'tasks' ? renderTasks(model)
     : model.kind === 'ticket' ? renderTicket(model)
     : model.kind === 'agents' ? renderAgents(model)
       : model.kind === 'worktrees' ? renderWorktrees(model)
@@ -689,12 +849,19 @@ function render(model: Model): void {
   app.replaceChildren(...nodes);
   const board = document.querySelector('.board');
   if (board) board.scrollLeft = scroll.x;
-  window.scrollTo(0, scroll.y);
+  const main = document.querySelector('.home-main');
+  if (main && !scrolledTo) main.scrollTop = scroll.y;
+  else if (!main) window.scrollTo(0, scroll.y);
+  scrolledTo = false;
 }
 
 window.addEventListener('message', (e: MessageEvent) => {
-  const msg = e.data as { type?: string; model?: Model; action?: string; ok?: boolean };
-  if (msg?.type === 'state' && msg.model && msg.model.kind === view) render(msg.model);
+  const msg = e.data as { type?: string; model?: Model; action?: string; ok?: boolean; jump?: boolean };
+  if (msg?.type === 'state' && msg.model && msg.model.kind === view) {
+    // The extension moves the page only when asked to open a section; otherwise it stays where you are.
+    if (msg.model.kind === 'home' && (msg.jump || !section)) setSection(msg.model.section, false);
+    render(msg.model);
+  }
   if (msg?.type === 'done') onDone(msg);
 });
 api.postMessage({ type: 'ready' });

@@ -136,37 +136,33 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     assert.equal(status.shown, true);
     assert.equal(status.text, '$(check) Setup done');
 
-    // The sidebar: five views, and a task added through acc shows up grouped as Ready.
-    assert.deepEqual([...trees.keys()].sort(), ['acc.agents', 'acc.environments', 'acc.setup', 'acc.tasks', 'acc.worktrees']);
+    // The sidebar is one launcher listing the page's sections (D-029).
+    assert.deepEqual([...trees.keys()], ['acc.home']);
     await until(() => calls.contexts.get('acc.hasProject') === true);
+    const launcher = trees.get('acc.home')!;
+    assert.deepEqual((launcher.getChildren() as { section: string }[]).map((n) => n.section), ['overview', 'tasks', 'agents', 'worktrees', 'environments', 'setup']);
     const accBin = join(extDir, 'dist', 'bin', 'acc');
-    const added = spawnSync(process.execPath, [accBin, 'add', 'Try the sidebar'], { cwd: repo, encoding: 'utf8' });
+    const added = spawnSync(process.execPath, [accBin, 'add', 'Try the page'], { cwd: repo, encoding: 'utf8' });
     assert.equal(added.status, 0, added.stderr);
     await calls.commands.get('acc.tasks.refresh')!();
-    const tasks = trees.get('acc.tasks')!;
-    const [group] = tasks.getChildren() as { group: string; tasks: unknown[] }[];
-    assert.equal(group?.group, 'ready');
-    assert.equal(tasks.getTreeItem(group).label, 'Ready (1)');
-    const [task] = tasks.getChildren(group);
-    assert.equal(tasks.getTreeItem(task).label, 'T-1  Try the sidebar');
-    const envs = trees.get('acc.environments')!;
-    assert.equal(envs.getTreeItem(envs.getChildren()[0]).label, 'main');
-    const wts = trees.get('acc.worktrees')!;
-    await calls.commands.get('acc.worktrees.refresh')!();
-    assert.match(String(wts.getTreeItem(wts.getChildren()[0]).description), /main checkout · clean/);
 
-    // The Tasks board as an editor tab: strict CSP, and the board data arrives once the page is ready.
+    // The page, opened at Tasks: a strict CSP, and every section's data arrives once it's ready.
     await calls.commands.get('acc.open.tasks')!();
     const tab = panels[0]!;
     assert.match(tab.html, /Content-Security-Policy" content="default-src 'none'; [^"]*script-src 'nonce-[A-Za-z0-9+/=]+'/);
     assert.doesNotMatch(tab.html, /unsafe-inline|unsafe-eval/);
     assert.match(tab.html, /<script nonce="[A-Za-z0-9+/=]+" src=/);
+    assert.match(tab.html, /data-view="home"/);
     tab.receive!({ type: 'ready' });
-    const state = tab.posted.at(-1) as { model: { kind: string; projects: { columns: { group: string; cards: { id: string }[] }[] }[] } };
-    assert.equal(state.model.kind, 'tasks');
-    assert.deepEqual(state.model.projects[0]!.columns.find((c) => c.group === 'ready')!.cards.map((c) => c.id), ['T-1']);
-    await calls.commands.get('acc.open.tasks')!();
-    assert.equal(panels.length, 1, 'opening again reveals the same tab');
+    type Posted = { model: { kind: string; section: string; overview: { ready: { id: string }[] }; tasks: { projects: { columns: { group: string; cards: { id: string }[] }[] }[] }; environments: { projects: { envs: { name: string }[] }[] } } };
+    const state = tab.posted.at(-1) as Posted;
+    assert.deepEqual([state.model.kind, state.model.section], ['home', 'tasks']);
+    assert.deepEqual(state.model.tasks.projects[0]!.columns.find((c) => c.group === 'ready')!.cards.map((c) => c.id), ['T-1']);
+    assert.deepEqual(state.model.overview.ready.map((r) => r.id), ['T-1'], 'the Overview offers it to dispatch');
+    assert.equal(state.model.environments.projects[0]!.envs[0]!.name, 'main');
+    await calls.commands.get('acc.open.agents')!();
+    assert.equal(panels.length, 1, 'one page: opening a section reveals it there');
+    assert.equal((tab.posted.at(-1) as Posted).model.section, 'agents');
     tab.receive!({ type: 'run', command: 'workbench.action.quit', ref: {} });
 
     await calls.commands.get(COMMANDS.check)!('B0.repo');

@@ -1,12 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
 import type { Hub } from './hub.ts';
-import {
-  agentsModel, type BoardInput, environmentsModel, type IdentityCard, isFromWebview, type Model, type Ref, setupModel, tasksModel, VIEW_TITLES, type ViewKind, worktreesModel,
-} from './model.ts';
+import { type BoardInput, HOME_SECTIONS, type HomeSection, homeModel, type IdentityCard, isFromWebview, type Ref, type ViewKind } from './model.ts';
 import type { Setup } from './setup.ts';
 
-/** Commands a tab may ask for. Anything else from a webview is ignored. */
+/** Commands the page may ask for. Anything else from a webview is ignored. */
 const ALLOWED = new Set([
   'acc.task.dispatch', 'acc.task.attach', 'acc.task.openWorktree', 'acc.task.abandon', 'acc.task.cleanup',
   'acc.task.add', 'acc.task.importGithub', 'acc.task.importJira', 'acc.task.show', 'acc.task.move', 'acc.task.block', 'acc.task.unblock', 'acc.task.openTicket',
@@ -17,7 +15,7 @@ const ALLOWED = new Set([
   'acc.trackers.signIn', 'acc.trackers.refresh', 'acc.trackers.add', 'acc.github.switch', 'acc.github.signIn',
 ]);
 
-/** What the board needs from the trackers, and what its cards ask for. */
+/** What the page needs from the rest of the extension, and what its cards ask for. */
 export interface BoardDeps {
   boards(root: string): BoardInput[];
   identity(root: string): IdentityCard | null;
@@ -27,7 +25,17 @@ export interface BoardDeps {
 
 export const isWebLink = (url: string): boolean => /^(https?:|mailto:)/i.test(url);
 
-export function htmlFor(webview: Pick<vscode.Webview, 'cspSource' | 'asWebviewUri'>, base: vscode.Uri, kind: ViewKind | 'ticket', nonce: string, title = kind === 'ticket' ? 'Ticket' : VIEW_TITLES[kind]): string {
+/** The refresh behind each section's Refresh button. */
+const REFRESH: Record<HomeSection, string[]> = {
+  overview: ['acc.tasks.refresh', 'acc.agents.refresh', 'acc.trackers.refresh'],
+  tasks: ['acc.tasks.refresh', 'acc.trackers.refresh'],
+  agents: ['acc.agents.refresh'],
+  worktrees: ['acc.worktrees.refresh'],
+  environments: ['acc.worktrees.refresh'],
+  setup: ['acc.setup.refresh'],
+};
+
+export function htmlFor(webview: Pick<vscode.Webview, 'cspSource' | 'asWebviewUri'>, base: vscode.Uri, kind: 'home' | 'ticket', nonce: string, title = kind === 'ticket' ? 'Ticket' : 'Command Center'): string {
   const res = (p: string) => webview.asWebviewUri(vscode.Uri.joinPath(base, p)).toString();
   const csp = [
     "default-src 'none'",
@@ -46,7 +54,7 @@ export function htmlFor(webview: Pick<vscode.Webview, 'cspSource' | 'asWebviewUr
 <link rel="stylesheet" href="${res('styles.css')}">
 <title>${title.replace(/[<>&]/g, '')}</title>
 </head>
-<body data-view="${kind}">
+<body data-view="${kind}" data-logo-dark="${res('acc-dark.svg')}" data-logo-light="${res('acc-light.svg')}">
 <main id="app"><p class="muted">Loading…</p></main>
 <script nonce="${nonce}" src="${res('main.js')}"></script>
 </body>
@@ -54,94 +62,98 @@ export function htmlFor(webview: Pick<vscode.Webview, 'cspSource' | 'asWebviewUr
 }
 
 /**
- * The editor-tab versions of the sidebar views: one tab per view, revealed if already open. They show
- * the hub's data and run the sidebar's own commands, so the two never disagree.
+ * The Command Center: one editor tab with every section of the extension, Overview first (D-029). It
+ * shows the hub's data and runs the same commands the rest of the extension does.
  */
 export class Panels implements vscode.Disposable {
-  private readonly open = new Map<ViewKind, vscode.WebviewPanel>();
+  private panel: vscode.WebviewPanel | null = null;
+  private section: HomeSection = 'overview';
   private readonly ctx: vscode.ExtensionContext;
   private readonly hub: Hub;
   private readonly setup: Setup;
   private readonly resolve: (command: string, ref: Ref) => unknown;
-  private readonly onVisible: (kind: ViewKind, visible: boolean) => void;
-  private readonly boards: BoardDeps;
+  private readonly onVisible: (visible: boolean) => void;
+  private readonly deps: BoardDeps;
 
-  constructor(ctx: vscode.ExtensionContext, hub: Hub, setup: Setup, resolve: (command: string, ref: Ref) => unknown, onVisible: (kind: ViewKind, visible: boolean) => void, boards: BoardDeps) {
+  constructor(ctx: vscode.ExtensionContext, hub: Hub, setup: Setup, resolve: (command: string, ref: Ref) => unknown, onVisible: (visible: boolean) => void, deps: BoardDeps) {
     this.ctx = ctx;
     this.hub = hub;
     this.setup = setup;
     this.resolve = resolve;
     this.onVisible = onVisible;
-    this.boards = boards;
+    this.deps = deps;
+    this.section = ctx.workspaceState.get<HomeSection>('acc.home.section') ?? 'overview';
   }
 
   dispose(): void {
-    for (const p of this.open.values()) p.dispose();
+    this.panel?.dispose();
   }
 
-  show(kind: ViewKind): void {
-    const existing = this.open.get(kind);
-    if (existing) {
-      existing.reveal();
+  /** Opens the page, or brings it forward, at a section: the one asked for, else where it was left. */
+  show(section?: ViewKind | HomeSection): void {
+    if (section && (HOME_SECTIONS as readonly string[]).includes(section)) this.remember(section as HomeSection);
+    if (this.panel) {
+      this.panel.reveal();
+      this.post(true);
       return;
     }
     const base = vscode.Uri.joinPath(this.ctx.extensionUri, 'dist', 'webview');
-    const panel = vscode.window.createWebviewPanel(`acc.${kind}`, VIEW_TITLES[kind], vscode.ViewColumn.Active, {
-      enableScripts: true,
-      localResourceRoots: [base],
-    });
-    // Built from media/acc.svg with a fixed colour each, since a tab can't use currentColor.
-    const tabIcon = (theme: 'light' | 'dark') => vscode.Uri.joinPath(this.ctx.extensionUri, 'dist', 'media', `acc-${theme}.svg`);
-    panel.iconPath = { light: tabIcon('light'), dark: tabIcon('dark') };
-    panel.webview.html = htmlFor(panel.webview, base, kind, randomBytes(16).toString('base64'));
-    panel.webview.onDidReceiveMessage((m: unknown) => this.receive(kind, m));
+    const panel = vscode.window.createWebviewPanel('acc.home', 'Command Center', vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [base] });
+    const icon = (theme: 'light' | 'dark') => vscode.Uri.joinPath(this.ctx.extensionUri, 'dist', 'media', `acc-${theme}.svg`);
+    panel.iconPath = { light: icon('light'), dark: icon('dark') };
+    panel.webview.html = htmlFor(panel.webview, base, 'home', randomBytes(16).toString('base64'));
+    panel.webview.onDidReceiveMessage((m: unknown) => this.receive(m));
     panel.onDidChangeViewState((e) => {
-      this.onVisible(kind, e.webviewPanel.visible);
-      if (e.webviewPanel.visible) this.post(kind);
+      this.onVisible(e.webviewPanel.visible);
+      if (e.webviewPanel.visible) this.post();
     });
     panel.onDidDispose(() => {
-      this.open.delete(kind);
-      this.onVisible(kind, false);
+      this.panel = null;
+      this.onVisible(false);
     });
-    this.open.set(kind, panel);
-    this.onVisible(kind, true);
+    this.panel = panel;
+    this.onVisible(true);
   }
 
-  isOpen(kind: ViewKind): boolean {
-    return this.open.has(kind);
+  isOpen(): boolean {
+    return !!this.panel;
   }
 
-  model(kind: ViewKind): Model {
-    switch (kind) {
-      case 'tasks': return tasksModel(this.hub, (root) => this.boards.boards(root));
-      case 'agents': return agentsModel(this.hub);
-      case 'worktrees': return worktreesModel(this.hub);
-      case 'environments': return environmentsModel(this.hub, (root) => this.boards.identity(root));
-      case 'setup': return setupModel(this.setup.results(), this.setup.allConfirmed());
-    }
+  current(): HomeSection {
+    return this.section;
   }
 
-  /** Sends fresh data to one open tab, or all of them. */
-  post(kind?: ViewKind): void {
-    for (const [k, p] of this.open) {
-      if (kind && k !== kind) continue;
-      if (p.visible) void p.webview.postMessage({ type: 'state', model: this.model(k) });
-    }
+  private remember(section: HomeSection): void {
+    this.section = section;
+    void this.ctx.workspaceState.update('acc.home.section', section);
   }
 
-  private receive(kind: ViewKind, m: unknown): void {
+  model() {
+    return homeModel({
+      hub: this.hub, section: this.section, boards: (r) => this.deps.boards(r), identity: (r) => this.deps.identity(r),
+      setup: { items: this.setup.results(), confirmed: this.setup.allConfirmed() },
+    });
+  }
+
+  /** Sends fresh data to the page. With jump, the page also moves to the section asked for. */
+  post(jump = false): void {
+    if (this.panel?.visible) void this.panel.webview.postMessage({ type: 'state', model: this.model(), jump });
+  }
+
+  private receive(m: unknown): void {
     if (!isFromWebview(m)) return;
-    if (m.type === 'ready') return this.post(kind);
+    if (m.type === 'ready') return this.post(true);
+    if (m.type === 'nav') return this.remember(m.section);
     if (m.type === 'refresh') {
-      void vscode.commands.executeCommand(kind === 'setup' ? 'acc.setup.refresh' : `acc.${kind === 'environments' ? 'worktrees' : kind}.refresh`);
+      for (const c of REFRESH[this.section]) void vscode.commands.executeCommand(c);
       return;
     }
     if (m.type === 'ticket') {
-      if (this.hub.project(m.project)) this.boards.openTicket(m.project, m.tracker, m.key);
+      if (this.hub.project(m.project)) this.deps.openTicket(m.project, m.tracker, m.key);
       return;
     }
     if (m.type === 'move') {
-      if (this.hub.project(m.project)) void this.boards.move(m.project, m.tracker, m.key, m.to);
+      if (this.hub.project(m.project)) void this.deps.move(m.project, m.tracker, m.key, m.to);
       return;
     }
     if (m.type === 'open') {

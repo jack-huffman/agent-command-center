@@ -62,5 +62,9 @@ for (const f of ['codicon.css', 'codicon.ttf']) copyFileSync(join(root, 'node_mo
 // colour per theme: white on dark tab bars, dark grey on light ones.
 const icon = readFileSync(join(ext, 'media', 'acc.svg'), 'utf8');
 mkdirSync(join(ext, 'dist', 'media'), { recursive: true });
-for (const [theme, colour] of [['dark', '#ffffff'], ['light', '#424242']]) writeFileSync(join(ext, 'dist', 'media', `acc-${theme}.svg`), icon.replaceAll('currentColor', colour));
+for (const [theme, colour] of [['dark', '#ffffff'], ['light', '#424242']]) {
+  writeFileSync(join(ext, 'dist', 'media', `acc-${theme}.svg`), icon.replaceAll('currentColor', colour));
+  // The Command Center page shows the same mark, so it ships with the page too.
+  writeFileSync(join(ext, 'dist', 'webview', `acc-${theme}.svg`), icon.replaceAll('currentColor', colour));
+}
 console.log(`built ${join(ext, 'dist', 'extension.js')}`);

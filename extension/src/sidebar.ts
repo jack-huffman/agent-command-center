@@ -7,7 +7,7 @@ import { receiptHooks } from '../../packages/core/src/receipts.ts';
 import type { Hub, Project } from './hub.ts';
 import { agentName, githubBranchUrl } from './logic.ts';
 import { type RunResult, runFile } from './run.ts';
-import type { AgentNode, EnvNode, TaskNode, WorktreeNode } from './views.ts';
+import type { AgentNode, EnvNode, TaskNode, WorktreeNode } from './nodes.ts';
 
 type Acc = (args: string[], cwd: string, token?: vscode.CancellationToken) => Promise<RunResult>;
 

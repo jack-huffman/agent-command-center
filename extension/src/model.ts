@@ -57,6 +57,8 @@ export interface HubLike {
   agentsError: string | null;
   taskRows(root: string): TaskRow[];
   projectFor(path: string): ProjectLike | undefined;
+  /** Every move every task made, for the Overview's activity. */
+  history?(root: string): ActivityItem[];
 }
 
 // ---------------------------------------------------------------- tasks: the board
@@ -537,7 +539,170 @@ export function setupModel(items: DoctorItem[], confirmed: Set<string>): SetupMo
   return { kind: 'setup', done: all.filter((s) => s.look.tone !== 'orange').length, total: all.length, parts };
 }
 
-export type Model = TasksModel | AgentsModel | WorktreesModel | EnvironmentsModel | SetupModel | TicketModel;
+// ---------------------------------------------------------------- the Command Center page
+
+export const HOME_SECTIONS = ['overview', ...VIEW_KINDS] as const;
+export type HomeSection = (typeof HOME_SECTIONS)[number];
+
+export interface NavItem {
+  section: HomeSection;
+  label: string;
+  icon: string;
+  /** A number beside the label: what needs a person when attention is set, otherwise how many there are. */
+  count: number | null;
+  attention: boolean;
+  hint: string;
+}
+
+export interface AttentionItem {
+  key: string;
+  look: Look;
+  title: string;
+  detail: string;
+  project: string;
+  actions: Action[];
+  /** A command that takes one argument, such as a tracker's sign-in. */
+  extra?: { command: string; label: string; icon: string; arg: string };
+  /** A section of the page to open, such as Setup. */
+  go?: { section: HomeSection; label: string };
+}
+
+export interface StatTile {
+  label: string;
+  value: string;
+  icon: string;
+  tone: Tone;
+  section: HomeSection;
+  hint: string;
+}
+
+export interface ActivityItem {
+  at: string;
+  task: string;
+  title: string;
+  from: string | null;
+  to: string;
+  by: string;
+}
+
+export interface OverviewModel {
+  projects: { name: string; root: string; branch: string | null; account: string | null; trackers: string[] }[];
+  attention: AttentionItem[];
+  stats: StatTile[];
+  ready: { project: string; id: string; title: string; environment: string; action: Action }[];
+  activity: (ActivityItem & { project: string })[];
+}
+
+export interface HomeModel {
+  kind: 'home';
+  section: HomeSection;
+  nav: NavItem[];
+  overview: OverviewModel;
+  tasks: TasksModel;
+  agents: AgentsModel;
+  worktrees: WorktreesModel;
+  environments: EnvironmentsModel;
+  setup: SetupModel;
+}
+
+export interface HomeInput {
+  hub: HubLike;
+  section: HomeSection;
+  boards: (root: string) => BoardInput[];
+  identity: (root: string) => IdentityCard | null;
+  setup: { items: DoctorItem[]; confirmed: Set<string> };
+}
+
+const LOOK = (label: string, icon: string, tone: Tone): Look => ({ label, icon, tone });
+
+/**
+ * Everything on one page (D-029). The Overview gathers what needs a person, from every project: agents
+ * waiting on a prompt, blocked tasks, missing sign-ins, setup still to do, and work waiting for review.
+ */
+export function homeModel(i: HomeInput): HomeModel {
+  const { hub } = i;
+  const tasks = tasksModel(hub, i.boards);
+  const agents = agentsModel(hub);
+  const worktrees = worktreesModel(hub);
+  const environments = environmentsModel(hub, i.identity);
+  const setup = setupModel(i.setup.items, i.setup.confirmed);
+
+  const attention: AttentionItem[] = [];
+  const ready: OverviewModel['ready'] = [];
+  const linked = new Set<string>();
+  for (const p of hub.projects) {
+    for (const r of hub.taskRows(p.root)) {
+      const ref: Ref = { project: p.root, task: r.id };
+      const acts = cardActions(r, ref);
+      const details: Action = { command: 'acc.task.show', label: 'Open', icon: 'go-to-file', ref };
+      if (r.run?.bgId) linked.add(r.run.bgId);
+      if (r.display === 'needs-you') {
+        attention.push({ key: `t:${p.root}:${r.id}`, look: r.agent ?? LOOK('Needs you', 'bell-dot', 'orange'), title: `${r.id} ${r.title}`, detail: `${p.name} · its agent is waiting on you`, project: p.name, actions: [...acts.filter((a) => a.command === 'acc.task.attach'), details] });
+      } else if (r.display === 'blocked') {
+        attention.push({ key: `t:${p.root}:${r.id}`, look: LOOK('Blocked', 'circle-slash', 'orange'), title: `${r.id} ${r.title}`, detail: `${p.name} · blocked`, project: p.name, actions: [details] });
+      } else if (r.display === 'review') {
+        attention.push({ key: `t:${p.root}:${r.id}`, look: LOOK('Waiting for your review', 'eye', 'blue'), title: `${r.id} ${r.title}`, detail: `${p.name} · done by its agent`, project: p.name, actions: [details] });
+      } else if (r.display === 'ready') {
+        const d = acts.find((a) => a.command === 'acc.task.dispatch');
+        if (d) ready.push({ project: p.name, id: r.id, title: r.title, environment: r.environment, action: d });
+      }
+    }
+    for (const b of i.boards(p.root)) {
+      if (b.error && b.connect) attention.push({ key: `b:${p.root}:${b.index}`, look: LOOK('Not signed in', 'plug', 'orange'), title: b.title, detail: `${p.name} · ${b.error}`, project: p.name, actions: [], extra: { command: b.connect.command, label: b.connect.label, icon: 'plug', arg: b.connect.arg } });
+    }
+  }
+  for (const s of hub.agents) {
+    const look = agentLook(s);
+    if (!look.needsYou || (s.id && linked.has(s.id))) continue;
+    const key = s.sessionId ?? s.id ?? `${s.pid ?? ''}:${s.startedAt}`;
+    attention.push({
+      key: `a:${key}`, look: { label: look.label, icon: look.icon, tone: look.tone }, title: s.name ?? 'Agent session', detail: hub.projectFor(s.cwd)?.name ?? s.cwd, project: hub.projectFor(s.cwd)?.name ?? '',
+      actions: s.id ? [{ command: 'acc.agent.attach', label: 'Attach', icon: 'terminal', ref: { session: key }, primary: true }] : [],
+    });
+  }
+  const todo = setup.total - setup.done;
+  const failing = setup.parts.reduce((n, part) => n + part.steps.filter((s) => s.look.tone === 'orange').length, 0);
+  if (todo > 0) attention.push({ key: 'setup', look: LOOK(`${todo} setup step${todo === 1 ? '' : 's'} to do`, 'checklist', failing ? 'orange' : 'neutral'), title: 'Setup', detail: setup.parts.flatMap((part) => part.steps).filter((s) => s.look.tone === 'orange').slice(0, 3).map((s) => s.title).join(' · ') || 'Some steps are left to confirm', project: '', actions: [], go: { section: 'setup', label: 'Open Setup' } });
+  // People's work first, then the rest: orange before blue before neutral.
+  const rank = (a: AttentionItem) => (a.look.tone === 'orange' ? 0 : a.look.tone === 'blue' ? 1 : 2);
+  attention.sort((a, b) => rank(a) - rank(b));
+
+  const rows = hub.projects.flatMap((p) => hub.taskRows(p.root));
+  const onBoard = tasks.projects.reduce((n, p) => n + p.boards.reduce((k, b) => k + b.columns.reduce((c, col) => c + col.cards.length, 0), 0), 0);
+  const working = hub.agents.filter((s) => (s.kind === 'background' ? s.state === 'working' : s.status === 'busy')).length;
+  const review = rows.filter((r) => r.display === 'review').length;
+  const linkedTrees = hub.projects.reduce((n, p) => n + p.worktrees.filter((w) => !w.main).length, 0);
+  const stats: StatTile[] = [
+    tasks.projects.some((p) => p.boards.length)
+      ? { label: 'On the board', value: String(onBoard), icon: 'project', tone: 'neutral', section: 'tasks', hint: 'Tickets on your trackers\' boards' }
+      : { label: 'Tasks', value: String(rows.length), icon: 'tasklist', tone: 'neutral', section: 'tasks', hint: 'Tasks acc keeps' },
+    { label: 'Ready', value: String(ready.length), icon: 'rocket', tone: ready.length ? 'blue' : 'neutral', section: 'tasks', hint: 'Tasks an agent can start now' },
+    { label: 'Agents working', value: String(working), icon: 'hubot', tone: working ? 'blue' : 'neutral', section: 'agents', hint: 'Sessions busy right now' },
+    { label: 'Waiting for review', value: String(review), icon: 'eye', tone: review ? 'blue' : 'neutral', section: 'tasks', hint: 'Finished by an agent, for you to check' },
+    { label: 'Worktrees', value: String(linkedTrees), icon: 'git-branch', tone: 'neutral', section: 'worktrees', hint: 'Task checkouts beside the main one' },
+    { label: 'Setup', value: `${setup.done}/${setup.total}`, icon: 'checklist', tone: failing ? 'orange' : 'neutral', section: 'setup', hint: failing ? `${failing} step${failing === 1 ? '' : 's'} failing` : 'Steps done' },
+  ];
+
+  const activity = hub.projects.flatMap((p) => (hub.history?.(p.root) ?? []).map((h) => ({ ...h, project: p.name })))
+    .sort((a, b) => b.at.localeCompare(a.at)).slice(0, 12);
+  const projects = hub.projects.map((p) => ({ name: p.name, root: p.root, branch: p.branch, account: p.config.github?.account ?? null, trackers: i.boards(p.root).map((b) => b.title) }));
+
+  const people = attention.filter((a) => a.look.tone === 'orange').length;
+  const needsAgents = agents.places.reduce((n, pl) => n + pl.agents.filter((a) => a.needsYou).length, 0);
+  const sessions = agents.places.reduce((n, pl) => n + pl.agents.length, 0);
+  const taskAttention = rows.filter((r) => r.display === 'needs-you' || r.display === 'blocked').length;
+  const nav: NavItem[] = [
+    { section: 'overview', label: 'Overview', icon: 'home', count: people || null, attention: people > 0, hint: people ? `${people} thing${people === 1 ? '' : 's'} need you` : 'Nothing needs you' },
+    { section: 'tasks', label: 'Tasks', icon: 'project', count: taskAttention || rows.length || null, attention: taskAttention > 0, hint: taskAttention ? `${taskAttention} need you` : `${rows.length} task${rows.length === 1 ? '' : 's'}` },
+    { section: 'agents', label: 'Agents', icon: 'hubot', count: needsAgents || sessions || null, attention: needsAgents > 0, hint: needsAgents ? `${needsAgents} waiting on you` : `${sessions} session${sessions === 1 ? '' : 's'}` },
+    { section: 'worktrees', label: 'Worktrees', icon: 'git-branch', count: linkedTrees || null, attention: false, hint: `${linkedTrees} task checkout${linkedTrees === 1 ? '' : 's'}` },
+    { section: 'environments', label: 'Environments', icon: 'server-environment', count: null, attention: hub.projects.some((p) => !!i.identity(p.root)?.problem), hint: 'Branches, orgs and your GitHub account' },
+    { section: 'setup', label: 'Setup', icon: 'checklist', count: todo || null, attention: failing > 0, hint: todo ? `${todo} to do` : 'All done' },
+  ];
+  return { kind: 'home', section: i.section, nav, overview: { projects, attention, stats, ready, activity }, tasks, agents, worktrees, environments, setup };
+}
+
+export type Model = TasksModel | AgentsModel | WorktreesModel | EnvironmentsModel | SetupModel | TicketModel | HomeModel;
 
 /** Messages the webview sends. Everything else is ignored. */
 export const TICKET_ACTIONS = ['comment', 'status', 'assign', 'labels', 'track', 'refresh'] as const;
@@ -553,7 +718,9 @@ export type FromWebview =
   | { type: 'move'; project: string; tracker: number; key: string; to: string }
   | { type: 'ticket-action'; action: TicketAction; text?: string }
   /** A link in a ticket. Only web links are opened. */
-  | { type: 'open'; url: string };
+  | { type: 'open'; url: string }
+  /** The page moved to another section, so reopening it comes back there. */
+  | { type: 'nav'; section: HomeSection };
 
 const KEY = /^[A-Z][A-Z0-9_]*-\d+$/i;
 const short = (v: unknown, max = 500): v is string => typeof v === 'string' && v.length > 0 && v.length <= max;
@@ -568,6 +735,7 @@ export function isFromWebview(m: unknown): m is FromWebview {
     case 'move': return short(x.project, 4096) && short(x.key, 100) && KEY.test(x.key as string) && Number.isInteger(x.tracker) && typeof x.to === 'string' && x.to.length <= 200;
     case 'ticket-action': return (TICKET_ACTIONS as readonly string[]).includes(x.action as string) && (x.text === undefined || (typeof x.text === 'string' && x.text.length <= 65_536));
     case 'open': return short(x.url, 4096) && /^(https?:|mailto:)/i.test(x.url as string);
+    case 'nav': return (HOME_SECTIONS as readonly string[]).includes(x.section as string);
     default: return false;
   }
 }

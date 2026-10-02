@@ -92,6 +92,11 @@ export class Hub implements vscode.Disposable {
     return this.tasks.get(root)?.ledger;
   }
 
+  /** Every move every task made, for the Overview's activity. */
+  history(root: string): { at: string; task: string; title: string; from: string | null; to: string; by: string }[] {
+    return (this.ledger(root)?.tasks ?? []).flatMap((t) => t.history.map((h) => ({ at: h.at, task: t.id, title: t.title, from: h.from, to: h.to, by: h.by })));
+  }
+
   /** Reads each ledger again if it changed on disk. Cheap: one stat per project. */
   async loadTasks(force = false): Promise<void> {
     let changed = false;

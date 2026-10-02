@@ -15,11 +15,11 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import { agentsModel, environmentsModel, type Model, setupModel, tasksModel, VIEW_KINDS, worktreesModel } from '../src/model.ts';
+import { HOME_SECTIONS, homeModel, type HomeSection, type Model } from '../src/model.ts';
 import { sampleBoards, sampleHub, sampleIdentity, sampleSetup, sampleTicket } from './fixtures.ts';
 
-/** Every page the screenshot script can draw: the five tabs, and a ticket's page. */
-export const PAGES = [...VIEW_KINDS, 'ticket'] as const;
+/** Every page the screenshot script can draw: each section of the Command Center, and a ticket's page. */
+export const PAGES = [...HOME_SECTIONS, 'ticket'] as const;
 export type Page = (typeof PAGES)[number];
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -36,6 +36,7 @@ export const THEMES = {
     'badge-background': '#616161', 'badge-foreground': '#f8f8f8', 'textLink-foreground': '#4daafc', 'textCodeBlock-background': '#2b2b2b',
     'progressBar-background': '#0078d4', 'charts-orange': '#d18616', 'charts-blue': '#3794ff',
     'input-background': '#313131', 'input-foreground': '#cccccc', 'input-border': '#3c3c3c',
+    'list-activeSelectionBackground': '#04395e', 'list-activeSelectionForeground': '#ffffff',
   },
   light: {
     'font-family': '-apple-system, BlinkMacSystemFont, sans-serif', 'font-size': '13px', 'editor-font-family': 'Menlo, Monaco, monospace',
@@ -47,23 +48,15 @@ export const THEMES = {
     'badge-background': '#cccccc', 'badge-foreground': '#3b3b3b', 'textLink-foreground': '#005fb8', 'textCodeBlock-background': '#f2f2f2',
     'progressBar-background': '#005fb8', 'charts-orange': '#d18616', 'charts-blue': '#1a85ff',
     'input-background': '#ffffff', 'input-foreground': '#3b3b3b', 'input-border': '#cecece',
+    'list-activeSelectionBackground': '#e4e6f1', 'list-activeSelectionForeground': '#000000',
   },
 } satisfies Record<string, Record<string, string>>;
 export type Theme = keyof typeof THEMES;
 
 export function sampleModel(kind: Page, now = Date.now()): Model {
+  if (kind === 'ticket') return sampleTicket(now);
   const hub = sampleHub(now);
-  switch (kind) {
-    case 'ticket': return sampleTicket(now);
-    case 'tasks': return tasksModel(hub, () => sampleBoards());
-    case 'agents': return agentsModel(hub);
-    case 'worktrees': return worktreesModel(hub);
-    case 'environments': return environmentsModel(hub, () => sampleIdentity());
-    case 'setup': {
-      const { items, confirmed } = sampleSetup();
-      return setupModel(items, confirmed);
-    }
-  }
+  return homeModel({ hub, section: kind as HomeSection, boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup() });
 }
 
 /**
@@ -94,7 +87,7 @@ window.acquireVsCodeApi = () => ({
 });
 </script>
 </head>
-<body class="vscode-${theme}" data-view="${kind}"><main id="app"></main><script src="webview/main.js"></script></body></html>
+<body class="vscode-${theme}" data-view="${kind === 'ticket' ? 'ticket' : 'home'}" data-logo-dark="webview/acc-dark.svg" data-logo-light="webview/acc-light.svg"><main id="app"></main><script src="webview/main.js"></script></body></html>
 `;
 }
 

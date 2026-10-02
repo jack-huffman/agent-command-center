@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import type { TaskRow } from '../src/logic.ts';
-import { agentsModel, cardActions, environmentsModel, type HubLike, isFromWebview, promotionPaths, setupModel, tasksModel, VIEW_KINDS, worktreesModel } from '../src/model.ts';
+import { agentsModel, cardActions, environmentsModel, homeModel, type HubLike, isFromWebview, promotionPaths, setupModel, tasksModel, VIEW_KINDS, worktreesModel } from '../src/model.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
@@ -150,12 +150,40 @@ test('the tab page never turns data into markup, and runs under a strict nonce C
   void htmlFor; // panels.ts needs vscode; its HTML is checked in the activation test.
 });
 
-test('every view has an "open as tab" button', () => {
+test('one page holds every section: the activity bar opens it, and each section has a command (D-029)', () => {
   const commands = new Set(manifest.contributes.commands.map((c: { command: string }) => c.command));
-  for (const k of VIEW_KINDS) {
-    assert.ok(commands.has(`acc.open.${k}`), k);
-    assert.ok(manifest.contributes.menus['view/title'].some((m: { command: string; when: string }) => m.command === `acc.open.${k}` && m.when === `view == acc.${k}`), k);
-  }
+  assert.ok(commands.has('acc.open.home'));
+  for (const k of VIEW_KINDS) assert.ok(commands.has(`acc.open.${k}`), k);
+  assert.deepEqual(manifest.contributes.views.acc.map((v: { id: string }) => v.id), ['acc.home'], 'one launcher, no trees');
+  assert.ok(manifest.contributes.viewsWelcome.some((w: { view: string; contents: string }) => w.view === 'acc.home' && w.contents.includes('command:acc.open.home')));
+  assert.equal(manifest.contributes.configuration.properties['agentCommandCenter.openFromActivityBar'].default, true);
+  assert.equal(manifest.contributes.menus['view/item/context'], undefined);
+});
+
+test('the Overview gathers what needs a person, counts it once, and groups review apart', () => {
+  const steps = [
+    { id: 'B0.repo', part: 'project' as const, title: 'Repo', status: 'pass' as const, detail: 'ok' },
+    { id: 'B2.identity', part: 'project' as const, title: 'Commit identity', status: 'fail' as const, detail: 'wrong' },
+  ];
+  const h = hub();
+  const m = homeModel({ hub: h, section: 'overview', boards: () => [], identity: () => null, setup: { items: steps, confirmed: new Set() } });
+  assert.equal(m.kind, 'home');
+  const titles = m.overview.attention.map((a) => [a.look.tone, a.title]);
+  assert.deepEqual(titles.map(([tone]) => tone), [...titles.map(([tone]) => tone)].sort((x, y) => (x === 'orange' ? 0 : 1) - (y === 'orange' ? 0 : 1)), 'orange first');
+  assert.ok(m.overview.attention.some((a) => a.title === 'AV-3 Task AV-3' && a.look.label === 'Blocked'));
+  assert.ok(m.overview.attention.some((a) => a.title === 'av-2' && a.actions[0]!.command === 'acc.agent.attach'), 'an agent waiting on a prompt, with Attach');
+  assert.ok(m.overview.attention.some((a) => a.key === 'setup' && a.go?.section === 'setup'));
+  const people = m.overview.attention.filter((a) => a.look.tone === 'orange').length;
+  const nav = Object.fromEntries(m.nav.map((n) => [n.section, n]));
+  assert.deepEqual([nav.overview!.count, nav.overview!.attention], [people, true], 'the rail and the inbox agree');
+  assert.deepEqual([nav.setup!.count, nav.setup!.attention], [1, true]);
+  assert.deepEqual(m.nav.map((n) => n.section), ['overview', 'tasks', 'agents', 'worktrees', 'environments', 'setup']);
+  assert.equal(m.overview.stats.find((s) => s.section === 'setup')!.value, '1/2');
+  // An agent already shown through its task isn't listed twice.
+  const linked = { ...h, taskRows: () => [{ ...h.taskRows('/r')[1]!, display: 'needs-you' as const, run: { bgId: 'bg1' }, agent: { label: 'Needs you: permission prompt', icon: 'bell', tone: 'orange' as const } }] };
+  const once = homeModel({ hub: linked, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } });
+  assert.deepEqual(once.overview.attention.map((a) => a.title), ['AV-2 Task AV-2']);
+  assert.ok(isFromWebview({ type: 'nav', section: 'agents' }) && !isFromWebview({ type: 'nav', section: 'secrets' }));
 });
 
 test('cards follow a task through dispatch: Dispatch, then Attach and Abandon, then Clean up', () => {
@@ -194,5 +222,6 @@ test('tab icons are built from the sidebar icon, white for dark themes and dark 
     assert.equal(built, source.replaceAll('currentColor', colour), `${theme} tab icon`);
   }
   const panels = readFileSync(join(root, 'src', 'panels.ts'), 'utf8');
-  assert.ok(panels.includes("panel.iconPath = { light: tabIcon('light'), dark: tabIcon('dark') }"));
+  assert.ok(panels.includes("panel.iconPath = { light: icon('light'), dark: icon('dark') }"));
+  for (const theme of ['dark', 'light']) assert.ok(readFileSync(join(root, 'dist', 'webview', `acc-${theme}.svg`), 'utf8').includes('<svg'), `the page's ${theme} mark`);
 });
