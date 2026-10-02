@@ -76,6 +76,9 @@ test('the packet tells a Salesforce builder where it is, how to finish, and what
   assert.ok(!p.includes('refs #'), 'Jira tasks don\'t get GitHub refs');
   assert.ok(p.includes('running exactly `acc done`, as its own command'), 'the finish line is a bare acc done');
   assert.ok(p.includes('npm scripts'), 'wrappers are ruled out');
+  assert.ok(p.includes('run exactly `acc gate run`') && p.includes('`acc gate run --test AccountServiceTest="covers the new discount rule"`'), 'Apex changes add --test to the same command');
+  assert.ok(p.indexOf('**Commit**') < p.indexOf('**Checks:**'), 'commit first: receipts vouch for a commit');
+  assert.ok(!p.includes('M4'), 'no stopgap for missing gates');
   const withPath = renderPacket({ task: l.tasks[0]!, config, env, worktree: '/w', branch: 'b', rules: null, environmentSpecific: [], accPath: '/opt/acc/bin/acc' });
   assert.ok(withPath.includes('its full path is `/opt/acc/bin/acc`'));
 });
@@ -86,6 +89,7 @@ test('builder settings: identity, acc on PATH, and the dangerous commands denied
   assert.deepEqual(s.env, { ACC_TASK: 'ACME-7', ACC_ROLE: 'builder', PATH: '/acc/bin:/usr/bin' });
   for (const d of ['Bash(git push*)', 'Bash(gh pr *)', 'Bash(sf project deploy start*)', 'Bash(acc set *)', 'Bash(git checkout *)']) assert.ok(s.permissions.deny.includes(d), d);
   assert.ok(s.permissions.allow.includes('Bash(sf project deploy validate *)'));
+  for (const a of ['Bash(acc gate run)', 'Bash(acc gate run *)', 'Bash(acc gate list*)']) assert.ok(s.permissions.allow.includes(a), a);
 });
 
 test('dispatch end to end: worktree from the environment branch, packet, background session, ledger', () => {

@@ -136,6 +136,9 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean }): stri
     lines.push(
       `2. **Checks:** run exactly \`acc gate run\`. It runs the required checks (${required.map((g) => `\`${g}\``).join(', ')}) on your latest commit and records each result; \`acc done\` refuses until every one has passed. If one fails, fix it, commit, and run \`acc gate run\` again. If a check can't run at all (it says error), block and quote its message.`,
     );
+    if (sf) {
+      lines.push('   If you changed Apex, add `--test <TestClass>="<why it covers the change>"` once per test class, for example `acc gate run --test AccountServiceTest="covers the new discount rule"`. Those flags are the only thing to add.');
+    }
   } else {
     lines.push('2. **Checks:** run the project\'s tests or build if it has them, and report the results.');
   }
