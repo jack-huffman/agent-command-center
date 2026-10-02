@@ -206,7 +206,9 @@ test('acc gate waive: a person waives a task\'s failing check with a reason; a b
   ledger.tasks[0].run = { branch };
   writeFileSync(ledgerPath, JSON.stringify(ledger));
   const id = ledger.tasks[0].id as string;
-  assert.equal(acc(dir, ['gate', 'run']).code, 1);
+  // Its own slots, so it never waits on a real check, such as the one running these tests.
+  const heavy = { ACC_HEAVY_DIR: join(makeRepo(), 'slots') };
+  assert.equal(acc(dir, ['gate', 'run'], undefined, heavy).code, 1);
   const builder = acc(dir, ['gate', 'waive', 'test', '--task', id, '--reason', 'mine', '--as', 'human'], undefined, { ACC_ROLE: 'builder', ACC_TASK: id });
   assert.equal(builder.code, 1);
   assert.match(builder.err, /A builder can't waive its own checks/);
