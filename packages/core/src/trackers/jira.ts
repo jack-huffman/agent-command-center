@@ -179,3 +179,16 @@ export class JiraClient implements TrackerClient {
     await this.req('PUT', `/rest/api/3/issue/${encodeURIComponent(key)}`, { update: { labels: [...add.map((l) => ({ add: l })), ...remove.map((l) => ({ remove: l }))] } });
   }
 }
+
+/** The site's projects and a project's boards, for setting up a tracker from VSCode. */
+export async function jiraProjects(site: string, email: string, token: string, f: typeof fetch = fetch): Promise<{ key: string; name: string }[]> {
+  const c = new JiraClient({ site, project: '', email, token, fetch: f }) as unknown as { req<T>(m: string, p: string): Promise<T> };
+  const r = await c.req<{ values: { key: string; name: string }[] }>('GET', '/rest/api/3/project/search?maxResults=100&orderBy=name');
+  return r.values.map((v) => ({ key: v.key, name: v.name }));
+}
+
+export async function jiraBoards(site: string, project: string, email: string, token: string, f: typeof fetch = fetch): Promise<{ id: number; name: string; type: string }[]> {
+  const c = new JiraClient({ site, project, email, token, fetch: f }) as unknown as { req<T>(m: string, p: string): Promise<T> };
+  const r = await c.req<{ values: { id: number; name: string; type: string }[] }>('GET', `/rest/agile/1.0/board?projectKeyOrId=${encodeURIComponent(project)}&maxResults=50`);
+  return r.values;
+}

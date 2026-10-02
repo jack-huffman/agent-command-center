@@ -2,7 +2,7 @@
   "name": "agent-command-center",
   "displayName": "Agent Command Center",
   "description": "Set up projects for parallel Claude Code agents, then run and watch them from VSCode.",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "publisher": "JackHuffman",
   "private": true,
   "license": "UNLICENSED",
@@ -292,22 +292,28 @@
         "icon": "$(trash)"
       },
       {
-        "command": "acc.jira.connect",
-        "title": "Connect to Jira",
-        "category": "Agent Command Center",
-        "icon": "$(plug)"
-      },
-      {
-        "command": "acc.jira.disconnect",
-        "title": "Disconnect from Jira",
-        "category": "Agent Command Center",
-        "icon": "$(debug-disconnect)"
-      },
-      {
         "command": "acc.trackers.refresh",
         "title": "Refresh tracker boards",
         "category": "Agent Command Center",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "acc.trackers.add",
+        "title": "Add a tracker…",
+        "category": "Agent Command Center",
+        "icon": "$(add)"
+      },
+      {
+        "command": "acc.trackers.signIn",
+        "title": "Sign in to a tracker",
+        "category": "Agent Command Center",
+        "icon": "$(account)"
+      },
+      {
+        "command": "acc.trackers.signOut",
+        "title": "Sign out of a tracker",
+        "category": "Agent Command Center",
+        "icon": "$(sign-out)"
       }
     ],
     "menus": {
@@ -821,7 +827,7 @@
           {
             "id": "A3.trackers",
             "title": "Trackers connected",
-            "description": "The Tasks board and ticket pages read Jira and GitHub directly (D-026). Jira needs your API token once; GitHub works through gh.\n\n[Check](command:acc.step.check?%5B%22A3.trackers%22%5D)\n[I've done this](command:acc.step.confirm?%5B%22A3.trackers%22%5D)",
+            "description": "The Tasks board and ticket pages read Jira, Azure DevOps and GitHub directly (D-026), each signed in for this repo only (D-027).\n\n[Check](command:acc.step.check?%5B%22A3.trackers%22%5D)\n[I've done this](command:acc.step.confirm?%5B%22A3.trackers%22%5D)",
             "media": {
               "markdown": "media/steps/A3.trackers.md"
             },

@@ -32,7 +32,7 @@ test('a tracker board keeps the tracker\'s columns, places cards by status, and 
   assert.equal(untracked!.acc, null, 'a ticket acc doesn\'t keep has no agent badge');
   const waiting = b.columns[1]!.cards[0]!;
   assert.deepEqual([waiting.acc!.needsYou, waiting.acc!.look.label, waiting.acc!.action!.command], [true, 'Needs you: permission prompt', 'acc.task.attach']);
-  assert.equal(trackerBoard({ ...board(), board: null, error: 'Connect to Jira', connect: { command: 'acc.jira.connect', label: 'Connect to Jira', arg: 'acme.atlassian.net' } }, [], '/r').columns.length, 0);
+  assert.equal(trackerBoard({ ...board(), board: null, error: 'Connect to Jira', connect: { command: 'acc.trackers.signIn', label: 'Sign in to Jira', arg: '{"root":"/r","index":0}' } }, [], '/r').columns.length, 0);
 });
 
 test('icons for types and priorities, and initials for people', () => {
@@ -50,7 +50,7 @@ const ticket: Ticket = {
 test('a ticket page: the tracker\'s ticket can be changed from it; acc\'s side shows when acc keeps it; otherwise it offers Track in acc', () => {
   const task = { id: 'ACME-1', title: 'Ready one', brief: 'Brief', source: { kind: 'jira', key: 'ACME-1', url: null }, environment: 'dev', deps: [], labels: [], state: 'todo', blocker: null, run: null, pr: null,
     history: [{ at: '2026-09-01T00:00:00Z', from: null, to: 'todo', by: 'human:me' }, { at: '2026-09-02T00:00:00Z', from: 'todo', to: 'running', by: 'human:me' }], createdAt: '', updatedAt: '' } as never;
-  const base = { project: '/r', tracker: 0, trackerTitle: 'Jira · ACME', key: 'ACME-1', loading: false, error: null, connect: null, checks: [] };
+  const base = { project: '/r', tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira' as const, key: 'ACME-1', loading: false, error: null, connect: null, checks: [] };
   const tracked = ticketModel({ ...base, ticket, row: row('ACME-1', 'todo', 'ready'), task });
   assert.deepEqual(tracked.can, { status: true, assign: true, labels: true, comment: true });
   assert.deepEqual([tracked.status, tracked.sourceKind, tracked.trackable], [{ name: 'In Progress', tone: 'blue' }, 'jira', false]);
@@ -58,7 +58,7 @@ test('a ticket page: the tracker\'s ticket can be changed from it; acc\'s side s
   assert.ok(!tracked.acc!.actions.some((a) => a.command === 'acc.task.show'), 'no Details button on the details page');
   assert.equal(ticketModel({ ...base, ticket, row: null, task: null }).trackable, true);
 
-  const local = ticketModel({ ...base, tracker: null, trackerTitle: null, ticket: null, row: row('ACME-1', 'todo', 'ready'), task });
+  const local = ticketModel({ ...base, tracker: null, trackerTitle: null, trackerKind: null, ticket: null, row: row('ACME-1', 'todo', 'ready'), task });
   assert.deepEqual([local.sourceKind, local.sourceLabel, local.can.comment, local.trackable], ['acc', 'Task kept by acc', false, false]);
   assert.deepEqual(local.body, { blocks: [{ t: 'p', c: [{ t: 'text', text: 'Brief' }] }] }, 'a task acc alone keeps shows its brief, rendered');
   assert.deepEqual(local.status, { name: 'Ready', tone: 'blue' });
@@ -70,7 +70,7 @@ test('messages from the board and ticket pages are checked before anything acts 
     { type: 'move', project: '/r', tracker: 0, key: 'ACME-1', to: 'col-2' },
     { type: 'ticket-action', action: 'comment', text: 'Looks good' }, { type: 'ticket-action', action: 'status' },
     { type: 'open', url: 'https://acme.atlassian.net/browse/ACME-1' },
-    { type: 'toolbar', command: 'acc.jira.connect', arg: 'acme.atlassian.net' },
+    { type: 'toolbar', command: 'acc.trackers.signIn', arg: '{"root":"/r","index":0}' },
   ]) assert.ok(isFromWebview(ok), JSON.stringify(ok));
   for (const bad of [
     { type: 'open', url: 'javascript:alert(1)' }, { type: 'open', url: 'file:///etc/passwd' },
@@ -78,4 +78,14 @@ test('messages from the board and ticket pages are checked before anything acts 
     { type: 'ticket-action', action: 'delete' }, { type: 'ticket-action', action: 'comment', text: 'x'.repeat(70_000) },
     { type: 'toolbar', command: 'workbench.action.terminal.sendSequence' }, { type: 'nope' }, null,
   ]) assert.ok(!isFromWebview(bad), JSON.stringify(bad)?.slice(0, 80));
+});
+
+test('pasted tracker URLs give the organization or site', async () => {
+  const { parseHost } = await import('../src/logic.ts');
+  assert.equal(parseHost('azure', 'https://dev.azure.com/avalign-co/CRM/_boards/board/t/Team/Stories'), 'avalign-co');
+  assert.equal(parseHost('azure', 'acme.visualstudio.com/CRM'), 'acme');
+  assert.equal(parseHost('azure', 'acme'), 'acme');
+  assert.equal(parseHost('azure', 'not a url!'), null);
+  assert.equal(parseHost('jira', 'https://Acme.atlassian.net/jira/software/projects/MSP/boards/1'), 'acme.atlassian.net');
+  assert.equal(parseHost('jira', 'acme'), 'acme.atlassian.net');
 });

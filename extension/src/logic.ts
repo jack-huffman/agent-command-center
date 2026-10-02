@@ -303,3 +303,14 @@ export function isWebviewMenuContext(a: unknown): a is WebviewMenuContext {
   const x = a as { webviewSection?: unknown; accRef?: unknown } | null;
   return !!x && typeof x === 'object' && typeof x.webviewSection === 'string' && !!x.accRef && typeof x.accRef === 'object';
 }
+
+/** Accepts a pasted URL as well as a bare name: dev.azure.com/acme, acme.visualstudio.com, acme.atlassian.net/jira/… */
+export function parseHost(kind: 'jira' | 'azure', input: string): string | null {
+  const s = input.trim().replace(/^https?:\/\//, '');
+  if (kind === 'azure') {
+    const m = /^dev\.azure\.com\/([^/?#]+)/i.exec(s) ?? /^([^./?#]+)\.visualstudio\.com/i.exec(s) ?? /^([A-Za-z0-9][A-Za-z0-9-]*)$/.exec(s);
+    return m ? decodeURIComponent(m[1]!) : null;
+  }
+  const m = /^([a-z0-9-]+\.atlassian\.net)/i.exec(s) ?? /^([a-z0-9-]+)$/i.exec(s);
+  return m ? (m[1]!.includes('.') ? m[1]!.toLowerCase() : `${m[1]!.toLowerCase()}.atlassian.net`) : null;
+}

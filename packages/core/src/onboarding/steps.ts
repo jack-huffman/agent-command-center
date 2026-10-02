@@ -114,12 +114,12 @@ export const STEPS: Step[] = [
   },
   {
     id: 'A3.trackers', part: 'machine', group: 'A3', title: 'Trackers connected',
-    why: 'The Tasks board and ticket pages read Jira and GitHub directly (D-026). Jira needs your API token once; GitHub works through gh.',
-    fix: { text: 'In VSCode: Command Palette → "Agent Command Center: Connect to Jira", with an API token from id.atlassian.com. For a GitHub Project\'s columns, run gh auth refresh -s project as the repo\'s account.' },
+    why: 'The Tasks board and ticket pages read Jira, Azure DevOps and GitHub directly (D-026), each signed in for this repo only (D-027).',
+    fix: { text: 'In VSCode: Command Palette → "Agent Command Center: Add a tracker…" (or "Sign in to a tracker" if it\'s already in the config). For a GitHub Project\'s columns, run gh auth refresh -s project as the repo\'s account.' },
     check(ctx) {
-      const jira = ctx.config?.trackers.some((t) => t.kind === 'jira');
-      if (ctx.config && !jira) return skip('This project doesn\'t use Jira. GitHub Issues work through gh.');
-      return unknown('The Jira token lives in VSCode\'s secret storage, so this can\'t be checked from a terminal. The Tasks board says if it\'s missing.');
+      const signIn = ctx.config?.trackers.some((t) => t.kind === 'jira' || t.kind === 'azure');
+      if (ctx.config && !signIn) return skip('No tracker here needs a sign-in. GitHub Issues work through gh.');
+      return unknown('Sign-ins live in VSCode\'s secret storage, so this can\'t be checked from a terminal. The Tasks board says if one is missing.');
     },
   },
   {

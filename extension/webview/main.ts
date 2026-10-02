@@ -236,7 +236,7 @@ function renderTasks(m: TasksModel): Node[] {
       const toggle = el('div', 'segmented');
       toggle.setAttribute('role', 'group');
       toggle.setAttribute('aria-label', 'Which board');
-      for (const [m, label, ic] of [['tracker', p.boards.length === 1 ? p.boards[0]!.title : 'Tracker boards', p.boards[0]!.kind === 'github' ? 'github' : 'issues'], ['agents', 'Agent board', 'hubot']] as const) {
+      for (const [m, label, ic] of [['tracker', p.boards.length === 1 ? p.boards[0]!.title : 'Tracker boards', KIND_ICON[p.boards[0]!.kind] ?? 'issues'], ['agents', 'Agent board', 'hubot']] as const) {
         const b = el('button', `seg${mode === m ? ' on' : ''}`, icon(ic), label) as HTMLButtonElement;
         b.type = 'button';
         b.setAttribute('aria-pressed', String(mode === m));
@@ -286,7 +286,9 @@ function openable(e: HTMLElement, msg: unknown): HTMLElement {
   return e;
 }
 
-const SOURCE_LABEL: Record<string, string> = { 'jira-board': 'Jira board', 'github-project': 'GitHub Project', 'github-state': 'Open and closed' };
+const SOURCE_LABEL: Record<string, string> = { 'jira-board': 'Jira board', 'github-project': 'GitHub Project', 'github-state': 'Open and closed', 'azure-board': 'Azure board' };
+const KIND_ICON: Record<string, string> = { github: 'github', jira: 'issues', azure: 'azure-devops', acc: 'checklist' };
+const KIND_NAME: Record<string, string> = { github: 'GitHub', jira: 'Jira', azure: 'Azure DevOps' };
 
 function trackerCard(root: string, b: TrackerBoard, c: TrackerCard): HTMLElement {
   const kind = el('span', 'tcard-type', icon(c.typeIcon));
@@ -314,14 +316,14 @@ function trackerCard(root: string, b: TrackerBoard, c: TrackerCard): HTMLElement
 function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
   const tools: Child[] = [];
   if (b.url) {
-    const open = el('button', 'btn ghost', icon('link-external'), b.kind === 'github' ? 'Open in GitHub' : 'Open in Jira') as HTMLButtonElement;
+    const open = el('button', 'btn ghost', icon('link-external'), `Open in ${KIND_NAME[b.kind] ?? 'the tracker'}`) as HTMLButtonElement;
     open.type = 'button';
     open.addEventListener('click', () => api.postMessage({ type: 'open', url: b.url }));
     tools.push(open);
   }
   const out = el('section', 'tracker',
     el('div', 'tracker-head',
-      el('h2', '', icon(b.kind === 'github' ? 'github' : 'issues'), b.title, b.source ? el('span', 'chip', SOURCE_LABEL[b.source] ?? b.source) : null, b.loading ? el('span', 'muted loading', icon('sync~spin'), 'Loading') : null),
+      el('h2', '', icon(KIND_ICON[b.kind] ?? 'issues'), b.title, b.source ? el('span', 'chip', SOURCE_LABEL[b.source] ?? b.source) : null, b.loading ? el('span', 'muted loading', icon('sync~spin'), 'Loading') : null),
       el('div', 'toolbar', ...tools)));
   if (b.error) {
     const fix = b.connect ? el('button', 'btn primary', icon('plug'), b.connect.label) as HTMLButtonElement : null;
@@ -418,7 +420,7 @@ function onDone(msg: { action?: string; ok?: boolean }): void {
 }
 
 function renderTicket(m: TicketModel): Node[] {
-  const sourceIcon = m.sourceKind === 'github' ? 'github' : m.sourceKind === 'jira' ? 'issues' : 'checklist';
+  const sourceIcon = KIND_ICON[m.sourceKind] ?? 'checklist';
   const crumbs = el('div', 'crumbs', icon(sourceIcon), el('span', '', m.sourceLabel), el('span', 'muted', '/'), m.url ? linkTo(m.url, m.key) : el('span', '', m.key));
   const statusEl = m.status ? el('span', `pill tone-${m.status.tone}`, m.status.name) : null;
   let statusCtl: Child = statusEl;
@@ -432,7 +434,7 @@ function renderTicket(m: TicketModel): Node[] {
   const type = m.type ? el('span', 'chip-lg', icon(m.typeIcon), m.type) : null;
   const tools: Child[] = [];
   if (m.url) {
-    const open = el('button', 'btn ghost', icon('link-external'), m.sourceKind === 'jira' ? 'Open in Jira' : m.sourceKind === 'github' ? 'Open in GitHub' : 'Open ticket') as HTMLButtonElement;
+    const open = el('button', 'btn ghost', icon('link-external'), KIND_NAME[m.sourceKind] ? `Open in ${KIND_NAME[m.sourceKind]}` : 'Open ticket') as HTMLButtonElement;
     open.type = 'button';
     open.addEventListener('click', () => api.postMessage({ type: 'open', url: m.url }));
     tools.push(open);

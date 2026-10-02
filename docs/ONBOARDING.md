@@ -34,11 +34,20 @@ Placeholders: `<client>` is the project's short name. `<prod>`, `<qa>` and
 
 - [ ] **A3. Connect the trackers.** Each repo names its own in `.acc/config.json`
   (`"trackers"`). The Tasks tab shows that tracker's board, and every ticket
-  opens as a page you can work from (D-026).
+  opens as a page you can work from (D-026). The easy way is the Command
+  Palette's **Agent Command Center: Add a tracker…**, run in the repo's window.
+  You pick the kind and sign in, then pick the project, team and board from
+  lists, and it writes the config. Sign-ins belong to that repo only (D-027).
+  Sign in again, or sign out, with **Sign in to a tracker** and **Sign out of a
+  tracker**.
+  - **Azure DevOps:** choose **Sign in with Microsoft** and pick the account
+    that belongs to that client. If the client's tenant blocks it, use a
+    personal access token with Work Items: Read & write instead.
+    `{ "kind": "azure", "organization": "acme", "project": "CRM", "board": "Stories" }`,
+    plus `"team"` for a team other than the default.
   - **Jira:** create an API token at
     [id.atlassian.com](https://id.atlassian.com/manage-profile/security/api-tokens),
-    then run **Agent Command Center: Connect to Jira** from the Command Palette.
-    The token is kept in VSCode's secret storage, one per Jira site.
+    then paste it with your email when asked.
     `{ "kind": "jira", "site": "acme.atlassian.net", "project": "ACME" }`, with
     `"board": <id>` to pick a board other than the project's first.
   - **GitHub Issues:** `{ "kind": "github" }` uses the project's repo and

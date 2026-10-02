@@ -129,16 +129,9 @@ export function activate(context: vscode.ExtensionContext): void {
   });
   context.subscriptions.push(panels, tickets);
   trackers.onDidChange(() => panels.post('tasks'));
-  reg('acc.jira.connect', async (site?: unknown) => {
-    const sites = [...new Set(hub.projects.flatMap((p) => trackers.trackers(p)).filter((t) => t.kind === 'jira').map((t) => t.site!))];
-    const chosen = typeof site === 'string' ? site : sites.length === 1 ? sites[0] : await vscode.window.showQuickPick(sites, { title: 'Connect to which Jira site?' });
-    if (!chosen) {
-      if (!sites.length) void vscode.window.showInformationMessage('No project here has a Jira tracker. Add one to .acc/config.json: "trackers": [{ "kind": "jira", "site": "…atlassian.net", "project": "KEY" }]');
-      return;
-    }
-    if (await trackers.connectJira(chosen)) tickets.refresh();
-  });
-  reg('acc.jira.disconnect', () => trackers.disconnectJira());
+  reg('acc.trackers.add', () => trackers.add());
+  reg('acc.trackers.signIn', async (arg?: unknown) => { if (await trackers.signIn(arg)) tickets.refresh(); });
+  reg('acc.trackers.signOut', (arg?: unknown) => trackers.signOut(arg));
   reg('acc.trackers.refresh', () => trackers.loadBoards());
   for (const kind of VIEW_KINDS) reg(`acc.open.${kind}`, () => panels.show(kind));
 

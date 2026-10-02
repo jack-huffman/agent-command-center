@@ -125,16 +125,25 @@ function parseConfig(raw) {
   if (raw.trackers !== void 0) {
     if (!Array.isArray(raw.trackers)) errors.push('"trackers" must be a list.');
     else raw.trackers.forEach((t, i) => {
-      if (!isObj(t) || t.kind !== "github" && t.kind !== "jira") {
-        errors.push(`trackers[${i}]: "kind" must be github or jira.`);
+      if (!isObj(t) || t.kind !== "github" && t.kind !== "jira" && t.kind !== "azure") {
+        errors.push(`trackers[${i}]: "kind" must be github, jira or azure.`);
+        return;
+      }
+      if (t.kind === "azure" && (!isStr(t.organization) || !isStr(t.project))) {
+        errors.push(`trackers[${i}]: an Azure DevOps tracker needs "organization" and "project".`);
+        return;
+      }
+      if (t.prefix !== void 0 && !(isStr(t.prefix) && /^[A-Za-z][A-Za-z0-9]{0,9}$/.test(t.prefix))) {
+        errors.push(`trackers[${i}]: "prefix" must be a few letters, such as AB.`);
         return;
       }
       if (t.kind === "jira" && (!isStr(t.site) || !isStr(t.project))) {
         errors.push(`trackers[${i}]: a Jira tracker needs "site" and "project".`);
         return;
       }
-      if (t.board !== void 0 && t.board !== null && !(Number.isInteger(t.board) && t.board > 0)) {
-        errors.push(`trackers[${i}]: "board" must be a Jira board id or a GitHub Project number.`);
+      const boardOk = t.board === void 0 || t.board === null || (t.kind === "azure" ? isStr(t.board) : Number.isInteger(t.board) && t.board > 0);
+      if (!boardOk) {
+        errors.push(`trackers[${i}]: "board" must be ${t.kind === "azure" ? "an Azure board's name, such as Stories" : "a Jira board id or a GitHub Project number"}.`);
         return;
       }
       trackers.push({
@@ -142,7 +151,10 @@ function parseConfig(raw) {
         site: isStr(t.site) ? t.site : null,
         project: isStr(t.project) ? t.project : null,
         repo: isStr(t.repo) ? t.repo : null,
-        board: Number.isInteger(t.board) ? t.board : null
+        organization: isStr(t.organization) ? t.organization : null,
+        team: isStr(t.team) ? t.team : null,
+        board: Number.isInteger(t.board) || isStr(t.board) ? t.board : null,
+        prefix: isStr(t.prefix) ? t.prefix.toUpperCase() : null
       });
     });
   }
@@ -369,7 +381,7 @@ import { appendFileSync, existsSync as existsSync2, mkdirSync as mkdirSync3, rea
 import { dirname as dirname2 } from "node:path";
 var STATES = ["todo", "running", "review", "rework", "blocked", "done"];
 var ACTORS = ["human", "orchestrator", "builder", "reviewer", "sync"];
-var SOURCE_KINDS = ["github", "jira", "manual"];
+var SOURCE_KINDS = ["github", "jira", "azure", "manual"];
 var emptyLedger = () => ({ schema: 1, seq: 0, tasks: [] });
 function readLedger(file) {
   if (!existsSync2(file)) return emptyLedger();
@@ -1850,12 +1862,12 @@ var STEPS = [
     part: "machine",
     group: "A3",
     title: "Trackers connected",
-    why: "The Tasks board and ticket pages read Jira and GitHub directly (D-026). Jira needs your API token once; GitHub works through gh.",
-    fix: { text: `In VSCode: Command Palette \u2192 "Agent Command Center: Connect to Jira", with an API token from id.atlassian.com. For a GitHub Project's columns, run gh auth refresh -s project as the repo's account.` },
+    why: "The Tasks board and ticket pages read Jira, Azure DevOps and GitHub directly (D-026), each signed in for this repo only (D-027).",
+    fix: { text: `In VSCode: Command Palette \u2192 "Agent Command Center: Add a tracker\u2026" (or "Sign in to a tracker" if it's already in the config). For a GitHub Project's columns, run gh auth refresh -s project as the repo's account.` },
     check(ctx) {
-      const jira = ctx.config?.trackers.some((t) => t.kind === "jira");
-      if (ctx.config && !jira) return skip2("This project doesn't use Jira. GitHub Issues work through gh.");
-      return unknown("The Jira token lives in VSCode's secret storage, so this can't be checked from a terminal. The Tasks board says if it's missing.");
+      const signIn = ctx.config?.trackers.some((t) => t.kind === "jira" || t.kind === "azure");
+      if (ctx.config && !signIn) return skip2("No tracker here needs a sign-in. GitHub Issues work through gh.");
+      return unknown("Sign-ins live in VSCode's secret storage, so this can't be checked from a terminal. The Tasks board says if one is missing.");
     }
   },
   {

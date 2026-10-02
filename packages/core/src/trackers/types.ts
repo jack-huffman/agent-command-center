@@ -4,7 +4,7 @@
  */
 import type { Doc } from './doc.ts';
 
-export type TrackerKind = 'github' | 'jira';
+export type TrackerKind = 'github' | 'jira' | 'azure';
 
 export interface Person {
   /** The tracker's own id: a GitHub login, a Jira accountId. */
@@ -36,7 +36,7 @@ export interface Comment {
 }
 
 export interface Ticket {
-  /** GH-12 for a GitHub issue, or the Jira key, such as MSP-7. The same id acc's ledger uses. */
+  /** GH-12 for a GitHub issue, the Jira key (MSP-7), or AB-123 for an Azure work item. The same id acc's ledger uses. */
   key: string;
   kind: TrackerKind;
   url: string;
@@ -88,7 +88,7 @@ export interface BoardCard {
 
 export interface Board {
   /** What the columns come from: a Jira board, a GitHub Project, or GitHub's open and closed. */
-  source: 'jira-board' | 'github-project' | 'github-state';
+  source: 'jira-board' | 'github-project' | 'github-state' | 'azure-board';
   title: string;
   url: string | null;
   columns: BoardColumn[];
@@ -99,13 +99,18 @@ export interface Board {
 
 export interface TrackerClient {
   readonly kind: TrackerKind;
-  /** "GitHub · owner/repo" or "Jira · MSP", for headings. */
+  /** "GitHub · owner/repo", "Jira · MSP" or "Azure DevOps · Project", for headings. */
   readonly title: string;
   board(): Promise<Board>;
   ticket(key: string): Promise<Ticket>;
   /** The moves this ticket can make right now. */
   transitions(key: string): Promise<Transition[]>;
   transition(key: string, t: Transition, card?: BoardCard): Promise<void>;
+  /**
+   * Moves a card straight to a column, for trackers whose columns aren't just statuses: an Azure board
+   * column can share a state with its neighbour, so the move sets the column itself.
+   */
+  moveToColumn?(card: BoardCard, column: BoardColumn): Promise<void>;
   comment(key: string, markdown: string): Promise<void>;
   me(): Promise<Person>;
   assignable(key: string, query: string): Promise<Person[]>;

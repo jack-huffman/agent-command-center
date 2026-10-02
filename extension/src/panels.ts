@@ -14,7 +14,7 @@ const ALLOWED = new Set([
   'acc.worktree.open', 'acc.worktree.terminal', 'acc.worktree.reveal', 'acc.worktree.remove',
   'acc.env.openOrg', 'acc.env.openGithub', 'acc.env.compare',
   'acc.step.check', 'acc.step.fix', 'acc.step.openSetup', 'acc.step.confirm', 'acc.openGuide', 'acc.openProjectWalkthrough',
-  'acc.jira.connect', 'acc.trackers.refresh',
+  'acc.trackers.signIn', 'acc.trackers.refresh', 'acc.trackers.add',
 ]);
 
 /** What the board needs from the trackers, and what its cards ask for. */

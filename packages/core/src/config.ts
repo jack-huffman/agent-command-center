@@ -27,12 +27,21 @@ export interface Environment {
 }
 
 export interface Tracker {
-  kind: 'github' | 'jira';
+  kind: 'github' | 'jira' | 'azure';
+  /** Jira: the site, such as acme.atlassian.net. */
   site: string | null;
+  /** Jira: the project key. Azure DevOps: the project name. */
   project: string | null;
+  /** GitHub: owner/name. By default, the project's own repo. */
   repo: string | null;
-  /** The board whose columns the Tasks board shows: a Jira board id, or a GitHub Project number. */
-  board: number | null;
+  /** Azure DevOps: the organization, as in dev.azure.com/<organization>. */
+  organization: string | null;
+  /** Azure DevOps: the team whose board to show. By default, the project's default team. */
+  team: string | null;
+  /** The board the Tasks tab shows: a Jira board id, a GitHub Project number, or an Azure board's name. */
+  board: number | string | null;
+  /** Azure DevOps: the work item key prefix, AB by default (AB-123). */
+  prefix: string | null;
 }
 
 export interface Config {
@@ -121,16 +130,25 @@ export function parseConfig(raw: unknown): ParseResult {
   if (raw.trackers !== undefined) {
     if (!Array.isArray(raw.trackers)) errors.push('"trackers" must be a list.');
     else raw.trackers.forEach((t, i) => {
-      if (!isObj(t) || (t.kind !== 'github' && t.kind !== 'jira')) {
-        errors.push(`trackers[${i}]: "kind" must be github or jira.`);
+      if (!isObj(t) || (t.kind !== 'github' && t.kind !== 'jira' && t.kind !== 'azure')) {
+        errors.push(`trackers[${i}]: "kind" must be github, jira or azure.`);
+        return;
+      }
+      if (t.kind === 'azure' && (!isStr(t.organization) || !isStr(t.project))) {
+        errors.push(`trackers[${i}]: an Azure DevOps tracker needs "organization" and "project".`);
+        return;
+      }
+      if (t.prefix !== undefined && !(isStr(t.prefix) && /^[A-Za-z][A-Za-z0-9]{0,9}$/.test(t.prefix))) {
+        errors.push(`trackers[${i}]: "prefix" must be a few letters, such as AB.`);
         return;
       }
       if (t.kind === 'jira' && (!isStr(t.site) || !isStr(t.project))) {
         errors.push(`trackers[${i}]: a Jira tracker needs "site" and "project".`);
         return;
       }
-      if (t.board !== undefined && t.board !== null && !(Number.isInteger(t.board) && (t.board as number) > 0)) {
-        errors.push(`trackers[${i}]: "board" must be a Jira board id or a GitHub Project number.`);
+      const boardOk = t.board === undefined || t.board === null || (t.kind === 'azure' ? isStr(t.board) : Number.isInteger(t.board) && (t.board as number) > 0);
+      if (!boardOk) {
+        errors.push(`trackers[${i}]: "board" must be ${t.kind === 'azure' ? 'an Azure board\'s name, such as Stories' : 'a Jira board id or a GitHub Project number'}.`);
         return;
       }
       trackers.push({
@@ -138,7 +156,10 @@ export function parseConfig(raw: unknown): ParseResult {
         site: isStr(t.site) ? t.site : null,
         project: isStr(t.project) ? t.project : null,
         repo: isStr(t.repo) ? t.repo : null,
-        board: Number.isInteger(t.board) ? (t.board as number) : null,
+        organization: isStr(t.organization) ? t.organization : null,
+        team: isStr(t.team) ? t.team : null,
+        board: Number.isInteger(t.board) || isStr(t.board) ? (t.board as number | string) : null,
+        prefix: isStr(t.prefix) ? t.prefix.toUpperCase() : null,
       });
     });
   }

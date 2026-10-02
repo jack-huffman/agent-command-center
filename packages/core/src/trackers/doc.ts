@@ -64,10 +64,12 @@ const HTML_MARKS: Record<string, Mark> = { b: 'strong', strong: 'strong', i: 'em
 function inlines(tokens: Token[] | undefined, opts: MarkdownOptions, marks: Mark[] = [], href?: string): Inline[] {
   const out: Inline[] = [];
   const stack = [...marks];
+  // Each mark once, however it was reached: **<b>x</b>** is bold, not bold twice.
+  const mk = () => (stack.length ? { marks: [...new Set(stack)] } : {});
   const text = (s: string) => {
     if (!s) return;
     if (href || !(opts.issueUrl || opts.userUrl)) {
-      out.push({ t: 'text', text: decode(s), ...(stack.length ? { marks: [...stack] } : {}), ...(href ? { href } : {}) });
+      out.push({ t: 'text', text: decode(s), ...mk(), ...(href ? { href } : {}) });
       return;
     }
     // GitHub references: #12 and @someone become links.
@@ -76,11 +78,11 @@ function inlines(tokens: Token[] | undefined, opts: MarkdownOptions, marks: Mark
       const start = m.index! + m[1]!.length;
       const url = m[3] && opts.issueUrl ? opts.issueUrl(Number(m[3])) : m[4] && opts.userUrl ? opts.userUrl(m[4]) : null;
       if (!url) continue;
-      if (start > last) out.push({ t: 'text', text: decode(s.slice(last, start)), ...(stack.length ? { marks: [...stack] } : {}) });
-      out.push({ t: 'text', text: m[2]!, href: url, ...(stack.length ? { marks: [...stack] } : {}) });
+      if (start > last) out.push({ t: 'text', text: decode(s.slice(last, start)), ...mk() });
+      out.push({ t: 'text', text: m[2]!, href: url, ...mk() });
       last = start + m[2]!.length;
     }
-    if (last < s.length) out.push({ t: 'text', text: decode(s.slice(last)), ...(stack.length ? { marks: [...stack] } : {}) });
+    if (last < s.length) out.push({ t: 'text', text: decode(s.slice(last)), ...mk() });
   };
   for (const tok of tokens ?? []) {
     switch (tok.type) {
@@ -89,7 +91,7 @@ function inlines(tokens: Token[] | undefined, opts: MarkdownOptions, marks: Mark
       case 'strong': out.push(...inlines(tok.tokens, opts, [...stack, 'strong'], href)); break;
       case 'em': out.push(...inlines(tok.tokens, opts, [...stack, 'em'], href)); break;
       case 'del': out.push(...inlines(tok.tokens, opts, [...stack, 'strike'], href)); break;
-      case 'codespan': out.push({ t: 'text', text: decode(tok.text), marks: [...stack, 'code'], ...(href ? { href } : {}) }); break;
+      case 'codespan': out.push({ t: 'text', text: decode(tok.text), marks: [...new Set<Mark>([...stack, 'code'])], ...(href ? { href } : {}) }); break;
       case 'br': out.push({ t: 'br' }); break;
       case 'link': {
         const safe = safeHref(tok.href);
@@ -374,4 +376,181 @@ function mdBlocks(bs: Block[], indent = ''): string[] {
 /** A document as markdown: how a Jira ticket's description reaches a builder's brief. */
 export function toMarkdown(doc: Doc): string {
   return mdBlocks(doc.blocks).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// ---------------------------------------------------------------- HTML → Doc, for Azure DevOps
+
+interface HNode { tag: string; attrs: Record<string, string>; kids: (HNode | string)[] }
+
+const VOID = new Set(['br', 'img', 'hr', 'input', 'meta', 'link', 'col', 'wbr', 'source']);
+/** Tags whose content is never words on a page. */
+const SKIP = new Set(['script', 'style', 'head', 'title', 'template', 'noscript', 'svg', 'iframe', 'object']);
+const BLOCK = new Set(['p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'pre', 'blockquote', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'hr', 'section', 'article', 'header', 'footer', 'figure', 'details', 'summary']);
+/** Opening one of these ends an open element of the same kind, as browsers do for <p><p> and <li><li>. */
+const AUTO_CLOSE: Record<string, string[]> = { p: ['p'], li: ['li'], tr: ['tr', 'td', 'th'], td: ['td', 'th'], th: ['td', 'th'] };
+
+function attrsOf(s: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const m of s.matchAll(/([a-zA-Z_:][\w:.-]*)\s*(?:=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g)) out[m[1]!.toLowerCase()] = decode(m[2] ?? m[3] ?? m[4] ?? '');
+  return out;
+}
+
+/** A forgiving parse into a small tree. It's only ever read for words and structure, never rendered as HTML. */
+function parseHtml(html: string): HNode {
+  const root: HNode = { tag: '#root', attrs: {}, kids: [] };
+  const stack: HNode[] = [root];
+  const top = () => stack[stack.length - 1]!;
+  let skipping: string | null = null;
+  for (const m of html.matchAll(/<!--[\s\S]*?-->|<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b((?:[^>"']|"[^"]*"|'[^']*')*)>|([^<]+)|</g)) {
+    if (m[0].startsWith('<!--')) continue;
+    if (m[4] !== undefined || m[0] === '<') { if (!skipping) top().kids.push(m[4] ?? '<'); continue; }
+    const closing = m[1] === '/';
+    const tag = m[2]!.toLowerCase();
+    if (skipping) { if (closing && tag === skipping) skipping = null; continue; }
+    if (SKIP.has(tag)) { if (!closing && !/\/\s*$/.test(m[3] ?? '')) skipping = tag; continue; }
+    if (closing) {
+      const i = stack.map((n) => n.tag).lastIndexOf(tag);
+      if (i > 0) stack.length = i;
+      continue;
+    }
+    const closes = AUTO_CLOSE[tag];
+    if (closes) {
+      const i = stack.map((n) => n.tag).findLastIndex((t) => closes.includes(t));
+      const fence = stack.map((n) => n.tag).findLastIndex((t) => t === 'ul' || t === 'ol' || t === 'table');
+      if (i > 0 && i > fence) stack.length = i;
+    }
+    const node: HNode = { tag, attrs: attrsOf(m[3] ?? ''), kids: [] };
+    top().kids.push(node);
+    if (!VOID.has(tag) && !/\/\s*$/.test(m[3] ?? '')) stack.push(node);
+  }
+  return root;
+}
+
+const MARK_TAGS: Record<string, Mark> = { b: 'strong', strong: 'strong', i: 'em', em: 'em', u: 'underline', ins: 'underline', s: 'strike', strike: 'strike', del: 'strike', code: 'code', kbd: 'code', tt: 'code' };
+
+function htmlInlines(nodes: (HNode | string)[], marks: Mark[] = [], href?: string): Inline[] {
+  const out: Inline[] = [];
+  for (const n of nodes) {
+    if (typeof n === 'string') {
+      const text = decode(n).replace(/\s+/g, ' ');
+      if (text) out.push({ t: 'text', text, ...(marks.length ? { marks } : {}), ...(href ? { href } : {}) });
+      continue;
+    }
+    if (n.tag === 'br') { out.push({ t: 'br' }); continue; }
+    if (n.tag === 'img') { out.push({ t: 'image', alt: n.attrs.alt || n.attrs.title || 'image', href: safeHref(n.attrs.src) }); continue; }
+    if (n.tag === 'a' && 'data-vss-mention' in n.attrs) { out.push({ t: 'mention', text: textOf(n).trim() || '@someone' }); continue; }
+    if (n.tag === 'a') { out.push(...htmlInlines(n.kids, marks, safeHref(n.attrs.href) ?? href)); continue; }
+    const mark = MARK_TAGS[n.tag];
+    out.push(...htmlInlines(n.kids, mark && !marks.includes(mark) ? [...marks, mark] : marks, href));
+  }
+  return out;
+}
+
+const textOf = (n: HNode | string): string => (typeof n === 'string' ? decode(n) : n.tag === 'br' ? '\n' : n.kids.map(textOf).join(''));
+
+/** Trims a paragraph's edges and joins neighbouring runs that look the same. */
+function tidy(c: Inline[]): Inline[] {
+  const out: Inline[] = [];
+  for (const i of c) {
+    const prev = out[out.length - 1];
+    if (i.t === 'text' && prev?.t === 'text' && prev.href === i.href && (prev.marks ?? []).join() === (i.marks ?? []).join()) prev.text += i.text;
+    else out.push(i.t === 'text' ? { ...i } : i);
+  }
+  const first = out[0];
+  if (first?.t === 'text') first.text = first.text.replace(/^\s+/, '');
+  const last = out[out.length - 1];
+  if (last?.t === 'text') last.text = last.text.replace(/\s+$/, '');
+  while (out[out.length - 1]?.t === 'br') out.pop();
+  return out.filter((i) => i.t !== 'text' || i.text !== '');
+}
+
+function htmlBlocks(nodes: (HNode | string)[]): Block[] {
+  const out: Block[] = [];
+  let run: (HNode | string)[] = [];
+  const flush = () => {
+    const c = tidy(htmlInlines(run));
+    run = [];
+    if (!c.length) return;
+    if (c.length === 1 && c[0]!.t === 'image') out.push({ t: 'media', label: c[0]!.alt, href: c[0]!.href });
+    else out.push({ t: 'p', c });
+  };
+  for (const n of nodes) {
+    if (typeof n === 'string' || !BLOCK.has(n.tag)) { run.push(n); continue; }
+    flush();
+    switch (n.tag) {
+      case 'h1': case 'h2': case 'h3': case 'h4': case 'h5': case 'h6': {
+        const c = tidy(htmlInlines(n.kids));
+        if (c.length) out.push({ t: 'h', level: Number(n.tag[1]), c });
+        break;
+      }
+      case 'ul': case 'ol': {
+        const items = n.kids.filter((k): k is HNode => typeof k !== 'string' && k.tag === 'li').map((li) => ({ c: htmlBlocks(li.kids) }));
+        const start = Number(n.attrs.start);
+        if (items.length) out.push({ t: 'list', ordered: n.tag === 'ol', ...(n.tag === 'ol' && start > 1 ? { start } : {}), items });
+        break;
+      }
+      case 'li': out.push(...htmlBlocks(n.kids)); break;
+      case 'pre': out.push({ t: 'code', lang: null, text: textOf(n).replace(/^\n/, '').replace(/\s+$/, '') }); break;
+      case 'blockquote': out.push({ t: 'quote', c: htmlBlocks(n.kids) }); break;
+      case 'hr': out.push({ t: 'hr' }); break;
+      case 'table': {
+        const rows: HNode[] = [];
+        const collect = (x: HNode) => { for (const k of x.kids) if (typeof k !== 'string') (k.tag === 'tr' ? rows.push(k) : collect(k)); };
+        collect(n);
+        const cellsOf = (r: HNode) => r.kids.filter((k): k is HNode => typeof k !== 'string' && (k.tag === 'td' || k.tag === 'th'));
+        const cell = (c: HNode) => htmlBlocks(c.kids).flatMap((b, i): Inline[] => { const w = b.t === 'p' || b.t === 'h' ? b.c : []; return i ? [{ t: 'br' }, ...w] : w; });
+        const headed = rows[0] ? cellsOf(rows[0]).every((c) => c.tag === 'th') : false;
+        if (rows.length) out.push({ t: 'table', head: headed ? cellsOf(rows[0]!).map(cell) : null, rows: (headed ? rows.slice(1) : rows).map((r) => cellsOf(r).map(cell)) });
+        break;
+      }
+      default: out.push(...htmlBlocks(n.kids)); // div, p, section… are just containers here
+    }
+  }
+  flush();
+  return out;
+}
+
+/** HTML from a ticket (Azure DevOps keeps descriptions and comments as HTML), as a Doc. */
+export function fromHtml(html: string | null | undefined): Doc {
+  if (!html?.trim()) return emptyDoc();
+  return { blocks: htmlBlocks(parseHtml(html).kids) };
+}
+
+// ---------------------------------------------------------------- Doc → HTML, for comments sent to Azure DevOps
+
+const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const TAG: Record<Mark, string> = { strong: 'b', em: 'i', code: 'code', strike: 's', underline: 'u' };
+
+function htmlOfInlines(c: Inline[]): string {
+  return c.map((i) => {
+    if (i.t === 'br') return '<br>';
+    if (i.t === 'mention') return esc(i.text);
+    if (i.t === 'image') return i.href ? `<a href="${esc(i.href)}">${esc(i.alt)}</a>` : esc(i.alt);
+    let s = esc(i.text);
+    for (const m of i.marks ?? []) s = `<${TAG[m]}>${s}</${TAG[m]}>`;
+    return i.href ? `<a href="${esc(i.href)}">${s}</a>` : s;
+  }).join('');
+}
+
+function htmlOfBlocks(bs: Block[]): string {
+  return bs.map((b) => {
+    switch (b.t) {
+      case 'p': return `<p>${htmlOfInlines(b.c)}</p>`;
+      case 'h': return `<h${b.level}>${htmlOfInlines(b.c)}</h${b.level}>`;
+      case 'list': {
+        const tag = b.ordered ? 'ol' : 'ul';
+        return `<${tag}${b.start ? ` start="${b.start}"` : ''}>${b.items.map((it) => `<li>${it.checked === undefined ? '' : it.checked ? '☑ ' : '☐ '}${htmlOfBlocks(it.c)}</li>`).join('')}</${tag}>`;
+      }
+      case 'code': return `<pre><code>${esc(b.text)}</code></pre>`;
+      case 'quote': return `<blockquote>${b.label ? `<p><b>${esc(b.label)}</b></p>` : ''}${htmlOfBlocks(b.c)}</blockquote>`;
+      case 'hr': return '<hr>';
+      case 'table': return `<table>${b.head ? `<tr>${b.head.map((c) => `<th>${htmlOfInlines(c)}</th>`).join('')}</tr>` : ''}${b.rows.map((r) => `<tr>${r.map((c) => `<td>${htmlOfInlines(c)}</td>`).join('')}</tr>`).join('')}</table>`;
+      case 'media': return `<p>${b.href ? `<a href="${esc(b.href)}">${esc(b.label)}</a>` : esc(b.label)}</p>`;
+    }
+  }).join('');
+}
+
+/** A document as HTML with every word escaped: how a comment typed in VSCode reaches Azure DevOps. */
+export function toHtml(doc: Doc): string {
+  return htmlOfBlocks(doc.blocks);
 }

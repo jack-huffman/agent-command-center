@@ -26,7 +26,7 @@ interface Open {
 }
 
 /** Commands a ticket page may run, the same ones its task's card offers. */
-const ALLOWED = new Set(['acc.task.dispatch', 'acc.task.attach', 'acc.task.openWorktree', 'acc.task.abandon', 'acc.task.cleanup', 'acc.task.move', 'acc.task.block', 'acc.task.unblock', 'acc.jira.connect']);
+const ALLOWED = new Set(['acc.task.dispatch', 'acc.task.attach', 'acc.task.openWorktree', 'acc.task.abandon', 'acc.task.cleanup', 'acc.task.move', 'acc.task.block', 'acc.task.unblock', 'acc.trackers.signIn']);
 
 /**
  * One editor tab per ticket, like the tracker's own ticket page: rendered description and comments,
@@ -101,7 +101,8 @@ export class TicketPanels implements vscode.Disposable {
     } catch (e) {
       o.error = (e as Error).message;
       const t = this.trackers.trackers(p)[o.tracker];
-      o.connect = (e as { kind?: string }).kind === 'auth' && t?.kind === 'jira' ? { command: 'acc.jira.connect', label: 'Connect to Jira', arg: t.site! } : null;
+      o.connect = (e as { kind?: string }).kind === 'auth' && t && t.kind !== 'github'
+        ? { command: 'acc.trackers.signIn', label: t.kind === 'jira' ? 'Sign in to Jira' : 'Sign in to Azure DevOps', arg: JSON.stringify({ root: p.root, index: o.tracker }) } : null;
     } finally {
       o.loading = false;
     }
@@ -124,9 +125,9 @@ export class TicketPanels implements vscode.Disposable {
     if (!p || !o.panel.visible) return;
     const row = this.hub.taskRows(p.root).find((r) => r.id === o.key) ?? null;
     const task = this.hub.ledger(p.root)?.tasks.find((t) => t.id === o.key) ?? null;
-    const trackerTitle = o.tracker !== null ? (this.trackers.boardStates(p.root)[o.tracker]?.title ?? this.trackers.trackers(p)[o.tracker]?.kind ?? null) : null;
+    const tracker = o.tracker !== null ? this.trackers.trackers(p)[o.tracker] : undefined;
     const model = ticketModel({
-      project: p.root, tracker: o.tracker, trackerTitle: trackerTitle === 'github' ? 'GitHub' : trackerTitle === 'jira' ? 'Jira' : trackerTitle, key: o.key,
+      project: p.root, tracker: o.tracker, trackerTitle: tracker ? this.trackers.title(tracker) : null, trackerKind: tracker?.kind ?? null, key: o.key,
       ticket: o.ticket, loading: o.loading, error: o.error, connect: o.connect, row, task, checks: task ? await this.checks(p, task.run?.branch ?? null) : [],
     });
     void o.panel.webview.postMessage({ type: 'state', model });

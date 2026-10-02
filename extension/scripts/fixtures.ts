@@ -149,7 +149,7 @@ export function sampleTicket(now = Date.now()): TicketModel {
     createdAt: new Date(now - 4 * 86_400_000).toISOString(), updatedAt: new Date(now - 12 * 60_000).toISOString(),
   } as unknown as Task;
   return ticketModel({
-    project: ROOT, tracker: 0, trackerTitle: 'Jira · ACME', key: 'ACME-12', ticket, loading: false, error: null, connect: null, row, task,
+    project: ROOT, tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira', key: 'ACME-12', ticket, loading: false, error: null, connect: null, row, task,
     checks: [{ gate: 'format', status: 'pass', summary: '3 changed files formatted.' }, { gate: 'static', status: 'pass', summary: 'No violations at severity 2 or worse.' }, { gate: 'validate', status: 'skip', summary: 'Not run on this commit' }],
   });
 }

@@ -11,7 +11,7 @@ export type State = (typeof STATES)[number];
 export const ACTORS = ['human', 'orchestrator', 'builder', 'reviewer', 'sync'] as const;
 export type Actor = (typeof ACTORS)[number];
 
-export const SOURCE_KINDS = ['github', 'jira', 'manual'] as const;
+export const SOURCE_KINDS = ['github', 'jira', 'azure', 'manual'] as const;
 export type SourceKind = (typeof SOURCE_KINDS)[number];
 
 export interface Source {

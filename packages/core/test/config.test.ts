@@ -109,3 +109,14 @@ test('loadConfig explains a missing or broken file', () => {
   const dir = tempDir();
   assert.throws(() => loadConfig(join(dir, 'nope.json')), /Run "acc init" first/);
 });
+
+test('an Azure DevOps tracker names its organization and project, and may name a team, board and key prefix', async () => {
+  const { parseConfig } = await import('../src/config.ts');
+  const base = { schema: 1, project: 'P', profile: 'generic', environments: [{ name: 'main', default: true }] };
+  const ok = parseConfig({ ...base, trackers: [{ kind: 'azure', organization: 'acme', project: 'CRM', team: 'Sales', board: 'Stories', prefix: 'av' }] });
+  assert.deepEqual(ok.errors, []);
+  assert.deepEqual(ok.config!.trackers[0], { kind: 'azure', site: null, project: 'CRM', repo: null, organization: 'acme', team: 'Sales', board: 'Stories', prefix: 'AV' });
+  assert.match(parseConfig({ ...base, trackers: [{ kind: 'azure', project: 'CRM' }] }).errors.join(), /needs "organization" and "project"/);
+  assert.match(parseConfig({ ...base, trackers: [{ kind: 'azure', organization: 'a', project: 'b', board: 3 }] }).errors.join(), /an Azure board's name/);
+  assert.match(parseConfig({ ...base, trackers: [{ kind: 'jira', site: 's', project: 'K', board: 'Main' }] }).errors.join(), /Jira board id/);
+});

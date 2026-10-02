@@ -285,3 +285,144 @@ test('a document goes back to markdown for a builder\'s brief, and survives the 
   assert.deepEqual(fromMarkdown(out), fromMarkdown(md), 'markdown → doc → markdown keeps the meaning');
   assert.match(toMarkdown(fromAdf({ type: 'doc', content: [{ type: 'panel', attrs: { panelType: 'info' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Heads up' }] }] }] })), /^> \*\*Info\*\*\n>\n> Heads up$/);
 });
+
+// ---------------------------------------------------------------- Azure DevOps
+
+test('HTML from Azure becomes the same blocks: structure and marks kept, scripts and markup gone', async () => {
+  const { fromHtml, toHtml } = await import('../src/trackers/doc.ts');
+  const doc = fromHtml([
+    '<div>As a <b>support lead</b>, I want <i>premium</i> cases <span style="color:red">escalated</span>&nbsp;&amp; flagged.<br>Second line</div>',
+    '<h2>Steps</h2><ol><li>Open a case<li>Wait <u>two</u> hours</ol>',
+    '<ul><li><a href="https://x.y/doc">Spec</a> and <a href="javascript:alert(1)">bad</a></li><li><a href="#" data-vss-mention="version:2.0,abc">@Pat Lee</a></li></ul>',
+    '<p><img src="https://dev.azure.com/acme/_apis/wit/attachments/1?fileName=shot.png" alt="shot.png"></p>',
+    '<table><tr><th>Priority</th><th>After</th></tr><tr><td>High</td><td>2 h</td></tr></table>',
+    '<pre>line 1\n  line 2</pre><script>alert(1)</script><style>p{}</style><!-- note --><p>End &lt;tag&gt;</p>',
+  ].join(''));
+  const [p1, h, ol, ul, img, table, pre, end] = doc.blocks;
+  assert.deepEqual((p1 as { c: unknown[] }).c, [
+    { t: 'text', text: 'As a ' }, { t: 'text', text: 'support lead', marks: ['strong'] }, { t: 'text', text: ', I want ' }, { t: 'text', text: 'premium', marks: ['em'] },
+    { t: 'text', text: ' cases escalated & flagged.'.replace(' ', ' ') }, { t: 'br' }, { t: 'text', text: 'Second line' },
+  ]);
+  assert.deepEqual(h, { t: 'h', level: 2, c: [{ t: 'text', text: 'Steps' }] });
+  assert.deepEqual((ol as { items: unknown[] }).items.length, 2, 'unclosed <li>s still make two items');
+  const links = JSON.stringify(ul);
+  assert.ok(links.includes('"href":"https://x.y/doc"') && !links.includes('javascript:'));
+  assert.ok(links.includes('"t":"mention","text":"@Pat Lee"'));
+  assert.deepEqual(img, { t: 'media', label: 'shot.png', href: 'https://dev.azure.com/acme/_apis/wit/attachments/1?fileName=shot.png' });
+  assert.deepEqual(table, { t: 'table', head: [[{ t: 'text', text: 'Priority' }], [{ t: 'text', text: 'After' }]], rows: [[[{ t: 'text', text: 'High' }], [{ t: 'text', text: '2 h' }]]] });
+  assert.deepEqual(pre, { t: 'code', lang: null, text: 'line 1\n  line 2' });
+  assert.deepEqual(end, { t: 'p', c: [{ t: 'text', text: 'End <tag>' }] });
+  assert.ok(!JSON.stringify(doc).includes('alert'), 'script contents never become words');
+  assert.equal(toHtml(fromMarkdown('Say **<b>hi</b>** & [go](https://x.y)')), '<p>Say <b>hi</b> &amp; <a href="https://x.y">go</a></p>', 'bold once, however it was written');
+  assert.equal(toHtml(fromMarkdown('If `a < b` and x > "y"')), '<p>If <code>a &lt; b</code> and x &gt; &quot;y&quot;</p>', 'every word going out is escaped');
+});
+
+/** A stand-in for Azure DevOps: answers by method and path prefix, and records each request. */
+function fakeAzure(routes: [string, unknown | ((body: unknown) => unknown)][], opts: { status?: number; contentType?: string; headers?: Record<string, string> } = {}) {
+  const calls: { method: string; path: string; body: unknown; auth: string | null; type: string | null }[] = [];
+  const f = (async (url: string, init: RequestInit = {}) => {
+    const path = url.replace('https://dev.azure.com/acme', '');
+    const method = init.method ?? 'GET';
+    const body = init.body ? JSON.parse(String(init.body)) : undefined;
+    const h = (init.headers ?? {}) as Record<string, string>;
+    calls.push({ method, path, body, auth: h.Authorization ?? null, type: h['Content-Type'] ?? null });
+    const hit = routes.find(([k]) => `${method} ${path}`.startsWith(k));
+    if (!hit) return new Response(JSON.stringify({ message: `no route ${method} ${path}` }), { status: 404 });
+    const payload = typeof hit[1] === 'function' ? (hit[1] as (b: unknown) => unknown)(body) : hit[1];
+    return new Response(JSON.stringify(payload ?? {}), { status: opts.status ?? 200, headers: { 'content-type': opts.contentType ?? 'application/json', ...opts.headers } });
+  }) as unknown as typeof fetch;
+  return { fetch: f, calls };
+}
+
+const COLUMNS = [
+  { id: 'c0', name: 'New', columnType: 'incoming', stateMappings: { 'User Story': 'New', Bug: 'New' } },
+  { id: 'c1', name: 'Dev', columnType: 'inProgress', stateMappings: { 'User Story': 'Active', Bug: 'Active' } },
+  { id: 'c2', name: 'Code Review', columnType: 'inProgress', stateMappings: { 'User Story': 'Active', Bug: 'Active' } },
+  { id: 'c3', name: 'Closed', columnType: 'outgoing', stateMappings: { 'User Story': 'Closed', Bug: 'Closed' } },
+];
+const COL_FIELD = 'WEF_ABC_Kanban.Column';
+const boardRoutes = (items: unknown[]): [string, unknown][] => [
+  ['GET /CRM/_apis/projects/CRM?', {}],
+  ['GET /_apis/projects/CRM?', { defaultTeam: { name: 'CRM Team' } }],
+  ['GET /CRM/CRM%20Team/_apis/work/boards?', { value: [{ id: 'b1', name: 'Epics' }, { id: 'b2', name: 'Features' }, { id: 'b3', name: 'Stories' }] }],
+  ['GET /CRM/CRM%20Team/_apis/work/boards/b3?', { columns: COLUMNS, fields: { columnField: { referenceName: COL_FIELD } } }],
+  ['GET /CRM/CRM%20Team/_apis/work/teamsettings/teamfieldvalues', { field: { referenceName: 'System.AreaPath' }, values: [{ value: "CRM\\Sales O'Brien", includeChildren: true }] }],
+  ['POST /CRM/CRM%20Team/_apis/wit/wiql', { workItems: [{ id: 101 }, { id: 102 }, { id: 103 }] }],
+  ['POST /CRM/_apis/wit/workitemsbatch', { value: items }],
+  ['PATCH /CRM/_apis/wit/workitems/', {}],
+];
+
+test('an Azure board: the team\'s Kanban columns, cards placed by their board column, and a move sets column and state', async () => {
+  const { AzureClient } = await import('../src/trackers/azure.ts');
+  const items = [
+    { id: 101, fields: { 'System.Title': 'Escalate premium cases', 'System.State': 'Active', 'System.WorkItemType': 'User Story', 'System.AssignedTo': { displayName: 'Pat Lee', uniqueName: 'pat@acme.com' }, 'System.Tags': 'service; sla', 'Microsoft.VSTS.Common.Priority': 2, [COL_FIELD]: 'Code Review' } },
+    { id: 102, fields: { 'System.Title': 'Fix welcome email', 'System.State': 'New', 'System.WorkItemType': 'Bug', 'Microsoft.VSTS.Common.Priority': 1 } },
+    { id: 103, fields: { 'System.Title': 'A task the board doesn\'t show', 'System.State': 'Active', 'System.WorkItemType': 'Task' } },
+  ];
+  const { fetch: f, calls } = fakeAzure(boardRoutes(items));
+  const az = new AzureClient({ organization: 'acme', project: 'CRM', auth: async () => 'Bearer tok', fetch: f });
+  const b = await az.board();
+  assert.equal(b.source, 'azure-board');
+  assert.equal(b.title, 'Stories · CRM Team', 'the requirements board, not Epics');
+  assert.deepEqual(b.columns.map((c) => [c.name, c.category]), [['New', 'todo'], ['Dev', 'doing'], ['Code Review', 'doing'], ['Closed', 'done']]);
+  assert.deepEqual(b.cards.map((c) => [c.key, c.status.id, c.status.name, c.priority]), [['AB-101', 'Code Review', 'Active', 'High (2)'], ['AB-102', 'New', 'New', 'Highest (1)']], 'two columns share Active; the board column decides');
+  assert.deepEqual(b.cards[0]!.labels.map((l) => l.name), ['service', 'sla']);
+  const wiql = (calls.find((c) => c.path.includes('/wiql'))!.body as { query: string }).query;
+  assert.match(wiql, /\[System\.WorkItemType\] IN \('User Story', 'Bug'\)/);
+  assert.match(wiql, /\[System\.AreaPath\] UNDER 'CRM\\Sales O''Brien'/, 'quotes are doubled');
+  assert.match(wiql, /NOT IN \('Closed'\) OR \[System\.ChangedDate\] >= @Today - 30/);
+  assert.ok(calls.every((c) => c.auth === 'Bearer tok'));
+
+  await az.moveToColumn(b.cards[1]!, b.columns[2]!);
+  const patch = calls.at(-1)!;
+  assert.equal(patch.type, 'application/json-patch+json');
+  assert.deepEqual(patch.body, [{ op: 'add', path: `/fields/${COL_FIELD}`, value: 'Code Review' }, { op: 'add', path: '/fields/System.State', value: 'Active' }]);
+  await az.moveToColumn(b.cards[0]!, b.columns[1]!);
+  assert.deepEqual(calls.at(-1)!.body, [{ op: 'add', path: `/fields/${COL_FIELD}`, value: 'Dev' }], 'same state: only the column changes');
+});
+
+test('an Azure work item: HTML or markdown fields, acceptance criteria, comments, links, and every write as a JSON patch', async () => {
+  const { AzureClient } = await import('../src/trackers/azure.ts');
+  const { fetch: f, calls } = fakeAzure([
+    ['GET /CRM/_apis/wit/workitems/101?$expand', { id: 101, fields: {
+      'System.Title': 'Escalate premium cases', 'System.State': 'Active', 'System.WorkItemType': 'User Story', 'System.Tags': 'sla',
+      'System.Description': '<div>Premium cases <b>escalate</b>.</div>', 'Microsoft.VSTS.Common.AcceptanceCriteria': '- [ ] Tier 2 queue\n- [x] Owner told',
+      'System.CreatedBy': { displayName: 'Jo', uniqueName: 'jo@acme.com' }, 'System.CreatedDate': '2026-09-01T00:00:00Z', 'System.ChangedDate': '2026-09-02T00:00:00Z',
+    }, multilineFieldsFormat: { 'Microsoft.VSTS.Common.AcceptanceCriteria': 'Markdown' },
+    relations: [{ rel: 'System.LinkTypes.Hierarchy-Reverse', url: 'https://dev.azure.com/acme/xyz/_apis/wit/workItems/90' }, { rel: 'ArtifactLink', url: 'vstfs:///Git/Commit/1' }] }],
+    ['GET /CRM/_apis/wit/workitemtypes/User%20Story/states', { value: [{ name: 'New', category: 'Proposed' }, { name: 'Active', category: 'InProgress' }, { name: 'Resolved', category: 'Resolved' }, { name: 'Closed', category: 'Completed' }, { name: 'Removed', category: 'Removed' }] }],
+    ['GET /CRM/_apis/wit/workItems/101/comments', { comments: [{ id: 7, text: '<p>On <i>it</i></p>', createdBy: { displayName: 'Pat Lee' }, createdDate: '2026-09-01T02:00:00Z' }] }],
+    ['POST /CRM/_apis/wit/workitemsbatch', { value: [{ id: 90, fields: { 'System.Title': 'Premium support' } }] }],
+    ['GET /CRM/_apis/wit/workitems/101?fields=System.State', { fields: { 'System.State': 'Active', 'System.WorkItemType': 'User Story' } }],
+    ['GET /CRM/_apis/wit/workitems/101?fields=System.Tags', { fields: { 'System.Tags': 'sla; old' } }],
+    ['POST /CRM/_apis/wit/workItems/101/comments', { id: 8 }],
+    ['PATCH /CRM/_apis/wit/workitems/101', {}],
+  ]);
+  const az = new AzureClient({ organization: 'acme', project: 'CRM', auth: async () => 'Basic x', fetch: f, prefix: 'av' });
+  const t = await az.ticket('AV-101');
+  assert.deepEqual([t.key, t.kind, t.status.name, t.status.category, t.reporter!.name], ['AV-101', 'azure', 'Active', 'doing', 'Jo']);
+  assert.equal(t.url, 'https://dev.azure.com/acme/CRM/_workitems/edit/101');
+  assert.deepEqual(t.body.blocks.map((b) => b.t), ['p', 'h', 'list'], 'description, then its acceptance criteria under a heading');
+  assert.equal((t.body.blocks[2] as { items: { checked?: boolean }[] }).items[1]!.checked, true, 'markdown fields are read as markdown');
+  assert.deepEqual(t.comments[0]!.body, { blocks: [{ t: 'p', c: [{ t: 'text', text: 'On ' }, { t: 'text', text: 'it', marks: ['em'] }] }] });
+  assert.deepEqual(t.related, [{ key: 'AV-90', title: 'Premium support', relation: 'parent', url: 'https://dev.azure.com/acme/CRM/_workitems/edit/90' }]);
+  assert.match(t.markdown, /Premium cases \*\*escalate\*\*/);
+  assert.deepEqual((await az.transitions('AV-101')).map((x) => x.name), ['New', 'Resolved', 'Closed'], 'not where it is, and never Removed');
+  await az.comment('AV-101', 'Looks **good**');
+  assert.deepEqual(calls.at(-1)!.body, { text: '<p>Looks <b>good</b></p>' });
+  await az.setLabels('AV-101', ['new'], ['old']);
+  assert.deepEqual(calls.at(-1)!.body, [{ op: 'add', path: '/fields/System.Tags', value: 'sla; new' }]);
+  await az.assign('AV-101', []);
+  assert.deepEqual(calls.at(-1)!.body, [{ op: 'add', path: '/fields/System.AssignedTo', value: '' }]);
+  assert.throws(() => az.idOf('MSP-1'), /isn't a work item key \(AV-<id>\)/);
+});
+
+test('Azure sign-in trouble is named: a sign-in page instead of data, and the tenant comes from the org\'s own header', async () => {
+  const { AzureClient, tenantOf } = await import('../src/trackers/azure.ts');
+  const page = fakeAzure([['GET /_apis/connectionData', '<html>Sign in</html>']], { status: 203, contentType: 'text/html' });
+  await assert.rejects(new AzureClient({ organization: 'acme', project: 'CRM', auth: async () => 'Basic bad', fetch: page.fetch }).me(), (e: unknown) => e instanceof TrackerError && e.kind === 'auth' && /Sign in again/.test(e.message));
+  const head = fakeAzure([['HEAD /_apis/connectionData', {}]], { status: 401, headers: { 'x-vss-resourcetenant': '1f2e3d4c-0000-1111-2222-333344445555' } });
+  assert.equal(await tenantOf('acme', head.fetch), '1f2e3d4c-0000-1111-2222-333344445555');
+  const msa = fakeAzure([['HEAD /_apis/connectionData', {}]], { status: 401, headers: { 'x-vss-resourcetenant': '00000000-0000-0000-0000-000000000000' } });
+  assert.equal(await tenantOf('acme', msa.fetch), null, 'an org with no tenant of its own');
+});

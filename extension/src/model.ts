@@ -142,6 +142,8 @@ export function typeIcon(type: string | null): string {
   if (t.includes('sub')) return 'list-tree';
   if (t.includes('task')) return 'tasklist';
   if (t.includes('improve') || t.includes('feature')) return 'lightbulb';
+  if (t.includes('backlog item') || t.includes('requirement')) return 'bookmark';
+  if (t.includes('test')) return 'beaker';
   return 'issues';
 }
 
@@ -158,7 +160,7 @@ export function priorityIcon(priority: string | null): string | null {
 /** What the extension knows about one tracker's board (see trackers.ts). */
 export interface BoardInput {
   index: number;
-  kind: 'github' | 'jira';
+  kind: 'github' | 'jira' | 'azure';
   title: string;
   board: { source: string; title: string; url: string | null; notice: string | null; columns: { id: string; name: string; category: StatusCategory; statusIds: string[] }[]; cards: { key: string; title: string; url: string; status: { id: string; name: string }; type: string | null; assignees: { name: string }[]; labels: { name: string; color: string | null }[]; priority: string | null }[] } | null;
   error: string | null;
@@ -190,7 +192,7 @@ export interface TrackerColumn {
 
 export interface TrackerBoard {
   index: number;
-  kind: 'github' | 'jira';
+  kind: 'github' | 'jira' | 'azure';
   title: string;
   source: string | null;
   url: string | null;
@@ -251,7 +253,7 @@ export interface TicketModel {
   title: string;
   url: string | null;
   sourceLabel: string;
-  sourceKind: 'github' | 'jira' | 'acc';
+  sourceKind: 'github' | 'jira' | 'azure' | 'acc';
   loading: boolean;
   error: string | null;
   connect: { command: string; label: string; arg: string } | null;
@@ -279,6 +281,7 @@ export interface TicketInput {
   project: string;
   tracker: number | null;
   trackerTitle: string | null;
+  trackerKind: 'github' | 'jira' | 'azure' | null;
   key: string;
   ticket: Ticket | null;
   loading: boolean;
@@ -302,7 +305,7 @@ export function ticketModel(i: TicketInput): TicketModel {
   return {
     kind: 'ticket', project: i.project, tracker: i.tracker, key: t?.key ?? i.key,
     title: t?.title ?? i.task?.title ?? i.key, url: t?.url ?? i.task?.source.url ?? null,
-    sourceLabel: i.trackerTitle ?? 'Task kept by acc', sourceKind: t?.kind ?? (live ? (i.trackerTitle?.startsWith('Jira') ? 'jira' : 'github') : 'acc'),
+    sourceLabel: i.trackerTitle ?? 'Task kept by acc', sourceKind: t?.kind ?? i.trackerKind ?? 'acc',
     loading: i.loading, error: i.error, connect: i.connect,
     type: t?.type ?? null, typeIcon: typeIcon(t?.type ?? null),
     status: t ? { name: t.status.name, tone: CATEGORY_TONE[t.status.category] } : acc ? { name: acc.look.label, tone: acc.look.tone } : null,
