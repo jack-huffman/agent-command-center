@@ -133,7 +133,8 @@ export function foldTranscript(t: Transcript, lines: string[]): Transcript {
     const content = r.message?.content;
 
     if (r.type === 'system' && r.subtype === 'away_summary' && str(r.content)) {
-      t.entries.push({ k: 'recap', id, at, text: r.content });
+      // Claude Code ends its recap with a hint about its own settings, which isn't news here.
+      t.entries.push({ k: 'recap', id, at, text: r.content.replace(/\s*\(disable recaps in \/config\)\s*$/i, '') });
       t.used++;
     } else if (r.type === 'user' && !r.isMeta) {
       if (typeof content === 'string') {

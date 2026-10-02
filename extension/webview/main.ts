@@ -265,21 +265,59 @@ function renderTasks(m: TasksModel): Node[] {
         return el('div', 'project', head, ...p.boards.map((b) => renderTrackerBoard(p.root, b)));
       }
     }
-    const board = el('div', 'board');
+    const board = el('div', 'board agent-board');
     for (const c of p.columns) {
       const col = el('section', `column tone-edge-${c.tone}`, el('h2', '', icon(c.icon, c.tone), c.label, el('span', 'count', String(c.cards.length))));
       col.setAttribute('aria-label', `${c.label}: ${plural(c.cards.length, 'task')}`);
-      if (!c.cards.length) col.append(el('p', 'muted', 'Nothing here'));
+      col.dataset.group = c.group;
+      if (!c.cards.length) col.append(el('p', 'muted drop-hint', 'Nothing here'));
       for (const card of c.cards) {
-        col.append(el('article', `card${c.group === 'done' ? ' done' : ''}`,
+        // Drag a card to another lane to move it (D-041), so the cards need no Move button.
+        const art = el('article', `card${c.group === 'done' ? ' done' : ''}`,
           el('div', 'card-id', card.id, el('span', 'chip', card.environment)),
           openable(el('div', 'card-title', card.title), { type: 'run', command: 'acc.task.show', ref: { project: p.root, task: card.id } }),
           card.waitingOn.length ? el('div', 'card-note', icon('clock'), `Waiting on ${card.waitingOn.join(', ')}`) : null,
           card.agent ? el('div', 'card-agent', el('span', 'muted', 'Agent: '), status(card.agent)) : null,
           card.worktree ? el('div', 'card-where mono muted', icon('git-branch'), card.worktree.split('/').slice(-2).join('/')) : null,
-          el('div', 'actions', ...card.actions.map(actionButton)),
-        ));
+          el('div', 'actions', ...card.actions.filter((a) => a.command !== 'acc.task.move').map(actionButton)),
+        );
+        art.dataset.task = card.id;
+        art.dataset.drops = card.drops.join(' ');
+        art.draggable = card.drops.length > 0;
+        art.setAttribute('aria-label', `${card.id}: ${card.title}. ${card.drops.length ? 'Drag to another lane to move it.' : ''}`);
+        art.addEventListener('dragstart', (e) => {
+          e.dataTransfer?.setData('text/x-acc-task', card.id);
+          if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+          art.classList.add('dragging');
+          board.classList.add('dragging-task');
+          for (const lane of board.querySelectorAll<HTMLElement>('.column')) lane.classList.toggle('can-drop', card.drops.includes(lane.dataset.group ?? ''));
+        });
+        art.addEventListener('dragend', () => {
+          art.classList.remove('dragging');
+          board.classList.remove('dragging-task');
+          for (const lane of board.querySelectorAll<HTMLElement>('.column')) lane.classList.remove('can-drop', 'drop-target');
+        });
+        col.append(art);
       }
+      // Only a lane the card may go to takes it; the rest stay dimmed while you drag.
+      col.addEventListener('dragover', (e) => {
+        if (!e.dataTransfer?.types.includes('text/x-acc-task') || !col.classList.contains('can-drop')) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        col.classList.add('drop-target');
+      });
+      col.addEventListener('dragleave', (e) => { if (!col.contains(e.relatedTarget as Node)) col.classList.remove('drop-target'); });
+      col.addEventListener('drop', (e) => {
+        e.preventDefault();
+        col.classList.remove('drop-target');
+        const id = e.dataTransfer?.getData('text/x-acc-task');
+        const moved = id ? board.querySelector<HTMLElement>(`[data-task="${CSS.escape(id)}"]`) : null;
+        if (!id || !moved || !col.classList.contains('can-drop') || moved.closest('.column') === col) return;
+        // Shown in place at once; the board redraws from the ledger, or snaps back if acc refuses.
+        col.querySelector('.drop-hint')?.remove();
+        col.append(moved);
+        api.postMessage({ type: 'move-task', project: p.root, task: id, to: c.group });
+      });
       board.append(col);
     }
     return el('div', 'project', header(m.projects.length > 1 ? `Tasks · ${p.name}` : 'Tasks', summary, ...tools), p.total ? board : empty('Tasks are tickets for agents to work on.', ...tools));
@@ -886,6 +924,18 @@ function toolEntry(e: Extract<EntryView, { k: 'tool' }>): HTMLElement {
   return el('li', `entry tool${e.status === 'error' ? ' failed' : ''}`, details);
 }
 
+/** A run of tool steps in a few words: "8 steps: ran 5 commands, read 2 files, edited 1". */
+function stepsSummary(items: { tool: string }[]): string {
+  const n = (tools: string[]) => items.filter((t) => tools.includes(t.tool)).length;
+  const ran = n(['Bash']);
+  const read = n(['Read']);
+  const edited = n(['Edit', 'MultiEdit', 'Write', 'NotebookEdit']);
+  const searched = n(['Grep', 'Glob', 'WebSearch', 'WebFetch']);
+  const other = items.length - ran - read - edited - searched;
+  const parts = [ran ? `ran ${plural(ran, 'command')}` : '', read ? `read ${plural(read, 'file')}` : '', edited ? `edited ${edited}` : '', searched ? `searched ${searched}` : '', other ? `${other} more` : ''].filter(Boolean);
+  return `${items.length} steps: ${parts.join(', ')}`;
+}
+
 function renderAgent(m: AgentModel): Node[] {
   // A builder's page names its task, which opens the task's own page.
   const name = m.task ? openable(el('span', 'tcard-key', m.task.id), { type: 'run', command: 'acc.task.show', ref: { project: m.task.project, task: m.task.id } }) : el('span', '', m.name);
@@ -899,17 +949,45 @@ function renderAgent(m: AgentModel): Node[] {
     el('div', 'ticket-bar', status(m.look), el('span', 'spacer'), el('div', 'actions', ...m.actions.map(actionButton))))];
   if (m.questions.length) out.push(el('section', 'agent-asks', ...m.questions.map((q) => questionCard(q, { watch: false }))));
   const recap = [...m.entries].reverse().find((e) => e.k === 'recap');
-  if (recap && recap.k === 'recap') out.push(el('div', 'notice recap', icon('info', 'blue'), el('span', '', el('strong', '', 'Where it got to: '), recap.text)));
+  if (recap && recap.k === 'recap') out.push(foldable(`recap:${m.key}`, el('div', 'notice recap', icon('info', 'blue'), el('div', 'why-text', el('strong', '', 'Where it got to: '), recap.text)), 'why-text', 2));
   if (!m.readable) {
     out.push(empty(m.live ? 'Its activity will show here as it works. Nothing is recorded yet.' : 'There\'s no record of this session\'s activity to show.',
       ...m.actions.filter((a) => a.command === 'acc.agent.attach').map(actionButton)));
     return out;
   }
   const list = el('ol', 'timeline');
-  if (m.hidden) list.append(el('li', 'entry muted small', `${plural(m.hidden, 'earlier step')} not shown.`));
+  // Runs of tool steps fold to one line each, except the latest run and any that failed or is running.
+  type Tool = Extract<EntryView, { k: 'tool' }>;
+  type Block = Exclude<EntryView, Tool> | { k: 'steps'; id: string; items: Tool[] };
+  const blocks: Block[] = [];
   for (const e of m.entries) {
     if (e.k === 'recap') continue;
-    if (e.k === 'tool') { list.append(toolEntry(e)); continue; }
+    const prev = blocks[blocks.length - 1];
+    if (e.k === 'tool') { if (prev?.k === 'steps') prev.items.push(e); else blocks.push({ k: 'steps', id: `steps:${e.id}`, items: [e] }); }
+    else blocks.push(e);
+  }
+  // The last 25 blocks, with the rest a click away.
+  const showKey = `earlier:${m.key}`;
+  const showAll = memory().opened.includes(showKey);
+  const shown = showAll ? blocks : blocks.slice(-25);
+  if (shown.length < blocks.length || m.hidden) {
+    list.append(el('li', 'entry earlier', button(`Show ${plural(blocks.length - shown.length + m.hidden, 'earlier step')}`, 'chevron-up', () => { remember((x) => { x.opened = [...x.opened, showKey]; }); if (last) render(last); }, 'ghost small')));
+  }
+  const lastSteps = [...shown].reverse().find((b) => b.k === 'steps');
+  for (const e of shown) {
+    if (e.k === 'recap') continue;
+    if (e.k === 'steps') {
+      const loud = e.items.filter((t) => t.status !== 'done');
+      if (e === lastSteps || e.items.length <= 2) { for (const t of e.items) list.append(toolEntry(t)); continue; }
+      const d = el('details', 'steps-details', el('summary', 'tool-line', el('span', 'tool-chev', icon('chevron-right')), icon('list-flat'),
+        el('span', 'tool-title', stepsSummary(e.items)), el('span', 'spacer'), loud.length ? status({ label: loud.some((t) => t.status === 'error') ? `${loud.length} failed` : 'Running', icon: loud.some((t) => t.status === 'error') ? 'warning' : 'sync~spin', tone: loud.some((t) => t.status === 'error') ? 'orange' : 'blue' }) : null)) as HTMLDetailsElement;
+      d.open = memory().opened.includes(e.id);
+      d.addEventListener('toggle', () => remember((x) => { x.opened = d.open ? [...new Set([...x.opened, e.id])] : x.opened.filter((y) => y !== e.id); }));
+      d.addEventListener('toggle', () => { if (d.open && !d.querySelector('ol')) d.append(el('ol', 'steps-list', ...e.items.map(toolEntry))); });
+      if (d.open) d.append(el('ol', 'steps-list', ...e.items.map(toolEntry)));
+      list.append(el('li', 'entry tool steps', d));
+      continue;
+    }
     if (e.k === 'decision') {
       // Your part of the conversation: what it asked, and what you said.
       const d = e.decision;
@@ -1353,7 +1431,7 @@ function boardEdges(board: HTMLElement): void {
 function render(model: Model): void {
   last = model;
   if (model.kind === 'home') runs = model.runs;
-  const scroller = document.querySelector('.home-main') ?? document.scrollingElement;
+  const scroller = document.querySelector('.home-main') ?? document.querySelector('.timeline') ?? document.scrollingElement;
   // Each board, and each of its lanes, keeps where it was scrolled to.
   const boards = [...document.querySelectorAll<HTMLElement>('.board')].map((b) => ({ x: b.scrollLeft, lanes: [...b.querySelectorAll<HTMLElement>('.column')].map((c) => c.scrollTop) }));
   const scroll = { y: scroller?.scrollTop ?? 0 };
@@ -1382,8 +1460,9 @@ function render(model: Model): void {
     wheelSideways(b);
   });
   const main = document.querySelector('.home-main');
+  const timeline = document.querySelector<HTMLElement>('.timeline');
   if (main && !scrolledTo) main.scrollTop = scroll.y;
-  else if (following) window.scrollTo(0, document.body.scrollHeight);
+  else if (timeline) timeline.scrollTop = following ? timeline.scrollHeight : scroll.y;
   else if (!main) window.scrollTo(0, scroll.y);
   scrolledTo = false;
   const box = document.querySelector<HTMLElement>('.dock-out');

@@ -22,6 +22,8 @@ export interface BoardDeps {
   identity(root: string): IdentityCard | null;
   openTicket(project: string, tracker: number | null, key: string): void;
   move(project: string, tracker: number, key: string, to: string): Promise<void>;
+  /** A task's card dropped in a lane of the agent board (D-041). */
+  moveTask(project: string, task: string, lane: string): Promise<void>;
   /** Agents' questions (D-030) and the commands acc is running. */
   answer(id: string, a: Answer): void;
   runs(): RunInput[];
@@ -177,6 +179,10 @@ export class Panels implements vscode.Disposable {
       return;
     }
     if (m.type === 'ticket-action') return;
+    if (m.type === 'move-task') {
+      if (this.hub.project(m.project)) void this.deps.moveTask(m.project, m.task, m.to);
+      return;
+    }
     if (m.type === 'answer') {
       this.deps.answer(m.id, answerOf(m));
       return;

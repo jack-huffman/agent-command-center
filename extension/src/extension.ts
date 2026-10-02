@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import { Hub } from './hub.ts';
 import type { Answer } from '../../packages/core/src/questions.ts';
 import { AgentPages } from './activity.ts';
-import { COMMANDS, isWebviewMenuContext, WALKTHROUGHS } from './logic.ts';
+import { CLAUDE_EXTENSION, claudeSessionUri, COMMANDS, isSessionId, isWebviewMenuContext, WALKTHROUGHS } from './logic.ts';
 import { type NavItem, needsYouCount, type Ref, sessionKey, VIEW_KINDS, type ViewKind } from './model.ts';
 import { Panels } from './panels.ts';
 import { accShellCommand, Questions, sessionSettings } from './questions.ts';
@@ -122,18 +122,20 @@ export function activate(context: vscode.ExtensionContext): void {
   };
   const pages = new AgentPages(context, hub, resolve, answer);
   context.subscriptions.push(pages);
-  new Sidebar(hub, accRunner(accScript), setup.log, (root, key) => tickets.show(root, undefined, key), {
+  const sidebar = new Sidebar(hub, accRunner(accScript), setup.log, (root, key) => tickets.show(root, undefined, key), {
     run: (command, cwd, label, onExit) => void runs.start(command, { cwd, label, onExit }),
     watch: (key, ended, active) => pages.open(key, ended, active),
     sessionSettings: sessionSettings(accScript),
     accCommand: accShellCommand(accScript),
+    openLater: async (folder, sessionId) => { await context.globalState.update(OPEN_LATER, { folder, sessionId, at: Date.now() }); },
     // acc land can't post to Jira or Azure DevOps itself; this repo's sign-in does, as you (D-027, D-033).
     comment: async (project, kind, key, text) => {
       const index = trackers.trackers(project).findIndex((t) => t.kind === kind);
       if (index < 0) throw new Error(`this repo has no ${kind === 'jira' ? 'Jira' : 'Azure DevOps'} tracker`);
       await (await trackers.client(project, index)).comment(key, text);
     },
-  }).register(regNode);
+  });
+  sidebar.register(regNode);
   const panels = new Panels(context, hub, setup, resolve, (visible) => pagePolls(visible), {
     boards: (root) => trackers.boardStates(root),
     identity: (root) => identity.card(root),
@@ -149,6 +151,7 @@ export function activate(context: vscode.ExtensionContext): void {
         panels.post();
       }
     },
+    moveTask: async (root, task, lane) => { const p = hub.project(root); if (p) await sidebar.moveToLane(p, task, lane); },
     answer,
     runs: () => runs.views(),
     runInput: (id, text) => void runs.input(id, text),
@@ -230,7 +233,27 @@ export function activate(context: vscode.ExtensionContext): void {
   setup.watch();
 
   void hub.loadProjects().then(() => { questions?.start(); return hub.loadAgents(); });
+  void openPendingConversation(context);
   void setup.refresh('startup', { reuseMachine: true }).then(() => setup.maybeOpenWalkthroughs());
+}
+
+const OPEN_LATER = 'acc.openInClaude.pending';
+
+/**
+ * A conversation another window asked this one to open (D-040): this window's folder is the session's
+ * own, so Claude Code finds it here. Asked for within the last two minutes, or not at all.
+ */
+async function openPendingConversation(context: vscode.ExtensionContext): Promise<void> {
+  const p = context.globalState.get<{ folder: string; sessionId: string; at: number }>(OPEN_LATER);
+  if (!p || Date.now() - p.at > 120_000 || !isSessionId(p.sessionId)) return;
+  if (!(vscode.workspace.workspaceFolders ?? []).some((f) => f.uri.fsPath === p.folder)) return;
+  await context.globalState.update(OPEN_LATER, undefined);
+  try {
+    await vscode.extensions.getExtension(CLAUDE_EXTENSION)?.activate();
+  } catch {
+    // it activates on its own when the link arrives
+  }
+  await vscode.env.openExternal(vscode.Uri.parse(claudeSessionUri(vscode.env.uriScheme, p.sessionId)));
 }
 
 /** The sidebar's one view: the page's sections, each opening it there, with what needs you beside it. */

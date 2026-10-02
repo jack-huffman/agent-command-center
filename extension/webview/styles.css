@@ -192,6 +192,11 @@ table.grid { width: 100%; border-collapse: collapse; }
 
 .column.done-col { opacity: 0.92; }
 .column.drop-target { outline: 2px dashed var(--vscode-focusBorder); outline-offset: -2px; }
+/* While a task is dragged, the lanes it can't go to dim, so the ones it can stand out. */
+.board.dragging-task .column:not(.can-drop) { opacity: 0.45; }
+.board.dragging-task .column.can-drop { border-style: dashed; }
+.agent-board .card[draggable="true"] { cursor: grab; }
+.card.dragging { opacity: 0.45; }
 .tcard { cursor: pointer; }
 .tcard.attention { border-left: 3px solid var(--orange); }
 .tcard.dragging { opacity: 0.45; }
@@ -219,7 +224,8 @@ body[data-view="ticket"] { padding-top: 18px; }
 .foldable { margin-bottom: 8px; }
 .fold-toggle { margin-top: 2px; }
 .notice.why { align-items: flex-start; margin-bottom: 4px; }
-.notice.why > .codicon { margin-top: 2px; flex: none; min-width: 0; }
+.notice.why > .codicon, .notice.recap > .codicon { margin-top: 2px; flex: none; min-width: 0; }
+.notice.recap { align-items: flex-start; margin-bottom: 4px; }
 .why-text { flex: 1; min-width: 0; color: var(--vscode-foreground); }
 .history-move { display: inline-flex; align-items: baseline; gap: 2px; flex-wrap: wrap; }
 .move-details > summary { cursor: pointer; }
@@ -516,7 +522,20 @@ body.vscode-light .logo-light, body.vscode-high-contrast-light .logo-light { dis
 @media (max-width: 620px) { .setting-row { grid-template-columns: minmax(0, 1fr) auto; } .setting-parts { grid-column: 1 / -1; grid-row: 2; } }
 
 /* An agent's page: its timeline, newest at the bottom, like a chat. */
-body[data-view="agent"] { padding: 18px 28px 40px; max-width: 1100px; margin: 0 auto; }
+/* The agent's page fits the window: its heading stays, and the timeline scrolls in its own box. */
+body[data-view="agent"] { padding: 14px 24px 0; height: 100vh; overflow: hidden; }
+body[data-view="agent"] #app { display: flex; flex-direction: column; height: 100%; min-height: 0; max-width: 1100px; margin: 0 auto; }
+body[data-view="agent"] #app > * { flex: none; }
+body[data-view="agent"] #app > .timeline { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 4px 24px 0; }
+body[data-view="agent"] .agent-head { margin-bottom: 10px; padding-bottom: 10px; }
+body[data-view="agent"] .agent-head .ticket-title { font-size: 1.35em; margin-bottom: 4px; }
+body[data-view="agent"] .agent-asks { max-height: 50vh; overflow-y: auto; }
+.entry.earlier { margin: 4px 0; }
+.steps-details > summary { list-style: none; cursor: pointer; }
+.steps-details > summary::-webkit-details-marker { display: none; }
+.steps-details > summary:hover { background: var(--vscode-list-hoverBackground); color: var(--vscode-foreground); }
+.steps-details[open] > summary .tool-chev .codicon { transform: rotate(90deg); }
+.steps-list { list-style: none; margin: 0; padding: 0 0 0 12px; }
 .agent-head .ticket-bar { flex-wrap: wrap; row-gap: 8px; margin-top: 10px; }
 .agent-facts { display: flex; align-items: center; flex-wrap: wrap; margin-top: 4px; }
 .agent-facts .sep { margin: 0 6px; }

@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import type { TaskRow } from '../src/logic.ts';
-import { agentsModel, cardActions, environmentsModel, homeModel, type HubLike, isFromWebview, promotionPaths, setupModel, tasksModel, VIEW_KINDS, worktreesModel } from '../src/model.ts';
+import { agentsModel, cardActions, environmentsModel, homeModel, type HubLike, isFromWebview, promotionPaths, setupModel, tasksModel, VIEW_KINDS, worktreesModel, dropLanes, laneMove } from '../src/model.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
@@ -244,4 +244,18 @@ test('tab icons are built from the sidebar icon, white for dark themes and dark 
   const panels = readFileSync(join(root, 'src', 'panels.ts'), 'utf8');
   assert.ok(panels.includes("panel.iconPath = { light: icon('light'), dark: icon('dark') }"));
   for (const theme of ['dark', 'light']) assert.ok(readFileSync(join(root, 'dist', 'webview', `acc-${theme}.svg`), 'utf8').includes('<svg'), `the page's ${theme} mark`);
+});
+
+test('a card can be dropped only in the lanes acc\'s rules let a person move it to, and Running means dispatching (D-041)', () => {
+  const lanes = (state: string, display: string, deps: string[] = []) => dropLanes({ state, display, deps } as TaskRow);
+  assert.deepEqual(lanes('todo', 'ready'), ['running', 'blocked'], 'a ready task: dispatch it, or block it');
+  assert.deepEqual(lanes('running', 'running'), ['ready', 'review', 'blocked'], 'a running task: back to ready, review, or block');
+  assert.deepEqual(lanes('running', 'running', ['T-2']), ['review', 'blocked', 'todo'], 'one that waits on another goes back to To do, where it will show');
+  assert.deepEqual(lanes('review', 'review'), ['rework', 'blocked', 'done']);
+  assert.deepEqual(lanes('blocked', 'blocked'), ['ready', 'review'], 'blocked work goes back, or on to review once its checks are settled');
+  assert.deepEqual(lanes('rework', 'rework'), ['running', 'blocked']);
+  assert.ok(!lanes('running', 'needs-you').includes('needs-you'), 'needs you is shown, never chosen');
+  assert.deepEqual([laneMove('ready'), laneMove('running'), laneMove('needs-you')], ['todo', 'dispatch', null]);
+  const card = tasksModel(hub()).projects[0]!.columns.flatMap((c) => c.cards)[0]!;
+  assert.ok(Array.isArray(card.drops));
 });

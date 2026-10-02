@@ -2,7 +2,7 @@
  * What each editor tab shows, as plain data. Built here from the hub's data, posted to the webview,
  * and rendered there with text only (no HTML from data). No vscode import, so it's testable.
  */
-import { DISPLAY, type Task } from '../../packages/core/src/ledger.ts';
+import { DISPLAY, findRule, type State, type Task } from '../../packages/core/src/ledger.ts';
 import type { GateStatus } from '../../packages/core/src/receipts.ts';
 import { type Doc, fromMarkdown } from '../../packages/core/src/trackers/doc.ts';
 import type { StatusCategory, Ticket } from '../../packages/core/src/trackers/types.ts';
@@ -93,7 +93,29 @@ export interface Card {
   agent: Look | null;
   worktree: string | null;
   actions: Action[];
+  /** The lanes it can be dropped in: the moves a person may make from where it is (D-041). */
+  drops: string[];
 }
+
+/** The state a lane stands for when a card is dropped in it. Running means dispatching it. */
+const LANE_STATE: Record<string, State | 'dispatch' | null> = { 'needs-you': null, ready: 'todo', todo: 'todo', running: 'dispatch', review: 'review', rework: 'rework', blocked: 'blocked', done: 'done' };
+
+/** The lanes a task can be dropped in by a person, by acc's own move rules. Whether it then goes is acc's call. */
+export function dropLanes(t: Pick<TaskRow, 'state' | 'display'> & { deps?: string[] }): string[] {
+  // Back to to-do shows as Ready when nothing it waits on is unfinished: one lane, the one it lands in.
+  const todoLane = t.deps?.length ? 'todo' : 'ready';
+  return TASK_GROUPS.filter((g) => {
+    const to = LANE_STATE[g];
+    if (!to || g === t.display) return false;
+    if (to === 'todo' && g !== todoLane) return false;
+    if (to === 'dispatch') return t.display === 'ready' || t.state === 'rework';
+    if (to === t.state) return false;
+    return !!findRule(t.state as State, to)?.actors.includes('human');
+  });
+}
+
+/** What dropping a task in a lane does: the state to move it to, or dispatch. */
+export const laneMove = (lane: string): State | 'dispatch' | null => LANE_STATE[lane] ?? null;
 
 /** What a task's card offers, by where it is in its life. Dispatch comes first wherever it applies. */
 export function cardActions(t: TaskRow, ref: Ref): Action[] {
@@ -149,7 +171,7 @@ export function tasksModel(hub: HubLike, boards: (root: string) => BoardInput[] 
           cards: (byGroup.get(group) ?? []).map((t) => ({
             id: t.id, title: t.title, environment: t.environment, waitingOn: t.deps, url: t.source.url,
             agent: t.agent ?? null, worktree: t.run?.worktree ?? null,
-            actions: cardActions(t, { project: p.root, task: t.id }),
+            actions: cardActions(t, { project: p.root, task: t.id }), drops: dropLanes(t),
           })),
         };
       });
@@ -1159,6 +1181,8 @@ export type FromWebview =
   | { type: 'open'; url: string }
   /** The page moved to another section, so reopening it comes back there. */
   | { type: 'nav'; section: HomeSection }
+  /** A task's card dropped in another lane of the agent board (D-041). */
+  | { type: 'move-task'; project: string; task: string; to: string }
   /** An answer to an agent's question or permission prompt (D-030). */
   | { type: 'answer'; id: string; decision: 'allow' | 'deny' | 'terminal'; always?: boolean; scope?: 'session' | 'project'; mode?: 'auto' | 'acceptEdits' | 'default'; command?: string; stop?: boolean; message?: string; answers?: Record<string, string> }
   /** Something for a command acc is running: typed input, stop, rerun in a terminal, or dismiss. */
@@ -1194,6 +1218,7 @@ export function isFromWebview(m: unknown): m is FromWebview {
     case 'ticket-action': return (TICKET_ACTIONS as readonly string[]).includes(x.action as string) && (x.text === undefined || (typeof x.text === 'string' && x.text.length <= 65_536));
     case 'open': return short(x.url, 4096) && /^(https?:|mailto:)/i.test(x.url as string);
     case 'nav': return (HOME_SECTIONS as readonly string[]).includes(x.section as string);
+    case 'move-task': return short(x.project, 4096) && short(x.task, 100) && KEY.test(x.task as string) && (TASK_GROUPS as readonly string[]).includes(x.to as string);
     case 'answer': {
       if (!short(x.id, 64) || !['allow', 'deny', 'terminal'].includes(x.decision as string)) return false;
       if (x.always !== undefined && typeof x.always !== 'boolean') return false;

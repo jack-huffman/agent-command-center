@@ -1,6 +1,7 @@
+import { existsSync } from 'node:fs';
 import { basename } from 'node:path';
 import * as vscode from 'vscode';
-import { allowedMoves, DISPLAY, type State } from '../../packages/core/src/ledger.ts';
+import { allowedMoves, DISPLAY, findRule, type State } from '../../packages/core/src/ledger.ts';
 import { skippedOn } from '../../packages/core/src/promote.ts';
 import { agentArgs } from '../../packages/core/src/agents.ts';
 import { EFFORTS } from '../../packages/core/src/config.ts';
@@ -9,7 +10,7 @@ import { repoPaths } from '../../packages/core/src/paths.ts';
 import { receiptHooks } from '../../packages/core/src/receipts.ts';
 import type { Hub, Project } from './hub.ts';
 import { type AgentSession, agentName, CLAUDE_EXTENSION, claudeSessionUri, githubBranchUrl, isSessionId, sessionFor } from './logic.ts';
-import { sessionKey } from './model.ts';
+import { laneMove, sessionKey } from './model.ts';
 import { type RunResult, runFile } from './run.ts';
 import type { AgentNode, EnvNode, TaskNode, WorktreeNode } from './nodes.ts';
 
@@ -25,6 +26,8 @@ export interface SidebarHelpers {
   accCommand?: string;
   /** Posts a comment on a Jira or Azure DevOps ticket as you, for acc land (D-033). */
   comment?: (project: Project, kind: 'jira' | 'azure', key: string, text: string) => Promise<void>;
+  /** Remembers a conversation to open once a folder's window starts, for a session that lives in another folder (D-040). */
+  openLater?: (folder: string, sessionId: string) => Promise<void>;
   /** --settings for a background agent started here, so its questions come to the page. */
   sessionSettings?: string;
 }
@@ -194,6 +197,27 @@ export class Sidebar {
     ];
     const doc = await vscode.workspace.openTextDocument({ content: lines.join('\n'), language: 'markdown' });
     await vscode.window.showTextDocument(doc, { preview: true });
+  }
+
+  /**
+   * A card dropped in a lane (D-041): the move to that lane's state, asking for a reason when the rules
+   * want one. Running means dispatching it, after a confirmation. acc decides whether it may go.
+   */
+  async moveToLane(project: Project, id: string, lane: string): Promise<void> {
+    const task = this.hub.taskRows(project.root).find((t) => t.id === id);
+    if (!task) return;
+    const n = { kind: 'task', project, task } as TaskNode;
+    const to = laneMove(lane);
+    if (!to) { await this.hub.loadTasks(true); return; }
+    if (to === 'dispatch') {
+      const ok = await vscode.window.showInformationMessage(`Dispatch ${id}?`, { modal: true, detail: 'An agent starts on it in its own worktree.' }, 'Dispatch');
+      if (ok === 'Dispatch') await this.dispatchTask(n);
+      else await this.hub.loadTasks(true);
+      return;
+    }
+    const rule = findRule(task.state as State, to);
+    await this.setState(n, to, !!rule?.requires.includes('reason'));
+    await this.hub.loadTasks(true); // snaps back if it was refused or cancelled
   }
 
   private async moveTask(n: TaskNode): Promise<void> {
@@ -459,6 +483,15 @@ export class Sidebar {
         modal: true, detail: 'It\'s running in a terminal or another Claude Code tab. Using it in two places at once can mix up its messages. If it\'s already in a Claude Code tab in this window, opening it again brings that tab forward.',
       }, 'Open anyway');
       if (ok !== 'Open anyway') return;
+    }
+    // Claude Code opens only a conversation that belongs to the window's own folder. A builder's lives
+    // in its worktree, so that folder opens in a new window, and the conversation opens there.
+    const folders = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
+    if (s.cwd && !folders.includes(s.cwd) && existsSync(s.cwd) && this.helpers.openLater) {
+      await this.helpers.openLater(s.cwd, s.sessionId);
+      this.log.info(`Opening ${name}'s folder ${s.cwd} in a new window, to open its conversation there.`);
+      await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(s.cwd), { forceNewWindow: true });
+      return;
     }
     const uri = vscode.Uri.parse(claudeSessionUri(vscode.env.uriScheme, s.sessionId));
     this.log.info(`Opening ${name} in Claude Code: ${uri.toString(true)}`);
