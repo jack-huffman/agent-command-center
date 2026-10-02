@@ -261,6 +261,13 @@ export function agentLook(s: AgentSession, asking?: string | null): AgentLook {
   return { label: s.pid ? 'Idle' : 'Idle (exited)', icon: 'circle-outline', tone: 'neutral', needsYou: false };
 }
 
+/** Claude Code for VSCode (D-040): its documented link opens a session's conversation in a tab. */
+export const CLAUDE_EXTENSION = 'anthropic.claude-code';
+export const claudeSessionUri = (scheme: string, sessionId: string, prompt?: string): string =>
+  `${scheme}://${CLAUDE_EXTENSION}/open?session=${encodeURIComponent(sessionId)}${prompt ? `&prompt=${encodeURIComponent(prompt)}` : ''}`;
+/** Session ids Claude Code's link takes: UUIDs, not the short background id. */
+export const isSessionId = (v: string | undefined): v is string => !!v && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+
 export const isUnder = (path: string, root: string): boolean => path === root || path.startsWith(root.endsWith('/') ? root : `${root}/`);
 
 export interface Worktree {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { appendOutput, needsTerminal, promptOf } from '../src/logic.ts';
+import { appendOutput, claudeSessionUri, isSessionId, needsTerminal, promptOf } from '../src/logic.ts';
 import {
   agentModel, alwaysLabel, answerOf, choicesFor, decisionOf, describePermission, historyItems, homeModel, isFromWebview, needsYouCount, questionCards, runCard, type RunInput,
 } from '../src/model.ts';
@@ -137,10 +137,10 @@ test('an agent\'s page: its task, its question, its actions, and an ended sessio
   assert.equal(m.task?.id, 'ACME-14');
   assert.equal(m.look.label, 'Needs you: wants permission');
   assert.equal(m.questions.length, 1);
-  assert.deepEqual(m.actions.map((a) => a.command), ['acc.agent.attach', 'acc.agent.openFolder', 'acc.agent.stop']);
+  assert.deepEqual(m.actions.map((a) => a.command), ['acc.agent.openInClaude', 'acc.agent.attach', 'acc.agent.openFolder', 'acc.agent.stop']);
   assert.ok(m.entries[0]!.k === 'say' && m.entries[0]!.body.blocks.length === 1, 'what it said is rendered from markdown');
   const ended = agentModel({ hub, key: 'gone', seen: { cwd: '/x', kind: 'background', startedAt: 1, sessionId: 'gone', name: 'T-9' }, entries: [], readable: false, lastAt: null });
-  assert.deepEqual([ended.live, ended.look.label, ended.actions.map((a) => a.command)], [false, 'Ended', ['acc.agent.openFolder']]);
+  assert.deepEqual([ended.live, ended.look.label, ended.actions.map((a) => a.command)], [false, 'Ended', ['acc.agent.openInClaude', 'acc.agent.openFolder']], 'an ended session still opens in Claude Code');
 });
 
 test('answers from the page are checked, and only the fields a decision has reach the hook', () => {
@@ -197,4 +197,12 @@ test('a permission card offers every answer Claude Code\'s own prompt does, in i
   assert.deepEqual(answerOf({ type: 'answer', id: 'x', decision: 'allow', always: true, scope: 'project' }), { decision: 'allow', always: true, scope: 'project' });
   assert.deepEqual(answerOf({ type: 'answer', id: 'x', decision: 'deny', stop: true }), { decision: 'deny', stop: true });
   assert.ok(!isFromWebview({ type: 'answer', id: 'x', decision: 'allow', mode: 'bypassPermissions' }));
+});
+
+test('a session opens in Claude Code through its documented link, which takes the full session id', () => {
+  assert.equal(claudeSessionUri('vscode', '1f60afe9-da26-427b-a43b-7acea42f73ae'), 'vscode://anthropic.claude-code/open?session=1f60afe9-da26-427b-a43b-7acea42f73ae');
+  assert.equal(claudeSessionUri('vscode-insiders', 'a', 'go on & finish'), 'vscode-insiders://anthropic.claude-code/open?session=a&prompt=go%20on%20%26%20finish');
+  assert.ok(isSessionId('1f60afe9-da26-427b-a43b-7acea42f73ae'));
+  assert.ok(!isSessionId('1f60afe9'), 'the short background id is not the session');
+  assert.ok(!isSessionId(undefined));
 });

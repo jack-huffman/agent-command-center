@@ -647,8 +647,11 @@ function questionCard(q: QuestionCard, opts: { watch: boolean }): HTMLElement {
   card.setAttribute('aria-label', `${q.who} ${q.title}`);
   const tools: Child[] = [];
   const watch = opts.watch ? button('Watch', 'pulse', () => api.postMessage({ type: 'run', command: 'acc.agent.watch', ref: { session: q.session } }), 'ghost small') : null;
-  const terminal = button('In the terminal', 'terminal', () => sendAnswer(q, { decision: 'terminal' }), 'ghost small');
-  terminal.title = 'Answer in Claude Code\'s own prompt instead: a terminal attaches to the session';
+  const terminal = el('span', 'q-aside-group',
+    button('In Claude Code', 'comment-discussion', () => api.postMessage({ type: 'run', command: 'acc.agent.openInClaude', ref: { session: q.session } }), 'ghost small'),
+    button('In the terminal', 'terminal', () => sendAnswer(q, { decision: 'terminal' }), 'ghost small'));
+  (terminal.firstChild as HTMLElement).title = 'Take its conversation over in a Claude Code tab: it stops in the background, and you carry on there';
+  (terminal.lastChild as HTMLElement).title = 'Answer in Claude Code\'s own prompt instead: a terminal attaches to the session';
 
   if (q.kind === 'permission') {
     if (q.detail && q.code) card.append(el('p', 'q-detail', q.detail));

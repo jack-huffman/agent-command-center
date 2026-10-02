@@ -2,7 +2,7 @@
   "name": "agent-command-center",
   "displayName": "Agent Command Center",
   "description": "Set up projects for parallel Claude Code agents, then run and watch them from VSCode.",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "publisher": "JackHuffman",
   "private": true,
   "license": "UNLICENSED",
@@ -161,6 +161,12 @@
         "icon": "$(pulse)"
       },
       {
+        "command": "acc.agent.openInClaude",
+        "title": "Open in Claude Code",
+        "category": "Agent Command Center",
+        "icon": "$(comment-discussion)"
+      },
+      {
         "command": "acc.agent.attach",
         "title": "Attach",
         "category": "Agent Command Center",
@@ -308,6 +314,12 @@
         "title": "Watch its agent",
         "category": "Agent Command Center",
         "icon": "$(pulse)"
+      },
+      {
+        "command": "acc.task.openInClaude",
+        "title": "Open its agent in Claude Code",
+        "category": "Agent Command Center",
+        "icon": "$(comment-discussion)"
       },
       {
         "command": "acc.task.review",
@@ -541,6 +553,14 @@
         {
           "command": "acc.env.deploy",
           "when": "false"
+        },
+        {
+          "command": "acc.agent.openInClaude",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.openInClaude",
+          "when": "false"
         }
       ],
       "webview/context": [
@@ -550,9 +570,14 @@
           "group": "1_use@0"
         },
         {
+          "command": "acc.agent.openInClaude",
+          "when": "webviewId == 'acc.home' && webviewSection == 'agent'",
+          "group": "1_use@1"
+        },
+        {
           "command": "acc.agent.attach",
           "when": "webviewId == 'acc.home' && webviewSection == 'agent' && agentBackground",
-          "group": "1_use@1"
+          "group": "1_use@2"
         },
         {
           "command": "acc.agent.openFolder",

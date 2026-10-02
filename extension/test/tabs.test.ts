@@ -76,8 +76,8 @@ function menuFor(webviewId: string, keys: Record<string, string | boolean>): str
 }
 
 test('agent rows hide their actions behind one menu: Watch first, and background sessions also attach and stop', () => {
-  assert.deepEqual(menuFor('acc.home', { webviewSection: 'agent', agentBackground: true }), ['acc.agent.watch', 'acc.agent.attach', 'acc.agent.openFolder', 'acc.agent.stop'], 'Stop sits alone at the bottom');
-  assert.deepEqual(menuFor('acc.home', { webviewSection: 'agent', agentBackground: false }), ['acc.agent.watch', 'acc.agent.openFolder']);
+  assert.deepEqual(menuFor('acc.home', { webviewSection: 'agent', agentBackground: true }), ['acc.agent.watch', 'acc.agent.openInClaude', 'acc.agent.attach', 'acc.agent.openFolder', 'acc.agent.stop'], 'Stop sits alone at the bottom');
+  assert.deepEqual(menuFor('acc.home', { webviewSection: 'agent', agentBackground: false }), ['acc.agent.watch', 'acc.agent.openInClaude', 'acc.agent.openFolder']);
 });
 
 test('the row menus are for the page the rows are on: the Command Center\'s own webview', () => {
@@ -196,7 +196,7 @@ test('the Overview gathers what needs a person, counts it once, and groups revie
 test('cards follow a task through dispatch: Dispatch, then Watch, Attach and Abandon, then Clean up', () => {
   const labels = (r: Partial<TaskRow>) => cardActions({ ...row('AV-9', 'todo', 'ready'), deps: [], ...r } as TaskRow, {}).map((a) => a.label);
   assert.deepEqual(labels({}), ['Dispatch', 'Move', 'Block', 'Details']);
-  assert.deepEqual(labels({ state: 'running', display: 'running', run: { bgId: 'bg1', worktree: '/w/AV-9' } }), ['Watch', 'Attach', 'Worktree', 'Move', 'Abandon', 'Details']);
+  assert.deepEqual(labels({ state: 'running', display: 'running', run: { bgId: 'bg1', worktree: '/w/AV-9' } }), ['Watch', 'Open in Claude Code', 'Worktree', 'Move', 'Abandon', 'Details']);
   assert.equal(cardActions({ ...row('AV-9', 'running', 'running'), deps: [], run: { bgId: 'bg1' } } as TaskRow, {})[0]!.primary, true, 'Watch is the main action while it runs');
   assert.deepEqual(labels({ state: 'review', display: 'review', run: { sessionId: 's1', worktree: '/w/AV-9' } }).slice(0, 2), ['Review', 'Watch'], 'in review: Review first, and what its builder did can still be read');
   assert.deepEqual(labels({ state: 'rework', display: 'rework', run: { worktree: '/w/AV-9' } }), ['Re-dispatch', 'Worktree', 'Move', 'Block', 'Details']);

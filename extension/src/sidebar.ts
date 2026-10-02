@@ -8,7 +8,7 @@ import { run as runSync } from '../../packages/core/src/exec.ts';
 import { repoPaths } from '../../packages/core/src/paths.ts';
 import { receiptHooks } from '../../packages/core/src/receipts.ts';
 import type { Hub, Project } from './hub.ts';
-import { type AgentSession, agentName, githubBranchUrl, sessionFor } from './logic.ts';
+import { type AgentSession, agentName, CLAUDE_EXTENSION, claudeSessionUri, githubBranchUrl, isSessionId, sessionFor } from './logic.ts';
 import { sessionKey } from './model.ts';
 import { type RunResult, runFile } from './run.ts';
 import type { AgentNode, EnvNode, TaskNode, WorktreeNode } from './nodes.ts';
@@ -76,6 +76,14 @@ export class Sidebar {
     reg('acc.task.cleanup', (n: TaskNode) => this.cleanupTask(n));
     reg('acc.agent.new', (n?: AgentNode) => this.newAgent(n));
     reg('acc.agent.watch', (n: AgentNode) => this.watchAgent(n));
+    reg('acc.agent.openInClaude', (n: AgentNode) => n?.kind === 'agent' && this.openInClaude(n.session));
+    reg('acc.task.openInClaude', (n: TaskNode) => {
+      if (n?.kind !== 'task') return;
+      const s = sessionFor(n.task, this.hub.agents);
+      const id = s?.sessionId ?? n.task.run?.sessionId;
+      if (!id) return void vscode.window.showInformationMessage(`${n.task.id} has no agent session to open.`);
+      return this.openInClaude(s ?? { cwd: n.task.run?.worktree ?? n.project.root, kind: 'background', startedAt: Date.now(), sessionId: id, name: n.task.id });
+    });
     reg('acc.agent.attach', (n: AgentNode) => this.agentTerminal(n, 'attach'));
     // Logs are the activity page now; the terminal is the fallback when there's no page to show.
     reg('acc.agent.logs', (n: AgentNode) => (n?.kind === 'agent' && this.helpers.watch?.(sessionKey(n.session))) || this.agentTerminal(n, 'logs'));
@@ -234,9 +242,13 @@ export class Sidebar {
     const where = r.worktree ? basename(r.worktree) : 'its worktree';
     const pick = await vscode.window.showInformationMessage(
       `${task.id} is running: an agent is working in ${where}${r.reused ? ' (reused)' : ''}. It will finish with acc done, or block if it needs you.`,
-      ...(r.bgId ? ['Watch', 'Attach'] : []), 'Open worktree');
+      ...(r.bgId ? ['Watch', 'Open in Claude Code'] : []), 'Open worktree');
     if (pick === 'Watch' && r.bgId && !this.helpers.watch?.(r.bgId)) this.send(r.worktree ?? project.root, `claude attach ${r.bgId}`, `claude: ${task.id}`);
-    if (pick === 'Attach' && r.bgId) this.send(r.worktree ?? project.root, `claude attach ${r.bgId}`, `claude: ${task.id}`);
+    if (pick === 'Open in Claude Code' && r.bgId) {
+      const s = this.hub.agents.find((a) => a.id === r.bgId);
+      if (s) await this.openInClaude(s);
+      else this.send(r.worktree ?? project.root, `claude attach ${r.bgId}`, `claude: ${task.id}`);
+    }
     if (pick === 'Open worktree' && r.worktree) await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(r.worktree), { forceNewWindow: true });
   }
 
@@ -290,9 +302,9 @@ export class Sidebar {
     await this.hub.loadAgents();
     // Attach by the short id claude agents reports, not by name.
     const started = this.hub.agents.find((s) => s.name === name && s.id);
-    const pick = await vscode.window.showInformationMessage(`Started ${name}. It shows in Agents as it works, and asks you here if it needs anything.`, ...(started ? ['Watch', 'Attach'] : []));
+    const pick = await vscode.window.showInformationMessage(`Started ${name}. It shows in Agents as it works, and asks you here if it needs anything.`, ...(started ? ['Watch', 'Open in Claude Code'] : []));
     if (pick === 'Watch' && started) this.helpers.watch?.(sessionKey(started));
-    if (pick === 'Attach' && started?.id) this.send(cwd, `claude attach ${started.id}`, `claude: ${name}`);
+    if (pick === 'Open in Claude Code' && started) await this.openInClaude(started);
   }
 
   // ------------------------------------------------------------ what agents run with (D-036)
@@ -408,6 +420,49 @@ export class Sidebar {
     }
     const pick = await vscode.window.showInformationMessage(`${task.id}: ${r.opened ? 'opened' : 'updated'} pull request #${r.pr?.number}.${note}`, 'Open pull request');
     if (pick && r.pr) await vscode.env.openExternal(vscode.Uri.parse(r.pr.url));
+  }
+
+  // ------------------------------------------------------------ open in Claude Code (D-040)
+
+  /**
+   * Opens a session's conversation in a Claude Code tab, with its whole history, through Claude Code's
+   * own link. A session can't run in two places at once, so one still working in the background is
+   * stopped there first, after you say so, and the tab carries on the same conversation.
+   */
+  async openInClaude(s: AgentSession): Promise<void> {
+    if (!isSessionId(s.sessionId)) return void vscode.window.showInformationMessage(`${s.name ?? 'This session'} has no conversation Claude Code can open.`);
+    const name = s.name ?? s.sessionId.slice(0, 8);
+    if (!vscode.extensions.getExtension(CLAUDE_EXTENSION)) {
+      const pick = await vscode.window.showInformationMessage('Opening a session in a tab needs Claude Code for VSCode.', 'Install it', ...(s.id ? ['Attach in a terminal'] : []));
+      if (pick === 'Install it') await vscode.commands.executeCommand('workbench.extensions.installExtension', CLAUDE_EXTENSION);
+      if (pick === 'Attach in a terminal' && s.id) this.send(s.cwd, `claude attach ${s.id}`, `claude: ${name}`);
+      return;
+    }
+    const live = this.hub.agents.find((a) => a.sessionId === s.sessionId);
+    if (live?.kind === 'background' && live.id && live.pid && live.state !== 'done' && live.state !== 'stopped' && live.state !== 'failed') {
+      const ok = await vscode.window.showWarningMessage(`Take ${name} over in Claude Code?`, {
+        modal: true,
+        detail: `It's ${live.state === 'blocked' ? 'waiting for an answer' : 'working'} in the background. A conversation can't run in two places, so acc stops it there, and a Claude Code tab carries on the same conversation, with its whole history. You drive it from the tab.${live.name && /^[A-Z][A-Z0-9_]*-\d+$/.test(live.name) ? ` Its task stays Running: finish it with acc done ${live.name}, or move it from the page.` : ''}`,
+      }, 'Stop it and open');
+      if (ok !== 'Stop it and open') return;
+      const r = await runFile('claude', ['stop', live.id], live.cwd, process.env, undefined, 30_000);
+      if (r.code !== 0) return void vscode.window.showWarningMessage(`Couldn't stop it in the background: ${(r.stderr || r.stdout).trim().split('\n')[0]}`);
+      // Wait until Claude Code no longer lists it as running, so the tab is the only one.
+      for (let i = 0; i < 20; i++) {
+        await this.hub.loadAgents();
+        const still = this.hub.agents.find((a) => a.sessionId === s.sessionId);
+        if (!still?.pid || still.state === 'stopped') break;
+        await new Promise((res) => setTimeout(res, 500));
+      }
+    } else if (live?.kind === 'interactive' && live.pid) {
+      const ok = await vscode.window.showWarningMessage(`${name} is open somewhere else.`, {
+        modal: true, detail: 'It\'s running in a terminal or another Claude Code tab. Using it in two places at once can mix up its messages. If it\'s already in a Claude Code tab in this window, opening it again brings that tab forward.',
+      }, 'Open anyway');
+      if (ok !== 'Open anyway') return;
+    }
+    const uri = vscode.Uri.parse(claudeSessionUri(vscode.env.uriScheme, s.sessionId));
+    this.log.info(`Opening ${name} in Claude Code: ${uri.toString(true)}`);
+    await vscode.env.openExternal(uri);
   }
 
   private watchAgent(n: AgentNode): void {

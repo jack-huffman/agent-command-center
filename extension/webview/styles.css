@@ -426,6 +426,7 @@ body.vscode-light .logo-light, body.vscode-high-contrast-light .logo-light { dis
 .q-actions { margin-top: 4px; align-items: center; }
 .q-aside { display: inline-flex; gap: 2px; margin-left: auto; }
 .q-aside .btn { white-space: nowrap; }
+.q-aside-group { display: inline-flex; gap: 2px; }
 .q-deny { display: flex; flex-direction: column; gap: 8px; align-items: stretch; margin-top: 6px; }
 .q-deny .actions { justify-content: flex-start; }
 .q-pending { display: flex; align-items: center; gap: 6px; }

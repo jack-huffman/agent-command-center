@@ -112,7 +112,8 @@ export function cardActions(t: TaskRow, ref: Ref): Action[] {
   // Waiting in its own terminal, it's answered by attaching; anything else is seen on its page.
   const inTerminal = t.display === 'needs-you' && !t.asking && !!t.run?.bgId;
   if ((t.state === 'running' || t.state === 'review' || t.state === 'blocked') && (t.run?.bgId || t.run?.sessionId)) a.push({ command: 'acc.task.watch', label: 'Watch', icon: 'pulse', ref, primary: !canDispatch && t.state === 'running' && !inTerminal });
-  if (t.state === 'running' && t.run?.bgId) a.push({ command: 'acc.task.attach', label: 'Attach', icon: 'terminal', ref, primary: inTerminal });
+  // Its conversation in a Claude Code tab (D-040); the terminal is the fallback when that isn't installed.
+  if (t.state === 'running' && (t.run?.bgId || t.run?.sessionId)) a.push({ command: 'acc.task.openInClaude', label: 'Open in Claude Code', icon: 'comment-discussion', ref, primary: inTerminal });
   if (t.run?.worktree && t.state !== 'todo') a.push({ command: 'acc.task.openWorktree', label: 'Worktree', icon: 'empty-window', ref });
   a.push({ command: 'acc.task.move', label: 'Move', icon: 'arrow-swap', ref, primary: !a.some((x) => x.primary) });
   if (t.pr && t.pr.state !== 'open') a.push({ command: 'acc.task.openPr', label: `Pull request #${t.pr.number}`, icon: 'git-pull-request', ref });
@@ -256,7 +257,7 @@ export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): Trac
     id: c.id, name: c.name, tone: CATEGORY_TONE[c.category], done: c.category === 'done',
     cards: (b.board?.cards ?? []).filter((card) => c.statusIds.includes(card.status.id)).map((card): TrackerCard => {
       const row = byId.get(card.key);
-      const next = row ? cardActions(row, { project: root, task: row.id }).find((a) => a.primary && (a.command === 'acc.task.dispatch' || a.command === 'acc.task.watch' || a.command === 'acc.task.attach')) ?? null : null;
+      const next = row ? cardActions(row, { project: root, task: row.id }).find((a) => a.primary && (a.command === 'acc.task.dispatch' || a.command === 'acc.task.watch' || a.command === 'acc.task.openInClaude')) ?? null : null;
       return {
         key: card.key, title: card.title, type: card.type, typeIcon: typeIcon(card.type), priority: card.priority, priorityIcon: priorityIcon(card.priority),
         labels: card.labels, assignees: card.assignees.map(chip), status: card.status.name,
@@ -892,6 +893,7 @@ export function agentModel(i: AgentInput): AgentModel {
   const key = s ? sessionKey(s) : i.key;
   const ref: Ref = { session: key };
   const actions: Action[] = [];
+  if (s?.sessionId) actions.push({ command: 'acc.agent.openInClaude', label: 'Open in Claude Code', icon: 'comment-discussion', ref });
   if (live?.id) actions.push({ command: 'acc.agent.attach', label: 'Attach in terminal', icon: 'terminal', ref });
   if (s) actions.push({ command: 'acc.agent.openFolder', label: 'Open its folder', icon: 'empty-window', ref });
   if (live?.id && live.pid) actions.push({ command: 'acc.agent.stop', label: 'Stop', icon: 'debug-stop', ref, danger: true });
@@ -1055,7 +1057,7 @@ export function homeModel(i: HomeInput): HomeModel {
         // Its question is shown on its own, to answer in place.
         if (questions.some((q) => q.task === r.id && q.project === p.root)) continue;
         const watch = acts.find((a) => a.command === 'acc.task.watch');
-        const attach = acts.find((a) => a.command === 'acc.task.attach');
+        const attach = acts.find((a) => a.command === 'acc.task.openInClaude');
         // A pull request that needs you says why: its checks, or a person's requested changes.
         const pr = r.state === 'review' && r.pr?.state === 'open' ? r.pr : null;
         if (pr) {
@@ -1088,7 +1090,9 @@ export function homeModel(i: HomeInput): HomeModel {
     attention.push({
       key: `a:${key}`, look: { label: look.label, icon: look.icon, tone: look.tone }, title: s.name ?? 'Agent session', detail: hub.projectFor(s.cwd)?.name ?? s.cwd, project: hub.projectFor(s.cwd)?.name ?? '',
       actions: [
-        ...(s.id ? [{ command: 'acc.agent.attach', label: 'Attach', icon: 'terminal', ref: { session: key }, primary: true }] : []),
+        // Its conversation in Claude Code when its session id is known; attaching a terminal otherwise.
+        ...(s.sessionId ? [{ command: 'acc.agent.openInClaude', label: 'Open in Claude Code', icon: 'comment-discussion', ref: { session: key }, primary: true }]
+          : s.id ? [{ command: 'acc.agent.attach', label: 'Attach', icon: 'terminal', ref: { session: key }, primary: true }] : []),
         { command: 'acc.agent.watch', label: 'Watch', icon: 'pulse', ref: { session: key } },
       ],
     });
