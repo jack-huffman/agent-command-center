@@ -214,21 +214,35 @@ test('the history keeps its newest 1,000 records: 1,000 stay as they are, and th
   assert.deepEqual(readdirSync(dir).filter((f) => f.endsWith('.tmp')), [], 'written to a temp file and renamed over it');
 });
 
-test('an append only checks the size: the file is trimmed each time it passes another 64 KB, not on every append', () => {
+test('an append only checks the size: the file is trimmed once it has grown 64 KB since its last trim, not on every append', () => {
   const dir = tempDir();
   const file = join(dir, 'history.jsonl');
-  writeFileSync(file, recordLines(0, 1000), { mode: 0o600 });
-  const mark = (bytes: number) => Math.floor(bytes / HISTORY_TRIM_EVERY_BYTES);
-  let trimmedAt = 0;
-  for (let i = 1000; !trimmedAt && i < 3000; i++) {
-    const before = statSync(file).size;
-    const length = Buffer.byteLength(`${JSON.stringify(record(i))}\n`);
-    appendHistory(dir, record(i));
-    if (mark(before + length) === mark(before)) assert.equal(statSync(file).size, before + length, `append ${i} only appended`);
-    else trimmedAt = i;
+  // 1,000 records of 262 bytes are 262,000 bytes, just under 4 × 64 KB, so every append after a trim crosses that mark.
+  const LINE = 262;
+  const sized = (i: number): HistoryRecord => {
+    const r = record(i);
+    return { ...r, input: { command: 'x'.repeat(LINE - Buffer.byteLength(`${JSON.stringify({ ...r, input: { command: '' } })}\n`)) } };
+  };
+  const lines = (from: number, to: number) => Array.from({ length: to - from }, (_, k) => `${JSON.stringify(sized(from + k))}\n`).join('');
+  assert.equal(Buffer.byteLength(lines(995, 1005)), 10 * LINE);
+  assert.ok(1000 * LINE < 4 * HISTORY_TRIM_EVERY_BYTES && 1001 * LINE > 4 * HISTORY_TRIM_EVERY_BYTES);
+  writeFileSync(file, lines(0, 1000), { mode: 0o600 }); // from before D-043: no trim noted, so the first append trims
+  const every = Math.floor(HISTORY_TRIM_EVERY_BYTES / LINE) + 1; // 251 appends, a little over 64 KB
+  const trims: number[] = [];
+  for (let i = 1000; i < 1000 + 3 * every + 10; i++) {
+    const before = statSync(file);
+    appendHistory(dir, sized(i));
+    const after = statSync(file);
+    if (after.ino === before.ino && after.size === before.size + LINE) continue;
+    trims.push(i);
+    assert.deepEqual(historyIds(dir), ids(i - 999, i + 1), `append ${i} trimmed to the newest 1,000`);
+    assert.equal(after.size, 1000 * LINE);
   }
-  assert.ok(trimmedAt > 1000, 'more than 1,000 records for a while, until the file passed a mark');
-  assert.deepEqual(historyIds(dir), ids(trimmedAt - 999, trimmedAt + 1), 'then the newest 1,000');
+  assert.deepEqual(trims, [1000, 1000 + every, 1000 + 2 * every, 1000 + 3 * every], 'the appends between trims only appended, the ones right after a trim too');
+  assert.deepEqual(historyIds(dir), ids(1000 + 3 * every - 999, 1000 + 3 * every + 10));
+  writeFileSync(join(dir, 'history.trimmed'), '99999999\n'); // more than the file holds: deleted or replaced since
+  appendHistory(dir, sized(2000));
+  assert.equal(questionHistory(dir, 5000).length, 1000, 'a noted size the file can\'t have counts as none');
 });
 
 test('a garbled or half-written line doesn\'t stop the trim or the readers', () => {

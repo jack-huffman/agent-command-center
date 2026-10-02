@@ -15,6 +15,7 @@ import { alive } from './lock.ts';
  *   <id>.answer.json      its answer, written once by whoever answers first
  *   listeners/<pid>.json  a window that shows questions for these folders, refreshed while it's open
  *   history.jsonl         how each question ended, so the page can show the conversation (D-037)
+ *   history.trimmed       the size the history's last trim left it at (D-043)
  */
 export const questionsDir = (env: NodeJS.ProcessEnv = process.env): string => env.ACC_QUESTIONS_DIR || join(homedir(), '.acc', 'questions');
 
@@ -128,29 +129,45 @@ export interface HistoryRecord {
 /** The history keeps its newest 1,000 records, and no more than 2 MB of them (D-043). */
 const HISTORY_KEEP = 1000;
 const HISTORY_MAX_BYTES = 2 * 1024 * 1024;
-/** An append only stats the file. It's read, to be trimmed, each time it grows past another this many bytes. */
+/** An append doesn't read the history. It's read, to be trimmed, once it has grown this many bytes since its last trim. */
 export const HISTORY_TRIM_EVERY_BYTES = 64 * 1024;
 
 /**
- * Appends a record. Each time the file grows past another `trimEvery` bytes, it's cut back to its newest
- * records, so between trims it holds only a few more than it keeps.
+ * Appends a record. Once the file has grown `trimEvery` bytes past the size its last trim left, it's cut
+ * back to its newest records, so between trims it holds only a few more than it keeps.
  */
 export function appendHistory(dir: string, rec: HistoryRecord, trimEvery = HISTORY_TRIM_EVERY_BYTES): void {
   ensureDir(dir);
   const file = join(dir, 'history.jsonl');
-  const line = JSON.stringify(rec) + '\n';
-  appendFileSync(file, line, { mode: 0o600 });
+  appendFileSync(file, JSON.stringify(rec) + '\n', { mode: 0o600 });
   try {
     const size = statSync(file).size;
-    if (Math.floor(size / trimEvery) > Math.floor((size - Buffer.byteLength(line)) / trimEvery)) trimHistory(file);
+    if (size > trimmedSize(dir, size) + trimEvery) writePrivateText(join(dir, 'history.trimmed'), `${trimHistory(file)}\n`);
   } catch {
     // trimming is best effort; the record is written
   }
 }
 
-/** Keeps the newest records that read, up to the limits. Lines that don't read are dropped. */
-function trimHistory(file: string): void {
-  const lines = readFileSync(file, 'utf8').split('\n').filter(Boolean);
+/**
+ * The size the last trim left the history at. Missing, unreadable, or more than the file holds now (it
+ * was deleted or replaced since), it counts as 0.
+ */
+function trimmedSize(dir: string, size: number): number {
+  try {
+    const n = Number(readFileSync(join(dir, 'history.trimmed'), 'utf8'));
+    return Number.isSafeInteger(n) && n >= 0 && n <= size ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Keeps the newest records that read, up to the limits, and returns the size it leaves the file at.
+ * Lines that don't read are dropped.
+ */
+function trimHistory(file: string): number {
+  const data = readFileSync(file);
+  const lines = data.toString('utf8').split('\n').filter(Boolean);
   const kept: string[] = [];
   let bytes = 0;
   for (let i = lines.length - 1; i >= 0 && kept.length < HISTORY_KEEP; i--) {
@@ -160,7 +177,10 @@ function trimHistory(file: string): void {
     if (bytes > HISTORY_MAX_BYTES && kept.length) break;
     kept.push(line);
   }
-  if (kept.length < lines.length) writePrivateText(file, kept.reverse().map((l) => `${l}\n`).join(''));
+  if (kept.length === lines.length) return data.length;
+  const text = kept.reverse().map((l) => `${l}\n`).join('');
+  writePrivateText(file, text);
+  return Buffer.byteLength(text);
 }
 
 function writePrivateText(file: string, text: string): void {
