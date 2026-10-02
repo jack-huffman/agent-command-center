@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { type Config, parseConfig } from '../config.ts';
-import type { Runner } from '../exec.ts';
+import { parseJsonOutput, type Runner, sfEnv } from '../exec.ts';
 import { repoPaths } from '../paths.ts';
 import { withCloneAccount } from '../github.ts';
 import type { CheckContext, CheckResult } from './types.ts';
@@ -61,10 +61,10 @@ export interface SfJson {
 /** Runs `sf … --json` once per argument list and parses the reply. sf prints JSON even on failure. */
 export function sfJson(ctx: CheckContext, args: string[]): SfJson {
   return cached(ctx, `sf ${args.join('\u0000')}`, () => {
-    const r = ctx.run('sf', [...args, '--json'], { cwd: ctx.paths?.root ?? ctx.cwd, env: { ...ctx.env, SF_NO_UPDATE_NOTIFIER: 'true', SF_DISABLE_TELEMETRY: 'true' } });
+    const r = ctx.run('sf', [...args, '--json'], { cwd: ctx.paths?.root ?? ctx.cwd, env: sfEnv(ctx.env) });
     if (r.code === 127) return { status: 127, message: 'The Salesforce CLI (sf) isn\'t installed.' };
     try {
-      return JSON.parse(r.stdout) as SfJson;
+      return parseJsonOutput<SfJson>(r.stdout);
     } catch {
       return { status: r.code || 1, message: (r.stderr || r.stdout).trim().split('\n')[0] ?? 'sf failed' };
     }

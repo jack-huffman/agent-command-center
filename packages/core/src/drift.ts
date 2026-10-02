@@ -6,7 +6,7 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Config, Environment } from './config.ts';
-import { AccError, type Runner } from './exec.ts';
+import { AccError, parseJsonOutput, type Runner, sfEnv } from './exec.ts';
 import { lastLine, listed, niced, packageDirs, readList, shellLine, under } from './gates.ts';
 import type { RepoPaths } from './paths.ts';
 import { type SlotOptions, withSlot } from './semaphore.ts';
@@ -82,7 +82,7 @@ export function filesFor(type: string, fullName: string, tracked: string[]): str
 function failures(stdout: string): { lacking: { type: string; fullName: string }[]; other: string[] } {
   let files: { type?: string; fullName?: string; state?: string; error?: string }[] = [];
   try {
-    files = (JSON.parse(stdout) as { result?: { files?: typeof files } }).result?.files ?? [];
+    files = parseJsonOutput<{ result?: { files?: typeof files } }>(stdout).result?.files ?? [];
   } catch {
     files = [];
   }
@@ -127,7 +127,7 @@ export function drift(paths: RepoPaths, config: Config, envName: string, deps: D
   if (add.code !== 0) throw new AccError('git', `Couldn't make a throwaway worktree: ${lastLine(add.stderr)}`);
   try {
     const args = ['project', 'retrieve', 'start', '--manifest', manifest, '--target-org', env.org!, '--ignore-conflicts', '--wait', '60', '--json'];
-    const retrieve = () => deps.run(...niced('sf', args), { cwd: dir, timeoutMs: 70 * 60_000 });
+    const retrieve = () => deps.run(...niced('sf', args), { cwd: dir, timeoutMs: 70 * 60_000, env: sfEnv() });
     const r = withSlot(retrieve, { ...deps.slots, onWait: deps.onWait });
     const log = join(paths.logs, 'drift', `${env.branch}.log`);
     mkdirSync(join(paths.logs, 'drift'), { recursive: true });
@@ -135,7 +135,7 @@ export function drift(paths: RepoPaths, config: Config, envName: string, deps: D
     let status: number | undefined;
     let message = '';
     try {
-      const j = JSON.parse(r.stdout) as { status?: number; message?: string };
+      const j = parseJsonOutput<{ status?: number; message?: string }>(r.stdout);
       status = j.status;
       message = j.message ?? '';
     } catch {

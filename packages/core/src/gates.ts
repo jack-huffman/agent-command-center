@@ -6,7 +6,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Config, Environment } from './config.ts';
-import { AccError, type RunResult, type Runner } from './exec.ts';
+import { AccError, parseJsonOutput, type RunResult, type Runner, sfEnv } from './exec.ts';
 import type { Ledger, Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
 import { type GateStatus, type Receipt, writeReceipt } from './receipts.ts';
@@ -214,7 +214,7 @@ interface DeployResult {
 export function readDeploy(r: RunResult, org: string, tests: ApexTest[], sourceCount: number): Outcome {
   let j: { status?: number; message?: string; result?: DeployResult; data?: DeployResult };
   try {
-    j = JSON.parse(r.stdout);
+    j = parseJsonOutput(r.stdout);
   } catch {
     return error(lastLine(r.stderr || r.stdout) || `sf exited with ${r.code} and printed no JSON.`);
   }
@@ -413,7 +413,8 @@ export function runGates(paths: RepoPaths, config: Config, env: Environment, nam
       assertCheckOnly(plan.cmd, plan.args);
       command = shellLine(plan.cmd, plan.args);
       const [cmd, args] = niced(plan.cmd, plan.args);
-      const exec = () => deps.run(cmd, args, { cwd: root, timeoutMs: (gate.heavy ? 90 : 20) * 60_000 });
+      // sf gets a plain environment, so its --json output stays parseable whatever shell ran acc.
+      const exec = () => deps.run(cmd, args, { cwd: root, timeoutMs: (gate.heavy ? 90 : 20) * 60_000, env: plan.cmd === 'sf' ? sfEnv() : process.env });
       const r = gate.heavy ? withSlot(exec, { ...deps.slots, onWait: () => deps.onWait?.(gate) }) : exec();
       log = join(input.scratch, `${gate.name}.log`);
       writeFileSync(log, `$ ${command}\n# exit ${r.code}\n\n${r.stdout}${r.stderr ? `\n--- stderr ---\n${r.stderr}` : ''}`);

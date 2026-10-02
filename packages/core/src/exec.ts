@@ -37,3 +37,23 @@ export class AccError extends Error {
     this.name = 'AccError';
   }
 }
+
+/** Environment for sf: no colour codes in its JSON, and no update notice in its output. */
+export const sfEnv = (env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv => ({
+  ...env, NO_COLOR: '1', FORCE_COLOR: '0', SF_NO_UPDATE_NOTIFIER: 'true', SF_SKIP_NEW_VERSION_CHECK: 'true', SF_DISABLE_TELEMETRY: 'true',
+});
+
+/**
+ * Reads a CLI's --json output. Colour codes are stripped first: a CLI run from a shell that asks for
+ * colour can colour its JSON, which then won't parse. Text before the JSON, such as a notice, is skipped.
+ */
+export function parseJsonOutput<T>(text: string): T {
+  const plain = text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '');
+  try {
+    return JSON.parse(plain) as T;
+  } catch {
+    const start = plain.search(/^[{[]/m);
+    if (start < 0) throw new SyntaxError('No JSON in the output.');
+    return JSON.parse(plain.slice(start)) as T;
+  }
+}

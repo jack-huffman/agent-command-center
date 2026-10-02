@@ -371,3 +371,12 @@ test('format checks Apex and LWC code only, never metadata XML (D-025)', () => {
     'force-app/main/default/lwc/card/card.html', 'force-app/main/default/lwc/card/card.js', 'force-app/main/default/triggers/Tier.trigger',
   ]);
 });
+
+test('sf output that a colour-loving shell coloured still reads: the T-1 validate that came back as an error', async () => {
+  const { parseJsonOutput } = await import('../src/exec.ts');
+  const coloured = '\x1b[97m{\x1b[39m\n  \x1b[94m"status"\x1b[39m: \x1b[34m1\x1b[39m,\n  \x1b[94m"result"\x1b[39m: \x1b[97m{\x1b[39m \x1b[94m"id"\x1b[39m: \x1b[92m"0Af1"\x1b[39m, \x1b[94m"success"\x1b[39m: \x1b[91mfalse\x1b[39m \x1b[97m}\x1b[39m\n\x1b[97m}\x1b[39m';
+  assert.deepEqual(parseJsonOutput(coloured), { status: 1, result: { id: '0Af1', success: false } });
+  assert.deepEqual(parseJsonOutput('Warning: update available\n{"status":0}'), { status: 0 }, 'a notice before the JSON is skipped');
+  const out = readDeploy({ code: 1, stderr: 'Warning: @salesforce/cli update available', stdout: coloured }, 'Acme Dev', [{ name: 'ATest', reason: '' }], 3);
+  assert.equal(out.status, 'fail', 'a failed validation, not an error about the update notice');
+});

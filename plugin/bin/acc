@@ -28,6 +28,24 @@ var AccError = class extends Error {
     this.name = "AccError";
   }
 };
+var sfEnv = (env = process.env) => ({
+  ...env,
+  NO_COLOR: "1",
+  FORCE_COLOR: "0",
+  SF_NO_UPDATE_NOTIFIER: "true",
+  SF_SKIP_NEW_VERSION_CHECK: "true",
+  SF_DISABLE_TELEMETRY: "true"
+});
+function parseJsonOutput(text) {
+  const plain = text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
+  try {
+    return JSON.parse(plain);
+  } catch {
+    const start = plain.search(/^[{[]/m);
+    if (start < 0) throw new SyntaxError("No JSON in the output.");
+    return JSON.parse(plain.slice(start));
+  }
+}
 
 // packages/core/src/paths.ts
 import { join } from "node:path";
@@ -860,7 +878,7 @@ var asList = (x) => x == null ? [] : Array.isArray(x) ? x : [x];
 function readDeploy(r, org, tests, sourceCount) {
   let j;
   try {
-    j = JSON.parse(r.stdout);
+    j = parseJsonOutput(r.stdout);
   } catch {
     return error(lastLine(r.stderr || r.stdout) || `sf exited with ${r.code} and printed no JSON.`);
   }
@@ -1006,7 +1024,7 @@ function runGates(paths, config, env, names, tests, deps) {
       assertCheckOnly(plan.cmd, plan.args);
       command = shellLine(plan.cmd, plan.args);
       const [cmd, args] = niced(plan.cmd, plan.args);
-      const exec = () => deps.run(cmd, args, { cwd: root, timeoutMs: (gate.heavy ? 90 : 20) * 6e4 });
+      const exec = () => deps.run(cmd, args, { cwd: root, timeoutMs: (gate.heavy ? 90 : 20) * 6e4, env: plan.cmd === "sf" ? sfEnv() : process.env });
       const r = gate.heavy ? withSlot(exec, { ...deps.slots, onWait: () => deps.onWait?.(gate) }) : exec();
       log = join5(input.scratch, `${gate.name}.log`);
       writeFileSync6(log, `$ ${command}
@@ -1098,7 +1116,7 @@ function filesFor(type, fullName, tracked) {
 function failures(stdout) {
   let files = [];
   try {
-    files = JSON.parse(stdout).result?.files ?? [];
+    files = parseJsonOutput(stdout).result?.files ?? [];
   } catch {
     files = [];
   }
@@ -1137,7 +1155,7 @@ function drift(paths, config, envName, deps, opts = {}) {
   if (add.code !== 0) throw new AccError("git", `Couldn't make a throwaway worktree: ${lastLine(add.stderr)}`);
   try {
     const args = ["project", "retrieve", "start", "--manifest", manifest, "--target-org", env.org, "--ignore-conflicts", "--wait", "60", "--json"];
-    const retrieve = () => deps.run(...niced("sf", args), { cwd: dir, timeoutMs: 70 * 6e4 });
+    const retrieve = () => deps.run(...niced("sf", args), { cwd: dir, timeoutMs: 70 * 6e4, env: sfEnv() });
     const r = withSlot(retrieve, { ...deps.slots, onWait: deps.onWait });
     const log = join6(paths.logs, "drift", `${env.branch}.log`);
     mkdirSync7(join6(paths.logs, "drift"), { recursive: true });
@@ -1150,7 +1168,7 @@ ${r.stderr}` : ""}`);
     let status;
     let message = "";
     try {
-      const j = JSON.parse(r.stdout);
+      const j = parseJsonOutput(r.stdout);
       status = j.status;
       message = j.message ?? "";
     } catch {
@@ -1658,10 +1676,10 @@ function versionAtLeast(version, min) {
 var firstVersion = (text) => /(\d+\.\d+(?:\.\d+)?)/.exec(text)?.[1] ?? null;
 function sfJson(ctx, args) {
   return cached(ctx, `sf ${args.join("\0")}`, () => {
-    const r = ctx.run("sf", [...args, "--json"], { cwd: ctx.paths?.root ?? ctx.cwd, env: { ...ctx.env, SF_NO_UPDATE_NOTIFIER: "true", SF_DISABLE_TELEMETRY: "true" } });
+    const r = ctx.run("sf", [...args, "--json"], { cwd: ctx.paths?.root ?? ctx.cwd, env: sfEnv(ctx.env) });
     if (r.code === 127) return { status: 127, message: "The Salesforce CLI (sf) isn't installed." };
     try {
-      return JSON.parse(r.stdout);
+      return parseJsonOutput(r.stdout);
     } catch {
       return { status: r.code || 1, message: (r.stderr || r.stdout).trim().split("\n")[0] ?? "sf failed" };
     }
