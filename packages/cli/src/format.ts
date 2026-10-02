@@ -42,7 +42,7 @@ const GATE: Record<GateStatus, { glyph: string; label: string; tone: keyof typeo
   error: { glyph: '!', label: 'error', tone: 'orange' },
   skip: { glyph: '–', label: 'skip', tone: 'dim' },
 };
-const GATE_WIDTH = Math.max(...Object.values(GATE).map((c) => c.label.length)) + 2;
+const GATE_WIDTH = Math.max(...Object.values(GATE).map((c) => `${c.glyph} ${c.label}`.length)) + 2;
 
 /** A gate result: "error" (couldn't run) reads differently from "fail" (the change is wrong). */
 export function gateLabel(s: GateStatus): string {

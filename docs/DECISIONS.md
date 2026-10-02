@@ -294,6 +294,18 @@ Environment-specific files are left out of every gate. If a branch touched one,
 
 **Drift** retrieves the baseline manifest into a detached, throwaway worktree in
 the git common dir. It prints nothing when the org matches its branch, ignoring
-`knownDrift` and `environmentSpecific`. Otherwise it lists what changed and what
-exists only in the org, and exits 1. Components deleted in the org aren't
-detected yet, because a retrieve can't show an absence.
+`knownDrift` and `environmentSpecific`. Otherwise it lists three things, and
+exits 1:
+
+- what changed in the org
+- what exists only in the org
+- what the branch has and the org lacks
+
+A retrieve doesn't delete local files, so the third list comes from the
+retrieve's "cannot be found" entries. Each one is matched back to its files in
+the branch by Salesforce's naming, so all three lists are file paths and
+`knownDrift` covers them alike. The first drift run, on a Developer sandbox,
+found the third list: about 120 components for features the sandbox lacks, and
+about 15 Production changes made after the sandbox was created. Components the
+retrieve couldn't fetch for other reasons are shown as notes on the manifest,
+not as drift.

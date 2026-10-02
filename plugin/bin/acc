@@ -711,6 +711,7 @@ function lastLine(text) {
   const line = lines.at(-1) ?? "";
   return line.length > 200 ? `${line.slice(0, 197)}\u2026` : line;
 }
+var shellLine = (cmd, args) => [cmd, ...args].map((a) => /^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`).join(" ");
 var exitRead = (r) => r.code === 0 ? pass("Passed.") : r.code === 127 ? error(lastLine(r.stderr) || "The command wasn't found.") : fail(lastLine(r.stdout + "\n" + r.stderr) || `Exited with ${r.code}.`);
 function commandGate(name, command, heavy) {
   return { name, heavy, about: command, plan: () => ({ cmd: "sh", args: ["-c", command], read: exitRead }) };
@@ -986,7 +987,7 @@ function runGates(paths, config, env, names, tests, deps) {
       outcome = plan.outcome;
     } else {
       assertCheckOnly(plan.cmd, plan.args);
-      command = [plan.cmd, ...plan.args].join(" ");
+      command = shellLine(plan.cmd, plan.args);
       const [cmd, args] = niced(plan.cmd, plan.args);
       const exec = () => deps.run(cmd, args, { cwd: root, timeoutMs: (gate.heavy ? 90 : 20) * 6e4 });
       const r = gate.heavy ? withSlot(exec, { ...deps.slots, onWait: () => deps.onWait?.(gate) }) : exec();
@@ -1029,6 +1030,68 @@ function environmentNamed(config, name) {
   return env;
 }
 var driftReportPath = (paths, branch) => join6(paths.stateDir, "drift", `${branch}.json`);
+var FOLDER = {
+  ApexClass: "classes",
+  ApexTrigger: "triggers",
+  ApexPage: "pages",
+  ApexComponent: "components",
+  CustomObject: "objects",
+  CustomField: "fields",
+  ListView: "listViews",
+  RecordType: "recordTypes",
+  ValidationRule: "validationRules",
+  WebLink: "webLinks",
+  CompactLayout: "compactLayouts",
+  FieldSet: "fieldSets",
+  BusinessProcess: "businessProcesses",
+  Flow: "flows",
+  ContentAsset: "contentassets",
+  ReportType: "reportTypes",
+  Layout: "layouts",
+  PermissionSet: "permissionsets",
+  Profile: "profiles",
+  CustomTab: "tabs",
+  CustomApplication: "applications",
+  QuickAction: "quickActions",
+  FlexiPage: "flexipages",
+  StaticResource: "staticresources",
+  LightningComponentBundle: "lwc",
+  AuraDefinitionBundle: "aura",
+  EmailTemplate: "email",
+  Report: "reports",
+  Dashboard: "dashboards",
+  GlobalValueSet: "globalValueSets",
+  StandardValueSet: "standardValueSets",
+  CustomMetadata: "customMetadata",
+  CustomLabels: "labels"
+};
+function filesFor(type, fullName, tracked) {
+  const parts = fullName.split(".");
+  const name = parts.pop();
+  const folder = FOLDER[type];
+  return tracked.filter((f) => {
+    const segs = f.split("/");
+    const base = segs.at(-1);
+    const inBundle = segs.at(-2) === name && (type === "LightningComponentBundle" || type === "AuraDefinitionBundle");
+    if (!base.startsWith(`${name}.`) && !inBundle) return false;
+    if (folder && !segs.includes(folder)) return false;
+    return parts.every((p) => segs.includes(p));
+  });
+}
+function failures(stdout) {
+  let files = [];
+  try {
+    files = JSON.parse(stdout).result?.files ?? [];
+  } catch {
+    files = [];
+  }
+  const failed = files.filter((f) => f.state === "Failed");
+  const isAbsent = (f) => /cannot be found/i.test(f.error ?? "");
+  return {
+    lacking: failed.filter(isAbsent).map((f) => ({ type: f.type ?? "", fullName: f.fullName ?? "" })),
+    other: failed.filter((f) => !isAbsent(f)).map((f) => `${f.type || "?"}:${f.fullName || "?"}: ${(f.error ?? "failed").trim()}`)
+  };
+}
 function statusOf(run2, dir) {
   const r = run2("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], { cwd: dir });
   if (r.code !== 0) throw new AccError("git", `git status failed in the drift worktree: ${lastLine(r.stderr)}`);
@@ -1056,8 +1119,17 @@ function drift(paths, config, envName, deps, opts = {}) {
   const add = git3(["worktree", "add", "--detach", "--quiet", dir, base]);
   if (add.code !== 0) throw new AccError("git", `Couldn't make a throwaway worktree: ${lastLine(add.stderr)}`);
   try {
-    const retrieve = () => deps.run(...niced("sf", ["project", "retrieve", "start", "--manifest", manifest, "--target-org", env.org, "--ignore-conflicts", "--wait", "60", "--json"]), { cwd: dir, timeoutMs: 70 * 6e4 });
+    const args = ["project", "retrieve", "start", "--manifest", manifest, "--target-org", env.org, "--ignore-conflicts", "--wait", "60", "--json"];
+    const retrieve = () => deps.run(...niced("sf", args), { cwd: dir, timeoutMs: 70 * 6e4 });
     const r = withSlot(retrieve, { ...deps.slots, onWait: deps.onWait });
+    const log = join6(paths.logs, "drift", `${env.branch}.log`);
+    mkdirSync7(join6(paths.logs, "drift"), { recursive: true });
+    writeFileSync7(log, `$ ${shellLine("sf", args)}
+# exit ${r.code}
+
+${r.stdout}${r.stderr ? `
+--- stderr ---
+${r.stderr}` : ""}`);
     let status;
     let message = "";
     try {
@@ -1067,7 +1139,7 @@ function drift(paths, config, envName, deps, opts = {}) {
     } catch {
       status = void 0;
     }
-    if (r.code !== 0 || status !== 0) throw new AccError("sf", `The retrieve from ${env.org} failed: ${message.trim() || lastLine(r.stderr || r.stdout) || `exit ${r.code}`}`);
+    if (r.code !== 0 || status !== 0) throw new AccError("sf", `The retrieve from ${env.org} failed: ${message.trim() || lastLine(r.stderr || r.stdout) || `exit ${r.code}`}. The full output is in ${log}`);
     const expected = [...readList(dir, config.knownDrift), ...readList(dir, config.environmentSpecific)];
     const found = statusOf(deps.run, dir);
     const source = packageDirs(dir);
@@ -1076,13 +1148,19 @@ function drift(paths, config, envName, deps, opts = {}) {
     const keep = (p) => !listed(p, expected);
     const changed = found.changed.filter(keep);
     const added = found.added.filter(keep);
+    const { lacking, other } = failures(r.stdout);
+    const tracked = under(git3(["ls-files"], dir).stdout.split("\n").filter(Boolean), source);
+    const lackingFiles = [...new Set(lacking.flatMap((c) => filesFor(c.type, c.fullName, tracked)))].sort();
+    const missing = lackingFiles.filter(keep);
     const result = {
       env: env.branch,
       org: env.org,
       base,
       changed,
       added,
-      ignored: found.changed.length + found.added.length - changed.length - added.length,
+      missing,
+      unretrievable: other,
+      ignored: found.changed.length + found.added.length + lackingFiles.length - changed.length - added.length - missing.length,
       checkedAt: deps.now().toISOString(),
       kept: opts.keep ? dir : null
     };
@@ -2247,7 +2325,7 @@ var STEPS = [
       if (!report) return { status: "unknown", detail: `${env.org} hasn't been compared with ${env.branch} yet. It takes a few minutes and only reads the org.`, fix: cmd };
       const days = Math.floor((Date.now() - Date.parse(report.checkedAt)) / 864e5);
       const when = days < 1 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
-      const found = report.changed.length + report.added.length;
+      const found = report.changed.length + report.added.length + (report.missing?.length ?? 0);
       if (found) return fail2(`${env.org} had ${found} difference${found === 1 ? "" : "s"} from ${env.branch} when checked ${when}. Look with: ${cmd} --keep`, cmd);
       if (days > 14) return { status: "unknown", detail: `${env.org} matched ${env.branch} ${when}. Check again; orgs change.`, fix: cmd };
       return pass2(`${env.org} matched ${env.branch} ${when}${report.ignored ? `, apart from ${report.ignored} expected differences` : ""}.`);
@@ -2302,7 +2380,7 @@ var GATE = {
   error: { glyph: "!", label: "error", tone: "orange" },
   skip: { glyph: "\u2013", label: "skip", tone: "dim" }
 };
-var GATE_WIDTH = Math.max(...Object.values(GATE).map((c) => c.label.length)) + 2;
+var GATE_WIDTH = Math.max(...Object.values(GATE).map((c) => `${c.glyph} ${c.label}`.length)) + 2;
 function gateLabel(s) {
   const c = GATE[s];
   return tone(`${c.glyph} ${c.label}`.padEnd(GATE_WIDTH), c.tone);
@@ -2630,13 +2708,15 @@ function cmdDrift(o, envName) {
   const r = drift(paths, config, envName, { run, now, onWait: () => {
     if (!o.json) process.stderr.write(tone("Waiting for another heavy check on this machine to finish\u2026\n", "dim"));
   } }, { manifest: o.manifest, keep: o.keep === true });
-  const found = r.changed.length + r.added.length;
+  const found = r.changed.length + r.added.length + r.missing.length;
   if (o.json) out(o, () => "", r);
-  else if (found || r.kept) {
+  else if (found || r.kept || r.unretrievable.length) {
     process.stdout.write([
       found ? `${r.org} differs from ${r.env} at ${r.base.slice(0, 7)}${r.ignored ? ` (${r.ignored} expected differences left out)` : ""}:` : "",
       ...r.changed.length ? ["", `Changed in the org (${r.changed.length}):`, ...r.changed.map((f) => `  ${f}`)] : [],
       ...r.added.length ? ["", `Only in the org (${r.added.length}):`, ...r.added.map((f) => `  ${f}`)] : [],
+      ...r.missing.length ? ["", `In the branch but not the org (${r.missing.length}):`, ...r.missing.map((f) => `  ${f}`)] : [],
+      ...r.unretrievable.length ? ["", tone(`Not drift, but the retrieve couldn't fetch these; check the baseline manifest (${r.unretrievable.length}):`, "dim"), ...r.unretrievable.map((f) => tone(`  ${f}`, "dim"))] : [],
       r.kept ? `
 Kept the retrieved copy at ${r.kept}. Remove it with: git worktree remove --force "${r.kept}"` : ""
     ].filter((l) => l !== "").join("\n") + "\n");

@@ -360,9 +360,16 @@ acc drift <environment>     # e.g. acc drift dev
 This retrieves the baseline manifest from the environment's org into a
 throwaway worktree. It compares that with the branch, as the remote has it,
 leaving out the known-drift and environment-specific lists. It prints nothing
-when they match. Otherwise it lists what changed in the org and what exists only
-there. Add `--keep` to keep the retrieved copy for a closer look. The retrieve
-only reads the org.
+when they match. Otherwise it lists:
+
+- what changed in the org
+- what exists only in the org
+- what the branch has and the org lacks
+
+That last list is often features a sandbox doesn't have, such as standard list
+views for objects it doesn't provision. Add those files to the known-drift list
+with a comment saying why. Add `--keep` to keep the retrieved copy for a closer
+look. The retrieve only reads the org.
 
 `acc doctor` shows the day-to-day org's last result (B11.drift).
 

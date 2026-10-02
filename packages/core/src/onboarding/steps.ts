@@ -508,7 +508,7 @@ export const STEPS: Step[] = [
       if (!report) return { status: 'unknown', detail: `${env.org} hasn't been compared with ${env.branch} yet. It takes a few minutes and only reads the org.`, fix: cmd };
       const days = Math.floor((Date.now() - Date.parse(report.checkedAt)) / 86_400_000);
       const when = days < 1 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`;
-      const found = report.changed.length + report.added.length;
+      const found = report.changed.length + report.added.length + (report.missing?.length ?? 0);
       if (found) return fail(`${env.org} had ${found} difference${found === 1 ? '' : 's'} from ${env.branch} when checked ${when}. Look with: ${cmd} --keep`, cmd);
       if (days > 14) return { status: 'unknown', detail: `${env.org} matched ${env.branch} ${when}. Check again; orgs change.`, fix: cmd };
       return pass(`${env.org} matched ${env.branch} ${when}${report.ignored ? `, apart from ${report.ignored} expected differences` : ''}.`);

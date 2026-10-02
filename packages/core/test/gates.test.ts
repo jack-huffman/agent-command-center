@@ -266,12 +266,52 @@ test('drift lists what changed and what exists only in the org, leaving out expe
   assert.equal(gitIn(dir, 'status', '--porcelain'), '', 'the checkout is untouched');
 });
 
+test('drift finds what the branch has and the org lacks, from the retrieve\'s "cannot be found" list', () => {
+  const dir = sfRepo();
+  write(dir, 'force-app/main/default/flows/Requote.flow-meta.xml', '<Flow/>\n');
+  write(dir, 'force-app/main/default/objects/Account/fields/Legacy__c.field-meta.xml', '<x/>\n');
+  write(dir, 'force-app/main/default/objects/Case/fields/Days__c.field-meta.xml', '<x/>\n');
+  commitAll(dir, 'more');
+  gitIn(dir, 'checkout', '-q', 'dev');
+  gitIn(dir, 'merge', '-q', '--ff-only', 'task/DEV-1-thing');
+  const c = sfConfig();
+  const files = [
+    { type: 'Flow', fullName: 'Requote', state: 'Failed', error: "Entity of type 'Flow' named 'Requote' cannot be found" },
+    { type: 'CustomField', fullName: 'Case.Days__c', state: 'Failed', error: "Entity of type 'CustomField' named 'Case.Days__c' cannot be found" },
+    { type: 'CustomField', fullName: 'Account.Legacy__c', state: 'Failed', error: 'Entity of type CustomField named Account.Legacy__c cannot be found' },
+    { type: 'CustomObject', fullName: 'DecisionTblFileImportData', state: 'Failed', error: "Can't retrieve non-customizable CustomObject named: DecisionTblFileImportData" },
+    { type: 'ApexClass', fullName: 'Account', state: 'Changed', filePath: '/x/force-app/main/default/classes/Account.cls' },
+  ];
+  const runner = fakeRunner({ 'nice -n 15 sf project retrieve start': ok(JSON.stringify({ status: 0, result: { success: true, files } })) });
+  const r = drift(repoPaths(dir, run), c, 'dev', { run: runner, now, slots: slots() });
+  assert.deepEqual(r.missing, ['force-app/main/default/flows/Requote.flow-meta.xml', 'force-app/main/default/objects/Case/fields/Days__c.field-meta.xml']);
+  assert.equal(r.ignored, 1, 'Legacy__c is known drift');
+  assert.deepEqual(r.unretrievable, ["CustomObject:DecisionTblFileImportData: Can't retrieve non-customizable CustomObject named: DecisionTblFileImportData"]);
+});
+
+test('a missing component is matched to its own files, not a namesake of another type', async () => {
+  const { filesFor } = await import('../src/drift.ts');
+  const tracked = [
+    'force-app/main/default/classes/Sales.cls', 'force-app/main/default/classes/Sales.cls-meta.xml',
+    'force-app/main/default/contentassets/Sales.asset', 'force-app/main/default/contentassets/Sales.asset-meta.xml',
+    'force-app/main/default/objects/Task/listViews/Open.listView-meta.xml', 'force-app/main/default/objects/Case/listViews/Open.listView-meta.xml',
+    'force-app/main/default/objects/OperatingHours/OperatingHours.object-meta.xml', 'force-app/main/default/objects/OperatingHours/fields/Name.field-meta.xml',
+    'force-app/main/default/lwc/card/card.js', 'force-app/main/default/lwc/card/card.html',
+  ];
+  assert.deepEqual(filesFor('ContentAsset', 'Sales', tracked), ['force-app/main/default/contentassets/Sales.asset', 'force-app/main/default/contentassets/Sales.asset-meta.xml']);
+  assert.deepEqual(filesFor('ApexClass', 'Sales', tracked), ['force-app/main/default/classes/Sales.cls', 'force-app/main/default/classes/Sales.cls-meta.xml']);
+  assert.deepEqual(filesFor('ListView', 'Task.Open', tracked), ['force-app/main/default/objects/Task/listViews/Open.listView-meta.xml']);
+  assert.deepEqual(filesFor('CustomObject', 'OperatingHours', tracked), ['force-app/main/default/objects/OperatingHours/OperatingHours.object-meta.xml']);
+  assert.deepEqual(filesFor('CustomField', 'OperatingHours.Name', tracked), ['force-app/main/default/objects/OperatingHours/fields/Name.field-meta.xml']);
+  assert.deepEqual(filesFor('LightningComponentBundle', 'card', tracked), ['force-app/main/default/lwc/card/card.js', 'force-app/main/default/lwc/card/card.html']);
+});
+
 test('drift on a matching org finds nothing, and a failed retrieve cleans up and says why', () => {
   const dir = sfRepo();
   const c = sfConfig();
   const paths = repoPaths(dir, run);
   const clean = drift(paths, c, 'dev', { run: fakeRunner({ 'nice -n 15 sf project retrieve start': retrieveInto(() => {}) }), now, slots: slots() });
-  assert.deepEqual([clean.changed, clean.added, clean.ignored], [[], [], 0]);
+  assert.deepEqual([clean.changed, clean.added, clean.missing, clean.ignored], [[], [], [], 0]);
   const denied = fakeRunner({ 'nice -n 15 sf project retrieve start': { code: 1, stderr: '', stdout: JSON.stringify({ status: 1, message: 'No authorization information found for Acme Dev.' }) } });
   assert.throws(() => drift(paths, c, 'dev', { run: denied, now, slots: slots() }), /retrieve from Acme Dev failed: No authorization/);
   assert.equal(gitIn(dir, 'worktree', 'list').split('\n').length, 1, 'no worktree left behind');
@@ -301,3 +341,9 @@ test('the doctor step for drift reads the last report: never run, clean, or with
 });
 
 
+
+test('logged commands can be pasted back into a shell', async () => {
+  const { shellLine } = await import('../src/gates.ts');
+  assert.equal(shellLine('sf', ['project', 'deploy', 'start', '--target-org', 'Avalign Dev SB', '--source-dir', 'force-app/a.cls']), "sf project deploy start --target-org 'Avalign Dev SB' --source-dir force-app/a.cls");
+  assert.equal(shellLine('sh', ['-c', "echo 'hi'"]), `sh -c 'echo '\\''hi'\\'''`);
+});

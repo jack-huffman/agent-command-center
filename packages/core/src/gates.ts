@@ -70,6 +70,9 @@ export function lastLine(text: string): string {
   return line.length > 200 ? `${line.slice(0, 197)}…` : line;
 }
 
+/** A command as you'd type it, so a logged line can be pasted back into a shell. */
+export const shellLine = (cmd: string, args: string[]): string => [cmd, ...args].map((a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`)).join(' ');
+
 const exitRead = (r: RunResult): Outcome => (r.code === 0 ? pass('Passed.') : r.code === 127 ? error(lastLine(r.stderr) || 'The command wasn\'t found.') : fail(lastLine(r.stdout + '\n' + r.stderr) || `Exited with ${r.code}.`));
 
 // ---------------------------------------------------------------- the gates
@@ -407,7 +410,7 @@ export function runGates(paths: RepoPaths, config: Config, env: Environment, nam
       outcome = plan.outcome;
     } else {
       assertCheckOnly(plan.cmd, plan.args);
-      command = [plan.cmd, ...plan.args].join(' ');
+      command = shellLine(plan.cmd, plan.args);
       const [cmd, args] = niced(plan.cmd, plan.args);
       const exec = () => deps.run(cmd, args, { cwd: root, timeoutMs: (gate.heavy ? 90 : 20) * 60_000 });
       const r = gate.heavy ? withSlot(exec, { ...deps.slots, onWait: () => deps.onWait?.(gate) }) : exec();
