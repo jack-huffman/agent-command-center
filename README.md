@@ -27,6 +27,10 @@ Salesforce. Project types plug in as profiles.
 - **Who you're working as:** the status bar shows the repo's GitHub account,
   and you can switch it for your clone alone. git push follows the switch, and
   boards and comments say who they act as.
+- **No terminal hunting:** agents' permission prompts and questions arrive as
+  cards on the Overview, to allow, deny or answer in place. **Watch** shows an
+  agent's work as it happens: what it said, each command and its result. Setup's
+  commands run in an output panel on the page, which answers their prompts.
 - **Next:** M5, review and landing.
 
 Install the extension with `npm run package && npm run install-extension`, then

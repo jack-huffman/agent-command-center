@@ -11,10 +11,10 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 test('every section of the page, and a ticket, has sample data built by the real model functions', () => {
   for (const kind of PAGES) {
     const m = sampleModel(kind);
-    if (kind === 'ticket') assert.equal(m.kind, 'ticket');
-    else assert.deepEqual([m.kind, (m as HomeModel).section], ['home', kind]);
+    if (kind === 'ticket' || kind === 'agent') assert.equal(m.kind, kind);
+    else assert.deepEqual([m.kind, (m as HomeModel).section], ['home', kind === 'output' ? 'setup' : kind]);
   }
-  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['ticket']);
+  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['ticket', 'agent', 'output']);
 });
 
 test('the sample data shows every style: each board column, each kind of session, each kind of worktree', () => {

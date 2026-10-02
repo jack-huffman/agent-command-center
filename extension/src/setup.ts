@@ -6,11 +6,12 @@ import { type Config, parseConfig } from '../../packages/core/src/config.ts';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import type { Step } from '../../packages/core/src/onboarding/types.ts';
 import {
-  COMMANDS, contextKey, type DoctorItem, EXTENSION_ID, type EnvLike, hasPlaceholder, initCommand, isComplete, productionOrgs,
+  COMMANDS, contextKey, type DoctorItem, EXTENSION_ID, type EnvLike, hasPlaceholder, initCommand, isComplete, needsTerminal, productionOrgs,
   setupOrgChoices, sfOpenCommand, statusText, summarize, WALKTHROUGHS, activeGhAccount, expectedOrgUrl, shq,
 } from './logic.ts';
 import { parseOrgUrl } from '../../packages/core/src/onboarding/helpers.ts';
 import { type RunResult, runFile } from './run.ts';
+import type { Runs } from './runs.ts';
 import { exec } from './trackers.ts';
 
 const TERMINAL_NAME = 'acc setup';
@@ -24,6 +25,7 @@ export class Setup implements vscode.Disposable {
   private readonly items = new Map<string, DoctorItem>();
   private readonly disposables: vscode.Disposable[] = [];
   private terminal: vscode.Terminal | undefined;
+  private runs: Runs | null = null;
   private pendingCheck: string | undefined;
   private refreshTimer: NodeJS.Timeout | undefined;
   private running: Promise<void> | undefined;
@@ -43,6 +45,11 @@ export class Setup implements vscode.Disposable {
     this.status.command = COMMANDS.project;
     this.disposables.push(this.log, this.status, this.changed);
     this.lastFolder = this.folder()?.uri.fsPath;
+  }
+
+  /** Where fixes run when they don't need a terminal (D-030). */
+  useRuns(runs: Runs): void {
+    this.runs = runs;
   }
 
   dispose(): void {
@@ -188,7 +195,19 @@ export class Setup implements vscode.Disposable {
 
   // ------------------------------------------------------------ terminal
 
-  private runInTerminal(command: string, checkAfter?: string): void {
+  /** Runs a fix's command in the page's output panel, or in a terminal when it needs one (D-030). */
+  private runCommand(command: string, checkAfter?: string): void {
+    if (this.runs && !needsTerminal(command)) {
+      const label = checkAfter ? this.step(checkAfter).title : command.split(' ').slice(0, 3).join(' ');
+      const after = () => { if (checkAfter) void this.check(checkAfter, true).then(() => this.refreshSoon('after a setup command')); else this.refreshSoon('after a setup command'); };
+      this.runs.start(command, { cwd: this.cwd(), label, step: checkAfter, onExit: after });
+      return;
+    }
+    this.runInTerminal(command, checkAfter);
+  }
+
+  /** Commands that need a terminal: a fill-in-the-blanks one, or one that reads the keyboard itself. */
+  runInTerminal(command: string, checkAfter?: string): void {
     if (!this.terminal || this.terminal.exitStatus) {
       this.terminal = vscode.window.createTerminal({ name: TERMINAL_NAME, cwd: this.cwd(), iconPath: new vscode.ThemeIcon('checklist') });
     }
@@ -263,7 +282,7 @@ export class Setup implements vscode.Disposable {
       return;
     }
     const command = item?.fix || step.fix?.command;
-    if (command) return this.runInTerminal(command, id);
+    if (command) return this.runCommand(command, id);
     const pick = await vscode.window.showWarningMessage(`${step.title}: ${item?.detail ?? 'needs attention'}. There's no single command for this one.`, ...(step.fix?.docs ? ['Read the guide'] : []));
     if (pick) await this.openGuide(id);
   }
@@ -282,7 +301,7 @@ export class Setup implements vscode.Disposable {
       { title: 'Open Setup in which org?' },
     ))?.env;
     if (!env?.org) return;
-    this.runInTerminal(sfOpenCommand(env.org, path));
+    this.runCommand(sfOpenCommand(env.org, path));
     if (step.fix?.text) void vscode.window.showInformationMessage(`In ${env.name}: ${step.fix.text} Then click Check.`, 'Check').then((p) => p && this.check(id));
   }
 
@@ -388,7 +407,7 @@ export class Setup implements vscode.Disposable {
     })), { title: 'Log in to which environment\'s org?', placeHolder: looks.every((l) => l.ok) ? 'Every environment is already logged in to the right org' : 'The ones that need it are first' });
     if (!pick) return;
     const e = pick.l.e;
-    this.runInTerminal(`sf org login web --alias ${shq(e.org!)} --instance-url ${expectedOrgUrl(domain, e)}`, 'B6.org-match');
+    this.runCommand(`sf org login web --alias ${shq(e.org!)} --instance-url ${expectedOrgUrl(domain, e)}`, 'B6.org-match');
     void vscode.window.showInformationMessage(`Sign in to ${e.name} in the browser that opens. The step re-checks itself when you're done.`);
   }
 
@@ -403,7 +422,7 @@ export class Setup implements vscode.Disposable {
       { label: '$(folder) Other project', description: 'One branch, no orgs', profile: 'generic' as const },
     ], { title: 'What kind of project is this?' });
     if (!kind) return;
-    if (kind.profile === 'generic') return this.runInTerminal(initCommand('generic'), 'B0.config');
+    if (kind.profile === 'generic') return this.runCommand(initCommand('generic'), 'B0.config');
 
     const list = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Finding your logged-in Production orgs' },
       () => runFile('sf', ['org', 'list', '--json'], this.cwd(), { ...process.env, SF_NO_UPDATE_NOTIFIER: 'true' }));
@@ -417,10 +436,10 @@ export class Setup implements vscode.Disposable {
     const pick = await vscode.window.showQuickPick([...orgs, other], { title: 'Which org is Production?', placeHolder: orgs.length ? undefined : 'No Production org is logged in yet' });
     if (!pick) return;
     if (pick === other) {
-      this.runInTerminal('sf org login web --alias "<alias>" --instance-url https://<domain>.my.salesforce.com');
+      this.runCommand('sf org login web --alias "<alias>" --instance-url https://<domain>.my.salesforce.com');
       return;
     }
-    this.runInTerminal(initCommand('salesforce', pick), 'B0.config');
+    this.runCommand(initCommand('salesforce', pick), 'B0.config');
   }
 
   async chooseFolder(): Promise<void> {
@@ -436,7 +455,7 @@ export class Setup implements vscode.Disposable {
   }
 
   async doctorInTerminal(): Promise<void> {
-    this.runInTerminal('acc doctor');
+    this.runCommand('acc doctor');
     await this.refresh('acc doctor');
   }
 

@@ -9,7 +9,9 @@ import type { StatusCategory, Ticket } from '../../packages/core/src/trackers/ty
 import type { GithubIdentity } from '../../packages/core/src/github.ts';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import type { Environment } from '../../packages/core/src/config.ts';
-import { agentLook, type AgentSession, type DoctorItem, ENV_ICON, groupTasks, isUnder, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
+import type { Answer, Question } from '../../packages/core/src/questions.ts';
+import { agentLook, type AgentSession, type DoctorItem, ENV_ICON, groupTasks, isUnder, type RunPrompt, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
+import type { Entry } from './transcript.ts';
 
 export const VIEW_KINDS = ['tasks', 'agents', 'worktrees', 'environments', 'setup'] as const;
 export type ViewKind = (typeof VIEW_KINDS)[number];
@@ -59,7 +61,13 @@ export interface HubLike {
   projectFor(path: string): ProjectLike | undefined;
   /** Every move every task made, for the Overview's activity. */
   history?(root: string): ActivityItem[];
+  /** Agents' questions waiting in the Command Center (D-030). */
+  questions?: Question[];
+  askingFor?(s: AgentSession): string | null;
 }
+
+/** The key a session goes by in refs: its session id, else its background id. */
+export const sessionKey = (s: AgentSession): string => s.sessionId ?? s.id ?? `${s.pid ?? ''}:${s.startedAt}`;
 
 // ---------------------------------------------------------------- tasks: the board
 
@@ -79,7 +87,10 @@ export function cardActions(t: TaskRow, ref: Ref): Action[] {
   const a: Action[] = [];
   const canDispatch = t.display === 'ready' || t.state === 'rework';
   if (canDispatch) a.push({ command: 'acc.task.dispatch', label: t.state === 'rework' ? 'Re-dispatch' : 'Dispatch', icon: 'rocket', ref, primary: true });
-  if (t.state === 'running' && t.run?.bgId) a.push({ command: 'acc.task.attach', label: 'Attach', icon: 'terminal', ref, primary: !canDispatch });
+  // Waiting in its own terminal, it's answered by attaching; anything else is seen on its page.
+  const inTerminal = t.display === 'needs-you' && !t.asking && !!t.run?.bgId;
+  if ((t.state === 'running' || t.state === 'review' || t.state === 'blocked') && (t.run?.bgId || t.run?.sessionId)) a.push({ command: 'acc.task.watch', label: 'Watch', icon: 'pulse', ref, primary: !canDispatch && t.state === 'running' && !inTerminal });
+  if (t.state === 'running' && t.run?.bgId) a.push({ command: 'acc.task.attach', label: 'Attach', icon: 'terminal', ref, primary: inTerminal });
   if (t.run?.worktree && t.state !== 'todo') a.push({ command: 'acc.task.openWorktree', label: 'Worktree', icon: 'empty-window', ref });
   a.push({ command: 'acc.task.move', label: 'Move', icon: 'arrow-swap', ref, primary: !a.some((x) => x.primary) });
   if (t.state === 'running') a.push({ command: 'acc.task.abandon', label: 'Abandon', icon: 'debug-stop', ref, danger: true });
@@ -222,7 +233,7 @@ export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): Trac
     id: c.id, name: c.name, tone: CATEGORY_TONE[c.category], done: c.category === 'done',
     cards: (b.board?.cards ?? []).filter((card) => c.statusIds.includes(card.status.id)).map((card): TrackerCard => {
       const row = byId.get(card.key);
-      const next = row ? cardActions(row, { project: root, task: row.id }).find((a) => a.primary && (a.command === 'acc.task.dispatch' || a.command === 'acc.task.attach')) ?? null : null;
+      const next = row ? cardActions(row, { project: root, task: row.id }).find((a) => a.primary && (a.command === 'acc.task.dispatch' || a.command === 'acc.task.watch' || a.command === 'acc.task.attach')) ?? null : null;
       return {
         key: card.key, title: card.title, type: card.type, typeIcon: typeIcon(card.type), priority: card.priority, priorityIcon: priorityIcon(card.priority),
         labels: card.labels, assignees: card.assignees.map(chip), status: card.status.name,
@@ -387,14 +398,15 @@ export interface AgentsModel {
 }
 
 export function agentsModel(hub: HubLike): AgentsModel {
+  const lookOf = (s: AgentSession) => agentLook(s, hub.askingFor?.(s));
   const rowFor = (s: AgentSession): AgentRow => {
-    const look = agentLook(s);
+    const look = lookOf(s);
     const p = hub.projectFor(s.cwd);
-    const key = s.sessionId ?? s.id ?? `${s.pid ?? ''}:${s.startedAt}`;
+    const key = sessionKey(s);
     const where = p ? (isUnder(s.cwd, p.root) ? s.cwd.slice(p.root.length + 1) || 'main checkout' : s.cwd.split('/').pop() ?? s.cwd) : s.cwd;
     return { key, background: !!s.id, name: s.name ?? s.sessionId?.slice(0, 8) ?? 'session', look: { label: look.label, icon: look.icon, tone: look.tone }, needsYou: look.needsYou, kind: s.kind, where, startedAt: s.startedAt };
   };
-  const sorted = [...hub.agents].sort((a, b) => Number(agentLook(b).needsYou) - Number(agentLook(a).needsYou) || b.startedAt - a.startedAt);
+  const sorted = [...hub.agents].sort((a, b) => Number(lookOf(b).needsYou) - Number(lookOf(a).needsYou) || b.startedAt - a.startedAt);
   const places = hub.projects.map((p) => ({ label: p.name, root: p.root as string | null, agents: sorted.filter((s) => hub.projectFor(s.cwd) === p).map(rowFor) }));
   const elsewhere = sorted.filter((s) => !hub.projectFor(s.cwd));
   if (elsewhere.length) places.push({ label: 'Elsewhere on this machine', root: null, agents: elsewhere.map(rowFor) });
@@ -539,6 +551,208 @@ export function setupModel(items: DoctorItem[], confirmed: Set<string>): SetupMo
   return { kind: 'setup', done: all.filter((s) => s.look.tone !== 'orange').length, total: all.length, parts };
 }
 
+const LOOK = (label: string, icon: string, tone: Tone): Look => ({ label, icon, tone });
+
+// ---------------------------------------------------------------- agents' questions (D-030)
+
+export interface QuestionOption {
+  label: string;
+  description: string;
+}
+
+export interface QuestionCard {
+  id: string;
+  /** permission: allow or deny a tool. question: pick from the options it gives (AskUserQuestion). */
+  kind: 'permission' | 'question';
+  /** Who's asking: the task, else the session's name. */
+  who: string;
+  task: string | null;
+  project: string | null;
+  projectName: string | null;
+  session: string;
+  sessionId: string;
+  askedAt: number;
+  icon: string;
+  /** What it wants, after its name: "wants to run a command". */
+  title: string;
+  /** The command, path or address it's about, shown as code. */
+  code: string | null;
+  detail: string | null;
+  /** Set when Claude Code offered a rule to stop asking: allowing with it lasts this session. */
+  always: string | null;
+  questions: { question: string; header: string; multiSelect: boolean; options: QuestionOption[] }[];
+}
+
+const text = (v: unknown, max = 4000): string | null => (typeof v === 'string' && v.trim() ? (v.length > max ? `${v.slice(0, max)}…` : v) : null);
+
+/** A permission prompt in words: what the tool would do, and the command, file or address. */
+export function describePermission(tool: string, input: Record<string, unknown>, cwd: string): { icon: string; title: string; code: string | null; detail: string | null } {
+  const path = (p: unknown) => {
+    const s = text(p, 1000);
+    return s && s.startsWith(`${cwd}/`) ? s.slice(cwd.length + 1) : s;
+  };
+  switch (tool) {
+    case 'Bash': return { icon: 'terminal', title: 'wants to run a command', code: text(input.command), detail: text(input.description, 300) };
+    case 'Edit': case 'MultiEdit': case 'NotebookEdit': return { icon: 'edit', title: 'wants to edit a file', code: path(input.file_path ?? input.notebook_path), detail: null };
+    case 'Write': return { icon: 'new-file', title: 'wants to write a file', code: path(input.file_path), detail: null };
+    case 'Read': return { icon: 'file', title: 'wants to read a file', code: path(input.file_path), detail: null };
+    case 'Grep': case 'Glob': return { icon: 'search', title: 'wants to search files', code: text(input.pattern), detail: text(input.path) ? `in ${path(input.path)}` : null };
+    case 'WebFetch': return { icon: 'globe', title: 'wants to open a web page', code: text(input.url), detail: text(input.prompt, 300) };
+    case 'WebSearch': return { icon: 'search', title: 'wants to search the web', code: text(input.query), detail: null };
+    case 'ExitPlanMode': return { icon: 'list-ordered', title: 'has a plan for you to approve', code: null, detail: text(input.plan) };
+    default: {
+      const mcp = /^mcp__(.+?)__(.+)$/.exec(tool);
+      const json = JSON.stringify(input, null, 2);
+      return { icon: mcp ? 'plug' : 'tools', title: mcp ? `wants to use ${mcp[1]!.replace(/_/g, ' ')}: ${mcp[2]!.replace(/_/g, ' ')}` : `wants to use ${tool}`, code: json && json !== '{}' ? text(json, 1500) : null, detail: null };
+    }
+  }
+}
+
+/** The words for "allow, and don't ask again", from the first rule Claude Code offered. */
+export function alwaysLabel(suggestions: unknown[]): string | null {
+  const s = suggestions[0] as { type?: string; rules?: { toolName?: string; ruleContent?: string }[]; mode?: string; directories?: string[] } | undefined;
+  if (!s || typeof s !== 'object') return null;
+  if (s.type === 'setMode' && s.mode === 'acceptEdits') return 'Allow all edits this session';
+  if (s.type === 'addDirectories') return 'Allow this folder this session';
+  if (s.type === 'addRules' && s.rules?.[0]?.toolName) {
+    const r = s.rules[0];
+    return r.ruleContent ? `Always allow ${r.ruleContent.length > 40 ? `${r.ruleContent.slice(0, 40)}…` : r.ruleContent} this session` : `Always allow ${r.toolName} this session`;
+  }
+  return 'Allow, and don\'t ask again this session';
+}
+
+function questionsOf(input: Record<string, unknown>): QuestionCard['questions'] {
+  const qs = Array.isArray(input.questions) ? input.questions : [];
+  return qs.slice(0, 6).flatMap((q: any) => {
+    const question = text(q?.question, 1000);
+    if (!question) return [];
+    const options = (Array.isArray(q.options) ? q.options : []).slice(0, 8).flatMap((o: any) => (text(o?.label, 200) ? [{ label: o.label as string, description: text(o.description, 500) ?? '' }] : []));
+    return [{ question, header: text(q.header, 40) ?? '', multiSelect: q.multiSelect === true, options }];
+  });
+}
+
+/** Each waiting question, with who's asking: the task its agent works on, else the session. */
+export function questionCards(hub: HubLike): QuestionCard[] {
+  return (hub.questions ?? []).map((q): QuestionCard => {
+    const session = hub.agents.find((s) => s.sessionId === q.sessionId);
+    const project = hub.projectFor(q.cwd) ?? null;
+    const row = project ? hub.taskRows(project.root).find((r) => r.run?.sessionId === q.sessionId || (!!session?.id && r.run?.bgId === session.id) || (!!r.run?.worktree && isUnder(q.cwd, r.run.worktree))) : undefined;
+    const ask = q.tool === 'AskUserQuestion';
+    const d = ask ? { icon: 'comment-discussion', title: 'has a question for you', code: null, detail: null } : describePermission(q.tool, q.input, q.cwd);
+    return {
+      id: q.id, kind: ask ? 'question' : 'permission', who: row?.id ?? session?.name ?? 'An agent', task: row?.id ?? null,
+      project: project?.root ?? null, projectName: project?.name ?? null, session: session ? sessionKey(session) : q.sessionId, sessionId: q.sessionId, askedAt: q.at,
+      ...d, always: ask ? null : alwaysLabel(q.suggestions), questions: ask ? questionsOf(q.input) : [],
+    };
+  });
+}
+
+// ---------------------------------------------------------------- an agent's page (D-030)
+
+export type EntryView =
+  | { k: 'prompt'; id: string; at: string | null; body: Doc; instructions: boolean }
+  | { k: 'say'; id: string; at: string | null; body: Doc }
+  | { k: 'recap'; id: string; at: string | null; text: string }
+  | Extract<Entry, { k: 'tool' }>;
+
+export interface AgentModel {
+  kind: 'agent';
+  key: string;
+  name: string;
+  /** The task it works on, when it's a builder. */
+  task: { id: string; title: string; project: string } | null;
+  look: Look;
+  /** False once Claude Code no longer lists the session. */
+  live: boolean;
+  background: boolean;
+  where: string;
+  startedAt: number | null;
+  lastAt: string | null;
+  entries: EntryView[];
+  /** Earlier entries left off the page. */
+  hidden: number;
+  /** Whether a transcript was found and read. */
+  readable: boolean;
+  questions: QuestionCard[];
+  actions: Action[];
+}
+
+export interface AgentInput {
+  hub: HubLike;
+  key: string;
+  /** The session as last seen, for a page whose session has since gone from `claude agents`. */
+  seen: AgentSession | null;
+  entries: Entry[];
+  readable: boolean;
+  lastAt: string | null;
+  limit?: number;
+}
+
+export function agentModel(i: AgentInput): AgentModel {
+  const { hub } = i;
+  const live = hub.agents.find((s) => sessionKey(s) === i.key || s.id === i.key) ?? null;
+  const s = live ?? i.seen;
+  const project = s ? hub.projectFor(s.cwd) : undefined;
+  const row = project && s ? hub.taskRows(project.root).find((r) => (s.sessionId && r.run?.sessionId === s.sessionId) || (s.id && r.run?.bgId === s.id) || (s.kind === 'background' && s.name === r.id)) : undefined;
+  const look = s && live ? agentLook(s, hub.askingFor?.(s)) : { label: 'Ended', icon: 'circle-slash', tone: 'neutral' as Tone, needsYou: false };
+  const limit = i.limit ?? 400;
+  const shown = i.entries.slice(-limit).map((e): EntryView => (e.k === 'prompt' ? { k: 'prompt', id: e.id, at: e.at, body: fromMarkdown(e.text), instructions: e.instructions }
+    : e.k === 'say' ? { k: 'say', id: e.id, at: e.at, body: fromMarkdown(e.text) } : e));
+  const key = s ? sessionKey(s) : i.key;
+  const ref: Ref = { session: key };
+  const actions: Action[] = [];
+  if (live?.id) actions.push({ command: 'acc.agent.attach', label: 'Attach in terminal', icon: 'terminal', ref });
+  if (s) actions.push({ command: 'acc.agent.openFolder', label: 'Open its folder', icon: 'empty-window', ref });
+  if (live?.id && live.pid) actions.push({ command: 'acc.agent.stop', label: 'Stop', icon: 'debug-stop', ref, danger: true });
+  const where = !s ? '' : project ? (isUnder(s.cwd, project.root) ? s.cwd.slice(project.root.length + 1) || 'main checkout' : s.cwd.split('/').slice(-2).join('/')) : s.cwd;
+  return {
+    kind: 'agent', key, name: s?.name ?? row?.id ?? key.slice(0, 8), task: row && project ? { id: row.id, title: row.title, project: project.root } : null,
+    look: { label: look.label, icon: look.icon, tone: look.tone }, live: !!live, background: !!s?.id, where, startedAt: s?.startedAt ?? null, lastAt: i.lastAt,
+    entries: shown, hidden: Math.max(0, i.entries.length - shown.length), readable: i.readable,
+    questions: s?.sessionId ? questionCards(hub).filter((q) => q.sessionId === s.sessionId) : [],
+    actions,
+  };
+}
+
+// ---------------------------------------------------------------- commands acc runs for you (D-030)
+
+export interface RunCard {
+  id: string;
+  label: string;
+  command: string;
+  look: Look;
+  running: boolean;
+  startedAt: number;
+  endedAt: number | null;
+  /** The last lines of its output; the last one may still be being written. */
+  lines: string[];
+  /** Set when it's gone quiet asking for something. */
+  prompt: RunPrompt | null;
+  /** The setup step it's doing, so the step shows it's under way. */
+  step: string | null;
+}
+
+export interface RunInput {
+  id: string;
+  label: string;
+  command: string;
+  startedAt: number;
+  endedAt: number | null;
+  code: number | null;
+  stopped: boolean;
+  lines: string[];
+  prompt: RunPrompt | null;
+  step: string | null;
+}
+
+export function runCard(r: RunInput, lines = 400): RunCard {
+  const running = r.endedAt === null;
+  const look: Look = running ? (r.prompt ? LOOK('Waiting for you', 'bell', 'orange') : LOOK('Running', 'sync~spin', 'blue'))
+    : r.stopped ? LOOK('Stopped', 'debug-stop', 'neutral')
+      : r.code === 0 ? LOOK('Done', 'pass', 'blue') : LOOK(`Failed (exit ${r.code ?? '?'})`, 'warning', 'orange');
+  return { id: r.id, label: r.label, command: r.command, look, running, startedAt: r.startedAt, endedAt: r.endedAt, lines: r.lines.slice(-lines), prompt: running ? r.prompt : null, step: r.step };
+}
+
 // ---------------------------------------------------------------- the Command Center page
 
 export const HOME_SECTIONS = ['overview', ...VIEW_KINDS] as const;
@@ -587,6 +801,8 @@ export interface ActivityItem {
 
 export interface OverviewModel {
   projects: { name: string; root: string; branch: string | null; account: string | null; trackers: string[] }[];
+  /** Agents' questions, answered right here. They come before everything else that needs you. */
+  questions: QuestionCard[];
   attention: AttentionItem[];
   stats: StatTile[];
   ready: { project: string; id: string; title: string; environment: string; action: Action }[];
@@ -603,6 +819,8 @@ export interface HomeModel {
   worktrees: WorktreesModel;
   environments: EnvironmentsModel;
   setup: SetupModel;
+  /** Commands acc ran for you, newest first, shown in the page's output panel. */
+  runs: RunCard[];
 }
 
 export interface HomeInput {
@@ -611,9 +829,12 @@ export interface HomeInput {
   boards: (root: string) => BoardInput[];
   identity: (root: string) => IdentityCard | null;
   setup: { items: DoctorItem[]; confirmed: Set<string> };
+  runs?: RunInput[];
 }
 
-const LOOK = (label: string, icon: string, tone: Tone): Look => ({ label, icon, tone });
+/** How many things need a person: each question, and each orange item. The badge and the Overview agree. */
+export const needsYouCount = (o: Pick<OverviewModel, 'questions' | 'attention'>): number => o.questions.length + o.attention.filter((a) => a.look.tone === 'orange').length;
+
 
 /**
  * Everything on one page (D-029). The Overview gathers what needs a person, from every project: agents
@@ -626,6 +847,8 @@ export function homeModel(i: HomeInput): HomeModel {
   const worktrees = worktreesModel(hub);
   const environments = environmentsModel(hub, i.identity);
   const setup = setupModel(i.setup.items, i.setup.confirmed);
+  const questions = questionCards(hub);
+  const asked = new Set(questions.map((q) => q.sessionId));
 
   const attention: AttentionItem[] = [];
   const ready: OverviewModel['ready'] = [];
@@ -637,7 +860,11 @@ export function homeModel(i: HomeInput): HomeModel {
       const details: Action = { command: 'acc.task.show', label: 'Open', icon: 'go-to-file', ref };
       if (r.run?.bgId) linked.add(r.run.bgId);
       if (r.display === 'needs-you') {
-        attention.push({ key: `t:${p.root}:${r.id}`, look: r.agent ?? LOOK('Needs you', 'bell-dot', 'orange'), title: `${r.id} ${r.title}`, detail: `${p.name} · its agent is waiting on you`, project: p.name, actions: [...acts.filter((a) => a.command === 'acc.task.attach'), details] });
+        // Its question is shown on its own, to answer in place.
+        if (questions.some((q) => q.task === r.id && q.project === p.root)) continue;
+        const watch = acts.find((a) => a.command === 'acc.task.watch');
+        const attach = acts.find((a) => a.command === 'acc.task.attach');
+        attention.push({ key: `t:${p.root}:${r.id}`, look: r.agent ?? LOOK('Needs you', 'bell-dot', 'orange'), title: `${r.id} ${r.title}`, detail: `${p.name} · its agent is waiting on you in its terminal`, project: p.name, actions: [...(attach ? [{ ...attach, primary: true }] : []), ...(watch ? [{ ...watch, primary: false }] : []), details] });
       } else if (r.display === 'blocked') {
         attention.push({ key: `t:${p.root}:${r.id}`, look: LOOK('Blocked', 'circle-slash', 'orange'), title: `${r.id} ${r.title}`, detail: `${p.name} · blocked`, project: p.name, actions: [details] });
       } else if (r.display === 'review') {
@@ -653,11 +880,14 @@ export function homeModel(i: HomeInput): HomeModel {
   }
   for (const s of hub.agents) {
     const look = agentLook(s);
-    if (!look.needsYou || (s.id && linked.has(s.id))) continue;
-    const key = s.sessionId ?? s.id ?? `${s.pid ?? ''}:${s.startedAt}`;
+    if (!look.needsYou || (s.id && linked.has(s.id)) || (s.sessionId && asked.has(s.sessionId))) continue;
+    const key = sessionKey(s);
     attention.push({
       key: `a:${key}`, look: { label: look.label, icon: look.icon, tone: look.tone }, title: s.name ?? 'Agent session', detail: hub.projectFor(s.cwd)?.name ?? s.cwd, project: hub.projectFor(s.cwd)?.name ?? '',
-      actions: s.id ? [{ command: 'acc.agent.attach', label: 'Attach', icon: 'terminal', ref: { session: key }, primary: true }] : [],
+      actions: [
+        ...(s.id ? [{ command: 'acc.agent.attach', label: 'Attach', icon: 'terminal', ref: { session: key }, primary: true }] : []),
+        { command: 'acc.agent.watch', label: 'Watch', icon: 'pulse', ref: { session: key } },
+      ],
     });
   }
   const todo = setup.total - setup.done;
@@ -669,7 +899,8 @@ export function homeModel(i: HomeInput): HomeModel {
 
   const rows = hub.projects.flatMap((p) => hub.taskRows(p.root));
   const onBoard = tasks.projects.reduce((n, p) => n + p.boards.reduce((k, b) => k + b.columns.reduce((c, col) => c + col.cards.length, 0), 0), 0);
-  const working = hub.agents.filter((s) => (s.kind === 'background' ? s.state === 'working' : s.status === 'busy')).length;
+  // An agent waiting on a question reads as busy to Claude Code, but it's waiting on you.
+  const working = hub.agents.filter((s) => (s.kind === 'background' ? s.state === 'working' : s.status === 'busy') && !hub.askingFor?.(s)).length;
   const review = rows.filter((r) => r.display === 'review').length;
   const linkedTrees = hub.projects.reduce((n, p) => n + p.worktrees.filter((w) => !w.main).length, 0);
   const stats: StatTile[] = [
@@ -687,7 +918,7 @@ export function homeModel(i: HomeInput): HomeModel {
     .sort((a, b) => b.at.localeCompare(a.at)).slice(0, 12);
   const projects = hub.projects.map((p) => ({ name: p.name, root: p.root, branch: p.branch, account: p.config.github?.account ?? null, trackers: i.boards(p.root).map((b) => b.title) }));
 
-  const people = attention.filter((a) => a.look.tone === 'orange').length;
+  const people = needsYouCount({ questions, attention });
   const needsAgents = agents.places.reduce((n, pl) => n + pl.agents.filter((a) => a.needsYou).length, 0);
   const sessions = agents.places.reduce((n, pl) => n + pl.agents.length, 0);
   const taskAttention = rows.filter((r) => r.display === 'needs-you' || r.display === 'blocked').length;
@@ -699,10 +930,11 @@ export function homeModel(i: HomeInput): HomeModel {
     { section: 'environments', label: 'Environments', icon: 'server-environment', count: null, attention: hub.projects.some((p) => !!i.identity(p.root)?.problem), hint: 'Branches, orgs and your GitHub account' },
     { section: 'setup', label: 'Setup', icon: 'checklist', count: todo || null, attention: failing > 0, hint: todo ? `${todo} to do` : 'All done' },
   ];
-  return { kind: 'home', section: i.section, nav, overview: { projects, attention, stats, ready, activity }, tasks, agents, worktrees, environments, setup };
+  const runs = (i.runs ?? []).map((r) => runCard(r));
+  return { kind: 'home', section: i.section, nav, overview: { projects, questions, attention, stats, ready, activity }, tasks, agents, worktrees, environments, setup, runs };
 }
 
-export type Model = TasksModel | AgentsModel | WorktreesModel | EnvironmentsModel | SetupModel | TicketModel | HomeModel;
+export type Model = TasksModel | AgentsModel | WorktreesModel | EnvironmentsModel | SetupModel | TicketModel | HomeModel | AgentModel;
 
 /** Messages the webview sends. Everything else is ignored. */
 export const TICKET_ACTIONS = ['comment', 'status', 'assign', 'labels', 'track', 'refresh'] as const;
@@ -720,7 +952,22 @@ export type FromWebview =
   /** A link in a ticket. Only web links are opened. */
   | { type: 'open'; url: string }
   /** The page moved to another section, so reopening it comes back there. */
-  | { type: 'nav'; section: HomeSection };
+  | { type: 'nav'; section: HomeSection }
+  /** An answer to an agent's question or permission prompt (D-030). */
+  | { type: 'answer'; id: string; decision: 'allow' | 'deny' | 'terminal'; always?: boolean; message?: string; answers?: Record<string, string> }
+  /** Something for a command acc is running: typed input, stop, rerun in a terminal, or dismiss. */
+  | { type: 'run-input'; run: string; text: string }
+  | { type: 'run-control'; run: string; action: RunControl };
+
+/** The page's answer as the hook reads it, with only the fields its decision has. */
+export function answerOf(m: Extract<FromWebview, { type: 'answer' }>): Answer {
+  if (m.decision === 'allow') return { decision: 'allow', ...(m.always ? { always: true } : {}), ...(m.answers ? { answers: m.answers } : {}) };
+  if (m.decision === 'deny') return { decision: 'deny', ...(m.message?.trim() ? { message: m.message.trim() } : {}) };
+  return { decision: 'terminal' };
+}
+
+export const RUN_CONTROLS = ['stop', 'terminal', 'dismiss'] as const;
+export type RunControl = (typeof RUN_CONTROLS)[number];
 
 const KEY = /^[A-Z][A-Z0-9_]*-\d+$/i;
 const short = (v: unknown, max = 500): v is string => typeof v === 'string' && v.length > 0 && v.length <= max;
@@ -736,6 +983,16 @@ export function isFromWebview(m: unknown): m is FromWebview {
     case 'ticket-action': return (TICKET_ACTIONS as readonly string[]).includes(x.action as string) && (x.text === undefined || (typeof x.text === 'string' && x.text.length <= 65_536));
     case 'open': return short(x.url, 4096) && /^(https?:|mailto:)/i.test(x.url as string);
     case 'nav': return (HOME_SECTIONS as readonly string[]).includes(x.section as string);
+    case 'answer': {
+      if (!short(x.id, 64) || !['allow', 'deny', 'terminal'].includes(x.decision as string)) return false;
+      if (x.always !== undefined && typeof x.always !== 'boolean') return false;
+      if (x.message !== undefined && !(typeof x.message === 'string' && x.message.length <= 4000)) return false;
+      if (x.answers === undefined) return true;
+      const a = x.answers as Record<string, unknown>;
+      return !!a && typeof a === 'object' && !Array.isArray(a) && Object.keys(a).length <= 8 && Object.values(a).every((v) => typeof v === 'string' && v.length <= 4000);
+    }
+    case 'run-input': return short(x.run, 64) && typeof x.text === 'string' && x.text.length <= 4096 && !/[\r\n]/.test(x.text as string);
+    case 'run-control': return short(x.run, 64) && (RUN_CONTROLS as readonly string[]).includes(x.action as string);
     default: return false;
   }
 }

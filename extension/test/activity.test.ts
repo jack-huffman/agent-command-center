@@ -1,0 +1,155 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { appendOutput, needsTerminal, promptOf } from '../src/logic.ts';
+import {
+  agentModel, alwaysLabel, answerOf, describePermission, homeModel, isFromWebview, needsYouCount, questionCards, runCard, type RunInput,
+} from '../src/model.ts';
+import { describeTool, emptyTranscript, foldTranscript, splitLines, transcriptDir } from '../src/transcript.ts';
+import { sampleBoards, sampleHub, sampleIdentity, sampleRuns, sampleSetup } from '../scripts/fixtures.ts';
+
+const rec = (r: Record<string, unknown>) => JSON.stringify({ uuid: `u${Math.random()}`, timestamp: '2026-10-02T10:00:00.000Z', cwd: '/w/repo', ...r });
+const user = (content: unknown, extra: Record<string, unknown> = {}) => rec({ type: 'user', message: { role: 'user', content }, ...extra });
+const assistant = (content: unknown[]) => rec({ type: 'assistant', message: { role: 'assistant', content } });
+
+// ---------------------------------------------------------------- transcripts
+
+test('a transcript reads as a timeline: the instructions folded, what it said, and each tool with its result', () => {
+  const t = foldTranscript(emptyTranscript(), [
+    user(`# T-1: do the thing\n\n${'detail '.repeat(200)}`),
+    assistant([{ type: 'thinking', thinking: 'hmm' }, { type: 'text', text: 'Looking at the code first.' }, { type: 'tool_use', id: 'tu1', name: 'Bash', input: { command: 'git status', description: 'See what changed' } }]),
+    user([{ type: 'tool_result', tool_use_id: 'tu1', content: 'nothing to commit' }]),
+    assistant([{ type: 'tool_use', id: 'tu2', name: 'Read', input: { file_path: '/w/repo/src/a.ts' } }]),
+    user([{ type: 'tool_result', tool_use_id: 'tu2', content: 'export const a = 1;' }]),
+    assistant([{ type: 'tool_use', id: 'tu3', name: 'Bash', input: { command: 'npm test' } }]),
+    user([{ type: 'tool_result', tool_use_id: 'tu3', content: [{ type: 'text', text: '1 failing' }], is_error: true }]),
+    assistant([{ type: 'tool_use', id: 'tu4', name: 'Edit', input: { file_path: '/w/repo/src/a.ts' } }]),
+    rec({ type: 'system', subtype: 'away_summary', content: 'Fixed one test; one still fails.' }),
+  ]);
+  assert.deepEqual(t.entries.map((e) => e.k), ['prompt', 'say', 'tool', 'tool', 'tool', 'tool', 'recap']);
+  const [prompt, , bash, read, failing, edit] = t.entries;
+  assert.ok(prompt?.k === 'prompt' && prompt.instructions, 'a long first prompt is the task\'s instructions');
+  assert.ok(bash?.k === 'tool' && bash.title === 'See what changed' && bash.code === 'git status' && bash.status === 'done' && bash.result === 'nothing to commit');
+  assert.ok(read?.k === 'tool' && read.title === 'Read src/a.ts' && read.result === null, 'a file it read isn\'t repeated on the page');
+  assert.ok(failing?.k === 'tool' && failing.status === 'error' && failing.result === '1 failing');
+  assert.ok(edit?.k === 'tool' && edit.status === 'running', 'no result yet');
+  assert.equal(t.open.size, 1);
+});
+
+test('a transcript is read loosely: junk lines, unknown records, helper agents\' turns and text Claude Code added are skipped', () => {
+  const t = foldTranscript(emptyTranscript(), [
+    'not json', '', rec({ type: 'attachment', attachment: { type: 'date' } }), rec({ type: 'something-new' }),
+    user('<system-reminder>be good</system-reminder>'), user('Caveat: the messages below…'), user('meta', { isMeta: true }),
+    assistant([{ type: 'text', text: 'from a helper' }]).replace('"type":"assistant"', '"type":"assistant","isSidechain":true'),
+    user('Please also update the README.'),
+  ]);
+  assert.deepEqual(t.entries.map((e) => (e.k === 'prompt' ? e.text : e.k)), ['Please also update the README.']);
+  assert.equal(t.read, 7, 'every JSON line is counted as read');
+});
+
+test('a result is clipped to what a page should hold, and says how much more there was', () => {
+  const long = Array.from({ length: 100 }, (_, i) => `line ${i}`).join('\n');
+  const t = foldTranscript(emptyTranscript(), [
+    assistant([{ type: 'tool_use', id: 'a', name: 'Bash', input: { command: 'cat big' } }]),
+    user([{ type: 'tool_result', tool_use_id: 'a', content: long }]),
+  ]);
+  const e = t.entries[0]!;
+  assert.ok(e.k === 'tool' && e.result!.split('\n').length === 40 && e.more === 60);
+});
+
+test('a growing file is read in whole lines, keeping the line still being written', () => {
+  assert.deepEqual(splitLines('', 'a\nb\nc'), { lines: ['a', 'b'], rest: 'c' });
+  assert.deepEqual(splitLines('c', 'd\n'), { lines: ['cd'], rest: '' });
+  assert.equal(transcriptDir('/h/.claude/projects', '/Users/me/My Repo/.claude/worktrees/T-1'), '/h/.claude/projects/-Users-me-My-Repo--claude-worktrees-T-1');
+});
+
+test('each tool reads as a sentence: commands, files, searches, helpers, plans and MCP tools', () => {
+  assert.equal(describeTool('Grep', { pattern: 'TODO', path: '/w/src' }, '/w').title, 'Searched for TODO in src');
+  assert.equal(describeTool('Task', { description: 'review the diff' }, null).title, 'Asked a helper agent: review the diff');
+  assert.equal(describeTool('TodoWrite', { todos: [{ content: 'a', status: 'completed' }, { content: 'b', status: 'in_progress' }] }, null).code, '☑ a\n▸ b');
+  assert.equal(describeTool('mcp__claude_ai_Atlassian__getJiraIssue', { key: 'A-1' }, null).title, 'Used claude ai Atlassian: getJiraIssue');
+  assert.equal(describeTool('Bash', { command: 'ls' }, null).title, 'Ran a command', 'no description: a plain title');
+});
+
+// ---------------------------------------------------------------- output from commands acc runs
+
+test('output is kept as a terminal shows it: colour codes dropped, progress bars redrawn in place, a tail kept', () => {
+  let lines = appendOutput([], '\x1b[32mok\x1b[0m\nDownloading  10%');
+  lines = appendOutput(lines, '\rDownloading 100%\r\n');
+  assert.deepEqual(lines, ['ok', 'Downloading 100%', '']);
+  assert.equal(appendOutput([], 'a\nb\nc\nd\n', 3).length, 3);
+});
+
+test('a quiet command is asking something when its last line looks like a question', () => {
+  assert.deepEqual(promptOf('Replace it? (y/n) '), { kind: 'yesno', text: 'Replace it? (y/n)' });
+  assert.equal(promptOf('Continue? [Y/n]')?.kind, 'yesno');
+  assert.equal(promptOf('Enter passphrase for key:')?.kind, 'secret');
+  assert.equal(promptOf('Project name:')?.kind, 'text');
+  assert.equal(promptOf('Press Enter to continue')?.kind, 'text');
+  assert.equal(promptOf('Deploying 14 components'), null);
+  assert.equal(promptOf(''), null);
+  assert.equal(promptOf('https://login.salesforce.com/'), null);
+});
+
+test('only commands that need a keyboard of their own still open a terminal', () => {
+  for (const c of ['claude', 'claude attach abc', 'sudo npm i -g x', 'gh auth login', 'sf org login web --alias "<alias>"']) assert.ok(needsTerminal(c), c);
+  for (const c of ['sf org login web --alias dev --instance-url https://x.my.salesforce.com', 'npm install', 'acc doctor', 'git diff --stat a...b', 'claude update']) assert.ok(!needsTerminal(c), c);
+});
+
+test('a run reads in words: running, waiting for you, done, failed with its exit code, stopped', () => {
+  const r = (over: Partial<RunInput>): RunInput => ({ id: 'r', label: 'x', command: 'x', startedAt: 0, endedAt: null, code: null, stopped: false, lines: [], prompt: null, step: null, ...over });
+  assert.equal(runCard(r({})).look.label, 'Running');
+  assert.deepEqual([runCard(r({ prompt: { kind: 'yesno', text: '?' } })).look.label, runCard(r({ prompt: { kind: 'yesno', text: '?' } })).look.tone], ['Waiting for you', 'orange']);
+  assert.equal(runCard(r({ endedAt: 1, code: 0 })).look.label, 'Done');
+  assert.equal(runCard(r({ endedAt: 1, code: 2 })).look.label, 'Failed (exit 2)');
+  assert.equal(runCard(r({ endedAt: 1, code: null, stopped: true })).look.label, 'Stopped');
+  assert.equal(runCard(r({ endedAt: 1, code: 0, prompt: { kind: 'text', text: '?' } })).prompt, null, 'a finished run asks nothing');
+});
+
+// ---------------------------------------------------------------- agents' questions
+
+test('a permission prompt reads in words, and "don\'t ask again" names what it would allow', () => {
+  assert.deepEqual(describePermission('Bash', { command: 'npm run deploy', description: 'Deploy' }, '/w'), { icon: 'terminal', title: 'wants to run a command', code: 'npm run deploy', detail: 'Deploy' });
+  assert.equal(describePermission('Write', { file_path: '/w/src/a.ts' }, '/w').code, 'src/a.ts');
+  assert.equal(describePermission('mcp__github__create_pr', { title: 'x' }, '/w').title, 'wants to use github: create pr');
+  assert.equal(alwaysLabel([{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'npm test:*' }] }]), 'Always allow npm test:* this session');
+  assert.equal(alwaysLabel([{ type: 'setMode', mode: 'acceptEdits' }]), 'Allow all edits this session');
+  assert.equal(alwaysLabel([]), null);
+});
+
+test('questions are asked by the task their agent works on, and come first on the Overview, without repeats', () => {
+  const hub = sampleHub();
+  const cards = questionCards(hub);
+  assert.deepEqual(cards.map((c) => [c.who, c.kind]), [['ACME-14', 'permission'], ['ACME-12', 'question']]);
+  assert.equal(cards[1]!.questions[0]!.options.length, 3);
+  const home = homeModel({ hub, section: 'overview', boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: sampleRuns() });
+  assert.equal(home.overview.questions.length, 2);
+  const titles = home.overview.attention.map((a) => a.title);
+  assert.ok(!titles.some((t) => t.startsWith('ACME-14') || t.startsWith('ACME-12')), 'a task whose question is shown isn\'t listed again');
+  assert.ok(titles.includes('ACME-11'), 'an agent waiting in its own terminal still shows, to attach to');
+  assert.equal(home.nav[0]!.count, needsYouCount(home.overview));
+  assert.equal(home.overview.stats.find((s) => s.label === 'Agents working')!.value, '2', 'agents waiting on a question aren\'t counted as working');
+  assert.equal(home.runs[0]!.look.label, 'Waiting for you');
+});
+
+test('an agent\'s page: its task, its question, its actions, and an ended session still readable', () => {
+  const hub = sampleHub();
+  const m = agentModel({ hub, key: 's-acme-14', seen: null, entries: [{ k: 'say', id: 's', at: null, text: '**Done** soon' }], readable: true, lastAt: null });
+  assert.equal(m.task?.id, 'ACME-14');
+  assert.equal(m.look.label, 'Needs you: wants permission');
+  assert.equal(m.questions.length, 1);
+  assert.deepEqual(m.actions.map((a) => a.command), ['acc.agent.attach', 'acc.agent.openFolder', 'acc.agent.stop']);
+  assert.ok(m.entries[0]!.k === 'say' && m.entries[0]!.body.blocks.length === 1, 'what it said is rendered from markdown');
+  const ended = agentModel({ hub, key: 'gone', seen: { cwd: '/x', kind: 'background', startedAt: 1, sessionId: 'gone', name: 'T-9' }, entries: [], readable: false, lastAt: null });
+  assert.deepEqual([ended.live, ended.look.label, ended.actions.map((a) => a.command)], [false, 'Ended', ['acc.agent.openFolder']]);
+});
+
+test('answers from the page are checked, and only the fields a decision has reach the hook', () => {
+  assert.ok(isFromWebview({ type: 'answer', id: 'm1-aaaa0001', decision: 'allow', answers: { 'Which?': 'Blue' } }));
+  assert.ok(!isFromWebview({ type: 'answer', id: 'm1', decision: 'yes' }));
+  assert.ok(!isFromWebview({ type: 'answer', id: 'm1', decision: 'allow', answers: ['Blue'] }));
+  assert.ok(!isFromWebview({ type: 'run-input', run: 'r', text: 'y\nrm -rf /' }), 'one line at a time');
+  assert.ok(isFromWebview({ type: 'run-control', run: 'r', action: 'stop' }));
+  assert.ok(!isFromWebview({ type: 'run-control', run: 'r', action: 'kill-all' }));
+  assert.deepEqual(answerOf({ type: 'answer', id: 'x', decision: 'deny', message: '  ', always: true }), { decision: 'deny' });
+  assert.deepEqual(answerOf({ type: 'answer', id: 'x', decision: 'allow', always: true }), { decision: 'allow', always: true });
+});

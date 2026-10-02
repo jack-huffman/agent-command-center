@@ -75,15 +75,22 @@ function menuFor(webviewId: string, keys: Record<string, string | boolean>): str
     .map((i) => i.command);
 }
 
-test('agent rows hide their actions behind one menu: background sessions get all four, interactive ones only the folder', () => {
-  assert.deepEqual(menuFor('acc.agents', { webviewSection: 'agent', agentBackground: true }), ['acc.agent.attach', 'acc.agent.logs', 'acc.agent.openFolder', 'acc.agent.stop'], 'Stop sits alone at the bottom');
-  assert.deepEqual(menuFor('acc.agents', { webviewSection: 'agent', agentBackground: false }), ['acc.agent.openFolder']);
+test('agent rows hide their actions behind one menu: Watch first, and background sessions also attach and stop', () => {
+  assert.deepEqual(menuFor('acc.home', { webviewSection: 'agent', agentBackground: true }), ['acc.agent.watch', 'acc.agent.attach', 'acc.agent.openFolder', 'acc.agent.stop'], 'Stop sits alone at the bottom');
+  assert.deepEqual(menuFor('acc.home', { webviewSection: 'agent', agentBackground: false }), ['acc.agent.watch', 'acc.agent.openFolder']);
+});
+
+test('the row menus are for the page the rows are on: the Command Center\'s own webview', () => {
+  const panels = readFileSync(join(root, 'src', 'panels.ts'), 'utf8');
+  const viewType = /createWebviewPanel\('([\w.]+)'/.exec(panels)?.[1];
+  assert.equal(viewType, 'acc.home');
+  for (const i of manifest.contributes.menus['webview/context'] as { command: string; when: string }[]) assert.match(i.when, new RegExp(`webviewId == '${viewType}'`), `${i.command} shows on the page`);
 });
 
 test('worktree rows hide their actions behind one menu, and the main checkout has no Remove', () => {
-  assert.deepEqual(menuFor('acc.worktrees', { webviewSection: 'worktree', worktreeLinked: true }), ['acc.worktree.open', 'acc.worktree.terminal', 'acc.worktree.reveal', 'acc.worktree.remove']);
-  assert.deepEqual(menuFor('acc.worktrees', { webviewSection: 'worktree', worktreeLinked: false }), ['acc.worktree.open', 'acc.worktree.terminal', 'acc.worktree.reveal']);
-  assert.deepEqual(menuFor('acc.agents', { webviewSection: 'worktree', worktreeLinked: true }), [], 'items stay in their own tab');
+  assert.deepEqual(menuFor('acc.home', { webviewSection: 'worktree', worktreeLinked: true }), ['acc.worktree.open', 'acc.worktree.terminal', 'acc.worktree.reveal', 'acc.worktree.remove']);
+  assert.deepEqual(menuFor('acc.home', { webviewSection: 'worktree', worktreeLinked: false }), ['acc.worktree.open', 'acc.worktree.terminal', 'acc.worktree.reveal']);
+  assert.deepEqual(menuFor('acc.agent', { webviewSection: 'worktree', worktreeLinked: true }), [], 'not on an agent\'s own page');
 });
 
 test('row menus: every item is a declared command, and the rows set the keys the menus test', () => {
@@ -186,10 +193,12 @@ test('the Overview gathers what needs a person, counts it once, and groups revie
   assert.ok(isFromWebview({ type: 'nav', section: 'agents' }) && !isFromWebview({ type: 'nav', section: 'secrets' }));
 });
 
-test('cards follow a task through dispatch: Dispatch, then Attach and Abandon, then Clean up', () => {
+test('cards follow a task through dispatch: Dispatch, then Watch, Attach and Abandon, then Clean up', () => {
   const labels = (r: Partial<TaskRow>) => cardActions({ ...row('AV-9', 'todo', 'ready'), deps: [], ...r } as TaskRow, {}).map((a) => a.label);
   assert.deepEqual(labels({}), ['Dispatch', 'Move', 'Block', 'Details']);
-  assert.deepEqual(labels({ state: 'running', display: 'running', run: { bgId: 'bg1', worktree: '/w/AV-9' } }), ['Attach', 'Worktree', 'Move', 'Abandon', 'Details']);
+  assert.deepEqual(labels({ state: 'running', display: 'running', run: { bgId: 'bg1', worktree: '/w/AV-9' } }), ['Watch', 'Attach', 'Worktree', 'Move', 'Abandon', 'Details']);
+  assert.equal(cardActions({ ...row('AV-9', 'running', 'running'), deps: [], run: { bgId: 'bg1' } } as TaskRow, {})[0]!.primary, true, 'Watch is the main action while it runs');
+  assert.deepEqual(labels({ state: 'review', display: 'review', run: { sessionId: 's1', worktree: '/w/AV-9' } }).slice(0, 2), ['Watch', 'Worktree'], 'what it did can still be read in review');
   assert.deepEqual(labels({ state: 'rework', display: 'rework', run: { worktree: '/w/AV-9' } }), ['Re-dispatch', 'Worktree', 'Move', 'Block', 'Details']);
   assert.deepEqual(labels({ state: 'done', display: 'done', run: { worktree: '/w/AV-9' } }), ['Worktree', 'Move', 'Clean up', 'Details']);
   assert.equal(cardActions({ ...row('AV-9', 'todo', 'ready'), deps: [] }, {})[0]!.primary, true, 'Dispatch is the main action on a ready card');

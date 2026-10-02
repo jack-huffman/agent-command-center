@@ -1,14 +1,14 @@
 // Renders one editor tab. Every element is built with DOM calls and every string is set as text,
 // so nothing from a ticket, branch or session can become markup. No HTML string is ever parsed.
 import type {
-  Action, AgentsModel, EnvironmentsModel, HomeModel, HomeSection, IdentityCard, Look, Model, PersonChip, Ref, SetupModel, TasksModel, TicketModel, TrackerBoard, TrackerCard, ViewKind, WorktreesModel,
+  Action, AgentModel, AgentsModel, EntryView, EnvironmentsModel, HomeModel, HomeSection, IdentityCard, Look, Model, PersonChip, QuestionCard, Ref, RunCard, SetupModel, TasksModel, TicketModel, TrackerBoard, TrackerCard, ViewKind, WorktreesModel,
 } from '../src/model.ts';
 import type { Block, Doc, Inline } from '../../packages/core/src/trackers/doc.ts';
 
 declare function acquireVsCodeApi(): { postMessage(m: unknown): void; getState(): unknown; setState(s: unknown): void };
 const api = acquireVsCodeApi();
 const app = document.getElementById('app')!;
-const view = document.body.dataset.view as ViewKind | 'ticket' | 'home';
+const view = document.body.dataset.view as ViewKind | 'ticket' | 'home' | 'agent';
 
 type Child = Node | string | null | undefined | false;
 
@@ -56,11 +56,24 @@ function empty(text: string, ...tools: Child[]): HTMLElement {
   return el('div', 'empty', el('p', '', text), el('div', 'toolbar', ...tools));
 }
 
-/** Per-tab memory that survives re-renders and the tab being hidden: board modes and comment drafts. */
-interface Memory { modes: Record<string, 'tracker' | 'agents'>; drafts: Record<string, string>; section?: HomeSection }
+/** A half-made answer to an agent's question, kept while the page redraws. */
+interface Draft { picks: Record<number, string[]>; other: Record<number, string>; denying: boolean; reason: string; sent: boolean }
+
+/**
+ * Per-tab memory that survives re-renders and the tab being hidden: board modes, comment drafts, answers
+ * being written, the output panel, and which of an agent's steps are opened.
+ */
+interface Memory {
+  modes: Record<string, 'tracker' | 'agents'>;
+  drafts: Record<string, string>;
+  section?: HomeSection;
+  answers: Record<string, Draft>;
+  dock: { open: boolean; run: string | null };
+  opened: string[];
+}
 function memory(): Memory {
   const s = (api.getState() as Partial<Memory> | undefined) ?? {};
-  return { modes: s.modes ?? {}, drafts: s.drafts ?? {}, section: s.section };
+  return { modes: s.modes ?? {}, drafts: s.drafts ?? {}, section: s.section, answers: s.answers ?? {}, dock: s.dock ?? { open: false, run: null }, opened: s.opened ?? [] };
 }
 function remember(change: (m: Memory) => void): void {
   const m = memory();
@@ -521,6 +534,298 @@ function clippedSpan(text: string): HTMLElement {
   return s;
 }
 
+// ---------------------------------------------------------------- agents' questions (D-030)
+
+function draftOf(id: string): Draft {
+  return memory().answers[id] ?? { picks: {}, other: {}, denying: false, reason: '', sent: false };
+}
+function saveDraft(id: string, change: (d: Draft) => void): void {
+  remember((m) => { const d = m.answers[id] ?? { picks: {}, other: {}, denying: false, reason: '', sent: false }; change(d); m.answers[id] = d; });
+}
+
+/** Sends an answer, and shows it's on its way until the question leaves the page. */
+function sendAnswer(q: QuestionCard, msg: Record<string, unknown>): void {
+  saveDraft(q.id, (d) => { d.sent = true; });
+  api.postMessage({ type: 'answer', id: q.id, ...msg });
+  if (last) render(last);
+}
+
+function button(label: string, iconName: string, onClick: () => void, cls = ''): HTMLButtonElement {
+  const b = el('button', `btn ${cls}`.trim(), icon(iconName), label) as HTMLButtonElement;
+  b.type = 'button';
+  b.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
+  return b;
+}
+
+/** A text box that keeps its words, and its place, when the page redraws. */
+function keptInput(key: string, value: string, placeholder: string, onInput: (v: string) => void, onEnter?: () => void, type = 'text'): HTMLInputElement {
+  const i = document.createElement('input');
+  i.type = type;
+  i.className = 'text-input';
+  i.value = value;
+  i.placeholder = placeholder;
+  i.dataset.keep = key;
+  i.setAttribute('aria-label', placeholder);
+  if (type === 'password') i.autocomplete = 'off';
+  i.addEventListener('input', () => onInput(i.value));
+  if (onEnter) i.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); onEnter(); } });
+  return i;
+}
+
+/**
+ * An agent's question, to answer where it's shown: Allow or Deny for a permission prompt, its options for
+ * a question. "In the terminal" hands it back to Claude Code's own prompt.
+ */
+function questionCard(q: QuestionCard, opts: { watch: boolean }): HTMLElement {
+  const d = draftOf(q.id);
+  // The bell and the words say it needs you; the orange edge only adds to them.
+  const head = el('div', 'q-head',
+    el('div', 'q-who', icon('bell', 'orange'), el('strong', '', q.who), el('span', '', q.title), q.projectName ? el('span', 'muted', `· ${q.projectName}`) : null),
+    when(new Date(q.askedAt).toISOString()));
+  const card = el('article', `question${d.sent ? ' sent' : ''}`, head);
+  card.setAttribute('aria-label', `${q.who} ${q.title}`);
+  const tools: Child[] = [];
+  const watch = opts.watch ? button('Watch', 'pulse', () => api.postMessage({ type: 'run', command: 'acc.agent.watch', ref: { session: q.session } }), 'ghost small') : null;
+  const terminal = button('In the terminal', 'terminal', () => sendAnswer(q, { decision: 'terminal' }), 'ghost small');
+  terminal.title = 'Answer in Claude Code\'s own prompt instead: a terminal attaches to the session';
+
+  if (q.kind === 'permission') {
+    if (q.detail && q.code) card.append(el('p', 'q-detail', q.detail));
+    if (q.code) card.append(el('pre', 'q-code', q.code));
+    else if (q.detail) card.append(el('div', 'q-detail q-plan', q.detail));
+    if (d.denying) {
+      const send = () => sendAnswer(q, { decision: 'deny', message: draftOf(q.id).reason });
+      const reason = keptInput(`deny:${q.id}`, d.reason, 'Tell it why, or what to do instead (optional)', (v) => saveDraft(q.id, (x) => { x.reason = v; }), send);
+      card.append(el('div', 'q-deny', reason, el('div', 'actions',
+        button('Deny', 'close', send, 'primary'),
+        button('Back', 'arrow-left', () => { saveDraft(q.id, (x) => { x.denying = false; }); if (last) render(last); }))));
+      requestAnimationFrame(() => { if (!document.activeElement || document.activeElement === document.body) reason.focus(); });
+    } else {
+      tools.push(button('Allow', 'check', () => sendAnswer(q, { decision: 'allow' }), 'primary'));
+      if (q.always) tools.push(button(q.always, 'check-all', () => sendAnswer(q, { decision: 'allow', always: true })));
+      tools.push(button('Deny…', 'close', () => { saveDraft(q.id, (x) => { x.denying = true; }); if (last) render(last); }));
+      tools.push(el('span', 'q-aside', terminal, watch));
+    }
+  } else {
+    const answered = (i: number) => (d.picks[i]?.length ?? 0) > 0 || !!d.other[i]?.trim();
+    q.questions.forEach((x, i) => {
+      const set = el('fieldset', 'q-set', el('legend', '', x.header ? el('span', 'chip q-chip', x.header) : null, el('span', 'q-question', x.question)));
+      const opts = el('div', 'q-options');
+      opts.setAttribute('role', x.multiSelect ? 'group' : 'radiogroup');
+      for (const o of x.options) {
+        const on = d.picks[i]?.includes(o.label) ?? false;
+        const b = el('button', `q-option${on ? ' on' : ''}`, icon(x.multiSelect ? (on ? 'pass-filled' : 'circle-large-outline') : (on ? 'circle-filled' : 'circle-large-outline'), on ? 'blue' : undefined),
+          el('span', 'q-option-text', el('span', 'strong', o.label), o.description ? el('span', 'muted small', o.description) : null)) as HTMLButtonElement;
+        b.type = 'button';
+        b.setAttribute('role', x.multiSelect ? 'checkbox' : 'radio');
+        b.setAttribute('aria-checked', String(on));
+        b.addEventListener('click', () => {
+          saveDraft(q.id, (dd) => {
+            const now = dd.picks[i] ?? [];
+            dd.picks[i] = x.multiSelect ? (now.includes(o.label) ? now.filter((l) => l !== o.label) : [...now, o.label]) : [o.label];
+            if (!x.multiSelect) dd.other[i] = '';
+          });
+          if (last) render(last);
+        });
+        opts.append(b);
+      }
+      const other = keptInput(`other:${q.id}:${i}`, d.other[i] ?? '', 'Or type your own answer', (v) => {
+        saveDraft(q.id, (dd) => { dd.other[i] = v; if (v.trim() && !x.multiSelect) dd.picks[i] = []; });
+        const sendBtn = card.querySelector<HTMLButtonElement>('.q-send');
+        if (sendBtn) sendBtn.disabled = !q.questions.every((_, k) => (k === i ? !!v.trim() || (draftOf(q.id).picks[k]?.length ?? 0) > 0 : answered(k)));
+      });
+      set.append(opts, other);
+      card.append(set);
+    });
+    const send = button(q.questions.length > 1 ? 'Send answers' : 'Send answer', 'send', () => {
+      const dd = draftOf(q.id);
+      const answers: Record<string, string> = {};
+      q.questions.forEach((x, i) => { answers[x.question] = dd.other[i]?.trim() || (dd.picks[i] ?? []).join(', '); });
+      sendAnswer(q, { decision: 'allow', answers });
+    }, 'primary q-send');
+    send.disabled = !q.questions.every((_, i) => answered(i));
+    const decide = button('Let it decide', 'sparkle', () => sendAnswer(q, { decision: 'deny', message: 'They chose not to answer: decide for yourself, and say what you chose.' }));
+    tools.push(send, decide, el('span', 'q-aside', terminal, watch));
+  }
+  if (d.sent) card.append(el('div', 'q-sending muted', icon('sync~spin'), 'Sending your answer…'));
+  else if (tools.length) card.append(el('div', 'actions q-actions', ...tools));
+  return card;
+}
+
+// ---------------------------------------------------------------- the output panel (D-030)
+
+let runs: RunCard[] = [];
+
+/** Keeps the output pinned to its newest line, unless you've scrolled up to read. */
+function stickToBottom(box: HTMLElement, wasAtBottom: boolean, top: number): void {
+  if (wasAtBottom) box.scrollTop = box.scrollHeight;
+  else box.scrollTop = top;
+}
+
+/** An icon button whose name shows on hover and is read out, for a toolbar with no room for words. */
+function tool(name: string, iconName: string, onClick: () => void): HTMLButtonElement {
+  const b = el('button', 'btn icon-only', icon(iconName)) as HTMLButtonElement;
+  b.type = 'button';
+  b.title = name;
+  b.setAttribute('aria-label', name);
+  b.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
+  return b;
+}
+
+function renderDock(list: RunCard[]): HTMLElement | null {
+  if (!list.length) return null;
+  const m = memory().dock;
+  const run = list.find((r) => r.id === m.run) ?? list.find((r) => r.running) ?? list[0]!;
+  const open = m.open;
+  const toggle = () => { remember((x) => { x.dock.open = !open; x.dock.run = run.id; }); redrawDock(); };
+  const lastLine = [...run.lines].reverse().find((l) => l.trim()) ?? (run.running ? 'Starting…' : 'No output');
+  const bar = el('div', 'dock-bar');
+  const head = el('button', 'dock-title', icon('terminal'), el('span', 'strong dock-label', run.label), status(run.look), open || run.prompt ? null : el('span', 'muted mono dock-last', lastLine)) as HTMLButtonElement;
+  head.type = 'button';
+  head.title = `${run.command}\n\n${open ? 'Hide' : 'Show'} the output`;
+  head.setAttribute('aria-expanded', String(open));
+  head.addEventListener('click', toggle);
+  bar.append(head, el('span', 'spacer'));
+  if (list.length > 1) {
+    const pick = document.createElement('select');
+    pick.className = 'dock-pick';
+    pick.setAttribute('aria-label', 'Which command');
+    for (const r of list) {
+      const o = document.createElement('option');
+      o.value = r.id;
+      o.textContent = `${r.running ? '● ' : ''}${r.label.length > 36 ? `${r.label.slice(0, 36)}…` : r.label}`;
+      o.selected = r.id === run.id;
+      pick.append(o);
+    }
+    pick.title = 'Show another command\'s output';
+    pick.addEventListener('change', () => { remember((x) => { x.dock.run = pick.value; x.dock.open = true; }); redrawDock(); });
+    bar.append(el('span', 'muted small dock-count', `${list.indexOf(run) + 1} of ${list.length}`), pick);
+  }
+  const control = (action: string) => api.postMessage({ type: 'run-control', run: run.id, action });
+  // A toolbar like VSCode's own panels: icons, each with its name on hover and for screen readers.
+  if (run.running) bar.append(tool('Stop it', 'debug-stop', () => control('stop')));
+  bar.append(tool(run.running ? 'Stop it here and run it in a terminal, for a command that needs your keyboard' : 'Run it again in a terminal', 'terminal', () => control('terminal')));
+  if (!run.running) bar.append(tool('Dismiss', 'close', () => { control('dismiss'); remember((x) => { x.dock.run = null; }); }));
+  bar.append(tool(open ? 'Hide the output' : 'Show the output', open ? 'chevron-down' : 'chevron-up', toggle));
+
+  const dock = el('section', `dock${open ? ' open' : ''}${run.prompt ? ' asking' : ''}`, bar);
+  dock.setAttribute('aria-label', 'Command output');
+  if (open) {
+    const out = el('pre', 'dock-out', run.lines.join('\n'));
+    out.dataset.run = run.id;
+    out.tabIndex = 0;
+    out.setAttribute('aria-label', `Output of ${run.command}`);
+    out.setAttribute('aria-live', 'polite');
+    dock.append(el('div', 'dock-cmd mono muted', `$ ${run.command}`), out);
+  }
+  if (run.prompt) {
+    const p = run.prompt;
+    const key = `run:${run.id}`;
+    const send = (text: string) => { remember((x) => { delete x.drafts[key]; }); api.postMessage({ type: 'run-input', run: run.id, text }); };
+    const row = el('div', 'dock-ask', icon('bell', 'orange'), el('span', 'dock-ask-text', el('span', 'strong', 'It\'s asking: '), el('span', 'mono', p.text)));
+    if (p.kind === 'yesno') {
+      row.append(el('div', 'actions', button('Yes', 'check', () => send('y'), 'primary'), button('No', 'close', () => send('n'))));
+    } else {
+      const input = keptInput(key, memory().drafts[key] ?? '', p.kind === 'secret' ? 'Type it here. It goes only to the command, and isn\'t shown or saved.' : 'Type your answer', (v) => {
+        if (p.kind !== 'secret') remember((x) => { x.drafts[key] = v; });
+      }, () => send(input.value), p.kind === 'secret' ? 'password' : 'text');
+      row.append(input, button('Send', 'send', () => send(input.value), 'primary'));
+    }
+    dock.append(row);
+  }
+  return dock;
+}
+
+/** Redraws the output panel alone: output arrives many times a second, and the page shouldn't jump. */
+function redrawDock(): void {
+  const old = document.querySelector<HTMLElement>('.dock');
+  const box = old?.querySelector<HTMLElement>('.dock-out');
+  const atBottom = !box || box.scrollHeight - box.scrollTop - box.clientHeight < 24;
+  const top = box?.scrollTop ?? 0;
+  const keep = keepFocus();
+  const next = renderDock(runs);
+  if (old && next) old.replaceWith(next);
+  else if (old) old.remove();
+  else if (next) document.querySelector('.home-col')?.append(next);
+  const nbox = next?.querySelector<HTMLElement>('.dock-out');
+  if (nbox) stickToBottom(nbox, atBottom || box?.dataset.run !== nbox.dataset.run, top);
+  keep();
+}
+
+/** Remembers which text box had focus, and puts it back after a redraw. */
+function keepFocus(): () => void {
+  const a = document.activeElement as HTMLInputElement | null;
+  const key = a?.dataset?.keep;
+  const start = a?.selectionStart ?? null;
+  const end = a?.selectionEnd ?? null;
+  return () => {
+    if (!key) return;
+    const again = document.querySelector<HTMLInputElement>(`[data-keep="${CSS.escape(key)}"]`);
+    if (!again) return;
+    again.focus({ preventScroll: true });
+    if (start !== null && end !== null) try { again.setSelectionRange(start, end); } catch { /* not a text box */ }
+  };
+}
+
+// ---------------------------------------------------------------- an agent's page (D-030)
+
+function toolEntry(e: Extract<EntryView, { k: 'tool' }>): HTMLElement {
+  const look = e.status === 'running' ? { icon: 'sync~spin', tone: 'blue', label: 'Running' } : e.status === 'error' ? { icon: 'warning', tone: 'orange', label: 'Failed' } : { icon: 'pass', tone: 'neutral', label: 'Done' };
+  // Done is the usual case and needs no mark; running and failed say so, in words for screen readers.
+  const mark = e.status === 'done' ? null : status({ label: look.label, icon: look.icon, tone: look.tone as Look['tone'] });
+  const more = !!(e.code?.includes('\n') || e.result || (e.code && e.code.length > 80));
+  const line = (...lead: Child[]) => [...lead, icon(e.icon), el('span', 'tool-title', e.title), e.code && !e.code.includes('\n') ? el('code', 'tool-code', e.code) : null, el('span', 'spacer'), mark];
+  if (!more) return el('li', `entry tool static${e.status === 'error' ? ' failed' : ''}`, el('div', 'tool-line', ...line(el('span', 'tool-chev'))));
+  const summary = el('summary', 'tool-line', ...line(el('span', 'tool-chev', icon('chevron-right'))));
+  const details = el('details', 'tool-details', summary,
+    e.code ? el('pre', 'tool-pre', e.code) : null,
+    e.result ? el('pre', `tool-pre result${e.status === 'error' ? ' failed' : ''}`, e.result) : null,
+    e.more ? el('div', 'muted small', `… ${plural(e.more, 'more line')}`) : null) as HTMLDetailsElement;
+  details.open = memory().opened.includes(e.id);
+  details.addEventListener('toggle', () => remember((m) => { m.opened = details.open ? [...new Set([...m.opened, e.id])].slice(-200) : m.opened.filter((x) => x !== e.id); }));
+  return el('li', `entry tool${e.status === 'error' ? ' failed' : ''}`, details);
+}
+
+function renderAgent(m: AgentModel): Node[] {
+  // A builder's page names its task, which opens the task's own page.
+  const name = m.task ? openable(el('span', 'tcard-key', m.task.id), { type: 'run', command: 'acc.task.show', ref: { project: m.task.project, task: m.task.id } }) : el('span', '', m.name);
+  const crumbs = el('div', 'crumbs', icon('hubot'), el('span', '', m.task ? 'Builder' : 'Agent'), el('span', 'muted', '/'), name, m.task && m.name !== m.task.id ? el('span', 'muted', `· ${m.name}`) : null);
+  const facts = el('div', 'agent-facts muted small',
+    m.startedAt ? el('span', '', `Started ${since(m.startedAt)}`) : null,
+    m.lastAt ? el('span', '', el('span', 'sep', '·'), 'last active ', when(m.lastAt)) : null,
+    m.where ? el('span', '', el('span', 'sep', '·'), el('span', 'mono', m.where)) : null);
+  const out: Node[] = [el('header', 'ticket-head agent-head', crumbs, el('h1', 'ticket-title', m.task?.title ?? m.name), facts,
+    el('div', 'ticket-bar', status(m.look), el('span', 'spacer'), el('div', 'actions', ...m.actions.map(actionButton))))];
+  if (m.questions.length) out.push(el('section', 'agent-asks', ...m.questions.map((q) => questionCard(q, { watch: false }))));
+  const recap = [...m.entries].reverse().find((e) => e.k === 'recap');
+  if (recap && recap.k === 'recap') out.push(el('div', 'notice recap', icon('info', 'blue'), el('span', '', el('strong', '', 'Where it got to: '), recap.text)));
+  if (!m.readable) {
+    out.push(empty(m.live ? 'Its activity will show here as it works. Nothing is recorded yet.' : 'There\'s no record of this session\'s activity to show.',
+      ...m.actions.filter((a) => a.command === 'acc.agent.attach').map(actionButton)));
+    return out;
+  }
+  const list = el('ol', 'timeline');
+  if (m.hidden) list.append(el('li', 'entry muted small', `${plural(m.hidden, 'earlier step')} not shown.`));
+  for (const e of m.entries) {
+    if (e.k === 'recap') continue;
+    if (e.k === 'tool') { list.append(toolEntry(e)); continue; }
+    if (e.k === 'prompt' && e.instructions) {
+      const d = el('details', 'prompt-details', el('summary', '', icon('note'), el('strong', '', 'Task instructions'), el('span', 'muted small', ' · what it was given to do')), renderDoc(e.body, '')) as HTMLDetailsElement;
+      d.open = memory().opened.includes(e.id);
+      d.addEventListener('toggle', () => remember((x) => { x.opened = d.open ? [...new Set([...x.opened, e.id])] : x.opened.filter((y) => y !== e.id); }));
+      list.append(el('li', 'entry prompt', d));
+      continue;
+    }
+    list.append(el('li', `entry ${e.k}`, el('div', 'entry-who', icon(e.k === 'prompt' ? 'account' : 'hubot'), el('span', 'strong', e.k === 'prompt' ? 'Asked' : 'Agent'), e.at ? when(e.at) : null), renderDoc(e.body, '')));
+  }
+  const tail = m.look.tone === 'blue' && m.live ? el('li', 'entry live', icon('sync~spin', 'blue'), el('span', '', 'Working…'))
+    : m.look.tone === 'orange' && !m.questions.length ? el('li', 'entry live', icon('bell', 'orange'), el('span', '', `${m.look.label}. It's waiting in its own terminal.`), ...m.actions.filter((a) => a.command === 'acc.agent.attach').map(actionButton))
+      : !m.live ? el('li', 'entry live muted', icon('circle-slash'), el('span', '', 'The session has ended.')) : null;
+  if (tail) list.append(tail);
+  out.push(list);
+  return out;
+}
+
 // ---------------------------------------------------------------- the Command Center page (D-029)
 
 let section: HomeSection | null = memory().section ?? null;
@@ -598,7 +903,7 @@ function sectionTitle(title: string, summary: string, ...tools: Child[]): HTMLEl
 
 function renderOverview(m: HomeModel): Node[] {
   const o = m.overview;
-  const people = o.attention.filter((a) => a.look.tone === 'orange').length;
+  const people = o.questions.length + o.attention.filter((a) => a.look.tone === 'orange').length;
   const project = o.projects[0];
   const summary = [
     people ? `${people} thing${people === 1 ? '' : 's'} need${people === 1 ? 's' : ''} you` : 'Nothing needs you right now',
@@ -617,6 +922,8 @@ function renderOverview(m: HomeModel): Node[] {
   const inbox = el('section', `inbox${people ? ' attention' : ''}`, el('h2', '', icon(people ? 'bell-dot' : 'pass', people ? 'orange' : 'blue'), people ? 'Needs you' : 'All clear',
     people ? el('span', 'count', String(people)) : null));
   if (!people) inbox.append(el('p', 'muted quiet', 'No agent is waiting, nothing is blocked, and setup is done.'));
+  // Questions first, each answered right here.
+  for (const q of o.questions) inbox.append(questionCard(q, { watch: true }));
   let captioned = false;
   for (const a of o.attention) {
     if (a.look.tone !== 'orange' && !captioned) {
@@ -673,11 +980,12 @@ function renderHome(m: HomeModel): Node[] {
       : current === 'agents' ? renderAgents(m.agents)
         : current === 'worktrees' ? renderWorktrees(m.worktrees)
           : current === 'environments' ? renderEnvironments(m.environments)
-            : renderSetup(m.setup);
+            : renderSetup(m.setup, m.runs);
   const main = el('div', 'home-main', ...content);
   main.tabIndex = -1;
   main.setAttribute('role', 'tabpanel');
-  return [el('div', 'home', renderNav(m, current), main)];
+  // The output panel sits under the section, on every section, while there's output to show.
+  return [el('div', 'home', renderNav(m, current), el('div', 'home-col', main, renderDock(runs)))];
 }
 
 function renderAgents(m: AgentsModel): Node[] {
@@ -698,7 +1006,7 @@ function renderAgents(m: AgentsModel): Node[] {
     if (!place.agents.length) body.append(el('tr', 'none', span(el('td', 'muted', 'No agent sessions in this project right now.'), 6)));
     for (const a of place.agents) {
       const row = el('tr', a.needsYou ? 'attention' : '',
-        clipped(a.name, 'strong name'), el('td', 'nowrap', status(a.look)), el('td', 'nowrap muted kind', a.kind), clipped(a.where, 'mono'), el('td', 'nowrap muted started', since(a.startedAt)),
+        openable(clipped(a.name, 'strong name'), { type: 'run', command: 'acc.agent.watch', ref: { session: a.key } }), el('td', 'nowrap', status(a.look)), el('td', 'nowrap muted kind', a.kind), clipped(a.where, 'mono'), el('td', 'nowrap muted started', since(a.startedAt)),
         el('td', 'actions', menuButton(a.name)));
       body.append(withMenu(row, 'agent', { session: a.key }, { agentBackground: a.background }));
     }
@@ -805,7 +1113,15 @@ function renderEnvironments(m: EnvironmentsModel): Node[] {
   return out;
 }
 
-function renderSetup(m: SetupModel): Node[] {
+/** A step's fix while it runs, or how it ended: one line, and a way to its output. */
+function stepRun(r: RunCard | undefined, open: boolean): HTMLElement | null {
+  // A failed run matters only while its step is still to do.
+  if (!r || (!r.running && !(open && r.look.tone === 'orange'))) return null;
+  const show = button('Show output', 'output', () => { remember((x) => { x.dock = { open: true, run: r.id }; }); redrawDock(); }, 'ghost small');
+  return el('div', `step-run tone-row-${r.look.tone}`, status(r.look), el('span', 'muted mono step-run-cmd', r.command), show);
+}
+
+function renderSetup(m: SetupModel, live: RunCard[] = []): Node[] {
   const todo = m.total - m.done;
   const out: Node[] = [header('Setup', m.total ? `${m.done} of ${m.total} steps done${todo ? `. ${plural(todo, 'step')} to do.` : '. Everything is set up.'}` : 'Checking…',
     toolbarButton('acc.openProjectWalkthrough', 'Walkthrough', 'checklist'))];
@@ -827,6 +1143,7 @@ function renderSetup(m: SetupModel): Node[] {
         el('p', 'detail', s.detail),
         s.look.tone === 'orange' && s.why ? el('p', 'why', s.why) : null,
         s.fix && s.look.tone === 'orange' ? el('pre', 'fix', s.fix) : null,
+        stepRun(live.find((r) => r.step === s.id), s.look.tone === 'orange'),
         el('div', 'actions', ...s.actions.map(actionButton))));
     }
     out.push(el('section', 'block', el('h2', '', icon(part.part === 'machine' ? 'device-desktop' : 'repo'), part.label, el('span', 'count', part.todo ? `${part.todo} to do` : 'all done')), list));
@@ -838,8 +1155,17 @@ let last: Model | null = null;
 
 function render(model: Model): void {
   last = model;
-  const scroll = { x: document.querySelector('.board')?.scrollLeft ?? 0, y: (document.querySelector('.home-main') ?? document.scrollingElement)?.scrollTop ?? 0 };
+  if (model.kind === 'home') runs = model.runs;
+  const scroller = document.querySelector('.home-main') ?? document.scrollingElement;
+  const scroll = { x: document.querySelector('.board')?.scrollLeft ?? 0, y: scroller?.scrollTop ?? 0 };
+  // An agent's page follows its newest step, unless you've scrolled up to read.
+  const following = model.kind === 'agent' && !!scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
+  const dockBox = document.querySelector<HTMLElement>('.dock-out');
+  const dockAtBottom = !dockBox || dockBox.scrollHeight - dockBox.scrollTop - dockBox.clientHeight < 24;
+  const dockTop = dockBox?.scrollTop ?? 0;
+  const keep = keepFocus();
   const nodes = model.kind === 'home' ? renderHome(model)
+    : model.kind === 'agent' ? renderAgent(model)
     : model.kind === 'tasks' ? renderTasks(model)
     : model.kind === 'ticket' ? renderTicket(model)
     : model.kind === 'agents' ? renderAgents(model)
@@ -851,8 +1177,18 @@ function render(model: Model): void {
   if (board) board.scrollLeft = scroll.x;
   const main = document.querySelector('.home-main');
   if (main && !scrolledTo) main.scrollTop = scroll.y;
+  else if (following) window.scrollTo(0, document.body.scrollHeight);
   else if (!main) window.scrollTo(0, scroll.y);
   scrolledTo = false;
+  const box = document.querySelector<HTMLElement>('.dock-out');
+  if (box) stickToBottom(box, dockAtBottom, dockTop);
+  keep();
+  // Half-written answers to questions that have gone are dropped.
+  const asked = model.kind === 'home' ? model.overview.questions : model.kind === 'agent' ? model.questions : null;
+  if (asked) {
+    const ids = new Set(asked.map((q) => q.id));
+    if (Object.keys(memory().answers).some((k) => !ids.has(k))) remember((x) => { for (const k of Object.keys(x.answers)) if (!ids.has(k)) delete x.answers[k]; });
+  }
 }
 
 window.addEventListener('message', (e: MessageEvent) => {
@@ -863,5 +1199,13 @@ window.addEventListener('message', (e: MessageEvent) => {
     render(msg.model);
   }
   if (msg?.type === 'done') onDone(msg);
+  // Output from a command acc is running: only the output panel redraws.
+  if (msg?.type === 'runs' && view === 'home') {
+    const m = msg as unknown as { runs: RunCard[]; focus?: string };
+    runs = m.runs;
+    if (last?.kind === 'home') last = { ...last, runs };
+    if (m.focus) remember((x) => { x.dock = { open: true, run: m.focus! }; });
+    redrawDock();
+  }
 });
 api.postMessage({ type: 'ready' });

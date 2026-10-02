@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // packages/cli/src/main.ts
-import { existsSync as existsSync10, readFileSync as readFileSync10, realpathSync as realpathSync2 } from "node:fs";
+import { existsSync as existsSync10, readFileSync as readFileSync11, realpathSync as realpathSync2 } from "node:fs";
 import { dirname as dirname5, resolve as resolve2 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -1231,9 +1231,139 @@ function githubIssuesToTasks(issues, environment) {
 
 // packages/core/src/dispatch.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
-import { existsSync as existsSync6, mkdirSync as mkdirSync8, readFileSync as readFileSync7, realpathSync, symlinkSync, writeFileSync as writeFileSync8 } from "node:fs";
+import { existsSync as existsSync6, mkdirSync as mkdirSync9, readFileSync as readFileSync8, realpathSync, symlinkSync, writeFileSync as writeFileSync9 } from "node:fs";
+import { homedir as homedir3 } from "node:os";
+import { basename, dirname as dirname3, isAbsolute, join as join8, resolve, sep } from "node:path";
+
+// packages/core/src/questions.ts
+import { chmodSync, linkSync, mkdirSync as mkdirSync8, readdirSync as readdirSync2, readFileSync as readFileSync7, renameSync as renameSync3, rmSync as rmSync4, writeFileSync as writeFileSync8 } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { homedir as homedir2 } from "node:os";
-import { basename, dirname as dirname3, isAbsolute, join as join7, resolve, sep } from "node:path";
+import { join as join7 } from "node:path";
+var questionsDir = (env = process.env) => env.ACC_QUESTIONS_DIR || join7(homedir2(), ".acc", "questions");
+var LISTENER_STALE_MS = 45e3;
+var HOOK_TIMEOUT_S = 3600;
+var MAX_WAIT_MS = (HOOK_TIMEOUT_S - 120) * 1e3;
+var isUnder = (path, root) => path === root || path.startsWith(root.endsWith("/") ? root : `${root}/`);
+function readJson(file) {
+  try {
+    return JSON.parse(readFileSync7(file, "utf8"));
+  } catch {
+    return null;
+  }
+}
+function writePrivate(file, data) {
+  const tmp = `${file}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
+  writeFileSync8(tmp, JSON.stringify(data), { mode: 384 });
+  renameSync3(tmp, file);
+}
+function ensureDir(dir) {
+  mkdirSync8(join7(dir, "listeners"), { recursive: true, mode: 448 });
+  try {
+    chmodSync(dir, 448);
+  } catch {
+  }
+}
+function listeners(dir, now2 = Date.now()) {
+  let names = [];
+  try {
+    names = readdirSync2(join7(dir, "listeners")).filter((n) => n.endsWith(".json"));
+  } catch {
+    return [];
+  }
+  return names.flatMap((n) => {
+    const l = readJson(join7(dir, "listeners", n));
+    const ok = !!l && Number.isInteger(l.pid) && typeof l.at === "number" && Array.isArray(l.roots) && now2 - l.at < LISTENER_STALE_MS && alive(l.pid);
+    return ok ? [l] : [];
+  });
+}
+var covered = (ls, cwd) => ls.some((l) => l.roots.some((r) => typeof r === "string" && isUnder(cwd, r)));
+function parseHookInput(text) {
+  let x = null;
+  try {
+    x = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!x || typeof x !== "object") return null;
+  const str = (v) => typeof v === "string" && v.length > 0;
+  if (!str(x.session_id) || !str(x.cwd) || !str(x.tool_name) || !x.tool_input || typeof x.tool_input !== "object") return null;
+  return {
+    hook_event_name: String(x.hook_event_name ?? ""),
+    session_id: x.session_id,
+    cwd: x.cwd,
+    transcript_path: str(x.transcript_path) ? x.transcript_path : void 0,
+    tool_name: x.tool_name,
+    tool_input: x.tool_input,
+    permission_suggestions: Array.isArray(x.permission_suggestions) ? x.permission_suggestions : []
+  };
+}
+function isAnswer(a) {
+  const x = a;
+  if (!x || typeof x !== "object") return false;
+  if (x.decision === "terminal") return true;
+  if (x.decision === "deny") return x.message === void 0 || typeof x.message === "string" && x.message.length <= 4e3;
+  if (x.decision !== "allow") return false;
+  if (x.always !== void 0 && typeof x.always !== "boolean") return false;
+  if (x.answers === void 0) return true;
+  const answers = x.answers;
+  return !!answers && typeof answers === "object" && Object.values(answers).every((v) => typeof v === "string" && v.length <= 4e3);
+}
+async function ask(input, opts = {}) {
+  const dir = opts.dir ?? questionsDir();
+  const now2 = opts.now ?? Date.now;
+  const wait = opts.wait ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+  const pollMs = opts.pollMs ?? 300;
+  const maxWaitMs = opts.maxWaitMs ?? MAX_WAIT_MS;
+  if (!covered(listeners(dir, now2()), input.cwd)) return null;
+  ensureDir(dir);
+  const question = {
+    v: 1,
+    id: `${now2().toString(36)}-${randomBytes(4).toString("hex")}`,
+    pid: opts.pid ?? process.pid,
+    at: now2(),
+    sessionId: input.session_id,
+    cwd: input.cwd,
+    transcript: input.transcript_path ?? null,
+    tool: input.tool_name,
+    input: input.tool_input,
+    suggestions: input.permission_suggestions ?? []
+  };
+  const file = join7(dir, `${question.id}.json`);
+  const answerFile = join7(dir, `${question.id}.answer.json`);
+  writePrivate(file, question);
+  const started = now2();
+  try {
+    for (let i = 0; ; i++) {
+      const a = readJson(answerFile);
+      if (isAnswer(a)) return a.decision === "terminal" ? null : { question, answer: a };
+      if (opts.signal?.aborted || now2() - started > maxWaitMs) return null;
+      if (i % 10 === 9 && !covered(listeners(dir, now2()), input.cwd)) return null;
+      await wait(pollMs);
+    }
+  } finally {
+    rmSync4(file, { force: true });
+    rmSync4(answerFile, { force: true });
+  }
+}
+function hookOutput(q, a) {
+  if (a.decision === "terminal") return null;
+  let decision;
+  if (a.decision === "deny") {
+    decision = { behavior: "deny", message: a.message?.trim() ? `The user said no, from the Command Center: ${a.message.trim()}` : "The user said no, from the Command Center." };
+  } else if (q.tool === "AskUserQuestion") {
+    decision = { behavior: "allow", updatedInput: { ...q.input, answers: a.answers ?? {} } };
+  } else {
+    decision = { behavior: "allow" };
+    if (a.always && q.suggestions.length) decision.updatedPermissions = q.suggestions.map((s) => ({ ...s, destination: "session" }));
+  }
+  return { hookSpecificOutput: { hookEventName: "PermissionRequest", decision } };
+}
+function permissionHook(command) {
+  return { PermissionRequest: [{ matcher: "*", hooks: [{ type: "command", command: `${command} hook permission`, timeout: HOOK_TIMEOUT_S }] }] };
+}
+
+// packages/core/src/dispatch.ts
 function slugify(title, max = 40) {
   const words = title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).filter(Boolean);
   let out2 = "";
@@ -1253,17 +1383,17 @@ function mainCheckout(run2, cwd) {
 }
 function worktreeRoot(config, main2) {
   const root = config.worktrees.root;
-  if (!root) return join7(main2, ".claude", "worktrees");
+  if (!root) return join8(main2, ".claude", "worktrees");
   return isAbsolute(root) ? root : resolve(main2, root);
 }
-var isClaudeWorktree = (main2, wt) => wt.startsWith(join7(main2, ".claude", "worktrees") + sep);
+var isClaudeWorktree = (main2, wt) => wt.startsWith(join8(main2, ".claude", "worktrees") + sep);
 function claudeStatePath(env = process.env) {
-  return env.CLAUDE_CONFIG_DIR ? join7(env.CLAUDE_CONFIG_DIR, ".claude.json") : join7(env.HOME || homedir2(), ".claude.json");
+  return env.CLAUDE_CONFIG_DIR ? join8(env.CLAUDE_CONFIG_DIR, ".claude.json") : join8(env.HOME || homedir3(), ".claude.json");
 }
 function isTrusted(folder, env = process.env) {
   let state;
   try {
-    state = JSON.parse(readFileSync7(claudeStatePath(env), "utf8"));
+    state = JSON.parse(readFileSync8(claudeStatePath(env), "utf8"));
   } catch {
     return false;
   }
@@ -1354,7 +1484,7 @@ function renderPacket(p) {
   if (p.rules?.trim()) lines.push("", "## Project rules", "", p.rules.trim());
   return lines.join("\n") + "\n";
 }
-function builderSettings(task, config, accBinDir2, basePath) {
+function builderSettings(task, config, accBinDir2, basePath, accCommand2) {
   const sf = config.profile === "salesforce";
   const allow = [
     "Bash(acc done*)",
@@ -1389,7 +1519,9 @@ function builderSettings(task, config, accBinDir2, basePath) {
   ];
   return {
     env: { ACC_TASK: task.id, ACC_ROLE: "builder", PATH: `${accBinDir2}:${basePath}` },
-    permissions: { allow, deny }
+    permissions: { allow, deny },
+    // Its permission prompts and questions go to the Command Center when one is open (D-030).
+    ...accCommand2 ? { hooks: permissionHook(accCommand2) } : {}
   };
 }
 var git2 = (run2, cwd, ...args) => run2("git", args, { cwd });
@@ -1400,7 +1532,7 @@ function ensureWorktree(run2, main2, wt, branch, env) {
     if (inside.stdout.trim() !== branch) throw new AccError("dispatch", `${wt} is on ${inside.stdout.trim()}, not ${branch}.`);
     return true;
   }
-  mkdirSync8(dirname3(wt), { recursive: true });
+  mkdirSync9(dirname3(wt), { recursive: true });
   git2(run2, main2, "fetch", "--quiet", "origin", env.branch);
   const hasLocal = git2(run2, main2, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`).code === 0;
   let r;
@@ -1416,11 +1548,11 @@ function ensureWorktree(run2, main2, wt, branch, env) {
 }
 function setupWorktree(run2, config, env, main2, wt) {
   if (config.profile === "salesforce" && env.org) {
-    mkdirSync8(join7(wt, ".sf"), { recursive: true });
-    writeFileSync8(join7(wt, ".sf", "config.json"), JSON.stringify({ "target-org": env.org }, null, 2) + "\n");
+    mkdirSync9(join8(wt, ".sf"), { recursive: true });
+    writeFileSync9(join8(wt, ".sf", "config.json"), JSON.stringify({ "target-org": env.org }, null, 2) + "\n");
   }
-  if (existsSync6(join7(main2, "node_modules")) && !existsSync6(join7(wt, "node_modules"))) {
-    symlinkSync(join7(main2, "node_modules"), join7(wt, "node_modules"), "dir");
+  if (existsSync6(join8(main2, "node_modules")) && !existsSync6(join8(wt, "node_modules"))) {
+    symlinkSync(join8(main2, "node_modules"), join8(wt, "node_modules"), "dir");
     excludeEverywhere(run2, main2, "node_modules");
   }
   for (const cmd of config.worktrees.setup) {
@@ -1432,17 +1564,17 @@ ${(r.stderr || r.stdout).trim()}`);
 function excludeEverywhere(run2, main2, pattern) {
   const common = run2("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: main2 }).stdout.trim();
   if (!common) return;
-  const file = join7(common, "info", "exclude");
-  const text = existsSync6(file) ? readFileSync7(file, "utf8") : "";
+  const file = join8(common, "info", "exclude");
+  const text = existsSync6(file) ? readFileSync8(file, "utf8") : "";
   if (text.split("\n").some((l) => l.trim() === pattern)) return;
-  mkdirSync8(dirname3(file), { recursive: true });
-  writeFileSync8(file, `${text}${text && !text.endsWith("\n") ? "\n" : ""}# Added by acc: worktrees link node_modules from the main checkout.
+  mkdirSync9(dirname3(file), { recursive: true });
+  writeFileSync9(file, `${text}${text && !text.endsWith("\n") ? "\n" : ""}# Added by acc: worktrees link node_modules from the main checkout.
 ${pattern}
 `);
 }
 function readList2(wt, rel) {
-  if (!rel || !existsSync6(join7(wt, rel))) return [];
-  return readFileSync7(join7(wt, rel), "utf8").split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
+  if (!rel || !existsSync6(join8(wt, rel))) return [];
+  return readFileSync8(join8(wt, rel), "utf8").split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
 }
 var sleep2 = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 function findSession(run2, wt, name, waitMs) {
@@ -1471,7 +1603,7 @@ function dispatch(paths, config, id, deps, opts) {
   const env = environmentByBranch(config, found.environment);
   if (!env) throw new AccError("dispatch", `${id}'s environment "${found.environment}" isn't in the config.`);
   const main2 = mainCheckout(run2, paths.root);
-  const wt = join7(worktreeRoot(config, main2), found.id);
+  const wt = join8(worktreeRoot(config, main2), found.id);
   const enter = isClaudeWorktree(main2, wt);
   const launchDir = enter ? main2 : wt;
   if (!opts.foreground && enter && !isTrusted(main2, deps.env)) {
@@ -1480,12 +1612,12 @@ function dispatch(paths, config, id, deps, opts) {
   const branch = found.run?.branch ?? taskBranch(found);
   const reused = ensureWorktree(run2, main2, wt, branch, env);
   setupWorktree(run2, config, env, main2, wt);
-  const rules = existsSync6(join7(wt, ".acc", "rules.md")) ? readFileSync7(join7(wt, ".acc", "rules.md"), "utf8") : null;
-  const packet = renderPacket({ task: found, config, env, worktree: wt, branch, rules, environmentSpecific: readList2(wt, config.environmentSpecific), enterWorktree: enter && !opts.foreground, accPath: join7(deps.accBinDir, "acc") });
-  mkdirSync8(paths.packets, { recursive: true });
-  const packetPath = join7(paths.packets, `${found.id}.md`);
-  writeFileSync8(packetPath, packet);
-  const settings = JSON.stringify(builderSettings(found, config, deps.accBinDir, deps.env.PATH ?? ""));
+  const rules = existsSync6(join8(wt, ".acc", "rules.md")) ? readFileSync8(join8(wt, ".acc", "rules.md"), "utf8") : null;
+  const packet = renderPacket({ task: found, config, env, worktree: wt, branch, rules, environmentSpecific: readList2(wt, config.environmentSpecific), enterWorktree: enter && !opts.foreground, accPath: join8(deps.accBinDir, "acc") });
+  mkdirSync9(paths.packets, { recursive: true });
+  const packetPath = join8(paths.packets, `${found.id}.md`);
+  writeFileSync9(packetPath, packet);
+  const settings = JSON.stringify(builderSettings(found, config, deps.accBinDir, deps.env.PATH ?? "", deps.accCommand));
   const prompt = `Read your task instructions below and do the task.
 
 ${packet}`;
@@ -1551,7 +1683,7 @@ function cleanup(paths, config, id, run2, now2) {
 
 // packages/core/src/init.ts
 import { existsSync as existsSync8 } from "node:fs";
-import { join as join9 } from "node:path";
+import { join as join10 } from "node:path";
 
 // packages/core/src/github.ts
 var CLONE_ACCOUNT_KEY = "acc.githubAccount";
@@ -1632,8 +1764,8 @@ function useGithubAccount(config, root, run2, account, env = process.env) {
 }
 
 // packages/core/src/onboarding/helpers.ts
-import { existsSync as existsSync7, readFileSync as readFileSync8 } from "node:fs";
-import { join as join8 } from "node:path";
+import { existsSync as existsSync7, readFileSync as readFileSync9 } from "node:fs";
+import { join as join9 } from "node:path";
 var pass2 = (detail) => ({ status: "pass", detail });
 var fail2 = (detail, fix) => fix ? { status: "fail", detail, fix } : { status: "fail", detail };
 var unknown = (detail) => ({ status: "unknown", detail });
@@ -1649,7 +1781,7 @@ function makeContext(cwd, run2, env = process.env) {
   let configErrors = [];
   if (paths && existsSync7(paths.config)) {
     try {
-      const r = parseConfig(JSON.parse(readFileSync8(paths.config, "utf8")));
+      const r = parseConfig(JSON.parse(readFileSync9(paths.config, "utf8")));
       config = r.config;
       configErrors = r.errors;
     } catch (e) {
@@ -1714,8 +1846,8 @@ var LICENSE_TO_TYPE = {
   FULL: "full"
 };
 function readText(root, rel) {
-  const f = join8(root, rel);
-  return existsSync7(f) ? readFileSync8(f, "utf8") : null;
+  const f = join9(root, rel);
+  return existsSync7(f) ? readFileSync9(f, "utf8") : null;
 }
 var SECRET_PATTERN = [
   "force://[A-Za-z0-9._~-]+:[^@[:space:]]+@",
@@ -1807,7 +1939,7 @@ function planInit(run2, opts) {
   if (repo && !account) notes.push("Couldn't tell which GitHub account this repo pushes as. Pass --github-account.");
   const name = opts.commitName ?? gitGet("user.name");
   const email = opts.commitEmail ?? gitGet("user.email");
-  const listIfPresent = (rel) => existsSync8(join9(root, rel)) ? rel : void 0;
+  const listIfPresent = (rel) => existsSync8(join10(root, rel)) ? rel : void 0;
   const raw = {
     schema: 1,
     project: opts.project ?? root.split("/").filter(Boolean).pop() ?? "project",
@@ -1845,8 +1977,8 @@ function configureRepoAccess(run2, root, account, identity) {
 }
 
 // packages/core/src/onboarding/steps.ts
-import { existsSync as existsSync9, readdirSync as readdirSync2, readFileSync as readFileSync9 } from "node:fs";
-import { dirname as dirname4, join as join10 } from "node:path";
+import { existsSync as existsSync9, readdirSync as readdirSync3, readFileSync as readFileSync10 } from "node:fs";
+import { dirname as dirname4, join as join11 } from "node:path";
 var DOCS = "docs/ONBOARDING.md";
 var GH_SIGN_IN = `"Do it" opens VSCode's GitHub sign-in: pick this repo's account, or add it, and gh gets that login, with access to GitHub Projects for the board. gh's active account stays as it was. In a terminal: gh auth login.`;
 var DATA_EXT = /\.(csv|xls|xlsx|eml)$/i;
@@ -1857,16 +1989,16 @@ function needsProject(ctx) {
   return null;
 }
 function nearbyRepo(cwd) {
-  const isRepo = (d) => existsSync9(join10(d, ".git"));
+  const isRepo = (d) => existsSync9(join11(d, ".git"));
   const parent = dirname4(cwd);
   let siblings = [];
   try {
-    siblings = readdirSync2(parent, { withFileTypes: true }).filter((e) => e.isDirectory() && !e.name.startsWith(".")).map((e) => join10(parent, e.name));
+    siblings = readdirSync3(parent, { withFileTypes: true }).filter((e) => e.isDirectory() && !e.name.startsWith(".")).map((e) => join11(parent, e.name));
   } catch {
     siblings = [];
   }
   const candidates = [...siblings.filter((d) => d !== cwd), parent].filter(isRepo);
-  return candidates.find((d) => existsSync9(join10(d, ".acc", "config.json"))) ?? candidates.find((d) => existsSync9(join10(d, "sfdx-project.json"))) ?? null;
+  return candidates.find((d) => existsSync9(join11(d, ".acc", "config.json"))) ?? candidates.find((d) => existsSync9(join11(d, "sfdx-project.json"))) ?? null;
 }
 function filesOnEnvironmentBranches(ctx) {
   return cached(ctx, "env-branch-files", () => {
@@ -1976,7 +2108,7 @@ var STEPS = [
       if (ctx.paths) return pass2(`Repo at ${ctx.paths.root}`);
       const near = nearbyRepo(ctx.cwd);
       if (near) return { status: "fail", detail: `This folder isn't a git repo. The project's repo looks like ${near}. Open that folder instead.`, open: near };
-      const sfdx = existsSync9(join10(ctx.cwd, "sfdx-project.json"));
+      const sfdx = existsSync9(join11(ctx.cwd, "sfdx-project.json"));
       return fail2(sfdx ? "This Salesforce folder isn't a git repo yet. Onboarding starts with the client's repo (guide steps B1 and B2)." : "This folder isn't a git repo. Open the project's repo folder.");
     }
   },
@@ -2296,7 +2428,7 @@ var STEPS = [
         const lines = text.replace(/\n$/, "").split("\n");
         if (lines.some((l) => l.trim() === "")) problems.push(`${rel} has a blank line. As a grep pattern, that matches everything.`);
         const paths = lines.filter((l) => l.trim() && !l.startsWith("#"));
-        const here = paths.filter((p) => !existsSync9(join10(ctx.paths.root, p)));
+        const here = paths.filter((p) => !existsSync9(join11(ctx.paths.root, p)));
         const elsewhere = here.length ? filesOnEnvironmentBranches(ctx) : /* @__PURE__ */ new Set();
         const gone = here.filter((p) => !elsewhere.has(p));
         if (gone.length) problems.push(`${rel} lists files that don't exist: ${gone.slice(0, 3).join(", ")}${gone.length > 3 ? " \u2026" : ""}.`);
@@ -2418,7 +2550,7 @@ var STEPS = [
       } catch {
       }
       const TOOLS = { format: "prettier", lint: "eslint", "lwc-tests": "sfdx-lwc-jest" };
-      const absent = config.profile !== "salesforce" ? [] : required.filter((n) => TOOLS[n] && !config.gates.commands[n] && !existsSync9(join10(main2, "node_modules", ".bin", TOOLS[n]))).map((n) => TOOLS[n]);
+      const absent = config.profile !== "salesforce" ? [] : required.filter((n) => TOOLS[n] && !config.gates.commands[n] && !existsSync9(join11(main2, "node_modules", ".bin", TOOLS[n]))).map((n) => TOOLS[n]);
       if (absent.length) return fail2(`Not installed in ${main2}: ${absent.join(", ")}.`, `cd "${main2}" && npm install`);
       return pass2(`Ready: ${required.join(", ")}.`);
     }
@@ -2460,7 +2592,7 @@ var STEPS = [
       const cmd = `acc drift ${env.branch}`;
       let report = null;
       try {
-        report = JSON.parse(readFileSync9(driftReportPath(ctx.paths, env.branch), "utf8"));
+        report = JSON.parse(readFileSync10(driftReportPath(ctx.paths, env.branch), "utf8"));
       } catch {
         report = null;
       }
@@ -2556,6 +2688,8 @@ Agents
   acc done [<id>]                       A builder's finish line: moves its task to review
   acc block [<id>] "<reason>"           A builder's way out when stuck
   acc cleanup <id>                      Remove a finished task's worktree, only if nothing would be lost
+  acc hook permission                   Claude Code's PermissionRequest hook: puts an agent's prompt in the
+                                        Command Center, when one is open, and waits for the answer
 
 GitHub
   acc github status                     Which account this repo works as, and whether gh and git push agree
@@ -2682,7 +2816,7 @@ function cmdInit(o) {
   return 0;
 }
 function readInput(file) {
-  const text = file ? readFileSync10(file, "utf8") : readFileSync10(0, "utf8");
+  const text = file ? readFileSync11(file, "utf8") : readFileSync11(0, "utf8");
   try {
     return JSON.parse(text);
   } catch (e) {
@@ -2725,12 +2859,46 @@ var accBinDir = () => {
     return dirname5(process.argv[1] ?? ".");
   }
 };
+var shellQuote = (s) => `'${s.replace(/'/g, `'\\''`)}'`;
+var accCommand = () => {
+  let script = process.argv[1] ?? "";
+  try {
+    script = realpathSync2(script);
+  } catch {
+  }
+  return `${process.versions.electron ? "ELECTRON_RUN_AS_NODE=1 " : ""}${shellQuote(process.execPath)} ${shellQuote(script)}`;
+};
+async function readStdin(limit = 4 * 1024 * 1024) {
+  const chunks = [];
+  let size = 0;
+  for await (const c of process.stdin) {
+    size += c.length;
+    if (size > limit) break;
+    chunks.push(c);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+async function cmdHookPermission() {
+  const stop = new AbortController();
+  for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) process.once(sig, () => stop.abort());
+  try {
+    const input = parseHookInput(await readStdin());
+    if (!input) return 0;
+    const r = await ask(input, { signal: stop.signal });
+    const output = r ? hookOutput(r.question, r.answer) : null;
+    if (output) process.stdout.write(JSON.stringify(output));
+  } catch (e) {
+    process.stderr.write(`acc hook permission: ${e.message}
+`);
+  }
+  return 0;
+}
 function cmdDispatch(o, id) {
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
   if (o.foreground && !o.json) process.stdout.write(`Starting ${id.toUpperCase()} in this terminal. Leave the session when it's done.
 `);
-  const r = dispatch(paths, config, id.toUpperCase(), { run, now, accBinDir: accBinDir(), env: process.env }, { actor, by, foreground: o.foreground === true });
+  const r = dispatch(paths, config, id.toUpperCase(), { run, now, accBinDir: accBinDir(), accCommand: accCommand(), env: process.env }, { actor, by, foreground: o.foreground === true });
   out(o, () => [
     `${r.task.id} \u2192 ${stateLabel("running")}`,
     `  worktree: ${r.worktree}${r.reused ? " (reused)" : ""}`,
@@ -2998,6 +3166,11 @@ async function main(argv) {
     }
     case "github":
       return cmdGithub(o, rest[0], rest[1]);
+    case "hook": {
+      if (rest[0] === "permission") return cmdHookPermission();
+      process.stderr.write("acc hook permission is the only hook.\n");
+      return 1;
+    }
     case "drift": {
       if (!rest[0]) throw new AccError("usage", "acc drift <environment>");
       return cmdDrift(o, rest[0]);

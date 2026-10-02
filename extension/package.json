@@ -2,7 +2,7 @@
   "name": "agent-command-center",
   "displayName": "Agent Command Center",
   "description": "Set up projects for parallel Claude Code agents, then run and watch them from VSCode.",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "publisher": "JackHuffman",
   "private": true,
   "license": "UNLICENSED",
@@ -155,6 +155,12 @@
         "icon": "$(add)"
       },
       {
+        "command": "acc.agent.watch",
+        "title": "Watch activity",
+        "category": "Agent Command Center",
+        "icon": "$(pulse)"
+      },
+      {
         "command": "acc.agent.attach",
         "title": "Attach",
         "category": "Agent Command Center",
@@ -280,6 +286,12 @@
         "icon": "$(terminal)"
       },
       {
+        "command": "acc.task.watch",
+        "title": "Watch its agent",
+        "category": "Agent Command Center",
+        "icon": "$(pulse)"
+      },
+      {
         "command": "acc.task.openWorktree",
         "title": "Open its worktree",
         "category": "Agent Command Center",
@@ -338,6 +350,12 @@
         "title": "Switch this repo's GitHub account",
         "category": "Agent Command Center",
         "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "acc.runs.show",
+        "title": "Show command output",
+        "category": "Agent Command Center",
+        "icon": "$(output)"
       }
     ],
     "menus": {
@@ -380,6 +398,10 @@
         },
         {
           "command": "acc.task.copyId",
+          "when": "false"
+        },
+        {
+          "command": "acc.agent.watch",
           "when": "false"
         },
         {
@@ -449,47 +471,51 @@
         {
           "command": "acc.task.cleanup",
           "when": "false"
+        },
+        {
+          "command": "acc.task.watch",
+          "when": "false"
         }
       ],
       "webview/context": [
         {
+          "command": "acc.agent.watch",
+          "when": "webviewId == 'acc.home' && webviewSection == 'agent'",
+          "group": "1_use@0"
+        },
+        {
           "command": "acc.agent.attach",
-          "when": "webviewId == 'acc.agents' && webviewSection == 'agent' && agentBackground",
+          "when": "webviewId == 'acc.home' && webviewSection == 'agent' && agentBackground",
           "group": "1_use@1"
         },
         {
-          "command": "acc.agent.logs",
-          "when": "webviewId == 'acc.agents' && webviewSection == 'agent' && agentBackground",
-          "group": "1_use@2"
-        },
-        {
           "command": "acc.agent.openFolder",
-          "when": "webviewId == 'acc.agents' && webviewSection == 'agent'",
+          "when": "webviewId == 'acc.home' && webviewSection == 'agent'",
           "group": "2_open@1"
         },
         {
           "command": "acc.agent.stop",
-          "when": "webviewId == 'acc.agents' && webviewSection == 'agent' && agentBackground",
+          "when": "webviewId == 'acc.home' && webviewSection == 'agent' && agentBackground",
           "group": "3_stop@1"
         },
         {
           "command": "acc.worktree.open",
-          "when": "webviewId == 'acc.worktrees' && webviewSection == 'worktree'",
+          "when": "webviewId == 'acc.home' && webviewSection == 'worktree'",
           "group": "1_open@1"
         },
         {
           "command": "acc.worktree.terminal",
-          "when": "webviewId == 'acc.worktrees' && webviewSection == 'worktree'",
+          "when": "webviewId == 'acc.home' && webviewSection == 'worktree'",
           "group": "1_open@2"
         },
         {
           "command": "acc.worktree.reveal",
-          "when": "webviewId == 'acc.worktrees' && webviewSection == 'worktree'",
+          "when": "webviewId == 'acc.home' && webviewSection == 'worktree'",
           "group": "1_open@3"
         },
         {
           "command": "acc.worktree.remove",
-          "when": "webviewId == 'acc.worktrees' && webviewSection == 'worktree' && worktreeLinked",
+          "when": "webviewId == 'acc.home' && webviewSection == 'worktree' && worktreeLinked",
           "group": "9_remove@1"
         }
       ],

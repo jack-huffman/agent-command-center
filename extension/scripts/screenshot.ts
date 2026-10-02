@@ -2,7 +2,7 @@
  * Renders the editor tabs in headless Chrome with sample data, so a layout change gets looked at before
  * it ships. Tests can't see a broken table; a screenshot can.
  *
- *   npm run screenshot                       every tab, dark and light, at 1000, 620 and 480 px
+ *   npm run screenshot                       every tab, dark and light, at 1000, 620 and 500 px
  *   npm run screenshot -- agents worktrees   just these tabs
  *   npm run screenshot -- --width 800 --theme dark --height 600 --out /tmp/shots
  *
@@ -16,13 +16,17 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { HOME_SECTIONS, homeModel, type HomeSection, type Model } from '../src/model.ts';
-import { sampleBoards, sampleHub, sampleIdentity, sampleSetup, sampleTicket } from './fixtures.ts';
+import { sampleAgent, sampleBoards, sampleHub, sampleIdentity, sampleRuns, sampleSetup, sampleTicket } from './fixtures.ts';
 
-/** Every page the screenshot script can draw: each section of the Command Center, and a ticket's page. */
-export const PAGES = [...HOME_SECTIONS, 'ticket'] as const;
+/**
+ * Every page the screenshot script can draw: each section of the Command Center, a ticket's page, an
+ * agent's page, and Setup with the output panel open on a command that's asking something.
+ */
+export const PAGES = [...HOME_SECTIONS, 'ticket', 'agent', 'output'] as const;
 export type Page = (typeof PAGES)[number];
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');
+export const MIN_WIDTH = 500;
 
 /** Close to VSCode's Dark Modern and Light Modern themes: every --vscode-* variable styles.css reads. */
 export const THEMES = {
@@ -35,7 +39,7 @@ export const THEMES = {
     'button-secondaryBackground': '#313131', 'button-secondaryForeground': '#cccccc', 'button-secondaryHoverBackground': '#3c3c3c',
     'badge-background': '#616161', 'badge-foreground': '#f8f8f8', 'textLink-foreground': '#4daafc', 'textCodeBlock-background': '#2b2b2b',
     'progressBar-background': '#0078d4', 'charts-orange': '#d18616', 'charts-blue': '#3794ff',
-    'input-background': '#313131', 'input-foreground': '#cccccc', 'input-border': '#3c3c3c',
+    'input-background': '#313131', 'input-foreground': '#cccccc', 'input-border': '#3c3c3c', 'input-placeholderForeground': '#989898',
     'list-activeSelectionBackground': '#04395e', 'list-activeSelectionForeground': '#ffffff',
   },
   light: {
@@ -47,7 +51,7 @@ export const THEMES = {
     'button-secondaryBackground': '#e5e5e5', 'button-secondaryForeground': '#3b3b3b', 'button-secondaryHoverBackground': '#cccccc',
     'badge-background': '#cccccc', 'badge-foreground': '#3b3b3b', 'textLink-foreground': '#005fb8', 'textCodeBlock-background': '#f2f2f2',
     'progressBar-background': '#005fb8', 'charts-orange': '#d18616', 'charts-blue': '#1a85ff',
-    'input-background': '#ffffff', 'input-foreground': '#3b3b3b', 'input-border': '#cecece',
+    'input-background': '#ffffff', 'input-foreground': '#3b3b3b', 'input-border': '#cecece', 'input-placeholderForeground': '#767676',
     'list-activeSelectionBackground': '#e4e6f1', 'list-activeSelectionForeground': '#000000',
   },
 } satisfies Record<string, Record<string, string>>;
@@ -55,9 +59,15 @@ export type Theme = keyof typeof THEMES;
 
 export function sampleModel(kind: Page, now = Date.now()): Model {
   if (kind === 'ticket') return sampleTicket(now);
+  if (kind === 'agent') return sampleAgent(now);
   const hub = sampleHub(now);
-  return homeModel({ hub, section: kind as HomeSection, boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup() });
+  const section = (kind === 'output' ? 'setup' : kind) as HomeSection;
+  return homeModel({ hub, section, boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: sampleRuns(now) });
 }
+
+/** What the page remembers when it opens: the output page starts with the panel open. */
+const startState = (kind: Page): unknown => (kind === 'output' ? { dock: { open: true, run: 'r-login' } } : undefined);
+const viewOf = (kind: Page): string => (kind === 'ticket' || kind === 'agent' ? kind : 'home');
 
 /**
  * A page that loads the built webview the way VSCode does: a stub API answers `ready` with the model.
@@ -83,11 +93,11 @@ function forceHover() {
 }
 window.acquireVsCodeApi = () => ({
   postMessage(m) { if (m.type === 'ready') setTimeout(() => { window.postMessage({ type: 'state', model: MODEL }, '*'); setTimeout(forceHover, 50); }); },
-  getState() {}, setState() {},
+  getState() { return ${JSON.stringify(startState(kind)) ?? 'undefined'}; }, setState() {},
 });
 </script>
 </head>
-<body class="vscode-${theme}" data-view="${kind === 'ticket' ? 'ticket' : 'home'}" data-logo-dark="webview/acc-dark.svg" data-logo-light="webview/acc-light.svg"><main id="app"></main><script src="webview/main.js"></script></body></html>
+<body class="vscode-${theme}" data-view="${viewOf(kind)}" data-logo-dark="webview/acc-dark.svg" data-logo-light="webview/acc-light.svg"><main id="app"></main><script src="webview/main.js"></script></body></html>
 `;
 }
 
@@ -120,7 +130,7 @@ function staleBuild(): string | null {
 function main(argv: string[]): number {
   const { values, positionals } = parseArgs({
     args: argv, allowPositionals: true,
-    options: { width: { type: 'string', default: '1000,620,480' }, theme: { type: 'string', default: 'dark,light' }, height: { type: 'string', default: '900' }, out: { type: 'string' } },
+    options: { width: { type: 'string', default: '1000,620,500' }, theme: { type: 'string', default: 'dark,light' }, height: { type: 'string', default: '900' }, out: { type: 'string' } },
   });
   const views = positionals.length ? positionals : [...PAGES];
   const bad = views.filter((v) => !(PAGES as readonly string[]).includes(v));
@@ -130,6 +140,9 @@ function main(argv: string[]): number {
   const widths = values.width.split(',').map(Number);
   const height = Number(values.height);
   if ([...widths, height].some((n) => !Number.isInteger(n) || n < 200)) return fail('Widths and height are whole pixels, 200 or more.');
+  // Chrome won't make a window narrower than 500 px: it lays the page out at 500 and crops the shot,
+  // which looks like the page overflowing when it doesn't.
+  if (widths.some((n) => n < MIN_WIDTH)) return fail(`Chrome lays out no narrower than ${MIN_WIDTH} px, so a narrower shot would be cropped, not narrow. Use ${MIN_WIDTH} or more.`);
   const stale = staleBuild();
   if (stale) return fail(`Run \`npm run build\` first: ${stale}.`);
   const chrome = findChrome();

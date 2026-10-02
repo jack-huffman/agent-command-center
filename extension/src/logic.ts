@@ -204,6 +204,8 @@ export interface TaskRow {
   run?: { bgId?: string; sessionId?: string; worktree?: string; branch?: string } | null;
   /** The live state of the task's agent session, when one is known. */
   agent?: { label: string; icon: string; tone: Tone } | null;
+  /** Its agent's question is waiting in the Command Center (D-030), not in the agent's own terminal. */
+  asking?: boolean;
 }
 
 /** A task's agent: its background id or session id, or a background session named after the task. */
@@ -239,7 +241,12 @@ export interface AgentLook {
   needsYou: boolean;
 }
 
-export function agentLook(s: AgentSession): AgentLook {
+/** What an agent's waiting question asks for, in a few words, from the tool it's about (D-030). */
+export const askingLabel = (tool: string): string => (tool === 'AskUserQuestion' ? 'has a question' : tool === 'ExitPlanMode' ? 'has a plan to approve' : 'wants permission');
+
+/** `asking` is what a question waiting in the Command Center asks for; the session reads as busy meanwhile. */
+export function agentLook(s: AgentSession, asking?: string | null): AgentLook {
+  if (asking) return { label: `Needs you: ${asking}`, icon: 'bell', tone: 'orange', needsYou: true };
   if (s.state === 'blocked' || s.status === 'waiting') return { label: s.waitingFor ? `Needs you: ${s.waitingFor}` : 'Needs you', icon: 'bell', tone: 'orange', needsYou: true };
   if (s.state === 'failed') return { label: 'Failed', icon: 'warning', tone: 'orange', needsYou: true };
   if (s.state === 'working' || s.status === 'busy') return { label: 'Working', icon: 'sync~spin', tone: 'blue', needsYou: false };
@@ -332,3 +339,46 @@ export function activeGhAccount(status: string): string | null {
 
 /** Quotes one word for a POSIX shell, so an org alias with spaces stays one argument. */
 export const shq = (s: string): string => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`);
+
+// ---------------------------------------------------------------- runs: commands acc runs for you (D-030)
+
+/** Colour codes and other terminal controls, which a log shown as text doesn't want. */
+const CONTROL = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(\x07|\x1b\\)|\x1b[@-Z\\-_]/g;
+
+/**
+ * Adds a chunk of output to a log of lines, as a terminal would show it: a carriage return redraws the
+ * current line (progress bars), colour codes are dropped, and only the last `keep` lines are kept.
+ * The last element is the line still being written.
+ */
+export function appendOutput(lines: string[], chunk: string, keep = 2000): string[] {
+  const out = lines.length ? [...lines] : [''];
+  for (const part of chunk.replace(CONTROL, '').replace(/\r\n/g, '\n').split(/(\n|\r)/)) {
+    if (part === '\n') out.push('');
+    else if (part === '\r') out[out.length - 1] = '';
+    else if (part) out[out.length - 1] += part;
+  }
+  return out.length > keep ? out.slice(out.length - keep) : out;
+}
+
+export interface RunPrompt {
+  /** yesno: answer with Yes or No. secret: a password, which a pipe can't take. text: anything else. */
+  kind: 'yesno' | 'secret' | 'text';
+  text: string;
+}
+
+/**
+ * Whether a command that has gone quiet is waiting for an answer, from its last, unfinished line:
+ * "Continue? [Y/n]", "Password:", "Enter a name:". Null when it's just busy.
+ */
+export function promptOf(partial: string): RunPrompt | null {
+  const line = partial.trim();
+  if (!line || line.length > 300) return null;
+  if (/password|passphrase|passcode/i.test(line) && /[:?]\s*$/.test(line)) return { kind: 'secret', text: line };
+  if (/(\(|\[)\s*y(es)?\s*\/\s*n(o)?\s*(\)|\])|\by\/n\b|yes\/no/i.test(line)) return { kind: 'yesno', text: line };
+  if (/(press (enter|return|any key))/i.test(line)) return { kind: 'text', text: line };
+  if (/[?:>]\s*$/.test(line) && !/^(https?:\/\/|\w:\\)/.test(line)) return { kind: 'text', text: line };
+  return null;
+}
+
+/** Commands that need a real terminal: they read the keyboard directly, or talk to you in their own screen. */
+export const needsTerminal = (command: string): boolean => /^\s*(claude(\s*$|\s+(?!update\b)[^-])|claude\s*#|sudo\b|ssh\b|vi\b|vim\b|nano\b|gh auth login\b|.*\|\s*less\b)/.test(command) || hasPlaceholder(command);

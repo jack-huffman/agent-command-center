@@ -5,11 +5,22 @@ import { run as runSync } from '../../packages/core/src/exec.ts';
 import { repoPaths } from '../../packages/core/src/paths.ts';
 import { receiptHooks } from '../../packages/core/src/receipts.ts';
 import type { Hub, Project } from './hub.ts';
-import { agentName, githubBranchUrl } from './logic.ts';
+import { type AgentSession, agentName, githubBranchUrl, sessionFor } from './logic.ts';
+import { sessionKey } from './model.ts';
 import { type RunResult, runFile } from './run.ts';
 import type { AgentNode, EnvNode, TaskNode, WorktreeNode } from './nodes.ts';
 
 type Acc = (args: string[], cwd: string, token?: vscode.CancellationToken) => Promise<RunResult>;
+
+/** What the sidebar's actions can use from the rest of the extension (D-030). */
+export interface SidebarHelpers {
+  /** Runs a command with its output in the page, instead of a terminal. */
+  run?: (command: string, cwd: string, label: string) => void;
+  /** Opens a session's activity page. A session that has ended needs the hint to find its transcript. */
+  watch?: (key: string, ended?: AgentSession) => boolean;
+  /** --settings for a background agent started here, so its questions come to the page. */
+  sessionSettings?: string;
+}
 
 /** The sidebar's actions. Task changes always go through acc, so the rules live in one place (D-012). */
 export class Sidebar {
@@ -19,12 +30,14 @@ export class Sidebar {
   private readonly terminals = new Map<string, vscode.Terminal>();
   /** Opens a task's page (D-026). Without it, Details falls back to a plain document. */
   private readonly openTicket: ((root: string, key: string) => void) | null;
+  private readonly helpers: SidebarHelpers;
 
-  constructor(hub: Hub, acc: Acc, log: vscode.LogOutputChannel, openTicket: ((root: string, key: string) => void) | null = null) {
+  constructor(hub: Hub, acc: Acc, log: vscode.LogOutputChannel, openTicket: ((root: string, key: string) => void) | null = null, helpers: SidebarHelpers = {}) {
     this.hub = hub;
     this.acc = acc;
     this.log = log;
     this.openTicket = openTicket;
+    this.helpers = helpers;
   }
 
   register(reg: (id: string, fn: (...args: any[]) => unknown) => void): void {
@@ -45,13 +58,16 @@ export class Sidebar {
     reg('acc.task.copyId', (n: TaskNode) => n.kind === 'task' && vscode.env.clipboard.writeText(n.task.id));
     reg('acc.tasks.refresh', () => this.hub.loadTasks(true));
     reg('acc.task.dispatch', (n: TaskNode) => this.dispatchTask(n));
+    reg('acc.task.watch', (n: TaskNode) => this.watchTask(n));
     reg('acc.task.attach', (n: TaskNode) => n.kind === 'task' && n.task.run?.bgId && this.send(n.task.run.worktree ?? n.project.root, `claude attach ${n.task.run.bgId}`, `claude: ${n.task.id}`));
     reg('acc.task.openWorktree', (n: TaskNode) => n.kind === 'task' && n.task.run?.worktree && vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(n.task.run.worktree), { forceNewWindow: true }));
     reg('acc.task.abandon', (n: TaskNode) => this.abandonTask(n));
     reg('acc.task.cleanup', (n: TaskNode) => this.cleanupTask(n));
     reg('acc.agent.new', (n?: AgentNode) => this.newAgent(n));
+    reg('acc.agent.watch', (n: AgentNode) => this.watchAgent(n));
     reg('acc.agent.attach', (n: AgentNode) => this.agentTerminal(n, 'attach'));
-    reg('acc.agent.logs', (n: AgentNode) => this.agentTerminal(n, 'logs'));
+    // Logs are the activity page now; the terminal is the fallback when there's no page to show.
+    reg('acc.agent.logs', (n: AgentNode) => (n?.kind === 'agent' && this.helpers.watch?.(sessionKey(n.session))) || this.agentTerminal(n, 'logs'));
     reg('acc.agent.stop', (n: AgentNode) => this.stopAgent(n));
     reg('acc.agent.openFolder', (n: AgentNode) => n.kind === 'agent' && vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(n.session.cwd), { forceNewWindow: true }));
     reg('acc.agents.refresh', () => this.hub.loadAgents());
@@ -60,7 +76,7 @@ export class Sidebar {
     reg('acc.worktree.reveal', (n: WorktreeNode) => n.kind === 'worktree' && vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(n.worktree.path)));
     reg('acc.worktree.remove', (n: WorktreeNode) => this.removeWorktree(n));
     reg('acc.worktrees.refresh', () => this.hub.loadWorktrees());
-    reg('acc.env.openOrg', (n: EnvNode) => n.kind === 'env' && n.env.org && this.send(n.project.root, `sf org open -o "${n.env.org}"`));
+    reg('acc.env.openOrg', (n: EnvNode) => n.kind === 'env' && n.env.org && this.output(n.project.root, `sf org open -o "${n.env.org}"`, `Open ${n.env.name}`));
     reg('acc.env.openGithub', (n: EnvNode) => n.kind === 'env' && n.project.config.github && vscode.env.openExternal(vscode.Uri.parse(githubBranchUrl(n.project.config.github.repo, n.env.branch))));
     reg('acc.env.compare', (n: EnvNode) => this.compare(n));
     reg('acc.env.copyBranch', (n: EnvNode) => n.kind === 'env' && vscode.env.clipboard.writeText(n.env.branch));
@@ -80,6 +96,12 @@ export class Sidebar {
     const created = vscode.window.createTerminal({ name, cwd, iconPath: new vscode.ThemeIcon('hubot') });
     this.terminals.set(name, created);
     return created;
+  }
+
+  /** A command whose output is worth reading but needs no keyboard: in the page when it can be. */
+  private output(cwd: string, command: string, label: string): void {
+    if (this.helpers.run) this.helpers.run(command, cwd, label);
+    else this.send(cwd, command);
   }
 
   private send(cwd: string, command: string, name = 'acc'): void {
@@ -198,7 +220,8 @@ export class Sidebar {
     const where = r.worktree ? basename(r.worktree) : 'its worktree';
     const pick = await vscode.window.showInformationMessage(
       `${task.id} is running: an agent is working in ${where}${r.reused ? ' (reused)' : ''}. It will finish with acc done, or block if it needs you.`,
-      ...(r.bgId ? ['Attach'] : []), 'Open worktree');
+      ...(r.bgId ? ['Watch', 'Attach'] : []), 'Open worktree');
+    if (pick === 'Watch' && r.bgId && !this.helpers.watch?.(r.bgId)) this.send(r.worktree ?? project.root, `claude attach ${r.bgId}`, `claude: ${task.id}`);
     if (pick === 'Attach' && r.bgId) this.send(r.worktree ?? project.root, `claude attach ${r.bgId}`, `claude: ${task.id}`);
     if (pick === 'Open worktree' && r.worktree) await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(r.worktree), { forceNewWindow: true });
   }
@@ -245,14 +268,34 @@ export class Sidebar {
     if (!prompt) return;
     const name = await vscode.window.showInputBox({ title: 'Session name', value: agentName(prompt), validateInput: (v) => (/^[\w.-]+$/.test(v) ? undefined : 'Letters, digits, dots, dashes and underscores only.') });
     if (!name) return;
-    const r = await runFile('claude', ['--bg', '--name', name, prompt.trim()], cwd, process.env, undefined, 60_000);
+    const settings = this.helpers.sessionSettings ? ['--settings', this.helpers.sessionSettings] : [];
+    const r = await runFile('claude', ['--bg', '--name', name, ...settings, prompt.trim()], cwd, process.env, undefined, 60_000);
     if (r.code !== 0) return void vscode.window.showWarningMessage(`Claude Code didn't start the agent: ${(r.stderr || r.stdout).trim().split('\n')[0]}`);
     this.log.info(`Started background agent ${name} in ${cwd}: ${r.stdout.trim()}`);
     await this.hub.loadAgents();
     // Attach by the short id claude agents reports, not by name.
     const started = this.hub.agents.find((s) => s.name === name && s.id);
-    const pick = await vscode.window.showInformationMessage(`Started ${name}. It shows in Agents as it works.`, ...(started ? ['Attach'] : []));
-    if (pick && started?.id) this.send(cwd, `claude attach ${started.id}`, `claude: ${name}`);
+    const pick = await vscode.window.showInformationMessage(`Started ${name}. It shows in Agents as it works, and asks you here if it needs anything.`, ...(started ? ['Watch', 'Attach'] : []));
+    if (pick === 'Watch' && started) this.helpers.watch?.(sessionKey(started));
+    if (pick === 'Attach' && started?.id) this.send(cwd, `claude attach ${started.id}`, `claude: ${name}`);
+  }
+
+  private watchAgent(n: AgentNode): void {
+    if (n?.kind !== 'agent') return;
+    if (!this.helpers.watch?.(sessionKey(n.session))) this.agentTerminal(n, 'logs');
+  }
+
+  /** A task's agent: its activity page, found by the session the task records. */
+  private watchTask(n: TaskNode): void {
+    if (n?.kind !== 'task') return;
+    const session = sessionFor(n.task, this.hub.agents);
+    if (session && this.helpers.watch?.(sessionKey(session))) return;
+    // Its session has ended: its transcript still says what it did.
+    const run = n.task.run;
+    const startedAt = Date.parse(this.hub.ledger(n.project.root)?.tasks.find((t) => t.id === n.task.id)?.run?.startedAt ?? '') || Date.now();
+    if (run?.sessionId && run.worktree && this.helpers.watch?.(run.sessionId, { cwd: run.worktree, kind: 'background', startedAt, sessionId: run.sessionId, name: n.task.id })) return;
+    void vscode.window.showInformationMessage(`${n.task.id} has no agent session to show.`, ...(n.task.run?.worktree ? ['Open worktree'] : []))
+      .then((p) => p && n.task.run?.worktree && vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(n.task.run.worktree), { forceNewWindow: true }));
   }
 
   private agentTerminal(n: AgentNode, verb: 'attach' | 'logs'): void {
@@ -298,6 +341,6 @@ export class Sidebar {
     const prod = n.project.config.environments.find((e) => e.type === 'production' || e.protected);
     const base = prod && prod.branch !== n.env.branch ? prod.branch : n.project.config.environments.find((e) => e.default && e.branch !== n.env.branch)?.branch;
     if (!base) return void vscode.window.showInformationMessage('There\'s no other environment to compare with.');
-    this.send(n.project.root, `git diff --no-renames --stat ${base}...${n.env.branch}`);
+    this.output(n.project.root, `git diff --no-renames --stat ${base}...${n.env.branch}`, `Compare ${n.env.branch} with ${base}`);
   }
 }

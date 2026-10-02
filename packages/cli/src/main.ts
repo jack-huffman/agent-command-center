@@ -5,7 +5,7 @@ import { parseArgs } from 'node:util';
 import {
   ACTORS, AccError, type Actor, type ApexTest, configureRepoAccess, displayState, drift, gatesFor, gateTarget, isReady, loadConfig, makeContext, moveTask, mutate,
   cleanup, dispatch, githubIdentity, githubIssuesToTasks, planInit, useGithubAccount, withCloneAccount, type Profile, readLedger, receiptsAt, STEPS, receiptHooks, repoPaths, run, runGates, runSteps, satisfies, type State, type StepResult, type TaskInput,
-  upsertTasks, writeConfig,
+  upsertTasks, writeConfig, ask, hookOutput, parseHookInput,
 } from '../../core/src/index.ts';
 import { checkLabel, gateLabel, stateLabel, table, tone } from './format.ts';
 
@@ -37,6 +37,8 @@ Agents
   acc done [<id>]                       A builder's finish line: moves its task to review
   acc block [<id>] "<reason>"           A builder's way out when stuck
   acc cleanup <id>                      Remove a finished task's worktree, only if nothing would be lost
+  acc hook permission                   Claude Code's PermissionRequest hook: puts an agent's prompt in the
+                                        Command Center, when one is open, and waits for the answer
 
 GitHub
   acc github status                     Which account this repo works as, and whether gh and git push agree
@@ -218,11 +220,54 @@ const accBinDir = (): string => {
   }
 };
 
+const shellQuote = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
+
+/** How a shell runs this same acc: by this runtime, so it works where node isn't on PATH (VSCode's own). */
+const accCommand = (): string => {
+  let script = process.argv[1] ?? '';
+  try {
+    script = realpathSync(script);
+  } catch {
+    // keep the path as given
+  }
+  return `${process.versions.electron ? 'ELECTRON_RUN_AS_NODE=1 ' : ''}${shellQuote(process.execPath)} ${shellQuote(script)}`;
+};
+
+async function readStdin(limit = 4 * 1024 * 1024): Promise<string> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const c of process.stdin) {
+    size += (c as Buffer).length;
+    if (size > limit) break;
+    chunks.push(c as Buffer);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+/**
+ * The PermissionRequest hook (D-030). It never blocks a tool by failing: on anything unexpected it prints
+ * nothing and exits 0, so Claude Code asks in its own prompt as usual.
+ */
+async function cmdHookPermission(): Promise<number> {
+  const stop = new AbortController();
+  for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) process.once(sig, () => stop.abort());
+  try {
+    const input = parseHookInput(await readStdin());
+    if (!input) return 0;
+    const r = await ask(input, { signal: stop.signal });
+    const output = r ? hookOutput(r.question, r.answer) : null;
+    if (output) process.stdout.write(JSON.stringify(output));
+  } catch (e) {
+    process.stderr.write(`acc hook permission: ${(e as Error).message}\n`);
+  }
+  return 0;
+}
+
 function cmdDispatch(o: Opts, id: string): number {
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
   if (o.foreground && !o.json) process.stdout.write(`Starting ${id.toUpperCase()} in this terminal. Leave the session when it's done.\n`);
-  const r = dispatch(paths, config, id.toUpperCase(), { run, now, accBinDir: accBinDir(), env: process.env }, { actor, by, foreground: o.foreground === true });
+  const r = dispatch(paths, config, id.toUpperCase(), { run, now, accBinDir: accBinDir(), accCommand: accCommand(), env: process.env }, { actor, by, foreground: o.foreground === true });
   out(o, () => [
     `${r.task.id} → ${stateLabel('running')}`,
     `  worktree: ${r.worktree}${r.reused ? ' (reused)' : ''}`,
@@ -480,6 +525,12 @@ export async function main(argv: string[]): Promise<number> {
       throw new AccError('usage', 'acc gate run [<gate>...] | acc gate list');
     }
     case 'github': return cmdGithub(o, rest[0], rest[1]);
+    case 'hook': {
+      if (rest[0] === 'permission') return cmdHookPermission();
+      // Exit 1, never 2: for a hook, 2 would block the tool.
+      process.stderr.write('acc hook permission is the only hook.\n');
+      return 1;
+    }
     case 'drift': {
       if (!rest[0]) throw new AccError('usage', 'acc drift <environment>');
       return cmdDrift(o, rest[0]);

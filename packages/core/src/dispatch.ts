@@ -6,6 +6,7 @@ import { type Config, type Environment, environmentByBranch } from './config.ts'
 import { AccError, type Runner } from './exec.ts';
 import { type Actor, applyMove, checkMove, mutate, noGateHooks, readLedger, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
+import { permissionHook } from './questions.ts';
 
 // ---------------------------------------------------------------- names and places (D-013)
 
@@ -169,7 +170,7 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean }): stri
  * Settings for the builder session: who it is, acc on its PATH, routine commands allowed, and the
  * dangerous ones denied. Deny beats allow, so this holds even when the user's own settings allow them.
  */
-export function builderSettings(task: Task, config: Config, accBinDir: string, basePath: string): Record<string, unknown> {
+export function builderSettings(task: Task, config: Config, accBinDir: string, basePath: string, accCommand?: string): Record<string, unknown> {
   const sf = config.profile === 'salesforce';
   const allow = [
     'Bash(acc done*)', 'Bash(acc block *)', 'Bash(acc show *)', 'Bash(acc gate run)', 'Bash(acc gate run *)', 'Bash(acc gate list*)',
@@ -185,6 +186,8 @@ export function builderSettings(task: Task, config: Config, accBinDir: string, b
   return {
     env: { ACC_TASK: task.id, ACC_ROLE: 'builder', PATH: `${accBinDir}:${basePath}` },
     permissions: { allow, deny },
+    // Its permission prompts and questions go to the Command Center when one is open (D-030).
+    ...(accCommand ? { hooks: permissionHook(accCommand) } : {}),
   };
 }
 
@@ -196,6 +199,8 @@ export interface DispatchDeps {
   /** The folder holding the acc executable, put on the builder's PATH. */
   accBinDir: string;
   env: NodeJS.ProcessEnv;
+  /** How a shell runs this acc, for the builder's hooks. Without it, the builder asks in its own prompt. */
+  accCommand?: string;
   /** For tests: how long to look for the new session in `claude agents --json`. */
   findSessionMs?: number;
 }
@@ -323,7 +328,7 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
   const packetPath = join(paths.packets, `${found.id}.md`);
   writeFileSync(packetPath, packet);
 
-  const settings = JSON.stringify(builderSettings(found, config, deps.accBinDir, deps.env.PATH ?? ''));
+  const settings = JSON.stringify(builderSettings(found, config, deps.accBinDir, deps.env.PATH ?? '', deps.accCommand));
   const prompt = `Read your task instructions below and do the task.\n\n${packet}`;
   const base = ['--name', found.id, '--permission-mode', config.agents.permissionMode, '--settings', settings];
 

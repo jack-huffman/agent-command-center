@@ -54,6 +54,7 @@ Claude Code supplies the agent runtime, and none of it is rebuilt here:
 | `<git-common-dir>/acc/packets/<task>.md` | no | The rendered instructions each builder got |
 | `<git-common-dir>/acc/logs/` | no | Full check output |
 | `~/.acc/` | n/a | Machine-wide: list of managed repos, the heavy-check semaphore |
+| `~/.acc/questions/` | n/a | Agents' questions waiting for the Command Center, and which windows are listening (D-030) |
 
 **Why the git common directory (D-008).** `git rev-parse --git-common-dir`
 gives the same directory from the main checkout and from every worktree, so
@@ -239,7 +240,9 @@ Intake is idempotent, keyed by tracker key, and it never changes the tracker.
    `claude --bg --name <id> --permission-mode <mode> --settings <json> "<packet>"`.
    The packet's first instruction is to call EnterWorktree on the task's worktree.
    The settings JSON sets `ACC_TASK` and `ACC_ROLE=builder` in the session's
-   environment, plus an allowlist of routine commands.
+   environment, plus an allowlist of routine commands, and a PermissionRequest
+   hook that sends the builder's prompts and questions to the Command Center
+   (D-030).
 6. **Records the run.** It stores the background id and session id, and moves
    the task to `running`.
 
@@ -515,6 +518,24 @@ The page is a webview under a nonce content security policy. It renders text
 only and accepts only allow-listed `acc.*` commands. Ticket pages stay their
 own tabs, since each is a document.
 
+### Questions, activity and output (D-030)
+
+- **Questions.** `acc hook permission`, the PermissionRequest hook acc gives
+  the sessions it starts, leaves each permission prompt and AskUserQuestion in
+  `~/.acc/questions/` and waits.
+  - The Overview shows it first under **Needs you**, as a card with Allow,
+    "don't ask again this session" and Deny, or the question's options. A
+    notification offers the same.
+  - The hook waits only while a window listens for the agent's folder. With
+    none, the window closed, or **In the terminal** chosen, Claude Code asks in
+    its own prompt as usual.
+- **Activity.** **Watch** opens an agent's own tab: its timeline from the
+  session transcript, live while it works, with the waiting question at the
+  top. Long results fold; failures say so in words.
+- **Output.** Commands acc runs for you stream into a panel at the bottom of
+  the page, which asks for them when they prompt. Only commands that need a
+  keyboard of their own open a terminal.
+
 ### Walkthrough
 
 The extension's first feature is a guided setup, built on VSCode's walkthroughs
@@ -578,6 +599,9 @@ list. The walkthrough, the CLI and the docs can't drift apart.
 - Credentials never enter a repo: `GH_TOKEN` is passed per call, and the org
   logins stay in the `sf` keychain.
 - Hooks do nothing in repos that haven't opted in.
+- An agent's question is answered only from this machine's own windows, through
+  files only you can read. With no window open, Claude Code asks as it always
+  did, and a hook can never block a tool by failing.
 - A cap on agents, plus a one-at-a-time semaphore for heavy checks.
 
 ## 16. Prerequisites

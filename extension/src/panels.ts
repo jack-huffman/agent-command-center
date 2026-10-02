@@ -1,14 +1,15 @@
 import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
+import type { Answer } from '../../packages/core/src/questions.ts';
 import type { Hub } from './hub.ts';
-import { type BoardInput, HOME_SECTIONS, type HomeSection, homeModel, type IdentityCard, isFromWebview, type Ref, type ViewKind } from './model.ts';
+import { answerOf, type BoardInput, HOME_SECTIONS, type HomeSection, homeModel, type IdentityCard, isFromWebview, type Ref, type RunControl, type RunInput, runCard, type ViewKind } from './model.ts';
 import type { Setup } from './setup.ts';
 
 /** Commands the page may ask for. Anything else from a webview is ignored. */
 const ALLOWED = new Set([
   'acc.task.dispatch', 'acc.task.attach', 'acc.task.openWorktree', 'acc.task.abandon', 'acc.task.cleanup',
   'acc.task.add', 'acc.task.importGithub', 'acc.task.importJira', 'acc.task.show', 'acc.task.move', 'acc.task.block', 'acc.task.unblock', 'acc.task.openTicket',
-  'acc.agent.new', 'acc.agent.attach', 'acc.agent.logs', 'acc.agent.stop', 'acc.agent.openFolder',
+  'acc.agent.new', 'acc.agent.attach', 'acc.agent.logs', 'acc.agent.stop', 'acc.agent.openFolder', 'acc.agent.watch', 'acc.task.watch',
   'acc.worktree.open', 'acc.worktree.terminal', 'acc.worktree.reveal', 'acc.worktree.remove',
   'acc.env.openOrg', 'acc.env.openGithub', 'acc.env.compare',
   'acc.step.check', 'acc.step.fix', 'acc.step.openSetup', 'acc.step.confirm', 'acc.openGuide', 'acc.openProjectWalkthrough',
@@ -21,6 +22,11 @@ export interface BoardDeps {
   identity(root: string): IdentityCard | null;
   openTicket(project: string, tracker: number | null, key: string): void;
   move(project: string, tracker: number, key: string, to: string): Promise<void>;
+  /** Agents' questions (D-030) and the commands acc is running. */
+  answer(id: string, a: Answer): void;
+  runs(): RunInput[];
+  runInput(id: string, text: string): void;
+  runControl(id: string, action: RunControl): void;
 }
 
 export const isWebLink = (url: string): boolean => /^(https?:|mailto:)/i.test(url);
@@ -35,7 +41,7 @@ const REFRESH: Record<HomeSection, string[]> = {
   setup: ['acc.setup.refresh'],
 };
 
-export function htmlFor(webview: Pick<vscode.Webview, 'cspSource' | 'asWebviewUri'>, base: vscode.Uri, kind: 'home' | 'ticket', nonce: string, title = kind === 'ticket' ? 'Ticket' : 'Command Center'): string {
+export function htmlFor(webview: Pick<vscode.Webview, 'cspSource' | 'asWebviewUri'>, base: vscode.Uri, kind: 'home' | 'ticket' | 'agent', nonce: string, title = kind === 'ticket' ? 'Ticket' : kind === 'agent' ? 'Agent' : 'Command Center'): string {
   const res = (p: string) => webview.asWebviewUri(vscode.Uri.joinPath(base, p)).toString();
   const csp = [
     "default-src 'none'",
@@ -119,6 +125,11 @@ export class Panels implements vscode.Disposable {
     return !!this.panel;
   }
 
+  /** On screen right now, so what it shows needs no notification. */
+  visible(): boolean {
+    return !!this.panel?.visible && vscode.window.state.focused;
+  }
+
   current(): HomeSection {
     return this.section;
   }
@@ -131,8 +142,13 @@ export class Panels implements vscode.Disposable {
   model() {
     return homeModel({
       hub: this.hub, section: this.section, boards: (r) => this.deps.boards(r), identity: (r) => this.deps.identity(r),
-      setup: { items: this.setup.results(), confirmed: this.setup.allConfirmed() },
+      setup: { items: this.setup.results(), confirmed: this.setup.allConfirmed() }, runs: this.deps.runs(),
     });
+  }
+
+  /** Just the output panel, as a command's output comes in: cheaper than the whole page, and keeps your typing. */
+  postRuns(focus?: string): void {
+    if (this.panel?.visible) void this.panel.webview.postMessage({ type: 'runs', runs: this.deps.runs().map((r) => runCard(r)), ...(focus ? { focus } : {}) });
   }
 
   /** Sends fresh data to the page. With jump, the page also moves to the section asked for. */
@@ -161,6 +177,12 @@ export class Panels implements vscode.Disposable {
       return;
     }
     if (m.type === 'ticket-action') return;
+    if (m.type === 'answer') {
+      this.deps.answer(m.id, answerOf(m));
+      return;
+    }
+    if (m.type === 'run-input') return this.deps.runInput(m.run, m.text);
+    if (m.type === 'run-control') return this.deps.runControl(m.run, m.action);
     if (!ALLOWED.has(m.command)) return;
     if (m.type === 'toolbar') {
       if (m.arg !== undefined) { void vscode.commands.executeCommand(m.command, m.arg); return; }

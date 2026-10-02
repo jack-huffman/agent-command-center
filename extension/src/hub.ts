@@ -4,7 +4,8 @@ import * as vscode from 'vscode';
 import { type Config, parseConfig } from '../../packages/core/src/config.ts';
 import { CLONE_ACCOUNT_KEY } from '../../packages/core/src/github.ts';
 import { displayState, readLedger, type Ledger } from '../../packages/core/src/ledger.ts';
-import { type AgentSession, agentLook, isUnder, parseWorktrees, sessionFor, type TaskRow, type Worktree } from './logic.ts';
+import type { Question } from '../../packages/core/src/questions.ts';
+import { type AgentSession, agentLook, askingLabel, isUnder, parseWorktrees, sessionFor, type TaskRow, type Worktree } from './logic.ts';
 import { runFile } from './run.ts';
 
 export interface WorktreeInfo extends Worktree {
@@ -35,6 +36,10 @@ export class Hub implements vscode.Disposable {
   projects: Project[] = [];
   agents: AgentSession[] = [];
   agentsError: string | null = null;
+  /** When `claude agents` last answered, so a question can tell a fresh look from an old one. */
+  agentsAt = 0;
+  /** Agents' questions waiting in the Command Center (D-030), set by Questions. */
+  questions: Question[] = [];
   private readonly tasks = new Map<string, { mtime: number; ledger: Ledger; rows: TaskRow[] }>();
   private readonly emitter = new vscode.EventEmitter<HubPart>();
   readonly onDidChange = this.emitter.event;
@@ -127,22 +132,38 @@ export class Hub implements vscode.Disposable {
     return ledger.tasks.map((t) => {
       const base = { id: t.id, run: t.run };
       const session = t.state === 'running' || t.state === 'review' || t.state === 'blocked' ? sessionFor(base, this.agents) : undefined;
-      const look = session ? agentLook(session) : null;
+      const asking = session ? this.askingFor(session) : null;
+      const look = session ? agentLook(session, asking) : null;
       return {
         id: t.id,
         title: t.title,
         state: t.state,
-        display: displayState(ledger, t, session ? { state: session.state, status: session.status } : undefined) as TaskRow['display'],
+        // A question waiting in the Command Center makes the agent wait on you, though it reads as busy.
+        display: displayState(ledger, t, session ? (asking ? { state: 'blocked', status: 'waiting' } : { state: session.state, status: session.status }) : undefined) as TaskRow['display'],
         environment: t.environment,
         deps: t.deps.filter((d) => ledger.tasks.find((x) => x.id === d)?.state !== 'done'),
         source: { kind: t.source.kind, url: t.source.url },
         run: t.run,
         agent: look ? { label: look.label, icon: look.icon, tone: look.tone } : null,
+        asking: !!asking,
       };
     });
   }
 
   // ------------------------------------------------------------ agents
+
+  /** What the session's waiting question asks for, if it has one. */
+  askingFor(s: AgentSession): string | null {
+    const q = s.sessionId ? this.questions.find((x) => x.sessionId === s.sessionId) : undefined;
+    return q ? askingLabel(q.tool) : null;
+  }
+
+  setQuestions(questions: Question[]): void {
+    this.questions = questions;
+    for (const [root, cached] of this.tasks) this.tasks.set(root, { ...cached, rows: this.deriveRows(cached.ledger) });
+    this.emitter.fire('agents');
+    if (this.tasks.size) this.emitter.fire('tasks');
+  }
 
   async loadAgents(): Promise<void> {
     const r = await runFile('claude', ['agents', '--json'], this.projects[0]?.root ?? process.cwd(), process.env, undefined, 20_000);
@@ -154,6 +175,7 @@ export class Hub implements vscode.Disposable {
         const list = JSON.parse(r.stdout) as AgentSession[];
         this.agents = Array.isArray(list) ? list : [];
         this.agentsError = null;
+        this.agentsAt = Date.now();
       } catch {
         this.agentsError = (r.stderr || r.stdout).trim().split('\n')[0] || 'claude agents didn\'t answer.';
       }

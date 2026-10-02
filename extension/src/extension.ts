@@ -1,9 +1,13 @@
 import { delimiter, dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { Hub } from './hub.ts';
+import type { Answer } from '../../packages/core/src/questions.ts';
+import { AgentPages } from './activity.ts';
 import { COMMANDS, isWebviewMenuContext, WALKTHROUGHS } from './logic.ts';
-import { type NavItem, type Ref, VIEW_KINDS, type ViewKind } from './model.ts';
+import { type NavItem, needsYouCount, type Ref, sessionKey, VIEW_KINDS, type ViewKind } from './model.ts';
 import { Panels } from './panels.ts';
+import { Questions, sessionSettings } from './questions.ts';
+import { Runs } from './runs.ts';
 import { accRunner } from './run.ts';
 import { openWalkthrough, Setup } from './setup.ts';
 import { Sidebar } from './sidebar.ts';
@@ -26,6 +30,19 @@ export function activate(context: vscode.ExtensionContext): void {
   context.environmentVariableCollection.prepend('PATH', dirname(accScript) + delimiter);
 
   const reg = (id: string, fn: (...args: any[]) => unknown) => context.subscriptions.push(vscode.commands.registerCommand(id, fn));
+
+  // Commands acc runs for you show their output in the page (D-030). Only a command that needs a
+  // keyboard of its own still opens a terminal.
+  const terminals = new Map<string, vscode.Terminal>();
+  const inTerminal = (command: string, cwd: string) => {
+    let t = terminals.get(cwd);
+    if (!t || t.exitStatus) { t = vscode.window.createTerminal({ name: 'acc', cwd, iconPath: new vscode.ThemeIcon('terminal') }); terminals.set(cwd, t); }
+    t.show();
+    t.sendText(command, true);
+  };
+  const runs = new Runs(setup.log, inTerminal, dirname(accScript));
+  setup.useRuns(runs);
+  context.subscriptions.push(runs);
   reg(COMMANDS.check, (a: unknown) => setup.check(stepId(a)));
   reg(COMMANDS.fix, (a: unknown) => setup.fix(stepId(a)));
   reg(COMMANDS.openSetup, (a: unknown) => setup.openSetup(stepId(a)));
@@ -84,7 +101,23 @@ export function activate(context: vscode.ExtensionContext): void {
   // Commands run from a tab's native context menu get the row's data-vscode-context; turn it into the node.
   const regNode = (id: string, fn: (...args: any[]) => unknown) => reg(id, (a: unknown, ...rest: unknown[]) => fn(isWebviewMenuContext(a) ? nodeFor(a.accRef as Ref) : a, ...rest));
   const tickets = new TicketPanels(context, hub, trackers, resolve, accRunner(accScript));
-  new Sidebar(hub, accRunner(accScript), setup.log, (root, key) => tickets.show(root, undefined, key)).register(regNode);
+
+  // Agents' questions and activity (D-030). Answering "in the terminal" hands the question back to
+  // Claude Code's own prompt, and attaches to it.
+  let questions: Questions | null = null;
+  const answer = (id: string, a: Answer) => {
+    const q = hub.questions.find((x) => x.id === id);
+    if (!questions?.answer(id, a) || a.decision !== 'terminal' || !q) return;
+    const s = hub.agents.find((x) => x.sessionId === q.sessionId);
+    if (s) setTimeout(() => void resolve('acc.agent.attach', { session: sessionKey(s) }), 400);
+  };
+  const pages = new AgentPages(context, hub, resolve, answer);
+  context.subscriptions.push(pages);
+  new Sidebar(hub, accRunner(accScript), setup.log, (root, key) => tickets.show(root, undefined, key), {
+    run: (command, cwd, label) => void runs.start(command, { cwd, label }),
+    watch: (key, ended) => pages.open(key, ended),
+    sessionSettings: sessionSettings(accScript),
+  }).register(regNode);
   const panels = new Panels(context, hub, setup, resolve, (visible) => pagePolls(visible), {
     boards: (root) => trackers.boardStates(root),
     identity: (root) => identity.card(root),
@@ -100,8 +133,26 @@ export function activate(context: vscode.ExtensionContext): void {
         panels.post();
       }
     },
+    answer,
+    runs: () => runs.views(),
+    runInput: (id, text) => void runs.input(id, text),
+    runControl: (id, action) => runs.control(id, action),
   });
   context.subscriptions.push(panels, tickets);
+  questions = new Questions(hub, setup.log,
+    (card) => { if (!pages.open(card.session)) panels.show('overview'); },
+    (card) => (panels.visible() && panels.current() === 'overview') || pages.showing(card.sessionId));
+  context.subscriptions.push(questions);
+
+  runs.onDidChange(({ structural }) => (structural ? changed() : panels.postRuns()));
+  const showRun = (id?: string) => { panels.show(); setTimeout(() => panels.postRuns(id ?? runs.views()[0]?.id), 300); };
+  reg('acc.runs.show', () => showRun());
+  runs.onDidEvent(({ kind, run }) => {
+    if (panels.visible()) { if (kind !== 'end') panels.postRuns(run.id); return; }
+    // Off screen, a run speaks up only when it needs you or went wrong.
+    if (kind === 'ask') void vscode.window.showWarningMessage(`${run.label} is asking: ${run.prompt?.text ?? 'for an answer'}`, 'Answer').then((p) => p && showRun(run.id));
+    if (kind === 'end' && run.code !== 0 && !run.stopped) void vscode.window.showWarningMessage(`${run.label} failed (exit ${run.code ?? '?'}).`, 'Show output').then((p) => p && showRun(run.id));
+  });
   // ------------------------------------------------------------ the launcher (D-029)
   // The activity bar icon opens the page. Its one view lists the sections, for anyone who keeps the sidebar.
   const launcher = new HomeLauncher(() => panels.model().nav);
@@ -116,7 +167,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const changed = () => {
     panels.post();
     launcher.refresh();
-    const n = panels.model().overview.attention.filter((a) => a.look.tone === 'orange').length;
+    const n = needsYouCount(panels.model().overview);
     launcherView.badge = n ? { value: n, tooltip: `${n} thing${n === 1 ? '' : 's'} need${n === 1 ? 's' : ''} you` } : undefined;
   };
   trackers.onDidChange(changed);
@@ -139,7 +190,9 @@ export function activate(context: vscode.ExtensionContext): void {
 
   hub.onDidChange((part) => {
     if (part === 'projects') { void trackers.loadBoards(); void setup.recheck('B14.tickets'); void identity.refresh(); }
+    if (part === 'projects' || part === 'worktrees') questions?.rootsChanged();
     if (part === 'tasks' || part === 'agents') tickets.refresh();
+    if (part === 'agents') pages.refresh();
     changed();
   });
   setup.onDidChange(changed);
@@ -160,7 +213,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(configWatch);
   setup.watch();
 
-  void hub.loadProjects().then(() => hub.loadAgents());
+  void hub.loadProjects().then(() => { questions?.start(); return hub.loadAgents(); });
   void setup.refresh('startup', { reuseMachine: true }).then(() => setup.maybeOpenWalkthroughs());
 }
 

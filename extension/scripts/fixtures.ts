@@ -8,8 +8,10 @@ import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import type { Task } from '../../packages/core/src/ledger.ts';
 import { type AdfNode, fromAdf } from '../../packages/core/src/trackers/doc.ts';
 import type { Ticket } from '../../packages/core/src/trackers/types.ts';
-import type { AgentSession, DoctorItem, TaskRow } from '../src/logic.ts';
-import { type BoardInput, type HubLike, type IdentityCard, type ProjectLike, ticketModel, type TicketModel } from '../src/model.ts';
+import type { Question } from '../../packages/core/src/questions.ts';
+import { type AgentSession, askingLabel, type DoctorItem, type TaskRow } from '../src/logic.ts';
+import { type AgentModel, agentModel, type BoardInput, type HubLike, type IdentityCard, type ProjectLike, type RunInput, ticketModel, type TicketModel } from '../src/model.ts';
+import type { Entry } from '../src/transcript.ts';
 
 const MIN = 60_000;
 
@@ -35,9 +37,10 @@ export function sampleHub(now = Date.now()): HubLike {
   const task = (id: string, title: string, state: string, display: TaskRow['display'], extra: Partial<TaskRow> = {}): TaskRow =>
     ({ id, title, state, display, environment: 'dev', deps: [], source: source(Number(id.split('-')[1])), ...extra });
   const tasks: TaskRow[] = [
-    task('ACME-14', 'Route web-to-case submissions by product line', 'running', 'needs-you', { run: { bgId: 'bg14', worktree: wt('ACME-14') }, agent: { label: 'Needs you: permission prompt', icon: 'bell-dot', tone: 'orange' } }),
+    task('ACME-14', 'Route web-to-case submissions by product line', 'running', 'needs-you', { run: { bgId: 'bg14', sessionId: 's-acme-14', worktree: wt('ACME-14') }, agent: { label: 'Needs you: wants permission', icon: 'bell', tone: 'orange' }, asking: true }),
     task('ACME-16', 'Add a field history report for Opportunity stage', 'todo', 'ready'),
-    task('ACME-12', 'Case escalation rules for the premium tier', 'running', 'running', { run: { bgId: 'bg12', worktree: wt('ACME-12') }, agent: { label: 'Working', icon: 'sync~spin', tone: 'blue' } }),
+    task('ACME-12', 'Case escalation rules for the premium tier', 'running', 'needs-you', { run: { bgId: 'bg12', sessionId: 's-acme-12', worktree: wt('ACME-12') }, agent: { label: 'Needs you: has a question', icon: 'bell', tone: 'orange' }, asking: true }),
+    task('ACME-13', 'Close duplicate leads nightly', 'running', 'running', { run: { bgId: 'bg13', sessionId: 's-acme-13', worktree: wt('ACME-13') }, agent: { label: 'Working', icon: 'sync~spin', tone: 'blue' } }),
     task('ACME-15', 'Rename the Region picklist values', 'review', 'review', { run: { worktree: wt('ACME-15') } }),
     task('ACME-19', 'Fix the flow that double-sends welcome emails', 'rework', 'rework', { run: { worktree: wt('ACME-19') } }),
     task('ACME-18', 'Migrate the legacy territory triggers', 'blocked', 'blocked'),
@@ -45,14 +48,18 @@ export function sampleHub(now = Date.now()): HubLike {
     task('ACME-10', 'Add a CHANGELOG', 'done', 'done', { run: { worktree: wt('ACME-10') } }),
   ];
   const agents: AgentSession[] = [
-    { cwd: wt('ACME-14'), kind: 'background', startedAt: now - 27 * MIN, id: 'bg14', name: 'ACME-14', state: 'blocked', waitingFor: 'permission prompt' },
-    { cwd: wt('ACME-12'), kind: 'background', startedAt: now - 12 * MIN, id: 'bg12', name: 'ACME-12', state: 'working' },
+    { cwd: wt('ACME-14'), kind: 'background', startedAt: now - 27 * MIN, id: 'bg14', sessionId: 's-acme-14', name: 'ACME-14', state: 'working', pid: 4010 },
+    { cwd: wt('ACME-12'), kind: 'background', startedAt: now - 12 * MIN, id: 'bg12', sessionId: 's-acme-12', name: 'ACME-12', state: 'working', pid: 4012 },
+    { cwd: wt('ACME-13'), kind: 'background', startedAt: now - 9 * MIN, id: 'bg13', sessionId: 's-acme-13', name: 'ACME-13', state: 'working', pid: 4013 },
+    { cwd: wt('ACME-11'), kind: 'background', startedAt: now - 40 * MIN, id: 'bg11', sessionId: 's-acme-11', name: 'ACME-11', state: 'blocked', waitingFor: 'permission prompt', pid: 4011 },
     { cwd: root, kind: 'interactive', startedAt: now - 120 * MIN, sessionId: '0e02-main', name: 'acme-dev', status: 'busy', pid: 4100 },
     { cwd: '/Users/me/code/side-project', kind: 'interactive', startedAt: now - 30 * 60 * MIN, sessionId: '7c1d-side', name: 'side-project', status: 'idle', pid: 4200 },
     { cwd: '/Users/me/Documents/a folder with a long name/docs-site', kind: 'background', startedAt: now - 7 * 24 * 60 * MIN, id: 'bg3', name: 'docs-site', state: 'done' },
   ];
+  const questions = sampleQuestions(now, wt);
   return {
-    projects: [project], agents, agentsError: null,
+    projects: [project], agents, agentsError: null, questions,
+    askingFor: (s) => { const q = questions.find((x) => x.sessionId === s.sessionId); return q ? askingLabel(q.tool) : null; },
     taskRows: () => tasks,
     projectFor: (p: string) => (p === root || p.startsWith(`${root}/`) ? project : undefined),
     history: () => [
@@ -65,12 +72,64 @@ export function sampleHub(now = Date.now()): HubLike {
   };
 }
 
+/** A permission prompt and a question with options, as `acc hook permission` leaves them. */
+function sampleQuestions(now: number, wt: (id: string) => string): Question[] {
+  const q = (id: string, sessionId: string, cwd: string, ago: number, tool: string, input: Record<string, unknown>, suggestions: unknown[] = []): Question =>
+    ({ v: 1, id, pid: 1, at: now - ago * MIN, sessionId, cwd, transcript: null, tool, input, suggestions });
+  return [
+    q('m1-aaaa0001', 's-acme-14', wt('ACME-14'), 3, 'Bash', { command: 'sf apex run test --class-names CaseRoutingTest --target-org "Acme Dev" --wait 20', description: 'Run the routing tests in the Dev org' },
+      [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'sf apex run test:*' }], behavior: 'allow', destination: 'localSettings' }]),
+    q('m1-aaaa0002', 's-acme-12', wt('ACME-12'), 1, 'AskUserQuestion', { questions: [{
+      question: 'Premium cases escalate after how long without a reply?', header: 'Escalation', multiSelect: false,
+      options: [{ label: '2 hours', description: 'Matches the premium SLA in the contract.' }, { label: '4 hours', description: 'What the standard tier uses today.' }, { label: 'Business hours only', description: 'Pause the clock outside the support hours.' }],
+    }] }),
+  ];
+}
+
+/** Commands acc ran from Setup: one asking a question, one that failed, one that worked. */
+export function sampleRuns(now = Date.now()): RunInput[] {
+  return [
+    { id: 'r-login', label: 'Each branch points at the right org', command: 'sf org login web --alias "Acme Dev" --instance-url https://acme--dev.sandbox.my.salesforce.com', startedAt: now - 40_000, endedAt: null, code: null, stopped: false, step: 'B6.org-match',
+      lines: ['Opening the browser to log in…', 'Waiting for you to sign in. Press Ctrl+C to cancel.', '', 'An org with the alias "Acme Dev" already exists.', 'Replace it? (y/n) '], prompt: { kind: 'yesno', text: 'Replace it? (y/n)' } },
+    { id: 'r-npm', label: 'The required checks can run', command: 'npm install', startedAt: now - 5 * MIN, endedAt: now - 4 * MIN, code: 1, stopped: false, step: 'B13.gate-tools',
+      lines: ['npm ERR! code ERESOLVE', 'npm ERR! ERESOLVE unable to resolve dependency tree', 'npm ERR! Found: eslint@9.12.0', 'npm ERR! Could not resolve dependency: peer eslint@"^8" from @salesforce/eslint-config-lwc@3.6.0'], prompt: null },
+    { id: 'r-open', label: 'Open Dev', command: 'sf org open -o "Acme Dev"', startedAt: now - 9 * MIN, endedAt: now - 9 * MIN + 4000, code: 0, stopped: false, step: null, lines: ['Opening org Acme Dev as jordan@acme.example.dev…'], prompt: null },
+  ];
+}
+
+/** ACME-14's activity: its instructions, what it said, the tools it used, and the prompt it's waiting on. */
+export function sampleAgent(now = Date.now()): AgentModel {
+  const at = (ago: number) => new Date(now - ago * MIN).toISOString();
+  const cwd = '/Users/me/code/acme-service/.claude/worktrees/ACME-14';
+  const tool = (id: string, ago: number, toolName: string, icon: string, title: string, code: string | null, status: 'running' | 'done' | 'error', result: string | null = null, more = 0): Entry =>
+    ({ k: 'tool', id, at: at(ago), tool: toolName, icon, title, code, status, result, more });
+  const entries: Entry[] = [
+    { k: 'prompt', id: 'p1', at: at(27), instructions: true, text: `# ACME-14: Route web-to-case submissions by product line\n\nYou are a builder. Work in \`${cwd}\` on branch \`task/ACME-14-route-web-to-case\`.\n\n## Done when\n\n- Web-to-case submissions get the product line's queue.\n- The routing tests pass in the Dev org.\n\n${'Keep commits small. '.repeat(30)}` },
+    { k: 'say', id: 's1', at: at(26), text: 'I\'ll start with the current assignment rules and the **web-to-case** form fields, then add a routing step keyed on `Product_Line__c`.' },
+    tool('t1', 26, 'Bash', 'terminal', 'Check the branch and recent commits', 'git status && git log --oneline -3', 'done', 'On branch task/ACME-14-route-web-to-case\nnothing to commit, working tree clean\n9f1c2ab Case: add Product_Line__c\n41d0e77 Queues for each product line\n0b6a1f3 Initial'),
+    tool('t2', 25, 'Read', 'file', 'Read force-app/main/default/classes/CaseRouting.cls', null, 'done'),
+    tool('t3', 24, 'Grep', 'search', 'Searched for Product_Line__c in force-app', null, 'done', 'force-app/main/default/objects/Case/fields/Product_Line__c.field-meta.xml\nforce-app/main/default/classes/CaseRouting.cls'),
+    tool('t4', 20, 'Edit', 'edit', 'Edited force-app/main/default/classes/CaseRouting.cls', null, 'done'),
+    tool('t5', 18, 'Write', 'new-file', 'Wrote force-app/main/default/classes/CaseRoutingTest.cls', null, 'done'),
+    tool('t6', 12, 'Bash', 'terminal', 'Format the changed Apex', 'npx prettier --write force-app/main/default/classes/CaseRouting.cls force-app/main/default/classes/CaseRoutingTest.cls', 'done', 'force-app/main/default/classes/CaseRouting.cls 182ms\nforce-app/main/default/classes/CaseRoutingTest.cls 64ms'),
+    tool('t7', 9, 'Bash', 'terminal', 'Run the static checks', 'acc gate run static', 'error', '✗ static: 2 violations at severity 2 or worse\n  CaseRouting.cls:41  ApexCRUDViolation  Validate CRUD permission before SOQL/DML operation\n  CaseRouting.cls:57  ApexCRUDViolation  Validate CRUD permission before SOQL/DML operation'),
+    { k: 'say', id: 's2', at: at(8), text: 'Two CRUD warnings, both on the queue lookup. I\'ll query `WITH USER_MODE` instead of checking by hand.' },
+    tool('t8', 6, 'Edit', 'edit', 'Edited force-app/main/default/classes/CaseRouting.cls', null, 'done'),
+    tool('t9', 5, 'Bash', 'terminal', 'Run the static checks', 'acc gate run static', 'done', '✓ static: no violations at severity 2 or worse'),
+    { k: 'say', id: 's3', at: at(4), text: 'The static checks pass. Next, the routing tests in the Dev org.' },
+    tool('t10', 3, 'Bash', 'terminal', 'Run the routing tests in the Dev org', 'sf apex run test --class-names CaseRoutingTest --target-org "Acme Dev" --wait 20', 'running'),
+  ];
+  return agentModel({ hub: sampleHub(now), key: 's-acme-14', seen: null, entries, readable: true, lastAt: at(3) });
+}
+
 /** Every real setup step, mostly passing, with one of each other status so every style shows. */
 export function sampleSetup(): { items: DoctorItem[]; confirmed: Set<string> } {
   const odd: Record<string, Partial<DoctorItem>> = {
     'B2.identity': { status: 'fail', detail: 'Commits here would go out as someone@else.example.', fix: 'git config user.email you@example.com' },
     'B8.tracking': { status: 'unknown', detail: 'Turn on source tracking in Setup, then check again.' },
     'B10.readme': { status: 'skip', detail: 'Only one environment, so there is no map to show.' },
+    'B6.org-match': { status: 'fail', detail: '"Acme Dev" is logged in to a different org than the dev branch names.' },
+    'B13.gate-tools': { status: 'fail', detail: 'The format and lint checks need npm install first.', fix: 'npm install' },
     'B14.tickets': { status: 'fail', detail: 'Tickets come from Azure DevOps CRM in acme. This repo isn\'t signed in to Azure DevOps · CRM yet.', fix: 'acc.trackers.signIn' },
   };
   const items = STEPS.filter((s) => !s.planned).map((s): DoctorItem => ({ id: s.id, part: s.part, title: s.title, status: 'pass', detail: 'Looks right.', ...odd[s.id] }));

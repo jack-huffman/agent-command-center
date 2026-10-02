@@ -12,6 +12,8 @@ import { COMMANDS } from '../src/logic.ts';
 import { makeRepo } from '../../packages/core/test/support.ts';
 
 const dist = fileURLToPath(new URL('../dist/extension.js', import.meta.url));
+// The extension says it's listening for agents' questions (D-030); keep that out of the real ~/.acc.
+process.env.ACC_QUESTIONS_DIR = mkdtempSync(join(tmpdir(), 'acc-questions-'));
 const disposable = { dispose() {} };
 const event = () => () => disposable;
 
