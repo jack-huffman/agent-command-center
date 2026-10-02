@@ -281,12 +281,13 @@ test('drift finds what the branch has and the org lacks, from the retrieve\'s "c
     { type: 'CustomField', fullName: 'Account.Legacy__c', state: 'Failed', error: 'Entity of type CustomField named Account.Legacy__c cannot be found' },
     { type: 'CustomObject', fullName: 'DecisionTblFileImportData', state: 'Failed', error: "Can't retrieve non-customizable CustomObject named: DecisionTblFileImportData" },
     { type: 'ApexClass', fullName: 'Account', state: 'Changed', filePath: '/x/force-app/main/default/classes/Account.cls' },
+    { type: '', fullName: '', state: 'Failed', error: 'Unknown type name in the manifest' },
   ];
   const runner = fakeRunner({ 'nice -n 15 sf project retrieve start': ok(JSON.stringify({ status: 0, result: { success: true, files } })) });
   const r = drift(repoPaths(dir, run), c, 'dev', { run: runner, now, slots: slots() });
   assert.deepEqual(r.missing, ['force-app/main/default/flows/Requote.flow-meta.xml', 'force-app/main/default/objects/Case/fields/Days__c.field-meta.xml']);
   assert.equal(r.ignored, 1, 'Legacy__c is known drift');
-  assert.deepEqual(r.unretrievable, ["CustomObject:DecisionTblFileImportData: Can't retrieve non-customizable CustomObject named: DecisionTblFileImportData"]);
+  assert.deepEqual(r.unretrievable, ["CustomObject:DecisionTblFileImportData: Can't retrieve non-customizable CustomObject named: DecisionTblFileImportData", 'Unknown type name in the manifest']);
 });
 
 test('a missing component is matched to its own files, not a namesake of another type', async () => {

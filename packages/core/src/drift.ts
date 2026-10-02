@@ -90,7 +90,7 @@ function failures(stdout: string): { lacking: { type: string; fullName: string }
   const isAbsent = (f: { error?: string }) => /cannot be found/i.test(f.error ?? '');
   return {
     lacking: failed.filter(isAbsent).map((f) => ({ type: f.type ?? '', fullName: f.fullName ?? '' })),
-    other: failed.filter((f) => !isAbsent(f)).map((f) => `${f.type || '?'}:${f.fullName || '?'}: ${(f.error ?? 'failed').trim()}`),
+    other: failed.filter((f) => !isAbsent(f)).map((f) => `${f.type && f.fullName ? `${f.type}:${f.fullName}: ` : ''}${(f.error ?? 'failed').trim()}`),
   };
 }
 
