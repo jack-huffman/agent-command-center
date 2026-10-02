@@ -97,25 +97,46 @@ another's repo. GitHub Issues, Jira Cloud and Azure DevOps today; monday.com and
 Slack come later. Set one up with **Add a tracker…** from the Command Palette.
 See [ONBOARDING.md, A3](docs/ONBOARDING.md).
 
+## Install the plugin
+
+The plugin adds acc's skills, the reviewer agent and the hooks that keep
+builders in their worktree. This repo is its marketplace, named
+`agent-command-center`:
+
+```bash
+claude plugin marketplace add jack-huffman/agent-command-center  # or the path to a clone
+claude plugin install acc@agent-command-center
+```
+
+To work on the plugin, load it in place for one session instead, from the repo
+root: `claude --plugin-dir plugin`.
+
 ## Development
 
 Development needs Node 23.6 or later, which runs the TypeScript directly. The
-bundled CLI in `plugin/bin/acc` runs on Node 20 or later.
+bundled CLI runs on Node 20 or later.
 
 ```bash
-npm install            # dev dependencies: typescript, esbuild, @types/node
-npm run check          # type-check, run the tests, rebuild plugin/bin/acc
-npm run acc -- doctor  # run the CLI from source
-./plugin/bin/acc doctor
-npm run screenshot     # render the editor tabs with sample data, into dist/screenshots/
+npm install              # dev dependencies: typescript, esbuild, @types/node
+npm run check            # type-check, build, run the tests
+npm run acc -- doctor    # run the CLI from source
+./dist/acc doctor        # run the bundle the last build made
+npm run validate-plugin  # claude plugin validate --strict, on the plugin and the marketplace
+npm run screenshot       # render the editor tabs with sample data, into dist/screenshots/
+npm run package          # a release: check, refresh plugin/bin/acc, package the extension into dist/
 ```
 
-`npm run screenshot` renders each tab in headless Chrome, in dark and light
-themes, at 1000, 620 and 480 pixels wide, with one row shown hovered. Name tabs
-to shoot only those (`npm run screenshot -- agents worktrees`), or pass
-`--width`, `--theme`, `--height` and `--out`. It renders the built webview, so
-run `npm run build` after a change. Set `CHROME` if Chrome isn't found.
+`npm run build` bundles the CLI into `dist/acc`, which git ignores, and gives
+the extension its own copy. `plugin/bin/acc` is committed, because a plugin
+installed from git has no build step, but only a release refreshes it:
+`npm run package`, or `npm run build -- --release` on its own. A branch's checks
+never change it, so pull requests don't conflict over a generated file (D-042).
 
-`plugin/bin/acc` is committed, because a plugin has no build step. Rebuild it
-with `npm run build` whenever the CLI changes. Run builds and tests one at a
-time, under `nice -n 15`.
+`npm run screenshot` renders each tab in headless Chrome, in dark and light
+themes, at 1000, 620 and 500 pixels wide, with one row shown hovered. Chrome
+lays out no narrower than 500, so a narrower `--width` is refused. Name tabs to
+shoot only those (`npm run screenshot -- agents worktrees`), or pass `--width`,
+`--theme`, `--height` and `--out`. It renders the built webview, so run
+`npm run build` after a change. Set `CHROME` if Chrome isn't found.
+
+Run builds and tests one at a time, under `nice -n 15`.
