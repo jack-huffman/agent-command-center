@@ -638,6 +638,17 @@
             ]
           },
           {
+            "id": "A1.claude-billing",
+            "title": "Agents bill your Claude subscription",
+            "description": "On your Claude subscription, agents' work counts toward the plan you already pay for; with an API key, or through Bedrock or Vertex, every token they use is billed on top, and nothing else tells you.\n\n[Check](command:acc.step.check?%5B%22A1.claude-billing%22%5D)\n[I've done this](command:acc.step.confirm?%5B%22A1.claude-billing%22%5D)",
+            "media": {
+              "markdown": "media/steps/A1.claude-billing.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.A1.claude-billing"
+            ]
+          },
+          {
             "id": "A1.sf",
             "title": "Salesforce CLI",
             "description": "Validation, retrieves and org checks use sf.\n\n[Check](command:acc.step.check?%5B%22A1.sf%22%5D)\n[Do it](command:acc.step.fix?%5B%22A1.sf%22%5D)",

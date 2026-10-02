@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import type { RunResult } from '../src/exec.ts';
 import { makeContext, parseOrgUrl } from '../src/onboarding/helpers.ts';
@@ -67,8 +67,18 @@ function trustDir(repo: string): string {
   return dir;
 }
 
+/** Variables that point Claude Code at per-token billing (A1.claude-billing). */
+const BILLING_VARS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX'];
+
+/** process.env without this machine's billing variables, and a Claude config folder of its own, so no check reads the real ~/.claude. */
+function testEnv(over: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', CLAUDE_CONFIG_DIR: tempDir('claude-state-') };
+  for (const v of BILLING_VARS) delete env[v];
+  return { ...env, ...over };
+}
+
 function statuses(repo: string, fixtures = healthy()): Record<string, { status: CheckStatus; detail: string }> {
-  const ctx = makeContext(repo, fakeRunner(fixtures), { ...process.env, GIT_CONFIG_NOSYSTEM: '1', CLAUDE_CONFIG_DIR: trustDir(repo) });
+  const ctx = makeContext(repo, fakeRunner(fixtures), testEnv({ CLAUDE_CONFIG_DIR: trustDir(repo) }));
   return Object.fromEntries(runSteps(ctx).map(({ step, result }) => [step.id, result]));
 }
 
@@ -137,7 +147,7 @@ test('an untracked Developer sandbox fails B8, with both the org and the CLI che
 test('git pushing as the wrong account fails B2 and shows the repo-local helper', () => {
   const f = healthy();
   f['gh api user --jq .login'] = ok('someone-else');
-  const ctx = makeContext(sfRepo(), fakeRunner(f), { ...process.env, GIT_CONFIG_NOSYSTEM: '1' });
+  const ctx = makeContext(sfRepo(), fakeRunner(f), testEnv());
   const res = runSteps(ctx).find((x) => x.step.id === 'B2.credentials')!.result;
   assert.equal(res.status, 'fail');
   assert.match(res.detail, /would push as someone-else, not work-account/);
@@ -182,10 +192,86 @@ test('GitHub default branch and local default org are checked against the defaul
 test('an old CLI without --bg fails A1.claude with the update command', () => {
   const f = healthy();
   f['claude --help'] = ok('  -p, --print');
-  const ctx = makeContext(tempDir(), fakeRunner(f));
+  const ctx = makeContext(tempDir(), fakeRunner(f), testEnv());
   const res = runSteps(ctx, 'machine').find((x) => x.step.id === 'A1.claude')!;
   assert.equal(res.result.status, 'fail');
   assert.equal(res.step.fix?.command, 'claude update');
+});
+
+/** A1.claude-billing with only the given environment, a temporary home folder, and the settings files given. */
+function billing(o: { env?: NodeJS.ProcessEnv; home?: Record<string, unknown>; repo?: Record<string, unknown> } = {}) {
+  const home = tempDir('home-');
+  const write = (dir: string, files: Record<string, unknown>) => {
+    for (const [rel, s] of Object.entries(files)) {
+      mkdirSync(join(dir, dirname(rel)), { recursive: true });
+      writeFileSync(join(dir, rel), typeof s === 'string' ? s : JSON.stringify(s));
+    }
+  };
+  write(home, o.home ?? {});
+  const cwd = o.repo ? makeRepo() : tempDir();
+  write(cwd, o.repo ?? {});
+  const ctx = makeContext(cwd, fakeRunner({}), { HOME: home, PATH: process.env.PATH, ...o.env });
+  return runSteps(ctx, 'machine', ['A1.claude-billing'])[0]!.result;
+}
+
+test('A1.claude-billing passes when nothing points Claude Code at per-token billing', () => {
+  assert.deepEqual(billing(), { status: 'pass', detail: 'Agents use your Claude subscription.' });
+  const harmless = billing({
+    env: { CLAUDE_CODE_USE_BEDROCK: '0', CLAUDE_CODE_USE_VERTEX: 'false' },
+    home: { '.claude/settings.json': { model: 'opus' } },
+    repo: { '.claude/settings.json': { permissions: { allow: ['Bash(npm test)'] }, env: { NODE_ENV: 'test', CLAUDE_CODE_USE_VERTEX: '0' } } },
+  });
+  assert.deepEqual(harmless, { status: 'pass', detail: 'Agents use your Claude subscription.' });
+  const step = STEPS.find((s) => s.id === 'A1.claude-billing')!;
+  assert.equal(step.group, 'A1');
+  assert.match(step.fix?.text ?? '', /on purpose, .* is fine/);
+});
+
+test('A1.claude-billing names each source of per-token billing, and never its value', () => {
+  const KEY = 'sk-ant-api03-' + 'q'.repeat(24);
+  const helper = `echo ${KEY}`;
+  const cases: { env?: NodeJS.ProcessEnv; home?: Record<string, unknown>; repo?: Record<string, unknown>; want: string }[] = [
+    { env: { ANTHROPIC_API_KEY: KEY }, want: 'ANTHROPIC_API_KEY in the environment' },
+    { env: { ANTHROPIC_AUTH_TOKEN: KEY }, want: 'ANTHROPIC_AUTH_TOKEN in the environment' },
+    { env: { CLAUDE_CODE_USE_BEDROCK: '1' }, want: 'CLAUDE_CODE_USE_BEDROCK in the environment' },
+    { env: { CLAUDE_CODE_USE_VERTEX: 'true' }, want: 'CLAUDE_CODE_USE_VERTEX in the environment' },
+    { home: { '.claude/settings.json': { apiKeyHelper: helper } }, want: 'apiKeyHelper in ~/.claude/settings.json' },
+    { home: { '.claude/settings.json': { env: { ANTHROPIC_API_KEY: KEY } } }, want: 'ANTHROPIC_API_KEY under env in ~/.claude/settings.json' },
+    { home: { '.claude/settings.json': { env: { ANTHROPIC_AUTH_TOKEN: KEY } } }, want: 'ANTHROPIC_AUTH_TOKEN under env in ~/.claude/settings.json' },
+    { home: { '.claude/settings.json': { env: { CLAUDE_CODE_USE_VERTEX: '1' } } }, want: 'CLAUDE_CODE_USE_VERTEX under env in ~/.claude/settings.json' },
+    { repo: { '.claude/settings.json': { apiKeyHelper: helper } }, want: 'apiKeyHelper in .claude/settings.json' },
+    { repo: { '.claude/settings.json': { env: { ANTHROPIC_API_KEY: KEY } } }, want: 'ANTHROPIC_API_KEY under env in .claude/settings.json' },
+    { repo: { '.claude/settings.json': { env: { ANTHROPIC_AUTH_TOKEN: KEY } } }, want: 'ANTHROPIC_AUTH_TOKEN under env in .claude/settings.json' },
+    { repo: { '.claude/settings.local.json': { apiKeyHelper: helper } }, want: 'apiKeyHelper in .claude/settings.local.json' },
+    { repo: { '.claude/settings.local.json': { env: { ANTHROPIC_API_KEY: KEY } } }, want: 'ANTHROPIC_API_KEY under env in .claude/settings.local.json' },
+    { repo: { '.claude/settings.local.json': { env: { ANTHROPIC_AUTH_TOKEN: KEY } } }, want: 'ANTHROPIC_AUTH_TOKEN under env in .claude/settings.local.json' },
+    { repo: { '.claude/settings.local.json': { env: { CLAUDE_CODE_USE_BEDROCK: 'yes' } } }, want: 'CLAUDE_CODE_USE_BEDROCK under env in .claude/settings.local.json' },
+  ];
+  for (const { want, ...o } of cases) {
+    const r = billing(o);
+    assert.equal(r.status, 'fail', want);
+    assert.equal(r.detail, `Agents would bill per token, not your Claude subscription: ${want}.`);
+    assert.ok(!JSON.stringify(r).includes(KEY), `${want}: the value stays out of the result`);
+  }
+  const all = billing({
+    env: { ANTHROPIC_API_KEY: KEY, CLAUDE_CODE_USE_BEDROCK: 'true' },
+    home: { '.claude/settings.json': { apiKeyHelper: helper } },
+    repo: { '.claude/settings.local.json': { env: { ANTHROPIC_AUTH_TOKEN: KEY } } },
+  });
+  assert.equal(all.detail, 'Agents would bill per token, not your Claude subscription: ANTHROPIC_API_KEY in the environment, CLAUDE_CODE_USE_BEDROCK in the environment, apiKeyHelper in ~/.claude/settings.json, ANTHROPIC_AUTH_TOKEN under env in .claude/settings.local.json.');
+});
+
+test('A1.claude-billing reads CLAUDE_CONFIG_DIR\'s settings when set, and never quotes a file it can\'t parse', () => {
+  const KEY = 'sk-ant-api03-' + 'z'.repeat(24);
+  const dir = tempDir('claude-config-');
+  writeFileSync(join(dir, 'settings.json'), JSON.stringify({ env: { ANTHROPIC_API_KEY: KEY } }));
+  const moved = billing({ env: { CLAUDE_CONFIG_DIR: dir }, home: { '.claude/settings.json': { apiKeyHelper: 'key.sh' } } });
+  assert.equal(moved.detail, `Agents would bill per token, not your Claude subscription: ANTHROPIC_API_KEY under env in ${join(dir, 'settings.json')}.`);
+  const broken = billing({ home: { '.claude/settings.json': `{ "env": { "ANTHROPIC_API_KEY": "${KEY}" }, }` } });
+  assert.deepEqual(broken, { status: 'unknown', detail: 'Not valid JSON, so not checked: ~/.claude/settings.json.' });
+  const both = billing({ env: { ANTHROPIC_API_KEY: KEY }, repo: { '.claude/settings.json': `${KEY}` } });
+  assert.equal(both.status, 'fail');
+  assert.equal(both.detail, 'Agents would bill per token, not your Claude subscription: ANTHROPIC_API_KEY in the environment. Not valid JSON, so not checked: .claude/settings.json.');
 });
 
 test('org URLs give the environment name (D-015)', () => {
