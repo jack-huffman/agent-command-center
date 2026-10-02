@@ -131,3 +131,28 @@ esac
   assert.deepEqual(r.json().added, ['GH-4']);
   assert.equal(acc(dir, ['intake', 'jira']).code, 2, 'Jira intake goes through the plugin');
 });
+
+test('gate run records receipts on the commit, exits 1 while a required check fails, and gate list shows them', () => {
+  const heavy = { ACC_HEAVY_DIR: join(makeRepo(), 'slots') };
+  const cfg = { ...GENERIC_CONFIG, gates: { required: ['lint', 'test'], commands: { lint: 'true', test: 'echo "1 failing"; exit 3' } } };
+  const dir = repoWithConfig(cfg);
+  const failing = acc(dir, ['gate', 'run'], undefined, heavy);
+  assert.equal(failing.code, 1, failing.err);
+  assert.match(failing.out, /✓ pass\s+lint/);
+  assert.match(failing.out, /✗ fail\s+test\s+1 failing/);
+  assert.match(failing.out, /1 to fix: test\./);
+  const sha = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).stdout.trim();
+  assert.equal(JSON.parse(readFileSync(join(dir, '.git', 'acc', 'receipts', sha, 'test.json'), 'utf8')).status, 'fail');
+
+  writeFileSync(join(dir, '.acc', 'config.json'), JSON.stringify({ ...cfg, gates: { ...cfg.gates, commands: { lint: 'true', test: 'true' } } }));
+  assert.match(acc(dir, ['gate', 'run'], undefined, heavy).out, /Not recorded: there are uncommitted changes/);
+  spawnSync('git', ['commit', '-qam', 'fix the test'], { cwd: dir });
+  const passing = acc(dir, ['gate', 'run'], undefined, heavy);
+  assert.equal(passing.code, 0, passing.err);
+  assert.match(passing.out, /All recorded\. acc done will accept this commit\./);
+  const list = acc(dir, ['gate', 'list', '--json']).json() as { gates: { name: string; required: boolean; heavy: boolean; receipt: { status: string } | null }[] };
+  assert.deepEqual(list.gates.map((g) => [g.name, g.required, g.heavy, g.receipt?.status]), [['lint', true, false, 'pass'], ['test', true, true, 'pass']]);
+  assert.equal(acc(dir, ['gate', 'run', 'nope']).code, 2, 'an unknown gate is a usage error');
+  assert.equal(acc(dir, ['gate', 'run', 'lint', '--test', 'not a class']).code, 2);
+  assert.match(acc(dir, ['drift', 'main']).err, /no orgs/);
+});

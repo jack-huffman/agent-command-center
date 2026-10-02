@@ -46,7 +46,8 @@ export interface Config {
   agents: { max: number; permissionMode: string };
   autonomy: Autonomy;
   worktrees: { root: string | null; setup: string[] };
-  gates: { required: string[]; commands: Record<string, string> };
+  /** heavy: gates that take the machine-wide slot (D-024). severity: Code Analyzer's failing level, 1 to 5. */
+  gates: { required: string[]; commands: Record<string, string>; heavy: string[]; severity: number };
   secretScan: { paths: string[]; exclude: string[] };
 }
 
@@ -54,6 +55,12 @@ const TOP_KEYS = new Set([
   'schema', 'project', 'profile', 'github', 'commitIdentity', 'environments', 'environmentSpecific',
   'knownDrift', 'trackers', 'agents', 'autonomy', 'worktrees', 'gates', 'secretScan',
 ]);
+
+/** Gates that take the machine-wide slot unless `gates.heavy` says otherwise (D-024). */
+export const DEFAULT_HEAVY: Record<Profile, string[]> = {
+  generic: ['build', 'test', 'check'],
+  salesforce: ['static', 'lwc-tests', 'validate'],
+};
 
 /** The branch for an environment: its name in lower case (D-015). */
 export function branchFor(name: string): string {
@@ -151,6 +158,10 @@ export function parseConfig(raw: unknown): ParseResult {
     if (!isObj(g.commands) || !Object.values(g.commands).every(isStr)) errors.push('"gates.commands" must map gate names to commands.');
     else Object.assign(commands, g.commands);
   }
+  if (g.heavy !== undefined && !strList(g.heavy)) errors.push('"gates.heavy" must be a list of gate names.');
+  if (g.severity !== undefined && !(Number.isInteger(g.severity) && (g.severity as number) >= 1 && (g.severity as number) <= 5)) {
+    errors.push('"gates.severity" must be a whole number from 1 (only the worst problems fail) to 5 (everything fails).');
+  }
 
   const s = isObj(raw.secretScan) ? raw.secretScan : {};
   if (s.paths !== undefined && !strList(s.paths)) errors.push('"secretScan.paths" must be a list.');
@@ -172,7 +183,12 @@ export function parseConfig(raw: unknown): ParseResult {
       agents: { max: max as number, permissionMode: permissionMode as string },
       autonomy,
       worktrees: { root: isStr(w.root) ? w.root : null, setup: strList(w.setup) ? w.setup : [] },
-      gates: { required: strList(g.required) ? g.required : [], commands },
+      gates: {
+        required: strList(g.required) ? g.required : [],
+        commands,
+        heavy: strList(g.heavy) ? g.heavy : DEFAULT_HEAVY[profile],
+        severity: (g.severity as number | undefined) ?? 2,
+      },
       secretScan: {
         paths: strList(s.paths) ? s.paths : defaultScan,
         exclude: strList(s.exclude) ? s.exclude : [],

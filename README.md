@@ -14,7 +14,12 @@ Salesforce. Project types plug in as profiles.
   agents, worktrees, environments and setup.
 - **M3 done:** **Dispatch** hands a ready task to a background agent in its own
   worktree. The first real run went from Ready to In review on its own.
-- **Next:** M4, the checks (`acc gate run`).
+- **M4 done:** **Checks.** `acc gate run` runs a project's checks on the
+  current commit and records the results. Salesforce projects get `format`,
+  `lint`, `static`, `lwc-tests` and a check-only `validate`. `acc done` waits for
+  the required ones. `acc drift <environment>` shows what changed in an org
+  since its branch.
+- **Next:** M5, review and landing.
 
 Install the extension with `npm run package && npm run install-extension`, then
 reload the VSCode window.

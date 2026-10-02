@@ -331,17 +331,40 @@ Source: [Enable Source Tracking in Sandboxes](https://developer.salesforce.com/d
 `acc doctor` checks both (B12.trust and B10.ignore-worktrees). The walkthrough's
 **Do it** opens the terminal and runs `claude` for you.
 
+### B13. Make sure the checks can run
+
+- [ ] Agents can't finish a task until its required checks (`gates.required`)
+  pass. The Salesforce checks `format`, `lint` and `lwc-tests` use the repo's
+  own prettier, ESLint and LWC Jest, so install them once in the main checkout.
+  Task worktrees share its `node_modules`.
+
+  ```bash
+  cd <repo>
+  npm install
+  ```
+
+  If the repo's `package.json` uses husky, `npm install` also turns on its
+  pre-commit hook.
+- [ ] `static` needs Code Analyzer (A1), and `validate` needs the environment's
+  org logged in (B1).
+
+`acc doctor` checks this (B13.gate-tools). `acc gate list` shows each check, and
+`acc gate run` runs them on the current commit.
+
 ### B11. Drift check (any time)
 
 ```bash
-git worktree add --detach ../<client>-drift <branch>     # --detach: the branch may already be checked out
-cd ../<client>-drift
-sf project retrieve start --manifest manifest/baseline-package.xml --target-org "<alias>" --wait 30
-git status --short | grep -vFf <(grep -vh '^#' manifest/environment-specific.txt manifest/known-drift.txt)
-cd - && git worktree remove --force ../<client>-drift
+acc drift <environment>     # e.g. acc drift dev
 ```
 
-A retrieve doesn't change the org.
+This retrieves the baseline manifest from the environment's org into a
+throwaway worktree. It compares that with the branch, as the remote has it,
+leaving out the known-drift and environment-specific lists. It prints nothing
+when they match. Otherwise it lists what changed in the org and what exists only
+there. Add `--keep` to keep the retrieved copy for a closer look. The retrieve
+only reads the org.
+
+`acc doctor` shows the day-to-day org's last result (B11.drift).
 
 ---
 
@@ -382,5 +405,6 @@ step to do. The VSCode walkthrough (M2) shows the same steps.
 | B8 | `acc doctor` | Each Developer environment answers `SourceMember` |
 | B9 | `acc drift --classify` | The drift check is empty after both lists are applied |
 | B10 | `acc init` | Default branch, local default org, and the README sections exist |
-| B11 | `acc drift <environment>` | |
+| B11 | `acc drift <environment>` | The day-to-day org's last drift check was clean, within the last 14 days |
 | B12 | `acc doctor` | Claude Code's state lists the main checkout as trusted, and `.claude/worktrees/` is ignored |
+| B13 | `acc gate list` | Every required gate has a command, and the Salesforce gates' Node tools are installed |

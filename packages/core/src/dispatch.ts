@@ -126,21 +126,20 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean }): stri
   );
   if (sf) {
     lines.push(
-      '- **Salesforce:** validate, never deploy. Use `sf project deploy validate` against the default org to prove a change works. Real deploys happen after a person merges.',
-      '- **Tests:** if you change Apex, name the test classes that cover it and say why each one is the right test.',
+      '- **Salesforce:** validate, never deploy. `acc gate run validate` proves a change with a check-only deploy to the org; nothing is saved. Real deploys happen after a person merges.',
+      '- **Tests:** if you change Apex, name the test classes that cover it and why each is the right one: `acc gate run validate --test <TestClass>="<why>"`, once per class.',
     );
   }
   lines.push('', '## The finish line', '');
+  lines.push('1. **Commit** everything the task needs. Leave nothing uncommitted.');
   if (required.length) {
     lines.push(
-      `1. **Required checks:** ${required.map((g) => `\`${g}\``).join(', ')}. \`acc gate run <name>\` records a passing result for each; \`acc done\` refuses until every one has passed on your latest commit.`,
-      '   If `acc gate run` says it doesn\'t exist yet (it arrives with milestone M4), run the equivalent checks by hand, then finish with `acc block "Checks run by hand: <each result>"` instead of `acc done`, so a person can review them.',
+      `2. **Checks:** run exactly \`acc gate run\`. It runs the required checks (${required.map((g) => `\`${g}\``).join(', ')}) on your latest commit and records each result; \`acc done\` refuses until every one has passed. If one fails, fix it, commit, and run \`acc gate run\` again. If a check can't run at all (it says error), block and quote its message.`,
     );
   } else {
-    lines.push('1. **Checks:** run the project\'s tests or build if it has them, and report the results.');
+    lines.push('2. **Checks:** run the project\'s tests or build if it has them, and report the results.');
   }
   lines.push(
-    '2. **Commit** everything the task needs. Leave nothing uncommitted.',
     '3. **Finish** by running exactly `acc done`, as its own command. It is already on your PATH and pre-approved. Don\'t run it through npm scripts, `npx`, or other wrappers, and don\'t chain it with other commands, or it will stop for permission. If you\'re stuck, run exactly `acc block "<what you need>"` instead, and stop.',
     ...(p.accPath ? [`   If \`acc\` really isn't found, its full path is \`${p.accPath}\`.`] : []),
     '4. **Summarize** in your final message: what changed, how you checked it, and anything a reviewer should look at.',
@@ -170,7 +169,7 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean }): stri
 export function builderSettings(task: Task, config: Config, accBinDir: string, basePath: string): Record<string, unknown> {
   const sf = config.profile === 'salesforce';
   const allow = [
-    'Bash(acc done*)', 'Bash(acc block *)', 'Bash(acc show *)', 'Bash(acc gate run *)',
+    'Bash(acc done*)', 'Bash(acc block *)', 'Bash(acc show *)', 'Bash(acc gate run)', 'Bash(acc gate run *)', 'Bash(acc gate list*)',
     'Bash(git status*)', 'Bash(git diff*)', 'Bash(git add *)', 'Bash(git commit *)', 'Bash(git log*)', 'Bash(git show *)',
     'Bash(npm test*)', 'Bash(npm run *)', 'Bash(npx prettier *)', 'Bash(npx eslint *)',
     ...(sf ? ['Bash(sf project deploy validate *)', 'Bash(sf code-analyzer run *)', 'Bash(sf apex run test *)', 'Bash(sf data query *)'] : []),

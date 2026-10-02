@@ -1,7 +1,9 @@
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { branchFor, type Environment } from '../config.ts';
 import { isTrusted, mainCheckout } from '../dispatch.ts';
+import { type DriftResult, driftReportPath } from '../drift.ts';
+import { gatesFor } from '../gates.ts';
 import {
   fail, firstVersion, ghEnv, LICENSE_TO_TYPE, parseOrgUrl, pass, readText, SECRET_PATTERN, sfJson, skip, unknown, versionAtLeast,
 } from './helpers.ts';
@@ -460,10 +462,57 @@ export const STEPS: Step[] = [
     },
   },
   {
-    id: 'B11.drift', part: 'project', group: 'B11', title: 'Drift check', profiles: ['salesforce'],
-    why: 'Shows what changed in an org since its branch was last updated.',
-    planned: 'M4',
-    check: () => skip('acc drift arrives with milestone M4.'),
+    id: 'B13.gate-tools', part: 'project', group: 'B13', title: 'The required checks can run',
+    why: 'acc done waits for every required check to pass, and a check whose tool is missing can only report an error.',
+    fix: { fromCheck: true, docs: `${DOCS}#b13-make-sure-the-checks-can-run` },
+    check(ctx) {
+      const need = needsProject(ctx);
+      if (need) return need;
+      const config = ctx.config!;
+      const required = config.gates.required;
+      if (!required.length) return skip('No checks are required ("gates.required" is empty).');
+      const defined = gatesFor(config).map((g) => g.name);
+      const undefinedGates = required.filter((n) => !defined.includes(n));
+      if (undefinedGates.length) return fail(`Required, but with no command: ${undefinedGates.join(', ')}. Give each one under "gates.commands" in .acc/config.json.`);
+      let main = ctx.paths!.root;
+      try {
+        main = mainCheckout(ctx.run, ctx.paths!.root);
+      } catch {
+        // fall back to this checkout
+      }
+      // The Salesforce built-ins use the repo's own Node tools; task worktrees share the main checkout's node_modules.
+      const TOOLS: Record<string, string> = { format: 'prettier', lint: 'eslint', 'lwc-tests': 'sfdx-lwc-jest' };
+      const absent = config.profile !== 'salesforce' ? [] : required
+        .filter((n) => TOOLS[n] && !config.gates.commands[n] && !existsSync(join(main, 'node_modules', '.bin', TOOLS[n]!)))
+        .map((n) => TOOLS[n]!);
+      if (absent.length) return fail(`Not installed in ${main}: ${absent.join(', ')}.`, `cd "${main}" && npm install`);
+      return pass(`Ready: ${required.join(', ')}.`);
+    },
+  },
+  {
+    id: 'B11.drift', part: 'project', group: 'B11', title: 'The day-to-day org matches its branch', profiles: ['salesforce'],
+    why: 'A change made straight in an org is lost the next time its branch is deployed there. A drift check finds it first.',
+    fix: { fromCheck: true, docs: `${DOCS}#b11-drift-check-any-time` },
+    check(ctx) {
+      const need = needsProject(ctx);
+      if (need) return need;
+      const env = ctx.config!.environments.find((e) => e.default)!;
+      if (!env.org) return skip(`${env.name} has no org.`);
+      const cmd = `acc drift ${env.branch}`;
+      let report: DriftResult | null = null;
+      try {
+        report = JSON.parse(readFileSync(driftReportPath(ctx.paths!, env.branch), 'utf8')) as DriftResult;
+      } catch {
+        report = null;
+      }
+      if (!report) return { status: 'unknown', detail: `${env.org} hasn't been compared with ${env.branch} yet. It takes a few minutes and only reads the org.`, fix: cmd };
+      const days = Math.floor((Date.now() - Date.parse(report.checkedAt)) / 86_400_000);
+      const when = days < 1 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`;
+      const found = report.changed.length + report.added.length;
+      if (found) return fail(`${env.org} had ${found} difference${found === 1 ? '' : 's'} from ${env.branch} when checked ${when}. Look with: ${cmd} --keep`, cmd);
+      if (days > 14) return { status: 'unknown', detail: `${env.org} matched ${env.branch} ${when}. Check again; orgs change.`, fix: cmd };
+      return pass(`${env.org} matched ${env.branch} ${when}${report.ignored ? `, apart from ${report.ignored} expected differences` : ''}.`);
+    },
   },
 ];
 

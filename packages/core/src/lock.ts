@@ -7,11 +7,12 @@ export interface LockOptions {
   staleMs?: number;
 }
 
-const sleep = (ms: number): void => {
+export const sleep = (ms: number): void => {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 };
 
-function alive(pid: number): boolean {
+/** Whether a process is still running. EPERM means it is, but belongs to someone else. */
+export function alive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;

@@ -3,11 +3,11 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
-  ACTORS, AccError, type Actor, configureRepoAccess, displayState, isReady, loadConfig, makeContext, moveTask, mutate,
-  cleanup, dispatch, githubIssuesToTasks, planInit, type Profile, readLedger, STEPS, receiptHooks, repoPaths, run, runSteps, type State, type StepResult, type TaskInput,
+  ACTORS, AccError, type Actor, type ApexTest, configureRepoAccess, displayState, drift, gatesFor, gateTarget, isReady, loadConfig, makeContext, moveTask, mutate,
+  cleanup, dispatch, githubIssuesToTasks, planInit, type Profile, readLedger, receiptsAt, STEPS, receiptHooks, repoPaths, run, runGates, runSteps, satisfies, type State, type StepResult, type TaskInput,
   upsertTasks, writeConfig,
 } from '../../core/src/index.ts';
-import { checkLabel, stateLabel, table, tone } from './format.ts';
+import { checkLabel, gateLabel, stateLabel, table, tone } from './format.ts';
 
 const VERSION = '0.1.0';
 const now = () => new Date();
@@ -37,6 +37,14 @@ Agents
   acc done [<id>]                       A builder's finish line: moves its task to review
   acc block [<id>] "<reason>"           A builder's way out when stuck
   acc cleanup <id>                      Remove a finished task's worktree, only if nothing would be lost
+
+Checks
+  acc gate run [<gate>...] [--test <ApexTest>=<why>]... [--env <name>] [--task <id>]
+                                        Run the required checks (or the ones named) on this commit
+  acc gate list [--env <name>] [--task <id>]
+                                        The project's checks, and their results on this commit
+  acc drift <environment> [--manifest <path>] [--keep]
+                                        What changed in an org since its branch; prints nothing if none
 
 Every command takes --json. Docs: docs/ONBOARDING.md, docs/DESIGN.md.`;
 
@@ -269,6 +277,78 @@ function cmdSet(o: Opts, id: string, to: string): number {
   return 0;
 }
 
+// ---------------------------------------------------------------- checks
+
+function currentBranch(root: string): string | null {
+  const r = run('git', ['branch', '--show-current'], { cwd: root });
+  return r.code === 0 && r.stdout.trim() ? r.stdout.trim() : null;
+}
+
+/** `--test Name=why` (repeatable). The reason goes in the receipt, so a reviewer sees the builder's thinking. */
+function apexTests(o: Opts): ApexTest[] {
+  return ((o.test as string[] | undefined) ?? []).map((t) => {
+    const [name, ...why] = t.split('=');
+    if (!name?.trim() || !/^[A-Za-z_][\w.]*$/.test(name.trim())) throw new AccError('usage', `--test takes an Apex test class and why it covers the change: --test AccountServiceTest="covers the new discount rule". Got "${t}".`);
+    return { name: name.trim(), reason: why.join('=').trim() };
+  });
+}
+
+function checkTarget(o: Opts) {
+  const { paths, config } = project(process.cwd());
+  const ledger = readLedger(paths.ledger);
+  const branch = currentBranch(paths.root);
+  const { env, task } = gateTarget(config, ledger, branch, { env: o.env as string | undefined, task: (o.task as string | undefined) ?? process.env.ACC_TASK ?? undefined });
+  return { paths, config, env, task, branch };
+}
+
+function cmdGateRun(o: Opts, names: string[]): number {
+  const { paths, config, env, branch } = checkTarget(o);
+  const say = (line: string) => { if (!o.json) process.stderr.write(line + '\n'); };
+  const r = runGates(paths, config, env, names, apexTests(o), {
+    run, now,
+    onStart: (g) => say(tone(`  … ${g.name}${g.heavy ? ' (heavy)' : ''}`, 'dim')),
+    onWait: (g) => say(tone(`  … ${g.name} is waiting for another heavy check on this machine to finish`, 'dim')),
+  });
+  const bad = r.results.filter((x) => !satisfies(x));
+  out(o, () => [
+    `${branch ?? 'HEAD'} at ${r.sha.slice(0, 7)}, against ${r.env.name}${r.env.org ? ` (${r.env.org})` : ''}`,
+    ...r.results.map((x) => `  ${gateLabel(x.status)}${x.gate.padEnd(11)} ${x.summary}`),
+    r.dirty ? tone('Not recorded: there are uncommitted changes, so these results can\'t vouch for a commit. Commit, then run acc gate run again.', 'orange') : '',
+    bad.length ? `${bad.length} to fix: ${bad.map((x) => x.gate).join(', ')}.` : r.dirty ? '' : 'All recorded. acc done will accept this commit.',
+  ].filter(Boolean).join('\n'), r);
+  return bad.length ? 1 : 0;
+}
+
+function cmdGateList(o: Opts): number {
+  const { paths, config, env, branch } = checkTarget(o);
+  const head = run('git', ['rev-parse', 'HEAD'], { cwd: paths.root }).stdout.trim();
+  const receipts = head ? receiptsAt(paths, head) : {};
+  const gates = gatesFor(config).map((g) => ({ name: g.name, about: g.about, required: config.gates.required.includes(g.name), heavy: g.heavy, receipt: receipts[g.name] ?? null }));
+  out(o, () => gates.length
+    ? [`${branch ?? 'HEAD'} at ${head.slice(0, 7)}, against ${env.name}`, '', table([['Gate', 'Required', 'Heavy', 'This commit', 'Checks'], ...gates.map((g) => [
+      g.name, g.required ? 'yes' : '', g.heavy ? 'yes' : '', g.receipt ? gateLabel(g.receipt.status).trimEnd() : tone('not run', 'dim'), g.about,
+    ])])].join('\n')
+    : 'No gates. List commands under "gates.commands" in .acc/config.json, and the required ones under "gates.required".', { sha: head, env: env.branch, gates });
+  return 0;
+}
+
+function cmdDrift(o: Opts, envName: string): number {
+  const { paths, config } = project(process.cwd());
+  if (!o.json) process.stderr.write(tone(`Retrieving the baseline from ${envName}. This only reads the org.\n`, 'dim'));
+  const r = drift(paths, config, envName, { run, now, onWait: () => { if (!o.json) process.stderr.write(tone('Waiting for another heavy check on this machine to finish…\n', 'dim')); } }, { manifest: o.manifest as string | undefined, keep: o.keep === true });
+  const found = r.changed.length + r.added.length;
+  if (o.json) out(o, () => '', r);
+  else if (found || r.kept) {
+    process.stdout.write([
+      found ? `${r.org} differs from ${r.env} at ${r.base.slice(0, 7)}${r.ignored ? ` (${r.ignored} expected differences left out)` : ''}:` : '',
+      ...(r.changed.length ? ['', `Changed in the org (${r.changed.length}):`, ...r.changed.map((f) => `  ${f}`)] : []),
+      ...(r.added.length ? ['', `Only in the org (${r.added.length}):`, ...r.added.map((f) => `  ${f}`)] : []),
+      r.kept ? `\nKept the retrieved copy at ${r.kept}. Remove it with: git worktree remove --force "${r.kept}"` : '',
+    ].filter((l) => l !== '').join('\n') + '\n');
+  }
+  return found ? 1 : 0;
+}
+
 // ---------------------------------------------------------------- entry
 
 export async function main(argv: string[]): Promise<number> {
@@ -305,6 +385,10 @@ export async function main(argv: string[]): Promise<number> {
       by: { type: 'string' },
       label: { type: 'string' },
       foreground: { type: 'boolean', default: false },
+      test: { type: 'string', multiple: true },
+      task: { type: 'string' },
+      manifest: { type: 'string' },
+      keep: { type: 'boolean', default: false },
     },
   });
   const o = values as Opts;
@@ -345,6 +429,16 @@ export async function main(argv: string[]): Promise<number> {
     case 'cleanup': {
       if (!rest[0]) throw new AccError('usage', 'acc cleanup <id>');
       return cmdCleanup(o, rest[0]);
+    }
+    case 'gate': {
+      const [sub, ...names] = rest;
+      if (sub === 'run') return cmdGateRun(o, names);
+      if (sub === 'list') return cmdGateList(o);
+      throw new AccError('usage', 'acc gate run [<gate>...] | acc gate list');
+    }
+    case 'drift': {
+      if (!rest[0]) throw new AccError('usage', 'acc drift <environment>');
+      return cmdDrift(o, rest[0]);
     }
     case 'list': return cmdList(o, false);
     case 'ready': return cmdList(o, true);

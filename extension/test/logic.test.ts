@@ -29,7 +29,8 @@ test('machine and project walkthroughs hold every step except planned ones', () 
   const [machine, project] = buildWalkthroughs(STEPS);
   const ids = [...machine!.steps, ...project!.steps].map((s) => s.id);
   assert.deepEqual(ids, walkthroughSteps(STEPS).map((s) => s.id));
-  assert.ok(!ids.includes('A4.plugin') && !ids.includes('B11.drift'), 'planned steps stay out');
+  assert.ok(!ids.includes('A4.plugin'), 'planned steps stay out');
+  assert.ok(ids.includes('B11.drift') && ids.includes('B13.gate-tools'), 'M4\'s steps are in');
   assert.ok(machine!.steps.every((s) => s.id.startsWith('A')));
   assert.ok(project!.steps.every((s) => s.id.startsWith('B')));
   assert.equal(new Set(ids).size, ids.length);

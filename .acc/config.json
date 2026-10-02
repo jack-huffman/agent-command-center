@@ -33,8 +33,12 @@
     "setup": []
   },
   "gates": {
-    "required": [],
-    "commands": {}
+    "required": [
+      "check"
+    ],
+    "commands": {
+      "check": "npm run check"
+    }
   },
   "secretScan": {
     "paths": [

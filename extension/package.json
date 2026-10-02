@@ -1062,6 +1062,29 @@
             "completionEvents": [
               "onContext:acc.step.B12.trust"
             ]
+          },
+          {
+            "id": "B13.gate-tools",
+            "title": "The required checks can run",
+            "description": "acc done waits for every required check to pass, and a check whose tool is missing can only report an error.\n\n[Check](command:acc.step.check?%5B%22B13.gate-tools%22%5D)\n[Do it](command:acc.step.fix?%5B%22B13.gate-tools%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B13.gate-tools%22%5D)",
+            "media": {
+              "markdown": "media/steps/B13.gate-tools.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B13.gate-tools"
+            ]
+          },
+          {
+            "id": "B11.drift",
+            "title": "The day-to-day org matches its branch",
+            "description": "A change made straight in an org is lost the next time its branch is deployed there. A drift check finds it first.\n\n[Check](command:acc.step.check?%5B%22B11.drift%22%5D)\n[Do it](command:acc.step.fix?%5B%22B11.drift%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B11.drift%22%5D)",
+            "media": {
+              "markdown": "media/steps/B11.drift.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B11.drift"
+            ],
+            "when": "acc.profile != generic"
           }
         ]
       }

@@ -300,7 +300,7 @@ config.
 | `lint` | ESLint on changed LWC and Aura JavaScript | when any changed |
 | `static` | `sf code-analyzer run` on changed files. Fails at severity 2 or worse, which is configurable | yes |
 | `lwc-tests` | `sfdx-lwc-jest --findRelatedTests` | when an LWC changed |
-| `validate` | `sf project deploy validate` of the changed source against the environment's org. Uses `NoTestRun` when no Apex changed. Otherwise `RunSpecifiedTests`, with the tests the builder names and its reason for each | yes |
+| `validate` | A check-only deploy of the changed source to the environment's org (`sf project deploy start --dry-run`, D-024). Uses `NoTestRun` when no Apex changed. Otherwise `RunSpecifiedTests`, with the tests the builder names and its reason for each | yes |
 
 - **Changed files** come from `git diff --name-only <branch>...HEAD`, minus
   environment-specific files.
@@ -310,7 +310,13 @@ config.
   path, and any Salesforce job id, org id and tests run. They're tied to a
   commit, so a new commit makes them stale.
 - **Heavy gates** take a slot in a machine-wide semaphore (one at a time by
-  default) and run under `nice -n 15`.
+  default). Every gate runs under `nice -n 15`.
+- **A gate that doesn't apply** records `skip`, which satisfies `acc done`. A
+  run with uncommitted changes records nothing. `error` (couldn't run) is kept
+  apart from `fail` (the change is wrong). See D-024.
+
+`acc gate run [<gate>...]` runs the required gates, or the ones named, on the
+current commit. `acc gate list` shows each gate and its result on this commit.
 
 **Agents validate; they never deploy (D-011).** Parallel branches deploying to
 one shared sandbox would overwrite each other's work. A deploy happens after

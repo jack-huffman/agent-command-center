@@ -123,7 +123,7 @@ test('setup counts steps done, and offers fixes only where something is open', (
     { id: 'B0.repo', part: 'project', title: 'Repo', status: 'pass', detail: 'ok' },
     { id: 'B2.identity', part: 'project', title: 'Identity', status: 'fail', detail: 'wrong', fix: 'git config user.name x' },
     { id: 'A3.trackers', part: 'machine', title: 'Trackers', status: 'unknown', detail: '?' },
-    { id: 'B11.drift', part: 'project', title: 'Drift', status: 'skip', detail: 'later' },
+    { id: 'A4.plugin', part: 'machine', title: 'Plugin', status: 'skip', detail: 'later' },
   ], new Set());
   assert.equal(m.total, 3, 'planned steps stay out');
   assert.equal(m.done, 1);

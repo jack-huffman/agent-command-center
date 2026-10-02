@@ -37,7 +37,7 @@ function sfRepo(over: { config?: unknown; files?: Record<string, string> } = {})
   const repo = makeRepo({
     '.acc/config.json': JSON.stringify(over.config ?? SF_CONFIG, null, 2),
     'README.md': '| `production` | `uat` | `dev` |\n',
-    '.gitignore': '.sf/\n/*.csv\n/*.xls\n/*.xlsx\n/*.eml\n.claude/worktrees/\n',
+    '.gitignore': '.sf/\n/*.csv\n/*.xls\n/*.xlsx\n/*.eml\n.claude/worktrees/\nnode_modules/\n',
     'sfdx-project.json': JSON.stringify({ packageDirectories: [{ path: 'force-app', default: true }] }),
     'manifest/baseline-package.xml': '<Package><types><members>A</members><members>B</members><name>ApexClass</name></types></Package>',
     'manifest/environment-specific.txt': '# env\nforce-app/main/default/settings/MyDomain.settings-meta.xml\n',
@@ -51,6 +51,11 @@ function sfRepo(over: { config?: unknown; files?: Record<string, string> } = {})
   gitIn(repo, 'config', '--add', 'credential.helper', '!f() { test "$1" = get || exit 0; echo username=work-account; echo password=tok123; }; f');
   mkdirSync(join(repo, '.sf'), { recursive: true });
   writeFileSync(join(repo, '.sf', 'config.json'), JSON.stringify({ 'target-org': 'Acme Dev' }));
+  // The checks' tools are installed (B13), and the day-to-day org matched its branch today (B11).
+  mkdirSync(join(repo, 'node_modules', '.bin'), { recursive: true });
+  writeFileSync(join(repo, 'node_modules', '.bin', 'prettier'), '');
+  mkdirSync(join(repo, '.git', 'acc', 'drift'), { recursive: true });
+  writeFileSync(join(repo, '.git', 'acc', 'drift', 'dev.json'), JSON.stringify({ env: 'dev', changed: [], added: [], ignored: 2, checkedAt: new Date().toISOString() }));
   return repo;
 }
 
@@ -82,7 +87,8 @@ test('a fully set-up Salesforce project passes every check that can be automated
   assert.deepEqual(notPassing.map(([id, v]) => `${id}: ${v.detail}`), []);
   assert.equal(r['B6.org-match']!.detail, 'production → acme, uat → acme--uat, dev → acme--dev');
   assert.equal(r['A4.plugin']!.status, 'skip');
-  assert.equal(r['B11.drift']!.status, 'skip');
+  assert.equal(r['B11.drift']!.status, 'pass');
+  assert.equal(r['B13.gate-tools']!.detail, 'Ready: format, validate.');
 });
 
 test('outside a repo, project steps say so instead of failing one by one', () => {
@@ -223,4 +229,14 @@ test('B12.trust fails until Claude Code has been trusted in the main checkout, a
   assert.match(r['B12.trust']!.detail, /hasn't been trusted in/);
   assert.equal(r['B10.ignore-worktrees']!.status, 'fail');
   assert.match(r['B10.ignore-worktrees']!.fix ?? '', /\.claude\/worktrees\//);
+});
+
+test('B13 names a required check with no command, and the tools a Salesforce repo hasn\'t installed', () => {
+  const missing = sfRepo({ config: { ...SF_CONFIG, gates: { required: ['format', 'lint', 'smoke'] } } });
+  assert.match(statuses(missing)['B13.gate-tools']!.detail, /Required, but with no command: smoke/);
+  const noLint = sfRepo({ config: { ...SF_CONFIG, gates: { required: ['format', 'lint'] } } });
+  const r = statuses(noLint)['B13.gate-tools']!;
+  assert.equal(r.status, 'fail');
+  assert.match(r.detail, /Not installed in .*: eslint\./);
+  assert.equal(statuses(sfRepo({ config: { ...SF_CONFIG, gates: { required: ['lint'], commands: { lint: 'npm run lint' } } } }))['B13.gate-tools']!.status, 'pass', 'a command of the project\'s own needs nothing extra');
 });

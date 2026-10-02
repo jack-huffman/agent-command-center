@@ -307,7 +307,7 @@ export function checkMove(ledger: Ledger, config: Config, task: Task, req: MoveR
     }
     if (r === 'gatesPassed') {
       const missing = hooks.missingGates(task);
-      if (missing.length) problems.push(`These required checks haven't passed on the current commit: ${missing.join(', ')}.`);
+      if (missing.length) problems.push(`These required checks haven't passed on the current commit: ${missing.join(', ')}. Commit everything, then run: acc gate run`);
     }
   }
   return problems;
