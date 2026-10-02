@@ -15,8 +15,12 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import { agentsModel, environmentsModel, type Model, setupModel, tasksModel, VIEW_KINDS, type ViewKind, worktreesModel } from '../src/model.ts';
-import { sampleHub, sampleSetup } from './fixtures.ts';
+import { agentsModel, environmentsModel, type Model, setupModel, tasksModel, VIEW_KINDS, worktreesModel } from '../src/model.ts';
+import { sampleBoards, sampleHub, sampleSetup, sampleTicket } from './fixtures.ts';
+
+/** Every page the screenshot script can draw: the five tabs, and a ticket's page. */
+export const PAGES = [...VIEW_KINDS, 'ticket'] as const;
+export type Page = (typeof PAGES)[number];
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -31,6 +35,7 @@ export const THEMES = {
     'button-secondaryBackground': '#313131', 'button-secondaryForeground': '#cccccc', 'button-secondaryHoverBackground': '#3c3c3c',
     'badge-background': '#616161', 'badge-foreground': '#f8f8f8', 'textLink-foreground': '#4daafc', 'textCodeBlock-background': '#2b2b2b',
     'progressBar-background': '#0078d4', 'charts-orange': '#d18616', 'charts-blue': '#3794ff',
+    'input-background': '#313131', 'input-foreground': '#cccccc', 'input-border': '#3c3c3c',
   },
   light: {
     'font-family': '-apple-system, BlinkMacSystemFont, sans-serif', 'font-size': '13px', 'editor-font-family': 'Menlo, Monaco, monospace',
@@ -41,14 +46,16 @@ export const THEMES = {
     'button-secondaryBackground': '#e5e5e5', 'button-secondaryForeground': '#3b3b3b', 'button-secondaryHoverBackground': '#cccccc',
     'badge-background': '#cccccc', 'badge-foreground': '#3b3b3b', 'textLink-foreground': '#005fb8', 'textCodeBlock-background': '#f2f2f2',
     'progressBar-background': '#005fb8', 'charts-orange': '#d18616', 'charts-blue': '#1a85ff',
+    'input-background': '#ffffff', 'input-foreground': '#3b3b3b', 'input-border': '#cecece',
   },
 } satisfies Record<string, Record<string, string>>;
 export type Theme = keyof typeof THEMES;
 
-export function sampleModel(kind: ViewKind, now = Date.now()): Model {
+export function sampleModel(kind: Page, now = Date.now()): Model {
   const hub = sampleHub(now);
   switch (kind) {
-    case 'tasks': return tasksModel(hub);
+    case 'ticket': return sampleTicket(now);
+    case 'tasks': return tasksModel(hub, () => sampleBoards());
     case 'agents': return agentsModel(hub);
     case 'worktrees': return worktreesModel(hub);
     case 'environments': return environmentsModel(hub);
@@ -63,7 +70,7 @@ export function sampleModel(kind: ViewKind, now = Date.now()): Model {
  * A page that loads the built webview the way VSCode does: a stub API answers `ready` with the model.
  * Screenshots can't hover, so each :hover rule is copied to a class put on the first row or card.
  */
-export function pageFor(kind: ViewKind, theme: Theme, model: Model): string {
+export function pageFor(kind: Page, theme: Theme, model: Model): string {
   const vars = Object.entries(THEMES[theme]).map(([k, v]) => `--vscode-${k}: ${v};`).join(' ');
   // `<` escaped, so no string in the model can close the script tag.
   const json = JSON.stringify(model).replace(/</g, '\\u003c');
@@ -122,9 +129,9 @@ function main(argv: string[]): number {
     args: argv, allowPositionals: true,
     options: { width: { type: 'string', default: '1000,620,480' }, theme: { type: 'string', default: 'dark,light' }, height: { type: 'string', default: '900' }, out: { type: 'string' } },
   });
-  const views = positionals.length ? positionals : [...VIEW_KINDS];
-  const bad = views.filter((v) => !(VIEW_KINDS as readonly string[]).includes(v));
-  if (bad.length) return fail(`Unknown tab: ${bad.join(', ')}. Tabs: ${VIEW_KINDS.join(', ')}.`);
+  const views = positionals.length ? positionals : [...PAGES];
+  const bad = views.filter((v) => !(PAGES as readonly string[]).includes(v));
+  if (bad.length) return fail(`Unknown page: ${bad.join(', ')}. Pages: ${PAGES.join(', ')}.`);
   const themes = values.theme.split(',');
   if (themes.some((t) => !(t in THEMES))) return fail(`Themes: ${Object.keys(THEMES).join(', ')}.`);
   const widths = values.width.split(',').map(Number);
@@ -141,7 +148,7 @@ function main(argv: string[]): number {
   try {
     cpSync(join(extensionDir, 'dist', 'webview'), join(work, 'webview'), { recursive: true });
     const now = Date.now();
-    for (const view of views as ViewKind[]) {
+    for (const view of views as Page[]) {
       for (const theme of themes as Theme[]) {
         const page = join(work, `${view}-${theme}.html`);
         writeFileSync(page, pageFor(view, theme, sampleModel(view, now)));

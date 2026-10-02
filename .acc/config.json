@@ -22,7 +22,11 @@
   ],
   "environmentSpecific": null,
   "knownDrift": null,
-  "trackers": [],
+  "trackers": [
+    {
+      "kind": "github"
+    }
+  ],
   "agents": {
     "max": 3,
     "permissionMode": "acceptEdits"

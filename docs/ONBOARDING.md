@@ -32,9 +32,20 @@ Placeholders: `<client>` is the project's short name. `<prod>`, `<qa>` and
     changes the account for every session on the machine.
   - Each repo pins its own account instead (step B2).
 
-- [ ] **A3. Connect the trackers.**
-  - **Jira:** connect the Atlassian connector in claude.ai settings.
-  - **GitHub Issues:** works through `gh`, with nothing else to set up.
+- [ ] **A3. Connect the trackers.** Each repo names its own in `.acc/config.json`
+  (`"trackers"`). The Tasks tab shows that tracker's board, and every ticket
+  opens as a page you can work from (D-026).
+  - **Jira:** create an API token at
+    [id.atlassian.com](https://id.atlassian.com/manage-profile/security/api-tokens),
+    then run **Agent Command Center: Connect to Jira** from the Command Palette.
+    The token is kept in VSCode's secret storage, one per Jira site.
+    `{ "kind": "jira", "site": "acme.atlassian.net", "project": "ACME" }`, with
+    `"board": <id>` to pick a board other than the project's first.
+  - **GitHub Issues:** `{ "kind": "github" }` uses the project's repo and
+    account through `gh`, with nothing else to set up. To use a GitHub
+    Project's columns rather than Open and Closed, give the account Projects
+    access once: `gh auth refresh -s project` while it's the active account.
+    Add `"board": <project number>` to pick a Project.
   - **monday.com and Slack:** later.
 
 - [ ] **A4. Install the plugin.** This becomes available once milestone M5 lands:

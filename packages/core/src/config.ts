@@ -31,6 +31,8 @@ export interface Tracker {
   site: string | null;
   project: string | null;
   repo: string | null;
+  /** The board whose columns the Tasks board shows: a Jira board id, or a GitHub Project number. */
+  board: number | null;
 }
 
 export interface Config {
@@ -127,11 +129,16 @@ export function parseConfig(raw: unknown): ParseResult {
         errors.push(`trackers[${i}]: a Jira tracker needs "site" and "project".`);
         return;
       }
+      if (t.board !== undefined && t.board !== null && !(Number.isInteger(t.board) && (t.board as number) > 0)) {
+        errors.push(`trackers[${i}]: "board" must be a Jira board id or a GitHub Project number.`);
+        return;
+      }
       trackers.push({
         kind: t.kind,
         site: isStr(t.site) ? t.site : null,
         project: isStr(t.project) ? t.project : null,
         repo: isStr(t.repo) ? t.repo : null,
+        board: Number.isInteger(t.board) ? (t.board as number) : null,
       });
     });
   }

@@ -4,12 +4,13 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { type AgentsModel, type TasksModel, VIEW_KINDS, type WorktreesModel } from '../src/model.ts';
-import { findChrome, pageFor, sampleModel, THEMES } from '../scripts/screenshot.ts';
+import { findChrome, PAGES, pageFor, sampleModel, THEMES } from '../scripts/screenshot.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 test('every tab has sample data, built by the real model functions', () => {
-  for (const kind of VIEW_KINDS) assert.equal(sampleModel(kind).kind, kind);
+  for (const kind of PAGES) assert.equal(sampleModel(kind).kind, kind);
+  assert.deepEqual(PAGES.filter((p) => !(VIEW_KINDS as readonly string[]).includes(p)), ['ticket'], 'plus a ticket\'s page');
 });
 
 test('the sample data shows every style: each board column, each kind of session, each kind of worktree', () => {

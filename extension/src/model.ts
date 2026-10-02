@@ -2,7 +2,10 @@
  * What each editor tab shows, as plain data. Built here from the hub's data, posted to the webview,
  * and rendered there with text only (no HTML from data). No vscode import, so it's testable.
  */
-import { DISPLAY } from '../../packages/core/src/ledger.ts';
+import { DISPLAY, type Task } from '../../packages/core/src/ledger.ts';
+import type { GateStatus } from '../../packages/core/src/receipts.ts';
+import { type Doc, fromMarkdown } from '../../packages/core/src/trackers/doc.ts';
+import type { StatusCategory, Ticket } from '../../packages/core/src/trackers/types.ts';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import type { Environment } from '../../packages/core/src/config.ts';
 import { agentLook, type AgentSession, type DoctorItem, ENV_ICON, groupTasks, isUnder, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
@@ -92,10 +95,10 @@ export interface Column extends Look {
 
 export interface TasksModel {
   kind: 'tasks';
-  projects: { name: string; root: string; github: boolean; columns: Column[]; total: number }[];
+  projects: { name: string; root: string; github: boolean; columns: Column[]; total: number; boards: TrackerBoard[] }[];
 }
 
-export function tasksModel(hub: HubLike): TasksModel {
+export function tasksModel(hub: HubLike, boards: (root: string) => BoardInput[] = () => []): TasksModel {
   return {
     kind: 'tasks',
     projects: hub.projects.map((p) => {
@@ -112,8 +115,206 @@ export function tasksModel(hub: HubLike): TasksModel {
           })),
         };
       });
-      return { name: p.name, root: p.root, github: !!p.config.github, columns, total: rows.length };
+      return { name: p.name, root: p.root, github: !!p.config.github, columns, total: rows.length, boards: boards(p.root).map((b) => trackerBoard(b, rows, p.root)) };
     }),
+  };
+}
+
+// ---------------------------------------------------------------- tracker boards (D-026)
+
+/** Blue while a ticket is moving; to-do and done stay neutral, so orange keeps meaning a person is needed. */
+export const CATEGORY_TONE: Record<StatusCategory, Tone> = { todo: 'neutral', doing: 'blue', done: 'neutral' };
+
+export interface PersonChip {
+  name: string;
+  initials: string;
+}
+
+export const initials = (name: string): string => name.replace(/[^\p{L}\p{N}\s.-]/gu, '').split(/[\s.-]+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join('') || '?';
+const chip = (p: { name: string }): PersonChip => ({ name: p.name, initials: initials(p.name) });
+
+/** A codicon for each kind of ticket, so a bug reads as a bug at a glance. */
+export function typeIcon(type: string | null): string {
+  const t = (type ?? '').toLowerCase();
+  if (t.includes('bug') || t.includes('defect')) return 'bug';
+  if (t.includes('epic')) return 'zap';
+  if (t.includes('story')) return 'bookmark';
+  if (t.includes('sub')) return 'list-tree';
+  if (t.includes('task')) return 'tasklist';
+  if (t.includes('improve') || t.includes('feature')) return 'lightbulb';
+  return 'issues';
+}
+
+export function priorityIcon(priority: string | null): string | null {
+  const p = (priority ?? '').toLowerCase();
+  if (!p) return null;
+  if (/highest|blocker|critical|urgent/.test(p)) return 'chevron-up';
+  if (/high/.test(p)) return 'arrow-up';
+  if (/lowest|trivial/.test(p)) return 'chevron-down';
+  if (/low|minor/.test(p)) return 'arrow-down';
+  return null; // medium, normal: the ordinary case needs no mark
+}
+
+/** What the extension knows about one tracker's board (see trackers.ts). */
+export interface BoardInput {
+  index: number;
+  kind: 'github' | 'jira';
+  title: string;
+  board: { source: string; title: string; url: string | null; notice: string | null; columns: { id: string; name: string; category: StatusCategory; statusIds: string[] }[]; cards: { key: string; title: string; url: string; status: { id: string; name: string }; type: string | null; assignees: { name: string }[]; labels: { name: string; color: string | null }[]; priority: string | null }[] } | null;
+  error: string | null;
+  connect: { command: string; label: string; arg: string } | null;
+  loading: boolean;
+}
+
+export interface TrackerCard {
+  key: string;
+  title: string;
+  type: string | null;
+  typeIcon: string;
+  priority: string | null;
+  priorityIcon: string | null;
+  labels: { name: string; color: string | null }[];
+  assignees: PersonChip[];
+  status: string;
+  /** The task acc keeps for this ticket, when there is one: where it is, and its next step. */
+  acc: { look: Look; needsYou: boolean; action: Action | null } | null;
+}
+
+export interface TrackerColumn {
+  id: string;
+  name: string;
+  tone: Tone;
+  done: boolean;
+  cards: TrackerCard[];
+}
+
+export interface TrackerBoard {
+  index: number;
+  kind: 'github' | 'jira';
+  title: string;
+  source: string | null;
+  url: string | null;
+  notice: string | null;
+  error: string | null;
+  connect: { command: string; label: string; arg: string } | null;
+  loading: boolean;
+  columns: TrackerColumn[];
+}
+
+/** The agent's side of a ticket: acc's own state, or what the agent is doing about it. */
+function accLook(row: TaskRow): Look {
+  if (row.agent && row.display === 'needs-you') return row.agent;
+  const d = DISPLAY[row.display];
+  return { label: d.label, icon: d.icon, tone: d.tone };
+}
+
+export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): TrackerBoard {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const columns: TrackerColumn[] = (b.board?.columns ?? []).map((c) => ({
+    id: c.id, name: c.name, tone: CATEGORY_TONE[c.category], done: c.category === 'done',
+    cards: (b.board?.cards ?? []).filter((card) => c.statusIds.includes(card.status.id)).map((card): TrackerCard => {
+      const row = byId.get(card.key);
+      const next = row ? cardActions(row, { project: root, task: row.id }).find((a) => a.primary && (a.command === 'acc.task.dispatch' || a.command === 'acc.task.attach')) ?? null : null;
+      return {
+        key: card.key, title: card.title, type: card.type, typeIcon: typeIcon(card.type), priority: card.priority, priorityIcon: priorityIcon(card.priority),
+        labels: card.labels, assignees: card.assignees.map(chip), status: card.status.name,
+        acc: row ? { look: accLook(row), needsYou: row.display === 'needs-you', action: next } : null,
+      };
+    }),
+  }));
+  return {
+    index: b.index, kind: b.kind, title: b.board?.title ?? b.title, source: b.board?.source ?? null, url: b.board?.url ?? null,
+    notice: b.board?.notice ?? null, error: b.error, connect: b.connect, loading: b.loading, columns,
+  };
+}
+
+// ---------------------------------------------------------------- a ticket's page (D-026)
+
+export interface TicketAcc {
+  look: Look;
+  environment: string;
+  waitingOn: string[];
+  blocker: string | null;
+  agent: Look | null;
+  worktree: string | null;
+  branch: string | null;
+  checks: { gate: string; status: GateStatus; summary: string }[];
+  history: { at: string; from: string | null; to: string; by: string; reason: string | null }[];
+  actions: Action[];
+}
+
+export interface TicketModel {
+  kind: 'ticket';
+  project: string;
+  tracker: number | null;
+  key: string;
+  title: string;
+  url: string | null;
+  sourceLabel: string;
+  sourceKind: 'github' | 'jira' | 'acc';
+  loading: boolean;
+  error: string | null;
+  connect: { command: string; label: string; arg: string } | null;
+  type: string | null;
+  typeIcon: string;
+  status: { name: string; tone: Tone } | null;
+  assignees: PersonChip[];
+  reporter: PersonChip | null;
+  labels: { name: string; color: string | null }[];
+  priority: string | null;
+  priorityIcon: string | null;
+  created: string | null;
+  updated: string | null;
+  body: Doc;
+  comments: { id: string; author: PersonChip; created: string; body: Doc; url: string | null }[];
+  related: { key: string; title: string; relation: string; url: string | null }[];
+  /** What the page may change in the tracker. Nothing, for a task acc alone keeps. */
+  can: { status: boolean; assign: boolean; labels: boolean; comment: boolean };
+  acc: TicketAcc | null;
+  /** A tracker ticket acc doesn't keep yet, which "Track in acc" adds to the ledger. */
+  trackable: boolean;
+}
+
+export interface TicketInput {
+  project: string;
+  tracker: number | null;
+  trackerTitle: string | null;
+  key: string;
+  ticket: Ticket | null;
+  loading: boolean;
+  error: string | null;
+  connect: TicketModel['connect'];
+  row: TaskRow | null;
+  task: Task | null;
+  checks: TicketAcc['checks'];
+}
+
+export function ticketModel(i: TicketInput): TicketModel {
+  const t = i.ticket;
+  const live = i.tracker !== null;
+  const acc: TicketAcc | null = i.row && i.task ? {
+    look: accLook(i.row), environment: i.task.environment, waitingOn: i.row.deps, blocker: i.task.blocker,
+    agent: i.row.agent ?? null, worktree: i.task.run?.worktree ?? null, branch: i.task.run?.branch ?? null, checks: i.checks,
+    history: i.task.history.map((h) => ({ at: h.at, from: h.from, to: h.to, by: h.by, reason: h.reason ?? null })).reverse(),
+    actions: cardActions(i.row, { project: i.project, task: i.row.id }).filter((a) => a.command !== 'acc.task.show' && a.command !== 'acc.task.openTicket'),
+  } : null;
+  const own = !live && i.task;
+  return {
+    kind: 'ticket', project: i.project, tracker: i.tracker, key: t?.key ?? i.key,
+    title: t?.title ?? i.task?.title ?? i.key, url: t?.url ?? i.task?.source.url ?? null,
+    sourceLabel: i.trackerTitle ?? 'Task kept by acc', sourceKind: t?.kind ?? (live ? (i.trackerTitle?.startsWith('Jira') ? 'jira' : 'github') : 'acc'),
+    loading: i.loading, error: i.error, connect: i.connect,
+    type: t?.type ?? null, typeIcon: typeIcon(t?.type ?? null),
+    status: t ? { name: t.status.name, tone: CATEGORY_TONE[t.status.category] } : acc ? { name: acc.look.label, tone: acc.look.tone } : null,
+    assignees: (t?.assignees ?? []).map(chip), reporter: t?.reporter ? chip(t.reporter) : null,
+    labels: t?.labels ?? (i.task?.labels ?? []).map((name) => ({ name, color: null })),
+    priority: t?.priority ?? null, priorityIcon: priorityIcon(t?.priority ?? null),
+    created: t?.created ?? i.task?.createdAt ?? null, updated: t?.updated ?? i.task?.updatedAt ?? null,
+    body: t?.body ?? (own ? fromMarkdown(i.task!.brief) : { blocks: [] }),
+    comments: (t?.comments ?? []).map((c) => ({ id: c.id, author: chip(c.author), created: c.created, body: c.body, url: c.url })),
+    related: t?.related ?? (i.task?.deps ?? []).map((d) => ({ key: d, title: '', relation: 'depends on', url: null })),
+    can: { status: !!t, assign: !!t, labels: !!t, comment: !!t },
+    acc, trackable: !!t && !i.task,
   };
 }
 
@@ -288,14 +489,37 @@ export function setupModel(items: DoctorItem[], confirmed: Set<string>): SetupMo
   return { kind: 'setup', done: all.filter((s) => s.look.tone !== 'orange').length, total: all.length, parts };
 }
 
-export type Model = TasksModel | AgentsModel | WorktreesModel | EnvironmentsModel | SetupModel;
+export type Model = TasksModel | AgentsModel | WorktreesModel | EnvironmentsModel | SetupModel | TicketModel;
 
 /** Messages the webview sends. Everything else is ignored. */
-export type FromWebview = { type: 'ready' } | { type: 'refresh' } | { type: 'run'; command: string; ref: Ref } | { type: 'toolbar'; command: string; project?: string };
+export const TICKET_ACTIONS = ['comment', 'status', 'assign', 'labels', 'track', 'refresh'] as const;
+export type TicketAction = (typeof TICKET_ACTIONS)[number];
+
+export type FromWebview =
+  | { type: 'ready' } | { type: 'refresh' }
+  | { type: 'run'; command: string; ref: Ref }
+  | { type: 'toolbar'; command: string; project?: string; arg?: string }
+  /** Open a ticket's page. tracker is null for a task acc alone keeps. */
+  | { type: 'ticket'; project: string; tracker: number | null; key: string }
+  /** A card dropped on another column of a tracker board. */
+  | { type: 'move'; project: string; tracker: number; key: string; to: string }
+  | { type: 'ticket-action'; action: TicketAction; text?: string }
+  /** A link in a ticket. Only web links are opened. */
+  | { type: 'open'; url: string };
+
+const KEY = /^[A-Z][A-Z0-9_]*-\d+$/i;
+const short = (v: unknown, max = 500): v is string => typeof v === 'string' && v.length > 0 && v.length <= max;
 
 export function isFromWebview(m: unknown): m is FromWebview {
-  const x = m as { type?: unknown; command?: unknown };
+  const x = m as Record<string, unknown> | null;
   if (!x || typeof x.type !== 'string') return false;
-  if (x.type === 'ready' || x.type === 'refresh') return true;
-  return (x.type === 'run' || x.type === 'toolbar') && typeof x.command === 'string' && x.command.startsWith('acc.');
+  switch (x.type) {
+    case 'ready': case 'refresh': return true;
+    case 'run': case 'toolbar': return typeof x.command === 'string' && x.command.startsWith('acc.') && (x.arg === undefined || short(x.arg));
+    case 'ticket': return short(x.project, 4096) && short(x.key, 100) && KEY.test(x.key as string) && (x.tracker === null || Number.isInteger(x.tracker));
+    case 'move': return short(x.project, 4096) && short(x.key, 100) && KEY.test(x.key as string) && Number.isInteger(x.tracker) && typeof x.to === 'string' && x.to.length <= 200;
+    case 'ticket-action': return (TICKET_ACTIONS as readonly string[]).includes(x.action as string) && (x.text === undefined || (typeof x.text === 'string' && x.text.length <= 65_536));
+    case 'open': return short(x.url, 4096) && /^(https?:|mailto:)/i.test(x.url as string);
+    default: return false;
+  }
 }

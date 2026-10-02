@@ -17,17 +17,26 @@ export class Sidebar {
   private readonly acc: Acc;
   private readonly log: vscode.LogOutputChannel;
   private readonly terminals = new Map<string, vscode.Terminal>();
+  /** Opens a task's page (D-026). Without it, Details falls back to a plain document. */
+  private readonly openTicket: ((root: string, key: string) => void) | null;
 
-  constructor(hub: Hub, acc: Acc, log: vscode.LogOutputChannel) {
+  constructor(hub: Hub, acc: Acc, log: vscode.LogOutputChannel, openTicket: ((root: string, key: string) => void) | null = null) {
     this.hub = hub;
     this.acc = acc;
     this.log = log;
+    this.openTicket = openTicket;
   }
 
   register(reg: (id: string, fn: (...args: any[]) => unknown) => void): void {
     reg('acc.task.add', (n?: TaskNode) => this.addTask(n));
     reg('acc.task.importGithub', (n?: TaskNode) => this.importGithub(n));
-    reg('acc.task.importJira', () => vscode.window.showInformationMessage('Jira import runs through the plugin\'s intake skill, which arrives with milestone M6. Until then, add Jira tickets with "Add task".'));
+    reg('acc.task.importJira', (n?: TaskNode) => {
+      const p = n && 'project' in n ? n.project : this.hub.projects[0];
+      const jira = p?.config.trackers.some((t) => t.kind === 'jira');
+      return vscode.window.showInformationMessage(jira
+        ? 'Jira tickets are on the Tasks board. Open one and choose Track in acc to hand it to an agent.'
+        : 'Add a Jira tracker to .acc/config.json ("trackers": [{ "kind": "jira", "site": "…atlassian.net", "project": "KEY" }]), and its board shows on the Tasks tab.');
+    });
     reg('acc.task.show', (n: TaskNode) => this.showTask(n));
     reg('acc.task.move', (n: TaskNode) => this.moveTask(n));
     reg('acc.task.block', (n: TaskNode) => this.setState(n, 'blocked'));
@@ -126,6 +135,7 @@ export class Sidebar {
 
   private async showTask(n: TaskNode): Promise<void> {
     if (n.kind !== 'task') return;
+    if (this.openTicket) return this.openTicket(n.project.root, n.task.id);
     const ledger = this.hub.ledger(n.project.root);
     const t = ledger?.tasks.find((x) => x.id === n.task.id);
     if (!t) return;

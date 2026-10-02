@@ -469,6 +469,27 @@ Clean up, Intake, Open packet, Open pull request, Block or unblock, and Refresh.
 
 The extension handles every workspace folder that has `.acc/config.json`.
 
+### Boards and ticket pages (D-026)
+
+- **The Tasks tab shows each tracker's own board.** A Jira board's columns are
+  mapped to their statuses. A GitHub Project's columns are its Status options;
+  with no Project, they're Open and Closed. A toggle switches to acc's agent
+  board.
+- **Dragging a card moves the real ticket.** It runs the workflow transition
+  whose target status the column holds. When the workflow offers several, you
+  pick one; when it offers none, the card goes back and the board says so.
+- **Each card shows acc's side** of the ticket when acc keeps it: the state, and
+  the next step, such as Dispatch or Attach.
+- **A ticket's page** has the rendered description, the comments with a comment
+  box, status, assignee and labels, and related tickets. Alongside them are acc's
+  state, the agent, worktree, branch, checks and history. A ticket acc doesn't
+  keep yet can be tracked from there. Tasks with no tracker get the same page
+  from their brief and history.
+- **Rich text is drawn, never injected.** GitHub's markdown and Jira's ADF both
+  become one document model, which the page builds with DOM calls. Raw HTML in a
+  ticket keeps its words and loses its tags. Links open in the browser, and only
+  web links. Images and attachments aren't loaded; they're shown as links.
+
 ### Sidebar (built after M2, D-020)
 
 The Activity Bar's **Agent Command Center** container holds five views. Each

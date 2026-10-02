@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
 import type { Hub } from './hub.ts';
 import {
-  agentsModel, environmentsModel, isFromWebview, type Model, type Ref, setupModel, tasksModel, VIEW_TITLES, type ViewKind, worktreesModel,
+  agentsModel, type BoardInput, environmentsModel, isFromWebview, type Model, type Ref, setupModel, tasksModel, VIEW_TITLES, type ViewKind, worktreesModel,
 } from './model.ts';
 import type { Setup } from './setup.ts';
 
@@ -14,9 +14,19 @@ const ALLOWED = new Set([
   'acc.worktree.open', 'acc.worktree.terminal', 'acc.worktree.reveal', 'acc.worktree.remove',
   'acc.env.openOrg', 'acc.env.openGithub', 'acc.env.compare',
   'acc.step.check', 'acc.step.fix', 'acc.step.openSetup', 'acc.step.confirm', 'acc.openGuide', 'acc.openProjectWalkthrough',
+  'acc.jira.connect', 'acc.trackers.refresh',
 ]);
 
-export function htmlFor(webview: Pick<vscode.Webview, 'cspSource' | 'asWebviewUri'>, base: vscode.Uri, kind: ViewKind, nonce: string): string {
+/** What the board needs from the trackers, and what its cards ask for. */
+export interface BoardDeps {
+  boards(root: string): BoardInput[];
+  openTicket(project: string, tracker: number | null, key: string): void;
+  move(project: string, tracker: number, key: string, to: string): Promise<void>;
+}
+
+export const isWebLink = (url: string): boolean => /^(https?:|mailto:)/i.test(url);
+
+export function htmlFor(webview: Pick<vscode.Webview, 'cspSource' | 'asWebviewUri'>, base: vscode.Uri, kind: ViewKind | 'ticket', nonce: string, title = kind === 'ticket' ? 'Ticket' : VIEW_TITLES[kind]): string {
   const res = (p: string) => webview.asWebviewUri(vscode.Uri.joinPath(base, p)).toString();
   const csp = [
     "default-src 'none'",
@@ -33,10 +43,10 @@ export function htmlFor(webview: Pick<vscode.Webview, 'cspSource' | 'asWebviewUr
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" href="${res('codicons/codicon.css')}">
 <link rel="stylesheet" href="${res('styles.css')}">
-<title>${VIEW_TITLES[kind]}</title>
+<title>${title.replace(/[<>&]/g, '')}</title>
 </head>
 <body data-view="${kind}">
-<main id="app"><p class="muted">Loading ${VIEW_TITLES[kind].toLowerCase()}…</p></main>
+<main id="app"><p class="muted">Loading…</p></main>
 <script nonce="${nonce}" src="${res('main.js')}"></script>
 </body>
 </html>`;
@@ -53,13 +63,15 @@ export class Panels implements vscode.Disposable {
   private readonly setup: Setup;
   private readonly resolve: (command: string, ref: Ref) => unknown;
   private readonly onVisible: (kind: ViewKind, visible: boolean) => void;
+  private readonly boards: BoardDeps;
 
-  constructor(ctx: vscode.ExtensionContext, hub: Hub, setup: Setup, resolve: (command: string, ref: Ref) => unknown, onVisible: (kind: ViewKind, visible: boolean) => void) {
+  constructor(ctx: vscode.ExtensionContext, hub: Hub, setup: Setup, resolve: (command: string, ref: Ref) => unknown, onVisible: (kind: ViewKind, visible: boolean) => void, boards: BoardDeps) {
     this.ctx = ctx;
     this.hub = hub;
     this.setup = setup;
     this.resolve = resolve;
     this.onVisible = onVisible;
+    this.boards = boards;
   }
 
   dispose(): void {
@@ -100,7 +112,7 @@ export class Panels implements vscode.Disposable {
 
   model(kind: ViewKind): Model {
     switch (kind) {
-      case 'tasks': return tasksModel(this.hub);
+      case 'tasks': return tasksModel(this.hub, (root) => this.boards.boards(root));
       case 'agents': return agentsModel(this.hub);
       case 'worktrees': return worktreesModel(this.hub);
       case 'environments': return environmentsModel(this.hub);
@@ -123,8 +135,22 @@ export class Panels implements vscode.Disposable {
       void vscode.commands.executeCommand(kind === 'setup' ? 'acc.setup.refresh' : `acc.${kind === 'environments' ? 'worktrees' : kind}.refresh`);
       return;
     }
+    if (m.type === 'ticket') {
+      if (this.hub.project(m.project)) this.boards.openTicket(m.project, m.tracker, m.key);
+      return;
+    }
+    if (m.type === 'move') {
+      if (this.hub.project(m.project)) void this.boards.move(m.project, m.tracker, m.key, m.to);
+      return;
+    }
+    if (m.type === 'open') {
+      if (isWebLink(m.url)) void vscode.env.openExternal(vscode.Uri.parse(m.url));
+      return;
+    }
+    if (m.type === 'ticket-action') return;
     if (!ALLOWED.has(m.command)) return;
     if (m.type === 'toolbar') {
+      if (m.arg !== undefined) { void vscode.commands.executeCommand(m.command, m.arg); return; }
       void vscode.commands.executeCommand(m.command, m.project ? { project: this.hub.project(m.project), kind: 'place', root: m.project, label: '', sessions: [] } : undefined);
       return;
     }

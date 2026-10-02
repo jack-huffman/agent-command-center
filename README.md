@@ -19,6 +19,10 @@ Salesforce. Project types plug in as profiles.
   `lint`, `static`, `lwc-tests` and a check-only `validate`. `acc done` waits for
   the required ones. `acc drift <environment>` shows what changed in an org
   since its branch.
+- **Boards and tickets:** the Tasks tab shows each tracker's own board: a
+  Jira board's columns, or a GitHub Project's. Drag a card to move the real
+  ticket. Click one for a ticket page, with the description, comments, status,
+  assignee and labels, plus acc's agent, checks and history.
 - **Next:** M5, review and landing.
 
 Install the extension with `npm run package && npm run install-extension`, then
@@ -39,8 +43,8 @@ reload the VSCode window.
   validation are declared per project type. `generic` and `salesforce` come
   first.
 - **Humans keep the gates.** Nothing merges, deploys, closes a ticket or changes
-  a ticket's status unless you ask. Trackers get a comment with the pull request
-  link and nothing else.
+  a ticket's status unless you ask. You can, from the board and the ticket
+  pages. acc never does it on its own.
 - **Light on the machine.** A cap on concurrent agents, default 3.
 - **Readable without colour.** Every state has an icon and a label. Where colour
   helps, it is orange against blue, never red against green.
@@ -57,7 +61,10 @@ docs/           design, roadmap, decisions, research
 
 ## Trackers
 
-GitHub Issues and Jira first. monday.com and Slack come later.
+Each repo lists its own trackers in `.acc/config.json`, so one machine can work
+across clients with different Jira sites, GitHub repos and pipelines. GitHub
+Issues and Jira Cloud first. monday.com, Slack and Azure DevOps come later. See
+[ONBOARDING.md, A3](docs/ONBOARDING.md).
 
 ## Development
 

@@ -7,6 +7,8 @@ import { Panels } from './panels.ts';
 import { accRunner } from './run.ts';
 import { openWalkthrough, Setup } from './setup.ts';
 import { Sidebar } from './sidebar.ts';
+import { TicketPanels } from './ticket.ts';
+import { Trackers } from './trackers.ts';
 import { AgentsProvider, EnvironmentsProvider, SetupProvider, TasksProvider, WorktreesProvider } from './views.ts';
 
 /** Step commands get a step id from walkthrough buttons, or a Setup view item from menus. */
@@ -15,7 +17,8 @@ const stepId = (a: unknown): string => (typeof a === 'string' ? a : (a as { item
 export function activate(context: vscode.ExtensionContext): void {
   const setup = new Setup(context);
   const hub = new Hub();
-  context.subscriptions.push(setup, hub);
+  const trackers = new Trackers(context.secrets, hub, setup.log);
+  context.subscriptions.push(setup, hub, trackers);
 
   // Every VSCode terminal gets the acc command (D-012), with no separate install.
   const accScript = context.asAbsolutePath(join('dist', 'bin', 'acc'));
@@ -55,18 +58,22 @@ export function activate(context: vscode.ExtensionContext): void {
     tasks: { everyMs: 3_000, fn: () => hub.loadTasks() },
     agents: { everyMs: 5_000, fn: () => hub.loadAgents() },
     worktrees: { everyMs: 15_000, fn: () => hub.loadWorktrees() },
+    // Tracker boards are network calls, so they refresh slowly, and at once after any move.
+    boards: { everyMs: 120_000, fn: () => trackers.loadBoards() },
   };
-  const pollKey: Record<ViewKind, string | null> = { tasks: 'tasks', agents: 'agents', worktrees: 'worktrees', environments: 'worktrees', setup: null };
+  const pollKeys: Record<ViewKind, string[]> = { tasks: ['tasks', 'boards'], agents: ['agents'], worktrees: ['worktrees'], environments: ['worktrees'], setup: [] };
   const watching = new Map<string, Set<string>>();
   const want = (kind: ViewKind, source: 'tree' | 'tab', on: boolean) => {
-    const key = pollKey[kind];
-    if (!key) return;
-    const who = watching.get(key) ?? new Set<string>();
-    const id = `${source}:${kind}`;
-    const before = who.size > 0;
-    if (on) who.add(id); else who.delete(id);
-    watching.set(key, who);
-    if (before !== who.size > 0) hub.poll(key, POLLS[key]!.everyMs, POLLS[key]!.fn, who.size > 0);
+    for (const key of pollKeys[kind]) {
+      // The sidebar's Tasks tree lists acc's tasks only; the boards poll for the tab.
+      if (key === 'boards' && source === 'tree') continue;
+      const who = watching.get(key) ?? new Set<string>();
+      const id = `${source}:${kind}`;
+      const before = who.size > 0;
+      if (on) who.add(id); else who.delete(id);
+      watching.set(key, who);
+      if (before !== who.size > 0) hub.poll(key, POLLS[key]!.everyMs, POLLS[key]!.fn, who.size > 0);
+    }
   };
   for (const kind of VIEW_KINDS) {
     const view = views[kind];
@@ -103,15 +110,43 @@ export function activate(context: vscode.ExtensionContext): void {
   };
   // Commands run from a tab's native context menu get the row's data-vscode-context; turn it into the node.
   const regNode = (id: string, fn: (...args: any[]) => unknown) => reg(id, (a: unknown, ...rest: unknown[]) => fn(isWebviewMenuContext(a) ? nodeFor(a.accRef as Ref) : a, ...rest));
-  new Sidebar(hub, accRunner(accScript), setup.log).register(regNode);
-  const panels = new Panels(context, hub, setup, resolve, (kind, visible) => want(kind, 'tab', visible));
-  context.subscriptions.push(panels);
+  const tickets = new TicketPanels(context, hub, trackers, resolve, accRunner(accScript));
+  new Sidebar(hub, accRunner(accScript), setup.log, (root, key) => tickets.show(root, undefined, key)).register(regNode);
+  const panels = new Panels(context, hub, setup, resolve, (kind, visible) => want(kind, 'tab', visible), {
+    boards: (root) => trackers.boardStates(root),
+    openTicket: (root, tracker, key) => tickets.show(root, tracker, key),
+    move: async (root, tracker, key, to) => {
+      const p = hub.project(root);
+      if (!p) return;
+      try {
+        if (await trackers.move(p, tracker, key, to)) await trackers.loadBoards(root);
+        else panels.post('tasks'); // put the card back where it was
+      } catch (e) {
+        void vscode.window.showErrorMessage(`Couldn't move ${key}: ${(e as Error).message}`);
+        panels.post('tasks');
+      }
+    },
+  });
+  context.subscriptions.push(panels, tickets);
+  trackers.onDidChange(() => panels.post('tasks'));
+  reg('acc.jira.connect', async (site?: unknown) => {
+    const sites = [...new Set(hub.projects.flatMap((p) => trackers.trackers(p)).filter((t) => t.kind === 'jira').map((t) => t.site!))];
+    const chosen = typeof site === 'string' ? site : sites.length === 1 ? sites[0] : await vscode.window.showQuickPick(sites, { title: 'Connect to which Jira site?' });
+    if (!chosen) {
+      if (!sites.length) void vscode.window.showInformationMessage('No project here has a Jira tracker. Add one to .acc/config.json: "trackers": [{ "kind": "jira", "site": "…atlassian.net", "project": "KEY" }]');
+      return;
+    }
+    if (await trackers.connectJira(chosen)) tickets.refresh();
+  });
+  reg('acc.jira.disconnect', () => trackers.disconnectJira());
+  reg('acc.trackers.refresh', () => trackers.loadBoards());
   for (const kind of VIEW_KINDS) reg(`acc.open.${kind}`, () => panels.show(kind));
 
   hub.onDidChange((part) => {
     if (part === 'projects') { tasks.refresh(); envs.refresh(); worktrees.refresh(); agents.refresh(); panels.post(); }
-    if (part === 'tasks') { tasks.refresh(); panels.post('tasks'); }
-    if (part === 'agents') { agents.refresh(); views.agents.badge = agentBadge(hub); panels.post('agents'); }
+    if (part === 'projects') void trackers.loadBoards();
+    if (part === 'tasks') { tasks.refresh(); panels.post('tasks'); tickets.refresh(); }
+    if (part === 'agents') { agents.refresh(); views.agents.badge = agentBadge(hub); panels.post('agents'); tickets.refresh(); }
     if (part === 'worktrees') { worktrees.refresh(); envs.refresh(); agents.refresh(); panels.post('worktrees'); panels.post('environments'); panels.post('agents'); }
   });
   setup.onDidChange(() => { steps.set(setup.results(), setup.allConfirmed()); panels.post('setup'); });

@@ -113,13 +113,13 @@ export const STEPS: Step[] = [
     },
   },
   {
-    id: 'A3.trackers', part: 'machine', group: 'A3', title: 'Tracker connectors',
-    why: 'Jira intake goes through the Atlassian connector. GitHub Issues need nothing extra.',
-    fix: { text: 'claude.ai → Settings → Connectors → connect Atlassian.' },
+    id: 'A3.trackers', part: 'machine', group: 'A3', title: 'Trackers connected',
+    why: 'The Tasks board and ticket pages read Jira and GitHub directly (D-026). Jira needs your API token once; GitHub works through gh.',
+    fix: { text: 'In VSCode: Command Palette → "Agent Command Center: Connect to Jira", with an API token from id.atlassian.com. For a GitHub Project\'s columns, run gh auth refresh -s project as the repo\'s account.' },
     check(ctx) {
       const jira = ctx.config?.trackers.some((t) => t.kind === 'jira');
-      if (ctx.config && !jira) return skip('This project doesn\'t use Jira.');
-      return unknown('Connectors live in claude.ai, so this can\'t be checked from here.');
+      if (ctx.config && !jira) return skip('This project doesn\'t use Jira. GitHub Issues work through gh.');
+      return unknown('The Jira token lives in VSCode\'s secret storage, so this can\'t be checked from a terminal. The Tasks board says if it\'s missing.');
     },
   },
   {
