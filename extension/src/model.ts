@@ -257,7 +257,8 @@ export interface TicketAcc {
   agent: Look | null;
   worktree: string | null;
   branch: string | null;
-  checks: { gate: string; status: GateStatus; summary: string }[];
+  /** waived: a person set it aside on this commit (D-031). */
+  checks: { gate: string; status: GateStatus; summary: string; waived?: boolean }[];
   history: { at: string; from: string | null; to: string; by: string; reason: string | null }[];
   actions: Action[];
 }
@@ -937,7 +938,7 @@ export function homeModel(i: HomeInput): HomeModel {
 export type Model = TasksModel | AgentsModel | WorktreesModel | EnvironmentsModel | SetupModel | TicketModel | HomeModel | AgentModel;
 
 /** Messages the webview sends. Everything else is ignored. */
-export const TICKET_ACTIONS = ['comment', 'status', 'assign', 'labels', 'track', 'refresh'] as const;
+export const TICKET_ACTIONS = ['comment', 'status', 'assign', 'labels', 'track', 'refresh', 'waive'] as const;
 export type TicketAction = (typeof TICKET_ACTIONS)[number];
 
 export type FromWebview =

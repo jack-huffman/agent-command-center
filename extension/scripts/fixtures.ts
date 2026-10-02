@@ -217,7 +217,12 @@ export function sampleTicket(now = Date.now()): TicketModel {
   } as unknown as Task;
   return ticketModel({
     project: ROOT, tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira', key: 'ACME-12', ticket, loading: false, error: null, connect: null, row, task, signedInAs: 'jordan@acme.example',
-    checks: [{ gate: 'format', status: 'pass', summary: '3 changed files formatted.' }, { gate: 'static', status: 'pass', summary: 'No violations at severity 2 or worse.' }, { gate: 'validate', status: 'skip', summary: 'Not run on this commit' }],
+    checks: [
+      { gate: 'format', status: 'pass', summary: '3 changed files formatted.' },
+      { gate: 'static', status: 'skip', summary: 'Waived by jordan: the 2 violations predate this change', waived: true },
+      { gate: 'validate', status: 'fail', summary: '4 of 21 tests failed in Acme Dev: CaseRoutingTest.premiumEscalates' },
+      { gate: 'lwc-tests', status: 'skip', summary: 'Not run on this commit' },
+    ],
   });
 }
 

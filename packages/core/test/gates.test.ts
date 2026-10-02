@@ -7,9 +7,10 @@ import { parseConfig, type Config } from '../src/config.ts';
 import { drift, driftReportPath } from '../src/drift.ts';
 import type { RunOptions, RunResult } from '../src/exec.ts';
 import {
-  assertCheckOnly, changesFor, gatesFor, gateTarget, readAnalyzer, readDeploy, runGates, validateArgs,
+  assertCheckOnly, changesFor, gatesFor, gateTarget, readAnalyzer, readDeploy, runGates, validateArgs, waiveGates,
 } from '../src/gates.ts';
-import { emptyLedger } from '../src/ledger.ts';
+import { checkMove, emptyLedger, type Task } from '../src/ledger.ts';
+import { builderSettings } from '../src/dispatch.ts';
 import { repoPaths } from '../src/paths.ts';
 import { readReceipt, receiptHooks } from '../src/receipts.ts';
 import { withSlot } from '../src/semaphore.ts';
@@ -379,4 +380,48 @@ test('sf output that a colour-loving shell coloured still reads: the T-1 validat
   assert.deepEqual(parseJsonOutput('Warning: update available\n{"status":0}'), { status: 0 }, 'a notice before the JSON is skipped');
   const out = readDeploy({ code: 1, stderr: 'Warning: @salesforce/cli update available', stdout: coloured }, 'Acme Dev', [{ name: 'ATest', reason: '' }], 3);
   assert.equal(out.status, 'fail', 'a failed validation, not an error about the update notice');
+});
+
+test('a person waives a failing gate on one commit, with a reason: it satisfies acc done, and a new commit needs checks again (D-031)', () => {
+  const dir = makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, gates: { required: ['lint', 'test'], commands: { lint: 'true', test: 'exit 3' } } }) });
+  const c = config(JSON.parse(readFileSync(join(dir, '.acc/config.json'), 'utf8')));
+  const paths = repoPaths(dir, run);
+  const env = c.environments[0]!;
+  const deps = { run, now, slots: slots() };
+  runGates(paths, c, env, [], [], deps);
+  const sha = gitIn(dir, 'rev-parse', 'HEAD').trim();
+  const task = { id: 'T-1', run: { branch: gitIn(dir, 'branch', '--show-current').trim() } } as Task;
+  const hooks = receiptHooks(paths, c, run);
+  assert.deepEqual(hooks.missingGates(task), ['test']);
+
+  const waive = (gates: string[], reason = 'a test task, never promoted') => waiveGates(paths, c, { sha, env, gates, reason, by: 'human:jordan', now });
+  assert.throws(() => waive(['test'], '  '), /Say why/);
+  assert.throws(() => waive(['nope']), /No gate nope/);
+  assert.throws(() => waive(['lint']), /already passes/);
+  const [r] = waive(['test']);
+  assert.deepEqual([r!.status, r!.summary, r!.waived?.was, r!.waived?.reason], ['skip', 'Waived by jordan: a test task, never promoted', 'fail', 'a test task, never promoted']);
+  assert.deepEqual(hooks.missingGates(task), [], 'a waived gate satisfies the required list');
+
+  const again = runGates(paths, c, env, [], [], deps).results.find((x) => x.gate === 'test')!;
+  assert.deepEqual([again.status, again.summary], ['skip', r!.summary], 'running the gates again keeps the waiver: the failing command isn\'t rerun');
+  assert.equal(readReceipt(paths, sha, 'test')?.waived?.by, 'human:jordan');
+  assert.equal(waive(['test'], 'a better reason')[0]!.waived?.was, 'fail', 'waiving again keeps what it was before the first waiver');
+
+  writeFileSync(join(dir, 'next.txt'), 'more');
+  gitIn(dir, 'add', '-A');
+  gitIn(dir, 'commit', '-q', '-m', 'next');
+  assert.deepEqual(hooks.missingGates(task), ['lint', 'test'], 'a new commit starts with no checks, waived or not');
+});
+
+test('blocked work whose checks are settled goes to review by a person; a builder can\'t, and can\'t waive (D-031)', () => {
+  const c = config({ ...GENERIC_CONFIG, gates: { required: ['test'], commands: { test: 'true' } } });
+  const ledger = emptyLedger();
+  const task = { id: 'T-1', state: 'blocked', deps: [], run: { branch: 'task/T-1' } } as unknown as Task;
+  const settled = { missingGates: () => [] };
+  const missing = { missingGates: () => ['test'] };
+  assert.deepEqual(checkMove(ledger, c, task, { to: 'review', actor: 'human', by: 'human:jordan' }, settled), []);
+  assert.match(checkMove(ledger, c, task, { to: 'review', actor: 'human', by: 'human:jordan' }, missing).join(' '), /test/);
+  assert.match(checkMove(ledger, c, task, { to: 'review', actor: 'builder', by: 'builder:T-1' }, settled).join(' '), /can't move/);
+  const deny = (builderSettings({ id: 'T-1' } as never, c, '/acc/bin', '/usr/bin') as { permissions: { deny: string[] } }).permissions.deny;
+  assert.ok(deny.includes('Bash(acc gate waive*)'));
 });

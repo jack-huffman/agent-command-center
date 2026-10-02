@@ -156,3 +156,24 @@ test('gate run records receipts on the commit, exits 1 while a required check fa
   assert.equal(acc(dir, ['gate', 'run', 'lint', '--test', 'not a class']).code, 2);
   assert.match(acc(dir, ['drift', 'main']).err, /no orgs/);
 });
+
+test('acc gate waive: a person waives a task\'s failing check with a reason; a builder never can (D-031)', () => {
+  const dir = repoWithConfig({ ...GENERIC_CONFIG, gates: { required: ['test'], commands: { test: 'exit 3' } } });
+  assert.equal(acc(dir, ['add', 'Try the process', '--json']).code, 0);
+  const branch = spawnSync('git', ['branch', '--show-current'], { cwd: dir, encoding: 'utf8' }).stdout.trim();
+  const ledgerPath = join(dir, '.git', 'acc', 'ledger.json');
+  const ledger = JSON.parse(readFileSync(ledgerPath, 'utf8'));
+  ledger.tasks[0].run = { branch };
+  writeFileSync(ledgerPath, JSON.stringify(ledger));
+  const id = ledger.tasks[0].id as string;
+  assert.equal(acc(dir, ['gate', 'run']).code, 1);
+  const builder = acc(dir, ['gate', 'waive', 'test', '--task', id, '--reason', 'mine', '--as', 'human'], undefined, { ACC_ROLE: 'builder', ACC_TASK: id });
+  assert.equal(builder.code, 1);
+  assert.match(builder.err, /A builder can't waive its own checks/);
+  assert.match(acc(dir, ['gate', 'waive', 'test', '--task', id]).err, /Say why/);
+  const r = acc(dir, ['gate', 'waive', 'test', '--task', id, '--reason', 'a test task, never promoted', '--json']);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(r.json().waived[0].waived.was, 'fail');
+  const list = acc(dir, ['gate', 'list', '--json']).json();
+  assert.equal(list.gates[0].receipt.status, 'skip');
+});

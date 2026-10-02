@@ -9,7 +9,7 @@ import type { Config, Environment } from './config.ts';
 import { AccError, parseJsonOutput, type RunResult, type Runner, sfEnv } from './exec.ts';
 import type { Ledger, Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
-import { type GateStatus, type Receipt, writeReceipt } from './receipts.ts';
+import { type GateStatus, readReceipt, type Receipt, writeReceipt } from './receipts.ts';
 import { type SlotOptions, withSlot } from './semaphore.ts';
 
 export interface Changes {
@@ -401,6 +401,12 @@ export function runGates(paths: RepoPaths, config: Config, env: Environment, nam
   const results: GateResult[] = [];
   for (const name of wanted) {
     const gate = all.find((g) => g.name === name)!;
+    // A person waived it on this commit (D-031): that stands until there's a new commit.
+    const kept = readReceipt(paths, sha, gate.name);
+    if (kept?.waived) {
+      results.push({ status: 'skip', summary: kept.summary, gate: gate.name, recorded: true, receipt: kept });
+      continue;
+    }
     deps.onStart?.(gate);
     const started = deps.now();
     const plan = gate.plan(input);
@@ -430,4 +436,46 @@ export function runGates(paths: RepoPaths, config: Config, env: Environment, nam
     results.push({ ...outcome, gate: gate.name, recorded: !dirty, receipt });
   }
   return { sha, env, dirty, changes, results };
+}
+
+// ---------------------------------------------------------------- waiving (D-031)
+
+export interface WaiveRequest {
+  sha: string;
+  env: Environment;
+  gates: string[];
+  reason: string;
+  by: string;
+  now: () => Date;
+}
+
+/**
+ * A person sets gates aside on one commit, with a reason (D-031). The waiver is the gate's receipt on
+ * that commit: a skip, which satisfies a required gate, that says who waived it, why, and what it had
+ * been. It holds for that commit only. A gate that passes has nothing to waive.
+ */
+export function waiveGates(paths: RepoPaths, config: Config, req: WaiveRequest): Receipt[] {
+  const all = gatesFor(config);
+  const reason = req.reason.trim();
+  if (!reason) throw new AccError('usage', 'Say why it\'s waived: acc gate waive <gate> --reason "<why>". The reason is kept with the commit\'s checks.');
+  if (!req.gates.length) throw new AccError('usage', `Name the gates to waive. This project's gates: ${all.map((g) => g.name).join(', ') || 'none'}.`);
+  const unknown = req.gates.filter((n) => !all.some((g) => g.name === n));
+  if (unknown.length) throw new AccError('usage', `No gate ${unknown.join(', ')}. This project's gates: ${all.map((g) => g.name).join(', ')}.`);
+  const at = req.now().toISOString();
+  const out: Receipt[] = [];
+  for (const gate of [...new Set(req.gates)]) {
+    const before = readReceipt(paths, req.sha, gate);
+    if (before?.status === 'pass') throw new AccError('refused', `${gate} already passes on ${req.sha.slice(0, 7)}, so there's nothing to waive.`);
+    const was = before?.waived ? before.waived.was : before?.status ?? null;
+    const wasSummary = before?.waived ? before.waived.wasSummary : before?.summary ?? null;
+    const receipt: Receipt = {
+      gate, sha: req.sha, env: req.env.branch, status: 'skip', startedAt: at, finishedAt: at, durationMs: 0,
+      summary: `Waived by ${req.by.replace(/^human:/, '')}: ${reason}`, command: null, log: before?.log ?? null,
+      ...(before?.details ? { details: before.details } : {}),
+      waived: { by: req.by, reason, at, was, wasSummary },
+    };
+    writeReceipt(paths, receipt);
+    out.push(receipt);
+  }
+  return out;
 }

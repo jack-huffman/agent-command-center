@@ -117,7 +117,7 @@ export class TicketPanels implements vscode.Disposable {
     const sha = await runFile('git', ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], p.root);
     const receipts = sha.code === 0 ? receiptsAt({ receipts: join(dirname(p.ledgerPath), 'receipts') } as RepoPaths, sha.stdout.trim()) : {};
     const gates = [...new Set([...required, ...Object.keys(receipts)])];
-    return gates.map((gate) => receipts[gate] ? { gate, status: receipts[gate]!.status, summary: receipts[gate]!.summary } : { gate, status: 'skip' as const, summary: 'Not run on this commit' });
+    return gates.map((gate) => receipts[gate] ? { gate, status: receipts[gate]!.status, summary: receipts[gate]!.summary, waived: !!receipts[gate]!.waived } : { gate, status: 'skip' as const, summary: 'Not run on this commit' });
   }
 
   private async post(o: Open): Promise<void> {
@@ -157,6 +157,7 @@ export class TicketPanels implements vscode.Disposable {
   private async act(o: Open, p: Project, action: string, text?: string): Promise<void> {
     if (action === 'refresh') return this.load(o);
     if (action === 'track') return this.track(o, p);
+    if (action === 'waive') return this.waive(o, p, text ?? '');
     if (o.tracker === null || !o.ticket) return;
     const index = o.tracker;
     const done = (ok: boolean, error?: string) => void o.panel.webview.postMessage({ type: 'done', action, ok, error });
@@ -273,6 +274,35 @@ export class TicketPanels implements vscode.Disposable {
     if (!add.length && !remove.length) return false;
     await client.setLabels(o.key, add, remove);
     return true;
+  }
+
+  /** A person sets a failing check aside on the task's latest commit, with a reason (D-031). */
+  private async waive(o: Open, p: Project, gate: string): Promise<void> {
+    const task = this.hub.ledger(p.root)?.tasks.find((t) => t.id === o.key);
+    if (!task?.run?.branch || !p.config.gates.required.concat(Object.keys(await this.receiptsFor(p, task.run.branch))).includes(gate)) return;
+    const reason = await vscode.window.showInputBox({
+      title: `Waive ${gate} for ${task.id}?`,
+      prompt: 'Why is it fine to set this check aside? The reason is kept with the commit\'s checks. A new commit needs its checks again.',
+      placeHolder: 'For example: a test task, never promoted',
+      ignoreFocusOut: true,
+      validateInput: (v) => (v.trim() ? undefined : 'A waiver needs a reason.'),
+    });
+    if (!reason) return;
+    const r = await this.acc(['gate', 'waive', gate, '--task', task.id, '--reason', reason.trim(), '--json'], p.root);
+    if (r.code !== 0) {
+      let msg = (r.stderr || r.stdout).trim().split('\n')[0] ?? '';
+      try { msg = (JSON.parse(r.stdout) as { message?: string }).message ?? msg; } catch { /* plain text */ }
+      void vscode.window.showWarningMessage(`Couldn't waive ${gate}: ${msg}`);
+    } else {
+      void vscode.window.showInformationMessage(`${gate} is waived on ${task.id}'s latest commit.${task.state === 'blocked' ? ' Move it to In review when you\'re ready.' : ''}`);
+    }
+    await this.hub.loadTasks(true);
+    await this.post(o);
+  }
+
+  private async receiptsFor(p: Project, branch: string) {
+    const sha = await runFile('git', ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], p.root);
+    return sha.code === 0 ? receiptsAt({ receipts: join(dirname(p.ledgerPath), 'receipts') } as RepoPaths, sha.stdout.trim()) : {};
   }
 
   /** Adds a tracker ticket to acc's ledger, so an agent can be dispatched to it. The ticket isn't changed. */

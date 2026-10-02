@@ -515,8 +515,10 @@ function renderTicket(m: TicketModel): Node[] {
         ...(a.worktree ? field('Worktree', clippedSpan(a.worktree.split('/').slice(-2).join('/'))) : []),
       ),
       a.checks.length ? el('div', 'checks', el('h3', '', 'Checks'), ...a.checks.map((c) => el('div', 'check',
-        status({ label: c.status === 'skip' ? (c.summary.startsWith('Not run') ? 'not run' : 'skip') : c.status, icon: c.status === 'pass' ? 'pass' : c.status === 'fail' ? 'error' : c.status === 'error' ? 'warning' : 'circle-slash', tone: c.status === 'pass' ? 'blue' : c.status === 'skip' ? 'neutral' : 'orange' }),
-        el('span', 'mono', c.gate), Object.assign(el('span', 'muted small check-sum', c.summary), { title: c.summary })))) : null,
+        status({ label: c.waived ? 'waived' : c.status === 'skip' ? (c.summary.startsWith('Not run') ? 'not run' : 'skip') : c.status, icon: c.waived ? 'debug-step-over' : c.status === 'pass' ? 'pass' : c.status === 'fail' ? 'error' : c.status === 'error' ? 'warning' : 'circle-slash', tone: c.status === 'pass' ? 'blue' : c.status === 'skip' ? 'neutral' : 'orange' }),
+        el('span', 'mono', c.gate), Object.assign(el('span', 'muted small check-sum', c.summary), { title: c.summary }),
+        // A person can set a failing check aside, with a reason (D-031).
+        (c.status === 'fail' || c.status === 'error') && a.branch ? Object.assign(button('Waive…', 'debug-step-over', () => ticketAction('waive', c.gate), 'ghost small check-waive'), { title: `Set ${c.gate} aside on this commit, with a reason` }) : null))) : null,
       el('div', 'actions', ...a.actions.map(actionButton))));
   } else if (m.trackable) {
     const track = el('button', 'btn primary', icon('add'), 'Track in acc') as HTMLButtonElement;

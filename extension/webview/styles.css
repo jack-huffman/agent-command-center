@@ -220,7 +220,8 @@ body[data-view="ticket"] { padding-top: 18px; }
 .clip-inline { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; display: inline-block; }
 .checks { margin-top: 12px; }
 .checks h3 { font-size: 0.93em; margin: 0 0 6px; color: var(--vscode-descriptionForeground); }
-.check { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: 4px 8px; align-items: center; padding: 3px 0; }
+.check { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 4px 8px; align-items: center; padding: 3px 0; }
+.check-waive { padding: 0 6px; }
 .check-sum { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .side-panel .actions { margin-top: 12px; }
 .related { list-style: none; margin: 0; padding: 0; }

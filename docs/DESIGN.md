@@ -200,6 +200,7 @@ has an icon and a label, so colour never carries the meaning alone.
 | review → done | `acc sync` (pull request merged), human | |
 | any → blocked | anyone | A reason |
 | blocked → todo | human | |
+| blocked → review | human | Every required check satisfied, such as by a waiver (D-031) |
 | running → todo | human | A reason. The worktree is kept |
 
 Anything else needs `--force --reason` and is recorded as an override.
@@ -318,8 +319,16 @@ config.
   run with uncommitted changes records nothing. `error` (couldn't run) is kept
   apart from `fail` (the change is wrong). See D-024.
 
+- **A waived gate** (D-031) is a skip a person chose, with a reason:
+  `acc gate waive <gate>... --reason "<why>" [--task <id>]`, or **Waive…** beside
+  a failing check on the ticket page. Its receipt keeps who waived it, why, and
+  what it had been. It holds for that commit only, and `acc gate run` leaves it
+  alone. Builders can't waive: the CLI refuses them, and their settings deny the
+  command.
+
 `acc gate run [<gate>...]` runs the required gates, or the ones named, on the
-current commit. `acc gate list` shows each gate and its result on this commit.
+current commit. `acc gate list` shows each gate and its result on this commit,
+or on the task's latest commit with `--task`.
 
 **Agents validate; they never deploy (D-011).** Parallel branches deploying to
 one shared sandbox would overwrite each other's work. A deploy happens after

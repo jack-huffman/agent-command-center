@@ -246,6 +246,8 @@ export const RULES: Rule[] = [
   { from: 'running', to: 'todo', actors: ['human'], requires: ['reason'] },
   { from: 'done', to: 'rework', actors: ['human', 'sync'], requires: ['reason'] },
   { from: 'blocked', to: 'todo', actors: ['human'], requires: [] },
+  // A person settled what blocked finished work, such as by waiving a check (D-031).
+  { from: 'blocked', to: 'review', actors: ['human'], requires: ['gatesPassed'] },
   { from: 'any', to: 'blocked', actors: [...ACTORS], requires: ['reason'] },
 ];
 

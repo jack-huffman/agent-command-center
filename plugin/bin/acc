@@ -533,6 +533,8 @@ var RULES = [
   { from: "running", to: "todo", actors: ["human"], requires: ["reason"] },
   { from: "done", to: "rework", actors: ["human", "sync"], requires: ["reason"] },
   { from: "blocked", to: "todo", actors: ["human"], requires: [] },
+  // A person settled what blocked finished work, such as by waiving a check (D-031).
+  { from: "blocked", to: "review", actors: ["human"], requires: ["gatesPassed"] },
   { from: "any", to: "blocked", actors: [...ACTORS], requires: ["reason"] }
 ];
 var noGateHooks = { missingGates: () => [] };
@@ -1012,6 +1014,11 @@ function runGates(paths, config, env, names, tests, deps) {
   const results = [];
   for (const name of wanted) {
     const gate = all.find((g) => g.name === name);
+    const kept = readReceipt(paths, sha, gate.name);
+    if (kept?.waived) {
+      results.push({ status: "skip", summary: kept.summary, gate: gate.name, recorded: true, receipt: kept });
+      continue;
+    }
     deps.onStart?.(gate);
     const started = deps.now();
     const plan = gate.plan(input);
@@ -1053,6 +1060,39 @@ ${r.stderr}` : ""}`);
     results.push({ ...outcome, gate: gate.name, recorded: !dirty, receipt });
   }
   return { sha, env, dirty, changes, results };
+}
+function waiveGates(paths, config, req) {
+  const all = gatesFor(config);
+  const reason = req.reason.trim();
+  if (!reason) throw new AccError("usage", `Say why it's waived: acc gate waive <gate> --reason "<why>". The reason is kept with the commit's checks.`);
+  if (!req.gates.length) throw new AccError("usage", `Name the gates to waive. This project's gates: ${all.map((g) => g.name).join(", ") || "none"}.`);
+  const unknown2 = req.gates.filter((n) => !all.some((g) => g.name === n));
+  if (unknown2.length) throw new AccError("usage", `No gate ${unknown2.join(", ")}. This project's gates: ${all.map((g) => g.name).join(", ")}.`);
+  const at = req.now().toISOString();
+  const out2 = [];
+  for (const gate of [...new Set(req.gates)]) {
+    const before = readReceipt(paths, req.sha, gate);
+    if (before?.status === "pass") throw new AccError("refused", `${gate} already passes on ${req.sha.slice(0, 7)}, so there's nothing to waive.`);
+    const was = before?.waived ? before.waived.was : before?.status ?? null;
+    const wasSummary = before?.waived ? before.waived.wasSummary : before?.summary ?? null;
+    const receipt = {
+      gate,
+      sha: req.sha,
+      env: req.env.branch,
+      status: "skip",
+      startedAt: at,
+      finishedAt: at,
+      durationMs: 0,
+      summary: `Waived by ${req.by.replace(/^human:/, "")}: ${reason}`,
+      command: null,
+      log: before?.log ?? null,
+      ...before?.details ? { details: before.details } : {},
+      waived: { by: req.by, reason, at, was, wasSummary }
+    };
+    writeReceipt(paths, receipt);
+    out2.push(receipt);
+  }
+  return out2;
 }
 
 // packages/core/src/drift.ts
@@ -1515,6 +1555,7 @@ function builderSettings(task, config, accBinDir2, basePath, accCommand2) {
     "Bash(acc set *)",
     "Bash(acc dispatch *)",
     "Bash(acc init*)",
+    "Bash(acc gate waive*)",
     ...sf ? ["Bash(sf project deploy start*)", "Bash(sf project deploy quick*)", "Bash(sf org delete *)"] : []
   ];
   return {
@@ -2700,6 +2741,8 @@ Checks
                                         Run the required checks (or the ones named) on this commit
   acc gate list [--env <name>] [--task <id>]
                                         The project's checks, and their results on this commit
+  acc gate waive <gate>... --reason "<why>" [--task <id>]
+                                        A person sets checks aside on this commit (or the task's), with a reason
   acc drift <environment> [--manifest <path>] [--keep]
                                         What changed in an org since its branch; prints nothing if none
 
@@ -3028,9 +3071,27 @@ function cmdGateRun(o, names) {
   ].filter(Boolean).join("\n"), r);
   return bad.length ? 1 : 0;
 }
+function cmdGateWaive(o, names) {
+  if (process.env.ACC_ROLE === "builder") throw new AccError("refused", `A builder can't waive its own checks. If one can't pass, say why with acc block "<why>", and a person decides.`);
+  const { actor, by } = actorFrom(o);
+  if (actor !== "human") throw new AccError("refused", "Only a person can waive a check.");
+  const { paths, config, env, task } = checkTarget(o);
+  const branch = o.task ? task?.run?.branch : void 0;
+  if (o.task && !branch) throw new AccError("usage", `${task?.id ?? o.task} has no branch yet, so there's no commit to waive checks on.`);
+  const sha = run("git", ["rev-parse", "--verify", "--quiet", branch ? `refs/heads/${branch}` : "HEAD"], { cwd: paths.root }).stdout.trim();
+  if (!sha) throw new AccError("git", branch ? `The branch ${branch} isn't in this clone.` : "This checkout has no commit yet.");
+  const waived = waiveGates(paths, config, { sha, env, gates: names, reason: o.reason ?? "", by, now });
+  out(o, () => [
+    `${branch ?? "HEAD"} at ${sha.slice(0, 7)}, against ${env.name}`,
+    ...waived.map((r) => `  ${gateLabel("skip")}${r.gate.padEnd(11)} waived${r.waived?.was ? ` (it was ${r.waived.was})` : ""}: ${r.waived?.reason}`),
+    tone("Waived for this commit only. A new commit needs its checks again.", "dim")
+  ].join("\n"), { sha, env: env.branch, waived });
+  return 0;
+}
 function cmdGateList(o) {
-  const { paths, config, env, branch } = checkTarget(o);
-  const head = run("git", ["rev-parse", "HEAD"], { cwd: paths.root }).stdout.trim();
+  const { paths, config, env, branch: here, task } = checkTarget(o);
+  const branch = o.task && task?.run?.branch ? task.run.branch : here;
+  const head = run("git", ["rev-parse", "--verify", "--quiet", o.task && task?.run?.branch ? `refs/heads/${task.run.branch}` : "HEAD"], { cwd: paths.root }).stdout.trim();
   const receipts = head ? receiptsAt(paths, head) : {};
   const gates = gatesFor(config).map((g) => ({ name: g.name, about: g.about, required: config.gates.required.includes(g.name), heavy: g.heavy, receipt: receipts[g.name] ?? null }));
   out(o, () => gates.length ? [`${branch ?? "HEAD"} at ${head.slice(0, 7)}, against ${env.name}`, "", table([["Gate", "Required", "Heavy", "This commit", "Checks"], ...gates.map((g) => [
@@ -3162,7 +3223,8 @@ async function main(argv) {
       const [sub, ...names] = rest;
       if (sub === "run") return cmdGateRun(o, names);
       if (sub === "list") return cmdGateList(o);
-      throw new AccError("usage", "acc gate run [<gate>...] | acc gate list");
+      if (sub === "waive") return cmdGateWaive(o, names);
+      throw new AccError("usage", 'acc gate run [<gate>...] | acc gate list | acc gate waive <gate>... --reason "<why>"');
     }
     case "github":
       return cmdGithub(o, rest[0], rest[1]);

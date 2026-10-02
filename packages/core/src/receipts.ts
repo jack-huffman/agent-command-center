@@ -25,9 +25,11 @@ export interface Receipt {
   log: string | null;
   /** Salesforce: the job id, org, test level and tests run. */
   details?: Record<string, unknown>;
+  /** Set when a person set the gate aside on this commit (D-031): who, why, and what it had been. */
+  waived?: { by: string; reason: string; at: string; was: GateStatus | null; wasSummary: string | null };
 }
 
-/** A skip satisfies a required gate: `lint` with no JavaScript changed has nothing to find. */
+/** A skip satisfies a required gate: `lint` with no JavaScript changed has nothing to find, and a waived gate is a skip a person chose. */
 export const satisfies = (r: Pick<Receipt, 'status'> | null): boolean => r?.status === 'pass' || r?.status === 'skip';
 
 export function receiptPath(paths: RepoPaths, sha: string, gate: string): string {
