@@ -1750,6 +1750,20 @@ function nearbyRepo(cwd) {
   const candidates = [...siblings.filter((d) => d !== cwd), parent].filter(isRepo);
   return candidates.find((d) => existsSync9(join10(d, ".acc", "config.json"))) ?? candidates.find((d) => existsSync9(join10(d, "sfdx-project.json"))) ?? null;
 }
+function filesOnEnvironmentBranches(ctx) {
+  return cached(ctx, "env-branch-files", () => {
+    const files = /* @__PURE__ */ new Set();
+    for (const env of ctx.config.environments) {
+      for (const ref of [`origin/${env.branch}`, env.branch]) {
+        const r = ctx.run("git", ["ls-tree", "-r", "--name-only", ref], { cwd: ctx.paths.root });
+        if (r.code === 0) {
+          for (const f of r.stdout.split("\n")) if (f) files.add(f);
+        }
+      }
+    }
+    return files;
+  });
+}
 var sfEnvs = (ctx) => (ctx.config?.environments ?? []).filter((e) => e.type !== "none");
 var devEnvs = (ctx) => sfEnvs(ctx).filter((e) => (e.type === "developer" || e.type === "developer_pro") && e.org);
 function versionStep(id, title, why, cmd, args, min, fix, profiles) {
@@ -2177,7 +2191,9 @@ var STEPS = [
         const lines = text.replace(/\n$/, "").split("\n");
         if (lines.some((l) => l.trim() === "")) problems.push(`${rel} has a blank line. As a grep pattern, that matches everything.`);
         const paths = lines.filter((l) => l.trim() && !l.startsWith("#"));
-        const gone = paths.filter((p) => !existsSync9(join10(ctx.paths.root, p)));
+        const here = paths.filter((p) => !existsSync9(join10(ctx.paths.root, p)));
+        const elsewhere = here.length ? filesOnEnvironmentBranches(ctx) : /* @__PURE__ */ new Set();
+        const gone = here.filter((p) => !elsewhere.has(p));
         if (gone.length) problems.push(`${rel} lists files that don't exist: ${gone.slice(0, 3).join(", ")}${gone.length > 3 ? " \u2026" : ""}.`);
         counts.push(`${paths.length} ${label}`);
       }

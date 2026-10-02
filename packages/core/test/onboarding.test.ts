@@ -187,7 +187,7 @@ test('an old CLI without --bg fails A1.claude with the update command', () => {
 });
 
 test('org URLs give the environment name (D-015)', () => {
-  assert.deepEqual(parseOrgUrl('https://avalign--aleysian.sandbox.my.salesforce.com'), { kind: 'sandbox', domain: 'avalign', sandbox: 'aleysian' });
+  assert.deepEqual(parseOrgUrl('https://acme--devbox.sandbox.my.salesforce.com'), { kind: 'sandbox', domain: 'acme', sandbox: 'devbox' });
   assert.deepEqual(parseOrgUrl('https://my-co--uat.sandbox.my.salesforce.com/'), { kind: 'sandbox', domain: 'my-co', sandbox: 'uat' });
   assert.deepEqual(parseOrgUrl('https://acme.my.salesforce.com'), { kind: 'production', domain: 'acme' });
   assert.deepEqual(parseOrgUrl('not a url'), { kind: 'unknown' });
@@ -239,4 +239,18 @@ test('B13 names a required check with no command, and the tools a Salesforce rep
   assert.equal(r.status, 'fail');
   assert.match(r.detail, /Not installed in .*: eslint\./);
   assert.equal(statuses(sfRepo({ config: { ...SF_CONFIG, gates: { required: ['lint'], commands: { lint: 'npm run lint' } } } }))['B13.gate-tools']!.status, 'pass', 'a command of the project\'s own needs nothing extra');
+});
+
+test('B9 accepts a listed file that only another environment\'s branch has, since every branch shares the lists', () => {
+  const only = 'force-app/main/default/objects/Task/listViews/Mine.listView-meta.xml';
+  const repo = sfRepo({ files: { 'manifest/known-drift.txt': `# noise\nforce-app/main/default/objects/Case/Case.object-meta.xml\n${only}\n` } });
+  gitIn(repo, 'checkout', '-q', 'uat');
+  mkdirSync(join(repo, 'force-app/main/default/objects/Task/listViews'), { recursive: true });
+  writeFileSync(join(repo, only), '<x/>\n');
+  gitIn(repo, 'add', '-A');
+  gitIn(repo, 'commit', '-q', '-m', 'uat only');
+  gitIn(repo, 'checkout', '-q', 'main');
+  assert.equal(statuses(repo)['B9.lists']!.status, 'pass');
+  const typo = sfRepo({ files: { 'manifest/known-drift.txt': '# noise\nforce-app/main/default/objects/Case/Cse.object-meta.xml\n' } });
+  assert.match(statuses(typo)['B9.lists']!.detail, /lists files that don't exist: .*Cse\.object-meta\.xml/);
 });

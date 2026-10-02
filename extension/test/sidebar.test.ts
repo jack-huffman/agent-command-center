@@ -61,8 +61,8 @@ test('agent states read as words, with orange for anything that needs a person',
 });
 
 test('worktree listings parse, main checkout first', () => {
-  const w = parseWorktrees('worktree /r\nHEAD abc\nbranch refs/heads/aleysian\n\nworktree /r.worktrees/AV-1\nHEAD def\nbranch refs/heads/task/AV-1-login\nlocked\n\nworktree /gone\nHEAD 123\ndetached\nprunable gitdir file points to non-existent location\n');
-  assert.deepEqual(w.map((x) => [x.path, x.branch, x.locked, x.prunable]), [['/r', 'aleysian', false, false], ['/r.worktrees/AV-1', 'task/AV-1-login', true, false], ['/gone', null, false, true]]);
+  const w = parseWorktrees('worktree /r\nHEAD abc\nbranch refs/heads/devbox\n\nworktree /r.worktrees/AV-1\nHEAD def\nbranch refs/heads/task/AV-1-login\nlocked\n\nworktree /gone\nHEAD 123\ndetached\nprunable gitdir file points to non-existent location\n');
+  assert.deepEqual(w.map((x) => [x.path, x.branch, x.locked, x.prunable]), [['/r', 'devbox', false, false], ['/r.worktrees/AV-1', 'task/AV-1-login', true, false], ['/gone', null, false, true]]);
 });
 
 test('tasks group in the order a person should look at them', () => {

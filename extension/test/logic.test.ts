@@ -108,11 +108,11 @@ test('Open in Salesforce offers Developer sandboxes for tracking, and the defaul
   const envs = [
     { name: 'Production', type: 'production', org: 'P', default: false },
     { name: 'Sandbox', type: 'partial', org: 'S', default: false },
-    { name: 'Aleysian', type: 'developer', org: 'A', default: true },
+    { name: 'Devbox', type: 'developer', org: 'A', default: true },
     { name: 'Train', type: 'developer', org: null, default: false },
   ];
-  assert.deepEqual(setupOrgChoices('B8.tracking', envs).map((e) => e.name), ['Aleysian']);
-  assert.deepEqual(setupOrgChoices('B6.org-match', envs).map((e) => e.name)[0], 'Aleysian');
+  assert.deepEqual(setupOrgChoices('B8.tracking', envs).map((e) => e.name), ['Devbox']);
+  assert.deepEqual(setupOrgChoices('B6.org-match', envs).map((e) => e.name)[0], 'Devbox');
 });
 
 test('acc init offers only logged-in Production orgs', () => {

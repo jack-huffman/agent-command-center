@@ -29,7 +29,7 @@ test('a generic config fills its defaults', () => {
 });
 
 test('branch names are the lower-cased environment name (D-015)', () => {
-  assert.equal(branchFor('Aleysian'), 'aleysian');
+  assert.equal(branchFor('Devbox'), 'devbox');
   assert.equal(branchFor('Full Copy'), 'full-copy');
   const raw = clone(SF_CONFIG);
   (raw.environments[2] as Record<string, unknown>).branch = 'develop';

@@ -59,8 +59,8 @@ test('names: slugs are short and branch-safe, and worktrees sit beside the repo 
   assert.equal(slugify('one two three four five six seven eight nine ten'), 'one-two-three-four-five-six-seven-eight');
   assert.equal(taskBranch({ id: 'AV-12', title: 'Login page' }), 'task/AV-12-login-page');
   const cfg = parseConfig(JSON.parse(JSON.stringify(GENERIC_CONFIG))).config!;
-  assert.equal(worktreeRoot(cfg, '/x/Avalign'), '/x/Avalign/.claude/worktrees');
-  assert.equal(worktreeRoot({ ...cfg, worktrees: { root: '../trees', setup: [] } }, '/x/Avalign'), '/x/trees');
+  assert.equal(worktreeRoot(cfg, '/x/Acme'), '/x/Acme/.claude/worktrees');
+  assert.equal(worktreeRoot({ ...cfg, worktrees: { root: '../trees', setup: [] } }, '/x/Acme'), '/x/trees');
 });
 
 test('the packet tells a Salesforce builder where it is, how to finish, and what never to touch', () => {

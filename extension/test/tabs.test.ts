@@ -11,17 +11,17 @@ const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 
 const envs = [
   { name: 'Production', branch: 'production', type: 'production' as const, org: 'P', default: false, protected: true, promotesTo: [] },
-  { name: 'Aleysian', branch: 'aleysian', type: 'developer' as const, org: 'A', default: true, protected: false, promotesTo: ['sandbox', 'production'] },
+  { name: 'Devbox', branch: 'devbox', type: 'developer' as const, org: 'A', default: true, protected: false, promotesTo: ['sandbox', 'production'] },
   { name: 'Sandbox', branch: 'sandbox', type: 'partial' as const, org: 'S', default: false, protected: false, promotesTo: ['production'] },
 ];
-const row = (id: string, state: string, display: TaskRow['display'], url: string | null = null): TaskRow => ({ id, title: `Task ${id}`, state, display, environment: 'aleysian', deps: display === 'todo' ? ['AV-1'] : [], source: { kind: 'jira', url } });
+const row = (id: string, state: string, display: TaskRow['display'], url: string | null = null): TaskRow => ({ id, title: `Task ${id}`, state, display, environment: 'devbox', deps: display === 'todo' ? ['AV-1'] : [], source: { kind: 'jira', url } });
 
 function hub(): HubLike {
   const project = {
-    name: 'Avalign', root: '/r', branch: 'aleysian',
+    name: 'Acme', root: '/r', branch: 'devbox',
     config: { github: { repo: 'o/r', account: 'me' }, environments: envs, profile: 'salesforce' },
     worktrees: [
-      { path: '/r', head: 'abc1234', branch: 'aleysian', main: true, changed: 0, locked: false, prunable: false },
+      { path: '/r', head: 'abc1234', branch: 'devbox', main: true, changed: 0, locked: false, prunable: false },
       { path: '/r.worktrees/AV-2', head: 'def5678', branch: 'task/AV-2-login', main: false, changed: 3, locked: false, prunable: false },
     ],
   };
@@ -51,7 +51,7 @@ test('the board has a column for every status, in attention order, and each card
 
 test('agents: this project first, needs-you on top, background sessions can be stopped', () => {
   const m = agentsModel(hub());
-  assert.deepEqual(m.places.map((p) => p.label), ['Avalign', 'Elsewhere on this machine']);
+  assert.deepEqual(m.places.map((p) => p.label), ['Acme', 'Elsewhere on this machine']);
   const bg = m.places[0]!.agents[0]!;
   assert.equal(bg.look.label, 'Needs you: permission prompt');
   assert.equal(bg.where, 'AV-2');
@@ -110,11 +110,11 @@ test('worktrees show changes in words, and say which one is the main checkout', 
 });
 
 test('environments draw every promotion path, including skipping QA (D-018)', () => {
-  assert.deepEqual(promotionPaths(envs), [['aleysian', 'sandbox', 'production'], ['aleysian', 'production']]);
+  assert.deepEqual(promotionPaths(envs), [['devbox', 'sandbox', 'production'], ['devbox', 'production']]);
   const m = environmentsModel(hub()).projects[0]!;
-  const aleysian = m.envs.find((e) => e.branch === 'aleysian')!;
-  assert.deepEqual(aleysian.badges, ['default', 'checked out']);
-  assert.ok(!aleysian.actions.some((a) => a.label === 'Compare'), 'no comparing a branch with itself');
+  const devbox = m.envs.find((e) => e.branch === 'devbox')!;
+  assert.deepEqual(devbox.badges, ['default', 'checked out']);
+  assert.ok(!devbox.actions.some((a) => a.label === 'Compare'), 'no comparing a branch with itself');
   assert.deepEqual(m.envs.find((e) => e.branch === 'production')!.badges, ['protected']);
 });
 

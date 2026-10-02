@@ -5,7 +5,7 @@ import { isTrusted, mainCheckout } from '../dispatch.ts';
 import { type DriftResult, driftReportPath } from '../drift.ts';
 import { gatesFor } from '../gates.ts';
 import {
-  fail, firstVersion, ghEnv, LICENSE_TO_TYPE, parseOrgUrl, pass, readText, SECRET_PATTERN, sfJson, skip, unknown, versionAtLeast,
+  cached, fail, firstVersion, ghEnv, LICENSE_TO_TYPE, parseOrgUrl, pass, readText, SECRET_PATTERN, sfJson, skip, unknown, versionAtLeast,
 } from './helpers.ts';
 import type { CheckContext, CheckResult, Step, StepResult } from './types.ts';
 
@@ -37,6 +37,20 @@ export function nearbyRepo(cwd: string): string | null {
   return candidates.find((d) => existsSync(join(d, '.acc', 'config.json')))
     ?? candidates.find((d) => existsSync(join(d, 'sfdx-project.json')))
     ?? null;
+}
+
+/** Every file on any environment's branch, local or as the remote has it. */
+function filesOnEnvironmentBranches(ctx: CheckContext): Set<string> {
+  return cached(ctx, 'env-branch-files', () => {
+    const files = new Set<string>();
+    for (const env of ctx.config!.environments) {
+      for (const ref of [`origin/${env.branch}`, env.branch]) {
+        const r = ctx.run('git', ['ls-tree', '-r', '--name-only', ref], { cwd: ctx.paths!.root });
+        if (r.code === 0) for (const f of r.stdout.split('\n')) if (f) files.add(f);
+      }
+    }
+    return files;
+  });
 }
 
 const sfEnvs = (ctx: CheckContext): Environment[] => (ctx.config?.environments ?? []).filter((e) => e.type !== 'none');
@@ -378,7 +392,10 @@ export const STEPS: Step[] = [
         const lines = text.replace(/\n$/, '').split('\n');
         if (lines.some((l) => l.trim() === '')) problems.push(`${rel} has a blank line. As a grep pattern, that matches everything.`);
         const paths = lines.filter((l) => l.trim() && !l.startsWith('#'));
-        const gone = paths.filter((p) => !existsSync(join(ctx.paths!.root, p)));
+        // Every environment's branch shares these lists (B10), so a path need only exist on one of them.
+        const here = paths.filter((p) => !existsSync(join(ctx.paths!.root, p)));
+        const elsewhere = here.length ? filesOnEnvironmentBranches(ctx) : new Set<string>();
+        const gone = here.filter((p) => !elsewhere.has(p));
         if (gone.length) problems.push(`${rel} lists files that don't exist: ${gone.slice(0, 3).join(', ')}${gone.length > 3 ? ' …' : ''}.`);
         counts.push(`${paths.length} ${label}`);
       }
