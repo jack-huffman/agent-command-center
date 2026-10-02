@@ -11,7 +11,7 @@ const MAIN = fileURLToPath(new URL('../src/main.ts', import.meta.url));
 
 function acc(cwd: string, args: string[], input?: string, env: NodeJS.ProcessEnv = {}) {
   const r = spawnSync(process.execPath, ['--no-warnings', MAIN, ...args], {
-    cwd, input, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', ACC_ROLE: '', ...env },
+    cwd, input, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', ACC_ROLE: '', ACC_TASK: '', ...env },
   });
   return { code: r.status ?? 1, out: r.stdout, err: r.stderr, json: () => JSON.parse(r.stdout) };
 }
