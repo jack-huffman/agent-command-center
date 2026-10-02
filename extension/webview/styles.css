@@ -271,3 +271,22 @@ body[data-view="ticket"] { padding-top: 18px; }
 a.ext { color: var(--vscode-textLink-foreground); text-decoration: none; cursor: pointer; }
 a.ext:hover { text-decoration: underline; }
 .iconed { display: inline-flex; align-items: center; gap: 5px; }
+
+/* ---------------------------------------------------------------- the repo's GitHub identity (D-028) */
+.identity { border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); padding: 14px 16px; margin: 4px 0 18px; max-width: 760px; }
+.identity.attention { border-left: 3px solid var(--orange); }
+.id-head { display: flex; align-items: center; gap: 12px; }
+.avatar.avatar-lg { width: 40px; height: 40px; font-size: 14px; }
+.id-who { min-width: 0; }
+.id-name { display: flex; align-items: center; gap: 8px; font-size: 1.15em; }
+.chip.chip-blue { border-color: var(--blue); color: var(--blue); }
+.id-lines { display: grid; gap: 6px; margin: 12px 0 2px; }
+.id-line { display: flex; align-items: flex-start; gap: 8px; }
+.id-line > .codicon { margin-top: 2px; flex: none; }
+.id-line > span { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.scopes { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.scope { font-family: var(--vscode-editor-font-family); font-size: 0.82em; padding: 0 6px; border-radius: 3px; border: 1px solid var(--line); color: var(--vscode-descriptionForeground); }
+.scope.scope-on { border-color: var(--blue); color: var(--blue); }
+.identity .actions { margin-top: 12px; }
+.acting { display: inline-flex; align-items: center; gap: 4px; font-size: 0.82em; font-weight: 400; color: var(--vscode-descriptionForeground); }
+.composer-bar .acting { font-size: inherit; }

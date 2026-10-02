@@ -16,7 +16,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { agentsModel, environmentsModel, type Model, setupModel, tasksModel, VIEW_KINDS, worktreesModel } from '../src/model.ts';
-import { sampleBoards, sampleHub, sampleSetup, sampleTicket } from './fixtures.ts';
+import { sampleBoards, sampleHub, sampleIdentity, sampleSetup, sampleTicket } from './fixtures.ts';
 
 /** Every page the screenshot script can draw: the five tabs, and a ticket's page. */
 export const PAGES = [...VIEW_KINDS, 'ticket'] as const;
@@ -58,7 +58,7 @@ export function sampleModel(kind: Page, now = Date.now()): Model {
     case 'tasks': return tasksModel(hub, () => sampleBoards());
     case 'agents': return agentsModel(hub);
     case 'worktrees': return worktreesModel(hub);
-    case 'environments': return environmentsModel(hub);
+    case 'environments': return environmentsModel(hub, () => sampleIdentity());
     case 'setup': {
       const { items, confirmed } = sampleSetup();
       return setupModel(items, confirmed);

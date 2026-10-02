@@ -129,6 +129,7 @@ export class TicketPanels implements vscode.Disposable {
     const model = ticketModel({
       project: p.root, tracker: o.tracker, trackerTitle: tracker ? this.trackers.title(tracker) : null, trackerKind: tracker?.kind ?? null, key: o.key,
       ticket: o.ticket, loading: o.loading, error: o.error, connect: o.connect, row, task, checks: task ? await this.checks(p, task.run?.branch ?? null) : [],
+      signedInAs: o.tracker !== null ? await this.trackers.signedInAs(p, o.tracker) : null,
     });
     void o.panel.webview.postMessage({ type: 'state', model });
   }

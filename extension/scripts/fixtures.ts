@@ -9,7 +9,7 @@ import type { Task } from '../../packages/core/src/ledger.ts';
 import { type AdfNode, fromAdf } from '../../packages/core/src/trackers/doc.ts';
 import type { Ticket } from '../../packages/core/src/trackers/types.ts';
 import type { AgentSession, DoctorItem, TaskRow } from '../src/logic.ts';
-import { type BoardInput, type HubLike, type ProjectLike, ticketModel, type TicketModel } from '../src/model.ts';
+import { type BoardInput, type HubLike, type IdentityCard, type ProjectLike, ticketModel, type TicketModel } from '../src/model.ts';
 
 const MIN = 60_000;
 
@@ -83,7 +83,7 @@ export function sampleBoards(): BoardInput[] {
   const card = (n: number, title: string, s: { id: string; name: string }, type: string, extra: Partial<NonNullable<BoardInput['board']>['cards'][number]> = {}) =>
     ({ key: `ACME-${n}`, title, url: `https://acme.atlassian.net/browse/ACME-${n}`, status: s, type, assignees: [], labels: [], priority: 'Medium', ...extra });
   return [{
-    index: 0, kind: 'jira', title: 'Jira · ACME', error: null, connect: null, loading: false,
+    index: 0, kind: 'jira', title: 'Jira · ACME', error: null, connect: null, loading: false, signedInAs: 'jordan@acme.example',
     board: {
       source: 'jira-board', title: 'ACME Service board', url: 'https://acme.atlassian.net/jira/software/projects/ACME/boards/7', notice: null,
       columns: [
@@ -150,7 +150,15 @@ export function sampleTicket(now = Date.now()): TicketModel {
     createdAt: new Date(now - 4 * 86_400_000).toISOString(), updatedAt: new Date(now - 12 * 60_000).toISOString(),
   } as unknown as Task;
   return ticketModel({
-    project: ROOT, tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira', key: 'ACME-12', ticket, loading: false, error: null, connect: null, row, task,
+    project: ROOT, tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira', key: 'ACME-12', ticket, loading: false, error: null, connect: null, row, task, signedInAs: 'jordan@acme.example',
     checks: [{ gate: 'format', status: 'pass', summary: '3 changed files formatted.' }, { gate: 'static', status: 'pass', summary: 'No violations at severity 2 or worse.' }, { gate: 'validate', status: 'skip', summary: 'Not run on this commit' }],
   });
+}
+
+/** This clone works as another account than the project's, and that account lacks Projects access. */
+export function sampleIdentity(): IdentityCard {
+  return {
+    account: 'jordan-kim', initials: 'JK', from: 'clone', projectAccount: 'acme-bot', signedIn: true, scopes: ['repo', 'read:org', 'workflow'], projects: false,
+    problem: null, pushesAs: 'jordan-kim', commit: 'Jordan Kim <jordan@acme.example>', profile: 'https://github.com/jordan-kim', others: 2,
+  };
 }

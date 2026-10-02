@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
   ACTORS, AccError, type Actor, type ApexTest, configureRepoAccess, displayState, drift, gatesFor, gateTarget, isReady, loadConfig, makeContext, moveTask, mutate,
-  cleanup, dispatch, githubIssuesToTasks, planInit, type Profile, readLedger, receiptsAt, STEPS, receiptHooks, repoPaths, run, runGates, runSteps, satisfies, type State, type StepResult, type TaskInput,
+  cleanup, dispatch, githubIdentity, githubIssuesToTasks, planInit, useGithubAccount, withCloneAccount, type Profile, readLedger, receiptsAt, STEPS, receiptHooks, repoPaths, run, runGates, runSteps, satisfies, type State, type StepResult, type TaskInput,
   upsertTasks, writeConfig,
 } from '../../core/src/index.ts';
 import { checkLabel, gateLabel, stateLabel, table, tone } from './format.ts';
@@ -38,6 +38,10 @@ Agents
   acc block [<id>] "<reason>"           A builder's way out when stuck
   acc cleanup <id>                      Remove a finished task's worktree, only if nothing would be lost
 
+GitHub
+  acc github status                     Which account this repo works as, and whether gh and git push agree
+  acc github use <account> | --default  Work as another logged-in account in this clone only; nothing committed changes
+
 Checks
   acc gate run [<gate>...] [--test <ApexTest>=<why>]... [--env <name>] [--task <id>]
                                         Run the required checks (or the ones named) on this commit
@@ -60,9 +64,10 @@ function out(o: Opts, human: () => string, data: unknown): void {
 
 function project(cwd: string) {
   const paths = repoPaths(cwd, run);
-  const { config, warnings } = loadConfig(paths.config);
+  const { config: loaded, warnings } = loadConfig(paths.config);
   for (const w of warnings) process.stderr.write(`warning: ${w}\n`);
-  return { paths, config };
+  // This clone's own choice of GitHub account, when it made one (D-028).
+  return { paths, config: withCloneAccount(loaded, paths.root, run) };
 }
 
 /** Builders are identified by ACC_ROLE, set when they're dispatched. Everyone else is a person. */
@@ -277,6 +282,37 @@ function cmdSet(o: Opts, id: string, to: string): number {
   return 0;
 }
 
+// ---------------------------------------------------------------- GitHub identity (D-028)
+
+function renderIdentity(id: NonNullable<ReturnType<typeof githubIdentity>>): string {
+  const scopes = id.accounts?.find((a) => a.login.toLowerCase() === id.account.toLowerCase())?.scopes ?? [];
+  return [
+    `${id.repo} works as ${id.account}${id.from === 'clone' ? ` (this clone's choice; the project's is ${id.projectAccount})` : ' (the project\'s account)'}`,
+    `  gh:      ${id.signedIn ? `${tone('✓', 'blue')} logged in${scopes.length ? `, ${scopes.join(', ')}` : ''}` : tone(`✗ not logged in as ${id.account}`, 'orange')}`,
+    `  push:    ${id.pushesAs ? (id.pushesAs.toLowerCase() === id.account.toLowerCase() ? `${tone('✓', 'blue')} as ${id.pushesAs}` : tone(`✗ as ${id.pushesAs}`, 'orange')) : tone('? not set up by acc', 'orange')}`,
+    `  commits: ${id.commit.name || id.commit.email ? `${id.commit.name ?? '?'} <${id.commit.email ?? '?'}>` : tone('no identity set for this repo', 'orange')}`,
+    id.accounts && id.accounts.length > 1 ? `  others:  ${id.accounts.filter((a) => a.login !== id.account).map((a) => a.login).join(', ')}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+function cmdGithub(o: Opts, sub: string | undefined, arg: string | undefined): number {
+  const paths = repoPaths(process.cwd(), run);
+  const { config } = loadConfig(paths.config);
+  if (sub === 'status' || !sub) {
+    const id = githubIdentity(config, paths.root, run);
+    if (!id) throw new AccError('no-github', 'This project has no "github" section in .acc/config.json.');
+    out(o, () => renderIdentity(id), id);
+    return id.signedIn && id.pushesAs?.toLowerCase() === id.account.toLowerCase() ? 0 : 1;
+  }
+  if (sub === 'use') {
+    if (!arg && !o.default) throw new AccError('usage', 'acc github use <account>, or --default for the project\'s account');
+    const id = useGithubAccount(config, paths.root, run, o.default ? null : arg!);
+    out(o, () => renderIdentity(id), id);
+    return 0;
+  }
+  throw new AccError('usage', 'acc github status | acc github use <account> | acc github use --default');
+}
+
 // ---------------------------------------------------------------- checks
 
 function currentBranch(root: string): string | null {
@@ -395,6 +431,7 @@ export async function main(argv: string[]): Promise<number> {
       task: { type: 'string' },
       manifest: { type: 'string' },
       keep: { type: 'boolean', default: false },
+      default: { type: 'boolean', default: false },
     },
   });
   const o = values as Opts;
@@ -442,6 +479,7 @@ export async function main(argv: string[]): Promise<number> {
       if (sub === 'list') return cmdGateList(o);
       throw new AccError('usage', 'acc gate run [<gate>...] | acc gate list');
     }
+    case 'github': return cmdGithub(o, rest[0], rest[1]);
     case 'drift': {
       if (!rest[0]) throw new AccError('usage', 'acc drift <environment>');
       return cmdDrift(o, rest[0]);

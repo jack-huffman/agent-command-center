@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { branchFor, parseConfig, type Config, type EnvType, type Profile } from './config.ts';
+import { credentialHelper } from './github.ts';
 import { AccError, type Runner } from './exec.ts';
 import { LICENSE_TO_TYPE, parseOrgUrl } from './onboarding/helpers.ts';
 
@@ -159,5 +160,6 @@ export function configureRepoAccess(run: Runner, root: string, account: string, 
   }
   run('git', ['config', '--unset-all', 'credential.helper'], { cwd: root });
   git('config', 'credential.helper', '');
-  git('config', '--add', 'credential.helper', `!f() { test "$1" = get || exit 0; echo username=${account}; echo "password=$(gh auth token -u ${account})"; }; f`);
+  // It follows this clone's choice of account when there is one (D-028), and the project's otherwise.
+  git('config', '--add', 'credential.helper', credentialHelper(account));
 }

@@ -2,6 +2,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
 import { type Config, parseConfig } from '../../packages/core/src/config.ts';
+import { CLONE_ACCOUNT_KEY } from '../../packages/core/src/github.ts';
 import { displayState, readLedger, type Ledger } from '../../packages/core/src/ledger.ts';
 import { type AgentSession, agentLook, isUnder, parseWorktrees, sessionFor, type TaskRow, type Worktree } from './logic.ts';
 import { runFile } from './run.ts';
@@ -15,7 +16,10 @@ export interface WorktreeInfo extends Worktree {
 export interface Project {
   name: string;
   root: string;
+  /** The config, with this clone's own GitHub account in place when it chose one (D-028). */
   config: Config;
+  /** Where config.github.account comes from: this clone's choice, or the project's config. */
+  githubFrom: 'clone' | 'config' | null;
   ledgerPath: string;
   branch: string | null;
   worktrees: WorktreeInfo[];
@@ -57,8 +61,11 @@ export class Hub implements vscode.Disposable {
       if (!config) continue;
       const common = await runFile('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], root);
       if (common.code !== 0) continue;
+      const mine = (await runFile('git', ['config', '--get', CLONE_ACCOUNT_KEY], root)).stdout.trim();
+      const chosen = !!config.github && /^[A-Za-z0-9-]+$/.test(mine) && mine !== config.github.account;
+      if (chosen) config = { ...config, github: { ...config.github!, account: mine } };
       const old = this.projects.find((p) => p.root === root);
-      found.push({ name: config.project, root, config, ledgerPath: join(common.stdout.trim(), 'acc', 'ledger.json'), branch: old?.branch ?? null, worktrees: old?.worktrees ?? [] });
+      found.push({ name: config.project, root, config, githubFrom: config.github ? (chosen ? 'clone' : 'config') : null, ledgerPath: join(common.stdout.trim(), 'acc', 'ledger.json'), branch: old?.branch ?? null, worktrees: old?.worktrees ?? [] });
     }
     this.projects = found;
     await vscode.commands.executeCommand('setContext', 'acc.hasProject', found.length > 0);

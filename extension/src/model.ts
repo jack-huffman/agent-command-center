@@ -6,6 +6,7 @@ import { DISPLAY, type Task } from '../../packages/core/src/ledger.ts';
 import type { GateStatus } from '../../packages/core/src/receipts.ts';
 import { type Doc, fromMarkdown } from '../../packages/core/src/trackers/doc.ts';
 import type { StatusCategory, Ticket } from '../../packages/core/src/trackers/types.ts';
+import type { GithubIdentity } from '../../packages/core/src/github.ts';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import type { Environment } from '../../packages/core/src/config.ts';
 import { agentLook, type AgentSession, type DoctorItem, ENV_ICON, groupTasks, isUnder, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
@@ -166,6 +167,8 @@ export interface BoardInput {
   error: string | null;
   connect: { command: string; label: string; arg: string } | null;
   loading: boolean;
+  /** Who the board acts as: the GitHub account, the Jira email, the Microsoft account. */
+  signedInAs?: string | null;
 }
 
 export interface TrackerCard {
@@ -200,6 +203,7 @@ export interface TrackerBoard {
   error: string | null;
   connect: { command: string; label: string; arg: string } | null;
   loading: boolean;
+  signedInAs: string | null;
   columns: TrackerColumn[];
 }
 
@@ -226,7 +230,7 @@ export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): Trac
   }));
   return {
     index: b.index, kind: b.kind, title: b.board?.title ?? b.title, source: b.board?.source ?? null, url: b.board?.url ?? null,
-    notice: b.board?.notice ?? null, error: b.error, connect: b.connect, loading: b.loading, columns,
+    notice: b.board?.notice ?? null, error: b.error, connect: b.connect, loading: b.loading, signedInAs: b.signedInAs ?? null, columns,
   };
 }
 
@@ -275,6 +279,8 @@ export interface TicketModel {
   acc: TicketAcc | null;
   /** A tracker ticket acc doesn't keep yet, which "Track in acc" adds to the ledger. */
   trackable: boolean;
+  /** Who a comment or change is made as. */
+  signedInAs: string | null;
 }
 
 export interface TicketInput {
@@ -290,6 +296,7 @@ export interface TicketInput {
   row: TaskRow | null;
   task: Task | null;
   checks: TicketAcc['checks'];
+  signedInAs?: string | null;
 }
 
 export function ticketModel(i: TicketInput): TicketModel {
@@ -317,8 +324,44 @@ export function ticketModel(i: TicketInput): TicketModel {
     comments: (t?.comments ?? []).map((c) => ({ id: c.id, author: chip(c.author), created: c.created, body: c.body, url: c.url })),
     related: t?.related ?? (i.task?.deps ?? []).map((d) => ({ key: d, title: '', relation: 'depends on', url: null })),
     can: { status: !!t, assign: !!t, labels: !!t, comment: !!t },
-    acc, trackable: !!t && !i.task,
+    acc, trackable: !!t && !i.task, signedInAs: i.signedInAs ?? null,
   };
+}
+
+// ---------------------------------------------------------------- the repo's GitHub identity (D-028)
+
+/** How the repo's GitHub identity reads at a glance: what's wrong, if anything, in words (never colour alone). */
+export interface IdentityLook {
+  ok: boolean;
+  problem: string | null;
+  scopes: string[];
+  /** GitHub Projects access, which a Project's board needs. */
+  projects: boolean;
+}
+
+export function lookOf(id: GithubIdentity): IdentityLook {
+  const scopes = id.accounts?.find((a) => a.login.toLowerCase() === id.account.toLowerCase())?.scopes ?? [];
+  const problem = !id.accounts ? 'gh isn\'t installed'
+    : !id.signedIn ? `gh isn't signed in as ${id.account}`
+      : id.pushesAs && id.pushesAs.toLowerCase() !== id.account.toLowerCase() ? `git push would use ${id.pushesAs}`
+        : null;
+  return { ok: !problem, problem, scopes, projects: scopes.includes('project') || scopes.includes('read:project') };
+}
+
+export interface IdentityCard {
+  account: string;
+  initials: string;
+  from: 'clone' | 'config';
+  projectAccount: string;
+  signedIn: boolean;
+  scopes: string[];
+  projects: boolean;
+  problem: string | null;
+  pushesAs: string | null;
+  commit: string | null;
+  profile: string;
+  /** How many other accounts gh is logged in to, to switch to. */
+  others: number;
 }
 
 // ---------------------------------------------------------------- agents
@@ -404,7 +447,7 @@ export interface EnvCard {
 
 export interface EnvironmentsModel {
   kind: 'environments';
-  projects: { name: string; root: string; github: string | null; envs: EnvCard[]; paths: string[][] }[];
+  projects: { name: string; root: string; github: string | null; identity: IdentityCard | null; envs: EnvCard[]; paths: string[][] }[];
 }
 
 /** Every promotion path from each environment that nothing promotes into, following every listed option. */
@@ -422,12 +465,13 @@ export function promotionPaths(envs: Pick<Environment, 'branch' | 'promotesTo'>[
   return out;
 }
 
-export function environmentsModel(hub: HubLike): EnvironmentsModel {
+export function environmentsModel(hub: HubLike, identity: (root: string) => IdentityCard | null = () => null): EnvironmentsModel {
   return {
     kind: 'environments',
     projects: hub.projects.map((p) => ({
       name: p.name, root: p.root,
       github: p.config.github ? `${p.config.github.repo} as ${p.config.github.account}` : null,
+      identity: identity(p.root),
       paths: promotionPaths(p.config.environments),
       envs: p.config.environments.map((e) => {
         const ref: Ref = { project: p.root, env: e.branch };

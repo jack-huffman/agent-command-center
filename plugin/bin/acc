@@ -1535,6 +1535,84 @@ function cleanup(paths, config, id, run2, now2) {
 import { existsSync as existsSync8 } from "node:fs";
 import { join as join9 } from "node:path";
 
+// packages/core/src/github.ts
+var CLONE_ACCOUNT_KEY = "acc.githubAccount";
+var credentialHelper = (fallback) => `!f() { test "$1" = get || exit 0; a=$(git config --get ${CLONE_ACCOUNT_KEY} || echo ${fallback}); echo username=$a; echo "password=$(gh auth token -u $a)"; }; f`;
+var LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
+function cloneAccount(run2, root) {
+  const r = run2("git", ["config", "--get", CLONE_ACCOUNT_KEY], { cwd: root });
+  const v = r.stdout.trim();
+  return r.code === 0 && LOGIN.test(v) ? v : null;
+}
+function withCloneAccount(config, root, run2) {
+  if (!config.github) return config;
+  const mine = cloneAccount(run2, root);
+  return mine && mine !== config.github.account ? { ...config, github: { ...config.github, account: mine } } : config;
+}
+function parseGhStatus(text) {
+  const out2 = [];
+  for (const block of text.split(/(?=Logged in to )/)) {
+    const m = /^Logged in to github\.com account (\S+)/.exec(block);
+    if (!m) continue;
+    const scopes = /Token scopes: (.*)/.exec(block)?.[1] ?? "";
+    out2.push({ login: m[1], active: /Active account: true/.test(block), scopes: [...scopes.matchAll(/'([^']+)'/g)].map((s) => s[1]) });
+  }
+  return out2;
+}
+function ghAccounts(run2, env = process.env) {
+  const r = run2("gh", ["auth", "status", "--hostname", "github.com"], { env });
+  if (r.code === 127) return null;
+  return parseGhStatus(r.stdout + r.stderr);
+}
+function pushSetup(run2, root) {
+  const r = run2("git", ["config", "--get-all", "credential.helper"], { cwd: root });
+  const helpers = r.code === 0 ? r.stdout.split("\n").filter((l) => l.trim()) : [];
+  if (helpers.some((h) => h.includes(CLONE_ACCOUNT_KEY))) return { kind: "follows", account: null };
+  const pinned = helpers.map((h) => /gh auth token -u ([A-Za-z0-9-]+)/.exec(h)?.[1]).find(Boolean);
+  if (pinned) return { kind: "pinned", account: pinned };
+  return { kind: helpers.length ? "other" : "none", account: null };
+}
+function githubIdentity(config, root, run2, env = process.env) {
+  if (!config.github) return null;
+  const mine = cloneAccount(run2, root);
+  const account = mine ?? config.github.account;
+  const accounts = ghAccounts(run2, env);
+  const git3 = (k) => {
+    const r = run2("git", ["config", "--get", k], { cwd: root });
+    return r.code === 0 ? r.stdout.trim() || null : null;
+  };
+  const push = pushSetup(run2, root);
+  return {
+    repo: config.github.repo,
+    account,
+    from: mine && mine !== config.github.account ? "clone" : "config",
+    projectAccount: config.github.account,
+    signedIn: !!accounts?.some((a) => a.login.toLowerCase() === account.toLowerCase()),
+    accounts,
+    commit: { name: git3("user.name"), email: git3("user.email") },
+    pushesAs: push.kind === "follows" ? account : push.account,
+    push: push.kind
+  };
+}
+function useGithubAccount(config, root, run2, account, env = process.env) {
+  if (!config.github) throw new AccError("no-github", 'This project has no "github" section in .acc/config.json.');
+  const want = account ?? config.github.account;
+  if (!LOGIN.test(want)) throw new AccError("usage", `${want} isn't a GitHub login.`);
+  const accounts = ghAccounts(run2, env);
+  if (accounts && !accounts.some((a) => a.login.toLowerCase() === want.toLowerCase())) {
+    throw new AccError("not-signed-in", `gh isn't logged in as ${want}. Sign in first: in VSCode, "Sign in to GitHub as this repo's account"; in a terminal, gh auth login.`);
+  }
+  const git3 = (...args) => run2("git", args, { cwd: root });
+  if (want === config.github.account) git3("config", "--unset", CLONE_ACCOUNT_KEY);
+  else if (git3("config", CLONE_ACCOUNT_KEY, want).code !== 0) throw new AccError("git", `Couldn't record ${want} in this clone's git config.`);
+  if (pushSetup(run2, root).kind !== "follows") {
+    git3("config", "--unset-all", "credential.helper");
+    git3("config", "credential.helper", "");
+    git3("config", "--add", "credential.helper", credentialHelper(config.github.account));
+  }
+  return githubIdentity(config, root, run2, env);
+}
+
 // packages/core/src/onboarding/helpers.ts
 import { existsSync as existsSync7, readFileSync as readFileSync8 } from "node:fs";
 import { join as join8 } from "node:path";
@@ -1560,6 +1638,7 @@ function makeContext(cwd, run2, env = process.env) {
       configErrors = [`.acc/config.json isn't valid JSON: ${e.message}`];
     }
   }
+  if (config && paths) config = withCloneAccount(config, paths.root, run2);
   return { cwd, run: run2, env, paths, config, configErrors, cache: /* @__PURE__ */ new Map() };
 }
 function cached(ctx, key, fn) {
@@ -1744,7 +1823,7 @@ function configureRepoAccess(run2, root, account, identity) {
   }
   run2("git", ["config", "--unset-all", "credential.helper"], { cwd: root });
   git3("config", "credential.helper", "");
-  git3("config", "--add", "credential.helper", `!f() { test "$1" = get || exit 0; echo username=${account}; echo "password=$(gh auth token -u ${account})"; }; f`);
+  git3("config", "--add", "credential.helper", credentialHelper(account));
 }
 
 // packages/core/src/onboarding/steps.ts
@@ -1982,7 +2061,7 @@ var STEPS = [
       if (need) return need;
       const account = ctx.config.github?.account;
       if (!account) return skip2("No GitHub account in the config.");
-      const helper = `git config credential.helper '' && git config --add credential.helper '!f() { test "$1" = get || exit 0; echo username=${account}; echo "password=$(gh auth token -u ${account})"; }; f'`;
+      const helper = `git config credential.helper '' && git config --add credential.helper '${credentialHelper(ctx.config.github.account)}'`;
       const fill = ctx.run("git", ["credential", "fill"], {
         cwd: ctx.paths.root,
         input: "protocol=https\nhost=github.com\n\n",
@@ -2460,6 +2539,10 @@ Agents
   acc block [<id>] "<reason>"           A builder's way out when stuck
   acc cleanup <id>                      Remove a finished task's worktree, only if nothing would be lost
 
+GitHub
+  acc github status                     Which account this repo works as, and whether gh and git push agree
+  acc github use <account> | --default  Work as another logged-in account in this clone only; nothing committed changes
+
 Checks
   acc gate run [<gate>...] [--test <ApexTest>=<why>]... [--env <name>] [--task <id>]
                                         Run the required checks (or the ones named) on this commit
@@ -2475,10 +2558,10 @@ function out(o, human, data) {
 }
 function project(cwd) {
   const paths = repoPaths(cwd, run);
-  const { config, warnings } = loadConfig(paths.config);
+  const { config: loaded, warnings } = loadConfig(paths.config);
   for (const w of warnings) process.stderr.write(`warning: ${w}
 `);
-  return { paths, config };
+  return { paths, config: withCloneAccount(loaded, paths.root, run) };
 }
 function actorFrom(o) {
   const role = o.as || process.env.ACC_ROLE || "human";
@@ -2694,6 +2777,33 @@ function cmdSet(o, id, to) {
   out(o, () => `${task.id}: ${entry.from} \u2192 ${stateLabel(displayState(readLedger(paths.ledger), task))}${entry.override ? " (override recorded)" : ""}`, { task, entry });
   return 0;
 }
+function renderIdentity(id) {
+  const scopes = id.accounts?.find((a) => a.login.toLowerCase() === id.account.toLowerCase())?.scopes ?? [];
+  return [
+    `${id.repo} works as ${id.account}${id.from === "clone" ? ` (this clone's choice; the project's is ${id.projectAccount})` : " (the project's account)"}`,
+    `  gh:      ${id.signedIn ? `${tone("\u2713", "blue")} logged in${scopes.length ? `, ${scopes.join(", ")}` : ""}` : tone(`\u2717 not logged in as ${id.account}`, "orange")}`,
+    `  push:    ${id.pushesAs ? id.pushesAs.toLowerCase() === id.account.toLowerCase() ? `${tone("\u2713", "blue")} as ${id.pushesAs}` : tone(`\u2717 as ${id.pushesAs}`, "orange") : tone("? not set up by acc", "orange")}`,
+    `  commits: ${id.commit.name || id.commit.email ? `${id.commit.name ?? "?"} <${id.commit.email ?? "?"}>` : tone("no identity set for this repo", "orange")}`,
+    id.accounts && id.accounts.length > 1 ? `  others:  ${id.accounts.filter((a) => a.login !== id.account).map((a) => a.login).join(", ")}` : ""
+  ].filter(Boolean).join("\n");
+}
+function cmdGithub(o, sub, arg) {
+  const paths = repoPaths(process.cwd(), run);
+  const { config } = loadConfig(paths.config);
+  if (sub === "status" || !sub) {
+    const id = githubIdentity(config, paths.root, run);
+    if (!id) throw new AccError("no-github", 'This project has no "github" section in .acc/config.json.');
+    out(o, () => renderIdentity(id), id);
+    return id.signedIn && id.pushesAs?.toLowerCase() === id.account.toLowerCase() ? 0 : 1;
+  }
+  if (sub === "use") {
+    if (!arg && !o.default) throw new AccError("usage", "acc github use <account>, or --default for the project's account");
+    const id = useGithubAccount(config, paths.root, run, o.default ? null : arg);
+    out(o, () => renderIdentity(id), id);
+    return 0;
+  }
+  throw new AccError("usage", "acc github status | acc github use <account> | acc github use --default");
+}
 function currentBranch(root) {
   const r = run("git", ["branch", "--show-current"], { cwd: root });
   return r.code === 0 && r.stdout.trim() ? r.stdout.trim() : null;
@@ -2808,7 +2918,8 @@ async function main(argv) {
       test: { type: "string", multiple: true },
       task: { type: "string" },
       manifest: { type: "string" },
-      keep: { type: "boolean", default: false }
+      keep: { type: "boolean", default: false },
+      default: { type: "boolean", default: false }
     }
   });
   const o = values;
@@ -2867,6 +2978,8 @@ async function main(argv) {
       if (sub === "list") return cmdGateList(o);
       throw new AccError("usage", "acc gate run [<gate>...] | acc gate list");
     }
+    case "github":
+      return cmdGithub(o, rest[0], rest[1]);
     case "drift": {
       if (!rest[0]) throw new AccError("usage", "acc drift <environment>");
       return cmdDrift(o, rest[0]);

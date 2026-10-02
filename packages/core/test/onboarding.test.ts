@@ -141,7 +141,7 @@ test('git pushing as the wrong account fails B2 and shows the repo-local helper'
   const res = runSteps(ctx).find((x) => x.step.id === 'B2.credentials')!.result;
   assert.equal(res.status, 'fail');
   assert.match(res.detail, /would push as someone-else, not work-account/);
-  assert.match(res.fix ?? '', /gh auth token -u work-account/);
+  assert.ok((res.fix ?? '').includes('a=$(git config --get acc.githubAccount || echo work-account)'), 'the helper follows the clone\'s account, else the project\'s (D-028)');
 });
 
 test('a blank line in a list, a tracked data file and a committed token all fail', () => {

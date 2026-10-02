@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { type Config, parseConfig } from '../config.ts';
 import type { Runner } from '../exec.ts';
 import { repoPaths } from '../paths.ts';
+import { withCloneAccount } from '../github.ts';
 import type { CheckContext, CheckResult } from './types.ts';
 
 export const pass = (detail: string): CheckResult => ({ status: 'pass', detail });
@@ -28,6 +29,8 @@ export function makeContext(cwd: string, run: Runner, env: NodeJS.ProcessEnv = p
       configErrors = [`.acc/config.json isn't valid JSON: ${(e as Error).message}`];
     }
   }
+  // This clone's own choice of GitHub account, when it made one, is the one every check uses (D-028).
+  if (config && paths) config = withCloneAccount(config, paths.root, run);
   return { cwd, run, env, paths, config, configErrors, cache: new Map() };
 }
 

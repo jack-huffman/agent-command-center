@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
 import type { Hub } from './hub.ts';
 import {
-  agentsModel, type BoardInput, environmentsModel, isFromWebview, type Model, type Ref, setupModel, tasksModel, VIEW_TITLES, type ViewKind, worktreesModel,
+  agentsModel, type BoardInput, environmentsModel, type IdentityCard, isFromWebview, type Model, type Ref, setupModel, tasksModel, VIEW_TITLES, type ViewKind, worktreesModel,
 } from './model.ts';
 import type { Setup } from './setup.ts';
 
@@ -14,12 +14,13 @@ const ALLOWED = new Set([
   'acc.worktree.open', 'acc.worktree.terminal', 'acc.worktree.reveal', 'acc.worktree.remove',
   'acc.env.openOrg', 'acc.env.openGithub', 'acc.env.compare',
   'acc.step.check', 'acc.step.fix', 'acc.step.openSetup', 'acc.step.confirm', 'acc.openGuide', 'acc.openProjectWalkthrough',
-  'acc.trackers.signIn', 'acc.trackers.refresh', 'acc.trackers.add',
+  'acc.trackers.signIn', 'acc.trackers.refresh', 'acc.trackers.add', 'acc.github.switch', 'acc.github.signIn',
 ]);
 
 /** What the board needs from the trackers, and what its cards ask for. */
 export interface BoardDeps {
   boards(root: string): BoardInput[];
+  identity(root: string): IdentityCard | null;
   openTicket(project: string, tracker: number | null, key: string): void;
   move(project: string, tracker: number, key: string, to: string): Promise<void>;
 }
@@ -115,7 +116,7 @@ export class Panels implements vscode.Disposable {
       case 'tasks': return tasksModel(this.hub, (root) => this.boards.boards(root));
       case 'agents': return agentsModel(this.hub);
       case 'worktrees': return worktreesModel(this.hub);
-      case 'environments': return environmentsModel(this.hub);
+      case 'environments': return environmentsModel(this.hub, (root) => this.boards.identity(root));
       case 'setup': return setupModel(this.setup.results(), this.setup.allConfirmed());
     }
   }

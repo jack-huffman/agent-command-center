@@ -38,7 +38,8 @@ function fakeVscode(folder: string) {
     },
     window: {
       createOutputChannel: () => ({ info() {}, warn() {}, error() {}, show() {}, dispose() {} }),
-      createStatusBarItem: () => status,
+      createStatusBarItem: (id?: unknown) => (id === 'acc.github' ? { show() {}, hide() {}, dispose() {} } : status),
+      onDidChangeWindowState: () => disposable,
       withProgress: (_o: unknown, task: (p: unknown, t: unknown) => unknown) => task({ report() {} }, { onCancellationRequested: () => disposable }),
       showInformationMessage: async (m: string) => { calls.info.push(m); return undefined; },
       showWarningMessage: async (m: string) => { calls.warn.push(m); return undefined; },

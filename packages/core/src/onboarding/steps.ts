@@ -4,6 +4,7 @@ import { branchFor, type Environment } from '../config.ts';
 import { isTrusted, mainCheckout } from '../dispatch.ts';
 import { type DriftResult, driftReportPath } from '../drift.ts';
 import { gatesFor } from '../gates.ts';
+import { credentialHelper } from '../github.ts';
 import {
   cached, fail, firstVersion, ghEnv, LICENSE_TO_TYPE, parseOrgUrl, pass, readText, SECRET_PATTERN, sfJson, skip, unknown, versionAtLeast,
 } from './helpers.ts';
@@ -216,7 +217,7 @@ export const STEPS: Step[] = [
       if (need) return need;
       const account = ctx.config!.github?.account;
       if (!account) return skip('No GitHub account in the config.');
-      const helper = `git config credential.helper '' && git config --add credential.helper '!f() { test "$1" = get || exit 0; echo username=${account}; echo "password=$(gh auth token -u ${account})"; }; f'`;
+      const helper = `git config credential.helper '' && git config --add credential.helper '${credentialHelper(ctx.config!.github!.account)}'`;
       const fill = ctx.run('git', ['credential', 'fill'], {
         cwd: ctx.paths!.root, input: 'protocol=https\nhost=github.com\n\n', env: { ...ctx.env, GIT_TERMINAL_PROMPT: '0' },
       });

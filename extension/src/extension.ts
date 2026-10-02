@@ -7,6 +7,7 @@ import { Panels } from './panels.ts';
 import { accRunner } from './run.ts';
 import { openWalkthrough, Setup } from './setup.ts';
 import { Sidebar } from './sidebar.ts';
+import { RepoIdentity } from './identity.ts';
 import { TicketPanels } from './ticket.ts';
 import { Trackers } from './trackers.ts';
 import { AgentsProvider, EnvironmentsProvider, SetupProvider, TasksProvider, WorktreesProvider } from './views.ts';
@@ -36,7 +37,12 @@ export function activate(context: vscode.ExtensionContext): void {
   reg(COMMANDS.project, () => openWalkthrough(WALKTHROUGHS.project.id));
   reg(COMMANDS.chooseFolder, () => setup.chooseFolder());
   reg('acc.setup.refresh', () => setup.refresh('refresh clicked'));
-  reg('acc.github.signIn', () => setup.githubSignIn());
+  const identity = new RepoIdentity(hub, accRunner(accScript), () => setup.githubSignIn(null), () => {
+    for (const id of ['A2.gh-login', 'B2.account', 'B2.credentials']) void setup.recheck(id);
+  });
+  context.subscriptions.push(identity);
+  reg('acc.github.signIn', async () => { await setup.githubSignIn(); await identity.refresh(undefined, true); });
+  reg('acc.github.switch', (arg?: unknown) => identity.switch(arg));
   reg('acc.sf.login', () => setup.sfLogin());
 
   // ------------------------------------------------------------ the sidebar
@@ -116,6 +122,7 @@ export function activate(context: vscode.ExtensionContext): void {
   new Sidebar(hub, accRunner(accScript), setup.log, (root, key) => tickets.show(root, undefined, key)).register(regNode);
   const panels = new Panels(context, hub, setup, resolve, (kind, visible) => want(kind, 'tab', visible), {
     boards: (root) => trackers.boardStates(root),
+    identity: (root) => identity.card(root),
     openTicket: (root, tracker, key) => tickets.show(root, tracker, key),
     move: async (root, tracker, key, to) => {
       const p = hub.project(root);
@@ -131,6 +138,7 @@ export function activate(context: vscode.ExtensionContext): void {
   });
   context.subscriptions.push(panels, tickets);
   trackers.onDidChange(() => panels.post('tasks'));
+  identity.onDidChange(() => panels.post('environments'));
   reg('acc.trackers.add', async () => { await trackers.add(); await setup.recheck('B14.tickets'); });
   reg('acc.trackers.signIn', async (arg?: unknown) => { if (await trackers.signIn(arg)) tickets.refresh(); await setup.recheck('B14.tickets'); });
   reg('acc.trackers.signOut', async (arg?: unknown) => { await trackers.signOut(arg); await setup.recheck('B14.tickets'); });
@@ -148,7 +156,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   hub.onDidChange((part) => {
     if (part === 'projects') { tasks.refresh(); envs.refresh(); worktrees.refresh(); agents.refresh(); panels.post(); }
-    if (part === 'projects') { void trackers.loadBoards(); void setup.recheck('B14.tickets'); }
+    if (part === 'projects') { void trackers.loadBoards(); void setup.recheck('B14.tickets'); void identity.refresh(); }
     if (part === 'tasks') { tasks.refresh(); panels.post('tasks'); tickets.refresh(); }
     if (part === 'agents') { agents.refresh(); views.agents.badge = agentBadge(hub); panels.post('agents'); tickets.refresh(); }
     if (part === 'worktrees') { worktrees.refresh(); envs.refresh(); agents.refresh(); panels.post('worktrees'); panels.post('environments'); panels.post('agents'); }
@@ -159,7 +167,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.onDidEndTerminalShellExecution((e) => setup.onShellEnd(e)),
     vscode.window.onDidCloseTerminal((t) => setup.onTerminalClosed(t)),
     vscode.workspace.onDidChangeWorkspaceFolders(() => { setup.refreshSoon('folders changed', 200); void hub.loadProjects(); }),
-    vscode.window.onDidChangeActiveTextEditor(() => setup.renderStatusIfFolderChanged()),
+    vscode.window.onDidChangeActiveTextEditor(() => { setup.renderStatusIfFolderChanged(); identity.render(); }),
+    // Coming back to VSCode is when an account may have changed elsewhere, such as gh in a terminal.
+    vscode.window.onDidChangeWindowState((s) => { if (s.focused) void identity.refresh(); }),
   );
   const configWatch = vscode.workspace.createFileSystemWatcher('**/.acc/config.json');
   const reload = () => void hub.loadProjects();

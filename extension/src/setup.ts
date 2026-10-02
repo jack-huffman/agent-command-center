@@ -316,8 +316,10 @@ export class Setup implements vscode.Disposable {
    * A2 and B2's "Do it": VSCode's own GitHub sign-in, handed to gh. The account is the one this repo uses
    * (D-007), and gh's active account is put back afterwards, so no other repo or session is affected.
    */
-  async githubSignIn(): Promise<void> {
-    const want = this.config()?.github?.account ?? null;
+  async githubSignIn(wanted?: string | null): Promise<string | null> {
+    // By default, the account this clone works as: its own choice, else the project's (D-028).
+    const mine = wanted === undefined ? (await runFile('git', ['config', '--get', 'acc.githubAccount'], this.cwd())).stdout.trim() : '';
+    const want = wanted === undefined ? mine || this.config()?.github?.account || null : wanted;
     // repo and read:org are gh's minimum; workflow for pushing workflows; project for a GitHub Project's board.
     const scopes = ['repo', 'read:org', 'workflow', 'project'];
     let session: vscode.AuthenticationSession | undefined;
@@ -325,30 +327,31 @@ export class Setup implements vscode.Disposable {
       try {
         session = await vscode.authentication.getSession('github', scopes, { createIfNone: true, clearSessionPreference: true });
       } catch {
-        return; // closed the sign-in
+        return null; // closed the sign-in
       }
       if (!want || session.account.label.toLowerCase() === want.toLowerCase()) break;
       const again = 'Pick another account';
       const pick = await vscode.window.showWarningMessage(`That's ${session.account.label}, but this repo works as ${want}.`, { modal: true, detail: `Pick ${want}, or add it with "Sign in to another account".` }, again);
-      if (pick !== again) return;
+      if (pick !== again) return null;
     }
     const status = await exec('gh', ['auth', 'status', '--hostname', 'github.com']);
     if (status.code === 127) {
       void vscode.window.showErrorMessage('gh isn\'t installed yet. Do step A1 (GitHub CLI) first.');
-      return;
+      return null;
     }
     const before = activeGhAccount(status.stdout + status.stderr);
     const login = await exec('gh', ['auth', 'login', '--hostname', 'github.com', '--with-token'], { input: `${session.accessToken}\n` });
     if (login.code !== 0) {
       this.log.error(`gh auth login --with-token failed: ${(login.stderr || login.stdout).trim()}`);
       void vscode.window.showErrorMessage(`gh didn't take the login: ${(login.stderr || login.stdout).trim().split('\n')[0]}`);
-      return;
+      return null;
     }
     // Logging in makes that account gh's active one; put the previous one back.
     if (before && before.toLowerCase() !== session.account.label.toLowerCase()) await exec('gh', ['auth', 'switch', '--hostname', 'github.com', '--user', before]);
     this.log.info(`gh is logged in as ${session.account.label}${before ? `; its active account is still ${before}` : ''}.`);
     void vscode.window.showInformationMessage(`gh is logged in as ${session.account.label}.${before && before !== session.account.label ? ` Its active account is still ${before}.` : ''}`);
     for (const id of ['A2.gh-login', 'B2.account', 'B2.credentials']) await this.recheck(id);
+    return session.account.label;
   }
 
   /**

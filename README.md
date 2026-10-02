@@ -23,6 +23,9 @@ Salesforce. Project types plug in as profiles.
   Jira board's columns, an Azure DevOps team board's, or a GitHub Project's. Drag a card to move the real
   ticket. Click one for a ticket page, with the description, comments, status,
   assignee and labels, plus acc's agent, checks and history.
+- **Who you're working as:** the status bar shows the repo's GitHub account,
+  and you can switch it for your clone alone. git push follows the switch, and
+  boards and comments say who they act as.
 - **Next:** M5, review and landing.
 
 Install the extension with `npm run package && npm run install-extension`, then

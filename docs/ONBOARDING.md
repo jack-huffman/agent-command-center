@@ -123,6 +123,14 @@ To continue a conversation from another folder:
 For any `gh` command you run for this repo, prefix it with
 `GH_TOKEN=$(gh auth token -u <account>)`.
 
+
+**Switching the account later.** The project's account is a default. To work
+as another account in your clone only, click the GitHub account in the status
+bar, or use **Switch account** on the Environments tab. In a terminal:
+`acc github use <account>`. Nothing committed changes, and git push follows
+(D-028). `acc github status` shows the account, where it comes from, gh's
+access, and who git push and commits use.
+
 ### B3. Keep client data out of git
 
 - [ ] Move CSV, XLS, XLSX and EML files, contact exports and working notes into

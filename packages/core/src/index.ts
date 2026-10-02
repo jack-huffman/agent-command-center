@@ -10,6 +10,7 @@ export * from './drift.ts';
 export * from './intake.ts';
 export * from './dispatch.ts';
 export * from './init.ts';
+export * from './github.ts';
 export * from './onboarding/types.ts';
 export { makeContext, parseOrgUrl, SECRET_PATTERN, versionAtLeast } from './onboarding/helpers.ts';
 export { STEPS, runSteps, applies } from './onboarding/steps.ts';

@@ -1,7 +1,7 @@
 // Renders one editor tab. Every element is built with DOM calls and every string is set as text,
 // so nothing from a ticket, branch or session can become markup. No HTML string is ever parsed.
 import type {
-  Action, AgentsModel, EnvironmentsModel, Look, Model, PersonChip, Ref, SetupModel, TasksModel, TicketModel, TrackerBoard, TrackerCard, ViewKind, WorktreesModel,
+  Action, AgentsModel, EnvironmentsModel, IdentityCard, Look, Model, PersonChip, Ref, SetupModel, TasksModel, TicketModel, TrackerBoard, TrackerCard, ViewKind, WorktreesModel,
 } from '../src/model.ts';
 import type { Block, Doc, Inline } from '../../packages/core/src/trackers/doc.ts';
 
@@ -323,7 +323,7 @@ function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
   }
   const out = el('section', 'tracker',
     el('div', 'tracker-head',
-      el('h2', '', icon(KIND_ICON[b.kind] ?? 'issues'), b.title, b.source ? el('span', 'chip', SOURCE_LABEL[b.source] ?? b.source) : null, b.loading ? el('span', 'muted loading', icon('sync~spin'), 'Loading') : null),
+      el('h2', '', icon(KIND_ICON[b.kind] ?? 'issues'), b.title, b.source ? el('span', 'chip', SOURCE_LABEL[b.source] ?? b.source) : null, b.signedInAs ? el('span', 'acting', icon('account'), `as ${b.signedInAs}`) : null, b.loading ? el('span', 'muted loading', icon('sync~spin'), 'Loading') : null),
       el('div', 'toolbar', ...tools)));
   if (b.error) {
     const fix = b.connect ? el('button', 'btn primary', icon('plug'), b.connect.label) as HTMLButtonElement : null;
@@ -392,7 +392,8 @@ function composer(m: TicketModel): HTMLElement {
   const send = el('button', 'btn primary', icon('comment'), 'Comment') as HTMLButtonElement;
   send.type = 'button';
   send.disabled = !box.value.trim();
-  const hint = el('span', 'muted small', navigator.platform.includes('Mac') ? '⌘ Enter to post' : 'Ctrl+Enter to post');
+  const keys = navigator.platform.includes('Mac') ? '⌘ Enter to post' : 'Ctrl+Enter to post';
+  const hint = el('span', 'muted small', m.signedInAs ? el('span', 'acting', icon('account'), `Commenting as ${m.signedInAs}`) : null, m.signedInAs ? ' · ' : null, keys);
   const post = () => {
     if (!box.value.trim() || send.disabled) return;
     send.disabled = true;
@@ -570,11 +571,51 @@ function renderWorktrees(m: WorktreesModel): Node[] {
   return out;
 }
 
+/** A button that runs a command with one argument, such as the project it's for. */
+function argButton(command: string, label: string, iconName: string, arg: string, primary = false): HTMLElement {
+  const b = el('button', `btn${primary ? ' primary' : ''}`, icon(iconName), label) as HTMLButtonElement;
+  b.type = 'button';
+  b.addEventListener('click', () => api.postMessage({ type: 'toolbar', command, arg }));
+  return b;
+}
+
+/**
+ * Who this repo is on GitHub: the account, where that's set, and whether gh and git push agree. Anything
+ * wrong says so in words and with an icon, and the card gains an orange edge.
+ */
+function identityCard(root: string, repo: string, id: IdentityCard): HTMLElement {
+  const big = el('span', 'avatar avatar-lg', id.initials);
+  big.setAttribute('aria-hidden', 'true');
+  const where = el('span', `chip${id.from === 'clone' ? ' chip-blue' : ''}`, id.from === 'clone' ? 'This clone' : 'Project default');
+  where.title = id.from === 'clone' ? `Chosen for this clone only, in git config. The project's account is ${id.projectAccount}.` : 'From .acc/config.json';
+  const line = (iconName: string, tone: string | undefined, ...text: Child[]) => el('div', 'id-line', icon(iconName, tone), el('span', '', ...text));
+  const pushOk = !id.pushesAs || id.pushesAs.toLowerCase() === id.account.toLowerCase();
+  const profile = el('button', 'btn ghost', icon('link-external'), 'Profile') as HTMLButtonElement;
+  profile.type = 'button';
+  profile.addEventListener('click', () => api.postMessage({ type: 'open', url: id.profile }));
+  return el('article', `identity${id.problem ? ' attention' : ''}`,
+    el('div', 'id-head', big, el('div', 'id-who',
+      el('div', 'id-name', el('span', 'strong', id.account), where),
+      el('div', 'muted small', `GitHub account for ${repo || 'this repo'}${id.from === 'clone' ? ` · the project's is ${id.projectAccount}` : ''}`))),
+    el('div', 'id-lines',
+      id.signedIn
+        ? line('pass', 'blue', 'gh is signed in', id.scopes.length ? el('span', 'scopes', ...id.scopes.map((s) => el('span', `scope${s === 'project' ? ' scope-on' : ''}`, s))) : null)
+        : line('warning', 'orange', el('strong', '', `gh isn't signed in as ${id.account}`)),
+      id.signedIn && !id.projects ? line('info', undefined, el('span', 'muted', 'No GitHub Projects access yet, which a Project\'s board needs. Sign in again to add it.')) : null,
+      id.pushesAs ? line(pushOk ? 'repo-push' : 'warning', pushOk ? undefined : 'orange', pushOk ? `git push as ${id.pushesAs}` : el('strong', '', `git push would use ${id.pushesAs}`)) : line('warning', 'orange', 'git push isn\'t set up by acc for this repo'),
+      id.commit ? line('git-commit', undefined, `Commits as ${id.commit}`) : line('warning', 'orange', 'No commit identity set for this repo')),
+    el('div', 'actions',
+      argButton('acc.github.switch', id.others ? 'Switch account' : 'Add or switch account', 'arrow-swap', root, true),
+      !id.signedIn ? argButton('acc.github.signIn', 'Sign in', 'github', root) : !id.projects ? argButton('acc.github.signIn', 'Add Projects access', 'github', root) : null,
+      profile));
+}
+
 function renderEnvironments(m: EnvironmentsModel): Node[] {
   if (!m.projects.length) return [header('Environments', 'No onboarded project in this workspace.'), empty('Environments appear here once this folder is an onboarded project.', toolbarButton('acc.openProjectWalkthrough', 'Onboard this project', 'rocket', undefined, true))];
   const out: Node[] = [header('Environments', 'Each environment has its own branch, named after it. Changes move between them by pull request.')];
   for (const p of m.projects) {
-    const section = el('section', 'block', el('h2', '', icon('repo'), p.name, p.github ? el('span', 'muted', ` · ${p.github}`) : null));
+    const section = el('section', 'block', el('h2', '', icon('repo'), p.name, p.identity ? null : p.github ? el('span', 'muted', ` · ${p.github}`) : null));
+    if (p.identity) section.append(identityCard(p.root, p.github?.split(' as ')[0] ?? '', p.identity));
     if (p.paths.length) {
       const flow = el('div', 'flows');
       for (const path of p.paths) {

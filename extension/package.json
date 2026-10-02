@@ -2,7 +2,7 @@
   "name": "agent-command-center",
   "displayName": "Agent Command Center",
   "description": "Set up projects for parallel Claude Code agents, then run and watch them from VSCode.",
-  "version": "0.7.2",
+  "version": "0.8.0",
   "publisher": "JackHuffman",
   "private": true,
   "license": "UNLICENSED",
@@ -326,6 +326,12 @@
         "title": "Log in to an environment's Salesforce org",
         "category": "Agent Command Center",
         "icon": "$(cloud)"
+      },
+      {
+        "command": "acc.github.switch",
+        "title": "Switch this repo's GitHub account",
+        "category": "Agent Command Center",
+        "icon": "$(arrow-swap)"
       }
     ],
     "menus": {

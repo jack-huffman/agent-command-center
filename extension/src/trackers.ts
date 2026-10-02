@@ -21,6 +21,8 @@ export interface BoardState {
   /** A button that fixes the error, such as Sign in to Azure DevOps. */
   connect: { command: string; label: string; arg: string } | null;
   loading: boolean;
+  /** Who the board acts as. */
+  signedInAs: string | null;
 }
 
 /** Runs gh and friends with an argument list, feeding stdin when asked: comments travel that way, never as arguments. */
@@ -100,6 +102,16 @@ export class Trackers implements vscode.Disposable {
     }
   }
 
+  /** Who a tracker acts as for this repo: the GitHub account, the Jira email, the Microsoft account. */
+  async signedInAs(p: Project, index: number): Promise<string | null> {
+    const t = this.trackers(p)[index];
+    if (!t) return null;
+    if (t.kind === 'github') return p.config.github?.account ?? null;
+    const c = await this.cred(p, t);
+    if (!c) return null;
+    return c.kind === 'jira' ? c.email : c.method === 'microsoft' ? c.account.label : 'a personal access token';
+  }
+
   /** The trackers this repo names but hasn't signed in to yet. GitHub signs in through gh, so it's never listed. */
   async missingSignIns(p: Project): Promise<string[]> {
     const out: string[] = [];
@@ -124,7 +136,8 @@ export class Trackers implements vscode.Disposable {
   client(p: Project, index: number): Promise<TrackerClient> {
     const t = this.trackers(p)[index];
     if (!t) return Promise.reject(new TrackerError('not-found', 'That tracker is no longer in .acc/config.json.'));
-    const key = `${p.root}#${index}#${JSON.stringify(t)}`;
+    // The account is part of the key: switching it (D-028) must never reuse the old one's client.
+    const key = `${p.root}#${index}#${JSON.stringify(t)}#${p.config.github?.account ?? ''}`;
     let c = this.clients.get(key);
     if (!c) {
       c = this.makeClient(p, t);
@@ -174,7 +187,7 @@ export class Trackers implements vscode.Disposable {
         return;
       }
       const prev = this.boards.get(p.root) ?? [];
-      const states: BoardState[] = list.map((t, index) => ({ index, kind: t.kind, title: this.title(t), board: prev[index]?.board ?? null, error: null, connect: null, loading: true }));
+      const states: BoardState[] = await Promise.all(list.map(async (t, index) => ({ index, kind: t.kind, title: this.title(t), board: prev[index]?.board ?? null, error: null, connect: null, loading: true, signedInAs: await this.signedInAs(p, index) })));
       this.boards.set(p.root, states);
       this.emitter.fire(p.root);
       await Promise.all(states.map(async (s) => {

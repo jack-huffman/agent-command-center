@@ -89,3 +89,14 @@ test('pasted tracker URLs give the organization or site', async () => {
   assert.equal(parseHost('jira', 'https://Acme.atlassian.net/jira/software/projects/MSP/boards/1'), 'acme.atlassian.net');
   assert.equal(parseHost('jira', 'acme'), 'acme.atlassian.net');
 });
+
+test('a repo\'s GitHub identity reads at a glance: what\'s wrong is said in words', async () => {
+  const { lookOf } = await import('../src/model.ts');
+  const base = { repo: 'o/r', account: 'me', from: 'config' as const, projectAccount: 'me', signedIn: true, commit: { name: 'Me', email: 'me@x.y' }, pushesAs: 'me', push: 'follows' as const,
+    accounts: [{ login: 'me', active: false, scopes: ['repo', 'project'] }, { login: 'work', active: true, scopes: ['repo'] }] };
+  assert.deepEqual(lookOf(base), { ok: true, problem: null, scopes: ['repo', 'project'], projects: true });
+  assert.equal(lookOf({ ...base, signedIn: false }).problem, 'gh isn\'t signed in as me');
+  assert.equal(lookOf({ ...base, pushesAs: 'work' }).problem, 'git push would use work');
+  assert.equal(lookOf({ ...base, accounts: null }).problem, 'gh isn\'t installed');
+  assert.equal(lookOf({ ...base, accounts: [{ login: 'me', active: true, scopes: ['repo'] }] }).projects, false);
+});
