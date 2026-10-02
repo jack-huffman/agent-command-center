@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
-  ACTORS, AccError, type Actor, type ApexTest, configureRepoAccess, displayState, drift, gatesFor, gateTarget, isReady, loadConfig, makeContext, moveTask, mutate,
+  ACTORS, AccError, type Actor, type ApexTest, configureRepoAccess, DISPLAY, type DisplayState, displayState, drift, gatesFor, gateTarget, isReady, loadConfig, makeContext, moveTask, mutate,
   cleanup, dispatch, githubIdentity, githubIssuesToTasks, planInit, useGithubAccount, withCloneAccount, type Profile, readLedger, receiptsAt, STEPS, receiptHooks, repoPaths, run, runGates, runSteps, satisfies, type State, type StepResult, type TaskInput,
   upsertTasks, writeConfig, ask, hookOutput, parseHookInput, waiveGates, review, land, sync, planPromotion, promote, skipWarning, planDeploy, deploy, lastDeploy,
   buildBaseline, seedBranches, draftLists, writeReadme, parseEventInput, preToolUseHook, sessionStartHook, stopHook, AGENT_ROLES, type AgentRole, profileView, setProfile, withCloneAgents, type ProfileChange,
@@ -32,6 +32,7 @@ Tasks
   acc add "<title>" [--brief <text>] [--dep <id>]... [--env <branch>] [--key <T-n>]
   acc import [--file <tasks.json>]      Add or refresh tasks from JSON (stdin by default)
   acc intake github [--label <l>]       Add or refresh tasks from the repo's open GitHub issues
+  acc status                            One line: how many tasks are in each state
   acc list [--state <state>]
   acc ready
   acc show <id>
@@ -497,6 +498,22 @@ function cmdList(o: Opts, onlyReady: boolean): number {
   return 0;
 }
 
+function cmdStatus(o: Opts): number {
+  const { paths } = project(process.cwd());
+  const ledger = readLedger(paths.ledger);
+  // In the order the line reads: work in flight, then what waits to start.
+  const counts: Record<DisplayState, number> = { running: 0, 'needs-you': 0, review: 0, rework: 0, blocked: 0, ready: 0, todo: 0, done: 0 };
+  // The ledger alone, without session info, so this never starts claude.
+  for (const t of ledger.tasks) counts[displayState(ledger, t)]++;
+  out(o, () => {
+    const parts = (Object.keys(counts) as DisplayState[])
+      .filter((s) => s !== 'done' && counts[s] > 0)
+      .map((s) => tone(`${counts[s]} ${DISPLAY[s].label.toLowerCase()}`, DISPLAY[s].tone));
+    return parts.length ? parts.join(' · ') : 'Nothing in play.';
+  }, { counts });
+  return 0;
+}
+
 function cmdShow(o: Opts, id: string): number {
   const { paths } = project(process.cwd());
   const ledger = readLedger(paths.ledger);
@@ -788,6 +805,7 @@ export async function main(argv: string[]): Promise<number> {
       if (!rest[0]) throw new AccError('usage', 'acc drift <environment>');
       return cmdDrift(o, rest[0]);
     }
+    case 'status': return cmdStatus(o);
     case 'list': return cmdList(o, false);
     case 'ready': return cmdList(o, true);
     case 'show': {
