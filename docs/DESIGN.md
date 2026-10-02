@@ -296,7 +296,7 @@ config.
 
 | Gate | Runs | Required |
 |---|---|---|
-| `format` | `prettier --check` on changed files | yes |
+| `format` | `prettier --check` on changed Apex (`.cls`, `.trigger`) and LWC code (`.js`, `.html`, `.css`). Never metadata XML (D-025) | yes |
 | `lint` | ESLint on changed LWC and Aura JavaScript | when any changed |
 | `static` | `sf code-analyzer run` on changed files. Fails at severity 2 or worse, which is configurable | yes |
 | `lwc-tests` | `sfdx-lwc-jest --findRelatedTests` | when an LWC changed |

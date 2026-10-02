@@ -98,16 +98,17 @@ export function packageDirs(root: string): string[] {
 }
 export const under = (files: string[], dirs: string[]): string[] => files.filter((f) => dirs.some((d) => f === d || f.startsWith(`${d}/`)));
 
-const PRETTIER_FILES = /\.(cls|cmp|component|css|html|js|json|md|page|trigger|xml|yaml|yml)$/;
+/** Code people write: Apex, and LWC's JavaScript, HTML and CSS. Metadata XML is Salesforce's to lay out (D-025). */
+const FORMATTED = /(\.(cls|trigger)$)|((^|\/)lwc\/.+\.(js|html|css)$)/;
 const COMPONENT_JS = /(^|\/)(lwc|aura)\/.+\.js$/;
 const LWC = /(^|\/)lwc\//;
 const APEX = /\.(cls|trigger)(-meta\.xml)?$/;
 
 const format: Gate = {
-  name: 'format', heavy: false, about: 'prettier --check on changed files',
+  name: 'format', heavy: false, about: 'prettier --check on changed Apex and LWC code',
   plan({ root, changes }) {
-    const files = changes.files.filter((f) => PRETTIER_FILES.test(f));
-    if (!files.length) return { outcome: skip('No file prettier checks has changed.') };
+    const files = changes.files.filter((f) => FORMATTED.test(f));
+    if (!files.length) return { outcome: skip('No Apex or LWC code has changed.') };
     const bin = nodeBin(root, 'prettier');
     if (!existsSync(bin)) return { outcome: missingTool(root, 'prettier') };
     return {

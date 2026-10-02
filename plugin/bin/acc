@@ -728,17 +728,17 @@ function packageDirs(root) {
   }
 }
 var under = (files, dirs) => files.filter((f) => dirs.some((d) => f === d || f.startsWith(`${d}/`)));
-var PRETTIER_FILES = /\.(cls|cmp|component|css|html|js|json|md|page|trigger|xml|yaml|yml)$/;
+var FORMATTED = /(\.(cls|trigger)$)|((^|\/)lwc\/.+\.(js|html|css)$)/;
 var COMPONENT_JS = /(^|\/)(lwc|aura)\/.+\.js$/;
 var LWC = /(^|\/)lwc\//;
 var APEX = /\.(cls|trigger)(-meta\.xml)?$/;
 var format = {
   name: "format",
   heavy: false,
-  about: "prettier --check on changed files",
+  about: "prettier --check on changed Apex and LWC code",
   plan({ root, changes }) {
-    const files = changes.files.filter((f) => PRETTIER_FILES.test(f));
-    if (!files.length) return { outcome: skip("No file prettier checks has changed.") };
+    const files = changes.files.filter((f) => FORMATTED.test(f));
+    if (!files.length) return { outcome: skip("No Apex or LWC code has changed.") };
     const bin = nodeBin(root, "prettier");
     if (!existsSync4(bin)) return { outcome: missingTool(root, "prettier") };
     return {

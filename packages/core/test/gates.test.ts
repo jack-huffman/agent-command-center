@@ -348,3 +348,26 @@ test('logged commands can be pasted back into a shell', async () => {
   assert.equal(shellLine('sf', ['project', 'deploy', 'start', '--target-org', 'Acme Dev SB', '--source-dir', 'force-app/a.cls']), "sf project deploy start --target-org 'Acme Dev SB' --source-dir force-app/a.cls");
   assert.equal(shellLine('sh', ['-c', "echo 'hi'"]), `sh -c 'echo '\\''hi'\\'''`);
 });
+
+test('format checks Apex and LWC code only, never metadata XML (D-025)', () => {
+  const dir = sfRepo();
+  for (const f of ['force-app/main/default/objects/Account/fields/Tier__c.field-meta.xml', 'force-app/main/default/lwc/card/card.js-meta.xml', 'force-app/main/default/aura/box/box.cmp', 'force-app/main/default/staticresources/data.json', 'README.md']) write(dir, f, '<x/>\n');
+  commitAll(dir);
+  const c = sfConfig({ required: ['format'] });
+  const r = runGates(repoPaths(dir, run), c, dev(c), [], [], { run: fakeRunner({}), now, slots: slots() });
+  assert.deepEqual([r.results[0]!.status, r.results[0]!.summary], ['skip', 'No Apex or LWC code has changed.']);
+
+  const bin = join(realpathSync(dir), 'node_modules', '.bin');
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, 'prettier'), '');
+  writeFileSync(join(dir, '.git', 'info', 'exclude'), 'node_modules\n');
+  for (const f of ['force-app/main/default/classes/Tier.cls', 'force-app/main/default/triggers/Tier.trigger', 'force-app/main/default/lwc/card/card.js', 'force-app/main/default/lwc/card/card.html', 'force-app/main/default/lwc/card/card.css', 'force-app/main/default/lwc/card/__tests__/card.test.js']) write(dir, f, 'x\n');
+  commitAll(dir, 'code');
+  const calls: string[] = [];
+  runGates(repoPaths(dir, run), c, dev(c), [], [], { run: fakeRunner({ [`nice -n 15 ${join(bin, 'prettier')} --check`]: ok() }, calls), now, slots: slots() });
+  const checked = calls.find((l) => l.includes('prettier --check'))!.split(' --check ')[1]!.split(' ').sort();
+  assert.deepEqual(checked, [
+    'force-app/main/default/classes/Tier.cls', 'force-app/main/default/lwc/card/__tests__/card.test.js', 'force-app/main/default/lwc/card/card.css',
+    'force-app/main/default/lwc/card/card.html', 'force-app/main/default/lwc/card/card.js', 'force-app/main/default/triggers/Tier.trigger',
+  ]);
+});
