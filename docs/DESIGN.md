@@ -505,8 +505,9 @@ An **Agents** container in the activity bar holds three views:
 
 **Status bar:** running, needs you, and in review counts, each with its icon.
 
-**Notifications:** a session needs you (with an **Attach** button), a task is
-ready for review, or CI fails on a task's pull request.
+**Notifications:** a session needs you (with **Open in Claude Code**), a task is
+ready for review, a review passed or asked for changes, or CI fails on a task's
+pull request. Each offers its next step, and each change is said once (D-044).
 
 **Commands:** Dispatch, Attach (`claude attach` in a terminal), Review, Land,
 Clean up, Intake, Open packet, Open pull request, Block or unblock, and Refresh.
