@@ -629,7 +629,62 @@ export interface QuestionCard {
   detail: string | null;
   /** Set when Claude Code offered a rule to stop asking: allowing with it lasts this session. */
   always: string | null;
+  /** Every answer Claude Code's own prompt would offer, in its order (D-038). Empty for a question with options. */
+  choices: QuestionChoice[];
   questions: { question: string; header: string; multiSelect: boolean; options: QuestionOption[] }[];
+}
+
+/** One answer to a permission prompt, as a numbered choice on the card. */
+export interface QuestionChoice {
+  key: string;
+  label: string;
+  hint: string | null;
+  icon: string;
+  /** What's sent. A reason or an edited command, when the choice needs one, comes from the card. */
+  answer: { decision: 'allow' | 'deny'; always?: boolean; scope?: 'session' | 'project'; mode?: 'auto' | 'acceptEdits' | 'default'; stop?: boolean };
+  /** It needs words first: why not, what to plan instead, or the command as it should run. */
+  needs?: 'reason' | 'feedback' | 'command';
+  primary?: boolean;
+}
+
+/** What "always allow" would allow, in a few words, from the first rule Claude Code offered. */
+export function alwaysWhat(suggestions: unknown[]): string | null {
+  const s = suggestions[0] as { type?: string; rules?: { toolName?: string; ruleContent?: string }[]; mode?: string; directories?: string[] } | undefined;
+  if (!s || typeof s !== 'object') return null;
+  if (s.type === 'setMode' && s.mode === 'acceptEdits') return 'all edits';
+  if (s.type === 'addDirectories') return `access to ${(s.directories?.[0] ?? 'this folder').split('/').pop()}`;
+  if (s.type === 'addRules' && s.rules?.[0]?.toolName) {
+    const r = s.rules[0];
+    const what = r.ruleContent ? (r.ruleContent.length > 48 ? `${r.ruleContent.slice(0, 48)}…` : r.ruleContent) : r.toolName;
+    return `\`${what}\``;
+  }
+  return 'this';
+}
+
+/** The choices for a permission prompt, as Claude Code's own prompt lists them, plus what the page adds. */
+export function choicesFor(tool: string, suggestions: unknown[]): QuestionChoice[] {
+  if (tool === 'AskUserQuestion') return [];
+  const stop: QuestionChoice = { key: 'stop', label: 'No, and stop it', hint: 'Its turn ends here and it waits for you, as Esc does in its own prompt', icon: 'debug-stop', answer: { decision: 'deny', stop: true } };
+  if (tool === 'ExitPlanMode') {
+    return [
+      { key: 'accept-edits', label: 'Yes, and auto-accept edits', hint: 'It starts on the plan, editing without asking each time', icon: 'check-all', answer: { decision: 'allow', mode: 'acceptEdits' }, primary: true },
+      { key: 'manual-edits', label: 'Yes, and approve each edit', hint: 'It starts on the plan, and asks before each edit', icon: 'check', answer: { decision: 'allow', mode: 'default' } },
+      { key: 'keep-planning', label: 'No, keep planning…', hint: 'Say what to change in the plan', icon: 'edit', answer: { decision: 'deny' }, needs: 'feedback' },
+      stop,
+    ];
+  }
+  const what = alwaysWhat(suggestions);
+  return [
+    { key: 'allow', label: 'Yes', hint: null, icon: 'check', answer: { decision: 'allow' }, primary: true },
+    ...(what ? [
+      { key: 'always-session', label: `Yes, and always allow ${what} in this session`, hint: 'It won\'t ask again for this until the session ends', icon: 'check-all', answer: { decision: 'allow' as const, always: true, scope: 'session' as const } },
+      { key: 'always-project', label: `Yes, and always allow ${what} in this project`, hint: 'Saved to the project\'s Claude Code settings (.claude/settings.local.json), for every session', icon: 'repo', answer: { decision: 'allow' as const, always: true, scope: 'project' as const } },
+    ] : []),
+    { key: 'auto', label: 'Yes, and switch to auto mode', hint: 'For the rest of this session, Claude Code decides the safe ones itself and asks only about the rest', icon: 'sparkle', answer: { decision: 'allow', mode: 'auto' } },
+    ...(tool === 'Bash' ? [{ key: 'edit', label: 'Edit the command, then allow…', hint: 'The agent is told to run your version, and it\'s allowed when it does', icon: 'edit', answer: { decision: 'allow' as const }, needs: 'command' as const }] : []),
+    { key: 'deny', label: 'No, and tell it what to do instead…', hint: 'It reads your words and carries on', icon: 'close', answer: { decision: 'deny' }, needs: 'reason' },
+    stop,
+  ];
 }
 
 const text = (v: unknown, max = 4000): string | null => (typeof v === 'string' && v.trim() ? (v.length > max ? `${v.slice(0, max)}…` : v) : null);
@@ -691,7 +746,7 @@ export function questionCards(hub: HubLike): QuestionCard[] {
     return {
       id: q.id, kind: ask ? 'question' : 'permission', who: row?.id ?? session?.name ?? 'An agent', task: row?.id ?? null,
       project: project?.root ?? null, projectName: project?.name ?? null, session: session ? sessionKey(session) : q.sessionId, sessionId: q.sessionId, askedAt: q.at,
-      ...d, always: ask ? null : alwaysLabel(q.suggestions), questions: ask ? questionsOf(q.input) : [],
+      ...d, always: ask ? null : alwaysLabel(q.suggestions), choices: choicesFor(q.tool, q.suggestions), questions: ask ? questionsOf(q.input) : [],
     };
   });
 }
@@ -725,6 +780,11 @@ export function decisionOf(h: HistoryRecord): Decision {
   const look: Record<string, Look> = {
     allowed: LOOK('You allowed it', 'pass', 'blue'),
     'allowed-for-session': LOOK('You allowed it for the session', 'check-all', 'blue'),
+    'allowed-for-project': LOOK('You always allow it in this project', 'repo', 'blue'),
+    'allowed-edited': LOOK('You edited the command, and allowed it', 'edit', 'blue'),
+    'allowed-auto-mode': LOOK('You allowed it, and switched it to auto mode', 'sparkle', 'blue'),
+    'allowed-accept-edits': LOOK('You approved the plan, with edits accepted', 'check-all', 'blue'),
+    'denied-stopped': LOOK('You said no, and stopped it', 'debug-stop', 'neutral'),
     denied: ask ? LOOK('You let it decide', 'sparkle', 'neutral') : LOOK('You said no', 'circle-slash', 'neutral'),
     answered: LOOK('You answered', 'comment', 'blue'),
     terminal: LOOK('Handed to its own terminal', 'terminal', 'neutral'),
@@ -735,7 +795,8 @@ export function decisionOf(h: HistoryRecord): Decision {
   };
   return {
     id: h.id, at: h.endedAt, askedAt: h.askedAt, sessionId: h.sessionId, icon: d.icon, asked: ask && questions.length ? `asked: ${questions.join(' · ')}` : asked,
-    code: d.code, look: look[h.outcome] ?? LOOK(h.outcome, 'question', 'neutral'), detail: answers ?? (h.message ? `"${h.message}"` : null),
+    code: d.code, look: look[h.outcome] ?? LOOK(h.outcome, 'question', 'neutral'),
+    detail: answers ?? (h.command ? `Ran instead: ${h.command}` : h.message ? `"${h.message}"` : null),
   };
 }
 
@@ -1095,15 +1156,20 @@ export type FromWebview =
   /** The page moved to another section, so reopening it comes back there. */
   | { type: 'nav'; section: HomeSection }
   /** An answer to an agent's question or permission prompt (D-030). */
-  | { type: 'answer'; id: string; decision: 'allow' | 'deny' | 'terminal'; always?: boolean; message?: string; answers?: Record<string, string> }
+  | { type: 'answer'; id: string; decision: 'allow' | 'deny' | 'terminal'; always?: boolean; scope?: 'session' | 'project'; mode?: 'auto' | 'acceptEdits' | 'default'; command?: string; stop?: boolean; message?: string; answers?: Record<string, string> }
   /** Something for a command acc is running: typed input, stop, rerun in a terminal, or dismiss. */
   | { type: 'run-input'; run: string; text: string }
   | { type: 'run-control'; run: string; action: RunControl };
 
 /** The page's answer as the hook reads it, with only the fields its decision has. */
 export function answerOf(m: Extract<FromWebview, { type: 'answer' }>): Answer {
-  if (m.decision === 'allow') return { decision: 'allow', ...(m.always ? { always: true } : {}), ...(m.answers ? { answers: m.answers } : {}) };
-  if (m.decision === 'deny') return { decision: 'deny', ...(m.message?.trim() ? { message: m.message.trim() } : {}) };
+  if (m.decision === 'allow') {
+    return {
+      decision: 'allow', ...(m.always ? { always: true, scope: m.scope === 'project' ? 'project' : 'session' } : {}), ...(m.mode ? { mode: m.mode } : {}),
+      ...(m.command?.trim() ? { command: m.command.trim() } : {}), ...(m.answers ? { answers: m.answers } : {}),
+    };
+  }
+  if (m.decision === 'deny') return { decision: 'deny', ...(m.message?.trim() ? { message: m.message.trim() } : {}), ...(m.stop ? { stop: true } : {}) };
   return { decision: 'terminal' };
 }
 
@@ -1127,6 +1193,10 @@ export function isFromWebview(m: unknown): m is FromWebview {
     case 'answer': {
       if (!short(x.id, 64) || !['allow', 'deny', 'terminal'].includes(x.decision as string)) return false;
       if (x.always !== undefined && typeof x.always !== 'boolean') return false;
+      if (x.stop !== undefined && typeof x.stop !== 'boolean') return false;
+      if (x.scope !== undefined && x.scope !== 'session' && x.scope !== 'project') return false;
+      if (x.mode !== undefined && !['auto', 'acceptEdits', 'default'].includes(x.mode as string)) return false;
+      if (x.command !== undefined && !(typeof x.command === 'string' && x.command.length <= 20_000)) return false;
       if (x.message !== undefined && !(typeof x.message === 'string' && x.message.length <= 4000)) return false;
       if (x.answers === undefined) return true;
       const a = x.answers as Record<string, unknown>;

@@ -57,7 +57,7 @@ function empty(text: string, ...tools: Child[]): HTMLElement {
 }
 
 /** A half-made answer to an agent's question, kept while the page redraws. */
-interface Draft { picks: Record<number, string[]>; other: Record<number, string>; denying: boolean; reason: string; sent: boolean }
+interface Draft { picks: Record<number, string[]>; other: Record<number, string>; denying: boolean; reason: string; sent: boolean; choice?: string; command?: string }
 
 /**
  * Per-tab memory that survives re-renders and the tab being hidden: board modes, comment drafts, answers
@@ -467,7 +467,10 @@ function renderTicket(m: TicketModel): Node[] {
   }
 
   // The main column: description, related tickets, then activity.
-  const main = el('div', 'ticket-main', el('section', 'block', el('h2', '', 'Description'), m.loading && !m.body.blocks.length ? el('p', 'muted', 'Loading…') : renderDoc(m.body, 'No description.')));
+  // Summary first, details on demand: why it's stuck, in one line, before anything else.
+  const main = el('div', 'ticket-main');
+  if (m.acc?.blocker) main.append(foldable(`blocker:${m.project}#${m.key}`, el('div', 'notice attention why', icon('circle-slash', 'orange'), el('div', 'why-text', el('strong', '', 'Why it\'s blocked: '), m.acc.blocker)), 'why-text', 2));
+  main.append(el('section', 'block', el('h2', '', 'Description'), m.loading && !m.body.blocks.length ? el('p', 'muted', 'Loading…') : foldable(`desc:${m.project}#${m.key}`, renderDoc(m.body, 'No description.'), null, 6)));
   if (m.related.length) {
     main.append(el('section', 'block', el('h2', '', 'Related'), el('ul', 'related', ...m.related.map((r) => {
       const name = /^[A-Z][A-Z0-9_]*-\d+$/i.test(r.key) ? openable(el('span', 'tcard-key', r.key), { type: 'ticket', project: m.project, tracker: m.tracker, key: r.key }) : el('span', 'tcard-key', r.key);
@@ -486,8 +489,20 @@ function renderTicket(m: TicketModel): Node[] {
     if (m.can.comment) activity.append(composer(m));
   }
   if (m.acc?.history.length) {
-    activity.append(el('h3', '', 'History in acc'), el('ol', 'history', ...m.acc.history.map((h) => el('li', '',
-      when(h.at), el('span', '', `${h.from ?? 'new'} → `), el('strong', '', h.to), el('span', 'muted', ` by ${h.by}`), h.reason ? el('div', 'muted small', h.reason) : null))));
+    // One plain line a move, newest first; each opens to its reason. Three, then Show all.
+    const key = `history:${m.project}#${m.key}`;
+    const all = memory().opened.includes(key);
+    const moves = all ? m.acc.history : m.acc.history.slice(0, 3);
+    const list = el('ol', 'history', ...moves.map((h) => {
+      const line = el('span', 'history-move', el('span', '', moveWords(h)), el('span', 'muted small', ' · '), when(h.at));
+      if (!h.reason) return el('li', '', line);
+      const d = el('details', 'move-details', el('summary', '', line), el('div', 'muted small move-reason', h.reason));
+      return el('li', '', d);
+    }));
+    activity.append(el('h3', '', 'History'), list);
+    if (m.acc.history.length > 3) {
+      activity.append(button(all ? 'Show fewer' : `Show all ${m.acc.history.length}`, all ? 'chevron-up' : 'chevron-down', () => { remember((x) => { x.opened = all ? x.opened.filter((y) => y !== key) : [...x.opened, key]; }); if (last) render(last); }, 'ghost small'));
+    }
   }
   if (activity.childElementCount > 1) main.append(activity);
 
@@ -511,7 +526,7 @@ function renderTicket(m: TicketModel): Node[] {
         ...field('State', status(a.look)),
         ...field('Environment', el('span', 'mono', a.environment)),
         ...(a.waitingOn.length ? field('Waiting on', a.waitingOn.join(', ')) : []),
-        ...(a.blocker ? field('Blocked', el('span', 'tone-orange', a.blocker)) : []),
+
         ...(a.agent && a.agent.label !== a.look.label ? field('Session', status(a.agent)) : []),
         ...(a.branch ? field('Branch', clippedSpan(a.branch)) : []),
         ...(a.worktree ? field('Worktree', clippedSpan(a.worktree.split('/').slice(-2).join('/'))) : []),
@@ -530,6 +545,48 @@ function renderTicket(m: TicketModel): Node[] {
   }
   out.push(el('div', 'ticket-grid', main, side));
   return out;
+}
+
+const STATE_WORD: Record<string, string> = { todo: 'To do', running: 'Running', review: 'In review', rework: 'Rework', blocked: 'Blocked', done: 'Done' };
+
+/** Who made a move, in plain words: its agent, the reviewer, GitHub, or a person's name. */
+function whoMoved(by: string): string {
+  if (/^builder:/.test(by)) return 'Its agent';
+  if (/^reviewer:/.test(by)) return 'The reviewer';
+  if (by === 'acc sync' || /^sync/.test(by)) return 'GitHub';
+  return by.replace(/^human:/, '').replace(/^orchestrator.*/, 'acc');
+}
+
+/** A move as a sentence: "Its agent blocked it", "jordan moved it to In review". */
+function moveWords(h: { from: string | null; to: string; by: string }): string {
+  const who = whoMoved(h.by);
+  if (!h.from) return `${who} added it`;
+  if (h.to === 'blocked') return `${who} blocked it`;
+  if (h.to === 'running') return h.from === 'rework' ? `${who} sent it back to its agent` : `${who} started its agent`;
+  if (h.to === 'review') return `${who} moved it to In review`;
+  if (h.to === 'rework') return `${who} asked for changes`;
+  if (h.to === 'done') return `${who} marked it done`;
+  return `${who} moved it to ${STATE_WORD[h.to] ?? h.to}`;
+}
+
+/**
+ * Shows the first few lines of something long, with Show all to open the rest. `inner` names the part
+ * that's cut, when it isn't the whole element. Remembered per tab, by key.
+ */
+function foldable(key: string, content: HTMLElement, inner: string | null, lines: number): HTMLElement {
+  const open = memory().opened.includes(key);
+  const target = inner ? content.querySelector<HTMLElement>(`.${inner}`) ?? content : content;
+  const wrapEl = el('div', 'foldable', content);
+  if (open) target.classList.remove('clamped');
+  else { target.classList.add('clamped'); target.style.setProperty('--lines', String(lines)); }
+  const toggle = button(open ? 'Show less' : 'Show all', open ? 'chevron-up' : 'chevron-down', () => {
+    remember((x) => { x.opened = open ? x.opened.filter((y) => y !== key) : [...x.opened, key]; });
+    if (last) render(last);
+  }, 'ghost small fold-toggle');
+  wrapEl.append(toggle);
+  // A short one needs no toggle: checked once it's on the page.
+  requestAnimationFrame(() => { if (!open && target.scrollHeight <= target.clientHeight + 2) toggle.remove(); });
+  return wrapEl;
 }
 
 function clippedSpan(text: string): HTMLElement {
@@ -597,17 +654,53 @@ function questionCard(q: QuestionCard, opts: { watch: boolean }): HTMLElement {
     if (q.detail && q.code) card.append(el('p', 'q-detail', q.detail));
     if (q.code) card.append(el('pre', 'q-code', q.code));
     else if (q.detail) card.append(el('div', 'q-detail q-plan', q.detail));
-    if (d.denying) {
-      const send = () => sendAnswer(q, { decision: 'deny', message: draftOf(q.id).reason });
-      const reason = keptInput(`deny:${q.id}`, d.reason, 'Tell it why, or what to do instead (optional)', (v) => saveDraft(q.id, (x) => { x.reason = v; }), send);
-      card.append(el('div', 'q-deny', reason, el('div', 'actions',
-        button('Deny', 'close', send, 'primary'),
-        button('Back', 'arrow-left', () => { saveDraft(q.id, (x) => { x.denying = false; }); if (last) render(last); }))));
-      requestAnimationFrame(() => { if (!document.activeElement || document.activeElement === document.body) reason.focus(); });
+    // Every answer its own prompt offers, numbered as there: click one, or press its number (D-038).
+    const pending = q.choices.find((c) => c.key === d.choice && c.needs);
+    if (pending) {
+      const isCommand = pending.needs === 'command';
+      const value = isCommand ? d.command ?? q.code ?? '' : d.reason;
+      const box = document.createElement('textarea');
+      box.className = `text-input q-words${isCommand ? ' mono' : ''}`;
+      box.rows = isCommand ? Math.min(8, Math.max(2, value.split('\n').length)) : 2;
+      box.value = value;
+      box.dataset.keep = `${pending.key}:${q.id}`;
+      box.placeholder = pending.needs === 'feedback' ? 'What should change in the plan?' : isCommand ? 'The command as it should run' : 'Tell it why, or what to do instead (optional)';
+      box.setAttribute('aria-label', box.placeholder);
+      const send = () => {
+        const v = box.value.trim();
+        if (isCommand && !v) return;
+        sendAnswer(q, isCommand ? { ...pending.answer, command: v } : { ...pending.answer, message: v });
+      };
+      box.addEventListener('input', () => saveDraft(q.id, (x) => { if (isCommand) x.command = box.value; else x.reason = box.value; }));
+      box.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey || !isCommand)) { e.preventDefault(); send(); } if (e.key === 'Escape') { saveDraft(q.id, (x) => { x.choice = undefined; }); if (last) render(last); } });
+      card.append(el('div', 'q-deny', el('div', 'q-pending', icon(pending.icon), el('span', 'strong', pending.label.replace(/…$/, ''))), box, el('div', 'actions',
+        button(isCommand ? 'Allow my version' : pending.needs === 'feedback' ? 'Keep planning' : 'Send', isCommand ? 'check' : 'send', send, 'primary'),
+        button('Back', 'arrow-left', () => { saveDraft(q.id, (x) => { x.choice = undefined; }); if (last) render(last); }))));
+      requestAnimationFrame(() => { if (!document.activeElement || document.activeElement === document.body) box.focus(); });
     } else {
-      tools.push(button('Allow', 'check', () => sendAnswer(q, { decision: 'allow' }), 'primary'));
-      if (q.always) tools.push(button(q.always, 'check-all', () => sendAnswer(q, { decision: 'allow', always: true })));
-      tools.push(button('Deny…', 'close', () => { saveDraft(q.id, (x) => { x.denying = true; }); if (last) render(last); }));
+      const list = el('ol', 'q-choices');
+      list.setAttribute('aria-label', 'Answers');
+      const pick = (c: typeof q.choices[number]) => {
+        if (c.needs) { saveDraft(q.id, (x) => { x.choice = c.key; }); if (last) render(last); return; }
+        sendAnswer(q, c.answer);
+      };
+      q.choices.forEach((c, i) => {
+        // One line each; what it means shows on hover and is read out, so the card stays short.
+        const words = c.label.split(/`([^`]+)`/).map((part, j) => (j % 2 ? el('code', 'q-rule', part) : document.createTextNode(part)));
+        const b = el('button', `q-choice${c.primary ? ' primary' : ''}`, el('span', 'q-num', String(i + 1)), icon(c.icon), el('span', 'q-choice-text', ...words)) as HTMLButtonElement;
+        b.type = 'button';
+        if (c.hint) { b.title = c.hint; b.setAttribute('aria-description', c.hint); }
+        b.addEventListener('click', () => pick(c));
+        list.append(el('li', '', b));
+      });
+      card.append(list);
+      card.tabIndex = -1;
+      card.addEventListener('keydown', (e) => {
+        if ((e.target as HTMLElement).closest('input, textarea')) return;
+        const n = Number(e.key);
+        const c = Number.isInteger(n) && n >= 1 ? q.choices[n - 1] : undefined;
+        if (c) { e.preventDefault(); pick(c); }
+      });
       tools.push(el('span', 'q-aside', terminal, watch));
     }
   } else {
@@ -1044,6 +1137,8 @@ function renderHome(m: HomeModel): Node[] {
   const main = el('div', 'home-main', ...content);
   main.tabIndex = -1;
   main.setAttribute('role', 'tabpanel');
+  // One board on the page: it fills the height below its heading, so all of it scrolls sideways.
+  if (current === 'tasks' && main.querySelectorAll('.board').length === 1) main.classList.add('fill-board');
   // The output panel sits under the section, on every section, while there's output to show.
   return [el('div', 'home', renderNav(m, current), el('div', 'home-col', main, renderDock(runs)))];
 }
@@ -1225,6 +1320,22 @@ function renderSetup(m: SetupModel, live: RunCard[] = []): Node[] {
 
 let last: Model | null = null;
 
+/**
+ * A mouse wheel scrolls the board sideways wherever a lane wouldn't scroll itself: over a heading, the
+ * gaps between lanes, or a lane short enough to need no scrolling. Trackpads and Shift already go sideways.
+ */
+function wheelSideways(board: HTMLElement): void {
+  board.addEventListener('wheel', (e) => {
+    if (e.shiftKey || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+    const t = e.target as HTMLElement;
+    const lane = t.closest<HTMLElement>('.column');
+    const laneScrolls = !!lane && !t.closest('.column > h2') && lane.scrollHeight > lane.clientHeight + 1;
+    if (laneScrolls || board.scrollWidth <= board.clientWidth) return;
+    e.preventDefault();
+    board.scrollLeft += e.deltaY;
+  }, { passive: false });
+}
+
 /** Marks each board with the edges that have more lanes past them, for the fade. */
 function boardEdges(board: HTMLElement): void {
   const update = () => {
@@ -1265,6 +1376,7 @@ function render(model: Model): void {
       b.querySelectorAll<HTMLElement>('.column').forEach((c, j) => { c.scrollTop = was.lanes[j] ?? 0; });
     }
     boardEdges(b);
+    wheelSideways(b);
   });
   const main = document.querySelector('.home-main');
   if (main && !scrolledTo) main.scrollTop = scroll.y;

@@ -1313,6 +1313,7 @@ import { randomBytes } from "node:crypto";
 import { homedir as homedir2 } from "node:os";
 import { join as join7 } from "node:path";
 var questionsDir = (env = process.env) => env.ACC_QUESTIONS_DIR || join7(homedir2(), ".acc", "questions");
+var ALLOWED_MODES = ["auto", "acceptEdits", "default"];
 var LISTENER_STALE_MS = 45e3;
 var HOOK_TIMEOUT_S = 3600;
 var MAX_WAIT_MS = (HOOK_TIMEOUT_S - 120) * 1e3;
@@ -1354,7 +1355,34 @@ function writePrivateText(file, text) {
   writeFileSync8(tmp, text, { mode: 384 });
   renameSync3(tmp, file);
 }
-var outcomeOf = (q, a) => a.decision === "terminal" ? "terminal" : a.decision === "deny" ? "denied" : q.tool === "AskUserQuestion" ? "answered" : a.always ? "allowed-for-session" : "allowed";
+var PREAPPROVAL_MS = 10 * 6e4;
+var preapprovalFile = (dir, sessionId) => join7(dir, "approved", `${sessionId.replace(/[^A-Za-z0-9-]/g, "")}.json`);
+function preapprove(dir, sessionId, command, now2 = Date.now()) {
+  mkdirSync8(join7(dir, "approved"), { recursive: true, mode: 448 });
+  writePrivate(preapprovalFile(dir, sessionId), { command, until: now2 + PREAPPROVAL_MS });
+}
+function takePreapproval(dir, sessionId, command, now2 = Date.now()) {
+  const file = preapprovalFile(dir, sessionId);
+  const p = readJson(file);
+  if (!p || p.command !== command || typeof p.until !== "number" || now2 > p.until) return false;
+  rmSync4(file, { force: true });
+  return true;
+}
+var editedMessage = (command) => `The user edited this command in the Command Center. Run exactly this instead, as it is, and carry on:
+
+\`\`\`
+${command}
+\`\`\``;
+function outcomeOf(q, a) {
+  if (a.decision === "terminal") return "terminal";
+  if (a.decision === "deny") return a.stop ? "denied-stopped" : "denied";
+  if (q.tool === "AskUserQuestion") return "answered";
+  if (a.command && q.tool === "Bash") return "allowed-edited";
+  if (a.mode === "auto") return "allowed-auto-mode";
+  if (a.mode === "acceptEdits") return "allowed-accept-edits";
+  if (a.always) return a.scope === "project" ? "allowed-for-project" : "allowed-for-session";
+  return "allowed";
+}
 function listeners(dir, now2 = Date.now()) {
   let names = [];
   try {
@@ -1400,9 +1428,12 @@ function isAnswer(a) {
   const x = a;
   if (!x || typeof x !== "object") return false;
   if (x.decision === "terminal") return true;
-  if (x.decision === "deny") return x.message === void 0 || typeof x.message === "string" && x.message.length <= 4e3;
+  if (x.decision === "deny") return (x.message === void 0 || typeof x.message === "string" && x.message.length <= 4e3) && (x.stop === void 0 || typeof x.stop === "boolean");
   if (x.decision !== "allow") return false;
   if (x.always !== void 0 && typeof x.always !== "boolean") return false;
+  if (x.scope !== void 0 && x.scope !== "session" && x.scope !== "project") return false;
+  if (x.mode !== void 0 && !ALLOWED_MODES.includes(x.mode)) return false;
+  if (x.command !== void 0 && !(typeof x.command === "string" && x.command.trim().length > 0 && x.command.length <= 2e4)) return false;
   if (x.answers === void 0) return true;
   const answers = x.answers;
   return !!answers && typeof answers === "object" && Object.values(answers).every((v) => typeof v === "string" && v.length <= 4e3);
@@ -1426,11 +1457,17 @@ async function ask(input, opts = {}) {
         endedAt: now2(),
         outcome,
         ...a?.decision === "allow" && a.answers ? { answers: a.answers } : {},
-        ...a?.decision === "deny" && a.message ? { message: a.message } : {}
+        ...a?.decision === "deny" && a.message ? { message: a.message } : {},
+        ...a?.decision === "allow" && a.command && input.tool_name === "Bash" ? { command: a.command } : {}
       });
     } catch {
     }
   };
+  if (input.tool_name === "Bash" && takePreapproval(dir, input.session_id, String(input.tool_input.command ?? ""), now2())) {
+    const id = `${now2().toString(36)}-${randomBytes(4).toString("hex")}`;
+    const q = { v: 1, id, pid: opts.pid ?? process.pid, at: now2(), sessionId: input.session_id, cwd: input.cwd, transcript: input.transcript_path ?? null, tool: input.tool_name, input: input.tool_input, suggestions: [] };
+    return { question: q, answer: { decision: "allow" } };
+  }
   if (!covered(listeners(dir, now2()), input.cwd)) {
     if (listeners(dir, now2()).length || existsQuestionsDir(dir)) record({ id: `${now2().toString(36)}-${randomBytes(4).toString("hex")}`, at: now2() }, "no-window");
     return null;
@@ -1457,6 +1494,7 @@ async function ask(input, opts = {}) {
       const a = readJson(answerFile);
       if (isAnswer(a)) {
         record(question, outcomeOf(question, a), a);
+        if (a.decision === "allow" && a.command && question.tool === "Bash") preapprove(dir, question.sessionId, a.command, now2());
         return a.decision === "terminal" ? null : { question, answer: a };
       }
       if (opts.signal?.aborted) {
@@ -1483,11 +1521,16 @@ function hookOutput(q, a) {
   let decision;
   if (a.decision === "deny") {
     decision = { behavior: "deny", message: a.message?.trim() ? `The user said no, from the Command Center: ${a.message.trim()}` : "The user said no, from the Command Center." };
+    if (a.stop) decision.interrupt = true;
   } else if (q.tool === "AskUserQuestion") {
     decision = { behavior: "allow", updatedInput: { ...q.input, answers: a.answers ?? {} } };
   } else {
+    if (a.command && q.tool === "Bash") return { hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "deny", message: editedMessage(a.command) } } };
     decision = { behavior: "allow" };
-    if (a.always && q.suggestions.length) decision.updatedPermissions = q.suggestions.map((s) => ({ ...s, destination: "session" }));
+    const updates = [];
+    if (a.always && q.suggestions.length) updates.push(...q.suggestions.map((s) => ({ ...s, destination: a.scope === "project" ? "localSettings" : "session" })));
+    if (a.mode) updates.push({ type: "setMode", mode: a.mode, destination: "session" });
+    if (updates.length) decision.updatedPermissions = updates;
   }
   return { hookSpecificOutput: { hookEventName: "PermissionRequest", decision } };
 }

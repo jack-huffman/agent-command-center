@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { appendOutput, needsTerminal, promptOf } from '../src/logic.ts';
 import {
-  agentModel, alwaysLabel, answerOf, decisionOf, describePermission, historyItems, homeModel, isFromWebview, needsYouCount, questionCards, runCard, type RunInput,
+  agentModel, alwaysLabel, answerOf, choicesFor, decisionOf, describePermission, historyItems, homeModel, isFromWebview, needsYouCount, questionCards, runCard, type RunInput,
 } from '../src/model.ts';
 import { describeTool, emptyTranscript, foldTranscript, splitLines, transcriptDir } from '../src/transcript.ts';
 import { sampleBoards, sampleHub, sampleIdentity, sampleRuns, sampleSetup } from '../scripts/fixtures.ts';
@@ -151,7 +151,7 @@ test('answers from the page are checked, and only the fields a decision has reac
   assert.ok(isFromWebview({ type: 'run-control', run: 'r', action: 'stop' }));
   assert.ok(!isFromWebview({ type: 'run-control', run: 'r', action: 'kill-all' }));
   assert.deepEqual(answerOf({ type: 'answer', id: 'x', decision: 'deny', message: '  ', always: true }), { decision: 'deny' });
-  assert.deepEqual(answerOf({ type: 'answer', id: 'x', decision: 'allow', always: true }), { decision: 'allow', always: true });
+  assert.deepEqual(answerOf({ type: 'answer', id: 'x', decision: 'allow', always: true }), { decision: 'allow', always: true, scope: 'session' }, 'always is for the session unless the project is chosen');
 });
 
 // ---------------------------------------------------------------- history (D-037)
@@ -181,4 +181,20 @@ test('the history holds your answers, task moves and finished commands, newest f
     { k: 'say', id: 'b', at: new Date(Date.now() - 20 * 60_000).toISOString(), text: 'after the lint fix' },
   ], readable: true, lastAt: null });
   assert.deepEqual(page.entries.map((e) => e.k), ['say', 'decision', 'say', 'decision'], 'each decision where it happened in the conversation');
+});
+
+test('a permission card offers every answer Claude Code\'s own prompt does, in its order, and a plan gets the plan\'s', () => {
+  const rule = [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'npm test:*' }], destination: 'localSettings' }];
+  assert.deepEqual(choicesFor('Bash', rule).map((c) => c.label), [
+    'Yes', 'Yes, and always allow `npm test:*` in this session', 'Yes, and always allow `npm test:*` in this project', 'Yes, and switch to auto mode',
+    'Edit the command, then allow…', 'No, and tell it what to do instead…', 'No, and stop it',
+  ]);
+  assert.deepEqual(choicesFor('Write', []).map((c) => c.key), ['allow', 'auto', 'deny', 'stop'], 'nothing to always-allow, and only commands can be edited');
+  assert.deepEqual(choicesFor('ExitPlanMode', []).map((c) => c.key), ['accept-edits', 'manual-edits', 'keep-planning', 'stop']);
+  assert.deepEqual(choicesFor('AskUserQuestion', []), [], 'a question has its own options');
+  assert.equal(choicesFor('Bash', rule).find((c) => c.key === 'edit')!.needs, 'command');
+  assert.equal(questionCards(sampleHub())[0]!.choices.length, 7);
+  assert.deepEqual(answerOf({ type: 'answer', id: 'x', decision: 'allow', always: true, scope: 'project' }), { decision: 'allow', always: true, scope: 'project' });
+  assert.deepEqual(answerOf({ type: 'answer', id: 'x', decision: 'deny', stop: true }), { decision: 'deny', stop: true });
+  assert.ok(!isFromWebview({ type: 'answer', id: 'x', decision: 'allow', mode: 'bypassPermissions' }));
 });

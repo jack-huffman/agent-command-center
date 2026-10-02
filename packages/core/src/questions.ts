@@ -44,11 +44,20 @@ export interface Question {
   suggestions: unknown[];
 }
 
+/**
+ * Every answer Claude Code's own prompt offers (D-038). Allow: once; always, for the session or the
+ * project; with the permission mode switched (auto, or accept edits after a plan); or with the
+ * command edited first. Deny: with what to do instead, or stopping the agent's turn.
+ */
 export type Answer =
-  | { decision: 'allow'; always?: boolean; answers?: Record<string, string> }
-  | { decision: 'deny'; message?: string }
+  | { decision: 'allow'; always?: boolean; scope?: 'session' | 'project'; mode?: AllowedMode; command?: string; answers?: Record<string, string> }
+  | { decision: 'deny'; message?: string; stop?: boolean }
   /** Hand the question back to Claude Code's own prompt, to answer with `claude attach`. */
   | { decision: 'terminal' };
+
+/** Modes an answer may switch a session to. Never bypassPermissions. */
+export const ALLOWED_MODES = ['auto', 'acceptEdits', 'default'] as const;
+export type AllowedMode = (typeof ALLOWED_MODES)[number];
 
 export interface Listener {
   pid: number;
@@ -93,7 +102,8 @@ function ensureDir(dir: string): void {
 
 /** How a question ended. Written by the hook, which is the one place that knows. */
 export type QuestionOutcome =
-  | 'allowed' | 'allowed-for-session' | 'denied' | 'answered'
+  | 'allowed' | 'allowed-for-session' | 'allowed-for-project' | 'allowed-edited' | 'allowed-auto-mode' | 'allowed-accept-edits'
+  | 'denied' | 'denied-stopped' | 'answered'
   /** Handed back to Claude Code's own prompt: chosen, no window listening, the window closed, or the wait ran out. */
   | 'terminal' | 'no-window' | 'window-closed' | 'timed-out'
   /** The session stopped waiting: it was stopped, or answered in its own prompt. */
@@ -111,6 +121,8 @@ export interface HistoryRecord {
   outcome: QuestionOutcome;
   answers?: Record<string, string>;
   message?: string;
+  /** The command that ran instead, when you edited it. */
+  command?: string;
 }
 
 const HISTORY_MAX_BYTES = 2 * 1024 * 1024;
@@ -156,8 +168,42 @@ export function questionHistory(dir: string, limit = 500): HistoryRecord[] {
   return out;
 }
 
-const outcomeOf = (q: Question, a: Answer): QuestionOutcome =>
-  a.decision === 'terminal' ? 'terminal' : a.decision === 'deny' ? 'denied' : q.tool === 'AskUserQuestion' ? 'answered' : a.always ? 'allowed-for-session' : 'allowed';
+// ---------------------------------------------------------------- an edited command (D-038)
+
+/**
+ * An edited command isn't slipped in silently: the agent is told to run your version, and your version
+ * is approved for when it does, once, within ten minutes, for that session only.
+ */
+const PREAPPROVAL_MS = 10 * 60_000;
+const preapprovalFile = (dir: string, sessionId: string) => join(dir, 'approved', `${sessionId.replace(/[^A-Za-z0-9-]/g, '')}.json`);
+
+export function preapprove(dir: string, sessionId: string, command: string, now = Date.now()): void {
+  mkdirSync(join(dir, 'approved'), { recursive: true, mode: 0o700 });
+  writePrivate(preapprovalFile(dir, sessionId), { command, until: now + PREAPPROVAL_MS });
+}
+
+/** Whether this exact command was approved for this session; using the approval uses it up. */
+export function takePreapproval(dir: string, sessionId: string, command: string, now = Date.now()): boolean {
+  const file = preapprovalFile(dir, sessionId);
+  const p = readJson(file) as { command?: string; until?: number } | null;
+  if (!p || p.command !== command || typeof p.until !== 'number' || now > p.until) return false;
+  rmSync(file, { force: true });
+  return true;
+}
+
+export const editedMessage = (command: string): string =>
+  `The user edited this command in the Command Center. Run exactly this instead, as it is, and carry on:\n\n\`\`\`\n${command}\n\`\`\``;
+
+function outcomeOf(q: Question, a: Answer): QuestionOutcome {
+  if (a.decision === 'terminal') return 'terminal';
+  if (a.decision === 'deny') return a.stop ? 'denied-stopped' : 'denied';
+  if (q.tool === 'AskUserQuestion') return 'answered';
+  if (a.command && q.tool === 'Bash') return 'allowed-edited';
+  if (a.mode === 'auto') return 'allowed-auto-mode';
+  if (a.mode === 'acceptEdits') return 'allowed-accept-edits';
+  if (a.always) return a.scope === 'project' ? 'allowed-for-project' : 'allowed-for-session';
+  return 'allowed';
+}
 
 // ---------------------------------------------------------------- windows that listen
 
@@ -221,9 +267,12 @@ export function isAnswer(a: unknown): a is Answer {
   const x = a as Record<string, unknown> | null;
   if (!x || typeof x !== 'object') return false;
   if (x.decision === 'terminal') return true;
-  if (x.decision === 'deny') return x.message === undefined || (typeof x.message === 'string' && x.message.length <= 4000);
+  if (x.decision === 'deny') return (x.message === undefined || (typeof x.message === 'string' && x.message.length <= 4000)) && (x.stop === undefined || typeof x.stop === 'boolean');
   if (x.decision !== 'allow') return false;
   if (x.always !== undefined && typeof x.always !== 'boolean') return false;
+  if (x.scope !== undefined && x.scope !== 'session' && x.scope !== 'project') return false;
+  if (x.mode !== undefined && !(ALLOWED_MODES as readonly unknown[]).includes(x.mode)) return false;
+  if (x.command !== undefined && !(typeof x.command === 'string' && x.command.trim().length > 0 && x.command.length <= 20_000)) return false;
   if (x.answers === undefined) return true;
   const answers = x.answers as Record<string, unknown>;
   return !!answers && typeof answers === 'object' && Object.values(answers).every((v) => typeof v === 'string' && v.length <= 4000);
@@ -256,11 +305,18 @@ export async function ask(input: HookInput, opts: AskOptions = {}): Promise<{ qu
       appendHistory(dir, {
         v: 1, id: q.id, sessionId: input.session_id, cwd: input.cwd, tool: input.tool_name, input: input.tool_input, askedAt: q.at, endedAt: now(), outcome,
         ...(a?.decision === 'allow' && a.answers ? { answers: a.answers } : {}), ...(a?.decision === 'deny' && a.message ? { message: a.message } : {}),
+        ...(a?.decision === 'allow' && a.command && input.tool_name === 'Bash' ? { command: a.command } : {}),
       });
     } catch {
       // the history is for showing; the answer matters more
     }
   };
+  // The agent running the command you edited: approved already.
+  if (input.tool_name === 'Bash' && takePreapproval(dir, input.session_id, String(input.tool_input.command ?? ''), now())) {
+    const id = `${now().toString(36)}-${randomBytes(4).toString('hex')}`;
+    const q: Question = { v: 1, id, pid: opts.pid ?? process.pid, at: now(), sessionId: input.session_id, cwd: input.cwd, transcript: input.transcript_path ?? null, tool: input.tool_name, input: input.tool_input, suggestions: [] };
+    return { question: q, answer: { decision: 'allow' } };
+  }
   if (!covered(listeners(dir, now()), input.cwd)) {
     // Asked in its own terminal, with no window listening: noted, so the page can say so.
     if (listeners(dir, now()).length || existsQuestionsDir(dir)) record({ id: `${now().toString(36)}-${randomBytes(4).toString('hex')}`, at: now() }, 'no-window');
@@ -281,6 +337,7 @@ export async function ask(input: HookInput, opts: AskOptions = {}): Promise<{ qu
       const a = readJson(answerFile);
       if (isAnswer(a)) {
         record(question, outcomeOf(question, a), a);
+        if (a.decision === 'allow' && a.command && question.tool === 'Bash') preapprove(dir, question.sessionId, a.command, now());
         return a.decision === 'terminal' ? null : { question, answer: a };
       }
       if (opts.signal?.aborted) { record(question, 'stopped'); return null; }
@@ -301,12 +358,19 @@ export function hookOutput(q: Question, a: Answer): Record<string, unknown> | nu
   let decision: Record<string, unknown>;
   if (a.decision === 'deny') {
     decision = { behavior: 'deny', message: a.message?.trim() ? `The user said no, from the Command Center: ${a.message.trim()}` : 'The user said no, from the Command Center.' };
+    // Stop: the agent's turn ends here and it waits, as Esc does in Claude Code's own prompt.
+    if (a.stop) decision.interrupt = true;
   } else if (q.tool === 'AskUserQuestion') {
     decision = { behavior: 'allow', updatedInput: { ...q.input, answers: a.answers ?? {} } };
   } else {
+    // An edited command (Claude Code's "Tab to amend"): the agent is told to run yours, which is approved.
+    if (a.command && q.tool === 'Bash') return { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'deny', message: editedMessage(a.command) } } };
     decision = { behavior: 'allow' };
-    // "Don't ask again" lasts for this session only, whatever Claude Code offered to save it to.
-    if (a.always && q.suggestions.length) decision.updatedPermissions = q.suggestions.map((s) => ({ ...(s as object), destination: 'session' }));
+    const updates: unknown[] = [];
+    // "Always allow" is what Claude Code offered, kept for the session or saved to the project's local settings.
+    if (a.always && q.suggestions.length) updates.push(...q.suggestions.map((s) => ({ ...(s as object), destination: a.scope === 'project' ? 'localSettings' : 'session' })));
+    if (a.mode) updates.push({ type: 'setMode', mode: a.mode, destination: 'session' });
+    if (updates.length) decision.updatedPermissions = updates;
   }
   return { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision } };
 }

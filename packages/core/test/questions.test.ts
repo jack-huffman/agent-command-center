@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { builderSettings } from '../src/dispatch.ts';
 import {
-  answerQuestion, ask, covered, type HookInput, hookOutput, isAnswer, listen, listeners, parseHookInput, pendingQuestions, permissionHook, type Question, questionHistory, stopListening,
+  answerQuestion, ask, covered, type HookInput, hookOutput, isAnswer, listen, listeners, parseHookInput, pendingQuestions, permissionHook, type Question, questionHistory, stopListening, editedMessage, preapprove, takePreapproval,
 } from '../src/questions.ts';
 import { tempDir } from './support.ts';
 
@@ -191,4 +191,42 @@ test('every question leaves a record of how it ended: answered, allowed for the 
   stopListening(dir);
   assert.equal(await ask(input(), { dir }), null);
   assert.equal(questionHistory(dir).at(-1)!.outcome, 'no-window', 'asked in its own terminal, with no window: noted too');
+});
+
+// ---------------------------------------------------------------- every answer the prompt offers (D-038)
+
+test('the hook can give every answer Claude Code\'s prompt offers: for the project, auto mode, stop, and plan approval', () => {
+  const q = (tool: string, suggestions: unknown[] = []): Question => ({ v: 1, id: 'a-00000000', pid: 1, at: 1, sessionId: 's', cwd: '/w', transcript: null, tool, input: { command: 'npm test' }, suggestions });
+  const decision = (o: Record<string, unknown> | null) => (o?.hookSpecificOutput as { decision: Record<string, unknown> }).decision;
+  const rule = { type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'npm test:*' }], behavior: 'allow', destination: 'session' };
+  assert.deepEqual(decision(hookOutput(q('Bash', [rule]), { decision: 'allow', always: true, scope: 'project' })).updatedPermissions, [{ ...rule, destination: 'localSettings' }], 'saved to the project\'s own settings');
+  assert.deepEqual(decision(hookOutput(q('Bash'), { decision: 'allow', mode: 'auto' })).updatedPermissions, [{ type: 'setMode', mode: 'auto', destination: 'session' }]);
+  assert.deepEqual(decision(hookOutput(q('ExitPlanMode'), { decision: 'allow', mode: 'acceptEdits' })).updatedPermissions, [{ type: 'setMode', mode: 'acceptEdits', destination: 'session' }]);
+  assert.equal(decision(hookOutput(q('Bash'), { decision: 'deny', stop: true })).interrupt, true);
+  assert.equal(decision(hookOutput(q('Bash'), { decision: 'deny' })).interrupt, undefined);
+  const edited = decision(hookOutput(q('Bash'), { decision: 'allow', command: 'npm test -- --grep fast' }));
+  assert.deepEqual([edited.behavior, edited.message], ['deny', editedMessage('npm test -- --grep fast')], 'an edit tells the agent to run your version');
+  assert.ok(!isAnswer({ decision: 'allow', mode: 'bypassPermissions' }), 'never a switch to bypass permissions');
+  assert.ok(!isAnswer({ decision: 'allow', scope: 'everywhere' }));
+});
+
+test('an edited command is allowed when the agent runs it: once, exactly, for that session, within ten minutes', async () => {
+  const dir = tempDir();
+  listen(dir, ['/work/repo']);
+  const waiting = ask(input(), { dir, pollMs: 5 });
+  answerQuestion(dir, (await questionIn(dir)).id, { decision: 'allow', command: 'npm run deploy -- --dry-run' });
+  const first = await waiting;
+  assert.equal(hookOutput(first!.question, first!.answer)?.hookSpecificOutput && (hookOutput(first!.question, first!.answer)!.hookSpecificOutput as { decision: { behavior: string } }).decision.behavior, 'deny');
+  assert.equal(questionHistory(dir).at(-1)!.outcome, 'allowed-edited');
+  assert.equal(questionHistory(dir).at(-1)!.command, 'npm run deploy -- --dry-run');
+  // The agent runs the edited version: no card, just allowed.
+  const second = await ask(input({ tool_input: { command: 'npm run deploy -- --dry-run' } }), { dir, pollMs: 5 });
+  assert.equal(second?.answer.decision, 'allow');
+  assert.deepEqual(pendingQuestions(dir), []);
+  assert.equal(takePreapproval(dir, 'sess-1', 'npm run deploy -- --dry-run'), false, 'used up');
+  preapprove(dir, 'sess-1', 'x', 1_000);
+  assert.equal(takePreapproval(dir, 'sess-1', 'x', 1_000 + 11 * 60_000), false, 'expired');
+  preapprove(dir, 'sess-1', 'x');
+  assert.equal(takePreapproval(dir, 'other-session', 'x'), false, 'another session\'s approval');
+  assert.equal(takePreapproval(dir, 'sess-1', 'x '), false, 'only the exact command');
 });

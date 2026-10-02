@@ -172,9 +172,32 @@ export class Questions implements vscode.Disposable {
     const code = card.code ?? '';
     const fits = !!code && code.length <= TOAST_CODE_MAX && !code.includes('\n');
     const message = `${card.who} ${card.title}${fits ? `: ${code}` : '.'}`;
-    const pick = await vscode.window.showWarningMessage(message, ...(fits ? ['Allow', 'Deny'] : []), 'Show');
+    // Allow, when the whole command is in view; every other answer is one click away (D-038).
+    const pick = await vscode.window.showWarningMessage(message, ...(fits ? ['Allow'] : []), 'All choices…', 'Show');
     if (pick === 'Allow') this.answer(q.id, { decision: 'allow' });
-    else if (pick === 'Deny') this.answer(q.id, { decision: 'deny' });
+    else if (pick === 'All choices…') await this.choose(card);
     else if (pick === 'Show') this.show(card);
+  }
+
+  /** Every answer the card offers, in VSCode's own picker, with the words a choice needs asked for after. */
+  async choose(card: QuestionCard): Promise<void> {
+    const pick = await vscode.window.showQuickPick(card.choices.map((c, i) => ({ label: `${i + 1}. $(${c.icon}) ${c.label}`, detail: c.hint ?? undefined, c })), {
+      title: `${card.who} ${card.title}`, placeHolder: card.code ?? card.detail ?? undefined, ignoreFocusOut: true,
+    });
+    if (!pick) return;
+    const c = pick.c;
+    if (c.needs === 'command') {
+      const command = await vscode.window.showInputBox({ title: 'The command as it should run', value: card.code ?? '', ignoreFocusOut: true, validateInput: (v) => (v.trim() ? undefined : 'A command') });
+      if (!command?.trim()) return;
+      this.answer(card.id, { ...c.answer, decision: 'allow', command: command.trim() });
+    } else if (c.needs) {
+      const words = await vscode.window.showInputBox({ title: c.needs === 'feedback' ? 'What should change in the plan?' : 'Tell it why, or what to do instead (optional)', ignoreFocusOut: true });
+      if (words === undefined) return;
+      this.answer(card.id, { decision: 'deny', ...(words.trim() ? { message: words.trim() } : {}) });
+    } else if (c.answer.decision === 'allow') {
+      this.answer(card.id, { decision: 'allow', ...(c.answer.always ? { always: true, scope: c.answer.scope ?? 'session' } : {}), ...(c.answer.mode ? { mode: c.answer.mode } : {}) });
+    } else {
+      this.answer(card.id, { decision: 'deny', ...(c.answer.stop ? { stop: true } : {}) });
+    }
   }
 }
