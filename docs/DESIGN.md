@@ -350,18 +350,26 @@ updated, ignoring `knownDrift` and `environmentSpecific`. The org isn't changed.
 - the receipts
 - the project's rules
 
-It runs as `claude -p --agent acc:reviewer --permission-mode plan
---output-format json --json-schema <verdict>` inside the worktree. The reviewer
-starts with no context and can't edit anything.
+It runs as `claude -p --permission-mode dontAsk --allowedTools Read Grep Glob
+--output-format json --json-schema <verdict> --session-id <id>` inside the
+worktree, with the reviewer's instructions appended to the system prompt
+(D-032). Only the read tools are allowed, and `dontAsk` refuses everything else,
+so it can't edit, run commands or ask. It starts with no context, and its
+session can be watched like any agent's.
 
 - **It checks:** whether the acceptance criteria are met, whether the project
   rules are followed, whether the change strayed outside the ticket, and whether
   the tests actually exercise the change.
 - **It skips formatting,** which the checks already cover.
-- **Its verdict:** `{ "verdict": "pass" | "changes", "findings": [{ "rule",
-  "file", "line", "message" }] }`.
+- **Its verdict:** `{ "verdict": "pass" | "changes", "summary", "criteria":
+  [{ "text", "met", "evidence" }], "findings": [{ "message", "must", "file",
+  "line", "rule" }] }`. A pass with a finding that must be fixed counts as
+  changes. Verdicts are kept at `<git-common-dir>/acc/reviews/<task>-<sha>.json`.
 - **On `changes`:** the task moves to `rework`, and the findings are added to
   the packet for the next run.
+- **Profiles add their own checks** (D-003). Salesforce asks about bulk safety,
+  sharing and field access, tests that assert outcomes, and org-specific values
+  in metadata.
 
 ## 11. Landing
 
@@ -374,16 +382,18 @@ review, and passing receipts for every required check. Then it:
    holds a summary, an acceptance checklist, the check table, the review verdict
    and the ticket link.
 3. Comments the pull request link on the ticket. For GitHub, it does this
-   itself. For Jira, it records the comment as pending, and the `acc:land` skill
-   posts it through the connector.
+   itself. For Jira and Azure DevOps it returns the comment, and the extension
+   posts it with the repo's own sign-in (D-027, D-033).
 
-It never merges.
+It never merges. Landing again after rework pushes the new commits and updates
+the open pull request's description, rather than opening another.
 
 **After the pull request opens:**
 
 - `acc sync` polls open pull requests. A merged one makes its task `done`. A
-  closed-unmerged one moves its task to `blocked` with the reason. Failing CI
-  shows the task as **needs you**.
+  closed-unmerged one moves its task to `blocked` with the reason. Failing CI,
+  or a person's requested changes, shows the task as **needs you**. The
+  Command Center runs it every two minutes while it's open.
 - `acc cleanup <id>` removes the worktree and local branch, but only once the
   pull request is merged and the worktree is clean.
 

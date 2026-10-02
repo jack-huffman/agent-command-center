@@ -6,7 +6,7 @@ import { AgentPages } from './activity.ts';
 import { COMMANDS, isWebviewMenuContext, WALKTHROUGHS } from './logic.ts';
 import { type NavItem, needsYouCount, type Ref, sessionKey, VIEW_KINDS, type ViewKind } from './model.ts';
 import { Panels } from './panels.ts';
-import { Questions, sessionSettings } from './questions.ts';
+import { accShellCommand, Questions, sessionSettings } from './questions.ts';
 import { Runs } from './runs.ts';
 import { accRunner } from './run.ts';
 import { openWalkthrough, Setup } from './setup.ts';
@@ -68,6 +68,15 @@ export function activate(context: vscode.ExtensionContext): void {
     worktrees: { everyMs: 15_000, fn: () => hub.loadWorktrees() },
     // Tracker boards are network calls, so they refresh slowly, and at once after any move.
     boards: { everyMs: 120_000, fn: () => trackers.loadBoards() },
+    // Open pull requests (D-033): merged → done, closed → blocked, failing checks → needs you.
+    prs: { everyMs: 120_000, fn: async () => {
+      for (const p of hub.projects) {
+        if (!hub.taskRows(p.root).some((t) => t.pr?.state === 'open')) continue;
+        const r = await accRunner(accScript)(['sync', '--json'], p.root);
+        if (r.code !== 0) setup.log.warn(`acc sync in ${p.name}: ${(r.stderr || r.stdout).trim().split('\n')[0]}`);
+      }
+      await hub.loadTasks();
+    } },
   };
   const pagePolls = (on: boolean) => { for (const [key, p] of Object.entries(POLLS)) hub.poll(key, p.everyMs, p.fn, on); };
 
@@ -114,9 +123,16 @@ export function activate(context: vscode.ExtensionContext): void {
   const pages = new AgentPages(context, hub, resolve, answer);
   context.subscriptions.push(pages);
   new Sidebar(hub, accRunner(accScript), setup.log, (root, key) => tickets.show(root, undefined, key), {
-    run: (command, cwd, label) => void runs.start(command, { cwd, label }),
-    watch: (key, ended) => pages.open(key, ended),
+    run: (command, cwd, label, onExit) => void runs.start(command, { cwd, label, onExit }),
+    watch: (key, ended, active) => pages.open(key, ended, active),
     sessionSettings: sessionSettings(accScript),
+    accCommand: accShellCommand(accScript),
+    // acc land can't post to Jira or Azure DevOps itself; this repo's sign-in does, as you (D-027, D-033).
+    comment: async (project, kind, key, text) => {
+      const index = trackers.trackers(project).findIndex((t) => t.kind === kind);
+      if (index < 0) throw new Error(`this repo has no ${kind === 'jira' ? 'Jira' : 'Azure DevOps'} tracker`);
+      await (await trackers.client(project, index)).comment(key, text);
+    },
   }).register(regNode);
   const panels = new Panels(context, hub, setup, resolve, (visible) => pagePolls(visible), {
     boards: (root) => trackers.boardStates(root),

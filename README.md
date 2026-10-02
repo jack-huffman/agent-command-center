@@ -31,7 +31,10 @@ Salesforce. Project types plug in as profiles.
   cards on the Overview, to allow, deny or answer in place. **Watch** shows an
   agent's work as it happens: what it said, each command and its result. Setup's
   commands run in an output panel on the page, which answers their prompts.
-- **Next:** M5, review and landing.
+- **M5, under way:** `acc review` has a read-only agent judge each commit's
+  change against its ticket. `acc land` pushes and opens the pull request, and
+  `acc sync` follows it to done. A person approves each step on the page.
+- **Next:** promotion, deploys, and the last guided setup steps.
 
 Install the extension with `npm run package && npm run install-extension`, then
 reload the VSCode window.

@@ -1,10 +1,12 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { type Config, parseConfig } from '../../packages/core/src/config.ts';
 import { CLONE_ACCOUNT_KEY } from '../../packages/core/src/github.ts';
 import { displayState, readLedger, type Ledger } from '../../packages/core/src/ledger.ts';
+import type { RepoPaths } from '../../packages/core/src/paths.ts';
 import type { Question } from '../../packages/core/src/questions.ts';
+import { latestVerdict, reviewing } from '../../packages/core/src/review.ts';
 import { type AgentSession, agentLook, askingLabel, isUnder, parseWorktrees, sessionFor, type TaskRow, type Worktree } from './logic.ts';
 import { runFile } from './run.ts';
 
@@ -120,7 +122,7 @@ export class Hub implements vscode.Disposable {
       } catch {
         continue; // mid-write or unreadable: keep what we had
       }
-      const rows = this.deriveRows(ledger);
+      const rows = this.deriveRows(ledger, p);
       this.tasks.set(p.root, { mtime, ledger, rows });
       changed = true;
     }
@@ -128,8 +130,13 @@ export class Hub implements vscode.Disposable {
   }
 
   /** Task rows with each running task's agent state, so a waiting agent shows as Needs you. */
-  private deriveRows(ledger: Ledger): TaskRow[] {
+  private deriveRows(ledger: Ledger, p?: Project): TaskRow[] {
+    // Reviews sit beside the ledger (D-032). A branch's latest commit is its worktree's HEAD.
+    const reviews = p ? ({ reviews: join(dirname(p.ledgerPath), 'reviews') } as RepoPaths) : null;
     return ledger.tasks.map((t) => {
+      const verdict = reviews && (t.state === 'review' || t.state === 'rework') ? latestVerdict(reviews, t.id) : null;
+      const head = p?.worktrees.find((w) => w.branch === t.run?.branch)?.head;
+      const live = reviews && t.state === 'review' ? reviewing(reviews, t.id) : null;
       const base = { id: t.id, run: t.run };
       const session = t.state === 'running' || t.state === 'review' || t.state === 'blocked' ? sessionFor(base, this.agents) : undefined;
       const asking = session ? this.askingFor(session) : null;
@@ -146,6 +153,9 @@ export class Hub implements vscode.Disposable {
         run: t.run,
         agent: look ? { label: look.label, icon: look.icon, tone: look.tone } : null,
         asking: !!asking,
+        review: verdict ? { verdict: verdict.verdict, summary: verdict.summary, current: !!head && verdict.sha === head } : null,
+        reviewing: live ? { sessionId: live.sessionId } : null,
+        pr: t.pr ? { number: t.pr.number, url: t.pr.url, state: t.pr.state, ci: t.pr.ci ?? null, changesRequested: t.pr.changesRequested ?? false } : null,
       };
     });
   }
@@ -160,7 +170,7 @@ export class Hub implements vscode.Disposable {
 
   setQuestions(questions: Question[]): void {
     this.questions = questions;
-    for (const [root, cached] of this.tasks) this.tasks.set(root, { ...cached, rows: this.deriveRows(cached.ledger) });
+    for (const [root, cached] of this.tasks) this.tasks.set(root, { ...cached, rows: this.deriveRows(cached.ledger, this.project(root)) });
     this.emitter.fire('agents');
     if (this.tasks.size) this.emitter.fire('tasks');
   }
@@ -182,7 +192,7 @@ export class Hub implements vscode.Disposable {
     }
     this.emitter.fire('agents');
     // Agent state feeds task display (Needs you), so re-derive the rows.
-    for (const [root, cached] of this.tasks) this.tasks.set(root, { ...cached, rows: this.deriveRows(cached.ledger) });
+    for (const [root, cached] of this.tasks) this.tasks.set(root, { ...cached, rows: this.deriveRows(cached.ledger, this.project(root)) });
     if (this.tasks.size) this.emitter.fire('tasks');
   }
 
@@ -203,6 +213,9 @@ export class Hub implements vscode.Disposable {
       }));
     }
     this.emitter.fire('worktrees');
+    // A branch's latest commit decides whether its review is current, so the rows follow the worktrees.
+    for (const [root, cached] of this.tasks) this.tasks.set(root, { ...cached, rows: this.deriveRows(cached.ledger, this.project(root)) });
+    if (this.tasks.size) this.emitter.fire('tasks');
   }
 
   // ------------------------------------------------------------ polling, only while a view is visible

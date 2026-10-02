@@ -206,6 +206,12 @@ export interface TaskRow {
   agent?: { label: string; icon: string; tone: Tone } | null;
   /** Its agent's question is waiting in the Command Center (D-030), not in the agent's own terminal. */
   asking?: boolean;
+  /** Its newest review (D-032): current when it's for the branch's latest commit. */
+  review?: { verdict: 'pass' | 'changes'; summary: string; current: boolean } | null;
+  /** A review under way, to watch. */
+  reviewing?: { sessionId: string } | null;
+  /** Its pull request (D-033). */
+  pr?: { number: number; url: string; state: string; ci?: string | null; changesRequested?: boolean } | null;
 }
 
 /** A task's agent: its background id or session id, or a background session named after the task. */

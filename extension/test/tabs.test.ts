@@ -198,10 +198,21 @@ test('cards follow a task through dispatch: Dispatch, then Watch, Attach and Aba
   assert.deepEqual(labels({}), ['Dispatch', 'Move', 'Block', 'Details']);
   assert.deepEqual(labels({ state: 'running', display: 'running', run: { bgId: 'bg1', worktree: '/w/AV-9' } }), ['Watch', 'Attach', 'Worktree', 'Move', 'Abandon', 'Details']);
   assert.equal(cardActions({ ...row('AV-9', 'running', 'running'), deps: [], run: { bgId: 'bg1' } } as TaskRow, {})[0]!.primary, true, 'Watch is the main action while it runs');
-  assert.deepEqual(labels({ state: 'review', display: 'review', run: { sessionId: 's1', worktree: '/w/AV-9' } }).slice(0, 2), ['Watch', 'Worktree'], 'what it did can still be read in review');
+  assert.deepEqual(labels({ state: 'review', display: 'review', run: { sessionId: 's1', worktree: '/w/AV-9' } }).slice(0, 2), ['Review', 'Watch'], 'in review: Review first, and what its builder did can still be read');
   assert.deepEqual(labels({ state: 'rework', display: 'rework', run: { worktree: '/w/AV-9' } }), ['Re-dispatch', 'Worktree', 'Move', 'Block', 'Details']);
   assert.deepEqual(labels({ state: 'done', display: 'done', run: { worktree: '/w/AV-9' } }), ['Worktree', 'Move', 'Clean up', 'Details']);
   assert.equal(cardActions({ ...row('AV-9', 'todo', 'ready'), deps: [] }, {})[0]!.primary, true, 'Dispatch is the main action on a ready card');
+});
+
+test('in review, a card offers the one next step: watch the reviewer, land a passing review, then follow the pull request', () => {
+  const first = (r: Partial<TaskRow>) => cardActions({ ...row('AV-9', 'review', 'review'), deps: [], run: { worktree: '/w', branch: 'b' }, ...r } as TaskRow, {}).find((a) => a.primary)!.label;
+  assert.equal(first({}), 'Review');
+  assert.equal(first({ reviewing: { sessionId: 's' } }), 'Watch the review');
+  assert.equal(first({ review: { verdict: 'pass', summary: 's', current: true } }), 'Land');
+  assert.equal(first({ review: { verdict: 'pass', summary: 's', current: false } }), 'Review', 'a review of an older commit doesn\'t count');
+  assert.equal(first({ review: { verdict: 'changes', summary: 's', current: true } }), 'Review again');
+  const open = cardActions({ ...row('AV-9', 'review', 'review'), deps: [], run: { worktree: '/w' }, review: { verdict: 'pass', summary: 's', current: true }, pr: { number: 42, url: 'u', state: 'open' } } as TaskRow, {}).map((a) => a.label);
+  assert.deepEqual(open.slice(0, 2), ['Pull request #42', 'Update pull request']);
 });
 
 test('table cells keep table layout (a flex cell misaligns its row\'s lines)', () => {

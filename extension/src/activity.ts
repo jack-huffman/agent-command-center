@@ -25,6 +25,8 @@ interface Page {
   timer: NodeJS.Timeout | undefined;
   /** Shown once, so a session with no transcript yet still gets a page that says so. */
   shown: boolean;
+  /** For a session Claude Code doesn't list: whether it's still working. */
+  active?: () => boolean;
 }
 
 /**
@@ -62,7 +64,7 @@ export class AgentPages implements vscode.Disposable {
   }
 
   /** `ended` stands in for a session Claude Code no longer lists, so its transcript can still be read. */
-  open(key: string, ended?: AgentSession): boolean {
+  open(key: string, ended?: AgentSession, active?: () => boolean): boolean {
     const s = this.session(key) ?? ended ?? null;
     const k = s ? sessionKey(s) : key;
     const existing = this.pages.get(k);
@@ -77,7 +79,7 @@ export class AgentPages implements vscode.Disposable {
     const icon = (theme: 'light' | 'dark') => vscode.Uri.joinPath(this.ctx.extensionUri, 'dist', 'media', `acc-${theme}.svg`);
     panel.iconPath = { light: icon('light'), dark: icon('dark') };
     panel.webview.html = htmlFor(panel.webview, base, 'agent', randomBytes(16).toString('base64'), `${name} · activity`);
-    const page: Page = { panel, key: k, seen: s, file: null, offset: 0, rest: '', transcript: emptyTranscript(), timer: undefined, shown: false };
+    const page: Page = { panel, key: k, seen: s, file: null, offset: 0, rest: '', transcript: emptyTranscript(), timer: undefined, shown: false, active };
     this.pages.set(k, page);
     panel.webview.onDidReceiveMessage((m: unknown) => this.receive(page, m));
     panel.onDidChangeViewState((e) => this.tick(page, e.webviewPanel.visible));
@@ -166,7 +168,7 @@ export class AgentPages implements vscode.Disposable {
   private post(page: Page): void {
     if (!page.panel.visible) return;
     const t = page.transcript;
-    const model = agentModel({ hub: this.hub, key: page.key, seen: page.seen, entries: t.entries, readable: !!page.file && t.used > 0, lastAt: t.lastAt });
+    const model = agentModel({ hub: this.hub, key: page.key, seen: page.seen, entries: t.entries, readable: !!page.file && t.used > 0, lastAt: t.lastAt, active: page.active?.() });
     void page.panel.webview.postMessage({ type: 'state', model });
   }
 

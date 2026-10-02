@@ -1,0 +1,116 @@
+import assert from 'node:assert/strict';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { test } from 'node:test';
+import { parseConfig, type Config } from '../src/config.ts';
+import { renderPacket } from '../src/dispatch.ts';
+import { run, type RunOptions, type RunResult } from '../src/exec.ts';
+import { runGates, waiveGates } from '../src/gates.ts';
+import { mutate, readLedger, upsertTasks } from '../src/ledger.ts';
+import { repoPaths } from '../src/paths.ts';
+import { latestVerdict, parseReview, readVerdict, review, reviewing, reviewPrompt } from '../src/review.ts';
+import { fakeRunner, GENERIC_CONFIG, gitIn, makeRepo } from './support.ts';
+
+const now = () => new Date('2026-10-02T12:00:00Z');
+const RAW = { ...GENERIC_CONFIG, gates: { required: ['test'], commands: { test: 'true' } } };
+
+/** A repo with one task in review on a branch with a commit, its checks passed. */
+function setup(state = 'review') {
+  const dir = makeRepo({ '.acc/config.json': JSON.stringify(RAW), '.acc/rules.md': 'Every function has a test.' });
+  const config = parseConfig(RAW).config as Config;
+  const base = gitIn(dir, 'branch', '--show-current').trim();
+  gitIn(dir, 'checkout', '-q', '-b', 'task/T-1-add-sum');
+  writeFileSync(join(dir, 'sum.js'), 'export const sum = (a, b) => a + b;\n');
+  gitIn(dir, 'add', '-A');
+  gitIn(dir, 'commit', '-q', '-m', 'T-1: add sum');
+  const paths = repoPaths(dir, run);
+  mutate(paths, now, (l, emit) => {
+    upsertTasks(l, config, [{ source: { kind: 'manual', key: 'T-1' }, title: 'Add a sum function', brief: '- sum(a, b) returns a + b\n- it has a test' }], 'human', 'human:test', emit, now);
+    const t = l.tasks[0]!;
+    t.state = state as never;
+    t.environment = base;
+    t.run = { branch: 'task/T-1-add-sum', worktree: dir };
+  });
+  runGates(paths, config, config.environments[0]!, [], [], { run, now, slots: { dir: join(dir, '.git', 'slots') } });
+  return { dir, config, paths, sha: gitIn(dir, 'rev-parse', 'HEAD').trim() };
+}
+
+/** Claude Code's JSON result, as `claude -p --output-format json --json-schema` prints it. */
+const result = (structured: unknown, extra: Record<string, unknown> = {}): RunResult => ({
+  code: 0, stderr: '', stdout: JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: 'sess-review', total_cost_usd: 0.42, structured_output: structured, ...extra }),
+});
+
+test('a passing review is kept for its commit, and the task stays in review, ready to land', () => {
+  const { paths, config, sha } = setup();
+  let call: { args: string[]; opts?: RunOptions } | null = null;
+  const fake = fakeRunner({ claude: (opts) => { call = { args: [], opts }; return result({ verdict: 'pass', summary: 'Adds sum with a test.', criteria: [{ text: 'sum returns a + b', met: true, evidence: 'sum.js:1' }], findings: [] }); } });
+  const calls: string[] = [];
+  const runner = (cmd: string, args: string[], opts?: RunOptions) => { if (cmd === 'claude') calls.push(args.join(' ')); return fake(cmd, args, opts); };
+  const r = review(paths, config, 'T-1', { run: runner, now, env: {}, uuid: () => 'fixed-uuid' });
+  assert.equal(r.verdict.verdict, 'pass');
+  assert.equal(r.moved, null);
+  assert.equal(readLedger(paths.ledger).tasks[0]!.state, 'review');
+  assert.deepEqual(readVerdict(paths, 'T-1', sha)?.criteria[0], { text: 'sum returns a + b', met: true, evidence: 'sum.js:1' });
+  assert.equal(readVerdict(paths, 'T-1', sha)?.sessionId, 'sess-review');
+  // Read-only by construction, and the long prompt goes on stdin.
+  assert.match(calls[0]!, /^-p --session-id fixed-uuid --permission-mode dontAsk/);
+  assert.match(calls[0]!, /--allowedTools Read Grep Glob --disallowedTools Bash Edit Write/);
+  const input = String(call!.opts?.input);
+  assert.match(input, /# Review T-1: Add a sum function/);
+  assert.match(input, /- test: pass/);
+  assert.match(input, /Every function has a test\./, 'the project\'s rules');
+  assert.match(input, /\+export const sum/, 'the diff');
+  assert.equal(call!.opts?.env?.ACC_ROLE, 'reviewer');
+  assert.equal(reviewing(paths, 'T-1'), null, 'the running marker is gone');
+});
+
+test('a review that asks for changes sends the task to rework, and the next run is told what to fix', () => {
+  const { paths, config } = setup();
+  const runner = fakeRunner({ claude: result({
+    verdict: 'changes', summary: 'sum has no test.',
+    criteria: [{ text: 'it has a test', met: false, evidence: 'no test file' }],
+    findings: [{ message: 'Add a test for sum.', must: true, file: 'sum.js', line: 1, rule: 'Every function has a test.' }, { message: 'Consider JSDoc.', must: false }],
+  }) });
+  const r = review(paths, config, 'T-1', { run: runner, now, env: {} });
+  assert.equal(r.moved, 'rework');
+  const t = readLedger(paths.ledger).tasks[0]!;
+  assert.equal(t.state, 'rework');
+  assert.match(t.history.at(-1)!.reason!, /Review asked for changes: sum has no test\./);
+  assert.equal(t.history.at(-1)!.actor, 'reviewer');
+  const packet = renderPacket({ task: t, config, env: config.environments[0]!, worktree: '/w', branch: 'b', rules: null, environmentSpecific: [], review: latestVerdict(paths, 'T-1') });
+  assert.match(packet, /## What the review asked for/);
+  assert.match(packet, /`sum\.js:1`: Add a test for sum\. \(rule: Every function has a test\.\)/);
+  assert.match(packet, /Not met yet: it has a test\. no test file/);
+  assert.ok(!packet.includes('Consider JSDoc'), 'only what must be fixed');
+});
+
+test('a review needs the task in review with its checks settled; a waived check counts as settled', () => {
+  const running = setup('running');
+  assert.throws(() => review(running.paths, running.config, 'T-1', { run: fakeRunner({}), now, env: {} }), /T-1 is running/);
+  const { dir, paths, config } = setup();
+  writeFileSync(join(dir, 'more.js'), 'x\n');
+  gitIn(dir, 'add', '-A');
+  gitIn(dir, 'commit', '-q', '-m', 'more');
+  assert.throws(() => review(paths, config, 'T-1', { run: fakeRunner({}), now, env: {} }), /checks aren't settled .*: test/);
+  waiveGates(paths, config, { sha: gitIn(dir, 'rev-parse', 'HEAD').trim(), env: config.environments[0]!, gates: ['test'], reason: 'a test', by: 'human:t', now });
+  const r = review(paths, config, 'T-1', { run: fakeRunner({ claude: result({ verdict: 'pass', summary: 'ok', criteria: [], findings: [] }) }), now, env: {} });
+  assert.equal(r.verdict.verdict, 'pass');
+});
+
+test('the verdict is read strictly: a pass with something that must be fixed is changes, and no verdict is an error', () => {
+  assert.equal(parseReview(result({ verdict: 'pass', summary: 's', criteria: [], findings: [{ message: 'm', must: true }] }).stdout).verdict.verdict, 'changes');
+  assert.throws(() => parseReview('not json'), /no result/);
+  assert.throws(() => parseReview(result(null, { subtype: 'error_max_turns', is_error: true }).stdout), /didn't finish with a verdict \(error_max_turns\)/);
+  const { verdict } = parseReview(result({ verdict: 'pass', summary: 's', criteria: [{ text: 't', met: 'yes' }], findings: [{ message: 'm', must: false, line: 'x' }] }).stdout);
+  assert.deepEqual([verdict.criteria[0]!.met, 'line' in verdict.findings[0]!], [false, false], 'only well-formed values are kept');
+});
+
+test('the reviewer is told to judge each criterion and skip style, with the profile\'s own checks for Salesforce', () => {
+  const base = { task: { id: 'T-1', title: 'x' } as never, envName: 'Dev', envBranch: 'dev', sha: 'abcdef1234', packet: 'p', diff: 'd', stat: 's', checks: [], rules: null };
+  const sf = reviewPrompt({ ...base, config: { profile: 'salesforce' } as never });
+  assert.match(sf.system, /acceptance criterion/);
+  assert.match(sf.system, /Skip formatting/);
+  assert.match(sf.system, /bulk-safe/);
+  assert.ok(!reviewPrompt({ ...base, config: { profile: 'generic' } as never }).system.includes('Apex'), 'the core stays project-agnostic');
+  assert.match(reviewPrompt({ ...base, config: { profile: 'generic' } as never, diff: 'x'.repeat(200_000) }).prompt, /too long to include/);
+});

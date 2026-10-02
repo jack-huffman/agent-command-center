@@ -42,6 +42,11 @@ export interface PullRequest {
   number: number;
   url: string;
   state: 'open' | 'merged' | 'closed';
+  /** What GitHub's checks say, kept by acc sync. failing shows the task as needs you. */
+  ci?: 'passing' | 'failing' | 'pending' | null;
+  /** A person on GitHub asked for changes, which also shows it as needs you. */
+  changesRequested?: boolean;
+  syncedAt?: string;
 }
 
 export interface Task {
@@ -381,6 +386,8 @@ export interface SessionInfo {
 export function displayState(ledger: Ledger, task: Task, session?: SessionInfo): DisplayState {
   if (task.state === 'todo' && isReady(ledger, task)) return 'ready';
   if (task.state === 'running' && (session?.state === 'blocked' || session?.status === 'waiting')) return 'needs-you';
+  // An open pull request whose checks fail, or that a person asked to change, waits on you (D-033).
+  if (task.state === 'review' && task.pr?.state === 'open' && (task.pr.ci === 'failing' || task.pr.changesRequested)) return 'needs-you';
   return task.state;
 }
 

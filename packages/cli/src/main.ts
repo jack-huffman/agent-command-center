@@ -5,7 +5,7 @@ import { parseArgs } from 'node:util';
 import {
   ACTORS, AccError, type Actor, type ApexTest, configureRepoAccess, displayState, drift, gatesFor, gateTarget, isReady, loadConfig, makeContext, moveTask, mutate,
   cleanup, dispatch, githubIdentity, githubIssuesToTasks, planInit, useGithubAccount, withCloneAccount, type Profile, readLedger, receiptsAt, STEPS, receiptHooks, repoPaths, run, runGates, runSteps, satisfies, type State, type StepResult, type TaskInput,
-  upsertTasks, writeConfig, ask, hookOutput, parseHookInput, waiveGates,
+  upsertTasks, writeConfig, ask, hookOutput, parseHookInput, waiveGates, review, land, sync,
 } from '../../core/src/index.ts';
 import { checkLabel, gateLabel, stateLabel, table, tone } from './format.ts';
 
@@ -37,6 +37,10 @@ Agents
   acc done [<id>]                       A builder's finish line: moves its task to review
   acc block [<id>] "<reason>"           A builder's way out when stuck
   acc cleanup <id>                      Remove a finished task's worktree, only if nothing would be lost
+  acc review <id>                       A read-only reviewer agent judges the task's latest commit:
+                                        pass, or changes (back to rework, with its findings)
+  acc land <id>                         Push a reviewed task's branch and open its pull request; never merges
+  acc sync                              Follow open pull requests: merged → done, closed → blocked, failing checks → needs you
   acc hook permission                   Claude Code's PermissionRequest hook: puts an agent's prompt in the
                                         Command Center, when one is open, and waits for the answer
 
@@ -262,6 +266,49 @@ async function cmdHookPermission(): Promise<number> {
   } catch (e) {
     process.stderr.write(`acc hook permission: ${(e as Error).message}\n`);
   }
+  return 0;
+}
+
+function cmdReview(o: Opts, id: string): number {
+  const { paths, config } = project(process.cwd());
+  const { by } = actorFrom(o);
+  const say = (line: string) => { if (!o.json) process.stderr.write(line + '\n'); };
+  const r = review(paths, config, id.toUpperCase(), {
+    run, now, env: process.env,
+    onStart: (session, sha) => say(tone(`Reviewing ${id.toUpperCase()} at ${sha.slice(0, 7)}. The reviewer reads and changes nothing. Session ${session}.`, 'dim')),
+  }, { by: `reviewer:${id.toUpperCase()} for ${by}` });
+  const v = r.verdict;
+  const where = (f: { file?: string; line?: number }) => (f.file ? `${f.file}${f.line ? `:${f.line}` : ''}  ` : '');
+  out(o, () => [
+    v.verdict === 'pass' ? tone(`✓ Review passed: ${v.summary}`, 'blue') : tone(`↺ Changes asked for: ${v.summary}`, 'orange'),
+    ...(v.criteria.length ? ['', 'Acceptance criteria', ...v.criteria.map((c) => `  ${c.met ? '✓' : '✗'} ${c.text}${c.evidence ? tone(`  ${c.evidence}`, 'dim') : ''}`)] : []),
+    ...(v.findings.length ? ['', 'Findings', ...v.findings.map((f) => `  ${f.must ? '!' : '·'} ${where(f)}${f.message}`)] : []),
+    '',
+    r.moved === 'rework' ? `${id.toUpperCase()} → ${stateLabel('rework')}. Re-dispatch it, and the builder gets these findings.` : `${id.toUpperCase()} stays in review, ready to land.`,
+  ].join('\n'), r);
+  return v.verdict === 'pass' ? 0 : 1;
+}
+
+function cmdLand(o: Opts, id: string): number {
+  const { paths, config } = project(process.cwd());
+  const { actor, by } = actorFrom(o);
+  if (actor === 'builder') throw new AccError('refused', 'A builder never lands its own work. A person does, once it\'s reviewed.');
+  const r = land(paths, config, id.toUpperCase(), { run, now, env: process.env }, { actor, by });
+  out(o, () => [
+    `${r.task.id}: ${r.opened ? 'opened' : 'updated'} pull request #${r.pr.number}  ${r.pr.url}`,
+    r.commented ? `  Commented on the GitHub issue.` : '',
+    r.comment ? `  Post this on ${r.comment.key} (the extension does it for you):\n    ${r.comment.text.replace(/\n/g, '\n    ')}` : '',
+    tone('It merges only when a person merges it on GitHub.', 'dim'),
+  ].filter(Boolean).join('\n'), r);
+  return 0;
+}
+
+function cmdSync(o: Opts): number {
+  const { paths, config } = project(process.cwd());
+  const r = sync(paths, config, { run, now, env: process.env });
+  out(o, () => (r.checked
+    ? [`Checked ${r.checked} open pull request${r.checked === 1 ? '' : 's'}.`, ...r.changes.map((c) => `  ${c.task}: ${c.note}${c.moved ? ` → ${stateLabel(c.moved.to)}` : ''}`)].join('\n')
+    : 'No open pull requests to follow.'), r);
   return 0;
 }
 
@@ -540,6 +587,15 @@ export async function main(argv: string[]): Promise<number> {
       if (!reason) throw new AccError('usage', 'acc block "<what you need>"');
       return cmdSet({ ...o, reason }, id, 'blocked');
     }
+    case 'review': {
+      if (!rest[0]) throw new AccError('usage', 'acc review <id>');
+      return cmdReview(o, rest[0]);
+    }
+    case 'land': {
+      if (!rest[0]) throw new AccError('usage', 'acc land <id>');
+      return cmdLand(o, rest[0]);
+    }
+    case 'sync': return cmdSync(o);
     case 'cleanup': {
       if (!rest[0]) throw new AccError('usage', 'acc cleanup <id>');
       return cmdCleanup(o, rest[0]);

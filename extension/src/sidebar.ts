@@ -15,9 +15,13 @@ type Acc = (args: string[], cwd: string, token?: vscode.CancellationToken) => Pr
 /** What the sidebar's actions can use from the rest of the extension (D-030). */
 export interface SidebarHelpers {
   /** Runs a command with its output in the page, instead of a terminal. */
-  run?: (command: string, cwd: string, label: string) => void;
+  run?: (command: string, cwd: string, label: string, onExit?: (code: number | null) => void) => void;
   /** Opens a session's activity page. A session that has ended needs the hint to find its transcript. */
-  watch?: (key: string, ended?: AgentSession) => boolean;
+  watch?: (key: string, ended?: AgentSession, active?: () => boolean) => boolean;
+  /** How a shell runs the bundled acc, for commands run in the page. */
+  accCommand?: string;
+  /** Posts a comment on a Jira or Azure DevOps ticket as you, for acc land (D-033). */
+  comment?: (project: Project, kind: 'jira' | 'azure', key: string, text: string) => Promise<void>;
   /** --settings for a background agent started here, so its questions come to the page. */
   sessionSettings?: string;
 }
@@ -59,6 +63,10 @@ export class Sidebar {
     reg('acc.tasks.refresh', () => this.hub.loadTasks(true));
     reg('acc.task.dispatch', (n: TaskNode) => this.dispatchTask(n));
     reg('acc.task.watch', (n: TaskNode) => this.watchTask(n));
+    reg('acc.task.review', (n: TaskNode) => this.reviewTask(n));
+    reg('acc.task.watchReview', (n: TaskNode) => this.watchReview(n));
+    reg('acc.task.land', (n: TaskNode) => this.landTask(n));
+    reg('acc.task.openPr', (n: TaskNode) => n?.kind === 'task' && n.task.pr && vscode.env.openExternal(vscode.Uri.parse(n.task.pr.url)));
     reg('acc.task.attach', (n: TaskNode) => n.kind === 'task' && n.task.run?.bgId && this.send(n.task.run.worktree ?? n.project.root, `claude attach ${n.task.run.bgId}`, `claude: ${n.task.id}`));
     reg('acc.task.openWorktree', (n: TaskNode) => n.kind === 'task' && n.task.run?.worktree && vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(n.task.run.worktree), { forceNewWindow: true }));
     reg('acc.task.abandon', (n: TaskNode) => this.abandonTask(n));
@@ -278,6 +286,65 @@ export class Sidebar {
     const pick = await vscode.window.showInformationMessage(`Started ${name}. It shows in Agents as it works, and asks you here if it needs anything.`, ...(started ? ['Watch', 'Attach'] : []));
     if (pick === 'Watch' && started) this.helpers.watch?.(sessionKey(started));
     if (pick === 'Attach' && started?.id) this.send(cwd, `claude attach ${started.id}`, `claude: ${name}`);
+  }
+
+  // ------------------------------------------------------------ review and land (D-032, D-033)
+
+  /** The reviewer runs in the output panel; its session can be watched while it reads. */
+  private reviewTask(n: TaskNode): void {
+    if (n?.kind !== 'task') return;
+    const { project, task } = n;
+    const acc = this.helpers.accCommand ?? 'acc';
+    const done = () => void this.hub.loadTasks(true);
+    if (this.helpers.run) {
+      this.helpers.run(`${acc} review ${task.id}`, project.root, `Review ${task.id}`, done);
+      // The reviewer's session shows once acc has started it.
+      setTimeout(done, 2_000);
+    } else {
+      this.send(project.root, `acc review ${task.id}`);
+    }
+  }
+
+  private watchReview(n: TaskNode): void {
+    if (n?.kind !== 'task' || !n.task.reviewing || !n.task.run?.worktree) return;
+    const { sessionId } = n.task.reviewing;
+    const root = n.project.root;
+    const id = n.task.id;
+    const stillReviewing = () => !!this.hub.taskRows(root).find((t) => t.id === id)?.reviewing;
+    this.helpers.watch?.(sessionId, { cwd: n.task.run.worktree, kind: 'background', startedAt: Date.now(), sessionId, name: `Review ${id}` }, stillReviewing);
+  }
+
+  /** Pushes and opens the pull request, after a person says so: it's the first thing that leaves this machine. */
+  private async landTask(n: TaskNode): Promise<void> {
+    if (n?.kind !== 'task') return;
+    const { project, task } = n;
+    const gh = project.config.github;
+    if (!gh) return void vscode.window.showWarningMessage(`${project.name} has no GitHub repo in .acc/config.json, so there's nowhere to open a pull request.`);
+    const again = task.pr?.state === 'open';
+    const ok = await vscode.window.showWarningMessage(again ? `Update pull request #${task.pr!.number} for ${task.id}?` : `Land ${task.id}?`, {
+      modal: true,
+      detail: `${again ? 'Pushes the reviewed commits to' : 'Pushes'} ${task.run?.branch ?? 'its branch'} to ${gh.repo} as ${gh.account}${again ? '.' : `, and opens a pull request into ${task.environment}.`} acc never merges: a person does, on GitHub.`,
+    }, again ? 'Update' : 'Push and open');
+    if (!ok) return;
+    type Landed = { pr?: { number: number; url: string }; opened?: boolean; comment?: { kind: 'jira' | 'azure'; key: string; text: string } | null };
+    const box: { r: Landed | null } = { r: null };
+    await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Landing ${task.id}`, cancellable: false }, async (progress) => {
+      progress.report({ message: 'pushing and opening the pull request…' });
+      await this.runAcc(project, ['land', task.id], (out) => { box.r = out as Landed; return undefined; });
+    });
+    const r = box.r;
+    if (!r) return;
+    let note = '';
+    if (r.comment && this.helpers.comment) {
+      try {
+        await this.helpers.comment(project, r.comment.kind, r.comment.key, r.comment.text);
+        note = ` Commented on ${r.comment.key}.`;
+      } catch (e) {
+        note = ` Couldn't comment on ${r.comment.key}: ${(e as Error).message}`;
+      }
+    }
+    const pick = await vscode.window.showInformationMessage(`${task.id}: ${r.opened ? 'opened' : 'updated'} pull request #${r.pr?.number}.${note}`, 'Open pull request');
+    if (pick && r.pr) await vscode.env.openExternal(vscode.Uri.parse(r.pr.url));
   }
 
   private watchAgent(n: AgentNode): void {

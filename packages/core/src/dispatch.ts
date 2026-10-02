@@ -7,6 +7,7 @@ import { AccError, type Runner } from './exec.ts';
 import { type Actor, applyMove, checkMove, mutate, noGateHooks, readLedger, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
 import { permissionHook } from './questions.ts';
+import { latestVerdict, type Verdict } from './review.ts';
 
 // ---------------------------------------------------------------- names and places (D-013)
 
@@ -80,6 +81,27 @@ export interface PacketInput {
   environmentSpecific: string[];
   /** The full path of the acc executable, given as a fallback in case an agent doubts it's on PATH. */
   accPath?: string;
+  /** On a rework, the review that asked for changes (D-032). */
+  review?: Verdict | null;
+}
+
+/** On a rework: what the review asked for, so the next run fixes that and leaves the rest. */
+function reviewSection(v: Verdict | null | undefined): string[] {
+  if (!v || v.verdict !== 'changes') return [];
+  const where = (f: { file?: string; line?: number }) => (f.file ? `\`${f.file}${f.line ? `:${f.line}` : ''}\`: ` : '');
+  const must = v.findings.filter((f) => f.must);
+  const unmet = v.criteria.filter((c) => !c.met);
+  return [
+    '## What the review asked for',
+    '',
+    `This is a rework. The reviewer looked at ${v.sha.slice(0, 7)} and asked for changes: ${v.summary}`,
+    '',
+    ...must.map((f) => `- ${where(f)}${f.message}${f.rule ? ` (rule: ${f.rule})` : ''}`),
+    ...unmet.map((c) => `- Not met yet: ${c.text}. ${c.evidence}`),
+    ...(must.length || unmet.length ? [''] : []),
+    'Fix these, and keep the rest of the change as it is. Then finish as below.',
+    '',
+  ];
 }
 
 function commitRef(task: Task): string {
@@ -112,6 +134,7 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean }): stri
     '',
     task.source.url ? `Ticket: ${task.source.url}` : `Source: ${task.source.kind}`,
     '',
+    ...reviewSection(p.review),
     '## Where you are',
     '',
     `- **Worktree:** \`${p.worktree}\`. This is your only workspace.`,
@@ -180,7 +203,7 @@ export function builderSettings(task: Task, config: Config, accBinDir: string, b
   ];
   const deny = [
     'Bash(git push*)', 'Bash(gh pr *)', 'Bash(git checkout *)', 'Bash(git switch *)', 'Bash(git worktree *)', 'Bash(git reset --hard*)',
-    'Bash(acc set *)', 'Bash(acc dispatch *)', 'Bash(acc init*)', 'Bash(acc gate waive*)',
+    'Bash(acc set *)', 'Bash(acc dispatch *)', 'Bash(acc init*)', 'Bash(acc gate waive*)', 'Bash(acc land*)', 'Bash(acc review*)',
     ...(sf ? ['Bash(sf project deploy start*)', 'Bash(sf project deploy quick*)', 'Bash(sf org delete *)'] : []),
   ];
   return {
@@ -323,7 +346,10 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
   setupWorktree(run, config, env, main, wt);
 
   const rules = existsSync(join(wt, '.acc', 'rules.md')) ? readFileSync(join(wt, '.acc', 'rules.md'), 'utf8') : null;
-  const packet = renderPacket({ task: found, config, env, worktree: wt, branch, rules, environmentSpecific: readList(wt, config.environmentSpecific), enterWorktree: enter && !opts.foreground, accPath: join(deps.accBinDir, 'acc') });
+  const packet = renderPacket({
+    task: found, config, env, worktree: wt, branch, rules, environmentSpecific: readList(wt, config.environmentSpecific), enterWorktree: enter && !opts.foreground,
+    accPath: join(deps.accBinDir, 'acc'), review: found.state === 'rework' ? latestVerdict(paths, found.id) : null,
+  });
   mkdirSync(paths.packets, { recursive: true });
   const packetPath = join(paths.packets, `${found.id}.md`);
   writeFileSync(packetPath, packet);

@@ -2,7 +2,7 @@
   "name": "agent-command-center",
   "displayName": "Agent Command Center",
   "description": "Set up projects for parallel Claude Code agents, then run and watch them from VSCode.",
-  "version": "0.10.1",
+  "version": "0.11.0",
   "publisher": "JackHuffman",
   "private": true,
   "license": "UNLICENSED",
@@ -292,6 +292,30 @@
         "icon": "$(pulse)"
       },
       {
+        "command": "acc.task.review",
+        "title": "Review with an agent",
+        "category": "Agent Command Center",
+        "icon": "$(checklist)"
+      },
+      {
+        "command": "acc.task.watchReview",
+        "title": "Watch the review",
+        "category": "Agent Command Center",
+        "icon": "$(pulse)"
+      },
+      {
+        "command": "acc.task.land",
+        "title": "Land: push and open the pull request",
+        "category": "Agent Command Center",
+        "icon": "$(git-pull-request-create)"
+      },
+      {
+        "command": "acc.task.openPr",
+        "title": "Open the pull request",
+        "category": "Agent Command Center",
+        "icon": "$(git-pull-request)"
+      },
+      {
         "command": "acc.task.openWorktree",
         "title": "Open its worktree",
         "category": "Agent Command Center",
@@ -474,6 +498,22 @@
         },
         {
           "command": "acc.task.watch",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.review",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.watchReview",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.land",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.openPr",
           "when": "false"
         }
       ],

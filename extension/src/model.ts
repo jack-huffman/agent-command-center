@@ -87,12 +87,22 @@ export function cardActions(t: TaskRow, ref: Ref): Action[] {
   const a: Action[] = [];
   const canDispatch = t.display === 'ready' || t.state === 'rework';
   if (canDispatch) a.push({ command: 'acc.task.dispatch', label: t.state === 'rework' ? 'Re-dispatch' : 'Dispatch', icon: 'rocket', ref, primary: true });
+  // In review (D-032, D-033): watch the reviewer, review it, land it, or follow its pull request.
+  if (t.state === 'review') {
+    const open = t.pr?.state === 'open';
+    if (t.reviewing) a.push({ command: 'acc.task.watchReview', label: 'Watch the review', icon: 'pulse', ref, primary: true });
+    else if (open) a.push({ command: 'acc.task.openPr', label: `Pull request #${t.pr!.number}`, icon: 'git-pull-request', ref, primary: true });
+    else if (t.review?.current && t.review.verdict === 'pass') a.push({ command: 'acc.task.land', label: 'Land', icon: 'git-pull-request-create', ref, primary: true });
+    else a.push({ command: 'acc.task.review', label: t.review?.current ? 'Review again' : 'Review', icon: 'checklist', ref, primary: true });
+    if (open && t.review?.current && t.review.verdict === 'pass' && !t.reviewing) a.push({ command: 'acc.task.land', label: 'Update pull request', icon: 'repo-push', ref });
+  }
   // Waiting in its own terminal, it's answered by attaching; anything else is seen on its page.
   const inTerminal = t.display === 'needs-you' && !t.asking && !!t.run?.bgId;
   if ((t.state === 'running' || t.state === 'review' || t.state === 'blocked') && (t.run?.bgId || t.run?.sessionId)) a.push({ command: 'acc.task.watch', label: 'Watch', icon: 'pulse', ref, primary: !canDispatch && t.state === 'running' && !inTerminal });
   if (t.state === 'running' && t.run?.bgId) a.push({ command: 'acc.task.attach', label: 'Attach', icon: 'terminal', ref, primary: inTerminal });
   if (t.run?.worktree && t.state !== 'todo') a.push({ command: 'acc.task.openWorktree', label: 'Worktree', icon: 'empty-window', ref });
   a.push({ command: 'acc.task.move', label: 'Move', icon: 'arrow-swap', ref, primary: !a.some((x) => x.primary) });
+  if (t.pr && t.pr.state !== 'open') a.push({ command: 'acc.task.openPr', label: `Pull request #${t.pr.number}`, icon: 'git-pull-request', ref });
   if (t.state === 'running') a.push({ command: 'acc.task.abandon', label: 'Abandon', icon: 'debug-stop', ref, danger: true });
   else if (t.state === 'blocked') a.push({ command: 'acc.task.unblock', label: 'Unblock', icon: 'debug-restart', ref });
   else if (t.state !== 'done') a.push({ command: 'acc.task.block', label: 'Block', icon: 'circle-slash', ref });
@@ -687,6 +697,8 @@ export interface AgentInput {
   readable: boolean;
   lastAt: string | null;
   limit?: number;
+  /** A session Claude Code doesn't list but that's still working, such as a review (D-032). */
+  active?: boolean;
 }
 
 export function agentModel(i: AgentInput): AgentModel {
@@ -695,7 +707,7 @@ export function agentModel(i: AgentInput): AgentModel {
   const s = live ?? i.seen;
   const project = s ? hub.projectFor(s.cwd) : undefined;
   const row = project && s ? hub.taskRows(project.root).find((r) => (s.sessionId && r.run?.sessionId === s.sessionId) || (s.id && r.run?.bgId === s.id) || (s.kind === 'background' && s.name === r.id)) : undefined;
-  const look = s && live ? agentLook(s, hub.askingFor?.(s)) : { label: 'Ended', icon: 'circle-slash', tone: 'neutral' as Tone, needsYou: false };
+  const look = s && live ? agentLook(s, hub.askingFor?.(s)) : i.active ? { label: 'Working', icon: 'sync~spin', tone: 'blue' as Tone, needsYou: false } : { label: 'Ended', icon: 'circle-slash', tone: 'neutral' as Tone, needsYou: false };
   const limit = i.limit ?? 400;
   const shown = i.entries.slice(-limit).map((e): EntryView => (e.k === 'prompt' ? { k: 'prompt', id: e.id, at: e.at, body: fromMarkdown(e.text), instructions: e.instructions }
     : e.k === 'say' ? { k: 'say', id: e.id, at: e.at, body: fromMarkdown(e.text) } : e));
@@ -708,7 +720,7 @@ export function agentModel(i: AgentInput): AgentModel {
   const where = !s ? '' : project ? (isUnder(s.cwd, project.root) ? s.cwd.slice(project.root.length + 1) || 'main checkout' : s.cwd.split('/').slice(-2).join('/')) : s.cwd;
   return {
     kind: 'agent', key, name: s?.name ?? row?.id ?? key.slice(0, 8), task: row && project ? { id: row.id, title: row.title, project: project.root } : null,
-    look: { label: look.label, icon: look.icon, tone: look.tone }, live: !!live, background: !!s?.id, where, startedAt: s?.startedAt ?? null, lastAt: i.lastAt,
+    look: { label: look.label, icon: look.icon, tone: look.tone }, live: !!live || !!i.active, background: !!s?.id, where, startedAt: s?.startedAt ?? null, lastAt: i.lastAt,
     entries: shown, hidden: Math.max(0, i.entries.length - shown.length), readable: i.readable,
     questions: s?.sessionId ? questionCards(hub).filter((q) => q.sessionId === s.sessionId) : [],
     actions,
@@ -865,11 +877,22 @@ export function homeModel(i: HomeInput): HomeModel {
         if (questions.some((q) => q.task === r.id && q.project === p.root)) continue;
         const watch = acts.find((a) => a.command === 'acc.task.watch');
         const attach = acts.find((a) => a.command === 'acc.task.attach');
+        // A pull request that needs you says why: its checks, or a person's requested changes.
+        const pr = r.state === 'review' && r.pr?.state === 'open' ? r.pr : null;
+        if (pr) {
+          const why = pr.changesRequested ? 'a reviewer asked for changes on GitHub' : 'its pull request\'s checks are failing';
+          attention.push({ key: `t:${p.root}:${r.id}`, look: LOOK(pr.changesRequested ? 'Changes requested' : 'Checks failing', 'git-pull-request', 'orange'), title: `${r.id} ${r.title}`, detail: `${p.name} · pull request #${pr.number}: ${why}`, project: p.name, actions: [...acts.filter((a) => a.command === 'acc.task.openPr').map((a) => ({ ...a, primary: true })), details] });
+          continue;
+        }
         attention.push({ key: `t:${p.root}:${r.id}`, look: r.agent ?? LOOK('Needs you', 'bell-dot', 'orange'), title: `${r.id} ${r.title}`, detail: `${p.name} · its agent is waiting on you in its terminal`, project: p.name, actions: [...(attach ? [{ ...attach, primary: true }] : []), ...(watch ? [{ ...watch, primary: false }] : []), details] });
       } else if (r.display === 'blocked') {
         attention.push({ key: `t:${p.root}:${r.id}`, look: LOOK('Blocked', 'circle-slash', 'orange'), title: `${r.id} ${r.title}`, detail: `${p.name} · blocked`, project: p.name, actions: [details] });
       } else if (r.display === 'review') {
-        attention.push({ key: `t:${p.root}:${r.id}`, look: LOOK('Waiting for your review', 'eye', 'blue'), title: `${r.id} ${r.title}`, detail: `${p.name} · done by its agent`, project: p.name, actions: [details] });
+        // Where it is on the way to a pull request, and the one next step.
+        const next = acts.find((a) => a.primary && ['acc.task.review', 'acc.task.land', 'acc.task.openPr', 'acc.task.watchReview'].includes(a.command));
+        const where = r.reviewing ? 'its reviewer is reading it' : r.pr?.state === 'open' ? `pull request #${r.pr.number} is open${r.pr.ci === 'pending' ? ', checks running' : r.pr.ci === 'passing' ? ', checks passing' : ''}`
+          : r.review?.current ? (r.review.verdict === 'pass' ? 'reviewed: ready to land' : 'review asked for changes') : 'done by its agent, not reviewed yet';
+        attention.push({ key: `t:${p.root}:${r.id}`, look: LOOK(r.pr?.state === 'open' ? 'Pull request open' : 'Waiting for review', r.pr?.state === 'open' ? 'git-pull-request' : 'eye', 'blue'), title: `${r.id} ${r.title}`, detail: `${p.name} · ${where}`, project: p.name, actions: [...(next ? [next] : []), details] });
       } else if (r.display === 'ready') {
         const d = acts.find((a) => a.command === 'acc.task.dispatch');
         if (d) ready.push({ project: p.name, id: r.id, title: r.title, environment: r.environment, action: d });
