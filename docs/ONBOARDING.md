@@ -159,6 +159,10 @@ access, and who git push and commits use.
 
 ### B5. Make one baseline manifest for every environment
 
+**Do it** runs `acc setup baseline`, which does this section for you: it lists
+the components on every environment branch with sf and writes their union.
+Commit the result on each branch. By hand:
+
 - [ ] Generate a manifest from each existing project folder:
 
   ```bash
@@ -169,32 +173,12 @@ access, and who git push and commits use.
   Every branch is retrieved with the same component list, so a diff between
   branches is real drift and not just different retrieve scopes.
 
-<details>
-<summary>Union script (until <code>acc</code> does it)</summary>
-
-```python
-import xml.etree.ElementTree as ET
-NS='http://soap.sforce.com/2006/04/metadata'; ET.register_namespace('', NS)
-def load(f):
-    out={}
-    for t in ET.parse(f).getroot().findall(f'{{{NS}}}types'):
-        out.setdefault(t.find(f'{{{NS}}}name').text,set()).update(m.text for m in t.findall(f'{{{NS}}}members'))
-    return out
-parts=[load(f) for f in ['prod-local.xml','qa-local.xml']]
-u={k:set().union(*(p.get(k,set()) for p in parts)) for k in set().union(*parts)}
-root=ET.Element(f'{{{NS}}}Package')
-for k in sorted(u):
-    t=ET.SubElement(root,f'{{{NS}}}types')
-    for m in sorted(u[k]): ET.SubElement(t,f'{{{NS}}}members').text=m
-    ET.SubElement(t,f'{{{NS}}}name').text=k
-ET.SubElement(root,f'{{{NS}}}version').text='64.0'
-ET.indent(root, space='    ')
-open('manifest/baseline-package.xml','w').write('<?xml version="1.0" encoding="UTF-8"?>\n'+ET.tostring(root,encoding='unicode')+'\n')
-```
-
-</details>
-
 ### B6. Create a branch per environment, named after it, and seed each from its org
+
+**Do it** runs `acc setup branches`, which makes each missing branch as below:
+production's from this checkout, then each sandbox's from production's with its
+source cleared, each retrieved from its own org. It only reads the orgs, and
+pushes nothing unless you add `--push`. By hand:
 
 **The branch name is the environment name:** `production` for Production, and
 the sandbox name for each sandbox. The sandbox name is in its URL,
@@ -283,6 +267,16 @@ Source: [Enable Source Tracking in Sandboxes](https://developer.salesforce.com/d
 
 ### B9. Sort out the environment-specific differences
 
+**Do it** runs `acc setup lists`. It drafts both lists from how each sandbox's
+branch differs from production's:
+- org configuration (email services, named credentials, SSO, settings) goes to
+  environment-specific
+- app logos, and files that differ only in line order, go to known drift
+- it names every difference that neither list explains
+
+It never overwrites a list you already have; it suggests additions instead.
+Read the drafts before committing them. By hand:
+
 - [ ] Retrieve the new sandbox into a throwaway worktree of `production` and list
   what differs:
 
@@ -311,7 +305,9 @@ Source: [Enable Source Tracking in Sandboxes](https://developer.salesforce.com/d
   requests target day-to-day work: `gh repo edit <owner>/<repo> --default-branch <dev-branch>`.
 - [ ] **Local checkout** on that branch, with `sf config set target-org "<dev>"`.
   A deploy without `--target-org` then can't reach Production.
-- [ ] **README** with:
+- [ ] **README** with the following. **Do it** on B10's README step runs
+  `acc setup readme`, which writes the first two between markers and keeps
+  them up to date:
   - the environments table: environment, branch, alias, type, My Domain, role
   - the promotion flow
   - getting-started commands

@@ -2,7 +2,7 @@
   "name": "agent-command-center",
   "displayName": "Agent Command Center",
   "description": "Set up projects for parallel Claude Code agents, then run and watch them from VSCode.",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "publisher": "JackHuffman",
   "private": true,
   "license": "UNLICENSED",
@@ -800,7 +800,7 @@
           {
             "id": "B5.baseline",
             "title": "Baseline manifest",
-            "description": "Every branch is retrieved with the same component list, so a diff between branches is real drift.\n\n[Check](command:acc.step.check?%5B%22B5.baseline%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B5.baseline%22%5D)",
+            "description": "Every branch is retrieved with the same component list, so a diff between branches is real drift.\n\n[Check](command:acc.step.check?%5B%22B5.baseline%22%5D)\n[Do it](command:acc.step.fix?%5B%22B5.baseline%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B5.baseline%22%5D)",
             "media": {
               "markdown": "media/steps/B5.baseline.md"
             },
@@ -812,7 +812,7 @@
           {
             "id": "B6.branches",
             "title": "A branch for every environment",
-            "description": "Each environment has its own branch, named after it (D-015).\n\n[Check](command:acc.step.check?%5B%22B6.branches%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B6.branches%22%5D)",
+            "description": "Each environment has its own branch, named after it (D-015).\n\n[Check](command:acc.step.check?%5B%22B6.branches%22%5D)\n[Do it](command:acc.step.fix?%5B%22B6.branches%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B6.branches%22%5D)",
             "media": {
               "markdown": "media/steps/B6.branches.md"
             },
@@ -859,7 +859,7 @@
           {
             "id": "B9.lists",
             "title": "Environment-specific and known-drift lists",
-            "description": "Environment config is never promoted or deployed (D-016), and drift checks need to know what differs by design.\n\n[Check](command:acc.step.check?%5B%22B9.lists%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B9.lists%22%5D)",
+            "description": "Environment config is never promoted or deployed (D-016), and drift checks need to know what differs by design.\n\n[Check](command:acc.step.check?%5B%22B9.lists%22%5D)\n[Do it](command:acc.step.fix?%5B%22B9.lists%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B9.lists%22%5D)",
             "media": {
               "markdown": "media/steps/B9.lists.md"
             },
@@ -905,7 +905,7 @@
           {
             "id": "B10.readme",
             "title": "README names every environment",
-            "description": "Anyone opening the repo sees which branch is which org, and how changes flow.\n\n[Check](command:acc.step.check?%5B%22B10.readme%22%5D)",
+            "description": "Anyone opening the repo sees which branch is which org, and how changes flow.\n\n[Check](command:acc.step.check?%5B%22B10.readme%22%5D)\n[Do it](command:acc.step.fix?%5B%22B10.readme%22%5D)",
             "media": {
               "markdown": "media/steps/B10.readme.md"
             },

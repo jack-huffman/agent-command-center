@@ -42,6 +42,21 @@ const must = (r: RunResult, what: string): string => {
   return r.stdout;
 };
 
+/** Every promotion path from each environment that nothing promotes into, following every listed option. */
+export function promotionPaths(envs: Pick<Environment, 'branch' | 'promotesTo'>[]): string[][] {
+  const into = new Set(envs.flatMap((e) => e.promotesTo));
+  const starts = envs.filter((e) => !into.has(e.branch) && e.promotesTo.length);
+  const out: string[][] = [];
+  const walk = (path: string[]) => {
+    const last = envs.find((e) => e.branch === path[path.length - 1]);
+    const next = (last?.promotesTo ?? []).filter((b) => !path.includes(b));
+    if (!next.length) { out.push(path); return; }
+    for (const b of next) walk([...path, b]);
+  };
+  for (const s of starts) walk([s.branch]);
+  return out;
+}
+
 export function envByName(config: Config, name: string): Environment {
   const e = config.environments.find((x) => x.branch === name.toLowerCase() || x.name.toLowerCase() === name.toLowerCase());
   if (!e) throw new AccError('usage', `No environment "${name}". The config has: ${config.environments.map((x) => x.branch).join(', ')}.`);

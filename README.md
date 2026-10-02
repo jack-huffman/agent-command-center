@@ -38,7 +38,10 @@ Salesforce. Project types plug in as profiles.
   request to the next one. It's checked against that org first, leaves out
   environment-specific files, and names anything it skips. **Deploy…** sends
   what merged since the last deploy, and a protected org needs its name typed.
-- **Next:** the last guided setup steps.
+- **Guided setup, all of it:** the baseline manifest, the environment branches,
+  the two lists and the README's environments table each have a **Do it** in
+  the walkthrough. No terminal needed.
+- **Next:** M5's first real pull request, then M6, the plugin.
 
 Install the extension with `npm run package && npm run install-extension`, then
 reload the VSCode window.

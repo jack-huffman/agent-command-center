@@ -9,12 +9,14 @@ import type { StatusCategory, Ticket } from '../../packages/core/src/trackers/ty
 import type { GithubIdentity } from '../../packages/core/src/github.ts';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import type { Environment } from '../../packages/core/src/config.ts';
+import { promotionPaths } from '../../packages/core/src/promote.ts';
 import type { Answer, Question } from '../../packages/core/src/questions.ts';
 import { agentLook, type AgentSession, type DoctorItem, ENV_ICON, groupTasks, isUnder, type RunPrompt, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
 import type { Entry } from './transcript.ts';
 
 export const VIEW_KINDS = ['tasks', 'agents', 'worktrees', 'environments', 'setup'] as const;
 export type ViewKind = (typeof VIEW_KINDS)[number];
+export { promotionPaths };
 
 export const VIEW_TITLES: Record<ViewKind, string> = {
   tasks: 'Tasks', agents: 'Agents', worktrees: 'Worktrees', environments: 'Environments', setup: 'Setup',
@@ -473,21 +475,6 @@ export interface EnvCard {
 export interface EnvironmentsModel {
   kind: 'environments';
   projects: { name: string; root: string; github: string | null; identity: IdentityCard | null; envs: EnvCard[]; paths: string[][] }[];
-}
-
-/** Every promotion path from each environment that nothing promotes into, following every listed option. */
-export function promotionPaths(envs: Pick<Environment, 'branch' | 'promotesTo'>[]): string[][] {
-  const into = new Set(envs.flatMap((e) => e.promotesTo));
-  const starts = envs.filter((e) => !into.has(e.branch) && e.promotesTo.length);
-  const out: string[][] = [];
-  const walk = (path: string[]) => {
-    const last = envs.find((e) => e.branch === path[path.length - 1]);
-    const next = (last?.promotesTo ?? []).filter((b) => !path.includes(b));
-    if (!next.length) { out.push(path); return; }
-    for (const b of next) walk([...path, b]);
-  };
-  for (const s of starts) walk([s.branch]);
-  return out;
 }
 
 export function environmentsModel(hub: HubLike, identity: (root: string) => IdentityCard | null = () => null): EnvironmentsModel {

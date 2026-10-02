@@ -287,7 +287,7 @@ export const STEPS: Step[] = [
   {
     id: 'B5.baseline', part: 'project', group: 'B5', title: 'Baseline manifest', profiles: ['salesforce'],
     why: 'Every branch is retrieved with the same component list, so a diff between branches is real drift.',
-    fix: { docs: `${DOCS}#b5-make-one-baseline-manifest-for-every-environment` },
+    fix: { command: 'acc setup baseline', text: '"Do it" lists the components on every environment branch with sf, and writes the union to manifest/baseline-package.xml. Commit it on each branch.', docs: `${DOCS}#b5-make-one-baseline-manifest-for-every-environment` },
     check(ctx) {
       const need = needsProject(ctx);
       if (need) return need;
@@ -300,7 +300,7 @@ export const STEPS: Step[] = [
   {
     id: 'B6.branches', part: 'project', group: 'B6', title: 'A branch for every environment',
     why: 'Each environment has its own branch, named after it (D-015).',
-    fix: { docs: `${DOCS}#b6-create-a-branch-per-environment-named-after-it-and-seed-each-from-its-org` },
+    fix: { command: 'acc setup branches', text: '"Do it" makes each missing branch: production\'s from this checkout, then each sandbox\'s from it, each retrieved from its own org (read only). Nothing is pushed until you push it.', docs: `${DOCS}#b6-create-a-branch-per-environment-named-after-it-and-seed-each-from-its-org` },
     check(ctx) {
       const need = needsProject(ctx);
       if (need) return need;
@@ -371,7 +371,7 @@ export const STEPS: Step[] = [
   {
     id: 'B9.lists', part: 'project', group: 'B9', title: 'Environment-specific and known-drift lists', profiles: ['salesforce'],
     why: 'Environment config is never promoted or deployed (D-016), and drift checks need to know what differs by design.',
-    fix: { docs: `${DOCS}#b9-sort-out-the-environment-specific-differences` },
+    fix: { command: 'acc setup lists', text: '"Do it" drafts both lists from how each sandbox\'s branch differs from production\'s, and names the differences neither explains. It never overwrites a list you have.', docs: `${DOCS}#b9-sort-out-the-environment-specific-differences` },
     check(ctx) {
       const need = needsProject(ctx);
       if (need) return need;
@@ -444,6 +444,7 @@ export const STEPS: Step[] = [
   {
     id: 'B10.readme', part: 'project', group: 'B10', title: 'README names every environment',
     why: 'Anyone opening the repo sees which branch is which org, and how changes flow.',
+    fix: { command: 'acc setup readme', text: '"Do it" writes the environments table and promotion flow between markers in README.md, leaving the rest as it is. Run it again after changing the environments.' },
     check(ctx) {
       const need = needsProject(ctx);
       if (need) return need;

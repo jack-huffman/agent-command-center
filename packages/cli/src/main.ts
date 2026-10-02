@@ -6,6 +6,7 @@ import {
   ACTORS, AccError, type Actor, type ApexTest, configureRepoAccess, displayState, drift, gatesFor, gateTarget, isReady, loadConfig, makeContext, moveTask, mutate,
   cleanup, dispatch, githubIdentity, githubIssuesToTasks, planInit, useGithubAccount, withCloneAccount, type Profile, readLedger, receiptsAt, STEPS, receiptHooks, repoPaths, run, runGates, runSteps, satisfies, type State, type StepResult, type TaskInput,
   upsertTasks, writeConfig, ask, hookOutput, parseHookInput, waiveGates, review, land, sync, planPromotion, promote, skipWarning, planDeploy, deploy, lastDeploy,
+  buildBaseline, seedBranches, draftLists, writeReadme,
 } from '../../core/src/index.ts';
 import { checkLabel, gateLabel, stateLabel, table, tone } from './format.ts';
 
@@ -18,6 +19,10 @@ Setup
   acc doctor [--part machine|project] [--step <id>]...
                                         Check the onboarding steps and print the fixes
   acc onboard                           The same checks as a guided list, with the next step to do
+  acc setup baseline                    B5: one manifest of every component on every environment branch
+  acc setup branches [--push]           B6: make each missing environment branch, seeded from its org
+  acc setup lists                       B9: draft the environment-specific and known-drift lists
+  acc setup readme                      B10: write the README's environments table
   acc init --profile salesforce --production-org <alias> [--project <name>] [--github-repo <o/r>]
            [--github-account <a>] [--commit-name <n> --commit-email <e>] [--configure-git]
            [--jira-site <site> --jira-project <key>] [--dry-run] [--force]
@@ -318,6 +323,40 @@ function cmdSync(o: Opts): number {
   return 0;
 }
 
+/** The walkthrough's guided steps (D-035). */
+function cmdSetup(o: Opts, what: string | undefined): number {
+  const { paths, config } = project(process.cwd());
+  const say = (line: string) => { if (!o.json) process.stderr.write(tone(line, 'dim') + '\n'); };
+  const deps = { run, now, onStep: say };
+  if (what === 'baseline') {
+    const r = buildBaseline(paths, config, deps);
+    out(o, () => `Wrote ${r.file}: ${r.members} components of ${r.types} types, from ${r.from.join(', ')}.\nCommit it on every environment's branch, so each is retrieved with the same list.`, r);
+    return 0;
+  }
+  if (what === 'branches') {
+    personOnly(o, 'make environment branches');
+    const r = seedBranches(paths, config, deps, { push: o.push === true });
+    out(o, () => (r.length ? r.map((b) => `  ${b.status === 'made' ? '✓' : '✗'} ${b.branch.padEnd(16)} ${b.note}${b.differs !== null ? `; ${b.differs} files differ from production` : ''}`).join('\n') : 'Every environment already has its branch.'), r);
+    return r.some((b) => b.status === 'failed') ? 1 : 0;
+  }
+  if (what === 'lists') {
+    const r = draftLists(paths, config, deps);
+    const show = (label: string, d: typeof r.knownDrift) => `${d.written ? 'Wrote' : 'Kept'} ${d.file}${d.written ? ` with ${d.entries.length} ${label}` : d.entries.length ? `; consider adding ${d.entries.length}: ${d.entries.slice(0, 5).join(', ')}${d.entries.length > 5 ? ', …' : ''}` : ''}.`;
+    out(o, () => [
+      show('environment-specific paths', r.environmentSpecific), show('known-drift paths', r.knownDrift),
+      ...r.unexplained.map((u) => `  ${u.branch}: ${u.files.length} other difference${u.files.length === 1 ? '' : 's'} from production that neither list explains: real drift, or work in progress. ${u.files.slice(0, 5).join(', ')}${u.files.length > 5 ? ', …' : ''}`),
+      'Read both lists before committing them: each line keeps a file out of promotions (environment-specific) or out of drift checks (known drift).',
+    ].join('\n'), r);
+    return 0;
+  }
+  if (what === 'readme') {
+    const r = writeReadme(paths, config);
+    out(o, () => `${r.created ? 'Wrote' : r.replaced ? 'Updated the environments section of' : 'Added an environments section to'} ${r.file}. Keep it the same on every non-production branch.`, r);
+    return 0;
+  }
+  throw new AccError('usage', 'acc setup baseline | branches [--push] | lists | readme');
+}
+
 /** Promotion and deploys are a person's: an agent never moves work between environments (D-011, D-034). */
 function personOnly(o: Opts, what: string): string {
   const role = process.env.ACC_ROLE;
@@ -610,6 +649,7 @@ export async function main(argv: string[]): Promise<number> {
       'skip-validate': { type: 'boolean', default: false },
       since: { type: 'string' },
       'confirm-production': { type: 'boolean', default: false },
+      push: { type: 'boolean', default: false },
     },
   });
   const o = values as Opts;
@@ -620,6 +660,7 @@ export async function main(argv: string[]): Promise<number> {
     case 'doctor': return cmdDoctor(o, false);
     case 'onboard': return cmdDoctor(o, true);
     case 'init': return cmdInit(o);
+    case 'setup': return cmdSetup(o, rest[0]);
     case 'add': {
       const title = rest.join(' ').trim();
       if (!title) throw new AccError('usage', 'acc add "<title>"');
