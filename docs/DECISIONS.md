@@ -874,3 +874,22 @@ in the project's worktrees too.
   agent, and for the marketplace (`npm run validate-plugin`). The profiles and
   templates folders in the first design weren't needed: profiles and the
   packet live in core.
+
+## D-043 The question history keeps its newest 1,000 records (2026-10-02)
+
+D-037's history was only cut back past 2 MB, by dropping the older half. With
+short records that's thousands of them, and the extension reads the whole file
+each time it changes. Issue #11.
+
+- **The newest 1,000 records are kept,** and no more than 2 MB of them, so a few
+  very large ones (a `Write` with a whole file in it) can't make the file huge.
+  The newest record always stays, even one past 2 MB on its own.
+- **An append stays one write and one `stat`.** The file is read, to be trimmed,
+  only each time it grows past another 64 KB. So between trims it holds up to
+  64 KB more than 1,000 records, which is a hundred or two at a few hundred
+  bytes each. The page shows the newest 500, so nobody sees the difference. Trimming on every append past 1,000 would
+  read and rewrite the whole file every time.
+- **The trim is a rewrite,** to a temp file in the same folder and then a
+  rename, so a reader never sees half a file. Lines that don't read, from a
+  crash or a half-written append, are dropped and don't count. The readers
+  skip them, as before.

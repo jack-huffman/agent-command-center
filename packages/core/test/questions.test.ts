@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { builderSettings } from '../src/dispatch.ts';
 import {
-  answerQuestion, ask, covered, type HookInput, hookOutput, isAnswer, listen, listeners, parseHookInput, pendingQuestions, permissionHook, type Question, questionHistory, stopListening, editedMessage, preapprove, takePreapproval,
+  answerQuestion, appendHistory, ask, covered, HISTORY_TRIM_EVERY_BYTES, type HistoryRecord, type HookInput, hookOutput, isAnswer, listen, listeners, parseHookInput, pendingQuestions, permissionHook, type Question, questionHistory, stopListening, editedMessage, preapprove, takePreapproval,
 } from '../src/questions.ts';
 import { tempDir } from './support.ts';
 
@@ -191,6 +191,67 @@ test('every question leaves a record of how it ended: answered, allowed for the 
   stopListening(dir);
   assert.equal(await ask(input(), { dir }), null);
   assert.equal(questionHistory(dir).at(-1)!.outcome, 'no-window', 'asked in its own terminal, with no window: noted too');
+});
+
+// ---------------------------------------------------------------- the history keeps its newest 1,000 records (D-043)
+
+const record = (i: number): HistoryRecord => ({ v: 1, id: `r${i}-00000000`, sessionId: 'sess-1', cwd: '/work/repo', tool: 'Bash', input: { command: `echo ${i}` }, askedAt: i, endedAt: i, outcome: 'allowed' });
+const recordLines = (from: number, to: number) => Array.from({ length: to - from }, (_, k) => `${JSON.stringify(record(from + k))}\n`).join('');
+const ids = (from: number, to: number) => Array.from({ length: to - from }, (_, k) => record(from + k).id);
+const historyIds = (dir: string) => questionHistory(dir, 5000).map((r) => r.id);
+
+test('the history keeps its newest 1,000 records: 1,000 stay as they are, and the 1,001st pushes out the oldest', () => {
+  const dir = tempDir();
+  const file = join(dir, 'history.jsonl');
+  writeFileSync(file, recordLines(0, 999), { mode: 0o600 });
+  const inode = statSync(file).ino;
+  appendHistory(dir, record(999), 1); // a trim check on this append
+  assert.deepEqual(historyIds(dir), ids(0, 1000), '1,000 kept');
+  assert.equal(statSync(file).ino, inode, 'and not rewritten');
+  appendHistory(dir, record(1000), 1);
+  assert.deepEqual(historyIds(dir), ids(1, 1001), 'the oldest went, the newest stayed, in order');
+  assert.equal(statSync(file).mode & 0o077, 0, 'still readable only by this user');
+  assert.deepEqual(readdirSync(dir).filter((f) => f.endsWith('.tmp')), [], 'written to a temp file and renamed over it');
+});
+
+test('an append only checks the size: the file is trimmed each time it passes another 64 KB, not on every append', () => {
+  const dir = tempDir();
+  const file = join(dir, 'history.jsonl');
+  writeFileSync(file, recordLines(0, 1000), { mode: 0o600 });
+  const mark = (bytes: number) => Math.floor(bytes / HISTORY_TRIM_EVERY_BYTES);
+  let trimmedAt = 0;
+  for (let i = 1000; !trimmedAt && i < 3000; i++) {
+    const before = statSync(file).size;
+    const length = Buffer.byteLength(`${JSON.stringify(record(i))}\n`);
+    appendHistory(dir, record(i));
+    if (mark(before + length) === mark(before)) assert.equal(statSync(file).size, before + length, `append ${i} only appended`);
+    else trimmedAt = i;
+  }
+  assert.ok(trimmedAt > 1000, 'more than 1,000 records for a while, until the file passed a mark');
+  assert.deepEqual(historyIds(dir), ids(trimmedAt - 999, trimmedAt + 1), 'then the newest 1,000');
+});
+
+test('a garbled or half-written line doesn\'t stop the trim or the readers', () => {
+  const dir = tempDir();
+  const file = join(dir, 'history.jsonl');
+  writeFileSync(file, `${recordLines(0, 500)}not json at all\n{"v":1,"id":"torn by a cra\n{"v":2}\n${recordLines(500, 1000)}`, { mode: 0o600 });
+  assert.deepEqual(historyIds(dir), ids(0, 1000), 'the reader skips the lines that don\'t read');
+  appendHistory(dir, record(1000), 1);
+  assert.deepEqual(historyIds(dir), ids(1, 1001), 'the trim counts only records, and drops the rest');
+  assert.equal(statSync(file).size, Buffer.byteLength(recordLines(1, 1001)));
+  appendFileSync(file, '{"v":1,"id":"an append still being writ');
+  assert.deepEqual(historyIds(dir), ids(1, 1001), 'a half-written last line is skipped too');
+});
+
+test('very large records are kept to 2 MB, and the newest is always kept', () => {
+  const dir = tempDir();
+  const big = (i: number): HistoryRecord => ({ ...record(i), input: { content: 'x'.repeat(300_000) } });
+  writeFileSync(join(dir, 'history.jsonl'), Array.from({ length: 10 }, (_, i) => `${JSON.stringify(big(i))}\n`).join(''), { mode: 0o600 });
+  appendHistory(dir, big(10));
+  assert.ok(statSync(join(dir, 'history.jsonl')).size <= 2 * 1024 * 1024);
+  assert.deepEqual(historyIds(dir), ids(5, 11), 'the newest six fit');
+  appendHistory(dir, { ...record(11), input: { content: 'x'.repeat(3_000_000) } });
+  assert.deepEqual(historyIds(dir), ids(11, 12), 'one record past the limit on its own still stays');
 });
 
 // ---------------------------------------------------------------- every answer the prompt offers (D-038)

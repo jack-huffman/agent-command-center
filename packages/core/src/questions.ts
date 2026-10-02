@@ -125,27 +125,58 @@ export interface HistoryRecord {
   command?: string;
 }
 
+/** The history keeps its newest 1,000 records, and no more than 2 MB of them (D-043). */
+const HISTORY_KEEP = 1000;
 const HISTORY_MAX_BYTES = 2 * 1024 * 1024;
+/** An append only stats the file. It's read, to be trimmed, each time it grows past another this many bytes. */
+export const HISTORY_TRIM_EVERY_BYTES = 64 * 1024;
 
-/** Appends a record. When the file grows past its limit, the older half is dropped. */
-export function appendHistory(dir: string, rec: HistoryRecord): void {
+/**
+ * Appends a record. Each time the file grows past another `trimEvery` bytes, it's cut back to its newest
+ * records, so between trims it holds only a few more than it keeps.
+ */
+export function appendHistory(dir: string, rec: HistoryRecord, trimEvery = HISTORY_TRIM_EVERY_BYTES): void {
   ensureDir(dir);
   const file = join(dir, 'history.jsonl');
-  appendFileSync(file, JSON.stringify(rec) + '\n', { mode: 0o600 });
+  const line = JSON.stringify(rec) + '\n';
+  appendFileSync(file, line, { mode: 0o600 });
   try {
-    if (statSync(file).size > HISTORY_MAX_BYTES) {
-      const lines = readFileSync(file, 'utf8').split('\n').filter(Boolean);
-      writePrivateText(file, lines.slice(Math.floor(lines.length / 2)).join('\n') + '\n');
-    }
+    const size = statSync(file).size;
+    if (Math.floor(size / trimEvery) > Math.floor((size - Buffer.byteLength(line)) / trimEvery)) trimHistory(file);
   } catch {
     // trimming is best effort; the record is written
   }
+}
+
+/** Keeps the newest records that read, up to the limits. Lines that don't read are dropped. */
+function trimHistory(file: string): void {
+  const lines = readFileSync(file, 'utf8').split('\n').filter(Boolean);
+  const kept: string[] = [];
+  let bytes = 0;
+  for (let i = lines.length - 1; i >= 0 && kept.length < HISTORY_KEEP; i--) {
+    const line = lines[i]!;
+    if (!readRecord(line)) continue;
+    bytes += Buffer.byteLength(line) + 1;
+    if (bytes > HISTORY_MAX_BYTES && kept.length) break;
+    kept.push(line);
+  }
+  if (kept.length < lines.length) writePrivateText(file, kept.reverse().map((l) => `${l}\n`).join(''));
 }
 
 function writePrivateText(file: string, text: string): void {
   const tmp = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
   writeFileSync(tmp, text, { mode: 0o600 });
   renameSync(tmp, file);
+}
+
+/** A line of the history, or null when it doesn't read: a torn line from a crash, or one half-written. */
+function readRecord(line: string): HistoryRecord | null {
+  try {
+    const r = JSON.parse(line) as HistoryRecord;
+    return r?.v === 1 && typeof r.id === 'string' && typeof r.outcome === 'string' ? r : null;
+  } catch {
+    return null;
+  }
 }
 
 /** The newest records, newest last. Lines that don't read are skipped. */
@@ -156,16 +187,7 @@ export function questionHistory(dir: string, limit = 500): HistoryRecord[] {
   } catch {
     return [];
   }
-  const out: HistoryRecord[] = [];
-  for (const line of text.split('\n').filter(Boolean).slice(-limit)) {
-    try {
-      const r = JSON.parse(line) as HistoryRecord;
-      if (r?.v === 1 && typeof r.id === 'string' && typeof r.outcome === 'string') out.push(r);
-    } catch {
-      // a torn line from a crash: skip it
-    }
-  }
-  return out;
+  return text.split('\n').filter(Boolean).slice(-limit).flatMap((line) => readRecord(line) ?? []);
 }
 
 // ---------------------------------------------------------------- an edited command (D-038)
