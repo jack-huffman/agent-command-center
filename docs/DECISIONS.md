@@ -680,3 +680,357 @@ B5, B6, B9 and B10 were terminal recipes in ONBOARDING.md. Each is now an
 
 None of them commits to an existing branch. A person reads the drafts and
 commits them on each environment's branch.
+
+## D-036 Builders and reviewers each have a model and effort, set per clone or per project (2026-10-02)
+
+Agents ran on whatever Claude Code defaulted to, which is its heaviest model at
+high effort. That's right for some work and wasteful for a quick review. Each
+kind of agent now has a profile: a model (an alias such as `opus`, `sonnet` or
+`fable`, or a full name), an effort from `low` to `max` (how hard it thinks),
+and a fallback model for when the first is overloaded.
+
+- **Two places to set it, like the GitHub account (D-028).** This clone's
+  choice lives in git config (`acc.builder.model`, `acc.reviewer.effort`, …),
+  and nobody else sees it. The project's default lives in `.acc/config.json`
+  under `agents.builder` and `agents.reviewer`, for a team to share. A clone's
+  choice wins, part by part. Anything unset is Claude Code's own default.
+- **They're Claude Code's own flags.** `--model`, `--effort` and
+  `--fallback-model`, on the builder's background session, the reviewer's
+  `claude -p`, and free-form agents started from the page, which run like
+  builders.
+- **On the page:** the Agents section opens with **How agents run**. Each
+  profile shows every part and where it's set, and **Change…** walks through
+  model, effort or fallback, then asks whether it's for this clone or the
+  project. An agent's page shows the model its answers came from, read from
+  the transcript.
+- **What they bill.** Under the profiles, the setup check `A1.claude-billing`
+  (GH-9) says whether agents use your Claude subscription, or would bill per
+  token through an API key.
+- **`acc agents` and `acc agents set`** do the same from a terminal. A project
+  change edits only that part of `.acc/config.json`.
+
+Also: builders may now run their tests and builds under `nice -n 15` without a
+prompt, as this repo's own rules ask. The first real run of GH-9 stopped on
+exactly that.
+
+## D-037 What you answered stays on the page (2026-10-02)
+
+Once a question was answered, its card vanished, and nothing on the page said
+what had been asked or decided.
+
+- **The hook keeps a record.** It's the one place that knows how each question
+  ended, so it appends it to `~/.acc/questions/history.jsonl` (only you can
+  read it; trimmed past 2 MB). The record holds:
+  - what was asked, and when
+  - the outcome: allowed, allowed for the session, said no (with your reason),
+    answered (with the answers), let it decide, handed to its terminal, or
+    stopped
+  - when no window was listening, so it asked in its own terminal
+- **Each agent's page shows its decisions in place.** A "You" entry sits after
+  the step before you decided, with what it asked, the command, and what you
+  said.
+- **The Overview's History** replaces Recent activity. It's a scrolling box,
+  newest first, holding your answers, task moves, and the commands acc ran.
+  Each line says what happened in words; open one for the full command, your
+  words or the command's output. Filters: All, Your answers, Tasks, Commands.
+- **Finished commands are kept** in the workspace with the end of their output,
+  so the output panel and History still have them after a reload.
+
+## D-038 A prompt on the page offers every answer Claude Code's own prompt does (2026-10-02)
+
+Allow and Deny weren't the whole of Claude Code's prompt: it also offers "always
+allow, from this project", "switch to auto mode", "Tab to amend", and Esc to
+stop. Each one is now a numbered choice on the card, in Claude Code's order.
+Press its number or click it, and hover for what it means.
+
+| Choice | What the hook sends |
+|---|---|
+| Yes | allow |
+| Yes, and always allow … in this session | allow, with the suggested rules for the session |
+| Yes, and always allow … in this project | allow, with the rules saved to `.claude/settings.local.json` |
+| Yes, and switch to auto mode | allow, with `setMode: auto` for the session |
+| Edit the command, then allow… | deny, telling the agent to run your version, which is then approved once |
+| No, and tell it what to do instead… | deny, with your words |
+| No, and stop it | deny with `interrupt`: its turn ends, as Esc does |
+| A plan: Yes, and auto-accept edits / approve each edit / keep planning… | allow with `setMode: acceptEdits` or `default`, or deny with your feedback |
+
+- **Each was tried against a real session first.** The edited command ran
+  instead of the original. Auto mode took over and asked nothing more. The
+  stop ended the turn with "Request interrupted by user for tool use".
+- **An edit isn't slipped in silently.** Allowing with `updatedInput` runs
+  your version, but the agent never hears of it, and the test agent was
+  puzzled by the result. So an edit is a "no, run exactly this instead". Your
+  version is approved for that session's next run of exactly that command,
+  within ten minutes.
+- **The notification** offers Allow (when the whole command fits) and **All
+  choices…**, which opens the full list in VSCode's own picker.
+- **Never** a switch to `bypassPermissions`: the hook refuses it.
+
+## D-039 Pages say the gist first, and a lone board fills the page (2026-10-02)
+
+T-1's page put the whole of its instructions, every history move's paragraph,
+and the full block reason (twice) on screen at once.
+
+- **Summary first, details on demand.** A blocked task opens with one line:
+  why it's blocked. The description shows its first lines. History shows the
+  last three moves in plain words ("Its agent blocked it", "jordan moved it to
+  In review"), and each opens to its reason; Show all brings back the rest. The
+  side panel no longer repeats the block reason.
+- **Prompt choices are one line each**, with what each means on hover.
+- **A page with one board gives it the rest of the height,** with full-height
+  lanes, so anywhere on the board scrolls sideways. A mouse wheel goes
+  sideways too, over a heading, a gap, or a lane too short to scroll.
+
+## D-040 Agents open in Claude Code for VSCode, not a terminal (2026-10-02)
+
+Attaching to an agent opened `claude attach` in a terminal. Claude Code for
+VSCode shows the same conversation far better, and with everything Claude Code
+can do. Its documented link, `vscode://anthropic.claude-code/open?session=<id>`,
+resumes a session's conversation, history and all, in a tab. It finds sessions
+in the project's worktrees too.
+
+- **Open in Claude Code** is the main way into an agent: on question cards, an
+  agent's page, its row menu, task cards and the Overview. It replaces Attach
+  where both would be. Attach in a terminal stays on agent pages and row menus,
+  and is the fallback when Claude Code for VSCode isn't installed (acc offers
+  to install it).
+- **One conversation, one place.** Claude Code warns that using a session in
+  two places at once mixes up its messages. So:
+  - A background session that's still working or waiting is **taken over**:
+    after you confirm, acc stops it in the background, waits until Claude
+    Code no longer lists it as running, then opens the tab, where you drive.
+  - An interactive one, open in a terminal or another tab, asks before
+    opening a second view.
+  - An ended session simply opens.
+- **What doesn't carry over:** a builder taken over loses its builder settings
+  (allow list, task identity and question hook), because the tab runs with
+  your own. Its task stays Running until it's finished with
+  `acc done <id>` or moved from the page.
+- The link takes the full session id. The short background id is never sent.
+
+## D-041 Cards move by drag and drop; a worktree's conversation opens in its own window; agent pages fit the window (2026-10-02)
+
+- **Drag a task's card to another lane** of the agent board to move it.
+  - A card carries the lanes acc's move rules let a person take it to. While
+    you drag, those lanes stay bright and the rest dim.
+  - Dropping asks for a reason when the rule wants one. Dropping in Running
+    dispatches the task, after a confirmation.
+  - acc still decides: a refused move snaps back, with the reason.
+  - Going back to to-do shows one lane, the one it will land in: Ready when
+    nothing it waits on is unfinished, otherwise To do.
+  - Cards no longer carry a Move button. Move stays on the ticket page and in
+    menus.
+- **Open in Claude Code opened a blank conversation for builders.** Claude Code
+  opens a conversation only if it belongs to the window's own folder, and a
+  builder's belongs to its worktree. So when the session's folder isn't the
+  window's, acc opens that folder in a new window, remembers the session for
+  two minutes, and the new window opens the conversation as it starts. That's
+  also where a builder is best driven: in its own checkout.
+- **An agent's page fits the window.** The heading stays, and the timeline
+  scrolls in its own box, following the newest step.
+  - Runs of tool steps between the agent's messages fold to one line ("8 steps:
+    ran 5 commands, read 2 files, edited 1"). The latest run, and any step that
+    failed or is running, stays open.
+  - Only the last 25 blocks show, with Show earlier for the rest.
+  - The recap shows two lines, without Claude Code's "(disable recaps in
+    /config)".
+
+## D-042 The plugin: hooks as `acc hook <event>`, validated strictly, with a release-only bundle (2026-10-02)
+
+- **The hooks are acc commands,** `acc hook session-start | pre-tool-use | stop`,
+  like the permission hook. The rules live in core (`hooks.ts`) beside
+  everything else they enforce.
+  - Each hook finds `.acc/config.json` by walking up from the session's
+    folder, before running anything, so a repo that hasn't opted in costs
+    nothing.
+  - A builder is known by its environment, or by its folder being a running
+    task's worktree, so the guards also hold for a session started some
+    other way.
+  - On anything unexpected a hook prints nothing and exits 0. It never exits
+    2, which would block the tool.
+- **The Bash guard is stricter than the first design.** Builders never push,
+  not even their own branch: `acc land` does that after review. It also stops
+  switching branches, `git worktree`, `reset --hard`, and every acc command
+  that's a person's. Commands are split the way the shell would, through
+  quotes, `&&`, `;`, pipes, subshells and wrappers such as `nice` or
+  `FOO=1`. So `git add -A && git push` is caught, and `echo 'git push'` isn't.
+- **Fixtures.** Each rule has a fixture in
+  `packages/core/test/fixtures/hooks/`: the event, the hook's input, and the
+  outcome expected. The test runs each through the real `acc hook` command,
+  against a repo with a task running in a real worktree. That's 26 cases, with
+  allowed commands beside denied ones.
+- **Checked live:** a `claude -p` session loaded with `--plugin-dir plugin`, as
+  a builder, had `git push` refused by the hook, even though its own
+  `--allowedTools` allowed it. When it then stopped short, the Stop hook sent
+  it back to the finish line.
+- **The permission hook isn't in the plugin.** Globally, it would send your
+  own interactive sessions' prompts to the page while you're looking at the
+  tab. Dispatch adds it to builders.
+- **`plugin/bin/acc` is refreshed only for a release** (`npm run package`).
+  Every check rebuilt it before, so any branch that ran its checks conflicted
+  with `main` over a generated file: pull request #10 did. The day-to-day
+  build now writes `dist/acc`, which git ignores.
+- `claude plugin validate --strict` passes for the plugin, its skills and its
+  agent, and for the marketplace (`npm run validate-plugin`). The profiles and
+  templates folders in the first design weren't needed: profiles and the
+  packet live in core.
+
+## D-044 The swarm at a glance: a status bar summary, and notices when a task changes (2026-10-02)
+
+M7 asks for three agents watched from VSCode. The page shows everything, but
+only while it's open, so:
+
+- **One status bar item** says what needs you, what's running and what's in
+  review, for example "1 needs you, 2 running, 1 in review", each count with
+  its icon (bell, sync, eye) as well as its words. It turns the warning colour
+  when something needs you, and it hides when nothing is in play. Clicking it
+  opens the Overview.
+- **A notice when a task changes** in a way a person would want to hear about:
+  - a builder finished (Review)
+  - a review passed (Land) or asked for changes (Re-dispatch)
+  - a task was blocked
+  - an agent waits on its own prompt (Open in Claude Code)
+  - a pull request's checks failed or a reviewer asked for changes (Open pull
+    request)
+  - a pull request merged
+
+  Each offers its next step and Show. They compare the board before and after
+  each reload, so each change is said once. A task seen for the first time
+  says nothing, and nothing is said until tasks, agents and worktrees have
+  loaded once, so opening VSCode doesn't replay the board. They stay quiet
+  while the Overview or Tasks board is on screen. A question an agent asks
+  already has its own notice (D-030). `agentCommandCenter.notifications`
+  turns them off.
+- **Polls slow down, rather than stop, while the page is hidden.** The ledger
+  is read every 15 seconds, which costs one stat. `claude agents` runs every 30
+  seconds, only while a task is running or being reviewed. Open pull requests
+  sync every 5 minutes. Worktrees and tracker boards still wait for the page.
+- **Two commands M7 listed:** **Intake: new work for agents…** puts writing a
+  task, importing GitHub issues and tracking a Jira ticket in one list.
+  **Instructions** on a dispatched task's card and page opens the packet acc
+  wrote for its builder.
+- **A check runs without a builder's identity.** The first three-at-once run
+  found it: GH-13's builder saw two CLI tests fail only inside a builder,
+  because the `acc` they start inherited its `ACC_TASK`. Check commands now
+  run without `ACC_ROLE` and `ACC_TASK`, and the CLI tests clear both. The
+  same run deadlocked GH-12's check: a test ran `acc gate run` with no slot
+  folder of its own, and waited for the machine's heavy slot, which its own
+  check held. Heavy work a heavy check starts is part of that check, so it now
+  gets a slot folder of its own, under the check's scratch folder. Both fixes
+  are in the `acc` that builders run, so branches made before them pass too.
+  GH-12's builder fixed the tests themselves on its own branch, so that fix
+  arrives with its pull request.
+- **Parallel builders can pick the same decision number.** GH-11's branch
+  records a D-043 of its own, made at the same time as this one, so this one
+  is D-044. Whoever merges second keeps both entries.
+
+## D-045 A task branch's decision is numbered when it merges (2026-10-03)
+
+In the M7 run, GH-11's branch recorded a D-043 at the same time as main did
+(#18). Builders work in parallel from the same main, so each one's "next
+number" is the same number.
+
+- On a task branch, a new entry is headed `## D-??? <title> (<date>)`, and the
+  code and commits refer to it as D-???. Whoever merges replaces each D-???
+  with the next free number. CLAUDE.md tells builders so.
+- Work committed straight to main is numbered at once, as before.
+- Not chosen: `acc land` renumbering the entries, which would add a commit
+  after the review; and leaving it to whoever merges second, which means a
+  renumber and a hunt for references every time.
+- The two entries both appending to the end of the file still conflict when
+  both merge. Keeping both is the whole resolution.
+
+## D-046 Open in Claude Code finds a conversation's folder from the file it's saved in (2026-10-03)
+
+The author reported that **Open in Claude Code** kept bringing up this
+window's own chat, not the builder that needed them.
+
+- **Cause:** a background builder starts in the main checkout and moves into
+  its worktree, and saves its conversation under the worktree. Once stopped or
+  blocked, `claude agents` reports the main checkout again. So the button took
+  the conversation to belong to this window, and asked Claude Code to open it
+  here. Claude Code didn't find it under this folder, and showed the window's
+  current chat instead. GH-11 and GH-13 were both like this.
+- **Fix:** the folder is found from the conversation file. The candidates are
+  the session's reported folder, its task's worktree, every worktree, and the
+  window's folders. The first one whose Claude Code project holds
+  `<session>.jsonl` wins. A worktree opens in a new window and the conversation
+  opens there, as D-041 intended. A session that has only just started may
+  have saved nothing yet, so it uses its reported folder. Otherwise the button
+  says it couldn't find the conversation and offers Watch, rather than open
+  the wrong chat.
+- **The same day, 0.19.1 said it couldn't find GH-13's conversation.** The
+  author was clicking from the Agents list in another repo's window: the list
+  shows every session on the machine. The candidates were that window's own
+  folders and worktrees, so they never included this repo's worktrees. VSCode
+  keeps each extension's log under its own logs folder, which is where the
+  window and the clicks showed up.
+- **So the file is found, not guessed.** First it's looked for under the likely
+  folders, then anywhere in Claude Code's projects. Its folder is the `cwd` the
+  conversation recorded whose name matches the folder it's saved in. That
+  works from any window. A stand-in for VSCode, loading the built extension
+  against the real repo from the other repo's folder, showed 0.19.1's message
+  and then the fix opening GH-13's worktree in a new window.
+
+## D-047 Setup reads in the order things are set up, a section for each thing, with done steps muted (2026-10-03)
+
+The author found the Setup page "too large and disorganized". Steps showed in
+the order their checks finished, so B14 (tickets), re-checked first as
+projects load, came before the repo itself. Every step was a full tile with
+its id, and done steps looked the same as ones still to do.
+
+- **Order:** the step list's order, the order you'd set up a new project in.
+  The checks' order no longer matters. A step this build doesn't know goes at
+  the end of its group.
+- **Sections:** each group of steps is named for what it sets up:
+  - This machine: Tools, Accounts.
+  - This project: The repo, Orgs, GitHub account, Client data and secrets,
+    Salesforce project, Environment branches, Source tracking, Environment
+    differences, Safe defaults, Background agents, Tickets, Drift.
+
+  Neighbouring groups with the same name share a section: B4 and B5, and B12
+  and B13. The names live beside the steps in core (`GROUP_TITLES`), so there
+  is still one source (D-017).
+- **Done steps look done:** one muted line with the icon, "Done", the title
+  and the detail, and Check again on hover or focus. A section with nothing to
+  do folds to one line ("All 3 done"), and one with steps to do opens. Opening
+  or closing one by hand is remembered.
+- **Steps to do stay whole, but shorter:** the status, the title, what's wrong
+  in a sentence, the command to copy if there is one, and the buttons. The
+  step's id is gone from the tile, and why the step matters is the title's
+  tooltip.
+- "Pass" reads "Done" and "Fail" reads "To do", since this is a checklist.
+
+## D-048 Closed issues leave the board, and milestones aren't tasks (2026-10-03)
+
+`acc intake github` read only open issues, so a task whose issue was closed
+stayed Ready forever: GH-3 to GH-6 here. Milestone issues came in as tasks too,
+so the Ready lane offered to dispatch a whole milestone to one builder.
+
+- **A closed issue's task moves to done, if it never started.** Never started
+  means `todo` with no `run`. A new rule allows `todo → done` for the `sync`
+  actor only, and intake makes the move as `sync`, with the reason "Issue #N
+  was closed on GitHub." A person still has `--force --reason`.
+- **A task that started is left as it is, and named.** Someone closed the
+  issue while work was under way, or after it. Whether that work lands or is
+  dropped is a person's call, so the output says "#N was closed on GitHub;
+  GH-N is still <state>" and changes nothing.
+- **`skipLabels` on a GitHub tracker** lists labels whose issues aren't tasks.
+  It's empty by default, and this repo sets `["milestone"]`. Labels match
+  without regard to case, as GitHub's do. An issue with one isn't imported. A
+  task already made from one leaves the ledger if it never started, with a new
+  `task.removed` event, so `events.jsonl` keeps its whole history. One that
+  started is named, like a closed one. A closed milestone is still a
+  milestone: it's removed rather than counted as done.
+- **Intake asks about each unfinished task whose issue wasn't listed**, one
+  `gh issue view` each. That covers issues closed long ago, which a list of
+  recently closed issues would miss, and issues `--label` left out. Done tasks
+  are never asked about, so the usual run makes few calls. An issue GitHub
+  can't show, because it was deleted or moved, leaves its task alone.
+- **Finished tasks are never named.** A done task from a milestone issue would
+  otherwise be named on every run.
+- **Left for later:** a reopened issue doesn't bring its done task back, and a
+  task that depends on a removed one still waits on it. Both need a person.
+- `--json` adds `closed`, `removed` and `leftAlone`. The command's logic moved
+  from the CLI into core (`intakeGithub`), beside `sync`, so it's tested with a
+  fake `gh`.

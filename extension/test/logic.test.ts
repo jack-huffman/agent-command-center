@@ -156,3 +156,37 @@ test('org logins go where an environment\'s name says, gh\'s active account is r
   assert.equal(shq("Pat's org"), "'Pat'\\''s org'");
   assert.equal(shq('acme-dev'), 'acme-dev');
 });
+
+test('task notices say what changed once, and nothing for a task seen for the first time (D-043)', async () => {
+  const { noticeActions, statusSummary, taskNotices } = await import('../src/logic.ts');
+  type Row = import('../src/logic.ts').TaskRow;
+  const row = (id: string, state: string, more: Partial<Row> = {}): Row => ({ id, title: `Task ${id}`, state, display: state as Row['display'], environment: 'main', deps: [], source: { kind: 'github', url: null }, ...more });
+  assert.deepEqual(taskNotices([], [row('T-1', 'review')]), [], 'first look: no news');
+  const kinds = (b: Row[], a: Row[]) => taskNotices(b, a).map((n) => `${n.kind}:${n.task}:${n.urgent}`);
+  assert.deepEqual(kinds([row('T-1', 'running')], [row('T-1', 'review')]), ['review:T-1:false'], 'a builder finished');
+  assert.deepEqual(kinds([row('T-1', 'review')], [row('T-1', 'review')]), [], 'no change, no notice');
+  assert.deepEqual(kinds([row('T-1', 'review')], [row('T-1', 'rework', { review: { verdict: 'changes', summary: 'Tests missing.', current: true } })]), ['rework:T-1:true']);
+  assert.match(taskNotices([row('T-1', 'review')], [row('T-1', 'rework', { review: { verdict: 'changes', summary: 'Tests missing.', current: true } })])[0]!.text, /Tests missing\./);
+  assert.deepEqual(kinds([row('T-1', 'running')], [row('T-1', 'blocked')]), ['blocked:T-1:true']);
+  // Waiting on its own prompt says so; a question in the Command Center has its own notice.
+  assert.deepEqual(kinds([row('T-1', 'running')], [row('T-1', 'running', { display: 'needs-you' })]), ['waiting:T-1:true']);
+  assert.deepEqual(kinds([row('T-1', 'running')], [row('T-1', 'running', { display: 'needs-you', asking: true })]), []);
+  const passed = { verdict: 'pass' as const, summary: 'Good.', current: true };
+  assert.deepEqual(kinds([row('T-1', 'review', { review: { ...passed, current: false } })], [row('T-1', 'review', { review: passed })]), ['passed:T-1:false'], 'a pass on the latest commit');
+  const pr = (more: Partial<NonNullable<Row['pr']>>) => ({ pr: { number: 7, url: 'u', state: 'open', ci: 'pending', changesRequested: false, ...more } });
+  assert.deepEqual(kinds([row('T-1', 'review', pr({}))], [row('T-1', 'review', { ...pr({ ci: 'failing' }), display: 'needs-you' })]), ['ci-failed:T-1:true']);
+  assert.deepEqual(kinds([row('T-1', 'review', pr({ ci: 'failing' }))], [row('T-1', 'review', pr({ ci: 'failing' }))]), [], 'said once');
+  assert.deepEqual(kinds([row('T-1', 'review', pr({}))], [row('T-1', 'review', pr({ changesRequested: true }))]), ['changes:T-1:true']);
+  assert.deepEqual(kinds([row('T-1', 'review', pr({}))], [row('T-1', 'done', pr({ state: 'merged' }))]), ['merged:T-1:false']);
+  assert.deepEqual(kinds([row('T-1', 'running'), row('T-2', 'review', pr({}))], [row('T-1', 'review'), row('T-2', 'review', pr({ ci: 'failing' }))]), ['review:T-1:false', 'ci-failed:T-2:true'], 'every task, in board order');
+
+  assert.deepEqual(noticeActions({ kind: 'review', task: 'T-1', text: '', urgent: false }), [['Review', 'acc.task.review'], ['Show', 'acc.task.show']]);
+  assert.deepEqual(noticeActions({ kind: 'blocked', task: 'T-1', text: '', urgent: true }), [['Show', 'acc.task.show']]);
+
+  const s = statusSummary([row('T-1', 'running'), row('T-2', 'running'), row('T-3', 'review'), row('T-4', 'done')], 1);
+  assert.equal(s.text, '$(bell) 1 needs you  $(sync) 2 running  $(eye) 1 in review', 'each count has its icon and its words');
+  assert.ok(s.attention);
+  assert.match(s.tooltip, /Running: T-1, T-2/);
+  assert.equal(statusSummary([row('T-1', 'review')], 2).text, '$(bell) 2 need you  $(eye) 1 in review');
+  assert.deepEqual(statusSummary([row('T-4', 'done')], 0), { text: '', tooltip: '', attention: false }, 'nothing in play: hidden');
+});

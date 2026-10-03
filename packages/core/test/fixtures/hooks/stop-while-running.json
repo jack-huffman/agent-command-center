@@ -1,0 +1,13 @@
+{
+  "event": "stop",
+  "env": {
+    "ACC_ROLE": "builder",
+    "ACC_TASK": "T-1"
+  },
+  "input": {
+    "session_id": "sess-stop",
+    "hook_event_name": "Stop",
+    "cwd": "{wt}"
+  },
+  "expect": "block:still running"
+}

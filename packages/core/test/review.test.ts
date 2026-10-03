@@ -55,6 +55,10 @@ test('a passing review is kept for its commit, and the task stays in review, rea
   // Read-only by construction, and the long prompt goes on stdin.
   assert.match(calls[0]!, /^-p --session-id fixed-uuid --permission-mode dontAsk/);
   assert.match(calls[0]!, /--allowedTools Read Grep Glob --disallowedTools Bash Edit Write/);
+  assert.ok(!calls[0]!.includes('--model'), 'no model chosen: Claude Code\'s default');
+  const lighter = review(paths, { ...config, agents: { ...config.agents, reviewer: { model: 'sonnet', effort: 'medium', fallbackModel: null } } }, 'T-1', { run: runner, now, env: {} });
+  assert.equal(lighter.verdict.verdict, 'pass');
+  assert.match(calls[1]!, /--permission-mode dontAsk --model sonnet --effort medium/);
   const input = String(call!.opts?.input);
   assert.match(input, /# Review T-1: Add a sum function/);
   assert.match(input, /- test: pass/);

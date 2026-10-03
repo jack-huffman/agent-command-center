@@ -8,6 +8,7 @@ import { type Actor, applyMove, checkMove, mutate, noGateHooks, readLedger, type
 import type { RepoPaths } from './paths.ts';
 import { permissionHook } from './questions.ts';
 import { latestVerdict, type Verdict } from './review.ts';
+import { agentArgs } from './agents.ts';
 
 // ---------------------------------------------------------------- names and places (D-013)
 
@@ -198,7 +199,10 @@ export function builderSettings(task: Task, config: Config, accBinDir: string, b
   const allow = [
     'Bash(acc done*)', 'Bash(acc block *)', 'Bash(acc show *)', 'Bash(acc gate run)', 'Bash(acc gate run *)', 'Bash(acc gate list*)',
     'Bash(git status*)', 'Bash(git diff*)', 'Bash(git add *)', 'Bash(git commit *)', 'Bash(git log*)', 'Bash(git show *)',
-    'Bash(npm test*)', 'Bash(npm run *)', 'Bash(npx prettier *)', 'Bash(npx eslint *)',
+    'Bash(npm test*)', 'Bash(npm run *)', 'Bash(npx prettier *)', 'Bash(npx eslint *)', 'Bash(node --test*)', 'Bash(node --no-warnings --test*)',
+    // A project may ask for builds and tests under nice, so the machine stays usable: the same commands, niced.
+    'Bash(nice -n 15 npm test*)', 'Bash(nice -n 15 npm run *)', 'Bash(nice -n 15 npx prettier *)', 'Bash(nice -n 15 npx eslint *)',
+    'Bash(nice -n 15 node --test*)', 'Bash(nice -n 15 node --no-warnings --test*)',
     ...(sf ? ['Bash(sf project deploy validate *)', 'Bash(sf code-analyzer run *)', 'Bash(sf apex run test *)', 'Bash(sf data query *)'] : []),
   ];
   const deny = [
@@ -356,7 +360,8 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
 
   const settings = JSON.stringify(builderSettings(found, config, deps.accBinDir, deps.env.PATH ?? '', deps.accCommand));
   const prompt = `Read your task instructions below and do the task.\n\n${packet}`;
-  const base = ['--name', found.id, '--permission-mode', config.agents.permissionMode, '--settings', settings];
+  // The builder's model and effort (D-036), when the project or this clone chose them.
+  const base = ['--name', found.id, '--permission-mode', config.agents.permissionMode, ...agentArgs(config.agents.builder), '--settings', settings];
 
   const record = (bgId: string | null, sessionId: string | null) => mutate(paths, now, (ledger, emit) => {
     const task = ledger.tasks.find((t) => t.id === id)!;

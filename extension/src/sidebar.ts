@@ -1,14 +1,19 @@
-import { basename } from 'node:path';
+import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { basename, dirname, join } from 'node:path';
 import * as vscode from 'vscode';
-import { allowedMoves, DISPLAY, type State } from '../../packages/core/src/ledger.ts';
+import { allowedMoves, DISPLAY, findRule, type State } from '../../packages/core/src/ledger.ts';
 import { skippedOn } from '../../packages/core/src/promote.ts';
+import { agentArgs } from '../../packages/core/src/agents.ts';
+import { EFFORTS } from '../../packages/core/src/config.ts';
 import { run as runSync } from '../../packages/core/src/exec.ts';
 import { repoPaths } from '../../packages/core/src/paths.ts';
 import { receiptHooks } from '../../packages/core/src/receipts.ts';
 import type { Hub, Project } from './hub.ts';
-import { type AgentSession, agentName, githubBranchUrl, sessionFor } from './logic.ts';
-import { sessionKey } from './model.ts';
+import { type AgentSession, agentName, CLAUDE_EXTENSION, claudeSessionUri, githubBranchUrl, isSessionId, sessionFor } from './logic.ts';
+import { laneMove, sessionKey } from './model.ts';
 import { type RunResult, runFile } from './run.ts';
+import { savedFolder } from './transcript.ts';
 import type { AgentNode, EnvNode, TaskNode, WorktreeNode } from './nodes.ts';
 
 type Acc = (args: string[], cwd: string, token?: vscode.CancellationToken) => Promise<RunResult>;
@@ -23,6 +28,8 @@ export interface SidebarHelpers {
   accCommand?: string;
   /** Posts a comment on a Jira or Azure DevOps ticket as you, for acc land (D-033). */
   comment?: (project: Project, kind: 'jira' | 'azure', key: string, text: string) => Promise<void>;
+  /** Remembers a conversation to open once a folder's window starts, for a session that lives in another folder (D-040). */
+  openLater?: (folder: string, sessionId: string) => Promise<void>;
   /** --settings for a background agent started here, so its questions come to the page. */
   sessionSettings?: string;
 }
@@ -55,6 +62,8 @@ export class Sidebar {
         ? 'Jira tickets are on the Tasks board. Open one and choose Track in acc to hand it to an agent.'
         : 'Add a Jira tracker to .acc/config.json ("trackers": [{ "kind": "jira", "site": "…atlassian.net", "project": "KEY" }]), and its board shows on the Tasks tab.');
     });
+    reg('acc.task.intake', (n?: TaskNode) => this.intake(n));
+    reg('acc.task.openPacket', (n: TaskNode) => this.openPacket(n));
     reg('acc.task.show', (n: TaskNode) => this.showTask(n));
     reg('acc.task.move', (n: TaskNode) => this.moveTask(n));
     reg('acc.task.block', (n: TaskNode) => this.setState(n, 'blocked'));
@@ -74,12 +83,21 @@ export class Sidebar {
     reg('acc.task.cleanup', (n: TaskNode) => this.cleanupTask(n));
     reg('acc.agent.new', (n?: AgentNode) => this.newAgent(n));
     reg('acc.agent.watch', (n: AgentNode) => this.watchAgent(n));
+    reg('acc.agent.openInClaude', (n: AgentNode) => n?.kind === 'agent' && this.openInClaude(n.session));
+    reg('acc.task.openInClaude', (n: TaskNode) => {
+      if (n?.kind !== 'task') return;
+      const s = sessionFor(n.task, this.hub.agents);
+      const id = s?.sessionId ?? n.task.run?.sessionId;
+      if (!id) return void vscode.window.showInformationMessage(`${n.task.id} has no agent session to open.`);
+      return this.openInClaude(s ?? { cwd: n.task.run?.worktree ?? n.project.root, kind: 'background', startedAt: Date.now(), sessionId: id, name: n.task.id });
+    });
     reg('acc.agent.attach', (n: AgentNode) => this.agentTerminal(n, 'attach'));
     // Logs are the activity page now; the terminal is the fallback when there's no page to show.
     reg('acc.agent.logs', (n: AgentNode) => (n?.kind === 'agent' && this.helpers.watch?.(sessionKey(n.session))) || this.agentTerminal(n, 'logs'));
     reg('acc.agent.stop', (n: AgentNode) => this.stopAgent(n));
     reg('acc.agent.openFolder', (n: AgentNode) => n.kind === 'agent' && vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(n.session.cwd), { forceNewWindow: true }));
     reg('acc.agents.refresh', () => this.hub.loadAgents());
+    reg('acc.agents.configure', (arg?: unknown) => this.configureAgents(arg));
     reg('acc.worktree.open', (n: WorktreeNode) => n.kind === 'worktree' && vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(n.worktree.path), { forceNewWindow: true }));
     reg('acc.worktree.terminal', (n: WorktreeNode) => n.kind === 'worktree' && this.terminal(`acc: ${n.worktree.branch ?? basename(n.worktree.path)}`, n.worktree.path).show());
     reg('acc.worktree.reveal', (n: WorktreeNode) => n.kind === 'worktree' && vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(n.worktree.path)));
@@ -161,9 +179,40 @@ export class Sidebar {
     if (!project.config.github) return void vscode.window.showWarningMessage(`${project.name} has no GitHub repo in .acc/config.json.`);
     await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Reading open issues on ${project.config.github.repo}` }, () =>
       this.runAcc(project, ['intake', 'github'], (out) => {
-        const parts = [out?.added?.length ? `added ${out.added.length}` : '', out?.updated?.length ? `updated ${out.updated.length}` : '', out?.unchanged?.length ? `${out.unchanged.length} unchanged` : ''].filter(Boolean);
+        const parts = [
+          out?.added?.length ? `added ${out.added.length}` : '', out?.updated?.length ? `updated ${out.updated.length}` : '', out?.unchanged?.length ? `${out.unchanged.length} unchanged` : '',
+          out?.closed?.length ? `${out.closed.length} done (closed on GitHub)` : '', out?.removed?.length ? `removed ${out.removed.length} (skipped label)` : '',
+          out?.leftAlone?.length ? `left ${out.leftAlone.map((l: { task: string }) => l.task).join(', ')} as they are (already started)` : '',
+        ].filter(Boolean);
         return `GitHub issues: ${parts.join(', ') || 'no open issues'}.`;
       }));
+  }
+
+  /** Every way work comes in, in one list: write a task, import the repo's issues, or track a Jira ticket. */
+  private async intake(n?: TaskNode): Promise<void> {
+    const project = await this.pickProject(n);
+    if (!project) return void vscode.window.showInformationMessage('Onboard a project first: Agent Command Center: Onboard this project.');
+    const node: TaskNode = { kind: 'project', project };
+    const jira = project.config.trackers.some((t) => t.kind === 'jira');
+    const items = [
+      { label: '$(add) Write a task', detail: 'A title and details, kept by acc.', go: () => this.addTask(node) },
+      ...(project.config.github ? [{ label: '$(github) Import GitHub issues', description: project.config.github.repo, detail: 'Adds a task for each open issue, and refreshes the ones already here.', go: () => this.importGithub(node) }] : []),
+      ...(jira ? [{ label: '$(issues) Track a Jira ticket', detail: 'Its board is on the Tasks tab: open a ticket and choose Track in acc.', go: () => vscode.commands.executeCommand('acc.open.tasks') }] : []),
+    ];
+    const pick = await vscode.window.showQuickPick(items, { title: `New work for ${project.name}` });
+    await pick?.go();
+  }
+
+  /** The instructions acc wrote for the task's builder when it dispatched it. */
+  private async openPacket(n: TaskNode): Promise<void> {
+    if (n?.kind !== 'task') return;
+    const file = vscode.Uri.file(join(dirname(n.project.ledgerPath), 'packets', `${n.task.id}.md`));
+    if (!existsSync(file.fsPath)) return void vscode.window.showInformationMessage(`${n.task.id} has no instructions yet. acc writes them when it dispatches the task.`);
+    try {
+      await vscode.commands.executeCommand('markdown.showPreview', file);
+    } catch {
+      await vscode.window.showTextDocument(file, { preview: true });
+    }
   }
 
   private async showTask(n: TaskNode): Promise<void> {
@@ -183,6 +232,27 @@ export class Sidebar {
     ];
     const doc = await vscode.workspace.openTextDocument({ content: lines.join('\n'), language: 'markdown' });
     await vscode.window.showTextDocument(doc, { preview: true });
+  }
+
+  /**
+   * A card dropped in a lane (D-041): the move to that lane's state, asking for a reason when the rules
+   * want one. Running means dispatching it, after a confirmation. acc decides whether it may go.
+   */
+  async moveToLane(project: Project, id: string, lane: string): Promise<void> {
+    const task = this.hub.taskRows(project.root).find((t) => t.id === id);
+    if (!task) return;
+    const n = { kind: 'task', project, task } as TaskNode;
+    const to = laneMove(lane);
+    if (!to) { await this.hub.loadTasks(true); return; }
+    if (to === 'dispatch') {
+      const ok = await vscode.window.showInformationMessage(`Dispatch ${id}?`, { modal: true, detail: 'An agent starts on it in its own worktree.' }, 'Dispatch');
+      if (ok === 'Dispatch') await this.dispatchTask(n);
+      else await this.hub.loadTasks(true);
+      return;
+    }
+    const rule = findRule(task.state as State, to);
+    await this.setState(n, to, !!rule?.requires.includes('reason'));
+    await this.hub.loadTasks(true); // snaps back if it was refused or cancelled
   }
 
   private async moveTask(n: TaskNode): Promise<void> {
@@ -231,9 +301,13 @@ export class Sidebar {
     const where = r.worktree ? basename(r.worktree) : 'its worktree';
     const pick = await vscode.window.showInformationMessage(
       `${task.id} is running: an agent is working in ${where}${r.reused ? ' (reused)' : ''}. It will finish with acc done, or block if it needs you.`,
-      ...(r.bgId ? ['Watch', 'Attach'] : []), 'Open worktree');
+      ...(r.bgId ? ['Watch', 'Open in Claude Code'] : []), 'Open worktree');
     if (pick === 'Watch' && r.bgId && !this.helpers.watch?.(r.bgId)) this.send(r.worktree ?? project.root, `claude attach ${r.bgId}`, `claude: ${task.id}`);
-    if (pick === 'Attach' && r.bgId) this.send(r.worktree ?? project.root, `claude attach ${r.bgId}`, `claude: ${task.id}`);
+    if (pick === 'Open in Claude Code' && r.bgId) {
+      const s = this.hub.agents.find((a) => a.id === r.bgId);
+      if (s) await this.openInClaude(s);
+      else this.send(r.worktree ?? project.root, `claude attach ${r.bgId}`, `claude: ${task.id}`);
+    }
     if (pick === 'Open worktree' && r.worktree) await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(r.worktree), { forceNewWindow: true });
   }
 
@@ -280,15 +354,72 @@ export class Sidebar {
     const name = await vscode.window.showInputBox({ title: 'Session name', value: agentName(prompt), validateInput: (v) => (/^[\w.-]+$/.test(v) ? undefined : 'Letters, digits, dots, dashes and underscores only.') });
     if (!name) return;
     const settings = this.helpers.sessionSettings ? ['--settings', this.helpers.sessionSettings] : [];
-    const r = await runFile('claude', ['--bg', '--name', name, ...settings, prompt.trim()], cwd, process.env, undefined, 60_000);
+    // A free-form agent runs like a builder: the same model and effort (D-036).
+    const r = await runFile('claude', ['--bg', '--name', name, ...agentArgs(project?.agents.builder), ...settings, prompt.trim()], cwd, process.env, undefined, 60_000);
     if (r.code !== 0) return void vscode.window.showWarningMessage(`Claude Code didn't start the agent: ${(r.stderr || r.stdout).trim().split('\n')[0]}`);
     this.log.info(`Started background agent ${name} in ${cwd}: ${r.stdout.trim()}`);
     await this.hub.loadAgents();
     // Attach by the short id claude agents reports, not by name.
     const started = this.hub.agents.find((s) => s.name === name && s.id);
-    const pick = await vscode.window.showInformationMessage(`Started ${name}. It shows in Agents as it works, and asks you here if it needs anything.`, ...(started ? ['Watch', 'Attach'] : []));
+    const pick = await vscode.window.showInformationMessage(`Started ${name}. It shows in Agents as it works, and asks you here if it needs anything.`, ...(started ? ['Watch', 'Open in Claude Code'] : []));
     if (pick === 'Watch' && started) this.helpers.watch?.(sessionKey(started));
-    if (pick === 'Attach' && started?.id) this.send(cwd, `claude attach ${started.id}`, `claude: ${name}`);
+    if (pick === 'Open in Claude Code' && started) await this.openInClaude(started);
+  }
+
+  // ------------------------------------------------------------ what agents run with (D-036)
+
+  /** Change a role's model, effort or fallback, for this clone or as the project's default. */
+  private async configureAgents(arg: unknown): Promise<void> {
+    const [role, root] = typeof arg === 'string' ? arg.split('|') : [];
+    const project = root ? this.hub.project(root) : await this.pickProject();
+    if (!project || (role !== 'builder' && role !== 'reviewer')) return;
+    const now = project.agents[role];
+    const label = role === 'builder' ? 'Builders' : 'Reviewers';
+    const what = await vscode.window.showQuickPick([
+      { label: '$(symbol-class) Model', description: now.model ?? 'Claude Code\'s default', key: 'model' as const },
+      { label: '$(lightbulb) Effort', description: now.effort ?? 'default', detail: 'How hard it thinks: more effort is slower and uses more of your plan', key: 'effort' as const },
+      { label: '$(debug-step-back) Fallback model', description: now.fallbackModel ?? 'none', detail: 'Used when the model is overloaded', key: 'fallback' as const },
+      { label: '$(discard) Back to the defaults', key: 'reset' as const },
+    ], { title: `${label}: what to change?` });
+    if (!what) return;
+    const models = (current: string | null, none: string) => vscode.window.showQuickPick([
+      { label: none, value: null as string | null },
+      { label: 'opus', description: 'Claude Opus, the latest', value: 'opus' },
+      { label: 'sonnet', description: 'Claude Sonnet, the latest: lighter on your plan', value: 'sonnet' },
+      { label: 'fable', description: 'Claude Fable, the latest', value: 'fable' },
+      { label: 'haiku', description: 'Claude Haiku, the latest: the lightest', value: 'haiku' },
+      { label: 'Another model…', description: 'a full model name', value: '?' },
+    ].map((m) => ({ ...m, picked: m.value === current, description: m.value === current ? `${m.description ?? ''} · now`.replace(/^ · /, '') : m.description })), { title: `${label}: which model?` });
+    const args: string[] = [];
+    if (what.key === 'model' || what.key === 'fallback') {
+      const pick = await models(what.key === 'model' ? now.model : now.fallbackModel, what.key === 'model' ? 'Claude Code\'s default' : 'No fallback');
+      if (!pick) return;
+      let value = pick.value;
+      if (value === '?') {
+        value = (await vscode.window.showInputBox({ title: `${label}: model name`, prompt: 'A model alias or full name, as claude --model takes it', validateInput: (v) => (/^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,79}$/.test(v.trim()) ? undefined : 'Letters, digits, dots, dashes, colons and brackets') }))?.trim() ?? null;
+        if (!value) return;
+      }
+      const flag = what.key === 'model' ? 'model' : 'fallback-model';
+      args.push(...(value ? [`--${flag}`, value] : ['--clear', flag]));
+    } else if (what.key === 'effort') {
+      const words: Record<string, string> = { low: 'Quickest, the least thinking', medium: 'Balanced', high: 'Thinks it through', xhigh: 'Thinks hard', max: 'The most thinking: slowest, uses the most' };
+      const pick = await vscode.window.showQuickPick([{ label: 'Default', description: 'Claude Code\'s own', value: null as string | null }, ...EFFORTS.map((e) => ({ label: e, description: words[e], value: e as string | null }))]
+        .map((x) => ({ ...x, description: x.value === now.effort ? `${x.description} · now` : x.description })), { title: `${label}: how much effort?` });
+      if (!pick) return;
+      args.push(...(pick.value ? ['--effort', pick.value] : ['--clear', 'effort']));
+    } else {
+      args.push('--clear', 'model', '--clear', 'effort', '--clear', 'fallback-model');
+    }
+    const scope = await vscode.window.showQuickPick([
+      { label: '$(device-desktop) This clone only', description: 'git config: nobody else sees it', project: false },
+      { label: '$(repo) The project\'s default', description: 'edits .acc/config.json, for you to commit and share', project: true },
+    ], { title: `${label}: for whom?` });
+    if (!scope) return;
+    const ok = await this.runAcc(project, ['agents', 'set', role, ...args, ...(scope.project ? ['--project'] : [])], () => undefined);
+    if (ok) {
+      await this.hub.loadProjects();
+      void vscode.window.showInformationMessage(`${label} changed${scope.project ? ' in .acc/config.json: commit it to share it' : ' for this clone'}. The next one started uses it.`);
+    }
   }
 
   // ------------------------------------------------------------ review and land (D-032, D-033)
@@ -348,6 +479,69 @@ export class Sidebar {
     }
     const pick = await vscode.window.showInformationMessage(`${task.id}: ${r.opened ? 'opened' : 'updated'} pull request #${r.pr?.number}.${note}`, 'Open pull request');
     if (pick && r.pr) await vscode.env.openExternal(vscode.Uri.parse(r.pr.url));
+  }
+
+  // ------------------------------------------------------------ open in Claude Code (D-040)
+
+  /**
+   * Opens a session's conversation in a Claude Code tab, with its whole history, through Claude Code's
+   * own link. A session can't run in two places at once, so one still working in the background is
+   * stopped there first, after you say so, and the tab carries on the same conversation.
+   */
+  async openInClaude(s: AgentSession): Promise<void> {
+    if (!isSessionId(s.sessionId)) return void vscode.window.showInformationMessage(`${s.name ?? 'This session'} has no conversation Claude Code can open.`);
+    const name = s.name ?? s.sessionId.slice(0, 8);
+    if (!vscode.extensions.getExtension(CLAUDE_EXTENSION)) {
+      const pick = await vscode.window.showInformationMessage('Opening a session in a tab needs Claude Code for VSCode.', 'Install it', ...(s.id ? ['Attach in a terminal'] : []));
+      if (pick === 'Install it') await vscode.commands.executeCommand('workbench.extensions.installExtension', CLAUDE_EXTENSION);
+      if (pick === 'Attach in a terminal' && s.id) this.send(s.cwd, `claude attach ${s.id}`, `claude: ${name}`);
+      return;
+    }
+    // The folder the conversation is saved under, from the file itself: a stopped builder can report the
+    // main checkout it started from, and the window asking may be another repo's (D-046).
+    const sessionId = s.sessionId;
+    const folders = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
+    const task = this.hub.projects.flatMap((p) => this.hub.taskRows(p.root)).find((t) => t.run?.sessionId === sessionId);
+    const live = this.hub.agents.find((a) => a.sessionId === sessionId);
+    const folder = savedFolder(join(homedir(), '.claude', 'projects'), sessionId, [s.cwd, task?.run?.worktree, ...this.hub.projects.flatMap((p) => p.worktrees.map((w) => w.path))])
+      ?? (live?.pid ? s.cwd : null); // a session that has only just started may not have saved anything yet
+    if (!folder) {
+      const pick = await vscode.window.showWarningMessage(`Couldn't find where ${name}'s conversation is saved, so Claude Code can't open it.`, 'Watch it here');
+      if (pick) this.helpers.watch?.(sessionKey(s));
+      return;
+    }
+    if (live?.kind === 'background' && live.id && live.pid && live.state !== 'done' && live.state !== 'stopped' && live.state !== 'failed') {
+      const ok = await vscode.window.showWarningMessage(`Take ${name} over in Claude Code?`, {
+        modal: true,
+        detail: `It's ${live.state === 'blocked' ? 'waiting for an answer' : 'working'} in the background. A conversation can't run in two places, so acc stops it there, and a Claude Code tab carries on the same conversation, with its whole history. You drive it from the tab.${live.name && /^[A-Z][A-Z0-9_]*-\d+$/.test(live.name) ? ` Its task stays Running: finish it with acc done ${live.name}, or move it from the page.` : ''}`,
+      }, 'Stop it and open');
+      if (ok !== 'Stop it and open') return;
+      const r = await runFile('claude', ['stop', live.id], live.cwd, process.env, undefined, 30_000);
+      if (r.code !== 0) return void vscode.window.showWarningMessage(`Couldn't stop it in the background: ${(r.stderr || r.stdout).trim().split('\n')[0]}`);
+      // Wait until Claude Code no longer lists it as running, so the tab is the only one.
+      for (let i = 0; i < 20; i++) {
+        await this.hub.loadAgents();
+        const still = this.hub.agents.find((a) => a.sessionId === s.sessionId);
+        if (!still?.pid || still.state === 'stopped') break;
+        await new Promise((res) => setTimeout(res, 500));
+      }
+    } else if (live?.kind === 'interactive' && live.pid) {
+      const ok = await vscode.window.showWarningMessage(`${name} is open somewhere else.`, {
+        modal: true, detail: 'It\'s running in a terminal or another Claude Code tab. Using it in two places at once can mix up its messages. If it\'s already in a Claude Code tab in this window, opening it again brings that tab forward.',
+      }, 'Open anyway');
+      if (ok !== 'Open anyway') return;
+    }
+    // Claude Code opens only a conversation that belongs to the window's own folder. A builder's lives
+    // in its worktree, so that folder opens in a new window, and the conversation opens there.
+    if (!folders.includes(folder) && existsSync(folder) && this.helpers.openLater) {
+      await this.helpers.openLater(folder, sessionId);
+      this.log.info(`Opening ${name}'s folder ${folder} in a new window, to open its conversation there.`);
+      await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(folder), { forceNewWindow: true });
+      return;
+    }
+    const uri = vscode.Uri.parse(claudeSessionUri(vscode.env.uriScheme, sessionId));
+    this.log.info(`Opening ${name} in Claude Code: ${uri.toString(true)}`);
+    await vscode.env.openExternal(uri);
   }
 
   private watchAgent(n: AgentNode): void {

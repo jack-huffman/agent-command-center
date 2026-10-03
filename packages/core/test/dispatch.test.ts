@@ -92,6 +92,17 @@ test('builder settings: identity, acc on PATH, and the dangerous commands denied
   for (const a of ['Bash(acc gate run)', 'Bash(acc gate run *)', 'Bash(acc gate list*)']) assert.ok(s.permissions.allow.includes(a), a);
 });
 
+test('a builder runs with the project\'s model and this clone\'s effort, when they\'re chosen (D-036)', () => {
+  const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, agents: { builder: { model: 'opus', effort: 'high' } } }), ...IGNORE }));
+  gitIn(repo, 'config', 'acc.builder.effort', 'low');
+  const claude = fakeClaude();
+  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  assert.equal(acc(repo, ['add', 'Write the changelog']).code, 0);
+  assert.equal(acc(repo, ['dispatch', 'T-1', '--json'], env).code, 0);
+  const launch = claude.calls().find((c) => c.args[0] === '--bg')!;
+  assert.deepEqual(launch.args.slice(5, 9), ['--model', 'opus', '--effort', 'low']);
+});
+
 test('dispatch end to end: worktree from the environment branch, packet, background session, ledger', () => {
   const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG), ...IGNORE }));
   const claude = fakeClaude();
@@ -118,6 +129,7 @@ test('dispatch end to end: worktree from the environment branch, packet, backgro
   assert.equal(settings.env.ACC_TASK, 'T-1');
   assert.equal(settings.env.ACC_ROLE, 'builder');
   assert.ok(settings.permissions.deny.includes('Bash(git push*)'));
+  assert.ok(settings.permissions.allow.includes('Bash(nice -n 15 node --no-warnings --test*)'), 'tests run under nice need no prompt');
   assert.match(launch.args.at(-1)!, /# Task T-1: Write the changelog/);
 
   const task = tasksOf(repo).find((t) => t.id === 'T-1')!;

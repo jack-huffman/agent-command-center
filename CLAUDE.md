@@ -1,6 +1,8 @@
 # Working on Agent Command Center
 
 - Read `docs/DECISIONS.md` before changing direction. Record new decisions there.
+  On a task branch, head a new entry `## D-??? <title> (<date>)` and refer to it
+  as D-???. Whoever merges gives it the next free number (D-045).
 - The plugin and extension must not depend on any skill outside this repo (D-002).
 - The core stays project-agnostic. Salesforce behaviour belongs in the
   `salesforce` profile (D-003).

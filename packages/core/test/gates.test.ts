@@ -7,7 +7,7 @@ import { parseConfig, type Config } from '../src/config.ts';
 import { drift, driftReportPath } from '../src/drift.ts';
 import type { RunOptions, RunResult } from '../src/exec.ts';
 import {
-  assertCheckOnly, changesFor, gatesFor, gateTarget, readAnalyzer, readDeploy, runGates, validateArgs, waiveGates,
+  assertCheckOnly, changesFor, checkEnv, gatesFor, gateTarget, readAnalyzer, readDeploy, runGates, validateArgs, waiveGates,
 } from '../src/gates.ts';
 import { checkMove, emptyLedger, type Task } from '../src/ledger.ts';
 import { builderSettings } from '../src/dispatch.ts';
@@ -215,6 +215,22 @@ test('uncommitted changes: the gates run but record nothing, and an unknown gate
   assert.equal(dirty.results[0]!.recorded, false);
   rmSync(join(dir, 'scratch.txt'));
   assert.throws(() => runGates(paths, c, c.environments[0]!, ['nope'], [], deps), /No gate nope\. This project's gates: lint, test/);
+});
+
+test('a check runs without a builder\'s identity, so it gives the same answer inside a builder as outside one', () => {
+  // A heavy check's own heavy work gets a slot folder of its own: it never waits for its check's slot.
+  const gates = { required: ['who', 'nested'], commands: { who: 'test -z "$ACC_TASK$ACC_ROLE"', nested: 'test -n "$ACC_HEAVY_DIR" && test "$ACC_HEAVY_DIR" != /outer' }, heavy: ['nested'] };
+  const dir = makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, gates }) });
+  const c = config(JSON.parse(readFileSync(join(dir, '.acc/config.json'), 'utf8')));
+  const was = { ACC_ROLE: process.env.ACC_ROLE, ACC_TASK: process.env.ACC_TASK, ACC_HEAVY_DIR: process.env.ACC_HEAVY_DIR };
+  Object.assign(process.env, { ACC_ROLE: 'builder', ACC_TASK: 'GH-13', ACC_HEAVY_DIR: '/outer' });
+  try {
+    assert.deepEqual(runGates(repoPaths(dir, run), c, c.environments[0]!, [], [], { run, now, slots: slots() }).results.map((r) => [r.gate, r.status]), [['who', 'pass'], ['nested', 'pass']]);
+  } finally {
+    for (const [k, v] of Object.entries(was)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
+  }
+  assert.deepEqual(checkEnv({ ACC_ROLE: 'builder', ACC_TASK: 'T-1', PATH: '/bin' }), { PATH: '/bin' });
+  assert.deepEqual(checkEnv({ PATH: '/bin', ACC_HEAVY_DIR: '/outer' }, '/scratch/heavy'), { PATH: '/bin', ACC_HEAVY_DIR: '/scratch/heavy' });
 });
 
 test('which environment a checkout is checked against: named, the task\'s, the checked-out branch\'s, or the only one', () => {

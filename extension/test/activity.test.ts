@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { appendOutput, needsTerminal, promptOf } from '../src/logic.ts';
+import { appendOutput, claudeSessionUri, isSessionId, needsTerminal, promptOf } from '../src/logic.ts';
 import {
-  agentModel, alwaysLabel, answerOf, describePermission, homeModel, isFromWebview, needsYouCount, questionCards, runCard, type RunInput,
+  agentModel, alwaysLabel, answerOf, choicesFor, decisionOf, describePermission, historyItems, homeModel, isFromWebview, needsYouCount, questionCards, runCard, type RunInput,
 } from '../src/model.ts';
 import { describeTool, emptyTranscript, foldTranscript, splitLines, transcriptDir } from '../src/transcript.ts';
 import { sampleBoards, sampleHub, sampleIdentity, sampleRuns, sampleSetup } from '../scripts/fixtures.ts';
@@ -137,10 +137,10 @@ test('an agent\'s page: its task, its question, its actions, and an ended sessio
   assert.equal(m.task?.id, 'ACME-14');
   assert.equal(m.look.label, 'Needs you: wants permission');
   assert.equal(m.questions.length, 1);
-  assert.deepEqual(m.actions.map((a) => a.command), ['acc.agent.attach', 'acc.agent.openFolder', 'acc.agent.stop']);
+  assert.deepEqual(m.actions.map((a) => a.command), ['acc.agent.openInClaude', 'acc.agent.attach', 'acc.agent.openFolder', 'acc.agent.stop']);
   assert.ok(m.entries[0]!.k === 'say' && m.entries[0]!.body.blocks.length === 1, 'what it said is rendered from markdown');
   const ended = agentModel({ hub, key: 'gone', seen: { cwd: '/x', kind: 'background', startedAt: 1, sessionId: 'gone', name: 'T-9' }, entries: [], readable: false, lastAt: null });
-  assert.deepEqual([ended.live, ended.look.label, ended.actions.map((a) => a.command)], [false, 'Ended', ['acc.agent.openFolder']]);
+  assert.deepEqual([ended.live, ended.look.label, ended.actions.map((a) => a.command)], [false, 'Ended', ['acc.agent.openInClaude', 'acc.agent.openFolder']], 'an ended session still opens in Claude Code');
 });
 
 test('answers from the page are checked, and only the fields a decision has reach the hook', () => {
@@ -151,5 +151,79 @@ test('answers from the page are checked, and only the fields a decision has reac
   assert.ok(isFromWebview({ type: 'run-control', run: 'r', action: 'stop' }));
   assert.ok(!isFromWebview({ type: 'run-control', run: 'r', action: 'kill-all' }));
   assert.deepEqual(answerOf({ type: 'answer', id: 'x', decision: 'deny', message: '  ', always: true }), { decision: 'deny' });
-  assert.deepEqual(answerOf({ type: 'answer', id: 'x', decision: 'allow', always: true }), { decision: 'allow', always: true });
+  assert.deepEqual(answerOf({ type: 'answer', id: 'x', decision: 'allow', always: true }), { decision: 'allow', always: true, scope: 'session' }, 'always is for the session unless the project is chosen');
+});
+
+// ---------------------------------------------------------------- history (D-037)
+
+test('a question that has ended reads as what it asked and what you decided, blue for your yes and neutral otherwise', () => {
+  const base = { v: 1 as const, id: 'h', sessionId: 's', cwd: '/w', askedAt: 1, endedAt: 2 };
+  const allowed = decisionOf({ ...base, tool: 'Bash', input: { command: 'npm test' }, outcome: 'allowed-for-session' });
+  assert.deepEqual([allowed.asked, allowed.code, allowed.look.label, allowed.look.tone], ['wanted to run a command', 'npm test', 'You allowed it for the session', 'blue']);
+  const no = decisionOf({ ...base, tool: 'Bash', input: { command: 'git push' }, outcome: 'denied', message: 'never push' });
+  assert.deepEqual([no.look.label, no.look.tone, no.detail], ['You said no', 'neutral', '"never push"']);
+  const q = decisionOf({ ...base, tool: 'AskUserQuestion', input: { questions: [{ question: 'Which?', options: [] }] }, outcome: 'answered', answers: { 'Which?': 'Blue' } });
+  assert.deepEqual([q.asked, q.detail, q.look.label], ['asked: Which?', 'Which? → Blue', 'You answered']);
+  assert.equal(decisionOf({ ...base, tool: 'AskUserQuestion', input: {}, outcome: 'denied' }).look.label, 'You let it decide');
+  assert.match(decisionOf({ ...base, tool: 'Bash', input: {}, outcome: 'no-window' }).look.label, /no Command Center was open/);
+});
+
+test('the history holds your answers, task moves and finished commands, newest first, and an agent\'s page shows its own decisions in place', () => {
+  const hub = sampleHub();
+  const items = historyItems(hub, sampleRuns());
+  assert.deepEqual([...new Set(items.map((i) => i.kind))].sort(), ['answer', 'move', 'run']);
+  assert.ok(items.every((it, i) => i === 0 || items[i - 1]!.at >= it.at), 'newest first');
+  const answer = items.find((i) => i.kind === 'answer' && i.decision.look.label === 'You answered');
+  assert.ok(answer && answer.kind === 'answer' && answer.who === 'ACME-12');
+  assert.ok(!items.some((i) => i.kind === 'run' && i.label === 'Each branch points at the right org'), 'a command still running isn\'t history yet');
+  const page = agentModel({ hub, key: 's-acme-14', seen: null, entries: [
+    { k: 'say', id: 'a', at: new Date(Date.now() - 30 * 60_000).toISOString(), text: 'start' },
+    { k: 'say', id: 'b', at: new Date(Date.now() - 20 * 60_000).toISOString(), text: 'after the lint fix' },
+  ], readable: true, lastAt: null });
+  assert.deepEqual(page.entries.map((e) => e.k), ['say', 'decision', 'say', 'decision'], 'each decision where it happened in the conversation');
+});
+
+test('a permission card offers every answer Claude Code\'s own prompt does, in its order, and a plan gets the plan\'s', () => {
+  const rule = [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'npm test:*' }], destination: 'localSettings' }];
+  assert.deepEqual(choicesFor('Bash', rule).map((c) => c.label), [
+    'Yes', 'Yes, and always allow `npm test:*` in this session', 'Yes, and always allow `npm test:*` in this project', 'Yes, and switch to auto mode',
+    'Edit the command, then allow…', 'No, and tell it what to do instead…', 'No, and stop it',
+  ]);
+  assert.deepEqual(choicesFor('Write', []).map((c) => c.key), ['allow', 'auto', 'deny', 'stop'], 'nothing to always-allow, and only commands can be edited');
+  assert.deepEqual(choicesFor('ExitPlanMode', []).map((c) => c.key), ['accept-edits', 'manual-edits', 'keep-planning', 'stop']);
+  assert.deepEqual(choicesFor('AskUserQuestion', []), [], 'a question has its own options');
+  assert.equal(choicesFor('Bash', rule).find((c) => c.key === 'edit')!.needs, 'command');
+  assert.equal(questionCards(sampleHub())[0]!.choices.length, 7);
+  assert.deepEqual(answerOf({ type: 'answer', id: 'x', decision: 'allow', always: true, scope: 'project' }), { decision: 'allow', always: true, scope: 'project' });
+  assert.deepEqual(answerOf({ type: 'answer', id: 'x', decision: 'deny', stop: true }), { decision: 'deny', stop: true });
+  assert.ok(!isFromWebview({ type: 'answer', id: 'x', decision: 'allow', mode: 'bypassPermissions' }));
+});
+
+test('a session opens in Claude Code through its documented link, which takes the full session id', () => {
+  assert.equal(claudeSessionUri('vscode', '1f60afe9-da26-427b-a43b-7acea42f73ae'), 'vscode://anthropic.claude-code/open?session=1f60afe9-da26-427b-a43b-7acea42f73ae');
+  assert.equal(claudeSessionUri('vscode-insiders', 'a', 'go on & finish'), 'vscode-insiders://anthropic.claude-code/open?session=a&prompt=go%20on%20%26%20finish');
+  assert.ok(isSessionId('1f60afe9-da26-427b-a43b-7acea42f73ae'));
+  assert.ok(!isSessionId('1f60afe9'), 'the short background id is not the session');
+  assert.ok(!isSessionId(undefined));
+});
+
+test('a conversation is found where it is saved, from any window: likely folders first, then anywhere (D-046)', async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { savedFolder } = await import('../src/transcript.ts');
+  const projects = mkdtempSync(join(tmpdir(), 'projects-'));
+  const wt = '/Users/me/My Repo/.claude/worktrees/GH-13';
+  const id = '7bc4abb5-b4aa-4b62-a376-eced9d81d05a';
+  mkdirSync(transcriptDir(projects, wt), { recursive: true });
+  // It started in the main checkout and moved into its worktree: both cwds are in the file.
+  writeFileSync(join(transcriptDir(projects, wt), `${id}.jsonl`), [
+    JSON.stringify({ type: 'user', cwd: '/Users/me/My Repo', message: { content: 'go' } }),
+    'not json',
+    JSON.stringify({ type: 'assistant', cwd: wt, message: { content: [] } }),
+  ].join('\n'));
+  assert.equal(savedFolder(projects, id, ['/Users/me/My Repo', wt]), wt, 'a likely folder that holds it');
+  assert.equal(savedFolder(projects, id, ['/Users/me/Other Client']), wt, 'from another repo\'s window: found by its file, named by its cwd');
+  assert.equal(savedFolder(projects, '00000000-0000-0000-0000-000000000000', ['/Users/me/My Repo']), null, 'saved nowhere: no guess');
+  assert.equal(savedFolder(join(projects, 'missing'), id, []), null);
 });

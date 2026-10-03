@@ -1,0 +1,9 @@
+{
+  "event": "pre-tool-use",
+  "env": {
+    "ACC_ROLE": "builder",
+    "ACC_TASK": "T-1"
+  },
+  "input": "not json",
+  "expect": "none"
+}

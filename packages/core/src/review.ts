@@ -7,6 +7,7 @@ import { type Actor, applyMove, checkMove, mutate, noGateHooks, readLedger, type
 import { alive } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
 import { receiptHooks, receiptsAt } from './receipts.ts';
+import { agentArgs } from './agents.ts';
 
 /**
  * The review (D-032): a fresh agent reads the task, the diff, the checks and the project's rules, and
@@ -263,7 +264,7 @@ export function review(paths: RepoPaths, config: Config, id: string, deps: Revie
   try {
     // Read-only by construction: only the read tools are allowed, and dontAsk refuses everything else.
     out = run('claude', [
-      '-p', '--session-id', sessionId, '--permission-mode', 'dontAsk',
+      '-p', '--session-id', sessionId, '--permission-mode', 'dontAsk', ...agentArgs(config.agents.reviewer),
       '--output-format', 'json', '--json-schema', JSON.stringify(VERDICT_SCHEMA), '--append-system-prompt', system,
       '--allowedTools', 'Read', 'Grep', 'Glob',
       '--disallowedTools', 'Bash', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch',

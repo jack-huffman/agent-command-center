@@ -4,9 +4,9 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
   ACTORS, AccError, type Actor, type ApexTest, configureRepoAccess, displayState, drift, gatesFor, gateTarget, isReady, loadConfig, makeContext, moveTask, mutate,
-  cleanup, dispatch, githubIdentity, githubIssuesToTasks, planInit, useGithubAccount, withCloneAccount, type Profile, readLedger, receiptsAt, STEPS, receiptHooks, repoPaths, run, runGates, runSteps, satisfies, type State, type StepResult, type TaskInput,
+  cleanup, dispatch, githubIdentity, intakeGithub, planInit, useGithubAccount, withCloneAccount, type Profile, readLedger, receiptsAt, STEPS, receiptHooks, repoPaths, run, runGates, runSteps, satisfies, type State, type StepResult, type TaskInput, type UpsertResult,
   upsertTasks, writeConfig, ask, hookOutput, parseHookInput, waiveGates, review, land, sync, planPromotion, promote, skipWarning, planDeploy, deploy, lastDeploy,
-  buildBaseline, seedBranches, draftLists, writeReadme,
+  buildBaseline, seedBranches, draftLists, writeReadme, parseEventInput, preToolUseHook, sessionStartHook, stopHook, AGENT_ROLES, type AgentRole, profileView, setProfile, withCloneAgents, type ProfileChange,
 } from '../../core/src/index.ts';
 import { checkLabel, gateLabel, stateLabel, table, tone } from './format.ts';
 
@@ -31,7 +31,8 @@ Setup
 Tasks
   acc add "<title>" [--brief <text>] [--dep <id>]... [--env <branch>] [--key <T-n>]
   acc import [--file <tasks.json>]      Add or refresh tasks from JSON (stdin by default)
-  acc intake github [--label <l>]       Add or refresh tasks from the repo's open GitHub issues
+  acc intake github [--label <l>]       Add or refresh tasks from the repo's open GitHub issues. A task not
+                                        started yet leaves the board when its issue closes or has a skipLabels label
   acc list [--state <state>]
   acc ready
   acc show <id>
@@ -42,6 +43,10 @@ Agents
   acc done [<id>]                       A builder's finish line: moves its task to review
   acc block [<id>] "<reason>"           A builder's way out when stuck
   acc cleanup <id>                      Remove a finished task's worktree, only if nothing would be lost
+  acc agents                            The model and effort builders and reviewers run with, and where each is set
+  acc agents set <builder|reviewer> [--model <m>] [--effort <low|medium|high|xhigh|max>] [--fallback-model <m>]
+                [--clear <model|effort|fallback-model>]... [--project]
+                                        Change them for this clone, or with --project in .acc/config.json
   acc review <id>                       A read-only reviewer agent judges the task's latest commit:
                                         pass, or changes (back to rework, with its findings)
   acc land <id>                         Push a reviewed task's branch and open its pull request; never merges
@@ -86,7 +91,8 @@ function project(cwd: string) {
   const { config: loaded, warnings } = loadConfig(paths.config);
   for (const w of warnings) process.stderr.write(`warning: ${w}\n`);
   // This clone's own choice of GitHub account, when it made one (D-028).
-  return { paths, config: withCloneAccount(loaded, paths.root, run) };
+  // This clone's own choices of agent model and effort (D-036).
+  return { paths, config: withCloneAgents(withCloneAccount(loaded, paths.root, run), paths.root, run) };
 }
 
 /** Builders are identified by ACC_ROLE, set when they're dispatched. Everyone else is a person. */
@@ -194,31 +200,33 @@ function readInput(file: string | undefined): unknown {
   }
 }
 
+const upsertLines = (res: UpsertResult): string[] => [
+  res.added.length ? `Added ${res.added.join(', ')}` : '',
+  res.updated.length ? `Updated ${res.updated.join(', ')}` : '',
+  res.unchanged.length ? `Unchanged ${res.unchanged.join(', ')}` : '',
+  ...res.errors.map((e) => tone(`✗ ${e}`, 'orange')),
+];
+
 function upsert(o: Opts, inputs: TaskInput[]): number {
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
   const res = mutate(paths, now, (ledger, emit) => upsertTasks(ledger, config, inputs, actor, by, emit, now));
-  out(o, () => [
-    res.added.length ? `Added ${res.added.join(', ')}` : '',
-    res.updated.length ? `Updated ${res.updated.join(', ')}` : '',
-    res.unchanged.length ? `Unchanged ${res.unchanged.join(', ')}` : '',
-    ...res.errors.map((e) => tone(`✗ ${e}`, 'orange')),
-  ].filter(Boolean).join('\n') || 'Nothing to do.', res);
+  out(o, () => upsertLines(res).filter(Boolean).join('\n') || 'Nothing to do.', res);
   return res.errors.length ? 1 : 0;
 }
 
-/** Reads open issues as the repo's own GitHub account (D-007) and upserts them. Never changes GitHub. */
+/** Reads open issues as the repo's own GitHub account (D-007), upserts them, and follows closed and skipped ones (D-048). Never changes GitHub. */
 function cmdIntakeGithub(o: Opts): number {
-  const { config } = project(process.cwd());
-  const gh = config.github;
-  if (!gh) throw new AccError('no-github', 'This project has no "github" section in .acc/config.json.');
-  const token = run('gh', ['auth', 'token', '-u', gh.account]);
-  if (token.code !== 0) throw new AccError('no-github', `gh isn't logged in as ${gh.account}. Run: gh auth login`);
-  const args = ['issue', 'list', '-R', gh.repo, '--state', 'open', '--limit', '500', '--json', 'number,title,body,url,labels'];
-  if (o.label) args.push('--label', o.label as string);
-  const r = run('gh', args, { env: { ...process.env, GH_TOKEN: token.stdout.trim() } });
-  if (r.code !== 0) throw new AccError('github', `Couldn't list issues on ${gh.repo}: ${r.stderr.trim().split('\n')[0]}`);
-  return upsert(o, githubIssuesToTasks(JSON.parse(r.stdout)));
+  const { paths, config } = project(process.cwd());
+  const { actor, by } = actorFrom(o);
+  const res = intakeGithub(paths, config, { run, now, env: process.env }, { label: o.label as string | undefined, actor, by });
+  out(o, () => [
+    ...upsertLines(res),
+    res.closed.length ? `Done ${res.closed.join(', ')}: closed on GitHub before work started` : '',
+    res.removed.length ? `Removed ${res.removed.join(', ')}: their issues have a label in skipLabels` : '',
+    ...res.leftAlone.map((l) => tone(`! ${l.note}`, 'orange')),
+  ].filter(Boolean).join('\n') || 'Nothing to do.', res);
+  return res.errors.length ? 1 : 0;
 }
 
 /** The task a command is about: the argument, or the builder session's own task. */
@@ -265,6 +273,23 @@ async function readStdin(limit = 4 * 1024 * 1024): Promise<string> {
  * The PermissionRequest hook (D-030). It never blocks a tool by failing: on anything unexpected it prints
  * nothing and exits 0, so Claude Code asks in its own prompt as usual.
  */
+/**
+ * The plugin's hooks (D-042). Like the permission hook, they never block by failing: anything unexpected
+ * prints nothing, and Claude Code carries on as it would without acc.
+ */
+async function cmdHookEvent(event: 'session-start' | 'pre-tool-use' | 'stop'): Promise<number> {
+  try {
+    const input = parseEventInput(await readStdin());
+    if (!input) return 0;
+    const ctx = { cwd: input.cwd || process.cwd(), env: process.env, run, now };
+    const out = event === 'session-start' ? sessionStartHook(input, ctx) : event === 'pre-tool-use' ? preToolUseHook(input, ctx) : stopHook(input, ctx);
+    if (out) process.stdout.write(JSON.stringify(out));
+  } catch (e) {
+    process.stderr.write(`acc hook ${event}: ${(e as Error).message}\n`);
+  }
+  return 0;
+}
+
 async function cmdHookPermission(): Promise<number> {
   const stop = new AbortController();
   for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) process.once(sig, () => stop.abort());
@@ -320,6 +345,39 @@ function cmdSync(o: Opts): number {
   out(o, () => (r.checked
     ? [`Checked ${r.checked} open pull request${r.checked === 1 ? '' : 's'}.`, ...r.changes.map((c) => `  ${c.task}: ${c.note}${c.moved ? ` → ${stateLabel(c.moved.to)}` : ''}`)].join('\n')
     : 'No open pull requests to follow.'), r);
+  return 0;
+}
+
+/** Builders' and reviewers' model and effort (D-036). */
+function cmdAgents(o: Opts, sub: string | undefined, roleArg: string | undefined): number {
+  const { paths } = project(process.cwd());
+  // Shown from the project's own config, so where each value comes from is clear.
+  const { config: projectConfig } = loadConfig(paths.config);
+  const views = () => Object.fromEntries(AGENT_ROLES.map((r) => [r, profileView(projectConfig, run, paths.root, r)]));
+  if (!sub || sub === 'show') {
+    const v = views();
+    const from = { clone: ' (this clone)', project: ' (project)', default: '' };
+    out(o, () => AGENT_ROLES.map((r) => {
+      const p = v[r]!;
+      return `${r.padEnd(9)} model ${p.model ?? 'Claude Code\'s default'}${from[p.from.model]}, effort ${p.effort ?? 'default'}${from[p.from.effort]}${p.fallbackModel ? `, falls back to ${p.fallbackModel}${from[p.from.fallbackModel]}` : ''}`;
+    }).join('\n'), v);
+    return 0;
+  }
+  if (sub !== 'set' || !roleArg || !(AGENT_ROLES as readonly string[]).includes(roleArg)) throw new AccError('usage', 'acc agents set <builder|reviewer> [--model <m>] [--effort <e>] [--fallback-model <m>] [--clear <field>] [--project]');
+  personOnly(o, 'change what agents run with');
+  const change: ProfileChange = {};
+  if (o.model !== undefined) change.model = o.model as string;
+  if (o.effort !== undefined) change.effort = o.effort as never;
+  if (o['fallback-model'] !== undefined) change.fallbackModel = o['fallback-model'] as string;
+  for (const f of (o.clear as string[] | undefined) ?? []) {
+    const key = f === 'model' ? 'model' : f === 'effort' ? 'effort' : f === 'fallback-model' ? 'fallbackModel' : null;
+    if (!key) throw new AccError('usage', '--clear takes model, effort or fallback-model.');
+    change[key] = null;
+  }
+  if (!Object.keys(change).length) throw new AccError('usage', 'Say what to change: --model, --effort, --fallback-model or --clear.');
+  setProfile(run, paths.root, paths.config, roleArg as AgentRole, change, o.project ? 'project' : 'clone');
+  const after = profileView(loadConfig(paths.config).config, run, paths.root, roleArg as AgentRole);
+  out(o, () => `${roleArg}: model ${after.model ?? 'Claude Code\'s default'}, effort ${after.effort ?? 'default'}${after.fallbackModel ? `, falls back to ${after.fallbackModel}` : ''}. ${o.project ? 'Set in .acc/config.json: commit it to share it.' : 'Set for this clone only.'} The next ${roleArg} uses it.`, after);
   return 0;
 }
 
@@ -650,6 +708,10 @@ export async function main(argv: string[]): Promise<number> {
       since: { type: 'string' },
       'confirm-production': { type: 'boolean', default: false },
       push: { type: 'boolean', default: false },
+      model: { type: 'string' },
+      effort: { type: 'string' },
+      'fallback-model': { type: 'string' },
+      clear: { type: 'string', multiple: true },
     },
   });
   const o = values as Opts;
@@ -661,6 +723,7 @@ export async function main(argv: string[]): Promise<number> {
     case 'onboard': return cmdDoctor(o, true);
     case 'init': return cmdInit(o);
     case 'setup': return cmdSetup(o, rest[0]);
+    case 'agents': return cmdAgents(o, rest[0], rest[1]);
     case 'add': {
       const title = rest.join(' ').trim();
       if (!title) throw new AccError('usage', 'acc add "<title>"');
@@ -719,8 +782,9 @@ export async function main(argv: string[]): Promise<number> {
     case 'github': return cmdGithub(o, rest[0], rest[1]);
     case 'hook': {
       if (rest[0] === 'permission') return cmdHookPermission();
+      if (rest[0] === 'session-start' || rest[0] === 'pre-tool-use' || rest[0] === 'stop') return cmdHookEvent(rest[0]);
       // Exit 1, never 2: for a hook, 2 would block the tool.
-      process.stderr.write('acc hook permission is the only hook.\n');
+      process.stderr.write('acc hook takes permission, session-start, pre-tool-use or stop.\n');
       return 1;
     }
     case 'drift': {

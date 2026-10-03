@@ -2,7 +2,7 @@
   "name": "agent-command-center",
   "displayName": "Agent Command Center",
   "description": "Set up projects for parallel Claude Code agents, then run and watch them from VSCode.",
-  "version": "0.13.0",
+  "version": "0.21.0",
   "publisher": "JackHuffman",
   "private": true,
   "license": "UNLICENSED",
@@ -91,6 +91,12 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "acc.task.intake",
+        "title": "Intake: new work for agents…",
+        "category": "Agent Command Center",
+        "icon": "$(inbox)"
+      },
+      {
         "command": "acc.task.add",
         "title": "Add task",
         "category": "Agent Command Center",
@@ -161,6 +167,12 @@
         "icon": "$(pulse)"
       },
       {
+        "command": "acc.agent.openInClaude",
+        "title": "Open in Claude Code",
+        "category": "Agent Command Center",
+        "icon": "$(comment-discussion)"
+      },
+      {
         "command": "acc.agent.attach",
         "title": "Attach",
         "category": "Agent Command Center",
@@ -189,6 +201,12 @@
         "title": "Refresh agents",
         "category": "Agent Command Center",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "acc.agents.configure",
+        "title": "Change what agents run with…",
+        "category": "Agent Command Center",
+        "icon": "$(settings-gear)"
       },
       {
         "command": "acc.worktree.open",
@@ -304,6 +322,12 @@
         "icon": "$(pulse)"
       },
       {
+        "command": "acc.task.openInClaude",
+        "title": "Open its agent in Claude Code",
+        "category": "Agent Command Center",
+        "icon": "$(comment-discussion)"
+      },
+      {
         "command": "acc.task.review",
         "title": "Review with an agent",
         "category": "Agent Command Center",
@@ -332,6 +356,11 @@
         "title": "Open its worktree",
         "category": "Agent Command Center",
         "icon": "$(empty-window)"
+      },
+      {
+        "command": "acc.task.openPacket",
+        "title": "Open its instructions",
+        "category": "Agent Command Center"
       },
       {
         "command": "acc.task.abandon",
@@ -535,6 +564,18 @@
         {
           "command": "acc.env.deploy",
           "when": "false"
+        },
+        {
+          "command": "acc.agent.openInClaude",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.openInClaude",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.openPacket",
+          "when": "false"
         }
       ],
       "webview/context": [
@@ -544,9 +585,14 @@
           "group": "1_use@0"
         },
         {
+          "command": "acc.agent.openInClaude",
+          "when": "webviewId == 'acc.home' && webviewSection == 'agent'",
+          "group": "1_use@1"
+        },
+        {
           "command": "acc.agent.attach",
           "when": "webviewId == 'acc.home' && webviewSection == 'agent' && agentBackground",
-          "group": "1_use@1"
+          "group": "1_use@2"
         },
         {
           "command": "acc.agent.openFolder",
@@ -1002,6 +1048,11 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "Clicking the Command Center icon in the activity bar opens its page and tucks the sidebar away. Turn this off to keep a short list of sections in the sidebar instead."
+        },
+        "agentCommandCenter.notifications": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Say when a task changes in a way that needs you or is news: a builder finished, a review passed or asked for changes, a pull request's checks failed or it merged. Quiet while the Command Center shows that board."
         }
       }
     }

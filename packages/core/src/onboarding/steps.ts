@@ -128,6 +128,18 @@ function versionStep(id: string, title: string, why: string, cmd: string, args: 
   };
 }
 
+/**
+ * What each group of steps sets up, in words. Neighbouring groups with the same name show as one section
+ * on the Setup page, in the order the steps are done (D-047).
+ */
+export const GROUP_TITLES: Record<string, string> = {
+  A1: 'Tools', A2: 'Accounts', A4: 'The acc plugin',
+  B0: 'The repo', B1: 'Orgs', B2: 'GitHub account', B3: 'Client data and secrets',
+  B4: 'Salesforce project', B5: 'Salesforce project', B6: 'Environment branches', B8: 'Source tracking',
+  B9: 'Environment differences', B10: 'Safe defaults', B12: 'Background agents', B13: 'Background agents',
+  B14: 'Tickets', B11: 'Drift',
+};
+
 export const STEPS: Step[] = [
   // ------------------------------------------------------------ Part A: this machine
   versionStep('A1.git', 'git 2.40 or later', 'Worktrees and the shared git directory need a recent git.', 'git', ['--version'], '2.40', 'brew install git'),

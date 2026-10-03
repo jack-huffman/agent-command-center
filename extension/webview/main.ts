@@ -1,7 +1,7 @@
 // Renders one editor tab. Every element is built with DOM calls and every string is set as text,
 // so nothing from a ticket, branch or session can become markup. No HTML string is ever parsed.
 import type {
-  Action, AgentModel, AgentsModel, EntryView, EnvironmentsModel, HomeModel, HomeSection, IdentityCard, Look, Model, PersonChip, QuestionCard, Ref, RunCard, SetupModel, TasksModel, TicketModel, TrackerBoard, TrackerCard, ViewKind, WorktreesModel,
+  Action, AgentModel, AgentsModel, EntryView, EnvironmentsModel, HistoryItem, HomeModel, HomeSection, IdentityCard, Look, Model, PersonChip, QuestionCard, Ref, RunCard, SetupModel, SetupRow, TasksModel, TicketModel, TrackerBoard, TrackerCard, ViewKind, WorktreesModel,
 } from '../src/model.ts';
 import type { Block, Doc, Inline } from '../../packages/core/src/trackers/doc.ts';
 
@@ -57,7 +57,7 @@ function empty(text: string, ...tools: Child[]): HTMLElement {
 }
 
 /** A half-made answer to an agent's question, kept while the page redraws. */
-interface Draft { picks: Record<number, string[]>; other: Record<number, string>; denying: boolean; reason: string; sent: boolean }
+interface Draft { picks: Record<number, string[]>; other: Record<number, string>; denying: boolean; reason: string; sent: boolean; choice?: string; command?: string }
 
 /**
  * Per-tab memory that survives re-renders and the tab being hidden: board modes, comment drafts, answers
@@ -70,10 +70,14 @@ interface Memory {
   answers: Record<string, Draft>;
   dock: { open: boolean; run: string | null };
   opened: string[];
+  /** Which kind of history the Overview shows. */
+  history?: 'all' | 'answer' | 'move' | 'run';
+  /** Setup sections opened or closed by hand; the rest open while they have something to do. */
+  sections?: Record<string, boolean>;
 }
 function memory(): Memory {
   const s = (api.getState() as Partial<Memory> | undefined) ?? {};
-  return { modes: s.modes ?? {}, drafts: s.drafts ?? {}, section: s.section, answers: s.answers ?? {}, dock: s.dock ?? { open: false, run: null }, opened: s.opened ?? [] };
+  return { modes: s.modes ?? {}, drafts: s.drafts ?? {}, section: s.section, answers: s.answers ?? {}, dock: s.dock ?? { open: false, run: null }, opened: s.opened ?? [], history: s.history, sections: s.sections ?? {} };
 }
 function remember(change: (m: Memory) => void): void {
   const m = memory();
@@ -263,21 +267,59 @@ function renderTasks(m: TasksModel): Node[] {
         return el('div', 'project', head, ...p.boards.map((b) => renderTrackerBoard(p.root, b)));
       }
     }
-    const board = el('div', 'board');
+    const board = el('div', 'board agent-board');
     for (const c of p.columns) {
       const col = el('section', `column tone-edge-${c.tone}`, el('h2', '', icon(c.icon, c.tone), c.label, el('span', 'count', String(c.cards.length))));
       col.setAttribute('aria-label', `${c.label}: ${plural(c.cards.length, 'task')}`);
-      if (!c.cards.length) col.append(el('p', 'muted', 'Nothing here'));
+      col.dataset.group = c.group;
+      if (!c.cards.length) col.append(el('p', 'muted drop-hint', 'Nothing here'));
       for (const card of c.cards) {
-        col.append(el('article', `card${c.group === 'done' ? ' done' : ''}`,
+        // Drag a card to another lane to move it (D-041), so the cards need no Move button.
+        const art = el('article', `card${c.group === 'done' ? ' done' : ''}`,
           el('div', 'card-id', card.id, el('span', 'chip', card.environment)),
           openable(el('div', 'card-title', card.title), { type: 'run', command: 'acc.task.show', ref: { project: p.root, task: card.id } }),
           card.waitingOn.length ? el('div', 'card-note', icon('clock'), `Waiting on ${card.waitingOn.join(', ')}`) : null,
           card.agent ? el('div', 'card-agent', el('span', 'muted', 'Agent: '), status(card.agent)) : null,
           card.worktree ? el('div', 'card-where mono muted', icon('git-branch'), card.worktree.split('/').slice(-2).join('/')) : null,
-          el('div', 'actions', ...card.actions.map(actionButton)),
-        ));
+          el('div', 'actions', ...card.actions.filter((a) => a.command !== 'acc.task.move').map(actionButton)),
+        );
+        art.dataset.task = card.id;
+        art.dataset.drops = card.drops.join(' ');
+        art.draggable = card.drops.length > 0;
+        art.setAttribute('aria-label', `${card.id}: ${card.title}. ${card.drops.length ? 'Drag to another lane to move it.' : ''}`);
+        art.addEventListener('dragstart', (e) => {
+          e.dataTransfer?.setData('text/x-acc-task', card.id);
+          if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+          art.classList.add('dragging');
+          board.classList.add('dragging-task');
+          for (const lane of board.querySelectorAll<HTMLElement>('.column')) lane.classList.toggle('can-drop', card.drops.includes(lane.dataset.group ?? ''));
+        });
+        art.addEventListener('dragend', () => {
+          art.classList.remove('dragging');
+          board.classList.remove('dragging-task');
+          for (const lane of board.querySelectorAll<HTMLElement>('.column')) lane.classList.remove('can-drop', 'drop-target');
+        });
+        col.append(art);
       }
+      // Only a lane the card may go to takes it; the rest stay dimmed while you drag.
+      col.addEventListener('dragover', (e) => {
+        if (!e.dataTransfer?.types.includes('text/x-acc-task') || !col.classList.contains('can-drop')) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        col.classList.add('drop-target');
+      });
+      col.addEventListener('dragleave', (e) => { if (!col.contains(e.relatedTarget as Node)) col.classList.remove('drop-target'); });
+      col.addEventListener('drop', (e) => {
+        e.preventDefault();
+        col.classList.remove('drop-target');
+        const id = e.dataTransfer?.getData('text/x-acc-task');
+        const moved = id ? board.querySelector<HTMLElement>(`[data-task="${CSS.escape(id)}"]`) : null;
+        if (!id || !moved || !col.classList.contains('can-drop') || moved.closest('.column') === col) return;
+        // Shown in place at once; the board redraws from the ledger, or snaps back if acc refuses.
+        col.querySelector('.drop-hint')?.remove();
+        col.append(moved);
+        api.postMessage({ type: 'move-task', project: p.root, task: id, to: c.group });
+      });
       board.append(col);
     }
     return el('div', 'project', header(m.projects.length > 1 ? `Tasks · ${p.name}` : 'Tasks', summary, ...tools), p.total ? board : empty('Tasks are tickets for agents to work on.', ...tools));
@@ -465,7 +507,10 @@ function renderTicket(m: TicketModel): Node[] {
   }
 
   // The main column: description, related tickets, then activity.
-  const main = el('div', 'ticket-main', el('section', 'block', el('h2', '', 'Description'), m.loading && !m.body.blocks.length ? el('p', 'muted', 'Loading…') : renderDoc(m.body, 'No description.')));
+  // Summary first, details on demand: why it's stuck, in one line, before anything else.
+  const main = el('div', 'ticket-main');
+  if (m.acc?.blocker) main.append(foldable(`blocker:${m.project}#${m.key}`, el('div', 'notice attention why', icon('circle-slash', 'orange'), el('div', 'why-text', el('strong', '', 'Why it\'s blocked: '), m.acc.blocker)), 'why-text', 2));
+  main.append(el('section', 'block', el('h2', '', 'Description'), m.loading && !m.body.blocks.length ? el('p', 'muted', 'Loading…') : foldable(`desc:${m.project}#${m.key}`, renderDoc(m.body, 'No description.'), null, 6)));
   if (m.related.length) {
     main.append(el('section', 'block', el('h2', '', 'Related'), el('ul', 'related', ...m.related.map((r) => {
       const name = /^[A-Z][A-Z0-9_]*-\d+$/i.test(r.key) ? openable(el('span', 'tcard-key', r.key), { type: 'ticket', project: m.project, tracker: m.tracker, key: r.key }) : el('span', 'tcard-key', r.key);
@@ -484,8 +529,20 @@ function renderTicket(m: TicketModel): Node[] {
     if (m.can.comment) activity.append(composer(m));
   }
   if (m.acc?.history.length) {
-    activity.append(el('h3', '', 'History in acc'), el('ol', 'history', ...m.acc.history.map((h) => el('li', '',
-      when(h.at), el('span', '', `${h.from ?? 'new'} → `), el('strong', '', h.to), el('span', 'muted', ` by ${h.by}`), h.reason ? el('div', 'muted small', h.reason) : null))));
+    // One plain line a move, newest first; each opens to its reason. Three, then Show all.
+    const key = `history:${m.project}#${m.key}`;
+    const all = memory().opened.includes(key);
+    const moves = all ? m.acc.history : m.acc.history.slice(0, 3);
+    const list = el('ol', 'history', ...moves.map((h) => {
+      const line = el('span', 'history-move', el('span', '', moveWords(h)), el('span', 'muted small', ' · '), when(h.at));
+      if (!h.reason) return el('li', '', line);
+      const d = el('details', 'move-details', el('summary', '', line), el('div', 'muted small move-reason', h.reason));
+      return el('li', '', d);
+    }));
+    activity.append(el('h3', '', 'History'), list);
+    if (m.acc.history.length > 3) {
+      activity.append(button(all ? 'Show fewer' : `Show all ${m.acc.history.length}`, all ? 'chevron-up' : 'chevron-down', () => { remember((x) => { x.opened = all ? x.opened.filter((y) => y !== key) : [...x.opened, key]; }); if (last) render(last); }, 'ghost small'));
+    }
   }
   if (activity.childElementCount > 1) main.append(activity);
 
@@ -509,7 +566,7 @@ function renderTicket(m: TicketModel): Node[] {
         ...field('State', status(a.look)),
         ...field('Environment', el('span', 'mono', a.environment)),
         ...(a.waitingOn.length ? field('Waiting on', a.waitingOn.join(', ')) : []),
-        ...(a.blocker ? field('Blocked', el('span', 'tone-orange', a.blocker)) : []),
+
         ...(a.agent && a.agent.label !== a.look.label ? field('Session', status(a.agent)) : []),
         ...(a.branch ? field('Branch', clippedSpan(a.branch)) : []),
         ...(a.worktree ? field('Worktree', clippedSpan(a.worktree.split('/').slice(-2).join('/'))) : []),
@@ -528,6 +585,48 @@ function renderTicket(m: TicketModel): Node[] {
   }
   out.push(el('div', 'ticket-grid', main, side));
   return out;
+}
+
+const STATE_WORD: Record<string, string> = { todo: 'To do', running: 'Running', review: 'In review', rework: 'Rework', blocked: 'Blocked', done: 'Done' };
+
+/** Who made a move, in plain words: its agent, the reviewer, GitHub, or a person's name. */
+function whoMoved(by: string): string {
+  if (/^builder:/.test(by)) return 'Its agent';
+  if (/^reviewer:/.test(by)) return 'The reviewer';
+  if (by === 'acc sync' || /^sync/.test(by)) return 'GitHub';
+  return by.replace(/^human:/, '').replace(/^orchestrator.*/, 'acc');
+}
+
+/** A move as a sentence: "Its agent blocked it", "jordan moved it to In review". */
+function moveWords(h: { from: string | null; to: string; by: string }): string {
+  const who = whoMoved(h.by);
+  if (!h.from) return `${who} added it`;
+  if (h.to === 'blocked') return `${who} blocked it`;
+  if (h.to === 'running') return h.from === 'rework' ? `${who} sent it back to its agent` : `${who} started its agent`;
+  if (h.to === 'review') return `${who} moved it to In review`;
+  if (h.to === 'rework') return `${who} asked for changes`;
+  if (h.to === 'done') return `${who} marked it done`;
+  return `${who} moved it to ${STATE_WORD[h.to] ?? h.to}`;
+}
+
+/**
+ * Shows the first few lines of something long, with Show all to open the rest. `inner` names the part
+ * that's cut, when it isn't the whole element. Remembered per tab, by key.
+ */
+function foldable(key: string, content: HTMLElement, inner: string | null, lines: number): HTMLElement {
+  const open = memory().opened.includes(key);
+  const target = inner ? content.querySelector<HTMLElement>(`.${inner}`) ?? content : content;
+  const wrapEl = el('div', 'foldable', content);
+  if (open) target.classList.remove('clamped');
+  else { target.classList.add('clamped'); target.style.setProperty('--lines', String(lines)); }
+  const toggle = button(open ? 'Show less' : 'Show all', open ? 'chevron-up' : 'chevron-down', () => {
+    remember((x) => { x.opened = open ? x.opened.filter((y) => y !== key) : [...x.opened, key]; });
+    if (last) render(last);
+  }, 'ghost small fold-toggle');
+  wrapEl.append(toggle);
+  // A short one needs no toggle: checked once it's on the page.
+  requestAnimationFrame(() => { if (!open && target.scrollHeight <= target.clientHeight + 2) toggle.remove(); });
+  return wrapEl;
 }
 
 function clippedSpan(text: string): HTMLElement {
@@ -588,24 +687,63 @@ function questionCard(q: QuestionCard, opts: { watch: boolean }): HTMLElement {
   card.setAttribute('aria-label', `${q.who} ${q.title}`);
   const tools: Child[] = [];
   const watch = opts.watch ? button('Watch', 'pulse', () => api.postMessage({ type: 'run', command: 'acc.agent.watch', ref: { session: q.session } }), 'ghost small') : null;
-  const terminal = button('In the terminal', 'terminal', () => sendAnswer(q, { decision: 'terminal' }), 'ghost small');
-  terminal.title = 'Answer in Claude Code\'s own prompt instead: a terminal attaches to the session';
+  const terminal = el('span', 'q-aside-group',
+    button('In Claude Code', 'comment-discussion', () => api.postMessage({ type: 'run', command: 'acc.agent.openInClaude', ref: { session: q.session } }), 'ghost small'),
+    button('In the terminal', 'terminal', () => sendAnswer(q, { decision: 'terminal' }), 'ghost small'));
+  (terminal.firstChild as HTMLElement).title = 'Take its conversation over in a Claude Code tab: it stops in the background, and you carry on there';
+  (terminal.lastChild as HTMLElement).title = 'Answer in Claude Code\'s own prompt instead: a terminal attaches to the session';
 
   if (q.kind === 'permission') {
     if (q.detail && q.code) card.append(el('p', 'q-detail', q.detail));
     if (q.code) card.append(el('pre', 'q-code', q.code));
     else if (q.detail) card.append(el('div', 'q-detail q-plan', q.detail));
-    if (d.denying) {
-      const send = () => sendAnswer(q, { decision: 'deny', message: draftOf(q.id).reason });
-      const reason = keptInput(`deny:${q.id}`, d.reason, 'Tell it why, or what to do instead (optional)', (v) => saveDraft(q.id, (x) => { x.reason = v; }), send);
-      card.append(el('div', 'q-deny', reason, el('div', 'actions',
-        button('Deny', 'close', send, 'primary'),
-        button('Back', 'arrow-left', () => { saveDraft(q.id, (x) => { x.denying = false; }); if (last) render(last); }))));
-      requestAnimationFrame(() => { if (!document.activeElement || document.activeElement === document.body) reason.focus(); });
+    // Every answer its own prompt offers, numbered as there: click one, or press its number (D-038).
+    const pending = q.choices.find((c) => c.key === d.choice && c.needs);
+    if (pending) {
+      const isCommand = pending.needs === 'command';
+      const value = isCommand ? d.command ?? q.code ?? '' : d.reason;
+      const box = document.createElement('textarea');
+      box.className = `text-input q-words${isCommand ? ' mono' : ''}`;
+      box.rows = isCommand ? Math.min(8, Math.max(2, value.split('\n').length)) : 2;
+      box.value = value;
+      box.dataset.keep = `${pending.key}:${q.id}`;
+      box.placeholder = pending.needs === 'feedback' ? 'What should change in the plan?' : isCommand ? 'The command as it should run' : 'Tell it why, or what to do instead (optional)';
+      box.setAttribute('aria-label', box.placeholder);
+      const send = () => {
+        const v = box.value.trim();
+        if (isCommand && !v) return;
+        sendAnswer(q, isCommand ? { ...pending.answer, command: v } : { ...pending.answer, message: v });
+      };
+      box.addEventListener('input', () => saveDraft(q.id, (x) => { if (isCommand) x.command = box.value; else x.reason = box.value; }));
+      box.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey || !isCommand)) { e.preventDefault(); send(); } if (e.key === 'Escape') { saveDraft(q.id, (x) => { x.choice = undefined; }); if (last) render(last); } });
+      card.append(el('div', 'q-deny', el('div', 'q-pending', icon(pending.icon), el('span', 'strong', pending.label.replace(/…$/, ''))), box, el('div', 'actions',
+        button(isCommand ? 'Allow my version' : pending.needs === 'feedback' ? 'Keep planning' : 'Send', isCommand ? 'check' : 'send', send, 'primary'),
+        button('Back', 'arrow-left', () => { saveDraft(q.id, (x) => { x.choice = undefined; }); if (last) render(last); }))));
+      requestAnimationFrame(() => { if (!document.activeElement || document.activeElement === document.body) box.focus(); });
     } else {
-      tools.push(button('Allow', 'check', () => sendAnswer(q, { decision: 'allow' }), 'primary'));
-      if (q.always) tools.push(button(q.always, 'check-all', () => sendAnswer(q, { decision: 'allow', always: true })));
-      tools.push(button('Deny…', 'close', () => { saveDraft(q.id, (x) => { x.denying = true; }); if (last) render(last); }));
+      const list = el('ol', 'q-choices');
+      list.setAttribute('aria-label', 'Answers');
+      const pick = (c: typeof q.choices[number]) => {
+        if (c.needs) { saveDraft(q.id, (x) => { x.choice = c.key; }); if (last) render(last); return; }
+        sendAnswer(q, c.answer);
+      };
+      q.choices.forEach((c, i) => {
+        // One line each; what it means shows on hover and is read out, so the card stays short.
+        const words = c.label.split(/`([^`]+)`/).map((part, j) => (j % 2 ? el('code', 'q-rule', part) : document.createTextNode(part)));
+        const b = el('button', `q-choice${c.primary ? ' primary' : ''}`, el('span', 'q-num', String(i + 1)), icon(c.icon), el('span', 'q-choice-text', ...words)) as HTMLButtonElement;
+        b.type = 'button';
+        if (c.hint) { b.title = c.hint; b.setAttribute('aria-description', c.hint); }
+        b.addEventListener('click', () => pick(c));
+        list.append(el('li', '', b));
+      });
+      card.append(list);
+      card.tabIndex = -1;
+      card.addEventListener('keydown', (e) => {
+        if ((e.target as HTMLElement).closest('input, textarea')) return;
+        const n = Number(e.key);
+        const c = Number.isInteger(n) && n >= 1 ? q.choices[n - 1] : undefined;
+        if (c) { e.preventDefault(); pick(c); }
+      });
       tools.push(el('span', 'q-aside', terminal, watch));
     }
   } else {
@@ -788,29 +926,78 @@ function toolEntry(e: Extract<EntryView, { k: 'tool' }>): HTMLElement {
   return el('li', `entry tool${e.status === 'error' ? ' failed' : ''}`, details);
 }
 
+/** A run of tool steps in a few words: "8 steps: ran 5 commands, read 2 files, edited 1". */
+function stepsSummary(items: { tool: string }[]): string {
+  const n = (tools: string[]) => items.filter((t) => tools.includes(t.tool)).length;
+  const ran = n(['Bash']);
+  const read = n(['Read']);
+  const edited = n(['Edit', 'MultiEdit', 'Write', 'NotebookEdit']);
+  const searched = n(['Grep', 'Glob', 'WebSearch', 'WebFetch']);
+  const other = items.length - ran - read - edited - searched;
+  const parts = [ran ? `ran ${plural(ran, 'command')}` : '', read ? `read ${plural(read, 'file')}` : '', edited ? `edited ${edited}` : '', searched ? `searched ${searched}` : '', other ? `${other} more` : ''].filter(Boolean);
+  return `${items.length} steps: ${parts.join(', ')}`;
+}
+
 function renderAgent(m: AgentModel): Node[] {
   // A builder's page names its task, which opens the task's own page.
   const name = m.task ? openable(el('span', 'tcard-key', m.task.id), { type: 'run', command: 'acc.task.show', ref: { project: m.task.project, task: m.task.id } }) : el('span', '', m.name);
   const crumbs = el('div', 'crumbs', icon('hubot'), el('span', '', m.task ? 'Builder' : 'Agent'), el('span', 'muted', '/'), name, m.task && m.name !== m.task.id ? el('span', 'muted', `· ${m.name}`) : null);
   const facts = el('div', 'agent-facts muted small',
     m.startedAt ? el('span', '', `Started ${since(m.startedAt)}`) : null,
+    m.model ? el('span', '', el('span', 'sep', '·'), el('span', 'mono', m.model)) : null,
     m.lastAt ? el('span', '', el('span', 'sep', '·'), 'last active ', when(m.lastAt)) : null,
     m.where ? el('span', '', el('span', 'sep', '·'), el('span', 'mono', m.where)) : null);
   const out: Node[] = [el('header', 'ticket-head agent-head', crumbs, el('h1', 'ticket-title', m.task?.title ?? m.name), facts,
     el('div', 'ticket-bar', status(m.look), el('span', 'spacer'), el('div', 'actions', ...m.actions.map(actionButton))))];
   if (m.questions.length) out.push(el('section', 'agent-asks', ...m.questions.map((q) => questionCard(q, { watch: false }))));
   const recap = [...m.entries].reverse().find((e) => e.k === 'recap');
-  if (recap && recap.k === 'recap') out.push(el('div', 'notice recap', icon('info', 'blue'), el('span', '', el('strong', '', 'Where it got to: '), recap.text)));
+  if (recap && recap.k === 'recap') out.push(foldable(`recap:${m.key}`, el('div', 'notice recap', icon('info', 'blue'), el('div', 'why-text', el('strong', '', 'Where it got to: '), recap.text)), 'why-text', 2));
   if (!m.readable) {
     out.push(empty(m.live ? 'Its activity will show here as it works. Nothing is recorded yet.' : 'There\'s no record of this session\'s activity to show.',
       ...m.actions.filter((a) => a.command === 'acc.agent.attach').map(actionButton)));
     return out;
   }
   const list = el('ol', 'timeline');
-  if (m.hidden) list.append(el('li', 'entry muted small', `${plural(m.hidden, 'earlier step')} not shown.`));
+  // Runs of tool steps fold to one line each, except the latest run and any that failed or is running.
+  type Tool = Extract<EntryView, { k: 'tool' }>;
+  type Block = Exclude<EntryView, Tool> | { k: 'steps'; id: string; items: Tool[] };
+  const blocks: Block[] = [];
   for (const e of m.entries) {
     if (e.k === 'recap') continue;
-    if (e.k === 'tool') { list.append(toolEntry(e)); continue; }
+    const prev = blocks[blocks.length - 1];
+    if (e.k === 'tool') { if (prev?.k === 'steps') prev.items.push(e); else blocks.push({ k: 'steps', id: `steps:${e.id}`, items: [e] }); }
+    else blocks.push(e);
+  }
+  // The last 25 blocks, with the rest a click away.
+  const showKey = `earlier:${m.key}`;
+  const showAll = memory().opened.includes(showKey);
+  const shown = showAll ? blocks : blocks.slice(-25);
+  if (shown.length < blocks.length || m.hidden) {
+    list.append(el('li', 'entry earlier', button(`Show ${plural(blocks.length - shown.length + m.hidden, 'earlier step')}`, 'chevron-up', () => { remember((x) => { x.opened = [...x.opened, showKey]; }); if (last) render(last); }, 'ghost small')));
+  }
+  const lastSteps = [...shown].reverse().find((b) => b.k === 'steps');
+  for (const e of shown) {
+    if (e.k === 'recap') continue;
+    if (e.k === 'steps') {
+      const loud = e.items.filter((t) => t.status !== 'done');
+      if (e === lastSteps || e.items.length <= 2) { for (const t of e.items) list.append(toolEntry(t)); continue; }
+      const d = el('details', 'steps-details', el('summary', 'tool-line', el('span', 'tool-chev', icon('chevron-right')), icon('list-flat'),
+        el('span', 'tool-title', stepsSummary(e.items)), el('span', 'spacer'), loud.length ? status({ label: loud.some((t) => t.status === 'error') ? `${loud.length} failed` : 'Running', icon: loud.some((t) => t.status === 'error') ? 'warning' : 'sync~spin', tone: loud.some((t) => t.status === 'error') ? 'orange' : 'blue' }) : null)) as HTMLDetailsElement;
+      d.open = memory().opened.includes(e.id);
+      d.addEventListener('toggle', () => remember((x) => { x.opened = d.open ? [...new Set([...x.opened, e.id])] : x.opened.filter((y) => y !== e.id); }));
+      d.addEventListener('toggle', () => { if (d.open && !d.querySelector('ol')) d.append(el('ol', 'steps-list', ...e.items.map(toolEntry))); });
+      if (d.open) d.append(el('ol', 'steps-list', ...e.items.map(toolEntry)));
+      list.append(el('li', 'entry tool steps', d));
+      continue;
+    }
+    if (e.k === 'decision') {
+      // Your part of the conversation: what it asked, and what you said.
+      const d = e.decision;
+      list.append(el('li', `entry decision tone-row-${d.look.tone}`,
+        el('div', 'entry-who', icon('account'), el('span', 'strong', 'You'), e.at ? when(e.at) : null),
+        el('div', 'decision-body', el('div', 'muted small', `It ${d.asked}`), d.code ? el('pre', 'q-code', d.code) : null, status(d.look), d.detail ? el('div', 'history-detail', d.detail) : null)));
+      continue;
+    }
     if (e.k === 'prompt' && e.instructions) {
       const d = el('details', 'prompt-details', el('summary', '', icon('note'), el('strong', '', 'Task instructions'), el('span', 'muted small', ' · what it was given to do')), renderDoc(e.body, '')) as HTMLDetailsElement;
       d.open = memory().opened.includes(e.id);
@@ -962,17 +1149,64 @@ function renderOverview(m: HomeModel): Node[] {
     ready.append(el('div', 'list-row', openable(el('div', 'list-text', el('span', 'tcard-key', r.id), el('span', '', r.title)), { type: 'run', command: 'acc.task.show', ref: r.action.ref }),
       el('span', 'chip', r.environment), actionButton(r.action)));
   }
-  const activity = el('section', 'panel-box', el('h2', '', icon('history'), 'Recent activity'));
-  if (!o.activity.length) activity.append(el('p', 'muted quiet', 'Moves tasks make show up here.'));
-  const feed = el('ol', 'feed');
-  for (const a of o.activity) {
-    feed.append(el('li', '', el('span', 'feed-dot'), el('div', '',
-      el('div', '', el('span', 'tcard-key', a.task), ' ', el('span', '', a.title)),
-      el('div', 'muted small', when(a.at), ` · ${a.from ?? 'new'} → `, el('strong', '', a.to), ` · ${a.by.replace(/^human:/, '')}`, o.projects.length > 1 ? ` · ${a.project}` : ''))));
-  }
-  if (o.activity.length) activity.append(feed);
-  out.push(el('div', 'two-up', ready, activity));
+  // Ready work, then the full history below it, with the width to read it.
+  out.push(ready, renderHistory(o.history, o.projects.length > 1));
   return out;
+}
+
+/** History filters: everything, or one kind. Remembered for the tab. */
+const HISTORY_KINDS = [['all', 'All', 'list-flat'], ['answer', 'Your answers', 'comment-discussion'], ['move', 'Tasks', 'project'], ['run', 'Commands', 'terminal']] as const;
+
+/**
+ * Everything that happened, newest first, in its own scrolling box (D-037): your answers to agents'
+ * questions, task moves, and the commands acc ran. An answered question leaves this record behind.
+ */
+function renderHistory(items: HistoryItem[], manyProjects: boolean): HTMLElement {
+  const kind = memory().history ?? 'all';
+  const filters = el('div', 'segmented history-filters');
+  filters.setAttribute('role', 'group');
+  filters.setAttribute('aria-label', 'Show');
+  for (const [k, label, ic] of HISTORY_KINDS) {
+    const n = k === 'all' ? items.length : items.filter((i) => i.kind === k).length;
+    const b = el('button', `seg${kind === k ? ' on' : ''}`, icon(ic), label, n ? el('span', 'count', String(n)) : null) as HTMLButtonElement;
+    b.type = 'button';
+    b.setAttribute('aria-pressed', String(kind === k));
+    b.addEventListener('click', () => { remember((m) => { m.history = k; }); if (last) render(last); });
+    filters.append(b);
+  }
+  const box = el('section', 'panel-box history', el('div', 'history-head', el('h2', '', icon('history'), 'History'), filters));
+  const shown = items.filter((i) => kind === 'all' || i.kind === kind);
+  if (!shown.length) {
+    box.append(el('p', 'muted quiet', kind === 'answer' ? 'When you answer an agent, it\'s kept here.' : kind === 'run' ? 'Commands acc runs for you are kept here.' : 'What agents and tasks do shows up here.'));
+    return box;
+  }
+  const feed = el('ol', 'feed history-feed');
+  feed.tabIndex = 0;
+  feed.setAttribute('aria-label', 'History, newest first');
+  const where = (project: string) => (manyProjects && project ? ` · ${project}` : '');
+  for (const it of shown) {
+    if (it.kind === 'move') {
+      feed.append(el('li', '', el('span', 'feed-dot'), el('div', '',
+        el('div', '', el('span', 'tcard-key', it.task), ' ', el('span', '', it.title)),
+        el('div', 'muted small', when(it.at), ` · ${it.from ?? 'new'} → `, el('strong', '', it.to), ` · ${it.by.replace(/^human:/, '')}${where(it.project)}`))));
+    } else if (it.kind === 'answer') {
+      const d = it.decision;
+      // What it asked and what you decided, on the line itself; the full command and your words open below.
+      const summary = el('summary', '', el('div', 'history-line', el('strong', '', it.who), el('span', '', ` ${d.asked}`), d.code ? el('code', 'tool-code', d.code.split('\n')[0]!) : null),
+        el('div', 'muted small history-meta', when(it.at), where(it.project), el('span', 'sep', '·'), status(d.look)));
+      const body = el('div', 'history-body',
+        d.code ? el('pre', 'q-code', d.code) : null,
+        d.detail ? el('div', 'history-detail', d.detail) : null,
+        button('Watch', 'pulse', () => api.postMessage({ type: 'run', command: 'acc.agent.watch', ref: { session: it.session } }), 'ghost small'));
+      feed.append(el('li', 'history-answer', el('span', `feed-icon tone-${d.look.tone}`, icon(d.icon)), el('details', 'history-item', summary, body)));
+    } else {
+      const summary = el('summary', '', el('span', '', el('strong', '', it.label)), el('div', 'muted small', when(it.at), ' · ', status(it.look)));
+      feed.append(el('li', 'history-run', el('span', `feed-icon tone-${it.look.tone}`, icon('terminal')), el('details', 'history-item', summary,
+        el('div', 'history-body', el('div', 'mono muted small', `$ ${it.command}`), it.lines.length ? el('pre', 'tool-pre history-out', it.lines.join('\n')) : null))));
+    }
+  }
+  box.append(feed);
+  return box;
 }
 
 function renderHome(m: HomeModel): Node[] {
@@ -986,6 +1220,8 @@ function renderHome(m: HomeModel): Node[] {
   const main = el('div', 'home-main', ...content);
   main.tabIndex = -1;
   main.setAttribute('role', 'tabpanel');
+  // One board on the page: it fills the height below its heading, so all of it scrolls sideways.
+  if (current === 'tasks' && main.querySelectorAll('.board').length === 1) main.classList.add('fill-board');
   // The output panel sits under the section, on every section, while there's output to show.
   return [el('div', 'home', renderNav(m, current), el('div', 'home-col', main, renderDock(runs)))];
 }
@@ -994,6 +1230,18 @@ function renderAgents(m: AgentsModel): Node[] {
   const all = m.places.flatMap((p) => p.agents);
   const needs = all.filter((a) => a.needsYou).length;
   const out: Node[] = [header('Agents', m.error ?? `${plural(all.length, 'session')} on this machine${needs ? `, ${needs} need${needs === 1 ? 's' : ''} you` : ''}.`, toolbarButton('acc.agent.new', 'Start a background agent', 'add', m.places.find((p) => p.root)?.root ?? undefined, true))];
+  // What builders and reviewers run with, and what they bill (D-036).
+  for (const s of m.settings) {
+    const box = el('section', 'agent-settings', el('h2', '', icon('settings-gear'), m.settings.length > 1 ? `How agents run · ${s.project}` : 'How agents run'));
+    for (const r of s.roles) {
+      box.append(el('div', 'setting-row',
+        el('span', 'setting-name', icon(r.icon), el('span', 'strong', r.label)),
+        el('span', 'setting-parts', ...r.parts.map((p) => el('span', 'setting-part', el('span', 'muted', `${p.name} `), el('span', 'mono strong', p.value), el('span', 'muted small', ` · ${p.from}`)))),
+        argButton('acc.agents.configure', 'Change…', 'edit', `${r.role}|${s.root}`)));
+    }
+    if (s.billing) box.append(el('div', 'setting-billing', status(s.billing)));
+    out.push(box);
+  }
   if (!all.length) {
     out.push(empty('No Claude Code sessions are running. Background agents keep working when the terminal closes, and edit in their own worktree.'));
     return out;
@@ -1123,6 +1371,36 @@ function stepRun(r: RunCard | undefined, open: boolean): HTMLElement | null {
   return el('div', `step-run tone-row-${r.look.tone}`, status(r.look), el('span', 'muted mono step-run-cmd', r.command), show);
 }
 
+/**
+ * One setup step. To do: what's wrong, in a sentence, and what to do about it. Done: one muted line, with
+ * Check again on hover. The step's id stays out of sight; why it matters is the title's tooltip.
+ */
+function setupStep(s: SetupRow, live: RunCard[]): HTMLElement {
+  const title = el('span', 'strong', s.title);
+  if (s.why) title.title = s.why;
+  const run = stepRun(live.find((r) => r.step === s.id), !s.done);
+  if (s.done) {
+    const again = s.actions.find((a) => a.command === 'acc.step.check');
+    return el('li', 'step done', status(s.look), title, el('span', 'muted step-line', s.detail), run, again ? iconButton(again) : null);
+  }
+  return el('li', 'step attention',
+    el('div', 'step-head', status(s.look), title),
+    el('p', 'detail', s.detail),
+    s.fix ? el('pre', 'fix', s.fix) : null,
+    run,
+    el('div', 'actions', ...s.actions.map(actionButton)));
+}
+
+/** An action as a small icon button, named for screen readers and on hover. */
+function iconButton(a: Action): HTMLElement {
+  const b = el('button', 'icon-btn', icon(a.icon)) as HTMLButtonElement;
+  b.type = 'button';
+  b.title = `${a.label} again`;
+  b.setAttribute('aria-label', `${a.label} again`);
+  b.addEventListener('click', () => api.postMessage({ type: 'run', command: a.command, ref: a.ref }));
+  return b;
+}
+
 function renderSetup(m: SetupModel, live: RunCard[] = []): Node[] {
   const todo = m.total - m.done;
   const out: Node[] = [header('Setup', m.total ? `${m.done} of ${m.total} steps done${todo ? `. ${plural(todo, 'step')} to do.` : '. Everything is set up.'}` : 'Checking…',
@@ -1137,23 +1415,42 @@ function renderSetup(m: SetupModel, live: RunCard[] = []): Node[] {
     bar.append(fill);
     out.push(bar);
   }
+  // In the order you'd set things up, a section for each thing being set up (D-047). Done steps sit muted
+  // in one line; a section with nothing left to do folds away, unless you open it.
+  const opened = memory().sections ?? {};
   for (const part of m.parts) {
-    const list = el('ul', 'steps');
-    for (const s of part.steps) {
-      list.append(el('li', `step${s.look.tone === 'orange' ? ' attention' : ''}`,
-        el('div', 'step-head', status(s.look), el('span', 'strong', s.title), el('span', 'muted mono', s.id)),
-        el('p', 'detail', s.detail),
-        s.look.tone === 'orange' && s.why ? el('p', 'why', s.why) : null,
-        s.fix && s.look.tone === 'orange' ? el('pre', 'fix', s.fix) : null,
-        stepRun(live.find((r) => r.step === s.id), s.look.tone === 'orange'),
-        el('div', 'actions', ...s.actions.map(actionButton))));
-    }
-    out.push(el('section', 'block', el('h2', '', icon(part.part === 'machine' ? 'device-desktop' : 'repo'), part.label, el('span', 'count', part.todo ? `${part.todo} to do` : 'all done')), list));
+    const sections = part.sections.map((sec) => {
+      const key = `${part.part}:${sec.key}`;
+      const d = el('details', `setup-section${sec.todo ? '' : ' all-done'}`) as HTMLDetailsElement;
+      d.open = opened[key] ?? sec.todo > 0;
+      d.addEventListener('toggle', () => remember((x) => { x.sections = { ...(x.sections ?? {}), [key]: d.open }; }));
+      const count = sec.todo ? el('span', 'count tone-orange', `${sec.todo} to do`) : el('span', 'count done-count', icon('check'), sec.steps.length === 1 ? 'Done' : `All ${sec.steps.length} done`);
+      d.append(el('summary', '', el('span', 'tool-chev', icon('chevron-right')), el('span', 'setup-section-title', sec.title), count),
+        el('ul', 'steps', ...sec.steps.map((s) => setupStep(s, live))));
+      return d;
+    });
+    out.push(el('section', 'block', el('h2', '', icon(part.part === 'machine' ? 'device-desktop' : 'repo'), part.label, el('span', 'count', part.todo ? `${part.todo} to do` : 'all done')), ...sections));
   }
   return out;
 }
 
 let last: Model | null = null;
+
+/**
+ * A mouse wheel scrolls the board sideways wherever a lane wouldn't scroll itself: over a heading, the
+ * gaps between lanes, or a lane short enough to need no scrolling. Trackpads and Shift already go sideways.
+ */
+function wheelSideways(board: HTMLElement): void {
+  board.addEventListener('wheel', (e) => {
+    if (e.shiftKey || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+    const t = e.target as HTMLElement;
+    const lane = t.closest<HTMLElement>('.column');
+    const laneScrolls = !!lane && !t.closest('.column > h2') && lane.scrollHeight > lane.clientHeight + 1;
+    if (laneScrolls || board.scrollWidth <= board.clientWidth) return;
+    e.preventDefault();
+    board.scrollLeft += e.deltaY;
+  }, { passive: false });
+}
 
 /** Marks each board with the edges that have more lanes past them, for the fade. */
 function boardEdges(board: HTMLElement): void {
@@ -1169,7 +1466,7 @@ function boardEdges(board: HTMLElement): void {
 function render(model: Model): void {
   last = model;
   if (model.kind === 'home') runs = model.runs;
-  const scroller = document.querySelector('.home-main') ?? document.scrollingElement;
+  const scroller = document.querySelector('.home-main') ?? document.querySelector('.timeline') ?? document.scrollingElement;
   // Each board, and each of its lanes, keeps where it was scrolled to.
   const boards = [...document.querySelectorAll<HTMLElement>('.board')].map((b) => ({ x: b.scrollLeft, lanes: [...b.querySelectorAll<HTMLElement>('.column')].map((c) => c.scrollTop) }));
   const scroll = { y: scroller?.scrollTop ?? 0 };
@@ -1195,10 +1492,12 @@ function render(model: Model): void {
       b.querySelectorAll<HTMLElement>('.column').forEach((c, j) => { c.scrollTop = was.lanes[j] ?? 0; });
     }
     boardEdges(b);
+    wheelSideways(b);
   });
   const main = document.querySelector('.home-main');
+  const timeline = document.querySelector<HTMLElement>('.timeline');
   if (main && !scrolledTo) main.scrollTop = scroll.y;
-  else if (following) window.scrollTo(0, document.body.scrollHeight);
+  else if (timeline) timeline.scrollTop = following ? timeline.scrollHeight : scroll.y;
   else if (!main) window.scrollTo(0, scroll.y);
   scrolledTo = false;
   const box = document.querySelector<HTMLElement>('.dock-out');

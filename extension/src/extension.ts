@@ -3,8 +3,9 @@ import * as vscode from 'vscode';
 import { Hub } from './hub.ts';
 import type { Answer } from '../../packages/core/src/questions.ts';
 import { AgentPages } from './activity.ts';
-import { COMMANDS, isWebviewMenuContext, WALKTHROUGHS } from './logic.ts';
+import { CLAUDE_EXTENSION, claudeSessionUri, COMMANDS, isSessionId, isWebviewMenuContext, WALKTHROUGHS } from './logic.ts';
 import { type NavItem, needsYouCount, type Ref, sessionKey, VIEW_KINDS, type ViewKind } from './model.ts';
+import { Notices } from './notices.ts';
 import { Panels } from './panels.ts';
 import { accShellCommand, Questions, sessionSettings } from './questions.ts';
 import { Runs } from './runs.ts';
@@ -40,7 +41,7 @@ export function activate(context: vscode.ExtensionContext): void {
     t.show();
     t.sendText(command, true);
   };
-  const runs = new Runs(setup.log, inTerminal, dirname(accScript));
+  const runs = new Runs(setup.log, inTerminal, dirname(accScript), context.workspaceState);
   setup.useRuns(runs);
   context.subscriptions.push(runs);
   reg(COMMANDS.check, (a: unknown) => setup.check(stepId(a)));
@@ -61,15 +62,18 @@ export function activate(context: vscode.ExtensionContext): void {
   reg('acc.github.switch', (arg?: unknown) => identity.switch(arg));
   reg('acc.sf.login', () => setup.sfLogin());
 
-  // Poll only while the page is on screen, so VSCode stays light (the author's machine stutters under load).
-  const POLLS: Record<string, { everyMs: number; fn: () => Promise<void> }> = {
-    tasks: { everyMs: 3_000, fn: () => hub.loadTasks() },
-    agents: { everyMs: 5_000, fn: () => hub.loadAgents() },
+  // Poll quickly while the page is on screen, and slowly, for the status bar and notices, while it isn't
+  // (D-044). VSCode stays light: the author's machine stutters under load.
+  let pageVisible = false;
+  const inPlay = () => hub.projects.some((p) => hub.taskRows(p.root).some((t) => t.state === 'running' || !!t.reviewing));
+  const POLLS: Record<string, { everyMs: number; hiddenMs?: number; fn: () => Promise<void> }> = {
+    tasks: { everyMs: 3_000, hiddenMs: 15_000, fn: () => hub.loadTasks() },
+    agents: { everyMs: 5_000, hiddenMs: 30_000, fn: () => (pageVisible || inPlay() ? hub.loadAgents() : Promise.resolve()) },
     worktrees: { everyMs: 15_000, fn: () => hub.loadWorktrees() },
     // Tracker boards are network calls, so they refresh slowly, and at once after any move.
     boards: { everyMs: 120_000, fn: () => trackers.loadBoards() },
     // Open pull requests (D-033): merged → done, closed → blocked, failing checks → needs you.
-    prs: { everyMs: 120_000, fn: async () => {
+    prs: { everyMs: 120_000, hiddenMs: 300_000, fn: async () => {
       for (const p of hub.projects) {
         if (!hub.taskRows(p.root).some((t) => t.pr?.state === 'open')) continue;
         const r = await accRunner(accScript)(['sync', '--json'], p.root);
@@ -78,7 +82,13 @@ export function activate(context: vscode.ExtensionContext): void {
       await hub.loadTasks();
     } },
   };
-  const pagePolls = (on: boolean) => { for (const [key, p] of Object.entries(POLLS)) hub.poll(key, p.everyMs, p.fn, on); };
+  const pagePolls = (visible: boolean) => {
+    pageVisible = visible;
+    for (const [key, p] of Object.entries(POLLS)) {
+      const ms = visible ? p.everyMs : p.hiddenMs;
+      hub.poll(key, ms ?? 0, p.fn, !!ms);
+    }
+  };
 
   // ------------------------------------------------------------ the same views as editor tabs
   /** Turns a tab's Ref back into the sidebar's node, so every command works the same from either place. */
@@ -122,18 +132,20 @@ export function activate(context: vscode.ExtensionContext): void {
   };
   const pages = new AgentPages(context, hub, resolve, answer);
   context.subscriptions.push(pages);
-  new Sidebar(hub, accRunner(accScript), setup.log, (root, key) => tickets.show(root, undefined, key), {
+  const sidebar = new Sidebar(hub, accRunner(accScript), setup.log, (root, key) => tickets.show(root, undefined, key), {
     run: (command, cwd, label, onExit) => void runs.start(command, { cwd, label, onExit }),
     watch: (key, ended, active) => pages.open(key, ended, active),
     sessionSettings: sessionSettings(accScript),
     accCommand: accShellCommand(accScript),
+    openLater: async (folder, sessionId) => { await context.globalState.update(OPEN_LATER, { folder, sessionId, at: Date.now() }); },
     // acc land can't post to Jira or Azure DevOps itself; this repo's sign-in does, as you (D-027, D-033).
     comment: async (project, kind, key, text) => {
       const index = trackers.trackers(project).findIndex((t) => t.kind === kind);
       if (index < 0) throw new Error(`this repo has no ${kind === 'jira' ? 'Jira' : 'Azure DevOps'} tracker`);
       await (await trackers.client(project, index)).comment(key, text);
     },
-  }).register(regNode);
+  });
+  sidebar.register(regNode);
   const panels = new Panels(context, hub, setup, resolve, (visible) => pagePolls(visible), {
     boards: (root) => trackers.boardStates(root),
     identity: (root) => identity.card(root),
@@ -149,12 +161,15 @@ export function activate(context: vscode.ExtensionContext): void {
         panels.post();
       }
     },
+    moveTask: async (root, task, lane) => { const p = hub.project(root); if (p) await sidebar.moveToLane(p, task, lane); },
     answer,
     runs: () => runs.views(),
     runInput: (id, text) => void runs.input(id, text),
     runControl: (id, action) => runs.control(id, action),
   });
   context.subscriptions.push(panels, tickets);
+  const notices = new Notices(hub, resolve, () => panels.visible() && ['overview', 'tasks'].includes(panels.current()));
+  context.subscriptions.push(notices);
   questions = new Questions(hub, setup.log,
     (card) => { if (!pages.open(card.session)) panels.show('overview'); },
     (card) => (panels.visible() && panels.current() === 'overview') || pages.showing(card.sessionId));
@@ -185,6 +200,7 @@ export function activate(context: vscode.ExtensionContext): void {
     launcher.refresh();
     const n = needsYouCount(panels.model().overview);
     launcherView.badge = n ? { value: n, tooltip: `${n} thing${n === 1 ? '' : 's'} need${n === 1 ? 's' : ''} you` } : undefined;
+    notices.update(n);
   };
   trackers.onDidChange(changed);
   identity.onDidChange(changed);
@@ -229,8 +245,31 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(configWatch);
   setup.watch();
 
-  void hub.loadProjects().then(() => { questions?.start(); return hub.loadAgents(); });
+  void hub.loadProjects().then(() => { questions?.start(); return hub.loadAgents(); }).then(() => {
+    notices.arm();
+    pagePolls(panels.visible());
+  });
+  void openPendingConversation(context);
   void setup.refresh('startup', { reuseMachine: true }).then(() => setup.maybeOpenWalkthroughs());
+}
+
+const OPEN_LATER = 'acc.openInClaude.pending';
+
+/**
+ * A conversation another window asked this one to open (D-040): this window's folder is the session's
+ * own, so Claude Code finds it here. Asked for within the last two minutes, or not at all.
+ */
+async function openPendingConversation(context: vscode.ExtensionContext): Promise<void> {
+  const p = context.globalState.get<{ folder: string; sessionId: string; at: number }>(OPEN_LATER);
+  if (!p || Date.now() - p.at > 120_000 || !isSessionId(p.sessionId)) return;
+  if (!(vscode.workspace.workspaceFolders ?? []).some((f) => f.uri.fsPath === p.folder)) return;
+  await context.globalState.update(OPEN_LATER, undefined);
+  try {
+    await vscode.extensions.getExtension(CLAUDE_EXTENSION)?.activate();
+  } catch {
+    // it activates on its own when the link arrives
+  }
+  await vscode.env.openExternal(vscode.Uri.parse(claudeSessionUri(vscode.env.uriScheme, p.sessionId)));
 }
 
 /** The sidebar's one view: the page's sections, each opening it there, with what needs you beside it. */

@@ -261,6 +261,13 @@ export function agentLook(s: AgentSession, asking?: string | null): AgentLook {
   return { label: s.pid ? 'Idle' : 'Idle (exited)', icon: 'circle-outline', tone: 'neutral', needsYou: false };
 }
 
+/** Claude Code for VSCode (D-040): its documented link opens a session's conversation in a tab. */
+export const CLAUDE_EXTENSION = 'anthropic.claude-code';
+export const claudeSessionUri = (scheme: string, sessionId: string, prompt?: string): string =>
+  `${scheme}://${CLAUDE_EXTENSION}/open?session=${encodeURIComponent(sessionId)}${prompt ? `&prompt=${encodeURIComponent(prompt)}` : ''}`;
+/** Session ids Claude Code's link takes: UUIDs, not the short background id. */
+export const isSessionId = (v: string | undefined): v is string => !!v && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+
 export const isUnder = (path: string, root: string): boolean => path === root || path.startsWith(root.endsWith('/') ? root : `${root}/`);
 
 export interface Worktree {
@@ -388,3 +395,85 @@ export function promptOf(partial: string): RunPrompt | null {
 
 /** Commands that need a real terminal: they read the keyboard directly, or talk to you in their own screen. */
 export const needsTerminal = (command: string): boolean => /^\s*(claude(\s*$|\s+(?!update\b)[^-])|claude\s*#|sudo\b|ssh\b|vi\b|vim\b|nano\b|gh auth login\b|.*\|\s*less\b)/.test(command) || hasPlaceholder(command);
+
+// ---------------------------------------------------------------- what changed, said once (D-044)
+
+export type NoticeKind = 'waiting' | 'review' | 'passed' | 'rework' | 'blocked' | 'ci-failed' | 'changes' | 'merged';
+
+export interface TaskNotice {
+  kind: NoticeKind;
+  task: string;
+  text: string;
+  /** Needs a person: shown as a warning. The rest are news. */
+  urgent: boolean;
+}
+
+/**
+ * What a person would want to hear about, from how a project's tasks looked before and after a reload:
+ * a builder finished, a review passed or asked for changes, an agent waits on its own prompt, a pull
+ * request's checks failed or were merged. A task seen for the first time says nothing, so opening VSCode
+ * doesn't replay the board. A question waiting in the Command Center has its own notice (D-030).
+ */
+export function taskNotices(before: TaskRow[], after: TaskRow[]): TaskNotice[] {
+  const was = new Map(before.map((t) => [t.id, t]));
+  const out: TaskNotice[] = [];
+  for (const t of after) {
+    const p = was.get(t.id);
+    if (!p) continue;
+    const say = (kind: NoticeKind, text: string, urgent: boolean) => out.push({ kind, task: t.id, text, urgent });
+    const moved = p.state !== t.state;
+    if (moved && p.state === 'running' && t.state === 'review') say('review', `${t.id} is ready for review: ${t.title}`, false);
+    else if (moved && t.state === 'rework') say('rework', `The review asked for changes on ${t.id}${t.review?.summary ? `: ${t.review.summary}` : '.'}`, true);
+    else if (moved && t.state === 'blocked') say('blocked', `${t.id} is blocked: ${t.title}`, true);
+    if (t.display === 'needs-you' && p.display !== 'needs-you' && t.state === 'running' && !t.asking) say('waiting', `${t.id}'s agent is waiting for you in its own prompt.`, true);
+    const passed = (r: TaskRow) => r.state === 'review' && r.review?.verdict === 'pass' && r.review.current && !r.pr;
+    if (passed(t) && !passed(p)) say('passed', `The review passed ${t.id}. It's ready to land.`, false);
+    const pr = t.pr;
+    if (pr?.state === 'open' && pr.ci === 'failing' && p.pr?.ci !== 'failing') say('ci-failed', `Checks failed on pull request #${pr.number} (${t.id}).`, true);
+    if (pr?.state === 'open' && pr.changesRequested && !p.pr?.changesRequested) say('changes', `A reviewer asked for changes on pull request #${pr.number} (${t.id}).`, true);
+    if (pr?.state === 'merged' && p.pr?.state !== 'merged') say('merged', `Pull request #${pr.number} merged. ${t.id} is done.`, false);
+  }
+  return out;
+}
+
+/** The buttons a notice offers, as [label, command] pairs. The task's page is always the last. */
+export function noticeActions(n: TaskNotice): [label: string, command: string][] {
+  const first: Partial<Record<NoticeKind, [string, string]>> = {
+    waiting: ['Open in Claude Code', 'acc.task.openInClaude'],
+    review: ['Review', 'acc.task.review'],
+    passed: ['Land', 'acc.task.land'],
+    rework: ['Re-dispatch', 'acc.task.dispatch'],
+    'ci-failed': ['Open pull request', 'acc.task.openPr'],
+    changes: ['Open pull request', 'acc.task.openPr'],
+  };
+  const a = first[n.kind];
+  return [...(a ? [a] : []), ['Show', 'acc.task.show']];
+}
+
+export interface StatusSummary {
+  /** Empty when nothing is in play: the item hides. */
+  text: string;
+  tooltip: string;
+  attention: boolean;
+}
+
+/**
+ * The status bar's one line on the swarm: what needs you, what's running, what's in review. Each count
+ * has its icon and its words, so it reads without colour.
+ */
+export function statusSummary(rows: Pick<TaskRow, 'id' | 'title' | 'display'>[], needsYou: number): StatusSummary {
+  const running = rows.filter((r) => r.display === 'running');
+  const review = rows.filter((r) => r.display === 'review');
+  const parts = [
+    needsYou ? `$(bell) ${needsYou} need${needsYou === 1 ? 's' : ''} you` : '',
+    running.length ? `$(sync) ${running.length} running` : '',
+    review.length ? `$(eye) ${review.length} in review` : '',
+  ].filter(Boolean);
+  const list = (label: string, rs: typeof rows) => (rs.length ? [`${label}: ${rs.map((r) => r.id).join(', ')}`] : []);
+  const tooltip = [
+    needsYou ? `${needsYou} thing${needsYou === 1 ? '' : 's'} need${needsYou === 1 ? 's' : ''} you` : '',
+    ...list('Running', running),
+    ...list('In review', review),
+  ].filter(Boolean).join('\n');
+  return { text: parts.join('  '), tooltip: tooltip ? `${tooltip}\n\nOpen the Command Center` : '', attention: needsYou > 0 };
+}

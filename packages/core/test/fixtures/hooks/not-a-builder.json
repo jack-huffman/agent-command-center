@@ -1,0 +1,13 @@
+{
+  "event": "pre-tool-use",
+  "env": {},
+  "input": {
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "git push origin main"
+    },
+    "hook_event_name": "PreToolUse",
+    "cwd": "{root}"
+  },
+  "expect": "none"
+}

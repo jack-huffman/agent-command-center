@@ -41,7 +41,24 @@ Salesforce. Project types plug in as profiles.
 - **Guided setup, all of it:** the baseline manifest, the environment branches,
   the two lists and the README's environments table each have a **Do it** in
   the walkthrough. No terminal needed.
-- **Next:** M5's first real pull request, then M6, the plugin.
+- **How agents run:** builders and reviewers each have a model, effort and
+  fallback, for this clone or the whole project, changed from the Agents
+  section.
+- **History:** what agents asked and what you answered stays on the page: in
+  each agent's timeline, and in the Overview's History with the task moves and
+  commands.
+- **M5 done:** the first real ticket went all the way: issue #9, built by an
+  agent, checked, reviewed by another agent, and opened as pull request #10.
+- **M6 done: the plugin.** `claude --plugin-dir plugin` (or the marketplace in
+  this repo) adds acc's skills, the reviewer agent and the hooks that keep
+  builders in their worktree and away from pushes, merges and deploys.
+- **M7: three agents at once.** Three builders ran together on issues #11 to
+  #13, each in its own worktree, with their checks taking turns on the
+  machine's heavy slot. A status bar item says what needs you, what's running
+  and what's in review. A notice says when a builder finishes, a review passes
+  or asks for changes, or a pull request's checks fail. **Intake** gathers the
+  ways work comes in, and **Instructions** opens a builder's packet.
+- **Next:** M8, the pilots.
 
 Install the extension with `npm run package && npm run install-extension`, then
 reload the VSCode window.

@@ -31,7 +31,7 @@ test('a tracker board keeps the tracker\'s columns, places cards by status, and 
   assert.deepEqual(ready!.assignees, [{ name: 'Pat Lee', initials: 'PL' }]);
   assert.equal(untracked!.acc, null, 'a ticket acc doesn\'t keep has no agent badge');
   const waiting = b.columns[1]!.cards[0]!;
-  assert.deepEqual([waiting.acc!.needsYou, waiting.acc!.look.label, waiting.acc!.action!.command], [true, 'Needs you: permission prompt', 'acc.task.attach']);
+  assert.deepEqual([waiting.acc!.needsYou, waiting.acc!.look.label, waiting.acc!.action!.command], [true, 'Needs you: permission prompt', 'acc.task.openInClaude'], 'waiting in its own terminal: open its conversation in Claude Code');
   assert.equal(trackerBoard({ ...board(), board: null, error: 'Connect to Jira', connect: { command: 'acc.trackers.signIn', label: 'Sign in to Jira', arg: '{"root":"/r","index":0}' } }, [], '/r').columns.length, 0);
 });
 

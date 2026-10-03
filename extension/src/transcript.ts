@@ -6,7 +6,8 @@
  * a record it doesn't recognise is skipped, never an error, and the page links to the terminal when
  * nothing could be read. No vscode import, so it's testable.
  */
-import { basename, relative } from 'node:path';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { basename, join, relative } from 'node:path';
 
 export type ToolStatus = 'running' | 'done' | 'error';
 
@@ -25,15 +26,53 @@ export interface Transcript {
   cwd: string | null;
   /** When the last record was written, for "last active". */
   lastAt: string | null;
+  /** The model its latest answer came from (D-036). */
+  model: string | null;
   /** Records read, and how many of them meant something here. */
   read: number;
   used: number;
 }
 
-export const emptyTranscript = (): Transcript => ({ entries: [], open: new Map(), cwd: null, lastAt: null, read: 0, used: 0 });
+export const emptyTranscript = (): Transcript => ({ entries: [], open: new Map(), cwd: null, lastAt: null, model: null, read: 0, used: 0 });
 
 /** Where Claude Code keeps a session's transcript: its folder, with every other character a dash. */
 export const transcriptDir = (projectsDir: string, cwd: string): string => `${projectsDir}/${cwd.replace(/[^A-Za-z0-9]/g, '-')}`;
+
+/**
+ * The folder a conversation is saved under, which is the only window Claude Code for VSCode opens it in
+ * (D-041). `claude agents` can report where a background session started, the main checkout, though it
+ * saved its conversation under the worktree it moved into; and the window asking may belong to another
+ * repo altogether (D-046). So the file itself is found: first under the likely folders, then anywhere in
+ * Claude Code's projects. The folder is the cwd the conversation recorded whose name matches its own.
+ */
+export function savedFolder(projectsDir: string, sessionId: string, likely: (string | null | undefined)[]): string | null {
+  const file = `${sessionId}.jsonl`;
+  for (const f of new Set(likely.filter((c): c is string => !!c))) if (existsSync(join(transcriptDir(projectsDir, f), file))) return f;
+  let dirs: string[];
+  try {
+    dirs = readdirSync(projectsDir);
+  } catch {
+    return null;
+  }
+  const dir = dirs.find((d) => existsSync(join(projectsDir, d, file)));
+  if (!dir) return null;
+  let text: string;
+  try {
+    text = readFileSync(join(projectsDir, dir, file), 'utf8');
+  } catch {
+    return null;
+  }
+  for (const m of text.matchAll(/"cwd":("(?:[^"\\]|\\.)*")/g)) {
+    let cwd: unknown;
+    try {
+      cwd = JSON.parse(m[1]!);
+    } catch {
+      continue;
+    }
+    if (typeof cwd === 'string' && transcriptDir(projectsDir, cwd) === `${projectsDir}/${dir}`) return cwd;
+  }
+  return null;
+}
 
 const RESULT_LINES = 40;
 const RESULT_CHARS = 6000;
@@ -131,7 +170,8 @@ export function foldTranscript(t: Transcript, lines: string[]): Transcript {
     const content = r.message?.content;
 
     if (r.type === 'system' && r.subtype === 'away_summary' && str(r.content)) {
-      t.entries.push({ k: 'recap', id, at, text: r.content });
+      // Claude Code ends its recap with a hint about its own settings, which isn't news here.
+      t.entries.push({ k: 'recap', id, at, text: r.content.replace(/\s*\(disable recaps in \/config\)\s*$/i, '') });
       t.used++;
     } else if (r.type === 'user' && !r.isMeta) {
       if (typeof content === 'string') {
@@ -161,6 +201,7 @@ export function foldTranscript(t: Transcript, lines: string[]): Transcript {
         }
       }
     } else if (r.type === 'assistant' && Array.isArray(content)) {
+      if (typeof r.message?.model === 'string' && r.message.model !== '<synthetic>') t.model = r.message.model;
       for (const [n, b] of content.entries()) {
         if (b?.type === 'text' && str(b.text)) {
           t.entries.push({ k: 'say', id: `${id}:${n}`, at, text: b.text.trim() });
