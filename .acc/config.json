@@ -24,7 +24,10 @@
   "knownDrift": null,
   "trackers": [
     {
-      "kind": "github"
+      "kind": "github",
+      "skipLabels": [
+        "milestone"
+      ]
     }
   ],
   "agents": {
