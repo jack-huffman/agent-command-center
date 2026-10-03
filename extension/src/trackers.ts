@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import * as vscode from 'vscode';
-import type { Tracker } from '../../packages/core/src/config.ts';
+import { type Tracker, withTracker } from '../../packages/core/src/config.ts';
 import { AzureClient, azureBoards, azureProjects, azureTeams, azureWhoAmI, tenantOf } from '../../packages/core/src/trackers/azure.ts';
 import { GithubClient } from '../../packages/core/src/trackers/github.ts';
 import { JiraClient, jiraBoards, jiraProjects } from '../../packages/core/src/trackers/jira.ts';
@@ -447,8 +447,7 @@ export class Trackers implements vscode.Disposable {
   private writeTracker(p: Project, tracker: Record<string, unknown>): void {
     const file = join(p.root, '.acc', 'config.json');
     const raw = JSON.parse(readFileSync(file, 'utf8')) as { trackers?: Record<string, unknown>[] };
-    const same = (t: Record<string, unknown>) => t.kind === tracker.kind && t.project === tracker.project && (t.site ?? t.organization ?? t.repo) === (tracker.site ?? tracker.organization ?? tracker.repo);
-    raw.trackers = [...(raw.trackers ?? []).filter((t) => !same(t)), tracker];
+    raw.trackers = withTracker(raw.trackers ?? [], tracker);
     writeFileSync(file, JSON.stringify(raw, null, 2) + '\n');
   }
 }
