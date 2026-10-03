@@ -163,6 +163,13 @@ function parseConfig(raw) {
         errors.push(`trackers[${i}]: a Jira tracker needs "site" and "project".`);
         return;
       }
+      if (t.skipLabels !== void 0 && !(Array.isArray(t.skipLabels) && t.skipLabels.every(isStr))) {
+        errors.push(`trackers[${i}]: "skipLabels" must be a list of label names, such as ["milestone"].`);
+        return;
+      }
+      if (t.kind !== "github" && Array.isArray(t.skipLabels) && t.skipLabels.length) {
+        warnings.push(`trackers[${i}]: "skipLabels" applies only to a GitHub tracker, so it's ignored.`);
+      }
       const boardOk = t.board === void 0 || t.board === null || (t.kind === "azure" ? isStr(t.board) : Number.isInteger(t.board) && t.board > 0);
       if (!boardOk) {
         errors.push(`trackers[${i}]: "board" must be ${t.kind === "azure" ? "an Azure board's name, such as Stories" : "a Jira board id or a GitHub Project number"}.`);
@@ -176,7 +183,8 @@ function parseConfig(raw) {
         organization: isStr(t.organization) ? t.organization : null,
         team: isStr(t.team) ? t.team : null,
         board: Number.isInteger(t.board) || isStr(t.board) ? t.board : null,
-        prefix: isStr(t.prefix) ? t.prefix.toUpperCase() : null
+        prefix: isStr(t.prefix) ? t.prefix.toUpperCase() : null,
+        skipLabels: t.kind === "github" && strList(t.skipLabels) ? t.skipLabels : []
       });
     });
   }
@@ -561,6 +569,8 @@ var RULES = [
   { from: "review", to: "rework", actors: ["reviewer", "human"], requires: ["reason"] },
   { from: "rework", to: "running", actors: ["human", "orchestrator"], requires: ["underCap", "envNotProtected"] },
   { from: "review", to: "done", actors: ["sync", "human"], requires: [] },
+  // Its issue was closed on GitHub before anyone started it: acc intake moves it.
+  { from: "todo", to: "done", actors: ["sync"], requires: [] },
   { from: "running", to: "todo", actors: ["human"], requires: ["reason"] },
   { from: "done", to: "rework", actors: ["human", "sync"], requires: ["reason"] },
   { from: "blocked", to: "todo", actors: ["human"], requires: [] },
@@ -782,6 +792,10 @@ function lastLine(text) {
 }
 var shellLine = (cmd, args) => [cmd, ...args].map((a) => /^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`).join(" ");
 var exitRead = (r) => r.code === 0 ? pass("Passed.") : r.code === 127 ? error(lastLine(r.stderr) || "The command wasn't found.") : fail(lastLine(r.stdout + "\n" + r.stderr) || `Exited with ${r.code}.`);
+function checkEnv(env = process.env, heavyDir2) {
+  const { ACC_ROLE: _role, ACC_TASK: _task, ...rest } = env;
+  return heavyDir2 ? { ...rest, ACC_HEAVY_DIR: heavyDir2 } : rest;
+}
 function commandGate(name, command, heavy) {
   return { name, heavy, about: command, plan: () => ({ cmd: "sh", args: ["-c", command], read: exitRead }) };
 }
@@ -1063,7 +1077,7 @@ function runGates(paths, config, env, names, tests, deps) {
       assertCheckOnly(plan.cmd, plan.args);
       command = shellLine(plan.cmd, plan.args);
       const [cmd, args] = niced(plan.cmd, plan.args);
-      const exec = () => deps.run(cmd, args, { cwd: root, timeoutMs: (gate.heavy ? 90 : 20) * 6e4, env: plan.cmd === "sf" ? sfEnv() : process.env });
+      const exec = () => deps.run(cmd, args, { cwd: root, timeoutMs: (gate.heavy ? 90 : 20) * 6e4, env: plan.cmd === "sf" ? sfEnv() : checkEnv(process.env, gate.heavy ? join5(input.scratch, "heavy") : void 0) });
       const r = gate.heavy ? withSlot(exec, { ...deps.slots, onWait: () => deps.onWait?.(gate) }) : exec();
       log = join5(input.scratch, `${gate.name}.log`);
       writeFileSync6(log, `$ ${command}
@@ -1298,6 +1312,71 @@ function githubIssuesToTasks(issues, environment) {
     deps: depsFromBody(i.body).filter((d) => d !== `#${i.number}`),
     labels: (i.labels ?? []).map((l) => l.name),
     ...environment ? { environment } : {}
+  }));
+}
+function skipLabelOf(issue, skip3) {
+  const names = new Set(skip3.map((s) => s.toLowerCase()));
+  return (issue.labels ?? []).map((l) => l.name).find((n) => names.has(n.toLowerCase())) ?? null;
+}
+var neverStarted = (t) => t.state === "todo" && !t.run;
+var issueNumber = (t) => {
+  const n = t.source.kind === "github" ? /^GH-(\d+)$/.exec(t.id)?.[1] : void 0;
+  return n ? Number(n) : null;
+};
+function reconcileGithub(ledger, config, issues, skip3, emit, now2) {
+  const res = { closed: [], removed: [], leftAlone: [] };
+  const by = "acc intake";
+  for (const t of [...ledger.tasks]) {
+    const n = issueNumber(t);
+    const issue = n === null || t.state === "done" ? void 0 : issues.get(n);
+    if (!issue) continue;
+    const key = `#${n}`;
+    const label = skipLabelOf(issue, skip3);
+    if (label) {
+      if (neverStarted(t)) {
+        ledger.tasks.splice(ledger.tasks.indexOf(t), 1);
+        emit({ type: "task.removed", task: t.id, actor: "sync", by, data: { reason: `Issue ${key} has the label "${label}", which isn't imported.`, title: t.title, source: t.source } });
+        res.removed.push(t.id);
+      } else res.leftAlone.push({ task: t.id, issue: key, state: t.state, note: `${key} has the label "${label}"; ${t.id} is still ${t.state}` });
+      continue;
+    }
+    if (issue.state?.toUpperCase() !== "CLOSED") continue;
+    const req = { to: "done", actor: "sync", by, reason: `Issue ${key} was closed on GitHub.` };
+    if (neverStarted(t) && !checkMove(ledger, config, t, req, noGateHooks).length) {
+      applyMove(t, req, emit, now2);
+      res.closed.push(t.id);
+    } else res.leftAlone.push({ task: t.id, issue: key, state: t.state, note: `${key} was closed on GitHub; ${t.id} is still ${t.state}` });
+  }
+  return res;
+}
+function intakeGithub(paths, config, deps, opts) {
+  const { run: run2, now: now2 } = deps;
+  const gh = config.github;
+  if (!gh) throw new AccError("no-github", 'This project has no "github" section in .acc/config.json.');
+  const token = run2("gh", ["auth", "token", "-u", gh.account]);
+  if (token.code !== 0) throw new AccError("no-github", `gh isn't logged in as ${gh.account}. Run: gh auth login`);
+  const env = { ...deps.env, GH_TOKEN: token.stdout.trim() };
+  const args = ["issue", "list", "-R", gh.repo, "--state", "open", "--limit", "500", "--json", "number,title,body,url,labels"];
+  if (opts.label) args.push("--label", opts.label);
+  const r = run2("gh", args, { env });
+  if (r.code !== 0) throw new AccError("github", `Couldn't list issues on ${gh.repo}: ${r.stderr.trim().split("\n")[0]}`);
+  const open = JSON.parse(r.stdout);
+  const skip3 = config.trackers.find((t) => t.kind === "github" && (t.repo ?? gh.repo) === gh.repo)?.skipLabels ?? [];
+  const issues = new Map(open.map((i) => [i.number, { ...i, state: "OPEN" }]));
+  for (const t of readLedger(paths.ledger).tasks) {
+    const n = issueNumber(t);
+    if (n === null || t.state === "done" || issues.has(n)) continue;
+    const v = run2("gh", ["issue", "view", String(n), "-R", gh.repo, "--json", "number,state,labels"], { env, timeoutMs: 6e4 });
+    if (v.code !== 0) continue;
+    try {
+      issues.set(n, JSON.parse(v.stdout));
+    } catch {
+    }
+  }
+  const inputs = githubIssuesToTasks(open.filter((i) => !skipLabelOf(i, skip3)));
+  return mutate(paths, now2, (ledger, emit) => ({
+    ...upsertTasks(ledger, config, inputs, opts.actor, opts.by, emit, now2),
+    ...reconcileGithub(ledger, config, issues, skip3, emit, now2)
   }));
 }
 
@@ -4121,7 +4200,8 @@ Setup
 Tasks
   acc add "<title>" [--brief <text>] [--dep <id>]... [--env <branch>] [--key <T-n>]
   acc import [--file <tasks.json>]      Add or refresh tasks from JSON (stdin by default)
-  acc intake github [--label <l>]       Add or refresh tasks from the repo's open GitHub issues
+  acc intake github [--label <l>]       Add or refresh tasks from the repo's open GitHub issues. A task not
+                                        started yet leaves the board when its issue closes or has a skipLabels label
   acc list [--state <state>]
   acc ready
   acc show <id>
@@ -4283,29 +4363,30 @@ function readInput(file) {
     throw new AccError("usage", `The input isn't valid JSON: ${e.message}`);
   }
 }
+var upsertLines = (res) => [
+  res.added.length ? `Added ${res.added.join(", ")}` : "",
+  res.updated.length ? `Updated ${res.updated.join(", ")}` : "",
+  res.unchanged.length ? `Unchanged ${res.unchanged.join(", ")}` : "",
+  ...res.errors.map((e) => tone(`\u2717 ${e}`, "orange"))
+];
 function upsert(o, inputs) {
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
   const res = mutate(paths, now, (ledger, emit) => upsertTasks(ledger, config, inputs, actor, by, emit, now));
-  out(o, () => [
-    res.added.length ? `Added ${res.added.join(", ")}` : "",
-    res.updated.length ? `Updated ${res.updated.join(", ")}` : "",
-    res.unchanged.length ? `Unchanged ${res.unchanged.join(", ")}` : "",
-    ...res.errors.map((e) => tone(`\u2717 ${e}`, "orange"))
-  ].filter(Boolean).join("\n") || "Nothing to do.", res);
+  out(o, () => upsertLines(res).filter(Boolean).join("\n") || "Nothing to do.", res);
   return res.errors.length ? 1 : 0;
 }
 function cmdIntakeGithub(o) {
-  const { config } = project(process.cwd());
-  const gh = config.github;
-  if (!gh) throw new AccError("no-github", 'This project has no "github" section in .acc/config.json.');
-  const token = run("gh", ["auth", "token", "-u", gh.account]);
-  if (token.code !== 0) throw new AccError("no-github", `gh isn't logged in as ${gh.account}. Run: gh auth login`);
-  const args = ["issue", "list", "-R", gh.repo, "--state", "open", "--limit", "500", "--json", "number,title,body,url,labels"];
-  if (o.label) args.push("--label", o.label);
-  const r = run("gh", args, { env: { ...process.env, GH_TOKEN: token.stdout.trim() } });
-  if (r.code !== 0) throw new AccError("github", `Couldn't list issues on ${gh.repo}: ${r.stderr.trim().split("\n")[0]}`);
-  return upsert(o, githubIssuesToTasks(JSON.parse(r.stdout)));
+  const { paths, config } = project(process.cwd());
+  const { actor, by } = actorFrom(o);
+  const res = intakeGithub(paths, config, { run, now, env: process.env }, { label: o.label, actor, by });
+  out(o, () => [
+    ...upsertLines(res),
+    res.closed.length ? `Done ${res.closed.join(", ")}: closed on GitHub before work started` : "",
+    res.removed.length ? `Removed ${res.removed.join(", ")}: their issues have a label in skipLabels` : "",
+    ...res.leftAlone.map((l) => tone(`! ${l.note}`, "orange"))
+  ].filter(Boolean).join("\n") || "Nothing to do.", res);
+  return res.errors.length ? 1 : 0;
 }
 function taskIdFrom(arg) {
   const id = arg ?? process.env.ACC_TASK;

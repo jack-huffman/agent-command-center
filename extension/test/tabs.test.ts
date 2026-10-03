@@ -142,6 +142,18 @@ test('setup counts steps done, and offers fixes only where something is open', (
   assert.deepEqual(steps.find((s) => s.id === 'B0.repo')!.actions.map((a) => a.label), ['Check', 'Guide'], 'passing steps keep only Check and the guide')
 });
 
+test('setup reads in the order things are set up, a section for each thing, whatever order the checks finished in (D-047)', () => {
+  // B14 is re-checked first, as soon as projects load: it still comes after the repo's own steps.
+  const item = (id: string, status: 'pass' | 'fail' | 'skip' | 'unknown' = 'pass') => ({ id, part: id.startsWith('A') ? 'machine' as const : 'project' as const, title: id, status, detail: 'd' });
+  const m = setupModel([item('B14.tickets', 'unknown'), item('B2.account'), item('B0.config'), item('B0.repo'), item('B2.identity', 'fail'), item('B12.trust'), item('B13.gate-tools', 'skip'), item('A1.claude-billing'), item('A1.git'), item('A2.gh-login')], new Set());
+  const project = m.parts.find((p) => p.part === 'project')!;
+  assert.deepEqual(project.steps.map((s) => s.id), ['B0.repo', 'B0.config', 'B2.identity', 'B2.account', 'B12.trust', 'B13.gate-tools', 'B14.tickets']);
+  assert.deepEqual(project.sections.map((s) => [s.title, s.todo, s.steps.length]), [['The repo', 0, 2], ['GitHub account', 1, 2], ['Background agents', 0, 2], ['Tickets', 1, 1]], 'neighbouring groups that set up one thing share a section');
+  assert.deepEqual(m.parts.find((p) => p.part === 'machine')!.steps.map((s) => s.id), ['A1.git', 'A1.claude-billing', 'A2.gh-login'], 'a step this build doesn\'t know goes at the end of its group');
+  assert.deepEqual(project.steps.map((s) => [s.look.label, s.done]), [['Done', true], ['Done', true], ['To do', false], ['Done', true], ['Done', true], ['Doesn\'t apply', true], ['Check by hand', false]]);
+  assert.deepEqual([m.done, m.total], [8, 10]);
+});
+
 test('webview messages: only known shapes and acc commands get through', () => {
   assert.ok(isFromWebview({ type: 'ready' }));
   assert.ok(isFromWebview({ type: 'run', command: 'acc.task.move', ref: {} }));
@@ -196,11 +208,11 @@ test('the Overview gathers what needs a person, counts it once, and groups revie
 test('cards follow a task through dispatch: Dispatch, then Watch, Attach and Abandon, then Clean up', () => {
   const labels = (r: Partial<TaskRow>) => cardActions({ ...row('AV-9', 'todo', 'ready'), deps: [], ...r } as TaskRow, {}).map((a) => a.label);
   assert.deepEqual(labels({}), ['Dispatch', 'Move', 'Block', 'Details']);
-  assert.deepEqual(labels({ state: 'running', display: 'running', run: { bgId: 'bg1', worktree: '/w/AV-9' } }), ['Watch', 'Open in Claude Code', 'Worktree', 'Move', 'Abandon', 'Details']);
+  assert.deepEqual(labels({ state: 'running', display: 'running', run: { bgId: 'bg1', worktree: '/w/AV-9' } }), ['Watch', 'Open in Claude Code', 'Worktree', 'Instructions', 'Move', 'Abandon', 'Details']);
   assert.equal(cardActions({ ...row('AV-9', 'running', 'running'), deps: [], run: { bgId: 'bg1' } } as TaskRow, {})[0]!.primary, true, 'Watch is the main action while it runs');
   assert.deepEqual(labels({ state: 'review', display: 'review', run: { sessionId: 's1', worktree: '/w/AV-9' } }).slice(0, 2), ['Review', 'Watch'], 'in review: Review first, and what its builder did can still be read');
-  assert.deepEqual(labels({ state: 'rework', display: 'rework', run: { worktree: '/w/AV-9' } }), ['Re-dispatch', 'Worktree', 'Move', 'Block', 'Details']);
-  assert.deepEqual(labels({ state: 'done', display: 'done', run: { worktree: '/w/AV-9' } }), ['Worktree', 'Move', 'Clean up', 'Details']);
+  assert.deepEqual(labels({ state: 'rework', display: 'rework', run: { worktree: '/w/AV-9' } }), ['Re-dispatch', 'Worktree', 'Instructions', 'Move', 'Block', 'Details']);
+  assert.deepEqual(labels({ state: 'done', display: 'done', run: { worktree: '/w/AV-9' } }), ['Worktree', 'Instructions', 'Move', 'Clean up', 'Details']);
   assert.equal(cardActions({ ...row('AV-9', 'todo', 'ready'), deps: [] }, {})[0]!.primary, true, 'Dispatch is the main action on a ready card');
 });
 
