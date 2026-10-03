@@ -268,6 +268,17 @@ export const claudeSessionUri = (scheme: string, sessionId: string, prompt?: str
 /** Session ids Claude Code's link takes: UUIDs, not the short background id. */
 export const isSessionId = (v: string | undefined): v is string => !!v && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 
+/**
+ * The folder a conversation is saved under, which is the only window Claude Code for VSCode opens it in
+ * (D-041). `claude agents` can report where a background session started, the main checkout, though it
+ * saved its conversation under the worktree it moved into. Opening it from the main checkout's window
+ * showed that window's own chat instead (D-046), so each candidate is checked for the file itself.
+ */
+export function conversationFolder(candidates: (string | null | undefined)[], saved: (folder: string) => boolean): string | null {
+  for (const f of new Set(candidates.filter((c): c is string => !!c))) if (saved(f)) return f;
+  return null;
+}
+
 export const isUnder = (path: string, root: string): boolean => path === root || path.startsWith(root.endsWith('/') ? root : `${root}/`);
 
 export interface Worktree {
