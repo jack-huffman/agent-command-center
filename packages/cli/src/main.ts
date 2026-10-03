@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
   ACTORS, AccError, type Actor, type ApexTest, configureRepoAccess, DISPLAY, type DisplayState, displayState, drift, gatesFor, gateTarget, isReady, loadConfig, makeContext, moveTask, mutate,
-  cleanup, dispatch, githubIdentity, githubIssuesToTasks, planInit, useGithubAccount, withCloneAccount, type Profile, readLedger, receiptsAt, STEPS, receiptHooks, repoPaths, run, runGates, runSteps, satisfies, type State, type StepResult, type TaskInput,
+  cleanup, dispatch, githubIdentity, intakeGithub, planInit, useGithubAccount, withCloneAccount, type Profile, readLedger, receiptsAt, STEPS, receiptHooks, repoPaths, run, runGates, runSteps, satisfies, type State, type StepResult, type TaskInput, type UpsertResult,
   upsertTasks, writeConfig, ask, hookOutput, parseHookInput, waiveGates, review, land, sync, planPromotion, promote, skipWarning, planDeploy, deploy, lastDeploy,
   buildBaseline, seedBranches, draftLists, writeReadme, parseEventInput, preToolUseHook, sessionStartHook, stopHook, AGENT_ROLES, type AgentRole, profileView, setProfile, withCloneAgents, type ProfileChange,
 } from '../../core/src/index.ts';
@@ -31,7 +31,8 @@ Setup
 Tasks
   acc add "<title>" [--brief <text>] [--dep <id>]... [--env <branch>] [--key <T-n>]
   acc import [--file <tasks.json>]      Add or refresh tasks from JSON (stdin by default)
-  acc intake github [--label <l>]       Add or refresh tasks from the repo's open GitHub issues
+  acc intake github [--label <l>]       Add or refresh tasks from the repo's open GitHub issues. A task not
+                                        started yet leaves the board when its issue closes or has a skipLabels label
   acc status                            One line: how many tasks are in each state
   acc list [--state <state>]
   acc ready
@@ -200,31 +201,33 @@ function readInput(file: string | undefined): unknown {
   }
 }
 
+const upsertLines = (res: UpsertResult): string[] => [
+  res.added.length ? `Added ${res.added.join(', ')}` : '',
+  res.updated.length ? `Updated ${res.updated.join(', ')}` : '',
+  res.unchanged.length ? `Unchanged ${res.unchanged.join(', ')}` : '',
+  ...res.errors.map((e) => tone(`✗ ${e}`, 'orange')),
+];
+
 function upsert(o: Opts, inputs: TaskInput[]): number {
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
   const res = mutate(paths, now, (ledger, emit) => upsertTasks(ledger, config, inputs, actor, by, emit, now));
-  out(o, () => [
-    res.added.length ? `Added ${res.added.join(', ')}` : '',
-    res.updated.length ? `Updated ${res.updated.join(', ')}` : '',
-    res.unchanged.length ? `Unchanged ${res.unchanged.join(', ')}` : '',
-    ...res.errors.map((e) => tone(`✗ ${e}`, 'orange')),
-  ].filter(Boolean).join('\n') || 'Nothing to do.', res);
+  out(o, () => upsertLines(res).filter(Boolean).join('\n') || 'Nothing to do.', res);
   return res.errors.length ? 1 : 0;
 }
 
-/** Reads open issues as the repo's own GitHub account (D-007) and upserts them. Never changes GitHub. */
+/** Reads open issues as the repo's own GitHub account (D-007), upserts them, and follows closed and skipped ones (D-048). Never changes GitHub. */
 function cmdIntakeGithub(o: Opts): number {
-  const { config } = project(process.cwd());
-  const gh = config.github;
-  if (!gh) throw new AccError('no-github', 'This project has no "github" section in .acc/config.json.');
-  const token = run('gh', ['auth', 'token', '-u', gh.account]);
-  if (token.code !== 0) throw new AccError('no-github', `gh isn't logged in as ${gh.account}. Run: gh auth login`);
-  const args = ['issue', 'list', '-R', gh.repo, '--state', 'open', '--limit', '500', '--json', 'number,title,body,url,labels'];
-  if (o.label) args.push('--label', o.label as string);
-  const r = run('gh', args, { env: { ...process.env, GH_TOKEN: token.stdout.trim() } });
-  if (r.code !== 0) throw new AccError('github', `Couldn't list issues on ${gh.repo}: ${r.stderr.trim().split('\n')[0]}`);
-  return upsert(o, githubIssuesToTasks(JSON.parse(r.stdout)));
+  const { paths, config } = project(process.cwd());
+  const { actor, by } = actorFrom(o);
+  const res = intakeGithub(paths, config, { run, now, env: process.env }, { label: o.label as string | undefined, actor, by });
+  out(o, () => [
+    ...upsertLines(res),
+    res.closed.length ? `Done ${res.closed.join(', ')}: closed on GitHub before work started` : '',
+    res.removed.length ? `Removed ${res.removed.join(', ')}: their issues have a label in skipLabels` : '',
+    ...res.leftAlone.map((l) => tone(`! ${l.note}`, 'orange')),
+  ].filter(Boolean).join('\n') || 'Nothing to do.', res);
+  return res.errors.length ? 1 : 0;
 }
 
 /** The task a command is about: the argument, or the builder session's own task. */

@@ -129,7 +129,7 @@ listed so that drift checks and `doctor` cover it.
 | `environments` | Every org the project has, whether or not it's on a promotion path. Each has a name, a branch (by default the lower-cased name), a `type` (`production`, `full`, `partial`, `developer`, `developer_pro`) and, in the `salesforce` profile, an org alias. A task builds from one environment's branch, and its pull request goes back into it. **Protected** environments never receive agent work. `promotesTo` lists where it can promote to, usual step first ([section 11](#11-landing)) |
 | `environmentSpecific` | A list of files that differ by design in every environment, such as email service addresses, SSO and org settings. These are never edited by a task, never deployed, and never promoted (D-016) |
 | `knownDrift` | Files that a drift check should expect to differ, such as features a sandbox lacks or ordering noise. They can still be edited and promoted |
-| `trackers` | Where intake reads from. Several are allowed |
+| `trackers` | Where intake reads from. Several are allowed. A GitHub tracker's `skipLabels` lists labels whose issues aren't tasks, such as `["milestone"]` (D-048) |
 | `agents.max` | Most builder sessions at once, default 3 |
 | `autonomy` | How much the loop does on its own ([section 12](#12-the-orchestrator-loop)) |
 | `worktrees.root` | Where task worktrees go. The default is a sibling folder outside the repo ([section 7](#7-dispatch)) |
@@ -161,6 +161,7 @@ stateDiagram-v2
     review --> rework: changes needed
     rework --> running: re-dispatch
     review --> done: pull request merged
+    todo --> done: issue closed before work started
     running --> todo: abandon
     done --> rework: reopened
     todo --> blocked
@@ -198,6 +199,7 @@ has an icon and a label, so colour never carries the meaning alone.
 | review → rework | reviewer, human | Findings or a reason |
 | rework → running | human, orchestrator | |
 | review → done | `acc sync` (pull request merged), human | |
+| todo → done | `acc intake github`, as sync (D-048) | The issue was closed on GitHub, and the task never started (no `run`) |
 | any → blocked | anyone | A reason |
 | blocked → todo | human | |
 | blocked → review | human | Every required check satisfied, such as by a waiver (D-031) |
@@ -222,6 +224,18 @@ JSON. Adding monday.com later means adding one more producer.
 | Manual | `acc add "title" --brief …` | `--dep` |
 
 Intake is idempotent, keyed by tracker key, and it never changes the tracker.
+
+`acc intake github` also follows issues that left the open list (D-048). It asks
+GitHub about each unfinished task whose issue wasn't listed:
+
+- **Closed**, and the task never started (`todo`, no `run`): the task moves to
+  `done`, as `sync`, with the reason "Issue #N was closed on GitHub."
+- **Has a label in the tracker's `skipLabels`**, open or closed: the issue isn't
+  imported, and a task already made from it that never started leaves the
+  ledger, with a `task.removed` event.
+- **Started already**: the task stays as it is, and the output names it.
+
+`--json` lists these as `closed`, `removed` and `leftAlone`.
 
 ## 7. Dispatch
 
@@ -505,8 +519,9 @@ An **Agents** container in the activity bar holds three views:
 
 **Status bar:** running, needs you, and in review counts, each with its icon.
 
-**Notifications:** a session needs you (with an **Attach** button), a task is
-ready for review, or CI fails on a task's pull request.
+**Notifications:** a session needs you (with **Open in Claude Code**), a task is
+ready for review, a review passed or asked for changes, or CI fails on a task's
+pull request. Each offers its next step, and each change is said once (D-044).
 
 **Commands:** Dispatch, Attach (`claude attach` in a terminal), Review, Land,
 Clean up, Intake, Open packet, Open pull request, Block or unblock, and Refresh.

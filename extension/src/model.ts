@@ -7,7 +7,7 @@ import type { GateStatus } from '../../packages/core/src/receipts.ts';
 import { type Doc, fromMarkdown } from '../../packages/core/src/trackers/doc.ts';
 import type { StatusCategory, Ticket } from '../../packages/core/src/trackers/types.ts';
 import type { GithubIdentity } from '../../packages/core/src/github.ts';
-import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
+import { GROUP_TITLES, STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import type { Environment } from '../../packages/core/src/config.ts';
 import { promotionPaths } from '../../packages/core/src/promote.ts';
 import type { Answer, HistoryRecord, Question } from '../../packages/core/src/questions.ts';
@@ -137,6 +137,7 @@ export function cardActions(t: TaskRow, ref: Ref): Action[] {
   // Its conversation in a Claude Code tab (D-040); the terminal is the fallback when that isn't installed.
   if (t.state === 'running' && (t.run?.bgId || t.run?.sessionId)) a.push({ command: 'acc.task.openInClaude', label: 'Open in Claude Code', icon: 'comment-discussion', ref, primary: inTerminal });
   if (t.run?.worktree && t.state !== 'todo') a.push({ command: 'acc.task.openWorktree', label: 'Worktree', icon: 'empty-window', ref });
+  if (t.run?.worktree && t.state !== 'todo') a.push({ command: 'acc.task.openPacket', label: 'Instructions', icon: 'book', ref });
   a.push({ command: 'acc.task.move', label: 'Move', icon: 'arrow-swap', ref, primary: !a.some((x) => x.primary) });
   if (t.pr && t.pr.state !== 'open') a.push({ command: 'acc.task.openPr', label: `Pull request #${t.pr.number}`, icon: 'git-pull-request', ref });
   if (t.state === 'running') a.push({ command: 'acc.task.abandon', label: 'Abandon', icon: 'debug-stop', ref, danger: true });
@@ -579,29 +580,54 @@ export interface SetupRow {
   id: string;
   title: string;
   look: Look;
+  /** Passed, done by hand, or doesn't apply: shown muted, in one line. */
+  done: boolean;
   detail: string;
   why: string;
   fix: string | null;
   actions: Action[];
 }
 
+/** Steps that set up one thing, such as the repo's GitHub account, in the order they're done. */
+export interface SetupSection {
+  key: string;
+  title: string;
+  todo: number;
+  steps: SetupRow[];
+}
+
 export interface SetupModel {
   kind: 'setup';
   done: number;
   total: number;
-  parts: { part: 'machine' | 'project'; label: string; todo: number; steps: SetupRow[] }[];
+  parts: { part: 'machine' | 'project'; label: string; todo: number; steps: SetupRow[]; sections: SetupSection[] }[];
 }
 
 const STATUS: Record<string, Look> = {
-  pass: { label: 'Pass', icon: 'pass', tone: 'blue' },
-  fail: { label: 'Fail', icon: 'warning', tone: 'orange' },
+  pass: { label: 'Done', icon: 'pass', tone: 'blue' },
+  fail: { label: 'To do', icon: 'warning', tone: 'orange' },
   unknown: { label: 'Check by hand', icon: 'question', tone: 'orange' },
   skip: { label: 'Doesn\'t apply', icon: 'circle-slash', tone: 'neutral' },
   confirmed: { label: 'Done by hand', icon: 'pass', tone: 'blue' },
 };
 
+/** A step's group: its own, or its id's prefix for a step this build doesn't know. */
+const groupOf = (id: string): string => STEPS.find((s) => s.id === id)?.group ?? id.split('.')[0]!;
+
+/**
+ * Where a step comes in the order you'd set things up (D-047): the step list's order, whatever order the
+ * checks finished in. A step this build doesn't know goes at the end of its group.
+ */
+function stepOrder(id: string): number {
+  const i = STEPS.findIndex((s) => s.id === id);
+  if (i >= 0) return i;
+  const group = groupOf(id);
+  const last = STEPS.reduce((n, s, k) => (s.group === group ? k : n), -1);
+  return last >= 0 ? last + 0.5 : STEPS.length;
+}
+
 export function setupModel(items: DoctorItem[], confirmed: Set<string>): SetupModel {
-  const visible = items.filter((i) => !STEPS.find((s) => s.id === i.id)?.planned);
+  const visible = items.filter((i) => !STEPS.find((s) => s.id === i.id)?.planned).sort((a, b) => stepOrder(a.id) - stepOrder(b.id));
   const rows = (part: 'machine' | 'project') => visible.filter((i) => i.part === part).map((i): SetupRow => {
     const step = STEPS.find((s) => s.id === i.id);
     const status = confirmed.has(i.id) && i.status !== 'pass' ? 'confirmed' : i.status;
@@ -612,15 +638,29 @@ export function setupModel(items: DoctorItem[], confirmed: Set<string>): SetupMo
     if (open && step?.fix?.setupPath) actions.push({ command: 'acc.step.openSetup', label: 'Open in Salesforce', icon: 'globe', ref });
     if (status === 'unknown') actions.push({ command: 'acc.step.confirm', label: 'I\'ve done this', icon: 'check', ref });
     if (step?.fix?.docs) actions.push({ command: 'acc.openGuide', label: 'Guide', icon: 'book', ref });
+    const look = STATUS[status] ?? STATUS.skip!;
     // A fix that's a VSCode command runs from Do it; only terminal commands are shown to copy.
-    return { id: i.id, title: i.title, look: STATUS[status] ?? STATUS.skip!, detail: i.detail, why: step?.why ?? '', fix: step?.fix?.vscode ? null : i.fix ?? null, actions };
+    return { id: i.id, title: i.title, look, done: look.tone !== 'orange', detail: i.detail, why: step?.why ?? '', fix: step?.fix?.vscode ? null : i.fix ?? null, actions };
   });
+  /** Neighbouring steps that set up the same thing make one section. */
+  const sectionsOf = (steps: SetupRow[]): SetupSection[] => {
+    const out: SetupSection[] = [];
+    for (const s of steps) {
+      const group = groupOf(s.id);
+      const title = GROUP_TITLES[group] ?? group;
+      const prev = out[out.length - 1];
+      if (prev && prev.title === title) prev.steps.push(s);
+      else out.push({ key: group, title, todo: 0, steps: [s] });
+    }
+    for (const sec of out) sec.todo = sec.steps.filter((s) => !s.done).length;
+    return out;
+  };
   const parts = (['machine', 'project'] as const).map((part) => {
     const steps = rows(part);
-    return { part, label: part === 'machine' ? 'This machine' : 'This project', todo: steps.filter((s) => s.look.tone === 'orange').length, steps };
+    return { part, label: part === 'machine' ? 'This machine' : 'This project', todo: steps.filter((s) => !s.done).length, steps, sections: sectionsOf(steps) };
   }).filter((p) => p.steps.length);
   const all = parts.flatMap((p) => p.steps);
-  return { kind: 'setup', done: all.filter((s) => s.look.tone !== 'orange').length, total: all.length, parts };
+  return { kind: 'setup', done: all.filter((s) => s.done).length, total: all.length, parts };
 }
 
 const LOOK = (label: string, icon: string, tone: Tone): Look => ({ label, icon, tone });

@@ -40,8 +40,10 @@ function fakeVscode(folder: string) {
     },
     window: {
       createOutputChannel: () => ({ info() {}, warn() {}, error() {}, show() {}, dispose() {} }),
-      createStatusBarItem: (id?: unknown) => (id === 'acc.github' ? { show() {}, hide() {}, dispose() {} } : status),
+      // The setup item is the one checked; GitHub and the tasks summary (D-044) are items of their own.
+      createStatusBarItem: (id?: unknown) => (id === 'acc.github' || id === 'acc.summary' ? { show() {}, hide() {}, dispose() {} } : status),
       onDidChangeWindowState: () => disposable,
+      state: { focused: true },
       withProgress: (_o: unknown, task: (p: unknown, t: unknown) => unknown) => task({ report() {} }, { onCancellationRequested: () => disposable }),
       showInformationMessage: async (m: string) => { calls.info.push(m); return undefined; },
       showWarningMessage: async (m: string) => { calls.warn.push(m); return undefined; },

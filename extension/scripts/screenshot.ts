@@ -39,7 +39,7 @@ export const THEMES = {
     'button-secondaryBackground': '#313131', 'button-secondaryForeground': '#cccccc', 'button-secondaryHoverBackground': '#3c3c3c',
     'badge-background': '#616161', 'badge-foreground': '#f8f8f8', 'textLink-foreground': '#4daafc', 'textCodeBlock-background': '#2b2b2b',
     'progressBar-background': '#0078d4', 'charts-orange': '#d18616', 'charts-blue': '#3794ff',
-    'input-background': '#313131', 'input-foreground': '#cccccc', 'input-border': '#3c3c3c', 'input-placeholderForeground': '#989898',
+    'input-background': '#313131', 'input-foreground': '#cccccc', 'input-border': '#3c3c3c', 'input-placeholderForeground': '#989898', 'icon-foreground': '#cccccc',
     'list-activeSelectionBackground': '#04395e', 'list-activeSelectionForeground': '#ffffff',
   },
   light: {
@@ -51,7 +51,7 @@ export const THEMES = {
     'button-secondaryBackground': '#e5e5e5', 'button-secondaryForeground': '#3b3b3b', 'button-secondaryHoverBackground': '#cccccc',
     'badge-background': '#cccccc', 'badge-foreground': '#3b3b3b', 'textLink-foreground': '#005fb8', 'textCodeBlock-background': '#f2f2f2',
     'progressBar-background': '#005fb8', 'charts-orange': '#d18616', 'charts-blue': '#1a85ff',
-    'input-background': '#ffffff', 'input-foreground': '#3b3b3b', 'input-border': '#cecece', 'input-placeholderForeground': '#767676',
+    'input-background': '#ffffff', 'input-foreground': '#3b3b3b', 'input-border': '#cecece', 'input-placeholderForeground': '#767676', 'icon-foreground': '#424242',
     'list-activeSelectionBackground': '#e4e6f1', 'list-activeSelectionForeground': '#000000',
   },
 } satisfies Record<string, Record<string, string>>;

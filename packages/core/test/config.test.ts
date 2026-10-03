@@ -115,8 +115,20 @@ test('an Azure DevOps tracker names its organization and project, and may name a
   const base = { schema: 1, project: 'P', profile: 'generic', environments: [{ name: 'main', default: true }] };
   const ok = parseConfig({ ...base, trackers: [{ kind: 'azure', organization: 'acme', project: 'CRM', team: 'Sales', board: 'Stories', prefix: 'av' }] });
   assert.deepEqual(ok.errors, []);
-  assert.deepEqual(ok.config!.trackers[0], { kind: 'azure', site: null, project: 'CRM', repo: null, organization: 'acme', team: 'Sales', board: 'Stories', prefix: 'AV' });
+  assert.deepEqual(ok.config!.trackers[0], { kind: 'azure', site: null, project: 'CRM', repo: null, organization: 'acme', team: 'Sales', board: 'Stories', prefix: 'AV', skipLabels: [] });
   assert.match(parseConfig({ ...base, trackers: [{ kind: 'azure', project: 'CRM' }] }).errors.join(), /needs "organization" and "project"/);
   assert.match(parseConfig({ ...base, trackers: [{ kind: 'azure', organization: 'a', project: 'b', board: 3 }] }).errors.join(), /an Azure board's name/);
   assert.match(parseConfig({ ...base, trackers: [{ kind: 'jira', site: 's', project: 'K', board: 'Main' }] }).errors.join(), /Jira board id/);
+});
+
+test('a GitHub tracker may name labels whose issues aren\'t imported, and nothing is skipped by default', () => {
+  const base = clone(GENERIC_CONFIG);
+  assert.deepEqual(parseConfig({ ...base, trackers: [{ kind: 'github' }] }).config!.trackers[0]!.skipLabels, []);
+  assert.deepEqual(parseConfig({ ...base, trackers: [{ kind: 'github', skipLabels: ['milestone', 'epic'] }] }).config!.trackers[0]!.skipLabels, ['milestone', 'epic']);
+  for (const bad of ['milestone', [3], ['ok', ''], { milestone: true }, null]) {
+    assert.match(errorsOf({ ...base, trackers: [{ kind: 'github', skipLabels: bad }] }), /"skipLabels" must be a list of label names/, JSON.stringify(bad));
+  }
+  const jira = parseConfig({ ...base, trackers: [{ kind: 'jira', site: 's', project: 'K', skipLabels: ['epic'] }] });
+  assert.match(jira.warnings.join(), /applies only to a GitHub tracker/);
+  assert.deepEqual(jira.config!.trackers[0]!.skipLabels, []);
 });
