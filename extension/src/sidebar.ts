@@ -177,7 +177,11 @@ export class Sidebar {
     if (!project.config.github) return void vscode.window.showWarningMessage(`${project.name} has no GitHub repo in .acc/config.json.`);
     await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Reading open issues on ${project.config.github.repo}` }, () =>
       this.runAcc(project, ['intake', 'github'], (out) => {
-        const parts = [out?.added?.length ? `added ${out.added.length}` : '', out?.updated?.length ? `updated ${out.updated.length}` : '', out?.unchanged?.length ? `${out.unchanged.length} unchanged` : ''].filter(Boolean);
+        const parts = [
+          out?.added?.length ? `added ${out.added.length}` : '', out?.updated?.length ? `updated ${out.updated.length}` : '', out?.unchanged?.length ? `${out.unchanged.length} unchanged` : '',
+          out?.closed?.length ? `${out.closed.length} done (closed on GitHub)` : '', out?.removed?.length ? `removed ${out.removed.length} (skipped label)` : '',
+          out?.leftAlone?.length ? `left ${out.leftAlone.map((l: { task: string }) => l.task).join(', ')} as they are (already started)` : '',
+        ].filter(Boolean);
         return `GitHub issues: ${parts.join(', ') || 'no open issues'}.`;
       }));
   }

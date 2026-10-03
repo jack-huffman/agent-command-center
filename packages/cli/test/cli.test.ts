@@ -132,6 +132,38 @@ esac
   assert.equal(acc(dir, ['intake', 'jira']).code, 2, 'Jira intake goes through the plugin');
 });
 
+test('intake github moves closed issues\' tasks to done, removes skipped ones, and names those that started', () => {
+  const dir = repoWithConfig({ ...GENERIC_CONFIG, github: { repo: 'o/r', account: 'me' }, trackers: [{ kind: 'github', skipLabels: ['milestone'] }] });
+  const items = [3, 5, 6].map((n) => ({ source: { kind: 'github', key: `#${n}` }, title: `Issue ${n}` }));
+  assert.equal(acc(dir, ['import'], JSON.stringify(items)).code, 0);
+  assert.equal(acc(dir, ['set', 'GH-6', 'running']).code, 0);
+  const bin = join(dir, '.fakebin');
+  mkdirSync(bin);
+  const issues = JSON.stringify([{ number: 3, title: 'M3', body: '', url: 'u3', labels: [{ name: 'milestone' }] }, { number: 4, title: 'Issue 4', body: '', url: 'u4', labels: [] }]);
+  writeFileSync(join(bin, 'gh'), `#!/bin/sh
+case "$1 $2" in
+  "auth token") echo tok ;;
+  "issue list") echo '${issues}' ;;
+  "issue view") echo "{\\"number\\": $3, \\"state\\": \\"CLOSED\\", \\"labels\\": []}" ;;
+  *) exit 1 ;;
+esac
+`);
+  chmodSync(join(bin, 'gh'), 0o755);
+  const env = { PATH: `${bin}:${process.env.PATH}` };
+  const text = acc(dir, ['intake', 'github'], undefined, env);
+  assert.equal(text.code, 0, text.err);
+  assert.deepEqual(text.out.trim().split('\n'), [
+    'Added GH-4',
+    'Done GH-5: closed on GitHub before work started',
+    'Removed GH-3: their issues have a label in skipLabels',
+    '! #6 was closed on GitHub; GH-6 is still running',
+  ]);
+  const json = acc(dir, ['intake', 'github', '--json'], undefined, env).json();
+  assert.deepEqual([json.closed, json.removed, json.unchanged], [[], [], ['GH-4']]);
+  assert.deepEqual(json.leftAlone, [{ task: 'GH-6', issue: '#6', state: 'running', note: '#6 was closed on GitHub; GH-6 is still running' }]);
+  assert.deepEqual((acc(dir, ['list', '--json']).json() as { id: string; state: string }[]).map((t) => `${t.id} ${t.state}`), ['GH-5 done', 'GH-6 running', 'GH-4 todo']);
+});
+
 test('gate run records receipts on the commit, exits 1 while a required check fails, and gate list shows them', () => {
   const heavy = { ACC_HEAVY_DIR: join(makeRepo(), 'slots') };
   const cfg = { ...GENERIC_CONFIG, gates: { required: ['lint', 'test'], commands: { lint: 'true', test: 'echo "1 failing"; exit 3' } } };
