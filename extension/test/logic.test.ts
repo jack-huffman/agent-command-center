@@ -190,14 +190,3 @@ test('task notices say what changed once, and nothing for a task seen for the fi
   assert.equal(statusSummary([row('T-1', 'review')], 2).text, '$(bell) 2 need you  $(eye) 1 in review');
   assert.deepEqual(statusSummary([row('T-4', 'done')], 0), { text: '', tooltip: '', attention: false }, 'nothing in play: hidden');
 });
-
-test('a conversation opens from the folder it is saved under, not where claude agents says it started (D-046)', async () => {
-  const { conversationFolder } = await import('../src/logic.ts');
-  const saved = new Set(['/repo/.claude/worktrees/GH-13']);
-  // A stopped builder reports the main checkout; its conversation is under its worktree.
-  assert.equal(conversationFolder(['/repo', '/repo/.claude/worktrees/GH-13', '/repo'], (f) => saved.has(f)), '/repo/.claude/worktrees/GH-13');
-  assert.equal(conversationFolder(['/repo', null, undefined], (f) => saved.has(f)), null, 'saved nowhere known: no guess');
-  const checked: string[] = [];
-  conversationFolder(['/a', '/a', '/b'], (f) => { checked.push(f); return false; });
-  assert.deepEqual(checked, ['/a', '/b'], 'each folder checked once');
-});

@@ -959,4 +959,16 @@ window's own chat, not the builder that needed them.
   have saved nothing yet, so it uses its reported folder. Otherwise the button
   says it couldn't find the conversation and offers Watch, rather than open
   the wrong chat.
+- **The same day, 0.19.1 said it couldn't find GH-13's conversation.** The
+  author was clicking from the Agents list in another repo's window: the list
+  shows every session on the machine. The candidates were that window's own
+  folders and worktrees, so they never included this repo's worktrees. VSCode
+  keeps each extension's log under its own logs folder, which is where the
+  window and the clicks showed up.
+- **So the file is found, not guessed.** First it's looked for under the likely
+  folders, then anywhere in Claude Code's projects. Its folder is the `cwd` the
+  conversation recorded whose name matches the folder it's saved in. That
+  works from any window. A stand-in for VSCode, loading the built extension
+  against the real repo from the other repo's folder, showed 0.19.1's message
+  and then the fix opening GH-13's worktree in a new window.
 

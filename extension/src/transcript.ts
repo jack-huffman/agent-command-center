@@ -6,7 +6,8 @@
  * a record it doesn't recognise is skipped, never an error, and the page links to the terminal when
  * nothing could be read. No vscode import, so it's testable.
  */
-import { basename, relative } from 'node:path';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { basename, join, relative } from 'node:path';
 
 export type ToolStatus = 'running' | 'done' | 'error';
 
@@ -36,6 +37,42 @@ export const emptyTranscript = (): Transcript => ({ entries: [], open: new Map()
 
 /** Where Claude Code keeps a session's transcript: its folder, with every other character a dash. */
 export const transcriptDir = (projectsDir: string, cwd: string): string => `${projectsDir}/${cwd.replace(/[^A-Za-z0-9]/g, '-')}`;
+
+/**
+ * The folder a conversation is saved under, which is the only window Claude Code for VSCode opens it in
+ * (D-041). `claude agents` can report where a background session started, the main checkout, though it
+ * saved its conversation under the worktree it moved into; and the window asking may belong to another
+ * repo altogether (D-046). So the file itself is found: first under the likely folders, then anywhere in
+ * Claude Code's projects. The folder is the cwd the conversation recorded whose name matches its own.
+ */
+export function savedFolder(projectsDir: string, sessionId: string, likely: (string | null | undefined)[]): string | null {
+  const file = `${sessionId}.jsonl`;
+  for (const f of new Set(likely.filter((c): c is string => !!c))) if (existsSync(join(transcriptDir(projectsDir, f), file))) return f;
+  let dirs: string[];
+  try {
+    dirs = readdirSync(projectsDir);
+  } catch {
+    return null;
+  }
+  const dir = dirs.find((d) => existsSync(join(projectsDir, d, file)));
+  if (!dir) return null;
+  let text: string;
+  try {
+    text = readFileSync(join(projectsDir, dir, file), 'utf8');
+  } catch {
+    return null;
+  }
+  for (const m of text.matchAll(/"cwd":("(?:[^"\\]|\\.)*")/g)) {
+    let cwd: unknown;
+    try {
+      cwd = JSON.parse(m[1]!);
+    } catch {
+      continue;
+    }
+    if (typeof cwd === 'string' && transcriptDir(projectsDir, cwd) === `${projectsDir}/${dir}`) return cwd;
+  }
+  return null;
+}
 
 const RESULT_LINES = 40;
 const RESULT_CHARS = 6000;
