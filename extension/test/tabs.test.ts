@@ -225,7 +225,7 @@ test('a pull request that conflicts with its base says so on its card and on the
   ];
   const conflicted = { ...h, taskRows: () => rows };
   const card = (id: string) => tasksModel(conflicted).projects[0]!.columns.flatMap((c) => c.cards).find((c) => c.id === id)!;
-  assert.equal(card('AV-5').conflicts, 'Conflicts with devbox: docs/DECISIONS.md, plugin/bin/acc');
+  assert.equal(card('AV-5').conflicts, 'Conflicts with devbox: docs/DECISIONS.md, bin/acc');
   assert.equal(card('AV-6').conflicts, null, 'a clean merge says nothing');
   assert.equal(card('AV-7').conflicts, 'Conflicts with devbox: layouts/Lead-Lead Layout.layout-meta.xml, b.ts, c.ts and 1 more', 'a card names the first few, by folder and name');
   assert.equal(tasksModel(conflicted).projects[0]!.columns.find((c) => c.group === 'needs-you')!.cards.length, 2);
