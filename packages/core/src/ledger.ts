@@ -78,7 +78,7 @@ export interface Ledger {
 export interface LedgerEvent {
   seq: number;
   at: string;
-  type: 'task.added' | 'task.updated' | 'task.moved';
+  type: 'task.added' | 'task.updated' | 'task.moved' | 'task.removed';
   task: string;
   actor: Actor;
   by: string;
@@ -250,6 +250,8 @@ export const RULES: Rule[] = [
   { from: 'review', to: 'rework', actors: ['reviewer', 'human'], requires: ['reason'] },
   { from: 'rework', to: 'running', actors: ['human', 'orchestrator'], requires: ['underCap', 'envNotProtected'] },
   { from: 'review', to: 'done', actors: ['sync', 'human'], requires: [] },
+  // Its issue was closed on GitHub before anyone started it: acc intake moves it.
+  { from: 'todo', to: 'done', actors: ['sync'], requires: [] },
   { from: 'running', to: 'todo', actors: ['human'], requires: ['reason'] },
   { from: 'done', to: 'rework', actors: ['human', 'sync'], requires: ['reason'] },
   { from: 'blocked', to: 'todo', actors: ['human'], requires: [] },

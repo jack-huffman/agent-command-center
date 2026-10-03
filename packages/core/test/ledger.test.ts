@@ -93,14 +93,23 @@ test('every state has rules in and out, and every allowed move works for its act
 test('moves without a rule need a person, --force and a reason, and are recorded as overrides', () => {
   const l = ledgerWith({ id: 'ACME-1', state: 'todo' });
   const t = task(l, 'ACME-1');
-  assert.equal(findRule('todo', 'done'), undefined);
-  assert.match(checkMove(l, config, t, { to: 'done', actor: 'human', by: 'h' }, noGateHooks).join(), /no rule for todo → done/);
-  assert.match(checkMove(l, config, t, { to: 'done', actor: 'orchestrator', by: 'o', force: true, reason: 'x' }, noGateHooks).join(), /Only a person/);
-  assert.match(checkMove(l, config, t, { to: 'done', actor: 'human', by: 'h', force: true }, noGateHooks).join(), /needs --reason/);
-  assert.deepEqual(checkMove(l, config, t, { to: 'done', actor: 'human', by: 'h', force: true, reason: 'done by hand' }, noGateHooks), []);
-  const entry = applyMove(t, { to: 'done', actor: 'human', by: 'h', force: true, reason: 'done by hand' }, sink, clock);
+  assert.equal(findRule('todo', 'review'), undefined);
+  assert.match(checkMove(l, config, t, { to: 'review', actor: 'human', by: 'h' }, noGateHooks).join(), /no rule for todo → review/);
+  assert.match(checkMove(l, config, t, { to: 'review', actor: 'orchestrator', by: 'o', force: true, reason: 'x' }, noGateHooks).join(), /Only a person/);
+  assert.match(checkMove(l, config, t, { to: 'review', actor: 'human', by: 'h', force: true }, noGateHooks).join(), /needs --reason/);
+  assert.deepEqual(checkMove(l, config, t, { to: 'review', actor: 'human', by: 'h', force: true, reason: 'reviewed by hand' }, noGateHooks), []);
+  const entry = applyMove(t, { to: 'review', actor: 'human', by: 'h', force: true, reason: 'reviewed by hand' }, sink, clock);
   assert.equal(entry.override, true);
-  assert.equal(t.state, 'done');
+  assert.equal(t.state, 'review');
+});
+
+test('todo → done is only for sync, when an issue closes before work starts; a person still forces it', () => {
+  const l = ledgerWith({ id: 'GH-3', state: 'todo' });
+  const t = task(l, 'GH-3');
+  assert.deepEqual(findRule('todo', 'done')?.actors, ['sync']);
+  assert.match(checkMove(l, config, t, { to: 'done', actor: 'human', by: 'h' }, noGateHooks).join(), /A human can't move a task from todo to done/);
+  assert.deepEqual(checkMove(l, config, t, { to: 'done', actor: 'sync', by: 'acc intake' }, noGateHooks), []);
+  assert.deepEqual(checkMove(l, config, t, { to: 'done', actor: 'human', by: 'h', force: true, reason: 'done by hand' }, noGateHooks), []);
 });
 
 test('blocked and done cannot be re-blocked; blocking records the reason as the blocker', () => {

@@ -206,3 +206,24 @@ test('a session opens in Claude Code through its documented link, which takes th
   assert.ok(!isSessionId('1f60afe9'), 'the short background id is not the session');
   assert.ok(!isSessionId(undefined));
 });
+
+test('a conversation is found where it is saved, from any window: likely folders first, then anywhere (D-046)', async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { savedFolder } = await import('../src/transcript.ts');
+  const projects = mkdtempSync(join(tmpdir(), 'projects-'));
+  const wt = '/Users/me/My Repo/.claude/worktrees/GH-13';
+  const id = '7bc4abb5-b4aa-4b62-a376-eced9d81d05a';
+  mkdirSync(transcriptDir(projects, wt), { recursive: true });
+  // It started in the main checkout and moved into its worktree: both cwds are in the file.
+  writeFileSync(join(transcriptDir(projects, wt), `${id}.jsonl`), [
+    JSON.stringify({ type: 'user', cwd: '/Users/me/My Repo', message: { content: 'go' } }),
+    'not json',
+    JSON.stringify({ type: 'assistant', cwd: wt, message: { content: [] } }),
+  ].join('\n'));
+  assert.equal(savedFolder(projects, id, ['/Users/me/My Repo', wt]), wt, 'a likely folder that holds it');
+  assert.equal(savedFolder(projects, id, ['/Users/me/Other Client']), wt, 'from another repo\'s window: found by its file, named by its cwd');
+  assert.equal(savedFolder(projects, '00000000-0000-0000-0000-000000000000', ['/Users/me/My Repo']), null, 'saved nowhere: no guess');
+  assert.equal(savedFolder(join(projects, 'missing'), id, []), null);
+});
