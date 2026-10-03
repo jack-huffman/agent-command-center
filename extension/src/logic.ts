@@ -211,8 +211,28 @@ export interface TaskRow {
   /** A review under way, to watch. */
   reviewing?: { sessionId: string } | null;
   /** Its pull request (D-033). */
-  pr?: { number: number; url: string; state: string; ci?: string | null; changesRequested?: boolean } | null;
+  pr?: { number: number; url: string; state: string; ci?: string | null; changesRequested?: boolean; conflicts?: string[] } | null;
 }
+
+/** The files an open pull request conflicts in with its base, or none (D-???). */
+export const prConflicts = (row: Pick<TaskRow, 'pr'>): string[] => (row.pr?.state === 'open' ? row.pr.conflicts ?? [] : []);
+
+/** Files in a sentence: the first few, then how many more. */
+export function fileList(files: string[], max = 3): string {
+  return files.length > max ? `${files.slice(0, max).join(', ')} and ${files.length - max} more` : files.join(', ');
+}
+
+/** A file by its folder and name, short enough for a card: force-app/…/layouts/Lead.layout → layouts/Lead.layout. */
+export const shortPath = (file: string): string => file.split('/').slice(-2).join('/');
+
+/**
+ * What a card and a ticket's page say about a pull request that won't merge into its base. A card names
+ * the first few files by folder and name; the page names every file in full.
+ */
+export const conflictLine = (row: Pick<TaskRow, 'pr' | 'environment'>, full = false): string | null => {
+  const files = prConflicts(row);
+  return files.length ? `Conflicts with ${row.environment}: ${full ? files.join(', ') : fileList(files.map(shortPath))}` : null;
+};
 
 /** A task's agent: its background id or session id, or a background session named after the task. */
 export function sessionFor(row: Pick<TaskRow, 'id' | 'run'>, sessions: AgentSession[]): AgentSession | undefined {
@@ -398,7 +418,7 @@ export const needsTerminal = (command: string): boolean => /^\s*(claude(\s*$|\s+
 
 // ---------------------------------------------------------------- what changed, said once (D-044)
 
-export type NoticeKind = 'waiting' | 'review' | 'passed' | 'rework' | 'blocked' | 'ci-failed' | 'changes' | 'merged';
+export type NoticeKind = 'waiting' | 'review' | 'passed' | 'rework' | 'blocked' | 'ci-failed' | 'changes' | 'conflicts' | 'merged';
 
 export interface TaskNotice {
   kind: NoticeKind;
@@ -411,8 +431,9 @@ export interface TaskNotice {
 /**
  * What a person would want to hear about, from how a project's tasks looked before and after a reload:
  * a builder finished, a review passed or asked for changes, an agent waits on its own prompt, a pull
- * request's checks failed or were merged. A task seen for the first time says nothing, so opening VSCode
- * doesn't replay the board. A question waiting in the Command Center has its own notice (D-030).
+ * request's checks failed, it conflicts with its base, or it merged. A task seen for the first time says
+ * nothing, so opening VSCode doesn't replay the board. A question waiting in the Command Center has its
+ * own notice (D-030).
  */
 export function taskNotices(before: TaskRow[], after: TaskRow[]): TaskNotice[] {
   const was = new Map(before.map((t) => [t.id, t]));
@@ -431,6 +452,8 @@ export function taskNotices(before: TaskRow[], after: TaskRow[]): TaskNotice[] {
     const pr = t.pr;
     if (pr?.state === 'open' && pr.ci === 'failing' && p.pr?.ci !== 'failing') say('ci-failed', `Checks failed on pull request #${pr.number} (${t.id}).`, true);
     if (pr?.state === 'open' && pr.changesRequested && !p.pr?.changesRequested) say('changes', `A reviewer asked for changes on pull request #${pr.number} (${t.id}).`, true);
+    // Said when it starts to conflict, not again as the files change.
+    if (pr && prConflicts(t).length && !prConflicts(p).length) say('conflicts', `Pull request #${pr.number} (${t.id}) conflicts with ${t.environment} in ${fileList(prConflicts(t))}.`, true);
     if (pr?.state === 'merged' && p.pr?.state !== 'merged') say('merged', `Pull request #${pr.number} merged. ${t.id} is done.`, false);
   }
   return out;
@@ -445,6 +468,7 @@ export function noticeActions(n: TaskNotice): [label: string, command: string][]
     rework: ['Re-dispatch', 'acc.task.dispatch'],
     'ci-failed': ['Open pull request', 'acc.task.openPr'],
     changes: ['Open pull request', 'acc.task.openPr'],
+    conflicts: ['Open pull request', 'acc.task.openPr'],
   };
   const a = first[n.kind];
   return [...(a ? [a] : []), ['Show', 'acc.task.show']];

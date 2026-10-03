@@ -215,6 +215,27 @@ test('in review, a card offers the one next step: watch the reviewer, land a pas
   assert.deepEqual(open.slice(0, 2), ['Pull request #42', 'Update pull request']);
 });
 
+test('a pull request that conflicts with its base says so on its card and on the Overview, naming the files (D-???)', () => {
+  const h = hub();
+  const pr = (conflicts: string[]) => ({ number: 16, url: 'https://github.com/o/r/pull/16', state: 'open', ci: 'passing', changesRequested: false, conflicts });
+  const rows = [
+    { ...row('AV-5', 'review', 'needs-you'), pr: pr(['docs/DECISIONS.md', 'plugin/bin/acc']) },
+    { ...row('AV-6', 'review', 'review'), pr: pr([]) },
+    { ...row('AV-7', 'review', 'needs-you'), pr: pr(['force-app/main/default/layouts/Lead-Lead Layout.layout-meta.xml', 'b.ts', 'c.ts', 'd.ts']) },
+  ];
+  const conflicted = { ...h, taskRows: () => rows };
+  const card = (id: string) => tasksModel(conflicted).projects[0]!.columns.flatMap((c) => c.cards).find((c) => c.id === id)!;
+  assert.equal(card('AV-5').conflicts, 'Conflicts with devbox: docs/DECISIONS.md, plugin/bin/acc');
+  assert.equal(card('AV-6').conflicts, null, 'a clean merge says nothing');
+  assert.equal(card('AV-7').conflicts, 'Conflicts with devbox: layouts/Lead-Lead Layout.layout-meta.xml, b.ts, c.ts and 1 more', 'a card names the first few, by folder and name');
+  assert.equal(tasksModel(conflicted).projects[0]!.columns.find((c) => c.group === 'needs-you')!.cards.length, 2);
+  const m = homeModel({ hub: conflicted, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } });
+  const item = m.overview.attention.find((a) => a.title === 'AV-5 Task AV-5')!;
+  assert.deepEqual([item.look.label, item.look.icon, item.look.tone], ['Conflicts', 'git-pull-request', 'orange'], 'its words and icon, in orange');
+  assert.equal(item.detail, 'Acme · pull request #16: it conflicts with devbox in docs/DECISIONS.md, plugin/bin/acc');
+  assert.equal(item.actions[0]!.command, 'acc.task.openPr');
+});
+
 test('table cells keep table layout (a flex cell misaligns its row\'s lines)', () => {
   const css = readFileSync(join(root, 'webview', 'styles.css'), 'utf8');
   const src = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');

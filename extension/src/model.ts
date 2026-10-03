@@ -11,7 +11,7 @@ import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import type { Environment } from '../../packages/core/src/config.ts';
 import { promotionPaths } from '../../packages/core/src/promote.ts';
 import type { Answer, HistoryRecord, Question } from '../../packages/core/src/questions.ts';
-import { agentLook, type AgentSession, type DoctorItem, ENV_ICON, groupTasks, isUnder, type RunPrompt, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
+import { agentLook, type AgentSession, conflictLine, type DoctorItem, ENV_ICON, fileList, groupTasks, isUnder, prConflicts, type RunPrompt, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
 import type { Entry } from './transcript.ts';
 
 export const VIEW_KINDS = ['tasks', 'agents', 'worktrees', 'environments', 'setup'] as const;
@@ -92,6 +92,8 @@ export interface Card {
   url: string | null;
   agent: Look | null;
   worktree: string | null;
+  /** "Conflicts with dev: …" when its open pull request won't merge into its base (D-???). */
+  conflicts: string | null;
   actions: Action[];
   /** The lanes it can be dropped in: the moves a person may make from where it is (D-041). */
   drops: string[];
@@ -171,7 +173,7 @@ export function tasksModel(hub: HubLike, boards: (root: string) => BoardInput[] 
           group, label: d.label, icon: d.icon, tone: d.tone,
           cards: (byGroup.get(group) ?? []).map((t) => ({
             id: t.id, title: t.title, environment: t.environment, waitingOn: t.deps, url: t.source.url,
-            agent: t.agent ?? null, worktree: t.run?.worktree ?? null,
+            agent: t.agent ?? null, worktree: t.run?.worktree ?? null, conflicts: conflictLine(t),
             actions: cardActions(t, { project: p.root, task: t.id }), drops: dropLanes(t),
           })),
         };
@@ -241,8 +243,8 @@ export interface TrackerCard {
   labels: { name: string; color: string | null }[];
   assignees: PersonChip[];
   status: string;
-  /** The task acc keeps for this ticket, when there is one: where it is, and its next step. */
-  acc: { look: Look; needsYou: boolean; action: Action | null } | null;
+  /** The task acc keeps for this ticket, when there is one: where it is, its next step, and why its pull request won't merge. */
+  acc: { look: Look; needsYou: boolean; action: Action | null; conflicts: string | null } | null;
 }
 
 export interface TrackerColumn {
@@ -284,7 +286,7 @@ export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): Trac
       return {
         key: card.key, title: card.title, type: card.type, typeIcon: typeIcon(card.type), priority: card.priority, priorityIcon: priorityIcon(card.priority),
         labels: card.labels, assignees: card.assignees.map(chip), status: card.status.name,
-        acc: row ? { look: accLook(row), needsYou: row.display === 'needs-you', action: next } : null,
+        acc: row ? { look: accLook(row), needsYou: row.display === 'needs-you', action: next, conflicts: conflictLine(row) } : null,
       };
     }),
   }));
@@ -301,6 +303,8 @@ export interface TicketAcc {
   environment: string;
   waitingOn: string[];
   blocker: string | null;
+  /** Every file its open pull request conflicts in with its base, in one line, or null (D-???). */
+  conflicts: string | null;
   agent: Look | null;
   worktree: string | null;
   branch: string | null;
@@ -364,7 +368,7 @@ export function ticketModel(i: TicketInput): TicketModel {
   const t = i.ticket;
   const live = i.tracker !== null;
   const acc: TicketAcc | null = i.row && i.task ? {
-    look: accLook(i.row), environment: i.task.environment, waitingOn: i.row.deps, blocker: i.task.blocker,
+    look: accLook(i.row), environment: i.task.environment, waitingOn: i.row.deps, blocker: i.task.blocker, conflicts: conflictLine(i.row, true),
     agent: i.row.agent ?? null, worktree: i.task.run?.worktree ?? null, branch: i.task.run?.branch ?? null, checks: i.checks,
     history: i.task.history.map((h) => ({ at: h.at, from: h.from, to: h.to, by: h.by, reason: h.reason ?? null })).reverse(),
     actions: cardActions(i.row, { project: i.project, task: i.row.id }).filter((a) => a.command !== 'acc.task.show' && a.command !== 'acc.task.openTicket'),
@@ -1081,11 +1085,17 @@ export function homeModel(i: HomeInput): HomeModel {
         if (questions.some((q) => q.task === r.id && q.project === p.root)) continue;
         const watch = acts.find((a) => a.command === 'acc.task.watch');
         const attach = acts.find((a) => a.command === 'acc.task.openInClaude');
-        // A pull request that needs you says why: its checks, or a person's requested changes.
+        // A pull request that needs you says why: its checks, a person's requested changes, or a conflict.
         const pr = r.state === 'review' && r.pr?.state === 'open' ? r.pr : null;
         if (pr) {
-          const why = pr.changesRequested ? 'a reviewer asked for changes on GitHub' : 'its pull request\'s checks are failing';
-          attention.push({ key: `t:${p.root}:${r.id}`, look: LOOK(pr.changesRequested ? 'Changes requested' : 'Checks failing', 'git-pull-request', 'orange'), title: `${r.id} ${r.title}`, detail: `${p.name} · pull request #${pr.number}: ${why}`, project: p.name, actions: [...acts.filter((a) => a.command === 'acc.task.openPr').map((a) => ({ ...a, primary: true })), details] });
+          const files = prConflicts(r);
+          const why = [
+            pr.changesRequested ? 'a reviewer asked for changes on GitHub' : '',
+            pr.ci === 'failing' ? 'its checks are failing' : '',
+            files.length ? `it conflicts with ${r.environment} in ${fileList(files)}` : '',
+          ].filter(Boolean).join(', and ');
+          const label = pr.changesRequested ? 'Changes requested' : pr.ci === 'failing' ? 'Checks failing' : 'Conflicts';
+          attention.push({ key: `t:${p.root}:${r.id}`, look: LOOK(label, 'git-pull-request', 'orange'), title: `${r.id} ${r.title}`, detail: `${p.name} · pull request #${pr.number}: ${why}`, project: p.name, actions: [...acts.filter((a) => a.command === 'acc.task.openPr').map((a) => ({ ...a, primary: true })), details] });
           continue;
         }
         attention.push({ key: `t:${p.root}:${r.id}`, look: r.agent ?? LOOK('Needs you', 'bell-dot', 'orange'), title: `${r.id} ${r.title}`, detail: `${p.name} · its agent is waiting on you in its terminal`, project: p.name, actions: [...(attach ? [{ ...attach, primary: true }] : []), ...(watch ? [{ ...watch, primary: false }] : []), details] });

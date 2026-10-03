@@ -44,6 +44,8 @@ export function sampleHub(now = Date.now()): HubLike {
     task('ACME-14', 'Route web-to-case submissions by product line', 'running', 'needs-you', { run: { bgId: 'bg14', sessionId: 's-acme-14', worktree: wt('ACME-14') }, agent: { label: 'Needs you: wants permission', icon: 'bell', tone: 'orange' }, asking: true }),
     task('ACME-16', 'Add a field history report for Opportunity stage', 'todo', 'ready'),
     task('ACME-12', 'Case escalation rules for the premium tier', 'running', 'needs-you', { run: { bgId: 'bg12', sessionId: 's-acme-12', worktree: wt('ACME-12') }, agent: { label: 'Needs you: has a question', icon: 'bell', tone: 'orange' }, asking: true }),
+    // Built beside ACME-15, which touched the same layout: its pull request won't merge into dev.
+    task('ACME-22', 'Add a Region field to the Lead page', 'review', 'needs-you', { run: { worktree: wt('ACME-22'), branch: 'task/ACME-22-lead-region' }, review: { verdict: 'pass', summary: 'Adds Region__c and puts it on the Lead layout.', current: true }, pr: { number: 44, url: 'https://github.com/acme/service/pull/44', state: 'open', ci: 'passing', changesRequested: false, conflicts: ['force-app/main/default/layouts/Lead-Lead Layout.layout-meta.xml', 'force-app/main/default/objects/Lead/fields/Region__c.field-meta.xml'] } }),
     task('ACME-13', 'Close duplicate leads nightly', 'running', 'running', { run: { bgId: 'bg13', sessionId: 's-acme-13', worktree: wt('ACME-13') }, agent: { label: 'Working', icon: 'sync~spin', tone: 'blue' } }),
     task('ACME-15', 'Rename the Region picklist values', 'review', 'review', { run: { worktree: wt('ACME-15'), branch: 'task/ACME-15-a-very-long-branch-name-that-has-to-truncate-cleanly' }, review: { verdict: 'pass', summary: 'Renames the values and updates both record types.', current: true }, pr: { number: 42, url: 'https://github.com/acme/service/pull/42', state: 'open', ci: 'pending' } }),
     task('ACME-20', 'Show the renewal date on the Account page', 'review', 'review', { run: { worktree: wt('ACME-20'), branch: 'task/ACME-20-renewal-date' }, review: { verdict: 'pass', summary: 'Adds the field to the layout.', current: true } }),
@@ -183,6 +185,7 @@ export function sampleBoards(): BoardInput[] {
         card(21, 'Contact roles missing on converted leads', TODO, 'Bug', { priority: 'Highest', assignees: [{ name: 'Pat Lee' }], labels: [{ name: 'sales', color: null }] }),
         card(14, 'Route web-to-case submissions by product line', DOING, 'Story', { assignees: [{ name: 'Jordan Kim' }] }),
         card(12, 'Case escalation rules for the premium tier', DOING, 'Story', { priority: 'High', assignees: [{ name: 'Jordan Kim' }], labels: [{ name: 'service', color: null }, { name: 'sla', color: null }] }),
+        card(22, 'Add a Region field to the Lead page', DOING, 'Story', { assignees: [{ name: 'Jordan Kim' }] }),
         card(15, 'Rename the Region picklist values', REVIEW, 'Task', { priority: 'Low', assignees: [{ name: 'Pat Lee' }] }),
         card(19, 'Fix the flow that double-sends welcome emails', QA, 'Bug', { priority: 'High' }),
         card(10, 'Add a CHANGELOG', DONE, 'Task', { priority: 'Lowest' }),
@@ -196,7 +199,9 @@ const p = (text: string, marks?: string[]): AdfNode => ({ type: 'paragraph', con
 /** A Jira ticket with everything a description can hold, and the acc task working on it. */
 export function sampleTicket(now = Date.now()): TicketModel {
   const hub = sampleHub(now);
-  const row = hub.taskRows(ROOT).find((r) => r.id === 'ACME-12')!;
+  // Back with its builder after its pull request stopped merging into dev.
+  const pr = { number: 38, url: 'https://github.com/acme/service/pull/38', state: 'open', ci: 'passing', changesRequested: false, conflicts: ['force-app/main/default/escalationRules/Case.escalationRules-meta.xml'] };
+  const row = { ...hub.taskRows(ROOT).find((r) => r.id === 'ACME-12')!, pr };
   const description: AdfNode = { type: 'doc', content: [
     { type: 'paragraph', content: [{ type: 'text', text: 'Premium-tier cases must escalate to the ' }, { type: 'text', text: 'Tier 2 queue', marks: [{ type: 'strong' }] }, { type: 'text', text: ' when they breach their SLA. Today they sit in the general queue until someone notices.' }] },
     { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Acceptance criteria' }] },
@@ -228,10 +233,13 @@ export function sampleTicket(now = Date.now()): TicketModel {
   };
   const task = {
     id: 'ACME-12', title: ticket.title, brief: '', source: { kind: 'jira', key: 'ACME-12', url: ticket.url }, environment: 'dev', deps: [], labels: [], state: 'running', blocker: null,
-    run: { bgId: 'bg12', worktree: `${ROOT}/.claude/worktrees/ACME-12`, branch: 'task/ACME-12-case-escalation-rules' }, pr: null,
+    run: { bgId: 'bg12', worktree: `${ROOT}/.claude/worktrees/ACME-12`, branch: 'task/ACME-12-case-escalation-rules' }, pr,
     history: [
       { at: new Date(now - 4 * 86_400_000).toISOString(), from: null, to: 'todo', by: 'human:me' },
-      { at: new Date(now - 12 * 60_000).toISOString(), from: 'todo', to: 'running', by: 'human:me' },
+      { at: new Date(now - 3 * 86_400_000).toISOString(), from: 'todo', to: 'running', by: 'human:me' },
+      { at: new Date(now - 2 * 86_400_000).toISOString(), from: 'running', to: 'review', by: 'builder:ACME-12' },
+      { at: new Date(now - 30 * 60_000).toISOString(), from: 'review', to: 'rework', by: 'human:me', reason: 'Pull request #38 conflicts with dev in the Case escalation rules.' },
+      { at: new Date(now - 12 * 60_000).toISOString(), from: 'rework', to: 'running', by: 'human:me' },
     ],
     createdAt: new Date(now - 4 * 86_400_000).toISOString(), updatedAt: new Date(now - 12 * 60_000).toISOString(),
   } as unknown as Task;
