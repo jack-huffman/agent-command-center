@@ -1,7 +1,7 @@
 // Renders one editor tab. Every element is built with DOM calls and every string is set as text,
 // so nothing from a ticket, branch or session can become markup. No HTML string is ever parsed.
 import type {
-  Action, AgentModel, AgentsModel, EntryView, EnvironmentsModel, HistoryItem, HomeModel, HomeSection, IdentityCard, Look, Model, PersonChip, QuestionCard, Ref, RunCard, SetupModel, TasksModel, TicketModel, TrackerBoard, TrackerCard, ViewKind, WorktreesModel,
+  Action, AgentModel, AgentsModel, EntryView, EnvironmentsModel, HistoryItem, HomeModel, HomeSection, IdentityCard, Look, Model, PersonChip, QuestionCard, Ref, RunCard, SetupModel, SetupRow, TasksModel, TicketModel, TrackerBoard, TrackerCard, ViewKind, WorktreesModel,
 } from '../src/model.ts';
 import type { Block, Doc, Inline } from '../../packages/core/src/trackers/doc.ts';
 
@@ -72,10 +72,12 @@ interface Memory {
   opened: string[];
   /** Which kind of history the Overview shows. */
   history?: 'all' | 'answer' | 'move' | 'run';
+  /** Setup sections opened or closed by hand; the rest open while they have something to do. */
+  sections?: Record<string, boolean>;
 }
 function memory(): Memory {
   const s = (api.getState() as Partial<Memory> | undefined) ?? {};
-  return { modes: s.modes ?? {}, drafts: s.drafts ?? {}, section: s.section, answers: s.answers ?? {}, dock: s.dock ?? { open: false, run: null }, opened: s.opened ?? [], history: s.history };
+  return { modes: s.modes ?? {}, drafts: s.drafts ?? {}, section: s.section, answers: s.answers ?? {}, dock: s.dock ?? { open: false, run: null }, opened: s.opened ?? [], history: s.history, sections: s.sections ?? {} };
 }
 function remember(change: (m: Memory) => void): void {
   const m = memory();
@@ -1369,6 +1371,36 @@ function stepRun(r: RunCard | undefined, open: boolean): HTMLElement | null {
   return el('div', `step-run tone-row-${r.look.tone}`, status(r.look), el('span', 'muted mono step-run-cmd', r.command), show);
 }
 
+/**
+ * One setup step. To do: what's wrong, in a sentence, and what to do about it. Done: one muted line, with
+ * Check again on hover. The step's id stays out of sight; why it matters is the title's tooltip.
+ */
+function setupStep(s: SetupRow, live: RunCard[]): HTMLElement {
+  const title = el('span', 'strong', s.title);
+  if (s.why) title.title = s.why;
+  const run = stepRun(live.find((r) => r.step === s.id), !s.done);
+  if (s.done) {
+    const again = s.actions.find((a) => a.command === 'acc.step.check');
+    return el('li', 'step done', status(s.look), title, el('span', 'muted step-line', s.detail), run, again ? iconButton(again) : null);
+  }
+  return el('li', 'step attention',
+    el('div', 'step-head', status(s.look), title),
+    el('p', 'detail', s.detail),
+    s.fix ? el('pre', 'fix', s.fix) : null,
+    run,
+    el('div', 'actions', ...s.actions.map(actionButton)));
+}
+
+/** An action as a small icon button, named for screen readers and on hover. */
+function iconButton(a: Action): HTMLElement {
+  const b = el('button', 'icon-btn', icon(a.icon)) as HTMLButtonElement;
+  b.type = 'button';
+  b.title = `${a.label} again`;
+  b.setAttribute('aria-label', `${a.label} again`);
+  b.addEventListener('click', () => api.postMessage({ type: 'run', command: a.command, ref: a.ref }));
+  return b;
+}
+
 function renderSetup(m: SetupModel, live: RunCard[] = []): Node[] {
   const todo = m.total - m.done;
   const out: Node[] = [header('Setup', m.total ? `${m.done} of ${m.total} steps done${todo ? `. ${plural(todo, 'step')} to do.` : '. Everything is set up.'}` : 'Checking…',
@@ -1383,18 +1415,21 @@ function renderSetup(m: SetupModel, live: RunCard[] = []): Node[] {
     bar.append(fill);
     out.push(bar);
   }
+  // In the order you'd set things up, a section for each thing being set up (D-047). Done steps sit muted
+  // in one line; a section with nothing left to do folds away, unless you open it.
+  const opened = memory().sections ?? {};
   for (const part of m.parts) {
-    const list = el('ul', 'steps');
-    for (const s of part.steps) {
-      list.append(el('li', `step${s.look.tone === 'orange' ? ' attention' : ''}`,
-        el('div', 'step-head', status(s.look), el('span', 'strong', s.title), el('span', 'muted mono', s.id)),
-        el('p', 'detail', s.detail),
-        s.look.tone === 'orange' && s.why ? el('p', 'why', s.why) : null,
-        s.fix && s.look.tone === 'orange' ? el('pre', 'fix', s.fix) : null,
-        stepRun(live.find((r) => r.step === s.id), s.look.tone === 'orange'),
-        el('div', 'actions', ...s.actions.map(actionButton))));
-    }
-    out.push(el('section', 'block', el('h2', '', icon(part.part === 'machine' ? 'device-desktop' : 'repo'), part.label, el('span', 'count', part.todo ? `${part.todo} to do` : 'all done')), list));
+    const sections = part.sections.map((sec) => {
+      const key = `${part.part}:${sec.key}`;
+      const d = el('details', `setup-section${sec.todo ? '' : ' all-done'}`) as HTMLDetailsElement;
+      d.open = opened[key] ?? sec.todo > 0;
+      d.addEventListener('toggle', () => remember((x) => { x.sections = { ...(x.sections ?? {}), [key]: d.open }; }));
+      const count = sec.todo ? el('span', 'count tone-orange', `${sec.todo} to do`) : el('span', 'count done-count', icon('check'), sec.steps.length === 1 ? 'Done' : `All ${sec.steps.length} done`);
+      d.append(el('summary', '', el('span', 'tool-chev', icon('chevron-right')), el('span', 'setup-section-title', sec.title), count),
+        el('ul', 'steps', ...sec.steps.map((s) => setupStep(s, live))));
+      return d;
+    });
+    out.push(el('section', 'block', el('h2', '', icon(part.part === 'machine' ? 'device-desktop' : 'repo'), part.label, el('span', 'count', part.todo ? `${part.todo} to do` : 'all done')), ...sections));
   }
   return out;
 }

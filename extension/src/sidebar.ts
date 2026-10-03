@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { allowedMoves, DISPLAY, findRule, type State } from '../../packages/core/src/ledger.ts';
@@ -12,6 +13,7 @@ import type { Hub, Project } from './hub.ts';
 import { type AgentSession, agentName, CLAUDE_EXTENSION, claudeSessionUri, githubBranchUrl, isSessionId, sessionFor } from './logic.ts';
 import { laneMove, sessionKey } from './model.ts';
 import { type RunResult, runFile } from './run.ts';
+import { savedFolder } from './transcript.ts';
 import type { AgentNode, EnvNode, TaskNode, WorktreeNode } from './nodes.ts';
 
 type Acc = (args: string[], cwd: string, token?: vscode.CancellationToken) => Promise<RunResult>;
@@ -495,7 +497,19 @@ export class Sidebar {
       if (pick === 'Attach in a terminal' && s.id) this.send(s.cwd, `claude attach ${s.id}`, `claude: ${name}`);
       return;
     }
-    const live = this.hub.agents.find((a) => a.sessionId === s.sessionId);
+    // The folder the conversation is saved under, from the file itself: a stopped builder can report the
+    // main checkout it started from, and the window asking may be another repo's (D-046).
+    const sessionId = s.sessionId;
+    const folders = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
+    const task = this.hub.projects.flatMap((p) => this.hub.taskRows(p.root)).find((t) => t.run?.sessionId === sessionId);
+    const live = this.hub.agents.find((a) => a.sessionId === sessionId);
+    const folder = savedFolder(join(homedir(), '.claude', 'projects'), sessionId, [s.cwd, task?.run?.worktree, ...this.hub.projects.flatMap((p) => p.worktrees.map((w) => w.path))])
+      ?? (live?.pid ? s.cwd : null); // a session that has only just started may not have saved anything yet
+    if (!folder) {
+      const pick = await vscode.window.showWarningMessage(`Couldn't find where ${name}'s conversation is saved, so Claude Code can't open it.`, 'Watch it here');
+      if (pick) this.helpers.watch?.(sessionKey(s));
+      return;
+    }
     if (live?.kind === 'background' && live.id && live.pid && live.state !== 'done' && live.state !== 'stopped' && live.state !== 'failed') {
       const ok = await vscode.window.showWarningMessage(`Take ${name} over in Claude Code?`, {
         modal: true,
@@ -519,14 +533,13 @@ export class Sidebar {
     }
     // Claude Code opens only a conversation that belongs to the window's own folder. A builder's lives
     // in its worktree, so that folder opens in a new window, and the conversation opens there.
-    const folders = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
-    if (s.cwd && !folders.includes(s.cwd) && existsSync(s.cwd) && this.helpers.openLater) {
-      await this.helpers.openLater(s.cwd, s.sessionId);
-      this.log.info(`Opening ${name}'s folder ${s.cwd} in a new window, to open its conversation there.`);
-      await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(s.cwd), { forceNewWindow: true });
+    if (!folders.includes(folder) && existsSync(folder) && this.helpers.openLater) {
+      await this.helpers.openLater(folder, sessionId);
+      this.log.info(`Opening ${name}'s folder ${folder} in a new window, to open its conversation there.`);
+      await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(folder), { forceNewWindow: true });
       return;
     }
-    const uri = vscode.Uri.parse(claudeSessionUri(vscode.env.uriScheme, s.sessionId));
+    const uri = vscode.Uri.parse(claudeSessionUri(vscode.env.uriScheme, sessionId));
     this.log.info(`Opening ${name} in Claude Code: ${uri.toString(true)}`);
     await vscode.env.openExternal(uri);
   }
