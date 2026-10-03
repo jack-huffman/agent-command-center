@@ -215,7 +215,7 @@ function upsert(o: Opts, inputs: TaskInput[]): number {
   return res.errors.length ? 1 : 0;
 }
 
-/** Reads open issues as the repo's own GitHub account (D-007), upserts them, and follows closed and skipped ones (D-???). Never changes GitHub. */
+/** Reads open issues as the repo's own GitHub account (D-007), upserts them, and follows closed and skipped ones (D-048). Never changes GitHub. */
 function cmdIntakeGithub(o: Opts): number {
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);

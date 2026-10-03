@@ -405,3 +405,15 @@ export function skippedOnRoute(config: Config, from: string, to: string): string
   }
   return [];
 }
+
+/**
+ * The raw trackers list with one tracker added, or put in place of the one it describes (same kind,
+ * project and site, organization or repo). Settings the new one doesn't name, such as a GitHub tracker's
+ * skipLabels (D-048), are kept: re-adding a tracker never quietly drops them.
+ */
+export function withTracker(trackers: Record<string, unknown>[], tracker: Record<string, unknown>): Record<string, unknown>[] {
+  const where = (t: Record<string, unknown>) => t.site ?? t.organization ?? t.repo;
+  const i = trackers.findIndex((t) => t.kind === tracker.kind && t.project === tracker.project && where(t) === where(tracker));
+  if (i < 0) return [...trackers, tracker];
+  return trackers.map((t, k) => (k === i ? { ...t, ...tracker } : t));
+}

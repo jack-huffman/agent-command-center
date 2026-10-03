@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { branchFor, defaultEnvironment, loadConfig, parseConfig, skippedOnRoute, writeConfig } from '../src/config.ts';
+import { branchFor, defaultEnvironment, loadConfig, parseConfig, skippedOnRoute, withTracker, writeConfig } from '../src/config.ts';
 import { GENERIC_CONFIG, SF_CONFIG, tempDir } from './support.ts';
 
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x));
@@ -132,3 +132,11 @@ test('a GitHub tracker may name labels whose issues aren\'t imported, and nothin
   assert.match(jira.warnings.join(), /applies only to a GitHub tracker/);
   assert.deepEqual(jira.config!.trackers[0]!.skipLabels, []);
 });
+
+test('re-adding a tracker keeps the settings it had, in its place; a new one goes last (D-048)', () => {
+  const list = [{ kind: 'github', skipLabels: ['milestone'] }, { kind: 'jira', site: 'acme.atlassian.net', project: 'CRM' }];
+  assert.deepEqual(withTracker(list, { kind: 'github' }), [{ kind: 'github', skipLabels: ['milestone'] }, list[1]], 'skipLabels survive');
+  assert.deepEqual(withTracker(list, { kind: 'jira', site: 'acme.atlassian.net', project: 'CRM', board: 7 }), [list[0], { ...list[1], board: 7 }]);
+  assert.deepEqual(withTracker(list, { kind: 'jira', site: 'acme.atlassian.net', project: 'OPS' }).map((t) => t.project), [undefined, 'CRM', 'OPS'], 'another project is another tracker');
+});
+

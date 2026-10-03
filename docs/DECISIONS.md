@@ -924,7 +924,84 @@ only while it's open, so:
   records a D-043 of its own, made at the same time as this one, so this one
   is D-044. Whoever merges second keeps both entries.
 
-## D-??? Closed issues leave the board, and milestones aren't tasks (2026-10-03)
+## D-045 A task branch's decision is numbered when it merges (2026-10-03)
+
+In the M7 run, GH-11's branch recorded a D-043 at the same time as main did
+(#18). Builders work in parallel from the same main, so each one's "next
+number" is the same number.
+
+- On a task branch, a new entry is headed `## D-??? <title> (<date>)`, and the
+  code and commits refer to it as D-???. Whoever merges replaces each D-???
+  with the next free number. CLAUDE.md tells builders so.
+- Work committed straight to main is numbered at once, as before.
+- Not chosen: `acc land` renumbering the entries, which would add a commit
+  after the review; and leaving it to whoever merges second, which means a
+  renumber and a hunt for references every time.
+- The two entries both appending to the end of the file still conflict when
+  both merge. Keeping both is the whole resolution.
+
+## D-046 Open in Claude Code finds a conversation's folder from the file it's saved in (2026-10-03)
+
+The author reported that **Open in Claude Code** kept bringing up this
+window's own chat, not the builder that needed them.
+
+- **Cause:** a background builder starts in the main checkout and moves into
+  its worktree, and saves its conversation under the worktree. Once stopped or
+  blocked, `claude agents` reports the main checkout again. So the button took
+  the conversation to belong to this window, and asked Claude Code to open it
+  here. Claude Code didn't find it under this folder, and showed the window's
+  current chat instead. GH-11 and GH-13 were both like this.
+- **Fix:** the folder is found from the conversation file. The candidates are
+  the session's reported folder, its task's worktree, every worktree, and the
+  window's folders. The first one whose Claude Code project holds
+  `<session>.jsonl` wins. A worktree opens in a new window and the conversation
+  opens there, as D-041 intended. A session that has only just started may
+  have saved nothing yet, so it uses its reported folder. Otherwise the button
+  says it couldn't find the conversation and offers Watch, rather than open
+  the wrong chat.
+- **The same day, 0.19.1 said it couldn't find GH-13's conversation.** The
+  author was clicking from the Agents list in another repo's window: the list
+  shows every session on the machine. The candidates were that window's own
+  folders and worktrees, so they never included this repo's worktrees. VSCode
+  keeps each extension's log under its own logs folder, which is where the
+  window and the clicks showed up.
+- **So the file is found, not guessed.** First it's looked for under the likely
+  folders, then anywhere in Claude Code's projects. Its folder is the `cwd` the
+  conversation recorded whose name matches the folder it's saved in. That
+  works from any window. A stand-in for VSCode, loading the built extension
+  against the real repo from the other repo's folder, showed 0.19.1's message
+  and then the fix opening GH-13's worktree in a new window.
+
+## D-047 Setup reads in the order things are set up, a section for each thing, with done steps muted (2026-10-03)
+
+The author found the Setup page "too large and disorganized". Steps showed in
+the order their checks finished, so B14 (tickets), re-checked first as
+projects load, came before the repo itself. Every step was a full tile with
+its id, and done steps looked the same as ones still to do.
+
+- **Order:** the step list's order, the order you'd set up a new project in.
+  The checks' order no longer matters. A step this build doesn't know goes at
+  the end of its group.
+- **Sections:** each group of steps is named for what it sets up:
+  - This machine: Tools, Accounts.
+  - This project: The repo, Orgs, GitHub account, Client data and secrets,
+    Salesforce project, Environment branches, Source tracking, Environment
+    differences, Safe defaults, Background agents, Tickets, Drift.
+
+  Neighbouring groups with the same name share a section: B4 and B5, and B12
+  and B13. The names live beside the steps in core (`GROUP_TITLES`), so there
+  is still one source (D-017).
+- **Done steps look done:** one muted line with the icon, "Done", the title
+  and the detail, and Check again on hover or focus. A section with nothing to
+  do folds to one line ("All 3 done"), and one with steps to do opens. Opening
+  or closing one by hand is remembered.
+- **Steps to do stay whole, but shorter:** the status, the title, what's wrong
+  in a sentence, the command to copy if there is one, and the buttons. The
+  step's id is gone from the tile, and why the step matters is the title's
+  tooltip.
+- "Pass" reads "Done" and "Fail" reads "To do", since this is a checklist.
+
+## D-048 Closed issues leave the board, and milestones aren't tasks (2026-10-03)
 
 `acc intake github` read only open issues, so a task whose issue was closed
 stayed Ready forever: GH-3 to GH-6 here. Milestone issues came in as tasks too,
@@ -957,21 +1034,6 @@ so the Ready lane offered to dispatch a whole milestone to one builder.
 - `--json` adds `closed`, `removed` and `leftAlone`. The command's logic moved
   from the CLI into core (`intakeGithub`), beside `sync`, so it's tested with a
   fake `gh`.
-## D-045 A task branch's decision is numbered when it merges (2026-10-03)
-
-In the M7 run, GH-11's branch recorded a D-043 at the same time as main did
-(#18). Builders work in parallel from the same main, so each one's "next
-number" is the same number.
-
-- On a task branch, a new entry is headed `## D-??? <title> (<date>)`, and the
-  code and commits refer to it as D-???. Whoever merges replaces each D-???
-  with the next free number. CLAUDE.md tells builders so.
-- Work committed straight to main is numbered at once, as before.
-- Not chosen: `acc land` renumbering the entries, which would add a commit
-  after the review; and leaving it to whoever merges second, which means a
-  renumber and a hunt for references every time.
-- The two entries both appending to the end of the file still conflict when
-  both merge. Keeping both is the whole resolution.
 
 ## D-??? A pull request that conflicts with its base says so, and in which files (2026-10-03)
 

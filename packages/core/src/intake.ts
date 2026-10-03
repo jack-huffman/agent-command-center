@@ -69,7 +69,7 @@ const issueNumber = (t: Task): number | null => {
 };
 
 /**
- * Brings tasks in step with their issues (D-???). A task whose issue was closed moves to done, and one
+ * Brings tasks in step with their issues (D-048). A task whose issue was closed moves to done, and one
  * whose issue has a skipped label leaves the ledger, but only if work on it never started: otherwise it
  * stays as it is and is named. `issues` holds each issue as GitHub has it now, by number; a task whose
  * issue isn't there is left alone. Finished tasks are never looked at.
