@@ -5,8 +5,8 @@ import type { RepoPaths } from './paths.ts';
 
 /**
  * Keeps tasks in step with their pull requests (D-033): merged is done, closed without merging is
- * blocked, and failing checks or a person's requested changes show the task as needs you. It only
- * reads GitHub.
+ * blocked, and failing checks, a person's requested changes or a conflict with the base show the task
+ * as needs you. It only reads GitHub, and fetches to see the conflicts (D-???).
  */
 
 export interface SyncChange {
@@ -22,6 +22,8 @@ interface GhPr {
   state: 'OPEN' | 'MERGED' | 'CLOSED';
   url: string;
   reviewDecision?: string | null;
+  baseRefName?: string;
+  headRefName?: string;
   statusCheckRollup?: { status?: string; conclusion?: string | null; state?: string }[] | null;
 }
 
@@ -36,6 +38,27 @@ export function ciOf(rollup: GhPr['statusCheckRollup']): PullRequest['ci'] {
   return 'passing';
 }
 
+/**
+ * Brings the branches' latest commits from origin into its remote-tracking refs. Never a local branch,
+ * a checkout or the working tree. False when it couldn't: offline, or a branch gone.
+ */
+export function fetchBranches(run: Runner, root: string, branches: string[], env: NodeJS.ProcessEnv): boolean {
+  const refs = [...new Set(branches)].map((b) => `+refs/heads/${b}:refs/remotes/origin/${b}`);
+  return run('git', ['fetch', '--quiet', '--no-tags', 'origin', ...refs], { cwd: root, env, timeoutMs: 2 * 60_000 }).code === 0;
+}
+
+/**
+ * The files a pull request conflicts in with its base: git merges origin's two branches in memory and
+ * names what it couldn't merge. Empty when it merges cleanly, null when git couldn't tell.
+ */
+export function conflictsOf(run: Runner, root: string, base: string, head: string): string[] | null {
+  const r = run('git', ['merge-tree', '--write-tree', '--name-only', '-z', '--no-messages', `origin/${base}`, `origin/${head}`], { cwd: root });
+  // A conflict and a missing branch both exit 1; only a merge writes a tree first.
+  const [tree, ...files] = r.stdout.split('\0');
+  if ((r.code !== 0 && r.code !== 1) || !/^[0-9a-f]{40,64}$/.test(tree ?? '')) return null;
+  return r.code === 0 ? [] : [...new Set(files.filter(Boolean))];
+}
+
 export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now: () => Date; env: NodeJS.ProcessEnv }): { checked: number; changes: SyncChange[] } {
   const { run, now } = deps;
   const open = readLedger(paths.ledger).tasks.filter((t) => t.pr?.state === 'open');
@@ -47,12 +70,28 @@ export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now:
   const env = { ...deps.env, GH_TOKEN: token.stdout.trim() };
   const seen = new Map<number, GhPr>();
   for (const t of open) {
-    const r = run('gh', ['pr', 'view', String(t.pr!.number), '-R', gh.repo, '--json', 'number,state,url,reviewDecision,statusCheckRollup'], { env, timeoutMs: 60_000 });
+    const r = run('gh', ['pr', 'view', String(t.pr!.number), '-R', gh.repo, '--json', 'number,state,url,reviewDecision,baseRefName,headRefName,statusCheckRollup'], { env, timeoutMs: 60_000 });
     if (r.code !== 0) continue; // unreachable for now: try again next time
     try {
       seen.set(t.pr!.number, JSON.parse(r.stdout) as GhPr);
     } catch {
       // not JSON: try again next time
+    }
+  }
+  // Whether each open one still merges into its base, worked out here: GitHub says only that it conflicts.
+  const branches = new Map<number, { base: string; head: string }>();
+  for (const t of open) {
+    const p = seen.get(t.pr!.number);
+    const base = p?.baseRefName || t.environment;
+    const head = p?.headRefName || t.run?.branch;
+    if (p?.state === 'OPEN' && head) branches.set(p.number, { base, head });
+  }
+  const conflicts = new Map<number, string[]>();
+  // Unattended, so git never stops to ask for a password.
+  if (branches.size && fetchBranches(run, paths.root, [...branches.values()].flatMap((b) => [b.base, b.head]), { ...deps.env, GIT_TERMINAL_PROMPT: '0' })) {
+    for (const [n, b] of branches) {
+      const files = conflictsOf(run, paths.root, b.base, b.head);
+      if (files) conflicts.set(n, files);
     }
   }
   const at = now().toISOString();
@@ -83,8 +122,15 @@ export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now:
         }
         note = `#${p.number} closed without merging`;
       } else {
-        t.pr = { ...t.pr, url: p.url, ci, changesRequested, syncedAt: at };
-        note = changesRequested ? `#${p.number}: a person asked for changes` : ci === 'failing' ? `#${p.number}: checks failing` : `#${p.number} open${ci ? `, checks ${ci}` : ''}`;
+        // When git couldn't tell this time, what it last said stands.
+        const files = conflicts.get(p.number) ?? t.pr.conflicts;
+        t.pr = { ...t.pr, url: p.url, ci, changesRequested, ...(files ? { conflicts: files } : {}), syncedAt: at };
+        const why = [
+          changesRequested ? 'a person asked for changes' : '',
+          ci === 'failing' ? 'checks failing' : '',
+          files?.length ? `conflicts with ${branches.get(p.number)?.base ?? t.environment} in ${files.join(', ')}` : '',
+        ].filter(Boolean);
+        note = why.length ? `#${p.number}: ${why.join('; ')}` : `#${p.number} open${ci ? `, checks ${ci}` : ''}`;
       }
       // Only what changed is written down: an unchanged pull request leaves the event log alone.
       const after = JSON.stringify({ ...t.pr, syncedAt: undefined });
