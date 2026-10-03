@@ -75,7 +75,7 @@ test('builders are identified from ACC_ROLE and ACC_TASK', () => {
 test('forced moves need a person and a reason, and are marked as overrides', () => {
   const dir = repoWithConfig();
   acc(dir, ['add', 'Work']);
-  assert.match(acc(dir, ['set', 'T-1', 'done']).err, /no rule for todo → done/);
+  assert.match(acc(dir, ['set', 'T-1', 'done']).err, /A human can't move a task from todo to done/);
   assert.match(acc(dir, ['set', 'T-1', 'done', '--force']).err, /needs --reason/);
   const r = acc(dir, ['set', 'T-1', 'done', '--force', '--reason', 'finished by hand', '--json']);
   assert.equal(r.code, 0);
