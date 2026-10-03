@@ -11,6 +11,8 @@ acc keeps its own ledger of tasks beside the tracker. Bringing a ticket in never
 
 Run `acc intake github` in the repo. It reads the open issues on the repo in `.acc/config.json`, as the repo's own GitHub account, and adds or refreshes a task for each (`GH-<number>`). Add `--label <label>` to take only some.
 
+It also follows issues that left the open list. A task whose issue was closed moves to done, and issues with a label in the GitHub tracker's `skipLabels` (such as `milestone`) aren't tasks: one already imported leaves the ledger. A task that already started stays as it is, and the output names it for a person to decide.
+
 ## Jira or Azure DevOps
 
 The VSCode Command Center shows each tracker's board and has **Track in acc** on every ticket. That's the easy way.

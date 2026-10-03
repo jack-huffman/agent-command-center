@@ -60,6 +60,8 @@ export interface Tracker {
   board: number | string | null;
   /** Azure DevOps: the work item key prefix, AB by default (AB-123). */
   prefix: string | null;
+  /** GitHub: issues with any of these labels aren't tasks, such as milestone. */
+  skipLabels: string[];
 }
 
 export interface Config {
@@ -164,6 +166,13 @@ export function parseConfig(raw: unknown): ParseResult {
         errors.push(`trackers[${i}]: a Jira tracker needs "site" and "project".`);
         return;
       }
+      if (t.skipLabels !== undefined && !(Array.isArray(t.skipLabels) && t.skipLabels.every(isStr))) {
+        errors.push(`trackers[${i}]: "skipLabels" must be a list of label names, such as ["milestone"].`);
+        return;
+      }
+      if (t.kind !== 'github' && Array.isArray(t.skipLabels) && t.skipLabels.length) {
+        warnings.push(`trackers[${i}]: "skipLabels" applies only to a GitHub tracker, so it's ignored.`);
+      }
       const boardOk = t.board === undefined || t.board === null || (t.kind === 'azure' ? isStr(t.board) : Number.isInteger(t.board) && (t.board as number) > 0);
       if (!boardOk) {
         errors.push(`trackers[${i}]: "board" must be ${t.kind === 'azure' ? 'an Azure board\'s name, such as Stories' : 'a Jira board id or a GitHub Project number'}.`);
@@ -178,6 +187,7 @@ export function parseConfig(raw: unknown): ParseResult {
         team: isStr(t.team) ? t.team : null,
         board: Number.isInteger(t.board) || isStr(t.board) ? (t.board as number | string) : null,
         prefix: isStr(t.prefix) ? t.prefix.toUpperCase() : null,
+        skipLabels: t.kind === 'github' && strList(t.skipLabels) ? t.skipLabels : [],
       });
     });
   }
