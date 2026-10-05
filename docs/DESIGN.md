@@ -397,10 +397,14 @@ review, and passing receipts for every required check. Then it:
    and the ticket link.
 3. Comments the pull request link on the ticket. For GitHub, it does this
    itself. For Jira and Azure DevOps it returns the comment, and the extension
-   posts it with the repo's own sign-in (D-027, D-033).
+   posts it with the repo's own sign-in (D-027, D-033). A comment gh doesn't
+   confirm, even one stopped at its timeout, doesn't stop the land: acc says
+   so, and records the pull request (D-???).
 
-It never merges. Landing again after rework pushes the new commits and updates
-the open pull request's description, rather than opening another.
+It never merges. Landing again pushes the new commits and updates the open
+pull request's description, rather than opening another. The ticket hears
+"updated", or "updated after rework" when the task went to rework since its
+last land (D-???).
 
 **After the pull request opens:**
 
