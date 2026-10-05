@@ -2,6 +2,7 @@
  * Everything the extension decides, with no `vscode` import, so it can be tested with node:test.
  * The walkthrough is generated from core's step list (D-017): one source for the GUI and `acc doctor`.
  */
+import type { Analysis } from '../../packages/core/src/analyze.ts';
 import type { CheckStatus, Step } from '../../packages/core/src/onboarding/types.ts';
 
 export const PUBLISHER = 'JackHuffman';
@@ -212,7 +213,45 @@ export interface TaskRow {
   reviewing?: { sessionId: string } | null;
   /** Its pull request (D-033). */
   pr?: { number: number; url: string; state: string; ci?: string | null; changesRequested?: boolean; conflicts?: string[] } | null;
+  /** Its analysis (D-052): the verdict, when it was made, the questions nobody has answered, and the smaller tasks a split suggests. */
+  analysis?: { verdict: 'ready' | 'questions' | 'split'; at: string; open: AnalysisAsk[]; split: string[] } | null;
+  /** An analysis under way, to watch. */
+  analyzing?: { sessionId: string } | null;
+  /** The project wants an analysis before a task is built (D-052). */
+  analysisRequired?: boolean;
 }
+
+/** One of an analysis's questions a person hasn't answered: what it asks, why it matters, and what the analyst would assume. */
+export interface AnalysisAsk {
+  id: string;
+  question: string;
+  why: string;
+  suggested: string;
+}
+
+/** What a task's row keeps of its analysis: enough for its card, its notices and the Overview. */
+export function rowAnalysis(a: Analysis): NonNullable<TaskRow['analysis']> {
+  const open = a.questions.filter((q) => !q.answer).map(({ id, question, why, suggested }) => ({ id, question, why, suggested }));
+  return { verdict: a.verdict, at: a.at, open, split: a.split };
+}
+
+/** Its analysis is ready to build from: made, not too big, and every question answered. */
+export const analysisReady = (row: Pick<TaskRow, 'analysis'>): boolean => !!row.analysis && row.analysis.verdict !== 'split' && !row.analysis.open.length;
+
+/**
+ * What a task to do waits on from its analysis, if anything: a person's answers, or a split (D-052). Only
+ * a task to do: the analysis comes before the build.
+ */
+export function analysisWait(row: Pick<TaskRow, 'state' | 'analysis' | 'analyzing'>): 'questions' | 'split' | null {
+  if (row.state !== 'todo' || !row.analysis || row.analyzing) return null;
+  if (row.analysis.verdict === 'split') return 'split';
+  return row.analysis.open.length ? 'questions' : null;
+}
+
+export const questionsWord = (n: number): string => `${n} question${n === 1 ? '' : 's'}`;
+
+/** acc's arguments for a person's answer (D-012). The words come after --, so an answer that starts with - stays words. */
+export const analysisAnswerArgs = (task: string, question: string, text: string): string[] => ['analysis', 'answer', task, question, '--json', '--', text];
 
 /** The files an open pull request conflicts in with its base, or none (D-049). */
 export const prConflicts = (row: Pick<TaskRow, 'pr'>): string[] => (row.pr?.state === 'open' ? row.pr.conflicts ?? [] : []);
@@ -418,7 +457,7 @@ export const needsTerminal = (command: string): boolean => /^\s*(claude(\s*$|\s+
 
 // ---------------------------------------------------------------- what changed, said once (D-044)
 
-export type NoticeKind = 'waiting' | 'review' | 'passed' | 'rework' | 'blocked' | 'ci-failed' | 'changes' | 'conflicts' | 'merged';
+export type NoticeKind = 'waiting' | 'review' | 'passed' | 'rework' | 'blocked' | 'ci-failed' | 'changes' | 'conflicts' | 'merged' | 'analysis-ready' | 'analysis-questions' | 'analysis-split';
 
 export interface TaskNotice {
   kind: NoticeKind;
@@ -431,7 +470,8 @@ export interface TaskNotice {
 /**
  * What a person would want to hear about, from how a project's tasks looked before and after a reload:
  * a builder finished, a review passed or asked for changes, an agent waits on its own prompt, a pull
- * request's checks failed, it conflicts with its base, or it merged. A task seen for the first time says
+ * request's checks failed, it conflicts with its base, it merged, or its analysis came back (D-052): ready,
+ * with questions for you, or too big for one task. A task seen for the first time says
  * nothing, so opening VSCode doesn't replay the board. A question waiting in the Command Center has its
  * own notice (D-030).
  */
@@ -455,6 +495,13 @@ export function taskNotices(before: TaskRow[], after: TaskRow[]): TaskNotice[] {
     // Said when it starts to conflict, not again as the files change.
     if (pr && prConflicts(t).length && !prConflicts(p).length) say('conflicts', `Pull request #${pr.number} (${t.id}) conflicts with ${t.environment} in ${fileList(prConflicts(t))}.`, true);
     if (pr?.state === 'merged' && p.pr?.state !== 'merged') say('merged', `Pull request #${pr.number} merged. ${t.id} is done.`, false);
+    // A new analysis, not an answer to one of its questions: an answer keeps its time (D-052).
+    const a = t.analysis;
+    if (a && a.at !== p.analysis?.at) {
+      if (a.verdict === 'split') say('analysis-split', `${t.id}'s analysis says it's too big for one task.`, true);
+      else if (a.open.length) say('analysis-questions', `${t.id}'s analysis has ${questionsWord(a.open.length)} for you.`, true);
+      else say('analysis-ready', `${t.id}'s analysis is ready.`, false);
+    }
   }
   return out;
 }
@@ -469,8 +516,12 @@ export function noticeActions(n: TaskNotice): [label: string, command: string][]
     'ci-failed': ['Open pull request', 'acc.task.openPr'],
     changes: ['Open pull request', 'acc.task.openPr'],
     conflicts: ['Open pull request', 'acc.task.openPr'],
+    'analysis-ready': ['Dispatch', 'acc.task.dispatch'],
+    // Its questions are answered on its page, so Answer is the page.
+    'analysis-questions': ['Answer', 'acc.task.show'],
   };
   const a = first[n.kind];
+  if (a?.[1] === 'acc.task.show') return [a];
   return [...(a ? [a] : []), ['Show', 'acc.task.show']];
 }
 

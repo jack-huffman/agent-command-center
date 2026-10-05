@@ -1,7 +1,8 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { profileView, type ProfileView } from '../../packages/core/src/agents.ts';
+import { type Analysis, analysisRequired, analyzing, readAnalysis } from '../../packages/core/src/analyze.ts';
 import { type Config, parseConfig } from '../../packages/core/src/config.ts';
 import { run as runSync } from '../../packages/core/src/exec.ts';
 import { CLONE_ACCOUNT_KEY } from '../../packages/core/src/github.ts';
@@ -9,7 +10,7 @@ import { displayState, readLedger, type Ledger } from '../../packages/core/src/l
 import type { RepoPaths } from '../../packages/core/src/paths.ts';
 import type { HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import { latestVerdict, reviewing } from '../../packages/core/src/review.ts';
-import { type AgentSession, agentLook, askingLabel, isUnder, parseWorktrees, sessionFor, type TaskRow, type Worktree } from './logic.ts';
+import { type AgentSession, agentLook, analysisWait, askingLabel, isUnder, parseWorktrees, rowAnalysis, sessionFor, type TaskRow, type Worktree } from './logic.ts';
 import { runFile } from './run.ts';
 
 export interface WorktreeInfo extends Worktree {
@@ -34,6 +35,19 @@ export interface Project {
 
 export type HubPart = 'projects' | 'tasks' | 'agents' | 'worktrees';
 
+/** Where a project's analyses are kept: beside the ledger, as acc keeps them (D-052). */
+const analysesOf = (p: Pick<Project, 'ledgerPath'>): RepoPaths => ({ analyses: join(dirname(p.ledgerPath), 'analyses') }) as RepoPaths;
+
+/** When a file last changed, as one value: a rewrite in the same millisecond still has a new size or inode. */
+function stampOf(file: string): string | null {
+  try {
+    const s = statSync(file);
+    return `${s.mtimeMs}:${s.size}:${s.ino}`;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Everything the sidebar shows, loaded from the same sources acc uses. The hub only reads: every change
  * goes through acc (D-012).
@@ -48,7 +62,9 @@ export class Hub implements vscode.Disposable {
   questions: Question[] = [];
   /** How earlier questions ended, newest last (D-037), set by Questions. */
   answers: HistoryRecord[] = [];
-  private readonly tasks = new Map<string, { mtime: number; ledger: Ledger; rows: TaskRow[] }>();
+  private readonly tasks = new Map<string, { stamp: string; ledger: Ledger; rows: TaskRow[] }>();
+  /** Each analysis read, by file, kept until the file changes: the rows are re-derived every few seconds. */
+  private readonly analyses = new Map<string, { stamp: string; analysis: Analysis | null }>();
   private readonly emitter = new vscode.EventEmitter<HubPart>();
   readonly onDidChange = this.emitter.event;
   private readonly timers = new Map<string, NodeJS.Timeout>();
@@ -111,18 +127,16 @@ export class Hub implements vscode.Disposable {
     return (this.ledger(root)?.tasks ?? []).flatMap((t) => t.history.map((h) => ({ at: h.at, task: t.id, title: t.title, from: h.from, to: h.to, by: h.by })));
   }
 
-  /** Reads each ledger again if it changed on disk. Cheap: one stat per project. */
+  /**
+   * Reads each ledger again if it or the analyses changed on disk. Cheap: two stats per project. An
+   * analysis starting or ending adds or removes a file beside the ledger, which the ledger doesn't see.
+   */
   async loadTasks(force = false): Promise<void> {
     let changed = false;
     for (const p of this.projects) {
-      let mtime = 0;
-      try {
-        mtime = existsSync(p.ledgerPath) ? statSync(p.ledgerPath).mtimeMs : 0;
-      } catch {
-        mtime = 0;
-      }
+      const stamp = `${stampOf(p.ledgerPath) ?? 0}|${stampOf(analysesOf(p).analyses) ?? 0}`;
       const cached = this.tasks.get(p.root);
-      if (!force && cached && cached.mtime === mtime) continue;
+      if (!force && cached && cached.stamp === stamp) continue;
       let ledger: Ledger;
       try {
         ledger = readLedger(p.ledgerPath);
@@ -130,17 +144,53 @@ export class Hub implements vscode.Disposable {
         continue; // mid-write or unreadable: keep what we had
       }
       const rows = this.deriveRows(ledger, p);
-      this.tasks.set(p.root, { mtime, ledger, rows });
+      this.tasks.set(p.root, { stamp, ledger, rows });
       changed = true;
     }
     if (changed || force) this.emitter.fire('tasks');
   }
 
-  /** Task rows with each running task's agent state, so a waiting agent shows as Needs you. */
+  /** A task's analysis (D-052), read again only when its file has changed. */
+  analysis(root: string, id: string): Analysis | null {
+    const p = this.project(root);
+    return p ? this.analysisFrom(analysesOf(p), id) : null;
+  }
+
+  private analysisFrom(paths: RepoPaths, id: string): Analysis | null {
+    const file = join(paths.analyses, `${id}.json`);
+    const stamp = stampOf(file);
+    if (!stamp) {
+      this.analyses.delete(file);
+      return null;
+    }
+    const cached = this.analyses.get(file);
+    if (cached?.stamp === stamp) return cached.analysis;
+    const analysis = readAnalysis(paths, id);
+    this.analyses.set(file, { stamp, analysis });
+    return analysis;
+  }
+
+  /**
+   * Task rows with each running task's agent state, so a waiting agent shows as Needs you, and each task's
+   * analysis, so one with questions for a person does too (D-052).
+   */
   private deriveRows(ledger: Ledger, p?: Project): TaskRow[] {
     // Reviews sit beside the ledger (D-032). A branch's latest commit is its worktree's HEAD.
     const reviews = p ? ({ reviews: join(dirname(p.ledgerPath), 'reviews') } as RepoPaths) : null;
+    // So do analyses: one listing a reload, and a task with none costs nothing more.
+    const store = p ? analysesOf(p) : null;
+    let files = new Set<string>();
+    try {
+      if (store) files = new Set(readdirSync(store.analyses));
+    } catch {
+      // none yet
+    }
+    const required = p ? analysisRequired(p.config) : false;
     return ledger.tasks.map((t) => {
+      const a = store && t.state !== 'done' && files.has(`${t.id}.json`) ? this.analysisFrom(store, t.id) : null;
+      const running = store && t.state !== 'done' && files.has(`${t.id}.running.json`) ? analyzing(store, t.id) : null;
+      const analysis = a ? rowAnalysis(a) : null;
+      const waits = analysisWait({ state: t.state, analysis, analyzing: running });
       const verdict = reviews && (t.state === 'review' || t.state === 'rework') ? latestVerdict(reviews, t.id) : null;
       const head = p?.worktrees.find((w) => w.branch === t.run?.branch)?.head;
       const live = reviews && t.state === 'review' ? reviewing(reviews, t.id) : null;
@@ -153,7 +203,8 @@ export class Hub implements vscode.Disposable {
         title: t.title,
         state: t.state,
         // A question waiting in the Command Center makes the agent wait on you, though it reads as busy.
-        display: displayState(ledger, t, session ? (asking ? { state: 'blocked', status: 'waiting' } : { state: session.state, status: session.status }) : undefined) as TaskRow['display'],
+        // So does an analysis with questions for a person, or one that says it's too big for one task.
+        display: waits ? 'needs-you' : displayState(ledger, t, session ? (asking ? { state: 'blocked', status: 'waiting' } : { state: session.state, status: session.status }) : undefined) as TaskRow['display'],
         environment: t.environment,
         deps: t.deps.filter((d) => ledger.tasks.find((x) => x.id === d)?.state !== 'done'),
         source: { kind: t.source.kind, url: t.source.url },
@@ -163,6 +214,9 @@ export class Hub implements vscode.Disposable {
         review: verdict ? { verdict: verdict.verdict, summary: verdict.summary, current: !!head && verdict.sha === head } : null,
         reviewing: live ? { sessionId: live.sessionId } : null,
         pr: t.pr ? { number: t.pr.number, url: t.pr.url, state: t.pr.state, ci: t.pr.ci ?? null, changesRequested: t.pr.changesRequested ?? false, conflicts: t.pr.conflicts ?? [] } : null,
+        analysis,
+        analyzing: running ? { sessionId: running.sessionId } : null,
+        analysisRequired: required,
       };
     });
   }

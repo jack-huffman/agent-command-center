@@ -198,3 +198,74 @@ test('task notices say what changed once, and nothing for a task seen for the fi
   assert.equal(statusSummary([row('T-1', 'review')], 2).text, '$(bell) 2 need you  $(eye) 1 in review');
   assert.deepEqual(statusSummary([row('T-4', 'done')], 0), { text: '', tooltip: '', attention: false }, 'nothing in play: hidden');
 });
+
+test('an analysis that comes back says so once: ready, questions for you, or too big; an answer says nothing (D-052)', async () => {
+  const { noticeActions, taskNotices } = await import('../src/logic.ts');
+  type Row = import('../src/logic.ts').TaskRow;
+  const row = (more: Partial<Row> = {}): Row => ({ id: 'T-1', title: 'Task T-1', state: 'todo', display: 'ready', environment: 'main', deps: [], source: { kind: 'github', url: null }, ...more });
+  const ask = (id: string) => ({ id, question: `Question ${id}?`, why: 'It matters.', suggested: 'Yes.' });
+  const analysis = (at: string, verdict: 'ready' | 'questions' | 'split', open = 0) => ({ analysis: { verdict, at, open: ['q1', 'q2', 'q3'].slice(0, open).map(ask), split: verdict === 'split' ? ['One', 'Two'] : [] } });
+  const say = (b: Row, a: Row) => taskNotices([b], [a]).map((n) => [n.kind, n.urgent, n.text]);
+  assert.deepEqual(say(row(), row(analysis('t1', 'ready'))), [['analysis-ready', false, 'T-1\'s analysis is ready.']]);
+  assert.deepEqual(say(row(), row({ ...analysis('t1', 'questions', 2), display: 'needs-you' })), [['analysis-questions', true, 'T-1\'s analysis has 2 questions for you.']]);
+  assert.deepEqual(say(row(), row({ ...analysis('t1', 'questions', 1), display: 'needs-you' })), [['analysis-questions', true, 'T-1\'s analysis has 1 question for you.']]);
+  assert.deepEqual(say(row(), row({ ...analysis('t1', 'split'), display: 'needs-you' })), [['analysis-split', true, 'T-1\'s analysis says it\'s too big for one task.']]);
+  assert.deepEqual(say(row(analysis('t1', 'questions', 2)), row(analysis('t1', 'questions', 1))), [], 'an answer keeps its time: no notice');
+  assert.deepEqual(say(row(analysis('t1', 'questions', 1)), row(analysis('t1', 'ready'))), [], 'nor does the last answer');
+  assert.deepEqual(say(row(analysis('t1', 'ready')), row(analysis('t2', 'questions', 1))), [['analysis-questions', true, 'T-1\'s analysis has 1 question for you.']], 'analyzed again: news');
+  assert.deepEqual(taskNotices([], [row(analysis('t1', 'questions', 2))]), [], 'first look: no news');
+  assert.deepEqual(noticeActions({ kind: 'analysis-questions', task: 'T-1', text: '', urgent: true }), [['Answer', 'acc.task.show']], 'Answer is the page: no second Show');
+  assert.deepEqual(noticeActions({ kind: 'analysis-ready', task: 'T-1', text: '', urgent: false }), [['Dispatch', 'acc.task.dispatch'], ['Show', 'acc.task.show']]);
+  assert.deepEqual(noticeActions({ kind: 'analysis-split', task: 'T-1', text: '', urgent: true }), [['Show', 'acc.task.show']]);
+});
+
+test('a row reads its analysis and the one under way from beside the ledger; a dead analyst is no longer analyzing (D-052)', async () => {
+  const { mkdirSync, writeFileSync } = await import('node:fs');
+  const { analyzing, readAnalysis } = await import('../../packages/core/src/analyze.ts');
+  const { tempDir } = await import('../../packages/core/test/support.ts');
+  const { analysisReady, analysisWait, rowAnalysis } = await import('../src/logic.ts');
+  const paths = { analyses: join(tempDir(), 'acc', 'analyses') } as import('../../packages/core/src/paths.ts').RepoPaths;
+  mkdirSync(paths.analyses, { recursive: true });
+  const a = {
+    v: 1, task: 'T-1', env: 'main', base: 'abc', verdict: 'questions', summary: 'Do it.', requirements: { goal: '', criteria: [], assumptions: [], outOfScope: [] },
+    questions: [{ id: 'q1', question: 'Which?', why: 'Because.', suggested: 'This one.' }, { id: 'q2', question: 'When?', why: '', suggested: 'Now.', answer: { text: 'Later', by: 'me', at: 't' } }],
+    findings: [], approach: { plan: [], files: [], refactors: [], risks: [], tests: [], size: 'S' }, split: [], orgs: [], sessionId: 's', at: '2026-10-05T10:00:00.000Z', durationMs: 1, costUsd: null,
+  };
+  writeFileSync(join(paths.analyses, 'T-1.json'), JSON.stringify(a));
+  const row = rowAnalysis(readAnalysis(paths, 'T-1')!);
+  assert.deepEqual(row, { verdict: 'questions', at: '2026-10-05T10:00:00.000Z', open: [{ id: 'q1', question: 'Which?', why: 'Because.', suggested: 'This one.' }], split: [] }, 'only the questions nobody answered');
+  assert.equal(analysisWait({ state: 'todo', analysis: row }), 'questions');
+  assert.equal(analysisWait({ state: 'running', analysis: row }), null, 'only a task to do waits on its analysis');
+  assert.equal(analysisWait({ state: 'todo', analysis: row, analyzing: { sessionId: 's2' } }), null, 'nor while it\'s analyzed again');
+  assert.equal(analysisReady({ analysis: { ...row, open: [] } }), true);
+  assert.equal(analysisReady({ analysis: { ...row, open: [], verdict: 'split' } }), false);
+  writeFileSync(join(paths.analyses, 'T-1.running.json'), JSON.stringify({ sessionId: 'live', startedAt: 't', pid: process.pid }));
+  assert.equal(analyzing(paths, 'T-1')?.sessionId, 'live');
+  writeFileSync(join(paths.analyses, 'T-1.running.json'), JSON.stringify({ sessionId: 'gone', startedAt: 't', pid: 999_999_999 }));
+  assert.equal(analyzing(paths, 'T-1'), null, 'its process has gone');
+});
+
+test('an answer goes through acc, after --, so words that start with - stay words (D-012, D-052)', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const { mkdirSync, writeFileSync } = await import('node:fs');
+  const { GENERIC_CONFIG, makeRepo } = await import('../../packages/core/test/support.ts');
+  const { analysisAnswerArgs } = await import('../src/logic.ts');
+  const args = analysisAnswerArgs('T-1', 'q1', '-5 days, not --json');
+  assert.deepEqual(args, ['analysis', 'answer', 'T-1', 'q1', '--json', '--', '-5 days, not --json']);
+  const dir = makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG) });
+  const main = join(root, '..', 'packages', 'cli', 'src', 'main.ts');
+  const acc = (a: string[]) => spawnSync(process.execPath, ['--no-warnings', main, ...a], { cwd: dir, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', ACC_ROLE: '', ACC_TASK: '' } });
+  assert.equal(acc(['add', 'Work']).status, 0);
+  const common = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: dir, encoding: 'utf8' }).stdout.trim();
+  const analyses = join(common, 'acc', 'analyses');
+  mkdirSync(analyses, { recursive: true });
+  writeFileSync(join(analyses, 'T-1.json'), JSON.stringify({
+    v: 1, task: 'T-1', env: 'main', base: 'abc', verdict: 'questions', summary: 'Do it.', requirements: { goal: '', criteria: [], assumptions: [], outOfScope: [] },
+    questions: [{ id: 'q1', question: 'How long?', why: '', suggested: '3 days' }], findings: [], approach: { plan: [], files: [], refactors: [], risks: [], tests: [], size: 'S' },
+    split: [], orgs: [], sessionId: 's', at: '2026-10-05T10:00:00.000Z', durationMs: 1, costUsd: null,
+  }));
+  const r = acc(args);
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+  const out = JSON.parse(r.stdout);
+  assert.deepEqual([out.verdict, out.questions[0].answer.text], ['ready', '-5 days, not --json'], 'the words as given, and the last answer makes it ready');
+});
