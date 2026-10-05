@@ -101,6 +101,9 @@ test('a run reads in words: running, waiting for you, done, failed with its exit
   assert.deepEqual([runCard(r({ prompt: { kind: 'yesno', text: '?' } })).look.label, runCard(r({ prompt: { kind: 'yesno', text: '?' } })).look.tone], ['Waiting for you', 'orange']);
   assert.equal(runCard(r({ endedAt: 1, code: 0 })).look.label, 'Done');
   assert.equal(runCard(r({ endedAt: 1, code: 2 })).look.label, 'Failed (exit 2)');
+  // acc analyze exits 1 when its analysis has questions (D-054): the run says whether it went well.
+  assert.equal(runCard(r({ endedAt: 1, code: 1, ok: true })).look.label, 'Done', 'a run that went well is done, whatever its exit code');
+  assert.equal(runCard(r({ endedAt: 1, code: 1 })).look.label, 'Failed (exit 1)', 'with nothing said, an exit code other than 0 fails');
   assert.equal(runCard(r({ endedAt: 1, code: null, stopped: true })).look.label, 'Stopped');
   assert.equal(runCard(r({ endedAt: 1, code: 0, prompt: { kind: 'text', text: '?' } })).prompt, null, 'a finished run asks nothing');
 });
