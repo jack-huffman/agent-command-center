@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { AUTOPILOT_BY, type AutopilotDeps, autopilotMode, autopilotPass, type AutopilotStep, holdAutopilot, nextStep, taskFacts, type TaskFacts } from '../src/autopilot.ts';
+import { AUTOPILOT_BY, type AutopilotDeps, autopilotEvent, type AutopilotLog, autopilotMode, autopilotPass, type AutopilotStep, holdAutopilot, nextStep, readAutopilotLog, taskFacts, type TaskFacts } from '../src/autopilot.ts';
 import { type Config, parseConfig } from '../src/config.ts';
 import { AccError, run, type RunResult } from '../src/exec.ts';
 import { waiveGates } from '../src/gates.ts';
@@ -423,4 +423,74 @@ test('only one autopilot runs against a repo: a second is refused at once, and a
 
   // The ledger's own lock timing out inside a pass isn't another autopilot.
   assert.throws(() => holdAutopilot(s.paths, () => { throw new AccError('lock-timeout', 'ledger busy'); }), /ledger busy/);
+});
+
+// ---------------------------------------------------------------- what it did, read back (D-064)
+
+const steps = (log: AutopilotLog | undefined) => (log?.records ?? []).map((r) => [r.task, r.step, r.outcome, r.verdict ?? r.pr?.number ?? r.reason ?? null]);
+
+test('every step autopilot takes is read back from the ledger\'s events: review, land, re-dispatch and failure (D-064)', () => {
+  const s = setup();
+  const calls: string[] = [];
+  autopilotPass(s.paths, s.config, deps(calls));
+  autopilotPass(s.paths, s.config, deps(calls));
+  const log = readAutopilotLog(s.paths.events);
+  assert.deepEqual(steps(log), [['T-1', 'review', 'done', 'pass'], ['T-1', 'land', 'done', 42]]);
+  assert.deepEqual(log!.records[1]!.pr, { number: 42, url: 'https://github.com/acme/tool/pull/42', opened: true });
+  assert.ok(log!.records.every((r) => r.seq > 0 && r.at === now().toISOString()));
+
+  // Changes asked for, then the re-dispatch: its move is the step, and its run record isn't another.
+  const r = setup();
+  autopilotPass(r.paths, r.config, deps(calls, { 'claude -p': verdictOut('changes') }));
+  autopilotPass(r.paths, r.config, deps(calls));
+  assert.deepEqual(steps(readAutopilotLog(r.paths.events)), [['T-1', 'review', 'done', 'changes'], ['T-1', 'dispatch', 'done', null]]);
+  assert.equal(readAutopilotLog(r.paths.events)!.records[0]!.reason, 'sum has no test.', 'what the review asked for');
+
+  const f = setup();
+  passReview(f.paths, f.id, f.sha);
+  autopilotPass(f.paths, f.config, deps(calls, { 'gh pr create': bad('GraphQL: Resource not accessible by integration (createPullRequest)') }));
+  assert.deepEqual(steps(readAutopilotLog(f.paths.events)), [['T-1', 'land', 'failed', 'gh couldn\'t open the pull request: GraphQL: Resource not accessible by integration (createPullRequest)']]);
+});
+
+test('a person\'s review, land and dispatch aren\'t autopilot\'s, nor is a re-dispatch\'s run record (D-064)', () => {
+  const at = now().toISOString();
+  const e = (by: string, type: LedgerEvent['type'], data: Record<string, unknown>) => autopilotEvent({ seq: 1, at, type, task: 'T-1', by, data });
+  assert.equal(e('reviewer:T-1', 'task.updated', { reviewed: { sha: 'abc', verdict: 'pass' } }), null);
+  assert.equal(e('reviewer:T-1', 'task.moved', { from: 'review', to: 'rework', reason: 'Review asked for changes: no test.' }), null);
+  assert.equal(e('acc land', 'task.updated', { pr: { number: 7, url: 'u' }, sha: 'abc', opened: true }), null);
+  assert.equal(e('human:jordan', 'task.moved', { from: 'rework', to: 'running' }), null);
+  assert.equal(e(AUTOPILOT_BY, 'task.updated', { run: { branch: 'b' } }), null);
+  assert.equal(e(AUTOPILOT_BY, 'task.moved', { from: 'review', to: 'done' }), null);
+  assert.equal(e(`someone for ${AUTOPILOT_BY}x`, 'task.updated', { reviewed: { sha: 'abc', verdict: 'pass' } }), null);
+  // Updated rather than opened, and a refresh: merged in, or the conflict had gone.
+  assert.deepEqual(e(AUTOPILOT_BY, 'task.updated', { pr: { number: 7, url: 'u' }, sha: 'abc', opened: false })?.pr, { number: 7, url: 'u', opened: false });
+  assert.deepEqual(e(AUTOPILOT_BY, 'task.updated', { refreshed: { base: 'main', from: 'a', to: 'b', resolved: [] } }), { seq: 1, at, task: 'T-1', step: 'refresh', outcome: 'done', base: 'main' });
+  assert.deepEqual(e(AUTOPILOT_BY, 'task.updated', { pr: { number: 7, url: 'u', conflicts: [] } }), { seq: 1, at, task: 'T-1', step: 'refresh', outcome: 'done', base: null, pr: { number: 7, url: 'u', opened: false } });
+  assert.equal(e(AUTOPILOT_BY, 'task.updated', { autopilot: { failed: { step: 'merge', reason: 'x' } } }), null, 'not a step it takes');
+});
+
+test('the events are read from their tail first, then only what was added, a whole line at a time (D-064)', () => {
+  const dir = tempDir('events-');
+  const file = join(dir, 'events.jsonl');
+  assert.equal(readAutopilotLog(file), undefined, 'none yet');
+  const line = (seq: number, by = AUTOPILOT_BY) => JSON.stringify({ seq, at: now().toISOString(), type: 'task.updated', task: `T-${seq}`, actor: 'orchestrator', by, data: { pr: { number: seq, url: 'u' }, sha: 'a', opened: true } });
+  // A long history: only its last 256 KB is read, starting at a whole line.
+  const old = Array.from({ length: 4000 }, (_, i) => line(i + 1)).join('\n') + '\n';
+  writeFileSync(file, old);
+  let log = readAutopilotLog(file)!;
+  assert.ok(log.records.length === 300, 'the newest 300 kept');
+  assert.equal(log.records.at(-1)!.seq, 4000);
+  assert.equal(log.offset, Buffer.byteLength(old));
+
+  appendFileSync(file, `${line(4001, 'human:jordan')}\n${line(4002)}\n${line(4003).slice(0, 20)}`);
+  log = readAutopilotLog(file, log)!;
+  assert.deepEqual(log.records.slice(-1).map((r) => r.seq), [4002], 'a person\'s land isn\'t a step, and a half-written line waits');
+  appendFileSync(file, `${line(4003).slice(20)}\n`);
+  log = readAutopilotLog(file, log)!;
+  assert.deepEqual(log.records.slice(-2).map((r) => r.seq), [4002, 4003]);
+  assert.equal(log.records.length, 300);
+
+  // A file made again is read again from its start.
+  writeFileSync(file, `${line(1)}\n`);
+  assert.deepEqual(readAutopilotLog(file, log)!.records.map((r) => r.seq), [1]);
 });

@@ -19,6 +19,13 @@ export interface StartOptions {
   label?: string;
   /** The setup step it does, so the step can show it's under way and check itself after. */
   step?: string;
+  /**
+   * A run that lasts as long as the window, such as autopilot (D-064): it stays out of the status bar's
+   * running item and isn't the output panel's first pick, so other commands still show there.
+   */
+  background?: boolean;
+  /** More environment for it, on top of VSCode's own. */
+  env?: Record<string, string>;
   onExit?: (code: number | null) => void;
   /**
    * Whether it did its job, for a command whose exit code says more than that: acc analyze exits 1 for an
@@ -82,8 +89,8 @@ export class Runs implements vscode.Disposable {
     return this.list.map((r) => this.view(r));
   }
 
-  private view({ id, label, command, startedAt, endedAt, code, ok, stopped, lines, prompt, step }: Run): RunInput {
-    return { id, label, command, startedAt, endedAt, code, ...(ok === undefined ? {} : { ok }), stopped, lines, prompt, step };
+  private view({ id, label, command, startedAt, endedAt, code, ok, stopped, lines, prompt, step, background }: Run): RunInput {
+    return { id, label, command, startedAt, endedAt, code, ...(ok === undefined ? {} : { ok }), stopped, lines, prompt, step, ...(background ? { background } : {}) };
   }
 
   running(step?: string): boolean {
@@ -95,6 +102,7 @@ export class Runs implements vscode.Disposable {
     const run: Run = {
       id, label: opts.label ?? command, command, cwd: opts.cwd, startedAt: Date.now(), endedAt: null, code: null, stopped: false,
       lines: [''], prompt: null, step: opts.step ?? null, child: null, quiet: undefined, onExit: opts.onExit, judge: opts.ok,
+      ...(opts.background ? { background: true } : {}),
     };
     this.list.unshift(run);
     // Finished runs beyond the last few are dropped; running ones never are.
@@ -107,7 +115,7 @@ export class Runs implements vscode.Disposable {
     let child: ChildProcess;
     try {
       // A shell, since setup's fixes are command lines. Its own process group, so Stop ends all of it.
-      child = spawn(command, { cwd: opts.cwd, shell: true, env: sfEnv({ ...process.env, PATH: `${this.accBin}${delimiter}${process.env.PATH ?? ''}`, FORCE_COLOR: '0', NO_COLOR: '1' }), detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'] });
+      child = spawn(command, { cwd: opts.cwd, shell: true, env: sfEnv({ ...process.env, ...opts.env, PATH: `${this.accBin}${delimiter}${process.env.PATH ?? ''}`, FORCE_COLOR: '0', NO_COLOR: '1' }), detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'] });
     } catch (e) {
       this.output(run, `${(e as Error).message}\n`);
       this.finish(run, 127);
@@ -230,7 +238,8 @@ export class Runs implements vscode.Disposable {
   }
 
   private renderStatus(): void {
-    const live = this.list.filter((r) => r.endedAt === null);
+    // A background run lasts as long as the window: it has its own item, or it would spin here all day.
+    const live = this.list.filter((r) => r.endedAt === null && (!r.background || r.prompt));
     if (!live.length) { this.status.hide(); return; }
     const asking = live.find((r) => r.prompt);
     const first = asking ?? live[0]!;

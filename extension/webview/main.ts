@@ -983,7 +983,8 @@ function tool(name: string, iconName: string, onClick: () => void): HTMLButtonEl
 function renderDock(list: RunCard[]): HTMLElement | null {
   if (!list.length) return null;
   const m = memory().dock;
-  const run = list.find((r) => r.id === m.run) ?? list.find((r) => r.running) ?? list[0]!;
+  // A run that lasts as long as the window (autopilot) is in the list, but another is shown first.
+  const run = list.find((r) => r.id === m.run) ?? list.find((r) => r.running && !r.background) ?? list.find((r) => !r.background) ?? list[0]!;
   const open = m.open;
   const toggle = () => { remember((x) => { x.dock.open = !open; x.dock.run = run.id; }); redrawDock(); };
   const lastLine = [...run.lines].reverse().find((l) => l.trim()) ?? (run.running ? 'Starting…' : 'No output');
@@ -1354,8 +1355,9 @@ function renderOverview(m: HomeModel): Node[] {
   return out;
 }
 
-/** History filters: everything, or one kind. Remembered for the tab. */
+/** History filters: everything, or one kind. Remembered for the tab. Autopilot's steps are Tasks (D-064). */
 const HISTORY_KINDS = [['all', 'All', 'list-flat'], ['answer', 'Your answers', 'comment-discussion'], ['move', 'Tasks', 'project'], ['run', 'Commands', 'terminal']] as const;
+const historyKind = (i: HistoryItem): string => (i.kind === 'autopilot' ? 'move' : i.kind);
 
 /**
  * Everything that happened, newest first, in its own scrolling box (D-037): your answers to agents'
@@ -1367,7 +1369,7 @@ function renderHistory(items: HistoryItem[], manyProjects: boolean): HTMLElement
   filters.setAttribute('role', 'group');
   filters.setAttribute('aria-label', 'Show');
   for (const [k, label, ic] of HISTORY_KINDS) {
-    const n = k === 'all' ? items.length : items.filter((i) => i.kind === k).length;
+    const n = k === 'all' ? items.length : items.filter((i) => historyKind(i) === k).length;
     const b = el('button', `seg${kind === k ? ' on' : ''}`, icon(ic), label, n ? el('span', 'count', String(n)) : null) as HTMLButtonElement;
     b.type = 'button';
     b.setAttribute('aria-pressed', String(kind === k));
@@ -1375,7 +1377,7 @@ function renderHistory(items: HistoryItem[], manyProjects: boolean): HTMLElement
     filters.append(b);
   }
   const box = el('section', 'panel-box history', el('div', 'history-head', el('h2', '', icon('history'), 'History'), filters));
-  const shown = items.filter((i) => kind === 'all' || i.kind === kind);
+  const shown = items.filter((i) => kind === 'all' || historyKind(i) === kind);
   if (!shown.length) {
     box.append(el('p', 'muted quiet', kind === 'answer' ? 'When you answer an agent, it\'s kept here.' : kind === 'run' ? 'Commands acc runs for you are kept here.' : 'What agents and tasks do shows up here.'));
     return box;
@@ -1389,6 +1391,13 @@ function renderHistory(items: HistoryItem[], manyProjects: boolean): HTMLElement
       feed.append(el('li', '', el('span', 'feed-dot'), el('div', '',
         el('div', '', el('span', 'tcard-key', it.task), ' ', el('span', '', it.title)),
         el('div', 'muted small', when(it.at), ` · ${it.from ?? 'new'} → `, el('strong', '', it.to), ` · ${it.by.replace(/^human:/, '')}${where(it.project)}`))));
+    } else if (it.kind === 'autopilot') {
+      // A step autopilot took (D-064): its icon, and what it did in words, with its pull request a click away.
+      const what = it.url ? linkTo(it.url, it.look.label) : el('span', '', it.look.label);
+      feed.append(el('li', 'history-autopilot', el('span', `feed-icon tone-${it.look.tone}`, icon(it.look.icon)), el('div', 'history-step',
+        el('div', '', el('span', 'tcard-key', it.task), ' ', el('span', '', it.title)),
+        el('div', 'muted small', when(it.at), ' · ', el('strong', `tone-${it.look.tone}`, what), where(it.project)),
+        it.detail ? clampedNote(it.detail) : null)));
     } else if (it.kind === 'answer') {
       const d = it.decision;
       // What it asked and what you decided, on the line itself; the full command and your words open below.
@@ -1407,6 +1416,13 @@ function renderHistory(items: HistoryItem[], manyProjects: boolean): HTMLElement
   }
   box.append(feed);
   return box;
+}
+
+/** A note under a History line, two lines at most; hovering it shows all of it. */
+function clampedNote(text: string): HTMLElement {
+  const n = el('div', 'muted small clamped history-note', text);
+  n.title = text;
+  return n;
 }
 
 function renderHome(m: HomeModel): Node[] {
@@ -1438,6 +1454,14 @@ function renderAgents(m: AgentsModel): Node[] {
         el('span', 'setting-name', icon(r.icon), el('span', 'strong', r.label)),
         el('span', 'setting-parts', ...r.parts.map((p) => el('span', 'setting-part', el('span', 'muted', `${p.name} `), el('span', 'mono strong', p.value), el('span', 'muted small', ` · ${p.from}`)))),
         argButton('acc.agents.configure', 'Change…', 'edit', `${r.role}|${s.root}`)));
+    }
+    // What autopilot may do on its own (D-055), set for the project through acc (D-064).
+    if (s.autonomy) {
+      box.append(el('div', 'setting-row',
+        el('span', 'setting-name', icon('rocket'), el('span', 'strong', 'Autonomy')),
+        el('span', 'setting-parts', el('span', 'setting-part', el('span', 'mono strong', s.autonomy.value), el('span', 'muted small', ` · ${s.autonomy.from}`)),
+          s.autonomy.meaning ? el('span', 'setting-meaning muted small', s.autonomy.meaning) : null),
+        argButton('acc.agents.autonomy', 'Change…', 'edit', s.root)));
     }
     if (s.billing) box.append(el('div', 'setting-billing', status(s.billing)));
     out.push(box);

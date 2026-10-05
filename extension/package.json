@@ -209,6 +209,24 @@
         "icon": "$(settings-gear)"
       },
       {
+        "command": "acc.agents.autonomy",
+        "title": "Change what autopilot may do on its own…",
+        "category": "Agent Command Center",
+        "icon": "$(rocket)"
+      },
+      {
+        "command": "acc.autopilot.toggle",
+        "title": "Turn autopilot on or off",
+        "category": "Agent Command Center",
+        "icon": "$(rocket)"
+      },
+      {
+        "command": "acc.autopilot.output",
+        "title": "Show autopilot's output",
+        "category": "Agent Command Center",
+        "icon": "$(output)"
+      },
+      {
         "command": "acc.worktree.open",
         "title": "Open in new window",
         "category": "Agent Command Center",

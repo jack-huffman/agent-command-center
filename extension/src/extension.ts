@@ -6,6 +6,7 @@ import type { Answer } from '../../packages/core/src/questions.ts';
 import { agentArgs } from '../../packages/core/src/agents.ts';
 import { builderSettings } from '../../packages/core/src/dispatch.ts';
 import { AgentPages } from './activity.ts';
+import { AutopilotHost } from './autopilot.ts';
 import { type AgentSession, analysisAnswerArgs, CLAUDE_EXTENSION, claudeSessionUri, COMMANDS, isSessionId, isWebviewMenuContext, shq, WALKTHROUGHS } from './logic.ts';
 import { type NavItem, needsYouCount, type Ref, sessionKey, VIEW_KINDS, type ViewKind } from './model.ts';
 import { Notices } from './notices.ts';
@@ -220,14 +221,21 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(questions);
 
   runs.onDidChange(({ structural }) => (structural ? changed() : panels.postRuns()));
-  const showRun = (id?: string) => { panels.show(); setTimeout(() => panels.postRuns(id ?? runs.views()[0]?.id), 300); };
+  // The running item shows a command that isn't autopilot first, and so does this.
+  const firstRun = () => { const v = runs.views(); return (v.find((r) => r.endedAt === null && !r.background) ?? v.find((r) => !r.background) ?? v[0])?.id; };
+  const showRun = (id?: string) => { panels.show(); setTimeout(() => panels.postRuns(id ?? firstRun()), 300); };
   reg('acc.runs.show', () => showRun());
   runs.onDidEvent(({ kind, run }) => {
     if (panels.visible()) { if (kind !== 'end') panels.postRuns(run.id); return; }
-    // Off screen, a run speaks up only when it needs you or went wrong.
+    // Off screen, a run speaks up only when it needs you or went wrong. Autopilot's says why it stopped itself.
     if (kind === 'ask') void vscode.window.showWarningMessage(`${run.label} is asking: ${run.prompt?.text ?? 'for an answer'}`, 'Answer').then((p) => p && showRun(run.id));
-    if (kind === 'end' && !(run.ok ?? run.code === 0) && !run.stopped) void vscode.window.showWarningMessage(`${run.label} failed (exit ${run.code ?? '?'}).`, 'Show output').then((p) => p && showRun(run.id));
+    if (kind === 'end' && !run.background && !(run.ok ?? run.code === 0) && !run.stopped) void vscode.window.showWarningMessage(`${run.label} failed (exit ${run.code ?? '?'}).`, 'Show output').then((p) => p && showRun(run.id));
   });
+  // Autopilot, while it's switched on here (D-064). It ends with the window, as every run does.
+  const autopilot = new AutopilotHost(hub, runs, accShellCommand(accScript), (id) => showRun(id));
+  context.subscriptions.push(autopilot);
+  reg('acc.autopilot.toggle', (arg?: unknown) => autopilot.toggle(arg));
+  reg('acc.autopilot.output', (arg?: unknown) => autopilot.showOutput(arg));
   // ------------------------------------------------------------ the launcher (D-029)
   // The activity bar icon opens the page. Its one view lists the sections, for anyone who keeps the sidebar.
   const launcher = new HomeLauncher(() => panels.model().nav);
@@ -266,6 +274,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   hub.onDidChange((part) => {
     if (part === 'projects') { void trackers.loadBoards(); void setup.recheck('B14.tickets'); void identity.refresh(); }
+    if (part === 'projects' || part === 'worktrees') autopilot.reconcile();
     if (part === 'projects' || part === 'worktrees') questions?.rootsChanged();
     if (part === 'tasks' || part === 'agents') tickets.refresh();
     if (part === 'agents') pages.refresh();

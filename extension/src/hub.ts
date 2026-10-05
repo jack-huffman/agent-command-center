@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { profileView, type ProfileView } from '../../packages/core/src/agents.ts';
 import { type Analysis, analysisRequired, analyzing, readAnalysis } from '../../packages/core/src/analyze.ts';
+import { type AutopilotLog, type AutopilotRecord, readAutopilotLog } from '../../packages/core/src/autopilot.ts';
 import { type Config, parseConfig } from '../../packages/core/src/config.ts';
 import { run as runSync } from '../../packages/core/src/exec.ts';
 import { CLONE_ACCOUNT_KEY } from '../../packages/core/src/github.ts';
@@ -63,6 +64,8 @@ export class Hub implements vscode.Disposable {
   /** How earlier questions ended, newest last (D-037), set by Questions. */
   answers: HistoryRecord[] = [];
   private readonly tasks = new Map<string, { stamp: string; ledger: Ledger; rows: TaskRow[] }>();
+  /** The steps autopilot took in each repo, by ledger: projects of one repo share them (D-064). */
+  private readonly steps = new Map<string, AutopilotLog>();
   /** Each analysis read, by file, kept until the file changes: the rows are re-derived every few seconds. */
   private readonly analyses = new Map<string, { stamp: string; analysis: Analysis | null }>();
   private readonly emitter = new vscode.EventEmitter<HubPart>();
@@ -122,6 +125,12 @@ export class Hub implements vscode.Disposable {
     return this.tasks.get(root)?.ledger;
   }
 
+  /** The steps autopilot took in a project's repo, oldest first, wherever it ran (D-064). */
+  autopilotLog(root: string): AutopilotRecord[] {
+    const p = this.project(root);
+    return (p && this.steps.get(p.ledgerPath)?.records) || [];
+  }
+
   /** Every move every task made, for the Overview's activity. */
   history(root: string): { at: string; task: string; title: string; from: string | null; to: string; by: string }[] {
     return (this.ledger(root)?.tasks ?? []).flatMap((t) => t.history.map((h) => ({ at: h.at, task: t.id, title: t.title, from: h.from, to: h.to, by: h.by })));
@@ -133,6 +142,7 @@ export class Hub implements vscode.Disposable {
    */
   async loadTasks(force = false): Promise<void> {
     let changed = false;
+    const read = new Set<string>();
     for (const p of this.projects) {
       const stamp = `${stampOf(p.ledgerPath) ?? 0}|${stampOf(analysesOf(p).analyses) ?? 0}`;
       const cached = this.tasks.get(p.root);
@@ -142,6 +152,13 @@ export class Hub implements vscode.Disposable {
         ledger = readLedger(p.ledgerPath);
       } catch {
         continue; // mid-write or unreadable: keep what we had
+      }
+      // acc appends the events before it writes the ledger, so they're read with it, once a repo.
+      if (!read.has(p.ledgerPath)) {
+        read.add(p.ledgerPath);
+        const log = readAutopilotLog(join(dirname(p.ledgerPath), 'events.jsonl'), this.steps.get(p.ledgerPath));
+        if (log) this.steps.set(p.ledgerPath, log);
+        else this.steps.delete(p.ledgerPath);
       }
       const rows = this.deriveRows(ledger, p);
       this.tasks.set(p.root, { stamp, ledger, rows });

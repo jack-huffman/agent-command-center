@@ -423,3 +423,56 @@ test('a card can be dropped only in the lanes acc\'s rules let a person move it 
   const card = tasksModel(hub()).projects[0]!.columns.flatMap((c) => c.cards)[0]!;
   assert.ok(Array.isArray(card.drops));
 });
+
+test('History tells each step autopilot took once, under Tasks, with its icon and words, in place of its moves (D-064)', () => {
+  const h = hub();
+  const at = (min: number) => new Date(Date.UTC(2026, 9, 5, 12, min)).toISOString();
+  const later = (min: number, ms: number) => new Date(Date.parse(at(min)) + ms).toISOString();
+  h.history = () => [
+    { at: at(0), task: 'AV-1', title: 'Task AV-1', from: 'running', to: 'review', by: 'builder:AV-1' },
+    // Autopilot's review asked for changes, and it re-dispatched: moves its steps tell.
+    { at: later(1, 3), task: 'AV-1', title: 'Task AV-1', from: 'review', to: 'rework', by: 'reviewer:AV-1 for orchestrator:autopilot' },
+    { at: later(2, 2), task: 'AV-1', title: 'Task AV-1', from: 'rework', to: 'running', by: 'orchestrator:autopilot' },
+  ];
+  h.autopilotLog = () => [
+    { seq: 5, at: at(1), task: 'AV-1', step: 'review', outcome: 'done', verdict: 'changes', reason: 'No test for the login.' },
+    { seq: 8, at: at(2), task: 'AV-1', step: 'dispatch', outcome: 'done' },
+    { seq: 9, at: at(3), task: 'AV-3', step: 'land', outcome: 'done', pr: { number: 40, url: 'https://github.com/o/r/pull/40', opened: true } },
+    { seq: 11, at: at(4), task: 'AV-3', step: 'land', outcome: 'failed', reason: 'The push was refused.' },
+  ];
+  // Two folders of one repo share its steps: each is told once.
+  h.projects = [h.projects[0]!, { ...h.projects[0]!, root: '/r.worktrees/AV-2' }];
+  const items = homeModel({ hub: h, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } }).overview.history;
+  const steps = items.filter((i) => i.kind === 'autopilot');
+  assert.deepEqual(steps.map((i) => i.kind === 'autopilot' && [i.task, i.look.icon, i.look.label, i.look.tone, i.detail, i.url]), [
+    ['AV-3', 'warning', 'Autopilot couldn\'t land', 'orange', 'The push was refused.', null],
+    ['AV-3', 'git-pull-request', 'Autopilot landed it: pull request #40', 'blue', null, 'https://github.com/o/r/pull/40'],
+    ['AV-1', 'debug-restart', 'Autopilot re-dispatched it for the review\'s changes', 'blue', null, null],
+    ['AV-1', 'request-changes', 'Autopilot\'s review asked for changes', 'neutral', 'No test for the login.', null],
+  ], 'newest first, with its task\'s title');
+  assert.equal(steps[0]!.kind === 'autopilot' && steps[0]!.title, 'Task AV-3');
+  const moves = items.filter((i) => i.kind === 'move');
+  assert.deepEqual(moves.map((i) => i.kind === 'move' && `${i.from}→${i.to}`), ['running→review', 'running→review'], 'autopilot\'s moves aren\'t listed twice; a builder\'s still are');
+  // Tasks is the filter they count under: the page has four filters, not five.
+  assert.match(readFileSync(join(root, 'webview', 'main.ts'), 'utf8'), /const historyKind = \(i: HistoryItem\): string => \(i\.kind === 'autopilot' \? 'move' : i\.kind\);/);
+});
+
+test('How agents run shows the project\'s autonomy, where it\'s set, and a way to change it (D-064)', () => {
+  const h = hub();
+  const p = h.projects[0]!;
+  p.agents = {
+    builder: { model: null, effort: null, fallbackModel: null, from: { model: 'default', effort: 'default', fallbackModel: 'default' } },
+    reviewer: { model: null, effort: null, fallbackModel: null, from: { model: 'default', effort: 'default', fallbackModel: 'default' } },
+  };
+  p.config = { ...p.config, autonomy: 'review' };
+  const s = agentsModel(h).settings[0]!;
+  assert.deepEqual(s.autonomy, { value: 'review', from: 'project', meaning: 'Autopilot reviews, lands and reworks once. It never merges.' });
+  p.config = { ...p.config, autonomy: 'manual' };
+  assert.deepEqual(agentsModel(h).settings[0]!.autonomy, { value: 'manual', from: 'project', meaning: 'Nothing happens on its own.' });
+  // The page asks acc to change it: the webview never writes the config.
+  const page = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
+  assert.match(page, /argButton\('acc\.agents\.autonomy', 'Change…', 'edit', s\.root\)/);
+  assert.match(readFileSync(join(root, 'src', 'panels.ts'), 'utf8'), /'acc\.agents\.autonomy'/, 'the page may ask for it');
+  assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === 'acc.agents.autonomy'));
+  assert.match(readFileSync(join(root, 'src', 'sidebar.ts'), 'utf8'), /this\.runAcc\(project, \['agents', 'autonomy', pick\.value\]/);
+});

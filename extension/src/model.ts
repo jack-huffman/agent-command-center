@@ -3,6 +3,7 @@
  * and rendered there with text only (no HTML from data). No vscode import, so it's testable.
  */
 import type { Analysis } from '../../packages/core/src/analyze.ts';
+import { type AutopilotRecord, byAutopilot } from '../../packages/core/src/autopilot.ts';
 import { DISPLAY, findRule, type State, type Task } from '../../packages/core/src/ledger.ts';
 import type { GateStatus } from '../../packages/core/src/receipts.ts';
 import { type Doc, fromMarkdown } from '../../packages/core/src/trackers/doc.ts';
@@ -60,7 +61,8 @@ export interface ProjectLike {
   name: string;
   root: string;
   agents?: { builder: ProfileLike; reviewer: ProfileLike };
-  config: { github: { repo: string; account: string } | null; environments: Environment[]; profile: string };
+  /** autonomy: what autopilot may do on its own (D-055), when the config says. */
+  config: { github: { repo: string; account: string } | null; environments: Environment[]; profile: string; autonomy?: string };
   branch: string | null;
   worktrees: { path: string; head: string; branch: string | null; main: boolean; changed: number; locked: boolean; prunable: boolean }[];
 }
@@ -73,6 +75,8 @@ export interface HubLike {
   projectFor(path: string): ProjectLike | undefined;
   /** Every move every task made, for the Overview's activity. */
   history?(root: string): ActivityItem[];
+  /** The steps autopilot took in a project's repo, oldest first, wherever it ran (D-064). */
+  autopilotLog?(root: string): AutopilotRecord[];
   /** Agents' questions waiting in the Command Center (D-030). */
   questions?: Question[];
   /** How earlier questions ended (D-037). */
@@ -581,12 +585,33 @@ export interface AgentSetting {
   parts: { name: string; value: string; from: string }[];
 }
 
+/** What autopilot may do on its own in a project (D-055), as the Agents section shows it. */
+export interface AutonomySetting {
+  value: string;
+  from: string;
+  /** What that level means, in words. */
+  meaning: string;
+}
+
 export interface AgentsModel {
   kind: 'agents';
   error: string | null;
   places: { label: string; root: string | null; agents: AgentRow[] }[];
-  /** Each project's agent settings, and what its agents bill (D-036). */
-  settings: { root: string; project: string; roles: AgentSetting[]; billing: Look | null }[];
+  /** Each project's agent settings, what autopilot may do there, and what its agents bill (D-036). */
+  settings: { root: string; project: string; roles: AgentSetting[]; autonomy: AutonomySetting | null; billing: Look | null }[];
+}
+
+const AUTONOMY_MEANING: Record<string, string> = {
+  manual: 'Nothing happens on its own.',
+  review: 'Autopilot reviews, lands and reworks once. It never merges.',
+  dispatch: 'Not built yet: autopilot refuses.',
+  full: 'Not built yet: autopilot refuses.',
+};
+
+/** The project's autonomy, set in .acc/config.json and changed through acc (D-064). */
+export function autonomySetting(p: ProjectLike): AutonomySetting | null {
+  const value = p.config.autonomy;
+  return value ? { value, from: 'project', meaning: AUTONOMY_MEANING[value] ?? '' } : null;
 }
 
 const FROM_WORDS: Record<string, string> = { clone: 'this clone', project: 'project default', default: 'Claude Code\'s default' };
@@ -628,7 +653,7 @@ export function agentsModel(hub: HubLike, setupItems: DoctorItem[] = []): Agents
   const elsewhere = sorted.filter((s) => !hub.projectFor(s.cwd));
   if (elsewhere.length) places.push({ label: 'Elsewhere on this machine', root: null, agents: elsewhere.map(rowFor) });
   const billing = billingLook(setupItems);
-  const settings = hub.projects.filter((p) => p.agents).map((p) => ({ root: p.root, project: p.name, roles: agentSettings(p), billing }));
+  const settings = hub.projects.filter((p) => p.agents).map((p) => ({ root: p.root, project: p.name, roles: agentSettings(p), autonomy: autonomySetting(p), billing }));
   return { kind: 'agents', error: hub.agentsError, places, settings };
 }
 
@@ -999,12 +1024,44 @@ export function decisionOf(h: HistoryRecord): Decision {
 
 export type HistoryItem =
   | { kind: 'move'; at: string; project: string; task: string; title: string; from: string | null; to: string; by: string }
+  /** A step autopilot took (D-064), with what it did in words, and its pull request's link. */
+  | { kind: 'autopilot'; at: string; project: string; task: string; title: string; look: Look; detail: string | null; url: string | null }
   | { kind: 'answer'; at: string; project: string; who: string; session: string; decision: Decision }
   | { kind: 'run'; at: string; label: string; command: string; look: Look; lines: string[] };
 
-/** Everything that happened, newest first: your answers, task moves and the commands acc ran. */
+/** What a step autopilot took looks like in History (D-064): an icon for the step, and what it did. */
+export function autopilotStepLook(r: AutopilotRecord): { look: Look; detail: string | null; url: string | null } {
+  if (r.outcome === 'failed') return { look: LOOK(`Autopilot couldn't ${AUTOPILOT_STEP[r.step]}`, 'warning', 'orange'), detail: r.reason || null, url: null };
+  if (r.step === 'review') {
+    return r.verdict === 'changes'
+      ? { look: LOOK('Autopilot\'s review asked for changes', 'request-changes', 'neutral'), detail: r.reason || null, url: null }
+      : { look: LOOK('Autopilot reviewed it: passed', 'pass', 'blue'), detail: null, url: null };
+  }
+  if (r.step === 'land' && r.pr) return { look: LOOK(r.pr.opened ? `Autopilot landed it: pull request #${r.pr.number}` : `Autopilot updated pull request #${r.pr.number}`, 'git-pull-request', 'blue'), detail: null, url: r.pr.url || null };
+  if (r.step === 'dispatch') return { look: LOOK('Autopilot re-dispatched it for the review\'s changes', 'debug-restart', 'blue'), detail: null, url: null };
+  if (r.base) return { look: LOOK(`Autopilot merged ${r.base} into it`, 'git-merge', 'blue'), detail: 'Its checks passed on the merge. It\'s reviewed next, then landed.', url: null };
+  return { look: LOOK('Autopilot found it no longer conflicts', 'git-merge', 'blue'), detail: null, url: r.pr?.url || null };
+}
+
+/** Everything that happened, newest first: your answers, task moves, autopilot's steps and the commands acc ran. */
 export function historyItems(hub: HubLike, runs: RunInput[] = [], limit = 300): HistoryItem[] {
-  const moves: HistoryItem[] = hub.projects.flatMap((p) => (hub.history?.(p.root) ?? []).map((h) => ({ kind: 'move' as const, at: h.at, project: p.name, task: h.task, title: h.title, from: h.from, to: h.to, by: h.by })));
+  // Autopilot's steps, once each though two projects share a repo's ledger.
+  const steps: Extract<HistoryItem, { kind: 'autopilot' }>[] = [];
+  const seen = new Set<string>();
+  for (const p of hub.projects) {
+    for (const r of hub.autopilotLog?.(p.root) ?? []) {
+      const key = `${p.name}|${r.task}|${r.seq}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const title = hub.taskRows(p.root).find((t) => t.id === r.task)?.title ?? '';
+      steps.push({ kind: 'autopilot', at: r.at, project: p.name, task: r.task, title, ...autopilotStepLook(r) });
+    }
+  }
+  // A move autopilot made is told by its step, so it isn't listed twice.
+  const told = (project: string, h: { at: string; task: string; by: string }) => byAutopilot(h.by)
+    && steps.some((s) => s.project === project && s.task === h.task && Math.abs(Date.parse(s.at) - Date.parse(h.at)) < 5_000);
+  const moves: HistoryItem[] = hub.projects.flatMap((p) => (hub.history?.(p.root) ?? []).filter((h) => !told(p.name, h))
+    .map((h) => ({ kind: 'move' as const, at: h.at, project: p.name, task: h.task, title: h.title, from: h.from, to: h.to, by: h.by })));
   const answers: HistoryItem[] = (hub.answers ?? []).map((h) => {
     const project = hub.projectFor(h.cwd);
     const session = hub.agents.find((s) => s.sessionId === h.sessionId);
@@ -1015,7 +1072,7 @@ export function historyItems(hub: HubLike, runs: RunInput[] = [], limit = 300): 
     const c = runCard(r, 30);
     return { kind: 'run' as const, at: new Date(r.endedAt!).toISOString(), label: r.label, command: r.command, look: c.look, lines: c.lines };
   });
-  return [...moves, ...answers, ...done].sort((a, b) => b.at.localeCompare(a.at)).slice(0, limit);
+  return [...moves, ...steps, ...answers, ...done].sort((a, b) => b.at.localeCompare(a.at)).slice(0, limit);
 }
 
 // ---------------------------------------------------------------- an agent's page (D-030)
@@ -1138,6 +1195,8 @@ export interface RunCard {
   prompt: RunPrompt | null;
   /** The setup step it's doing, so the step shows it's under way. */
   step: string | null;
+  /** Lasts as long as the window, such as autopilot (D-064): the panel shows another first. */
+  background?: boolean;
 }
 
 export interface RunInput {
@@ -1153,6 +1212,8 @@ export interface RunInput {
   lines: string[];
   prompt: RunPrompt | null;
   step: string | null;
+  /** Lasts as long as the window, such as autopilot (D-064): never the output panel's first pick. */
+  background?: boolean;
 }
 
 export function runCard(r: RunInput, lines = 400): RunCard {
@@ -1160,7 +1221,7 @@ export function runCard(r: RunInput, lines = 400): RunCard {
   const look: Look = running ? (r.prompt ? LOOK('Waiting for you', 'bell', 'orange') : LOOK('Running', 'sync~spin', 'blue'))
     : r.stopped ? LOOK('Stopped', 'debug-stop', 'neutral')
       : (r.ok ?? r.code === 0) ? LOOK('Done', 'pass', 'blue') : LOOK(`Failed (exit ${r.code ?? '?'})`, 'warning', 'orange');
-  return { id: r.id, label: r.label, command: r.command, look, running, startedAt: r.startedAt, endedAt: r.endedAt, lines: r.lines.slice(-lines), prompt: running ? r.prompt : null, step: r.step };
+  return { id: r.id, label: r.label, command: r.command, look, running, startedAt: r.startedAt, endedAt: r.endedAt, lines: r.lines.slice(-lines), prompt: running ? r.prompt : null, step: r.step, ...(r.background ? { background: true } : {}) };
 }
 
 // ---------------------------------------------------------------- the Command Center page
