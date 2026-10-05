@@ -97,7 +97,7 @@ export interface Card {
   conflicts: string | null;
   /** Where its analysis is, for a task to do (D-052): under way, waiting on you, or ready to build from. */
   analysis: Look | null;
-  /** What autopilot couldn't do for it, and why (D-???). */
+  /** What autopilot couldn't do for it, and why (D-055). */
   autopilot: Look | null;
   actions: Action[];
   /** The lanes it can be dropped in: the moves a person may make from where it is (D-041). */
@@ -130,7 +130,7 @@ export function analysisLook(t: Pick<TaskRow, 'state' | 'analysis' | 'analyzing'
 
 const AUTOPILOT_STEP: Record<NonNullable<TaskRow['autopilot']>['step'], string> = { review: 'review', land: 'land', dispatch: 're-dispatch' };
 
-/** "Needs you: autopilot couldn't land", and with `why`, its reason after it (D-???). */
+/** "Needs you: autopilot couldn't land", and with `why`, its reason after it (D-055). */
 export function autopilotLook(t: Pick<TaskRow, 'autopilot'>, why = true): Look | null {
   if (!t.autopilot) return null;
   return { label: `Needs you: autopilot couldn't ${AUTOPILOT_STEP[t.autopilot.step]}${why ? `: ${t.autopilot.reason}` : ''}`, icon: 'bell', tone: 'orange' };
@@ -1252,7 +1252,7 @@ export function homeModel(i: HomeInput): HomeModel {
           attention.push({ key: `t:${p.root}:${r.id}`, look: analysisLook(r)!, title: `${r.id} ${r.title}`, detail, project: p.name, actions: [details], ...(wait === 'questions' ? { analysis: { project: p.root, task: r.id, questions: r.analysis!.open } } : {}) });
           continue;
         }
-        // A step autopilot couldn't take (D-???): why, and the same step to take by hand.
+        // A step autopilot couldn't take (D-055): why, and the same step to take by hand.
         if (r.autopilot) {
           const byHand = acts.find((a) => a.primary && ['acc.task.review', 'acc.task.land', 'acc.task.dispatch', 'acc.task.openPr'].includes(a.command));
           attention.push({ key: `t:${p.root}:${r.id}`, look: autopilotLook(r, false)!, title: `${r.id} ${r.title}`, detail: `${p.name} · ${r.autopilot.reason.replace(/([^.!?])$/, '$1.')} Do it by hand, or a new commit lets autopilot try again.`, project: p.name, actions: [...(byHand ? [byHand] : []), details] });

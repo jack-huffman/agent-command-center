@@ -462,7 +462,7 @@ drifted apart.
 
 The loop is ordinary code, not an agent (D-010). `acc autopilot` reads the
 ledger and takes the next step for each task, one task at a time, as the
-`orchestrator` actor (D-???). It goes up to an open pull request and no further.
+`orchestrator` actor (D-055). It goes up to an open pull request and no further.
 
 | `autonomy` | What runs on its own |
 |---|---|

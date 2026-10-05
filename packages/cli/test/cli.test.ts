@@ -254,7 +254,7 @@ test('acc gate waive: a person waives a task\'s failing check with a reason; a b
   assert.equal(list.gates[0].receipt.status, 'skip');
 });
 
-test('acc autopilot: manual does nothing; dispatch isn\'t built yet, and full is read as it; usage, roles and the lock (D-???)', () => {
+test('acc autopilot: manual does nothing; dispatch isn\'t built yet, and full is read as it; usage, roles and the lock (D-055)', () => {
   const GH = { ...GENERIC_CONFIG, github: { repo: 'acme/tool', account: 'jordan-kim' } };
   const dir = repoWithConfig(GH);
   const setAutonomy = (autonomy: string, config: object = GH) => writeFileSync(join(dir, '.acc', 'config.json'), JSON.stringify({ ...config, autonomy }));
@@ -304,7 +304,7 @@ test('acc autopilot: manual does nothing; dispatch isn\'t built yet, and full is
   assert.match(acc(dir, ['autopilot']).err, /no "github" section/, 'it couldn\'t land anything');
 });
 
-test('a task autopilot couldn\'t move on shows as needs you, and acc show says why (D-???)', () => {
+test('a task autopilot couldn\'t move on shows as needs you, and acc show says why (D-055)', () => {
   const dir = repoWithConfig();
   assert.equal(acc(dir, ['add', 'Add a sum function']).code, 0);
   assert.equal(acc(dir, ['set', 'T-1', 'running']).code, 0);

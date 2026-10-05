@@ -305,7 +305,7 @@ test('a pull request that conflicts with its base says so on its card and on the
   assert.equal(item.actions[0]!.command, 'acc.task.openPr');
 });
 
-test('a task autopilot couldn\'t move on says why on its card and on the Overview, with the step to take by hand (D-???)', () => {
+test('a task autopilot couldn\'t move on says why on its card and on the Overview, with the step to take by hand (D-055)', () => {
   const rows: TaskRow[] = [
     { ...row('AV-5', 'review', 'needs-you'), run: { worktree: '/w', branch: 'b' }, review: { verdict: 'pass', summary: 's', current: true }, autopilot: { step: 'land', reason: 'git push refused task/AV-5: rejected' } },
     { ...row('AV-6', 'rework', 'needs-you'), run: { worktree: '/w6', branch: 'b6' }, autopilot: { step: 'dispatch', reason: 'Claude Code doesn\'t trust /r yet.' } },

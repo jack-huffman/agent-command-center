@@ -51,14 +51,14 @@ export interface PullRequest {
   syncedAt?: string;
   /** When acc land last opened or updated it, so the next land can tell whether rework came between. */
   landedAt?: string;
-  /** The commit acc land last pushed to it, so autopilot can tell whether it's behind its branch (D-???). */
+  /** The commit acc land last pushed to it, so autopilot can tell whether it's behind its branch (D-055). */
   sha?: string;
 }
 
 export const AUTOPILOT_STEPS = ['review', 'land', 'dispatch'] as const;
 export type AutopilotStepName = (typeof AUTOPILOT_STEPS)[number];
 
-/** A step autopilot took that failed: it isn't tried again on that commit, and the task needs you (D-???). */
+/** A step autopilot took that failed: it isn't tried again on that commit, and the task needs you (D-055). */
 export interface AutopilotFailure {
   step: AutopilotStepName;
   /** The branch's latest commit when it failed. A new commit lets autopilot try again. */
@@ -82,7 +82,7 @@ export interface Task {
   blocker: string | null;
   run: Run | null;
   pr: PullRequest | null;
-  /** What autopilot couldn't do for it, if anything (D-???). */
+  /** What autopilot couldn't do for it, if anything (D-055). */
   autopilot?: { failed: AutopilotFailure | null };
   history: HistoryEntry[];
   createdAt: string;
@@ -403,7 +403,7 @@ export const readyTasks = (ledger: Ledger): Task[] => ledger.tasks.filter((t) =>
 
 export type DisplayState = State | 'ready' | 'needs-you';
 
-/** What autopilot couldn't do in the task's current state, or null (D-???). */
+/** What autopilot couldn't do in the task's current state, or null (D-055). */
 export const autopilotFailure = (task: Task): AutopilotFailure | null =>
   (task.autopilot?.failed && task.autopilot.failed.state === task.state ? task.autopilot.failed : null);
 
@@ -415,7 +415,7 @@ export interface SessionInfo {
 /** What the UI shows: stored states plus "ready" and "needs you", which are derived (DESIGN.md section 5). */
 export function displayState(ledger: Ledger, task: Task, session?: SessionInfo): DisplayState {
   if (task.state === 'todo' && isReady(ledger, task)) return 'ready';
-  // A step autopilot couldn't take waits on you, or on a new commit (D-???).
+  // A step autopilot couldn't take waits on you, or on a new commit (D-055).
   if (autopilotFailure(task)) return 'needs-you';
   if (task.state === 'running' && (session?.state === 'blocked' || session?.status === 'waiting')) return 'needs-you';
   // An open pull request whose checks fail, that a person asked to change, or that conflicts with its

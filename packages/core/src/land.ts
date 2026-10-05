@@ -170,7 +170,7 @@ export function land(paths: RepoPaths, config: Config, id: string, deps: LandDep
   const updated = mutate(paths, now, (l, emit) => {
     const t = l.tasks.find((x) => x.id === id)!;
     t.pr = pr;
-    // Landed, by autopilot or by hand: whatever autopilot couldn't do before is done (D-???).
+    // Landed, by autopilot or by hand: whatever autopilot couldn't do before is done (D-055).
     if (t.autopilot?.failed) t.autopilot.failed = null;
     t.updatedAt = now().toISOString();
     emit({ type: 'task.updated', task: id, actor: opts.actor ?? 'human', by: opts.by ?? 'acc land', data: { pr, sha, opened } });

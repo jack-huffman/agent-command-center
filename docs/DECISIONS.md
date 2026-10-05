@@ -1295,7 +1295,7 @@ it the way it shows reviews (D-032) and agents' questions (D-030).
   questions. The run checks whether a new analysis was written, so an analysis
   with questions doesn't also say "failed (exit 1)".
 
-## D-??? acc autopilot reviews, lands and reworks once, up to an open pull request (2026-10-05)
+## D-055 acc autopilot reviews, lands and reworks once, up to an open pull request (2026-10-05)
 
 Until now a person, or the session driving acc, chained every step: review when
 a builder finished, land when the review passed, re-dispatch a rework. The

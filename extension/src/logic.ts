@@ -219,7 +219,7 @@ export interface TaskRow {
   analyzing?: { sessionId: string } | null;
   /** The project wants an analysis before a task is built (D-052). */
   analysisRequired?: boolean;
-  /** A step autopilot couldn't take in the task's current state, and why: the task needs you (D-???). */
+  /** A step autopilot couldn't take in the task's current state, and why: the task needs you (D-055). */
   autopilot?: { step: 'review' | 'land' | 'dispatch'; reason: string } | null;
 }
 

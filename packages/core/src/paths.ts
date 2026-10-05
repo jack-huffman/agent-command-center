@@ -10,7 +10,7 @@ export interface RepoPaths {
   ledger: string;
   events: string;
   lock: string;
-  /** Held while acc autopilot runs, so only one runs against a repo (D-???). */
+  /** Held while acc autopilot runs, so only one runs against a repo (D-055). */
   autopilotLock: string;
   receipts: string;
   reviews: string;

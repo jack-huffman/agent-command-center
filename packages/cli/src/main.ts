@@ -423,7 +423,7 @@ function autopilotLines(r: AutopilotResult): string[] {
 }
 
 /**
- * Autopilot (D-???): under "autonomy": "review", it reviews, lands and re-dispatches a rework once, as
+ * Autopilot (D-055): under "autonomy": "review", it reviews, lands and re-dispatches a rework once, as
  * the orchestrator, up to an open pull request. One pass, or one every --every seconds until stopped.
  */
 function cmdAutopilot(o: Opts): number {

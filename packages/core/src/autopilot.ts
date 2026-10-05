@@ -10,7 +10,7 @@ import type { RepoPaths } from './paths.ts';
 import { readVerdict, review, reviewing } from './review.ts';
 
 /**
- * Autopilot (D-???): under `autonomy: review`, each pass reads the ledger and takes the next step for
+ * Autopilot (D-055): under `autonomy: review`, each pass reads the ledger and takes the next step for
  * each task, one at a time. It reviews work a builder finished, lands work whose review passed, and
  * re-dispatches a task the reviewer sent back, once. It goes up to an open pull request: it never merges,
  * waives a check, deploys, promotes, or starts a task that's to do.
