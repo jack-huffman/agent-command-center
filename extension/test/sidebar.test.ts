@@ -3,7 +3,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { agentLook, agentName, groupTasks, isUnder, parseWorktrees, type TaskRow } from '../src/logic.ts';
+import { GH_TIMEOUT_MS, PUSH_TIMEOUT_MS } from '../../packages/core/src/land.ts';
+import { FETCH_TIMEOUT_MS } from '../../packages/core/src/sync.ts';
+import { agentLook, agentName, groupTasks, isUnder, landMessage, parseWorktrees, type TaskRow } from '../src/logic.ts';
+import { accTimeoutMs } from '../src/run.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
@@ -50,4 +53,23 @@ test('small helpers', () => {
   assert.equal(agentName('!!!'), 'agent');
   assert.ok(isUnder('/a/b/c', '/a/b'));
   assert.ok(!isUnder('/a/bc', '/a/b'));
+});
+
+test('a land gets as long as its push, fetch and gh calls can take; other acc commands keep 3 minutes', () => {
+  const land = accTimeoutMs(['land', 'GH-1', '--json']);
+  assert.ok(land >= PUSH_TIMEOUT_MS + FETCH_TIMEOUT_MS + 4 * GH_TIMEOUT_MS, `${land} ms is less than land's own timeouts`);
+  assert.ok(land > 180_000);
+  assert.equal(accTimeoutMs(['add', 'x', '--json']), 180_000);
+  assert.equal(accTimeoutMs(['review', 'GH-1', '--json']), 180_000);
+});
+
+test('after a land, a comment that isn\'t confirmed or failed is a warning; otherwise it\'s information', () => {
+  const pr = { number: 42 };
+  const unconfirmed = landMessage('GH-1', { opened: true, pr, commentUnconfirmed: "gh didn't finish within 2 minutes, so acc stopped it" });
+  assert.equal(unconfirmed.level, 'warning');
+  assert.equal(unconfirmed.text, "GH-1: opened pull request #42. The comment on GH-1's issue isn't confirmed: gh didn't finish within 2 minutes, so acc stopped it. Look at the issue before you post it again.");
+  const failed = landMessage('ACME-7', { opened: false, pr }, { key: 'ACME-7', error: 'Jira said 403' });
+  assert.deepEqual(failed, { level: 'warning', text: "ACME-7: updated pull request #42. Couldn't comment on ACME-7: Jira said 403" });
+  assert.deepEqual(landMessage('ACME-7', { opened: true, pr }, { key: 'ACME-7' }), { level: 'info', text: 'ACME-7: opened pull request #42. Commented on ACME-7.' });
+  assert.deepEqual(landMessage('GH-1', { opened: true, pr, commentUnconfirmed: null }), { level: 'info', text: 'GH-1: opened pull request #42.' });
 });

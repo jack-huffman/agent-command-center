@@ -10,7 +10,7 @@ import { run as runSync } from '../../packages/core/src/exec.ts';
 import { repoPaths } from '../../packages/core/src/paths.ts';
 import { receiptHooks } from '../../packages/core/src/receipts.ts';
 import type { Hub, Project } from './hub.ts';
-import { type AgentSession, agentName, CLAUDE_EXTENSION, claudeSessionUri, githubBranchUrl, isSessionId, sessionFor } from './logic.ts';
+import { type AgentSession, agentName, CLAUDE_EXTENSION, claudeSessionUri, githubBranchUrl, isSessionId, landMessage, sessionFor } from './logic.ts';
 import { laneMove, sessionKey } from './model.ts';
 import { type RunResult, runFile } from './run.ts';
 import { savedFolder } from './transcript.ts';
@@ -468,16 +468,17 @@ export class Sidebar {
     });
     const r = box.r;
     if (!r) return;
-    let note = r.commentUnconfirmed ? ` The comment on ${task.id}'s issue isn't confirmed: ${r.commentUnconfirmed.replace(/([^.!?])$/, '$1.')} Look at the issue before you post it again.` : '';
+    let comment: { key: string; error?: string } | undefined;
     if (r.comment && this.helpers.comment) {
       try {
         await this.helpers.comment(project, r.comment.kind, r.comment.key, r.comment.text);
-        note = ` Commented on ${r.comment.key}.`;
+        comment = { key: r.comment.key };
       } catch (e) {
-        note = ` Couldn't comment on ${r.comment.key}: ${(e as Error).message}`;
+        comment = { key: r.comment.key, error: (e as Error).message };
       }
     }
-    const pick = await vscode.window.showInformationMessage(`${task.id}: ${r.opened ? 'opened' : 'updated'} pull request #${r.pr?.number}.${note}`, 'Open pull request');
+    const { level, text } = landMessage(task.id, r, comment);
+    const pick = level === 'warning' ? await vscode.window.showWarningMessage(text, 'Open pull request') : await vscode.window.showInformationMessage(text, 'Open pull request');
     if (pick && r.pr) await vscode.env.openExternal(vscode.Uri.parse(r.pr.url));
   }
 

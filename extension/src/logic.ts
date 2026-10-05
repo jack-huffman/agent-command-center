@@ -234,6 +234,21 @@ export const conflictLine = (row: Pick<TaskRow, 'pr' | 'environment'>, full = fa
   return files.length ? `Conflicts with ${row.environment}: ${full ? files.join(', ') : fileList(files.map(shortPath))}` : null;
 };
 
+/**
+ * What the Command Center says after a land. `comment` is the Jira or Azure DevOps comment the extension
+ * posted, and its error if it failed. A comment that isn't confirmed or failed is a warning, as the
+ * CLI's orange '!' is (D-051, D-???).
+ */
+export function landMessage(id: string, r: { opened?: boolean; pr?: { number: number }; commentUnconfirmed?: string | null }, comment?: { key: string; error?: string }): { level: 'info' | 'warning'; text: string } {
+  let note = r.commentUnconfirmed ? ` The comment on ${id}'s issue isn't confirmed: ${r.commentUnconfirmed.replace(/([^.!?])$/, '$1.')} Look at the issue before you post it again.` : '';
+  let warn = !!r.commentUnconfirmed;
+  if (comment) {
+    note = comment.error === undefined ? ` Commented on ${comment.key}.` : ` Couldn't comment on ${comment.key}: ${comment.error}`;
+    warn = comment.error !== undefined;
+  }
+  return { level: warn ? 'warning' : 'info', text: `${id}: ${r.opened ? 'opened' : 'updated'} pull request #${r.pr?.number}.${note}` };
+}
+
 /** A task's agent: its background id or session id, or a background session named after the task. */
 export function sessionFor(row: Pick<TaskRow, 'id' | 'run'>, sessions: AgentSession[]): AgentSession | undefined {
   return sessions.find((s) => (row.run?.bgId && s.id === row.run.bgId) || (row.run?.sessionId && s.sessionId === row.run.sessionId))

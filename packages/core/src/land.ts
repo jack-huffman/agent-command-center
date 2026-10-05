@@ -7,12 +7,23 @@ import { type Actor, mutate, type PullRequest, readLedger, type Task } from './l
 import type { RepoPaths } from './paths.ts';
 import { type Receipt, receiptHooks, receiptsAt } from './receipts.ts';
 import { readVerdict, type Verdict } from './review.ts';
-import { conflictsOf, fetchBranches } from './sync.ts';
+import { conflictsOf, FETCH_TIMEOUT_MS, fetchBranches } from './sync.ts';
 
 /**
  * Landing (D-033): a reviewed task's branch goes to GitHub as a pull request into its environment's
  * branch, and the ticket hears about it. acc never merges: a person does, on GitHub.
  */
+
+/** How long acc waits for the push, and for each gh call, before it stops it. */
+export const PUSH_TIMEOUT_MS = 5 * 60_000;
+export const GH_TIMEOUT_MS = 2 * 60_000;
+
+/**
+ * The longest a land can take: its push, its fetch and four gh calls (auth token, pr list, pr create or
+ * edit, issue comment), each at its timeout, plus a minute for local git and the ledger lock. Whatever
+ * runs acc land waits at least this long, or the land's result is lost (D-???).
+ */
+export const LAND_TIMEOUT_MS = PUSH_TIMEOUT_MS + FETCH_TIMEOUT_MS + 4 * GH_TIMEOUT_MS + 60_000;
 
 export interface LandDeps {
   run: Runner;
@@ -84,7 +95,7 @@ export const ticketComment = (task: Task, pr: PullRequest, landing: Landing): st
     : `${task.id}'s pull request was updated${landing === 'reworked' ? ' after rework' : ''}: ${pr.url}`;
 
 function ghToken(run: Runner, account: string): string {
-  const t = run('gh', ['auth', 'token', '-u', account]);
+  const t = run('gh', ['auth', 'token', '-u', account], { timeoutMs: GH_TIMEOUT_MS });
   if (t.code !== 0 || !t.stdout.trim()) throw new AccError('no-github', `gh isn't logged in as ${account}, the account this repo works as. Sign in from the Command Center, or run gh auth login.`);
   return t.stdout.trim();
 }
@@ -109,11 +120,11 @@ export function land(paths: RepoPaths, config: Config, id: string, deps: LandDep
   if (verdict.verdict !== 'pass') throw new AccError('refused', `${id}'s review on ${sha.slice(0, 7)} asked for changes: ${verdict.summary}`);
 
   // Push as the repo's own account: the credential helper acc set up follows this clone's choice (D-028).
-  const push = run('git', ['push', '--set-upstream', 'origin', `${branch}:${branch}`], { cwd: paths.root, env: deps.env, timeoutMs: 5 * 60_000 });
+  const push = run('git', ['push', '--set-upstream', 'origin', `${branch}:${branch}`], { cwd: paths.root, env: deps.env, timeoutMs: PUSH_TIMEOUT_MS });
   if (push.code !== 0) throw new AccError('land', `git push refused ${branch}: ${(push.stderr || push.stdout).trim().split('\n').slice(-2).join(' ')}`);
 
   const ghEnv = { ...deps.env, GH_TOKEN: ghToken(run, gh.account) };
-  const ghRun = (args: string[]) => run('gh', args, { cwd: paths.root, env: ghEnv, timeoutMs: 2 * 60_000 });
+  const ghRun = (args: string[]) => run('gh', args, { cwd: paths.root, env: ghEnv, timeoutMs: GH_TIMEOUT_MS });
   const receipts = receiptsAt(paths, sha);
   const body = prBody(task, env, sha, verdict, receipts);
   const dir = mkdtempSync(join(tmpdir(), 'acc-land-'));
