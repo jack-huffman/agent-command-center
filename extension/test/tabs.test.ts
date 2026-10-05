@@ -301,7 +301,11 @@ test('a pull request that conflicts with its base says so on its card and on the
   const m = homeModel({ hub: conflicted, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } });
   const item = m.overview.attention.find((a) => a.title === 'AV-5 Task AV-5')!;
   assert.deepEqual([item.look.label, item.look.icon, item.look.tone], ['Conflicts', 'git-pull-request', 'orange'], 'its words and icon, in orange');
-  assert.equal(item.detail, 'Acme · pull request #16: it conflicts with devbox in docs/DECISIONS.md, plugin/bin/acc');
+  assert.equal(item.detail, 'Acme · pull request #16: it conflicts with devbox in docs/DECISIONS.md, bin/acc', 'by folder and name, as on the cards');
+  assert.equal(item.tip, 'docs/DECISIONS.md\nplugin/bin/acc', 'every file in full, on hover');
+  const many = m.overview.attention.find((a) => a.title === 'AV-7 Task AV-7')!;
+  assert.equal(many.detail, 'Acme · pull request #16: it conflicts with devbox in layouts/Lead-Lead Layout.layout-meta.xml, b.ts, c.ts and 1 more');
+  assert.equal(many.tip?.split('\n').length, 4);
   assert.equal(item.actions[0]!.command, 'acc.task.openPr');
 });
 

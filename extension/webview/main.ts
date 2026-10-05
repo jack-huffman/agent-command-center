@@ -1245,7 +1245,7 @@ function renderOverview(m: HomeModel): Node[] {
       b.addEventListener('click', () => go(g.section));
       buttons.push(b);
     }
-    inbox.append(el('div', `inbox-row tone-row-${a.look.tone}`, status(a.look), el('div', 'inbox-text', el('div', 'strong inbox-title', a.title), el('div', 'muted small', a.detail)), el('div', 'actions', ...buttons)));
+    inbox.append(el('div', `inbox-row tone-row-${a.look.tone}`, status(a.look), el('div', 'inbox-text', el('div', 'strong inbox-title', a.title), Object.assign(el('div', 'muted small', a.detail), a.tip ? { title: a.tip } : {})), el('div', 'actions', ...buttons)));
     // A task's analysis's questions, answered right here (D-052).
     const an = a.analysis;
     if (an) inbox.append(el('div', 'inbox-analysis', ...an.questions.map((q) => analysisQuestion(an.project, an.task, q))));

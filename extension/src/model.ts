@@ -12,7 +12,7 @@ import { GROUP_TITLES, STEPS } from '../../packages/core/src/onboarding/steps.ts
 import type { Environment } from '../../packages/core/src/config.ts';
 import { promotionPaths } from '../../packages/core/src/promote.ts';
 import type { Answer, HistoryRecord, Question } from '../../packages/core/src/questions.ts';
-import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, conflictLine, type DoctorItem, ENV_ICON, fileList, groupTasks, isUnder, prConflicts, questionsWord, type RunPrompt, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
+import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, conflictLine, type DoctorItem, ENV_ICON, fileList, groupTasks, isUnder, prConflicts, questionsWord, type RunPrompt, shortPath, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
 import type { Entry } from './transcript.ts';
 
 export const VIEW_KINDS = ['tasks', 'agents', 'worktrees', 'environments', 'setup'] as const;
@@ -1152,6 +1152,8 @@ export interface AttentionItem {
   look: Look;
   title: string;
   detail: string;
+  /** More than the detail has room for, on hover: a conflict's files in full. */
+  tip?: string;
   project: string;
   actions: Action[];
   /** A command that takes one argument, such as a tracker's sign-in. */
@@ -1261,16 +1263,17 @@ export function homeModel(i: HomeInput): HomeModel {
         const watch = acts.find((a) => a.command === 'acc.task.watch');
         const attach = acts.find((a) => a.command === 'acc.task.openInClaude');
         // A pull request that needs you says why: its checks, a person's requested changes, or a conflict.
+        // Conflicting files go by folder and name, as on the cards; in full on hover and on the task's page.
         const pr = r.state === 'review' && r.pr?.state === 'open' ? r.pr : null;
         if (pr) {
           const files = prConflicts(r);
           const why = [
             pr.changesRequested ? 'a reviewer asked for changes on GitHub' : '',
             pr.ci === 'failing' ? 'its checks are failing' : '',
-            files.length ? `it conflicts with ${r.environment} in ${fileList(files)}` : '',
+            files.length ? `it conflicts with ${r.environment} in ${fileList(files.map(shortPath))}` : '',
           ].filter(Boolean).join(', and ');
           const label = pr.changesRequested ? 'Changes requested' : pr.ci === 'failing' ? 'Checks failing' : 'Conflicts';
-          attention.push({ key: `t:${p.root}:${r.id}`, look: LOOK(label, 'git-pull-request', 'orange'), title: `${r.id} ${r.title}`, detail: `${p.name} · pull request #${pr.number}: ${why}`, project: p.name, actions: [...acts.filter((a) => a.command === 'acc.task.openPr').map((a) => ({ ...a, primary: true })), details] });
+          attention.push({ key: `t:${p.root}:${r.id}`, look: LOOK(label, 'git-pull-request', 'orange'), title: `${r.id} ${r.title}`, detail: `${p.name} · pull request #${pr.number}: ${why}`, ...(files.length ? { tip: files.join('\n') } : {}), project: p.name, actions: [...acts.filter((a) => a.command === 'acc.task.openPr').map((a) => ({ ...a, primary: true })), details] });
           continue;
         }
         attention.push({ key: `t:${p.root}:${r.id}`, look: r.agent ?? LOOK('Needs you', 'bell-dot', 'orange'), title: `${r.id} ${r.title}`, detail: `${p.name} · its agent is waiting on you in its terminal`, project: p.name, actions: [...(attach ? [{ ...attach, primary: true }] : []), ...(watch ? [{ ...watch, primary: false }] : []), details] });
