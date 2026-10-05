@@ -3,7 +3,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { GH_TIMEOUT_MS, PUSH_TIMEOUT_MS } from '../../packages/core/src/land.ts';
+import { FETCH_TIMEOUT_MS } from '../../packages/core/src/sync.ts';
 import { agentLook, agentName, groupTasks, isUnder, parseWorktrees, type TaskRow } from '../src/logic.ts';
+import { accTimeoutMs } from '../src/run.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
@@ -50,4 +53,12 @@ test('small helpers', () => {
   assert.equal(agentName('!!!'), 'agent');
   assert.ok(isUnder('/a/b/c', '/a/b'));
   assert.ok(!isUnder('/a/bc', '/a/b'));
+});
+
+test('a land gets as long as its push, fetch and gh calls can take; other acc commands keep 3 minutes', () => {
+  const land = accTimeoutMs(['land', 'GH-1', '--json']);
+  assert.ok(land >= PUSH_TIMEOUT_MS + FETCH_TIMEOUT_MS + 4 * GH_TIMEOUT_MS, `${land} ms is less than land's own timeouts`);
+  assert.ok(land > 180_000);
+  assert.equal(accTimeoutMs(['add', 'x', '--json']), 180_000);
+  assert.equal(accTimeoutMs(['review', 'GH-1', '--json']), 180_000);
 });
