@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { appendFileSync, existsSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -255,6 +255,19 @@ test('a garbled or half-written line doesn\'t stop the trim or the readers', () 
   assert.equal(statSync(file).size, Buffer.byteLength(recordLines(1, 1001)));
   appendFileSync(file, '{"v":1,"id":"an append still being writ');
   assert.deepEqual(historyIds(dir), ids(1, 1001), 'a half-written last line is skipped too');
+});
+
+test('an append after a torn last line starts a line of its own, so its record still reads', () => {
+  const dir = tempDir();
+  const file = join(dir, 'history.jsonl');
+  appendHistory(dir, record(0));
+  assert.equal(readFileSync(file, 'utf8'), recordLines(0, 1), 'a new file starts with the record, not a blank line');
+  appendFileSync(file, '{"v":1,"id":"torn by a cra'); // a crash mid-write: no newline
+  appendHistory(dir, record(1));
+  assert.equal(readFileSync(file, 'utf8'), `${recordLines(0, 1)}{"v":1,"id":"torn by a cra\n${recordLines(1, 2)}`);
+  assert.deepEqual(historyIds(dir), ids(0, 2));
+  appendHistory(dir, record(2));
+  assert.equal(readFileSync(file, 'utf8'), `${recordLines(0, 1)}{"v":1,"id":"torn by a cra\n${recordLines(1, 3)}`, 'a whole last line gets no extra newline');
 });
 
 test('very large records are kept to 2 MB, and the newest is always kept', () => {

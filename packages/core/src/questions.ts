@@ -1,4 +1,4 @@
-import { appendFileSync, chmodSync, linkSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, fstatSync, linkSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -129,7 +129,7 @@ export interface HistoryRecord {
 /** The history keeps its newest 1,000 records, and no more than 2 MB of them (D-043). */
 const HISTORY_KEEP = 1000;
 const HISTORY_MAX_BYTES = 2 * 1024 * 1024;
-/** An append doesn't read the history. It's read, to be trimmed, once it has grown this many bytes since its last trim. */
+/** An append reads only the history's last byte. It's read whole, to be trimmed, once it has grown this many bytes since its last trim. */
 export const HISTORY_TRIM_EVERY_BYTES = 64 * 1024;
 
 /**
@@ -139,12 +139,28 @@ export const HISTORY_TRIM_EVERY_BYTES = 64 * 1024;
 export function appendHistory(dir: string, rec: HistoryRecord, trimEvery = HISTORY_TRIM_EVERY_BYTES): void {
   ensureDir(dir);
   const file = join(dir, 'history.jsonl');
-  appendFileSync(file, JSON.stringify(rec) + '\n', { mode: 0o600 });
+  appendLine(file, JSON.stringify(rec));
   try {
     const size = statSync(file).size;
     if (size > trimmedSize(dir, size) + trimEvery) writePrivateText(join(dir, 'history.trimmed'), `${trimHistory(file)}\n`);
   } catch {
     // trimming is best effort; the record is written
+  }
+}
+
+/**
+ * Appends a line in one write. A last line torn by a crash has no newline, so one goes first, or the
+ * record would join it and neither would read. Only the file's last byte is read to tell.
+ */
+function appendLine(file: string, line: string): void {
+  const fd = openSync(file, 'a+', 0o600);
+  try {
+    const { size } = fstatSync(fd);
+    const last = Buffer.alloc(1);
+    const torn = size > 0 && readSync(fd, last, 0, 1, size - 1) === 1 && last[0] !== 0x0a;
+    writeSync(fd, `${torn ? '\n' : ''}${line}\n`);
+  } finally {
+    closeSync(fd);
   }
 }
 
