@@ -272,6 +272,7 @@ export function review(paths: RepoPaths, config: Config, id: string, deps: Revie
   } finally {
     rmSync(marker, { force: true });
   }
+  if (out.timedOut) throw new AccError('review', `The review didn't finish within 45 minutes, so acc stopped it.`);
   if (out.code === 127 && !out.stdout) throw new AccError('review', `Claude Code didn't start: ${out.stderr.trim().split('\n')[0] ?? 'claude not found'}`);
   const parsed = parseReview(out.stdout);
   const finished = now();

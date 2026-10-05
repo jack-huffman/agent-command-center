@@ -101,6 +101,22 @@ test('a review needs the task in review with its checks settled; a waived check 
   assert.equal(r.verdict.verdict, 'pass');
 });
 
+test('a reviewer stopped at its timeout says it timed out, not that Claude Code didn\'t start, and leaves the task in review', () => {
+  const { paths, config, sha } = setup();
+  const timedOut = fakeRunner({ claude: { code: 127, stdout: '', stderr: "claude didn't finish within 45 minutes, so acc stopped it.", timedOut: true } });
+  assert.throws(() => review(paths, config, 'T-1', { run: timedOut, now, env: {} }), (e: Error) => {
+    assert.match(e.message, /^The review didn't finish within 45 minutes, so acc stopped it\.$/);
+    assert.doesNotMatch(e.message, /didn't start/);
+    return true;
+  });
+  assert.equal(readLedger(paths.ledger).tasks[0]!.state, 'review');
+  assert.equal(reviewing(paths, 'T-1'), null, 'the running marker is gone');
+  assert.equal(readVerdict(paths, 'T-1', sha), null, 'no verdict');
+  // A claude that isn't there still says so.
+  const missing = fakeRunner({ claude: { code: 127, stdout: '', stderr: 'spawnSync claude ENOENT' } });
+  assert.throws(() => review(paths, config, 'T-1', { run: missing, now, env: {} }), /Claude Code didn't start: spawnSync claude ENOENT/);
+});
+
 test('the verdict is read strictly: a pass with something that must be fixed is changes, and no verdict is an error', () => {
   assert.equal(parseReview(result({ verdict: 'pass', summary: 's', criteria: [], findings: [{ message: 'm', must: true }] }).stdout).verdict.verdict, 'changes');
   assert.throws(() => parseReview('not json'), /no result/);

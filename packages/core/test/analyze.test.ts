@@ -88,6 +88,21 @@ test('answers make it ready; a re-analysis keeps them; a ready verdict with ques
   assert.throws(() => parseAnalysis(JSON.stringify({ is_error: true, subtype: 'error_max_turns', result: 'ran out' })), /didn't finish \(error_max_turns\)/);
 });
 
+test('an analyst stopped at its timeout says it timed out, not that Claude Code didn\'t start, and keeps nothing', () => {
+  const { paths, config, id } = setup();
+  const timedOut = fakeRunner({ claude: { code: 127, stdout: '', stderr: "claude didn't finish within 45 minutes, so acc stopped it.", timedOut: true } });
+  assert.throws(() => analyze(paths, config, id, { run: timedOut, now, env: {} }), (e: Error) => {
+    assert.match(e.message, /^The analysis didn't finish within 45 minutes, so acc stopped it\.$/);
+    assert.doesNotMatch(e.message, /didn't start/);
+    return true;
+  });
+  assert.equal(analyzing(paths, id), null, 'the running marker is gone');
+  assert.equal(readAnalysis(paths, id), null, 'no analysis');
+  // A claude that isn't there still says so.
+  const missing = fakeRunner({ claude: { code: 127, stdout: '', stderr: 'spawnSync claude ENOENT' } });
+  assert.throws(() => analyze(paths, config, id, { run: missing, now, env: {} }), /Claude Code didn't start: spawnSync claude ENOENT/);
+});
+
 test('Salesforce tasks wait for their analysis; generic ones don\'t; a person can go without (D-052)', () => {
   const sf = setup(SF_CONFIG);
   const task = readLedger(sf.paths.ledger).tasks[0]!;
