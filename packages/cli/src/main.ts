@@ -8,6 +8,7 @@ import {
   upsertTasks, writeConfig, ask, hookOutput, parseHookInput, waiveGates, review, land, sync, planPromotion, promote, skipWarning, planDeploy, deploy, lastDeploy,
   buildBaseline, seedBranches, draftLists, writeReadme, parseEventInput, preToolUseHook, sessionStartHook, stopHook, AGENT_ROLES, type AgentRole, profileView, setProfile, withCloneAgents, type ProfileChange,
   analyze, type Analysis, answerAnalysis, openQuestions, readAnalysis,
+  AUTOPILOT_MIN_EVERY_S, type AutopilotResult, type AutopilotStepName, autopilotFailure, autopilotMode, autopilotPass, holdAutopilot, sleep,
 } from '../../core/src/index.ts';
 import { checkLabel, gateLabel, stateLabel, table, tone } from './format.ts';
 
@@ -57,6 +58,10 @@ Agents
   acc review <id>                       A read-only reviewer agent judges the task's latest commit:
                                         pass, or changes (back to rework, with its findings)
   acc land <id>                         Push a reviewed task's branch and open its pull request; never merges
+  acc autopilot [--once | --every <seconds>]
+                                        With "autonomy": "review", take each task's next step on its own: review it,
+                                        land it, or re-dispatch a rework once. Never merges. One pass, or one every
+                                        <seconds> (at least 30) until stopped; --json then prints a line a pass
   acc sync                              Follow open pull requests: merged → done, closed → blocked, failing checks or conflicts → needs you
 
 Environments
@@ -398,6 +403,76 @@ function cmdLand(o: Opts, id: string): number {
   return 0;
 }
 
+const STEP_WORD: Record<AutopilotStepName, string> = { review: 'review', land: 'land', dispatch: 're-dispatch' };
+
+/** One autopilot pass, as a person reads it: what it did, what failed, what waits, and comments to post. */
+function autopilotLines(r: AutopilotResult): string[] {
+  const lines: string[] = [];
+  for (const s of r.steps) {
+    const at = s.sha ? ` ${s.sha.slice(0, 7)}` : '';
+    if (s.outcome === 'done') lines.push(`${tone(`✓ ${s.task}  ${s.reason}`, 'blue')}${s.pr ? `  ${s.pr.url}` : ''}`);
+    else if (s.outcome === 'failed') lines.push(tone(`! ${s.task}  Couldn't ${STEP_WORD[s.step!]}${at}: ${s.reason}`, 'orange'), tone('    It isn\'t tried again on this commit. Do it by hand, or a new commit lets autopilot try again.', 'dim'));
+    else if (s.outcome === 'waiting') lines.push(tone(`… ${s.task}  Waiting: ${s.reason}`, 'dim'));
+    if (s.commentUnconfirmed) lines.push(tone(`! The comment on ${s.task}'s issue isn't confirmed: ${s.commentUnconfirmed.replace(/([^.!?])$/, '$1.')} Look at the issue before you post it again.`, 'orange'));
+  }
+  for (const c of r.pendingComments) lines.push(tone(`! Post this on ${c.key}`, 'orange') + ` for ${c.task}. Autopilot can't post on ${c.kind === 'jira' ? 'Jira' : 'Azure DevOps'} as you:`, `    ${c.text.replace(/\n/g, '\n    ')}`);
+  const idle = r.steps.filter((s) => s.outcome === 'skipped').length;
+  if (!lines.length) lines.push('Nothing for autopilot to do.');
+  else if (idle) lines.push(tone(`${idle} other task${idle === 1 ? '' : 's'}: nothing to do.`, 'dim'));
+  return lines;
+}
+
+/**
+ * Autopilot (D-???): under "autonomy": "review", it reviews, lands and re-dispatches a rework once, as
+ * the orchestrator, up to an open pull request. One pass, or one every --every seconds until stopped.
+ */
+function cmdAutopilot(o: Opts): number {
+  const role = process.env.ACC_ROLE;
+  if (role === 'builder' || role === 'reviewer' || role === 'analyst') throw new AccError('refused', `A ${role} can't run autopilot. A person starts it.`);
+  if (o.once && o.every !== undefined) throw new AccError('usage', '--once is one pass and --every repeats them: give one or the other.');
+  const every = o.every === undefined ? 0 : Number(o.every);
+  if (o.every !== undefined && (!Number.isInteger(every) || every < AUTOPILOT_MIN_EVERY_S)) {
+    throw new AccError('usage', `--every takes whole seconds, at least ${AUTOPILOT_MIN_EVERY_S}: the gap between one pass ending and the next starting.`);
+  }
+  const start = project(process.cwd());
+  const { paths } = start;
+  const mode = autopilotMode(start.config);
+  for (const w of mode.warnings) process.stderr.write(`warning: ${w}\n`);
+  if (mode.refusal) throw new AccError('refused', mode.refusal);
+  if (!mode.on) {
+    out(o, () => 'autonomy is "manual" in .acc/config.json, so autopilot does nothing. Set it to "review" for autopilot to review, land, and re-dispatch a rework once.',
+      { autonomy: mode.autonomy, warnings: mode.warnings, steps: [], pendingComments: [] });
+    return 0;
+  }
+  if (!start.config.github) throw new AccError('no-github', 'Autopilot lands reviewed work as pull requests on GitHub, and this project has no "github" section in .acc/config.json.');
+  const say = (line: string) => { if (!o.json) process.stderr.write(tone(line, 'dim') + '\n'); };
+  const doing = { review: 'Reviewing', land: 'Landing', dispatch: 'Re-dispatching' };
+  return holdAutopilot(paths, () => {
+    let config = start.config;
+    for (;;) {
+      const r = autopilotPass(paths, config, {
+        run, now, env: process.env, accBinDir: accBinDir(), accCommand: accCommand(),
+        onStep: (task, step, sha) => say(`… ${doing[step]} ${task}${sha ? ` at ${sha.slice(0, 7)}` : ''}${step === 'review' ? '. The reviewer reads and changes nothing.' : ''}`),
+      });
+      const data = { autonomy: mode.autonomy, warnings: mode.warnings, steps: r.steps, pendingComments: r.pendingComments };
+      if (!every) {
+        out(o, () => autopilotLines(r).join('\n'), data);
+        return r.steps.some((s) => s.outcome === 'failed') ? 1 : 0;
+      }
+      // Repeating: a line of JSON a pass, or the pass under its time.
+      if (o.json) process.stdout.write(JSON.stringify({ at: now().toISOString(), ...data }) + '\n');
+      else process.stdout.write([tone(`Autopilot pass at ${now().toLocaleTimeString()}`, 'dim'), ...autopilotLines(r)].join('\n') + '\n');
+      sleep(every * 1000);
+      // A person can stop it from the config: it's read again before each pass.
+      config = project(process.cwd()).config;
+      if (!autopilotMode(config).on) {
+        say(`autonomy is "${config.autonomy}" now, so autopilot stops.`);
+        return 0;
+      }
+    }
+  });
+}
+
 function cmdSync(o: Opts): number {
   const { paths, config } = project(process.cwd());
   const r = sync(paths, config, { run, now, env: process.env });
@@ -580,11 +655,13 @@ function cmdShow(o: Opts, id: string): number {
   const ledger = readLedger(paths.ledger);
   const t = ledger.tasks.find((x) => x.id === id.toUpperCase());
   if (!t) throw new AccError('no-task', `No task ${id}.`);
+  const failed = autopilotFailure(t);
   out(o, () => [
     `${t.id}  ${stateLabel(displayState(ledger, t))}  ${t.title}`,
     `Environment: ${t.environment}   Source: ${t.source.kind}${t.source.url ? ` ${t.source.url}` : ''}`,
     t.deps.length ? `Depends on: ${t.deps.join(', ')}` : '',
     t.blocker ? `Blocked: ${t.blocker}` : '',
+    failed ? tone(`! Autopilot couldn't ${STEP_WORD[failed.step]} ${failed.sha.slice(0, 7) || 'it'}: ${failed.reason}`, 'orange') : '',
     t.brief ? `\n${t.brief}\n` : '',
     'History:',
     ...t.history.map((h) => `  ${h.at}  ${h.from ?? '–'} → ${h.to}  by ${h.by}${h.reason ? `: ${h.reason}` : ''}${h.override ? ' (override)' : ''}`),
@@ -788,6 +865,8 @@ export async function main(argv: string[]): Promise<number> {
       effort: { type: 'string' },
       'fallback-model': { type: 'string' },
       clear: { type: 'string', multiple: true },
+      once: { type: 'boolean', default: false },
+      every: { type: 'string' },
     },
   });
   const o = values as Opts;
@@ -847,6 +926,7 @@ export async function main(argv: string[]): Promise<number> {
       if (!rest[0]) throw new AccError('usage', 'acc land <id>');
       return cmdLand(o, rest[0]);
     }
+    case 'autopilot': return cmdAutopilot(o);
     case 'sync': return cmdSync(o);
     case 'promote': {
       if (!rest[0]) throw new AccError('usage', 'acc promote <env> [--to <env>]');

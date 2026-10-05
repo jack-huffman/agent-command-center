@@ -296,6 +296,8 @@ export function review(paths: RepoPaths, config: Config, id: string, deps: Revie
       applyMove(t, req, emit, now);
       return 'rework' as const;
     }
+    // Reviewed, by autopilot or by hand: whatever autopilot couldn't do before is behind it (D-???).
+    if (t.autopilot?.failed) t.autopilot.failed = null;
     emit({ type: 'task.updated', task: id, actor, by, data: { reviewed: { sha, verdict: verdict.verdict } } });
     return null;
   });

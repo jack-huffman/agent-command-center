@@ -100,7 +100,7 @@ test('land pushes the branch, opens the pull request into the environment\'s bra
   passReview(s.paths, s.id, s.sha, s.base);
   const calls: { args: string; opts?: RunOptions }[] = [];
   const r = land(s.paths, s.config, s.id, { run: gh(calls), now, env: {} });
-  assert.deepEqual([r.opened, r.pr], [true, { number: 42, url: 'https://github.com/acme/tool/pull/42', state: 'open', landedAt: now().toISOString(), conflicts: [] }], 'it merges cleanly into its base');
+  assert.deepEqual([r.opened, r.pr], [true, { number: 42, url: 'https://github.com/acme/tool/pull/42', state: 'open', landedAt: now().toISOString(), sha: s.sha, conflicts: [] }], 'it merges cleanly into its base, and the pull request knows the commit it landed');
   assert.equal(gitIn(s.origin, 'rev-parse', 'task/T-1-add-sum').trim(), s.sha, 'the branch is on GitHub at the reviewed commit');
   const create = calls.find((c) => c.args.startsWith('pr create'))!;
   assert.match(create.args, new RegExp(`--base ${s.base} --head task/T-1-add-sum --title ${s.id}: Add a sum function`));

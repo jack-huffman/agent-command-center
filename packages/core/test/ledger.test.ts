@@ -180,6 +180,19 @@ test('an open pull request that conflicts with its base shows its task in review
   assert.equal(displayState(l, t), 'needs-you');
 });
 
+test('a step autopilot couldn\'t take shows its task as needs you, in the state it failed in, until any move clears it (D-???)', () => {
+  const l = ledgerWith({ id: 'ACME-1', state: 'rework' });
+  const t = task(l, 'ACME-1');
+  const failed = { step: 'dispatch' as const, sha: 'a'.repeat(40), state: 'rework' as const, reason: 'Claude Code doesn\'t trust the repo yet.', at: '2026-10-05T12:00:00.000Z' };
+  t.autopilot = { failed };
+  assert.equal(displayState(l, t), 'needs-you');
+  t.autopilot = { failed: { ...failed, state: 'review' } };
+  assert.equal(displayState(l, t), 'rework', 'only in the state it failed in');
+  t.autopilot = { failed };
+  applyMove(t, { to: 'running', actor: 'human', by: 'human:jordan' }, sink, clock);
+  assert.deepEqual([t.autopilot.failed, displayState(l, t)], [null, 'running'], 'a person re-dispatched it by hand');
+});
+
 test('mutate writes the snapshot and the event log together, in the shared git directory (D-008)', () => {
   const repo = makeRepo();
   const paths = repoPaths(repo, run);

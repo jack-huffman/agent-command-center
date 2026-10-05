@@ -10,6 +10,8 @@ export interface RepoPaths {
   ledger: string;
   events: string;
   lock: string;
+  /** Held while acc autopilot runs, so only one runs against a repo (D-???). */
+  autopilotLock: string;
   receipts: string;
   reviews: string;
   /** What each task's analysis found (D-052). */
@@ -34,6 +36,7 @@ export function repoPaths(cwd: string, run: Runner): RepoPaths {
     ledger: join(stateDir, 'ledger.json'),
     events: join(stateDir, 'events.jsonl'),
     lock: join(stateDir, 'ledger.lock'),
+    autopilotLock: join(stateDir, 'autopilot.lock'),
     receipts: join(stateDir, 'receipts'),
     reviews: join(stateDir, 'reviews'),
     analyses: join(stateDir, 'analyses'),

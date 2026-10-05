@@ -174,14 +174,16 @@ stateDiagram-v2
 Two states aren't stored. They're derived when the ledger is read:
 
 - **Ready** means `todo` with every dependency `done`.
-- **Needs you** means `running` while the session waits on a person.
+- **Needs you** means `running` while the session waits on a person. A task
+  also needs you when autopilot couldn't take its next step, in the state it
+  failed in ([section 12](#12-the-orchestrator-loop)).
 
 | Shown as | Icon | Colour | Meaning |
 |---|---|---|---|
 | To do | `circle-outline` | neutral | Waiting on dependencies, or not picked up yet |
 | Ready | `play-circle` | blue | Can be dispatched |
 | Running | `sync` (spinning) | blue | A builder is working |
-| Needs you | `bell` | **orange** | The session is waiting for permission or an answer |
+| Needs you | `bell` | **orange** | The session is waiting for permission or an answer, or autopilot couldn't take a step |
 | In review | `eye` | blue | Checks passed. Waiting for the reviewer or the pull request |
 | Rework | `debug-restart` | **orange** | The reviewer or a human asked for changes |
 | Blocked | `circle-slash` | **orange** | Stopped. A reason is required |
@@ -458,20 +460,54 @@ drifted apart.
 
 ## 12. The orchestrator loop
 
-The loop is ordinary code, not an agent (D-010). `acc tick` works out the next
-actions from the ledger, the sessions and the pull requests. `acc run` repeats
-tick-and-act on a timer, and the extension can host it.
+The loop is ordinary code, not an agent (D-010). `acc autopilot` reads the
+ledger and takes the next step for each task, one task at a time, as the
+`orchestrator` actor (D-???). It goes up to an open pull request and no further.
 
 | `autonomy` | What runs on its own |
 |---|---|
-| `manual` (default) | Nothing. The extension shows the suggested actions as buttons |
-| `dispatch` | Dispatching ready tasks, up to `agents.max` |
-| `review` | Also starting the reviewer when a builder finishes |
-| `full` | Also opening pull requests for reviewed work |
+| `manual` (default) | Nothing. The extension shows the next steps as buttons, and `acc autopilot` does nothing |
+| `review` | Autopilot reviews finished work, lands work whose review passed, and re-dispatches a rework once |
+| `dispatch` | As `review`, and it also starts Ready tasks up to `agents.max`. Not built yet: autopilot refuses |
+| `full` | Read as `dispatch`, with a warning |
 
-Nothing merges automatically, and nothing deploys to a protected environment. An
-agent is used for judgment, not routing. The `acc:orchestrate` skill helps break
-a large ticket into tasks, triage a blocked task, or write rework guidance.
+`acc autopilot [--once | --every <seconds>]` does one pass and exits, or a pass
+every `<seconds>` (at least 30) until it's stopped. The gap runs from the end of
+one pass to the start of the next, because a pass can hold a 45-minute review.
+The config is read again before each pass, so setting `autonomy` back to
+`manual` stops it. Each pass takes one step a task, reading the ledger again
+before each:
+
+| The task | Autopilot |
+|---|---|
+| In review, nothing has reviewed its latest commit, no review running | `review` (the reviewer's move, made for autopilot) |
+| In review, its latest commit passed, no open pull request or one behind that commit | `land` |
+| In rework, and autopilot hasn't re-dispatched it before | `dispatch`, once. A second rework waits for a person |
+| To do (ready or not), running, blocked or done | Nothing |
+
+- **What it never does:** merge, waive a check, deploy, promote, or start a
+  task that's to do. Builders, reviewers and analysts can't run it.
+- **Who did it:** lands and re-dispatches are `orchestrator`, by
+  `orchestrator:autopilot`. A review stays the reviewer's move (only a reviewer
+  or a person sends work to rework), by `reviewer:<id> for orchestrator:autopilot`.
+- **One at a time:** it holds `<git-common-dir>/acc/autopilot.lock` while it
+  runs, so a second autopilot on the same repo is refused, naming the first one's
+  pid. Only a dead owner frees the lock. It never takes the heavy-check slot, so
+  builders' heavy checks run as before.
+- **A step that fails** is recorded on the task (`autopilot.failed`: the step,
+  the commit, the state, the reason) and isn't tried again on that commit. The
+  task shows as needs you with the reason. A new commit lets autopilot try
+  again. A review, a land or any move clears it, so doing the step by hand does
+  too. A full agent cap or a busy ledger only waits for the next pass.
+- **A Jira or Azure DevOps comment** can't be posted, since only the extension
+  posts those, as you. Autopilot lands anyway and prints `! Post this on <KEY>`
+  with the text. `--json` lists it under `pendingComments`.
+- **`--json`** lists each task looked at, with its step (or none), the commit,
+  the outcome (`done`, `failed`, `waiting` or `skipped`) and why. With `--every`,
+  it prints a line of JSON a pass.
+
+An agent is used for judgment, not routing. The `acc:orchestrate` skill helps
+break a large ticket into tasks, triage a blocked task, or write rework guidance.
 
 ## 13. Plugin
 
@@ -570,7 +606,7 @@ count; under 820 px wide, it becomes a tab strip along the top.
 
 | Section | What it holds |
 |---|---|
-| **Overview** | **Needs you:** agents waiting on a prompt, blocked tasks, missing tracker sign-ins and setup still to do, each with its button. Then, apart, work waiting for review. Stat tiles open their sections. **Ready for an agent** has Dispatch buttons, and **Recent activity** lists every task's latest moves |
+| **Overview** | **Needs you:** agents waiting on a prompt, blocked tasks, steps autopilot couldn't take (with why, and the step to take by hand), missing tracker sign-ins and setup still to do, each with its button. Then, apart, work waiting for review. Stat tiles open their sections. **Ready for an agent** has Dispatch buttons, and **Recent activity** lists every task's latest moves |
 | **Tasks** | The tracker's own board, or acc's agent board (D-026) |
 | **Agents** | Sessions by project, with a menu on each row (D-023) |
 | **Worktrees** | Every checkout, with a menu on each row |

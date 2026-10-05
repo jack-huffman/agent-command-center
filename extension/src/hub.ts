@@ -6,7 +6,7 @@ import { type Analysis, analysisRequired, analyzing, readAnalysis } from '../../
 import { type Config, parseConfig } from '../../packages/core/src/config.ts';
 import { run as runSync } from '../../packages/core/src/exec.ts';
 import { CLONE_ACCOUNT_KEY } from '../../packages/core/src/github.ts';
-import { displayState, readLedger, type Ledger } from '../../packages/core/src/ledger.ts';
+import { autopilotFailure, displayState, readLedger, type Ledger } from '../../packages/core/src/ledger.ts';
 import type { RepoPaths } from '../../packages/core/src/paths.ts';
 import type { HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import { latestVerdict, reviewing } from '../../packages/core/src/review.ts';
@@ -198,6 +198,7 @@ export class Hub implements vscode.Disposable {
       const session = t.state === 'running' || t.state === 'review' || t.state === 'blocked' ? sessionFor(base, this.agents) : undefined;
       const asking = session ? this.askingFor(session) : null;
       const look = session ? agentLook(session, asking) : null;
+      const failed = autopilotFailure(t);
       return {
         id: t.id,
         title: t.title,
@@ -217,6 +218,7 @@ export class Hub implements vscode.Disposable {
         analysis,
         analyzing: running ? { sessionId: running.sessionId } : null,
         analysisRequired: required,
+        autopilot: failed ? { step: failed.step, reason: failed.reason } : null,
       };
     });
   }

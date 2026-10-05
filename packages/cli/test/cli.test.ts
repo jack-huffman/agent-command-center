@@ -253,3 +253,67 @@ test('acc gate waive: a person waives a task\'s failing check with a reason; a b
   const list = acc(dir, ['gate', 'list', '--json']).json();
   assert.equal(list.gates[0].receipt.status, 'skip');
 });
+
+test('acc autopilot: manual does nothing; dispatch isn\'t built yet, and full is read as it; usage, roles and the lock (D-???)', () => {
+  const GH = { ...GENERIC_CONFIG, github: { repo: 'acme/tool', account: 'jordan-kim' } };
+  const dir = repoWithConfig(GH);
+  const setAutonomy = (autonomy: string, config: object = GH) => writeFileSync(join(dir, '.acc', 'config.json'), JSON.stringify({ ...config, autonomy }));
+  assert.equal(acc(dir, ['add', 'Ready to start']).code, 0);
+  const ledgerFile = join(dir, '.git', 'acc', 'ledger.json');
+  const ledger = readFileSync(ledgerFile, 'utf8');
+
+  const manual = acc(dir, ['autopilot', '--json']);
+  assert.equal(manual.code, 0, manual.err);
+  assert.deepEqual(manual.json(), { autonomy: 'manual', warnings: [], steps: [], pendingComments: [] });
+  assert.match(acc(dir, ['autopilot']).out, /autonomy is "manual" in \.acc\/config\.json, so autopilot does nothing/);
+  assert.equal(readFileSync(ledgerFile, 'utf8'), ledger, 'the ledger is untouched');
+  assert.ok(!existsSync(join(dir, '.git', 'acc', 'autopilot.lock')));
+
+  setAutonomy('dispatch');
+  const dispatch = acc(dir, ['autopilot']);
+  assert.equal(dispatch.code, 1);
+  assert.match(dispatch.err, /not built yet/);
+  setAutonomy('full');
+  const full = acc(dir, ['autopilot']);
+  assert.equal(full.code, 1);
+  assert.match(full.err, /warning: autonomy "full" is read as "dispatch"\.[\s\S]*not built yet/);
+  assert.equal(readFileSync(ledgerFile, 'utf8'), ledger, 'refused before doing anything');
+
+  setAutonomy('review');
+  assert.equal(acc(dir, ['autopilot', '--once', '--every', '60']).code, 2, 'one pass, or repeated: not both');
+  assert.equal(acc(dir, ['autopilot', '--every', '5']).code, 2, 'at least 30 seconds between passes');
+  for (const role of ['builder', 'reviewer', 'analyst']) {
+    const r = acc(dir, ['autopilot'], undefined, { ACC_ROLE: role, ACC_TASK: 'T-1' });
+    assert.equal(r.code, 1, role);
+    assert.match(r.err, new RegExp(`A ${role} can't run autopilot`));
+  }
+  const once = acc(dir, ['autopilot', '--once', '--json']);
+  assert.equal(once.code, 0, once.err);
+  assert.deepEqual(once.json().steps.map((s: { task: string; step: string | null; outcome: string }) => [s.task, s.step, s.outcome]), [['T-1', null, 'skipped']], 'a task to do is never started');
+  assert.equal(acc(dir, ['autopilot']).out.trim(), 'Nothing for autopilot to do.');
+
+  // Another autopilot holds the lock: this test's own process stands in for it.
+  const lock = join(dir, '.git', 'acc', 'autopilot.lock');
+  mkdirSync(lock);
+  writeFileSync(join(lock, 'owner'), JSON.stringify({ pid: process.pid, at: Date.now() }));
+  const second = acc(dir, ['autopilot']);
+  assert.equal(second.code, 1);
+  assert.match(second.err, new RegExp(`Autopilot is already running here \\(pid ${process.pid}\\)`));
+
+  setAutonomy('review', GENERIC_CONFIG);
+  assert.match(acc(dir, ['autopilot']).err, /no "github" section/, 'it couldn\'t land anything');
+});
+
+test('a task autopilot couldn\'t move on shows as needs you, and acc show says why (D-???)', () => {
+  const dir = repoWithConfig();
+  assert.equal(acc(dir, ['add', 'Add a sum function']).code, 0);
+  assert.equal(acc(dir, ['set', 'T-1', 'running']).code, 0);
+  assert.equal(acc(dir, ['set', 'T-1', 'review', '--as', 'builder']).code, 0);
+  const file = join(dir, '.git', 'acc', 'ledger.json');
+  const l = JSON.parse(readFileSync(file, 'utf8'));
+  l.tasks[0].autopilot = { failed: { step: 'land', sha: 'abcdef0123456789abcdef0123456789abcdef01', state: 'review', reason: 'git push refused task/T-1-add-a-sum-function: rejected', at: '2026-10-05T12:00:00.000Z' } };
+  writeFileSync(file, JSON.stringify(l));
+  assert.match(acc(dir, ['show', 'T-1']).out, /T-1 {2}! Needs you {2}Add a sum function\n[\s\S]*! Autopilot couldn't land abcdef0: git push refused task\/T-1-add-a-sum-function: rejected/);
+  assert.equal(acc(dir, ['list', '--json']).json()[0].display, 'needs-you');
+  assert.match(acc(dir, ['status']).out, /1 needs you/);
+});

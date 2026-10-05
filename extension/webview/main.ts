@@ -281,6 +281,8 @@ function renderTasks(m: TasksModel): Node[] {
           card.waitingOn.length ? el('div', 'card-note', icon('clock'), `Waiting on ${card.waitingOn.join(', ')}`) : null,
           // Its pull request won't merge into its base (D-049): an icon and the words, in orange.
           card.conflicts ? el('div', 'card-note conflict', icon('warning'), el('span', '', card.conflicts)) : null,
+          // A step autopilot couldn't take, and why (D-???): an icon and the words, in orange.
+          card.autopilot ? el('div', 'card-agent', status(card.autopilot)) : null,
           card.agent ? el('div', 'card-agent', el('span', 'muted', 'Agent: '), status(card.agent)) : null,
           // Its analysis (D-052), in its own words: under way, waiting on you, or ready to build from.
           card.analysis ? el('div', 'card-agent', status(card.analysis)) : null,
