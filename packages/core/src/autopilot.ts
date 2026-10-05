@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { closeSync, openSync, readFileSync, readSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Autonomy, Config } from './config.ts';
 import { dispatch } from './dispatch.ts';
@@ -179,7 +179,7 @@ export interface AutopilotDeps {
   accCommand?: string;
   /** Told before each step, which can take a long time: a review up to 45 minutes. */
   onStep?: (task: string, step: AutopilotStepName, sha: string) => void;
-  /** Asked before each task: true ends the pass there, as when the window hosting autopilot has gone (GH-35). */
+  /** Asked before each task: true ends the pass there, as when the window hosting autopilot has gone (D-???). */
   stop?: () => boolean;
   steps?: Partial<AutopilotSteps>;
   /** The heavy-check slot a refresh's checks take, machine-wide unless a test says otherwise. */
@@ -292,7 +292,7 @@ export function autopilotPass(paths: RepoPaths, config: Config, deps: AutopilotD
 /** Whether autopilot did it: as the orchestrator, or a reviewer's move made for it. */
 export const byAutopilot = (by: string): boolean => by === AUTOPILOT_BY || by.endsWith(` for ${AUTOPILOT_BY}`);
 
-/** A step autopilot took, as its ledger event tells it, so any window can show what it did (GH-35). */
+/** A step autopilot took, as its ledger event tells it, so any window can show what it did (D-???). */
 export interface AutopilotRecord {
   seq: number;
   at: string;
@@ -344,6 +344,66 @@ export function autopilotEvent(e: Pick<LedgerEvent, 'seq' | 'at' | 'type' | 'tas
   // A refresh that found the conflict gone marks the pull request so, and merges nothing (D-058).
   if (pr && typeof pr.number === 'number') return { ...base, step: 'refresh', outcome: 'done', base: null, pr: { number: pr.number, url: String(pr.url ?? ''), opened: false } };
   return null;
+}
+
+/** How much of a repo's events a first look reads, and how many of autopilot's steps a log keeps. */
+const EVENTS_TAIL_BYTES = 256 * 1024;
+const KEEP_STEPS = 300;
+
+/** What has been read of a repo's events (events.jsonl, never trimmed), and the steps autopilot took in them. */
+export interface AutopilotLog {
+  /** The byte after the last whole line read. */
+  offset: number;
+  ino: number;
+  /** Still to drop the half line the first read starts in. */
+  fresh: boolean;
+  /** Autopilot's steps, oldest first: the newest 300. */
+  records: AutopilotRecord[];
+}
+
+/**
+ * Reads what was added to a repo's events since the last look, keeping autopilot's steps (D-???). The
+ * first look reads only the last 256 KB, so a long history costs nothing, and each look after reads
+ * only what was added. A file that shrank or was replaced is read again from its tail. Undefined when
+ * there's no file yet.
+ */
+export function readAutopilotLog(file: string, log?: AutopilotLog): AutopilotLog | undefined {
+  let st;
+  try {
+    st = statSync(file);
+  } catch {
+    return undefined;
+  }
+  const s: AutopilotLog = !log || log.ino !== st.ino || st.size < log.offset
+    ? { offset: Math.max(0, st.size - EVENTS_TAIL_BYTES), ino: st.ino, fresh: true, records: [] }
+    : { ...log, records: [...log.records] };
+  if (st.size === s.offset) return s;
+  const buf = Buffer.alloc(st.size - s.offset);
+  const fd = openSync(file, 'r');
+  try {
+    readSync(fd, buf, 0, buf.length, s.offset);
+  } finally {
+    closeSync(fd);
+  }
+  let from = 0;
+  if (s.fresh && s.offset > 0) {
+    const nl = buf.indexOf(10);
+    if (nl < 0) return s;
+    from = nl + 1;
+  }
+  // Only whole lines: one being written is read next time.
+  const end = buf.lastIndexOf(10);
+  if (end < from) return { ...s, offset: s.offset + from, fresh: false };
+  for (const line of buf.subarray(from, end).toString('utf8').split('\n')) {
+    try {
+      const r = autopilotEvent(JSON.parse(line));
+      if (r) s.records.push(r);
+    } catch {
+      // a line that isn't an event
+    }
+  }
+  if (s.records.length > KEEP_STEPS) s.records.splice(0, s.records.length - KEEP_STEPS);
+  return { ...s, offset: s.offset + end + 1, fresh: false };
 }
 
 // ---------------------------------------------------------------- one at a time

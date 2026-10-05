@@ -323,7 +323,7 @@ test('a task autopilot couldn\'t move on shows as needs you, and acc show says w
   assert.match(acc(dir, ['show', 'T-1']).out, /! Autopilot couldn't update abcdef0 from its base: Conflicts with main that autopilot can't resolve: sum\.js\./);
 });
 
-test('acc agents autonomy: shows it, and a person sets manual or review in .acc/config.json, changing nothing else (GH-35)', () => {
+test('acc agents autonomy: shows it, and a person sets manual or review in .acc/config.json, changing nothing else (D-???)', () => {
   // Spaced and ordered as a person might keep it: the edit moves nothing else.
   const text = '{\n    "schema": 1,\n    "autonomy":   "manual",\n    "project": "Tool",\n    "profile": "generic",\n    "environments": [ { "name": "main", "default": true } ],\n    "agents": { "max": 2 }\n}\n';
   const dir = makeRepo({ '.acc/config.json': text });
@@ -357,7 +357,7 @@ test('acc agents autonomy: shows it, and a person sets manual or review in .acc/
   assert.deepEqual(JSON.parse(readFileSync(join(bare, '.acc', 'config.json'), 'utf8')), { ...GENERIC_CONFIG, autonomy: 'review' });
 });
 
-test('acc autopilot --every stops by itself once the Command Center that started it has gone (GH-35)', () => {
+test('acc autopilot --every stops by itself once the Command Center that started it has gone (D-???)', () => {
   const dir = repoWithConfig({ ...GENERIC_CONFIG, autonomy: 'review', github: { repo: 'acme/tool', account: 'jordan-kim' } });
   assert.equal(acc(dir, ['add', 'Ready to start']).code, 0);
   // A stand-in for the extension host: a process that lives for a second. It's the shell's child, so

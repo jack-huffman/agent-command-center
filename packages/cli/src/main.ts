@@ -455,7 +455,7 @@ function cmdAutopilot(o: Opts): number {
   const say = (line: string) => { if (!o.json) process.stderr.write(tone(line, 'dim') + '\n'); };
   const doing = { review: 'Reviewing', land: 'Landing', dispatch: 'Re-dispatching', refresh: 'Updating' };
   const after = { review: '. The reviewer reads and changes nothing.', land: '', dispatch: '', refresh: ' from its base, then running its checks.' };
-  // Started by the Command Center (GH-35): once that window's extension host has gone, it stops at the
+  // Started by the Command Center (D-???): once that window's extension host has gone, it stops at the
   // next step or within a second of waiting, even if nothing stopped it. No window, no autopilot.
   const parent = Number(process.env.ACC_AUTOPILOT_PARENT);
   const orphaned = () => Number.isInteger(parent) && parent > 0 && !alive(parent);
