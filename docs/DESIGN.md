@@ -177,7 +177,8 @@ Two states aren't stored. They're derived when the ledger is read:
 - **Ready** means `todo` with every dependency `done`.
 - **Needs you** means `running` while the session waits on a person. A task
   also needs you when autopilot couldn't take its next step, in the state it
-  failed in ([section 12](#12-the-orchestrator-loop)).
+  failed in ([section 12](#12-the-orchestrator-loop)), and when it's in review
+  with a pull request someone closed without merging (D-063).
 
 | Shown as | Icon | Colour | Meaning |
 |---|---|---|---|
@@ -412,7 +413,10 @@ last land (D-051).
 **After the pull request opens:**
 
 - `acc sync` polls open pull requests. A merged one makes its task `done`. A
-  closed-unmerged one moves its task to `blocked` with the reason. Failing CI,
+  closed-unmerged one moves its task to `blocked` with the reason. Moved back
+  to review, that task needs you until a person lands it again, which updates
+  the pull request if someone reopened it on GitHub, or opens a new one
+  (D-063). Failing CI,
   a person's requested changes, or a conflict with its base shows the task as
   **needs you**. It finds conflicts itself, naming the files (D-049). The
   Command Center runs it every two minutes while it's open. Under
@@ -484,7 +488,8 @@ before each:
 | The task | Autopilot |
 |---|---|
 | In review, nothing has reviewed its latest commit, no review running | `review` (the reviewer's move, made for autopilot) |
-| In review, its latest commit passed, no open pull request or one behind that commit | `land` |
+| In review, its latest commit passed, no pull request, or an open one behind that commit | `land` |
+| In review, its latest commit passed, its pull request closed without merging | Nothing. It needs you, naming the pull request: a person lands it again, or not (D-063) |
 | In review, its latest commit passed and landed, but the pull request conflicts with its base | `refresh`: merge the base in, then run its checks. The next passes review and land the merge |
 | In rework, and autopilot hasn't re-dispatched it before | `dispatch`, once. A second rework waits for a person |
 | To do (ready or not), running, blocked or done | Nothing |

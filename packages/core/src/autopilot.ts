@@ -1,9 +1,9 @@
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Autonomy, Config } from './config.ts';
 import { dispatch } from './dispatch.ts';
 import { AccError, type Runner } from './exec.ts';
-import { type AutopilotFailure, type AutopilotStepName, type Ledger, mutate, readLedger, type State, type Task } from './ledger.ts';
+import { type AutopilotFailure, type AutopilotStepName, closedPr, type Ledger, mutate, readLedger, type State, type Task } from './ledger.ts';
 import { land, type LandResult, type PendingComment } from './land.ts';
 import { withLock } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
@@ -102,7 +102,10 @@ export function nextStep(ledger: Ledger, config: Pick<Config, 'agents'>, task: T
     if (facts.verdict === 'changes') return none('waiting', `Its review on ${short(facts.head)} asked for changes, and it's still in review: a person decides.`);
     const pr = task.pr;
     if (pr?.state === 'merged') return none('skipped', `Pull request #${pr.number} merged.`);
-    if (pr?.state !== 'open') return step('land', `Its review passed on ${short(facts.head)}, and it has no open pull request.`);
+    // Someone closed it: autopilot never opens another in its place (D-063).
+    const closed = closedPr(task);
+    if (closed) return none('waiting', `Pull request #${closed.number} was closed without merging. Autopilot won't replace it: reopen it on GitHub and land to update it, or land to open a new one.`);
+    if (pr?.state !== 'open') return step('land', `Its review passed on ${short(facts.head)}, and it has no pull request.`);
     if (facts.landed === facts.head) {
       // Its base moved on and it conflicts (D-049): the base is merged in, and the merge goes the same way (D-058).
       if (pr.conflicts?.length) return step('refresh', `Pull request #${pr.number} conflicts with ${task.environment} in ${pr.conflicts.join(', ')}.`);
@@ -293,6 +296,8 @@ export function autopilotPass(paths: RepoPaths, config: Config, deps: AutopilotD
  * refresh's checks take, as a builder's do (D-058).
  */
 export function holdAutopilot<T>(paths: RepoPaths, fn: () => T): T {
+  // A repo where no task was ever added has no state folder yet, and the lock lives in it.
+  mkdirSync(paths.stateDir, { recursive: true });
   let held = false;
   try {
     return withLock(paths.autopilotLock, () => {

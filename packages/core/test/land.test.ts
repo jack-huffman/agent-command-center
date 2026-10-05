@@ -11,7 +11,7 @@ import { repoPaths } from '../src/paths.ts';
 import { receiptsAt } from '../src/receipts.ts';
 import { reviewPath, type Verdict } from '../src/review.ts';
 import { ciOf, sync } from '../src/sync.ts';
-import { fakeBin, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, tempDir } from './support.ts';
+import { bad, fakeBin, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, tempDir } from './support.ts';
 
 const now = () => new Date('2026-10-02T12:00:00Z');
 const RAW = { ...GENERIC_CONFIG, github: { repo: 'acme/tool', account: 'jordan-kim' }, gates: { required: ['test'], commands: { test: 'true' } } };
@@ -169,6 +169,31 @@ test('land names the files a pull request it opens conflicts in with its base, a
   assert.deepEqual(r.pr.conflicts, ['sum.js']);
   assert.deepEqual(readLedger(s.paths.ledger).tasks[0]!.pr?.conflicts, ['sum.js']);
   assert.deepEqual(localState(s.dir), before, 'no local branch moved, and the working tree is as it was');
+});
+
+test('as autopilot, land won\'t open a pull request beside one the ledger names that GitHub no longer has open; a person still can (D-063)', () => {
+  const s = setup();
+  waiveGates(s.paths, s.config, { sha: s.sha, env: s.config.environments[0]!, gates: ['test'], reason: 'r', by: 'human:t', now });
+  passReview(s.paths, s.id, s.sha, s.base);
+  // The ledger says open; on GitHub it was closed or merged since acc last looked.
+  mutate(s.paths, now, (l, emit) => {
+    l.tasks[0]!.pr = { number: 41, url: 'https://github.com/acme/tool/pull/41', state: 'open' };
+    emit({ type: 'task.updated', task: s.id, actor: 'human', by: 'test', data: {} });
+  });
+  const calls: { args: string; opts?: RunOptions }[] = [];
+  assert.throws(() => land(s.paths, s.config, s.id, { run: gh(calls), now, env: {} }, { actor: 'orchestrator', by: 'orchestrator:autopilot' }), /^AccError: Pull request #41 isn't open on GitHub\. Autopilot won't open another: a person decides\.$/);
+  assert.ok(!calls.some((c) => c.args.startsWith('pr create')), 'no new pull request');
+  assert.equal(gitIn(s.origin, 'branch', '--list', 'task/*').trim(), '', 'asked before the push: a merged pull request\'s deleted branch isn\'t made again');
+  assert.equal(readLedger(s.paths.ledger).tasks[0]!.pr?.number, 41);
+
+  // gh couldn't list them: autopilot can't tell, so it doesn't open one either.
+  const failing = fakeRunner({ 'gh auth token -u jordan-kim': ok('gho_token\n'), 'gh pr list': bad('HTTP 502: Bad Gateway') });
+  assert.throws(() => land(s.paths, s.config, s.id, { run: failing, now, env: {} }, { actor: 'orchestrator' }), /Pull request #41 may not be open on GitHub: gh couldn't list the branch's pull requests \(HTTP 502: Bad Gateway\)\. Autopilot won't open another/);
+
+  // A person decides to open a new one.
+  const r = land(s.paths, s.config, s.id, { run: gh(calls), now, env: {} });
+  assert.deepEqual([r.opened, r.pr.number, r.pr.state], [true, 42, 'open']);
+  assert.equal(gitIn(s.origin, 'rev-parse', 'task/T-1-add-sum').trim(), s.sha);
 });
 
 test('the pull request says what it does, ticks its acceptance criteria, and shows each check, waivers included', () => {
