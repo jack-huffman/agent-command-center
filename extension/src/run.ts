@@ -8,7 +8,7 @@ export interface RunResult {
   stderr: string;
 }
 
-/** Runs a program with an argument list (never a shell string), with a timeout and cancellation. gh runs as acc's runner runs it (D-???). */
+/** Runs a program with an argument list (never a shell string), with a timeout and cancellation. gh runs as acc's runner runs it (D-051). */
 export function runFile(file: string, args: string[], cwd: string, env: NodeJS.ProcessEnv = process.env, token?: vscode.CancellationToken, timeoutMs = 180_000): Promise<RunResult> {
   return new Promise((resolve) => {
     const abort = new AbortController();

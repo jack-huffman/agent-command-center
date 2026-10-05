@@ -26,7 +26,7 @@ export interface BoardState {
   signedInAs: string | null;
 }
 
-/** Runs gh and friends with an argument list, feeding stdin when asked: comments travel that way, never as arguments. gh runs as acc's runner runs it (D-???). */
+/** Runs gh and friends with an argument list, feeding stdin when asked: comments travel that way, never as arguments. gh runs as acc's runner runs it (D-051). */
 export const exec: Exec = (cmd, args, opts) => new Promise((resolve) => {
   const env = opts?.env ?? process.env;
   const child = execFile(cmd, args, { env: isGh(cmd) ? ghEnv(env) : env, timeout: 60_000, killSignal: isGh(cmd) ? 'SIGKILL' : 'SIGTERM', maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {

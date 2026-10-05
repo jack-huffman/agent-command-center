@@ -121,7 +121,7 @@ test('GitHub without a Project: Open and Closed columns, and the notice says why
   assert.deepEqual(b.cards[0]!.labels, [{ name: 'bug', color: 'd73a4a' }]);
   assert.match(b.notice!, /aren't on a GitHub Project/);
   assert.ok(calls.every((c) => c.token === 'tok'), 'every call runs as the repo\'s account (D-007)');
-  assert.ok(calls.every((c) => c.quiet), 'with no update check and no prompt (D-???)');
+  assert.ok(calls.every((c) => c.quiet), 'with no update check and no prompt (D-051)');
 });
 
 test('GitHub without Projects access says how to grant it, instead of failing', async () => {

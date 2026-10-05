@@ -144,7 +144,7 @@ export function land(paths: RepoPaths, config: Config, id: string, deps: LandDep
   if (conflicts) pr = { ...pr, conflicts };
 
   // The ticket hears about it. GitHub acc tells itself; Jira and Azure DevOps go through the extension, as you.
-  // A gh that doesn't confirm the comment, or is stopped at its timeout, doesn't stop the land (D-???).
+  // A gh that doesn't confirm the comment, or is stopped at its timeout, doesn't stop the land (D-051).
   let commented = false;
   let commentUnconfirmed: string | null = null;
   let comment: PendingComment | null = null;

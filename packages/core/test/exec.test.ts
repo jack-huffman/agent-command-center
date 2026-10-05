@@ -6,7 +6,7 @@ import { fakeBin } from './support.ts';
 /** The variables a program was started with, from its own `env`. */
 const envOf = (stdout: string): Record<string, string> => Object.fromEntries(stdout.split('\n').filter((l) => l.includes('=')).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
 
-test('every gh acc runs gets no update check and no prompt, on top of the env it was given (D-???)', () => {
+test('every gh acc runs gets no update check and no prompt, on top of the env it was given (D-051)', () => {
   const base = { PATH: process.env.PATH, GH_TOKEN: 'gho_token' };
   const got = envOf(run('gh', [], { env: fakeBin('gh', 'env\n', base) }).stdout);
   assert.deepEqual([got.GH_NO_UPDATE_NOTIFIER, got.GH_PROMPT_DISABLED, got.GH_TOKEN], ['1', '1', 'gho_token']);
@@ -14,7 +14,7 @@ test('every gh acc runs gets no update check and no prompt, on top of the env it
   assert.deepEqual([other.GH_NO_UPDATE_NOTIFIER, other.GH_PROMPT_DISABLED], [undefined, undefined], 'only gh');
 });
 
-test('a gh that hangs past its timeout is stopped then, even after its work is done (D-???)', () => {
+test('a gh that hangs past its timeout is stopped then, even after its work is done (D-051)', () => {
   const cases = {
     'ignores SIGTERM': "trap '' TERM\necho posted\nsleep 10\n",
     'exits, but a child keeps its output open': 'echo posted\nsleep 10 &\nexit 0\n',

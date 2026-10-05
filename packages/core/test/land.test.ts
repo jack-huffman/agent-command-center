@@ -112,7 +112,7 @@ test('land pushes the branch, opens the pull request into the environment\'s bra
   assert.match(r.comment!.text, /pull\/42/);
 });
 
-test('landing again updates the open pull request, and the GitHub issue hears what changed: after rework only when it was (D-???)', () => {
+test('landing again updates the open pull request, and the GitHub issue hears what changed: after rework only when it was (D-051)', () => {
   const s = setup({ kind: 'github', key: '#12', url: 'https://github.com/acme/tool/issues/12' });
   waiveGates(s.paths, s.config, { sha: s.sha, env: s.config.environments[0]!, gates: ['test'], reason: 'r', by: 'human:t', now });
   passReview(s.paths, s.id, s.sha, s.base);
@@ -143,7 +143,7 @@ test('landing again updates the open pull request, and the GitHub issue hears wh
   assert.equal(comment(), `issue comment 12 -R acme/tool --body ${s.id}'s pull request was updated after rework: https://github.com/acme/tool/pull/7`);
 });
 
-test('a gh that hangs on the issue comment is stopped at its timeout, and land still records the pull request and says the comment isn\'t confirmed (D-???)', () => {
+test('a gh that hangs on the issue comment is stopped at its timeout, and land still records the pull request and says the comment isn\'t confirmed (D-051)', () => {
   const s = setup({ kind: 'github', key: '#12', url: 'https://github.com/acme/tool/issues/12' });
   waiveGates(s.paths, s.config, { sha: s.sha, env: s.config.environments[0]!, gates: ['test'], reason: 'r', by: 'human:t', now });
   passReview(s.paths, s.id, s.sha, s.base);

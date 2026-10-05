@@ -22,7 +22,7 @@ export type Runner = (cmd: string, args: string[], opts?: RunOptions) => RunResu
 const within = (ms: number) => (ms % 60_000 === 0 ? `${ms / 60_000} minute${ms === 60_000 ? '' : 's'}` : `${ms / 1000} seconds`);
 
 /**
- * Environment for gh (D-???): no update check, which runs once gh's work is done, and no prompt, which
+ * Environment for gh (D-051): no update check, which runs once gh's work is done, and no prompt, which
  * would wait for an answer nobody can give. run adds it to every gh.
  */
 export const ghEnv = (env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv => ({ ...env, GH_NO_UPDATE_NOTIFIER: '1', GH_PROMPT_DISABLED: '1' });
@@ -40,7 +40,7 @@ export const run: Runner = (cmd, args, opts = {}) => {
     timeout,
     // At the timeout node signals the process, then waits for it to exit. A gh that catches SIGTERM would
     // outlive its timeout, and gh has nothing to tidy, so it gets SIGKILL. Others keep SIGTERM: git
-    // removes its lock files on it (D-???).
+    // removes its lock files on it (D-051).
     killSignal: gh ? 'SIGKILL' : 'SIGTERM',
     maxBuffer: 64 * 1024 * 1024,
   });

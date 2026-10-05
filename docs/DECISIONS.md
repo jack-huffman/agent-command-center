@@ -1119,7 +1119,7 @@ Issue #17. Neither was new, but D-043 trims every 64 KB of growth, not every
   still write to it just after the re-read, so it narrows the window without
   closing it.
 
-## D-??? A gh that outlives its timeout is stopped, and a land carries on without its comment (2026-10-05)
+## D-051 A gh that outlives its timeout is stopped, and a land carries on without its comment (2026-10-05)
 
 On 2026-10-03, `acc land GH-12` posted its issue comment at 15:07:45, but
 `gh issue comment` didn't exit until 15:13. Its 120-second timeout didn't stop
