@@ -219,6 +219,21 @@ test('an analysis that comes back says so once: ready, questions for you, or too
   assert.deepEqual(noticeActions({ kind: 'analysis-split', task: 'T-1', text: '', urgent: true }), [['Show', 'acc.task.show']]);
 });
 
+test('an analysis that comes back after the build is news: it asks for nothing the page can\'t take (D-???)', async () => {
+  const { noticeActions, taskNotices } = await import('../src/logic.ts');
+  type Row = import('../src/logic.ts').TaskRow;
+  const row = (state: Row['state'], more: Partial<Row> = {}): Row => ({ id: 'T-1', title: 'Task T-1', state, display: state === 'rework' ? 'needs-you' : state, environment: 'main', deps: [], source: { kind: 'github', url: null }, ...more } as Row);
+  const ask = (id: string) => ({ id, question: `Question ${id}?`, why: 'It matters.', suggested: 'Yes.' });
+  const analysis = (at: string, verdict: 'ready' | 'questions' | 'split', open = 0) => ({ analysis: { verdict, at, open: ['q1', 'q2', 'q3'].slice(0, open).map(ask), split: verdict === 'split' ? ['One', 'Two'] : [] } });
+  for (const state of ['review', 'rework', 'blocked'] as const) {
+    const news = (a: Partial<Row>) => taskNotices([row(state, analysis('t1', 'ready'))], [row(state, a)]);
+    assert.deepEqual(news(analysis('t2', 'questions', 2)).map((n) => [n.kind, n.urgent, n.text]), [['analysis-back', false, 'T-1\'s analysis is back. Its 2 questions can be answered with acc analysis answer.']], state);
+    assert.deepEqual(news(analysis('t2', 'split')).map((n) => [n.kind, n.urgent, n.text]), [['analysis-back', false, 'T-1\'s analysis is back.']], `${state}: too big`);
+    assert.deepEqual(news(analysis('t2', 'ready')).map((n) => [n.kind, n.urgent]), [['analysis-back', false]], `${state}: ready`);
+    for (const n of news(analysis('t2', 'questions', 1))) assert.deepEqual(noticeActions(n), [['Show', 'acc.task.show']], `${state}: no Answer, no Dispatch`);
+  }
+});
+
 test('a row reads its analysis and the one under way from beside the ledger; a dead analyst is no longer analyzing (D-052)', async () => {
   const { mkdirSync, writeFileSync } = await import('node:fs');
   const { analyzing, readAnalysis } = await import('../../packages/core/src/analyze.ts');
