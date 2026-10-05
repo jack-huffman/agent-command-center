@@ -7,6 +7,7 @@ import { type Actor, mutate, type PullRequest, readLedger, type Task } from './l
 import type { RepoPaths } from './paths.ts';
 import { type Receipt, receiptHooks, receiptsAt } from './receipts.ts';
 import { readVerdict, type Verdict } from './review.ts';
+import { conflictsOf, fetchBranches } from './sync.ts';
 
 /**
  * Landing (D-033): a reviewed task's branch goes to GitHub as a pull request into its environment's
@@ -129,6 +130,9 @@ export function land(paths: RepoPaths, config: Config, id: string, deps: LandDep
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+  // Whether it merges into its base: branches built side by side often don't (D-???).
+  const conflicts = fetchBranches(run, paths.root, [env.branch, branch], deps.env) ? conflictsOf(run, paths.root, env.branch, branch) : null;
+  if (conflicts) pr = { ...pr, conflicts };
 
   // The ticket hears about it. GitHub acc tells itself; Jira and Azure DevOps go through the extension, as you.
   let commented = false;

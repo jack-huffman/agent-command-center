@@ -51,7 +51,7 @@ Agents
   acc review <id>                       A read-only reviewer agent judges the task's latest commit:
                                         pass, or changes (back to rework, with its findings)
   acc land <id>                         Push a reviewed task's branch and open its pull request; never merges
-  acc sync                              Follow open pull requests: merged → done, closed → blocked, failing checks → needs you
+  acc sync                              Follow open pull requests: merged → done, closed → blocked, failing checks or conflicts → needs you
 
 Environments
   acc promote <env> [--to <env>] [--plan] [--allow-deletions] [--skip-validate]
@@ -335,6 +335,7 @@ function cmdLand(o: Opts, id: string): number {
     `${r.task.id}: ${r.opened ? 'opened' : 'updated'} pull request #${r.pr.number}  ${r.pr.url}`,
     r.commented ? `  Commented on the GitHub issue.` : '',
     r.comment ? `  Post this on ${r.comment.key} (the extension does it for you):\n    ${r.comment.text.replace(/\n/g, '\n    ')}` : '',
+    r.pr.conflicts?.length ? tone(`! Pull request #${r.pr.number} conflicts with ${r.task.environment} in ${r.pr.conflicts.join(', ')}. GitHub can't merge it until that's resolved.`, 'orange') : '',
     tone('It merges only when a person merges it on GitHub.', 'dim'),
   ].filter(Boolean).join('\n'), r);
   return 0;

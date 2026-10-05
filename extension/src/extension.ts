@@ -72,7 +72,7 @@ export function activate(context: vscode.ExtensionContext): void {
     worktrees: { everyMs: 15_000, fn: () => hub.loadWorktrees() },
     // Tracker boards are network calls, so they refresh slowly, and at once after any move.
     boards: { everyMs: 120_000, fn: () => trackers.loadBoards() },
-    // Open pull requests (D-033): merged → done, closed → blocked, failing checks → needs you.
+    // Open pull requests (D-033): merged → done, closed → blocked, failing checks or conflicts → needs you.
     prs: { everyMs: 120_000, hiddenMs: 300_000, fn: async () => {
       for (const p of hub.projects) {
         if (!hub.taskRows(p.root).some((t) => t.pr?.state === 'open')) continue;

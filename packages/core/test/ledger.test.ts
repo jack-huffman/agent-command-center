@@ -166,6 +166,20 @@ test('ready and needs-you are derived, never stored', () => {
   assert.equal(displayState(l, task(l, 'ACME-4'), { state: 'working', status: 'busy' }), 'running');
 });
 
+test('an open pull request that conflicts with its base shows its task in review as needs you, like failing checks', () => {
+  const l = ledgerWith({ id: 'ACME-1', state: 'review' });
+  const t = task(l, 'ACME-1');
+  const pr = { number: 7, url: 'https://github.com/acme/x/pull/7', state: 'open' as const, ci: 'passing' as const };
+  t.pr = { ...pr, conflicts: [] };
+  assert.equal(displayState(l, t), 'review', 'it merges cleanly');
+  t.pr = { ...pr, conflicts: ['docs/DECISIONS.md'] };
+  assert.equal(displayState(l, t), 'needs-you');
+  t.pr = { ...pr, state: 'closed', conflicts: ['docs/DECISIONS.md'] };
+  assert.equal(displayState(l, t), 'review', 'only an open pull request counts');
+  t.pr = { ...pr, ci: 'failing' };
+  assert.equal(displayState(l, t), 'needs-you');
+});
+
 test('mutate writes the snapshot and the event log together, in the shared git directory (D-008)', () => {
   const repo = makeRepo();
   const paths = repoPaths(repo, run);
