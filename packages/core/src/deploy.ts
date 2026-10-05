@@ -51,11 +51,13 @@ export function lastDeploy(paths: RepoPaths, env: string): DeployRecord | null {
 
 const git = (run: Runner, cwd: string, ...args: string[]): RunResult => run('git', args, { cwd });
 
-export function planDeploy(paths: RepoPaths, config: Config, envName: string, deps: { run: Runner }, opts: { since?: string } = {}): DeployPlan {
+export function planDeploy(paths: RepoPaths, config: Config, envName: string, deps: { run: Runner }, opts: { since?: string; noTests?: boolean } = {}): DeployPlan {
   const { run } = deps;
   if (config.profile !== 'salesforce') throw new AccError('refused', 'acc deploy deploys Salesforce source to an org; this project isn\'t a Salesforce one.');
   const env = envByName(config, envName);
   if (!env.org) throw new AccError('refused', `${env.name} has no org alias in .acc/config.json.`);
+  // Salesforce lets a sandbox skip tests, never production, and acc refuses it for any protected org too (D-056).
+  if (opts.noTests && (env.type === 'production' || env.protected)) throw new AccError('refused', `${env.name} is ${env.type === 'production' ? 'production' : 'protected'}: its deploys run the tests. --no-tests is for sandboxes.`);
   const fetched = git(run, paths.root, 'fetch', '--quiet', 'origin', env.branch);
   if (fetched.code !== 0) throw new AccError('git', `Couldn't fetch ${env.branch}: ${fetched.stderr.trim().split('\n').pop()}`);
   const head = git(run, paths.root, 'rev-parse', `origin/${env.branch}`).stdout.trim();
@@ -92,7 +94,7 @@ export function planDeploy(paths: RepoPaths, config: Config, envName: string, de
     else files.push(f);
   }
   const apex = files.some((f) => /\.(cls|trigger)(-meta\.xml)?$/.test(f));
-  return { env, org: env.org, base, head, files, deleted, leftOut, testLevel: apex ? 'RunLocalTests' : 'NoTestRun', confirm: env.protected };
+  return { env, org: env.org, base, head, files, deleted, leftOut, testLevel: apex && !opts.noTests ? 'RunLocalTests' : 'NoTestRun', confirm: env.protected };
 }
 
 export interface DeployResult {
@@ -107,7 +109,7 @@ export function deployArgs(plan: DeployPlan): string[] {
   return ['project', 'deploy', 'start', '--target-org', plan.org, '--wait', '90', '--json', '--test-level', plan.testLevel, ...plan.files.flatMap((f) => ['--source-dir', f])];
 }
 
-export function deploy(paths: RepoPaths, config: Config, envName: string, deps: { run: Runner; now: () => Date; slots?: SlotOptions; onWait?: () => void }, opts: { since?: string; confirmed?: boolean; by: string }): DeployResult {
+export function deploy(paths: RepoPaths, config: Config, envName: string, deps: { run: Runner; now: () => Date; slots?: SlotOptions; onWait?: () => void }, opts: { since?: string; confirmed?: boolean; noTests?: boolean; by: string }): DeployResult {
   const { run, now } = deps;
   const plan = planDeploy(paths, config, envName, deps, opts);
   if (!plan.files.length && !plan.deleted.length) return { plan, deployed: false, jobId: null, summary: `${plan.env.name} already has ${plan.env.branch} at ${plan.head.slice(0, 7)}.` };

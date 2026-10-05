@@ -67,7 +67,7 @@ Agents
 Environments
   acc promote <env> [--to <env>] [--plan] [--allow-deletions] [--skip-validate]
                                         A pull request taking <env>'s merged changes to the next environment
-  acc deploy <env> [--plan] [--since <commit>] [--confirm-production]
+  acc deploy <env> [--plan] [--since <commit>] [--confirm-production] [--no-tests]
                                         Deploy what changed on <env>'s branch since its last deploy to its org
   acc hook permission                   Claude Code's PermissionRequest hook: puts an agent's prompt in the
                                         Command Center, when one is open, and waits for the answer
@@ -588,11 +588,11 @@ function cmdDeploy(o: Opts, envName: string): number {
     ...p.files.slice(0, 20).map((f) => `    ${f}`), ...(p.files.length > 20 ? [`    …and ${p.files.length - 20} more`] : []),
   ];
   if (o.plan) {
-    const p = planDeploy(paths, config, envName, { run }, { since: o.since as string | undefined });
+    const p = planDeploy(paths, config, envName, { run }, { since: o.since as string | undefined, noTests: o['no-tests'] === true });
     out(o, () => show(p).join('\n'), { ...p, last: lastDeploy(paths, p.env.branch) });
     return 0;
   }
-  const r = deploy(paths, config, envName, { run, now, onWait: () => { if (!o.json) process.stderr.write(tone('Waiting for another heavy check or deploy on this machine to finish…\n', 'dim')); } }, { since: o.since as string | undefined, confirmed: o['confirm-production'] === true, by });
+  const r = deploy(paths, config, envName, { run, now, onWait: () => { if (!o.json) process.stderr.write(tone('Waiting for another heavy check or deploy on this machine to finish…\n', 'dim')); } }, { since: o.since as string | undefined, confirmed: o['confirm-production'] === true, noTests: o['no-tests'] === true, by });
   out(o, () => [...show(r.plan), '', r.deployed ? tone(`✓ ${r.summary}`, 'blue') : r.summary].join('\n'), r);
   return r.deployed || !r.plan.files.length ? 0 : 1;
 }
@@ -849,6 +849,7 @@ export async function main(argv: string[]): Promise<number> {
       label: { type: 'string' },
       foreground: { type: 'boolean', default: false },
       'without-analysis': { type: 'boolean', default: false },
+      'no-tests': { type: 'boolean', default: false },
       test: { type: 'string', multiple: true },
       task: { type: 'string' },
       manifest: { type: 'string' },

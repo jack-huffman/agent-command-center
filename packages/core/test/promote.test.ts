@@ -164,6 +164,22 @@ test('a protected org needs a person\'s confirmation, and a failed deploy says w
   assert.match(r.summary, /D: Invalid type: Foo/);
   assert.equal(lastDeploy(paths, 'production'), null, 'a failed deploy isn\'t remembered as done');
   assert.ok(deployArgs(r.plan).includes('--test-level'));
+  assert.throws(() => planDeploy(paths, c, 'production', { run }, { since, noTests: true }), /production: its deploys run the tests\. --no-tests is for sandboxes/);
+});
+
+test('a sandbox deploy can skip the tests when a person says so; production never can (D-056)', () => {
+  const { dir, paths } = repo();
+  const c = config();
+  gitIn(dir, 'checkout', '-q', 'dev');
+  write(dir, 'force-app/main/default/classes/E.cls', 'public class E {}\n');
+  commit(dir, 'apex');
+  gitIn(dir, 'push', '-q', 'origin', 'dev');
+  const since = gitIn(dir, 'rev-parse', 'HEAD~1').trim();
+  assert.equal(planDeploy(paths, c, 'dev', { run }, { since }).testLevel, 'RunLocalTests');
+  const calls: string[] = [];
+  const r = deploy(paths, c, 'dev', { run: sfOk(calls), now, slots: { dir: tempDir('slots-') } }, { since, noTests: true, by: 'human:jordan' });
+  assert.equal(r.plan.testLevel, 'NoTestRun');
+  assert.match(calls[0]!, /--test-level NoTestRun/);
 });
 
 test('a Salesforce promotion is checked against the destination\'s org first, protected or not, and stops if the check fails', () => {
