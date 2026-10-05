@@ -5,13 +5,15 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { DISPLAY } from '../../core/src/index.ts';
-import { GENERIC_CONFIG, makeRepo } from '../../core/test/support.ts';
+import { GENERIC_CONFIG, makeRepo, tempDir } from '../../core/test/support.ts';
 
 const MAIN = fileURLToPath(new URL('../src/main.ts', import.meta.url));
+// A builder's `acc gate run` runs these tests with its own ACC_TASK set, holding the machine's heavy-check slot.
+const HEAVY_DIR = join(tempDir('acc-heavy-'), 'slots');
 
 function acc(cwd: string, args: string[], input?: string, env: NodeJS.ProcessEnv = {}) {
   const r = spawnSync(process.execPath, ['--no-warnings', MAIN, ...args], {
-    cwd, input, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', ACC_ROLE: '', ACC_TASK: '', ...env },
+    cwd, input, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', ACC_ROLE: '', ACC_TASK: '', ACC_HEAVY_DIR: HEAVY_DIR, ...env },
   });
   return { code: r.status ?? 1, out: r.stdout, err: r.stderr, json: () => JSON.parse(r.stdout) };
 }

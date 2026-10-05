@@ -26,6 +26,21 @@ Placeholders: `<client>` is the project's short name. `<prod>`, `<qa>` and
   | Salesforce CLI | `sf --version` | |
   | Code Analyzer | `sf plugins` lists `code-analyzer` | `sf plugins install code-analyzer` |
 
+  **Agents bill your Claude subscription** (`A1.claude-billing`). Builders and
+  reviewers run on whatever Claude Code is signed in with. On the subscription,
+  their work counts toward your plan. An API key, Bedrock or Vertex bills every
+  token instead, and nothing else tells you. The check fails, and names each
+  place it found one, when any of these is set:
+  - `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` in the environment
+  - `apiKeyHelper`, or either of those variables under `env`, in
+    `~/.claude/settings.json`, or in the project's `.claude/settings.json` or
+    `.claude/settings.local.json`
+  - `CLAUDE_CODE_USE_BEDROCK` or `CLAUDE_CODE_USE_VERTEX` set to a true value
+
+  It names the place, never the key. Remove the setting: take the variable out
+  of your shell profile, or delete it from the settings file. If you keep one on
+  purpose, mark the step done.
+
 - [ ] **A2. Log in to every GitHub account you'll use.** The walkthrough's
   **Do it** uses VSCode's own GitHub sign-in: pick the account, or add it, and
   `gh` gets that login, with access to GitHub Projects for the board. gh's active
@@ -442,7 +457,7 @@ step to do. The VSCode walkthrough (M2) shows the same steps.
 
 | Step | Command | Checked by |
 |---|---|---|
-| A1 | `acc doctor` | Version checks |
+| A1 | `acc doctor` | Version checks, and nothing sends agents to per-token billing |
 | A2 | `acc doctor` | `gh auth status` lists the configured account |
 | B1 | `acc init` | Every sandbox in `SandboxInfo` appears in `environments`, with its type |
 | B2 | `acc init` | `credential fill` resolves to `github.account`, and commit identity matches |

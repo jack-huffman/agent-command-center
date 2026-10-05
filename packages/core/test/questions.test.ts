@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { appendFileSync, existsSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -255,6 +255,43 @@ test('a garbled or half-written line doesn\'t stop the trim or the readers', () 
   assert.equal(statSync(file).size, Buffer.byteLength(recordLines(1, 1001)));
   appendFileSync(file, '{"v":1,"id":"an append still being writ');
   assert.deepEqual(historyIds(dir), ids(1, 1001), 'a half-written last line is skipped too');
+});
+
+test('an append after a torn last line starts a line of its own, so its record still reads', () => {
+  const dir = tempDir();
+  const file = join(dir, 'history.jsonl');
+  appendHistory(dir, record(0));
+  assert.equal(readFileSync(file, 'utf8'), recordLines(0, 1), 'a new file starts with the record, not a blank line');
+  appendFileSync(file, '{"v":1,"id":"torn by a cra'); // a crash mid-write: no newline
+  appendHistory(dir, record(1));
+  assert.equal(readFileSync(file, 'utf8'), `${recordLines(0, 1)}{"v":1,"id":"torn by a cra\n${recordLines(1, 2)}`);
+  assert.deepEqual(historyIds(dir), ids(0, 2));
+  appendHistory(dir, record(2));
+  assert.equal(readFileSync(file, 'utf8'), `${recordLines(0, 1)}{"v":1,"id":"torn by a cra\n${recordLines(1, 3)}`, 'a whole last line gets no extra newline');
+});
+
+test('an append that lands during a trim isn\'t lost: several processes appending at once, each append trimming, keep every record', async () => {
+  const dir = tempDir();
+  writeFileSync(join(dir, 'history.jsonl'), recordLines(0, 1000), { mode: 0o600 });
+  // Each process appends its own records, and each append trims the oldest away (trimEvery 1).
+  const child = `
+    import { appendHistory } from ${JSON.stringify(new URL('../src/questions.ts', import.meta.url).href)};
+    const [dir, who, n] = process.argv.slice(1);
+    for (let j = 0; j < Number(n); j++) appendHistory(dir, { v: 1, id: \`\${who}-\${j}\`, sessionId: 's', cwd: '/work/repo', tool: 'Bash', input: {}, askedAt: j, endedAt: j, outcome: 'allowed' }, 1);
+  `;
+  const PROCS = 4;
+  const EACH = 50;
+  const codes = await Promise.all(Array.from({ length: PROCS }, (_, p) => new Promise<number | null>((resolve) => {
+    spawn(process.execPath, ['--no-warnings', '--input-type=module', '-e', child, dir, `p${p}`, String(EACH)], { stdio: 'inherit' }).on('close', resolve);
+  })));
+  assert.deepEqual(codes, Array(PROCS).fill(0));
+  const kept = historyIds(dir);
+  assert.equal(kept.length, 1000, 'trimmed to the newest 1,000');
+  assert.deepEqual(kept.slice(0, 1000 - PROCS * EACH), ids(PROCS * EACH, 1000), 'each append pushed out exactly one of the oldest');
+  for (let p = 0; p < PROCS; p++) {
+    assert.deepEqual(kept.filter((id) => id.startsWith(`p${p}-`)), Array.from({ length: EACH }, (_, j) => `p${p}-${j}`), `every record process ${p} appended is there, in order`);
+  }
+  assert.ok(!existsSync(join(dir, 'history.lock')), 'and the lock is let go');
 });
 
 test('very large records are kept to 2 MB, and the newest is always kept', () => {

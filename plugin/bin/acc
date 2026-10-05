@@ -652,7 +652,7 @@ function isReady(ledger, task) {
 function displayState(ledger, task, session) {
   if (task.state === "todo" && isReady(ledger, task)) return "ready";
   if (task.state === "running" && (session?.state === "blocked" || session?.status === "waiting")) return "needs-you";
-  if (task.state === "review" && task.pr?.state === "open" && (task.pr.ci === "failing" || task.pr.changesRequested)) return "needs-you";
+  if (task.state === "review" && task.pr?.state === "open" && (task.pr.ci === "failing" || task.pr.changesRequested || !!task.pr.conflicts?.length)) return "needs-you";
   return task.state;
 }
 var DISPLAY = {
@@ -1416,23 +1416,58 @@ function ensureDir(dir) {
   } catch {
   }
 }
+var HISTORY_KEEP = 1e3;
 var HISTORY_MAX_BYTES = 2 * 1024 * 1024;
-function appendHistory(dir, rec) {
+var HISTORY_TRIM_EVERY_BYTES = 64 * 1024;
+function appendHistory(dir, rec, trimEvery = HISTORY_TRIM_EVERY_BYTES) {
   ensureDir(dir);
   const file = join7(dir, "history.jsonl");
   appendFileSync2(file, JSON.stringify(rec) + "\n", { mode: 384 });
   try {
-    if (statSync3(file).size > HISTORY_MAX_BYTES) {
-      const lines = readFileSync7(file, "utf8").split("\n").filter(Boolean);
-      writePrivateText(file, lines.slice(Math.floor(lines.length / 2)).join("\n") + "\n");
-    }
+    const size = statSync3(file).size;
+    if (size > trimmedSize(dir, size) + trimEvery) writePrivateText(join7(dir, "history.trimmed"), `${trimHistory(file)}
+`);
   } catch {
   }
+}
+function trimmedSize(dir, size) {
+  try {
+    const n = Number(readFileSync7(join7(dir, "history.trimmed"), "utf8"));
+    return Number.isSafeInteger(n) && n >= 0 && n <= size ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+function trimHistory(file) {
+  const data = readFileSync7(file);
+  const lines = data.toString("utf8").split("\n").filter(Boolean);
+  const kept = [];
+  let bytes = 0;
+  for (let i = lines.length - 1; i >= 0 && kept.length < HISTORY_KEEP; i--) {
+    const line = lines[i];
+    if (!readRecord(line)) continue;
+    bytes += Buffer.byteLength(line) + 1;
+    if (bytes > HISTORY_MAX_BYTES && kept.length) break;
+    kept.push(line);
+  }
+  if (kept.length === lines.length) return data.length;
+  const text = kept.reverse().map((l) => `${l}
+`).join("");
+  writePrivateText(file, text);
+  return Buffer.byteLength(text);
 }
 function writePrivateText(file, text) {
   const tmp = `${file}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
   writeFileSync8(tmp, text, { mode: 384 });
   renameSync3(tmp, file);
+}
+function readRecord(line) {
+  try {
+    const r = JSON.parse(line);
+    return r?.v === 1 && typeof r.id === "string" && typeof r.outcome === "string" ? r : null;
+  } catch {
+    return null;
+  }
 }
 var PREAPPROVAL_MS = 10 * 6e4;
 var preapprovalFile = (dir, sessionId) => join7(dir, "approved", `${sessionId.replace(/[^A-Za-z0-9-]/g, "")}.json`);
@@ -2570,6 +2605,107 @@ function configureRepoAccess(run2, root, account, identity) {
 import { mkdtempSync, rmSync as rmSync6, writeFileSync as writeFileSync12 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as join12 } from "node:path";
+
+// packages/core/src/sync.ts
+var FAILED = /* @__PURE__ */ new Set(["FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE", "ERROR"]);
+function ciOf(rollup) {
+  const items = rollup ?? [];
+  if (!items.length) return null;
+  if (items.some((c) => FAILED.has(String(c.conclusion ?? "").toUpperCase()) || FAILED.has(String(c.state ?? "").toUpperCase()))) return "failing";
+  if (items.some((c) => c.status && c.status.toUpperCase() !== "COMPLETED" || ["PENDING", "EXPECTED"].includes(String(c.state ?? "").toUpperCase()))) return "pending";
+  return "passing";
+}
+function fetchBranches(run2, root, branches, env) {
+  const refs = [...new Set(branches)].map((b) => `+refs/heads/${b}:refs/remotes/origin/${b}`);
+  return run2("git", ["fetch", "--quiet", "--no-tags", "origin", ...refs], { cwd: root, env, timeoutMs: 2 * 6e4 }).code === 0;
+}
+function conflictsOf(run2, root, base, head) {
+  const r = run2("git", ["merge-tree", "--write-tree", "--name-only", "-z", "--no-messages", `origin/${base}`, `origin/${head}`], { cwd: root });
+  const [tree, ...files] = r.stdout.split("\0");
+  if (r.code !== 0 && r.code !== 1 || !/^[0-9a-f]{40,64}$/.test(tree ?? "")) return null;
+  return r.code === 0 ? [] : [...new Set(files.filter(Boolean))];
+}
+function sync(paths, config, deps) {
+  const { run: run2, now: now2 } = deps;
+  const open = readLedger(paths.ledger).tasks.filter((t) => t.pr?.state === "open");
+  if (!open.length) return { checked: 0, changes: [] };
+  const gh = config.github;
+  if (!gh) throw new AccError("no-github", 'This project has no "github" section in .acc/config.json, so there are no pull requests to follow.');
+  const token = run2("gh", ["auth", "token", "-u", gh.account]);
+  if (token.code !== 0) throw new AccError("no-github", `gh isn't logged in as ${gh.account}, the account this repo works as.`);
+  const env = { ...deps.env, GH_TOKEN: token.stdout.trim() };
+  const seen = /* @__PURE__ */ new Map();
+  for (const t of open) {
+    const r = run2("gh", ["pr", "view", String(t.pr.number), "-R", gh.repo, "--json", "number,state,url,reviewDecision,baseRefName,headRefName,statusCheckRollup"], { env, timeoutMs: 6e4 });
+    if (r.code !== 0) continue;
+    try {
+      seen.set(t.pr.number, JSON.parse(r.stdout));
+    } catch {
+    }
+  }
+  const branches = /* @__PURE__ */ new Map();
+  for (const t of open) {
+    const p = seen.get(t.pr.number);
+    const base = p?.baseRefName || t.environment;
+    const head = p?.headRefName || t.run?.branch;
+    if (p?.state === "OPEN" && head) branches.set(p.number, { base, head });
+  }
+  const conflicts = /* @__PURE__ */ new Map();
+  if (branches.size && fetchBranches(run2, paths.root, [...branches.values()].flatMap((b) => [b.base, b.head]), { ...deps.env, GIT_TERMINAL_PROMPT: "0" })) {
+    for (const [n, b] of branches) {
+      const files = conflictsOf(run2, paths.root, b.base, b.head);
+      if (files) conflicts.set(n, files);
+    }
+  }
+  const at = now2().toISOString();
+  const changes = mutate(paths, now2, (ledger, emit) => {
+    const out2 = [];
+    for (const t of ledger.tasks) {
+      const p = t.pr && t.pr.state === "open" ? seen.get(t.pr.number) : void 0;
+      if (!p || !t.pr) continue;
+      const before = JSON.stringify(t.pr);
+      const ci = ciOf(p.statusCheckRollup);
+      const changesRequested = p.reviewDecision === "CHANGES_REQUESTED";
+      let moved = null;
+      let note = "";
+      if (p.state === "MERGED") {
+        t.pr = { ...t.pr, state: "merged", ci, syncedAt: at };
+        const req = { to: "done", actor: "sync", by: "acc sync", reason: `Pull request #${p.number} merged.` };
+        if (t.state === "review" && !checkMove(ledger, config, t, req, noGateHooks).length) {
+          moved = { from: t.state, to: "done" };
+          applyMove(t, req, emit, now2);
+        }
+        note = `#${p.number} merged`;
+      } else if (p.state === "CLOSED") {
+        t.pr = { ...t.pr, state: "closed", ci, syncedAt: at };
+        const req = { to: "blocked", actor: "sync", by: "acc sync", reason: `Pull request #${p.number} was closed without merging. Reopen it, or decide what happens to ${t.id}.` };
+        if (t.state !== "blocked" && t.state !== "done" && !checkMove(ledger, config, t, req, noGateHooks).length) {
+          moved = { from: t.state, to: "blocked" };
+          applyMove(t, req, emit, now2);
+        }
+        note = `#${p.number} closed without merging`;
+      } else {
+        const files = conflicts.get(p.number) ?? t.pr.conflicts;
+        t.pr = { ...t.pr, url: p.url, ci, changesRequested, ...files ? { conflicts: files } : {}, syncedAt: at };
+        const why = [
+          changesRequested ? "a person asked for changes" : "",
+          ci === "failing" ? "checks failing" : "",
+          files?.length ? `conflicts with ${branches.get(p.number)?.base ?? t.environment} in ${files.join(", ")}` : ""
+        ].filter(Boolean);
+        note = why.length ? `#${p.number}: ${why.join("; ")}` : `#${p.number} open${ci ? `, checks ${ci}` : ""}`;
+      }
+      const after = JSON.stringify({ ...t.pr, syncedAt: void 0 });
+      if (moved || after !== JSON.stringify({ ...JSON.parse(before), syncedAt: void 0 })) {
+        emit({ type: "task.updated", task: t.id, actor: "sync", by: "acc sync", data: { pr: t.pr } });
+        out2.push({ task: t.id, pr: p.number, moved, note });
+      }
+    }
+    return out2;
+  });
+  return { checked: seen.size, changes };
+}
+
+// packages/core/src/land.ts
 var STATUS_WORD = { pass: "Passed", fail: "Failed", error: "Couldn't run", skip: "Didn't apply" };
 var cell = (s) => s.replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " ").trim();
 function prBody(task, env, sha, verdict, receipts) {
@@ -2652,6 +2788,8 @@ function land(paths, config, id, deps, opts = {}) {
   } finally {
     rmSync6(dir, { recursive: true, force: true });
   }
+  const conflicts = fetchBranches(run2, paths.root, [env.branch, branch], deps.env) ? conflictsOf(run2, paths.root, env.branch, branch) : null;
+  if (conflicts) pr = { ...pr, conflicts };
   let commented = false;
   let comment = null;
   const text = ticketComment(task, pr, opened);
@@ -2666,75 +2804,6 @@ function land(paths, config, id, deps, opts = {}) {
     return t;
   });
   return { task: updated, sha, pr, opened, commented, comment };
-}
-
-// packages/core/src/sync.ts
-var FAILED = /* @__PURE__ */ new Set(["FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE", "ERROR"]);
-function ciOf(rollup) {
-  const items = rollup ?? [];
-  if (!items.length) return null;
-  if (items.some((c) => FAILED.has(String(c.conclusion ?? "").toUpperCase()) || FAILED.has(String(c.state ?? "").toUpperCase()))) return "failing";
-  if (items.some((c) => c.status && c.status.toUpperCase() !== "COMPLETED" || ["PENDING", "EXPECTED"].includes(String(c.state ?? "").toUpperCase()))) return "pending";
-  return "passing";
-}
-function sync(paths, config, deps) {
-  const { run: run2, now: now2 } = deps;
-  const open = readLedger(paths.ledger).tasks.filter((t) => t.pr?.state === "open");
-  if (!open.length) return { checked: 0, changes: [] };
-  const gh = config.github;
-  if (!gh) throw new AccError("no-github", 'This project has no "github" section in .acc/config.json, so there are no pull requests to follow.');
-  const token = run2("gh", ["auth", "token", "-u", gh.account]);
-  if (token.code !== 0) throw new AccError("no-github", `gh isn't logged in as ${gh.account}, the account this repo works as.`);
-  const env = { ...deps.env, GH_TOKEN: token.stdout.trim() };
-  const seen = /* @__PURE__ */ new Map();
-  for (const t of open) {
-    const r = run2("gh", ["pr", "view", String(t.pr.number), "-R", gh.repo, "--json", "number,state,url,reviewDecision,statusCheckRollup"], { env, timeoutMs: 6e4 });
-    if (r.code !== 0) continue;
-    try {
-      seen.set(t.pr.number, JSON.parse(r.stdout));
-    } catch {
-    }
-  }
-  const at = now2().toISOString();
-  const changes = mutate(paths, now2, (ledger, emit) => {
-    const out2 = [];
-    for (const t of ledger.tasks) {
-      const p = t.pr && t.pr.state === "open" ? seen.get(t.pr.number) : void 0;
-      if (!p || !t.pr) continue;
-      const before = JSON.stringify(t.pr);
-      const ci = ciOf(p.statusCheckRollup);
-      const changesRequested = p.reviewDecision === "CHANGES_REQUESTED";
-      let moved = null;
-      let note = "";
-      if (p.state === "MERGED") {
-        t.pr = { ...t.pr, state: "merged", ci, syncedAt: at };
-        const req = { to: "done", actor: "sync", by: "acc sync", reason: `Pull request #${p.number} merged.` };
-        if (t.state === "review" && !checkMove(ledger, config, t, req, noGateHooks).length) {
-          moved = { from: t.state, to: "done" };
-          applyMove(t, req, emit, now2);
-        }
-        note = `#${p.number} merged`;
-      } else if (p.state === "CLOSED") {
-        t.pr = { ...t.pr, state: "closed", ci, syncedAt: at };
-        const req = { to: "blocked", actor: "sync", by: "acc sync", reason: `Pull request #${p.number} was closed without merging. Reopen it, or decide what happens to ${t.id}.` };
-        if (t.state !== "blocked" && t.state !== "done" && !checkMove(ledger, config, t, req, noGateHooks).length) {
-          moved = { from: t.state, to: "blocked" };
-          applyMove(t, req, emit, now2);
-        }
-        note = `#${p.number} closed without merging`;
-      } else {
-        t.pr = { ...t.pr, url: p.url, ci, changesRequested, syncedAt: at };
-        note = changesRequested ? `#${p.number}: a person asked for changes` : ci === "failing" ? `#${p.number}: checks failing` : `#${p.number} open${ci ? `, checks ${ci}` : ""}`;
-      }
-      const after = JSON.stringify({ ...t.pr, syncedAt: void 0 });
-      if (moved || after !== JSON.stringify({ ...JSON.parse(before), syncedAt: void 0 })) {
-        emit({ type: "task.updated", task: t.id, actor: "sync", by: "acc sync", data: { pr: t.pr } });
-        out2.push({ task: t.id, pr: p.number, moved, note });
-      }
-    }
-    return out2;
-  });
-  return { checked: seen.size, changes };
 }
 
 // packages/core/src/promote.ts
@@ -3496,7 +3565,8 @@ function parseEventInput(text) {
 
 // packages/core/src/onboarding/steps.ts
 import { existsSync as existsSync13, readdirSync as readdirSync4, readFileSync as readFileSync14 } from "node:fs";
-import { dirname as dirname6, join as join17 } from "node:path";
+import { homedir as homedir4 } from "node:os";
+import { dirname as dirname6, join as join17, sep as sep3 } from "node:path";
 var DOCS = "docs/ONBOARDING.md";
 var GH_SIGN_IN = `"Do it" opens VSCode's GitHub sign-in: pick this repo's account, or add it, and gh gets that login, with access to GitHub Projects for the board. gh's active account stays as it was. In a terminal: gh auth login.`;
 var DATA_EXT = /\.(csv|xls|xlsx|eml)$/i;
@@ -3534,6 +3604,47 @@ function filesOnEnvironmentBranches(ctx) {
 }
 var sfEnvs = (ctx) => (ctx.config?.environments ?? []).filter((e) => e.type !== "none");
 var devEnvs = (ctx) => sfEnvs(ctx).filter((e) => (e.type === "developer" || e.type === "developer_pro") && e.org);
+var API_KEY_VARS = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"];
+var CLOUD_VARS = ["CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"];
+var isTrue = (v) => ["1", "true", "yes", "on"].includes(String(v ?? "").trim().toLowerCase());
+function billingVars(vars) {
+  return [...API_KEY_VARS.filter((v) => String(vars[v] ?? "") !== ""), ...CLOUD_VARS.filter((v) => isTrue(vars[v]))];
+}
+function claudeSettingsFiles(ctx) {
+  const home = ctx.env.HOME || homedir4();
+  const tilde = (f) => f.startsWith(home + sep3) ? `~${f.slice(home.length)}` : f;
+  const user = ctx.env.CLAUDE_CONFIG_DIR ? join17(ctx.env.CLAUDE_CONFIG_DIR, "settings.json") : join17(home, ".claude", "settings.json");
+  const files = [{ file: user, label: tilde(user) }];
+  if (!ctx.paths) return files;
+  let main2 = ctx.paths.root;
+  try {
+    main2 = mainCheckout(ctx.run, ctx.paths.root);
+  } catch {
+  }
+  for (const root of /* @__PURE__ */ new Set([ctx.paths.root, main2])) {
+    for (const rel of [".claude/settings.json", ".claude/settings.local.json"]) {
+      files.push({ file: join17(root, rel), label: root === ctx.paths.root ? rel : tilde(join17(root, rel)) });
+    }
+  }
+  return files;
+}
+function billingSettings(file) {
+  let text;
+  try {
+    text = readFileSync14(file, "utf8");
+  } catch {
+    return [];
+  }
+  let s;
+  try {
+    s = JSON.parse(text) ?? {};
+  } catch {
+    return null;
+  }
+  const found = s.apiKeyHelper ? ["apiKeyHelper"] : [];
+  if (s.env && typeof s.env === "object") found.push(...billingVars(s.env).map((v) => `${v} under env`));
+  return found;
+}
 function versionStep(id, title, why, cmd, args, min, fix, profiles) {
   return {
     id,
@@ -3571,6 +3682,29 @@ var STEPS = [
       const h = ctx.run("claude", ["--help"], { env: ctx.env });
       if (!/--bg\b/.test(h.stdout)) return fail2(`claude ${firstVersion(v.stdout) ?? ""} has no --bg. Update it.`);
       return pass2(`claude ${firstVersion(v.stdout) ?? ""}`.trim());
+    }
+  },
+  {
+    id: "A1.claude-billing",
+    part: "machine",
+    group: "A1",
+    title: "Agents bill your Claude subscription",
+    why: "On your Claude subscription, agents' work counts toward the plan you already pay for; with an API key, or through Bedrock or Vertex, every token they use is billed on top, and nothing else tells you.",
+    fix: {
+      text: 'Remove each setting the check names: take the variable out of your shell profile (such as ~/.zshrc) and open a new terminal, or delete apiKeyHelper, or the variable under "env", from the settings file it names. If Claude Code then asks you to sign in, use /login with your Claude account. Keeping one on purpose, such as a key you mean to bill per token, is fine: mark this done.'
+    },
+    check(ctx) {
+      const found = billingVars(ctx.env).map((v) => `${v} in the environment`);
+      const unreadable = [];
+      for (const { file, label } of claudeSettingsFiles(ctx)) {
+        const names = billingSettings(file);
+        if (names) found.push(...names.map((n) => `${n} in ${label}`));
+        else unreadable.push(label);
+      }
+      const note = unreadable.length ? `Not valid JSON, so not checked: ${unreadable.join(", ")}.` : "";
+      if (found.length) return fail2(`Agents would bill per token, not your Claude subscription: ${found.join(", ")}.${note && ` ${note}`}`);
+      if (unreadable.length) return unknown(note);
+      return pass2("Agents use your Claude subscription.");
     }
   },
   versionStep("A1.sf", "Salesforce CLI", "Validation, retrieves and org checks use sf.", "sf", ["--version"], null, "npm install -g @salesforce/cli", ["salesforce"]),
@@ -4202,6 +4336,7 @@ Tasks
   acc import [--file <tasks.json>]      Add or refresh tasks from JSON (stdin by default)
   acc intake github [--label <l>]       Add or refresh tasks from the repo's open GitHub issues. A task not
                                         started yet leaves the board when its issue closes or has a skipLabels label
+  acc status                            One line: how many tasks are in each state
   acc list [--state <state>]
   acc ready
   acc show <id>
@@ -4219,7 +4354,7 @@ Agents
   acc review <id>                       A read-only reviewer agent judges the task's latest commit:
                                         pass, or changes (back to rework, with its findings)
   acc land <id>                         Push a reviewed task's branch and open its pull request; never merges
-  acc sync                              Follow open pull requests: merged \u2192 done, closed \u2192 blocked, failing checks \u2192 needs you
+  acc sync                              Follow open pull requests: merged \u2192 done, closed \u2192 blocked, failing checks or conflicts \u2192 needs you
 
 Environments
   acc promote <env> [--to <env>] [--plan] [--allow-deletions] [--skip-validate]
@@ -4480,6 +4615,7 @@ function cmdLand(o, id) {
     r.commented ? `  Commented on the GitHub issue.` : "",
     r.comment ? `  Post this on ${r.comment.key} (the extension does it for you):
     ${r.comment.text.replace(/\n/g, "\n    ")}` : "",
+    r.pr.conflicts?.length ? tone(`! Pull request #${r.pr.number} conflicts with ${r.task.environment} in ${r.pr.conflicts.join(", ")}. GitHub can't merge it until that's resolved.`, "orange") : "",
     tone("It merges only when a person merges it on GitHub.", "dim")
   ].filter(Boolean).join("\n"), r);
   return 0;
@@ -4643,6 +4779,17 @@ function cmdList(o, onlyReady) {
       t.deps.filter((d) => ledger.tasks.find((x) => x.id === d)?.state !== "done").join(", ")
     ])]);
   }, tasks.map((t) => ({ ...t, display: displayState(ledger, t), ready: isReady(ledger, t) })));
+  return 0;
+}
+function cmdStatus(o) {
+  const { paths } = project(process.cwd());
+  const ledger = readLedger(paths.ledger);
+  const counts = { running: 0, "needs-you": 0, review: 0, rework: 0, blocked: 0, ready: 0, todo: 0, done: 0 };
+  for (const t of ledger.tasks) counts[displayState(ledger, t)]++;
+  out(o, () => {
+    const parts = Object.keys(counts).filter((s) => s !== "done" && counts[s] > 0).map((s) => tone(`${counts[s]} ${DISPLAY[s].label.toLowerCase()}`, DISPLAY[s].tone));
+    return parts.length ? parts.join(" \xB7 ") : "Nothing in play.";
+  }, { counts });
   return 0;
 }
 function cmdShow(o, id) {
@@ -4941,6 +5088,8 @@ async function main(argv) {
       if (!rest[0]) throw new AccError("usage", "acc drift <environment>");
       return cmdDrift(o, rest[0]);
     }
+    case "status":
+      return cmdStatus(o);
     case "list":
       return cmdList(o, false);
     case "ready":
