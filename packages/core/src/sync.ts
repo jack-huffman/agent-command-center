@@ -6,7 +6,7 @@ import type { RepoPaths } from './paths.ts';
 /**
  * Keeps tasks in step with their pull requests (D-033): merged is done, closed without merging is
  * blocked, and failing checks, a person's requested changes or a conflict with the base show the task
- * as needs you. It only reads GitHub, and fetches to see the conflicts (D-???).
+ * as needs you. It only reads GitHub, and fetches to see the conflicts (D-049).
  */
 
 export interface SyncChange {

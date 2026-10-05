@@ -64,7 +64,7 @@ test('a ticket page: the tracker\'s ticket can be changed from it; acc\'s side s
   assert.deepEqual(local.status, { name: 'Ready', tone: 'blue' });
   assert.equal(local.acc!.conflicts, null);
 
-  // Its open pull request conflicts with its base: the page names every file (D-???).
+  // Its open pull request conflicts with its base: the page names every file (D-049).
   const files = ['docs/DECISIONS.md', 'plugin/bin/acc', 'a.ts', 'b.ts'];
   // The page names each in full; the card by folder and name.
   const pr = { number: 16, url: 'u', state: 'open', ci: 'passing', changesRequested: false, conflicts: files };

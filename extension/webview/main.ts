@@ -279,7 +279,7 @@ function renderTasks(m: TasksModel): Node[] {
           el('div', 'card-id', card.id, el('span', 'chip', card.environment)),
           openable(el('div', 'card-title', card.title), { type: 'run', command: 'acc.task.show', ref: { project: p.root, task: card.id } }),
           card.waitingOn.length ? el('div', 'card-note', icon('clock'), `Waiting on ${card.waitingOn.join(', ')}`) : null,
-          // Its pull request won't merge into its base (D-???): an icon and the words, in orange.
+          // Its pull request won't merge into its base (D-049): an icon and the words, in orange.
           card.conflicts ? el('div', 'card-note conflict', icon('warning'), el('span', '', card.conflicts)) : null,
           card.agent ? el('div', 'card-agent', el('span', 'muted', 'Agent: '), status(card.agent)) : null,
           card.worktree ? el('div', 'card-where mono muted', icon('git-branch'), card.worktree.split('/').slice(-2).join('/')) : null,

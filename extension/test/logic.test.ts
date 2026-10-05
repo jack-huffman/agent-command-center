@@ -178,7 +178,7 @@ test('task notices say what changed once, and nothing for a task seen for the fi
   assert.deepEqual(kinds([row('T-1', 'review', pr({ ci: 'failing' }))], [row('T-1', 'review', pr({ ci: 'failing' }))]), [], 'said once');
   assert.deepEqual(kinds([row('T-1', 'review', pr({}))], [row('T-1', 'review', pr({ changesRequested: true }))]), ['changes:T-1:true']);
   assert.deepEqual(kinds([row('T-1', 'review', pr({}))], [row('T-1', 'done', pr({ state: 'merged' }))]), ['merged:T-1:false']);
-  // A pull request that stops merging into its base names the files, once (D-???).
+  // A pull request that stops merging into its base names the files, once (D-049).
   const clash = pr({ conflicts: ['docs/DECISIONS.md', 'plugin/bin/acc'] });
   const conflicted = taskNotices([row('T-1', 'review', pr({ conflicts: [] }))], [row('T-1', 'review', { ...clash, display: 'needs-you' })]);
   assert.deepEqual(conflicted.map((n) => [n.kind, n.urgent, n.text]), [['conflicts', true, 'Pull request #7 (T-1) conflicts with main in docs/DECISIONS.md, plugin/bin/acc.']]);

@@ -391,7 +391,7 @@ export function displayState(ledger: Ledger, task: Task, session?: SessionInfo):
   if (task.state === 'todo' && isReady(ledger, task)) return 'ready';
   if (task.state === 'running' && (session?.state === 'blocked' || session?.status === 'waiting')) return 'needs-you';
   // An open pull request whose checks fail, that a person asked to change, or that conflicts with its
-  // base, waits on you (D-033, D-???).
+  // base, waits on you (D-033, D-049).
   if (task.state === 'review' && task.pr?.state === 'open' && (task.pr.ci === 'failing' || task.pr.changesRequested || !!task.pr.conflicts?.length)) return 'needs-you';
   return task.state;
 }

@@ -227,7 +227,7 @@ test('in review, a card offers the one next step: watch the reviewer, land a pas
   assert.deepEqual(open.slice(0, 2), ['Pull request #42', 'Update pull request']);
 });
 
-test('a pull request that conflicts with its base says so on its card and on the Overview, naming the files (D-???)', () => {
+test('a pull request that conflicts with its base says so on its card and on the Overview, naming the files (D-049)', () => {
   const h = hub();
   const pr = (conflicts: string[]) => ({ number: 16, url: 'https://github.com/o/r/pull/16', state: 'open', ci: 'passing', changesRequested: false, conflicts });
   const rows = [

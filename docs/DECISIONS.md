@@ -1061,7 +1061,7 @@ so the Ready lane offered to dispatch a whole milestone to one builder.
   from the CLI into core (`intakeGithub`), beside `sync`, so it's tested with a
   fake `gh`.
 
-## D-??? A pull request that conflicts with its base says so, and in which files (2026-10-03)
+## D-049 A pull request that conflicts with its base says so, and in which files (2026-10-03)
 
 Parallel builders branch from the same base, so their pull requests collide. In
 the M7 run, 2 of 4 open pull requests conflicted with main: #16 in

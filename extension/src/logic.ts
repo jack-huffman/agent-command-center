@@ -214,7 +214,7 @@ export interface TaskRow {
   pr?: { number: number; url: string; state: string; ci?: string | null; changesRequested?: boolean; conflicts?: string[] } | null;
 }
 
-/** The files an open pull request conflicts in with its base, or none (D-???). */
+/** The files an open pull request conflicts in with its base, or none (D-049). */
 export const prConflicts = (row: Pick<TaskRow, 'pr'>): string[] => (row.pr?.state === 'open' ? row.pr.conflicts ?? [] : []);
 
 /** Files in a sentence: the first few, then how many more. */

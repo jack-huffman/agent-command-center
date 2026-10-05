@@ -130,7 +130,7 @@ export function land(paths: RepoPaths, config: Config, id: string, deps: LandDep
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-  // Whether it merges into its base: branches built side by side often don't (D-???).
+  // Whether it merges into its base: branches built side by side often don't (D-049).
   const conflicts = fetchBranches(run, paths.root, [env.branch, branch], deps.env) ? conflictsOf(run, paths.root, env.branch, branch) : null;
   if (conflicts) pr = { ...pr, conflicts };
 

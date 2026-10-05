@@ -407,7 +407,7 @@ the open pull request's description, rather than opening another.
 - `acc sync` polls open pull requests. A merged one makes its task `done`. A
   closed-unmerged one moves its task to `blocked` with the reason. Failing CI,
   a person's requested changes, or a conflict with its base shows the task as
-  **needs you**. It finds conflicts itself, naming the files (D-???). The
+  **needs you**. It finds conflicts itself, naming the files (D-049). The
   Command Center runs it every two minutes while it's open.
 - `acc cleanup <id>` removes the worktree and local branch, but only once the
   pull request is merged and the worktree is clean.

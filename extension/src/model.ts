@@ -92,7 +92,7 @@ export interface Card {
   url: string | null;
   agent: Look | null;
   worktree: string | null;
-  /** "Conflicts with dev: …" when its open pull request won't merge into its base (D-???). */
+  /** "Conflicts with dev: …" when its open pull request won't merge into its base (D-049). */
   conflicts: string | null;
   actions: Action[];
   /** The lanes it can be dropped in: the moves a person may make from where it is (D-041). */
@@ -303,7 +303,7 @@ export interface TicketAcc {
   environment: string;
   waitingOn: string[];
   blocker: string | null;
-  /** Every file its open pull request conflicts in with its base, in one line, or null (D-???). */
+  /** Every file its open pull request conflicts in with its base, in one line, or null (D-049). */
   conflicts: string | null;
   agent: Look | null;
   worktree: string | null;
