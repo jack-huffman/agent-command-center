@@ -174,7 +174,7 @@ table.grid { width: 100%; border-collapse: collapse; }
 /* A long state wraps beside its label, inside the card, instead of running past the edge. */
 .card-agent { align-items: flex-start; }
 .card-agent > .muted { white-space: nowrap; }
-.card .status { white-space: normal; min-width: 0; align-items: flex-start; }
+.card .status { white-space: normal; min-width: 0; align-items: flex-start; overflow-wrap: anywhere; }
 .card .status .codicon { margin-top: 1px; }
 .card-where { display: flex; align-items: center; gap: 4px; font-size: 0.85em; margin-bottom: 6px; word-break: break-all; }
 
@@ -420,7 +420,8 @@ body.vscode-light .logo-light, body.vscode-high-contrast-light .logo-light { dis
 .inbox-caption { margin: 8px 0 0; padding-top: 10px; border-top: 1px solid var(--line); font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--vscode-descriptionForeground); }
 .inbox-caption + .inbox-row { border-top: 0; }
 .inbox-row:first-of-type { border-top: 0; }
-.inbox-text { min-width: 0; }
+/* A reason can name a long path with nowhere to break, such as a file autopilot couldn't merge. */
+.inbox-text { min-width: 0; overflow-wrap: anywhere; }
 .inbox-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inbox-row .actions { justify-content: flex-end; }
 @media (max-width: 620px) { .inbox-row { grid-template-columns: minmax(0, 1fr); gap: 6px; } .inbox-row .actions { justify-content: flex-start; } }
