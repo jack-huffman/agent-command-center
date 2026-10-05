@@ -7,7 +7,7 @@ import type { RepoPaths } from '../../packages/core/src/paths.ts';
 import { receiptsAt } from '../../packages/core/src/receipts.ts';
 import type { Ticket, TrackerClient } from '../../packages/core/src/trackers/types.ts';
 import type { Hub, Project } from './hub.ts';
-import { isFromWebview, type Ref, type TicketAcc, ticketModel, type TicketModel } from './model.ts';
+import { type FromWebview, isFromWebview, type Ref, type TicketAcc, ticketModel, type TicketModel } from './model.ts';
 import { htmlFor, isWebLink } from './panels.ts';
 import { runFile } from './run.ts';
 import type { Trackers } from './trackers.ts';
@@ -140,6 +140,8 @@ export class TicketPanels implements vscode.Disposable {
 
   private async receive(o: Open, m: unknown): Promise<void> {
     if (!isFromWebview(m)) return;
+    // Answered even once its project has closed: the page waits for a reply.
+    if (m.type === 'analysis-answer') return this.answer(o, m);
     const p = this.project(o);
     if (!p) return;
     switch (m.type) {
@@ -154,15 +156,20 @@ export class TicketPanels implements vscode.Disposable {
         if (ALLOWED.has(m.command)) await vscode.commands.executeCommand(m.command, m.arg);
         return;
       case 'ticket-action': return this.act(o, p, m.action, m.text);
-      // Only this page's own task's questions (D-052).
-      case 'analysis-answer': {
-        if (m.project !== o.project || m.task !== o.key || !this.answerAnalysis) return;
-        const r = await this.answerAnalysis(m.project, m.task, m.question, m.text);
-        void o.panel.webview.postMessage({ type: 'done', action: 'analysis-answer', project: m.project, task: m.task, question: m.question, ...r });
-        return this.post(o);
-      }
       default: return;
     }
+  }
+
+  /**
+   * A person's answer to one of this page's own task's questions (D-052). The page shows it's sending
+   * until the question goes, so every answer gets a reply: done, or why it wasn't recorded.
+   */
+  private async answer(o: Open, m: Extract<FromWebview, { type: 'analysis-answer' }>): Promise<void> {
+    const done = (r: { ok: boolean; error?: string }) => void o.panel.webview.postMessage({ type: 'done', action: 'analysis-answer', project: m.project, task: m.task, question: m.question, ...r });
+    if (m.project !== o.project || m.task !== o.key) return done({ ok: false, error: 'That answer isn\'t for this task.' });
+    if (!this.answerAnalysis) return done({ ok: false, error: 'This page can\'t record answers.' });
+    done(await this.answerAnalysis(m.project, m.task, m.question, m.text).catch((e: unknown) => ({ ok: false, error: (e as Error).message })));
+    return this.post(o);
   }
 
   private async act(o: Open, p: Project, action: string, text?: string): Promise<void> {

@@ -474,7 +474,7 @@ export const needsTerminal = (command: string): boolean => /^\s*(claude(\s*$|\s+
 
 // ---------------------------------------------------------------- what changed, said once (D-044)
 
-export type NoticeKind = 'waiting' | 'review' | 'passed' | 'rework' | 'blocked' | 'ci-failed' | 'changes' | 'conflicts' | 'merged' | 'analysis-ready' | 'analysis-questions' | 'analysis-split';
+export type NoticeKind = 'waiting' | 'review' | 'passed' | 'rework' | 'blocked' | 'ci-failed' | 'changes' | 'conflicts' | 'merged' | 'analysis-ready' | 'analysis-questions' | 'analysis-split' | 'analysis-back';
 
 export interface TaskNotice {
   kind: NoticeKind;
@@ -488,9 +488,10 @@ export interface TaskNotice {
  * What a person would want to hear about, from how a project's tasks looked before and after a reload:
  * a builder finished, a review passed or asked for changes, an agent waits on its own prompt, a pull
  * request's checks failed, it conflicts with its base, it merged, or its analysis came back (D-052): ready,
- * with questions for you, or too big for one task. A task seen for the first time says
- * nothing, so opening VSCode doesn't replay the board. A question waiting in the Command Center has its
- * own notice (D-030).
+ * with questions for you, or too big for one task. Only a task to do waits on its analysis: analyzed again
+ * in review, rework or blocked, it's news, and its questions are answered with acc (D-059). A task seen
+ * for the first time says nothing, so opening VSCode doesn't replay the board. A question waiting in the
+ * Command Center has its own notice (D-030).
  */
 export function taskNotices(before: TaskRow[], after: TaskRow[]): TaskNotice[] {
   const was = new Map(before.map((t) => [t.id, t]));
@@ -515,7 +516,8 @@ export function taskNotices(before: TaskRow[], after: TaskRow[]): TaskNotice[] {
     // A new analysis, not an answer to one of its questions: an answer keeps its time (D-052).
     const a = t.analysis;
     if (a && a.at !== p.analysis?.at) {
-      if (a.verdict === 'split') say('analysis-split', `${t.id}'s analysis says it's too big for one task.`, true);
+      if (t.state !== 'todo') say('analysis-back', `${t.id}'s analysis is back.${a.open.length ? ` Its ${questionsWord(a.open.length)} can be answered with acc analysis answer.` : ''}`, false);
+      else if (a.verdict === 'split') say('analysis-split', `${t.id}'s analysis says it's too big for one task.`, true);
       else if (a.open.length) say('analysis-questions', `${t.id}'s analysis has ${questionsWord(a.open.length)} for you.`, true);
       else say('analysis-ready', `${t.id}'s analysis is ready.`, false);
     }
