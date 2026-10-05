@@ -88,7 +88,7 @@ reload the VSCode window.
 
 ```text
 packages/core   ledger, config and state rules, shared by everything below
-packages/cli    the acc CLI, bundled into plugin/bin/acc
+packages/cli    the acc CLI, bundled into dist/acc, and into plugin/bin/acc for a release
 plugin/         Claude Code plugin: skills, hooks, reviewer agent, bin/acc
 extension/      VSCode extension: Board, Sessions and Worktrees views
 docs/           design, roadmap, decisions, research
