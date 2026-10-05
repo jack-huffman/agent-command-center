@@ -284,3 +284,95 @@ test('an answer goes through acc, after --, so words that start with - stay word
   const out = JSON.parse(r.stdout);
   assert.deepEqual([out.verdict, out.questions[0].answer.text], ['ready', '-5 days, not --json'], 'the words as given, and the last answer makes it ready');
 });
+
+test('each step autopilot takes is one notice: what it did, and what it couldn\'t, as a warning (D-???)', async () => {
+  const { autopilotNotices, noticeActions } = await import('../src/logic.ts');
+  type Rec = import('../../packages/core/src/autopilot.ts').AutopilotRecord;
+  const at = '2026-10-05T12:00:00.000Z';
+  const rec = (task: string, more: Partial<Rec>): Rec => ({ seq: 1, at, task, step: 'land', outcome: 'done', ...more });
+  type Task = import('../src/logic.ts').AutopilotTask;
+  const gh: Task = { id: 'GH-31', source: { kind: 'github', key: '31' }, history: [] };
+  const say = (r: Rec, tasks: Task[] = [gh]) => autopilotNotices([r], tasks).map((n) => [n.text, n.urgent, noticeActions(n)]);
+  const show = ['Show', 'acc.task.show'];
+  const pr = ['Open pull request', 'acc.task.openPr'];
+
+  assert.deepEqual(say(rec('GH-31', { pr: { number: 40, url: 'u', opened: true } })), [['Autopilot landed GH-31: pull request #40', false, [pr, show]]]);
+  assert.deepEqual(say(rec('GH-31', { pr: { number: 40, url: 'u', opened: false } })), [['Autopilot updated pull request #40 (GH-31).', false, [pr, show]]]);
+  // A Jira or Azure DevOps task's comment is a person's to post: it waits in autopilot's output.
+  const jira = { id: 'ACME-7', source: { kind: 'jira', key: 'ACME-7' }, history: [] };
+  assert.deepEqual(say(rec('ACME-7', { pr: { number: 41, url: 'u', opened: true } }), [jira]),
+    [['Autopilot landed ACME-7: pull request #41. Its comment on ACME-7 waits for you in Autopilot\'s output.', false, [['Show output', 'acc.autopilot.output'], pr, show]]]);
+  assert.deepEqual(say(rec('GH-31', { step: 'review', verdict: 'pass' })), [['Autopilot reviewed GH-31: it passed. Autopilot lands it next.', false, [show]]]);
+  assert.deepEqual(say(rec('GH-31', { step: 'review', verdict: 'changes', reason: 'sum has no test' })), [['Autopilot\'s review asked for changes on GH-31: sum has no test. Autopilot re-dispatches it next.', false, [show]]]);
+  // Once re-dispatched by autopilot, a second rework is a person's.
+  const again = { ...gh, history: [{ at: '2026-10-05T11:00:00.000Z', from: 'rework', to: 'running', actor: 'orchestrator' }] };
+  assert.deepEqual(say(rec('GH-31', { step: 'review', verdict: 'changes', reason: 'Still no test.' }), [again]),
+    [['Autopilot\'s review asked for changes on GH-31 again: Still no test. A second rework waits for you.', true, [['Re-dispatch', 'acc.task.dispatch'], show]]]);
+  assert.deepEqual(say(rec('GH-31', { step: 'dispatch' })), [['Autopilot re-dispatched GH-31 with its review\'s changes.', false, [['Watch', 'acc.task.watch'], show]]]);
+  assert.deepEqual(say(rec('GH-31', { step: 'refresh', base: 'main' }))[0]![0], 'Autopilot merged main into GH-31, and its checks passed. It\'s reviewed next, then landed.');
+  assert.deepEqual(say(rec('GH-31', { step: 'refresh', base: null, pr: { number: 40, url: 'u', opened: false } }))[0]![0], 'Pull request #40 (GH-31) no longer conflicts with its base: autopilot found nothing to merge.');
+
+  // What it couldn't do needs a person: a warning, with the step to take by hand.
+  assert.deepEqual(say(rec('GH-31', { outcome: 'failed', reason: 'the push was refused: rejected' })), [['Autopilot couldn\'t land GH-31: the push was refused: rejected.', true, [['Land', 'acc.task.land'], show]]]);
+  assert.deepEqual(say(rec('GH-31', { step: 'review', outcome: 'failed', reason: 'The review didn\'t finish within 45 minutes, so acc stopped it.' }))[0]!.slice(0, 2), ['Autopilot couldn\'t review GH-31: The review didn\'t finish within 45 minutes, so acc stopped it.', true]);
+  assert.match(say(rec('GH-31', { step: 'refresh', outcome: 'failed', reason: 'Conflicts with main' }))[0]![0] as string, /^Autopilot couldn't update GH-31 from its base: Conflicts with main\.$/);
+  assert.deepEqual(autopilotNotices([rec('GH-31', { step: 'review', verdict: 'pass' }), rec('GH-31', { seq: 2, pr: { number: 40, url: 'u', opened: true } })], [gh]).length, 2, 'one each');
+});
+
+test('D-044\'s review notices stay quiet for a review autopilot ran, and still speak for a person\'s (D-???)', async () => {
+  const { taskNotices, withoutAutopilotEcho } = await import('../src/logic.ts');
+  type Row = import('../src/logic.ts').TaskRow;
+  type Rec = import('../../packages/core/src/autopilot.ts').AutopilotRecord;
+  const row = (id: string, state: string, more: Partial<Row> = {}): Row => ({ id, title: `Task ${id}`, state, display: state as Row['display'], environment: 'main', deps: [], source: { kind: 'github', url: null }, ...more });
+  const passed = { verdict: 'pass' as const, summary: 'Good.', current: true };
+  const changes = { verdict: 'changes' as const, summary: 'No test.', current: true };
+  const news = taskNotices(
+    [row('T-1', 'review', { review: { ...passed, current: false } }), row('T-2', 'review'), row('T-3', 'review', { review: { ...passed, current: false } })],
+    [row('T-1', 'review', { review: passed }), row('T-2', 'rework', { review: changes }), row('T-3', 'review', { review: passed })],
+  );
+  assert.deepEqual(news.map((n) => `${n.kind}:${n.task}`), ['passed:T-1', 'rework:T-2', 'passed:T-3']);
+  const log: Rec[] = [
+    { seq: 1, at: 'a', task: 'T-1', step: 'review', outcome: 'done', verdict: 'pass' },
+    { seq: 2, at: 'a', task: 'T-2', step: 'review', outcome: 'done', verdict: 'changes' },
+    // T-3: autopilot landed it before, and a person reviewed its new commit by hand.
+    { seq: 3, at: 'a', task: 'T-3', step: 'review', outcome: 'done', verdict: 'pass' },
+    { seq: 4, at: 'a', task: 'T-3', step: 'land', outcome: 'done', pr: { number: 9, url: 'u', opened: true } },
+  ];
+  assert.deepEqual(withoutAutopilotEcho(news, log).map((n) => `${n.kind}:${n.task}`), ['passed:T-3'], 'autopilot\'s own notice said it, and it lands or re-dispatches it next');
+  assert.equal(withoutAutopilotEcho(news, []).length, 3, 'with no autopilot, every one');
+});
+
+test('the autopilot switch says on or off with an icon and the words, and its tooltip says what it does (D-???)', async () => {
+  const { autopilotStatus } = await import('../src/logic.ts');
+  const on = autopilotStatus({ project: 'Tool', many: false, state: 'on', last: '✓ GH-31  Opened pull request #40.' });
+  assert.equal(on.text, '$(rocket) Autopilot: on');
+  assert.match(on.tooltip, /^Autopilot is on for Tool: it reviews finished work, lands work whose review passed as a pull request, and re-dispatches a rework once\. It never merges\./);
+  assert.match(on.tooltip, /Last: ✓ GH-31 {2}Opened pull request #40\./);
+  assert.match(on.tooltip, /Click to turn it off until VSCode closes\.$/);
+  assert.doesNotMatch(autopilotStatus({ project: 'Tool', many: false, state: 'on' }).tooltip, /Last:/, 'nothing printed yet');
+
+  const off = autopilotStatus({ project: 'Tool', many: false, state: 'off' });
+  assert.equal(off.text, '$(debug-pause) Autopilot: off');
+  assert.match(off.tooltip, /^Autopilot is off for Tool\. When it's on, it reviews[^]*It never merges\.\n\nClick to turn it on until VSCode closes\.$/);
+
+  const elsewhere = autopilotStatus({ project: 'Tool', many: false, state: 'elsewhere', pid: 4242 });
+  assert.equal(elsewhere.text, '$(rocket) Autopilot: on elsewhere');
+  assert.match(elsewhere.tooltip, /in another window or a terminal \(pid 4242\)/);
+  assert.match(elsewhere.tooltip, /Stop it there to run it in this window\.$/);
+
+  // It can't run: acc's own words say why.
+  const refusal = 'autonomy "dispatch" (autopilot also starting Ready tasks) is not built yet. Set "autonomy" to "review" in .acc/config.json: autopilot then reviews, lands and re-dispatches a rework once.';
+  const refused = autopilotStatus({ project: 'Tool', many: false, state: 'refused', refusal });
+  assert.equal(refused.text, '$(circle-slash) Autopilot: off');
+  assert.equal(refused.tooltip, `Autopilot can't run for Tool: ${refusal}`);
+  const noGithub = autopilotStatus({ project: 'Tool', many: false, state: 'refused', refusal: 'Autopilot lands reviewed work as pull requests on GitHub, and this project has no "github" section in .acc/config.json.' });
+  assert.match(noGithub.tooltip, /no "github" section/);
+
+  // Several repos: each switch names its project.
+  assert.equal(autopilotStatus({ project: 'Tool', many: true, state: 'on' }).text, '$(rocket) Autopilot: on · Tool');
+  assert.equal(autopilotStatus({ project: 'Site', many: true, state: 'off' }).text, '$(debug-pause) Autopilot: off · Site');
+  for (const state of ['on', 'off', 'elsewhere', 'refused'] as const) {
+    const t = autopilotStatus({ project: 'Tool', many: false, state, pid: 1, refusal: 'x' }).text;
+    assert.match(t, /^\$\([a-z-]+\) Autopilot: (on|off)/, `${state}: an icon and the words`);
+  }
+});

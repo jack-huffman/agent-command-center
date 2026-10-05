@@ -2,7 +2,7 @@
 // keys are tested without a VSCode window. Run after npm run build.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import Module, { createRequire } from 'node:module';
 import { join } from 'node:path';
@@ -21,7 +21,15 @@ const disposable = { dispose() {} };
 const event = () => () => disposable;
 
 function fakeVscode(folder: string) {
-  const calls = { commands: new Map<string, (...a: unknown[]) => unknown>(), contexts: new Map<string, unknown>(), info: [] as string[], warn: [] as string[], terminal: [] as string[] };
+  const calls = {
+    commands: new Map<string, (...a: unknown[]) => unknown>(), contexts: new Map<string, unknown>(), info: [] as string[], warn: [] as string[], terminal: [] as string[],
+    /** What a quick pick answers, when a test wants it to. */
+    pick: undefined as ((items: { value?: string }[]) => unknown) | undefined,
+  };
+  type Item = { text: string; tooltip: string; command: unknown; name: string; shown: boolean; show(): void; hide(): void; dispose(): void };
+  const item = (): Item => ({ text: '', tooltip: '', command: undefined, name: '', shown: false, show() { this.shown = true; }, hide() { this.shown = false; }, dispose() {} });
+  /** Autopilot's switches (D-???), one a repo, apart from the setup item the test checks. */
+  const autopilot: Item[] = [];
   const status = { text: '', tooltip: '', command: '', backgroundColor: undefined as unknown, name: '', shown: false, show() { this.shown = true; }, hide() { this.shown = false; }, dispose() {} };
   const trees = new Map<string, { getChildren(e?: unknown): unknown[]; getTreeItem(e: unknown): { label: string; description?: string } }>();
   class EventEmitter { private ls: ((e: unknown) => void)[] = []; event = (l: (e: unknown) => void) => { this.ls.push(l); return disposable; }; fire(e?: unknown) { for (const l of this.ls) l(e); } dispose() {} }
@@ -44,13 +52,17 @@ function fakeVscode(folder: string) {
     window: {
       createOutputChannel: () => ({ info() {}, warn() {}, error() {}, show() {}, dispose() {} }),
       // The setup item is the one checked; GitHub and the tasks summary (D-044) are items of their own.
-      createStatusBarItem: (id?: unknown) => (id === 'acc.github' || id === 'acc.summary' ? { show() {}, hide() {}, dispose() {} } : status),
+      createStatusBarItem: (id?: unknown) => {
+        if (id === 'acc.github' || id === 'acc.summary') return { show() {}, hide() {}, dispose() {} };
+        if (typeof id === 'string' && id.startsWith('acc.autopilot')) { const it = item(); autopilot.push(it); return it; }
+        return status;
+      },
       onDidChangeWindowState: () => disposable,
       state: { focused: true },
       withProgress: (_o: unknown, task: (p: unknown, t: unknown) => unknown) => task({ report() {} }, { onCancellationRequested: () => disposable }),
       showInformationMessage: async (m: string) => { calls.info.push(m); return undefined; },
       showWarningMessage: async (m: string) => { calls.warn.push(m); return undefined; },
-      showQuickPick: async () => undefined,
+      showQuickPick: async (items: unknown) => calls.pick?.(await (items as Promise<{ value?: string }[]>)),
       createTerminal: () => ({ show() {}, sendText: (t: string) => calls.terminal.push(t), exitStatus: undefined }),
       onDidEndTerminalShellExecution: event(),
       onDidCloseTerminal: event(),
@@ -87,7 +99,7 @@ function fakeVscode(folder: string) {
     },
     env: { openExternal: async () => true, clipboard: { writeText: async () => {} } },
   };
-  return { api, calls, status, trees, panels };
+  return { api, calls, status, trees, panels, autopilot };
 }
 
 function memento(initial: Record<string, unknown> = {}) {
@@ -110,7 +122,7 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
   writeFileSync(join(claudeDir, '.claude.json'), JSON.stringify({ projects: { [realpathSync(repo)]: { hasTrustDialogAccepted: true } } }));
   const savedClaudeDir = process.env.CLAUDE_CONFIG_DIR;
   process.env.CLAUDE_CONFIG_DIR = claudeDir;
-  const { api, calls, status, trees, panels } = fakeVscode(repo);
+  const { api, calls, status, trees, panels, autopilot } = fakeVscode(repo);
   const load = (Module as unknown as { _load: (r: string, ...a: unknown[]) => unknown })._load;
   (Module as unknown as { _load: unknown })._load = function (request: string, ...rest: unknown[]) {
     return request === 'vscode' ? api : load.call(this, request, ...rest);
@@ -192,6 +204,27 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     page.receive!({ type: 'ready' });
     assert.match((await reply(page, root, 'T-2')).error ?? '', /isn't for this task/, 'the task\'s page answers only its own questions');
     assert.match((await reply(page, root, 'T-1')).error ?? '', /hasn't been analyzed/);
+
+    // Autopilot (D-???): a switch for the repo, hidden while its autonomy is manual, and off until clicked.
+    assert.ok(calls.commands.has('acc.autopilot.toggle') && calls.commands.has('acc.autopilot.output'));
+    assert.equal(autopilot.length, 1, 'one switch a repo');
+    assert.equal(autopilot[0]!.shown, false, 'manual: no switch');
+    const click = autopilot[0]!.command as { command: string; arguments: string[] };
+    assert.equal(click.command, 'acc.autopilot.toggle');
+    assert.match(click.arguments[0]!, /\/acc\/ledger\.json$/, 'the switch names its repo by its ledger');
+    // Changing autonomy goes through acc, which writes the config; then the switch shows, off.
+    calls.pick = (items) => items.find((i) => i.value === 'review');
+    await calls.commands.get('acc.agents.autonomy')!(root);
+    calls.pick = undefined;
+    assert.equal(JSON.parse(readFileSync(join(repo, '.acc', 'config.json'), 'utf8')).autonomy, 'review');
+    assert.match(calls.info.at(-1) ?? '', /^Autonomy is review\. Changed in \.acc\/config\.json: commit it to share it\./);
+    assert.equal(autopilot[0]!.shown, true);
+    // No "github" section, so it can't land anything: off, and its tooltip says why in acc's words.
+    assert.equal(autopilot[0]!.text, '$(circle-slash) Autopilot: off');
+    assert.match(autopilot[0]!.tooltip, /^Autopilot can't run for Tool: Autopilot lands reviewed work as pull requests on GitHub, and this project has no "github" section/);
+    const warned = calls.warn.length;
+    await calls.commands.get('acc.autopilot.toggle')!();
+    assert.match(calls.warn[warned] ?? '', /no "github" section/, 'a click says why, and starts nothing');
 
     await calls.commands.get(COMMANDS.check)!('B0.repo');
     assert.match(calls.info.at(-1) ?? '', /^✓ Inside the project's repo: Repo at /);

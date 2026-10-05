@@ -100,6 +100,7 @@ export class Sidebar {
     reg('acc.agent.openFolder', (n: AgentNode) => n.kind === 'agent' && vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(n.session.cwd), { forceNewWindow: true }));
     reg('acc.agents.refresh', () => this.hub.loadAgents());
     reg('acc.agents.configure', (arg?: unknown) => this.configureAgents(arg));
+    reg('acc.agents.autonomy', (arg?: unknown) => this.configureAutonomy(arg));
     reg('acc.worktree.open', (n: WorktreeNode) => n.kind === 'worktree' && vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(n.worktree.path), { forceNewWindow: true }));
     reg('acc.worktree.terminal', (n: WorktreeNode) => n.kind === 'worktree' && this.terminal(`acc: ${n.worktree.branch ?? basename(n.worktree.path)}`, n.worktree.path).show());
     reg('acc.worktree.reveal', (n: WorktreeNode) => n.kind === 'worktree' && vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(n.worktree.path)));
@@ -422,6 +423,25 @@ export class Sidebar {
       await this.hub.loadProjects();
       void vscode.window.showInformationMessage(`${label} changed${scope.project ? ' in .acc/config.json: commit it to share it' : ' for this clone'}. The next one started uses it.`);
     }
+  }
+
+  /**
+   * What autopilot may do on its own in a project (D-055), changed through acc in .acc/config.json, for
+   * the person to commit. Turning autopilot on is a separate click, in the status bar (D-???).
+   */
+  private async configureAutonomy(arg: unknown): Promise<void> {
+    const project = typeof arg === 'string' ? this.hub.project(arg) : await this.pickProject();
+    if (!project) return;
+    const now = project.config.autonomy;
+    const pick = await vscode.window.showQuickPick([
+      { label: '$(debug-pause) manual', description: 'Nothing happens on its own', value: 'manual' },
+      { label: '$(rocket) review', description: 'Autopilot reviews, lands and re-dispatches a rework once; never merges', value: 'review' },
+    ].map((x) => ({ ...x, description: x.value === now ? `${x.description} · now` : x.description })), { title: `${project.name}: what may autopilot do on its own?` });
+    if (!pick || pick.value === now) return;
+    const ok = await this.runAcc(project, ['agents', 'autonomy', pick.value], () => undefined);
+    if (!ok) return;
+    await this.hub.loadProjects();
+    void vscode.window.showInformationMessage(`Autonomy is ${pick.value}. Changed in .acc/config.json: commit it to share it.${pick.value === 'review' ? ' Autopilot stays off until you turn it on in the status bar.' : ''}`);
   }
 
   // ------------------------------------------------------------ review and land (D-032, D-033)

@@ -4,6 +4,7 @@
  * receives, so it can't drift from the types.
  */
 import type { Analysis } from '../../packages/core/src/analyze.ts';
+import type { AutopilotRecord } from '../../packages/core/src/autopilot.ts';
 import type { Environment } from '../../packages/core/src/config.ts';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import type { Task } from '../../packages/core/src/ledger.ts';
@@ -30,7 +31,8 @@ export function sampleHub(now = Date.now()): HubLike {
       builder: { model: 'opus', effort: 'high', fallbackModel: 'sonnet', from: { model: 'project', effort: 'project', fallbackModel: 'project' } },
       reviewer: { model: 'sonnet', effort: null, fallbackModel: null, from: { model: 'clone', effort: 'default', fallbackModel: 'default' } },
     },
-    config: { github: { repo: 'acme/service', account: 'jordan-kim' }, environments, profile: 'salesforce' },
+    // Autopilot may review, land and re-dispatch a rework once (D-055); it runs while a person has it on (D-???).
+    config: { github: { repo: 'acme/service', account: 'jordan-kim' }, environments, profile: 'salesforce', autonomy: 'review' },
     worktrees: [
       { path: root, head: 'a1b2c3d', branch: 'dev', main: true, changed: 0, locked: false, prunable: false },
       { path: wt('ACME-12'), head: 'b2c3d4e', branch: 'task/ACME-12-case-escalation-rules', main: false, changed: 4, locked: false, prunable: false },
@@ -82,6 +84,7 @@ export function sampleHub(now = Date.now()): HubLike {
     askingFor: (s) => { const q = questions.find((x) => x.sessionId === s.sessionId); return q ? askingLabel(q.tool) : null; },
     taskRows: () => tasks,
     projectFor: (p: string) => (p === root || p.startsWith(`${root}/`) ? project : undefined),
+    autopilotLog: () => sampleAutopilot(now),
     history: () => [
       { at: new Date(now - 4 * MIN).toISOString(), task: 'ACME-14', title: 'Route web-to-case submissions by product line', from: 'todo', to: 'running', by: 'human:jordan' },
       { at: new Date(now - 12 * MIN).toISOString(), task: 'ACME-12', title: 'Case escalation rules for the premium tier', from: 'todo', to: 'running', by: 'human:jordan' },
@@ -90,6 +93,21 @@ export function sampleHub(now = Date.now()): HubLike {
       { at: new Date(now - 3 * 24 * 60 * MIN).toISOString(), task: 'ACME-10', title: 'Add a CHANGELOG', from: 'review', to: 'done', by: 'sync' },
     ],
   };
+}
+
+/**
+ * Steps autopilot took, as its ledger events tell them (D-???): it reviewed and landed ACME-15, couldn't
+ * land ACME-25 or merge dev into ACME-26, and reviewed ACME-20, which it lands next.
+ */
+export function sampleAutopilot(now = Date.now()): AutopilotRecord[] {
+  const at = (ago: number) => new Date(now - ago * MIN).toISOString();
+  return [
+    { seq: 201, at: at(93), task: 'ACME-15', step: 'review', outcome: 'done', verdict: 'pass' },
+    { seq: 203, at: at(92), task: 'ACME-15', step: 'land', outcome: 'done', pr: { number: 42, url: 'https://github.com/acme/service/pull/42', opened: true } },
+    { seq: 210, at: at(48), task: 'ACME-25', step: 'land', outcome: 'failed', reason: 'git push refused task/ACME-25-merge-duplicate-contacts: ! [rejected] (fetch first) error: failed to push some refs' },
+    { seq: 214, at: at(20), task: 'ACME-26', step: 'refresh', outcome: 'failed', reason: 'Conflicts with dev that autopilot can\'t resolve: force-app/main/default/classes/CaseTriggerHandler.cls. The branch is as it was, at 3f9c2ab, and nothing was pushed.' },
+    { seq: 219, at: at(6), task: 'ACME-20', step: 'review', outcome: 'done', verdict: 'pass' },
+  ];
 }
 
 /**
@@ -203,6 +221,9 @@ export function sampleRuns(now = Date.now()): RunInput[] {
     { id: 'r-npm', label: 'The required checks can run', command: 'npm install', startedAt: now - 5 * MIN, endedAt: now - 4 * MIN, code: 1, stopped: false, step: 'B13.gate-tools',
       lines: ['npm ERR! code ERESOLVE', 'npm ERR! ERESOLVE unable to resolve dependency tree', 'npm ERR! Found: eslint@9.12.0', 'npm ERR! Could not resolve dependency: peer eslint@"^8" from @salesforce/eslint-config-lwc@3.6.0'], prompt: null },
     { id: 'r-open', label: 'Open Dev', command: 'sf org open -o "Acme Dev"', startedAt: now - 9 * MIN, endedAt: now - 9 * MIN + 4000, code: 0, stopped: false, step: null, lines: ['Opening org Acme Dev as jordan@acme.example.dev…'], prompt: null },
+    // Autopilot, switched on in the status bar (D-???): it runs as long as the window, and is never shown first.
+    { id: 'r-autopilot', label: 'Autopilot · Acme Service', command: 'acc autopilot --every 60', startedAt: now - 2 * 60 * MIN, endedAt: null, code: null, stopped: false, step: null, background: true,
+      lines: ['Autopilot pass at 10:41:07', '✓ ACME-20  Review passed: Adds the field to the layout.', '… ACME-25  Waiting: Autopilot couldn\'t land d4e5f6a: git push refused. It waits for a person, or a new commit.', '9 other tasks: nothing to do.'], prompt: null },
   ];
 }
 

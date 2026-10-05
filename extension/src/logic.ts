@@ -3,6 +3,7 @@
  * The walkthrough is generated from core's step list (D-017): one source for the GUI and `acc doctor`.
  */
 import type { Analysis } from '../../packages/core/src/analyze.ts';
+import type { AutopilotRecord } from '../../packages/core/src/autopilot.ts';
 import type { CheckStatus, Step } from '../../packages/core/src/onboarding/types.ts';
 
 export const PUBLISHER = 'JackHuffman';
@@ -474,7 +475,7 @@ export const needsTerminal = (command: string): boolean => /^\s*(claude(\s*$|\s+
 
 // ---------------------------------------------------------------- what changed, said once (D-044)
 
-export type NoticeKind = 'waiting' | 'review' | 'passed' | 'rework' | 'blocked' | 'ci-failed' | 'changes' | 'conflicts' | 'merged' | 'analysis-ready' | 'analysis-questions' | 'analysis-split' | 'analysis-back';
+export type NoticeKind = 'waiting' | 'review' | 'passed' | 'rework' | 'blocked' | 'ci-failed' | 'changes' | 'conflicts' | 'merged' | 'analysis-ready' | 'analysis-questions' | 'analysis-split' | 'analysis-back' | 'autopilot';
 
 export interface TaskNotice {
   kind: NoticeKind;
@@ -482,6 +483,8 @@ export interface TaskNotice {
   text: string;
   /** Needs a person: shown as a warning. The rest are news. */
   urgent: boolean;
+  /** Its own buttons, before Show, for a notice whose buttons depend on more than its kind. */
+  actions?: [label: string, command: string][];
 }
 
 /**
@@ -527,6 +530,7 @@ export function taskNotices(before: TaskRow[], after: TaskRow[]): TaskNotice[] {
 
 /** The buttons a notice offers, as [label, command] pairs. The task's page is always the last. */
 export function noticeActions(n: TaskNotice): [label: string, command: string][] {
+  if (n.actions) return [...n.actions, ['Show', 'acc.task.show']];
   const first: Partial<Record<NoticeKind, [string, string]>> = {
     waiting: ['Open in Claude Code', 'acc.task.openInClaude'],
     review: ['Review', 'acc.task.review'],
@@ -570,4 +574,109 @@ export function statusSummary(rows: Pick<TaskRow, 'id' | 'title' | 'display'>[],
     ...list('In review', review),
   ].filter(Boolean).join('\n');
   return { text: parts.join('  '), tooltip: tooltip ? `${tooltip}\n\nOpen the Command Center` : '', attention: needsYou > 0 };
+}
+
+// ---------------------------------------------------------------- autopilot, hosted by the Command Center (D-???)
+
+/** What a step autopilot couldn't take is called, as acc says it: "couldn't land GH-31". */
+const AUTOPILOT_VERB = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update' } as const;
+
+const endSentence = (text: string): string => text.trim().replace(/([^.!?])$/, '$1.');
+
+/** What autopilot needs to know about a task to tell its steps: who it's tracked in, and its moves. */
+export interface AutopilotTask {
+  id: string;
+  source: { kind: string; key: string | null };
+  history: { at: string; from: string | null; to: string; actor: string }[];
+}
+
+/**
+ * One notice for each step autopilot took that a window hasn't told yet (D-???): what it reviewed,
+ * landed, re-dispatched or merged in, and what it couldn't do, as a warning. A land for a Jira or Azure
+ * DevOps task says its comment waits in autopilot's output, since only a person posts it as them.
+ */
+export function autopilotNotices(steps: AutopilotRecord[], tasks: AutopilotTask[]): TaskNotice[] {
+  const out: TaskNotice[] = [];
+  for (const r of steps) {
+    const t = tasks.find((x) => x.id === r.task);
+    const say = (text: string, urgent: boolean, actions: [string, string][] = []) => out.push({ kind: 'autopilot', task: r.task, text, urgent, actions });
+    if (r.outcome === 'failed') {
+      const by = { review: ['Review', 'acc.task.review'], land: ['Land', 'acc.task.land'], dispatch: ['Re-dispatch', 'acc.task.dispatch'], refresh: ['Open pull request', 'acc.task.openPr'] }[r.step] as [string, string];
+      say(`Autopilot couldn't ${AUTOPILOT_VERB[r.step]} ${r.task}${r.step === 'refresh' ? ' from its base' : ''}: ${endSentence(r.reason || 'it didn\'t say why')}`, true, [by]);
+    } else if (r.step === 'review' && r.verdict === 'changes') {
+      // Autopilot re-dispatches a rework once: a second one waits for a person.
+      const again = !!t?.history.some((h) => h.from === 'rework' && h.to === 'running' && h.actor === 'orchestrator' && h.at < r.at);
+      const what = r.reason ? `: ${endSentence(r.reason)}` : '.';
+      if (again) say(`Autopilot's review asked for changes on ${r.task} again${what} A second rework waits for you.`, true, [['Re-dispatch', 'acc.task.dispatch']]);
+      else say(`Autopilot's review asked for changes on ${r.task}${what} Autopilot re-dispatches it next.`, false);
+    } else if (r.step === 'review') say(`Autopilot reviewed ${r.task}: it passed. Autopilot lands it next.`, false);
+    else if (r.step === 'land' && r.pr) {
+      const pr: [string, string] = ['Open pull request', 'acc.task.openPr'];
+      const key = t && (t.source.kind === 'jira' || t.source.kind === 'azure') ? t.source.key : null;
+      const landed = r.pr.opened ? `Autopilot landed ${r.task}: pull request #${r.pr.number}` : `Autopilot updated pull request #${r.pr.number} (${r.task})`;
+      if (key) say(`${landed}. Its comment on ${key} waits for you in Autopilot's output.`, false, [['Show output', 'acc.autopilot.output'], pr]);
+      else say(r.pr.opened ? landed : `${landed}.`, false, [pr]);
+    } else if (r.step === 'dispatch') say(`Autopilot re-dispatched ${r.task} with its review's changes.`, false, [['Watch', 'acc.task.watch']]);
+    else if (r.step === 'refresh') {
+      if (r.base) say(`Autopilot merged ${r.base} into ${r.task}, and its checks passed. It's reviewed next, then landed.`, false, [['Open pull request', 'acc.task.openPr']]);
+      else say(`${r.pr ? `Pull request #${r.pr.number} (${r.task})` : r.task} no longer conflicts with its base: autopilot found nothing to merge.`, false);
+    }
+  }
+  return out;
+}
+
+/**
+ * D-044's notices that autopilot's own already told: "The review passed X" and "The review asked for
+ * changes on X", for a task whose newest autopilot step is the review that said so. Autopilot lands or
+ * re-dispatches it next, so a Land or Re-dispatch button would only race it.
+ */
+export function withoutAutopilotEcho(news: TaskNotice[], log: AutopilotRecord[]): TaskNotice[] {
+  const newest = new Map<string, AutopilotRecord>();
+  for (const r of log) if ((newest.get(r.task)?.seq ?? -1) < r.seq) newest.set(r.task, r);
+  return news.filter((n) => {
+    const r = newest.get(n.task);
+    if (!r || r.step !== 'review' || r.outcome !== 'done') return true;
+    return !((n.kind === 'passed' && r.verdict === 'pass') || (n.kind === 'rework' && r.verdict === 'changes'));
+  });
+}
+
+/** Where a repo's autopilot is, as its status bar item shows it. */
+export type AutopilotSwitch = 'on' | 'off' | 'elsewhere' | 'refused';
+
+export interface AutopilotStatusInput {
+  project: string;
+  /** More than one repo has autopilot: each item names its project. */
+  many: boolean;
+  state: AutopilotSwitch;
+  /** The process holding autopilot's lock, when it runs elsewhere. */
+  pid?: number | null;
+  /** Why it can't run here, in acc's words. */
+  refusal?: string | null;
+  /** The last line it printed, while it's on here. */
+  last?: string | null;
+}
+
+const AUTOPILOT_DOES = 'it reviews finished work, lands work whose review passed as a pull request, and re-dispatches a rework once. It never merges.';
+
+/**
+ * The status bar's autopilot switch (D-???): an icon and the words "Autopilot: on" or "Autopilot: off",
+ * with the project's name when there's more than one. The tooltip says what it does and what a click
+ * does. Off until a person turns it on: the switch lasts until VSCode closes.
+ */
+export function autopilotStatus(s: AutopilotStatusInput): { text: string; tooltip: string } {
+  const name = s.many ? ` · ${s.project}` : '';
+  if (s.state === 'on') {
+    return {
+      text: `$(rocket) Autopilot: on${name}`,
+      tooltip: [`Autopilot is on for ${s.project}: ${AUTOPILOT_DOES}`, s.last ? `Last: ${s.last}` : '', 'Click to turn it off until VSCode closes.'].filter(Boolean).join('\n\n'),
+    };
+  }
+  if (s.state === 'elsewhere') {
+    return {
+      text: `$(rocket) Autopilot: on elsewhere${name}`,
+      tooltip: `Autopilot is on for ${s.project} in another window or a terminal (pid ${s.pid ?? 'unknown'}): ${AUTOPILOT_DOES}\n\nStop it there to run it in this window.`,
+    };
+  }
+  if (s.state === 'refused') return { text: `$(circle-slash) Autopilot: off${name}`, tooltip: `Autopilot can't run for ${s.project}: ${s.refusal ?? 'acc refused it.'}` };
+  return { text: `$(debug-pause) Autopilot: off${name}`, tooltip: `Autopilot is off for ${s.project}. When it's on, ${AUTOPILOT_DOES}\n\nClick to turn it on until VSCode closes.` };
 }

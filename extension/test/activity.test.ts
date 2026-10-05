@@ -171,10 +171,11 @@ test('a question that has ended reads as what it asked and what you decided, blu
   assert.match(decisionOf({ ...base, tool: 'Bash', input: {}, outcome: 'no-window' }).look.label, /no Command Center was open/);
 });
 
-test('the history holds your answers, task moves and finished commands, newest first, and an agent\'s page shows its own decisions in place', () => {
+test('the history holds your answers, task moves, autopilot\'s steps and finished commands, newest first, and an agent\'s page shows its own decisions in place', () => {
   const hub = sampleHub();
   const items = historyItems(hub, sampleRuns());
-  assert.deepEqual([...new Set(items.map((i) => i.kind))].sort(), ['answer', 'move', 'run']);
+  assert.deepEqual([...new Set(items.map((i) => i.kind))].sort(), ['answer', 'autopilot', 'move', 'run']);
+  assert.ok(!items.some((i) => i.kind === 'run' && i.label.startsWith('Autopilot')), 'autopilot running is no command finished');
   assert.ok(items.every((it, i) => i === 0 || items[i - 1]!.at >= it.at), 'newest first');
   const answer = items.find((i) => i.kind === 'answer' && i.decision.look.label === 'You answered');
   assert.ok(answer && answer.kind === 'answer' && answer.who === 'ACME-12');
