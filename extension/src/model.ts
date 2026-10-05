@@ -97,6 +97,8 @@ export interface Card {
   conflicts: string | null;
   /** Where its analysis is, for a task to do (D-052): under way, waiting on you, or ready to build from. */
   analysis: Look | null;
+  /** What autopilot couldn't do for it, and why (D-???). */
+  autopilot: Look | null;
   actions: Action[];
   /** The lanes it can be dropped in: the moves a person may make from where it is (D-041). */
   drops: string[];
@@ -124,6 +126,14 @@ export function analysisLook(t: Pick<TaskRow, 'state' | 'analysis' | 'analyzing'
   if (wait === 'split') return { label: 'Needs you: too big for one task', icon: 'split-horizontal', tone: 'orange' };
   if (wait === 'questions') return { label: `Needs you: ${questionsWord(t.analysis!.open.length)} from its analysis`, icon: 'question', tone: 'orange' };
   return t.analysis ? { label: 'Analyzed: ready to build', icon: 'pass', tone: 'blue' } : null;
+}
+
+const AUTOPILOT_STEP: Record<NonNullable<TaskRow['autopilot']>['step'], string> = { review: 'review', land: 'land', dispatch: 're-dispatch' };
+
+/** "Needs you: autopilot couldn't land", and with `why`, its reason after it (D-???). */
+export function autopilotLook(t: Pick<TaskRow, 'autopilot'>, why = true): Look | null {
+  if (!t.autopilot) return null;
+  return { label: `Needs you: autopilot couldn't ${AUTOPILOT_STEP[t.autopilot.step]}${why ? `: ${t.autopilot.reason}` : ''}`, icon: 'bell', tone: 'orange' };
 }
 
 /** The lanes a task can be dropped in by a person, by acc's own move rules. Whether it then goes is acc's call. */
@@ -208,7 +218,7 @@ export function tasksModel(hub: HubLike, boards: (root: string) => BoardInput[] 
           group, label: d.label, icon: d.icon, tone: d.tone,
           cards: (byGroup.get(group) ?? []).map((t) => ({
             id: t.id, title: t.title, environment: t.environment, waitingOn: t.deps, url: t.source.url,
-            agent: t.agent ?? null, worktree: t.run?.worktree ?? null, conflicts: conflictLine(t), analysis: analysisLook(t),
+            agent: t.agent ?? null, worktree: t.run?.worktree ?? null, conflicts: conflictLine(t), analysis: analysisLook(t), autopilot: autopilotLook(t),
             actions: cardActions(t, { project: p.root, task: t.id }), drops: dropLanes(t),
           })),
         };
@@ -306,6 +316,7 @@ export interface TrackerBoard {
 
 /** The agent's side of a ticket: acc's own state, or what the agent, or its analysis (D-052), is doing about it. */
 function accLook(row: TaskRow): Look {
+  if (row.autopilot && row.display === 'needs-you') return autopilotLook(row)!;
   if (row.agent && row.display === 'needs-you') return row.agent;
   const analysis = analysisLook(row);
   if (analysis && (row.display === 'needs-you' || row.analyzing)) return analysis;
@@ -1239,6 +1250,12 @@ export function homeModel(i: HomeInput): HomeModel {
           const n = r.analysis!.split.length;
           const detail = wait === 'questions' ? `${p.name} · answer here, and its builder gets your answers` : `${p.name} · its analysis suggests ${n ? `${n} smaller tasks` : 'smaller tasks'}, on its page`;
           attention.push({ key: `t:${p.root}:${r.id}`, look: analysisLook(r)!, title: `${r.id} ${r.title}`, detail, project: p.name, actions: [details], ...(wait === 'questions' ? { analysis: { project: p.root, task: r.id, questions: r.analysis!.open } } : {}) });
+          continue;
+        }
+        // A step autopilot couldn't take (D-???): why, and the same step to take by hand.
+        if (r.autopilot) {
+          const byHand = acts.find((a) => a.primary && ['acc.task.review', 'acc.task.land', 'acc.task.dispatch', 'acc.task.openPr'].includes(a.command));
+          attention.push({ key: `t:${p.root}:${r.id}`, look: autopilotLook(r, false)!, title: `${r.id} ${r.title}`, detail: `${p.name} · ${r.autopilot.reason.replace(/([^.!?])$/, '$1.')} Do it by hand, or a new commit lets autopilot try again.`, project: p.name, actions: [...(byHand ? [byHand] : []), details] });
           continue;
         }
         const watch = acts.find((a) => a.command === 'acc.task.watch');

@@ -305,6 +305,25 @@ test('a pull request that conflicts with its base says so on its card and on the
   assert.equal(item.actions[0]!.command, 'acc.task.openPr');
 });
 
+test('a task autopilot couldn\'t move on says why on its card and on the Overview, with the step to take by hand (D-???)', () => {
+  const rows: TaskRow[] = [
+    { ...row('AV-5', 'review', 'needs-you'), run: { worktree: '/w', branch: 'b' }, review: { verdict: 'pass', summary: 's', current: true }, autopilot: { step: 'land', reason: 'git push refused task/AV-5: rejected' } },
+    { ...row('AV-6', 'rework', 'needs-you'), run: { worktree: '/w6', branch: 'b6' }, autopilot: { step: 'dispatch', reason: 'Claude Code doesn\'t trust /r yet.' } },
+  ];
+  const failed = { ...hub(), agents: [], taskRows: () => rows };
+  const card = (id: string) => tasksModel(failed).projects[0]!.columns.flatMap((c) => c.cards).find((c) => c.id === id)!;
+  assert.deepEqual(card('AV-5').autopilot, { label: 'Needs you: autopilot couldn\'t land: git push refused task/AV-5: rejected', icon: 'bell', tone: 'orange' });
+  assert.equal(card('AV-6').autopilot!.label, 'Needs you: autopilot couldn\'t re-dispatch: Claude Code doesn\'t trust /r yet.');
+  assert.equal(card('AV-5').actions[0]!.label, 'Land', 'the step it couldn\'t take, to take by hand');
+  const m = homeModel({ hub: failed, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } });
+  const item = m.overview.attention.find((a) => a.title === 'AV-5 Task AV-5')!;
+  assert.deepEqual([item.look.label, item.look.icon, item.look.tone], ['Needs you: autopilot couldn\'t land', 'bell', 'orange'], 'its words and icon, in orange');
+  assert.equal(item.detail, 'Acme · git push refused task/AV-5: rejected. Do it by hand, or a new commit lets autopilot try again.', 'why, not an agent waiting in its terminal');
+  assert.deepEqual(item.actions.map((a) => a.label), ['Land', 'Open']);
+  assert.deepEqual(m.overview.attention.find((a) => a.title === 'AV-6 Task AV-6')!.actions.map((a) => a.label), ['Re-dispatch', 'Open']);
+  assert.equal(needsYouCount(m.overview), 2);
+});
+
 test('table cells keep table layout (a flex cell misaligns its row\'s lines)', () => {
   const css = readFileSync(join(root, 'webview', 'styles.css'), 'utf8');
   const src = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
