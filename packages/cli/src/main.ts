@@ -334,6 +334,7 @@ function cmdLand(o: Opts, id: string): number {
   out(o, () => [
     `${r.task.id}: ${r.opened ? 'opened' : 'updated'} pull request #${r.pr.number}  ${r.pr.url}`,
     r.commented ? `  Commented on the GitHub issue.` : '',
+    r.commentUnconfirmed ? tone(`! The comment on ${r.task.id}'s issue isn't confirmed: ${r.commentUnconfirmed.replace(/([^.!?])$/, '$1.')} Look at the issue before you post it again.`, 'orange') : '',
     r.comment ? `  Post this on ${r.comment.key} (the extension does it for you):\n    ${r.comment.text.replace(/\n/g, '\n    ')}` : '',
     r.pr.conflicts?.length ? tone(`! Pull request #${r.pr.number} conflicts with ${r.task.environment} in ${r.pr.conflicts.join(', ')}. GitHub can't merge it until that's resolved.`, 'orange') : '',
     tone('It merges only when a person merges it on GitHub.', 'dim'),

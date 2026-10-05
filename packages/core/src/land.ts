@@ -35,6 +35,8 @@ export interface LandResult {
   opened: boolean;
   /** Commented on the GitHub issue. */
   commented: boolean;
+  /** Why a GitHub issue's comment isn't confirmed: gh failed, or was stopped at its timeout. It may still have posted. */
+  commentUnconfirmed: string | null;
   comment: PendingComment | null;
 }
 
@@ -135,12 +137,17 @@ export function land(paths: RepoPaths, config: Config, id: string, deps: LandDep
   if (conflicts) pr = { ...pr, conflicts };
 
   // The ticket hears about it. GitHub acc tells itself; Jira and Azure DevOps go through the extension, as you.
+  // A gh that doesn't confirm the comment, or is stopped at its timeout, doesn't stop the land (D-???).
   let commented = false;
+  let commentUnconfirmed: string | null = null;
   let comment: PendingComment | null = null;
   const text = ticketComment(task, pr, opened);
   const issue = task.source.kind === 'github' ? /(\d+)$/.exec(task.source.key ?? task.id)?.[1] : undefined;
-  if (issue) commented = ghRun(['issue', 'comment', issue, '-R', gh.repo, '--body', text]).code === 0;
-  else if ((task.source.kind === 'jira' || task.source.kind === 'azure') && task.source.key) comment = { kind: task.source.kind, key: task.source.key, text };
+  if (issue) {
+    const c = ghRun(['issue', 'comment', issue, '-R', gh.repo, '--body', text]);
+    commented = c.code === 0;
+    if (!commented) commentUnconfirmed = (c.stderr || c.stdout).trim().split('\n')[0] || `gh exited with ${c.code}.`;
+  } else if ((task.source.kind === 'jira' || task.source.kind === 'azure') && task.source.key) comment = { kind: task.source.kind, key: task.source.key, text };
 
   const updated = mutate(paths, now, (l, emit) => {
     const t = l.tasks.find((x) => x.id === id)!;
@@ -149,5 +156,5 @@ export function land(paths: RepoPaths, config: Config, id: string, deps: LandDep
     emit({ type: 'task.updated', task: id, actor: opts.actor ?? 'human', by: opts.by ?? 'acc land', data: { pr, sha, opened } });
     return t;
   });
-  return { task: updated, sha, pr, opened, commented, comment };
+  return { task: updated, sha, pr, opened, commented, commentUnconfirmed, comment };
 }
