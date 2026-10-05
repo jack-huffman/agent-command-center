@@ -521,6 +521,15 @@ before each:
 - **`--json`** lists each task looked at, with its step (or none), the commit,
   the outcome (`done`, `failed`, `waiting` or `skipped`) and why. With `--every`,
   it prints a line of JSON a pass.
+- **The Command Center hosts it** (D-???). For each repo whose autonomy isn't
+  manual, a status bar switch says "Autopilot: on" or "Autopilot: off". It's
+  off when VSCode opens, and a click turns it on until VSCode closes. On, the
+  window runs `acc autopilot --every 60` as a background run, with its own pid
+  in `ACC_AUTOPILOT_PARENT`, so autopilot stops once that window has gone. One
+  started elsewhere shows as "on elsewhere", with its pid. Every window reads
+  what autopilot did from the ledger's events: each step is in the Overview's
+  History, and a notice. `acc agents autonomy [manual|review]` changes the
+  level, and the Agents section's Autonomy row runs it.
 
 An agent is used for judgment, not routing. The `acc:orchestrate` skill helps
 break a large ticket into tasks, triage a blocked task, or write rework guidance.
@@ -575,10 +584,14 @@ An **Agents** container in the activity bar holds three views:
   the environment's branch, pull request and CI.
 
 **Status bar:** running, needs you, and in review counts, each with its icon.
+For each repo whose autonomy isn't manual, autopilot's switch: on, off, or on
+elsewhere (D-???).
 
 **Notifications:** a session needs you (with **Open in Claude Code**), a task is
 ready for review, a review passed or asked for changes, CI fails on a task's
 pull request, or it conflicts with its base. Each offers its next step, and each change is said once (D-044).
+Each step autopilot takes is said once too, and what it couldn't do is a
+warning (D-???).
 
 **Commands:** Dispatch, Attach (`claude attach` in a terminal), Review, Land,
 Clean up, Intake, Open packet, Open pull request, Block or unblock, and Refresh.
@@ -622,9 +635,9 @@ count; under 820 px wide, it becomes a tab strip along the top.
 
 | Section | What it holds |
 |---|---|
-| **Overview** | **Needs you:** agents waiting on a prompt, blocked tasks, steps autopilot couldn't take (with why, and the step to take by hand), missing tracker sign-ins and setup still to do, each with its button. Then, apart, work waiting for review. Stat tiles open their sections. **Ready for an agent** has Dispatch buttons, and **Recent activity** lists every task's latest moves |
+| **Overview** | **Needs you:** agents waiting on a prompt, blocked tasks, steps autopilot couldn't take (with why, and the step to take by hand), missing tracker sign-ins and setup still to do, each with its button. Then, apart, work waiting for review. Stat tiles open their sections. **Ready for an agent** has Dispatch buttons, and **History** lists your answers, every task's moves, each step autopilot took, wherever it ran, and the commands acc ran (D-???) |
 | **Tasks** | The tracker's own board, or acc's agent board (D-026) |
-| **Agents** | Sessions by project, with a menu on each row (D-023) |
+| **Agents** | **How agents run:** builders' and reviewers' model and effort (D-036), and the project's autonomy (D-???). Then sessions by project, with a menu on each row (D-023) |
 | **Worktrees** | Every checkout, with a menu on each row |
 | **Environments** | The GitHub identity card (D-028), promotion paths, and one card per environment |
 | **Setup** | The checklist, with Do it on each step |
