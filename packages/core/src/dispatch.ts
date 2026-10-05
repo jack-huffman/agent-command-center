@@ -7,6 +7,7 @@ import { AccError, type Runner } from './exec.ts';
 import { type Actor, applyMove, checkMove, mutate, noGateHooks, readLedger, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
 import { permissionHook } from './questions.ts';
+import { type Analysis, analysisProblems, analysisSection, readAnalysis } from './analyze.ts';
 import { latestVerdict, type Verdict } from './review.ts';
 import { agentArgs } from './agents.ts';
 
@@ -84,6 +85,8 @@ export interface PacketInput {
   accPath?: string;
   /** On a rework, the review that asked for changes (D-032). */
   review?: Verdict | null;
+  /** What the task's analysis found, and what a person answered (D-052). */
+  analysis?: Analysis | null;
 }
 
 /** On a rework: what the review asked for, so the next run fixes that and leaves the rest. */
@@ -135,6 +138,7 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean }): stri
     '',
     task.source.url ? `Ticket: ${task.source.url}` : `Source: ${task.source.kind}`,
     '',
+    ...analysisSection(p.analysis ?? null),
     ...reviewSection(p.review),
     '## Where you are',
     '',
@@ -207,7 +211,7 @@ export function builderSettings(task: Task, config: Config, accBinDir: string, b
   ];
   const deny = [
     'Bash(git push*)', 'Bash(gh pr *)', 'Bash(git checkout *)', 'Bash(git switch *)', 'Bash(git worktree *)', 'Bash(git reset --hard*)',
-    'Bash(acc set *)', 'Bash(acc dispatch *)', 'Bash(acc init*)', 'Bash(acc gate waive*)', 'Bash(acc land*)', 'Bash(acc review*)', 'Bash(acc promote*)', 'Bash(acc deploy*)',
+    'Bash(acc set *)', 'Bash(acc dispatch *)', 'Bash(acc init*)', 'Bash(acc gate waive*)', 'Bash(acc land*)', 'Bash(acc review*)', 'Bash(acc analyze*)', 'Bash(acc analysis answer*)', 'Bash(acc promote*)', 'Bash(acc deploy*)',
     ...(sf ? ['Bash(sf project deploy start*)', 'Bash(sf project deploy quick*)', 'Bash(sf org delete *)'] : []),
   ];
   return {
@@ -324,6 +328,8 @@ export interface DispatchOptions {
   by: string;
   /** Run the session in this terminal instead of in the background (D-009's fallback). */
   foreground?: boolean;
+  /** A person's say-so to build without the analysis the project wants (D-052). */
+  withoutAnalysis?: boolean;
 }
 
 export function dispatch(paths: RepoPaths, config: Config, id: string, deps: DispatchDeps, opts: DispatchOptions): DispatchResult {
@@ -334,6 +340,9 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
   const req = { to: 'running' as const, actor: opts.actor, by: opts.by };
   const problems = checkMove(before, config, found, req, noGateHooks);
   if (problems.length) throw new AccError('move-refused', `Can't dispatch ${id}:\n- ${problems.join('\n- ')}`);
+  // A project that wants an analysis first gets one, unless a person says to go without (D-052).
+  const held = analysisProblems(paths, config, found);
+  if (held.length && !(opts.withoutAnalysis && opts.actor === 'human')) throw new AccError('move-refused', `Can't dispatch ${id}:\n- ${held.join('\n- ')}`);
   const env = environmentByBranch(config, found.environment);
   if (!env) throw new AccError('dispatch', `${id}'s environment "${found.environment}" isn't in the config.`);
 
@@ -352,7 +361,7 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
   const rules = existsSync(join(wt, '.acc', 'rules.md')) ? readFileSync(join(wt, '.acc', 'rules.md'), 'utf8') : null;
   const packet = renderPacket({
     task: found, config, env, worktree: wt, branch, rules, environmentSpecific: readList(wt, config.environmentSpecific), enterWorktree: enter && !opts.foreground,
-    accPath: join(deps.accBinDir, 'acc'), review: found.state === 'rework' ? latestVerdict(paths, found.id) : null,
+    accPath: join(deps.accBinDir, 'acc'), review: found.state === 'rework' ? latestVerdict(paths, found.id) : null, analysis: readAnalysis(paths, found.id),
   });
   mkdirSync(paths.packets, { recursive: true });
   const packetPath = join(paths.packets, `${found.id}.md`);

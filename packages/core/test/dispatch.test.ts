@@ -184,7 +184,10 @@ test('Salesforce dispatch points the worktree at the environment\'s org', () => 
   gitIn(repo, 'branch', 'dev');
   const claude = fakeClaude();
   acc(repo, ['add', 'A field']);
-  const r = acc(repo, ['dispatch', 'T-1', '--json'], { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) });
+  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  // A Salesforce task waits for its analysis (D-052), unless a person says to go without.
+  assert.match(acc(repo, ['dispatch', 'T-1'], env).err, /hasn't been analyzed.*acc analyze T-1/s);
+  const r = acc(repo, ['dispatch', 'T-1', '--without-analysis', '--json'], env);
   assert.equal(r.code, 0, r.err);
   assert.deepEqual(JSON.parse(readFileSync(join(r.json().worktree, '.sf', 'config.json'), 'utf8')), { 'target-org': 'Acme Dev' });
   assert.match(readFileSync(r.json().packetPath, 'utf8'), /validate, never deploy/);

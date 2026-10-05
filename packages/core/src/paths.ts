@@ -12,6 +12,8 @@ export interface RepoPaths {
   lock: string;
   receipts: string;
   reviews: string;
+  /** What each task's analysis found (D-052). */
+  analyses: string;
   packets: string;
   logs: string;
   config: string;
@@ -34,6 +36,7 @@ export function repoPaths(cwd: string, run: Runner): RepoPaths {
     lock: join(stateDir, 'ledger.lock'),
     receipts: join(stateDir, 'receipts'),
     reviews: join(stateDir, 'reviews'),
+    analyses: join(stateDir, 'analyses'),
     packets: join(stateDir, 'packets'),
     logs: join(stateDir, 'logs'),
     config: join(root, '.acc', 'config.json'),

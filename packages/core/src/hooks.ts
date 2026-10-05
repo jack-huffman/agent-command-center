@@ -11,6 +11,7 @@ import type { Runner } from './exec.ts';
 import { readList } from './gates.ts';
 import { mutate, readLedger, type Task } from './ledger.ts';
 import { repoPaths } from './paths.ts';
+import { ANALYST_COMMANDS } from './analyze.ts';
 
 /** The repo folder with .acc/config.json at or above `cwd`, found without running git. */
 export function findAccRoot(cwd: string): string | null {
@@ -118,7 +119,7 @@ export function commandsOf(line: string): string[][] {
 }
 
 const CLOSING = /\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\b[\s:]+(#\d+|[A-Z][A-Z0-9_]*-\d+|https?:\/\/)/i;
-const PERSON_ONLY_ACC = new Set(['set', 'dispatch', 'land', 'review', 'promote', 'deploy', 'init', 'cleanup', 'agents', 'setup']);
+const PERSON_ONLY_ACC = new Set(['set', 'dispatch', 'land', 'review', 'analyze', 'promote', 'deploy', 'init', 'cleanup', 'agents', 'setup']);
 
 /** Why a builder may not run this, or null. Belt and braces with the builder's deny list (D-012). */
 export function guardBash(b: Builder, line: string): string | null {
@@ -149,6 +150,23 @@ export function guardBash(b: Builder, line: string): string | null {
   return null;
 }
 
+/**
+ * Why the analyst may not run this, or null (D-052). It reads, and only reads: the commands acc allows it,
+ * each checked word by word, so `sf data query … && sf data delete …` stops at the second.
+ */
+export function guardAnalyst(line: string): string | null {
+  const allowed = [...ANALYST_COMMANDS.any, ...ANALYST_COMMANDS.salesforce].map((c) => c.split(' '));
+  for (const w of commandsOf(line)) {
+    if (!allowed.some((a) => a.every((word, i) => w[i] === word))) {
+      return `The analyst only reads: ${w.slice(0, 3).join(' ')} isn't one of its commands. Use git log, show, diff or grep, or the read-only sf commands (org display, data query, sobject describe, org list metadata, limits, project retrieve start).`;
+    }
+    if (w[0] === 'sf' && w[1] === 'project' && w.includes('--output-dir') && w.some((x) => x.startsWith('/') || x.startsWith('..'))) {
+      return 'Retrieve into your working folder, the scratch project, without --output-dir.';
+    }
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------- the events
 
 export interface EventInput {
@@ -165,6 +183,15 @@ const deny = (reason: string) => ({ hookSpecificOutput: { hookEventName: 'PreToo
 
 /** PreToolUse: a builder's edit or command that breaks a rule is refused, with what to do instead. */
 export function preToolUseHook(input: EventInput, ctx: HookContext): Record<string, unknown> | null {
+  if (ctx.env.ACC_ROLE === 'analyst') {
+    const tool = input.tool_name ?? '';
+    if (['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(tool)) return deny('The analyst changes nothing. Put what you would change in the approach.');
+    if (tool === 'Bash') {
+      const reason = guardAnalyst(String(input.tool_input?.command ?? ''));
+      return reason ? deny(reason) : null;
+    }
+    return null;
+  }
   const b = builderFor(ctx);
   if (!b) return null;
   const tool = input.tool_name ?? '';

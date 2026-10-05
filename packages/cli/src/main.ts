@@ -7,6 +7,7 @@ import {
   cleanup, dispatch, githubIdentity, intakeGithub, planInit, useGithubAccount, withCloneAccount, type Profile, readLedger, receiptsAt, STEPS, receiptHooks, repoPaths, run, runGates, runSteps, satisfies, type State, type StepResult, type TaskInput, type UpsertResult,
   upsertTasks, writeConfig, ask, hookOutput, parseHookInput, waiveGates, review, land, sync, planPromotion, promote, skipWarning, planDeploy, deploy, lastDeploy,
   buildBaseline, seedBranches, draftLists, writeReadme, parseEventInput, preToolUseHook, sessionStartHook, stopHook, AGENT_ROLES, type AgentRole, profileView, setProfile, withCloneAgents, type ProfileChange,
+  analyze, type Analysis, answerAnalysis, openQuestions, readAnalysis,
 } from '../../core/src/index.ts';
 import { checkLabel, gateLabel, stateLabel, table, tone } from './format.ts';
 
@@ -40,7 +41,8 @@ Tasks
   acc set <id> <state> [--reason <text>] [--force] [--as <actor>] [--by <name>]
 
 Agents
-  acc dispatch <id> [--foreground]      Worktree, setup, instructions, and a background builder session
+  acc dispatch <id> [--foreground] [--without-analysis]
+                                        Worktree, setup, instructions, and a background builder session
   acc done [<id>]                       A builder's finish line: moves its task to review
   acc block [<id>] "<reason>"           A builder's way out when stuck
   acc cleanup <id>                      Remove a finished task's worktree, only if nothing would be lost
@@ -48,6 +50,10 @@ Agents
   acc agents set <builder|reviewer> [--model <m>] [--effort <low|medium|high|xhigh|max>] [--fallback-model <m>]
                 [--clear <model|effort|fallback-model>]... [--project]
                                         Change them for this clone, or with --project in .acc/config.json
+  acc analyze <id>                      Before the build: a read-only analyst works out the requirements, what's
+                                        there now (the code, and on Salesforce the orgs), the approach, and questions
+  acc analysis <id>                     What the task's analysis found
+  acc analysis answer <id> <q> "<text>" Answer one of its questions; when the last is answered, it's ready to build
   acc review <id>                       A read-only reviewer agent judges the task's latest commit:
                                         pass, or changes (back to rework, with its findings)
   acc land <id>                         Push a reviewed task's branch and open its pull request; never merges
@@ -326,6 +332,56 @@ function cmdReview(o: Opts, id: string): number {
   return v.verdict === 'pass' ? 0 : 1;
 }
 
+/** An analysis as a person reads it: the gist, the questions, then what it found and how to build it. */
+function analysisLines(a: Analysis): string[] {
+  const head = a.verdict === 'ready' ? tone(`✓ Ready to build: ${a.summary}`, 'blue')
+    : a.verdict === 'split' ? tone(`! Too big for one task: ${a.summary}`, 'orange')
+    : tone(`? ${openQuestions(a).length} question${openQuestions(a).length === 1 ? '' : 's'} for you: ${a.summary}`, 'orange');
+  const list = (title: string, xs: string[]) => (xs.length ? ['', title, ...xs.map((x) => `  - ${x}`)] : []);
+  return [
+    head,
+    ...(a.questions.length ? ['', 'Questions', ...a.questions.map((q) => `  ${q.id}. ${q.question}${q.answer ? tone(`  → ${q.answer.text}`, 'blue') : tone(`  (suggested: ${q.suggested})`, 'dim')}`)] : []),
+    ...list('Acceptance criteria', a.requirements.criteria),
+    ...list('What is there now', a.findings.map((f) => `${f.area}: ${f.detail}${f.source ? tone(`  ${f.source}`, 'dim') : ''}`)),
+    ...list('Approach', a.approach.plan),
+    ...list('Refactors first', a.approach.refactors.map((r) => `${r.what}: ${r.why}`)),
+    ...list('Risks', a.approach.risks),
+    ...list('Tests', a.approach.tests),
+    ...(a.split.length ? list('Split into', a.split) : []),
+    '',
+    tone(`Size ${a.approach.size}. ${a.orgs.length ? `Read ${a.orgs.join(', ')}. ` : ''}Session ${a.sessionId}.`, 'dim'),
+  ];
+}
+
+function cmdAnalyze(o: Opts, id: string): number {
+  const by = personOnly(o, 'analyze a task');
+  const { paths, config } = project(process.cwd());
+  const say = (line: string) => { if (!o.json) process.stderr.write(line + '\n'); };
+  const a = analyze(paths, config, id.toUpperCase(), {
+    run, now, env: process.env, accCommand: accCommand(),
+    onStart: (session) => say(tone(`Analyzing ${id.toUpperCase()}. The analyst reads the ticket${config.profile === 'salesforce' ? ', the code and the orgs' : ' and the code'}, and changes nothing. Session ${session}.`, 'dim')),
+  }, { by: `analyst:${id.toUpperCase()} for ${by}` });
+  out(o, () => analysisLines(a).join('\n'), a);
+  return a.verdict === 'ready' ? 0 : 1;
+}
+
+function cmdShowAnalysis(o: Opts, id: string): number {
+  const { paths } = project(process.cwd());
+  const a = readAnalysis(paths, id.toUpperCase());
+  if (!a) throw new AccError('no-analysis', `${id.toUpperCase()} hasn't been analyzed yet: acc analyze ${id.toUpperCase()}.`);
+  out(o, () => analysisLines(a).join('\n'), a);
+  return 0;
+}
+
+function cmdAnswerAnalysis(o: Opts, id: string, q: string, text: string): number {
+  const by = personOnly(o, 'answer an analysis\'s questions');
+  const { paths } = project(process.cwd());
+  const a = answerAnalysis(paths, id.toUpperCase(), q, text, by, now);
+  const open = openQuestions(a);
+  out(o, () => (open.length ? `Answered. ${open.length} to go: ${open.map((x) => x.id).join(', ')}.` : tone(`Answered. ${a.task} is ready to build: acc dispatch ${a.task}.`, 'blue')), a);
+  return 0;
+}
+
 function cmdLand(o: Opts, id: string): number {
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
@@ -470,7 +526,7 @@ function cmdDispatch(o: Opts, id: string): number {
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
   if (o.foreground && !o.json) process.stdout.write(`Starting ${id.toUpperCase()} in this terminal. Leave the session when it's done.\n`);
-  const r = dispatch(paths, config, id.toUpperCase(), { run, now, accBinDir: accBinDir(), accCommand: accCommand(), env: process.env }, { actor, by, foreground: o.foreground === true });
+  const r = dispatch(paths, config, id.toUpperCase(), { run, now, accBinDir: accBinDir(), accCommand: accCommand(), env: process.env }, { actor, by, foreground: o.foreground === true, withoutAnalysis: o['without-analysis'] === true });
   out(o, () => [
     `${r.task.id} → ${stateLabel('running')}`,
     `  worktree: ${r.worktree}${r.reused ? ' (reused)' : ''}`,
@@ -715,6 +771,7 @@ export async function main(argv: string[]): Promise<number> {
       by: { type: 'string' },
       label: { type: 'string' },
       foreground: { type: 'boolean', default: false },
+      'without-analysis': { type: 'boolean', default: false },
       test: { type: 'string', multiple: true },
       task: { type: 'string' },
       manifest: { type: 'string' },
@@ -769,6 +826,18 @@ export async function main(argv: string[]): Promise<number> {
       const reason = (o.reason as string | undefined) ?? (looksLikeId ? more : rest).join(' ').trim();
       if (!reason) throw new AccError('usage', 'acc block "<what you need>"');
       return cmdSet({ ...o, reason }, id, 'blocked');
+    }
+    case 'analyze': {
+      if (!rest[0]) throw new AccError('usage', 'acc analyze <id>');
+      return cmdAnalyze(o, rest[0]);
+    }
+    case 'analysis': {
+      if (rest[0] === 'answer') {
+        if (!rest[1] || !rest[2] || !rest[3]) throw new AccError('usage', 'acc analysis answer <id> <q> "<answer>"');
+        return cmdAnswerAnalysis(o, rest[1], rest[2], rest.slice(3).join(' '));
+      }
+      if (!rest[0]) throw new AccError('usage', 'acc analysis <id>');
+      return cmdShowAnalysis(o, rest[0]);
     }
     case 'review': {
       if (!rest[0]) throw new AccError('usage', 'acc review <id>');

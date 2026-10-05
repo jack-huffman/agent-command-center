@@ -13,6 +13,7 @@ export * from './init.ts';
 export * from './github.ts';
 export * from './questions.ts';
 export * from './review.ts';
+export * from './analyze.ts';
 export * from './land.ts';
 export * from './sync.ts';
 export * from './promote.ts';

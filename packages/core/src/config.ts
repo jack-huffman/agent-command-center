@@ -80,11 +80,13 @@ export interface Config {
   /** heavy: gates that take the machine-wide slot (D-024). severity: Code Analyzer's failing level, 1 to 5. */
   gates: { required: string[]; commands: Record<string, string>; heavy: string[]; severity: number };
   secretScan: { paths: string[]; exclude: string[] };
+  /** Whether a task needs an analysis before it's built (D-052). Salesforce projects do unless they say not. */
+  analysis?: { required: boolean };
 }
 
 const TOP_KEYS = new Set([
   'schema', 'project', 'profile', 'github', 'commitIdentity', 'environments', 'environmentSpecific',
-  'knownDrift', 'trackers', 'agents', 'autonomy', 'worktrees', 'gates', 'secretScan',
+  'knownDrift', 'trackers', 'agents', 'autonomy', 'worktrees', 'gates', 'secretScan', 'analysis',
 ]);
 
 /** Gates that take the machine-wide slot unless `gates.heavy` says otherwise (D-024). */
@@ -243,6 +245,10 @@ export function parseConfig(raw: unknown): ParseResult {
   if (s.exclude !== undefined && !strList(s.exclude)) errors.push('"secretScan.exclude" must be a list.');
   const defaultScan = profile === 'salesforce' ? ['force-app', 'config', 'scripts'] : ['.'];
 
+  const an = isObj(raw.analysis) ? raw.analysis : {};
+  if (raw.analysis !== undefined && !isObj(raw.analysis)) errors.push('"analysis" must be an object, such as { "required": true }.');
+  if (an.required !== undefined && typeof an.required !== 'boolean') errors.push('"analysis.required" must be true or false.');
+
   if (errors.length) return { config: null, errors, warnings };
   return {
     config: {
@@ -268,6 +274,7 @@ export function parseConfig(raw: unknown): ParseResult {
         paths: strList(s.paths) ? s.paths : defaultScan,
         exclude: strList(s.exclude) ? s.exclude : [],
       },
+      ...(typeof an.required === 'boolean' ? { analysis: { required: an.required } } : {}),
     },
     errors,
     warnings,
