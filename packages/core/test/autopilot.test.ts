@@ -154,6 +154,26 @@ test('in review and passed: land when there\'s no pull request, or it\'s behind 
   assert.deepEqual(decide(l, 'T-1', facts({ verdict: 'pass' })), [null, 'skipped']);
 });
 
+test('in review, passed and landed: an open pull request that conflicts with its base is refreshed, once a commit (D-???)', () => {
+  const l = ledgerOf({ id: 'T-1', state: 'review' });
+  l.tasks[0]!.pr = pr({ sha: HEAD, conflicts: ['docs/DECISIONS.md'] });
+  assert.deepEqual(decide(l, 'T-1', facts({ verdict: 'pass', landed: HEAD })), ['refresh', null]);
+  assert.equal(nextStep(l, RULES_CONFIG, l.tasks[0]!, facts({ verdict: 'pass', landed: HEAD })).reason, 'Pull request #7 conflicts with main in docs/DECISIONS.md.');
+  assert.deepEqual(decide(l, 'T-1', facts({ verdict: 'pass', landed: OLDER })), ['land', null], 'behind its branch: the land comes first, and finds out again');
+  assert.deepEqual(decide(l, 'T-1', facts()), ['review', null], 'a new commit nothing has reviewed');
+  assert.deepEqual(decide(l, 'T-1', facts({ verdict: 'changes', landed: HEAD })), [null, 'waiting']);
+
+  l.tasks[0]!.autopilot = { failed: { step: 'refresh', sha: HEAD, state: 'review', reason: 'Conflicts with main that autopilot can\'t resolve: sum.js', at: now().toISOString() } };
+  assert.deepEqual(decide(l, 'T-1', facts({ verdict: 'pass', landed: HEAD })), [null, 'waiting']);
+  assert.match(nextStep(l, RULES_CONFIG, l.tasks[0]!, facts({ verdict: 'pass', landed: HEAD })).reason, /^Autopilot couldn't update aaaaaaa from its base: Conflicts with main that autopilot can't resolve: sum\.js\. It waits for a person, or a new commit\.$/);
+  // The base moving again doesn't count: only a new commit on the branch lets it try again.
+  assert.deepEqual(decide(l, 'T-1', facts({ head: OLDER, verdict: 'pass', landed: OLDER })), ['refresh', null], 'a new commit');
+
+  l.tasks[0]!.pr = pr({ sha: HEAD, conflicts: [] });
+  l.tasks[0]!.autopilot = undefined;
+  assert.deepEqual(decide(l, 'T-1', facts({ verdict: 'pass', landed: HEAD })), [null, 'skipped'], 'merges cleanly: up to date');
+});
+
 test('in rework: re-dispatch once as autopilot; a second rework waits for a person, as does a full agent cap', () => {
   const l = ledgerOf({ id: 'T-1', state: 'rework' }, { id: 'T-2', state: 'running' });
   assert.deepEqual(decide(l, 'T-1', facts()), ['dispatch', null]);

@@ -220,7 +220,7 @@ export interface TaskRow {
   /** The project wants an analysis before a task is built (D-052). */
   analysisRequired?: boolean;
   /** A step autopilot couldn't take in the task's current state, and why: the task needs you (D-055). */
-  autopilot?: { step: 'review' | 'land' | 'dispatch'; reason: string } | null;
+  autopilot?: { step: 'review' | 'land' | 'dispatch' | 'refresh'; reason: string } | null;
 }
 
 /** One of an analysis's questions a person hasn't answered: what it asks, why it matters, and what the analyst would assume. */

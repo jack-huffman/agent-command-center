@@ -316,4 +316,9 @@ test('a task autopilot couldn\'t move on shows as needs you, and acc show says w
   assert.match(acc(dir, ['show', 'T-1']).out, /T-1 {2}! Needs you {2}Add a sum function\n[\s\S]*! Autopilot couldn't land abcdef0: git push refused task\/T-1-add-a-sum-function: rejected/);
   assert.equal(acc(dir, ['list', '--json']).json()[0].display, 'needs-you');
   assert.match(acc(dir, ['status']).out, /1 needs you/);
+
+  // A pull request it couldn't update from its base (D-???), in words.
+  l.tasks[0].autopilot.failed = { ...l.tasks[0].autopilot.failed, step: 'refresh', reason: 'Conflicts with main that autopilot can\'t resolve: sum.js. The branch is as it was, at abcdef0, and nothing was pushed.' };
+  writeFileSync(file, JSON.stringify(l));
+  assert.match(acc(dir, ['show', 'T-1']).out, /! Autopilot couldn't update abcdef0 from its base: Conflicts with main that autopilot can't resolve: sum\.js\./);
 });

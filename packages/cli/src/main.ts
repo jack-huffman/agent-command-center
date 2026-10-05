@@ -60,7 +60,8 @@ Agents
   acc land <id>                         Push a reviewed task's branch and open its pull request; never merges
   acc autopilot [--once | --every <seconds>]
                                         With "autonomy": "review", take each task's next step on its own: review it,
-                                        land it, or re-dispatch a rework once. Never merges. One pass, or one every
+                                        land it, re-dispatch a rework once, or merge the base into a pull request
+                                        that conflicts with it. Never merges a pull request. One pass, or one every
                                         <seconds> (at least 30) until stopped; --json then prints a line a pass
   acc sync                              Follow open pull requests: merged → done, closed → blocked, failing checks or conflicts → needs you
 
@@ -403,15 +404,20 @@ function cmdLand(o: Opts, id: string): number {
   return 0;
 }
 
-const STEP_WORD: Record<AutopilotStepName, string> = { review: 'review', land: 'land', dispatch: 're-dispatch' };
+const STEP_WORD: Record<AutopilotStepName, string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update' };
+
+/** A step autopilot couldn't take, in words: "land abc1234", "update abc1234 from its base". */
+const stepWords = (step: AutopilotStepName, sha: string): string => {
+  const what = [STEP_WORD[step], sha.slice(0, 7)].filter(Boolean).join(' ');
+  return step === 'refresh' ? `${what} from its base` : what;
+};
 
 /** One autopilot pass, as a person reads it: what it did, what failed, what waits, and comments to post. */
 function autopilotLines(r: AutopilotResult): string[] {
   const lines: string[] = [];
   for (const s of r.steps) {
-    const at = s.sha ? ` ${s.sha.slice(0, 7)}` : '';
     if (s.outcome === 'done') lines.push(`${tone(`✓ ${s.task}  ${s.reason}`, 'blue')}${s.pr ? `  ${s.pr.url}` : ''}`);
-    else if (s.outcome === 'failed') lines.push(tone(`! ${s.task}  Couldn't ${STEP_WORD[s.step!]}${at}: ${s.reason}`, 'orange'), tone('    It isn\'t tried again on this commit. Do it by hand, or a new commit lets autopilot try again.', 'dim'));
+    else if (s.outcome === 'failed') lines.push(tone(`! ${s.task}  Couldn't ${stepWords(s.step!, s.sha ?? '')}: ${s.reason}`, 'orange'), tone('    It isn\'t tried again on this commit. Do it by hand, or a new commit lets autopilot try again.', 'dim'));
     else if (s.outcome === 'waiting') lines.push(tone(`… ${s.task}  Waiting: ${s.reason}`, 'dim'));
     if (s.commentUnconfirmed) lines.push(tone(`! The comment on ${s.task}'s issue isn't confirmed: ${s.commentUnconfirmed.replace(/([^.!?])$/, '$1.')} Look at the issue before you post it again.`, 'orange'));
   }
@@ -446,13 +452,14 @@ function cmdAutopilot(o: Opts): number {
   }
   if (!start.config.github) throw new AccError('no-github', 'Autopilot lands reviewed work as pull requests on GitHub, and this project has no "github" section in .acc/config.json.');
   const say = (line: string) => { if (!o.json) process.stderr.write(tone(line, 'dim') + '\n'); };
-  const doing = { review: 'Reviewing', land: 'Landing', dispatch: 'Re-dispatching' };
+  const doing = { review: 'Reviewing', land: 'Landing', dispatch: 'Re-dispatching', refresh: 'Updating' };
+  const after = { review: '. The reviewer reads and changes nothing.', land: '', dispatch: '', refresh: ' from its base, then running its checks.' };
   return holdAutopilot(paths, () => {
     let config = start.config;
     for (;;) {
       const r = autopilotPass(paths, config, {
         run, now, env: process.env, accBinDir: accBinDir(), accCommand: accCommand(),
-        onStep: (task, step, sha) => say(`… ${doing[step]} ${task}${sha ? ` at ${sha.slice(0, 7)}` : ''}${step === 'review' ? '. The reviewer reads and changes nothing.' : ''}`),
+        onStep: (task, step, sha) => say(`… ${doing[step]} ${task}${sha ? ` at ${sha.slice(0, 7)}` : ''}${after[step]}`),
       });
       const data = { autonomy: mode.autonomy, warnings: mode.warnings, steps: r.steps, pendingComments: r.pendingComments };
       if (!every) {
@@ -661,7 +668,7 @@ function cmdShow(o: Opts, id: string): number {
     `Environment: ${t.environment}   Source: ${t.source.kind}${t.source.url ? ` ${t.source.url}` : ''}`,
     t.deps.length ? `Depends on: ${t.deps.join(', ')}` : '',
     t.blocker ? `Blocked: ${t.blocker}` : '',
-    failed ? tone(`! Autopilot couldn't ${STEP_WORD[failed.step]} ${failed.sha.slice(0, 7) || 'it'}: ${failed.reason}`, 'orange') : '',
+    failed ? tone(`! Autopilot couldn't ${stepWords(failed.step, failed.sha || 'it')}: ${failed.reason}`, 'orange') : '',
     t.brief ? `\n${t.brief}\n` : '',
     'History:',
     ...t.history.map((h) => `  ${h.at}  ${h.from ?? '–'} → ${h.to}  by ${h.by}${h.reason ? `: ${h.reason}` : ''}${h.override ? ' (override)' : ''}`),

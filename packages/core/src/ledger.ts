@@ -55,7 +55,7 @@ export interface PullRequest {
   sha?: string;
 }
 
-export const AUTOPILOT_STEPS = ['review', 'land', 'dispatch'] as const;
+export const AUTOPILOT_STEPS = ['review', 'land', 'dispatch', 'refresh'] as const;
 export type AutopilotStepName = (typeof AUTOPILOT_STEPS)[number];
 
 /** A step autopilot took that failed: it isn't tried again on that commit, and the task needs you (D-055). */
