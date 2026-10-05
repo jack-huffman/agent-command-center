@@ -314,6 +314,27 @@ body[data-view="ticket"] { padding-top: 18px; }
 .comment-box { width: 100%; resize: vertical; min-height: 80px; border: 0; padding: 8px 10px; font: inherit; color: var(--vscode-input-foreground); background: transparent; outline: none; }
 .composer-bar { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-top: 1px solid var(--line); }
 .history { list-style: none; margin: 0; padding: 0; }
+/* The ticket's activity as a feed: a rail of icons, newest first, a heading per day. */
+.activity > .composer { margin-bottom: 6px; }
+.act-feed { list-style: none; margin: 4px 0 0; padding: 0; position: relative; }
+.act-feed::before { content: ''; position: absolute; left: 13px; top: 14px; bottom: 14px; border-left: 2px solid var(--line); }
+.act-day { position: relative; margin: 14px 0 4px 38px; font-size: 0.8em; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--vscode-descriptionForeground); }
+.act-day:first-child { margin-top: 2px; }
+.act-item { position: relative; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px; padding: 5px 0; }
+.act-icon { position: relative; z-index: 1; width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--bg, var(--vscode-editor-background)); border: 1px solid var(--line); color: var(--vscode-descriptionForeground); }
+.act-icon.tone-blue { border-color: var(--blue); color: var(--blue); }
+.act-icon.tone-orange { border-color: var(--orange); color: var(--orange); }
+.act-icon .codicon { font-size: 14px; }
+.act-avatar { border: 0; background: none; }
+.act-avatar .avatar { width: 28px; height: 28px; font-size: 10.5px; }
+.act-body { min-width: 0; }
+.act-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-height: 28px; }
+.act-line .status { font-weight: 600; }
+.act-reason { margin: 0 0 2px; padding: 6px 10px; border-left: 2px solid var(--line); color: var(--vscode-descriptionForeground); white-space: pre-wrap; overflow-wrap: anywhere; cursor: pointer; }
+.act-reason.clamped { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.act-reason:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
+.act-comment { margin: 4px 0 2px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); }
+.act-more { margin: 4px 0 0 38px; }
 .history li { padding: 4px 0; display: flex; gap: 6px; flex-wrap: wrap; align-items: baseline; }
 
 /* Rich text from a ticket, drawn from a Doc: never markup from the ticket itself. */

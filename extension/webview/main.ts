@@ -537,34 +537,8 @@ function renderTicket(m: TicketModel): Node[] {
       return el('li', '', el('span', 'muted rel', r.relation), name, r.title ? el('span', '', r.title) : null);
     }))));
   }
-  const activity = el('section', 'block activity', el('h2', '', 'Activity'));
-  if (m.can.comment || m.comments.length) {
-    activity.append(el('h3', '', `Comments (${m.comments.length})`));
-    if (!m.comments.length) activity.append(el('p', 'muted', 'No comments yet.'));
-    for (const c of m.comments) {
-      activity.append(el('article', 'comment', avatar(c.author), el('div', 'comment-body',
-        el('div', 'comment-head', el('strong', '', c.author.name), when(c.created), c.url ? linkTo(c.url, icon('link-external')) : null),
-        renderDoc(c.body, ''))));
-    }
-    if (m.can.comment) activity.append(composer(m));
-  }
-  if (m.acc?.history.length) {
-    // One plain line a move, newest first; each opens to its reason. Three, then Show all.
-    const key = `history:${m.project}#${m.key}`;
-    const all = memory().opened.includes(key);
-    const moves = all ? m.acc.history : m.acc.history.slice(0, 3);
-    const list = el('ol', 'history', ...moves.map((h) => {
-      const line = el('span', 'history-move', el('span', '', moveWords(h)), el('span', 'muted small', ' · '), when(h.at));
-      if (!h.reason) return el('li', '', line);
-      const d = el('details', 'move-details', el('summary', '', line), el('div', 'muted small move-reason', h.reason));
-      return el('li', '', d);
-    }));
-    activity.append(el('h3', '', 'History'), list);
-    if (m.acc.history.length > 3) {
-      activity.append(button(all ? 'Show fewer' : `Show all ${m.acc.history.length}`, all ? 'chevron-up' : 'chevron-down', () => { remember((x) => { x.opened = all ? x.opened.filter((y) => y !== key) : [...x.opened, key]; }); if (last) render(last); }, 'ghost small'));
-    }
-  }
-  if (activity.childElementCount > 1) main.append(activity);
+  const activity = renderActivity(m);
+  if (activity) main.append(activity);
 
   // The side column: the ticket's fields, then acc's side of it.
   const people = (list: PersonChip[]) => (list.length ? el('span', 'people', ...list.map((p) => el('span', 'person', avatar(p), p.name))) : el('span', 'muted', 'Unassigned'));
@@ -695,6 +669,92 @@ function renderAnalysis(m: TicketModel, a: TicketAnalysis): HTMLElement {
   return sec;
 }
 
+/** How each state reads in the feed: its word, its icon, and orange or blue (never red against green). */
+const STATE_LOOK: Record<string, Look> = {
+  todo: { label: 'To do', icon: 'circle-outline', tone: 'neutral' },
+  running: { label: 'Running', icon: 'sync', tone: 'blue' },
+  review: { label: 'In review', icon: 'eye', tone: 'blue' },
+  rework: { label: 'Rework', icon: 'debug-restart', tone: 'orange' },
+  blocked: { label: 'Blocked', icon: 'circle-slash', tone: 'orange' },
+  done: { label: 'Done', icon: 'check', tone: 'blue' },
+};
+
+/** What a move did, as the feed's icon and verb: the state it reached shows as a pill after the verb. */
+function moveFeed(h: { from: string | null; to: string; by: string }): { icon: string; tone: Look['tone']; verb: string; pill: boolean } {
+  const sync = /^sync|^acc sync/.test(h.by);
+  if (!h.from) return { icon: 'add', tone: 'neutral', verb: 'added it', pill: false };
+  if (h.to === 'running') return h.from === 'rework' ? { icon: 'debug-restart', tone: 'blue', verb: 'sent it back to its agent', pill: false } : { icon: 'rocket', tone: 'blue', verb: 'started its agent', pill: false };
+  if (h.to === 'rework') return { icon: 'request-changes', tone: 'orange', verb: 'asked for changes', pill: false };
+  if (h.to === 'blocked') return { icon: 'circle-slash', tone: 'orange', verb: 'blocked it', pill: false };
+  if (h.to === 'done') return { icon: sync ? 'git-merge' : 'check', tone: 'blue', verb: sync ? 'merged its pull request:' : 'moved it to', pill: true };
+  const look = STATE_LOOK[h.to];
+  return { icon: look?.icon ?? 'arrow-right', tone: look?.tone ?? 'neutral', verb: 'moved it to', pill: true };
+}
+
+/** "Today", "Yesterday", or the date: the feed's day headings. */
+function dayLabel(iso: string): string {
+  const d = new Date(iso);
+  const start = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((start(new Date()) - start(d)) / 86_400_000);
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', ...(d.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}) });
+}
+
+/** One entry in the feed: its icon on the rail, a line saying who did what, and what came with it. */
+function feedItem(bubble: HTMLElement, line: Child[], extra: HTMLElement | null = null): HTMLElement {
+  return el('li', 'act-item', bubble, el('div', 'act-body', el('div', 'act-line', ...line), extra));
+}
+
+const FEED_FIRST = 6;
+
+/**
+ * The ticket's activity as one feed, newest first: comments and acc's moves together, each with an
+ * icon, who did it, and the state it reached; a move's reason shows under it, two lines until clicked.
+ */
+function renderActivity(m: TicketModel): HTMLElement | null {
+  const items: { at: string; node: HTMLElement }[] = [];
+  for (const c of m.comments) {
+    items.push({ at: c.created, node: feedItem(el('span', 'act-icon act-avatar', avatar(c.author)),
+      [el('strong', '', c.author.name), el('span', 'muted', 'commented'), el('span', 'muted', '·'), when(c.created), c.url ? linkTo(c.url, icon('link-external')) : null],
+      el('div', 'act-comment', renderDoc(c.body, ''))) });
+  }
+  for (const h of m.acc?.history ?? []) {
+    const f = moveFeed(h);
+    const look = STATE_LOOK[h.to];
+    let reason: HTMLElement | null = null;
+    if (h.reason) {
+      reason = el('p', 'act-reason clamped', h.reason);
+      reason.tabIndex = 0;
+      reason.title = 'Show all';
+      const toggle = () => { reason!.classList.toggle('clamped'); };
+      reason.addEventListener('click', toggle);
+      reason.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+    }
+    items.push({ at: h.at, node: feedItem(el('span', `act-icon tone-${f.tone}`, icon(f.icon, f.tone)),
+      [el('strong', '', whoMoved(h.by)), el('span', '', f.verb), f.pill && look ? status(look) : null, el('span', 'muted', '·'), when(h.at)], reason) });
+  }
+  if (!items.length && !m.can.comment) return null;
+  const section = el('section', 'block activity', el('h2', '', 'Activity'));
+  if (m.can.comment) section.append(composer(m));
+  if (!items.length) { section.append(el('p', 'muted', 'Nothing yet.')); return section; }
+  items.sort((a, b) => b.at.localeCompare(a.at));
+  const key = `history:${m.project}#${m.key}`;
+  const all = memory().opened.includes(key);
+  const list = el('ol', 'act-feed');
+  let day = '';
+  for (const it of all ? items : items.slice(0, FEED_FIRST)) {
+    const d = dayLabel(it.at);
+    if (d !== day) { list.append(el('li', 'act-day', d)); day = d; }
+    list.append(it.node);
+  }
+  section.append(list);
+  if (items.length > FEED_FIRST) {
+    section.append(button(all ? 'Show fewer' : `Show all ${items.length}`, all ? 'chevron-up' : 'chevron-down', () => { remember((x) => { x.opened = all ? x.opened.filter((y) => y !== key) : [...x.opened, key]; }); if (last) render(last); }, 'ghost small act-more'));
+  }
+  return section;
+}
+
 const STATE_WORD: Record<string, string> = { todo: 'To do', running: 'Running', review: 'In review', rework: 'Rework', blocked: 'Blocked', done: 'Done' };
 
 /** Who made a move, in plain words: its agent, the reviewer, GitHub, or a person's name. */
@@ -703,18 +763,6 @@ function whoMoved(by: string): string {
   if (/^reviewer:/.test(by)) return 'The reviewer';
   if (by === 'acc sync' || /^sync/.test(by)) return 'GitHub';
   return by.replace(/^human:/, '').replace(/^orchestrator.*/, 'acc');
-}
-
-/** A move as a sentence: "Its agent blocked it", "jordan moved it to In review". */
-function moveWords(h: { from: string | null; to: string; by: string }): string {
-  const who = whoMoved(h.by);
-  if (!h.from) return `${who} added it`;
-  if (h.to === 'blocked') return `${who} blocked it`;
-  if (h.to === 'running') return h.from === 'rework' ? `${who} sent it back to its agent` : `${who} started its agent`;
-  if (h.to === 'review') return `${who} moved it to In review`;
-  if (h.to === 'rework') return `${who} asked for changes`;
-  if (h.to === 'done') return `${who} marked it done`;
-  return `${who} moved it to ${STATE_WORD[h.to] ?? h.to}`;
 }
 
 /**
