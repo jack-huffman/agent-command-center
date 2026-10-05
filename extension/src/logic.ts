@@ -680,3 +680,49 @@ export function autopilotStatus(s: AutopilotStatusInput): { text: string; toolti
   if (s.state === 'refused') return { text: `$(circle-slash) Autopilot: off${name}`, tooltip: `Autopilot can't run for ${s.project}: ${s.refusal ?? 'acc refused it.'}` };
   return { text: `$(debug-pause) Autopilot: off${name}`, tooltip: `Autopilot is off for ${s.project}. When it's on, ${AUTOPILOT_DOES}\n\nClick to turn it on until VSCode closes.` };
 }
+
+// ---------------------------------------------------------------- one status bar item (D-065)
+
+export interface StatusParts {
+  rows: Pick<TaskRow, 'id' | 'title' | 'display'>[];
+  needsYou: number;
+  /** A command acc runs for you that waits on an answer: its label. */
+  asking: string | null;
+  /** Commands acc runs for you, by label; autopilot's own isn't one. */
+  running: string[];
+  /** Setup is being checked right now. */
+  checking: boolean;
+  setup: { done: number; total: number; todo: number } | null;
+  autopilot: { project: string; state: 'on' | 'off' | 'elsewhere' | 'refused' }[];
+  /** The repo's GitHub account, and whether it's the right one. */
+  account: { name: string; ok: boolean } | null;
+}
+
+const AUTOPILOT_WORDS = { on: 'on here', off: 'off', elsewhere: 'on in another window', refused: 'can\'t run' } as const;
+
+/**
+ * All of acc in one status bar item (D-065): what needs you first, else what's running and in review,
+ * else setup left to do. A robot when autopilot is on here, and a spinner while acc is busy. The tooltip
+ * says the rest; the item hides when there's nothing to say.
+ */
+export function combinedStatus(p: StatusParts): { text: string; tooltip: string[]; attention: boolean } {
+  const tasks = statusSummary(p.rows, p.needsYou);
+  const auto = p.autopilot.some((a) => a.state === 'on');
+  const busy = p.checking || p.running.length > 0;
+  let main = p.asking ? `$(bell) ${p.asking}: waiting for you` : tasks.text;
+  if (!main && p.setup?.todo) main = `$(checklist) Setup: ${p.setup.todo} to do`;
+  if (!main && busy) main = `$(sync~spin) ${p.running[0] ?? 'Checking setup'}`;
+  else if (main && busy) main += ' $(sync~spin)';
+  if (!main && auto) main = 'Autopilot on';
+  const text = main ? `${auto ? '$(hubot) ' : ''}${main}` : '';
+  const tooltip = [
+    ...(tasks.tooltip ? tasks.tooltip.split('\n').filter((l) => l && !/^Open the Command Center$/.test(l)) : []),
+    ...(p.asking ? [`$(bell) ${p.asking} is waiting for your answer`] : []),
+    ...p.running.map((r) => `$(sync~spin) Running for you: ${r}`),
+    ...p.autopilot.map((a) => `$(hubot) Autopilot ${AUTOPILOT_WORDS[a.state]}${p.autopilot.length > 1 ? `: ${a.project}` : ''}`),
+    ...(p.setup ? [`$(checklist) Setup: ${p.setup.done} of ${p.setup.total} done${p.checking ? ', checking now' : ''}`] : p.checking ? ['$(sync~spin) Checking setup'] : []),
+    ...(p.account ? [`${p.account.ok ? '$(github)' : '$(warning)'} GitHub: ${p.account.name}${p.account.ok ? '' : ', the wrong account'}`] : []),
+  ];
+  return { text, tooltip, attention: !!p.asking || p.needsYou > 0 || (p.account ? !p.account.ok : false) };
+}
+

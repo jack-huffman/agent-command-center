@@ -213,14 +213,28 @@ export function activate(context: vscode.ExtensionContext): void {
     runControl: (id, action) => runs.control(id, action),
   });
   context.subscriptions.push(panels, tickets);
-  const notices = new Notices(hub, resolve, () => panels.visible() && ['overview', 'tasks'].includes(panels.current()));
+  // All of acc in one status bar item (D-065): it asks each part where it is.
+  let autopilotRef: AutopilotHost | undefined;
+  const statusParts = () => {
+    const live = runs.live();
+    const look = setup.look();
+    return {
+      asking: live.find((r) => r.asking)?.label ?? null,
+      running: live.filter((r) => !r.asking).map((r) => r.label),
+      checking: look.checking,
+      setup: look.total ? { done: look.done, total: look.total, todo: look.todo } : null,
+      autopilot: (autopilotRef?.looks() ?? []).map(({ project, state }) => ({ project, state })),
+      account: identity.account(),
+    };
+  };
+  const notices = new Notices(hub, resolve, () => panels.visible() && ['overview', 'tasks'].includes(panels.current()), statusParts);
   context.subscriptions.push(notices);
   questions = new Questions(hub, setup.log,
     (card) => { if (!pages.open(card.session)) panels.show('overview'); },
     (card) => (panels.visible() && panels.current() === 'overview') || pages.showing(card.sessionId));
   context.subscriptions.push(questions);
 
-  runs.onDidChange(({ structural }) => (structural ? changed() : panels.postRuns()));
+  runs.onDidChange(({ structural }) => { if (structural) changed(); else { panels.postRuns(); notices.draw(); } });
   // The running item shows a command that isn't autopilot first, and so does this.
   const firstRun = () => { const v = runs.views(); return (v.find((r) => r.endedAt === null && !r.background) ?? v.find((r) => !r.background) ?? v[0])?.id; };
   const showRun = (id?: string) => { panels.show(); setTimeout(() => panels.postRuns(id ?? firstRun()), 300); };
@@ -233,6 +247,27 @@ export function activate(context: vscode.ExtensionContext): void {
   });
   // Autopilot, while it's switched on here (D-064). It ends with the window, as every run does.
   const autopilot = new AutopilotHost(hub, runs, accShellCommand(accScript), (id) => showRun(id));
+  autopilotRef = autopilot;
+  context.subscriptions.push(autopilot.onDidChange(() => notices.draw()));
+  // What a click on the one status bar item offers (D-065).
+  reg('acc.status.menu', async () => {
+    const look = setup.look();
+    const account = identity.account();
+    type Item = vscode.QuickPickItem & { go: () => unknown };
+    const items: Item[] = [
+      { label: '$(home) Open the Command Center', go: () => panels.show('overview') },
+      ...autopilot.looks().filter((a) => a.state !== 'refused').map((a): Item => ({
+        label: a.state === 'on' ? '$(hubot) Turn autopilot off' : '$(hubot) Turn autopilot on',
+        description: `${a.project}${a.state === 'elsewhere' ? ' · on in another window' : ''}`,
+        go: () => vscode.commands.executeCommand('acc.autopilot.toggle', a.key),
+      })),
+      ...(runs.live().length ? [{ label: '$(terminal) Show what\'s running', go: () => showRun() }] : []),
+      { label: '$(checklist) Setup', description: look.total ? `${look.done} of ${look.total} done${look.checking ? ', checking now' : ''}` : '', go: () => panels.show('setup') },
+      ...(account ? [{ label: account.ok ? '$(github) GitHub account' : '$(warning) GitHub account', description: account.name, go: () => vscode.commands.executeCommand('acc.github.switch') }] : []),
+    ];
+    const pick = await vscode.window.showQuickPick(items, { title: 'Agent Command Center' });
+    await pick?.go();
+  });
   context.subscriptions.push(autopilot);
   reg('acc.autopilot.toggle', (arg?: unknown) => autopilot.toggle(arg));
   reg('acc.autopilot.output', (arg?: unknown) => autopilot.showOutput(arg));

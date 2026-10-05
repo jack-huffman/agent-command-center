@@ -685,11 +685,13 @@ function isReady(ledger, task) {
   return task.state === "todo" && task.deps.every((d) => ledger.tasks.find((t) => t.id === d)?.state === "done");
 }
 var autopilotFailure = (task) => task.autopilot?.failed && task.autopilot.failed.state === task.state ? task.autopilot.failed : null;
+var closedPr = (task) => task.state === "review" && task.pr?.state === "closed" ? task.pr : null;
 function displayState(ledger, task, session) {
   if (task.state === "todo" && isReady(ledger, task)) return "ready";
   if (autopilotFailure(task)) return "needs-you";
   if (task.state === "running" && (session?.state === "blocked" || session?.status === "waiting")) return "needs-you";
   if (task.state === "review" && task.pr?.state === "open" && (task.pr.ci === "failing" || task.pr.changesRequested || !!task.pr.conflicts?.length)) return "needs-you";
+  if (closedPr(task)) return "needs-you";
   return task.state;
 }
 var DISPLAY = {
@@ -1778,6 +1780,34 @@ function setProfile(run2, root, configFile, role, change, scope) {
   else delete raw.agents[role];
   writeFileSync9(configFile, JSON.stringify(raw, null, 2) + "\n");
 }
+var SETTABLE_AUTONOMY = ["manual", "review"];
+function setAutonomy(configFile, value) {
+  if (value === "dispatch" || value === "full") {
+    throw new AccError("refused", `autonomy "${value}" isn't built yet: autopilot would also start Ready tasks (D-055). Choose manual or review.`);
+  }
+  if (!SETTABLE_AUTONOMY.includes(value)) throw new AccError("usage", `Autonomy is ${SETTABLE_AUTONOMY.join(" or ")}.`);
+  let text;
+  let raw;
+  try {
+    text = readFileSync8(configFile, "utf8");
+    raw = JSON.parse(text);
+  } catch (e) {
+    throw new AccError("bad-config", `Couldn't read ${configFile}: ${e.message}`);
+  }
+  const wanted = { ...raw, autonomy: value };
+  const at = [...text.matchAll(/("autonomy"\s*:\s*)"[^"\\]*"/g)];
+  if (at.length === 1) {
+    const edited = text.replace(/("autonomy"\s*:\s*)"[^"\\]*"/, `$1${JSON.stringify(value)}`);
+    try {
+      if (JSON.stringify(JSON.parse(edited)) === JSON.stringify(wanted)) {
+        writeFileSync9(configFile, edited);
+        return;
+      }
+    } catch {
+    }
+  }
+  writeFileSync9(configFile, JSON.stringify(wanted, null, 2) + "\n");
+}
 
 // packages/core/src/analyze.ts
 var strings = { type: "array", items: { type: "string" } };
@@ -2527,6 +2557,7 @@ function builderSettings(task, config, accBinDir2, basePath, accCommand2) {
     "Bash(acc land*)",
     "Bash(acc review*)",
     "Bash(acc autopilot*)",
+    "Bash(acc agents autonomy*)",
     "Bash(acc analyze*)",
     "Bash(acc analysis answer*)",
     "Bash(acc promote*)",
@@ -3170,10 +3201,16 @@ function land(paths, config, id, deps, opts = {}) {
   const verdict = readVerdict(paths, id, sha);
   if (!verdict) throw new AccError("refused", `${id} hasn't been reviewed on ${sha.slice(0, 7)}. Run acc review ${id} first.`);
   if (verdict.verdict !== "pass") throw new AccError("refused", `${id}'s review on ${sha.slice(0, 7)} asked for changes: ${verdict.summary}`);
-  const push = run2("git", ["push", "--set-upstream", "origin", `${branch}:${branch}`], { cwd: paths.root, env: deps.env, timeoutMs: PUSH_TIMEOUT_MS });
-  if (push.code !== 0) throw new AccError("land", `git push refused ${branch}: ${(push.stderr || push.stdout).trim().split("\n").slice(-2).join(" ")}`);
   const ghEnv3 = { ...deps.env, GH_TOKEN: ghToken(run2, gh.account) };
   const ghRun = (args) => run2("gh", args, { cwd: paths.root, env: ghEnv3, timeoutMs: GH_TIMEOUT_MS });
+  const open = ghRun(["pr", "list", "-R", gh.repo, "--head", branch, "--state", "open", "--json", "number,url"]);
+  const existing = open.code === 0 ? JSON.parse(open.stdout || "[]")[0] : void 0;
+  if (!existing && task.pr && opts.actor === "orchestrator") {
+    const seen = open.code === 0 ? "isn't open on GitHub" : `may not be open on GitHub: gh couldn't list the branch's pull requests (${(open.stderr || open.stdout).trim().split("\n")[0] || `exit ${open.code}`})`;
+    throw new AccError("land", `Pull request #${task.pr.number} ${seen}. Autopilot won't open another: a person decides.`);
+  }
+  const push = run2("git", ["push", "--set-upstream", "origin", `${branch}:${branch}`], { cwd: paths.root, env: deps.env, timeoutMs: PUSH_TIMEOUT_MS });
+  if (push.code !== 0) throw new AccError("land", `git push refused ${branch}: ${(push.stderr || push.stdout).trim().split("\n").slice(-2).join(" ")}`);
   const receipts = receiptsAt(paths, sha);
   const body = prBody(task, env, sha, verdict, receipts);
   const dir = mkdtempSync(join13(tmpdir(), "acc-land-"));
@@ -3182,8 +3219,6 @@ function land(paths, config, id, deps, opts = {}) {
   try {
     const bodyFile = join13(dir, "body.md");
     writeFileSync13(bodyFile, body);
-    const open = ghRun(["pr", "list", "-R", gh.repo, "--head", branch, "--state", "open", "--json", "number,url"]);
-    const existing = open.code === 0 ? JSON.parse(open.stdout || "[]")[0] : void 0;
     if (existing) {
       const edit = ghRun(["pr", "edit", String(existing.number), "-R", gh.repo, "--body-file", bodyFile]);
       if (edit.code !== 0) throw new AccError("land", `Couldn't update pull request #${existing.number}: ${edit.stderr.trim().split("\n")[0]}`);
@@ -3223,7 +3258,7 @@ function land(paths, config, id, deps, opts = {}) {
 }
 
 // packages/core/src/autopilot.ts
-import { readFileSync as readFileSync13 } from "node:fs";
+import { closeSync as closeSync2, mkdirSync as mkdirSync12, openSync as openSync2, readFileSync as readFileSync13, readSync as readSync2, statSync as statSync4 } from "node:fs";
 import { join as join14 } from "node:path";
 
 // packages/core/src/refresh.ts
@@ -3408,7 +3443,9 @@ function nextStep(ledger, config, task, facts) {
     if (facts.verdict === "changes") return none("waiting", `Its review on ${short2(facts.head)} asked for changes, and it's still in review: a person decides.`);
     const pr = task.pr;
     if (pr?.state === "merged") return none("skipped", `Pull request #${pr.number} merged.`);
-    if (pr?.state !== "open") return step("land", `Its review passed on ${short2(facts.head)}, and it has no open pull request.`);
+    const closed = closedPr(task);
+    if (closed) return none("waiting", `Pull request #${closed.number} was closed without merging. Autopilot won't replace it: reopen it on GitHub and land to update it, or land to open a new one.`);
+    if (pr?.state !== "open") return step("land", `Its review passed on ${short2(facts.head)}, and it has no pull request.`);
     if (facts.landed === facts.head) {
       if (pr.conflicts?.length) return step("refresh", `Pull request #${pr.number} conflicts with ${task.environment} in ${pr.conflicts.join(", ")}.`);
       return none("skipped", `Pull request #${pr.number} is up to date with ${short2(facts.head)}.`);
@@ -3485,6 +3522,7 @@ function autopilotPass(paths, config, deps) {
   const steps = { ...realSteps(paths, config, deps), ...deps.steps };
   const out2 = { steps: [], pendingComments: [] };
   for (const id of readLedger(paths.ledger).tasks.map((t) => t.id)) {
+    if (deps.stop?.()) break;
     const ledger = readLedger(paths.ledger);
     const task = ledger.tasks.find((t) => t.id === id);
     if (!task || task.state === "done") continue;
@@ -3518,7 +3556,9 @@ function autopilotPass(paths, config, deps) {
   }
   return out2;
 }
+var EVENTS_TAIL_BYTES = 256 * 1024;
 function holdAutopilot(paths, fn) {
+  mkdirSync12(paths.stateDir, { recursive: true });
   let held = false;
   try {
     return withLock(paths.autopilotLock, () => {
@@ -3538,7 +3578,7 @@ function holdAutopilot(paths, fn) {
 }
 
 // packages/core/src/promote.ts
-import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync12, mkdtempSync as mkdtempSync2, rmSync as rmSync8, writeFileSync as writeFileSync14 } from "node:fs";
+import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync13, mkdtempSync as mkdtempSync2, rmSync as rmSync8, writeFileSync as writeFileSync14 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
 import { join as join15 } from "node:path";
 var git5 = (run2, cwd, ...args) => run2("git", args, { cwd });
@@ -3689,7 +3729,7 @@ function promote(paths, config, fromName, toName, deps, opts = {}) {
     const url = create.stdout.trim().split("\n").find((l) => /\/pull\/\d+/.test(l))?.trim();
     if (create.code !== 0 || !url) throw new AccError("land", `gh couldn't open the pull request: ${(create.stderr || create.stdout).trim().split("\n")[0]}. The branch ${branch} is pushed.`);
     const pr = { number: Number(/\/pull\/(\d+)/.exec(url)[1]), url };
-    mkdirSync12(paths.stateDir, { recursive: true });
+    mkdirSync13(paths.stateDir, { recursive: true });
     appendFileSync2(join15(paths.stateDir, "promotions.jsonl"), JSON.stringify({ at: now2().toISOString(), from: plan.from.branch, to: plan.to.branch, fromSha: plan.fromSha, branch, pr, files: plan.files.length, deleted: plan.deleted.length, skipped: plan.skipped.map((e) => e.branch) }) + "\n");
     return { plan, branch, pr, validation, stopped: null };
   } finally {
@@ -3702,7 +3742,7 @@ function promote(paths, config, fromName, toName, deps, opts = {}) {
 var skipWarning = describeSkip;
 
 // packages/core/src/deploy.ts
-import { existsSync as existsSync12, mkdirSync as mkdirSync13, mkdtempSync as mkdtempSync3, readFileSync as readFileSync14, renameSync as renameSync6, rmSync as rmSync9, writeFileSync as writeFileSync15 } from "node:fs";
+import { existsSync as existsSync12, mkdirSync as mkdirSync14, mkdtempSync as mkdtempSync3, readFileSync as readFileSync14, renameSync as renameSync6, rmSync as rmSync9, writeFileSync as writeFileSync15 } from "node:fs";
 import { tmpdir as tmpdir3 } from "node:os";
 import { join as join16 } from "node:path";
 var deployRecordPath = (paths, env) => join16(paths.stateDir, "deploys", `${env}.json`);
@@ -3790,7 +3830,7 @@ function deploy(paths, config, envName, deps, opts) {
     }
     const record = { env: plan.env.branch, org: plan.org, sha: plan.head, at: now2().toISOString(), by: opts.by, jobId, files: plan.files.length };
     const file = deployRecordPath(paths, plan.env.branch);
-    mkdirSync13(join16(paths.stateDir, "deploys"), { recursive: true });
+    mkdirSync14(join16(paths.stateDir, "deploys"), { recursive: true });
     writeFileSync15(`${file}.tmp`, JSON.stringify(record, null, 2) + "\n");
     renameSync6(`${file}.tmp`, file);
     return { plan, deployed: true, jobId, summary: `Deployed ${plan.files.length} file(s) from ${plan.env.branch} at ${plan.head.slice(0, 7)} to ${plan.env.name}${jobId ? ` (job ${jobId})` : ""}.` };
@@ -3801,7 +3841,7 @@ function deploy(paths, config, envName, deps, opts) {
 }
 
 // packages/core/src/setup.ts
-import { copyFileSync as copyFileSync2, existsSync as existsSync13, mkdirSync as mkdirSync14, mkdtempSync as mkdtempSync4, readFileSync as readFileSync15, rmSync as rmSync10, writeFileSync as writeFileSync16 } from "node:fs";
+import { copyFileSync as copyFileSync2, existsSync as existsSync13, mkdirSync as mkdirSync15, mkdtempSync as mkdtempSync4, readFileSync as readFileSync15, rmSync as rmSync10, writeFileSync as writeFileSync16 } from "node:fs";
 import { tmpdir as tmpdir4 } from "node:os";
 import { dirname as dirname4, join as join17 } from "node:path";
 var git7 = (run2, cwd, ...args) => run2("git", args, { cwd });
@@ -3880,7 +3920,7 @@ function buildBaseline(paths, config, deps) {
   if (!xmls.length) throw new AccError("refused", "There's no Salesforce source on any environment branch, or in this checkout, to list.");
   const xml = unionManifests(xmls);
   const file = join17(paths.root, BASELINE_MANIFEST);
-  mkdirSync14(dirname4(file), { recursive: true });
+  mkdirSync15(dirname4(file), { recursive: true });
   writeFileSync16(file, xml);
   const parsed = parseManifest(xml);
   return { file, from, types: parsed.types.size, members: [...parsed.types.values()].reduce((n, s) => n + s.size, 0) };
@@ -3919,7 +3959,7 @@ function seedBranches(paths, config, deps, opts = {}) {
           if (clear) {
             for (const d of packageDirs(dir)) if (existsSync13(join17(dir, d))) {
               git7(run2, dir, "rm", "-r", "-q", "--", d);
-              mkdirSync14(join17(dir, d, "main", "default"), { recursive: true });
+              mkdirSync15(join17(dir, d, "main", "default"), { recursive: true });
             }
           }
           if (e.org) {
@@ -4025,7 +4065,7 @@ function draftLists(paths, config, deps) {
     const have = readList(paths.root, rel);
     const entries = [...found].filter((f) => !listed(f, have)).sort();
     if (existsSync13(file)) return { file, written: false, entries };
-    mkdirSync14(dirname4(file), { recursive: true });
+    mkdirSync15(dirname4(file), { recursive: true });
     writeFileSync16(file, entries.length ? `${entries.join("\n")}
 ` : "");
     return { file, written: true, entries };
@@ -4085,7 +4125,7 @@ ${section}
 }
 
 // packages/core/src/hooks.ts
-import { existsSync as existsSync14, mkdirSync as mkdirSync15, realpathSync as realpathSync3, writeFileSync as writeFileSync17 } from "node:fs";
+import { existsSync as existsSync14, mkdirSync as mkdirSync16, realpathSync as realpathSync3, writeFileSync as writeFileSync17 } from "node:fs";
 import { dirname as dirname5, join as join18, relative, resolve as resolve2, sep as sep2 } from "node:path";
 function findAccRoot(cwd) {
   let dir = resolve2(cwd);
@@ -4297,7 +4337,7 @@ function stopHook(input, ctx) {
   const mark = join18(paths.stateDir, "hooks", `${(input.session_id ?? "session").replace(/[^A-Za-z0-9-]/g, "")}.reminded`);
   if (existsSync14(mark)) return null;
   try {
-    mkdirSync15(dirname5(mark), { recursive: true });
+    mkdirSync16(dirname5(mark), { recursive: true });
     writeFileSync17(mark, ctx.now().toISOString());
   } catch {
     return null;
@@ -5105,6 +5145,7 @@ Agents
   acc agents set <builder|reviewer> [--model <m>] [--effort <low|medium|high|xhigh|max>] [--fallback-model <m>]
                 [--clear <model|effort|fallback-model>]... [--project]
                                         Change them for this clone, or with --project in .acc/config.json
+  acc agents autonomy [manual|review]   What autopilot may do on its own, or change it in .acc/config.json
   acc analyze <id>                      Before the build: a read-only analyst works out the requirements, what's
                                         there now (the code, and on Salesforce the orgs), the approach, and questions
   acc analysis <id>                     What the task's analysis found
@@ -5479,15 +5520,27 @@ function cmdAutopilot(o) {
   };
   const doing = { review: "Reviewing", land: "Landing", dispatch: "Re-dispatching", refresh: "Updating" };
   const after = { review: ". The reviewer reads and changes nothing.", land: "", dispatch: "", refresh: " from its base, then running its checks." };
+  const parent = Number(process.env.ACC_AUTOPILOT_PARENT);
+  const orphaned = () => Number.isInteger(parent) && parent > 0 && !alive(parent);
+  const closed = "The Command Center that started autopilot closed, so it stops.";
+  const wait = (seconds) => {
+    for (let left = seconds * 1e3; left > 0 && !orphaned(); left -= 1e3) sleep(Math.min(1e3, left));
+    return !orphaned();
+  };
   return holdAutopilot(paths, () => {
     let config = start.config;
     for (; ; ) {
+      if (orphaned()) {
+        say(closed);
+        return 0;
+      }
       const r = autopilotPass(paths, config, {
         run,
         now,
         env: process.env,
         accBinDir: accBinDir(),
         accCommand: accCommand(),
+        stop: orphaned,
         onStep: (task, step, sha) => say(`\u2026 ${doing[step]} ${task}${sha ? ` at ${sha.slice(0, 7)}` : ""}${after[step]}`)
       });
       const data = { autonomy: mode.autonomy, warnings: mode.warnings, steps: r.steps, pendingComments: r.pendingComments };
@@ -5497,7 +5550,10 @@ function cmdAutopilot(o) {
       }
       if (o.json) process.stdout.write(JSON.stringify({ at: now().toISOString(), ...data }) + "\n");
       else process.stdout.write([tone(`Autopilot pass at ${now().toLocaleTimeString()}`, "dim"), ...autopilotLines(r)].join("\n") + "\n");
-      sleep(every * 1e3);
+      if (!wait(every)) {
+        say(closed);
+        return 0;
+      }
       config = project(process.cwd()).config;
       if (!autopilotMode(config).on) {
         say(`autonomy is "${config.autonomy}" now, so autopilot stops.`);
@@ -5516,6 +5572,7 @@ function cmdAgents(o, sub, roleArg) {
   const { paths } = project(process.cwd());
   const { config: projectConfig } = loadConfig(paths.config);
   const views = () => Object.fromEntries(AGENT_ROLES.map((r) => [r, profileView(projectConfig, run, paths.root, r)]));
+  if (sub === "autonomy") return cmdAutonomy(o, paths.config, roleArg);
   if (!sub || sub === "show") {
     const v = views();
     const from = { clone: " (this clone)", project: " (project)", default: "" };
@@ -5525,7 +5582,7 @@ function cmdAgents(o, sub, roleArg) {
     }).join("\n"), v);
     return 0;
   }
-  if (sub !== "set" || !roleArg || !AGENT_ROLES.includes(roleArg)) throw new AccError("usage", "acc agents set <builder|reviewer> [--model <m>] [--effort <e>] [--fallback-model <m>] [--clear <field>] [--project]");
+  if (sub !== "set" || !roleArg || !AGENT_ROLES.includes(roleArg)) throw new AccError("usage", "acc agents set <builder|reviewer> [--model <m>] [--effort <e>] [--fallback-model <m>] [--clear <field>] [--project] | acc agents autonomy [manual|review]");
   personOnly(o, "change what agents run with");
   const change = {};
   if (o.model !== void 0) change.model = o.model;
@@ -5540,6 +5597,26 @@ function cmdAgents(o, sub, roleArg) {
   setProfile(run, paths.root, paths.config, roleArg, change, o.project ? "project" : "clone");
   const after = profileView(loadConfig(paths.config).config, run, paths.root, roleArg);
   out(o, () => `${roleArg}: model ${after.model ?? "Claude Code's default"}, effort ${after.effort ?? "default"}${after.fallbackModel ? `, falls back to ${after.fallbackModel}` : ""}. ${o.project ? "Set in .acc/config.json: commit it to share it." : "Set for this clone only."} The next ${roleArg} uses it.`, after);
+  return 0;
+}
+var AUTONOMY_WORDS = {
+  manual: "nothing happens on its own.",
+  review: "autopilot reviews finished work, lands work whose review passed, and re-dispatches a rework once. It never merges.",
+  dispatch: "as review, and it also starts Ready tasks. Not built yet: autopilot refuses.",
+  full: "read as dispatch. Not built yet: autopilot refuses."
+};
+function cmdAutonomy(o, configFile, value) {
+  if (value === void 0) {
+    const { config: config2 } = loadConfig(configFile);
+    out(o, () => `autonomy ${config2.autonomy} (project): ${AUTONOMY_WORDS[config2.autonomy] ?? ""}`.trim(), { autonomy: config2.autonomy });
+    return 0;
+  }
+  const role = process.env.ACC_ROLE;
+  if (role === "builder" || role === "reviewer" || role === "analyst") throw new AccError("refused", `${role === "analyst" ? "An" : "A"} ${role} can't change what autopilot may do. A person does that.`);
+  personOnly(o, "change what autopilot may do");
+  setAutonomy(configFile, value);
+  const { config } = loadConfig(configFile);
+  out(o, () => `autonomy ${config.autonomy}: ${AUTONOMY_WORDS[config.autonomy]} Set in .acc/config.json: commit it to share it.`, { autonomy: config.autonomy });
   return 0;
 }
 function cmdSetup(o, what) {
@@ -5684,12 +5761,14 @@ function cmdShow(o, id) {
   const t = ledger.tasks.find((x) => x.id === id.toUpperCase());
   if (!t) throw new AccError("no-task", `No task ${id}.`);
   const failed = autopilotFailure(t);
+  const closed = closedPr(t);
   out(o, () => [
     `${t.id}  ${stateLabel(displayState(ledger, t))}  ${t.title}`,
     `Environment: ${t.environment}   Source: ${t.source.kind}${t.source.url ? ` ${t.source.url}` : ""}`,
     t.deps.length ? `Depends on: ${t.deps.join(", ")}` : "",
     t.blocker ? `Blocked: ${t.blocker}` : "",
     failed ? tone(`! Autopilot couldn't ${stepWords(failed.step, failed.sha || "it")}: ${failed.reason}`, "orange") : "",
+    closed ? tone(`! Pull request #${closed.number} was closed without merging. Reopen it on GitHub and land to update it, or land to open a new one.`, "orange") : "",
     t.brief ? `
 ${t.brief}
 ` : "",

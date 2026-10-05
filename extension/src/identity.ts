@@ -89,7 +89,16 @@ export class RepoIdentity implements vscode.Disposable {
     if (id.commit.name || id.commit.email) md.appendMarkdown(`$(git-commit) Commits as ${id.commit.name ?? '?'} <${id.commit.email ?? '?'}>\n\n`);
     md.appendMarkdown(`[$(arrow-swap) Switch account](command:acc.github.switch) · [$(link-external) Profile](https://github.com/${encodeURIComponent(id.account)})`);
     this.item.tooltip = md;
-    this.item.show();
+    // The right account is said in the one status bar item's tooltip (D-065); a wrong one keeps its own warning.
+    if (look.ok) this.item.hide();
+    else this.item.show();
+  }
+
+  /** The active project's GitHub account and whether it's right, for the one status bar item (D-065). */
+  account(): { name: string; ok: boolean } | null {
+    const p = this.active();
+    const id = p?.config.github ? this.get(p.root) : null;
+    return id ? { name: id.account, ok: lookOf(id).ok } : null;
   }
 
   /**

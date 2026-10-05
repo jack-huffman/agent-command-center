@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import type { Hub } from './hub.ts';
-import { autopilotNotices, noticeActions, statusSummary, type TaskNotice, taskNotices, type TaskRow, withoutAutopilotEcho } from './logic.ts';
+import { autopilotNotices, combinedStatus, noticeActions, type StatusParts, type TaskNotice, taskNotices, type TaskRow, withoutAutopilotEcho } from './logic.ts';
 import type { Ref } from './model.ts';
 
 /**
@@ -17,15 +17,31 @@ export class Notices implements vscode.Disposable {
   private readonly hub: Hub;
   private readonly resolve: (command: string, ref: Ref) => unknown;
   private readonly quiet: () => boolean;
+  /** The rest of acc's state for the one status bar item (D-065): runs, setup, autopilot, the account. */
+  private readonly parts: () => Omit<StatusParts, 'rows' | 'needsYou'>;
+  private needsYou = 0;
   /** Until the first full load (tasks, agents and worktrees), rows are half-known: watch, don't speak. */
   private armed = false;
 
-  constructor(hub: Hub, resolve: (command: string, ref: Ref) => unknown, quiet: () => boolean) {
+  constructor(hub: Hub, resolve: (command: string, ref: Ref) => unknown, quiet: () => boolean, parts: () => Omit<StatusParts, 'rows' | 'needsYou'>) {
     this.hub = hub;
     this.resolve = resolve;
     this.quiet = quiet;
-    this.item.name = 'Agent Command Center: tasks';
-    this.item.command = { command: 'acc.open.home', title: 'Open the Command Center', arguments: ['overview'] };
+    this.parts = parts;
+    this.item.name = 'Agent Command Center';
+    this.item.command = { command: 'acc.status.menu', title: 'Agent Command Center' };
+  }
+
+  /** Redraws the one status bar item (D-065): cheap, so runs and setup can call it as they change. */
+  draw(): void {
+    const rows = this.hub.projects.flatMap((p) => this.hub.taskRows(p.root));
+    const s = combinedStatus({ rows, needsYou: this.needsYou, ...this.parts() });
+    if (!s.text) { this.item.hide(); return; }
+    this.item.text = s.text;
+    const md = new vscode.MarkdownString(['**Agent Command Center**', ...s.tooltip, '', 'Click for the Command Center, autopilot and setup.'].join('\n\n'), true);
+    this.item.tooltip = md;
+    this.item.backgroundColor = s.attention ? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined;
+    this.item.show();
   }
 
   dispose(): void {
@@ -43,15 +59,8 @@ export class Notices implements vscode.Disposable {
 
   /** After any reload: redraw the summary, and say what changed since the last look. */
   update(needsYou: number): void {
-    const rows = this.hub.projects.flatMap((p) => this.hub.taskRows(p.root));
-    const s = statusSummary(rows, needsYou);
-    if (!s.text) this.item.hide();
-    else {
-      this.item.text = s.text;
-      this.item.tooltip = s.tooltip;
-      this.item.backgroundColor = s.attention ? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined;
-      this.item.show();
-    }
+    this.needsYou = needsYou;
+    this.draw();
     const speak = () => !this.quiet() && vscode.workspace.getConfiguration('agentCommandCenter').get<boolean>('notifications', true);
     for (const p of this.hub.projects) {
       const log = this.hub.autopilotLog(p.root);

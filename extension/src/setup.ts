@@ -150,18 +150,18 @@ export class Setup implements vscode.Disposable {
     return [...this.items.values()];
   }
 
-  private renderStatus(): void {
+  /** Where setup is, for the one status bar item (D-065): done of total, how many to do, and whether it's checking. */
+  look(): { done: number; total: number; todo: number; checking: boolean } {
     const all = [...this.items.values()];
     const shown = this.isProject() ? all : all.filter((i) => i.part === 'machine');
     const sum = summarize(shown, this.allConfirmed());
-    const s = statusText(sum);
-    this.status.text = s.text;
-    this.status.tooltip = s.tooltip;
-    this.status.command = this.isProject() ? COMMANDS.project : COMMANDS.machine;
-    this.status.backgroundColor = s.attention ? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined;
-    // Outside a project, stay out of the way unless this machine needs something.
-    if (this.isProject() || sum.failing.length + sum.byHand.length > 0) this.status.show();
-    else this.status.hide();
+    return { done: sum.done, total: sum.total, todo: sum.failing.length + sum.byHand.length, checking: !!this.running };
+  }
+
+  private renderStatus(): void {
+    // Setup speaks through the one status bar item now (D-065); its own stays hidden.
+    this.status.hide();
+    this.changed.fire();
   }
 
   /** Re-runs every check. Calls made while one is running wait for it instead of starting another. */
@@ -169,7 +169,9 @@ export class Setup implements vscode.Disposable {
     if (this.running) return this.running;
     this.running = (async () => {
       try {
-        await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: 'Checking setup' }, async () => {
+        // The one status bar item shows a spinner while this runs (D-065), not a progress item of its own.
+        this.changed.fire();
+        await (async () => {
           const started = Date.now();
           const cached = this.ctx.globalState.get<{ at: number; items: DoctorItem[] }>('acc.machineItems');
           const reuse = opts.reuseMachine && cached && Date.now() - cached.at < MACHINE_FRESH_MS;
@@ -180,9 +182,10 @@ export class Setup implements vscode.Disposable {
           const fails = items.filter((i) => i.status === 'fail');
           this.log.info(`Checked ${items.length} steps (${reason}${reuse ? ', machine results reused' : ''}) in ${((Date.now() - started) / 1000).toFixed(1)} s: ${fails.length} failing.`);
           for (const f of fails) this.log.warn(`${f.id} ${f.title}: ${f.detail}`);
-        });
+        })();
       } finally {
         this.running = undefined;
+        this.changed.fire();
       }
     })();
     return this.running;

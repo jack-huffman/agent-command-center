@@ -33,6 +33,9 @@ export class AutopilotHost implements vscode.Disposable {
   private readonly accCommand: string;
   private readonly showRun: (id: string) => void;
   private readonly items = new Map<string, vscode.StatusBarItem>();
+  private readonly emitter = new vscode.EventEmitter<void>();
+  /** Its state changed: the one status bar item redraws (D-065). */
+  readonly onDidChange = this.emitter.event;
   /** This window's autopilot in each repo, while its process lasts. */
   private readonly mine = new Map<string, { id: string; stopping: boolean }>();
   /** Each repo's latest autopilot run here, still there to show after it ends. */
@@ -40,8 +43,6 @@ export class AutopilotHost implements vscode.Disposable {
   /** Who holds each repo's autopilot lock, looked at every few seconds rather than on every redraw. */
   private readonly owners = new Map<string, number | null>();
   private repos: Repo[] = [];
-  /** Switches made so far, so each has its own id. */
-  private made = 0;
   private readonly timer: NodeJS.Timeout;
   private readonly listening: vscode.Disposable;
   private disposed = false;
@@ -65,6 +66,7 @@ export class AutopilotHost implements vscode.Disposable {
     // Closing the window ends autopilot: it never runs on with no window to show it.
     for (const m of this.mine.values()) if (!m.stopping) this.runs.control(m.id, 'stop');
     for (const item of this.items.values()) item.dispose();
+    this.emitter.dispose();
   }
 
   /** The projects changed: one switch a repo, and no autopilot left running for a repo that's gone. */
@@ -82,13 +84,7 @@ export class AutopilotHost implements vscode.Disposable {
       item.dispose();
       this.items.delete(key);
     }
-    for (const r of this.repos) {
-      if (this.items.has(r.key)) continue;
-      const item = vscode.window.createStatusBarItem(`acc.autopilot.${this.made++}`, vscode.StatusBarAlignment.Left, 97);
-      item.name = 'Agent Command Center: autopilot';
-      item.command = { command: 'acc.autopilot.toggle', title: 'Turn autopilot on or off', arguments: [r.key] };
-      this.items.set(r.key, item);
-    }
+    // Its switch is in the one status bar item's menu now (D-065), so it makes no items of its own.
     this.lookAtLocks();
     this.render();
   }
@@ -176,19 +172,18 @@ export class AutopilotHost implements vscode.Disposable {
     return pid ? { state: 'elsewhere', pid } : { state: 'off' };
   }
 
+  /** Each repo's autopilot whose autonomy isn't manual: its name, key, and whether it's on here, off, elsewhere or can't run. */
+  looks(): { key: string; project: string; state: 'on' | 'off' | 'elsewhere' | 'refused'; text: string }[] {
+    const many = this.repos.filter((r) => r.project.config.autonomy !== 'manual').length > 1;
+    return this.repos.flatMap((r) => {
+      const s = this.stateOf(r);
+      return s ? [{ key: r.key, project: r.project.name, state: s.state, text: autopilotStatus({ project: r.project.name, many, ...s }).text }] : [];
+    });
+  }
+
   private render(): void {
     if (this.disposed) return;
-    const many = this.repos.filter((r) => r.project.config.autonomy !== 'manual').length > 1;
-    for (const r of this.repos) {
-      const item = this.items.get(r.key);
-      const s = this.stateOf(r);
-      if (!item) continue;
-      if (!s) { item.hide(); continue; }
-      const look = autopilotStatus({ project: r.project.name, many, ...s });
-      item.text = look.text;
-      item.tooltip = look.tooltip;
-      item.show();
-    }
+    this.emitter.fire();
   }
 
   /** The live process holding each repo's autopilot lock, beside its ledger, if any. */

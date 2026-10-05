@@ -152,8 +152,8 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     assert.equal(calls.contexts.get('acc.step.B0.config'), true);
     assert.equal(calls.contexts.get('acc.step.B0.repo'), true);
     assert.equal(calls.contexts.get('acc.step.A1.git'), true, 'reused machine results are applied');
-    assert.equal(status.shown, true);
-    assert.equal(status.text, '$(check) Setup done');
+    // Setup speaks through the one status bar item now (D-065): its own stays hidden.
+    assert.equal(status.shown, false);
 
     // The sidebar is one launcher listing the page's sections (D-029).
     assert.deepEqual([...trees.keys()], ['acc.home']);
@@ -207,21 +207,21 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
 
     // Autopilot (D-064): a switch for the repo, hidden while its autonomy is manual, and off until clicked.
     assert.ok(calls.commands.has('acc.autopilot.toggle') && calls.commands.has('acc.autopilot.output'));
-    assert.equal(autopilot.length, 1, 'one switch a repo');
-    assert.equal(autopilot[0]!.shown, false, 'manual: no switch');
-    const click = autopilot[0]!.command as { command: string; arguments: string[] };
-    assert.equal(click.command, 'acc.autopilot.toggle');
-    assert.match(click.arguments[0]!, /\/acc\/ledger\.json$/, 'the switch names its repo by its ledger');
-    // Changing autonomy goes through acc, which writes the config; then the switch shows, off.
+    // Its switch is in the one status bar item's menu (D-065), not an item of its own.
+    assert.equal(autopilot.length, 0, 'autopilot makes no status bar item of its own');
+    // Changing autonomy goes through acc, which writes the config.
     calls.pick = (items) => items.find((i) => i.value === 'review');
     await calls.commands.get('acc.agents.autonomy')!(root);
     calls.pick = undefined;
     assert.equal(JSON.parse(readFileSync(join(repo, '.acc', 'config.json'), 'utf8')).autonomy, 'review');
     assert.match(calls.info.at(-1) ?? '', /^Autonomy is review\. Changed in \.acc\/config\.json: commit it to share it\./);
-    assert.equal(autopilot[0]!.shown, true);
-    // No "github" section, so it can't land anything: off, and its tooltip says why in acc's words.
-    assert.equal(autopilot[0]!.text, '$(circle-slash) Autopilot: off');
-    assert.match(autopilot[0]!.tooltip, /^Autopilot can't run for Tool: Autopilot lands reviewed work as pull requests on GitHub, and this project has no "github" section/);
+    // No "github" section, so it can't land anything: the menu offers no switch for it.
+    let offered: { label: string }[] = [];
+    calls.pick = (items) => { offered = items as { label: string }[]; return undefined; };
+    await calls.commands.get('acc.status.menu')!();
+    calls.pick = undefined;
+    assert.ok(offered.some((i) => /Open the Command Center/.test(i.label)), 'the menu opens the page');
+    assert.ok(!offered.some((i) => /Turn autopilot/.test(i.label)), 'a repo whose autopilot can\'t run offers no switch');
     const warned = calls.warn.length;
     await calls.commands.get('acc.autopilot.toggle')!();
     assert.match(calls.warn[warned] ?? '', /no "github" section/, 'a click says why, and starts nothing');

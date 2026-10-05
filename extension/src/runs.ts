@@ -237,15 +237,14 @@ export class Runs implements vscode.Disposable {
     }, 120);
   }
 
+  /** What's running for you, for the one status bar item (D-065). A background run, such as autopilot, isn't one. */
+  live(): { label: string; asking: boolean }[] {
+    return this.list.filter((r) => r.endedAt === null && (!r.background || r.prompt))
+      .map((r) => ({ label: r.label.length > 40 ? `${r.label.slice(0, 40)}…` : r.label, asking: !!r.prompt }));
+  }
+
   private renderStatus(): void {
-    // A background run lasts as long as the window: it has its own item, or it would spin here all day.
-    const live = this.list.filter((r) => r.endedAt === null && (!r.background || r.prompt));
-    if (!live.length) { this.status.hide(); return; }
-    const asking = live.find((r) => r.prompt);
-    const first = asking ?? live[0]!;
-    const name = first.label.length > 40 ? `${first.label.slice(0, 40)}…` : first.label;
-    this.status.text = asking ? `$(bell) ${name}: waiting for you` : `$(sync~spin) ${name}${live.length > 1 ? ` +${live.length - 1}` : ''}`;
-    this.status.tooltip = asking ? `${asking.command}\n\nIt's asking: ${asking.prompt!.text}\nClick to answer.` : live.map((r) => r.command).join('\n');
-    this.status.show();
+    // Runs speak through the one status bar item now (D-065); this one stays hidden.
+    this.status.hide();
   }
 }

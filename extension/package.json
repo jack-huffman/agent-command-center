@@ -2,7 +2,7 @@
   "name": "agent-command-center",
   "displayName": "Agent Command Center",
   "description": "Set up projects for parallel Claude Code agents, then run and watch them from VSCode.",
-  "version": "0.26.2",
+  "version": "0.27.0",
   "publisher": "JackHuffman",
   "private": true,
   "license": "UNLICENSED",
@@ -34,6 +34,11 @@
         "title": "Open Command Center",
         "category": "Agent Command Center",
         "icon": "$(home)"
+      },
+      {
+        "command": "acc.status.menu",
+        "title": "Show the Command Center menu",
+        "category": "Agent Command Center"
       },
       {
         "command": "acc.doctor",

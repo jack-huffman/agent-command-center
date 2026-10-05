@@ -376,3 +376,21 @@ test('the autopilot switch says on or off with an icon and the words, and its to
     assert.match(t, /^\$\([a-z-]+\) Autopilot: (on|off)/, `${state}: an icon and the words`);
   }
 });
+
+test('all of acc is one status bar item: what needs you first, a spinner while busy, the rest in its tooltip (D-065)', async () => {
+  const { combinedStatus } = await import('../src/logic.ts');
+  const base = { rows: [], needsYou: 0, asking: null, running: [], checking: false, setup: { done: 31, total: 32, todo: 0 }, autopilot: [], account: { name: 'jhuffman-aleysian', ok: true } };
+  assert.equal(combinedStatus(base).text, '', 'nothing to say: it hides');
+  assert.match(combinedStatus(base).tooltip.join('\n'), /GitHub: jhuffman-aleysian/);
+  assert.equal(combinedStatus({ ...base, needsYou: 3 }).text, '$(bell) 3 need you');
+  assert.equal(combinedStatus({ ...base, needsYou: 3 }).attention, true);
+  assert.equal(combinedStatus({ ...base, needsYou: 3, checking: true }).text, '$(bell) 3 need you $(sync~spin)', 'busy: a spinner, not another item');
+  assert.equal(combinedStatus({ ...base, checking: true }).text, '$(sync~spin) Checking setup');
+  assert.equal(combinedStatus({ ...base, setup: { done: 31, total: 32, todo: 1 } }).text, '$(checklist) Setup: 1 to do');
+  assert.equal(combinedStatus({ ...base, asking: 'Log in to Acme Dev' }).text, '$(bell) Log in to Acme Dev: waiting for you');
+  const on = combinedStatus({ ...base, needsYou: 1, autopilot: [{ project: 'Acme', state: 'on' }] });
+  assert.equal(on.text, '$(hubot) $(bell) 1 needs you', 'a robot while autopilot is on here');
+  assert.match(on.tooltip.join('\n'), /Autopilot on here/);
+  assert.equal(combinedStatus({ ...base, autopilot: [{ project: 'Acme', state: 'on' }] }).text, '$(hubot) Autopilot on');
+  assert.equal(combinedStatus({ ...base, account: { name: 'someone-else', ok: false } }).attention, true, 'the wrong account says so');
+});
