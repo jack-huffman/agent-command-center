@@ -1113,6 +1113,7 @@ function renderAgent(m: AgentModel): Node[] {
   if (!m.readable) {
     out.push(empty(m.live ? 'Its activity will show here as it works. Nothing is recorded yet.' : 'There\'s no record of this session\'s activity to show.',
       ...m.actions.filter((a) => a.command === 'acc.agent.attach').map(actionButton)));
+    if (m.reply) out.push(agentReply(m, m.reply));
     return out;
   }
   const list = el('ol', 'timeline');
@@ -1170,7 +1171,35 @@ function renderAgent(m: AgentModel): Node[] {
       : !m.live ? el('li', 'entry live muted', icon('circle-slash'), el('span', '', 'The session has ended.')) : null;
   if (tail) list.append(tail);
   out.push(list);
+  if (m.reply) out.push(agentReply(m, m.reply));
   return out;
+}
+
+/**
+ * Writing to an agent from its page (D-060): a box under its timeline. What you send goes to its own
+ * session, in its own folder; its answer streams into the timeline above. Kept while the page redraws.
+ */
+function agentReply(m: AgentModel, r: NonNullable<AgentModel['reply']>): HTMLElement {
+  const key = `reply:${m.key}`;
+  const box = el('textarea', 'comment-box reply-box') as HTMLTextAreaElement;
+  box.dataset.keep = key;
+  box.rows = 2;
+  box.placeholder = `Write to ${m.task?.id ?? m.name}…`;
+  box.disabled = !r.can;
+  box.value = memory().drafts[key] ?? '';
+  box.setAttribute('aria-label', `Message to ${m.task?.id ?? m.name}`);
+  box.addEventListener('input', () => remember((x) => { x.drafts[key] = box.value; }));
+  const send = button('Send', 'send', () => {
+    const text = box.value.trim();
+    if (!text || !r.can) return;
+    api.postMessage({ type: 'agent-reply', text });
+    box.value = '';
+    remember((x) => { delete x.drafts[key]; });
+  }, 'primary small') as HTMLButtonElement;
+  send.disabled = !r.can;
+  box.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); send.click(); } });
+  const hint = r.can ? el('span', 'muted small', r.hint) : el('span', 'muted small reply-why', icon('info'), r.hint);
+  return el('div', 'composer agent-reply', box, el('div', 'composer-bar', hint, el('span', 'spacer'), send));
 }
 
 // ---------------------------------------------------------------- the Command Center page (D-029)

@@ -27,6 +27,8 @@ interface Page {
   shown: boolean;
   /** For a session Claude Code doesn't list: whether it's still working. */
   active?: () => boolean;
+  /** A message sent from the page is being answered (D-060). */
+  replying?: boolean;
 }
 
 /**
@@ -40,12 +42,15 @@ export class AgentPages implements vscode.Disposable {
   private readonly resolve: (command: string, ref: Ref) => unknown;
   private readonly answer: (id: string, a: Answer) => void;
   private readonly projectsDir: string;
+  /** Sends a message to the session from its page (D-060): null once it's on its way, or why it couldn't be. */
+  private readonly reply: ((s: AgentSession, text: string, done: () => void) => Promise<string | null>) | null;
 
-  constructor(ctx: vscode.ExtensionContext, hub: Hub, resolve: (command: string, ref: Ref) => unknown, answer: (id: string, a: Answer) => void, projectsDir = join(homedir(), '.claude', 'projects')) {
+  constructor(ctx: vscode.ExtensionContext, hub: Hub, resolve: (command: string, ref: Ref) => unknown, answer: (id: string, a: Answer) => void, reply: ((s: AgentSession, text: string, done: () => void) => Promise<string | null>) | null = null, projectsDir = join(homedir(), '.claude', 'projects')) {
     this.ctx = ctx;
     this.hub = hub;
     this.resolve = resolve;
     this.answer = answer;
+    this.reply = reply;
     this.projectsDir = projectsDir;
   }
 
@@ -168,7 +173,8 @@ export class AgentPages implements vscode.Disposable {
   private post(page: Page): void {
     if (!page.panel.visible) return;
     const t = page.transcript;
-    const model = agentModel({ hub: this.hub, key: page.key, seen: page.seen, entries: t.entries, readable: !!page.file && t.used > 0, lastAt: t.lastAt, model: t.model, active: page.active?.() });
+    const model = agentModel({ hub: this.hub, key: page.key, seen: page.seen, entries: t.entries, readable: !!page.file && t.used > 0, lastAt: t.lastAt, model: t.model, active: page.active?.() || page.replying, replying: page.replying });
+    if (!this.reply) model.reply = null;
     void page.panel.webview.postMessage({ type: 'state', model });
   }
 
@@ -179,6 +185,20 @@ export class AgentPages implements vscode.Disposable {
     if (m.type === 'open') { if (isWebLink(m.url)) void vscode.env.openExternal(vscode.Uri.parse(m.url)); return; }
     if (m.type === 'answer') {
       this.answer(m.id, answerOf(m));
+      return;
+    }
+    if (m.type === 'agent-reply' && this.reply && page.seen && !page.replying) {
+      const s = page.seen;
+      page.replying = true;
+      this.post(page);
+      // The page reads the transcript faster while it answers, and says so until it's done.
+      const done = () => { page.replying = false; void this.hub.loadAgents(); this.post(page); };
+      void this.reply(s, m.text, done).then((why) => {
+        if (!why) return;
+        page.replying = false;
+        this.post(page);
+        void vscode.window.showWarningMessage(`Couldn't send it: ${why}`);
+      });
       return;
     }
     if (m.type === 'run' && /^acc\.(agent|task)\./.test(m.command)) void this.resolve(m.command, m.ref);

@@ -1037,6 +1037,8 @@ export interface AgentModel {
   readable: boolean;
   questions: QuestionCard[];
   actions: Action[];
+  /** Whether you can write to it from its page (D-060), and what the box says. Null with nothing to resume. */
+  reply: { can: boolean; hint: string } | null;
 }
 
 export interface AgentInput {
@@ -1052,6 +1054,8 @@ export interface AgentInput {
   limit?: number;
   /** A session Claude Code doesn't list but that's still working, such as a review (D-032). */
   active?: boolean;
+  /** A message you sent from its page is still being answered. */
+  replying?: boolean;
 }
 
 export function agentModel(i: AgentInput): AgentModel {
@@ -1088,7 +1092,22 @@ export function agentModel(i: AgentInput): AgentModel {
     entries: shown, hidden: Math.max(0, i.entries.length - views.length), readable: i.readable || decisions.length > 0,
     questions: s?.sessionId ? questionCards(hub).filter((q) => q.sessionId === s.sessionId) : [],
     actions,
+    reply: s?.sessionId && (i.readable || !!live) ? replyState(live, questionCards(hub).some((q) => q.sessionId === s.sessionId), !!i.replying, !!i.active) : null,
   };
+}
+
+/**
+ * Whether you can write to an agent from its page (D-060): not while it works, waits on a question, or is
+ * open somewhere else, since one conversation can't run in two places. A background agent that's idle is
+ * stopped first, and carries on from the page in its own folder.
+ */
+export function replyState(live: AgentSession | null, asking: boolean, replying: boolean, active: boolean): { can: boolean; hint: string } {
+  if (replying || active) return { can: false, hint: 'It\'s answering. You can write again when it stops.' };
+  if (asking) return { can: false, hint: 'Answer its question above first.' };
+  if (live?.pid && live.kind !== 'background') return { can: false, hint: 'It\'s open in a terminal or a Claude Code tab. Write to it there.' };
+  if (live?.pid && (live.state === 'working' || live.status === 'busy')) return { can: false, hint: 'It\'s working. You can write to it when it stops.' };
+  if (live?.pid && live.id) return { can: true, hint: 'Sending stops its background session, and it carries on here, in its own folder.' };
+  return { can: true, hint: 'It carries on in its own folder, with its own rules. ⌘Enter sends.' };
 }
 
 // ---------------------------------------------------------------- commands acc runs for you (D-030)
@@ -1377,6 +1396,7 @@ export type FromWebview =
   | { type: 'answer'; id: string; decision: 'allow' | 'deny' | 'terminal'; always?: boolean; scope?: 'session' | 'project'; mode?: 'auto' | 'acceptEdits' | 'default'; command?: string; stop?: boolean; message?: string; answers?: Record<string, string> }
   /** Something for a command acc is running: typed input, stop, rerun in a terminal, or dismiss. */
   | { type: 'run-input'; run: string; text: string }
+  | { type: 'agent-reply'; text: string }
   | { type: 'run-control'; run: string; action: RunControl }
   /** A person's answer to one of a task's analysis's questions (D-052). acc records it; the page never writes it. */
   | { type: 'analysis-answer'; project: string; task: string; question: string; text: string };
@@ -1423,6 +1443,7 @@ export function isFromWebview(m: unknown): m is FromWebview {
       const a = x.answers as Record<string, unknown>;
       return !!a && typeof a === 'object' && !Array.isArray(a) && Object.keys(a).length <= 8 && Object.values(a).every((v) => typeof v === 'string' && v.length <= 4000);
     }
+    case 'agent-reply': return typeof x.text === 'string' && x.text.trim().length > 0 && x.text.length <= 65_536;
     case 'run-input': return short(x.run, 64) && typeof x.text === 'string' && x.text.length <= 4096 && !/[\r\n]/.test(x.text as string);
     case 'run-control': return short(x.run, 64) && (RUN_CONTROLS as readonly string[]).includes(x.action as string);
     case 'analysis-answer': return short(x.project, 4096) && short(x.task, 100) && KEY.test(x.task as string) && typeof x.question === 'string' && /^q\d{1,3}$/.test(x.question) && short(x.text, 4000) && !!(x.text as string).trim();

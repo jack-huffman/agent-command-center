@@ -1,15 +1,19 @@
+import { homedir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { Hub } from './hub.ts';
 import type { Answer } from '../../packages/core/src/questions.ts';
+import { agentArgs } from '../../packages/core/src/agents.ts';
+import { builderSettings } from '../../packages/core/src/dispatch.ts';
 import { AgentPages } from './activity.ts';
-import { analysisAnswerArgs, CLAUDE_EXTENSION, claudeSessionUri, COMMANDS, isSessionId, isWebviewMenuContext, WALKTHROUGHS } from './logic.ts';
+import { type AgentSession, analysisAnswerArgs, CLAUDE_EXTENSION, claudeSessionUri, COMMANDS, isSessionId, isWebviewMenuContext, shq, WALKTHROUGHS } from './logic.ts';
 import { type NavItem, needsYouCount, type Ref, sessionKey, VIEW_KINDS, type ViewKind } from './model.ts';
 import { Notices } from './notices.ts';
 import { Panels } from './panels.ts';
 import { accShellCommand, Questions, sessionSettings } from './questions.ts';
 import { Runs } from './runs.ts';
-import { accRunner } from './run.ts';
+import { accRunner, runFile } from './run.ts';
+import { savedFolder } from './transcript.ts';
 import { openWalkthrough, Setup } from './setup.ts';
 import { Sidebar } from './sidebar.ts';
 import { RepoIdentity } from './identity.ts';
@@ -145,7 +149,31 @@ export function activate(context: vscode.ExtensionContext): void {
     const s = hub.agents.find((x) => x.sessionId === q.sessionId);
     if (s) setTimeout(() => void resolve('acc.agent.attach', { session: sessionKey(s) }), 400);
   };
-  const pages = new AgentPages(context, hub, resolve, answer);
+  // A message to an agent from its page (D-060): its own session, resumed in its own folder with the rules
+  // it was dispatched with, so a builder stays a builder. One conversation runs in one place at a time.
+  const reply = async (s: AgentSession, text: string, done: () => void): Promise<string | null> => {
+    const sessionId = s.sessionId;
+    if (!isSessionId(sessionId)) return 'it has no conversation to carry on.';
+    const projects = hub.projects;
+    const folder = savedFolder(join(homedir(), '.claude', 'projects'), sessionId, [s.cwd, ...projects.flatMap((p) => p.worktrees.map((w) => w.path))]);
+    if (!folder) return 'its conversation isn\'t saved anywhere this machine can find.';
+    const project = hub.projectFor(folder);
+    const task = project ? hub.ledger(project.root)?.tasks.find((t) => t.run?.sessionId === sessionId || (!!s.id && t.run?.bgId === s.id)) : undefined;
+    if (s.kind === 'background' && s.id && s.pid) {
+      const stopped = await runFile('claude', ['stop', s.id], folder, process.env, undefined, 30_000);
+      if (stopped.code !== 0) return `its background session wouldn't stop: ${(stopped.stderr || stopped.stdout).trim().split('\n')[0]}`;
+    }
+    const settings = task && project
+      ? JSON.stringify(builderSettings(task, project.config, dirname(accScript), process.env.PATH ?? '', accShellCommand(accScript)))
+      : sessionSettings(accScript);
+    const mode = project?.config.agents.permissionMode ?? 'default';
+    const extra = project ? agentArgs(project.config.agents.builder) : [];
+    const who = task ? `ACC_ROLE=builder ACC_TASK=${shq(task.id)} ` : '';
+    const command = `${who}claude -p ${shq(text)} --resume ${sessionId} --permission-mode ${shq(mode)} ${extra.map(shq).join(' ')} --settings ${shq(settings)}`.replace(/  +/g, ' ');
+    runs.start(command, { cwd: folder, label: `Message to ${task?.id ?? s.name ?? sessionId.slice(0, 8)}`, onExit: () => done() });
+    return null;
+  };
+  const pages = new AgentPages(context, hub, resolve, answer, reply);
   context.subscriptions.push(pages);
   const sidebar = new Sidebar(hub, accRunner(accScript), setup.log, (root, key) => tickets.show(root, undefined, key), {
     run: (command, cwd, label, onExit, ok) => void runs.start(command, { cwd, label, onExit, ok }),

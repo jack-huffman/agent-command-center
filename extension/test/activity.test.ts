@@ -230,3 +230,17 @@ test('a conversation is found where it is saved, from any window: likely folders
   assert.equal(savedFolder(projects, '00000000-0000-0000-0000-000000000000', ['/Users/me/My Repo']), null, 'saved nowhere: no guess');
   assert.equal(savedFolder(join(projects, 'missing'), id, []), null);
 });
+
+test('you can write to an agent from its page only when it isn\'t working, asking, or open elsewhere (D-060)', async () => {
+  const { replyState, isFromWebview } = await import('../src/model.ts');
+  const bg = { kind: 'background', id: 'abc12345', pid: 42, cwd: '/w', startedAt: 1, sessionId: '7bc4abb5-b4aa-4b62-a376-eced9d81d05a' } as const;
+  assert.deepEqual(replyState(null, false, false, false).can, true, 'an ended session carries on from its page');
+  assert.match(replyState({ ...bg, state: 'done', status: 'idle' } as never, false, false, false).hint, /stops its background session/);
+  assert.equal(replyState({ ...bg, state: 'working', status: 'busy' } as never, false, false, false).can, false);
+  assert.match(replyState(null, true, false, false).hint, /Answer its question above first/);
+  assert.equal(replyState({ ...bg, kind: 'interactive' } as never, false, false, false).can, false, 'open in a terminal or a Claude Code tab: one place at a time');
+  assert.match(replyState(null, false, true, false).hint, /answering/);
+  assert.ok(isFromWebview({ type: 'agent-reply', text: 'Use the Premium Support hours.' }));
+  assert.ok(!isFromWebview({ type: 'agent-reply', text: '   ' }));
+  assert.ok(!isFromWebview({ type: 'agent-reply', text: 'x'.repeat(70_000) }));
+});

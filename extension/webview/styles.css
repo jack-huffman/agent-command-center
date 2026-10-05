@@ -691,3 +691,10 @@ body[data-view="agent"] .agent-asks { max-height: 50vh; overflow-y: auto; }
 /* On the Overview, a task's questions sit under its row, in line with its words. */
 .inbox-analysis { margin: -6px 0 8px 224px; }
 @media (max-width: 620px) { .inbox-analysis { margin-left: 0; } }
+/* Writing to an agent from its page (D-060): under the timeline, always in view. */
+.agent-reply { flex: none; margin-top: 10px; }
+.agent-reply .reply-box { min-height: 56px; }
+.agent-reply .reply-box:disabled { opacity: 0.6; cursor: not-allowed; }
+.agent-reply .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.agent-reply .reply-why { display: inline-flex; align-items: center; gap: 4px; }
+

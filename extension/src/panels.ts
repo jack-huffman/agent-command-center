@@ -200,6 +200,7 @@ export class Panels implements vscode.Disposable {
     }
     if (m.type === 'run-input') return this.deps.runInput(m.run, m.text);
     if (m.type === 'run-control') return this.deps.runControl(m.run, m.action);
+    if (m.type === 'agent-reply') return; // only an agent's own page writes to it (D-060)
     if (!ALLOWED.has(m.command)) return;
     if (m.type === 'toolbar') {
       if (m.arg !== undefined) { void vscode.commands.executeCommand(m.command, m.arg); return; }
