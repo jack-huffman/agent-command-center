@@ -406,7 +406,8 @@ the open pull request's description, rather than opening another.
 
 - `acc sync` polls open pull requests. A merged one makes its task `done`. A
   closed-unmerged one moves its task to `blocked` with the reason. Failing CI,
-  or a person's requested changes, shows the task as **needs you**. The
+  a person's requested changes, or a conflict with its base shows the task as
+  **needs you**. It finds conflicts itself, naming the files (D-???). The
   Command Center runs it every two minutes while it's open.
 - `acc cleanup <id>` removes the worktree and local branch, but only once the
   pull request is merged and the worktree is clean.
@@ -520,8 +521,8 @@ An **Agents** container in the activity bar holds three views:
 **Status bar:** running, needs you, and in review counts, each with its icon.
 
 **Notifications:** a session needs you (with **Open in Claude Code**), a task is
-ready for review, a review passed or asked for changes, or CI fails on a task's
-pull request. Each offers its next step, and each change is said once (D-044).
+ready for review, a review passed or asked for changes, CI fails on a task's
+pull request, or it conflicts with its base. Each offers its next step, and each change is said once (D-044).
 
 **Commands:** Dispatch, Attach (`claude attach` in a terminal), Review, Land,
 Clean up, Intake, Open packet, Open pull request, Block or unblock, and Refresh.

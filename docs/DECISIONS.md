@@ -875,6 +875,32 @@ in the project's worktrees too.
   templates folders in the first design weren't needed: profiles and the
   packet live in core.
 
+## D-043 The question history keeps its newest 1,000 records (2026-10-02)
+
+D-037's history was only cut back past 2 MB, by dropping the older half. With
+short records that's thousands of them, and the extension reads the whole file
+each time it changes. Issue #11.
+
+- **The newest 1,000 records are kept,** and no more than 2 MB of them, so a few
+  very large ones (a `Write` with a whole file in it) can't make the file huge.
+  The newest record always stays, even one past 2 MB on its own.
+- **An append doesn't read the history.** It writes the record, `stat`s the
+  file, and reads `history.trimmed`, a few bytes next to it that hold the size
+  the last trim left. The history is read, to be trimmed, only once it has
+  grown 64 KB past that size. So between trims it holds up to 64 KB more than
+  1,000 records, which is a hundred or two at a few hundred bytes each. The page
+  shows the newest 500, so nobody sees the difference. Trimming on every append
+  past 1,000 would read and rewrite the whole file every time.
+- **Growth is measured from the last trim, not from fixed 64 KB marks.** Marks
+  looked stateless, but when the newest 1,000 records add up to just under a
+  mark, every append after a trim crosses it again and trims again. A missing
+  `history.trimmed`, one that doesn't read, or one larger than the file (the
+  file was deleted or replaced) counts as 0, so it can't stop the trimming.
+- **The trim is a rewrite,** to a temp file in the same folder and then a
+  rename, so a reader never sees half a file. Lines that don't read, from a
+  crash or a half-written append, are dropped and don't count. The readers
+  skip them, as before.
+
 ## D-044 The swarm at a glance: a status bar summary, and notices when a task changes (2026-10-02)
 
 M7 asks for three agents watched from VSCode. The page shows everything, but
@@ -1034,3 +1060,36 @@ so the Ready lane offered to dispatch a whole milestone to one builder.
 - `--json` adds `closed`, `removed` and `leftAlone`. The command's logic moved
   from the CLI into core (`intakeGithub`), beside `sync`, so it's tested with a
   fake `gh`.
+
+## D-??? A pull request that conflicts with its base says so, and in which files (2026-10-03)
+
+Parallel builders branch from the same base, so their pull requests collide. In
+the M7 run, 2 of 4 open pull requests conflicted with main: #16 in
+`docs/DECISIONS.md`, #10 in `plugin/bin/acc`. Nothing in acc said so: you found
+out on GitHub.
+
+- **acc works it out itself.** `acc sync` fetches each open pull request's base
+  and branch into origin's remote-tracking refs, then asks
+  `git merge-tree --write-tree --name-only` which files it can't merge. It keeps
+  them as `pr.conflicts`, empty when the pull request merges cleanly.
+  - Nothing local changes: no branch, no checkout, no working tree.
+  - GitHub's `mergeable` says only that it conflicts, not where, and it's often
+    still unknown just after a push.
+  - When the fetch fails or git can't tell, what it last said stands. The fetch
+    never stops to ask for a password.
+  - The base and branch are the pull request's own, from GitHub, falling back to
+    the task's environment and branch.
+- **A task in review whose pull request conflicts needs you,** as failing checks
+  do (D-033).
+- **`acc land` checks too,** once it has opened or updated the pull request, and
+  names the files.
+- **In the extension:**
+  - Cards on both boards say "Conflicts with dev: …", with a warning icon and
+    the words, in orange. A card names the first three files by folder and name
+    (`bin/acc`). The ticket page names every file in full.
+  - The Overview says why the task needs you.
+  - A new notice: "Pull request #N (GH-x) conflicts with dev in …", with Open
+    pull request (D-044). It's said when a pull request starts to conflict, not
+    again as its files change.
+- Not chosen: resolving the conflict for you. That changes the branch after its
+  review. It's rework, for a builder or a person.

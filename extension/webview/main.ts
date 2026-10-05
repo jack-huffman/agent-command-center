@@ -279,6 +279,8 @@ function renderTasks(m: TasksModel): Node[] {
           el('div', 'card-id', card.id, el('span', 'chip', card.environment)),
           openable(el('div', 'card-title', card.title), { type: 'run', command: 'acc.task.show', ref: { project: p.root, task: card.id } }),
           card.waitingOn.length ? el('div', 'card-note', icon('clock'), `Waiting on ${card.waitingOn.join(', ')}`) : null,
+          // Its pull request won't merge into its base (D-???): an icon and the words, in orange.
+          card.conflicts ? el('div', 'card-note conflict', icon('warning'), el('span', '', card.conflicts)) : null,
           card.agent ? el('div', 'card-agent', el('span', 'muted', 'Agent: '), status(card.agent)) : null,
           card.worktree ? el('div', 'card-where mono muted', icon('git-branch'), card.worktree.split('/').slice(-2).join('/')) : null,
           el('div', 'actions', ...card.actions.filter((a) => a.command !== 'acc.task.move').map(actionButton)),
@@ -355,6 +357,7 @@ function trackerCard(root: string, b: TrackerBoard, c: TrackerCard): HTMLElement
     el('div', 'card-title', c.title),
     c.labels.length ? el('div', 'labels', ...c.labels.slice(0, 4).map(labelChip)) : null,
     c.acc ? el('div', 'tcard-acc', status(c.acc.look), el('span', 'spacer'), c.acc.action ? actionButton(c.acc.action) : null) : null,
+    c.acc?.conflicts ? el('div', 'card-note conflict tcard-conflict', icon('warning'), el('span', '', c.acc.conflicts)) : null,
   );
   card.dataset.key = c.key;
   card.draggable = true;
@@ -510,6 +513,10 @@ function renderTicket(m: TicketModel): Node[] {
   // Summary first, details on demand: why it's stuck, in one line, before anything else.
   const main = el('div', 'ticket-main');
   if (m.acc?.blocker) main.append(foldable(`blocker:${m.project}#${m.key}`, el('div', 'notice attention why', icon('circle-slash', 'orange'), el('div', 'why-text', el('strong', '', 'Why it\'s blocked: '), m.acc.blocker)), 'why-text', 2));
+  if (m.acc?.conflicts) {
+    const [head, ...files] = m.acc.conflicts.split(': ');
+    main.append(foldable(`conflicts:${m.project}#${m.key}`, el('div', 'notice attention why', icon('warning', 'orange'), el('div', 'why-text conflict', el('strong', '', `${head}: `), files.join(': '))), 'why-text', 2));
+  }
   main.append(el('section', 'block', el('h2', '', 'Description'), m.loading && !m.body.blocks.length ? el('p', 'muted', 'Loading…') : foldable(`desc:${m.project}#${m.key}`, renderDoc(m.body, 'No description.'), null, 6)));
   if (m.related.length) {
     main.append(el('section', 'block', el('h2', '', 'Related'), el('ul', 'related', ...m.related.map((r) => {

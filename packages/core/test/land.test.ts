@@ -43,6 +43,19 @@ function setup(source: { kind: 'github' | 'jira' | 'manual'; key: string | null;
   return { dir, origin, config, paths, sha, id, base };
 }
 
+/** Someone else's change lands on the base on GitHub: made in another clone, so this one's branches don't move. */
+function landOnOrigin(origin: string, base: string, file: string, text: string) {
+  const other = tempDir('other-');
+  run('git', ['clone', '-q', '-b', base, origin, other]);
+  writeFileSync(join(other, file), text);
+  gitIn(other, 'add', '-A');
+  gitIn(other, '-c', 'user.name=Other', '-c', 'user.email=other@example.com', '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', `change ${file}`);
+  gitIn(other, 'push', '-q', 'origin', base);
+}
+
+/** Every local branch and where it points, HEAD, and the working tree: what sync and land must leave alone. */
+const localState = (dir: string) => [gitIn(dir, 'for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads'), gitIn(dir, 'symbolic-ref', 'HEAD'), gitIn(dir, 'status', '--porcelain')];
+
 function passReview(paths: ReturnType<typeof repoPaths>, id: string, sha: string, env: string): Verdict {
   const v: Verdict = {
     v: 1, task: id, sha, env, verdict: 'pass', summary: 'Adds sum(a, b) with a test.', sessionId: 's', at: now().toISOString(), durationMs: 1, costUsd: null,
@@ -87,7 +100,7 @@ test('land pushes the branch, opens the pull request into the environment\'s bra
   passReview(s.paths, s.id, s.sha, s.base);
   const calls: { args: string; opts?: RunOptions }[] = [];
   const r = land(s.paths, s.config, s.id, { run: gh(calls), now, env: {} });
-  assert.deepEqual([r.opened, r.pr], [true, { number: 42, url: 'https://github.com/acme/tool/pull/42', state: 'open' }]);
+  assert.deepEqual([r.opened, r.pr], [true, { number: 42, url: 'https://github.com/acme/tool/pull/42', state: 'open', conflicts: [] }], 'it merges cleanly into its base');
   assert.equal(gitIn(s.origin, 'rev-parse', 'task/T-1-add-sum').trim(), s.sha, 'the branch is on GitHub at the reviewed commit');
   const create = calls.find((c) => c.args.startsWith('pr create'))!;
   assert.match(create.args, new RegExp(`--base ${s.base} --head task/T-1-add-sum --title ${s.id}: Add a sum function`));
@@ -109,6 +122,18 @@ test('landing again after rework updates the open pull request, and a GitHub iss
   assert.ok(calls.some((c) => c.args.startsWith('pr edit 7')));
   assert.ok(!calls.some((c) => c.args.startsWith('pr create')));
   assert.match(calls.find((c) => c.args.startsWith('issue comment'))!.args, /^issue comment 12 -R acme\/tool --body .*updated after rework/);
+});
+
+test('land names the files a pull request it opens conflicts in with its base, and changes no branch', () => {
+  const s = setup();
+  landOnOrigin(s.origin, s.base, 'sum.js', 'export const sum = (...xs) => xs.reduce((a, b) => a + b, 0);\n');
+  waiveGates(s.paths, s.config, { sha: s.sha, env: s.config.environments[0]!, gates: ['test'], reason: 'r', by: 'human:t', now });
+  passReview(s.paths, s.id, s.sha, s.base);
+  const before = localState(s.dir);
+  const r = land(s.paths, s.config, s.id, { run: gh([]), now, env: {} });
+  assert.deepEqual(r.pr.conflicts, ['sum.js']);
+  assert.deepEqual(readLedger(s.paths.ledger).tasks[0]!.pr?.conflicts, ['sum.js']);
+  assert.deepEqual(localState(s.dir), before, 'no local branch moved, and the working tree is as it was');
 });
 
 test('the pull request says what it does, ticks its acceptance criteria, and shows each check, waivers included', () => {
@@ -169,4 +194,32 @@ test('sync: failing checks or a person\'s requested changes show an open pull re
   assert.equal(ciOf([{ status: 'IN_PROGRESS' }]), 'pending');
   assert.equal(ciOf([{ state: 'SUCCESS' }]), 'passing');
   assert.equal(ciOf(null), null);
+});
+
+test('sync: an open pull request records the files it conflicts in with its base, from a fetch and git merge-tree, and changes no branch', () => {
+  const s = withPr(42);
+  gitIn(s.dir, 'push', '-q', 'origin', 'task/T-1-add-sum');
+  const open = view('OPEN', { statusCheckRollup: [{ status: 'COMPLETED', conclusion: 'SUCCESS' }] });
+  sync(s.paths, s.config, { run: open, now, env: {} });
+  let l = readLedger(s.paths.ledger);
+  assert.deepEqual([l.tasks[0]!.pr?.conflicts, displayState(l, l.tasks[0]!)], [[], 'review'], 'a clean merge has no conflicts and needs nothing');
+
+  // Another branch changes sum.js on the base first: a real conflict, seen only on GitHub's copy.
+  landOnOrigin(s.origin, s.base, 'sum.js', 'export const sum = (...xs) => xs.reduce((a, b) => a + b, 0);\n');
+  landOnOrigin(s.origin, s.base, 'README.md', '# still merges\n');
+  const before = localState(s.dir);
+  const named = view('OPEN', { baseRefName: s.base, headRefName: 'task/T-1-add-sum', statusCheckRollup: [{ status: 'COMPLETED', conclusion: 'SUCCESS' }] });
+  const r = sync(s.paths, s.config, { run: named, now, env: {} });
+  assert.equal(r.changes[0]!.note, `#42: conflicts with ${s.base} in sum.js`);
+  l = readLedger(s.paths.ledger);
+  assert.deepEqual([l.tasks[0]!.pr?.conflicts, displayState(l, l.tasks[0]!)], [['sum.js'], 'needs-you'], 'only the file both changed, and the task needs you');
+  assert.deepEqual(localState(s.dir), before, 'no local branch moved, and the working tree is as it was');
+  assert.notEqual(gitIn(s.dir, 'rev-parse', s.base), gitIn(s.dir, 'rev-parse', `origin/${s.base}`), 'only the remote-tracking ref saw the new base');
+
+  const seq = l.seq;
+  assert.deepEqual(sync(s.paths, s.config, { run: named, now, env: {} }).changes, [], 'the same conflict is written once');
+  gitIn(s.dir, 'remote', 'set-url', 'origin', join(s.dir, 'gone'));
+  assert.deepEqual(sync(s.paths, s.config, { run: named, now, env: {} }).changes, [], 'offline, what git last said stands');
+  assert.equal(readLedger(s.paths.ledger).seq, seq);
+  assert.deepEqual(readLedger(s.paths.ledger).tasks[0]!.pr?.conflicts, ['sum.js']);
 });

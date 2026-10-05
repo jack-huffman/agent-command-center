@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { DISPLAY } from '../../core/src/index.ts';
 import { GENERIC_CONFIG, makeRepo, tempDir } from '../../core/test/support.ts';
 
 const MAIN = fileURLToPath(new URL('../src/main.ts', import.meta.url));
@@ -62,6 +63,45 @@ test('add, list, ready, set and show: a task through its life', () => {
   const show = acc(dir, ['show', 'T-1']).out;
   assert.match(show, /todo → running {2}by human:/);
   assert.match(show, /review → done/);
+});
+
+test('status: one line of counts by display state, nothing in play, and every state in --json', () => {
+  const dir = repoWithConfig();
+  // A claude that leaves a mark, to prove status never starts one.
+  const bin = join(dir, '.fakebin');
+  mkdirSync(bin);
+  const mark = join(dir, 'claude-ran');
+  writeFileSync(join(bin, 'claude'), `#!/bin/sh\ntouch "${mark}"\n`);
+  chmodSync(join(bin, 'claude'), 0o755);
+  const status = (...args: string[]) => acc(dir, ['status', ...args], undefined, { PATH: `${bin}:${process.env.PATH}` });
+
+  assert.equal(status().out.trim(), 'Nothing in play.');
+  const zero = Object.fromEntries(Object.keys(DISPLAY).map((s) => [s, 0]));
+  assert.deepEqual(status('--json').json(), { counts: zero });
+
+  const ledgerPath = join(dir, '.git', 'acc', 'ledger.json');
+  const put = (tasks: { title: string; deps?: string[] }[], states: Record<string, Record<string, unknown>>) => {
+    acc(dir, ['import'], JSON.stringify(tasks.map((t) => ({ source: { kind: 'manual' }, ...t }))));
+    const ledger = JSON.parse(readFileSync(ledgerPath, 'utf8'));
+    for (const t of ledger.tasks) Object.assign(t, states[t.id]);
+    writeFileSync(ledgerPath, JSON.stringify(ledger));
+  };
+  put([{ title: 'Merged' }], { 'T-1': { state: 'done' } });
+  assert.equal(status().out.trim(), 'Nothing in play.', 'done is left out');
+
+  put([{ title: 'Fails CI' }, { title: 'In review' }, { title: 'Building' }, { title: 'Next up' }, { title: 'Also next' }, { title: 'Stuck' }, { title: 'Later', deps: ['T-5'] }], {
+    'T-2': { state: 'review', pr: { number: 2, url: 'https://github.com/o/r/pull/2', state: 'open', ci: 'failing' } },
+    'T-3': { state: 'review' },
+    'T-4': { state: 'running' },
+    'T-7': { state: 'blocked', blocker: 'needs a sandbox' },
+  });
+
+  const line = status();
+  assert.equal(line.code, 0, line.err);
+  assert.equal(line.out, '1 running · 1 needs you · 1 in review · 1 blocked · 2 ready · 1 to do\n');
+  assert.deepEqual(status('--json').json(), { counts: { ...zero, running: 1, 'needs-you': 1, review: 1, blocked: 1, ready: 2, todo: 1, done: 1 } });
+  assert.ok(!existsSync(mark), 'status never starts claude');
+  assert.match(acc(dir, ['help']).out, /Tasks\n(?:.+\n)*? {2}acc status /);
 });
 
 test('builders are identified from ACC_ROLE and ACC_TASK', () => {
@@ -200,7 +240,9 @@ test('acc gate waive: a person waives a task\'s failing check with a reason; a b
   ledger.tasks[0].run = { branch };
   writeFileSync(ledgerPath, JSON.stringify(ledger));
   const id = ledger.tasks[0].id as string;
-  assert.equal(acc(dir, ['gate', 'run']).code, 1);
+  // Its own slots, so it never waits on a real check, such as the one running these tests.
+  const heavy = { ACC_HEAVY_DIR: join(makeRepo(), 'slots') };
+  assert.equal(acc(dir, ['gate', 'run'], undefined, heavy).code, 1);
   const builder = acc(dir, ['gate', 'waive', 'test', '--task', id, '--reason', 'mine', '--as', 'human'], undefined, { ACC_ROLE: 'builder', ACC_TASK: id });
   assert.equal(builder.code, 1);
   assert.match(builder.err, /A builder can't waive its own checks/);

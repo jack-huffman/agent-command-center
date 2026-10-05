@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
-  ACTORS, AccError, type Actor, type ApexTest, configureRepoAccess, displayState, drift, gatesFor, gateTarget, isReady, loadConfig, makeContext, moveTask, mutate,
+  ACTORS, AccError, type Actor, type ApexTest, configureRepoAccess, DISPLAY, type DisplayState, displayState, drift, gatesFor, gateTarget, isReady, loadConfig, makeContext, moveTask, mutate,
   cleanup, dispatch, githubIdentity, intakeGithub, planInit, useGithubAccount, withCloneAccount, type Profile, readLedger, receiptsAt, STEPS, receiptHooks, repoPaths, run, runGates, runSteps, satisfies, type State, type StepResult, type TaskInput, type UpsertResult,
   upsertTasks, writeConfig, ask, hookOutput, parseHookInput, waiveGates, review, land, sync, planPromotion, promote, skipWarning, planDeploy, deploy, lastDeploy,
   buildBaseline, seedBranches, draftLists, writeReadme, parseEventInput, preToolUseHook, sessionStartHook, stopHook, AGENT_ROLES, type AgentRole, profileView, setProfile, withCloneAgents, type ProfileChange,
@@ -33,6 +33,7 @@ Tasks
   acc import [--file <tasks.json>]      Add or refresh tasks from JSON (stdin by default)
   acc intake github [--label <l>]       Add or refresh tasks from the repo's open GitHub issues. A task not
                                         started yet leaves the board when its issue closes or has a skipLabels label
+  acc status                            One line: how many tasks are in each state
   acc list [--state <state>]
   acc ready
   acc show <id>
@@ -50,7 +51,7 @@ Agents
   acc review <id>                       A read-only reviewer agent judges the task's latest commit:
                                         pass, or changes (back to rework, with its findings)
   acc land <id>                         Push a reviewed task's branch and open its pull request; never merges
-  acc sync                              Follow open pull requests: merged → done, closed → blocked, failing checks → needs you
+  acc sync                              Follow open pull requests: merged → done, closed → blocked, failing checks or conflicts → needs you
 
 Environments
   acc promote <env> [--to <env>] [--plan] [--allow-deletions] [--skip-validate]
@@ -334,6 +335,7 @@ function cmdLand(o: Opts, id: string): number {
     `${r.task.id}: ${r.opened ? 'opened' : 'updated'} pull request #${r.pr.number}  ${r.pr.url}`,
     r.commented ? `  Commented on the GitHub issue.` : '',
     r.comment ? `  Post this on ${r.comment.key} (the extension does it for you):\n    ${r.comment.text.replace(/\n/g, '\n    ')}` : '',
+    r.pr.conflicts?.length ? tone(`! Pull request #${r.pr.number} conflicts with ${r.task.environment} in ${r.pr.conflicts.join(', ')}. GitHub can't merge it until that's resolved.`, 'orange') : '',
     tone('It merges only when a person merges it on GitHub.', 'dim'),
   ].filter(Boolean).join('\n'), r);
   return 0;
@@ -497,6 +499,22 @@ function cmdList(o: Opts, onlyReady: boolean): number {
       t.deps.filter((d) => ledger.tasks.find((x) => x.id === d)?.state !== 'done').join(', '),
     ])]);
   }, tasks.map((t) => ({ ...t, display: displayState(ledger, t), ready: isReady(ledger, t) })));
+  return 0;
+}
+
+function cmdStatus(o: Opts): number {
+  const { paths } = project(process.cwd());
+  const ledger = readLedger(paths.ledger);
+  // In the order the line reads: work in flight, then what waits to start.
+  const counts: Record<DisplayState, number> = { running: 0, 'needs-you': 0, review: 0, rework: 0, blocked: 0, ready: 0, todo: 0, done: 0 };
+  // The ledger alone, without session info, so this never starts claude.
+  for (const t of ledger.tasks) counts[displayState(ledger, t)]++;
+  out(o, () => {
+    const parts = (Object.keys(counts) as DisplayState[])
+      .filter((s) => s !== 'done' && counts[s] > 0)
+      .map((s) => tone(`${counts[s]} ${DISPLAY[s].label.toLowerCase()}`, DISPLAY[s].tone));
+    return parts.length ? parts.join(' · ') : 'Nothing in play.';
+  }, { counts });
   return 0;
 }
 
@@ -791,6 +809,7 @@ export async function main(argv: string[]): Promise<number> {
       if (!rest[0]) throw new AccError('usage', 'acc drift <environment>');
       return cmdDrift(o, rest[0]);
     }
+    case 'status': return cmdStatus(o);
     case 'list': return cmdList(o, false);
     case 'ready': return cmdList(o, true);
     case 'show': {

@@ -62,6 +62,17 @@ test('a ticket page: the tracker\'s ticket can be changed from it; acc\'s side s
   assert.deepEqual([local.sourceKind, local.sourceLabel, local.can.comment, local.trackable], ['acc', 'Task kept by acc', false, false]);
   assert.deepEqual(local.body, { blocks: [{ t: 'p', c: [{ t: 'text', text: 'Brief' }] }] }, 'a task acc alone keeps shows its brief, rendered');
   assert.deepEqual(local.status, { name: 'Ready', tone: 'blue' });
+  assert.equal(local.acc!.conflicts, null);
+
+  // Its open pull request conflicts with its base: the page names every file (D-???).
+  const files = ['docs/DECISIONS.md', 'plugin/bin/acc', 'a.ts', 'b.ts'];
+  // The page names each in full; the card by folder and name.
+  const pr = { number: 16, url: 'u', state: 'open', ci: 'passing', changesRequested: false, conflicts: files };
+  const conflicted = ticketModel({ ...base, ticket, row: row('ACME-1', 'review', 'needs-you', { pr }), task });
+  assert.equal(conflicted.acc!.conflicts, 'Conflicts with dev: docs/DECISIONS.md, plugin/bin/acc, a.ts, b.ts', 'every file, in full');
+  assert.equal(ticketModel({ ...base, ticket, row: row('ACME-1', 'done', 'done', { pr: { ...pr, state: 'merged' } }), task }).acc!.conflicts, null, 'a merged one no longer conflicts');
+  const onBoard = trackerBoard(board(), [row('ACME-3', 'review', 'needs-you', { pr })], '/r').columns[1]!.cards[0]!.acc!;
+  assert.deepEqual([onBoard.needsYou, onBoard.conflicts], [true, 'Conflicts with dev: docs/DECISIONS.md, bin/acc, a.ts and 1 more'], 'the tracker\'s card says why too');
 });
 
 test('messages from the board and ticket pages are checked before anything acts on them', () => {
