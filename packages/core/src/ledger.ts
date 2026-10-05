@@ -412,6 +412,9 @@ export interface SessionInfo {
   status?: string;
 }
 
+/** The pull request of a task in review that someone closed without merging: it waits for a person, who lands it again or not (D-???). */
+export const closedPr = (task: Task): PullRequest | null => (task.state === 'review' && task.pr?.state === 'closed' ? task.pr : null);
+
 /** What the UI shows: stored states plus "ready" and "needs you", which are derived (DESIGN.md section 5). */
 export function displayState(ledger: Ledger, task: Task, session?: SessionInfo): DisplayState {
   if (task.state === 'todo' && isReady(ledger, task)) return 'ready';
@@ -421,6 +424,8 @@ export function displayState(ledger: Ledger, task: Task, session?: SessionInfo):
   // An open pull request whose checks fail, that a person asked to change, or that conflicts with its
   // base, waits on you (D-033, D-049).
   if (task.state === 'review' && task.pr?.state === 'open' && (task.pr.ci === 'failing' || task.pr.changesRequested || !!task.pr.conflicts?.length)) return 'needs-you';
+  // So does a closed one a person moved back to review: autopilot won't replace it (D-???).
+  if (closedPr(task)) return 'needs-you';
   return task.state;
 }
 

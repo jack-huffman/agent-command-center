@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import type { TaskRow } from '../src/logic.ts';
-import { agentsModel, analysisLook, cardActions, environmentsModel, homeModel, type HubLike, isFromWebview, needsYouCount, promotionPaths, setupModel, tasksModel, VIEW_KINDS, worktreesModel, dropLanes, laneMove } from '../src/model.ts';
+import { agentsModel, analysisLook, type BoardInput, cardActions, environmentsModel, homeModel, type HubLike, isFromWebview, needsYouCount, promotionPaths, setupModel, tasksModel, trackerBoard, VIEW_KINDS, worktreesModel, dropLanes, laneMove } from '../src/model.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
@@ -343,6 +343,40 @@ test('a pull request autopilot couldn\'t update from its base says so in words, 
   assert.deepEqual([item.look.label, item.look.icon, item.look.tone], ['Needs you: autopilot couldn\'t update from its base', 'bell', 'orange']);
   assert.equal(item.detail, `Acme · ${reason} Do it by hand, or a new commit lets autopilot try again.`);
   assert.deepEqual(item.actions.map((a) => a.label), ['Pull request #18', 'Open'], 'the pull request, where a person resolves it');
+});
+
+test('a closed pull request in review says so in words, with its icon, in orange, on the card, the tracker\'s card and the Overview, and offers Land (D-???)', () => {
+  const closed = { number: 16, url: 'https://github.com/o/r/pull/16', state: 'closed', ci: 'passing', changesRequested: false, conflicts: [] };
+  const rows: TaskRow[] = [
+    // Its builder's session is still around: the closed pull request is what needs you, not the agent.
+    { ...row('AV-8', 'review', 'needs-you'), run: { worktree: '/w8', branch: 'b8', bgId: 'bg8' }, agent: { label: 'Idle', icon: 'circle-outline', tone: 'neutral' }, pr: closed, review: { verdict: 'pass', summary: 's', current: true } },
+    { ...row('AV-9', 'review', 'needs-you'), run: { worktree: '/w9', branch: 'b9' }, pr: { ...closed, number: 17, url: 'https://github.com/o/r/pull/17' } },
+    { ...row('AV-10', 'blocked', 'blocked'), pr: { ...closed, number: 18 } },
+  ];
+  const h = { ...hub(), agents: [], taskRows: () => rows };
+  const look = { label: 'Needs you: pull request #16 was closed without merging', icon: 'git-pull-request-closed', tone: 'orange' };
+  const cards = tasksModel(h).projects[0]!.columns;
+  const card = (id: string) => cards.flatMap((c) => c.cards).find((c) => c.id === id)!;
+  assert.deepEqual(card('AV-8').closedPr, look);
+  assert.deepEqual(cards.find((c) => c.group === 'needs-you')!.cards.map((c) => c.id), ['AV-8', 'AV-9']);
+  assert.equal(card('AV-8').actions[0]!.label, 'Land');
+  assert.equal(card('AV-10').closedPr, null, 'blocked, as acc sync leaves it, it says blocked');
+
+  const m = homeModel({ hub: h, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } });
+  const item = m.overview.attention.find((a) => a.title === 'AV-8 Task AV-8')!;
+  assert.deepEqual([item.look.label, item.look.icon, item.look.tone], ['Pull request closed', 'git-pull-request-closed', 'orange']);
+  assert.equal(item.detail, 'Acme · pull request #16 was closed without merging. Land it to open a new one, or reopen it on GitHub and land to update it.');
+  assert.doesNotMatch(item.detail, /terminal/, 'not an agent waiting in its terminal');
+  assert.deepEqual(item.actions.map((a) => [a.label, !!a.primary]), [['Land', true], ['Pull request #16', false], ['Open', false]]);
+  const unreviewed = m.overview.attention.find((a) => a.title === 'AV-9 Task AV-9')!;
+  assert.deepEqual(unreviewed.actions.map((a) => a.label), ['Review', 'Pull request #17', 'Open'], 'nothing reviewed its latest commit yet');
+
+  const board: BoardInput = {
+    index: 0, kind: 'jira', title: 'Jira', error: null, connect: null, loading: false,
+    board: { source: 'jira-board', title: 'Board', url: null, notice: null, columns: [{ id: 'c', name: 'In Review', category: 'doing', statusIds: ['4'] }], cards: [{ key: 'AV-8', title: 'Task AV-8', url: 'u', status: { id: '4', name: 'In Review' }, type: 'Story', assignees: [], labels: [], priority: null }] },
+  };
+  const tracked = trackerBoard(board, rows, '/r').columns[0]!.cards[0]!.acc!;
+  assert.deepEqual([tracked.look, tracked.needsYou], [look, true], 'the tracker\'s card says the same');
 });
 
 test('table cells keep table layout (a flex cell misaligns its row\'s lines)', () => {

@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { parseConfig } from '../src/config.ts';
 import { run } from '../src/exec.ts';
 import {
-  ACTORS, applyMove, checkMove, displayState, emptyLedger, type Emit, findRule, type Hooks, isReady, type Ledger, type LedgerEvent,
+  ACTORS, applyMove, checkMove, closedPr, displayState, emptyLedger, type Emit, findRule, type Hooks, isReady, type Ledger, type LedgerEvent,
   moveTask, mutate, noGateHooks, normalizeId, readLedger, readyTasks, RULES, type State, STATES, type Task, upsertTasks,
 } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
@@ -174,10 +174,24 @@ test('an open pull request that conflicts with its base shows its task in review
   assert.equal(displayState(l, t), 'review', 'it merges cleanly');
   t.pr = { ...pr, conflicts: ['docs/DECISIONS.md'] };
   assert.equal(displayState(l, t), 'needs-you');
-  t.pr = { ...pr, state: 'closed', conflicts: ['docs/DECISIONS.md'] };
-  assert.equal(displayState(l, t), 'review', 'only an open pull request counts');
+  t.pr = { ...pr, state: 'merged', conflicts: ['docs/DECISIONS.md'] };
+  assert.equal(displayState(l, t), 'review', 'only an open pull request\'s conflicts count');
   t.pr = { ...pr, ci: 'failing' };
   assert.equal(displayState(l, t), 'needs-you');
+});
+
+test('a closed pull request shows its task in review as needs you; blocked stays blocked and done stays done (D-???)', () => {
+  const l = ledgerWith({ id: 'ACME-1', state: 'review' });
+  const t = task(l, 'ACME-1');
+  t.pr = { number: 7, url: 'https://github.com/acme/x/pull/7', state: 'closed' };
+  assert.deepEqual([closedPr(t), displayState(l, t)], [t.pr, 'needs-you'], 'a person moved it back to review: autopilot won\'t replace it');
+  t.state = 'blocked';
+  assert.deepEqual([closedPr(t), displayState(l, t)], [null, 'blocked'], 'as acc sync left it');
+  t.state = 'done';
+  assert.deepEqual([closedPr(t), displayState(l, t)], [null, 'done']);
+  t.state = 'review';
+  t.pr = { ...t.pr, state: 'open' };
+  assert.deepEqual([closedPr(t), displayState(l, t)], [null, 'review'], 'landed again');
 });
 
 test('a step autopilot couldn\'t take shows its task as needs you, in the state it failed in, until any move clears it (D-055)', () => {

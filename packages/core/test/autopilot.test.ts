@@ -7,6 +7,7 @@ import { AUTOPILOT_BY, type AutopilotDeps, autopilotMode, autopilotPass, type Au
 import { type Config, parseConfig } from '../src/config.ts';
 import { AccError, run, type RunResult } from '../src/exec.ts';
 import { waiveGates } from '../src/gates.ts';
+import { land } from '../src/land.ts';
 import { displayState, emptyLedger, type Ledger, type LedgerEvent, mutate, readLedger, type State, type Task, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
 import { readVerdict, reviewPath, type Verdict } from '../src/review.ts';
@@ -152,6 +153,14 @@ test('in review and passed: land when there\'s no pull request, or it\'s behind 
   assert.deepEqual(decide(l, 'T-1', facts({ verdict: 'pass', landed: HEAD })), [null, 'skipped']);
   l.tasks[0]!.pr = pr({ state: 'merged' });
   assert.deepEqual(decide(l, 'T-1', facts({ verdict: 'pass' })), [null, 'skipped']);
+});
+
+test('in review, with a closed pull request: once its review passed it waits for a person, and a new commit is still reviewed (D-???)', () => {
+  const l = ledgerOf({ id: 'T-1', state: 'review', pr: pr({ state: 'closed' }) });
+  assert.deepEqual(decide(l, 'T-1', facts({ verdict: 'pass' })), [null, 'waiting'], 'never landed as a new one');
+  assert.match(nextStep(l, RULES_CONFIG, l.tasks[0]!, facts({ verdict: 'pass' })).reason, /^Pull request #7 was closed without merging\. Autopilot won't replace it: reopen it on GitHub and land to update it, or land to open a new one\.$/);
+  assert.deepEqual(decide(l, 'T-1', facts()), ['review', null], 'a review is local: it doesn\'t touch GitHub');
+  assert.deepEqual(decide(l, 'T-1', facts({ verdict: 'changes' })), [null, 'waiting']);
 });
 
 test('in review, passed and landed: an open pull request that conflicts with its base is refreshed, once a commit (D-058)', () => {
@@ -332,6 +341,26 @@ test('a pull request landed before acc recorded its commit is compared with what
   const sha2 = s.commit('sum.test.js', 'test("sum", () => {});\n');
   passReview(s.paths, s.id, sha2);
   assert.deepEqual(brief(autopilotPass(s.paths, s.config, deps(calls)).steps)[0], ['T-1', 'land', 'done'], 'behind the branch: it lands');
+});
+
+test('a closed pull request a person moved back to review isn\'t replaced: the task needs you until a person lands it (D-???)', () => {
+  const s = setup();
+  passReview(s.paths, s.id, s.sha);
+  // acc sync saw it closed and blocked the task; a person moved it back to review.
+  edit(s.paths, (l) => { l.tasks[0]!.pr = { number: 41, url: 'https://github.com/acme/tool/pull/41', state: 'closed' }; });
+  const calls: string[] = [];
+  const r = autopilotPass(s.paths, s.config, deps(calls));
+  assert.deepEqual(brief(r.steps), [['T-1', null, 'waiting'], ['T-2', null, 'skipped'], ['T-3', null, 'skipped']]);
+  assert.match(r.steps[0]!.reason, /^Pull request #41 was closed without merging\./);
+  assert.ok(!calls.some((c) => c.startsWith('git push') || c.startsWith('gh ')), 'nothing pushed, opened or edited');
+  const t = first(s.paths);
+  assert.deepEqual([t.pr?.number, t.pr?.state, t.autopilot], [41, 'closed', undefined], 'the ledger still names the closed one, and nothing failed');
+  assert.equal(displayState(readLedger(s.paths.ledger), t), 'needs-you');
+
+  // A person lands it. GitHub has nothing open for the branch, so acc opens a new pull request.
+  const landed = land(s.paths, s.config, s.id, { run: deps(calls).run, now, env: {} }, { actor: 'human' });
+  assert.deepEqual([landed.opened, landed.pr.number, landed.pr.state], [true, 42, 'open']);
+  assert.equal(displayState(readLedger(s.paths.ledger), first(s.paths)), 'review');
 });
 
 // ---------------------------------------------------------------- one at a time

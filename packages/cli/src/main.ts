@@ -8,7 +8,7 @@ import {
   upsertTasks, writeConfig, ask, hookOutput, parseHookInput, waiveGates, review, land, sync, planPromotion, promote, skipWarning, planDeploy, deploy, lastDeploy,
   buildBaseline, seedBranches, draftLists, writeReadme, parseEventInput, preToolUseHook, sessionStartHook, stopHook, AGENT_ROLES, type AgentRole, profileView, setProfile, withCloneAgents, type ProfileChange,
   analyze, type Analysis, answerAnalysis, openQuestions, readAnalysis,
-  AUTOPILOT_MIN_EVERY_S, type AutopilotResult, type AutopilotStepName, autopilotFailure, autopilotMode, autopilotPass, holdAutopilot, sleep,
+  AUTOPILOT_MIN_EVERY_S, type AutopilotResult, type AutopilotStepName, autopilotFailure, autopilotMode, autopilotPass, closedPr, holdAutopilot, sleep,
 } from '../../core/src/index.ts';
 import { checkLabel, gateLabel, stateLabel, table, tone } from './format.ts';
 
@@ -663,12 +663,14 @@ function cmdShow(o: Opts, id: string): number {
   const t = ledger.tasks.find((x) => x.id === id.toUpperCase());
   if (!t) throw new AccError('no-task', `No task ${id}.`);
   const failed = autopilotFailure(t);
+  const closed = closedPr(t);
   out(o, () => [
     `${t.id}  ${stateLabel(displayState(ledger, t))}  ${t.title}`,
     `Environment: ${t.environment}   Source: ${t.source.kind}${t.source.url ? ` ${t.source.url}` : ''}`,
     t.deps.length ? `Depends on: ${t.deps.join(', ')}` : '',
     t.blocker ? `Blocked: ${t.blocker}` : '',
     failed ? tone(`! Autopilot couldn't ${stepWords(failed.step, failed.sha || 'it')}: ${failed.reason}`, 'orange') : '',
+    closed ? tone(`! Pull request #${closed.number} was closed without merging. Reopen it on GitHub and land to update it, or land to open a new one.`, 'orange') : '',
     t.brief ? `\n${t.brief}\n` : '',
     'History:',
     ...t.history.map((h) => `  ${h.at}  ${h.from ?? '–'} → ${h.to}  by ${h.by}${h.reason ? `: ${h.reason}` : ''}${h.override ? ' (override)' : ''}`),

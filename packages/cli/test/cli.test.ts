@@ -314,6 +314,28 @@ test('acc autopilot runs on a repo where no task was ever added, which has no st
   assert.ok(!existsSync(join(dir, '.git', 'acc', 'autopilot.lock')), 'let go when it ends');
 });
 
+test('a task in review whose pull request was closed shows as needs you, and acc show names the pull request (D-???)', () => {
+  const dir = repoWithConfig();
+  assert.equal(acc(dir, ['add', 'Add a sum function']).code, 0);
+  assert.equal(acc(dir, ['set', 'T-1', 'running']).code, 0);
+  assert.equal(acc(dir, ['set', 'T-1', 'review', '--as', 'builder']).code, 0);
+  const file = join(dir, '.git', 'acc', 'ledger.json');
+  const l = JSON.parse(readFileSync(file, 'utf8'));
+  l.tasks[0].pr = { number: 41, url: 'https://github.com/acme/tool/pull/41', state: 'closed' };
+  writeFileSync(file, JSON.stringify(l));
+  assert.match(acc(dir, ['show', 'T-1']).out, /T-1 {2}! Needs you {2}Add a sum function\n[\s\S]*! Pull request #41 was closed without merging\. Reopen it on GitHub and land to update it, or land to open a new one\./);
+  assert.equal(acc(dir, ['list', '--json']).json()[0].display, 'needs-you');
+  assert.match(acc(dir, ['status']).out, /1 needs you/);
+
+  // Blocked, as acc sync leaves it, it's blocked with its reason, and acc show doesn't say it again.
+  l.tasks[0].state = 'blocked';
+  l.tasks[0].blocker = 'Pull request #41 was closed without merging. Reopen it, or decide what happens.';
+  writeFileSync(file, JSON.stringify(l));
+  const blocked = acc(dir, ['show', 'T-1']).out;
+  assert.match(blocked, /T-1 {2}⊘ Blocked/);
+  assert.equal(blocked.match(/#41/g)?.length, 1);
+});
+
 test('a task autopilot couldn\'t move on shows as needs you, and acc show says why (D-055)', () => {
   const dir = repoWithConfig();
   assert.equal(acc(dir, ['add', 'Add a sum function']).code, 0);

@@ -99,6 +99,8 @@ export interface Card {
   analysis: Look | null;
   /** What autopilot couldn't do for it, and why (D-055). */
   autopilot: Look | null;
+  /** Its pull request someone closed without merging, which autopilot won't replace (D-???). */
+  closedPr: Look | null;
   actions: Action[];
   /** The lanes it can be dropped in: the moves a person may make from where it is (D-041). */
   drops: string[];
@@ -134,6 +136,12 @@ const AUTOPILOT_STEP: Record<NonNullable<TaskRow['autopilot']>['step'], string> 
 export function autopilotLook(t: Pick<TaskRow, 'autopilot'>, why = true): Look | null {
   if (!t.autopilot) return null;
   return { label: `Needs you: autopilot couldn't ${AUTOPILOT_STEP[t.autopilot.step]}${why ? `: ${t.autopilot.reason}` : ''}`, icon: 'bell', tone: 'orange' };
+}
+
+/** "Needs you: pull request #16 was closed without merging", for a task in review: autopilot won't replace it, so a person lands it again or not (D-???). */
+export function closedPrLook(t: Pick<TaskRow, 'state' | 'pr'>): Look | null {
+  if (t.state !== 'review' || t.pr?.state !== 'closed') return null;
+  return { label: `Needs you: pull request #${t.pr.number} was closed without merging`, icon: 'git-pull-request-closed', tone: 'orange' };
 }
 
 /** The lanes a task can be dropped in by a person, by acc's own move rules. Whether it then goes is acc's call. */
@@ -218,7 +226,7 @@ export function tasksModel(hub: HubLike, boards: (root: string) => BoardInput[] 
           group, label: d.label, icon: d.icon, tone: d.tone,
           cards: (byGroup.get(group) ?? []).map((t) => ({
             id: t.id, title: t.title, environment: t.environment, waitingOn: t.deps, url: t.source.url,
-            agent: t.agent ?? null, worktree: t.run?.worktree ?? null, conflicts: conflictLine(t), analysis: analysisLook(t), autopilot: autopilotLook(t),
+            agent: t.agent ?? null, worktree: t.run?.worktree ?? null, conflicts: conflictLine(t), analysis: analysisLook(t), autopilot: autopilotLook(t), closedPr: closedPrLook(t),
             actions: cardActions(t, { project: p.root, task: t.id }), drops: dropLanes(t),
           })),
         };
@@ -317,6 +325,8 @@ export interface TrackerBoard {
 /** The agent's side of a ticket: acc's own state, or what the agent, or its analysis (D-052), is doing about it. */
 function accLook(row: TaskRow): Look {
   if (row.autopilot && row.display === 'needs-you') return autopilotLook(row)!;
+  const closed = closedPrLook(row);
+  if (closed) return closed;
   if (row.agent && row.display === 'needs-you') return row.agent;
   const analysis = analysisLook(row);
   if (analysis && (row.display === 'needs-you' || row.analyzing)) return analysis;
@@ -1258,6 +1268,13 @@ export function homeModel(i: HomeInput): HomeModel {
         if (r.autopilot) {
           const byHand = acts.find((a) => a.primary && ['acc.task.review', 'acc.task.land', 'acc.task.dispatch', 'acc.task.openPr'].includes(a.command));
           attention.push({ key: `t:${p.root}:${r.id}`, look: autopilotLook(r, false)!, title: `${r.id} ${r.title}`, detail: `${p.name} · ${r.autopilot.reason.replace(/([^.!?])$/, '$1.')} Do it by hand, or a new commit lets autopilot try again.`, project: p.name, actions: [...(byHand ? [byHand] : []), details] });
+          continue;
+        }
+        // Its pull request was closed (D-???): autopilot won't replace it, so a person lands it again, or reopens it first.
+        if (closedPrLook(r)) {
+          const next = acts.find((a) => a.primary && ['acc.task.land', 'acc.task.review', 'acc.task.watchReview'].includes(a.command));
+          const link = acts.find((a) => a.command === 'acc.task.openPr');
+          attention.push({ key: `t:${p.root}:${r.id}`, look: LOOK('Pull request closed', 'git-pull-request-closed', 'orange'), title: `${r.id} ${r.title}`, detail: `${p.name} · pull request #${r.pr!.number} was closed without merging. Land it to open a new one, or reopen it on GitHub and land to update it.`, project: p.name, actions: [...(next ? [next] : []), ...(link ? [link] : []), details] });
           continue;
         }
         const watch = acts.find((a) => a.command === 'acc.task.watch');

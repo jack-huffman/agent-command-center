@@ -283,6 +283,8 @@ function renderTasks(m: TasksModel): Node[] {
           card.conflicts ? el('div', 'card-note conflict', icon('warning'), el('span', '', card.conflicts)) : null,
           // A step autopilot couldn't take, and why (D-055): an icon and the words, in orange.
           card.autopilot ? el('div', 'card-agent', status(card.autopilot)) : null,
+          // Its pull request was closed, and autopilot won't replace it (D-???): an icon and the words, in orange.
+          card.closedPr ? el('div', 'card-agent', status(card.closedPr)) : null,
           card.agent ? el('div', 'card-agent', el('span', 'muted', 'Agent: '), status(card.agent)) : null,
           // Its analysis (D-052), in its own words: under way, waiting on you, or ready to build from.
           card.analysis ? el('div', 'card-agent', status(card.analysis)) : null,
