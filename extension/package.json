@@ -340,6 +340,18 @@
         "icon": "$(pulse)"
       },
       {
+        "command": "acc.task.analyze",
+        "title": "Analyze before the build",
+        "category": "Agent Command Center",
+        "icon": "$(telescope)"
+      },
+      {
+        "command": "acc.task.watchAnalysis",
+        "title": "Watch the analysis",
+        "category": "Agent Command Center",
+        "icon": "$(pulse)"
+      },
+      {
         "command": "acc.task.land",
         "title": "Land: push and open the pull request",
         "category": "Agent Command Center",
@@ -547,6 +559,14 @@
         },
         {
           "command": "acc.task.watchReview",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.analyze",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.watchAnalysis",
           "when": "false"
         },
         {

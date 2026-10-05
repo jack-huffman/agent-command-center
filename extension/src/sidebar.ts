@@ -20,8 +20,8 @@ type Acc = (args: string[], cwd: string, token?: vscode.CancellationToken) => Pr
 
 /** What the sidebar's actions can use from the rest of the extension (D-030). */
 export interface SidebarHelpers {
-  /** Runs a command with its output in the page, instead of a terminal. */
-  run?: (command: string, cwd: string, label: string, onExit?: (code: number | null) => void) => void;
+  /** Runs a command with its output in the page, instead of a terminal. `ok` judges an exit code that says more than done or failed. */
+  run?: (command: string, cwd: string, label: string, onExit?: (code: number | null) => void, ok?: (code: number | null) => boolean) => void;
   /** Opens a session's activity page. A session that has ended needs the hint to find its transcript. */
   watch?: (key: string, ended?: AgentSession, active?: () => boolean) => boolean;
   /** How a shell runs the bundled acc, for commands run in the page. */
@@ -75,6 +75,8 @@ export class Sidebar {
     reg('acc.task.watch', (n: TaskNode) => this.watchTask(n));
     reg('acc.task.review', (n: TaskNode) => this.reviewTask(n));
     reg('acc.task.watchReview', (n: TaskNode) => this.watchReview(n));
+    reg('acc.task.analyze', (n: TaskNode) => this.analyzeTask(n));
+    reg('acc.task.watchAnalysis', (n: TaskNode) => this.watchAnalysis(n));
     reg('acc.task.land', (n: TaskNode) => this.landTask(n));
     reg('acc.task.openPr', (n: TaskNode) => n?.kind === 'task' && n.task.pr && vscode.env.openExternal(vscode.Uri.parse(n.task.pr.url)));
     reg('acc.task.attach', (n: TaskNode) => n.kind === 'task' && n.task.run?.bgId && this.send(n.task.run.worktree ?? n.project.root, `claude attach ${n.task.run.bgId}`, `claude: ${n.task.id}`));
@@ -446,6 +448,36 @@ export class Sidebar {
     const id = n.task.id;
     const stillReviewing = () => !!this.hub.taskRows(root).find((t) => t.id === id)?.reviewing;
     this.helpers.watch?.(sessionId, { cwd: n.task.run.worktree, kind: 'background', startedAt: Date.now(), sessionId, name: `Review ${id}` }, stillReviewing);
+  }
+
+  // ------------------------------------------------------------ the analysis before a build (D-052)
+
+  /** The analyst runs in the output panel, like a review; its session can be watched while it reads. */
+  private analyzeTask(n: TaskNode): void {
+    if (n?.kind !== 'task') return;
+    const { project, task } = n;
+    const acc = this.helpers.accCommand ?? 'acc';
+    const done = () => void this.hub.loadTasks(true);
+    if (this.helpers.run) {
+      // acc analyze exits 1 when the analysis has questions or says to split it: a new analysis is a run that
+      // worked, and its notice says what it found. An error writes none.
+      const before = this.hub.analysis(project.root, task.id)?.at ?? null;
+      const made = (code: number | null) => code === 0 || (this.hub.analysis(project.root, task.id)?.at ?? null) !== before;
+      this.helpers.run(`${acc} analyze ${task.id}`, project.root, `Analyze ${task.id}`, done, made);
+      // The analyst's session shows once acc has started it.
+      setTimeout(done, 2_000);
+    } else {
+      this.send(project.root, `acc analyze ${task.id}`);
+    }
+  }
+
+  private watchAnalysis(n: TaskNode): void {
+    if (n?.kind !== 'task' || !n.task.analyzing) return;
+    const { sessionId } = n.task.analyzing;
+    const root = n.project.root;
+    const id = n.task.id;
+    const stillAnalyzing = () => !!this.hub.taskRows(root).find((t) => t.id === id)?.analyzing;
+    this.helpers.watch?.(sessionId, { cwd: root, kind: 'background', startedAt: Date.now(), sessionId, name: `Analysis ${id}` }, stillAnalyzing);
   }
 
   /** Pushes and opens the pull request, after a person says so: it's the first thing that leaves this machine. */

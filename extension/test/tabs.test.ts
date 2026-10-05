@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import type { TaskRow } from '../src/logic.ts';
-import { agentsModel, cardActions, environmentsModel, homeModel, type HubLike, isFromWebview, promotionPaths, setupModel, tasksModel, VIEW_KINDS, worktreesModel, dropLanes, laneMove } from '../src/model.ts';
+import { agentsModel, analysisLook, cardActions, environmentsModel, homeModel, type HubLike, isFromWebview, needsYouCount, promotionPaths, setupModel, tasksModel, VIEW_KINDS, worktreesModel, dropLanes, laneMove } from '../src/model.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
@@ -42,7 +42,7 @@ test('the board has a column for every status, in attention order, and each card
   const cols = m.projects[0]!.columns;
   assert.deepEqual(cols.map((c) => c.group), ['needs-you', 'ready', 'running', 'review', 'rework', 'blocked', 'todo', 'done']);
   const card = (id: string) => cols.flatMap((c) => c.cards).find((c) => c.id === id)!;
-  assert.deepEqual(card('AV-2').actions.map((a) => a.label), ['Move', 'Block', 'Ticket', 'Details']);
+  assert.deepEqual(card('AV-2').actions.map((a) => a.label), ['Analyze', 'Move', 'Block', 'Ticket', 'Details'], 'waiting on another task, it can still be analyzed');
   assert.deepEqual(card('AV-3').actions.map((a) => a.label), ['Move', 'Unblock', 'Details']);
   assert.deepEqual(card('AV-4').actions.map((a) => a.label), ['Move', 'Details'], 'done tasks can\'t be blocked');
   assert.deepEqual(card('AV-2').waitingOn, ['AV-1']);
@@ -207,13 +207,70 @@ test('the Overview gathers what needs a person, counts it once, and groups revie
 
 test('cards follow a task through dispatch: Dispatch, then Watch, Attach and Abandon, then Clean up', () => {
   const labels = (r: Partial<TaskRow>) => cardActions({ ...row('AV-9', 'todo', 'ready'), deps: [], ...r } as TaskRow, {}).map((a) => a.label);
-  assert.deepEqual(labels({}), ['Dispatch', 'Move', 'Block', 'Details']);
+  assert.deepEqual(labels({}), ['Dispatch', 'Analyze', 'Move', 'Block', 'Details']);
   assert.deepEqual(labels({ state: 'running', display: 'running', run: { bgId: 'bg1', worktree: '/w/AV-9' } }), ['Watch', 'Open in Claude Code', 'Worktree', 'Instructions', 'Move', 'Abandon', 'Details']);
   assert.equal(cardActions({ ...row('AV-9', 'running', 'running'), deps: [], run: { bgId: 'bg1' } } as TaskRow, {})[0]!.primary, true, 'Watch is the main action while it runs');
   assert.deepEqual(labels({ state: 'review', display: 'review', run: { sessionId: 's1', worktree: '/w/AV-9' } }).slice(0, 2), ['Review', 'Watch'], 'in review: Review first, and what its builder did can still be read');
   assert.deepEqual(labels({ state: 'rework', display: 'rework', run: { worktree: '/w/AV-9' } }), ['Re-dispatch', 'Worktree', 'Instructions', 'Move', 'Block', 'Details']);
   assert.deepEqual(labels({ state: 'done', display: 'done', run: { worktree: '/w/AV-9' } }), ['Worktree', 'Instructions', 'Move', 'Clean up', 'Details']);
   assert.equal(cardActions({ ...row('AV-9', 'todo', 'ready'), deps: [] }, {})[0]!.primary, true, 'Dispatch is the main action on a ready card');
+});
+
+const ask = (id: string) => ({ id, question: `Question ${id}?`, why: 'It changes the build.', suggested: 'The usual.' });
+const asks = { verdict: 'questions' as const, at: 't1', open: [ask('q1'), ask('q2')], split: [] };
+const tooBig = { verdict: 'split' as const, at: 't1', open: [], split: ['One part', 'Another part', 'The rest'] };
+const analysed = { verdict: 'ready' as const, at: 't1', open: [], split: [] };
+
+test('before a build, a card offers its analysis first, and Dispatch once it\'s ready or none is wanted (D-052)', () => {
+  const labels = (r: Partial<TaskRow>) => cardActions({ ...row('AV-9', 'todo', 'ready'), deps: [], ...r } as TaskRow, {}).map((a) => `${a.label}${a.primary ? '*' : ''}`);
+  // Where the project wants an analysis first: Dispatch waits for a ready one, and the command line keeps the override.
+  assert.deepEqual(labels({ analysisRequired: true }), ['Analyze*', 'Move', 'Block', 'Details']);
+  assert.deepEqual(labels({ analysisRequired: true, analyzing: { sessionId: 's' } }), ['Watch the analysis*', 'Move', 'Block', 'Details']);
+  assert.deepEqual(labels({ analysisRequired: true, display: 'needs-you', analysis: asks }), ['Answer*', 'Move', 'Block', 'Details']);
+  assert.deepEqual(labels({ analysisRequired: true, display: 'needs-you', analysis: tooBig }), ['See the split*', 'Move', 'Block', 'Details']);
+  assert.deepEqual(labels({ analysisRequired: true, analysis: analysed }), ['Dispatch*', 'Move', 'Block', 'Details']);
+  assert.deepEqual(labels({ analysisRequired: true, deps: ['AV-1'], display: 'todo' }), ['Analyze*', 'Move', 'Block', 'Details'], 'waiting on another task: analyze it meanwhile');
+  // Where it's optional: Dispatch stays, second to answering questions the analysis did ask.
+  assert.deepEqual(labels({}), ['Dispatch*', 'Analyze', 'Move', 'Block', 'Details']);
+  assert.deepEqual(labels({ display: 'needs-you', analysis: asks }), ['Answer*', 'Dispatch', 'Move', 'Block', 'Details']);
+  assert.deepEqual(labels({ analysis: analysed }), ['Dispatch*', 'Move', 'Block', 'Details']);
+  assert.deepEqual(labels({ analyzing: { sessionId: 's' } }), ['Watch the analysis*', 'Move', 'Block', 'Details'], 'not while it\'s being analyzed');
+  assert.equal(labels({ state: 'rework', display: 'rework', analysisRequired: true })[0], 'Re-dispatch*', 'a rework already had its analysis');
+  // Dragging to Running is dispatching, so it's held the same way.
+  const lanes = (r: Partial<TaskRow>) => dropLanes({ state: 'todo', display: 'ready', deps: [], ...r });
+  assert.ok(!lanes({ analysisRequired: true }).includes('running'), 'held until its analysis is ready');
+  assert.ok(lanes({ analysisRequired: true, analysis: analysed }).includes('running'));
+  assert.ok(lanes({ display: 'needs-you', analysis: asks }).includes('running'), 'optional: it can still go');
+  // What the card says, in words and an icon, orange when it waits on you.
+  assert.deepEqual(analysisLook({ state: 'todo', analysis: asks }), { label: 'Needs you: 2 questions from its analysis', icon: 'question', tone: 'orange' });
+  assert.equal(analysisLook({ state: 'todo', analysis: { ...asks, open: [ask('q1')] } })!.label, 'Needs you: 1 question from its analysis');
+  assert.deepEqual(analysisLook({ state: 'todo', analysis: tooBig }), { label: 'Needs you: too big for one task', icon: 'split-horizontal', tone: 'orange' });
+  assert.deepEqual(analysisLook({ state: 'todo', analyzing: { sessionId: 's' } }), { label: 'Analyzing', icon: 'sync~spin', tone: 'blue' });
+  assert.deepEqual(analysisLook({ state: 'todo', analysis: analysed }), { label: 'Analyzed: ready to build', icon: 'pass', tone: 'blue' });
+  assert.equal(analysisLook({ state: 'running', analysis: asks }), null, 'once it\'s built, its agent speaks for it');
+});
+
+test('the Overview asks an analysis\'s questions in place, counts each task once, and lists what to analyze as ready (D-052)', () => {
+  const rows: TaskRow[] = [
+    { ...row('AV-5', 'todo', 'needs-you'), analysisRequired: true, analysis: asks },
+    { ...row('AV-6', 'todo', 'needs-you'), analysisRequired: true, analysis: tooBig },
+    { ...row('AV-7', 'todo', 'ready'), analysisRequired: true },
+    { ...row('AV-8', 'todo', 'ready'), analysisRequired: true, analyzing: { sessionId: 's' } },
+    { ...row('AV-9', 'todo', 'ready'), analysisRequired: true, analysis: analysed },
+  ];
+  const m = homeModel({ hub: { ...hub(), agents: [], taskRows: () => rows }, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } });
+  const item = m.overview.attention.find((a) => a.title === 'AV-5 Task AV-5')!;
+  assert.deepEqual([item.look.label, item.look.icon, item.look.tone], ['Needs you: 2 questions from its analysis', 'question', 'orange']);
+  assert.deepEqual(item.analysis, { project: '/r', task: 'AV-5', questions: asks.open }, 'its questions, to answer right there');
+  assert.ok(!item.detail.includes('terminal'), 'not an agent waiting in its terminal');
+  const split = m.overview.attention.find((a) => a.title === 'AV-6 Task AV-6')!;
+  assert.deepEqual([split.look.label, split.analysis, split.detail], ['Needs you: too big for one task', undefined, 'Acme · its analysis suggests 3 smaller tasks, on its page']);
+  assert.equal(m.overview.attention.length, 2, 'each task once');
+  assert.equal(needsYouCount(m.overview), 2);
+  assert.deepEqual([m.nav[0]!.count, m.nav[0]!.attention], [2, true], 'the rail, the badge and the status bar count the same');
+  assert.deepEqual(m.overview.ready.map((r) => [r.id, r.action.label]), [['AV-7', 'Analyze'], ['AV-8', 'Watch the analysis'], ['AV-9', 'Dispatch']], 'a task held for its analysis stays in sight');
+  const cards = tasksModel({ ...hub(), taskRows: () => rows }).projects[0]!.columns.find((c) => c.group === 'needs-you')!.cards;
+  assert.deepEqual(cards.map((c) => [c.id, c.analysis?.label, c.actions[0]!.label]), [['AV-5', 'Needs you: 2 questions from its analysis', 'Answer'], ['AV-6', 'Needs you: too big for one task', 'See the split']]);
 });
 
 test('in review, a card offers the one next step: watch the reviewer, land a passing review, then follow the pull request', () => {

@@ -2,6 +2,7 @@
  * What each editor tab shows, as plain data. Built here from the hub's data, posted to the webview,
  * and rendered there with text only (no HTML from data). No vscode import, so it's testable.
  */
+import type { Analysis } from '../../packages/core/src/analyze.ts';
 import { DISPLAY, findRule, type State, type Task } from '../../packages/core/src/ledger.ts';
 import type { GateStatus } from '../../packages/core/src/receipts.ts';
 import { type Doc, fromMarkdown } from '../../packages/core/src/trackers/doc.ts';
@@ -11,7 +12,7 @@ import { GROUP_TITLES, STEPS } from '../../packages/core/src/onboarding/steps.ts
 import type { Environment } from '../../packages/core/src/config.ts';
 import { promotionPaths } from '../../packages/core/src/promote.ts';
 import type { Answer, HistoryRecord, Question } from '../../packages/core/src/questions.ts';
-import { agentLook, type AgentSession, conflictLine, type DoctorItem, ENV_ICON, fileList, groupTasks, isUnder, prConflicts, type RunPrompt, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
+import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, conflictLine, type DoctorItem, ENV_ICON, fileList, groupTasks, isUnder, prConflicts, questionsWord, type RunPrompt, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
 import type { Entry } from './transcript.ts';
 
 export const VIEW_KINDS = ['tasks', 'agents', 'worktrees', 'environments', 'setup'] as const;
@@ -94,6 +95,8 @@ export interface Card {
   worktree: string | null;
   /** "Conflicts with dev: …" when its open pull request won't merge into its base (D-049). */
   conflicts: string | null;
+  /** Where its analysis is, for a task to do (D-052): under way, waiting on you, or ready to build from. */
+  analysis: Look | null;
   actions: Action[];
   /** The lanes it can be dropped in: the moves a person may make from where it is (D-041). */
   drops: string[];
@@ -102,15 +105,36 @@ export interface Card {
 /** The state a lane stands for when a card is dropped in it. Running means dispatching it. */
 const LANE_STATE: Record<string, State | 'dispatch' | null> = { 'needs-you': null, ready: 'todo', todo: 'todo', running: 'dispatch', review: 'review', rework: 'rework', blocked: 'blocked', done: 'done' };
 
+/**
+ * Whether a person can dispatch it from here: a task to do that waits on nothing, or one back for rework.
+ * Where the project wants an analysis first, a task to do waits for one that's ready; acc keeps
+ * --without-analysis for the command line (D-052). Nor does it go while its analysis is under way.
+ */
+export function canDispatch(t: Pick<TaskRow, 'state' | 'analysis' | 'analyzing' | 'analysisRequired'> & { deps?: string[] }): boolean {
+  if (t.state === 'rework') return true;
+  if (t.state !== 'todo' || t.deps?.length || t.analyzing) return false;
+  return !t.analysisRequired || analysisReady(t);
+}
+
+/** What a task to do shows about its analysis (D-052): an icon and words, orange when it waits on a person. */
+export function analysisLook(t: Pick<TaskRow, 'state' | 'analysis' | 'analyzing'>): Look | null {
+  if (t.state !== 'todo') return null;
+  if (t.analyzing) return { label: 'Analyzing', icon: 'sync~spin', tone: 'blue' };
+  const wait = analysisWait(t);
+  if (wait === 'split') return { label: 'Needs you: too big for one task', icon: 'split-horizontal', tone: 'orange' };
+  if (wait === 'questions') return { label: `Needs you: ${questionsWord(t.analysis!.open.length)} from its analysis`, icon: 'question', tone: 'orange' };
+  return t.analysis ? { label: 'Analyzed: ready to build', icon: 'pass', tone: 'blue' } : null;
+}
+
 /** The lanes a task can be dropped in by a person, by acc's own move rules. Whether it then goes is acc's call. */
-export function dropLanes(t: Pick<TaskRow, 'state' | 'display'> & { deps?: string[] }): string[] {
+export function dropLanes(t: Pick<TaskRow, 'state' | 'display' | 'analysis' | 'analyzing' | 'analysisRequired'> & { deps?: string[] }): string[] {
   // Back to to-do shows as Ready when nothing it waits on is unfinished: one lane, the one it lands in.
   const todoLane = t.deps?.length ? 'todo' : 'ready';
   return TASK_GROUPS.filter((g) => {
     const to = LANE_STATE[g];
     if (!to || g === t.display) return false;
     if (to === 'todo' && g !== todoLane) return false;
-    if (to === 'dispatch') return t.display === 'ready' || t.state === 'rework';
+    if (to === 'dispatch') return canDispatch(t);
     if (to === t.state) return false;
     return !!findRule(t.state as State, to)?.actors.includes('human');
   });
@@ -119,11 +143,22 @@ export function dropLanes(t: Pick<TaskRow, 'state' | 'display'> & { deps?: strin
 /** What dropping a task in a lane does: the state to move it to, or dispatch. */
 export const laneMove = (lane: string): State | 'dispatch' | null => LANE_STATE[lane] ?? null;
 
-/** What a task's card offers, by where it is in its life. Dispatch comes first wherever it applies. */
+/**
+ * What a task's card offers, by where it is in its life. The one next step comes first: before a build,
+ * that's its analysis (D-052) while one runs, has questions or says to split it, or when the project wants
+ * one and there's none; then Dispatch.
+ */
 export function cardActions(t: TaskRow, ref: Ref): Action[] {
   const a: Action[] = [];
-  const canDispatch = t.display === 'ready' || t.state === 'rework';
-  if (canDispatch) a.push({ command: 'acc.task.dispatch', label: t.state === 'rework' ? 'Re-dispatch' : 'Dispatch', icon: 'rocket', ref, primary: true });
+  const todo = t.state === 'todo';
+  const dispatchable = canDispatch(t);
+  const wait = analysisWait(t);
+  if (todo && t.analyzing) a.push({ command: 'acc.task.watchAnalysis', label: 'Watch the analysis', icon: 'pulse', ref, primary: true });
+  // Its questions are answered on its page, where it shows them.
+  else if (wait === 'questions') a.push({ command: 'acc.task.show', label: 'Answer', icon: 'question', ref, primary: true });
+  else if (wait === 'split') a.push({ command: 'acc.task.show', label: 'See the split', icon: 'split-horizontal', ref, primary: true });
+  if (dispatchable) a.push({ command: 'acc.task.dispatch', label: t.state === 'rework' ? 'Re-dispatch' : 'Dispatch', icon: 'rocket', ref, primary: !a.some((x) => x.primary) });
+  if (todo && !t.analyzing && !t.analysis) a.push({ command: 'acc.task.analyze', label: 'Analyze', icon: 'telescope', ref, primary: !!t.analysisRequired && !a.some((x) => x.primary) });
   // In review (D-032, D-033): watch the reviewer, review it, land it, or follow its pull request.
   if (t.state === 'review') {
     const open = t.pr?.state === 'open';
@@ -135,7 +170,7 @@ export function cardActions(t: TaskRow, ref: Ref): Action[] {
   }
   // Waiting in its own terminal, it's answered by attaching; anything else is seen on its page.
   const inTerminal = t.display === 'needs-you' && !t.asking && !!t.run?.bgId;
-  if ((t.state === 'running' || t.state === 'review' || t.state === 'blocked') && (t.run?.bgId || t.run?.sessionId)) a.push({ command: 'acc.task.watch', label: 'Watch', icon: 'pulse', ref, primary: !canDispatch && t.state === 'running' && !inTerminal });
+  if ((t.state === 'running' || t.state === 'review' || t.state === 'blocked') && (t.run?.bgId || t.run?.sessionId)) a.push({ command: 'acc.task.watch', label: 'Watch', icon: 'pulse', ref, primary: !dispatchable && t.state === 'running' && !inTerminal });
   // Its conversation in a Claude Code tab (D-040); the terminal is the fallback when that isn't installed.
   if (t.state === 'running' && (t.run?.bgId || t.run?.sessionId)) a.push({ command: 'acc.task.openInClaude', label: 'Open in Claude Code', icon: 'comment-discussion', ref, primary: inTerminal });
   if (t.run?.worktree && t.state !== 'todo') a.push({ command: 'acc.task.openWorktree', label: 'Worktree', icon: 'empty-window', ref });
@@ -173,7 +208,7 @@ export function tasksModel(hub: HubLike, boards: (root: string) => BoardInput[] 
           group, label: d.label, icon: d.icon, tone: d.tone,
           cards: (byGroup.get(group) ?? []).map((t) => ({
             id: t.id, title: t.title, environment: t.environment, waitingOn: t.deps, url: t.source.url,
-            agent: t.agent ?? null, worktree: t.run?.worktree ?? null, conflicts: conflictLine(t),
+            agent: t.agent ?? null, worktree: t.run?.worktree ?? null, conflicts: conflictLine(t), analysis: analysisLook(t),
             actions: cardActions(t, { project: p.root, task: t.id }), drops: dropLanes(t),
           })),
         };
@@ -269,12 +304,17 @@ export interface TrackerBoard {
   columns: TrackerColumn[];
 }
 
-/** The agent's side of a ticket: acc's own state, or what the agent is doing about it. */
+/** The agent's side of a ticket: acc's own state, or what the agent, or its analysis (D-052), is doing about it. */
 function accLook(row: TaskRow): Look {
   if (row.agent && row.display === 'needs-you') return row.agent;
+  const analysis = analysisLook(row);
+  if (analysis && (row.display === 'needs-you' || row.analyzing)) return analysis;
   const d = DISPLAY[row.display];
   return { label: d.label, icon: d.icon, tone: d.tone };
 }
+
+/** The steps a tracker's card offers for its task: start it, its analysis (D-052), or watch its agent. */
+const NEXT_STEPS = ['acc.task.dispatch', 'acc.task.analyze', 'acc.task.watchAnalysis', 'acc.task.show', 'acc.task.watch', 'acc.task.openInClaude'];
 
 export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): TrackerBoard {
   const byId = new Map(rows.map((r) => [r.id, r]));
@@ -282,7 +322,7 @@ export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): Trac
     id: c.id, name: c.name, tone: CATEGORY_TONE[c.category], done: c.category === 'done',
     cards: (b.board?.cards ?? []).filter((card) => c.statusIds.includes(card.status.id)).map((card): TrackerCard => {
       const row = byId.get(card.key);
-      const next = row ? cardActions(row, { project: root, task: row.id }).find((a) => a.primary && (a.command === 'acc.task.dispatch' || a.command === 'acc.task.watch' || a.command === 'acc.task.openInClaude')) ?? null : null;
+      const next = row ? cardActions(row, { project: root, task: row.id }).find((a) => a.primary && NEXT_STEPS.includes(a.command)) ?? null : null;
       return {
         key: card.key, title: card.title, type: card.type, typeIcon: typeIcon(card.type), priority: card.priority, priorityIcon: priorityIcon(card.priority),
         labels: card.labels, assignees: card.assignees.map(chip), status: card.status.name,
@@ -342,10 +382,41 @@ export interface TicketModel {
   /** What the page may change in the tracker. Nothing, for a task acc alone keeps. */
   can: { status: boolean; assign: boolean; labels: boolean; comment: boolean };
   acc: TicketAcc | null;
+  /** What its analysis found (D-052), gist first. Null for a ticket acc doesn't keep, or one past needing it. */
+  analysis: TicketAnalysis | null;
   /** A tracker ticket acc doesn't keep yet, which "Track in acc" adds to the ledger. */
   trackable: boolean;
   /** Who a comment or change is made as. */
   signedInAs: string | null;
+}
+
+/** A task's analysis as its page shows it (D-052): the verdict and summary, its questions, then the rest folded. */
+export interface TicketAnalysis {
+  /** The task its answers are for. */
+  task: string;
+  look: Look;
+  /** Why there isn't one yet, or what a running one is doing. */
+  note: string | null;
+  summary: string | null;
+  size: string | null;
+  at: string | null;
+  /** Questions nobody has answered, to answer right there: only before the build. */
+  open: AnalysisAsk[];
+  /** What a person decided, and, once it's built, what its builder assumed for the rest. */
+  decided: { question: string; answer: string; assumed: boolean }[];
+  /** The smaller tasks it suggests, when it's too big for one. */
+  split: string[];
+  goal: string | null;
+  criteria: string[];
+  assumptions: string[];
+  outOfScope: string[];
+  findings: { area: string; detail: string; source: string }[];
+  plan: string[];
+  refactors: { what: string; why: string }[];
+  risks: string[];
+  tests: string[];
+  files: { path: string; change: string; why: string }[];
+  actions: Action[];
 }
 
 export interface TicketInput {
@@ -362,6 +433,40 @@ export interface TicketInput {
   task: Task | null;
   checks: TicketAcc['checks'];
   signedInAs?: string | null;
+  /** Its analysis, read whole (D-052). */
+  analysis?: Analysis | null;
+}
+
+/**
+ * The Analysis section of a task's page (D-052). A task to do shows it even with none yet, to start one;
+ * a task past that shows the one it was built from, if it had one.
+ */
+export function ticketAnalysis(row: TaskRow, a: Analysis | null, ref: Ref): TicketAnalysis | null {
+  const todo = row.state === 'todo';
+  if (!a && !row.analyzing && !todo) return null;
+  const open = todo ? (a?.questions ?? []).filter((q) => !q.answer).map(({ id, question, why, suggested }) => ({ id, question, why, suggested })) : [];
+  const look: Look = row.analyzing ? { label: 'Analyzing', icon: 'sync~spin', tone: 'blue' }
+    : !a ? { label: 'Not analyzed yet', icon: 'circle-large-outline', tone: 'neutral' }
+      : !todo ? { label: 'Analyzed before the build', icon: 'pass', tone: 'blue' }
+        : a.verdict === 'split' ? { label: 'Too big for one task', icon: 'split-horizontal', tone: 'orange' }
+          : open.length ? { label: `${questionsWord(open.length)} for you`, icon: 'question', tone: 'orange' }
+            : { label: 'Ready to build', icon: 'pass', tone: 'blue' };
+  const note = row.analyzing ? 'An analyst is reading the ticket and the code. It changes nothing.'
+    : a ? null
+      : row.analysisRequired ? 'This project wants an analysis before a task is built: what it asks for, what\'s there now, and how to build it.'
+        : 'An analyst can work out what it asks for, what\'s there now, and how to build it, before an agent builds it.';
+  const actions: Action[] = [];
+  if (row.analyzing) actions.push({ command: 'acc.task.watchAnalysis', label: 'Watch the analysis', icon: 'pulse', ref, primary: true });
+  // acc analyzes before a build, or after one is set aside: never while it's being built, nor once it's done.
+  else if (!a && todo) actions.push({ command: 'acc.task.analyze', label: 'Analyze', icon: 'telescope', ref, primary: !!row.analysisRequired });
+  else if (a && row.state !== 'running' && row.state !== 'done') actions.push({ command: 'acc.task.analyze', label: 'Analyze again', icon: 'refresh', ref });
+  const decided = (a?.questions ?? []).flatMap((q) => (q.answer ? [{ question: q.question, answer: q.answer.text, assumed: false }] : todo ? [] : [{ question: q.question, answer: q.suggested, assumed: true }]));
+  return {
+    task: row.id, look, note, summary: a?.summary ?? null, size: a?.approach.size ?? null, at: a?.at ?? null, open, decided, split: a?.verdict === 'split' ? a.split : [],
+    goal: a?.requirements.goal || null, criteria: a?.requirements.criteria ?? [], assumptions: a?.requirements.assumptions ?? [], outOfScope: a?.requirements.outOfScope ?? [],
+    findings: a?.findings ?? [], plan: a?.approach.plan ?? [], refactors: a?.approach.refactors ?? [], risks: a?.approach.risks ?? [], tests: a?.approach.tests ?? [], files: a?.approach.files ?? [],
+    actions,
+  };
 }
 
 export function ticketModel(i: TicketInput): TicketModel {
@@ -371,7 +476,8 @@ export function ticketModel(i: TicketInput): TicketModel {
     look: accLook(i.row), environment: i.task.environment, waitingOn: i.row.deps, blocker: i.task.blocker, conflicts: conflictLine(i.row, true),
     agent: i.row.agent ?? null, worktree: i.task.run?.worktree ?? null, branch: i.task.run?.branch ?? null, checks: i.checks,
     history: i.task.history.map((h) => ({ at: h.at, from: h.from, to: h.to, by: h.by, reason: h.reason ?? null })).reverse(),
-    actions: cardActions(i.row, { project: i.project, task: i.row.id }).filter((a) => a.command !== 'acc.task.show' && a.command !== 'acc.task.openTicket'),
+    // Its analysis has its own section, with its own buttons.
+    actions: cardActions(i.row, { project: i.project, task: i.row.id }).filter((a) => !['acc.task.show', 'acc.task.openTicket', 'acc.task.analyze', 'acc.task.watchAnalysis'].includes(a.command)),
   } : null;
   const own = !live && i.task;
   return {
@@ -389,7 +495,8 @@ export function ticketModel(i: TicketInput): TicketModel {
     comments: (t?.comments ?? []).map((c) => ({ id: c.id, author: chip(c.author), created: c.created, body: c.body, url: c.url })),
     related: t?.related ?? (i.task?.deps ?? []).map((d) => ({ key: d, title: '', relation: 'depends on', url: null })),
     can: { status: !!t, assign: !!t, labels: !!t, comment: !!t },
-    acc, trackable: !!t && !i.task, signedInAs: i.signedInAs ?? null,
+    acc, analysis: i.row && i.task ? ticketAnalysis(i.row, i.analysis ?? null, { project: i.project, task: i.row.id }) : null,
+    trackable: !!t && !i.task, signedInAs: i.signedInAs ?? null,
   };
 }
 
@@ -998,6 +1105,8 @@ export interface RunInput {
   startedAt: number;
   endedAt: number | null;
   code: number | null;
+  /** Whether it did its job, when its exit code alone doesn't say (see Runs). Otherwise exit 0 is done. */
+  ok?: boolean;
   stopped: boolean;
   lines: string[];
   prompt: RunPrompt | null;
@@ -1008,7 +1117,7 @@ export function runCard(r: RunInput, lines = 400): RunCard {
   const running = r.endedAt === null;
   const look: Look = running ? (r.prompt ? LOOK('Waiting for you', 'bell', 'orange') : LOOK('Running', 'sync~spin', 'blue'))
     : r.stopped ? LOOK('Stopped', 'debug-stop', 'neutral')
-      : r.code === 0 ? LOOK('Done', 'pass', 'blue') : LOOK(`Failed (exit ${r.code ?? '?'})`, 'warning', 'orange');
+      : (r.ok ?? r.code === 0) ? LOOK('Done', 'pass', 'blue') : LOOK(`Failed (exit ${r.code ?? '?'})`, 'warning', 'orange');
   return { id: r.id, label: r.label, command: r.command, look, running, startedAt: r.startedAt, endedAt: r.endedAt, lines: r.lines.slice(-lines), prompt: running ? r.prompt : null, step: r.step };
 }
 
@@ -1038,6 +1147,8 @@ export interface AttentionItem {
   extra?: { command: string; label: string; icon: string; arg: string };
   /** A section of the page to open, such as Setup. */
   go?: { section: HomeSection; label: string };
+  /** A task's analysis's questions, answered right here (D-052). */
+  analysis?: { project: string; task: string; questions: AnalysisAsk[] };
 }
 
 export interface StatTile {
@@ -1122,6 +1233,14 @@ export function homeModel(i: HomeInput): HomeModel {
       if (r.display === 'needs-you') {
         // Its question is shown on its own, to answer in place.
         if (questions.some((q) => q.task === r.id && q.project === p.root)) continue;
+        // Its analysis waits on you (D-052): its questions, to answer here, or a split to look at on its page.
+        const wait = analysisWait(r);
+        if (wait) {
+          const n = r.analysis!.split.length;
+          const detail = wait === 'questions' ? `${p.name} · answer here, and its builder gets your answers` : `${p.name} · its analysis suggests ${n ? `${n} smaller tasks` : 'smaller tasks'}, on its page`;
+          attention.push({ key: `t:${p.root}:${r.id}`, look: analysisLook(r)!, title: `${r.id} ${r.title}`, detail, project: p.name, actions: [details], ...(wait === 'questions' ? { analysis: { project: p.root, task: r.id, questions: r.analysis!.open } } : {}) });
+          continue;
+        }
         const watch = acts.find((a) => a.command === 'acc.task.watch');
         const attach = acts.find((a) => a.command === 'acc.task.openInClaude');
         // A pull request that needs you says why: its checks, a person's requested changes, or a conflict.
@@ -1147,8 +1266,9 @@ export function homeModel(i: HomeInput): HomeModel {
           : r.review?.current ? (r.review.verdict === 'pass' ? 'reviewed: ready to land' : 'review asked for changes') : 'done by its agent, not reviewed yet';
         attention.push({ key: `t:${p.root}:${r.id}`, look: LOOK(r.pr?.state === 'open' ? 'Pull request open' : 'Waiting for review', r.pr?.state === 'open' ? 'git-pull-request' : 'eye', 'blue'), title: `${r.id} ${r.title}`, detail: `${p.name} · ${where}`, project: p.name, actions: [...(next ? [next] : []), details] });
       } else if (r.display === 'ready') {
-        const d = acts.find((a) => a.command === 'acc.task.dispatch');
-        if (d) ready.push({ project: p.name, id: r.id, title: r.title, environment: r.environment, action: d });
+        // Its next step: Dispatch, or its analysis first where the project wants one (D-052).
+        const next = acts.find((a) => a.primary && ['acc.task.dispatch', 'acc.task.analyze', 'acc.task.watchAnalysis'].includes(a.command));
+        if (next) ready.push({ project: p.name, id: r.id, title: r.title, environment: r.environment, action: next });
       }
     }
     for (const b of i.boards(p.root)) {
@@ -1237,7 +1357,9 @@ export type FromWebview =
   | { type: 'answer'; id: string; decision: 'allow' | 'deny' | 'terminal'; always?: boolean; scope?: 'session' | 'project'; mode?: 'auto' | 'acceptEdits' | 'default'; command?: string; stop?: boolean; message?: string; answers?: Record<string, string> }
   /** Something for a command acc is running: typed input, stop, rerun in a terminal, or dismiss. */
   | { type: 'run-input'; run: string; text: string }
-  | { type: 'run-control'; run: string; action: RunControl };
+  | { type: 'run-control'; run: string; action: RunControl }
+  /** A person's answer to one of a task's analysis's questions (D-052). acc records it; the page never writes it. */
+  | { type: 'analysis-answer'; project: string; task: string; question: string; text: string };
 
 /** The page's answer as the hook reads it, with only the fields its decision has. */
 export function answerOf(m: Extract<FromWebview, { type: 'answer' }>): Answer {
@@ -1283,6 +1405,7 @@ export function isFromWebview(m: unknown): m is FromWebview {
     }
     case 'run-input': return short(x.run, 64) && typeof x.text === 'string' && x.text.length <= 4096 && !/[\r\n]/.test(x.text as string);
     case 'run-control': return short(x.run, 64) && (RUN_CONTROLS as readonly string[]).includes(x.action as string);
+    case 'analysis-answer': return short(x.project, 4096) && short(x.task, 100) && KEY.test(x.task as string) && typeof x.question === 'string' && /^q\d{1,3}$/.test(x.question) && short(x.text, 4000) && !!(x.text as string).trim();
     default: return false;
   }
 }
