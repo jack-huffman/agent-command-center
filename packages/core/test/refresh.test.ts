@@ -26,6 +26,8 @@ test('append-only: the base\'s additions, then the branch\'s, when both only add
   assert.equal(appendOnlyMerge(DECISIONS, DECISIONS + BRANCH_ENTRY, DECISIONS + MAIN_ENTRY), DECISIONS + MAIN_ENTRY + BRANCH_ENTRY, 'entries keep their blank line between them');
   assert.equal(appendOnlyMerge('', 'ours\n', 'theirs\n'), 'theirs\nours\n', 'an empty file both added to');
   assert.equal(appendOnlyMerge('a\n', 'a\n', 'a\ntheirs\n'), 'a\ntheirs\n', 'one side added nothing');
+  assert.equal(appendOnlyMerge('a\n', 'a\nX\n', 'a\nX\nY\n'), 'a\nX\nY\n', 'the base already has the branch\'s entry: kept once');
+  assert.equal(appendOnlyMerge('a\n', 'a\nX\nY\n', 'a\nX\n'), 'a\nX\nY\n', 'a stacked branch already has the base\'s entry: kept once');
   assert.equal(appendOnlyMerge('a\n', 'a\nours\n', 'a\n'), 'a\nours\n');
   assert.equal(appendOnlyMerge('a\n', 'a\nsame\n', 'a\nsame\n'), 'a\nsame\n', 'the same addition on both sides is kept once, as git keeps it');
 });

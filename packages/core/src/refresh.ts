@@ -56,6 +56,9 @@ export function appendOnlyMerge(common: string, ours: string, theirs: string): s
     added = added.slice(1);
   }
   if (mine === added) return start + mine;
+  // One side already holds the other's addition, as a branch stacked on another does: keep it once.
+  if (added.startsWith(mine)) return start + added;
+  if (mine.startsWith(added)) return start + mine;
   // Entries stay on lines of their own when the base branch's addition doesn't end its last line.
   return start + added + (added && mine && !added.endsWith('\n') ? '\n' : '') + mine;
 }
