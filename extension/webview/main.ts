@@ -1,7 +1,7 @@
 // Renders one editor tab. Every element is built with DOM calls and every string is set as text,
 // so nothing from a ticket, branch or session can become markup. No HTML string is ever parsed.
 import type {
-  Action, AgentModel, AgentsModel, EntryView, EnvironmentsModel, HistoryItem, HomeModel, HomeSection, IdentityCard, Look, Model, PersonChip, QuestionCard, Ref, RunCard, SetupModel, SetupRow, TasksModel, TicketModel, TrackerBoard, TrackerCard, ViewKind, WorktreesModel,
+  Action, AgentModel, AgentsModel, EntryView, EnvironmentsModel, HistoryItem, HomeModel, HomeSection, IdentityCard, Look, Model, PersonChip, QuestionCard, Ref, RunCard, SetupModel, SetupRow, TasksModel, TicketAnalysis, TicketModel, TrackerBoard, TrackerCard, ViewKind, WorktreesModel,
 } from '../src/model.ts';
 import type { Block, Doc, Inline } from '../../packages/core/src/trackers/doc.ts';
 
@@ -282,6 +282,8 @@ function renderTasks(m: TasksModel): Node[] {
           // Its pull request won't merge into its base (D-049): an icon and the words, in orange.
           card.conflicts ? el('div', 'card-note conflict', icon('warning'), el('span', '', card.conflicts)) : null,
           card.agent ? el('div', 'card-agent', el('span', 'muted', 'Agent: '), status(card.agent)) : null,
+          // Its analysis (D-052), in its own words: under way, waiting on you, or ready to build from.
+          card.analysis ? el('div', 'card-agent', status(card.analysis)) : null,
           card.worktree ? el('div', 'card-where mono muted', icon('git-branch'), card.worktree.split('/').slice(-2).join('/')) : null,
           el('div', 'actions', ...card.actions.filter((a) => a.command !== 'acc.task.move').map(actionButton)),
         );
@@ -469,7 +471,14 @@ function composer(m: TicketModel): HTMLElement {
 }
 
 /** The extension says how a write went. A posted comment clears its draft; a refused one keeps it. */
-function onDone(msg: { action?: string; ok?: boolean }): void {
+function onDone(msg: { action?: string; ok?: boolean; project?: string; task?: string; question?: string }): void {
+  if (msg.action === 'analysis-answer') {
+    // An answer acc took clears its draft, and its question leaves with the next redraw; a refused one comes back to edit.
+    const key = answerKey(msg.project ?? '', msg.task ?? '', msg.question ?? '');
+    if (msg.ok) remember((s) => { delete s.drafts[key]; });
+    else if (sendingAnswers.delete(key) && last) render(last);
+    return;
+  }
   if (msg.action !== 'comment') return;
   const box = document.querySelector<HTMLTextAreaElement>('.comment-box');
   if (msg.ok && last?.kind === 'ticket') { const m = last; remember((s) => { delete s.drafts[`${m.project}#${m.key}`]; }); if (box) box.value = ''; }
@@ -509,14 +518,16 @@ function renderTicket(m: TicketModel): Node[] {
     out.push(el('div', 'notice attention', icon('warning', 'orange'), el('span', '', m.error), fix));
   }
 
-  // The main column: description, related tickets, then activity.
-  // Summary first, details on demand: why it's stuck, in one line, before anything else.
-  const main = el('div', 'ticket-main');
-  if (m.acc?.blocker) main.append(foldable(`blocker:${m.project}#${m.key}`, el('div', 'notice attention why', icon('circle-slash', 'orange'), el('div', 'why-text', el('strong', '', 'Why it\'s blocked: '), m.acc.blocker)), 'why-text', 2));
+  // Summary first, details on demand: why it's stuck, in one line, before anything else, then its
+  // analysis (D-052). The main column follows: description, related tickets, then activity.
+  const top = el('div', `ticket-top${m.analysis?.look.tone === 'orange' ? ' attention' : ''}`);
+  if (m.acc?.blocker) top.append(foldable(`blocker:${m.project}#${m.key}`, el('div', 'notice attention why', icon('circle-slash', 'orange'), el('div', 'why-text', el('strong', '', 'Why it\'s blocked: '), m.acc.blocker)), 'why-text', 2));
   if (m.acc?.conflicts) {
     const [head, ...files] = m.acc.conflicts.split(': ');
-    main.append(foldable(`conflicts:${m.project}#${m.key}`, el('div', 'notice attention why', icon('warning', 'orange'), el('div', 'why-text conflict', el('strong', '', `${head}: `), files.join(': '))), 'why-text', 2));
+    top.append(foldable(`conflicts:${m.project}#${m.key}`, el('div', 'notice attention why', icon('warning', 'orange'), el('div', 'why-text conflict', el('strong', '', `${head}: `), files.join(': '))), 'why-text', 2));
   }
+  if (m.analysis) top.append(renderAnalysis(m, m.analysis));
+  const main = el('div', 'ticket-main');
   main.append(el('section', 'block', el('h2', '', 'Description'), m.loading && !m.body.blocks.length ? el('p', 'muted', 'Loading…') : foldable(`desc:${m.project}#${m.key}`, renderDoc(m.body, 'No description.'), null, 6)));
   if (m.related.length) {
     main.append(el('section', 'block', el('h2', '', 'Related'), el('ul', 'related', ...m.related.map((r) => {
@@ -590,8 +601,96 @@ function renderTicket(m: TicketModel): Node[] {
     track.addEventListener('click', () => ticketAction('track'));
     side.append(el('section', 'side-panel', el('h2', '', icon('hubot'), 'Agent'), el('p', 'muted', 'acc isn\'t keeping this ticket yet. Track it to dispatch an agent to it. The ticket itself isn\'t changed.'), el('div', 'actions', track)));
   }
-  out.push(el('div', 'ticket-grid', main, side));
+  out.push(el('div', 'ticket-grid', top.childElementCount ? top : null, main, side));
   return out;
+}
+
+// ---------------------------------------------------------------- a task's analysis (D-052)
+
+type AnalysisAsk = TicketAnalysis['open'][number];
+
+/** Answers on their way to acc, by question: shown as sending until the question goes, or acc refuses it. */
+const sendingAnswers = new Set<string>();
+const answerKey = (project: string, task: string, question: string): string => `analysis:${project}#${task}:${question}`;
+
+/**
+ * One of an analysis's questions, answered where it's shown: its suggestion in one click, or your own
+ * words. acc records the answer (D-012); the page only asks it to.
+ */
+function analysisQuestion(project: string, task: string, q: AnalysisAsk): HTMLElement {
+  const key = answerKey(project, task, q.id);
+  const send = (text: string) => {
+    if (!text.trim() || sendingAnswers.has(key)) return;
+    sendingAnswers.add(key);
+    api.postMessage({ type: 'analysis-answer', project, task, question: q.id, text: text.trim() });
+    if (last) render(last);
+  };
+  const box = el('div', 'aq', el('div', 'aq-q', el('span', 'aq-id', q.id), el('span', 'strong', q.question)), q.why ? el('div', 'muted small aq-why', q.why) : null);
+  box.setAttribute('role', 'group');
+  box.setAttribute('aria-label', q.question);
+  if (sendingAnswers.has(key)) {
+    box.classList.add('sent');
+    box.append(el('div', 'q-sending muted', icon('sync~spin'), 'Sending your answer…'));
+    return box;
+  }
+  if (q.suggested.trim() && q.suggested.length <= 4000) {
+    const use = el('button', 'aq-suggest', icon('lightbulb'), el('span', 'aq-suggest-text', el('span', 'muted', 'Use the suggestion: '), q.suggested)) as HTMLButtonElement;
+    use.type = 'button';
+    use.title = 'Answer with what the analyst would assume';
+    use.addEventListener('click', () => send(q.suggested));
+    box.append(use);
+  }
+  const draft = memory().drafts[key] ?? '';
+  const answer = button('Answer', 'send', () => send(input.value), 'primary');
+  answer.disabled = !draft.trim();
+  const input = keptInput(key, draft, 'Or type your own answer', (v) => { remember((x) => { x.drafts[key] = v; }); answer.disabled = !v.trim(); }, () => send(input.value));
+  input.maxLength = 4000;
+  box.append(el('div', 'aq-own', input, answer));
+  return box;
+}
+
+/** A list the analysis made, folded under its name and count. Opened or closed, it stays so as the page redraws. */
+function analysisFold(key: string, title: string, items: Child[], ordered = false): HTMLElement | null {
+  if (!items.length) return null;
+  const d = el('details', 'an-fold') as HTMLDetailsElement;
+  d.open = memory().opened.includes(key);
+  d.addEventListener('toggle', () => remember((x) => { x.opened = d.open ? [...new Set([...x.opened, key])] : x.opened.filter((y) => y !== key); }));
+  d.append(el('summary', '', el('span', 'tool-chev', icon('chevron-right')), el('span', '', title), el('span', 'count', String(items.length))),
+    el(ordered ? 'ol' : 'ul', 'an-list', ...items.map((x) => el('li', '', x))));
+  return d;
+}
+
+/** "Area: detail", with where it came from muted after it. */
+const pair = (head: string, rest: string, source = ''): HTMLElement => el('span', '', head ? el('strong', '', `${head}: `) : null, rest, source ? el('span', 'muted mono an-source', ` ${source}`) : null);
+
+/**
+ * A task's Analysis section, gist first like the rest of the page: the verdict in words, the summary,
+ * the questions to answer, then everything else it found, folded.
+ */
+function renderAnalysis(m: TicketModel, a: TicketAnalysis): HTMLElement {
+  const key = `an:${m.project}#${m.key}`;
+  const sec = el('section', `analysis tone-edge-${a.look.tone}`,
+    el('div', 'an-head', el('h2', '', 'Analysis'), status(a.look), a.size ? el('span', 'chip an-size', `Size ${a.size}`) : null, el('span', 'spacer'), a.at ? when(a.at) : null));
+  sec.setAttribute('aria-label', `Analysis: ${a.look.label}`);
+  if (a.note) sec.append(el('p', 'muted an-note', a.note));
+  if (a.summary) sec.append(foldable(`${key}:summary`, el('p', 'an-summary', a.summary), null, 4));
+  if (a.split.length) sec.append(el('div', 'an-split', el('div', 'strong', 'Split it into'), el('ol', 'an-list', ...a.split.map((x) => el('li', '', x)))));
+  if (a.open.length) sec.append(el('div', 'an-questions', ...a.open.map((q) => analysisQuestion(m.project, a.task, q))));
+  if (a.actions.length) sec.append(el('div', 'actions an-actions', ...a.actions.map(actionButton)));
+  const folds = [
+    analysisFold(`${key}:decided`, 'Decided', a.decided.map((d) => el('span', '', el('span', '', `${d.question} `), el('strong', '', d.answer), d.assumed ? el('span', 'muted', ' (assumed: nobody answered)') : null))),
+    analysisFold(`${key}:criteria`, 'Acceptance criteria', a.criteria),
+    analysisFold(`${key}:assumptions`, 'Assumptions', a.assumptions),
+    analysisFold(`${key}:out`, 'Out of scope', a.outOfScope),
+    analysisFold(`${key}:findings`, 'What\'s there now', a.findings.map((f) => pair(f.area, f.detail, f.source))),
+    analysisFold(`${key}:plan`, 'The approach', a.plan, true),
+    analysisFold(`${key}:refactors`, 'Refactors first', a.refactors.map((r) => pair(r.what, r.why))),
+    analysisFold(`${key}:risks`, 'Risks', a.risks),
+    analysisFold(`${key}:tests`, 'Tests', a.tests),
+    analysisFold(`${key}:files`, 'Files', a.files.map((f) => el('span', '', el('span', `chip an-change an-${f.change}`, f.change), el('span', 'mono an-path', f.path), f.why ? el('span', 'muted', ` ${f.why}`) : null))),
+  ].filter((x): x is HTMLElement => !!x);
+  if (folds.length) sec.append(el('div', 'an-folds', ...folds));
+  return sec;
 }
 
 const STATE_WORD: Record<string, string> = { todo: 'To do', running: 'Running', review: 'In review', rework: 'Rework', blocked: 'Blocked', done: 'Done' };
@@ -1136,6 +1235,9 @@ function renderOverview(m: HomeModel): Node[] {
       buttons.push(b);
     }
     inbox.append(el('div', `inbox-row tone-row-${a.look.tone}`, status(a.look), el('div', 'inbox-text', el('div', 'strong inbox-title', a.title), el('div', 'muted small', a.detail)), el('div', 'actions', ...buttons)));
+    // A task's analysis's questions, answered right here (D-052).
+    const an = a.analysis;
+    if (an) inbox.append(el('div', 'inbox-analysis', ...an.questions.map((q) => analysisQuestion(an.project, an.task, q))));
   }
   out.push(inbox);
 
@@ -1444,6 +1546,19 @@ function renderSetup(m: SetupModel, live: RunCard[] = []): Node[] {
 let last: Model | null = null;
 
 /**
+ * An analysis's questions that have gone from the page, answered or asked again, leave nothing behind: no
+ * "Sending…", no half-written answer (D-052).
+ */
+function forgetAnswered(model: Model): void {
+  const shown = model.kind === 'home' ? model.overview.attention.flatMap((a) => (a.analysis ? a.analysis.questions.map((q) => answerKey(a.analysis!.project, a.analysis!.task, q.id)) : []))
+    : model.kind === 'ticket' ? (model.analysis?.open ?? []).map((q) => answerKey(model.project, model.analysis!.task, q.id)) : null;
+  if (!shown) return;
+  const keep = new Set(shown);
+  for (const k of [...sendingAnswers]) if (!keep.has(k)) sendingAnswers.delete(k);
+  if (Object.keys(memory().drafts).some((k) => k.startsWith('analysis:') && !keep.has(k))) remember((x) => { for (const k of Object.keys(x.drafts)) if (k.startsWith('analysis:') && !keep.has(k)) delete x.drafts[k]; });
+}
+
+/**
  * A mouse wheel scrolls the board sideways wherever a lane wouldn't scroll itself: over a heading, the
  * gaps between lanes, or a lane short enough to need no scrolling. Trackpads and Shift already go sideways.
  */
@@ -1483,6 +1598,7 @@ function render(model: Model): void {
   const dockAtBottom = !dockBox || dockBox.scrollHeight - dockBox.scrollTop - dockBox.clientHeight < 24;
   const dockTop = dockBox?.scrollTop ?? 0;
   const keep = keepFocus();
+  forgetAnswered(model);
   const nodes = model.kind === 'home' ? renderHome(model)
     : model.kind === 'agent' ? renderAgent(model)
     : model.kind === 'tasks' ? renderTasks(model)

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { TaskRow } from '../src/logic.ts';
+import { rowAnalysis, type TaskRow } from '../src/logic.ts';
+import type { Analysis } from '../../packages/core/src/analyze.ts';
 import { type BoardInput, initials, isFromWebview, priorityIcon, ticketModel, trackerBoard, typeIcon } from '../src/model.ts';
 import type { Ticket } from '../../packages/core/src/trackers/types.ts';
 
@@ -75,6 +76,49 @@ test('a ticket page: the tracker\'s ticket can be changed from it; acc\'s side s
   assert.deepEqual([onBoard.needsYou, onBoard.conflicts], [true, 'Conflicts with dev: docs/DECISIONS.md, bin/acc, a.ts and 1 more'], 'the tracker\'s card says why too');
 });
 
+test('a task\'s page shows its analysis gist first: the verdict, the summary, its questions to answer, then the rest folded (D-052)', () => {
+  const task = { id: 'ACME-1', title: 'Ready one', brief: '', source: { kind: 'jira', key: 'ACME-1', url: null }, environment: 'dev', deps: [], labels: [], state: 'todo', blocker: null, run: null, pr: null, history: [], createdAt: '', updatedAt: '' } as never;
+  const base = { project: '/r', tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira' as const, key: 'ACME-1', ticket, loading: false, error: null, connect: null, checks: [], task };
+  const a: Analysis = {
+    v: 1, task: 'ACME-1', env: 'dev', base: 'abc', verdict: 'questions', summary: 'Add the role on conversion.',
+    requirements: { goal: 'Roles survive conversion.', criteria: ['A primary contact has a role'], assumptions: ['One handler converts'], outOfScope: [] },
+    questions: [{ id: 'q1', question: 'Every contact?', why: 'More records.', suggested: 'Only the primary.' }, { id: 'q2', question: 'Which role?', why: '', suggested: 'Influencer', answer: { text: 'Decision Maker', by: 'me', at: 't' } }],
+    findings: [{ area: 'Handler', detail: 'Makes no role.', source: 'Handler.cls' }],
+    approach: { plan: ['Insert the role'], files: [{ path: 'Handler.cls', change: 'update', why: 'The insert' }], refactors: [{ what: 'Query out of the loop', why: 'Limits' }], risks: ['Duplicates'], tests: ['HandlerTest'], size: 'M' },
+    split: [], orgs: ['Dev'], sessionId: 's', at: '2026-10-05T10:00:00.000Z', durationMs: 1, costUsd: null,
+  };
+  const todo = (more: Partial<TaskRow> = {}) => row('ACME-1', 'todo', 'needs-you', { analysisRequired: true, analysis: rowAnalysis(a), ...more });
+  const m = ticketModel({ ...base, row: todo(), analysis: a }).analysis!;
+  assert.deepEqual(m.look, { label: '1 question for you', icon: 'question', tone: 'orange' });
+  assert.deepEqual([m.summary, m.size, m.at], ['Add the role on conversion.', 'M', '2026-10-05T10:00:00.000Z']);
+  assert.deepEqual(m.open, [{ id: 'q1', question: 'Every contact?', why: 'More records.', suggested: 'Only the primary.' }], 'each open question with its suggestion');
+  assert.deepEqual(m.decided, [{ question: 'Which role?', answer: 'Decision Maker', assumed: false }]);
+  assert.deepEqual([m.criteria, m.assumptions, m.findings.length, m.plan, m.refactors.length, m.risks, m.tests, m.files.length], [['A primary contact has a role'], ['One handler converts'], 1, ['Insert the role'], 1, ['Duplicates'], ['HandlerTest'], 1]);
+  assert.deepEqual(m.actions.map((x) => [x.label, x.command]), [['Analyze again', 'acc.task.analyze']]);
+  const side = ticketModel({ ...base, row: todo(), analysis: a }).acc!.actions;
+  assert.ok(!side.some((x) => ['acc.task.analyze', 'acc.task.watchAnalysis', 'acc.task.show'].includes(x.command)), 'its buttons are in its own section');
+
+  const ready = { ...a, verdict: 'ready' as const, questions: a.questions.filter((q) => q.answer) };
+  assert.deepEqual(ticketModel({ ...base, row: todo({ display: 'ready', analysis: rowAnalysis(ready) }), analysis: ready }).analysis!.look, { label: 'Ready to build', icon: 'pass', tone: 'blue' });
+  const split = { ...a, verdict: 'split' as const, questions: [], split: ['Part one', 'Part two'] };
+  const big = ticketModel({ ...base, row: todo({ analysis: rowAnalysis(split) }), analysis: split }).analysis!;
+  assert.deepEqual([big.look, big.split], [{ label: 'Too big for one task', icon: 'split-horizontal', tone: 'orange' }, ['Part one', 'Part two']]);
+
+  const live = ticketModel({ ...base, row: todo({ analyzing: { sessionId: 's2' } }), analysis: a }).analysis!;
+  assert.deepEqual([live.look.label, live.actions.map((x) => x.label)], ['Analyzing', ['Watch the analysis']], 'no Analyze again while one runs');
+  const building = ticketModel({ ...base, row: row('ACME-1', 'running', 'running'), analysis: a }).analysis!;
+  assert.deepEqual([building.look.label, building.actions, building.open], ['Analyzed before the build', [], []], 'no Analyze again while it\'s built, and nothing left to answer');
+  assert.deepEqual(building.decided.map((d) => [d.answer, d.assumed]), [['Only the primary.', true], ['Decision Maker', false]], 'what its builder assumed, and what a person decided');
+  const none = ticketModel({ ...base, row: row('ACME-1', 'todo', 'ready', { analysisRequired: true }), analysis: null }).analysis!;
+  assert.deepEqual([none.look.label, none.actions.map((x) => [x.label, !!x.primary])], ['Not analyzed yet', [['Analyze', true]]]);
+  assert.equal(ticketModel({ ...base, row: row('ACME-1', 'running', 'running'), analysis: null }).analysis, null, 'built without one: no section');
+
+  const card = trackerBoard(board(), [todo(), row('ACME-3', 'todo', 'ready', { analysisRequired: true })], '/r');
+  const acc = (key: string) => card.columns.flatMap((c) => c.cards).find((c) => c.key === key)!.acc!;
+  assert.deepEqual([acc('ACME-1').look.label, acc('ACME-1').needsYou, acc('ACME-1').action!.label], ['Needs you: 1 question from its analysis', true, 'Answer']);
+  assert.equal(acc('ACME-3').action!.command, 'acc.task.analyze', 'a tracker\'s card offers the analysis first, where it\'s wanted');
+});
+
 test('messages from the board and ticket pages are checked before anything acts on them', () => {
   for (const ok of [
     { type: 'ticket', project: '/r', tracker: 0, key: 'ACME-1' }, { type: 'ticket', project: '/r', tracker: null, key: 'GH-12' },
@@ -82,12 +126,23 @@ test('messages from the board and ticket pages are checked before anything acts 
     { type: 'ticket-action', action: 'comment', text: 'Looks good' }, { type: 'ticket-action', action: 'status' },
     { type: 'open', url: 'https://acme.atlassian.net/browse/ACME-1' },
     { type: 'toolbar', command: 'acc.trackers.signIn', arg: '{"root":"/r","index":0}' },
+    { type: 'analysis-answer', project: '/r', task: 'ACME-1', question: 'q1', text: 'Only the primary contact.' },
+    { type: 'analysis-answer', project: '/r', task: 'ACME-1', question: 'q12', text: '-5 days' },
   ]) assert.ok(isFromWebview(ok), JSON.stringify(ok));
   for (const bad of [
     { type: 'open', url: 'javascript:alert(1)' }, { type: 'open', url: 'file:///etc/passwd' },
     { type: 'ticket', project: '/r', tracker: 0, key: '../../etc' }, { type: 'move', project: '/r', tracker: 'x', key: 'ACME-1', to: 'c' },
     { type: 'ticket-action', action: 'delete' }, { type: 'ticket-action', action: 'comment', text: 'x'.repeat(70_000) },
     { type: 'toolbar', command: 'workbench.action.terminal.sendSequence' }, { type: 'nope' }, null,
+    // An answer to an analysis's question (D-052): a real project, task and question, and words.
+    { type: 'analysis-answer', project: '/r', task: 'ACME-1', question: 'q1', text: '' },
+    { type: 'analysis-answer', project: '/r', task: 'ACME-1', question: 'q1', text: '   ' },
+    { type: 'analysis-answer', project: '/r', task: 'ACME-1', question: 'q1', text: 'x'.repeat(4001) },
+    { type: 'analysis-answer', project: '/r', task: 'ACME-1', question: 'q1; rm -rf ~', text: 'Yes' },
+    { type: 'analysis-answer', project: '/r', task: 'ACME-1', question: 'q1234', text: 'Yes' },
+    { type: 'analysis-answer', project: '/r', task: '../ACME-1', question: 'q1', text: 'Yes' },
+    { type: 'analysis-answer', task: 'ACME-1', question: 'q1', text: 'Yes' },
+    { type: 'analysis-answer', project: '/r', task: 'ACME-1', question: 'q1', text: 42 },
   ]) assert.ok(!isFromWebview(bad), JSON.stringify(bad)?.slice(0, 80));
 });
 

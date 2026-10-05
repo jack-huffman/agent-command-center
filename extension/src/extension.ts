@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import { Hub } from './hub.ts';
 import type { Answer } from '../../packages/core/src/questions.ts';
 import { AgentPages } from './activity.ts';
-import { CLAUDE_EXTENSION, claudeSessionUri, COMMANDS, isSessionId, isWebviewMenuContext, WALKTHROUGHS } from './logic.ts';
+import { analysisAnswerArgs, CLAUDE_EXTENSION, claudeSessionUri, COMMANDS, isSessionId, isWebviewMenuContext, WALKTHROUGHS } from './logic.ts';
 import { type NavItem, needsYouCount, type Ref, sessionKey, VIEW_KINDS, type ViewKind } from './model.ts';
 import { Notices } from './notices.ts';
 import { Panels } from './panels.ts';
@@ -65,7 +65,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // Poll quickly while the page is on screen, and slowly, for the status bar and notices, while it isn't
   // (D-044). VSCode stays light: the author's machine stutters under load.
   let pageVisible = false;
-  const inPlay = () => hub.projects.some((p) => hub.taskRows(p.root).some((t) => t.state === 'running' || !!t.reviewing));
+  const inPlay = () => hub.projects.some((p) => hub.taskRows(p.root).some((t) => t.state === 'running' || !!t.reviewing || !!t.analyzing));
   const POLLS: Record<string, { everyMs: number; hiddenMs?: number; fn: () => Promise<void> }> = {
     tasks: { everyMs: 3_000, hiddenMs: 15_000, fn: () => hub.loadTasks() },
     agents: { everyMs: 5_000, hiddenMs: 30_000, fn: () => (pageVisible || inPlay() ? hub.loadAgents() : Promise.resolve()) },
@@ -119,7 +119,22 @@ export function activate(context: vscode.ExtensionContext): void {
   };
   // Commands run from a tab's native context menu get the row's data-vscode-context; turn it into the node.
   const regNode = (id: string, fn: (...args: any[]) => unknown) => reg(id, (a: unknown, ...rest: unknown[]) => fn(isWebviewMenuContext(a) ? nodeFor(a.accRef as Ref) : a, ...rest));
-  const tickets = new TicketPanels(context, hub, trackers, resolve, accRunner(accScript));
+  /**
+   * A person's answer to one of a task's analysis's questions, from either page (D-052). acc records it
+   * (D-012): the page never writes the analysis itself. What acc refuses, it says why.
+   */
+  const answerAnalysis = async (root: string, task: string, question: string, text: string): Promise<{ ok: boolean; error?: string }> => {
+    const p = hub.project(root);
+    if (!p) return { ok: false, error: 'That project isn\'t open here.' };
+    const r = await accRunner(accScript)(analysisAnswerArgs(task, question, text), p.root);
+    await hub.loadTasks(true);
+    if (r.code === 0) return { ok: true };
+    let error = (r.stderr || r.stdout).trim().split('\n')[0] || `acc exited ${r.code}`;
+    try { error = (JSON.parse(r.stdout) as { message?: string }).message ?? error; } catch { /* plain text */ }
+    void vscode.window.showWarningMessage(`Couldn't answer ${task}'s question: ${error}`);
+    return { ok: false, error };
+  };
+  const tickets = new TicketPanels(context, hub, trackers, resolve, accRunner(accScript), answerAnalysis);
 
   // Agents' questions and activity (D-030). Answering "in the terminal" hands the question back to
   // Claude Code's own prompt, and attaches to it.
@@ -133,7 +148,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const pages = new AgentPages(context, hub, resolve, answer);
   context.subscriptions.push(pages);
   const sidebar = new Sidebar(hub, accRunner(accScript), setup.log, (root, key) => tickets.show(root, undefined, key), {
-    run: (command, cwd, label, onExit) => void runs.start(command, { cwd, label, onExit }),
+    run: (command, cwd, label, onExit, ok) => void runs.start(command, { cwd, label, onExit, ok }),
     watch: (key, ended, active) => pages.open(key, ended, active),
     sessionSettings: sessionSettings(accScript),
     accCommand: accShellCommand(accScript),
@@ -163,6 +178,7 @@ export function activate(context: vscode.ExtensionContext): void {
     },
     moveTask: async (root, task, lane) => { const p = hub.project(root); if (p) await sidebar.moveToLane(p, task, lane); },
     answer,
+    answerAnalysis,
     runs: () => runs.views(),
     runInput: (id, text) => void runs.input(id, text),
     runControl: (id, action) => runs.control(id, action),
@@ -182,7 +198,7 @@ export function activate(context: vscode.ExtensionContext): void {
     if (panels.visible()) { if (kind !== 'end') panels.postRuns(run.id); return; }
     // Off screen, a run speaks up only when it needs you or went wrong.
     if (kind === 'ask') void vscode.window.showWarningMessage(`${run.label} is asking: ${run.prompt?.text ?? 'for an answer'}`, 'Answer').then((p) => p && showRun(run.id));
-    if (kind === 'end' && run.code !== 0 && !run.stopped) void vscode.window.showWarningMessage(`${run.label} failed (exit ${run.code ?? '?'}).`, 'Show output').then((p) => p && showRun(run.id));
+    if (kind === 'end' && !(run.ok ?? run.code === 0) && !run.stopped) void vscode.window.showWarningMessage(`${run.label} failed (exit ${run.code ?? '?'}).`, 'Show output').then((p) => p && showRun(run.id));
   });
   // ------------------------------------------------------------ the launcher (D-029)
   // The activity bar icon opens the page. Its one view lists the sections, for anyone who keeps the sidebar.

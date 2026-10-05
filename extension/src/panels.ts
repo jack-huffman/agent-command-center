@@ -10,6 +10,7 @@ const ALLOWED = new Set([
   'acc.task.dispatch', 'acc.task.attach', 'acc.task.openWorktree', 'acc.task.abandon', 'acc.task.cleanup',
   'acc.task.add', 'acc.task.importGithub', 'acc.task.importJira', 'acc.task.show', 'acc.task.move', 'acc.task.block', 'acc.task.unblock', 'acc.task.openTicket',
   'acc.agent.new', 'acc.agent.attach', 'acc.agent.logs', 'acc.agent.stop', 'acc.agent.openFolder', 'acc.agent.watch', 'acc.task.watch', 'acc.agent.openInClaude', 'acc.task.openInClaude', 'acc.task.review', 'acc.task.watchReview', 'acc.task.land', 'acc.task.openPr',
+  'acc.task.analyze', 'acc.task.watchAnalysis',
   'acc.worktree.open', 'acc.worktree.terminal', 'acc.worktree.reveal', 'acc.worktree.remove',
   'acc.env.openOrg', 'acc.env.openGithub', 'acc.env.compare', 'acc.env.promote', 'acc.env.deploy',
   'acc.step.check', 'acc.step.fix', 'acc.step.openSetup', 'acc.step.confirm', 'acc.openGuide', 'acc.openProjectWalkthrough',
@@ -26,6 +27,8 @@ export interface BoardDeps {
   moveTask(project: string, task: string, lane: string): Promise<void>;
   /** Agents' questions (D-030) and the commands acc is running. */
   answer(id: string, a: Answer): void;
+  /** A person's answer to a task's analysis's question, through acc (D-052). */
+  answerAnalysis(project: string, task: string, question: string, text: string): Promise<{ ok: boolean; error?: string }>;
   runs(): RunInput[];
   runInput(id: string, text: string): void;
   runControl(id: string, action: RunControl): void;
@@ -185,6 +188,12 @@ export class Panels implements vscode.Disposable {
     }
     if (m.type === 'answer') {
       this.deps.answer(m.id, answerOf(m));
+      return;
+    }
+    if (m.type === 'analysis-answer') {
+      if (!this.hub.project(m.project)) return;
+      // The page shows it's sending until the question goes; a refusal tells it to stop.
+      void this.deps.answerAnalysis(m.project, m.task, m.question, m.text).then((r) => this.panel?.webview.postMessage({ type: 'done', action: 'analysis-answer', project: m.project, task: m.task, question: m.question, ...r }));
       return;
     }
     if (m.type === 'run-input') return this.deps.runInput(m.run, m.text);

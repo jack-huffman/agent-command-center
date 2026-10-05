@@ -13,6 +13,7 @@ import { runFile } from './run.ts';
 import type { Trackers } from './trackers.ts';
 
 type AccRun = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
+type AnswerAnalysis = (root: string, task: string, question: string, text: string) => Promise<{ ok: boolean; error?: string }>;
 
 interface Open {
   panel: vscode.WebviewPanel;
@@ -26,7 +27,7 @@ interface Open {
 }
 
 /** Commands a ticket page may run, the same ones its task's card offers. */
-const ALLOWED = new Set(['acc.task.dispatch', 'acc.task.attach', 'acc.task.openInClaude', 'acc.task.watch', 'acc.task.review', 'acc.task.watchReview', 'acc.task.land', 'acc.task.openPr', 'acc.task.openWorktree', 'acc.task.abandon', 'acc.task.cleanup', 'acc.task.move', 'acc.task.block', 'acc.task.unblock', 'acc.trackers.signIn']);
+const ALLOWED = new Set(['acc.task.dispatch', 'acc.task.attach', 'acc.task.openInClaude', 'acc.task.watch', 'acc.task.review', 'acc.task.watchReview', 'acc.task.land', 'acc.task.openPr', 'acc.task.openWorktree', 'acc.task.abandon', 'acc.task.cleanup', 'acc.task.move', 'acc.task.block', 'acc.task.unblock', 'acc.task.analyze', 'acc.task.watchAnalysis', 'acc.trackers.signIn']);
 
 /**
  * One editor tab per ticket, like the tracker's own ticket page: rendered description and comments,
@@ -39,13 +40,15 @@ export class TicketPanels implements vscode.Disposable {
   private readonly trackers: Trackers;
   private readonly resolve: (command: string, ref: Ref) => unknown;
   private readonly acc: AccRun;
+  private readonly answerAnalysis: AnswerAnalysis | null;
 
-  constructor(ctx: vscode.ExtensionContext, hub: Hub, trackers: Trackers, resolve: (command: string, ref: Ref) => unknown, acc: AccRun) {
+  constructor(ctx: vscode.ExtensionContext, hub: Hub, trackers: Trackers, resolve: (command: string, ref: Ref) => unknown, acc: AccRun, answerAnalysis: AnswerAnalysis | null = null) {
     this.ctx = ctx;
     this.hub = hub;
     this.trackers = trackers;
     this.resolve = resolve;
     this.acc = acc;
+    this.answerAnalysis = answerAnalysis;
   }
 
   dispose(): void {
@@ -130,6 +133,7 @@ export class TicketPanels implements vscode.Disposable {
       project: p.root, tracker: o.tracker, trackerTitle: tracker ? this.trackers.title(tracker) : null, trackerKind: tracker?.kind ?? null, key: o.key,
       ticket: o.ticket, loading: o.loading, error: o.error, connect: o.connect, row, task, checks: task ? await this.checks(p, task.run?.branch ?? null) : [],
       signedInAs: o.tracker !== null ? await this.trackers.signedInAs(p, o.tracker) : null,
+      analysis: task ? this.hub.analysis(p.root, task.id) : null,
     });
     void o.panel.webview.postMessage({ type: 'state', model });
   }
@@ -150,6 +154,13 @@ export class TicketPanels implements vscode.Disposable {
         if (ALLOWED.has(m.command)) await vscode.commands.executeCommand(m.command, m.arg);
         return;
       case 'ticket-action': return this.act(o, p, m.action, m.text);
+      // Only this page's own task's questions (D-052).
+      case 'analysis-answer': {
+        if (m.project !== o.project || m.task !== o.key || !this.answerAnalysis) return;
+        const r = await this.answerAnalysis(m.project, m.task, m.question, m.text);
+        void o.panel.webview.postMessage({ type: 'done', action: 'analysis-answer', project: m.project, task: m.task, question: m.question, ...r });
+        return this.post(o);
+      }
       default: return;
     }
   }

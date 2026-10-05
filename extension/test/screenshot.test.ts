@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { HOME_SECTIONS, type HomeModel } from '../src/model.ts';
+import { HOME_SECTIONS, type HomeModel, type TicketModel } from '../src/model.ts';
 import { findChrome, PAGES, pageFor, sampleModel, THEMES } from '../scripts/screenshot.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -11,10 +11,12 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 test('every section of the page, and a ticket, has sample data built by the real model functions', () => {
   for (const kind of PAGES) {
     const m = sampleModel(kind);
-    if (kind === 'ticket' || kind === 'agent') assert.equal(m.kind, kind);
+    if (kind.startsWith('ticket') || kind === 'agent') assert.equal(m.kind, kind.startsWith('ticket') ? 'ticket' : kind);
     else assert.deepEqual([m.kind, (m as HomeModel).section], ['home', kind === 'output' ? 'setup' : kind]);
   }
-  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['ticket', 'agent', 'output']);
+  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['ticket', 'ticket-questions', 'ticket-split', 'agent', 'output']);
+  // A ticket being built, one whose analysis has questions, and one too big for one task (D-052).
+  assert.deepEqual(['ticket', 'ticket-questions', 'ticket-split'].map((k) => (sampleModel(k as never) as TicketModel).analysis?.look.label), ['Analyzed before the build', '2 questions for you', 'Too big for one task']);
 });
 
 test('the sample data shows every style: each board column, each kind of session, each kind of worktree', () => {

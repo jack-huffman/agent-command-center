@@ -11,6 +11,7 @@ interface Run extends RunInput {
   child: ChildProcess | null;
   quiet: NodeJS.Timeout | undefined;
   onExit?: (code: number | null) => void;
+  judge?: (code: number | null) => boolean;
 }
 
 export interface StartOptions {
@@ -19,6 +20,11 @@ export interface StartOptions {
   /** The setup step it does, so the step can show it's under way and check itself after. */
   step?: string;
   onExit?: (code: number | null) => void;
+  /**
+   * Whether it did its job, for a command whose exit code says more than that: acc analyze exits 1 for an
+   * analysis with questions, and that's an analysis made, not a failure (D-052). Without it, exit 0 is done.
+   */
+  ok?: (code: number | null) => boolean;
 }
 
 /** A command that has gone this long without output may be waiting for an answer. */
@@ -76,8 +82,8 @@ export class Runs implements vscode.Disposable {
     return this.list.map((r) => this.view(r));
   }
 
-  private view({ id, label, command, startedAt, endedAt, code, stopped, lines, prompt, step }: Run): RunInput {
-    return { id, label, command, startedAt, endedAt, code, stopped, lines, prompt, step };
+  private view({ id, label, command, startedAt, endedAt, code, ok, stopped, lines, prompt, step }: Run): RunInput {
+    return { id, label, command, startedAt, endedAt, code, ...(ok === undefined ? {} : { ok }), stopped, lines, prompt, step };
   }
 
   running(step?: string): boolean {
@@ -88,7 +94,7 @@ export class Runs implements vscode.Disposable {
     const id = randomBytes(6).toString('hex');
     const run: Run = {
       id, label: opts.label ?? command, command, cwd: opts.cwd, startedAt: Date.now(), endedAt: null, code: null, stopped: false,
-      lines: [''], prompt: null, step: opts.step ?? null, child: null, quiet: undefined, onExit: opts.onExit,
+      lines: [''], prompt: null, step: opts.step ?? null, child: null, quiet: undefined, onExit: opts.onExit, judge: opts.ok,
     };
     this.list.unshift(run);
     // Finished runs beyond the last few are dropped; running ones never are.
@@ -188,10 +194,15 @@ export class Runs implements vscode.Disposable {
     clearTimeout(r.quiet);
     r.endedAt = Date.now();
     r.code = code;
+    try {
+      r.ok = !r.stopped && (r.judge ? r.judge(code) : code === 0);
+    } catch {
+      r.ok = code === 0;
+    }
     r.prompt = null;
     r.child = null;
     if (r.lines.length > 1 && r.lines[r.lines.length - 1] === '') r.lines.pop();
-    this.log.info(`${r.stopped ? 'Stopped' : code === 0 ? 'Finished' : `Failed (exit ${code})`}: ${r.command}`);
+    this.log.info(`${r.stopped ? 'Stopped' : r.ok ? 'Finished' : `Failed (exit ${code})`}: ${r.command}`);
     this.changed(true);
     this.events.fire({ kind: 'end', run: this.view(r) });
     this.keep();

@@ -19,10 +19,11 @@ import { HOME_SECTIONS, homeModel, type HomeSection, type Model } from '../src/m
 import { sampleAgent, sampleBoards, sampleHub, sampleIdentity, sampleRuns, sampleSetup, sampleTicket } from './fixtures.ts';
 
 /**
- * Every page the screenshot script can draw: each section of the Command Center, a ticket's page, an
- * agent's page, and Setup with the output panel open on a command that's asking something.
+ * Every page the screenshot script can draw: each section of the Command Center, a ticket's page (being
+ * built, and two to do whose analysis has questions or says to split it), an agent's page, and Setup with
+ * the output panel open on a command that's asking something.
  */
-export const PAGES = [...HOME_SECTIONS, 'ticket', 'agent', 'output'] as const;
+export const PAGES = [...HOME_SECTIONS, 'ticket', 'ticket-questions', 'ticket-split', 'agent', 'output'] as const;
 export type Page = (typeof PAGES)[number];
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -59,15 +60,21 @@ export type Theme = keyof typeof THEMES;
 
 export function sampleModel(kind: Page, now = Date.now()): Model {
   if (kind === 'ticket') return sampleTicket(now);
+  if (kind === 'ticket-questions') return sampleTicket(now, 'ACME-21');
+  if (kind === 'ticket-split') return sampleTicket(now, 'ACME-23');
   if (kind === 'agent') return sampleAgent(now);
   const hub = sampleHub(now);
   const section = (kind === 'output' ? 'setup' : kind) as HomeSection;
   return homeModel({ hub, section, boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: sampleRuns(now) });
 }
 
-/** What the page remembers when it opens: the output page starts with the panel open. */
-const startState = (kind: Page): unknown => (kind === 'output' ? { dock: { open: true, run: 'r-login' } } : undefined);
-const viewOf = (kind: Page): string => (kind === 'ticket' || kind === 'agent' ? kind : 'home');
+/**
+ * What the page remembers when it opens: the output page starts with the panel open, and the split
+ * ticket with two of its analysis's lists open, to see them laid out.
+ */
+const startState = (kind: Page): unknown => (kind === 'output' ? { dock: { open: true, run: 'r-login' } }
+  : kind === 'ticket-split' ? { opened: ['files', 'findings'].map((f) => `an:/Users/me/code/acme-service#ACME-23:${f}`) } : undefined);
+const viewOf = (kind: Page): string => (kind.startsWith('ticket') ? 'ticket' : kind === 'agent' ? kind : 'home');
 
 /**
  * A page that loads the built webview the way VSCode does: a stub API answers `ready` with the model.
