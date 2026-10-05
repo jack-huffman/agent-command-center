@@ -49,6 +49,8 @@ export interface PullRequest {
   /** The files it conflicts in with its base, kept by acc sync and acc land. Empty when it merges cleanly. */
   conflicts?: string[];
   syncedAt?: string;
+  /** When acc land last opened or updated it, so the next land can tell whether rework came between. */
+  landedAt?: string;
 }
 
 export interface Task {

@@ -71,10 +71,17 @@ export function prBody(task: Task, env: Environment, sha: string, verdict: Verdi
   return lines.join('\n') + '\n';
 }
 
-/** What the ticket is told: the pull request, and that it's waiting for a person. */
-export const ticketComment = (task: Task, pr: PullRequest, opened: boolean): string =>
-  opened ? `${task.id} has a pull request: ${pr.url}\nAn agent built it and another reviewed it. It merges when a person approves it.`
-    : `${task.id}'s pull request was updated after rework: ${pr.url}`;
+/** What a land did to the pull request: opened it, or updated it, after rework or for another reason. */
+export type Landing = 'opened' | 'updated' | 'reworked';
+
+/** Whether the task went to rework since its pull request was last landed. A pull request landed before acc recorded when can't tell, so it's no. */
+export const reworkedSinceLanded = (task: Task): boolean =>
+  !!task.pr?.landedAt && task.history.some((h) => h.to === 'rework' && h.at > task.pr!.landedAt!);
+
+/** What the ticket is told: the pull request, and that it's waiting for a person. An update says after rework only when it was. */
+export const ticketComment = (task: Task, pr: PullRequest, landing: Landing): string =>
+  landing === 'opened' ? `${task.id} has a pull request: ${pr.url}\nAn agent built it and another reviewed it. It merges when a person approves it.`
+    : `${task.id}'s pull request was updated${landing === 'reworked' ? ' after rework' : ''}: ${pr.url}`;
 
 function ghToken(run: Runner, account: string): string {
   const t = run('gh', ['auth', 'token', '-u', account]);
@@ -120,13 +127,13 @@ export function land(paths: RepoPaths, config: Config, id: string, deps: LandDep
     if (existing) {
       const edit = ghRun(['pr', 'edit', String(existing.number), '-R', gh.repo, '--body-file', bodyFile]);
       if (edit.code !== 0) throw new AccError('land', `Couldn't update pull request #${existing.number}: ${edit.stderr.trim().split('\n')[0]}`);
-      pr = { number: existing.number, url: existing.url, state: 'open' };
+      pr = { number: existing.number, url: existing.url, state: 'open', landedAt: now().toISOString() };
       opened = false;
     } else {
       const create = ghRun(['pr', 'create', '-R', gh.repo, '--base', env.branch, '--head', branch, '--title', `${task.id}: ${task.title}`, '--body-file', bodyFile]);
       const url = create.stdout.trim().split('\n').find((l) => /^https:\/\/github\.com\/.+\/pull\/\d+/.test(l.trim()))?.trim();
       if (create.code !== 0 || !url) throw new AccError('land', `gh couldn't open the pull request: ${(create.stderr || create.stdout).trim().split('\n')[0]}`);
-      pr = { number: Number(/\/pull\/(\d+)/.exec(url)![1]), url, state: 'open' };
+      pr = { number: Number(/\/pull\/(\d+)/.exec(url)![1]), url, state: 'open', landedAt: now().toISOString() };
       opened = true;
     }
   } finally {
@@ -141,7 +148,7 @@ export function land(paths: RepoPaths, config: Config, id: string, deps: LandDep
   let commented = false;
   let commentUnconfirmed: string | null = null;
   let comment: PendingComment | null = null;
-  const text = ticketComment(task, pr, opened);
+  const text = ticketComment(task, pr, opened ? 'opened' : reworkedSinceLanded(task) ? 'reworked' : 'updated');
   const issue = task.source.kind === 'github' ? /(\d+)$/.exec(task.source.key ?? task.id)?.[1] : undefined;
   if (issue) {
     const c = ghRun(['issue', 'comment', issue, '-R', gh.repo, '--body', text]);
