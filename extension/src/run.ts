@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import type * as vscode from 'vscode';
+import { ghEnv, isGh } from '../../packages/core/src/exec.ts';
 
 export interface RunResult {
   code: number;
@@ -7,12 +8,12 @@ export interface RunResult {
   stderr: string;
 }
 
-/** Runs a program with an argument list (never a shell string), with a timeout and cancellation. */
+/** Runs a program with an argument list (never a shell string), with a timeout and cancellation. gh runs as acc's runner runs it (D-???). */
 export function runFile(file: string, args: string[], cwd: string, env: NodeJS.ProcessEnv = process.env, token?: vscode.CancellationToken, timeoutMs = 180_000): Promise<RunResult> {
   return new Promise((resolve) => {
     const abort = new AbortController();
     const sub = token?.onCancellationRequested(() => abort.abort());
-    execFile(file, args, { cwd, env, timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024, signal: abort.signal }, (err, stdout, stderr) => {
+    execFile(file, args, { cwd, env: isGh(file) ? ghEnv(env) : env, timeout: timeoutMs, killSignal: isGh(file) ? 'SIGKILL' : 'SIGTERM', maxBuffer: 32 * 1024 * 1024, signal: abort.signal }, (err, stdout, stderr) => {
       sub?.dispose();
       const raw = (err as { code?: unknown } | null)?.code;
       const code = err ? (typeof raw === 'number' ? raw : raw === 'ENOENT' ? 127 : 1) : 0;

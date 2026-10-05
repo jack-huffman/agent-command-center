@@ -2,6 +2,7 @@
  * GitHub Issues through `gh`, signed in as the repo's own account (D-007). A board's columns come from
  * the GitHub Project the issues are on; with no Project, or no access to it, they're Open and Closed.
  */
+import { ghEnv } from '../exec.ts';
 import { fromMarkdown } from './doc.ts';
 import {
   type Board, type BoardCard, type BoardColumn, type Exec, type Label, type Person, type Status, type StatusCategory,
@@ -81,7 +82,7 @@ export class GithubClient implements TrackerClient {
   private get name(): string { return this.o.repo.split('/')[1]!; }
 
   private async gh(args: string[], input?: string): Promise<string> {
-    const r = await this.o.exec('gh', args, { input, env: { ...process.env, GH_TOKEN: this.o.token, GH_PROMPT_DISABLED: '1', NO_COLOR: '1' } });
+    const r = await this.o.exec('gh', args, { input, env: ghEnv({ ...process.env, GH_TOKEN: this.o.token, NO_COLOR: '1' }) });
     if (r.code === 0) return r.stdout;
     const msg = (r.stderr || r.stdout).trim();
     if (r.code === 127) throw new TrackerError('other', 'The GitHub CLI (gh) isn\'t installed.');
