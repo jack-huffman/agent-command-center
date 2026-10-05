@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Autonomy, Config } from './config.ts';
 import { dispatch } from './dispatch.ts';
@@ -293,6 +293,8 @@ export function autopilotPass(paths: RepoPaths, config: Config, deps: AutopilotD
  * refresh's checks take, as a builder's do (D-058).
  */
 export function holdAutopilot<T>(paths: RepoPaths, fn: () => T): T {
+  // A repo where no task was ever added has no state folder yet, and the lock lives in it.
+  mkdirSync(paths.stateDir, { recursive: true });
   let held = false;
   try {
     return withLock(paths.autopilotLock, () => {

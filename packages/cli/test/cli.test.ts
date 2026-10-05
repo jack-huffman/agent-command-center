@@ -304,6 +304,16 @@ test('acc autopilot: manual does nothing; dispatch isn\'t built yet, and full is
   assert.match(acc(dir, ['autopilot']).err, /no "github" section/, 'it couldn\'t land anything');
 });
 
+test('acc autopilot runs on a repo where no task was ever added, which has no state folder yet', () => {
+  const dir = repoWithConfig({ ...GENERIC_CONFIG, github: { repo: 'acme/tool', account: 'jordan-kim' }, autonomy: 'review' });
+  assert.ok(!existsSync(join(dir, '.git', 'acc')));
+  const once = acc(dir, ['autopilot', '--once', '--json']);
+  assert.equal(once.code, 0, once.err);
+  assert.deepEqual(once.json().steps, []);
+  assert.equal(acc(dir, ['autopilot']).out.trim(), 'Nothing for autopilot to do.');
+  assert.ok(!existsSync(join(dir, '.git', 'acc', 'autopilot.lock')), 'let go when it ends');
+});
+
 test('a task autopilot couldn\'t move on shows as needs you, and acc show says why (D-055)', () => {
   const dir = repoWithConfig();
   assert.equal(acc(dir, ['add', 'Add a sum function']).code, 0);

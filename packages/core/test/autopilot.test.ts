@@ -336,6 +336,15 @@ test('a pull request landed before acc recorded its commit is compared with what
 
 // ---------------------------------------------------------------- one at a time
 
+test('autopilot runs on a repo where no task was ever added: it makes the state folder its lock lives in', () => {
+  const paths = repoPaths(makeRepo(), run);
+  assert.ok(!existsSync(paths.stateDir), 'nothing has made it yet');
+  assert.equal(holdAutopilot(paths, () => 'ran'), 'ran');
+  assert.ok(existsSync(paths.stateDir));
+  assert.ok(!existsSync(paths.autopilotLock), 'let go when it ends');
+  assert.deepEqual(autopilotPass(paths, parseConfig({ ...GENERIC_CONFIG, autonomy: 'review' }).config as Config, deps([])), { steps: [], pendingComments: [] }, 'and has nothing to do');
+});
+
 test('only one autopilot runs against a repo: a second is refused at once, and a dead one\'s lock is broken', () => {
   const s = setup();
   assert.equal(s.paths.autopilotLock, join(s.paths.stateDir, 'autopilot.lock'));
