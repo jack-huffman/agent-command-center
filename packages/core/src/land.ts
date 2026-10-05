@@ -138,13 +138,13 @@ export function land(paths: RepoPaths, config: Config, id: string, deps: LandDep
     if (existing) {
       const edit = ghRun(['pr', 'edit', String(existing.number), '-R', gh.repo, '--body-file', bodyFile]);
       if (edit.code !== 0) throw new AccError('land', `Couldn't update pull request #${existing.number}: ${edit.stderr.trim().split('\n')[0]}`);
-      pr = { number: existing.number, url: existing.url, state: 'open', landedAt: now().toISOString() };
+      pr = { number: existing.number, url: existing.url, state: 'open', landedAt: now().toISOString(), sha };
       opened = false;
     } else {
       const create = ghRun(['pr', 'create', '-R', gh.repo, '--base', env.branch, '--head', branch, '--title', `${task.id}: ${task.title}`, '--body-file', bodyFile]);
       const url = create.stdout.trim().split('\n').find((l) => /^https:\/\/github\.com\/.+\/pull\/\d+/.test(l.trim()))?.trim();
       if (create.code !== 0 || !url) throw new AccError('land', `gh couldn't open the pull request: ${(create.stderr || create.stdout).trim().split('\n')[0]}`);
-      pr = { number: Number(/\/pull\/(\d+)/.exec(url)![1]), url, state: 'open', landedAt: now().toISOString() };
+      pr = { number: Number(/\/pull\/(\d+)/.exec(url)![1]), url, state: 'open', landedAt: now().toISOString(), sha };
       opened = true;
     }
   } finally {
@@ -170,6 +170,8 @@ export function land(paths: RepoPaths, config: Config, id: string, deps: LandDep
   const updated = mutate(paths, now, (l, emit) => {
     const t = l.tasks.find((x) => x.id === id)!;
     t.pr = pr;
+    // Landed, by autopilot or by hand: whatever autopilot couldn't do before is done (D-???).
+    if (t.autopilot?.failed) t.autopilot.failed = null;
     t.updatedAt = now().toISOString();
     emit({ type: 'task.updated', task: id, actor: opts.actor ?? 'human', by: opts.by ?? 'acc land', data: { pr, sha, opened } });
     return t;
