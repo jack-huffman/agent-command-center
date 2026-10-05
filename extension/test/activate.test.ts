@@ -14,6 +14,9 @@ import { makeRepo } from '../../packages/core/test/support.ts';
 const dist = fileURLToPath(new URL('../dist/extension.js', import.meta.url));
 // The extension says it's listening for agents' questions (D-030); keep that out of the real ~/.acc.
 process.env.ACC_QUESTIONS_DIR = mkdtempSync(join(tmpdir(), 'acc-questions-'));
+// The extension runs acc as the person at VSCode, even when these tests run in a builder's session.
+delete process.env.ACC_ROLE;
+delete process.env.ACC_TASK;
 const disposable = { dispose() {} };
 const event = () => () => disposable;
 
@@ -158,16 +161,37 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     assert.match(tab.html, /<script nonce="[A-Za-z0-9+/=]+" src=/);
     assert.match(tab.html, /data-view="home"/);
     tab.receive!({ type: 'ready' });
-    type Posted = { model: { kind: string; section: string; overview: { ready: { id: string }[] }; tasks: { projects: { columns: { group: string; cards: { id: string }[] }[] }[] }; environments: { projects: { envs: { name: string }[] }[] } } };
+    type Posted = { model: { kind: string; section: string; overview: { ready: { id: string }[] }; tasks: { projects: { root: string; columns: { group: string; cards: { id: string }[] }[] }[] }; environments: { projects: { envs: { name: string }[] }[] } } };
     const state = tab.posted.at(-1) as Posted;
     assert.deepEqual([state.model.kind, state.model.section], ['home', 'tasks']);
     assert.deepEqual(state.model.tasks.projects[0]!.columns.find((c) => c.group === 'ready')!.cards.map((c) => c.id), ['T-1']);
     assert.deepEqual(state.model.overview.ready.map((r) => r.id), ['T-1'], 'the Overview offers it to dispatch');
     assert.equal(state.model.environments.projects[0]!.envs[0]!.name, 'main');
+
     await calls.commands.get('acc.open.agents')!();
     assert.equal(panels.length, 1, 'one page: opening a section reveals it there');
     assert.equal((tab.posted.at(-1) as Posted).model.section, 'agents');
     tab.receive!({ type: 'run', command: 'workbench.action.quit', ref: {} });
+
+    // Every answer sent from a page gets a reply, so it never stays on "Sending your answer…" (D-???).
+    type Done = { type: string; action: string; ok: boolean; error?: string; task: string; question: string };
+    const reply = async (page: (typeof panels)[number], project: string, task: string): Promise<Done> => {
+      const from = page.posted.length;
+      const done = () => page.posted.slice(from).find((x) => (x as Done).type === 'done') as Done | undefined;
+      page.receive!({ type: 'analysis-answer', project, task, question: 'q1', text: 'Yes.' });
+      await until(() => !!done());
+      return done()!;
+    };
+    const root = state.model.tasks.projects[0]!.root;
+    const away = await reply(tab, '/nowhere', 'T-1');
+    assert.deepEqual([away.action, away.ok, away.task, away.question], ['analysis-answer', false, 'T-1', 'q1']);
+    assert.match(away.error ?? '', /isn't open/, 'a project that isn\'t open says so');
+    assert.match((await reply(tab, root, 'T-1')).error ?? '', /hasn't been analyzed/, 'acc\'s refusal comes back');
+    tab.receive!({ type: 'ticket', project: root, tracker: null, key: 'T-1' });
+    const page = panels[1]!;
+    page.receive!({ type: 'ready' });
+    assert.match((await reply(page, root, 'T-2')).error ?? '', /isn't for this task/, 'the task\'s page answers only its own questions');
+    assert.match((await reply(page, root, 'T-1')).error ?? '', /hasn't been analyzed/);
 
     await calls.commands.get(COMMANDS.check)!('B0.repo');
     assert.match(calls.info.at(-1) ?? '', /^✓ Inside the project's repo: Repo at /);

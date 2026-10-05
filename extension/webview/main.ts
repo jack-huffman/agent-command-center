@@ -473,12 +473,16 @@ function composer(m: TicketModel): HTMLElement {
 }
 
 /** The extension says how a write went. A posted comment clears its draft; a refused one keeps it. */
-function onDone(msg: { action?: string; ok?: boolean; project?: string; task?: string; question?: string }): void {
+function onDone(msg: { action?: string; ok?: boolean; error?: string; project?: string; task?: string; question?: string }): void {
   if (msg.action === 'analysis-answer') {
-    // An answer acc took clears its draft, and its question leaves with the next redraw; a refused one comes back to edit.
+    // An answer acc took clears its draft, and its question leaves with the next redraw; a refused one
+    // comes back to edit, saying why.
     const key = answerKey(msg.project ?? '', msg.task ?? '', msg.question ?? '');
     if (msg.ok) remember((s) => { delete s.drafts[key]; });
-    else if (sendingAnswers.delete(key) && last) render(last);
+    else if (sendingAnswers.delete(key)) {
+      answerErrors.set(key, msg.error?.trim() || 'acc didn\'t say why.');
+      if (last) render(last);
+    }
     return;
   }
   if (msg.action !== 'comment') return;
@@ -613,6 +617,8 @@ type AnalysisAsk = TicketAnalysis['open'][number];
 
 /** Answers on their way to acc, by question: shown as sending until the question goes, or acc refuses it. */
 const sendingAnswers = new Set<string>();
+/** Why the last answer to a question wasn't recorded, until it's sent again or the question goes. */
+const answerErrors = new Map<string, string>();
 const answerKey = (project: string, task: string, question: string): string => `analysis:${project}#${task}:${question}`;
 
 /**
@@ -624,6 +630,7 @@ function analysisQuestion(project: string, task: string, q: AnalysisAsk): HTMLEl
   const send = (text: string) => {
     if (!text.trim() || sendingAnswers.has(key)) return;
     sendingAnswers.add(key);
+    answerErrors.delete(key);
     api.postMessage({ type: 'analysis-answer', project, task, question: q.id, text: text.trim() });
     if (last) render(last);
   };
@@ -635,6 +642,8 @@ function analysisQuestion(project: string, task: string, q: AnalysisAsk): HTMLEl
     box.append(el('div', 'q-sending muted', icon('sync~spin'), 'Sending your answer…'));
     return box;
   }
+  const error = answerErrors.get(key);
+  if (error) box.append(el('div', 'aq-error', icon('warning'), el('span', '', `Your answer wasn't recorded: ${error}`)));
   if (q.suggested.trim() && q.suggested.length <= 4000) {
     const use = el('button', 'aq-suggest', icon('lightbulb'), el('span', 'aq-suggest-text', el('span', 'muted', 'Use the suggestion: '), q.suggested)) as HTMLButtonElement;
     use.type = 'button';
@@ -1557,6 +1566,7 @@ function forgetAnswered(model: Model): void {
   if (!shown) return;
   const keep = new Set(shown);
   for (const k of [...sendingAnswers]) if (!keep.has(k)) sendingAnswers.delete(k);
+  for (const k of [...answerErrors.keys()]) if (!keep.has(k)) answerErrors.delete(k);
   if (Object.keys(memory().drafts).some((k) => k.startsWith('analysis:') && !keep.has(k))) remember((x) => { for (const k of Object.keys(x.drafts)) if (k.startsWith('analysis:') && !keep.has(k)) delete x.drafts[k]; });
 }
 

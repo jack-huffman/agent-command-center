@@ -659,6 +659,9 @@ body[data-view="agent"] .agent-asks { max-height: 50vh; overflow-y: auto; }
 .aq-own .btn { flex: none; }
 .aq.sent { opacity: 0.75; }
 .aq .q-sending { margin-top: 8px; }
+.aq-error { display: flex; align-items: flex-start; gap: 6px; margin: 8px 0 6px; font-size: 0.92em; color: var(--orange); }
+.aq-error .codicon { flex: none; margin-top: 2px; }
+.aq-error span { min-width: 0; overflow-wrap: anywhere; }
 
 /* On the Overview, a task's questions sit under its row, in line with its words. */
 .inbox-analysis { margin: -6px 0 8px 224px; }

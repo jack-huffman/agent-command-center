@@ -191,9 +191,11 @@ export class Panels implements vscode.Disposable {
       return;
     }
     if (m.type === 'analysis-answer') {
-      if (!this.hub.project(m.project)) return;
-      // The page shows it's sending until the question goes; a refusal tells it to stop.
-      void this.deps.answerAnalysis(m.project, m.task, m.question, m.text).then((r) => this.panel?.webview.postMessage({ type: 'done', action: 'analysis-answer', project: m.project, task: m.task, question: m.question, ...r }));
+      // The page shows it's sending until the question goes. Every answer gets a reply: a refusal, or a
+      // project that isn't open here, tells it to stop and why.
+      void this.deps.answerAnalysis(m.project, m.task, m.question, m.text)
+        .catch((e: unknown) => ({ ok: false, error: (e as Error).message }))
+        .then((r) => this.panel?.webview.postMessage({ type: 'done', action: 'analysis-answer', project: m.project, task: m.task, question: m.question, ...r }));
       return;
     }
     if (m.type === 'run-input') return this.deps.runInput(m.run, m.text);
