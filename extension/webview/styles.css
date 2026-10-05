@@ -697,4 +697,24 @@ body[data-view="agent"] .agent-asks { max-height: 50vh; overflow-y: auto; }
 .agent-reply .reply-box:disabled { opacity: 0.6; cursor: not-allowed; }
 .agent-reply .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .agent-reply .reply-why { display: inline-flex; align-items: center; gap: 4px; }
+/* A card's actions, intentionally (D-062): one next step in its footer, the rest behind ⋯ in its corner. */
+.card { position: relative; }
+.card-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); min-height: 26px; }
+.card-meta { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; flex-wrap: wrap; }
+.card-meta .card-where { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; word-break: normal; }
+.card-link { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; color: var(--vscode-textLink-foreground); font: inherit; font-size: 0.85em; cursor: pointer; }
+.card-link:hover { text-decoration: underline; }
+.card-link:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
+.card-foot > .btn { flex: none; }
+.card .card-id { padding-right: 26px; }
+.more { position: absolute; top: 6px; right: 6px; }
+.more-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--vscode-descriptionForeground); cursor: pointer; }
+.more-btn:hover, .more-btn[aria-expanded="true"] { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
+.more-btn:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
+.more-menu { position: absolute; top: 26px; right: 0; z-index: 20; min-width: 180px; padding: 4px; border: 1px solid var(--vscode-menu-border, var(--line)); border-radius: 6px; background: var(--vscode-menu-background, var(--card)); color: var(--vscode-menu-foreground, var(--vscode-foreground)); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28); }
+.more-menu[hidden] { display: none; }
+.more-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 8px; border: 0; border-radius: 4px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; white-space: nowrap; }
+.more-item:hover, .more-item:focus-visible { background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground)); color: var(--vscode-menu-selectionForeground, inherit); outline: none; }
+.more-item.danger { color: var(--orange); }
+.more-sep { height: 1px; margin: 4px 2px; background: var(--line); }
 

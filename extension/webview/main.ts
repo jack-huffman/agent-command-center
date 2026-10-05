@@ -292,9 +292,11 @@ function renderTasks(m: TasksModel): Node[] {
           card.agent ? el('div', 'card-agent', el('span', 'muted', 'Agent: '), status(card.agent)) : null,
           // Its analysis (D-052), in its own words: under way, waiting on you, or ready to build from.
           card.analysis ? el('div', 'card-agent', status(card.analysis)) : null,
-          card.worktree ? el('div', 'card-where mono muted', icon('git-branch'), card.worktree.split('/').slice(-2).join('/')) : null,
-          el('div', 'actions', ...card.actions.filter((a) => a.command !== 'acc.task.move').map(actionButton)),
+          cardFoot(card),
         );
+        // Everything but the next step sits behind ⋯, in the card's corner (D-062).
+        const more = moreMenu(`card:${p.root}#${card.id}`, card.id, cardMenu(card.actions));
+        if (more) art.prepend(more);
         art.dataset.task = card.id;
         art.dataset.drops = card.drops.join(' ');
         art.draggable = card.drops.length > 0;
@@ -1691,6 +1693,80 @@ function dragAutoScroll(board: HTMLElement): void {
   board.addEventListener('drop', stop);
   board.addEventListener('dragend', stop);
 }
+
+/** A card's one next step, if it has one: the button its footer shows (D-062). */
+const cardPrimary = (actions: Action[]): Action | undefined => actions.find((a) => a.primary && a.command !== 'acc.task.move');
+/** Its pull request, when that isn't the next step: a link in the footer, not a button. */
+const cardPr = (actions: Action[]): Action | undefined => actions.find((a) => a.command === 'acc.task.openPr' && a !== cardPrimary(actions));
+/** What goes behind ⋯: the rest, with the card itself opening its page, and drag doing Move. */
+const cardMenu = (actions: Action[]): Action[] => actions.filter((a) => a !== cardPrimary(actions) && a !== cardPr(actions) && a.command !== 'acc.task.move' && !(a.command === 'acc.task.show' && !a.primary));
+
+/** A card's footer: where it lives and its pull request on the left, its one next step on the right. */
+function cardFoot(card: { worktree: string | null; actions: Action[] }): HTMLElement | null {
+  const primary = cardPrimary(card.actions);
+  const pr = cardPr(card.actions);
+  if (!card.worktree && !pr && !primary) return null;
+  const prLink = pr ? el('button', 'card-link', icon(pr.icon), pr.label.replace(/^Pull request /, 'PR ')) as HTMLButtonElement : null;
+  if (prLink && pr) {
+    prLink.type = 'button';
+    prLink.title = pr.label;
+    prLink.addEventListener('click', (e) => { e.stopPropagation(); api.postMessage({ type: 'run', command: pr.command, ref: pr.ref }); });
+  }
+  return el('div', 'card-foot',
+    el('div', 'card-meta', card.worktree ? el('span', 'card-where mono muted', icon('git-branch'), card.worktree.split('/').slice(-2).join('/')) : null, prLink),
+    primary ? actionButton(primary) : null);
+}
+
+// The screenshot harness can start with a menu open, to see it laid out.
+let openMenu: string | null = ((api.getState() as { openMenu?: string } | undefined)?.openMenu) ?? null;
+
+/**
+ * A ⋯ button that opens a short menu of actions, each with its icon and label. It stays open while the
+ * page redraws, and closes on a pick, a click elsewhere, or Escape. Null when there's nothing to put in it.
+ */
+function moreMenu(key: string, name: string, actions: Action[]): HTMLElement | null {
+  if (!actions.length) return null;
+  const btn = el('button', 'more-btn', icon('ellipsis')) as HTMLButtonElement;
+  btn.type = 'button';
+  btn.title = `More for ${name}`;
+  btn.setAttribute('aria-label', `More actions for ${name}`);
+  btn.setAttribute('aria-haspopup', 'menu');
+  const safe = actions.filter((a) => !a.danger);
+  const danger = actions.filter((a) => a.danger);
+  const item = (a: Action) => {
+    const b = el('button', `more-item${a.danger ? ' danger' : ''}`, icon(a.icon), a.label) as HTMLButtonElement;
+    b.type = 'button';
+    b.setAttribute('role', 'menuitem');
+    b.addEventListener('click', (e) => { e.stopPropagation(); openMenu = null; menu.hidden = true; api.postMessage({ type: 'run', command: a.command, ref: a.ref }); });
+    return b;
+  };
+  const menu = el('div', 'more-menu', ...safe.map(item), danger.length && safe.length ? el('div', 'more-sep') : null, ...danger.map(item));
+  menu.setAttribute('role', 'menu');
+  const draw = (open: boolean) => { menu.hidden = !open; btn.setAttribute('aria-expanded', String(open)); };
+  // Opening one closes any other; drawing never changes which is open, so a redraw keeps it.
+  const show = (open: boolean) => { draw(open); openMenu = open ? key : openMenu === key ? null : openMenu; };
+  draw(openMenu === key);
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const opening = !!menu.hidden;
+    document.querySelectorAll<HTMLElement>('.more-menu').forEach((m) => { if (m !== menu) m.hidden = true; });
+    show(opening);
+    if (opening) menu.querySelector<HTMLElement>('.more-item')?.focus();
+  });
+  menu.addEventListener('keydown', (e) => {
+    const items = [...menu.querySelectorAll<HTMLElement>('.more-item')];
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    if (e.key === 'Escape') { e.preventDefault(); show(false); btn.focus(); }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); items[(at + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus(); }
+  });
+  const wrap = el('div', 'more', btn, menu);
+  // Clicks on it don't reach the card, which would open the task.
+  wrap.addEventListener('click', (e) => e.stopPropagation());
+  wrap.addEventListener('mousedown', (e) => e.stopPropagation());
+  return wrap;
+}
+
+document.addEventListener('mousedown', () => { if (openMenu) { openMenu = null; document.querySelectorAll<HTMLElement>('.more-menu').forEach((m) => { m.hidden = true; }); } });
 
 /** Marks each board with the edges that have more lanes past them, for the fade. */
 function boardEdges(board: HTMLElement): void {
