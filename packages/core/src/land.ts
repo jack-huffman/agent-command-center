@@ -35,6 +35,8 @@ export interface LandResult {
   opened: boolean;
   /** Commented on the GitHub issue. */
   commented: boolean;
+  /** Why a GitHub issue's comment isn't confirmed: gh failed, or was stopped at its timeout. It may still have posted. */
+  commentUnconfirmed: string | null;
   comment: PendingComment | null;
 }
 
@@ -69,10 +71,17 @@ export function prBody(task: Task, env: Environment, sha: string, verdict: Verdi
   return lines.join('\n') + '\n';
 }
 
-/** What the ticket is told: the pull request, and that it's waiting for a person. */
-export const ticketComment = (task: Task, pr: PullRequest, opened: boolean): string =>
-  opened ? `${task.id} has a pull request: ${pr.url}\nAn agent built it and another reviewed it. It merges when a person approves it.`
-    : `${task.id}'s pull request was updated after rework: ${pr.url}`;
+/** What a land did to the pull request: opened it, or updated it, after rework or for another reason. */
+export type Landing = 'opened' | 'updated' | 'reworked';
+
+/** Whether the task went to rework since its pull request was last landed. A pull request landed before acc recorded when can't tell, so it's no. */
+export const reworkedSinceLanded = (task: Task): boolean =>
+  !!task.pr?.landedAt && task.history.some((h) => h.to === 'rework' && h.at > task.pr!.landedAt!);
+
+/** What the ticket is told: the pull request, and that it's waiting for a person. An update says after rework only when it was. */
+export const ticketComment = (task: Task, pr: PullRequest, landing: Landing): string =>
+  landing === 'opened' ? `${task.id} has a pull request: ${pr.url}\nAn agent built it and another reviewed it. It merges when a person approves it.`
+    : `${task.id}'s pull request was updated${landing === 'reworked' ? ' after rework' : ''}: ${pr.url}`;
 
 function ghToken(run: Runner, account: string): string {
   const t = run('gh', ['auth', 'token', '-u', account]);
@@ -118,13 +127,13 @@ export function land(paths: RepoPaths, config: Config, id: string, deps: LandDep
     if (existing) {
       const edit = ghRun(['pr', 'edit', String(existing.number), '-R', gh.repo, '--body-file', bodyFile]);
       if (edit.code !== 0) throw new AccError('land', `Couldn't update pull request #${existing.number}: ${edit.stderr.trim().split('\n')[0]}`);
-      pr = { number: existing.number, url: existing.url, state: 'open' };
+      pr = { number: existing.number, url: existing.url, state: 'open', landedAt: now().toISOString() };
       opened = false;
     } else {
       const create = ghRun(['pr', 'create', '-R', gh.repo, '--base', env.branch, '--head', branch, '--title', `${task.id}: ${task.title}`, '--body-file', bodyFile]);
       const url = create.stdout.trim().split('\n').find((l) => /^https:\/\/github\.com\/.+\/pull\/\d+/.test(l.trim()))?.trim();
       if (create.code !== 0 || !url) throw new AccError('land', `gh couldn't open the pull request: ${(create.stderr || create.stdout).trim().split('\n')[0]}`);
-      pr = { number: Number(/\/pull\/(\d+)/.exec(url)![1]), url, state: 'open' };
+      pr = { number: Number(/\/pull\/(\d+)/.exec(url)![1]), url, state: 'open', landedAt: now().toISOString() };
       opened = true;
     }
   } finally {
@@ -135,12 +144,17 @@ export function land(paths: RepoPaths, config: Config, id: string, deps: LandDep
   if (conflicts) pr = { ...pr, conflicts };
 
   // The ticket hears about it. GitHub acc tells itself; Jira and Azure DevOps go through the extension, as you.
+  // A gh that doesn't confirm the comment, or is stopped at its timeout, doesn't stop the land (D-???).
   let commented = false;
+  let commentUnconfirmed: string | null = null;
   let comment: PendingComment | null = null;
-  const text = ticketComment(task, pr, opened);
+  const text = ticketComment(task, pr, opened ? 'opened' : reworkedSinceLanded(task) ? 'reworked' : 'updated');
   const issue = task.source.kind === 'github' ? /(\d+)$/.exec(task.source.key ?? task.id)?.[1] : undefined;
-  if (issue) commented = ghRun(['issue', 'comment', issue, '-R', gh.repo, '--body', text]).code === 0;
-  else if ((task.source.kind === 'jira' || task.source.kind === 'azure') && task.source.key) comment = { kind: task.source.kind, key: task.source.key, text };
+  if (issue) {
+    const c = ghRun(['issue', 'comment', issue, '-R', gh.repo, '--body', text]);
+    commented = c.code === 0;
+    if (!commented) commentUnconfirmed = (c.stderr || c.stdout).trim().split('\n')[0] || `gh exited with ${c.code}.`;
+  } else if ((task.source.kind === 'jira' || task.source.kind === 'azure') && task.source.key) comment = { kind: task.source.kind, key: task.source.key, text };
 
   const updated = mutate(paths, now, (l, emit) => {
     const t = l.tasks.find((x) => x.id === id)!;
@@ -149,5 +163,5 @@ export function land(paths: RepoPaths, config: Config, id: string, deps: LandDep
     emit({ type: 'task.updated', task: id, actor: opts.actor ?? 'human', by: opts.by ?? 'acc land', data: { pr, sha, opened } });
     return t;
   });
-  return { task: updated, sha, pr, opened, commented, comment };
+  return { task: updated, sha, pr, opened, commented, commentUnconfirmed, comment };
 }

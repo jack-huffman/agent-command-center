@@ -91,11 +91,11 @@ test('a comment typed as markdown goes to Jira as ADF, and plain text reads natu
 // ---------------------------------------------------------------- GitHub
 
 /** A stand-in gh: answers by argument prefix and records what it was asked, with the env it got. */
-function fakeGh(answers: [string, string | ((input?: string) => string) | { code: number; stderr: string }][]): { exec: Exec; calls: { args: string; input?: string; token?: string }[] } {
-  const calls: { args: string; input?: string; token?: string }[] = [];
+function fakeGh(answers: [string, string | ((input?: string) => string) | { code: number; stderr: string }][]): { exec: Exec; calls: { args: string; input?: string; token?: string; quiet: boolean }[] } {
+  const calls: { args: string; input?: string; token?: string; quiet: boolean }[] = [];
   const exec: Exec = async (cmd, args, opts) => {
     const line = args.join(' ');
-    calls.push({ args: line, input: opts?.input, token: opts?.env?.GH_TOKEN });
+    calls.push({ args: line, input: opts?.input, token: opts?.env?.GH_TOKEN, quiet: opts?.env?.GH_NO_UPDATE_NOTIFIER === '1' && opts?.env?.GH_PROMPT_DISABLED === '1' });
     const hit = answers.find(([prefix]) => line.startsWith(prefix));
     if (!hit) return { code: 1, stdout: '', stderr: `no fixture for: gh ${line}` };
     const a = hit[1];
@@ -121,6 +121,7 @@ test('GitHub without a Project: Open and Closed columns, and the notice says why
   assert.deepEqual(b.cards[0]!.labels, [{ name: 'bug', color: 'd73a4a' }]);
   assert.match(b.notice!, /aren't on a GitHub Project/);
   assert.ok(calls.every((c) => c.token === 'tok'), 'every call runs as the repo\'s account (D-007)');
+  assert.ok(calls.every((c) => c.quiet), 'with no update check and no prompt (D-???)');
 });
 
 test('GitHub without Projects access says how to grant it, instead of failing', async () => {

@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { type Tracker, withTracker } from '../../packages/core/src/config.ts';
+import { ghEnv, isGh } from '../../packages/core/src/exec.ts';
 import { AzureClient, azureBoards, azureProjects, azureTeams, azureWhoAmI, tenantOf } from '../../packages/core/src/trackers/azure.ts';
 import { GithubClient } from '../../packages/core/src/trackers/github.ts';
 import { JiraClient, jiraBoards, jiraProjects } from '../../packages/core/src/trackers/jira.ts';
@@ -25,9 +26,10 @@ export interface BoardState {
   signedInAs: string | null;
 }
 
-/** Runs gh and friends with an argument list, feeding stdin when asked: comments travel that way, never as arguments. */
+/** Runs gh and friends with an argument list, feeding stdin when asked: comments travel that way, never as arguments. gh runs as acc's runner runs it (D-???). */
 export const exec: Exec = (cmd, args, opts) => new Promise((resolve) => {
-  const child = execFile(cmd, args, { env: opts?.env ?? process.env, timeout: 60_000, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
+  const env = opts?.env ?? process.env;
+  const child = execFile(cmd, args, { env: isGh(cmd) ? ghEnv(env) : env, timeout: 60_000, killSignal: isGh(cmd) ? 'SIGKILL' : 'SIGTERM', maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
     const raw = (err as { code?: unknown } | null)?.code;
     resolve({ code: err ? (typeof raw === 'number' ? raw : raw === 'ENOENT' ? 127 : 1) : 0, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') || (err && !stdout ? String(err.message) : '') });
   });

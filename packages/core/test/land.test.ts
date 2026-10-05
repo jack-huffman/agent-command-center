@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { parseConfig, type Config } from '../src/config.ts';
-import { run, type RunOptions } from '../src/exec.ts';
+import { run, type Runner, type RunOptions } from '../src/exec.ts';
 import { runGates, waiveGates } from '../src/gates.ts';
 import { land, prBody } from '../src/land.ts';
 import { displayState, mutate, readLedger, upsertTasks } from '../src/ledger.ts';
@@ -11,7 +11,7 @@ import { repoPaths } from '../src/paths.ts';
 import { receiptsAt } from '../src/receipts.ts';
 import { reviewPath, type Verdict } from '../src/review.ts';
 import { ciOf, sync } from '../src/sync.ts';
-import { fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, tempDir } from './support.ts';
+import { fakeBin, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, tempDir } from './support.ts';
 
 const now = () => new Date('2026-10-02T12:00:00Z');
 const RAW = { ...GENERIC_CONFIG, github: { repo: 'acme/tool', account: 'jordan-kim' }, gates: { required: ['test'], commands: { test: 'true' } } };
@@ -100,7 +100,7 @@ test('land pushes the branch, opens the pull request into the environment\'s bra
   passReview(s.paths, s.id, s.sha, s.base);
   const calls: { args: string; opts?: RunOptions }[] = [];
   const r = land(s.paths, s.config, s.id, { run: gh(calls), now, env: {} });
-  assert.deepEqual([r.opened, r.pr], [true, { number: 42, url: 'https://github.com/acme/tool/pull/42', state: 'open', conflicts: [] }], 'it merges cleanly into its base');
+  assert.deepEqual([r.opened, r.pr], [true, { number: 42, url: 'https://github.com/acme/tool/pull/42', state: 'open', landedAt: now().toISOString(), conflicts: [] }], 'it merges cleanly into its base');
   assert.equal(gitIn(s.origin, 'rev-parse', 'task/T-1-add-sum').trim(), s.sha, 'the branch is on GitHub at the reviewed commit');
   const create = calls.find((c) => c.args.startsWith('pr create'))!;
   assert.match(create.args, new RegExp(`--base ${s.base} --head task/T-1-add-sum --title ${s.id}: Add a sum function`));
@@ -112,16 +112,51 @@ test('land pushes the branch, opens the pull request into the environment\'s bra
   assert.match(r.comment!.text, /pull\/42/);
 });
 
-test('landing again after rework updates the open pull request, and a GitHub issue gets the comment directly', () => {
+test('landing again updates the open pull request, and the GitHub issue hears what changed: after rework only when it was (D-???)', () => {
   const s = setup({ kind: 'github', key: '#12', url: 'https://github.com/acme/tool/issues/12' });
   waiveGates(s.paths, s.config, { sha: s.sha, env: s.config.environments[0]!, gates: ['test'], reason: 'r', by: 'human:t', now });
   passReview(s.paths, s.id, s.sha, s.base);
+  const rework = (at: string) => mutate(s.paths, now, (l, emit) => {
+    l.tasks[0]!.history.push({ at, actor: 'reviewer', by: 'reviewer:test', from: 'review', to: 'rework', reason: 'r' });
+    emit({ type: 'task.updated', task: s.id, actor: 'human', by: 'test', data: {} });
+  });
+  // Reworked once, then landed: since then, the branch only merged its base (GH-12).
+  rework('2026-10-01T09:00:00.000Z');
+  mutate(s.paths, now, (l, emit) => {
+    l.tasks[0]!.pr = { number: 7, url: 'https://github.com/acme/tool/pull/7', state: 'open', landedAt: '2026-10-01T10:00:00.000Z' };
+    emit({ type: 'task.updated', task: s.id, actor: 'human', by: 'test', data: {} });
+  });
+  const open = JSON.stringify([{ number: 7, url: 'https://github.com/acme/tool/pull/7' }]);
   const calls: { args: string; opts?: RunOptions }[] = [];
-  const r = land(s.paths, s.config, s.id, { run: gh(calls, JSON.stringify([{ number: 7, url: 'https://github.com/acme/tool/pull/7' }])), now, env: {} });
-  assert.deepEqual([r.opened, r.pr.number, r.commented, r.comment], [false, 7, true, null]);
+  const r = land(s.paths, s.config, s.id, { run: gh(calls, open), now, env: {} });
+  assert.deepEqual([r.opened, r.pr.number, r.commented, r.commentUnconfirmed, r.comment], [false, 7, true, null, null]);
   assert.ok(calls.some((c) => c.args.startsWith('pr edit 7')));
   assert.ok(!calls.some((c) => c.args.startsWith('pr create')));
-  assert.match(calls.find((c) => c.args.startsWith('issue comment'))!.args, /^issue comment 12 -R acme\/tool --body .*updated after rework/);
+  const comment = () => calls.filter((c) => c.args.startsWith('issue comment')).at(-1)!.args;
+  assert.equal(comment(), `issue comment 12 -R acme/tool --body ${s.id}'s pull request was updated: https://github.com/acme/tool/pull/7`, 'no rework since it last landed');
+  assert.equal(readLedger(s.paths.ledger).tasks[0]!.pr?.landedAt, now().toISOString(), 'it records when it landed');
+
+  // Sent back for rework after that land, built again and reviewed: now it says so.
+  rework('2026-10-02T13:00:00.000Z');
+  const later = () => new Date('2026-10-02T14:00:00Z');
+  land(s.paths, s.config, s.id, { run: gh(calls, open), now: later, env: {} });
+  assert.equal(comment(), `issue comment 12 -R acme/tool --body ${s.id}'s pull request was updated after rework: https://github.com/acme/tool/pull/7`);
+});
+
+test('a gh that hangs on the issue comment is stopped at its timeout, and land still records the pull request and says the comment isn\'t confirmed (D-???)', () => {
+  const s = setup({ kind: 'github', key: '#12', url: 'https://github.com/acme/tool/issues/12' });
+  waiveGates(s.paths, s.config, { sha: s.sha, env: s.config.environments[0]!, gates: ['test'], reason: 'r', by: 'human:t', now });
+  passReview(s.paths, s.id, s.sha, s.base);
+  // Posts the comment, then doesn't exit, and ignores SIGTERM.
+  const hanging = fakeBin('gh', "trap '' TERM\necho https://github.com/acme/tool/issues/12#issuecomment-1\nsleep 10\n");
+  const fake = gh([]);
+  const runner: Runner = (cmd, args, opts) =>
+    cmd === 'gh' && args[0] === 'issue' ? run(cmd, args, { ...opts, env: { ...opts?.env, PATH: hanging.PATH }, timeoutMs: 500 }) : fake(cmd, args, opts);
+  const started = Date.now();
+  const r = land(s.paths, s.config, s.id, { run: runner, now, env: {} });
+  assert.ok(Date.now() - started < 5_000, 'it carries on at the timeout');
+  assert.deepEqual([r.opened, r.pr.number, r.commented, r.commentUnconfirmed], [true, 42, false, 'gh didn\'t finish within 0.5 seconds, so acc stopped it.']);
+  assert.deepEqual(readLedger(s.paths.ledger).tasks[0]!.pr, r.pr, 'the pull request is recorded all the same');
 });
 
 test('land names the files a pull request it opens conflicts in with its base, and changes no branch', () => {

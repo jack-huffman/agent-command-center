@@ -460,7 +460,7 @@ export class Sidebar {
       detail: `${again ? 'Pushes the reviewed commits to' : 'Pushes'} ${task.run?.branch ?? 'its branch'} to ${gh.repo} as ${gh.account}${again ? '.' : `, and opens a pull request into ${task.environment}.`} acc never merges: a person does, on GitHub.`,
     }, again ? 'Update' : 'Push and open');
     if (!ok) return;
-    type Landed = { pr?: { number: number; url: string }; opened?: boolean; comment?: { kind: 'jira' | 'azure'; key: string; text: string } | null };
+    type Landed = { pr?: { number: number; url: string }; opened?: boolean; commentUnconfirmed?: string | null; comment?: { kind: 'jira' | 'azure'; key: string; text: string } | null };
     const box: { r: Landed | null } = { r: null };
     await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Landing ${task.id}`, cancellable: false }, async (progress) => {
       progress.report({ message: 'pushing and opening the pull request…' });
@@ -468,7 +468,7 @@ export class Sidebar {
     });
     const r = box.r;
     if (!r) return;
-    let note = '';
+    let note = r.commentUnconfirmed ? ` The comment on ${task.id}'s issue isn't confirmed: ${r.commentUnconfirmed.replace(/([^.!?])$/, '$1.')} Look at the issue before you post it again.` : '';
     if (r.comment && this.helpers.comment) {
       try {
         await this.helpers.comment(project, r.comment.kind, r.comment.key, r.comment.text);

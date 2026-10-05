@@ -1,9 +1,12 @@
 import { spawnSync } from 'node:child_process';
+import { basename } from 'node:path';
 
 export interface RunResult {
   code: number;
   stdout: string;
   stderr: string;
+  /** It ran past its timeout and was stopped. */
+  timedOut?: boolean;
 }
 
 export interface RunOptions {
@@ -13,18 +16,37 @@ export interface RunOptions {
   timeoutMs?: number;
 }
 
-/** Runs a command and returns its result. Never throws; a missing binary is code 127. */
+/** Runs a command and returns its result. Never throws; a missing binary, or one stopped at its timeout, is code 127. */
 export type Runner = (cmd: string, args: string[], opts?: RunOptions) => RunResult;
 
+const within = (ms: number) => (ms % 60_000 === 0 ? `${ms / 60_000} minute${ms === 60_000 ? '' : 's'}` : `${ms / 1000} seconds`);
+
+/**
+ * Environment for gh (D-???): no update check, which runs once gh's work is done, and no prompt, which
+ * would wait for an answer nobody can give. run adds it to every gh.
+ */
+export const ghEnv = (env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv => ({ ...env, GH_NO_UPDATE_NOTIFIER: '1', GH_PROMPT_DISABLED: '1' });
+
+export const isGh = (cmd: string): boolean => basename(cmd) === 'gh';
+
 export const run: Runner = (cmd, args, opts = {}) => {
+  const gh = isGh(cmd);
+  const timeout = opts.timeoutMs ?? 120_000;
   const r = spawnSync(cmd, args, {
     cwd: opts.cwd,
-    env: opts.env ?? process.env,
+    env: gh ? ghEnv(opts.env) : opts.env ?? process.env,
     input: opts.input,
     encoding: 'utf8',
-    timeout: opts.timeoutMs ?? 120_000,
+    timeout,
+    // At the timeout node signals the process, then waits for it to exit. A gh that catches SIGTERM would
+    // outlive its timeout, and gh has nothing to tidy, so it gets SIGKILL. Others keep SIGTERM: git
+    // removes its lock files on it (D-???).
+    killSignal: gh ? 'SIGKILL' : 'SIGTERM',
     maxBuffer: 64 * 1024 * 1024,
   });
+  if ((r.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT') {
+    return { code: 127, stdout: '', stderr: `${basename(cmd)} didn't finish within ${within(timeout)}, so acc stopped it.`, timedOut: true };
+  }
   if (r.error) return { code: 127, stdout: '', stderr: r.error.message };
   return { code: r.status ?? 1, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
 };

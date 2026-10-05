@@ -1,6 +1,6 @@
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
+import { chmodSync, mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { run, type Runner, type RunOptions, type RunResult } from '../src/exec.ts';
 
 export const ok = (stdout = ''): RunResult => ({ code: 0, stdout, stderr: '' });
@@ -28,6 +28,15 @@ export function fakeRunner(fixtures: Record<string, RunResult | ((opts?: RunOpti
 
 export function tempDir(prefix = 'acc-test-'): string {
   return mkdtempSync(join(tmpdir(), prefix));
+}
+
+/** A stand-in program on PATH: a shell script, and the env that finds it first. */
+export function fakeBin(name: string, script: string, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const bin = join(tempDir('fake-bin-'), 'bin');
+  mkdirSync(bin);
+  writeFileSync(join(bin, name), `#!/bin/sh\n${script}`);
+  chmodSync(join(bin, name), 0o755);
+  return { ...env, PATH: `${bin}${delimiter}${process.env.PATH}` };
 }
 
 /** A real git repo with one commit, an origin-less main branch, and local identity. */
