@@ -72,7 +72,8 @@ export function sampleModel(kind: Page, now = Date.now()): Model {
  * What the page remembers when it opens: the output page starts with the panel open, and the split
  * ticket with two of its analysis's lists open, to see them laid out.
  */
-const startState = (kind: Page): unknown => (kind === 'output' ? { dock: { open: true, run: 'r-login' } }
+// ACC_SHOT_STATE, a JSON object, starts every page with that state instead: for checking what a page restores.
+const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ? JSON.parse(process.env.ACC_SHOT_STATE) : kind === 'output' ? { dock: { open: true, run: 'r-login' } }
   : kind === 'ticket-split' ? { opened: ['files', 'findings'].map((f) => `an:/Users/me/code/acme-service#ACME-23:${f}`) } : undefined);
 const viewOf = (kind: Page): string => (kind.startsWith('ticket') ? 'ticket' : kind === 'agent' ? kind : 'home');
 

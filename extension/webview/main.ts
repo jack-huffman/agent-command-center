@@ -74,10 +74,16 @@ interface Memory {
   history?: 'all' | 'answer' | 'move' | 'run';
   /** Setup sections opened or closed by hand; the rest open while they have something to do. */
   sections?: Record<string, boolean>;
+  /**
+   * Where each page was scrolled to, its boards sideways included. A hidden tab's page is rebuilt when it
+   * comes back (VSCode doesn't keep it), so this is how it returns to where you were.
+   */
+  scroll?: Record<string, SavedScroll>;
 }
+interface SavedScroll { y: number; boards: { x: number; lanes: number[] }[] }
 function memory(): Memory {
   const s = (api.getState() as Partial<Memory> | undefined) ?? {};
-  return { modes: s.modes ?? {}, drafts: s.drafts ?? {}, section: s.section, answers: s.answers ?? {}, dock: s.dock ?? { open: false, run: null }, opened: s.opened ?? [], history: s.history, sections: s.sections ?? {} };
+  return { modes: s.modes ?? {}, drafts: s.drafts ?? {}, section: s.section, answers: s.answers ?? {}, dock: s.dock ?? { open: false, run: null }, opened: s.opened ?? [], history: s.history, sections: s.sections ?? {}, scroll: s.scroll ?? {} };
 }
 function remember(change: (m: Memory) => void): void {
   const m = memory();
@@ -1656,6 +1662,36 @@ function wheelSideways(board: HTMLElement): void {
   }, { passive: false });
 }
 
+/**
+ * While a card is dragged near a board's left or right edge, the board scrolls that way, faster the
+ * closer it is, so a lane off screen can take the drop. It stops when the card leaves the edge, the board
+ * or the drag ends: dragover fires every few dozen milliseconds while a card hovers, so silence means gone.
+ */
+function dragAutoScroll(board: HTMLElement): void {
+  let speed = 0;
+  let lastOver = 0;
+  let frame = 0;
+  const step = () => {
+    frame = 0;
+    if (!speed || performance.now() - lastOver > 150) { speed = 0; return; }
+    board.scrollLeft += speed;
+    frame = requestAnimationFrame(step);
+  };
+  board.addEventListener('dragover', (e) => {
+    const r = board.getBoundingClientRect();
+    const zone = Math.min(96, r.width * 0.18);
+    const fromLeft = e.clientX - r.left;
+    const fromRight = r.right - e.clientX;
+    const most = 22;
+    speed = fromLeft < zone ? -Math.ceil(most * (1 - fromLeft / zone)) : fromRight < zone ? Math.ceil(most * (1 - fromRight / zone)) : 0;
+    lastOver = performance.now();
+    if (speed && !frame) frame = requestAnimationFrame(step);
+  });
+  const stop = () => { speed = 0; if (frame) cancelAnimationFrame(frame); frame = 0; };
+  board.addEventListener('drop', stop);
+  board.addEventListener('dragend', stop);
+}
+
 /** Marks each board with the edges that have more lanes past them, for the fade. */
 function boardEdges(board: HTMLElement): void {
   const update = () => {
@@ -1667,13 +1703,29 @@ function boardEdges(board: HTMLElement): void {
   update();
 }
 
+let scrollSave: ReturnType<typeof setTimeout> | undefined;
+
+/** Remembers where the page is scrolled, a moment after it stops moving, so a rebuilt page comes back there. */
+function saveScroll(pageKey: string): void {
+  clearTimeout(scrollSave);
+  scrollSave = setTimeout(() => {
+    const main = document.querySelector<HTMLElement>('.home-main') ?? document.scrollingElement as HTMLElement | null;
+    const boards = [...document.querySelectorAll<HTMLElement>('.board')].map((b) => ({ x: b.scrollLeft, lanes: [...b.querySelectorAll<HTMLElement>('.column')].map((c) => c.scrollTop) }));
+    remember((x) => { x.scroll = { ...(x.scroll ?? {}), [pageKey]: { y: main?.scrollTop ?? 0, boards } }; });
+  }, 200);
+}
+
 function render(model: Model): void {
   last = model;
   if (model.kind === 'home') runs = model.runs;
   const scroller = document.querySelector('.home-main') ?? document.querySelector('.timeline') ?? document.scrollingElement;
-  // Each board, and each of its lanes, keeps where it was scrolled to.
-  const boards = [...document.querySelectorAll<HTMLElement>('.board')].map((b) => ({ x: b.scrollLeft, lanes: [...b.querySelectorAll<HTMLElement>('.column')].map((c) => c.scrollTop) }));
-  const scroll = { y: scroller?.scrollTop ?? 0 };
+  // Each board, and each of its lanes, keeps where it was scrolled to. A page just rebuilt (its tab was
+  // hidden) starts from where it was saved instead.
+  const pageKey = model.kind === 'home' ? `home:${model.section}` : model.kind;
+  const fresh = !app.hasChildNodes();
+  const saved = fresh ? memory().scroll?.[pageKey] : undefined;
+  const boards = saved?.boards ?? [...document.querySelectorAll<HTMLElement>('.board')].map((b) => ({ x: b.scrollLeft, lanes: [...b.querySelectorAll<HTMLElement>('.column')].map((c) => c.scrollTop) }));
+  const scroll = { y: saved?.y ?? scroller?.scrollTop ?? 0 };
   // An agent's page follows its newest step, unless you've scrolled up to read.
   const following = model.kind === 'agent' && !!scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
   const dockBox = document.querySelector<HTMLElement>('.dock-out');
@@ -1698,7 +1750,11 @@ function render(model: Model): void {
     }
     boardEdges(b);
     wheelSideways(b);
+    dragAutoScroll(b);
+    b.addEventListener('scroll', () => saveScroll(pageKey), { passive: true });
+    b.querySelectorAll<HTMLElement>('.column').forEach((c) => c.addEventListener('scroll', () => saveScroll(pageKey), { passive: true }));
   });
+  document.querySelector('.home-main')?.addEventListener('scroll', () => saveScroll(pageKey), { passive: true });
   const main = document.querySelector('.home-main');
   const timeline = document.querySelector<HTMLElement>('.timeline');
   if (main && !scrolledTo) main.scrollTop = scroll.y;
