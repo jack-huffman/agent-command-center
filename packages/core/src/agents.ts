@@ -99,6 +99,44 @@ export function setProfile(run: Runner, root: string, configFile: string, role: 
   writeFileSync(configFile, JSON.stringify(raw, null, 2) + '\n');
 }
 
+/** The levels a person can choose for autopilot: dispatch and full aren't built yet (D-055). */
+export const SETTABLE_AUTONOMY = ['manual', 'review'] as const;
+export type SettableAutonomy = (typeof SETTABLE_AUTONOMY)[number];
+
+/**
+ * Sets the project's autonomy in .acc/config.json (D-055), changing only that key: the rest of the file
+ * stays as it was, byte for byte, when the key is already there. Nobody else sees it until it's committed.
+ */
+export function setAutonomy(configFile: string, value: string): void {
+  if (value === 'dispatch' || value === 'full') {
+    throw new AccError('refused', `autonomy "${value}" isn't built yet: autopilot would also start Ready tasks (D-055). Choose manual or review.`);
+  }
+  if (!(SETTABLE_AUTONOMY as readonly string[]).includes(value)) throw new AccError('usage', `Autonomy is ${SETTABLE_AUTONOMY.join(' or ')}.`);
+  let text: string;
+  let raw: Record<string, unknown>;
+  try {
+    text = readFileSync(configFile, 'utf8');
+    raw = JSON.parse(text);
+  } catch (e) {
+    throw new AccError('bad-config', `Couldn't read ${configFile}: ${(e as Error).message}`);
+  }
+  const wanted = { ...raw, autonomy: value };
+  // The value replaced where it stands, so nothing else in the file moves.
+  const at = [...text.matchAll(/("autonomy"\s*:\s*)"[^"\\]*"/g)];
+  if (at.length === 1) {
+    const edited = text.replace(/("autonomy"\s*:\s*)"[^"\\]*"/, `$1${JSON.stringify(value)}`);
+    try {
+      if (JSON.stringify(JSON.parse(edited)) === JSON.stringify(wanted)) {
+        writeFileSync(configFile, edited);
+        return;
+      }
+    } catch {
+      // not the key we thought: write the whole file instead
+    }
+  }
+  writeFileSync(configFile, JSON.stringify(wanted, null, 2) + '\n');
+}
+
 export const describeProfile = (p: AgentProfile): string =>
   [`model ${p.model ?? 'Claude Code\'s default'}`, `effort ${p.effort ?? 'default'}`, ...(p.fallbackModel ? [`falls back to ${p.fallbackModel}`] : [])].join(', ');
 

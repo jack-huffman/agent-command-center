@@ -322,3 +322,58 @@ test('a task autopilot couldn\'t move on shows as needs you, and acc show says w
   writeFileSync(file, JSON.stringify(l));
   assert.match(acc(dir, ['show', 'T-1']).out, /! Autopilot couldn't update abcdef0 from its base: Conflicts with main that autopilot can't resolve: sum\.js\./);
 });
+
+test('acc agents autonomy: shows it, and a person sets manual or review in .acc/config.json, changing nothing else (GH-35)', () => {
+  // Spaced and ordered as a person might keep it: the edit moves nothing else.
+  const text = '{\n    "schema": 1,\n    "autonomy":   "manual",\n    "project": "Tool",\n    "profile": "generic",\n    "environments": [ { "name": "main", "default": true } ],\n    "agents": { "max": 2 }\n}\n';
+  const dir = makeRepo({ '.acc/config.json': text });
+  const file = join(dir, '.acc', 'config.json');
+  assert.deepEqual(acc(dir, ['agents', 'autonomy', '--json']).json(), { autonomy: 'manual' });
+  assert.match(acc(dir, ['agents', 'autonomy']).out, /^autonomy manual \(project\): nothing happens on its own\./);
+
+  const set = acc(dir, ['agents', 'autonomy', 'review', '--json']);
+  assert.equal(set.code, 0, set.err);
+  assert.deepEqual(set.json(), { autonomy: 'review' });
+  assert.equal(readFileSync(file, 'utf8'), text.replace('"manual"', '"review"'), 'only the value changed');
+  assert.match(acc(dir, ['agents', 'autonomy', 'manual']).out, /autonomy manual: nothing happens on its own\. Set in \.acc\/config\.json: commit it to share it\./);
+  assert.equal(readFileSync(file, 'utf8'), text);
+
+  for (const level of ['dispatch', 'full']) {
+    const r = acc(dir, ['agents', 'autonomy', level]);
+    assert.equal(r.code, 1, level);
+    assert.match(r.err, new RegExp(`autonomy "${level}" isn't built yet[^]*Choose manual or review`));
+  }
+  assert.equal(acc(dir, ['agents', 'autonomy', 'bogus']).code, 2);
+  for (const role of ['builder', 'reviewer', 'analyst']) {
+    const r = acc(dir, ['agents', 'autonomy', 'review'], undefined, { ACC_ROLE: role, ACC_TASK: 'T-1' });
+    assert.equal(r.code, 1, role);
+    assert.match(r.err, new RegExp(`${role} can't change what autopilot may do`));
+  }
+  assert.equal(readFileSync(file, 'utf8'), text, 'nothing refused touched the file');
+
+  // A config without the key gets it, and keeps the rest.
+  const bare = repoWithConfig();
+  assert.equal(acc(bare, ['agents', 'autonomy', 'review']).code, 0);
+  assert.deepEqual(JSON.parse(readFileSync(join(bare, '.acc', 'config.json'), 'utf8')), { ...GENERIC_CONFIG, autonomy: 'review' });
+});
+
+test('acc autopilot --every stops by itself once the Command Center that started it has gone (GH-35)', () => {
+  const dir = repoWithConfig({ ...GENERIC_CONFIG, autonomy: 'review', github: { repo: 'acme/tool', account: 'jordan-kim' } });
+  assert.equal(acc(dir, ['add', 'Ready to start']).code, 0);
+  // A stand-in for the extension host: a process that lives for a second. It's the shell's child, so
+  // once it ends nothing here leaves it unreaped while this test waits.
+  const host = spawnSync('sh', ['-c', 'sleep 1 >/dev/null 2>&1 & echo $!'], { encoding: 'utf8' });
+  const pid = host.stdout.trim();
+  assert.match(pid, /^\d+$/);
+  const started = Date.now();
+  const r = spawnSync(process.execPath, ['--no-warnings', MAIN, 'autopilot', '--every', '30'], {
+    cwd: dir, encoding: 'utf8', timeout: 20_000,
+    env: { ...process.env, NO_COLOR: '1', ACC_ROLE: '', ACC_TASK: '', ACC_HEAVY_DIR: HEAVY_DIR, ACC_AUTOPILOT_PARENT: pid },
+  });
+  const took = Date.now() - started;
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(took < 6_000, `stopped ${took} ms after it started, not at the end of its 30-second wait`);
+  assert.match(r.stdout, /Nothing for autopilot to do\./, 'it did its pass first');
+  assert.match(r.stderr, /The Command Center that started autopilot closed, so it stops\./);
+  assert.ok(!existsSync(join(dir, '.git', 'acc', 'autopilot.lock')), 'and let go of its lock');
+});

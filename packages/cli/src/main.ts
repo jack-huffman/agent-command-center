@@ -8,7 +8,7 @@ import {
   upsertTasks, writeConfig, ask, hookOutput, parseHookInput, waiveGates, review, land, sync, planPromotion, promote, skipWarning, planDeploy, deploy, lastDeploy,
   buildBaseline, seedBranches, draftLists, writeReadme, parseEventInput, preToolUseHook, sessionStartHook, stopHook, AGENT_ROLES, type AgentRole, profileView, setProfile, withCloneAgents, type ProfileChange,
   analyze, type Analysis, answerAnalysis, openQuestions, readAnalysis,
-  AUTOPILOT_MIN_EVERY_S, type AutopilotResult, type AutopilotStepName, autopilotFailure, autopilotMode, autopilotPass, holdAutopilot, sleep,
+  AUTOPILOT_MIN_EVERY_S, type AutopilotResult, type AutopilotStepName, autopilotFailure, autopilotMode, autopilotPass, holdAutopilot, sleep, alive, setAutonomy,
 } from '../../core/src/index.ts';
 import { checkLabel, gateLabel, stateLabel, table, tone } from './format.ts';
 
@@ -51,6 +51,7 @@ Agents
   acc agents set <builder|reviewer> [--model <m>] [--effort <low|medium|high|xhigh|max>] [--fallback-model <m>]
                 [--clear <model|effort|fallback-model>]... [--project]
                                         Change them for this clone, or with --project in .acc/config.json
+  acc agents autonomy [manual|review]   What autopilot may do on its own, or change it in .acc/config.json
   acc analyze <id>                      Before the build: a read-only analyst works out the requirements, what's
                                         there now (the code, and on Salesforce the orgs), the approach, and questions
   acc analysis <id>                     What the task's analysis found
@@ -454,11 +455,25 @@ function cmdAutopilot(o: Opts): number {
   const say = (line: string) => { if (!o.json) process.stderr.write(tone(line, 'dim') + '\n'); };
   const doing = { review: 'Reviewing', land: 'Landing', dispatch: 'Re-dispatching', refresh: 'Updating' };
   const after = { review: '. The reviewer reads and changes nothing.', land: '', dispatch: '', refresh: ' from its base, then running its checks.' };
+  // Started by the Command Center (GH-35): once that window's extension host has gone, it stops at the
+  // next step or within a second of waiting, even if nothing stopped it. No window, no autopilot.
+  const parent = Number(process.env.ACC_AUTOPILOT_PARENT);
+  const orphaned = () => Number.isInteger(parent) && parent > 0 && !alive(parent);
+  const closed = 'The Command Center that started autopilot closed, so it stops.';
+  /** Waits out the gap a second at a time, and says whether to carry on. */
+  const wait = (seconds: number): boolean => {
+    for (let left = seconds * 1000; left > 0 && !orphaned(); left -= 1000) sleep(Math.min(1000, left));
+    return !orphaned();
+  };
   return holdAutopilot(paths, () => {
     let config = start.config;
     for (;;) {
+      if (orphaned()) {
+        say(closed);
+        return 0;
+      }
       const r = autopilotPass(paths, config, {
-        run, now, env: process.env, accBinDir: accBinDir(), accCommand: accCommand(),
+        run, now, env: process.env, accBinDir: accBinDir(), accCommand: accCommand(), stop: orphaned,
         onStep: (task, step, sha) => say(`… ${doing[step]} ${task}${sha ? ` at ${sha.slice(0, 7)}` : ''}${after[step]}`),
       });
       const data = { autonomy: mode.autonomy, warnings: mode.warnings, steps: r.steps, pendingComments: r.pendingComments };
@@ -469,7 +484,10 @@ function cmdAutopilot(o: Opts): number {
       // Repeating: a line of JSON a pass, or the pass under its time.
       if (o.json) process.stdout.write(JSON.stringify({ at: now().toISOString(), ...data }) + '\n');
       else process.stdout.write([tone(`Autopilot pass at ${now().toLocaleTimeString()}`, 'dim'), ...autopilotLines(r)].join('\n') + '\n');
-      sleep(every * 1000);
+      if (!wait(every)) {
+        say(closed);
+        return 0;
+      }
       // A person can stop it from the config: it's read again before each pass.
       config = project(process.cwd()).config;
       if (!autopilotMode(config).on) {
@@ -495,6 +513,7 @@ function cmdAgents(o: Opts, sub: string | undefined, roleArg: string | undefined
   // Shown from the project's own config, so where each value comes from is clear.
   const { config: projectConfig } = loadConfig(paths.config);
   const views = () => Object.fromEntries(AGENT_ROLES.map((r) => [r, profileView(projectConfig, run, paths.root, r)]));
+  if (sub === 'autonomy') return cmdAutonomy(o, paths.config, roleArg);
   if (!sub || sub === 'show') {
     const v = views();
     const from = { clone: ' (this clone)', project: ' (project)', default: '' };
@@ -504,7 +523,7 @@ function cmdAgents(o: Opts, sub: string | undefined, roleArg: string | undefined
     }).join('\n'), v);
     return 0;
   }
-  if (sub !== 'set' || !roleArg || !(AGENT_ROLES as readonly string[]).includes(roleArg)) throw new AccError('usage', 'acc agents set <builder|reviewer> [--model <m>] [--effort <e>] [--fallback-model <m>] [--clear <field>] [--project]');
+  if (sub !== 'set' || !roleArg || !(AGENT_ROLES as readonly string[]).includes(roleArg)) throw new AccError('usage', 'acc agents set <builder|reviewer> [--model <m>] [--effort <e>] [--fallback-model <m>] [--clear <field>] [--project] | acc agents autonomy [manual|review]');
   personOnly(o, 'change what agents run with');
   const change: ProfileChange = {};
   if (o.model !== undefined) change.model = o.model as string;
@@ -519,6 +538,29 @@ function cmdAgents(o: Opts, sub: string | undefined, roleArg: string | undefined
   setProfile(run, paths.root, paths.config, roleArg as AgentRole, change, o.project ? 'project' : 'clone');
   const after = profileView(loadConfig(paths.config).config, run, paths.root, roleArg as AgentRole);
   out(o, () => `${roleArg}: model ${after.model ?? 'Claude Code\'s default'}, effort ${after.effort ?? 'default'}${after.fallbackModel ? `, falls back to ${after.fallbackModel}` : ''}. ${o.project ? 'Set in .acc/config.json: commit it to share it.' : 'Set for this clone only.'} The next ${roleArg} uses it.`, after);
+  return 0;
+}
+
+const AUTONOMY_WORDS: Record<string, string> = {
+  manual: 'nothing happens on its own.',
+  review: 'autopilot reviews finished work, lands work whose review passed, and re-dispatches a rework once. It never merges.',
+  dispatch: 'as review, and it also starts Ready tasks. Not built yet: autopilot refuses.',
+  full: 'read as dispatch. Not built yet: autopilot refuses.',
+};
+
+/** What autopilot may do on its own (D-055): shown, or set in .acc/config.json by a person. */
+function cmdAutonomy(o: Opts, configFile: string, value: string | undefined): number {
+  if (value === undefined) {
+    const { config } = loadConfig(configFile);
+    out(o, () => `autonomy ${config.autonomy} (project): ${AUTONOMY_WORDS[config.autonomy] ?? ''}`.trim(), { autonomy: config.autonomy });
+    return 0;
+  }
+  const role = process.env.ACC_ROLE;
+  if (role === 'builder' || role === 'reviewer' || role === 'analyst') throw new AccError('refused', `${role === 'analyst' ? 'An' : 'A'} ${role} can't change what autopilot may do. A person does that.`);
+  personOnly(o, 'change what autopilot may do');
+  setAutonomy(configFile, value);
+  const { config } = loadConfig(configFile);
+  out(o, () => `autonomy ${config.autonomy}: ${AUTONOMY_WORDS[config.autonomy]} Set in .acc/config.json: commit it to share it.`, { autonomy: config.autonomy });
   return 0;
 }
 
