@@ -132,6 +132,7 @@ listed so that drift checks and `doctor` cover it.
 | `trackers` | Where intake reads from. Several are allowed. A GitHub tracker's `skipLabels` lists labels whose issues aren't tasks, such as `["milestone"]` (D-048) |
 | `agents.max` | Most builder sessions at once, default 3 |
 | `autonomy` | How much the loop does on its own ([section 12](#12-the-orchestrator-loop)) |
+| `autopilot.appendOnly` | Files, or folders, where autopilot may resolve a conflict with the base when both sides only added to the end, such as a decision log. Left out, there are none ([section 12](#12-the-orchestrator-loop)) |
 | `worktrees.root` | Where task worktrees go. The default is a sibling folder outside the repo ([section 7](#7-dispatch)) |
 | `gates` | Which checks are required, plus per-check overrides |
 
@@ -414,7 +415,9 @@ last land (D-051).
   closed-unmerged one moves its task to `blocked` with the reason. Failing CI,
   a person's requested changes, or a conflict with its base shows the task as
   **needs you**. It finds conflicts itself, naming the files (D-049). The
-  Command Center runs it every two minutes while it's open.
+  Command Center runs it every two minutes while it's open. Under
+  `autonomy: review`, autopilot merges the base into a conflicting pull
+  request's branch when it can ([section 12](#12-the-orchestrator-loop)).
 - `acc cleanup <id>` removes the worktree and local branch, but only once the
   pull request is merged and the worktree is clean.
 
@@ -467,7 +470,7 @@ ledger and takes the next step for each task, one task at a time, as the
 | `autonomy` | What runs on its own |
 |---|---|
 | `manual` (default) | Nothing. The extension shows the next steps as buttons, and `acc autopilot` does nothing |
-| `review` | Autopilot reviews finished work, lands work whose review passed, and re-dispatches a rework once |
+| `review` | Autopilot reviews finished work, lands work whose review passed, re-dispatches a rework once, and merges the base into a pull request that conflicts with it |
 | `dispatch` | As `review`, and it also starts Ready tasks up to `agents.max`. Not built yet: autopilot refuses |
 | `full` | Read as `dispatch`, with a warning |
 
@@ -482,18 +485,31 @@ before each:
 |---|---|
 | In review, nothing has reviewed its latest commit, no review running | `review` (the reviewer's move, made for autopilot) |
 | In review, its latest commit passed, no open pull request or one behind that commit | `land` |
+| In review, its latest commit passed and landed, but the pull request conflicts with its base | `refresh`: merge the base in, then run its checks. The next passes review and land the merge |
 | In rework, and autopilot hasn't re-dispatched it before | `dispatch`, once. A second rework waits for a person |
 | To do (ready or not), running, blocked or done | Nothing |
 
-- **What it never does:** merge, waive a check, deploy, promote, or start a
-  task that's to do. Builders, reviewers and analysts can't run it.
+- **What it never does:** merge a pull request, waive a check, deploy,
+  promote, or start a task that's to do. Builders, reviewers and analysts
+  can't run it.
+- **A refresh** (D-058) merges origin's copy of the task environment's branch
+  into the task branch, in the task's worktree, never the main checkout. It
+  asks git again first, and a conflict that's gone is only marked gone. It
+  resolves just the files in `autopilot.appendOnly` where both sides only added
+  to the end, keeping the base's additions, then the branch's. Any other
+  conflict aborts the merge and leaves the branch as it was. A check that fails
+  on the merge commit rolls the branch back to the commit before it. Either way
+  nothing is pushed, and the task needs you, saying why. A worktree with
+  uncommitted changes, a missing worktree, or a branch with commits on origin
+  the local one lacks stops it before it merges.
 - **Who did it:** lands and re-dispatches are `orchestrator`, by
   `orchestrator:autopilot`. A review stays the reviewer's move (only a reviewer
   or a person sends work to rework), by `reviewer:<id> for orchestrator:autopilot`.
 - **One at a time:** it holds `<git-common-dir>/acc/autopilot.lock` while it
   runs, so a second autopilot on the same repo is refused, naming the first one's
-  pid. Only a dead owner frees the lock. It never takes the heavy-check slot, so
-  builders' heavy checks run as before.
+  pid. Only a dead owner frees the lock. Only a refresh's checks take the
+  heavy-check slot, as a builder's do. A slot that stays taken undoes the merge
+  and waits for the next pass.
 - **A step that fails** is recorded on the task (`autopilot.failed`: the step,
   the commit, the state, the reason) and isn't tried again on that commit. The
   task shows as needs you with the reason. A new commit lets autopilot try

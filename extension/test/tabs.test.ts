@@ -324,6 +324,23 @@ test('a task autopilot couldn\'t move on says why on its card and on the Overvie
   assert.equal(needsYouCount(m.overview), 2);
 });
 
+test('a pull request autopilot couldn\'t update from its base says so in words, with the bell, in orange, and offers the pull request (D-058)', () => {
+  const reason = 'Conflicts with devbox that autopilot can\'t resolve: force-app/main/default/classes/Sum.cls. The branch is as it was, at abc1234, and nothing was pushed.';
+  const rows: TaskRow[] = [{
+    ...row('AV-7', 'review', 'needs-you'), run: { worktree: '/w7', branch: 'b7' }, review: { verdict: 'pass', summary: 's', current: true },
+    pr: { number: 18, url: 'https://github.com/o/r/pull/18', state: 'open', conflicts: ['force-app/main/default/classes/Sum.cls'] },
+    autopilot: { step: 'refresh', reason },
+  }];
+  const failed = { ...hub(), agents: [], taskRows: () => rows };
+  const card = tasksModel(failed).projects[0]!.columns.flatMap((c) => c.cards).find((c) => c.id === 'AV-7')!;
+  assert.deepEqual(card.autopilot, { label: `Needs you: autopilot couldn't update from its base: ${reason}`, icon: 'bell', tone: 'orange' });
+  const m = homeModel({ hub: failed, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } });
+  const item = m.overview.attention.find((a) => a.title === 'AV-7 Task AV-7')!;
+  assert.deepEqual([item.look.label, item.look.icon, item.look.tone], ['Needs you: autopilot couldn\'t update from its base', 'bell', 'orange']);
+  assert.equal(item.detail, `Acme · ${reason} Do it by hand, or a new commit lets autopilot try again.`);
+  assert.deepEqual(item.actions.map((a) => a.label), ['Pull request #18', 'Open'], 'the pull request, where a person resolves it');
+});
+
 test('table cells keep table layout (a flex cell misaligns its row\'s lines)', () => {
   const css = readFileSync(join(root, 'webview', 'styles.css'), 'utf8');
   const src = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');

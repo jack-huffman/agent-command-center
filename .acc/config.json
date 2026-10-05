@@ -35,6 +35,11 @@
     "permissionMode": "auto"
   },
   "autonomy": "manual",
+  "autopilot": {
+    "appendOnly": [
+      "docs/DECISIONS.md"
+    ]
+  },
   "worktrees": {
     "root": null,
     "setup": []

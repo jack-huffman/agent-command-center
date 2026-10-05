@@ -7,13 +7,17 @@ import { type AutopilotFailure, type AutopilotStepName, type Ledger, mutate, rea
 import { land, type LandResult, type PendingComment } from './land.ts';
 import { withLock } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
+import { refresh } from './refresh.ts';
 import { readVerdict, review, reviewing } from './review.ts';
+import type { SlotOptions } from './semaphore.ts';
 
 /**
  * Autopilot (D-055): under `autonomy: review`, each pass reads the ledger and takes the next step for
  * each task, one at a time. It reviews work a builder finished, lands work whose review passed, and
- * re-dispatches a task the reviewer sent back, once. It goes up to an open pull request: it never merges,
- * waives a check, deploys, promotes, or starts a task that's to do.
+ * re-dispatches a task the reviewer sent back, once. When an open pull request conflicts with its base,
+ * it merges the base into the branch and runs its checks (D-058), so the next passes review and land the
+ * merge. It goes up to an open pull request: it never merges one, waives a check, deploys, promotes, or
+ * starts a task that's to do.
  */
 
 /** Who autopilot is, in the ledger's history and events. */
@@ -85,7 +89,8 @@ export function nextStep(ledger: Ledger, config: Pick<Config, 'agents'>, task: T
     // A step that failed isn't tried again on the same commit: a person does it, or a new commit comes.
     const f = task.autopilot?.failed;
     if (f && f.step === s && f.sha === facts.head && f.state === task.state) {
-      return { step: null, outcome: 'waiting', reason: `Autopilot couldn't ${s} ${short(f.sha)}: ${sentence(f.reason)} It waits for a person, or a new commit.` };
+      const what = s === 'refresh' ? `update ${short(f.sha)} from its base` : `${s} ${short(f.sha)}`;
+      return { step: null, outcome: 'waiting', reason: `Autopilot couldn't ${what}: ${sentence(f.reason)} It waits for a person, or a new commit.` };
     }
     return { step: s, outcome: null, reason };
   };
@@ -98,7 +103,11 @@ export function nextStep(ledger: Ledger, config: Pick<Config, 'agents'>, task: T
     const pr = task.pr;
     if (pr?.state === 'merged') return none('skipped', `Pull request #${pr.number} merged.`);
     if (pr?.state !== 'open') return step('land', `Its review passed on ${short(facts.head)}, and it has no open pull request.`);
-    if (facts.landed === facts.head) return none('skipped', `Pull request #${pr.number} is up to date with ${short(facts.head)}.`);
+    if (facts.landed === facts.head) {
+      // Its base moved on and it conflicts (D-049): the base is merged in, and the merge goes the same way (D-058).
+      if (pr.conflicts?.length) return step('refresh', `Pull request #${pr.number} conflicts with ${task.environment} in ${pr.conflicts.join(', ')}.`);
+      return none('skipped', `Pull request #${pr.number} is up to date with ${short(facts.head)}.`);
+    }
     return step('land', `Its review passed on ${short(facts.head)}, and pull request #${pr.number} is behind it.`);
   }
   if (task.state === 'rework') {
@@ -153,11 +162,12 @@ export interface AutopilotResult {
 /** What a step reports back to the pass. */
 type StepRun = Pick<AutopilotStep, 'reason' | 'pr' | 'commentUnconfirmed'> & { comment?: PendingComment | null };
 
-/** The three steps autopilot takes. Tests put their own in. */
+/** The steps autopilot takes. Tests put their own in. */
 export interface AutopilotSteps {
   review(id: string): StepRun;
   land(id: string): StepRun;
   dispatch(id: string): StepRun;
+  refresh(id: string): StepRun;
 }
 
 export interface AutopilotDeps {
@@ -170,6 +180,8 @@ export interface AutopilotDeps {
   /** Told before each step, which can take a long time: a review up to 45 minutes. */
   onStep?: (task: string, step: AutopilotStepName, sha: string) => void;
   steps?: Partial<AutopilotSteps>;
+  /** The heavy-check slot a refresh's checks take, machine-wide unless a test says otherwise. */
+  slots?: SlotOptions;
 }
 
 /** The real steps, each as the orchestrator. A review stays the reviewer's move, done for autopilot. */
@@ -186,6 +198,7 @@ export function realSteps(paths: RepoPaths, config: Config, deps: AutopilotDeps)
       const r = dispatch(paths, config, id, { run, now, env, accBinDir: deps.accBinDir, accCommand: deps.accCommand }, { actor: 'orchestrator', by: AUTOPILOT_BY });
       return { reason: `Re-dispatched in ${r.worktree}${r.bgId ? `, background session ${r.bgId}` : ''}.` };
     },
+    refresh: (id) => ({ reason: refresh(paths, config, id, { run, now, env, slots: deps.slots }, { actor: 'orchestrator', by: AUTOPILOT_BY }).reason }),
   };
 }
 
@@ -200,11 +213,13 @@ function landStep(r: LandResult): StepRun {
 
 /**
  * Why a step's error is only for now, or null when it's a real failure. Only these wait: the ledger was
- * busy, or the agent cap filled up between the look and the dispatch. Anything else is recorded.
+ * busy, the heavy-check slot stayed taken for a refresh's checks, or the agent cap filled up between the
+ * look and the dispatch. Anything else is recorded.
  */
 function temporary(e: unknown, paths: RepoPaths, config: Config, id: string): string | null {
   const code = (e as AccError).code;
   if (code === 'lock-timeout') return 'The ledger was busy. Autopilot tries again next pass.';
+  if (code === 'busy') return 'The heavy-check slot stayed taken, so the merge was undone. Autopilot tries again next pass.';
   if (code === 'move-refused') {
     const n = running(readLedger(paths.ledger), id);
     if (n >= config.agents.max) return `${n} tasks are running. The limit is ${config.agents.max}.`;
@@ -274,7 +289,8 @@ export function autopilotPass(paths: RepoPaths, config: Config, deps: AutopilotD
 /**
  * Runs `fn` holding the repo's autopilot lock, so two autopilots never act on the same tasks. It never
  * goes stale with age, since one pass can take an hour; only a dead owner frees it. A second autopilot is
- * refused at once, naming the one that holds it. Separate from the heavy-check slot, which it never takes.
+ * refused at once, naming the one that holds it. Separate from the heavy-check slot, which only a
+ * refresh's checks take, as a builder's do (D-058).
  */
 export function holdAutopilot<T>(paths: RepoPaths, fn: () => T): T {
   let held = false;

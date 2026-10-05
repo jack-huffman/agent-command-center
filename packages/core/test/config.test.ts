@@ -105,6 +105,32 @@ test('writeConfig round-trips and leaves derived branches out of the file', () =
   assert.deepEqual(loadConfig(file).config, config);
 });
 
+test('autopilot.appendOnly lists files inside the repo; left out, there\'s no section and nothing is append-only (D-058)', () => {
+  const plain = parseConfig(clone(GENERIC_CONFIG));
+  assert.deepEqual([plain.errors, plain.warnings, plain.config!.autopilot], [[], [], undefined]);
+  assert.doesNotMatch(JSON.stringify(plain.config), /autopilot/, 'so writeConfig never adds it to a config that didn\'t have it');
+
+  const listed = parseConfig({ ...clone(GENERIC_CONFIG), autopilot: { appendOnly: ['docs/DECISIONS.md', 'CHANGELOG.md'] } });
+  assert.deepEqual([listed.errors, listed.warnings], [[], []]);
+  assert.deepEqual(listed.config!.autopilot, { appendOnly: ['docs/DECISIONS.md', 'CHANGELOG.md'] });
+  assert.deepEqual(parseConfig({ ...clone(GENERIC_CONFIG), autopilot: {} }).config!.autopilot, { appendOnly: [] });
+  const dir = tempDir();
+  writeConfig(join(dir, 'config.json'), listed.config!);
+  assert.deepEqual(loadConfig(join(dir, 'config.json')).config.autopilot, listed.config!.autopilot, 'written back as it was');
+
+  const why = /"autopilot\.appendOnly" must be a list of paths inside the repo/;
+  for (const appendOnly of ['docs/DECISIONS.md', [3], ['/etc/passwd'], ['../other/DECISIONS.md'], ['docs/../../x'], ['']]) {
+    assert.match(errorsOf({ ...clone(GENERIC_CONFIG), autopilot: { appendOnly } }), why, JSON.stringify(appendOnly));
+  }
+  assert.match(errorsOf({ ...clone(GENERIC_CONFIG), autopilot: ['docs/DECISIONS.md'] }), /"autopilot" must be an object/);
+  assert.deepEqual(parseConfig({ ...clone(GENERIC_CONFIG), autopilot: { appendOnly: [], appendonly: ['x'] } }).warnings, ['Unknown key "autopilot.appendonly" is ignored.']);
+});
+
+test('this repo lists its decision log as append-only', () => {
+  const file = join(import.meta.dirname, '..', '..', '..', '.acc', 'config.json');
+  assert.deepEqual(loadConfig(file).config.autopilot, { appendOnly: ['docs/DECISIONS.md'] });
+});
+
 test('loadConfig explains a missing or broken file', () => {
   const dir = tempDir();
   assert.throws(() => loadConfig(join(dir, 'nope.json')), /Run "acc init" first/);

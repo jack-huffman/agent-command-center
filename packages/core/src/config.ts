@@ -82,11 +82,13 @@ export interface Config {
   secretScan: { paths: string[]; exclude: string[] };
   /** Whether a task needs an analysis before it's built (D-052). Salesforce projects do unless they say not. */
   analysis?: { required: boolean };
+  /** appendOnly: files autopilot may resolve when both sides only added to the end, such as a decision log (D-058). */
+  autopilot?: { appendOnly: string[] };
 }
 
 const TOP_KEYS = new Set([
   'schema', 'project', 'profile', 'github', 'commitIdentity', 'environments', 'environmentSpecific',
-  'knownDrift', 'trackers', 'agents', 'autonomy', 'worktrees', 'gates', 'secretScan', 'analysis',
+  'knownDrift', 'trackers', 'agents', 'autonomy', 'worktrees', 'gates', 'secretScan', 'analysis', 'autopilot',
 ]);
 
 /** Gates that take the machine-wide slot unless `gates.heavy` says otherwise (D-024). */
@@ -249,6 +251,20 @@ export function parseConfig(raw: unknown): ParseResult {
   if (raw.analysis !== undefined && !isObj(raw.analysis)) errors.push('"analysis" must be an object, such as { "required": true }.');
   if (an.required !== undefined && typeof an.required !== 'boolean') errors.push('"analysis.required" must be true or false.');
 
+  let autopilot: Config['autopilot'];
+  if (raw.autopilot !== undefined) {
+    const ap = raw.autopilot;
+    if (!isObj(ap)) errors.push('"autopilot" must be an object, such as { "appendOnly": ["docs/DECISIONS.md"] }.');
+    else {
+      for (const k of Object.keys(ap)) if (k !== 'appendOnly') warnings.push(`Unknown key "autopilot.${k}" is ignored.`);
+      const list = ap.appendOnly ?? [];
+      // Paths inside the repo, as git names them: never absolute, never climbing out.
+      if (!strList(list) || list.some((f) => f.startsWith('/') || f.split('/').includes('..'))) {
+        errors.push('"autopilot.appendOnly" must be a list of paths inside the repo, such as ["docs/DECISIONS.md"].');
+      } else autopilot = { appendOnly: list };
+    }
+  }
+
   if (errors.length) return { config: null, errors, warnings };
   return {
     config: {
@@ -275,6 +291,7 @@ export function parseConfig(raw: unknown): ParseResult {
         exclude: strList(s.exclude) ? s.exclude : [],
       },
       ...(typeof an.required === 'boolean' ? { analysis: { required: an.required } } : {}),
+      ...(autopilot ? { autopilot } : {}),
     },
     errors,
     warnings,
