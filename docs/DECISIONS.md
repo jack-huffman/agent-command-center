@@ -1397,8 +1397,13 @@ its reason behind a disclosure triangle.
 - **Each entry** is an icon on a rail, then who did it in bold, what they
   did, and the state it reached as the board's own status, with its icon and
   label. Tone is blue or orange, never red against green.
-- **A move's reason** shows under it as a quote, cut to two lines. Clicking
-  it, or pressing Enter, shows the rest. A comment shows as a card.
+- **A move's reason** shows under it as a quote. A long one stops cleanly
+  after two lines: the clip is on the text inside the quote, so no half line
+  shows in its padding. The last line fades into an ellipsis, with Show all
+  under it, as everywhere else on the page (`foldable`). A short reason shows
+  whole, with no button. (The first version had you click the text itself,
+  with nothing saying there was more, and let part of a third line show.) A
+  comment shows as a card.
 - The Overview's History keeps its own feed (D-037). The ticket page's
   classes start with `act-`, because the two had collided over `.feed`.
 

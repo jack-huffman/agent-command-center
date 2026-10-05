@@ -330,9 +330,12 @@ body[data-view="ticket"] { padding-top: 18px; }
 .act-body { min-width: 0; }
 .act-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-height: 28px; }
 .act-line .status { font-weight: 600; }
-.act-reason { margin: 0 0 2px; padding: 6px 10px; border-left: 2px solid var(--line); color: var(--vscode-descriptionForeground); white-space: pre-wrap; overflow-wrap: anywhere; cursor: pointer; }
-.act-reason.clamped { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
-.act-reason:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
+.act-reason { margin: 0; padding: 6px 10px; border-left: 2px solid var(--line); color: var(--vscode-descriptionForeground); }
+.act-reason-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Clipped text fades on its last line, so it reads as cut, not as the end. */
+.act-reason-text.clamped { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1.4em), rgba(0, 0, 0, 0.35)); mask-image: linear-gradient(to bottom, #000 calc(100% - 1.4em), rgba(0, 0, 0, 0.35)); }
+.act-body .foldable { margin-bottom: 2px; }
+.act-body .fold-toggle { margin: 2px 0 0 10px; }
 .act-comment { margin: 4px 0 2px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); }
 .act-more { margin: 4px 0 0 38px; }
 .history li { padding: 4px 0; display: flex; gap: 6px; flex-wrap: wrap; align-items: baseline; }

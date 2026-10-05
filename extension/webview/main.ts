@@ -710,7 +710,7 @@ const FEED_FIRST = 6;
 
 /**
  * The ticket's activity as one feed, newest first: comments and acc's moves together, each with an
- * icon, who did it, and the state it reached; a move's reason shows under it, two lines until clicked.
+ * icon, who did it, and the state it reached; a move's reason shows under it, two lines and Show all.
  */
 function renderActivity(m: TicketModel): HTMLElement | null {
   const items: { at: string; node: HTMLElement }[] = [];
@@ -722,15 +722,8 @@ function renderActivity(m: TicketModel): HTMLElement | null {
   for (const h of m.acc?.history ?? []) {
     const f = moveFeed(h);
     const look = STATE_LOOK[h.to];
-    let reason: HTMLElement | null = null;
-    if (h.reason) {
-      reason = el('p', 'act-reason clamped', h.reason);
-      reason.tabIndex = 0;
-      reason.title = 'Show all';
-      const toggle = () => { reason!.classList.toggle('clamped'); };
-      reason.addEventListener('click', toggle);
-      reason.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
-    }
+    // A long reason shows its first two lines, fading, with Show all under it; a short one shows whole.
+    const reason = h.reason ? foldable(`reason:${m.project}#${m.key}@${h.at}`, el('div', 'act-reason', el('div', 'act-reason-text', h.reason)), 'act-reason-text', 2) : null;
     items.push({ at: h.at, node: feedItem(el('span', `act-icon tone-${f.tone}`, icon(f.icon, f.tone)),
       [el('strong', '', whoMoved(h.by)), el('span', '', f.verb), f.pill && look ? status(look) : null, el('span', 'muted', '·'), when(h.at)], reason) });
   }
