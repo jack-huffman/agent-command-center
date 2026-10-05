@@ -119,7 +119,7 @@ export function commandsOf(line: string): string[][] {
 }
 
 const CLOSING = /\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\b[\s:]+(#\d+|[A-Z][A-Z0-9_]*-\d+|https?:\/\/)/i;
-const PERSON_ONLY_ACC = new Set(['set', 'dispatch', 'land', 'review', 'autopilot', 'analyze', 'promote', 'deploy', 'init', 'cleanup', 'agents', 'setup']);
+const PERSON_ONLY_ACC = new Set(['set', 'dispatch', 'land', 'review', 'autopilot', 'analyze', 'promote', 'deploy', 'init', 'cleanup', 'agents', 'setup', 'update', 'updates']);
 
 /** Why a builder may not run this, or null. Belt and braces with the builder's deny list (D-012). */
 export function guardBash(b: Builder, line: string): string | null {

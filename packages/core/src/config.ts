@@ -62,6 +62,11 @@ export interface Tracker {
   prefix: string | null;
   /** GitHub: issues with any of these labels aren't tasks, such as milestone. */
   skipLabels: string[];
+  /**
+   * Whether the task page may change a ticket's status, assignee and labels. Off by default: a client's
+   * tracker is theirs, and acc only drafts updates for a person to post (D-???). Your own repo can opt in.
+   */
+  edits: boolean;
 }
 
 export interface Config {
@@ -177,6 +182,10 @@ export function parseConfig(raw: unknown): ParseResult {
       if (t.kind !== 'github' && Array.isArray(t.skipLabels) && t.skipLabels.length) {
         warnings.push(`trackers[${i}]: "skipLabels" applies only to a GitHub tracker, so it's ignored.`);
       }
+      if (t.edits !== undefined && typeof t.edits !== 'boolean') {
+        errors.push(`trackers[${i}]: "edits" must be true or false: whether the task page may change a ticket's status, assignee and labels.`);
+        return;
+      }
       const boardOk = t.board === undefined || t.board === null || (t.kind === 'azure' ? isStr(t.board) : Number.isInteger(t.board) && (t.board as number) > 0);
       if (!boardOk) {
         errors.push(`trackers[${i}]: "board" must be ${t.kind === 'azure' ? 'an Azure board\'s name, such as Stories' : 'a Jira board id or a GitHub Project number'}.`);
@@ -192,6 +201,7 @@ export function parseConfig(raw: unknown): ParseResult {
         board: Number.isInteger(t.board) || isStr(t.board) ? (t.board as number | string) : null,
         prefix: isStr(t.prefix) ? t.prefix.toUpperCase() : null,
         skipLabels: t.kind === 'github' && strList(t.skipLabels) ? t.skipLabels : [],
+        edits: t.edits === true,
       });
     });
   }
@@ -397,6 +407,8 @@ export function writeConfig(file: string, config: Config): void {
   const out = {
     ...config,
     environments: config.environments.map(({ branch: _branch, ...e }) => e),
+    // A tracker says it may change tickets only when it may (D-???).
+    trackers: config.trackers.map(({ edits, ...t }) => (edits ? { ...t, edits } : t)),
     agents: { ...agents, ...(Object.keys(profile(builder)).length ? { builder: profile(builder) } : {}), ...(Object.keys(profile(reviewer)).length ? { reviewer: profile(reviewer) } : {}) },
   };
   writeFileSync(file, JSON.stringify(out, null, 2) + '\n');

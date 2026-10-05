@@ -10,6 +10,7 @@ import { displayState, mutate, readLedger, upsertTasks } from '../src/ledger.ts'
 import { repoPaths } from '../src/paths.ts';
 import { receiptsAt } from '../src/receipts.ts';
 import { reviewPath, type Verdict } from '../src/review.ts';
+import { listUpdates, readUpdate } from '../src/updates.ts';
 import { ciOf, sync } from '../src/sync.ts';
 import { bad, fakeBin, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, tempDir } from './support.ts';
 
@@ -17,7 +18,7 @@ const now = () => new Date('2026-10-02T12:00:00Z');
 const RAW = { ...GENERIC_CONFIG, github: { repo: 'acme/tool', account: 'jordan-kim' }, gates: { required: ['test'], commands: { test: 'true' } } };
 
 /** A repo whose origin is a local bare repo, with T-1 in review on its own branch. */
-function setup(source: { kind: 'github' | 'jira' | 'manual'; key: string | null; url?: string } = { kind: 'jira', key: 'ACME-7', url: 'https://acme.atlassian.net/browse/ACME-7' }) {
+function setup(source: { kind: 'github' | 'jira' | 'azure' | 'manual'; key: string | null; url?: string } = { kind: 'jira', key: 'ACME-7', url: 'https://acme.atlassian.net/browse/ACME-7' }) {
   const origin = tempDir('origin-');
   run('git', ['init', '-q', '--bare', origin]);
   const dir = makeRepo({ '.acc/config.json': JSON.stringify(RAW) });
@@ -73,7 +74,6 @@ function gh(calls: { args: string; opts?: RunOptions }[], open = '[]') {
     'gh pr list': ok(open),
     'gh pr create': ok('https://github.com/acme/tool/pull/42\n'),
     'gh pr edit': ok(''),
-    'gh issue comment': ok(''),
   });
   return (cmd: string, args: string[], opts?: RunOptions) => {
     if (cmd === 'gh') calls.push({ args: args.join(' '), opts });
@@ -108,20 +108,54 @@ test('land pushes the branch, opens the pull request into the environment\'s bra
   assert.ok(!calls.some((c) => /\bmerge\b/.test(c.args)), 'never merges');
   assert.deepEqual(readLedger(s.paths.ledger).tasks[0]!.pr, r.pr);
   assert.equal(readLedger(s.paths.ledger).tasks[0]!.state, 'review', 'it stays in review until the pull request merges');
-  assert.deepEqual([r.comment?.kind, r.comment?.key], ['jira', 'ACME-7'], 'a Jira ticket\'s comment goes through the extension');
-  assert.match(r.comment!.text, /pull\/42/);
+  // The ticket gets a draft, for a person to post (D-???).
+  assert.deepEqual(r.update, { id: 'ACME-7.1', key: 'ACME-7' });
+  const u = readUpdate(s.paths, 'ACME-7.1')!;
+  assert.deepEqual([u.task, u.tracker, u.key, u.event, u.state, u.pr, u.by], ['ACME-7', 'jira', 'ACME-7', 'pr-opened', 'draft', { number: 42, url: 'https://github.com/acme/tool/pull/42' }, 'acc land']);
+  assert.equal(u.text, 'The change is ready for review: https://github.com/acme/tool/pull/42\nAdd a sum function.', 'the link, and the title when the review has no sentence for the client');
 });
 
-test('landing again updates the open pull request, and the GitHub issue hears what changed: after rework only when it was (D-051)', () => {
+test('land posts nothing on any ticket: a GitHub, Jira or Azure DevOps task gets a draft, and landing again drafts an update (D-???)', () => {
+  for (const source of [
+    { kind: 'github' as const, key: '#12', url: 'https://github.com/acme/tool/issues/12' },
+    { kind: 'jira' as const, key: 'ACME-7', url: 'https://acme.atlassian.net/browse/ACME-7' },
+    { kind: 'azure' as const, key: 'AB-3', url: 'https://dev.azure.com/acme/CRM/_workitems/edit/3' },
+  ]) {
+    const s = setup(source);
+    waiveGates(s.paths, s.config, { sha: s.sha, env: s.config.environments[0]!, gates: ['test'], reason: 'r', by: 'human:t', now });
+    writeFileSync(reviewPath(s.paths, s.id, s.sha), JSON.stringify({ ...passReview(s.paths, s.id, s.sha, s.base), client: 'Totals now add up on the invoice page.' }));
+    const calls: { args: string; opts?: RunOptions }[] = [];
+    const r = land(s.paths, s.config, s.id, { run: gh(calls), now, env: {} }, { by: 'human:jordan' });
+    assert.ok(!calls.some((c) => c.args.startsWith('issue')), `${source.kind}: no gh issue comment`);
+    assert.equal(r.update?.key, source.key);
+    const opened = readUpdate(s.paths, r.update!.id)!;
+    assert.deepEqual([opened.event, opened.state, opened.tracker, opened.by], ['pr-opened', 'draft', source.kind, 'human:jordan']);
+    assert.match(opened.text, /pull\/42\nTotals now add up on the invoice page\.$/, 'the review\'s sentence for the client');
+
+    // Posted, then updated after more work: the next land drafts an update of its own.
+    writeFileSync(join(s.paths.updates, `${opened.id}.json`), JSON.stringify({ ...opened, state: 'posted' }));
+    const open = JSON.stringify([{ number: 42, url: 'https://github.com/acme/tool/pull/42' }]);
+    const again = land(s.paths, s.config, s.id, { run: gh(calls, open), now, env: {} });
+    assert.ok(!calls.some((c) => c.args.startsWith('issue')), `${source.kind}: still no comment`);
+    const updated = readUpdate(s.paths, again.update!.id)!;
+    assert.deepEqual([again.opened, updated.id, updated.event, updated.state], [false, `${s.id}.2`, 'pr-updated', 'draft']);
+    assert.match(updated.text, /^The change was updated and is ready for review again: https:\/\/github\.com\/acme\/tool\/pull\/42/);
+  }
+});
+
+test('a task acc alone keeps has no ticket, so a land drafts nothing', () => {
+  const s = setup({ kind: 'manual', key: null });
+  waiveGates(s.paths, s.config, { sha: s.sha, env: s.config.environments[0]!, gates: ['test'], reason: 'r', by: 'human:t', now });
+  passReview(s.paths, s.id, s.sha, s.base);
+  const r = land(s.paths, s.config, s.id, { run: gh([]), now, env: {} });
+  assert.deepEqual([r.opened, r.update], [true, null]);
+  assert.deepEqual(listUpdates(s.paths), []);
+});
+
+test('landing again updates the open pull request rather than opening another', () => {
   const s = setup({ kind: 'github', key: '#12', url: 'https://github.com/acme/tool/issues/12' });
   waiveGates(s.paths, s.config, { sha: s.sha, env: s.config.environments[0]!, gates: ['test'], reason: 'r', by: 'human:t', now });
   passReview(s.paths, s.id, s.sha, s.base);
-  const rework = (at: string) => mutate(s.paths, now, (l, emit) => {
-    l.tasks[0]!.history.push({ at, actor: 'reviewer', by: 'reviewer:test', from: 'review', to: 'rework', reason: 'r' });
-    emit({ type: 'task.updated', task: s.id, actor: 'human', by: 'test', data: {} });
-  });
-  // Reworked once, then landed: since then, the branch only merged its base (GH-12).
-  rework('2026-10-01T09:00:00.000Z');
   mutate(s.paths, now, (l, emit) => {
     l.tasks[0]!.pr = { number: 7, url: 'https://github.com/acme/tool/pull/7', state: 'open', landedAt: '2026-10-01T10:00:00.000Z' };
     emit({ type: 'task.updated', task: s.id, actor: 'human', by: 'test', data: {} });
@@ -129,34 +163,11 @@ test('landing again updates the open pull request, and the GitHub issue hears wh
   const open = JSON.stringify([{ number: 7, url: 'https://github.com/acme/tool/pull/7' }]);
   const calls: { args: string; opts?: RunOptions }[] = [];
   const r = land(s.paths, s.config, s.id, { run: gh(calls, open), now, env: {} });
-  assert.deepEqual([r.opened, r.pr.number, r.commented, r.commentUnconfirmed, r.comment], [false, 7, true, null, null]);
+  assert.deepEqual([r.opened, r.pr.number, r.update], [false, 7, { id: 'GH-12.1', key: '#12' }]);
   assert.ok(calls.some((c) => c.args.startsWith('pr edit 7')));
   assert.ok(!calls.some((c) => c.args.startsWith('pr create')));
-  const comment = () => calls.filter((c) => c.args.startsWith('issue comment')).at(-1)!.args;
-  assert.equal(comment(), `issue comment 12 -R acme/tool --body ${s.id}'s pull request was updated: https://github.com/acme/tool/pull/7`, 'no rework since it last landed');
   assert.equal(readLedger(s.paths.ledger).tasks[0]!.pr?.landedAt, now().toISOString(), 'it records when it landed');
-
-  // Sent back for rework after that land, built again and reviewed: now it says so.
-  rework('2026-10-02T13:00:00.000Z');
-  const later = () => new Date('2026-10-02T14:00:00Z');
-  land(s.paths, s.config, s.id, { run: gh(calls, open), now: later, env: {} });
-  assert.equal(comment(), `issue comment 12 -R acme/tool --body ${s.id}'s pull request was updated after rework: https://github.com/acme/tool/pull/7`);
-});
-
-test('a gh that hangs on the issue comment is stopped at its timeout, and land still records the pull request and says the comment isn\'t confirmed (D-051)', () => {
-  const s = setup({ kind: 'github', key: '#12', url: 'https://github.com/acme/tool/issues/12' });
-  waiveGates(s.paths, s.config, { sha: s.sha, env: s.config.environments[0]!, gates: ['test'], reason: 'r', by: 'human:t', now });
-  passReview(s.paths, s.id, s.sha, s.base);
-  // Posts the comment, then doesn't exit, and ignores SIGTERM.
-  const hanging = fakeBin('gh', "trap '' TERM\necho https://github.com/acme/tool/issues/12#issuecomment-1\nsleep 10\n");
-  const fake = gh([]);
-  const runner: Runner = (cmd, args, opts) =>
-    cmd === 'gh' && args[0] === 'issue' ? run(cmd, args, { ...opts, env: { ...opts?.env, PATH: hanging.PATH }, timeoutMs: 500 }) : fake(cmd, args, opts);
-  const started = Date.now();
-  const r = land(s.paths, s.config, s.id, { run: runner, now, env: {} });
-  assert.ok(Date.now() - started < 5_000, 'it carries on at the timeout');
-  assert.deepEqual([r.opened, r.pr.number, r.commented, r.commentUnconfirmed], [true, 42, false, 'gh didn\'t finish within 0.5 seconds, so acc stopped it.']);
-  assert.deepEqual(readLedger(s.paths.ledger).tasks[0]!.pr, r.pr, 'the pull request is recorded all the same');
+  assert.equal(readUpdate(s.paths, 'GH-12.1')?.event, 'pr-updated');
 });
 
 test('land names the files a pull request it opens conflicts in with its base, and changes no branch', () => {
@@ -226,11 +237,23 @@ const view = (state: string, extra: Record<string, unknown> = {}) => fakeRunner(
 
 test('sync: a merged pull request makes its task done, and a closed one blocks it with the reason', () => {
   const merged = withPr(42);
-  const r = sync(merged.paths, merged.config, { run: view('MERGED'), now, env: {} });
-  assert.deepEqual(r.changes.map((c) => [c.task, c.moved]), [[merged.id, { from: 'review', to: 'done' }]]);
+  const calls: string[] = [];
+  const mergeCommit = { oid: 'c0ffee'.padEnd(40, '0') };
+  const fake = fakeRunner({ 'gh auth token -u jordan-kim': ok('gho_token\n'), 'gh pr view': ok(JSON.stringify({ number: 42, state: 'MERGED', url: 'https://github.com/acme/tool/pull/42', mergeCommit, statusCheckRollup: [] })) }, calls);
+  const r = sync(merged.paths, merged.config, { run: fake, now, env: {} });
+  assert.deepEqual(r.changes.map((c) => [c.task, c.moved, c.update]), [[merged.id, { from: 'review', to: 'done' }, { id: `${merged.id}.1`, key: 'ACME-7' }]]);
+  assert.match(calls.find((c) => c.startsWith('gh pr view'))!, /--json \S*mergeCommit/);
   const t = readLedger(merged.paths.ledger).tasks[0]!;
-  assert.deepEqual([t.state, t.pr?.state, t.history.at(-1)?.actor], ['done', 'merged', 'sync']);
+  assert.deepEqual([t.state, t.pr?.state, t.pr?.mergeSha, t.history.at(-1)?.actor], ['done', 'merged', mergeCommit.oid, 'sync'], 'it keeps the commit the merge left on the base');
+  // Merged into its environment: a draft for the ticket, which sync, running unattended, never posts (D-???).
+  assert.deepEqual(listUpdates(merged.paths).map((u) => [u.event, u.env, u.state, u.by, u.text]), [['merged', merged.config.environments[0]!.name, 'draft', 'acc sync', `The change was approved and merged into ${merged.config.environments[0]!.name}.`]]);
+  assert.ok(!calls.some((c) => c.startsWith('gh issue') || c.startsWith('gh api')), 'nothing is posted');
   assert.deepEqual(sync(merged.paths, merged.config, { run: view('MERGED'), now, env: {} }), { checked: 0, changes: [] }, 'nothing left to follow');
+  assert.equal(listUpdates(merged.paths).length, 1, 'drafted once');
+
+  const open = withPr(42);
+  sync(open.paths, open.config, { run: view('OPEN'), now, env: {} });
+  assert.deepEqual(listUpdates(open.paths), [], 'a pull request still open drafts nothing');
 
   const closed = withPr(42);
   sync(closed.paths, closed.config, { run: view('CLOSED'), now, env: {} });

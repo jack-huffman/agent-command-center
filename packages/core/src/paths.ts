@@ -16,6 +16,8 @@ export interface RepoPaths {
   reviews: string;
   /** What each task's analysis found (D-052). */
   analyses: string;
+  /** Drafts of ticket updates, which a person reviews and posts (D-???). */
+  updates: string;
   packets: string;
   logs: string;
   config: string;
@@ -40,6 +42,7 @@ export function repoPaths(cwd: string, run: Runner): RepoPaths {
     receipts: join(stateDir, 'receipts'),
     reviews: join(stateDir, 'reviews'),
     analyses: join(stateDir, 'analyses'),
+    updates: join(stateDir, 'updates'),
     packets: join(stateDir, 'packets'),
     logs: join(stateDir, 'logs'),
     config: join(root, '.acc', 'config.json'),

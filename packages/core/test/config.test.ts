@@ -141,7 +141,7 @@ test('an Azure DevOps tracker names its organization and project, and may name a
   const base = { schema: 1, project: 'P', profile: 'generic', environments: [{ name: 'main', default: true }] };
   const ok = parseConfig({ ...base, trackers: [{ kind: 'azure', organization: 'acme', project: 'CRM', team: 'Sales', board: 'Stories', prefix: 'av' }] });
   assert.deepEqual(ok.errors, []);
-  assert.deepEqual(ok.config!.trackers[0], { kind: 'azure', site: null, project: 'CRM', repo: null, organization: 'acme', team: 'Sales', board: 'Stories', prefix: 'AV', skipLabels: [] });
+  assert.deepEqual(ok.config!.trackers[0], { kind: 'azure', site: null, project: 'CRM', repo: null, organization: 'acme', team: 'Sales', board: 'Stories', prefix: 'AV', skipLabels: [], edits: false });
   assert.match(parseConfig({ ...base, trackers: [{ kind: 'azure', project: 'CRM' }] }).errors.join(), /needs "organization" and "project"/);
   assert.match(parseConfig({ ...base, trackers: [{ kind: 'azure', organization: 'a', project: 'b', board: 3 }] }).errors.join(), /an Azure board's name/);
   assert.match(parseConfig({ ...base, trackers: [{ kind: 'jira', site: 's', project: 'K', board: 'Main' }] }).errors.join(), /Jira board id/);
@@ -157,6 +157,25 @@ test('a GitHub tracker may name labels whose issues aren\'t imported, and nothin
   const jira = parseConfig({ ...base, trackers: [{ kind: 'jira', site: 's', project: 'K', skipLabels: ['epic'] }] });
   assert.match(jira.warnings.join(), /applies only to a GitHub tracker/);
   assert.deepEqual(jira.config!.trackers[0]!.skipLabels, []);
+});
+
+test('a tracker\'s ticket fields are read-only unless it says "edits": true, and only true or false will do (D-???)', () => {
+  const base = clone(GENERIC_CONFIG);
+  assert.equal(parseConfig({ ...base, trackers: [{ kind: 'jira', site: 's', project: 'K' }] }).config!.trackers[0]!.edits, false);
+  assert.equal(parseConfig({ ...base, trackers: [{ kind: 'github', edits: true }] }).config!.trackers[0]!.edits, true);
+  assert.equal(parseConfig({ ...base, trackers: [{ kind: 'github', edits: false }] }).config!.trackers[0]!.edits, false);
+  for (const bad of ['yes', 1, null, ['true']]) assert.match(errorsOf({ ...base, trackers: [{ kind: 'github', edits: bad }] }), /trackers\[0\]: "edits" must be true or false/, JSON.stringify(bad));
+  // Written back, a tracker names edits only when it's on.
+  const file = join(tempDir(), '.acc', 'config.json');
+  writeConfig(file, parseConfig({ ...base, trackers: [{ kind: 'github', edits: true }, { kind: 'jira', site: 's', project: 'K' }] }).config!);
+  const written = JSON.parse(readFileSync(file, 'utf8')).trackers;
+  assert.deepEqual([written[0].edits, 'edits' in written[1]], [true, false]);
+  assert.deepEqual(withTracker([{ kind: 'github', edits: true }], { kind: 'github', board: 3 }), [{ kind: 'github', edits: true, board: 3 }], 're-adding a tracker keeps edits');
+});
+
+test('this repo\'s own GitHub tracker may change its tickets\' fields', () => {
+  const file = join(import.meta.dirname, '..', '..', '..', '.acc', 'config.json');
+  assert.deepEqual(loadConfig(file).config.trackers.map((t) => [t.kind, t.edits]), [['github', true]]);
 });
 
 test('re-adding a tracker keeps the settings it had, in its place; a new one goes last (D-048)', () => {

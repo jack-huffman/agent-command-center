@@ -8,10 +8,12 @@ import type { RepoPaths } from './paths.ts';
 import { type Receipt, receiptHooks, receiptsAt } from './receipts.ts';
 import { readVerdict, type Verdict } from './review.ts';
 import { conflictsOf, FETCH_TIMEOUT_MS, fetchBranches } from './sync.ts';
+import { draftUpdate } from './updates.ts';
 
 /**
  * Landing (D-033): a reviewed task's branch goes to GitHub as a pull request into its environment's
- * branch, and the ticket hears about it. acc never merges: a person does, on GitHub.
+ * branch, and an update for the ticket is drafted for a person to post (D-???). acc never merges, and
+ * never posts: a person does both.
  */
 
 /** How long acc waits for the push, and for each gh call, before it stops it. */
@@ -19,23 +21,17 @@ export const PUSH_TIMEOUT_MS = 5 * 60_000;
 export const GH_TIMEOUT_MS = 2 * 60_000;
 
 /**
- * The longest a land can take: its push, its fetch and four gh calls (auth token, pr list, pr create or
- * edit, issue comment), each at its timeout, plus a minute for local git and the ledger lock. Whatever
- * runs acc land waits at least this long, or the land's result is lost (D-053).
+ * The longest a land can take: its push, its fetch and three gh calls (auth token, pr list, pr create or
+ * edit), each at its timeout, plus a minute for local git, the ledger's lock and the drafts' lock.
+ * Whatever runs acc land waits at least this long, or the land's result is lost (D-053). The issue
+ * comment it once posted is a draft now (D-???), so its gh call is gone.
  */
-export const LAND_TIMEOUT_MS = PUSH_TIMEOUT_MS + FETCH_TIMEOUT_MS + 4 * GH_TIMEOUT_MS + 60_000;
+export const LAND_TIMEOUT_MS = PUSH_TIMEOUT_MS + FETCH_TIMEOUT_MS + 3 * GH_TIMEOUT_MS + 60_000;
 
 export interface LandDeps {
   run: Runner;
   now: () => Date;
   env: NodeJS.ProcessEnv;
-}
-
-/** A comment for a ticket acc can't post itself (Jira, Azure DevOps): the extension posts it as you. */
-export interface PendingComment {
-  kind: 'jira' | 'azure';
-  key: string;
-  text: string;
 }
 
 export interface LandResult {
@@ -44,11 +40,10 @@ export interface LandResult {
   pr: PullRequest;
   /** False when the pull request was already open: the push updated it. */
   opened: boolean;
-  /** Commented on the GitHub issue. */
-  commented: boolean;
-  /** Why a GitHub issue's comment isn't confirmed: gh failed, or was stopped at its timeout. It may still have posted. */
-  commentUnconfirmed: string | null;
-  comment: PendingComment | null;
+  /** The update drafted for the ticket, for a person to post; null for a task with no ticket (D-???). */
+  update: { id: string; key: string } | null;
+  /** Why no update could be drafted, when one should have been. */
+  updateError?: string;
 }
 
 const STATUS_WORD: Record<string, string> = { pass: 'Passed', fail: 'Failed', error: 'Couldn\'t run', skip: 'Didn\'t apply' };
@@ -82,19 +77,8 @@ export function prBody(task: Task, env: Environment, sha: string, verdict: Verdi
   return lines.join('\n') + '\n';
 }
 
-/** What a land did to the pull request: opened it, or updated it, after rework or for another reason. */
-export type Landing = 'opened' | 'updated' | 'reworked';
-
-/** Whether the task went to rework since its pull request was last landed. A pull request landed before acc recorded when can't tell, so it's no. */
-export const reworkedSinceLanded = (task: Task): boolean =>
-  !!task.pr?.landedAt && task.history.some((h) => h.to === 'rework' && h.at > task.pr!.landedAt!);
-
-/** What the ticket is told: the pull request, and that it's waiting for a person. An update says after rework only when it was. */
-export const ticketComment = (task: Task, pr: PullRequest, landing: Landing): string =>
-  landing === 'opened' ? `${task.id} has a pull request: ${pr.url}\nAn agent built it and another reviewed it. It merges when a person approves it.`
-    : `${task.id}'s pull request was updated${landing === 'reworked' ? ' after rework' : ''}: ${pr.url}`;
-
-function ghToken(run: Runner, account: string): string {
+/** How acc acts as the repo's GitHub account: gh's token for it, which each gh call gets as GH_TOKEN (D-007, D-028). */
+export function ghToken(run: Runner, account: string): string {
   const t = run('gh', ['auth', 'token', '-u', account], { timeoutMs: GH_TIMEOUT_MS });
   if (t.code !== 0 || !t.stdout.trim()) throw new AccError('no-github', `gh isn't logged in as ${account}, the account this repo works as. Sign in from the Command Center, or run gh auth login.`);
   return t.stdout.trim();
@@ -163,19 +147,6 @@ export function land(paths: RepoPaths, config: Config, id: string, deps: LandDep
   const conflicts = fetchBranches(run, paths.root, [env.branch, branch], deps.env) ? conflictsOf(run, paths.root, env.branch, branch) : null;
   if (conflicts) pr = { ...pr, conflicts };
 
-  // The ticket hears about it. GitHub acc tells itself; Jira and Azure DevOps go through the extension, as you.
-  // A gh that doesn't confirm the comment, or is stopped at its timeout, doesn't stop the land (D-051).
-  let commented = false;
-  let commentUnconfirmed: string | null = null;
-  let comment: PendingComment | null = null;
-  const text = ticketComment(task, pr, opened ? 'opened' : reworkedSinceLanded(task) ? 'reworked' : 'updated');
-  const issue = task.source.kind === 'github' ? /(\d+)$/.exec(task.source.key ?? task.id)?.[1] : undefined;
-  if (issue) {
-    const c = ghRun(['issue', 'comment', issue, '-R', gh.repo, '--body', text]);
-    commented = c.code === 0;
-    if (!commented) commentUnconfirmed = (c.stderr || c.stdout).trim().split('\n')[0] || `gh exited with ${c.code}.`;
-  } else if ((task.source.kind === 'jira' || task.source.kind === 'azure') && task.source.key) comment = { kind: task.source.kind, key: task.source.key, text };
-
   const updated = mutate(paths, now, (l, emit) => {
     const t = l.tasks.find((x) => x.id === id)!;
     t.pr = pr;
@@ -185,5 +156,15 @@ export function land(paths: RepoPaths, config: Config, id: string, deps: LandDep
     emit({ type: 'task.updated', task: id, actor: opts.actor ?? 'human', by: opts.by ?? 'acc land', data: { pr, sha, opened } });
     return t;
   });
-  return { task: updated, sha, pr, opened, commented, commentUnconfirmed, comment };
+  // The ticket hears about it only from a person: acc drafts what to say, and posts nothing (D-???).
+  // The pull request is recorded whatever happens to the draft.
+  try {
+    const update = draftUpdate(paths, task, {
+      event: opened ? 'pr-opened' : 'pr-updated', pr: { number: pr.number, url: pr.url },
+      context: { summary: verdict.client?.trim() || task.title },
+    }, opts.by ?? 'acc land', now);
+    return { task: updated, sha, pr, opened, update: update ? { id: update.id, key: update.key } : null };
+  } catch (e) {
+    return { task: updated, sha, pr, opened, update: null, updateError: (e as Error).message };
+  }
 }

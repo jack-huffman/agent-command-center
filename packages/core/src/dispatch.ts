@@ -173,6 +173,7 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean }): stri
   }
   lines.push(
     '3. **Finish** by running exactly `acc done`, as its own command. It is already on your PATH and pre-approved. Don\'t run it through npm scripts, `npx`, or other wrappers, and don\'t chain it with other commands, or it will stop for permission. If you\'re stuck, run exactly `acc block "<what you need>"` instead, and stop.',
+    '   If only the client can answer what you need (a business rule, access you don\'t have, or a choice that\'s theirs to make), run exactly `acc block --client "<your question>"` instead, and stop. Write the question for the client, in plain words with no code, file or tool names: a person reads it before it goes on the ticket.',
     ...(p.accPath ? [`   If \`acc\` really isn't found, its full path is \`${p.accPath}\`.`] : []),
     '4. **Summarize** in your final message: what changed, how you checked it, and anything a reviewer should look at.',
     '',
@@ -211,7 +212,7 @@ export function builderSettings(task: Task, config: Config, accBinDir: string, b
   ];
   const deny = [
     'Bash(git push*)', 'Bash(gh pr *)', 'Bash(git checkout *)', 'Bash(git switch *)', 'Bash(git worktree *)', 'Bash(git reset --hard*)',
-    'Bash(acc set *)', 'Bash(acc dispatch *)', 'Bash(acc init*)', 'Bash(acc gate waive*)', 'Bash(acc land*)', 'Bash(acc review*)', 'Bash(acc autopilot*)', 'Bash(acc agents autonomy*)', 'Bash(acc analyze*)', 'Bash(acc analysis answer*)', 'Bash(acc promote*)', 'Bash(acc deploy*)',
+    'Bash(acc set *)', 'Bash(acc dispatch *)', 'Bash(acc init*)', 'Bash(acc gate waive*)', 'Bash(acc land*)', 'Bash(acc review*)', 'Bash(acc autopilot*)', 'Bash(acc agents autonomy*)', 'Bash(acc analyze*)', 'Bash(acc analysis answer*)', 'Bash(acc promote*)', 'Bash(acc deploy*)', 'Bash(acc update*)',
     ...(sf ? ['Bash(sf project deploy start*)', 'Bash(sf project deploy quick*)', 'Bash(sf org delete *)'] : []),
   ];
   return {

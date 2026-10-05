@@ -37,6 +37,8 @@ export interface Verdict {
   env: string;
   verdict: 'pass' | 'changes';
   summary: string;
+  /** One plain sentence for the client: what changes for them. Older verdicts have none (D-???). */
+  client?: string;
   criteria: Criterion[];
   findings: Finding[];
   /** The reviewer's Claude Code session, so its reasoning can be read afterwards. */
@@ -51,10 +53,11 @@ export interface Verdict {
 export const VERDICT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['verdict', 'summary', 'criteria', 'findings'],
+  required: ['verdict', 'summary', 'client', 'criteria', 'findings'],
   properties: {
     verdict: { type: 'string', enum: ['pass', 'changes'], description: 'changes only when something must be fixed before this merges' },
     summary: { type: 'string', description: 'Two or three plain sentences for the pull request: what the change does and how well' },
+    client: { type: 'string', description: 'One plain sentence for the client: what changes for them, with no code, file, tool or agent names' },
     criteria: {
       type: 'array',
       description: 'Each acceptance criterion in the task, in its own words',
@@ -180,7 +183,7 @@ export function reviewPrompt(i: ReviewInput): { system: string; prompt: string }
 }
 
 /** The verdict from Claude Code's JSON result. Anything else is an error that says what came back. */
-export function parseReview(stdout: string): { verdict: Pick<Verdict, 'verdict' | 'summary' | 'criteria' | 'findings'>; sessionId: string | null; costUsd: number | null } {
+export function parseReview(stdout: string): { verdict: Pick<Verdict, 'verdict' | 'summary' | 'client' | 'criteria' | 'findings'>; sessionId: string | null; costUsd: number | null } {
   let r: Record<string, any>;
   try {
     r = JSON.parse(stdout.trim().split('\n').filter(Boolean).pop() ?? '');
@@ -200,7 +203,8 @@ export function parseReview(stdout: string): { verdict: Pick<Verdict, 'verdict' 
   }));
   // A pass with something that must be fixed isn't a pass.
   const verdict = s.verdict === 'pass' && findings.some((f: Finding) => f.must) ? 'changes' : s.verdict;
-  return { verdict: { verdict, summary: s.summary, criteria, findings }, sessionId: typeof r.session_id === 'string' ? r.session_id : null, costUsd: typeof r.total_cost_usd === 'number' ? r.total_cost_usd : null };
+  const client = typeof s.client === 'string' && s.client.trim() ? { client: s.client.trim() } : {};
+  return { verdict: { verdict, summary: s.summary, ...client, criteria, findings }, sessionId: typeof r.session_id === 'string' ? r.session_id : null, costUsd: typeof r.total_cost_usd === 'number' ? r.total_cost_usd : null };
 }
 
 export interface ReviewDeps {
