@@ -119,12 +119,23 @@ export function land(paths: RepoPaths, config: Config, id: string, deps: LandDep
   if (!verdict) throw new AccError('refused', `${id} hasn't been reviewed on ${sha.slice(0, 7)}. Run acc review ${id} first.`);
   if (verdict.verdict !== 'pass') throw new AccError('refused', `${id}'s review on ${sha.slice(0, 7)} asked for changes: ${verdict.summary}`);
 
+  const ghEnv = { ...deps.env, GH_TOKEN: ghToken(run, gh.account) };
+  const ghRun = (args: string[]) => run('gh', args, { cwd: paths.root, env: ghEnv, timeoutMs: GH_TIMEOUT_MS });
+  const open = ghRun(['pr', 'list', '-R', gh.repo, '--head', branch, '--state', 'open', '--json', 'number,url']);
+  const existing = open.code === 0 ? (JSON.parse(open.stdout || '[]') as { number: number; url: string }[])[0] : undefined;
+  // The ledger names a pull request GitHub doesn't have open: closed, or merged since acc last looked.
+  // Autopilot never opens another in its place, and asks before the push, so a merged pull request's
+  // deleted branch isn't made again (D-???).
+  if (!existing && task.pr && opts.actor === 'orchestrator') {
+    const seen = open.code === 0 ? 'isn\'t open on GitHub'
+      : `may not be open on GitHub: gh couldn't list the branch's pull requests (${(open.stderr || open.stdout).trim().split('\n')[0] || `exit ${open.code}`})`;
+    throw new AccError('land', `Pull request #${task.pr.number} ${seen}. Autopilot won't open another: a person decides.`);
+  }
+
   // Push as the repo's own account: the credential helper acc set up follows this clone's choice (D-028).
   const push = run('git', ['push', '--set-upstream', 'origin', `${branch}:${branch}`], { cwd: paths.root, env: deps.env, timeoutMs: PUSH_TIMEOUT_MS });
   if (push.code !== 0) throw new AccError('land', `git push refused ${branch}: ${(push.stderr || push.stdout).trim().split('\n').slice(-2).join(' ')}`);
 
-  const ghEnv = { ...deps.env, GH_TOKEN: ghToken(run, gh.account) };
-  const ghRun = (args: string[]) => run('gh', args, { cwd: paths.root, env: ghEnv, timeoutMs: GH_TIMEOUT_MS });
   const receipts = receiptsAt(paths, sha);
   const body = prBody(task, env, sha, verdict, receipts);
   const dir = mkdtempSync(join(tmpdir(), 'acc-land-'));
@@ -133,8 +144,6 @@ export function land(paths: RepoPaths, config: Config, id: string, deps: LandDep
   try {
     const bodyFile = join(dir, 'body.md');
     writeFileSync(bodyFile, body);
-    const open = ghRun(['pr', 'list', '-R', gh.repo, '--head', branch, '--state', 'open', '--json', 'number,url']);
-    const existing = open.code === 0 ? (JSON.parse(open.stdout || '[]') as { number: number; url: string }[])[0] : undefined;
     if (existing) {
       const edit = ghRun(['pr', 'edit', String(existing.number), '-R', gh.repo, '--body-file', bodyFile]);
       if (edit.code !== 0) throw new AccError('land', `Couldn't update pull request #${existing.number}: ${edit.stderr.trim().split('\n')[0]}`);

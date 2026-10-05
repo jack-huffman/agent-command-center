@@ -340,7 +340,9 @@ test('a pull request landed before acc recorded its commit is compared with what
   assert.ok(!calls.some((c) => c.startsWith('gh ')));
   const sha2 = s.commit('sum.test.js', 'test("sum", () => {});\n');
   passReview(s.paths, s.id, sha2);
-  assert.deepEqual(brief(autopilotPass(s.paths, s.config, deps(calls)).steps)[0], ['T-1', 'land', 'done'], 'behind the branch: it lands');
+  const open = ok(JSON.stringify([{ number: 7, url: 'https://github.com/acme/tool/pull/7' }]));
+  assert.deepEqual(brief(autopilotPass(s.paths, s.config, deps(calls, { 'gh pr list': open })).steps)[0], ['T-1', 'land', 'done'], 'behind the branch: it lands');
+  assert.equal(first(s.paths).pr?.number, 7, 'and updates the one GitHub has open');
 });
 
 test('a closed pull request a person moved back to review isn\'t replaced: the task needs you until a person lands it (D-???)', () => {
@@ -361,6 +363,23 @@ test('a closed pull request a person moved back to review isn\'t replaced: the t
   const landed = land(s.paths, s.config, s.id, { run: deps(calls).run, now, env: {} }, { actor: 'human' });
   assert.deepEqual([landed.opened, landed.pr.number, landed.pr.state], [true, 42, 'open']);
   assert.equal(displayState(readLedger(s.paths.ledger), first(s.paths)), 'review');
+});
+
+test('a ledger that still says open, for a pull request GitHub no longer has open, can\'t make autopilot open another (D-???)', () => {
+  const s = setup();
+  passReview(s.paths, s.id, s.sha);
+  edit(s.paths, (l) => { l.tasks[0]!.pr = { number: 41, url: 'https://github.com/acme/tool/pull/41', state: 'open', sha: s.sha }; });
+  // Closed or merged on GitHub since acc last looked, and the branch moved on.
+  const sha2 = s.commit('sum.test.js', 'test("sum", () => {});\n');
+  passReview(s.paths, s.id, sha2);
+  const calls: string[] = [];
+  const r = autopilotPass(s.paths, s.config, deps(calls));
+  assert.deepEqual(brief(r.steps)[0], ['T-1', 'land', 'failed']);
+  assert.equal(r.steps[0]!.reason, 'Pull request #41 isn\'t open on GitHub. Autopilot won\'t open another: a person decides.');
+  assert.ok(!calls.some((c) => c.startsWith('git push') || c.startsWith('gh pr create') || c.startsWith('gh pr edit')), 'asked before the push: nothing pushed or opened');
+  const t = first(s.paths);
+  assert.deepEqual([t.pr?.number, t.pr?.state, t.autopilot?.failed?.step], [41, 'open', 'land']);
+  assert.equal(displayState(readLedger(s.paths.ledger), t), 'needs-you', 'it names #41 as needing you');
 });
 
 // ---------------------------------------------------------------- one at a time
