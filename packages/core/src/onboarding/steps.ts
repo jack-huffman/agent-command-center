@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { homedir } from 'node:os';
+import { dirname, join, sep } from 'node:path';
 import { branchFor, type Environment } from '../config.ts';
 import { isTrusted, mainCheckout } from '../dispatch.ts';
 import { type DriftResult, driftReportPath } from '../drift.ts';
@@ -59,6 +60,60 @@ const sfEnvs = (ctx: CheckContext): Environment[] => (ctx.config?.environments ?
 const devEnvs = (ctx: CheckContext): Environment[] =>
   sfEnvs(ctx).filter((e) => (e.type === 'developer' || e.type === 'developer_pro') && e.org);
 
+/** Variables that make Claude Code bill per token: an API key, or a cloud account (Bedrock, Vertex) when true. */
+const API_KEY_VARS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'];
+const CLOUD_VARS = ['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX'];
+const isTrue = (v: unknown): boolean => ['1', 'true', 'yes', 'on'].includes(String(v ?? '').trim().toLowerCase());
+
+/** The billing settings in a variable map, by name. Values are only tested, never returned. */
+function billingVars(vars: Record<string, unknown>): string[] {
+  return [...API_KEY_VARS.filter((v) => String(vars[v] ?? '') !== ''), ...CLOUD_VARS.filter((v) => isTrue(vars[v]))];
+}
+
+/**
+ * The Claude Code settings files agents read, labelled as the person knows them: the user's own (in
+ * CLAUDE_CONFIG_DIR when set), and the project's in this checkout and the main checkout agents start in (D-022).
+ */
+function claudeSettingsFiles(ctx: CheckContext): { file: string; label: string }[] {
+  const home = ctx.env.HOME || homedir();
+  const tilde = (f: string) => (f.startsWith(home + sep) ? `~${f.slice(home.length)}` : f);
+  const user = ctx.env.CLAUDE_CONFIG_DIR ? join(ctx.env.CLAUDE_CONFIG_DIR, 'settings.json') : join(home, '.claude', 'settings.json');
+  const files = [{ file: user, label: tilde(user) }];
+  if (!ctx.paths) return files;
+  let main = ctx.paths.root;
+  try {
+    main = mainCheckout(ctx.run, ctx.paths.root);
+  } catch {
+    // fall back to this checkout
+  }
+  for (const root of new Set([ctx.paths.root, main])) {
+    for (const rel of ['.claude/settings.json', '.claude/settings.local.json']) {
+      files.push({ file: join(root, rel), label: root === ctx.paths.root ? rel : tilde(join(root, rel)) });
+    }
+  }
+  return files;
+}
+
+/** What in one settings file points at per-token billing, by name. Null when it isn't valid JSON. */
+function billingSettings(file: string): string[] | null {
+  let text: string;
+  try {
+    text = readFileSync(file, 'utf8');
+  } catch {
+    return [];
+  }
+  let s: { apiKeyHelper?: unknown; env?: unknown };
+  try {
+    s = JSON.parse(text) ?? {};
+  } catch {
+    // The parser's message can quote the file, and so a key: it's never shown.
+    return null;
+  }
+  const found = s.apiKeyHelper ? ['apiKeyHelper'] : [];
+  if (s.env && typeof s.env === 'object') found.push(...billingVars(s.env as Record<string, unknown>).map((v) => `${v} under env`));
+  return found;
+}
+
 function versionStep(id: string, title: string, why: string, cmd: string, args: string[], min: string | null, fix: string, profiles?: Step['profiles']): Step {
   return {
     id, part: 'machine', group: 'A1', title, why, profiles, fix: { command: fix },
@@ -100,6 +155,27 @@ export const STEPS: Step[] = [
       const h = ctx.run('claude', ['--help'], { env: ctx.env });
       if (!/--bg\b/.test(h.stdout)) return fail(`claude ${firstVersion(v.stdout) ?? ''} has no --bg. Update it.`);
       return pass(`claude ${firstVersion(v.stdout) ?? ''}`.trim());
+    },
+  },
+  {
+    id: 'A1.claude-billing', part: 'machine', group: 'A1', title: 'Agents bill your Claude subscription',
+    why: 'On your Claude subscription, agents\' work counts toward the plan you already pay for; with an API key, or through Bedrock or Vertex, every token they use is billed on top, and nothing else tells you.',
+    fix: {
+      text: 'Remove each setting the check names: take the variable out of your shell profile (such as ~/.zshrc) and open a new terminal, or delete apiKeyHelper, or the variable under "env", from the settings file it names. If Claude Code then asks you to sign in, use /login with your Claude account. Keeping one on purpose, such as a key you mean to bill per token, is fine: mark this done.',
+    },
+    check(ctx) {
+      // Names and places only: a key's value is never read out, shown or kept.
+      const found = billingVars(ctx.env).map((v) => `${v} in the environment`);
+      const unreadable: string[] = [];
+      for (const { file, label } of claudeSettingsFiles(ctx)) {
+        const names = billingSettings(file);
+        if (names) found.push(...names.map((n) => `${n} in ${label}`));
+        else unreadable.push(label);
+      }
+      const note = unreadable.length ? `Not valid JSON, so not checked: ${unreadable.join(', ')}.` : '';
+      if (found.length) return fail(`Agents would bill per token, not your Claude subscription: ${found.join(', ')}.${note && ` ${note}`}`);
+      if (unreadable.length) return unknown(note);
+      return pass('Agents use your Claude subscription.');
     },
   },
   versionStep('A1.sf', 'Salesforce CLI', 'Validation, retrieves and org checks use sf.', 'sf', ['--version'], null, 'npm install -g @salesforce/cli', ['salesforce']),
