@@ -237,7 +237,7 @@ export const conflictLine = (row: Pick<TaskRow, 'pr' | 'environment'>, full = fa
 /**
  * What the Command Center says after a land. `comment` is the Jira or Azure DevOps comment the extension
  * posted, and its error if it failed. A comment that isn't confirmed or failed is a warning, as the
- * CLI's orange '!' is (D-051).
+ * CLI's orange '!' is (D-051, D-???).
  */
 export function landMessage(id: string, r: { opened?: boolean; pr?: { number: number }; commentUnconfirmed?: string | null }, comment?: { key: string; error?: string }): { level: 'info' | 'warning'; text: string } {
   let note = r.commentUnconfirmed ? ` The comment on ${id}'s issue isn't confirmed: ${r.commentUnconfirmed.replace(/([^.!?])$/, '$1.')} Look at the issue before you post it again.` : '';

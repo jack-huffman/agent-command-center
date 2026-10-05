@@ -21,7 +21,7 @@ export const GH_TIMEOUT_MS = 2 * 60_000;
 /**
  * The longest a land can take: its push, its fetch and four gh calls (auth token, pr list, pr create or
  * edit, issue comment), each at its timeout, plus a minute for local git and the ledger lock. Whatever
- * runs acc land waits at least this long, or the land's result is lost.
+ * runs acc land waits at least this long, or the land's result is lost (D-???).
  */
 export const LAND_TIMEOUT_MS = PUSH_TIMEOUT_MS + FETCH_TIMEOUT_MS + 4 * GH_TIMEOUT_MS + 60_000;
 

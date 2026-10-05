@@ -25,7 +25,7 @@ export function runFile(file: string, args: string[], cwd: string, env: NodeJS.P
   });
 }
 
-/** How long the extension waits for an acc command. A land pushes and calls gh several times, so it gets as long as those can take. */
+/** How long the extension waits for an acc command. A land pushes and calls gh several times, so it gets as long as those can take (D-???). */
 export const accTimeoutMs = (args: string[]): number => (args[0] === 'land' ? LAND_TIMEOUT_MS : RUN_TIMEOUT_MS);
 
 /** The bundled acc, run by VSCode's own runtime so it works even before Node is on PATH. */
