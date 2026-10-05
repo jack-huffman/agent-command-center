@@ -1094,7 +1094,7 @@ out on GitHub.
 - Not chosen: resolving the conflict for you. That changes the branch after its
   review. It's rework, for a builder or a person.
 
-## D-??? The question history loses no record to a torn line or a trim (2026-10-05)
+## D-050 The question history loses no record to a torn line or a trim (2026-10-05)
 
 Two ways D-043's history could lose a record, from GH-11's second review.
 Issue #17. Neither was new, but D-043 trims every 64 KB of growth, not every
