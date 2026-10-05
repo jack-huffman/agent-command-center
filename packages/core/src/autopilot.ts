@@ -256,8 +256,14 @@ export function autopilotPass(paths: RepoPaths, config: Config, deps: AutopilotD
         continue;
       }
       const reason = firstLines((e as Error).message ?? String(e));
-      recordFailure(paths, deps.now, id, { step: d.step, sha: facts.head, state: task.state, reason, at: deps.now().toISOString() });
-      out.steps.push({ task: id, state: task.state, step: d.step, sha, outcome: 'failed', reason });
+      let unrecorded = '';
+      try {
+        recordFailure(paths, deps.now, id, { step: d.step, sha: facts.head, state: task.state, reason, at: deps.now().toISOString() });
+      } catch (err) {
+        // Not kept, so the next pass tries again; the pass itself carries on.
+        unrecorded = ` (Not recorded on the task: ${(err as Error).message})`;
+      }
+      out.steps.push({ task: id, state: task.state, step: d.step, sha, outcome: 'failed', reason: reason + unrecorded });
     }
   }
   return out;
