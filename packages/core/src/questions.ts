@@ -2,7 +2,7 @@ import { chmodSync, closeSync, fstatSync, linkSync, mkdirSync, openSync, readdir
 import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { alive } from './lock.ts';
+import { alive, withLock } from './lock.ts';
 
 /**
  * What an agent asks a person (D-030): a permission prompt, or a question it put with AskUserQuestion.
@@ -16,6 +16,7 @@ import { alive } from './lock.ts';
  *   listeners/<pid>.json  a window that shows questions for these folders, refreshed while it's open
  *   history.jsonl         how each question ended, so the page can show the conversation (D-037)
  *   history.trimmed       the size the history's last trim left it at (D-043)
+ *   history.lock/         held while a record is appended and the history trimmed (D-???)
  */
 export const questionsDir = (env: NodeJS.ProcessEnv = process.env): string => env.ACC_QUESTIONS_DIR || join(homedir(), '.acc', 'questions');
 
@@ -133,19 +134,27 @@ const HISTORY_MAX_BYTES = 2 * 1024 * 1024;
 export const HISTORY_TRIM_EVERY_BYTES = 64 * 1024;
 
 /**
+ * An append and its trim hold this lock, so a trim can't rename its copy over a record appended after it
+ * read the file (D-???). Both take milliseconds; a waiter breaks a lock held past `staleMs` before it gives up.
+ */
+const HISTORY_LOCK = { timeoutMs: 10_000, staleMs: 5_000 };
+
+/**
  * Appends a record. Once the file has grown `trimEvery` bytes past the size its last trim left, it's cut
  * back to its newest records, so between trims it holds only a few more than it keeps.
  */
 export function appendHistory(dir: string, rec: HistoryRecord, trimEvery = HISTORY_TRIM_EVERY_BYTES): void {
   ensureDir(dir);
   const file = join(dir, 'history.jsonl');
-  appendLine(file, JSON.stringify(rec));
-  try {
-    const size = statSync(file).size;
-    if (size > trimmedSize(dir, size) + trimEvery) writePrivateText(join(dir, 'history.trimmed'), `${trimHistory(file)}\n`);
-  } catch {
-    // trimming is best effort; the record is written
-  }
+  withLock(join(dir, 'history.lock'), () => {
+    appendLine(file, JSON.stringify(rec));
+    try {
+      const size = statSync(file).size;
+      if (size > trimmedSize(dir, size) + trimEvery) writePrivateText(join(dir, 'history.trimmed'), `${trimHistory(file)}\n`);
+    } catch {
+      // trimming is best effort; the record is written
+    }
+  }, HISTORY_LOCK);
 }
 
 /**
