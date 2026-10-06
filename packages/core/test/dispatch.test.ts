@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parseConfig } from '../src/config.ts';
 import { awakePath } from '../src/awake.ts';
-import { builderSettings, dispatch, renderPacket, slugify, taskBranch, worktreeRoot } from '../src/dispatch.ts';
+import { builderSettings, dispatch, findSession, renderPacket, slugify, taskBranch, worktreeRoot } from '../src/dispatch.ts';
 import { run } from '../src/exec.ts';
 import { emptyLedger, mutate, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
@@ -28,7 +28,8 @@ const sessions = fs.existsSync(path.join(dir, 'sessions.json')) ? JSON.parse(fs.
 if (args[0] === '--bg') {
   const name = args[args.indexOf('--name') + 1];
   const n = sessions.length + 1;
-  sessions.push({ id: 'bg' + n, sessionId: 'sess-' + n, name, kind: 'background', cwd: process.cwd(), startedAt: Date.now(), state: 'working' });
+  // A pid no process has, as Claude Code lists a background session's own process.
+  sessions.push({ id: 'bg' + n, sessionId: 'sess-' + n, name, kind: 'background', cwd: process.cwd(), startedAt: Date.now(), state: 'working', pid: 4000000 + n });
   fs.writeFileSync(path.join(dir, 'sessions.json'), JSON.stringify(sessions));
   console.log('bg' + n);
 } else if (args[0] === 'agents') {
@@ -232,6 +233,18 @@ test('a background dispatch keeps the Mac awake for its session\'s own process, 
   assert.equal(JSON.parse(readFileSync(awakePath(paths, 'T-1'), 'utf8')).watch, 4242, 'written down, so it ends when the task leaves running');
   const s = builderSettings({ id: 'T-1' } as never, config, '/acc/bin', '/usr/bin') as { permissions: { deny: string[] } };
   assert.ok(s.permissions.deny.includes('Bash(acc resume*)'));
+});
+
+test('a session listed before its process is asked for again until its pid shows, so the Mac is still kept awake (D-067)', () => {
+  const session = { id: 'bg1', sessionId: 'sess-1', name: 'T-1', kind: 'background', startedAt: 1, state: 'working', status: 'busy' };
+  let asked = 0;
+  const later: typeof run = (cmd, args) => (cmd === 'claude' && args[0] === 'agents'
+    ? { code: 0, stdout: JSON.stringify([++asked < 3 ? session : { ...session, pid: 4242 }]), stderr: '', timedOut: false }
+    : { code: 0, stdout: '', stderr: '', timedOut: false });
+  assert.deepEqual(findSession(later, '/w', 'T-1', 5_000), { bgId: 'bg1', sessionId: 'sess-1', pid: 4242 });
+  assert.equal(asked, 3, 'asked until the pid was there');
+  const never: typeof run = () => ({ code: 0, stdout: JSON.stringify([session]), stderr: '', timedOut: false });
+  assert.deepEqual(findSession(never, '/w', 'T-1', 1_200), { bgId: 'bg1', sessionId: 'sess-1', pid: null }, 'a pid that never shows still finds the session');
 });
 
 test('dispatch refuses before touching anything when Claude Code doesn\'t trust the repo (D-022)', () => {

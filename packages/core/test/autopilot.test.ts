@@ -87,7 +87,7 @@ function deps(calls: string[], over: Record<string, RunResult> = {}): AutopilotD
       'gh pr edit': ok(''),
       'claude -p': verdictOut('pass'),
       'claude --bg': ok('bg1\n'),
-      'claude agents --json': ok(JSON.stringify([{ id: 'bg1', sessionId: 'sess-1', name: 'T-1', kind: 'background', startedAt: 1 }])),
+      'claude agents --json': ok(JSON.stringify([{ id: 'bg1', sessionId: 'sess-1', name: 'T-1', kind: 'background', startedAt: 1, pid: 4_000_001 }])),
       ...over,
     }, calls),
     now, env: {}, accBinDir: '/opt/acc/bin',

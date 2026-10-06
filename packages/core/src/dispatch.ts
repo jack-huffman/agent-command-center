@@ -310,21 +310,29 @@ function readList(wt: string, rel: string | null): string[] {
 
 const sleep = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
-/** The new background session, found by name and folder in `claude agents --json`, with its process. */
+/**
+ * The new background session, found by name and folder in `claude agents --json`, with its process. A
+ * session can be listed a moment before its process is, so it's asked again, within the same wait, until
+ * the pid shows: without it nothing keeps the Mac awake for the builder (D-067).
+ */
 export function findSession(run: Runner, wt: string, name: string, waitMs: number): { bgId: string | null; sessionId: string | null; pid: number | null } {
   const until = Date.now() + waitMs;
+  let found: { bgId: string | null; sessionId: string | null; pid: number | null } | null = null;
   do {
     const r = run('claude', ['agents', '--json'], { cwd: wt, timeoutMs: 20_000 });
     try {
       const list = JSON.parse(r.stdout) as { id?: string; sessionId?: string; name?: string; cwd?: string; kind?: string; startedAt?: number; pid?: number }[];
       const s = list.filter((x) => x.name === name && x.kind === 'background').sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))[0];
-      if (s) return { bgId: s.id ?? null, sessionId: s.sessionId ?? null, pid: Number.isInteger(s.pid) && s.pid! > 0 ? s.pid! : null };
+      if (s) {
+        found = { bgId: s.id ?? null, sessionId: s.sessionId ?? null, pid: Number.isInteger(s.pid) && s.pid! > 0 ? s.pid! : null };
+        if (found.pid) return found;
+      }
     } catch {
       // not JSON yet; try again
     }
     if (Date.now() < until) sleep(500);
   } while (Date.now() < until);
-  return { bgId: null, sessionId: null, pid: null };
+  return found ?? { bgId: null, sessionId: null, pid: null };
 }
 
 export interface DispatchOptions {
