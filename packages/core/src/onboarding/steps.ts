@@ -144,7 +144,8 @@ export const GROUP_TITLES: Record<string, string> = {
 export const STEPS: Step[] = [
   // ------------------------------------------------------------ Part A: this machine
   versionStep('A1.git', 'git 2.40 or later', 'Worktrees and the shared git directory need a recent git.', 'git', ['--version'], '2.40', 'brew install git'),
-  versionStep('A1.node', 'Node 20 or later', 'The acc CLI runs on Node.', 'node', ['--version'], '20', 'brew install node'),
+  // acc itself needs no Node: its launcher falls back to VSCode's runtime (D-077).
+  versionStep('A1.node', 'Node 20 or later', 'The Salesforce CLI and its plugins run on Node, and npm installs them. acc itself doesn\'t need it.', 'node', ['--version'], '20', 'brew install node', ['salesforce']),
   versionStep('A1.gh', 'GitHub CLI', 'Pull requests, issues and the per-repo account all go through gh.', 'gh', ['--version'], null, 'brew install gh'),
   {
     id: 'A1.claude', part: 'machine', group: 'A1', title: 'Claude Code CLI with background sessions',
@@ -152,7 +153,7 @@ export const STEPS: Step[] = [
     fix: { command: 'claude update' },
     check(ctx) {
       const v = ctx.run('claude', ['--version'], { env: ctx.env });
-      if (v.code === 127) return fail('claude isn\'t installed.', 'npm install -g @anthropic-ai/claude-code');
+      if (v.code === 127) return fail('claude isn\'t installed.', 'brew install --cask claude-code');
       const h = ctx.run('claude', ['--help'], { env: ctx.env });
       if (!/--bg\b/.test(h.stdout)) return fail(`claude ${firstVersion(v.stdout) ?? ''} has no --bg. Update it.`);
       return pass(`claude ${firstVersion(v.stdout) ?? ''}`.trim());

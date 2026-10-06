@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import {
   buildWalkthroughs, commandLink, COMMANDS, contextKey, EXTENSION_ID, followsPullRequests, hasPlaceholder, initCommand, isComplete, isWebviewMenuContext, mediaPath,
-  productionOrgs, setupOrgChoices, statusText, stepDescription, summarize, walkthroughSteps, type DoctorItem,
+  productionOrgs, reusableMachine, setupOrgChoices, statusText, stepDescription, summarize, walkthroughSteps, type DoctorItem,
 } from '../src/logic.ts';
 import { staleFiles } from '../scripts/generate.ts';
 
@@ -105,6 +105,18 @@ test('status text counts what is left, and attention means something failed', ()
   assert.equal(isComplete('skip'), true);
   assert.equal(isComplete('unknown', true), true);
   assert.equal(isComplete('fail'), false);
+});
+
+test('machine results are reused only while fresh, and only in a folder with the same profile', () => {
+  const items: DoctorItem[] = [{ id: 'A1.node', part: 'machine', title: 'Node', status: 'fail', detail: 'node isn\'t installed.' }];
+  const now = 1_000_000;
+  const fresh = { at: now - 1000, profile: 'salesforce', items };
+  assert.deepEqual(reusableMachine(fresh, 'salesforce', now, 5000), items);
+  assert.equal(reusableMachine(fresh, 'generic', now, 5000), null, 'a generic folder never shows A1.node from a Salesforce folder\'s check');
+  assert.equal(reusableMachine(fresh, 'none', now, 5000), null);
+  assert.equal(reusableMachine({ ...fresh, at: now - 5000 }, 'salesforce', now, 5000), null, 'stale');
+  assert.equal(reusableMachine({ at: now, items }, 'generic', now, 5000), null, 'saved before results knew their profile');
+  assert.equal(reusableMachine(undefined, 'generic', now, 5000), null);
 });
 
 test('Open in Salesforce offers Developer sandboxes for tracking, and the default org first otherwise', () => {

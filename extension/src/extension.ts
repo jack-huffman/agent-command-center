@@ -7,6 +7,7 @@ import type { Answer } from '../../packages/core/src/questions.ts';
 import { agentArgs, withCloneAgents } from '../../packages/core/src/agents.ts';
 import { run as runSync } from '../../packages/core/src/exec.ts';
 import { resumeCommand } from '../../packages/core/src/resume.ts';
+import { recordRuntime } from '../../packages/core/src/runtime.ts';
 import { AgentPages } from './activity.ts';
 import { AutopilotHost } from './autopilot.ts';
 import { type AgentSession, analysisAnswerArgs, CLAUDE_EXTENSION, claudeSessionUri, COMMANDS, followsPullRequests, isSessionId, isWebviewMenuContext, shq, WALKTHROUGHS } from './logic.ts';
@@ -30,8 +31,17 @@ const stepId = (a: unknown): string => (typeof a === 'string' ? a : (a as { item
 
 export function activate(context: vscode.ExtensionContext): void {
   const setup = new Setup(context);
+  // Recorded before anything can start acc's launcher, which runs acc on this runtime wherever node 20 or
+  // later isn't on PATH (D-077).
+  try {
+    if (recordRuntime(process.execPath)) setup.log.info(`Recorded ${process.execPath} as the runtime acc uses when node isn't on PATH.`);
+  } catch (e) {
+    setup.log.warn(`Couldn't record VSCode's runtime for acc, so acc needs node on PATH outside this window: ${(e as Error).message}`);
+  }
   const hub = new Hub();
-  const accScript = context.asAbsolutePath(join('dist', 'bin', 'acc'));
+  // The extension runs the bundle itself, on its own runtime (D-012). Terminals and builders get the
+  // launcher beside it, `acc`, on PATH.
+  const accScript = context.asAbsolutePath(join('dist', 'bin', 'acc.mjs'));
   // acc follows tickets that left a board's place (D-072).
   const trackers = new Trackers(context.secrets, hub, setup.log, accRunner(accScript));
   context.subscriptions.push(setup, hub, trackers);

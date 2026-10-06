@@ -1,0 +1,68 @@
+#!/bin/sh
+# acc's launcher (D-077). It runs the bundled acc.mjs beside it with the first runtime it finds, so acc
+# works with no Node installed:
+#   1. $ACC_NODE, when set: an explicit choice, so a wrong one is an error, not a fallback.
+#   2. node on PATH, when it's version 20 or later.
+#   3. The VSCode runtime the extension records in ~/.acc/runtime ($ACC_RUNTIME_FILE overrides it).
+# With none, `acc hook …` exits 0 without a word, so the plugin's hooks never break a Claude Code
+# session (D-042). Anything else gets one line that names the fix.
+
+# This file's real folder, through any symlinks to it, holds acc.mjs.
+self=$0
+while [ -L "$self" ]; do
+  link=$(readlink "$self")
+  case $link in
+    /*) self=$link ;;
+    *) case $self in */*) self=${self%/*}/$link ;; *) self=$link ;; esac ;;
+  esac
+done
+case $self in */*) dir=${self%/*} ;; *) dir=. ;; esac
+here=$(CDPATH= cd -P -- "${dir:-/}" && pwd -P) || exit 1
+mjs=$here/acc.mjs
+
+# Electron's runtime acts as Node only with this set. Real node ignores it.
+as_node() {
+  ELECTRON_RUN_AS_NODE=1
+  export ELECTRON_RUN_AS_NODE
+  exec "$@"
+}
+
+runnable() { [ -n "$1" ] && [ -f "$1" ] && [ -x "$1" ]; }
+
+problem=
+if [ ! -f "$mjs" ]; then
+  problem="acc.mjs is missing from $here: reinstall Agent Command Center."
+elif [ -n "${ACC_NODE:-}" ]; then
+  case $ACC_NODE in */*) rt=$ACC_NODE ;; *) rt=$(command -v "$ACC_NODE" 2>/dev/null) ;; esac
+  runnable "$rt" && as_node "$rt" "$mjs" "$@"
+  problem="ACC_NODE is set to $ACC_NODE, which acc can't run: point it at a node 20 or later, or unset it."
+else
+  node=$(command -v node 2>/dev/null)
+  if runnable "$node"; then
+    major=$("$node" --version 2>/dev/null </dev/null)
+    major=${major#v}
+    major=${major%%.*}
+    case $major in
+      ''|*[!0-9]*) ;;
+      *) [ "$major" -ge 20 ] && exec "$node" "$mjs" "$@" ;;
+    esac
+  fi
+  rt=
+  file=${ACC_RUNTIME_FILE:-$HOME/.acc/runtime}
+  # The extension writes the path and a newline; read it with or without one.
+  [ -r "$file" ] && { IFS= read -r rt <"$file" || :; }
+  runnable "$rt" && as_node "$rt" "$mjs" "$@"
+  problem='acc needs Node 20 or later: open VSCode with Agent Command Center once, run brew install node, or set ACC_NODE.'
+fi
+
+if [ "${1:-}" = hook ]; then
+  # Read what Claude Code sends, as acc would, so it never writes to a closed pipe.
+  [ -t 0 ] || cat >/dev/null 2>&1
+  exit 0
+fi
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  printf '\033[38;5;208m✗ %s\033[0m\n' "$problem" >&2
+else
+  printf '✗ %s\n' "$problem" >&2
+fi
+exit 1

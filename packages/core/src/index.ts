@@ -29,6 +29,7 @@ export * from './hooks.ts';
 export * from './awake.ts';
 export * from './transcript.ts';
 export * from './resume.ts';
+export * from './runtime.ts';
 export * from './onboarding/types.ts';
 export { makeContext, parseOrgUrl, SECRET_PATTERN, versionAtLeast } from './onboarding/helpers.ts';
 export { STEPS, runSteps, applies } from './onboarding/steps.ts';

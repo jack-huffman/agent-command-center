@@ -122,6 +122,21 @@ export interface DoctorItem {
   open?: string | null;
 }
 
+/** Machine results kept for every window, with the profile of the folder they were checked in. */
+export interface MachineCache {
+  at: number;
+  profile?: string;
+  items: DoctorItem[];
+}
+
+/**
+ * The machine results a refresh may reuse instead of calling slow CLIs: fresh enough, and checked in a
+ * folder with the same profile, since the profile decides which machine steps apply (A1.node and A1.sf
+ * are Salesforce's).
+ */
+export const reusableMachine = (cached: MachineCache | undefined, profile: string, now: number, freshMs: number): DoctorItem[] | null =>
+  cached && cached.profile === profile && now - cached.at < freshMs ? cached.items : null;
+
 /** A step counts as complete when it passes, doesn't apply (skip), or a person confirmed it. */
 export const isComplete = (status: CheckStatus, confirmed = false): boolean => status === 'pass' || status === 'skip' || confirmed;
 

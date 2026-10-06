@@ -1,37 +1,45 @@
 // Builds the CLI bundle the plugin ships (D-012), regenerates the walkthrough from core's step list
 // (D-017), and bundles the extension with its own copy of the CLI and the onboarding guide.
+//
+// acc ships as two files side by side, everywhere it ships (D-077): `acc`, a small sh launcher that finds
+// a runtime, and `acc.mjs`, the bundle it runs. So acc works with no Node installed.
 import { build } from 'esbuild';
 import { chmodSync, copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-// The CLI bundle builds into dist/, which git ignores. The plugin's tracked copy, plugin/bin/acc, is
-// refreshed only for a release (--release, as npm run package does), so a branch's checks never change
-// it and pull requests don't conflict over a generated file (D-042).
+// The CLI builds into dist/, which git ignores. The plugin's tracked copy, plugin/bin/, is refreshed only
+// for a release (--release, as npm run package does), so a branch's checks never change it and pull
+// requests don't conflict over a generated file (D-042).
 const release = process.argv.includes('--release');
-const cli = join(root, 'dist', 'acc');
+const dist = join(root, 'dist');
 const ext = join(root, 'extension');
 
 await build({
   entryPoints: [join(root, 'packages', 'cli', 'src', 'main.ts')],
-  outfile: cli,
+  outfile: join(dist, 'acc.mjs'),
   bundle: true,
   platform: 'node',
   target: 'node20',
   format: 'esm',
-  banner: { js: '#!/usr/bin/env node' },
   legalComments: 'none',
   logLevel: 'warning',
 });
-chmodSync(cli, 0o755);
-console.log(`built ${cli}`);
+
+/** Puts the launcher and the bundle in a folder together: one never ships without the other. */
+function shipCli(dir) {
+  mkdirSync(dir, { recursive: true });
+  copyFileSync(join(root, 'packages', 'cli', 'bin', 'acc'), join(dir, 'acc'));
+  chmodSync(join(dir, 'acc'), 0o755);
+  if (dir !== dist) copyFileSync(join(dist, 'acc.mjs'), join(dir, 'acc.mjs'));
+  chmodSync(join(dir, 'acc.mjs'), 0o644);
+}
+shipCli(dist);
+console.log(`built ${join(dist, 'acc')}`);
 if (release) {
-  const shipped = join(root, 'plugin', 'bin', 'acc');
-  mkdirSync(dirname(shipped), { recursive: true });
-  copyFileSync(cli, shipped);
-  chmodSync(shipped, 0o755);
-  console.log(`released ${shipped}`);
+  shipCli(join(root, 'plugin', 'bin'));
+  console.log(`released ${join(root, 'plugin', 'bin')}`);
 }
 
 const { generate } = await import('../extension/scripts/generate.ts');
@@ -50,9 +58,7 @@ await build({
   legalComments: 'none',
   logLevel: 'warning',
 });
-mkdirSync(join(ext, 'dist', 'bin'), { recursive: true });
-copyFileSync(cli, join(ext, 'dist', 'bin', 'acc'));
-chmodSync(join(ext, 'dist', 'bin', 'acc'), 0o755);
+shipCli(join(ext, 'dist', 'bin'));
 copyFileSync(join(root, 'docs', 'ONBOARDING.md'), join(ext, 'dist', 'ONBOARDING.md'));
 
 // The editor tabs: a browser bundle, its styles, and VSCode's own icon font.
