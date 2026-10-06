@@ -402,7 +402,7 @@ function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
     el('div', 'tracker-head',
       el('h2', '', icon(KIND_ICON[b.kind] ?? 'issues'), b.title, b.source ? el('span', 'chip', SOURCE_LABEL[b.source] ?? b.source) : null, b.signedInAs ? el('span', 'acting', icon('account'), `as ${b.signedInAs}`) : null, b.loading ? el('span', 'muted loading', icon('sync~spin'), 'Loading') : null),
       el('div', 'toolbar', ...tools)));
-  // Where its tickets come from (GH-50): only these are shown, tracked or taken in.
+  // Where its tickets come from (D-???): only these are shown, tracked or taken in.
   if (b.place) out.append(el('p', 'tracker-place', icon('filter'), el('span', '', 'Tickets from ', el('strong', '', b.place))));
   if (b.left.length) {
     out.append(el('div', 'notice attention left-place', icon('warning', 'orange'),
@@ -711,7 +711,7 @@ function renderTicket(m: TicketModel): Node[] {
     if (fix && m.connect) { fix.type = 'button'; const c = m.connect; fix.addEventListener('click', () => api.postMessage({ type: 'toolbar', command: c.command, arg: c.arg })); }
     out.push(el('div', 'notice attention', icon('warning', 'orange'), el('span', '', m.error), fix));
   }
-  // Outside the repo's place (GH-50): said plainly, and only a person's call when acc keeps a task for it.
+  // Outside the repo's place (D-???): said plainly, and only a person's call when acc keeps a task for it.
   if (m.outside) out.push(el('div', `notice${m.acc ? ' attention' : ''}`, icon(m.acc ? 'warning' : 'filter', m.acc ? 'orange' : undefined), el('span', '', m.outside)));
 
   // Summary first, details on demand: why it's stuck, in one line, before anything else, then its

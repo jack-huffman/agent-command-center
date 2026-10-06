@@ -19,7 +19,7 @@ export interface GithubOptions {
   exec: Exec;
   /** A GitHub Project number to take columns from. By default, the repo's first open Project with a Status field. */
   project?: number | null;
-  /** Only issues with one of these labels count (GH-50). By default, every issue in the repo. */
+  /** Only issues with one of these labels count (D-???). By default, every issue in the repo. */
   labels?: string[];
 }
 
@@ -34,7 +34,7 @@ export function hasPlaceLabel(issue: { labels?: { name: string }[] }, labels: st
 }
 
 /**
- * Why an issue is outside a repo's place, or null (GH-50): it moved to another repo, or has none of the
+ * Why an issue is outside a repo's place, or null (D-???): it moved to another repo, or has none of the
  * place's labels. A moved issue's link names its new repo. With `projectOnly`, the labels don't count.
  */
 export function githubOutside(issue: { url?: string | null; labels?: { name: string }[] }, repo: string, labels: string[], projectOnly = false): string | null {
@@ -169,7 +169,7 @@ export class GithubClient implements TrackerClient {
   }
 
   /**
-   * The repo's open or closed issues, held to the place's labels (GH-50). `gh issue list --label` wants
+   * The repo's open or closed issues, held to the place's labels (D-???). `gh issue list --label` wants
    * every label it's given, so an issue with any one of them takes a list per label, merged.
    */
   private async issues(state: 'open' | 'closed', limit: number) {

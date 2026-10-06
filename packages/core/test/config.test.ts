@@ -201,7 +201,7 @@ test('re-adding a tracker keeps the settings it had, in its place; a new one goe
   assert.deepEqual(withTracker(list, { kind: 'jira', site: 'acme.atlassian.net', project: 'OPS' }).map((t) => t.project), [undefined, 'CRM', 'OPS'], 'another project is another tracker');
 });
 
-test('a tracker names its place: a Jira epic, GitHub labels or an Azure area path; a wrong type is an error, the wrong kind a warning (GH-50)', () => {
+test('a tracker names its place: a Jira epic, GitHub labels or an Azure area path; a wrong type is an error, the wrong kind a warning (D-???)', () => {
   const base = clone(GENERIC_CONFIG);
   const one = (t: Record<string, unknown>) => parseConfig({ ...base, trackers: [t] });
   const jira = one({ kind: 'jira', site: 's', project: 'ACME', epic: 'acme-3' }).config!.trackers[0]!;
@@ -223,7 +223,7 @@ test('a tracker names its place: a Jira epic, GitHub labels or an Azure area pat
   assert.deepEqual([wrong.config!.trackers[0]!.epic, wrong.config!.trackers[1]!.labels], [null, []], 'and it isn\'t kept');
 });
 
-test('a place is written as it was given, left out when unset, and re-adding a tracker as the whole project clears it (GH-50)', () => {
+test('a place is written as it was given, left out when unset, and re-adding a tracker as the whole project clears it (D-???)', () => {
   const base = clone(GENERIC_CONFIG);
   const file = join(tempDir(), '.acc', 'config.json');
   const trackers = [{ kind: 'jira', site: 's', project: 'ACME', epic: 'ACME-3' }, { kind: 'github', labels: ['billing'] }, { kind: 'azure', organization: 'a', project: 'CRM', areaPath: 'CRM\\Billing' }, { kind: 'jira', site: 's', project: 'OPS' }];

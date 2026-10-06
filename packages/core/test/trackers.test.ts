@@ -229,7 +229,7 @@ test('a Jira board: the board\'s own columns, each holding its statuses, with ev
   const jira = new JiraClient({ site: 'acme.atlassian.net', project: 'MSP', email: 'me@acme.co', token: 'tok', fetch: f });
   const b = await jira.board();
   assert.deepEqual(b.columns.map((c) => [c.name, c.category, c.statusIds]), [['To Do', 'todo', ['1']], ['In Progress', 'doing', ['3', '4']], ['Done', 'done', ['10']]]);
-  assert.deepEqual(b.cards.map((c) => [c.key, c.status.name, c.type, c.priority, c.assignees[0]?.name ?? null]), [['MSP-1', 'In Review', 'Story', 'High', 'Pat Lee'], ['MSP-2', 'To Do', 'Bug', null, null]], 'only this project\'s cards (GH-50)');
+  assert.deepEqual(b.cards.map((c) => [c.key, c.status.name, c.type, c.priority, c.assignees[0]?.name ?? null]), [['MSP-1', 'In Review', 'Story', 'High', 'Pat Lee'], ['MSP-2', 'To Do', 'Bug', null, null]], 'only this project\'s cards (D-???)');
   assert.equal(b.url, 'https://acme.atlassian.net/jira/software/projects/MSP/boards/42');
   assert.equal(b.place, 'Jira · MSP');
   const cardsCall = new URL(`https://x${calls.find((c) => c.path.includes('/issue?'))!.path}`);
@@ -275,7 +275,7 @@ test('a Jira ticket: ADF description and comments, related tickets, transitions 
   await assert.rejects(jira.setLabels('MSP-1', ['two words'], []), /can't contain spaces/);
 });
 
-// ---------------------------------------------------------------- the place (GH-50)
+// ---------------------------------------------------------------- the place (D-???)
 
 const isOutside = (re: RegExp) => (e: unknown) => e instanceof TrackerError && e.kind === 'outside' && re.test(e.message);
 const jql = (path: string) => new URL(`https://x${path}`).searchParams.get('jql');

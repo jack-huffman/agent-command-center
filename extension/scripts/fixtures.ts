@@ -321,7 +321,7 @@ const DONE = status('10', 'Done', 'done');
 
 /**
  * A Jira board with its own columns, the cards on it, and acc's tasks for some of them. Its tickets come
- * from one epic (GH-50), and a task that started moved out of it.
+ * from one epic (D-???), and a task that started moved out of it.
  */
 export function sampleBoards(): BoardInput[] {
   const card = (n: number, title: string, s: { id: string; name: string }, type: string, extra: Partial<NonNullable<BoardInput['board']>['cards'][number]> = {}) =>

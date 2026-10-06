@@ -20,7 +20,7 @@ export interface AzureOptions {
   board?: string | null;
   /** The key prefix for work items, such as AB for AB-123. */
   prefix?: string;
-  /** Only work items under this area path count (GH-50), such as CRM\Billing. By default, the team's own areas. */
+  /** Only work items under this area path count (D-???), such as CRM\Billing. By default, the team's own areas. */
   areaPath?: string | null;
   /** Returns the Authorization header for each call: "Bearer …" or "Basic …". */
   auth: () => Promise<string>;
@@ -80,7 +80,7 @@ export class AzureClient implements TrackerClient {
   }
 
   /**
-   * Why a work item is outside the place, or null (GH-50). Work item ids are the whole organization's, so
+   * Why a work item is outside the place, or null (D-???). Work item ids are the whole organization's, so
    * one from another project can be asked for by id. With `projectOnly`, the area path doesn't count.
    */
   private whyOutside(f: Record<string, unknown>, projectOnly: boolean): string | null {
@@ -169,7 +169,7 @@ export class AzureClient implements TrackerClient {
       'SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = @project',
       types.length ? `AND [System.WorkItemType] IN (${types.map(quote).join(', ')})` : '',
       areas ? `AND (${areas})` : '',
-      // The place: only work items under its area path (GH-50).
+      // The place: only work items under its area path (D-???).
       this.area ? `AND [System.AreaPath] UNDER ${quote(this.area)}` : '',
       "AND [System.State] <> 'Removed'",
       doneStates.length ? `AND ([System.State] NOT IN (${doneStates.map(quote).join(', ')}) OR [System.ChangedDate] >= @Today - 30)` : '',
@@ -400,7 +400,7 @@ export async function azureTeams(organization: string, project: string, auth: st
 
 /**
  * The area paths a team's board covers, each followed by the ones under it, for picking where a repo's
- * work items come from (GH-50). A team whose board isn't by area path gets the project's whole tree.
+ * work items come from (D-???). A team whose board isn't by area path gets the project's whole tree.
  */
 export async function azureAreas(organization: string, project: string, team: string, auth: string, f: typeof fetch = fetch): Promise<string[]> {
   const proj = `https://dev.azure.com/${encodeURIComponent(organization)}/${encodeURIComponent(project)}`;

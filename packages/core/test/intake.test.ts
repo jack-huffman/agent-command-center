@@ -138,7 +138,7 @@ test('intake github: issues with a skipped label aren\'t imported, and a task al
   assert.deepEqual([c.removed, c.closed], [['GH-10'], []]);
 });
 
-// ---------------------------------------------------------------- the place (GH-50)
+// ---------------------------------------------------------------- the place (D-???)
 
 /** What `gh issue view` says of an issue: open, with these labels, and where it lives now. */
 const viewed = (number: number, labels: string[], url = `https://github.com/o/r/issues/${number}`): RunResult => ok(JSON.stringify({ number, state: 'OPEN', labels: labels.map((name) => ({ name })), url }));

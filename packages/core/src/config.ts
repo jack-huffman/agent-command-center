@@ -63,7 +63,7 @@ export interface Tracker {
   /** GitHub: issues with any of these labels aren't tasks, such as milestone. */
   skipLabels: string[];
   /**
-   * Where in the tracker this repo's tickets come from, narrower than its project or repo (GH-50). Jira: an
+   * Where in the tracker this repo's tickets come from, narrower than its project or repo (D-???). Jira: an
    * epic's key, so only its child tickets and their sub-tasks count. GitHub: labels, so only issues with one
    * of them count. Azure DevOps: an area path, so only work items under it count. Unset, the whole project.
    */
@@ -191,7 +191,7 @@ export function parseConfig(raw: unknown): ParseResult {
       if (t.kind !== 'github' && Array.isArray(t.skipLabels) && t.skipLabels.length) {
         warnings.push(`trackers[${i}]: "skipLabels" applies only to a GitHub tracker, so it's ignored.`);
       }
-      // The tracker's place (GH-50): each key belongs to one kind of tracker, and is ignored on another.
+      // The tracker's place (D-???): each key belongs to one kind of tracker, and is ignored on another.
       const placeKeys = [
         { key: 'epic', kind: 'jira', on: 'a Jira', ok: isStr(t.epic) && JIRA_ISSUE.test(t.epic.trim()), error: '"epic" must be a Jira epic\'s key, such as ACME-3.' },
         { key: 'labels', kind: 'github', on: 'a GitHub', ok: strList(t.labels), error: '"labels" must be a list of label names, such as ["billing"].' },
@@ -491,7 +491,7 @@ export function trackerForKey(trackers: Pick<Tracker, 'kind' | 'project' | 'pref
  * The raw trackers list with one tracker added, or put in place of the one it describes (same kind,
  * project and site, organization or repo). Settings the new one doesn't name, such as a GitHub tracker's
  * skipLabels (D-048), are kept: re-adding a tracker never quietly drops them. A setting it names as null
- * is taken out, so re-adding one as the whole project clears its epic, labels or area path (GH-50).
+ * is taken out, so re-adding one as the whole project clears its epic, labels or area path (D-???).
  */
 export function withTracker(trackers: Record<string, unknown>[], tracker: Record<string, unknown>): Record<string, unknown>[] {
   const where = (t: Record<string, unknown>) => t.site ?? t.organization ?? t.repo;

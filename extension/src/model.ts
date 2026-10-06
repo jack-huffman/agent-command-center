@@ -313,9 +313,9 @@ export interface BoardInput {
   loading: boolean;
   /** Who the board acts as: the GitHub account, the Jira email, the Microsoft account. */
   signedInAs?: string | null;
-  /** Where its tickets come from (GH-50), such as "Jira · ACME · epic ACME-3 Premium Support". */
+  /** Where its tickets come from (D-???), such as "Jira · ACME · epic ACME-3 Premium Support". */
   place?: string | null;
-  /** Tasks whose tickets left the place after work on them started, each named (GH-50). */
+  /** Tasks whose tickets left the place after work on them started, each named (D-???). */
   left?: string[];
 }
 
@@ -352,10 +352,10 @@ export interface TrackerBoard {
   connect: { command: string; label: string; arg: string } | null;
   loading: boolean;
   signedInAs: string | null;
-  /** Where its tickets come from (GH-50), drawn under its name. */
+  /** Where its tickets come from (D-???), drawn under its name. */
   place: string | null;
   /**
-   * Tasks whose tickets left the place after work on them started (GH-50). They're off this board, but
+   * Tasks whose tickets left the place after work on them started (D-???). They're off this board, but
    * still on the agent board, for a person to finish or set aside.
    */
   left: string[];
@@ -432,7 +432,7 @@ export interface TicketModel {
   sourceKind: 'github' | 'jira' | 'azure' | 'acc';
   loading: boolean;
   error: string | null;
-  /** Why the ticket isn't shown: it's outside the repo's place, and names it (GH-50). */
+  /** Why the ticket isn't shown: it's outside the repo's place, and names it (D-???). */
   outside: string | null;
   connect: { command: string; label: string; arg: string } | null;
   type: string | null;
@@ -504,7 +504,7 @@ export interface TicketInput {
   ticket: Ticket | null;
   loading: boolean;
   error: string | null;
-  /** The ticket is outside the repo's place (GH-50), and why. */
+  /** The ticket is outside the repo's place (D-???), and why. */
   outside?: string | null;
   connect: TicketModel['connect'];
   row: TaskRow | null;

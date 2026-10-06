@@ -212,7 +212,7 @@ table.grid { width: 100%; border-collapse: collapse; }
 .tracker + .tracker { margin-top: 28px; }
 .tracker-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
 .tracker-head h2 { margin: 0; }
-/* Where the board's tickets come from (GH-50), right under its name. */
+/* Where the board's tickets come from (D-???), right under its name. */
 .tracker-place { display: flex; align-items: baseline; gap: 6px; margin: -4px 0 10px; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
 .tracker-place > .codicon { flex: none; position: relative; top: 2px; }
 .tracker-place strong { color: var(--vscode-foreground); font-weight: 600; }

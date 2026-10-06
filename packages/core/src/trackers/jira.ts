@@ -17,7 +17,7 @@ export interface JiraOptions {
   token: string;
   /** A board id. By default, the project's first board. */
   board?: number | null;
-  /** An epic's key: only its child tickets and their sub-tasks count (GH-50). By default, the whole project. */
+  /** An epic's key: only its child tickets and their sub-tasks count (D-???). By default, the whole project. */
   epic?: string | null;
   fetch?: typeof fetch;
 }
@@ -57,7 +57,7 @@ export class JiraClient implements TrackerClient {
   }
 
   /**
-   * The JQL that holds the board's cards to the place (GH-50): the project, and with an epic, its child
+   * The JQL that holds the board's cards to the place (D-???): the project, and with an epic, its child
    * tickets. Their sub-tasks come from a second query, of the children's own keys.
    */
   placeJql(): string {
@@ -66,7 +66,7 @@ export class JiraClient implements TrackerClient {
   }
 
   /**
-   * Why an issue is outside the place, or null when it's in it (GH-50). `asked` is the key that was asked
+   * Why an issue is outside the place, or null when it's in it (D-???). `asked` is the key that was asked
    * for: a moved issue comes back under its new key. With `projectOnly`, the epic doesn't count.
    */
   private async whyOutside(i: Placed, asked: string, projectOnly: boolean): Promise<string | null> {
@@ -142,7 +142,7 @@ export class JiraClient implements TrackerClient {
       const ids = c.statuses.map((s) => String(s.id));
       return { id: `col-${i}`, name: c.name, category: known.get(ids[0] ?? '')?.category ?? 'doing', statusIds: ids };
     });
-    // The board's own filter, held to the place: a filter that spans other projects shows only this one's (GH-50).
+    // The board's own filter, held to the place: a filter that spans other projects shows only this one's (D-???).
     const project = this.o.project.toUpperCase();
     let issues = (await this.boardIssues(id, jql, MAX_CARDS)).filter((i) => projectOf(i) === project);
     if (this.epic) {
@@ -283,7 +283,7 @@ export async function jiraProjects(site: string, email: string, token: string, f
   return r.values.map((v) => ({ key: v.key, name: v.name }));
 }
 
-/** A project's open epics, newest first, for picking where a repo's tickets come from (GH-50). */
+/** A project's open epics, newest first, for picking where a repo's tickets come from (D-???). */
 export async function jiraEpics(site: string, project: string, email: string, token: string, f: typeof fetch = fetch): Promise<{ key: string; name: string }[]> {
   const c = new JiraClient({ site, project, email, token, fetch: f }) as unknown as { req<T>(m: string, p: string): Promise<T> };
   const jql = `project = ${jqlString(project)} AND issuetype = Epic AND statusCategory != Done ORDER BY created DESC`;

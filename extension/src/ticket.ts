@@ -31,7 +31,7 @@ interface Open {
   ticket: Ticket | null;
   loading: boolean;
   error: string | null;
-  /** Why the ticket isn't shown: it's outside the repo's place (GH-50). */
+  /** Why the ticket isn't shown: it's outside the repo's place (D-???). */
   outside: string | null;
   connect: TicketModel['connect'];
   /** Its updates' unsent edits, by update id, as the page last said (GH-46). */
@@ -146,7 +146,7 @@ export class TicketPanels implements vscode.Disposable {
       o.outside = null;
       o.connect = null;
     } catch (e) {
-      // Outside the repo's place (GH-50): not shown, nor tracked, and said plainly rather than as a failure.
+      // Outside the repo's place (D-???): not shown, nor tracked, and said plainly rather than as a failure.
       const outside = (e as { kind?: string }).kind === 'outside';
       if (outside) o.ticket = null;
       o.outside = outside ? (e as Error).message : null;

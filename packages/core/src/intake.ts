@@ -57,7 +57,7 @@ export interface IntakeChanges {
   closed: string[];
   /** Taken off the ledger before work started: their issue has a label in skipLabels, or their ticket left the repo's place. */
   removed: string[];
-  /** Of those, the ones whose ticket left the repo's place (GH-50). */
+  /** Of those, the ones whose ticket left the repo's place (D-???). */
   left: string[];
   leftAlone: LeftAlone[];
 }
@@ -77,7 +77,7 @@ const issueNumber = (t: Task): number | null => {
 /**
  * A task whose ticket says it should leave the board (D-048): it leaves the ledger if work on it never
  * started, with a task.removed event that keeps the reason. One that started stays as it is, and is named
- * with `note`, for a person to decide. `left`: the ticket left the repo's place (GH-50).
+ * with `note`, for a person to decide. `left`: the ticket left the repo's place (D-???).
  */
 function leave(ledger: Ledger, t: Task, ticket: string, why: { reason: string; note: string; left: boolean }, emit: Emit, res: IntakeChanges): void {
   if (neverStarted(t)) {
@@ -88,7 +88,7 @@ function leave(ledger: Ledger, t: Task, ticket: string, why: { reason: string; n
   } else res.leftAlone.push({ task: t.id, issue: ticket, state: t.state, note: `${why.note}; ${t.id} is still ${t.state}` });
 }
 
-/** Where a repo's GitHub tickets come from (GH-50): its tracker's repo, and the labels an issue needs one of. */
+/** Where a repo's GitHub tickets come from (D-???): its tracker's repo, and the labels an issue needs one of. */
 export interface GithubPlace {
   repo: string;
   labels: string[];
@@ -96,7 +96,7 @@ export interface GithubPlace {
 
 /**
  * Brings tasks in step with their issues (D-048). A task whose issue was closed moves to done, and one
- * whose issue has a skipped label, or left the repo's place (GH-50), leaves the ledger, but only if work
+ * whose issue has a skipped label, or left the repo's place (D-???), leaves the ledger, but only if work
  * on it never started: otherwise it stays as it is and is named. `issues` holds each issue as GitHub has
  * it now, by number; a task whose issue isn't there is left alone. Finished tasks are never looked at.
  */
@@ -134,7 +134,7 @@ export function reconcileGithub(
 /**
  * Reads the open issues in the repo's place as its own GitHub account (D-007): its GitHub tracker's repo,
  * the project's own by default, and only issues with one of the tracker's labels when it names some
- * (GH-50). It adds or refreshes a task for each, leaving out issues with a skipped label. Then it asks
+ * (D-???). It adds or refreshes a task for each, leaving out issues with a skipped label. Then it asks
  * about each unfinished task whose issue wasn't in that list, and brings the board in step
  * (reconcileGithub). It never changes GitHub.
  */
@@ -187,7 +187,7 @@ export function intakeGithub(
 }
 
 /**
- * Brings Jira or Azure DevOps tasks in step with tickets that left the repo's place (GH-50): the
+ * Brings Jira or Azure DevOps tasks in step with tickets that left the repo's place (D-???): the
  * Command Center reads them after a board loads, since only it signs in to those trackers (D-066). Each
  * task leaves the ledger if work on it never started, or else is named (D-048). Only tickets a tracker
  * read and found outside are listed: a failed read never is.

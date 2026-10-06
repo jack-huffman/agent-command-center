@@ -95,7 +95,7 @@ export interface Board {
   cards: BoardCard[];
   /** Something to tell the person, such as how to get a fuller board. */
   notice: string | null;
-  /** Where its tickets come from (GH-50), such as "Jira · ACME · epic ACME-3 Premium Support". */
+  /** Where its tickets come from (D-???), such as "Jira · ACME · epic ACME-3 Premium Support". */
   place: string;
 }
 
@@ -109,13 +109,13 @@ export interface TrackerClient {
   readonly kind: TrackerKind;
   /** "GitHub · owner/repo", "Jira · MSP" or "Azure DevOps · Project", for headings. */
   readonly title: string;
-  /** Where its tickets come from (GH-50), as far as it's known before the board loads: "Jira · ACME · epic ACME-3". */
+  /** Where its tickets come from (D-???), as far as it's known before the board loads: "Jira · ACME · epic ACME-3". */
   readonly place: string;
   board(): Promise<Board>;
   /** A ticket in the tracker's place. One outside it throws a TrackerError of kind 'outside' that names the place. */
   ticket(key: string): Promise<Ticket>;
   /**
-   * Which of these tickets are outside the tracker's place, each with why (GH-50). With `project`, only the
+   * Which of these tickets are outside the tracker's place, each with why (D-???). With `project`, only the
    * project or repo counts, not the narrower epic, labels or area path. A ticket it couldn't read is left
    * out: a failed read never counts as outside (D-048).
    */
@@ -140,7 +140,7 @@ export interface TrackerClient {
 export type Exec = (cmd: string, args: string[], opts?: { input?: string; env?: NodeJS.ProcessEnv }) => Promise<{ code: number; stdout: string; stderr: string }>;
 
 export class TrackerError extends Error {
-  /** outside: the ticket is there, but not in this repo's place (GH-50). */
+  /** outside: the ticket is there, but not in this repo's place (D-???). */
   readonly kind: 'auth' | 'scope' | 'not-found' | 'refused' | 'network' | 'outside' | 'other';
   constructor(kind: TrackerError['kind'], message: string) {
     super(message);
@@ -157,7 +157,7 @@ export const outsideError = (o: Outside, place: string): TrackerError =>
 export const orList = (names: string[]): string => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} or ${names.at(-1)}`);
 
 /**
- * Where a tracker's tickets come from, in words (GH-50): "Jira · ACME · epic ACME-3 Premium Support",
+ * Where a tracker's tickets come from, in words (D-???): "Jira · ACME · epic ACME-3 Premium Support",
  * "GitHub · acme/service · labels billing or invoices", "Azure DevOps · CRM · Sales · area CRM\Billing".
  * With no narrower place, just the project or repo.
  */

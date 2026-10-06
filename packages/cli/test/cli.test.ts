@@ -197,7 +197,7 @@ test('acc updates lists the drafts; a person posts a GitHub one with their edits
   assert.equal(acc(dir, ['update', 'frob', 'GH-3.1']).code, 2);
 });
 
-test('a GitHub draft isn\'t posted on an issue now in another repo: it stays a draft, to discard (GH-50)', () => {
+test('a GitHub draft isn\'t posted on an issue now in another repo: it stays a draft, to discard (D-???)', () => {
   const { dir } = ticketsRepo();
   assert.equal(acc(dir, ['set', 'GH-3', 'blocked', '--client', 'Which browsers must it support?']).code, 0);
   const bin = join(dir, '.movedbin');
@@ -316,7 +316,7 @@ esac
   assert.equal(acc(dir, ['intake', 'jira']).code, 2, 'Jira intake needs the Command Center\'s report');
 });
 
-test('acc intake jira --file follows tickets that left the place: removes a task never started, names one that did, in the same shape as github (GH-50)', () => {
+test('acc intake jira --file follows tickets that left the place: removes a task never started, names one that did, in the same shape as github (D-???)', () => {
   const dir = repoWithConfig({ ...GENERIC_CONFIG, trackers: [{ kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', epic: 'ACME-3' }] });
   const items = ['ACME-7', 'ACME-8', 'ACME-9'].map((key) => ({ source: { kind: 'jira', key }, title: key }));
   assert.equal(acc(dir, ['import'], JSON.stringify(items)).code, 0);
@@ -339,7 +339,7 @@ test('acc intake jira --file follows tickets that left the place: removes a task
   assert.match(acc(dir, ['help']).out, /acc intake jira\|azure --file <report\.json>/);
 });
 
-test('acc import refuses a Jira or Azure DevOps ticket no tracker owns, so another project\'s never becomes a task here (GH-50)', () => {
+test('acc import refuses a Jira or Azure DevOps ticket no tracker owns, so another project\'s never becomes a task here (D-???)', () => {
   const dir = repoWithConfig({ ...GENERIC_CONFIG, trackers: [{ kind: 'jira', site: 'acme.atlassian.net', project: 'ACME' }, { kind: 'azure', organization: 'acme', project: 'CRM', prefix: 'AV' }] });
   const items = [
     { source: { kind: 'jira', key: 'ACME-12' }, title: 'Ours' }, { source: { kind: 'jira', key: 'OPS-1' }, title: 'Another client\'s' },

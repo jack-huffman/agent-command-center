@@ -30,7 +30,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const setup = new Setup(context);
   const hub = new Hub();
   const accScript = context.asAbsolutePath(join('dist', 'bin', 'acc'));
-  // acc follows tickets that left a board's place (GH-50).
+  // acc follows tickets that left a board's place (D-???).
   const trackers = new Trackers(context.secrets, hub, setup.log, accRunner(accScript));
   context.subscriptions.push(setup, hub, trackers);
 
@@ -179,7 +179,7 @@ export function activate(context: vscode.ExtensionContext): void {
         const index = trackers.trackerFor(p, u.key);
         if (index === null || trackers.trackers(p)[index]?.kind !== u.tracker) return fail(`this repo has no ${name} tracker for ${u.key} to post through.`);
         if (!(await trackers.signedInAs(p, index))) return fail(`sign in to ${name} first.`);
-        // Held to the project, not its narrower place (GH-50): a ticket moved to another project isn't posted on.
+        // Held to the project, not its narrower place (D-???): a ticket moved to another project isn't posted on.
         let client: Awaited<ReturnType<typeof trackers.client>>;
         try {
           client = await trackers.client(p, index);

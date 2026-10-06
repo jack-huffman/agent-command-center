@@ -348,4 +348,7 @@ test('B14 asks for a ticket source until the repo names one, then says where tic
   assert.deepEqual([none.status, /tasks come from acc alone/.test(none.detail)], ['unknown', true]);
   const azure = statuses(sfRepo({ config: { ...SF_CONFIG, trackers: [{ kind: 'azure', organization: 'acme', project: 'CRM' }, { kind: 'github' }] } }))['B14.tickets']!;
   assert.equal(azure.detail, 'Tickets come from Azure DevOps CRM in acme and GitHub Issues.');
+  // A narrower place is named too (D-???).
+  const placed = statuses(sfRepo({ config: { ...SF_CONFIG, trackers: [{ kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', epic: 'ACME-3' }, { kind: 'azure', organization: 'acme', project: 'CRM', areaPath: 'CRM\\Billing' }, { kind: 'github', labels: ['billing', 'invoices'] }] } }))['B14.tickets']!;
+  assert.equal(placed.detail, 'Tickets come from Jira ACME on acme.atlassian.net, epic ACME-3 and Azure DevOps CRM in acme, area CRM\\Billing and GitHub Issues labelled billing or invoices.');
 });

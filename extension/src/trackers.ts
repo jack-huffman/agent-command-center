@@ -21,9 +21,9 @@ export interface BoardState {
   index: number;
   kind: Tracker['kind'];
   title: string;
-  /** Where its tickets come from (GH-50): the config's, until the board says it with the epic's name. */
+  /** Where its tickets come from (D-???): the config's, until the board says it with the epic's name. */
   place: string;
-  /** Tasks whose tickets left the place after work on them started, each named for a person (GH-50). */
+  /** Tasks whose tickets left the place after work on them started, each named for a person (D-???). */
   left: string[];
   board: Board | null;
   error: string | null;
@@ -96,7 +96,7 @@ export class Trackers implements vscode.Disposable {
     return t.kind === 'github' ? `GitHub · ${t.repo ?? '?'}` : t.kind === 'jira' ? `Jira · ${t.project}` : `Azure DevOps · ${t.project}`;
   }
 
-  /** Where a tracker's tickets come from, as its config says (GH-50). */
+  /** Where a tracker's tickets come from, as its config says (D-???). */
   place(t: Tracker): string {
     return placeText({ kind: t.kind, project: t.project, repo: t.repo, team: t.team, epic: t.epic, labels: t.labels, areaPath: t.areaPath });
   }
@@ -229,7 +229,7 @@ export class Trackers implements vscode.Disposable {
 
   /**
    * After a Jira or Azure DevOps board loads, asks its tracker about this repo's unfinished tasks from it
-   * that the board doesn't show (GH-50). acc intake removes the ones outside the place that never started,
+   * that the board doesn't show (D-???). acc intake removes the ones outside the place that never started,
    * and names the rest: those stay on the agent board, and this board says so. Only the Command Center
    * signs in to these trackers (D-066). A failed read never counts as outside (D-048), and nothing here
    * changes a ticket.
@@ -418,7 +418,7 @@ export class Trackers implements vscode.Disposable {
 
   /**
    * A guided way to name a repo's tracker: pick the kind, sign in, then pick the project, team and board
-   * from what the tracker lists, and last its place (GH-50): an epic, labels or an area path, or the whole
+   * from what the tracker lists, and last its place (D-???): an epic, labels or an area path, or the whole
    * project. It's written to that repo's .acc/config.json, and nowhere else.
    */
   async add(opts: { root?: string; kind?: 'azure' | 'jira' | 'github' } = {}): Promise<void> {
@@ -469,7 +469,7 @@ export class Trackers implements vscode.Disposable {
     const boards = await azureBoards(org, projectName, team, auth);
     const board = boards.length > 1 ? (await vscode.window.showQuickPick(boards.map((name) => ({ label: name })), { title: `Azure DevOps for ${p.name}, 4 of 5`, placeHolder: 'Which board? Usually the stories or backlog items one' }))?.label : boards[0];
     if (!board) return null;
-    // The place (GH-50): the whole team's board, or only the work items under one of its area paths.
+    // The place (D-???): the whole team's board, or only the work items under one of its area paths.
     const areas = await this.listForPlace('area paths', () => azureAreas(org, projectName, team, auth!));
     const area = await vscode.window.showQuickPick([
       { label: `$(project) All of ${team}'s work items`, description: 'every area its board covers', areaPath: null as string | null },
@@ -479,7 +479,7 @@ export class Trackers implements vscode.Disposable {
     return { kind: 'azure', organization: org, project: projectName, ...(team !== teams[0] ? { team } : {}), board, areaPath: area.areaPath };
   }
 
-  /** A list for the place step (GH-50). One that can't be read leaves just the whole project to pick, and says why. */
+  /** A list for the place step (D-???). One that can't be read leaves just the whole project to pick, and says why. */
   private async listForPlace<T>(what: string, load: () => Promise<T[]>): Promise<T[]> {
     try {
       return await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Loading ${what}…` }, load);
@@ -505,7 +505,7 @@ export class Trackers implements vscode.Disposable {
     if (!key) return null;
     const boards = await jiraBoards(site, key, c.email, c.token);
     const board = boards.length > 1 ? (await vscode.window.showQuickPick(boards.map((b) => ({ label: b.name, description: b.type, id: b.id })), { title: `Jira for ${p.name}, 3 of 4`, placeHolder: 'Which board?' }))?.id : boards[0]?.id;
-    // The place (GH-50): the whole project, or only one epic's tickets and their sub-tasks.
+    // The place (D-???): the whole project, or only one epic's tickets and their sub-tasks.
     const epics = await this.listForPlace('epics', () => jiraEpics(site, key, c.email, c.token));
     const epic = await vscode.window.showQuickPick([
       { label: `$(project) The whole ${key} project`, description: 'every ticket in it', epic: null as string | null },
@@ -520,7 +520,7 @@ export class Trackers implements vscode.Disposable {
     const input = await vscode.window.showInputBox({ title: `GitHub Issues for ${p.name}, 1 of 2`, prompt: 'owner/name of the repo whose issues to show', value: own ?? '', ignoreFocusOut: true, validateInput: (v) => (/^[\w.-]+\/[\w.-]+$/.test(v.trim()) ? null : 'owner/name') });
     if (!input) return null;
     const repo = input.trim();
-    // The place (GH-50): the whole repo, or only issues with one of the ticked labels.
+    // The place (D-???): the whole repo, or only issues with one of the ticked labels.
     const was = this.trackers(p).find((t) => t.kind === 'github' && t.repo?.toLowerCase() === repo.toLowerCase())?.labels ?? [];
     const labels = await this.listForPlace('labels', async () => (await this.makeClient(p, { ...GITHUB_TRACKER, repo })).labels());
     let picked: string[] = [];

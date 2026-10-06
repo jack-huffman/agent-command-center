@@ -37,7 +37,7 @@ test('a tracker board keeps the tracker\'s columns, places cards by status, and 
   assert.equal(trackerBoard({ ...board(), board: null, error: 'Connect to Jira', connect: { command: 'acc.trackers.signIn', label: 'Sign in to Jira', arg: '{"root":"/r","index":0}' } }, [], '/r').columns.length, 0);
 });
 
-test('a tracker board says where its tickets come from, and names tasks that left the place after they started (GH-50)', () => {
+test('a tracker board says where its tickets come from, and names tasks that left the place after they started (D-???)', () => {
   const left = ['ACME-9 left this repo\'s place: it isn\'t in epic ACME-3; ACME-9 is still running'];
   const b = trackerBoard({ ...board(), place: 'Jira · ACME · epic ACME-3 Premium Support', left }, [row('ACME-9', 'running', 'running')], '/r');
   assert.equal(b.place, 'Jira · ACME · epic ACME-3 Premium Support');

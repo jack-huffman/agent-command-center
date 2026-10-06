@@ -258,7 +258,7 @@ function upsert(o: Opts, inputs: TaskInput[], own = false): number {
 
 /**
  * The tasks whose Jira or Azure DevOps key a tracker in .acc/config.json owns, and why the rest are refused,
- * so another project's or client's tickets never become tasks here (GH-50). Without a Jira sign-in acc can't
+ * so another project's or client's tickets never become tasks here (D-???). Without a Jira sign-in acc can't
  * check an epic, so only the project is held here; the board's check removes strays. A repo that names no
  * trackers has no place to hold to, and takes any.
  */
@@ -277,7 +277,7 @@ function ownTickets(config: Config, inputs: TaskInput[]): { inputs: TaskInput[];
   return { inputs: kept, refused };
 }
 
-/** What intake changed beyond adding and refreshing: done, removed, and named for a person (D-048, GH-50). */
+/** What intake changed beyond adding and refreshing: done, removed, and named for a person (D-048, D-???). */
 const intakeLines = (res: IntakeResult): string[] => {
   const skipped = res.removed.filter((id) => !res.left.includes(id));
   return [
@@ -288,7 +288,7 @@ const intakeLines = (res: IntakeResult): string[] => {
   ];
 };
 
-/** Reads open issues in the repo's place as its own GitHub account (D-007), upserts them, and follows closed, skipped and outside ones (D-048, GH-50). Never changes GitHub. */
+/** Reads open issues in the repo's place as its own GitHub account (D-007), upserts them, and follows closed, skipped and outside ones (D-048, D-???). Never changes GitHub. */
 function cmdIntakeGithub(o: Opts): number {
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
@@ -298,7 +298,7 @@ function cmdIntakeGithub(o: Opts): number {
 }
 
 /**
- * Follows Jira or Azure DevOps tickets that left the repo's place (GH-50). Only the Command Center signs in
+ * Follows Jira or Azure DevOps tickets that left the repo's place (D-???). Only the Command Center signs in
  * to those (D-066), so it reads them and hands acc what it found: { "outside": [{ "key", "why" }] }.
  */
 function cmdIntakeOutside(o: Opts, kind: 'jira' | 'azure'): number {
@@ -906,7 +906,7 @@ function cmdUpdatePost(o: Opts, id: string): number {
   if (!issue) throw new AccError('refused', `${u.id}'s ticket ${u.key} isn't a GitHub issue acc can find.`);
   // Signed in first, so a missing sign-in leaves the draft as it was.
   const env = { ...process.env, GH_TOKEN: ghToken(run, gh.account) };
-  // Posting is held to the repo, not its narrower labels (GH-50): an issue now in another repo isn't posted on.
+  // Posting is held to the repo, not its narrower labels (D-???): an issue now in another repo isn't posted on.
   // A failed look says nothing, and the post goes ahead as before.
   const repo = config.trackers.find((t) => t.kind === 'github')?.repo ?? gh.repo;
   const seen = run('gh', ['issue', 'view', issue.number, '-R', issue.repo, '--json', 'url'], { cwd: paths.root, env, timeoutMs: GH_TIMEOUT_MS });
