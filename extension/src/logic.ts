@@ -414,6 +414,29 @@ export function isWebviewMenuContext(a: unknown): a is WebviewMenuContext {
   return !!x && typeof x === 'object' && typeof x.webviewSection === 'string' && !!x.accRef && typeof x.accRef === 'object';
 }
 
+/**
+ * Which of a repo's tasks to ask a Jira or Azure DevOps tracker about once its board has loaded (D-072):
+ * unfinished ones from that tracker (its kind, and a key it owns) that the board didn't show.
+ */
+export function placeCandidates(tasks: { id: string; state: string; source: { kind: string } }[], board: { kind: string; index: number; cards: { key: string }[] }, trackerOf: (key: string) => number | null): string[] {
+  const shown = new Set(board.cards.map((c) => c.key.toUpperCase()));
+  return tasks.filter((t) => t.source.kind === board.kind && t.state !== 'done' && !shown.has(t.id.toUpperCase()) && trackerOf(t.id) === board.index).map((t) => t.id);
+}
+
+/**
+ * The keys a tracker says have left the repo's place, of those asked about. A read that fails says none
+ * have: a task is never removed for an error (D-048). A key it wasn't asked about is never taken from it.
+ */
+export async function outsideKeys<T extends { key: string }>(keys: string[], read: (keys: string[]) => Promise<T[]>): Promise<T[]> {
+  if (!keys.length) return [];
+  const asked = new Set(keys.map((k) => k.toUpperCase()));
+  try {
+    return (await read(keys)).filter((o) => asked.has(o.key.toUpperCase()));
+  } catch {
+    return [];
+  }
+}
+
 /** Accepts a pasted URL as well as a bare name: dev.azure.com/acme, acme.visualstudio.com, acme.atlassian.net/jira/… */
 export function parseHost(kind: 'jira' | 'azure', input: string): string | null {
   const s = input.trim().replace(/^https?:\/\//, '');

@@ -128,11 +128,12 @@ function branchFor(name) {
 var isObj = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 var isStr = (v) => typeof v === "string" && v.trim() !== "";
 var strList = (v) => Array.isArray(v) && v.every(isStr);
+var JIRA_ISSUE = /^[A-Za-z][A-Za-z0-9_]*-\d+$/;
 function parseConfig(raw) {
   const errors = [];
   const warnings = [];
   if (!isObj(raw)) return { config: null, errors: ["The config must be a JSON object."], warnings };
-  for (const k of Object.keys(raw)) if (!TOP_KEYS.has(k)) warnings.push(`Unknown key "${k}" is ignored.`);
+  for (const k2 of Object.keys(raw)) if (!TOP_KEYS.has(k2)) warnings.push(`Unknown key "${k2}" is ignored.`);
   if (raw.schema !== 1) errors.push('"schema" must be 1.');
   if (!isStr(raw.project)) errors.push('"project" must be a name.');
   const profile = raw.profile ?? "generic";
@@ -189,6 +190,21 @@ function parseConfig(raw) {
       if (t.kind !== "github" && Array.isArray(t.skipLabels) && t.skipLabels.length) {
         warnings.push(`trackers[${i}]: "skipLabels" applies only to a GitHub tracker, so it's ignored.`);
       }
+      const placeKeys = [
+        { key: "epic", kind: "jira", on: "a Jira", ok: isStr(t.epic) && JIRA_ISSUE.test(t.epic.trim()), error: `"epic" must be a Jira epic's key, such as ACME-3.` },
+        { key: "labels", kind: "github", on: "a GitHub", ok: strList(t.labels), error: '"labels" must be a list of label names, such as ["billing"].' },
+        { key: "areaPath", kind: "azure", on: "an Azure DevOps", ok: isStr(t.areaPath), error: '"areaPath" must be an Azure DevOps area path, such as "CRM\\\\Billing".' }
+      ];
+      const set = placeKeys.filter((p) => t[p.key] !== void 0 && t[p.key] !== null);
+      const bad = set.filter((p) => !p.ok);
+      if (bad.length) {
+        for (const p of bad) errors.push(`trackers[${i}]: ${p.error}`);
+        return;
+      }
+      for (const p of set) {
+        const empty = Array.isArray(t[p.key]) && !t[p.key].length;
+        if (t.kind !== p.kind && !empty) warnings.push(`trackers[${i}]: "${p.key}" applies only to ${p.on} tracker, so it's ignored.`);
+      }
       if (t.edits !== void 0 && typeof t.edits !== "boolean") {
         errors.push(`trackers[${i}]: "edits" must be true or false: whether the task page may change a ticket's status, assignee and labels.`);
         return;
@@ -208,6 +224,9 @@ function parseConfig(raw) {
         board: Number.isInteger(t.board) || isStr(t.board) ? t.board : null,
         prefix: isStr(t.prefix) ? t.prefix.toUpperCase() : null,
         skipLabels: t.kind === "github" && strList(t.skipLabels) ? t.skipLabels : [],
+        epic: t.kind === "jira" && isStr(t.epic) ? t.epic.trim().toUpperCase() : null,
+        labels: t.kind === "github" && strList(t.labels) ? t.labels.map((l3) => l3.trim()) : [],
+        areaPath: t.kind === "azure" && isStr(t.areaPath) ? t.areaPath.trim() : null,
         edits: t.edits === true
       });
     });
@@ -271,7 +290,7 @@ function parseConfig(raw) {
     const ap = raw.autopilot;
     if (!isObj(ap)) errors.push('"autopilot" must be an object, such as { "appendOnly": ["docs/DECISIONS.md"] }.');
     else {
-      for (const k of Object.keys(ap)) if (k !== "appendOnly") warnings.push(`Unknown key "autopilot.${k}" is ignored.`);
+      for (const k2 of Object.keys(ap)) if (k2 !== "appendOnly") warnings.push(`Unknown key "autopilot.${k2}" is ignored.`);
       const list = ap.appendOnly ?? [];
       if (!strList(list) || list.some((f) => f.startsWith("/") || f.split("/").includes(".."))) {
         errors.push('"autopilot.appendOnly" must be a list of paths inside the repo, such as ["docs/DECISIONS.md"].');
@@ -317,25 +336,25 @@ function parseEnvironments(raw, profile, errors) {
   }
   const envs = [];
   raw.forEach((e, i) => {
-    const at = `environments[${i}]`;
+    const at2 = `environments[${i}]`;
     if (!isObj(e) || !isStr(e.name)) {
-      errors.push(`${at}: needs a "name".`);
+      errors.push(`${at2}: needs a "name".`);
       return;
     }
     const branch = branchFor(e.name);
     if (e.branch !== void 0 && e.branch !== branch) {
-      errors.push(`${at}: the branch for "${e.name}" must be "${branch}", the environment name in lower case (D-015).`);
+      errors.push(`${at2}: the branch for "${e.name}" must be "${branch}", the environment name in lower case (D-015).`);
     }
     const type = e.type ?? (profile === "salesforce" ? void 0 : "none");
     if (type === void 0 || !ENV_TYPES.includes(type)) {
-      errors.push(`${at}: "type" must be one of ${ENV_TYPES.join(", ")}.`);
+      errors.push(`${at2}: "type" must be one of ${ENV_TYPES.join(", ")}.`);
       return;
     }
-    if (profile === "salesforce" && type === "none") errors.push(`${at}: a Salesforce environment needs its org type.`);
-    if (e.org !== void 0 && e.org !== null && !isStr(e.org)) errors.push(`${at}: "org" must be an org alias.`);
+    if (profile === "salesforce" && type === "none") errors.push(`${at2}: a Salesforce environment needs its org type.`);
+    if (e.org !== void 0 && e.org !== null && !isStr(e.org)) errors.push(`${at2}: "org" must be an org alias.`);
     const isProd = type === "production";
-    if (isProd && e.protected === false) errors.push(`${at}: Production is always protected.`);
-    if (e.promotesTo !== void 0 && !strList(e.promotesTo)) errors.push(`${at}: "promotesTo" must be a list of branches.`);
+    if (isProd && e.protected === false) errors.push(`${at2}: Production is always protected.`);
+    if (e.promotesTo !== void 0 && !strList(e.promotesTo)) errors.push(`${at2}: "promotesTo" must be a list of branches.`);
     envs.push({
       name: e.name,
       branch,
@@ -410,7 +429,7 @@ function writeConfig(file, config) {
     // A tracker is written as it was given, so the file loads again: what it doesn't set stays out, and it
     // says it may change tickets only when it may (D-066).
     trackers: config.trackers.map(({ edits, ...t }) => ({
-      ...Object.fromEntries(Object.entries(t).filter(([k, v]) => v !== null && !(k === "skipLabels" && Array.isArray(v) && !v.length))),
+      ...Object.fromEntries(Object.entries(t).filter(([, v]) => v !== null && !(Array.isArray(v) && !v.length))),
       ...edits ? { edits } : {}
     })),
     agents: { ...agents, ...Object.keys(profile(builder)).length ? { builder: profile(builder) } : {}, ...Object.keys(profile(reviewer)).length ? { reviewer: profile(reviewer) } : {} }
@@ -424,6 +443,11 @@ function defaultEnvironment(config) {
 }
 function environmentByBranch(config, branch) {
   return config.environments.find((e) => e.branch === branch);
+}
+function trackerForKey(trackers, key) {
+  const k2 = key.toUpperCase();
+  const i = trackers.findIndex((t) => /^GH-\d+$/.test(k2) ? t.kind === "github" : t.kind === "azure" ? k2.startsWith(`${(t.prefix ?? "AB").toUpperCase()}-`) : t.kind === "jira" && !!t.project && k2.startsWith(`${t.project.toUpperCase()}-`));
+  return i >= 0 ? i : null;
 }
 
 // packages/core/src/lock.ts
@@ -440,7 +464,7 @@ function alive(pid) {
     return e.code === "EPERM";
   }
 }
-function withLock(lockDir, fn, opts = {}) {
+function withLock(lockDir, fn2, opts = {}) {
   const timeoutMs = opts.timeoutMs ?? 15e3;
   const staleMs = opts.staleMs ?? 6e4;
   const started = Date.now();
@@ -474,7 +498,7 @@ function withLock(lockDir, fn, opts = {}) {
     }
   }
   try {
-    return fn();
+    return fn2();
   } finally {
     rmSync(lockDir, { recursive: true, force: true });
   }
@@ -547,22 +571,22 @@ var SOURCE_KINDS = ["github", "jira", "azure", "manual"];
 var emptyLedger = () => ({ schema: 1, seq: 0, tasks: [] });
 function readLedger(file) {
   if (!existsSync2(file)) return emptyLedger();
-  const l = JSON.parse(readFileSync4(file, "utf8"));
-  if (l.schema !== 1 || !Array.isArray(l.tasks)) throw new AccError("bad-ledger", `${file} isn't a ledger this version understands.`);
-  return l;
+  const l3 = JSON.parse(readFileSync4(file, "utf8"));
+  if (l3.schema !== 1 || !Array.isArray(l3.tasks)) throw new AccError("bad-ledger", `${file} isn't a ledger this version understands.`);
+  return l3;
 }
 function writeAtomic(file, text) {
   const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync4(tmp, text);
   renameSync(tmp, file);
 }
-function mutate(paths, now2, fn) {
+function mutate(paths, now2, fn2) {
   mkdirSync4(paths.stateDir, { recursive: true });
   return withLock(paths.lock, () => {
     const ledger = readLedger(paths.ledger);
     const events = [];
     const emit = (e) => events.push({ ...e, seq: ++ledger.seq, at: now2().toISOString() });
-    const result = fn(ledger, emit);
+    const result = fn2(ledger, emit);
     if (events.length) {
       mkdirSync4(dirname2(paths.events), { recursive: true });
       appendFileSync(paths.events, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
@@ -589,27 +613,27 @@ function upsertTasks(ledger, config, inputs, actor, by, emit, now2) {
   const res = { added: [], updated: [], unchanged: [], errors: [] };
   const defaultEnv = defaultEnvironment(config).branch;
   inputs.forEach((input, i) => {
-    const at = `item ${i + 1}`;
+    const at2 = `item ${i + 1}`;
     if (!input || typeof input.title !== "string" || !input.title.trim()) {
-      res.errors.push(`${at}: needs a title.`);
+      res.errors.push(`${at2}: needs a title.`);
       return;
     }
     const kind = input.source?.kind;
     if (!SOURCE_KINDS.includes(kind)) {
-      res.errors.push(`${at}: source kind must be ${SOURCE_KINDS.join(", ")}.`);
+      res.errors.push(`${at2}: source kind must be ${SOURCE_KINDS.join(", ")}.`);
       return;
     }
     let id;
     if (kind === "manual") id = input.source.key ? normalizeId(input.source.key) : nextManualId(ledger);
     else {
       if (!input.source.key) {
-        res.errors.push(`${at}: a ${kind} task needs its tracker key.`);
+        res.errors.push(`${at2}: a ${kind} task needs its tracker key.`);
         return;
       }
       id = normalizeId(input.source.key, kind);
     }
     if (!isValidId(id)) {
-      res.errors.push(`${at}: "${id}" isn't a valid task id.`);
+      res.errors.push(`${at2}: "${id}" isn't a valid task id.`);
       return;
     }
     const env = input.environment ?? defaultEnv;
@@ -730,13 +754,13 @@ function checkMove(ledger, config, task, req, hooks) {
   return problems;
 }
 function applyMove(task, req, emit, now2) {
-  const at = now2().toISOString();
-  const entry = { at, actor: req.actor, by: req.by, from: task.state, to: req.to, reason: req.reason?.trim() || null };
+  const at2 = now2().toISOString();
+  const entry = { at: at2, actor: req.actor, by: req.by, from: task.state, to: req.to, reason: req.reason?.trim() || null };
   if (req.force) entry.override = true;
   task.blocker = req.to === "blocked" ? entry.reason ?? null : null;
   if (task.autopilot?.failed) task.autopilot.failed = null;
   task.state = req.to;
-  task.updatedAt = at;
+  task.updatedAt = at2;
   task.history.push(entry);
   emit({ type: "task.moved", task: task.id, actor: req.actor, by: req.by, data: { from: entry.from, to: entry.to, reason: entry.reason, override: req.force ?? false } });
   return entry;
@@ -881,7 +905,7 @@ function reclaim(slot) {
   }
   if (owner ? !alive(owner.pid) : age > UNOWNED_GRACE_MS) rmSync3(slot, { recursive: true, force: true });
 }
-function withSlot(fn, opts = {}) {
+function withSlot(fn2, opts = {}) {
   const dir = opts.dir ?? heavyDir();
   const slots = opts.slots ?? heavySlots();
   const timeoutMs = opts.timeoutMs ?? 3 * 60 * 6e4;
@@ -894,7 +918,7 @@ function withSlot(fn, opts = {}) {
       reclaim(slot);
       if (!take(slot)) continue;
       try {
-        return fn();
+        return fn2();
       } finally {
         rmSync3(slot, { recursive: true, force: true });
       }
@@ -920,7 +944,7 @@ var skip = (summary) => ({ status: "skip", summary });
 var plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 var listOf = (items, max = 3) => items.slice(0, max).join(", ") + (items.length > max ? ` and ${items.length - max} more` : "");
 function lastLine(text) {
-  const lines = text.replace(/\x1b\[[0-9;]*m/g, "").split("\n").map((l) => l.trim()).filter(Boolean);
+  const lines = text.replace(/\x1b\[[0-9;]*m/g, "").split("\n").map((l3) => l3.trim()).filter(Boolean);
   const line = lines.at(-1) ?? "";
   return line.length > 200 ? `${line.slice(0, 197)}\u2026` : line;
 }
@@ -963,7 +987,7 @@ var format = {
       args: ["--check", ...files],
       read(r) {
         if (r.code === 0) return pass(`${plural(files.length, "changed file")} formatted.`);
-        const bad = (r.stdout + "\n" + r.stderr).split("\n").map((l) => /^\[warn\] (.+)$/.exec(l.trim())?.[1]).filter((f) => !!f && files.includes(f));
+        const bad = (r.stdout + "\n" + r.stderr).split("\n").map((l3) => /^\[warn\] (.+)$/.exec(l3.trim())?.[1]).filter((f) => !!f && files.includes(f));
         if (r.code === 1 && bad.length) return fail(`${plural(bad.length, "file")} need formatting: ${listOf(bad)}. Fix with: npx prettier --write ${bad.join(" ")}`);
         return error(lastLine(r.stderr || r.stdout) || `prettier exited with ${r.code}.`);
       }
@@ -998,17 +1022,17 @@ var lwcTests = {
     return {
       cmd: bin,
       args: ["--", "--findRelatedTests", ...files, "--passWithNoTests"],
-      read: (r) => r.code === 0 ? pass(lastLine(r.stderr.split("\n").filter((l) => /^Tests:/.test(l.trim())).join("\n")) || "Related tests passed.") : fail(lastLine(r.stderr.split("\n").filter((l) => /^Tests:/.test(l.trim())).join("\n")) || "Related tests failed.")
+      read: (r) => r.code === 0 ? pass(lastLine(r.stderr.split("\n").filter((l3) => /^Tests:/.test(l3.trim())).join("\n")) || "Related tests passed.") : fail(lastLine(r.stderr.split("\n").filter((l3) => /^Tests:/.test(l3.trim())).join("\n")) || "Related tests failed.")
     };
   }
 };
 function readAnalyzer(file, severity, root) {
   try {
-    const j = JSON.parse(readFileSync7(file, "utf8"));
-    const all = j.violations ?? [];
+    const j2 = JSON.parse(readFileSync7(file, "utf8"));
+    const all = j2.violations ?? [];
     const worst = all.filter((v) => (v.severity ?? 5) <= severity).map((v) => {
-      const at = v.locations?.[v.primaryLocationIndex ?? 0];
-      const where = at?.file ? `${at.file.startsWith(root) ? at.file.slice(root.length + 1) : at.file}${at.startLine ? `:${at.startLine}` : ""}` : "";
+      const at2 = v.locations?.[v.primaryLocationIndex ?? 0];
+      const where = at2?.file ? `${at2.file.startsWith(root) ? at2.file.slice(root.length + 1) : at2.file}${at2.startLine ? `:${at2.startLine}` : ""}` : "";
       return `${where} ${v.rule ?? "rule"} (sev ${v.severity}): ${(v.message ?? "").trim()}`.trim();
     });
     return { worst, total: all.length };
@@ -1056,16 +1080,16 @@ function validateArgs(org, source, tests) {
     ...tests.flatMap((t) => ["--tests", t.name])
   ];
 }
-var asList = (x) => x == null ? [] : Array.isArray(x) ? x : [x];
+var asList = (x2) => x2 == null ? [] : Array.isArray(x2) ? x2 : [x2];
 function readDeploy(r, org, tests, sourceCount) {
-  let j;
+  let j2;
   try {
-    j = parseJsonOutput(r.stdout);
+    j2 = parseJsonOutput(r.stdout);
   } catch {
     return error(lastLine(r.stderr || r.stdout) || `sf exited with ${r.code} and printed no JSON.`);
   }
-  const res = j.result ?? j.data;
-  if (!res?.id) return error(j.message?.trim() || lastLine(r.stderr) || "sf returned no deploy result.");
+  const res = j2.result ?? j2.data;
+  if (!res?.id) return error(j2.message?.trim() || lastLine(r.stderr) || "sf returned no deploy result.");
   const details = { jobId: res.id, org, testLevel: tests.length ? "RunSpecifiedTests" : "NoTestRun", tests };
   const n = res.numberComponentsTotal ?? sourceCount;
   if (res.success) {
@@ -1076,7 +1100,7 @@ function readDeploy(r, org, tests, sourceCount) {
     ...asList(res.details?.componentFailures).map((f) => `${f.fileName ?? f.fullName ?? "?"}${f.lineNumber ? `:${f.lineNumber}` : ""}: ${f.problem ?? "failed"}`),
     ...asList(res.details?.runTestResult?.failures).map((f) => `${f.name}.${f.methodName}: ${f.message}`)
   ];
-  return fail(problems.length ? `${plural(problems.length, "problem")}: ${listOf(problems, 2)}` : j.message?.trim() || `The validation ${res.status ?? "failed"}.`, { ...details, problems });
+  return fail(problems.length ? `${plural(problems.length, "problem")}: ${listOf(problems, 2)}` : j2.message?.trim() || `The validation ${res.status ?? "failed"}.`, { ...details, problems });
 }
 var validate = {
   name: "validate",
@@ -1115,7 +1139,7 @@ function priorTests(paths, config, sha) {
 function readList(root, rel) {
   if (!rel) return [];
   try {
-    return readFileSync7(join6(root, rel), "utf8").split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
+    return readFileSync7(join6(root, rel), "utf8").split("\n").map((l3) => l3.trim()).filter((l3) => l3 && !l3.startsWith("#"));
   } catch {
     return [];
   }
@@ -1253,7 +1277,7 @@ function waiveGates(paths, config, req) {
   if (!req.gates.length) throw new AccError("usage", `Name the gates to waive. This project's gates: ${all.map((g) => g.name).join(", ") || "none"}.`);
   const unknown2 = req.gates.filter((n) => !all.some((g) => g.name === n));
   if (unknown2.length) throw new AccError("usage", `No gate ${unknown2.join(", ")}. This project's gates: ${all.map((g) => g.name).join(", ")}.`);
-  const at = req.now().toISOString();
+  const at2 = req.now().toISOString();
   const out2 = [];
   for (const gate of [...new Set(req.gates)]) {
     const before = readReceipt(paths, req.sha, gate);
@@ -1265,14 +1289,14 @@ function waiveGates(paths, config, req) {
       sha: req.sha,
       env: req.env.branch,
       status: "skip",
-      startedAt: at,
-      finishedAt: at,
+      startedAt: at2,
+      finishedAt: at2,
       durationMs: 0,
       summary: `Waived by ${req.by.replace(/^human:/, "")}: ${reason}`,
       command: null,
       log: before?.log ?? null,
       ...before?.details ? { details: before.details } : {},
-      waived: { by: req.by, reason, at, was, wasSummary }
+      waived: { by: req.by, reason, at: at2, was, wasSummary }
     };
     writeReceipt(paths, receipt);
     out2.push(receipt);
@@ -1393,9 +1417,9 @@ ${r.stderr}` : ""}`);
     let status;
     let message = "";
     try {
-      const j = parseJsonOutput(r.stdout);
-      status = j.status;
-      message = j.message ?? "";
+      const j2 = parseJsonOutput(r.stdout);
+      status = j2.status;
+      message = j2.message ?? "";
     } catch {
       status = void 0;
     }
@@ -1435,6 +1459,1346 @@ ${r.stderr}` : ""}`);
   }
 }
 
+// node_modules/marked/lib/marked.esm.js
+function I() {
+  return { async: false, breaks: false, extensions: null, gfm: true, hooks: null, pedantic: false, renderer: null, silent: false, tokenizer: null, walkTokens: null };
+}
+var y = I();
+function W(l3) {
+  y = l3;
+}
+var A = { exec: () => null };
+function C(l3) {
+  let e = [];
+  return (t) => {
+    let n = Math.max(0, Math.min(3, t - 1)), s = e[n];
+    return s || (s = l3(n), e[n] = s), s;
+  };
+}
+function h(l3, e = "") {
+  let t = typeof l3 == "string" ? l3 : l3.source, n = { replace: (s, r) => {
+    let o = typeof r == "string" ? r : r.source;
+    return o = o.replace(x.caret, "$1"), t = t.replace(s, o), n;
+  }, getRegex: () => new RegExp(t, e) };
+  return n;
+}
+var _e = ((l3 = "") => {
+  try {
+    return !!new RegExp("(?<=1)(?<!1)" + l3);
+  } catch {
+    return false;
+  }
+})();
+var x = { codeRemoveIndent: /^(?: {0,3}\t| {1,4})/gm, outputLinkReplace: /\\([\[\]])/g, indentCodeCompensation: /^(\s+)(?:```)/, beginningSpace: /^\s+/, endingHash: /#$/, startingSpaceChar: /^ /, endingSpaceChar: / $/, endingSpaceTabChar: /[ \t]$/, nonSpaceChar: /[^ ]/, newLineCharGlobal: /\n/g, tabCharGlobal: /\t/g, leadingSpaceTab: /^[ \t]+/, multipleSpaceGlobal: /\s+/g, blankLine: /^[ \t]*$/, doubleBlankLine: /\n[ \t]*\n[ \t]*$/, blockquoteStart: /^ {0,3}>/, blockquoteSetextReplace: /\n {0,3}((?:=+|-+) *)(?=\n|$)/g, blockquoteSetextReplace2: /^ {0,3}>[ \t]?/gm, listReplaceNesting: /^ {1,4}(?=( {4})*[^ ])/g, listIsTask: /^\[[ xX]\] +\S/, listReplaceTask: /^\[[ xX]\] +/, listTaskCheckbox: /\[[ xX]\]/, anyLine: /\n.*\n/, hrefBrackets: /^<(.*)>$/, tableDelimiter: /[:|]/, tableAlignChars: /^\||\| *$/g, tableRowBlankLine: /\n[ \t]*$/, tableAlignRight: /^ *-+: *$/, tableAlignCenter: /^ *:-+: *$/, tableAlignLeft: /^ *:-+ *$/, startATag: /^<a /i, endATag: /^<\/a>/i, startPreScriptTag: /^<(pre|code|kbd|script)(\s|>)/i, endPreScriptTag: /^<\/(pre|code|kbd|script)(\s|>)/i, startAngleBracket: /^</, endAngleBracket: />$/, pedanticHrefTitle: /^([^'"]*[^\s])\s+(['"])(.*)\2/, unicodeAlphaNumeric: /[\p{L}\p{N}]/u, numericCharacterReference: /&#(?:(\d{1,7})|[Xx]([A-Fa-f0-9]{1,6}));/g, escapeTest: /[&<>"']/, escapeReplace: /[&<>"']/g, escapeTestNoEncode: /[<>"']|&(?!(#\d{1,7}|#[Xx][a-fA-F0-9]{1,6}|\w+);)/, escapeReplaceNoEncode: /[<>"']|&(?!(#\d{1,7}|#[Xx][a-fA-F0-9]{1,6}|\w+);)/g, caret: /(^|[^\[])\^/g, percentDecode: /%25/g, findPipe: /\|/g, splitPipe: / \|/, slashPipe: /\\\|/g, carriageReturn: /\r\n|\r/g, spaceLine: /^ +$/gm, notSpaceStart: /^\S*/, endingNewline: /\n$/, listItemRegex: (l3) => new RegExp(`^( {0,3}${l3})((?:[	 ][^\\n]*)?(?:\\n|$))`), nextBulletRegex: C((l3) => new RegExp(`^ {0,${l3}}(?:[*+-]|\\d{1,9}[.)])((?:[ 	][^\\n]*)?(?:\\n|$))`)), hrRegex: C((l3) => new RegExp(`^ {0,${l3}}((?:-[ 	]*){3,}|(?:_[ 	]*){3,}|(?:\\*[ 	]*){3,})(?:\\n+|$)`)), fencesBeginRegex: C((l3) => new RegExp(`^ {0,${l3}}(?:\`\`\`|~~~)`)), headingBeginRegex: C((l3) => new RegExp(`^ {0,${l3}}#`)), htmlBeginRegex: C((l3) => new RegExp(`^ {0,${l3}}(?:</?(?:${N})(?: +|$|/?>)|<(?:script|pre|style|textarea|!--))`, "i")), blockquoteBeginRegex: C((l3) => new RegExp(`^ {0,${l3}}>`)) };
+var $e = /^(?:[ \t]*(?:\n|$))+/;
+var Le = /^((?: {4}| {0,3}\t)[^\n]+(?:\n(?:[ \t]*(?:\n|$))*)?)+/;
+var ze = /^ {0,3}(`{3,}(?=[^`\n]*(?:\n|$))|~{3,})([^\n]*)(?:\n|$)(?:|([\s\S]*?)(?:\n|$))(?: {0,3}\1[~`]* *(?=\n|$)|$)/;
+var G = /^ {0,3}((?:-[\t ]*){3,}|(?:_[ \t]*){3,}|(?:\*[ \t]*){3,})(?:\n+|$)/;
+var Ae = /^ {0,3}(#{1,6})(?=\s|$)(.*)(?:\n+|$)/;
+var J = / {0,3}(?:[*+-]|\d{1,9}[.)])/;
+var ce = /^(?!bull |blockCode|fences|blockquote|heading|html|table)((?:.|\n(?!\s*?\n|bull |fences|blockquote|heading|hr|html|table))+?)\n {0,3}(=+|-+) *(?:\n+|$)/;
+var he = h(ce).replace(/bull/g, J).replace(/blockCode/g, /(?: {4}| {0,3}\t)/).replace(/fences/g, / {0,3}(?:`{3,}|~{3,})/).replace(/blockquote/g, / {0,3}>/).replace(/heading/g, / {0,3}#{1,6}(?:\s|$)/).replace(/hr/g, / {0,3}(?:(?:-[\t ]*){3,}|(?:_[ \t]*){3,}|(?:\*[ \t]*){3,})(?:\n+|$)/).replace(/html/g, / {0,3}<[^\n>]+>\n/).replace(/\|table/g, "").getRegex();
+var Ee = h(ce).replace(/bull/g, J).replace(/blockCode/g, /(?: {4}| {0,3}\t)/).replace(/fences/g, / {0,3}(?:`{3,}|~{3,})/).replace(/blockquote/g, / {0,3}>/).replace(/heading/g, / {0,3}#{1,6}(?:\s|$)/).replace(/hr/g, / {0,3}(?:(?:-[\t ]*){3,}|(?:_[ \t]*){3,}|(?:\*[ \t]*){3,})(?:\n+|$)/).replace(/html/g, / {0,3}<[^\n>]+>\n/).replace(/table/g, / {0,3}\|?(?:[:\- ]*\|)+[\:\- ]*\n/).getRegex();
+var V = /^([^\n]+(?:\n(?!hr|heading|lheading|blockquote|fences|list|html|table|[ \t]+\n)[^\n]+)*)/;
+var Me = /^[^\n]+/;
+var Y = /(?!\s*\])(?:\\[\s\S]|[^\[\]\\])+/;
+var Ie = h(/^ {0,3}\[(label)\]: *(?:\n[ \t]*)?([^<\s][^\s]*|<.*?>)(?:(?: +(?:\n[ \t]*)?| *\n[ \t]*)(title))? *(?:\n+|$)/).replace("label", Y).replace("title", /(?:"(?:\\"?|[^"\\])*"|'[^'\n]*(?:\n[^'\n]+)*\n?'|\([^()]*\))/).getRegex();
+var Ce = h(/^(bull)([ \t][^\n]*?)?(?:\n|$)/).replace(/bull/g, J).getRegex();
+var N = "address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|meta|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul";
+var ee = /<!--(?:-?>|[\s\S]*?(?:-->|$))/;
+var Be = h("^ {0,3}(?:<(script|pre|style|textarea)[\\s>][\\s\\S]*?(?:</\\1>[^\\n]*\\n*|$)|comment[^\\n]*(\\n+|$)|<\\?[\\s\\S]*?(?:\\?>[^\\n]*\\n*|$)|<![A-Z][\\s\\S]*?(?:>[^\\n]*\\n*|$)|<!\\[CDATA\\[[\\s\\S]*?(?:\\]\\]>[^\\n]*\\n*|$)|</?(tag)(?: +|\\n|/?>)[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$)|<(?!script|pre|style|textarea)([a-z][a-z0-9-]*)(?:attribute)*? */?>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$)|</(?!script|pre|style|textarea)[a-z][a-z0-9-]*\\s*>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$))", "i").replace("comment", ee).replace("tag", N).replace("attribute", / +[a-zA-Z:_][\w.:-]*(?: *= *"[^"\n]*"| *= *'[^'\n]*'| *= *[^\s"'=<>`]+)?/).getRegex();
+var de = (l3) => h(V).replace("hr", G).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("|lheading", "").replace("|table", "").replace("blockquote", " {0,3}>").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*(?:\\n|$))|~~~)[^\\n]*(?:\\n|$)").replace("list", l3).replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", N).getRegex();
+var De = de(/ {0,3}(?:[*+-]|1[.)])[ \t]+[^ \t\n]/);
+var qe = de(/ {0,3}(?:[*+-]|\d{1,9}[.)])(?:[ \t]|\n|$)/);
+var ve = h(/^( {0,3}> ?(paragraph|[^\n]*)(?:\n|$))+/).replace("paragraph", qe).getRegex();
+var te = { blockquote: ve, code: Le, def: Ie, fences: ze, heading: Ae, hr: G, html: Be, lheading: he, list: Ce, newline: $e, paragraph: De, table: A, text: Me };
+var le = h("^ *([^\\n ].*)\\n {0,3}((?:\\| *)?:?-+:? *(?:\\| *:?-+:? *)*(?:\\| *)?)(?:\\n((?:(?! *\\n|hr|heading|blockquote|code|fences|list|html).*(?:\\n|$))*)\\n*|$)").replace("hr", G).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("blockquote", " {0,3}>").replace("code", "(?: {4}| {0,3}	)[^\\n]").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*(?:\\n|$))|~~~)[^\\n]*(?:\\n|$)").replace("list", " {0,3}(?:[*+-]|1[.)])[ \\t]").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", N).getRegex();
+var Ze = { ...te, lheading: Ee, table: le, paragraph: h(V).replace("hr", G).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("|lheading", "").replace("table", le).replace("blockquote", " {0,3}>").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*(?:\\n|$))|~~~)[^\\n]*(?:\\n|$)").replace("list", " {0,3}(?:[*+-]|1[.)])[ \\t]+[^ \\t\\n]").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", N).getRegex() };
+var He = { ...te, html: h(`^ *(?:comment *(?:\\n|\\s*$)|<(tag)[\\s\\S]+?</\\1> *(?:\\n{2,}|\\s*$)|<tag(?:"[^"]*"|'[^']*'|\\s[^'"/>\\s]*)*?/?> *(?:\\n{2,}|\\s*$))`).replace("comment", ee).replace(/tag/g, "(?!(?:a|em|strong|small|s|cite|q|dfn|abbr|data|time|code|var|samp|kbd|sub|sup|i|b|u|mark|ruby|rt|rp|bdi|bdo|span|br|wbr|ins|del|img)\\b)\\w+(?!:|[^\\w\\s@]*@)\\b").getRegex(), def: /^ *\[([^\]]+)\]: *<?([^\s>]+)>?(?: +(["(][^\n]+[")]))? *(?:\n+|$)/, heading: /^(#{1,6})(.*)(?:\n+|$)/, fences: A, lheading: /^(.+?)\n {0,3}(=+|-+) *(?:\n+|$)/, paragraph: h(V).replace("hr", G).replace("heading", ` *#{1,6} *[^
+]`).replace("lheading", he).replace("|table", "").replace("blockquote", " {0,3}>").replace("|fences", "").replace("|list", "").replace("|html", "").replace("|tag", "").getRegex() };
+var Ge = /^\\([!"#$%&'()*+,\-./:;<=>?@\[\]\\^_`{|}~])/;
+var Ne = /^(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/;
+var ke = /^( {2,}|\\)\n(?!\s*$)[ \t]*/;
+var Qe = /^(`+|[^`])(?:(?= {2,}\n)|[\s\S]*?(?:(?=[\\<!\[`*_]|\b_|$)|[^ ](?= {2,}\n)))/;
+var $ = /[\p{P}\p{S}]/u;
+var B = /[\s\p{P}\p{S}]/u;
+var Q = /[^\s\p{P}\p{S}]/u;
+var je = h(/^((?![*_])punctSpace)/, "u").replace(/punctSpace/g, B).getRegex();
+var Fe = /[\p{Pi}\p{Ps}"']/u;
+var ge = /(?!~)[\p{P}\p{S}]/u;
+var Ue = /(?!~)[\s\p{P}\p{S}]/u;
+var Ke = /(?:[^\s\p{P}\p{S}]|~)/u;
+var We = h(/link|precode-code|html/, "g").replace("link", /\[(?:[^\[\]`]|(?<a>`+)[^`]+\k<a>(?!`))*?\]\((?:\\[\s\S]|[^\\\(\)]|\((?:\\[\s\S]|[^\\\(\)])*\))*\)/).replace("precode-", _e ? "(?<!`)()" : "(^^|[^`])").replace("code", /(?<b>`+)[^`]+\k<b>(?!`)/).replace("html", /<(?! )[^<>]*?>/).getRegex();
+var fe = /^(?:\*+(?:((?!\*)punct)|([^\s*]))?)|^_+(?:((?!_)punct)|([^\s_]))?/;
+var Xe = h(fe, "u").replace(/punct/g, $).getRegex();
+var Je = h(fe, "u").replace(/punct/g, ge).getRegex();
+var Ve = /^(?:\*+(?:((?!\*)(?!openQuote)punct)|([^\s*]))?)|^_+(?:((?!_)(?!openQuote)punct)|([^\s_]))?/;
+var Ye = h(Ve, "u").replace(/openQuote/g, Fe).replace(/punct/g, $).getRegex();
+var me = "^[^_*]*?__[^_*]*?\\*[^_*]*?(?=__)|[^*]+(?=[^*])|(?!\\*)punct(\\*+)(?=[\\s]|$)|notPunctSpace(\\*+)(?!\\*)(?=punctSpace|$)|(?!\\*)punctSpace(\\*+)(?=notPunctSpace)|[\\s](\\*+)(?!\\*)(?=punct)|(?!\\*)punct(\\*+)(?!\\*)(?=punct)|notPunctSpace(\\*+)(?=notPunctSpace)";
+var et = h(me, "gu").replace(/notPunctSpace/g, Q).replace(/punctSpace/g, B).replace(/punct/g, $).getRegex();
+var tt = h(me, "gu").replace(/notPunctSpace/g, Ke).replace(/punctSpace/g, Ue).replace(/punct/g, ge).getRegex();
+var nt = "^[^_*]*?__[^_*]*?\\*[^_*]*?(?=__)|[^*]+(?=[^*])|(?!\\*)punct(\\*+)(?=[\\s]|$)|notPunctSpace(\\*+)(?!\\*)(?=punctSpace|$)|(?!\\*)[\\s](\\*+)(?=notPunctSpace)|[\\s](\\*+)(?!\\*)(?=punct)|(?!\\*)punct(\\*+)(?!\\*)(?=punct)|(?:(?!\\*)punct|notPunctSpace)(\\*+)(?!\\*)(?=notPunctSpace)";
+var rt = h(nt, "gu").replace(/notPunctSpace/g, Q).replace(/punctSpace/g, B).replace(/punct/g, $).getRegex();
+var st = h("^[^_*]*?\\*\\*[^_*]*?_[^_*]*?(?=\\*\\*)|[^_]+(?=[^_])|(?!_)punct(_+)(?=[\\s]|$)|notPunctSpace(_+)(?!_)(?=punctSpace|$)|(?!_)punctSpace(_+)(?=notPunctSpace)|[\\s](_+)(?!_)(?=punct)|(?!_)punct(_+)(?!_)(?=punct)", "gu").replace(/notPunctSpace/g, Q).replace(/punctSpace/g, B).replace(/punct/g, $).getRegex();
+var it = "^[^_*]*?\\*\\*[^_*]*?_[^_*]*?(?=\\*\\*)|[^_]+(?=[^_])|(?!_)punct(_+)(?=[\\s]|$)|notPunctSpace(_+)(?!_)(?=punctSpace|$)|(?!_)[\\s](_+)(?=notPunctSpace)|[\\s](_+)(?!_)(?=punct)|(?!_)punct(_+)(?!_)(?=punct)|(?:(?!_)punct|notPunctSpace)(_+)(?!_)(?=notPunctSpace)";
+var ot = h(it, "gu").replace(/notPunctSpace/g, Q).replace(/punctSpace/g, B).replace(/punct/g, $).getRegex();
+var at = h(/^~~?(?:((?!~)punct)|[^\s~])/, "u").replace(/punct/g, $).getRegex();
+var lt = "^[^~]+(?=[^~])|(?!~)punct(~~?)(?=[\\s]|$)|notPunctSpace(~~?)(?!~)(?=punctSpace|$)|(?!~)punctSpace(~~?)(?=notPunctSpace)|[\\s](~~?)(?!~)(?=punct)|(?!~)punct(~~?)(?!~)(?=punct)|notPunctSpace(~~?)(?=notPunctSpace)";
+var ut = h(lt, "gu").replace(/notPunctSpace/g, Q).replace(/punctSpace/g, B).replace(/punct/g, $).getRegex();
+var pt = h(/\\(punct)/, "gu").replace(/punct/g, $).getRegex();
+var ct = h(/^<(scheme:[^\s\x00-\x1f<>]*|email)>/).replace("scheme", /[a-zA-Z][a-zA-Z0-9+.-]{1,31}/).replace("email", /[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+(@)[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+(?![-_])/).getRegex();
+var ht = h(ee).replace("(?:-->|$)", "-->").getRegex();
+var dt = h("^comment|^</[a-zA-Z][a-zA-Z0-9-]*\\s*>|^<[a-zA-Z][a-zA-Z0-9-]*(?:attribute)*?\\s*/?>|^<\\?[\\s\\S]*?\\?>|^<![a-zA-Z]+\\s[\\s\\S]*?>|^<!\\[CDATA\\[[\\s\\S]*?\\]\\]>").replace("comment", ht).replace("attribute", /\s+[a-zA-Z:_][\w.:-]*(?:\s*=\s*"[^"]*"|\s*=\s*'[^']*'|\s*=\s*[^\s"'=<>`]+)?/).getRegex();
+var xe = /\[(?:\\[\s\S]|[^\[\]\\])*\]/;
+var U = h(/(?:\[(?:brackets|\\[\s\S]|[^\[\]\\])*\]|\\[\s\S]|`+(?!`)[^`]*?`+(?!`)|``+(?=\])|[^\[\]\\`])*?/).replace("brackets", xe).getRegex();
+var kt = h(/^!?\[(label)\]\(\s*(href)(?:(?:[ \t]+(?:\n[ \t]*)?|\n[ \t]*)(title))?\s*\)/).replace("label", U).replace("href", /<(?:\\.|[^\n<>\\])+>|[^ \t\n\x00-\x1f]+|(?=\))/).replace("title", /"(?:\\"?|[^"\\])*"|'(?:\\'?|[^'\\])*'|\((?:\\\)?|[^)\\])*\)/).getRegex();
+var gt = h(/^!?\[(label)\]\[(ref)\]/).replace("label", U).replace("ref", Y).getRegex();
+var ft = h(/^!?\[(ref)\](?:\[\])?/).replace("ref", Y).getRegex();
+var ue = /(?!\s*\])(?:\\[\s\S]|[^\[\]\\]){1,999}/;
+var mt = h(/(?:[^\[\]\\`]*(?:\[(?:brackets|\\[\s\S]|[^\[\]\\])*\]|\\[\s\S]|`+(?!`)[^`]*?`+(?!`)|``+(?=\]))){0,999}?[^\[\]\\`]*?/).replace("brackets", xe).getRegex();
+var xt = h("reflink|nolink(?!\\()", "g").replace("reflink", h(/^!?\[(label)\]\[(ref)\]/).replace("label", mt).replace("ref", ue).getRegex()).replace("nolink", h(/^!?\[(ref)\](?:\[\])?/).replace("ref", ue).getRegex()).getRegex();
+var pe = /[hH][tT][tT][pP][sS]?|[fF][tT][pP]/;
+var bt = /[A-Za-z0-9._+-]+@[a-zA-Z0-9-_]+(?:\.[a-zA-Z0-9-_]*[a-zA-Z0-9])+(?![\w-])/;
+var Rt = h(/(?:mailto:email|xmpp:email(?:\/[A-Za-z0-9@.]+)?)/).replace(/email/g, bt).getRegex();
+var ne = { _backpedal: A, anyPunctuation: pt, autolink: ct, blockSkip: We, br: ke, code: Ne, del: A, delLDelim: A, delRDelim: A, emStrongLDelim: Xe, emStrongRDelimAst: et, emStrongRDelimUnd: st, escape: Ge, link: kt, nolink: ft, punctuation: je, reflink: gt, reflinkSearch: xt, tag: dt, text: Qe, url: A };
+var Tt = { ...ne, emStrongLDelim: Ye, emStrongRDelimAst: rt, emStrongRDelimUnd: ot, link: h(/^!?\[(label)\]\((.*?)\)/).replace("label", U).getRegex(), reflink: h(/^!?\[(label)\]\s*\[([^\]]*)\]/).replace("label", U).getRegex() };
+var X = { ...ne, emStrongRDelimAst: tt, emStrongLDelim: Je, delLDelim: at, delRDelim: ut, url: h(/^emailProtocol|^((?:protocol):\/\/|www\.)(?:[a-zA-Z0-9\-]+\.?)+[^\s<]*|^email/).replace("emailProtocol", Rt).replace("protocol", pe).replace("email", /[A-Za-z0-9._+-]+(@)[a-zA-Z0-9-_]+(?:\.[a-zA-Z0-9-_]*[a-zA-Z0-9])+(?![\w-])/).getRegex(), _backpedal: /(?:[^?!.,:;*_'"~()&]+|\([^)]*\)|&(?![a-zA-Z0-9]+;$)|[?!.,:;*_'"~)]+(?!$))+/, del: /^(~~?)(?=[^\s~])((?:\\[\s\S]|[^\\])*?(?:\\[\s\S]|[^\s~\\]))\1(?=[^~]|$)/, text: h(/^(?:[^a-zA-Z0-9](?=emailProtocol)|(`+|~+|[^`~])(?:(?=[`~])|(?= {2,}\n)|(?=[a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-]+@)|[\s\S]*?(?:(?=[\\<!\[`*~_]|\b_|protocol:\/\/|www\.|$)|[^ ](?= {2,}\n)|[^a-zA-Z0-9](?=emailProtocol)|[^a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-](?=[a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-]+@))))/).replace("protocol", pe).replace(/emailProtocol/g, /(?:mailto|xmpp):/).getRegex() };
+var Ot = { ...X, br: h(ke).replace("{2,}", "*").getRegex(), text: h(X.text).replace("\\b_", "\\b_| {2,}\\n").replace(/\{2,\}/g, "*").getRegex() };
+var j = { normal: te, gfm: Ze, pedantic: He };
+var D = { normal: ne, gfm: X, breaks: Ot, pedantic: Tt };
+var wt = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+var be = (l3) => wt[l3];
+function O(l3, e) {
+  if (e) {
+    if (x.escapeTest.test(l3)) return l3.replace(x.escapeReplace, be);
+  } else if (x.escapeTestNoEncode.test(l3)) return l3.replace(x.escapeReplaceNoEncode, be);
+  return l3;
+}
+function Re(l3) {
+  return l3.replace(x.numericCharacterReference, (e, t, n) => {
+    let s = t === void 0 ? Number.parseInt(n, 16) : Number.parseInt(t, 10);
+    return s === 0 || s > 1114111 || s >= 55296 && s <= 57343 ? "\uFFFD" : String.fromCodePoint(s);
+  });
+}
+function re(l3) {
+  try {
+    l3 = encodeURI(l3).replace(x.percentDecode, "%");
+  } catch {
+    return null;
+  }
+  return l3;
+}
+function se(l3, e) {
+  let t = l3.replace(x.findPipe, (r, o, i) => {
+    let u = false, a = o;
+    for (; --a >= 0 && i[a] === "\\"; ) u = !u;
+    return u ? "|" : " |";
+  }), n = t.split(x.splitPipe), s = 0;
+  if (n[0].trim() || n.shift(), n.length > 0 && !n.at(-1)?.trim() && n.pop(), e) if (n.length > e) n.splice(e);
+  else for (; n.length < e; ) n.push("");
+  for (; s < n.length; s++) n[s] = n[s].trim().replace(x.slashPipe, "|");
+  return n;
+}
+function L(l3, e, t) {
+  let n = l3.length;
+  if (n === 0) return "";
+  let s = 0;
+  for (; s < n; ) {
+    let r = l3.charAt(n - s - 1);
+    if (r === e && !t) s++;
+    else if (r !== e && t) s++;
+    else break;
+  }
+  return l3.slice(0, n - s);
+}
+function ie(l3) {
+  let e = l3.split(`
+`), t = e.length - 1;
+  for (; t >= 0 && x.blankLine.test(e[t]); ) t--;
+  return e.length - t <= 2 ? l3 : e.slice(0, t + 1).join(`
+`);
+}
+function q(l3) {
+  return l3.trim().toLowerCase().toUpperCase().toLowerCase();
+}
+function Te(l3, e) {
+  if (l3.indexOf(e[1]) === -1) return -1;
+  let t = 0;
+  for (let n = 0; n < l3.length; n++) if (l3[n] === "\\") n++;
+  else if (l3[n] === e[0]) t++;
+  else if (l3[n] === e[1] && (t--, t < 0)) return n;
+  return t > 0 ? -2 : -1;
+}
+function oe(l3, e = 0) {
+  let t = e, n = "";
+  for (let s of l3) if (s === "	") {
+    let r = 4 - t % 4;
+    n += " ".repeat(r), t += r;
+  } else n += s, t++;
+  return n;
+}
+function Oe(l3, e, t, n, s) {
+  let r = e.href, o = e.title || null, i = l3[1].replace(s.other.outputLinkReplace, "$1"), u = l3[0].charAt(0) === "!";
+  n.state.inLink = true;
+  let a = n.state.linkEmitted, p = n.state.inRawBlock;
+  n.state.linkEmitted = false;
+  let c = n.inlineTokens(i), d = n.state.linkEmitted;
+  if (n.state.linkEmitted = a, n.state.inLink = false, !u) {
+    if (d) {
+      n.state.inRawBlock = p;
+      return;
+    }
+    n.state.linkEmitted = true;
+  }
+  return { type: u ? "image" : "link", raw: t, href: r, title: o, text: i, tokens: c };
+}
+function yt(l3, e, t) {
+  let n = l3.match(t.other.indentCodeCompensation);
+  if (n === null) return e;
+  let s = n[1];
+  return e.split(`
+`).map((r) => {
+    let o = r.match(t.other.beginningSpace);
+    if (o === null) return r;
+    let [i] = o;
+    return r.slice(Math.min(i.length, s.length));
+  }).join(`
+`);
+}
+function we(l3, e, t, n) {
+  if (!e.includes("<")) return false;
+  for (let s = 0; s < e.length; s++) {
+    if (e[s] === "\\") {
+      s++;
+      continue;
+    }
+    if (e[s] === "`") {
+      let i = n.inline.code.exec(e.slice(s));
+      if (i) {
+        s += i[0].length - 1;
+        continue;
+      }
+    }
+    if (e[s] !== "<") continue;
+    let r = l3.slice(t + s), o = n.inline.tag.exec(r) || n.inline.autolink.exec(r);
+    if (o) {
+      if (o[0].length > e.length - s) return true;
+      s += o[0].length - 1;
+    }
+  }
+  return false;
+}
+var P = class {
+  options;
+  rules;
+  lexer;
+  constructor(e) {
+    this.options = e || y;
+  }
+  space(e) {
+    let t = this.rules.block.newline.exec(e);
+    if (t && t[0].length > 0) return { type: "space", raw: t[0] };
+  }
+  code(e) {
+    let t = this.rules.block.code.exec(e);
+    if (t) {
+      let n = this.options.pedantic ? t[0] : ie(t[0]), s = n.replace(this.rules.other.codeRemoveIndent, "");
+      return { type: "code", raw: n, codeBlockStyle: "indented", text: s };
+    }
+  }
+  fences(e) {
+    let t = this.rules.block.fences.exec(e);
+    if (t) {
+      let n = t[0], s = yt(n, t[3] || "", this.rules);
+      return { type: "code", raw: n, lang: t[2] ? t[2].trim().replace(this.rules.inline.anyPunctuation, "$1") : t[2], text: s };
+    }
+  }
+  heading(e) {
+    let t = this.rules.block.heading.exec(e);
+    if (t) {
+      let n = t[2].trim();
+      if (this.rules.other.endingHash.test(n)) {
+        let s = L(n, "#");
+        (this.options.pedantic || !s || this.rules.other.endingSpaceTabChar.test(s)) && (n = s.trim());
+      }
+      return { type: "heading", raw: L(t[0], `
+`), depth: t[1].length, text: n, tokens: this.lexer.inline(n) };
+    }
+  }
+  hr(e) {
+    let t = this.rules.block.hr.exec(e);
+    if (t) return { type: "hr", raw: L(t[0], `
+`) };
+  }
+  blockquote(e) {
+    let t = this.rules.block.blockquote.exec(e);
+    if (t) {
+      let n = L(t[0], `
+`).split(`
+`), s = "", r = "", o = [];
+      for (; n.length > 0; ) {
+        let i = false, u = [], a;
+        for (a = 0; a < n.length; a++) if (this.rules.other.blockquoteStart.test(n[a])) u.push(n[a]), i = true;
+        else if (!i) u.push(n[a]);
+        else break;
+        n = n.slice(a);
+        let p = u.join(`
+`), c = p.replace(this.rules.other.blockquoteSetextReplace, `
+    $1`).replace(this.rules.other.blockquoteSetextReplace2, "");
+        s = s ? `${s}
+${p}` : p, r = r ? `${r}
+${c}` : c;
+        let d = this.lexer.state.top;
+        if (this.lexer.state.top = true, this.lexer.blockTokens(c, o, true), this.lexer.state.top = d, n.length === 0) break;
+        let m = o.at(-1);
+        if (m?.type === "code") break;
+        if (m?.type === "blockquote") {
+          let b = m, g = n.join(`
+`), w = b.raw + `
+` + g.replace(this.rules.other.blockquoteSetextReplace2, ""), f = this.blockquote(w);
+          o[o.length - 1] = f;
+          let M = w.substring(f.raw.length).replace(/^\n/, ""), v = M ? M.split(`
+`).length : 0, Z = v ? n.slice(0, -v) : n;
+          Z.length > 0 && (s = `${s}
+${Z.join(`
+`)}`), r = r.substring(0, r.length - b.text.length) + f.text;
+          break;
+        } else if (m?.type === "list") {
+          let b = m, g = b.raw + `
+` + n.join(`
+`), w = this.list(g);
+          o[o.length - 1] = w, s = s.substring(0, s.length - m.raw.length) + w.raw, r = r.substring(0, r.length - b.raw.length) + w.raw, n = g.substring(o.at(-1).raw.length).split(`
+`);
+          continue;
+        }
+      }
+      return { type: "blockquote", raw: s, tokens: o, text: r };
+    }
+  }
+  list(e) {
+    let t = this.rules.block.list.exec(e);
+    if (t) {
+      let n = t[1].trim(), s = n.length > 1, r = { type: "list", raw: "", ordered: s, start: s ? +n.slice(0, -1) : "", loose: false, items: [] };
+      n = s ? `\\d{1,9}\\${n.slice(-1)}` : `\\${n}`, this.options.pedantic && (n = s ? n : "[*+-]");
+      let o = this.rules.other.listItemRegex(n), i = false;
+      for (; e; ) {
+        let a = false, p = "", c = "";
+        if (!(t = o.exec(e)) || this.rules.block.hr.test(e)) break;
+        p = t[0], e = e.substring(p.length);
+        let d = t[2].split(`
+`, 1)[0], m = t[1].length, b = this.options.pedantic ? oe(d, m) : d.replace(this.rules.other.leadingSpaceTab, (M) => oe(M, m)), g = e.split(`
+`, 1)[0], w = !b.trim(), f = 0;
+        if (this.options.pedantic ? (f = 2, c = b.trimStart()) : w ? f = m + 1 : (f = b.search(this.rules.other.nonSpaceChar), f = f > 4 ? 1 : f, c = b.slice(f), f += m), w && this.rules.other.blankLine.test(g) && (p += g + `
+`, e = e.substring(g.length + 1), a = true), !a) {
+          let M = this.rules.other.nextBulletRegex(f), v = this.rules.other.hrRegex(f), Z = this.rules.other.fencesBeginRegex(f), ae = this.rules.other.headingBeginRegex(f), ye = this.rules.other.htmlBeginRegex(f), Pe = this.rules.other.blockquoteBeginRegex(f);
+          for (; e; ) {
+            let K = e.split(`
+`, 1)[0], H;
+            if (g = K, this.options.pedantic ? (g = g.replace(this.rules.other.listReplaceNesting, "  "), H = g) : H = g.replace(this.rules.other.leadingSpaceTab, (Se) => Se.replace(this.rules.other.tabCharGlobal, "    ")), Z.test(g) || ae.test(g) || ye.test(g) || Pe.test(g) || M.test(g) || v.test(g)) break;
+            if (H.search(this.rules.other.nonSpaceChar) >= f || !g.trim()) c += `
+` + H.slice(f);
+            else {
+              if (w || b.replace(this.rules.other.tabCharGlobal, "    ").search(this.rules.other.nonSpaceChar) >= 4 || Z.test(b) || ae.test(b) || v.test(b)) break;
+              c += `
+` + g;
+            }
+            w = !g.trim(), p += K + `
+`, e = e.substring(K.length + 1), b = H.slice(f);
+          }
+        }
+        r.loose || (i ? r.loose = true : this.rules.other.doubleBlankLine.test(p) && (i = true)), r.items.push({ type: "list_item", raw: p, task: !!this.options.gfm && this.rules.other.listIsTask.test(c), loose: false, text: c, tokens: [] }), r.raw += p;
+      }
+      let u = r.items.at(-1);
+      if (u) u.raw = u.raw.trimEnd(), u.text = u.text.trimEnd();
+      else return;
+      r.raw = r.raw.trimEnd();
+      for (let a of r.items) if (this.lexer.state.top = false, a.tokens = this.lexer.blockTokens(a.text, []), !r.loose) {
+        let p = a.tokens.filter((d) => d.type === "space"), c = p.length > 0 && p.some((d) => this.rules.other.anyLine.test(d.raw));
+        r.loose = c;
+      }
+      for (let a of r.items) {
+        let p = a.tokens[0];
+        if (a.task && (p?.type === "text" || p?.type === "paragraph")) {
+          a.text = a.text.replace(this.rules.other.listReplaceTask, ""), p.raw = p.raw.replace(this.rules.other.listReplaceTask, ""), p.text = p.text.replace(this.rules.other.listReplaceTask, "");
+          for (let d = this.lexer.inlineQueue.length - 1; d >= 0; d--) if (this.rules.other.listIsTask.test(this.lexer.inlineQueue[d].src)) {
+            this.lexer.inlineQueue[d].src = this.lexer.inlineQueue[d].src.replace(this.rules.other.listReplaceTask, "");
+            break;
+          }
+          let c = this.rules.other.listTaskCheckbox.exec(a.raw);
+          if (c) {
+            let d = { type: "checkbox", raw: c[0] + " ", checked: c[0] !== "[ ]" };
+            a.checked = d.checked, r.loose ? a.tokens[0] && ["paragraph", "text"].includes(a.tokens[0].type) && "tokens" in a.tokens[0] && a.tokens[0].tokens ? (a.tokens[0].raw = d.raw + a.tokens[0].raw, a.tokens[0].text = d.raw + a.tokens[0].text, a.tokens[0].tokens.unshift(d)) : a.tokens.unshift({ type: "paragraph", raw: d.raw, text: d.raw, tokens: [d] }) : a.tokens.unshift(d);
+          }
+        } else a.task && (a.task = false);
+      }
+      if (r.loose) for (let a of r.items) {
+        a.loose = true;
+        for (let p of a.tokens) p.type === "text" && (p.type = "paragraph");
+      }
+      return r;
+    }
+  }
+  html(e) {
+    let t = this.rules.block.html.exec(e);
+    if (t) {
+      let n = ie(t[0]);
+      return { type: "html", block: true, raw: n, pre: t[1] === "pre" || t[1] === "script" || t[1] === "style", text: n };
+    }
+  }
+  def(e) {
+    let t = this.rules.block.def.exec(e);
+    if (t) {
+      let n = q(t[1]).replace(this.rules.other.multipleSpaceGlobal, " "), s = t[2] ? t[2].replace(this.rules.other.hrefBrackets, "$1").replace(this.rules.inline.anyPunctuation, "$1") : "", r = t[3] ? t[3].substring(1, t[3].length - 1).replace(this.rules.inline.anyPunctuation, "$1") : t[3];
+      return { type: "def", tag: n, raw: L(t[0], `
+`), href: s, title: r };
+    }
+  }
+  table(e) {
+    let t = this.rules.block.table.exec(e);
+    if (!t || !this.rules.other.tableDelimiter.test(t[2])) return;
+    let n = se(t[1]), s = t[2].replace(this.rules.other.tableAlignChars, "").split("|"), r = t[3]?.trim() ? t[3].replace(this.rules.other.tableRowBlankLine, "").split(`
+`) : [], o = { type: "table", raw: L(t[0], `
+`), header: [], align: [], rows: [] };
+    if (n.length === s.length) {
+      for (let i of s) this.rules.other.tableAlignRight.test(i) ? o.align.push("right") : this.rules.other.tableAlignCenter.test(i) ? o.align.push("center") : this.rules.other.tableAlignLeft.test(i) ? o.align.push("left") : o.align.push(null);
+      for (let i = 0; i < n.length; i++) o.header.push({ text: n[i], tokens: this.lexer.inline(n[i]), header: true, align: o.align[i] });
+      for (let i of r) o.rows.push(se(i, o.header.length).map((u, a) => ({ text: u, tokens: this.lexer.inline(u), header: false, align: o.align[a] })));
+      return o;
+    }
+  }
+  lheading(e) {
+    let t = this.rules.block.lheading.exec(e);
+    if (t) {
+      let n = t[1].trim();
+      return { type: "heading", raw: L(t[0], `
+`), depth: t[2].charAt(0) === "=" ? 1 : 2, text: n, tokens: this.lexer.inline(n) };
+    }
+  }
+  paragraph(e) {
+    let t = this.rules.block.paragraph.exec(e);
+    if (t) {
+      let n = t[1].charAt(t[1].length - 1) === `
+` ? t[1].slice(0, -1) : t[1];
+      return { type: "paragraph", raw: t[0], text: n, tokens: this.lexer.inline(n) };
+    }
+  }
+  text(e) {
+    let t = this.rules.block.text.exec(e);
+    if (t) return { type: "text", raw: t[0], text: t[0], tokens: this.lexer.inline(t[0]) };
+  }
+  escape(e) {
+    let t = this.rules.inline.escape.exec(e);
+    if (t) return { type: "escape", raw: t[0], text: t[1] };
+  }
+  tag(e) {
+    let t = this.rules.inline.tag.exec(e);
+    if (t) return !this.lexer.state.inLink && this.rules.other.startATag.test(t[0]) ? this.lexer.state.inLink = true : this.lexer.state.inLink && this.rules.other.endATag.test(t[0]) && (this.lexer.state.inLink = false), !this.lexer.state.inRawBlock && this.rules.other.startPreScriptTag.test(t[0]) ? this.lexer.state.inRawBlock = true : this.lexer.state.inRawBlock && this.rules.other.endPreScriptTag.test(t[0]) && (this.lexer.state.inRawBlock = false), { type: "html", raw: t[0], inLink: this.lexer.state.inLink, inRawBlock: this.lexer.state.inRawBlock, block: false, text: t[0] };
+  }
+  link(e) {
+    let t = this.rules.inline.link.exec(e);
+    if (t) {
+      let n = t[0].charAt(0) === "!" ? 2 : 1;
+      if (!this.options.pedantic && we(e, t[1], n, this.rules)) return;
+      let s = t[2].trim();
+      if (!this.options.pedantic && this.rules.other.startAngleBracket.test(s)) {
+        if (!this.rules.other.endAngleBracket.test(s)) return;
+        let i = L(s.slice(0, -1), "\\");
+        if ((s.length - i.length) % 2 === 0) return;
+      } else {
+        let i = Te(t[2], "()");
+        if (i === -2) return;
+        if (i > -1) {
+          let a = (t[0].indexOf("!") === 0 ? 5 : 4) + t[1].length + i;
+          t[2] = t[2].substring(0, i), t[0] = t[0].substring(0, a).trim(), t[3] = "";
+        }
+      }
+      let r = t[2], o = "";
+      if (this.options.pedantic) {
+        let i = this.rules.other.pedanticHrefTitle.exec(r);
+        i && (r = i[1], o = i[3]);
+      } else o = t[3] ? t[3].slice(1, -1) : "";
+      return r = r.trim(), this.rules.other.startAngleBracket.test(r) && (this.options.pedantic && !this.rules.other.endAngleBracket.test(s) ? r = r.slice(1) : r = r.slice(1, -1)), Oe(t, { href: r && r.replace(this.rules.inline.anyPunctuation, "$1"), title: o && o.replace(this.rules.inline.anyPunctuation, "$1") }, t[0], this.lexer, this.rules);
+    }
+  }
+  reflink(e, t) {
+    let n;
+    if ((n = this.rules.inline.reflink.exec(e)) || (n = this.rules.inline.nolink.exec(e))) {
+      let s = n[0].charAt(0) === "!" ? 2 : 1;
+      if (!this.options.pedantic && we(e, n[1], s, this.rules)) return;
+      let r = (n[2] || n[1]).replace(this.rules.other.multipleSpaceGlobal, " "), o = t[q(r)];
+      if (!o) {
+        let i = n[0].charAt(0);
+        return { type: "text", raw: i, text: i };
+      }
+      return Oe(n, o, n[0], this.lexer, this.rules);
+    }
+  }
+  emStrong(e, t, n = "") {
+    let s = this.rules.inline.emStrongLDelim.exec(e);
+    if (!s || !s[1] && !s[2] && !s[3] && !s[4] || s[4] && n.match(this.rules.other.unicodeAlphaNumeric)) return;
+    if (!(s[1] || s[3] || "") || !n || this.rules.inline.punctuation.exec(n)) {
+      let o = [...s[0]].length - 1, i, u, a = o, p = 0, c = s[0][0], d = n === c, m = c === "*" ? this.rules.inline.emStrongRDelimAst : this.rules.inline.emStrongRDelimUnd;
+      for (m.lastIndex = 0, t = t.slice(-1 * e.length + o); (s = m.exec(t)) !== null; ) {
+        if (i = s[1] || s[2] || s[3] || s[4] || s[5] || s[6], !i) continue;
+        if (u = [...i].length, s[3] || s[4]) {
+          a += u;
+          continue;
+        } else if (s[5] || s[6]) {
+          if (o % 3 && !((o + u) % 3)) {
+            p += u;
+            continue;
+          }
+          if (d) break;
+        }
+        if (a -= u, a > 0) continue;
+        u = Math.min(u, u + a + p);
+        let b = [...s[0]][0].length, g = e.slice(0, o + s.index + b + u);
+        if (Math.min(o, u) % 2) {
+          let f = g.slice(1, -1);
+          return { type: "em", raw: g, text: f, tokens: this.lexer.inlineTokens(f) };
+        }
+        let w = g.slice(2, -2);
+        return { type: "strong", raw: g, text: w, tokens: this.lexer.inlineTokens(w) };
+      }
+    }
+  }
+  codespan(e) {
+    let t = this.rules.inline.code.exec(e);
+    if (t) {
+      let n = t[2].replace(this.rules.other.newLineCharGlobal, " "), s = this.rules.other.nonSpaceChar.test(n), r = this.rules.other.startingSpaceChar.test(n) && this.rules.other.endingSpaceChar.test(n);
+      return s && r && (n = n.substring(1, n.length - 1)), { type: "codespan", raw: t[0], text: n };
+    }
+  }
+  br(e) {
+    let t = this.rules.inline.br.exec(e);
+    if (t) return { type: "br", raw: t[0] };
+  }
+  del(e, t, n = "") {
+    let s = this.rules.inline.delLDelim.exec(e);
+    if (!s) return;
+    if (!(s[1] || "") || !n || this.rules.inline.punctuation.exec(n)) {
+      let o = [...s[0]].length - 1, i, u, a = o, p = this.rules.inline.delRDelim;
+      for (p.lastIndex = 0, t = t.slice(-1 * e.length + o); (s = p.exec(t)) !== null; ) {
+        if (i = s[1] || s[2] || s[3] || s[4] || s[5] || s[6], !i || (u = [...i].length, u !== o)) continue;
+        if (s[3] || s[4]) {
+          a += u;
+          continue;
+        }
+        if (a -= u, a > 0) continue;
+        u = Math.min(u, u + a);
+        let c = [...s[0]][0].length, d = e.slice(0, o + s.index + c + u), m = d.slice(o, -o);
+        return { type: "del", raw: d, text: m, tokens: this.lexer.inlineTokens(m) };
+      }
+    }
+  }
+  autolink(e) {
+    let t = this.rules.inline.autolink.exec(e);
+    if (t) {
+      let n, s;
+      return t[2] === "@" ? (n = t[1], s = "mailto:" + n) : (n = t[1], s = n), { type: "link", raw: t[0], text: n, href: s, autolink: true, tokens: [{ type: "text", raw: n, text: n }] };
+    }
+  }
+  url(e) {
+    let t;
+    if (t = this.rules.inline.url.exec(e)) {
+      let n, s;
+      if (t[2] === "@") n = t[0], s = "mailto:" + n;
+      else {
+        let r;
+        do
+          r = t[0], t[0] = this.rules.inline._backpedal.exec(t[0])?.[0] ?? "";
+        while (r !== t[0]);
+        n = t[0], t[1] === "www." ? s = "http://" + t[0] : s = t[0];
+      }
+      return { type: "link", raw: t[0], text: n, href: s, autolink: true, tokens: [{ type: "text", raw: n, text: n }] };
+    }
+  }
+  inlineText(e) {
+    let t = this.rules.inline.text.exec(e);
+    if (t) {
+      let n = this.lexer.state.inRawBlock;
+      return { type: "text", raw: t[0], text: n ? t[0] : Re(t[0]), escaped: n };
+    }
+  }
+};
+var R = class l {
+  tokens;
+  options;
+  state;
+  inlineQueue;
+  tokenizer;
+  constructor(e) {
+    this.tokens = [], this.tokens.links = /* @__PURE__ */ Object.create(null), this.options = e || y, this.options.tokenizer = this.options.tokenizer || new P(), this.tokenizer = this.options.tokenizer, this.tokenizer.options = this.options, this.tokenizer.lexer = this, this.inlineQueue = [], this.state = { inLink: false, inRawBlock: false, linkEmitted: false, top: true };
+    let t = { other: x, block: j.normal, inline: D.normal };
+    this.options.pedantic ? (t.block = j.pedantic, t.inline = D.pedantic) : this.options.gfm && (t.block = j.gfm, this.options.breaks ? t.inline = D.breaks : t.inline = D.gfm), this.tokenizer.rules = t;
+  }
+  static get rules() {
+    return { block: j, inline: D };
+  }
+  static lex(e, t) {
+    return new l(t).lex(e);
+  }
+  static lexInline(e, t) {
+    return new l(t).inlineTokens(e);
+  }
+  lex(e) {
+    e = e.replace(x.carriageReturn, `
+`), this.blockTokens(e, this.tokens);
+    for (let t = 0; t < this.inlineQueue.length; t++) {
+      let n = this.inlineQueue[t];
+      this.inlineTokens(n.src, n.tokens);
+    }
+    return this.inlineQueue = [], this.tokens;
+  }
+  blockTokens(e, t = [], n = false) {
+    this.tokenizer.lexer = this, this.options.pedantic && (e = e.replace(x.tabCharGlobal, "    ").replace(x.spaceLine, ""));
+    let s = 1 / 0;
+    for (; e; ) {
+      if (e.length < s) s = e.length;
+      else {
+        this.infiniteLoopError(e.charCodeAt(0));
+        break;
+      }
+      let r;
+      if (this.options.extensions?.block?.some((i) => (r = i.call({ lexer: this }, e, t)) ? (e = e.substring(r.raw.length), t.push(r), true) : false)) continue;
+      if (r = this.tokenizer.space(e)) {
+        e = e.substring(r.raw.length);
+        let i = t.at(-1);
+        r.raw.length === 1 && i !== void 0 ? i.raw += `
+` : t.push(r);
+        continue;
+      }
+      if (r = this.tokenizer.code(e)) {
+        e = e.substring(r.raw.length);
+        let i = t.at(-1);
+        i?.type === "paragraph" || i?.type === "text" ? (i.raw += (i.raw.endsWith(`
+`) ? "" : `
+`) + r.raw, i.text += `
+` + r.text, this.inlineQueue.at(-1).src = i.text) : t.push(r);
+        continue;
+      }
+      if (r = this.tokenizer.fences(e)) {
+        e = e.substring(r.raw.length), t.push(r);
+        continue;
+      }
+      if (r = this.tokenizer.heading(e)) {
+        e = e.substring(r.raw.length), t.push(r);
+        continue;
+      }
+      if (r = this.tokenizer.hr(e)) {
+        e = e.substring(r.raw.length), t.push(r);
+        continue;
+      }
+      if (r = this.tokenizer.blockquote(e)) {
+        e = e.substring(r.raw.length), t.push(r);
+        continue;
+      }
+      if (r = this.tokenizer.list(e)) {
+        e = e.substring(r.raw.length), t.push(r);
+        continue;
+      }
+      if (r = this.tokenizer.html(e)) {
+        e = e.substring(r.raw.length), t.push(r);
+        continue;
+      }
+      if (r = this.tokenizer.def(e)) {
+        e = e.substring(r.raw.length);
+        let i = t.at(-1);
+        i?.type === "paragraph" || i?.type === "text" ? (i.raw += (i.raw.endsWith(`
+`) ? "" : `
+`) + r.raw, i.text += `
+` + r.raw, this.inlineQueue.at(-1).src = i.text) : this.tokens.links[r.tag] || (this.tokens.links[r.tag] = { href: r.href, title: r.title }, t.push(r));
+        continue;
+      }
+      if (r = this.tokenizer.table(e)) {
+        e = e.substring(r.raw.length), t.push(r);
+        continue;
+      }
+      if (r = this.tokenizer.lheading(e)) {
+        e = e.substring(r.raw.length), t.push(r);
+        continue;
+      }
+      let o = e;
+      if (this.options.extensions?.startBlock) {
+        let i = 1 / 0, u = e.slice(1), a;
+        this.options.extensions.startBlock.forEach((p) => {
+          a = p.call({ lexer: this }, u), typeof a == "number" && a >= 0 && (i = Math.min(i, a));
+        }), i < 1 / 0 && i >= 0 && (o = e.substring(0, i + 1));
+      }
+      if (this.state.top && (r = this.tokenizer.paragraph(o))) {
+        let i = t.at(-1);
+        n && i?.type === "paragraph" ? (i.raw += (i.raw.endsWith(`
+`) ? "" : `
+`) + r.raw, i.text += `
+` + r.text, this.inlineQueue.pop(), this.inlineQueue.at(-1).src = i.text) : t.push(r), n = o.length !== e.length, e = e.substring(r.raw.length);
+        continue;
+      }
+      if (r = this.tokenizer.text(e)) {
+        e = e.substring(r.raw.length);
+        let i = t.at(-1);
+        i?.type === "text" ? (i.raw += (i.raw.endsWith(`
+`) ? "" : `
+`) + r.raw, i.text += `
+` + r.text, this.inlineQueue.pop(), this.inlineQueue.at(-1).src = i.text) : t.push(r);
+        continue;
+      }
+      if (e) {
+        this.infiniteLoopError(e.charCodeAt(0));
+        break;
+      }
+    }
+    return this.state.top = true, t;
+  }
+  inline(e, t = []) {
+    return this.inlineQueue.push({ src: e, tokens: t }), t;
+  }
+  linkInText(e) {
+    if (!e.includes("[")) return false;
+    let t = this.tokenizer.rules.inline.link;
+    for (let n of e.matchAll(this.tokenizer.rules.inline.blockSkip)) if (t.test(n[0]) && e.charAt(n.index - 1) !== "!") return true;
+    for (let n of e.matchAll(this.tokenizer.rules.inline.reflinkSearch)) {
+      let s = n[0], r = s.lastIndexOf("[");
+      if (!(s.charAt(0) === "!" || !Object.hasOwn(this.tokens.links, q(s.slice(r + 1, -1)))) && !(r > 1 && this.linkInText(s.slice(1, r - 1)))) return true;
+    }
+    return false;
+  }
+  inlineTokens(e, t = []) {
+    this.tokenizer.lexer = this;
+    let n = e;
+    if (this.tokens.links && e.includes("[")) {
+      let i = this.tokenizer.rules.inline.reflinkSearch, u = (a) => {
+        let p = a.lastIndexOf("[");
+        if (!Object.hasOwn(this.tokens.links, q(a.slice(p + 1, -1)))) return a;
+        if (p > 1 && a.charAt(0) !== "!") {
+          let c = a.slice(1, p - 1);
+          if (this.linkInText(c)) return "[" + c.replace(i, u) + "][" + "a".repeat(a.length - p - 2) + "]";
+        }
+        return "[" + "a".repeat(a.length - 2) + "]";
+      };
+      n = n.replace(i, u);
+    }
+    n = n.replace(this.tokenizer.rules.inline.anyPunctuation, (i) => "+".repeat(i.length)), n = n.replace(this.tokenizer.rules.inline.blockSkip, (i, u, a) => {
+      let p = a ? a.length : 0;
+      return i.slice(0, p) + "[" + "a".repeat(i.length - p - 2) + "]";
+    }), n = this.options.hooks?.emStrongMask?.call({ lexer: this }, n) ?? n;
+    let s = false, r = "", o = 1 / 0;
+    for (; e; ) {
+      if (e.length < o) o = e.length;
+      else {
+        this.infiniteLoopError(e.charCodeAt(0));
+        break;
+      }
+      s || (r = ""), s = false;
+      let i;
+      if (this.options.extensions?.inline?.some((a) => (i = a.call({ lexer: this }, e, t)) ? (e = e.substring(i.raw.length), t.push(i), true) : false)) continue;
+      if (i = this.tokenizer.escape(e)) {
+        e = e.substring(i.raw.length), t.push(i);
+        continue;
+      }
+      if (i = this.tokenizer.tag(e)) {
+        e = e.substring(i.raw.length), t.push(i);
+        continue;
+      }
+      if (i = this.tokenizer.link(e)) {
+        e = e.substring(i.raw.length), t.push(i);
+        continue;
+      }
+      if (i = this.tokenizer.reflink(e, this.tokens.links)) {
+        e = e.substring(i.raw.length);
+        let a = t.at(-1);
+        i.type === "text" && a?.type === "text" ? (a.raw += i.raw, a.text += i.text) : t.push(i);
+        continue;
+      }
+      if (i = this.tokenizer.emStrong(e, n, r)) {
+        e = e.substring(i.raw.length), t.push(i);
+        continue;
+      }
+      if (i = this.tokenizer.codespan(e)) {
+        e = e.substring(i.raw.length), t.push(i);
+        continue;
+      }
+      if (i = this.tokenizer.br(e)) {
+        e = e.substring(i.raw.length), t.push(i);
+        continue;
+      }
+      if (i = this.tokenizer.del(e, n, r)) {
+        e = e.substring(i.raw.length), t.push(i);
+        continue;
+      }
+      if (i = this.tokenizer.autolink(e)) {
+        e = e.substring(i.raw.length), t.push(i);
+        continue;
+      }
+      if (!this.state.inLink && (i = this.tokenizer.url(e))) {
+        e = e.substring(i.raw.length), t.push(i);
+        continue;
+      }
+      let u = e;
+      if (this.options.extensions?.startInline) {
+        let a = 1 / 0, p = e.slice(1), c;
+        this.options.extensions.startInline.forEach((d) => {
+          c = d.call({ lexer: this }, p), typeof c == "number" && c >= 0 && (a = Math.min(a, c));
+        }), a < 1 / 0 && a >= 0 && (u = e.substring(0, a + 1));
+      }
+      if (i = this.tokenizer.inlineText(u)) {
+        e = e.substring(i.raw.length), i.raw.slice(-1) !== "_" && (r = i.raw.slice(-1)), s = true;
+        let a = t.at(-1);
+        a?.type === "text" ? (a.raw += i.raw, a.text += i.text) : t.push(i);
+        continue;
+      }
+      if (e) {
+        this.infiniteLoopError(e.charCodeAt(0));
+        break;
+      }
+    }
+    return t;
+  }
+  infiniteLoopError(e) {
+    let t = "Infinite loop on byte: " + e;
+    if (this.options.silent) console.error(t);
+    else throw new Error(t);
+  }
+};
+var S = class {
+  options;
+  parser;
+  constructor(e) {
+    this.options = e || y;
+  }
+  space(e) {
+    return "";
+  }
+  code({ text: e, lang: t, escaped: n }) {
+    let s = (t || "").match(x.notSpaceStart)?.[0], r = e ? e.replace(x.endingNewline, "") + `
+` : "";
+    return s ? '<pre><code class="language-' + O(s) + '">' + (n ? r : O(r, true)) + `</code></pre>
+` : "<pre><code>" + (n ? r : O(r, true)) + `</code></pre>
+`;
+  }
+  blockquote({ tokens: e }) {
+    return `<blockquote>
+${this.parser.parse(e)}</blockquote>
+`;
+  }
+  html({ text: e }) {
+    return e;
+  }
+  def(e) {
+    return "";
+  }
+  heading({ tokens: e, depth: t }) {
+    return `<h${t}>${this.parser.parseInline(e)}</h${t}>
+`;
+  }
+  hr(e) {
+    return `<hr>
+`;
+  }
+  list(e) {
+    let t = e.ordered, n = e.start, s = "";
+    for (let i = 0; i < e.items.length; i++) {
+      let u = e.items[i];
+      s += this.listitem(u);
+    }
+    let r = t ? "ol" : "ul", o = t && n !== 1 ? ' start="' + n + '"' : "";
+    return "<" + r + o + `>
+` + s + "</" + r + `>
+`;
+  }
+  listitem(e) {
+    return `<li>${this.parser.parse(e.tokens)}</li>
+`;
+  }
+  checkbox({ checked: e }) {
+    return "<input " + (e ? 'checked="" ' : "") + 'disabled="" type="checkbox"> ';
+  }
+  paragraph({ tokens: e }) {
+    return `<p>${this.parser.parseInline(e)}</p>
+`;
+  }
+  table(e) {
+    let t = "", n = "";
+    for (let r = 0; r < e.header.length; r++) n += this.tablecell(e.header[r]);
+    t += this.tablerow({ text: n });
+    let s = "";
+    for (let r = 0; r < e.rows.length; r++) {
+      let o = e.rows[r];
+      n = "";
+      for (let i = 0; i < o.length; i++) n += this.tablecell(o[i]);
+      s += this.tablerow({ text: n });
+    }
+    return s && (s = `<tbody>${s}</tbody>`), `<table>
+<thead>
+` + t + `</thead>
+` + s + `</table>
+`;
+  }
+  tablerow({ text: e }) {
+    return `<tr>
+${e}</tr>
+`;
+  }
+  tablecell(e) {
+    let t = this.parser.parseInline(e.tokens), n = e.header ? "th" : "td";
+    return (e.align ? `<${n} align="${e.align}">` : `<${n}>`) + t + `</${n}>
+`;
+  }
+  strong({ tokens: e }) {
+    return `<strong>${this.parser.parseInline(e)}</strong>`;
+  }
+  em({ tokens: e }) {
+    return `<em>${this.parser.parseInline(e)}</em>`;
+  }
+  codespan({ text: e }) {
+    return `<code>${O(e, true)}</code>`;
+  }
+  br(e) {
+    return "<br>";
+  }
+  del({ tokens: e }) {
+    return `<del>${this.parser.parseInline(e)}</del>`;
+  }
+  link({ href: e, title: t, text: n, tokens: s, autolink: r }) {
+    let o = r ? O(n, true) : this.parser.parseInline(s), i = re(e);
+    if (i === null) return o;
+    e = O(i, r);
+    let u = '<a href="' + e + '"';
+    return t && (u += ' title="' + O(t) + '"'), u += ">" + o + "</a>", u;
+  }
+  image({ href: e, title: t, text: n, tokens: s }) {
+    s && (n = this.parser.parseInline(s, this.parser.textRenderer));
+    let r = re(e);
+    if (r === null) return O(n);
+    e = r;
+    let o = `<img src="${O(e)}" alt="${O(n)}"`;
+    return t && (o += ` title="${O(t)}"`), o += ">", o;
+  }
+  text(e) {
+    return "tokens" in e && e.tokens ? this.parser.parseInline(e.tokens) : "escaped" in e && e.escaped ? e.text : O(e.text);
+  }
+};
+var z = class {
+  strong({ text: e }) {
+    return e;
+  }
+  em({ text: e }) {
+    return e;
+  }
+  codespan({ text: e }) {
+    return e;
+  }
+  del({ text: e }) {
+    return e;
+  }
+  html({ text: e }) {
+    return e;
+  }
+  text({ text: e }) {
+    return e;
+  }
+  link({ text: e }) {
+    return "" + e;
+  }
+  image({ text: e }) {
+    return "" + e;
+  }
+  br() {
+    return "";
+  }
+  checkbox({ raw: e }) {
+    return e;
+  }
+};
+var T = class l2 {
+  options;
+  renderer;
+  textRenderer;
+  constructor(e) {
+    this.options = e || y, this.options.renderer = this.options.renderer || new S(), this.renderer = this.options.renderer, this.renderer.options = this.options, this.renderer.parser = this, this.textRenderer = new z();
+  }
+  static parse(e, t) {
+    return new l2(t).parse(e);
+  }
+  static parseInline(e, t) {
+    return new l2(t).parseInline(e);
+  }
+  parse(e) {
+    this.renderer.parser = this;
+    let t = "";
+    for (let n = 0; n < e.length; n++) {
+      let s = e[n];
+      if (this.options.extensions?.renderers?.[s.type]) {
+        let o = s, i = this.options.extensions.renderers[o.type].call({ parser: this }, o);
+        if (i !== false || !["space", "hr", "heading", "code", "table", "blockquote", "list", "checkbox", "html", "def", "paragraph", "text"].includes(o.type)) {
+          t += i || "";
+          continue;
+        }
+      }
+      let r = s;
+      switch (r.type) {
+        case "space": {
+          t += this.renderer.space(r);
+          break;
+        }
+        case "hr": {
+          t += this.renderer.hr(r);
+          break;
+        }
+        case "heading": {
+          t += this.renderer.heading(r);
+          break;
+        }
+        case "code": {
+          t += this.renderer.code(r);
+          break;
+        }
+        case "table": {
+          t += this.renderer.table(r);
+          break;
+        }
+        case "blockquote": {
+          t += this.renderer.blockquote(r);
+          break;
+        }
+        case "list": {
+          t += this.renderer.list(r);
+          break;
+        }
+        case "checkbox": {
+          t += this.renderer.checkbox(r);
+          break;
+        }
+        case "html": {
+          t += this.renderer.html(r);
+          break;
+        }
+        case "def": {
+          t += this.renderer.def(r);
+          break;
+        }
+        case "paragraph": {
+          t += this.renderer.paragraph(r);
+          break;
+        }
+        case "text": {
+          t += this.renderer.text(r);
+          break;
+        }
+        default: {
+          let o = 'Token with "' + r.type + '" type was not found.';
+          if (this.options.silent) return console.error(o), "";
+          throw new Error(o);
+        }
+      }
+    }
+    return t;
+  }
+  parseInline(e, t = this.renderer) {
+    this.renderer.parser = this;
+    let n = "";
+    for (let s = 0; s < e.length; s++) {
+      let r = e[s];
+      if (this.options.extensions?.renderers?.[r.type]) {
+        let i = this.options.extensions.renderers[r.type].call({ parser: this }, r);
+        if (i !== false || !["escape", "html", "link", "image", "checkbox", "strong", "em", "codespan", "br", "del", "text"].includes(r.type)) {
+          n += i || "";
+          continue;
+        }
+      }
+      let o = r;
+      switch (o.type) {
+        case "escape": {
+          n += t.text(o);
+          break;
+        }
+        case "html": {
+          n += t.html(o);
+          break;
+        }
+        case "link": {
+          n += t.link(o);
+          break;
+        }
+        case "image": {
+          n += t.image(o);
+          break;
+        }
+        case "checkbox": {
+          n += t.checkbox(o);
+          break;
+        }
+        case "strong": {
+          n += t.strong(o);
+          break;
+        }
+        case "em": {
+          n += t.em(o);
+          break;
+        }
+        case "codespan": {
+          n += t.codespan(o);
+          break;
+        }
+        case "br": {
+          n += t.br(o);
+          break;
+        }
+        case "del": {
+          n += t.del(o);
+          break;
+        }
+        case "text": {
+          n += t.text(o);
+          break;
+        }
+        default: {
+          let i = 'Token with "' + o.type + '" type was not found.';
+          if (this.options.silent) return console.error(i), "";
+          throw new Error(i);
+        }
+      }
+    }
+    return n;
+  }
+};
+var _ = class {
+  options;
+  block;
+  constructor(e) {
+    this.options = e || y;
+  }
+  static passThroughHooks = /* @__PURE__ */ new Set(["preprocess", "postprocess", "processAllTokens", "emStrongMask"]);
+  static passThroughHooksRespectAsync = /* @__PURE__ */ new Set(["preprocess", "postprocess", "processAllTokens"]);
+  preprocess(e) {
+    return e;
+  }
+  postprocess(e) {
+    return e;
+  }
+  processAllTokens(e) {
+    return e;
+  }
+  emStrongMask(e) {
+    return e;
+  }
+  provideLexer(e = this.block) {
+    return e ? R.lex : R.lexInline;
+  }
+  provideParser(e = this.block) {
+    return e ? T.parse : T.parseInline;
+  }
+};
+var F = class {
+  defaults = I();
+  options = this.setOptions;
+  parse = this.parseMarkdown(true);
+  parseInline = this.parseMarkdown(false);
+  Parser = T;
+  Renderer = S;
+  TextRenderer = z;
+  Lexer = R;
+  Tokenizer = P;
+  Hooks = _;
+  constructor(...e) {
+    this.use(...e);
+  }
+  walkTokens(e, t) {
+    let n = [];
+    for (let s of e) switch (n = n.concat(t.call(this, s)), s.type) {
+      case "table": {
+        let r = s;
+        for (let o of r.header) n = n.concat(this.walkTokens(o.tokens, t));
+        for (let o of r.rows) for (let i of o) n = n.concat(this.walkTokens(i.tokens, t));
+        break;
+      }
+      case "list": {
+        let r = s;
+        n = n.concat(this.walkTokens(r.items, t));
+        break;
+      }
+      default: {
+        let r = s;
+        this.defaults.extensions?.childTokens?.[r.type] ? this.defaults.extensions.childTokens[r.type].forEach((o) => {
+          let i = r[o].flat(1 / 0);
+          n = n.concat(this.walkTokens(i, t));
+        }) : r.tokens && (n = n.concat(this.walkTokens(r.tokens, t)));
+      }
+    }
+    return n;
+  }
+  use(...e) {
+    let t = this.defaults.extensions || { renderers: {}, childTokens: {} };
+    return e.forEach((n) => {
+      let s = { ...n };
+      if (s.async = this.defaults.async || s.async || false, n.extensions && (n.extensions.forEach((r) => {
+        if (!r.name) throw new Error("extension name required");
+        if ("renderer" in r) {
+          let o = t.renderers[r.name];
+          o ? t.renderers[r.name] = function(...i) {
+            let u = r.renderer.apply(this, i);
+            return u === false && (u = o.apply(this, i)), u;
+          } : t.renderers[r.name] = r.renderer;
+        }
+        if ("tokenizer" in r) {
+          if (!r.level || r.level !== "block" && r.level !== "inline") throw new Error("extension level must be 'block' or 'inline'");
+          let o = t[r.level];
+          o ? o.unshift(r.tokenizer) : t[r.level] = [r.tokenizer], r.start && (r.level === "block" ? t.startBlock ? t.startBlock.push(r.start) : t.startBlock = [r.start] : r.level === "inline" && (t.startInline ? t.startInline.push(r.start) : t.startInline = [r.start]));
+        }
+        "childTokens" in r && r.childTokens && (t.childTokens[r.name] = r.childTokens);
+      }), s.extensions = t), n.renderer) {
+        let r = this.defaults.renderer || new S(this.defaults);
+        for (let o in n.renderer) {
+          if (!(o in r)) throw new Error(`renderer '${o}' does not exist`);
+          if (["options", "parser"].includes(o)) continue;
+          let i = o, u = n.renderer[i], a = r[i];
+          r[i] = (...p) => {
+            let c = u.apply(r, p);
+            return c === false && (c = a.apply(r, p)), c || "";
+          };
+        }
+        s.renderer = r;
+      }
+      if (n.tokenizer) {
+        let r = this.defaults.tokenizer || new P(this.defaults);
+        for (let o in n.tokenizer) {
+          if (!(o in r)) throw new Error(`tokenizer '${o}' does not exist`);
+          if (["options", "rules", "lexer"].includes(o)) continue;
+          let i = o, u = n.tokenizer[i], a = r[i];
+          r[i] = (...p) => {
+            let c = u.apply(r, p);
+            return c === false && (c = a.apply(r, p)), c;
+          };
+        }
+        s.tokenizer = r;
+      }
+      if (n.hooks) {
+        let r = this.defaults.hooks || new _();
+        for (let o in n.hooks) {
+          if (!(o in r)) throw new Error(`hook '${o}' does not exist`);
+          if (["options", "block"].includes(o)) continue;
+          let i = o, u = n.hooks[i], a = r[i];
+          _.passThroughHooks.has(o) ? r[i] = (p) => {
+            if (this.defaults.async && _.passThroughHooksRespectAsync.has(o)) return (async () => {
+              let d = await u.call(r, p);
+              return a.call(r, d);
+            })();
+            let c = u.call(r, p);
+            return a.call(r, c);
+          } : r[i] = (...p) => {
+            if (this.defaults.async) return (async () => {
+              let d = await u.apply(r, p);
+              return d === false && (d = await a.apply(r, p)), d;
+            })();
+            let c = u.apply(r, p);
+            return c === false && (c = a.apply(r, p)), c;
+          };
+        }
+        s.hooks = r;
+      }
+      if (n.walkTokens) {
+        let r = this.defaults.walkTokens, o = n.walkTokens;
+        s.walkTokens = function(i) {
+          let u = [];
+          return u.push(o.call(this, i)), r && (u = u.concat(r.call(this, i))), u;
+        };
+      }
+      this.defaults = { ...this.defaults, ...s };
+    }), this;
+  }
+  setOptions(e) {
+    return this.defaults = { ...this.defaults, ...e }, this;
+  }
+  lexer(e, t) {
+    return R.lex(e, t ?? this.defaults);
+  }
+  parser(e, t) {
+    return T.parse(e, t ?? this.defaults);
+  }
+  parseMarkdown(e) {
+    return (n, s) => {
+      let r = { ...s }, o = { ...this.defaults, ...r }, i = this.onError(!!o.silent, !!o.async);
+      if (this.defaults.async === true && r.async === false) return i(new Error("marked(): The async option was set to true by an extension. Remove async: false from the parse options object to return a Promise."));
+      if (typeof n > "u" || n === null) return i(new Error("marked(): input parameter is undefined or null"));
+      if (typeof n != "string") return i(new Error("marked(): input parameter is of type " + Object.prototype.toString.call(n) + ", string expected"));
+      if (o.hooks && (o.hooks.options = o, o.hooks.block = e), o.async) return (async () => {
+        let u = o.hooks ? await o.hooks.preprocess(n) : n, p = await (o.hooks ? await o.hooks.provideLexer(e) : e ? R.lex : R.lexInline)(u, o), c = o.hooks ? await o.hooks.processAllTokens(p) : p;
+        o.walkTokens && await Promise.all(this.walkTokens(c, o.walkTokens));
+        let m = await (o.hooks ? await o.hooks.provideParser(e) : e ? T.parse : T.parseInline)(c, o);
+        return o.hooks ? await o.hooks.postprocess(m) : m;
+      })().catch(i);
+      try {
+        o.hooks && (n = o.hooks.preprocess(n));
+        let a = (o.hooks ? o.hooks.provideLexer(e) : e ? R.lex : R.lexInline)(n, o);
+        o.hooks && (a = o.hooks.processAllTokens(a)), o.walkTokens && this.walkTokens(a, o.walkTokens);
+        let c = (o.hooks ? o.hooks.provideParser(e) : e ? T.parse : T.parseInline)(a, o);
+        return o.hooks && (c = o.hooks.postprocess(c)), c;
+      } catch (u) {
+        return i(u);
+      }
+    };
+  }
+  onError(e, t) {
+    return (n) => {
+      if (n.message += `
+Please report this to https://github.com/markedjs/marked.`, e) {
+        let s = "<p>An error occurred:</p><pre>" + O(n.message + "", true) + "</pre>";
+        return t ? Promise.resolve(s) : s;
+      }
+      if (t) return Promise.reject(n);
+      throw n;
+    };
+  }
+};
+var E = new F();
+function k(l3, e) {
+  return E.parse(l3, e);
+}
+k.options = k.setOptions = function(l3) {
+  return E.setOptions(l3), k.defaults = E.defaults, W(k.defaults), k;
+};
+k.getDefaults = I;
+k.defaults = y;
+function Pt(...l3) {
+  return E.use(...l3), k.defaults = E.defaults, W(k.defaults), k;
+}
+k.use = Pt;
+k.walkTokens = function(l3, e) {
+  return E.walkTokens(l3, e);
+};
+k.parseInline = E.parseInline;
+k.Parser = T;
+k.parser = T.parse;
+k.Renderer = S;
+k.TextRenderer = z;
+k.Lexer = R;
+k.lexer = R.lex;
+k.Tokenizer = P;
+k.Hooks = _;
+k.parse = k;
+var gn = k.options;
+var fn = k.setOptions;
+var mn = k.walkTokens;
+var xn = k.parseInline;
+var Rn = T.parse;
+var Tn = R.lex;
+
+// packages/core/src/trackers/types.ts
+var orList = (names) => names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} or ${names.at(-1)}`;
+
+// packages/core/src/trackers/github.ts
+var issueRepo = (url) => url ? /github\.com\/([\w.-]+\/[\w.-]+)\/issues\/\d+/i.exec(url)?.[1] ?? null : null;
+function hasPlaceLabel(issue, labels) {
+  if (!labels.length) return true;
+  const want = new Set(labels.map((l3) => l3.toLowerCase()));
+  return (issue.labels ?? []).some((l3) => want.has(l3.name.toLowerCase()));
+}
+function githubOutside(issue, repo, labels, projectOnly = false) {
+  const now2 = issueRepo(issue.url);
+  if (now2 && now2.toLowerCase() !== repo.toLowerCase()) return `it moved to ${now2}`;
+  if (projectOnly || hasPlaceLabel(issue, labels)) return null;
+  return labels.length === 1 ? `it has no label ${labels[0]}` : `it has none of the labels ${orList(labels)}`;
+}
+
 // packages/core/src/intake.ts
 function depsFromBody(body) {
   const out2 = /* @__PURE__ */ new Set();
@@ -1449,21 +2813,30 @@ function githubIssuesToTasks(issues, environment) {
     title: i.title,
     brief: i.body ?? "",
     deps: depsFromBody(i.body).filter((d) => d !== `#${i.number}`),
-    labels: (i.labels ?? []).map((l) => l.name),
+    labels: (i.labels ?? []).map((l3) => l3.name),
     ...environment ? { environment } : {}
   }));
 }
 function skipLabelOf(issue, skip3) {
   const names = new Set(skip3.map((s) => s.toLowerCase()));
-  return (issue.labels ?? []).map((l) => l.name).find((n) => names.has(n.toLowerCase())) ?? null;
+  return (issue.labels ?? []).map((l3) => l3.name).find((n) => names.has(n.toLowerCase())) ?? null;
 }
+var noChanges = () => ({ closed: [], removed: [], left: [], leftAlone: [] });
 var neverStarted = (t) => t.state === "todo" && !t.run;
 var issueNumber = (t) => {
   const n = t.source.kind === "github" ? /^GH-(\d+)$/.exec(t.id)?.[1] : void 0;
   return n ? Number(n) : null;
 };
-function reconcileGithub(ledger, config, issues, skip3, emit, now2) {
-  const res = { closed: [], removed: [], leftAlone: [] };
+function leave(ledger, t, ticket, why, emit, res) {
+  if (neverStarted(t)) {
+    ledger.tasks.splice(ledger.tasks.indexOf(t), 1);
+    emit({ type: "task.removed", task: t.id, actor: "sync", by: "acc intake", data: { reason: why.reason, title: t.title, source: t.source } });
+    res.removed.push(t.id);
+    if (why.left) res.left.push(t.id);
+  } else res.leftAlone.push({ task: t.id, issue: ticket, state: t.state, note: `${why.note}; ${t.id} is still ${t.state}` });
+}
+function reconcileGithub(ledger, config, issues, skip3, emit, now2, place = null) {
+  const res = noChanges();
   const by = "acc intake";
   for (const t of [...ledger.tasks]) {
     const n = issueNumber(t);
@@ -1472,11 +2845,12 @@ function reconcileGithub(ledger, config, issues, skip3, emit, now2) {
     const key = `#${n}`;
     const label = skipLabelOf(issue, skip3);
     if (label) {
-      if (neverStarted(t)) {
-        ledger.tasks.splice(ledger.tasks.indexOf(t), 1);
-        emit({ type: "task.removed", task: t.id, actor: "sync", by, data: { reason: `Issue ${key} has the label "${label}", which isn't imported.`, title: t.title, source: t.source } });
-        res.removed.push(t.id);
-      } else res.leftAlone.push({ task: t.id, issue: key, state: t.state, note: `${key} has the label "${label}"; ${t.id} is still ${t.state}` });
+      leave(ledger, t, key, { reason: `Issue ${key} has the label "${label}", which isn't imported.`, note: `${key} has the label "${label}"`, left: false }, emit, res);
+      continue;
+    }
+    const outside = place ? githubOutside(issue, place.repo, place.labels) : null;
+    if (outside) {
+      leave(ledger, t, key, { reason: `Issue ${key} left this repo's place: ${outside}.`, note: `${key} left this repo's place: ${outside}`, left: true }, emit, res);
       continue;
     }
     if (issue.state?.toUpperCase() !== "CLOSED") continue;
@@ -1492,20 +2866,28 @@ function intakeGithub(paths, config, deps, opts) {
   const { run: run2, now: now2 } = deps;
   const gh = config.github;
   if (!gh) throw new AccError("no-github", 'This project has no "github" section in .acc/config.json.');
+  const tracker = config.trackers.find((t) => t.kind === "github");
+  const place = { repo: tracker?.repo ?? gh.repo, labels: tracker?.labels ?? [] };
+  const skip3 = tracker?.skipLabels ?? [];
   const token = run2("gh", ["auth", "token", "-u", gh.account]);
   if (token.code !== 0) throw new AccError("no-github", `gh isn't logged in as ${gh.account}. Run: gh auth login`);
   const env = { ...deps.env, GH_TOKEN: token.stdout.trim() };
-  const args = ["issue", "list", "-R", gh.repo, "--state", "open", "--limit", "500", "--json", "number,title,body,url,labels"];
-  if (opts.label) args.push("--label", opts.label);
-  const r = run2("gh", args, { env });
-  if (r.code !== 0) throw new AccError("github", `Couldn't list issues on ${gh.repo}: ${r.stderr.trim().split("\n")[0]}`);
-  const open = JSON.parse(r.stdout);
-  const skip3 = config.trackers.find((t) => t.kind === "github" && (t.repo ?? gh.repo) === gh.repo)?.skipLabels ?? [];
+  const lists = (place.labels.length ? place.labels : [null]).map((label) => {
+    const args = ["issue", "list", "-R", place.repo, "--state", "open", "--limit", "500"];
+    if (opts.label) args.push("--label", opts.label);
+    if (label) args.push("--label", label);
+    const r = run2("gh", [...args, "--json", "number,title,body,url,labels"], { env });
+    if (r.code !== 0) throw new AccError("github", `Couldn't list issues on ${place.repo}: ${r.stderr.trim().split("\n")[0]}`);
+    return JSON.parse(r.stdout);
+  });
+  const byNumber = /* @__PURE__ */ new Map();
+  for (const i of lists.flat()) if (!byNumber.has(i.number)) byNumber.set(i.number, i);
+  const open = lists.length === 1 ? lists[0] : [...byNumber.values()].sort((a, b) => b.number - a.number);
   const issues = new Map(open.map((i) => [i.number, { ...i, state: "OPEN" }]));
   for (const t of readLedger(paths.ledger).tasks) {
     const n = issueNumber(t);
     if (n === null || t.state === "done" || issues.has(n)) continue;
-    const v = run2("gh", ["issue", "view", String(n), "-R", gh.repo, "--json", "number,state,labels"], { env, timeoutMs: 6e4 });
+    const v = run2("gh", ["issue", "view", String(n), "-R", place.repo, "--json", "number,state,labels,url"], { env, timeoutMs: 6e4 });
     if (v.code !== 0) continue;
     try {
       issues.set(n, JSON.parse(v.stdout));
@@ -1515,8 +2897,20 @@ function intakeGithub(paths, config, deps, opts) {
   const inputs = githubIssuesToTasks(open.filter((i) => !skipLabelOf(i, skip3)));
   return mutate(paths, now2, (ledger, emit) => ({
     ...upsertTasks(ledger, config, inputs, opts.actor, opts.by, emit, now2),
-    ...reconcileGithub(ledger, config, issues, skip3, emit, now2)
+    ...reconcileGithub(ledger, config, issues, skip3, emit, now2, place)
   }));
+}
+function intakeOutside(paths, kind, outside, now2) {
+  return mutate(paths, now2, (ledger, emit) => {
+    const res = { added: [], updated: [], unchanged: [], errors: [], ...noChanges() };
+    for (const o of outside) {
+      const id = normalizeId(o.key, kind);
+      const t = ledger.tasks.find((x2) => x2.id === id && x2.source.kind === kind);
+      if (!t || t.state === "done") continue;
+      leave(ledger, t, id, { reason: `${id} left this repo's place: ${o.why}.`, note: `${id} left this repo's place: ${o.why}`, left: true }, emit, res);
+    }
+    return res;
+  });
 }
 
 // packages/core/src/dispatch.ts
@@ -1605,7 +2999,7 @@ function trimHistory(file) {
     kept.push(line);
   }
   if (kept.length === lines.length) return data.length;
-  const text = kept.reverse().map((l) => `${l}
+  const text = kept.reverse().map((l3) => `${l3}
 `).join("");
   writePrivateText(file, text);
   return Buffer.byteLength(text);
@@ -1641,11 +3035,11 @@ var editedMessage = (command) => `The user edited this command in the Command Ce
 \`\`\`
 ${command}
 \`\`\``;
-function outcomeOf(q, a) {
+function outcomeOf(q2, a) {
   if (a.decision === "terminal") return "terminal";
   if (a.decision === "deny") return a.stop ? "denied-stopped" : "denied";
-  if (q.tool === "AskUserQuestion") return "answered";
-  if (a.command && q.tool === "Bash") return "allowed-edited";
+  if (q2.tool === "AskUserQuestion") return "answered";
+  if (a.command && q2.tool === "Bash") return "allowed-edited";
   if (a.mode === "auto") return "allowed-auto-mode";
   if (a.mode === "acceptEdits") return "allowed-accept-edits";
   if (a.always) return a.scope === "project" ? "allowed-for-project" : "allowed-for-session";
@@ -1659,12 +3053,12 @@ function listeners(dir, now2 = Date.now()) {
     return [];
   }
   return names.flatMap((n) => {
-    const l = readJson(join8(dir, "listeners", n));
-    const ok = !!l && Number.isInteger(l.pid) && typeof l.at === "number" && Array.isArray(l.roots) && now2 - l.at < LISTENER_STALE_MS && alive(l.pid);
-    return ok ? [l] : [];
+    const l3 = readJson(join8(dir, "listeners", n));
+    const ok = !!l3 && Number.isInteger(l3.pid) && typeof l3.at === "number" && Array.isArray(l3.roots) && now2 - l3.at < LISTENER_STALE_MS && alive(l3.pid);
+    return ok ? [l3] : [];
   });
 }
-var covered = (ls, cwd) => ls.some((l) => l.roots.some((r) => typeof r === "string" && isUnder(cwd, r)));
+var covered = (ls, cwd) => ls.some((l3) => l3.roots.some((r) => typeof r === "string" && isUnder(cwd, r)));
 function existsQuestionsDir(dir) {
   try {
     return statSync3(join8(dir, "listeners")).isDirectory();
@@ -1673,37 +3067,37 @@ function existsQuestionsDir(dir) {
   }
 }
 function parseHookInput(text) {
-  let x = null;
+  let x2 = null;
   try {
-    x = JSON.parse(text);
+    x2 = JSON.parse(text);
   } catch {
     return null;
   }
-  if (!x || typeof x !== "object") return null;
+  if (!x2 || typeof x2 !== "object") return null;
   const str = (v) => typeof v === "string" && v.length > 0;
-  if (!str(x.session_id) || !str(x.cwd) || !str(x.tool_name) || !x.tool_input || typeof x.tool_input !== "object") return null;
+  if (!str(x2.session_id) || !str(x2.cwd) || !str(x2.tool_name) || !x2.tool_input || typeof x2.tool_input !== "object") return null;
   return {
-    hook_event_name: String(x.hook_event_name ?? ""),
-    session_id: x.session_id,
-    cwd: x.cwd,
-    transcript_path: str(x.transcript_path) ? x.transcript_path : void 0,
-    tool_name: x.tool_name,
-    tool_input: x.tool_input,
-    permission_suggestions: Array.isArray(x.permission_suggestions) ? x.permission_suggestions : []
+    hook_event_name: String(x2.hook_event_name ?? ""),
+    session_id: x2.session_id,
+    cwd: x2.cwd,
+    transcript_path: str(x2.transcript_path) ? x2.transcript_path : void 0,
+    tool_name: x2.tool_name,
+    tool_input: x2.tool_input,
+    permission_suggestions: Array.isArray(x2.permission_suggestions) ? x2.permission_suggestions : []
   };
 }
 function isAnswer(a) {
-  const x = a;
-  if (!x || typeof x !== "object") return false;
-  if (x.decision === "terminal") return true;
-  if (x.decision === "deny") return (x.message === void 0 || typeof x.message === "string" && x.message.length <= 4e3) && (x.stop === void 0 || typeof x.stop === "boolean");
-  if (x.decision !== "allow") return false;
-  if (x.always !== void 0 && typeof x.always !== "boolean") return false;
-  if (x.scope !== void 0 && x.scope !== "session" && x.scope !== "project") return false;
-  if (x.mode !== void 0 && !ALLOWED_MODES.includes(x.mode)) return false;
-  if (x.command !== void 0 && !(typeof x.command === "string" && x.command.trim().length > 0 && x.command.length <= 2e4)) return false;
-  if (x.answers === void 0) return true;
-  const answers = x.answers;
+  const x2 = a;
+  if (!x2 || typeof x2 !== "object") return false;
+  if (x2.decision === "terminal") return true;
+  if (x2.decision === "deny") return (x2.message === void 0 || typeof x2.message === "string" && x2.message.length <= 4e3) && (x2.stop === void 0 || typeof x2.stop === "boolean");
+  if (x2.decision !== "allow") return false;
+  if (x2.always !== void 0 && typeof x2.always !== "boolean") return false;
+  if (x2.scope !== void 0 && x2.scope !== "session" && x2.scope !== "project") return false;
+  if (x2.mode !== void 0 && !ALLOWED_MODES.includes(x2.mode)) return false;
+  if (x2.command !== void 0 && !(typeof x2.command === "string" && x2.command.trim().length > 0 && x2.command.length <= 2e4)) return false;
+  if (x2.answers === void 0) return true;
+  const answers = x2.answers;
   return !!answers && typeof answers === "object" && Object.values(answers).every((v) => typeof v === "string" && v.length <= 4e3);
 }
 async function ask(input, opts = {}) {
@@ -1712,16 +3106,16 @@ async function ask(input, opts = {}) {
   const wait = opts.wait ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
   const pollMs = opts.pollMs ?? 300;
   const maxWaitMs = opts.maxWaitMs ?? MAX_WAIT_MS;
-  const record = (q, outcome, a) => {
+  const record = (q2, outcome, a) => {
     try {
       appendHistory(dir, {
         v: 1,
-        id: q.id,
+        id: q2.id,
         sessionId: input.session_id,
         cwd: input.cwd,
         tool: input.tool_name,
         input: input.tool_input,
-        askedAt: q.at,
+        askedAt: q2.at,
         endedAt: now2(),
         outcome,
         ...a?.decision === "allow" && a.answers ? { answers: a.answers } : {},
@@ -1733,8 +3127,8 @@ async function ask(input, opts = {}) {
   };
   if (input.tool_name === "Bash" && takePreapproval(dir, input.session_id, String(input.tool_input.command ?? ""), now2())) {
     const id = `${now2().toString(36)}-${randomBytes(4).toString("hex")}`;
-    const q = { v: 1, id, pid: opts.pid ?? process.pid, at: now2(), sessionId: input.session_id, cwd: input.cwd, transcript: input.transcript_path ?? null, tool: input.tool_name, input: input.tool_input, suggestions: [] };
-    return { question: q, answer: { decision: "allow" } };
+    const q2 = { v: 1, id, pid: opts.pid ?? process.pid, at: now2(), sessionId: input.session_id, cwd: input.cwd, transcript: input.transcript_path ?? null, tool: input.tool_name, input: input.tool_input, suggestions: [] };
+    return { question: q2, answer: { decision: "allow" } };
   }
   if (!covered(listeners(dir, now2()), input.cwd)) {
     if (listeners(dir, now2()).length || existsQuestionsDir(dir)) record({ id: `${now2().toString(36)}-${randomBytes(4).toString("hex")}`, at: now2() }, "no-window");
@@ -1784,19 +3178,19 @@ async function ask(input, opts = {}) {
     rmSync5(answerFile, { force: true });
   }
 }
-function hookOutput(q, a) {
+function hookOutput(q2, a) {
   if (a.decision === "terminal") return null;
   let decision;
   if (a.decision === "deny") {
     decision = { behavior: "deny", message: a.message?.trim() ? `The user said no, from the Command Center: ${a.message.trim()}` : "The user said no, from the Command Center." };
     if (a.stop) decision.interrupt = true;
-  } else if (q.tool === "AskUserQuestion") {
-    decision = { behavior: "allow", updatedInput: { ...q.input, answers: a.answers ?? {} } };
+  } else if (q2.tool === "AskUserQuestion") {
+    decision = { behavior: "allow", updatedInput: { ...q2.input, answers: a.answers ?? {} } };
   } else {
-    if (a.command && q.tool === "Bash") return { hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "deny", message: editedMessage(a.command) } } };
+    if (a.command && q2.tool === "Bash") return { hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "deny", message: editedMessage(a.command) } } };
     decision = { behavior: "allow" };
     const updates = [];
-    if (a.always && q.suggestions.length) updates.push(...q.suggestions.map((s) => ({ ...s, destination: a.scope === "project" ? "localSettings" : "session" })));
+    if (a.always && q2.suggestions.length) updates.push(...q2.suggestions.map((s) => ({ ...s, destination: a.scope === "project" ? "localSettings" : "session" })));
     if (a.mode) updates.push({ type: "setMode", mode: a.mode, destination: "session" });
     if (updates.length) decision.updatedPermissions = updates;
   }
@@ -1895,8 +3289,8 @@ function setAutonomy(configFile, value) {
     throw new AccError("bad-config", `Couldn't read ${configFile}: ${e.message}`);
   }
   const wanted = { ...raw, autonomy: value };
-  const at = [...text.matchAll(/("autonomy"\s*:\s*)"[^"\\]*"/g)];
-  if (at.length === 1) {
+  const at2 = [...text.matchAll(/("autonomy"\s*:\s*)"[^"\\]*"/g)];
+  if (at2.length === 1) {
     const edited = text.replace(/("autonomy"\s*:\s*)"[^"\\]*"/, `$1${JSON.stringify(value)}`);
     try {
       if (JSON.stringify(JSON.parse(edited)) === JSON.stringify(wanted)) {
@@ -1983,7 +3377,7 @@ function writeAnalysis(paths, a) {
   writeFileSync11(`${file}.tmp`, JSON.stringify(a, null, 2) + "\n");
   renameSync4(`${file}.tmp`, file);
 }
-var openQuestions = (a) => (a?.questions ?? []).filter((q) => !q.answer);
+var openQuestions = (a) => (a?.questions ?? []).filter((q2) => !q2.answer);
 var analysisRequired = (config) => config.analysis?.required ?? config.profile === "salesforce";
 function analysisProblems(paths, config, task) {
   if (task.state !== "todo" || !analysisRequired(config)) return [];
@@ -1991,7 +3385,7 @@ function analysisProblems(paths, config, task) {
   if (!a) return [`${task.id} hasn't been analyzed. This project wants an analysis before a build: acc analyze ${task.id}.`];
   if (a.verdict === "split") return [`${task.id}'s analysis says it's too big for one task. Split it into: ${a.split.join("; ")}. Or a person dispatches it anyway with --without-analysis.`];
   const open = openQuestions(a);
-  if (open.length) return [`${open.length} question${open.length === 1 ? "" : "s"} from ${task.id}'s analysis ${open.length === 1 ? "is" : "are"} unanswered: ${open.map((q) => `${q.id}. ${q.question}`).join(" ")} Answer with acc analysis answer ${task.id} <q> "<answer>".`];
+  if (open.length) return [`${open.length} question${open.length === 1 ? "" : "s"} from ${task.id}'s analysis ${open.length === 1 ? "is" : "are"} unanswered: ${open.map((q2) => `${q2.id}. ${q2.question}`).join(" ")} Answer with acc analysis answer ${task.id} <q> "<answer>".`];
   return [];
 }
 var SALESFORCE_COOKBOOK = [
@@ -2043,10 +3437,10 @@ function analysisPrompt(i) {
     i.task.brief.trim() || "_Only the title was given._",
     "",
     ...sf && i.orgs.length ? ["## The orgs you may read", "", ...i.orgs.map((o) => `- \`${o.alias}\`: ${o.name} (${o.type})`), ""] : [],
-    ...i.previous?.questions.some((q) => q.answer) ? [
+    ...i.previous?.questions.some((q2) => q2.answer) ? [
       "## What a person already answered",
       "",
-      ...i.previous.questions.filter((q) => q.answer).map((q) => `- ${q.question} **${q.answer.text}**`),
+      ...i.previous.questions.filter((q2) => q2.answer).map((q2) => `- ${q2.question} **${q2.answer.text}**`),
       "",
       "Don't ask these again.",
       ""
@@ -2066,10 +3460,10 @@ function parseAnalysis(stdout) {
   if (r.is_error || !s || !["ready", "questions", "split"].includes(s.verdict) || typeof s.summary !== "string") {
     throw new AccError("analyze", `The analysis didn't finish (${r.subtype ?? "no result"}): ${String(r.result ?? "").slice(0, 300)}`);
   }
-  const list = (v) => Array.isArray(v) ? v.filter((x) => typeof x === "string" && !!x.trim()) : [];
+  const list = (v) => Array.isArray(v) ? v.filter((x2) => typeof x2 === "string" && !!x2.trim()) : [];
   const req = s.requirements ?? {};
   const ap = s.approach ?? {};
-  const questions = (Array.isArray(s.questions) ? s.questions : []).filter((q) => typeof q?.question === "string" && q.question.trim()).map((q, n) => ({ id: `q${n + 1}`, question: q.question, why: String(q.why ?? ""), suggested: String(q.suggested ?? "") }));
+  const questions = (Array.isArray(s.questions) ? s.questions : []).filter((q2) => typeof q2?.question === "string" && q2.question.trim()).map((q2, n) => ({ id: `q${n + 1}`, question: q2.question, why: String(q2.why ?? ""), suggested: String(q2.suggested ?? "") }));
   const analysis = {
     // A ready verdict with questions waiting isn't ready.
     verdict: s.verdict === "ready" && questions.length ? "questions" : s.verdict,
@@ -2080,7 +3474,7 @@ function parseAnalysis(stdout) {
     approach: {
       plan: list(ap.plan),
       files: (Array.isArray(ap.files) ? ap.files : []).filter((f) => typeof f?.path === "string" && ["create", "update", "delete"].includes(f.change)).map((f) => ({ path: f.path, change: f.change, why: String(f.why ?? "") })),
-      refactors: (Array.isArray(ap.refactors) ? ap.refactors : []).filter((x) => typeof x?.what === "string").map((x) => ({ what: x.what, why: String(x.why ?? "") })),
+      refactors: (Array.isArray(ap.refactors) ? ap.refactors : []).filter((x2) => typeof x2?.what === "string").map((x2) => ({ what: x2.what, why: String(x2.why ?? "") })),
       risks: list(ap.risks),
       tests: list(ap.tests),
       size: ["S", "M", "L", "XL"].includes(ap.size) ? ap.size : "M"
@@ -2185,8 +3579,8 @@ function analyze(paths, config, id, deps, opts = {}) {
   if (out2.code === 127 && !out2.stdout) throw new AccError("analyze", `Claude Code didn't start: ${out2.stderr.trim().split("\n")[0] ?? "claude not found"}`);
   const parsed = parseAnalysis(out2.stdout);
   const finished = now2();
-  const answered = new Map((previous?.questions ?? []).filter((q) => q.answer).map((q) => [q.question.trim().toLowerCase(), q.answer]));
-  const questions = parsed.analysis.questions.map((q) => answered.has(q.question.trim().toLowerCase()) ? { ...q, answer: answered.get(q.question.trim().toLowerCase()) } : q);
+  const answered = new Map((previous?.questions ?? []).filter((q2) => q2.answer).map((q2) => [q2.question.trim().toLowerCase(), q2.answer]));
+  const questions = parsed.analysis.questions.map((q2) => answered.has(q2.question.trim().toLowerCase()) ? { ...q2, answer: answered.get(q2.question.trim().toLowerCase()) } : q2);
   const analysis = {
     v: 1,
     task: id,
@@ -2194,7 +3588,7 @@ function analyze(paths, config, id, deps, opts = {}) {
     base,
     ...parsed.analysis,
     questions,
-    verdict: parsed.analysis.verdict === "questions" && !questions.some((q) => !q.answer) ? "ready" : parsed.analysis.verdict,
+    verdict: parsed.analysis.verdict === "questions" && !questions.some((q2) => !q2.answer) ? "ready" : parsed.analysis.verdict,
     orgs: orgs.map((o) => o.alias),
     sessionId: parsed.sessionId ?? sessionId,
     at: finished.toISOString(),
@@ -2210,20 +3604,20 @@ function analyze(paths, config, id, deps, opts = {}) {
 function answerAnalysis(paths, id, question, text, by, now2) {
   const a = readAnalysis(paths, id);
   if (!a) throw new AccError("no-analysis", `${id} hasn't been analyzed yet: acc analyze ${id}.`);
-  const q = a.questions.find((x) => x.id === question.toLowerCase() || x.id === `q${question}`);
-  if (!q) throw new AccError("usage", `${id}'s analysis has no question ${question}. It has: ${a.questions.map((x) => x.id).join(", ") || "none"}.`);
+  const q2 = a.questions.find((x2) => x2.id === question.toLowerCase() || x2.id === `q${question}`);
+  if (!q2) throw new AccError("usage", `${id}'s analysis has no question ${question}. It has: ${a.questions.map((x2) => x2.id).join(", ") || "none"}.`);
   if (!text.trim()) throw new AccError("usage", "Give an answer.");
-  q.answer = { text: text.trim(), by, at: now2().toISOString() };
+  q2.answer = { text: text.trim(), by, at: now2().toISOString() };
   if (a.verdict === "questions" && !openQuestions(a).length) a.verdict = "ready";
   writeAnalysis(paths, a);
   mutate(paths, now2, (_l, emit) => {
-    emit({ type: "task.updated", task: id, actor: "human", by, data: { answered: { question: q.id } } });
+    emit({ type: "task.updated", task: id, actor: "human", by, data: { answered: { question: q2.id } } });
   });
   return a;
 }
 function analysisSection(a) {
   if (!a) return [];
-  const bullets = (xs) => xs.map((x) => `- ${x}`);
+  const bullets = (xs) => xs.map((x2) => `- ${x2}`);
   return [
     "## What the analysis found",
     "",
@@ -2232,7 +3626,7 @@ function analysisSection(a) {
     a.summary,
     "",
     ...a.requirements.criteria.length ? ["**Acceptance criteria**", "", ...bullets(a.requirements.criteria), ""] : [],
-    ...a.questions.length ? ["**Decided by a person**", "", ...a.questions.map((q) => `- ${q.question} ${q.answer ? `**${q.answer.text}**` : `Nobody answered; assume: ${q.suggested}`}`), ""] : [],
+    ...a.questions.length ? ["**Decided by a person**", "", ...a.questions.map((q2) => `- ${q2.question} ${q2.answer ? `**${q2.answer.text}**` : `Nobody answered; assume: ${q2.suggested}`}`), ""] : [],
     ...a.requirements.assumptions.length ? ["**Assumptions**", "", ...bullets(a.requirements.assumptions), ""] : [],
     ...a.requirements.outOfScope.length ? ["**Out of scope**", "", ...bullets(a.requirements.outOfScope), ""] : [],
     ...a.findings.length ? ["**What is there now**", "", ...a.findings.map((f) => `- ${f.area}: ${f.detail}${f.source ? ` (${f.source})` : ""}`), ""] : [],
@@ -2462,12 +3856,12 @@ ${task.brief}`;
   renameSync5(`${file}.tmp`, file);
   const actor = opts.actor ?? "reviewer";
   const by = opts.by ?? `reviewer:${id}`;
-  const moved = mutate(paths, now2, (l, emit) => {
-    const t = l.tasks.find((x) => x.id === id);
+  const moved = mutate(paths, now2, (l3, emit) => {
+    const t = l3.tasks.find((x2) => x2.id === id);
     if (t.state !== "review") return null;
     if (verdict.verdict === "changes") {
       const req = { to: "rework", actor, by, reason: `Review asked for changes: ${verdict.summary}` };
-      const problems = checkMove(l, config, t, req, noGateHooks);
+      const problems = checkMove(l3, config, t, req, noGateHooks);
       if (problems.length) throw new AccError("move-refused", problems.join(" "));
       applyMove(t, req, emit, now2);
       return "rework";
@@ -2502,7 +3896,7 @@ function worktreeRoot(config, main2) {
   if (!root) return join11(main2, ".claude", "worktrees");
   return isAbsolute(root) ? root : resolve(main2, root);
 }
-var isClaudeWorktree = (main2, wt) => wt.startsWith(join11(main2, ".claude", "worktrees") + sep);
+var isClaudeWorktree = (main2, wt2) => wt2.startsWith(join11(main2, ".claude", "worktrees") + sep);
 function claudeStatePath(env = process.env) {
   return env.CLAUDE_CONFIG_DIR ? join11(env.CLAUDE_CONFIG_DIR, ".claude.json") : join11(env.HOME || homedir3(), ".claude.json");
 }
@@ -2518,7 +3912,7 @@ function isTrusted(folder, env = process.env) {
     keys.add(realpathSync(folder));
   } catch {
   }
-  return [...keys].some((k) => state.projects?.[k]?.hasTrustDialogAccepted === true);
+  return [...keys].some((k2) => state.projects?.[k2]?.hasTrustDialogAccepted === true);
 }
 function reviewSection(v) {
   if (!v || v.verdict !== "changes") return [];
@@ -2681,38 +4075,38 @@ function builderSettings(task, config, accBinDir2, basePath, accCommand2) {
   };
 }
 var git4 = (run2, cwd, ...args) => run2("git", args, { cwd });
-function ensureWorktree(run2, main2, wt, branch, env) {
-  if (existsSync8(wt)) {
-    const inside = git4(run2, wt, "rev-parse", "--abbrev-ref", "HEAD");
-    if (inside.code !== 0) throw new AccError("dispatch", `${wt} exists but isn't a git worktree. Move it aside and dispatch again.`);
-    if (inside.stdout.trim() !== branch) throw new AccError("dispatch", `${wt} is on ${inside.stdout.trim()}, not ${branch}.`);
+function ensureWorktree(run2, main2, wt2, branch, env) {
+  if (existsSync8(wt2)) {
+    const inside = git4(run2, wt2, "rev-parse", "--abbrev-ref", "HEAD");
+    if (inside.code !== 0) throw new AccError("dispatch", `${wt2} exists but isn't a git worktree. Move it aside and dispatch again.`);
+    if (inside.stdout.trim() !== branch) throw new AccError("dispatch", `${wt2} is on ${inside.stdout.trim()}, not ${branch}.`);
     return true;
   }
-  mkdirSync12(dirname3(wt), { recursive: true });
+  mkdirSync12(dirname3(wt2), { recursive: true });
   git4(run2, main2, "fetch", "--quiet", "origin", env.branch);
   const hasLocal = git4(run2, main2, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`).code === 0;
   let r;
-  if (hasLocal) r = git4(run2, main2, "worktree", "add", wt, branch);
+  if (hasLocal) r = git4(run2, main2, "worktree", "add", wt2, branch);
   else {
     const remote = `refs/remotes/origin/${env.branch}`;
     const base = git4(run2, main2, "rev-parse", "--verify", "--quiet", remote).code === 0 ? `origin/${env.branch}` : env.branch;
     if (git4(run2, main2, "rev-parse", "--verify", "--quiet", base).code !== 0) throw new AccError("dispatch", `There's no "${env.branch}" branch to start from.`);
-    r = git4(run2, main2, "worktree", "add", "--no-track", "-b", branch, wt, base);
+    r = git4(run2, main2, "worktree", "add", "--no-track", "-b", branch, wt2, base);
   }
   if (r.code !== 0) throw new AccError("dispatch", `git couldn't create the worktree: ${r.stderr.trim()}`);
   return false;
 }
-function setupWorktree(run2, config, env, main2, wt) {
+function setupWorktree(run2, config, env, main2, wt2) {
   if (config.profile === "salesforce" && env.org) {
-    mkdirSync12(join11(wt, ".sf"), { recursive: true });
-    writeFileSync13(join11(wt, ".sf", "config.json"), JSON.stringify({ "target-org": env.org }, null, 2) + "\n");
+    mkdirSync12(join11(wt2, ".sf"), { recursive: true });
+    writeFileSync13(join11(wt2, ".sf", "config.json"), JSON.stringify({ "target-org": env.org }, null, 2) + "\n");
   }
-  if (existsSync8(join11(main2, "node_modules")) && !existsSync8(join11(wt, "node_modules"))) {
-    symlinkSync(join11(main2, "node_modules"), join11(wt, "node_modules"), "dir");
+  if (existsSync8(join11(main2, "node_modules")) && !existsSync8(join11(wt2, "node_modules"))) {
+    symlinkSync(join11(main2, "node_modules"), join11(wt2, "node_modules"), "dir");
     excludeEverywhere(run2, main2, "node_modules");
   }
   for (const cmd of config.worktrees.setup) {
-    const r = run2("sh", ["-c", cmd], { cwd: wt });
+    const r = run2("sh", ["-c", cmd], { cwd: wt2 });
     if (r.code !== 0) throw new AccError("dispatch", `Setup command failed in the worktree: ${cmd}
 ${(r.stderr || r.stdout).trim()}`);
   }
@@ -2722,25 +4116,25 @@ function excludeEverywhere(run2, main2, pattern) {
   if (!common) return;
   const file = join11(common, "info", "exclude");
   const text = existsSync8(file) ? readFileSync12(file, "utf8") : "";
-  if (text.split("\n").some((l) => l.trim() === pattern)) return;
+  if (text.split("\n").some((l3) => l3.trim() === pattern)) return;
   mkdirSync12(dirname3(file), { recursive: true });
   writeFileSync13(file, `${text}${text && !text.endsWith("\n") ? "\n" : ""}# Added by acc: worktrees link node_modules from the main checkout.
 ${pattern}
 `);
 }
-function readList2(wt, rel) {
-  if (!rel || !existsSync8(join11(wt, rel))) return [];
-  return readFileSync12(join11(wt, rel), "utf8").split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
+function readList2(wt2, rel) {
+  if (!rel || !existsSync8(join11(wt2, rel))) return [];
+  return readFileSync12(join11(wt2, rel), "utf8").split("\n").map((l3) => l3.trim()).filter((l3) => l3 && !l3.startsWith("#"));
 }
 var sleep2 = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-function findSession(run2, wt, name, waitMs) {
+function findSession(run2, wt2, name, waitMs) {
   const until = Date.now() + waitMs;
   let found = null;
   do {
-    const r = run2("claude", ["agents", "--json"], { cwd: wt, timeoutMs: 2e4 });
+    const r = run2("claude", ["agents", "--json"], { cwd: wt2, timeoutMs: 2e4 });
     try {
       const list = JSON.parse(r.stdout);
-      const s = list.filter((x) => x.name === name && x.kind === "background").sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))[0];
+      const s = list.filter((x2) => x2.name === name && x2.kind === "background").sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))[0];
       if (s) {
         found = { bgId: s.id ?? null, sessionId: s.sessionId ?? null, pid: Number.isInteger(s.pid) && s.pid > 0 ? s.pid : null };
         if (found.pid) return found;
@@ -2766,24 +4160,24 @@ function dispatch(paths, config, id, deps, opts) {
   const env = environmentByBranch(config, found.environment);
   if (!env) throw new AccError("dispatch", `${id}'s environment "${found.environment}" isn't in the config.`);
   const main2 = mainCheckout(run2, paths.root);
-  const wt = join11(worktreeRoot(config, main2), found.id);
-  const enter = isClaudeWorktree(main2, wt);
-  const launchDir = enter ? main2 : wt;
+  const wt2 = join11(worktreeRoot(config, main2), found.id);
+  const enter = isClaudeWorktree(main2, wt2);
+  const launchDir = enter ? main2 : wt2;
   if (!opts.foreground && enter && !isTrusted(main2, deps.env)) {
     throw new AccError("not-trusted", `Claude Code doesn't trust ${main2} yet, so it won't start a background agent there. Run \`claude\` once in that folder, accept the trust prompt, then type /exit and dispatch again.`);
   }
   const branch = found.run?.branch ?? taskBranch(found);
-  const reused = ensureWorktree(run2, main2, wt, branch, env);
-  setupWorktree(run2, config, env, main2, wt);
-  const rules = existsSync8(join11(wt, ".acc", "rules.md")) ? readFileSync12(join11(wt, ".acc", "rules.md"), "utf8") : null;
+  const reused = ensureWorktree(run2, main2, wt2, branch, env);
+  setupWorktree(run2, config, env, main2, wt2);
+  const rules = existsSync8(join11(wt2, ".acc", "rules.md")) ? readFileSync12(join11(wt2, ".acc", "rules.md"), "utf8") : null;
   const packet = renderPacket({
     task: found,
     config,
     env,
-    worktree: wt,
+    worktree: wt2,
     branch,
     rules,
-    environmentSpecific: readList2(wt, config.environmentSpecific),
+    environmentSpecific: readList2(wt2, config.environmentSpecific),
     enterWorktree: enter && !opts.foreground,
     accPath: join11(deps.accBinDir, "acc"),
     review: found.state === "rework" ? latestVerdict(paths, found.id) : null,
@@ -2802,8 +4196,8 @@ ${packet}`;
     const again = checkMove(ledger, config, task, req, noGateHooks);
     if (again.length) throw new AccError("move-refused", `Can't dispatch ${id}:
 - ${again.join("\n- ")}`);
-    applyMove(task, { ...req, reason: reused ? `re-dispatched in ${basename3(wt)}` : null }, emit, now2);
-    task.run = { worktree: wt, branch, startedAt: now2().toISOString(), ...bgId2 ? { bgId: bgId2 } : {}, ...sessionId2 ? { sessionId: sessionId2 } : {} };
+    applyMove(task, { ...req, reason: reused ? `re-dispatched in ${basename3(wt2)}` : null }, emit, now2);
+    task.run = { worktree: wt2, branch, startedAt: now2().toISOString(), ...bgId2 ? { bgId: bgId2 } : {}, ...sessionId2 ? { sessionId: sessionId2 } : {} };
     emit({ type: "task.updated", task: id, actor: opts.actor, by: opts.by, data: { run: task.run } });
     return task;
   });
@@ -2811,21 +4205,21 @@ ${packet}`;
     const task = record(null, null);
     const awake = holdAwake(process.pid, deps.awake);
     try {
-      spawnSync3("claude", [...base, prompt], { cwd: wt, stdio: "inherit", env: deps.env });
+      spawnSync3("claude", [...base, prompt], { cwd: wt2, stdio: "inherit", env: deps.env });
     } finally {
       awake?.release();
     }
-    return { task, worktree: wt, branch, reused, packetPath, bgId: null, sessionId: null };
+    return { task, worktree: wt2, branch, reused, packetPath, bgId: null, sessionId: null };
   }
   const launched = run2("claude", ["--bg", ...base, prompt], { cwd: launchDir, env: deps.env, timeoutMs: 6e4 });
-  if (launched.code !== 0) throw new AccError("dispatch", `Claude Code didn't start the agent: ${(launched.stderr || launched.stdout).trim().split("\n")[0]}. The worktree is kept at ${wt}.`);
+  if (launched.code !== 0) throw new AccError("dispatch", `Claude Code didn't start the agent: ${(launched.stderr || launched.stdout).trim().split("\n")[0]}. The worktree is kept at ${wt2}.`);
   const { bgId, sessionId, pid } = findSession(run2, launchDir, found.id, deps.findSessionMs ?? 8e3);
   try {
     const task = record(bgId, sessionId);
     if (pid) keepAwakeFor(paths, id, pid, deps.awake);
-    return { task, worktree: wt, branch, reused, packetPath, bgId, sessionId };
+    return { task, worktree: wt2, branch, reused, packetPath, bgId, sessionId };
   } catch (e) {
-    if (bgId) run2("claude", ["stop", bgId], { cwd: wt });
+    if (bgId) run2("claude", ["stop", bgId], { cwd: wt2 });
     throw e;
   }
 }
@@ -2833,11 +4227,11 @@ function cleanup(paths, config, id, run2, now2) {
   const ledger = readLedger(paths.ledger);
   const task = ledger.tasks.find((t) => t.id === id);
   if (!task) throw new AccError("no-task", `No task ${id}.`);
-  const wt = task.run?.worktree ?? null;
-  if (!wt || !existsSync8(wt)) return { removed: false, reasons: ["It has no worktree on disk."], worktree: wt };
+  const wt2 = task.run?.worktree ?? null;
+  if (!wt2 || !existsSync8(wt2)) return { removed: false, reasons: ["It has no worktree on disk."], worktree: wt2 };
   const reasons = [];
   if (task.state === "running") reasons.push(`${id} is still running. Abandon it or let it finish first.`);
-  const dirty = git4(run2, wt, "status", "--porcelain").stdout.trim();
+  const dirty = git4(run2, wt2, "status", "--porcelain").stdout.trim();
   if (dirty) reasons.push(`The worktree has ${dirty.split("\n").length} uncommitted change(s).`);
   const env = environmentByBranch(config, task.environment);
   const branch = task.run?.branch;
@@ -2849,17 +4243,17 @@ function cleanup(paths, config, id, run2, now2) {
     const merged = git4(run2, main3, "merge-base", "--is-ancestor", branch, target).code === 0;
     if (ahead > 0 && !merged) reasons.push(`${branch} has ${ahead} commit(s) that aren't in ${target} yet.`);
   }
-  if (reasons.length) return { removed: false, reasons, worktree: wt };
+  if (reasons.length) return { removed: false, reasons, worktree: wt2 };
   const main2 = mainCheckout(run2, paths.root);
-  const r = git4(run2, main2, "worktree", "remove", wt);
-  if (r.code !== 0) return { removed: false, reasons: [`git refused: ${r.stderr.trim()}`], worktree: wt };
+  const r = git4(run2, main2, "worktree", "remove", wt2);
+  if (r.code !== 0) return { removed: false, reasons: [`git refused: ${r.stderr.trim()}`], worktree: wt2 };
   if (branch) git4(run2, main2, "branch", "-D", branch);
-  mutate(paths, now2, (l, emit) => {
-    const t = l.tasks.find((x) => x.id === id);
+  mutate(paths, now2, (l3, emit) => {
+    const t = l3.tasks.find((x2) => x2.id === id);
     if (t.run) delete t.run.worktree;
-    emit({ type: "task.updated", task: id, actor: "human", by: "acc cleanup", data: { worktreeRemoved: wt } });
+    emit({ type: "task.updated", task: id, actor: "human", by: "acc cleanup", data: { worktreeRemoved: wt2 } });
   });
-  return { removed: true, reasons: [], worktree: wt };
+  return { removed: true, reasons: [], worktree: wt2 };
 }
 
 // packages/core/src/init.ts
@@ -2897,9 +4291,9 @@ function ghAccounts(run2, env = process.env) {
 }
 function pushSetup(run2, root) {
   const r = run2("git", ["config", "--get-all", "credential.helper"], { cwd: root });
-  const helpers = r.code === 0 ? r.stdout.split("\n").filter((l) => l.trim()) : [];
-  if (helpers.some((h) => h.includes(CLONE_ACCOUNT_KEY))) return { kind: "follows", account: null };
-  const pinned = helpers.map((h) => /gh auth token -u ([A-Za-z0-9-]+)/.exec(h)?.[1]).find(Boolean);
+  const helpers = r.code === 0 ? r.stdout.split("\n").filter((l3) => l3.trim()) : [];
+  if (helpers.some((h2) => h2.includes(CLONE_ACCOUNT_KEY))) return { kind: "follows", account: null };
+  const pinned = helpers.map((h2) => /gh auth token -u ([A-Za-z0-9-]+)/.exec(h2)?.[1]).find(Boolean);
   if (pinned) return { kind: "pinned", account: pinned };
   return { kind: helpers.length ? "other" : "none", account: null };
 }
@@ -2908,8 +4302,8 @@ function githubIdentity(config, root, run2, env = process.env) {
   const mine = cloneAccount(run2, root);
   const account = mine ?? config.github.account;
   const accounts = ghAccounts(run2, env);
-  const git8 = (k) => {
-    const r = run2("git", ["config", "--get", k], { cwd: root });
+  const git8 = (k2) => {
+    const r = run2("git", ["config", "--get", k2], { cwd: root });
     return r.code === 0 ? r.stdout.trim() || null : null;
   };
   const push = pushSetup(run2, root);
@@ -2972,17 +4366,17 @@ function makeContext(cwd, run2, env = process.env) {
   if (config && paths) config = withCloneAccount(config, paths.root, run2);
   return { cwd, run: run2, env, paths, config, configErrors, cache: /* @__PURE__ */ new Map() };
 }
-function cached(ctx, key, fn) {
-  if (!ctx.cache.has(key)) ctx.cache.set(key, fn());
+function cached(ctx, key, fn2) {
+  if (!ctx.cache.has(key)) ctx.cache.set(key, fn2());
   return ctx.cache.get(key);
 }
 function versionAtLeast(version, min) {
   const a = version.split(".").map(Number);
   const b = min.split(".").map(Number);
   for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    const x = a[i] ?? 0;
-    const y = b[i] ?? 0;
-    if (x !== y) return x > y;
+    const x2 = a[i] ?? 0;
+    const y2 = b[i] ?? 0;
+    if (x2 !== y2) return x2 > y2;
   }
   return true;
 }
@@ -3055,9 +4449,9 @@ function discoverSalesforce(run2, root, productionOrg, notes) {
   if (prod.status !== 0) throw new AccError("init", `"${productionOrg}" isn't logged in: ${prod.message ?? "sf failed"}`);
   const url = parseOrgUrl(String(prod.result?.instanceUrl ?? ""));
   if (url.kind !== "production") throw new AccError("init", `"${productionOrg}" isn't a Production org (${prod.result?.instanceUrl}).`);
-  const q = sfJson2(run2, root, ["data", "query", "--use-tooling-api", "-q", "SELECT SandboxName, LicenseType FROM SandboxInfo ORDER BY SandboxName", "-o", productionOrg]);
-  if (q.status !== 0) throw new AccError("init", `Couldn't read Production's sandbox list: ${q.message ?? "sf failed"}`);
-  const sandboxes = q.result?.records ?? [];
+  const q2 = sfJson2(run2, root, ["data", "query", "--use-tooling-api", "-q", "SELECT SandboxName, LicenseType FROM SandboxInfo ORDER BY SandboxName", "-o", productionOrg]);
+  if (q2.status !== 0) throw new AccError("init", `Couldn't read Production's sandbox list: ${q2.message ?? "sf failed"}`);
+  const sandboxes = q2.result?.records ?? [];
   const list = sfJson2(run2, root, ["org", "list"]);
   const orgs = list.status === 0 ? Object.values(list.result ?? {}).filter(Array.isArray).flat() : [];
   const aliasFor = /* @__PURE__ */ new Map();
@@ -3077,7 +4471,7 @@ function discoverSalesforce(run2, root, productionOrg, notes) {
   const first = (t) => envs.find((e) => e.type === t && e.org)?.name ?? envs.find((e) => e.type === t)?.name;
   const partial = first("partial");
   const full = first("full");
-  const uniq = (xs) => [...new Set(xs.filter((x) => !!x).map(branchFor))];
+  const uniq = (xs) => [...new Set(xs.filter((x2) => !!x2).map(branchFor))];
   for (const e of envs) {
     if (e.type === "developer" || e.type === "developer_pro") e.promotesTo = uniq([partial, full, "Production"]);
     else if (e.type === "partial") e.promotesTo = uniq([full, "Production"]);
@@ -3105,7 +4499,7 @@ function pushingAccount(run2, root) {
 function planInit(run2, opts) {
   const notes = [];
   const root = opts.root;
-  const gitGet = (k) => run2("git", ["config", "--local", "--get", k], { cwd: root }).stdout.trim() || void 0;
+  const gitGet = (k2) => run2("git", ["config", "--local", "--get", k2], { cwd: root }).stdout.trim() || void 0;
   let environments;
   if (opts.profile === "salesforce") {
     if (!opts.productionOrg) throw new AccError("init", "A Salesforce project needs --production-org <alias>, so its sandboxes can be found.");
@@ -3236,9 +4630,9 @@ function writeUpdate(paths, u) {
   writeFileSync14(`${file}.tmp`, JSON.stringify(u, null, 2) + "\n");
   renameSync6(`${file}.tmp`, file);
 }
-function locked(paths, fn) {
+function locked(paths, fn2) {
   mkdirSync13(paths.updates, { recursive: true });
-  return withLock(`${paths.updates}.lock`, fn);
+  return withLock(`${paths.updates}.lock`, fn2);
 }
 var sameNews = (a, b) => {
   const family = (e) => e === "pr-opened" || e === "pr-updated" ? "pr" : e;
@@ -3376,7 +4770,7 @@ function sync(paths, config, deps) {
       if (files) conflicts.set(n, files);
     }
   }
-  const at = now2().toISOString();
+  const at2 = now2().toISOString();
   const changes = mutate(paths, now2, (ledger2, emit) => {
     const out2 = [];
     for (const t of ledger2.tasks) {
@@ -3389,7 +4783,7 @@ function sync(paths, config, deps) {
       let note = "";
       if (p.state === "MERGED") {
         const mergeSha = p.mergeCommit?.oid && /^[0-9a-f]{40,64}$/.test(p.mergeCommit.oid) ? p.mergeCommit.oid : void 0;
-        t.pr = { ...t.pr, state: "merged", ci, ...mergeSha ? { mergeSha } : {}, syncedAt: at };
+        t.pr = { ...t.pr, state: "merged", ci, ...mergeSha ? { mergeSha } : {}, syncedAt: at2 };
         const req = { to: "done", actor: "sync", by: "acc sync", reason: `Pull request #${p.number} merged.` };
         if (t.state === "review" && !checkMove(ledger2, config, t, req, noGateHooks).length) {
           moved = { from: t.state, to: "done" };
@@ -3397,7 +4791,7 @@ function sync(paths, config, deps) {
         }
         note = `#${p.number} merged`;
       } else if (p.state === "CLOSED") {
-        t.pr = { ...t.pr, state: "closed", ci, syncedAt: at };
+        t.pr = { ...t.pr, state: "closed", ci, syncedAt: at2 };
         const req = { to: "blocked", actor: "sync", by: "acc sync", reason: `Pull request #${p.number} was closed without merging. Reopen it, or decide what happens to ${t.id}.` };
         if (t.state !== "blocked" && t.state !== "done" && !checkMove(ledger2, config, t, req, noGateHooks).length) {
           moved = { from: t.state, to: "blocked" };
@@ -3406,7 +4800,7 @@ function sync(paths, config, deps) {
         note = `#${p.number} closed without merging`;
       } else {
         const files = conflicts.get(p.number) ?? t.pr.conflicts;
-        t.pr = { ...t.pr, url: p.url, ci, changesRequested, ...files ? { conflicts: files } : {}, syncedAt: at };
+        t.pr = { ...t.pr, url: p.url, ci, changesRequested, ...files ? { conflicts: files } : {}, syncedAt: at2 };
         const why = [
           changesRequested ? "a person asked for changes" : "",
           ci === "failing" ? "checks failing" : "",
@@ -3426,7 +4820,7 @@ function sync(paths, config, deps) {
   const ledger = readLedger(paths.ledger);
   for (const c of changes) {
     if (c.moved?.to !== "done") continue;
-    const t = ledger.tasks.find((x) => x.id === c.task);
+    const t = ledger.tasks.find((x2) => x2.id === c.task);
     if (!t) continue;
     try {
       const u = draftUpdate(paths, t, { event: "merged", env: environmentByBranch(config, t.environment)?.name ?? t.environment }, "acc sync", now2);
@@ -3519,7 +4913,7 @@ function land(paths, config, id, deps, opts = {}) {
       opened = false;
     } else {
       const create = ghRun(["pr", "create", "-R", gh.repo, "--base", env.branch, "--head", branch, "--title", `${task.id}: ${task.title}`, "--body-file", bodyFile]);
-      const url = create.stdout.trim().split("\n").find((l) => /^https:\/\/github\.com\/.+\/pull\/\d+/.test(l.trim()))?.trim();
+      const url = create.stdout.trim().split("\n").find((l3) => /^https:\/\/github\.com\/.+\/pull\/\d+/.test(l3.trim()))?.trim();
       if (create.code !== 0 || !url) throw new AccError("land", `gh couldn't open the pull request: ${(create.stderr || create.stdout).trim().split("\n")[0]}`);
       pr = { number: Number(/\/pull\/(\d+)/.exec(url)[1]), url, state: "open", landedAt: now2().toISOString(), sha };
       opened = true;
@@ -3529,8 +4923,8 @@ function land(paths, config, id, deps, opts = {}) {
   }
   const conflicts = fetchBranches(run2, paths.root, [env.branch, branch], deps.env) ? conflictsOf(run2, paths.root, env.branch, branch) : null;
   if (conflicts) pr = { ...pr, conflicts };
-  const updated = mutate(paths, now2, (l, emit) => {
-    const t = l.tasks.find((x) => x.id === id);
+  const updated = mutate(paths, now2, (l3, emit) => {
+    const t = l3.tasks.find((x2) => x2.id === id);
     t.pr = pr;
     if (t.autopilot?.failed) t.autopilot.failed = null;
     t.updatedAt = now2().toISOString();
@@ -3573,9 +4967,9 @@ function appendOnlyMerge(common, ours, theirs) {
   if (mine.startsWith(added)) return start + mine;
   return start + added + (added && mine && !added.endsWith("\n") ? "\n" : "") + mine;
 }
-function unmerged(run2, wt) {
+function unmerged(run2, wt2) {
   const out2 = /* @__PURE__ */ new Map();
-  for (const entry of run2("git", ["ls-files", "-u", "-z"], { cwd: wt }).stdout.split("\0")) {
+  for (const entry of run2("git", ["ls-files", "-u", "-z"], { cwd: wt2 }).stdout.split("\0")) {
     const m = /^(\d+) ([0-9a-f]+) ([123])\t(.+)$/s.exec(entry);
     if (!m) continue;
     const stages = out2.get(m[4]) ?? /* @__PURE__ */ new Map();
@@ -3585,18 +4979,18 @@ function unmerged(run2, wt) {
   return out2;
 }
 var isText = (s) => !s.includes("\0") && !s.includes("\uFFFD");
-function resolveAppend(run2, wt, mergeBase, path, stages) {
-  const git8 = (...args) => run2("git", args, { cwd: wt });
+function resolveAppend(run2, wt2, mergeBase, path, stages) {
+  const git8 = (...args) => run2("git", args, { cwd: wt2 });
   const [common, ours, theirs] = [stages.get(1), stages.get(2), stages.get(3)];
   if (!common || !ours || !theirs) return false;
   if (![common, ours, theirs].every((s) => s.mode === "100644" || s.mode === "100755")) return false;
-  const at = (ref) => git8("rev-parse", "--verify", "--quiet", `${ref}:${path}`).stdout.trim();
-  if (at(mergeBase) !== common.sha || at("HEAD") !== ours.sha || at("MERGE_HEAD") !== theirs.sha) return false;
+  const at2 = (ref) => git8("rev-parse", "--verify", "--quiet", `${ref}:${path}`).stdout.trim();
+  if (at2(mergeBase) !== common.sha || at2("HEAD") !== ours.sha || at2("MERGE_HEAD") !== theirs.sha) return false;
   const blobs = [common, ours, theirs].map((s) => git8("cat-file", "blob", s.sha));
   if (blobs.some((b) => b.code !== 0 || !isText(b.stdout))) return false;
   const merged = appendOnlyMerge(blobs[0].stdout, blobs[1].stdout, blobs[2].stdout);
   if (merged === null) return false;
-  const blob = run2("git", ["hash-object", "-w", "--stdin"], { cwd: wt, input: merged });
+  const blob = run2("git", ["hash-object", "-w", "--stdin"], { cwd: wt2, input: merged });
   if (blob.code !== 0) return false;
   if (git8("update-index", "--cacheinfo", `${ours.mode},${blob.stdout.trim()},${path}`).code !== 0) return false;
   return git8("checkout", "--", path).code === 0;
@@ -3617,13 +5011,13 @@ function refresh(paths, config, id, deps, opts) {
   const env = environmentByBranch(config, task.environment);
   if (!env) throw new AccError("refresh", `${id}'s environment "${task.environment}" isn't in the config.`);
   const branch = task.run?.branch;
-  const wt = task.run?.worktree;
+  const wt2 = task.run?.worktree;
   if (!branch) throw new AccError("refresh", `${id} has no branch.`);
-  if (!wt || !existsSync11(wt)) throw new AccError("refresh", `${id}'s worktree isn't on disk any more, so there's nowhere to merge ${env.branch} in.`);
-  if (samePath(wt, mainCheckout(run2, paths.root))) throw new AccError("refresh", `${id}'s worktree is the main checkout. Autopilot merges only in a task's own worktree.`);
-  const git8 = (...args) => run2("git", args, { cwd: wt });
+  if (!wt2 || !existsSync11(wt2)) throw new AccError("refresh", `${id}'s worktree isn't on disk any more, so there's nowhere to merge ${env.branch} in.`);
+  if (samePath(wt2, mainCheckout(run2, paths.root))) throw new AccError("refresh", `${id}'s worktree is the main checkout. Autopilot merges only in a task's own worktree.`);
+  const git8 = (...args) => run2("git", args, { cwd: wt2 });
   const on = git8("symbolic-ref", "--quiet", "--short", "HEAD").stdout.trim();
-  if (on !== branch) throw new AccError("refresh", `${wt} is on ${on || "a detached commit"}, not ${branch}.`);
+  if (on !== branch) throw new AccError("refresh", `${wt2} is on ${on || "a detached commit"}, not ${branch}.`);
   const mid = () => git8("rev-parse", "--verify", "--quiet", "MERGE_HEAD").code === 0;
   const dirty = (untracked = true) => git8("status", "--porcelain", ...untracked ? [] : ["--untracked-files=no"]).stdout.trim() !== "";
   if (dirty() || mid()) throw new AccError("refresh", `${id}'s worktree has changes nobody committed, so autopilot leaves it alone.`);
@@ -3634,8 +5028,8 @@ function refresh(paths, config, id, deps, opts) {
   if (git8("merge-base", "--is-ancestor", `refs/remotes/origin/${branch}`, from).code !== 0) {
     throw new AccError("refresh", `origin's ${branch} has commits this clone's branch doesn't, perhaps from GitHub. Bring them in by hand.`);
   }
-  const record = (change2) => mutate(paths, now2, (l, emit) => {
-    const t = l.tasks.find((x) => x.id === id);
+  const record = (change2) => mutate(paths, now2, (l3, emit) => {
+    const t = l3.tasks.find((x2) => x2.id === id);
     if (!t) return;
     const data = change2(t);
     t.updatedAt = now2().toISOString();
@@ -3650,11 +5044,11 @@ function refresh(paths, config, id, deps, opts) {
   };
   if (conflictsOf(run2, paths.root, env.branch, branch)?.length === 0) return settled();
   const who = config.commitIdentity ? ["-c", `user.name=${config.commitIdentity.name}`, "-c", `user.email=${config.commitIdentity.email}`] : [];
-  const merge = (...args) => run2("git", ["-c", "rerere.enabled=false", ...who, ...args], { cwd: wt });
+  const merge = (...args) => run2("git", ["-c", "rerere.enabled=false", ...who, ...args], { cwd: wt2 });
   const putBack = (how) => {
     merge(...how);
     const back = git8("rev-parse", "HEAD").stdout.trim() === from && !dirty(false) && !mid();
-    return back ? `The branch is as it was, at ${short(from)}, and nothing was pushed.` : `Putting the branch back at ${short(from)} didn't work: look at ${wt} before anything else.`;
+    return back ? `The branch is as it was, at ${short(from)}, and nothing was pushed.` : `Putting the branch back at ${short(from)} didn't work: look at ${wt2} before anything else.`;
   };
   const merged = merge("merge", "--no-ff", "--no-commit", `origin/${env.branch}`);
   if (!mid()) {
@@ -3665,8 +5059,8 @@ function refresh(paths, config, id, deps, opts) {
   const mergeBase = git8("merge-base", "HEAD", "MERGE_HEAD").stdout.trim();
   const resolved = [];
   const left = [];
-  for (const [path, stages] of unmerged(run2, wt)) {
-    if (listed(path, appendOnly) && resolveAppend(run2, wt, mergeBase, path, stages)) resolved.push(path);
+  for (const [path, stages] of unmerged(run2, wt2)) {
+    if (listed(path, appendOnly) && resolveAppend(run2, wt2, mergeBase, path, stages)) resolved.push(path);
     else left.push(path);
   }
   if (left.length) throw new AccError("refresh", `Conflicts with ${env.branch} that autopilot can't resolve: ${left.join(", ")}. ${putBack(["merge", "--abort"])}`);
@@ -3679,7 +5073,7 @@ function refresh(paths, config, id, deps, opts) {
   let failed = [];
   try {
     if (required.length) {
-      const ran = runGates(repoPaths(wt, run2), config, env, required, priorTests(paths, config, from), { run: run2, now: now2, slots: deps.slots });
+      const ran = runGates(repoPaths(wt2, run2), config, env, required, priorTests(paths, config, from), { run: run2, now: now2, slots: deps.slots });
       failed = ran.results.filter((r) => !r.recorded || !satisfies(r.receipt)).map((r) => `${r.gate} ${!r.recorded ? "wasn't recorded" : r.status === "fail" ? "failed" : "couldn't run"}: ${r.summary.replace(/[.!?]$/, "")}${r.receipt.log ? ` (log ${r.receipt.log})` : ""}`);
     }
   } catch (e) {
@@ -3806,7 +5200,7 @@ var PERSON_ONLY_ACC = /* @__PURE__ */ new Set(["set", "dispatch", "land", "revie
 function guardBash(b, line) {
   for (const w of commandsOf(line)) {
     const [cmd, sub, ...rest] = w;
-    const args = [sub, ...rest].filter((x) => !!x);
+    const args = [sub, ...rest].filter((x2) => !!x2);
     if (cmd === "git") {
       if (sub === "push") return "Builders never push. Finish with acc done: a person lands your branch with acc land, which pushes it and opens the pull request.";
       if (args.includes("--no-verify") || sub === "commit" && args.includes("-n")) return "Don't skip the repo's git hooks (--no-verify). If a hook fails, fix what it found.";
@@ -3836,7 +5230,7 @@ function guardAnalyst(line) {
     if (!allowed.some((a) => a.every((word, i) => w[i] === word))) {
       return `The analyst only reads: ${w.slice(0, 3).join(" ")} isn't one of its commands. Use git log, show, diff or grep, or the read-only sf commands (org display, data query, sobject describe, org list metadata, limits, project retrieve start).`;
     }
-    if (w[0] === "sf" && w[1] === "project" && w.includes("--output-dir") && w.some((x) => x.startsWith("/") || x.startsWith(".."))) {
+    if (w[0] === "sf" && w[1] === "project" && w.includes("--output-dir") && w.some((x2) => x2.startsWith("/") || x2.startsWith(".."))) {
       return "Retrieve into your working folder, the scratch project, without --output-dir.";
     }
   }
@@ -3888,8 +5282,8 @@ function sessionStartHook(input, ctx) {
   const id = input.session_id;
   if (id && b.task.run && b.task.run.sessionId !== id) {
     try {
-      mutate(repoPaths(b.root, ctx.run), ctx.now, (l, emit) => {
-        const t = l.tasks.find((x) => x.id === b.task.id);
+      mutate(repoPaths(b.root, ctx.run), ctx.now, (l3, emit) => {
+        const t = l3.tasks.find((x2) => x2.id === b.task.id);
         if (!t?.run || t.run.sessionId === id) return;
         t.run.sessionId = id;
         emit({ type: "task.updated", task: t.id, actor: "builder", by: `builder:${t.id}`, data: { sessionId: id } });
@@ -3927,8 +5321,8 @@ function stopHook(input, ctx) {
 }
 function parseEventInput(text) {
   try {
-    const x = JSON.parse(text);
-    return x && typeof x === "object" ? x : null;
+    const x2 = JSON.parse(text);
+    return x2 && typeof x2 === "object" ? x2 : null;
   } catch {
     return null;
   }
@@ -4164,22 +5558,22 @@ function resumeClaimed(paths, config, id, deps, opts, c) {
   }
   const cmd = resumeCommand(task, withCloneAgents(config, paths.root, run2), { sessionId, message, accBinDir: deps.accBinDir, basePath: deps.env.PATH ?? "", accCommand: deps.accCommand });
   mkdirSync15(dirname5(log), { recursive: true });
-  const at = now2().toISOString();
+  const at2 = now2().toISOString();
   appendFileSync2(log, `
---- ${at}: ${id} resumed by ${opts.by}, in ${folder} ---
+--- ${at2}: ${id} resumed by ${opts.by}, in ${folder} ---
 `);
   const pid = (deps.launch ?? launchDetached)("claude", cmd.args, { cwd: folder, env: { ...deps.env, ...cmd.env }, log });
   if (!pid) throw new AccError("resume", `Claude Code didn't start. Its output is in ${log}.`);
   keepAwakeFor(paths, id, pid, deps.awake);
-  writeFileSync17(c.marker, JSON.stringify({ sessionId, pid, startedAt: at, by: opts.by, log }));
+  writeFileSync17(c.marker, JSON.stringify({ sessionId, pid, startedAt: at2, by: opts.by, log }));
   rmSync10(remindedPath(paths.stateDir, sessionId), { force: true });
   try {
-    const recorded = mutate(paths, now2, (l, emit) => {
-      const t = l.tasks.find((x) => x.id === id);
+    const recorded = mutate(paths, now2, (l3, emit) => {
+      const t = l3.tasks.find((x2) => x2.id === id);
       if (!t?.run || t.state !== "running") throw new AccError("refused", `${id} left running meanwhile, so its resume was stopped.`);
-      t.run.resumes = [...t.run.resumes ?? [], { at, actor: opts.actor, by: opts.by }];
+      t.run.resumes = [...t.run.resumes ?? [], { at: at2, actor: opts.actor, by: opts.by }];
       if (t.autopilot?.failed) t.autopilot.failed = null;
-      t.updatedAt = at;
+      t.updatedAt = at2;
       emit({ type: "task.updated", task: id, actor: opts.actor, by: opts.by, data: { resumed: { said: said ? clipSaid(said) : null } } });
       return t;
     });
@@ -4208,7 +5602,7 @@ function autopilotMode(config) {
 }
 var short2 = (sha) => sha.slice(0, 7) || "no commit";
 var sentence2 = (text) => text.replace(/([^.!?])$/, "$1.");
-var reworkedByAutopilot = (task) => task.history.some((h) => h.from === "rework" && h.to === "running" && h.actor === "orchestrator");
+var reworkedByAutopilot = (task) => task.history.some((h2) => h2.from === "rework" && h2.to === "running" && h2.actor === "orchestrator");
 var resumedByAutopilot = (task) => !!task.run?.resumes?.some((r) => byAutopilot(r.by));
 var running = (ledger, except) => ledger.tasks.filter((t) => t.state === "running" && t.id !== except).length;
 function nextStep(ledger, config, task, facts) {
@@ -4305,8 +5699,8 @@ function temporary(e, paths, config, id) {
 }
 var firstLines = (text) => text.trim().split("\n").slice(0, 3).join(" ").replace(/\s+/g, " ");
 function recordFailure(paths, now2, id, failed) {
-  mutate(paths, now2, (l, emit) => {
-    const t = l.tasks.find((x) => x.id === id);
+  mutate(paths, now2, (l3, emit) => {
+    const t = l3.tasks.find((x2) => x2.id === id);
     if (!t || t.state !== failed.state) return;
     t.autopilot = { failed };
     t.updatedAt = failed.at;
@@ -4357,13 +5751,13 @@ function autopilotPass(paths, config, deps) {
 }
 var byAutopilot = (by) => by === AUTOPILOT_BY || by.endsWith(` for ${AUTOPILOT_BY}`);
 var EVENTS_TAIL_BYTES = 256 * 1024;
-function holdAutopilot(paths, fn) {
+function holdAutopilot(paths, fn2) {
   mkdirSync16(paths.stateDir, { recursive: true });
   let held = false;
   try {
     return withLock(paths.autopilotLock, () => {
       held = true;
-      return fn();
+      return fn2();
     }, { staleMs: Infinity, timeoutMs: 0 });
   } catch (e) {
     if (held || e.code !== "lock-timeout") throw e;
@@ -4403,22 +5797,22 @@ function promotionPaths(envs) {
   return out2;
 }
 function envByName(config, name) {
-  const e = config.environments.find((x) => x.branch === name.toLowerCase() || x.name.toLowerCase() === name.toLowerCase());
-  if (!e) throw new AccError("usage", `No environment "${name}". The config has: ${config.environments.map((x) => x.branch).join(", ")}.`);
+  const e = config.environments.find((x2) => x2.branch === name.toLowerCase() || x2.name.toLowerCase() === name.toLowerCase());
+  if (!e) throw new AccError("usage", `No environment "${name}". The config has: ${config.environments.map((x2) => x2.branch).join(", ")}.`);
   return e;
 }
 function skippedOn(config, from, to) {
   const usual = from.promotesTo[0];
   if (!usual || usual === to.branch) return [];
   const path = [];
-  let at = from;
-  while (at?.promotesTo[0] && at.promotesTo[0] !== to.branch) {
-    const next = config.environments.find((e) => e.branch === at.promotesTo[0]);
+  let at2 = from;
+  while (at2?.promotesTo[0] && at2.promotesTo[0] !== to.branch) {
+    const next = config.environments.find((e) => e.branch === at2.promotesTo[0]);
     if (!next || path.includes(next)) break;
     path.push(next);
-    at = next;
+    at2 = next;
   }
-  return at?.promotesTo[0] === to.branch ? path : path.slice(0, 1);
+  return at2?.promotesTo[0] === to.branch ? path : path.slice(0, 1);
 }
 function specificOn(run2, root, config, refs) {
   if (!config.environmentSpecific) return [];
@@ -4426,7 +5820,7 @@ function specificOn(run2, root, config, refs) {
   for (const ref of refs) {
     const r = git5(run2, root, "show", `${ref}:${config.environmentSpecific}`);
     if (r.code !== 0) continue;
-    for (const l of r.stdout.split("\n").map((x) => x.trim()).filter((x) => x && !x.startsWith("#"))) out2.add(l);
+    for (const l3 of r.stdout.split("\n").map((x2) => x2.trim()).filter((x2) => x2 && !x2.startsWith("#"))) out2.add(l3);
   }
   return [...out2];
 }
@@ -4469,7 +5863,7 @@ function promotionBody(plan, validation) {
   return [
     `Promotes \`${plan.from.branch}\` (${plan.from.name}) at ${plan.fromSha.slice(0, 7)} into \`${plan.to.branch}\` (${plan.to.name}).`,
     "",
-    ...plan.skipped.length ? ["> [!WARNING]", ...describeSkip(plan).map((l) => `> ${l}`), ""] : [],
+    ...plan.skipped.length ? ["> [!WARNING]", ...describeSkip(plan).map((l3) => `> ${l3}`), ""] : [],
     ...plan.deleted.length ? ["> [!WARNING]", `> Deletes ${plan.deleted.length} file${plan.deleted.length === 1 ? "" : "s"} in \`${plan.to.branch}\`. That usually means the branches have drifted apart.`, ""] : [],
     `## Changes (${plan.files.length})`,
     "",
@@ -4498,42 +5892,42 @@ function promote(paths, config, fromName, toName, deps, opts = {}) {
   const stamp = now2().toISOString().replace(/[-:]/g, "").slice(0, 13).replace("T", "-");
   const branch = `promote/${plan.from.branch}-to-${plan.to.branch}-${stamp}`;
   const dir = mkdtempSync2(join20(tmpdir2(), "acc-promote-"));
-  const wt = join20(dir, "wt");
+  const wt2 = join20(dir, "wt");
   let validation = null;
   try {
     deps.onStep?.(`Building ${branch} from ${plan.to.branch}`);
-    must(git5(run2, paths.root, "worktree", "add", "--quiet", "-b", branch, wt, plan.toSha), "Couldn't make the promotion worktree");
-    for (let i = 0; i < plan.files.length; i += 200) must(git5(run2, wt, "checkout", plan.fromSha, "--", ...plan.files.slice(i, i + 200)), "Couldn't bring the changes over");
-    for (let i = 0; i < plan.deleted.length; i += 200) must(git5(run2, wt, "rm", "--quiet", "--", ...plan.deleted.slice(i, i + 200)), "Couldn't remove the deleted files");
-    must(git5(run2, wt, "commit", "--quiet", "-m", `Promote ${plan.from.branch} to ${plan.to.branch}`, "-m", `${plan.files.length} changed, ${plan.deleted.length} deleted, from ${plan.fromSha.slice(0, 7)}.`), "Couldn't commit the promotion");
-    const source = config.profile === "salesforce" ? under(plan.files, packageDirs(wt)) : [];
+    must(git5(run2, paths.root, "worktree", "add", "--quiet", "-b", branch, wt2, plan.toSha), "Couldn't make the promotion worktree");
+    for (let i = 0; i < plan.files.length; i += 200) must(git5(run2, wt2, "checkout", plan.fromSha, "--", ...plan.files.slice(i, i + 200)), "Couldn't bring the changes over");
+    for (let i = 0; i < plan.deleted.length; i += 200) must(git5(run2, wt2, "rm", "--quiet", "--", ...plan.deleted.slice(i, i + 200)), "Couldn't remove the deleted files");
+    must(git5(run2, wt2, "commit", "--quiet", "-m", `Promote ${plan.from.branch} to ${plan.to.branch}`, "-m", `${plan.files.length} changed, ${plan.deleted.length} deleted, from ${plan.fromSha.slice(0, 7)}.`), "Couldn't commit the promotion");
+    const source = config.profile === "salesforce" ? under(plan.files, packageDirs(wt2)) : [];
     if (source.length && plan.to.org && opts.validate !== false) {
       deps.onStep?.(`Validating against ${plan.to.name} (${plan.to.org}). Nothing is saved to the org.`);
       const args = promotionCheckArgs(plan.to.org, source);
       assertCheckOnly("sf", args);
       const [cmd, a] = niced("sf", args);
-      const r = withSlot(() => run2(cmd, a, { cwd: wt, env: sfEnv(), timeoutMs: 120 * 6e4 }), { ...deps.slots });
+      const r = withSlot(() => run2(cmd, a, { cwd: wt2, env: sfEnv(), timeoutMs: 120 * 6e4 }), { ...deps.slots });
       validation = readDeploy(r, plan.to.org, [], source.length);
       if (validation.status !== "pass") {
         return { plan, branch: null, pr: null, validation, stopped: `Validation against ${plan.to.name} didn't pass: ${validation.summary}` };
       }
     }
     deps.onStep?.(`Pushing ${branch}`);
-    must(run2("git", ["push", "--quiet", "--set-upstream", "origin", `${branch}:${branch}`], { cwd: wt, env: deps.env, timeoutMs: 5 * 6e4 }), `git push refused ${branch}`);
+    must(run2("git", ["push", "--quiet", "--set-upstream", "origin", `${branch}:${branch}`], { cwd: wt2, env: deps.env, timeoutMs: 5 * 6e4 }), `git push refused ${branch}`);
     const token = run2("gh", ["auth", "token", "-u", gh.account]);
     if (token.code !== 0) throw new AccError("no-github", `gh isn't logged in as ${gh.account}. The branch ${branch} is pushed; open its pull request on GitHub.`);
     const bodyFile = join20(dir, "body.md");
     writeFileSync18(bodyFile, promotionBody(plan, validation));
     const title = `Promote ${plan.from.name} to ${plan.to.name}${plan.skipped.length ? ` (skips ${plan.skipped.map((e) => e.branch).join(", ")})` : ""}`;
     const create = run2("gh", ["pr", "create", "-R", gh.repo, "--base", plan.to.branch, "--head", branch, "--title", title, "--body-file", bodyFile], { cwd: paths.root, env: { ...deps.env, GH_TOKEN: token.stdout.trim() }, timeoutMs: 2 * 6e4 });
-    const url = create.stdout.trim().split("\n").find((l) => /\/pull\/\d+/.test(l))?.trim();
+    const url = create.stdout.trim().split("\n").find((l3) => /\/pull\/\d+/.test(l3))?.trim();
     if (create.code !== 0 || !url) throw new AccError("land", `gh couldn't open the pull request: ${(create.stderr || create.stdout).trim().split("\n")[0]}. The branch ${branch} is pushed.`);
     const pr = { number: Number(/\/pull\/(\d+)/.exec(url)[1]), url };
     mkdirSync17(paths.stateDir, { recursive: true });
     appendFileSync3(join20(paths.stateDir, "promotions.jsonl"), JSON.stringify({ at: now2().toISOString(), from: plan.from.branch, to: plan.to.branch, fromSha: plan.fromSha, branch, pr, files: plan.files.length, deleted: plan.deleted.length, skipped: plan.skipped.map((e) => e.branch) }) + "\n");
     return { plan, branch, pr, validation, stopped: null };
   } finally {
-    git5(run2, paths.root, "worktree", "remove", "--force", wt);
+    git5(run2, paths.root, "worktree", "remove", "--force", wt2);
     git5(run2, paths.root, "branch", "-D", branch);
     git5(run2, paths.root, "worktree", "prune");
     rmSync11(dir, { recursive: true, force: true });
@@ -4583,7 +5977,7 @@ function planDeploy(paths, config, envName, deps, opts = {}) {
       rmSync12(tmp, { recursive: true, force: true });
     }
   })();
-  const specific = config.environmentSpecific ? show(config.environmentSpecific).stdout.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#")) : [];
+  const specific = config.environmentSpecific ? show(config.environmentSpecific).stdout.split("\n").map((l3) => l3.trim()).filter((l3) => l3 && !l3.startsWith("#")) : [];
   const files = [];
   const deleted = [];
   const leftOut = [];
@@ -4617,12 +6011,12 @@ function deploy(paths, config, envName, deps, opts) {
   if (plan.confirm && !opts.confirmed) throw new AccError("refused", `${plan.env.name} is protected. Deploying to it needs a person's confirmation: add --confirm-production.`);
   if (!plan.files.length) return { plan, deployed: false, jobId: null, summary: "Nothing deployable changed.", updates: [] };
   const dir = mkdtempSync3(join21(tmpdir3(), "acc-deploy-"));
-  const wt = join21(dir, "wt");
+  const wt2 = join21(dir, "wt");
   try {
-    const add = git6(run2, paths.root, "worktree", "add", "--quiet", "--detach", wt, plan.head);
+    const add = git6(run2, paths.root, "worktree", "add", "--quiet", "--detach", wt2, plan.head);
     if (add.code !== 0) throw new AccError("git", `Couldn't check out ${plan.head.slice(0, 7)}: ${add.stderr.trim()}`);
     const [cmd, args] = niced("sf", deployArgs(plan));
-    const r = withSlot(() => run2(cmd, args, { cwd: wt, env: sfEnv(), timeoutMs: 120 * 6e4 }), { ...deps.slots, onWait: deps.onWait });
+    const r = withSlot(() => run2(cmd, args, { cwd: wt2, env: sfEnv(), timeoutMs: 120 * 6e4 }), { ...deps.slots, onWait: deps.onWait });
     let result;
     try {
       result = parseJsonOutput(r.stdout);
@@ -4652,7 +6046,7 @@ function deploy(paths, config, envName, deps, opts) {
     }
     return { plan, deployed: true, jobId, summary: `Deployed ${plan.files.length} file(s) from ${plan.env.branch} at ${plan.head.slice(0, 7)} to ${plan.env.name}${jobId ? ` (job ${jobId})` : ""}.${unsaid}`, updates };
   } finally {
-    git6(run2, paths.root, "worktree", "remove", "--force", wt);
+    git6(run2, paths.root, "worktree", "remove", "--force", wt2);
     if (existsSync15(dir)) rmSync12(dir, { recursive: true, force: true });
   }
 }
@@ -4666,7 +6060,7 @@ function refFor(run2, root, branch) {
   for (const ref of [`origin/${branch}`, branch]) if (git7(run2, root, "rev-parse", "--verify", "--quiet", `${ref}^{commit}`).code === 0) return ref;
   return null;
 }
-function inWorktree(run2, root, addArgs, fn) {
+function inWorktree(run2, root, addArgs, fn2) {
   const tmp = mkdtempSync4(join22(tmpdir4(), "acc-setup-"));
   const dir = join22(tmp, "wt");
   const add = git7(run2, root, "worktree", "add", "--quiet", ...addArgs.slice(0, -1), dir, addArgs.at(-1));
@@ -4675,7 +6069,7 @@ function inWorktree(run2, root, addArgs, fn) {
     throw new AccError("git", `Couldn't make a worktree: ${lastLine(add.stderr)}`);
   }
   try {
-    return fn(dir);
+    return fn2(dir);
   } finally {
     git7(run2, root, "worktree", "remove", "--force", dir);
     git7(run2, root, "worktree", "prune");
@@ -4728,7 +6122,7 @@ function buildBaseline(paths, config, deps) {
     from.push(name);
   };
   try {
-    const branches = config.environments.map((e) => ({ e, ref: refFor(run2, paths.root, e.branch) })).filter((x) => x.ref);
+    const branches = config.environments.map((e) => ({ e, ref: refFor(run2, paths.root, e.branch) })).filter((x2) => x2.ref);
     for (const { e, ref } of branches) inWorktree(run2, paths.root, ["--detach", ref], (dir) => generate(dir, e.branch));
     if (!from.length) generate(paths.root, "this-checkout");
   } finally {
@@ -4745,9 +6139,9 @@ function buildBaseline(paths, config, deps) {
 function retrieveInto(run2, dir, org, deps) {
   const r = withSlot(() => run2(...niced("sf", ["project", "retrieve", "start", "--manifest", BASELINE_MANIFEST, "--target-org", org, "--ignore-conflicts", "--wait", "60", "--json"]), { cwd: dir, env: sfEnv(), timeoutMs: 70 * 6e4 }), { ...deps.slots });
   try {
-    const j = parseJsonOutput(r.stdout);
-    if (r.code === 0 && j.status === 0) return null;
-    return (j.message ?? "").trim() || lastLine(r.stderr || r.stdout) || `exit ${r.code}`;
+    const j2 = parseJsonOutput(r.stdout);
+    if (r.code === 0 && j2.status === 0) return null;
+    return (j2.message ?? "").trim() || lastLine(r.stderr || r.stdout) || `exit ${r.code}`;
   } catch {
     return lastLine(r.stderr || r.stdout) || `exit ${r.code}`;
   }
@@ -4825,26 +6219,26 @@ function readBlobs(run2, root, specs) {
   if (!specs.length) return out2;
   const r = run2("git", ["cat-file", "--batch"], { cwd: root, input: specs.join("\n") + "\n" });
   const buf = Buffer.from(r.stdout, "utf8");
-  let at = 0;
+  let at2 = 0;
   for (const spec of specs) {
-    const nl = buf.indexOf(10, at);
+    const nl = buf.indexOf(10, at2);
     if (nl < 0) break;
-    const head = buf.subarray(at, nl).toString("utf8");
-    at = nl + 1;
+    const head = buf.subarray(at2, nl).toString("utf8");
+    at2 = nl + 1;
     const m = /^\S+ \S+ (\d+)$/.exec(head);
     if (!m) {
       out2.set(spec, null);
       continue;
     }
     const size = Number(m[1]);
-    out2.set(spec, buf.subarray(at, at + size).toString("utf8"));
-    at += size + 1;
+    out2.set(spec, buf.subarray(at2, at2 + size).toString("utf8"));
+    at2 += size + 1;
   }
   return out2;
 }
 var reorderedOnly = (a, b) => {
   if (a === null || b === null || a === b) return false;
-  const lines = (s) => s.split("\n").map((l) => l.trimEnd()).filter(Boolean).sort().join("\n");
+  const lines = (s) => s.split("\n").map((l3) => l3.trimEnd()).filter(Boolean).sort().join("\n");
   return lines(a) === lines(b);
 };
 function draftLists(paths, config, deps) {
@@ -5057,8 +6451,8 @@ var STEPS = [
     check(ctx) {
       const v = ctx.run("claude", ["--version"], { env: ctx.env });
       if (v.code === 127) return fail2("claude isn't installed.", "npm install -g @anthropic-ai/claude-code");
-      const h = ctx.run("claude", ["--help"], { env: ctx.env });
-      if (!/--bg\b/.test(h.stdout)) return fail2(`claude ${firstVersion(v.stdout) ?? ""} has no --bg. Update it.`);
+      const h2 = ctx.run("claude", ["--help"], { env: ctx.env });
+      if (!/--bg\b/.test(h2.stdout)) return fail2(`claude ${firstVersion(v.stdout) ?? ""} has no --bg. Update it.`);
       return pass2(`claude ${firstVersion(v.stdout) ?? ""}`.trim());
     }
   },
@@ -5173,9 +6567,9 @@ var STEPS = [
       const prod = ctx.config.environments.find((e) => e.type === "production");
       if (!prod) return fail2("There's no Production environment.");
       if (!prod.org) return fail2("Production has no org alias.");
-      const q = sfJson(ctx, ["data", "query", "--use-tooling-api", "-q", "SELECT SandboxName, LicenseType FROM SandboxInfo", "-o", prod.org]);
-      if (q.status !== 0) return unknown(`Couldn't read Production's sandbox list: ${q.message ?? "sf failed"}`);
-      const records = q.result?.records ?? [];
+      const q2 = sfJson(ctx, ["data", "query", "--use-tooling-api", "-q", "SELECT SandboxName, LicenseType FROM SandboxInfo", "-o", prod.org]);
+      if (q2.status !== 0) return unknown(`Couldn't read Production's sandbox list: ${q2.message ?? "sf failed"}`);
+      const records = q2.result?.records ?? [];
       const problems = [];
       const listed2 = [];
       for (const r of records) {
@@ -5204,7 +6598,7 @@ var STEPS = [
       if (need) return need;
       const want = ctx.config.commitIdentity;
       if (!want) return skip2("No commitIdentity in the config.");
-      const get = (k) => ctx.run("git", ["config", "--local", "--get", k], { cwd: ctx.paths.root }).stdout.trim();
+      const get = (k2) => ctx.run("git", ["config", "--local", "--get", k2], { cwd: ctx.paths.root }).stdout.trim();
       const name = get("user.name");
       const email = get("user.email");
       if (name === want.name && email === want.email) return pass2(`${name} <${email}>`);
@@ -5266,7 +6660,7 @@ var STEPS = [
     check(ctx) {
       const need = needsProject(ctx);
       if (need) return need;
-      const lines = new Set((readText(ctx.paths.root, ".gitignore") ?? "").split("\n").map((l) => l.trim()));
+      const lines = new Set((readText(ctx.paths.root, ".gitignore") ?? "").split("\n").map((l3) => l3.trim()));
       const missing = BACKSTOP.filter((p) => !lines.has(p));
       return missing.length ? fail2(`.gitignore is missing ${missing.join(", ")}.`, `printf '${missing.join("\\n")}\\n' >> .gitignore`) : pass2("CSV, XLS, XLSX and EML are blocked at the root.");
     }
@@ -5296,7 +6690,7 @@ var STEPS = [
       const need = needsProject(ctx);
       if (need) return need;
       const scan = ctx.config.secretScan;
-      const spec = [...scan.paths, ...scan.exclude.map((x) => `:(exclude)${x}`)];
+      const spec = [...scan.paths, ...scan.exclude.map((x2) => `:(exclude)${x2}`)];
       const r = ctx.run("git", ["grep", "-I", "-l", "-E", SECRET_PATTERN, "--", ...spec], { cwd: ctx.paths.root });
       if (r.code === 1) return pass2(`No credentials found (scanned: ${scan.paths.join(", ")})`);
       if (r.code === 0) return fail2(`Possible credentials in: ${r.stdout.trim().split("\n").join(", ")}.`, "Remove them, rotate the credential, and rewrite history if it was pushed.");
@@ -5456,8 +6850,8 @@ var STEPS = [
           continue;
         }
         const lines = text.replace(/\n$/, "").split("\n");
-        if (lines.some((l) => l.trim() === "")) problems.push(`${rel} has a blank line. As a grep pattern, that matches everything.`);
-        const paths = lines.filter((l) => l.trim() && !l.startsWith("#"));
+        if (lines.some((l3) => l3.trim() === "")) problems.push(`${rel} has a blank line. As a grep pattern, that matches everything.`);
+        const paths = lines.filter((l3) => l3.trim() && !l3.startsWith("#"));
         const here = paths.filter((p) => !existsSync17(join23(ctx.paths.root, p)));
         const elsewhere = here.length ? filesOnEnvironmentBranches(ctx) : /* @__PURE__ */ new Set();
         const gone = here.filter((p) => !elsewhere.has(p));
@@ -5595,7 +6989,7 @@ var STEPS = [
     fix: {
       vscode: "acc.trackers.add",
       confirm: true,
-      text: `"Do it" walks you through it in VSCode: pick Azure DevOps, Jira or GitHub Issues, sign in, then pick the project, team and board. It writes them to this repo's .acc/config.json.`,
+      text: `"Do it" walks you through it in VSCode: pick Azure DevOps, Jira or GitHub Issues, sign in, then pick the project, team and board, and last which of its tickets are this repo's: an epic, labels or an area path, or the whole project. It writes them to this repo's .acc/config.json.`,
       docs: `${DOCS}#b14-connect-the-ticket-source`
     },
     check(ctx) {
@@ -5603,7 +6997,7 @@ var STEPS = [
       if (need) return need;
       const list = ctx.config.trackers;
       if (!list.length) return unknown("No ticket source yet, so tasks come from acc alone. Add one, or mark this done if that's how this repo works.");
-      const names = list.map((t) => t.kind === "github" ? `GitHub Issues${t.repo ? ` (${t.repo})` : ""}` : t.kind === "jira" ? `Jira ${t.project} on ${t.site}` : `Azure DevOps ${t.project} in ${t.organization}`);
+      const names = list.map((t) => t.kind === "github" ? `GitHub Issues${t.repo ? ` (${t.repo})` : ""}${t.labels.length ? ` labelled ${orList(t.labels)}` : ""}` : t.kind === "jira" ? `Jira ${t.project} on ${t.site}${t.epic ? `, epic ${t.epic}` : ""}` : `Azure DevOps ${t.project} in ${t.organization}${t.areaPath ? `, area ${t.areaPath}` : ""}`);
       return pass2(`Tickets come from ${names.join(" and ")}.`);
     }
   },
@@ -5676,7 +7070,7 @@ function checkLabel(s) {
 }
 function table(rows) {
   const strip = (s) => s.replace(/\x1b\[[0-9;]*m/g, "");
-  const widths = rows[0]?.map((_, i) => Math.max(...rows.map((r) => strip(r[i] ?? "").length))) ?? [];
+  const widths = rows[0]?.map((_2, i) => Math.max(...rows.map((r) => strip(r[i] ?? "").length))) ?? [];
   return rows.map((r) => r.map((c, i) => i === r.length - 1 ? c : c + " ".repeat((widths[i] ?? 0) - strip(c).length)).join("  ")).join("\n");
 }
 var GATE = {
@@ -5711,9 +7105,15 @@ Setup
 
 Tasks
   acc add "<title>" [--brief <text>] [--dep <id>]... [--env <branch>] [--key <T-n>]
-  acc import [--file <tasks.json>]      Add or refresh tasks from JSON (stdin by default)
-  acc intake github [--label <l>]       Add or refresh tasks from the repo's open GitHub issues. A task not
-                                        started yet leaves the board when its issue closes or has a skipLabels label
+  acc import [--file <tasks.json>]      Add or refresh tasks from JSON (stdin by default). A Jira or Azure DevOps
+                                        key that no tracker in .acc/config.json owns is refused
+  acc intake github [--label <l>]       Add or refresh tasks from the open GitHub issues in the repo's place: its
+                                        tracker's repo, and its labels if it names some. A task not started yet
+                                        leaves the board when its issue closes, has a skipLabels label, or leaves
+                                        the place
+  acc intake jira|azure --file <report.json>
+                                        Follow tickets the Command Center found outside the repo's place, from
+                                        { "outside": [{ "key", "why" }] }: a task not started yet leaves the board
   acc status                            One line: how many tasks are in each state
   acc list [--state <state>]
   acc ready
@@ -5907,24 +7307,57 @@ var upsertLines = (res) => [
   res.unchanged.length ? `Unchanged ${res.unchanged.join(", ")}` : "",
   ...res.errors.map((e) => tone(`\u2717 ${e}`, "orange"))
 ];
-function upsert(o, inputs) {
+function upsert(o, inputs, own = false) {
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
-  const res = mutate(paths, now, (ledger, emit) => upsertTasks(ledger, config, inputs, actor, by, emit, now));
+  const held = own ? ownTickets(config, inputs) : { inputs, refused: [] };
+  const res = mutate(paths, now, (ledger, emit) => upsertTasks(ledger, config, held.inputs, actor, by, emit, now));
+  res.errors.push(...held.refused);
   out(o, () => upsertLines(res).filter(Boolean).join("\n") || "Nothing to do.", res);
   return res.errors.length ? 1 : 0;
 }
+function ownTickets(config, inputs) {
+  if (!config.trackers.length) return { inputs, refused: [] };
+  const refused = [];
+  const kept = inputs.filter((i) => {
+    const kind = i?.source?.kind;
+    const key = i?.source?.key;
+    if (kind !== "jira" && kind !== "azure" || typeof key !== "string") return true;
+    const at2 = trackerForKey(config.trackers, key);
+    if (at2 !== null && config.trackers[at2].kind === kind) return true;
+    refused.push(`${key.toUpperCase()}: no ${kind === "jira" ? "Jira" : "Azure DevOps"} tracker in .acc/config.json owns it, so it isn't one of this repo's tickets.`);
+    return false;
+  });
+  return { inputs: kept, refused };
+}
+var intakeLines = (res) => {
+  const skipped = res.removed.filter((id) => !res.left.includes(id));
+  return [
+    res.closed.length ? `Done ${res.closed.join(", ")}: closed on GitHub before work started` : "",
+    skipped.length ? `Removed ${skipped.join(", ")}: their issues have a label in skipLabels` : "",
+    res.left.length ? `Removed ${res.left.join(", ")}: their tickets left this repo's place before work started` : "",
+    ...res.leftAlone.map((l3) => tone(`! ${l3.note}`, "orange"))
+  ];
+};
 function cmdIntakeGithub(o) {
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
   const res = intakeGithub(paths, config, { run, now, env: process.env }, { label: o.label, actor, by });
-  out(o, () => [
-    ...upsertLines(res),
-    res.closed.length ? `Done ${res.closed.join(", ")}: closed on GitHub before work started` : "",
-    res.removed.length ? `Removed ${res.removed.join(", ")}: their issues have a label in skipLabels` : "",
-    ...res.leftAlone.map((l) => tone(`! ${l.note}`, "orange"))
-  ].filter(Boolean).join("\n") || "Nothing to do.", res);
+  out(o, () => [...upsertLines(res), ...intakeLines(res)].filter(Boolean).join("\n") || "Nothing to do.", res);
   return res.errors.length ? 1 : 0;
+}
+function cmdIntakeOutside(o, kind) {
+  const file = o.file;
+  if (!file) throw new AccError("usage", `acc intake ${kind} --file <report.json>, with { "outside": [{ "key": "ACME-7", "why": "it isn't in epic ACME-3" }] }. The Command Center writes it after a board loads.`);
+  const data = readInput(file);
+  const list = data?.outside;
+  if (!Array.isArray(list) || !list.every((x2) => typeof x2?.key === "string" && typeof x2?.why === "string")) {
+    throw new AccError("usage", `${file} must hold { "outside": [{ "key": "<ticket key>", "why": "<why it's outside>" }] }.`);
+  }
+  const { paths } = project(process.cwd());
+  const res = intakeOutside(paths, kind, list, now);
+  out(o, () => intakeLines(res).filter(Boolean).join("\n") || "Nothing to do.", res);
+  return 0;
 }
 function taskIdFrom(arg) {
   const id = arg ?? process.env.ACC_TASK;
@@ -6010,10 +7443,10 @@ function cmdReview(o, id) {
 }
 function analysisLines(a) {
   const head = a.verdict === "ready" ? tone(`\u2713 Ready to build: ${a.summary}`, "blue") : a.verdict === "split" ? tone(`! Too big for one task: ${a.summary}`, "orange") : tone(`? ${openQuestions(a).length} question${openQuestions(a).length === 1 ? "" : "s"} for you: ${a.summary}`, "orange");
-  const list = (title, xs) => xs.length ? ["", title, ...xs.map((x) => `  - ${x}`)] : [];
+  const list = (title, xs) => xs.length ? ["", title, ...xs.map((x2) => `  - ${x2}`)] : [];
   return [
     head,
-    ...a.questions.length ? ["", "Questions", ...a.questions.map((q) => `  ${q.id}. ${q.question}${q.answer ? tone(`  \u2192 ${q.answer.text}`, "blue") : tone(`  (suggested: ${q.suggested})`, "dim")}`)] : [],
+    ...a.questions.length ? ["", "Questions", ...a.questions.map((q2) => `  ${q2.id}. ${q2.question}${q2.answer ? tone(`  \u2192 ${q2.answer.text}`, "blue") : tone(`  (suggested: ${q2.suggested})`, "dim")}`)] : [],
     ...list("Acceptance criteria", a.requirements.criteria),
     ...list("What is there now", a.findings.map((f) => `${f.area}: ${f.detail}${f.source ? tone(`  ${f.source}`, "dim") : ""}`)),
     ...list("Approach", a.approach.plan),
@@ -6048,12 +7481,12 @@ function cmdShowAnalysis(o, id) {
   out(o, () => analysisLines(a).join("\n"), a);
   return 0;
 }
-function cmdAnswerAnalysis(o, id, q, text) {
+function cmdAnswerAnalysis(o, id, q2, text) {
   const by = personOnly(o, "answer an analysis's questions");
   const { paths } = project(process.cwd());
-  const a = answerAnalysis(paths, id.toUpperCase(), q, text, by, now);
+  const a = answerAnalysis(paths, id.toUpperCase(), q2, text, by, now);
   const open = openQuestions(a);
-  out(o, () => open.length ? `Answered. ${open.length} to go: ${open.map((x) => x.id).join(", ")}.` : tone(`Answered. ${a.task} is ready to build: acc dispatch ${a.task}.`, "blue"), a);
+  out(o, () => open.length ? `Answered. ${open.length} to go: ${open.map((x2) => x2.id).join(", ")}.` : tone(`Answered. ${a.task} is ready to build: acc dispatch ${a.task}.`, "blue"), a);
   return 0;
 }
 function cmdLand(o, id) {
@@ -6266,7 +7699,7 @@ function cmdPromote(o, from) {
   };
   const show = (p) => [
     `${p.from.name} (${p.from.branch} at ${p.fromSha.slice(0, 7)}) \u2192 ${p.to.name} (${p.to.branch} at ${p.toSha.slice(0, 7)})`,
-    ...skipWarning(p).map((l) => tone(`  ! ${l}`, "orange")),
+    ...skipWarning(p).map((l3) => tone(`  ! ${l3}`, "orange")),
     `  ${p.files.length} to bring over${p.deleted.length ? tone(`, ${p.deleted.length} to delete`, "orange") : ""}${p.leftOut.length ? `, ${p.leftOut.length} environment-specific left out` : ""}`,
     ...p.files.slice(0, 20).map((f) => `    ${f}`),
     ...p.files.length > 20 ? [`    \u2026and ${p.files.length - 20} more`] : [],
@@ -6341,7 +7774,7 @@ function cmdList(o, onlyReady) {
       stateLabel(displayState(ledger, t)),
       t.environment,
       t.title,
-      t.deps.filter((d) => ledger.tasks.find((x) => x.id === d)?.state !== "done").join(", ")
+      t.deps.filter((d) => ledger.tasks.find((x2) => x2.id === d)?.state !== "done").join(", ")
     ])]);
   }, tasks.map((t) => ({ ...t, display: displayState(ledger, t), ready: isReady(ledger, t) })));
   return 0;
@@ -6360,7 +7793,7 @@ function cmdStatus(o) {
 function cmdShow(o, id) {
   const { paths } = project(process.cwd());
   const ledger = readLedger(paths.ledger);
-  const t = ledger.tasks.find((x) => x.id === id.toUpperCase());
+  const t = ledger.tasks.find((x2) => x2.id === id.toUpperCase());
   if (!t) throw new AccError("no-task", `No task ${id}.`);
   const failed = autopilotFailure(t);
   const closed = closedPr(t);
@@ -6379,7 +7812,7 @@ function cmdShow(o, id) {
 ${t.brief}
 ` : "",
     "History:",
-    ...t.history.map((h) => `  ${h.at}  ${h.from ?? "\u2013"} \u2192 ${h.to}  by ${h.by}${h.reason ? `: ${h.reason}` : ""}${h.override ? " (override)" : ""}`)
+    ...t.history.map((h2) => `  ${h2.at}  ${h2.from ?? "\u2013"} \u2192 ${h2.to}  by ${h2.by}${h2.reason ? `: ${h2.reason}` : ""}${h2.override ? " (override)" : ""}`)
   ].filter(Boolean).join("\n"), { ...t, stopped: stopped ? { said } : null });
   return 0;
 }
@@ -6434,7 +7867,7 @@ function updateLines(u) {
   return [
     `${u.id.padEnd(12)} ${state}  ${TRACKER_NAME[u.tracker]} ${u.key}: ${EVENT_WORDS[u.event]}${u.env ? ` (${u.env})` : ""}  ${tone(when, "dim")}`,
     ...u.failed && u.state === "draft" ? [tone(`    ! The last try didn't post: ${u.failed.reason}`, "orange")] : [],
-    ...(u.posted?.text ?? u.text).split("\n").map((l) => `    ${l}`)
+    ...(u.posted?.text ?? u.text).split("\n").map((l3) => `    ${l3}`)
   ];
 }
 function cmdUpdates(o) {
@@ -6468,6 +7901,17 @@ function cmdUpdatePost(o, id) {
   const issue = githubIssue(u, gh.repo);
   if (!issue) throw new AccError("refused", `${u.id}'s ticket ${u.key} isn't a GitHub issue acc can find.`);
   const env = { ...process.env, GH_TOKEN: ghToken(run, gh.account) };
+  const repo = config.trackers.find((t) => t.kind === "github")?.repo ?? gh.repo;
+  const seen = run("gh", ["issue", "view", issue.number, "-R", issue.repo, "--json", "url"], { cwd: paths.root, env, timeoutMs: GH_TIMEOUT_MS });
+  let lives = null;
+  try {
+    lives = seen.code === 0 ? issueRepo(JSON.parse(seen.stdout).url) : null;
+  } catch {
+    lives = null;
+  }
+  if (lives && lives.toLowerCase() !== repo.toLowerCase()) {
+    throw new AccError("refused", `${u.key} is in ${lives} now, not this repo's ${repo}, so ${u.id} isn't posted. Discard it if it no longer applies: acc update discard ${u.id}`);
+  }
   claimUpdate(paths, u.id, by, now, { again: o.again === true });
   const dir = mkdtempSync5(join24(tmpdir5(), "acc-update-"));
   try {
@@ -6480,7 +7924,7 @@ function cmdUpdatePost(o, id) {
       releaseUpdate(paths, u.id, why, now);
       throw new AccError("post", `Couldn't post ${u.id} on ${u.key}: ${why}`);
     }
-    const url = r.stdout.split("\n").map((l) => l.trim()).find((l) => /^https:\/\/github\.com\//.test(l));
+    const url = r.stdout.split("\n").map((l3) => l3.trim()).find((l3) => /^https:\/\/github\.com\//.test(l3));
     const posted = markPosted(paths, u.id, { by, text, ...url ? { url } : {} }, now);
     out(o, () => tone(`\u2713 Posted ${u.id} on ${u.key} as ${gh.account}${url ? `: ${url}` : "."}`, "blue"), posted);
     return 0;
@@ -6503,7 +7947,7 @@ function cmdUpdateDiscard(o, id) {
   out(o, () => `Discarded ${u.id}. It's kept, and never posted.`, u);
   return 0;
 }
-function cmdUpdateAsk(o, id, q) {
+function cmdUpdateAsk(o, id, q2) {
   const by = personOnlyUpdate(o, "draft a question for the client");
   const { paths } = project(process.cwd());
   const taskId = id.toUpperCase();
@@ -6511,12 +7955,12 @@ function cmdUpdateAsk(o, id, q) {
   if (!task) throw new AccError("no-task", `No task ${id}.`);
   const a = readAnalysis(paths, taskId);
   if (!a) throw new AccError("no-analysis", `${taskId} hasn't been analyzed yet: acc analyze ${taskId}.`);
-  const question = a.questions.find((x) => x.id === q.toLowerCase() || x.id === `q${q}`);
-  if (!question) throw new AccError("usage", `${taskId}'s analysis has no question ${q}. It has: ${a.questions.map((x) => x.id).join(", ") || "none"}.`);
+  const question = a.questions.find((x2) => x2.id === q2.toLowerCase() || x2.id === `q${q2}`);
+  if (!question) throw new AccError("usage", `${taskId}'s analysis has no question ${q2}. It has: ${a.questions.map((x2) => x2.id).join(", ") || "none"}.`);
   const u = draftUpdate(paths, task, { event: "question", question: question.id, text: updateText("question", { question: question.question }) }, by, now);
   if (!u) throw new AccError("refused", `${taskId} has no ticket to post a question on: it's a task acc alone keeps.`);
   out(o, () => `Drafted ${question.id} for ${u.key} (${u.id}). Read and edit it before you post it.
-${u.text.split("\n").map((l) => `    ${l}`).join("\n")}`, u);
+${u.text.split("\n").map((l3) => `    ${l3}`).join("\n")}`, u);
   return 0;
 }
 function cmdUpdate(o, sub, args) {
@@ -6587,12 +8031,12 @@ function cmdGateRun(o, names) {
     onStart: (g) => say(tone(`  \u2026 ${g.name}${g.heavy ? " (heavy)" : ""}`, "dim")),
     onWait: (g) => say(tone(`  \u2026 ${g.name} is waiting for another heavy check on this machine to finish`, "dim"))
   });
-  const bad = r.results.filter((x) => !satisfies(x));
+  const bad = r.results.filter((x2) => !satisfies(x2));
   out(o, () => [
     `${branch ?? "HEAD"} at ${r.sha.slice(0, 7)}, against ${r.env.name}${r.env.org ? ` (${r.env.org})` : ""}`,
-    ...r.results.map((x) => `  ${gateLabel(x.status)}${x.gate.padEnd(11)} ${x.summary}`),
+    ...r.results.map((x2) => `  ${gateLabel(x2.status)}${x2.gate.padEnd(11)} ${x2.summary}`),
     r.dirty ? tone("Not recorded: there are uncommitted changes, so these results can't vouch for a commit. Commit, then run acc gate run again.", "orange") : "",
-    bad.length ? `${bad.length} to fix: ${bad.map((x) => x.gate).join(", ")}.` : r.dirty ? "" : "All recorded. acc done will accept this commit."
+    bad.length ? `${bad.length} to fix: ${bad.map((x2) => x2.gate).join(", ")}.` : r.dirty ? "" : "All recorded. acc done will accept this commit."
   ].filter(Boolean).join("\n"), r);
   return bad.length ? 1 : 0;
 }
@@ -6649,7 +8093,7 @@ function cmdDrift(o, envName) {
       ...r.missing.length ? ["", `In the branch but not the org (${r.missing.length}):`, ...r.missing.map((f) => `  ${f}`)] : [],
       r.kept ? `
 Kept the retrieved copy at ${r.kept}. Remove it with: git worktree remove --force "${r.kept}"` : ""
-    ].filter((l) => l !== "").join("\n") + "\n");
+    ].filter((l3) => l3 !== "").join("\n") + "\n");
   }
   return found ? 1 : 0;
 }
@@ -6745,11 +8189,12 @@ async function main(argv) {
     case "import": {
       const data = readInput(o.file);
       if (!Array.isArray(data)) throw new AccError("usage", "acc import expects a JSON list of tasks.");
-      return upsert(o, data);
+      return upsert(o, data, true);
     }
     case "intake": {
-      if (rest[0] !== "github") throw new AccError("usage", "acc intake github [--label <label>]. Jira intake runs through the plugin's skill (M6).");
-      return cmdIntakeGithub(o);
+      if (rest[0] === "github") return cmdIntakeGithub(o);
+      if (rest[0] === "jira" || rest[0] === "azure") return cmdIntakeOutside(o, rest[0]);
+      throw new AccError("usage", "acc intake github [--label <label>], or acc intake jira|azure --file <report.json>. Jira and Azure DevOps tickets come in through the Command Center's Track in acc, or the plugin's skill.");
     }
     case "dispatch": {
       if (!rest[0]) throw new AccError("usage", "acc dispatch <id> [--foreground]");

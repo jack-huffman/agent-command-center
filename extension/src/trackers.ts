@@ -11,7 +11,7 @@ import { GithubClient } from '../../packages/core/src/trackers/github.ts';
 import { JiraClient, jiraBoards, jiraEpics, jiraProjects } from '../../packages/core/src/trackers/jira.ts';
 import { type Board, type Exec, movesInto, type Person, placeText, type Ticket, type TrackerClient, TrackerError, type Transition } from '../../packages/core/src/trackers/types.ts';
 import type { Hub, Project } from './hub.ts';
-import { parseHost } from './logic.ts';
+import { outsideKeys, parseHost, placeCandidates } from './logic.ts';
 import { runFile } from './run.ts';
 
 type AccRun = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
@@ -203,7 +203,8 @@ export class Trackers implements vscode.Disposable {
       }
       const prev = this.boards.get(p.root) ?? [];
       const states: BoardState[] = await Promise.all(list.map(async (t, index) => ({
-        index, kind: t.kind, title: this.title(t), place: this.place(t), left: prev[index]?.left ?? [], board: prev[index]?.board ?? null,
+        // The last board's place, with its epic's name, until this load says otherwise: no flicker every refresh.
+        index, kind: t.kind, title: this.title(t), place: prev[index]?.board?.place ?? this.place(t), left: prev[index]?.left ?? [], board: prev[index]?.board ?? null,
         error: null, connect: null, loading: true, signedInAs: await this.signedInAs(p, index),
       })));
       this.boards.set(p.root, states);
@@ -236,11 +237,8 @@ export class Trackers implements vscode.Disposable {
    */
   private async followPlace(p: Project, s: BoardState, client: TrackerClient): Promise<void> {
     if (s.kind === 'github' || !s.board || !this.acc) return;
-    const shown = new Set(s.board.cards.map((c) => c.key.toUpperCase()));
-    const keys = (this.hub.ledger(p.root)?.tasks ?? [])
-      .filter((t) => t.source.kind === s.kind && t.state !== 'done' && !shown.has(t.id) && this.trackerFor(p, t.id) === s.index)
-      .map((t) => t.id);
-    const outside = keys.length ? await client.outside(keys).catch(() => []) : [];
+    const keys = placeCandidates(this.hub.ledger(p.root)?.tasks ?? [], { kind: s.kind, index: s.index, cards: s.board.cards }, (key) => this.trackerFor(p, key));
+    const outside = await outsideKeys(keys, (k) => client.outside(k));
     if (!outside.length) {
       s.left = [];
       return;

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { rowAnalysis, type TaskRow } from '../src/logic.ts';
+import { outsideKeys, placeCandidates, rowAnalysis, type TaskRow } from '../src/logic.ts';
 import type { Analysis } from '../../packages/core/src/analyze.ts';
 import { type BoardInput, initials, isFromWebview, priorityIcon, ticketActionRefusal, ticketModel, trackerBoard, typeIcon } from '../src/model.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
@@ -252,4 +252,26 @@ test('a repo\'s GitHub identity reads at a glance: what\'s wrong is said in word
   assert.equal(lookOf({ ...base, pushesAs: 'work' }).problem, 'git push would use work');
   assert.equal(lookOf({ ...base, accounts: null }).problem, 'gh isn\'t installed');
   assert.equal(lookOf({ ...base, accounts: [{ login: 'me', active: true, scopes: ['repo'] }] }).projects, false);
+});
+
+test('after a board loads, acc asks its tracker only about its own unfinished tasks the board didn\'t show, and a failed read removes nothing (D-072)', async () => {
+  const tasks = [
+    { id: 'ACME-1', state: 'todo', source: { kind: 'jira' } },
+    { id: 'ACME-2', state: 'running', source: { kind: 'jira' } },
+    { id: 'ACME-3', state: 'done', source: { kind: 'jira' } },
+    { id: 'OPS-4', state: 'todo', source: { kind: 'jira' } },
+    { id: 'AB-5', state: 'todo', source: { kind: 'azure' } },
+    { id: 'ACME-6', state: 'todo', source: { kind: 'jira' } },
+  ];
+  const owner = (key: string) => (key.startsWith('ACME-') ? 0 : key.startsWith('OPS-') ? 1 : null);
+  const keys = placeCandidates(tasks, { kind: 'jira', index: 0, cards: [{ key: 'acme-6' }] }, owner);
+  assert.deepEqual(keys, ['ACME-1', 'ACME-2'], 'not done ones, not another tracker\'s, not another kind, not one the board shows');
+
+  const asked: string[][] = [];
+  assert.deepEqual(await outsideKeys(keys, async (k) => { asked.push(k); return [{ key: 'ACME-2', why: 'not in epic ACME-9' }, { key: 'OPS-4', why: 'in project OPS' }]; }), [{ key: 'ACME-2', why: 'not in epic ACME-9' }], 'a key it wasn\'t asked about is never taken');
+  assert.deepEqual(asked, [['ACME-1', 'ACME-2']]);
+  assert.deepEqual(await outsideKeys(keys, async (): Promise<{ key: string }[]> => { throw new Error('401 Unauthorized'); }), [], 'a failed read says nothing left');
+  let called = false;
+  assert.deepEqual(await outsideKeys([], async () => { called = true; return [{ key: 'ACME-1' }]; }), []);
+  assert.equal(called, false, 'nothing to ask, nothing asked');
 });
