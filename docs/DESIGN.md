@@ -176,17 +176,31 @@ stateDiagram-v2
 Two states aren't stored. They're derived when the ledger is read:
 
 - **Ready** means `todo` with every dependency `done`.
-- **Needs you** means `running` while the session waits on a person. A task
-  also needs you when autopilot couldn't take its next step, in the state it
-  failed in ([section 12](#12-the-orchestrator-loop)), and when it's in review
-  with a pull request someone closed without merging (D-063).
+- **Needs you** means `running` while the session waits on a person, or while
+  its builder has stopped without `acc done` or `acc block` (D-067): its session
+  ended, went idle, or is gone from `claude agents`, two minutes or more after it
+  started or was resumed. That's judged only when `claude agents` answers, and
+  never while a resume runs. It says "Its agent stopped", with the last thing
+  the agent said (an API error included, such as "Your computer went to sleep
+  mid-response"), and offers Resume. A task also needs you when autopilot
+  couldn't take its next step, in the state it failed in
+  ([section 12](#12-the-orchestrator-loop)), and when it's in review with a pull
+  request someone closed without merging (D-063).
+- **Resume** (`acc resume <id>`, D-067) carries a stopped builder's session on
+  in the folder its conversation is saved under, with the rules it was
+  dispatched with, and tells it its last turn ended early. It's a person's or
+  autopilot's, never an agent's.
+- **Keeping awake** (D-067): on macOS, acc holds `caffeinate -i -w <pid>` for as
+  long as a builder, reviewer or analyst it started runs, and ends it when the
+  task leaves running. Only idle sleep is held off: the display still sleeps,
+  and closing the lid still sleeps the Mac. Other platforms aren't kept awake.
 
 | Shown as | Icon | Colour | Meaning |
 |---|---|---|---|
 | To do | `circle-outline` | neutral | Waiting on dependencies, or not picked up yet |
 | Ready | `play-circle` | blue | Can be dispatched |
 | Running | `sync` (spinning) | blue | A builder is working |
-| Needs you | `bell` | **orange** | The session is waiting for permission or an answer, or autopilot couldn't take a step |
+| Needs you | `bell` | **orange** | The session is waiting for permission or an answer, its builder stopped (`debug-disconnect`), or autopilot couldn't take a step |
 | In review | `eye` | blue | Checks passed. Waiting for the reviewer or the pull request |
 | Rework | `debug-restart` | **orange** | The reviewer or a human asked for changes |
 | Blocked | `circle-slash` | **orange** | Stopped. A reason is required |
@@ -496,7 +510,7 @@ ledger and takes the next step for each task, one task at a time, as the
 | `autonomy` | What runs on its own |
 |---|---|
 | `manual` (default) | Nothing. The extension shows the next steps as buttons, and `acc autopilot` does nothing |
-| `review` | Autopilot reviews finished work, lands work whose review passed, re-dispatches a rework once, and merges the base into a pull request that conflicts with it |
+| `review` | Autopilot reviews finished work, lands work whose review passed, re-dispatches a rework once, resumes a stopped builder once a run, and merges the base into a pull request that conflicts with it |
 | `dispatch` | As `review`, and it also starts Ready tasks up to `agents.max`. Not built yet: autopilot refuses |
 | `full` | Read as `dispatch`, with a warning |
 
@@ -514,7 +528,9 @@ before each:
 | In review, its latest commit passed, its pull request closed without merging | Nothing. It needs you, naming the pull request: a person lands it again, or not (D-063) |
 | In review, its latest commit passed and landed, but the pull request conflicts with its base | `refresh`: merge the base in, then run its checks. The next passes review and land the merge |
 | In rework, and autopilot hasn't re-dispatched it before | `dispatch`, once. A second rework waits for a person |
-| To do (ready or not), running, blocked or done | Nothing |
+| Running, its builder stopped, and autopilot hasn't resumed it in this run | `resume`, once a run (D-067). A second stop waits for a person; a new dispatch is a new run |
+| Running, its builder at work | Nothing |
+| To do (ready or not), blocked or done | Nothing |
 
 - **What it never does:** merge a pull request, waive a check, deploy,
   promote, or start a task that's to do. Builders, reviewers and analysts

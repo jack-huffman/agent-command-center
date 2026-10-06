@@ -7,10 +7,12 @@ import { type AutopilotLog, type AutopilotRecord, readAutopilotLog } from '../..
 import { type Config, parseConfig } from '../../packages/core/src/config.ts';
 import { run as runSync } from '../../packages/core/src/exec.ts';
 import { CLONE_ACCOUNT_KEY } from '../../packages/core/src/github.ts';
-import { autopilotFailure, displayState, readLedger, type Ledger } from '../../packages/core/src/ledger.ts';
+import { autopilotFailure, builderStopped, displayState, readLedger, type Ledger, type SessionInfo } from '../../packages/core/src/ledger.ts';
 import type { RepoPaths } from '../../packages/core/src/paths.ts';
 import type { HistoryRecord, Question } from '../../packages/core/src/questions.ts';
+import { resuming } from '../../packages/core/src/resume.ts';
 import { latestVerdict, reviewing } from '../../packages/core/src/review.ts';
+import { claudeProjectsDir, lastSaidIn, transcriptFile } from '../../packages/core/src/transcript.ts';
 import { readUpdate, type Update, UPDATE_ID } from '../../packages/core/src/updates.ts';
 import { type AgentSession, agentLook, analysisWait, askingLabel, isUnder, parseWorktrees, rowAnalysis, sessionFor, type TaskRow, type Worktree } from './logic.ts';
 import { runFile } from './run.ts';
@@ -74,6 +76,8 @@ export class Hub implements vscode.Disposable {
   /** Each ticket update read, by file, kept until it changes; and each repo's, by ledger, as of the last load (D-066). */
   private readonly updateFiles = new Map<string, { stamp: string; update: Update | null }>();
   private readonly repoUpdates = new Map<string, Update[]>();
+  /** The last thing each stopped builder said, by session, kept until its transcript changes (D-067). */
+  private readonly said = new Map<string, { file: string; stamp: string; said: string | null }>();
   private readonly emitter = new vscode.EventEmitter<HubPart>();
   readonly onDidChange = this.emitter.event;
   private readonly timers = new Map<string, NodeJS.Timeout>();
@@ -229,8 +233,27 @@ export class Hub implements vscode.Disposable {
   }
 
   /**
+   * The last thing a session's agent said, from the end of its transcript. Read again only when the file
+   * changes: the rows are derived every few seconds.
+   */
+  private lastSaid(sessionId: string, likely: (string | null | undefined)[]): string | null {
+    let cached = this.said.get(sessionId);
+    const file = cached && existsSync(cached.file) ? cached.file : transcriptFile(claudeProjectsDir(process.env), sessionId, likely);
+    if (!file) return null;
+    const stamp = stampOf(file);
+    if (!stamp) return null;
+    if (cached?.file !== file || cached.stamp !== stamp) {
+      cached = { file, stamp, said: lastSaidIn(file) };
+      this.said.set(sessionId, cached);
+    }
+    return cached.said;
+  }
+
+  /**
    * Task rows with each running task's agent state, so a waiting agent shows as Needs you, and each task's
-   * analysis, so one with questions for a person does too (D-052).
+   * analysis, so one with questions for a person does too (D-052). A running task whose builder stopped
+   * before acc done or acc block needs you too, with the last thing it said (D-067): judged only once
+   * `claude agents` has answered, and not while it fails.
    */
   private deriveRows(ledger: Ledger, p?: Project): TaskRow[] {
     // Reviews sit beside the ledger (D-032). A branch's latest commit is its worktree's HEAD.
@@ -244,6 +267,9 @@ export class Hub implements vscode.Disposable {
       // none yet
     }
     const required = p ? analysisRequired(p.config) : false;
+    const sessions = this.agentsAt && !this.agentsError ? this.agents : null;
+    const stateDir = p ? dirname(p.ledgerPath) : null;
+    const now = new Date();
     return ledger.tasks.map((t) => {
       const a = store && t.state !== 'done' && files.has(`${t.id}.json`) ? this.analysisFrom(store, t.id) : null;
       const running = store && t.state !== 'done' && files.has(`${t.id}.running.json`) ? analyzing(store, t.id) : null;
@@ -255,7 +281,13 @@ export class Hub implements vscode.Disposable {
       const base = { id: t.id, run: t.run };
       const session = t.state === 'running' || t.state === 'review' || t.state === 'blocked' ? sessionFor(base, this.agents) : undefined;
       const asking = session ? this.askingFor(session) : null;
-      const look = session ? agentLook(session, asking) : null;
+      const resumed = stateDir && t.state === 'running' ? resuming({ stateDir }, t.id) : null;
+      const stopped = builderStopped(t, sessions, { resuming: !!resumed, now });
+      // A resume just started isn't listed yet, and its old background session may still say blocked.
+      const carrying = !!resumed && !session?.pid;
+      const look = carrying ? { label: 'Resumed: working', icon: 'sync~spin', tone: 'blue' as const } : session ? agentLook(session, asking) : null;
+      const info: SessionInfo | undefined = stopped ? { stopped: true } : carrying ? { status: 'busy' } : session ? (asking ? { state: 'blocked', status: 'waiting' } : { state: session.state, status: session.status }) : undefined;
+      const said = stopped && t.run?.sessionId ? this.lastSaid(t.run.sessionId, [t.run.worktree, session?.cwd, p?.root]) : null;
       const failed = autopilotFailure(t);
       return {
         id: t.id,
@@ -263,7 +295,7 @@ export class Hub implements vscode.Disposable {
         state: t.state,
         // A question waiting in the Command Center makes the agent wait on you, though it reads as busy.
         // So does an analysis with questions for a person, or one that says it's too big for one task.
-        display: waits ? 'needs-you' : displayState(ledger, t, session ? (asking ? { state: 'blocked', status: 'waiting' } : { state: session.state, status: session.status }) : undefined) as TaskRow['display'],
+        display: waits ? 'needs-you' : displayState(ledger, t, info) as TaskRow['display'],
         environment: t.environment,
         deps: t.deps.filter((d) => ledger.tasks.find((x) => x.id === d)?.state !== 'done'),
         source: { kind: t.source.kind, url: t.source.url },
@@ -277,6 +309,8 @@ export class Hub implements vscode.Disposable {
         analyzing: running ? { sessionId: running.sessionId } : null,
         analysisRequired: required,
         autopilot: failed ? { step: failed.step, reason: failed.reason } : null,
+        stopped: stopped ? { said } : null,
+        resuming: !!resumed,
       };
     });
   }

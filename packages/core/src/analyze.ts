@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { agentArgs } from './agents.ts';
+import { type AwakeDeps, holdAwake } from './awake.ts';
 import { type Config, type Environment, environmentByBranch } from './config.ts';
 import { AccError, type RunResult, type Runner, sfEnv } from './exec.ts';
 import { type Actor, mutate, readLedger, type Task } from './ledger.ts';
@@ -311,6 +312,8 @@ export interface AnalyzeDeps {
   accCommand?: string;
   uuid?: () => string;
   onStart?: (sessionId: string) => void;
+  /** For tests: how the Mac is kept awake while the analyst runs (D-067). */
+  awake?: AwakeDeps;
 }
 
 const git = (run: Runner, cwd: string, ...args: string[]): RunResult => run('git', args, { cwd });
@@ -361,6 +364,8 @@ export function analyze(paths: RepoPaths, config: Config, id: string, deps: Anal
   const startedAt = now();
   writeFileSync(marker, JSON.stringify({ sessionId, startedAt: startedAt.toISOString(), pid: process.pid } satisfies Analyzing));
   deps.onStart?.(sessionId);
+  // The analyst is a child of this acc, so the Mac stays awake while acc lives (D-067).
+  const awake = holdAwake(process.pid, deps.awake);
   let out: RunResult;
   try {
     out = run('claude', [
@@ -372,6 +377,7 @@ export function analyze(paths: RepoPaths, config: Config, id: string, deps: Anal
       '--disallowedTools', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch',
     ], { cwd, input: prompt, env: { ...(sf ? sfEnv(deps.env) : deps.env), ACC_ROLE: 'analyst', ACC_TASK: id }, timeoutMs: 45 * 60_000 });
   } finally {
+    awake?.release();
     rmSync(marker, { force: true });
   }
   if (out.timedOut) throw new AccError('analyze', `The analysis didn't finish within 45 minutes, so acc stopped it.`);

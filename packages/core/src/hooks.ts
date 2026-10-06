@@ -119,7 +119,7 @@ export function commandsOf(line: string): string[][] {
 }
 
 const CLOSING = /\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\b[\s:]+(#\d+|[A-Z][A-Z0-9_]*-\d+|https?:\/\/)/i;
-const PERSON_ONLY_ACC = new Set(['set', 'dispatch', 'land', 'review', 'autopilot', 'analyze', 'promote', 'deploy', 'init', 'cleanup', 'agents', 'setup', 'update', 'updates']);
+const PERSON_ONLY_ACC = new Set(['set', 'dispatch', 'land', 'review', 'autopilot', 'analyze', 'promote', 'deploy', 'init', 'cleanup', 'agents', 'setup', 'update', 'updates', 'resume']);
 
 /** Why a builder may not run this, or null. Belt and braces with the builder's deny list (D-012). */
 export function guardBash(b: Builder, line: string): string | null {
@@ -254,6 +254,10 @@ export function sessionStartHook(input: EventInput, ctx: HookContext): Record<st
   return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: shortPacket(b.task, gates) } };
 }
 
+/** Where the Stop hook remembers it reminded a session. A resume clears it, so the resumed turn is reminded too (D-067). */
+export const remindedPath = (stateDir: string, sessionId: string | undefined): string =>
+  join(stateDir, 'hooks', `${(sessionId ?? 'session').replace(/[^A-Za-z0-9-]/g, '')}.reminded`);
+
 /**
  * Stop: a builder that stops with its task still running is reminded of the finish line, once a
  * session. Claude Code's stop_hook_active means it's already continuing because of a stop hook.
@@ -263,7 +267,7 @@ export function stopHook(input: EventInput, ctx: HookContext): Record<string, un
   const b = builderFor(ctx);
   if (!b || b.task.state !== 'running') return null;
   const paths = repoPaths(b.root, ctx.run);
-  const mark = join(paths.stateDir, 'hooks', `${(input.session_id ?? 'session').replace(/[^A-Za-z0-9-]/g, '')}.reminded`);
+  const mark = remindedPath(paths.stateDir, input.session_id);
   if (existsSync(mark)) return null;
   try {
     mkdirSync(dirname(mark), { recursive: true });

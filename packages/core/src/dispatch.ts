@@ -10,6 +10,7 @@ import { permissionHook } from './questions.ts';
 import { type Analysis, analysisProblems, analysisSection, readAnalysis } from './analyze.ts';
 import { latestVerdict, type Verdict } from './review.ts';
 import { agentArgs } from './agents.ts';
+import { type AwakeDeps, holdAwake, keepAwakeFor } from './awake.ts';
 
 // ---------------------------------------------------------------- names and places (D-013)
 
@@ -212,7 +213,7 @@ export function builderSettings(task: Task, config: Config, accBinDir: string, b
   ];
   const deny = [
     'Bash(git push*)', 'Bash(gh pr *)', 'Bash(git checkout *)', 'Bash(git switch *)', 'Bash(git worktree *)', 'Bash(git reset --hard*)',
-    'Bash(acc set *)', 'Bash(acc dispatch *)', 'Bash(acc init*)', 'Bash(acc gate waive*)', 'Bash(acc land*)', 'Bash(acc review*)', 'Bash(acc autopilot*)', 'Bash(acc agents autonomy*)', 'Bash(acc analyze*)', 'Bash(acc analysis answer*)', 'Bash(acc promote*)', 'Bash(acc deploy*)', 'Bash(acc update*)',
+    'Bash(acc set *)', 'Bash(acc dispatch *)', 'Bash(acc init*)', 'Bash(acc gate waive*)', 'Bash(acc land*)', 'Bash(acc review*)', 'Bash(acc autopilot*)', 'Bash(acc agents autonomy*)', 'Bash(acc analyze*)', 'Bash(acc analysis answer*)', 'Bash(acc promote*)', 'Bash(acc deploy*)', 'Bash(acc update*)', 'Bash(acc resume*)',
     ...(sf ? ['Bash(sf project deploy start*)', 'Bash(sf project deploy quick*)', 'Bash(sf org delete *)'] : []),
   ];
   return {
@@ -235,6 +236,8 @@ export interface DispatchDeps {
   accCommand?: string;
   /** For tests: how long to look for the new session in `claude agents --json`. */
   findSessionMs?: number;
+  /** For tests: how the Mac is kept awake while the builder runs (D-067). */
+  awake?: AwakeDeps;
 }
 
 export interface DispatchResult {
@@ -307,21 +310,21 @@ function readList(wt: string, rel: string | null): string[] {
 
 const sleep = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
-/** The new background session, found by name and folder in `claude agents --json`. */
-function findSession(run: Runner, wt: string, name: string, waitMs: number): { bgId: string | null; sessionId: string | null } {
+/** The new background session, found by name and folder in `claude agents --json`, with its process. */
+export function findSession(run: Runner, wt: string, name: string, waitMs: number): { bgId: string | null; sessionId: string | null; pid: number | null } {
   const until = Date.now() + waitMs;
   do {
     const r = run('claude', ['agents', '--json'], { cwd: wt, timeoutMs: 20_000 });
     try {
-      const list = JSON.parse(r.stdout) as { id?: string; sessionId?: string; name?: string; cwd?: string; kind?: string; startedAt?: number }[];
+      const list = JSON.parse(r.stdout) as { id?: string; sessionId?: string; name?: string; cwd?: string; kind?: string; startedAt?: number; pid?: number }[];
       const s = list.filter((x) => x.name === name && x.kind === 'background').sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))[0];
-      if (s) return { bgId: s.id ?? null, sessionId: s.sessionId ?? null };
+      if (s) return { bgId: s.id ?? null, sessionId: s.sessionId ?? null, pid: Number.isInteger(s.pid) && s.pid! > 0 ? s.pid! : null };
     } catch {
       // not JSON yet; try again
     }
     if (Date.now() < until) sleep(500);
   } while (Date.now() < until);
-  return { bgId: null, sessionId: null };
+  return { bgId: null, sessionId: null, pid: null };
 }
 
 export interface DispatchOptions {
@@ -385,15 +388,23 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
 
   if (opts.foreground) {
     const task = record(null, null);
-    spawnSync('claude', [...base, prompt], { cwd: wt, stdio: 'inherit', env: deps.env });
+    // The session is this terminal's, so the Mac stays awake while acc waits on it (D-067).
+    const awake = holdAwake(process.pid, deps.awake);
+    try {
+      spawnSync('claude', [...base, prompt], { cwd: wt, stdio: 'inherit', env: deps.env });
+    } finally {
+      awake?.release();
+    }
     return { task, worktree: wt, branch, reused, packetPath, bgId: null, sessionId: null };
   }
 
   const launched = run('claude', ['--bg', ...base, prompt], { cwd: launchDir, env: deps.env, timeoutMs: 60_000 });
   if (launched.code !== 0) throw new AccError('dispatch', `Claude Code didn't start the agent: ${(launched.stderr || launched.stdout).trim().split('\n')[0]}. The worktree is kept at ${wt}.`);
-  const { bgId, sessionId } = findSession(run, launchDir, found.id, deps.findSessionMs ?? 8_000);
+  const { bgId, sessionId, pid } = findSession(run, launchDir, found.id, deps.findSessionMs ?? 8_000);
   try {
     const task = record(bgId, sessionId);
+    // acc exits now, so the Mac is kept awake for the background session's own process (D-067).
+    if (pid) keepAwakeFor(paths, id, pid, deps.awake);
     return { task, worktree: wt, branch, reused, packetPath, bgId, sessionId };
   } catch (e) {
     if (bgId) run('claude', ['stop', bgId], { cwd: wt });

@@ -351,6 +351,12 @@
         "icon": "$(comment-discussion)"
       },
       {
+        "command": "acc.task.resume",
+        "title": "Resume its stopped agent",
+        "category": "Agent Command Center",
+        "icon": "$(debug-continue)"
+      },
+      {
         "command": "acc.task.review",
         "title": "Review with an agent",
         "category": "Agent Command Center",
@@ -614,6 +620,10 @@
         },
         {
           "command": "acc.task.openInClaude",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.resume",
           "when": "false"
         },
         {

@@ -64,6 +64,13 @@ Salesforce. Project types plug in as profiles.
   and what's in review. A notice says when a builder finishes, a review passes
   or asks for changes, or a pull request's checks fail. **Intake** gathers the
   ways work comes in, and **Instructions** opens a builder's packet.
+- **Builders survive the Mac sleeping:** on macOS acc keeps the machine awake
+  (`caffeinate -i`) while an agent it started runs; the display still sleeps,
+  and closing the lid still sleeps the Mac. Other platforms aren't kept awake.
+  A builder that stops before `acc done` or `acc block`, as one did when the
+  Mac slept anyway, shows as needs you with the last thing it said, and
+  **Resume** (`acc resume <id>`) carries its session on in its worktree.
+  Autopilot resumes one once by itself.
 - **Next:** M8, the pilots.
 
 Install the extension with `npm run package && npm run install-extension`, then

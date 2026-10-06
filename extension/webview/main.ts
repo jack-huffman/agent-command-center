@@ -291,6 +291,8 @@ function renderTasks(m: TasksModel): Node[] {
           card.autopilot ? el('div', 'card-agent', status(card.autopilot)) : null,
           // Its pull request was closed, and autopilot won't replace it (D-063): an icon and the words, in orange.
           card.closedPr ? el('div', 'card-agent', status(card.closedPr)) : null,
+          // Its builder stopped before acc done or acc block, and what it last said (D-067): in orange, with its icon.
+          card.stopped ? el('div', 'card-agent', status(card.stopped)) : null,
           card.agent ? el('div', 'card-agent', el('span', 'muted', 'Agent: '), status(card.agent)) : null,
           // Its analysis (D-052), in its own words: under way, waiting on you, or ready to build from.
           card.analysis ? el('div', 'card-agent', status(card.analysis)) : null,

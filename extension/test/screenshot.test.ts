@@ -14,7 +14,7 @@ test('every section of the page, and a ticket, has sample data built by the real
     if (kind.startsWith('ticket') || kind === 'agent') assert.equal(m.kind, kind.startsWith('ticket') ? 'ticket' : kind);
     else assert.deepEqual([m.kind, (m as HomeModel).section], ['home', kind === 'output' ? 'setup' : kind]);
   }
-  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['ticket', 'ticket-questions', 'ticket-split', 'agent', 'output']);
+  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'agent', 'output']);
   // A ticket being built, one whose analysis has questions, and one too big for one task (D-052).
   assert.deepEqual(['ticket', 'ticket-questions', 'ticket-split'].map((k) => (sampleModel(k as never) as TicketModel).analysis?.look.label), ['Analyzed before the build', '2 questions for you', 'Too big for one task']);
 });

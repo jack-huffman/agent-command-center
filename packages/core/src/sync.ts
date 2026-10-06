@@ -1,4 +1,5 @@
 import { type Config, environmentByBranch } from './config.ts';
+import { releaseAwake } from './awake.ts';
 import { AccError, type Runner } from './exec.ts';
 import { applyMove, checkMove, mutate, noGateHooks, type PullRequest, readLedger, type State } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
@@ -151,6 +152,8 @@ export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now:
     }
     return out;
   });
+  // A task sync moved out of running, as moveTask does, stops keeping the Mac awake for its builder (D-067).
+  for (const c of changes) if (c.moved?.from === 'running') releaseAwake(paths, c.task);
   // Merged into its environment: the ticket can hear so, once a person posts it. Drafted after the
   // ledger's write, under the drafts' own lock; a draft that can't be written leaves the move as it is.
   const ledger = readLedger(paths.ledger);

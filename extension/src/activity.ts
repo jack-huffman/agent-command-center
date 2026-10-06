@@ -1,6 +1,5 @@
 import { randomBytes } from 'node:crypto';
 import { closeSync, existsSync, openSync, readdirSync, readSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
 import type { Answer } from '../../packages/core/src/questions.ts';
@@ -8,7 +7,7 @@ import type { Hub } from './hub.ts';
 import type { AgentSession } from './logic.ts';
 import { agentModel, answerOf, isFromWebview, type Ref, sessionKey } from './model.ts';
 import { htmlFor, isWebLink } from './panels.ts';
-import { emptyTranscript, foldTranscript, splitLines, type Transcript, transcriptDir } from './transcript.ts';
+import { claudeProjectsDir, emptyTranscript, foldTranscript, splitLines, type Transcript, transcriptDir } from './transcript.ts';
 
 /** A first read takes at most this much of a transcript, from its end: a day-long session can be large. */
 const FIRST_READ_BYTES = 16 * 1024 * 1024;
@@ -45,7 +44,7 @@ export class AgentPages implements vscode.Disposable {
   /** Sends a message to the session from its page (D-060): null once it's on its way, or why it couldn't be. */
   private readonly reply: ((s: AgentSession, text: string, done: () => void) => Promise<string | null>) | null;
 
-  constructor(ctx: vscode.ExtensionContext, hub: Hub, resolve: (command: string, ref: Ref) => unknown, answer: (id: string, a: Answer) => void, reply: ((s: AgentSession, text: string, done: () => void) => Promise<string | null>) | null = null, projectsDir = join(homedir(), '.claude', 'projects')) {
+  constructor(ctx: vscode.ExtensionContext, hub: Hub, resolve: (command: string, ref: Ref) => unknown, answer: (id: string, a: Answer) => void, reply: ((s: AgentSession, text: string, done: () => void) => Promise<string | null>) | null = null, projectsDir = claudeProjectsDir(process.env)) {
     this.ctx = ctx;
     this.hub = hub;
     this.resolve = resolve;

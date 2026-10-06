@@ -8,6 +8,7 @@ import { alive } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
 import { receiptHooks, receiptsAt } from './receipts.ts';
 import { agentArgs } from './agents.ts';
+import { type AwakeDeps, holdAwake } from './awake.ts';
 
 /**
  * The review (D-032): a fresh agent reads the task, the diff, the checks and the project's rules, and
@@ -215,6 +216,8 @@ export interface ReviewDeps {
   uuid?: () => string;
   /** Told the session id as the review starts, so it can be watched. */
   onStart?: (sessionId: string, sha: string) => void;
+  /** For tests: how the Mac is kept awake while the reviewer runs (D-067). */
+  awake?: AwakeDeps;
 }
 
 export interface ReviewResult {
@@ -264,6 +267,8 @@ export function review(paths: RepoPaths, config: Config, id: string, deps: Revie
   const startedAt = now();
   writeFileSync(marker, JSON.stringify({ sessionId, sha, startedAt: startedAt.toISOString(), pid: process.pid } satisfies Reviewing));
   deps.onStart?.(sessionId, sha);
+  // The reviewer is a child of this acc, so the Mac stays awake while acc lives (D-067).
+  const awake = holdAwake(process.pid, deps.awake);
   let out: RunResult;
   try {
     // Read-only by construction: only the read tools are allowed, and dontAsk refuses everything else.
@@ -274,6 +279,7 @@ export function review(paths: RepoPaths, config: Config, id: string, deps: Revie
       '--disallowedTools', 'Bash', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch',
     ], { cwd: worktree, input: prompt, env: { ...deps.env, ACC_ROLE: 'reviewer', ACC_TASK: id }, timeoutMs: 45 * 60_000 });
   } finally {
+    awake?.release();
     rmSync(marker, { force: true });
   }
   if (out.timedOut) throw new AccError('review', `The review didn't finish within 45 minutes, so acc stopped it.`);

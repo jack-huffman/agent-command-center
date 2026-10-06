@@ -3,11 +3,13 @@ import { join } from 'node:path';
 import type { Autonomy, Config } from './config.ts';
 import { dispatch } from './dispatch.ts';
 import { AccError, type Runner } from './exec.ts';
-import { AUTOPILOT_STEPS, type AutopilotFailure, type AutopilotStepName, closedPr, type Ledger, type LedgerEvent, mutate, readLedger, type State, type Task } from './ledger.ts';
+import { releaseAwake } from './awake.ts';
+import { AUTOPILOT_STEPS, type AutopilotFailure, type AutopilotStepName, builderStopped, type ClaudeSession, closedPr, type Ledger, type LedgerEvent, mutate, readLedger, type State, type Task } from './ledger.ts';
 import { land, type LandResult } from './land.ts';
 import { withLock } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
 import { refresh } from './refresh.ts';
+import { clipSaid, listSessions, resume, type ResumeDeps, resuming } from './resume.ts';
 import { readVerdict, review, reviewing } from './review.ts';
 import type { SlotOptions } from './semaphore.ts';
 
@@ -16,7 +18,8 @@ import type { SlotOptions } from './semaphore.ts';
  * each task, one at a time. It reviews work a builder finished, lands work whose review passed, and
  * re-dispatches a task the reviewer sent back, once. When an open pull request conflicts with its base,
  * it merges the base into the branch and runs its checks (D-058), so the next passes review and land the
- * merge. It goes up to an open pull request: it never merges one, waives a check, deploys, promotes, or
+ * merge. A builder that stopped before acc done or acc block is resumed, once a run (D-067). It goes up
+ * to an open pull request: it never merges one, waives a check, deploys, promotes, or
  * starts a task that's to do.
  */
 
@@ -37,7 +40,7 @@ export interface AutopilotMode {
 
 /**
  * What `autonomy` means for autopilot. manual: nothing happens on its own. review: autopilot reviews,
- * lands, and re-dispatches a rework once. dispatch: as review, and it also starts Ready tasks up to
+ * lands, re-dispatches a rework once, and resumes a stopped builder once a run (D-067). dispatch: as review, and it also starts Ready tasks up to
  * agents.max; that part isn't built, so it refuses. full is read as dispatch.
  */
 export function autopilotMode(config: Pick<Config, 'autonomy'>): AutopilotMode {
@@ -47,7 +50,7 @@ export function autopilotMode(config: Pick<Config, 'autonomy'>): AutopilotMode {
   const warnings = autonomy === 'full' ? ['autonomy "full" is read as "dispatch".'] : [];
   return {
     autonomy, on: false, warnings,
-    refusal: 'autonomy "dispatch" (autopilot also starting Ready tasks) is not built yet. Set "autonomy" to "review" in .acc/config.json: autopilot then reviews, lands and re-dispatches a rework once.',
+    refusal: 'autonomy "dispatch" (autopilot also starting Ready tasks) is not built yet. Set "autonomy" to "review" in .acc/config.json: autopilot then reviews, lands, re-dispatches a rework once, and resumes a stopped builder once a run.',
   };
 }
 
@@ -63,6 +66,8 @@ export interface TaskFacts {
   reviewing: string | null;
   /** The commit its open pull request was last landed at, if acc knows it. */
   landed: string | null;
+  /** A running task's builder stopped before acc done or acc block (builderStopped, D-067). */
+  stopped?: boolean;
 }
 
 export type AutopilotOutcome = 'done' | 'failed' | 'waiting' | 'skipped';
@@ -80,6 +85,9 @@ const sentence = (text: string): string => text.replace(/([^.!?])$/, '$1.');
 /** Autopilot already re-dispatched it from rework once: every later rework is a person's. */
 export const reworkedByAutopilot = (task: Task): boolean =>
   task.history.some((h) => h.from === 'rework' && h.to === 'running' && h.actor === 'orchestrator');
+
+/** Autopilot already resumed this run's builder once: a second stop waits for a person (D-067). A new dispatch is a new run. */
+export const resumedByAutopilot = (task: Task): boolean => !!task.run?.resumes?.some((r) => byAutopilot(r.by));
 
 const running = (ledger: Ledger, except: string): number => ledger.tasks.filter((t) => t.state === 'running' && t.id !== except).length;
 
@@ -120,18 +128,29 @@ export function nextStep(ledger: Ledger, config: Pick<Config, 'agents'>, task: T
     return step('dispatch', 'The reviewer asked for changes.');
   }
   if (task.state === 'todo') return none('skipped', 'To do: autopilot never starts a task that\'s to do.');
-  if (task.state === 'running') return none('skipped', 'Its builder is working.');
+  if (task.state === 'running') {
+    if (!facts.stopped) return none('skipped', 'Its builder is working.');
+    if (resumedByAutopilot(task)) return none('waiting', 'Its agent stopped again. Autopilot resumed it once already: a person resumes it.');
+    return step('resume', 'Its agent stopped before acc done or acc block.');
+  }
   if (task.state === 'blocked') return none('skipped', 'Blocked: a person decides.');
   return none('skipped', 'Done.');
 }
 
-/** What autopilot needs to know about a task in review or rework. Other states need nothing. */
-export function taskFacts(paths: RepoPaths, task: Task, run: Runner): TaskFacts {
+/**
+ * What autopilot needs to know about a task in review, rework or running. Other states need nothing. A
+ * running task's builder has stopped by the sessions `claude agents` listed, or not when it didn't answer.
+ */
+export function taskFacts(paths: RepoPaths, task: Task, run: Runner, sessions: ClaudeSession[] | null = null, now: Date = new Date()): TaskFacts {
   const facts: TaskFacts = { head: '', verdict: null, reviewing: null, landed: null };
-  if (task.state !== 'review' && task.state !== 'rework') return facts;
+  if (task.state !== 'review' && task.state !== 'rework' && task.state !== 'running') return facts;
   const branch = task.run?.branch;
   const rev = (ref: string) => run('git', ['rev-parse', '--verify', '--quiet', ref], { cwd: paths.root }).stdout.trim();
   facts.head = branch ? rev(`refs/heads/${branch}`) : '';
+  if (task.state === 'running') {
+    facts.stopped = builderStopped(task, sessions, { resuming: !!resuming(paths, task.id), now });
+    return facts;
+  }
   if (task.state !== 'review') return facts;
   facts.reviewing = reviewing(paths, task.id)?.sessionId ?? null;
   facts.verdict = facts.head ? readVerdict(paths, task.id, facts.head)?.verdict ?? null : null;
@@ -171,6 +190,7 @@ export interface AutopilotSteps {
   land(id: string): StepRun;
   dispatch(id: string): StepRun;
   refresh(id: string): StepRun;
+  resume(id: string): StepRun;
 }
 
 export interface AutopilotDeps {
@@ -187,6 +207,8 @@ export interface AutopilotDeps {
   steps?: Partial<AutopilotSteps>;
   /** The heavy-check slot a refresh's checks take, machine-wide unless a test says otherwise. */
   slots?: SlotOptions;
+  /** For tests: how a resume starts its claude, where it finds transcripts, and how it keeps the Mac awake. */
+  resume?: Pick<ResumeDeps, 'launch' | 'projectsDir' | 'awake'>;
 }
 
 /** The real steps, each as the orchestrator. A review stays the reviewer's move, done for autopilot. */
@@ -204,6 +226,10 @@ export function realSteps(paths: RepoPaths, config: Config, deps: AutopilotDeps)
       return { reason: `Re-dispatched in ${r.worktree}${r.bgId ? `, background session ${r.bgId}` : ''}.` };
     },
     refresh: (id) => ({ reason: refresh(paths, config, id, { run, now, env, slots: deps.slots }, { actor: 'orchestrator', by: AUTOPILOT_BY }).reason }),
+    resume: (id) => {
+      const r = resume(paths, config, id, { run, now, env, accBinDir: deps.accBinDir, accCommand: deps.accCommand, ...deps.resume }, { actor: 'orchestrator', by: AUTOPILOT_BY });
+      return { reason: `Resumed its builder${r.said ? `, which last said: ${clipSaid(r.said, 200)}` : '.'}` };
+    },
   };
 }
 
@@ -224,6 +250,8 @@ function temporary(e: unknown, paths: RepoPaths, config: Config, id: string): st
   const code = (e as AccError).code;
   if (code === 'lock-timeout') return 'The ledger was busy. Autopilot tries again next pass.';
   if (code === 'busy') return 'The heavy-check slot stayed taken, so the merge was undone. Autopilot tries again next pass.';
+  // Its agent came back between the look and the resume: nothing stopped after all.
+  if (code === 'agent-active') return `${(e as Error).message} Autopilot looks again next pass.`;
   if (code === 'move-refused') {
     const n = running(readLedger(paths.ledger), id);
     if (n >= config.agents.max) return `${n} tasks are running. The limit is ${config.agents.max}.`;
@@ -252,12 +280,17 @@ function recordFailure(paths: RepoPaths, now: () => Date, id: string, failed: Au
 export function autopilotPass(paths: RepoPaths, config: Config, deps: AutopilotDeps): AutopilotResult {
   const steps = { ...realSteps(paths, config, deps), ...deps.steps };
   const out: AutopilotResult = { steps: [], updates: [] };
-  for (const id of readLedger(paths.ledger).tasks.map((t) => t.id)) {
+  const first = readLedger(paths.ledger);
+  // One look at Claude Code's sessions a pass, and only when a builder might have stopped (D-067).
+  const sessions = first.tasks.some((t) => t.state === 'running') ? listSessions(deps.run, paths.root) : null;
+  for (const id of first.tasks.map((t) => t.id)) {
     if (deps.stop?.()) break;
     const ledger = readLedger(paths.ledger);
     const task = ledger.tasks.find((t) => t.id === id);
     if (!task || task.state === 'done') continue;
-    const facts = taskFacts(paths, task, deps.run);
+    const facts = taskFacts(paths, task, deps.run, sessions, deps.now());
+    // A stopped builder's process can linger, idle: it no longer keeps the Mac awake.
+    if (facts.stopped) releaseAwake(paths, id);
     const d = nextStep(ledger, config, task, facts);
     const sha = facts.head || null;
     if (!d.step) {
@@ -307,7 +340,7 @@ export interface AutopilotRecord {
   pr?: { number: number; url: string; opened: boolean };
   /** A refresh: the base it merged in, or null when the conflict had gone and nothing was merged. */
   base?: string | null;
-  /** Why it failed, or what the review asked for. */
+  /** Why it failed, what the review asked for, or what a builder it resumed last said. */
   reason?: string;
 }
 
@@ -341,6 +374,9 @@ export function autopilotEvent(e: Pick<LedgerEvent, 'seq' | 'at' | 'type' | 'tas
   if (pr && typeof d.opened === 'boolean' && typeof pr.number === 'number') {
     return { ...base, step: 'land', outcome: 'done', pr: { number: pr.number, url: String(pr.url ?? ''), opened: d.opened } };
   }
+  // A builder it resumed (D-067), with the last thing it said.
+  const resumed = obj(d.resumed);
+  if (resumed) return { ...base, step: 'resume', outcome: 'done', ...(typeof resumed.said === 'string' && resumed.said ? { reason: resumed.said } : {}) };
   const refreshed = obj(d.refreshed);
   if (refreshed) return { ...base, step: 'refresh', outcome: 'done', base: typeof refreshed.base === 'string' ? refreshed.base : null };
   // A refresh that found the conflict gone marks the pull request so, and merges nothing (D-058).

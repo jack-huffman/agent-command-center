@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { DISPLAY } from '../../core/src/index.ts';
-import { GENERIC_CONFIG, makeRepo, tempDir } from '../../core/test/support.ts';
+import { DISPLAY, transcriptDir } from '../../core/src/index.ts';
+import { GENERIC_CONFIG, gh41Lines, makeRepo, tempDir } from '../../core/test/support.ts';
 
 const MAIN = fileURLToPath(new URL('../src/main.ts', import.meta.url));
 // A builder's `acc gate run` runs these tests with its own ACC_TASK set, holding the machine's heavy-check slot.
@@ -474,6 +474,70 @@ test('a task autopilot couldn\'t move on shows as needs you, and acc show says w
   l.tasks[0].autopilot.failed = { ...l.tasks[0].autopilot.failed, step: 'refresh', reason: 'Conflicts with main that autopilot can\'t resolve: sum.js. The branch is as it was, at abcdef0, and nothing was pushed.' };
   writeFileSync(file, JSON.stringify(l));
   assert.match(acc(dir, ['show', 'T-1']).out, /! Autopilot couldn't update abcdef0 from its base: Conflicts with main that autopilot can't resolve: sum\.js\./);
+});
+
+test('acc show says a running task\'s builder stopped, with what it last said, and acc resume carries it on (D-067)', () => {
+  const dir = realpathSync(repoWithConfig());
+  assert.equal(acc(dir, ['add', 'Ticket updates are drafts']).code, 0);
+  // T-1 as GH-41 was after the Mac slept: running for long enough, its session gone, its transcript ending in the API error.
+  const file = join(dir, '.git', 'acc', 'ledger.json');
+  const l = JSON.parse(readFileSync(file, 'utf8'));
+  l.tasks[0].state = 'running';
+  l.tasks[0].run = { bgId: 'bg9', sessionId: 'sess-9', worktree: dir, branch: 'main', startedAt: '2026-10-05T21:52:13.000Z' };
+  writeFileSync(file, JSON.stringify(l));
+  const config = tempDir('claude-config-');
+  mkdirSync(transcriptDir(join(config, 'projects'), dir), { recursive: true });
+  writeFileSync(join(transcriptDir(join(config, 'projects'), dir), 'sess-9.jsonl'), gh41Lines('sess-9', dir).join('\n') + '\n');
+  // Stand-ins for claude (no sessions listed; a resume writes down how it was run) and caffeinate.
+  const bin = tempDir('bin-');
+  const record = join(bin, 'records.jsonl');
+  writeFileSync(join(bin, 'claude'), `#!/usr/bin/env node
+const fs = require('fs');
+const args = process.argv.slice(2);
+if (args[0] === 'agents') console.log('[]');
+else fs.appendFileSync(${JSON.stringify(record)}, JSON.stringify({ cmd: 'claude', args, cwd: process.cwd(), role: process.env.ACC_ROLE, task: process.env.ACC_TASK }) + '\\n');
+`);
+  writeFileSync(join(bin, 'caffeinate'), `#!/bin/sh\nprintf '{"cmd":"caffeinate","args":["%s","%s","%s"]}\\n' "$1" "$2" "$3" >> ${JSON.stringify(record)}\n`);
+  chmodSync(join(bin, 'claude'), 0o755);
+  chmodSync(join(bin, 'caffeinate'), 0o755);
+  const env = { PATH: `${bin}:${process.env.PATH}`, CLAUDE_CONFIG_DIR: config };
+
+  const show = acc(dir, ['show', 'T-1'], undefined, env).out;
+  assert.match(show, /^T-1 {2}! Needs you {2}Ticket updates are drafts\n/);
+  assert.match(show, /! Its agent stopped: API Error: Your computer went to sleep mid-response\. The response above may be incomplete\. Resume it with acc resume T-1\./);
+  assert.deepEqual(acc(dir, ['show', 'T-1', '--json'], undefined, env).json().stopped, { said: 'API Error: Your computer went to sleep mid-response. The response above may be incomplete.' });
+
+  for (const role of ['builder', 'reviewer', 'analyst']) {
+    const refused = acc(dir, ['resume', 'T-1'], undefined, { ...env, ACC_ROLE: role, ACC_TASK: 'T-1' });
+    assert.equal(refused.code, 1, role);
+    assert.match(refused.err, /can't resume a builder\. A person does that, or autopilot\./);
+  }
+
+  const r = acc(dir, ['resume', 'T-1', '--json'], undefined, env);
+  assert.equal(r.code, 0, r.err);
+  const out = r.json();
+  assert.deepEqual([out.folder, out.sessionId, out.said], [dir, 'sess-9', 'API Error: Your computer went to sleep mid-response. The response above may be incomplete.']);
+  // The resumed claude runs detached: wait for it to write down how it was run.
+  const until = Date.now() + 10_000;
+  const records = () => (existsSync(record) ? readFileSync(record, 'utf8').trim().split('\n').map((x) => JSON.parse(x)) : []);
+  while (!records().some((x) => x.cmd === 'claude') && Date.now() < until) spawnSync('sleep', ['0.1']);
+  const claude = records().find((x) => x.cmd === 'claude')!;
+  assert.deepEqual(claude.args.slice(2, 6), ['--resume', 'sess-9', '--permission-mode', 'acceptEdits']);
+  assert.match(claude.args[1], /^You are the builder for T-1: Ticket updates are drafts\./);
+  assert.deepEqual([claude.cwd, claude.role, claude.task], [dir, 'builder', 'T-1']);
+  if (process.platform === 'darwin') {
+    while (!records().some((x) => x.cmd === 'caffeinate') && Date.now() < until) spawnSync('sleep', ['0.1']);
+    assert.deepEqual(records().find((x) => x.cmd === 'caffeinate')!.args, ['-i', '-w', String(out.pid)]);
+  }
+  const t = JSON.parse(readFileSync(file, 'utf8')).tasks[0];
+  assert.equal(t.run.resumes.length, 1);
+  assert.equal(t.run.resumes[0].actor, 'human');
+
+  // Only a running task's builder is resumed.
+  assert.equal(acc(dir, ['block', 'T-1', 'needs a date']).code, 0);
+  const blocked = acc(dir, ['resume', 'T-1'], undefined, env);
+  assert.equal(blocked.code, 1);
+  assert.match(blocked.err, /T-1 is blocked\. Only a running task's builder is resumed\./);
 });
 
 test('acc agents autonomy: shows it, and a person sets manual or review in .acc/config.json, changing nothing else (D-064)', () => {

@@ -1,11 +1,12 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { Hub } from './hub.ts';
 import type { Answer } from '../../packages/core/src/questions.ts';
-import { agentArgs } from '../../packages/core/src/agents.ts';
-import { builderSettings } from '../../packages/core/src/dispatch.ts';
+import { agentArgs, withCloneAgents } from '../../packages/core/src/agents.ts';
+import { run as runSync } from '../../packages/core/src/exec.ts';
+import { resumeCommand } from '../../packages/core/src/resume.ts';
 import { AgentPages } from './activity.ts';
 import { AutopilotHost } from './autopilot.ts';
 import { type AgentSession, analysisAnswerArgs, CLAUDE_EXTENSION, claudeSessionUri, COMMANDS, isSessionId, isWebviewMenuContext, shq, WALKTHROUGHS } from './logic.ts';
@@ -15,7 +16,7 @@ import { Panels } from './panels.ts';
 import { accShellCommand, Questions, sessionSettings } from './questions.ts';
 import { Runs } from './runs.ts';
 import { accRunner, runFile } from './run.ts';
-import { savedFolder } from './transcript.ts';
+import { claudeProjectsDir, savedFolder } from './transcript.ts';
 import { openWalkthrough, Setup } from './setup.ts';
 import { Sidebar } from './sidebar.ts';
 import { RepoIdentity } from './identity.ts';
@@ -226,7 +227,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const sessionId = s.sessionId;
     if (!isSessionId(sessionId)) return 'it has no conversation to carry on.';
     const projects = hub.projects;
-    const folder = savedFolder(join(homedir(), '.claude', 'projects'), sessionId, [s.cwd, ...projects.flatMap((p) => p.worktrees.map((w) => w.path))]);
+    const folder = savedFolder(claudeProjectsDir(process.env), sessionId, [s.cwd, ...projects.flatMap((p) => p.worktrees.map((w) => w.path))]);
     if (!folder) return 'its conversation isn\'t saved anywhere this machine can find.';
     const project = hub.projectFor(folder);
     const task = project ? hub.ledger(project.root)?.tasks.find((t) => t.run?.sessionId === sessionId || (!!s.id && t.run?.bgId === s.id)) : undefined;
@@ -234,13 +235,18 @@ export function activate(context: vscode.ExtensionContext): void {
       const stopped = await runFile('claude', ['stop', s.id], folder, process.env, undefined, 30_000);
       if (stopped.code !== 0) return `its background session wouldn't stop: ${(stopped.stderr || stopped.stdout).trim().split('\n')[0]}`;
     }
-    const settings = task && project
-      ? JSON.stringify(builderSettings(task, project.config, dirname(accScript), process.env.PATH ?? '', accShellCommand(accScript)))
-      : sessionSettings(accScript);
-    const mode = project?.config.agents.permissionMode ?? 'default';
-    const extra = project ? agentArgs(project.config.agents.builder) : [];
-    const who = task ? `ACC_ROLE=builder ACC_TASK=${shq(task.id)} ` : '';
-    const command = `${who}claude -p ${shq(text)} --resume ${sessionId} --permission-mode ${shq(mode)} ${extra.map(shq).join(' ')} --settings ${shq(settings)}`.replace(/  +/g, ' ');
+    // The Mac stays awake while it answers (D-067): caffeinate runs it, and ends with it.
+    const awake = process.platform === 'darwin' ? 'caffeinate -i ' : '';
+    let command: string;
+    if (task && project) {
+      // A builder's is acc resume's own command (D-067): its rules, and this clone's model and effort (D-036).
+      const c = resumeCommand(task, withCloneAgents(project.config, project.root, runSync), { sessionId, message: text, accBinDir: dirname(accScript), basePath: process.env.PATH ?? '', accCommand: accShellCommand(accScript) });
+      command = `${Object.entries(c.env).map(([k, v]) => `${k}=${shq(v)}`).join(' ')} ${awake}claude ${c.args.map(shq).join(' ')}`;
+    } else {
+      const mode = project?.config.agents.permissionMode ?? 'default';
+      const extra = project ? agentArgs(project.config.agents.builder) : [];
+      command = `${awake}claude -p ${shq(text)} --resume ${sessionId} --permission-mode ${shq(mode)} ${extra.map(shq).join(' ')} --settings ${shq(sessionSettings(accScript))}`.replace(/  +/g, ' ');
+    }
     runs.start(command, { cwd: folder, label: `Message to ${task?.id ?? s.name ?? sessionId.slice(0, 8)}`, onExit: () => done() });
     return null;
   };

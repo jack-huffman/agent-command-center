@@ -414,6 +414,49 @@ test('a closed pull request in review says so in words, with its icon, in orange
   assert.deepEqual([tracked.look, tracked.needsYou], [look, true], 'the tracker\'s card says the same');
 });
 
+test('a builder that stopped says so with what it last said, in orange with its icon, on the card, the tracker\'s card and the Overview, and offers Resume (D-067)', () => {
+  const said = 'API Error: Your computer went to sleep mid-response. The response above may be incomplete.';
+  const rows: TaskRow[] = [
+    // Its old background session still says blocked: the stopped line says it all.
+    { ...row('AV-5', 'running', 'needs-you'), run: { worktree: '/w5', branch: 'b5', bgId: 'bg5', sessionId: 'sess-5' }, agent: { label: 'Needs you', icon: 'bell', tone: 'orange' }, stopped: { said } },
+    { ...row('AV-6', 'running', 'needs-you'), run: { worktree: '/w6', branch: 'b6', bgId: 'bg6', sessionId: 'sess-6' }, stopped: { said: `I stopped here. ${'x'.repeat(300)}` } },
+    { ...row('AV-7', 'running', 'needs-you'), run: { worktree: '/w7', branch: 'b7', sessionId: 'sess-7' }, stopped: { said: null } },
+    // Being resumed: no second Resume.
+    { ...row('AV-11', 'running', 'running'), run: { worktree: '/w11', branch: 'b11', sessionId: 'sess-11' }, resuming: true, agent: { label: 'Resumed: working', icon: 'sync~spin', tone: 'blue' } },
+  ];
+  const h = { ...hub(), agents: [], taskRows: () => rows };
+  const cards = tasksModel(h).projects[0]!.columns;
+  const card = (id: string) => cards.flatMap((c) => c.cards).find((c) => c.id === id)!;
+  assert.deepEqual(card('AV-5').stopped, { label: `Needs you: its agent stopped: ${said}`, icon: 'debug-disconnect', tone: 'orange' });
+  assert.equal(card('AV-5').agent, null, 'not "Agent: Needs you" as well');
+  assert.ok(card('AV-6').stopped!.label.length < 160 && card('AV-6').stopped!.label.endsWith('…'), 'a long quote is clipped on a card');
+  assert.equal(card('AV-7').stopped!.label, 'Needs you: its agent stopped before acc done or acc block');
+  assert.deepEqual(cards.find((c) => c.group === 'needs-you')!.cards.map((c) => c.id), ['AV-5', 'AV-6', 'AV-7']);
+  // Its one next step is Resume (D-062); Watch and Open in Claude Code wait behind ⋯.
+  const acts = card('AV-5').actions;
+  assert.deepEqual([acts[0]!.command, acts[0]!.label, acts[0]!.icon, !!acts[0]!.primary], ['acc.task.resume', 'Resume', 'debug-continue', true]);
+  assert.deepEqual(acts.filter((a) => a.primary).map((a) => a.command), ['acc.task.resume']);
+  assert.ok(acts.some((a) => a.command === 'acc.task.watch') && acts.some((a) => a.command === 'acc.task.openInClaude'));
+  assert.ok(!card('AV-11').actions.some((a) => a.command === 'acc.task.resume'));
+  assert.equal(card('AV-11').stopped, null);
+
+  const m = homeModel({ hub: h, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } });
+  const item = m.overview.attention.find((a) => a.title === 'AV-5 Task AV-5')!;
+  assert.deepEqual([item.look.label, item.look.icon, item.look.tone], ['Its agent stopped', 'debug-disconnect', 'orange']);
+  assert.equal(item.detail, `Acme · ${said}`);
+  assert.doesNotMatch(item.detail, /terminal/, 'not an agent waiting in its terminal');
+  assert.deepEqual(item.actions.map((a) => [a.label, !!a.primary]), [['Resume', true], ['Watch', false], ['Open', false]]);
+  assert.equal(m.overview.attention.find((a) => a.title === 'AV-7 Task AV-7')!.detail, 'Acme · its turn ended before acc done or acc block');
+  assert.ok(needsYouCount(m.overview) >= 3, 'counted in the badge and the status bar');
+
+  const board: BoardInput = {
+    index: 0, kind: 'jira', title: 'Jira', error: null, connect: null, loading: false,
+    board: { source: 'jira-board', title: 'Board', url: null, notice: null, columns: [{ id: 'c', name: 'Doing', category: 'doing', statusIds: ['3'] }], cards: [{ key: 'AV-5', title: 'Task AV-5', url: 'u', status: { id: '3', name: 'Doing' }, type: 'Story', assignees: [], labels: [], priority: null }] },
+  };
+  const tracked = trackerBoard(board, rows, '/r').columns[0]!.cards[0]!.acc!;
+  assert.deepEqual([tracked.look.label, tracked.look.tone, tracked.needsYou, tracked.action?.command], [`Needs you: its agent stopped: ${said}`, 'orange', true, 'acc.task.resume']);
+});
+
 test('table cells keep table layout (a flex cell misaligns its row\'s lines)', () => {
   const css = readFileSync(join(root, 'webview', 'styles.css'), 'utf8');
   const src = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');

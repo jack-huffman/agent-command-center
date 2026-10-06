@@ -292,6 +292,8 @@ body[data-view="ticket"] { padding-top: 18px; }
 /* A long state, such as an analysis's questions, wraps inside the panel. */
 .fields dd .status { white-space: normal; align-items: flex-start; }
 .fields dd .status .codicon { margin-top: 2px; flex: none; }
+/* Its label stays beside the first line, as a stopped agent's last words can run long (D-067). */
+.fields dt:has(+ dd > .status) { align-self: start; padding-top: 1px; }
 .people { display: flex; flex-direction: column; gap: 4px; }
 .person { display: inline-flex; align-items: center; gap: 6px; }
 .clip-inline { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; display: inline-block; }

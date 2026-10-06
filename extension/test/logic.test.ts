@@ -322,6 +322,36 @@ test('each step autopilot takes is one notice: what it did, and what it couldn\'
   assert.deepEqual(autopilotNotices([rec('GH-31', { step: 'review', verdict: 'pass' }), rec('GH-31', { seq: 2, pr: { number: 40, url: 'u', opened: true } })], [gh]).length, 2, 'one each');
 });
 
+test('a builder that stopped is told once, with what it last said, and Resume; not as an agent waiting in its own prompt (D-067)', async () => {
+  const { autopilotNotices, noticeActions, sessionFor, taskNotices } = await import('../src/logic.ts');
+  const { autopilotStepLook } = await import('../src/model.ts');
+  type Row = import('../src/logic.ts').TaskRow;
+  const said = 'API Error: Your computer went to sleep mid-response. The response above may be incomplete.';
+  const row = (more: Partial<Row> = {}): Row => ({ id: 'GH-41', title: 'Task GH-41', state: 'running', display: 'running', environment: 'main', deps: [], source: { kind: 'github', url: null }, ...more });
+  const stopped = row({ display: 'needs-you', stopped: { said } });
+  const news = taskNotices([row()], [stopped]);
+  assert.deepEqual(news.map((n) => [n.kind, n.urgent, n.text]), [['stopped', true, `GH-41's agent stopped: ${said}`]]);
+  assert.deepEqual(noticeActions(news[0]!), [['Resume', 'acc.task.resume'], ['Show', 'acc.task.show']], 'Resume, not Open in Claude Code');
+  assert.deepEqual(taskNotices([stopped], [stopped]), [], 'said once');
+  assert.equal(taskNotices([row()], [row({ display: 'needs-you', stopped: { said: null } })])[0]!.text, 'GH-41\'s agent stopped before acc done or acc block.');
+  assert.match(taskNotices([row()], [row({ display: 'needs-you', stopped: { said: 'x'.repeat(500) } })])[0]!.text, /^GH-41's agent stopped: x{150,}…$/, 'a long quote is clipped');
+
+  // A resumed conversation is listed beside its old background session: the one with a process is the agent.
+  const old = { cwd: '/r', kind: 'background', startedAt: 1, id: 'bg41', sessionId: 'sess-41', name: 'GH-41', state: 'blocked' };
+  const live = { cwd: '/w41', kind: 'interactive', startedAt: 2, sessionId: 'sess-41', name: 'gh-41-73', pid: 94651, status: 'busy' };
+  assert.equal(sessionFor({ id: 'GH-41', run: { bgId: 'bg41', sessionId: 'sess-41' } }, [old, live]), live);
+  assert.equal(sessionFor({ id: 'GH-41', run: { bgId: 'bg41', sessionId: 'sess-41' } }, [old]), old);
+
+  // Autopilot's resume, as a notice and in History.
+  const at = '2026-10-05T22:20:00.000Z';
+  const gh = { id: 'GH-41', source: { kind: 'github', key: '41' }, history: [] };
+  const done = autopilotNotices([{ seq: 1, at, task: 'GH-41', step: 'resume', outcome: 'done', reason: said }], [gh]);
+  assert.deepEqual(done.map((n) => [n.text, n.urgent, noticeActions(n)]), [[`Autopilot resumed GH-41: ${said}`, false, [['Watch', 'acc.task.watch'], ['Show', 'acc.task.show']]]]);
+  const failed = autopilotNotices([{ seq: 2, at, task: 'GH-41', step: 'resume', outcome: 'failed', reason: 'Claude Code didn\'t start.' }], [gh]);
+  assert.deepEqual(failed.map((n) => [n.text, n.urgent, noticeActions(n)[0]]), [['Autopilot couldn\'t resume GH-41: Claude Code didn\'t start.', true, ['Resume', 'acc.task.resume']]]);
+  assert.deepEqual(autopilotStepLook({ seq: 1, at, task: 'GH-41', step: 'resume', outcome: 'done', reason: said }), { look: { label: 'Autopilot resumed it', icon: 'debug-continue', tone: 'blue' }, detail: said, url: null });
+});
+
 test('D-044\'s review notices stay quiet for a review autopilot ran, and still speak for a person\'s (D-064)', async () => {
   const { taskNotices, withoutAutopilotEcho } = await import('../src/logic.ts');
   type Row = import('../src/logic.ts').TaskRow;
@@ -349,7 +379,7 @@ test('the autopilot switch says on or off with an icon and the words, and its to
   const { autopilotStatus } = await import('../src/logic.ts');
   const on = autopilotStatus({ project: 'Tool', many: false, state: 'on', last: '✓ GH-31  Opened pull request #40.' });
   assert.equal(on.text, '$(rocket) Autopilot: on');
-  assert.match(on.tooltip, /^Autopilot is on for Tool: it reviews finished work, lands work whose review passed as a pull request, and re-dispatches a rework once\. It never merges\./);
+  assert.match(on.tooltip, /^Autopilot is on for Tool: it reviews finished work, lands work whose review passed as a pull request, re-dispatches a rework once, and resumes a stopped builder once a run\. It never merges\./);
   assert.match(on.tooltip, /Last: ✓ GH-31 {2}Opened pull request #40\./);
   assert.match(on.tooltip, /Click to turn it off until VSCode closes\.$/);
   assert.doesNotMatch(autopilotStatus({ project: 'Tool', many: false, state: 'on' }).tooltip, /Last:/, 'nothing printed yet');
@@ -364,7 +394,7 @@ test('the autopilot switch says on or off with an icon and the words, and its to
   assert.match(elsewhere.tooltip, /Stop it there to run it in this window\.$/);
 
   // It can't run: acc's own words say why.
-  const refusal = 'autonomy "dispatch" (autopilot also starting Ready tasks) is not built yet. Set "autonomy" to "review" in .acc/config.json: autopilot then reviews, lands and re-dispatches a rework once.';
+  const refusal = 'autonomy "dispatch" (autopilot also starting Ready tasks) is not built yet. Set "autonomy" to "review" in .acc/config.json: autopilot then reviews, lands, re-dispatches a rework once, and resumes a stopped builder once a run.';
   const refused = autopilotStatus({ project: 'Tool', many: false, state: 'refused', refusal });
   assert.equal(refused.text, '$(circle-slash) Autopilot: off');
   assert.equal(refused.tooltip, `Autopilot can't run for Tool: ${refusal}`);

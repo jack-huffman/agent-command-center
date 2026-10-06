@@ -9,7 +9,7 @@ import { runGates, waiveGates } from '../src/gates.ts';
 import { mutate, readLedger, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
 import { latestVerdict, parseReview, readVerdict, review, reviewing, reviewPrompt } from '../src/review.ts';
-import { fakeRunner, GENERIC_CONFIG, gitIn, makeRepo } from './support.ts';
+import { fakeAwake, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo } from './support.ts';
 
 const now = () => new Date('2026-10-02T12:00:00Z');
 const RAW = { ...GENERIC_CONFIG, gates: { required: ['test'], commands: { test: 'true' } } };
@@ -133,4 +133,16 @@ test('the reviewer is told to judge each criterion and skip style, with the prof
   assert.match(sf.system, /bulk-safe/);
   assert.ok(!reviewPrompt({ ...base, config: { profile: 'generic' } as never }).system.includes('Apex'), 'the core stays project-agnostic');
   assert.match(reviewPrompt({ ...base, config: { profile: 'generic' } as never, diff: 'x'.repeat(200_000) }).prompt, /too long to include/);
+});
+
+test('the Mac stays awake while the reviewer runs, for acc\'s own process, and not after, even when it times out (D-067)', () => {
+  const { paths, config } = setup();
+  const awake = fakeAwake();
+  const timedOut = fakeRunner({ claude: () => {
+    assert.deepEqual(awake.spawned, [['caffeinate', '-i', '-w', String(process.pid)]], 'held while the reviewer runs');
+    assert.deepEqual(awake.killed, []);
+    return { code: 127, stdout: '', stderr: "claude didn't finish within 45 minutes, so acc stopped it.", timedOut: true };
+  } });
+  assert.throws(() => review(paths, config, 'T-1', { run: timedOut, now, env: {}, awake: awake.deps }), /didn't finish within 45 minutes/);
+  assert.equal(awake.killed.length, 1, 'released');
 });

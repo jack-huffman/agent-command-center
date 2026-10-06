@@ -221,7 +221,11 @@ export interface TaskRow {
   /** The project wants an analysis before a task is built (D-052). */
   analysisRequired?: boolean;
   /** A step autopilot couldn't take in the task's current state, and why: the task needs you (D-055). */
-  autopilot?: { step: 'review' | 'land' | 'dispatch' | 'refresh'; reason: string } | null;
+  autopilot?: { step: 'review' | 'land' | 'dispatch' | 'refresh' | 'resume'; reason: string } | null;
+  /** Its builder stopped before acc done or acc block, and the last thing it said, if that could be read (D-067). */
+  stopped?: { said: string | null } | null;
+  /** A resume of its builder is under way. */
+  resuming?: boolean;
 }
 
 /** One of an analysis's questions a person hasn't answered: what it asks, why it matters, and what the analyst would assume. */
@@ -290,10 +294,13 @@ export function landMessage(id: string, r: { opened?: boolean; pr?: { number: nu
   return { level: 'info', text: r.update ? `${landed} An update for ${r.update.key.startsWith('#') ? id : r.update.key} is ready for you to review and post.` : landed };
 }
 
-/** A task's agent: its background id or session id, or a background session named after the task. */
+/**
+ * A task's agent: its background id or session id, or a background session named after the task. One
+ * with a process comes first: a resumed conversation is listed beside its old background session (D-067).
+ */
 export function sessionFor(row: Pick<TaskRow, 'id' | 'run'>, sessions: AgentSession[]): AgentSession | undefined {
-  return sessions.find((s) => (row.run?.bgId && s.id === row.run.bgId) || (row.run?.sessionId && s.sessionId === row.run.sessionId))
-    ?? sessions.find((s) => s.kind === 'background' && s.name === row.id);
+  const mine = sessions.filter((s) => (row.run?.bgId && s.id === row.run.bgId) || (row.run?.sessionId && s.sessionId === row.run.sessionId));
+  return mine.find((s) => s.pid) ?? mine[0] ?? sessions.find((s) => s.kind === 'background' && s.name === row.id);
 }
 
 export function groupTasks(rows: TaskRow[]): { group: TaskGroup; tasks: TaskRow[] }[] {
@@ -474,7 +481,9 @@ export const needsTerminal = (command: string): boolean => /^\s*(claude(\s*$|\s+
 
 // ---------------------------------------------------------------- what changed, said once (D-044)
 
-export type NoticeKind = 'waiting' | 'review' | 'passed' | 'rework' | 'blocked' | 'ci-failed' | 'changes' | 'conflicts' | 'merged' | 'analysis-ready' | 'analysis-questions' | 'analysis-split' | 'analysis-back' | 'autopilot';
+const endSentence = (text: string): string => text.trim().replace(/([^.!?…])$/, '$1.');
+
+export type NoticeKind = 'waiting' | 'stopped' | 'review' | 'passed' | 'rework' | 'blocked' | 'ci-failed' | 'changes' | 'conflicts' | 'merged' | 'analysis-ready' | 'analysis-questions' | 'analysis-split' | 'analysis-back' | 'autopilot';
 
 export interface TaskNotice {
   kind: NoticeKind;
@@ -506,7 +515,9 @@ export function taskNotices(before: TaskRow[], after: TaskRow[]): TaskNotice[] {
     if (moved && p.state === 'running' && t.state === 'review') say('review', `${t.id} is ready for review: ${t.title}`, false);
     else if (moved && t.state === 'rework') say('rework', `The review asked for changes on ${t.id}${t.review?.summary ? `: ${t.review.summary}` : '.'}`, true);
     else if (moved && t.state === 'blocked') say('blocked', `${t.id} is blocked: ${t.title}`, true);
-    if (t.display === 'needs-you' && p.display !== 'needs-you' && t.state === 'running' && !t.asking) say('waiting', `${t.id}'s agent is waiting for you in its own prompt.`, true);
+    // Its builder stopped before acc done or acc block (D-067): what it last said, and Resume.
+    if (t.stopped && !p.stopped && t.state === 'running') out.push({ kind: 'stopped', task: t.id, text: stoppedNotice(t.id, t.stopped.said), urgent: true, actions: [['Resume', 'acc.task.resume']] });
+    else if (t.display === 'needs-you' && p.display !== 'needs-you' && t.state === 'running' && !t.asking && !t.stopped && !t.autopilot) say('waiting', `${t.id}'s agent is waiting for you in its own prompt.`, true);
     const passed = (r: TaskRow) => r.state === 'review' && r.review?.verdict === 'pass' && r.review.current && !r.pr;
     if (passed(t) && !passed(p)) say('passed', `The review passed ${t.id}. It's ready to land.`, false);
     const pr = t.pr;
@@ -527,12 +538,23 @@ export function taskNotices(before: TaskRow[], after: TaskRow[]): TaskNotice[] {
   return out;
 }
 
+/** The last thing a stopped agent said, on one line, short enough for a card or a notice. */
+export function saidLine(said: string, max = 200): string {
+  const one = said.replace(/\s+/g, ' ').trim();
+  return one.length > max ? `${one.slice(0, max - 1).trimEnd()}…` : one;
+}
+
+/** "GH-41's agent stopped: API Error: Your computer went to sleep mid-response. …" (D-067). */
+export const stoppedNotice = (id: string, said: string | null): string =>
+  said ? `${id}'s agent stopped: ${endSentence(saidLine(said))}` : `${id}'s agent stopped before acc done or acc block.`;
+
 /** The buttons a notice offers, as [label, command] pairs. The task's page is always the last. */
 export function noticeActions(n: TaskNotice): [label: string, command: string][] {
   // Every notice can open its task, once: an action that already does, such as Review the update, is it.
   if (n.actions) return n.actions.some(([, c]) => c === 'acc.task.show') ? n.actions : [...n.actions, ['Show', 'acc.task.show']];
   const first: Partial<Record<NoticeKind, [string, string]>> = {
     waiting: ['Open in Claude Code', 'acc.task.openInClaude'],
+    stopped: ['Resume', 'acc.task.resume'],
     review: ['Review', 'acc.task.review'],
     passed: ['Land', 'acc.task.land'],
     rework: ['Re-dispatch', 'acc.task.dispatch'],
@@ -579,9 +601,7 @@ export function statusSummary(rows: Pick<TaskRow, 'id' | 'title' | 'display'>[],
 // ---------------------------------------------------------------- autopilot, hosted by the Command Center (D-064)
 
 /** What a step autopilot couldn't take is called, as acc says it: "couldn't land GH-31". */
-const AUTOPILOT_VERB = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update' } as const;
-
-const endSentence = (text: string): string => text.trim().replace(/([^.!?])$/, '$1.');
+const AUTOPILOT_VERB = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update', resume: 'resume' } as const;
 
 /** What autopilot needs to know about a task to tell its steps: who it's tracked in, and its moves. */
 export interface AutopilotTask {
@@ -601,7 +621,7 @@ export function autopilotNotices(steps: AutopilotRecord[], tasks: AutopilotTask[
     const t = tasks.find((x) => x.id === r.task);
     const say = (text: string, urgent: boolean, actions: [string, string][] = []) => out.push({ kind: 'autopilot', task: r.task, text, urgent, actions });
     if (r.outcome === 'failed') {
-      const by = { review: ['Review', 'acc.task.review'], land: ['Land', 'acc.task.land'], dispatch: ['Re-dispatch', 'acc.task.dispatch'], refresh: ['Open pull request', 'acc.task.openPr'] }[r.step] as [string, string];
+      const by = { review: ['Review', 'acc.task.review'], land: ['Land', 'acc.task.land'], dispatch: ['Re-dispatch', 'acc.task.dispatch'], refresh: ['Open pull request', 'acc.task.openPr'], resume: ['Resume', 'acc.task.resume'] }[r.step] as [string, string];
       say(`Autopilot couldn't ${AUTOPILOT_VERB[r.step]} ${r.task}${r.step === 'refresh' ? ' from its base' : ''}: ${endSentence(r.reason || 'it didn\'t say why')}`, true, [by]);
     } else if (r.step === 'review' && r.verdict === 'changes') {
       // Autopilot re-dispatches a rework once: a second one waits for a person.
@@ -617,6 +637,8 @@ export function autopilotNotices(steps: AutopilotRecord[], tasks: AutopilotTask[
       if (ticket) say(`${landed}. Its update for the ticket is ready for you to review and post.`, false, [['Review the update', 'acc.task.show'], pr]);
       else say(r.pr.opened ? landed : `${landed}.`, false, [pr]);
     } else if (r.step === 'dispatch') say(`Autopilot re-dispatched ${r.task} with its review's changes.`, false, [['Watch', 'acc.task.watch']]);
+    // A builder that stopped, carried on once (D-067): what it last said.
+    else if (r.step === 'resume') say(`Autopilot resumed ${r.task}${r.reason ? `: ${endSentence(saidLine(r.reason))}` : '.'}`, false, [['Watch', 'acc.task.watch']]);
     else if (r.step === 'refresh') {
       if (r.base) say(`Autopilot merged ${r.base} into ${r.task}, and its checks passed. It's reviewed next, then landed.`, false, [['Open pull request', 'acc.task.openPr']]);
       else say(`${r.pr ? `Pull request #${r.pr.number} (${r.task})` : r.task} no longer conflicts with its base: autopilot found nothing to merge.`, false);
@@ -656,7 +678,7 @@ export interface AutopilotStatusInput {
   last?: string | null;
 }
 
-const AUTOPILOT_DOES = 'it reviews finished work, lands work whose review passed as a pull request, and re-dispatches a rework once. It never merges.';
+const AUTOPILOT_DOES = 'it reviews finished work, lands work whose review passed as a pull request, re-dispatches a rework once, and resumes a stopped builder once a run. It never merges.';
 
 /**
  * The status bar's autopilot switch (D-064): an icon and the words "Autopilot: on" or "Autopilot: off",

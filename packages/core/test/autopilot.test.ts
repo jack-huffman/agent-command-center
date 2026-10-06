@@ -13,7 +13,8 @@ import { repoPaths } from '../src/paths.ts';
 import { readVerdict, reviewPath, type Verdict } from '../src/review.ts';
 import { withSlot } from '../src/semaphore.ts';
 import { listUpdates } from '../src/updates.ts';
-import { bad, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, tempDir } from './support.ts';
+import { transcriptDir } from '../src/transcript.ts';
+import { bad, fakeAwake, fakeRunner, GENERIC_CONFIG, gh41Lines, gitIn, makeRepo, ok, SLEPT, tempDir } from './support.ts';
 
 const now = () => new Date('2026-10-05T12:00:00Z');
 const BRANCH = 'task/T-1-add-sum';
@@ -317,7 +318,8 @@ test('what waits isn\'t a failure: a full agent cap, a cap that fills meanwhile,
   const calls: string[] = [];
   const r = autopilotPass(s.paths, s.config, deps(calls));
   assert.deepEqual([r.steps[0]!.outcome, r.steps[0]!.reason], ['waiting', '1 tasks are running. The limit is 1.']);
-  assert.ok(!calls.some((c) => c.startsWith('claude')));
+  // Nothing was dispatched. A task is running, so the pass looked at Claude Code's sessions once (D-067).
+  assert.deepEqual(calls.filter((c) => c.startsWith('claude')), ['claude agents --json']);
 
   const s2 = setup({ state: 'rework', max: 1 });
   const fills = autopilotPass(s2.paths, s2.config, { ...deps([]), steps: { dispatch: () => {
@@ -496,4 +498,101 @@ test('the events are read from their tail first, then only what was added, a who
   // A file made again is read again from its start.
   writeFileSync(file, `${line(1)}\n`);
   assert.deepEqual(readAutopilotLog(file, log)!.records.map((r) => r.seq), [1]);
+});
+
+// ---------------------------------------------------------------- a builder that stopped (D-067)
+
+/** T-1 running as GH-41 was after the Mac slept: its session gone from claude agents, its transcript ending in the API error. */
+function stoppedSetup() {
+  const s = setup({ state: 'running' });
+  edit(s.paths, (l) => { l.tasks[0]!.run = { ...l.tasks[0]!.run, bgId: 'bg9', sessionId: 'sess-9', startedAt: '2026-10-05T11:00:00.000Z' }; });
+  const projects = tempDir('projects-');
+  mkdirSync(transcriptDir(projects, s.dir), { recursive: true });
+  writeFileSync(join(transcriptDir(projects, s.dir), 'sess-9.jsonl'), gh41Lines('sess-9', s.dir).join('\n') + '\n');
+  const clock = { at: now().getTime() };
+  const launched: string[][] = [];
+  const pass = (calls: string[] = [], over: Partial<AutopilotDeps> = {}) => autopilotPass(s.paths, s.config, {
+    ...deps(calls, { 'claude agents --json': ok('[]') }), now: () => new Date(clock.at),
+    resume: { projectsDir: projects, awake: fakeAwake().deps, launch: (_c, args) => { launched.push(args); return 4_000_001; } },
+    ...over,
+  });
+  return { ...s, clock, launched, pass, later: (min: number) => { clock.at += min * 60_000; } };
+}
+
+test('autopilot resumes a stopped builder once a run, as the orchestrator, and says what it last said', () => {
+  const s = stoppedSetup();
+  const calls: string[] = [];
+  const r = s.pass(calls);
+  assert.deepEqual(brief(r.steps)[0], ['T-1', 'resume', 'done']);
+  assert.equal(r.steps[0]!.sha, s.sha, 'on its branch\'s latest commit');
+  assert.equal(r.steps[0]!.reason, `Resumed its builder, which last said: ${SLEPT}`);
+  assert.equal(calls.filter((c) => c === 'claude agents --json').length, 2, 'one look for the pass, and the resume\'s own just before it starts');
+  assert.equal(s.launched.length, 1);
+  assert.deepEqual(s.launched[0]!.slice(2, 4), ['--resume', 'sess-9']);
+  assert.match(s.launched[0]![1]!, /Your last turn ended before you ran acc done or acc block/);
+  const t = first(s.paths);
+  assert.deepEqual(t.run?.resumes?.map((x) => [x.actor, x.by]), [['orchestrator', AUTOPILOT_BY]]);
+  assert.equal(t.state, 'running');
+  // Its event is autopilot's step, for History and the notice (D-064).
+  assert.deepEqual(autopilotEvent(events(s.paths).at(-1)!), { seq: events(s.paths).at(-1)!.seq, at: new Date(s.clock.at).toISOString(), task: 'T-1', step: 'resume', outcome: 'done', reason: SLEPT });
+});
+
+test('a second stop waits for a person, even after a person resumed it; a new dispatch is a new run', () => {
+  const s = stoppedSetup();
+  assert.deepEqual(brief(s.pass().steps)[0], ['T-1', 'resume', 'done']);
+  assert.deepEqual(brief(s.pass().steps)[0], ['T-1', null, 'skipped'], 'just resumed: not listed yet, so not judged');
+  s.later(3);
+  const again = s.pass();
+  assert.deepEqual(brief(again.steps)[0], ['T-1', null, 'waiting']);
+  assert.equal(again.steps[0]!.reason, 'Its agent stopped again. Autopilot resumed it once already: a person resumes it.');
+  // A person's resume doesn't give autopilot another go.
+  edit(s.paths, (l) => { l.tasks[0]!.run!.resumes!.push({ at: new Date(s.clock.at).toISOString(), actor: 'human', by: 'human:jack' }); });
+  s.later(3);
+  assert.deepEqual(brief(s.pass().steps)[0], ['T-1', null, 'waiting']);
+  assert.equal(s.launched.length, 1, 'resumed once');
+  // A new dispatch starts a new run, with its own one resume.
+  edit(s.paths, (l) => { l.tasks[0]!.run = { ...l.tasks[0]!.run, startedAt: new Date(s.clock.at - 10 * 60_000).toISOString(), resumes: undefined }; });
+  assert.deepEqual(brief(s.pass().steps)[0], ['T-1', 'resume', 'done']);
+  assert.equal(s.launched.length, 2);
+});
+
+test('a builder at work, or one autopilot can\'t see, is left alone', () => {
+  const s = stoppedSetup();
+  const working = s.pass([], { run: deps([], { 'claude agents --json': ok(JSON.stringify([{ id: 'bg9', sessionId: 'sess-9', kind: 'background', name: 'T-1', pid: 9, state: 'working', status: 'busy' }])) }).run });
+  assert.deepEqual([brief(working.steps)[0], working.steps[0]!.reason], [['T-1', null, 'skipped'], 'Its builder is working.']);
+  const blind = s.pass([], { run: deps([], { 'claude agents --json': bad('timed out') }).run });
+  assert.deepEqual(brief(blind.steps)[0], ['T-1', null, 'skipped'], 'claude agents didn\'t answer: nothing is judged stopped');
+  assert.equal(s.launched.length, 0);
+});
+
+test('a resume that fails is kept on the task, which needs you; one whose agent came back meanwhile just waits', () => {
+  const s = stoppedSetup();
+  const back = s.pass([], { steps: { resume: () => { throw new AccError('agent-active', 'T-1\'s agent is still working.'); } } });
+  assert.deepEqual([brief(back.steps)[0], back.steps[0]!.reason], [['T-1', 'resume', 'waiting'], 'T-1\'s agent is still working. Autopilot looks again next pass.']);
+  assert.equal(first(s.paths).autopilot, undefined, 'nothing recorded');
+  const failed = s.pass([], { steps: { resume: () => { throw new AccError('resume', 'Claude Code didn\'t start.'); } } });
+  assert.deepEqual(brief(failed.steps)[0], ['T-1', 'resume', 'failed']);
+  const t = first(s.paths);
+  assert.deepEqual(t.autopilot?.failed, { step: 'resume', sha: s.sha, state: 'running', reason: 'Claude Code didn\'t start.', at: new Date(s.clock.at).toISOString() });
+  assert.equal(displayState(readLedger(s.paths.ledger), t), 'needs-you');
+  assert.deepEqual(autopilotEvent(events(s.paths).at(-1)!)?.step, 'resume');
+  const waits = s.pass();
+  assert.deepEqual(brief(waits.steps)[0], ['T-1', null, 'waiting']);
+  assert.match(waits.steps[0]!.reason, /^Autopilot couldn't resume [0-9a-f]{7}: Claude Code didn't start\. It waits for a person, or a new commit\.$/);
+  assert.equal(s.launched.length, 0);
+});
+
+test('the next step for a running task: working, stopped, or stopped again', () => {
+  const s = stoppedSetup();
+  const t = first(s.paths);
+  const l = readLedger(s.paths.ledger);
+  const facts = (stopped: boolean): TaskFacts => ({ head: s.sha, verdict: null, reviewing: null, landed: null, stopped });
+  assert.deepEqual(nextStep(l, s.config, t, facts(false)), { step: null, outcome: 'skipped', reason: 'Its builder is working.' });
+  assert.deepEqual(nextStep(l, s.config, t, facts(true)), { step: 'resume', outcome: null, reason: 'Its agent stopped before acc done or acc block.' });
+  const resumed = { ...t, run: { ...t.run, resumes: [{ at: now().toISOString(), actor: 'orchestrator' as const, by: AUTOPILOT_BY }] } };
+  assert.equal(nextStep(l, s.config, resumed, facts(true)).outcome, 'waiting');
+  // What taskFacts finds, from the sessions listed.
+  assert.equal(taskFacts(s.paths, t, run, [], now()).stopped, true);
+  assert.equal(taskFacts(s.paths, t, run, null, now()).stopped, false);
+  assert.equal(taskFacts(s.paths, t, run, [], now()).head, s.sha);
 });

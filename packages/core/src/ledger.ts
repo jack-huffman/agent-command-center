@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { releaseAwake } from './awake.ts';
 import { type Config, defaultEnvironment, environmentByBranch } from './config.ts';
 import { AccError } from './exec.ts';
 import { withLock } from './lock.ts';
@@ -30,12 +31,21 @@ export interface HistoryEntry {
   override?: true;
 }
 
+/** A stopped builder carried on in its session, by a person or by autopilot (D-067). */
+export interface Resume {
+  at: string;
+  actor: Actor;
+  by: string;
+}
+
 export interface Run {
   bgId?: string;
   sessionId?: string;
   worktree?: string;
   branch?: string;
   startedAt?: string;
+  /** Each time its session was resumed. A dispatch starts a new run, so a new list. */
+  resumes?: Resume[];
 }
 
 export interface PullRequest {
@@ -57,7 +67,7 @@ export interface PullRequest {
   mergeSha?: string;
 }
 
-export const AUTOPILOT_STEPS = ['review', 'land', 'dispatch', 'refresh'] as const;
+export const AUTOPILOT_STEPS = ['review', 'land', 'dispatch', 'refresh', 'resume'] as const;
 export type AutopilotStepName = (typeof AUTOPILOT_STEPS)[number];
 
 /** A step autopilot took that failed: it isn't tried again on that commit, and the task needs you (D-055). */
@@ -364,7 +374,7 @@ export function applyMove(task: Task, req: MoveRequest, emit: Emit, now: () => D
 export function moveTask(
   paths: RepoPaths, config: Config, id: string, req: MoveRequest, hooks: Hooks, now: () => Date,
 ): { task: Task; entry: HistoryEntry } {
-  return mutate(paths, now, (ledger, emit) => {
+  const moved = mutate(paths, now, (ledger, emit) => {
     const task = ledger.tasks.find((t) => t.id === id);
     if (!task) throw new AccError('no-task', `No task ${id}.`);
     const problems = checkMove(ledger, config, task, req, hooks);
@@ -372,6 +382,9 @@ export function moveTask(
     const entry = applyMove(task, req, emit, now);
     return { task, entry };
   });
+  // Done, blocked, set aside or abandoned: nothing keeps the Mac awake for it any more (D-067).
+  if (moved.entry.from === 'running') releaseAwake(paths, id);
+  return moved;
 }
 
 export interface AllowedMove {
@@ -412,6 +425,65 @@ export const autopilotFailure = (task: Task): AutopilotFailure | null =>
 export interface SessionInfo {
   state?: string;
   status?: string;
+  /** Its builder's session ended or went idle without acc done or acc block (builderStopped). */
+  stopped?: boolean;
+}
+
+/** A Claude Code session, as `claude agents --json` lists it. Background sessions have an id and a state. */
+export interface ClaudeSession {
+  id?: string;
+  sessionId?: string;
+  pid?: number;
+  kind?: string;
+  name?: string;
+  cwd?: string;
+  /** Background sessions: working, blocked, done, failed or stopped. */
+  state?: string;
+  /** busy, waiting or idle, while it has a process. */
+  status?: string;
+}
+
+/** The sessions that are a running task's builder: its background session, and any carrying on its conversation. */
+export function sessionsOf(task: Pick<Task, 'id' | 'run'>, sessions: ClaudeSession[]): ClaudeSession[] {
+  const run = task.run;
+  const mine = sessions.filter((s) => (!!run?.bgId && s.id === run.bgId) || (!!run?.sessionId && s.sessionId === run.sessionId));
+  // A builder started some other way, before its session was linked to the task.
+  return mine.length || run?.bgId || run?.sessionId ? mine : sessions.filter((s) => s.kind === 'background' && s.name === task.id);
+}
+
+/**
+ * Whether a session is still the builder at work: it has a process, and isn't idle at the end of its
+ * turn. A background session keeps its last state once its process has gone, such as "blocked" after
+ * an API error (GH-41), so the process is what counts. A conversation open in a terminal or a Claude
+ * Code tab, or resumed with claude -p, is someone carrying it on.
+ */
+export function sessionActive(s: ClaudeSession): boolean {
+  if (!s.pid) return false;
+  if (s.kind !== 'background') return true;
+  if (s.state === 'done' || s.state === 'failed' || s.state === 'stopped') return false;
+  return s.status !== 'idle';
+}
+
+/** How long after a dispatch or a resume a builder can't yet count as stopped: its session may not be listed. */
+export const STOPPED_GRACE_MS = 2 * 60_000;
+
+/** When the task's builder last started: its dispatch, or its latest resume. */
+export function runStartedAt(task: Pick<Task, 'run'>): string | null {
+  const times = [task.run?.startedAt, ...(task.run?.resumes ?? []).map((r) => r.at)].filter((t): t is string => !!t);
+  return times.sort().at(-1) ?? null;
+}
+
+/**
+ * Whether a running task's builder stopped without acc done or acc block (D-067): its session ended, went
+ * idle, or is gone from `claude agents`, two minutes or more after it started. Never when `claude agents`
+ * didn't answer (null), or while a resume of it runs. Pure, so the Command Center, autopilot and acc show
+ * agree, as closedPr is shared.
+ */
+export function builderStopped(task: Pick<Task, 'id' | 'state' | 'run'>, sessions: ClaudeSession[] | null, o: { resuming: boolean; now: Date; graceMs?: number }): boolean {
+  if (task.state !== 'running' || !sessions || o.resuming) return false;
+  const started = runStartedAt(task);
+  if (!started || o.now.getTime() - Date.parse(started) < (o.graceMs ?? STOPPED_GRACE_MS)) return false;
+  return !sessionsOf(task, sessions).some(sessionActive);
 }
 
 /** The pull request of a task in review that someone closed without merging: it waits for a person, who lands it again or not (D-063). */
@@ -422,7 +494,8 @@ export function displayState(ledger: Ledger, task: Task, session?: SessionInfo):
   if (task.state === 'todo' && isReady(ledger, task)) return 'ready';
   // A step autopilot couldn't take waits on you, or on a new commit (D-055).
   if (autopilotFailure(task)) return 'needs-you';
-  if (task.state === 'running' && (session?.state === 'blocked' || session?.status === 'waiting')) return 'needs-you';
+  // Its builder stopped before acc done or acc block (D-067), or waits in its own prompt.
+  if (task.state === 'running' && (session?.stopped || session?.state === 'blocked' || session?.status === 'waiting')) return 'needs-you';
   // An open pull request whose checks fail, that a person asked to change, or that conflicts with its
   // base, waits on you (D-033, D-049).
   if (task.state === 'review' && task.pr?.state === 'open' && (task.pr.ci === 'failing' || task.pr.changesRequested || !!task.pr.conflicts?.length)) return 'needs-you';
