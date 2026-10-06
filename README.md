@@ -160,7 +160,9 @@ npm run acc -- doctor    # run the CLI from source
 ./dist/acc doctor        # run the bundle the last build made
 npm run validate-plugin  # claude plugin validate --strict, on the plugin and the marketplace
 npm run screenshot       # render the editor tabs with sample data, into dist/screenshots/
-npm run package          # a release: check, refresh plugin/bin/, package the extension into dist/
+npm run set-version -- 0.36.0  # the one way to change the version, everywhere it's written
+npm run package          # check, package the extension into dist/, scan it for personal data, refresh plugin/bin/
+npm run release          # on main, in a terminal: a GitHub Release with the .vsix and its CHANGELOG entry
 ```
 
 `npm run build` bundles the CLI into `dist/acc.mjs`, which git ignores, puts the
@@ -171,10 +173,17 @@ else node 20 or later on PATH, else the VSCode runtime named in
 hooks never break a session, and anything else says what to do in one line.
 
 `plugin/bin/` is committed, because a plugin installed from git has no build
-step, but only a release refreshes it, copying the launcher and `acc.mjs`
-together: `npm run package`, or `npm run build -- --release` on its own. A
-branch's checks never change it, so pull requests don't conflict over a
-generated file (D-042).
+step, but only `npm run package` refreshes it, copying the launcher and
+`acc.mjs` together once the package has passed its checks. A branch's checks
+never change it, so pull requests don't conflict over a generated file (D-042).
+
+acc, the extension and the plugin share one version, the root package.json's,
+and `CHANGELOG.md` says what changed in each. `npm run package` refuses a
+version with no CHANGELOG entry, and a package holding the packager's personal
+data: a home path, their email or GitHub account, or a tracker they've signed
+in to. Each find is listed by file and line. A release goes: set the version
+and write its entry on a branch; after the merge, `npm run package` on main,
+commit plugin/bin and push; then `npm run release` (D-???).
 
 `npm run screenshot` renders each tab in headless Chrome, in dark and light
 themes, at 1000, 620 and 500 pixels wide, with one row shown hovered. Chrome
