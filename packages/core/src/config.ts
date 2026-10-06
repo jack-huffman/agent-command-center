@@ -407,8 +407,12 @@ export function writeConfig(file: string, config: Config): void {
   const out = {
     ...config,
     environments: config.environments.map(({ branch: _branch, ...e }) => e),
-    // A tracker says it may change tickets only when it may (D-066).
-    trackers: config.trackers.map(({ edits, ...t }) => (edits ? { ...t, edits } : t)),
+    // A tracker is written as it was given, so the file loads again: what it doesn't set stays out, and it
+    // says it may change tickets only when it may (D-066).
+    trackers: config.trackers.map(({ edits, ...t }) => ({
+      ...Object.fromEntries(Object.entries(t).filter(([k, v]) => v !== null && !(k === 'skipLabels' && Array.isArray(v) && !v.length))),
+      ...(edits ? { edits } : {}),
+    })),
     agents: { ...agents, ...(Object.keys(profile(builder)).length ? { builder: profile(builder) } : {}), ...(Object.keys(profile(reviewer)).length ? { reviewer: profile(reviewer) } : {}) },
   };
   writeFileSync(file, JSON.stringify(out, null, 2) + '\n');

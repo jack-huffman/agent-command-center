@@ -153,6 +153,12 @@ test('acc block --client blocks and drafts an update with the question; a plain 
   assert.deepEqual(readdirSync(updates), ['GH-3.1.json'], 'only the client\'s question is drafted');
   assert.equal(acc(dir, ['set', 'ACME-7', 'running', '--client', 'Why?']).code, 2, '--client goes only with blocking');
   assert.equal(acc(dir, ['set', 'ACME-7', 'blocked', '--client', 'Which queue?']).code, 1, 'a blocked task can\'t be blocked again');
+
+  // A task's id with only --client after it is the task, not the reason.
+  const named = ticketsRepo();
+  const p = acc(named.dir, ['block', 'ACME-7', '--client', 'Which queue should Gold cases go to?', '--json']);
+  assert.equal(p.code, 0, p.err);
+  assert.deepEqual([p.json().task.id, p.json().task.blocker, p.json().update.key], ['ACME-7', 'Waiting on the client: Which queue should Gold cases go to?', 'ACME-7']);
 });
 
 test('acc updates lists the drafts; a person posts a GitHub one with their edits, as the repo\'s account, and discards another', () => {

@@ -1117,7 +1117,8 @@ export async function main(argv: string[]): Promise<number> {
     case 'done': return cmdSet(o, taskIdFrom(rest[0]), 'review');
     case 'block': {
       const [first, ...more] = rest;
-      const looksLikeId = !!first && /^[A-Z][A-Z0-9_]*-\d+$/i.test(first) && more.length > 0;
+      // An id with words after it, or with --client, whose question is the reason: acc block ACME-7 --client "…".
+      const looksLikeId = !!first && /^[A-Z][A-Z0-9_]*-\d+$/i.test(first) && (more.length > 0 || typeof o.client === 'string');
       const id = taskIdFrom(looksLikeId ? first : undefined);
       const client = typeof o.client === 'string' ? o.client.trim() : '';
       // A question for the client is the reason too, so the board says what it waits on.

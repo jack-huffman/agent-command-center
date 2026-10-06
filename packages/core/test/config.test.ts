@@ -105,6 +105,16 @@ test('writeConfig round-trips and leaves derived branches out of the file', () =
   assert.deepEqual(loadConfig(file).config, config);
 });
 
+test('a config acc writes with trackers loads again: what a tracker doesn\'t set stays out of the file, as acc init --jira-site writes it', () => {
+  const trackers = [{ kind: 'jira', site: 'acme.atlassian.net', project: 'MSP' }, { kind: 'github', skipLabels: ['milestone'], edits: true }];
+  const { config, errors } = parseConfig({ ...clone(SF_CONFIG), trackers });
+  assert.deepEqual(errors, []);
+  const file = join(tempDir(), 'config.json');
+  writeConfig(file, config!);
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')).trackers, trackers, 'no "prefix": null, which wouldn\'t load');
+  assert.deepEqual(loadConfig(file).config, config);
+});
+
 test('autopilot.appendOnly lists files inside the repo; left out, there\'s no section and nothing is append-only (D-058)', () => {
   const plain = parseConfig(clone(GENERIC_CONFIG));
   assert.deepEqual([plain.errors, plain.warnings, plain.config!.autopilot], [[], [], undefined]);
