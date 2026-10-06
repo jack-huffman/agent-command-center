@@ -365,7 +365,13 @@ export function activate(context: vscode.ExtensionContext): void {
   identity.onDidChange(changed);
   // An edit on a task's page changes what the Overview shows for its update, and whether it offers Post.
   tickets.onDidEdit(changed);
-  reg('acc.trackers.add', async () => { await trackers.add(); await setup.recheck('B14.tickets'); });
+  // From a project's button its root comes along, and from the Jira button the kind too.
+  // Setup's buttons send a step or an item instead, whose kind isn't a tracker's.
+  reg('acc.trackers.add', async (n?: { root?: unknown; kind?: unknown }) => {
+    const kind = n?.kind === 'azure' || n?.kind === 'jira' || n?.kind === 'github' ? n.kind : undefined;
+    await trackers.add({ root: typeof n?.root === 'string' ? n.root : undefined, kind });
+    await setup.recheck('B14.tickets');
+  });
   reg('acc.trackers.signIn', async (arg?: unknown) => { if (await trackers.signIn(arg)) tickets.refresh(); await setup.recheck('B14.tickets'); });
   reg('acc.trackers.signOut', async (arg?: unknown) => { await trackers.signOut(arg); await setup.recheck('B14.tickets'); });
   // B14: acc doctor sees the config; only the extension can see this repo's sign-ins.

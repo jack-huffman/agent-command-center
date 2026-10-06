@@ -359,15 +359,17 @@ export class Trackers implements vscode.Disposable {
    * A guided way to name a repo's tracker: pick the kind, sign in, then pick the project, team and board
    * from what the tracker lists. It's written to that repo's .acc/config.json, and nowhere else.
    */
-  async add(): Promise<void> {
+  async add(opts: { root?: string; kind?: 'azure' | 'jira' | 'github' } = {}): Promise<void> {
     const projects = this.hub.projects;
     if (!projects.length) {
-      void vscode.window.showInformationMessage('Open an onboarded project first: one with .acc/config.json.');
+      void vscode.window.showInformationMessage('Onboard this project first: Agent Command Center: Onboard this project.');
       return;
     }
-    const p = projects.length === 1 ? projects[0]! : (await vscode.window.showQuickPick(projects.map((x) => ({ label: x.name, description: x.root, x })), { title: 'Add a tracker to which project?' }))?.x;
+    // From a project's own button, that project; otherwise the only one, or ask.
+    const named = opts.root ? projects.find((x) => x.root === opts.root) : undefined;
+    const p = named ?? (projects.length === 1 ? projects[0]! : (await vscode.window.showQuickPick(projects.map((x) => ({ label: x.name, description: x.root, x })), { title: 'Add a tracker to which project?' }))?.x);
     if (!p) return;
-    const kind = (await vscode.window.showQuickPick([
+    const kind = opts.kind ?? (await vscode.window.showQuickPick([
       { label: '$(azure-devops) Azure DevOps', description: 'Azure Boards work items', tracker: 'azure' as const },
       { label: '$(issues) Jira', description: 'Jira Cloud', tracker: 'jira' as const },
       { label: '$(github) GitHub Issues', description: p.config.github?.repo ?? '', tracker: 'github' as const },
@@ -381,7 +383,7 @@ export class Trackers implements vscode.Disposable {
       this.clients.clear();
       await this.loadBoards(p.root);
       void vscode.commands.executeCommand('acc.open.tasks');
-      void vscode.window.showInformationMessage(`Added to ${p.name}'s .acc/config.json. Commit it on each environment's branch, so every checkout of ${p.name} shows the same board.`);
+      void vscode.window.showInformationMessage(`${p.name}'s tickets are on the Tasks tab now. acc wrote the tracker to .acc/config.json: commit it on each environment's branch, so every checkout shows the same board.`);
     } catch (e) {
       void vscode.window.showErrorMessage(`Couldn't add the tracker: ${(e as Error).message}`);
     }

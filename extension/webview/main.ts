@@ -252,7 +252,7 @@ function renderTasks(m: TasksModel): Node[] {
     // With a tracker's board on show, its tickets come from the board ("Track in acc"), not an import.
     if (!p.boards.length) {
       if (p.github) tools.push(toolbarButton('acc.task.importGithub', 'Import GitHub issues', 'github', p.root));
-      tools.push(toolbarButton('acc.task.importJira', 'Jira', 'cloud-download', p.root));
+      tools.push(toolbarButton('acc.task.importJira', 'Connect Jira', 'plug', p.root));
     }
     const ready = p.columns.find((c) => c.group === 'ready')?.cards.length ?? 0;
     const needs = p.columns.find((c) => c.group === 'needs-you')?.cards.length ?? 0;

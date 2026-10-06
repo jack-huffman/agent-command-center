@@ -23,6 +23,8 @@ const event = () => () => disposable;
 function fakeVscode(folder: string) {
   const calls = {
     commands: new Map<string, (...a: unknown[]) => unknown>(), contexts: new Map<string, unknown>(), info: [] as string[], warn: [] as string[], terminal: [] as string[],
+    /** Every command the extension ran, with what it passed. */
+    executed: [] as [string, unknown[]][],
     /** What a quick pick answers, when a test wants it to. */
     pick: undefined as ((items: { value?: string }[]) => unknown) | undefined,
   };
@@ -96,7 +98,7 @@ function fakeVscode(folder: string) {
     },
     commands: {
       registerCommand: (id: string, fn: (...a: unknown[]) => unknown) => { calls.commands.set(id, fn); return disposable; },
-      executeCommand: async (id: string, ...args: unknown[]) => { if (id === 'setContext') calls.contexts.set(args[0] as string, args[1]); return undefined; },
+      executeCommand: async (id: string, ...args: unknown[]) => { calls.executed.push([id, args]); if (id === 'setContext') calls.contexts.set(args[0] as string, args[1]); return undefined; },
     },
     env: { openExternal: async () => true, clipboard: { writeText: async () => {} } },
   };
@@ -289,6 +291,14 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     const warned = calls.warn.length;
     await calls.commands.get('acc.autopilot.toggle')!();
     assert.match(calls.warn[warned] ?? '', /no "github" section/, 'a click says why, and starts nothing');
+
+    // The Jira button, on a repo with no Jira yet, connects one here with Jira chosen: never a file to edit.
+    const ran = calls.executed.length;
+    await calls.commands.get('acc.task.importJira')!();
+    const connect = calls.executed.slice(ran).find(([id]) => id === 'acc.trackers.add');
+    assert.ok(connect, 'it starts the guided connect');
+    assert.deepEqual([(connect![1][0] as { kind: string }).kind, typeof (connect![1][0] as { root: string }).root], ['jira', 'string']);
+    assert.ok(!calls.info.some((m) => /config\.json \("trackers"/.test(m)), 'no instructions to edit the config');
 
     await calls.commands.get(COMMANDS.check)!('B0.repo');
     assert.match(calls.info.at(-1) ?? '', /^✓ Inside the project's repo: Repo at /);
