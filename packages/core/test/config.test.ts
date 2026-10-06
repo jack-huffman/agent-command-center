@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { branchFor, defaultEnvironment, loadConfig, parseConfig, skippedOnRoute, withTracker, writeConfig } from '../src/config.ts';
+import { branchFor, defaultEnvironment, loadConfig, parseConfig, skippedOnRoute, trackerForKey, withTracker, writeConfig } from '../src/config.ts';
 import { GENERIC_CONFIG, SF_CONFIG, tempDir } from './support.ts';
 
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x));
@@ -176,6 +176,12 @@ test('a tracker\'s ticket fields are read-only unless it says "edits": true, and
 test('this repo\'s own GitHub tracker may change its tickets\' fields', () => {
   const file = join(import.meta.dirname, '..', '..', '..', '.acc', 'config.json');
   assert.deepEqual(loadConfig(file).config.trackers.map((t) => [t.kind, t.edits]), [['github', true]]);
+});
+
+test('a ticket key belongs to the tracker that owns it: GitHub, the Azure prefix, the Jira project, not the first of its kind (D-???)', () => {
+  const list = [{ kind: 'jira' as const, project: 'OPS', prefix: null }, { kind: 'azure' as const, project: 'CRM', prefix: 'AV' }, { kind: 'jira' as const, project: 'MSP', prefix: null }, { kind: 'github' as const, project: null, prefix: null }];
+  assert.deepEqual(['MSP-7', 'msp-7', 'OPS-1', 'AV-12', 'GH-41', 'AB-3', 'CRM-2'].map((k) => trackerForKey(list, k)), [2, 2, 0, 1, 3, null, null]);
+  assert.equal(trackerForKey([{ kind: 'azure', project: 'CRM', prefix: null }], 'AB-3'), 0, 'Azure keys are AB- by default');
 });
 
 test('re-adding a tracker keeps the settings it had, in its place; a new one goes last (D-048)', () => {

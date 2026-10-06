@@ -10,7 +10,7 @@ import { type Doc, fromMarkdown } from '../../packages/core/src/trackers/doc.ts'
 import type { StatusCategory, Ticket } from '../../packages/core/src/trackers/types.ts';
 import type { GithubIdentity } from '../../packages/core/src/github.ts';
 import { GROUP_TITLES, STEPS } from '../../packages/core/src/onboarding/steps.ts';
-import type { Environment } from '../../packages/core/src/config.ts';
+import { type Environment, type Tracker, trackerForKey } from '../../packages/core/src/config.ts';
 import { promotionPaths } from '../../packages/core/src/promote.ts';
 import type { Answer, HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import { isOpenUpdate, stalePosting, type Update, UPDATE_ID, UPDATE_TEXT_MAX } from '../../packages/core/src/updates.ts';
@@ -62,8 +62,8 @@ export interface ProjectLike {
   name: string;
   root: string;
   agents?: { builder: ProfileLike; reviewer: ProfileLike };
-  /** autonomy: what autopilot may do on its own (D-055), when the config says. */
-  config: { github: { repo: string; account: string } | null; environments: Environment[]; profile: string; autonomy?: string };
+  /** autonomy: what autopilot may do on its own (D-055), when the config says. trackers: which owns a ticket's key (D-???). */
+  config: { github: { repo: string; account: string } | null; environments: Environment[]; profile: string; autonomy?: string; trackers?: Pick<Tracker, 'kind' | 'project' | 'prefix'>[] };
   branch: string | null;
   worktrees: { path: string; head: string; branch: string | null; main: boolean; changed: number; locked: boolean; prunable: boolean }[];
 }
@@ -541,7 +541,7 @@ export function ticketModel(i: TicketInput): TicketModel {
     related: t?.related ?? (i.task?.deps ?? []).map((d) => ({ key: d, title: '', relation: 'depends on', url: null })),
     // A client's tracker is theirs: the page changes its fields only where the tracker opts in (D-???).
     can: { status: !!t && !!i.trackerEdits, assign: !!t && !!i.trackerEdits, labels: !!t && !!i.trackerEdits, comment: !!t },
-    updates: i.task ? updateCards(i.project, (i.updates ?? []).filter((u) => u.task === i.task!.id), i.github ?? null, i.boards ?? [], i.now) : [],
+    updates: i.task ? updateCards(i.project, (i.updates ?? []).filter((u) => u.task === i.task!.id), i.github ?? null, i.boards ?? [], () => i.tracker, i.now) : [],
     acc, analysis: i.row && i.task ? ticketAnalysis(i.row, i.analysis ?? null, { project: i.project, task: i.row.id }, i.updates ?? []) : null,
     trackable: !!t && !i.task, signedInAs: i.signedInAs ?? null,
   };
@@ -596,23 +596,24 @@ export function updateAbout(u: Pick<Update, 'event' | 'env' | 'pr'>): string {
  * Who an update posts as, or why it can't be posted from here: GitHub as the repo's account (D-028), Jira
  * and Azure DevOps through this repo's sign-in (D-027). Without one, Post waits for it.
  */
-export function updatePoster(tracker: UpdateCard['tracker'], root: string, github: string | null, boards: BoardInput[]): Pick<UpdateCard, 'postAs' | 'blocked' | 'signIn'> {
+export function updatePoster(tracker: UpdateCard['tracker'], index: number | null, root: string, github: string | null, boards: BoardInput[]): Pick<UpdateCard, 'postAs' | 'blocked' | 'signIn'> {
   if (tracker === 'github') return github ? { postAs: github, blocked: null, signIn: null } : { postAs: null, blocked: 'This project has no GitHub account in .acc/config.json to post as.', signIn: null };
   const name = TRACKER_WORD[tracker];
-  const b = boards.find((x) => x.kind === tracker);
+  // The tracker that owns the ticket's key, not the first of its kind: a repo can have two Jira sites.
+  const b = index === null ? undefined : boards.find((x) => x.index === index && x.kind === tracker);
   if (!b) return { postAs: null, blocked: `This repo has no ${name} tracker to post through.`, signIn: null };
   if (b.signedInAs) return { postAs: b.signedInAs, blocked: null, signIn: null };
   return { postAs: null, blocked: `Sign in to ${name} first.`, signIn: b.connect ?? { command: 'acc.trackers.signIn', label: `Sign in to ${name}`, arg: JSON.stringify({ root, index: b.index }) } };
 }
 
-/** The updates still waiting on a person, as cards: drafts, and any being posted. */
-export function updateCards(root: string, updates: Update[], github: string | null, boards: BoardInput[], now = Date.now()): UpdateCard[] {
+/** The updates still waiting on a person, as cards: drafts, and any being posted. `trackerOf` finds the tracker that owns a key. */
+export function updateCards(root: string, updates: Update[], github: string | null, boards: BoardInput[], trackerOf: (key: string) => number | null, now = Date.now()): UpdateCard[] {
   return updates.filter(isOpenUpdate).map((u) => {
     const stale = stalePosting(u, new Date(now));
     const look = stale ? LOOK('May have posted', 'warning', 'orange') : u.state === 'posting' ? LOOK('Posting', 'sync~spin', 'blue') : LOOK('Draft update', 'comment-draft', 'orange');
     return {
       project: root, id: u.id, task: u.task, key: u.tracker === 'github' ? u.task : u.key, tracker: u.tracker, about: updateAbout(u), look, text: u.text,
-      state: u.state === 'posting' ? 'posting' : 'draft', stale, createdAt: u.createdAt, ...updatePoster(u.tracker, root, github, boards),
+      state: u.state === 'posting' ? 'posting' : 'draft', stale, createdAt: u.createdAt, ...updatePoster(u.tracker, u.tracker === 'github' ? null : trackerOf(u.key), root, github, boards),
       failed: u.state === 'draft' ? u.failed?.reason ?? null : null,
     };
   });
@@ -1492,7 +1493,7 @@ export function homeModel(i: HomeInput): HomeModel {
       }
     }
     // Updates acc drafted for tickets (D-???): each waits for a person to read and post it, or discard it.
-    for (const card of updateCards(p.root, hub.updates?.(p.root) ?? [], p.config.github?.account ?? null, i.boards(p.root))) {
+    for (const card of updateCards(p.root, hub.updates?.(p.root) ?? [], p.config.github?.account ?? null, i.boards(p.root), (key) => trackerForKey(p.config.trackers ?? [], key))) {
       attention.push({
         key: `u:${p.root}:${card.id}`, look: card.look, title: card.stale ? `Update for ${card.key} may have posted` : `Update ready for ${card.key}`,
         detail: `${p.name} · ${card.about}`, project: p.name,

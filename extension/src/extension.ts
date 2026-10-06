@@ -173,8 +173,9 @@ export function activate(context: vscode.ExtensionContext): void {
           return r.code === 0 ? { ok: true } : fail(accSays(r));
         }
         const name = u.tracker === 'jira' ? 'Jira' : 'Azure DevOps';
-        const index = trackers.trackers(p).findIndex((t) => t.kind === u.tracker);
-        if (index < 0) return fail(`this repo has no ${name} tracker to post through.`);
+        // Through the tracker that owns the key, not the first of its kind: a repo can have two Jira sites.
+        const index = trackers.trackerFor(p, u.key);
+        if (index === null || trackers.trackers(p)[index]?.kind !== u.tracker) return fail(`this repo has no ${name} tracker for ${u.key} to post through.`);
         if (!(await trackers.signedInAs(p, index))) return fail(`sign in to ${name} first.`);
         const claimed = await acc(['update', 'posting', id, ...againArgs, '--json'], p.root);
         if (claimed.code !== 0) return fail(accSays(claimed));

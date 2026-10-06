@@ -443,6 +443,19 @@ export function skippedOnRoute(config: Config, from: string, to: string): string
 }
 
 /**
+ * Which tracker a ticket key belongs to, by its index: GH-12 to GitHub, AB-123 to the Azure DevOps tracker
+ * with that prefix, MSP-7 to the Jira project MSP. A repo with two Jira sites posts each ticket's update
+ * through its own (D-???).
+ */
+export function trackerForKey(trackers: Pick<Tracker, 'kind' | 'project' | 'prefix'>[], key: string): number | null {
+  const k = key.toUpperCase();
+  const i = trackers.findIndex((t) => (/^GH-\d+$/.test(k) ? t.kind === 'github'
+    : t.kind === 'azure' ? k.startsWith(`${(t.prefix ?? 'AB').toUpperCase()}-`)
+      : t.kind === 'jira' && !!t.project && k.startsWith(`${t.project.toUpperCase()}-`)));
+  return i >= 0 ? i : null;
+}
+
+/**
  * The raw trackers list with one tracker added, or put in place of the one it describes (same kind,
  * project and site, organization or repo). Settings the new one doesn't name, such as a GitHub tracker's
  * skipLabels (D-048), are kept: re-adding a tracker never quietly drops them.

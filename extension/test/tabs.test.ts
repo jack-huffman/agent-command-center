@@ -279,7 +279,12 @@ test('each update acc drafted waits in Needs you, orange with its icon, counted,
   const updates = [draft('AV-1.1'), draft('AV-5.1', { event: 'question', question: 'q1', text: 'Before we start, a question for you:\nWhich?' }), draft('AV-3.1', { state: 'discarded' }), draft('AV-4.1', { state: 'posted' })];
   const rows: TaskRow[] = [row('AV-1', 'review', 'review'), { ...row('AV-5', 'todo', 'needs-you'), analysisRequired: true, analysis: asks }];
   const boards = (): BoardInput[] => [{ index: 0, kind: 'jira', title: 'Jira · AV', board: null, error: null, connect: null, loading: false, signedInAs: 'me@acme.example' }];
-  const m = homeModel({ hub: { ...hub(), agents: [], taskRows: () => rows, updates: () => updates }, section: 'overview', boards, identity: () => null, setup: { items: [], confirmed: new Set() } });
+  // The project's Jira trackers, by project key: which one owns a ticket's key is who its update posts as.
+  const withJira = (...projects: string[]) => {
+    const base = hub();
+    return { ...base, projects: [{ ...base.projects[0]!, config: { ...base.projects[0]!.config, trackers: projects.map((project) => ({ kind: 'jira' as const, project, prefix: null })) } }] };
+  };
+  const m = homeModel({ hub: { ...withJira('AV'), agents: [], taskRows: () => rows, updates: () => updates }, section: 'overview', boards, identity: () => null, setup: { items: [], confirmed: new Set() } });
   const items = m.overview.attention.filter((a) => a.update);
   assert.deepEqual(items.map((a) => [a.title, a.look.label, a.look.icon, a.look.tone, a.detail]), [
     ['Update ready for AV-1', 'Draft update', 'comment-draft', 'orange', 'Acme · Pull request #3 is ready for review'],
@@ -293,9 +298,14 @@ test('each update acc drafted waits in Needs you, orange with its icon, counted,
   assert.deepEqual(asked.questions.map((q) => [q.id, q.client]), [['q1', 'drafted'], ['q2', undefined]], 'q1 is drafted for the client; q2 can still be sent');
 
   // Not signed in: Post waits for the sign-in, which the row offers.
-  const out = homeModel({ hub: { ...hub(), agents: [], taskRows: () => rows, updates: () => updates }, section: 'overview', boards: () => [{ ...boards()[0]!, signedInAs: null }], identity: () => null, setup: { items: [], confirmed: new Set() } });
+  const out = homeModel({ hub: { ...withJira('AV'), agents: [], taskRows: () => rows, updates: () => updates }, section: 'overview', boards: () => [{ ...boards()[0]!, signedInAs: null }], identity: () => null, setup: { items: [], confirmed: new Set() } });
   const first = out.overview.attention.find((a) => a.update)!;
   assert.deepEqual([first.update!.blocked, first.extra?.label], ['Sign in to Jira first.', 'Sign in to Jira']);
+
+  // Two Jira sites: each ticket's update posts as the sign-in of the site that owns its key, not the first.
+  const sites = (): BoardInput[] => [{ ...boards()[0]!, title: 'Jira · OPS', signedInAs: 'ops@other.example' }, { ...boards()[0]!, index: 1, signedInAs: 'me@acme.example' }];
+  const both = homeModel({ hub: { ...withJira('OPS', 'AV'), agents: [], taskRows: () => rows, updates: () => updates }, section: 'overview', boards: sites, identity: () => null, setup: { items: [], confirmed: new Set() } });
+  assert.deepEqual(both.overview.attention.filter((a) => a.update).map((a) => a.update!.postAs), ['me@acme.example', 'me@acme.example'], 'AV-1 and AV-5 post through the AV site');
 });
 
 test('in review, a card offers the one next step: watch the reviewer, land a passing review, then follow the pull request', () => {
