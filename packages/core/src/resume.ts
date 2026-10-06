@@ -229,6 +229,8 @@ export function resume(paths: RepoPaths, config: Config, id: string, deps: Resum
       const t = l.tasks.find((x) => x.id === id);
       if (!t?.run || t.state !== 'running') throw new AccError('refused', `${id} left running meanwhile, so its resume was stopped.`);
       t.run.resumes = [...(t.run.resumes ?? []), { at, actor: opts.actor, by: opts.by }];
+      // Done by hand or by autopilot, it clears what autopilot couldn't do (D-055).
+      if (t.autopilot?.failed) t.autopilot.failed = null;
       t.updatedAt = at;
       emit({ type: 'task.updated', task: id, actor: opts.actor, by: opts.by, data: { resumed: { said: said ? clipSaid(said) : null } } });
       return t;

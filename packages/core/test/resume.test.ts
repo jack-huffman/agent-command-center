@@ -6,7 +6,7 @@ import { awakePath } from '../src/awake.ts';
 import { parseConfig, type Config } from '../src/config.ts';
 import { run, type RunResult } from '../src/exec.ts';
 import { remindedPath } from '../src/hooks.ts';
-import { type ClaudeSession, type LedgerEvent, mutate, readLedger, type State, upsertTasks } from '../src/ledger.ts';
+import { autopilotFailure, type ClaudeSession, displayState, type LedgerEvent, mutate, readLedger, type State, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
 import { endResume, type Launcher, resume, resumeCommand, resumeMessage, resuming, resumingPath } from '../src/resume.ts';
 import { transcriptDir } from '../src/transcript.ts';
@@ -88,6 +88,23 @@ test('a resume is written down: the marker, the run\'s resumes, an event, and th
   assert.equal(resuming(s.paths, 'GH-41'), null);
   writeFileSync(resumingPath(s.paths, 'GH-41'), JSON.stringify({ sessionId: SID, pid: process.pid, startedAt: now().toISOString(), by: 'human:jack', log: 'x' }));
   assert.equal(resuming(s.paths, 'GH-41')?.pid, process.pid);
+});
+
+test('a resume clears autopilot\'s failed resume, so the task stops needing you while its builder works (D-055)', () => {
+  const s = setup();
+  mutate(s.paths, now, (l, emit) => {
+    const failed = { step: 'resume' as const, sha: s.head, state: 'running' as const, reason: 'its background session wouldn\'t stop', at: now().toISOString() };
+    l.tasks[0]!.autopilot = { failed };
+    emit({ type: 'task.updated', task: 'GH-41', actor: 'orchestrator', by: 'orchestrator:autopilot', data: { autopilot: { failed } } });
+  });
+  const before = readLedger(s.paths.ledger);
+  assert.equal(displayState(before, before.tasks[0]!), 'needs-you', 'autopilot couldn\'t resume it');
+  resume(s.paths, s.config, 'GH-41', s.deps, { actor: 'human', by: 'human:jack' });
+  const after = readLedger(s.paths.ledger);
+  const t = after.tasks[0]!;
+  assert.equal(t.autopilot?.failed, null);
+  assert.equal(autopilotFailure(t), null);
+  assert.equal(displayState(after, t), 'running', 'done by hand, it clears what autopilot couldn\'t do');
 });
 
 test('an idle background session with a process is stopped first, so the conversation runs in one place (D-060)', () => {

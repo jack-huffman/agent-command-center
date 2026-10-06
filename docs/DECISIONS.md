@@ -1848,7 +1848,8 @@ hand, in its worktree, under `caffeinate -i`.
 - **Autopilot resumes a stopped builder once a run,** as the author chose: a
   person's resume in between doesn't give it another go, and a new dispatch
   (such as its rework) does. A second stop waits for a person. A resume that
-  fails is kept on the task, which needs you; one whose agent came back
+  fails is kept on the task, which needs you, until a resume works, by hand or
+  by autopilot (D-055); one whose agent came back
   meanwhile waits for the next pass. A pass asks `claude agents` once, only when
   a task is running.
 - **Keeping awake:** on macOS acc holds `caffeinate -i -w <pid>`: the
