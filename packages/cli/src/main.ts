@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
   ACTORS, AccError, type Actor, type ApexTest, configureRepoAccess, DISPLAY, type DisplayState, displayState, drift, gatesFor, gateTarget, isReady, loadConfig, makeContext, moveTask, mutate,
-  cleanup, dispatch, githubIdentity, intakeGithub, planInit, useGithubAccount, withCloneAccount, type Profile, readLedger, receiptsAt, STEPS, receiptHooks, repoPaths, run, runGates, runSteps, satisfies, type State, type StepResult, type TaskInput, type UpsertResult,
+  cleanup, type Config, dispatch, githubIdentity, intakeGithub, intakeOutside, type IntakeResult, planInit, trackerForKey, useGithubAccount, withCloneAccount, type Profile, readLedger, receiptsAt, STEPS, receiptHooks, repoPaths, run, runGates, runSteps, satisfies, type State, type StepResult, type TaskInput, type UpsertResult,
   upsertTasks, writeConfig, ask, hookOutput, parseHookInput, waiveGates, review, land, sync, planPromotion, promote, skipWarning, planDeploy, deploy, lastDeploy,
   buildBaseline, seedBranches, draftLists, writeReadme, parseEventInput, preToolUseHook, sessionStartHook, stopHook, AGENT_ROLES, type AgentRole, profileView, setProfile, withCloneAgents, type ProfileChange,
   analyze, type Analysis, answerAnalysis, openQuestions, readAnalysis,
@@ -13,6 +13,8 @@ import {
   builderStopped, claudeProjectsDir, clipSaid, lastSaid, listSessions, resume, resuming,
   claimUpdate, discardUpdate, draftUpdate, EVENT_WORDS, GH_TIMEOUT_MS, ghToken, githubIssue, isOpenUpdate, listUpdates, markPosted, readUpdate, releaseUpdate, stalePosting, type Update, UPDATE_TEXT_MAX, updateText,
 } from '../../core/src/index.ts';
+import { issueRepo } from '../../core/src/trackers/github.ts';
+import type { Outside } from '../../core/src/trackers/types.ts';
 import { checkLabel, gateLabel, stateLabel, table, tone } from './format.ts';
 
 const VERSION = '0.1.0';
@@ -35,9 +37,15 @@ Setup
 
 Tasks
   acc add "<title>" [--brief <text>] [--dep <id>]... [--env <branch>] [--key <T-n>]
-  acc import [--file <tasks.json>]      Add or refresh tasks from JSON (stdin by default)
-  acc intake github [--label <l>]       Add or refresh tasks from the repo's open GitHub issues. A task not
-                                        started yet leaves the board when its issue closes or has a skipLabels label
+  acc import [--file <tasks.json>]      Add or refresh tasks from JSON (stdin by default). A Jira or Azure DevOps
+                                        key that no tracker in .acc/config.json owns is refused
+  acc intake github [--label <l>]       Add or refresh tasks from the open GitHub issues in the repo's place: its
+                                        tracker's repo, and its labels if it names some. A task not started yet
+                                        leaves the board when its issue closes, has a skipLabels label, or leaves
+                                        the place
+  acc intake jira|azure --file <report.json>
+                                        Follow tickets the Command Center found outside the repo's place, from
+                                        { "outside": [{ "key", "why" }] }: a task not started yet leaves the board
   acc status                            One line: how many tasks are in each state
   acc list [--state <state>]
   acc ready
@@ -238,26 +246,73 @@ const upsertLines = (res: UpsertResult): string[] => [
   ...res.errors.map((e) => tone(`✗ ${e}`, 'orange')),
 ];
 
-function upsert(o: Opts, inputs: TaskInput[]): number {
+function upsert(o: Opts, inputs: TaskInput[], own = false): number {
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
-  const res = mutate(paths, now, (ledger, emit) => upsertTasks(ledger, config, inputs, actor, by, emit, now));
+  const held = own ? ownTickets(config, inputs) : { inputs, refused: [] };
+  const res = mutate(paths, now, (ledger, emit) => upsertTasks(ledger, config, held.inputs, actor, by, emit, now));
+  res.errors.push(...held.refused);
   out(o, () => upsertLines(res).filter(Boolean).join('\n') || 'Nothing to do.', res);
   return res.errors.length ? 1 : 0;
 }
 
-/** Reads open issues as the repo's own GitHub account (D-007), upserts them, and follows closed and skipped ones (D-048). Never changes GitHub. */
+/**
+ * The tasks whose Jira or Azure DevOps key a tracker in .acc/config.json owns, and why the rest are refused,
+ * so another project's or client's tickets never become tasks here (D-072). Without a Jira sign-in acc can't
+ * check an epic, so only the project is held here; the board's check removes strays. A repo that names no
+ * trackers has no place to hold to, and takes any.
+ */
+function ownTickets(config: Config, inputs: TaskInput[]): { inputs: TaskInput[]; refused: string[] } {
+  if (!config.trackers.length) return { inputs, refused: [] };
+  const refused: string[] = [];
+  const kept = inputs.filter((i) => {
+    const kind = i?.source?.kind;
+    const key = i?.source?.key;
+    if ((kind !== 'jira' && kind !== 'azure') || typeof key !== 'string') return true;
+    const at = trackerForKey(config.trackers, key);
+    if (at !== null && config.trackers[at]!.kind === kind) return true;
+    refused.push(`${key.toUpperCase()}: no ${kind === 'jira' ? 'Jira' : 'Azure DevOps'} tracker in .acc/config.json owns it, so it isn't one of this repo's tickets.`);
+    return false;
+  });
+  return { inputs: kept, refused };
+}
+
+/** What intake changed beyond adding and refreshing: done, removed, and named for a person (D-048, D-072). */
+const intakeLines = (res: IntakeResult): string[] => {
+  const skipped = res.removed.filter((id) => !res.left.includes(id));
+  return [
+    res.closed.length ? `Done ${res.closed.join(', ')}: closed on GitHub before work started` : '',
+    skipped.length ? `Removed ${skipped.join(', ')}: their issues have a label in skipLabels` : '',
+    res.left.length ? `Removed ${res.left.join(', ')}: their tickets left this repo's place before work started` : '',
+    ...res.leftAlone.map((l) => tone(`! ${l.note}`, 'orange')),
+  ];
+};
+
+/** Reads open issues in the repo's place as its own GitHub account (D-007), upserts them, and follows closed, skipped and outside ones (D-048, D-072). Never changes GitHub. */
 function cmdIntakeGithub(o: Opts): number {
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
   const res = intakeGithub(paths, config, { run, now, env: process.env }, { label: o.label as string | undefined, actor, by });
-  out(o, () => [
-    ...upsertLines(res),
-    res.closed.length ? `Done ${res.closed.join(', ')}: closed on GitHub before work started` : '',
-    res.removed.length ? `Removed ${res.removed.join(', ')}: their issues have a label in skipLabels` : '',
-    ...res.leftAlone.map((l) => tone(`! ${l.note}`, 'orange')),
-  ].filter(Boolean).join('\n') || 'Nothing to do.', res);
+  out(o, () => [...upsertLines(res), ...intakeLines(res)].filter(Boolean).join('\n') || 'Nothing to do.', res);
   return res.errors.length ? 1 : 0;
+}
+
+/**
+ * Follows Jira or Azure DevOps tickets that left the repo's place (D-072). Only the Command Center signs in
+ * to those (D-066), so it reads them and hands acc what it found: { "outside": [{ "key", "why" }] }.
+ */
+function cmdIntakeOutside(o: Opts, kind: 'jira' | 'azure'): number {
+  const file = o.file as string | undefined;
+  if (!file) throw new AccError('usage', `acc intake ${kind} --file <report.json>, with { "outside": [{ "key": "ACME-7", "why": "it isn't in epic ACME-3" }] }. The Command Center writes it after a board loads.`);
+  const data = readInput(file) as { outside?: unknown };
+  const list = data?.outside;
+  if (!Array.isArray(list) || !list.every((x) => typeof x?.key === 'string' && typeof x?.why === 'string')) {
+    throw new AccError('usage', `${file} must hold { "outside": [{ "key": "<ticket key>", "why": "<why it's outside>" }] }.`);
+  }
+  const { paths } = project(process.cwd());
+  const res = intakeOutside(paths, kind, list as Outside[], now);
+  out(o, () => intakeLines(res).filter(Boolean).join('\n') || 'Nothing to do.', res);
+  return 0;
 }
 
 /** The task a command is about: the argument, or the builder session's own task. */
@@ -851,6 +906,19 @@ function cmdUpdatePost(o: Opts, id: string): number {
   if (!issue) throw new AccError('refused', `${u.id}'s ticket ${u.key} isn't a GitHub issue acc can find.`);
   // Signed in first, so a missing sign-in leaves the draft as it was.
   const env = { ...process.env, GH_TOKEN: ghToken(run, gh.account) };
+  // Posting is held to the repo, not its narrower labels (D-072): an issue now in another repo isn't posted on.
+  // A failed look says nothing, and the post goes ahead as before.
+  const repo = config.trackers.find((t) => t.kind === 'github')?.repo ?? gh.repo;
+  const seen = run('gh', ['issue', 'view', issue.number, '-R', issue.repo, '--json', 'url'], { cwd: paths.root, env, timeoutMs: GH_TIMEOUT_MS });
+  let lives: string | null = null;
+  try {
+    lives = seen.code === 0 ? issueRepo((JSON.parse(seen.stdout) as { url?: string }).url) : null;
+  } catch {
+    lives = null;
+  }
+  if (lives && lives.toLowerCase() !== repo.toLowerCase()) {
+    throw new AccError('refused', `${u.key} is in ${lives} now, not this repo's ${repo}, so ${u.id} isn't posted. Discard it if it no longer applies: acc update discard ${u.id}`);
+  }
   claimUpdate(paths, u.id, by, now, { again: o.again === true });
   const dir = mkdtempSync(join(tmpdir(), 'acc-update-'));
   try {
@@ -1138,11 +1206,12 @@ export async function main(argv: string[]): Promise<number> {
     case 'import': {
       const data = readInput(o.file as string | undefined);
       if (!Array.isArray(data)) throw new AccError('usage', 'acc import expects a JSON list of tasks.');
-      return upsert(o, data as TaskInput[]);
+      return upsert(o, data as TaskInput[], true);
     }
     case 'intake': {
-      if (rest[0] !== 'github') throw new AccError('usage', 'acc intake github [--label <label>]. Jira intake runs through the plugin\'s skill (M6).');
-      return cmdIntakeGithub(o);
+      if (rest[0] === 'github') return cmdIntakeGithub(o);
+      if (rest[0] === 'jira' || rest[0] === 'azure') return cmdIntakeOutside(o, rest[0]);
+      throw new AccError('usage', 'acc intake github [--label <label>], or acc intake jira|azure --file <report.json>. Jira and Azure DevOps tickets come in through the Command Center\'s Track in acc, or the plugin\'s skill.');
     }
     case 'dispatch': {
       if (!rest[0]) throw new AccError('usage', 'acc dispatch <id> [--foreground]');

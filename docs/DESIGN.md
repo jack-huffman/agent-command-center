@@ -130,7 +130,7 @@ listed so that drift checks and `doctor` cover it.
 | `environments` | Every org the project has, whether or not it's on a promotion path. Each has a name, a branch (by default the lower-cased name), a `type` (`production`, `full`, `partial`, `developer`, `developer_pro`) and, in the `salesforce` profile, an org alias. A task builds from one environment's branch, and its pull request goes back into it. **Protected** environments never receive agent work. `promotesTo` lists where it can promote to, usual step first ([section 11](#11-landing)) |
 | `environmentSpecific` | A list of files that differ by design in every environment, such as email service addresses, SSO and org settings. These are never edited by a task, never deployed, and never promoted (D-016) |
 | `knownDrift` | Files that a drift check should expect to differ, such as features a sandbox lacks or ordering noise. They can still be edited and promoted |
-| `trackers` | Where intake reads from. Several are allowed. A GitHub tracker's `skipLabels` lists labels whose issues aren't tasks, such as `["milestone"]` (D-048) |
+| `trackers` | Where intake reads from. Several are allowed. A GitHub tracker's `skipLabels` lists labels whose issues aren't tasks, such as `["milestone"]` (D-048). Each tracker's place holds every read to this repo's tickets: its project or repo, narrowed by a Jira `epic`, GitHub `labels` (any one counts) or an Azure `areaPath` (D-072) |
 | `agents.max` | Most builder sessions at once, default 3 |
 | `autonomy` | How much the loop does on its own ([section 12](#12-the-orchestrator-loop)) |
 | `autopilot.appendOnly` | Files, or folders, where autopilot may resolve a conflict with the base when both sides only added to the end, such as a decision log. Left out, there are none ([section 12](#12-the-orchestrator-loop)) |
@@ -239,10 +239,19 @@ JSON. Adding monday.com later means adding one more producer.
 | Source | How | Dependencies from |
 |---|---|---|
 | GitHub Issues | `acc intake github [--label L]`, run directly through `gh` with the repo's account | `Depends on #N` and `Blocked by #N` lines in the issue body |
-| Jira | The `acc:intake` skill: Claude queries the Atlassian connector with JQL and pipes the results to `acc import` | "is blocked by" issue links |
+| Jira, Azure DevOps | **Track in acc** on a ticket's page, or the `acc:intake` skill: Claude queries a connector for the tracker's place and pipes the results to `acc import` | "is blocked by" issue links |
 | Manual | `acc add "title" --brief …` | `--dep` |
 
 Intake is idempotent, keyed by tracker key, and it never changes the tracker.
+
+Every read is held to each tracker's place (D-072): its project or repo, and
+when set, a Jira epic (its tickets and their sub-tasks), GitHub labels (any
+one) or an Azure area path. `acc intake github` lists open issues per place
+label, from the tracker's `repo`. `acc import` refuses a Jira or Azure key that
+no tracker owns. After a Jira or Azure board loads, the Command Center asks
+about the repo's unfinished tasks that aren't on it, and hands the ones outside
+the place to `acc intake jira|azure --file`, which removes or names them as
+below.
 
 `acc intake github` also follows issues that left the open list (D-048). It asks
 GitHub about each unfinished task whose issue wasn't listed:
@@ -252,9 +261,12 @@ GitHub about each unfinished task whose issue wasn't listed:
 - **Has a label in the tracker's `skipLabels`**, open or closed: the issue isn't
   imported, and a task already made from it that never started leaves the
   ledger, with a `task.removed` event.
+- **Left the place** (D-072): it has none of the place's labels, or moved to
+  another repo. A task that never started leaves the ledger, as above.
 - **Started already**: the task stays as it is, and the output names it.
 
-`--json` lists these as `closed`, `removed` and `leftAlone`.
+`--json` lists these as `closed`, `removed` (of which `left` left the place) and
+`leftAlone`.
 
 ## 7. Dispatch
 

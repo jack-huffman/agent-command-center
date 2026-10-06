@@ -1,22 +1,30 @@
 import { execFile } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { type Tracker, trackerForKey, withTracker } from '../../packages/core/src/config.ts';
 import { ghEnv, isGh } from '../../packages/core/src/exec.ts';
-import { AzureClient, azureBoards, azureProjects, azureTeams, azureWhoAmI, tenantOf } from '../../packages/core/src/trackers/azure.ts';
+import type { IntakeResult } from '../../packages/core/src/intake.ts';
+import { AzureClient, azureAreas, azureBoards, azureProjects, azureTeams, azureWhoAmI, tenantOf } from '../../packages/core/src/trackers/azure.ts';
 import { GithubClient } from '../../packages/core/src/trackers/github.ts';
-import { JiraClient, jiraBoards, jiraProjects } from '../../packages/core/src/trackers/jira.ts';
-import { type Board, type Exec, movesInto, type Person, type Ticket, type TrackerClient, TrackerError, type Transition } from '../../packages/core/src/trackers/types.ts';
+import { JiraClient, jiraBoards, jiraEpics, jiraProjects } from '../../packages/core/src/trackers/jira.ts';
+import { type Board, type Exec, movesInto, type Person, placeText, type Ticket, type TrackerClient, TrackerError, type Transition } from '../../packages/core/src/trackers/types.ts';
 import type { Hub, Project } from './hub.ts';
 import { parseHost } from './logic.ts';
 import { runFile } from './run.ts';
+
+type AccRun = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
 
 /** What the board shows for one tracker: its board, or why there isn't one yet. */
 export interface BoardState {
   index: number;
   kind: Tracker['kind'];
   title: string;
+  /** Where its tickets come from (D-072): the config's, until the board says it with the epic's name. */
+  place: string;
+  /** Tasks whose tickets left the place after work on them started, each named for a person (D-072). */
+  left: string[];
   board: Board | null;
   error: string | null;
   /** A button that fixes the error, such as Sign in to Azure DevOps. */
@@ -46,6 +54,9 @@ type JiraCred = { kind: 'jira'; email: string; token: string };
 type AzureCred = { kind: 'azure'; method: 'microsoft'; account: vscode.AuthenticationSessionAccountInformation; tenant: string | null } | { kind: 'azure'; method: 'pat'; token: string };
 type Cred = JiraCred | AzureCred;
 
+/** A GitHub tracker with nothing set, for reading a repo's labels while adding one. */
+const GITHUB_TRACKER: Tracker = { kind: 'github', site: null, project: null, repo: null, organization: null, team: null, board: null, prefix: null, skipLabels: [], epic: null, labels: [], areaPath: null, edits: false };
+
 /** A tracker's host: a Jira site or an Azure organization, the part a sign-in is for. */
 const hostOf = (t: Pick<Tracker, 'kind' | 'site' | 'organization'>): string => (t.kind === 'jira' ? t.site ?? '' : t.organization ?? '').replace(/^https?:\/\//, '').replace(/\/+$/, '').toLowerCase();
 
@@ -63,11 +74,13 @@ export class Trackers implements vscode.Disposable {
   private readonly secrets: vscode.SecretStorage;
   private readonly hub: Hub;
   private readonly log: vscode.LogOutputChannel;
+  private readonly acc: AccRun | null;
 
-  constructor(secrets: vscode.SecretStorage, hub: Hub, log: vscode.LogOutputChannel) {
+  constructor(secrets: vscode.SecretStorage, hub: Hub, log: vscode.LogOutputChannel, acc: AccRun | null = null) {
     this.secrets = secrets;
     this.hub = hub;
     this.log = log;
+    this.acc = acc;
   }
 
   dispose(): void {
@@ -81,6 +94,11 @@ export class Trackers implements vscode.Disposable {
 
   title(t: Tracker): string {
     return t.kind === 'github' ? `GitHub · ${t.repo ?? '?'}` : t.kind === 'jira' ? `Jira · ${t.project}` : `Azure DevOps · ${t.project}`;
+  }
+
+  /** Where a tracker's tickets come from, as its config says (D-072). */
+  place(t: Tracker): string {
+    return placeText({ kind: t.kind, project: t.project, repo: t.repo, team: t.team, epic: t.epic, labels: t.labels, areaPath: t.areaPath });
   }
 
   /**
@@ -151,16 +169,16 @@ export class Trackers implements vscode.Disposable {
       const tok = await runFile('gh', ['auth', 'token', '-u', account], p.root, process.env, undefined, 20_000);
       if (tok.code === 127) throw new TrackerError('other', 'The GitHub CLI (gh) isn\'t installed.');
       if (tok.code !== 0 || !tok.stdout.trim()) throw new TrackerError('auth', `gh isn't logged in as ${account}. Run: gh auth login`);
-      return new GithubClient({ repo: t.repo, token: tok.stdout.trim(), account, exec, project: typeof t.board === 'number' ? t.board : null });
+      return new GithubClient({ repo: t.repo, token: tok.stdout.trim(), account, exec, project: typeof t.board === 'number' ? t.board : null, labels: t.labels });
     }
     const c = await this.cred(p, t);
     if (t.kind === 'jira') {
       if (!c || c.kind !== 'jira') throw new TrackerError('auth', `Sign in to Jira (${t.site}) for this repo to see its board and tickets.`);
-      return new JiraClient({ site: t.site!, project: t.project!, email: c.email, token: c.token, board: typeof t.board === 'number' ? t.board : null });
+      return new JiraClient({ site: t.site!, project: t.project!, email: c.email, token: c.token, board: typeof t.board === 'number' ? t.board : null, epic: t.epic });
     }
     if (!c || c.kind !== 'azure') throw new TrackerError('auth', `Sign in to Azure DevOps (${t.organization}) for this repo to see its board and work items.`);
     return new AzureClient({
-      organization: t.organization!, project: t.project!, team: t.team, board: typeof t.board === 'string' ? t.board : null, prefix: t.prefix ?? 'AB',
+      organization: t.organization!, project: t.project!, team: t.team, board: typeof t.board === 'string' ? t.board : null, prefix: t.prefix ?? 'AB', areaPath: t.areaPath,
       auth: c.method === 'pat' ? async () => `Basic ${b64(`:${c.token}`)}` : async () => {
         const s = await vscode.authentication.getSession('microsoft', azureScopes(c.tenant), { account: c.account, silent: true });
         if (!s) throw new TrackerError('auth', `The Microsoft sign-in this repo uses (${c.account.label}) has ended. Sign in to Azure DevOps again.`);
@@ -184,13 +202,19 @@ export class Trackers implements vscode.Disposable {
         return;
       }
       const prev = this.boards.get(p.root) ?? [];
-      const states: BoardState[] = await Promise.all(list.map(async (t, index) => ({ index, kind: t.kind, title: this.title(t), board: prev[index]?.board ?? null, error: null, connect: null, loading: true, signedInAs: await this.signedInAs(p, index) })));
+      const states: BoardState[] = await Promise.all(list.map(async (t, index) => ({
+        index, kind: t.kind, title: this.title(t), place: this.place(t), left: prev[index]?.left ?? [], board: prev[index]?.board ?? null,
+        error: null, connect: null, loading: true, signedInAs: await this.signedInAs(p, index),
+      })));
       this.boards.set(p.root, states);
       this.emitter.fire(p.root);
       await Promise.all(states.map(async (s) => {
         try {
-          s.board = await (await this.client(p, s.index)).board();
+          const client = await this.client(p, s.index);
+          s.board = await client.board();
+          s.place = s.board.place;
           s.error = null;
+          await this.followPlace(p, s, client);
         } catch (e) {
           s.error = (e as Error).message;
           if (e instanceof TrackerError && e.kind === 'auth') s.connect = this.signInButton(p, s.index, list[s.index]!);
@@ -201,6 +225,43 @@ export class Trackers implements vscode.Disposable {
       }));
       this.emitter.fire(p.root);
     }));
+  }
+
+  /**
+   * After a Jira or Azure DevOps board loads, asks its tracker about this repo's unfinished tasks from it
+   * that the board doesn't show (D-072). acc intake removes the ones outside the place that never started,
+   * and names the rest: those stay on the agent board, and this board says so. Only the Command Center
+   * signs in to these trackers (D-066). A failed read never counts as outside (D-048), and nothing here
+   * changes a ticket.
+   */
+  private async followPlace(p: Project, s: BoardState, client: TrackerClient): Promise<void> {
+    if (s.kind === 'github' || !s.board || !this.acc) return;
+    const shown = new Set(s.board.cards.map((c) => c.key.toUpperCase()));
+    const keys = (this.hub.ledger(p.root)?.tasks ?? [])
+      .filter((t) => t.source.kind === s.kind && t.state !== 'done' && !shown.has(t.id) && this.trackerFor(p, t.id) === s.index)
+      .map((t) => t.id);
+    const outside = keys.length ? await client.outside(keys).catch(() => []) : [];
+    if (!outside.length) {
+      s.left = [];
+      return;
+    }
+    const dir = mkdtempSync(join(tmpdir(), 'acc-place-'));
+    try {
+      const file = join(dir, 'outside.json');
+      writeFileSync(file, JSON.stringify({ outside }));
+      const r = await this.acc(['intake', s.kind, '--file', file, '--json'], p.root);
+      if (r.code !== 0) throw new Error((r.stderr || r.stdout).trim().split('\n')[0] || `acc intake ${s.kind} failed`);
+      const res = JSON.parse(r.stdout) as IntakeResult;
+      s.left = res.leftAlone.map((l) => l.note);
+      if (res.removed.length) {
+        this.log.info(`[trackers] ${s.title}: ${res.removed.join(', ')} left this repo's place before work started, so acc took them off the board.`);
+        await this.hub.loadTasks(true);
+      }
+    } catch (e) {
+      this.log.warn(`[trackers] ${s.title}: couldn't follow tickets that left the place: ${(e as Error).message}`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
 
   async ticket(p: Project, index: number, key: string): Promise<Ticket> {
@@ -357,7 +418,8 @@ export class Trackers implements vscode.Disposable {
 
   /**
    * A guided way to name a repo's tracker: pick the kind, sign in, then pick the project, team and board
-   * from what the tracker lists. It's written to that repo's .acc/config.json, and nowhere else.
+   * from what the tracker lists, and last its place (D-072): an epic, labels or an area path, or the whole
+   * project. It's written to that repo's .acc/config.json, and nowhere else.
    */
   async add(opts: { root?: string; kind?: 'azure' | 'jira' | 'github' } = {}): Promise<void> {
     const projects = this.hub.projects;
@@ -390,7 +452,7 @@ export class Trackers implements vscode.Disposable {
   }
 
   private async addAzure(p: Project): Promise<Record<string, unknown> | null> {
-    const input = await vscode.window.showInputBox({ title: `Azure DevOps for ${p.name}, 1 of 4`, prompt: 'The organization, or any URL from it', placeHolder: 'https://dev.azure.com/acme  or  acme', ignoreFocusOut: true, validateInput: (v) => (parseHost('azure', v) ? null : 'An organization name, or a dev.azure.com URL') });
+    const input = await vscode.window.showInputBox({ title: `Azure DevOps for ${p.name}, 1 of 5`, prompt: 'The organization, or any URL from it', placeHolder: 'https://dev.azure.com/acme  or  acme', ignoreFocusOut: true, validateInput: (v) => (parseHost('azure', v) ? null : 'An organization name, or a dev.azure.com URL') });
     const org = input && parseHost('azure', input);
     if (!org) return null;
     let auth = await this.azureAuth(p, org);
@@ -399,19 +461,36 @@ export class Trackers implements vscode.Disposable {
       auth = await this.azureAuth(p, org);
       if (!auth) return null;
     }
-    const projectName = await this.pick(`Azure DevOps for ${p.name}, 2 of 4`, 'Project', () => azureProjects(org, auth!));
+    const projectName = await this.pick(`Azure DevOps for ${p.name}, 2 of 5`, 'Project', () => azureProjects(org, auth!));
     if (!projectName) return null;
     const teams = await azureTeams(org, projectName, auth);
-    const team = teams.length > 1 ? (await vscode.window.showQuickPick(teams.map((name, i) => ({ label: name, description: i === 0 ? 'default team' : undefined })), { title: `Azure DevOps for ${p.name}, 3 of 4`, placeHolder: 'Whose board?' }))?.label : teams[0];
+    const team = teams.length > 1 ? (await vscode.window.showQuickPick(teams.map((name, i) => ({ label: name, description: i === 0 ? 'default team' : undefined })), { title: `Azure DevOps for ${p.name}, 3 of 5`, placeHolder: 'Whose board?' }))?.label : teams[0];
     if (!team) return null;
     const boards = await azureBoards(org, projectName, team, auth);
-    const board = boards.length > 1 ? (await vscode.window.showQuickPick(boards.map((name) => ({ label: name })), { title: `Azure DevOps for ${p.name}, 4 of 4`, placeHolder: 'Which board? Usually the stories or backlog items one' }))?.label : boards[0];
+    const board = boards.length > 1 ? (await vscode.window.showQuickPick(boards.map((name) => ({ label: name })), { title: `Azure DevOps for ${p.name}, 4 of 5`, placeHolder: 'Which board? Usually the stories or backlog items one' }))?.label : boards[0];
     if (!board) return null;
-    return { kind: 'azure', organization: org, project: projectName, ...(team !== teams[0] ? { team } : {}), board };
+    // The place (D-072): the whole team's board, or only the work items under one of its area paths.
+    const areas = await this.listForPlace('area paths', () => azureAreas(org, projectName, team, auth!));
+    const area = await vscode.window.showQuickPick([
+      { label: `$(project) All of ${team}'s work items`, description: 'every area its board covers', areaPath: null as string | null },
+      ...areas.map((a) => ({ label: `$(folder) ${a}`, areaPath: a as string | null })),
+    ], { title: `Azure DevOps for ${p.name}, 5 of 5`, placeHolder: 'Which work items are this repo\'s? Pick an area path to take only the ones under it', matchOnDescription: true });
+    if (!area) return null;
+    return { kind: 'azure', organization: org, project: projectName, ...(team !== teams[0] ? { team } : {}), board, areaPath: area.areaPath };
+  }
+
+  /** A list for the place step (D-072). One that can't be read leaves just the whole project to pick, and says why. */
+  private async listForPlace<T>(what: string, load: () => Promise<T[]>): Promise<T[]> {
+    try {
+      return await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Loading ${what}…` }, load);
+    } catch (e) {
+      void vscode.window.showWarningMessage(`Couldn't list the ${what}: ${(e as Error).message} You can take the whole project now, and add the tracker again later to narrow it.`);
+      return [];
+    }
   }
 
   private async addJira(p: Project): Promise<Record<string, unknown> | null> {
-    const input = await vscode.window.showInputBox({ title: `Jira for ${p.name}, 1 of 3`, prompt: 'The Jira site, or any URL from it', placeHolder: 'acme.atlassian.net', ignoreFocusOut: true, validateInput: (v) => (parseHost('jira', v) ? null : 'A site such as acme.atlassian.net') });
+    const input = await vscode.window.showInputBox({ title: `Jira for ${p.name}, 1 of 4`, prompt: 'The Jira site, or any URL from it', placeHolder: 'acme.atlassian.net', ignoreFocusOut: true, validateInput: (v) => (parseHost('jira', v) ? null : 'A site such as acme.atlassian.net') });
     const site = input && parseHost('jira', input);
     if (!site) return null;
     let raw = await this.secrets.get(this.credKey(p, 'jira', site));
@@ -422,18 +501,37 @@ export class Trackers implements vscode.Disposable {
     }
     const c = JSON.parse(raw) as JiraCred;
     const projects = await jiraProjects(site, c.email, c.token);
-    const key = (await vscode.window.showQuickPick(projects.map((x) => ({ label: x.key, description: x.name })), { title: `Jira for ${p.name}, 2 of 3`, placeHolder: 'Project' }))?.label;
+    const key = (await vscode.window.showQuickPick(projects.map((x) => ({ label: x.key, description: x.name })), { title: `Jira for ${p.name}, 2 of 4`, placeHolder: 'Project' }))?.label;
     if (!key) return null;
     const boards = await jiraBoards(site, key, c.email, c.token);
-    const board = boards.length > 1 ? (await vscode.window.showQuickPick(boards.map((b) => ({ label: b.name, description: b.type, id: b.id })), { title: `Jira for ${p.name}, 3 of 3`, placeHolder: 'Which board?' }))?.id : boards[0]?.id;
-    return { kind: 'jira', site, project: key, ...(board && boards.length > 1 ? { board } : {}) };
+    const board = boards.length > 1 ? (await vscode.window.showQuickPick(boards.map((b) => ({ label: b.name, description: b.type, id: b.id })), { title: `Jira for ${p.name}, 3 of 4`, placeHolder: 'Which board?' }))?.id : boards[0]?.id;
+    // The place (D-072): the whole project, or only one epic's tickets and their sub-tasks.
+    const epics = await this.listForPlace('epics', () => jiraEpics(site, key, c.email, c.token));
+    const epic = await vscode.window.showQuickPick([
+      { label: `$(project) The whole ${key} project`, description: 'every ticket in it', epic: null as string | null },
+      ...epics.map((e) => ({ label: `$(zap) ${e.key}`, description: e.name, epic: e.key as string | null })),
+    ], { title: `Jira for ${p.name}, 4 of 4`, placeHolder: 'Which tickets are this repo\'s? Pick an epic to take only its tickets', matchOnDescription: true });
+    if (!epic) return null;
+    return { kind: 'jira', site, project: key, ...(board && boards.length > 1 ? { board } : {}), epic: epic.epic };
   }
 
   private async addGithub(p: Project): Promise<Record<string, unknown> | null> {
     const own = p.config.github?.repo;
-    const repo = await vscode.window.showInputBox({ title: `GitHub Issues for ${p.name}`, prompt: 'owner/name of the repo whose issues to show', value: own ?? '', ignoreFocusOut: true, validateInput: (v) => (/^[\w.-]+\/[\w.-]+$/.test(v.trim()) ? null : 'owner/name') });
-    if (!repo) return null;
-    return repo.trim() === own ? { kind: 'github' } : { kind: 'github', repo: repo.trim() };
+    const input = await vscode.window.showInputBox({ title: `GitHub Issues for ${p.name}, 1 of 2`, prompt: 'owner/name of the repo whose issues to show', value: own ?? '', ignoreFocusOut: true, validateInput: (v) => (/^[\w.-]+\/[\w.-]+$/.test(v.trim()) ? null : 'owner/name') });
+    if (!input) return null;
+    const repo = input.trim();
+    // The place (D-072): the whole repo, or only issues with one of the ticked labels.
+    const was = this.trackers(p).find((t) => t.kind === 'github' && t.repo?.toLowerCase() === repo.toLowerCase())?.labels ?? [];
+    const labels = await this.listForPlace('labels', async () => (await this.makeClient(p, { ...GITHUB_TRACKER, repo })).labels());
+    let picked: string[] = [];
+    if (labels.length) {
+      const chosen = await vscode.window.showQuickPick(labels.map((l) => ({ label: l.name, picked: was.some((w) => w.toLowerCase() === l.name.toLowerCase()) })), {
+        title: `GitHub Issues for ${p.name}, 2 of 2`, canPickMany: true, placeHolder: `Tick labels to take only issues with one of them. Tick none for every issue in ${repo}.`,
+      });
+      if (!chosen) return null;
+      picked = chosen.map((c) => c.label);
+    }
+    return { kind: 'github', ...(repo === own ? {} : { repo }), labels: picked.length ? picked : null };
   }
 
   private async pick(title: string, what: string, load: () => Promise<string[]>): Promise<string | undefined> {

@@ -313,6 +313,10 @@ export interface BoardInput {
   loading: boolean;
   /** Who the board acts as: the GitHub account, the Jira email, the Microsoft account. */
   signedInAs?: string | null;
+  /** Where its tickets come from (D-072), such as "Jira · ACME · epic ACME-3 Premium Support". */
+  place?: string | null;
+  /** Tasks whose tickets left the place after work on them started, each named (D-072). */
+  left?: string[];
 }
 
 export interface TrackerCard {
@@ -348,6 +352,13 @@ export interface TrackerBoard {
   connect: { command: string; label: string; arg: string } | null;
   loading: boolean;
   signedInAs: string | null;
+  /** Where its tickets come from (D-072), drawn under its name. */
+  place: string | null;
+  /**
+   * Tasks whose tickets left the place after work on them started (D-072). They're off this board, but
+   * still on the agent board, for a person to finish or set aside.
+   */
+  left: string[];
   columns: TrackerColumn[];
 }
 
@@ -387,7 +398,8 @@ export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): Trac
   }));
   return {
     index: b.index, kind: b.kind, title: b.board?.title ?? b.title, source: b.board?.source ?? null, url: b.board?.url ?? null,
-    notice: b.board?.notice ?? null, error: b.error, connect: b.connect, loading: b.loading, signedInAs: b.signedInAs ?? null, columns,
+    notice: b.board?.notice ?? null, error: b.error, connect: b.connect, loading: b.loading, signedInAs: b.signedInAs ?? null,
+    place: b.place ?? null, left: b.left ?? [], columns,
   };
 }
 
@@ -420,6 +432,8 @@ export interface TicketModel {
   sourceKind: 'github' | 'jira' | 'azure' | 'acc';
   loading: boolean;
   error: string | null;
+  /** Why the ticket isn't shown: it's outside the repo's place, and names it (D-072). */
+  outside: string | null;
   connect: { command: string; label: string; arg: string } | null;
   type: string | null;
   typeIcon: string;
@@ -490,6 +504,8 @@ export interface TicketInput {
   ticket: Ticket | null;
   loading: boolean;
   error: string | null;
+  /** The ticket is outside the repo's place (D-072), and why. */
+  outside?: string | null;
   connect: TicketModel['connect'];
   row: TaskRow | null;
   task: Task | null;
@@ -554,7 +570,7 @@ export function ticketModel(i: TicketInput): TicketModel {
     kind: 'ticket', project: i.project, tracker: i.tracker, key: t?.key ?? i.key,
     title: t?.title ?? i.task?.title ?? i.key, url: t?.url ?? i.task?.source.url ?? null,
     sourceLabel: i.trackerTitle ?? 'Task kept by acc', sourceKind: t?.kind ?? i.trackerKind ?? 'acc',
-    loading: i.loading, error: i.error, connect: i.connect,
+    loading: i.loading, error: i.error, outside: i.outside ?? null, connect: i.connect,
     type: t?.type ?? null, typeIcon: typeIcon(t?.type ?? null),
     status: t ? { name: t.status.name, tone: CATEGORY_TONE[t.status.category] } : acc ? { name: acc.look.label, tone: acc.look.tone } : null,
     assignees: (t?.assignees ?? []).map(chip), reporter: t?.reporter ? chip(t.reporter) : null,

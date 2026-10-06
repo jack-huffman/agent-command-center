@@ -384,21 +384,37 @@ Read the drafts before committing them. By hand:
   lists, and it writes the config. Sign-ins belong to that repo only (D-027).
   Sign in again, or sign out, with **Sign in to a tracker** and **Sign out of a
   tracker**.
+- [ ] The last pick is the tracker's **place**: which of its tickets are this
+  repo's, so another project's or another client's never show up here (D-072).
+  The whole project, repo or team is listed first. A narrower place is an epic
+  (Jira), labels (GitHub) or an area path (Azure DevOps). The board shows only
+  tickets in the place, says where they come from under its name, and a ticket
+  outside it can't be opened or tracked. Run **Add a tracker…** again to change
+  it.
   - **Azure DevOps:** choose **Sign in with Microsoft** and pick the account
     that belongs to that client. If the client's tenant blocks it, use a
     personal access token with Work Items: Read & write instead.
     `{ "kind": "azure", "organization": "acme", "project": "CRM", "board": "Stories" }`,
-    plus `"team"` for a team other than the default.
+    plus `"team"` for a team other than the default, and
+    `"areaPath": "CRM\\Billing"` for only the work items under that area.
   - **Jira:** create an API token at
     [id.atlassian.com](https://id.atlassian.com/manage-profile/security/api-tokens),
     then paste it with your email when asked.
     `{ "kind": "jira", "site": "acme.atlassian.net", "project": "ACME" }`, with
-    `"board": <id>` to pick a board other than the project's first.
+    `"board": <id>` to pick a board other than the project's first, and
+    `"epic": "ACME-3"` for only that epic's tickets and their sub-tasks. The
+    board's own filter still applies, so pick a board that shows the epic's
+    tickets.
   - **GitHub Issues:** `{ "kind": "github" }` uses the project's repo and
     account through `gh`, with nothing else to set up. To use a GitHub
     Project's columns rather than Open and Closed, give the account Projects
     access once: `gh auth refresh -s project` while it's the active account.
-    Add `"board": <project number>` to pick a Project.
+    Add `"board": <project number>` to pick a Project, `"repo": "owner/name"`
+    for another repo's issues, and `"labels": ["billing"]` for only issues
+    with one of those labels. `acc intake github` reads the same place.
+  - A ticket that leaves the place, because it moved or the place was
+    narrowed, leaves acc's board if work on it never started. One that started
+    stays on the agent board, and the tracker's board names it for you.
   - **monday.com and Slack:** later.
 
 If a repo keeps its tasks in acc alone, mark the step done. `acc doctor` checks

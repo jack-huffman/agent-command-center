@@ -29,11 +29,12 @@ const stepId = (a: unknown): string => (typeof a === 'string' ? a : (a as { item
 export function activate(context: vscode.ExtensionContext): void {
   const setup = new Setup(context);
   const hub = new Hub();
-  const trackers = new Trackers(context.secrets, hub, setup.log);
+  const accScript = context.asAbsolutePath(join('dist', 'bin', 'acc'));
+  // acc follows tickets that left a board's place (D-072).
+  const trackers = new Trackers(context.secrets, hub, setup.log, accRunner(accScript));
   context.subscriptions.push(setup, hub, trackers);
 
   // Every VSCode terminal gets the acc command (D-012), with no separate install.
-  const accScript = context.asAbsolutePath(join('dist', 'bin', 'acc'));
   context.environmentVariableCollection.description = 'Adds the acc command from Agent Command Center.';
   context.environmentVariableCollection.prepend('PATH', dirname(accScript) + delimiter);
 
@@ -178,10 +179,19 @@ export function activate(context: vscode.ExtensionContext): void {
         const index = trackers.trackerFor(p, u.key);
         if (index === null || trackers.trackers(p)[index]?.kind !== u.tracker) return fail(`this repo has no ${name} tracker for ${u.key} to post through.`);
         if (!(await trackers.signedInAs(p, index))) return fail(`sign in to ${name} first.`);
+        // Held to the project, not its narrower place (D-072): a ticket moved to another project isn't posted on.
+        let client: Awaited<ReturnType<typeof trackers.client>>;
+        try {
+          client = await trackers.client(p, index);
+        } catch (e) {
+          return fail((e as Error).message);
+        }
+        const away = (await client.outside([u.key], { project: true }))[0];
+        if (away) return fail(`${u.key} isn't in this repo's ${name} project any more: ${away.why}. Discard the draft if it no longer applies.`);
         const claimed = await acc(['update', 'posting', id, ...againArgs, '--json'], p.root);
         if (claimed.code !== 0) return fail(accSays(claimed));
         try {
-          await (await trackers.client(p, index)).comment(u.key, text);
+          await client.comment(u.key, text);
         } catch (e) {
           const why = (e as Error).message;
           await acc(['update', 'release', id, `--reason=${why}`, '--json'], p.root);

@@ -6,6 +6,7 @@ import { isTrusted, mainCheckout } from '../dispatch.ts';
 import { type DriftResult, driftReportPath } from '../drift.ts';
 import { gatesFor } from '../gates.ts';
 import { credentialHelper } from '../github.ts';
+import { orList } from '../trackers/types.ts';
 import {
   cached, fail, firstVersion, ghEnv, LICENSE_TO_TYPE, parseOrgUrl, pass, readText, SECRET_PATTERN, sfJson, skip, unknown, versionAtLeast,
 } from './helpers.ts';
@@ -593,7 +594,7 @@ export const STEPS: Step[] = [
     fix: {
       vscode: 'acc.trackers.add',
       confirm: true,
-      text: '"Do it" walks you through it in VSCode: pick Azure DevOps, Jira or GitHub Issues, sign in, then pick the project, team and board. It writes them to this repo\'s .acc/config.json.',
+      text: '"Do it" walks you through it in VSCode: pick Azure DevOps, Jira or GitHub Issues, sign in, then pick the project, team and board, and last which of its tickets are this repo\'s: an epic, labels or an area path, or the whole project. It writes them to this repo\'s .acc/config.json.',
       docs: `${DOCS}#b14-connect-the-ticket-source`,
     },
     check(ctx) {
@@ -601,7 +602,9 @@ export const STEPS: Step[] = [
       if (need) return need;
       const list = ctx.config!.trackers;
       if (!list.length) return unknown('No ticket source yet, so tasks come from acc alone. Add one, or mark this done if that\'s how this repo works.');
-      const names = list.map((t) => (t.kind === 'github' ? `GitHub Issues${t.repo ? ` (${t.repo})` : ''}` : t.kind === 'jira' ? `Jira ${t.project} on ${t.site}` : `Azure DevOps ${t.project} in ${t.organization}`));
+      // With its place, when it's narrower than the project (D-072).
+      const names = list.map((t) => (t.kind === 'github' ? `GitHub Issues${t.repo ? ` (${t.repo})` : ''}${t.labels.length ? ` labelled ${orList(t.labels)}` : ''}`
+        : t.kind === 'jira' ? `Jira ${t.project} on ${t.site}${t.epic ? `, epic ${t.epic}` : ''}` : `Azure DevOps ${t.project} in ${t.organization}${t.areaPath ? `, area ${t.areaPath}` : ''}`));
       return pass(`Tickets come from ${names.join(' and ')}.`);
     },
   },

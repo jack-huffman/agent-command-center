@@ -31,6 +31,8 @@ interface Open {
   ticket: Ticket | null;
   loading: boolean;
   error: string | null;
+  /** Why the ticket isn't shown: it's outside the repo's place (D-072). */
+  outside: string | null;
   connect: TicketModel['connect'];
   /** Its updates' unsent edits, by update id, as the page last said (GH-46). */
   edits: Map<string, string>;
@@ -109,7 +111,7 @@ export class TicketPanels implements vscode.Disposable {
     const icon = (theme: 'light' | 'dark') => vscode.Uri.joinPath(this.ctx.extensionUri, 'dist', 'media', `acc-${theme}.svg`);
     panel.iconPath = { light: icon('light'), dark: icon('dark') };
     panel.webview.html = htmlFor(panel.webview, base, 'ticket', randomBytes(16).toString('base64'), key);
-    const o: Open = { panel, project: root, tracker: index, key: key.toUpperCase(), ticket: null, loading: index !== null, error: null, connect: null, edits: new Map() };
+    const o: Open = { panel, project: root, tracker: index, key: key.toUpperCase(), ticket: null, loading: index !== null, error: null, outside: null, connect: null, edits: new Map() };
     this.open.set(id, o);
     // Closing the page drops its edits (D-066), and the Overview goes back to acc's text.
     panel.onDidDispose(() => {
@@ -141,9 +143,14 @@ export class TicketPanels implements vscode.Disposable {
     try {
       o.ticket = await this.trackers.ticket(p, o.tracker, o.key);
       o.error = null;
+      o.outside = null;
       o.connect = null;
     } catch (e) {
-      o.error = (e as Error).message;
+      // Outside the repo's place (D-072): not shown, nor tracked, and said plainly rather than as a failure.
+      const outside = (e as { kind?: string }).kind === 'outside';
+      if (outside) o.ticket = null;
+      o.outside = outside ? (e as Error).message : null;
+      o.error = outside ? null : (e as Error).message;
       const t = this.trackers.trackers(p)[o.tracker];
       o.connect = (e as { kind?: string }).kind === 'auth' && t && t.kind !== 'github'
         ? { command: 'acc.trackers.signIn', label: t.kind === 'jira' ? 'Sign in to Jira' : 'Sign in to Azure DevOps', arg: JSON.stringify({ root: p.root, index: o.tracker }) } : null;
@@ -172,7 +179,7 @@ export class TicketPanels implements vscode.Disposable {
     const tracker = o.tracker !== null ? this.trackers.trackers(p)[o.tracker] : undefined;
     const model = ticketModel({
       project: p.root, tracker: o.tracker, trackerTitle: tracker ? this.trackers.title(tracker) : null, trackerKind: tracker?.kind ?? null, key: o.key,
-      ticket: o.ticket, loading: o.loading, error: o.error, connect: o.connect, row, task, checks: task ? await this.checks(p, task.run?.branch ?? null) : [],
+      ticket: o.ticket, loading: o.loading, error: o.error, outside: o.outside, connect: o.connect, row, task, checks: task ? await this.checks(p, task.run?.branch ?? null) : [],
       signedInAs: o.tracker !== null ? await this.trackers.signedInAs(p, o.tracker) : null,
       analysis: task ? this.hub.analysis(p.root, task.id) : null,
       trackerEdits: this.edits(o, p), updates: this.hub.updates(p.root), boards: this.trackers.boardStates(p.root), github: p.config.github?.account ?? null,

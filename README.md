@@ -116,6 +116,10 @@ another's repo. GitHub Issues, Jira Cloud and Azure DevOps today; monday.com and
 Slack come later. Set one up with **Add a tracker…** from the Command Palette.
 See [ONBOARDING.md, A3](docs/ONBOARDING.md).
 
+Each tracker names its place: the project or repo, and when set, a Jira epic,
+GitHub labels or an Azure DevOps area path. Boards, ticket pages and intake see
+only tickets in that place, so another project's or client's never show up.
+
 ## Install the plugin
 
 The plugin adds acc's skills, the reviewer agent and the hooks that keep

@@ -402,6 +402,14 @@ function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
     el('div', 'tracker-head',
       el('h2', '', icon(KIND_ICON[b.kind] ?? 'issues'), b.title, b.source ? el('span', 'chip', SOURCE_LABEL[b.source] ?? b.source) : null, b.signedInAs ? el('span', 'acting', icon('account'), `as ${b.signedInAs}`) : null, b.loading ? el('span', 'muted loading', icon('sync~spin'), 'Loading') : null),
       el('div', 'toolbar', ...tools)));
+  // Where its tickets come from (D-072): only these are shown, tracked or taken in.
+  if (b.place) out.append(el('p', 'tracker-place', icon('filter'), el('span', '', 'Tickets from ', el('strong', '', b.place))));
+  if (b.left.length) {
+    out.append(el('div', 'notice attention left-place', icon('warning', 'orange'),
+      el('div', 'left-text', el('strong', '', `Left this repo's place after work started: ${plural(b.left.length, 'task')}`),
+        el('ul', '', ...b.left.map((n) => el('li', '', n))),
+        el('span', 'muted', 'They stay on the agent board, for you to finish or set aside.'))));
+  }
   if (b.error) {
     const fix = b.connect ? el('button', 'btn primary', icon('plug'), b.connect.label) as HTMLButtonElement : null;
     if (fix && b.connect) { fix.type = 'button'; const c = b.connect; fix.addEventListener('click', () => api.postMessage({ type: 'toolbar', command: c.command, arg: c.arg })); }
@@ -703,6 +711,8 @@ function renderTicket(m: TicketModel): Node[] {
     if (fix && m.connect) { fix.type = 'button'; const c = m.connect; fix.addEventListener('click', () => api.postMessage({ type: 'toolbar', command: c.command, arg: c.arg })); }
     out.push(el('div', 'notice attention', icon('warning', 'orange'), el('span', '', m.error), fix));
   }
+  // Outside the repo's place (D-072): said plainly, and only a person's call when acc keeps a task for it.
+  if (m.outside) out.push(el('div', `notice${m.acc ? ' attention' : ''}`, icon(m.acc ? 'warning' : 'filter', m.acc ? 'orange' : undefined), el('span', '', m.outside)));
 
   // Summary first, details on demand: why it's stuck, in one line, before anything else, then its
   // analysis (D-052). The main column follows: description, related tickets, then activity.

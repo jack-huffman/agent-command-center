@@ -5,7 +5,7 @@
 import { ghEnv } from '../exec.ts';
 import { fromMarkdown } from './doc.ts';
 import {
-  type Board, type BoardCard, type BoardColumn, type Exec, type Label, type Person, type Status, type StatusCategory,
+  type Board, type BoardCard, type BoardColumn, type Exec, inBatches, type Label, orList, type Outside, outsideError, type Person, placeText, type Status, type StatusCategory,
   type Ticket, type TrackerClient, TrackerError, type Transition,
 } from './types.ts';
 
@@ -19,6 +19,29 @@ export interface GithubOptions {
   exec: Exec;
   /** A GitHub Project number to take columns from. By default, the repo's first open Project with a Status field. */
   project?: number | null;
+  /** Only issues with one of these labels count (D-072). By default, every issue in the repo. */
+  labels?: string[];
+}
+
+/** The owner/name of the repo an issue's link points into, or null. */
+export const issueRepo = (url: string | null | undefined): string | null => (url ? /github\.com\/([\w.-]+\/[\w.-]+)\/issues\/\d+/i.exec(url)?.[1] ?? null : null);
+
+/** Whether an issue has one of these labels; any issue does when there are none. GitHub's labels ignore case, so this does too. */
+export function hasPlaceLabel(issue: { labels?: { name: string }[] }, labels: string[]): boolean {
+  if (!labels.length) return true;
+  const want = new Set(labels.map((l) => l.toLowerCase()));
+  return (issue.labels ?? []).some((l) => want.has(l.name.toLowerCase()));
+}
+
+/**
+ * Why an issue is outside a repo's place, or null (D-072): it moved to another repo, or has none of the
+ * place's labels. A moved issue's link names its new repo. With `projectOnly`, the labels don't count.
+ */
+export function githubOutside(issue: { url?: string | null; labels?: { name: string }[] }, repo: string, labels: string[], projectOnly = false): string | null {
+  const now = issueRepo(issue.url);
+  if (now && now.toLowerCase() !== repo.toLowerCase()) return `it moved to ${now}`;
+  if (projectOnly || hasPlaceLabel(issue, labels)) return null;
+  return labels.length === 1 ? `it has no label ${labels[0]}` : `it has none of the labels ${orList(labels)}`;
 }
 
 const OPEN: Status = { id: 'OPEN', name: 'Open', category: 'todo' };
@@ -52,7 +75,7 @@ const ITEMS_QUERY = `query($id: ID!, $after: String) {
     nodes { id
       fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { optionId name } }
       content { __typename ... on Issue { number title url state repository { nameWithOwner }
-        assignees(first: 5) { nodes { login name } } labels(first: 10) { nodes { name color } } } } } } } }
+        assignees(first: 5) { nodes { login name } } labels(first: 50) { nodes { name color } } } } } } } }
 }`;
 
 const ISSUE_ITEMS_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
@@ -68,7 +91,9 @@ const label = (l: { name: string; color?: string | null }): Label => ({ name: l.
 export class GithubClient implements TrackerClient {
   readonly kind = 'github' as const;
   readonly title: string;
+  readonly place: string;
   private readonly o: GithubOptions;
+  private readonly labelNames: string[];
   private projectCache: Promise<ProjectInfo | null> | null = null;
   /** Whether Projects could be read; false when the token lacks the scope. */
   private projectsReadable = true;
@@ -76,6 +101,8 @@ export class GithubClient implements TrackerClient {
   constructor(o: GithubOptions) {
     this.o = o;
     this.title = `GitHub · ${o.repo}`;
+    this.labelNames = o.labels ?? [];
+    this.place = placeText({ kind: 'github', repo: o.repo, labels: this.labelNames });
   }
 
   private get owner(): string { return this.o.repo.split('/')[0]!; }
@@ -125,12 +152,8 @@ export class GithubClient implements TrackerClient {
   async board(): Promise<Board> {
     const p = await this.project();
     if (p) return this.projectBoard(p);
-    const fields = 'number,title,url,state,assignees,labels';
-    const [open, closed] = await Promise.all([
-      this.gh(['issue', 'list', '-R', this.o.repo, '--state', 'open', '--limit', '200', '--json', fields]),
-      this.gh(['issue', 'list', '-R', this.o.repo, '--state', 'closed', '--limit', '30', '--json', fields]),
-    ]);
-    const cards = [...JSON.parse(open), ...JSON.parse(closed)].map((i: { number: number; title: string; url: string; state: string; assignees: GhPerson[]; labels: { name: string; color: string }[] }): BoardCard => ({
+    const [open, closed] = await Promise.all([this.issues('open', 200), this.issues('closed', 30)]);
+    const cards = [...open, ...closed].map((i): BoardCard => ({
       key: `GH-${i.number}`, title: i.title, url: i.url, status: i.state === 'OPEN' ? OPEN : CLOSED,
       type: null, assignees: i.assignees.map(person), labels: i.labels.map(label), priority: null,
     }));
@@ -141,7 +164,22 @@ export class GithubClient implements TrackerClient {
       notice: this.projectsReadable
         ? 'These issues aren\'t on a GitHub Project, so the columns are Open and Closed. Add them to a Project with a Status field to use its columns.'
         : `To use your GitHub Project's columns, give ${this.o.account} access to Projects: gh auth refresh -s project (while ${this.o.account} is the active account).`,
+      place: this.place,
     };
+  }
+
+  /**
+   * The repo's open or closed issues, held to the place's labels (D-072). `gh issue list --label` wants
+   * every label it's given, so an issue with any one of them takes a list per label, merged.
+   */
+  private async issues(state: 'open' | 'closed', limit: number) {
+    type Issue = { number: number; title: string; url: string; state: string; assignees: GhPerson[]; labels: { name: string; color: string }[] };
+    const runs = this.labelNames.length ? this.labelNames.map((l) => ['--label', l]) : [[]];
+    const lists = await Promise.all(runs.map(async (only) => JSON.parse(await this.gh(['issue', 'list', '-R', this.o.repo, '--state', state, '--limit', String(limit), ...only, '--json', 'number,title,url,state,assignees,labels'])) as Issue[]));
+    if (lists.length === 1) return lists[0]!;
+    const byNumber = new Map<number, Issue>();
+    for (const i of lists.flat()) if (!byNumber.has(i.number)) byNumber.set(i.number, i);
+    return [...byNumber.values()].sort((a, b) => b.number - a.number).slice(0, limit);
   }
 
   private async projectBoard(p: ProjectInfo): Promise<Board> {
@@ -156,7 +194,8 @@ export class GithubClient implements TrackerClient {
     }
     const columns: BoardColumn[] = p.options.map((o) => ({ id: o.id, name: o.name, category: categoryOf(o.name), statusIds: [o.id] }));
     const cards: BoardCard[] = items
-      .filter((i) => i.content?.__typename === 'Issue' && i.content.repository?.nameWithOwner.toLowerCase() === this.o.repo.toLowerCase())
+      .filter((i) => i.content?.__typename === 'Issue' && i.content.repository?.nameWithOwner.toLowerCase() === this.o.repo.toLowerCase()
+        && hasPlaceLabel({ labels: i.content.labels?.nodes }, this.labelNames))
       .map((i) => {
         const c = i.content!;
         const v = i.fieldValueByName;
@@ -167,12 +206,14 @@ export class GithubClient implements TrackerClient {
         };
       });
     if (cards.some((c) => c.status.id === '')) columns.unshift({ id: '', name: 'No status', category: 'todo', statusIds: [''] });
-    return { source: 'github-project', title: p.title, url: p.url, columns, cards, notice: null };
+    return { source: 'github-project', title: p.title, url: p.url, columns, cards, notice: null, place: this.place };
   }
 
   async ticket(key: string): Promise<Ticket> {
     const n = issueNumber(key);
     const raw = JSON.parse(await this.gh(['issue', 'view', String(n), '-R', this.o.repo, '--json', 'number,title,body,state,stateReason,author,assignees,labels,comments,createdAt,updatedAt,url,milestone']));
+    const why = githubOutside(raw, this.o.repo, this.labelNames);
+    if (why) throw outsideError({ key: `GH-${n}`, why }, this.place);
     const md = { issueUrl: (x: number) => `https://github.com/${this.o.repo}/issues/${x}`, userUrl: (u: string) => `https://github.com/${u}` };
     const item = await this.issueItem(n).catch(() => null);
     const closed = raw.state !== 'OPEN';
@@ -189,6 +230,19 @@ export class GithubClient implements TrackerClient {
       })),
       related: raw.milestone?.title ? [{ key: raw.milestone.title, title: 'Milestone', relation: 'milestone', url: null }] : [],
     };
+  }
+
+  async outside(keys: string[], opts: { project?: boolean } = {}): Promise<Outside[]> {
+    const found = await inBatches(keys, 5, async (key): Promise<Outside | null> => {
+      try {
+        const raw = JSON.parse(await this.gh(['issue', 'view', String(issueNumber(key)), '-R', this.o.repo, '--json', 'number,url,labels'])) as { url: string; labels?: { name: string }[] };
+        const why = githubOutside(raw, this.o.repo, this.labelNames, !!opts.project);
+        return why ? { key, why } : null;
+      } catch {
+        return null; // it couldn't be read, which never counts as outside (D-048)
+      }
+    });
+    return found.filter((o): o is Outside => !!o);
   }
 
   /** The issue's card on the board's Project, with its status there, when it has one. */
