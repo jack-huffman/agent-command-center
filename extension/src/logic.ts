@@ -3,7 +3,7 @@
  * The walkthrough is generated from core's step list (D-017): one source for the GUI and `acc doctor`.
  */
 import type { Analysis } from '../../packages/core/src/analyze.ts';
-import type { AutopilotRecord } from '../../packages/core/src/autopilot.ts';
+import { AUTOPILOT_REVIEW_DOES, type AutopilotRecord } from '../../packages/core/src/autopilot.ts';
 import type { CheckStatus, Step } from '../../packages/core/src/onboarding/types.ts';
 
 export const PUBLISHER = 'JackHuffman';
@@ -684,7 +684,7 @@ export interface AutopilotStatusInput {
   last?: string | null;
 }
 
-const AUTOPILOT_DOES = 'it reviews finished work, lands work whose review passed as a pull request, re-dispatches a rework once, and resumes a stopped builder once a run. It never merges.';
+const AUTOPILOT_DOES = `it ${AUTOPILOT_REVIEW_DOES}. It never merges a pull request.`;
 
 /**
  * The status bar's autopilot switch (D-064): an icon and the words "Autopilot: on" or "Autopilot: off",

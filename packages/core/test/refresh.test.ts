@@ -7,7 +7,7 @@ import { type Config, parseConfig } from '../src/config.ts';
 import { run, type RunOptions, type RunResult } from '../src/exec.ts';
 import { displayState, mutate, type PullRequest, readLedger, type Task, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
-import { readReceipt } from '../src/receipts.ts';
+import { readReceipt, writeReceipt } from '../src/receipts.ts';
 import { appendOnlyMerge, refresh } from '../src/refresh.ts';
 import { reviewPath, type Verdict } from '../src/review.ts';
 import { bad, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, tempDir } from './support.ts';
@@ -52,15 +52,16 @@ test('append-only: an edit anywhere but the end isn\'t an addition', () => {
  * A repo whose origin is a local bare repo, with T-1's branch in a worktree of its own, landed at its
  * latest commit and reviewed there. Its pull request is open. Nothing conflicts until a test says so.
  */
-function setup(opts: { appendOnly?: string[] } = {}) {
+function setup(opts: { appendOnly?: string[]; config?: Record<string, unknown>; files?: Record<string, string> } = {}) {
   const RAW = {
     ...GENERIC_CONFIG, github: { repo: 'acme/tool', account: 'jordan-kim' }, autonomy: 'review',
     gates: { required: ['test'], commands: { test: 'npm test' } },
     autopilot: { appendOnly: opts.appendOnly ?? ['docs/DECISIONS.md'] },
+    ...opts.config,
   };
   const origin = tempDir('origin-');
   run('git', ['init', '-q', '--bare', origin]);
-  const dir = makeRepo({ '.acc/config.json': JSON.stringify(RAW), 'docs/DECISIONS.md': DECISIONS, 'sum.js': SUM });
+  const dir = makeRepo({ '.acc/config.json': JSON.stringify(RAW), 'docs/DECISIONS.md': DECISIONS, 'sum.js': SUM, ...opts.files });
   gitIn(dir, 'remote', 'add', 'origin', origin);
   gitIn(dir, 'push', '-q', 'origin', 'main');
   const wt = join(tempDir('worktrees-'), 'T-1');
@@ -235,7 +236,7 @@ test('a check that fails on the merge: the branch goes back to its commit, nothi
   assert.deepEqual(brief(autopilotPass(s.paths, s.config, deps(calls)).steps[0]!), ['T-1', null, 'waiting'], 'not tried again on the same commit');
 });
 
-test('a heavy-check slot that stays taken undoes the merge and waits for the next pass, without recording a failure', () => {
+test('a heavy-check slot that stays taken: the merge is undone, nothing is pushed, and the task needs you, saying so', () => {
   const s = setup();
   const before = s.onBranch({ 'docs/DECISIONS.md': DECISIONS + BRANCH_ENTRY });
   s.onMain({ 'docs/DECISIONS.md': DECISIONS + MAIN_ENTRY });
@@ -246,11 +247,50 @@ test('a heavy-check slot that stays taken undoes the merge and waits for the nex
   writeFileSync(join(dir, 'slot-0', 'owner'), JSON.stringify({ pid: process.pid, at: Date.now() }));
   const calls: string[] = [];
   const r = autopilotPass(s.paths, s.config, { ...deps(calls), slots: { dir, slots: 1, timeoutMs: 0, pollMs: 10 } });
-  assert.deepEqual([...brief(r.steps[0]!), r.steps[0]!.reason], ['T-1', 'refresh', 'waiting', 'The heavy-check slot stayed taken, so the merge was undone. Autopilot tries again next pass.']);
+  assert.deepEqual(brief(r.steps[0]!), ['T-1', 'refresh', 'failed']);
+  const reason = `Merged main in, but its checks couldn't run: Every heavy-check slot in ${dir} stayed taken for 0 minutes. If no check is running, delete that folder. The branch is as it was, at ${before.slice(0, 7)}, and nothing was pushed.`;
+  assert.equal(r.steps[0]!.reason, reason, 'refresh\'s own reason, with what putting the branch back did');
   assert.deepEqual([head(s.dir), gitIn(s.wt, 'status', '--porcelain'), merging(s.wt)], [before, '', false]);
-  assert.equal(first(s.paths).autopilot, undefined);
+  const t = first(s.paths);
+  assert.deepEqual(t.autopilot?.failed, { step: 'refresh', sha: before, state: 'review', reason, at: now().toISOString() });
+  assert.equal(displayState(readLedger(s.paths.ledger), t), 'needs-you');
   assert.ok(!calls.some((c) => c.startsWith('nice')), 'the check never ran');
-  assert.deepEqual(brief(autopilotPass(s.paths, s.config, deps(calls)).steps[0]!), ['T-1', 'refresh', 'done'], 'the slot free, it goes ahead');
+  assert.deepEqual(pushes(calls), []);
+
+  // A slot taken for hours is a stuck check: a person clears it, so autopilot doesn't try again on its own.
+  const held = autopilotPass(s.paths, s.config, deps(calls));
+  assert.deepEqual(brief(held.steps[0]!), ['T-1', null, 'waiting']);
+  assert.ok(held.steps[0]!.reason.startsWith(`Autopilot couldn't update ${before.slice(0, 7)} from its base: Merged main in, but its checks couldn't run: Every heavy-check slot in ${dir}`));
+  assert.equal(head(s.dir), before);
+});
+
+test('on Salesforce, the merge is validated with the Apex tests the branch\'s last validate named', () => {
+  const s = setup({
+    config: {
+      profile: 'salesforce',
+      environments: [{ name: 'main', type: 'developer', org: 'Acme Dev', default: true }],
+      gates: { required: ['validate'] },
+    },
+    files: { 'sfdx-project.json': JSON.stringify({ packageDirectories: [{ path: 'force-app', default: true }] }) },
+  });
+  const SUM_CLS = 'force-app/main/default/classes/Sum.cls';
+  const before = s.onBranch({ [SUM_CLS]: 'public class Sum {}\n', 'docs/DECISIONS.md': DECISIONS + BRANCH_ENTRY });
+  writeReceipt(s.paths, {
+    gate: 'validate', sha: before, env: 'main', status: 'pass', startedAt: now().toISOString(), finishedAt: now().toISOString(), durationMs: 1,
+    summary: 'Validated 1 component against Acme Dev, 1 test passed.', command: null, log: null,
+    details: { jobId: '0Af1', org: 'Acme Dev', testLevel: 'RunSpecifiedTests', tests: [{ name: 'SumTest', reason: 'covers Sum' }] },
+  });
+  s.onMain({ 'docs/DECISIONS.md': DECISIONS + MAIN_ENTRY });
+  s.opened(before, ['docs/DECISIONS.md']);
+  const calls: string[] = [];
+  const d = deps(calls);
+  const validated = ok(JSON.stringify({ status: 0, result: { id: '0Af2', success: true, numberComponentsTotal: 1, numberTestsCompleted: 1 } }));
+  const r = refresh(s.paths, s.config, 'T-1', { ...d, run: fakeRunner({ 'nice -n 15 sf project deploy start --dry-run': validated }, calls) }, { actor: 'orchestrator', by: 'test' });
+  assert.match(r.reason, /Its checks passed\./);
+  const deploy = calls.filter((c) => c.includes('deploy start'));
+  assert.equal(deploy.length, 1);
+  assert.match(deploy[0]!, new RegExp(`--source-dir ${SUM_CLS} --test-level RunSpecifiedTests --tests SumTest$`));
+  assert.deepEqual(readReceipt(s.paths, r.sha!, 'validate')?.details?.tests, [{ name: 'SumTest', reason: 'covers Sum' }], 'and the merge commit\'s receipt names them, for the next refresh');
 });
 
 test('it won\'t merge into a worktree with changes, one that\'s gone, or a branch GitHub has commits for', () => {

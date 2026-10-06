@@ -551,8 +551,9 @@ before each:
 - **One at a time:** it holds `<git-common-dir>/acc/autopilot.lock` while it
   runs, so a second autopilot on the same repo is refused, naming the first one's
   pid. Only a dead owner frees the lock. Only a refresh's checks take the
-  heavy-check slot, as a builder's do. A slot that stays taken undoes the merge
-  and waits for the next pass.
+  heavy-check slot, as a builder's do. A slot still taken after its 3 hours
+  undoes the merge, and the refresh fails like any step, with its reason: a
+  check that holds a slot that long is stuck, and a person clears it.
 - **A step that fails** is recorded on the task (`autopilot.failed`: the step,
   the commit, the state, the reason) and isn't tried again on that commit. The
   task shows as needs you with the reason. A new commit lets autopilot try

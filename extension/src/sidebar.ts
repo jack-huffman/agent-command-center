@@ -458,7 +458,7 @@ export class Sidebar {
     const now = project.config.autonomy;
     const pick = await vscode.window.showQuickPick([
       { label: '$(debug-pause) manual', description: 'Nothing happens on its own', value: 'manual' },
-      { label: '$(rocket) review', description: 'Autopilot reviews, lands, re-dispatches a rework once and resumes a stopped builder once; never merges', value: 'review' },
+      { label: '$(rocket) review', description: 'Autopilot reviews, lands, reworks and resumes once, and merges the base into a conflicting pull request; never merges one', value: 'review' },
     ].map((x) => ({ ...x, description: x.value === now ? `${x.description} · now` : x.description })), { title: `${project.name}: what may autopilot do on its own?` });
     if (!pick || pick.value === now) return;
     const ok = await this.runAcc(project, ['agents', 'autonomy', pick.value], () => undefined);

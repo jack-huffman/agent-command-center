@@ -544,7 +544,7 @@ test('How agents run shows the project\'s autonomy, where it\'s set, and a way t
   };
   p.config = { ...p.config, autonomy: 'review' };
   const s = agentsModel(h).settings[0]!;
-  assert.deepEqual(s.autonomy, { value: 'review', from: 'project', meaning: 'Autopilot reviews, lands and reworks once. It never merges.' });
+  assert.deepEqual(s.autonomy, { value: 'review', from: 'project', meaning: 'Autopilot reviews finished work, lands work whose review passed, re-dispatches a rework once, resumes a stopped builder once a run, and merges the base into a pull request that conflicts with it. It never merges a pull request.' });
   p.config = { ...p.config, autonomy: 'manual' };
   assert.deepEqual(agentsModel(h).settings[0]!.autonomy, { value: 'manual', from: 'project', meaning: 'Nothing happens on its own.' });
   // The page asks acc to change it: the webview never writes the config.

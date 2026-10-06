@@ -379,14 +379,14 @@ test('the autopilot switch says on or off with an icon and the words, and its to
   const { autopilotStatus } = await import('../src/logic.ts');
   const on = autopilotStatus({ project: 'Tool', many: false, state: 'on', last: '✓ GH-31  Opened pull request #40.' });
   assert.equal(on.text, '$(rocket) Autopilot: on');
-  assert.match(on.tooltip, /^Autopilot is on for Tool: it reviews finished work, lands work whose review passed as a pull request, re-dispatches a rework once, and resumes a stopped builder once a run\. It never merges\./);
+  assert.match(on.tooltip, /^Autopilot is on for Tool: it reviews finished work, lands work whose review passed, re-dispatches a rework once, resumes a stopped builder once a run, and merges the base into a pull request that conflicts with it\. It never merges a pull request\./);
   assert.match(on.tooltip, /Last: ✓ GH-31 {2}Opened pull request #40\./);
   assert.match(on.tooltip, /Click to turn it off until VSCode closes\.$/);
   assert.doesNotMatch(autopilotStatus({ project: 'Tool', many: false, state: 'on' }).tooltip, /Last:/, 'nothing printed yet');
 
   const off = autopilotStatus({ project: 'Tool', many: false, state: 'off' });
   assert.equal(off.text, '$(debug-pause) Autopilot: off');
-  assert.match(off.tooltip, /^Autopilot is off for Tool\. When it's on, it reviews[^]*It never merges\.\n\nClick to turn it on until VSCode closes\.$/);
+  assert.match(off.tooltip, /^Autopilot is off for Tool\. When it's on, it reviews[^]*merges the base into a pull request that conflicts with it\. It never merges a pull request\.\n\nClick to turn it on until VSCode closes\.$/);
 
   const elsewhere = autopilotStatus({ project: 'Tool', many: false, state: 'elsewhere', pid: 4242 });
   assert.equal(elsewhere.text, '$(rocket) Autopilot: on elsewhere');
@@ -394,7 +394,9 @@ test('the autopilot switch says on or off with an icon and the words, and its to
   assert.match(elsewhere.tooltip, /Stop it there to run it in this window\.$/);
 
   // It can't run: acc's own words say why.
-  const refusal = 'autonomy "dispatch" (autopilot also starting Ready tasks) is not built yet. Set "autonomy" to "review" in .acc/config.json: autopilot then reviews, lands, re-dispatches a rework once, and resumes a stopped builder once a run.';
+  const { autopilotMode } = await import('../../packages/core/src/autopilot.ts');
+  const refusal = autopilotMode({ autonomy: 'dispatch' }).refusal!;
+  assert.match(refusal, /^autonomy "dispatch" \(autopilot also starting Ready tasks\) is not built yet\. Set "autonomy" to "review" in \.acc\/config\.json: autopilot then reviews finished work, [^]*, and merges the base into a pull request that conflicts with it\.$/);
   const refused = autopilotStatus({ project: 'Tool', many: false, state: 'refused', refusal });
   assert.equal(refused.text, '$(circle-slash) Autopilot: off');
   assert.equal(refused.tooltip, `Autopilot can't run for Tool: ${refusal}`);

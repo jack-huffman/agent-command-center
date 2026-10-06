@@ -39,9 +39,16 @@ export interface AutopilotMode {
 }
 
 /**
+ * What autopilot does under `autonomy: review`, after "autopilot" or "it". Every description of review
+ * uses it, in acc and the extension, so a step added here is added there too.
+ */
+export const AUTOPILOT_REVIEW_DOES = 'reviews finished work, lands work whose review passed, re-dispatches a rework once, resumes a stopped builder once a run, and merges the base into a pull request that conflicts with it';
+
+/**
  * What `autonomy` means for autopilot. manual: nothing happens on its own. review: autopilot reviews,
- * lands, re-dispatches a rework once, and resumes a stopped builder once a run (D-067). dispatch: as review, and it also starts Ready tasks up to
- * agents.max; that part isn't built, so it refuses. full is read as dispatch.
+ * lands, re-dispatches a rework once, resumes a stopped builder once a run (D-067), and merges the base
+ * into a pull request that conflicts with it (D-058). dispatch: as review, and it also starts Ready
+ * tasks up to agents.max; that part isn't built, so it refuses. full is read as dispatch.
  */
 export function autopilotMode(config: Pick<Config, 'autonomy'>): AutopilotMode {
   const autonomy = config.autonomy;
@@ -50,7 +57,7 @@ export function autopilotMode(config: Pick<Config, 'autonomy'>): AutopilotMode {
   const warnings = autonomy === 'full' ? ['autonomy "full" is read as "dispatch".'] : [];
   return {
     autonomy, on: false, warnings,
-    refusal: 'autonomy "dispatch" (autopilot also starting Ready tasks) is not built yet. Set "autonomy" to "review" in .acc/config.json: autopilot then reviews, lands, re-dispatches a rework once, and resumes a stopped builder once a run.',
+    refusal: `autonomy "dispatch" (autopilot also starting Ready tasks) is not built yet. Set "autonomy" to "review" in .acc/config.json: autopilot then ${AUTOPILOT_REVIEW_DOES}.`,
   };
 }
 
@@ -243,13 +250,12 @@ function landStep(r: LandResult): StepRun {
 
 /**
  * Why a step's error is only for now, or null when it's a real failure. Only these wait: the ledger was
- * busy, the heavy-check slot stayed taken for a refresh's checks, or the agent cap filled up between the
- * look and the dispatch. Anything else is recorded.
+ * busy, the agent cap filled up between the look and the dispatch, or a stopped builder's agent came
+ * back. Anything else is recorded, a heavy-check slot that stayed taken for hours among them (D-069).
  */
 function temporary(e: unknown, paths: RepoPaths, config: Config, id: string): string | null {
   const code = (e as AccError).code;
   if (code === 'lock-timeout') return 'The ledger was busy. Autopilot tries again next pass.';
-  if (code === 'busy') return 'The heavy-check slot stayed taken, so the merge was undone. Autopilot tries again next pass.';
   // Its agent came back between the look and the resume: nothing stopped after all.
   if (code === 'agent-active') return `${(e as Error).message} Autopilot looks again next pass.`;
   if (code === 'move-refused') {
