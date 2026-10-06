@@ -16,14 +16,15 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { HOME_SECTIONS, homeModel, type HomeSection, type Model } from '../src/model.ts';
-import { SAMPLE_EDIT, sampleAgent, sampleBoards, sampleEdited, sampleHub, sampleIdentity, sampleRuns, sampleSetup, sampleTicket } from './fixtures.ts';
+import { type ConnectSample, SAMPLE_EDIT, sampleAgent, sampleBoards, sampleConnect, sampleEdited, sampleHub, sampleIdentity, sampleRuns, sampleSetup, sampleTicket } from './fixtures.ts';
 
 /**
  * Every page the screenshot script can draw: each section of the Command Center, a ticket's page (being
  * built, two to do whose analysis has questions or says to split it, and one whose builder stopped), an
- * agent's page, and Setup with the output panel open on a command that's asking something.
+ * agent's page, Setup with the output panel open on a command that's asking something, and the Connect
+ * page at each of its steps (GH-51).
  */
-export const PAGES = [...HOME_SECTIONS, 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'agent', 'output'] as const;
+export const PAGES = [...HOME_SECTIONS, 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'agent', 'output', 'connect-start', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing'] as const;
 export type Page = (typeof PAGES)[number];
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -40,7 +41,7 @@ export const THEMES = {
     'button-secondaryBackground': '#313131', 'button-secondaryForeground': '#cccccc', 'button-secondaryHoverBackground': '#3c3c3c',
     'badge-background': '#616161', 'badge-foreground': '#f8f8f8', 'textLink-foreground': '#4daafc', 'menu-background': '#1f1f1f', 'menu-border': '#454545', 'menu-foreground': '#cccccc', 'menu-selectionBackground': '#0078d4', 'menu-selectionForeground': '#ffffff', 'textCodeBlock-background': '#2b2b2b',
     'progressBar-background': '#0078d4', 'charts-orange': '#d18616', 'charts-blue': '#3794ff',
-    'input-background': '#313131', 'input-foreground': '#cccccc', 'input-border': '#3c3c3c', 'input-placeholderForeground': '#989898', 'icon-foreground': '#cccccc',
+    'input-background': '#313131', 'input-foreground': '#cccccc', 'input-border': '#3c3c3c', 'dropdown-background': '#313131', 'dropdown-foreground': '#cccccc', 'dropdown-border': '#3c3c3c', 'input-placeholderForeground': '#989898', 'icon-foreground': '#cccccc',
     'list-activeSelectionBackground': '#04395e', 'list-activeSelectionForeground': '#ffffff',
   },
   light: {
@@ -52,7 +53,7 @@ export const THEMES = {
     'button-secondaryBackground': '#e5e5e5', 'button-secondaryForeground': '#3b3b3b', 'button-secondaryHoverBackground': '#cccccc',
     'badge-background': '#cccccc', 'badge-foreground': '#3b3b3b', 'textLink-foreground': '#005fb8', 'menu-background': '#ffffff', 'menu-border': '#cecece', 'menu-foreground': '#3b3b3b', 'menu-selectionBackground': '#005fb8', 'menu-selectionForeground': '#ffffff', 'textCodeBlock-background': '#f2f2f2',
     'progressBar-background': '#005fb8', 'charts-orange': '#d18616', 'charts-blue': '#1a85ff',
-    'input-background': '#ffffff', 'input-foreground': '#3b3b3b', 'input-border': '#cecece', 'input-placeholderForeground': '#767676', 'icon-foreground': '#424242',
+    'input-background': '#ffffff', 'input-foreground': '#3b3b3b', 'input-border': '#cecece', 'dropdown-background': '#ffffff', 'dropdown-foreground': '#3b3b3b', 'dropdown-border': '#cecece', 'input-placeholderForeground': '#767676', 'icon-foreground': '#424242',
     'list-activeSelectionBackground': '#e4e6f1', 'list-activeSelectionForeground': '#000000',
   },
 } satisfies Record<string, Record<string, string>>;
@@ -65,8 +66,9 @@ export function sampleModel(kind: Page, now = Date.now()): Model {
   if (kind === 'ticket-stopped') return sampleTicket(now, 'ACME-29');
   if (kind === 'agent') return sampleAgent(now);
   const hub = sampleHub(now);
-  const section = (kind === 'output' ? 'setup' : kind) as HomeSection;
-  return homeModel({ hub, section, boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: sampleRuns(now), edited: sampleEdited });
+  const connect = kind.startsWith('connect-') ? sampleConnect(kind.slice('connect-'.length) as ConnectSample) : null;
+  const section = (kind === 'output' ? 'setup' : connect ? 'tasks' : kind) as HomeSection;
+  return homeModel({ hub, section, boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: sampleRuns(now), edited: sampleEdited, connect });
 }
 
 /**

@@ -594,7 +594,7 @@ export const STEPS: Step[] = [
     fix: {
       vscode: 'acc.trackers.add',
       confirm: true,
-      text: '"Do it" walks you through it in VSCode: pick Azure DevOps, Jira or GitHub Issues, sign in, then pick the project, team and board, and last which of its tickets are this repo\'s: an epic, labels or an area path, or the whole project. It writes them to this repo\'s .acc/config.json.',
+      text: '"Do it" opens the Connect page in the Command Center: pick Jira, GitHub Issues or Azure DevOps, sign in and test the connection, then pick the project, which of its tickets are this repo\'s (an epic, labels or an area path, or the whole project) and the board. Save writes them to this repo\'s .acc/config.json.',
       docs: `${DOCS}#b14-connect-the-ticket-source`,
     },
     check(ctx) {

@@ -2,6 +2,7 @@
  * Everything the extension decides, with no `vscode` import, so it can be tested with node:test.
  * The walkthrough is generated from core's step list (D-017): one source for the GUI and `acc doctor`.
  */
+import { dirname } from 'node:path';
 import type { Analysis } from '../../packages/core/src/analyze.ts';
 import { AUTOPILOT_REVIEW_DOES, type AutopilotRecord } from '../../packages/core/src/autopilot.ts';
 import type { CheckStatus, Step } from '../../packages/core/src/onboarding/types.ts';
@@ -437,16 +438,18 @@ export async function outsideKeys<T extends { key: string }>(keys: string[], rea
   }
 }
 
-/** Accepts a pasted URL as well as a bare name: dev.azure.com/acme, acme.visualstudio.com, acme.atlassian.net/jira/… */
-export function parseHost(kind: 'jira' | 'azure', input: string): string | null {
-  const s = input.trim().replace(/^https?:\/\//, '');
-  if (kind === 'azure') {
-    const m = /^dev\.azure\.com\/([^/?#]+)/i.exec(s) ?? /^([^./?#]+)\.visualstudio\.com/i.exec(s) ?? /^([A-Za-z0-9][A-Za-z0-9-]*)$/.exec(s);
-    return m ? decodeURIComponent(m[1]!) : null;
-  }
-  const m = /^([a-z0-9-]+\.atlassian\.net)/i.exec(s) ?? /^([a-z0-9-]+)$/i.exec(s);
-  return m ? (m[1]!.includes('.') ? m[1]!.toLowerCase() : `${m[1]!.toLowerCase()}.atlassian.net`) : null;
-}
+/** Accepts a pasted URL as well as a bare name. It lives with the trackers' descriptions now (GH-51). */
+export { parseHost } from '../../packages/core/src/trackers/connect.ts';
+
+/**
+ * Which repo a tracker sign-in belongs to (D-027): its GitHub repo when it has one, so every clone and
+ * worktree shares it, or else its git directory.
+ */
+export const repoKey = (p: { config: { github: { repo: string } | null }; ledgerPath: string }): string =>
+  p.config.github ? `github:${p.config.github.repo.toLowerCase()}` : `git:${dirname(dirname(p.ledgerPath))}`;
+
+/** Where VSCode keeps one repo's sign-in to one tracker host: acc.cred:github:acme/service:jira:acme.atlassian.net. */
+export const credKey = (p: Parameters<typeof repoKey>[0], kind: string, host: string): string => `acc.cred:${repoKey(p)}:${kind}:${host}`;
 
 /** The org URL an environment should have (D-015): Production at <domain>.my.salesforce.com, a sandbox named after its branch. */
 export function expectedOrgUrl(domain: string, env: { type: string; branch: string }): string {

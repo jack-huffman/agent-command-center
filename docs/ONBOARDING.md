@@ -377,36 +377,46 @@ Read the drafts before committing them. By hand:
 
 - [ ] Each repo names its own ticket source in `.acc/config.json`
   (`"trackers"`). The Tasks tab shows that tracker's board, and every ticket
-  opens as a page you can work from (D-026). The easy way is this step's **Do it** in the project walkthrough. It runs
-  **Agent Command Center: Add a tracker…**, which you can also run from the
-  Command Palette in the repo's window.
-  You pick the kind and sign in, then pick the project, team and board from
-  lists, and it writes the config. Sign-ins belong to that repo only (D-027).
-  Sign in again, or sign out, with **Sign in to a tracker** and **Sign out of a
-  tracker**.
-- [ ] The last pick is the tracker's **place**: which of its tickets are this
-  repo's, so another project's or another client's never show up here (D-072).
-  The whole project, repo or team is listed first. A narrower place is an epic
-  (Jira), labels (GitHub) or an area path (Azure DevOps). The board shows only
-  tickets in the place, says where they come from under its name, and a ticket
-  outside it can't be opened or tracked. Run **Add a tracker…** again to change
-  it.
+  opens as a page you can work from (D-026). The easy way is the **Connect
+  page** in the Command Center, with nothing to edit by hand. This step's **Do
+  it** opens it, and so do **Connect Jira** on the Tasks tab, **Add a tracker**
+  on the Overview, **New work**, and **Agent Command Center: Add a tracker…** in
+  the Command Palette. Pick Jira, GitHub Issues or Azure DevOps, give its site,
+  repo or organization, sign in and click **Test connection**: it says who it
+  signed in as, or why not, beside the field. Then pick the project, the place
+  and the board from lists of what that sign-in can see, and **Save** writes
+  the repo's `.acc/config.json`. Sign-ins belong to that repo only (D-027), and
+  stay in VSCode's secret storage, never in the file.
+- [ ] The **place** is which of its tickets are this repo's, so another
+  project's or another client's never show up here (D-072). The whole project,
+  repo or team is listed first. A narrower place is an epic (Jira), labels
+  (GitHub) or an area path (Azure DevOps). The board shows only tickets in the
+  place, says where they come from under its name, and a ticket outside it
+  can't be opened or tracked. **Change**, on the board, opens the tracker on the
+  Connect page to change its place, board or team, or to sign in again; every
+  **Sign in to Jira** or **Sign in to Azure DevOps** button opens it there too.
+  Another project is another tracker. **Sign out of a tracker** is in the
+  Command Palette.
   - **Azure DevOps:** choose **Sign in with Microsoft** and pick the account
-    that belongs to that client. If the client's tenant blocks it, use a
-    personal access token with Work Items: Read & write instead.
+    that belongs to that client in the chooser VSCode shows at the top of the
+    window. If the client's tenant blocks it, choose **Personal access token**:
+    **Create a token** opens the organization's token page; give it Work
+    Items: Read & write.
     `{ "kind": "azure", "organization": "acme", "project": "CRM", "board": "Stories" }`,
     plus `"team"` for a team other than the default, and
     `"areaPath": "CRM\\Billing"` for only the work items under that area.
-  - **Jira:** create an API token at
-    [id.atlassian.com](https://id.atlassian.com/manage-profile/security/api-tokens),
-    then paste it with your email when asked.
-    `{ "kind": "jira", "site": "acme.atlassian.net", "project": "ACME" }`, with
-    `"board": <id>` to pick a board other than the project's first, and
+  - **Jira:** the email comes from the repo's `git config user.email`. **Create
+    an API token** opens
+    [id.atlassian.com](https://id.atlassian.com/manage-profile/security/api-tokens);
+    paste the token in its field.
+    `{ "kind": "jira", "site": "acme.atlassian.net", "project": "ACME", "board": 7 }`,
+    where `"board"` is the board whose columns the Tasks tab shows, and
     `"epic": "ACME-3"` for only that epic's tickets and their sub-tasks. The
     board's own filter still applies, so pick a board that shows the epic's
     tickets.
   - **GitHub Issues:** `{ "kind": "github" }` uses the project's repo and
-    account through `gh`, with nothing else to set up. To use a GitHub
+    account through `gh`, with nothing to type: the page signs in as soon as
+    it knows the repo, and lists its labels to tick. To use a GitHub
     Project's columns rather than Open and Closed, give the account Projects
     access once: `gh auth refresh -s project` while it's the active account.
     Add `"board": <project number>` to pick a Project, `"repo": "owner/name"`

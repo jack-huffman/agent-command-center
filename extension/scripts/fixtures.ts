@@ -13,7 +13,8 @@ import type { Ticket } from '../../packages/core/src/trackers/types.ts';
 import type { HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
 import { type AgentSession, askingLabel, type DoctorItem, rowAnalysis, type TaskRow } from '../src/logic.ts';
-import { type AgentModel, agentModel, type BoardInput, type HubLike, type IdentityCard, type ProjectLike, type RunInput, ticketModel, type TicketModel } from '../src/model.ts';
+import { AZURE, GITHUB, JIRA } from '../../packages/core/src/trackers/connect.ts';
+import { type AgentModel, agentModel, blankConnect, type BoardInput, type ConnectModel, connectModel, type ConnectState, type HubLike, type IdentityCard, type ProjectLike, type RunInput, ticketModel, type TicketModel } from '../src/model.ts';
 import type { Entry } from '../src/transcript.ts';
 
 const MIN = 60_000;
@@ -354,6 +355,53 @@ export function sampleBoards(): BoardInput[] {
       ],
     },
   }];
+}
+
+/** Which Connect page to draw (GH-51). */
+export type ConnectSample = 'start' | 'jira' | 'azure' | 'github' | 'existing';
+
+/**
+ * The Connect page at each step: a new Jira tracker before signing in; signed in, its project picked, its
+ * epics loading and its boards failing; Azure DevOps whose token was refused; GitHub with labels ticked;
+ * and an existing Jira tracker opened to change, its epic done now but kept.
+ */
+export function sampleConnect(which: ConnectSample): ConnectModel {
+  const root = '/Users/me/code/acme-service';
+  const base = { root, projectName: 'Acme Service', ownRepo: 'acme/service', ghAccount: 'jordan-kim', from: 'tasks' as const, gitEmail: 'jordan.kim@example.com' };
+  const ready = (options: ConnectState['pickers'][string]['options'], selected: string[] = []): ConnectState['pickers'][string] => ({ options, selected, state: 'ready', error: null });
+  const ok = (who: string): ConnectState['signIn'] => ({ state: 'ok', who, error: null, again: false });
+  const projects = [{ value: 'ACME', label: 'ACME', detail: 'Acme Service Desk' }, { value: 'OPS', label: 'OPS', detail: 'Operations' }];
+  const boards = [{ value: '7', label: 'ACME Service board', detail: 'scrum', preferred: true }, { value: '9', label: 'Support kanban', detail: 'kanban' }];
+  if (which === 'start') return connectModel(blankConnect(JIRA, { id: 'c-start', ...base }));
+  if (which === 'jira') {
+    const s = blankConnect(JIRA, { id: 'c-jira', ...base });
+    s.host = 'acme.atlassian.net';
+    s.signIn = ok('Jordan Kim');
+    s.pickers.project = ready(projects, ['ACME']);
+    s.pickers.epic = { options: [], selected: [], state: 'loading', error: null };
+    s.pickers.board = { options: [], selected: [], state: 'failed', error: 'Jira answered HTTP 503: the service is unavailable.' };
+    return connectModel(s);
+  }
+  if (which === 'azure') {
+    const s = blankConnect(AZURE, { id: 'c-azure', ...base });
+    s.host = 'acme';
+    s.method = 'pat';
+    s.fieldErrors = { token: 'Azure DevOps (acme) didn\'t accept this sign-in. Check the token has Work Items: Read & write, and hasn\'t expired.' };
+    s.signIn = { state: 'failed', who: null, error: null, again: false };
+    return connectModel(s);
+  }
+  if (which === 'github') {
+    const s = blankConnect(GITHUB, { id: 'c-github', ...base });
+    s.signIn = ok('jordan-kim');
+    s.pickers.labels = ready(['billing', 'bug', 'documentation', 'enhancement', 'good first issue', 'invoices', 'milestone', 'question'].map((l) => ({ value: l, label: l })), ['billing', 'invoices']);
+    return connectModel(s);
+  }
+  const s = blankConnect(JIRA, { id: 'c-existing', ...base, existing: { index: 0, title: 'Jira · ACME', host: 'acme.atlassian.net', values: { project: 'ACME', epic: 'ACME-3', board: '7' } } });
+  s.signIn = ok('Jordan Kim');
+  s.pickers.project = ready([], ['ACME']);
+  s.pickers.epic = ready([{ value: 'ACME-31', label: 'ACME-31', detail: 'Renewals' }, { value: 'ACME-30', label: 'ACME-30', detail: 'Partner portal' }], ['ACME-3']);
+  s.pickers.board = ready(boards, ['7']);
+  return connectModel(s);
 }
 
 const p = (text: string, marks?: string[]): AdfNode => ({ type: 'paragraph', content: [{ type: 'text', text, ...(marks ? { marks: marks.map((type) => ({ type })) } : {}) }] });

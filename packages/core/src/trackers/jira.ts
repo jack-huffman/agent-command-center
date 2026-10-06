@@ -163,7 +163,7 @@ export class JiraClient implements TrackerClient {
     }));
     // The board's filter and the place both apply, so a filter that leaves the epic's tickets out shows nothing.
     const notice = this.epic && !cards.length
-      ? `No ticket in epic ${this.epic} is on this board. Its own filter may leave them out: widen the filter in Jira, or pick another board with Add a tracker.`
+      ? `No ticket in epic ${this.epic} is on this board. Its own filter may leave them out: widen the filter in Jira, or pick another board with Change, above it.`
       : null;
     return {
       source: 'jira-board', title: config.name, url: `${this.base}/jira/software/projects/${encodeURIComponent(this.o.project)}/boards/${id}`, columns, cards, notice,
@@ -187,7 +187,7 @@ export class JiraClient implements TrackerClient {
     try {
       return (await this.req<{ fields: { summary?: string } }>('GET', `/rest/api/3/issue/${encodeURIComponent(this.epic!)}?fields=summary`)).fields.summary ?? null;
     } catch (e) {
-      if (e instanceof TrackerError && e.kind === 'not-found') throw new TrackerError('not-found', `Epic ${this.epic} isn't in Jira, or this sign-in can't see it. Pick another with Add a tracker.`);
+      if (e instanceof TrackerError && e.kind === 'not-found') throw new TrackerError('not-found', `Epic ${this.epic} isn't in Jira, or this sign-in can't see it. Pick another with the board's Change.`);
       throw e;
     }
   }

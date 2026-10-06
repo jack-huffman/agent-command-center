@@ -494,9 +494,22 @@ export function trackerForKey(trackers: Pick<Tracker, 'kind' | 'project' | 'pref
  * is taken out, so re-adding one as the whole project clears its epic, labels or area path (D-072).
  */
 export function withTracker(trackers: Record<string, unknown>[], tracker: Record<string, unknown>): Record<string, unknown>[] {
-  const where = (t: Record<string, unknown>) => t.site ?? t.organization ?? t.repo;
-  const set = (t: Record<string, unknown>) => Object.fromEntries(Object.entries(t).filter(([, v]) => v !== null));
-  const i = trackers.findIndex((t) => t.kind === tracker.kind && t.project === tracker.project && where(t) === where(tracker));
-  if (i < 0) return [...trackers, set(tracker)];
-  return trackers.map((t, k) => (k === i ? set({ ...t, ...tracker }) : t));
+  // A repo left out and one named null are both the project's own.
+  const where = (t: Record<string, unknown>) => t.site ?? t.organization ?? t.repo ?? null;
+  const i = trackers.findIndex((t) => t.kind === tracker.kind && (t.project ?? null) === (tracker.project ?? null) && where(t) === where(tracker));
+  if (i < 0) return [...trackers, setKeys(tracker)];
+  return trackers.map((t, k) => (k === i ? setKeys({ ...t, ...tracker }) : t));
+}
+
+const setKeys = (t: Record<string, unknown>) => Object.fromEntries(Object.entries(t).filter(([, v]) => v !== null && v !== undefined));
+
+/**
+ * The raw trackers list with the tracker at `index` changed, as the Connect page changes an existing one
+ * (GH-51): keys the record names are set, those it names as null are taken out, and the rest, such as
+ * skipLabels, edits or prefix, are kept. It refuses when that place in the list holds another kind.
+ */
+export function replaceTracker(trackers: Record<string, unknown>[], index: number, tracker: Record<string, unknown>): Record<string, unknown>[] {
+  const was = trackers[index];
+  if (!was || was.kind !== tracker.kind) throw new AccError('config-changed', 'The trackers in .acc/config.json changed since this page opened. Open it again from the board.');
+  return trackers.map((t, k) => (k === index ? setKeys({ ...t, ...tracker }) : t));
 }

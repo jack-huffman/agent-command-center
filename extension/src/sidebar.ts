@@ -53,7 +53,7 @@ export class Sidebar {
   register(reg: (id: string, fn: (...args: any[]) => unknown) => void): void {
     reg('acc.task.add', (n?: TaskNode) => this.addTask(n));
     reg('acc.task.importGithub', (n?: TaskNode) => this.importGithub(n));
-    // Jira, connected in a few steps here (site, sign-in, project, board), never by editing a file.
+    // Jira, connected on the Command Center's Connect page (site, sign-in, project, epic, board), never by editing a file.
     reg('acc.task.importJira', (n?: TaskNode) => {
       const p = n && 'project' in n ? n.project : this.hub.projects[0];
       if (p?.config.trackers.some((t) => t.kind === 'jira')) return vscode.commands.executeCommand('acc.open.tasks');
@@ -199,7 +199,7 @@ export class Sidebar {
       { label: '$(add) Write a task', detail: 'A title and details, kept by acc.', go: () => this.addTask(node) },
       ...(project.config.github ? [{ label: '$(github) Import GitHub issues', description: project.config.github.repo, detail: 'Adds a task for each open issue, and refreshes the ones already here.', go: () => this.importGithub(node) }] : []),
       ...(jira ? [{ label: '$(issues) Track a Jira ticket', detail: 'Its board is on the Tasks tab: open a ticket and choose Track in acc.', go: () => vscode.commands.executeCommand('acc.open.tasks') }]
-        : [{ label: '$(plug) Connect Jira', detail: 'Sign in, then pick the project and board. Its tickets show on the Tasks tab.', go: () => vscode.commands.executeCommand('acc.trackers.add', { root: project.root, kind: 'jira' }) }]),
+        : [{ label: '$(plug) Connect Jira', detail: 'On the Connect page: sign in, then pick the project, epic and board. Its tickets show on the Tasks tab.', go: () => vscode.commands.executeCommand('acc.trackers.add', { root: project.root, kind: 'jira' }) }]),
     ];
     const pick = await vscode.window.showQuickPick(items, { title: `New work for ${project.name}` });
     await pick?.go();
