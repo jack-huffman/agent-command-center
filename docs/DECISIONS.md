@@ -1837,7 +1837,10 @@ hand, in its worktree, under `caffeinate -i`.
   (D-036). It refuses unless the task is running with a session and its
   worktree, and nothing is carrying it on; an idle background session is
   stopped first (D-060). The claude runs detached, logged to
-  `logs/<id>.resume.log`, with a marker in `resumes/<id>.json`. The run records
+  `logs/<id>.resume.log`, with a marker in `resumes/<id>.json`. The marker is
+  claimed before anything is looked at, holding acc's own process until the
+  resumed claude's replaces it, so a person's Resume and autopilot's can't both
+  start the conversation; a claim whose process has gone is taken over. The run records
   each resume (`run.resumes`), the Stop hook's reminder is cleared so the
   resumed turn is reminded too, and the event carries what it last said. The
   ready message names the task, quotes what it said, and asks it to check
@@ -1858,7 +1861,7 @@ hand, in its worktree, under `caffeinate -i`.
   Only `-i`: the display still sleeps, and closing the lid still sleeps the
   Mac; detection and Resume cover that. A task's caffeinate is written down in
   `awake/<id>.pid` and ended when the task leaves running (done, block, set,
-  Abandon) or autopilot finds its builder stopped, since a finished turn's
+  Abandon, or acc sync blocking it for a closed pull request) or autopilot finds its builder stopped, since a finished turn's
   process lingers. A pid that isn't a caffeinate any more is never killed.
   Other platforms start nothing.
 - **D-060's reply** runs Resume's own command, so a clone's builder model and

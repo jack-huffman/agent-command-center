@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { Hub } from './hub.ts';
@@ -16,7 +16,7 @@ import { Panels } from './panels.ts';
 import { accShellCommand, Questions, sessionSettings } from './questions.ts';
 import { Runs } from './runs.ts';
 import { accRunner, runFile } from './run.ts';
-import { savedFolder } from './transcript.ts';
+import { claudeProjectsDir, savedFolder } from './transcript.ts';
 import { openWalkthrough, Setup } from './setup.ts';
 import { Sidebar } from './sidebar.ts';
 import { RepoIdentity } from './identity.ts';
@@ -227,7 +227,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const sessionId = s.sessionId;
     if (!isSessionId(sessionId)) return 'it has no conversation to carry on.';
     const projects = hub.projects;
-    const folder = savedFolder(join(homedir(), '.claude', 'projects'), sessionId, [s.cwd, ...projects.flatMap((p) => p.worktrees.map((w) => w.path))]);
+    const folder = savedFolder(claudeProjectsDir(process.env), sessionId, [s.cwd, ...projects.flatMap((p) => p.worktrees.map((w) => w.path))]);
     if (!folder) return 'its conversation isn\'t saved anywhere this machine can find.';
     const project = hub.projectFor(folder);
     const task = project ? hub.ledger(project.root)?.tasks.find((t) => t.run?.sessionId === sessionId || (!!s.id && t.run?.bgId === s.id)) : undefined;

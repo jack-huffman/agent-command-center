@@ -178,7 +178,7 @@ function activeWhy(id: string, s: ClaudeSession): string {
  * `logs/<id>.resume.log`, with the Mac kept awake while it lives; the resume is recorded on the run.
  */
 export function resume(paths: RepoPaths, config: Config, id: string, deps: ResumeDeps, opts: ResumeOptions): ResumeResult {
-  const { run, now } = deps;
+  const { now } = deps;
   const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
   if (!task) throw new AccError('no-task', `No task ${id}.`);
   if (task.state !== 'running') throw new AccError('refused', `${id} is ${task.state}. Only a running task's builder is resumed.`);
@@ -186,8 +186,50 @@ export function resume(paths: RepoPaths, config: Config, id: string, deps: Resum
   if (!sessionId) throw new AccError('refused', `${id} has no session to carry on. Abandon it and dispatch it again.`);
   const worktree = task.run?.worktree;
   if (!worktree || !existsSync(worktree)) throw new AccError('refused', `${id}'s worktree isn't on disk any more, so there's nowhere to carry on.`);
-  const already = resuming(paths, id);
-  if (already) throw new AccError('refused', `${id} is already being resumed (pid ${already.pid}).`);
+  // Claimed before anything is looked at, so two Resumes (a person's and autopilot's) can't both launch:
+  // the claim holds this process's pid until the resumed claude's replaces it.
+  const marker = resumingPath(paths, id);
+  const log = join(paths.logs, `${id}.resume.log`);
+  claimResume(paths, id, { sessionId, pid: process.pid, startedAt: now().toISOString(), by: opts.by, log });
+  try {
+    return resumeClaimed(paths, config, id, deps, opts, { task, sessionId, worktree, marker, log });
+  } catch (e) {
+    // Ours until the launch rewrites it: a refusal leaves nothing behind.
+    if (readMarker(marker)?.pid === process.pid) rmSync(marker, { force: true });
+    throw e;
+  }
+}
+
+function readMarker(file: string): Resuming | null {
+  try {
+    return JSON.parse(readFileSync(file, 'utf8')) as Resuming;
+  } catch {
+    return null;
+  }
+}
+
+/** Takes the task's resume marker, or refuses while a live one holds it. A marker whose process has gone is taken over. */
+function claimResume(paths: Pick<RepoPaths, 'stateDir'>, id: string, claim: Resuming): void {
+  const file = resumingPath(paths, id);
+  mkdirSync(dirname(file), { recursive: true });
+  for (let tries = 0; tries < 2; tries++) {
+    try {
+      writeFileSync(file, JSON.stringify(claim), { flag: 'wx' });
+      return;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+      const already = resuming(paths, id);
+      if (already) throw new AccError('refused', `${id} is already being resumed (pid ${already.pid}).`);
+      rmSync(file, { force: true });
+    }
+  }
+  throw new AccError('refused', `${id} is already being resumed.`);
+}
+
+/** resume(), once its marker is claimed. */
+function resumeClaimed(paths: RepoPaths, config: Config, id: string, deps: ResumeDeps, opts: ResumeOptions, c: { task: Task; sessionId: string; worktree: string; marker: string; log: string }): ResumeResult {
+  const { run, now } = deps;
+  const { task, sessionId, worktree, log } = c;
   const sessions = listSessions(run, paths.root);
   if (!sessions) throw new AccError('refused', `claude agents didn't answer, so acc can't tell whether ${id}'s agent is still at work. Try again in a moment.`);
   const mine = sessionsOf(task, sessions);
@@ -211,7 +253,6 @@ export function resume(paths: RepoPaths, config: Config, id: string, deps: Resum
   }
 
   const cmd = resumeCommand(task, withCloneAgents(config, paths.root, run), { sessionId, message, accBinDir: deps.accBinDir, basePath: deps.env.PATH ?? '', accCommand: deps.accCommand });
-  const log = join(paths.logs, `${id}.resume.log`);
   mkdirSync(dirname(log), { recursive: true });
   const at = now().toISOString();
   appendFileSync(log, `\n--- ${at}: ${id} resumed by ${opts.by}, in ${folder} ---\n`);
@@ -219,8 +260,7 @@ export function resume(paths: RepoPaths, config: Config, id: string, deps: Resum
   if (!pid) throw new AccError('resume', `Claude Code didn't start. Its output is in ${log}.`);
 
   keepAwakeFor(paths, id, pid, deps.awake);
-  mkdirSync(dirname(resumingPath(paths, id)), { recursive: true });
-  writeFileSync(resumingPath(paths, id), JSON.stringify({ sessionId, pid, startedAt: at, by: opts.by, log } satisfies Resuming));
+  writeFileSync(c.marker, JSON.stringify({ sessionId, pid, startedAt: at, by: opts.by, log } satisfies Resuming));
   // The Stop hook reminds a session of the finish line once: this turn is reminded too.
   rmSync(remindedPath(paths.stateDir, sessionId), { force: true });
 

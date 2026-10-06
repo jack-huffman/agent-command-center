@@ -678,7 +678,7 @@ export interface AutopilotStatusInput {
   last?: string | null;
 }
 
-const AUTOPILOT_DOES = 'it reviews finished work, lands work whose review passed as a pull request, and re-dispatches a rework once. It never merges.';
+const AUTOPILOT_DOES = 'it reviews finished work, lands work whose review passed as a pull request, re-dispatches a rework once, and resumes a stopped builder once a run. It never merges.';
 
 /**
  * The status bar's autopilot switch (D-064): an icon and the words "Autopilot: on" or "Autopilot: off",

@@ -137,6 +137,31 @@ test('Resume refuses unless the task is running, with a session, its worktree, a
   refuse(s, /already being resumed/);
 });
 
+test('two Resumes at once start one claude: the first claims the marker before it looks at anything; a refusal or a dead claim leaves nothing in the way', () => {
+  const s = setup();
+  let second: Error | null = null;
+  const launch: Launcher = (cmd, args, l) => {
+    // Autopilot's pass, or a second window, while the first is between its check and its launch.
+    try { resume(s.paths, s.config, 'GH-41', s.deps, { actor: 'orchestrator', by: 'orchestrator:autopilot' }); } catch (e) { second = e as Error; }
+    s.launched.push({ cmd, args, ...l });
+    return PID;
+  };
+  resume(s.paths, s.config, 'GH-41', { ...s.deps, launch }, { actor: 'human', by: 'human:jack' });
+  assert.match(second!.message, /GH-41 is already being resumed \(pid \d+\)\./);
+  assert.equal(s.launched.length, 1, 'one conversation, run once');
+  assert.equal(JSON.parse(readFileSync(resumingPath(s.paths, 'GH-41'), 'utf8')).pid, PID, 'the launched claude holds the marker now');
+
+  const refused = setup({ sessions: null });
+  assert.throws(() => resume(refused.paths, refused.config, 'GH-41', refused.deps, { actor: 'human', by: 'human:jack' }), /claude agents didn't answer/);
+  assert.equal(existsSync(resumingPath(refused.paths, 'GH-41')), false, 'a refusal gives its claim back');
+
+  const stale = setup();
+  mkdirSync(join(stale.paths.stateDir, 'resumes'), { recursive: true });
+  writeFileSync(resumingPath(stale.paths, 'GH-41'), JSON.stringify({ sessionId: SID, pid: PID + 1, startedAt: now().toISOString(), by: 'human:jack', log: 'x' }));
+  resume(stale.paths, stale.config, 'GH-41', stale.deps, { actor: 'human', by: 'human:jack' });
+  assert.equal(stale.launched.length, 1, 'a claim whose process has gone is taken over');
+});
+
 test('a resume that can\'t be recorded is ended, and leaves nothing behind', () => {
   const s = setup();
   const launch: Launcher = (cmd, args, l) => {

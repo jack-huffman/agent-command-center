@@ -1,5 +1,4 @@
 import { existsSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { allowedMoves, DISPLAY, findRule, type State } from '../../packages/core/src/ledger.ts';
@@ -14,7 +13,7 @@ import type { Hub, Project } from './hub.ts';
 import { type AgentSession, agentName, CLAUDE_EXTENSION, claudeSessionUri, githubBranchUrl, isSessionId, landMessage, sessionFor } from './logic.ts';
 import { laneMove, sessionKey } from './model.ts';
 import { type RunResult, runFile } from './run.ts';
-import { savedFolder } from './transcript.ts';
+import { claudeProjectsDir, savedFolder } from './transcript.ts';
 import type { AgentNode, EnvNode, TaskNode, WorktreeNode } from './nodes.ts';
 
 type Acc = (args: string[], cwd: string, token?: vscode.CancellationToken) => Promise<RunResult>;
@@ -459,7 +458,7 @@ export class Sidebar {
     const now = project.config.autonomy;
     const pick = await vscode.window.showQuickPick([
       { label: '$(debug-pause) manual', description: 'Nothing happens on its own', value: 'manual' },
-      { label: '$(rocket) review', description: 'Autopilot reviews, lands and re-dispatches a rework once; never merges', value: 'review' },
+      { label: '$(rocket) review', description: 'Autopilot reviews, lands, re-dispatches a rework once and resumes a stopped builder once; never merges', value: 'review' },
     ].map((x) => ({ ...x, description: x.value === now ? `${x.description} · now` : x.description })), { title: `${project.name}: what may autopilot do on its own?` });
     if (!pick || pick.value === now) return;
     const ok = await this.runAcc(project, ['agents', 'autonomy', pick.value], () => undefined);
@@ -574,7 +573,7 @@ export class Sidebar {
     const folders = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
     const task = this.hub.projects.flatMap((p) => this.hub.taskRows(p.root)).find((t) => t.run?.sessionId === sessionId);
     const live = this.hub.agents.find((a) => a.sessionId === sessionId);
-    const folder = savedFolder(join(homedir(), '.claude', 'projects'), sessionId, [s.cwd, task?.run?.worktree, ...this.hub.projects.flatMap((p) => p.worktrees.map((w) => w.path))])
+    const folder = savedFolder(claudeProjectsDir(process.env), sessionId, [s.cwd, task?.run?.worktree, ...this.hub.projects.flatMap((p) => p.worktrees.map((w) => w.path))])
       ?? (live?.pid ? s.cwd : null); // a session that has only just started may not have saved anything yet
     if (!folder) {
       const pick = await vscode.window.showWarningMessage(`Couldn't find where ${name}'s conversation is saved, so Claude Code can't open it.`, 'Watch it here');

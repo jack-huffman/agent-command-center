@@ -446,8 +446,8 @@ function autopilotLines(r: AutopilotResult): string[] {
 }
 
 /**
- * Autopilot (D-055): under "autonomy": "review", it reviews, lands and re-dispatches a rework once, as
- * the orchestrator, up to an open pull request. One pass, or one every --every seconds until stopped.
+ * Autopilot (D-055): under "autonomy": "review", it reviews, lands, re-dispatches a rework once and resumes
+ * a stopped builder once a run (D-???), as the orchestrator, up to an open pull request. One pass, or one every --every seconds until stopped.
  */
 function cmdAutopilot(o: Opts): number {
   const role = process.env.ACC_ROLE;
@@ -559,7 +559,7 @@ function cmdAgents(o: Opts, sub: string | undefined, roleArg: string | undefined
 
 const AUTONOMY_WORDS: Record<string, string> = {
   manual: 'nothing happens on its own.',
-  review: 'autopilot reviews finished work, lands work whose review passed, and re-dispatches a rework once. It never merges.',
+  review: 'autopilot reviews finished work, lands work whose review passed, re-dispatches a rework once, and resumes a stopped builder once a run. It never merges.',
   dispatch: 'as review, and it also starts Ready tasks. Not built yet: autopilot refuses.',
   full: 'read as dispatch. Not built yet: autopilot refuses.',
 };

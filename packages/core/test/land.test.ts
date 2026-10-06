@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { awakePath } from '../src/awake.ts';
 import { parseConfig, type Config } from '../src/config.ts';
 import { run, type Runner, type RunOptions } from '../src/exec.ts';
 import { runGates, waiveGates } from '../src/gates.ts';
@@ -260,6 +261,15 @@ test('sync: a merged pull request makes its task done, and a closed one blocks i
   const c = readLedger(closed.paths.ledger).tasks[0]!;
   assert.equal(c.state, 'blocked');
   assert.match(c.blocker!, /closed without merging/);
+
+  // A rework's builder running when its pull request closes: the task leaves running, and stops keeping the Mac awake (D-???).
+  const reworking = withPr(42);
+  mutate(reworking.paths, now, (l, emit) => { l.tasks[0]!.state = 'running'; emit({ type: 'task.updated', task: reworking.id, actor: 'human', by: 'test', data: {} }); });
+  mkdirSync(join(reworking.paths.stateDir, 'awake'), { recursive: true });
+  writeFileSync(awakePath(reworking.paths, reworking.id), JSON.stringify({ pid: 4_000_001, watch: 4_000_002 }));
+  const moved = sync(reworking.paths, reworking.config, { run: view('CLOSED'), now, env: {} });
+  assert.deepEqual(moved.changes.map((x) => x.moved), [{ from: 'running', to: 'blocked' }]);
+  assert.equal(existsSync(awakePath(reworking.paths, reworking.id)), false);
 });
 
 test('sync: failing checks or a person\'s requested changes show an open pull request\'s task as needs you, and nothing is written when nothing changed', () => {

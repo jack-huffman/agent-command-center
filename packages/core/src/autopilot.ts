@@ -40,7 +40,7 @@ export interface AutopilotMode {
 
 /**
  * What `autonomy` means for autopilot. manual: nothing happens on its own. review: autopilot reviews,
- * lands, and re-dispatches a rework once. dispatch: as review, and it also starts Ready tasks up to
+ * lands, re-dispatches a rework once, and resumes a stopped builder once a run (D-???). dispatch: as review, and it also starts Ready tasks up to
  * agents.max; that part isn't built, so it refuses. full is read as dispatch.
  */
 export function autopilotMode(config: Pick<Config, 'autonomy'>): AutopilotMode {
@@ -50,7 +50,7 @@ export function autopilotMode(config: Pick<Config, 'autonomy'>): AutopilotMode {
   const warnings = autonomy === 'full' ? ['autonomy "full" is read as "dispatch".'] : [];
   return {
     autonomy, on: false, warnings,
-    refusal: 'autonomy "dispatch" (autopilot also starting Ready tasks) is not built yet. Set "autonomy" to "review" in .acc/config.json: autopilot then reviews, lands and re-dispatches a rework once.',
+    refusal: 'autonomy "dispatch" (autopilot also starting Ready tasks) is not built yet. Set "autonomy" to "review" in .acc/config.json: autopilot then reviews, lands, re-dispatches a rework once, and resumes a stopped builder once a run.',
   };
 }
 
