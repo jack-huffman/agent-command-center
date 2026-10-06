@@ -137,6 +137,47 @@ export function setAutonomy(configFile: string, value: string): void {
   writeFileSync(configFile, JSON.stringify(wanted, null, 2) + '\n');
 }
 
+/**
+ * Turns auto-merge on or off in .acc/config.json (GH-67), changing only `autopilot.autoMerge`: the rest of
+ * the file stays as it was, byte for byte. A Salesforce project can't turn it on: a person merges every
+ * pull request there. Off with no key written changes nothing. Nobody else sees it until it's committed.
+ */
+export function setAutoMerge(configFile: string, on: boolean): void {
+  let text: string;
+  let raw: Record<string, any>;
+  try {
+    text = readFileSync(configFile, 'utf8');
+    raw = JSON.parse(text);
+  } catch (e) {
+    throw new AccError('bad-config', `Couldn't read ${configFile}: ${(e as Error).message}`);
+  }
+  if (on && raw.profile === 'salesforce') throw new AccError('refused', 'A Salesforce project never auto-merges: a person merges every pull request there.');
+  const was = raw.autopilot && typeof raw.autopilot === 'object' && !Array.isArray(raw.autopilot) ? raw.autopilot : null;
+  if (!on && was?.autoMerge === undefined) return;
+  const wanted = { ...raw, autopilot: { ...(was ?? {}), autoMerge: on } };
+  // The same values, whatever order the keys are in.
+  const canon = (v: unknown): unknown => (v && typeof v === 'object' && !Array.isArray(v)
+    ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon((v as Record<string, unknown>)[k])]))
+    : Array.isArray(v) ? v.map(canon) : v);
+  const fits = (edited: string): boolean => {
+    try {
+      return JSON.stringify(canon(JSON.parse(edited))) === JSON.stringify(canon(wanted));
+    } catch {
+      return false;
+    }
+  };
+  // The value replaced where it stands; else the key put first in the autopilot block, or the block put
+  // last in the file, indented as the file is. Anything the check doesn't recognise writes the whole file.
+  const tries: string[] = [];
+  const value = /("autoMerge"\s*:\s*)(true|false)/;
+  if ([...text.matchAll(new RegExp(value, 'g'))].length === 1) tries.push(text.replace(value, `$1${on}`));
+  const block = /("autopilot"\s*:\s*\{)(\s*)(?=")/;
+  if (block.test(text)) tries.push(text.replace(block, (_m, open: string, gap: string) => `${open}${gap}"autoMerge": ${on},${gap}`));
+  const indent = /^\{\s*?\n([ \t]+)"/.exec(text)?.[1] ?? '  ';
+  if (!was) tries.push(text.replace(/(\S)(\s*)\}\s*$/, (_m, last: string, gap: string) => `${last},\n${indent}"autopilot": {\n${indent}${indent}"autoMerge": ${on}\n${indent}}${gap}}\n`));
+  writeFileSync(configFile, tries.find(fits) ?? JSON.stringify(wanted, null, 2) + '\n');
+}
+
 export const describeProfile = (p: AgentProfile): string =>
   [`model ${p.model ?? 'Claude Code\'s default'}`, `effort ${p.effort ?? 'default'}`, ...(p.fallbackModel ? [`falls back to ${p.fallbackModel}`] : [])].join(', ');
 

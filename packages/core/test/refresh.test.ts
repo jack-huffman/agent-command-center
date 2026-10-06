@@ -107,7 +107,7 @@ function setup(opts: { appendOnly?: string[]; config?: Record<string, unknown>; 
  * Stand-ins for gh, claude and the check, recording every call. Git really runs. With `root`, GitHub has
  * the branch's latest commit and its checks passed there, as autopilot reads them once it's landed (D-076).
  */
-function deps(calls: string[], check: RunResult | ((o?: RunOptions) => RunResult) = ok('1 passing'), root?: string): AutopilotDeps {
+function deps(calls: string[], check: RunResult | ((o?: RunOptions) => RunResult) = ok('1 passing'), root?: string, more: Record<string, RunResult | ((o?: RunOptions) => RunResult)> = {}): AutopilotDeps {
   return {
     run: fakeRunner({
       ...(root ? {
@@ -119,6 +119,7 @@ function deps(calls: string[], check: RunResult | ((o?: RunOptions) => RunResult
       'gh pr list': ok(JSON.stringify([{ number: 42, url: 'https://github.com/acme/tool/pull/42' }])),
       'gh pr edit': ok(''),
       'claude -p': { code: 0, stderr: '', stdout: JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: 'sess-review', total_cost_usd: 0.1, structured_output: { verdict: 'pass', summary: 'Adds sum, with main merged in.', criteria: [], findings: [] } }) },
+      ...more,
     }, calls),
     now, env: {}, accBinDir: '/opt/acc/bin', slots: { dir: join(tempDir('slots-'), 'heavy') },
   };
@@ -129,6 +130,7 @@ const brief = (s: AutopilotStep) => [s.task, s.step, s.outcome];
 const head = (root: string) => gitIn(root, 'rev-parse', BRANCH);
 const merging = (wt: string) => run('git', ['rev-parse', '--verify', '--quiet', 'MERGE_HEAD'], { cwd: wt }).code === 0;
 const pushes = (calls: string[]) => calls.filter((c) => c.startsWith('git push') || c.startsWith('gh pr edit') || c.startsWith('gh pr create'));
+const merges = (calls: string[]) => calls.filter((c) => c.startsWith('gh pr merge'));
 
 test('both sides added a decision: autopilot merges main in, keeps both, checks it, then reviews and lands it on later passes', () => {
   const s = setup();
@@ -344,6 +346,54 @@ test('a conflict acc saw earlier that\'s gone now: nothing is merged, and the pu
   assert.deepEqual(first(s.paths).pr?.conflicts, []);
   assert.ok(!calls.some((c) => c.startsWith('git merge ') || c.includes(' merge --no-ff') || c.startsWith('nice')), 'no merge, no checks');
   assert.deepEqual(brief(autopilotPass(s.paths, s.config, deps(calls, undefined, s.dir)).steps[0]!), ['T-1', null, 'skipped'], 'up to date');
+});
+
+test('auto-merge: a pull request only behind its base is brought up to date, checked, reviewed and landed, then merged (GH-67)', () => {
+  const s = setup({ config: { autopilot: { appendOnly: ['docs/DECISIONS.md'], autoMerge: true } } });
+  const before = s.onBranch({ 'sum.test.js': 'test("sum", () => {});\n' });
+  s.opened(before, []);
+  // Someone else's work merged into main: no conflict, but the pull request is behind it now.
+  const base = s.onMain({ 'README.md': '# test, updated\n' });
+  const calls: string[] = [];
+  const github = {
+    'gh pr view': () => ok(JSON.stringify({ state: 'OPEN', headRefOid: head(s.dir), mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: null, baseRefName: 'main', isDraft: false })),
+    'gh repo view': ok(JSON.stringify({ mergeCommitAllowed: true, squashMergeAllowed: true, rebaseMergeAllowed: true })),
+    'gh pr merge': ok(''),
+  };
+  const d = { ...deps(calls, undefined, s.dir, github), env: { ACC_QUESTIONS_DIR: tempDir('questions-') } };
+
+  const refreshed = autopilotPass(s.paths, s.config, d);
+  assert.deepEqual(brief(refreshed.steps[0]!), ['T-1', 'refresh', 'done']);
+  const merge = head(s.dir);
+  assert.match(refreshed.steps[0]!.reason, new RegExp(`^Merged main into ${before.slice(0, 7)} as ${merge.slice(0, 7)}\\. Its checks passed\\.`));
+  assert.deepEqual(gitIn(s.dir, 'rev-list', '--parents', '-n', '1', merge).split(' ').slice(1), [before, base]);
+  assert.equal(readReceipt(s.paths, merge, 'test')?.status, 'pass', 'its checks ran on the merge commit');
+  const e = readFileSync(s.paths.events, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).at(-1);
+  assert.deepEqual(e.data, { refreshed: { base: 'main', from: before, to: merge, resolved: [], behind: true } });
+  assert.deepEqual(merges(calls), [], 'not merged: the merge commit hasn\'t been reviewed');
+
+  assert.deepEqual(brief(autopilotPass(s.paths, s.config, d).steps[0]!), ['T-1', 'review', 'done']);
+  assert.deepEqual(brief(autopilotPass(s.paths, s.config, d).steps[0]!), ['T-1', 'land', 'done']);
+  assert.deepEqual(merges(calls), []);
+  const merged = autopilotPass(s.paths, s.config, d);
+  assert.deepEqual(brief(merged.steps[0]!), ['T-1', 'merge', 'done']);
+  assert.deepEqual(merges(calls), [`gh pr merge 42 -R acme/tool --merge --match-head-commit ${merge}`]);
+  assert.equal(first(s.paths).autopilot?.merged?.sha, merge);
+});
+
+test('refresh: brought up to date when it\'s only behind; without auto-merge, a pull request that merges cleanly is left alone (GH-67)', () => {
+  const s = setup();
+  const before = s.onBranch({ 'sum.test.js': 'test("sum", () => {});\n' });
+  s.onMain({ 'README.md': '# test, updated\n' });
+  s.opened(before, []);
+  const plain = refresh(s.paths, s.config, 'T-1', deps([]), { actor: 'orchestrator', by: 'test' });
+  assert.deepEqual([plain.sha, head(s.dir)], [null, before], 'D-058: for conflicts only');
+  const behind = refresh(s.paths, s.config, 'T-1', deps([]), { actor: 'orchestrator', by: 'test', behind: true });
+  assert.equal(behind.sha, head(s.dir));
+  assert.notEqual(behind.sha, before);
+  // Nothing new on its base: nothing to merge in.
+  const again = refresh(s.paths, s.config, 'T-1', deps([]), { actor: 'orchestrator', by: 'test', behind: true });
+  assert.deepEqual([again.sha, again.reason], [null, 'Pull request #42 already has everything on main, so nothing was merged.']);
 });
 
 test('the merge commit is made as the repo\'s commit identity, and a pull request no longer open isn\'t touched', () => {

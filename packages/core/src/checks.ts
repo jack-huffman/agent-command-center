@@ -52,6 +52,10 @@ export interface CheckRead {
   failed: FailedCheck[];
   /** Checks still queued or running. */
   pending: string[];
+  /** Checks someone cancelled: not a failure to send back, but not a pass to merge on either (GH-67). */
+  cancelled: string[];
+  /** How many checks counted, so none reported reads apart from all passed. */
+  count: number;
 }
 
 const short = (sha: string): string => sha.slice(0, 7) || 'no commit';
@@ -108,7 +112,8 @@ export function readChecks(run: Runner, repo: string, pr: number, env: NodeJS.Pr
   const name = (c: GhCheck) => c.name || c.workflow || 'a check';
   const failed = list.filter((c) => c.bucket === 'fail').map((c): FailedCheck => ({ name: name(c), workflow: c.workflow ?? '', link: c.link ?? '', job: actionsJob(c.link ?? '') }));
   const pending = list.filter((c) => c.bucket === 'pending').map(name);
-  return { sha, required, failed, pending };
+  const cancelled = list.filter((c) => c.bucket === 'cancel').map(name);
+  return { sha, required, failed, pending, cancelled, count: list.length };
 }
 
 /** gh's "<job>\t<step>\t" before each line of a job's log, and the timestamp GitHub starts each with. */
