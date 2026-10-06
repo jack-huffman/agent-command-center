@@ -249,7 +249,7 @@ function renderTasks(m: TasksModel): Node[] {
   if (!m.projects.length) return [header('Tasks', 'No onboarded project in this workspace.'), empty('Onboard this folder to start tracking tasks.', toolbarButton('acc.openProjectWalkthrough', 'Onboard this project', 'rocket', undefined, true))];
   return m.projects.map((p) => {
     const tools: Child[] = [toolbarButton('acc.task.add', 'Add task', 'add', p.root, true)];
-    // With a tracker's board on show, its tickets come from the board ("Track in acc"), not an import.
+    // With a tracker's board on show, its tickets come from the board (Track on a card), not an import.
     if (!p.boards.length) {
       if (p.github) tools.push(toolbarButton('acc.task.importGithub', 'Import GitHub issues', 'github', p.root));
       tools.push(toolbarButton('acc.task.importJira', 'Connect Jira', 'plug', p.root));
@@ -377,6 +377,8 @@ function trackerCard(root: string, b: TrackerBoard, c: TrackerCard): HTMLElement
     c.labels.length ? el('div', 'labels', ...c.labels.slice(0, 4).map(labelChip)) : null,
     c.acc ? el('div', 'tcard-acc', status(c.acc.look), el('span', 'spacer'), c.acc.action ? actionButton(c.acc.action) : null) : null,
     c.acc?.conflicts ? el('div', 'card-note conflict tcard-conflict', icon('warning'), el('span', '', c.acc.conflicts)) : null,
+    c.track ? el('div', 'tcard-acc', el('span', 'spacer'), trackButton(root, b, c.key, c.track.busy)) : null,
+    c.track?.error ? el('div', 'card-note conflict tcard-conflict', icon('warning'), el('span', '', `Couldn't track it: ${c.track.error}`)) : null,
   );
   card.dataset.key = c.key;
   card.draggable = true;
@@ -388,6 +390,27 @@ function trackerCard(root: string, b: TrackerBoard, c: TrackerCard): HTMLElement
   });
   card.addEventListener('dragend', () => card.classList.remove('dragging'));
   return openable(card, { type: 'ticket', project: root, tracker: b.index, key: c.key });
+}
+
+/**
+ * Track on a card acc doesn't keep yet (D-???): one click, and it says Tracking… at once, until the card
+ * shows acc's task or why it couldn't. The extension holds that, so it outlasts a redraw, and a second
+ * click does nothing.
+ */
+function trackButton(root: string, b: TrackerBoard, key: string, busy: boolean): HTMLButtonElement {
+  const show = (on: boolean) => {
+    go.replaceChildren(icon(on ? 'sync~spin' : 'add'), on ? 'Tracking…' : 'Track');
+    go.disabled = on;
+    go.setAttribute('aria-label', on ? `Tracking ${key} in acc` : `Track ${key} in acc`);
+  };
+  const go = button('Track', 'add', () => {
+    if (go.disabled) return;
+    show(true);
+    api.postMessage({ type: 'track', project: root, tracker: b.index, key });
+  }, 'tcard-track');
+  go.title = 'Add it to acc, to analyze or dispatch it. The ticket isn\'t changed.';
+  show(busy);
+  return go;
 }
 
 function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
@@ -766,9 +789,19 @@ function renderTicket(m: TicketModel): Node[] {
         (c.status === 'fail' || c.status === 'error') && a.branch ? Object.assign(button('Waive…', 'debug-step-over', () => ticketAction('waive', c.gate), 'ghost small check-waive'), { title: `Set ${c.gate} aside on this commit, with a reason` }) : null))) : null,
       el('div', 'actions', ...a.actions.map(actionButton))));
   } else if (m.trackable) {
-    const track = el('button', 'btn primary', icon('add'), 'Track in acc') as HTMLButtonElement;
+    // Tracking… while it's on its way, from here or its card, so a second click starts nothing (D-???).
+    const show = (on: boolean) => {
+      track.replaceChildren(icon(on ? 'sync~spin' : 'add'), on ? 'Tracking…' : 'Track in acc');
+      track.disabled = on;
+    };
+    const track = el('button', 'btn primary ticket-track') as HTMLButtonElement;
     track.type = 'button';
-    track.addEventListener('click', () => ticketAction('track'));
+    show(m.tracking);
+    track.addEventListener('click', () => {
+      if (track.disabled) return;
+      show(true);
+      ticketAction('track');
+    });
     side.append(el('section', 'side-panel', el('h2', '', icon('hubot'), 'Agent'), el('p', 'muted', 'acc isn\'t keeping this ticket yet. Track it to dispatch an agent to it. The ticket itself isn\'t changed.'), el('div', 'actions', track)));
   }
   out.push(el('div', 'ticket-grid', top.childElementCount ? top : null, main, side));
