@@ -54,6 +54,8 @@ export interface PullRequest {
   state: 'open' | 'merged' | 'closed';
   /** What GitHub's checks say, kept by acc sync. failing shows the task as needs you. */
   ci?: 'passing' | 'failing' | 'pending' | null;
+  /** The names of the checks that failed, kept by acc sync beside ci, so the task can name them (D-???). */
+  failing?: string[];
   /** A person on GitHub asked for changes, which also shows it as needs you. */
   changesRequested?: boolean;
   /** The files it conflicts in with its base, kept by acc sync and acc land. Empty when it merges cleanly. */
@@ -67,8 +69,15 @@ export interface PullRequest {
   mergeSha?: string;
 }
 
-export const AUTOPILOT_STEPS = ['review', 'land', 'dispatch', 'refresh', 'resume'] as const;
+export const AUTOPILOT_STEPS = ['review', 'land', 'dispatch', 'refresh', 'resume', 'checks'] as const;
 export type AutopilotStepName = (typeof AUTOPILOT_STEPS)[number];
+
+/** The commit autopilot last sent back to its builder because its checks failed on GitHub, and which (D-???). */
+export interface SentBack {
+  sha: string;
+  checks: string[];
+  at: string;
+}
 
 /** A step autopilot took that failed: it isn't tried again on that commit, and the task needs you (D-055). */
 export interface AutopilotFailure {
@@ -94,8 +103,8 @@ export interface Task {
   blocker: string | null;
   run: Run | null;
   pr: PullRequest | null;
-  /** What autopilot couldn't do for it, if anything (D-055). */
-  autopilot?: { failed: AutopilotFailure | null };
+  /** What autopilot couldn't do for it, if anything (D-055), and the commit it last sent back for failing checks (D-???). */
+  autopilot?: { failed: AutopilotFailure | null; sentBack?: SentBack | null };
   history: HistoryEntry[];
   createdAt: string;
   updatedAt: string;
@@ -279,7 +288,8 @@ export interface Rule {
 export const RULES: Rule[] = [
   { from: 'todo', to: 'running', actors: ['human', 'orchestrator'], requires: ['depsDone', 'underCap', 'envNotProtected'] },
   { from: 'running', to: 'review', actors: ['builder', 'human'], requires: ['gatesPassed'] },
-  { from: 'review', to: 'rework', actors: ['reviewer', 'human'], requires: ['reason'] },
+  // The orchestrator is autopilot sending back a pull request whose checks failed on GitHub (D-???).
+  { from: 'review', to: 'rework', actors: ['reviewer', 'human', 'orchestrator'], requires: ['reason'] },
   { from: 'rework', to: 'running', actors: ['human', 'orchestrator'], requires: ['underCap', 'envNotProtected'] },
   { from: 'review', to: 'done', actors: ['sync', 'human'], requires: [] },
   // Its issue was closed on GitHub before anyone started it: acc intake moves it.
@@ -356,8 +366,8 @@ export function checkMove(ledger: Ledger, config: Config, task: Task, req: MoveR
   return problems;
 }
 
-/** Applies a move that checkMove allowed. */
-export function applyMove(task: Task, req: MoveRequest, emit: Emit, now: () => Date): HistoryEntry {
+/** Applies a move that checkMove allowed. `data` adds to its event, such as why autopilot made it. */
+export function applyMove(task: Task, req: MoveRequest, emit: Emit, now: () => Date, data: Record<string, unknown> = {}): HistoryEntry {
   const at = now().toISOString();
   const entry: HistoryEntry = { at, actor: req.actor, by: req.by, from: task.state, to: req.to, reason: req.reason?.trim() || null };
   if (req.force) entry.override = true;
@@ -367,7 +377,7 @@ export function applyMove(task: Task, req: MoveRequest, emit: Emit, now: () => D
   task.state = req.to;
   task.updatedAt = at;
   task.history.push(entry);
-  emit({ type: 'task.moved', task: task.id, actor: req.actor, by: req.by, data: { from: entry.from, to: entry.to, reason: entry.reason, override: req.force ?? false } });
+  emit({ type: 'task.moved', task: task.id, actor: req.actor, by: req.by, data: { from: entry.from, to: entry.to, reason: entry.reason, override: req.force ?? false, ...data } });
   return entry;
 }
 
@@ -489,6 +499,9 @@ export function builderStopped(task: Pick<Task, 'id' | 'state' | 'run'>, session
 /** The pull request of a task in review that someone closed without merging: it waits for a person, who lands it again or not (D-063). */
 export const closedPr = (task: Task): PullRequest | null => (task.state === 'review' && task.pr?.state === 'closed' ? task.pr : null);
 
+/** Whether autopilot already sent this commit back to its builder for failing checks (D-???). */
+export const sentBackAt = (task: Pick<Task, 'autopilot'>, sha: string | null | undefined): boolean => !!sha && task.autopilot?.sentBack?.sha === sha;
+
 /** What the UI shows: stored states plus "ready" and "needs you", which are derived (DESIGN.md section 5). */
 export function displayState(ledger: Ledger, task: Task, session?: SessionInfo): DisplayState {
   if (task.state === 'todo' && isReady(ledger, task)) return 'ready';
@@ -497,8 +510,9 @@ export function displayState(ledger: Ledger, task: Task, session?: SessionInfo):
   // Its builder stopped before acc done or acc block (D-067), or waits in its own prompt.
   if (task.state === 'running' && (session?.stopped || session?.state === 'blocked' || session?.status === 'waiting')) return 'needs-you';
   // An open pull request whose checks fail, that a person asked to change, or that conflicts with its
-  // base, waits on you (D-033, D-049).
-  if (task.state === 'review' && task.pr?.state === 'open' && (task.pr.ci === 'failing' || task.pr.changesRequested || !!task.pr.conflicts?.length)) return 'needs-you';
+  // base, waits on you (D-033, D-049). Checks that fail on a commit autopilot already sent back don't:
+  // its fix is on the way, and a second failure there is recorded as autopilot's (D-???).
+  if (task.state === 'review' && task.pr?.state === 'open' && ((task.pr.ci === 'failing' && !sentBackAt(task, task.pr.sha)) || task.pr.changesRequested || !!task.pr.conflicts?.length)) return 'needs-you';
   // So does a closed one a person moved back to review: autopilot won't replace it (D-063).
   if (closedPr(task)) return 'needs-you';
   return task.state;

@@ -18,6 +18,8 @@ export interface RepoPaths {
   analyses: string;
   /** Drafts of ticket updates, which a person reviews and posts (D-066). */
   updates: string;
+  /** What GitHub's checks said on a commit autopilot sent back to its builder (D-???). */
+  checks: string;
   packets: string;
   logs: string;
   config: string;
@@ -43,6 +45,7 @@ export function repoPaths(cwd: string, run: Runner): RepoPaths {
     reviews: join(stateDir, 'reviews'),
     analyses: join(stateDir, 'analyses'),
     updates: join(stateDir, 'updates'),
+    checks: join(stateDir, 'checks'),
     packets: join(stateDir, 'packets'),
     logs: join(stateDir, 'logs'),
     config: join(root, '.acc', 'config.json'),

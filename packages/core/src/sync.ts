@@ -31,7 +31,8 @@ interface GhPr {
   headRefName?: string;
   /** The commit a merge left on the base: a squash or a merge commit, which a deploy finds (D-066). */
   mergeCommit?: { oid?: string } | null;
-  statusCheckRollup?: { status?: string; conclusion?: string | null; state?: string }[] | null;
+  /** A check run has a name and its workflow's; a commit status has a context. */
+  statusCheckRollup?: { status?: string; conclusion?: string | null; state?: string; name?: string; context?: string; workflowName?: string }[] | null;
 }
 
 const FAILED = new Set(['FAILURE', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE', 'ERROR']);
@@ -43,6 +44,12 @@ export function ciOf(rollup: GhPr['statusCheckRollup']): PullRequest['ci'] {
   if (items.some((c) => FAILED.has(String(c.conclusion ?? '').toUpperCase()) || FAILED.has(String(c.state ?? '').toUpperCase()))) return 'failing';
   if (items.some((c) => (c.status && c.status.toUpperCase() !== 'COMPLETED') || ['PENDING', 'EXPECTED'].includes(String(c.state ?? '').toUpperCase()))) return 'pending';
   return 'passing';
+}
+
+/** The names of a pull request's checks that failed, as ciOf counts them, so a task can name them (D-???). */
+export function failingOf(rollup: GhPr['statusCheckRollup']): string[] {
+  const failed = (rollup ?? []).filter((c) => FAILED.has(String(c.conclusion ?? '').toUpperCase()) || FAILED.has(String(c.state ?? '').toUpperCase()));
+  return [...new Set(failed.map((c) => c.name || c.context || c.workflowName || '').filter(Boolean))];
 }
 
 /** How long a fetch may take before acc stops it. */
@@ -135,7 +142,11 @@ export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now:
       } else {
         // When git couldn't tell this time, what it last said stands.
         const files = conflicts.get(p.number) ?? t.pr.conflicts;
+        const failing = ci === 'failing' ? failingOf(p.statusCheckRollup) : [];
         t.pr = { ...t.pr, url: p.url, ci, changesRequested, ...(files ? { conflicts: files } : {}), syncedAt: at };
+        // Which checks failed, by name (D-???); none kept once they pass.
+        if (failing.length) t.pr.failing = failing;
+        else delete t.pr.failing;
         const why = [
           changesRequested ? 'a person asked for changes' : '',
           ci === 'failing' ? 'checks failing' : '',

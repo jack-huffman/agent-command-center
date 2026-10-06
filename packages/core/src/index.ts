@@ -18,6 +18,7 @@ export * from './land.ts';
 export * from './updates.ts';
 export * from './autopilot.ts';
 export * from './refresh.ts';
+export * from './checks.ts';
 export * from './sync.ts';
 export * from './promote.ts';
 export * from './deploy.ts';

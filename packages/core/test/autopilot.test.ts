@@ -3,9 +3,10 @@ import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { AUTOPILOT_BY, type AutopilotDeps, autopilotEvent, type AutopilotLog, autopilotMode, autopilotPass, type AutopilotStep, holdAutopilot, nextStep, readAutopilotLog, taskFacts, type TaskFacts } from '../src/autopilot.ts';
+import { AUTOPILOT_BY, type AutopilotDeps, autopilotEvent, type AutopilotLog, autopilotMode, autopilotPass, type AutopilotStep, failedChecks, holdAutopilot, nextStep, readAutopilotLog, reworkCause, reworkedByAutopilot, taskFacts, type TaskFacts } from '../src/autopilot.ts';
+import { checksPath } from '../src/checks.ts';
 import { type Config, parseConfig } from '../src/config.ts';
-import { AccError, run, type RunResult } from '../src/exec.ts';
+import { AccError, run, type RunOptions, type RunResult } from '../src/exec.ts';
 import { waiveGates } from '../src/gates.ts';
 import { land } from '../src/land.ts';
 import { displayState, emptyLedger, type Ledger, type LedgerEvent, mutate, readLedger, type State, type Task, upsertTasks } from '../src/ledger.ts';
@@ -78,7 +79,7 @@ function passReview(paths: ReturnType<typeof repoPaths>, id: string, sha: string
 }
 
 /** Stand-ins for gh and claude, recording every call, git included. Git really runs. */
-function deps(calls: string[], over: Record<string, RunResult> = {}): AutopilotDeps {
+function deps(calls: string[], over: Record<string, RunResult | ((o?: RunOptions) => RunResult)> = {}): AutopilotDeps {
   return {
     run: fakeRunner({
       'gh auth token -u jordan-kim': ok('gho_token\n'),
@@ -93,6 +94,16 @@ function deps(calls: string[], over: Record<string, RunResult> = {}): AutopilotD
     now, env: {}, accBinDir: '/opt/acc/bin',
   };
 }
+
+/** A check as `gh pr checks --json` lists it: an Actions job unless it says otherwise. */
+const check = (name: string, bucket: string, more: Record<string, unknown> = {}) => ({ name, bucket, workflow: 'CI', link: `https://github.com/acme/tool/actions/runs/7/job/${name.length}`, state: bucket.toUpperCase(), ...more });
+
+/** GitHub as gh reads it for a pull request: its head commit and its checks (D-???). */
+const github = (head: string, checks: unknown[], more: Record<string, RunResult> = {}): Record<string, RunResult> => ({
+  'gh pr view': ok(JSON.stringify({ headRefOid: head })),
+  'gh pr checks': ok(JSON.stringify(checks)),
+  ...more,
+});
 
 /** A person's edit to the ledger, by hand. mutate writes only when something is emitted. */
 const edit = (paths: ReturnType<typeof repoPaths>, fn: (l: Ledger) => void): void =>
@@ -238,15 +249,16 @@ test('a pass reviews what a builder finished, the next lands it as the orchestra
   const e = events(s.paths).at(-1)!;
   assert.deepEqual([e.type, e.actor, e.by], ['task.updated', 'orchestrator', AUTOPILOT_BY]);
 
+  // Its checks passed on GitHub (D-???).
   const before = calls.length;
-  const idle = autopilotPass(s.paths, s.config, deps(calls));
+  const idle = autopilotPass(s.paths, s.config, deps(calls, github(s.sha, [check('test', 'pass')])));
   assert.deepEqual([idle.steps[0]!.outcome, idle.steps[0]!.reason], ['skipped', `Pull request #42 is up to date with ${s.sha.slice(0, 7)}.`]);
-  assert.ok(calls.slice(before).every((c) => c.startsWith('git rev-parse')), 'it only looked');
+  assert.ok(calls.slice(before).every((c) => c.startsWith('git rev-parse') || /^gh (auth token|pr view|pr checks) /.test(c)), 'it only looked');
 
-  // Everything autopilot ran besides git: a review, and a land's gh calls. No merge, waiver, deploy,
-  // promotion or acc command, and no builder for the tasks to do.
+  // Everything autopilot ran besides git: a review, a land's gh calls, and a read of the checks. No merge,
+  // waiver, deploy, promotion or acc command, and no builder for the tasks to do.
   const others = [...new Set(calls.filter((c) => !c.startsWith('git ')).map((c) => c.split(' ').slice(0, 3).join(' ')))].sort();
-  assert.deepEqual(others, ['claude -p --session-id', 'gh auth token', 'gh pr create', 'gh pr list']);
+  assert.deepEqual(others, ['claude -p --session-id', 'gh auth token', 'gh pr checks', 'gh pr create', 'gh pr list', 'gh pr view']);
   const git = [...new Set(calls.filter((c) => c.startsWith('git ')).map((c) => c.split(' ')[1]))].sort();
   assert.deepEqual(git, ['diff', 'fetch', 'merge-tree', 'push', 'rev-parse']);
 });
@@ -610,4 +622,236 @@ test('the next step for a running task: working, stopped, or stopped again', () 
   assert.equal(taskFacts(s.paths, t, run, [], now()).stopped, true);
   assert.equal(taskFacts(s.paths, t, run, null, now()).stopped, false);
   assert.equal(taskFacts(s.paths, t, run, [], now()).head, s.sha);
+});
+
+// ---------------------------------------------------------------- checks that failed on GitHub (D-???)
+
+const failing = (sha = HEAD, ...names: string[]): NonNullable<TaskFacts['checks']> => ({
+  sha, required: true, pending: [],
+  failed: (names.length ? names : ['build']).map((n) => ({ name: n, workflow: 'CI', link: `https://github.com/acme/tool/actions/runs/1/job/${n.length}`, job: { repo: 'acme/tool', id: String(n.length) } })),
+});
+const landedAt = (extra: Record<string, unknown> = {}) => ledgerOf({ id: 'T-1', state: 'review', pr: pr({ sha: HEAD, ...extra }) });
+const passed = (f: Partial<TaskFacts> = {}) => facts({ verdict: 'pass', landed: HEAD, ...f });
+
+test('in review, passed and landed: checks that failed on GitHub send it back; ones still running wait, and record nothing (D-???)', () => {
+  const l = landedAt();
+  const t = l.tasks[0]!;
+  assert.deepEqual(decide(l, 'T-1', passed({ checks: failing(HEAD, 'build', 'lint') })), ['checks', null]);
+  assert.equal(nextStep(l, RULES_CONFIG, t, passed({ checks: failing(HEAD, 'build', 'lint') })).reason, 'Checks failed on GitHub on aaaaaaa: build, lint.');
+  assert.deepEqual(nextStep(l, RULES_CONFIG, t, passed({ checks: { ...failing(), failed: [], pending: ['e2e'] } })), { step: null, outcome: 'waiting', reason: 'Checks are still running on GitHub: e2e.' });
+  assert.deepEqual(decide(l, 'T-1', passed({ checks: { ...failing(), pending: ['e2e'] } })), [null, 'waiting'], 'failed and still running: it waits for all of them');
+  assert.deepEqual(decide(l, 'T-1', passed({ checks: { ...failing(), failed: [] } })), [null, 'skipped'], 'all passed');
+  assert.deepEqual(decide(l, 'T-1', passed({ checks: failing(OLDER) })), [null, 'waiting'], 'GitHub has another commit: a land or a person first');
+  assert.deepEqual(decide(l, 'T-1', passed({ landed: OLDER, checks: failing() })), ['land', null], 'behind its branch: the land comes first');
+  assert.deepEqual(decide(landedAt({ conflicts: ['sum.js'] }), 'T-1', passed({ checks: failing() })), ['refresh', null], 'a conflict comes first');
+  assert.deepEqual(decide(l, 'T-1', facts({ verdict: 'changes', landed: HEAD, checks: failing() })), [null, 'waiting'], 'its review asked for changes: a person decides');
+
+  // A check that isn't an Actions job keeps no log on GitHub: alone, it needs a person, as before (D-033).
+  const status = { ...failing(), failed: [{ name: 'ci/jenkins', workflow: '', link: 'https://jenkins.acme.example/job/77', job: null }] };
+  const d = nextStep(l, RULES_CONFIG, t, passed({ checks: status }));
+  assert.deepEqual([d.step, d.outcome, d.record], [null, 'waiting', undefined]);
+  assert.equal(d.reason, 'Checks failed on GitHub: ci/jenkins. GitHub keeps no log for it, so autopilot doesn\'t send it back: a person decides.');
+  assert.deepEqual(decide(l, 'T-1', passed({ checks: { ...failing(), failed: [...failing().failed, ...status.failed] } })), ['checks', null], 'beside an Actions job, it goes back too');
+  assert.equal(nextStep(l, RULES_CONFIG, t, passed({ checksError: 'gh couldn\'t read pull request #7\'s checks: unknown flag: --json' })).reason,
+    'Autopilot couldn\'t read pull request #7\'s checks on GitHub: gh couldn\'t read pull request #7\'s checks: unknown flag: --json. It tries again next pass.');
+});
+
+test('once a commit: failing again on a commit autopilot sent back is written down for a person; a new commit gets another go; 3 a task (D-???)', () => {
+  const l = landedAt();
+  const t = l.tasks[0]!;
+  t.autopilot = { failed: null, sentBack: { sha: HEAD, checks: ['build'], at: now().toISOString() } };
+  const d = nextStep(l, RULES_CONFIG, t, passed({ checks: failing() }));
+  assert.deepEqual([d.step, d.outcome, d.record], [null, 'waiting', { step: 'checks', reason: 'Checks failed on GitHub again: build. Autopilot already sent aaaaaaa back once: a person decides.' }]);
+  // Written down, it waits on later passes, as any failed step does.
+  t.autopilot.failed = { step: 'checks', sha: HEAD, state: 'review', reason: d.record!.reason, at: now().toISOString() };
+  const held = nextStep(l, RULES_CONFIG, t, passed());
+  assert.deepEqual([held.step, held.outcome, held.record], [null, 'waiting', undefined]);
+  assert.equal(held.reason, 'Autopilot couldn\'t send aaaaaaa back for its failing checks: Checks failed on GitHub again: build. Autopilot already sent aaaaaaa back once: a person decides. It waits for a person, or a new commit.');
+  assert.equal(displayState(l, t), 'needs-you');
+  // A new commit, landed, failing: back again.
+  t.pr = pr({ sha: OLDER });
+  const newer = passed({ head: OLDER, landed: OLDER, checks: failing(OLDER) });
+  assert.deepEqual(decide(l, 'T-1', newer), ['checks', null]);
+  // A task's fourth send-back waits for a person.
+  const sent = { at: now().toISOString(), actor: 'orchestrator' as const, by: AUTOPILOT_BY, from: 'review' as const, to: 'rework' as const, reason: 'Checks failed on GitHub.' };
+  t.history.push(sent, sent);
+  assert.deepEqual(decide(l, 'T-1', newer), ['checks', null], 'two so far');
+  t.history.push(sent);
+  assert.deepEqual(nextStep(l, RULES_CONFIG, t, newer).record, { step: 'checks', reason: 'Checks failed on GitHub: build. Autopilot sent T-1 back for failing checks 3 times already: a person decides.' });
+});
+
+test('in rework: autopilot\'s send-back for failing checks is re-dispatched, apart from a review\'s one re-dispatch (D-???)', () => {
+  let n = 0;
+  const move = (actor: 'orchestrator' | 'reviewer' | 'builder' | 'human', by: string, from: State, to: State) => ({ at: new Date(Date.parse('2026-10-05T10:00:00Z') + ++n * 60_000).toISOString(), actor, by, from, to, reason: 'x' });
+  const back = () => move('orchestrator', AUTOPILOT_BY, 'review', 'rework');
+  const review = () => move('reviewer', `reviewer:T-1 for ${AUTOPILOT_BY}`, 'review', 'rework');
+  const redispatch = () => move('orchestrator', AUTOPILOT_BY, 'rework', 'running');
+  const built = () => move('builder', 'builder:T-1', 'running', 'review');
+
+  // A review's rework, re-dispatched once already: then its checks fail, and that send-back still goes.
+  const l = ledgerOf({ id: 'T-1', state: 'rework' });
+  const t = l.tasks[0]!;
+  t.autopilot = { failed: null, sentBack: { sha: HEAD, checks: ['build', 'lint'], at: now().toISOString() } };
+  t.history.push(review(), redispatch(), built(), back());
+  assert.equal(reworkCause(t), 'checks');
+  assert.deepEqual(nextStep(l, RULES_CONFIG, t, facts()), { step: 'dispatch', outcome: null, reason: 'Checks failed on GitHub: build, lint.' });
+  assert.deepEqual(failedChecks(t), ['build', 'lint']);
+
+  // Re-dispatched for its checks, then a review asks for changes: that review's rework has its own one.
+  const m = ledgerOf({ id: 'T-1', state: 'rework' });
+  const u = m.tasks[0]!;
+  u.history.push(back(), redispatch(), built(), review());
+  assert.equal(reworkCause(u), 'review');
+  assert.equal(reworkedByAutopilot(u), false, 'the checks re-dispatch isn\'t the review\'s');
+  assert.deepEqual(nextStep(m, RULES_CONFIG, u, facts()), { step: 'dispatch', outcome: null, reason: 'The reviewer asked for changes.' });
+  assert.equal(failedChecks(u), null, 'a review\'s rework names no checks');
+  const second = redispatch();
+  u.history.push(second, built(), review());
+  assert.equal(reworkedByAutopilot(u), true);
+  assert.equal(reworkedByAutopilot(u, second.at), false, 'not before its own re-dispatch');
+  assert.deepEqual(decide(m, 'T-1', facts()), [null, 'waiting'], 'a second review rework waits for a person');
+  // A person's move to rework is a review's, not autopilot's send-back.
+  assert.equal(reworkCause({ history: [move('human', 'human:jordan', 'review', 'rework')] }), 'review');
+});
+
+test('autopilot asks GitHub about checks only for a task it could send back, and not once acc sync saw them pass (D-???)', () => {
+  const s = setup();
+  passReview(s.paths, s.id, s.sha);
+  edit(s.paths, (l) => { l.tasks[0]!.pr = { number: 42, url: 'https://github.com/acme/tool/pull/42', state: 'open', sha: s.sha, ci: 'passing' }; });
+  const calls: string[] = [];
+  const gh = { repo: 'acme/tool', env: () => ({ GH_TOKEN: 'gho_token' }) };
+  const r = deps(calls, github(s.sha, [check('build', 'fail')])).run;
+  assert.equal(taskFacts(s.paths, first(s.paths), r, null, now(), gh).checks, undefined);
+  assert.ok(!calls.some((c) => c.startsWith('gh ')), 'acc sync saw them pass: no gh call');
+  edit(s.paths, (l) => { delete l.tasks[0]!.pr!.ci; });
+  const f = taskFacts(s.paths, first(s.paths), r, null, now(), gh);
+  assert.deepEqual([f.checks?.sha, f.checks?.failed.map((c) => c.name)], [s.sha, ['build']]);
+  assert.equal(taskFacts(s.paths, first(s.paths), r).checks, undefined, 'without GitHub, nothing is asked');
+  // A new commit, not landed or reviewed yet: nothing asked.
+  s.commit('more.js', 'x\n');
+  const before = calls.length;
+  assert.equal(taskFacts(s.paths, first(s.paths), r, null, now(), gh).checks, undefined);
+  assert.ok(!calls.slice(before).some((c) => c.startsWith('gh ')));
+});
+
+test('a pull request whose checks failed goes back to its builder with what they said, and the next pass re-dispatches it (D-???)', () => {
+  const s = setup();
+  passReview(s.paths, s.id, s.sha);
+  edit(s.paths, (l) => { l.tasks[0]!.pr = { number: 42, url: 'https://github.com/acme/tool/pull/42', state: 'open', sha: s.sha, landedAt: now().toISOString(), ci: 'failing', failing: ['build'] }; });
+  const sha7 = s.sha.slice(0, 7);
+  assert.equal(displayState(readLedger(s.paths.ledger), first(s.paths)), 'needs-you', 'acc sync saw them fail');
+  const log = 'build\tRun npm test\t2026-10-05T11:59:00.0000000Z \x1b[31mnot ok 1 - sum adds\x1b[0m\nbuild\tRun npm test\t2026-10-05T11:59:01.0000000Z # fail 1\n';
+  const calls: string[] = [];
+  const reads: [string, string | undefined][] = [];
+  const base = deps(calls, github(s.sha, [check('build', 'fail'), check('lint', 'pass'), check('docs', 'skipping'), check('preview', 'cancel')], { 'gh run view --job 5 --log-failed': ok(log) }));
+  const watched: AutopilotDeps = { ...base, run: (cmd, args, opts) => { if (cmd === 'gh') reads.push([args.slice(0, 2).join(' '), opts?.env?.GH_TOKEN]); return base.run(cmd, args, opts); } };
+  const sent = autopilotPass(s.paths, s.config, watched);
+  assert.deepEqual(brief(sent.steps)[0], ['T-1', 'checks', 'done']);
+  assert.equal(sent.steps[0]!.reason, `Sent it back to its builder: checks failed on GitHub on ${sha7}: build.`);
+  const t = first(s.paths);
+  assert.equal(t.state, 'rework');
+  assert.deepEqual(t.history.at(-1), { at: now().toISOString(), actor: 'orchestrator', by: AUTOPILOT_BY, from: 'review', to: 'rework', reason: `Checks failed on GitHub on ${sha7}: build.` });
+  assert.deepEqual(t.autopilot, { failed: null, sentBack: { sha: s.sha, checks: ['build'], at: now().toISOString() } });
+  const report = JSON.parse(readFileSync(checksPath(s.paths, 'T-1', s.sha), 'utf8'));
+  assert.deepEqual([report.sha, report.pr, report.required], [s.sha, { number: 42, url: 'https://github.com/acme/tool/pull/42' }, true]);
+  assert.deepEqual(report.checks, [{ name: 'build', workflow: 'CI', link: 'https://github.com/acme/tool/actions/runs/7/job/5', log: 'not ok 1 - sum adds\n# fail 1', noLog: null }], 'cancelled and skipped checks aren\'t failures');
+  // It only read GitHub, as the repo's account: no edit, comment, re-run or write.
+  assert.deepEqual([...new Set(reads.map(([c]) => c))].sort(), ['auth token', 'pr checks', 'pr view', 'run view']);
+  assert.ok(reads.filter(([c]) => c !== 'auth token').every(([, token]) => token === 'gho_token'), 'every read as the repo\'s account');
+  assert.ok(!calls.some((c) => /^gh (pr (edit|comment|create|merge|close|review|ready)|run (rerun|cancel)|api|issue)/.test(c)), 'nothing changed on GitHub');
+  assert.ok(!calls.some((c) => c.startsWith('git push')), 'nothing pushed');
+  // Its move is autopilot's send-back, for History and notices; the rework names the checks.
+  const moved = events(s.paths).find((e) => e.type === 'task.moved' && e.data.to === 'rework')!;
+  assert.deepEqual(autopilotEvent(moved), { seq: moved.seq, at: now().toISOString(), task: 'T-1', step: 'checks', outcome: 'done', checks: ['build'], reason: `Checks failed on GitHub on ${sha7}: build.` });
+  assert.equal(displayState(readLedger(s.paths.ledger), t), 'rework');
+  assert.deepEqual(failedChecks(t), ['build']);
+
+  // The next pass re-dispatches it, with what GitHub's checks said in its packet.
+  const again = autopilotPass(s.paths, s.config, deps(calls));
+  assert.deepEqual(brief(again.steps)[0], ['T-1', 'dispatch', 'done']);
+  assert.match(again.steps[0]!.reason, /^Re-dispatched for its failing checks in /);
+  const packet = readFileSync(join(s.paths.packets, 'T-1.md'), 'utf8');
+  for (const must of ['## What GitHub\'s checks said', `failed on GitHub on ${sha7}: build`, 'https://github.com/acme/tool/actions/runs/7/job/5', 'not ok 1 - sum adds', 'run `acc block "<what you found>"` and stop']) assert.ok(packet.includes(must), must);
+  assert.ok(!packet.includes('What the review asked for'), 'its review passed');
+  assert.match(calls.filter((c) => c.startsWith('claude --bg')).at(-1)!, /What GitHub's checks said/, 'its builder is told');
+  const redispatched = events(s.paths).filter((e) => e.type === 'task.moved').at(-1)!;
+  assert.deepEqual([redispatched.data.from, redispatched.data.cause], ['rework', 'checks']);
+  assert.equal(autopilotEvent(redispatched)?.cause, 'checks');
+});
+
+test('checks failing again on the commit autopilot sent back wait for a person, and a new commit is sent back again (D-???)', () => {
+  const s = setup();
+  passReview(s.paths, s.id, s.sha);
+  const sha7 = s.sha.slice(0, 7);
+  const at = now().toISOString();
+  // Sent back once and re-dispatched; its builder finished without a new commit.
+  edit(s.paths, (l) => {
+    const t = l.tasks[0]!;
+    t.pr = { number: 42, url: 'https://github.com/acme/tool/pull/42', state: 'open', sha: s.sha, ci: 'failing', failing: ['build'] };
+    t.autopilot = { failed: null, sentBack: { sha: s.sha, checks: ['build'], at } };
+    t.history.push(
+      { at, actor: 'orchestrator', by: AUTOPILOT_BY, from: 'review', to: 'rework', reason: 'Checks failed on GitHub.' },
+      { at, actor: 'orchestrator', by: AUTOPILOT_BY, from: 'rework', to: 'running', reason: null },
+      { at, actor: 'builder', by: 'builder:T-1', from: 'running', to: 'review', reason: null },
+    );
+  });
+  // While its fix is in review, acc sync's failing checks on the commit already sent back don't need you.
+  assert.equal(displayState(readLedger(s.paths.ledger), first(s.paths)), 'review');
+  const calls: string[] = [];
+  const gh = github(s.sha, [check('build', 'fail')], { 'gh run view': ok('build\tRun\t2026-10-05T11:00:00Z still failing\n') });
+  const r = autopilotPass(s.paths, s.config, deps(calls, gh));
+  assert.deepEqual(brief(r.steps)[0], ['T-1', 'checks', 'failed']);
+  assert.equal(r.steps[0]!.reason, `Checks failed on GitHub again: build. Autopilot already sent ${sha7} back once: a person decides.`);
+  const t = first(s.paths);
+  assert.deepEqual([t.state, t.autopilot?.failed?.step, t.autopilot?.failed?.sha, t.autopilot?.sentBack?.sha], ['review', 'checks', s.sha, s.sha], 'what it sent back is kept beside the failure');
+  assert.equal(displayState(readLedger(s.paths.ledger), t), 'needs-you');
+  assert.ok(!calls.some((c) => c.startsWith('gh run view')), 'nothing to send, so no log read');
+  assert.deepEqual(autopilotEvent(events(s.paths).at(-1)!)?.step, 'checks');
+
+  const before = calls.length;
+  const held = autopilotPass(s.paths, s.config, deps(calls, gh));
+  assert.deepEqual(brief(held.steps)[0], ['T-1', null, 'waiting']);
+  assert.match(held.steps[0]!.reason, /^Autopilot couldn't send [0-9a-f]{7} back for its failing checks: Checks failed on GitHub again/);
+  assert.ok(!calls.slice(before).some((c) => c.startsWith('gh ')), 'GitHub isn\'t asked again about that commit');
+
+  // A new commit, reviewed and landed, whose checks fail too: back again.
+  const sha2 = s.commit('sum.test.js', 'test("sum", () => {});\n');
+  passReview(s.paths, s.id, sha2);
+  edit(s.paths, (l) => { l.tasks[0]!.pr = { ...l.tasks[0]!.pr!, sha: sha2 }; });
+  const next = autopilotPass(s.paths, s.config, deps(calls, github(sha2, [check('build', 'fail')], { 'gh run view': ok('build\tRun\t2026-10-05T11:00:00Z still failing\n') })));
+  assert.deepEqual(brief(next.steps)[0], ['T-1', 'checks', 'done']);
+  assert.deepEqual([first(s.paths).state, first(s.paths).autopilot?.sentBack?.sha], ['rework', sha2]);
+});
+
+test('what moved on between autopilot\'s look and its send-back only waits: a push, or checks running again (D-???)', () => {
+  const s = setup();
+  passReview(s.paths, s.id, s.sha);
+  edit(s.paths, (l) => { l.tasks[0]!.pr = { number: 42, url: 'https://github.com/acme/tool/pull/42', state: 'open', sha: s.sha }; });
+  let views = 0;
+  // Someone pushes to the pull request on GitHub while the logs are read.
+  const pushed = deps([], { ...github(s.sha, [check('build', 'fail')], { 'gh run view': ok('x\n') }), 'gh pr view': () => ok(JSON.stringify({ headRefOid: ++views < 3 ? s.sha : 'c'.repeat(40) })) });
+  const r = autopilotPass(s.paths, s.config, pushed);
+  assert.deepEqual([brief(r.steps)[0], r.steps[0]!.reason], [['T-1', 'checks', 'waiting'], `Pull request #42 is at ccccccc on GitHub, not ${s.sha.slice(0, 7)}. Autopilot looks again next pass.`]);
+  const t = first(s.paths);
+  assert.deepEqual([t.state, t.autopilot], ['review', undefined], 'nothing recorded, nothing moved');
+  // Re-run, they're running again by the time it reads them a second time.
+  let lists = 0;
+  const rerun = deps([], { ...github(s.sha, []), 'gh pr checks': () => ok(JSON.stringify([check('build', ++lists === 1 ? 'fail' : 'pending')])) });
+  const w = autopilotPass(s.paths, s.config, rerun);
+  assert.deepEqual([brief(w.steps)[0], w.steps[0]!.reason], [['T-1', 'checks', 'waiting'], 'Checks are still running on GitHub: build. Autopilot looks again next pass.']);
+  assert.equal(first(s.paths).state, 'review');
+});
+
+test('autopilot\'s send-back and its re-dispatch read back as what they were for, not as a review (D-???)', () => {
+  const at = now().toISOString();
+  const moved = (by: string, data: Record<string, unknown>) => autopilotEvent({ seq: 1, at, type: 'task.moved', task: 'T-1', by, data });
+  const reason = 'Checks failed on GitHub on abc1234: build, lint.';
+  assert.deepEqual(moved(AUTOPILOT_BY, { from: 'review', to: 'rework', reason, checks: ['build', 'lint'], sha: 'abc' }), { seq: 1, at, task: 'T-1', step: 'checks', outcome: 'done', checks: ['build', 'lint'], reason });
+  assert.deepEqual(moved(`reviewer:T-1 for ${AUTOPILOT_BY}`, { from: 'review', to: 'rework', reason: 'Review asked for changes: no test.' }), { seq: 1, at, task: 'T-1', step: 'review', outcome: 'done', verdict: 'changes', reason: 'no test.' });
+  assert.equal(moved('human:jordan', { from: 'review', to: 'rework', reason: 'x' }), null);
+  assert.equal(moved(AUTOPILOT_BY, { from: 'rework', to: 'running', cause: 'checks' })?.cause, 'checks');
+  assert.deepEqual(moved(AUTOPILOT_BY, { from: 'rework', to: 'running' }), { seq: 1, at, task: 'T-1', step: 'dispatch', outcome: 'done' }, 'one from before says nothing of its cause');
+  const updated = (data: Record<string, unknown>) => autopilotEvent({ seq: 2, at, type: 'task.updated', task: 'T-1', by: AUTOPILOT_BY, data });
+  assert.deepEqual(updated({ autopilot: { failed: { step: 'checks', reason: 'Checks failed on GitHub again: build.' } } }), { seq: 2, at, task: 'T-1', step: 'checks', outcome: 'failed', reason: 'Checks failed on GitHub again: build.' });
+  assert.equal(updated({ autopilot: { sentBack: { sha: 'abc', checks: ['build'], at } } }), null, 'its send-back is told by its move');
 });

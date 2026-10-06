@@ -8,6 +8,7 @@ import { type Actor, applyMove, checkMove, mutate, noGateHooks, readLedger, type
 import type { RepoPaths } from './paths.ts';
 import { permissionHook } from './questions.ts';
 import { type Analysis, analysisProblems, analysisSection, readAnalysis } from './analyze.ts';
+import { type ChecksReport, checksSection, readChecksReport } from './checks.ts';
 import { latestVerdict, type Verdict } from './review.ts';
 import { agentArgs } from './agents.ts';
 import { type AwakeDeps, holdAwake, keepAwakeFor } from './awake.ts';
@@ -86,6 +87,8 @@ export interface PacketInput {
   accPath?: string;
   /** On a rework, the review that asked for changes (D-032). */
   review?: Verdict | null;
+  /** On a rework autopilot sent back, what GitHub's checks said on its pull request (D-???). */
+  checks?: ChecksReport | null;
   /** What the task's analysis found, and what a person answered (D-052). */
   analysis?: Analysis | null;
 }
@@ -141,6 +144,7 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean }): stri
     '',
     ...analysisSection(p.analysis ?? null),
     ...reviewSection(p.review),
+    ...checksSection(p.checks),
     '## Where you are',
     '',
     `- **Worktree:** \`${p.worktree}\`. This is your only workspace.`,
@@ -342,6 +346,8 @@ export interface DispatchOptions {
   foreground?: boolean;
   /** A person's say-so to build without the analysis the project wants (D-052). */
   withoutAnalysis?: boolean;
+  /** What autopilot re-dispatches a rework for, kept on its move so it's never guessed from words (D-???). */
+  cause?: 'checks' | 'review';
 }
 
 export function dispatch(paths: RepoPaths, config: Config, id: string, deps: DispatchDeps, opts: DispatchOptions): DispatchResult {
@@ -371,9 +377,13 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
   setupWorktree(run, config, env, main, wt);
 
   const rules = existsSync(join(wt, '.acc', 'rules.md')) ? readFileSync(join(wt, '.acc', 'rules.md'), 'utf8') : null;
+  const rework = found.state === 'rework';
+  // Sent back for failing checks on GitHub (D-???): what they said about the branch's latest commit.
+  const head = rework ? git(run, paths.root, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`).stdout.trim() : '';
   const packet = renderPacket({
     task: found, config, env, worktree: wt, branch, rules, environmentSpecific: readList(wt, config.environmentSpecific), enterWorktree: enter && !opts.foreground,
-    accPath: join(deps.accBinDir, 'acc'), review: found.state === 'rework' ? latestVerdict(paths, found.id) : null, analysis: readAnalysis(paths, found.id),
+    accPath: join(deps.accBinDir, 'acc'), review: rework ? latestVerdict(paths, found.id) : null, analysis: readAnalysis(paths, found.id),
+    checks: head ? readChecksReport(paths, found.id, head) : null,
   });
   mkdirSync(paths.packets, { recursive: true });
   const packetPath = join(paths.packets, `${found.id}.md`);
@@ -388,7 +398,7 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
     const task = ledger.tasks.find((t) => t.id === id)!;
     const again = checkMove(ledger, config, task, req, noGateHooks);
     if (again.length) throw new AccError('move-refused', `Can't dispatch ${id}:\n- ${again.join('\n- ')}`);
-    applyMove(task, { ...req, reason: reused ? `re-dispatched in ${basename(wt)}` : null }, emit, now);
+    applyMove(task, { ...req, reason: reused ? `re-dispatched in ${basename(wt)}` : null }, emit, now, opts.cause ? { cause: opts.cause } : {});
     task.run = { worktree: wt, branch, startedAt: now().toISOString(), ...(bgId ? { bgId } : {}), ...(sessionId ? { sessionId } : {}) };
     emit({ type: 'task.updated', task: id, actor: opts.actor, by: opts.by, data: { run: task.run } });
     return task;

@@ -12,7 +12,7 @@ import { repoPaths } from '../src/paths.ts';
 import { receiptsAt } from '../src/receipts.ts';
 import { reviewPath, type Verdict } from '../src/review.ts';
 import { listUpdates, readUpdate } from '../src/updates.ts';
-import { ciOf, sync } from '../src/sync.ts';
+import { ciOf, failingOf, sync } from '../src/sync.ts';
 import { bad, fakeBin, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, tempDir } from './support.ts';
 
 const now = () => new Date('2026-10-02T12:00:00Z');
@@ -287,6 +287,26 @@ test('sync: failing checks or a person\'s requested changes show an open pull re
   assert.equal(ciOf([{ status: 'IN_PROGRESS' }]), 'pending');
   assert.equal(ciOf([{ state: 'SUCCESS' }]), 'passing');
   assert.equal(ciOf(null), null);
+});
+
+test('sync keeps the names of the checks that failed, a check run\'s or a commit status\'s, and drops them once they pass (D-???)', () => {
+  const s = withPr(42);
+  const rollup = [
+    { __typename: 'CheckRun', name: 'build', workflowName: 'CI', status: 'COMPLETED', conclusion: 'FAILURE' },
+    { __typename: 'CheckRun', name: 'build', workflowName: 'CI', status: 'COMPLETED', conclusion: 'FAILURE' },
+    { __typename: 'CheckRun', name: 'lint', workflowName: 'CI', status: 'COMPLETED', conclusion: 'SUCCESS' },
+    { __typename: 'StatusContext', context: 'ci/jenkins', state: 'ERROR' },
+  ];
+  assert.deepEqual(failingOf(rollup), ['build', 'ci/jenkins'], 'once each, as ciOf counts them');
+  sync(s.paths, s.config, { run: view('OPEN', { statusCheckRollup: rollup }), now, env: {} });
+  let l = readLedger(s.paths.ledger);
+  assert.deepEqual([l.tasks[0]!.pr?.ci, l.tasks[0]!.pr?.failing, displayState(l, l.tasks[0]!)], ['failing', ['build', 'ci/jenkins'], 'needs-you']);
+  const seq = l.seq;
+  assert.deepEqual(sync(s.paths, s.config, { run: view('OPEN', { statusCheckRollup: rollup }), now, env: {} }).changes, [], 'nothing changed, nothing written');
+  assert.equal(readLedger(s.paths.ledger).seq, seq);
+  sync(s.paths, s.config, { run: view('OPEN', { statusCheckRollup: [{ status: 'COMPLETED', conclusion: 'SUCCESS', name: 'build' }] }), now, env: {} });
+  l = readLedger(s.paths.ledger);
+  assert.deepEqual([l.tasks[0]!.pr?.ci, 'failing' in l.tasks[0]!.pr!], ['passing', false], 'passing: no names kept');
 });
 
 test('sync: an open pull request records the files it conflicts in with its base, from a fetch and git merge-tree, and changes no branch', () => {
