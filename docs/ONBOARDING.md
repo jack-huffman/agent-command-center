@@ -21,8 +21,8 @@ Placeholders: `<client>` is the project's short name. `<prod>`, `<qa>` and
   |---|---|---|
   | git 2.40+ | `git --version` | |
   | GitHub CLI | `gh --version` | |
-  | Node 20+ | `node --version` | |
-  | Claude Code CLI | `claude --version` | Run `claude update`. The VSCode extension ships its own copy, so the terminal CLI can fall far behind. Ours was 100+ versions old |
+  | Node 20+ | `node --version` | Salesforce projects only, for the Salesforce CLI. acc itself needs no Node: it runs on VSCode's own runtime |
+  | Claude Code CLI | `claude --version` | Install it with `brew install --cask claude-code`. Run `claude update`. The VSCode extension ships its own copy, so the terminal CLI can fall far behind. Ours was 100+ versions old |
   | Salesforce CLI | `sf --version` | |
   | Code Analyzer | `sf plugins` lists `code-analyzer` | `sf plugins install code-analyzer` |
 

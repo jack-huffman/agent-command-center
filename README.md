@@ -76,6 +76,11 @@ Salesforce. Project types plug in as profiles.
 Install the extension with `npm run package && npm run install-extension`, then
 reload the VSCode window.
 
+**Requirements:** macOS only, on Apple Silicon or Intel. acc needs no Node
+install: with no node 20 or later on PATH, it runs on VSCode's own runtime, which
+the extension records each time it starts. Salesforce projects still need Node,
+for the Salesforce CLI.
+
 ## Principles
 
 - **Self-contained.** The project ships its own skills, hooks and agents as one
@@ -101,8 +106,9 @@ reload the VSCode window.
 
 ```text
 packages/core   ledger, config and state rules, shared by everything below
-packages/cli    the acc CLI, bundled into dist/acc, and into plugin/bin/acc for a release
-plugin/         Claude Code plugin: skills, hooks, reviewer agent, bin/acc
+packages/cli    the acc CLI: its launcher (bin/acc) and the bundle it runs, built into dist/,
+                and into plugin/bin/ for a release
+plugin/         Claude Code plugin: skills, hooks, reviewer agent, bin/acc and bin/acc.mjs
 extension/      VSCode extension: Board, Sessions and Worktrees views
 docs/           design, roadmap, decisions, research
 ```
@@ -139,7 +145,7 @@ root: `claude --plugin-dir plugin`.
 ## Development
 
 Development needs Node 23.6 or later, which runs the TypeScript directly. The
-bundled CLI runs on Node 20 or later.
+built acc doesn't: it runs on node 20 or later, or on VSCode's runtime.
 
 ```bash
 npm install              # dev dependencies: typescript, esbuild, @types/node
@@ -148,14 +154,21 @@ npm run acc -- doctor    # run the CLI from source
 ./dist/acc doctor        # run the bundle the last build made
 npm run validate-plugin  # claude plugin validate --strict, on the plugin and the marketplace
 npm run screenshot       # render the editor tabs with sample data, into dist/screenshots/
-npm run package          # a release: check, refresh plugin/bin/acc, package the extension into dist/
+npm run package          # a release: check, refresh plugin/bin/, package the extension into dist/
 ```
 
-`npm run build` bundles the CLI into `dist/acc`, which git ignores, and gives
-the extension its own copy. `plugin/bin/acc` is committed, because a plugin
-installed from git has no build step, but only a release refreshes it:
-`npm run package`, or `npm run build -- --release` on its own. A branch's checks
-never change it, so pull requests don't conflict over a generated file (D-042).
+`npm run build` bundles the CLI into `dist/acc.mjs`, which git ignores, puts the
+launcher `dist/acc` beside it, and gives the extension its own copy of both.
+The launcher is a small sh script that runs `acc.mjs` with `$ACC_NODE` if set,
+else node 20 or later on PATH, else the VSCode runtime named in
+`~/.acc/runtime`. With none, `acc hook …` exits 0 silently, so the plugin's
+hooks never break a session, and anything else says what to do in one line.
+
+`plugin/bin/` is committed, because a plugin installed from git has no build
+step, but only a release refreshes it, copying the launcher and `acc.mjs`
+together: `npm run package`, or `npm run build -- --release` on its own. A
+branch's checks never change it, so pull requests don't conflict over a
+generated file (D-042).
 
 `npm run screenshot` renders each tab in headless Chrome, in dark and light
 themes, at 1000, 620 and 500 pixels wide, with one row shown hovered. Chrome

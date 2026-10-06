@@ -595,7 +595,8 @@ break a large ticket into tasks, triage a blocked task, or write rework guidance
 ```
 plugin/
   .claude-plugin/plugin.json   name "acc"
-  bin/acc                      the bundled CLI, on the Bash tool's PATH while the plugin is enabled
+  bin/acc                      the launcher, on the Bash tool's PATH while the plugin is enabled
+  bin/acc.mjs                  the bundled CLI it runs
   hooks/hooks.json             SessionStart, PreToolUse and Stop, each `acc hook <event>`
   agents/reviewer.md           the read-only reviewer, for use in a session
   skills/intake/  task/  orchestrate/  land/
@@ -606,9 +607,17 @@ development, `claude --plugin-dir plugin` loads it in place, and
 `claude plugin marketplace add <this repo>` installs it. `npm run validate-plugin`
 runs `claude plugin validate --strict` on both (D-042).
 
-`plugin/bin/acc` is generated, but it's committed, because a plugin installed
+`plugin/bin/` is generated, but it's committed, because a plugin installed
 from git has no build step. It's refreshed only by a release build
-(`npm run package`), so a branch's checks never touch it.
+(`npm run package`), which copies the launcher and `acc.mjs` together, so a
+branch's checks never touch it.
+
+`bin/acc` is a small POSIX sh launcher, the same one everywhere acc ships
+(D-???). It runs `acc.mjs` beside it with `$ACC_NODE` if set, else node 20 or
+later on PATH, else the VSCode runtime the extension records in
+`~/.acc/runtime`. With none, `acc hook …` exits 0 and prints nothing, so a
+hook never breaks a session for want of Node, and any other command prints
+one line naming the fix.
 
 Hooks return at once unless the working directory is inside a repo with
 `.acc/config.json`, and they do nothing for a session that isn't a builder. A
@@ -792,6 +801,10 @@ list. The walkthrough, the CLI and the docs can't drift apart.
   machine needs something.
 - **The extension runs its own copy of `acc`** with VSCode's runtime, so it
   works before Node is on PATH. Every VSCode terminal gets `acc` on its PATH.
+  The extension runs `dist/bin/acc.mjs` itself; terminals, Setup's **Do it**
+  and builders get the launcher beside it. Each time it starts, the extension
+  writes its runtime's path to `~/.acc/runtime`, so the launcher can use it
+  wherever node isn't on PATH (D-???).
 
 ## 15. Safety
 
@@ -812,11 +825,14 @@ list. The walkthrough, the CLI and the docs can't drift apart.
 
 `acc doctor` checks each of these and says how to fix what's missing:
 
-- Node 20 or later, and git 2.40 or later
+- macOS, on Apple Silicon or Intel
+- git 2.40 or later
 - Claude Code with `--bg` support
 - `gh`, logged in as the configured account
-- for Salesforce: `sf` and Code Analyzer, plus each environment's org logged in
-  with its sandbox name matching its branch
+- for Salesforce: Node 20 or later, `sf` and Code Analyzer, plus each
+  environment's org logged in with its sandbox name matching its branch
+
+acc itself needs no Node: its launcher falls back to VSCode's runtime (§13).
 - the config is valid, and the ledger directory can be written
 
 ## 17. Testing
