@@ -765,3 +765,53 @@ body[data-view="agent"] .agent-asks { max-height: 50vh; overflow-y: auto; }
 .more-item.danger { color: var(--orange); }
 .more-sep { height: 1px; margin: 4px 2px; background: var(--line); }
 
+
+/* ---------------------------------------------------------------- the Connect page (GH-51) */
+
+/* One tracker's site, sign-in, place and board. A label beside each field, and what's wrong with it right
+   under it: orange with a warning icon and words, never colour alone. Labels go above below 620 px. */
+.connect { max-width: 820px; }
+.connect h1 { display: flex; align-items: center; gap: 8px; }
+.connect h1 .codicon { font-size: 20px; }
+.connect-choose { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 14px; }
+.connect-choose .segmented { flex-wrap: wrap; max-width: 100%; }
+.connect-step { border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); padding: 12px 14px 4px; margin: 0 0 14px; }
+.connect-step h2 { margin-bottom: 10px; }
+.step-n { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; font-size: 0.85em; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+.connect-hint { margin: 0 0 10px; }
+.cfield { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 4px 14px; align-items: start; margin: 0 0 12px; }
+.cfield-label { padding-top: 4px; font-weight: 600; }
+.cfield-control { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.cfield-input { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cfield-input .text-input { min-width: 0; flex: 1 1 220px; }
+.cfield-input .btn { flex: none; }
+.cfield-hint { margin: 0; }
+.cfield-status { display: flex; align-items: flex-start; gap: 5px; overflow-wrap: anywhere; }
+.cfield-status .codicon { flex: none; margin-top: 2px; }
+.cfield-status.tone-neutral { color: var(--vscode-descriptionForeground); }
+.cfield-fixed { display: inline-flex; align-items: center; gap: 6px; padding-top: 4px; overflow-wrap: anywhere; }
+.cfield-fixed .codicon { color: var(--vscode-descriptionForeground); }
+.text-input[aria-invalid="true"] { border-color: var(--orange); }
+.select-input {
+  width: 100%; padding: 4px 6px; border-radius: 3px; font: inherit;
+  color: var(--vscode-dropdown-foreground, var(--vscode-input-foreground)); background: var(--vscode-dropdown-background, var(--vscode-input-background));
+  border: 1px solid var(--vscode-dropdown-border, var(--vscode-input-border, var(--line)));
+}
+.select-input:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.select-input:disabled, .ticks input:disabled { opacity: 0.55; cursor: not-allowed; }
+.ticks { display: flex; flex-wrap: wrap; gap: 6px; }
+.tick { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px 2px 5px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; overflow-wrap: anywhere; }
+.tick.on { border-color: var(--blue); }
+.tick input { margin: 0; accent-color: var(--blue); }
+.connect-test { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; }
+.connect-test .btn { flex: none; }
+.connect-test .cfield-status { flex: 1 1 200px; padding-top: 3px; }
+.connect-test .status { white-space: normal; padding-top: 3px; }
+.connect .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.connect-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+.connect-foot .status { white-space: normal; }
+@media (max-width: 620px) {
+  .cfield { grid-template-columns: minmax(0, 1fr); }
+  .cfield-label { padding-top: 0; }
+  .connect-step { padding: 10px 10px 2px; }
+}

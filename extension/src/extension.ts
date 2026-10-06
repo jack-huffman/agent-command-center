@@ -21,7 +21,9 @@ import { openWalkthrough, Setup } from './setup.ts';
 import { Sidebar } from './sidebar.ts';
 import { RepoIdentity } from './identity.ts';
 import { TicketPanels, type UpdateActions } from './ticket.ts';
-import { Trackers } from './trackers.ts';
+import { exec, Trackers } from './trackers.ts';
+import { ConnectSession } from './connect.ts';
+import { describe } from '../../packages/core/src/trackers/connect.ts';
 
 /** Step commands get a step id from walkthrough buttons, or a Setup view item from menus. */
 const stepId = (a: unknown): string => (typeof a === 'string' ? a : (a as { item?: { id: string } })?.item?.id ?? '');
@@ -270,7 +272,33 @@ export function activate(context: vscode.ExtensionContext): void {
     openLater: async (folder, sessionId) => { await context.globalState.update(OPEN_LATER, { folder, sessionId, at: Date.now() }); },
   });
   sidebar.register(regNode);
+  // The Connect page (GH-51): one view in the Command Center connects a repo's tracker, changes its place
+  // or board, or signs it in again, in place of prompts at the top of VSCode.
+  const connect = new ConnectSession({
+    projects: () => hub.projects,
+    trackers: (root) => { const p = hub.project(root); return p ? trackers.trackers(p) : []; },
+    title: (t) => trackers.title(t),
+    storedSignIn: (root, kind, host) => trackers.storedSignIn(root, kind, host),
+    storeSignIn: (root, kind, host, cred) => trackers.storeSignIn(root, kind, host, cred),
+    gitEmail: (root) => trackers.gitEmail(root),
+    ghToken: (root, account) => trackers.ghToken(root, account),
+    microsoft: (host, spec) => trackers.microsoft(host, spec),
+    write: (root, index, record) => trackers.write(root, index, record),
+    signedIn: async (root) => { await trackers.reload(root); tickets.refresh(); await setup.recheck('B14.tickets'); },
+    saved: async (root, name) => {
+      await hub.loadProjects();
+      await trackers.reload(root);
+      tickets.refresh();
+      panels.show('tasks');
+      void vscode.window.showInformationMessage(`${name} for ${hub.project(root)?.name ?? 'the project'} is saved in .acc/config.json, and its tickets are on the Tasks tab. Commit the file on each environment's branch, so every checkout shows the same board.`);
+      await setup.recheck('B14.tickets');
+    },
+    changed: () => changed(),
+    log: (line) => setup.log.warn(line),
+    exec,
+  });
   const panels = new Panels(context, hub, setup, resolve, (visible) => pagePolls(visible), {
+    connect: { model: () => connect.model(), receive: (m) => connect.receive(m), close: () => connect.close() },
     boards: (root) => trackers.boardStates(root),
     identity: (root) => identity.card(root),
     openTicket: (root, tracker, key) => tickets.show(root, tracker, key),
@@ -375,14 +403,29 @@ export function activate(context: vscode.ExtensionContext): void {
   identity.onDidChange(changed);
   // An edit on a task's page changes what the Overview shows for its update, and whether it offers Post.
   tickets.onDidEdit(changed);
-  // From a project's button its root comes along, and from the Jira button the kind too.
-  // Setup's buttons send a step or an item instead, whose kind isn't a tracker's.
-  reg('acc.trackers.add', async (n?: { root?: unknown; kind?: unknown }) => {
-    const kind = n?.kind === 'azure' || n?.kind === 'jira' || n?.kind === 'github' ? n.kind : undefined;
-    await trackers.add({ root: typeof n?.root === 'string' ? n.root : undefined, kind });
-    await setup.recheck('B14.tickets');
+  /** Opens the Connect page over the section that's showing, which its Back returns to. */
+  const openConnect = async (o: { root?: string; kind?: string; index?: number; signIn?: boolean }) => {
+    if (!(await connect.open({ ...o, from: panels.current() }))) {
+      void vscode.window.showInformationMessage('Onboard this project first: Agent Command Center: Onboard this project.');
+      return;
+    }
+    panels.show();
+  };
+  // From a project's button its root comes along, and from the Jira button the kind too; a board's Change
+  // sends its tracker as JSON. Setup's buttons send a step or an item instead, whose kind isn't a tracker's.
+  reg('acc.trackers.add', (n?: unknown) => {
+    let a = n as { root?: unknown; kind?: unknown; index?: unknown } | undefined;
+    if (typeof n === 'string') try { a = JSON.parse(n); } catch { a = undefined; }
+    return openConnect({
+      root: typeof a?.root === 'string' ? a.root : undefined, kind: typeof a?.kind === 'string' && describe(a.kind) ? a.kind : undefined,
+      index: Number.isInteger(a?.index) ? a!.index as number : undefined,
+    });
   });
-  reg('acc.trackers.signIn', async (arg?: unknown) => { if (await trackers.signIn(arg)) tickets.refresh(); await setup.recheck('B14.tickets'); });
+  // Every Sign in to Jira or Azure DevOps opens that tracker on the Connect page, at its sign-in.
+  reg('acc.trackers.signIn', async (arg?: unknown) => {
+    const chosen = await trackers.pickTracker(arg, 'Sign in to which tracker?');
+    await openConnect(chosen ? { root: chosen.p.root, index: chosen.index, signIn: true } : {});
+  });
   reg('acc.trackers.signOut', async (arg?: unknown) => { await trackers.signOut(arg); await setup.recheck('B14.tickets'); });
   // B14: acc doctor sees the config; only the extension can see this repo's sign-ins.
   setup.setOverlay(async (items, cwd) => {

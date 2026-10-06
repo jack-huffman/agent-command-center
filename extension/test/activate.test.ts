@@ -27,6 +27,8 @@ function fakeVscode(folder: string) {
     executed: [] as [string, unknown[]][],
     /** What a quick pick answers, when a test wants it to. */
     pick: undefined as ((items: { value?: string }[]) => unknown) | undefined,
+    /** How many prompts at the top of VSCode were shown: input boxes and quick picks. */
+    prompts: 0,
   };
   type Item = { text: string; tooltip: string; command: unknown; name: string; shown: boolean; show(): void; hide(): void; dispose(): void };
   const item = (): Item => ({ text: '', tooltip: '', command: undefined, name: '', shown: false, show() { this.shown = true; }, hide() { this.shown = false; }, dispose() {} });
@@ -65,14 +67,14 @@ function fakeVscode(folder: string) {
       withProgress: (_o: unknown, task: (p: unknown, t: unknown) => unknown) => task({ report() {} }, { onCancellationRequested: () => disposable }),
       showInformationMessage: async (m: string) => { calls.info.push(m); return undefined; },
       showWarningMessage: async (m: string) => { calls.warn.push(m); return undefined; },
-      showQuickPick: async (items: unknown) => calls.pick?.(await (items as Promise<{ value?: string }[]>)),
+      showQuickPick: async (items: unknown) => { calls.prompts++; return calls.pick?.(await (items as Promise<{ value?: string }[]>)); },
       createTerminal: () => ({ show() {}, sendText: (t: string) => calls.terminal.push(t), exitStatus: undefined }),
       onDidEndTerminalShellExecution: event(),
       onDidCloseTerminal: event(),
       onDidChangeActiveTextEditor: event(),
       activeTextEditor: undefined,
       createTreeView: (id: string, o: { treeDataProvider: never }) => { trees.set(id, o.treeDataProvider); return { visible: false, onDidChangeVisibility: event(), badge: undefined, dispose() {} }; },
-      showInputBox: async () => undefined,
+      showInputBox: async () => { calls.prompts++; return undefined; },
       createWebviewPanel: () => {
         const rec: (typeof panels)[number] = { html: '', posted: [] };
         panels.push(rec);
@@ -299,6 +301,20 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     assert.ok(connect, 'it starts the guided connect');
     assert.deepEqual([(connect![1][0] as { kind: string }).kind, typeof (connect![1][0] as { root: string }).root], ['jira', 'string']);
     assert.ok(!calls.info.some((m) => /config\.json \("trackers"/.test(m)), 'no instructions to edit the config');
+
+    // That connect is the Connect page in the Command Center, with Jira chosen: no prompt at the top of
+    // VSCode (GH-51). So is Setup's Do it, with no argument, and a Sign in with no tracker to sign in to.
+    const prompted = calls.prompts;
+    type Connected = { model?: { connect: { id: string; kind: string; title: string; fields: { key: string; value: string }[] } | null } };
+    const connectShown = () => (tab.posted.filter((x) => (x as Connected).model).at(-1) as Connected).model!.connect;
+    for (const [command, arg] of [['acc.trackers.add', { root, kind: 'jira' }], ['acc.trackers.add', undefined], ['acc.trackers.signIn', undefined]] as const) {
+      await calls.commands.get(command)!(arg);
+      const c = connectShown();
+      assert.deepEqual([c?.kind, c?.title], ['jira', 'Connect a tracker'], `${command} opens the page`);
+      tab.receive!({ type: 'connect-cancel', session: c!.id });
+      await until(() => connectShown() === null);
+    }
+    assert.equal(calls.prompts, prompted, 'no input box or quick pick');
 
     await calls.commands.get(COMMANDS.check)!('B0.repo');
     assert.match(calls.info.at(-1) ?? '', /^✓ Inside the project's repo: Repo at /);

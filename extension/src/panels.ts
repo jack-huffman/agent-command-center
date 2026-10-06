@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
 import type { Answer } from '../../packages/core/src/questions.ts';
 import type { Hub } from './hub.ts';
-import { answerOf, type BoardInput, HOME_SECTIONS, type HomeSection, homeModel, type IdentityCard, isFromWebview, type Ref, type RunControl, type RunInput, runCard, type ViewKind } from './model.ts';
+import { answerOf, type BoardInput, type ConnectMessage, type ConnectModel, HOME_SECTIONS, type HomeSection, homeModel, type IdentityCard, isFromWebview, type Ref, type RunControl, type RunInput, runCard, type ViewKind } from './model.ts';
 import type { Setup } from './setup.ts';
 import type { UpdateActions } from './ticket.ts';
 
@@ -37,6 +37,8 @@ export interface BoardDeps {
   runs(): RunInput[];
   runInput(id: string, text: string): void;
   runControl(id: string, action: RunControl): void;
+  /** The Connect page (GH-51): what it shows, what it sends, and closing it with the tab. */
+  connect: { model(): ConnectModel | null; receive(m: ConnectMessage): void; close(): void };
 }
 
 export const isWebLink = (url: string): boolean => /^(https?:|mailto:)/i.test(url);
@@ -126,6 +128,8 @@ export class Panels implements vscode.Disposable {
     panel.onDidDispose(() => {
       this.panel = null;
       this.onVisible(false);
+      // A Connect page closes with its tab: reopened, the Command Center shows its section.
+      this.deps.connect.close();
     });
     this.panel = panel;
     this.onVisible(true);
@@ -153,7 +157,7 @@ export class Panels implements vscode.Disposable {
     return homeModel({
       hub: this.hub, section: this.section, boards: (r) => this.deps.boards(r), identity: (r) => this.deps.identity(r),
       setup: { items: this.setup.results(), confirmed: this.setup.allConfirmed() }, runs: this.deps.runs(),
-      edited: (root, id, replaces) => this.deps.edited(root, id, replaces),
+      edited: (root, id, replaces) => this.deps.edited(root, id, replaces), connect: this.deps.connect.model(),
     });
   }
 
@@ -228,6 +232,7 @@ export class Panels implements vscode.Disposable {
     if (m.type === 'run-input') return this.deps.runInput(m.run, m.text);
     if (m.type === 'run-control') return this.deps.runControl(m.run, m.action);
     if (m.type === 'agent-reply') return; // only an agent's own page writes to it (D-060)
+    if ('session' in m) return this.deps.connect.receive(m);
     if (!ALLOWED.has(m.command)) return;
     if (m.type === 'toolbar') {
       if (m.arg !== undefined) { void vscode.commands.executeCommand(m.command, m.arg); return; }

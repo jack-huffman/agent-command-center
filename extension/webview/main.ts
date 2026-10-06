@@ -1,7 +1,7 @@
 // Renders one editor tab. Every element is built with DOM calls and every string is set as text,
 // so nothing from a ticket, branch or session can become markup. No HTML string is ever parsed.
 import type {
-  Action, AgentModel, AgentsModel, EntryView, EnvironmentsModel, HistoryItem, HomeModel, HomeSection, IdentityCard, Look, Model, PersonChip, QuestionCard, Ref, RunCard, SetupModel, SetupRow, TasksModel, TicketAnalysis, TicketModel, TrackerBoard, TrackerCard, UpdateCard, ViewKind, WorktreesModel,
+  Action, AgentModel, AgentsModel, ConnectField, ConnectModel, ConnectPicker, EntryView, EnvironmentsModel, HistoryItem, HomeModel, HomeSection, IdentityCard, Look, Model, PersonChip, QuestionCard, Ref, RunCard, SetupModel, SetupRow, TasksModel, TicketAnalysis, TicketModel, TrackerBoard, TrackerCard, UpdateCard, ViewKind, WorktreesModel,
 } from '../src/model.ts';
 import type { Block, Doc, Inline } from '../../packages/core/src/trackers/doc.ts';
 import { type DraftKeys, type EditBase, editFor, keepEdits, Pending } from './pending.ts';
@@ -398,6 +398,12 @@ function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
     open.addEventListener('click', () => api.postMessage({ type: 'open', url: b.url }));
     tools.push(open);
   }
+  // Its place, board or sign-in, changed on the Connect page (GH-51).
+  const change = el('button', 'btn ghost', icon('settings'), 'Change') as HTMLButtonElement;
+  change.type = 'button';
+  change.title = 'Change where its tickets come from, its board, or its sign-in';
+  change.addEventListener('click', () => api.postMessage({ type: 'toolbar', command: 'acc.trackers.add', arg: JSON.stringify({ root, index: b.index }) }));
+  tools.push(change);
   const out = el('section', 'tracker',
     el('div', 'tracker-head',
       el('h2', '', icon(KIND_ICON[b.kind] ?? 'issues'), b.title, b.source ? el('span', 'chip', SOURCE_LABEL[b.source] ?? b.source) : null, b.signedInAs ? el('span', 'acting', icon('account'), `as ${b.signedInAs}`) : null, b.loading ? el('span', 'muted loading', icon('sync~spin'), 'Loading') : null),
@@ -1406,6 +1412,143 @@ function agentReply(m: AgentModel, r: NonNullable<AgentModel['reply']>): HTMLEle
   return el('div', 'composer agent-reply', box, el('div', 'composer-bar', hint, el('span', 'spacer'), send));
 }
 
+// ---------------------------------------------------------------- connecting a tracker (GH-51)
+
+/**
+ * What's typed on the Connect page that the extension hasn't taken in yet, by page and field. A token is
+ * kept only here, never in the tab's memory, and goes when the page signs in or closes.
+ */
+const connectTyped = new Map<string, string>();
+/** Fields sent to the extension, with the page's revision then: a newer revision has taken them in. */
+const connectSent = new Map<string, number>();
+let connectShown: string | null = null;
+
+const connectSend = (m: ConnectModel, msg: Record<string, unknown>): void => api.postMessage({ ...msg, session: m.id });
+
+/** One labelled row: the label, then the control, its hint and what's wrong with it, beside each other. */
+function connectRow(id: string, label: string, control: Child[], hint: string | null, look: Look | null): HTMLElement {
+  const name = el('label', 'cfield-label', label);
+  name.setAttribute('for', id);
+  return el('div', 'cfield', name, el('div', 'cfield-control', ...control, look ? el('div', `cfield-status tone-${look.tone}`, icon(look.icon, look.tone), el('span', '', look.label)) : null, hint ? el('div', 'muted small cfield-hint', hint) : null));
+}
+
+const errorLook = (text: string | null): Look | null => (text ? { label: text, icon: 'warning', tone: 'orange' } : null);
+
+function connectInput(m: ConnectModel, f: ConnectField, onEnter: () => void): HTMLElement {
+  const id = `connect-${f.key}`;
+  if (f.fixed) return connectRow(id, f.label, [el('span', 'cfield-fixed', icon('lock'), f.value)], null, errorLook(f.error));
+  const k = `${m.id}:${f.key}`;
+  const input = keptInput(`connect:${k}`, connectTyped.get(k) ?? f.value, f.placeholder, (v) => connectTyped.set(k, v), onEnter, f.type === 'secret' ? 'password' : f.type === 'email' ? 'email' : 'text');
+  input.id = id;
+  input.setAttribute('aria-label', f.label);
+  input.spellcheck = false;
+  if (f.error) input.setAttribute('aria-invalid', 'true');
+  // Typing a token is sent only with Test connection; everything else is taken in when the field is left.
+  if (f.type !== 'secret') input.addEventListener('change', () => { connectSend(m, { type: 'connect-set', field: f.key, value: input.value }); connectSent.set(k, m.rev); });
+  const help = f.help ? button(f.help.label, 'link-external', () => api.postMessage({ type: 'open', url: f.help!.url }), 'ghost') : null;
+  return connectRow(id, f.label, [el('div', 'cfield-input', input, help)], f.hint, errorLook(f.error));
+}
+
+function connectPicker(m: ConnectModel, p: ConnectPicker): HTMLElement {
+  const id = `connect-${p.key}`;
+  const text = (o: { label: string; detail: string | null }) => (o.detail ? `${o.label} · ${o.detail}` : o.label);
+  if (p.fixed) {
+    const o = p.options.find((x) => x.value === p.selected[0]);
+    return connectRow(id, p.label, [el('span', 'cfield-fixed', icon('lock'), o ? text(o) : p.selected[0] ?? '')], 'Another one is another tracker: connect it on its own.', null);
+  }
+  if (p.multi) {
+    const ticks = el('div', 'ticks');
+    ticks.id = id;
+    ticks.setAttribute('role', 'group');
+    ticks.setAttribute('aria-label', p.label);
+    for (const o of p.options) {
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = p.selected.includes(o.value);
+      box.disabled = p.disabled;
+      box.value = o.value;
+      box.dataset.keep = `connect:${m.id}:${p.key}:${o.value}`;
+      box.addEventListener('change', () => connectSend(m, { type: 'connect-pick', key: p.key, value: [...ticks.querySelectorAll<HTMLInputElement>('input:checked')].map((b) => b.value) }));
+      ticks.append(el('label', `tick${box.checked ? ' on' : ''}`, box, text(o)));
+    }
+    const none = p.whole ? el('div', 'muted small', icon(p.selected.length ? 'filter' : 'project'), p.selected.length ? ` Only issues with ${p.selected.length === 1 ? 'this label' : 'one of these labels'}.` : ` None ticked: ${p.whole}.`) : null;
+    return connectRow(id, p.label, [p.options.length ? ticks : null, none], p.hint, p.look);
+  }
+  const select = document.createElement('select');
+  select.id = id;
+  select.className = 'select-input';
+  select.disabled = p.disabled;
+  select.dataset.keep = `connect:${m.id}:${p.key}`;
+  const add = (value: string, label: string, disabled = false) => {
+    const o = document.createElement('option');
+    o.value = value;
+    o.textContent = label;
+    o.disabled = disabled;
+    select.append(o);
+  };
+  if (p.whole) add('', p.whole);
+  else if (!p.selected.length) add('', p.look?.icon === 'sync~spin' ? 'Loading…' : p.disabled ? '' : `Choose a ${p.label.toLowerCase()}…`, true);
+  for (const o of p.options) add(o.value, text(o));
+  select.value = p.selected[0] ?? '';
+  select.addEventListener('change', () => connectSend(m, { type: 'connect-pick', key: p.key, value: select.value || null }));
+  return connectRow(id, p.label, [select], p.hint, p.look);
+}
+
+/** A row of choices, one on: the tracker's kind, a project, or a way to sign in. */
+function segmented(label: string, items: { key: string; label: string; icon: string; on: boolean }[], pick: (key: string) => void): HTMLElement {
+  const g = el('div', 'segmented');
+  g.setAttribute('role', 'group');
+  g.setAttribute('aria-label', label);
+  for (const i of items) {
+    const b = el('button', `seg${i.on ? ' on' : ''}`, icon(i.icon), i.label) as HTMLButtonElement;
+    b.type = 'button';
+    b.setAttribute('aria-pressed', String(i.on));
+    b.addEventListener('click', () => { if (!i.on) pick(i.key); });
+    g.append(b);
+  }
+  return g;
+}
+
+/**
+ * The Connect page: one tracker's site, sign-in, place and board, each from its description. Nothing here
+ * knows one tracker from another: a new tracker is a new description, not more of this.
+ */
+function renderConnect(m: ConnectModel): Node[] {
+  if (connectShown !== m.id) {
+    connectTyped.clear();
+    connectSent.clear();
+    connectShown = m.id;
+    scrolledTo = true;
+  }
+  // Taken in by the extension: its value shows now. Once signed in, the token typed is forgotten.
+  for (const [k, rev] of connectSent) if (m.rev > rev) { connectTyped.delete(k); connectSent.delete(k); }
+  if (!m.signIn.editing) for (const f of m.fields) connectTyped.delete(`${m.id}:${f.key}`);
+  const back = button(m.back.label, 'arrow-left', () => connectSend(m, { type: 'connect-cancel' }), 'ghost');
+  const test = () => {
+    const typed = (key: string, value: string) => connectTyped.get(`${m.id}:${key}`) ?? value;
+    connectSend(m, { type: 'connect-test', host: typed(m.host.key, m.host.value), fields: Object.fromEntries(m.fields.map((f) => [f.key, typed(f.key, f.value)])) });
+  };
+  const out: Node[] = [el('header', 'page-header', el('div', 'titles', el('h1', '', icon(m.icon), m.title), el('p', 'summary', m.summary)), el('div', 'toolbar', back))];
+  if (m.projects.length) out.push(el('div', 'connect-choose', el('span', 'muted', 'Project'), segmented('Project', m.projects.map((p) => ({ key: p.root, label: p.name, icon: 'repo', on: p.on })), (root) => connectSend(m, { type: 'connect-project', root }))));
+  if (m.kinds.length) out.push(el('div', 'connect-choose', el('span', 'muted', 'Tracker'), segmented('Tracker', m.kinds.map((k) => ({ key: k.kind, label: k.name, icon: k.icon, on: k.on })), (kind) => connectSend(m, { type: 'connect-kind', kind }))));
+  const step = (n: number, title: string, ...rows: Child[]) => el('section', 'connect-step', el('h2', '', el('span', 'step-n', String(n)), title), ...rows);
+  out.push(step(1, `Where it is`, connectInput(m, m.host, test)));
+  const testButton = button(m.method.test, 'plug', test, m.signIn.look.tone === 'blue' && m.signIn.look.icon === 'pass' ? '' : 'primary');
+  testButton.disabled = !m.signIn.canTest;
+  const signIn: Child[] = m.signIn.editing ? [
+    m.methods.length ? el('div', 'connect-choose', segmented('How to sign in', m.methods.map((x) => ({ key: x.id, label: x.label, icon: x.icon, on: x.on })), (method) => connectSend(m, { type: 'connect-method', method }))) : null,
+    el('p', 'muted small connect-hint', m.method.hint),
+    ...m.fields.map((f) => connectInput(m, f, test)),
+    el('div', 'connect-test', testButton, el('div', `cfield-status tone-${m.signIn.look.tone}`, icon(m.signIn.look.icon, m.signIn.look.tone), el('span', '', m.signIn.look.label))),
+  ] : [el('div', 'connect-test', status(m.signIn.look), button('Sign in again', 'account', () => connectSend(m, { type: 'connect-again' }), 'ghost'))];
+  out.push(step(2, 'Sign in', ...signIn));
+  out.push(step(3, 'Its tickets and board', ...m.pickers.map((p) => connectPicker(m, p))));
+  const save = button(m.save.label, 'check', () => connectSend(m, { type: 'connect-save' }), 'primary');
+  save.disabled = !m.save.can;
+  out.push(el('div', 'connect-foot', save, button('Cancel', 'close', () => connectSend(m, { type: 'connect-cancel' }), 'ghost'), m.save.look ? status(m.save.look) : null));
+  return [el('div', 'connect', ...out)];
+}
+
 // ---------------------------------------------------------------- the Command Center page (D-029)
 
 let section: HomeSection | null = memory().section ?? null;
@@ -1420,6 +1563,11 @@ function setSection(s: HomeSection, tell = true): void {
 
 function go(s: HomeSection): void {
   setSection(s);
+  // Leaving the Connect page for a section closes it, as Back does.
+  if (last?.kind === 'home' && last.connect) {
+    api.postMessage({ type: 'connect-cancel', session: last.connect.id });
+    last = { ...last, connect: null };
+  }
   if (last) render(last);
   document.querySelector<HTMLElement>('.home-main')?.focus({ preventScroll: true });
 }
@@ -1625,7 +1773,13 @@ function clampedNote(text: string): HTMLElement {
 
 function renderHome(m: HomeModel): Node[] {
   const current = section ?? m.section;
-  const content = current === 'overview' ? renderOverview(m)
+  if (!m.connect && connectShown) {
+    connectShown = null;
+    connectTyped.clear();
+    scrolledTo = true;
+  }
+  const content = m.connect ? renderConnect(m.connect)
+    : current === 'overview' ? renderOverview(m)
     : current === 'tasks' ? renderTasks(m.tasks)
       : current === 'agents' ? renderAgents(m.agents)
         : current === 'worktrees' ? renderWorktrees(m.worktrees)
@@ -2032,7 +2186,7 @@ function render(model: Model): void {
   const scroller = document.querySelector('.home-main') ?? document.querySelector('.timeline') ?? document.scrollingElement;
   // Each board, and each of its lanes, keeps where it was scrolled to. A page just rebuilt (its tab was
   // hidden) starts from where it was saved instead.
-  const pageKey = model.kind === 'home' ? `home:${model.section}` : model.kind;
+  const pageKey = model.kind === 'home' ? (model.connect ? 'home:connect' : `home:${model.section}`) : model.kind;
   const fresh = !app.hasChildNodes();
   const saved = fresh ? memory().scroll?.[pageKey] : undefined;
   const boards = saved?.boards ?? [...document.querySelectorAll<HTMLElement>('.board')].map((b) => ({ x: b.scrollLeft, lanes: [...b.querySelectorAll<HTMLElement>('.column')].map((c) => c.scrollTop) }));
