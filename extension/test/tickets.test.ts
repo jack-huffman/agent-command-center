@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { accRefusal, outsideKeys, placeCandidates, rowAnalysis, type TaskRow, trackInput, type TrackSteps, trackTicket } from '../src/logic.ts';
+import { accRefusal, cardTracking, liveTrackKeys, outsideKeys, placeCandidates, rowAnalysis, type TaskRow, trackInput, type TrackSteps, trackTicket } from '../src/logic.ts';
 import type { Analysis } from '../../packages/core/src/analyze.ts';
 import { type BoardInput, initials, isFromWebview, priorityIcon, ticketActionRefusal, ticketModel, trackerBoard, typeIcon } from '../src/model.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
@@ -363,4 +363,12 @@ test('after a board loads, acc asks its tracker only about its own unfinished ta
   let called = false;
   assert.deepEqual(await outsideKeys([], async () => { called = true; return [{ key: 'ACME-1' }]; }), []);
   assert.equal(called, false, 'nothing to ask, nothing asked');
+});
+
+test('a board reload keeps a Track on its way and a refusal for a card still shown, and lets go of the rest (D-???)', () => {
+  const states: Record<string, { busy: boolean; error: string | null }> = { 'ACME-31': { busy: true, error: null }, 'ACME-32': { busy: false, error: 'Not in epic ACME-3.' }, 'ACME-30': { busy: false, error: null } };
+  const cards = [{ key: 'ACME-30' }, { key: 'ACME-31' }, { key: 'ACME-32' }];
+  assert.deepEqual(cardTracking(cards, (k) => states[k]!), { 'ACME-31': states['ACME-31'], 'ACME-32': states['ACME-32'] }, 'only cards on their way, or with a reason');
+  const boards = new Map([['/r', [{ board: { cards: [{ key: 'acme-30' }, { key: 'ACME-32' }] } }, { board: null }]]]);
+  assert.deepEqual([...liveTrackKeys(['/r#ACME-99'], boards)].sort(), ['/r#ACME-30', '/r#ACME-32', '/r#ACME-99'], 'one on its way survives its card leaving the board; a loading board keeps nothing');
 });

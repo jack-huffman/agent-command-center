@@ -12,13 +12,13 @@ import { JiraClient, jiraBoards, jiraEpics, jiraProjects } from '../../packages/
 import { type Board, type Exec, movesInto, type Person, placeText, type Ticket, type TrackerClient, TrackerError, type Transition } from '../../packages/core/src/trackers/types.ts';
 import { Pending } from '../webview/pending.ts';
 import type { Hub, Project } from './hub.ts';
-import { outsideKeys, parseHost, placeCandidates, type TrackReply, trackTicket } from './logic.ts';
+import { cardTracking, liveTrackKeys, outsideKeys, parseHost, placeCandidates, type TrackReply, type TrackState, trackTicket } from './logic.ts';
 import { runFile } from './run.ts';
 
 type AccRun = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
 
 /** A ticket's Track (D-???): on its way, and why its last try didn't go. */
-export interface TrackState { busy: boolean; error: string | null }
+export type { TrackState };
 
 /** What the board shows for one tracker: its board, or why there isn't one yet. */
 export interface BoardState extends Loaded {
@@ -162,7 +162,7 @@ export class Trackers implements vscode.Disposable {
   boardStates(root: string): BoardState[] {
     return (this.boards.get(root) ?? []).map((s) => ({
       ...s,
-      tracking: Object.fromEntries((s.board?.cards ?? []).map((c) => [c.key, this.trackState(root, c.key)] as const).filter(([, t]) => t.busy || t.error)),
+      tracking: cardTracking(s.board?.cards ?? [], (key) => this.trackState(root, key)),
     }));
   }
 
@@ -255,9 +255,7 @@ export class Trackers implements vscode.Disposable {
 
   /** A card no board shows any more leaves its last Track's reason behind. One still on its way finishes first. */
   private forgetTracking(): void {
-    const live = new Set(this.tracking.inFlight());
-    for (const [root, states] of this.boards) for (const s of states) for (const c of s.board?.cards ?? []) live.add(`${root}#${c.key.toUpperCase()}`);
-    this.tracking.forget(live);
+    this.tracking.forget(liveTrackKeys(this.tracking.inFlight(), this.boards));
   }
 
   /**

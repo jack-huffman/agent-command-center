@@ -466,6 +466,24 @@ export function accRefusal(r: { code: number; stdout: string; stderr: string }):
 /** Track's reply: done, why not, or that this ticket is already on its way and nothing more was started. */
 export type TrackReply = { ok: true } | { ok: false; error: string } | { ok: false; already: true };
 
+/** A ticket's Track, as a card shows it: on its way, or why the last one didn't go (D-???). */
+export interface TrackState { busy: boolean; error: string | null }
+
+/** What a board's cards show of their Track: only the ones on their way, or with a reason to show. */
+export function cardTracking(cards: { key: string }[], state: (key: string) => TrackState): Record<string, TrackState> {
+  return Object.fromEntries(cards.map((c) => [c.key, state(c.key)] as const).filter(([, t]) => t.busy || t.error));
+}
+
+/**
+ * The Tracks a window keeps after its boards load (D-???): every one on its way, and every card a board
+ * still shows, as `<root>#<KEY>`. A refusal for a card no board shows any more is let go.
+ */
+export function liveTrackKeys(inFlight: string[], boards: Iterable<readonly [string, readonly { board: { cards: readonly { key: string }[] } | null }[]]>): Set<string> {
+  const live = new Set(inFlight);
+  for (const [root, states] of boards) for (const s of states) for (const c of s.board?.cards ?? []) live.add(`${root}#${c.key.toUpperCase()}`);
+  return live;
+}
+
 /** What tracking a ticket does, passed in so it's tested without a tracker or acc. */
 export interface TrackSteps {
   /** The ticket, read again from its tracker: one outside the repo's place throws, naming it (D-072). */
