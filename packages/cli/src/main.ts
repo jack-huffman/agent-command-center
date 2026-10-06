@@ -11,7 +11,7 @@ import {
   analyze, type Analysis, answerAnalysis, openQuestions, readAnalysis,
   AUTOPILOT_MIN_EVERY_S, AUTOPILOT_REVIEW_DOES, type AutopilotResult, type AutopilotStepName, autopilotFailure, autopilotMode, autopilotPass, closedPr, failedChecks, holdAutopilot, sleep, alive, setAutonomy,
   builderStopped, claudeProjectsDir, clipSaid, lastSaid, listSessions, resume, resuming,
-  claimUpdate, discardUpdate, draftUpdate, EVENT_WORDS, GH_TIMEOUT_MS, ghToken, githubIssue, isOpenUpdate, listUpdates, markPosted, readUpdate, releaseUpdate, stalePosting, type Update, UPDATE_TEXT_MAX, updateText,
+  claimUpdate, closesIssues, closeWords, discardUpdate, draftUpdate, EVENT_WORDS, GH_TIMEOUT_MS, ghToken, githubIssue, isOpenUpdate, listUpdates, markPosted, readUpdate, releaseUpdate, settleCloses, stalePosting, type Update, UPDATE_TEXT_MAX, updateText,
 } from '../../core/src/index.ts';
 import { issueRepo } from '../../core/src/trackers/github.ts';
 import type { Outside } from '../../core/src/trackers/types.ts';
@@ -81,7 +81,11 @@ Agents
                                         land it, re-dispatch a rework once, resume a stopped builder once, or merge
                                         the base into a pull request that conflicts with it. Never merges a pull request. One pass, or one every
                                         <seconds> (at least 30) until stopped; --json then prints a line a pass
-  acc sync                              Follow open pull requests: merged → done, closed → blocked, failing checks or conflicts → needs you
+  acc sync                              Follow open pull requests: merged → done, closed → blocked, failing checks or conflicts → needs you.
+                                        Where the GitHub tracker says "edits": true, a task's issue closes when it
+                                        merges to done, with a comment naming the pull request
+  acc sync --close-done [--plan]        A person's one-off tidy: close the issues of tasks done before acc closed
+                                        them, under the same rule, listing each. --plan lists them, changing nothing
 
 Ticket updates (acc drafts them; only a person posts)
   acc updates [--all] [--task <id>]     The drafts waiting for a person; --all adds the posted and discarded
@@ -574,11 +578,34 @@ function cmdAutopilot(o: Opts): number {
 }
 
 function cmdSync(o: Opts): number {
+  const closeDone = o['close-done'] === true;
+  const plan = o.plan === true;
+  if (plan && !closeDone) throw new AccError('usage', '--plan goes with --close-done: acc sync --close-done --plan');
+  // Closing the issues of tasks already done is a person's: never a builder's, reviewer's, analyst's or autopilot's (D-???).
+  const by = closeDone ? personOnlyUpdate(o, 'close the issues of tasks already done') : null;
   const { paths, config } = project(process.cwd());
-  const r = sync(paths, config, { run, now, env: process.env });
-  out(o, () => (r.checked
-    ? [`Checked ${r.checked} open pull request${r.checked === 1 ? '' : 's'}.`, ...r.changes.map((c) => `  ${c.task}: ${c.note}${c.moved ? ` → ${stateLabel(c.moved.to)}` : ''}${c.update ? `. Drafted an update for ${c.update.key} (${c.update.id})` : ''}`)].join('\n')
-    : 'No open pull requests to follow.'), r);
+  // --plan only looks, so it doesn't sync either: a sync writes the ledger, and may close an issue.
+  const r = closeDone && plan ? { checked: 0, changes: [] } : sync(paths, config, { run, now, env: process.env });
+  const lines = [
+    ...(r.checked ? [`Checked ${r.checked} open pull request${r.checked === 1 ? '' : 's'}.`] : []),
+    ...r.changes.map((c) => `  ${c.task}: ${c.note}${c.moved ? ` → ${stateLabel(c.moved.to)}` : ''}${c.update ? `. Drafted an update for ${c.update.key} (${c.update.id})` : ''}`),
+  ];
+  if (!by) {
+    out(o, () => (lines.length ? lines.join('\n') : 'No open pull requests to follow.'), r);
+    return 0;
+  }
+  if (!closesIssues(config)) {
+    out(o, () => [...lines, 'No GitHub tracker here says "edits": true, so acc closes no issues.'].join('\n'), { ...r, closeDone: [] });
+    return 0;
+  }
+  const env = { ...process.env, GH_TOKEN: ghToken(run, config.github!.account) };
+  const closes = settleCloses(paths, config, { run, now, env }, { tidy: true, plan, actor: 'human', by });
+  out(o, () => [
+    ...lines,
+    !closes.length ? 'No done task\'s issue is waiting to close.' : plan ? 'What acc sync --close-done would do (nothing is changed):' : 'The issues of tasks already done:',
+    ...closes.map((c) => `  ${c.task} (pull request #${c.pr}): ${closeWords(c, plan)}`),
+    plan && closes.some((c) => c.outcome === 'to close') ? tone('Close them with acc sync --close-done.', 'dim') : '',
+  ].filter(Boolean).join('\n'), { ...r, closeDone: closes, ...(plan ? { plan: true } : {}) });
   return 0;
 }
 
@@ -1179,6 +1206,7 @@ export async function main(argv: string[]): Promise<number> {
       default: { type: 'boolean', default: false },
       to: { type: 'string' },
       plan: { type: 'boolean', default: false },
+      'close-done': { type: 'boolean', default: false },
       'allow-deletions': { type: 'boolean', default: false },
       'skip-validate': { type: 'boolean', default: false },
       since: { type: 'string' },
