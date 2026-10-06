@@ -438,11 +438,13 @@ for review". A draft of the same news that nobody posted yet is replaced, so a
 pull request updated three times is one draft; one that still says it's ready
 for review keeps saying so, with the latest link.
 
-**Ticket updates (D-066).** acc never posts on a ticket by itself. It drafts an
+**Ticket updates (D-066).** acc never posts on a ticket by itself, apart from
+closing a GitHub issue where the tracker says `"edits"` (D-???). It drafts an
 update when:
 
 - a pull request opens, or is updated, for review (`acc land`, autopilot)
-- a task's pull request merges into its environment (`acc sync`)
+- a task's pull request merges into its environment (`acc sync`), unless acc
+  closes its GitHub issue instead (D-???, below)
 - a promotion takes a task's change on to the next environment (`acc promote`):
   "ready to go to UAT", then "now in UAT" once `acc sync` sees it merge (D-075)
 - a deploy carries a merged task to its org (`acc deploy`): each task whose
@@ -474,6 +476,18 @@ post or discard.
   Command Center runs it every two minutes while it's open. Under
   `autonomy: review`, autopilot merges the base into a conflicting pull
   request's branch when it can ([section 12](#12-the-orchestrator-loop)).
+- **Where the GitHub tracker says `"edits": true`,** a task sync moves to done
+  has its issue closed (D-???): as completed, as the repo's account, with one
+  comment, "Done: pull request #42 merged into main.", which stands in for the
+  merged draft and discards the unposted pull request and merged ones. acc
+  looks first, and leaves an issue already closed, moved or gone. The close is
+  marked on the pull request (`pr.issue`: pending, closed or left), so it
+  happens once, and a person who reopens the issue keeps it open. A close that
+  fails is named in sync's output and tried again by each sync, which the
+  Command Center keeps running while one is pending. Jira and Azure DevOps
+  tickets are never changed: their status is the client's workflow.
+  `acc sync --close-done [--plan]` is a person's one-off tidy for tasks done
+  before this, under the same rule, listing each.
 - `acc cleanup <id>` removes the worktree and local branch, but only once the
   pull request is merged and the worktree is clean.
 
@@ -714,7 +728,9 @@ The extension handles every workspace folder that has `.acc/config.json`.
   from their brief and history.
 - **Status, assignee and labels are read-only** unless the tracker says
   `"edits": true` in `.acc/config.json`, as this repo's own GitHub tracker does
-  (D-066). A client's tracker is theirs. Comments stay.
+  (D-066). A client's tracker is theirs. Comments stay. On a GitHub tracker,
+  `"edits"` also lets acc sync close a task's issue when its work merges
+  (D-???).
 - **Updates acc drafted** for the ticket come first in its Activity, each in a
   box to edit, with who it posts as, Post and Discard. With no sign-in for its
   tracker, Post waits and offers the sign-in. The Overview's Needs you lists
