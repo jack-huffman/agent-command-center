@@ -195,6 +195,12 @@ export const TONE_COLOR: Record<Tone, string | undefined> = { orange: 'charts.or
 export const TASK_GROUPS = ['needs-you', 'ready', 'running', 'review', 'rework', 'blocked', 'todo', 'done'] as const;
 export type TaskGroup = (typeof TASK_GROUPS)[number];
 
+/**
+ * The agent board's lanes, left to right, as a task goes (D-068): To do first, as on a tracker's own board.
+ * A tracker's board keeps its own columns in its own order. Lists still put what needs you first (TASK_GROUPS).
+ */
+export const BOARD_LANES: readonly TaskGroup[] = ['todo', 'ready', 'running', 'needs-you', 'review', 'rework', 'blocked', 'done'];
+
 export interface TaskRow {
   id: string;
   title: string;

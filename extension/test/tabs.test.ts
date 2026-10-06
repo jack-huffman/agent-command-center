@@ -38,10 +38,10 @@ function hub(): HubLike {
   };
 }
 
-test('the board has a column for every status, in attention order, and each card has the right actions', () => {
+test('the board has a column for every status, left to right as a task goes, and each card has the right actions', () => {
   const m = tasksModel(hub());
   const cols = m.projects[0]!.columns;
-  assert.deepEqual(cols.map((c) => c.group), ['needs-you', 'ready', 'running', 'review', 'rework', 'blocked', 'todo', 'done']);
+  assert.deepEqual(cols.map((c) => c.group), ['todo', 'ready', 'running', 'needs-you', 'review', 'rework', 'blocked', 'done'], 'left to right as a task goes: To do first (D-068)');
   const card = (id: string) => cols.flatMap((c) => c.cards).find((c) => c.id === id)!;
   assert.deepEqual(card('AV-2').actions.map((a) => a.label), ['Analyze', 'Move', 'Block', 'Ticket', 'Details'], 'waiting on another task, it can still be analyzed');
   assert.deepEqual(card('AV-3').actions.map((a) => a.label), ['Move', 'Unblock', 'Details']);
@@ -492,7 +492,7 @@ test('a card can be dropped only in the lanes acc\'s rules let a person move it 
   const lanes = (state: string, display: string, deps: string[] = []) => dropLanes({ state, display, deps } as TaskRow);
   assert.deepEqual(lanes('todo', 'ready'), ['running', 'blocked'], 'a ready task: dispatch it, or block it');
   assert.deepEqual(lanes('running', 'running'), ['ready', 'review', 'blocked'], 'a running task: back to ready, review, or block');
-  assert.deepEqual(lanes('running', 'running', ['T-2']), ['review', 'blocked', 'todo'], 'one that waits on another goes back to To do, where it will show');
+  assert.deepEqual(lanes('running', 'running', ['T-2']), ['todo', 'review', 'blocked'], 'one that waits on another goes back to To do, where it will show');
   assert.deepEqual(lanes('review', 'review'), ['rework', 'blocked', 'done']);
   assert.deepEqual(lanes('blocked', 'blocked'), ['ready', 'review'], 'blocked work goes back, or on to review once its checks are settled');
   assert.deepEqual(lanes('rework', 'rework'), ['running', 'blocked']);

@@ -14,7 +14,7 @@ import { type Environment, type Tracker, trackerForKey } from '../../packages/co
 import { promotionPaths } from '../../packages/core/src/promote.ts';
 import type { Answer, HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import { isOpenUpdate, stalePosting, type Update, UPDATE_ID, UPDATE_TEXT_MAX } from '../../packages/core/src/updates.ts';
-import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, conflictLine, type DoctorItem, ENV_ICON, fileList, groupTasks, isUnder, prConflicts, questionsWord, type RunPrompt, saidLine, shortPath, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
+import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, BOARD_LANES, conflictLine, type DoctorItem, ENV_ICON, fileList, groupTasks, isUnder, prConflicts, questionsWord, type RunPrompt, saidLine, shortPath, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
 import type { Entry } from './transcript.ts';
 
 export const VIEW_KINDS = ['tasks', 'agents', 'worktrees', 'environments', 'setup'] as const;
@@ -170,7 +170,7 @@ export function stoppedLook(t: Pick<TaskRow, 'stopped'>, max = CARD_SAID): Look 
 export function dropLanes(t: Pick<TaskRow, 'state' | 'display' | 'analysis' | 'analyzing' | 'analysisRequired'> & { deps?: string[] }): string[] {
   // Back to to-do shows as Ready when nothing it waits on is unfinished: one lane, the one it lands in.
   const todoLane = t.deps?.length ? 'todo' : 'ready';
-  return TASK_GROUPS.filter((g) => {
+  return BOARD_LANES.filter((g) => {
     const to = LANE_STATE[g];
     if (!to || g === t.display) return false;
     if (to === 'todo' && g !== todoLane) return false;
@@ -247,7 +247,7 @@ export function tasksModel(hub: HubLike, boards: (root: string) => BoardInput[] 
     projects: hub.projects.map((p) => {
       const rows = hub.taskRows(p.root);
       const byGroup = new Map(groupTasks(rows).map((g) => [g.group, g.tasks]));
-      const columns: Column[] = TASK_GROUPS.map((group) => {
+      const columns: Column[] = BOARD_LANES.map((group) => {
         const d = DISPLAY[group];
         return {
           group, label: d.label, icon: d.icon, tone: d.tone,
