@@ -197,6 +197,27 @@ test('acc updates lists the drafts; a person posts a GitHub one with their edits
   assert.equal(acc(dir, ['update', 'frob', 'GH-3.1']).code, 2);
 });
 
+test('a GitHub draft isn\'t posted on an issue now in another repo: it stays a draft, to discard (GH-50)', () => {
+  const { dir } = ticketsRepo();
+  assert.equal(acc(dir, ['set', 'GH-3', 'blocked', '--client', 'Which browsers must it support?']).code, 0);
+  const bin = join(dir, '.movedbin');
+  mkdirSync(bin);
+  writeFileSync(join(bin, 'gh'), `#!/bin/sh
+case "$1 $2" in
+  "auth token") echo tok-me ;;
+  "issue view") echo '{"url": "https://github.com/other/repo/issues/9"}' ;;
+  "issue comment") touch "${dir}/commented" ;;
+  *) exit 1 ;;
+esac
+`);
+  chmodSync(join(bin, 'gh'), 0o755);
+  const r = acc(dir, ['update', 'post', 'GH-3.1'], undefined, { PATH: `${bin}:${process.env.PATH}` });
+  assert.equal(r.code, 1);
+  assert.match(r.err, /#3 is in other\/repo now, not this repo's o\/r, so GH-3\.1 isn't posted\. Discard it if it no longer applies: acc update discard GH-3\.1/);
+  assert.ok(!existsSync(join(dir, 'commented')), 'nothing was posted');
+  assert.equal(acc(dir, ['updates', '--json']).json()[0].state, 'draft', 'it waits, unclaimed');
+});
+
 test('only a person reads, posts or discards a ticket\'s updates: never a builder, reviewer, analyst or autopilot', () => {
   const { dir, env } = ticketsRepo();
   assert.equal(acc(dir, ['set', 'GH-3', 'blocked', '--client', 'Which browsers?']).code, 0);
@@ -292,7 +313,48 @@ esac
   const r = acc(dir, ['intake', 'github', '--json'], undefined, { PATH: `${bin}:${process.env.PATH}` });
   assert.equal(r.code, 0, r.err);
   assert.deepEqual(r.json().added, ['GH-4']);
-  assert.equal(acc(dir, ['intake', 'jira']).code, 2, 'Jira intake goes through the plugin');
+  assert.equal(acc(dir, ['intake', 'jira']).code, 2, 'Jira intake needs the Command Center\'s report');
+});
+
+test('acc intake jira --file follows tickets that left the place: removes a task never started, names one that did, in the same shape as github (GH-50)', () => {
+  const dir = repoWithConfig({ ...GENERIC_CONFIG, trackers: [{ kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', epic: 'ACME-3' }] });
+  const items = ['ACME-7', 'ACME-8', 'ACME-9'].map((key) => ({ source: { kind: 'jira', key }, title: key }));
+  assert.equal(acc(dir, ['import'], JSON.stringify(items)).code, 0);
+  assert.equal(acc(dir, ['set', 'ACME-8', 'running']).code, 0);
+  const file = join(dir, 'outside.json');
+  writeFileSync(file, JSON.stringify({ outside: [{ key: 'ACME-7', why: 'it isn\'t in epic ACME-3' }, { key: 'ACME-8', why: 'it\'s in project OPS' }] }));
+  const text = acc(dir, ['intake', 'jira', '--file', file]);
+  assert.equal(text.code, 0, text.err);
+  assert.deepEqual(text.out.trim().split('\n'), [
+    'Removed ACME-7: their tickets left this repo\'s place before work started',
+    '! ACME-8 left this repo\'s place: it\'s in project OPS; ACME-8 is still running',
+  ]);
+  const json = acc(dir, ['intake', 'jira', '--file', file, '--json']).json();
+  assert.deepEqual(Object.keys(json).sort(), ['added', 'closed', 'errors', 'left', 'leftAlone', 'removed', 'unchanged', 'updated'], 'the shape acc intake github gives');
+  assert.deepEqual([json.removed, json.leftAlone.map((l: { task: string }) => l.task)], [[], ['ACME-8']], 'removed once; the started one is named again');
+  assert.deepEqual((acc(dir, ['list', '--json']).json() as { id: string }[]).map((t) => t.id), ['ACME-8', 'ACME-9']);
+
+  writeFileSync(file, '{"outside": [{"key": 7}]}');
+  assert.equal(acc(dir, ['intake', 'azure', '--file', file]).code, 2, 'a report in the wrong shape');
+  assert.match(acc(dir, ['help']).out, /acc intake jira\|azure --file <report\.json>/);
+});
+
+test('acc import refuses a Jira or Azure DevOps ticket no tracker owns, so another project\'s never becomes a task here (GH-50)', () => {
+  const dir = repoWithConfig({ ...GENERIC_CONFIG, trackers: [{ kind: 'jira', site: 'acme.atlassian.net', project: 'ACME' }, { kind: 'azure', organization: 'acme', project: 'CRM', prefix: 'AV' }] });
+  const items = [
+    { source: { kind: 'jira', key: 'ACME-12' }, title: 'Ours' }, { source: { kind: 'jira', key: 'OPS-1' }, title: 'Another client\'s' },
+    { source: { kind: 'azure', key: 'AV-3' }, title: 'Ours too' }, { source: { kind: 'jira', key: 'AV-4' }, title: 'An Azure key sent as Jira' },
+    { source: { kind: 'github', key: '#5' }, title: 'A GitHub issue' }, { source: { kind: 'manual' }, title: 'Kept by acc' },
+  ];
+  const r = acc(dir, ['import', '--json'], JSON.stringify(items));
+  assert.equal(r.code, 1);
+  assert.deepEqual(r.json().added, ['ACME-12', 'AV-3', 'GH-5', 'T-1']);
+  assert.deepEqual(r.json().errors, [
+    'OPS-1: no Jira tracker in .acc/config.json owns it, so it isn\'t one of this repo\'s tickets.',
+    'AV-4: no Jira tracker in .acc/config.json owns it, so it isn\'t one of this repo\'s tickets.',
+  ]);
+  // A repo that names no trackers has no place to hold to.
+  assert.equal(acc(repoWithConfig(), ['import'], JSON.stringify([{ source: { kind: 'jira', key: 'OPS-1' }, title: 'x' }])).code, 0);
 });
 
 test('intake github moves closed issues\' tasks to done, removes skipped ones, and names those that started', () => {

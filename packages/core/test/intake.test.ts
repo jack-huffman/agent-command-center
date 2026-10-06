@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { type Config, parseConfig } from '../src/config.ts';
 import { run, type RunResult } from '../src/exec.ts';
-import { depsFromBody, type GithubIssue, githubIssuesToTasks, intakeGithub, skipLabelOf } from '../src/intake.ts';
+import { depsFromBody, type GithubIssue, githubIssuesToTasks, intakeGithub, intakeOutside, skipLabelOf } from '../src/intake.ts';
 import { allowedMoves, emptyLedger, type LedgerEvent, mutate, noGateHooks, readLedger, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
 import { fakeRunner, GENERIC_CONFIG, makeRepo, ok } from './support.ts';
@@ -136,6 +136,69 @@ test('intake github: issues with a skipped label aren\'t imported, and a task al
   intake(before, gh([issue(10, ['milestone'])]));
   const c = intake(s, gh([], { 10: closed(10, ['milestone']) }));
   assert.deepEqual([c.removed, c.closed], [['GH-10'], []]);
+});
+
+// ---------------------------------------------------------------- the place (GH-50)
+
+/** What `gh issue view` says of an issue: open, with these labels, and where it lives now. */
+const viewed = (number: number, labels: string[], url = `https://github.com/o/r/issues/${number}`): RunResult => ok(JSON.stringify({ number, state: 'OPEN', labels: labels.map((name) => ({ name })), url }));
+
+test('intake github reads the GitHub tracker\'s repo, and only issues with one of its labels: a list per label, merged', () => {
+  const s = githubRepo({ kind: 'github', repo: 'acme/service', labels: ['billing', 'invoices'] });
+  const calls: string[] = [];
+  const list = 'gh issue list -R acme/service --state open --limit 500';
+  const at = (n: number, labels: string[]): GithubIssue => ({ ...issue(n, labels), url: `https://github.com/acme/service/issues/${n}` });
+  const runner = fakeRunner({
+    'gh auth token -u me': ok('tok\n'),
+    [`${list} --label billing`]: ok(JSON.stringify([at(3, ['billing']), at(1, ['billing', 'invoices'])])),
+    [`${list} --label invoices`]: ok(JSON.stringify([at(4, ['Invoices']), at(1, ['billing', 'invoices'])])),
+  }, calls);
+  const r = intake(s, runner);
+  assert.deepEqual(r.added, ['GH-4', 'GH-3', 'GH-1'], 'each issue once');
+  assert.ok(calls.every((c) => !c.startsWith('gh issue') || c.includes('-R acme/service')), 'the tracker\'s repo, not the project\'s own (o/r)');
+  assert.equal(readLedger(s.paths.ledger).tasks.find((t) => t.id === 'GH-4')!.source.url, 'https://github.com/acme/service/issues/4');
+
+  // --label narrows each list, and the place still holds.
+  const narrow: string[] = [];
+  intakeGithub(s.paths, s.config, { run: fakeRunner({ 'gh auth token -u me': ok('tok\n'), [list]: ok('[]') }, narrow), now, env: {} }, { label: 'urgent', actor: 'human', by: 'human:test' });
+  assert.ok(narrow.includes(`${list} --label urgent --label billing --json number,title,body,url,labels`));
+  assert.ok(narrow.includes(`${list} --label urgent --label invoices --json number,title,body,url,labels`));
+});
+
+test('intake github: a task whose issue left the place leaves the ledger if it never started, and is named if it did', () => {
+  const s = githubRepo({ kind: 'github', labels: ['billing'] });
+  intake(s, gh([issue(5, ['billing']), issue(6, ['billing']), issue(7, ['billing']), issue(8, ['billing'])]));
+  start(s, 'GH-6');
+  // The place was narrowed, or the issues changed: 5 and 6 lost the label, 7 moved repo, 8 still has it.
+  const r = intake(s, gh([issue(8, ['Billing'])], { 5: viewed(5, ['docs']), 6: viewed(6, []), 7: viewed(7, ['billing'], 'https://github.com/other/repo/issues/2') }));
+  assert.deepEqual([r.removed, r.left, r.closed], [['GH-5', 'GH-7'], ['GH-5', 'GH-7'], []]);
+  assert.deepEqual(r.leftAlone, [{ task: 'GH-6', issue: '#6', state: 'running', note: '#6 left this repo\'s place: it has no label billing; GH-6 is still running' }]);
+  assert.deepEqual(readLedger(s.paths.ledger).tasks.map((t) => `${t.id} ${t.state}`), ['GH-6 running', 'GH-8 todo'], 'the started one stays, on the agent board');
+  const removed = events(s).filter((e) => e.type === 'task.removed');
+  assert.deepEqual(removed.map((e) => [e.task, e.actor, e.data.reason]), [
+    ['GH-5', 'sync', 'Issue #5 left this repo\'s place: it has no label billing.'],
+    ['GH-7', 'sync', 'Issue #7 left this repo\'s place: it moved to other/repo.'],
+  ]);
+});
+
+test('intake jira or azure: tickets the Command Center found outside the place leave the ledger if never started, and are named if they did', () => {
+  const s = githubRepo();
+  mutate(s.paths, now, (l, emit) => upsertTasks(l, s.config, ['ACME-7', 'ACME-8', 'ACME-9', 'ACME-10'].map((key) => ({ source: { kind: 'jira' as const, key }, title: key })), 'human', 'h', emit, now));
+  start(s, 'ACME-8');
+  mutate(s.paths, now, (l, emit) => {
+    const t = l.tasks.find((x) => x.id === 'ACME-10')!;
+    t.state = 'done';
+    emit({ type: 'task.updated', task: t.id, actor: 'human', by: 'test', data: {} });
+  });
+  const r = intakeOutside(s.paths, 'jira', [
+    { key: 'acme-7', why: 'it isn\'t in epic ACME-3' }, { key: 'ACME-8', why: 'it\'s in project OPS' },
+    { key: 'ACME-10', why: 'it isn\'t in epic ACME-3' }, { key: 'ACME-404', why: 'it isn\'t in epic ACME-3' },
+  ], now);
+  assert.deepEqual([r.removed, r.left, r.closed, r.added], [['ACME-7'], ['ACME-7'], [], []]);
+  assert.deepEqual(r.leftAlone, [{ task: 'ACME-8', issue: 'ACME-8', state: 'running', note: 'ACME-8 left this repo\'s place: it\'s in project OPS; ACME-8 is still running' }]);
+  assert.deepEqual(readLedger(s.paths.ledger).tasks.map((t) => t.id), ['ACME-8', 'ACME-9', 'ACME-10'], 'a done task and an unknown key change nothing');
+  assert.equal(events(s).at(-1)!.data.reason, 'ACME-7 left this repo\'s place: it isn\'t in epic ACME-3.');
+  assert.deepEqual(intakeOutside(s.paths, 'azure', [{ key: 'ACME-9', why: 'x' }], now).removed, [], 'only a task from that kind of tracker');
 });
 
 test('skipLabelOf names the matching label, whatever its case', () => {
