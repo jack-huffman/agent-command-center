@@ -708,7 +708,7 @@
       {
         "id": "acc.machine",
         "title": "Agent Command Center: set up this machine",
-        "description": "Tools and accounts the orchestrator needs. Each step ticks itself when its check passes.",
+        "description": "Tools, accounts and the acc plugin that agents need. Each step ticks itself when its check passes.",
         "steps": [
           {
             "id": "A1.git",
@@ -799,6 +799,17 @@
             },
             "completionEvents": [
               "onContext:acc.step.A2.gh-login"
+            ]
+          },
+          {
+            "id": "A4.plugin",
+            "title": "The acc plugin in Claude Code",
+            "description": "Its hooks keep each builder inside its own worktree and away from pushes, merges and deploys, and send it back to the finish line if it stops early. It also gives agents acc's skills and the reviewer. It's installed once, for every Claude Code session, and does nothing in a repo without .acc/config.json.\n\n[Check](command:acc.step.check?%5B%22A4.plugin%22%5D)\n[Do it](command:acc.step.fix?%5B%22A4.plugin%22%5D)",
+            "media": {
+              "markdown": "media/steps/A4.plugin.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.A4.plugin"
             ]
           }
         ]

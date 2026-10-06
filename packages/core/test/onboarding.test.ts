@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import type { RunResult } from '../src/exec.ts';
 import { makeContext, parseOrgUrl } from '../src/onboarding/helpers.ts';
-import { runSteps, STEPS } from '../src/onboarding/steps.ts';
+import { PLUGIN, runSteps, STEPS } from '../src/onboarding/steps.ts';
 import type { CheckStatus } from '../src/onboarding/types.ts';
 import { fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, SF_CONFIG, sf, tempDir } from './support.ts';
 
@@ -18,6 +18,7 @@ function healthy(): Record<string, RunResult | ((o?: { env?: NodeJS.ProcessEnv }
     'gh --version': ok('gh version 2.101.0 (2026-09-15)'),
     'claude --version': ok('2.1.287 (Claude Code)'),
     'claude --help': ok('  --bg, --background   Start the session in the background'),
+    'claude plugin list --json': ok(JSON.stringify([{ id: 'acc@agent-command-center', version: '0.35.0', scope: 'user', enabled: true, installPath: '/tmp/plugins/cache/acc/0.35.0' }])),
     'sf --version': ok('@salesforce/cli/2.151.7 darwin-arm64'),
     'sf plugins': ok('code-analyzer 5.6.1'),
     'gh auth status': ok('github.com\n  ✓ Logged in to github.com account work-account (keyring)'),
@@ -82,7 +83,7 @@ function statuses(repo: string, fixtures = healthy()): Record<string, { status: 
   return Object.fromEntries(runSteps(ctx).map(({ step, result }) => [step.id, result]));
 }
 
-test('step ids are unique and every group matches ONBOARDING.md', () => {
+test('step ids are unique, and each starts with its group', () => {
   const ids = STEPS.map((s) => s.id);
   assert.equal(new Set(ids).size, ids.length);
   for (const s of STEPS) {
@@ -97,7 +98,7 @@ test('a fully set-up Salesforce project passes every check that can be automated
   const notPassing = Object.entries(r).filter(([, v]) => v.status !== 'pass' && v.status !== 'skip');
   assert.deepEqual(notPassing.map(([id, v]) => `${id}: ${v.detail}`), []);
   assert.equal(r['B6.org-match']!.detail, 'production → acme, uat → acme--uat, dev → acme--dev');
-  assert.equal(r['A4.plugin']!.status, 'skip');
+  assert.equal(r['A4.plugin']!.detail, 'acc 0.35.0, for every Claude Code session.');
   assert.equal(r['B11.drift']!.status, 'pass');
   assert.equal(r['B13.gate-tools']!.detail, 'Ready: format, validate.');
   assert.equal(r['B14.tickets']!.detail, 'Tickets come from Jira ACME on acme.atlassian.net.');
@@ -205,6 +206,61 @@ test('Claude Code that isn\'t installed is installed with Homebrew, which needs 
   const res = runSteps(ctx, 'machine', ['A1.claude'])[0]!.result;
   assert.equal(res.status, 'fail');
   assert.equal(res.fix, 'brew install --cask claude-code');
+});
+
+/** A4.plugin's result, with `claude plugin list --json` and `claude plugin marketplace list --json` answering as given. */
+function plugin(list: RunResult, markets: RunResult = ok('[]'), calls: string[] = []) {
+  const f = healthy();
+  f['claude plugin list --json'] = list;
+  f['claude plugin marketplace list --json'] = markets;
+  return runSteps(makeContext(tempDir(), fakeRunner(f, calls), testEnv()), 'machine', ['A4.plugin'])[0]!.result;
+}
+const ACC = { id: 'acc@agent-command-center', version: '0.35.0', scope: 'user', enabled: true };
+const ADD = 'claude plugin marketplace add https://github.com/jack-huffman/agent-command-center';
+const INSTALL = 'claude plugin install acc@agent-command-center --scope user';
+
+test('A4.plugin passes when acc is installed for every session and enabled, and names its version', () => {
+  const calls: string[] = [];
+  const r = plugin(ok(JSON.stringify([{ id: 'cloudflare@cloudflare', version: '1.0.0', scope: 'user', enabled: true }, ACC])), ok('[]'), calls);
+  assert.deepEqual([r.status, r.detail], ['pass', 'acc 0.35.0, for every Claude Code session.']);
+  assert.ok(!calls.some((c) => c.includes('marketplace')), 'an installed plugin needs no marketplace check');
+});
+
+test('A4.plugin\'s fix is what this machine lacks: the marketplace and the plugin, the plugin, or turning it on', () => {
+  const none = plugin(ok('[]'), ok(JSON.stringify([{ name: 'claude-plugins-official', source: 'github' }])));
+  assert.deepEqual([none.status, none.fix], ['fail', `${ADD} && ${INSTALL}`]);
+  assert.match(none.detail, /marketplace isn't added/);
+  const added = plugin(ok('[]'), ok(JSON.stringify([{ name: 'agent-command-center', source: 'git' }])));
+  assert.deepEqual([added.status, added.fix, added.detail], ['fail', INSTALL, 'acc isn\'t installed in Claude Code.']);
+  const off = plugin(ok(JSON.stringify([{ ...ACC, enabled: false }])));
+  assert.deepEqual([off.status, off.fix, off.detail], ['fail', 'claude plugin enable acc@agent-command-center --scope user', 'acc 0.35.0 is installed but disabled.']);
+  // One project's install isn't every session's.
+  const project = plugin(ok(JSON.stringify([{ ...ACC, scope: 'project' }])), ok(JSON.stringify([{ name: 'agent-command-center' }])));
+  assert.equal(project.fix, INSTALL);
+  assert.match(project.detail, /for one project only \(project scope\)/);
+  // A marketplace list that doesn't run gets both: adding a marketplace that's there already is harmless.
+  assert.equal(plugin(ok('[]'), { code: 1, stdout: '', stderr: 'boom' }).fix, `${ADD} && ${INSTALL}`);
+});
+
+test('A4.plugin waits for Claude Code, and says unknown for output it can\'t read', () => {
+  const missing = plugin({ code: 127, stdout: '', stderr: 'not found' });
+  assert.deepEqual([missing.status, missing.detail, missing.fix], ['fail', 'claude isn\'t installed. Do A1.claude first.', undefined]);
+  for (const junk of [ok('Installed plugins:\n  acc'), ok('{"id":"acc@agent-command-center"}'), ok('[1, 2]'), { code: 1, stdout: '', stderr: 'error: unknown option \'--json\'' }]) {
+    const r = plugin(junk);
+    assert.equal(r.status, 'unknown', junk.stdout || junk.stderr);
+    assert.match(r.detail, /^Couldn't read Claude Code's plugins: claude plugin list/);
+  }
+});
+
+test('A4.plugin\'s names and address are the marketplace\'s and the plugin\'s own', () => {
+  const root = join(import.meta.dirname, '..', '..', '..');
+  const market = JSON.parse(readFileSync(join(root, '.claude-plugin', 'marketplace.json'), 'utf8'));
+  const manifest = JSON.parse(readFileSync(join(root, 'plugin', '.claude-plugin', 'plugin.json'), 'utf8'));
+  assert.deepEqual(PLUGIN, { marketplace: market.name, name: market.plugins[0].name, repo: manifest.repository });
+  assert.equal(market.plugins[0].source, './plugin');
+  const fix = STEPS.find((s) => s.id === 'A4.plugin')!.fix!.command!;
+  assert.equal(fix, `${ADD} && ${INSTALL}`);
+  assert.ok(!/<[^>]+>/.test(fix), 'Do it runs it as it is, with nothing to fill in');
 });
 
 test('Node is a Salesforce project\'s step: acc itself doesn\'t need it (D-077)', () => {

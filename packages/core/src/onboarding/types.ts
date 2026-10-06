@@ -52,8 +52,6 @@ export interface Step {
   /** Profiles this step applies to. Absent means every profile. */
   profiles?: Profile[];
   fix?: Fix;
-  /** The milestone that builds this step's check. Planned steps show in doctor but not in the walkthrough. */
-  planned?: string;
   check(ctx: CheckContext): CheckResult;
 }
 
