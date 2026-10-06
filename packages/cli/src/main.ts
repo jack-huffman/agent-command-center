@@ -9,7 +9,7 @@ import {
   upsertTasks, writeConfig, ask, hookOutput, parseHookInput, waiveGates, review, land, sync, planPromotion, promote, skipWarning, planDeploy, deploy, lastDeploy,
   buildBaseline, seedBranches, draftLists, writeReadme, parseEventInput, preToolUseHook, sessionStartHook, stopHook, AGENT_ROLES, type AgentRole, profileView, setProfile, withCloneAgents, type ProfileChange,
   analyze, type Analysis, answerAnalysis, openQuestions, readAnalysis,
-  AUTOPILOT_MIN_EVERY_S, AUTOPILOT_REVIEW_DOES, type AutopilotResult, type AutopilotStepName, autopilotFailure, autopilotMode, autopilotPass, closedPr, failedChecks, holdAutopilot, sleep, alive, setAutonomy,
+  AUTOPILOT_MIN_EVERY_S, autopilotDoes, autoMergeFor, autoMergeOn, mergesWords, setAutoMerge, type AutopilotResult, type AutopilotStepName, autopilotFailure, autopilotMode, autopilotPass, closedPr, failedChecks, holdAutopilot, sleep, alive, setAutonomy,
   builderStopped, claudeProjectsDir, clipSaid, lastSaid, listSessions, resume, resuming,
   claimUpdate, discardUpdate, draftUpdate, EVENT_WORDS, GH_TIMEOUT_MS, ghToken, githubIssue, isOpenUpdate, listUpdates, markPosted, readUpdate, releaseUpdate, stalePosting, type Update, UPDATE_TEXT_MAX, updateText,
 } from '../../core/src/index.ts';
@@ -69,17 +69,21 @@ Agents
                 [--clear <model|effort|fallback-model>]... [--project]
                                         Change them for this clone, or with --project in .acc/config.json
   acc agents autonomy [manual|review]   What autopilot may do on its own, or change it in .acc/config.json
+  acc agents auto-merge [on|off]        Whether autopilot merges a reviewed pull request whose checks passed, into
+                                        an environment that isn't protected, or change it in .acc/config.json
   acc analyze <id>                      Before the build: a read-only analyst works out the requirements, what's
                                         there now (the code, and on Salesforce the orgs), the approach, and questions
   acc analysis <id>                     What the task's analysis found
   acc analysis answer <id> <q> "<text>" Answer one of its questions; when the last is answered, it's ready to build
   acc review <id>                       A read-only reviewer agent judges the task's latest commit:
                                         pass, or changes (back to rework, with its findings)
-  acc land <id>                         Push a reviewed task's branch and open its pull request; never merges
+  acc land <id>                         Push a reviewed task's branch and open its pull request; it never merges it
   acc autopilot [--once | --every <seconds>]
                                         With "autonomy": "review", take each task's next step on its own: review it,
                                         land it, re-dispatch a rework once, resume a stopped builder once, or merge
-                                        the base into a pull request that conflicts with it. Never merges a pull request. One pass, or one every
+                                        the base into a pull request that conflicts with it. It merges a pull request
+                                        only where auto-merge is on: reviewed, its checks passed, nothing waiting on
+                                        a person, one a pass. One pass, or one every
                                         <seconds> (at least 30) until stopped; --json then prints a line a pass
   acc sync                              Follow open pull requests: merged → done, closed → blocked, failing checks or conflicts → needs you
 
@@ -471,12 +475,12 @@ function cmdLand(o: Opts, id: string): number {
     r.update ? `  Drafted an update for ${r.update.key} (${r.update.id}). Nothing is posted until a person posts it: acc updates.` : '',
     r.updateError ? tone(`! No update was drafted for ${r.task.id}'s ticket: ${r.updateError}`, 'orange') : '',
     r.pr.conflicts?.length ? tone(`! Pull request #${r.pr.number} conflicts with ${r.task.environment} in ${r.pr.conflicts.join(', ')}. GitHub can't merge it until that's resolved.`, 'orange') : '',
-    tone('It merges only when a person merges it on GitHub.', 'dim'),
+    tone(autoMergeFor(config, r.task.environment) ? mergesWords(true) : 'It merges only when a person merges it on GitHub.', 'dim'),
   ].filter(Boolean).join('\n'), r);
   return 0;
 }
 
-const STEP_WORD: Record<AutopilotStepName, string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update', resume: 'resume', checks: 'send back' };
+const STEP_WORD: Record<AutopilotStepName, string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update', resume: 'resume', checks: 'send back', merge: 'merge' };
 
 /** A step autopilot couldn't take, in words: "land abc1234", "update abc1234 from its base", "send abc1234 back for its failing checks". */
 const stepWords = (step: AutopilotStepName, sha: string): string => {
@@ -505,8 +509,8 @@ function autopilotLines(r: AutopilotResult): string[] {
  * Autopilot (D-055): under "autonomy": "review", it reviews, lands, re-dispatches a rework once, sends a
  * pull request whose GitHub checks fail back to its builder once a commit (D-076), resumes a stopped
  * builder once a run (D-067), and merges the base into a pull request that conflicts with it (D-058), as
- * the orchestrator, up to an open pull request. It never merges a pull request. One pass, or one every
- * --every seconds until stopped.
+ * the orchestrator, up to an open pull request. It merges a pull request only where auto-merge is on
+ * (GH-67). One pass, or one every --every seconds until stopped.
  */
 function cmdAutopilot(o: Opts): number {
   const role = process.env.ACC_ROLE;
@@ -522,14 +526,14 @@ function cmdAutopilot(o: Opts): number {
   for (const w of mode.warnings) process.stderr.write(`warning: ${w}\n`);
   if (mode.refusal) throw new AccError('refused', mode.refusal);
   if (!mode.on) {
-    out(o, () => `autonomy is "manual" in .acc/config.json, so autopilot does nothing. Set it to "review" for autopilot to act: it then ${AUTOPILOT_REVIEW_DOES}.`,
+    out(o, () => `autonomy is "manual" in .acc/config.json, so autopilot does nothing. Set it to "review" for autopilot to act: it then ${autopilotDoes(autoMergeOn(start.config))}`,
       { autonomy: mode.autonomy, warnings: mode.warnings, steps: [], updates: [] });
     return 0;
   }
   if (!start.config.github) throw new AccError('no-github', 'Autopilot lands reviewed work as pull requests on GitHub, and this project has no "github" section in .acc/config.json.');
   const say = (line: string) => { if (!o.json) process.stderr.write(tone(line, 'dim') + '\n'); };
-  const doing = { review: 'Reviewing', land: 'Landing', dispatch: 'Re-dispatching', refresh: 'Updating', resume: 'Resuming', checks: 'Sending back' };
-  const after = { review: '. The reviewer reads and changes nothing.', land: '', dispatch: '', refresh: ' from its base, then running its checks.', resume: ': its builder stopped before acc done or acc block.', checks: ' to its builder: its checks failed on GitHub. Reading their logs.' };
+  const doing = { review: 'Reviewing', land: 'Landing', dispatch: 'Re-dispatching', refresh: 'Updating', resume: 'Resuming', checks: 'Sending back', merge: 'Merging' };
+  const after = { review: '. The reviewer reads and changes nothing.', land: '', dispatch: '', refresh: ' from its base, then running its checks.', resume: ': its builder stopped before acc done or acc block.', checks: ' to its builder: its checks failed on GitHub. Reading their logs.', merge: ': its review and checks passed. GitHub is asked again first.' };
   // Started by the Command Center (D-064): once that window's extension host has gone, it stops at the
   // next step or within a second of waiting, even if nothing stopped it. No window, no autopilot.
   const parent = Number(process.env.ACC_AUTOPILOT_PARENT);
@@ -589,6 +593,7 @@ function cmdAgents(o: Opts, sub: string | undefined, roleArg: string | undefined
   const { config: projectConfig } = loadConfig(paths.config);
   const views = () => Object.fromEntries(AGENT_ROLES.map((r) => [r, profileView(projectConfig, run, paths.root, r)]));
   if (sub === 'autonomy') return cmdAutonomy(o, paths.config, roleArg);
+  if (sub === 'auto-merge') return cmdAutoMerge(o, paths.config, roleArg);
   if (!sub || sub === 'show') {
     const v = views();
     const from = { clone: ' (this clone)', project: ' (project)', default: '' };
@@ -598,7 +603,7 @@ function cmdAgents(o: Opts, sub: string | undefined, roleArg: string | undefined
     }).join('\n'), v);
     return 0;
   }
-  if (sub !== 'set' || !roleArg || !(AGENT_ROLES as readonly string[]).includes(roleArg)) throw new AccError('usage', 'acc agents set <builder|reviewer> [--model <m>] [--effort <e>] [--fallback-model <m>] [--clear <field>] [--project] | acc agents autonomy [manual|review]');
+  if (sub !== 'set' || !roleArg || !(AGENT_ROLES as readonly string[]).includes(roleArg)) throw new AccError('usage', 'acc agents set <builder|reviewer> [--model <m>] [--effort <e>] [--fallback-model <m>] [--clear <field>] [--project] | acc agents autonomy [manual|review] | acc agents auto-merge [on|off]');
   personOnly(o, 'change what agents run with');
   const change: ProfileChange = {};
   if (o.model !== undefined) change.model = o.model as string;
@@ -616,18 +621,19 @@ function cmdAgents(o: Opts, sub: string | undefined, roleArg: string | undefined
   return 0;
 }
 
-const AUTONOMY_WORDS: Record<string, string> = {
+/** What an autonomy level means, in words; review's says whether autopilot merges pull requests (GH-67). */
+const autonomyWords = (config: Config): string => ({
   manual: 'nothing happens on its own.',
-  review: `autopilot ${AUTOPILOT_REVIEW_DOES}. It never merges a pull request.`,
+  review: `autopilot ${autopilotDoes(autoMergeOn(config))}`,
   dispatch: 'as review, and it also starts Ready tasks. Not built yet: autopilot refuses.',
   full: 'read as dispatch. Not built yet: autopilot refuses.',
-};
+} as Record<string, string>)[config.autonomy] ?? '';
 
 /** What autopilot may do on its own (D-055): shown, or set in .acc/config.json by a person. */
 function cmdAutonomy(o: Opts, configFile: string, value: string | undefined): number {
   if (value === undefined) {
     const { config } = loadConfig(configFile);
-    out(o, () => `autonomy ${config.autonomy} (project): ${AUTONOMY_WORDS[config.autonomy] ?? ''}`.trim(), { autonomy: config.autonomy });
+    out(o, () => `autonomy ${config.autonomy} (project): ${autonomyWords(config)}`.trim(), { autonomy: config.autonomy });
     return 0;
   }
   const role = process.env.ACC_ROLE;
@@ -635,7 +641,41 @@ function cmdAutonomy(o: Opts, configFile: string, value: string | undefined): nu
   personOnly(o, 'change what autopilot may do');
   setAutonomy(configFile, value);
   const { config } = loadConfig(configFile);
-  out(o, () => `autonomy ${config.autonomy}: ${AUTONOMY_WORDS[config.autonomy]} Set in .acc/config.json: commit it to share it.`, { autonomy: config.autonomy });
+  out(o, () => `autonomy ${config.autonomy}: ${autonomyWords(config)} Set in .acc/config.json: commit it to share it.`, { autonomy: config.autonomy });
+  return 0;
+}
+
+/** Whether autopilot merges, and into which environments, in words (GH-67). */
+function autoMergeLines(config: Config): string {
+  if (!autoMergeOn(config)) {
+    return config.profile === 'salesforce'
+      ? 'auto-merge off (project): a Salesforce project never auto-merges. A person merges every pull request.'
+      : 'auto-merge off (project): autopilot never merges a pull request. A person merges each one.';
+  }
+  const covered = config.environments.filter((e) => !e.protected).map((e) => e.branch);
+  const kept = config.environments.filter((e) => e.protected).map((e) => e.branch);
+  return [
+    `auto-merge on (project): autopilot merges a pull request into ${covered.join(', ') || 'no environment'} once its review and checks passed, it's up to date with its base, GitHub says it can merge, nothing waits on a person, and it changes nothing under .acc/. One a pass.`,
+    kept.length ? `Never into ${kept.join(', ')}: protected, so a person merges.` : '',
+    config.autonomy === 'review' ? 'It merges while autopilot is on.' : `autonomy is "${config.autonomy}", so autopilot doesn't run and nothing merges on its own.`,
+  ].filter(Boolean).join(' ');
+}
+
+/** Whether autopilot merges a reviewed, green pull request (GH-67): shown, or set in .acc/config.json by a person. */
+function cmdAutoMerge(o: Opts, configFile: string, value: string | undefined): number {
+  const data = (config: Config) => ({ autoMerge: autoMergeOn(config), environments: config.environments.filter((e) => autoMergeOn(config) && !e.protected).map((e) => e.branch), autonomy: config.autonomy });
+  if (value === undefined) {
+    const { config } = loadConfig(configFile);
+    out(o, () => autoMergeLines(config), data(config));
+    return 0;
+  }
+  if (value !== 'on' && value !== 'off') throw new AccError('usage', 'acc agents auto-merge [on|off]');
+  const role = process.env.ACC_ROLE;
+  if (role === 'builder' || role === 'reviewer' || role === 'analyst') throw new AccError('refused', `${role === 'analyst' ? 'An' : 'A'} ${role} can't change whether autopilot merges. A person does that.`);
+  personOnly(o, 'change whether autopilot merges');
+  setAutoMerge(configFile, value === 'on');
+  const { config } = loadConfig(configFile);
+  out(o, () => `${autoMergeLines(config)} Set in .acc/config.json: commit it to share it.`, data(config));
   return 0;
 }
 

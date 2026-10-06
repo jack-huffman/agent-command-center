@@ -637,6 +637,53 @@ test('acc agents autonomy: shows it, and a person sets manual or review in .acc/
   assert.deepEqual(JSON.parse(readFileSync(join(bare, '.acc', 'config.json'), 'utf8')), { ...GENERIC_CONFIG, autonomy: 'review' });
 });
 
+test('acc agents auto-merge: shows it, and a person turns it on or off in .acc/config.json, changing nothing else (GH-67)', () => {
+  // Spaced and ordered as a person might keep it: the edit moves nothing else.
+  const text = '{\n    "schema": 1,\n    "project": "Tool",\n    "profile": "generic",\n    "autonomy": "review",\n    "environments": [ { "name": "main", "default": true }, { "name": "release", "protected": true } ],\n    "autopilot": {\n        "appendOnly": [ "docs/DECISIONS.md" ]\n    }\n}\n';
+  const dir = makeRepo({ '.acc/config.json': text });
+  const file = join(dir, '.acc', 'config.json');
+  assert.deepEqual(acc(dir, ['agents', 'auto-merge', '--json']).json(), { autoMerge: false, environments: [], autonomy: 'review' });
+  assert.match(acc(dir, ['agents', 'auto-merge']).out, /^auto-merge off \(project\): autopilot never merges a pull request\. A person merges each one\./);
+  assert.match(acc(dir, ['agents', 'autonomy']).out, /It never merges a pull request\.$/m);
+
+  const on = acc(dir, ['agents', 'auto-merge', 'on', '--json']);
+  assert.equal(on.code, 0, on.err);
+  assert.deepEqual(on.json(), { autoMerge: true, environments: ['main'], autonomy: 'review' }, 'release is protected');
+  assert.equal(readFileSync(file, 'utf8'), text.replace('"autopilot": {\n        "appendOnly"', '"autopilot": {\n        "autoMerge": true,\n        "appendOnly"'), 'only the key was added');
+  const said = acc(dir, ['agents', 'auto-merge']).out;
+  assert.match(said, /^auto-merge on \(project\): autopilot merges a pull request into main once its review and checks passed, .*nothing waits on a person, and it changes nothing under \.acc\/\. One a pass\. Never into release: protected, so a person merges\. It merges while autopilot is on\./);
+  // Every word on what autopilot does says it merges now.
+  assert.match(acc(dir, ['agents', 'autonomy']).out, /Auto-merge is on: it also merges a pull request whose review and checks passed, .*It never merges into a protected environment\.$/m);
+  assert.doesNotMatch(acc(dir, ['agents', 'autonomy']).out, /It never merges a pull request/);
+
+  assert.match(acc(dir, ['agents', 'auto-merge', 'off']).out, /^auto-merge off \(project\): .* Set in \.acc\/config\.json: commit it to share it\./);
+  assert.equal(readFileSync(file, 'utf8'), text.replace('"autopilot": {\n        "appendOnly"', '"autopilot": {\n        "autoMerge": false,\n        "appendOnly"'), 'the value changed in place');
+  assert.equal(acc(dir, ['agents', 'auto-merge', 'on']).code, 0);
+  assert.equal(acc(dir, ['agents', 'auto-merge', 'maybe']).code, 2);
+  const before = readFileSync(file, 'utf8');
+  for (const role of ['builder', 'reviewer', 'analyst']) {
+    const r = acc(dir, ['agents', 'auto-merge', 'off'], undefined, { ACC_ROLE: role, ACC_TASK: 'T-1' });
+    assert.equal(r.code, 1, role);
+    assert.match(r.err, new RegExp(`${role} can't change whether autopilot merges`));
+  }
+  assert.equal(readFileSync(file, 'utf8'), before, 'nothing refused touched the file');
+
+  // A config with no autopilot block gets one at its end, and keeps the rest.
+  const bare = repoWithConfig();
+  assert.equal(acc(bare, ['agents', 'auto-merge', 'off']).code, 0);
+  assert.deepEqual(JSON.parse(readFileSync(join(bare, '.acc', 'config.json'), 'utf8')), GENERIC_CONFIG, 'off with nothing written: nothing to change');
+  assert.equal(acc(bare, ['agents', 'auto-merge', 'on']).code, 0);
+  assert.deepEqual(JSON.parse(readFileSync(join(bare, '.acc', 'config.json'), 'utf8')), { ...GENERIC_CONFIG, autopilot: { autoMerge: true } });
+  assert.match(acc(bare, ['agents', 'auto-merge']).out, /autonomy is "manual", so autopilot doesn't run and nothing merges on its own\./);
+
+  // A Salesforce project never auto-merges.
+  const sf = makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, profile: 'salesforce', environments: [{ name: 'Dev', type: 'developer', org: 'Acme Dev', default: true }] }) });
+  const refused = acc(sf, ['agents', 'auto-merge', 'on']);
+  assert.equal(refused.code, 1);
+  assert.match(refused.err, /A Salesforce project never auto-merges: a person merges every pull request there\./);
+  assert.match(acc(sf, ['agents', 'auto-merge']).out, /^auto-merge off \(project\): a Salesforce project never auto-merges\./);
+});
+
 test('acc autopilot --every stops by itself once the Command Center that started it has gone (D-064)', () => {
   const dir = repoWithConfig({ ...GENERIC_CONFIG, autonomy: 'review', github: { repo: 'acme/tool', account: 'jordan-kim' } });
   assert.equal(acc(dir, ['add', 'Ready to start']).code, 0);
