@@ -7,12 +7,12 @@ import type { RepoPaths } from './paths.ts';
 
 /**
  * Ticket updates (D-066): acc never posts on a ticket by itself. When something a client cares about
- * happens (a pull request is ready for review, a change is merged or deployed, a builder needs the
- * client's answer, or a person chooses to send one of the analysis's questions), acc writes a draft
+ * happens (a pull request is ready for review, a change is merged, promoted or deployed, a builder needs
+ * the client's answer, or a person chooses to send one of the analysis's questions), acc writes a draft
  * here, one file each. A person reads it, edits it, and posts it as themselves, or discards it.
  */
 
-export const UPDATE_EVENTS = ['pr-opened', 'pr-updated', 'merged', 'deployed', 'blocked', 'question'] as const;
+export const UPDATE_EVENTS = ['pr-opened', 'pr-updated', 'merged', 'promotion-opened', 'promoted', 'deployed', 'blocked', 'question'] as const;
 export type UpdateEvent = (typeof UPDATE_EVENTS)[number];
 
 export const UPDATE_STATES = ['draft', 'posting', 'posted', 'discarded'] as const;
@@ -34,8 +34,9 @@ export interface Update {
   /** What acc drafted. The text that went out is under posted. */
   text: string;
   state: UpdateState;
-  /** The environment's name, for merged and deployed. */
+  /** The environment's name, for merged, a promotion and deployed. */
   env?: string;
+  /** The pull request: the task's own, or the promotion's that takes it on. */
   pr?: { number: number; url: string };
   /** The analysis's question it asks, for question: q1. */
   question?: string;
@@ -72,6 +73,8 @@ export const EVENT_WORDS: Record<UpdateEvent, string> = {
   'pr-opened': 'ready for review',
   'pr-updated': 'updated for review',
   merged: 'merged',
+  'promotion-opened': 'promotion opened',
+  promoted: 'promoted',
   deployed: 'deployed',
   blocked: 'a question for the client',
   question: 'a question from its analysis',
@@ -95,11 +98,11 @@ export function githubIssue(u: Pick<Update, 'key' | 'url'>, repo: string | null)
 const sentence = (text: string): string => text.trim().replace(/([^.!?])$/, '$1.');
 
 export interface UpdateContext {
-  /** The pull request, for pr-opened and pr-updated. */
+  /** The pull request, for pr-opened, pr-updated and promotion-opened. */
   pr?: { url: string };
   /** One plain sentence for the client: the review's client sentence, or the task's title. */
   summary?: string;
-  /** The environment's name, for merged and deployed. */
+  /** The environment's name, for merged, a promotion and deployed. */
   env?: string;
   /** What the client is asked, for blocked and question. */
   question?: string;
@@ -115,6 +118,8 @@ export function updateText(event: UpdateEvent, c: UpdateContext): string {
     case 'pr-opened': return `The change is ready for review: ${c.pr?.url ?? ''}${summary}`;
     case 'pr-updated': return `The change was updated and is ready for review again: ${c.pr?.url ?? ''}${summary}`;
     case 'merged': return `The change was approved and merged into ${c.env ?? 'its environment'}.`;
+    case 'promotion-opened': return `The change is ready to go to ${c.env ?? 'its next environment'}: ${c.pr?.url ?? ''}`;
+    case 'promoted': return `The change is now in ${c.env ?? 'its next environment'}.`;
     case 'deployed': return `The change is now deployed to ${c.env ?? 'its environment'}.`;
     case 'blocked': return `We need your input before we can go on:\n${sentence(c.question ?? '')}`;
     case 'question': return `Before we start, a question for you:\n${sentence(c.question ?? '')}`;
@@ -172,13 +177,17 @@ const sameNews = (a: Pick<Update, 'task' | 'event' | 'env' | 'question'>, b: Pic
   return a.task === b.task && family(a.event) === family(b.event) && (a.env ?? '') === (b.env ?? '') && (a.question ?? '') === (b.question ?? '');
 };
 
-/** How far a change has gone: its pull request, then its merge, then its deploy (D-071). */
-const STAGE: Partial<Record<UpdateEvent, number>> = { 'pr-opened': 0, 'pr-updated': 0, merged: 1, deployed: 2 };
+/**
+ * How far a change has gone (D-071): its pull request, then its merge into its environment or a
+ * promotion opened to take it on, then that promotion's merge, then its deploy (GH-56).
+ */
+const STAGE: Partial<Record<UpdateEvent, number>> = { 'pr-opened': 0, 'pr-updated': 0, merged: 1, 'promotion-opened': 1, promoted: 2, deployed: 3 };
 
 /**
  * Whether news overtakes an older draft of the task's, so the client isn't told a change is ready for
- * review once it's merged (D-071). A merge overtakes the pull request's draft; a deploy overtakes those
- * and the merge into the same environment. A deploy to QA doesn't overtake a merge into Dev.
+ * review once it's merged (D-071). A merge or a promotion overtakes the pull request's draft; a promotion's
+ * merge overtakes its opening; a deploy overtakes those and the merge into the same environment. A deploy
+ * to QA doesn't overtake a merge into Dev, nor a promotion into UAT a merge into Dev.
  */
 const overtakes = (next: Pick<Update, 'task' | 'event' | 'env'>, old: Pick<Update, 'task' | 'event' | 'env'>): boolean => {
   const n = STAGE[next.event];
