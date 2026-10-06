@@ -93,6 +93,41 @@ test('step ids are unique, and each starts with its group', () => {
   }
 });
 
+const ROOT = join(import.meta.dirname, '..', '..', '..');
+const doc = (rel: string) => readFileSync(join(ROOT, rel), 'utf8');
+
+/** Every step ONBOARDING.md names, as [id, title], in its order: it writes each one as **title** (`id`). */
+const guideSteps = (md: string): [string, string][] =>
+  [...md.matchAll(/\*\*([^*]+)\*\*\s+\(`([AB]\d+\.[\w-]+)`\)/g)].map((m) => [m[2]!, m[1]!.replace(/\s+/g, ' ').trim()]);
+
+/** A heading's anchor, as GitHub and VSCode's preview make it. */
+const slug = (heading: string) => heading.trim().toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/\s/g, '-');
+const anchors = (md: string) => new Set([...md.matchAll(/^#{1,6}\s+(.+)$/gm)].map((m) => slug(m[1]!)));
+
+test('ONBOARDING.md names every step by its id and title, in the walkthrough\'s order', () => {
+  const want = STEPS.map((s): [string, string] => [s.id, s.title]);
+  const got = guideSteps(doc('docs/ONBOARDING.md'));
+  const title = new Map(want);
+  const missing = want.filter(([id]) => !got.some(([g]) => g === id)).map(([id]) => id);
+  const extra = got.filter(([id]) => !title.has(id)).map(([id]) => id);
+  const mismatched = got.filter(([id, t]) => title.has(id) && title.get(id) !== t).map(([id, t]) => `${id} is "${t}", not "${title.get(id)}"`);
+  assert.deepEqual(got, want, [
+    'docs/ONBOARDING.md should write each step as **<title>** (`<id>`), once, in the step list\'s order.',
+    `Missing: ${missing.join(', ') || 'none'}. Extra: ${extra.join(', ') || 'none'}. Mismatched: ${mismatched.join('; ') || 'none'}.`,
+  ].join(' '));
+});
+
+test('the guide links that steps and the README give lead to headings in ONBOARDING.md, and back', () => {
+  const headings = anchors(doc('docs/ONBOARDING.md'));
+  const fromSteps = STEPS.flatMap((s) => (s.fix?.docs?.startsWith('docs/ONBOARDING.md#') ? [[s.id, s.fix.docs.slice('docs/ONBOARDING.md#'.length)]] : []));
+  assert.ok(fromSteps.length >= 7, 'B0, B5, B6, B9, B11, B13 and B14 link to the guide');
+  const fromReadme = [...doc('README.md').matchAll(/docs\/ONBOARDING\.md#([\w-]+)/g)].map((m) => ['README.md', m[1]!]);
+  assert.ok(fromReadme.length, 'the README links into the guide');
+  for (const [from, anchor] of [...fromSteps, ...fromReadme]) assert.ok(headings.has(anchor!), `${from} links to #${anchor}, which isn't a heading in ONBOARDING.md`);
+  const readme = anchors(doc('README.md'));
+  for (const [, anchor] of doc('docs/ONBOARDING.md').matchAll(/\.\.\/README\.md#([\w-]+)/g)) assert.ok(readme.has(anchor!), `ONBOARDING.md links to README.md#${anchor}, which isn't a heading`);
+});
+
 test('a fully set-up Salesforce project passes every check that can be automated', () => {
   const r = statuses(sfRepo());
   const notPassing = Object.entries(r).filter(([, v]) => v.status !== 'pass' && v.status !== 'skip');
@@ -253,9 +288,8 @@ test('A4.plugin waits for Claude Code, and says unknown for output it can\'t rea
 });
 
 test('A4.plugin\'s names and address are the marketplace\'s and the plugin\'s own', () => {
-  const root = join(import.meta.dirname, '..', '..', '..');
-  const market = JSON.parse(readFileSync(join(root, '.claude-plugin', 'marketplace.json'), 'utf8'));
-  const manifest = JSON.parse(readFileSync(join(root, 'plugin', '.claude-plugin', 'plugin.json'), 'utf8'));
+  const market = JSON.parse(doc('.claude-plugin/marketplace.json'));
+  const manifest = JSON.parse(doc('plugin/.claude-plugin/plugin.json'));
   assert.deepEqual(PLUGIN, { marketplace: market.name, name: market.plugins[0].name, repo: manifest.repository });
   assert.equal(market.plugins[0].source, './plugin');
   const fix = STEPS.find((s) => s.id === 'A4.plugin')!.fix!.command!;
