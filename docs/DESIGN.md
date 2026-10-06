@@ -202,7 +202,7 @@ Two states aren't stored. They're derived when the ledger is read:
 | Running | `sync` (spinning) | blue | A builder is working |
 | Needs you | `bell` | **orange** | The session is waiting for permission or an answer, its builder stopped (`debug-disconnect`), or autopilot couldn't take a step |
 | In review | `eye` | blue | Checks passed. Waiting for the reviewer or the pull request |
-| Rework | `debug-restart` | **orange** | The reviewer or a human asked for changes |
+| Rework | `debug-restart` | **orange** | The reviewer or a human asked for changes, or autopilot sent back checks that failed on GitHub |
 | Blocked | `circle-slash` | **orange** | Stopped. A reason is required |
 | Done | `check` | neutral | Merged |
 
@@ -215,7 +215,7 @@ has an icon and a label, so colour never carries the meaning alone.
 |---|---|---|
 | todo → running | human, orchestrator | Every dependency done, below `agents.max`, environment not protected |
 | running → review | builder (`acc done`), human | A passing receipt for every required check, on the current `HEAD` |
-| review → rework | reviewer, human | Findings or a reason |
+| review → rework | reviewer, human, orchestrator (autopilot sending back checks that failed on GitHub, D-???) | Findings or a reason |
 | rework → running | human, orchestrator | |
 | review → done | `acc sync` (pull request merged), human | |
 | todo → done | `acc intake github`, as sync (D-048) | The issue was closed on GitHub, and the task never started (no `run`) |
@@ -522,7 +522,7 @@ ledger and takes the next step for each task, one task at a time, as the
 | `autonomy` | What runs on its own |
 |---|---|
 | `manual` (default) | Nothing. The extension shows the next steps as buttons, and `acc autopilot` does nothing |
-| `review` | Autopilot reviews finished work, lands work whose review passed, re-dispatches a rework once, resumes a stopped builder once a run, and merges the base into a pull request that conflicts with it |
+| `review` | Autopilot reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, and merges the base into a pull request that conflicts with it |
 | `dispatch` | As `review`, and it also starts Ready tasks up to `agents.max`. Not built yet: autopilot refuses |
 | `full` | Read as `dispatch`, with a warning |
 
@@ -539,13 +539,16 @@ before each:
 | In review, its latest commit passed, no pull request, or an open one behind that commit | `land` |
 | In review, its latest commit passed, its pull request closed without merging | Nothing. It needs you, naming the pull request: a person lands it again, or not (D-063) |
 | In review, its latest commit passed and landed, but the pull request conflicts with its base | `refresh`: merge the base in, then run its checks. The next passes review and land the merge |
-| In rework, and autopilot hasn't re-dispatched it before | `dispatch`, once. A second rework waits for a person |
+| In review, its latest commit passed and landed, and the pull request's checks failed on GitHub there | `checks`: send it back to its builder with each failed check's link and log (D-???). Once a commit and 3 times a task; checks still running wait; a failed check with no log on GitHub needs you |
+| In rework, sent back by autopilot for failing checks | `dispatch`, with what the checks said |
+| In rework from a review or a person, and autopilot hasn't re-dispatched one before | `dispatch`, once. A second rework waits for a person |
 | Running, its builder stopped, and autopilot hasn't resumed it in this run | `resume`, once a run (D-067). A second stop waits for a person; a new dispatch is a new run |
 | Running, its builder at work | Nothing |
 | To do (ready or not), blocked or done | Nothing |
 
 - **What it never does:** merge a pull request, waive a check, deploy,
-  promote, or start a task that's to do. Builders, reviewers and analysts
+  promote, change anything on GitHub besides landing (it only reads checks and
+  their logs), or start a task that's to do. Builders, reviewers and analysts
   can't run it.
 - **A refresh** (D-058) merges origin's copy of the task environment's branch
   into the task branch, in the task's worktree, never the main checkout. It
@@ -557,9 +560,23 @@ before each:
   nothing is pushed, and the task needs you, saying why. A worktree with
   uncommitted changes, a missing worktree, or a branch with commits on origin
   the local one lacks stops it before it merges.
-- **Who did it:** lands and re-dispatches are `orchestrator`, by
-  `orchestrator:autopilot`. A review stays the reviewer's move (only a reviewer
-  or a person sends work to rework), by `reviewer:<id> for orchestrator:autopilot`.
+- **Failing checks** (D-???): autopilot reads, as the repo's account, the base
+  branch's required checks on the pull request's latest commit, or every check
+  when it requires none. It asks only for a task it could send back, and not
+  once acc sync saw them pass. It waits while any still run; cancelled and
+  skipped checks aren't failures. A send-back moves the task to rework with
+  "Checks failed on GitHub on <sha>: <names>", keeps the commit in
+  `autopilot.sentBack`, and writes each failed check's link and the last 100
+  lines (10 KB) of its log to `<state>/checks/<task>-<sha>.json`, which the
+  builder's packet carries: builders get no gh. Checks failing again on that
+  commit are recorded as a failed `checks` step, and the task needs you; so is a
+  fourth send-back. While a fix is reviewed, the old commit's failing checks
+  don't show the task as needs you. A failed check that isn't an Actions job has
+  no log on GitHub: alone, it needs you, as before.
+- **Who did it:** lands, re-dispatches and send-backs for failing checks are
+  `orchestrator`, by `orchestrator:autopilot`. A review stays the reviewer's
+  move, by `reviewer:<id> for orchestrator:autopilot`. A send-back's
+  re-dispatch doesn't use the review's one re-dispatch, nor the other way round.
 - **One at a time:** it holds `<git-common-dir>/acc/autopilot.lock` while it
   runs, so a second autopilot on the same repo is refused, naming the first one's
   pid. Only a dead owner frees the lock. Only a refresh's checks take the
@@ -853,7 +870,6 @@ already exists.
 
 - destructive Salesforce changes
 - a merge queue
-- automatic rework when CI fails
 - monday.com and Slack
 - cloud sessions
 - sharing a ledger across machines
