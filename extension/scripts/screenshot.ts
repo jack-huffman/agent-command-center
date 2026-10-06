@@ -20,10 +20,10 @@ import { sampleAgent, sampleBoards, sampleHub, sampleIdentity, sampleRuns, sampl
 
 /**
  * Every page the screenshot script can draw: each section of the Command Center, a ticket's page (being
- * built, and two to do whose analysis has questions or says to split it), an agent's page, and Setup with
- * the output panel open on a command that's asking something.
+ * built, two to do whose analysis has questions or says to split it, and one whose builder stopped), an
+ * agent's page, and Setup with the output panel open on a command that's asking something.
  */
-export const PAGES = [...HOME_SECTIONS, 'ticket', 'ticket-questions', 'ticket-split', 'agent', 'output'] as const;
+export const PAGES = [...HOME_SECTIONS, 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'agent', 'output'] as const;
 export type Page = (typeof PAGES)[number];
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -62,6 +62,7 @@ export function sampleModel(kind: Page, now = Date.now()): Model {
   if (kind === 'ticket') return sampleTicket(now);
   if (kind === 'ticket-questions') return sampleTicket(now, 'ACME-21');
   if (kind === 'ticket-split') return sampleTicket(now, 'ACME-23');
+  if (kind === 'ticket-stopped') return sampleTicket(now, 'ACME-29');
   if (kind === 'agent') return sampleAgent(now);
   const hub = sampleHub(now);
   const section = (kind === 'output' ? 'setup' : kind) as HomeSection;

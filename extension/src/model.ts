@@ -14,7 +14,7 @@ import { type Environment, type Tracker, trackerForKey } from '../../packages/co
 import { promotionPaths } from '../../packages/core/src/promote.ts';
 import type { Answer, HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import { isOpenUpdate, stalePosting, type Update, UPDATE_ID, UPDATE_TEXT_MAX } from '../../packages/core/src/updates.ts';
-import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, conflictLine, type DoctorItem, ENV_ICON, fileList, groupTasks, isUnder, prConflicts, questionsWord, type RunPrompt, shortPath, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
+import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, conflictLine, type DoctorItem, ENV_ICON, fileList, groupTasks, isUnder, prConflicts, questionsWord, type RunPrompt, saidLine, shortPath, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
 import type { Entry } from './transcript.ts';
 
 export const VIEW_KINDS = ['tasks', 'agents', 'worktrees', 'environments', 'setup'] as const;
@@ -108,6 +108,8 @@ export interface Card {
   autopilot: Look | null;
   /** Its pull request someone closed without merging, which autopilot won't replace (D-063). */
   closedPr: Look | null;
+  /** Its builder stopped before acc done or acc block, with the last thing it said, clipped (D-???). */
+  stopped: Look | null;
   actions: Action[];
   /** The lanes it can be dropped in: the moves a person may make from where it is (D-041). */
   drops: string[];
@@ -137,7 +139,7 @@ export function analysisLook(t: Pick<TaskRow, 'state' | 'analysis' | 'analyzing'
   return t.analysis ? { label: 'Analyzed: ready to build', icon: 'pass', tone: 'blue' } : null;
 }
 
-const AUTOPILOT_STEP: Record<NonNullable<TaskRow['autopilot']>['step'], string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update from its base' };
+const AUTOPILOT_STEP: Record<NonNullable<TaskRow['autopilot']>['step'], string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update from its base', resume: 'resume' };
 
 /** "Needs you: autopilot couldn't land", and with `why`, its reason after it (D-055). */
 export function autopilotLook(t: Pick<TaskRow, 'autopilot'>, why = true): Look | null {
@@ -149,6 +151,19 @@ export function autopilotLook(t: Pick<TaskRow, 'autopilot'>, why = true): Look |
 export function closedPrLook(t: Pick<TaskRow, 'state' | 'pr'>): Look | null {
   if (t.state !== 'review' || t.pr?.state !== 'closed') return null;
   return { label: `Needs you: pull request #${t.pr.number} was closed without merging`, icon: 'git-pull-request-closed', tone: 'orange' };
+}
+
+/** How much of what a stopped agent last said a card shows; its task page shows all of it. */
+const CARD_SAID = 120;
+
+/**
+ * "Needs you: its agent stopped: API Error: Your computer went to sleep mid-response. …", for a running
+ * task whose builder stopped before acc done or acc block (D-???). Clipped to `max` characters.
+ */
+export function stoppedLook(t: Pick<TaskRow, 'stopped'>, max = CARD_SAID): Look | null {
+  if (!t.stopped) return null;
+  const said = t.stopped.said ? (Number.isFinite(max) ? saidLine(t.stopped.said, max) : t.stopped.said.trim()) : null;
+  return { label: `Needs you: its agent stopped${said ? `: ${said}` : ' before acc done or acc block'}`, icon: 'debug-disconnect', tone: 'orange' };
 }
 
 /** The lanes a task can be dropped in by a person, by acc's own move rules. Whether it then goes is acc's call. */
@@ -193,9 +208,12 @@ export function cardActions(t: TaskRow, ref: Ref): Action[] {
     else a.push({ command: 'acc.task.review', label: t.review?.current ? 'Review again' : 'Review', icon: 'checklist', ref, primary: true });
     if (open && t.review?.current && t.review.verdict === 'pass' && !t.reviewing) a.push({ command: 'acc.task.land', label: 'Update pull request', icon: 'repo-push', ref });
   }
+  // Its builder stopped before acc done or acc block (D-???): the next step is carrying it on.
+  const stopped = t.state === 'running' && !!t.stopped && !t.resuming && !!t.run?.sessionId;
+  if (stopped) a.push({ command: 'acc.task.resume', label: 'Resume', icon: 'debug-continue', ref, primary: true });
   // Waiting in its own terminal, it's answered by attaching; anything else is seen on its page.
-  const inTerminal = t.display === 'needs-you' && !t.asking && !!t.run?.bgId;
-  if ((t.state === 'running' || t.state === 'review' || t.state === 'blocked') && (t.run?.bgId || t.run?.sessionId)) a.push({ command: 'acc.task.watch', label: 'Watch', icon: 'pulse', ref, primary: !dispatchable && t.state === 'running' && !inTerminal });
+  const inTerminal = !stopped && t.display === 'needs-you' && !t.asking && !!t.run?.bgId;
+  if ((t.state === 'running' || t.state === 'review' || t.state === 'blocked') && (t.run?.bgId || t.run?.sessionId)) a.push({ command: 'acc.task.watch', label: 'Watch', icon: 'pulse', ref, primary: !dispatchable && t.state === 'running' && !inTerminal && !stopped });
   // Its conversation in a Claude Code tab (D-040); the terminal is the fallback when that isn't installed.
   if (t.state === 'running' && (t.run?.bgId || t.run?.sessionId)) a.push({ command: 'acc.task.openInClaude', label: 'Open in Claude Code', icon: 'comment-discussion', ref, primary: inTerminal });
   if (t.run?.worktree && t.state !== 'todo') a.push({ command: 'acc.task.openWorktree', label: 'Worktree', icon: 'empty-window', ref });
@@ -235,7 +253,9 @@ export function tasksModel(hub: HubLike, boards: (root: string) => BoardInput[] 
           group, label: d.label, icon: d.icon, tone: d.tone,
           cards: (byGroup.get(group) ?? []).map((t) => ({
             id: t.id, title: t.title, environment: t.environment, waitingOn: t.deps, url: t.source.url,
-            agent: t.agent ?? null, worktree: t.run?.worktree ?? null, conflicts: conflictLine(t), analysis: analysisLook(t), autopilot: autopilotLook(t), closedPr: closedPrLook(t),
+            // A stopped builder's line says it all: its old session's own state would only repeat it.
+            agent: t.stopped ? null : t.agent ?? null, worktree: t.run?.worktree ?? null, conflicts: conflictLine(t), analysis: analysisLook(t), autopilot: autopilotLook(t), closedPr: closedPrLook(t),
+            stopped: t.autopilot ? null : stoppedLook(t),
             actions: cardActions(t, { project: p.root, task: t.id }), drops: dropLanes(t),
           })),
         };
@@ -331,11 +351,16 @@ export interface TrackerBoard {
   columns: TrackerColumn[];
 }
 
-/** The agent's side of a ticket: acc's own state, or what the agent, or its analysis (D-052), is doing about it. */
-function accLook(row: TaskRow): Look {
+/**
+ * The agent's side of a ticket: acc's own state, or what the agent, or its analysis (D-052), is doing
+ * about it. `full` is the task page's: a stopped agent's last words in full, not clipped as on a card.
+ */
+function accLook(row: TaskRow, full = false): Look {
   if (row.autopilot && row.display === 'needs-you') return autopilotLook(row)!;
   const closed = closedPrLook(row);
   if (closed) return closed;
+  const stopped = stoppedLook(row, full ? Infinity : CARD_SAID);
+  if (stopped) return stopped;
   if (row.agent && row.display === 'needs-you') return row.agent;
   const analysis = analysisLook(row);
   if (analysis && (row.display === 'needs-you' || row.analyzing)) return analysis;
@@ -344,7 +369,7 @@ function accLook(row: TaskRow): Look {
 }
 
 /** The steps a tracker's card offers for its task: start it, its analysis (D-052), or watch its agent. */
-const NEXT_STEPS = ['acc.task.dispatch', 'acc.task.analyze', 'acc.task.watchAnalysis', 'acc.task.show', 'acc.task.watch', 'acc.task.openInClaude'];
+const NEXT_STEPS = ['acc.task.dispatch', 'acc.task.analyze', 'acc.task.watchAnalysis', 'acc.task.show', 'acc.task.watch', 'acc.task.openInClaude', 'acc.task.resume'];
 
 export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): TrackerBoard {
   const byId = new Map(rows.map((r) => [r.id, r]));
@@ -518,8 +543,8 @@ export function ticketModel(i: TicketInput): TicketModel {
   const t = i.ticket;
   const live = i.tracker !== null;
   const acc: TicketAcc | null = i.row && i.task ? {
-    look: accLook(i.row), environment: i.task.environment, waitingOn: i.row.deps, blocker: i.task.blocker, conflicts: conflictLine(i.row, true),
-    agent: i.row.agent ?? null, worktree: i.task.run?.worktree ?? null, branch: i.task.run?.branch ?? null, checks: i.checks,
+    look: accLook(i.row, true), environment: i.task.environment, waitingOn: i.row.deps, blocker: i.task.blocker, conflicts: conflictLine(i.row, true),
+    agent: i.row.stopped ? null : i.row.agent ?? null, worktree: i.task.run?.worktree ?? null, branch: i.task.run?.branch ?? null, checks: i.checks,
     history: i.task.history.map((h) => ({ at: h.at, from: h.from, to: h.to, by: h.by, reason: h.reason ?? null })).reverse(),
     // Its analysis has its own section, with its own buttons.
     actions: cardActions(i.row, { project: i.project, task: i.row.id }).filter((a) => !['acc.task.show', 'acc.task.openTicket', 'acc.task.analyze', 'acc.task.watchAnalysis'].includes(a.command)),
@@ -1139,6 +1164,8 @@ export function autopilotStepLook(r: AutopilotRecord): { look: Look; detail: str
   }
   if (r.step === 'land' && r.pr) return { look: LOOK(r.pr.opened ? `Autopilot landed it: pull request #${r.pr.number}` : `Autopilot updated pull request #${r.pr.number}`, 'git-pull-request', 'blue'), detail: null, url: r.pr.url || null };
   if (r.step === 'dispatch') return { look: LOOK('Autopilot re-dispatched it for the review\'s changes', 'debug-restart', 'blue'), detail: null, url: null };
+  // A builder that stopped, carried on once (D-???), with the last thing it said.
+  if (r.step === 'resume') return { look: LOOK('Autopilot resumed it', 'debug-continue', 'blue'), detail: r.reason || null, url: null };
   if (r.base) return { look: LOOK(`Autopilot merged ${r.base} into it`, 'git-merge', 'blue'), detail: 'Its checks passed on the merge. It\'s reviewed next, then landed.', url: null };
   return { look: LOOK('Autopilot found it no longer conflicts', 'git-merge', 'blue'), detail: null, url: r.pr?.url || null };
 }
@@ -1450,8 +1477,16 @@ export function homeModel(i: HomeInput): HomeModel {
         }
         // A step autopilot couldn't take (D-055): why, and the same step to take by hand.
         if (r.autopilot) {
-          const byHand = acts.find((a) => a.primary && ['acc.task.review', 'acc.task.land', 'acc.task.dispatch', 'acc.task.openPr'].includes(a.command));
+          const byHand = acts.find((a) => a.primary && ['acc.task.review', 'acc.task.land', 'acc.task.dispatch', 'acc.task.openPr', 'acc.task.resume'].includes(a.command));
           attention.push({ key: `t:${p.root}:${r.id}`, look: autopilotLook(r, false)!, title: `${r.id} ${r.title}`, detail: `${p.name} · ${r.autopilot.reason.replace(/([^.!?])$/, '$1.')} Do it by hand, or a new commit lets autopilot try again.`, project: p.name, actions: [...(byHand ? [byHand] : []), details] });
+          continue;
+        }
+        // Its builder stopped before acc done or acc block (D-???): what it last said, and Resume.
+        if (r.stopped) {
+          const resume = acts.find((a) => a.command === 'acc.task.resume');
+          const watch = acts.find((a) => a.command === 'acc.task.watch');
+          const said = r.stopped.said ? saidLine(r.stopped.said, 140) : 'its turn ended before acc done or acc block';
+          attention.push({ key: `t:${p.root}:${r.id}`, look: LOOK('Its agent stopped', 'debug-disconnect', 'orange'), title: `${r.id} ${r.title}`, detail: `${p.name} · ${said}`, ...(r.stopped.said ? { tip: r.stopped.said } : {}), project: p.name, actions: [...(resume ? [resume] : []), ...(watch ? [{ ...watch, primary: false }] : []), details] });
           continue;
         }
         // Its pull request was closed (D-063): autopilot won't replace it, so a person lands it again, or reopens it first.

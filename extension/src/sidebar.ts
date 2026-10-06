@@ -9,6 +9,7 @@ import { EFFORTS } from '../../packages/core/src/config.ts';
 import { run as runSync } from '../../packages/core/src/exec.ts';
 import { repoPaths } from '../../packages/core/src/paths.ts';
 import { receiptHooks } from '../../packages/core/src/receipts.ts';
+import { endResume } from '../../packages/core/src/resume.ts';
 import type { Hub, Project } from './hub.ts';
 import { type AgentSession, agentName, CLAUDE_EXTENSION, claudeSessionUri, githubBranchUrl, isSessionId, landMessage, sessionFor } from './logic.ts';
 import { laneMove, sessionKey } from './model.ts';
@@ -71,6 +72,7 @@ export class Sidebar {
     reg('acc.tasks.refresh', () => this.hub.loadTasks(true));
     reg('acc.task.dispatch', (n: TaskNode) => this.dispatchTask(n));
     reg('acc.task.watch', (n: TaskNode) => this.watchTask(n));
+    reg('acc.task.resume', (n: TaskNode) => this.resumeTask(n));
     reg('acc.task.review', (n: TaskNode) => this.reviewTask(n));
     reg('acc.task.watchReview', (n: TaskNode) => this.watchReview(n));
     reg('acc.task.analyze', (n: TaskNode) => this.analyzeTask(n));
@@ -319,8 +321,32 @@ export class Sidebar {
     if (!reason) return;
     const session = this.hub.agents.find((s) => s.id && s.id === n.task.run?.bgId);
     if (session?.id && session.pid) await runFile('claude', ['stop', session.id], n.project.root, process.env, undefined, 30_000);
+    // A resumed builder isn't a background session: its own process is ended (D-???).
+    try {
+      endResume(repoPaths(n.project.root, runSync), n.task.id);
+    } catch (e) {
+      this.log.warn(`Couldn't end ${n.task.id}'s resume: ${(e as Error).message}`);
+    }
     await this.runAcc(n.project, ['set', n.task.id, 'todo', '--reason', reason], () => `${n.task.id} is back in To do. Its worktree is kept.`);
     await this.hub.loadAgents();
+  }
+
+  /**
+   * Carries a stopped builder on in its own session, in its worktree (D-???): acc resume, which starts it
+   * and returns. It's told it was cut off, and finishes with acc done or blocks.
+   */
+  private async resumeTask(n: TaskNode): Promise<void> {
+    if (n?.kind !== 'task') return;
+    const { project, task } = n;
+    let resumed = false;
+    await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Resuming ${task.id}`, cancellable: false }, async (progress) => {
+      progress.report({ message: 'carrying its builder on in its worktree…' });
+      resumed = await this.runAcc(project, ['resume', task.id], () => undefined);
+    });
+    if (!resumed) return;
+    await this.hub.loadAgents();
+    const pick = await vscode.window.showInformationMessage(`${task.id} is resumed: its builder carries on in its worktree, told its last turn ended early. It finishes with acc done, or blocks.`, 'Watch');
+    if (pick === 'Watch') this.watchTask(n);
   }
 
   private async cleanupTask(n: TaskNode): Promise<void> {

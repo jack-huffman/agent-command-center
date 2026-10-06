@@ -49,6 +49,18 @@ const ticket: Ticket = {
   body: { blocks: [{ t: 'p', c: [{ t: 'text', text: 'Body' }] }] }, markdown: 'Body', comments: [], related: [],
 };
 
+test('a stopped builder\'s task page quotes what it last said in full, and lists Resume (D-???)', () => {
+  const said = `API Error: Your computer went to sleep mid-response. ${'The response above may be incomplete. '.repeat(6).trim()}`;
+  const task = { id: 'ACME-1', title: 'Ready one', brief: 'Brief', source: { kind: 'jira', key: 'ACME-1', url: null }, environment: 'dev', deps: [], labels: [], state: 'running', blocker: null,
+    run: { worktree: '/w1', branch: 'b1', bgId: 'bg1', sessionId: 'sess-1' }, pr: null, history: [], createdAt: '', updatedAt: '' } as never;
+  const stopped = row('ACME-1', 'running', 'needs-you', { run: { worktree: '/w1', branch: 'b1', bgId: 'bg1', sessionId: 'sess-1' }, agent: { label: 'Needs you', icon: 'bell', tone: 'orange' }, stopped: { said } });
+  const page = ticketModel({ project: '/r', tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira', key: 'ACME-1', loading: false, error: null, connect: null, checks: [], ticket, row: stopped, task });
+  assert.deepEqual(page.acc!.look, { label: `Needs you: its agent stopped: ${said}`, icon: 'debug-disconnect', tone: 'orange' }, 'in full on its page');
+  assert.equal(page.acc!.agent, null);
+  assert.deepEqual(page.acc!.actions.filter((a) => a.primary).map((a) => a.command), ['acc.task.resume']);
+  assert.ok(page.acc!.actions.some((a) => a.command === 'acc.task.watch'));
+});
+
 test('a ticket page: the tracker\'s ticket takes comments, and its fields change only where the tracker says edits; acc\'s side shows when acc keeps it; otherwise it offers Track in acc', () => {
   const task = { id: 'ACME-1', title: 'Ready one', brief: 'Brief', source: { kind: 'jira', key: 'ACME-1', url: null }, environment: 'dev', deps: [], labels: [], state: 'todo', blocker: null, run: null, pr: null,
     history: [{ at: '2026-09-01T00:00:00Z', from: null, to: 'todo', by: 'human:me' }, { at: '2026-09-02T00:00:00Z', from: 'todo', to: 'running', by: 'human:me' }], createdAt: '', updatedAt: '' } as never;
