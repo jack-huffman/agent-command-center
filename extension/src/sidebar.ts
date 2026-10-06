@@ -198,7 +198,7 @@ export class Sidebar {
     const items = [
       { label: '$(add) Write a task', detail: 'A title and details, kept by acc.', go: () => this.addTask(node) },
       ...(project.config.github ? [{ label: '$(github) Import GitHub issues', description: project.config.github.repo, detail: 'Adds a task for each open issue, and refreshes the ones already here.', go: () => this.importGithub(node) }] : []),
-      ...(jira ? [{ label: '$(issues) Track a Jira ticket', detail: 'Its board is on the Tasks tab: open a ticket and choose Track in acc.', go: () => vscode.commands.executeCommand('acc.open.tasks') }]
+      ...(jira ? [{ label: '$(issues) Track a Jira ticket', detail: 'Its board is on the Tasks tab: choose Track on its card, or Track in acc on its page.', go: () => vscode.commands.executeCommand('acc.open.tasks') }]
         : [{ label: '$(plug) Connect Jira', detail: 'Sign in, then pick the project and board. Its tickets show on the Tasks tab.', go: () => vscode.commands.executeCommand('acc.trackers.add', { root: project.root, kind: 'jira' }) }]),
     ];
     const pick = await vscode.window.showQuickPick(items, { title: `New work for ${project.name}` });

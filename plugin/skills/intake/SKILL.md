@@ -15,7 +15,7 @@ It also follows issues that left the open list. A task whose issue was closed mo
 
 ## Jira or Azure DevOps
 
-The VSCode Command Center shows each tracker's board and has **Track in acc** on every ticket. That's the easy way, and it shows only tickets in the repo's place.
+The VSCode Command Center shows each tracker's board, with **Track** on every card acc doesn't keep yet (except in a done column), and **Track in acc** on every ticket's page. That's the easy way, and it shows only tickets in the repo's place.
 
 From a session, first read the tracker's place from `.acc/config.json`, and ask the connector for tickets in it only. Another project's or another client's tickets must never come in:
 
