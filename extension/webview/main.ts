@@ -4,6 +4,7 @@ import type {
   Action, AgentModel, AgentsModel, EntryView, EnvironmentsModel, HistoryItem, HomeModel, HomeSection, IdentityCard, Look, Model, PersonChip, QuestionCard, Ref, RunCard, SetupModel, SetupRow, TasksModel, TicketAnalysis, TicketModel, TrackerBoard, TrackerCard, UpdateCard, ViewKind, WorktreesModel,
 } from '../src/model.ts';
 import type { Block, Doc, Inline } from '../../packages/core/src/trackers/doc.ts';
+import { Pending } from './pending.ts';
 
 declare function acquireVsCodeApi(): { postMessage(m: unknown): void; getState(): unknown; setState(s: unknown): void };
 const api = acquireVsCodeApi();
@@ -489,12 +490,9 @@ function onDone(msg: { action?: string; ok?: boolean; error?: string; project?: 
   if (msg.action === 'update-post' || msg.action === 'update-discard' || msg.action === 'update-ask') {
     // The page has already redrawn with what acc did; a refusal comes back to try again, saying why (D-059).
     const key = msg.action === 'update-ask' ? askKey(msg.project ?? '', msg.task ?? '', msg.question ?? '') : updateKey(msg.project ?? '', msg.id ?? '');
-    const was = sendingUpdates.get(key);
-    sendingUpdates.delete(key);
-    if (msg.ok) {
-      updateErrors.delete(key);
-      if (msg.action === 'update-post') remember((s) => { delete s.drafts[key]; });
-    } else updateErrors.set(key, `${was === 'discard' ? 'It wasn\'t discarded' : was === 'ask' ? 'It wasn\'t drafted' : 'It wasn\'t posted'}: ${msg.error?.trim() || 'acc didn\'t say why.'}`);
+    const was = pending.what(key);
+    pending.settle(key, msg.ok ? null : `${was === 'discard' ? 'It wasn\'t discarded' : was === 'ask' ? 'It wasn\'t drafted' : 'It wasn\'t posted'}: ${msg.error?.trim() || 'acc didn\'t say why.'}`);
+    if (msg.ok && msg.action === 'update-post') remember((s) => { delete s.drafts[key]; });
     if (last) render(last);
     return;
   }
@@ -503,8 +501,8 @@ function onDone(msg: { action?: string; ok?: boolean; error?: string; project?: 
     // comes back to edit, saying why.
     const key = answerKey(msg.project ?? '', msg.task ?? '', msg.question ?? '');
     if (msg.ok) remember((s) => { delete s.drafts[key]; });
-    else if (sendingAnswers.delete(key)) {
-      answerErrors.set(key, msg.error?.trim() || 'acc didn\'t say why.');
+    else if (pending.what(key)) {
+      pending.settle(key, msg.error?.trim() || 'acc didn\'t say why.');
       if (last) render(last);
     }
     return;
@@ -519,17 +517,16 @@ function onDone(msg: { action?: string; ok?: boolean; error?: string; project?: 
 
 // ---------------------------------------------------------------- ticket updates (D-066)
 
-/** Updates and questions on their way to acc, by key, and what's being done; shown so until acc replies (D-059). */
-const sendingUpdates = new Map<string, 'post' | 'discard' | 'ask'>();
-/** Why the last try didn't go, until it's tried again or the update goes. */
-const updateErrors = new Map<string, string>();
+/**
+ * Answers, updates and questions on their way to acc, by key, and what's being done; shown so until acc
+ * replies, then why not if it refused, until it's tried again or it leaves the page (D-059).
+ */
+const pending = new Pending<'answer' | 'post' | 'discard' | 'ask'>();
 const updateKey = (project: string, id: string): string => `update:${project}#${id}`;
 const askKey = (project: string, task: string, question: string): string => `ask:${project}#${task}:${question}`;
 
 function sendUpdate(key: string, what: 'post' | 'discard' | 'ask', msg: Record<string, unknown>): void {
-  if (sendingUpdates.has(key)) return;
-  sendingUpdates.set(key, what);
-  updateErrors.delete(key);
+  if (!pending.start(key, what)) return;
   api.postMessage(msg);
   if (last) render(last);
 }
@@ -537,7 +534,7 @@ function sendUpdate(key: string, what: 'post' | 'discard' | 'ask', msg: Record<s
 /** Post and Discard for an update; the text posted is the box's, on the task's page, or the draft as acc wrote it. */
 function updateButtons(c: UpdateCard, text: () => string): HTMLElement[] {
   const key = updateKey(c.project, c.id);
-  const sending = sendingUpdates.get(key);
+  const sending = pending.what(key);
   if (sending) return [el('span', 'q-sending muted', icon('sync~spin'), sending === 'discard' ? 'Discarding…' : `Posting as ${c.postAs ?? 'you'}…`)];
   if (c.state === 'posting' && !c.stale) return [el('span', 'q-sending muted', icon('sync~spin'), 'Being posted…')];
   const discard = button('Discard', 'trash', () => sendUpdate(key, 'discard', { type: 'update-discard', project: c.project, id: c.id }), 'ghost');
@@ -553,7 +550,7 @@ function updateButtons(c: UpdateCard, text: () => string): HTMLElement[] {
 
 /** Why an update didn't go, or may have gone, in orange with a warning icon. */
 function updateNotes(c: UpdateCard): HTMLElement[] {
-  const error = updateErrors.get(updateKey(c.project, c.id));
+  const error = pending.error(updateKey(c.project, c.id));
   const note = (text: string) => el('div', 'aq-error', icon('warning'), el('span', '', text));
   return [
     ...(c.stale ? [note(`This may have posted already: it was being posted and never confirmed. Look at ${c.key} before you post it again.`)] : []),
@@ -579,7 +576,7 @@ const posterLine = (c: UpdateCard): HTMLElement => (c.blocked ? el('span', 'acti
  */
 function updateDraft(c: UpdateCard): HTMLElement {
   const key = updateKey(c.project, c.id);
-  const sending = sendingUpdates.has(key);
+  const sending = !!pending.what(key);
   const box = el('textarea', 'comment-box act-draft-text') as HTMLTextAreaElement;
   box.value = memory().drafts[key] ?? c.text;
   box.rows = 3;
@@ -703,10 +700,7 @@ function renderTicket(m: TicketModel): Node[] {
 
 type AnalysisAsk = TicketAnalysis['open'][number];
 
-/** Answers on their way to acc, by question: shown as sending until the question goes, or acc refuses it. */
-const sendingAnswers = new Set<string>();
-/** Why the last answer to a question wasn't recorded, until it's sent again or the question goes. */
-const answerErrors = new Map<string, string>();
+/** An answer stays "Sending…" until its question goes, or acc refuses it. */
 const answerKey = (project: string, task: string, question: string): string => `analysis:${project}#${task}:${question}`;
 
 /**
@@ -716,21 +710,19 @@ const answerKey = (project: string, task: string, question: string): string => `
 function analysisQuestion(project: string, task: string, q: AnalysisAsk, canAsk = false): HTMLElement {
   const key = answerKey(project, task, q.id);
   const send = (text: string) => {
-    if (!text.trim() || sendingAnswers.has(key)) return;
-    sendingAnswers.add(key);
-    answerErrors.delete(key);
+    if (!text.trim() || !pending.start(key, 'answer')) return;
     api.postMessage({ type: 'analysis-answer', project, task, question: q.id, text: text.trim() });
     if (last) render(last);
   };
   const box = el('div', 'aq', el('div', 'aq-q', el('span', 'aq-id', q.id), el('span', 'strong', q.question)), q.why ? el('div', 'muted small aq-why', q.why) : null, clientLine(project, task, q, canAsk));
   box.setAttribute('role', 'group');
   box.setAttribute('aria-label', q.question);
-  if (sendingAnswers.has(key)) {
+  if (pending.what(key)) {
     box.classList.add('sent');
     box.append(el('div', 'q-sending muted', icon('sync~spin'), 'Sending your answer…'));
     return box;
   }
-  const error = answerErrors.get(key);
+  const error = pending.error(key);
   if (error) box.append(el('div', 'aq-error', icon('warning'), el('span', '', `Your answer wasn't recorded: ${error}`)));
   if (q.suggested.trim() && q.suggested.length <= 4000) {
     const use = el('button', 'aq-suggest', icon('lightbulb'), el('span', 'aq-suggest-text', el('span', 'muted', 'Use the suggestion: '), q.suggested)) as HTMLButtonElement;
@@ -757,8 +749,8 @@ function clientLine(project: string, task: string, q: AnalysisAsk, canAsk: boole
   if (q.client === 'drafted') return el('div', 'aq-client muted', icon('comment-draft'), 'Drafted for the client: post it from the task\'s Activity');
   if (!canAsk) return null;
   const key = askKey(project, task, q.id);
-  const error = updateErrors.get(key);
-  if (sendingUpdates.has(key)) return el('div', 'aq-client muted', icon('sync~spin'), 'Drafting it for the client…');
+  const error = pending.error(key);
+  if (pending.what(key)) return el('div', 'aq-client muted', icon('sync~spin'), 'Drafting it for the client…');
   const ask = button('Send to the client', 'comment-draft', () => sendUpdate(key, 'ask', { type: 'update-ask', project, task, question: q.id }), 'ghost small');
   ask.title = 'Draft this question as an update for the ticket. You read and post it before it goes.';
   return el('div', 'aq-client', ask, error ? el('span', 'aq-error', icon('warning'), el('span', '', error)) : null);
@@ -1795,16 +1787,13 @@ function forgetAnswered(model: Model): void {
     : model.kind === 'ticket' ? (model.analysis?.open ?? []).map((q) => answerKey(model.project, model.analysis!.task, q.id)) : null;
   if (!shown) return;
   const keep = new Set(shown);
-  for (const k of [...sendingAnswers]) if (!keep.has(k)) sendingAnswers.delete(k);
-  for (const k of [...answerErrors.keys()]) if (!keep.has(k)) answerErrors.delete(k);
   if (Object.keys(memory().drafts).some((k) => k.startsWith('analysis:') && !keep.has(k))) remember((x) => { for (const k of Object.keys(x.drafts)) if (k.startsWith('analysis:') && !keep.has(k)) delete x.drafts[k]; });
   // So do updates that have gone: posted, discarded, or replaced by a newer draft (D-066).
   const updates = model.kind === 'home' ? model.overview.attention.flatMap((a) => (a.update ? [a.update] : [])) : model.kind === 'ticket' ? model.updates : [];
   const asks = (model.kind === 'home' ? model.overview.attention.flatMap((a) => (a.analysis ? a.analysis.questions.map((q) => askKey(a.analysis!.project, a.analysis!.task, q.id)) : []))
     : model.kind === 'ticket' ? (model.analysis?.open ?? []).map((q) => askKey(model.project, model.analysis!.task, q.id)) : []);
   const live = new Set([...updates.map((u) => updateKey(u.project, u.id)), ...asks]);
-  for (const k of [...sendingUpdates.keys()]) if (!live.has(k)) sendingUpdates.delete(k);
-  for (const k of [...updateErrors.keys()]) if (!live.has(k)) updateErrors.delete(k);
+  pending.forget(new Set([...keep, ...live]));
   if (model.kind === 'ticket' && Object.keys(memory().drafts).some((k) => k.startsWith(`update:${model.project}#${model.key}.`) && !live.has(k))) {
     remember((x) => { for (const k of Object.keys(x.drafts)) if (k.startsWith(`update:${model.project}#${model.key}.`) && !live.has(k)) delete x.drafts[k]; });
   }
