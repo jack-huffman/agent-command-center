@@ -14,6 +14,9 @@ import { makeRepo } from '../../packages/core/test/support.ts';
 const dist = fileURLToPath(new URL('../dist/extension.js', import.meta.url));
 // The extension says it's listening for agents' questions (D-030); keep that out of the real ~/.acc.
 process.env.ACC_QUESTIONS_DIR = mkdtempSync(join(tmpdir(), 'acc-questions-'));
+// It records its runtime for acc's launcher (D-???); that goes here too, not in the real ~/.acc.
+const RUNTIME_FILE = join(mkdtempSync(join(tmpdir(), 'acc-runtime-')), 'runtime');
+process.env.ACC_RUNTIME_FILE = RUNTIME_FILE;
 // The extension runs acc as the person at VSCode, even when these tests run in a builder's session.
 delete process.env.ACC_ROLE;
 delete process.env.ACC_TASK;
@@ -138,8 +141,8 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     subscriptions: [] as unknown[],
     asAbsolutePath: (p: string) => join(extDir, p),
     extensionUri: { fsPath: extDir, toString: () => `file://${extDir}` },
-    // Fresh machine results, so the test doesn't call slow machine CLIs.
-    globalState: memento({ 'acc.welcomed': true, 'acc.machineItems': { at: Date.now(), items: [{ id: 'A1.git', part: 'machine', title: 'git', status: 'pass', detail: 'git 2.54.0' }] } }),
+    // Fresh machine results for this folder's profile, so the test doesn't call slow machine CLIs.
+    globalState: memento({ 'acc.welcomed': true, 'acc.machineItems': { at: Date.now(), profile: 'generic', items: [{ id: 'A1.git', part: 'machine', title: 'git', status: 'pass', detail: 'git 2.54.0' }] } }),
     workspaceState: memento(),
     environmentVariableCollection: { description: '', prepend: (k: string, v: string) => prepends.push([k, v]) },
   };
@@ -149,6 +152,7 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     for (const c of Object.values(COMMANDS)) assert.ok(calls.commands.has(c), `${c} registered`);
     assert.equal(prepends[0]?.[0], 'PATH');
     assert.match(prepends[0]![1], /extension\/dist\/bin:$/);
+    assert.equal(readFileSync(RUNTIME_FILE, 'utf8'), `${process.execPath}\n`, 'acc\'s launcher can use this runtime where node isn\'t on PATH');
 
     // The full setup pass, not just an early single-step re-check (B14 re-checks as soon as projects load).
     await until(() => calls.contexts.get('acc.profile') === 'generic' && calls.contexts.has('acc.step.B0.config') && calls.contexts.has('acc.step.A1.git')).catch((e) => {
@@ -165,7 +169,8 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     await until(() => calls.contexts.get('acc.hasProject') === true);
     const launcher = trees.get('acc.home')!;
     assert.deepEqual((launcher.getChildren() as { section: string }[]).map((n) => n.section), ['overview', 'tasks', 'agents', 'worktrees', 'environments', 'setup']);
-    const accBin = join(extDir, 'dist', 'bin', 'acc');
+    // The extension runs the bundle itself; terminals get the launcher beside it.
+    const accBin = join(extDir, 'dist', 'bin', 'acc.mjs');
     const added = spawnSync(process.execPath, [accBin, 'add', 'Try the page'], { cwd: repo, encoding: 'utf8' });
     assert.equal(added.status, 0, added.stderr);
     await calls.commands.get('acc.tasks.refresh')!();

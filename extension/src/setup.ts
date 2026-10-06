@@ -39,7 +39,7 @@ export class Setup implements vscode.Disposable {
 
   constructor(ctx: vscode.ExtensionContext) {
     this.ctx = ctx;
-    this.accScript = ctx.asAbsolutePath(join('dist', 'bin', 'acc'));
+    this.accScript = ctx.asAbsolutePath(join('dist', 'bin', 'acc.mjs'));
     this.guide = ctx.asAbsolutePath(join('dist', 'ONBOARDING.md'));
     this.status.name = 'Agent Command Center setup';
     this.status.command = COMMANDS.project;
