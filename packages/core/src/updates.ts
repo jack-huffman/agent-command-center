@@ -172,6 +172,21 @@ const sameNews = (a: Pick<Update, 'task' | 'event' | 'env' | 'question'>, b: Pic
   return a.task === b.task && family(a.event) === family(b.event) && (a.env ?? '') === (b.env ?? '') && (a.question ?? '') === (b.question ?? '');
 };
 
+/** How far a change has gone: its pull request, then its merge, then its deploy (D-071). */
+const STAGE: Partial<Record<UpdateEvent, number>> = { 'pr-opened': 0, 'pr-updated': 0, merged: 1, deployed: 2 };
+
+/**
+ * Whether news overtakes an older draft of the task's, so the client isn't told a change is ready for
+ * review once it's merged (D-071). A merge overtakes the pull request's draft; a deploy overtakes those
+ * and the merge into the same environment. A deploy to QA doesn't overtake a merge into Dev.
+ */
+const overtakes = (next: Pick<Update, 'task' | 'event' | 'env'>, old: Pick<Update, 'task' | 'event' | 'env'>): boolean => {
+  const n = STAGE[next.event];
+  const o = STAGE[old.event];
+  if (next.task !== old.task || n === undefined || o === undefined || n <= o) return false;
+  return o === 0 || (old.env ?? '') === (next.env ?? '');
+};
+
 export interface DraftInput {
   event: UpdateEvent;
   env?: string;
@@ -186,7 +201,8 @@ export interface DraftInput {
  * Drafts an update for a task's ticket. It only writes a file: nothing is posted. A task with no tracker
  * key gets none (null). The same news drafted again before anyone posted it replaces the draft: a pull
  * request updated three times is one draft, with the latest link. A pull request whose opened draft
- * still waits keeps saying it's ready for review, rather than updated. The new draft names the ones it
+ * still waits keeps saying it's ready for review, rather than updated. Later news replaces an unposted
+ * draft it overtakes (D-071): merged stands in for ready for review. The new draft names the ones it
  * replaced (`replaces`), so an edit typed for an old one isn't lost.
  */
 export function draftUpdate(paths: UpdatePaths, task: Pick<Task, 'id' | 'source'>, input: DraftInput, by: string, now: () => Date): Update | null {
@@ -196,6 +212,8 @@ export function draftUpdate(paths: UpdatePaths, task: Pick<Task, 'id' | 'source'
     const all = listUpdates(paths);
     const mine = all.filter((u) => u.task === task.id);
     const replaced = mine.find((u) => u.state === 'draft' && sameNews(u, { task: task.id, ...input }));
+    const overtaken = mine.filter((u) => u.state === 'draft' && u !== replaced && overtakes({ task: task.id, ...input }, u));
+    const gone = [...(replaced ? [replaced] : []), ...overtaken];
     const event: UpdateEvent = input.event === 'pr-updated' && replaced?.event === 'pr-opened' ? 'pr-opened' : input.event;
     const text = event === input.event && input.text !== undefined ? input.text : updateText(event, { ...input.context, ...(input.pr ? { pr: input.pr } : {}), ...(input.env ? { env: input.env } : {}) });
     const n = Math.max(0, ...mine.map((u) => Number(u.id.slice(task.id.length + 1)) || 0)) + 1;
@@ -203,11 +221,11 @@ export function draftUpdate(paths: UpdatePaths, task: Pick<Task, 'id' | 'source'
       v: 1, id: `${task.id}.${n}`, task: task.id, tracker: ticket.tracker, key: ticket.key, url: ticket.url, event, text, state: 'draft',
       ...(input.env ? { env: input.env } : {}), ...(input.pr ? { pr: { number: input.pr.number, url: input.pr.url } } : {}), ...(input.question ? { question: input.question } : {}),
       createdAt: now().toISOString(), by,
-      ...(replaced ? { replaces: [replaced.id, ...(replaced.replaces ?? [])].slice(0, REPLACES_MAX) } : {}),
+      ...(gone.length ? { replaces: gone.flatMap((r) => [r.id, ...(r.replaces ?? [])]).slice(0, REPLACES_MAX) } : {}),
     };
     writeUpdate(paths, u);
-    // The new draft stands in its place; the old one was never posted, so nothing is lost.
-    if (replaced) rmSync(updateFile(paths, replaced.id), { force: true });
+    // The new draft stands in their place; they were never posted, so nothing is lost.
+    for (const r of gone) rmSync(updateFile(paths, r.id), { force: true });
     return u;
   });
 }

@@ -52,14 +52,36 @@ test('the same news drafted again before anyone posts it replaces the draft; oth
   draftUpdate(paths, jira('ACME-13'), { event: 'merged', env: 'Dev' }, 'acc sync', now);
   all = listUpdates(paths);
   assert.deepEqual(all.map((u) => [u.id, u.event, u.state, u.env ?? u.question ?? '']), [
-    ['ACME-12.4', 'pr-opened', 'posted', ''], ['ACME-12.6', 'pr-updated', 'draft', ''], ['ACME-12.7', 'merged', 'draft', 'Dev'],
+    ['ACME-12.4', 'pr-opened', 'posted', ''], ['ACME-12.7', 'merged', 'draft', 'Dev'],
     ['ACME-12.8', 'deployed', 'draft', 'QA'], ['ACME-12.9', 'deployed', 'draft', 'Production'], ['ACME-12.10', 'question', 'draft', 'q1'], ['ACME-12.11', 'question', 'draft', 'q2'],
     ['ACME-13.1', 'merged', 'draft', 'Dev'],
   ]);
   assert.deepEqual(all.map((u) => [u.id, u.replaces]), [
-    ['ACME-12.4', ['ACME-12.3', 'ACME-12.2', 'ACME-12.1']], ['ACME-12.6', ['ACME-12.5']], ['ACME-12.7', undefined], ['ACME-12.8', undefined],
+    ['ACME-12.4', ['ACME-12.3', 'ACME-12.2', 'ACME-12.1']], ['ACME-12.7', ['ACME-12.6', 'ACME-12.5']], ['ACME-12.8', undefined],
     ['ACME-12.9', undefined], ['ACME-12.10', undefined], ['ACME-12.11', undefined], ['ACME-13.1', undefined],
   ], 'a posted draft is replaced by nothing: the news after it starts afresh');
+});
+
+test('later news replaces an unposted draft it overtakes: merged for ready for review, deployed for merged into the same place (D-071)', () => {
+  const paths = store();
+  draftUpdate(paths, jira(), { event: 'pr-opened', pr }, 'acc land', now);
+  draftUpdate(paths, jira(), { event: 'question', question: 'q1', text: 'One?' }, 'human:jordan', now);
+  draftUpdate(paths, jira(), { event: 'merged', env: 'Dev' }, 'acc sync', now);
+  let all = listUpdates(paths);
+  assert.deepEqual(all.map((u) => [u.id, u.event, u.replaces]), [['ACME-12.2', 'question', undefined], ['ACME-12.3', 'merged', ['ACME-12.1']]], 'merged stands in for ready for review; a question is other news');
+  draftUpdate(paths, jira(), { event: 'deployed', env: 'QA' }, 'human:jordan', now);
+  draftUpdate(paths, jira(), { event: 'deployed', env: 'Dev' }, 'human:jordan', now);
+  all = listUpdates(paths);
+  assert.deepEqual(all.map((u) => [u.id, u.event, u.env ?? '', u.replaces]), [
+    ['ACME-12.2', 'question', '', undefined], ['ACME-12.4', 'deployed', 'QA', undefined], ['ACME-12.5', 'deployed', 'Dev', ['ACME-12.3', 'ACME-12.1']],
+  ], 'a deploy to QA leaves the merge into Dev; the deploy to Dev takes its place, and the edit chain with it');
+
+  // Posted news is never taken back, and a later stage never undoes a draft that's being posted.
+  const posted = store();
+  draftUpdate(posted, jira(), { event: 'pr-opened', pr }, 'acc land', now);
+  claimUpdate(posted, 'ACME-12.1', 'human:jordan', now);
+  draftUpdate(posted, jira(), { event: 'merged', env: 'Dev' }, 'acc sync', now);
+  assert.deepEqual(listUpdates(posted).map((u) => [u.id, u.state]), [['ACME-12.1', 'posting'], ['ACME-12.2', 'draft']]);
 });
 
 test('a draft remembers the last twenty drafts it replaced', () => {
