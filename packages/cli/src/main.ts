@@ -681,7 +681,7 @@ function personOnly(o: Opts, what: string): string {
 }
 
 function cmdPromote(o: Opts, from: string): number {
-  personOnly(o, 'promote');
+  const by = personOnly(o, 'promote');
   const { paths, config } = project(process.cwd());
   const say = (line: string) => { if (!o.json) process.stderr.write(tone(line, 'dim') + '\n'); };
   const show = (p: ReturnType<typeof planPromotion>) => [
@@ -696,8 +696,13 @@ function cmdPromote(o: Opts, from: string): number {
     out(o, () => show(p).join('\n'), p);
     return 0;
   }
-  const r = promote(paths, config, from, o.to as string | undefined, { run, now, env: process.env, onStep: say }, { allowDeletions: o['allow-deletions'] === true, validate: o['skip-validate'] !== true });
-  out(o, () => [...show(r.plan), '', r.pr ? `Opened pull request #${r.pr.number}  ${r.pr.url}` : r.stopped ?? '', r.pr ? tone('It merges only when a person merges it. Deploy after that with acc deploy.', 'dim') : ''].filter(Boolean).join('\n'), r);
+  const r = promote(paths, config, from, o.to as string | undefined, { run, now, env: process.env, onStep: say }, { allowDeletions: o['allow-deletions'] === true, validate: o['skip-validate'] !== true, by });
+  out(o, () => [
+    ...show(r.plan), '', r.pr ? `Opened pull request #${r.pr.number}  ${r.pr.url}` : r.stopped ?? '', r.pr ? tone('It merges only when a person merges it. Deploy after that with acc deploy.', 'dim') : '',
+    r.warning ? tone(`! ${r.warning}`, 'orange') : '',
+    ...r.updates.map((u) => `  Drafted an update for ${u.key} (${u.id}).`),
+    r.updates.length ? tone('Nothing is posted until a person posts it: acc updates.', 'dim') : '',
+  ].filter(Boolean).join('\n'), r);
   return r.pr || !r.stopped?.startsWith('Validation') ? 0 : 1;
 }
 

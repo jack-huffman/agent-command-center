@@ -1,15 +1,17 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { arrivedAt, carriedTasks } from '../src/carried.ts';
 import { parseConfig, type Config } from '../src/config.ts';
 import { deploy, deployArgs, lastDeploy, planDeploy } from '../src/deploy.ts';
 import { run, type RunOptions } from '../src/exec.ts';
 import { planPromotion, promote, promotionBody, promotionCheckArgs, skippedOn } from '../src/promote.ts';
 import { repoPaths } from '../src/paths.ts';
-import { mutate, upsertTasks } from '../src/ledger.ts';
-import { listUpdates } from '../src/updates.ts';
-import { fakeRunner, gitIn, makeRepo, ok, SF_CONFIG, tempDir } from './support.ts';
+import { mutate, type Promotion, readLedger, upsertTasks } from '../src/ledger.ts';
+import { sync } from '../src/sync.ts';
+import { claimUpdate, draftUpdate, listUpdates, markPosted } from '../src/updates.ts';
+import { bad, fakeRunner, gitIn, makeRepo, ok, SF_CONFIG, tempDir } from './support.ts';
 
 const now = () => new Date('2026-10-02T12:00:00Z');
 const config = (over: Record<string, unknown> = {}): Config => {
@@ -235,4 +237,197 @@ test('a Salesforce promotion is checked against the destination\'s org first, pr
   assert.match(calls[0]!, /^nice -n 15 sf project deploy start --dry-run --target-org Acme Production .* --test-level RunLocalTests$/);
   assert.ok(!calls.some((x) => x.startsWith('gh pr create')), 'no pull request for a change that wouldn\'t deploy');
   assert.ok(promotionCheckArgs('X', ['force-app/main/default/lwc/a/a.js']).includes('NoTestRun'), 'no Apex, no tests');
+});
+
+// ---------------------------------------------------------------- what a promotion tells its tickets (GH-56)
+
+const PR9 = { number: 9, url: 'https://github.com/acme-co/acme-salesforce/pull/9' };
+
+/** Done tasks as acc sync leaves them: merged into their environment at a commit, and maybe promoted on since. */
+function seed(paths: ReturnType<typeof repoPaths>, c: Config, tasks: { id: string; env?: string; mergeSha: string; promotions?: Promotion[]; manual?: true }[]) {
+  mutate(paths, now, (l, emit) => {
+    const inputs = tasks.map((s) => ({ source: s.manual ? { kind: 'manual' as const, key: s.id } : { kind: 'jira' as const, key: s.id, url: `https://acme.atlassian.net/browse/${s.id}` }, title: `Task ${s.id}`, environment: s.env ?? 'dev' }));
+    assert.deepEqual(upsertTasks(l, c, inputs, 'human', 'human:test', emit, now).errors, []);
+    for (const s of tasks) {
+      const n = Number(s.id.split('-')[1]);
+      Object.assign(l.tasks.find((t) => t.id === s.id)!, { state: 'done', pr: { number: n, url: `https://github.com/acme-co/acme-salesforce/pull/${n}`, state: 'merged', mergeSha: s.mergeSha }, ...(s.promotions ? { promotions: s.promotions } : {}) });
+    }
+  });
+}
+const taskIn = (paths: ReturnType<typeof repoPaths>, id: string) => readLedger(paths.ledger).tasks.find((t) => t.id === id)!;
+const opened: Promotion = { from: 'dev', to: 'uat', pr: PR9, state: 'open', at: now().toISOString() };
+const ghView = (state: string, calls: string[], mergeSha = 'c0ffee'.padEnd(40, '0')) => fakeRunner({
+  'gh auth token -u work-account': ok('gho\n'),
+  'gh pr view 9': ok(JSON.stringify({ number: 9, state, url: PR9.url, mergeCommit: state === 'MERGED' ? { oid: mergeSha } : null })),
+}, calls);
+
+test('a promotion records each task whose change it carries and drafts its ticket\'s update; nothing is posted (GH-56)', () => {
+  const { dir, paths } = repo();
+  const c = config();
+  const head = () => gitIn(dir, 'rev-parse', 'HEAD');
+  const before = head();
+  const uat = gitIn(dir, 'rev-parse', 'uat');
+  // On dev: ACME-1 and T-1 change classes the promotion brings, ACME-4 only an environment-specific file,
+  // and ACME-6 was in a promotion that closed without merging.
+  write(dir, 'force-app/main/default/classes/A.cls', 'public class A { void go() {} void again() {} }\n');
+  commit(dir, 'ACME-1 (#1)');
+  const one = head();
+  write(dir, 'force-app/main/default/classes/B.cls', 'public class B { void b() {} }\n');
+  commit(dir, 'T-1');
+  const manual = head();
+  write(dir, 'force-app/main/default/namedCredentials/Api.namedCredential-meta.xml', '<url>https://dev.example</url>\n');
+  commit(dir, 'ACME-4 (#4)');
+  const four = head();
+  write(dir, 'force-app/main/default/classes/B.cls', 'public class B { void b() {} void c() {} }\n');
+  commit(dir, 'ACME-6 (#6)');
+  const six = head();
+  gitIn(dir, 'push', '-q', 'origin', 'dev');
+  // ACME-2 merged after the commit that's promoted.
+  write(dir, 'force-app/main/default/classes/A.cls', 'public class A { void later() {} }\n');
+  commit(dir, 'ACME-2 (#2)');
+  const closed: Promotion = { ...opened, pr: { number: 7, url: 'https://github.com/acme-co/acme-salesforce/pull/7' }, state: 'closed' };
+  seed(paths, c, [
+    { id: 'ACME-1', mergeSha: one }, { id: 'ACME-2', mergeSha: head() },
+    // ACME-3 reached UAT by an earlier promotion; ACME-5 was built on UAT.
+    { id: 'ACME-3', mergeSha: before, promotions: [{ ...opened, pr: { number: 5, url: 'https://github.com/acme-co/acme-salesforce/pull/5' }, state: 'merged', mergeSha: uat }] },
+    { id: 'ACME-4', mergeSha: four }, { id: 'ACME-5', env: 'uat', mergeSha: uat },
+    { id: 'ACME-6', mergeSha: six, promotions: [closed] }, { id: 'T-1', manual: true, mergeSha: manual },
+  ]);
+  draftUpdate(paths, taskIn(paths, 'ACME-1'), { event: 'merged', env: 'Dev' }, 'acc sync', now);
+
+  const calls: string[] = [];
+  const r = promote(paths, c, 'dev', undefined, { run: gh(calls), now, env: {} }, { validate: false, allowDeletions: true, by: 'human:jordan' });
+  assert.deepEqual(r.pr, PR9);
+  assert.deepEqual([r.tasks, r.warning], [['ACME-1', 'ACME-6', 'T-1'], null], 'a task with no ticket is carried all the same');
+  assert.deepEqual(r.updates, [{ task: 'ACME-1', id: 'ACME-1.2', key: 'ACME-1' }, { task: 'ACME-6', id: 'ACME-6.1', key: 'ACME-6' }]);
+  const ready = 'The change is ready to go to UAT: https://github.com/acme-co/acme-salesforce/pull/9';
+  assert.deepEqual(listUpdates(paths).map((u) => [u.id, u.event, u.env, u.pr, u.state, u.by, u.text]), [
+    ['ACME-1.1', 'merged', 'Dev', undefined, 'draft', 'acc sync', 'The change was approved and merged into Dev.'],
+    ['ACME-1.2', 'promotion-opened', 'UAT', PR9, 'draft', 'human:jordan', ready],
+    ['ACME-6.1', 'promotion-opened', 'UAT', PR9, 'draft', 'human:jordan', ready],
+  ], 'the merge into Dev is other news, so it stays');
+
+  const promotions = (id: string) => taskIn(paths, id).promotions;
+  assert.deepEqual([promotions('ACME-1'), promotions('T-1'), promotions('ACME-6')], [[opened], [opened], [closed, opened]]);
+  assert.deepEqual(['ACME-2', 'ACME-4', 'ACME-5'].map(promotions), [undefined, undefined, undefined]);
+  assert.equal(promotions('ACME-3')!.length, 1);
+  const logged = JSON.parse(readFileSync(join(paths.stateDir, 'promotions.jsonl'), 'utf8').trim().split('\n').at(-1)!);
+  assert.deepEqual([logged.pr, logged.tasks], [PR9, ['ACME-1', 'ACME-6', 'T-1']]);
+  assert.deepEqual(calls.map((x) => x.split(' ').slice(0, 3).join(' ')), ['gh auth token', 'gh pr create'], 'nothing is posted on a ticket');
+});
+
+test('a promotion that stops before its pull request opens records and drafts nothing (GH-56)', () => {
+  const { dir, paths } = repo();
+  const c = config();
+  write(dir, 'force-app/main/default/classes/A.cls', 'public class A { void go() {} void again() {} }\n');
+  commit(dir, 'ACME-1 (#1)');
+  gitIn(dir, 'push', '-q', 'origin', 'dev');
+  seed(paths, c, [{ id: 'ACME-1', mergeSha: gitIn(dir, 'rev-parse', 'HEAD') }]);
+  const untouched = (why: string) => assert.deepEqual([listUpdates(paths), taskIn(paths, 'ACME-1').promotions], [[], undefined], why);
+
+  const failing = fakeRunner({ 'gh auth token -u work-account': ok('gho\n'), nice: { code: 1, stderr: '', stdout: JSON.stringify({ status: 1, result: { success: false } }) } });
+  const r = promote(paths, c, 'dev', undefined, { run: failing, now, env: {}, slots: { dir: tempDir('slots-') } }, { allowDeletions: true, by: 'human:jordan' });
+  assert.deepEqual([r.pr, r.tasks, r.updates], [null, [], []]);
+  untouched('validation didn\'t pass');
+
+  const refused = fakeRunner({ 'gh auth token -u work-account': ok('gho\n'), 'gh pr create': bad('HTTP 422') });
+  assert.throws(() => promote(paths, c, 'dev', undefined, { run: refused, now, env: {} }, { validate: false, allowDeletions: true, by: 'human:jordan' }), /couldn't open the pull request/);
+  untouched('gh couldn\'t open the pull request');
+
+  gitIn(dir, 'checkout', '-q', 'uat');
+  gitIn(dir, 'checkout', 'dev', '--', 'force-app/main/default/classes/A.cls', 'force-app/main/default/classes/B.cls');
+  gitIn(dir, 'rm', '-q', 'force-app/main/default/classes/Old.cls');
+  commit(dir, 'promoted by hand');
+  gitIn(dir, 'push', '-q', 'origin', 'uat');
+  assert.match(promote(paths, c, 'dev', undefined, { run: gh([]), now, env: {} }, { validate: false, by: 'human:jordan' }).stopped!, /UAT already has everything/);
+  untouched('nothing to promote');
+});
+
+test('acc sync follows an open promotion: once it merges, each ticket hears its change is in UAT, once; nothing is posted (GH-56)', () => {
+  const { dir, paths } = repo();
+  const c = config();
+  const dev = gitIn(dir, 'rev-parse', 'dev');
+  const uat = gitIn(dir, 'rev-parse', 'uat');
+  const merge = 'c0ffee'.padEnd(40, '0');
+  // No task's own pull request is open, only the promotion. ACME-2 reached UAT by an earlier one.
+  seed(paths, c, [
+    { id: 'ACME-1', mergeSha: dev, promotions: [opened] },
+    { id: 'ACME-2', mergeSha: dev, promotions: [{ ...opened, pr: { number: 5, url: 'https://github.com/acme-co/acme-salesforce/pull/5' }, state: 'merged', mergeSha: uat }, opened] },
+    { id: 'T-1', manual: true, mergeSha: dev, promotions: [opened] },
+  ]);
+  draftUpdate(paths, taskIn(paths, 'ACME-1'), { event: 'merged', env: 'Dev' }, 'acc sync', now);
+  draftUpdate(paths, taskIn(paths, 'ACME-1'), { event: 'promotion-opened', env: 'UAT', pr: PR9 }, 'human:jordan', now);
+  const calls: string[] = [];
+  assert.deepEqual(sync(paths, c, { run: ghView('OPEN', calls), now, env: {} }), { checked: 1, changes: [] }, 'still open: nothing changes');
+  assert.equal(listUpdates(paths).length, 2);
+
+  const r = sync(paths, c, { run: ghView('MERGED', calls, merge), now, env: {} });
+  assert.equal(r.checked, 1);
+  assert.deepEqual(r.changes.map((x) => [x.task, x.pr, x.moved, x.note, x.update]), [
+    ['ACME-1', 9, null, 'promotion #9 merged into UAT', { id: 'ACME-1.3', key: 'ACME-1' }],
+    ['ACME-2', 9, null, 'promotion #9 merged into UAT', undefined],
+    ['T-1', 9, null, 'promotion #9 merged into UAT', undefined],
+  ], 'ACME-2\'s ticket heard so with the first promotion, and T-1 has none');
+  assert.deepEqual(taskIn(paths, 'ACME-1').promotions, [{ ...opened, state: 'merged', mergeSha: merge }]);
+  assert.deepEqual([arrivedAt(taskIn(paths, 'ACME-1'), 'uat'), arrivedAt(taskIn(paths, 'ACME-2'), 'uat')], [merge, uat], 'where each change arrived, for a deploy to find');
+  assert.deepEqual(listUpdates(paths).map((u) => [u.id, u.event, u.env, u.by, u.text, u.replaces]), [
+    ['ACME-1.1', 'merged', 'Dev', 'acc sync', 'The change was approved and merged into Dev.', undefined],
+    ['ACME-1.3', 'promoted', 'UAT', 'acc sync', 'The change is now in UAT.', ['ACME-1.2']],
+  ], 'it stands in for the draft saying it was ready to go');
+
+  assert.deepEqual(sync(paths, c, { run: ghView('MERGED', calls, merge), now, env: {} }), { checked: 0, changes: [] }, 'followed until it merged, and no further');
+  assert.equal(listUpdates(paths).length, 2);
+  assert.deepEqual([...new Set(calls.map((x) => x.split(' ').slice(0, 3).join(' ')))], ['gh auth token', 'gh pr view'], 'nothing is posted');
+});
+
+test('a promotion closed without merging sets its unposted drafts aside, and the next promotion carries its tasks again (GH-56)', () => {
+  const { dir, paths } = repo();
+  const c = config();
+  const dev = gitIn(dir, 'rev-parse', 'dev');
+  seed(paths, c, [{ id: 'ACME-1', mergeSha: dev, promotions: [opened] }, { id: 'ACME-6', mergeSha: dev, promotions: [opened] }]);
+  draftUpdate(paths, taskIn(paths, 'ACME-1'), { event: 'promotion-opened', env: 'UAT', pr: PR9 }, 'human:jordan', now);
+  draftUpdate(paths, taskIn(paths, 'ACME-6'), { event: 'promotion-opened', env: 'UAT', pr: PR9 }, 'human:jordan', now);
+  claimUpdate(paths, 'ACME-6.1', 'human:jordan', now);
+  markPosted(paths, 'ACME-6.1', { by: 'human:jordan', text: 'Ready for UAT.' }, now);
+
+  const calls: string[] = [];
+  const r = sync(paths, c, { run: ghView('CLOSED', calls), now, env: {} });
+  assert.deepEqual(r.changes.map((x) => [x.task, x.note, x.update]), [
+    ['ACME-1', 'promotion #9 to UAT closed without merging; discarded its unposted update ACME-1.1', undefined],
+    ['ACME-6', 'promotion #9 to UAT closed without merging', undefined],
+  ]);
+  assert.deepEqual(listUpdates(paths).map((u) => [u.id, u.state, u.discarded?.by]), [['ACME-1.1', 'discarded', 'acc sync'], ['ACME-6.1', 'posted', undefined]], 'kept and marked; a posted one is left as it is');
+  assert.deepEqual(taskIn(paths, 'ACME-1').promotions!.map((p) => p.state), ['closed']);
+  assert.equal(arrivedAt(taskIn(paths, 'ACME-1'), 'uat'), undefined);
+  assert.deepEqual(carriedTasks(paths, run, planPromotion(paths, c, 'dev', undefined, { run })).map((t) => t.id), ['ACME-1', 'ACME-6'], 'the next promotion carries them again');
+  assert.ok(!calls.some((x) => /^gh (issue|api)/.test(x)), 'nothing is posted');
+});
+
+test('promoted, merged, then deployed: a deploy to UAT tells each ticket whose change a merged promotion took there (GH-56)', () => {
+  const { dir, paths } = repo();
+  const c = config();
+  // ACME-1 also puts back the class dev's earlier work deleted, so UAT's deploy has no deletion to refuse.
+  gitIn(dir, 'checkout', 'production', '--', 'force-app/main/default/classes/Old.cls');
+  write(dir, 'force-app/main/default/classes/A.cls', 'public class A { void go() {} void again() {} }\n');
+  commit(dir, 'ACME-1 (#1)');
+  gitIn(dir, 'push', '-q', 'origin', 'dev');
+  seed(paths, c, [{ id: 'ACME-1', mergeSha: gitIn(dir, 'rev-parse', 'HEAD') }]);
+  const since = gitIn(dir, 'rev-parse', 'uat');
+
+  const r = promote(paths, c, 'dev', undefined, { run: gh([]), now, env: {} }, { validate: false, by: 'human:jordan' });
+  assert.deepEqual([r.plan.deleted, r.tasks, r.updates.map((u) => u.id)], [[], ['ACME-1'], ['ACME-1.1']]);
+  // A person merges the promotion on GitHub.
+  gitIn(dir, 'fetch', '-q', 'origin', r.branch!);
+  gitIn(dir, 'checkout', '-q', 'uat');
+  gitIn(dir, 'merge', '-q', '--no-ff', '-m', 'Merge pull request #9', 'FETCH_HEAD');
+  gitIn(dir, 'push', '-q', 'origin', 'uat');
+  const merged = gitIn(dir, 'rev-parse', 'HEAD');
+  assert.equal(sync(paths, c, { run: ghView('MERGED', [], merged), now, env: {} }).changes[0]!.update?.id, 'ACME-1.2');
+
+  const d = deploy(paths, c, 'uat', { run: sfOk([]), now, slots: { dir: tempDir('slots-') } }, { since, by: 'human:jordan' });
+  assert.equal(d.deployed, true);
+  assert.deepEqual(d.updates, [{ task: 'ACME-1', id: 'ACME-1.3', key: 'ACME-1' }]);
+  assert.deepEqual(listUpdates(paths).map((u) => [u.id, u.event, u.env, u.text, u.replaces]), [
+    ['ACME-1.3', 'deployed', 'UAT', 'The change is now deployed to UAT.', ['ACME-1.2', 'ACME-1.1']],
+  ], 'ready to go, then in UAT, then deployed there: one draft');
 });
