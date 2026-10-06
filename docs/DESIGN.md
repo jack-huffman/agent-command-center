@@ -673,6 +673,12 @@ The extension handles every workspace folder that has `.acc/config.json`.
   box to edit, with who it posts as, Post and Discard. With no sign-in for its
   tracker, Post waits and offers the sign-in. The Overview's Needs you lists
   each as "Update ready for <KEY>", with Post, Edit and Discard.
+- **An unsent edit is what Needs you shows** (D-???): the row says "Edited on
+  the task page" and shows the edited text, with Edit first and Discard, and
+  no Post. If acc drafts the same news again, the edit moves to the newer
+  draft, saying "A newer draft replaced this one; your edit is kept". The
+  newer wording shows beneath it when it differs. This holds in this window
+  only, while the task page is open.
 - **Rich text is drawn, never injected.** GitHub's markdown and Jira's ADF both
   become one document model, which the page builds with DOM calls. Raw HTML in a
   ticket keeps its words and loses its tags. Links open in the browser, and only
