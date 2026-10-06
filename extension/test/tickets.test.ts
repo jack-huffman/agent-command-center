@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { accRefusal, cardTracking, liveTrackKeys, outsideKeys, placeCandidates, rowAnalysis, type TaskRow, trackInput, type TrackSteps, trackTicket } from '../src/logic.ts';
 import type { Analysis } from '../../packages/core/src/analyze.ts';
-import { type BoardInput, initials, isFromWebview, priorityIcon, ticketActionRefusal, ticketModel, trackerBoard, typeIcon } from '../src/model.ts';
+import { type BoardInput, initials, isFromWebview, priorityIcon, ticketActionRefusal, ticketModel, trackerBoard, typeIcon, updateAbout } from '../src/model.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
 import { type Ticket, TrackerError } from '../../packages/core/src/trackers/types.ts';
 import { Pending } from '../webview/pending.ts';
@@ -371,4 +371,11 @@ test('a board reload keeps a Track on its way and a refusal for a card still sho
   assert.deepEqual(cardTracking(cards, (k) => states[k]!), { 'ACME-31': states['ACME-31'], 'ACME-32': states['ACME-32'] }, 'only cards on their way, or with a reason');
   const boards = new Map([['/r', [{ board: { cards: [{ key: 'acme-30' }, { key: 'ACME-32' }] } }, { board: null }]]]);
   assert.deepEqual([...liveTrackKeys(['/r#ACME-99'], boards)].sort(), ['/r#ACME-30', '/r#ACME-32', '/r#ACME-99'], 'one on its way survives its card leaving the board; a loading board keeps nothing');
+});
+
+test('a promotion\'s drafts say what they\'re about: its pull request is ready, then the change is promoted (GH-56)', () => {
+  const pr = { number: 9, url: 'https://github.com/o/r/pull/9' };
+  assert.equal(updateAbout({ event: 'promotion-opened', env: 'UAT', pr }), 'Promotion #9 to UAT is ready');
+  assert.equal(updateAbout({ event: 'promoted', env: 'UAT' }), 'Promoted to UAT');
+  assert.equal(updateAbout({ event: 'deployed', env: 'UAT' }), 'Deployed to UAT');
 });

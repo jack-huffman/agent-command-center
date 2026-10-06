@@ -645,6 +645,8 @@ export function updateAbout(u: Pick<Update, 'event' | 'env' | 'pr'>): string {
     case 'pr-opened': return u.pr ? `Pull request #${u.pr.number} is ready for review` : 'Ready for review';
     case 'pr-updated': return u.pr ? `Pull request #${u.pr.number} was updated` : 'Updated for review';
     case 'merged': return `Merged into ${u.env ?? 'its environment'}`;
+    case 'promotion-opened': return u.pr ? `Promotion #${u.pr.number} to ${u.env ?? 'its next environment'} is ready` : `Ready to go to ${u.env ?? 'its next environment'}`;
+    case 'promoted': return `Promoted to ${u.env ?? 'its next environment'}`;
     case 'deployed': return `Deployed to ${u.env ?? 'its environment'}`;
     case 'blocked': return 'Blocked on a question only the client can answer';
     case 'question': return 'A question from its analysis';
