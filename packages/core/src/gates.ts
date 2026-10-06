@@ -275,6 +275,16 @@ export function gatesFor(config: Config): Gate[] {
   return [...builtIn.filter((g) => !config.gates.commands[g.name]), ...custom];
 }
 
+/**
+ * The tests a commit's checks named, so a commit made from it, such as a refresh's merge (D-058), is
+ * checked with the same. On Salesforce, the Apex tests its validate ran (D-003); other profiles name none.
+ */
+export function priorTests(paths: RepoPaths, config: Pick<Config, 'profile'>, sha: string): ApexTest[] {
+  if (config.profile !== 'salesforce') return [];
+  const tests = readReceipt(paths, sha, 'validate')?.details?.tests;
+  return Array.isArray(tests) ? tests.filter((t): t is ApexTest => typeof t?.name === 'string' && typeof t?.reason === 'string') : [];
+}
+
 // ---------------------------------------------------------------- what changed
 
 /** Paths listed in an environment-specific or known-drift file: one per line, `#` for comments. */

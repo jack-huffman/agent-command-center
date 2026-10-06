@@ -7,12 +7,12 @@ import { parseConfig, type Config } from '../src/config.ts';
 import { drift, driftReportPath } from '../src/drift.ts';
 import type { RunOptions, RunResult } from '../src/exec.ts';
 import {
-  assertCheckOnly, changesFor, checkEnv, gatesFor, gateTarget, readAnalyzer, readDeploy, runGates, validateArgs, waiveGates,
+  assertCheckOnly, changesFor, checkEnv, gatesFor, gateTarget, priorTests, readAnalyzer, readDeploy, runGates, validateArgs, waiveGates,
 } from '../src/gates.ts';
 import { checkMove, emptyLedger, type Task } from '../src/ledger.ts';
 import { builderSettings } from '../src/dispatch.ts';
 import { repoPaths } from '../src/paths.ts';
-import { readReceipt, receiptHooks } from '../src/receipts.ts';
+import { readReceipt, receiptHooks, writeReceipt } from '../src/receipts.ts';
 import { withSlot } from '../src/semaphore.ts';
 import { run } from '../src/exec.ts';
 import { fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, SF_CONFIG, tempDir } from './support.ts';
@@ -172,6 +172,7 @@ test('the Salesforce gates decide from the changes, run under nice, and leave re
   assert.equal(receipt.status, 'pass');
   assert.equal(receipt.env, 'dev');
   assert.deepEqual(receipt.details!.tests, [{ name: 'AccountTest', reason: 'covers Account' }]);
+  assert.deepEqual(priorTests(paths, c, sha), [{ name: 'AccountTest', reason: 'covers Account' }], 'what a commit made from this one is validated with');
   assert.ok(existsSync(receipt.log!), 'with its log beside it');
   assert.equal(readReceipt(paths, sha, 'lint')!.status, 'skip');
 
@@ -181,6 +182,17 @@ test('the Salesforce gates decide from the changes, run under nice, and leave re
   write(dir, 'force-app/main/default/classes/Account.cls', 'public class Account {  }\n');
   commitAll(dir, 'again');
   assert.deepEqual(receiptHooks(paths, c, run).missingGates(task), ['format', 'lint', 'validate'], 'a new commit needs new receipts');
+});
+
+test('prior tests come from the salesforce profile: a commit\'s validate receipt, minus entries that aren\'t tests; none on a generic project', () => {
+  const dir = makeRepo();
+  const paths = repoPaths(dir, run);
+  const sha = gitIn(dir, 'rev-parse', 'HEAD');
+  const tests = [{ name: 'AccountTest', reason: 'covers Account' }, { name: 'NoReason' }, 'CaseTest', null, { name: 7, reason: 'x' }, { name: 'CaseTest', reason: 'covers Case' }];
+  writeReceipt(paths, { gate: 'validate', sha, env: 'dev', status: 'pass', startedAt: now().toISOString(), finishedAt: now().toISOString(), durationMs: 1, summary: 'Validated.', command: null, log: null, details: { tests } });
+  assert.deepEqual(priorTests(paths, sfConfig(), sha), [{ name: 'AccountTest', reason: 'covers Account' }, { name: 'CaseTest', reason: 'covers Case' }]);
+  assert.deepEqual(priorTests(paths, config(GENERIC_CONFIG), sha), [], 'a generic project names no tests, whatever a gate called validate wrote');
+  assert.deepEqual(priorTests(paths, sfConfig(), 'f'.repeat(40)), [], 'a commit with no validate receipt');
 });
 
 test('a missing tool is an error, not a failure, and validate refuses deletions and environment-specific changes', () => {

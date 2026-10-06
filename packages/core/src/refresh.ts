@@ -2,10 +2,10 @@ import { existsSync, realpathSync } from 'node:fs';
 import { type Config, environmentByBranch } from './config.ts';
 import { mainCheckout } from './dispatch.ts';
 import { AccError, type RunResult, type Runner } from './exec.ts';
-import { type ApexTest, listed, runGates } from './gates.ts';
+import { listed, priorTests, runGates } from './gates.ts';
 import { type Actor, mutate, readLedger, type Task } from './ledger.ts';
 import { type RepoPaths, repoPaths } from './paths.ts';
-import { readReceipt, satisfies } from './receipts.ts';
+import { satisfies } from './receipts.ts';
 import type { SlotOptions } from './semaphore.ts';
 import { conflictsOf, fetchBranches } from './sync.ts';
 
@@ -107,12 +107,6 @@ function resolveAppend(run: Runner, wt: string, mergeBase: string, path: string,
   return git('checkout', '--', path).code === 0;
 }
 
-/** The Apex tests the branch's last validate named (Salesforce): the merge commit is validated with the same. */
-function priorTests(paths: RepoPaths, sha: string): ApexTest[] {
-  const tests = readReceipt(paths, sha, 'validate')?.details?.tests;
-  return Array.isArray(tests) ? tests.filter((t): t is ApexTest => typeof t?.name === 'string' && typeof t?.reason === 'string') : [];
-}
-
 const samePath = (a: string, b: string): boolean => {
   try {
     return realpathSync(a) === realpathSync(b);
@@ -206,7 +200,7 @@ export function refresh(paths: RepoPaths, config: Config, id: string, deps: Refr
   let failed: string[] = [];
   try {
     if (required.length) {
-      const ran = runGates(repoPaths(wt, run), config, env, required, priorTests(paths, from), { run, now, slots: deps.slots });
+      const ran = runGates(repoPaths(wt, run), config, env, required, priorTests(paths, config, from), { run, now, slots: deps.slots });
       failed = ran.results.filter((r) => !r.recorded || !satisfies(r.receipt))
         .map((r) => `${r.gate} ${!r.recorded ? 'wasn\'t recorded' : r.status === 'fail' ? 'failed' : 'couldn\'t run'}: ${r.summary.replace(/[.!?]$/, '')}${r.receipt.log ? ` (log ${r.receipt.log})` : ''}`);
     }
