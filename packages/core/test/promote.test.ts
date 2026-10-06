@@ -239,7 +239,7 @@ test('a Salesforce promotion is checked against the destination\'s org first, pr
   assert.ok(promotionCheckArgs('X', ['force-app/main/default/lwc/a/a.js']).includes('NoTestRun'), 'no Apex, no tests');
 });
 
-// ---------------------------------------------------------------- what a promotion tells its tickets (GH-56)
+// ---------------------------------------------------------------- what a promotion tells its tickets (D-???)
 
 const PR9 = { number: 9, url: 'https://github.com/acme-co/acme-salesforce/pull/9' };
 
@@ -261,7 +261,7 @@ const ghView = (state: string, calls: string[], mergeSha = 'c0ffee'.padEnd(40, '
   'gh pr view 9': ok(JSON.stringify({ number: 9, state, url: PR9.url, mergeCommit: state === 'MERGED' ? { oid: mergeSha } : null })),
 }, calls);
 
-test('a promotion records each task whose change it carries and drafts its ticket\'s update; nothing is posted (GH-56)', () => {
+test('a promotion records each task whose change it carries and drafts its ticket\'s update; nothing is posted (D-???)', () => {
   const { dir, paths } = repo();
   const c = config();
   const head = () => gitIn(dir, 'rev-parse', 'HEAD');
@@ -316,7 +316,7 @@ test('a promotion records each task whose change it carries and drafts its ticke
   assert.deepEqual(calls.map((x) => x.split(' ').slice(0, 3).join(' ')), ['gh auth token', 'gh pr create'], 'nothing is posted on a ticket');
 });
 
-test('a promotion that stops before its pull request opens records and drafts nothing (GH-56)', () => {
+test('a promotion that stops before its pull request opens records and drafts nothing (D-???)', () => {
   const { dir, paths } = repo();
   const c = config();
   write(dir, 'force-app/main/default/classes/A.cls', 'public class A { void go() {} void again() {} }\n');
@@ -343,7 +343,7 @@ test('a promotion that stops before its pull request opens records and drafts no
   untouched('nothing to promote');
 });
 
-test('acc sync follows an open promotion: once it merges, each ticket hears its change is in UAT, once; nothing is posted (GH-56)', () => {
+test('acc sync follows an open promotion: once it merges, each ticket hears its change is in UAT, once; nothing is posted (D-???)', () => {
   const { dir, paths } = repo();
   const c = config();
   const dev = gitIn(dir, 'rev-parse', 'dev');
@@ -380,7 +380,7 @@ test('acc sync follows an open promotion: once it merges, each ticket hears its 
   assert.deepEqual([...new Set(calls.map((x) => x.split(' ').slice(0, 3).join(' ')))], ['gh auth token', 'gh pr view'], 'nothing is posted');
 });
 
-test('a promotion closed without merging sets its unposted drafts aside, and the next promotion carries its tasks again (GH-56)', () => {
+test('a promotion closed without merging sets its unposted drafts aside, and the next promotion carries its tasks again (D-???)', () => {
   const { dir, paths } = repo();
   const c = config();
   const dev = gitIn(dir, 'rev-parse', 'dev');
@@ -403,7 +403,7 @@ test('a promotion closed without merging sets its unposted drafts aside, and the
   assert.ok(!calls.some((x) => /^gh (issue|api)/.test(x)), 'nothing is posted');
 });
 
-test('promoted, merged, then deployed: a deploy to UAT tells each ticket whose change a merged promotion took there (GH-56)', () => {
+test('promoted, merged, then deployed: a deploy to UAT tells each ticket whose change a merged promotion took there (D-???)', () => {
   const { dir, paths } = repo();
   const c = config();
   // ACME-1 also puts back the class dev's earlier work deleted, so UAT's deploy has no deletion to refuse.

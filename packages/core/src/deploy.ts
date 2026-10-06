@@ -112,7 +112,7 @@ export interface DeployResult {
 /**
  * The tasks a deploy carried to its org: each whose change reached the environment's branch at a commit
  * that's in what was deployed, after the last deploy and up to the new head. It reached it by its own
- * merge, or by a promotion's (GH-56). A squash merge's commit is the one acc sync recorded; a task merged
+ * merge, or by a promotion's (D-???). A squash merge's commit is the one acc sync recorded; a task merged
  * before acc recorded it falls back to its branch's commit, which a squash leaves off the branch, so it's
  * missed (D-066).
  */

@@ -127,7 +127,7 @@ export function sampleAutopilot(now = Date.now()): AutopilotRecord[] {
 
 /**
  * Updates acc drafted for tickets, for a person to post (D-066): ACME-12's pull request is ready for
- * review, ACME-10 went out to QA and its promotion to Production is open (GH-56), and one of ACME-21's
+ * review, ACME-10 went out to QA and its promotion to Production is open (D-???), and one of ACME-21's
  * questions was drafted for the client. ACME-15's was posted. ACME-12's pull request was updated before anyone posted, so its draft replaced the first,
  * with a newer summary (GH-46).
  */

@@ -224,7 +224,7 @@ export interface TaskRow {
   reviewing?: { sessionId: string } | null;
   /** Its pull request (D-033). */
   pr?: { number: number; url: string; state: string; ci?: string | null; changesRequested?: boolean; conflicts?: string[] } | null;
-  /** A promotion taking its change on to another environment is open (GH-56). */
+  /** A promotion taking its change on to another environment is open (D-???). */
   promoting?: boolean;
   /** Its analysis (D-052): the verdict, when it was made, the questions nobody has answered, and the smaller tasks a split suggests. */
   analysis?: { verdict: 'ready' | 'questions' | 'split'; at: string; open: AnalysisAsk[]; split: string[] } | null;
@@ -277,7 +277,7 @@ export const analysisAnswerArgs = (task: string, question: string, text: string)
 /** The files an open pull request conflicts in with its base, or none (D-049). */
 /**
  * Whether acc sync has a pull request to follow for a task: its own, still open, or a promotion taking it
- * on, whose merge tells its ticket the change is in the next environment (GH-56).
+ * on, whose merge tells its ticket the change is in the next environment (D-???).
  */
 export const followsPullRequests = (row: Pick<TaskRow, 'pr' | 'promoting'>): boolean => row.pr?.state === 'open' || !!row.promoting;
 

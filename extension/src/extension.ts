@@ -83,7 +83,7 @@ export function activate(context: vscode.ExtensionContext): void {
     // Tracker boards are network calls, so they refresh slowly, and at once after any move.
     boards: { everyMs: 120_000, fn: () => trackers.loadBoards() },
     // Open pull requests (D-033): merged → done, closed → blocked, failing checks or conflicts → needs you.
-    // An open promotion too: its merge drafts each ticket's "now in" update (GH-56).
+    // An open promotion too: its merge drafts each ticket's "now in" update (D-???).
     prs: { everyMs: 120_000, hiddenMs: 300_000, fn: async () => {
       for (const p of hub.projects) {
         if (!hub.taskRows(p.root).some(followsPullRequests)) continue;

@@ -15,7 +15,7 @@ import { draftUpdate } from './updates.ts';
  * `promotesTo` allows, through a pull request a person merges. The pull request's branch starts from
  * the destination and takes only what changed on the source, so a fix made straight in the
  * destination is never undone, and environment-specific files never travel. Each task whose change it
- * carries records it, and its ticket gets a draft update a person posts (GH-56).
+ * carries records it, and its ticket gets a draft update a person posts (D-???).
  */
 
 export interface PromotionPlan {
@@ -133,7 +133,7 @@ export interface PromoteResult {
   validation: Outcome | null;
   /** Why no pull request was opened: nothing to promote, or validation didn't pass. */
   stopped: string | null;
-  /** The tasks whose change it carries, each recorded so acc sync follows the pull request for it (GH-56). */
+  /** The tasks whose change it carries, each recorded so acc sync follows the pull request for it (D-???). */
   tasks: string[];
   /** The updates drafted for those tasks' tickets, for a person to post (D-066). */
   updates: { task: string; id: string; key: string }[];

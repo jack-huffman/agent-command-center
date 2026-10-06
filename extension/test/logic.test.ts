@@ -430,7 +430,7 @@ test('all of acc is one status bar item: what needs you first, a spinner while b
   assert.equal(combinedStatus({ ...base, account: { name: 'someone-else', ok: false } }).attention, true, 'the wrong account says so');
 });
 
-test('acc sync runs for a project while a task\'s pull request or a promotion taking it on is open, and not otherwise (GH-56)', () => {
+test('acc sync runs for a project while a task\'s pull request or a promotion taking it on is open, and not otherwise (D-???)', () => {
   const pr = (state: string) => ({ number: 3, url: 'https://github.com/o/r/pull/3', state });
   assert.equal(followsPullRequests({ pr: pr('open') }), true);
   assert.equal(followsPullRequests({ pr: pr('merged'), promoting: true }), true, 'its promotion\'s merge tells the ticket it\'s in the next environment');

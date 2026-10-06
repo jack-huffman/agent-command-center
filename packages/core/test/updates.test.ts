@@ -84,7 +84,7 @@ test('later news replaces an unposted draft it overtakes: merged for ready for r
   assert.deepEqual(listUpdates(posted).map((u) => [u.id, u.state]), [['ACME-12.1', 'posting'], ['ACME-12.2', 'draft']]);
 });
 
-test('a promotion\'s news overtakes in turn: ready to go to UAT, then in UAT, then deployed there; a merge into Dev is other news (GH-56)', () => {
+test('a promotion\'s news overtakes in turn: ready to go to UAT, then in UAT, then deployed there; a merge into Dev is other news (D-???)', () => {
   const paths = store();
   const promotion = (n: number) => ({ number: n, url: `https://github.com/acme/service/pull/${n}` });
   draftUpdate(paths, jira(), { event: 'pr-opened', pr }, 'acc land', now);

@@ -11,7 +11,7 @@ import { discardUpdate, draftUpdate, listUpdates } from './updates.ts';
  * blocked, and failing checks, a person's requested changes or a conflict with the base show the task
  * as needs you. It only reads GitHub, and fetches to see the conflicts (D-049). A task it moves to done
  * gets a draft update for its ticket, which a person posts (D-066): sync itself posts nothing. It follows
- * the promotions that took tasks on too (GH-56): merged, each task's ticket hears its change is in the
+ * the promotions that took tasks on too (D-???): merged, each task's ticket hears its change is in the
  * next environment; closed without merging, the draft saying it was ready to go is set aside.
  */
 
@@ -79,7 +79,7 @@ export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now:
   const { run, now } = deps;
   const tasks = readLedger(paths.ledger).tasks;
   const open = tasks.filter((t) => t.pr?.state === 'open');
-  // A promotion carries several tasks: each open one is read once (GH-56).
+  // A promotion carries several tasks: each open one is read once (D-???).
   const promotions = [...new Set(tasks.flatMap((t) => (t.promotions ?? []).filter((p) => p.state === 'open').map((p) => p.pr.number)))];
   if (!open.length && !promotions.length) return { checked: 0, changes: [] };
   const gh = config.github;
@@ -172,7 +172,7 @@ export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now:
         out.push({ task: t.id, pr: p.number, moved, note });
       }
     }
-    // The promotions that took tasks on (GH-56). Merged: where the change arrived, which a deploy finds.
+    // The promotions that took tasks on (D-???). Merged: where the change arrived, which a deploy finds.
     // Closed: the task isn't there, so the next promotion carries it again.
     for (const t of ledger.tasks) {
       for (const promotion of t.promotions ?? []) {

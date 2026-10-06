@@ -4,7 +4,7 @@ import type { RepoPaths } from './paths.ts';
 import type { PromotionPlan } from './promote.ts';
 
 /**
- * Where a task's change has got to (GH-56). A promotion copies files rather than merging, so a task's
+ * Where a task's change has got to (D-???). A promotion copies files rather than merging, so a task's
  * merge commit on Dev never reaches UAT's history: each environment has its own commit where the change
  * arrived. A promotion and a deploy both work out what they carry from it.
  */

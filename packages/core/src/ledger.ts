@@ -68,7 +68,7 @@ export interface PullRequest {
 }
 
 /**
- * A promotion that takes a task's change on to another environment (GH-56): recorded by acc promote on
+ * A promotion that takes a task's change on to another environment (D-???): recorded by acc promote on
  * each task it carries, and followed by acc sync. Its merge commit is where the change reached `to`.
  */
 export interface Promotion {

@@ -179,7 +179,7 @@ const sameNews = (a: Pick<Update, 'task' | 'event' | 'env' | 'question'>, b: Pic
 
 /**
  * How far a change has gone (D-071): its pull request, then its merge into its environment or a
- * promotion opened to take it on, then that promotion's merge, then its deploy (GH-56).
+ * promotion opened to take it on, then that promotion's merge, then its deploy (D-???).
  */
 const STAGE: Partial<Record<UpdateEvent, number>> = { 'pr-opened': 0, 'pr-updated': 0, merged: 1, 'promotion-opened': 1, promoted: 2, deployed: 3 };
 

@@ -373,7 +373,7 @@ test('a board reload keeps a Track on its way and a refusal for a card still sho
   assert.deepEqual([...liveTrackKeys(['/r#ACME-99'], boards)].sort(), ['/r#ACME-30', '/r#ACME-32', '/r#ACME-99'], 'one on its way survives its card leaving the board; a loading board keeps nothing');
 });
 
-test('a promotion\'s drafts say what they\'re about: its pull request is ready, then the change is promoted (GH-56)', () => {
+test('a promotion\'s drafts say what they\'re about: its pull request is ready, then the change is promoted (D-???)', () => {
   const pr = { number: 9, url: 'https://github.com/o/r/pull/9' };
   assert.equal(updateAbout({ event: 'promotion-opened', env: 'UAT', pr }), 'Promotion #9 to UAT is ready');
   assert.equal(updateAbout({ event: 'promoted', env: 'UAT' }), 'Promoted to UAT');
