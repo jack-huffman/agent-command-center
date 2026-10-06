@@ -3,7 +3,7 @@
  * and rendered there with text only (no HTML from data). No vscode import, so it's testable.
  */
 import type { Analysis } from '../../packages/core/src/analyze.ts';
-import { AUTOPILOT_REVIEW_DOES, type AutopilotRecord, byAutopilot } from '../../packages/core/src/autopilot.ts';
+import { autopilotDoes, type AutopilotRecord, byAutopilot } from '../../packages/core/src/autopilot.ts';
 import { DISPLAY, findRule, type State, type Task } from '../../packages/core/src/ledger.ts';
 import type { GateStatus } from '../../packages/core/src/receipts.ts';
 import { declaredKeys, DESCRIPTIONS, type Option, type TrackerDescription, type Values } from '../../packages/core/src/trackers/connect.ts';
@@ -11,7 +11,7 @@ import { type Doc, fromMarkdown } from '../../packages/core/src/trackers/doc.ts'
 import type { StatusCategory, Ticket } from '../../packages/core/src/trackers/types.ts';
 import type { GithubIdentity } from '../../packages/core/src/github.ts';
 import { GROUP_TITLES, STEPS } from '../../packages/core/src/onboarding/steps.ts';
-import { type Environment, type Tracker, trackerForKey } from '../../packages/core/src/config.ts';
+import { autoMergeOn, type Environment, type Tracker, trackerForKey } from '../../packages/core/src/config.ts';
 import { promotionPaths } from '../../packages/core/src/promote.ts';
 import type { Answer, HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import { isOpenUpdate, stalePosting, type Update, UPDATE_ID, UPDATE_TEXT_MAX } from '../../packages/core/src/updates.ts';
@@ -64,8 +64,11 @@ export interface ProjectLike {
   name: string;
   root: string;
   agents?: { builder: ProfileLike; reviewer: ProfileLike };
-  /** autonomy: what autopilot may do on its own (D-055), when the config says. trackers: which owns a ticket's key (D-066). */
-  config: { github: { repo: string; account: string } | null; environments: Environment[]; profile: string; autonomy?: string; trackers?: Pick<Tracker, 'kind' | 'project' | 'prefix'>[] };
+  /**
+   * autonomy: what autopilot may do on its own (D-055), when the config says. autopilot.autoMerge: whether
+   * it merges pull requests (GH-67). trackers: which owns a ticket's key (D-066).
+   */
+  config: { github: { repo: string; account: string } | null; environments: Environment[]; profile: string; autonomy?: string; autopilot?: { autoMerge?: boolean }; trackers?: Pick<Tracker, 'kind' | 'project' | 'prefix'>[] };
   branch: string | null;
   worktrees: { path: string; head: string; branch: string | null; main: boolean; changed: number; locked: boolean; prunable: boolean }[];
 }
@@ -143,7 +146,7 @@ export function analysisLook(t: Pick<TaskRow, 'state' | 'analysis' | 'analyzing'
   return t.analysis ? { label: 'Analyzed: ready to build', icon: 'pass', tone: 'blue' } : null;
 }
 
-const AUTOPILOT_STEP: Record<NonNullable<TaskRow['autopilot']>['step'], string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update from its base', resume: 'resume', checks: 'send it back for its failing checks' };
+const AUTOPILOT_STEP: Record<NonNullable<TaskRow['autopilot']>['step'], string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update from its base', resume: 'resume', checks: 'send it back for its failing checks', merge: 'merge it' };
 
 /** "Needs you: autopilot couldn't land", and with `why`, its reason after it (D-055). */
 export function autopilotLook(t: Pick<TaskRow, 'autopilot'>, why = true): Look | null {
@@ -759,25 +762,47 @@ export interface AutonomySetting {
   meaning: string;
 }
 
+/** Whether autopilot merges pull requests in a project (GH-67), as the Agents section shows it. */
+export interface AutoMergeSetting {
+  value: 'on' | 'off';
+  from: string;
+  meaning: string;
+  /** Whether a person can change it here: a Salesforce project never auto-merges. */
+  settable: boolean;
+}
+
 export interface AgentsModel {
   kind: 'agents';
   error: string | null;
   places: { label: string; root: string | null; agents: AgentRow[] }[];
-  /** Each project's agent settings, what autopilot may do there, and what its agents bill (D-036). */
-  settings: { root: string; project: string; roles: AgentSetting[]; autonomy: AutonomySetting | null; billing: Look | null }[];
+  /** Each project's agent settings, what autopilot may do there, whether it merges, and what its agents bill (D-036). */
+  settings: { root: string; project: string; roles: AgentSetting[]; autonomy: AutonomySetting | null; autoMerge: AutoMergeSetting | null; billing: Look | null }[];
 }
 
-const AUTONOMY_MEANING: Record<string, string> = {
-  manual: 'Nothing happens on its own.',
-  review: `Autopilot ${AUTOPILOT_REVIEW_DOES}. It never merges a pull request.`,
-  dispatch: 'Not built yet: autopilot refuses.',
-  full: 'Not built yet: autopilot refuses.',
-};
-
-/** The project's autonomy, set in .acc/config.json and changed through acc (D-064). */
+/** The project's autonomy, set in .acc/config.json and changed through acc (D-064). Review says whether autopilot merges (GH-67). */
 export function autonomySetting(p: ProjectLike): AutonomySetting | null {
   const value = p.config.autonomy;
-  return value ? { value, from: 'project', meaning: AUTONOMY_MEANING[value] ?? '' } : null;
+  const meaning: Record<string, string> = {
+    manual: 'Nothing happens on its own.',
+    review: `Autopilot ${autopilotDoes(autoMergeOn(p.config))}`,
+    dispatch: 'Not built yet: autopilot refuses.',
+    full: 'Not built yet: autopilot refuses.',
+  };
+  return value ? { value, from: 'project', meaning: meaning[value] ?? '' } : null;
+}
+
+/** Whether autopilot merges a reviewed, green pull request (GH-67), set in .acc/config.json and changed through acc. */
+export function autoMergeSetting(p: ProjectLike): AutoMergeSetting | null {
+  if (!p.config.autonomy) return null;
+  if (p.config.profile === 'salesforce') return { value: 'off', from: 'project', meaning: 'A Salesforce project never auto-merges: a person merges every pull request.', settable: false };
+  if (!autoMergeOn(p.config)) return { value: 'off', from: 'project', meaning: 'Autopilot never merges a pull request: a person merges each one.', settable: true };
+  const kept = p.config.environments.filter((e) => e.protected).map((e) => e.name);
+  const meaning = [
+    'Autopilot merges a pull request once its review and checks passed, it\'s up to date with its base, GitHub says it can merge and nothing waits on you, one a pass.',
+    kept.length ? `Never into ${kept.join(', ')}: protected.` : '',
+    p.config.autonomy === 'review' ? '' : 'Autonomy is manual, so nothing merges on its own.',
+  ].filter(Boolean).join(' ');
+  return { value: 'on', from: 'project', meaning, settable: true };
 }
 
 const FROM_WORDS: Record<string, string> = { clone: 'this clone', project: 'project default', default: 'Claude Code\'s default' };
@@ -819,7 +844,7 @@ export function agentsModel(hub: HubLike, setupItems: DoctorItem[] = []): Agents
   const elsewhere = sorted.filter((s) => !hub.projectFor(s.cwd));
   if (elsewhere.length) places.push({ label: 'Elsewhere on this machine', root: null, agents: elsewhere.map(rowFor) });
   const billing = billingLook(setupItems);
-  const settings = hub.projects.filter((p) => p.agents).map((p) => ({ root: p.root, project: p.name, roles: agentSettings(p), autonomy: autonomySetting(p), billing }));
+  const settings = hub.projects.filter((p) => p.agents).map((p) => ({ root: p.root, project: p.name, roles: agentSettings(p), autonomy: autonomySetting(p), autoMerge: autoMergeSetting(p), billing }));
   return { kind: 'agents', error: hub.agentsError, places, settings };
 }
 
@@ -1212,6 +1237,8 @@ export function autopilotStepLook(r: AutopilotRecord): { look: Look; detail: str
   if (r.step === 'dispatch') return { look: LOOK(r.cause === 'checks' ? 'Autopilot re-dispatched it for its failing checks' : 'Autopilot re-dispatched it for the review\'s changes', 'debug-restart', 'blue'), detail: null, url: null };
   // A builder that stopped, carried on once (D-067), with the last thing it said.
   if (r.step === 'resume') return { look: LOOK('Autopilot resumed it', 'debug-continue', 'blue'), detail: r.reason || null, url: null };
+  // Merged where the repo turns auto-merge on (GH-67): acc sync moves it to done.
+  if (r.step === 'merge') return { look: LOOK(r.pr ? `Autopilot merged pull request #${r.pr.number}` : 'Autopilot merged its pull request', 'git-merge', 'blue'), detail: 'acc sync moves it to done.', url: r.pr?.url || null };
   if (r.base) return { look: LOOK(`Autopilot merged ${r.base} into it`, 'git-merge', 'blue'), detail: 'Its checks passed on the merge. It\'s reviewed next, then landed.', url: null };
   return { look: LOOK('Autopilot found it no longer conflicts', 'git-merge', 'blue'), detail: null, url: r.pr?.url || null };
 }

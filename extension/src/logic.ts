@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { Analysis } from '../../packages/core/src/analyze.ts';
-import { AUTOPILOT_REVIEW_DOES, type AutopilotRecord, reworkedByAutopilot } from '../../packages/core/src/autopilot.ts';
+import { autopilotDoes, type AutopilotRecord, reworkedByAutopilot } from '../../packages/core/src/autopilot.ts';
 import type { AutopilotStepName, TaskInput } from '../../packages/core/src/ledger.ts';
 import type { CheckStatus, Step } from '../../packages/core/src/onboarding/types.ts';
 import type { Ticket } from '../../packages/core/src/trackers/types.ts';
@@ -766,7 +766,7 @@ export function statusSummary(rows: Pick<TaskRow, 'id' | 'title' | 'display'>[],
 
 /** What a step autopilot couldn't take is called, as acc says it: "couldn't land GH-31", "couldn't send GH-31 back for its failing checks". */
 const AUTOPILOT_VERB: Record<AutopilotStepName, [string, string]> = {
-  review: ['review', ''], land: ['land', ''], dispatch: ['re-dispatch', ''], refresh: ['update', ' from its base'], resume: ['resume', ''], checks: ['send', ' back for its failing checks'],
+  review: ['review', ''], land: ['land', ''], dispatch: ['re-dispatch', ''], refresh: ['update', ' from its base'], resume: ['resume', ''], checks: ['send', ' back for its failing checks'], merge: ['merge', ''],
 };
 
 /** What autopilot needs to know about a task to tell its steps: who it's tracked in, and its moves. */
@@ -778,9 +778,9 @@ export interface AutopilotTask {
 
 /**
  * One notice for each step autopilot took that a window hasn't told yet (D-064): what it reviewed,
- * landed, re-dispatched, merged in or sent back for failing checks (D-076), and what it couldn't do, as a
- * warning. A land for a task with a ticket says its update is ready to review: autopilot posts nothing, a
- * person does (D-066).
+ * landed, re-dispatched, merged in, sent back for failing checks (D-076) or merged (GH-67), and what it
+ * couldn't do, as a warning. A land for a task with a ticket says its update is ready to review: autopilot
+ * posts nothing, a person does (D-066).
  */
 export function autopilotNotices(steps: AutopilotRecord[], tasks: AutopilotTask[]): TaskNotice[] {
   const out: TaskNotice[] = [];
@@ -789,10 +789,13 @@ export function autopilotNotices(steps: AutopilotRecord[], tasks: AutopilotTask[
     const say = (text: string, urgent: boolean, actions: [string, string][] = []) => out.push({ kind: 'autopilot', task: r.task, text, urgent, actions, step: r });
     if (r.outcome === 'failed') {
       const by: Record<AutopilotStepName, [string, string]> = {
-        review: ['Review', 'acc.task.review'], land: ['Land', 'acc.task.land'], dispatch: ['Re-dispatch', 'acc.task.dispatch'], refresh: ['Open pull request', 'acc.task.openPr'], resume: ['Resume', 'acc.task.resume'], checks: ['Open pull request', 'acc.task.openPr'],
+        review: ['Review', 'acc.task.review'], land: ['Land', 'acc.task.land'], dispatch: ['Re-dispatch', 'acc.task.dispatch'], refresh: ['Open pull request', 'acc.task.openPr'], resume: ['Resume', 'acc.task.resume'], checks: ['Open pull request', 'acc.task.openPr'], merge: ['Open pull request', 'acc.task.openPr'],
       };
       const [verb, rest] = AUTOPILOT_VERB[r.step];
       say(`Autopilot couldn't ${verb} ${r.task}${rest}: ${endSentence(r.reason || 'it didn\'t say why')}`, true, [by[r.step]]);
+    } else if (r.step === 'merge') {
+      // Merged on GitHub: acc sync moves it to done and drafts its update next (GH-67).
+      say(`Autopilot merged ${r.pr ? `pull request #${r.pr.number}` : 'the pull request'} (${r.task}).`, false, [['Open pull request', 'acc.task.openPr']]);
     } else if (r.step === 'checks') {
       // Its pull request's checks failed on GitHub: back to its builder, which autopilot re-dispatches next (D-076).
       say(`Autopilot sent ${r.task} back to its builder: checks failed on GitHub${r.checks?.length ? `: ${r.checks.join(', ')}` : ''}.`, false, [['Open pull request', 'acc.task.openPr']]);
@@ -853,16 +856,18 @@ export interface AutopilotStatusInput {
   refusal?: string | null;
   /** The last line it printed, while it's on here. */
   last?: string | null;
+  /** The repo turns auto-merge on (GH-67): what autopilot does then includes merging. */
+  autoMerge?: boolean;
 }
-
-const AUTOPILOT_DOES = `it ${AUTOPILOT_REVIEW_DOES}. It never merges a pull request.`;
 
 /**
  * The status bar's autopilot switch (D-064): an icon and the words "Autopilot: on" or "Autopilot: off",
- * with the project's name when there's more than one. The tooltip says what it does and what a click
- * does. Off until a person turns it on: the switch lasts until VSCode closes.
+ * with the project's name when there's more than one. The tooltip says what it does, whether it merges
+ * pull requests (GH-67), and what a click does. Off until a person turns it on: the switch lasts until
+ * VSCode closes.
  */
 export function autopilotStatus(s: AutopilotStatusInput): { text: string; tooltip: string } {
+  const AUTOPILOT_DOES = `it ${autopilotDoes(!!s.autoMerge)}`;
   const name = s.many ? ` · ${s.project}` : '';
   if (s.state === 'on') {
     return {

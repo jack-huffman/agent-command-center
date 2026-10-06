@@ -464,6 +464,34 @@ test('the autopilot switch says on or off with an icon and the words, and its to
   }
 });
 
+test('a pull request autopilot merged is a notice and a History item; one it couldn\'t merge needs you, and the switch says it merges (GH-67)', async () => {
+  const { autopilotNotices, autopilotStatus, noticeActions } = await import('../src/logic.ts');
+  const { autopilotLook, autopilotStepLook } = await import('../src/model.ts');
+  type Rec = import('../../packages/core/src/autopilot.ts').AutopilotRecord;
+  const at = '2026-10-06T12:00:00.000Z';
+  const say = (r: Rec) => autopilotNotices([r], [{ id: 'GH-67', source: { kind: 'github', key: '67' }, history: [] }]).map((n) => [n.text, n.urgent, noticeActions(n)]);
+  const pr = ['Open pull request', 'acc.task.openPr'];
+  const show = ['Show', 'acc.task.show'];
+  const merged: Rec = { seq: 5, at, task: 'GH-67', step: 'merge', outcome: 'done', pr: { number: 72, url: 'https://github.com/acme/tool/pull/72', opened: false } };
+  assert.deepEqual(say(merged), [['Autopilot merged pull request #72 (GH-67).', false, [pr, show]]]);
+  const reason = 'It changes .acc/, which a person merges: .acc/config.json.';
+  const failed: Rec = { seq: 6, at, task: 'GH-67', step: 'merge', outcome: 'failed', reason };
+  assert.deepEqual(say(failed), [[`Autopilot couldn't merge GH-67: ${reason}`, true, [pr, show]]]);
+
+  // History: what it merged, with its link; and what it couldn't, in orange with a warning icon.
+  assert.deepEqual(autopilotStepLook(merged), { look: { label: 'Autopilot merged pull request #72', icon: 'git-merge', tone: 'blue' }, detail: 'acc sync moves it to done.', url: 'https://github.com/acme/tool/pull/72' });
+  assert.deepEqual(autopilotStepLook(failed), { look: { label: 'Autopilot couldn\'t merge it', icon: 'warning', tone: 'orange' }, detail: reason, url: null });
+  // The card: Needs you, with the bell.
+  assert.deepEqual(autopilotLook({ autopilot: { step: 'merge', reason } }), { label: `Needs you: autopilot couldn't merge it: ${reason}`, icon: 'bell', tone: 'orange' });
+  assert.deepEqual(autopilotLook({ autopilot: { step: 'merge', reason } }, false)?.label, 'Needs you: autopilot couldn\'t merge it');
+
+  // With auto-merge on, the switch's tooltip says when it merges, and no longer that it never does.
+  const on = autopilotStatus({ project: 'Tool', many: false, state: 'on', autoMerge: true });
+  assert.match(on.tooltip, /Auto-merge is on: it also merges a pull request whose review and checks passed, once it's up to date with its base, GitHub says it can merge and nothing waits on a person, one a pass\. It never merges into a protected environment\./);
+  assert.doesNotMatch(on.tooltip, /It never merges a pull request/);
+  assert.match(autopilotStatus({ project: 'Tool', many: false, state: 'off', autoMerge: false }).tooltip, /It never merges a pull request\./);
+});
+
 test('all of acc is one status bar item: what needs you first, a spinner while busy, the rest in its tooltip (D-065)', async () => {
   const { combinedStatus } = await import('../src/logic.ts');
   const base = { rows: [], needsYou: 0, asking: null, running: [], checking: false, setup: { done: 31, total: 32, todo: 0 }, autopilot: [], account: { name: 'jhuffman-aleysian', ok: true } };
