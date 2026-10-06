@@ -1,0 +1,272 @@
+/**
+ * What the Connect page asks for each tracker (GH-51): where it is, how to sign in, and how its place and
+ * board are picked. The page has no tracker of its own: it draws whatever a description says, so
+ * connecting another tracker, such as monday.com, means writing its client and its description here,
+ * not another page. Nothing here reaches VSCode: a Microsoft sign-in and gh are methods a description
+ * names, and the extension carries out.
+ */
+import type { Tracker } from '../config.ts';
+import { azureAreas, azureBoards, azureProjects, azureTeams, azureWhoAmI, tenantOf } from './azure.ts';
+import { GithubClient } from './github.ts';
+import { JiraClient, jiraBoards, jiraEpics, jiraProjects } from './jira.ts';
+import type { Exec, Person } from './types.ts';
+
+/** One thing to type: an email, or a token, which the page shows as a password field and never keeps. */
+export interface FieldSpec {
+  key: string;
+  label: string;
+  type: 'text' | 'email' | 'secret';
+  placeholder: string;
+  hint?: string;
+  /** Filled in from the repo: its git config user.email. */
+  prefill?: 'git-email';
+  /** Why the value won't do, or null. */
+  check?: (v: string) => string | null;
+  /** A button beside the field that opens a page, such as where the token is made. Without a URL yet (its host isn't known), no button. */
+  help?: { label: string; url: (host: string) => string | null };
+}
+
+/** Where the tracker is: a Jira site, a GitHub repo, an Azure DevOps organization. It's what a sign-in is for (D-027). */
+export interface HostSpec {
+  key: string;
+  label: string;
+  placeholder: string;
+  hint: string;
+  /** The value as the config keeps it, from anything a person pastes, or null. */
+  parse: (input: string) => string | null;
+  /** What to say when parse refuses it. */
+  invalid: string;
+  /** Filled in with the project's own GitHub repo. */
+  prefill?: 'github-repo';
+}
+
+/**
+ * A way to sign in. `fields`: typed on the page and checked with verify. `microsoft`: VSCode's Microsoft
+ * sign-in, in the tenant that owns the host. `gh`: the project's own GitHub account through gh (D-007).
+ */
+export interface SignInMethod {
+  id: string;
+  label: string;
+  icon: string;
+  via: 'fields' | 'microsoft' | 'gh';
+  fields: FieldSpec[];
+  hint: string;
+  /** The button that signs in and checks it. */
+  test: string;
+  /** For `microsoft`: the resource to ask for, and the tenant that owns the host. */
+  microsoft?: { scope: string; tenant: (host: string, f?: typeof fetch) => Promise<string | null> };
+}
+
+/** A sign-in as the description's checks and lists use it. The extension builds it; it's never posted to the page. */
+export interface SignIn {
+  method: string;
+  /** What a `fields` sign-in typed, such as the email and token. */
+  fields: Record<string, string>;
+  /** An Authorization header from a sign-in the extension carried out, such as Microsoft's. */
+  header: string | null;
+  /** The project's gh account and its token. */
+  gh: { account: string; token: string } | null;
+}
+
+export type Values = Record<string, string | string[] | null>;
+
+/** What a check or a list gets: where, who, and what's picked so far. */
+export interface Ctx {
+  host: string;
+  signIn: SignIn;
+  values: Values;
+  fetch?: typeof fetch;
+  exec: Exec;
+}
+
+export interface Option {
+  value: string;
+  label: string;
+  detail?: string;
+  /** The tracker's own default, which the config names by leaving it out, such as a project's default team. */
+  default?: boolean;
+  /** The one to choose when nothing is chosen yet, such as the stories board. */
+  preferred?: boolean;
+}
+
+/** One list the place and board are picked from, in order. */
+export interface PickerSpec {
+  key: string;
+  label: string;
+  /** The pickers whose choice this list depends on. */
+  dependsOn: string[];
+  /** The choice that takes the whole project, listed first. Chosen, the config leaves the place out (D-072). */
+  whole?: (c: { host: string; values: Values }) => string;
+  /** Several can be ticked, as GitHub labels are. None ticked is the whole. */
+  multi?: boolean;
+  /** It names which tracker this is, so an existing tracker shows it fixed: another project is another tracker. */
+  identifies?: boolean;
+  hint?: string;
+  load: (ctx: Ctx) => Promise<Option[]>;
+}
+
+/** What Save hands a description to write. */
+export interface Chosen {
+  host: string;
+  values: Values;
+  /** Pickers whose choice is the tracker's own default, which the config leaves out. */
+  defaults: string[];
+  /** The project's own GitHub repo, which a GitHub tracker names by leaving repo out. */
+  ownRepo: string | null;
+}
+
+export interface TrackerDescription {
+  kind: string;
+  name: string;
+  icon: string;
+  host: HostSpec;
+  methods: SignInMethod[];
+  pickers: PickerSpec[];
+  /** Who the sign-in is, or a TrackerError saying why not. */
+  verify: (ctx: Ctx) => Promise<Person>;
+  /** The tracker as .acc/config.json keeps it. A key set to null is taken out of an existing one. */
+  toConfig: (c: Chosen) => Record<string, unknown>;
+  /** An existing tracker's host and choices, to open it on the page. */
+  fromConfig: (t: Tracker, ownRepo: string | null) => { host: string; values: Values };
+}
+
+/**
+ * A tracker's host from anything a person pastes: a Jira site or any URL on it, an Azure DevOps
+ * organization or any URL in it. Null when it's neither.
+ */
+export function parseHost(kind: 'jira' | 'azure', input: string): string | null {
+  const s = input.trim().replace(/^https?:\/\//, '');
+  if (kind === 'azure') {
+    const m = /^dev\.azure\.com\/([^/?#]+)/i.exec(s) ?? /^([^./?#]+)\.visualstudio\.com/i.exec(s) ?? /^([A-Za-z0-9][A-Za-z0-9-]*)$/.exec(s);
+    return m ? decodeURIComponent(m[1]!) : null;
+  }
+  const m = /^([a-z0-9-]+\.atlassian\.net)/i.exec(s) ?? /^([a-z0-9-]+)$/i.exec(s);
+  return m ? (m[1]!.includes('.') ? m[1]!.toLowerCase() : `${m[1]!.toLowerCase()}.atlassian.net`) : null;
+}
+
+/** owner/name, from itself or a github.com URL. */
+export function parseRepo(input: string): string | null {
+  const s = input.trim().replace(/^https?:\/\/(www\.)?github\.com\//i, '').replace(/\.git$/, '').replace(/\/+$/, '');
+  const m = /^([\w.-]+\/[\w.-]+)(?:\/.*)?$/.exec(s);
+  return m ? m[1]! : null;
+}
+
+export const JIRA_TOKENS = 'https://id.atlassian.com/manage-profile/security/api-tokens';
+/** Azure DevOps' own resource, as a Microsoft sign-in scope. */
+export const AZURE_SCOPE = '499b84ac-1321-427f-aa17-267ca6975798/.default';
+
+const one = (v: string | string[] | null | undefined): string | null => (typeof v === 'string' && v ? v : null);
+const many = (v: string | string[] | null | undefined): string[] => (Array.isArray(v) ? v : typeof v === 'string' && v ? [v] : []);
+const b64 = (s: string): string => Buffer.from(s).toString('base64');
+/** The Authorization header an Azure DevOps sign-in gives: Microsoft's, or a personal access token's. */
+const azureAuth = (s: SignIn): string => s.header ?? `Basic ${b64(`:${s.fields.token ?? ''}`)}`;
+const jiraWith = (ctx: Ctx) => ({ email: ctx.signIn.fields.email ?? '', token: ctx.signIn.fields.token ?? '' });
+const github = (ctx: Ctx): GithubClient => {
+  if (!ctx.signIn.gh) throw new Error('GitHub signs in through gh, as the project\'s account.');
+  return new GithubClient({ repo: ctx.host, token: ctx.signIn.gh.token, account: ctx.signIn.gh.account, exec: ctx.exec });
+};
+
+export const JIRA: TrackerDescription = {
+  kind: 'jira', name: 'Jira', icon: 'issues',
+  host: {
+    key: 'site', label: 'Site', placeholder: 'acme.atlassian.net', hint: 'The Jira site, or any link from it.',
+    parse: (v) => parseHost('jira', v), invalid: 'A Jira Cloud site, such as acme.atlassian.net, or a link from it.',
+  },
+  methods: [{
+    id: 'token', label: 'API token', icon: 'key', via: 'fields', test: 'Test connection',
+    hint: 'Jira takes your email and an API token. The token stays in VSCode, for this repo only.',
+    fields: [
+      { key: 'email', label: 'Email', type: 'email', placeholder: 'you@example.com', prefill: 'git-email', hint: 'The email you sign in to Jira with.', check: (v) => (/^\S+@\S+\.\S+$/.test(v.trim()) ? null : 'An email address, the one you sign in to Jira with.') },
+      { key: 'token', label: 'API token', type: 'secret', placeholder: 'Paste the token', check: (v) => (v.trim().length >= 16 ? null : 'Paste the whole token.'), help: { label: 'Create an API token', url: () => JIRA_TOKENS } },
+    ],
+  }],
+  pickers: [
+    { key: 'project', label: 'Project', dependsOn: [], identifies: true, load: async (ctx) => (await jiraProjects(ctx.host, jiraWith(ctx).email, jiraWith(ctx).token, ctx.fetch)).map((p) => ({ value: p.key, label: p.key, detail: p.name })) },
+    {
+      key: 'epic', label: 'Epic', dependsOn: ['project'], whole: (c) => `The whole ${one(c.values.project) ?? ''} project`,
+      hint: 'Pick an epic to take only its tickets and their sub-tasks.',
+      load: async (ctx) => (await jiraEpics(ctx.host, one(ctx.values.project)!, jiraWith(ctx).email, jiraWith(ctx).token, ctx.fetch)).map((e) => ({ value: e.key, label: e.key, detail: e.name })),
+    },
+    {
+      key: 'board', label: 'Board', dependsOn: ['project'], hint: 'Its columns are the Tasks tab\'s. Its own filter still applies, so pick one that shows the place\'s tickets.',
+      load: async (ctx) => (await jiraBoards(ctx.host, one(ctx.values.project)!, jiraWith(ctx).email, jiraWith(ctx).token, ctx.fetch)).map((b, i) => ({ value: String(b.id), label: b.name, detail: b.type, preferred: i === 0 })),
+    },
+  ],
+  verify: (ctx) => new JiraClient({ site: ctx.host, project: '', ...jiraWith(ctx), fetch: ctx.fetch }).me(),
+  toConfig: (c) => ({ kind: 'jira', site: c.host, project: one(c.values.project), board: one(c.values.board) ? Number(one(c.values.board)) : null, epic: one(c.values.epic) }),
+  fromConfig: (t) => ({ host: t.site ?? '', values: { project: t.project, epic: t.epic, board: t.board === null ? null : String(t.board) } }),
+};
+
+export const GITHUB: TrackerDescription = {
+  kind: 'github', name: 'GitHub Issues', icon: 'github',
+  host: {
+    key: 'repo', label: 'Repository', placeholder: 'owner/name', hint: 'Whose issues to show: the project\'s own repo, or another.',
+    parse: parseRepo, invalid: 'owner/name, or a github.com link to the repo.', prefill: 'github-repo',
+  },
+  methods: [{
+    id: 'gh', label: 'GitHub CLI', icon: 'github', via: 'gh', fields: [], test: 'Test connection',
+    hint: 'GitHub signs in through gh, as the project\'s own account. There\'s nothing to type.',
+  }],
+  pickers: [{
+    key: 'labels', label: 'Labels', dependsOn: [], multi: true, whole: (c) => `Every issue in ${c.host}`,
+    hint: 'Tick labels to take only issues with one of them. Tick none for every issue.',
+    load: async (ctx) => (await github(ctx).labels()).map((l) => ({ value: l.name, label: l.name })),
+  }],
+  verify: (ctx) => github(ctx).me(),
+  toConfig: (c) => ({ kind: 'github', repo: c.ownRepo && c.host.toLowerCase() === c.ownRepo.toLowerCase() ? null : c.host, labels: many(c.values.labels).length ? many(c.values.labels) : null }),
+  fromConfig: (t, ownRepo) => ({ host: t.repo ?? ownRepo ?? '', values: { labels: t.labels.length ? t.labels : null } }),
+};
+
+export const AZURE: TrackerDescription = {
+  kind: 'azure', name: 'Azure DevOps', icon: 'azure-devops',
+  host: {
+    key: 'organization', label: 'Organization', placeholder: 'acme', hint: 'The organization, as in dev.azure.com/acme, or any link from it.',
+    parse: (v) => parseHost('azure', v), invalid: 'An organization name, or a dev.azure.com link.',
+  },
+  methods: [
+    {
+      id: 'microsoft', label: 'Sign in with Microsoft', icon: 'account', via: 'microsoft', fields: [], test: 'Sign in with Microsoft',
+      hint: 'VSCode asks which Microsoft account at the top of the window: pick the one that belongs to this client. It handles MFA, and there\'s no token to renew.',
+      microsoft: { scope: AZURE_SCOPE, tenant: tenantOf },
+    },
+    {
+      id: 'pat', label: 'Personal access token', icon: 'key', via: 'fields', test: 'Test connection',
+      hint: 'For an organization whose tenant blocks VSCode\'s sign-in. Give the token Work Items: Read & write.',
+      fields: [{
+        key: 'token', label: 'Personal access token', type: 'secret', placeholder: 'Paste the token', check: (v) => (v.trim().length >= 20 ? null : 'Paste the whole token.'),
+        help: { label: 'Create a token', url: (host) => (host ? `https://dev.azure.com/${encodeURIComponent(host)}/_usersSettings/tokens` : null) },
+      }],
+    },
+  ],
+  pickers: [
+    { key: 'project', label: 'Project', dependsOn: [], identifies: true, load: async (ctx) => (await azureProjects(ctx.host, azureAuth(ctx.signIn), ctx.fetch)).map((p) => ({ value: p, label: p })) },
+    { key: 'team', label: 'Team', dependsOn: ['project'], hint: 'Whose board.', load: async (ctx) => (await azureTeams(ctx.host, one(ctx.values.project)!, azureAuth(ctx.signIn), ctx.fetch)).map((t, i) => ({ value: t, label: t, ...(i === 0 ? { detail: 'default team', default: true } : {}) })) },
+    {
+      key: 'board', label: 'Board', dependsOn: ['project', 'team'], hint: 'Usually the stories or backlog items one.',
+      load: async (ctx) => (await azureBoards(ctx.host, one(ctx.values.project)!, one(ctx.values.team)!, azureAuth(ctx.signIn), ctx.fetch)).map((b) => ({ value: b, label: b, preferred: /stor|backlog item|requirement/i.test(b) })),
+    },
+    {
+      key: 'areaPath', label: 'Area path', dependsOn: ['project', 'team'], whole: (c) => `All of ${one(c.values.team) ?? 'the team'}'s work items`,
+      hint: 'Pick an area path to take only the work items under it.',
+      load: async (ctx) => (await azureAreas(ctx.host, one(ctx.values.project)!, one(ctx.values.team)!, azureAuth(ctx.signIn), ctx.fetch)).map((a) => ({ value: a, label: a })),
+    },
+  ],
+  verify: (ctx) => azureWhoAmI(ctx.host, azureAuth(ctx.signIn), ctx.fetch),
+  toConfig: (c) => ({ kind: 'azure', organization: c.host, project: one(c.values.project), team: c.defaults.includes('team') ? null : one(c.values.team), board: one(c.values.board), areaPath: one(c.values.areaPath) }),
+  fromConfig: (t) => ({ host: t.organization ?? '', values: { project: t.project, team: t.team, board: typeof t.board === 'string' ? t.board : null, areaPath: t.areaPath } }),
+};
+
+/** Every tracker the Connect page offers, in the order it lists them. */
+export const DESCRIPTIONS: TrackerDescription[] = [JIRA, GITHUB, AZURE];
+
+export const describe = (kind: string, list: TrackerDescription[] = DESCRIPTIONS): TrackerDescription | undefined => list.find((d) => d.kind === kind);
+
+/** Every key a description names, for checking what a page sends. */
+export function declaredKeys(list: TrackerDescription[] = DESCRIPTIONS): { fields: Set<string>; pickers: Set<string>; methods: Set<string>; kinds: Set<string> } {
+  return {
+    fields: new Set(list.flatMap((d) => [d.host.key, ...d.methods.flatMap((m) => m.fields.map((f) => f.key))])),
+    pickers: new Set(list.flatMap((d) => d.pickers.map((p) => p.key))),
+    methods: new Set(list.flatMap((d) => d.methods.map((m) => m.id))),
+    kinds: new Set(list.map((d) => d.kind)),
+  };
+}
