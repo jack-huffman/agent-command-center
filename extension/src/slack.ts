@@ -497,7 +497,7 @@ export class Slack implements SlackSink {
 // ---------------------------------------------------------------- the card in Environments
 
 export interface SlackCard {
-  /** none: no webhook. off: a webhook kept, sending off. on: sending. paused: Slack refused a message. */
+  /** none: no webhook. off: a webhook kept, sending off. on: sending. paused: on, but Slack refused a message. */
   state: 'none' | 'off' | 'on' | 'paused';
   look: { label: string; icon: string; tone: Tone };
   /** When the state's line happened: the refusal that paused it. */
@@ -512,7 +512,8 @@ export interface SlackCard {
 
 /** The card from the state: each state with an icon and words, blue when it's fine, orange when it isn't. */
 export function slackCard(s: SlackState, busy = false): SlackCard {
-  const state: SlackCard['state'] = !s.tail ? 'none' : s.paused ? 'paused' : s.on ? 'on' : 'off';
+  // Turned off says off, even while paused: turning it back on stays paused until a test goes through.
+  const state: SlackCard['state'] = !s.tail ? 'none' : !s.on ? 'off' : s.paused ? 'paused' : 'on';
   const look = {
     none: { label: 'Off: no webhook yet', icon: 'circle-slash', tone: 'neutral' as Tone },
     off: { label: 'Off: turned off on this machine', icon: 'debug-pause', tone: 'neutral' as Tone },

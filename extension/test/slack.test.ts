@@ -294,6 +294,21 @@ test('a refusal pauses sending with Slack\'s reason until a test goes through; o
   assert.equal(w.slack.state().tail, 'zzzz');
 });
 
+test('turned off after a refusal, the card says off and Environments no longer needs you; turned on again, it stays paused', async () => {
+  const w = window(on(), () => new Response('no_service', { status: 404 }));
+  w.slack.offer(ev('one'));
+  await w.slack.settled();
+  assert.equal(slackCard(w.slack.state()).state, 'paused');
+  await w.slack.off();
+  const card = slackCard(w.slack.state());
+  assert.deepEqual([card.state, card.look.tone, card.look.icon, card.look.label], ['off', 'neutral', 'debug-pause', 'Off: turned off on this machine']);
+  const env = (c: typeof card) => homeModel({ hub: { projects: [], agents: [], agentsError: null, taskRows: () => [], projectFor: () => undefined }, section: 'environments', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() }, slack: c }).nav.find((n) => n.section === 'environments')!;
+  assert.deepEqual([env(card).attention, env(card).hint], [false, 'Branches, orgs, your GitHub account and Slack']);
+  await w.slack.on();
+  assert.equal(slackCard(w.slack.state()).state, 'paused', 'still paused until a test goes through');
+  assert.equal(env(slackCard(w.slack.state())).attention, true);
+});
+
 test('a 429, a 5xx, a timeout or a network error loses that one message, says why, and is never retried', async () => {
   const cases: [string, () => Response | Promise<Response>, string][] = [
     ['429', () => new Response('rate_limited', { status: 429 }), 'Slack is rate-limiting this webhook (429)'],

@@ -2228,9 +2228,11 @@ Slack for later; this is Slack for notices, not as a tracker.
   Slack's word for it (`channel_is_archived`) on the card, in orange with a
   warning icon, pauses sending until a test goes through or the webhook is
   replaced, and shows one VSCode warning; the Environments item in the rail
-  turns orange too. A 429, a 5xx, a timeout or a network error loses that one
-  message and says why on the card. A burst is cut short after the one on its
-  way and twenty waiting, with one message saying how many more there were.
+  turns orange too. Turned off while paused, the card says off and the rail
+  isn't orange; turned on again, it's still paused until a test goes through.
+  A 429, a 5xx, a timeout or a network error loses that one message and says
+  why on the card. A burst is cut short after the one on its way and twenty
+  waiting, with one message saying how many more there were.
   Errors are scrubbed of the webhook before they're shown or logged.
 - **Accepted:** a message claimed and then refused, or lost to a crash between
   the claim and the POST, isn't sent again. Paused, a moment isn't claimed, so
