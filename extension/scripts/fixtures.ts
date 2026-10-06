@@ -15,6 +15,7 @@ import type { Update } from '../../packages/core/src/updates.ts';
 import { type AgentSession, askingLabel, type DoctorItem, rowAnalysis, type TaskRow } from '../src/logic.ts';
 import { AZURE, GITHUB, JIRA } from '../../packages/core/src/trackers/connect.ts';
 import { type AgentModel, agentModel, blankConnect, type BoardInput, type ConnectModel, connectModel, type ConnectState, type HubLike, type IdentityCard, type ProjectLike, type RunInput, ticketModel, type TicketModel } from '../src/model.ts';
+import { blankSlack, type SlackCard, slackCard, type SlackState } from '../src/slack.ts';
 import type { Entry } from '../src/transcript.ts';
 
 const MIN = 60_000;
@@ -598,6 +599,20 @@ function sampleTodoTicket(now: number, key: 'ACME-21' | 'ACME-23'): TicketModel 
     project: ROOT, tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira', key, ticket, loading: false, error: null, connect: null, row, task, signedInAs: 'jordan@acme.example',
     analysis: sampleAnalyses(now)[key], trackerEdits: false, updates: sampleUpdates(now), boards: sampleBoards(), github: 'jordan-kim', now, checks: ['format', 'static', 'validate'].map((gate) => ({ gate, status: 'skip' as const, summary: 'Not run yet' })),
   });
+}
+
+/**
+ * The Slack card at each of its states (D-078): not set up, sending (its last message went), turned off,
+ * and paused because Slack refused a message. Two kinds are ticked when it's off, to see one unticked.
+ */
+export type SlackSample = 'none' | 'on' | 'off' | 'paused';
+export function sampleSlack(which: SlackSample, now = Date.now()): SlackCard {
+  const at = (ago: number) => now - ago * MIN;
+  const s: SlackState = { ...blankSlack(), since: at(600) };
+  if (which === 'on') return slackCard({ ...s, on: true, tail: 'x9Qa', last: { at: at(3), ok: true, text: 'Sent' } });
+  if (which === 'off') return slackCard({ ...s, tail: 'x9Qa', kinds: ['needs-you', 'pr'], last: { at: at(140), ok: false, text: 'Slack didn\'t answer within 10 s' } });
+  if (which === 'paused') return slackCard({ ...s, on: true, tail: 'x9Qa', paused: 'Slack refused it: channel_is_archived', last: { at: at(12), ok: false, text: 'Slack refused it: channel_is_archived' } });
+  return slackCard(s);
 }
 
 /** This clone works as another account than the project's, and that account lacks Projects access. */

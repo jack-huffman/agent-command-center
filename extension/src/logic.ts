@@ -235,8 +235,8 @@ export interface TaskRow {
   agent?: { label: string; icon: string; tone: Tone } | null;
   /** Its agent's question is waiting in the Command Center (D-030), not in the agent's own terminal. */
   asking?: boolean;
-  /** Its newest review (D-032): current when it's for the branch's latest commit. */
-  review?: { verdict: 'pass' | 'changes'; summary: string; current: boolean } | null;
+  /** Its newest review (D-032): current when it's for the branch's latest commit. When it was made, so Slack can tell one from the next. */
+  review?: { verdict: 'pass' | 'changes'; summary: string; current: boolean; at?: string } | null;
   /** A review under way, to watch. */
   reviewing?: { sessionId: string } | null;
   /** Its pull request (D-033). */
@@ -653,6 +653,8 @@ export interface TaskNotice {
   urgent: boolean;
   /** Its own buttons, before Show, for a notice whose buttons depend on more than its kind. */
   actions?: [label: string, command: string][];
+  /** The autopilot step it tells, for an autopilot notice: Slack keys and words it from this (GH-58). */
+  step?: AutopilotRecord;
 }
 
 /**
@@ -784,7 +786,7 @@ export function autopilotNotices(steps: AutopilotRecord[], tasks: AutopilotTask[
   const out: TaskNotice[] = [];
   for (const r of steps) {
     const t = tasks.find((x) => x.id === r.task);
-    const say = (text: string, urgent: boolean, actions: [string, string][] = []) => out.push({ kind: 'autopilot', task: r.task, text, urgent, actions });
+    const say = (text: string, urgent: boolean, actions: [string, string][] = []) => out.push({ kind: 'autopilot', task: r.task, text, urgent, actions, step: r });
     if (r.outcome === 'failed') {
       const by: Record<AutopilotStepName, [string, string]> = {
         review: ['Review', 'acc.task.review'], land: ['Land', 'acc.task.land'], dispatch: ['Re-dispatch', 'acc.task.dispatch'], refresh: ['Open pull request', 'acc.task.openPr'], resume: ['Resume', 'acc.task.resume'], checks: ['Open pull request', 'acc.task.openPr'],

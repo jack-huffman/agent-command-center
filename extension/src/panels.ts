@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
 import type { Answer } from '../../packages/core/src/questions.ts';
 import type { Hub } from './hub.ts';
-import { answerOf, type BoardInput, type ConnectMessage, type ConnectModel, HOME_SECTIONS, type HomeSection, homeModel, type IdentityCard, isFromWebview, type Ref, type RunControl, type RunInput, runCard, type ViewKind } from './model.ts';
+import { answerOf, type BoardInput, type ConnectMessage, type ConnectModel, type FromWebview, HOME_SECTIONS, type HomeSection, homeModel, type IdentityCard, isFromWebview, type Ref, type RunControl, type RunInput, runCard, type SlackCard, type ViewKind } from './model.ts';
 import type { Setup } from './setup.ts';
 import type { UpdateActions } from './ticket.ts';
 
@@ -41,6 +41,8 @@ export interface BoardDeps {
   runControl(id: string, action: RunControl): void;
   /** The Connect page (GH-51): what it shows, what it sends, and closing it with the tab. */
   connect: { model(): ConnectModel | null; receive(m: ConnectMessage): void; close(): void };
+  /** The Slack card (GH-58): what it shows, never the webhook, and what its controls send. */
+  slack?: { card(): SlackCard | null; receive(m: Extract<FromWebview, { type: 'slack' | 'slack-connect' | 'slack-kinds' }>): void };
 }
 
 export const isWebLink = (url: string): boolean => /^(https?:|mailto:)/i.test(url);
@@ -159,7 +161,7 @@ export class Panels implements vscode.Disposable {
     return homeModel({
       hub: this.hub, section: this.section, boards: (r) => this.deps.boards(r), identity: (r) => this.deps.identity(r),
       setup: { items: this.setup.results(), confirmed: this.setup.allConfirmed() }, runs: this.deps.runs(),
-      edited: (root, id, replaces) => this.deps.edited(root, id, replaces), connect: this.deps.connect.model(),
+      edited: (root, id, replaces) => this.deps.edited(root, id, replaces), connect: this.deps.connect.model(), slack: this.deps.slack?.card() ?? null,
     });
   }
 
@@ -239,6 +241,7 @@ export class Panels implements vscode.Disposable {
     if (m.type === 'run-input') return this.deps.runInput(m.run, m.text);
     if (m.type === 'run-control') return this.deps.runControl(m.run, m.action);
     if (m.type === 'agent-reply') return; // only an agent's own page writes to it (D-060)
+    if (m.type === 'slack' || m.type === 'slack-connect' || m.type === 'slack-kinds') return this.deps.slack?.receive(m);
     if ('session' in m) return this.deps.connect.receive(m);
     if (!ALLOWED.has(m.command)) return;
     if (m.type === 'toolbar') {

@@ -16,6 +16,7 @@ import { promotionPaths } from '../../packages/core/src/promote.ts';
 import type { Answer, HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import { isOpenUpdate, stalePosting, type Update, UPDATE_ID, UPDATE_TEXT_MAX } from '../../packages/core/src/updates.ts';
 import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, BOARD_LANES, conflictLine, type DoctorItem, ENV_ICON, failedChecksLine, fileList, groupTasks, isUnder, prConflicts, questionsWord, type RunPrompt, saidLine, shortPath, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
+import { isSlackWebhook, SLACK_KINDS, type SlackCard, type SlackKind } from './slack.ts';
 import type { Entry } from './transcript.ts';
 
 export const VIEW_KINDS = ['tasks', 'agents', 'worktrees', 'environments', 'setup'] as const;
@@ -871,11 +872,14 @@ export interface EnvCard {
 export interface EnvironmentsModel {
   kind: 'environments';
   projects: { name: string; root: string; github: string | null; identity: IdentityCard | null; envs: EnvCard[]; paths: string[][] }[];
+  /** acc's notices in Slack, for this machine (GH-58). Never the webhook: only its last four characters. */
+  slack: SlackCard | null;
 }
 
-export function environmentsModel(hub: HubLike, identity: (root: string) => IdentityCard | null = () => null): EnvironmentsModel {
+export function environmentsModel(hub: HubLike, identity: (root: string) => IdentityCard | null = () => null, slack: SlackCard | null = null): EnvironmentsModel {
   return {
     kind: 'environments',
+    slack,
     projects: hub.projects.map((p) => ({
       name: p.name, root: p.root,
       github: p.config.github ? `${p.config.github.repo} as ${p.config.github.account}` : null,
@@ -1671,6 +1675,8 @@ export interface HomeInput {
   /** The edit a task's page holds for an update, unsent, following the drafts it replaced. */
   edited?: (root: string, id: string, replaces: string[]) => string | null;
   connect?: ConnectModel | null;
+  /** The Slack card, for this machine (GH-58). */
+  slack?: SlackCard | null;
 }
 
 /** How many things need a person: each question, and each orange item. The badge and the Overview agree. */
@@ -1686,7 +1692,7 @@ export function homeModel(i: HomeInput): HomeModel {
   const tasks = tasksModel(hub, i.boards);
   const agents = agentsModel(hub, i.setup.items);
   const worktrees = worktreesModel(hub);
-  const environments = environmentsModel(hub, i.identity);
+  const environments = environmentsModel(hub, i.identity, i.slack ?? null);
   const setup = setupModel(i.setup.items, i.setup.confirmed);
   const questions = questionCards(hub);
   const asked = new Set(questions.map((q) => q.sessionId));
@@ -1832,7 +1838,8 @@ export function homeModel(i: HomeInput): HomeModel {
     { section: 'tasks', label: 'Tasks', icon: 'project', count: taskAttention || rows.length || null, attention: taskAttention > 0, hint: taskAttention ? `${taskAttention} need you` : `${rows.length} task${rows.length === 1 ? '' : 's'}` },
     { section: 'agents', label: 'Agents', icon: 'hubot', count: needsAgents || sessions || null, attention: needsAgents > 0, hint: needsAgents ? `${needsAgents} waiting on you` : `${sessions} session${sessions === 1 ? '' : 's'}` },
     { section: 'worktrees', label: 'Worktrees', icon: 'git-branch', count: linkedTrees || null, attention: false, hint: `${linkedTrees} task checkout${linkedTrees === 1 ? '' : 's'}` },
-    { section: 'environments', label: 'Environments', icon: 'server-environment', count: null, attention: hub.projects.some((p) => !!i.identity(p.root)?.problem), hint: 'Branches, orgs and your GitHub account' },
+    // Slack paused because it refused a message needs you too (GH-58).
+    { section: 'environments', label: 'Environments', icon: 'server-environment', count: null, attention: hub.projects.some((p) => !!i.identity(p.root)?.problem) || i.slack?.state === 'paused', hint: i.slack?.state === 'paused' ? 'Notices to Slack are paused' : 'Branches, orgs, your GitHub account and Slack' },
     { section: 'setup', label: 'Setup', icon: 'checklist', count: todo || null, attention: failing > 0, hint: todo ? `${todo} to do` : 'All done' },
   ];
   const runs = (i.runs ?? []).map((r) => runCard(r));
@@ -1900,7 +1907,14 @@ export type FromWebview =
   | { type: 'connect-again'; session: string }
   | { type: 'connect-pick'; session: string; key: string; value: string | string[] | null }
   | { type: 'connect-save'; session: string }
-  | { type: 'connect-cancel'; session: string };
+  | { type: 'connect-cancel'; session: string }
+  /**
+   * The Slack card (GH-58). A webhook travels once, in slack-connect, to VSCode's secret storage, and is
+   * never sent back: the card shows only its last four characters.
+   */
+  | { type: 'slack-connect'; url: string }
+  | { type: 'slack'; action: SlackAction }
+  | { type: 'slack-kinds'; kinds: SlackKind[] };
 
 export type ConnectMessage = Extract<FromWebview, { session: string }>;
 
@@ -1918,6 +1932,11 @@ export function answerOf(m: Extract<FromWebview, { type: 'answer' }>): Answer {
   if (m.decision === 'deny') return { decision: 'deny', ...(m.message?.trim() ? { message: m.message.trim() } : {}), ...(m.stop ? { stop: true } : {}) };
   return { decision: 'terminal' };
 }
+
+/** What the Slack card's buttons ask for (GH-58). The card itself is drawn from a SlackCard. */
+export type { SlackCard } from './slack.ts';
+export const SLACK_ACTIONS = ['test', 'on', 'off', 'remove'] as const;
+export type SlackAction = (typeof SLACK_ACTIONS)[number];
 
 export const RUN_CONTROLS = ['stop', 'terminal', 'dismiss'] as const;
 export type RunControl = (typeof RUN_CONTROLS)[number];
@@ -1969,6 +1988,9 @@ export function isFromWebview(m: unknown): m is FromWebview {
     }
     case 'connect-pick': return short(x.session, 64) && CONNECT.pickers.has(x.key as string) && connectValue(x.value);
     case 'connect-again': case 'connect-save': case 'connect-cancel': return short(x.session, 64);
+    case 'slack-connect': return typeof x.url === 'string' && isSlackWebhook(x.url.trim());
+    case 'slack': return (SLACK_ACTIONS as readonly string[]).includes(x.action as string);
+    case 'slack-kinds': return Array.isArray(x.kinds) && x.kinds.length <= SLACK_KINDS.length && x.kinds.every((k) => (SLACK_KINDS as readonly unknown[]).includes(k));
     default: return false;
   }
 }

@@ -17,6 +17,8 @@ process.env.ACC_QUESTIONS_DIR = mkdtempSync(join(tmpdir(), 'acc-questions-'));
 // It records its runtime for acc's launcher (D-077); that goes here too, not in the real ~/.acc.
 const RUNTIME_FILE = join(mkdtempSync(join(tmpdir(), 'acc-runtime-')), 'runtime');
 process.env.ACC_RUNTIME_FILE = RUNTIME_FILE;
+// And Slack's claims (GH-58), which it prunes at start.
+process.env.ACC_SLACK_DIR = mkdtempSync(join(tmpdir(), 'acc-slack-'));
 // The extension runs acc as the person at VSCode, even when these tests run in a builder's session.
 delete process.env.ACC_ROLE;
 delete process.env.ACC_TASK;

@@ -24,6 +24,7 @@ import { RepoIdentity } from './identity.ts';
 import { TicketPanels, type UpdateActions } from './ticket.ts';
 import { exec, Trackers } from './trackers.ts';
 import { ConnectSession } from './connect.ts';
+import { Slack, slackCard, SLACK_STATE } from './slack.ts';
 import { describe } from '../../packages/core/src/trackers/connect.ts';
 
 /** Step commands get a step id from walkthrough buttons, or a Setup view item from menus. */
@@ -51,6 +52,18 @@ export function activate(context: vscode.ExtensionContext): void {
   context.environmentVariableCollection.prepend('PATH', dirname(accScript) + delimiter);
 
   const reg = (id: string, fn: (...args: any[]) => unknown) => context.subscriptions.push(vscode.commands.registerCommand(id, fn));
+
+  // acc's notices in Slack (GH-58): one webhook for this machine, in VSCode's secret storage, off until a
+  // person turns it on on the Environments section's card. Every window offers what it sees; one sends it.
+  const slack = new Slack({
+    secrets: context.secrets,
+    state: { get: () => context.globalState.get(SLACK_STATE), set: (s) => context.globalState.update(SLACK_STATE, s) },
+    log: (line, warn) => (warn ? setup.log.warn(line) : setup.log.info(line)),
+    paused: (reason) => void vscode.window.showWarningMessage(`acc's notices to Slack are paused: ${reason}. Send a test from Environments once it's fixed, or paste a new webhook.`, 'Open Environments')
+      .then((pick) => pick && panels.show('environments')),
+    changed: () => changed(),
+  });
+  slack.prune();
 
   // Commands acc runs for you show their output in the page (D-030). Only a command that needs a
   // keyboard of its own still opens a terminal.
@@ -336,6 +349,17 @@ export function activate(context: vscode.ExtensionContext): void {
     runs: () => runs.views(),
     runInput: (id, text) => void runs.input(id, text),
     runControl: (id, action) => runs.control(id, action),
+    slack: {
+      card: () => slackCard(slack.state(), slack.busy),
+      receive: (m) => {
+        if (m.type === 'slack-connect') void slack.connect(m.url);
+        else if (m.type === 'slack-kinds') void slack.setKinds(m.kinds);
+        else if (m.action === 'test') void slack.test();
+        else if (m.action === 'on') void slack.on();
+        else if (m.action === 'off') void slack.off();
+        else void removeSlack();
+      },
+    },
   });
   context.subscriptions.push(panels, tickets);
   // All of acc in one status bar item (D-065): it asks each part where it is.
@@ -352,11 +376,28 @@ export function activate(context: vscode.ExtensionContext): void {
       account: identity.account(),
     };
   };
-  const notices = new Notices(hub, resolve, () => panels.visible() && ['overview', 'tasks'].includes(panels.current()), statusParts);
+  const notices = new Notices(hub, resolve, () => panels.visible() && ['overview', 'tasks'].includes(panels.current()), statusParts, slack);
   context.subscriptions.push(notices);
   questions = new Questions(hub, setup.log,
     (card) => { if (!pages.open(card.session)) panels.show('overview'); },
-    (card) => (panels.visible() && panels.current() === 'overview') || pages.showing(card.sessionId));
+    (card) => (panels.visible() && panels.current() === 'overview') || pages.showing(card.sessionId), slack);
+  /** Remove asks first: notices stop until a webhook is pasted again. */
+  const removeSlack = async () => {
+    const pick = await vscode.window.showWarningMessage('Remove the Slack webhook from this machine? acc\'s notices stop going to Slack until one is pasted again.', { modal: true }, 'Remove');
+    if (pick === 'Remove') await slack.remove();
+  };
+  // The card is where Slack is set up; the commands reach it, and test or stop it, from the Command Palette.
+  reg('acc.slack.connect', () => panels.show('environments'));
+  reg('acc.slack.test', async () => {
+    if (!slack.state().tail) { panels.show('environments'); return; }
+    const r = await slack.test();
+    if (r.ok) void vscode.window.showInformationMessage('The test message went to Slack.');
+    else void vscode.window.showWarningMessage(`The test message didn't go to Slack: ${r.error}.`);
+  });
+  reg('acc.slack.off', async () => {
+    await slack.off();
+    void vscode.window.showInformationMessage('acc\'s notices no longer go to Slack from this machine. Turn them on again in Environments.');
+  });
   context.subscriptions.push(questions);
 
   runs.onDidChange(({ structural }) => { if (structural) changed(); else { panels.postRuns(); notices.draw(); } });
