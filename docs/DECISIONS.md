@@ -2484,8 +2484,10 @@ D-077 and before GH-61 and GH-62.
   find is a line, `<package>: <file>:<line>: <what>`. It looks for:
   - a home path: `/Users/<name>`, `/home/<name>`, or `-Users-<name>-` as
     `~/.claude/projects` writes it;
-  - the packager's git emails, from every scope, `GIT_AUTHOR_EMAIL` and the
-    like, and `.acc/config.json`'s commitIdentity;
+  - the packager's git emails, from every scope and every file the system and
+    global configs include, whatever its `includeIf` condition, from
+    `GIT_AUTHOR_EMAIL` and the like, and from `.acc/config.json`'s
+    commitIdentity;
   - a GitHub account: every one gh is signed in to, the repo's own and the
     clone's (D-028), as whole words;
   - a `.claude/` or `.acc/` path holding the packager's username or real name

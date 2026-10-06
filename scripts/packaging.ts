@@ -6,7 +6,7 @@
  */
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir, userInfo } from 'node:os';
-import { dirname, join, relative } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { run as realRun, type Runner } from '../packages/core/src/exec.ts';
 import { cloneAccount, ghAccounts } from '../packages/core/src/github.ts';
@@ -309,6 +309,7 @@ export interface TermDeps {
   root: string;
   run: Runner;
   env: NodeJS.ProcessEnv;
+  home: string;
   username: string;
   /** VSCode's state.vscdb files, read for the names of tracker sign-ins only, never their values. */
   vscodeState: string[];
@@ -321,7 +322,7 @@ export function vscodeStateFiles(env: NodeJS.ProcessEnv = process.env, home = ho
 }
 
 export const defaultTermDeps = (root: string = ROOT, env: NodeJS.ProcessEnv = process.env): TermDeps => ({
-  root, run: realRun, env, username: userInfo().username, vscodeState: vscodeStateFiles(env),
+  root, run: realRun, env, home: homedir(), username: userInfo().username, vscodeState: vscodeStateFiles(env),
 });
 
 /**
@@ -346,7 +347,8 @@ export function readSignIns(files: string[]): { keys: string[]; notes: string[] 
   const keys: string[] = [];
   const notes: string[] = [];
   const there = files.filter((f) => existsSync(f));
-  if (!there.length) notes.push('VSCode\'s sign-ins weren\'t found, so tracker sites are checked by pattern only.');
+  if (!files.length) notes.push('VSCode\'s sign-ins weren\'t read (ACC_VSCODE_STATE is empty), so tracker sites are checked by pattern only.');
+  else if (!there.length) notes.push('VSCode\'s sign-ins weren\'t found, so tracker sites are checked by pattern only.');
   for (const f of there) {
     try {
       const { DatabaseSync } = process.getBuiltinModule('node:sqlite');
@@ -374,7 +376,13 @@ export function personalTerms(d: TermDeps): { terms: Terms; notes: string[] } {
   let config: Json = {};
   try { config = JSON.parse(readFileSync(join(d.root, '.acc', 'config.json'), 'utf8')) as Json; } catch { notes.push('No .acc/config.json, so the repo\'s own account isn\'t known.'); }
   const repo = field(config, 'github', 'repo');
-  const scopes = [[], ['--system', '--includes'], ['--global', '--includes'], ['--local', '--includes'], ['--worktree', '--includes']];
+  // Every scope, and every file the system and global configs include, whatever its condition: a work
+  // email kept for another folder (includeIf) is still the packager's.
+  const included = ['--system', '--global']
+    .flatMap((s) => lines(d.run, 'git', ['config', s, '--get-regexp', '^include(if\\..*)?\\.path$'], d.root))
+    .map((l) => l.slice(l.indexOf(' ') + 1).replace(/^~(?=\/)/, d.home))
+    .map((p) => ['--file', resolve(d.home, p), '--includes']);
+  const scopes = [[], ['--system', '--includes'], ['--global', '--includes'], ['--local', '--includes'], ['--worktree', '--includes'], ...included];
   const git = (key: string) => scopes.flatMap((s) => lines(d.run, 'git', ['config', ...s, '--get-all', key], d.root));
   const accounts = ghAccounts(d.run, d.env);
   if (!accounts) notes.push('gh isn\'t installed, so only the repo\'s own GitHub account is checked.');

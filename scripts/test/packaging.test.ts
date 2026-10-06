@@ -199,17 +199,21 @@ test('the packager\'s words come from git, gh, their name and VSCode\'s sign-in 
   const broken = join(dir, 'broken.vscdb');
   writeFileSync(broken, 'not a database');
   const gh = 'github.com\n  ✓ Logged in to github.com account pat-lee (keyring)\n  - Active account: true\n  ✓ Logged in to github.com account pat-work (keyring)\n  - Active account: false\n';
+  const home = '/Users/pat-lee';
   const { terms, notes } = personalTerms({
-    root: dir, env: {}, username: 'patlee', vscodeState: [state, broken, join(dir, 'missing.vscdb')],
+    root: dir, env: {}, home, username: 'patlee', vscodeState: [state, broken, join(dir, 'missing.vscdb')],
     run: stub({
       'git config --get-all user.email': ok('pat.lee@corp.example\n'),
       'git config --global --includes --get-all user.email': ok('Pat.Lee@Corp.Example\nyou@example.com\n'),
       'git config --global --includes --get-all user.name': ok('Pat Lee\n'),
+      'git config --global --get-regexp ^include(if\\..*)?\\.path$': ok('includeif.gitdir:~/work/.path ~/.gitconfig-work\ninclude.path .gitconfig-more\n'),
+      [`git config --file ${home}/.gitconfig-work --includes --get-all user.email`]: ok('pat@work.example\n'),
+      [`git config --file ${home}/.gitconfig-more --includes --get-all user.email`]: ok('pat@more.example\n'),
       'gh auth status --hostname github.com': ok(gh),
       'id -F': ok('Pat Lee\n'),
     }),
   });
-  assert.deepEqual(terms.emails, ['jh@corp.example', 'pat.lee@corp.example'], 'every scope, the config\'s, deduplicated, placeholders dropped');
+  assert.deepEqual(terms.emails, ['jh@corp.example', 'pat.lee@corp.example', 'pat@more.example', 'pat@work.example'], 'every scope and included file, the config\'s, deduplicated, placeholders dropped');
   assert.deepEqual(terms.logins, ['jack-huffman', 'pat-lee', 'pat-work']);
   assert.deepEqual(terms.names, ['jack-huffman', 'pat lee', 'patlee']);
   assert.deepEqual(terms.hosts, ['client.atlassian.net', 'clientorg.visualstudio.com', 'dev.azure.com/clientorg', 'other.atlassian.net']);
@@ -219,7 +223,9 @@ test('the packager\'s words come from git, gh, their name and VSCode\'s sign-in 
   assert.equal(notes.length, 1);
   assert.match(notes[0]!, /^Couldn't read VSCode's sign-ins in .*broken\.vscdb .*checked by pattern only\.$/);
   assert.deepEqual(parseSignIn('acc.cred:git:/a/b:jira:x.atlassian.net'), { hosts: ['x.atlassian.net'], repo: null });
-  assert.match(personalTerms({ root: dir, env: {}, username: 'patlee', vscodeState: [], run: stub({}) }).notes.join('\n'), /weren't found, so tracker sites are checked by pattern only/);
+  const noted = (vscodeState: string[]) => personalTerms({ root: dir, env: {}, home, username: 'patlee', vscodeState, run: stub({}) }).notes.join('\n');
+  assert.match(noted([join(dir, 'missing.vscdb')]), /weren't found, so tracker sites are checked by pattern only/);
+  assert.match(noted([]), /weren't read \(ACC_VSCODE_STATE is empty\)/);
 });
 
 // ---------------------------------------------------------------- npm run package
