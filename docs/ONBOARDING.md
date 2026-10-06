@@ -55,6 +55,25 @@ Placeholders: `<client>` is the project's short name. `<prod>`, `<qa>` and
   `claude plugin marketplace add <path or repo>` and then
   `claude plugin install acc@agent-command-center`.
 
+- [ ] **A5. Send acc's notices to Slack (optional).** For hearing what needs
+  you when you're away from VSCode.
+  1. In Slack, make an incoming webhook for a channel, or for a DM to yourself:
+     [api.slack.com/messaging/webhooks](https://api.slack.com/messaging/webhooks).
+     It looks like `https://hooks.slack.com/services/T…/B…/…`.
+  2. In the Command Center, open **Environments**. Under **This machine**, paste
+     it on the **Notices in Slack** card and choose **Connect**. A test message
+     goes to Slack, and the card says whether it arrived.
+  3. Untick any kind you don't want: **Needs you**, **Review finished**, **Pull
+     request opened**, **Draft update waiting**. **Turn off** stops them all;
+     **Remove** deletes the webhook from this machine.
+
+  The webhook is kept in VSCode's secret storage on this machine, for every
+  project open here, never in a repo. Each message has the task's id and
+  title, what happened and a link to its pull request or ticket; never a
+  draft's text, a ticket's description, code or logs. If Slack refuses a
+  message (the channel was archived, say), the card turns orange with Slack's
+  reason and nothing more is sent until **Send a test** goes through.
+
 <details>
 <summary><b>Moving a Claude conversation into a project folder</b></summary>
 
@@ -425,7 +444,8 @@ Read the drafts before committing them. By hand:
   - A ticket that leaves the place, because it moved or the place was
     narrowed, leaves acc's board if work on it never started. One that started
     stays on the agent board, and the tracker's board names it for you.
-  - **monday.com and Slack:** later.
+  - **monday.com:** later. Slack isn't a ticket source; acc's notices can go
+    to it instead (A5).
 
 If a repo keeps its tasks in acc alone, mark the step done. `acc doctor` checks
 that the config names a source (B14.tickets). The walkthrough also checks that

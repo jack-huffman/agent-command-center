@@ -29,7 +29,7 @@ in [ONBOARDING.md](ONBOARDING.md) until the walkthrough replaces them.
 
 ## Later
 
-- monday.com intake, Slack notifications
+- monday.com intake (acc's notices go to Slack already: D-??? in DECISIONS.md)
 - a pull request monitor that turns failing CI or conflicts into rework tasks
 - a merge queue
 - cloud sessions

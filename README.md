@@ -71,6 +71,12 @@ Salesforce. Project types plug in as profiles.
   Mac slept anyway, shows as needs you with the last thing it said, and
   **Resume** (`acc resume <id>`) carries its session on in its worktree.
   Autopilot resumes one once by itself.
+- **Notices in Slack:** away from VSCode, what needs you can come to a Slack
+  channel or your own DM, by an incoming webhook kept in VSCode's secret
+  storage on this machine. Set it up on the Environments section's **Notices
+  in Slack** card. It's off until you turn it on, sends each moment once
+  however many windows are open, and sends only the task's id and title, what
+  happened and a link.
 - **Next:** M8, the pilots.
 
 Install the extension with `npm run package && npm run install-extension`, then
@@ -112,8 +118,8 @@ docs/           design, roadmap, decisions, research
 Each repo lists its own trackers in `.acc/config.json`, and signs in to them on
 its own. One machine can work across clients with different Jira sites, Azure
 DevOps organizations, GitHub repos and pipelines, and no client's login serves
-another's repo. GitHub Issues, Jira Cloud and Azure DevOps today; monday.com and
-Slack come later. Set one up on the Command Center's **Connect page**: Connect
+another's repo. GitHub Issues, Jira Cloud and Azure DevOps today; monday.com
+comes later. Set one up on the Command Center's **Connect page**: Connect
 Jira on the Tasks tab, Add a tracker on the Overview, or **Add a tracker…** from
 the Command Palette. It signs in, tests the connection, and lists the projects,
 places and boards to pick from. See [ONBOARDING.md, B14](docs/ONBOARDING.md#b14-connect-the-ticket-source).

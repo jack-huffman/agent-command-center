@@ -854,7 +854,8 @@ already exists.
 - destructive Salesforce changes
 - a merge queue
 - automatic rework when CI fails
-- monday.com and Slack
+- monday.com, and Slack as a ticket source (acc's notices can go to Slack:
+  D-??? in DECISIONS.md)
 - cloud sessions
 - sharing a ledger across machines
 - a Developer sandbox for each agent
