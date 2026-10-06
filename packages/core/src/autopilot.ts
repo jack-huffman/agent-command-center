@@ -243,13 +243,12 @@ function landStep(r: LandResult): StepRun {
 
 /**
  * Why a step's error is only for now, or null when it's a real failure. Only these wait: the ledger was
- * busy, the heavy-check slot stayed taken for a refresh's checks, or the agent cap filled up between the
- * look and the dispatch. Anything else is recorded.
+ * busy, the agent cap filled up between the look and the dispatch, or a stopped builder's agent came
+ * back. Anything else is recorded, a heavy-check slot that stayed taken for hours among them (D-???).
  */
 function temporary(e: unknown, paths: RepoPaths, config: Config, id: string): string | null {
   const code = (e as AccError).code;
   if (code === 'lock-timeout') return 'The ledger was busy. Autopilot tries again next pass.';
-  if (code === 'busy') return 'The heavy-check slot stayed taken, so the merge was undone. Autopilot tries again next pass.';
   // Its agent came back between the look and the resume: nothing stopped after all.
   if (code === 'agent-active') return `${(e as Error).message} Autopilot looks again next pass.`;
   if (code === 'move-refused') {
