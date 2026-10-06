@@ -279,6 +279,7 @@ export function activate(context: vscode.ExtensionContext): void {
     answer,
     answerAnalysis,
     updates,
+    edited: (root, id, replaces) => tickets.edited(root, id, replaces),
     runs: () => runs.views(),
     runInput: (id, text) => void runs.input(id, text),
     runControl: (id, action) => runs.control(id, action),
@@ -362,6 +363,8 @@ export function activate(context: vscode.ExtensionContext): void {
   };
   trackers.onDidChange(changed);
   identity.onDidChange(changed);
+  // An edit on a task's page changes what the Overview shows for its update, and whether it offers Post.
+  tickets.onDidEdit(changed);
   reg('acc.trackers.add', async () => { await trackers.add(); await setup.recheck('B14.tickets'); });
   reg('acc.trackers.signIn', async (arg?: unknown) => { if (await trackers.signIn(arg)) tickets.refresh(); await setup.recheck('B14.tickets'); });
   reg('acc.trackers.signOut', async (arg?: unknown) => { await trackers.signOut(arg); await setup.recheck('B14.tickets'); });

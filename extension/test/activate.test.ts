@@ -2,7 +2,7 @@
 // keys are tested without a VSCode window. Run after npm run build.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import Module, { createRequire } from 'node:module';
 import { join } from 'node:path';
@@ -35,7 +35,8 @@ function fakeVscode(folder: string) {
   class EventEmitter { private ls: ((e: unknown) => void)[] = []; event = (l: (e: unknown) => void) => { this.ls.push(l); return disposable; }; fire(e?: unknown) { for (const l of this.ls) l(e); } dispose() {} }
   class TreeItem { label: string; collapsibleState: number; [k: string]: unknown; constructor(label: string, state = 0) { this.label = label; this.collapsibleState = state; } }
   class MarkdownString { value: string; supportThemeIcons = false; constructor(v = '') { this.value = v; } }
-  const panels: { html: string; posted: unknown[]; receive?: (m: unknown) => void }[] = [];
+  /** Each editor tab: what it was sent, what it says back, and closing it. */
+  const panels: { html: string; posted: unknown[]; receive?: (m: unknown) => void; close?: () => void }[] = [];
   const api = {
     EventEmitter, TreeItem, MarkdownString,
     ViewColumn: { Active: -1 },
@@ -71,11 +72,11 @@ function fakeVscode(folder: string) {
       createTreeView: (id: string, o: { treeDataProvider: never }) => { trees.set(id, o.treeDataProvider); return { visible: false, onDidChangeVisibility: event(), badge: undefined, dispose() {} }; },
       showInputBox: async () => undefined,
       createWebviewPanel: () => {
-        const rec: { html: string; posted: unknown[]; receive?: (m: unknown) => void } = { html: '', posted: [] };
+        const rec: (typeof panels)[number] = { html: '', posted: [] };
         panels.push(rec);
         return {
           visible: true, iconPath: undefined, reveal() {}, dispose() {},
-          onDidChangeViewState: event(), onDidDispose: event(),
+          onDidChangeViewState: event(), onDidDispose: (l: () => void) => { rec.close = l; return disposable; },
           webview: {
             cspSource: 'vscode-resource:', asWebviewUri: (u: { toString(): string }) => u,
             set html(v: string) { rec.html = v; }, get html() { return rec.html; },
@@ -221,6 +222,52 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     assert.match((await updated(tab, { type: 'update-ask', project: root, task: 'T-1', question: 'q1' })).error ?? '', /hasn't been analyzed/);
     assert.match((await updated(page, { type: 'update-post', project: root, id: 'T-2.1', text: 'Hello' })).error ?? '', /isn't for this task/, 'the task\'s page posts only its own updates');
     assert.match((await updated(page, { type: 'update-discard', project: root, id: 'T-1.1' })).error ?? '', /No update T-1\.1/);
+
+    // An edit on the task's page is what the Overview shows, and the Overview's Post can't send acc's text
+    // instead (GH-46). The drafts are acc's files, as acc sync leaves them.
+    const store = join(repo, '.git', 'acc', 'updates');
+    mkdirSync(store, { recursive: true });
+    const said = 'The change was approved and merged into main.';
+    const draft = (id: string, extra: Record<string, unknown> = {}) => writeFileSync(join(store, `${id}.json`), JSON.stringify({
+      v: 1, id, task: id.slice(0, id.lastIndexOf('.')), tracker: 'github', key: `#${id.split('-')[1]!.split('.')[0]}`, url: null, event: 'merged', env: 'main', text: said, state: 'draft', createdAt: new Date().toISOString(), by: 'acc sync', ...extra,
+    }));
+    draft('T-1.1');
+    draft('T-2.1');
+    await calls.commands.get('acc.tasks.refresh')!();
+    type Row = { look: { label: string; icon: string; tone: string }; actions: { label: string; primary?: boolean }[]; update?: { id: string; edited: string | null } };
+    const rows = () => ((tab.posted.filter((x) => (x as Posted).model).at(-1) as { model: { overview: { attention: Row[] } } }).model.overview.attention.filter((a) => a.update));
+    const look = (id: string) => { const r = rows().find((a) => a.update!.id === id); return r && [r.look.label, r.update!.edited, r.actions.map((a) => `${a.label}${a.primary ? '*' : ''}`).join(',')]; };
+    await until(() => rows().length === 2);
+    assert.deepEqual(look('T-1.1'), ['Draft update', null, 'Edit']);
+    page.receive!({ type: 'update-edit', project: root, id: 'T-1.1', text: 'Merged into main: try it there.' });
+    await until(() => look('T-1.1')?.[0] === 'Edited on the task page');
+    assert.deepEqual(look('T-1.1'), ['Edited on the task page', 'Merged into main: try it there.', 'Edit*'], 'the edit, and Edit leads');
+    // A row drawn before the edit arrived still offers Post: acc's text is refused, and nothing is posted.
+    const refused = await updated(tab, { type: 'update-post', project: root, id: 'T-1.1', text: said });
+    assert.deepEqual([refused.action, refused.ok, refused.id], ['update-post', false, 'T-1.1']);
+    assert.match(refused.error ?? '', /edited on the task page, so post it from there/);
+    assert.equal(JSON.parse(readFileSync(join(store, 'T-1.1.json'), 'utf8')).state, 'draft', 'nothing was claimed or posted');
+    // The page edits only its own task's updates.
+    page.receive!({ type: 'update-edit', project: root, id: 'T-2.1', text: 'Not this page\'s.' });
+    assert.deepEqual(look('T-2.1'), ['Draft update', null, 'Edit']);
+
+    // acc drafts the same news again while the page is hidden: the newer draft is still edited there.
+    draft('T-1.2', { replaces: ['T-1.1'] });
+    rmSync(join(store, 'T-1.1.json'));
+    await calls.commands.get('acc.tasks.refresh')!();
+    await until(() => !!look('T-1.2'));
+    assert.deepEqual(look('T-1.2'), ['Edited on the task page', 'Merged into main: try it there.', 'Edit*'], 'found through the draft it replaced');
+    // Back on screen, the page carries its edit to the newer draft; typed back to acc's text, it's gone.
+    page.receive!({ type: 'update-edit', project: root, id: 'T-1.2', text: 'Merged into main: have a look.' });
+    await until(() => look('T-1.2')?.[1] === 'Merged into main: have a look.');
+    page.receive!({ type: 'update-edit', project: root, id: 'T-1.2', text: null });
+    await until(() => look('T-1.2')?.[0] === 'Draft update');
+    assert.deepEqual(look('T-1.2'), ['Draft update', null, 'Edit'], 'the replaced draft\'s edit went with it');
+    // Closing the page drops its edit too (D-066).
+    page.receive!({ type: 'update-edit', project: root, id: 'T-1.2', text: 'One more go.' });
+    await until(() => look('T-1.2')?.[0] === 'Edited on the task page');
+    page.close!();
+    await until(() => look('T-1.2')?.[0] === 'Draft update');
 
     // Autopilot (D-064): a switch for the repo, hidden while its autonomy is manual, and off until clicked.
     assert.ok(calls.commands.has('acc.autopilot.toggle') && calls.commands.has('acc.autopilot.output'));

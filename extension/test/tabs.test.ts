@@ -308,6 +308,34 @@ test('each update acc drafted waits in Needs you, orange with its icon, counted,
   assert.deepEqual(both.overview.attention.filter((a) => a.update).map((a) => a.update!.postAs), ['me@acme.example', 'me@acme.example'], 'AV-1 and AV-5 post through the AV site');
 });
 
+test('an update edited on its task\'s page shows that edit in Needs you, with Edit first and no Post of acc\'s text (GH-46)', () => {
+  const draft = (id: string, extra: Partial<Update> = {}): Update => ({ v: 1, id, task: id.split('.')[0]!, tracker: 'github', key: '#9', url: null, event: 'merged', env: 'Dev', text: 'The change was approved and merged into Dev.', state: 'draft', createdAt: '2026-10-05T12:00:00.000Z', by: 'acc sync', ...extra });
+  // AV-1's draft replaced two others; AV-2's is acc's own; AV-3's is being posted.
+  const updates = [draft('AV-1.3', { replaces: ['AV-1.2', 'AV-1.1'] }), draft('AV-2.1'), draft('AV-3.1', { state: 'posting', posting: { at: new Date().toISOString(), by: 'human:me' } })];
+  const held: Record<string, string> = { 'AV-1.1': 'Merged into Dev. Have a look in the sandbox.', 'AV-2.1': '  The change was approved and merged into Dev.  ', 'AV-3.1': 'Posting this one.' };
+  const asked: [string, string, string[]][] = [];
+  const edited = (root: string, id: string, replaces: string[]) => {
+    asked.push([root, id, replaces]);
+    for (const x of [id, ...replaces]) if (held[x] !== undefined) return held[x]!;
+    return null;
+  };
+  const input = { hub: { ...hub(), agents: [], taskRows: () => [], updates: () => updates }, section: 'overview' as const, boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set<string>() } };
+  const rows = homeModel({ ...input, edited }).overview.attention.filter((a) => a.update);
+  assert.deepEqual(rows.map((a) => [a.update!.id, a.look.label, a.look.icon, a.look.tone, a.update!.edited, a.actions.map((x) => [x.label, !!x.primary])]), [
+    ['AV-1.3', 'Edited on the task page', 'edit', 'orange', 'Merged into Dev. Have a look in the sandbox.', [['Edit', true]]],
+    ['AV-2.1', 'Draft update', 'comment-draft', 'orange', null, [['Edit', false]]],
+    ['AV-3.1', 'Posting', 'sync~spin', 'blue', null, [['Edit', false]]],
+  ], 'the edit typed for a draft AV-1.3 replaced is its edit; text typed back to acc\'s isn\'t one; one being posted is past editing');
+  assert.equal(rows[0]!.update!.text, updates[0]!.text, 'acc\'s own text stays on the card');
+  assert.deepEqual(rows[0]!.update!.replaces, ['AV-1.2', 'AV-1.1']);
+  assert.deepEqual(asked.map(([, id, replaces]) => [id, replaces]), [['AV-1.3', ['AV-1.2', 'AV-1.1']], ['AV-2.1', []]], 'it asks for drafts only, through the drafts each replaced');
+  assert.equal(needsYouCount(homeModel({ ...input, edited }).overview), needsYouCount(homeModel(input).overview), 'an edited update needs you just the same');
+
+  // Without the task page, or once its edit is gone, the row is as acc drafted it.
+  const plain = homeModel(input).overview.attention.filter((a) => a.update);
+  assert.deepEqual(plain.map((a) => [a.look.label, a.update!.edited, a.actions[0]!.primary]), [['Draft update', null, undefined], ['Draft update', null, undefined], ['Posting', null, undefined]]);
+});
+
 test('in review, a card offers the one next step: watch the reviewer, land a passing review, then follow the pull request', () => {
   const first = (r: Partial<TaskRow>) => cardActions({ ...row('AV-9', 'review', 'review'), deps: [], run: { worktree: '/w', branch: 'b' }, ...r } as TaskRow, {}).find((a) => a.primary)!.label;
   assert.equal(first({}), 'Review');

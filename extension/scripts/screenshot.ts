@@ -16,7 +16,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { HOME_SECTIONS, homeModel, type HomeSection, type Model } from '../src/model.ts';
-import { sampleAgent, sampleBoards, sampleHub, sampleIdentity, sampleRuns, sampleSetup, sampleTicket } from './fixtures.ts';
+import { SAMPLE_EDIT, sampleAgent, sampleBoards, sampleEdited, sampleHub, sampleIdentity, sampleRuns, sampleSetup, sampleTicket } from './fixtures.ts';
 
 /**
  * Every page the screenshot script can draw: each section of the Command Center, a ticket's page (being
@@ -66,16 +66,18 @@ export function sampleModel(kind: Page, now = Date.now()): Model {
   if (kind === 'agent') return sampleAgent(now);
   const hub = sampleHub(now);
   const section = (kind === 'output' ? 'setup' : kind) as HomeSection;
-  return homeModel({ hub, section, boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: sampleRuns(now) });
+  return homeModel({ hub, section, boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: sampleRuns(now), edited: sampleEdited });
 }
 
 /**
- * What the page remembers when it opens: the output page starts with the panel open, and the split
- * ticket with two of its analysis's lists open, to see them laid out.
+ * What the page remembers when it opens: the output page starts with the panel open, the split ticket
+ * with two of its analysis's lists open, to see them laid out, and ACME-12's with the edit typed for the
+ * draft a newer one replaced (GH-46).
  */
 // ACC_SHOT_STATE, a JSON object, starts every page with that state instead: for checking what a page restores.
 const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ? JSON.parse(process.env.ACC_SHOT_STATE) : kind === 'output' ? { dock: { open: true, run: 'r-login' } }
-  : kind === 'ticket-split' ? { opened: ['files', 'findings'].map((f) => `an:/Users/me/code/acme-service#ACME-23:${f}`) } : undefined);
+  : kind === 'ticket-split' ? { opened: ['files', 'findings'].map((f) => `an:/Users/me/code/acme-service#ACME-23:${f}`) }
+    : kind === 'ticket' ? { drafts: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: SAMPLE_EDIT.text }, bases: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: { text: SAMPLE_EDIT.base } } } : undefined);
 const viewOf = (kind: Page): string => (kind.startsWith('ticket') ? 'ticket' : kind === 'agent' ? kind : 'home');
 
 /**
