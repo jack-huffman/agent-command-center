@@ -311,7 +311,11 @@ export class Trackers implements vscode.Disposable {
       this.trackEmitter.fire(p.root);
     };
     return trackTicket(`${p.root}#${k}`, this.tracking, {
-      read: () => this.ticket(p, index, k),
+      // A window that can't run acc says so before it asks the tracker anything.
+      read: async () => {
+        if (!this.acc) throw new Error('This window can\'t run acc.');
+        return this.ticket(p, index, k);
+      },
       importTasks: async (input) => {
         if (!this.acc) throw new Error('This window can\'t run acc.');
         const dir = mkdtempSync(join(tmpdir(), 'acc-track-'));

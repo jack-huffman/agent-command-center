@@ -344,13 +344,14 @@ export function sampleBoards(): BoardInput[] {
       ],
       cards: [
         card(16, 'Add a field history report for Opportunity stage', TODO, 'Story', { priority: 'High', labels: [{ name: 'reporting', color: null }] }),
+        // Near the top, so the default screenshots show Track's three looks (D-???).
+        card(30, 'Archive closed cases older than seven years', TODO, 'Story', { labels: [{ name: 'service', color: null }] }),
+        card(31, 'Email the account owner when a premium case is opened', TODO, 'Task', { priority: 'High' }),
+        card(32, 'Hide the legacy SLA fields from the case layout', TODO, 'Task', { assignees: [{ name: 'Pat Lee' }] }),
         card(17, 'Dashboards for the escalation rules', TODO, 'Task'),
         card(21, 'Contact roles missing on converted leads', TODO, 'Bug', { priority: 'Highest', assignees: [{ name: 'Pat Lee' }], labels: [{ name: 'sales', color: null }] }),
         card(23, 'Rebuild the partner portal on Experience Cloud', TODO, 'Epic'),
         card(24, 'Sync the renewal date to the billing system', TODO, 'Story'),
-        card(30, 'Archive closed cases older than seven years', TODO, 'Story', { labels: [{ name: 'service', color: null }] }),
-        card(31, 'Email the account owner when a premium case is opened', TODO, 'Task', { priority: 'High' }),
-        card(32, 'Hide the legacy SLA fields from the case layout', TODO, 'Task', { assignees: [{ name: 'Pat Lee' }] }),
         card(14, 'Route web-to-case submissions by product line', DOING, 'Story', { assignees: [{ name: 'Jordan Kim' }] }),
         card(28, 'Send a renewal reminder a month before the renewal date', DOING, 'Story', { assignees: [{ name: 'Jordan Kim' }] }),
         card(12, 'Case escalation rules for the premium tier', DOING, 'Story', { priority: 'High', assignees: [{ name: 'Jordan Kim' }], labels: [{ name: 'service', color: null }, { name: 'sla', color: null }] }),
@@ -467,7 +468,6 @@ function sampleStoppedTicket(now: number): TicketModel {
   });
 }
 
-/** A task to do, tracked from Jira, with its analysis on its page (D-052): questions to answer, or a split. */
 /** A ticket acc doesn't keep yet, while its card's Track is on its way: its page says Tracking… too (D-???). */
 function sampleUntrackedTicket(now: number): TicketModel {
   const ticket: Ticket = {
@@ -483,6 +483,7 @@ function sampleUntrackedTicket(now: number): TicketModel {
   });
 }
 
+/** A task to do, tracked from Jira, with its analysis on its page (D-052): questions to answer, or a split. */
 function sampleTodoTicket(now: number, key: 'ACME-21' | 'ACME-23'): TicketModel {
   const row = sampleHub(now).taskRows(ROOT).find((r) => r.id === key)!;
   const bug = key === 'ACME-21';
