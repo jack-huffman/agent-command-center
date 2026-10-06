@@ -7,7 +7,7 @@ was checked against version 2.1.287 and its docs on that date.
 ## 1. What it does
 
 Agent Command Center turns tickets into reviewed pull requests, with a human
-deciding what merges. Tickets come in from GitHub Issues or Jira and become
+deciding what merges, or autopilot where a repo turns auto-merge on (§12). Tickets come in from GitHub Issues or Jira and become
 tasks. Each ready task gets its own git worktree and a background Claude Code
 session. The agent builds the change and runs the project's checks. A second,
 fresh agent reviews the diff, a pull request opens, and acc drafts an update
@@ -432,8 +432,10 @@ review, and passing receipts for every required check. Then it:
    `<git-common-dir>/acc/updates/<task>.<n>.json`, and `--json` names it under
    `update`. A person reads it, edits it and posts it as themselves.
 
-It never merges. Landing again pushes the new commits and updates the open
-pull request's description, rather than opening another, and drafts "updated
+It never merges. A person merges the pull request on GitHub, or autopilot does
+where the repo turns auto-merge on ([section 12](#12-the-orchestrator-loop)),
+and its description's last line says which. Landing again pushes the new
+commits and updates the open pull request's description, rather than opening another, and drafts "updated
 for review". A draft of the same news that nobody posted yet is replaced, so a
 pull request updated three times is one draft; one that still says it's ready
 for review keeps saying so, with the latest link.
@@ -473,7 +475,9 @@ post or discard.
   **needs you**. It finds conflicts itself, naming the files (D-049). The
   Command Center runs it every two minutes while it's open. Under
   `autonomy: review`, autopilot merges the base into a conflicting pull
-  request's branch when it can ([section 12](#12-the-orchestrator-loop)).
+  request's branch when it can ([section 12](#12-the-orchestrator-loop)). With
+  auto-merge on, it merges the pull request itself once it's reviewed and green,
+  and the next `acc sync` moves the task to done.
 - `acc cleanup <id>` removes the worktree and local branch, but only once the
   pull request is merged and the worktree is clean.
 
@@ -529,7 +533,7 @@ ledger and takes the next step for each task, one task at a time, as the
 | `autonomy` | What runs on its own |
 |---|---|
 | `manual` (default) | Nothing. The extension shows the next steps as buttons, and `acc autopilot` does nothing |
-| `review` | Autopilot reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, and merges the base into a pull request that conflicts with it |
+| `review` | Autopilot reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, and merges the base into a pull request that conflicts with it. With `autopilot.autoMerge`, it also merges a reviewed, green pull request |
 | `dispatch` | As `review`, and it also starts Ready tasks up to `agents.max`. Not built yet: autopilot refuses |
 | `full` | Read as `dispatch`, with a warning |
 
@@ -547,16 +551,35 @@ before each:
 | In review, its latest commit passed, its pull request closed without merging | Nothing. It needs you, naming the pull request: a person lands it again, or not (D-063) |
 | In review, its latest commit passed and landed, but the pull request conflicts with its base | `refresh`: merge the base in, then run its checks. The next passes review and land the merge |
 | In review, its latest commit passed and landed, and the pull request's checks failed on GitHub there | `checks`: send it back to its builder with each failed check's link and log (D-076). Once a commit and 3 times a task; checks still running wait; a failed check with no log on GitHub needs you |
+| With auto-merge on: in review, its latest commit passed and landed, its checks passed on GitHub, but its base moved on | `refresh`: merge the base in, as for a conflict. The merge is reviewed, landed and checked before it merges |
+| With auto-merge on: in review, its latest commit passed and landed, up to date with its base, its checks passed on GitHub, and nothing waits on a person | `merge`: `gh pr merge --match-head-commit`, one a pass. `acc sync` then moves it to done |
 | In rework, sent back by autopilot for failing checks | `dispatch`, with what the checks said |
 | In rework from a review or a person, and autopilot hasn't re-dispatched one before | `dispatch`, once. A second rework waits for a person |
 | Running, its builder stopped, and autopilot hasn't resumed it in this run | `resume`, once a run (D-067). A second stop waits for a person; a new dispatch is a new run |
 | Running, its builder at work | Nothing |
 | To do (ready or not), blocked or done | Nothing |
 
-- **What it never does:** merge a pull request, waive a check, deploy,
-  promote, change anything on GitHub besides landing (it only reads checks and
-  their logs), or start a task that's to do. Builders, reviewers and analysts
-  can't run it.
+- **What it never does:** waive a check, deploy, promote, change anything on
+  GitHub besides landing and an auto-merge (it only reads checks and their
+  logs), start a task that's to do, or merge a pull request where the repo
+  hasn't turned auto-merge on. Builders, reviewers and analysts can't run it.
+- **Auto-merge** (GH-67) is off unless `.acc/config.json` says
+  `"autopilot": { "autoMerge": true }`, which `acc agents auto-merge on` writes
+  and the Agents section's Auto-merge row runs. A Salesforce project can't turn
+  it on, and it never merges into a protected environment. A task in review
+  merges when its review passed and its checks settled on the branch's latest
+  commit, landed; GitHub's required checks passed there, or every check when the
+  base requires none (none at all count 2 minutes after the land); GitHub says
+  it's mergeable; it's up to date with its base (else a `refresh` comes first);
+  no person asked for changes; nothing waits on a person, such as a failed step
+  or an agent's question; and it changes nothing under `.acc/`. Autopilot reads
+  all of it again just before `gh pr merge <n> --<method> --match-head-commit
+  <sha>` as the repo's account, with the first method of merge, squash and
+  rebase the repo allows. A head or base that moved, or checks still running,
+  wait; a merge GitHub refuses, BLOCKED by its rules, a cancelled check or a
+  change to `.acc/` is recorded as `merge`, and the task needs you. It keeps
+  `autopilot.merged`, and `acc sync` moves the task to done and drafts its
+  update.
 - **A refresh** (D-058) merges origin's copy of the task environment's branch
   into the task branch, in the task's worktree, never the main checkout. It
   asks git again first, and a conflict that's gone is only marked gone. It
@@ -609,7 +632,9 @@ before each:
   started elsewhere shows as "on elsewhere", with its pid. Every window reads
   what autopilot did from the ledger's events: each step is in the Overview's
   History, and a notice. `acc agents autonomy [manual|review]` changes the
-  level, and the Agents section's Autonomy row runs it.
+  level, and the Agents section's Autonomy row runs it. `acc agents auto-merge
+  [on|off]` and its Auto-merge row do the same for auto-merge, which the status
+  bar's menu shows for each repo.
 
 An agent is used for judgment, not routing. The `acc:orchestrate` skill helps
 break a large ticket into tasks, triage a blocked task, or write rework guidance.
@@ -834,6 +859,10 @@ list. The walkthrough, the CLI and the docs can't drift apart.
 
 - Agents work only in their own worktree, on their own branch.
 - Agents can't push to an environment branch, merge, deploy, or touch the tracker.
+- Nothing merges on its own unless a repo turns auto-merge on. Then autopilot
+  merges only a reviewed pull request whose checks passed, that changes nothing
+  under `.acc/`, into an environment that isn't protected, and never in a
+  Salesforce project. Branch protection holds: it never uses `--admin`.
 - Protected environments change only through a person's promotion pull request.
 - Environment-specific files are never edited by a task, deployed or promoted.
 - Every state change records who made it and why.
