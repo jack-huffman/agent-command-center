@@ -3,7 +3,7 @@
  * and rendered there with text only (no HTML from data). No vscode import, so it's testable.
  */
 import type { Analysis } from '../../packages/core/src/analyze.ts';
-import { type AutopilotRecord, byAutopilot } from '../../packages/core/src/autopilot.ts';
+import { AUTOPILOT_REVIEW_DOES, type AutopilotRecord, byAutopilot } from '../../packages/core/src/autopilot.ts';
 import { DISPLAY, findRule, type State, type Task } from '../../packages/core/src/ledger.ts';
 import type { GateStatus } from '../../packages/core/src/receipts.ts';
 import { type Doc, fromMarkdown } from '../../packages/core/src/trackers/doc.ts';
@@ -728,7 +728,7 @@ export interface AgentsModel {
 
 const AUTONOMY_MEANING: Record<string, string> = {
   manual: 'Nothing happens on its own.',
-  review: 'Autopilot reviews, lands and reworks once. It never merges.',
+  review: `Autopilot ${AUTOPILOT_REVIEW_DOES}. It never merges a pull request.`,
   dispatch: 'Not built yet: autopilot refuses.',
   full: 'Not built yet: autopilot refuses.',
 };

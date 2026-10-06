@@ -32,7 +32,8 @@ export function sampleHub(now = Date.now()): HubLike {
       builder: { model: 'opus', effort: 'high', fallbackModel: 'sonnet', from: { model: 'project', effort: 'project', fallbackModel: 'project' } },
       reviewer: { model: 'sonnet', effort: null, fallbackModel: null, from: { model: 'clone', effort: 'default', fallbackModel: 'default' } },
     },
-    // Autopilot may review, land and re-dispatch a rework once (D-055); it runs while a person has it on (D-064).
+    // Autopilot may review, land, re-dispatch a rework once (D-055), resume a stopped builder once (D-067) and
+    // merge the base into a conflicting pull request (D-058); it runs while a person has it on (D-064).
     // Its one tracker, the board below: which tracker owns a ticket's key is who its update posts as (D-066).
     config: { github: { repo: 'acme/service', account: 'jordan-kim' }, environments, profile: 'salesforce', autonomy: 'review', trackers: [{ kind: 'jira', project: 'ACME', prefix: null }] },
     worktrees: [

@@ -9,7 +9,7 @@ import {
   upsertTasks, writeConfig, ask, hookOutput, parseHookInput, waiveGates, review, land, sync, planPromotion, promote, skipWarning, planDeploy, deploy, lastDeploy,
   buildBaseline, seedBranches, draftLists, writeReadme, parseEventInput, preToolUseHook, sessionStartHook, stopHook, AGENT_ROLES, type AgentRole, profileView, setProfile, withCloneAgents, type ProfileChange,
   analyze, type Analysis, answerAnalysis, openQuestions, readAnalysis,
-  AUTOPILOT_MIN_EVERY_S, type AutopilotResult, type AutopilotStepName, autopilotFailure, autopilotMode, autopilotPass, closedPr, holdAutopilot, sleep, alive, setAutonomy,
+  AUTOPILOT_MIN_EVERY_S, AUTOPILOT_REVIEW_DOES, type AutopilotResult, type AutopilotStepName, autopilotFailure, autopilotMode, autopilotPass, closedPr, holdAutopilot, sleep, alive, setAutonomy,
   builderStopped, claudeProjectsDir, clipSaid, lastSaid, listSessions, resume, resuming,
   claimUpdate, discardUpdate, draftUpdate, EVENT_WORDS, GH_TIMEOUT_MS, ghToken, githubIssue, isOpenUpdate, listUpdates, markPosted, readUpdate, releaseUpdate, stalePosting, type Update, UPDATE_TEXT_MAX, updateText,
 } from '../../core/src/index.ts';
@@ -446,8 +446,10 @@ function autopilotLines(r: AutopilotResult): string[] {
 }
 
 /**
- * Autopilot (D-055): under "autonomy": "review", it reviews, lands, re-dispatches a rework once and resumes
- * a stopped builder once a run (D-067), as the orchestrator, up to an open pull request. One pass, or one every --every seconds until stopped.
+ * Autopilot (D-055): under "autonomy": "review", it reviews, lands, re-dispatches a rework once, resumes
+ * a stopped builder once a run (D-067), and merges the base into a pull request that conflicts with it
+ * (D-058), as the orchestrator, up to an open pull request. It never merges a pull request. One pass, or
+ * one every --every seconds until stopped.
  */
 function cmdAutopilot(o: Opts): number {
   const role = process.env.ACC_ROLE;
@@ -463,7 +465,7 @@ function cmdAutopilot(o: Opts): number {
   for (const w of mode.warnings) process.stderr.write(`warning: ${w}\n`);
   if (mode.refusal) throw new AccError('refused', mode.refusal);
   if (!mode.on) {
-    out(o, () => 'autonomy is "manual" in .acc/config.json, so autopilot does nothing. Set it to "review" for autopilot to review, land, and re-dispatch a rework once.',
+    out(o, () => `autonomy is "manual" in .acc/config.json, so autopilot does nothing. Set it to "review" for autopilot to act: it then ${AUTOPILOT_REVIEW_DOES}.`,
       { autonomy: mode.autonomy, warnings: mode.warnings, steps: [], updates: [] });
     return 0;
   }
@@ -559,7 +561,7 @@ function cmdAgents(o: Opts, sub: string | undefined, roleArg: string | undefined
 
 const AUTONOMY_WORDS: Record<string, string> = {
   manual: 'nothing happens on its own.',
-  review: 'autopilot reviews finished work, lands work whose review passed, re-dispatches a rework once, and resumes a stopped builder once a run. It never merges.',
+  review: `autopilot ${AUTOPILOT_REVIEW_DOES}. It never merges a pull request.`,
   dispatch: 'as review, and it also starts Ready tasks. Not built yet: autopilot refuses.',
   full: 'read as dispatch. Not built yet: autopilot refuses.',
 };

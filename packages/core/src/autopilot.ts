@@ -39,9 +39,16 @@ export interface AutopilotMode {
 }
 
 /**
+ * What autopilot does under `autonomy: review`, after "autopilot" or "it". Every description of review
+ * uses it, in acc and the extension, so a step added here is added there too.
+ */
+export const AUTOPILOT_REVIEW_DOES = 'reviews finished work, lands work whose review passed, re-dispatches a rework once, resumes a stopped builder once a run, and merges the base into a pull request that conflicts with it';
+
+/**
  * What `autonomy` means for autopilot. manual: nothing happens on its own. review: autopilot reviews,
- * lands, re-dispatches a rework once, and resumes a stopped builder once a run (D-067). dispatch: as review, and it also starts Ready tasks up to
- * agents.max; that part isn't built, so it refuses. full is read as dispatch.
+ * lands, re-dispatches a rework once, resumes a stopped builder once a run (D-067), and merges the base
+ * into a pull request that conflicts with it (D-058). dispatch: as review, and it also starts Ready
+ * tasks up to agents.max; that part isn't built, so it refuses. full is read as dispatch.
  */
 export function autopilotMode(config: Pick<Config, 'autonomy'>): AutopilotMode {
   const autonomy = config.autonomy;
@@ -50,7 +57,7 @@ export function autopilotMode(config: Pick<Config, 'autonomy'>): AutopilotMode {
   const warnings = autonomy === 'full' ? ['autonomy "full" is read as "dispatch".'] : [];
   return {
     autonomy, on: false, warnings,
-    refusal: 'autonomy "dispatch" (autopilot also starting Ready tasks) is not built yet. Set "autonomy" to "review" in .acc/config.json: autopilot then reviews, lands, re-dispatches a rework once, and resumes a stopped builder once a run.',
+    refusal: `autonomy "dispatch" (autopilot also starting Ready tasks) is not built yet. Set "autonomy" to "review" in .acc/config.json: autopilot then ${AUTOPILOT_REVIEW_DOES}.`,
   };
 }
 
