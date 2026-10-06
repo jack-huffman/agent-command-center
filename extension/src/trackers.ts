@@ -211,6 +211,8 @@ export class Trackers implements vscode.Disposable {
       const list = this.trackers(p);
       if (!list.length) {
         this.boards.delete(p.root);
+        // Its last Track's reason goes with its boards, as any other project's does (D-074).
+        this.forgetTracking();
         this.emitter.fire(p.root);
         return;
       }
