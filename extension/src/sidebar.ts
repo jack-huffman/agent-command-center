@@ -26,8 +26,6 @@ export interface SidebarHelpers {
   watch?: (key: string, ended?: AgentSession, active?: () => boolean) => boolean;
   /** How a shell runs the bundled acc, for commands run in the page. */
   accCommand?: string;
-  /** Posts a comment on a Jira or Azure DevOps ticket as you, for acc land (D-033). */
-  comment?: (project: Project, kind: 'jira' | 'azure', key: string, text: string) => Promise<void>;
   /** Remembers a conversation to open once a folder's window starts, for a session that lives in another folder (D-040). */
   openLater?: (folder: string, sessionId: string) => Promise<void>;
   /** --settings for a background agent started here, so its questions come to the page. */
@@ -512,7 +510,7 @@ export class Sidebar {
       detail: `${again ? 'Pushes the reviewed commits to' : 'Pushes'} ${task.run?.branch ?? 'its branch'} to ${gh.repo} as ${gh.account}${again ? '.' : `, and opens a pull request into ${task.environment}.`} acc never merges: a person does, on GitHub.`,
     }, again ? 'Update' : 'Push and open');
     if (!ok) return;
-    type Landed = { pr?: { number: number; url: string }; opened?: boolean; commentUnconfirmed?: string | null; comment?: { kind: 'jira' | 'azure'; key: string; text: string } | null };
+    type Landed = { pr?: { number: number; url: string }; opened?: boolean; update?: { id: string; key: string } | null; updateError?: string };
     const box: { r: Landed | null } = { r: null };
     await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Landing ${task.id}`, cancellable: false }, async (progress) => {
       progress.report({ message: 'pushing and opening the pull request…' });
@@ -520,18 +518,12 @@ export class Sidebar {
     });
     const r = box.r;
     if (!r) return;
-    let comment: { key: string; error?: string } | undefined;
-    if (r.comment && this.helpers.comment) {
-      try {
-        await this.helpers.comment(project, r.comment.kind, r.comment.key, r.comment.text);
-        comment = { key: r.comment.key };
-      } catch (e) {
-        comment = { key: r.comment.key, error: (e as Error).message };
-      }
-    }
-    const { level, text } = landMessage(task.id, r, comment);
-    const pick = level === 'warning' ? await vscode.window.showWarningMessage(text, 'Open pull request') : await vscode.window.showInformationMessage(text, 'Open pull request');
-    if (pick && r.pr) await vscode.env.openExternal(vscode.Uri.parse(r.pr.url));
+    // The ticket hears about it only once a person posts the update acc drafted (D-???).
+    const { level, text } = landMessage(task.id, r);
+    const buttons = [...(r.update ? ['Review the update'] : []), 'Open pull request'];
+    const pick = level === 'warning' ? await vscode.window.showWarningMessage(text, ...buttons) : await vscode.window.showInformationMessage(text, ...buttons);
+    if (pick === 'Review the update') this.openTicket?.(project.root, task.id);
+    if (pick === 'Open pull request' && r.pr) await vscode.env.openExternal(vscode.Uri.parse(r.pr.url));
   }
 
   // ------------------------------------------------------------ open in Claude Code (D-040)

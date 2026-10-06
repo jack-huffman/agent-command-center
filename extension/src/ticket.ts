@@ -7,13 +7,23 @@ import type { RepoPaths } from '../../packages/core/src/paths.ts';
 import { receiptsAt } from '../../packages/core/src/receipts.ts';
 import type { Ticket, TrackerClient } from '../../packages/core/src/trackers/types.ts';
 import type { Hub, Project } from './hub.ts';
-import { type FromWebview, isFromWebview, type Ref, type TicketAcc, ticketModel, type TicketModel } from './model.ts';
+import { type FromWebview, isFromWebview, type Ref, type TicketAcc, ticketActionRefusal, ticketModel, type TicketModel } from './model.ts';
 import { htmlFor, isWebLink } from './panels.ts';
 import { runFile } from './run.ts';
 import type { Trackers } from './trackers.ts';
 
 type AccRun = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
-type AnswerAnalysis = (root: string, task: string, question: string, text: string) => Promise<{ ok: boolean; error?: string }>;
+type Reply = { ok: boolean; error?: string };
+type AnswerAnalysis = (root: string, task: string, question: string, text: string) => Promise<Reply>;
+
+/** A person's way with a ticket's draft updates, through acc (D-???): post it as you, discard it, or draft a question. */
+export interface UpdateActions {
+  post(root: string, id: string, text: string, again: boolean): Promise<Reply>;
+  discard(root: string, id: string): Promise<Reply>;
+  ask(root: string, task: string, question: string): Promise<Reply>;
+}
+
+
 
 interface Open {
   panel: vscode.WebviewPanel;
@@ -31,7 +41,8 @@ const ALLOWED = new Set(['acc.task.dispatch', 'acc.task.attach', 'acc.task.openI
 
 /**
  * One editor tab per ticket, like the tracker's own ticket page: rendered description and comments,
- * status, assignee and labels, and acc's side of it. Every change is a person's click (D-026).
+ * status, assignee and labels, and acc's side of it. Every change is a person's click (D-026), and the
+ * fields change only where the tracker opts in; acc's updates for it are drafts a person posts (D-???).
  */
 export class TicketPanels implements vscode.Disposable {
   private readonly open = new Map<string, Open>();
@@ -41,14 +52,21 @@ export class TicketPanels implements vscode.Disposable {
   private readonly resolve: (command: string, ref: Ref) => unknown;
   private readonly acc: AccRun;
   private readonly answerAnalysis: AnswerAnalysis | null;
+  private readonly updates: UpdateActions | null;
 
-  constructor(ctx: vscode.ExtensionContext, hub: Hub, trackers: Trackers, resolve: (command: string, ref: Ref) => unknown, acc: AccRun, answerAnalysis: AnswerAnalysis | null = null) {
+  constructor(ctx: vscode.ExtensionContext, hub: Hub, trackers: Trackers, resolve: (command: string, ref: Ref) => unknown, acc: AccRun, answerAnalysis: AnswerAnalysis | null = null, updates: UpdateActions | null = null) {
     this.ctx = ctx;
     this.hub = hub;
     this.trackers = trackers;
     this.resolve = resolve;
     this.acc = acc;
     this.answerAnalysis = answerAnalysis;
+    this.updates = updates;
+  }
+
+  /** Whether this page's tracker lets it change a ticket's status, assignee and labels (D-???). */
+  private edits(o: Open, p: Project): boolean {
+    return o.tracker !== null && !!this.trackers.trackers(p)[o.tracker]?.edits;
   }
 
   dispose(): void {
@@ -134,6 +152,7 @@ export class TicketPanels implements vscode.Disposable {
       ticket: o.ticket, loading: o.loading, error: o.error, connect: o.connect, row, task, checks: task ? await this.checks(p, task.run?.branch ?? null) : [],
       signedInAs: o.tracker !== null ? await this.trackers.signedInAs(p, o.tracker) : null,
       analysis: task ? this.hub.analysis(p.root, task.id) : null,
+      trackerEdits: this.edits(o, p), updates: this.hub.updates(p.root), boards: this.trackers.boardStates(p.root), github: p.config.github?.account ?? null,
     });
     void o.panel.webview.postMessage({ type: 'state', model });
   }
@@ -142,6 +161,7 @@ export class TicketPanels implements vscode.Disposable {
     if (!isFromWebview(m)) return;
     // Answered even once its project has closed: the page waits for a reply.
     if (m.type === 'analysis-answer') return this.answer(o, m);
+    if (m.type === 'update-post' || m.type === 'update-discard' || m.type === 'update-ask') return this.update(o, m);
     const p = this.project(o);
     if (!p) return;
     switch (m.type) {
@@ -172,6 +192,25 @@ export class TicketPanels implements vscode.Disposable {
     return this.post(o);
   }
 
+  /**
+   * A person posts one of this task's updates with the text they edited, discards it, or sends one of its
+   * analysis's questions to the client (D-???). Every one gets a reply, and a post reloads the ticket, so
+   * the comment shows in the feed.
+   */
+  private async update(o: Open, m: Extract<FromWebview, { type: 'update-post' | 'update-discard' | 'update-ask' }>): Promise<void> {
+    const which = m.type === 'update-ask' ? { task: m.task, question: m.question } : { id: m.id };
+    const done = (r: Reply) => void o.panel.webview.postMessage({ type: 'done', action: m.type, project: m.project, ...which, ...r });
+    const task = m.type === 'update-ask' ? m.task : m.id.slice(0, m.id.lastIndexOf('.'));
+    if (m.project !== o.project || task !== o.key) return done({ ok: false, error: 'That update isn\'t for this task.' });
+    if (!this.updates) return done({ ok: false, error: 'This page can\'t post updates.' });
+    const r = await (m.type === 'update-post' ? this.updates.post(m.project, m.id, m.text, m.again === true)
+      : m.type === 'update-discard' ? this.updates.discard(m.project, m.id)
+        : this.updates.ask(m.project, m.task, m.question)).catch((e: unknown) => ({ ok: false, error: (e as Error).message }));
+    done(r);
+    if (m.type === 'update-post' && r.ok) return this.load(o);
+    return this.post(o);
+  }
+
   private async act(o: Open, p: Project, action: string, text?: string): Promise<void> {
     if (action === 'refresh') return this.load(o);
     if (action === 'track') return this.track(o, p);
@@ -179,6 +218,9 @@ export class TicketPanels implements vscode.Disposable {
     if (o.tracker === null || !o.ticket) return;
     const index = o.tracker;
     const done = (ok: boolean, error?: string) => void o.panel.webview.postMessage({ type: 'done', action, ok, error });
+    // A client's tracker is theirs: its fields change from here only where it opts in (D-???). Comments stay.
+    const refused = ticketActionRefusal(action, this.edits(o, p));
+    if (refused) return done(false, refused);
     try {
       const client = await this.trackers.client(p, index);
       let changed = false;

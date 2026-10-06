@@ -28,6 +28,9 @@ export const GH_TIMEOUT_MS = 2 * 60_000;
  */
 export const LAND_TIMEOUT_MS = PUSH_TIMEOUT_MS + FETCH_TIMEOUT_MS + 3 * GH_TIMEOUT_MS + 60_000;
 
+/** The longest `acc update post` can take: gh's token and the issue comment, each at its timeout, and a minute for the drafts' lock (D-???). */
+export const UPDATE_POST_TIMEOUT_MS = 2 * GH_TIMEOUT_MS + 60_000;
+
 export interface LandDeps {
   run: Runner;
   now: () => Date;

@@ -4,6 +4,7 @@ import type { Answer } from '../../packages/core/src/questions.ts';
 import type { Hub } from './hub.ts';
 import { answerOf, type BoardInput, HOME_SECTIONS, type HomeSection, homeModel, type IdentityCard, isFromWebview, type Ref, type RunControl, type RunInput, runCard, type ViewKind } from './model.ts';
 import type { Setup } from './setup.ts';
+import type { UpdateActions } from './ticket.ts';
 
 /** Commands the page may ask for. Anything else from a webview is ignored. */
 const ALLOWED = new Set([
@@ -29,6 +30,8 @@ export interface BoardDeps {
   answer(id: string, a: Answer): void;
   /** A person's answer to a task's analysis's question, through acc (D-052). */
   answerAnalysis(project: string, task: string, question: string, text: string): Promise<{ ok: boolean; error?: string }>;
+  /** Posting, discarding and drafting a ticket's updates, through acc (D-???). */
+  updates: UpdateActions;
   runs(): RunInput[];
   runInput(id: string, text: string): void;
   runControl(id: string, action: RunControl): void;
@@ -196,6 +199,15 @@ export class Panels implements vscode.Disposable {
       void this.deps.answerAnalysis(m.project, m.task, m.question, m.text)
         .catch((e: unknown) => ({ ok: false, error: (e as Error).message }))
         .then((r) => this.panel?.webview.postMessage({ type: 'done', action: 'analysis-answer', project: m.project, task: m.task, question: m.question, ...r }));
+      return;
+    }
+    if (m.type === 'update-post' || m.type === 'update-discard' || m.type === 'update-ask') {
+      // Posted as drafted, or set aside, from Needs you; edited on the task's page (D-???). Every one gets a reply.
+      const u = this.deps.updates;
+      const which = m.type === 'update-ask' ? { task: m.task, question: m.question } : { id: m.id };
+      void (m.type === 'update-post' ? u.post(m.project, m.id, m.text, m.again === true) : m.type === 'update-discard' ? u.discard(m.project, m.id) : u.ask(m.project, m.task, m.question))
+        .catch((e: unknown) => ({ ok: false, error: (e as Error).message }))
+        .then((r) => this.panel?.webview.postMessage({ type: 'done', action: m.type, project: m.project, ...which, ...r }));
       return;
     }
     if (m.type === 'run-input') return this.deps.runInput(m.run, m.text);

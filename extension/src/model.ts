@@ -13,6 +13,7 @@ import { GROUP_TITLES, STEPS } from '../../packages/core/src/onboarding/steps.ts
 import type { Environment } from '../../packages/core/src/config.ts';
 import { promotionPaths } from '../../packages/core/src/promote.ts';
 import type { Answer, HistoryRecord, Question } from '../../packages/core/src/questions.ts';
+import { isOpenUpdate, stalePosting, type Update, UPDATE_ID, UPDATE_TEXT_MAX } from '../../packages/core/src/updates.ts';
 import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, conflictLine, type DoctorItem, ENV_ICON, fileList, groupTasks, isUnder, prConflicts, questionsWord, type RunPrompt, shortPath, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
 import type { Entry } from './transcript.ts';
 
@@ -77,6 +78,8 @@ export interface HubLike {
   history?(root: string): ActivityItem[];
   /** The steps autopilot took in a project's repo, oldest first, wherever it ran (D-064). */
   autopilotLog?(root: string): AutopilotRecord[];
+  /** The updates acc drafted for a project's tickets, posted or not (D-???). */
+  updates?(root: string): Update[];
   /** Agents' questions waiting in the Command Center (D-030). */
   questions?: Question[];
   /** How earlier questions ended (D-037). */
@@ -406,8 +409,13 @@ export interface TicketModel {
   body: Doc;
   comments: { id: string; author: PersonChip; created: string; body: Doc; url: string | null }[];
   related: { key: string; title: string; relation: string; url: string | null }[];
-  /** What the page may change in the tracker. Nothing, for a task acc alone keeps. */
+  /**
+   * What the page may change in the tracker. Nothing, for a task acc alone keeps. A ticket's status,
+   * assignee and labels only when its tracker says "edits": true; comments always (D-???).
+   */
   can: { status: boolean; assign: boolean; labels: boolean; comment: boolean };
+  /** Updates acc drafted for its ticket, waiting for a person to read, edit and post (D-???). */
+  updates: UpdateCard[];
   acc: TicketAcc | null;
   /** What its analysis found (D-052), gist first. Null for a ticket acc doesn't keep, or one past needing it. */
   analysis: TicketAnalysis | null;
@@ -429,6 +437,8 @@ export interface TicketAnalysis {
   at: string | null;
   /** Questions nobody has answered, to answer right there: only before the build. */
   open: AnalysisAsk[];
+  /** Whether its questions can be sent to the client: its task has a ticket to post on (D-???). */
+  canAsk: boolean;
   /** What a person decided, and, once it's built, what its builder assumed for the rest. */
   decided: { question: string; answer: string; assumed: boolean }[];
   /** The smaller tasks it suggests, when it's too big for one. */
@@ -462,16 +472,24 @@ export interface TicketInput {
   signedInAs?: string | null;
   /** Its analysis, read whole (D-052). */
   analysis?: Analysis | null;
+  /** Its tracker says "edits": true, so the page may change status, assignee and labels (D-???). */
+  trackerEdits?: boolean;
+  /** The project's ticket updates; the page shows its task's. */
+  updates?: Update[];
+  /** The project's boards, for who an update posts as, and the project's GitHub account. */
+  boards?: BoardInput[];
+  github?: string | null;
+  now?: number;
 }
 
 /**
  * The Analysis section of a task's page (D-052). A task to do shows it even with none yet, to start one;
  * a task past that shows the one it was built from, if it had one.
  */
-export function ticketAnalysis(row: TaskRow, a: Analysis | null, ref: Ref): TicketAnalysis | null {
+export function ticketAnalysis(row: TaskRow, a: Analysis | null, ref: Ref, updates: Update[] = []): TicketAnalysis | null {
   const todo = row.state === 'todo';
   if (!a && !row.analyzing && !todo) return null;
-  const open = todo ? (a?.questions ?? []).filter((q) => !q.answer).map(({ id, question, why, suggested }) => ({ id, question, why, suggested })) : [];
+  const open = todo ? withClient((a?.questions ?? []).filter((q) => !q.answer).map(({ id, question, why, suggested }) => ({ id, question, why, suggested })), row.id, updates) : [];
   const look: Look = row.analyzing ? { label: 'Analyzing', icon: 'sync~spin', tone: 'blue' }
     : !a ? { label: 'Not analyzed yet', icon: 'circle-large-outline', tone: 'neutral' }
       : !todo ? { label: 'Analyzed before the build', icon: 'pass', tone: 'blue' }
@@ -489,7 +507,7 @@ export function ticketAnalysis(row: TaskRow, a: Analysis | null, ref: Ref): Tick
   else if (a && row.state !== 'running' && row.state !== 'done') actions.push({ command: 'acc.task.analyze', label: 'Analyze again', icon: 'refresh', ref });
   const decided = (a?.questions ?? []).flatMap((q) => (q.answer ? [{ question: q.question, answer: q.answer.text, assumed: false }] : todo ? [] : [{ question: q.question, answer: q.suggested, assumed: true }]));
   return {
-    task: row.id, look, note, summary: a?.summary ?? null, size: a?.approach.size ?? null, at: a?.at ?? null, open, decided, split: a?.verdict === 'split' ? a.split : [],
+    task: row.id, look, note, summary: a?.summary ?? null, size: a?.approach.size ?? null, at: a?.at ?? null, open, canAsk: hasTicket(row.source.kind), decided, split: a?.verdict === 'split' ? a.split : [],
     goal: a?.requirements.goal || null, criteria: a?.requirements.criteria ?? [], assumptions: a?.requirements.assumptions ?? [], outOfScope: a?.requirements.outOfScope ?? [],
     findings: a?.findings ?? [], plan: a?.approach.plan ?? [], refactors: a?.approach.refactors ?? [], risks: a?.approach.risks ?? [], tests: a?.approach.tests ?? [], files: a?.approach.files ?? [],
     actions,
@@ -521,10 +539,91 @@ export function ticketModel(i: TicketInput): TicketModel {
     body: t?.body ?? (own ? fromMarkdown(i.task!.brief) : { blocks: [] }),
     comments: (t?.comments ?? []).map((c) => ({ id: c.id, author: chip(c.author), created: c.created, body: c.body, url: c.url })),
     related: t?.related ?? (i.task?.deps ?? []).map((d) => ({ key: d, title: '', relation: 'depends on', url: null })),
-    can: { status: !!t, assign: !!t, labels: !!t, comment: !!t },
-    acc, analysis: i.row && i.task ? ticketAnalysis(i.row, i.analysis ?? null, { project: i.project, task: i.row.id }) : null,
+    // A client's tracker is theirs: the page changes its fields only where the tracker opts in (D-???).
+    can: { status: !!t && !!i.trackerEdits, assign: !!t && !!i.trackerEdits, labels: !!t && !!i.trackerEdits, comment: !!t },
+    updates: i.task ? updateCards(i.project, (i.updates ?? []).filter((u) => u.task === i.task!.id), i.github ?? null, i.boards ?? [], i.now) : [],
+    acc, analysis: i.row && i.task ? ticketAnalysis(i.row, i.analysis ?? null, { project: i.project, task: i.row.id }, i.updates ?? []) : null,
     trackable: !!t && !i.task, signedInAs: i.signedInAs ?? null,
   };
+}
+
+// ---------------------------------------------------------------- ticket updates (D-???)
+
+/** An update acc drafted for a ticket, as the Overview and its task's page show it, for a person to read, edit and post. */
+export interface UpdateCard {
+  project: string;
+  id: string;
+  task: string;
+  /** The ticket as its board names it: GH-41, ACME-12. */
+  key: string;
+  tracker: 'github' | 'jira' | 'azure';
+  /** What it's about, in words. */
+  about: string;
+  look: Look;
+  text: string;
+  state: 'draft' | 'posting';
+  /** Claimed for posting over five minutes ago and never confirmed: it may have gone (D-051). */
+  stale: boolean;
+  createdAt: string;
+  /** Who Post sends it as, or null when it can't be posted from here. */
+  postAs: string | null;
+  /** Why it can't be posted from here yet, such as "Sign in to Jira first." */
+  blocked: string | null;
+  /** The sign-in that would let it post. */
+  signIn: { command: string; label: string; arg: string } | null;
+  /** Why the last try didn't post. */
+  failed: string | null;
+}
+
+const TRACKER_WORD: Record<UpdateCard['tracker'], string> = { github: 'GitHub', jira: 'Jira', azure: 'Azure DevOps' };
+
+/** Whether a task's source is a tracker's ticket, which can take updates. */
+export const hasTicket = (kind: string): boolean => kind === 'github' || kind === 'jira' || kind === 'azure';
+
+/** What an update is about, for the person posting it. */
+export function updateAbout(u: Pick<Update, 'event' | 'env' | 'pr'>): string {
+  switch (u.event) {
+    case 'pr-opened': return u.pr ? `Pull request #${u.pr.number} is ready for review` : 'Ready for review';
+    case 'pr-updated': return u.pr ? `Pull request #${u.pr.number} was updated` : 'Updated for review';
+    case 'merged': return `Merged into ${u.env ?? 'its environment'}`;
+    case 'deployed': return `Deployed to ${u.env ?? 'its environment'}`;
+    case 'blocked': return 'Blocked on a question only the client can answer';
+    case 'question': return 'A question from its analysis';
+  }
+}
+
+/**
+ * Who an update posts as, or why it can't be posted from here: GitHub as the repo's account (D-028), Jira
+ * and Azure DevOps through this repo's sign-in (D-027). Without one, Post waits for it.
+ */
+export function updatePoster(tracker: UpdateCard['tracker'], root: string, github: string | null, boards: BoardInput[]): Pick<UpdateCard, 'postAs' | 'blocked' | 'signIn'> {
+  if (tracker === 'github') return github ? { postAs: github, blocked: null, signIn: null } : { postAs: null, blocked: 'This project has no GitHub account in .acc/config.json to post as.', signIn: null };
+  const name = TRACKER_WORD[tracker];
+  const b = boards.find((x) => x.kind === tracker);
+  if (!b) return { postAs: null, blocked: `This repo has no ${name} tracker to post through.`, signIn: null };
+  if (b.signedInAs) return { postAs: b.signedInAs, blocked: null, signIn: null };
+  return { postAs: null, blocked: `Sign in to ${name} first.`, signIn: b.connect ?? { command: 'acc.trackers.signIn', label: `Sign in to ${name}`, arg: JSON.stringify({ root, index: b.index }) } };
+}
+
+/** The updates still waiting on a person, as cards: drafts, and any being posted. */
+export function updateCards(root: string, updates: Update[], github: string | null, boards: BoardInput[], now = Date.now()): UpdateCard[] {
+  return updates.filter(isOpenUpdate).map((u) => {
+    const stale = stalePosting(u, new Date(now));
+    const look = stale ? LOOK('May have posted', 'warning', 'orange') : u.state === 'posting' ? LOOK('Posting', 'sync~spin', 'blue') : LOOK('Draft update', 'comment-draft', 'orange');
+    return {
+      project: root, id: u.id, task: u.task, key: u.tracker === 'github' ? u.task : u.key, tracker: u.tracker, about: updateAbout(u), look, text: u.text,
+      state: u.state === 'posting' ? 'posting' : 'draft', stale, createdAt: u.createdAt, ...updatePoster(u.tracker, root, github, boards),
+      failed: u.state === 'draft' ? u.failed?.reason ?? null : null,
+    };
+  });
+}
+
+/** An analysis's questions, each saying whether it was drafted for the client, or posted (D-???). */
+export function withClient(questions: AnalysisAsk[], task: string, updates: Update[]): AnalysisAsk[] {
+  return questions.map((q) => {
+    const u = updates.filter((x) => x.task === task && x.event === 'question' && x.question === q.id && x.state !== 'discarded').at(-1);
+    return u ? { ...q, client: u.state === 'posted' ? 'posted' : 'drafted' } : q;
+  });
 }
 
 // ---------------------------------------------------------------- the repo's GitHub identity (D-028)
@@ -1252,8 +1351,10 @@ export interface AttentionItem {
   extra?: { command: string; label: string; icon: string; arg: string };
   /** A section of the page to open, such as Setup. */
   go?: { section: HomeSection; label: string };
-  /** A task's analysis's questions, answered right here (D-052). */
-  analysis?: { project: string; task: string; questions: AnalysisAsk[] };
+  /** A task's analysis's questions, answered right here (D-052), or sent to the client when it has a ticket (D-???). */
+  analysis?: { project: string; task: string; questions: AnalysisAsk[]; canAsk?: boolean };
+  /** An update for a ticket, to post or discard right here, or edit on its task's page (D-???). */
+  update?: UpdateCard;
 }
 
 export interface StatTile {
@@ -1343,7 +1444,7 @@ export function homeModel(i: HomeInput): HomeModel {
         if (wait) {
           const n = r.analysis!.split.length;
           const detail = wait === 'questions' ? `${p.name} · answer here, and its builder gets your answers` : `${p.name} · its analysis suggests ${n ? `${n} smaller tasks` : 'smaller tasks'}, on its page`;
-          attention.push({ key: `t:${p.root}:${r.id}`, look: analysisLook(r)!, title: `${r.id} ${r.title}`, detail, project: p.name, actions: [details], ...(wait === 'questions' ? { analysis: { project: p.root, task: r.id, questions: r.analysis!.open } } : {}) });
+          attention.push({ key: `t:${p.root}:${r.id}`, look: analysisLook(r)!, title: `${r.id} ${r.title}`, detail, project: p.name, actions: [details], ...(wait === 'questions' ? { analysis: { project: p.root, task: r.id, questions: withClient(r.analysis!.open, r.id, hub.updates?.(p.root) ?? []), canAsk: hasTicket(r.source.kind) } } : {}) });
           continue;
         }
         // A step autopilot couldn't take (D-055): why, and the same step to take by hand.
@@ -1389,6 +1490,16 @@ export function homeModel(i: HomeInput): HomeModel {
         const next = acts.find((a) => a.primary && ['acc.task.dispatch', 'acc.task.analyze', 'acc.task.watchAnalysis'].includes(a.command));
         if (next) ready.push({ project: p.name, id: r.id, title: r.title, environment: r.environment, action: next });
       }
+    }
+    // Updates acc drafted for tickets (D-???): each waits for a person to read and post it, or discard it.
+    for (const card of updateCards(p.root, hub.updates?.(p.root) ?? [], p.config.github?.account ?? null, i.boards(p.root))) {
+      attention.push({
+        key: `u:${p.root}:${card.id}`, look: card.look, title: card.stale ? `Update for ${card.key} may have posted` : `Update ready for ${card.key}`,
+        detail: `${p.name} · ${card.about}`, project: p.name,
+        actions: [{ command: 'acc.task.show', label: 'Edit', icon: 'edit', ref: { project: p.root, task: card.task } }],
+        ...(card.signIn ? { extra: { command: card.signIn.command, label: card.signIn.label, icon: 'plug', arg: card.signIn.arg } } : {}),
+        update: card,
+      });
     }
     for (const b of i.boards(p.root)) {
       if (b.error && b.connect) attention.push({ key: `b:${p.root}:${b.index}`, look: LOOK('Not signed in', 'plug', 'orange'), title: b.title, detail: `${p.name} · ${b.error}`, project: p.name, actions: [], extra: { command: b.connect.command, label: b.connect.label, icon: 'plug', arg: b.connect.arg } });
@@ -1457,6 +1568,15 @@ export type Model = TasksModel | AgentsModel | WorktreesModel | EnvironmentsMode
 export const TICKET_ACTIONS = ['comment', 'status', 'assign', 'labels', 'track', 'refresh', 'waive'] as const;
 export type TicketAction = (typeof TICKET_ACTIONS)[number];
 
+/**
+ * Why a ticket page refuses an action, or null. Status, assignee and labels change only where the
+ * tracker says "edits": true, even when a page sends them anyway; comments always may (D-???).
+ */
+export function ticketActionRefusal(action: string, edits: boolean): string | null {
+  if (edits || !['status', 'assign', 'labels'].includes(action)) return null;
+  return 'This tracker\'s tickets are read-only here. Set "edits": true on it in .acc/config.json to change status, assignee and labels.';
+}
+
 export type FromWebview =
   | { type: 'ready' } | { type: 'refresh' }
   | { type: 'run'; command: string; ref: Ref }
@@ -1479,7 +1599,14 @@ export type FromWebview =
   | { type: 'agent-reply'; text: string }
   | { type: 'run-control'; run: string; action: RunControl }
   /** A person's answer to one of a task's analysis's questions (D-052). acc records it; the page never writes it. */
-  | { type: 'analysis-answer'; project: string; task: string; question: string; text: string };
+  | { type: 'analysis-answer'; project: string; task: string; question: string; text: string }
+  /**
+   * A person posts an update with the text they edited, or discards it, or sends one of an analysis's
+   * questions to the client as a draft (D-???). acc records each; the page never writes them.
+   */
+  | { type: 'update-post'; project: string; id: string; text: string; again?: boolean }
+  | { type: 'update-discard'; project: string; id: string }
+  | { type: 'update-ask'; project: string; task: string; question: string };
 
 /** The page's answer as the hook reads it, with only the fields its decision has. */
 export function answerOf(m: Extract<FromWebview, { type: 'answer' }>): Answer {
@@ -1527,6 +1654,9 @@ export function isFromWebview(m: unknown): m is FromWebview {
     case 'run-input': return short(x.run, 64) && typeof x.text === 'string' && x.text.length <= 4096 && !/[\r\n]/.test(x.text as string);
     case 'run-control': return short(x.run, 64) && (RUN_CONTROLS as readonly string[]).includes(x.action as string);
     case 'analysis-answer': return short(x.project, 4096) && short(x.task, 100) && KEY.test(x.task as string) && typeof x.question === 'string' && /^q\d{1,3}$/.test(x.question) && short(x.text, 4000) && !!(x.text as string).trim();
+    case 'update-post': return short(x.project, 4096) && short(x.id, 120) && UPDATE_ID.test(x.id as string) && short(x.text, UPDATE_TEXT_MAX) && !!(x.text as string).trim() && (x.again === undefined || typeof x.again === 'boolean');
+    case 'update-discard': return short(x.project, 4096) && short(x.id, 120) && UPDATE_ID.test(x.id as string);
+    case 'update-ask': return short(x.project, 4096) && short(x.task, 100) && KEY.test(x.task as string) && typeof x.question === 'string' && /^q\d{1,3}$/.test(x.question);
     default: return false;
   }
 }

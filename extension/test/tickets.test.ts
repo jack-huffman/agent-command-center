@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { rowAnalysis, type TaskRow } from '../src/logic.ts';
 import type { Analysis } from '../../packages/core/src/analyze.ts';
-import { type BoardInput, initials, isFromWebview, priorityIcon, ticketModel, trackerBoard, typeIcon } from '../src/model.ts';
+import { type BoardInput, initials, isFromWebview, priorityIcon, ticketActionRefusal, ticketModel, trackerBoard, typeIcon } from '../src/model.ts';
+import type { Update } from '../../packages/core/src/updates.ts';
 import type { Ticket } from '../../packages/core/src/trackers/types.ts';
 
 const row = (id: string, state: string, display: TaskRow['display'], extra: Partial<TaskRow> = {}): TaskRow =>
@@ -48,12 +49,20 @@ const ticket: Ticket = {
   body: { blocks: [{ t: 'p', c: [{ t: 'text', text: 'Body' }] }] }, markdown: 'Body', comments: [], related: [],
 };
 
-test('a ticket page: the tracker\'s ticket can be changed from it; acc\'s side shows when acc keeps it; otherwise it offers Track in acc', () => {
+test('a ticket page: the tracker\'s ticket takes comments, and its fields change only where the tracker says edits; acc\'s side shows when acc keeps it; otherwise it offers Track in acc', () => {
   const task = { id: 'ACME-1', title: 'Ready one', brief: 'Brief', source: { kind: 'jira', key: 'ACME-1', url: null }, environment: 'dev', deps: [], labels: [], state: 'todo', blocker: null, run: null, pr: null,
     history: [{ at: '2026-09-01T00:00:00Z', from: null, to: 'todo', by: 'human:me' }, { at: '2026-09-02T00:00:00Z', from: 'todo', to: 'running', by: 'human:me' }], createdAt: '', updatedAt: '' } as never;
   const base = { project: '/r', tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira' as const, key: 'ACME-1', loading: false, error: null, connect: null, checks: [] };
   const tracked = ticketModel({ ...base, ticket, row: row('ACME-1', 'todo', 'ready'), task });
-  assert.deepEqual(tracked.can, { status: true, assign: true, labels: true, comment: true });
+  // A client's tracker is theirs: no status, assignee or labels controls unless it opts in (D-???). Comments stay.
+  assert.deepEqual(tracked.can, { status: false, assign: false, labels: false, comment: true });
+  assert.deepEqual(ticketModel({ ...base, ticket, row: row('ACME-1', 'todo', 'ready'), task, trackerEdits: true }).can, { status: true, assign: true, labels: true, comment: true });
+  // Sent anyway, the page refuses them before it asks the tracker for anything.
+  for (const action of ['status', 'assign', 'labels']) {
+    assert.match(ticketActionRefusal(action, false) ?? '', /read-only here\. Set "edits": true/, action);
+    assert.equal(ticketActionRefusal(action, true), null, action);
+  }
+  assert.equal(ticketActionRefusal('comment', false), null, 'comments stay');
   assert.deepEqual([tracked.status, tracked.sourceKind, tracked.trackable], [{ name: 'In Progress', tone: 'blue' }, 'jira', false]);
   assert.equal(tracked.acc!.history[0]!.to, 'running', 'newest history first');
   assert.ok(!tracked.acc!.actions.some((a) => a.command === 'acc.task.show'), 'no Details button on the details page');
@@ -128,6 +137,11 @@ test('messages from the board and ticket pages are checked before anything acts 
     { type: 'toolbar', command: 'acc.trackers.signIn', arg: '{"root":"/r","index":0}' },
     { type: 'analysis-answer', project: '/r', task: 'ACME-1', question: 'q1', text: 'Only the primary contact.' },
     { type: 'analysis-answer', project: '/r', task: 'ACME-1', question: 'q12', text: '-5 days' },
+    // A ticket's updates (D-???): post with the edited text, discard, or draft a question for the client.
+    { type: 'update-post', project: '/r', id: 'ACME-1.2', text: 'Ready for review: https://github.com/o/r/pull/3' },
+    { type: 'update-post', project: '/r', id: 'GH-41.10', text: 'x'.repeat(65_536), again: true },
+    { type: 'update-discard', project: '/r', id: 'ACME-1.2' },
+    { type: 'update-ask', project: '/r', task: 'ACME-1', question: 'q2' },
   ]) assert.ok(isFromWebview(ok), JSON.stringify(ok));
   for (const bad of [
     { type: 'open', url: 'javascript:alert(1)' }, { type: 'open', url: 'file:///etc/passwd' },
@@ -143,7 +157,42 @@ test('messages from the board and ticket pages are checked before anything acts 
     { type: 'analysis-answer', project: '/r', task: '../ACME-1', question: 'q1', text: 'Yes' },
     { type: 'analysis-answer', task: 'ACME-1', question: 'q1', text: 'Yes' },
     { type: 'analysis-answer', project: '/r', task: 'ACME-1', question: 'q1', text: 42 },
+    { type: 'update-post', project: '/r', id: 'ACME-1.2', text: 'x'.repeat(65_537) },
+    { type: 'update-post', project: '/r', id: 'ACME-1.2', text: '  ' },
+    { type: 'update-post', project: '/r', id: '../ACME-1.2', text: 'Hi' },
+    { type: 'update-post', project: '/r', id: 'ACME-1', text: 'Hi' },
+    { type: 'update-post', project: '/r', id: 'ACME-1.2', text: 'Hi', again: 'yes' },
+    { type: 'update-post', id: 'ACME-1.2', text: 'Hi' },
+    { type: 'update-discard', project: '/r', id: 'ACME-1.2/../x' },
+    { type: 'update-ask', project: '/r', task: 'ACME-1', question: 'all' },
   ]) assert.ok(!isFromWebview(bad), JSON.stringify(bad)?.slice(0, 80));
+});
+
+test('a task\'s page shows each update waiting to be posted, with who it posts as, and a sign-in when there\'s none (D-???)', () => {
+  const task = { id: 'ACME-1', title: 'Ready one', brief: '', source: { kind: 'jira', key: 'ACME-1', url: null }, environment: 'dev', deps: [], labels: [], state: 'review', blocker: null, run: null, pr: null, history: [], createdAt: '', updatedAt: '' } as never;
+  const base = { project: '/r', tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira' as const, key: 'ACME-1', loading: false, error: null, connect: null, checks: [], ticket, row: row('ACME-1', 'review', 'review'), task };
+  const draft = (id: string, extra: Partial<Update> = {}): Update => ({ v: 1, id, task: id.split('.')[0]!, tracker: 'jira', key: id.split('.')[0]!, url: null, event: 'pr-opened', text: 'The change is ready for review: https://github.com/o/r/pull/3', state: 'draft', pr: { number: 3, url: 'https://github.com/o/r/pull/3' }, createdAt: '2026-10-05T12:00:00.000Z', by: 'acc land', ...extra });
+  const updates = [
+    draft('ACME-1.1', { state: 'posted', posted: { at: '2026-10-05T12:01:00.000Z', by: 'human:me', text: 'x' } }),
+    draft('ACME-1.2', { event: 'merged', env: 'Dev', text: 'The change was approved and merged into Dev.', failed: { at: '2026-10-05T12:02:00.000Z', reason: 'Jira said 401' } }),
+    draft('ACME-1.3', { state: 'posting', posting: { at: '2026-10-05T12:00:00.000Z', by: 'human:me' } }),
+    draft('ACME-2.1'),
+  ];
+  const now = Date.parse('2026-10-05T12:10:00.000Z');
+  const signedIn = { ...board(), signedInAs: 'me@acme.example' };
+  const m = ticketModel({ ...base, updates, boards: [signedIn], github: 'me', now });
+  assert.deepEqual(m.updates.map((u) => [u.id, u.key, u.about, u.look.label, u.look.tone, u.stale, u.postAs, u.blocked, u.failed]), [
+    ['ACME-1.2', 'ACME-1', 'Merged into Dev', 'Draft update', 'orange', false, 'me@acme.example', null, 'Jira said 401'],
+    ['ACME-1.3', 'ACME-1', 'Pull request #3 is ready for review', 'May have posted', 'orange', true, 'me@acme.example', null, null],
+  ], 'its own task\'s, waiting on a person: not the posted one, nor another task\'s');
+  // Not signed in to Jira: Post waits for the sign-in, and says so.
+  const out = ticketModel({ ...base, updates, boards: [board()], github: 'me', now }).updates[0]!;
+  assert.deepEqual([out.postAs, out.blocked, out.signIn], [null, 'Sign in to Jira first.', { command: 'acc.trackers.signIn', label: 'Sign in to Jira', arg: '{"root":"/r","index":0}' }]);
+  assert.equal(ticketModel({ ...base, updates, boards: [], github: 'me', now }).updates[0]!.blocked, 'This repo has no Jira tracker to post through.');
+  // A GitHub issue's posts as the repo's account (D-028), named by its task.
+  const gh = ticketModel({ ...base, updates: [draft('ACME-1.4', { tracker: 'github', key: '#7' })], boards: [], github: 'me', now }).updates[0]!;
+  assert.deepEqual([gh.key, gh.postAs, gh.blocked], ['ACME-1', 'me', null]);
+  assert.deepEqual(ticketModel({ ...base, ticket: null, row: null, task: null, updates }).updates, [], 'a ticket acc doesn\'t keep has none');
 });
 
 test('pasted tracker URLs give the organization or site', async () => {

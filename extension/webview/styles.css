@@ -338,6 +338,21 @@ body[data-view="ticket"] { padding-top: 18px; }
 .act-body .fold-toggle { margin: 2px 0 0 10px; }
 .act-comment { margin: 4px 0 2px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); }
 .act-more { margin: 4px 0 0 38px; }
+/* An update acc drafted for the ticket (D-???): read, edit, then Post or Discard. Nothing goes until a person posts it. */
+.act-drafts { display: grid; gap: 10px; margin: 4px 0 14px; }
+.act-draft { padding: 8px 10px 10px; border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: var(--radius); background: var(--card); }
+.act-draft.tone-edge-orange { border-left-color: var(--orange); }
+.act-draft.tone-edge-blue { border-left-color: var(--blue); }
+.act-draft-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-height: 24px; }
+.act-draft-head .strong { min-width: 0; overflow-wrap: anywhere; }
+.act-draft-edit { margin-top: 8px; border: 1px solid var(--vscode-input-border, var(--line)); border-radius: var(--radius); background: var(--vscode-input-background); }
+.act-draft-edit:focus-within { border-color: var(--vscode-focusBorder); }
+.act-draft-text { min-height: 60px; }
+.act-draft-text:disabled { opacity: 0.75; }
+.act-draft .composer-bar { flex-wrap: wrap; row-gap: 6px; }
+.act-draft .aq-error { margin: 8px 0 0; }
+.draft-blocked { color: var(--orange); }
+.draft-blocked .codicon { color: var(--orange); }
 .history li { padding: 4px 0; display: flex; gap: 6px; flex-wrap: wrap; align-items: baseline; }
 
 /* Rich text from a ticket, drawn from a Doc: never markup from the ticket itself. */
@@ -695,6 +710,17 @@ body[data-view="agent"] .agent-asks { max-height: 50vh; overflow-y: auto; }
 /* On the Overview, a task's questions sit under its row, in line with its words. */
 .inbox-analysis { margin: -6px 0 8px 224px; }
 @media (max-width: 620px) { .inbox-analysis { margin-left: 0; } }
+/* So does an update's text, two lines then Show all, and who it posts as (D-???). */
+.inbox-update { margin: -6px 0 10px 224px; }
+.inbox-update-text { padding: 2px 10px; border-left: 2px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--vscode-descriptionForeground); }
+.inbox-update .foldable { margin-bottom: 4px; }
+.inbox-update .fold-toggle { margin: 2px 0 0 10px; }
+.inbox-update > .acting { display: flex; margin-left: 10px; }
+.inbox-update .aq-error { margin: 6px 0 0 10px; }
+@media (max-width: 620px) { .inbox-update { margin-left: 0; } }
+/* Whether one of its questions went to the client, or a button to draft it. */
+.aq-client { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 6px; font-size: 0.92em; }
+.aq-client .aq-error { margin: 0; }
 /* Writing to an agent from its page (D-060): under the timeline, always in view. */
 .agent-reply { flex: none; margin-top: 10px; }
 .agent-reply .reply-box { min-height: 56px; }
