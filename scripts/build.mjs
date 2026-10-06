@@ -20,7 +20,9 @@ const ext = join(root, 'extension');
 const versionOnly = {
   name: 'version-only',
   setup(b) {
-    b.onLoad({ filter: /[\\/]package\.json$/ }, (a) => ({ contents: JSON.stringify({ version: JSON.parse(readFileSync(a.path, 'utf8')).version }), loader: 'json' }));
+    // Only the root package.json: a dependency that reads its own keeps all of it.
+    const rootJson = join(root, 'package.json');
+    b.onLoad({ filter: /[\\/]package\.json$/ }, (a) => (a.path === rootJson ? { contents: JSON.stringify({ version: JSON.parse(readFileSync(a.path, 'utf8')).version }), loader: 'json' } : undefined));
   },
 };
 

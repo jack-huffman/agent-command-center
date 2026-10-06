@@ -114,7 +114,15 @@ test('set-version changes the version in every place and no other byte', () => {
   assert.deepEqual(changed.sort(), [...before.keys()].sort());
   assert.deepEqual(versionProblems(readVersions(dir)), []);
   assert.equal(readVersions(dir)[0]!.version, '9.8.7');
-  for (const [f, text] of before) assert.equal(readFileSync(join(dir, f), 'utf8'), text.replaceAll(`"version": "${VERSION}"`, '"version": "9.8.7"'), `${f}: only its version changed`);
+  // Line by line: a dependency in the lockfile that shares the version is a line that mustn't change.
+  for (const [f, text] of before) {
+    const was = text.split('\n');
+    const now = readFileSync(join(dir, f), 'utf8').split('\n');
+    assert.equal(now.length, was.length, f);
+    const differ = was.map((line, i) => [line, now[i]!] as const).filter(([a, b]) => a !== b);
+    assert.equal(differ.length, VERSION_PLACES.filter((p) => p.file === f).length, `${f}: one line for each place`);
+    for (const [a, b] of differ) assert.equal(b, a.replace(VERSION, '9.8.7'), `${f}: only its version changed`);
+  }
   assert.throws(() => setVersion(dir, '1.2'), /isn't a version/);
   plant(dir, 'extension/package.json', '"version": "9.8.7"', '"versio": "9.8.7"');
   assert.throws(() => setVersion(dir, '1.0.0'), /extension\/package\.json \(found 0\)/);
@@ -180,7 +188,9 @@ test('placeholders and the repo\'s own address are never flagged, beside a real 
     '~/.claude/settings.json', '~/.acc/runtime', 'dev.azure.com/${org}', 'dev.azure.com/<organization>', 'https://x.example/home/page', 'src/home/page', 'JackHuffman.agent-command-center',
   ]) assert.deepEqual(scanLine(`${p} pat.lee@corp.example`, m), real, p);
   assert.deepEqual(scanLine('owner: jack-huffman', m), ['a GitHub account of the packager\'s or the repo\'s (jack-huffman)']);
-  assert.deepEqual(scanLine(`see github.com/jack-huffman and ${REPO}`, m).length, 1, 'only github.com/<the repo> may stay');
+  // One mention a line, so each is shown caught or let through on its own.
+  assert.deepEqual(scanLine('see github.com/jack-huffman', m), ['a GitHub account of the packager\'s or the repo\'s (jack-huffman)']);
+  assert.deepEqual(scanLine(`see https://github.com/${REPO}`, m), [], 'only github.com/<the repo> may stay');
   assert.deepEqual(scanLine('github.com/client-co/app', m), ['a repo the packager signed in to a tracker for (client-co/app)']);
   assert.deepEqual(scanLine('https://dev.azure.com/contoso/_git/x and fabrikam.visualstudio.com', m), ['an Azure DevOps organization (dev.azure.com/contoso)', 'an Azure DevOps organization (fabrikam.visualstudio.com)']);
   assert.deepEqual(PLACEHOLDERS, ['acme', 'jordan-kim', 'jordan', 'example', 'you']);
@@ -206,14 +216,17 @@ test('the packager\'s words come from git, gh, their name and VSCode\'s sign-in 
       'git config --get-all user.email': ok('pat.lee@corp.example\n'),
       'git config --global --includes --get-all user.email': ok('Pat.Lee@Corp.Example\nyou@example.com\n'),
       'git config --global --includes --get-all user.name': ok('Pat Lee\n'),
-      'git config --global --get-regexp ^include(if\\..*)?\\.path$': ok('includeif.gitdir:~/work/.path ~/.gitconfig-work\ninclude.path .gitconfig-more\n'),
+      'git config --global --show-origin --get-regexp ^include(if\\..*)?\\.path$': ok(`file:${home}/.gitconfig\tincludeif.gitdir:~/work/.path ~/.gitconfig-work\nfile:${home}/.gitconfig\tinclude.path .gitconfig-more\n`),
+      // A relative include in the system config is beside that file, not in the home folder.
+      'git config --system --show-origin --get-regexp ^include(if\\..*)?\\.path$': ok('file:/opt/homebrew/etc/gitconfig\tinclude.path corp.inc\n'),
       [`git config --file ${home}/.gitconfig-work --includes --get-all user.email`]: ok('pat@work.example\n'),
       [`git config --file ${home}/.gitconfig-more --includes --get-all user.email`]: ok('pat@more.example\n'),
+      'git config --file /opt/homebrew/etc/corp.inc --includes --get-all user.email': ok('pat@sys.example\n'),
       'gh auth status --hostname github.com': ok(gh),
       'id -F': ok('Pat Lee\n'),
     }),
   });
-  assert.deepEqual(terms.emails, ['jh@corp.example', 'pat.lee@corp.example', 'pat@more.example', 'pat@work.example'], 'every scope and included file, the config\'s, deduplicated, placeholders dropped');
+  assert.deepEqual(terms.emails, ['jh@corp.example', 'pat.lee@corp.example', 'pat@more.example', 'pat@sys.example', 'pat@work.example'], 'every scope and included file, each include beside the file that names it, deduplicated, placeholders dropped');
   assert.deepEqual(terms.logins, ['jack-huffman', 'pat-lee', 'pat-work']);
   assert.deepEqual(terms.names, ['jack-huffman', 'pat lee', 'patlee']);
   assert.deepEqual(terms.hosts, ['client.atlassian.net', 'clientorg.visualstudio.com', 'dev.azure.com/clientorg', 'other.atlassian.net']);

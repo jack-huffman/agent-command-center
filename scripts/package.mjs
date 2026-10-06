@@ -20,4 +20,4 @@ if (!r.ok) {
   for (const p of r.problems) console.error(p);
   process.exit(1);
 }
-console.log(`Packaged ${relative(ROOT, r.vsix)}, and refreshed plugin/bin. Commit plugin/bin with the version, merge, then npm run release on main.`);
+console.log(`Packaged ${relative(ROOT, r.vsix)}, and refreshed plugin/bin. On main, commit plugin/bin and push, then npm run release.`);

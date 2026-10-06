@@ -378,10 +378,16 @@ export function personalTerms(d: TermDeps): { terms: Terms; notes: string[] } {
   const repo = field(config, 'github', 'repo');
   // Every scope, and every file the system and global configs include, whatever its condition: a work
   // email kept for another folder (includeIf) is still the packager's.
+  // git resolves a relative include against the folder of the file that includes it, so ask where each came from.
   const included = ['--system', '--global']
-    .flatMap((s) => lines(d.run, 'git', ['config', s, '--get-regexp', '^include(if\\..*)?\\.path$'], d.root))
-    .map((l) => l.slice(l.indexOf(' ') + 1).replace(/^~(?=\/)/, d.home))
-    .map((p) => ['--file', resolve(d.home, p), '--includes']);
+    .flatMap((s) => lines(d.run, 'git', ['config', s, '--show-origin', '--get-regexp', '^include(if\\..*)?\\.path$'], d.root))
+    .map((l) => {
+      const tab = l.indexOf('\t');
+      const origin = tab > 0 && l.startsWith('file:') ? l.slice('file:'.length, tab) : '';
+      const entry = tab > 0 ? l.slice(tab + 1) : l;
+      const p = entry.slice(entry.indexOf(' ') + 1).replace(/^~(?=\/)/, d.home);
+      return ['--file', resolve(origin ? dirname(origin) : d.home, p), '--includes'];
+    });
   const scopes = [[], ['--system', '--includes'], ['--global', '--includes'], ['--local', '--includes'], ['--worktree', '--includes'], ...included];
   const git = (key: string) => scopes.flatMap((s) => lines(d.run, 'git', ['config', ...s, '--get-all', key], d.root));
   const accounts = ghAccounts(d.run, d.env);
@@ -507,7 +513,7 @@ export async function release(d: ReleaseDeps): Promise<Released> {
   if (!notes) return no(`${CHANGELOG} has no entry for ${version}.`);
 
   const vsix = join(d.root, 'dist', vsixName(version));
-  if (!existsSync(vsix)) return no(`There's no dist/${vsixName(version)}. Run npm run package, commit plugin/bin, merge, then release.`);
+  if (!existsSync(vsix)) return no(`There's no dist/${vsixName(version)}. Run npm run package on main, commit plugin/bin and push, then release.`);
   const inZip = (path: string) => d.run('/usr/bin/unzip', ['-p', vsix, path]);
   let packed: unknown;
   try { packed = (JSON.parse(inZip('extension/package.json').stdout) as Json).version; } catch { packed = null; }
@@ -515,7 +521,7 @@ export async function release(d: ReleaseDeps): Promise<Released> {
   for (const f of ['acc', 'acc.mjs']) {
     const mine = join(d.root, 'plugin', 'bin', f);
     if (!existsSync(mine) || readFileSync(mine, 'utf8') !== inZip(`extension/dist/bin/${f}`).stdout) {
-      return no(`plugin/bin/${f} isn't the ${f} in the .vsix. The plugin and the extension ship the same acc: package them together (npm run package), commit plugin/bin, merge, then release.`);
+      return no(`plugin/bin/${f} isn't the ${f} in the .vsix. The plugin and the extension ship the same acc: package them together (npm run package), commit plugin/bin and push, then release.`);
     }
   }
 
