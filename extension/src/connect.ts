@@ -403,7 +403,8 @@ export class ConnectSession {
       this.close();
       await this.deps.saved(root, d.name);
     } catch (e) {
-      if (this.s !== s) return;
+      // Written, then the reload after it failed: the page has closed, so the log says so.
+      if (this.s !== s) { this.deps.log(`[connect] ${d.name}: saved, but reloading after it failed: ${(e as Error).message}`); return; }
       s.saving = false;
       s.saveError = `Couldn't save: ${(e as Error).message}`;
       this.bump();

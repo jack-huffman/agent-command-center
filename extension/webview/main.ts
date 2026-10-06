@@ -1522,7 +1522,8 @@ function renderConnect(m: ConnectModel): Node[] {
   }
   // Taken in by the extension: its value shows now. Once signed in, the token typed is forgotten.
   for (const [k, rev] of connectSent) if (m.rev > rev) { connectTyped.delete(k); connectSent.delete(k); }
-  if (!m.signIn.editing) for (const f of m.fields) connectTyped.delete(`${m.id}:${f.key}`);
+  // Signed in, the page shows no sign-in fields, so what was typed there (the token) is forgotten by key.
+  if (!m.signIn.editing) for (const k of [...connectTyped.keys()]) if (k.startsWith(`${m.id}:`) && k !== `${m.id}:${m.host.key}`) connectTyped.delete(k);
   const back = button(m.back.label, 'arrow-left', () => connectSend(m, { type: 'connect-cancel' }), 'ghost');
   const test = () => {
     const typed = (key: string, value: string) => connectTyped.get(`${m.id}:${key}`) ?? value;

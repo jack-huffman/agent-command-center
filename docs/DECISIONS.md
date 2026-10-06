@@ -2107,6 +2107,11 @@ and easier, and chose one page in the Command Center (GH-51).
 - **Jira's email comes from the repo's `git config user.email`**, and the board
   id is written whenever a board is picked, not only when there are several.
   A late answer for a choice since changed is dropped.
+- **A board list that can't be read doesn't hold Save** for Jira, which shows
+  the project's first board without one. Once signed in, the token typed is
+  forgotten by the page.
+- **Setup's Sign in, with several Jira or Azure DevOps trackers,** still asks
+  which one with a quick pick, then opens the page at it.
 - Not chosen: a page per tracker; a separate editor tab, like a ticket's;
   changing an existing tracker's project on the page; a GitHub Project picker
   (an existing `board` is kept as it is).

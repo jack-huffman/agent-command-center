@@ -183,6 +183,26 @@ test('a list that can\'t be read says why beside it, and the whole project can s
   assert.deepEqual(h.raw, [{ kind: 'jira', site: SITE, project: 'ACME', board: 7 }]);
 });
 
+test('a board list that can\'t be read doesn\'t hold Save: Jira shows the project\'s first board without one', async () => {
+  const base = jira();
+  const noBoards = (async (url: string, init: { headers: Record<string, string> }) => (new URL(url).pathname === '/rest/agile/1.0/board'
+    ? new Response(JSON.stringify({ errorMessages: ['Service unavailable'] }), { status: 503 }) : base(url, init as RequestInit))) as unknown as typeof fetch;
+  const h = harness({ fetch: noBoards });
+  await h.session.open({ root: ROOT, kind: 'jira', from: 'tasks' });
+  h.send({ type: 'connect-test', host: SITE, fields: { email: EMAIL, token: TOKEN } });
+  await settle();
+  h.send({ type: 'connect-pick', key: 'project', value: 'ACME' });
+  await settle();
+  const m = h.model();
+  const board = picker(m, 'board');
+  assert.deepEqual([board.look?.icon, board.look?.tone, board.required], ['warning', 'orange', false]);
+  assert.match(board.look?.label ?? '', /^Couldn't list them: .* Without one, the Tasks tab shows the project's first board\.$/);
+  assert.equal(m.save.can, true);
+  h.send({ type: 'connect-save' });
+  await settle();
+  assert.deepEqual([h.raw[0]!.project, (h.raw[0] as { board?: unknown }).board ?? null], ['ACME', null]);
+});
+
 test('an existing tracker opens signed in, its project fixed and its done epic kept; Save replaces it in place', async () => {
   const h = harness({ trackers: [{ kind: 'github', skipLabels: ['milestone'] }, { kind: 'jira', site: SITE, project: 'ACME', epic: 'ACME-3', board: 9, edits: true }] });
   // A sign-in kept before GH-51, with no method.

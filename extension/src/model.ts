@@ -1527,14 +1527,15 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
     const fixed = !!s.existing && !!p.identifies;
     const whole = p.whole ? p.whole({ host: s.host, values }) : null;
     const pickerLook = fixed ? null : ps.state === 'loading' ? LOOK('Loading', 'sync~spin', 'blue')
-      : ps.state === 'failed' ? LOOK(`Couldn't list them: ${ps.error ?? 'no answer'}${whole ? ' You can take the whole project now, and narrow it later.' : ''}`, 'warning', 'orange')
+      : ps.state === 'failed' ? LOOK(`Couldn't list them: ${ps.error ?? 'no answer'}${whole ? ' You can take the whole project now, and narrow it later.' : p.fallback ? ` ${p.fallback}` : ''}`, 'warning', 'orange')
         : ps.state === 'ready' && !ps.options.length && !whole ? LOOK('None that this sign-in can see', 'warning', 'orange') : null;
     // Each option once, and a choice the list no longer has (an epic that's done) kept, so Save doesn't drop it.
     const options = ps.options.map((o) => ({ value: o.value, label: o.label, detail: o.detail ?? null }));
     for (const v of ps.selected) if (!options.some((o) => o.value === v)) options.unshift({ value: v, label: v, detail: ps.state === 'ready' && !fixed ? 'chosen before, not listed now' : null });
     return {
       key: p.key, label: p.label, multi: !!p.multi, whole, options, selected: ps.selected, look: pickerLook,
-      disabled: !fixed && (!ok || ps.state === 'waiting' || ps.state === 'loading'), fixed, required: !p.whole && !p.multi, hint: p.hint ?? null,
+      // One whose list failed needn't hold Save when the tracker does without it (Jira's first board).
+      disabled: !fixed && (!ok || ps.state === 'waiting' || ps.state === 'loading'), fixed, required: !p.whole && !p.multi && !(p.fallback && ps.state === 'failed'), hint: p.hint ?? null,
     };
   });
   const ready = pickers.every((p) => p.fixed || !p.required || p.selected.length) && pickers.every((p) => p.look?.icon !== 'sync~spin');

@@ -101,6 +101,8 @@ export interface PickerSpec {
   multi?: boolean;
   /** It names which tracker this is, so an existing tracker shows it fixed: another project is another tracker. */
   identifies?: boolean;
+  /** What the tracker does without a choice, when its list couldn't load: then Save needn't wait for it. */
+  fallback?: string;
   hint?: string;
   load: (ctx: Ctx) => Promise<Option[]>;
 }
@@ -189,6 +191,7 @@ export const JIRA: TrackerDescription = {
     },
     {
       key: 'board', label: 'Board', dependsOn: ['project'], hint: 'Its columns are the Tasks tab\'s. Its own filter still applies, so pick one that shows the place\'s tickets.',
+      fallback: 'Without one, the Tasks tab shows the project\'s first board.',
       load: async (ctx) => (await jiraBoards(ctx.host, one(ctx.values.project)!, jiraWith(ctx).email, jiraWith(ctx).token, ctx.fetch)).map((b, i) => ({ value: String(b.id), label: b.name, detail: b.type, preferred: i === 0 })),
     },
   ],
