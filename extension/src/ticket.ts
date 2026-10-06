@@ -23,8 +23,6 @@ export interface UpdateActions {
   ask(root: string, task: string, question: string): Promise<Reply>;
 }
 
-
-
 interface Open {
   panel: vscode.WebviewPanel;
   project: string;
