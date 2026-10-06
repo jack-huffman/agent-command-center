@@ -290,6 +290,8 @@ function renderTasks(m: TasksModel): Node[] {
           card.waitingOn.length ? el('div', 'card-note', icon('clock'), `Waiting on ${card.waitingOn.join(', ')}`) : null,
           // Its pull request won't merge into its base (D-049): an icon and the words, in orange.
           card.conflicts ? el('div', 'card-note conflict', icon('warning'), el('span', '', card.conflicts)) : null,
+          // Its checks failed on GitHub, or autopilot sent it back for them (D-076): an icon and the words, in orange.
+          card.failedChecks ? el('div', 'card-note conflict', icon('github-action'), el('span', '', card.failedChecks)) : null,
           // A step autopilot couldn't take, and why (D-055): an icon and the words, in orange.
           card.autopilot ? el('div', 'card-agent', status(card.autopilot)) : null,
           // Its pull request was closed, and autopilot won't replace it (D-063): an icon and the words, in orange.
@@ -377,6 +379,7 @@ function trackerCard(root: string, b: TrackerBoard, c: TrackerCard): HTMLElement
     c.labels.length ? el('div', 'labels', ...c.labels.slice(0, 4).map(labelChip)) : null,
     c.acc ? el('div', 'tcard-acc', status(c.acc.look), el('span', 'spacer'), c.acc.action ? actionButton(c.acc.action) : null) : null,
     c.acc?.conflicts ? el('div', 'card-note conflict tcard-conflict', icon('warning'), el('span', '', c.acc.conflicts)) : null,
+    c.acc?.failedChecks ? el('div', 'card-note conflict tcard-conflict', icon('github-action'), el('span', '', c.acc.failedChecks)) : null,
     c.track ? el('div', 'tcard-acc', el('span', 'spacer'), trackButton(root, b, c.key, c.track.busy)) : null,
     c.track?.error ? el('div', 'card-note conflict tcard-conflict', icon('warning'), el('span', '', `Couldn't track it: ${c.track.error}`)) : null,
   );
@@ -751,6 +754,11 @@ function renderTicket(m: TicketModel): Node[] {
     const [head, ...files] = m.acc.conflicts.split(': ');
     top.append(foldable(`conflicts:${m.project}#${m.key}`, el('div', 'notice attention why', icon('warning', 'orange'), el('div', 'why-text conflict', el('strong', '', `${head}: `), files.join(': '))), 'why-text', 2));
   }
+  // Its checks failed on GitHub, or autopilot sent it back for them (D-076), in orange with an icon.
+  if (m.acc?.failedChecks) {
+    const [head, ...names] = m.acc.failedChecks.split(': ');
+    top.append(foldable(`checks:${m.project}#${m.key}`, el('div', 'notice attention why', icon('github-action', 'orange'), el('div', 'why-text conflict', el('strong', '', `${head}: `), names.join(': '))), 'why-text', 2));
+  }
   if (m.analysis) top.append(renderAnalysis(m, m.analysis));
   const main = el('div', 'ticket-main');
   main.append(el('section', 'block', el('h2', '', 'Description'), m.loading && !m.body.blocks.length ? el('p', 'muted', 'Loading…') : foldable(`desc:${m.project}#${m.key}`, renderDoc(m.body, 'No description.'), null, 6)));
@@ -933,6 +941,8 @@ function moveFeed(h: { from: string | null; to: string; by: string }): { icon: s
   const sync = /^sync|^acc sync/.test(h.by);
   if (!h.from) return { icon: 'add', tone: 'neutral', verb: 'added it', pill: false };
   if (h.to === 'running') return h.from === 'rework' ? { icon: 'debug-restart', tone: 'blue', verb: 'sent it back to its agent', pill: false } : { icon: 'rocket', tone: 'blue', verb: 'started its agent', pill: false };
+  // Only autopilot's send-back for checks that failed on GitHub is the orchestrator's move to rework (D-076).
+  if (h.to === 'rework' && h.from === 'review' && /^orchestrator/.test(h.by)) return { icon: 'github-action', tone: 'orange', verb: 'sent it back to its builder', pill: false };
   if (h.to === 'rework') return { icon: 'request-changes', tone: 'orange', verb: 'asked for changes', pill: false };
   if (h.to === 'blocked') return { icon: 'circle-slash', tone: 'orange', verb: 'blocked it', pill: false };
   if (h.to === 'done') return { icon: sync ? 'git-merge' : 'check', tone: 'blue', verb: sync ? 'merged its pull request:' : 'moved it to', pill: true };

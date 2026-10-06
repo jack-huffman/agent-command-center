@@ -103,10 +103,17 @@ function setup(opts: { appendOnly?: string[]; config?: Record<string, unknown>; 
   return { dir, origin, wt, config, paths, onBranch, onMain, opened };
 }
 
-/** Stand-ins for gh, claude and the check, recording every call. Git really runs. */
-function deps(calls: string[], check: RunResult | ((o?: RunOptions) => RunResult) = ok('1 passing')): AutopilotDeps {
+/**
+ * Stand-ins for gh, claude and the check, recording every call. Git really runs. With `root`, GitHub has
+ * the branch's latest commit and its checks passed there, as autopilot reads them once it's landed (D-076).
+ */
+function deps(calls: string[], check: RunResult | ((o?: RunOptions) => RunResult) = ok('1 passing'), root?: string): AutopilotDeps {
   return {
     run: fakeRunner({
+      ...(root ? {
+        'gh pr view': () => ok(JSON.stringify({ headRefOid: gitIn(root, 'rev-parse', BRANCH) })),
+        'gh pr checks': ok(JSON.stringify([{ name: 'test', bucket: 'pass', workflow: 'CI', link: 'https://github.com/acme/tool/actions/runs/1/job/2', state: 'SUCCESS' }])),
+      } : {}),
       'nice -n 15 sh -c': check,
       'gh auth token -u jordan-kim': ok('gho_token\n'),
       'gh pr list': ok(JSON.stringify([{ number: 42, url: 'https://github.com/acme/tool/pull/42' }])),
@@ -130,7 +137,7 @@ test('both sides added a decision: autopilot merges main in, keeps both, checks 
   s.opened(before, ['docs/DECISIONS.md']);
   const calls: string[] = [];
   const cwds: (string | undefined)[] = [];
-  const d = deps(calls, (o) => { cwds.push(o?.cwd); return ok('1 passing'); });
+  const d = deps(calls, (o) => { cwds.push(o?.cwd); return ok('1 passing'); }, s.dir);
 
   const r = autopilotPass(s.paths, s.config, d);
   assert.deepEqual(brief(r.steps[0]!), ['T-1', 'refresh', 'done']);
@@ -336,7 +343,7 @@ test('a conflict acc saw earlier that\'s gone now: nothing is merged, and the pu
   assert.equal(head(s.dir), before);
   assert.deepEqual(first(s.paths).pr?.conflicts, []);
   assert.ok(!calls.some((c) => c.startsWith('git merge ') || c.includes(' merge --no-ff') || c.startsWith('nice')), 'no merge, no checks');
-  assert.deepEqual(brief(autopilotPass(s.paths, s.config, deps(calls)).steps[0]!), ['T-1', null, 'skipped'], 'up to date');
+  assert.deepEqual(brief(autopilotPass(s.paths, s.config, deps(calls, undefined, s.dir)).steps[0]!), ['T-1', null, 'skipped'], 'up to date');
 });
 
 test('the merge commit is made as the repo\'s commit identity, and a pull request no longer open isn\'t touched', () => {

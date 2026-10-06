@@ -207,6 +207,36 @@ test('a step autopilot couldn\'t take shows its task as needs you, in the state 
   assert.deepEqual([t.autopilot.failed, displayState(l, t)], [null, 'running'], 'a person re-dispatched it by hand');
 });
 
+test('autopilot may send work in review back, with a reason; a builder may not (D-076)', () => {
+  const l = ledgerWith({ id: 'ACME-1', state: 'review' });
+  const t = task(l, 'ACME-1');
+  const back = { to: 'rework' as const, actor: 'orchestrator' as const, by: 'orchestrator:autopilot' };
+  assert.deepEqual(checkMove(l, config, t, { ...back, reason: 'Checks failed on GitHub on abc1234: build.' }, noGateHooks), []);
+  assert.deepEqual(checkMove(l, config, t, back, noGateHooks), ['Moving to rework needs a reason.']);
+  assert.match(checkMove(l, config, t, { ...back, actor: 'builder', by: 'builder:ACME-1', reason: 'x' }, noGateHooks).join(), /A builder can't move a task from review to rework/);
+  // What the move was for goes with its event.
+  const events: Parameters<Emit>[0][] = [];
+  applyMove(t, { ...back, reason: 'Checks failed on GitHub on abc1234: build.' }, (e) => events.push(e), clock, { checks: ['build'], sha: 'abc' });
+  assert.deepEqual(events[0]!.data, { from: 'review', to: 'rework', reason: 'Checks failed on GitHub on abc1234: build.', override: false, checks: ['build'], sha: 'abc' });
+});
+
+test('failing checks on a commit autopilot already sent back don\'t need you while its fix is reviewed; at autonomy manual they do, as before (D-076)', () => {
+  const l = ledgerWith({ id: 'ACME-1', state: 'review' });
+  const t = task(l, 'ACME-1');
+  const H = 'a'.repeat(40);
+  t.pr = { number: 7, url: 'https://github.com/acme/x/pull/7', state: 'open', sha: H, ci: 'failing', failing: ['build'] };
+  assert.equal(displayState(l, t), 'needs-you', 'nothing sent back: a person reads them, as at autonomy manual');
+  t.autopilot = { failed: null, sentBack: { sha: H, checks: ['build'], at: '2026-10-06T09:00:00.000Z' } };
+  assert.equal(displayState(l, t), 'review', 'the pull request is still at the commit sent back: its fix is on the way');
+  t.pr = { ...t.pr, sha: 'b'.repeat(40) };
+  assert.equal(displayState(l, t), 'needs-you', 'a newer commit\'s checks failing need you again');
+  t.pr = { ...t.pr, sha: H, ci: 'failing', changesRequested: true };
+  assert.equal(displayState(l, t), 'needs-you', 'a person\'s requested changes still do');
+  t.pr = { ...t.pr, changesRequested: false };
+  t.autopilot.failed = { step: 'checks', sha: H, state: 'review', reason: 'Checks failed on GitHub again: build.', at: '2026-10-06T10:00:00.000Z' };
+  assert.equal(displayState(l, t), 'needs-you', 'failing again there is written down, and needs you');
+});
+
 test('mutate writes the snapshot and the event log together, in the shared git directory (D-008)', () => {
   const repo = makeRepo();
   const paths = repoPaths(repo, run);

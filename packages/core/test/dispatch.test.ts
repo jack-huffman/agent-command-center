@@ -87,6 +87,32 @@ test('the packet tells a Salesforce builder where it is, how to finish, and what
   assert.ok(withPath.includes('its full path is `/opt/acc/bin/acc`'));
 });
 
+test('a rework autopilot sent back for failing checks tells its builder what GitHub said, and no review\'s changes (D-076)', () => {
+  const config = parseConfig({ ...GENERIC_CONFIG, gates: { required: ['test'], commands: { test: 'npm test' } } }).config!;
+  const l = emptyLedger();
+  upsertTasks(l, config, [{ source: { kind: 'github', key: '57', url: 'https://github.com/acme/tool/issues/57' }, title: 'Add sum', brief: 'sum(a, b)' }], 'human', 'h', () => {}, () => new Date());
+  const env = config.environments[0]!;
+  const sha = 'a'.repeat(40);
+  const passed = { v: 1 as const, task: 'GH-57', sha, env: 'main', verdict: 'pass' as const, summary: 'Adds sum.', criteria: [], findings: [], sessionId: 's', at: '2026-10-06T09:00:00.000Z', durationMs: 1, costUsd: null };
+  const checks = {
+    v: 1 as const, task: 'GH-57', sha, pr: { number: 42, url: 'https://github.com/acme/tool/pull/42' }, required: false, at: '2026-10-06T09:10:00.000Z',
+    checks: [
+      { name: 'test', workflow: 'CI', link: 'https://github.com/acme/tool/actions/runs/1/job/2', log: 'not ok 1 - sum adds\n# fail 1', noLog: null },
+      { name: 'lint', workflow: 'CI', link: 'https://github.com/acme/tool/actions/runs/1/job/3', log: null, noLog: 'failed to get run log: log not found' },
+    ],
+  };
+  const p = renderPacket({ task: l.tasks[0]!, config, env, worktree: '/w/GH-57', branch: 'task/GH-57-add-sum', rules: null, environmentSpecific: [], review: passed, checks });
+  for (const must of [
+    '## What GitHub\'s checks said', 'pull request #42, and its checks failed on GitHub on aaaaaaa: test, lint', '### test (CI)', 'Link: https://github.com/acme/tool/actions/runs/1/job/2',
+    '```text\nnot ok 1 - sum adds\n# fail 1\n```', '### lint (CI)', 'Couldn\'t fetch its log: failed to get run log: log not found.',
+    'run `acc block "<what you found>"` and stop', 'run exactly `acc gate run`', 'running exactly `acc done`',
+  ]) assert.ok(p.includes(must), must);
+  assert.ok(!p.includes('What the review asked for'), 'its review passed');
+  assert.ok(p.indexOf('What GitHub\'s checks said') < p.indexOf('## Where you are'), 'before where it works, as a review\'s changes are');
+  const plain = renderPacket({ task: l.tasks[0]!, config, env, worktree: '/w/GH-57', branch: 'task/GH-57-add-sum', rules: null, environmentSpecific: [] });
+  assert.ok(!plain.includes('What GitHub\'s checks said'), 'a first build has none');
+});
+
 test('builder settings: identity, acc on PATH, and the dangerous commands denied even if the user allows them', () => {
   const config = parseConfig(JSON.parse(JSON.stringify(SF_CONFIG))).config!;
   const s = builderSettings({ id: 'ACME-7' } as never, config, '/acc/bin', '/usr/bin') as { env: Record<string, string>; permissions: { allow: string[]; deny: string[] } };

@@ -308,7 +308,7 @@ test('each step autopilot takes is one notice: what it did, and what it couldn\'
   assert.deepEqual(say(rec('GH-31', { step: 'review', verdict: 'pass' })), [['Autopilot reviewed GH-31: it passed. Autopilot lands it next.', false, [show]]]);
   assert.deepEqual(say(rec('GH-31', { step: 'review', verdict: 'changes', reason: 'sum has no test' })), [['Autopilot\'s review asked for changes on GH-31: sum has no test. Autopilot re-dispatches it next.', false, [show]]]);
   // Once re-dispatched by autopilot, a second rework is a person's.
-  const again = { ...gh, history: [{ at: '2026-10-05T11:00:00.000Z', from: 'rework', to: 'running', actor: 'orchestrator' }] };
+  const again = { ...gh, history: [{ at: '2026-10-05T11:00:00.000Z', from: 'rework', to: 'running', actor: 'orchestrator', by: 'orchestrator:autopilot' }] };
   assert.deepEqual(say(rec('GH-31', { step: 'review', verdict: 'changes', reason: 'Still no test.' }), [again]),
     [['Autopilot\'s review asked for changes on GH-31 again: Still no test. A second rework waits for you.', true, [['Re-dispatch', 'acc.task.dispatch'], show]]]);
   assert.deepEqual(say(rec('GH-31', { step: 'dispatch' })), [['Autopilot re-dispatched GH-31 with its review\'s changes.', false, [['Watch', 'acc.task.watch'], show]]]);
@@ -375,11 +375,51 @@ test('D-044\'s review notices stay quiet for a review autopilot ran, and still s
   assert.equal(withoutAutopilotEcho(news, []).length, 3, 'with no autopilot, every one');
 });
 
+test('autopilot\'s send-back for failing checks is its own notice and History item, and its re-dispatch says what for (D-076)', async () => {
+  const { autopilotNotices, noticeActions, taskNotices, withoutAutopilotEcho } = await import('../src/logic.ts');
+  const { autopilotStepLook } = await import('../src/model.ts');
+  type Rec = import('../../packages/core/src/autopilot.ts').AutopilotRecord;
+  type Task = import('../src/logic.ts').AutopilotTask;
+  type Row = import('../src/logic.ts').TaskRow;
+  const at = '2026-10-06T12:00:00.000Z';
+  const gh: Task = { id: 'GH-57', source: { kind: 'github', key: '57' }, history: [] };
+  const say = (r: Rec, tasks: Task[] = [gh]) => autopilotNotices([r], tasks).map((n) => [n.text, n.urgent, noticeActions(n)]);
+  const show = ['Show', 'acc.task.show'];
+  const pr = ['Open pull request', 'acc.task.openPr'];
+  const sent: Rec = { seq: 1, at, task: 'GH-57', step: 'checks', outcome: 'done', checks: ['build', 'test'], reason: 'Checks failed on GitHub on abc1234: build, test.' };
+  assert.deepEqual(say(sent), [['Autopilot sent GH-57 back to its builder: checks failed on GitHub: build, test.', false, [pr, show]]]);
+  assert.deepEqual(say({ seq: 2, at, task: 'GH-57', step: 'dispatch', outcome: 'done', cause: 'checks' }), [['Autopilot re-dispatched GH-57 for its failing checks.', false, [['Watch', 'acc.task.watch'], show]]]);
+  assert.deepEqual(say({ seq: 2, at, task: 'GH-57', step: 'dispatch', outcome: 'done', cause: 'review' })[0]![0], 'Autopilot re-dispatched GH-57 with its review\'s changes.');
+  const again = 'Checks failed on GitHub again: build. Autopilot already sent abc1234 back once: a person decides.';
+  assert.deepEqual(say({ seq: 3, at, task: 'GH-57', step: 'checks', outcome: 'failed', reason: again }), [[`Autopilot couldn't send GH-57 back for its failing checks: ${again}`, true, [pr, show]]]);
+
+  // History says the same, with the checks' names.
+  assert.deepEqual(autopilotStepLook(sent), { look: { label: 'Autopilot sent it back: checks failed on GitHub', icon: 'github-action', tone: 'neutral' }, detail: 'build, test', url: null });
+  assert.equal(autopilotStepLook({ seq: 2, at, task: 'GH-57', step: 'dispatch', outcome: 'done', cause: 'checks' }).look.label, 'Autopilot re-dispatched it for its failing checks');
+  assert.equal(autopilotStepLook({ seq: 2, at, task: 'GH-57', step: 'dispatch', outcome: 'done' }).look.label, 'Autopilot re-dispatched it for the review\'s changes');
+  assert.deepEqual(autopilotStepLook({ seq: 3, at, task: 'GH-57', step: 'checks', outcome: 'failed', reason: again }).look, { label: 'Autopilot couldn\'t send it back for its failing checks', icon: 'warning', tone: 'orange' });
+
+  // A re-dispatch for failing checks isn't a review's one: the review's changes after it aren't a second rework.
+  const checksFirst: Task = { ...gh, history: [
+    { at: '2026-10-06T10:00:00.000Z', from: 'review', to: 'rework', actor: 'orchestrator', by: 'orchestrator:autopilot' },
+    { at: '2026-10-06T10:01:00.000Z', from: 'rework', to: 'running', actor: 'orchestrator', by: 'orchestrator:autopilot' },
+  ] };
+  const changes: Rec = { seq: 4, at, task: 'GH-57', step: 'review', outcome: 'done', verdict: 'changes', reason: 'No test.' };
+  assert.equal(autopilotNotices([changes], [checksFirst])[0]!.text, 'Autopilot\'s review asked for changes on GH-57: No test. Autopilot re-dispatches it next.');
+
+  // D-044's notice of its move to rework names the checks, and keeps quiet when autopilot's own said it.
+  const row = (state: string, more: Partial<Row> = {}): Row => ({ id: 'GH-57', title: 'Task GH-57', state, display: state as Row['display'], environment: 'main', deps: [], source: { kind: 'github', url: null }, ...more });
+  const news = taskNotices([row('review')], [row('rework', { checks: ['build'], review: { verdict: 'pass', summary: 'Good.', current: true } })]);
+  assert.deepEqual(news.map((n) => [n.kind, n.text, n.urgent]), [['rework', 'Checks failed on GitHub for GH-57: build. It went back to its builder.', true]]);
+  assert.deepEqual(withoutAutopilotEcho(news, [sent]), [], 'autopilot\'s notice told it');
+  assert.equal(withoutAutopilotEcho(news, [{ seq: 1, at, task: 'GH-57', step: 'land', outcome: 'done', pr: { number: 9, url: 'u', opened: true } }]).length, 1);
+});
+
 test('the autopilot switch says on or off with an icon and the words, and its tooltip says what it does (D-064)', async () => {
   const { autopilotStatus } = await import('../src/logic.ts');
   const on = autopilotStatus({ project: 'Tool', many: false, state: 'on', last: '✓ GH-31  Opened pull request #40.' });
   assert.equal(on.text, '$(rocket) Autopilot: on');
-  assert.match(on.tooltip, /^Autopilot is on for Tool: it reviews finished work, lands work whose review passed, re-dispatches a rework once, resumes a stopped builder once a run, and merges the base into a pull request that conflicts with it\. It never merges a pull request\./);
+  assert.match(on.tooltip, /^Autopilot is on for Tool: it reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, and merges the base into a pull request that conflicts with it\. It never merges a pull request\./);
   assert.match(on.tooltip, /Last: ✓ GH-31 {2}Opened pull request #40\./);
   assert.match(on.tooltip, /Click to turn it off until VSCode closes\.$/);
   assert.doesNotMatch(autopilotStatus({ project: 'Tool', many: false, state: 'on' }).tooltip, /Last:/, 'nothing printed yet');

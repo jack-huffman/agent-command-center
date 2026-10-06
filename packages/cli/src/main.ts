@@ -9,7 +9,7 @@ import {
   upsertTasks, writeConfig, ask, hookOutput, parseHookInput, waiveGates, review, land, sync, planPromotion, promote, skipWarning, planDeploy, deploy, lastDeploy,
   buildBaseline, seedBranches, draftLists, writeReadme, parseEventInput, preToolUseHook, sessionStartHook, stopHook, AGENT_ROLES, type AgentRole, profileView, setProfile, withCloneAgents, type ProfileChange,
   analyze, type Analysis, answerAnalysis, openQuestions, readAnalysis,
-  AUTOPILOT_MIN_EVERY_S, AUTOPILOT_REVIEW_DOES, type AutopilotResult, type AutopilotStepName, autopilotFailure, autopilotMode, autopilotPass, closedPr, holdAutopilot, sleep, alive, setAutonomy,
+  AUTOPILOT_MIN_EVERY_S, AUTOPILOT_REVIEW_DOES, type AutopilotResult, type AutopilotStepName, autopilotFailure, autopilotMode, autopilotPass, closedPr, failedChecks, holdAutopilot, sleep, alive, setAutonomy,
   builderStopped, claudeProjectsDir, clipSaid, lastSaid, listSessions, resume, resuming,
   claimUpdate, discardUpdate, draftUpdate, EVENT_WORDS, GH_TIMEOUT_MS, ghToken, githubIssue, isOpenUpdate, listUpdates, markPosted, readUpdate, releaseUpdate, stalePosting, type Update, UPDATE_TEXT_MAX, updateText,
 } from '../../core/src/index.ts';
@@ -476,10 +476,11 @@ function cmdLand(o: Opts, id: string): number {
   return 0;
 }
 
-const STEP_WORD: Record<AutopilotStepName, string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update', resume: 'resume' };
+const STEP_WORD: Record<AutopilotStepName, string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update', resume: 'resume', checks: 'send back' };
 
-/** A step autopilot couldn't take, in words: "land abc1234", "update abc1234 from its base". */
+/** A step autopilot couldn't take, in words: "land abc1234", "update abc1234 from its base", "send abc1234 back for its failing checks". */
 const stepWords = (step: AutopilotStepName, sha: string): string => {
+  if (step === 'checks') return `send ${sha.slice(0, 7) || 'it'} back for its failing checks`;
   const what = [STEP_WORD[step], sha.slice(0, 7)].filter(Boolean).join(' ');
   return step === 'refresh' ? `${what} from its base` : what;
 };
@@ -501,10 +502,11 @@ function autopilotLines(r: AutopilotResult): string[] {
 }
 
 /**
- * Autopilot (D-055): under "autonomy": "review", it reviews, lands, re-dispatches a rework once, resumes
- * a stopped builder once a run (D-067), and merges the base into a pull request that conflicts with it
- * (D-058), as the orchestrator, up to an open pull request. It never merges a pull request. One pass, or
- * one every --every seconds until stopped.
+ * Autopilot (D-055): under "autonomy": "review", it reviews, lands, re-dispatches a rework once, sends a
+ * pull request whose GitHub checks fail back to its builder once a commit (D-076), resumes a stopped
+ * builder once a run (D-067), and merges the base into a pull request that conflicts with it (D-058), as
+ * the orchestrator, up to an open pull request. It never merges a pull request. One pass, or one every
+ * --every seconds until stopped.
  */
 function cmdAutopilot(o: Opts): number {
   const role = process.env.ACC_ROLE;
@@ -526,8 +528,8 @@ function cmdAutopilot(o: Opts): number {
   }
   if (!start.config.github) throw new AccError('no-github', 'Autopilot lands reviewed work as pull requests on GitHub, and this project has no "github" section in .acc/config.json.');
   const say = (line: string) => { if (!o.json) process.stderr.write(tone(line, 'dim') + '\n'); };
-  const doing = { review: 'Reviewing', land: 'Landing', dispatch: 'Re-dispatching', refresh: 'Updating', resume: 'Resuming' };
-  const after = { review: '. The reviewer reads and changes nothing.', land: '', dispatch: '', refresh: ' from its base, then running its checks.', resume: ': its builder stopped before acc done or acc block.' };
+  const doing = { review: 'Reviewing', land: 'Landing', dispatch: 'Re-dispatching', refresh: 'Updating', resume: 'Resuming', checks: 'Sending back' };
+  const after = { review: '. The reviewer reads and changes nothing.', land: '', dispatch: '', refresh: ' from its base, then running its checks.', resume: ': its builder stopped before acc done or acc block.', checks: ' to its builder: its checks failed on GitHub. Reading their logs.' };
   // Started by the Command Center (D-064): once that window's extension host has gone, it stops at the
   // next step or within a second of waiting, even if nothing stopped it. No window, no autopilot.
   const parent = Number(process.env.ACC_AUTOPILOT_PARENT);
@@ -788,6 +790,8 @@ function cmdShow(o: Opts, id: string): number {
   if (!t) throw new AccError('no-task', `No task ${id}.`);
   const failed = autopilotFailure(t);
   const closed = closedPr(t);
+  // Its pull request's checks failed on GitHub, or autopilot sent it back for them (D-076).
+  const checks = failedChecks(t);
   // Whether its builder stopped before acc done or acc block (D-067): only a running task asks Claude Code.
   const stopped = t.state === 'running' && builderStopped(t, listSessions(run, paths.root), { resuming: !!resuming(paths, t.id), now: now() });
   const said = stopped && t.run?.sessionId ? lastSaid(claudeProjectsDir(), t.run.sessionId, [t.run.worktree, paths.root]) : null;
@@ -798,6 +802,7 @@ function cmdShow(o: Opts, id: string): number {
     t.deps.length ? `Depends on: ${t.deps.join(', ')}` : '',
     t.blocker ? `Blocked: ${t.blocker}` : '',
     failed ? tone(`! Autopilot couldn't ${stepWords(failed.step, failed.sha || 'it')}: ${failed.reason}`, 'orange') : '',
+    checks ? tone(`! Checks failed on GitHub: ${checks.join(', ')}`, 'orange') : '',
     closed ? tone(`! Pull request #${closed.number} was closed without merging. Reopen it on GitHub and land to update it, or land to open a new one.`, 'orange') : '',
     stopped ? tone(`! Its agent stopped: ${quote ?? 'its turn ended before acc done or acc block.'}${quote && !/[.!?…]$/.test(quote) ? '.' : ''} Resume it with acc resume ${t.id}.`, 'orange') : '',
     t.brief ? `\n${t.brief}\n` : '',

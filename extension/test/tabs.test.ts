@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import type { TaskRow } from '../src/logic.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
-import { agentsModel, analysisLook, type BoardInput, cardActions, environmentsModel, homeModel, type HubLike, isFromWebview, needsYouCount, promotionPaths, setupModel, tasksModel, trackerBoard, VIEW_KINDS, worktreesModel, dropLanes, laneMove } from '../src/model.ts';
+import { agentsModel, analysisLook, type BoardInput, cardActions, environmentsModel, homeModel, type HubLike, isFromWebview, needsYouCount, promotionPaths, setupModel, tasksModel, ticketModel, trackerBoard, VIEW_KINDS, worktreesModel, dropLanes, laneMove } from '../src/model.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
@@ -377,6 +377,47 @@ test('a pull request that conflicts with its base says so on its card and on the
   assert.equal(item.actions[0]!.command, 'acc.task.openPr');
 });
 
+test('checks that failed on GitHub say so on the card, the tracker\'s card and the task page, in orange with an icon, in review and after autopilot sent it back (D-076)', () => {
+  const pr = { number: 16, url: 'https://github.com/o/r/pull/16', state: 'open', ci: 'failing', changesRequested: false, conflicts: [] };
+  const rows: TaskRow[] = [
+    { ...row('AV-5', 'review', 'needs-you'), run: { worktree: '/w5', branch: 'b5' }, review: { verdict: 'pass', summary: 's', current: true }, pr, checks: ['build', 'test'] },
+    { ...row('AV-6', 'rework', 'rework'), run: { worktree: '/w6', branch: 'b6' }, pr, checks: ['build', 'test'] },
+    // Re-dispatched: its builder is on it, so the card says it's running and nothing more.
+    { ...row('AV-7', 'running', 'running'), run: { worktree: '/w7', branch: 'b7' }, pr, checks: null },
+  ];
+  const h = { ...hub(), agents: [], taskRows: () => rows };
+  const card = (id: string) => tasksModel(h).projects[0]!.columns.flatMap((c) => c.cards).find((c) => c.id === id)!;
+  assert.equal(card('AV-5').failedChecks, 'Checks failed on GitHub: build, test');
+  assert.equal(card('AV-6').failedChecks, 'Checks failed on GitHub: build, test', 'in rework, the ones autopilot sent it back for');
+  assert.equal(card('AV-7').failedChecks, null);
+  assert.equal(card('AV-5').conflicts, null, 'its own line, apart from a conflict\'s');
+
+  // The Overview's needs-you item names them.
+  const m = homeModel({ hub: h, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } });
+  const item = m.overview.attention.find((a) => a.title === 'AV-5 Task AV-5')!;
+  assert.deepEqual([item.look.label, item.look.tone], ['Checks failing', 'orange']);
+  assert.equal(item.detail, 'Acme · pull request #16: its checks are failing: build, test');
+
+  const board: BoardInput = {
+    index: 0, kind: 'jira', title: 'Jira', error: null, connect: null, loading: false,
+    board: { source: 'jira-board', title: 'Board', url: null, notice: null, columns: [{ id: 'c', name: 'In Review', category: 'doing', statusIds: ['4'] }], cards: ['AV-5', 'AV-6', 'AV-7'].map((key) => ({ key, title: `Task ${key}`, url: 'u', status: { id: '4', name: 'In Review' }, type: 'Story', assignees: [], labels: [], priority: null })) },
+  };
+  const tracked = trackerBoard(board, rows, '/r').columns[0]!.cards.map((c) => [c.key, c.acc!.failedChecks]);
+  assert.deepEqual(tracked, [['AV-5', 'Checks failed on GitHub: build, test'], ['AV-6', 'Checks failed on GitHub: build, test'], ['AV-7', null]], 'the tracker\'s card says it too');
+
+  const task = { id: 'AV-6', title: 'Task AV-6', brief: '', source: { kind: 'jira', key: 'AV-6', url: null }, environment: 'devbox', deps: [], labels: [], state: 'rework', blocker: null, run: rows[1]!.run, pr,
+    history: [{ at: '2026-10-06T09:00:00Z', from: 'review', to: 'rework', by: 'orchestrator:autopilot', reason: 'Checks failed on GitHub on abc1234: build, test.' }], createdAt: '', updatedAt: '' } as never;
+  const page = ticketModel({ project: '/r', tracker: null, trackerTitle: null, trackerKind: null, key: 'AV-6', ticket: null, loading: false, error: null, connect: null, checks: [], row: rows[1]!, task });
+  assert.equal(page.acc!.failedChecks, 'Checks failed on GitHub: build, test', 'and its page');
+
+  // Drawn as a note, which is orange, with GitHub's checks icon beside the words.
+  const main = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
+  assert.match(main, /card\.failedChecks \? el\('div', 'card-note conflict', icon\('github-action'\)/);
+  assert.match(main, /c\.acc\?\.failedChecks \? el\('div', 'card-note conflict tcard-conflict', icon\('github-action'\)/);
+  assert.match(main, /icon\('github-action', 'orange'\)/);
+  assert.match(readFileSync(join(root, 'webview', 'styles.css'), 'utf8'), /\.card-note \{[^}]*color: var\(--orange\)/);
+});
+
 test('a task autopilot couldn\'t move on says why on its card and on the Overview, with the step to take by hand (D-055)', () => {
   const rows: TaskRow[] = [
     { ...row('AV-5', 'review', 'needs-you'), run: { worktree: '/w', branch: 'b' }, review: { verdict: 'pass', summary: 's', current: true }, autopilot: { step: 'land', reason: 'git push refused task/AV-5: rejected' } },
@@ -577,7 +618,7 @@ test('How agents run shows the project\'s autonomy, where it\'s set, and a way t
   };
   p.config = { ...p.config, autonomy: 'review' };
   const s = agentsModel(h).settings[0]!;
-  assert.deepEqual(s.autonomy, { value: 'review', from: 'project', meaning: 'Autopilot reviews finished work, lands work whose review passed, re-dispatches a rework once, resumes a stopped builder once a run, and merges the base into a pull request that conflicts with it. It never merges a pull request.' });
+  assert.deepEqual(s.autonomy, { value: 'review', from: 'project', meaning: 'Autopilot reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, and merges the base into a pull request that conflicts with it. It never merges a pull request.' });
   p.config = { ...p.config, autonomy: 'manual' };
   assert.deepEqual(agentsModel(h).settings[0]!.autonomy, { value: 'manual', from: 'project', meaning: 'Nothing happens on its own.' });
   // The page asks acc to change it: the webview never writes the config.
