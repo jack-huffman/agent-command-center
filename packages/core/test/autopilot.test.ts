@@ -537,6 +537,21 @@ test('autopilot resumes a stopped builder once a run, as the orchestrator, and s
   assert.deepEqual(autopilotEvent(events(s.paths).at(-1)!), { seq: events(s.paths).at(-1)!.seq, at: new Date(s.clock.at).toISOString(), task: 'T-1', step: 'resume', outcome: 'done', reason: SLEPT });
 });
 
+test('a look at the sessions older than the grace is taken again before the next running task is judged, so a builder dispatched meanwhile isn\'t seen as stopped', () => {
+  const s = stoppedSetup();
+  edit(s.paths, (l) => {
+    const t = l.tasks.find((x) => x.id === 'T-2')!;
+    t.state = 'running';
+    t.run = { bgId: 'bg8', sessionId: 'sess-8', worktree: s.dir, branch: 'b', startedAt: '2026-10-05T11:00:00.000Z' };
+  });
+  const quick: string[] = [];
+  s.pass(quick, { steps: { resume: () => ({ reason: 'resumed' }) } });
+  assert.equal(quick.filter((c) => c === 'claude agents --json').length, 1, 'one look serves the pass while it\'s fresh');
+  const slow: string[] = [];
+  s.pass(slow, { steps: { resume: () => { s.later(3); return { reason: 'resumed' }; } } });
+  assert.equal(slow.filter((c) => c === 'claude agents --json').length, 2, 'a step that outlasts the grace means a fresh look for T-2');
+});
+
 test('a second stop waits for a person, even after a person resumed it; a new dispatch is a new run', () => {
   const s = stoppedSetup();
   assert.deepEqual(brief(s.pass().steps)[0], ['T-1', 'resume', 'done']);

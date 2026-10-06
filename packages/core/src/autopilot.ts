@@ -4,7 +4,7 @@ import type { Autonomy, Config } from './config.ts';
 import { dispatch } from './dispatch.ts';
 import { AccError, type Runner } from './exec.ts';
 import { releaseAwake } from './awake.ts';
-import { AUTOPILOT_STEPS, type AutopilotFailure, type AutopilotStepName, builderStopped, type ClaudeSession, closedPr, type Ledger, type LedgerEvent, mutate, readLedger, type State, type Task } from './ledger.ts';
+import { AUTOPILOT_STEPS, type AutopilotFailure, type AutopilotStepName, builderStopped, type ClaudeSession, closedPr, type Ledger, type LedgerEvent, mutate, readLedger, type State, STOPPED_GRACE_MS, type Task } from './ledger.ts';
 import { land, type LandResult } from './land.ts';
 import { withLock } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
@@ -281,14 +281,17 @@ export function autopilotPass(paths: RepoPaths, config: Config, deps: AutopilotD
   const steps = { ...realSteps(paths, config, deps), ...deps.steps };
   const out: AutopilotResult = { steps: [], updates: [] };
   const first = readLedger(paths.ledger);
-  // One look at Claude Code's sessions a pass, and only when a builder might have stopped (D-067).
-  const sessions = first.tasks.some((t) => t.state === 'running') ? listSessions(deps.run, paths.root) : null;
+  // Claude Code's sessions are looked at only when a running task is judged (D-067), and again when the
+  // last look is older than the stopped rule's grace: an earlier step in the pass can run for minutes,
+  // and a builder dispatched meanwhile isn't in the old look, so it would seem stopped.
+  let look: { sessions: ClaudeSession[] | null; at: number } | null = null;
   for (const id of first.tasks.map((t) => t.id)) {
     if (deps.stop?.()) break;
     const ledger = readLedger(paths.ledger);
     const task = ledger.tasks.find((t) => t.id === id);
     if (!task || task.state === 'done') continue;
-    const facts = taskFacts(paths, task, deps.run, sessions, deps.now());
+    if (task.state === 'running' && (!look || deps.now().getTime() - look.at > STOPPED_GRACE_MS)) look = { sessions: listSessions(deps.run, paths.root), at: deps.now().getTime() };
+    const facts = taskFacts(paths, task, deps.run, look?.sessions ?? null, deps.now());
     // A stopped builder's process can linger, idle: it no longer keeps the Mac awake.
     if (facts.stopped) releaseAwake(paths, id);
     const d = nextStep(ledger, config, task, facts);

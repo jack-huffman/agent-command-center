@@ -33,7 +33,8 @@ export function sampleHub(now = Date.now()): HubLike {
       reviewer: { model: 'sonnet', effort: null, fallbackModel: null, from: { model: 'clone', effort: 'default', fallbackModel: 'default' } },
     },
     // Autopilot may review, land and re-dispatch a rework once (D-055); it runs while a person has it on (D-064).
-    config: { github: { repo: 'acme/service', account: 'jordan-kim' }, environments, profile: 'salesforce', autonomy: 'review' },
+    // Its one tracker, the board below: which tracker owns a ticket's key is who its update posts as (D-066).
+    config: { github: { repo: 'acme/service', account: 'jordan-kim' }, environments, profile: 'salesforce', autonomy: 'review', trackers: [{ kind: 'jira', project: 'ACME', prefix: null }] },
     worktrees: [
       { path: root, head: 'a1b2c3d', branch: 'dev', main: true, changed: 0, locked: false, prunable: false },
       { path: wt('ACME-12'), head: 'b2c3d4e', branch: 'task/ACME-12-case-escalation-rules', main: false, changed: 4, locked: false, prunable: false },
