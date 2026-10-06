@@ -200,7 +200,7 @@ export class AzureClient implements TrackerClient {
     }
     return {
       source: 'azure-board', title: `${b.name} · ${b.team}`, url: `${this.base}/${this.proj}/_boards/board/t/${encodeURIComponent(b.team)}/${encodeURIComponent(b.name)}`, columns, cards,
-      notice: this.area && !cards.length ? `No work item under ${this.area} is on this board. The team's own areas may leave it out: pick another team or area with Add a tracker.` : null,
+      notice: this.area && !cards.length ? `No work item under ${this.area} is on this board. The team's own areas may leave it out: pick another team or area with Change, above it.` : null,
       place: placeText({ kind: 'azure', project: this.o.project, team: b.team, areaPath: this.area }),
     };
   }
