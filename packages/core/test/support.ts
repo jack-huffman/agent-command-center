@@ -89,3 +89,40 @@ export const GENERIC_CONFIG = {
   profile: 'generic',
   environments: [{ name: 'main', default: true }],
 };
+
+/** A stand-in for starting caffeinate (D-???): records what it was asked to run, and which pids were ended. */
+export function fakeAwake(platform: NodeJS.Platform = 'darwin') {
+  const spawned: string[][] = [];
+  const killed: number[] = [];
+  // Above any pid macOS hands out, so a real process is never mistaken for one of these.
+  let next = 4_100_000;
+  return {
+    spawned,
+    killed,
+    deps: {
+      platform,
+      spawn: (cmd: string, args: string[]) => {
+        spawned.push([cmd, ...args]);
+        return { pid: next++, unref: () => undefined };
+      },
+      kill: (pid: number) => { killed.push(pid); },
+    },
+  };
+}
+
+export const SLEPT = 'API Error: Your computer went to sleep mid-response. The response above may be incomplete.';
+
+/** GH-41's transcript as it ended (D-???): its narration, a tool call, then Claude Code's own record of the sleep. */
+export function gh41Lines(sessionId: string, cwd: string): string[] {
+  const rec = (r: Record<string, unknown>) => JSON.stringify({ sessionId, cwd, isSidechain: false, ...r });
+  return [
+    rec({ type: 'user', message: { role: 'user', content: 'Read your task instructions below and do the task.' } }),
+    rec({ type: 'assistant', message: { model: 'claude-opus-5-5', content: [{ type: 'text', text: 'Now the drafts store.' }] } }),
+    rec({ type: 'assistant', message: { model: 'claude-opus-5-5', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'ls' } }] } }),
+    // A helper agent's turn isn't the builder speaking.
+    JSON.stringify({ type: 'assistant', isSidechain: true, message: { content: [{ type: 'text', text: 'helper says hi' }] } }),
+    rec({ type: 'assistant', isApiErrorMessage: true, error: 'server_error', message: { model: '<synthetic>', role: 'assistant', content: [{ type: 'text', text: SLEPT }] } }),
+    JSON.stringify({ type: 'cost-state', sessionId, totalCostUSD: 1.2 }),
+    '{ a line that isn\'t JSON',
+  ];
+}
