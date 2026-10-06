@@ -71,6 +71,12 @@ test('buttons match what each step needs', () => {
   assert.deepEqual(labels('A4.plugin'), ['Check', 'Do it'], 'nothing to confirm by hand: the check reads Claude Code');
 });
 
+test('the README that ships in the extension names the walkthroughs by their titles, and asks for no Node of acc\'s own', () => {
+  const readme = readFileSync(join(root, 'README.md'), 'utf8').replace(/\s+/g, ' ');
+  for (const w of buildWalkthroughs(STEPS)) assert.ok(readme.includes(w.title), w.title);
+  assert.ok(!/Node 20\+/.test(readme), 'acc runs on VSCode\'s runtime (D-077)');
+});
+
 test('the acc plugin is a machine step after the GitHub login, and installs in a terminal that can ask for git credentials', () => {
   const [machine] = buildWalkthroughs(STEPS);
   const ids = machine!.steps.map((s) => s.id);

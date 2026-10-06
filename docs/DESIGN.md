@@ -626,10 +626,16 @@ plugin/
   skills/intake/  task/  orchestrate/  land/
 ```
 
-A `.claude-plugin/marketplace.json` at the repo root lists `./plugin`. During
-development, `claude --plugin-dir plugin` loads it in place, and
-`claude plugin marketplace add <this repo>` installs it. `npm run validate-plugin`
-runs `claude plugin validate --strict` on both (D-042).
+A `.claude-plugin/marketplace.json` at the repo root lists `./plugin`, so this
+repo is the plugin's marketplace, `agent-command-center`. The machine
+walkthrough's A4 step installs it at Claude Code's user scope, for every
+session: its check reads `claude plugin list --json`, and its **Do it** runs
+`claude plugin marketplace add https://github.com/jack-huffman/agent-command-center`
+and `claude plugin install acc@agent-command-center --scope user`, or only
+what's missing (D-???). Claude Code clones the private repo with the person's
+own git credentials. During development, `claude --plugin-dir plugin` loads it
+in place. `npm run validate-plugin` runs `claude plugin validate --strict` on
+both (D-042).
 
 `plugin/bin/` is generated, but it's committed, because a plugin installed
 from git has no build step. It's refreshed only by `npm run package`, which
@@ -684,6 +690,14 @@ the root package.json's (D-079). A release goes:
 
 Builders can't release: their hooks and settings deny `npm run release` and
 `gh release create`, `upload`, `edit` and `delete`.
+
+**Installing a release** (D-???): with access to the private repo, a person
+downloads the `.vsix` from its release (`gh release download -R
+github.com/jack-huffman/agent-command-center -p '*.vsix'`) and installs it in
+VSCode. The machine walkthrough then installs the plugin (A4). A private
+marketplace doesn't update itself without `GITHUB_TOKEN`, so after each
+release the plugin is updated by hand, as the README's Install and first run
+says.
 
 ## 14. VSCode extension
 
@@ -804,8 +818,9 @@ The extension's first feature is a guided setup, built on VSCode's walkthroughs
 (the **Get Started** pages). It opens on its own the first time a folder has no
 `.acc/config.json`. There are two walkthroughs:
 
-1. **Set up this machine:** steps A1 to A4 in [ONBOARDING.md](ONBOARDING.md).
-2. **Onboard a project:** steps B1 to B11. The Salesforce-only steps are hidden
+1. **Set up this machine:** steps A1 to A4 in [ONBOARDING.md](ONBOARDING.md):
+   the tools, GitHub, agents' billing, and the acc plugin in Claude Code (§13).
+2. **Onboard a project:** steps B0 to B14. The Salesforce-only steps are hidden
    for a `generic` project.
 
 Each step explains why it matters and has up to three buttons:
@@ -832,8 +847,9 @@ one has:
 - a fix: an `acc` command, a Setup path, or a docs link
 
 `acc doctor` runs the same checks and prints the same text. `acc onboard` walks
-through them in a terminal. Later, ONBOARDING.md is generated from the same
-list. The walkthrough, the CLI and the docs can't drift apart.
+through them in a terminal. ONBOARDING.md is written by hand, and names every
+step as **title** (`id`): a test holds those to the same list, in its order
+(D-???). The walkthrough, the CLI and the docs can't drift apart.
 
 **As built in M2:**
 
