@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import type { Task } from '../src/ledger.ts';
 import {
-  claimUpdate, discardUpdate, draftUpdate, githubIssue, listUpdates, markPosted, readUpdate, releaseUpdate, stalePosting, UPDATE_EVENTS, type Update, updateText,
+  claimUpdate, discardUpdate, draftUpdate, githubIssue, listUpdates, markPosted, readUpdate, releaseUpdate, REPLACES_MAX, stalePosting, UPDATE_EVENTS, type Update, updateText,
 } from '../src/updates.ts';
 import { tempDir } from './support.ts';
 
@@ -37,6 +37,7 @@ test('the same news drafted again before anyone posts it replaces the draft; oth
   let all = listUpdates(paths);
   assert.deepEqual(all.map((u) => [u.id, u.event, u.state]), [['ACME-12.4', 'pr-opened', 'draft']]);
   assert.match(all[0]!.text, /^The change is ready for review: .*\?v=3$/);
+  assert.deepEqual(all[0]!.replaces, ['ACME-12.3', 'ACME-12.2', 'ACME-12.1'], 'it names the drafts it stands in for, newest first');
 
   // Posted: the next update is a draft of its own.
   claimUpdate(paths, 'ACME-12.4', 'human:jordan', now);
@@ -55,6 +56,19 @@ test('the same news drafted again before anyone posts it replaces the draft; oth
     ['ACME-12.8', 'deployed', 'draft', 'QA'], ['ACME-12.9', 'deployed', 'draft', 'Production'], ['ACME-12.10', 'question', 'draft', 'q1'], ['ACME-12.11', 'question', 'draft', 'q2'],
     ['ACME-13.1', 'merged', 'draft', 'Dev'],
   ]);
+  assert.deepEqual(all.map((u) => [u.id, u.replaces]), [
+    ['ACME-12.4', ['ACME-12.3', 'ACME-12.2', 'ACME-12.1']], ['ACME-12.6', ['ACME-12.5']], ['ACME-12.7', undefined], ['ACME-12.8', undefined],
+    ['ACME-12.9', undefined], ['ACME-12.10', undefined], ['ACME-12.11', undefined], ['ACME-13.1', undefined],
+  ], 'a posted draft is replaced by nothing: the news after it starts afresh');
+});
+
+test('a draft remembers the last twenty drafts it replaced', () => {
+  const paths = store();
+  for (let n = 1; n <= 25; n++) draftUpdate(paths, jira(), { event: 'merged', env: 'Dev' }, 'acc sync', now);
+  const [u] = listUpdates(paths);
+  assert.equal(u!.id, 'ACME-12.25');
+  assert.equal(u!.replaces!.length, REPLACES_MAX);
+  assert.deepEqual([u!.replaces![0], u!.replaces!.at(-1)], ['ACME-12.24', 'ACME-12.5']);
 });
 
 test('posting is claimed first, so it can\'t go twice; posted keeps the text that went, who sent it and when', () => {

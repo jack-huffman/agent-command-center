@@ -48,6 +48,8 @@ export interface Update {
   discarded?: { at: string; by: string };
   /** Why the last try to post it didn't, kept until it posts. */
   failed?: { at: string; reason: string };
+  /** The unposted drafts of the same news it stands in for, newest first, so an edit typed for one carries over. */
+  replaces?: string[];
 }
 
 /** A post that hasn't been confirmed in this long may have gone out: look at the ticket first (D-051). */
@@ -57,6 +59,9 @@ export const STALE_POSTING_MS = 5 * 60_000;
 export const UPDATE_TEXT_MAX = 65_536;
 
 export const UPDATE_ID = /^[A-Z][A-Z0-9_]*-\d+\.\d{1,6}$/;
+
+/** How many replaced drafts a draft remembers. */
+export const REPLACES_MAX = 20;
 
 type UpdatePaths = Pick<RepoPaths, 'updates'>;
 
@@ -181,7 +186,8 @@ export interface DraftInput {
  * Drafts an update for a task's ticket. It only writes a file: nothing is posted. A task with no tracker
  * key gets none (null). The same news drafted again before anyone posted it replaces the draft: a pull
  * request updated three times is one draft, with the latest link. A pull request whose opened draft
- * still waits keeps saying it's ready for review, rather than updated.
+ * still waits keeps saying it's ready for review, rather than updated. The new draft names the ones it
+ * replaced (`replaces`), so an edit typed for an old one isn't lost.
  */
 export function draftUpdate(paths: UpdatePaths, task: Pick<Task, 'id' | 'source'>, input: DraftInput, by: string, now: () => Date): Update | null {
   const ticket = ticketOf(task);
@@ -197,6 +203,7 @@ export function draftUpdate(paths: UpdatePaths, task: Pick<Task, 'id' | 'source'
       v: 1, id: `${task.id}.${n}`, task: task.id, tracker: ticket.tracker, key: ticket.key, url: ticket.url, event, text, state: 'draft',
       ...(input.env ? { env: input.env } : {}), ...(input.pr ? { pr: { number: input.pr.number, url: input.pr.url } } : {}), ...(input.question ? { question: input.question } : {}),
       createdAt: now().toISOString(), by,
+      ...(replaced ? { replaces: [replaced.id, ...(replaced.replaces ?? [])].slice(0, REPLACES_MAX) } : {}),
     };
     writeUpdate(paths, u);
     // The new draft stands in its place; the old one was never posted, so nothing is lost.

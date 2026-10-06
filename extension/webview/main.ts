@@ -4,6 +4,7 @@ import type {
   Action, AgentModel, AgentsModel, EntryView, EnvironmentsModel, HistoryItem, HomeModel, HomeSection, IdentityCard, Look, Model, PersonChip, QuestionCard, Ref, RunCard, SetupModel, SetupRow, TasksModel, TicketAnalysis, TicketModel, TrackerBoard, TrackerCard, UpdateCard, ViewKind, WorktreesModel,
 } from '../src/model.ts';
 import type { Block, Doc, Inline } from '../../packages/core/src/trackers/doc.ts';
+import { type DraftKeys, type EditBase, editFor, keepEdits, Pending } from './pending.ts';
 
 declare function acquireVsCodeApi(): { postMessage(m: unknown): void; getState(): unknown; setState(s: unknown): void };
 const api = acquireVsCodeApi();
@@ -66,6 +67,8 @@ interface Draft { picks: Record<number, string[]>; other: Record<number, string>
 interface Memory {
   modes: Record<string, 'tracker' | 'agents'>;
   drafts: Record<string, string>;
+  /** What each update's edit was typed against, by its draft's key (GH-46). */
+  bases: Record<string, EditBase>;
   section?: HomeSection;
   answers: Record<string, Draft>;
   dock: { open: boolean; run: string | null };
@@ -83,7 +86,7 @@ interface Memory {
 interface SavedScroll { y: number; boards: { x: number; lanes: number[] }[] }
 function memory(): Memory {
   const s = (api.getState() as Partial<Memory> | undefined) ?? {};
-  return { modes: s.modes ?? {}, drafts: s.drafts ?? {}, section: s.section, answers: s.answers ?? {}, dock: s.dock ?? { open: false, run: null }, opened: s.opened ?? [], history: s.history, sections: s.sections ?? {}, scroll: s.scroll ?? {} };
+  return { modes: s.modes ?? {}, drafts: s.drafts ?? {}, bases: s.bases ?? {}, section: s.section, answers: s.answers ?? {}, dock: s.dock ?? { open: false, run: null }, opened: s.opened ?? [], history: s.history, sections: s.sections ?? {}, scroll: s.scroll ?? {} };
 }
 function remember(change: (m: Memory) => void): void {
   const m = memory();
@@ -489,12 +492,9 @@ function onDone(msg: { action?: string; ok?: boolean; error?: string; project?: 
   if (msg.action === 'update-post' || msg.action === 'update-discard' || msg.action === 'update-ask') {
     // The page has already redrawn with what acc did; a refusal comes back to try again, saying why (D-059).
     const key = msg.action === 'update-ask' ? askKey(msg.project ?? '', msg.task ?? '', msg.question ?? '') : updateKey(msg.project ?? '', msg.id ?? '');
-    const was = sendingUpdates.get(key);
-    sendingUpdates.delete(key);
-    if (msg.ok) {
-      updateErrors.delete(key);
-      if (msg.action === 'update-post') remember((s) => { delete s.drafts[key]; });
-    } else updateErrors.set(key, `${was === 'discard' ? 'It wasn\'t discarded' : was === 'ask' ? 'It wasn\'t drafted' : 'It wasn\'t posted'}: ${msg.error?.trim() || 'acc didn\'t say why.'}`);
+    const was = pending.what(key);
+    pending.settle(key, msg.ok ? null : `${was === 'discard' ? 'It wasn\'t discarded' : was === 'ask' ? 'It wasn\'t drafted' : 'It wasn\'t posted'}: ${msg.error?.trim() || 'acc didn\'t say why.'}`);
+    if (msg.ok && msg.action === 'update-post') remember((s) => { delete s.drafts[key]; delete s.bases[key]; });
     if (last) render(last);
     return;
   }
@@ -503,8 +503,8 @@ function onDone(msg: { action?: string; ok?: boolean; error?: string; project?: 
     // comes back to edit, saying why.
     const key = answerKey(msg.project ?? '', msg.task ?? '', msg.question ?? '');
     if (msg.ok) remember((s) => { delete s.drafts[key]; });
-    else if (sendingAnswers.delete(key)) {
-      answerErrors.set(key, msg.error?.trim() || 'acc didn\'t say why.');
+    else if (pending.what(key)) {
+      pending.settle(key, msg.error?.trim() || 'acc didn\'t say why.');
       if (last) render(last);
     }
     return;
@@ -519,17 +519,16 @@ function onDone(msg: { action?: string; ok?: boolean; error?: string; project?: 
 
 // ---------------------------------------------------------------- ticket updates (D-066)
 
-/** Updates and questions on their way to acc, by key, and what's being done; shown so until acc replies (D-059). */
-const sendingUpdates = new Map<string, 'post' | 'discard' | 'ask'>();
-/** Why the last try didn't go, until it's tried again or the update goes. */
-const updateErrors = new Map<string, string>();
+/**
+ * Answers, updates and questions on their way to acc, by key, and what's being done; shown so until acc
+ * replies, then why not if it refused, until it's tried again or it leaves the page (D-059).
+ */
+const pending = new Pending<'answer' | 'post' | 'discard' | 'ask'>();
 const updateKey = (project: string, id: string): string => `update:${project}#${id}`;
 const askKey = (project: string, task: string, question: string): string => `ask:${project}#${task}:${question}`;
 
 function sendUpdate(key: string, what: 'post' | 'discard' | 'ask', msg: Record<string, unknown>): void {
-  if (sendingUpdates.has(key)) return;
-  sendingUpdates.set(key, what);
-  updateErrors.delete(key);
+  if (!pending.start(key, what)) return;
   api.postMessage(msg);
   if (last) render(last);
 }
@@ -537,7 +536,7 @@ function sendUpdate(key: string, what: 'post' | 'discard' | 'ask', msg: Record<s
 /** Post and Discard for an update; the text posted is the box's, on the task's page, or the draft as acc wrote it. */
 function updateButtons(c: UpdateCard, text: () => string): HTMLElement[] {
   const key = updateKey(c.project, c.id);
-  const sending = sendingUpdates.get(key);
+  const sending = pending.what(key);
   if (sending) return [el('span', 'q-sending muted', icon('sync~spin'), sending === 'discard' ? 'Discarding…' : `Posting as ${c.postAs ?? 'you'}…`)];
   if (c.state === 'posting' && !c.stale) return [el('span', 'q-sending muted', icon('sync~spin'), 'Being posted…')];
   const discard = button('Discard', 'trash', () => sendUpdate(key, 'discard', { type: 'update-discard', project: c.project, id: c.id }), 'ghost');
@@ -553,7 +552,7 @@ function updateButtons(c: UpdateCard, text: () => string): HTMLElement[] {
 
 /** Why an update didn't go, or may have gone, in orange with a warning icon. */
 function updateNotes(c: UpdateCard): HTMLElement[] {
-  const error = updateErrors.get(updateKey(c.project, c.id));
+  const error = pending.error(updateKey(c.project, c.id));
   const note = (text: string) => el('div', 'aq-error', icon('warning'), el('span', '', text));
   return [
     ...(c.stale ? [note(`This may have posted already: it was being posted and never confirmed. Look at ${c.key} before you post it again.`)] : []),
@@ -562,12 +561,56 @@ function updateNotes(c: UpdateCard): HTMLElement[] {
   ];
 }
 
-/** On the Overview: Post as drafted, Edit on its task's page, or Discard. */
+/**
+ * On the Overview: Post as drafted, Edit on its task's page, or Discard. One edited on its task's page
+ * is posted from there, so Post here can't send acc's text instead (GH-46): Edit leads, and Discard stays.
+ */
 function overviewUpdateButtons(u: UpdateCard, actions: Action[]): Child[] {
   const own = updateButtons(u, () => u.text);
   if (own.length < 2) return [...own, ...actions.map(actionButton)];
   const [discard, post] = own;
+  if (u.edited !== null) return [...actions.map(actionButton), discard];
   return [post, ...actions.map(actionButton), discard];
+}
+
+/** A draft's key, and its replaced drafts', as its edit is kept under them. */
+const draftKeys = (c: UpdateCard): DraftKeys => ({ key: updateKey(c.project, c.id), text: c.text, replaces: c.replaces.map((r) => updateKey(c.project, r)) });
+
+/** What this page last told the extension each of its updates' edits is, by update id (GH-46). */
+const told = new Map<string, string>();
+const telling = new Map<string, ReturnType<typeof setTimeout>>();
+
+/**
+ * Tells the extension an update's unsent edit, or that it has none, so the Overview shows it and won't
+ * post acc's text instead. An edit's start and end go at once, so no Overview Post slips in between;
+ * the typing in between waits for a pause.
+ */
+function tellEdit(project: string, id: string, text: string | null, pause = false): void {
+  clearTimeout(telling.get(id));
+  telling.delete(id);
+  const send = () => {
+    telling.delete(id);
+    if (text === null) told.delete(id);
+    else told.set(id, text);
+    api.postMessage({ type: 'update-edit', project, id, text });
+  };
+  if (pause && text !== null && told.has(id)) telling.set(id, setTimeout(send, 400));
+  else send();
+}
+
+/**
+ * After each redraw the extension hears of every edit this page holds, carried ones too, and of each that
+ * ended. A page brought back from hidden starts afresh, so it says them all again.
+ */
+function tellEdits(m: TicketModel): void {
+  const mem = memory();
+  const held = new Map<string, string>();
+  for (const c of m.updates) {
+    const e = editFor(mem, draftKeys(c));
+    if (e) held.set(c.id, e.text);
+  }
+  for (const [id, text] of held) if (told.get(id) !== text) tellEdit(m.project, id, text);
+  for (const id of [...told.keys()]) if (!held.has(id)) tellEdit(m.project, id, null);
 }
 
 /** Who Post sends it as, or why it can't post yet. */
@@ -576,12 +619,15 @@ const posterLine = (c: UpdateCard): HTMLElement => (c.blocked ? el('span', 'acti
 /**
  * One of a task's draft updates at the top of its Activity: what it's about, its text in a box to edit,
  * and Post or Discard. The edit stays in the tab's memory until it's posted; acc keeps only what went.
+ * An edit typed for a draft that a newer one replaced stays, saying so, with the newer draft's wording
+ * beneath it when that changed (GH-46).
  */
 function updateDraft(c: UpdateCard): HTMLElement {
   const key = updateKey(c.project, c.id);
-  const sending = sendingUpdates.has(key);
+  const sending = !!pending.what(key);
+  const held = editFor(memory(), draftKeys(c));
   const box = el('textarea', 'comment-box act-draft-text') as HTMLTextAreaElement;
-  box.value = memory().drafts[key] ?? c.text;
+  box.value = held?.text ?? c.text;
   box.rows = 3;
   box.maxLength = 65_536;
   // Tall enough for all of its text, wrapped as the page is wide, so no line is cut; a long one scrolls.
@@ -592,16 +638,36 @@ function updateDraft(c: UpdateCard): HTMLElement {
   const bar = el('div', 'composer-bar', posterLine(c), el('span', 'spacer'));
   const buttons = () => updateButtons(c, () => box.value);
   bar.append(...buttons());
-  box.addEventListener('input', () => {
+  // A replaced draft's edit, carried here: a note, and the newer wording to take instead when it changed.
+  const note = held?.carried ? el('div', 'act-draft-note', icon('history', 'blue'), el('span', '', held.carried === 'kept'
+    ? 'A newer draft replaced this one; your edit is kept.' : 'A newer draft replaced this one; your edit is kept. The newer draft words it differently: it\'s below.')) : null;
+  const newer = held?.carried === 'both' ? el('div', 'act-draft-newer', el('div', 'muted small', 'The newer draft says:'), el('div', 'act-draft-newer-text', c.text),
+    el('div', 'act-draft-newer-bar', button('Use the newer draft', 'replace', () => { box.value = c.text; changed(false); }, 'ghost small'))) : null;
+  if (newer) newer.setAttribute('aria-label', 'The newer draft');
+  const changed = (pause: boolean) => {
     fit();
-    remember((x) => { x.drafts[key] = box.value; });
+    const edited = box.value.trim() !== c.text.trim();
+    remember((x) => {
+      if (edited) {
+        x.drafts[key] = box.value;
+        x.bases[key] ??= { text: c.text };
+      } else {
+        delete x.drafts[key];
+        delete x.bases[key];
+      }
+      for (const r of draftKeys(c).replaces) { delete x.drafts[r]; delete x.bases[r]; }
+    });
+    tellEdit(c.project, c.id, edited ? box.value : null, pause);
+    // Typed back to acc's text, it's no longer an edit, carried or not.
+    if (!edited) { note?.remove(); newer?.remove(); }
     const post = bar.querySelector<HTMLButtonElement>('.btn.primary');
     if (post) post.disabled = !!c.blocked || !box.value.trim();
-  });
+  };
+  box.addEventListener('input', () => changed(true));
   const d = el('div', `act-draft tone-edge-${c.look.tone}`,
     el('div', 'act-draft-head', status(c.look), el('span', 'strong', c.about), el('span', 'muted', '·'), when(c.createdAt)),
-    ...updateNotes(c),
-    el('div', 'act-draft-edit', box, bar));
+    ...updateNotes(c), note,
+    el('div', 'act-draft-edit', box, bar), newer);
   d.setAttribute('role', 'group');
   d.setAttribute('aria-label', `Update for ${c.key}: ${c.look.label}`);
   return d;
@@ -703,10 +769,7 @@ function renderTicket(m: TicketModel): Node[] {
 
 type AnalysisAsk = TicketAnalysis['open'][number];
 
-/** Answers on their way to acc, by question: shown as sending until the question goes, or acc refuses it. */
-const sendingAnswers = new Set<string>();
-/** Why the last answer to a question wasn't recorded, until it's sent again or the question goes. */
-const answerErrors = new Map<string, string>();
+/** An answer stays "Sending…" until its question goes, or acc refuses it. */
 const answerKey = (project: string, task: string, question: string): string => `analysis:${project}#${task}:${question}`;
 
 /**
@@ -716,21 +779,19 @@ const answerKey = (project: string, task: string, question: string): string => `
 function analysisQuestion(project: string, task: string, q: AnalysisAsk, canAsk = false): HTMLElement {
   const key = answerKey(project, task, q.id);
   const send = (text: string) => {
-    if (!text.trim() || sendingAnswers.has(key)) return;
-    sendingAnswers.add(key);
-    answerErrors.delete(key);
+    if (!text.trim() || !pending.start(key, 'answer')) return;
     api.postMessage({ type: 'analysis-answer', project, task, question: q.id, text: text.trim() });
     if (last) render(last);
   };
   const box = el('div', 'aq', el('div', 'aq-q', el('span', 'aq-id', q.id), el('span', 'strong', q.question)), q.why ? el('div', 'muted small aq-why', q.why) : null, clientLine(project, task, q, canAsk));
   box.setAttribute('role', 'group');
   box.setAttribute('aria-label', q.question);
-  if (sendingAnswers.has(key)) {
+  if (pending.what(key)) {
     box.classList.add('sent');
     box.append(el('div', 'q-sending muted', icon('sync~spin'), 'Sending your answer…'));
     return box;
   }
-  const error = answerErrors.get(key);
+  const error = pending.error(key);
   if (error) box.append(el('div', 'aq-error', icon('warning'), el('span', '', `Your answer wasn't recorded: ${error}`)));
   if (q.suggested.trim() && q.suggested.length <= 4000) {
     const use = el('button', 'aq-suggest', icon('lightbulb'), el('span', 'aq-suggest-text', el('span', 'muted', 'Use the suggestion: '), q.suggested)) as HTMLButtonElement;
@@ -757,8 +818,8 @@ function clientLine(project: string, task: string, q: AnalysisAsk, canAsk: boole
   if (q.client === 'drafted') return el('div', 'aq-client muted', icon('comment-draft'), 'Drafted for the client: post it from the task\'s Activity');
   if (!canAsk) return null;
   const key = askKey(project, task, q.id);
-  const error = updateErrors.get(key);
-  if (sendingUpdates.has(key)) return el('div', 'aq-client muted', icon('sync~spin'), 'Drafting it for the client…');
+  const error = pending.error(key);
+  if (pending.what(key)) return el('div', 'aq-client muted', icon('sync~spin'), 'Drafting it for the client…');
   const ask = button('Send to the client', 'comment-draft', () => sendUpdate(key, 'ask', { type: 'update-ask', project, task, question: q.id }), 'ghost small');
   ask.title = 'Draft this question as an update for the ticket. You read and post it before it goes.';
   return el('div', 'aq-client', ask, error ? el('span', 'aq-error', icon('warning'), el('span', '', error)) : null);
@@ -1452,7 +1513,8 @@ function renderOverview(m: HomeModel): Node[] {
     }
     inbox.append(el('div', `inbox-row tone-row-${a.look.tone}`, status(a.look), el('div', 'inbox-text', el('div', 'strong inbox-title', a.title), Object.assign(el('div', 'muted small', a.detail), a.tip ? { title: a.tip } : {})), el('div', 'actions', ...buttons)));
     // An update's text, two lines then Show all, with who it posts as (D-066).
-    if (u) inbox.append(el('div', 'inbox-update', foldable(`${updateKey(u.project, u.id)}:text`, el('div', 'inbox-update-text', u.text), null, 2), posterLine(u), ...updateNotes(u)));
+    // Edited on its task's page, it shows that edit: the text Post there would send (GH-46).
+    if (u) inbox.append(el('div', 'inbox-update', foldable(`${updateKey(u.project, u.id)}:text`, el('div', 'inbox-update-text', u.edited ?? u.text), null, 2), posterLine(u), ...updateNotes(u)));
     // A task's analysis's questions, answered right here (D-052).
     const an = a.analysis;
     if (an) inbox.append(el('div', 'inbox-analysis', ...an.questions.map((q) => analysisQuestion(an.project, an.task, q, an.canAsk))));
@@ -1795,18 +1857,19 @@ function forgetAnswered(model: Model): void {
     : model.kind === 'ticket' ? (model.analysis?.open ?? []).map((q) => answerKey(model.project, model.analysis!.task, q.id)) : null;
   if (!shown) return;
   const keep = new Set(shown);
-  for (const k of [...sendingAnswers]) if (!keep.has(k)) sendingAnswers.delete(k);
-  for (const k of [...answerErrors.keys()]) if (!keep.has(k)) answerErrors.delete(k);
   if (Object.keys(memory().drafts).some((k) => k.startsWith('analysis:') && !keep.has(k))) remember((x) => { for (const k of Object.keys(x.drafts)) if (k.startsWith('analysis:') && !keep.has(k)) delete x.drafts[k]; });
   // So do updates that have gone: posted, discarded, or replaced by a newer draft (D-066).
   const updates = model.kind === 'home' ? model.overview.attention.flatMap((a) => (a.update ? [a.update] : [])) : model.kind === 'ticket' ? model.updates : [];
   const asks = (model.kind === 'home' ? model.overview.attention.flatMap((a) => (a.analysis ? a.analysis.questions.map((q) => askKey(a.analysis!.project, a.analysis!.task, q.id)) : []))
     : model.kind === 'ticket' ? (model.analysis?.open ?? []).map((q) => askKey(model.project, model.analysis!.task, q.id)) : []);
   const live = new Set([...updates.map((u) => updateKey(u.project, u.id)), ...asks]);
-  for (const k of [...sendingUpdates.keys()]) if (!live.has(k)) sendingUpdates.delete(k);
-  for (const k of [...updateErrors.keys()]) if (!live.has(k)) updateErrors.delete(k);
-  if (model.kind === 'ticket' && Object.keys(memory().drafts).some((k) => k.startsWith(`update:${model.project}#${model.key}.`) && !live.has(k))) {
-    remember((x) => { for (const k of Object.keys(x.drafts)) if (k.startsWith(`update:${model.project}#${model.key}.`) && !live.has(k)) delete x.drafts[k]; });
+  pending.forget(new Set([...keep, ...live]));
+  // An edit typed for a draft that a newer one replaced moves to the newer one first; then the edits for
+  // drafts that have gone are dropped (GH-46).
+  if (model.kind === 'ticket') {
+    const mine = `update:${model.project}#${model.key}.`;
+    const kept = keepEdits(memory(), model.updates.map(draftKeys), (k) => k.startsWith(mine));
+    if (kept) remember((x) => { x.drafts = kept.drafts; x.bases = kept.bases; });
   }
 }
 
@@ -1971,6 +2034,7 @@ function render(model: Model): void {
   const dockTop = dockBox?.scrollTop ?? 0;
   const keep = keepFocus();
   forgetAnswered(model);
+  if (model.kind === 'ticket') tellEdits(model);
   const nodes = model.kind === 'home' ? renderHome(model)
     : model.kind === 'agent' ? renderAgent(model)
     : model.kind === 'tasks' ? renderTasks(model)

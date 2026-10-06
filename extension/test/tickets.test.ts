@@ -154,6 +154,12 @@ test('messages from the board and ticket pages are checked before anything acts 
     { type: 'update-post', project: '/r', id: 'GH-41.10', text: 'x'.repeat(65_536), again: true },
     { type: 'update-discard', project: '/r', id: 'ACME-1.2' },
     { type: 'update-ask', project: '/r', task: 'ACME-1', question: 'q2' },
+    // The task page's unsent edit of an update, so the Overview won't post acc's text instead (GH-46): any
+    // text up to a post's length, even none, or null once it's acc's text again.
+    { type: 'update-edit', project: '/r', id: 'ACME-1.2', text: 'Ready for review, Dana.' },
+    { type: 'update-edit', project: '/r', id: 'GH-41.10', text: 'x'.repeat(65_536) },
+    { type: 'update-edit', project: '/r', id: 'ACME-1.2', text: '' },
+    { type: 'update-edit', project: '/r', id: 'ACME-1.2', text: null },
   ]) assert.ok(isFromWebview(ok), JSON.stringify(ok));
   for (const bad of [
     { type: 'open', url: 'javascript:alert(1)' }, { type: 'open', url: 'file:///etc/passwd' },
@@ -177,6 +183,12 @@ test('messages from the board and ticket pages are checked before anything acts 
     { type: 'update-post', id: 'ACME-1.2', text: 'Hi' },
     { type: 'update-discard', project: '/r', id: 'ACME-1.2/../x' },
     { type: 'update-ask', project: '/r', task: 'ACME-1', question: 'all' },
+    { type: 'update-edit', project: '/r', id: 'ACME-1.2', text: 'x'.repeat(65_537) },
+    { type: 'update-edit', project: '/r', id: '../ACME-1.2', text: 'Hi' },
+    { type: 'update-edit', project: '/r', id: 'ACME-1', text: 'Hi' },
+    { type: 'update-edit', project: '/r', id: 'ACME-1.2' },
+    { type: 'update-edit', project: '/r', id: 'ACME-1.2', text: 42 },
+    { type: 'update-edit', id: 'ACME-1.2', text: 'Hi' },
   ]) assert.ok(!isFromWebview(bad), JSON.stringify(bad)?.slice(0, 80));
 });
 

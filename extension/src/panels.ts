@@ -32,6 +32,8 @@ export interface BoardDeps {
   answerAnalysis(project: string, task: string, question: string, text: string): Promise<{ ok: boolean; error?: string }>;
   /** Posting, discarding and drafting a ticket's updates, through acc (D-066). */
   updates: UpdateActions;
+  /** The unsent edit a task's page holds for an update, following the drafts it replaced (GH-46). */
+  edited(root: string, id: string, replaces: string[]): string | null;
   runs(): RunInput[];
   runInput(id: string, text: string): void;
   runControl(id: string, action: RunControl): void;
@@ -151,6 +153,7 @@ export class Panels implements vscode.Disposable {
     return homeModel({
       hub: this.hub, section: this.section, boards: (r) => this.deps.boards(r), identity: (r) => this.deps.identity(r),
       setup: { items: this.setup.results(), confirmed: this.setup.allConfirmed() }, runs: this.deps.runs(),
+      edited: (root, id, replaces) => this.deps.edited(root, id, replaces),
     });
   }
 
@@ -201,13 +204,25 @@ export class Panels implements vscode.Disposable {
         .then((r) => this.panel?.webview.postMessage({ type: 'done', action: 'analysis-answer', project: m.project, task: m.task, question: m.question, ...r }));
       return;
     }
+    if (m.type === 'update-edit') return; // only a task's own page edits its updates (D-066)
     if (m.type === 'update-post' || m.type === 'update-discard' || m.type === 'update-ask') {
       // Posted as drafted, or set aside, from Needs you; edited on the task's page (D-066). Every one gets a reply.
       const u = this.deps.updates;
       const which = m.type === 'update-ask' ? { task: m.task, question: m.question } : { id: m.id };
+      const reply = (r: { ok: boolean; error?: string }) => this.panel?.webview.postMessage({ type: 'done', action: m.type, project: m.project, ...which, ...r });
+      if (m.type === 'update-post') {
+        // An edit on its task's page is what Post there sends. A row drawn before the edit arrived would
+        // send acc's text instead, so it's refused, and the row says to post it from there (GH-46).
+        const replaces = this.hub.updates(m.project).find((x) => x.id === m.id)?.replaces ?? [];
+        const edit = this.deps.edited(m.project, m.id, replaces);
+        if (edit !== null && edit.trim() !== m.text.trim()) {
+          void reply({ ok: false, error: 'it was edited on the task page, so post it from there.' });
+          return;
+        }
+      }
       void (m.type === 'update-post' ? u.post(m.project, m.id, m.text, m.again === true) : m.type === 'update-discard' ? u.discard(m.project, m.id) : u.ask(m.project, m.task, m.question))
         .catch((e: unknown) => ({ ok: false, error: (e as Error).message }))
-        .then((r) => this.panel?.webview.postMessage({ type: 'done', action: m.type, project: m.project, ...which, ...r }));
+        .then(reply);
       return;
     }
     if (m.type === 'run-input') return this.deps.runInput(m.run, m.text);

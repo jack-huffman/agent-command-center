@@ -353,6 +353,13 @@ body[data-view="ticket"] { padding-top: 18px; }
 .act-draft-text:disabled { opacity: 0.75; }
 .act-draft .composer-bar { flex-wrap: wrap; row-gap: 6px; }
 .act-draft .aq-error { margin: 8px 0 0; }
+/* A replaced draft's edit, carried over (GH-46): a note, and the newer wording to take instead. */
+.act-draft-note { display: flex; align-items: flex-start; gap: 6px; margin: 8px 0 0; font-size: 0.92em; }
+.act-draft-note .codicon { flex: none; margin-top: 2px; }
+.act-draft-note span { min-width: 0; overflow-wrap: anywhere; }
+.act-draft-newer { margin-top: 8px; padding: 6px 10px; border-left: 2px solid var(--blue); }
+.act-draft-newer-text { margin-top: 2px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--vscode-descriptionForeground); }
+.act-draft-newer-bar { display: flex; justify-content: flex-end; margin-top: 6px; }
 .draft-blocked { color: var(--orange); }
 .draft-blocked .codicon { color: var(--orange); }
 .history li { padding: 4px 0; display: flex; gap: 6px; flex-wrap: wrap; align-items: baseline; }

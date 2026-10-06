@@ -32,6 +32,8 @@ interface Open {
   loading: boolean;
   error: string | null;
   connect: TicketModel['connect'];
+  /** Its updates' unsent edits, by update id, as the page last said (GH-46). */
+  edits: Map<string, string>;
 }
 
 /** Commands a ticket page may run, the same ones its task's card offers. */
@@ -51,6 +53,9 @@ export class TicketPanels implements vscode.Disposable {
   private readonly acc: AccRun;
   private readonly answerAnalysis: AnswerAnalysis | null;
   private readonly updates: UpdateActions | null;
+  private readonly editsChanged = new vscode.EventEmitter<void>();
+  /** A page's unsent edit of an update began, changed or ended, so the Overview shows it. */
+  readonly onDidEdit = this.editsChanged.event;
 
   constructor(ctx: vscode.ExtensionContext, hub: Hub, trackers: Trackers, resolve: (command: string, ref: Ref) => unknown, acc: AccRun, answerAnalysis: AnswerAnalysis | null = null, updates: UpdateActions | null = null) {
     this.ctx = ctx;
@@ -69,6 +74,22 @@ export class TicketPanels implements vscode.Disposable {
 
   dispose(): void {
     for (const o of this.open.values()) o.panel.dispose();
+    this.editsChanged.dispose();
+  }
+
+  /**
+   * The edit an open task page holds for an update and hasn't sent, found through the drafts the update
+   * replaced too: what Post on that page would send. Only this window's pages, and only while open (GH-46).
+   */
+  edited(root: string, id: string, replaces: readonly string[] = []): string | null {
+    for (const o of this.open.values()) {
+      if (o.project !== root) continue;
+      for (const x of [id, ...replaces]) {
+        const text = o.edits.get(x);
+        if (text !== undefined) return text;
+      }
+    }
+    return null;
   }
 
   /** Opens a ticket's page, or brings it forward. With no tracker given, the key decides which. */
@@ -88,9 +109,13 @@ export class TicketPanels implements vscode.Disposable {
     const icon = (theme: 'light' | 'dark') => vscode.Uri.joinPath(this.ctx.extensionUri, 'dist', 'media', `acc-${theme}.svg`);
     panel.iconPath = { light: icon('light'), dark: icon('dark') };
     panel.webview.html = htmlFor(panel.webview, base, 'ticket', randomBytes(16).toString('base64'), key);
-    const o: Open = { panel, project: root, tracker: index, key: key.toUpperCase(), ticket: null, loading: index !== null, error: null, connect: null };
+    const o: Open = { panel, project: root, tracker: index, key: key.toUpperCase(), ticket: null, loading: index !== null, error: null, connect: null, edits: new Map() };
     this.open.set(id, o);
-    panel.onDidDispose(() => this.open.delete(id));
+    // Closing the page drops its edits (D-066), and the Overview goes back to acc's text.
+    panel.onDidDispose(() => {
+      this.open.delete(id);
+      if (o.edits.size) this.editsChanged.fire();
+    });
     panel.onDidChangeViewState((e) => { if (e.webviewPanel.visible) void this.post(o); });
     panel.webview.onDidReceiveMessage((m: unknown) => void this.receive(o, m));
     void this.load(o);
@@ -160,6 +185,7 @@ export class TicketPanels implements vscode.Disposable {
     // Answered even once its project has closed: the page waits for a reply.
     if (m.type === 'analysis-answer') return this.answer(o, m);
     if (m.type === 'update-post' || m.type === 'update-discard' || m.type === 'update-ask') return this.update(o, m);
+    if (m.type === 'update-edit') return this.edit(o, m);
     const p = this.project(o);
     if (!p) return;
     switch (m.type) {
@@ -205,8 +231,27 @@ export class TicketPanels implements vscode.Disposable {
       : m.type === 'update-discard' ? this.updates.discard(m.project, m.id)
         : this.updates.ask(m.project, m.task, m.question)).catch((e: unknown) => ({ ok: false, error: (e as Error).message }));
     done(r);
+    if (r.ok && m.type !== 'update-ask' && o.edits.delete(m.id)) this.editsChanged.fire();
     if (m.type === 'update-post' && r.ok) return this.load(o);
     return this.post(o);
+  }
+
+  /**
+   * The page's unsent edit of one of its task's updates, or null once it's acc's text again. It's kept
+   * here, not in acc, so the Overview shows it and its Post won't send acc's text instead (GH-46).
+   */
+  private edit(o: Open, m: Extract<FromWebview, { type: 'update-edit' }>): void {
+    if (m.project !== o.project || m.id.slice(0, m.id.lastIndexOf('.')) !== o.key) return;
+    // An edit for a newer draft stands in for any the page held for the drafts it replaced.
+    const replaced = this.hub.updates(o.project).find((u) => u.id === m.id)?.replaces ?? [];
+    let changed = false;
+    for (const r of replaced) changed = o.edits.delete(r) || changed;
+    if (m.text === null) changed = o.edits.delete(m.id) || changed;
+    else if (o.edits.get(m.id) !== m.text) {
+      o.edits.set(m.id, m.text);
+      changed = true;
+    }
+    if (changed) this.editsChanged.fire();
   }
 
   private async act(o: Open, p: Project, action: string, text?: string): Promise<void> {

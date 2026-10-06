@@ -598,6 +598,10 @@ export interface UpdateCard {
   signIn: { command: string; label: string; arg: string } | null;
   /** Why the last try didn't post. */
   failed: string | null;
+  /** The drafts of the same news it replaced, newest first: an edit typed for one of them is its edit now. */
+  replaces: string[];
+  /** On the Overview, the edit its task's page holds, unsent: what Post there would send instead of acc's text. */
+  edited: string | null;
 }
 
 const TRACKER_WORD: Record<UpdateCard['tracker'], string> = { github: 'GitHub', jira: 'Jira', azure: 'Azure DevOps' };
@@ -639,7 +643,7 @@ export function updateCards(root: string, updates: Update[], github: string | nu
     return {
       project: root, id: u.id, task: u.task, key: u.tracker === 'github' ? u.task : u.key, tracker: u.tracker, about: updateAbout(u), look, text: u.text,
       state: u.state === 'posting' ? 'posting' : 'draft', stale, createdAt: u.createdAt, ...updatePoster(u.tracker, u.tracker === 'github' ? null : trackerOf(u.key), root, github, boards),
-      failed: u.state === 'draft' ? u.failed?.reason ?? null : null,
+      failed: u.state === 'draft' ? u.failed?.reason ?? null : null, replaces: u.replaces ?? [], edited: null,
     };
   });
 }
@@ -1435,6 +1439,8 @@ export interface HomeInput {
   identity: (root: string) => IdentityCard | null;
   setup: { items: DoctorItem[]; confirmed: Set<string> };
   runs?: RunInput[];
+  /** The edit a task's page holds for an update, unsent, following the drafts it replaced. */
+  edited?: (root: string, id: string, replaces: string[]) => string | null;
 }
 
 /** How many things need a person: each question, and each orange item. The badge and the Overview agree. */
@@ -1528,11 +1534,15 @@ export function homeModel(i: HomeInput): HomeModel {
       }
     }
     // Updates acc drafted for tickets (D-066): each waits for a person to read and post it, or discard it.
-    for (const card of updateCards(p.root, hub.updates?.(p.root) ?? [], p.config.github?.account ?? null, i.boards(p.root), (key) => trackerForKey(p.config.trackers ?? [], key))) {
+    for (const drafted of updateCards(p.root, hub.updates?.(p.root) ?? [], p.config.github?.account ?? null, i.boards(p.root), (key) => trackerForKey(p.config.trackers ?? [], key))) {
+      // Edited on its task's page and not sent: the Overview shows that edit, and it's posted from there,
+      // so Post here can't send acc's text instead.
+      const edit = drafted.state === 'draft' || drafted.stale ? i.edited?.(p.root, drafted.id, drafted.replaces) ?? null : null;
+      const card = edit !== null && edit.trim() !== drafted.text.trim() ? { ...drafted, edited: edit, look: LOOK('Edited on the task page', 'edit', 'orange') } : drafted;
       attention.push({
         key: `u:${p.root}:${card.id}`, look: card.look, title: card.stale ? `Update for ${card.key} may have posted` : `Update ready for ${card.key}`,
         detail: `${p.name} · ${card.about}`, project: p.name,
-        actions: [{ command: 'acc.task.show', label: 'Edit', icon: 'edit', ref: { project: p.root, task: card.task } }],
+        actions: [{ command: 'acc.task.show', label: 'Edit', icon: 'edit', ref: { project: p.root, task: card.task }, ...(card.edited !== null ? { primary: true } : {}) }],
         ...(card.signIn ? { extra: { command: card.signIn.command, label: card.signIn.label, icon: 'plug', arg: card.signIn.arg } } : {}),
         update: card,
       });
@@ -1642,7 +1652,9 @@ export type FromWebview =
    */
   | { type: 'update-post'; project: string; id: string; text: string; again?: boolean }
   | { type: 'update-discard'; project: string; id: string }
-  | { type: 'update-ask'; project: string; task: string; question: string };
+  | { type: 'update-ask'; project: string; task: string; question: string }
+  /** The task page's unsent edit of an update, or null once it's acc's text again, so the Overview won't post acc's. */
+  | { type: 'update-edit'; project: string; id: string; text: string | null };
 
 /** The page's answer as the hook reads it, with only the fields its decision has. */
 export function answerOf(m: Extract<FromWebview, { type: 'answer' }>): Answer {
@@ -1692,6 +1704,7 @@ export function isFromWebview(m: unknown): m is FromWebview {
     case 'analysis-answer': return short(x.project, 4096) && short(x.task, 100) && KEY.test(x.task as string) && typeof x.question === 'string' && /^q\d{1,3}$/.test(x.question) && short(x.text, 4000) && !!(x.text as string).trim();
     case 'update-post': return short(x.project, 4096) && short(x.id, 120) && UPDATE_ID.test(x.id as string) && short(x.text, UPDATE_TEXT_MAX) && !!(x.text as string).trim() && (x.again === undefined || typeof x.again === 'boolean');
     case 'update-discard': return short(x.project, 4096) && short(x.id, 120) && UPDATE_ID.test(x.id as string);
+    case 'update-edit': return short(x.project, 4096) && short(x.id, 120) && UPDATE_ID.test(x.id as string) && (x.text === null || (typeof x.text === 'string' && x.text.length <= UPDATE_TEXT_MAX));
     case 'update-ask': return short(x.project, 4096) && short(x.task, 100) && KEY.test(x.task as string) && typeof x.question === 'string' && /^q\d{1,3}$/.test(x.question);
     default: return false;
   }
