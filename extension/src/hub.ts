@@ -306,6 +306,7 @@ export class Hub implements vscode.Disposable {
         reviewing: live ? { sessionId: live.sessionId } : null,
         pr: t.pr ? { number: t.pr.number, url: t.pr.url, state: t.pr.state, ci: t.pr.ci ?? null, changesRequested: t.pr.changesRequested ?? false, conflicts: t.pr.conflicts ?? [] } : null,
         promoting: (t.promotions ?? []).some((x) => x.state === 'open'),
+        closing: t.pr?.issue?.state === 'pending',
         analysis,
         analyzing: running ? { sessionId: running.sessionId } : null,
         analysisRequired: required,

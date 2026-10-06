@@ -243,6 +243,8 @@ export interface TaskRow {
   pr?: { number: number; url: string; state: string; ci?: string | null; changesRequested?: boolean; conflicts?: string[] } | null;
   /** A promotion taking its change on to another environment is open (D-075). */
   promoting?: boolean;
+  /** Its work merged and acc hasn't closed its GitHub issue yet: the last try failed, or none has run (D-???). */
+  closing?: boolean;
   /** Its analysis (D-052): the verdict, when it was made, the questions nobody has answered, and the smaller tasks a split suggests. */
   analysis?: { verdict: 'ready' | 'questions' | 'split'; at: string; open: AnalysisAsk[]; split: string[] } | null;
   /** An analysis under way, to watch. */
@@ -298,9 +300,10 @@ export const analysisAnswerArgs = (task: string, question: string, text: string)
 
 /**
  * Whether acc sync has a pull request to follow for a task: its own, still open, or a promotion taking it
- * on, whose merge tells its ticket the change is in the next environment (D-075).
+ * on, whose merge tells its ticket the change is in the next environment (D-075). Or an issue to close
+ * that it tries again, so a failed close isn't left once no pull request is open (D-???).
  */
-export const followsPullRequests = (row: Pick<TaskRow, 'pr' | 'promoting'>): boolean => row.pr?.state === 'open' || !!row.promoting;
+export const followsPullRequests = (row: Pick<TaskRow, 'pr' | 'promoting' | 'closing'>): boolean => row.pr?.state === 'open' || !!row.promoting || !!row.closing;
 
 /** The files an open pull request conflicts in with its base, or none (D-049). */
 export const prConflicts = (row: Pick<TaskRow, 'pr'>): string[] => (row.pr?.state === 'open' ? row.pr.conflicts ?? [] : []);
