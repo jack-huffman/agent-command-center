@@ -5,9 +5,12 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parseConfig } from '../src/config.ts';
-import { builderSettings, renderPacket, slugify, taskBranch, worktreeRoot } from '../src/dispatch.ts';
-import { emptyLedger, upsertTasks } from '../src/ledger.ts';
-import { GENERIC_CONFIG, gitIn, makeRepo, SF_CONFIG, tempDir } from './support.ts';
+import { awakePath } from '../src/awake.ts';
+import { builderSettings, dispatch, renderPacket, slugify, taskBranch, worktreeRoot } from '../src/dispatch.ts';
+import { run } from '../src/exec.ts';
+import { emptyLedger, mutate, upsertTasks } from '../src/ledger.ts';
+import { repoPaths } from '../src/paths.ts';
+import { fakeAwake, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, SF_CONFIG, tempDir } from './support.ts';
 
 const MAIN = fileURLToPath(new URL('../../cli/src/main.ts', import.meta.url));
 
@@ -211,6 +214,24 @@ test('cleanup keeps a worktree with uncommitted or unmerged work, and removes it
   assert.equal(ok.code, 0, ok.out);
   assert.equal(existsSync(worktree), false);
   assert.equal(spawnSync('git', ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], { cwd: repo }).status, 1, 'the merged branch is gone');
+});
+
+test('a background dispatch keeps the Mac awake for its session\'s own process, and a builder may never resume (D-???)', () => {
+  const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG), ...IGNORE }));
+  const config = parseConfig(GENERIC_CONFIG).config!;
+  const paths = repoPaths(repo, run);
+  mutate(paths, () => new Date(), (l, emit) => { upsertTasks(l, config, [{ source: { kind: 'manual', key: 'T-1' }, title: 'Write the changelog' }], 'human', 'human:test', emit, () => new Date()); });
+  const runner = fakeRunner({
+    'claude --bg': ok('backgrounded'),
+    'claude agents --json': ok(JSON.stringify([{ pid: 4242, id: 'bg1', sessionId: 'sess-1', name: 'T-1', kind: 'background', startedAt: 1, state: 'working', status: 'busy' }])),
+  });
+  const awake = fakeAwake();
+  const r = dispatch(paths, config, 'T-1', { run: runner, now: () => new Date(), accBinDir: '/acc/bin', env: { HOME: trustingHome(repo), PATH: '/usr/bin' }, awake: awake.deps }, { actor: 'human', by: 'human:test' });
+  assert.deepEqual([r.bgId, r.sessionId], ['bg1', 'sess-1']);
+  assert.deepEqual(awake.spawned, [['caffeinate', '-i', '-w', '4242']], 'acc exits now; caffeinate watches the session instead');
+  assert.equal(JSON.parse(readFileSync(awakePath(paths, 'T-1'), 'utf8')).watch, 4242, 'written down, so it ends when the task leaves running');
+  const s = builderSettings({ id: 'T-1' } as never, config, '/acc/bin', '/usr/bin') as { permissions: { deny: string[] } };
+  assert.ok(s.permissions.deny.includes('Bash(acc resume*)'));
 });
 
 test('dispatch refuses before touching anything when Claude Code doesn\'t trust the repo (D-022)', () => {

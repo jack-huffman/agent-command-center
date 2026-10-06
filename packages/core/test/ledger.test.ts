@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { parseConfig } from '../src/config.ts';
 import { run } from '../src/exec.ts';
 import {
-  ACTORS, applyMove, checkMove, closedPr, displayState, emptyLedger, type Emit, findRule, type Hooks, isReady, type Ledger, type LedgerEvent,
+  ACTORS, applyMove, builderStopped, type ClaudeSession, checkMove, closedPr, displayState, emptyLedger, type Emit, findRule, type Hooks, isReady, type Ledger, type LedgerEvent,
   moveTask, mutate, noGateHooks, normalizeId, readLedger, readyTasks, RULES, type State, STATES, type Task, upsertTasks,
 } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
@@ -228,4 +228,42 @@ test('every worktree sees the same ledger', () => {
   run('git', ['worktree', 'add', '-q', '-b', 'task/ACME-1', wt], { cwd: repo });
   assert.equal(repoPaths(wt, run).ledger, repoPaths(repo, run).ledger);
   assert.notEqual(repoPaths(wt, run).root, repoPaths(repo, run).root);
+});
+
+test('a running builder counts as stopped when its session ended, went idle, or is gone, and not while it works or waits (D-???)', () => {
+  const now = new Date('2026-10-05T22:20:00Z');
+  const t = { id: 'GH-41', state: 'running' as State, run: { bgId: '5018b73a', sessionId: '5018b73a-d2ee', worktree: '/wt/GH-41', branch: 'task/GH-41-x', startedAt: '2026-10-05T21:52:13Z' } };
+  const bg = (more: Partial<ClaudeSession>): ClaudeSession[] => [{ id: '5018b73a', sessionId: '5018b73a-d2ee', kind: 'background', name: 'GH-41', ...more }];
+  const stopped = (sessions: ClaudeSession[] | null, o: Partial<{ resuming: boolean; now: Date }> = {}) => builderStopped(t, sessions, { resuming: false, now, ...o });
+  // GH-41 as Claude Code listed it after the Mac slept: blocked, its process gone.
+  assert.equal(stopped(bg({ state: 'blocked' })), true, 'blocked with no process: it can\'t be waiting on anyone');
+  assert.equal(stopped([]), true, 'gone from claude agents');
+  for (const state of ['done', 'failed', 'stopped']) assert.equal(stopped(bg({ state, pid: 9, status: 'idle' })), true, state);
+  assert.equal(stopped(bg({ state: 'done', pid: 9 })), true, 'its turn over, its process lingering');
+  assert.equal(stopped(bg({ state: 'blocked', pid: 9, status: 'idle' })), true, 'idle at the end of its turn');
+  assert.equal(stopped(bg({ state: 'working', pid: 9, status: 'busy' })), false, 'working');
+  assert.equal(stopped(bg({ state: 'blocked', pid: 9, status: 'waiting' })), false, 'waiting in its own prompt');
+  assert.equal(stopped(bg({ state: 'blocked', pid: 9 })), false, 'blocked, with its process: waiting on a person there');
+  // A resumed conversation is listed beside its old background session, as interactive, with the same session id.
+  assert.equal(stopped([...bg({ state: 'blocked' }), { sessionId: '5018b73a-d2ee', kind: 'interactive', pid: 77, status: 'busy' }]), false);
+  assert.equal(stopped([{ sessionId: '5018b73a-d2ee', kind: 'interactive', pid: 77, status: 'idle' }]), false, 'open in a terminal or a tab: someone carries it on');
+  assert.equal(stopped([{ id: 'other', sessionId: 'other', kind: 'background', name: 'GH-9', pid: 5, state: 'working' }]), true, 'another task\'s session isn\'t its');
+  // Nothing is judged without an answer from claude agents, while a resume runs, or in the first two minutes.
+  assert.equal(stopped(null), false);
+  assert.equal(stopped([], { resuming: true }), false);
+  assert.equal(stopped([], { now: new Date('2026-10-05T21:53:30Z') }), false, 'just dispatched: not listed yet');
+  const resumed = { ...t, run: { ...t.run, resumes: [{ at: '2026-10-05T22:19:00Z', actor: 'human' as const, by: 'human:jack' }] } };
+  assert.equal(builderStopped(resumed, [], { resuming: false, now }), false, 'the grace counts from its latest resume');
+  assert.equal(builderStopped({ ...t, state: 'review' }, [], { resuming: false, now }), false, 'only a running task');
+  // A builder started some other way, before its session was linked, is found by name.
+  const unlinked = { ...t, run: { worktree: '/wt/GH-41', startedAt: t.run.startedAt } };
+  assert.equal(builderStopped(unlinked, bg({ state: 'working', pid: 9, status: 'busy' }), { resuming: false, now }), false);
+  assert.equal(builderStopped(unlinked, [], { resuming: false, now }), true);
+});
+
+test('a stopped builder\'s task needs you; a working one is running', () => {
+  const l = ledgerWith({ id: 'ACME-1', state: 'running' }, { id: 'ACME-2', state: 'review' });
+  assert.equal(displayState(l, task(l, 'ACME-1'), { stopped: true }), 'needs-you');
+  assert.equal(displayState(l, task(l, 'ACME-1'), { stopped: false, state: 'working', status: 'busy' }), 'running');
+  assert.equal(displayState(l, task(l, 'ACME-2'), { stopped: true }), 'review', 'only a running task stops');
 });

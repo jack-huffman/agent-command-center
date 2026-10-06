@@ -9,7 +9,7 @@ import { run, type RunOptions, type RunResult } from '../src/exec.ts';
 import { guardAnalyst, preToolUseHook } from '../src/hooks.ts';
 import { mutate, readLedger, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
-import { fakeRunner, GENERIC_CONFIG, makeRepo, SF_CONFIG } from './support.ts';
+import { fakeAwake, fakeRunner, GENERIC_CONFIG, makeRepo, SF_CONFIG } from './support.ts';
 
 const now = () => new Date('2026-10-05T12:00:00Z');
 
@@ -152,4 +152,19 @@ test('the analyst reads, and only reads: every command is checked, through chain
   assert.match(String((preToolUseHook({ tool_name: 'Write', tool_input: { file_path: '/x/a' } }, ctx) as any)?.hookSpecificOutput?.permissionDecisionReason), /changes nothing/);
   assert.equal(preToolUseHook({ tool_name: 'Bash', tool_input: { command: 'sf sobject describe --sobject Case' } }, ctx), null);
   assert.equal((preToolUseHook({ tool_name: 'Bash', tool_input: { command: 'sf org delete sandbox' } }, ctx) as any)?.hookSpecificOutput?.permissionDecision, 'deny');
+});
+
+test('the Mac stays awake while the analyst runs, for acc\'s own process, and not after, even when it fails (D-???)', () => {
+  const { paths, config, id } = setup();
+  const awake = fakeAwake();
+  const missing = fakeRunner({ claude: () => {
+    assert.deepEqual(awake.spawned, [['caffeinate', '-i', '-w', String(process.pid)]], 'held while the analyst runs');
+    return { code: 127, stdout: '', stderr: 'spawnSync claude ENOENT' };
+  } });
+  assert.throws(() => analyze(paths, config, id, { run: missing, now, env: {}, awake: awake.deps }), /Claude Code didn't start/);
+  assert.equal(awake.killed.length, 1, 'released');
+  // Off macOS nothing is held, and the analysis runs as before.
+  const linux = fakeAwake('linux');
+  assert.throws(() => analyze(paths, config, id, { run: fakeRunner({ claude: { code: 127, stdout: '', stderr: 'spawnSync claude ENOENT' } }), now, env: {}, awake: linux.deps }), /Claude Code didn't start/);
+  assert.deepEqual(linux.spawned, []);
 });

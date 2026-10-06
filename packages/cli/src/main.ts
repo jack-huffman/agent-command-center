@@ -10,6 +10,7 @@ import {
   buildBaseline, seedBranches, draftLists, writeReadme, parseEventInput, preToolUseHook, sessionStartHook, stopHook, AGENT_ROLES, type AgentRole, profileView, setProfile, withCloneAgents, type ProfileChange,
   analyze, type Analysis, answerAnalysis, openQuestions, readAnalysis,
   AUTOPILOT_MIN_EVERY_S, type AutopilotResult, type AutopilotStepName, autopilotFailure, autopilotMode, autopilotPass, closedPr, holdAutopilot, sleep, alive, setAutonomy,
+  builderStopped, claudeProjectsDir, clipSaid, lastSaid, listSessions, resume, resuming,
   claimUpdate, discardUpdate, draftUpdate, EVENT_WORDS, GH_TIMEOUT_MS, ghToken, githubIssue, isOpenUpdate, listUpdates, markPosted, readUpdate, releaseUpdate, stalePosting, type Update, UPDATE_TEXT_MAX, updateText,
 } from '../../core/src/index.ts';
 import { checkLabel, gateLabel, stateLabel, table, tone } from './format.ts';
@@ -51,6 +52,9 @@ Agents
   acc block [<id>] --client "<question>"
                                         Stuck on something only the client can answer: blocks, and drafts an
                                         update for the ticket that a person reviews before posting
+  acc resume <id> [--message "<text>"]  Carry on a running task whose builder stopped before acc done or acc
+                                        block, as when the Mac slept: its own session, in its worktree, with the
+                                        rules it was dispatched with. It's told it was cut off, or --message
   acc cleanup <id>                      Remove a finished task's worktree, only if nothing would be lost
   acc agents                            The model and effort builders and reviewers run with, and where each is set
   acc agents set <builder|reviewer> [--model <m>] [--effort <low|medium|high|xhigh|max>] [--fallback-model <m>]
@@ -66,8 +70,8 @@ Agents
   acc land <id>                         Push a reviewed task's branch and open its pull request; never merges
   acc autopilot [--once | --every <seconds>]
                                         With "autonomy": "review", take each task's next step on its own: review it,
-                                        land it, re-dispatch a rework once, or merge the base into a pull request
-                                        that conflicts with it. Never merges a pull request. One pass, or one every
+                                        land it, re-dispatch a rework once, resume a stopped builder once, or merge
+                                        the base into a pull request that conflicts with it. Never merges a pull request. One pass, or one every
                                         <seconds> (at least 30) until stopped; --json then prints a line a pass
   acc sync                              Follow open pull requests: merged → done, closed → blocked, failing checks or conflicts → needs you
 
@@ -417,7 +421,7 @@ function cmdLand(o: Opts, id: string): number {
   return 0;
 }
 
-const STEP_WORD: Record<AutopilotStepName, string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update' };
+const STEP_WORD: Record<AutopilotStepName, string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update', resume: 'resume' };
 
 /** A step autopilot couldn't take, in words: "land abc1234", "update abc1234 from its base". */
 const stepWords = (step: AutopilotStepName, sha: string): string => {
@@ -465,8 +469,8 @@ function cmdAutopilot(o: Opts): number {
   }
   if (!start.config.github) throw new AccError('no-github', 'Autopilot lands reviewed work as pull requests on GitHub, and this project has no "github" section in .acc/config.json.');
   const say = (line: string) => { if (!o.json) process.stderr.write(tone(line, 'dim') + '\n'); };
-  const doing = { review: 'Reviewing', land: 'Landing', dispatch: 'Re-dispatching', refresh: 'Updating' };
-  const after = { review: '. The reviewer reads and changes nothing.', land: '', dispatch: '', refresh: ' from its base, then running its checks.' };
+  const doing = { review: 'Reviewing', land: 'Landing', dispatch: 'Re-dispatching', refresh: 'Updating', resume: 'Resuming' };
+  const after = { review: '. The reviewer reads and changes nothing.', land: '', dispatch: '', refresh: ' from its base, then running its checks.', resume: ': its builder stopped before acc done or acc block.' };
   // Started by the Command Center (D-064): once that window's extension host has gone, it stops at the
   // next step or within a second of waiting, even if nothing stopped it. No window, no autopilot.
   const parent = Number(process.env.ACC_AUTOPILOT_PARENT);
@@ -722,17 +726,44 @@ function cmdShow(o: Opts, id: string): number {
   if (!t) throw new AccError('no-task', `No task ${id}.`);
   const failed = autopilotFailure(t);
   const closed = closedPr(t);
+  // Whether its builder stopped before acc done or acc block (D-???): only a running task asks Claude Code.
+  const stopped = t.state === 'running' && builderStopped(t, listSessions(run, paths.root), { resuming: !!resuming(paths, t.id), now: now() });
+  const said = stopped && t.run?.sessionId ? lastSaid(claudeProjectsDir(), t.run.sessionId, [t.run.worktree, paths.root]) : null;
+  const quote = said ? clipSaid(said, 600) : null;
   out(o, () => [
-    `${t.id}  ${stateLabel(displayState(ledger, t))}  ${t.title}`,
+    `${t.id}  ${stateLabel(displayState(ledger, t, { stopped }))}  ${t.title}`,
     `Environment: ${t.environment}   Source: ${t.source.kind}${t.source.url ? ` ${t.source.url}` : ''}`,
     t.deps.length ? `Depends on: ${t.deps.join(', ')}` : '',
     t.blocker ? `Blocked: ${t.blocker}` : '',
     failed ? tone(`! Autopilot couldn't ${stepWords(failed.step, failed.sha || 'it')}: ${failed.reason}`, 'orange') : '',
     closed ? tone(`! Pull request #${closed.number} was closed without merging. Reopen it on GitHub and land to update it, or land to open a new one.`, 'orange') : '',
+    stopped ? tone(`! Its agent stopped: ${quote ?? 'its turn ended before acc done or acc block.'}${quote && !/[.!?…]$/.test(quote) ? '.' : ''} Resume it with acc resume ${t.id}.`, 'orange') : '',
     t.brief ? `\n${t.brief}\n` : '',
     'History:',
     ...t.history.map((h) => `  ${h.at}  ${h.from ?? '–'} → ${h.to}  by ${h.by}${h.reason ? `: ${h.reason}` : ''}${h.override ? ' (override)' : ''}`),
-  ].filter(Boolean).join('\n'), t);
+  ].filter(Boolean).join('\n'), { ...t, stopped: stopped ? { said } : null });
+  return 0;
+}
+
+/**
+ * Carries on a running task whose builder stopped before acc done or acc block (D-???): its own session,
+ * in its worktree, with the rules it was dispatched with. A person's, or autopilot's, never an agent's.
+ */
+function cmdResume(o: Opts, id: string): number {
+  const role = process.env.ACC_ROLE;
+  if (role === 'builder' || role === 'reviewer' || role === 'analyst') throw new AccError('refused', `${role === 'analyst' ? 'An' : 'A'} ${role} can't resume a builder. A person does that, or autopilot.`);
+  const { paths, config } = project(process.cwd());
+  const { actor, by } = actorFrom(o);
+  const r = resume(paths, config, id.toUpperCase(), { run, now, env: process.env, accBinDir: accBinDir(), accCommand: accCommand() }, {
+    actor, by, message: o.message as string | undefined,
+  });
+  out(o, () => [
+    tone(`${r.task.id} resumed: its builder carries on in ${r.folder}.`, 'blue'),
+    r.stopped ? `  Stopped its idle background session ${r.stopped} first, so the conversation runs in one place.` : '',
+    r.said ? `  It last said: ${clipSaid(r.said, 600)}` : '',
+    `  Its output: ${r.log}`,
+    tone(`  It finishes with acc done, or blocks. Session ${r.sessionId}, pid ${r.pid}.`, 'dim'),
+  ].filter(Boolean).join('\n'), r);
   return 0;
 }
 
@@ -1084,6 +1115,7 @@ export async function main(argv: string[]): Promise<number> {
       'text-file': { type: 'string' },
       again: { type: 'boolean', default: false },
       url: { type: 'string' },
+      message: { type: 'string' },
     },
   });
   const o = values as Opts;
@@ -1125,6 +1157,10 @@ export async function main(argv: string[]): Promise<number> {
       const reason = (o.reason as string | undefined) ?? ((looksLikeId ? more : rest).join(' ').trim() || (client ? `Waiting on the client: ${client}` : ''));
       if (!reason) throw new AccError('usage', 'acc block "<what you need>", or acc block --client "<question>" when only the client can answer');
       return cmdSet({ ...o, reason }, id, 'blocked');
+    }
+    case 'resume': {
+      if (!rest[0]) throw new AccError('usage', 'acc resume <id> [--message "<text>"]');
+      return cmdResume(o, rest[0]);
     }
     case 'analyze': {
       if (!rest[0]) throw new AccError('usage', 'acc analyze <id>');
