@@ -1,7 +1,7 @@
 {
   "name": "acc",
   "displayName": "Agent Command Center",
-  "version": "0.30.0",
+  "version": "0.31.0",
   "description": "Runs Claude Code agents through one task ledger: dispatch to worktrees, required checks, a read-only review, and pull requests a person merges. Its hooks keep builders inside their worktree and away from pushes, merges and deploys.",
   "author": { "name": "jack-huffman", "url": "https://github.com/jack-huffman" },
   "homepage": "https://github.com/jack-huffman/agent-command-center",

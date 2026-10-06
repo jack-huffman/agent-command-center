@@ -3244,6 +3244,13 @@ var sameNews = (a, b) => {
   const family = (e) => e === "pr-opened" || e === "pr-updated" ? "pr" : e;
   return a.task === b.task && family(a.event) === family(b.event) && (a.env ?? "") === (b.env ?? "") && (a.question ?? "") === (b.question ?? "");
 };
+var STAGE = { "pr-opened": 0, "pr-updated": 0, merged: 1, deployed: 2 };
+var overtakes = (next, old) => {
+  const n = STAGE[next.event];
+  const o = STAGE[old.event];
+  if (next.task !== old.task || n === void 0 || o === void 0 || n <= o) return false;
+  return o === 0 || (old.env ?? "") === (next.env ?? "");
+};
 function draftUpdate(paths, task, input, by, now2) {
   const ticket = ticketOf(task);
   if (!ticket) return null;
@@ -3251,6 +3258,8 @@ function draftUpdate(paths, task, input, by, now2) {
     const all = listUpdates(paths);
     const mine = all.filter((u2) => u2.task === task.id);
     const replaced = mine.find((u2) => u2.state === "draft" && sameNews(u2, { task: task.id, ...input }));
+    const overtaken = mine.filter((u2) => u2.state === "draft" && u2 !== replaced && overtakes({ task: task.id, ...input }, u2));
+    const gone = [...replaced ? [replaced] : [], ...overtaken];
     const event = input.event === "pr-updated" && replaced?.event === "pr-opened" ? "pr-opened" : input.event;
     const text = event === input.event && input.text !== void 0 ? input.text : updateText(event, { ...input.context, ...input.pr ? { pr: input.pr } : {}, ...input.env ? { env: input.env } : {} });
     const n = Math.max(0, ...mine.map((u2) => Number(u2.id.slice(task.id.length + 1)) || 0)) + 1;
@@ -3269,10 +3278,10 @@ function draftUpdate(paths, task, input, by, now2) {
       ...input.question ? { question: input.question } : {},
       createdAt: now2().toISOString(),
       by,
-      ...replaced ? { replaces: [replaced.id, ...replaced.replaces ?? []].slice(0, REPLACES_MAX) } : {}
+      ...gone.length ? { replaces: gone.flatMap((r) => [r.id, ...r.replaces ?? []]).slice(0, REPLACES_MAX) } : {}
     };
     writeUpdate(paths, u);
-    if (replaced) rmSync8(updateFile(paths, replaced.id), { force: true });
+    for (const r of gone) rmSync8(updateFile(paths, r.id), { force: true });
     return u;
   });
 }
