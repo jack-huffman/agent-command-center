@@ -24,6 +24,8 @@ export interface BoardDeps {
   identity(root: string): IdentityCard | null;
   openTicket(project: string, tracker: number | null, key: string): void;
   move(project: string, tracker: number, key: string, to: string): Promise<void>;
+  /** Track on a tracker board's card (D-???). The card itself is the reply: Tracking…, then acc's task or why not. */
+  track(project: string, tracker: number, key: string): Promise<void>;
   /** A task's card dropped in a lane of the agent board (D-041). */
   moveTask(project: string, task: string, lane: string): Promise<void>;
   /** Agents' questions (D-030) and the commands acc is running. */
@@ -181,6 +183,11 @@ export class Panels implements vscode.Disposable {
     }
     if (m.type === 'move') {
       if (this.hub.project(m.project)) void this.deps.move(m.project, m.tracker, m.key, m.to);
+      return;
+    }
+    if (m.type === 'track') {
+      if (this.hub.project(m.project)) void this.deps.track(m.project, m.tracker, m.key);
+      else this.post(); // the card stops saying Tracking…
       return;
     }
     if (m.type === 'open') {

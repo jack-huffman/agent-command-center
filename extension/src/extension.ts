@@ -285,6 +285,10 @@ export function activate(context: vscode.ExtensionContext): void {
         panels.post();
       }
     },
+    track: async (root, tracker, key) => {
+      const p = hub.project(root);
+      if (p) await trackers.track(p, tracker, key);
+    },
     moveTask: async (root, task, lane) => { const p = hub.project(root); if (p) await sidebar.moveToLane(p, task, lane); },
     answer,
     answerAnalysis,
@@ -372,6 +376,8 @@ export function activate(context: vscode.ExtensionContext): void {
     notices.update(n);
   };
   trackers.onDidChange(changed);
+  // A ticket's page says Tracking… whichever button started it, its own or its card's (D-???).
+  trackers.onDidTrack((root) => tickets.refresh(root));
   identity.onDidChange(changed);
   // An edit on a task's page changes what the Overview shows for its update, and whether it offers Post.
   tickets.onDidEdit(changed);

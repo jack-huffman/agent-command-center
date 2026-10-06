@@ -4,7 +4,10 @@
  */
 import type { Analysis } from '../../packages/core/src/analyze.ts';
 import { AUTOPILOT_REVIEW_DOES, type AutopilotRecord } from '../../packages/core/src/autopilot.ts';
+import type { TaskInput } from '../../packages/core/src/ledger.ts';
 import type { CheckStatus, Step } from '../../packages/core/src/onboarding/types.ts';
+import type { Ticket } from '../../packages/core/src/trackers/types.ts';
+import type { Pending } from '../webview/pending.ts';
 
 export const PUBLISHER = 'JackHuffman';
 export const NAME = 'agent-command-center';
@@ -435,6 +438,65 @@ export async function outsideKeys<T extends { key: string }>(keys: string[], rea
   } catch {
     return [];
   }
+}
+
+/** What `acc import` takes for a tracker's ticket: its title, description and label names. The ticket isn't changed (D-066). */
+export function trackInput(t: Pick<Ticket, 'kind' | 'key' | 'url' | 'title' | 'markdown' | 'labels'>): TaskInput[] {
+  return [{
+    source: { kind: t.kind, key: t.kind === 'github' ? `#${t.key.replace(/^GH-/i, '')}` : t.key, url: t.url },
+    title: t.title, brief: t.markdown, labels: t.labels.map((l) => l.name),
+  }];
+}
+
+/**
+ * Why acc refused, in its own words, from its --json output: the first item `acc import` couldn't take, or
+ * the error it stopped on. Null when it took everything.
+ */
+export function accRefusal(r: { code: number; stdout: string; stderr: string }): string | null {
+  if (r.code === 0) return null;
+  type Said = { errors?: unknown; message?: unknown } | null;
+  let said: Said = null;
+  try { said = JSON.parse(r.stdout) as Said; } catch { /* plain text */ }
+  const first = Array.isArray(said?.errors) ? said.errors.find((e): e is string => typeof e === 'string' && !!e.trim()) : undefined;
+  if (first) return first;
+  if (typeof said?.message === 'string' && said.message.trim()) return said.message;
+  return (r.stderr || r.stdout).trim().split('\n')[0] || `acc exited ${r.code}`;
+}
+
+/** Track's reply: done, why not, or that this ticket is already on its way and nothing more was started. */
+export type TrackReply = { ok: true } | { ok: false; error: string } | { ok: false; already: true };
+
+/** What tracking a ticket does, passed in so it's tested without a tracker or acc. */
+export interface TrackSteps {
+  /** The ticket, read again from its tracker: one outside the repo's place throws, naming it (D-072). */
+  read: () => Promise<Ticket>;
+  /** `acc import --json` with these tasks. */
+  importTasks: (input: TaskInput[]) => Promise<{ code: number; stdout: string; stderr: string }>;
+  /** acc's tasks read again, so the new one shows before Tracking… goes. */
+  reload: () => Promise<void>;
+  /** Its tracking started or settled, so the pages redraw. */
+  changed?: () => void;
+}
+
+/**
+ * Track, from a ticket's card or its page: one way for both (D-???). A key already on its way starts
+ * nothing. Otherwise the ticket is read, imported with its title, description and labels, and acc's tasks
+ * reloaded, then the key settles: cleared, or keeping why it didn't go until the next try.
+ */
+export async function trackTicket(key: string, pending: Pick<Pending<'track'>, 'start' | 'settle'>, steps: TrackSteps): Promise<TrackReply> {
+  if (!pending.start(key, 'track')) return { ok: false, already: true };
+  steps.changed?.();
+  let error: string | null;
+  try {
+    error = accRefusal(await steps.importTasks(trackInput(await steps.read())));
+    // It's tracked even if the reload fails: the next one shows it.
+    if (error === null) await steps.reload().catch(() => undefined);
+  } catch (e) {
+    error = (e as Error).message || 'It couldn\'t be read or tracked.';
+  }
+  pending.settle(key, error);
+  steps.changed?.();
+  return error === null ? { ok: true } : { ok: false, error };
 }
 
 /** Accepts a pasted URL as well as a bare name: dev.azure.com/acme, acme.visualstudio.com, acme.atlassian.net/jira/… */

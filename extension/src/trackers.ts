@@ -10,14 +10,23 @@ import { AzureClient, azureAreas, azureBoards, azureProjects, azureTeams, azureW
 import { GithubClient } from '../../packages/core/src/trackers/github.ts';
 import { JiraClient, jiraBoards, jiraEpics, jiraProjects } from '../../packages/core/src/trackers/jira.ts';
 import { type Board, type Exec, movesInto, type Person, placeText, type Ticket, type TrackerClient, TrackerError, type Transition } from '../../packages/core/src/trackers/types.ts';
+import { Pending } from '../webview/pending.ts';
 import type { Hub, Project } from './hub.ts';
-import { outsideKeys, parseHost, placeCandidates } from './logic.ts';
+import { outsideKeys, parseHost, placeCandidates, type TrackReply, trackTicket } from './logic.ts';
 import { runFile } from './run.ts';
 
 type AccRun = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
 
+/** A ticket's Track (D-???): on its way, and why its last try didn't go. */
+export interface TrackState { busy: boolean; error: string | null }
+
 /** What the board shows for one tracker: its board, or why there isn't one yet. */
-export interface BoardState {
+export interface BoardState extends Loaded {
+  /** Its cards being tracked, or whose last Track didn't go, by key (D-???). */
+  tracking: Record<string, TrackState>;
+}
+
+interface Loaded {
   index: number;
   kind: Tracker['kind'];
   title: string;
@@ -67,10 +76,15 @@ const hostOf = (t: Pick<Tracker, 'kind' | 'site' | 'organization'>): string => (
  */
 export class Trackers implements vscode.Disposable {
   private readonly clients = new Map<string, Promise<TrackerClient>>();
-  private readonly boards = new Map<string, BoardState[]>();
+  private readonly boards = new Map<string, Loaded[]>();
   private readonly emitter = new vscode.EventEmitter<string>();
   /** Fires with a project root when its boards change. */
   readonly onDidChange = this.emitter.event;
+  /** Tickets being tracked, and why each one's last try didn't go, by `${root}#${KEY}` (D-???). */
+  private readonly tracking = new Pending<'track'>();
+  private readonly trackEmitter = new vscode.EventEmitter<string>();
+  /** Fires with a project root when one of its tickets starts or stops being tracked, so its pages say so. */
+  readonly onDidTrack = this.trackEmitter.event;
   private readonly secrets: vscode.SecretStorage;
   private readonly hub: Hub;
   private readonly log: vscode.LogOutputChannel;
@@ -85,6 +99,7 @@ export class Trackers implements vscode.Disposable {
 
   dispose(): void {
     this.emitter.dispose();
+    this.trackEmitter.dispose();
   }
 
   /** A project's trackers. A GitHub tracker with no repo uses the project's own repo. */
@@ -145,7 +160,16 @@ export class Trackers implements vscode.Disposable {
   }
 
   boardStates(root: string): BoardState[] {
-    return this.boards.get(root) ?? [];
+    return (this.boards.get(root) ?? []).map((s) => ({
+      ...s,
+      tracking: Object.fromEntries((s.board?.cards ?? []).map((c) => [c.key, this.trackState(root, c.key)] as const).filter(([, t]) => t.busy || t.error)),
+    }));
+  }
+
+  /** Whether a ticket is being tracked now, and why its last Track didn't go (D-???). */
+  trackState(root: string, key: string): TrackState {
+    const k = `${root}#${key.toUpperCase()}`;
+    return { busy: !!this.tracking.what(k), error: this.tracking.error(k) ?? null };
   }
 
   client(p: Project, index: number): Promise<TrackerClient> {
@@ -202,7 +226,7 @@ export class Trackers implements vscode.Disposable {
         return;
       }
       const prev = this.boards.get(p.root) ?? [];
-      const states: BoardState[] = await Promise.all(list.map(async (t, index) => ({
+      const states: Loaded[] = await Promise.all(list.map(async (t, index) => ({
         // The last board's place, with its epic's name, until this load says otherwise: no flicker every refresh.
         index, kind: t.kind, title: this.title(t), place: prev[index]?.board?.place ?? this.place(t), left: prev[index]?.left ?? [], board: prev[index]?.board ?? null,
         error: null, connect: null, loading: true, signedInAs: await this.signedInAs(p, index),
@@ -224,8 +248,16 @@ export class Trackers implements vscode.Disposable {
           s.loading = false;
         }
       }));
+      this.forgetTracking();
       this.emitter.fire(p.root);
     }));
+  }
+
+  /** A card no board shows any more leaves its last Track's reason behind. One still on its way finishes first. */
+  private forgetTracking(): void {
+    const live = new Set(this.tracking.inFlight());
+    for (const [root, states] of this.boards) for (const s of states) for (const c of s.board?.cards ?? []) live.add(`${root}#${c.key.toUpperCase()}`);
+    this.tracking.forget(live);
   }
 
   /**
@@ -235,7 +267,7 @@ export class Trackers implements vscode.Disposable {
    * signs in to these trackers (D-066). A failed read never counts as outside (D-048), and nothing here
    * changes a ticket.
    */
-  private async followPlace(p: Project, s: BoardState, client: TrackerClient): Promise<void> {
+  private async followPlace(p: Project, s: Loaded, client: TrackerClient): Promise<void> {
     if (s.kind === 'github' || !s.board || !this.acc) return;
     const keys = placeCandidates(this.hub.ledger(p.root)?.tasks ?? [], { kind: s.kind, index: s.index, cards: s.board.cards }, (key) => this.trackerFor(p, key));
     const outside = await outsideKeys(keys, (k) => client.outside(k));
@@ -264,6 +296,36 @@ export class Trackers implements vscode.Disposable {
 
   async ticket(p: Project, index: number, key: string): Promise<Ticket> {
     return (await this.client(p, index)).ticket(key);
+  }
+
+  /**
+   * Adds a ticket to acc's ledger, from its card or its page (D-???), so an agent can be dispatched to it.
+   * It's read again, so one that has left the repo's place is refused, naming the place (D-072), then
+   * `acc import` gets its title, description and labels. Nothing here changes the ticket (D-066). A second
+   * Track for a ticket already on its way starts nothing.
+   */
+  track(p: Project, index: number, key: string): Promise<TrackReply> {
+    const k = key.toUpperCase();
+    const changed = () => {
+      this.emitter.fire(p.root);
+      this.trackEmitter.fire(p.root);
+    };
+    return trackTicket(`${p.root}#${k}`, this.tracking, {
+      read: () => this.ticket(p, index, k),
+      importTasks: async (input) => {
+        if (!this.acc) throw new Error('This window can\'t run acc.');
+        const dir = mkdtempSync(join(tmpdir(), 'acc-track-'));
+        try {
+          const file = join(dir, 'task.json');
+          writeFileSync(file, JSON.stringify(input));
+          return await this.acc(['import', '--file', file, '--json'], p.root);
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      },
+      reload: () => this.hub.loadTasks(true),
+      changed,
+    });
   }
 
   /**

@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { outsideKeys, placeCandidates, rowAnalysis, type TaskRow } from '../src/logic.ts';
+import { accRefusal, outsideKeys, placeCandidates, rowAnalysis, type TaskRow, trackInput, type TrackSteps, trackTicket } from '../src/logic.ts';
 import type { Analysis } from '../../packages/core/src/analyze.ts';
 import { type BoardInput, initials, isFromWebview, priorityIcon, ticketActionRefusal, ticketModel, trackerBoard, typeIcon } from '../src/model.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
-import type { Ticket } from '../../packages/core/src/trackers/types.ts';
+import { type Ticket, TrackerError } from '../../packages/core/src/trackers/types.ts';
+import { Pending } from '../webview/pending.ts';
 
 const row = (id: string, state: string, display: TaskRow['display'], extra: Partial<TaskRow> = {}): TaskRow =>
   ({ id, title: `Task ${id}`, state, display, environment: 'dev', deps: [], source: { kind: 'jira', url: null }, ...extra });
@@ -51,6 +52,26 @@ test('a tracker board says where its tickets come from, and names tasks that lef
   assert.deepEqual([page.outside, page.error, page.trackable], ['OPS-1 isn\'t one of this repo\'s tickets, which come from Jira · ACME: it\'s in project OPS.', null, false]);
 });
 
+test('a card acc doesn\'t keep offers Track, says it\'s on its way or why it couldn\'t, and once tracked shows acc\'s side and its one next step (D-???)', () => {
+  const card = (b: ReturnType<typeof trackerBoard>, key: string) => b.columns.flatMap((c) => c.cards).find((c) => c.key === key)!;
+  const rows = [row('ACME-1', 'todo', 'ready')];
+  const idle = trackerBoard(board(), rows, '/r');
+  assert.deepEqual(card(idle, 'ACME-2').track, { busy: false, error: null }, 'ready to track');
+  assert.equal(card(idle, 'ACME-1').track, null, 'acc already keeps it');
+  assert.equal(card(idle, 'ACME-4').acc, null);
+  assert.equal(card(idle, 'ACME-4').track, null, 'a done column\'s cards have nothing left to build, so no Track');
+
+  assert.deepEqual(card(trackerBoard({ ...board(), tracking: { 'ACME-2': { busy: true, error: null } } }, rows, '/r'), 'ACME-2').track, { busy: true, error: null });
+  const why = 'ACME-2 isn\'t one of this repo\'s tickets, which come from Jira · ACME · epic ACME-3: it isn\'t in epic ACME-3.';
+  assert.deepEqual(card(trackerBoard({ ...board(), tracking: { 'ACME-2': { busy: false, error: why } } }, rows, '/r'), 'ACME-2').track, { busy: false, error: why });
+
+  // Tracked: acc's look and its one next step, as every tracked card (D-062), and no Track.
+  const tracked = card(trackerBoard({ ...board(), tracking: { 'ACME-2': { busy: true, error: null } } }, [...rows, row('ACME-2', 'todo', 'ready')], '/r'), 'ACME-2');
+  assert.deepEqual([tracked.track, tracked.acc!.look.label, tracked.acc!.action!.command], [null, 'Ready', 'acc.task.dispatch']);
+  const wanted = card(trackerBoard(board(), [...rows, row('ACME-2', 'todo', 'ready', { analysisRequired: true })], '/r'), 'ACME-2');
+  assert.equal(wanted.acc!.action!.command, 'acc.task.analyze', 'Analyze first where the project wants one');
+});
+
 test('icons for types and priorities, and initials for people', () => {
   assert.deepEqual(['Bug', 'Story', 'Task', 'Sub-task', 'Epic', null].map(typeIcon), ['bug', 'bookmark', 'tasklist', 'list-tree', 'zap', 'issues']);
   assert.deepEqual(['Highest', 'High', 'Medium', 'Low', 'Lowest', null].map(priorityIcon), ['chevron-up', 'arrow-up', null, 'arrow-down', 'chevron-down', null]);
@@ -62,6 +83,70 @@ const ticket: Ticket = {
   assignees: [{ id: 'a', name: 'Pat Lee' }], reporter: null, labels: [], priority: 'High', created: '2026-09-01T00:00:00Z', updated: '2026-09-02T00:00:00Z',
   body: { blocks: [{ t: 'p', c: [{ t: 'text', text: 'Body' }] }] }, markdown: 'Body', comments: [], related: [],
 };
+
+test('Track reads the ticket again and imports its title, description and labels; outside the place it\'s refused before acc runs (D-???)', async () => {
+  const jira = { ...ticket, markdown: 'Escalate after **2 hours**.', labels: [{ name: 'sla', color: 'ff0000' }, { name: 'service', color: null }] };
+  assert.deepEqual(trackInput(jira), [{ source: { kind: 'jira', key: 'ACME-1', url: 'https://acme.atlassian.net/browse/ACME-1' }, title: 'Ready one', brief: 'Escalate after **2 hours**.', labels: ['sla', 'service'] }]);
+  assert.deepEqual(trackInput({ ...ticket, kind: 'github', key: 'GH-12', url: 'https://github.com/o/r/issues/12' })[0]!.source, { kind: 'github', key: '#12', url: 'https://github.com/o/r/issues/12' }, 'acc keys a GitHub issue by its number');
+
+  const said: string[] = [];
+  const steps = (over: Partial<TrackSteps> = {}): TrackSteps => ({
+    read: async () => jira,
+    importTasks: async (input) => { said.push(`import ${input[0]!.source.key}`); return { code: 0, stdout: '{"added":["ACME-1"],"updated":[],"unchanged":[],"errors":[]}', stderr: '' }; },
+    reload: async () => { said.push('reload'); },
+    changed: () => said.push('changed'),
+    ...over,
+  });
+
+  // Done: imported, acc's tasks reloaded before Tracking… goes, and the pages told when it starts and ends.
+  const pending = new Pending<'track'>();
+  assert.deepEqual(await trackTicket('/r#ACME-1', pending, steps({ reload: async () => { said.push(`reload, still ${pending.what('/r#ACME-1') ?? 'settled'}`); } })), { ok: true });
+  assert.deepEqual(said, ['changed', 'import ACME-1', 'reload, still track', 'changed']);
+  assert.deepEqual([pending.what('/r#ACME-1'), pending.error('/r#ACME-1')], [undefined, undefined]);
+
+  // Outside the repo's place (D-072): its reason names the place, and acc import never runs.
+  said.length = 0;
+  const outside = 'ACME-9 isn\'t one of this repo\'s tickets, which come from Jira · ACME · epic ACME-3: it isn\'t in epic ACME-3.';
+  assert.deepEqual(await trackTicket('/r#ACME-9', pending, steps({ read: async () => { throw new TrackerError('outside', outside); } })), { ok: false, error: outside });
+  assert.deepEqual(said, ['changed', 'changed'], 'nothing imported, nothing reloaded');
+  assert.equal(pending.error('/r#ACME-9'), outside, 'the card keeps why until the next try');
+
+  // acc refuses: its own reason, from --json, not the first line of its plain output.
+  const refused = 'ACME-1: no Jira tracker in .acc/config.json owns it, so it isn\'t one of this repo\'s tickets.';
+  assert.deepEqual(await trackTicket('/r#ACME-1', pending, steps({ importTasks: async () => ({ code: 1, stdout: JSON.stringify({ added: [], updated: [], unchanged: [], errors: [refused] }), stderr: '' }) })), { ok: false, error: refused });
+  assert.deepEqual(await trackTicket('/r#ACME-1', pending, steps({ importTasks: async () => ({ code: 1, stdout: '{"error":"usage","message":"The input isn\'t valid JSON: oops"}\n', stderr: '' }) })), { ok: false, error: 'The input isn\'t valid JSON: oops' });
+  assert.deepEqual(await trackTicket('/r#ACME-1', pending, steps({ importTasks: async () => ({ code: 127, stdout: '', stderr: 'node: not found\nmore' }) })), { ok: false, error: 'node: not found' });
+  // Tried again and done: the old reason goes.
+  assert.deepEqual(await trackTicket('/r#ACME-1', pending, steps()), { ok: true });
+  assert.equal(pending.error('/r#ACME-1'), undefined);
+});
+
+test('a second Track for a ticket already on its way starts nothing: acc import runs once (D-???)', async () => {
+  const pending = new Pending<'track'>();
+  let imports = 0;
+  let finish: () => void = () => {};
+  const steps: TrackSteps = {
+    read: async () => ticket,
+    importTasks: async () => { imports++; await new Promise<void>((r) => { finish = r; }); return { code: 0, stdout: '{}', stderr: '' }; },
+    reload: async () => {},
+  };
+  const first = trackTicket('/r#ACME-1', pending, steps);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(pending.what('/r#ACME-1'), 'track', 'on its way');
+  assert.deepEqual(await trackTicket('/r#ACME-1', pending, steps), { ok: false, already: true }, 'a second click, or the page\'s button');
+  assert.deepEqual(await trackTicket('/r#ACME-2', pending, { ...steps, importTasks: async () => ({ code: 0, stdout: '{}', stderr: '' }) }), { ok: true }, 'another ticket isn\'t held up');
+  finish();
+  assert.deepEqual(await first, { ok: true });
+  assert.equal(imports, 1);
+  assert.equal(pending.what('/r#ACME-1'), undefined);
+});
+
+test('acc\'s refusals read from --json, in its own words', () => {
+  assert.equal(accRefusal({ code: 0, stdout: '{"added":["A-1"]}', stderr: '' }), null);
+  assert.equal(accRefusal({ code: 1, stdout: '{"errors":["", "item 1: needs a title."]}', stderr: '' }), 'item 1: needs a title.');
+  assert.equal(accRefusal({ code: 1, stdout: '{"error":"conflict","message":"The ledger is locked."}', stderr: '' }), 'The ledger is locked.');
+  assert.equal(accRefusal({ code: 3, stdout: '', stderr: '' }), 'acc exited 3');
+});
 
 test('a stopped builder\'s task page quotes what it last said in full, and lists Resume (D-067)', () => {
   const said = `API Error: Your computer went to sleep mid-response. ${'The response above may be incomplete. '.repeat(6).trim()}`;
@@ -158,6 +243,7 @@ test('messages from the board and ticket pages are checked before anything acts 
   for (const ok of [
     { type: 'ticket', project: '/r', tracker: 0, key: 'ACME-1' }, { type: 'ticket', project: '/r', tracker: null, key: 'GH-12' },
     { type: 'move', project: '/r', tracker: 0, key: 'ACME-1', to: 'col-2' },
+    { type: 'track', project: '/r', tracker: 0, key: 'ACME-2' }, { type: 'track', project: '/r', tracker: 1, key: 'gh-12' },
     { type: 'ticket-action', action: 'comment', text: 'Looks good' }, { type: 'ticket-action', action: 'status' },
     { type: 'open', url: 'https://acme.atlassian.net/browse/ACME-1' },
     { type: 'toolbar', command: 'acc.trackers.signIn', arg: '{"root":"/r","index":0}' },
@@ -178,6 +264,9 @@ test('messages from the board and ticket pages are checked before anything acts 
   for (const bad of [
     { type: 'open', url: 'javascript:alert(1)' }, { type: 'open', url: 'file:///etc/passwd' },
     { type: 'ticket', project: '/r', tracker: 0, key: '../../etc' }, { type: 'move', project: '/r', tracker: 'x', key: 'ACME-1', to: 'c' },
+    // Track on a card (D-???): a real key, a tracker's index, and a project.
+    { type: 'track', project: '/r', tracker: 0, key: '../../etc' }, { type: 'track', project: '/r', tracker: 'x', key: 'ACME-2' },
+    { type: 'track', project: '/r', tracker: 0.5, key: 'ACME-2' }, { type: 'track', tracker: 0, key: 'ACME-2' }, { type: 'track', project: '', tracker: 0, key: 'ACME-2' },
     { type: 'ticket-action', action: 'delete' }, { type: 'ticket-action', action: 'comment', text: 'x'.repeat(70_000) },
     { type: 'toolbar', command: 'workbench.action.terminal.sendSequence' }, { type: 'nope' }, null,
     // An answer to an analysis's question (D-052): a real project, task and question, and words.

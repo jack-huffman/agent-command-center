@@ -317,6 +317,8 @@ export interface BoardInput {
   place?: string | null;
   /** Tasks whose tickets left the place after work on them started, each named (D-072). */
   left?: string[];
+  /** Its cards being tracked, or whose last Track didn't go, by key (D-???). */
+  tracking?: Record<string, { busy: boolean; error: string | null }>;
 }
 
 export interface TrackerCard {
@@ -331,6 +333,11 @@ export interface TrackerCard {
   status: string;
   /** The task acc keeps for this ticket, when there is one: where it is, its next step, and why its pull request won't merge. */
   acc: { look: Look; needsYou: boolean; action: Action | null; conflicts: string | null } | null;
+  /**
+   * Track, for a ticket acc doesn't keep yet (D-???): ready, on its way, or why the last try didn't go.
+   * Null once acc keeps it, and in a done column, where there's nothing left to build.
+   */
+  track: { busy: boolean; error: string | null } | null;
 }
 
 export interface TrackerColumn {
@@ -389,10 +396,12 @@ export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): Trac
     cards: (b.board?.cards ?? []).filter((card) => c.statusIds.includes(card.status.id)).map((card): TrackerCard => {
       const row = byId.get(card.key);
       const next = row ? cardActions(row, { project: root, task: row.id }).find((a) => a.primary && NEXT_STEPS.includes(a.command)) ?? null : null;
+      const tracking = b.tracking?.[card.key];
       return {
         key: card.key, title: card.title, type: card.type, typeIcon: typeIcon(card.type), priority: card.priority, priorityIcon: priorityIcon(card.priority),
         labels: card.labels, assignees: card.assignees.map(chip), status: card.status.name,
         acc: row ? { look: accLook(row), needsYou: row.display === 'needs-you', action: next, conflicts: conflictLine(row) } : null,
+        track: row || c.category === 'done' ? null : { busy: !!tracking?.busy, error: tracking?.error ?? null },
       };
     }),
   }));
@@ -460,6 +469,8 @@ export interface TicketModel {
   analysis: TicketAnalysis | null;
   /** A tracker ticket acc doesn't keep yet, which "Track in acc" adds to the ledger. */
   trackable: boolean;
+  /** It's being tracked now, from this page or its card (D-???). */
+  tracking: boolean;
   /** Who a comment or change is made as. */
   signedInAs: string | null;
 }
@@ -520,6 +531,8 @@ export interface TicketInput {
   /** The project's boards, for who an update posts as, and the project's GitHub account. */
   boards?: BoardInput[];
   github?: string | null;
+  /** It's being tracked now, from its page or its card (D-???). */
+  tracking?: boolean;
   now?: number;
 }
 
@@ -584,7 +597,7 @@ export function ticketModel(i: TicketInput): TicketModel {
     can: { status: !!t && !!i.trackerEdits, assign: !!t && !!i.trackerEdits, labels: !!t && !!i.trackerEdits, comment: !!t },
     updates: i.task ? updateCards(i.project, (i.updates ?? []).filter((u) => u.task === i.task!.id), i.github ?? null, i.boards ?? [], () => i.tracker, i.now) : [],
     acc, analysis: i.row && i.task ? ticketAnalysis(i.row, i.analysis ?? null, { project: i.project, task: i.row.id }, i.updates ?? []) : null,
-    trackable: !!t && !i.task, signedInAs: i.signedInAs ?? null,
+    trackable: !!t && !i.task, tracking: !!i.tracking, signedInAs: i.signedInAs ?? null,
   };
 }
 
@@ -1648,6 +1661,8 @@ export type FromWebview =
   | { type: 'ticket'; project: string; tracker: number | null; key: string }
   /** A card dropped on another column of a tracker board. */
   | { type: 'move'; project: string; tracker: number; key: string; to: string }
+  /** Track on a tracker board's card: acc keeps the ticket as a task (D-???). */
+  | { type: 'track'; project: string; tracker: number; key: string }
   | { type: 'ticket-action'; action: TicketAction; text?: string }
   /** A link in a ticket. Only web links are opened. */
   | { type: 'open'; url: string }
@@ -1699,6 +1714,7 @@ export function isFromWebview(m: unknown): m is FromWebview {
     case 'run': case 'toolbar': return typeof x.command === 'string' && x.command.startsWith('acc.') && (x.arg === undefined || short(x.arg));
     case 'ticket': return short(x.project, 4096) && short(x.key, 100) && KEY.test(x.key as string) && (x.tracker === null || Number.isInteger(x.tracker));
     case 'move': return short(x.project, 4096) && short(x.key, 100) && KEY.test(x.key as string) && Number.isInteger(x.tracker) && typeof x.to === 'string' && x.to.length <= 200;
+    case 'track': return short(x.project, 4096) && short(x.key, 100) && KEY.test(x.key as string) && Number.isInteger(x.tracker);
     case 'ticket-action': return (TICKET_ACTIONS as readonly string[]).includes(x.action as string) && (x.text === undefined || (typeof x.text === 'string' && x.text.length <= 65_536));
     case 'open': return short(x.url, 4096) && /^(https?:|mailto:)/i.test(x.url as string);
     case 'nav': return (HOME_SECTIONS as readonly string[]).includes(x.section as string);
