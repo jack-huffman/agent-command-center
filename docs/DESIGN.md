@@ -632,9 +632,9 @@ development, `claude --plugin-dir plugin` loads it in place, and
 runs `claude plugin validate --strict` on both (D-042).
 
 `plugin/bin/` is generated, but it's committed, because a plugin installed
-from git has no build step. It's refreshed only by a release build
-(`npm run package`), which copies the launcher and `acc.mjs` together, so a
-branch's checks never touch it.
+from git has no build step. It's refreshed only by `npm run package`, which
+copies the launcher and `acc.mjs` together, last, once the package has passed
+its checks, so a branch's checks never touch it.
 
 `bin/acc` is a small POSIX sh launcher, the same one everywhere acc ships
 (D-077). It runs `acc.mjs` beside it with `$ACC_NODE` if set, else node 20 or
@@ -653,12 +653,37 @@ anything unexpected it prints nothing and exits 0.
 |---|---|---|
 | SessionStart | | Links the session to its task. On a resume or compaction, gives the builder its short instructions again |
 | PreToolUse | `Edit\|Write\|MultiEdit\|NotebookEdit` | Stops a builder editing outside its worktree, or editing an environment-specific file |
-| PreToolUse | `Bash` | Stops a builder from pushing at all, `gh pr merge`/`create`/`close`, a real `sf project deploy` (anything but `--dry-run`), deleting an org, `fixes` or `closes` keywords in a commit message, `--no-verify`, switching branch, `git worktree`, `reset --hard`, and the acc commands that are a person's (`set`, `dispatch`, `review`, `land`, `gate waive`, `promote`, `deploy`, `init`, `cleanup`) |
+| PreToolUse | `Bash` | Stops a builder from pushing at all, `gh pr merge`/`create`/`close`, a release (`npm run release`, `gh release create`/`upload`/`edit`/`delete`), a real `sf project deploy` (anything but `--dry-run`), deleting an org, `fixes` or `closes` keywords in a commit message, `--no-verify`, switching branch, `git worktree`, `reset --hard`, and the acc commands that are a person's (`set`, `dispatch`, `review`, `land`, `gate waive`, `promote`, `deploy`, `init`, `cleanup`) |
 | Stop | | If a builder's task is still running, reminds it of the finish line, once a session |
 
 The plugin doesn't install the permission hook (D-030) everywhere: it would
 send your own interactive sessions' prompts to the page. `acc dispatch` adds it
 to builders.
+
+### Releases
+
+acc, the extension, the plugin and its marketplace entry share one version,
+the root package.json's (D-079). A release goes:
+
+1. `npm run set-version -- <x.y.z>` writes it to every manifest, and a
+   `## <x.y.z>` entry in `CHANGELOG.md` says what changed, in plain words. Both
+   go through a branch and a pull request like any change.
+2. On main, after the merge, `npm run package`. It refuses a version whose
+   manifests disagree or that has no CHANGELOG entry, before building. Then it
+   runs the checks, makes `dist/agent-command-center-<x.y.z>.vsix`, and scans
+   the `.vsix` and the plugin for the packager's personal data: home paths,
+   their git emails, their GitHub accounts, their name in a `.claude` or `.acc`
+   path, and tracker sites. Each find is printed as `<package>: <file>:<line>:
+   <what>`, and stops the package with no `.vsix` and plugin/bin unchanged. A
+   clean package refreshes plugin/bin; commit it and push.
+3. `npm run release` makes GitHub Release `v<x.y.z>` of main, as the repo's
+   account, with the `.vsix` attached and the CHANGELOG entry as its notes. It
+   runs only in a terminal, asks for the version to be typed, and refuses when
+   anything doesn't match: the branch, the commit on GitHub, the tree, the
+   versions, the `.vsix`, plugin/bin, or the scan, run again.
+
+Builders can't release: their hooks and settings deny `npm run release` and
+`gh release create`, `upload`, `edit` and `delete`.
 
 ## 14. VSCode extension
 

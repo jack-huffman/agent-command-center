@@ -176,5 +176,6 @@ test('the built acc runs with no node on PATH, on the recorded runtime', () => {
   assert.notEqual(spawnSync('/bin/sh', ['-c', 'command -v node'], { env }).status, 0, 'no node on this PATH');
   const r = launch(join(ROOT, 'extension', 'dist', 'bin', 'acc'), ['--version'], env);
   assert.equal(r.code, 0, r.err);
-  assert.match(r.out, /^\d+\.\d+\.\d+\n$/);
+  // The one version, the root package.json's (D-079).
+  assert.equal(r.out, `${JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version}\n`);
 });

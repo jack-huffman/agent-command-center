@@ -1,0 +1,16 @@
+{
+  "event": "pre-tool-use",
+  "env": {
+    "ACC_ROLE": "builder",
+    "ACC_TASK": "T-1"
+  },
+  "input": {
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "gh release create v9.9.9 dist/agent-command-center-9.9.9.vsix --notes x"
+    },
+    "hook_event_name": "PreToolUse",
+    "cwd": "{wt}"
+  },
+  "expect": "deny:Releases are a person's"
+}

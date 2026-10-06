@@ -4,17 +4,25 @@
 // acc ships as two files side by side, everywhere it ships (D-077): `acc`, a small sh launcher that finds
 // a runtime, and `acc.mjs`, the bundle it runs. So acc works with no Node installed.
 import { build } from 'esbuild';
-import { chmodSync, copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { shipCli } from './ship-cli.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 // The CLI builds into dist/, which git ignores. The plugin's tracked copy, plugin/bin/, is refreshed only
-// for a release (--release, as npm run package does), so a branch's checks never change it and pull
-// requests don't conflict over a generated file (D-042).
-const release = process.argv.includes('--release');
+// by npm run package, after the package passes its checks, so a branch's checks never change it and pull
+// requests don't conflict over a generated file (D-042, D-079).
 const dist = join(root, 'dist');
 const ext = join(root, 'extension');
+
+// acc's version is the root package.json's (D-079). The bundle gets that one field, not the whole file.
+const versionOnly = {
+  name: 'version-only',
+  setup(b) {
+    b.onLoad({ filter: /[\\/]package\.json$/ }, (a) => ({ contents: JSON.stringify({ version: JSON.parse(readFileSync(a.path, 'utf8')).version }), loader: 'json' }));
+  },
+};
 
 await build({
   entryPoints: [join(root, 'packages', 'cli', 'src', 'main.ts')],
@@ -25,22 +33,10 @@ await build({
   format: 'esm',
   legalComments: 'none',
   logLevel: 'warning',
+  plugins: [versionOnly],
 });
-
-/** Puts the launcher and the bundle in a folder together: one never ships without the other. */
-function shipCli(dir) {
-  mkdirSync(dir, { recursive: true });
-  copyFileSync(join(root, 'packages', 'cli', 'bin', 'acc'), join(dir, 'acc'));
-  chmodSync(join(dir, 'acc'), 0o755);
-  if (dir !== dist) copyFileSync(join(dist, 'acc.mjs'), join(dir, 'acc.mjs'));
-  chmodSync(join(dir, 'acc.mjs'), 0o644);
-}
-shipCli(dist);
+shipCli(root, dist);
 console.log(`built ${join(dist, 'acc')}`);
-if (release) {
-  shipCli(join(root, 'plugin', 'bin'));
-  console.log(`released ${join(root, 'plugin', 'bin')}`);
-}
 
 const { generate } = await import('../extension/scripts/generate.ts');
 const changed = generate();
@@ -58,7 +54,7 @@ await build({
   legalComments: 'none',
   logLevel: 'warning',
 });
-shipCli(join(ext, 'dist', 'bin'));
+shipCli(root, join(ext, 'dist', 'bin'));
 copyFileSync(join(root, 'docs', 'ONBOARDING.md'), join(ext, 'dist', 'ONBOARDING.md'));
 
 // The editor tabs: a browser bundle, its styles, and VSCode's own icon font.

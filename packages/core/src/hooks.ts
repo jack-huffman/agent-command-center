@@ -138,6 +138,9 @@ export function guardBash(b: Builder, line: string): string | null {
       if (sub === 'reset' && args.includes('--hard')) return 'Don\'t reset --hard: it throws away work. Revert or amend what you need instead.';
     }
     if (cmd === 'gh' && sub === 'pr' && ['merge', 'create', 'close'].includes(rest[0] ?? '')) return 'Pull requests are a person\'s: acc land opens one after review, and a person merges it.';
+    if ((cmd === 'gh' && sub === 'release' && ['create', 'upload', 'edit', 'delete'].includes(rest[0] ?? ''))
+      || (cmd === 'npm' && (sub === 'run' || sub === 'run-script') && rest[0] === 'release')
+      || (cmd === 'node' && args.some((a) => a.endsWith('scripts/release.mjs')))) return 'Releases are a person\'s: they run npm run release on main, after the merge. Finish with acc done.';
     if (cmd === 'sf' && sub === 'project' && rest[0] === 'deploy') {
       const verb = rest[1];
       if (verb === 'quick' || verb === 'resume' || (verb === 'start' && !rest.includes('--dry-run'))) return 'Builders validate and never deploy (D-011). Use acc gate run validate, which is a check-only deploy.';

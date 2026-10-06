@@ -1,0 +1,395 @@
+// Packaging this repo (D-079): one version, the CHANGELOG, the personal-data scan, npm run package's order,
+// and npm run release's guards. The packager's words are planted here, never read from this machine.
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { test } from 'node:test';
+import { run, type Runner, type RunOptions, type RunResult } from '../../packages/core/src/exec.ts';
+import { bad, ok, tempDir } from '../../packages/core/test/support.ts';
+import {
+  changelogEntry, changelogProblems, CHANGELOG, matcher, NO_TERMS, packageRelease, parseSignIn, personalTerms, PLACEHOLDERS, readVersions, release, ROOT,
+  scanFiles, scanLine, scanVsix, setVersion, type Terms, VERSION_PLACES, versionProblems, vsixName, filesIn,
+} from '../packaging.ts';
+
+const VERSION = readVersions(ROOT)[0]!.version!;
+const REPO = 'jack-huffman/agent-command-center';
+const SHA = 'a'.repeat(40);
+
+/** A folder with copies of the repo's own versioned files. */
+function root(files: Record<string, string> = {}): string {
+  const dir = tempDir('acc-pack-');
+  for (const f of new Set(VERSION_PLACES.map((p) => p.file))) {
+    mkdirSync(dirname(join(dir, f)), { recursive: true });
+    copyFileSync(join(ROOT, f), join(dir, f));
+  }
+  for (const [f, text] of Object.entries(files)) {
+    mkdirSync(dirname(join(dir, f)), { recursive: true });
+    writeFileSync(join(dir, f), text);
+  }
+  return dir;
+}
+
+const plant = (dir: string, file: string, from: string, to: string) => writeFileSync(join(dir, file), readFileSync(join(dir, file), 'utf8').replace(from, to));
+
+/** A zip made by macOS's own zip, from these files. */
+function zip(out: string, files: Record<string, string>): string {
+  const src = tempDir('acc-zip-');
+  for (const [f, text] of Object.entries(files)) {
+    mkdirSync(dirname(join(src, f)), { recursive: true });
+    writeFileSync(join(src, f), text);
+  }
+  mkdirSync(dirname(out), { recursive: true });
+  rmSync(out, { force: true });
+  const r = spawnSync('/usr/bin/zip', ['-q', '-r', out, '.'], { cwd: src, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  return out;
+}
+
+/** A runner that answers from fixtures (exact, or the longest prefix), says no to the rest, and really unzips. */
+function stub(fixtures: Record<string, RunResult | ((args: string[], opts?: RunOptions) => RunResult)>, calls: string[] = []): Runner {
+  const keys = Object.keys(fixtures).sort((a, b) => b.length - a.length);
+  return (cmd, args, opts) => {
+    if (cmd === '/usr/bin/unzip') return run(cmd, args, opts);
+    const line = [cmd, ...args].join(' ');
+    calls.push(line);
+    const key = keys.find((k) => line === k || line.startsWith(`${k} `));
+    if (!key) return bad('', 1);
+    const f = fixtures[key]!;
+    return typeof f === 'function' ? f(args, opts) : f;
+  };
+}
+
+const PAT: Terms = {
+  ...NO_TERMS,
+  emails: ['pat.lee@corp.example'],
+  logins: ['pat-lee', 'jack-huffman'],
+  names: ['patlee', 'pat lee'],
+  hosts: ['client.atlassian.net'],
+  repos: ['client-co/app'],
+  allowed: [`github.com/${REPO}`],
+};
+
+const PLANTED = [
+  '// a bundle',
+  'const x = 1;',
+  'const home = "/Users/pat-lee/Documents/x";',
+  'const y = 2;',
+  'const z = 3;',
+  'const w = 4;',
+  'const mail = "pat.lee@corp.example";',
+  'by pat-lee',
+  'const dir = "~/.claude/projects/-Users-patlee-Work";',
+  'fetch("https://client.atlassian.net/rest")',
+  'const notes = "~/.acc/pat-lee-notes/today";',
+  '',
+].join('\n');
+
+// ---------------------------------------------------------------- one version
+
+test('everything that ships says the root package.json\'s version, and acc --version does too', () => {
+  assert.match(VERSION, /^\d+\.\d+\.\d+$/);
+  assert.deepEqual(versionProblems(readVersions(ROOT)), []);
+  assert.deepEqual(readVersions(ROOT).map((v) => v.version), VERSION_PLACES.map(() => VERSION));
+  const r = spawnSync(process.execPath, ['--no-warnings', join(ROOT, 'packages', 'cli', 'src', 'main.ts'), '--version'], { encoding: 'utf8' });
+  assert.equal(r.stdout, `${VERSION}\n`);
+});
+
+test('a manifest that says another version is named', () => {
+  const dir = root();
+  assert.deepEqual(versionProblems(readVersions(dir)), []);
+  plant(dir, 'plugin/.claude-plugin/plugin.json', `"version": "${VERSION}"`, '"version": "0.33.9"');
+  const problems = versionProblems(readVersions(dir));
+  assert.equal(problems.length, 1);
+  assert.match(problems[0]!, /^plugin\/\.claude-plugin\/plugin\.json says 0\.33\.9, not /);
+  plant(dir, '.claude-plugin/marketplace.json', `"version": "${VERSION}"`, '"version": "0.1.0"');
+  assert.match(versionProblems(readVersions(dir))[1]!, /marketplace\.json \(the acc plugin\) says 0\.1\.0/);
+});
+
+test('set-version changes the version in every place and no other byte', () => {
+  const dir = root();
+  const before = new Map([...new Set(VERSION_PLACES.map((p) => p.file))].map((f) => [f, readFileSync(join(dir, f), 'utf8')]));
+  const changed = setVersion(dir, '9.8.7');
+  assert.deepEqual(changed.sort(), [...before.keys()].sort());
+  assert.deepEqual(versionProblems(readVersions(dir)), []);
+  assert.equal(readVersions(dir)[0]!.version, '9.8.7');
+  for (const [f, text] of before) assert.equal(readFileSync(join(dir, f), 'utf8'), text.replaceAll(`"version": "${VERSION}"`, '"version": "9.8.7"'), `${f}: only its version changed`);
+  assert.throws(() => setVersion(dir, '1.2'), /isn't a version/);
+  plant(dir, 'extension/package.json', '"version": "9.8.7"', '"versio": "9.8.7"');
+  assert.throws(() => setVersion(dir, '1.0.0'), /extension\/package\.json \(found 0\)/);
+  assert.equal(readVersions(dir)[0]!.version, '9.8.7', 'nothing was written');
+});
+
+// ---------------------------------------------------------------- the CHANGELOG
+
+test('a CHANGELOG entry is found by its version; the shape is newest first, once each, with notes', () => {
+  const text = '# Changelog\n\n## 0.35.0\n\n- New things.\n\n## 0.34.0\n\n- Old things.\n- More.\n\n## Earlier versions\n\nSee git log.\n';
+  assert.equal(changelogEntry(text, '0.35.0'), '- New things.');
+  assert.equal(changelogEntry(text, '0.34.0'), '- Old things.\n- More.');
+  assert.equal(changelogEntry(text, '0.36.0'), null);
+  assert.equal(changelogEntry('## 0.35.0\n\n## 0.34.0\n\n- x\n', '0.35.0'), null, 'an empty entry is no entry');
+  assert.deepEqual(changelogProblems(text), []);
+  assert.deepEqual(changelogProblems('## 0.34.0\n\n- a\n\n## 0.35.0\n\n- b\n'), [`${CHANGELOG}:5: 0.35.0 comes after 0.34.0. List the newest first.`]);
+  assert.deepEqual(changelogProblems('## 0.35.0\n\n- a\n\n## 0.35.0\n\n- b\n'), [`${CHANGELOG}:5: 0.35.0 is listed twice.`]);
+  assert.deepEqual(changelogProblems('## v0.35.0\n\n- a\n'), [`${CHANGELOG}:1: "## v0.35.0" isn't a version. Head each release ## x.y.z.`, `${CHANGELOG} lists no versions. Head each release ## x.y.z.`]);
+  assert.deepEqual(changelogProblems('## 0.35.0\n\n## 0.34.0\n\n- a\n'), [`${CHANGELOG}:1: 0.35.0 has no notes.`]);
+  assert.deepEqual(changelogProblems('## Earlier versions\n\nx\n\n## 0.35.0\n\n- a\n'), [`${CHANGELOG}:1: "## Earlier versions" must be the last heading.`]);
+});
+
+test('the repo\'s CHANGELOG has an entry for its version, in shape', () => {
+  const text = readFileSync(join(ROOT, CHANGELOG), 'utf8');
+  assert.deepEqual(changelogProblems(text), []);
+  assert.ok(changelogEntry(text, VERSION), `${CHANGELOG} has notes for ${VERSION}`);
+});
+
+// ---------------------------------------------------------------- no personal data
+
+test('the scan names each planted home path, email, account, name and tracker by file and line', () => {
+  const dir = tempDir('acc-scan-');
+  writeFileSync(join(dir, 'x.js'), PLANTED);
+  const hits = scanFiles(filesIn(dir, 'plugin'), matcher(PAT)).map((h) => `${h.file}:${h.line}: ${h.what}`);
+  for (const want of [
+    'plugin/x.js:3: a home path (/Users/pat-lee)',
+    'plugin/x.js:7: the packager\'s email (pat.lee@corp.example)',
+    'plugin/x.js:8: a GitHub account of the packager\'s or the repo\'s (pat-lee)',
+    'plugin/x.js:9: a home path, encoded (-Users-patlee)',
+    'plugin/x.js:9: a .claude or .acc path with the packager\'s name (~/.claude/projects/-Users-patlee-Work)',
+    'plugin/x.js:10: a Jira site (client.atlassian.net)',
+    'plugin/x.js:10: a tracker the packager signed in to (client.atlassian.net)',
+    'plugin/x.js:11: a .claude or .acc path with the packager\'s name (~/.acc/pat-lee-notes/today)',
+  ]) assert.ok(hits.includes(want), `${want}\n in ${hits.join('\n')}`);
+  assert.ok(hits.every((h) => !/:(1|2|4|5|6|12): /.test(h)), 'clean lines say nothing');
+});
+
+test('the scan opens a .vsix and names the file inside it', () => {
+  const vsix = zip(join(tempDir('acc-vsix-out-'), 'a.vsix'), { 'extension/dist/x.js': PLANTED, 'extension/package.json': '{"version":"1.0.0"}\n', '[Content_Types].xml': '<Types/>\n' });
+  const r = scanVsix(vsix, matcher(PAT));
+  assert.equal(r.files, 3);
+  const hits = r.hits.map((h) => `${h.file}:${h.line}: ${h.what}`);
+  assert.ok(hits.includes('extension/dist/x.js:3: a home path (/Users/pat-lee)'), hits.join('\n'));
+  assert.ok(hits.includes('extension/dist/x.js:7: the packager\'s email (pat.lee@corp.example)'));
+});
+
+test('placeholders and the repo\'s own address are never flagged, beside a real hit', () => {
+  const m = matcher(PAT);
+  const real = ['the packager\'s email (pat.lee@corp.example)'];
+  for (const p of [
+    'acme.atlassian.net', 'example.atlassian.net', 'jordan-kim', 'jordan', 'jordan@acme.example', 'you@example.com', 'dev.azure.com/acme', 'acme.visualstudio.com',
+    `https://github.com/${REPO}`, `https://github.com/${REPO}.git`, `https://github.com/${REPO}/issues`, '/Users/you/x', '/home/jordan/x', '/Users/jordan-kim/x', '~/.claude/projects/-Users-jordan-kim-acme',
+    '~/.claude/settings.json', '~/.acc/runtime', 'dev.azure.com/${org}', 'dev.azure.com/<organization>', 'https://x.example/home/page', 'src/home/page', 'JackHuffman.agent-command-center',
+  ]) assert.deepEqual(scanLine(`${p} pat.lee@corp.example`, m), real, p);
+  assert.deepEqual(scanLine('owner: jack-huffman', m), ['a GitHub account of the packager\'s or the repo\'s (jack-huffman)']);
+  assert.deepEqual(scanLine(`see github.com/jack-huffman and ${REPO}`, m).length, 1, 'only github.com/<the repo> may stay');
+  assert.deepEqual(scanLine('github.com/client-co/app', m), ['a repo the packager signed in to a tracker for (client-co/app)']);
+  assert.deepEqual(scanLine('https://dev.azure.com/contoso/_git/x and fabrikam.visualstudio.com', m), ['an Azure DevOps organization (dev.azure.com/contoso)', 'an Azure DevOps organization (fabrikam.visualstudio.com)']);
+  assert.deepEqual(PLACEHOLDERS, ['acme', 'jordan-kim', 'jordan', 'example', 'you']);
+});
+
+test('the packager\'s words come from git, gh, their name and VSCode\'s sign-in names, never a sign-in\'s value', () => {
+  const dir = root({ '.acc/config.json': JSON.stringify({ github: { repo: REPO, account: 'jack-huffman' }, commitIdentity: { name: 'jack-huffman', email: 'jh@corp.example' } }) });
+  const state = join(dir, 'state.vscdb');
+  const db = new DatabaseSync(state);
+  db.exec('CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB)');
+  const put = db.prepare('INSERT INTO ItemTable (key, value) VALUES (?, ?)');
+  for (const key of [`acc.cred:github:client-co/app:jira:client.atlassian.net`, `acc.cred:github:${REPO}:jira:other.atlassian.net`, 'acc.cred:git:/tmp/x:azure:clientorg', 'acc.cred:github:acme/service:azure:acme', 'workbench.something']) {
+    put.run(`secret://${JSON.stringify({ extensionId: 'jackhuffman.agent-command-center', key })}`, 'SECRET-TOKEN-VALUE');
+  }
+  db.close();
+  const broken = join(dir, 'broken.vscdb');
+  writeFileSync(broken, 'not a database');
+  const gh = 'github.com\n  ✓ Logged in to github.com account pat-lee (keyring)\n  - Active account: true\n  ✓ Logged in to github.com account pat-work (keyring)\n  - Active account: false\n';
+  const home = '/Users/pat-lee';
+  const { terms, notes } = personalTerms({
+    root: dir, env: {}, home, username: 'patlee', vscodeState: [state, broken, join(dir, 'missing.vscdb')],
+    run: stub({
+      'git config --get-all user.email': ok('pat.lee@corp.example\n'),
+      'git config --global --includes --get-all user.email': ok('Pat.Lee@Corp.Example\nyou@example.com\n'),
+      'git config --global --includes --get-all user.name': ok('Pat Lee\n'),
+      'git config --global --get-regexp ^include(if\\..*)?\\.path$': ok('includeif.gitdir:~/work/.path ~/.gitconfig-work\ninclude.path .gitconfig-more\n'),
+      [`git config --file ${home}/.gitconfig-work --includes --get-all user.email`]: ok('pat@work.example\n'),
+      [`git config --file ${home}/.gitconfig-more --includes --get-all user.email`]: ok('pat@more.example\n'),
+      'gh auth status --hostname github.com': ok(gh),
+      'id -F': ok('Pat Lee\n'),
+    }),
+  });
+  assert.deepEqual(terms.emails, ['jh@corp.example', 'pat.lee@corp.example', 'pat@more.example', 'pat@work.example'], 'every scope and included file, the config\'s, deduplicated, placeholders dropped');
+  assert.deepEqual(terms.logins, ['jack-huffman', 'pat-lee', 'pat-work']);
+  assert.deepEqual(terms.names, ['jack-huffman', 'pat lee', 'patlee']);
+  assert.deepEqual(terms.hosts, ['client.atlassian.net', 'clientorg.visualstudio.com', 'dev.azure.com/clientorg', 'other.atlassian.net']);
+  assert.deepEqual(terms.repos, ['client-co/app'], 'the repo\'s own isn\'t a client\'s');
+  assert.deepEqual(terms.allowed, [`github.com/${REPO}`]);
+  assert.doesNotMatch(JSON.stringify(terms), /SECRET/);
+  assert.equal(notes.length, 1);
+  assert.match(notes[0]!, /^Couldn't read VSCode's sign-ins in .*broken\.vscdb .*checked by pattern only\.$/);
+  assert.deepEqual(parseSignIn('acc.cred:git:/a/b:jira:x.atlassian.net'), { hosts: ['x.atlassian.net'], repo: null });
+  const noted = (vscodeState: string[]) => personalTerms({ root: dir, env: {}, home, username: 'patlee', vscodeState, run: stub({}) }).notes.join('\n');
+  assert.match(noted([join(dir, 'missing.vscdb')]), /weren't found, so tracker sites are checked by pattern only/);
+  assert.match(noted([]), /weren't read \(ACC_VSCODE_STATE is empty\)/);
+});
+
+// ---------------------------------------------------------------- npm run package
+
+interface Steps { calls: string[]; shipped: boolean }
+
+function packageWith(dir: string, bundle: string) {
+  const s: Steps = { calls: [], shipped: false };
+  const r = packageRelease({
+    root: dir,
+    log: () => {},
+    check: () => { s.calls.push('check'); return true; },
+    vsce: (out) => { s.calls.push('vsce'); zip(out, { 'extension/dist/extension.js': bundle, 'extension/package.json': `{"version":"${VERSION}"}\n` }); return true; },
+    shipPlugin: () => { s.shipped = true; },
+    terms: () => ({ terms: PAT, notes: [] }),
+  });
+  return { r, ...s };
+}
+
+function packagable(changelog = `## ${VERSION}\n\n- Things.\n`): string {
+  return root({
+    [CHANGELOG]: changelog, '.acc/config.json': JSON.stringify({ github: { repo: REPO, account: 'jack-huffman' } }),
+    'plugin/skills/a/SKILL.md': '# A skill\n', 'dist/acc': '#!/bin/sh\n', 'dist/acc.mjs': '// acc\n',
+  });
+}
+
+test('npm run package refuses a version with no CHANGELOG entry before it builds anything', () => {
+  for (const changelog of ['## 0.0.1\n\n- Old.\n', `## ${VERSION}\n\n## 0.0.1\n\n- Old.\n`]) {
+    const p = packageWith(packagable(changelog), '// clean\n');
+    assert.deepEqual(p.r, { ok: false, problems: [`${CHANGELOG} has no entry for ${VERSION}. Add "## ${VERSION}" and what changed, newest first.`] });
+    assert.deepEqual(p.calls, [], 'nothing built');
+  }
+  const dir = packagable();
+  plant(dir, 'extension/package.json', `"version": "${VERSION}"`, '"version": "0.0.2"');
+  const p = packageWith(dir, '// clean\n');
+  assert.equal(p.r.ok, false);
+  assert.deepEqual(p.calls, []);
+});
+
+test('a package with personal data in it is deleted, and plugin/bin is left alone', () => {
+  const dir = packagable();
+  const vsix = join(dir, 'dist', vsixName(VERSION));
+  const p = packageWith(dir, '// a\nconst h = "/Users/pat-lee/x";\n');
+  assert.equal(p.r.ok, false);
+  if (!p.r.ok) assert.ok(p.r.problems.includes(`${vsixName(VERSION)}: extension/dist/extension.js:2: a home path (/Users/pat-lee)`), p.r.problems.join('\n'));
+  assert.equal(existsSync(vsix), false, 'no .vsix left behind');
+  assert.equal(p.shipped, false);
+
+  writeFileSync(join(dir, 'dist', 'acc.mjs'), '// acc\nconst m = "pat.lee@corp.example";\n');
+  const q = packageWith(dir, '// clean\n');
+  assert.equal(q.r.ok, false);
+  if (!q.r.ok) assert.ok(q.r.problems.includes('plugin: plugin/bin/acc.mjs:2: the packager\'s email (pat.lee@corp.example)'), q.r.problems.join('\n'));
+  assert.equal(q.shipped, false);
+
+  writeFileSync(join(dir, 'dist', 'acc.mjs'), '// acc\n');
+  const r = packageWith(dir, '// clean\n');
+  assert.deepEqual(r.r, { ok: true, vsix });
+  assert.deepEqual(r.calls, ['check', 'vsce']);
+  assert.equal(r.shipped, true, 'a clean package refreshes plugin/bin, last');
+});
+
+// ---------------------------------------------------------------- npm run release
+
+const RELEASE_URL = `https://github.com/${REPO}/releases/tag/v${VERSION}`;
+
+/** A repo ready to release: the versions, an entry, the .vsix, and plugin/bin the same as the .vsix's. */
+function releasable(): string {
+  const dir = packagable(`## ${VERSION}\n\n- What changed.\n\n## 0.0.1\n\n- Old.\n`);
+  const bin = { acc: '#!/bin/sh\nexec node acc.mjs\n', 'acc.mjs': '// the bundle\n' };
+  zip(join(dir, 'dist', vsixName(VERSION)), { 'extension/package.json': `{"version":"${VERSION}"}\n`, 'extension/dist/bin/acc': bin.acc, 'extension/dist/bin/acc.mjs': bin['acc.mjs'] });
+  mkdirSync(join(dir, 'plugin', 'bin'), { recursive: true });
+  for (const [f, text] of Object.entries(bin)) writeFileSync(join(dir, 'plugin', 'bin', f), text);
+  return dir;
+}
+
+interface Tried { reason: string | null; url: string | null; calls: string[]; created: { args: string[]; env?: NodeJS.ProcessEnv; notes: string } | null; asked: boolean }
+
+async function releaseWith(dir: string, o: { tty?: boolean; env?: NodeJS.ProcessEnv; typed?: string; fixtures?: Record<string, RunResult> } = {}): Promise<Tried> {
+  const t: Tried = { reason: null, url: null, calls: [], created: null, asked: false };
+  const runner = stub({
+    'git symbolic-ref --short HEAD': ok('main\n'),
+    'git fetch --quiet origin main': ok(),
+    'git rev-parse HEAD': ok(`${SHA}\n`),
+    'git rev-parse origin/main': ok(`${SHA}\n`),
+    'git status --porcelain --untracked-files=no': ok(''),
+    'git ls-remote --tags origin': ok(''),
+    'gh auth token -u jack-huffman': ok('tok-123\n'),
+    'gh release view': bad('release not found'),
+    'gh release create': (args, opts) => {
+      const notes = args[args.indexOf('--notes-file') + 1]!;
+      t.created = { args, env: opts?.env, notes: readFileSync(notes, 'utf8') };
+      return ok(`${RELEASE_URL}\n`);
+    },
+    ...o.fixtures,
+  }, t.calls);
+  const r = await release({
+    root: dir, run: runner, env: o.env ?? {}, isTTY: o.tty ?? true,
+    ask: async () => { t.asked = true; return o.typed ?? VERSION; },
+    terms: () => ({ terms: PAT, notes: [] }), log: () => {},
+  });
+  if (r.ok) t.url = r.url;
+  else t.reason = r.reason;
+  return t;
+}
+
+test('npm run release makes the release as the repo\'s account, with the .vsix and its CHANGELOG entry', async () => {
+  const dir = releasable();
+  const t = await releaseWith(dir);
+  assert.equal(t.reason, null);
+  assert.equal(t.url, RELEASE_URL);
+  assert.ok(t.asked, 'a person typed the version');
+  const notesAt = t.created!.args[t.created!.args.length - 1]!;
+  assert.deepEqual(t.created!.args, ['release', 'create', `v${VERSION}`, join(dir, 'dist', vsixName(VERSION)), '-R', REPO, '--target', SHA, '--title', VERSION, '--notes-file', notesAt]);
+  assert.equal(t.created!.env?.GH_TOKEN, 'tok-123');
+  assert.equal(t.created!.notes, '- What changed.\n');
+  assert.equal(existsSync(notesAt), false, 'the notes file is removed');
+  assert.ok(t.calls.includes('gh auth token -u jack-huffman'));
+});
+
+test('npm run release honours the clone\'s own account (D-028)', async () => {
+  const t = await releaseWith(releasable(), { fixtures: { 'git config --get acc.githubAccount': ok('jh-work\n'), 'gh auth token -u jh-work': ok('tok-work\n') } });
+  assert.equal(t.created?.env?.GH_TOKEN, 'tok-work');
+});
+
+test('npm run release refuses, saying why, unless a person runs it on a clean, pushed main', async () => {
+  const refused = async (why: RegExp, dir: string, o: Parameters<typeof releaseWith>[1] = {}) => {
+    const t = await releaseWith(dir, o);
+    assert.match(t.reason ?? '(released)', why);
+    assert.equal(t.created, null, `${why}: nothing created`);
+    return t;
+  };
+  const noTty = await refused(/npm run release is a person's, run in a terminal/, releasable(), { tty: false });
+  assert.deepEqual(noTty.calls, [], 'refused before running anything');
+  await refused(/ACC_ROLE is builder/, releasable(), { env: { ACC_ROLE: 'builder' } });
+  await refused(/HEAD is task\/x, not main/, releasable(), { fixtures: { 'git symbolic-ref --short HEAD': ok('task/x\n') } });
+  await refused(/HEAD \(aaaaaaa\) isn't origin\/main \(bbbbbbb\)/, releasable(), { fixtures: { 'git rev-parse origin/main': ok(`${'b'.repeat(40)}\n`) } });
+  await refused(/uncommitted changes/, releasable(), { fixtures: { 'git status --porcelain --untracked-files=no': ok(' M scripts/x.ts\n') } });
+
+  const versions = releasable();
+  plant(versions, 'plugin/.claude-plugin/plugin.json', `"version": "${VERSION}"`, '"version": "0.33.9"');
+  await refused(/plugin\.json says 0\.33\.9/, versions);
+
+  const noEntry = releasable();
+  writeFileSync(join(noEntry, CHANGELOG), '## 0.0.1\n\n- Old.\n');
+  await refused(new RegExp(`${CHANGELOG} has no entry for ${VERSION.replaceAll('.', '\\.')}`), noEntry);
+
+  const noVsix = releasable();
+  rmSync(join(noVsix, 'dist', vsixName(VERSION)));
+  await refused(/There's no dist\/agent-command-center-.*\.vsix\. Run npm run package/, noVsix);
+  const oldVsix = releasable();
+  zip(join(oldVsix, 'dist', vsixName(VERSION)), { 'extension/package.json': '{"version":"0.0.1"}\n' });
+  await refused(/holds version 0\.0\.1, not /, oldVsix);
+
+  const otherAcc = releasable();
+  writeFileSync(join(otherAcc, 'plugin', 'bin', 'acc.mjs'), '// another bundle\n');
+  await refused(/plugin\/bin\/acc\.mjs isn't the acc\.mjs in the \.vsix/, otherAcc);
+
+  const personal = releasable();
+  writeFileSync(join(personal, 'plugin', 'skills', 'a', 'SKILL.md'), '# A skill\n\nSee /Users/pat-lee/notes.\n');
+  await refused(/plugin: plugin\/skills\/a\/SKILL\.md:3: a home path \(\/Users\/pat-lee\)/, personal);
+
+  await refused(/is already released: https:/, releasable(), { fixtures: { 'gh release view': ok(`${RELEASE_URL}\n`) } });
+  await refused(/tag v.* is already on GitHub/, releasable(), { fixtures: { 'git ls-remote --tags origin': ok(`${SHA}\trefs/tags/v${VERSION}\n`) } });
+  await refused(/gh isn't logged in as jack-huffman/, releasable(), { fixtures: { 'gh auth token -u jack-huffman': bad('no account') } });
+  const typo = await refused(/You typed "0\.0\.9", not .*Nothing was released/, releasable(), { typed: '0.0.9' });
+  assert.ok(typo.asked);
+});

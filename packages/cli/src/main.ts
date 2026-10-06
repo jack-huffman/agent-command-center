@@ -16,8 +16,10 @@ import {
 import { issueRepo } from '../../core/src/trackers/github.ts';
 import type { Outside } from '../../core/src/trackers/types.ts';
 import { checkLabel, gateLabel, stateLabel, table, tone } from './format.ts';
+import pkg from '../../../package.json' with { type: 'json' };
 
-const VERSION = '0.1.0';
+// One version for acc, the extension, the plugin and the marketplace: the root package.json's (D-079).
+const VERSION = pkg.version;
 const now = () => new Date();
 
 const HELP = `acc ${VERSION}: Agent Command Center

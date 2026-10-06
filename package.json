@@ -1,5 +1,6 @@
 {
   "name": "agent-command-center",
+  "version": "0.35.0",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -10,12 +11,14 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json && tsc -p extension/tsconfig.json && tsc -p extension/webview/tsconfig.json",
-    "test": "node --no-warnings --test --test-reporter=spec \"packages/*/test/*.test.ts\" \"extension/test/*.test.ts\"",
+    "test": "node --no-warnings --test --test-reporter=spec \"packages/*/test/*.test.ts\" \"extension/test/*.test.ts\" \"scripts/test/*.test.ts\"",
     "build": "node --no-warnings scripts/build.mjs",
     "screenshot": "node --no-warnings extension/scripts/screenshot.ts",
     "check": "npm run typecheck && npm run build && npm test",
     "acc": "node --no-warnings packages/cli/src/main.ts",
-    "package": "npm run check && node --no-warnings scripts/build.mjs --release && mkdir -p dist && cd extension && vsce package --no-dependencies --skip-license -o ../dist/",
+    "package": "node --no-warnings scripts/package.mjs",
+    "release": "node --no-warnings scripts/release.mjs",
+    "set-version": "node --no-warnings scripts/set-version.mjs",
     "install-extension": "node scripts/install-extension.mjs",
     "validate-plugin": "claude plugin validate --strict plugin && claude plugin validate --strict ."
   },

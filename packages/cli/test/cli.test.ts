@@ -24,7 +24,10 @@ function repoWithConfig(config: unknown = GENERIC_CONFIG): string {
 
 test('help, version and bad usage', () => {
   const dir = makeRepo();
-  assert.equal(acc(dir, ['--version']).out.trim(), '0.1.0');
+  // The one version, the root package.json's (D-079).
+  const { version } = JSON.parse(readFileSync(fileURLToPath(new URL('../../../package.json', import.meta.url)), 'utf8')) as { version: string };
+  assert.equal(acc(dir, ['--version']).out, `${version}\n`);
+  assert.match(acc(dir, ['help']).out, new RegExp(`^acc ${version.replaceAll('.', '\\.')}: Agent Command Center`));
   assert.match(acc(dir, ['help']).out, /acc doctor/);
   assert.equal(acc(dir, ['nope']).code, 2);
   assert.equal(acc(dir, ['--nope']).code, 2);
