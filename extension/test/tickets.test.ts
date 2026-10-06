@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { accRefusal, cardTracking, liveTrackKeys, outsideKeys, placeCandidates, rowAnalysis, type TaskRow, trackInput, type TrackSteps, trackTicket } from '../src/logic.ts';
+import { accImport, accRefusal, cardTracking, liveTrackKeys, outsideKeys, placeCandidates, rowAnalysis, type TaskRow, trackInput, type TrackSteps, trackTicket } from '../src/logic.ts';
 import type { Analysis } from '../../packages/core/src/analyze.ts';
 import { type BoardInput, initials, isFromWebview, priorityIcon, ticketActionRefusal, ticketModel, trackerBoard, typeIcon } from '../src/model.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
@@ -371,4 +372,18 @@ test('a board reload keeps a Track on its way and a refusal for a card still sho
   assert.deepEqual(cardTracking(cards, (k) => states[k]!), { 'ACME-31': states['ACME-31'], 'ACME-32': states['ACME-32'] }, 'only cards on their way, or with a reason');
   const boards = new Map([['/r', [{ board: { cards: [{ key: 'acme-30' }, { key: 'ACME-32' }] } }, { board: null }]]]);
   assert.deepEqual([...liveTrackKeys(['/r#ACME-99'], boards)].sort(), ['/r#ACME-30', '/r#ACME-32', '/r#ACME-99'], 'one on its way survives its card leaving the board; a loading board keeps nothing');
+});
+
+test('Track hands acc the ticket through a file, asks for --json, and leaves no file behind (D-074)', async () => {
+  const input = [{ source: { kind: 'jira', key: 'ACME-31', url: null }, title: 'Email the account owner', brief: 'Soon.', labels: [] }];
+  let seen: { args: string[]; cwd: string; body: unknown; file: string } | null = null;
+  const r = await accImport(async (args, cwd) => {
+    const file = args[args.indexOf('--file') + 1]!;
+    seen = { args, cwd, body: JSON.parse(readFileSync(file, 'utf8')), file };
+    return { code: 0, stdout: '{"added":["ACME-31"]}', stderr: '' };
+  }, '/r', input as never);
+  assert.equal(r.code, 0);
+  assert.deepEqual([seen!.args[0], seen!.args.at(-1), seen!.cwd, seen!.body], ['import', '--json', '/r', input]);
+  assert.equal(existsSync(seen!.file), false, 'the file is removed once acc has read it');
+  await assert.rejects(accImport(async () => { throw new Error('acc crashed'); }, '/r', input as never), /acc crashed/);
 });

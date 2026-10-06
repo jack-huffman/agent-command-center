@@ -13,7 +13,7 @@ import { JiraClient } from '../../packages/core/src/trackers/jira.ts';
 import { type Board, type Exec, movesInto, placeText, type Ticket, type TrackerClient, TrackerError, type Transition } from '../../packages/core/src/trackers/types.ts';
 import { Pending } from '../webview/pending.ts';
 import type { Hub, Project } from './hub.ts';
-import { cardTracking, credKey, liveTrackKeys, outsideKeys, placeCandidates, repoKey, type TrackReply, type TrackState, trackTicket } from './logic.ts';
+import { accImport, cardTracking, credKey, liveTrackKeys, outsideKeys, placeCandidates, repoKey, type TrackReply, type TrackState, trackTicket } from './logic.ts';
 import { runFile } from './run.ts';
 
 type AccRun = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
@@ -307,14 +307,7 @@ export class Trackers implements vscode.Disposable {
       },
       importTasks: async (input) => {
         if (!this.acc) throw new Error('This window can\'t run acc.');
-        const dir = mkdtempSync(join(tmpdir(), 'acc-track-'));
-        try {
-          const file = join(dir, 'task.json');
-          writeFileSync(file, JSON.stringify(input));
-          return await this.acc(['import', '--file', file, '--json'], p.root);
-        } finally {
-          rmSync(dir, { recursive: true, force: true });
-        }
+        return accImport(this.acc, p.root, input);
       },
       reload: () => this.hub.loadTasks(true),
       changed,

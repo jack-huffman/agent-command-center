@@ -2,7 +2,9 @@
  * Everything the extension decides, with no `vscode` import, so it can be tested with node:test.
  * The walkthrough is generated from core's step list (D-017): one source for the GUI and `acc doctor`.
  */
-import { dirname } from 'node:path';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import type { Analysis } from '../../packages/core/src/analyze.ts';
 import { AUTOPILOT_REVIEW_DOES, type AutopilotRecord } from '../../packages/core/src/autopilot.ts';
 import type { TaskInput } from '../../packages/core/src/ledger.ts';
@@ -453,6 +455,21 @@ export const repoKey = (p: { config: { github: { repo: string } | null }; ledger
 
 /** Where VSCode keeps one repo's sign-in to one tracker host: acc.cred:github:acme/service:jira:acme.atlassian.net. */
 export const credKey = (p: Parameters<typeof repoKey>[0], kind: string, host: string): string => `acc.cred:${repoKey(p)}:${kind}:${host}`;
+
+/**
+ * `acc import --json` with these tasks, through a file that's removed after. --json is what accRefusal
+ * reads acc's reasons from (D-074).
+ */
+export async function accImport(acc: (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>, root: string, input: TaskInput[]): Promise<{ code: number; stdout: string; stderr: string }> {
+  const dir = mkdtempSync(join(tmpdir(), 'acc-track-'));
+  try {
+    const file = join(dir, 'task.json');
+    writeFileSync(file, JSON.stringify(input));
+    return await acc(['import', '--file', file, '--json'], root);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 /** What `acc import` takes for a tracker's ticket: its title, description and label names. The ticket isn't changed (D-066). */
 export function trackInput(t: Pick<Ticket, 'kind' | 'key' | 'url' | 'title' | 'markdown' | 'labels'>): TaskInput[] {
