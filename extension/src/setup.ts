@@ -6,7 +6,7 @@ import { type Config, parseConfig } from '../../packages/core/src/config.ts';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import type { Step } from '../../packages/core/src/onboarding/types.ts';
 import {
-  COMMANDS, contextKey, type DoctorItem, EXTENSION_ID, type EnvLike, hasPlaceholder, initCommand, isComplete, needsTerminal, productionOrgs,
+  COMMANDS, contextKey, type DoctorItem, EXTENSION_ID, type EnvLike, hasPlaceholder, initCommand, isComplete, type MachineCache, needsTerminal, productionOrgs, reusableMachine,
   setupOrgChoices, sfOpenCommand, statusText, summarize, WALKTHROUGHS, activeGhAccount, expectedOrgUrl, shq,
 } from './logic.ts';
 import { parseOrgUrl } from '../../packages/core/src/onboarding/helpers.ts';
@@ -173,14 +173,14 @@ export class Setup implements vscode.Disposable {
         this.changed.fire();
         await (async () => {
           const started = Date.now();
-          const cached = this.ctx.globalState.get<{ at: number; items: DoctorItem[] }>('acc.machineItems');
-          const reuse = opts.reuseMachine && cached && Date.now() - cached.at < MACHINE_FRESH_MS;
-          const items: DoctorItem[] = reuse ? [...cached.items] : await this.doctor(['--part', 'machine']);
-          if (!reuse) await this.ctx.globalState.update('acc.machineItems', { at: Date.now(), items });
+          const profile = this.config()?.profile ?? 'none';
+          const reused = opts.reuseMachine ? reusableMachine(this.ctx.globalState.get<MachineCache>('acc.machineItems'), profile, Date.now(), MACHINE_FRESH_MS) : null;
+          const items: DoctorItem[] = reused ? [...reused] : await this.doctor(['--part', 'machine']);
+          if (!reused) await this.ctx.globalState.update('acc.machineItems', { at: Date.now(), profile, items } satisfies MachineCache);
           if (this.isProject()) items.push(...(await this.doctor(['--part', 'project'])));
           await this.apply(items);
           const fails = items.filter((i) => i.status === 'fail');
-          this.log.info(`Checked ${items.length} steps (${reason}${reuse ? ', machine results reused' : ''}) in ${((Date.now() - started) / 1000).toFixed(1)} s: ${fails.length} failing.`);
+          this.log.info(`Checked ${items.length} steps (${reason}${reused ? ', machine results reused' : ''}) in ${((Date.now() - started) / 1000).toFixed(1)} s: ${fails.length} failing.`);
           for (const f of fails) this.log.warn(`${f.id} ${f.title}: ${f.detail}`);
         })();
       } finally {

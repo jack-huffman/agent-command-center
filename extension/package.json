@@ -706,13 +706,14 @@
           {
             "id": "A1.node",
             "title": "Node 20 or later",
-            "description": "The acc CLI runs on Node.\n\n[Check](command:acc.step.check?%5B%22A1.node%22%5D)\n[Do it](command:acc.step.fix?%5B%22A1.node%22%5D)",
+            "description": "The Salesforce CLI and its plugins run on Node, and npm installs them. acc itself doesn't need it.\n\n[Check](command:acc.step.check?%5B%22A1.node%22%5D)\n[Do it](command:acc.step.fix?%5B%22A1.node%22%5D)",
             "media": {
               "markdown": "media/steps/A1.node.md"
             },
             "completionEvents": [
               "onContext:acc.step.A1.node"
-            ]
+            ],
+            "when": "acc.profile != generic"
           },
           {
             "id": "A1.gh",

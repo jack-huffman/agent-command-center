@@ -6,7 +6,7 @@ import type { RunResult } from '../src/exec.ts';
 import { makeContext, parseOrgUrl } from '../src/onboarding/helpers.ts';
 import { runSteps, STEPS } from '../src/onboarding/steps.ts';
 import type { CheckStatus } from '../src/onboarding/types.ts';
-import { fakeRunner, gitIn, makeRepo, ok, SF_CONFIG, sf, tempDir } from './support.ts';
+import { fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, SF_CONFIG, sf, tempDir } from './support.ts';
 
 const SANDBOX_Q = 'sf data query --use-tooling-api -q SELECT SandboxName, LicenseType FROM SandboxInfo';
 const TRACK_Q = 'sf data query --use-tooling-api -q SELECT COUNT() FROM SourceMember';
@@ -196,6 +196,25 @@ test('an old CLI without --bg fails A1.claude with the update command', () => {
   const res = runSteps(ctx, 'machine').find((x) => x.step.id === 'A1.claude')!;
   assert.equal(res.result.status, 'fail');
   assert.equal(res.step.fix?.command, 'claude update');
+});
+
+test('Claude Code that isn\'t installed is installed with Homebrew, which needs no Node', () => {
+  const f = healthy();
+  f['claude --version'] = { code: 127, stdout: '', stderr: 'not found' };
+  const ctx = makeContext(tempDir(), fakeRunner(f), testEnv());
+  const res = runSteps(ctx, 'machine', ['A1.claude'])[0]!.result;
+  assert.equal(res.status, 'fail');
+  assert.equal(res.fix, 'brew install --cask claude-code');
+});
+
+test('Node is a Salesforce project\'s step: acc itself doesn\'t need it (D-???)', () => {
+  const generic = makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG) });
+  assert.equal(statuses(generic)['A1.node'], undefined, 'a generic project doesn\'t ask for it');
+  assert.equal(statuses(generic)['A1.git']!.status, 'pass');
+  assert.equal(statuses(sfRepo())['A1.node']!.status, 'pass');
+  // With no project open, the machine part still lists it, as it does A1.sf.
+  assert.equal(statuses(tempDir())['A1.node']!.status, 'pass');
+  assert.ok(!STEPS.find((s) => s.id === 'A1.node')!.profiles!.includes('generic'));
 });
 
 /** A1.claude-billing with only the given environment, a temporary home folder, and the settings files given. */
