@@ -34,6 +34,7 @@ interface GhPr {
   headRefName?: string;
   /** The commit a merge left on the base: a squash or a merge commit, which a deploy finds (D-066). */
   mergeCommit?: { oid?: string } | null;
+  mergedAt?: string | null;
   statusCheckRollup?: { status?: string; conclusion?: string | null; state?: string }[] | null;
 }
 
@@ -103,7 +104,7 @@ export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now:
   }
   const promoted = new Map<number, GhPr>();
   for (const n of promotions) {
-    const p = view(n, 'number,state,url,mergeCommit');
+    const p = view(n, 'number,state,url,mergeCommit,mergedAt');
     if (p) promoted.set(n, p);
   }
   // Whether each open one still merges into its base, worked out here: GitHub says only that it conflicts.
@@ -186,6 +187,7 @@ export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now:
           const mergeSha = mergeShaOf(p);
           promotion.state = 'merged';
           if (mergeSha) promotion.mergeSha = mergeSha;
+          if (p.mergedAt && !Number.isNaN(Date.parse(p.mergedAt))) promotion.mergedAt = p.mergedAt;
           change.note = `promotion #${p.number} merged into ${env}`;
           if (!before) arrived.push({ change, env });
         } else {

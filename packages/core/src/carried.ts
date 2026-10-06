@@ -16,7 +16,9 @@ import type { PromotionPlan } from './promote.ts';
  */
 export function arrivedAt(t: Pick<Task, 'environment' | 'pr' | 'promotions'>, branch: string): string | undefined {
   if (t.environment === branch && t.pr?.state === 'merged') return t.pr.mergeSha ?? t.pr.sha;
-  return t.promotions?.find((p) => p.to === branch && p.state === 'merged' && p.mergeSha)?.mergeSha;
+  // Two promotions can take it there at once: it arrived with whichever merged first, so it never moves later.
+  const merged = (t.promotions ?? []).filter((p) => p.to === branch && p.state === 'merged' && p.mergeSha);
+  return merged.sort((a, b) => (a.mergedAt ?? a.at).localeCompare(b.mergedAt ?? b.at))[0]?.mergeSha;
 }
 
 const git = (run: Runner, root: string, ...args: string[]) => run('git', args, { cwd: root });

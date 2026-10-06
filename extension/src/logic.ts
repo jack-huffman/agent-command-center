@@ -276,13 +276,13 @@ export const questionsWord = (n: number): string => `${n} question${n === 1 ? ''
 /** acc's arguments for a person's answer (D-012). The words come after --, so an answer that starts with - stays words. */
 export const analysisAnswerArgs = (task: string, question: string, text: string): string[] => ['analysis', 'answer', task, question, '--json', '--', text];
 
-/** The files an open pull request conflicts in with its base, or none (D-049). */
 /**
  * Whether acc sync has a pull request to follow for a task: its own, still open, or a promotion taking it
  * on, whose merge tells its ticket the change is in the next environment (D-075).
  */
 export const followsPullRequests = (row: Pick<TaskRow, 'pr' | 'promoting'>): boolean => row.pr?.state === 'open' || !!row.promoting;
 
+/** The files an open pull request conflicts in with its base, or none (D-049). */
 export const prConflicts = (row: Pick<TaskRow, 'pr'>): string[] => (row.pr?.state === 'open' ? row.pr.conflicts ?? [] : []);
 
 /** Files in a sentence: the first few, then how many more. */

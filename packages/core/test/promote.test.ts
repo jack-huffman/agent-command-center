@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { arrivedAt, carriedTasks } from '../src/carried.ts';
 import { parseConfig, type Config } from '../src/config.ts';
-import { deploy, deployArgs, lastDeploy, planDeploy } from '../src/deploy.ts';
+import { deploy, deployArgs, deployedTasks, lastDeploy, planDeploy } from '../src/deploy.ts';
 import { run, type RunOptions } from '../src/exec.ts';
 import { planPromotion, promote, promotionBody, promotionCheckArgs, skippedOn } from '../src/promote.ts';
 import { repoPaths } from '../src/paths.ts';
@@ -430,4 +430,16 @@ test('promoted, merged, then deployed: a deploy to UAT tells each ticket whose c
   assert.deepEqual(listUpdates(paths).map((u) => [u.id, u.event, u.env, u.text, u.replaces]), [
     ['ACME-1.3', 'deployed', 'UAT', 'The change is now deployed to UAT.', ['ACME-1.2', 'ACME-1.1']],
   ], 'ready to go, then in UAT, then deployed there: one draft');
+  // Each environment has its own arrival: the merge into UAT doesn't make a deploy of Dev tell it again.
+  const task = taskIn(paths, 'ACME-1');
+  assert.equal(arrivedAt(task, 'dev'), task.pr!.mergeSha);
+  const devTip = gitIn(dir, 'rev-parse', 'dev');
+  assert.deepEqual(deployedTasks(paths, run, { env: c.environments.find((e) => e.branch === 'dev')!, base: devTip, head: devTip }).map((t) => t.id), []);
+});
+
+test('a task two promotions took to UAT arrived with the one that merged first, so its arrival never moves later (D-075)', () => {
+  const p = (n: number, sha: string, at: string, mergedAt?: string): Promotion => ({ from: 'dev', to: 'uat', pr: { number: n, url: `https://github.com/o/r/pull/${n}` }, state: 'merged', mergeSha: sha.repeat(40), at, ...(mergedAt ? { mergedAt } : {}) });
+  const both = [p(9, 'a', '2026-10-06T10:00:00Z', '2026-10-06T12:00:00Z'), p(10, 'b', '2026-10-06T11:00:00Z', '2026-10-06T11:30:00Z')];
+  assert.equal(arrivedAt({ environment: 'dev', pr: null, promotions: both }, 'uat'), 'b'.repeat(40), 'merged first, though opened second');
+  assert.equal(arrivedAt({ environment: 'dev', pr: null, promotions: both.map(({ mergedAt: _m, ...x }) => x) }, 'uat'), 'a'.repeat(40), 'with no merge times, the first opened');
 });

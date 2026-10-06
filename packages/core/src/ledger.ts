@@ -79,6 +79,8 @@ export interface Promotion {
   state: 'open' | 'merged' | 'closed';
   /** The commit its merge left on `to`, kept by acc sync, so a deploy of `to` knows it carried the task. */
   mergeSha?: string;
+  /** When GitHub merged it, so of two that took a task there, the first to merge is where it arrived. */
+  mergedAt?: string;
   at: string;
 }
 

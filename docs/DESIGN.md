@@ -443,8 +443,12 @@ update when:
 
 - a pull request opens, or is updated, for review (`acc land`, autopilot)
 - a task's pull request merges into its environment (`acc sync`)
+- a promotion takes a task's change on to the next environment (`acc promote`):
+  "ready to go to UAT", then "now in UAT" once `acc sync` sees it merge (D-075)
 - a deploy carries a merged task to its org (`acc deploy`): each task whose
-  merge commit, which `acc sync` keeps as `pr.mergeSha`, is in what was deployed
+  change arrived on that branch in what was deployed, by its own merge commit
+  (`pr.mergeSha`, kept by `acc sync`) or by the merge of the promotion that took
+  it there
 - a builder is stuck on something only the client can answer:
   `acc block --client "<question>"`. A plain block stays internal.
 - a person sends one of the analysis's questions to the client (`acc update ask`)
