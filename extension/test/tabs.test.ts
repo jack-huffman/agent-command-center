@@ -331,6 +331,11 @@ test('an update edited on its task\'s page shows that edit in Needs you, with Ed
   assert.deepEqual(asked.map(([, id, replaces]) => [id, replaces]), [['AV-1.3', ['AV-1.2', 'AV-1.1']], ['AV-2.1', []]], 'it asks for drafts only, through the drafts each replaced');
   assert.equal(needsYouCount(homeModel({ ...input, edited }).overview), needsYouCount(homeModel(input).overview), 'an edited update needs you just the same');
 
+  // A claim to post that may have gone out still warns so, though its page holds an edit.
+  const stale = draft('AV-3.1', { state: 'posting', posting: { at: '2026-10-05T12:00:00.000Z', by: 'human:me' } });
+  const warned = homeModel({ ...input, hub: { ...input.hub, updates: () => [stale] }, edited }).overview.attention.find((a) => a.update)!;
+  assert.deepEqual([warned.look.label, warned.look.icon, warned.update!.edited, warned.actions[0]!.primary], ['May have posted', 'warning', 'Posting this one.', true]);
+
   // Without the task page, or once its edit is gone, the row is as acc drafted it.
   const plain = homeModel(input).overview.attention.filter((a) => a.update);
   assert.deepEqual(plain.map((a) => [a.look.label, a.update!.edited, a.actions[0]!.primary]), [['Draft update', null, undefined], ['Draft update', null, undefined], ['Posting', null, undefined]]);

@@ -1538,7 +1538,8 @@ export function homeModel(i: HomeInput): HomeModel {
       // Edited on its task's page and not sent: the Overview shows that edit, and it's posted from there,
       // so Post here can't send acc's text instead.
       const edit = drafted.state === 'draft' || drafted.stale ? i.edited?.(p.root, drafted.id, drafted.replaces) ?? null : null;
-      const card = edit !== null && edit.trim() !== drafted.text.trim() ? { ...drafted, edited: edit, look: LOOK('Edited on the task page', 'edit', 'orange') } : drafted;
+      // One that may have posted already keeps saying so (D-051): that warning comes before the edit.
+      const card = edit !== null && edit.trim() !== drafted.text.trim() ? { ...drafted, edited: edit, look: drafted.stale ? drafted.look : LOOK('Edited on the task page', 'edit', 'orange') } : drafted;
       attention.push({
         key: `u:${p.root}:${card.id}`, look: card.look, title: card.stale ? `Update for ${card.key} may have posted` : `Update ready for ${card.key}`,
         detail: `${p.name} · ${card.about}`, project: p.name,

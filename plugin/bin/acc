@@ -1107,6 +1107,11 @@ function gatesFor(config) {
   const custom = Object.entries(config.gates.commands).map(([name, cmd]) => commandGate(name, cmd, heavy(name)));
   return [...builtIn.filter((g) => !config.gates.commands[g.name]), ...custom];
 }
+function priorTests(paths, config, sha) {
+  if (config.profile !== "salesforce") return [];
+  const tests = readReceipt(paths, sha, "validate")?.details?.tests;
+  return Array.isArray(tests) ? tests.filter((t) => typeof t?.name === "string" && typeof t?.reason === "string") : [];
+}
 function readList(root, rel) {
   if (!rel) return [];
   try {
@@ -2730,17 +2735,21 @@ function readList2(wt, rel) {
 var sleep2 = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 function findSession(run2, wt, name, waitMs) {
   const until = Date.now() + waitMs;
+  let found = null;
   do {
     const r = run2("claude", ["agents", "--json"], { cwd: wt, timeoutMs: 2e4 });
     try {
       const list = JSON.parse(r.stdout);
       const s = list.filter((x) => x.name === name && x.kind === "background").sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))[0];
-      if (s) return { bgId: s.id ?? null, sessionId: s.sessionId ?? null, pid: Number.isInteger(s.pid) && s.pid > 0 ? s.pid : null };
+      if (s) {
+        found = { bgId: s.id ?? null, sessionId: s.sessionId ?? null, pid: Number.isInteger(s.pid) && s.pid > 0 ? s.pid : null };
+        if (found.pid) return found;
+      }
     } catch {
     }
     if (Date.now() < until) sleep2(500);
   } while (Date.now() < until);
-  return { bgId: null, sessionId: null, pid: null };
+  return found ?? { bgId: null, sessionId: null, pid: null };
 }
 function dispatch(paths, config, id, deps, opts) {
   const { run: run2, now: now2 } = deps;
@@ -3159,6 +3168,7 @@ import { join as join14 } from "node:path";
 var STALE_POSTING_MS = 5 * 6e4;
 var UPDATE_TEXT_MAX = 65536;
 var UPDATE_ID = /^[A-Z][A-Z0-9_]*-\d+\.\d{1,6}$/;
+var REPLACES_MAX = 20;
 var updateFile = (paths, id) => join14(paths.updates, `${id}.json`);
 var EVENT_WORDS = {
   "pr-opened": "ready for review",
@@ -3258,7 +3268,8 @@ function draftUpdate(paths, task, input, by, now2) {
       ...input.pr ? { pr: { number: input.pr.number, url: input.pr.url } } : {},
       ...input.question ? { question: input.question } : {},
       createdAt: now2().toISOString(),
-      by
+      by,
+      ...replaced ? { replaces: [replaced.id, ...replaced.replaces ?? []].slice(0, REPLACES_MAX) } : {}
     };
     writeUpdate(paths, u);
     if (replaced) rmSync8(updateFile(paths, replaced.id), { force: true });
@@ -3581,10 +3592,6 @@ function resolveAppend(run2, wt, mergeBase, path, stages) {
   if (git8("update-index", "--cacheinfo", `${ours.mode},${blob.stdout.trim()},${path}`).code !== 0) return false;
   return git8("checkout", "--", path).code === 0;
 }
-function priorTests(paths, sha) {
-  const tests = readReceipt(paths, sha, "validate")?.details?.tests;
-  return Array.isArray(tests) ? tests.filter((t) => typeof t?.name === "string" && typeof t?.reason === "string") : [];
-}
 var samePath = (a, b) => {
   try {
     return realpathSync2(a) === realpathSync2(b);
@@ -3663,7 +3670,7 @@ function refresh(paths, config, id, deps, opts) {
   let failed = [];
   try {
     if (required.length) {
-      const ran = runGates(repoPaths(wt, run2), config, env, required, priorTests(paths, from), { run: run2, now: now2, slots: deps.slots });
+      const ran = runGates(repoPaths(wt, run2), config, env, required, priorTests(paths, config, from), { run: run2, now: now2, slots: deps.slots });
       failed = ran.results.filter((r) => !r.recorded || !satisfies(r.receipt)).map((r) => `${r.gate} ${!r.recorded ? "wasn't recorded" : r.status === "fail" ? "failed" : "couldn't run"}: ${r.summary.replace(/[.!?]$/, "")}${r.receipt.log ? ` (log ${r.receipt.log})` : ""}`);
     }
   } catch (e) {
@@ -4177,6 +4184,7 @@ function resumeClaimed(paths, config, id, deps, opts, c) {
 // packages/core/src/autopilot.ts
 var AUTOPILOT_BY = "orchestrator:autopilot";
 var AUTOPILOT_MIN_EVERY_S = 30;
+var AUTOPILOT_REVIEW_DOES = "reviews finished work, lands work whose review passed, re-dispatches a rework once, resumes a stopped builder once a run, and merges the base into a pull request that conflicts with it";
 function autopilotMode(config) {
   const autonomy = config.autonomy;
   if (autonomy === "manual") return { autonomy, on: false, warnings: [], refusal: null };
@@ -4186,7 +4194,7 @@ function autopilotMode(config) {
     autonomy,
     on: false,
     warnings,
-    refusal: 'autonomy "dispatch" (autopilot also starting Ready tasks) is not built yet. Set "autonomy" to "review" in .acc/config.json: autopilot then reviews, lands, re-dispatches a rework once, and resumes a stopped builder once a run.'
+    refusal: `autonomy "dispatch" (autopilot also starting Ready tasks) is not built yet. Set "autonomy" to "review" in .acc/config.json: autopilot then ${AUTOPILOT_REVIEW_DOES}.`
   };
 }
 var short2 = (sha) => sha.slice(0, 7) || "no commit";
@@ -4279,7 +4287,6 @@ function landStep(r) {
 function temporary(e, paths, config, id) {
   const code = e.code;
   if (code === "lock-timeout") return "The ledger was busy. Autopilot tries again next pass.";
-  if (code === "busy") return "The heavy-check slot stayed taken, so the merge was undone. Autopilot tries again next pass.";
   if (code === "agent-active") return `${e.message} Autopilot looks again next pass.`;
   if (code === "move-refused") {
     const n = running(readLedger(paths.ledger), id);
@@ -6089,7 +6096,7 @@ function cmdAutopilot(o) {
   if (!mode.on) {
     out(
       o,
-      () => 'autonomy is "manual" in .acc/config.json, so autopilot does nothing. Set it to "review" for autopilot to review, land, and re-dispatch a rework once.',
+      () => `autonomy is "manual" in .acc/config.json, so autopilot does nothing. Set it to "review" for autopilot to act: it then ${AUTOPILOT_REVIEW_DOES}.`,
       { autonomy: mode.autonomy, warnings: mode.warnings, steps: [], updates: [] }
     );
     return 0;
@@ -6181,7 +6188,7 @@ function cmdAgents(o, sub, roleArg) {
 }
 var AUTONOMY_WORDS = {
   manual: "nothing happens on its own.",
-  review: "autopilot reviews finished work, lands work whose review passed, re-dispatches a rework once, and resumes a stopped builder once a run. It never merges.",
+  review: `autopilot ${AUTOPILOT_REVIEW_DOES}. It never merges a pull request.`,
   dispatch: "as review, and it also starts Ready tasks. Not built yet: autopilot refuses.",
   full: "read as dispatch. Not built yet: autopilot refuses."
 };
