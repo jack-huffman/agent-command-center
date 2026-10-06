@@ -10,10 +10,10 @@ import { discardUpdate, draftUpdate, listUpdates } from './updates.ts';
 /**
  * Keeps tasks in step with their pull requests (D-033): merged is done, closed without merging is
  * blocked, and failing checks, a person's requested changes or a conflict with the base show the task
- * as needs you. It only reads GitHub, and fetches to see the conflicts (D-049). A task it moves to done
- * gets a draft update for its ticket, which a person posts (D-066): sync itself posts nothing. It follows
- * the promotions that took tasks on too (D-075): merged, each task's ticket hears its change is in the
- * next environment; closed without merging, the draft saying it was ready to go is set aside. Where the
+ * as needs you. It reads GitHub, and fetches to see the conflicts (D-049). A task it moves to done gets
+ * a draft update for its ticket, which a person posts (D-066). It follows the promotions that took tasks
+ * on too (D-075): merged, each task's ticket hears its change is in the next environment; closed without
+ * merging, the draft saying it was ready to go is set aside. The one change it makes on GitHub: where the
  * GitHub tracker says "edits": true, a task it moves to done has its issue closed in place of the draft,
  * with a comment naming the pull request (D-???), and a close that failed is tried again.
  */
