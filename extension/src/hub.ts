@@ -302,7 +302,7 @@ export class Hub implements vscode.Disposable {
         run: t.run,
         agent: look ? { label: look.label, icon: look.icon, tone: look.tone } : null,
         asking: !!asking,
-        review: verdict ? { verdict: verdict.verdict, summary: verdict.summary, current: !!head && verdict.sha === head } : null,
+        review: verdict ? { verdict: verdict.verdict, summary: verdict.summary, current: !!head && verdict.sha === head, at: verdict.at } : null,
         reviewing: live ? { sessionId: live.sessionId } : null,
         pr: t.pr ? { number: t.pr.number, url: t.pr.url, state: t.pr.state, ci: t.pr.ci ?? null, changesRequested: t.pr.changesRequested ?? false, conflicts: t.pr.conflicts ?? [] } : null,
         analysis,

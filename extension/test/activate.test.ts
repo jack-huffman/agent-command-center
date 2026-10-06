@@ -14,6 +14,8 @@ import { makeRepo } from '../../packages/core/test/support.ts';
 const dist = fileURLToPath(new URL('../dist/extension.js', import.meta.url));
 // The extension says it's listening for agents' questions (D-030); keep that out of the real ~/.acc.
 process.env.ACC_QUESTIONS_DIR = mkdtempSync(join(tmpdir(), 'acc-questions-'));
+// And Slack's claims (GH-58), which it prunes at start.
+process.env.ACC_SLACK_DIR = mkdtempSync(join(tmpdir(), 'acc-slack-'));
 // The extension runs acc as the person at VSCode, even when these tests run in a builder's session.
 delete process.env.ACC_ROLE;
 delete process.env.ACC_TASK;

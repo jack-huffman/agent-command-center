@@ -462,6 +462,24 @@
         "title": "Show command output",
         "category": "Agent Command Center",
         "icon": "$(output)"
+      },
+      {
+        "command": "acc.slack.connect",
+        "title": "Send notices to Slack…",
+        "category": "Agent Command Center",
+        "icon": "$(bell)"
+      },
+      {
+        "command": "acc.slack.test",
+        "title": "Send a test message to Slack",
+        "category": "Agent Command Center",
+        "icon": "$(send)"
+      },
+      {
+        "command": "acc.slack.off",
+        "title": "Stop sending notices to Slack",
+        "category": "Agent Command Center",
+        "icon": "$(debug-pause)"
       }
     ],
     "menus": {
@@ -1105,7 +1123,7 @@
         "agentCommandCenter.notifications": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Say when a task changes in a way that needs you or is news: a builder finished, a review passed or asked for changes, a pull request's checks failed or it merged. Quiet while the Command Center shows that board."
+          "markdownDescription": "Say when a task changes in a way that needs you or is news: a builder finished, a review passed or asked for changes, a pull request's checks failed or it merged. Quiet while the Command Center shows that board. Notices to Slack have their own switch, on the Environments section's Notices in Slack card."
         }
       }
     }

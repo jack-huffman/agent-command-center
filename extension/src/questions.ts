@@ -7,6 +7,7 @@ import {
 import type { Hub } from './hub.ts';
 import { isUnder, shq } from './logic.ts';
 import { type QuestionCard, questionCards } from './model.ts';
+import { questionEvent, type SlackSink } from './slack.ts';
 
 /** How a shell runs the bundled acc: by VSCode's own runtime, so node needn't be on PATH. */
 export const accShellCommand = (accScript: string): string => `ELECTRON_RUN_AS_NODE=1 ${shq(process.execPath)} ${shq(accScript)}`;
@@ -20,7 +21,9 @@ const TOAST_CODE_MAX = 120;
 /**
  * Agents' questions, from the folder `acc hook permission` writes to (D-030). While this window is
  * open it tells the hook it's listening for its folders, so their agents ask here instead of in a
- * terminal nobody is watching. A new question also raises a notification, unless it's already on screen.
+ * terminal nobody is watching. A new question also raises a notification, unless it's already on screen,
+ * and goes to Slack when a task's agent asks it (GH-58), on screen or not: each window offers it, and
+ * Slack's claim on its id sends it once.
  */
 export class Questions implements vscode.Disposable {
   private readonly hub: Hub;
@@ -28,6 +31,7 @@ export class Questions implements vscode.Disposable {
   private readonly dir: string;
   private readonly show: (q: QuestionCard) => void;
   private readonly onScreen: (q: QuestionCard) => boolean;
+  private readonly slack: SlackSink | null;
   private readonly timers: NodeJS.Timeout[] = [];
   private watcher: FSWatcher | null = null;
   private soon: NodeJS.Timeout | undefined;
@@ -37,11 +41,12 @@ export class Questions implements vscode.Disposable {
   private lastLook = 0;
   private historyMtime = -1;
 
-  constructor(hub: Hub, log: vscode.LogOutputChannel, show: (q: QuestionCard) => void, onScreen: (q: QuestionCard) => boolean, dir = questionsDir()) {
+  constructor(hub: Hub, log: vscode.LogOutputChannel, show: (q: QuestionCard) => void, onScreen: (q: QuestionCard) => boolean, slack: SlackSink | null = null, dir = questionsDir()) {
     this.hub = hub;
     this.log = log;
     this.show = show;
     this.onScreen = onScreen;
+    this.slack = slack;
     this.dir = dir;
   }
 
@@ -159,6 +164,8 @@ export class Questions implements vscode.Disposable {
 
   private async notify(q: Question): Promise<void> {
     const card = questionCards(this.hub).find((c) => c.id === q.id);
+    const p = card?.project ? this.hub.project(card.project) : undefined;
+    if (card && p) this.slack?.offer(questionEvent(q, { name: p.name, rows: this.hub.taskRows(p.root) }, card.task));
     if (!card || this.onScreen(card)) return;
     if (card.kind === 'question') {
       const first = card.questions[0];
