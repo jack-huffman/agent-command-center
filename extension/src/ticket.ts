@@ -1,6 +1,4 @@
 import { randomBytes } from 'node:crypto';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import type { RepoPaths } from '../../packages/core/src/paths.ts';
@@ -183,6 +181,7 @@ export class TicketPanels implements vscode.Disposable {
       signedInAs: o.tracker !== null ? await this.trackers.signedInAs(p, o.tracker) : null,
       analysis: task ? this.hub.analysis(p.root, task.id) : null,
       trackerEdits: this.edits(o, p), updates: this.hub.updates(p.root), boards: this.trackers.boardStates(p.root), github: p.config.github?.account ?? null,
+      tracking: this.trackers.trackState(p.root, o.key).busy,
     });
     void o.panel.webview.postMessage({ type: 'state', model });
   }
@@ -415,27 +414,15 @@ export class TicketPanels implements vscode.Disposable {
     return sha.code === 0 ? receiptsAt({ receipts: join(dirname(p.ledgerPath), 'receipts') } as RepoPaths, sha.stdout.trim()) : {};
   }
 
-  /** Adds a tracker ticket to acc's ledger, so an agent can be dispatched to it. The ticket isn't changed. */
+  /**
+   * Adds a tracker ticket to acc's ledger the way its card's Track does (D-074), so an agent can be
+   * dispatched to it. The ticket isn't changed. A Track already on its way, from here or the card, says nothing more.
+   */
   private async track(o: Open, p: Project): Promise<void> {
-    if (!o.ticket) return;
-    const t = o.ticket;
-    const input = [{
-      source: { kind: t.kind, key: t.kind === 'github' ? `#${t.key.replace(/^GH-/i, '')}` : t.key, url: t.url },
-      title: t.title, brief: t.markdown, labels: t.labels.map((l) => l.name),
-    }];
-    const dir = mkdtempSync(join(tmpdir(), 'acc-track-'));
-    try {
-      const file = join(dir, 'task.json');
-      writeFileSync(file, JSON.stringify(input));
-      const r = await this.acc(['import', '--file', file], p.root);
-      if (r.code !== 0) throw new Error((r.stderr || r.stdout).trim().split('\n')[0] || 'acc import failed');
-      await this.hub.loadTasks(true);
-      void vscode.window.showInformationMessage(`${o.key} is now a task in acc. Dispatch it from here or the board.`);
-    } catch (e) {
-      void vscode.window.showErrorMessage(`Couldn't track ${o.key}: ${(e as Error).message}`);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    if (o.tracker === null || !o.ticket) return;
+    const r = await this.trackers.track(p, o.tracker, o.key);
+    if (r.ok) void vscode.window.showInformationMessage(`${o.key} is now a task in acc. Dispatch it from here or the board.`);
+    else if ('error' in r) void vscode.window.showErrorMessage(`Couldn't track ${o.key}: ${r.error}`);
     await this.post(o);
   }
 }

@@ -322,7 +322,8 @@ const DONE = status('10', 'Done', 'done');
 
 /**
  * A Jira board with its own columns, the cards on it, and acc's tasks for some of them. Its tickets come
- * from one epic (D-072), and a task that started moved out of it.
+ * from one epic (D-072), and a task that started moved out of it. Three tickets acc doesn't keep yet show
+ * Track (D-074): ready, on its way, and refused because the ticket has since left the epic. One that's done has none.
  */
 export function sampleBoards(): BoardInput[] {
   const card = (n: number, title: string, s: { id: string; name: string }, type: string, extra: Partial<NonNullable<BoardInput['board']>['cards'][number]> = {}) =>
@@ -331,6 +332,10 @@ export function sampleBoards(): BoardInput[] {
     index: 0, kind: 'jira', title: 'Jira · ACME', error: null, connect: null, loading: false, signedInAs: 'jordan@acme.example',
     place: 'Jira · ACME · epic ACME-3 Premium Support',
     left: ['ACME-18 left this repo\'s place: it isn\'t in epic ACME-3; ACME-18 is still blocked'],
+    tracking: {
+      'ACME-31': { busy: true, error: null },
+      'ACME-32': { busy: false, error: 'ACME-32 isn\'t one of this repo\'s tickets, which come from Jira · ACME · epic ACME-3 Premium Support: it isn\'t in epic ACME-3.' },
+    },
     board: {
       source: 'jira-board', title: 'ACME Service board', url: 'https://acme.atlassian.net/jira/software/projects/ACME/boards/7', notice: null,
       columns: [
@@ -340,6 +345,10 @@ export function sampleBoards(): BoardInput[] {
       ],
       cards: [
         card(16, 'Add a field history report for Opportunity stage', TODO, 'Story', { priority: 'High', labels: [{ name: 'reporting', color: null }] }),
+        // Near the top, so the default screenshots show Track's three looks (D-074).
+        card(30, 'Archive closed cases older than seven years', TODO, 'Story', { labels: [{ name: 'service', color: null }] }),
+        card(31, 'Email the account owner when a premium case is opened', TODO, 'Task', { priority: 'High' }),
+        card(32, 'Hide the legacy SLA fields from the case layout', TODO, 'Task', { assignees: [{ name: 'Pat Lee' }] }),
         card(17, 'Dashboards for the escalation rules', TODO, 'Task'),
         card(21, 'Contact roles missing on converted leads', TODO, 'Bug', { priority: 'Highest', assignees: [{ name: 'Pat Lee' }], labels: [{ name: 'sales', color: null }] }),
         card(23, 'Rebuild the partner portal on Experience Cloud', TODO, 'Epic'),
@@ -352,6 +361,7 @@ export function sampleBoards(): BoardInput[] {
         card(27, 'Recalculate lead scores only when a scoring field changes', REVIEW, 'Story', { assignees: [{ name: 'Pat Lee' }] }),
         card(19, 'Fix the flow that double-sends welcome emails', QA, 'Bug', { priority: 'High' }),
         card(10, 'Add a CHANGELOG', DONE, 'Task', { priority: 'Lowest' }),
+        card(8, 'Turn off the old web-to-lead form', DONE, 'Task'),
       ],
     },
   }];
@@ -406,8 +416,11 @@ export function sampleConnect(which: ConnectSample): ConnectModel {
 
 const p = (text: string, marks?: string[]): AdfNode => ({ type: 'paragraph', content: [{ type: 'text', text, ...(marks ? { marks: marks.map((type) => ({ type })) } : {}) }] });
 
-/** Which ticket page to draw: ACME-12 being built, or a task to do whose analysis has questions or says to split it. */
-export type TicketSample = 'ACME-12' | 'ACME-21' | 'ACME-23' | 'ACME-29';
+/**
+ * Which ticket page to draw: ACME-12 being built, a task to do whose analysis has questions or says to
+ * split it, one whose builder stopped, or ACME-31, which acc doesn't keep yet, being tracked from its card.
+ */
+export type TicketSample = 'ACME-12' | 'ACME-21' | 'ACME-23' | 'ACME-29' | 'ACME-31';
 
 /** What GH-41's builder last said when the Mac slept (D-067). */
 export const SLEPT = 'API Error: Your computer went to sleep mid-response. The response above may be incomplete.';
@@ -417,6 +430,7 @@ export const ASKED = 'I\'ve added the reassignment flow and its test. Before I f
 /** A Jira ticket with everything a description can hold, and the acc task working on it. */
 export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12'): TicketModel {
   if (which === 'ACME-29') return sampleStoppedTicket(now);
+  if (which === 'ACME-31') return sampleUntrackedTicket(now);
   if (which !== 'ACME-12') return sampleTodoTicket(now, which);
   const hub = sampleHub(now);
   // Back with its builder after its pull request stopped merging into dev.
@@ -499,6 +513,21 @@ function sampleStoppedTicket(now: number): TicketModel {
     project: ROOT, tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira', key: 'ACME-29', ticket, loading: false, error: null, connect: null, row, task, signedInAs: 'jordan@acme.example',
     trackerEdits: false, updates: [], boards: sampleBoards(), github: 'jordan-kim', now,
     checks: ['format', 'static', 'validate'].map((gate) => ({ gate, status: 'skip' as const, summary: 'Not run on this commit' })),
+  });
+}
+
+/** A ticket acc doesn't keep yet, while its card's Track is on its way: its page says Tracking… too (D-074). */
+function sampleUntrackedTicket(now: number): TicketModel {
+  const ticket: Ticket = {
+    key: 'ACME-31', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-31', title: 'Email the account owner when a premium case is opened', type: 'Task',
+    status: TODO, assignees: [], reporter: { id: 'a2', name: 'Pat Lee' }, labels: [], priority: 'High',
+    created: new Date(now - 86_400_000).toISOString(), updated: new Date(now - 40 * MIN).toISOString(),
+    body: fromAdf({ type: 'doc', content: [p('Account owners hear about a new premium case only when it escalates. Email them as soon as one is opened, with its subject and priority.')] }),
+    markdown: '', comments: [], related: [{ key: 'ACME-3', title: 'Premium Support', relation: 'parent', url: null }],
+  };
+  return ticketModel({
+    project: ROOT, tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira', key: 'ACME-31', ticket, loading: false, error: null, connect: null, row: null, task: null, checks: [],
+    signedInAs: 'jordan@acme.example', trackerEdits: false, boards: sampleBoards(), github: 'jordan-kim', tracking: true, now,
   });
 }
 

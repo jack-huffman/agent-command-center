@@ -44,6 +44,16 @@ test('whatever leaves the page leaves no "Sending…" and no old error behind', 
   assert.equal(p.start('analysis:/r#ACME-1:q1', 'answer'), true);
 });
 
+test('what\'s on its way can be listed, so a card that left the board doesn\'t drop a Track still running (D-074)', () => {
+  const p = new Pending<'track'>();
+  p.start('/r#ACME-1', 'track');
+  p.start('/r#ACME-2', 'track');
+  p.settle('/r#ACME-2', 'no');
+  assert.deepEqual(p.inFlight(), ['/r#ACME-1']);
+  p.forget(new Set(p.inFlight()));
+  assert.deepEqual([p.what('/r#ACME-1'), p.error('/r#ACME-2')], ['track', undefined]);
+});
+
 // ACME-12's task page, its updates' keys as the page keeps them.
 const k = (id: string) => `update:/r#${id}`;
 const mine = (key: string) => key.startsWith('update:/r#ACME-12.');

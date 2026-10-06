@@ -20,11 +20,11 @@ import { type ConnectSample, SAMPLE_EDIT, sampleAgent, sampleBoards, sampleConne
 
 /**
  * Every page the screenshot script can draw: each section of the Command Center, a ticket's page (being
- * built, two to do whose analysis has questions or says to split it, and one whose builder stopped), an
- * agent's page, Setup with the output panel open on a command that's asking something, and the Connect
- * page at each of its steps (GH-51).
+ * built, two to do whose analysis has questions or says to split it, one whose builder stopped, and one
+ * acc doesn't keep yet, being tracked), an agent's page, Setup with the output panel open on a command
+ * that's asking something, and the Connect page at each of its steps (D-073).
  */
-export const PAGES = [...HOME_SECTIONS, 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'agent', 'output', 'connect-start', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing'] as const;
+export const PAGES = [...HOME_SECTIONS, 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'agent', 'output', 'connect-start', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing'] as const;
 export type Page = (typeof PAGES)[number];
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -64,6 +64,7 @@ export function sampleModel(kind: Page, now = Date.now()): Model {
   if (kind === 'ticket-questions') return sampleTicket(now, 'ACME-21');
   if (kind === 'ticket-split') return sampleTicket(now, 'ACME-23');
   if (kind === 'ticket-stopped') return sampleTicket(now, 'ACME-29');
+  if (kind === 'ticket-track') return sampleTicket(now, 'ACME-31');
   if (kind === 'agent') return sampleAgent(now);
   const hub = sampleHub(now);
   const connect = kind.startsWith('connect-') ? sampleConnect(kind.slice('connect-'.length) as ConnectSample) : null;

@@ -239,7 +239,7 @@ JSON. Adding monday.com later means adding one more producer.
 | Source | How | Dependencies from |
 |---|---|---|
 | GitHub Issues | `acc intake github [--label L]`, run directly through `gh` with the repo's account | `Depends on #N` and `Blocked by #N` lines in the issue body |
-| Jira, Azure DevOps | **Track in acc** on a ticket's page, or the `acc:intake` skill: Claude queries a connector for the tracker's place and pipes the results to `acc import` | "is blocked by" issue links |
+| Jira, Azure DevOps | **Track** on a ticket's card on the tracker's board, or **Track in acc** on its page (one way for both), or the `acc:intake` skill: Claude queries a connector for the tracker's place and pipes the results to `acc import` | "is blocked by" issue links |
 | Manual | `acc add "title" --brief …` | `--dep` |
 
 Intake is idempotent, keyed by tracker key, and it never changes the tracker.

@@ -23,6 +23,11 @@ export class Pending<W extends string> {
     return this.sending.get(key);
   }
 
+  /** Every key with something on its way. */
+  inFlight(): string[] {
+    return [...this.sending.keys()];
+  }
+
   /** Why the last try didn't go. */
   error(key: string): string | undefined {
     return this.errors.get(key);
