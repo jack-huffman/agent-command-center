@@ -23,7 +23,13 @@ Salesforce. Project types plug in as profiles.
 - **Boards and tickets:** the Tasks tab shows each tracker's own board: a
   Jira board's columns, an Azure DevOps team board's, or a GitHub Project's. Drag a card to move the real
   ticket. Click one for a ticket page, with the description, comments, status,
-  assignee and labels, plus acc's agent, checks and history.
+  assignee and labels, plus acc's agent, checks and history. Status, assignee
+  and labels change from there only when the tracker says `"edits": true`.
+- **Ticket updates are yours to post:** acc never posts on a ticket. When a pull
+  request is ready for review, merges, or deploys, or a builder needs the
+  client's answer, acc drafts an update in plain words. It waits in Needs you
+  and on the task's page, where you edit it and post it as yourself, or discard
+  it. `acc updates` lists them.
 - **Who you're working as:** the status bar shows the repo's GitHub account,
   and you can switch it for your clone alone. git push follows the switch, and
   boards and comments say who they act as.

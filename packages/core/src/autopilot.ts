@@ -4,7 +4,7 @@ import type { Autonomy, Config } from './config.ts';
 import { dispatch } from './dispatch.ts';
 import { AccError, type Runner } from './exec.ts';
 import { AUTOPILOT_STEPS, type AutopilotFailure, type AutopilotStepName, closedPr, type Ledger, type LedgerEvent, mutate, readLedger, type State, type Task } from './ledger.ts';
-import { land, type LandResult, type PendingComment } from './land.ts';
+import { land, type LandResult } from './land.ts';
 import { withLock } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
 import { refresh } from './refresh.ts';
@@ -152,18 +152,18 @@ export interface AutopilotStep {
   reason: string;
   /** A land's pull request. */
   pr?: { number: number; url: string; opened: boolean };
-  /** A GitHub issue's comment that gh didn't confirm. */
-  commentUnconfirmed?: string;
+  /** The update a land drafted for the ticket, which waits for a person to post it (D-066). */
+  update?: { id: string; key: string };
 }
 
 export interface AutopilotResult {
   steps: AutopilotStep[];
-  /** Comments for Jira and Azure DevOps tickets, which autopilot can't post: a person posts them. */
-  pendingComments: (PendingComment & { task: string })[];
+  /** The updates its lands drafted for tickets. Autopilot posts nothing: a person reviews and posts each (D-066). */
+  updates: { task: string; id: string; key: string }[];
 }
 
 /** What a step reports back to the pass. */
-type StepRun = Pick<AutopilotStep, 'reason' | 'pr' | 'commentUnconfirmed'> & { comment?: PendingComment | null };
+type StepRun = Pick<AutopilotStep, 'reason' | 'pr' | 'update'>;
 
 /** The steps autopilot takes. Tests put their own in. */
 export interface AutopilotSteps {
@@ -211,8 +211,7 @@ function landStep(r: LandResult): StepRun {
   return {
     reason: `${r.opened ? 'Opened' : 'Updated'} pull request #${r.pr.number}.`,
     pr: { number: r.pr.number, url: r.pr.url, opened: r.opened },
-    ...(r.commentUnconfirmed ? { commentUnconfirmed: r.commentUnconfirmed } : {}),
-    comment: r.comment,
+    ...(r.update ? { update: r.update } : {}),
   };
 }
 
@@ -252,7 +251,7 @@ function recordFailure(paths: RepoPaths, now: () => Date, id: string, failed: Au
  */
 export function autopilotPass(paths: RepoPaths, config: Config, deps: AutopilotDeps): AutopilotResult {
   const steps = { ...realSteps(paths, config, deps), ...deps.steps };
-  const out: AutopilotResult = { steps: [], pendingComments: [] };
+  const out: AutopilotResult = { steps: [], updates: [] };
   for (const id of readLedger(paths.ledger).tasks.map((t) => t.id)) {
     if (deps.stop?.()) break;
     const ledger = readLedger(paths.ledger);
@@ -268,8 +267,8 @@ export function autopilotPass(paths: RepoPaths, config: Config, deps: AutopilotD
     deps.onStep?.(id, d.step, facts.head);
     try {
       const r = steps[d.step](id);
-      out.steps.push({ task: id, state: task.state, step: d.step, sha, outcome: 'done', reason: r.reason, ...(r.pr ? { pr: r.pr } : {}), ...(r.commentUnconfirmed ? { commentUnconfirmed: r.commentUnconfirmed } : {}) });
-      if (r.comment) out.pendingComments.push({ task: id, ...r.comment });
+      out.steps.push({ task: id, state: task.state, step: d.step, sha, outcome: 'done', reason: r.reason, ...(r.pr ? { pr: r.pr } : {}), ...(r.update ? { update: r.update } : {}) });
+      if (r.update) out.updates.push({ task: id, ...r.update });
     } catch (e) {
       const wait = temporary(e, paths, config, id);
       if (wait) {

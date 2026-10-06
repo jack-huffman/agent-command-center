@@ -205,6 +205,23 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     assert.match((await reply(page, root, 'T-2')).error ?? '', /isn't for this task/, 'the task\'s page answers only its own questions');
     assert.match((await reply(page, root, 'T-1')).error ?? '', /hasn't been analyzed/);
 
+    // So does every Post, Discard and Send to the client (D-066): acc's refusal, or why not, comes back.
+    const updated = async (on: (typeof panels)[number], m: Record<string, unknown>): Promise<Done & { id?: string }> => {
+      const from = on.posted.length;
+      const done = () => on.posted.slice(from).find((x) => (x as Done).type === 'done') as (Done & { id?: string }) | undefined;
+      on.receive!(m);
+      await until(() => !!done());
+      return done()!;
+    };
+    const gone = await updated(tab, { type: 'update-discard', project: '/nowhere', id: 'T-1.1' });
+    assert.deepEqual([gone.action, gone.ok, gone.id], ['update-discard', false, 'T-1.1']);
+    assert.match(gone.error ?? '', /isn't open/);
+    assert.match((await updated(tab, { type: 'update-discard', project: root, id: 'T-1.1' })).error ?? '', /No update T-1\.1/);
+    assert.match((await updated(tab, { type: 'update-post', project: root, id: 'T-1.1', text: 'Hello' })).error ?? '', /isn't there any more/);
+    assert.match((await updated(tab, { type: 'update-ask', project: root, task: 'T-1', question: 'q1' })).error ?? '', /hasn't been analyzed/);
+    assert.match((await updated(page, { type: 'update-post', project: root, id: 'T-2.1', text: 'Hello' })).error ?? '', /isn't for this task/, 'the task\'s page posts only its own updates');
+    assert.match((await updated(page, { type: 'update-discard', project: root, id: 'T-1.1' })).error ?? '', /No update T-1\.1/);
+
     // Autopilot (D-064): a switch for the repo, hidden while its autonomy is manual, and off until clicked.
     assert.ok(calls.commands.has('acc.autopilot.toggle') && calls.commands.has('acc.autopilot.output'));
     // Its switch is in the one status bar item's menu (D-065), not an item of its own.

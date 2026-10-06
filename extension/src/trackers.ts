@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import * as vscode from 'vscode';
-import { type Tracker, withTracker } from '../../packages/core/src/config.ts';
+import { type Tracker, trackerForKey, withTracker } from '../../packages/core/src/config.ts';
 import { ghEnv, isGh } from '../../packages/core/src/exec.ts';
 import { AzureClient, azureBoards, azureProjects, azureTeams, azureWhoAmI, tenantOf } from '../../packages/core/src/trackers/azure.ts';
 import { GithubClient } from '../../packages/core/src/trackers/github.ts';
@@ -123,12 +123,7 @@ export class Trackers implements vscode.Disposable {
 
   /** Which tracker a ticket key belongs to: GH-12 to GitHub, AB-123 to Azure, MSP-7 to the Jira project MSP. */
   trackerFor(p: Project, key: string): number | null {
-    const k = key.toUpperCase();
-    const list = this.trackers(p);
-    const i = list.findIndex((t) => (/^GH-\d+$/.test(k) ? t.kind === 'github'
-      : t.kind === 'azure' ? k.startsWith(`${(t.prefix ?? 'AB').toUpperCase()}-`)
-        : t.kind === 'jira' && !!t.project && k.startsWith(`${t.project.toUpperCase()}-`)));
-    return i >= 0 ? i : null;
+    return trackerForKey(this.trackers(p), key);
   }
 
   boardStates(root: string): BoardState[] {

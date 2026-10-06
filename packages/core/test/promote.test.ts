@@ -7,6 +7,8 @@ import { deploy, deployArgs, lastDeploy, planDeploy } from '../src/deploy.ts';
 import { run, type RunOptions } from '../src/exec.ts';
 import { planPromotion, promote, promotionBody, promotionCheckArgs, skippedOn } from '../src/promote.ts';
 import { repoPaths } from '../src/paths.ts';
+import { mutate, upsertTasks } from '../src/ledger.ts';
+import { listUpdates } from '../src/updates.ts';
 import { fakeRunner, gitIn, makeRepo, ok, SF_CONFIG, tempDir } from './support.ts';
 
 const now = () => new Date('2026-10-02T12:00:00Z');
@@ -146,6 +148,46 @@ test('a deploy sends what changed on the branch since the last one, never an env
   assert.ok(!calls[0]!.includes('namedCredential') && !calls[0]!.includes('--dry-run'));
   assert.equal(lastDeploy(paths, 'dev')?.sha, gitIn(dir, 'rev-parse', 'HEAD').trim());
   assert.equal(deploy(paths, c, 'dev', { run: sfOk([]), now, slots }, { by: 'h' }).deployed, false, 'nothing new since the last deploy');
+});
+
+test('a deploy drafts an update for each task whose merged change it carried, and only those; a failed one drafts nothing (D-066)', () => {
+  const { dir, paths } = repo();
+  const c = config();
+  const slots = { dir: tempDir('slots-') };
+  gitIn(dir, 'checkout', '-q', 'dev');
+  const since = gitIn(dir, 'rev-parse', 'HEAD').trim();
+  write(dir, 'force-app/main/default/classes/C1.cls', 'public class C1 {}\n');
+  commit(dir, 'ACME-1 (#1)');
+  const first = gitIn(dir, 'rev-parse', 'HEAD').trim();
+  write(dir, 'force-app/main/default/classes/C2.cls', 'public class C2 {}\n');
+  commit(dir, 'ACME-2 (#2)');
+  const second = gitIn(dir, 'rev-parse', 'HEAD').trim();
+  gitIn(dir, 'push', '-q', 'origin', 'dev');
+  // ACME-1 squash-merged (sync kept its merge commit); ACME-2 merged with its own commit, from before
+  // acc kept merge commits; ACME-3 was in the last deploy; ACME-4 merged into another environment.
+  const merged = (n: number, env: string, pr: Record<string, string>) => ({ number: n, url: `https://github.com/acme-co/acme-salesforce/pull/${n}`, state: 'merged' as const, ...pr, env });
+  const done = [merged(1, 'dev', { mergeSha: first }), merged(2, 'dev', { sha: second }), merged(3, 'dev', { mergeSha: since }), merged(4, 'uat', { mergeSha: first })];
+  mutate(paths, now, (l, emit) => {
+    upsertTasks(l, c, done.map((d) => ({ source: { kind: 'jira' as const, key: `ACME-${d.number}`, url: `https://acme.atlassian.net/browse/ACME-${d.number}` }, title: `Task ${d.number}`, environment: d.env })), 'human', 'human:test', emit, now);
+    for (const d of done) {
+      const t = l.tasks.find((x) => x.id === `ACME-${d.number}`)!;
+      const { env: _env, ...pr } = d;
+      Object.assign(t, { state: 'done', pr });
+    }
+  });
+  const failing = fakeRunner({ nice: { code: 1, stderr: '', stdout: JSON.stringify({ status: 1, result: { id: '0Af3', success: false } }) } });
+  const failed = deploy(paths, c, 'dev', { run: (cmd, args, opts) => (cmd === 'git' ? run(cmd, args, opts) : failing(cmd, args, opts)), now, slots }, { since, by: 'human:jordan' });
+  assert.deepEqual([failed.deployed, failed.updates, listUpdates(paths)], [false, [], []], 'a failed deploy drafts nothing');
+
+  const r = deploy(paths, c, 'dev', { run: sfOk([]), now, slots }, { since, by: 'human:jordan' });
+  assert.equal(r.deployed, true);
+  assert.deepEqual(r.updates, [{ task: 'ACME-1', id: 'ACME-1.1', key: 'ACME-1' }, { task: 'ACME-2', id: 'ACME-2.1', key: 'ACME-2' }]);
+  assert.deepEqual(listUpdates(paths).map((u) => [u.task, u.event, u.env, u.state, u.by, u.text]), [
+    ['ACME-1', 'deployed', 'Dev', 'draft', 'human:jordan', 'The change is now deployed to Dev.'],
+    ['ACME-2', 'deployed', 'Dev', 'draft', 'human:jordan', 'The change is now deployed to Dev.'],
+  ]);
+  assert.deepEqual(deploy(paths, c, 'dev', { run: sfOk([]), now, slots }, { by: 'human:jordan' }).updates, [], 'deploying nothing drafts nothing');
+  assert.equal(listUpdates(paths).length, 2);
 });
 
 test('a protected org needs a person\'s confirmation, and a failed deploy says which components failed', () => {

@@ -296,12 +296,15 @@ test('each step autopilot takes is one notice: what it did, and what it couldn\'
   const show = ['Show', 'acc.task.show'];
   const pr = ['Open pull request', 'acc.task.openPr'];
 
-  assert.deepEqual(say(rec('GH-31', { pr: { number: 40, url: 'u', opened: true } })), [['Autopilot landed GH-31: pull request #40', false, [pr, show]]]);
-  assert.deepEqual(say(rec('GH-31', { pr: { number: 40, url: 'u', opened: false } })), [['Autopilot updated pull request #40 (GH-31).', false, [pr, show]]]);
-  // A Jira or Azure DevOps task's comment is a person's to post: it waits in autopilot's output.
+  const review = ['Review the update', 'acc.task.show'];
+  assert.deepEqual(say(rec('GH-31', { pr: { number: 40, url: 'u', opened: true } })), [['Autopilot landed GH-31: pull request #40. Its update for the ticket is ready for you to review and post.', false, [review, pr]]]);
+  assert.deepEqual(say(rec('GH-31', { pr: { number: 40, url: 'u', opened: false } })), [['Autopilot updated pull request #40 (GH-31). Its update for the ticket is ready for you to review and post.', false, [review, pr]]]);
+  // A ticket's update is a person's to post: autopilot drafts it, and the notice opens the task to review it (D-066).
   const jira = { id: 'ACME-7', source: { kind: 'jira', key: 'ACME-7' }, history: [] };
   assert.deepEqual(say(rec('ACME-7', { pr: { number: 41, url: 'u', opened: true } }), [jira]),
-    [['Autopilot landed ACME-7: pull request #41. Its comment on ACME-7 waits for you in Autopilot\'s output.', false, [['Show output', 'acc.autopilot.output'], pr, show]]]);
+    [['Autopilot landed ACME-7: pull request #41. Its update for the ticket is ready for you to review and post.', false, [['Review the update', 'acc.task.show'], pr]]]);
+  assert.deepEqual(say(rec('T-4', { pr: { number: 43, url: 'u', opened: true } }), [{ id: 'T-4', source: { kind: 'manual', key: null }, history: [] }]),
+    [['Autopilot landed T-4: pull request #43', false, [pr, show]]], 'a task acc alone keeps has no ticket to tell');
   assert.deepEqual(say(rec('GH-31', { step: 'review', verdict: 'pass' })), [['Autopilot reviewed GH-31: it passed. Autopilot lands it next.', false, [show]]]);
   assert.deepEqual(say(rec('GH-31', { step: 'review', verdict: 'changes', reason: 'sum has no test' })), [['Autopilot\'s review asked for changes on GH-31: sum has no test. Autopilot re-dispatches it next.', false, [show]]]);
   // Once re-dispatched by autopilot, a second rework is a person's.

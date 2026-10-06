@@ -4,9 +4,11 @@ import { join } from 'node:path';
 import type { Config, Environment } from './config.ts';
 import { AccError, parseJsonOutput, type RunResult, type Runner, sfEnv } from './exec.ts';
 import { listed, niced, packageDirs, under } from './gates.ts';
+import { readLedger, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
 import { envByName } from './promote.ts';
 import { type SlotOptions, withSlot } from './semaphore.ts';
+import { draftUpdate } from './updates.ts';
 
 /**
  * Deploying (D-011, D-034): after a person merges, an environment's branch goes to its org, one
@@ -102,6 +104,22 @@ export interface DeployResult {
   deployed: boolean;
   jobId: string | null;
   summary: string;
+  /** The updates drafted for the tickets of the tasks it carried, for a person to post (D-066). */
+  updates: { task: string; id: string; key: string }[];
+}
+
+/**
+ * The tasks a deploy carried to its org: each merged into the environment's branch at a commit that's
+ * in what was deployed, after the last deploy and up to the new head. A squash merge's commit is the one
+ * acc sync recorded; a task merged before acc recorded it falls back to its branch's commit, which a
+ * squash leaves off the branch, so it's missed (D-066).
+ */
+export function deployedTasks(paths: RepoPaths, run: Runner, plan: Pick<DeployPlan, 'env' | 'base' | 'head'>): Task[] {
+  const on = (sha: string, tip: string) => git(run, paths.root, 'merge-base', '--is-ancestor', sha, tip).code === 0;
+  return readLedger(paths.ledger).tasks.filter((t) => {
+    const sha = t.environment === plan.env.branch && t.pr?.state === 'merged' ? t.pr.mergeSha ?? t.pr.sha : undefined;
+    return !!sha && on(sha, plan.head) && !on(sha, plan.base);
+  });
 }
 
 /** The deploy's sf arguments. A deploy, so the gates' check-only guard doesn't apply; nothing else builds these. */
@@ -112,12 +130,12 @@ export function deployArgs(plan: DeployPlan): string[] {
 export function deploy(paths: RepoPaths, config: Config, envName: string, deps: { run: Runner; now: () => Date; slots?: SlotOptions; onWait?: () => void }, opts: { since?: string; confirmed?: boolean; noTests?: boolean; by: string }): DeployResult {
   const { run, now } = deps;
   const plan = planDeploy(paths, config, envName, deps, opts);
-  if (!plan.files.length && !plan.deleted.length) return { plan, deployed: false, jobId: null, summary: `${plan.env.name} already has ${plan.env.branch} at ${plan.head.slice(0, 7)}.` };
+  if (!plan.files.length && !plan.deleted.length) return { plan, deployed: false, jobId: null, summary: `${plan.env.name} already has ${plan.env.branch} at ${plan.head.slice(0, 7)}.`, updates: [] };
   if (plan.deleted.length) {
     throw new AccError('refused', `${plan.deleted.length} file(s) were deleted on ${plan.env.branch} since the last deploy (${plan.deleted.slice(0, 5).join(', ')}${plan.deleted.length > 5 ? ', …' : ''}). acc doesn't deploy deletions; remove them from the org by hand, or with a destructive-changes manifest.`);
   }
   if (plan.confirm && !opts.confirmed) throw new AccError('refused', `${plan.env.name} is protected. Deploying to it needs a person's confirmation: add --confirm-production.`);
-  if (!plan.files.length) return { plan, deployed: false, jobId: null, summary: 'Nothing deployable changed.' };
+  if (!plan.files.length) return { plan, deployed: false, jobId: null, summary: 'Nothing deployable changed.', updates: [] };
   const dir = mkdtempSync(join(tmpdir(), 'acc-deploy-'));
   const wt = join(dir, 'wt');
   try {
@@ -135,14 +153,25 @@ export function deploy(paths: RepoPaths, config: Config, envName: string, deps: 
     if (r.code !== 0 || result.status !== 0 || result.result?.success === false) {
       const failures = result.result?.details?.componentFailures;
       const list = (Array.isArray(failures) ? failures : failures ? [failures] : []).slice(0, 3).map((f) => `${f.fullName}: ${f.problem}`);
-      return { plan, deployed: false, jobId, summary: `The deploy to ${plan.env.name} failed${jobId ? ` (job ${jobId})` : ''}: ${list.join('; ') || result.message || 'see sf\'s output'}` };
+      return { plan, deployed: false, jobId, summary: `The deploy to ${plan.env.name} failed${jobId ? ` (job ${jobId})` : ''}: ${list.join('; ') || result.message || 'see sf\'s output'}`, updates: [] };
     }
     const record: DeployRecord = { env: plan.env.branch, org: plan.org, sha: plan.head, at: now().toISOString(), by: opts.by, jobId, files: plan.files.length };
     const file = deployRecordPath(paths, plan.env.branch);
     mkdirSync(join(paths.stateDir, 'deploys'), { recursive: true });
     writeFileSync(`${file}.tmp`, JSON.stringify(record, null, 2) + '\n');
     renameSync(`${file}.tmp`, file);
-    return { plan, deployed: true, jobId, summary: `Deployed ${plan.files.length} file(s) from ${plan.env.branch} at ${plan.head.slice(0, 7)} to ${plan.env.name}${jobId ? ` (job ${jobId})` : ''}.` };
+    // Each ticket whose change went can hear so, once a person posts it. acc posts nothing (D-066).
+    const updates: DeployResult['updates'] = [];
+    let unsaid = '';
+    try {
+      for (const t of deployedTasks(paths, run, plan)) {
+        const u = draftUpdate(paths, t, { event: 'deployed', env: plan.env.name }, opts.by, now);
+        if (u) updates.push({ task: t.id, id: u.id, key: u.key });
+      }
+    } catch (e) {
+      unsaid = ` Its tickets' updates weren't all drafted: ${(e as Error).message}`;
+    }
+    return { plan, deployed: true, jobId, summary: `Deployed ${plan.files.length} file(s) from ${plan.env.branch} at ${plan.head.slice(0, 7)} to ${plan.env.name}${jobId ? ` (job ${jobId})` : ''}.${unsaid}`, updates };
   } finally {
     git(run, paths.root, 'worktree', 'remove', '--force', wt);
     if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });

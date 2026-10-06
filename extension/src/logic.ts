@@ -230,6 +230,8 @@ export interface AnalysisAsk {
   question: string;
   why: string;
   suggested: string;
+  /** Sent to the client as a draft update, or posted (D-066). */
+  client?: 'drafted' | 'posted';
 }
 
 /** What a task's row keeps of its analysis: enough for its card, its notices and the Overview. */
@@ -277,18 +279,15 @@ export const conflictLine = (row: Pick<TaskRow, 'pr' | 'environment'>, full = fa
 };
 
 /**
- * What the Command Center says after a land. `comment` is the Jira or Azure DevOps comment the extension
- * posted, and its error if it failed. A comment that isn't confirmed or failed is a warning, as the
- * CLI's orange '!' is (D-051, D-053).
+ * What the Command Center says after a land: the pull request, and that the ticket's update is ready to
+ * review, since acc posts nothing itself (D-066). An update that couldn't be drafted is a warning, as the
+ * CLI's orange '!' is (D-053).
  */
-export function landMessage(id: string, r: { opened?: boolean; pr?: { number: number }; commentUnconfirmed?: string | null }, comment?: { key: string; error?: string }): { level: 'info' | 'warning'; text: string } {
-  let note = r.commentUnconfirmed ? ` The comment on ${id}'s issue isn't confirmed: ${r.commentUnconfirmed.replace(/([^.!?])$/, '$1.')} Look at the issue before you post it again.` : '';
-  let warn = !!r.commentUnconfirmed;
-  if (comment) {
-    note = comment.error === undefined ? ` Commented on ${comment.key}.` : ` Couldn't comment on ${comment.key}: ${comment.error}`;
-    warn = comment.error !== undefined;
-  }
-  return { level: warn ? 'warning' : 'info', text: `${id}: ${r.opened ? 'opened' : 'updated'} pull request #${r.pr?.number}.${note}` };
+export function landMessage(id: string, r: { opened?: boolean; pr?: { number: number }; update?: { id: string; key: string } | null; updateError?: string }): { level: 'info' | 'warning'; text: string } {
+  const landed = `${id}: ${r.opened ? 'opened' : 'updated'} pull request #${r.pr?.number}.`;
+  if (r.updateError) return { level: 'warning', text: `${landed} No update was drafted for its ticket: ${r.updateError.replace(/([^.!?])$/, '$1.')}` };
+  // A GitHub issue's key is #12; the board names it by its task, GH-12.
+  return { level: 'info', text: r.update ? `${landed} An update for ${r.update.key.startsWith('#') ? id : r.update.key} is ready for you to review and post.` : landed };
 }
 
 /** A task's agent: its background id or session id, or a background session named after the task. */
@@ -530,7 +529,8 @@ export function taskNotices(before: TaskRow[], after: TaskRow[]): TaskNotice[] {
 
 /** The buttons a notice offers, as [label, command] pairs. The task's page is always the last. */
 export function noticeActions(n: TaskNotice): [label: string, command: string][] {
-  if (n.actions) return [...n.actions, ['Show', 'acc.task.show']];
+  // Every notice can open its task, once: an action that already does, such as Review the update, is it.
+  if (n.actions) return n.actions.some(([, c]) => c === 'acc.task.show') ? n.actions : [...n.actions, ['Show', 'acc.task.show']];
   const first: Partial<Record<NoticeKind, [string, string]>> = {
     waiting: ['Open in Claude Code', 'acc.task.openInClaude'],
     review: ['Review', 'acc.task.review'],
@@ -592,8 +592,8 @@ export interface AutopilotTask {
 
 /**
  * One notice for each step autopilot took that a window hasn't told yet (D-064): what it reviewed,
- * landed, re-dispatched or merged in, and what it couldn't do, as a warning. A land for a Jira or Azure
- * DevOps task says its comment waits in autopilot's output, since only a person posts it as them.
+ * landed, re-dispatched or merged in, and what it couldn't do, as a warning. A land for a task with a
+ * ticket says its update is ready to review: autopilot posts nothing, a person does (D-066).
  */
 export function autopilotNotices(steps: AutopilotRecord[], tasks: AutopilotTask[]): TaskNotice[] {
   const out: TaskNotice[] = [];
@@ -612,9 +612,9 @@ export function autopilotNotices(steps: AutopilotRecord[], tasks: AutopilotTask[
     } else if (r.step === 'review') say(`Autopilot reviewed ${r.task}: it passed. Autopilot lands it next.`, false);
     else if (r.step === 'land' && r.pr) {
       const pr: [string, string] = ['Open pull request', 'acc.task.openPr'];
-      const key = t && (t.source.kind === 'jira' || t.source.kind === 'azure') ? t.source.key : null;
+      const ticket = !!t?.source.key && ['github', 'jira', 'azure'].includes(t.source.kind);
       const landed = r.pr.opened ? `Autopilot landed ${r.task}: pull request #${r.pr.number}` : `Autopilot updated pull request #${r.pr.number} (${r.task})`;
-      if (key) say(`${landed}. Its comment on ${key} waits for you in Autopilot's output.`, false, [['Show output', 'acc.autopilot.output'], pr]);
+      if (ticket) say(`${landed}. Its update for the ticket is ready for you to review and post.`, false, [['Review the update', 'acc.task.show'], pr]);
       else say(r.pr.opened ? landed : `${landed}.`, false, [pr]);
     } else if (r.step === 'dispatch') say(`Autopilot re-dispatched ${r.task} with its review's changes.`, false, [['Watch', 'acc.task.watch']]);
     else if (r.step === 'refresh') {

@@ -27,7 +27,8 @@
       "kind": "github",
       "skipLabels": [
         "milestone"
-      ]
+      ],
+      "edits": true
     }
   ],
   "agents": {

@@ -11,6 +11,7 @@ import { autopilotFailure, displayState, readLedger, type Ledger } from '../../p
 import type { RepoPaths } from '../../packages/core/src/paths.ts';
 import type { HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import { latestVerdict, reviewing } from '../../packages/core/src/review.ts';
+import { readUpdate, type Update, UPDATE_ID } from '../../packages/core/src/updates.ts';
 import { type AgentSession, agentLook, analysisWait, askingLabel, isUnder, parseWorktrees, rowAnalysis, sessionFor, type TaskRow, type Worktree } from './logic.ts';
 import { runFile } from './run.ts';
 
@@ -38,6 +39,8 @@ export type HubPart = 'projects' | 'tasks' | 'agents' | 'worktrees';
 
 /** Where a project's analyses are kept: beside the ledger, as acc keeps them (D-052). */
 const analysesOf = (p: Pick<Project, 'ledgerPath'>): RepoPaths => ({ analyses: join(dirname(p.ledgerPath), 'analyses') }) as RepoPaths;
+/** And its tickets' draft updates (D-066). */
+const updatesOf = (p: Pick<Project, 'ledgerPath'>): Pick<RepoPaths, 'updates'> => ({ updates: join(dirname(p.ledgerPath), 'updates') });
 
 /** When a file last changed, as one value: a rewrite in the same millisecond still has a new size or inode. */
 function stampOf(file: string): string | null {
@@ -68,6 +71,9 @@ export class Hub implements vscode.Disposable {
   private readonly steps = new Map<string, AutopilotLog>();
   /** Each analysis read, by file, kept until the file changes: the rows are re-derived every few seconds. */
   private readonly analyses = new Map<string, { stamp: string; analysis: Analysis | null }>();
+  /** Each ticket update read, by file, kept until it changes; and each repo's, by ledger, as of the last load (D-066). */
+  private readonly updateFiles = new Map<string, { stamp: string; update: Update | null }>();
+  private readonly repoUpdates = new Map<string, Update[]>();
   private readonly emitter = new vscode.EventEmitter<HubPart>();
   readonly onDidChange = this.emitter.event;
   private readonly timers = new Map<string, NodeJS.Timeout>();
@@ -137,14 +143,15 @@ export class Hub implements vscode.Disposable {
   }
 
   /**
-   * Reads each ledger again if it or the analyses changed on disk. Cheap: two stats per project. An
-   * analysis starting or ending adds or removes a file beside the ledger, which the ledger doesn't see.
+   * Reads each ledger again if it, the analyses or the ticket updates changed on disk. Cheap: three stats
+   * per project. An analysis starting or ending, or an update drafted or posted, adds or replaces a file
+   * beside the ledger, which the ledger doesn't see.
    */
   async loadTasks(force = false): Promise<void> {
     let changed = false;
     const read = new Set<string>();
     for (const p of this.projects) {
-      const stamp = `${stampOf(p.ledgerPath) ?? 0}|${stampOf(analysesOf(p).analyses) ?? 0}`;
+      const stamp = `${stampOf(p.ledgerPath) ?? 0}|${stampOf(analysesOf(p).analyses) ?? 0}|${stampOf(updatesOf(p).updates) ?? 0}`;
       const cached = this.tasks.get(p.root);
       if (!force && cached && cached.stamp === stamp) continue;
       let ledger: Ledger;
@@ -159,12 +166,46 @@ export class Hub implements vscode.Disposable {
         const log = readAutopilotLog(join(dirname(p.ledgerPath), 'events.jsonl'), this.steps.get(p.ledgerPath));
         if (log) this.steps.set(p.ledgerPath, log);
         else this.steps.delete(p.ledgerPath);
+        this.repoUpdates.set(p.ledgerPath, this.readUpdates(p));
       }
       const rows = this.deriveRows(ledger, p);
       this.tasks.set(p.root, { stamp, ledger, rows });
       changed = true;
     }
     if (changed || force) this.emitter.fire('tasks');
+  }
+
+  /** A project's ticket updates, oldest first: drafts, those being posted, and what's done with (D-066). */
+  updates(root: string): Update[] {
+    const p = this.project(root);
+    return (p && this.repoUpdates.get(p.ledgerPath)) || [];
+  }
+
+  /** Every update in the repo's folder, each file read again only when it has changed. */
+  private readUpdates(p: Project): Update[] {
+    const store = updatesOf(p);
+    let names: string[] = [];
+    try {
+      names = readdirSync(store.updates).filter((n) => n.endsWith('.json') && UPDATE_ID.test(n.slice(0, -5)));
+    } catch {
+      // none yet
+    }
+    const out: Update[] = [];
+    const seen = new Set<string>();
+    for (const n of names) {
+      const file = join(store.updates, n);
+      seen.add(file);
+      const stamp = stampOf(file);
+      if (!stamp) continue;
+      let cached = this.updateFiles.get(file);
+      if (cached?.stamp !== stamp) {
+        cached = { stamp, update: readUpdate(store, n.slice(0, -5)) };
+        this.updateFiles.set(file, cached);
+      }
+      if (cached.update) out.push(cached.update);
+    }
+    for (const f of [...this.updateFiles.keys()]) if (f.startsWith(`${store.updates}/`) && !seen.has(f)) this.updateFiles.delete(f);
+    return out.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id, undefined, { numeric: true }));
   }
 
   /** A task's analysis (D-052), read again only when its file has changed. */

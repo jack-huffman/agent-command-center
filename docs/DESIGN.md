@@ -10,8 +10,9 @@ Agent Command Center turns tickets into reviewed pull requests, with a human
 deciding what merges. Tickets come in from GitHub Issues or Jira and become
 tasks. Each ready task gets its own git worktree and a background Claude Code
 session. The agent builds the change and runs the project's checks. A second,
-fresh agent reviews the diff, a pull request opens, and the link is posted back
-to the ticket. A VSCode panel shows all of it and holds the buttons.
+fresh agent reviews the diff, a pull request opens, and acc drafts an update
+for the ticket, which a person reads, edits and posts. A VSCode panel shows all
+of it and holds the buttons.
 
 ```mermaid
 flowchart LR
@@ -22,7 +23,7 @@ flowchart LR
     R -->|changes needed| B
     R -->|pass| P["Pull request"]
     P -->|a human merges| X["Done"]
-    P -. "PR link comment" .-> T
+    P -. "draft update,<br/>a person posts it" .-> T
 ```
 
 ## 2. The pieces
@@ -399,16 +400,37 @@ review, and passing receipts for every required check. Then it:
    `gh pr create --base <branch> --title "<id>: <title>"`. The generated body
    holds a summary, an acceptance checklist, the check table, the review verdict
    and the ticket link.
-3. Comments the pull request link on the ticket. For GitHub, it does this
-   itself. For Jira and Azure DevOps it returns the comment, and the extension
-   posts it with the repo's own sign-in (D-027, D-033). A comment gh doesn't
-   confirm, even one stopped at its timeout, doesn't stop the land: acc says
-   so, and records the pull request (D-051).
+3. Drafts an update for the ticket (D-066): the pull request's link and one
+   plain sentence for the client, which the review writes (`client`), or the
+   task's title when it has none. It posts nothing. The draft is kept in
+   `<git-common-dir>/acc/updates/<task>.<n>.json`, and `--json` names it under
+   `update`. A person reads it, edits it and posts it as themselves.
 
 It never merges. Landing again pushes the new commits and updates the open
-pull request's description, rather than opening another. The ticket hears
-"updated", or "updated after rework" when the task went to rework since its
-last land (D-051).
+pull request's description, rather than opening another, and drafts "updated
+for review". A draft of the same news that nobody posted yet is replaced, so a
+pull request updated three times is one draft; one that still says it's ready
+for review keeps saying so, with the latest link.
+
+**Ticket updates (D-066).** acc never posts on a ticket by itself. It drafts an
+update when:
+
+- a pull request opens, or is updated, for review (`acc land`, autopilot)
+- a task's pull request merges into its environment (`acc sync`)
+- a deploy carries a merged task to its org (`acc deploy`): each task whose
+  merge commit, which `acc sync` keeps as `pr.mergeSha`, is in what was deployed
+- a builder is stuck on something only the client can answer:
+  `acc block --client "<question>"`. A plain block stays internal.
+- a person sends one of the analysis's questions to the client (`acc update ask`)
+
+Each draft is written for the client, with no word of agents, worktrees, acc,
+builders, reviewers or rework. `acc updates` lists them. A person posts each
+from the Command Center, with their edits: a GitHub issue's through acc as the
+repo's account (`acc update post`), and a Jira or Azure DevOps ticket's through
+the repo's sign-in, claimed in acc first so a second window can't post it again.
+`acc update discard <id>` sets one aside. A post unconfirmed for five minutes
+may have gone, and says so. Builders, reviewers, analysts and autopilot can't
+post or discard.
 
 **After the pull request opens:**
 
@@ -520,9 +542,9 @@ before each:
   task shows as needs you with the reason. A new commit lets autopilot try
   again. A review, a land or any move clears it, so doing the step by hand does
   too. A full agent cap or a busy ledger only waits for the next pass.
-- **A Jira or Azure DevOps comment** can't be posted, since only the extension
-  posts those, as you. Autopilot lands anyway and prints `! Post this on <KEY>`
-  with the text. `--json` lists it under `pendingComments`.
+- **Each land drafts the ticket's update** and posts nothing (D-066). Autopilot
+  prints `Drafted an update for <KEY>`, and `--json` lists them under `updates`.
+  A person posts each one.
 - **`--json`** lists each task looked at, with its step (or none), the commit,
   the outcome (`done`, `failed`, `waiting` or `skipped`) and why. With `--every`,
   it prints a line of JSON a pass.
@@ -618,7 +640,9 @@ The extension handles every workspace folder that has `.acc/config.json`.
   board.
 - **Dragging a card moves the real ticket.** It runs the workflow transition
   whose target status the column holds. When the workflow offers several, you
-  pick one; when it offers none, the card goes back and the board says so.
+  pick one; when it offers none, the card goes back and the board says so. It's
+  a person's deliberate move on the board, so it works whether or not the
+  tracker says `"edits"` (D-066).
 - **Each card shows acc's side** of the ticket when acc keeps it: the state, and
   the next step, such as Dispatch or Attach.
 - **A ticket's page** has the rendered description, the comments with a comment
@@ -626,6 +650,13 @@ The extension handles every workspace folder that has `.acc/config.json`.
   state, the agent, worktree, branch, checks and history. A ticket acc doesn't
   keep yet can be tracked from there. Tasks with no tracker get the same page
   from their brief and history.
+- **Status, assignee and labels are read-only** unless the tracker says
+  `"edits": true` in `.acc/config.json`, as this repo's own GitHub tracker does
+  (D-066). A client's tracker is theirs. Comments stay.
+- **Updates acc drafted** for the ticket come first in its Activity, each in a
+  box to edit, with who it posts as, Post and Discard. With no sign-in for its
+  tracker, Post waits and offers the sign-in. The Overview's Needs you lists
+  each as "Update ready for <KEY>", with Post, Edit and Discard.
 - **Rich text is drawn, never injected.** GitHub's markdown and Jira's ADF both
   become one document model, which the page builds with DOM calls. Raw HTML in a
   ticket keeps its words and loses its tags. Links open in the browser, and only

@@ -1,12 +1,14 @@
-import type { Config } from './config.ts';
+import { type Config, environmentByBranch } from './config.ts';
 import { AccError, type Runner } from './exec.ts';
 import { applyMove, checkMove, mutate, noGateHooks, type PullRequest, readLedger, type State } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
+import { draftUpdate } from './updates.ts';
 
 /**
  * Keeps tasks in step with their pull requests (D-033): merged is done, closed without merging is
  * blocked, and failing checks, a person's requested changes or a conflict with the base show the task
- * as needs you. It only reads GitHub, and fetches to see the conflicts (D-049).
+ * as needs you. It only reads GitHub, and fetches to see the conflicts (D-049). A task it moves to done
+ * gets a draft update for its ticket, which a person posts (D-066): sync itself posts nothing.
  */
 
 export interface SyncChange {
@@ -15,6 +17,8 @@ export interface SyncChange {
   /** The move it made, if any. */
   moved: { from: State; to: State } | null;
   note: string;
+  /** The update it drafted for the ticket, when it moved the task to done. */
+  update?: { id: string; key: string };
 }
 
 interface GhPr {
@@ -24,6 +28,8 @@ interface GhPr {
   reviewDecision?: string | null;
   baseRefName?: string;
   headRefName?: string;
+  /** The commit a merge left on the base: a squash or a merge commit, which a deploy finds (D-066). */
+  mergeCommit?: { oid?: string } | null;
   statusCheckRollup?: { status?: string; conclusion?: string | null; state?: string }[] | null;
 }
 
@@ -73,7 +79,7 @@ export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now:
   const env = { ...deps.env, GH_TOKEN: token.stdout.trim() };
   const seen = new Map<number, GhPr>();
   for (const t of open) {
-    const r = run('gh', ['pr', 'view', String(t.pr!.number), '-R', gh.repo, '--json', 'number,state,url,reviewDecision,baseRefName,headRefName,statusCheckRollup'], { env, timeoutMs: 60_000 });
+    const r = run('gh', ['pr', 'view', String(t.pr!.number), '-R', gh.repo, '--json', 'number,state,url,reviewDecision,baseRefName,headRefName,mergeCommit,statusCheckRollup'], { env, timeoutMs: 60_000 });
     if (r.code !== 0) continue; // unreachable for now: try again next time
     try {
       seen.set(t.pr!.number, JSON.parse(r.stdout) as GhPr);
@@ -109,7 +115,8 @@ export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now:
       let moved: SyncChange['moved'] = null;
       let note = '';
       if (p.state === 'MERGED') {
-        t.pr = { ...t.pr, state: 'merged', ci, syncedAt: at };
+        const mergeSha = p.mergeCommit?.oid && /^[0-9a-f]{40,64}$/.test(p.mergeCommit.oid) ? p.mergeCommit.oid : undefined;
+        t.pr = { ...t.pr, state: 'merged', ci, ...(mergeSha ? { mergeSha } : {}), syncedAt: at };
         const req = { to: 'done' as const, actor: 'sync' as const, by: 'acc sync', reason: `Pull request #${p.number} merged.` };
         if (t.state === 'review' && !checkMove(ledger, config, t, req, noGateHooks).length) {
           moved = { from: t.state, to: 'done' };
@@ -144,5 +151,20 @@ export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now:
     }
     return out;
   });
+  // Merged into its environment: the ticket can hear so, once a person posts it. Drafted after the
+  // ledger's write, under the drafts' own lock; a draft that can't be written leaves the move as it is.
+  const ledger = readLedger(paths.ledger);
+  for (const c of changes) {
+    if (c.moved?.to !== 'done') continue;
+    const t = ledger.tasks.find((x) => x.id === c.task);
+    if (!t) continue;
+    try {
+      const u = draftUpdate(paths, t, { event: 'merged', env: environmentByBranch(config, t.environment)?.name ?? t.environment }, 'acc sync', now);
+      if (u) c.update = { id: u.id, key: u.key };
+    } catch (e) {
+      // The task stays done, and the next sync won't draft it again: say so where sync reports.
+      c.note += `; no update drafted: ${(e as Error).message}`;
+    }
+  }
   return { checked: seen.size, changes };
 }

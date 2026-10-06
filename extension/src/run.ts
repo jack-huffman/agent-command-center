@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import type * as vscode from 'vscode';
 import { ghEnv, isGh } from '../../packages/core/src/exec.ts';
-import { LAND_TIMEOUT_MS } from '../../packages/core/src/land.ts';
+import { LAND_TIMEOUT_MS, UPDATE_POST_TIMEOUT_MS } from '../../packages/core/src/land.ts';
 
 export interface RunResult {
   code: number;
@@ -25,8 +25,11 @@ export function runFile(file: string, args: string[], cwd: string, env: NodeJS.P
   });
 }
 
-/** How long the extension waits for an acc command. A land pushes and calls gh several times, so it gets as long as those can take (D-053). */
-export const accTimeoutMs = (args: string[]): number => (args[0] === 'land' ? LAND_TIMEOUT_MS : RUN_TIMEOUT_MS);
+/**
+ * How long the extension waits for an acc command. A land pushes and calls gh several times, and posting
+ * an update calls gh twice, so each gets as long as those can take (D-053).
+ */
+export const accTimeoutMs = (args: string[]): number => (args[0] === 'land' ? LAND_TIMEOUT_MS : args[0] === 'update' && args[1] === 'post' ? UPDATE_POST_TIMEOUT_MS : RUN_TIMEOUT_MS);
 
 /** The bundled acc, run by VSCode's own runtime so it works even before Node is on PATH. */
 export function accRunner(script: string) {

@@ -11,6 +11,7 @@ import type { Task } from '../../packages/core/src/ledger.ts';
 import { type AdfNode, fromAdf } from '../../packages/core/src/trackers/doc.ts';
 import type { Ticket } from '../../packages/core/src/trackers/types.ts';
 import type { HistoryRecord, Question } from '../../packages/core/src/questions.ts';
+import type { Update } from '../../packages/core/src/updates.ts';
 import { type AgentSession, askingLabel, type DoctorItem, rowAnalysis, type TaskRow } from '../src/logic.ts';
 import { type AgentModel, agentModel, type BoardInput, type HubLike, type IdentityCard, type ProjectLike, type RunInput, ticketModel, type TicketModel } from '../src/model.ts';
 import type { Entry } from '../src/transcript.ts';
@@ -87,6 +88,7 @@ export function sampleHub(now = Date.now()): HubLike {
     taskRows: () => tasks,
     projectFor: (p: string) => (p === root || p.startsWith(`${root}/`) ? project : undefined),
     autopilotLog: () => sampleAutopilot(now),
+    updates: () => sampleUpdates(now),
     history: () => [
       { at: new Date(now - 4 * MIN).toISOString(), task: 'ACME-14', title: 'Route web-to-case submissions by product line', from: 'todo', to: 'running', by: 'human:jordan' },
       { at: new Date(now - 12 * MIN).toISOString(), task: 'ACME-12', title: 'Case escalation rules for the premium tier', from: 'todo', to: 'running', by: 'human:jordan' },
@@ -109,6 +111,22 @@ export function sampleAutopilot(now = Date.now()): AutopilotRecord[] {
     { seq: 210, at: at(48), task: 'ACME-25', step: 'land', outcome: 'failed', reason: 'git push refused task/ACME-25-merge-duplicate-contacts: ! [rejected] (fetch first) error: failed to push some refs' },
     { seq: 214, at: at(20), task: 'ACME-26', step: 'refresh', outcome: 'failed', reason: 'Conflicts with dev that autopilot can\'t resolve: force-app/main/default/classes/CaseTriggerHandler.cls. The branch is as it was, at 3f9c2ab, and nothing was pushed.' },
     { seq: 219, at: at(6), task: 'ACME-20', step: 'review', outcome: 'done', verdict: 'pass' },
+  ];
+}
+
+/**
+ * Updates acc drafted for tickets, for a person to post (D-066): ACME-12's pull request is ready for
+ * review, ACME-10 went out to QA, and one of ACME-21's questions was drafted for the client. ACME-15's
+ * was posted.
+ */
+export function sampleUpdates(now = Date.now()): Update[] {
+  const at = (ago: number) => new Date(now - ago * MIN).toISOString();
+  const jira = (task: string) => ({ v: 1 as const, task, tracker: 'jira' as const, key: task, url: `https://acme.atlassian.net/browse/${task}` });
+  return [
+    { ...jira('ACME-15'), id: 'ACME-15.1', event: 'pr-opened', state: 'posted', pr: { number: 42, url: 'https://github.com/acme/service/pull/42' }, text: 'The change is ready for review: https://github.com/acme/service/pull/42\nThe Region picklist shows the new names on both record types.', createdAt: at(92), by: 'orchestrator:autopilot', posted: { at: at(80), by: 'human:jordan', text: 'Ready for review: https://github.com/acme/service/pull/42' } },
+    { ...jira('ACME-10'), id: 'ACME-10.2', event: 'deployed', state: 'draft', env: 'QA', text: 'The change is now deployed to QA.', createdAt: at(50), by: 'human:jordan' },
+    { ...jira('ACME-12'), id: 'ACME-12.1', event: 'pr-opened', state: 'draft', pr: { number: 38, url: 'https://github.com/acme/service/pull/38' }, text: 'The change is ready for review: https://github.com/acme/service/pull/38\nPremium-tier cases now move to the Tier 2 queue when they miss their response time, using the Premium Support business hours, and the account owner hears about each one.', createdAt: at(20), by: 'acc land' },
+    { ...jira('ACME-21'), id: 'ACME-21.1', event: 'question', state: 'draft', question: 'q1', text: 'Before we start, a question for you:\nShould every converted contact get a role on the new opportunity, or only the lead\'s primary contact?', createdAt: at(8), by: 'human:jordan' },
   ];
 }
 
@@ -364,6 +382,8 @@ export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12'):
   return ticketModel({
     project: ROOT, tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira', key: 'ACME-12', ticket, loading: false, error: null, connect: null, row, task, signedInAs: 'jordan@acme.example',
     analysis: sampleAnalyses(now)['ACME-12'],
+    // A client's Jira: its fields are read-only here, and its update waits for you to post it (D-066).
+    trackerEdits: false, updates: sampleUpdates(now), boards: sampleBoards(), github: 'jordan-kim', now,
     checks: [
       { gate: 'format', status: 'pass', summary: '3 changed files formatted.' },
       { gate: 'static', status: 'skip', summary: 'Waived by jordan: the 2 violations predate this change', waived: true },
@@ -394,7 +414,7 @@ function sampleTodoTicket(now: number, key: 'ACME-21' | 'ACME-23'): TicketModel 
   } as unknown as Task;
   return ticketModel({
     project: ROOT, tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira', key, ticket, loading: false, error: null, connect: null, row, task, signedInAs: 'jordan@acme.example',
-    analysis: sampleAnalyses(now)[key], checks: ['format', 'static', 'validate'].map((gate) => ({ gate, status: 'skip' as const, summary: 'Not run yet' })),
+    analysis: sampleAnalyses(now)[key], trackerEdits: false, updates: sampleUpdates(now), boards: sampleBoards(), github: 'jordan-kim', now, checks: ['format', 'static', 'validate'].map((gate) => ({ gate, status: 'skip' as const, summary: 'Not run yet' })),
   });
 }
 

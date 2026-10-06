@@ -12,6 +12,7 @@ import { displayState, emptyLedger, type Ledger, type LedgerEvent, mutate, readL
 import { repoPaths } from '../src/paths.ts';
 import { readVerdict, reviewPath, type Verdict } from '../src/review.ts';
 import { withSlot } from '../src/semaphore.ts';
+import { listUpdates } from '../src/updates.ts';
 import { bad, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, tempDir } from './support.ts';
 
 const now = () => new Date('2026-10-05T12:00:00Z');
@@ -83,7 +84,6 @@ function deps(calls: string[], over: Record<string, RunResult> = {}): AutopilotD
       'gh pr list': ok('[]'),
       'gh pr create': ok('https://github.com/acme/tool/pull/42\n'),
       'gh pr edit': ok(''),
-      'gh issue comment': ok(''),
       'claude -p': verdictOut('pass'),
       'claude --bg': ok('bg1\n'),
       'claude agents --json': ok(JSON.stringify([{ id: 'bg1', sessionId: 'sess-1', name: 'T-1', kind: 'background', startedAt: 1 }])),
@@ -227,8 +227,11 @@ test('a pass reviews what a builder finished, the next lands it as the orchestra
   assert.ok(!calls.some((c) => c.startsWith('gh ')), 'a task reviewed in this pass lands in the next');
 
   const landed = autopilotPass(s.paths, s.config, deps(calls));
-  assert.deepEqual(landed.steps[0], { task: 'ACME-7', state: 'review', step: 'land', sha: s.sha, outcome: 'done', reason: 'Opened pull request #42.', pr: { number: 42, url: 'https://github.com/acme/tool/pull/42', opened: true } });
-  assert.deepEqual(landed.pendingComments.map((c) => [c.task, c.kind, c.key]), [['ACME-7', 'jira', 'ACME-7']], 'a Jira comment autopilot can\'t post');
+  assert.deepEqual(landed.steps[0], { task: 'ACME-7', state: 'review', step: 'land', sha: s.sha, outcome: 'done', reason: 'Opened pull request #42.', pr: { number: 42, url: 'https://github.com/acme/tool/pull/42', opened: true }, update: { id: 'ACME-7.1', key: 'ACME-7' } });
+  // It drafts the ticket's update and posts nothing: a person reviews it first (D-066).
+  assert.deepEqual(landed.updates, [{ task: 'ACME-7', id: 'ACME-7.1', key: 'ACME-7' }]);
+  assert.deepEqual(listUpdates(s.paths).map((u) => [u.id, u.event, u.state, u.by]), [['ACME-7.1', 'pr-opened', 'draft', AUTOPILOT_BY]]);
+  assert.ok(!calls.some((c) => c.startsWith('gh issue') || c.startsWith('curl')), 'nothing is posted');
   const t = first(s.paths);
   assert.deepEqual([t.state, t.pr?.number, t.pr?.sha], ['review', 42, s.sha], 'it stays in review, its pull request at the reviewed commit');
   const e = events(s.paths).at(-1)!;
@@ -390,7 +393,7 @@ test('autopilot runs on a repo where no task was ever added: it makes the state 
   assert.equal(holdAutopilot(paths, () => 'ran'), 'ran');
   assert.ok(existsSync(paths.stateDir));
   assert.ok(!existsSync(paths.autopilotLock), 'let go when it ends');
-  assert.deepEqual(autopilotPass(paths, parseConfig({ ...GENERIC_CONFIG, autonomy: 'review' }).config as Config, deps([])), { steps: [], pendingComments: [] }, 'and has nothing to do');
+  assert.deepEqual(autopilotPass(paths, parseConfig({ ...GENERIC_CONFIG, autonomy: 'review' }).config as Config, deps([])), { steps: [], updates: [] }, 'and has nothing to do');
 });
 
 test('only one autopilot runs against a repo: a second is refused at once, and a dead one\'s lock is broken', () => {

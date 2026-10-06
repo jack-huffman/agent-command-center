@@ -1,4 +1,5 @@
-import { homedir } from 'node:os';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { Hub } from './hub.ts';
@@ -18,7 +19,7 @@ import { savedFolder } from './transcript.ts';
 import { openWalkthrough, Setup } from './setup.ts';
 import { Sidebar } from './sidebar.ts';
 import { RepoIdentity } from './identity.ts';
-import { TicketPanels } from './ticket.ts';
+import { TicketPanels, type UpdateActions } from './ticket.ts';
 import { Trackers } from './trackers.ts';
 
 /** Step commands get a step id from walkthrough buttons, or a Setup view item from menus. */
@@ -139,7 +140,76 @@ export function activate(context: vscode.ExtensionContext): void {
     void vscode.window.showWarningMessage(`Couldn't answer ${task}'s question: ${error}`);
     return { ok: false, error };
   };
-  const tickets = new TicketPanels(context, hub, trackers, resolve, accRunner(accScript), answerAnalysis);
+  /** What acc said when it refused, in its own words. */
+  const accSays = (r: { code: number; stdout: string; stderr: string }): string => {
+    let error = (r.stderr || r.stdout).trim().split('\n')[0] || `acc exited ${r.code}`;
+    try { error = (JSON.parse(r.stdout) as { message?: string }).message ?? error; } catch { /* plain text */ }
+    return error;
+  };
+  /**
+   * A ticket's updates, posted as you, set aside, or drafted from an analysis's question, all through acc
+   * (D-066). GitHub posts through acc as the repo's account (D-028). Jira and Azure DevOps post through this
+   * repo's sign-in (D-027): acc claims the draft first, so a second window's Post can't send it again, and
+   * records it once it's gone, or puts it back with why.
+   */
+  const updates: UpdateActions = {
+    post: async (root, id, text, again) => {
+      const p = hub.project(root);
+      if (!p) return { ok: false, error: 'That project isn\'t open here.' };
+      const u = hub.updates(root).find((x) => x.id === id);
+      if (!u) return { ok: false, error: `${id} isn't there any more: a newer draft replaced it, or it was posted.` };
+      const acc = accRunner(accScript);
+      const dir = mkdtempSync(join(tmpdir(), 'acc-update-'));
+      const file = join(dir, 'text.md');
+      writeFileSync(file, text);
+      const fail = (error: string) => {
+        void vscode.window.showWarningMessage(`Couldn't post ${id} on ${u.key}: ${error}`);
+        return { ok: false, error };
+      };
+      try {
+        const againArgs = again ? ['--again'] : [];
+        if (u.tracker === 'github') {
+          const r = await acc(['update', 'post', id, `--text-file=${file}`, ...againArgs, '--json'], p.root);
+          return r.code === 0 ? { ok: true } : fail(accSays(r));
+        }
+        const name = u.tracker === 'jira' ? 'Jira' : 'Azure DevOps';
+        // Through the tracker that owns the key, not the first of its kind: a repo can have two Jira sites.
+        const index = trackers.trackerFor(p, u.key);
+        if (index === null || trackers.trackers(p)[index]?.kind !== u.tracker) return fail(`this repo has no ${name} tracker for ${u.key} to post through.`);
+        if (!(await trackers.signedInAs(p, index))) return fail(`sign in to ${name} first.`);
+        const claimed = await acc(['update', 'posting', id, ...againArgs, '--json'], p.root);
+        if (claimed.code !== 0) return fail(accSays(claimed));
+        try {
+          await (await trackers.client(p, index)).comment(u.key, text);
+        } catch (e) {
+          const why = (e as Error).message;
+          await acc(['update', 'release', id, `--reason=${why}`, '--json'], p.root);
+          return fail(why);
+        }
+        const recorded = await acc(['update', 'posted', id, `--text-file=${file}`, '--json'], p.root);
+        if (recorded.code !== 0) return fail(`it posted, but acc couldn't record it: ${accSays(recorded)}`);
+        return { ok: true };
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+        await hub.loadTasks(true);
+      }
+    },
+    discard: async (root, id) => {
+      const p = hub.project(root);
+      if (!p) return { ok: false, error: 'That project isn\'t open here.' };
+      const r = await accRunner(accScript)(['update', 'discard', id, '--json'], p.root);
+      await hub.loadTasks(true);
+      return r.code === 0 ? { ok: true } : { ok: false, error: accSays(r) };
+    },
+    ask: async (root, task, question) => {
+      const p = hub.project(root);
+      if (!p) return { ok: false, error: 'That project isn\'t open here.' };
+      const r = await accRunner(accScript)(['update', 'ask', task, question, '--json'], p.root);
+      await hub.loadTasks(true);
+      return r.code === 0 ? { ok: true } : { ok: false, error: accSays(r) };
+    },
+  };
+  const tickets = new TicketPanels(context, hub, trackers, resolve, accRunner(accScript), answerAnalysis, updates);
 
   // Agents' questions and activity (D-030). Answering "in the terminal" hands the question back to
   // Claude Code's own prompt, and attaches to it.
@@ -182,12 +252,6 @@ export function activate(context: vscode.ExtensionContext): void {
     sessionSettings: sessionSettings(accScript),
     accCommand: accShellCommand(accScript),
     openLater: async (folder, sessionId) => { await context.globalState.update(OPEN_LATER, { folder, sessionId, at: Date.now() }); },
-    // acc land can't post to Jira or Azure DevOps itself; this repo's sign-in does, as you (D-027, D-033).
-    comment: async (project, kind, key, text) => {
-      const index = trackers.trackers(project).findIndex((t) => t.kind === kind);
-      if (index < 0) throw new Error(`this repo has no ${kind === 'jira' ? 'Jira' : 'Azure DevOps'} tracker`);
-      await (await trackers.client(project, index)).comment(key, text);
-    },
   });
   sidebar.register(regNode);
   const panels = new Panels(context, hub, setup, resolve, (visible) => pagePolls(visible), {
@@ -208,6 +272,7 @@ export function activate(context: vscode.ExtensionContext): void {
     moveTask: async (root, task, lane) => { const p = hub.project(root); if (p) await sidebar.moveToLane(p, task, lane); },
     answer,
     answerAnalysis,
+    updates,
     runs: () => runs.views(),
     runInput: (id, text) => void runs.input(id, text),
     runControl: (id, action) => runs.control(id, action),

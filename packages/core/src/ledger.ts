@@ -53,6 +53,8 @@ export interface PullRequest {
   landedAt?: string;
   /** The commit acc land last pushed to it, so autopilot can tell whether it's behind its branch (D-055). */
   sha?: string;
+  /** The commit its merge left on its base, kept by acc sync, so a deploy knows which tasks it carried (D-066). */
+  mergeSha?: string;
 }
 
 export const AUTOPILOT_STEPS = ['review', 'land', 'dispatch', 'refresh'] as const;

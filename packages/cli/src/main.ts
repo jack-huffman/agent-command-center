@@ -1,5 +1,6 @@
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
@@ -9,6 +10,7 @@ import {
   buildBaseline, seedBranches, draftLists, writeReadme, parseEventInput, preToolUseHook, sessionStartHook, stopHook, AGENT_ROLES, type AgentRole, profileView, setProfile, withCloneAgents, type ProfileChange,
   analyze, type Analysis, answerAnalysis, openQuestions, readAnalysis,
   AUTOPILOT_MIN_EVERY_S, type AutopilotResult, type AutopilotStepName, autopilotFailure, autopilotMode, autopilotPass, closedPr, holdAutopilot, sleep, alive, setAutonomy,
+  claimUpdate, discardUpdate, draftUpdate, EVENT_WORDS, GH_TIMEOUT_MS, ghToken, githubIssue, isOpenUpdate, listUpdates, markPosted, readUpdate, releaseUpdate, stalePosting, type Update, UPDATE_TEXT_MAX, updateText,
 } from '../../core/src/index.ts';
 import { checkLabel, gateLabel, stateLabel, table, tone } from './format.ts';
 
@@ -46,6 +48,9 @@ Agents
                                         Worktree, setup, instructions, and a background builder session
   acc done [<id>]                       A builder's finish line: moves its task to review
   acc block [<id>] "<reason>"           A builder's way out when stuck
+  acc block [<id>] --client "<question>"
+                                        Stuck on something only the client can answer: blocks, and drafts an
+                                        update for the ticket that a person reviews before posting
   acc cleanup <id>                      Remove a finished task's worktree, only if nothing would be lost
   acc agents                            The model and effort builders and reviewers run with, and where each is set
   acc agents set <builder|reviewer> [--model <m>] [--effort <low|medium|high|xhigh|max>] [--fallback-model <m>]
@@ -65,6 +70,14 @@ Agents
                                         that conflicts with it. Never merges a pull request. One pass, or one every
                                         <seconds> (at least 30) until stopped; --json then prints a line a pass
   acc sync                              Follow open pull requests: merged → done, closed → blocked, failing checks or conflicts → needs you
+
+Ticket updates (acc drafts them; only a person posts)
+  acc updates [--all] [--task <id>]     The drafts waiting for a person; --all adds the posted and discarded
+  acc update post <id> [--text-file <f>] [--again]
+                                        Post a draft on its GitHub issue as the repo's account, with the text
+                                        in <f> if you edited it. Jira and Azure DevOps post from the Command Center
+  acc update discard <id>               Set a draft aside: it's kept, and never posted
+  acc update ask <id> <q>               Draft one of the task's analysis's questions for the client
 
 Environments
   acc promote <env> [--to <env>] [--plan] [--allow-deletions] [--skip-validate]
@@ -396,9 +409,8 @@ function cmdLand(o: Opts, id: string): number {
   const r = land(paths, config, id.toUpperCase(), { run, now, env: process.env }, { actor, by });
   out(o, () => [
     `${r.task.id}: ${r.opened ? 'opened' : 'updated'} pull request #${r.pr.number}  ${r.pr.url}`,
-    r.commented ? `  Commented on the GitHub issue.` : '',
-    r.commentUnconfirmed ? tone(`! The comment on ${r.task.id}'s issue isn't confirmed: ${r.commentUnconfirmed.replace(/([^.!?])$/, '$1.')} Look at the issue before you post it again.`, 'orange') : '',
-    r.comment ? `  Post this on ${r.comment.key} (the extension does it for you):\n    ${r.comment.text.replace(/\n/g, '\n    ')}` : '',
+    r.update ? `  Drafted an update for ${r.update.key} (${r.update.id}). Nothing is posted until a person posts it: acc updates.` : '',
+    r.updateError ? tone(`! No update was drafted for ${r.task.id}'s ticket: ${r.updateError}`, 'orange') : '',
     r.pr.conflicts?.length ? tone(`! Pull request #${r.pr.number} conflicts with ${r.task.environment} in ${r.pr.conflicts.join(', ')}. GitHub can't merge it until that's resolved.`, 'orange') : '',
     tone('It merges only when a person merges it on GitHub.', 'dim'),
   ].filter(Boolean).join('\n'), r);
@@ -413,16 +425,16 @@ const stepWords = (step: AutopilotStepName, sha: string): string => {
   return step === 'refresh' ? `${what} from its base` : what;
 };
 
-/** One autopilot pass, as a person reads it: what it did, what failed, what waits, and comments to post. */
+/** One autopilot pass, as a person reads it: what it did, what failed, what waits, and the updates it drafted. */
 function autopilotLines(r: AutopilotResult): string[] {
   const lines: string[] = [];
   for (const s of r.steps) {
     if (s.outcome === 'done') lines.push(`${tone(`✓ ${s.task}  ${s.reason}`, 'blue')}${s.pr ? `  ${s.pr.url}` : ''}`);
     else if (s.outcome === 'failed') lines.push(tone(`! ${s.task}  Couldn't ${stepWords(s.step!, s.sha ?? '')}: ${s.reason}`, 'orange'), tone('    It isn\'t tried again on this commit. Do it by hand, or a new commit lets autopilot try again.', 'dim'));
     else if (s.outcome === 'waiting') lines.push(tone(`… ${s.task}  Waiting: ${s.reason}`, 'dim'));
-    if (s.commentUnconfirmed) lines.push(tone(`! The comment on ${s.task}'s issue isn't confirmed: ${s.commentUnconfirmed.replace(/([^.!?])$/, '$1.')} Look at the issue before you post it again.`, 'orange'));
   }
-  for (const c of r.pendingComments) lines.push(tone(`! Post this on ${c.key}`, 'orange') + ` for ${c.task}. Autopilot can't post on ${c.kind === 'jira' ? 'Jira' : 'Azure DevOps'} as you:`, `    ${c.text.replace(/\n/g, '\n    ')}`);
+  // Autopilot posts nothing: each land's update waits for a person (D-066).
+  for (const u of r.updates) lines.push(`  Drafted an update for ${u.key} (${u.id}): acc updates`);
   const idle = r.steps.filter((s) => s.outcome === 'skipped').length;
   if (!lines.length) lines.push('Nothing for autopilot to do.');
   else if (idle) lines.push(tone(`${idle} other task${idle === 1 ? '' : 's'}: nothing to do.`, 'dim'));
@@ -448,7 +460,7 @@ function cmdAutopilot(o: Opts): number {
   if (mode.refusal) throw new AccError('refused', mode.refusal);
   if (!mode.on) {
     out(o, () => 'autonomy is "manual" in .acc/config.json, so autopilot does nothing. Set it to "review" for autopilot to review, land, and re-dispatch a rework once.',
-      { autonomy: mode.autonomy, warnings: mode.warnings, steps: [], pendingComments: [] });
+      { autonomy: mode.autonomy, warnings: mode.warnings, steps: [], updates: [] });
     return 0;
   }
   if (!start.config.github) throw new AccError('no-github', 'Autopilot lands reviewed work as pull requests on GitHub, and this project has no "github" section in .acc/config.json.');
@@ -476,7 +488,7 @@ function cmdAutopilot(o: Opts): number {
         run, now, env: process.env, accBinDir: accBinDir(), accCommand: accCommand(), stop: orphaned,
         onStep: (task, step, sha) => say(`… ${doing[step]} ${task}${sha ? ` at ${sha.slice(0, 7)}` : ''}${after[step]}`),
       });
-      const data = { autonomy: mode.autonomy, warnings: mode.warnings, steps: r.steps, pendingComments: r.pendingComments };
+      const data = { autonomy: mode.autonomy, warnings: mode.warnings, steps: r.steps, updates: r.updates };
       if (!every) {
         out(o, () => autopilotLines(r).join('\n'), data);
         return r.steps.some((s) => s.outcome === 'failed') ? 1 : 0;
@@ -502,7 +514,7 @@ function cmdSync(o: Opts): number {
   const { paths, config } = project(process.cwd());
   const r = sync(paths, config, { run, now, env: process.env });
   out(o, () => (r.checked
-    ? [`Checked ${r.checked} open pull request${r.checked === 1 ? '' : 's'}.`, ...r.changes.map((c) => `  ${c.task}: ${c.note}${c.moved ? ` → ${stateLabel(c.moved.to)}` : ''}`)].join('\n')
+    ? [`Checked ${r.checked} open pull request${r.checked === 1 ? '' : 's'}.`, ...r.changes.map((c) => `  ${c.task}: ${c.note}${c.moved ? ` → ${stateLabel(c.moved.to)}` : ''}${c.update ? `. Drafted an update for ${c.update.key} (${c.update.id})` : ''}`)].join('\n')
     : 'No open pull requests to follow.'), r);
   return 0;
 }
@@ -642,7 +654,11 @@ function cmdDeploy(o: Opts, envName: string): number {
     return 0;
   }
   const r = deploy(paths, config, envName, { run, now, onWait: () => { if (!o.json) process.stderr.write(tone('Waiting for another heavy check or deploy on this machine to finish…\n', 'dim')); } }, { since: o.since as string | undefined, confirmed: o['confirm-production'] === true, noTests: o['no-tests'] === true, by });
-  out(o, () => [...show(r.plan), '', r.deployed ? tone(`✓ ${r.summary}`, 'blue') : r.summary].join('\n'), r);
+  out(o, () => [
+    ...show(r.plan), '', r.deployed ? tone(`✓ ${r.summary}`, 'blue') : r.summary,
+    ...r.updates.map((u) => `  Drafted an update for ${u.key} (${u.id}).`),
+    r.updates.length ? tone('Nothing is posted until a person posts it: acc updates.', 'dim') : '',
+  ].filter(Boolean).join('\n'), r);
   return r.deployed || !r.plan.files.length ? 0 : 1;
 }
 
@@ -721,13 +737,157 @@ function cmdShow(o: Opts, id: string): number {
 }
 
 function cmdSet(o: Opts, id: string, to: string): number {
+  const client = typeof o.client === 'string' ? o.client.trim() : undefined;
+  if (o.client !== undefined && to !== 'blocked') throw new AccError('usage', '--client goes with blocking: acc block --client "<question>".');
+  if (o.client !== undefined && !client) throw new AccError('usage', 'acc block --client "<the question, for the client>"');
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
   const { task, entry } = moveTask(paths, config, id.toUpperCase(), {
-    to: to as State, actor, by, reason: (o.reason as string | undefined) ?? null, force: o.force === true,
+    to: to as State, actor, by, reason: (o.reason as string | undefined) ?? (client ? `Waiting on the client: ${client}` : null), force: o.force === true,
   }, receiptHooks(paths, config, run), now);
-  out(o, () => `${task.id}: ${entry.from} → ${stateLabel(displayState(readLedger(paths.ledger), task))}${entry.override ? ' (override recorded)' : ''}`, { task, entry });
+  // Only the client can answer it: the ticket gets a draft, which a person reads before it's posted (D-066).
+  const update = client ? draftUpdate(paths, task, { event: 'blocked', context: { question: client } }, by, now) : null;
+  out(o, () => [
+    `${task.id}: ${entry.from} → ${stateLabel(displayState(readLedger(paths.ledger), task))}${entry.override ? ' (override recorded)' : ''}`,
+    update ? `  Drafted an update for ${update.key} (${update.id}) with your question. A person reads it before it's posted.` : '',
+    client && !update ? `  ${task.id} has no ticket to post a question on: a person passes it on.` : '',
+  ].filter(Boolean).join('\n'), { task, entry, ...(client ? { update } : {}) });
   return 0;
+}
+
+// ---------------------------------------------------------------- ticket updates (D-066)
+
+/** Posting and discarding a ticket's update is a person's: never a builder's, reviewer's, analyst's or autopilot's. */
+function personOnlyUpdate(o: Opts, what: string): string {
+  if (process.env.ACC_ROLE === 'analyst') throw new AccError('refused', `An analyst can't ${what}. A person does that.`);
+  return personOnly(o, what);
+}
+
+const TRACKER_NAME: Record<Update['tracker'], string> = { github: 'GitHub', jira: 'Jira', azure: 'Azure DevOps' };
+
+/** An update as a person reads it: its id, state and ticket, what it's about, then its text. */
+function updateLines(u: Update): string[] {
+  const state = u.state === 'posting' ? (stalePosting(u, now()) ? tone('may have posted', 'orange') : 'posting') : u.state === 'draft' ? tone('draft', 'orange') : u.state;
+  const when = u.posted ? `posted by ${u.posted.by.replace(/^human:/, '')} ${u.posted.at}` : u.discarded ? `discarded by ${u.discarded.by.replace(/^human:/, '')} ${u.discarded.at}` : `drafted by ${u.by.replace(/^human:/, '')} ${u.createdAt}`;
+  return [
+    `${u.id.padEnd(12)} ${state}  ${TRACKER_NAME[u.tracker]} ${u.key}: ${EVENT_WORDS[u.event]}${u.env ? ` (${u.env})` : ''}  ${tone(when, 'dim')}`,
+    ...(u.failed && u.state === 'draft' ? [tone(`    ! The last try didn't post: ${u.failed.reason}`, 'orange')] : []),
+    ...(u.posted?.text ?? u.text).split('\n').map((l) => `    ${l}`),
+  ];
+}
+
+function cmdUpdates(o: Opts): number {
+  personOnlyUpdate(o, 'read the ticket updates');
+  const { paths } = project(process.cwd());
+  const task = (o.task as string | undefined)?.toUpperCase();
+  const list = listUpdates(paths).filter((u) => (o.all || isOpenUpdate(u)) && (!task || u.task === task));
+  out(o, () => (list.length
+    ? [...list.flatMap((u) => [...updateLines(u), '']), tone('Post one from the Command Center, or a GitHub issue\'s with acc update post <id>. acc update discard <id> sets one aside.', 'dim')].join('\n')
+    : o.all ? 'No ticket updates yet.' : 'No drafts waiting. acc updates --all shows the posted and discarded too.'), list);
+  return 0;
+}
+
+/** The text to post: the file a person edited it in, or the draft as acc wrote it. */
+function postText(o: Opts, u: Update): string {
+  const file = o['text-file'] as string | undefined;
+  const text = (file ? readFileSync(file, 'utf8') : u.text).trim();
+  if (!text) throw new AccError('usage', 'There\'s nothing to post: the text is empty.');
+  if (text.length > UPDATE_TEXT_MAX) throw new AccError('usage', `The text is ${text.length} characters, more than a post takes (${UPDATE_TEXT_MAX}).`);
+  return text;
+}
+
+const updateOrThrow = (paths: ReturnType<typeof project>['paths'], id: string): Update => {
+  const u = readUpdate(paths, id.toUpperCase());
+  if (!u) throw new AccError('no-update', `No update ${id}. acc updates lists them.`);
+  return u;
+};
+
+/**
+ * Posts a draft on its GitHub issue, as the repo's account (D-007, D-028), with the text a person
+ * edited. Jira and Azure DevOps post from the Command Center, through this repo's sign-in (D-027).
+ */
+function cmdUpdatePost(o: Opts, id: string): number {
+  const by = personOnlyUpdate(o, 'post a ticket\'s update');
+  const { paths, config } = project(process.cwd());
+  const u = updateOrThrow(paths, id);
+  if (u.tracker !== 'github') throw new AccError('refused', `${u.id} is for ${TRACKER_NAME[u.tracker]} ticket ${u.key}. acc posts only on GitHub: post it from the Command Center, which posts as you through this repo's ${TRACKER_NAME[u.tracker]} sign-in.`);
+  const text = postText(o, u);
+  const gh = config.github;
+  if (!gh) throw new AccError('no-github', 'This project has no "github" section in .acc/config.json, so acc can\'t post as its account.');
+  const issue = githubIssue(u, gh.repo);
+  if (!issue) throw new AccError('refused', `${u.id}'s ticket ${u.key} isn't a GitHub issue acc can find.`);
+  // Signed in first, so a missing sign-in leaves the draft as it was.
+  const env = { ...process.env, GH_TOKEN: ghToken(run, gh.account) };
+  claimUpdate(paths, u.id, by, now, { again: o.again === true });
+  const dir = mkdtempSync(join(tmpdir(), 'acc-update-'));
+  try {
+    const file = join(dir, 'body.md');
+    writeFileSync(file, text + '\n');
+    const r = run('gh', ['issue', 'comment', issue.number, '-R', issue.repo, '--body-file', file], { cwd: paths.root, env, timeoutMs: GH_TIMEOUT_MS });
+    if (r.code !== 0) {
+      const why = (r.stderr || r.stdout).trim().split('\n')[0] || `gh exited with ${r.code}.`;
+      // A gh stopped at its timeout may still have posted (D-051): it stays claimed, and says so.
+      if (r.timedOut) throw new AccError('unconfirmed', `${u.id} may have posted on ${u.key}: ${why} Look at the issue before you post it again with --again.`);
+      releaseUpdate(paths, u.id, why, now);
+      throw new AccError('post', `Couldn't post ${u.id} on ${u.key}: ${why}`);
+    }
+    const url = r.stdout.split('\n').map((l) => l.trim()).find((l) => /^https:\/\/github\.com\//.test(l));
+    const posted = markPosted(paths, u.id, { by, text, ...(url ? { url } : {}) }, now);
+    out(o, () => tone(`✓ Posted ${u.id} on ${u.key} as ${gh.account}${url ? `: ${url}` : '.'}`, 'blue'), posted);
+    return 0;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** The Command Center's steps for a Jira or Azure DevOps post, which it sends as you: claim, then record or release. */
+function cmdUpdateStep(o: Opts, step: 'posting' | 'posted' | 'release', id: string): number {
+  const by = personOnlyUpdate(o, 'post a ticket\'s update');
+  const { paths } = project(process.cwd());
+  const u = updateOrThrow(paths, id);
+  const r = step === 'posting' ? claimUpdate(paths, u.id, by, now, { again: o.again === true })
+    : step === 'posted' ? markPosted(paths, u.id, { by, text: postText(o, u), ...(typeof o.url === 'string' && /^https?:\/\//.test(o.url) ? { url: o.url } : {}) }, now)
+      : releaseUpdate(paths, u.id, (o.reason as string | undefined) ?? '', now);
+  out(o, () => (step === 'posting' ? `${u.id} is being posted by ${by.replace(/^human:/, '')}.` : step === 'posted' ? tone(`✓ ${u.id} is recorded as posted on ${u.key}.`, 'blue') : `${u.id} is a draft again.`), r);
+  return 0;
+}
+
+function cmdUpdateDiscard(o: Opts, id: string): number {
+  const by = personOnlyUpdate(o, 'discard a ticket\'s update');
+  const { paths } = project(process.cwd());
+  const u = discardUpdate(paths, updateOrThrow(paths, id).id, by, now);
+  out(o, () => `Discarded ${u.id}. It's kept, and never posted.`, u);
+  return 0;
+}
+
+/** One of the analysis's questions, drafted for the client: a person chose to ask them (D-066). */
+function cmdUpdateAsk(o: Opts, id: string, q: string): number {
+  const by = personOnlyUpdate(o, 'draft a question for the client');
+  const { paths } = project(process.cwd());
+  const taskId = id.toUpperCase();
+  const task = readLedger(paths.ledger).tasks.find((t) => t.id === taskId);
+  if (!task) throw new AccError('no-task', `No task ${id}.`);
+  const a = readAnalysis(paths, taskId);
+  if (!a) throw new AccError('no-analysis', `${taskId} hasn't been analyzed yet: acc analyze ${taskId}.`);
+  const question = a.questions.find((x) => x.id === q.toLowerCase() || x.id === `q${q}`);
+  if (!question) throw new AccError('usage', `${taskId}'s analysis has no question ${q}. It has: ${a.questions.map((x) => x.id).join(', ') || 'none'}.`);
+  const u = draftUpdate(paths, task, { event: 'question', question: question.id, text: updateText('question', { question: question.question }) }, by, now);
+  if (!u) throw new AccError('refused', `${taskId} has no ticket to post a question on: it's a task acc alone keeps.`);
+  out(o, () => `Drafted ${question.id} for ${u.key} (${u.id}). Read and edit it before you post it.\n${u.text.split('\n').map((l) => `    ${l}`).join('\n')}`, u);
+  return 0;
+}
+
+function cmdUpdate(o: Opts, sub: string | undefined, args: string[]): number {
+  const usage = 'acc update post <id> [--text-file <f>] [--again] | acc update discard <id> | acc update ask <task> <q>';
+  if (sub === 'ask') {
+    if (!args[0] || !args[1]) throw new AccError('usage', 'acc update ask <task> <q>');
+    return cmdUpdateAsk(o, args[0], args[1]);
+  }
+  if (!args[0]) throw new AccError('usage', usage);
+  if (sub === 'post') return cmdUpdatePost(o, args[0]);
+  if (sub === 'discard') return cmdUpdateDiscard(o, args[0]);
+  if (sub === 'posting' || sub === 'posted' || sub === 'release') return cmdUpdateStep(o, sub, args[0]);
+  throw new AccError('usage', usage);
 }
 
 // ---------------------------------------------------------------- GitHub identity (D-028)
@@ -919,6 +1079,11 @@ export async function main(argv: string[]): Promise<number> {
       clear: { type: 'string', multiple: true },
       once: { type: 'boolean', default: false },
       every: { type: 'string' },
+      client: { type: 'string' },
+      all: { type: 'boolean', default: false },
+      'text-file': { type: 'string' },
+      again: { type: 'boolean', default: false },
+      url: { type: 'string' },
     },
   });
   const o = values as Opts;
@@ -954,8 +1119,10 @@ export async function main(argv: string[]): Promise<number> {
       const [first, ...more] = rest;
       const looksLikeId = !!first && /^[A-Z][A-Z0-9_]*-\d+$/i.test(first) && more.length > 0;
       const id = taskIdFrom(looksLikeId ? first : undefined);
-      const reason = (o.reason as string | undefined) ?? (looksLikeId ? more : rest).join(' ').trim();
-      if (!reason) throw new AccError('usage', 'acc block "<what you need>"');
+      const client = typeof o.client === 'string' ? o.client.trim() : '';
+      // A question for the client is the reason too, so the board says what it waits on.
+      const reason = (o.reason as string | undefined) ?? ((looksLikeId ? more : rest).join(' ').trim() || (client ? `Waiting on the client: ${client}` : ''));
+      if (!reason) throw new AccError('usage', 'acc block "<what you need>", or acc block --client "<question>" when only the client can answer');
       return cmdSet({ ...o, reason }, id, 'blocked');
     }
     case 'analyze': {
@@ -980,6 +1147,8 @@ export async function main(argv: string[]): Promise<number> {
     }
     case 'autopilot': return cmdAutopilot(o);
     case 'sync': return cmdSync(o);
+    case 'updates': return cmdUpdates(o);
+    case 'update': return cmdUpdate(o, rest[0], rest.slice(1));
     case 'promote': {
       if (!rest[0]) throw new AccError('usage', 'acc promote <env> [--to <env>]');
       return cmdPromote(o, rest[0]);
