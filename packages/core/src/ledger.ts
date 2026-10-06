@@ -67,7 +67,22 @@ export interface PullRequest {
   mergeSha?: string;
 }
 
-export const AUTOPILOT_STEPS = ['review', 'land', 'dispatch', 'refresh', 'resume'] as const;
+/**
+ * A promotion that takes a task's change on to another environment (GH-56): recorded by acc promote on
+ * each task it carries, and followed by acc sync. Its merge commit is where the change reached `to`.
+ */
+export interface Promotion {
+  /** The environments' branches. */
+  from: string;
+  to: string;
+  pr: { number: number; url: string };
+  state: 'open' | 'merged' | 'closed';
+  /** The commit its merge left on `to`, kept by acc sync, so a deploy of `to` knows it carried the task. */
+  mergeSha?: string;
+  at: string;
+}
+
+export const AUTOPILOT_STEPS =['review', 'land', 'dispatch', 'refresh', 'resume'] as const;
 export type AutopilotStepName = (typeof AUTOPILOT_STEPS)[number];
 
 /** A step autopilot took that failed: it isn't tried again on that commit, and the task needs you (D-055). */
@@ -94,6 +109,8 @@ export interface Task {
   blocker: string | null;
   run: Run | null;
   pr: PullRequest | null;
+  /** The promotions that took its change on from its environment, oldest first. */
+  promotions?: Promotion[];
   /** What autopilot couldn't do for it, if anything (D-055). */
   autopilot?: { failed: AutopilotFailure | null };
   history: HistoryEntry[];

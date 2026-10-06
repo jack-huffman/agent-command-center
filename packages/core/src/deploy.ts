@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { arrivedAt } from './carried.ts';
 import type { Config, Environment } from './config.ts';
 import { AccError, parseJsonOutput, type RunResult, type Runner, sfEnv } from './exec.ts';
 import { listed, niced, packageDirs, under } from './gates.ts';
@@ -109,15 +110,16 @@ export interface DeployResult {
 }
 
 /**
- * The tasks a deploy carried to its org: each merged into the environment's branch at a commit that's
- * in what was deployed, after the last deploy and up to the new head. A squash merge's commit is the one
- * acc sync recorded; a task merged before acc recorded it falls back to its branch's commit, which a
- * squash leaves off the branch, so it's missed (D-066).
+ * The tasks a deploy carried to its org: each whose change reached the environment's branch at a commit
+ * that's in what was deployed, after the last deploy and up to the new head. It reached it by its own
+ * merge, or by a promotion's (GH-56). A squash merge's commit is the one acc sync recorded; a task merged
+ * before acc recorded it falls back to its branch's commit, which a squash leaves off the branch, so it's
+ * missed (D-066).
  */
 export function deployedTasks(paths: RepoPaths, run: Runner, plan: Pick<DeployPlan, 'env' | 'base' | 'head'>): Task[] {
   const on = (sha: string, tip: string) => git(run, paths.root, 'merge-base', '--is-ancestor', sha, tip).code === 0;
   return readLedger(paths.ledger).tasks.filter((t) => {
-    const sha = t.environment === plan.env.branch && t.pr?.state === 'merged' ? t.pr.mergeSha ?? t.pr.sha : undefined;
+    const sha = arrivedAt(t, plan.env.branch);
     return !!sha && on(sha, plan.head) && !on(sha, plan.base);
   });
 }
