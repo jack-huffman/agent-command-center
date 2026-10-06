@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { type Config, type Environment, environmentByBranch } from './config.ts';
 import { AccError, type Runner } from './exec.ts';
-import { type Actor, applyMove, checkMove, mutate, noGateHooks, readLedger, type Task } from './ledger.ts';
+import { type Actor, applyMove, checkMove, mutate, noGateHooks, readLedger, reworkCause, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
 import { permissionHook } from './questions.ts';
 import { type Analysis, analysisProblems, analysisSection, readAnalysis } from './analyze.ts';
@@ -378,8 +378,9 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
 
   const rules = existsSync(join(wt, '.acc', 'rules.md')) ? readFileSync(join(wt, '.acc', 'rules.md'), 'utf8') : null;
   const rework = found.state === 'rework';
-  // Sent back for failing checks on GitHub (D-076): what they said about the branch's latest commit.
-  const head = rework ? git(run, paths.root, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`).stdout.trim() : '';
+  // Sent back for failing checks on GitHub (D-076): what they said about the branch's latest commit. Only
+  // then: a review's or a person's rework at the same commit has its own reasons, which the report would contradict.
+  const head = rework && reworkCause(found) === 'checks' ? git(run, paths.root, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`).stdout.trim() : '';
   const packet = renderPacket({
     task: found, config, env, worktree: wt, branch, rules, environmentSpecific: readList(wt, config.environmentSpecific), enterWorktree: enter && !opts.foreground,
     accPath: join(deps.accBinDir, 'acc'), review: rework ? latestVerdict(paths, found.id) : null, analysis: readAnalysis(paths, found.id),

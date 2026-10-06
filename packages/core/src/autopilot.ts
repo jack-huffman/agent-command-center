@@ -5,7 +5,7 @@ import { type CheckRead, readChecks, sendBack } from './checks.ts';
 import { dispatch } from './dispatch.ts';
 import { AccError, type Runner } from './exec.ts';
 import { releaseAwake } from './awake.ts';
-import { AUTOPILOT_STEPS, type AutopilotFailure, type AutopilotStepName, builderStopped, type ClaudeSession, closedPr, type HistoryEntry, type Ledger, type LedgerEvent, mutate, readLedger, sentBackAt, type State, STOPPED_GRACE_MS, type Task } from './ledger.ts';
+import { AUTOPILOT_BY, AUTOPILOT_STEPS, type AutopilotFailure, type AutopilotStepName, builderStopped, type ClaudeSession, closedPr, type HistoryEntry, type Ledger, type LedgerEvent, mutate, readLedger, type ReworkCause, reworkCause, sentBackAt, sentBackForChecks, type State, STOPPED_GRACE_MS, type Task } from './ledger.ts';
 import { ghToken, land, type LandResult } from './land.ts';
 import { withLock } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
@@ -25,8 +25,8 @@ import type { SlotOptions } from './semaphore.ts';
  * changes anything on GitHub but its pull request, or starts a task that's to do.
  */
 
-/** Who autopilot is, in the ledger's history and events. */
-export const AUTOPILOT_BY = 'orchestrator:autopilot';
+// Who autopilot is, and what sent a task to rework, live with the ledger's moves, so dispatch can read them.
+export { AUTOPILOT_BY, type ReworkCause, reworkCause, sentBackForChecks } from './ledger.ts';
 
 /** The shortest gap `acc autopilot --every` takes between passes. */
 export const AUTOPILOT_MIN_EVERY_S = 30;
@@ -104,17 +104,6 @@ const sentence = (text: string): string => text.replace(/([^.!?])$/, '$1.');
 /** A move in a task's history, as the ledger keeps it and the Command Center reads it. */
 type Move = Pick<HistoryEntry, 'at' | 'by'> & { from: string | null; to: string; actor: string };
 
-/** Autopilot's own move to rework: a pull request whose checks failed on GitHub (D-076). A review's, even one made for autopilot, isn't. */
-export const sentBackForChecks = (h: Pick<Move, 'from' | 'to' | 'by'>): boolean => h.from === 'review' && h.to === 'rework' && h.by === AUTOPILOT_BY;
-
-/** What sent a task to rework: autopilot for its failing checks, or a review or a person. */
-export type ReworkCause = 'checks' | 'review';
-
-/** Why the task is in rework now, from the move that put it there, or null when it never was. */
-export function reworkCause(task: { history: Pick<Move, 'from' | 'to' | 'by'>[] }): ReworkCause | null {
-  const h = task.history.findLast((x) => x.to === 'rework');
-  return h ? (sentBackForChecks(h) ? 'checks' : 'review') : null;
-}
 
 /**
  * Autopilot already re-dispatched a review's rework once (D-055), before `before` when given: every later
@@ -260,6 +249,13 @@ function checksWanted(task: Task, facts: TaskFacts): boolean {
  * running task's builder has stopped by the sessions `claude agents` listed, or not when it didn't answer.
  * With `github`, a task autopilot could send back has its pull request's checks read (D-076).
  */
+/**
+ * Each task's last checks read that had all finished with nothing to send back, by its commit, kept for the life of the
+ * process: `acc autopilot --every` then asks GitHub once a commit, and a quiet board makes no calls, with
+ * or without acc sync (D-076). A new commit is read afresh.
+ */
+const settledChecks = new Map<string, { sha: string; checks: NonNullable<TaskFacts['checks']> }>();
+
 export function taskFacts(paths: RepoPaths, task: Task, run: Runner, sessions: ClaudeSession[] | null = null, now: Date = new Date(), github?: FactsGitHub): TaskFacts {
   const facts: TaskFacts = { head: '', verdict: null, reviewing: null, landed: null };
   if (task.state !== 'review' && task.state !== 'rework' && task.state !== 'running') return facts;
@@ -276,8 +272,18 @@ export function taskFacts(paths: RepoPaths, task: Task, run: Runner, sessions: C
   // A pull request landed before acc recorded the commit: what GitHub last had, as this clone saw it.
   if (task.pr?.state === 'open') facts.landed = task.pr.sha ?? (branch ? rev(`refs/remotes/origin/${branch}`) || null : null);
   if (github && checksWanted(task, facts)) {
+    const key = `${paths.ledger}#${task.id}`;
+    const settled = settledChecks.get(key);
+    if (settled?.sha === facts.head) {
+      facts.checks = settled.checks;
+      return facts;
+    }
     try {
       facts.checks = readChecks(run, github.repo, task.pr!.number, github.env());
+      const c = facts.checks;
+      // Settled with nothing to send back (all passed, or only checks GitHub keeps no log for): kept. A
+      // failure autopilot would act on is read again, since its send-back reads it afresh anyway.
+      if (c && c.sha === facts.head && !c.pending.length && !c.failed.some((x) => x.job)) settledChecks.set(key, { sha: facts.head, checks: c });
     } catch (e) {
       facts.checksError = firstLines((e as Error).message ?? String(e));
     }

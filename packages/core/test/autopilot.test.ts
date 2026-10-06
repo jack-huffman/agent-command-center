@@ -726,6 +726,14 @@ test('autopilot asks GitHub about checks only for a task it could send back, and
   edit(s.paths, (l) => { delete l.tasks[0]!.pr!.ci; });
   const f = taskFacts(s.paths, first(s.paths), r, null, now(), gh);
   assert.deepEqual([f.checks?.sha, f.checks?.failed.map((c) => c.name)], [s.sha, ['build']]);
+  // A failure it can send back is read again each pass; checks that passed, or failed with no log, are
+  // read once a commit, even without acc sync: a quiet board makes no calls.
+  const quiet = deps(calls, github(s.sha, [check('build', 'pass'), check('vercel', 'fail', { workflow: '', link: 'https://vercel.com/acme/tool/preview' })])).run;
+  taskFacts(s.paths, first(s.paths), quiet, null, now(), gh);
+  const asked = calls.filter((c) => c.startsWith('gh pr checks')).length;
+  const again = taskFacts(s.paths, first(s.paths), quiet, null, now(), gh);
+  assert.deepEqual(again.checks?.failed.map((c) => c.name), ['vercel'], 'what it read before');
+  assert.equal(calls.filter((c) => c.startsWith('gh pr checks')).length, asked, 'no second read of a settled commit');
   assert.equal(taskFacts(s.paths, first(s.paths), r).checks, undefined, 'without GitHub, nothing is asked');
   // A new commit, not landed or reviewed yet: nothing asked.
   s.commit('more.js', 'x\n');
@@ -777,6 +785,15 @@ test('a pull request whose checks failed goes back to its builder with what they
   const redispatched = events(s.paths).filter((e) => e.type === 'task.moved').at(-1)!;
   assert.deepEqual([redispatched.data.from, redispatched.data.cause], ['rework', 'checks']);
   assert.equal(autopilotEvent(redispatched)?.cause, 'checks');
+
+  // A person's rework at that same commit has its own reasons: the checks report isn't in its packet.
+  edit(s.paths, (l) => {
+    const x = l.tasks[0]!;
+    x.state = 'rework';
+    x.history.push({ at: now().toISOString(), actor: 'human', by: 'human:jordan', from: 'review', to: 'rework', reason: 'Rename the helper.' });
+  });
+  assert.deepEqual(brief(autopilotPass(s.paths, s.config, deps(calls)).steps)[0], ['T-1', 'dispatch', 'done']);
+  assert.ok(!readFileSync(join(s.paths.packets, 'T-1.md'), 'utf8').includes('What GitHub\'s checks said'), 'not autopilot\'s send-back, so not its report');
 });
 
 test('checks failing again on the commit autopilot sent back wait for a person, and a new commit is sent back again (D-076)', () => {

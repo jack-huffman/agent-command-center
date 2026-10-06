@@ -942,7 +942,8 @@ function moveFeed(h: { from: string | null; to: string; by: string }): { icon: s
   if (!h.from) return { icon: 'add', tone: 'neutral', verb: 'added it', pill: false };
   if (h.to === 'running') return h.from === 'rework' ? { icon: 'debug-restart', tone: 'blue', verb: 'sent it back to its agent', pill: false } : { icon: 'rocket', tone: 'blue', verb: 'started its agent', pill: false };
   // Only autopilot's send-back for checks that failed on GitHub is the orchestrator's move to rework (D-076).
-  if (h.to === 'rework' && h.from === 'review' && /^orchestrator/.test(h.by)) return { icon: 'github-action', tone: 'orange', verb: 'sent it back to its builder', pill: false };
+  // Core's sentBackForChecks (D-076), which this page can't import: autopilot's own move, not a review made for it.
+  if (h.to === 'rework' && h.from === 'review' && h.by === 'orchestrator:autopilot') return { icon: 'github-action', tone: 'orange', verb: 'sent it back to its builder', pill: false };
   if (h.to === 'rework') return { icon: 'request-changes', tone: 'orange', verb: 'asked for changes', pill: false };
   if (h.to === 'blocked') return { icon: 'circle-slash', tone: 'orange', verb: 'blocked it', pill: false };
   if (h.to === 'done') return { icon: sync ? 'git-merge' : 'check', tone: 'blue', verb: sync ? 'merged its pull request:' : 'moved it to', pill: true };

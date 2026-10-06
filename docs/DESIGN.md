@@ -849,15 +849,15 @@ list. The walkthrough, the CLI and the docs can't drift apart.
 
 `acc doctor` checks each of these and says how to fix what's missing:
 
-- macOS, on Apple Silicon or Intel
 - git 2.40 or later
 - Claude Code with `--bg` support
 - `gh`, logged in as the configured account
 - for Salesforce: Node 20 or later, `sf` and Code Analyzer, plus each
   environment's org logged in with its sandbox name matching its branch
-
-acc itself needs no Node: its launcher falls back to VSCode's runtime (§13).
 - the config is valid, and the ledger directory can be written
+
+acc runs on macOS only, on Apple Silicon or Intel (D-077). It needs no Node of
+its own: its launcher falls back to VSCode's runtime (§13).
 
 ## 17. Testing
 

@@ -518,6 +518,21 @@ export function builderStopped(task: Pick<Task, 'id' | 'state' | 'run'>, session
 /** The pull request of a task in review that someone closed without merging: it waits for a person, who lands it again or not (D-063). */
 export const closedPr = (task: Task): PullRequest | null => (task.state === 'review' && task.pr?.state === 'closed' ? task.pr : null);
 
+/** Who autopilot is, in the ledger's history and events. */
+export const AUTOPILOT_BY = 'orchestrator:autopilot';
+
+/** Autopilot's own move to rework: a pull request whose checks failed on GitHub (D-076). A review's, even one made for autopilot, isn't. */
+export const sentBackForChecks = (h: Pick<HistoryEntry, 'by'> & { from: string | null; to: string }): boolean => h.from === 'review' && h.to === 'rework' && h.by === AUTOPILOT_BY;
+
+/** What sent a task to rework: autopilot for its failing checks, or a review or a person. */
+export type ReworkCause = 'checks' | 'review';
+
+/** Why the task is in rework now, from the move that put it there, or null when it never was. */
+export function reworkCause(task: { history: (Pick<HistoryEntry, 'by'> & { from: string | null; to: string })[] }): ReworkCause | null {
+  const h = task.history.findLast((x) => x.to === 'rework');
+  return h ? (sentBackForChecks(h) ? 'checks' : 'review') : null;
+}
+
 /** Whether autopilot already sent this commit back to its builder for failing checks (D-076). */
 export const sentBackAt = (task: Pick<Task, 'autopilot'>, sha: string | null | undefined): boolean => !!sha && task.autopilot?.sentBack?.sha === sha;
 
