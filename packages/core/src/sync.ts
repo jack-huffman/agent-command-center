@@ -1,15 +1,18 @@
 import { type Config, environmentByBranch } from './config.ts';
 import { releaseAwake } from './awake.ts';
+import { arrivedAt } from './carried.ts';
 import { AccError, type Runner } from './exec.ts';
 import { applyMove, checkMove, mutate, noGateHooks, type PullRequest, readLedger, type State } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
-import { draftUpdate } from './updates.ts';
+import { discardUpdate, draftUpdate, listUpdates } from './updates.ts';
 
 /**
  * Keeps tasks in step with their pull requests (D-033): merged is done, closed without merging is
  * blocked, and failing checks, a person's requested changes or a conflict with the base show the task
  * as needs you. It only reads GitHub, and fetches to see the conflicts (D-049). A task it moves to done
- * gets a draft update for its ticket, which a person posts (D-066): sync itself posts nothing.
+ * gets a draft update for its ticket, which a person posts (D-066): sync itself posts nothing. It follows
+ * the promotions that took tasks on too (D-075): merged, each task's ticket hears its change is in the
+ * next environment; closed without merging, the draft saying it was ready to go is set aside.
  */
 
 export interface SyncChange {
@@ -18,7 +21,7 @@ export interface SyncChange {
   /** The move it made, if any. */
   moved: { from: State; to: State } | null;
   note: string;
-  /** The update it drafted for the ticket, when it moved the task to done. */
+  /** The update it drafted for the ticket, when it moved the task to done or a promotion of it merged. */
   update?: { id: string; key: string };
 }
 
@@ -33,6 +36,9 @@ interface GhPr {
   mergeCommit?: { oid?: string } | null;
   statusCheckRollup?: { status?: string; conclusion?: string | null; state?: string }[] | null;
 }
+
+/** The commit a merge left on its base, when GitHub gave one. */
+const mergeShaOf = (p: GhPr): string | undefined => (p.mergeCommit?.oid && /^[0-9a-f]{40,64}$/.test(p.mergeCommit.oid) ? p.mergeCommit.oid : undefined);
 
 const FAILED = new Set(['FAILURE', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE', 'ERROR']);
 
@@ -71,22 +77,34 @@ export function conflictsOf(run: Runner, root: string, base: string, head: strin
 
 export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now: () => Date; env: NodeJS.ProcessEnv }): { checked: number; changes: SyncChange[] } {
   const { run, now } = deps;
-  const open = readLedger(paths.ledger).tasks.filter((t) => t.pr?.state === 'open');
-  if (!open.length) return { checked: 0, changes: [] };
+  const tasks = readLedger(paths.ledger).tasks;
+  const open = tasks.filter((t) => t.pr?.state === 'open');
+  // A promotion carries several tasks: each open one is read once (D-075).
+  const promotions = [...new Set(tasks.flatMap((t) => (t.promotions ?? []).filter((p) => p.state === 'open').map((p) => p.pr.number)))];
+  if (!open.length && !promotions.length) return { checked: 0, changes: [] };
   const gh = config.github;
   if (!gh) throw new AccError('no-github', 'This project has no "github" section in .acc/config.json, so there are no pull requests to follow.');
   const token = run('gh', ['auth', 'token', '-u', gh.account]);
   if (token.code !== 0) throw new AccError('no-github', `gh isn't logged in as ${gh.account}, the account this repo works as.`);
   const env = { ...deps.env, GH_TOKEN: token.stdout.trim() };
+  const view = (n: number, fields: string): GhPr | undefined => {
+    const r = run('gh', ['pr', 'view', String(n), '-R', gh.repo, '--json', fields], { env, timeoutMs: 60_000 });
+    if (r.code !== 0) return undefined; // unreachable for now: try again next time
+    try {
+      return JSON.parse(r.stdout) as GhPr;
+    } catch {
+      return undefined; // not JSON: try again next time
+    }
+  };
   const seen = new Map<number, GhPr>();
   for (const t of open) {
-    const r = run('gh', ['pr', 'view', String(t.pr!.number), '-R', gh.repo, '--json', 'number,state,url,reviewDecision,baseRefName,headRefName,mergeCommit,statusCheckRollup'], { env, timeoutMs: 60_000 });
-    if (r.code !== 0) continue; // unreachable for now: try again next time
-    try {
-      seen.set(t.pr!.number, JSON.parse(r.stdout) as GhPr);
-    } catch {
-      // not JSON: try again next time
-    }
+    const p = view(t.pr!.number, 'number,state,url,reviewDecision,baseRefName,headRefName,mergeCommit,statusCheckRollup');
+    if (p) seen.set(t.pr!.number, p);
+  }
+  const promoted = new Map<number, GhPr>();
+  for (const n of promotions) {
+    const p = view(n, 'number,state,url,mergeCommit');
+    if (p) promoted.set(n, p);
   }
   // Whether each open one still merges into its base, worked out here: GitHub says only that it conflicts.
   const branches = new Map<number, { base: string; head: string }>();
@@ -105,6 +123,10 @@ export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now:
     }
   }
   const at = now().toISOString();
+  // What to tell each ticket once the ledger is written: its change is in the next environment, or the
+  // promotion that would have taken it there closed.
+  const arrived: { change: SyncChange; env: string }[] = [];
+  const closed: { change: SyncChange; pr: number }[] = [];
   const changes = mutate(paths, now, (ledger, emit) => {
     const out: SyncChange[] = [];
     for (const t of ledger.tasks) {
@@ -116,7 +138,7 @@ export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now:
       let moved: SyncChange['moved'] = null;
       let note = '';
       if (p.state === 'MERGED') {
-        const mergeSha = p.mergeCommit?.oid && /^[0-9a-f]{40,64}$/.test(p.mergeCommit.oid) ? p.mergeCommit.oid : undefined;
+        const mergeSha = mergeShaOf(p);
         t.pr = { ...t.pr, state: 'merged', ci, ...(mergeSha ? { mergeSha } : {}), syncedAt: at };
         const req = { to: 'done' as const, actor: 'sync' as const, by: 'acc sync', reason: `Pull request #${p.number} merged.` };
         if (t.state === 'review' && !checkMove(ledger, config, t, req, noGateHooks).length) {
@@ -150,6 +172,31 @@ export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now:
         out.push({ task: t.id, pr: p.number, moved, note });
       }
     }
+    // The promotions that took tasks on (D-075). Merged: where the change arrived, which a deploy finds.
+    // Closed: the task isn't there, so the next promotion carries it again.
+    for (const t of ledger.tasks) {
+      for (const promotion of t.promotions ?? []) {
+        const p = promotion.state === 'open' ? promoted.get(promotion.pr.number) : undefined;
+        if (!p || (p.state !== 'MERGED' && p.state !== 'CLOSED')) continue;
+        const env = environmentByBranch(config, promotion.to)?.name ?? promotion.to;
+        const change: SyncChange = { task: t.id, pr: promotion.pr.number, moved: null, note: '' };
+        if (p.state === 'MERGED') {
+          // Already there by an earlier promotion: the client heard so then.
+          const before = arrivedAt(t, promotion.to);
+          const mergeSha = mergeShaOf(p);
+          promotion.state = 'merged';
+          if (mergeSha) promotion.mergeSha = mergeSha;
+          change.note = `promotion #${p.number} merged into ${env}`;
+          if (!before) arrived.push({ change, env });
+        } else {
+          promotion.state = 'closed';
+          change.note = `promotion #${p.number} to ${env} closed without merging`;
+          closed.push({ change, pr: p.number });
+        }
+        emit({ type: 'task.updated', task: t.id, actor: 'sync', by: 'acc sync', data: { promotion } });
+        out.push(change);
+      }
+    }
     return out;
   });
   // A task sync moved out of running, as moveTask does, stops keeping the Mac awake for its builder (D-067).
@@ -169,5 +216,32 @@ export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now:
       c.note += `; no update drafted: ${(e as Error).message}`;
     }
   }
-  return { checked: seen.size, changes };
+  // In the next environment: the ticket can hear so. It overtakes the draft saying it was ready to go (D-071).
+  for (const { change, env } of arrived) {
+    const t = ledger.tasks.find((x) => x.id === change.task);
+    if (!t) continue;
+    try {
+      const u = draftUpdate(paths, t, { event: 'promoted', env }, 'acc sync', now);
+      if (u) change.update = { id: u.id, key: u.key };
+    } catch (e) {
+      change.note += `; no update drafted: ${(e as Error).message}`;
+    }
+  }
+  // Closed without merging: the change isn't going there after all, so its unposted draft is set aside,
+  // kept and marked. One posted, or being posted, is left as it is.
+  const drafts = closed.length ? listUpdates(paths) : [];
+  for (const { change, pr } of closed) {
+    const gone: string[] = [];
+    for (const u of drafts) {
+      if (u.task !== change.task || u.event !== 'promotion-opened' || u.pr?.number !== pr || u.state !== 'draft') continue;
+      try {
+        discardUpdate(paths, u.id, 'acc sync', now);
+        gone.push(u.id);
+      } catch {
+        // Claimed for posting since: a person has it.
+      }
+    }
+    if (gone.length) change.note += `; discarded its unposted update ${gone.join(', ')}`;
+  }
+  return { checked: seen.size + promoted.size, changes };
 }

@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import {
-  buildWalkthroughs, commandLink, COMMANDS, contextKey, EXTENSION_ID, hasPlaceholder, initCommand, isComplete, isWebviewMenuContext, mediaPath,
+  buildWalkthroughs, commandLink, COMMANDS, contextKey, EXTENSION_ID, followsPullRequests, hasPlaceholder, initCommand, isComplete, isWebviewMenuContext, mediaPath,
   productionOrgs, setupOrgChoices, statusText, stepDescription, summarize, walkthroughSteps, type DoctorItem,
 } from '../src/logic.ts';
 import { staleFiles } from '../scripts/generate.ts';
@@ -428,4 +428,13 @@ test('all of acc is one status bar item: what needs you first, a spinner while b
   assert.match(on.tooltip.join('\n'), /Autopilot on here/);
   assert.equal(combinedStatus({ ...base, autopilot: [{ project: 'Acme', state: 'on' }] }).text, '$(hubot) Autopilot on');
   assert.equal(combinedStatus({ ...base, account: { name: 'someone-else', ok: false } }).attention, true, 'the wrong account says so');
+});
+
+test('acc sync runs for a project while a task\'s pull request or a promotion taking it on is open, and not otherwise (D-075)', () => {
+  const pr = (state: string) => ({ number: 3, url: 'https://github.com/o/r/pull/3', state });
+  assert.equal(followsPullRequests({ pr: pr('open') }), true);
+  assert.equal(followsPullRequests({ pr: pr('merged'), promoting: true }), true, 'its promotion\'s merge tells the ticket it\'s in the next environment');
+  assert.equal(followsPullRequests({ pr: pr('merged'), promoting: false }), false);
+  assert.equal(followsPullRequests({ pr: pr('closed') }), false);
+  assert.equal(followsPullRequests({ pr: null }), false);
 });

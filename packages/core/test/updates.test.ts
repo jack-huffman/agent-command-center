@@ -84,6 +84,42 @@ test('later news replaces an unposted draft it overtakes: merged for ready for r
   assert.deepEqual(listUpdates(posted).map((u) => [u.id, u.state]), [['ACME-12.1', 'posting'], ['ACME-12.2', 'draft']]);
 });
 
+test('a promotion\'s news overtakes in turn: ready to go to UAT, then in UAT, then deployed there; a merge into Dev is other news (D-075)', () => {
+  const paths = store();
+  const promotion = (n: number) => ({ number: n, url: `https://github.com/acme/service/pull/${n}` });
+  draftUpdate(paths, jira(), { event: 'pr-opened', pr }, 'acc land', now);
+  draftUpdate(paths, jira(), { event: 'promotion-opened', env: 'UAT', pr: promotion(9) }, 'human:jordan', now);
+  let all = listUpdates(paths);
+  assert.deepEqual(all.map((u) => [u.id, u.event, u.env, u.pr?.number, u.replaces]), [['ACME-12.2', 'promotion-opened', 'UAT', 9, ['ACME-12.1']]], 'a promotion stands in for ready for review');
+  assert.equal(all[0]!.text, 'The change is ready to go to UAT: https://github.com/acme/service/pull/9');
+  // Promoted again before anyone posted: one draft, with the latest link.
+  draftUpdate(paths, jira(), { event: 'promotion-opened', env: 'UAT', pr: promotion(10) }, 'human:jordan', now);
+  draftUpdate(paths, jira(), { event: 'promoted', env: 'UAT' }, 'acc sync', now);
+  all = listUpdates(paths);
+  assert.deepEqual(all.map((u) => [u.id, u.event, u.text, u.replaces]), [['ACME-12.4', 'promoted', 'The change is now in UAT.', ['ACME-12.3', 'ACME-12.2', 'ACME-12.1']]]);
+  draftUpdate(paths, jira(), { event: 'deployed', env: 'UAT' }, 'human:jordan', now);
+  assert.deepEqual(listUpdates(paths).map((u) => [u.id, u.event, u.replaces]), [['ACME-12.5', 'deployed', ['ACME-12.4', 'ACME-12.3', 'ACME-12.2', 'ACME-12.1']]]);
+
+  // A merge into Dev waits beside the news about UAT, and a deploy to Dev doesn't take UAT's place.
+  const beside = store();
+  draftUpdate(beside, jira(), { event: 'merged', env: 'Dev' }, 'acc sync', now);
+  draftUpdate(beside, jira(), { event: 'promotion-opened', env: 'UAT', pr: promotion(9) }, 'human:jordan', now);
+  draftUpdate(beside, jira(), { event: 'promoted', env: 'UAT' }, 'acc sync', now);
+  draftUpdate(beside, jira(), { event: 'merged', env: 'Dev' }, 'acc sync', now);
+  draftUpdate(beside, jira(), { event: 'promotion-opened', env: 'Production', pr: promotion(11) }, 'human:jordan', now);
+  draftUpdate(beside, jira(), { event: 'deployed', env: 'Dev' }, 'human:jordan', now);
+  assert.deepEqual(listUpdates(beside).map((u) => [u.id, u.event, u.env, u.replaces]), [
+    ['ACME-12.3', 'promoted', 'UAT', ['ACME-12.2']], ['ACME-12.5', 'promotion-opened', 'Production', undefined], ['ACME-12.6', 'deployed', 'Dev', ['ACME-12.4', 'ACME-12.1']],
+  ]);
+
+  // A promotion's draft being posted, or posted, is never taken back.
+  const posted = store();
+  draftUpdate(posted, jira(), { event: 'promotion-opened', env: 'UAT', pr: promotion(9) }, 'human:jordan', now);
+  claimUpdate(posted, 'ACME-12.1', 'human:jordan', now);
+  draftUpdate(posted, jira(), { event: 'promoted', env: 'UAT' }, 'acc sync', now);
+  assert.deepEqual(listUpdates(posted).map((u) => [u.id, u.state, u.replaces]), [['ACME-12.1', 'posting', undefined], ['ACME-12.2', 'draft', undefined]]);
+});
+
 test('a draft remembers the last twenty drafts it replaced', () => {
   const paths = store();
   for (let n = 1; n <= 25; n++) draftUpdate(paths, jira(), { event: 'merged', env: 'Dev' }, 'acc sync', now);
@@ -151,6 +187,8 @@ test('every draft reads plainly for a client: no word of agents, worktrees, acc,
   assert.equal(updateText('pr-opened', context), 'The change is ready for review: https://github.com/acme/service/pull/38\nPremium cases now escalate after two hours.');
   assert.equal(updateText('pr-updated', context), 'The change was updated and is ready for review again: https://github.com/acme/service/pull/38\nPremium cases now escalate after two hours.');
   assert.equal(updateText('merged', context), 'The change was approved and merged into QA.');
+  assert.equal(updateText('promotion-opened', context), 'The change is ready to go to QA: https://github.com/acme/service/pull/38');
+  assert.equal(updateText('promoted', context), 'The change is now in QA.');
   assert.equal(updateText('deployed', context), 'The change is now deployed to QA.');
   assert.equal(updateText('blocked', context), 'We need your input before we can go on:\nShould Gold customers count as Premium.');
   assert.equal(updateText('question', { question: 'Which queue?' }), 'Before we start, a question for you:\nWhich queue?');

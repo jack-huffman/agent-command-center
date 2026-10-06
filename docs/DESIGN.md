@@ -492,6 +492,9 @@ against the destination's org. Environment-specific files are left out (D-034):
   or not, with the org's local tests when Apex changes. If it fails, no pull
   request opens.
 - **Deletions need `--allow-deletions`,** or the page's "with the deletions".
+- **Each ticket it carries gets a draft** a person posts (D-075): "ready to go
+  to" the destination with the pull request's link, then "now in" it once
+  `acc sync` sees the merge, then deployed there after `acc deploy`.
 
 **Deploying.** `acc deploy <environment>` runs after a person merges, from the
 environment's branch on GitHub. It deploys what changed since the last deploy acc

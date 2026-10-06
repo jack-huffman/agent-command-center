@@ -21,6 +21,7 @@ export * from './refresh.ts';
 export * from './sync.ts';
 export * from './promote.ts';
 export * from './deploy.ts';
+export * from './carried.ts';
 export * from './setup.ts';
 export * from './agents.ts';
 export * from './hooks.ts';

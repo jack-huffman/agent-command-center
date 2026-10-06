@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { accImport, accRefusal, cardTracking, liveTrackKeys, outsideKeys, placeCandidates, rowAnalysis, type TaskRow, trackInput, type TrackSteps, trackTicket } from '../src/logic.ts';
 import type { Analysis } from '../../packages/core/src/analyze.ts';
-import { type BoardInput, initials, isFromWebview, priorityIcon, ticketActionRefusal, ticketModel, trackerBoard, typeIcon } from '../src/model.ts';
+import { type BoardInput, initials, isFromWebview, priorityIcon, ticketActionRefusal, ticketModel, trackerBoard, typeIcon, updateAbout } from '../src/model.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
 import { type Ticket, TrackerError } from '../../packages/core/src/trackers/types.ts';
 import { Pending } from '../webview/pending.ts';
@@ -386,4 +386,11 @@ test('Track hands acc the ticket through a file, asks for --json, and leaves no 
   assert.deepEqual([seen!.args[0], seen!.args.at(-1), seen!.cwd, seen!.body], ['import', '--json', '/r', input]);
   assert.equal(existsSync(seen!.file), false, 'the file is removed once acc has read it');
   await assert.rejects(accImport(async () => { throw new Error('acc crashed'); }, '/r', input as never), /acc crashed/);
+});
+
+test('a promotion\'s drafts say what they\'re about: its pull request is ready, then the change is promoted (D-075)', () => {
+  const pr = { number: 9, url: 'https://github.com/o/r/pull/9' };
+  assert.equal(updateAbout({ event: 'promotion-opened', env: 'UAT', pr }), 'Promotion #9 to UAT is ready');
+  assert.equal(updateAbout({ event: 'promoted', env: 'UAT' }), 'Promoted to UAT');
+  assert.equal(updateAbout({ event: 'deployed', env: 'UAT' }), 'Deployed to UAT');
 });

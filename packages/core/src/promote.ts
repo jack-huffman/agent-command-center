@@ -1,17 +1,21 @@
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { carriedTasks } from './carried.ts';
 import { type Config, type Environment } from './config.ts';
 import { AccError, type RunResult, type Runner, sfEnv } from './exec.ts';
 import { assertCheckOnly, listed, niced, type Outcome, packageDirs, readDeploy, under } from './gates.ts';
+import { mutate, type Promotion, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
 import { type SlotOptions, withSlot } from './semaphore.ts';
+import { draftUpdate } from './updates.ts';
 
 /**
  * Promotion (D-034): merged work moves from one environment's branch to another along a path its
  * `promotesTo` allows, through a pull request a person merges. The pull request's branch starts from
  * the destination and takes only what changed on the source, so a fix made straight in the
- * destination is never undone, and environment-specific files never travel.
+ * destination is never undone, and environment-specific files never travel. Each task whose change it
+ * carries records it, and its ticket gets a draft update a person posts (D-075).
  */
 
 export interface PromotionPlan {
@@ -129,6 +133,12 @@ export interface PromoteResult {
   validation: Outcome | null;
   /** Why no pull request was opened: nothing to promote, or validation didn't pass. */
   stopped: string | null;
+  /** The tasks whose change it carries, each recorded so acc sync follows the pull request for it (D-075). */
+  tasks: string[];
+  /** The updates drafted for those tasks' tickets, for a person to post (D-066). */
+  updates: { task: string; id: string; key: string }[];
+  /** What didn't get done once the pull request was open: its tasks recorded, or their updates drafted. */
+  warning: string | null;
 }
 
 const describeSkip = (plan: PromotionPlan) => plan.skipped.map((e) => `Skips \`${e.branch}\` (${e.name}): this change hasn't been validated there.`);
@@ -166,10 +176,44 @@ export function promotionCheckArgs(org: string, source: string[]): string[] {
   return ['project', 'deploy', 'start', '--dry-run', '--target-org', org, '--wait', '90', '--json', '--ignore-conflicts', ...source.flatMap((f) => ['--source-dir', f]), '--test-level', apex ? 'RunLocalTests' : 'NoTestRun'];
 }
 
-export function promote(paths: RepoPaths, config: Config, fromName: string, toName: string | undefined, deps: PromoteDeps, opts: { allowDeletions?: boolean; validate?: boolean } = {}): PromoteResult {
+/**
+ * Records the promotion on each task it carries, then drafts each ticket's update: the change is ready to
+ * go on, with the pull request's link. Nothing is posted (D-066). The pull request stands either way; what
+ * couldn't be done is said.
+ */
+function recordCarried(paths: RepoPaths, plan: PromotionPlan, pr: Promotion['pr'], carried: Task[], by: string, now: () => Date): Pick<PromoteResult, 'updates' | 'warning'> {
+  const problems: string[] = [];
+  const at = now().toISOString();
+  try {
+    mutate(paths, now, (ledger, emit) => {
+      for (const c of carried) {
+        const t = ledger.tasks.find((x) => x.id === c.id);
+        if (!t) continue;
+        const promotion: Promotion = { from: plan.from.branch, to: plan.to.branch, pr, state: 'open', at };
+        t.promotions = [...(t.promotions ?? []), promotion];
+        emit({ type: 'task.updated', task: t.id, actor: 'human', by, data: { promotion } });
+      }
+    });
+  } catch (e) {
+    problems.push(`Its tasks weren't recorded, so acc sync won't follow it for them: ${(e as Error).message}`);
+  }
+  const updates: PromoteResult['updates'] = [];
+  try {
+    for (const t of carried) {
+      const u = draftUpdate(paths, t, { event: 'promotion-opened', env: plan.to.name, pr }, by, now);
+      if (u) updates.push({ task: t.id, id: u.id, key: u.key });
+    }
+  } catch (e) {
+    problems.push(`Its tickets' updates weren't all drafted: ${(e as Error).message}`);
+  }
+  return { updates, warning: problems.length ? `The pull request is open. ${problems.join(' ')}` : null };
+}
+
+export function promote(paths: RepoPaths, config: Config, fromName: string, toName: string | undefined, deps: PromoteDeps, opts: { allowDeletions?: boolean; validate?: boolean; by?: string } = {}): PromoteResult {
   const { run, now } = deps;
   const plan = planPromotion(paths, config, fromName, toName, deps);
-  if (!plan.files.length && !plan.deleted.length) return { plan, branch: null, pr: null, validation: null, stopped: `${plan.to.name} already has everything from ${plan.from.name}.` };
+  const none = { tasks: [], updates: [], warning: null };
+  if (!plan.files.length && !plan.deleted.length) return { plan, branch: null, pr: null, validation: null, stopped: `${plan.to.name} already has everything from ${plan.from.name}.`, ...none };
   if (plan.deleted.length && !opts.allowDeletions) {
     throw new AccError('refused', `Promoting would delete ${plan.deleted.length} file(s) in ${plan.to.branch}, which usually means the branches have drifted apart: ${plan.deleted.slice(0, 5).join(', ')}${plan.deleted.length > 5 ? ', …' : ''}. Check them, then add --allow-deletions.`);
   }
@@ -197,10 +241,12 @@ export function promote(paths: RepoPaths, config: Config, fromName: string, toNa
       const r = withSlot(() => run(cmd, a, { cwd: wt, env: sfEnv(), timeoutMs: 120 * 60_000 }), { ...deps.slots });
       validation = readDeploy(r, plan.to.org, [], source.length);
       if (validation.status !== 'pass') {
-        return { plan, branch: null, pr: null, validation, stopped: `Validation against ${plan.to.name} didn't pass: ${validation.summary}` };
+        return { plan, branch: null, pr: null, validation, stopped: `Validation against ${plan.to.name} didn't pass: ${validation.summary}`, ...none };
       }
     }
 
+    // What it carries is worked out before anything is pushed: once the pull request is open, it's recorded.
+    const carried = carriedTasks(paths, run, plan);
     deps.onStep?.(`Pushing ${branch}`);
     must(run('git', ['push', '--quiet', '--set-upstream', 'origin', `${branch}:${branch}`], { cwd: wt, env: deps.env, timeoutMs: 5 * 60_000 }), `git push refused ${branch}`);
     const token = run('gh', ['auth', 'token', '-u', gh.account]);
@@ -213,8 +259,9 @@ export function promote(paths: RepoPaths, config: Config, fromName: string, toNa
     if (create.code !== 0 || !url) throw new AccError('land', `gh couldn't open the pull request: ${(create.stderr || create.stdout).trim().split('\n')[0]}. The branch ${branch} is pushed.`);
     const pr = { number: Number(/\/pull\/(\d+)/.exec(url)![1]), url };
     mkdirSync(paths.stateDir, { recursive: true });
-    appendFileSync(join(paths.stateDir, 'promotions.jsonl'), JSON.stringify({ at: now().toISOString(), from: plan.from.branch, to: plan.to.branch, fromSha: plan.fromSha, branch, pr, files: plan.files.length, deleted: plan.deleted.length, skipped: plan.skipped.map((e) => e.branch) }) + '\n');
-    return { plan, branch, pr, validation, stopped: null };
+    const tasks = carried.map((t) => t.id);
+    appendFileSync(join(paths.stateDir, 'promotions.jsonl'), JSON.stringify({ at: now().toISOString(), from: plan.from.branch, to: plan.to.branch, fromSha: plan.fromSha, branch, pr, files: plan.files.length, deleted: plan.deleted.length, skipped: plan.skipped.map((e) => e.branch), tasks }) + '\n');
+    return { plan, branch, pr, validation, stopped: null, tasks, ...recordCarried(paths, plan, pr, carried, opts.by ?? 'acc promote', now) };
   } finally {
     git(run, paths.root, 'worktree', 'remove', '--force', wt);
     // The branch lives on GitHub once pushed; locally it goes with its worktree.
