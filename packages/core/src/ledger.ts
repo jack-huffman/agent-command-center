@@ -67,6 +67,12 @@ export interface PullRequest {
   sha?: string;
   /** The commit its merge left on its base, kept by acc sync, so a deploy knows which tasks it carried (D-066). */
   mergeSha?: string;
+  /**
+   * acc closing the task's GitHub issue now that this pull request merged, where its tracker says
+   * "edits": true (D-???). pending until it's settled, with why the last try failed, and each acc sync
+   * tries again; then closed, or left as it was, with why. Once settled, acc never touches the issue again.
+   */
+  issue?: { state: 'pending' | 'closed' | 'left'; at: string; reason?: string };
 }
 
 /**
