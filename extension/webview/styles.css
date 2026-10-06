@@ -212,6 +212,14 @@ table.grid { width: 100%; border-collapse: collapse; }
 .tracker + .tracker { margin-top: 28px; }
 .tracker-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
 .tracker-head h2 { margin: 0; }
+/* Where the board's tickets come from (GH-50), right under its name. */
+.tracker-place { display: flex; align-items: baseline; gap: 6px; margin: -4px 0 10px; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
+.tracker-place > .codicon { flex: none; position: relative; top: 2px; }
+.tracker-place strong { color: var(--vscode-foreground); font-weight: 600; }
+.notice.left-place { align-items: flex-start; }
+.notice.left-place > .codicon { margin-top: 2px; flex: none; min-width: 0; }
+.left-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.left-text ul { margin: 0; padding-left: 18px; }
 .loading { display: inline-flex; align-items: center; gap: 4px; font-size: 0.88em; font-weight: 400; }
 .notice { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; margin-bottom: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); color: var(--vscode-descriptionForeground); }
 .notice.attention { border-left: 3px solid var(--orange); color: var(--vscode-foreground); }

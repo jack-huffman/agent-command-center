@@ -37,6 +37,20 @@ test('a tracker board keeps the tracker\'s columns, places cards by status, and 
   assert.equal(trackerBoard({ ...board(), board: null, error: 'Connect to Jira', connect: { command: 'acc.trackers.signIn', label: 'Sign in to Jira', arg: '{"root":"/r","index":0}' } }, [], '/r').columns.length, 0);
 });
 
+test('a tracker board says where its tickets come from, and names tasks that left the place after they started (GH-50)', () => {
+  const left = ['ACME-9 left this repo\'s place: it isn\'t in epic ACME-3; ACME-9 is still running'];
+  const b = trackerBoard({ ...board(), place: 'Jira · ACME · epic ACME-3 Premium Support', left }, [row('ACME-9', 'running', 'running')], '/r');
+  assert.equal(b.place, 'Jira · ACME · epic ACME-3 Premium Support');
+  assert.deepEqual(b.left, left);
+  assert.ok(!b.columns.some((c) => c.cards.some((x) => x.key === 'ACME-9')), 'it isn\'t on the tracker\'s board; it stays on the agent board');
+  const plain = trackerBoard(board(), [], '/r');
+  assert.deepEqual([plain.place, plain.left], [null, []], 'nothing to say before the board knows');
+
+  // A ticket outside the place is said plainly on its page, and can't be tracked.
+  const page = ticketModel({ project: '/r', tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira', key: 'OPS-1', ticket: null, loading: false, error: null, outside: 'OPS-1 isn\'t one of this repo\'s tickets, which come from Jira · ACME: it\'s in project OPS.', connect: null, row: null, task: null, checks: [] });
+  assert.deepEqual([page.outside, page.error, page.trackable], ['OPS-1 isn\'t one of this repo\'s tickets, which come from Jira · ACME: it\'s in project OPS.', null, false]);
+});
+
 test('icons for types and priorities, and initials for people', () => {
   assert.deepEqual(['Bug', 'Story', 'Task', 'Sub-task', 'Epic', null].map(typeIcon), ['bug', 'bookmark', 'tasklist', 'list-tree', 'zap', 'issues']);
   assert.deepEqual(['Highest', 'High', 'Medium', 'Low', 'Lowest', null].map(priorityIcon), ['chevron-up', 'arrow-up', null, 'arrow-down', 'chevron-down', null]);

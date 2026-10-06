@@ -319,12 +319,17 @@ const REVIEW = status('4', 'In Review', 'doing');
 const QA = status('5', 'QA', 'doing');
 const DONE = status('10', 'Done', 'done');
 
-/** A Jira board with its own columns, the cards on it, and acc's tasks for some of them. */
+/**
+ * A Jira board with its own columns, the cards on it, and acc's tasks for some of them. Its tickets come
+ * from one epic (GH-50), and a task that started moved out of it.
+ */
 export function sampleBoards(): BoardInput[] {
   const card = (n: number, title: string, s: { id: string; name: string }, type: string, extra: Partial<NonNullable<BoardInput['board']>['cards'][number]> = {}) =>
     ({ key: `ACME-${n}`, title, url: `https://acme.atlassian.net/browse/ACME-${n}`, status: s, type, assignees: [], labels: [], priority: 'Medium', ...extra });
   return [{
     index: 0, kind: 'jira', title: 'Jira · ACME', error: null, connect: null, loading: false, signedInAs: 'jordan@acme.example',
+    place: 'Jira · ACME · epic ACME-3 Premium Support',
+    left: ['ACME-18 left this repo\'s place: it isn\'t in epic ACME-3; ACME-18 is still blocked'],
     board: {
       source: 'jira-board', title: 'ACME Service board', url: 'https://acme.atlassian.net/jira/software/projects/ACME/boards/7', notice: null,
       columns: [
