@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { profileView, type ProfileView } from '../../packages/core/src/agents.ts';
 import { type Analysis, analysisRequired, analyzing, readAnalysis } from '../../packages/core/src/analyze.ts';
-import { type AutopilotLog, type AutopilotRecord, readAutopilotLog } from '../../packages/core/src/autopilot.ts';
+import { type AutopilotLog, type AutopilotRecord, failedChecks, readAutopilotLog } from '../../packages/core/src/autopilot.ts';
 import { type Config, parseConfig } from '../../packages/core/src/config.ts';
 import { run as runSync } from '../../packages/core/src/exec.ts';
 import { CLONE_ACCOUNT_KEY } from '../../packages/core/src/github.ts';
@@ -309,6 +309,7 @@ export class Hub implements vscode.Disposable {
         analyzing: running ? { sessionId: running.sessionId } : null,
         analysisRequired: required,
         autopilot: failed ? { step: failed.step, reason: failed.reason } : null,
+        checks: failedChecks(t),
         stopped: stopped ? { said } : null,
         resuming: !!resumed,
       };

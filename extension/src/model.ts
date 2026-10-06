@@ -15,7 +15,7 @@ import { type Environment, type Tracker, trackerForKey } from '../../packages/co
 import { promotionPaths } from '../../packages/core/src/promote.ts';
 import type { Answer, HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import { isOpenUpdate, stalePosting, type Update, UPDATE_ID, UPDATE_TEXT_MAX } from '../../packages/core/src/updates.ts';
-import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, BOARD_LANES, conflictLine, type DoctorItem, ENV_ICON, fileList, groupTasks, isUnder, prConflicts, questionsWord, type RunPrompt, saidLine, shortPath, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
+import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, BOARD_LANES, conflictLine, type DoctorItem, ENV_ICON, failedChecksLine, fileList, groupTasks, isUnder, prConflicts, questionsWord, type RunPrompt, saidLine, shortPath, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
 import type { Entry } from './transcript.ts';
 
 export const VIEW_KINDS = ['tasks', 'agents', 'worktrees', 'environments', 'setup'] as const;
@@ -103,6 +103,8 @@ export interface Card {
   worktree: string | null;
   /** "Conflicts with dev: …" when its open pull request won't merge into its base (D-049). */
   conflicts: string | null;
+  /** "Checks failed on GitHub: …" in review, or in rework after autopilot sent it back for them (D-???). */
+  failedChecks: string | null;
   /** Where its analysis is, for a task to do (D-052): under way, waiting on you, or ready to build from. */
   analysis: Look | null;
   /** What autopilot couldn't do for it, and why (D-055). */
@@ -140,7 +142,7 @@ export function analysisLook(t: Pick<TaskRow, 'state' | 'analysis' | 'analyzing'
   return t.analysis ? { label: 'Analyzed: ready to build', icon: 'pass', tone: 'blue' } : null;
 }
 
-const AUTOPILOT_STEP: Record<NonNullable<TaskRow['autopilot']>['step'], string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update from its base', resume: 'resume' };
+const AUTOPILOT_STEP: Record<NonNullable<TaskRow['autopilot']>['step'], string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update from its base', resume: 'resume', checks: 'send it back for its failing checks' };
 
 /** "Needs you: autopilot couldn't land", and with `why`, its reason after it (D-055). */
 export function autopilotLook(t: Pick<TaskRow, 'autopilot'>, why = true): Look | null {
@@ -255,7 +257,7 @@ export function tasksModel(hub: HubLike, boards: (root: string) => BoardInput[] 
           cards: (byGroup.get(group) ?? []).map((t) => ({
             id: t.id, title: t.title, environment: t.environment, waitingOn: t.deps, url: t.source.url,
             // A stopped builder's line says it all: its old session's own state would only repeat it.
-            agent: t.stopped ? null : t.agent ?? null, worktree: t.run?.worktree ?? null, conflicts: conflictLine(t), analysis: analysisLook(t), autopilot: autopilotLook(t), closedPr: closedPrLook(t),
+            agent: t.stopped ? null : t.agent ?? null, worktree: t.run?.worktree ?? null, conflicts: conflictLine(t), failedChecks: failedChecksLine(t), analysis: analysisLook(t), autopilot: autopilotLook(t), closedPr: closedPrLook(t),
             stopped: t.autopilot ? null : stoppedLook(t),
             actions: cardActions(t, { project: p.root, task: t.id }), drops: dropLanes(t),
           })),
@@ -332,8 +334,8 @@ export interface TrackerCard {
   labels: { name: string; color: string | null }[];
   assignees: PersonChip[];
   status: string;
-  /** The task acc keeps for this ticket, when there is one: where it is, its next step, and why its pull request won't merge. */
-  acc: { look: Look; needsYou: boolean; action: Action | null; conflicts: string | null } | null;
+  /** The task acc keeps for this ticket, when there is one: where it is, its next step, why its pull request won't merge, and its checks that failed on GitHub. */
+  acc: { look: Look; needsYou: boolean; action: Action | null; conflicts: string | null; failedChecks: string | null } | null;
   /**
    * Track, for a ticket acc doesn't keep yet (D-074): ready, on its way, or why the last try didn't go.
    * Null once acc keeps it, and in a done column, where there's nothing left to build.
@@ -401,7 +403,7 @@ export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): Trac
       return {
         key: card.key, title: card.title, type: card.type, typeIcon: typeIcon(card.type), priority: card.priority, priorityIcon: priorityIcon(card.priority),
         labels: card.labels, assignees: card.assignees.map(chip), status: card.status.name,
-        acc: row ? { look: accLook(row), needsYou: row.display === 'needs-you', action: next, conflicts: conflictLine(row) } : null,
+        acc: row ? { look: accLook(row), needsYou: row.display === 'needs-you', action: next, conflicts: conflictLine(row), failedChecks: failedChecksLine(row) } : null,
         track: row || c.category === 'done' ? null : { busy: !!tracking?.busy, error: tracking?.error ?? null },
       };
     }),
@@ -422,6 +424,8 @@ export interface TicketAcc {
   blocker: string | null;
   /** Every file its open pull request conflicts in with its base, in one line, or null (D-049). */
   conflicts: string | null;
+  /** "Checks failed on GitHub: …", or null (D-???). Not `checks`: those are acc's own, on its commit. */
+  failedChecks: string | null;
   agent: Look | null;
   worktree: string | null;
   branch: string | null;
@@ -573,7 +577,7 @@ export function ticketModel(i: TicketInput): TicketModel {
   const t = i.ticket;
   const live = i.tracker !== null;
   const acc: TicketAcc | null = i.row && i.task ? {
-    look: accLook(i.row, true), environment: i.task.environment, waitingOn: i.row.deps, blocker: i.task.blocker, conflicts: conflictLine(i.row, true),
+    look: accLook(i.row, true), environment: i.task.environment, waitingOn: i.row.deps, blocker: i.task.blocker, conflicts: conflictLine(i.row, true), failedChecks: failedChecksLine(i.row),
     agent: i.row.stopped ? null : i.row.agent ?? null, worktree: i.task.run?.worktree ?? null, branch: i.task.run?.branch ?? null, checks: i.checks,
     history: i.task.history.map((h) => ({ at: h.at, from: h.from, to: h.to, by: h.by, reason: h.reason ?? null })).reverse(),
     // Its analysis has its own section, with its own buttons.
@@ -1197,7 +1201,9 @@ export function autopilotStepLook(r: AutopilotRecord): { look: Look; detail: str
       : { look: LOOK('Autopilot reviewed it: passed', 'pass', 'blue'), detail: null, url: null };
   }
   if (r.step === 'land' && r.pr) return { look: LOOK(r.pr.opened ? `Autopilot landed it: pull request #${r.pr.number}` : `Autopilot updated pull request #${r.pr.number}`, 'git-pull-request', 'blue'), detail: null, url: r.pr.url || null };
-  if (r.step === 'dispatch') return { look: LOOK('Autopilot re-dispatched it for the review\'s changes', 'debug-restart', 'blue'), detail: null, url: null };
+  // Its pull request's checks failed on GitHub: back to its builder, and re-dispatched for them (D-???).
+  if (r.step === 'checks') return { look: LOOK('Autopilot sent it back: checks failed on GitHub', 'github-action', 'neutral'), detail: r.checks?.length ? r.checks.join(', ') : r.reason || null, url: null };
+  if (r.step === 'dispatch') return { look: LOOK(r.cause === 'checks' ? 'Autopilot re-dispatched it for its failing checks' : 'Autopilot re-dispatched it for the review\'s changes', 'debug-restart', 'blue'), detail: null, url: null };
   // A builder that stopped, carried on once (D-067), with the last thing it said.
   if (r.step === 'resume') return { look: LOOK('Autopilot resumed it', 'debug-continue', 'blue'), detail: r.reason || null, url: null };
   if (r.base) return { look: LOOK(`Autopilot merged ${r.base} into it`, 'git-merge', 'blue'), detail: 'Its checks passed on the merge. It\'s reviewed next, then landed.', url: null };
@@ -1733,7 +1739,7 @@ export function homeModel(i: HomeInput): HomeModel {
           const files = prConflicts(r);
           const why = [
             pr.changesRequested ? 'a reviewer asked for changes on GitHub' : '',
-            pr.ci === 'failing' ? 'its checks are failing' : '',
+            pr.ci === 'failing' ? `its checks are failing${r.checks?.length ? `: ${r.checks.join(', ')}` : ''}` : '',
             files.length ? `it conflicts with ${r.environment} in ${fileList(files.map(shortPath))}` : '',
           ].filter(Boolean).join(', and ');
           const label = pr.changesRequested ? 'Changes requested' : pr.ci === 'failing' ? 'Checks failing' : 'Conflicts';

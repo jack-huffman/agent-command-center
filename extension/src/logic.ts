@@ -4,8 +4,8 @@
  */
 import { dirname } from 'node:path';
 import type { Analysis } from '../../packages/core/src/analyze.ts';
-import { AUTOPILOT_REVIEW_DOES, type AutopilotRecord } from '../../packages/core/src/autopilot.ts';
-import type { TaskInput } from '../../packages/core/src/ledger.ts';
+import { AUTOPILOT_REVIEW_DOES, type AutopilotRecord, reworkedByAutopilot } from '../../packages/core/src/autopilot.ts';
+import type { AutopilotStepName, TaskInput } from '../../packages/core/src/ledger.ts';
 import type { CheckStatus, Step } from '../../packages/core/src/onboarding/types.ts';
 import type { Ticket } from '../../packages/core/src/trackers/types.ts';
 import type { Pending } from '../webview/pending.ts';
@@ -231,7 +231,12 @@ export interface TaskRow {
   /** The project wants an analysis before a task is built (D-052). */
   analysisRequired?: boolean;
   /** A step autopilot couldn't take in the task's current state, and why: the task needs you (D-055). */
-  autopilot?: { step: 'review' | 'land' | 'dispatch' | 'refresh' | 'resume'; reason: string } | null;
+  autopilot?: { step: AutopilotStepName; reason: string } | null;
+  /**
+   * The checks that failed on GitHub (D-???): on its open pull request while it's in review, or the ones
+   * autopilot sent it back to its builder for while it's in rework.
+   */
+  checks?: string[] | null;
   /** Its builder stopped before acc done or acc block, and the last thing it said, if that could be read (D-067). */
   stopped?: { said: string | null } | null;
   /** A resume of its builder is under way. */
@@ -282,6 +287,9 @@ export function fileList(files: string[], max = 3): string {
 
 /** A file by its folder and name, short enough for a card: force-app/…/layouts/Lead.layout → layouts/Lead.layout. */
 export const shortPath = (file: string): string => file.split('/').slice(-2).join('/');
+
+/** What a card, a tracker's card and a ticket's page say about checks that failed on GitHub (D-???). */
+export const failedChecksLine = (row: Pick<TaskRow, 'checks'>): string | null => (row.checks?.length ? `Checks failed on GitHub: ${row.checks.join(', ')}` : null);
 
 /**
  * What a card and a ticket's page say about a pull request that won't merge into its base. A card names
@@ -625,6 +633,8 @@ export function taskNotices(before: TaskRow[], after: TaskRow[]): TaskNotice[] {
     const say = (kind: NoticeKind, text: string, urgent: boolean) => out.push({ kind, task: t.id, text, urgent });
     const moved = p.state !== t.state;
     if (moved && p.state === 'running' && t.state === 'review') say('review', `${t.id} is ready for review: ${t.title}`, false);
+    // Autopilot sent it back for its failing checks (D-???), or a review asked for changes.
+    else if (moved && t.state === 'rework' && t.checks?.length) say('rework', `Checks failed on GitHub for ${t.id}: ${t.checks.join(', ')}. It went back to its builder.`, true);
     else if (moved && t.state === 'rework') say('rework', `The review asked for changes on ${t.id}${t.review?.summary ? `: ${t.review.summary}` : '.'}`, true);
     else if (moved && t.state === 'blocked') say('blocked', `${t.id} is blocked: ${t.title}`, true);
     // Its builder stopped before acc done or acc block (D-067): what it last said, and Resume.
@@ -712,20 +722,23 @@ export function statusSummary(rows: Pick<TaskRow, 'id' | 'title' | 'display'>[],
 
 // ---------------------------------------------------------------- autopilot, hosted by the Command Center (D-064)
 
-/** What a step autopilot couldn't take is called, as acc says it: "couldn't land GH-31". */
-const AUTOPILOT_VERB = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update', resume: 'resume' } as const;
+/** What a step autopilot couldn't take is called, as acc says it: "couldn't land GH-31", "couldn't send GH-31 back for its failing checks". */
+const AUTOPILOT_VERB: Record<AutopilotStepName, [string, string]> = {
+  review: ['review', ''], land: ['land', ''], dispatch: ['re-dispatch', ''], refresh: ['update', ' from its base'], resume: ['resume', ''], checks: ['send', ' back for its failing checks'],
+};
 
 /** What autopilot needs to know about a task to tell its steps: who it's tracked in, and its moves. */
 export interface AutopilotTask {
   id: string;
   source: { kind: string; key: string | null };
-  history: { at: string; from: string | null; to: string; actor: string }[];
+  history: { at: string; from: string | null; to: string; actor: string; by: string }[];
 }
 
 /**
  * One notice for each step autopilot took that a window hasn't told yet (D-064): what it reviewed,
- * landed, re-dispatched or merged in, and what it couldn't do, as a warning. A land for a task with a
- * ticket says its update is ready to review: autopilot posts nothing, a person does (D-066).
+ * landed, re-dispatched, merged in or sent back for failing checks (D-???), and what it couldn't do, as a
+ * warning. A land for a task with a ticket says its update is ready to review: autopilot posts nothing, a
+ * person does (D-066).
  */
 export function autopilotNotices(steps: AutopilotRecord[], tasks: AutopilotTask[]): TaskNotice[] {
   const out: TaskNotice[] = [];
@@ -733,11 +746,18 @@ export function autopilotNotices(steps: AutopilotRecord[], tasks: AutopilotTask[
     const t = tasks.find((x) => x.id === r.task);
     const say = (text: string, urgent: boolean, actions: [string, string][] = []) => out.push({ kind: 'autopilot', task: r.task, text, urgent, actions });
     if (r.outcome === 'failed') {
-      const by = { review: ['Review', 'acc.task.review'], land: ['Land', 'acc.task.land'], dispatch: ['Re-dispatch', 'acc.task.dispatch'], refresh: ['Open pull request', 'acc.task.openPr'], resume: ['Resume', 'acc.task.resume'] }[r.step] as [string, string];
-      say(`Autopilot couldn't ${AUTOPILOT_VERB[r.step]} ${r.task}${r.step === 'refresh' ? ' from its base' : ''}: ${endSentence(r.reason || 'it didn\'t say why')}`, true, [by]);
+      const by: Record<AutopilotStepName, [string, string]> = {
+        review: ['Review', 'acc.task.review'], land: ['Land', 'acc.task.land'], dispatch: ['Re-dispatch', 'acc.task.dispatch'], refresh: ['Open pull request', 'acc.task.openPr'], resume: ['Resume', 'acc.task.resume'], checks: ['Open pull request', 'acc.task.openPr'],
+      };
+      const [verb, rest] = AUTOPILOT_VERB[r.step];
+      say(`Autopilot couldn't ${verb} ${r.task}${rest}: ${endSentence(r.reason || 'it didn\'t say why')}`, true, [by[r.step]]);
+    } else if (r.step === 'checks') {
+      // Its pull request's checks failed on GitHub: back to its builder, which autopilot re-dispatches next (D-???).
+      say(`Autopilot sent ${r.task} back to its builder: checks failed on GitHub${r.checks?.length ? `: ${r.checks.join(', ')}` : ''}.`, false, [['Open pull request', 'acc.task.openPr']]);
     } else if (r.step === 'review' && r.verdict === 'changes') {
-      // Autopilot re-dispatches a rework once: a second one waits for a person.
-      const again = !!t?.history.some((h) => h.from === 'rework' && h.to === 'running' && h.actor === 'orchestrator' && h.at < r.at);
+      // Autopilot re-dispatches a review's rework once: a second one waits for a person. Its re-dispatch
+      // after a send-back for failing checks isn't that one (D-???).
+      const again = !!t && reworkedByAutopilot(t, r.at);
       const what = r.reason ? `: ${endSentence(r.reason)}` : '.';
       if (again) say(`Autopilot's review asked for changes on ${r.task} again${what} A second rework waits for you.`, true, [['Re-dispatch', 'acc.task.dispatch']]);
       else say(`Autopilot's review asked for changes on ${r.task}${what} Autopilot re-dispatches it next.`, false);
@@ -748,7 +768,7 @@ export function autopilotNotices(steps: AutopilotRecord[], tasks: AutopilotTask[
       const landed = r.pr.opened ? `Autopilot landed ${r.task}: pull request #${r.pr.number}` : `Autopilot updated pull request #${r.pr.number} (${r.task})`;
       if (ticket) say(`${landed}. Its update for the ticket is ready for you to review and post.`, false, [['Review the update', 'acc.task.show'], pr]);
       else say(r.pr.opened ? landed : `${landed}.`, false, [pr]);
-    } else if (r.step === 'dispatch') say(`Autopilot re-dispatched ${r.task} with its review's changes.`, false, [['Watch', 'acc.task.watch']]);
+    } else if (r.step === 'dispatch') say(r.cause === 'checks' ? `Autopilot re-dispatched ${r.task} for its failing checks.` : `Autopilot re-dispatched ${r.task} with its review's changes.`, false, [['Watch', 'acc.task.watch']]);
     // A builder that stopped, carried on once (D-067): what it last said.
     else if (r.step === 'resume') say(`Autopilot resumed ${r.task}${r.reason ? `: ${endSentence(saidLine(r.reason))}` : '.'}`, false, [['Watch', 'acc.task.watch']]);
     else if (r.step === 'refresh') {
@@ -761,15 +781,18 @@ export function autopilotNotices(steps: AutopilotRecord[], tasks: AutopilotTask[
 
 /**
  * D-044's notices that autopilot's own already told: "The review passed X" and "The review asked for
- * changes on X", for a task whose newest autopilot step is the review that said so. Autopilot lands or
- * re-dispatches it next, so a Land or Re-dispatch button would only race it.
+ * changes on X", for a task whose newest autopilot step is the review that said so, and its move to
+ * rework when that step sent it back for failing checks (D-???). Autopilot lands or re-dispatches it
+ * next, so a Land or Re-dispatch button would only race it.
  */
 export function withoutAutopilotEcho(news: TaskNotice[], log: AutopilotRecord[]): TaskNotice[] {
   const newest = new Map<string, AutopilotRecord>();
   for (const r of log) if ((newest.get(r.task)?.seq ?? -1) < r.seq) newest.set(r.task, r);
   return news.filter((n) => {
     const r = newest.get(n.task);
-    if (!r || r.step !== 'review' || r.outcome !== 'done') return true;
+    if (!r || r.outcome !== 'done') return true;
+    if (r.step === 'checks') return n.kind !== 'rework';
+    if (r.step !== 'review') return true;
     return !((n.kind === 'passed' && r.verdict === 'pass') || (n.kind === 'rework' && r.verdict === 'changes'));
   });
 }

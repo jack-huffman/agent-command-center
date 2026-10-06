@@ -66,6 +66,8 @@ export function sampleHub(now = Date.now()): HubLike {
     task('ACME-26', 'Default the case owner from the product line', 'review', 'needs-you', { run: { worktree: wt('ACME-26'), branch: 'task/ACME-26-default-case-owner' }, review: { verdict: 'pass', summary: 'Sets the owner in the case trigger handler.', current: true }, pr: { number: 46, url: 'https://github.com/acme/service/pull/46', state: 'open', ci: 'passing', changesRequested: false, conflicts: ['force-app/main/default/classes/CaseTriggerHandler.cls'] }, autopilot: { step: 'refresh', reason: 'Conflicts with dev that autopilot can\'t resolve: force-app/main/default/classes/CaseTriggerHandler.cls. The branch is as it was, at 3f9c2ab, and nothing was pushed.' } }),
     // Someone closed its pull request, then moved it back to review: autopilot won't open another (D-063).
     task('ACME-27', 'Recalculate lead scores only when a scoring field changes', 'review', 'needs-you', { run: { worktree: wt('ACME-27'), branch: 'task/ACME-27-lead-score-recalc' }, review: { verdict: 'pass', summary: 'Checks the scoring fields before recalculating.', current: true }, pr: { number: 47, url: 'https://github.com/acme/service/pull/47', state: 'closed', ci: 'passing', changesRequested: false, conflicts: [] } }),
+    // Its checks failed on GitHub again on the commit autopilot already sent back once: a person decides (D-???).
+    task('ACME-34', 'Close stale cases after 30 days without a reply', 'review', 'needs-you', { run: { worktree: wt('ACME-34'), branch: 'task/ACME-34-close-stale-cases' }, review: { verdict: 'pass', summary: 'Adds a scheduled job that closes stale cases.', current: true }, pr: { number: 49, url: 'https://github.com/acme/service/pull/49', state: 'open', ci: 'failing', changesRequested: false, conflicts: [] }, autopilot: { step: 'checks', reason: 'Checks failed on GitHub again: Apex tests. Autopilot already sent 7d3e1f0 back once: a person decides.' }, checks: ['Apex tests'] }),
     // The Mac slept mid-response, and its session ended without acc done (D-067): what it last said, and Resume.
     task('ACME-28', 'Send a renewal reminder a month before the renewal date', 'running', 'needs-you', { run: { bgId: 'bg28', sessionId: 's-acme-28', worktree: wt('ACME-28'), branch: 'task/ACME-28-renewal-reminder' }, stopped: { said: SLEPT } }),
     // Another ended its turn asking in its own words, without blocking: a long quote, clipped on its card.
@@ -74,6 +76,8 @@ export function sampleHub(now = Date.now()): HubLike {
     task('ACME-15', 'Rename the Region picklist values', 'review', 'review', { run: { worktree: wt('ACME-15'), branch: 'task/ACME-15-a-very-long-branch-name-that-has-to-truncate-cleanly' }, review: { verdict: 'pass', summary: 'Renames the values and updates both record types.', current: true }, pr: { number: 42, url: 'https://github.com/acme/service/pull/42', state: 'open', ci: 'pending' } }),
     task('ACME-20', 'Show the renewal date on the Account page', 'review', 'review', { run: { worktree: wt('ACME-20'), branch: 'task/ACME-20-renewal-date' }, review: { verdict: 'pass', summary: 'Adds the field to the layout.', current: true } }),
     task('ACME-19', 'Fix the flow that double-sends welcome emails', 'rework', 'rework', { run: { worktree: wt('ACME-19') } }),
+    // Its pull request's checks failed on GitHub, so autopilot sent it back to its builder (D-???).
+    task('ACME-33', 'Score new leads by the size of their company', 'rework', 'rework', { run: { worktree: wt('ACME-33'), branch: 'task/ACME-33-score-leads-by-size' }, review: { verdict: 'pass', summary: 'Adds the size factor to the lead score.', current: true }, pr: { number: 48, url: 'https://github.com/acme/service/pull/48', state: 'open', ci: 'failing', changesRequested: false, conflicts: [] }, checks: ['validate', 'Apex tests'] }),
     task('ACME-18', 'Migrate the legacy territory triggers', 'blocked', 'blocked'),
     task('ACME-17', 'Dashboards for the escalation rules', 'todo', 'todo', { deps: ['ACME-12'] }),
     task('ACME-10', 'Add a CHANGELOG', 'done', 'done', { run: { worktree: wt('ACME-10') } }),
@@ -111,7 +115,9 @@ export function sampleHub(now = Date.now()): HubLike {
 
 /**
  * Steps autopilot took, as its ledger events tell them (D-064): it reviewed and landed ACME-15, couldn't
- * land ACME-25 or merge dev into ACME-26, and reviewed ACME-20, which it lands next.
+ * land ACME-25 or merge dev into ACME-26, and reviewed ACME-20, which it lands next. It sent ACME-34 back
+ * for its failing checks and re-dispatched it, then wrote down that they failed again; it has just sent
+ * ACME-33 back (D-???).
  */
 export function sampleAutopilot(now = Date.now()): AutopilotRecord[] {
   const at = (ago: number) => new Date(now - ago * MIN).toISOString();
@@ -120,8 +126,12 @@ export function sampleAutopilot(now = Date.now()): AutopilotRecord[] {
     { seq: 203, at: at(92), task: 'ACME-15', step: 'land', outcome: 'done', pr: { number: 42, url: 'https://github.com/acme/service/pull/42', opened: true } },
     { seq: 210, at: at(48), task: 'ACME-25', step: 'land', outcome: 'failed', reason: 'git push refused task/ACME-25-merge-duplicate-contacts: ! [rejected] (fetch first) error: failed to push some refs' },
     { seq: 214, at: at(20), task: 'ACME-26', step: 'refresh', outcome: 'failed', reason: 'Conflicts with dev that autopilot can\'t resolve: force-app/main/default/classes/CaseTriggerHandler.cls. The branch is as it was, at 3f9c2ab, and nothing was pushed.' },
+    { seq: 205, at: at(80), task: 'ACME-34', step: 'checks', outcome: 'done', checks: ['Apex tests'], reason: 'Checks failed on GitHub on 7d3e1f0: Apex tests.' },
+    { seq: 206, at: at(79), task: 'ACME-34', step: 'dispatch', outcome: 'done', cause: 'checks' },
     { seq: 217, at: at(14), task: 'ACME-13', step: 'resume', outcome: 'done', reason: SLEPT },
+    { seq: 218, at: at(9), task: 'ACME-34', step: 'checks', outcome: 'failed', reason: 'Checks failed on GitHub again: Apex tests. Autopilot already sent 7d3e1f0 back once: a person decides.' },
     { seq: 219, at: at(6), task: 'ACME-20', step: 'review', outcome: 'done', verdict: 'pass' },
+    { seq: 221, at: at(3), task: 'ACME-33', step: 'checks', outcome: 'done', checks: ['validate', 'Apex tests'], reason: 'Checks failed on GitHub on 9a8b7c6: validate, Apex tests.' },
   ];
 }
 
@@ -359,6 +369,8 @@ export function sampleBoards(): BoardInput[] {
         card(22, 'Add a Region field to the Lead page', DOING, 'Story', { assignees: [{ name: 'Jordan Kim' }] }),
         card(15, 'Rename the Region picklist values', REVIEW, 'Task', { priority: 'Low', assignees: [{ name: 'Pat Lee' }] }),
         card(27, 'Recalculate lead scores only when a scoring field changes', REVIEW, 'Story', { assignees: [{ name: 'Pat Lee' }] }),
+        card(34, 'Close stale cases after 30 days without a reply', REVIEW, 'Story', { assignees: [{ name: 'Pat Lee' }] }),
+        card(33, 'Score new leads by the size of their company', REVIEW, 'Story', { labels: [{ name: 'sales', color: null }] }),
         card(19, 'Fix the flow that double-sends welcome emails', QA, 'Bug', { priority: 'High' }),
         card(10, 'Add a CHANGELOG', DONE, 'Task', { priority: 'Lowest' }),
         card(8, 'Turn off the old web-to-lead form', DONE, 'Task'),
@@ -420,7 +432,7 @@ const p = (text: string, marks?: string[]): AdfNode => ({ type: 'paragraph', con
  * Which ticket page to draw: ACME-12 being built, a task to do whose analysis has questions or says to
  * split it, one whose builder stopped, or ACME-31, which acc doesn't keep yet, being tracked from its card.
  */
-export type TicketSample = 'ACME-12' | 'ACME-21' | 'ACME-23' | 'ACME-29' | 'ACME-31';
+export type TicketSample = 'ACME-12' | 'ACME-21' | 'ACME-23' | 'ACME-29' | 'ACME-31' | 'ACME-33';
 
 /** What GH-41's builder last said when the Mac slept (D-067). */
 export const SLEPT = 'API Error: Your computer went to sleep mid-response. The response above may be incomplete.';
@@ -431,6 +443,7 @@ export const ASKED = 'I\'ve added the reassignment flow and its test. Before I f
 export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12'): TicketModel {
   if (which === 'ACME-29') return sampleStoppedTicket(now);
   if (which === 'ACME-31') return sampleUntrackedTicket(now);
+  if (which === 'ACME-33') return sampleChecksTicket(now);
   if (which !== 'ACME-12') return sampleTodoTicket(now, which);
   const hub = sampleHub(now);
   // Back with its builder after its pull request stopped merging into dev.
@@ -513,6 +526,36 @@ function sampleStoppedTicket(now: number): TicketModel {
     project: ROOT, tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira', key: 'ACME-29', ticket, loading: false, error: null, connect: null, row, task, signedInAs: 'jordan@acme.example',
     trackerEdits: false, updates: [], boards: sampleBoards(), github: 'jordan-kim', now,
     checks: ['format', 'static', 'validate'].map((gate) => ({ gate, status: 'skip' as const, summary: 'Not run on this commit' })),
+  });
+}
+
+/** A task autopilot sent back to its builder because its pull request's checks failed on GitHub (D-???). */
+function sampleChecksTicket(now: number): TicketModel {
+  const row = sampleHub(now).taskRows(ROOT).find((r) => r.id === 'ACME-33')!;
+  const ticket: Ticket = {
+    key: 'ACME-33', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-33', title: row.title, type: 'Story',
+    status: REVIEW, assignees: [], reporter: { id: 'a2', name: 'Pat Lee' }, labels: [{ name: 'sales', color: null }], priority: 'Medium',
+    created: new Date(now - 2 * 86_400_000).toISOString(), updated: new Date(now - 3 * MIN).toISOString(),
+    body: fromAdf({ type: 'doc', content: [p('Leads from bigger companies should score higher. Add the employee count to the lead score, capped at 20 points.')] }),
+    markdown: '', comments: [], related: [],
+  };
+  const task = {
+    id: 'ACME-33', title: row.title, brief: '', source: { kind: 'jira', key: 'ACME-33', url: ticket.url }, environment: 'dev', deps: [], labels: [], state: 'rework', blocker: null, run: row.run, pr: row.pr,
+    history: [
+      { at: new Date(now - 2 * 86_400_000).toISOString(), from: null, to: 'todo', by: 'human:jordan' },
+      { at: new Date(now - 26 * 60 * MIN).toISOString(), from: 'todo', to: 'running', by: 'human:jordan' },
+      { at: new Date(now - 25 * 60 * MIN).toISOString(), from: 'running', to: 'review', by: 'builder:ACME-33' },
+      { at: new Date(now - 3 * MIN).toISOString(), from: 'review', to: 'rework', by: 'orchestrator:autopilot', reason: 'Checks failed on GitHub on 9a8b7c6: validate, Apex tests.' },
+    ],
+    createdAt: new Date(now - 2 * 86_400_000).toISOString(), updatedAt: new Date(now - 3 * MIN).toISOString(),
+  } as unknown as Task;
+  return ticketModel({
+    project: ROOT, tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira', key: 'ACME-33', ticket, loading: false, error: null, connect: null, row, task, signedInAs: 'jordan@acme.example',
+    trackerEdits: false, updates: [], boards: sampleBoards(), github: 'jordan-kim', now,
+    checks: [
+      { gate: 'format', status: 'pass', summary: '2 changed files formatted.' },
+      { gate: 'validate', status: 'pass', summary: 'Validated in Acme Dev: LeadScoringTest, 12 of 12 passing.' },
+    ],
   });
 }
 
