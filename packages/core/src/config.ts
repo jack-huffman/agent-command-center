@@ -63,6 +63,14 @@ export interface Tracker {
   /** GitHub: issues with any of these labels aren't tasks, such as milestone. */
   skipLabels: string[];
   /**
+   * Where in the tracker this repo's tickets come from, narrower than its project or repo (GH-50). Jira: an
+   * epic's key, so only its child tickets and their sub-tasks count. GitHub: labels, so only issues with one
+   * of them count. Azure DevOps: an area path, so only work items under it count. Unset, the whole project.
+   */
+  epic: string | null;
+  labels: string[];
+  areaPath: string | null;
+  /**
    * Whether the task page may change a ticket's status, assignee and labels. Off by default: a client's
    * tracker is theirs, and acc only drafts updates for a person to post (D-066). Your own repo can opt in.
    */
@@ -110,6 +118,7 @@ export function branchFor(name: string): string {
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isStr = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '';
 const strList = (v: unknown): v is string[] => Array.isArray(v) && v.every(isStr);
+const JIRA_ISSUE = /^[A-Za-z][A-Za-z0-9_]*-\d+$/;
 
 export interface ParseResult {
   config: Config | null;
@@ -182,6 +191,22 @@ export function parseConfig(raw: unknown): ParseResult {
       if (t.kind !== 'github' && Array.isArray(t.skipLabels) && t.skipLabels.length) {
         warnings.push(`trackers[${i}]: "skipLabels" applies only to a GitHub tracker, so it's ignored.`);
       }
+      // The tracker's place (GH-50): each key belongs to one kind of tracker, and is ignored on another.
+      const placeKeys = [
+        { key: 'epic', kind: 'jira', on: 'a Jira', ok: isStr(t.epic) && JIRA_ISSUE.test(t.epic.trim()), error: '"epic" must be a Jira epic\'s key, such as ACME-3.' },
+        { key: 'labels', kind: 'github', on: 'a GitHub', ok: strList(t.labels), error: '"labels" must be a list of label names, such as ["billing"].' },
+        { key: 'areaPath', kind: 'azure', on: 'an Azure DevOps', ok: isStr(t.areaPath), error: '"areaPath" must be an Azure DevOps area path, such as "CRM\\\\Billing".' },
+      ] as const;
+      const set = placeKeys.filter((p) => t[p.key] !== undefined && t[p.key] !== null);
+      const bad = set.filter((p) => !p.ok);
+      if (bad.length) {
+        for (const p of bad) errors.push(`trackers[${i}]: ${p.error}`);
+        return;
+      }
+      for (const p of set) {
+        const empty = Array.isArray(t[p.key]) && !(t[p.key] as unknown[]).length;
+        if (t.kind !== p.kind && !empty) warnings.push(`trackers[${i}]: "${p.key}" applies only to ${p.on} tracker, so it's ignored.`);
+      }
       if (t.edits !== undefined && typeof t.edits !== 'boolean') {
         errors.push(`trackers[${i}]: "edits" must be true or false: whether the task page may change a ticket's status, assignee and labels.`);
         return;
@@ -201,6 +226,9 @@ export function parseConfig(raw: unknown): ParseResult {
         board: Number.isInteger(t.board) || isStr(t.board) ? (t.board as number | string) : null,
         prefix: isStr(t.prefix) ? t.prefix.toUpperCase() : null,
         skipLabels: t.kind === 'github' && strList(t.skipLabels) ? t.skipLabels : [],
+        epic: t.kind === 'jira' && isStr(t.epic) ? t.epic.trim().toUpperCase() : null,
+        labels: t.kind === 'github' && strList(t.labels) ? t.labels.map((l) => l.trim()) : [],
+        areaPath: t.kind === 'azure' && isStr(t.areaPath) ? t.areaPath.trim() : null,
         edits: t.edits === true,
       });
     });
@@ -410,7 +438,7 @@ export function writeConfig(file: string, config: Config): void {
     // A tracker is written as it was given, so the file loads again: what it doesn't set stays out, and it
     // says it may change tickets only when it may (D-066).
     trackers: config.trackers.map(({ edits, ...t }) => ({
-      ...Object.fromEntries(Object.entries(t).filter(([k, v]) => v !== null && !(k === 'skipLabels' && Array.isArray(v) && !v.length))),
+      ...Object.fromEntries(Object.entries(t).filter(([, v]) => v !== null && !(Array.isArray(v) && !v.length))),
       ...(edits ? { edits } : {}),
     })),
     agents: { ...agents, ...(Object.keys(profile(builder)).length ? { builder: profile(builder) } : {}), ...(Object.keys(profile(reviewer)).length ? { reviewer: profile(reviewer) } : {}) },
@@ -462,11 +490,13 @@ export function trackerForKey(trackers: Pick<Tracker, 'kind' | 'project' | 'pref
 /**
  * The raw trackers list with one tracker added, or put in place of the one it describes (same kind,
  * project and site, organization or repo). Settings the new one doesn't name, such as a GitHub tracker's
- * skipLabels (D-048), are kept: re-adding a tracker never quietly drops them.
+ * skipLabels (D-048), are kept: re-adding a tracker never quietly drops them. A setting it names as null
+ * is taken out, so re-adding one as the whole project clears its epic, labels or area path (GH-50).
  */
 export function withTracker(trackers: Record<string, unknown>[], tracker: Record<string, unknown>): Record<string, unknown>[] {
   const where = (t: Record<string, unknown>) => t.site ?? t.organization ?? t.repo;
+  const set = (t: Record<string, unknown>) => Object.fromEntries(Object.entries(t).filter(([, v]) => v !== null));
   const i = trackers.findIndex((t) => t.kind === tracker.kind && t.project === tracker.project && where(t) === where(tracker));
-  if (i < 0) return [...trackers, tracker];
-  return trackers.map((t, k) => (k === i ? { ...t, ...tracker } : t));
+  if (i < 0) return [...trackers, set(tracker)];
+  return trackers.map((t, k) => (k === i ? set({ ...t, ...tracker }) : t));
 }

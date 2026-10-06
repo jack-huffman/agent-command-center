@@ -95,14 +95,31 @@ export interface Board {
   cards: BoardCard[];
   /** Something to tell the person, such as how to get a fuller board. */
   notice: string | null;
+  /** Where its tickets come from (GH-50), such as "Jira · ACME · epic ACME-3 Premium Support". */
+  place: string;
+}
+
+/** A ticket outside the tracker's place, and why, in a few words: "in project OPS", "no label billing". */
+export interface Outside {
+  key: string;
+  why: string;
 }
 
 export interface TrackerClient {
   readonly kind: TrackerKind;
   /** "GitHub · owner/repo", "Jira · MSP" or "Azure DevOps · Project", for headings. */
   readonly title: string;
+  /** Where its tickets come from (GH-50), as far as it's known before the board loads: "Jira · ACME · epic ACME-3". */
+  readonly place: string;
   board(): Promise<Board>;
+  /** A ticket in the tracker's place. One outside it throws a TrackerError of kind 'outside' that names the place. */
   ticket(key: string): Promise<Ticket>;
+  /**
+   * Which of these tickets are outside the tracker's place, each with why (GH-50). With `project`, only the
+   * project or repo counts, not the narrower epic, labels or area path. A ticket it couldn't read is left
+   * out: a failed read never counts as outside (D-048).
+   */
+  outside(keys: string[], opts?: { project?: boolean }): Promise<Outside[]>;
   /** The moves this ticket can make right now. */
   transitions(key: string): Promise<Transition[]>;
   transition(key: string, t: Transition, card?: BoardCard): Promise<void>;
@@ -123,12 +140,41 @@ export interface TrackerClient {
 export type Exec = (cmd: string, args: string[], opts?: { input?: string; env?: NodeJS.ProcessEnv }) => Promise<{ code: number; stdout: string; stderr: string }>;
 
 export class TrackerError extends Error {
-  readonly kind: 'auth' | 'scope' | 'not-found' | 'refused' | 'network' | 'other';
+  /** outside: the ticket is there, but not in this repo's place (GH-50). */
+  readonly kind: 'auth' | 'scope' | 'not-found' | 'refused' | 'network' | 'outside' | 'other';
   constructor(kind: TrackerError['kind'], message: string) {
     super(message);
     this.kind = kind;
     this.name = 'TrackerError';
   }
+}
+
+/** The error for a ticket outside the place, which names it. */
+export const outsideError = (o: Outside, place: string): TrackerError =>
+  new TrackerError('outside', `${o.key} isn't one of this repo's tickets, which come from ${place}: ${o.why}.`);
+
+/** "billing", "billing or invoices", "billing, invoices or refunds". */
+export const orList = (names: string[]): string => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} or ${names.at(-1)}`);
+
+/**
+ * Where a tracker's tickets come from, in words (GH-50): "Jira · ACME · epic ACME-3 Premium Support",
+ * "GitHub · acme/service · labels billing or invoices", "Azure DevOps · CRM · Sales · area CRM\Billing".
+ * With no narrower place, just the project or repo.
+ */
+export function placeText(p: { kind: TrackerKind; project?: string | null; repo?: string | null; team?: string | null; epic?: string | null; epicName?: string | null; labels?: string[]; areaPath?: string | null }): string {
+  if (p.kind === 'github') {
+    const labels = p.labels ?? [];
+    return `GitHub · ${p.repo ?? '?'}${labels.length ? ` · label${labels.length > 1 ? 's' : ''} ${orList(labels)}` : ''}`;
+  }
+  if (p.kind === 'jira') return `Jira · ${p.project ?? '?'}${p.epic ? ` · epic ${p.epic}${p.epicName ? ` ${p.epicName}` : ''}` : ''}`;
+  return `Azure DevOps · ${p.project ?? '?'}${p.team ? ` · ${p.team}` : ''}${p.areaPath ? ` · area ${p.areaPath}` : ''}`;
+}
+
+/** Runs `fn` over the items a few at a time, so checking many tickets never floods a tracker. */
+export async function inBatches<T, R>(items: T[], size: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = [];
+  for (let i = 0; i < items.length; i += size) out.push(...(await Promise.all(items.slice(i, i + size).map(fn))));
+  return out;
 }
 
 /** The moves that land a card in a column: the transitions whose target status the column holds. */

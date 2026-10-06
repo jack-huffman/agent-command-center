@@ -4,7 +4,7 @@
  */
 import { type AdfNode, fromAdf, fromMarkdown, toAdf, toMarkdown } from './doc.ts';
 import {
-  type Board, type BoardCard, type BoardColumn, type Label, type Person, type Status, type StatusCategory,
+  type Board, type BoardCard, type BoardColumn, inBatches, type Label, type Outside, outsideError, type Person, placeText, type Status, type StatusCategory,
   type Ticket, type TrackerClient, TrackerError, type Transition,
 } from './types.ts';
 
@@ -17,11 +17,23 @@ export interface JiraOptions {
   token: string;
   /** A board id. By default, the project's first board. */
   board?: number | null;
+  /** An epic's key: only its child tickets and their sub-tasks count (GH-50). By default, the whole project. */
+  epic?: string | null;
   fetch?: typeof fetch;
 }
 
 interface JiraStatus { id: string; name: string; statusCategory?: { key?: string } }
 interface JiraUser { accountId: string; displayName?: string }
+/** What says where an issue sits: its project, its parent, and whether it's a sub-task. */
+interface Placed { key: string; fields: { project?: { key: string }; parent?: { key: string }; issuetype?: { subtask?: boolean } } }
+type BoardIssue = { key: string; fields: Placed['fields'] & { summary: string; status: JiraStatus; assignee: JiraUser | null; issuetype?: { name: string; subtask?: boolean }; priority?: { name: string } | null; labels?: string[] } };
+
+const ISSUE_KEY = /^[A-Z][A-Z0-9_]*-\d+$/;
+/** The most cards a board shows. */
+const MAX_CARDS = 300;
+const jqlString = (s: string): string => `"${s.replace(/["\\]/g, '\\$&')}"`;
+/** The project an issue is in: its own field, or else its key's. */
+const projectOf = (i: Placed): string => (i.fields.project?.key ?? i.key.replace(/-\d+$/, '')).toUpperCase();
 
 const CATEGORY: Record<string, StatusCategory> = { new: 'todo', indeterminate: 'doing', done: 'done' };
 const status = (s: JiraStatus): Status => ({ id: String(s.id), name: s.name, category: CATEGORY[s.statusCategory?.key ?? ''] ?? 'doing' });
@@ -30,14 +42,46 @@ const person = (u: JiraUser): Person => ({ id: u.accountId, name: u.displayName 
 export class JiraClient implements TrackerClient {
   readonly kind = 'jira' as const;
   readonly title: string;
+  readonly place: string;
   private readonly o: JiraOptions;
   private readonly base: string;
+  private readonly epic: string | null;
   private boardIdCache: Promise<number> | null = null;
 
   constructor(o: JiraOptions) {
     this.o = o;
     this.base = `https://${o.site.replace(/^https?:\/\//, '').replace(/\/+$/, '')}`;
     this.title = `Jira · ${o.project}`;
+    this.epic = o.epic ? o.epic.trim().toUpperCase() : null;
+    this.place = placeText({ kind: 'jira', project: o.project, epic: this.epic });
+  }
+
+  /**
+   * The JQL that holds the board's cards to the place (GH-50): the project, and with an epic, its child
+   * tickets. Their sub-tasks come from a second query, of the children's own keys.
+   */
+  placeJql(): string {
+    if (this.epic && !ISSUE_KEY.test(this.epic)) throw new TrackerError('other', `"${this.o.epic}" isn't a Jira epic's key, such as ACME-3.`);
+    return `project = ${jqlString(this.o.project)}${this.epic ? ` AND parent = ${this.epic}` : ''}`;
+  }
+
+  /**
+   * Why an issue is outside the place, or null when it's in it (GH-50). `asked` is the key that was asked
+   * for: a moved issue comes back under its new key. With `projectOnly`, the epic doesn't count.
+   */
+  private async whyOutside(i: Placed, asked: string, projectOnly: boolean): Promise<string | null> {
+    const project = projectOf(i);
+    if (project !== this.o.project.toUpperCase()) return i.key.toUpperCase() !== asked.toUpperCase() ? `it moved to ${i.key}, in project ${project}` : `it's in project ${project}`;
+    if (projectOnly || !this.epic) return null;
+    if (i.key.toUpperCase() === this.epic) return 'it\'s the epic itself, and only the tickets in it count';
+    const parent = i.fields.parent?.key?.toUpperCase();
+    if (parent === this.epic) return null;
+    // A sub-task counts when its parent is one of the epic's tickets.
+    if (parent && i.fields.issuetype?.subtask !== false) {
+      const up = await this.req<Placed>('GET', `/rest/api/3/issue/${encodeURIComponent(parent)}?fields=parent`);
+      if (up.fields.parent?.key?.toUpperCase() === this.epic) return null;
+    }
+    return `it isn't in epic ${this.epic}`;
   }
 
   private async req<T>(method: 'GET' | 'POST' | 'PUT', path: string, body?: unknown): Promise<T> {
@@ -86,9 +130,11 @@ export class JiraClient implements TrackerClient {
 
   async board(): Promise<Board> {
     const id = await this.boardId();
-    const [config, statuses] = await Promise.all([
+    const jql = this.placeJql();
+    const [config, statuses, epicName] = await Promise.all([
       this.req<{ name: string; columnConfig: { columns: { name: string; statuses: { id: string }[] }[] } }>('GET', `/rest/agile/1.0/board/${id}/configuration`),
       this.req<{ statuses: JiraStatus[] }[]>('GET', `/rest/api/3/project/${encodeURIComponent(this.o.project)}/statuses`),
+      this.epic ? this.epicName() : Promise.resolve(null),
     ]);
     const known = new Map<string, Status>();
     for (const type of statuses) for (const s of type.statuses) known.set(String(s.id), status(s));
@@ -96,30 +142,67 @@ export class JiraClient implements TrackerClient {
       const ids = c.statuses.map((s) => String(s.id));
       return { id: `col-${i}`, name: c.name, category: known.get(ids[0] ?? '')?.category ?? 'doing', statusIds: ids };
     });
-    type Issue = { key: string; fields: { summary: string; status: JiraStatus; assignee: JiraUser | null; issuetype?: { name: string }; priority?: { name: string } | null; labels?: string[] } };
-    const cards: BoardCard[] = [];
-    for (let startAt = 0; startAt < 300; startAt += 100) {
-      const page = await this.req<{ issues: Issue[]; total: number }>('GET', `/rest/agile/1.0/board/${id}/issue?startAt=${startAt}&maxResults=100&fields=summary,status,assignee,issuetype,priority,labels`);
-      for (const i of page.issues) {
-        cards.push({
-          key: i.key, title: i.fields.summary, url: `${this.base}/browse/${i.key}`, status: status(i.fields.status),
-          type: i.fields.issuetype?.name ?? null, assignees: i.fields.assignee ? [person(i.fields.assignee)] : [],
-          labels: (i.fields.labels ?? []).map((name): Label => ({ name, color: null })), priority: i.fields.priority?.name ?? null,
-        });
+    // The board's own filter, held to the place: a filter that spans other projects shows only this one's (GH-50).
+    const project = this.o.project.toUpperCase();
+    let issues = (await this.boardIssues(id, jql, MAX_CARDS)).filter((i) => projectOf(i) === project);
+    if (this.epic) {
+      const children = issues.filter((i) => i.fields.parent?.key?.toUpperCase() === this.epic);
+      const keys = children.map((i) => i.key.toUpperCase());
+      const subtasks: BoardIssue[] = [];
+      for (let k = 0; k < keys.length && children.length + subtasks.length < MAX_CARDS; k += 50) {
+        const some = keys.slice(k, k + 50);
+        const page = await this.boardIssues(id, `project = ${jqlString(this.o.project)} AND parent in (${some.join(', ')})`, MAX_CARDS - children.length - subtasks.length);
+        subtasks.push(...page.filter((i) => projectOf(i) === project && some.includes(i.fields.parent?.key?.toUpperCase() ?? '')));
       }
+      issues = [...children, ...subtasks];
+    }
+    const cards: BoardCard[] = issues.map((i) => ({
+      key: i.key, title: i.fields.summary, url: `${this.base}/browse/${i.key}`, status: status(i.fields.status),
+      type: i.fields.issuetype?.name ?? null, assignees: i.fields.assignee ? [person(i.fields.assignee)] : [],
+      labels: (i.fields.labels ?? []).map((name): Label => ({ name, color: null })), priority: i.fields.priority?.name ?? null,
+    }));
+    // The board's filter and the place both apply, so a filter that leaves the epic's tickets out shows nothing.
+    const notice = this.epic && !cards.length
+      ? `No ticket in epic ${this.epic} is on this board. Its own filter may leave them out: widen the filter in Jira, or pick another board with Add a tracker.`
+      : null;
+    return {
+      source: 'jira-board', title: config.name, url: `${this.base}/jira/software/projects/${encodeURIComponent(this.o.project)}/boards/${id}`, columns, cards, notice,
+      place: placeText({ kind: 'jira', project: this.o.project, epic: this.epic, epicName }),
+    };
+  }
+
+  /** The board's issues that a JQL query picks out, up to `max`. */
+  private async boardIssues(id: number, jql: string, max: number): Promise<BoardIssue[]> {
+    const out: BoardIssue[] = [];
+    for (let startAt = 0; startAt < max; startAt += 100) {
+      const page = await this.req<{ issues: BoardIssue[]; total: number }>('GET', `/rest/agile/1.0/board/${id}/issue?jql=${encodeURIComponent(jql)}&startAt=${startAt}&maxResults=${Math.min(100, max - startAt)}&fields=summary,status,assignee,issuetype,priority,labels,project,parent`);
+      out.push(...page.issues);
       if (startAt + page.issues.length >= page.total || !page.issues.length) break;
     }
-    return { source: 'jira-board', title: config.name, url: `${this.base}/jira/software/projects/${encodeURIComponent(this.o.project)}/boards/${id}`, columns, cards, notice: null };
+    return out;
+  }
+
+  /** The epic's own summary, for saying where the board's tickets come from. */
+  private async epicName(): Promise<string | null> {
+    try {
+      return (await this.req<{ fields: { summary?: string } }>('GET', `/rest/api/3/issue/${encodeURIComponent(this.epic!)}?fields=summary`)).fields.summary ?? null;
+    } catch (e) {
+      if (e instanceof TrackerError && e.kind === 'not-found') throw new TrackerError('not-found', `Epic ${this.epic} isn't in Jira, or this sign-in can't see it. Pick another with Add a tracker.`);
+      throw e;
+    }
   }
 
   async ticket(key: string): Promise<Ticket> {
     type Link = { type: { inward: string; outward: string }; inwardIssue?: { key: string; fields: { summary: string } }; outwardIssue?: { key: string; fields: { summary: string } } };
     const i = await this.req<{ key: string; fields: {
       summary: string; description: AdfNode | null; status: JiraStatus; assignee: JiraUser | null; reporter: JiraUser | null; labels?: string[];
-      priority?: { name: string } | null; issuetype?: { name: string }; created: string; updated: string;
+      priority?: { name: string } | null; issuetype?: { name: string; subtask?: boolean }; created: string; updated: string;
       comment?: { comments: { id: string; author: JiraUser; created: string; body: AdfNode }[] };
       parent?: { key: string; fields: { summary: string } }; subtasks?: { key: string; fields: { summary: string } }[]; issuelinks?: Link[];
-    } }>('GET', `/rest/api/3/issue/${encodeURIComponent(key)}?fields=summary,description,status,assignee,reporter,labels,priority,issuetype,created,updated,comment,parent,subtasks,issuelinks`);
+      project?: { key: string };
+    } }>('GET', `/rest/api/3/issue/${encodeURIComponent(key)}?fields=summary,description,status,assignee,reporter,labels,priority,issuetype,created,updated,comment,parent,subtasks,issuelinks,project`);
+    const why = await this.whyOutside(i, key, false);
+    if (why) throw outsideError({ key: key.toUpperCase(), why }, this.place);
     const f = i.fields;
     const browse = (k: string) => `${this.base}/browse/${k}`;
     return {
@@ -137,6 +220,19 @@ export class JiraClient implements TrackerClient {
         }),
       ],
     };
+  }
+
+  async outside(keys: string[], opts: { project?: boolean } = {}): Promise<Outside[]> {
+    const found = await inBatches(keys, 5, async (key): Promise<Outside | null> => {
+      try {
+        const i = await this.req<Placed>('GET', `/rest/api/3/issue/${encodeURIComponent(key)}?fields=project,parent,issuetype`);
+        const why = await this.whyOutside(i, key, !!opts.project);
+        return why ? { key, why } : null;
+      } catch {
+        return null; // it couldn't be read, which never counts as outside (D-048)
+      }
+    });
+    return found.filter((o): o is Outside => !!o);
   }
 
   async transitions(key: string): Promise<Transition[]> {
@@ -185,6 +281,14 @@ export async function jiraProjects(site: string, email: string, token: string, f
   const c = new JiraClient({ site, project: '', email, token, fetch: f }) as unknown as { req<T>(m: string, p: string): Promise<T> };
   const r = await c.req<{ values: { key: string; name: string }[] }>('GET', '/rest/api/3/project/search?maxResults=100&orderBy=name');
   return r.values.map((v) => ({ key: v.key, name: v.name }));
+}
+
+/** A project's open epics, newest first, for picking where a repo's tickets come from (GH-50). */
+export async function jiraEpics(site: string, project: string, email: string, token: string, f: typeof fetch = fetch): Promise<{ key: string; name: string }[]> {
+  const c = new JiraClient({ site, project, email, token, fetch: f }) as unknown as { req<T>(m: string, p: string): Promise<T> };
+  const jql = `project = ${jqlString(project)} AND issuetype = Epic AND statusCategory != Done ORDER BY created DESC`;
+  const r = await c.req<{ issues: { key: string; fields: { summary?: string } }[] }>('GET', `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=summary&maxResults=100`);
+  return r.issues.map((i) => ({ key: i.key, name: i.fields.summary ?? '' }));
 }
 
 export async function jiraBoards(site: string, project: string, email: string, token: string, f: typeof fetch = fetch): Promise<{ id: number; name: string; type: string }[]> {

@@ -151,7 +151,7 @@ test('an Azure DevOps tracker names its organization and project, and may name a
   const base = { schema: 1, project: 'P', profile: 'generic', environments: [{ name: 'main', default: true }] };
   const ok = parseConfig({ ...base, trackers: [{ kind: 'azure', organization: 'acme', project: 'CRM', team: 'Sales', board: 'Stories', prefix: 'av' }] });
   assert.deepEqual(ok.errors, []);
-  assert.deepEqual(ok.config!.trackers[0], { kind: 'azure', site: null, project: 'CRM', repo: null, organization: 'acme', team: 'Sales', board: 'Stories', prefix: 'AV', skipLabels: [], edits: false });
+  assert.deepEqual(ok.config!.trackers[0], { kind: 'azure', site: null, project: 'CRM', repo: null, organization: 'acme', team: 'Sales', board: 'Stories', prefix: 'AV', skipLabels: [], epic: null, labels: [], areaPath: null, edits: false });
   assert.match(parseConfig({ ...base, trackers: [{ kind: 'azure', project: 'CRM' }] }).errors.join(), /needs "organization" and "project"/);
   assert.match(parseConfig({ ...base, trackers: [{ kind: 'azure', organization: 'a', project: 'b', board: 3 }] }).errors.join(), /an Azure board's name/);
   assert.match(parseConfig({ ...base, trackers: [{ kind: 'jira', site: 's', project: 'K', board: 'Main' }] }).errors.join(), /Jira board id/);
@@ -199,5 +199,42 @@ test('re-adding a tracker keeps the settings it had, in its place; a new one goe
   assert.deepEqual(withTracker(list, { kind: 'github' }), [{ kind: 'github', skipLabels: ['milestone'] }, list[1]], 'skipLabels survive');
   assert.deepEqual(withTracker(list, { kind: 'jira', site: 'acme.atlassian.net', project: 'CRM', board: 7 }), [list[0], { ...list[1], board: 7 }]);
   assert.deepEqual(withTracker(list, { kind: 'jira', site: 'acme.atlassian.net', project: 'OPS' }).map((t) => t.project), [undefined, 'CRM', 'OPS'], 'another project is another tracker');
+});
+
+test('a tracker names its place: a Jira epic, GitHub labels or an Azure area path; a wrong type is an error, the wrong kind a warning (GH-50)', () => {
+  const base = clone(GENERIC_CONFIG);
+  const one = (t: Record<string, unknown>) => parseConfig({ ...base, trackers: [t] });
+  const jira = one({ kind: 'jira', site: 's', project: 'ACME', epic: 'acme-3' }).config!.trackers[0]!;
+  assert.deepEqual([jira.epic, jira.labels, jira.areaPath], ['ACME-3', [], null], 'an epic key is upper-cased');
+  assert.deepEqual(one({ kind: 'github', labels: ['billing', 'invoices'] }).config!.trackers[0]!.labels, ['billing', 'invoices']);
+  assert.equal(one({ kind: 'azure', organization: 'a', project: 'CRM', areaPath: 'CRM\\Billing' }).config!.trackers[0]!.areaPath, 'CRM\\Billing');
+  const plain = one({ kind: 'jira', site: 's', project: 'K' }).config!.trackers[0]!;
+  assert.deepEqual([plain.epic, plain.labels, plain.areaPath], [null, [], null], 'unset, the whole project');
+
+  for (const bad of ['Premium Support', 3, ['ACME-3']]) assert.match(errorsOf({ ...base, trackers: [{ kind: 'jira', site: 's', project: 'K', epic: bad }] }), /trackers\[0\]: "epic" must be a Jira epic's key/, JSON.stringify(bad));
+  for (const bad of ['billing', [3], ['ok', '']]) assert.match(errorsOf({ ...base, trackers: [{ kind: 'github', labels: bad }] }), /trackers\[0\]: "labels" must be a list of label names/, JSON.stringify(bad));
+  for (const bad of ['', 7, ['CRM']]) assert.match(errorsOf({ ...base, trackers: [{ kind: 'azure', organization: 'a', project: 'b', areaPath: bad }] }), /trackers\[0\]: "areaPath" must be an Azure DevOps area path/, JSON.stringify(bad));
+
+  const wrong = parseConfig({ ...base, trackers: [{ kind: 'github', epic: 'ACME-3', areaPath: 'CRM' }, { kind: 'jira', site: 's', project: 'K', labels: ['billing'] }] });
+  assert.deepEqual(wrong.errors, []);
+  assert.match(wrong.warnings.join('\n'), /trackers\[0\]: "epic" applies only to a Jira tracker, so it's ignored/);
+  assert.match(wrong.warnings.join('\n'), /trackers\[0\]: "areaPath" applies only to an Azure DevOps tracker/);
+  assert.match(wrong.warnings.join('\n'), /trackers\[1\]: "labels" applies only to a GitHub tracker/);
+  assert.deepEqual([wrong.config!.trackers[0]!.epic, wrong.config!.trackers[1]!.labels], [null, []], 'and it isn\'t kept');
+});
+
+test('a place is written as it was given, left out when unset, and re-adding a tracker as the whole project clears it (GH-50)', () => {
+  const base = clone(GENERIC_CONFIG);
+  const file = join(tempDir(), '.acc', 'config.json');
+  const trackers = [{ kind: 'jira', site: 's', project: 'ACME', epic: 'ACME-3' }, { kind: 'github', labels: ['billing'] }, { kind: 'azure', organization: 'a', project: 'CRM', areaPath: 'CRM\\Billing' }, { kind: 'jira', site: 's', project: 'OPS' }];
+  writeConfig(file, parseConfig({ ...base, trackers }).config!);
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')).trackers, trackers, 'round-trips, with no empty keys');
+  assert.deepEqual(loadConfig(file).config.trackers.map((t) => [t.epic, t.labels, t.areaPath]), [['ACME-3', [], null], [null, ['billing'], null], [null, [], 'CRM\\Billing'], [null, [], null]]);
+
+  assert.deepEqual(withTracker([trackers[0]!], { kind: 'jira', site: 's', project: 'ACME', epic: null }), [{ kind: 'jira', site: 's', project: 'ACME' }], 'null clears the epic');
+  assert.deepEqual(withTracker([{ kind: 'github', labels: ['billing'], skipLabels: ['milestone'] }], { kind: 'github', labels: null }), [{ kind: 'github', skipLabels: ['milestone'] }], 'and the labels, keeping the rest');
+  assert.deepEqual(withTracker([trackers[2]!], { kind: 'azure', organization: 'a', project: 'CRM', board: 'Stories', areaPath: null }), [{ kind: 'azure', organization: 'a', project: 'CRM', board: 'Stories' }]);
+  assert.deepEqual(withTracker([], { kind: 'jira', site: 's', project: 'ACME', epic: null }), [{ kind: 'jira', site: 's', project: 'ACME' }], 'a new one is written without it');
+  assert.deepEqual(withTracker([trackers[0]!], { kind: 'jira', site: 's', project: 'ACME', epic: 'ACME-9' }), [{ ...trackers[0], epic: 'ACME-9' }], 'or picks another');
 });
 

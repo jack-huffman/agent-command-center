@@ -6,7 +6,7 @@
  */
 import { type Doc, fromHtml, fromMarkdown, toHtml, toMarkdown } from './doc.ts';
 import {
-  type Board, type BoardCard, type BoardColumn, type Label, type Person, type Status, type StatusCategory,
+  type Board, type BoardCard, type BoardColumn, type Label, type Outside, outsideError, type Person, placeText, type Status, type StatusCategory,
   type Ticket, type TrackerClient, TrackerError, type Transition,
 } from './types.ts';
 
@@ -20,6 +20,8 @@ export interface AzureOptions {
   board?: string | null;
   /** The key prefix for work items, such as AB for AB-123. */
   prefix?: string;
+  /** Only work items under this area path count (GH-50), such as CRM\Billing. By default, the team's own areas. */
+  areaPath?: string | null;
   /** Returns the Authorization header for each call: "Bearer …" or "Basic …". */
   auth: () => Promise<string>;
   fetch?: typeof fetch;
@@ -37,6 +39,12 @@ interface Identity { displayName?: string; uniqueName?: string; id?: string }
 const person = (i: Identity | null | undefined): Person | null => (i?.displayName || i?.uniqueName ? { id: i.uniqueName ?? i.id ?? '', name: i.displayName || i.uniqueName! } : null);
 const tags = (s: unknown): Label[] => (typeof s === 'string' ? s.split(';').map((t) => t.trim()).filter(Boolean).map((name) => ({ name, color: null })) : []);
 const quote = (s: string): string => `'${s.replace(/'/g, "''")}'`;
+/** Whether an area path is the place's, or under it. Azure's paths ignore case. */
+const under = (path: string, area: string): boolean => {
+  const p = path.toLowerCase();
+  const a = area.toLowerCase().replace(/\\+$/, '');
+  return p === a || p.startsWith(`${a}\\`);
+};
 
 interface AzureColumn { id: string; name: string; columnType: string; stateMappings: Record<string, string> }
 
@@ -54,9 +62,11 @@ export async function tenantOf(organization: string, f: typeof fetch = fetch): P
 export class AzureClient implements TrackerClient {
   readonly kind = 'azure' as const;
   readonly title: string;
+  readonly place: string;
   readonly prefix: string;
   private readonly o: AzureOptions;
   private readonly base: string;
+  private readonly area: string | null;
   private boardCache: Promise<{ team: string; id: string; name: string; columns: AzureColumn[]; columnField: string }> | null = null;
   private readonly statesCache = new Map<string, Promise<Status[]>>();
 
@@ -65,6 +75,20 @@ export class AzureClient implements TrackerClient {
     this.prefix = (o.prefix ?? 'AB').toUpperCase();
     this.base = `https://dev.azure.com/${encodeURIComponent(o.organization)}`;
     this.title = `Azure DevOps · ${o.project}`;
+    this.area = o.areaPath?.trim() || null;
+    this.place = placeText({ kind: 'azure', project: o.project, team: o.team, areaPath: this.area });
+  }
+
+  /**
+   * Why a work item is outside the place, or null (GH-50). Work item ids are the whole organization's, so
+   * one from another project can be asked for by id. With `projectOnly`, the area path doesn't count.
+   */
+  private whyOutside(f: Record<string, unknown>, projectOnly: boolean): string | null {
+    const project = String(f['System.TeamProject'] ?? '');
+    if (project && project.toLowerCase() !== this.o.project.toLowerCase()) return `it's in project ${project}`;
+    const area = String(f['System.AreaPath'] ?? '');
+    if (projectOnly || !this.area || !area || under(area, this.area)) return null;
+    return `its area ${area} isn't under ${this.area}`;
   }
 
   private get proj(): string { return encodeURIComponent(this.o.project); }
@@ -145,6 +169,8 @@ export class AzureClient implements TrackerClient {
       'SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = @project',
       types.length ? `AND [System.WorkItemType] IN (${types.map(quote).join(', ')})` : '',
       areas ? `AND (${areas})` : '',
+      // The place: only work items under its area path (GH-50).
+      this.area ? `AND [System.AreaPath] UNDER ${quote(this.area)}` : '',
       "AND [System.State] <> 'Removed'",
       doneStates.length ? `AND ([System.State] NOT IN (${doneStates.map(quote).join(', ')}) OR [System.ChangedDate] >= @Today - 30)` : '',
       'ORDER BY [Microsoft.VSTS.Common.StackRank] ASC, [System.ChangedDate] DESC',
@@ -172,7 +198,11 @@ export class AzureClient implements TrackerClient {
         priority: PRIORITY[Number(f['Microsoft.VSTS.Common.Priority'])] ?? null,
       });
     }
-    return { source: 'azure-board', title: `${b.name} · ${b.team}`, url: `${this.base}/${this.proj}/_boards/board/t/${encodeURIComponent(b.team)}/${encodeURIComponent(b.name)}`, columns, cards, notice: null };
+    return {
+      source: 'azure-board', title: `${b.name} · ${b.team}`, url: `${this.base}/${this.proj}/_boards/board/t/${encodeURIComponent(b.team)}/${encodeURIComponent(b.name)}`, columns, cards,
+      notice: this.area && !cards.length ? `No work item under ${this.area} is on this board. The team's own areas may leave it out: pick another team or area with Add a tracker.` : null,
+      place: placeText({ kind: 'azure', project: this.o.project, team: b.team, areaPath: this.area }),
+    };
   }
 
   /** Moves a card to a column: the column field, and the state the column maps the card's type to. */
@@ -203,6 +233,8 @@ export class AzureClient implements TrackerClient {
     const id = this.idOf(key);
     const w = await this.req<{ id: number; fields: Record<string, unknown>; relations?: { rel: string; url: string; attributes?: { name?: string } }[]; multilineFieldsFormat?: Record<string, string> }>('GET', `/${this.proj}/_apis/wit/workitems/${id}?$expand=relations&${API}`);
     const f = w.fields;
+    const why = this.whyOutside(f, false);
+    if (why) throw outsideError({ key: this.keyOf(id), why }, this.place);
     const type = String(f['System.WorkItemType'] ?? '');
     const states = await this.states(type).catch(() => [] as Status[]);
     const stateName = String(f['System.State'] ?? '');
@@ -246,6 +278,34 @@ export class AzureClient implements TrackerClient {
       })),
       related: links.map((l) => ({ key: this.keyOf(l.id), title: titles.get(l.id) ?? '', relation: l.relation, url: this.urlOf(l.id) })),
     };
+  }
+
+  /** One batch call for all of them, from the organization, so a work item moved to another project still answers. */
+  async outside(keys: string[], opts: { project?: boolean } = {}): Promise<Outside[]> {
+    const ids = new Map<number, string>();
+    for (const key of keys) {
+      try {
+        ids.set(this.idOf(key), key);
+      } catch {
+        // not a work item key: nothing to say about it
+      }
+    }
+    const out: Outside[] = [];
+    const list = [...ids.keys()];
+    for (let i = 0; i < list.length; i += 200) {
+      let got: { value: ({ id: number; fields: Record<string, unknown> } | null)[] };
+      try {
+        // Omit: a deleted work item comes back as null rather than failing the rest.
+        got = await this.req('POST', `/_apis/wit/workitemsbatch?${API}`, { ids: list.slice(i, i + 200), fields: ['System.Id', 'System.TeamProject', 'System.AreaPath'], errorPolicy: 'omit' });
+      } catch {
+        continue; // it couldn't be read, which never counts as outside (D-048)
+      }
+      for (const w of got.value) {
+        const why = w ? this.whyOutside(w.fields, !!opts.project) : null;
+        if (w && why) out.push({ key: ids.get(w.id) ?? this.keyOf(w.id), why });
+      }
+    }
+    return out;
   }
 
   /** Every state the work item's type has, other than where it is and Removed. */
@@ -336,6 +396,30 @@ export async function azureTeams(organization: string, project: string, auth: st
   const names = byName(teams.value);
   const d = proj.defaultTeam?.name;
   return d ? [d, ...names.filter((n) => n !== d)] : names;
+}
+
+/**
+ * The area paths a team's board covers, each followed by the ones under it, for picking where a repo's
+ * work items come from (GH-50). A team whose board isn't by area path gets the project's whole tree.
+ */
+export async function azureAreas(organization: string, project: string, team: string, auth: string, f: typeof fetch = fetch): Promise<string[]> {
+  const proj = `https://dev.azure.com/${encodeURIComponent(organization)}/${encodeURIComponent(project)}`;
+  type Node = { name: string; children?: Node[] };
+  const [teamAreas, root] = await Promise.all([
+    get<{ field?: { referenceName: string }; values: { value: string; includeChildren: boolean }[] }>(`${proj}/${encodeURIComponent(team)}/_apis/work/teamsettings/teamfieldvalues?${API}`, auth, f),
+    get<Node>(`${proj}/_apis/wit/classificationnodes/Areas?$depth=10&${API}`, auth, f),
+  ]);
+  const paths = new Map<string, string[]>();
+  const walk = (n: Node, path: string): string[] => {
+    const below = (n.children ?? []).flatMap((c) => walk(c, `${path}\\${c.name}`));
+    paths.set(path.toLowerCase(), below);
+    return [path, ...below];
+  };
+  const all = walk(root, root.name);
+  if ((teamAreas.field?.referenceName ?? 'System.AreaPath') !== 'System.AreaPath' || !teamAreas.values.length) return all;
+  const out: string[] = [];
+  for (const v of teamAreas.values) out.push(v.value, ...(v.includeChildren ? paths.get(v.value.toLowerCase()) ?? [] : []));
+  return [...new Set(out)];
 }
 
 /** A team's boards, in backlog order (Epics, Features, then stories or backlog items). */

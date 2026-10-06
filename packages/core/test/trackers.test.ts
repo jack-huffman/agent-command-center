@@ -219,16 +219,21 @@ test('a Jira board: the board\'s own columns, each holding its statuses, with ev
       { name: 'To Do', statuses: [{ id: '1' }] }, { name: 'In Progress', statuses: [{ id: '3' }, { id: '4' }] }, { name: 'Done', statuses: [{ id: '10' }] },
     ] } },
     'GET /rest/api/3/project/MSP/statuses': [{ statuses: [jiraStatus('1', 'To Do', 'new'), jiraStatus('3', 'In Progress', 'indeterminate'), jiraStatus('4', 'In Review', 'indeterminate'), jiraStatus('10', 'Done', 'done')] }],
-    'GET /rest/agile/1.0/board/42/issue?startAt=0': { total: 2, issues: [
-      { key: 'MSP-1', fields: { summary: 'Login page', status: jiraStatus('4', 'In Review', 'indeterminate'), assignee: { accountId: 'a1', displayName: 'Pat Lee' }, issuetype: { name: 'Story' }, priority: { name: 'High' }, labels: ['ui'] } },
-      { key: 'MSP-2', fields: { summary: 'Fix flow', status: jiraStatus('1', 'To Do', 'new'), assignee: null, issuetype: { name: 'Bug' }, priority: null, labels: [] } },
+    'GET /rest/agile/1.0/board/42/issue?jql=': { total: 3, issues: [
+      { key: 'MSP-1', fields: { summary: 'Login page', status: jiraStatus('4', 'In Review', 'indeterminate'), assignee: { accountId: 'a1', displayName: 'Pat Lee' }, issuetype: { name: 'Story' }, priority: { name: 'High' }, labels: ['ui'], project: { key: 'MSP' } } },
+      { key: 'MSP-2', fields: { summary: 'Fix flow', status: jiraStatus('1', 'To Do', 'new'), assignee: null, issuetype: { name: 'Bug' }, priority: null, labels: [], project: { key: 'MSP' } } },
+      // The board's own filter spans another project, and Jira still sent one of its cards.
+      { key: 'OPS-1', fields: { summary: 'Another client\'s ticket', status: jiraStatus('1', 'To Do', 'new'), assignee: null, issuetype: { name: 'Task' }, priority: null, labels: [], project: { key: 'OPS' } } },
     ] },
   });
   const jira = new JiraClient({ site: 'acme.atlassian.net', project: 'MSP', email: 'me@acme.co', token: 'tok', fetch: f });
   const b = await jira.board();
   assert.deepEqual(b.columns.map((c) => [c.name, c.category, c.statusIds]), [['To Do', 'todo', ['1']], ['In Progress', 'doing', ['3', '4']], ['Done', 'done', ['10']]]);
-  assert.deepEqual(b.cards.map((c) => [c.key, c.status.name, c.type, c.priority, c.assignees[0]?.name ?? null]), [['MSP-1', 'In Review', 'Story', 'High', 'Pat Lee'], ['MSP-2', 'To Do', 'Bug', null, null]]);
+  assert.deepEqual(b.cards.map((c) => [c.key, c.status.name, c.type, c.priority, c.assignees[0]?.name ?? null]), [['MSP-1', 'In Review', 'Story', 'High', 'Pat Lee'], ['MSP-2', 'To Do', 'Bug', null, null]], 'only this project\'s cards (GH-50)');
   assert.equal(b.url, 'https://acme.atlassian.net/jira/software/projects/MSP/boards/42');
+  assert.equal(b.place, 'Jira · MSP');
+  const cardsCall = new URL(`https://x${calls.find((c) => c.path.includes('/issue?'))!.path}`);
+  assert.equal(cardsCall.searchParams.get('jql'), 'project = "MSP"', 'the board\'s cards are held to the project');
   assert.equal(calls[0]!.auth, `Basic ${Buffer.from('me@acme.co:tok').toString('base64')}`);
 });
 
@@ -268,6 +273,125 @@ test('a Jira ticket: ADF description and comments, related tickets, transitions 
   await jira.setLabels('MSP-1', ['backend'], ['ui']);
   assert.deepEqual(calls.at(-1)!.body, { update: { labels: [{ add: 'backend' }, { remove: 'ui' }] } });
   await assert.rejects(jira.setLabels('MSP-1', ['two words'], []), /can't contain spaces/);
+});
+
+// ---------------------------------------------------------------- the place (GH-50)
+
+const isOutside = (re: RegExp) => (e: unknown) => e instanceof TrackerError && e.kind === 'outside' && re.test(e.message);
+const jql = (path: string) => new URL(`https://x${path}`).searchParams.get('jql');
+/** A Jira issue as Jira sends it, with its project and parent. A parent comes with its own summary, as Jira's does. */
+const placed = (key: string, fields: Record<string, unknown>) => {
+  const parent = fields.parent as { key: string; fields?: unknown } | undefined;
+  return { key, fields: { summary: key, status: jiraStatus('1', 'To Do', 'new'), assignee: null, issuetype: { name: 'Story', subtask: false }, labels: [], ...fields, ...(parent ? { parent: { fields: { summary: parent.key }, ...parent } } : {}) } };
+};
+
+test('a Jira board with an epic shows only its tickets and their sub-tasks, and says so with the epic\'s name', async () => {
+  const children = `GET /rest/agile/1.0/board/42/issue?jql=${encodeURIComponent('project = "MSP" AND parent = MSP-3')}`;
+  const subtasks = `GET /rest/agile/1.0/board/42/issue?jql=${encodeURIComponent('project = "MSP" AND parent in (MSP-4, MSP-5)')}`;
+  const { fetch: f, calls } = fakeJira({
+    'GET /rest/agile/1.0/board/42/configuration': { name: 'MSP board', columnConfig: { columns: [{ name: 'To Do', statuses: [{ id: '1' }] }] } },
+    'GET /rest/api/3/project/MSP/statuses': [{ statuses: [jiraStatus('1', 'To Do', 'new')] }],
+    'GET /rest/api/3/issue/MSP-3?fields=summary': { key: 'MSP-3', fields: { summary: 'Premium Support' } },
+    [children]: { total: 4, issues: [
+      placed('MSP-4', { project: { key: 'MSP' }, parent: { key: 'MSP-3' } }),
+      placed('MSP-5', { project: { key: 'MSP' }, parent: { key: 'msp-3' } }),
+      placed('OPS-1', { project: { key: 'OPS' }, parent: { key: 'MSP-3' } }),
+      placed('MSP-8', { project: { key: 'MSP' }, parent: { key: 'MSP-9' } }),
+    ] },
+    [subtasks]: { total: 2, issues: [placed('MSP-6', { project: { key: 'MSP' }, parent: { key: 'MSP-4' }, issuetype: { name: 'Sub-task', subtask: true } }), placed('MSP-7', { project: { key: 'MSP' }, parent: { key: 'MSP-2' } })] },
+  });
+  const jira = new JiraClient({ site: 'acme.atlassian.net', project: 'MSP', email: 'e', token: 't', board: 42, epic: 'msp-3', fetch: f });
+  assert.equal(jira.place, 'Jira · MSP · epic MSP-3', 'before the board loads, without its name');
+  const b = await jira.board();
+  assert.deepEqual(b.cards.map((c) => c.key), ['MSP-4', 'MSP-5', 'MSP-6'], 'the epic\'s tickets and their sub-tasks; not another project\'s, nor a stray');
+  assert.equal(b.place, 'Jira · MSP · epic MSP-3 Premium Support');
+  assert.equal(b.notice, null);
+  assert.deepEqual(calls.filter((c) => c.path.includes('/issue?jql=')).map((c) => jql(c.path)), ['project = "MSP" AND parent = MSP-3', 'project = "MSP" AND parent in (MSP-4, MSP-5)']);
+
+  const empty = fakeJira({
+    'GET /rest/agile/1.0/board/42/configuration': { name: 'MSP board', columnConfig: { columns: [{ name: 'To Do', statuses: [{ id: '1' }] }] } },
+    'GET /rest/api/3/project/MSP/statuses': [], 'GET /rest/api/3/issue/MSP-3?fields=summary': { fields: { summary: 'Premium Support' } },
+    'GET /rest/agile/1.0/board/42/issue?jql=': { total: 0, issues: [] },
+  });
+  const none = await new JiraClient({ site: 'acme.atlassian.net', project: 'MSP', email: 'e', token: 't', board: 42, epic: 'MSP-3', fetch: empty.fetch }).board();
+  assert.match(none.notice!, /No ticket in epic MSP-3 is on this board\. Its own filter may leave them out/, 'a board whose filter leaves the epic out says why it\'s empty');
+});
+
+test('a Jira ticket outside the place isn\'t shown: another project\'s, a moved one, or with an epic, one outside it', async () => {
+  const { fetch: f, calls } = fakeJira({
+    'GET /rest/api/3/issue/OPS-1?': placed('OPS-1', { project: { key: 'OPS' } }),
+    'GET /rest/api/3/issue/MSP-9?': placed('OPS-2', { project: { key: 'OPS' } }), // moved: Jira answers with its new key
+    'GET /rest/api/3/issue/MSP-4?fields=parent': { key: 'MSP-4', fields: { parent: { key: 'MSP-3' } } },
+    'GET /rest/api/3/issue/MSP-4?': placed('MSP-4', { project: { key: 'MSP' }, parent: { key: 'MSP-3' } }),
+    'GET /rest/api/3/issue/MSP-6?': placed('MSP-6', { project: { key: 'MSP' }, parent: { key: 'MSP-4', fields: { summary: 'MSP-4' } }, issuetype: { name: 'Sub-task', subtask: true } }),
+    'GET /rest/api/3/issue/MSP-5?fields=parent': { key: 'MSP-5', fields: { parent: { key: 'MSP-1' } } },
+    'GET /rest/api/3/issue/MSP-7?': placed('MSP-7', { project: { key: 'MSP' }, parent: { key: 'MSP-5' }, issuetype: { name: 'Sub-task', subtask: true } }),
+    'GET /rest/api/3/issue/MSP-8?': placed('MSP-8', { project: { key: 'MSP' }, parent: { key: 'MSP-1' } }),
+    'GET /rest/api/3/issue/MSP-3?': placed('MSP-3', { project: { key: 'MSP' }, issuetype: { name: 'Epic', subtask: false } }),
+  });
+  const whole = new JiraClient({ site: 'acme.atlassian.net', project: 'MSP', email: 'e', token: 't', fetch: f });
+  await assert.rejects(whole.ticket('OPS-1'), isOutside(/^OPS-1 isn't one of this repo's tickets, which come from Jira · MSP: it's in project OPS\.$/));
+  await assert.rejects(whole.ticket('MSP-9'), isOutside(/MSP-9 .*: it moved to OPS-2, in project OPS/), 'the key that comes back is compared, not the one asked for');
+  assert.ok(calls.some((c) => c.path.startsWith('/rest/api/3/issue/OPS-1?') && c.path.includes('project')), 'the ticket\'s project is asked for');
+  assert.equal((await whole.ticket('MSP-8')).key, 'MSP-8', 'with no epic, any of the project\'s tickets');
+
+  const epic = new JiraClient({ site: 'acme.atlassian.net', project: 'MSP', email: 'e', token: 't', epic: 'MSP-3', fetch: f });
+  assert.equal((await epic.ticket('MSP-4')).key, 'MSP-4', 'a child of the epic');
+  assert.equal((await epic.ticket('MSP-6')).key, 'MSP-6', 'a sub-task of one of its children');
+  await assert.rejects(epic.ticket('MSP-8'), isOutside(/MSP-8 isn't one of this repo's tickets, which come from Jira · MSP · epic MSP-3: it isn't in epic MSP-3\./));
+  await assert.rejects(epic.ticket('MSP-7'), isOutside(/it isn't in epic MSP-3/), 'a sub-task of a ticket outside it');
+  await assert.rejects(epic.ticket('MSP-3'), isOutside(/the epic itself/), 'the epic itself doesn\'t count');
+
+  assert.deepEqual(await epic.outside(['MSP-4', 'OPS-1', 'MSP-8', 'MSP-404']), [{ key: 'OPS-1', why: 'it\'s in project OPS' }, { key: 'MSP-8', why: 'it isn\'t in epic MSP-3' }], 'one it can\'t read is never outside');
+  assert.deepEqual(await epic.outside(['MSP-8', 'MSP-9'], { project: true }), [{ key: 'MSP-9', why: 'it moved to OPS-2, in project OPS' }], 'held to the project only, the epic doesn\'t count');
+});
+
+test('Jira lists a project\'s open epics through the search that replaced the old one', async () => {
+  const { jiraEpics } = await import('../src/trackers/jira.ts');
+  const { fetch: f, calls } = fakeJira({ 'GET /rest/api/3/search/jql?': { issues: [{ key: 'MSP-3', fields: { summary: 'Premium Support' } }] } });
+  assert.deepEqual(await jiraEpics('acme.atlassian.net', 'MSP', 'e', 't', f), [{ key: 'MSP-3', name: 'Premium Support' }]);
+  assert.equal(jql(calls[0]!.path), 'project = "MSP" AND issuetype = Epic AND statusCategory != Done ORDER BY created DESC');
+});
+
+test('GitHub labels hold the place: one list per label, merged, on the Open and Closed board; any one of them counts, whatever its case', async () => {
+  const lab = (...names: string[]) => ({ labels: names.map((name) => ({ name, color: 'ededed' })) });
+  const { exec, calls } = fakeGh([
+    ['api graphql', projectsAnswer([])],
+    ['issue list -R o/r --state open --limit 200 --label billing', JSON.stringify([issue(4, 'OPEN', lab('billing')), issue(2, 'OPEN', lab('billing', 'invoices'))])],
+    ['issue list -R o/r --state open --limit 200 --label invoices', JSON.stringify([issue(5, 'OPEN', lab('Invoices')), issue(2, 'OPEN', lab('billing', 'invoices'))])],
+    ['issue list -R o/r --state closed --limit 30 --label billing', JSON.stringify([issue(1, 'CLOSED', lab('billing'))])],
+    ['issue list -R o/r --state closed --limit 30 --label invoices', '[]'],
+    ['issue view 6 ', JSON.stringify({ ...issue(6, 'OPEN', lab('docs')), body: '', author: null, comments: [], createdAt: '', updatedAt: '' })],
+    ['issue view 7 ', JSON.stringify({ ...issue(7, 'OPEN', lab('BILLING')), body: '', author: null, comments: [], createdAt: '', updatedAt: '' })],
+    ['issue view 8 ', JSON.stringify({ ...issue(8, 'OPEN', lab('billing')), url: 'https://github.com/other/repo/issues/3', body: '', author: null, comments: [], createdAt: '', updatedAt: '' })],
+  ]);
+  const gh = new GithubClient({ repo: 'o/r', token: 't', account: 'me', exec, labels: ['billing', 'invoices'] });
+  const b = await gh.board();
+  assert.deepEqual(b.cards.map((c) => c.key), ['GH-5', 'GH-4', 'GH-2', 'GH-1'], 'each issue once, newest first');
+  assert.equal(b.place, 'GitHub · o/r · labels billing or invoices');
+  assert.equal(calls.filter((c) => c.args.startsWith('issue list')).length, 4, 'gh wants every --label it\'s given, so one list per label and state');
+  assert.equal(new GithubClient({ repo: 'o/r', token: 't', account: 'me', exec, labels: ['billing'] }).place, 'GitHub · o/r · label billing');
+  assert.equal(new GithubClient({ repo: 'o/r', token: 't', account: 'me', exec }).place, 'GitHub · o/r');
+
+  await assert.rejects(gh.ticket('GH-6'), isOutside(/^GH-6 isn't one of this repo's tickets, which come from GitHub · o\/r · labels billing or invoices: it has none of the labels billing or invoices\.$/));
+  assert.equal((await gh.ticket('GH-7')).key, 'GH-7', 'labels ignore case');
+  await assert.rejects(gh.ticket('GH-8'), isOutside(/it moved to other\/repo/), 'an issue transferred to another repo');
+  assert.deepEqual(await gh.outside(['GH-6', 'GH-7', 'GH-8', 'GH-99']), [{ key: 'GH-6', why: 'it has none of the labels billing or invoices' }, { key: 'GH-8', why: 'it moved to other/repo' }]);
+  assert.deepEqual(await gh.outside(['GH-6', 'GH-8'], { project: true }), [{ key: 'GH-8', why: 'it moved to other/repo' }], 'held to the repo only, labels don\'t count');
+});
+
+test('GitHub labels hold a Project board too: an issue with none of them isn\'t a card', async () => {
+  const project = { id: 'PVT_1', number: 3, title: 'Roadmap', url: 'u', closed: false, field: { id: 'F_1', options: [{ id: 'o1', name: 'Todo' }] } };
+  const item = (id: string, n: number, labels: string[]) => ({ id, fieldValueByName: { optionId: 'o1', name: 'Todo' }, content: { __typename: 'Issue', repository: { nameWithOwner: 'o/r' }, ...issue(n, 'OPEN'), assignees: { nodes: [] }, labels: { nodes: labels.map((name) => ({ name, color: 'ededed' })) } } });
+  const items = { data: { node: { items: { pageInfo: { hasNextPage: false, endCursor: 'x' }, nodes: [item('I_1', 1, ['Billing']), item('I_2', 2, ['docs']), item('I_3', 3, [])] } } } };
+  const { exec, calls } = fakeGh([
+    ['api graphql -f query=query($owner: String!, $name: String!) {\n  repository(owner: $owner, name: $name) {\n    projectsV2', projectsAnswer([project])],
+    ['api graphql -f query=query($id', JSON.stringify(items)],
+  ]);
+  const b = await new GithubClient({ repo: 'o/r', token: 't', account: 'me', exec, labels: ['billing'] }).board();
+  assert.deepEqual(b.cards.map((c) => c.key), ['GH-1']);
+  assert.equal(b.place, 'GitHub · o/r · label billing');
+  assert.match(calls.find((c) => c.args.includes('query($id'))!.args, /labels\(first: 50\)/, 'enough labels that a place label isn\'t cut off');
 });
 
 test('Jira errors say what to do: a refused token, a missing board, an unreachable site', async () => {
@@ -426,4 +550,49 @@ test('Azure sign-in trouble is named: a sign-in page instead of data, and the te
   assert.equal(await tenantOf('acme', head.fetch), '1f2e3d4c-0000-1111-2222-333344445555');
   const msa = fakeAzure([['HEAD /_apis/connectionData', {}]], { status: 401, headers: { 'x-vss-resourcetenant': '00000000-0000-0000-0000-000000000000' } });
   assert.equal(await tenantOf('acme', msa.fetch), null, 'an org with no tenant of its own');
+});
+
+test('an Azure area path holds the board\'s query, and a work item from another project or outside the area isn\'t shown', async () => {
+  const { AzureClient } = await import('../src/trackers/azure.ts');
+  const board = fakeAzure(boardRoutes([]));
+  const az = new AzureClient({ organization: 'acme', project: 'CRM', areaPath: "CRM\\Billing", auth: async () => 'Bearer tok', fetch: board.fetch });
+  const b = await az.board();
+  const wiql = (board.calls.find((c) => c.path.includes('/wiql'))!.body as { query: string }).query;
+  assert.match(wiql, /AND \[System\.AreaPath\] UNDER 'CRM\\Billing'/);
+  assert.match(wiql, /\[System\.TeamProject\] = @project/, 'still held to the project and the team\'s areas');
+  assert.equal(b.place, 'Azure DevOps · CRM · CRM Team · area CRM\\Billing');
+  assert.match(b.notice!, /No work item under CRM\\Billing is on this board/);
+  assert.equal(new AzureClient({ organization: 'acme', project: 'CRM', auth: async () => 'x' }).place, 'Azure DevOps · CRM', 'no narrower place: just the project');
+
+  const item = (id: number, project: string, area: string) => [`GET /CRM/_apis/wit/workitems/${id}?$expand`, { id, fields: { 'System.Title': `Item ${id}`, 'System.State': 'New', 'System.WorkItemType': 'Bug', 'System.TeamProject': project, 'System.AreaPath': area } }] as [string, unknown];
+  const { fetch: f, calls } = fakeAzure([
+    item(7, 'Other', 'Other'), item(8, 'CRM', 'CRM\\Sales'), item(9, 'CRM', 'crm\\billing\\Invoices'), item(10, 'CRM', 'CRM\\BillingOld'),
+    ['GET /CRM/_apis/wit/workitemtypes', { value: [] }], ['GET /CRM/_apis/wit/workItems/', { comments: [] }],
+    ['POST /_apis/wit/workitemsbatch', (body: unknown) => {
+      const known: Record<number, Record<string, string>> = { 7: { 'System.TeamProject': 'Other', 'System.AreaPath': 'Other' }, 8: { 'System.TeamProject': 'CRM', 'System.AreaPath': 'CRM\\Sales' } };
+      return { value: (body as { ids: number[] }).ids.map((id) => (known[id] ? { id, fields: known[id] } : null)) };
+    }],
+  ]);
+  const whole = new AzureClient({ organization: 'acme', project: 'CRM', auth: async () => 'x', fetch: f });
+  await assert.rejects(whole.ticket('AB-7'), isOutside(/^AB-7 isn't one of this repo's tickets, which come from Azure DevOps · CRM: it's in project Other\.$/), 'work item ids are the organization\'s, so the project is checked even with no area');
+  assert.equal((await whole.ticket('AB-8')).key, 'AB-8');
+  const area = new AzureClient({ organization: 'acme', project: 'CRM', team: 'Billing', areaPath: 'CRM\\Billing', auth: async () => 'x', fetch: f });
+  await assert.rejects(area.ticket('AB-8'), isOutside(/its area CRM\\Sales isn't under CRM\\Billing/));
+  assert.equal((await area.ticket('AB-9')).key, 'AB-9', 'under the area, whatever its case');
+  await assert.rejects(area.ticket('AB-10'), isOutside(/isn't under/), 'a sibling whose name starts the same isn\'t under it');
+
+  assert.deepEqual(await area.outside(['AB-7', 'AB-99', 'AB-8', 'MSP-1']), [{ key: 'AB-7', why: 'it\'s in project Other' }, { key: 'AB-8', why: 'its area CRM\\Sales isn\'t under CRM\\Billing' }], 'a deleted one comes back null and isn\'t outside');
+  const batch = calls.find((c) => c.path.startsWith('/_apis/wit/workitemsbatch'))!;
+  assert.deepEqual(batch.body, { ids: [7, 99, 8], fields: ['System.Id', 'System.TeamProject', 'System.AreaPath'], errorPolicy: 'omit' }, 'one call, from the organization, leaving out what it can\'t read');
+  assert.deepEqual(await area.outside(['AB-8'], { project: true }), [], 'held to the project only, the area doesn\'t count');
+});
+
+test('Azure lists a team\'s area paths and the ones under them, for picking a place', async () => {
+  const { azureAreas } = await import('../src/trackers/azure.ts');
+  const tree = { name: 'CRM', children: [{ name: 'Sales', children: [{ name: 'EMEA' }] }, { name: 'Billing', children: [{ name: 'Invoices' }, { name: 'Refunds' }] }] };
+  const { fetch: f } = fakeAzure([
+    ['GET /CRM/Billing%20Team/_apis/work/teamsettings/teamfieldvalues', { field: { referenceName: 'System.AreaPath' }, values: [{ value: 'CRM\\Billing', includeChildren: true }, { value: 'CRM\\Sales', includeChildren: false }] }],
+    ['GET /CRM/_apis/wit/classificationnodes/Areas', tree],
+  ]);
+  assert.deepEqual(await azureAreas('acme', 'CRM', 'Billing Team', 'x', f), ['CRM\\Billing', 'CRM\\Billing\\Invoices', 'CRM\\Billing\\Refunds', 'CRM\\Sales']);
 });
