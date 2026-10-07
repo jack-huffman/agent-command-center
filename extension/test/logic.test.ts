@@ -371,6 +371,44 @@ test('a task that waits for others\' files is told in words: what it waits for, 
   assert.deepEqual(say({ outcome: 'failed', reason: 'Claude Code doesn\'t trust the repo yet' }), [['Autopilot couldn\'t start GH-73: Claude Code doesn\'t trust the repo yet.', true, [['Dispatch anyway', 'acc.task.dispatchAnyway'], ['Show', 'acc.task.show']]]]);
 });
 
+test('the board asks acc to start held tasks when one may go, and backs off while acc keeps them waiting (D-???)', async () => {
+  const { HELD_ASK_MAX_MS, HELD_ASK_MS, heldAskDue, heldAsked, heldAskKey, heldDue } = await import('../src/logic.ts');
+  const held = { at: '2026-10-06T10:00:00.000Z', failed: null, byAutopilot: false };
+  const todo = (id: string, files: Record<string, unknown>, deps: string[] = []) => ({ id, state: 'todo', deps, pr: null, files: { known: true, shares: [], first: [], held, ...files } as never });
+  const rows = [
+    todo('T-2', {}),
+    todo('T-3', { shares: [{ task: 'T-1', files: ['a.ts'] }], first: ['T-4'] }),
+    todo('T-5', { held: { ...held, failed: 'No trust' } }),
+    todo('T-6', { capped: true }),
+    todo('T-7', {}, ['T-1']),
+    todo('T-8', { held: null }),
+    { id: 'T-1', state: 'running', deps: [], pr: null, files: null },
+  ];
+  // Only T-2 may go: T-3 still waits, T-5's start failed, T-6 waits for an agent, T-7 for T-1, T-8 isn't held.
+  assert.deepEqual(heldDue(rows), ['T-2']);
+  const key = heldAskKey(rows, ['T-2']);
+  let t = 0;
+  assert.ok(heldAskDue(undefined, key, t), 'never asked: ask now');
+  // acc keeps T-2 waiting (the board missed something): 60 seconds, then 2 minutes, then 4, up to 10.
+  let ask = heldAsked(undefined, key, t, ['T-2'], ['T-2']);
+  const delays = [];
+  for (let i = 0; i < 6; i++) {
+    delays.push(ask.delay);
+    assert.ok(!heldAskDue(ask, key, t + ask.delay - 1));
+    t += ask.delay;
+    assert.ok(heldAskDue(ask, key, t));
+    ask = heldAsked(ask, key, t, ['T-2'], ['T-2']);
+  }
+  assert.deepEqual(delays, [2 * HELD_ASK_MS, 4 * HELD_ASK_MS, 8 * HELD_ASK_MS, 16 * HELD_ASK_MS, HELD_ASK_MAX_MS, HELD_ASK_MAX_MS]);
+  // The board sees a change, as T-1's pull request merging: it asks again 30 seconds after its last ask.
+  const merged = heldAskKey(rows.map((r) => (r.id === 'T-1' ? { ...r, pr: { number: 1, url: '', state: 'merged' } } : r)), ['T-2']);
+  assert.ok(!heldAskDue(ask, merged, t + HELD_ASK_MS - 1));
+  assert.ok(heldAskDue(ask, merged, t + HELD_ASK_MS));
+  // acc started it, or it waits no more: back to 30 seconds.
+  assert.equal(heldAsked(ask, key, t, ['T-2'], []).delay, HELD_ASK_MS);
+  assert.equal(heldAsked(ask, merged, t, ['T-2'], ['T-2']).delay, 2 * HELD_ASK_MS, 'a new view starts the back-off over');
+});
+
 test('a builder that stopped is told once, with what it last said, and Resume; not as an agent waiting in its own prompt (D-067)', async () => {
   const { autopilotNotices, noticeActions, sessionFor, taskNotices } = await import('../src/logic.ts');
   const { autopilotStepLook } = await import('../src/model.ts');

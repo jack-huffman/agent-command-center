@@ -287,20 +287,24 @@ GitHub about each unfinished task whose issue wasn't listed:
    - **It shares none:** it goes on.
    - **It shares some, and another Ready task shares none:** it waits. acc
      records a hold on the task (who asked, and what it waits for), creates
-     nothing, and says "GH-73 waits for GH-70's files: …". It stays in the
-     Ready lane.
+     nothing, and says "GH-73 waits for GH-70's files: …, while GH-74 is ready
+     to start". It stays in the Ready lane.
    - **It shares some, and nothing else is ready:** it goes on, and its run
      records which files it shares with which task.
-   - **No analysis, or a rework:** it goes on. A task with no analysis says its
-     files aren't known.
+   - **No analysis, an analysis naming no files, or a rework:** it goes on,
+     and nothing in flight is looked at. A task to do says its files aren't
+     known, and why.
 
    `acc dispatch <id> --anyway` starts it now, and its move records the
-   overlap. `acc dispatch --held` starts each held task that may go now: free
-   ones first, oldest hold first, weighing the rest again after each start. It
-   claims each in the ledger first, so a task is never started twice. The
-   Command Center runs it on its poll, and autopilot's `start` step does the
-   same. A start that fails is written on the task, which needs you, and isn't
-   tried again until a person acts. `--stop-waiting`, or any move, ends a hold.
+   overlap, with `anyway` when it overrode a wait. `acc dispatch --held` starts
+   each held task that may go now: free ones first, oldest hold first,
+   weighing the rest again after each start. It claims each in the ledger
+   first, so a task is never started twice. The Command Center runs it on its
+   poll when its board says a held task may go, asking less often, up to every
+   10 minutes, while acc keeps saying the same tasks wait. Autopilot's `start`
+   step does the same. A start that fails is written on the task, which needs
+   you, and isn't tried again until a person acts. `--stop-waiting`, or any
+   move, ends a hold.
 2. **Creates the worktree.** It fetches, then runs
    `git worktree add <root>/<id> -b task/<id>-<slug> origin/<branch>`, where `<branch>` is the environment's branch. `<root>` is `.claude/worktrees/` inside the repo (D-022). On a
    rework, it reuses the existing worktree.

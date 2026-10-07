@@ -867,6 +867,44 @@ export function startedNotice(what: string, s: { waitedFor?: string[]; shares?: 
   return s.waitedFor?.length ? `${what}: ${taskNames(s.waitedFor)}'s files are free.` : `${what}.`;
 }
 
+/** The held tasks the board says may start now (D-???): their wait is over, under the cap, with nothing they depend on unfinished. */
+export const heldDue = (rows: Pick<TaskRow, 'id' | 'state' | 'files' | 'deps'>[]): string[] =>
+  rows.filter((r) => r.state === 'todo' && !!r.files?.held && !r.files.held.failed && !r.files.capped && !r.deps.length && !waitsForFiles(r)).map((r) => r.id);
+
+/** How soon the board asks acc to start a project's held tasks again, and how rarely at most, while acc keeps them waiting. */
+export const HELD_ASK_MS = 30_000;
+export const HELD_ASK_MAX_MS = 10 * 60_000;
+
+/** The board's last ask of `acc dispatch --held` in a project: what it saw, when, and how long until it asks again. */
+export interface HeldAsk {
+  key: string;
+  at: number;
+  delay: number;
+}
+
+/**
+ * What the board saw when it asked: the held tasks it said were due, and each task's state and pull
+ * request. When any of that changes, as when acc sync marks a pull request merged, it asks again soon.
+ */
+export const heldAskKey = (rows: Pick<TaskRow, 'id' | 'state' | 'pr'>[], due: string[]): string =>
+  JSON.stringify([due, rows.map((r) => [r.id, r.state, r.pr?.state ?? null])]);
+
+/** Whether the board may ask again: 30 seconds after a change, or once the wait since its last ask is over. */
+export const heldAskDue = (last: HeldAsk | undefined, key: string, now: number): boolean =>
+  !last || now - last.at >= (last.key === key ? last.delay : HELD_ASK_MS);
+
+/**
+ * After an ask (D-???). The board and acc can disagree: the board doesn't see a branch merged on origin
+ * or a protected environment, and each ask fetches. So while acc keeps returning every task the board
+ * said was due under waiting, and the board saw nothing change, it waits twice as long each time, up to
+ * 10 minutes. Anything else asks again in 30 seconds.
+ */
+export function heldAsked(last: HeldAsk | undefined, key: string, now: number, due: string[], waiting: string[]): HeldAsk {
+  const same = due.length > 0 && due.every((id) => waiting.includes(id));
+  const delay = same ? Math.min((last?.key === key ? last.delay : HELD_ASK_MS) * 2, HELD_ASK_MAX_MS) : HELD_ASK_MS;
+  return { key, at: now, delay };
+}
+
 /** What a step autopilot couldn't take is called, as acc says it: "couldn't land GH-31", "couldn't send GH-31 back for its failing checks". */
 const AUTOPILOT_VERB: Record<AutopilotStepName, [string, string]> = {
   review: ['review', ''], land: ['land', ''], dispatch: ['re-dispatch', ''], refresh: ['update', ' from its base'], resume: ['resume', ''], checks: ['send', ' back for its failing checks'], start: ['start', ''],

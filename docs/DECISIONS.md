@@ -2576,10 +2576,11 @@ a person. Each task's analysis already lists the files it plans to change
   a new `dispatch.shared` list in `.acc/config.json`, empty by default so the
   core names no project's files (D-003). This repo lists `docs/DESIGN.md`,
   `README.md` and `CHANGELOG.md`, and `docs/DECISIONS.md` is append-only.
-- **A task with no analysis** never waits, and never counts as one sharing
-  none. Its Ready card says its files aren't known, in a neutral tone. Its
-  branch's files still count when others are weighed against it. A rework's
-  re-dispatch never waits: its branch already holds its change.
+- **A task with no analysis**, or one that names no files, never waits, and
+  never counts as one sharing none. Nothing in flight is looked at for it. Its
+  Ready card says its files aren't known, in a neutral tone, and which of the
+  two it is. Its branch's files still count when others are weighed against
+  it. A rework's re-dispatch never waits: its branch already holds its change.
 - **A wait is a hold, not a refusal.** `acc dispatch <id>` records `held` on
   the task (who asked, when, what it waits for and what goes first), creates
   nothing, exits 0, and says "GH-73 waits for GH-70's files: …". `--json` gives
@@ -2591,11 +2592,14 @@ a person. Each task's analysis already lists the files it plans to change
   alternatives have gone, weighing the rest again after each start, under
   `agents.max`. Each is claimed in the ledger before its builder launches, so
   two windows and autopilot never start one twice; a claim older than 10
-  minutes is stale. The Command Center runs it, at most every 30 seconds a
-  project, when its board says a held task may go, at any autonomy: the
-  person's Dispatch click was the consent. A start that fails is written on the
-  hold, the task needs you (orange, the bell, the reason), and nothing tries
-  again until a person acts.
+  minutes is stale. The Command Center runs it when its board says a held task
+  may go, at any autonomy: the person's Dispatch click was the consent. It asks
+  at most every 30 seconds a project. While acc keeps saying the same tasks wait
+  and the board sees nothing change, it asks half as often each time, up to
+  every 10 minutes, since each ask fetches and the board can't see everything
+  acc checks (a branch merged on origin, a protected environment). A start
+  that fails is written on the hold, the task needs you (orange, the bell, the
+  reason), and nothing tries again until a person acts.
 - **Autopilot's `start` step.** This amends D-055's "it never starts a task
   that's to do": autopilot now starts a held task, as the Command Center does,
   and still never starts one nobody dispatched (autonomy dispatch stays
@@ -2606,11 +2610,12 @@ a person. Each task's analysis already lists the files it plans to change
   Command Center, Dispatch on a task that would wait first asks, naming each
   task and its files in full: "Wait for GH-70" or "Dispatch anyway". A held
   card's one next step is Dispatch anyway, behind a confirmation naming the
-  overlap. `acc dispatch <id> --anyway` records `anyway` and the shared files
-  on the move.
-- **In words, with an icon.** A held card says "Waits for GH-70's files: …"
-  with a clock, in blue: three file names in all, short, at least one a task;
-  the task page names every file in full, and its State says "Waits for
+  overlap. A dispatch that shares files records them on its move, and
+  `acc dispatch <id> --anyway` adds `anyway` only when it overrode a wait.
+- **In words, with an icon.** A held card says "Waits for GH-70's files: …,
+  while GH-74 is ready to start" with a clock, in blue: three file names in
+  all, short, at least one a task, and two of the tasks that go first; the
+  task page names every file and task in full, and its State says "Waits for
   GH-70's files". A task sharing files, to do or started beside another, says
   "Shares files with GH-70: …", neutral. The Command Center works this out
   from git on the worktree poll, only while a task is Ready or held, one call

@@ -10,7 +10,7 @@ import { resumeCommand } from '../../packages/core/src/resume.ts';
 import { recordRuntime } from '../../packages/core/src/runtime.ts';
 import { AgentPages } from './activity.ts';
 import { AutopilotHost } from './autopilot.ts';
-import { type AgentSession, analysisAnswerArgs, CLAUDE_EXTENSION, claudeSessionUri, COMMANDS, followsPullRequests, isSessionId, isWebviewMenuContext, shq, startedNotice, waitsForFiles, WALKTHROUGHS } from './logic.ts';
+import { type AgentSession, analysisAnswerArgs, CLAUDE_EXTENSION, claudeSessionUri, COMMANDS, followsPullRequests, type HeldAsk, heldAskDue, heldAsked, heldAskKey, heldDue, isSessionId, isWebviewMenuContext, shq, startedNotice, WALKTHROUGHS } from './logic.ts';
 import { type NavItem, needsYouCount, type Ref, sessionKey, VIEW_KINDS, type ViewKind } from './model.ts';
 import { Notices } from './notices.ts';
 import { Panels } from './panels.ts';
@@ -500,19 +500,26 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // A task a person dispatched that waits for others' files starts on its own once it may (D-???), at any
   // autonomy: the Dispatch click was the consent. acc decides and claims it, so autopilot or another window
-  // starting it too is harmless. Asked at most every 30 seconds a project, and only when the board says so.
+  // starting it too is harmless. Asked only when the board says one may go, at most every 30 seconds a
+  // project, and less often, up to every 10 minutes, while acc keeps saying the same tasks wait.
   const startingHeld = new Set<string>();
-  const heldAsked = new Map<string, number>();
+  const heldAsks = new Map<string, HeldAsk>();
   const startHeld = async () => {
     for (const p of hub.projects) {
-      const due = hub.taskRows(p.root).some((r) => r.state === 'todo' && !!r.files?.held && !r.files.held.failed && !r.files.capped && !r.deps.length && !waitsForFiles(r));
-      if (!due || startingHeld.has(p.root) || Date.now() - (heldAsked.get(p.root) ?? 0) < 30_000) continue;
+      const rows = hub.taskRows(p.root);
+      const due = heldDue(rows);
+      if (!due.length || startingHeld.has(p.root)) continue;
+      const key = heldAskKey(rows, due);
+      const last = heldAsks.get(p.root);
+      if (!heldAskDue(last, key, Date.now())) continue;
       startingHeld.add(p.root);
-      heldAsked.set(p.root, Date.now());
+      // acc couldn't say: as if it kept them all waiting.
+      heldAsks.set(p.root, heldAsked(last, key, Date.now(), due, due));
       try {
         const r = await accRunner(accScript)(['dispatch', '--held', '--json'], p.root);
         if (r.code !== 0) { setup.log.warn(`acc dispatch --held in ${p.name}: ${accSays(r)}`); continue; }
-        const out = JSON.parse(r.stdout) as { started: { task: string; waitedFor: string[]; shares: { task: string; files: string[] }[] }[]; failed: { task: string; reason: string }[] };
+        const out = JSON.parse(r.stdout) as { started: { task: string; waitedFor: string[]; shares: { task: string; files: string[] }[] }[]; failed: { task: string; reason: string }[]; waiting: { task: string }[] };
+        heldAsks.set(p.root, heldAsked(last, key, Date.now(), due, out.waiting.map((w) => w.task)));
         for (const s of out.started) {
           void vscode.window.showInformationMessage(startedNotice(`${s.task} started`, s), 'Watch').then((pick) => pick && resolve('acc.task.watch', { project: p.root, task: s.task }));
         }
