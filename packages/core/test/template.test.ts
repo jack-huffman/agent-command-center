@@ -4,11 +4,11 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { loadConfig, parseConfig, writeConfig } from '../src/config.ts';
 import type { RunOptions, RunResult } from '../src/exec.ts';
-import { planInit } from '../src/init.ts';
+import { planInit, templateAccount } from '../src/init.ts';
 import { makeContext } from '../src/onboarding/helpers.ts';
 import { runSteps } from '../src/onboarding/steps.ts';
 import {
-  describeTemplate, fetchTemplateText, loadTemplate, parseTemplate, readTemplate, recordedSource, sourceProblem, type Template, templateDifferences, templateDigest,
+  describeTemplate, fetchTemplateText, loadTemplate, parseSource, parseTemplate, readTemplate, recordedSource, sourceProblem, type Template, templateDifferences, templateDigest,
 } from '../src/template.ts';
 import { bad, fakeRunner, gitIn, makeRepo, ok, sf, tempDir } from './support.ts';
 
@@ -168,6 +168,39 @@ test('a GitHub file URL is read through gh api as the repo\'s account, with GH_T
   assert.ok(!calls.some((c) => c.startsWith('gh auth switch')), 'never gh auth switch (D-007)');
 });
 
+test('a raw.githubusercontent.com URL from GitHub\'s Raw button names its branch or tag without refs/heads/ or refs/tags/', () => {
+  const at = (ref: string, path: string) => ({ kind: 'github', owner: 'acme', repo: 'acc-templates', ref, path });
+  assert.deepEqual(parseSource('https://raw.githubusercontent.com/acme/acc-templates/refs/heads/main/teams/salesforce.json'), at('main', 'teams/salesforce.json'));
+  assert.deepEqual(parseSource('https://raw.githubusercontent.com/acme/acc-templates/refs/tags/v2/salesforce.json'), at('v2', 'salesforce.json'));
+  assert.deepEqual(parseSource('https://raw.githubusercontent.com/acme/acc-templates/main/salesforce.json'), at('main', 'salesforce.json'));
+  assert.deepEqual(parseSource('https://raw.githubusercontent.com/acme/acc-templates/refs-old/salesforce.json'), at('refs-old', 'salesforce.json'), 'only a whole refs/heads/ or refs/tags/ is taken off');
+
+  const calls: string[] = [];
+  const text = JSON.stringify(GENERIC_TEMPLATE);
+  const run = fakeRunner({ 'gh api repos/acme/acc-templates/contents/teams/salesforce.json?ref=main': ok(text) }, calls);
+  assert.equal(fetchTemplateText(run, 'https://raw.githubusercontent.com/acme/acc-templates/refs/heads/main/teams/salesforce.json'), text);
+  assert.deepEqual(calls, ['gh api repos/acme/acc-templates/contents/teams/salesforce.json?ref=main -H Accept: application/vnd.github.raw']);
+});
+
+test('a fetch\'s calls share one deadline, so B0.template\'s 20 seconds cover both of them', () => {
+  // Waits without giving the event loop a turn, as a slow gh would.
+  const sleep = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  const waits: number[] = [];
+  const text = JSON.stringify(GENERIC_TEMPLATE);
+  const source = 'https://github.com/acme/acc-templates/blob/main/generic.json';
+  const api = 'gh api repos/acme/acc-templates/contents/generic.json?ref=main';
+  const slowToken = (ms: number) => (o?: RunOptions) => { waits.push(o!.timeoutMs!); sleep(ms); return ok('tok-acme'); };
+  const run = fakeRunner({ 'gh auth token -u acme-dev': slowToken(80), [api]: (o?: RunOptions) => { waits.push(o!.timeoutMs!); return ok(text); } });
+  assert.equal(fetchTemplateText(run, source, { account: 'acme-dev', timeoutMs: 1000 }), text);
+  assert.ok(waits[0]! <= 1000 && waits[0]! > 900, `the first call may take it all: ${waits[0]}`);
+  assert.ok(waits[1]! <= 1000 - 80, `the second gets only what's left: ${waits[1]}`);
+
+  const calls: string[] = [];
+  const spent = fakeRunner({ 'gh auth token -u acme-dev': slowToken(120), [api]: ok(text) }, calls);
+  assert.throws(() => fetchTemplateText(spent, source, { account: 'acme-dev', timeoutMs: 100 }), /Couldn't read .*generic\.json within 1 second, so acc stopped/);
+  assert.ok(!calls.some((c) => c.startsWith('gh api')), 'nothing starts once the time is up');
+});
+
 test('a GitHub file that isn\'t there names the source and the account', () => {
   const run = fakeRunner({
     'gh auth token -u acme-dev': ok('tok-acme'),
@@ -196,6 +229,7 @@ test('<git-url>#<path> reads one file from a git repo\'s default branch, and rem
   assert.equal(env?.GIT_TERMINAL_PROMPT, '0', 'git never waits for a password');
   const clone = calls.find((c) => c.startsWith('git clone'))!;
   assert.ok(clone.includes('--no-checkout'));
+  assert.ok(clone.includes(` -- ${bare} `), 'git reads the URL as a URL, never as an option');
   const dir = dirname(clone.split(' ').at(-1)!);
   assert.ok(!existsSync(dir), 'the temporary folder is gone');
   assert.throws(() => readTemplate(spy, `${bare}#templates/missing.json`), /has no templates\/missing\.json/);
@@ -214,6 +248,19 @@ test('a sign-in in a URL, plain http, any other web address and a big file are r
   const big = join(tempDir(), 'big.json');
   writeFileSync(big, JSON.stringify({ ...GENERIC_TEMPLATE, description: 'x'.repeat(100 * 1024) }));
   assert.throws(() => fetchTemplateText(run, big), /over 64 KB/);
+});
+
+test('a source that starts with "-" is refused before git sees it, since a committed source reaches git on every Setup refresh', () => {
+  const calls: string[] = [];
+  const run = fakeRunner({}, calls);
+  for (const s of ['--upload-pack=touch /tmp/acc-owned#x.json', '-uevil#x.json', '  --config=core.sshCommand=x#t.json', '-template.json']) {
+    assert.match(sourceProblem(s)!, /can't start with "-", which git would read as an option/, s);
+    assert.throws(() => parseSource(s), /can't start with "-"/, s);
+    assert.throws(() => readTemplate(run, s), /can't start with "-"/, s);
+  }
+  assert.deepEqual(calls, []);
+  const dir = tempDir();
+  assert.deepEqual(parseSource('./-template.json', dir), { kind: 'file', path: join(dir, '-template.json') }, 'a file named so is given as ./-…');
 });
 
 // ---------------------------------------------------------------- acc init
@@ -307,6 +354,28 @@ test('acc init --from reads the template as the account the repo pushes as', () 
   assert.throws(() => planInit(run, { root: repo, from: source, githubAccount: 'nobody' }), /gh isn't logged in as nobody/);
 });
 
+test('acc init --from and acc template show read a GitHub template as one account: --github-account, else a GitHub origin\'s, else gh\'s active one', () => {
+  const { repo, run } = genericRepo();
+  assert.equal(templateAccount(run, repo), 'acme-dev', 'the account a GitHub origin pushes as');
+  assert.equal(templateAccount(run, repo, 'acme-ops'), 'acme-ops', '--github-account wins');
+  assert.equal(templateAccount(run, null), null, 'outside a repo: gh\'s active account');
+  assert.equal(templateAccount(run, makeRepo()), null, 'no origin: gh\'s active account');
+
+  // The same credential, but an origin that isn't on GitHub: gh's active account, though --github-repo names one.
+  gitIn(repo, 'remote', 'set-url', 'origin', 'https://git.example.com/acme/app.git');
+  assert.equal(templateAccount(run, repo), null);
+  const calls: string[] = [];
+  const text = JSON.stringify(GENERIC_TEMPLATE);
+  const active = fakeRunner({
+    'gh api user --jq .login': (o?: RunOptions) => ok(o?.env?.GH_TOKEN === 'tok-acme' ? 'acme-dev' : 'someone-else'),
+    'gh api repos/acme/acc-templates/contents/generic.json?ref=main': (o?: RunOptions) => (o?.env?.GH_TOKEN === 'tok-acme' ? bad('read as the pushing account') : ok(text)),
+  }, calls);
+  const plan = planInit(active, { root: repo, from: 'https://github.com/acme/acc-templates/blob/main/generic.json', githubRepo: 'acme/app' });
+  assert.equal(plan.config.template?.name, 'ACME tools');
+  assert.deepEqual(plan.config.github, { repo: 'acme/app', account: 'acme-dev' }, 'the config still records the account the repo pushes as');
+  assert.ok(!calls.some((c) => c.startsWith('gh auth token')), calls.join('\n'));
+});
+
 const SANDBOX_INIT = 'sf data query --use-tooling-api -q SELECT SandboxName, LicenseType FROM SandboxInfo ORDER BY SandboxName -o ACME Production';
 const SANDBOX_CHECK = 'sf data query --use-tooling-api -q SELECT SandboxName, LicenseType FROM SandboxInfo -o ACME Production';
 
@@ -367,6 +436,35 @@ test('a Salesforce template whose default isn\'t a sandbox keeps discovery\'s de
   });
   assert.equal(plan.config.environments.find((e) => e.default)!.branch, 'dev');
   assert.match(plan.notes.join('\n'), /The template's default, Sandbox, isn't one of Production's sandboxes, so Dev stays the default/);
+});
+
+test('a template that sets no profile leaves out the types it doesn\'t give, so --profile salesforce hears no false note about them', () => {
+  const template = {
+    schema: 1, name: 'ACME any',
+    environments: [{ name: 'Production' }, { name: 'UAT', promotesTo: ['production'] }, { name: 'Int', type: 'full', promotesTo: ['uat'] }, { name: 'Dev', default: true, promotesTo: ['int'] }],
+  };
+  const t = parsed(template);
+  assert.equal(t.profile, null);
+  assert.deepEqual(t.environments!.map((e) => [e.branch, e.type, e.protected]), [['production', null, false], ['uat', null, false], ['int', 'full', false], ['dev', null, false]]);
+  assert.ok(describeTemplate(t).includes('Environments: Production; UAT → production; Int (full) → uat; Dev, the default → int'), describeTemplate(t).join('\n'));
+
+  const repo = makeRepo();
+  const run = fakeRunner(acmeOrgs());
+  const plan = planInit(run, { root: repo, profile: 'salesforce', productionOrg: 'ACME Production', template: loaded(template) });
+  const notes = plan.notes.join('\n');
+  assert.deepEqual(notes.match(/Production's sandbox list says/g), ['Production\'s sandbox list says'], notes);
+  assert.match(notes, /The template says Int is full, but Production's sandbox list says partial, and that wins/, 'only a type the template gave is weighed');
+  assert.deepEqual(plan.config.environments.map((e) => [e.branch, e.type, e.default, e.protected, e.promotesTo]), [
+    ['production', 'production', false, true, []], ['dev', 'developer', true, false, ['int']], ['int', 'partial', false, false, ['uat']], ['uat', 'full', false, false, ['production']],
+  ]);
+  writeConfig(join(repo, '.acc', 'config.json'), plan.config);
+  const b1 = runSteps(makeContext(repo, run, { ...process.env, GIT_CONFIG_NOSYSTEM: '1' }), 'project', ['B1.orgs'])[0]!.result;
+  assert.equal(b1.status, 'pass', b1.detail);
+
+  // In a generic project the same environments are type none, as the template gives them.
+  const { repo: g, run: gRun } = genericRepo();
+  const generic = planInit(gRun, { root: g, template: loaded(template) });
+  assert.deepEqual(generic.config.environments.map((e) => [e.branch, e.type]), [['production', 'none'], ['uat', 'none'], ['int', 'full'], ['dev', 'none']]);
 });
 
 test('a bad template is refused with every problem, before anything is discovered', () => {

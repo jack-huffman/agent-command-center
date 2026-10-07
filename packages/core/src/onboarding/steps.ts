@@ -317,7 +317,7 @@ export const STEPS: Step[] = [
       if (local && !existsSync(local)) return skip(`${rec.name} is a file, ${rec.source}, that isn't on this machine.`);
       let read: ReadTemplate;
       try {
-        // A short wait: it runs on every Setup refresh.
+        // A short wait, for its two calls together: it runs on every Setup refresh.
         read = readTemplate(ctx.run, rec.source, { account: config.github?.account ?? null, env: ctx.env, base: root, home, timeoutMs: 20_000 });
       } catch (e) {
         return unknown(`Couldn't read ${rec.name} from ${rec.source}: ${(e as Error).message}`);

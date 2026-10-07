@@ -18,7 +18,7 @@ export interface InitOptions {
   commitEmail?: string;
   jiraSite?: string;
   jiraProject?: string;
-  /** A team template's source (GH-80), fetched as --github-account, else the account the repo pushes as. */
+  /** A team template's source (GH-80), fetched as templateAccount says. */
   from?: string;
   /** A template already read, in place of `from`. */
   template?: LoadedTemplate;
@@ -44,7 +44,10 @@ export interface InitPlan {
   fromTemplate: string[];
   /** The keys discovery found: the project, its GitHub repo and account, the commit identity, the environments. */
   discovered: string[];
-  /** Gate commands the template adds. They run on this machine, so they're shown before anything is written. */
+  /**
+   * Gate commands the template adds, which run on this machine. acc init lists them in its output, after it
+   * writes; acc template show, --dry-run and Setup's confirmation list them before.
+   */
   templateCommands: Record<string, string>;
 }
 
@@ -120,6 +123,18 @@ export function pushingAccount(run: Runner, root: string): string | undefined {
   return who.code === 0 ? who.stdout.trim() : undefined;
 }
 
+/**
+ * The GitHub account gh reads a team template as (GH-80): --github-account, else the one this repo pushes as
+ * when its origin is on GitHub, else gh's active account (null). acc template show and acc init --from both
+ * use it, so Setup's preview and the acc init after it read as the same account. `pushing` is the account
+ * this repo pushes as, when the caller has already found it.
+ */
+export function templateAccount(run: Runner, root: string | null, explicit?: string, pushing: () => string | undefined = () => (root ? pushingAccount(run, root) : undefined)): string | null {
+  if (explicit) return explicit;
+  if (!root || !originRepo(run, root)) return null;
+  return pushing() ?? null;
+}
+
 export function planInit(run: Runner, opts: InitOptions): InitPlan {
   const notes: string[] = [];
   const root = opts.root;
@@ -129,8 +144,10 @@ export function planInit(run: Runner, opts: InitOptions): InitPlan {
   const account = opts.githubAccount ?? (repo ? pushingAccount(run, root) : undefined);
   if (repo && !account) notes.push('Couldn\'t tell which GitHub account this repo pushes as. Pass --github-account.');
 
-  // Flags, then the team template, then discovery, then acc's defaults (D-???).
-  const loaded = opts.template ?? (opts.from ? loadTemplate(run, opts.from, { account: account ?? null, env: opts.env, base: opts.cwd ?? root, home: opts.home, root }) : null);
+  // Flags, then the team template, then discovery, then acc's defaults (D-???). The template is read by the
+  // rule acc template show uses: a --github-repo with no GitHub origin doesn't pick the account.
+  const readAs = () => templateAccount(run, root, opts.githubAccount, () => account);
+  const loaded = opts.template ?? (opts.from ? loadTemplate(run, opts.from, { account: readAs(), env: opts.env, base: opts.cwd ?? root, home: opts.home, root }) : null);
   const t = loaded?.template ?? null;
   if (opts.profile && t?.profile && opts.profile !== t.profile) {
     throw new AccError('init', `--profile ${opts.profile} disagrees with the template's profile, ${t.profile}. Leave --profile out, or use another template.`);

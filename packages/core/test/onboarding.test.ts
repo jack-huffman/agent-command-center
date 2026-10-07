@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import type { RunResult } from '../src/exec.ts';
@@ -481,8 +481,8 @@ test('B14 asks for a ticket source until the repo names one, then says where tic
 });
 
 /** B0.template's result in a repo, with gh and sf answered from fixtures (GH-80). */
-function templateCheck(repo: string, fixtures: Record<string, RunResult | ((o?: { env?: NodeJS.ProcessEnv }) => RunResult)> = {}) {
-  const ctx = makeContext(repo, fakeRunner(fixtures), testEnv());
+function templateCheck(repo: string, fixtures: Record<string, RunResult | ((o?: { env?: NodeJS.ProcessEnv }) => RunResult)> = {}, calls: string[] = []) {
+  const ctx = makeContext(repo, fakeRunner(fixtures, calls), testEnv());
   return runSteps(ctx, 'project', ['B0.template'])[0]!.result;
 }
 
@@ -530,4 +530,15 @@ test('B0.template reads a GitHub template as the repo\'s account, and one it can
   assert.equal(down.status, 'unknown');
   assert.match(down.detail, /Couldn't read ACME tools from https:\/\/github\.com\/acme\/acc-templates\/blob\/main\/tools\.json: .*502/);
   assert.equal(templateCheck(repo, {}).status, 'unknown', 'gh not logged in as the account');
+});
+
+test('B0.template never hands git a committed source that starts with "-" (GH-80)', () => {
+  const source = '--upload-pack=touch acc-owned#tools.json';
+  const repo = makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, template: { name: 'ACME tools', source, digest: `sha256:${'0'.repeat(64)}` } }) });
+  const calls: string[] = [];
+  const r = templateCheck(repo, {}, calls);
+  assert.equal(r.status, 'unknown');
+  assert.match(r.detail, /can't start with "-", which git would read as an option/);
+  assert.ok(!calls.some((c) => c.startsWith('git clone')), calls.join('\n'));
+  assert.ok(!existsSync(join(repo, 'acc-owned')));
 });

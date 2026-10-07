@@ -421,11 +421,12 @@ export function parseConfig(raw: unknown): ParseResult {
 /**
  * The environments, under D-015 and D-018's rules: branches, one default, promotesTo targets and no loops.
  * `typesFromDiscovery` is a team template's (GH-80): a Salesforce environment may leave its type to
- * Production's sandbox list, and comes back with type null.
+ * Production's sandbox list, and comes back with type null. So does one in a template that sets no profile
+ * (profile null), whose type the project's profile decides at acc init.
  */
-export function parseEnvironments(raw: unknown, profile: Profile, errors: string[], opts: { typesFromDiscovery: true }): (Omit<Environment, 'type'> & { type: EnvType | null })[];
+export function parseEnvironments(raw: unknown, profile: Profile | null, errors: string[], opts: { typesFromDiscovery: true }): (Omit<Environment, 'type'> & { type: EnvType | null })[];
 export function parseEnvironments(raw: unknown, profile: Profile, errors: string[], opts?: { typesFromDiscovery?: false }): Environment[];
-export function parseEnvironments(raw: unknown, profile: Profile, errors: string[], opts: { typesFromDiscovery?: boolean } = {}): (Omit<Environment, 'type'> & { type: EnvType | null })[] {
+export function parseEnvironments(raw: unknown, profile: Profile | null, errors: string[], opts: { typesFromDiscovery?: boolean } = {}): (Omit<Environment, 'type'> & { type: EnvType | null })[] {
   if (!Array.isArray(raw) || raw.length === 0) {
     errors.push('"environments" must list at least one environment.');
     return [];
@@ -438,16 +439,16 @@ export function parseEnvironments(raw: unknown, profile: Profile, errors: string
     if (e.branch !== undefined && e.branch !== branch) {
       errors.push(`${at}: the branch for "${e.name}" must be "${branch}", the environment name in lower case (D-015).`);
     }
-    const left = opts.typesFromDiscovery && profile === 'salesforce' && e.type === undefined;
-    const type = (e.type ?? (profile === 'salesforce' ? undefined : 'none')) as EnvType | undefined;
+    const left = opts.typesFromDiscovery && profile !== 'generic' && e.type === undefined;
+    const type = (e.type ?? (profile === 'generic' ? 'none' : undefined)) as EnvType | undefined;
     if (!left && (type === undefined || !ENV_TYPES.includes(type))) {
       errors.push(`${at}: "type" must be one of ${ENV_TYPES.join(', ')}.`);
       return;
     }
     if (profile === 'salesforce' && type === 'none') errors.push(`${at}: a Salesforce environment needs its org type.`);
     if (e.org !== undefined && e.org !== null && !isStr(e.org)) errors.push(`${at}: "org" must be an org alias.`);
-    // An environment whose type is left to discovery is Production by its name.
-    const isProd = type === 'production' || (left && branch === 'production');
+    // A Salesforce environment whose type is left to discovery is Production by its name.
+    const isProd = type === 'production' || (left && profile === 'salesforce' && branch === 'production');
     if (isProd && e.protected === false) errors.push(`${at}: Production is always protected.`);
     if (e.promotesTo !== undefined && !strList(e.promotesTo)) errors.push(`${at}: "promotesTo" must be a list of branches.`);
     envs.push({

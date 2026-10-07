@@ -13,7 +13,7 @@ import {
   builderStopped, claudeProjectsDir, clipSaid, lastSaid, listSessions, resume, resuming,
   claimUpdate, closesIssues, closeWords, discardUpdate, draftUpdate, EVENT_WORDS, GH_TIMEOUT_MS, ghToken, githubIssue, isOpenUpdate, listUpdates, markPosted, readUpdate, releaseUpdate, settleCloses, stalePosting, type Update, UPDATE_TEXT_MAX, updateText,
   heavySlots, machineFile, setHeavySlots,
-  describeTemplate, parseSource, pushingAccount, readTemplate,
+  describeTemplate, parseSource, readTemplate, templateAccount,
 } from '../../core/src/index.ts';
 import { issueRepo } from '../../core/src/trackers/github.ts';
 import { type Outside, TRACKER_KINDS, type TrackerKind, trackerName } from '../../core/src/trackers/types.ts';
@@ -265,19 +265,22 @@ function cmdInit(o: Opts): number {
 }
 
 /**
- * What a team template sets, before anything is written (GH-80). The account that reads a GitHub one is
- * --github-account, else the one this repo pushes as, else gh's active one. Exits 1 listing its problems.
+ * What a team template sets, before anything is written (GH-80). A GitHub one is read as acc init --from
+ * reads it (templateAccount): --github-account, else the account a GitHub origin pushes as, else gh's
+ * active one. Exits 1 listing its problems.
  */
 function cmdTemplate(o: Opts, sub: string | undefined, source: string | undefined): number {
   if (sub !== 'show' || !source) throw new AccError('usage', 'acc template show <path | GitHub file URL | git-url#path> [--json]');
   // Only gh needs an account: a path or a git URL never reads the credential.
-  let account = (o['github-account'] as string | undefined) ?? null;
-  if (!account && parseSource(source).kind === 'github') {
+  let account: string | null = null;
+  if (parseSource(source).kind === 'github') {
+    let root: string | null = null;
     try {
-      account = pushingAccount(run, repoPaths(process.cwd(), run).root) ?? null;
+      root = repoPaths(process.cwd(), run).root;
     } catch {
-      account = null;
+      root = null;
     }
+    account = templateAccount(run, root, o['github-account'] as string | undefined);
   }
   const r = readTemplate(run, source, { account, base: process.cwd() });
   const t = r.template;

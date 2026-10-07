@@ -155,7 +155,8 @@ export function parseTemplate(raw: unknown): TemplateParse {
   let environments: TemplateEnvironment[] | null = null;
   if (given(raw.environments)) {
     if (Array.isArray(raw.environments)) raw.environments.forEach((e, i) => { if (isObj(e)) checkKeys(e, `environments[${i}]`, ALLOWED.environment, PROJECT_ONLY.environment, errors); });
-    environments = parseEnvironments(raw.environments, p, errors, { typesFromDiscovery: true }).map(({ org: _org, ...e }) => e);
+    // With no profile, a type left out stays null: the project's profile decides it at acc init.
+    environments = parseEnvironments(raw.environments, profile, errors, { typesFromDiscovery: true }).map(({ org: _org, ...e }) => e);
   }
 
   // Gates and agents are checked by the config's own rules, through a config made to hold them.
@@ -266,11 +267,13 @@ export type TemplateSource =
 
 /**
  * What's wrong with a source before anything is fetched: a sign-in in its URL, which would be written into the
- * project's config, or plain http. Null when it's fine to try.
+ * project's config, plain http, or a leading -, which git would take as an option. A committed config's source
+ * reaches git on every Setup refresh. Null when it's fine to try.
  */
 export function sourceProblem(source: string): string | null {
   const s = source.trim();
   if (!s) return 'Give a path, a GitHub file URL, or <git-url>#<path>.';
+  if (s.startsWith('-')) return 'A template\'s source can\'t start with "-", which git would read as an option. For a file, start it with ./';
   if (/^http:\/\//i.test(s)) return 'Use https://: acc doesn\'t fetch a template over plain http.';
   const userinfo = /^[a-z][a-z0-9+.-]*:\/\/([^/@#?]*)@/i.exec(s);
   if (userinfo && (/^https:/i.test(s) || userinfo[1]!.includes(':'))) return 'Take the sign-in out of the URL: gh and git sign in for you, and the source is written into the project\'s config.';
@@ -278,7 +281,8 @@ export function sourceProblem(source: string): string | null {
 }
 
 const GITHUB_BLOB = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(?:blob|raw)\/([^/?#]+)\/([^?#]+)(?:[?#].*)?$/;
-const GITHUB_RAW = /^https:\/\/raw\.githubusercontent\.com\/([\w.-]+)\/([\w.-]+)\/([^/?#]+)\/([^?#]+)(?:[?#].*)?$/;
+// GitHub's Raw button links as …/<owner>/<repo>/refs/heads/<branch>/<path>, so a leading refs/heads/ or refs/tags/ isn't part of the ref.
+const GITHUB_RAW = /^https:\/\/raw\.githubusercontent\.com\/([\w.-]+)\/([\w.-]+)\/(?:refs\/(?:heads|tags)\/)?([^/?#]+)\/([^?#]+)(?:[?#].*)?$/;
 
 /** Where a template is: a GitHub file, a file in a git repo (<git-url>#<path>), or a path, with ~ for the home folder. */
 export function parseSource(source: string, base: string = process.cwd(), home: string = homedir()): TemplateSource {
@@ -324,16 +328,27 @@ export interface FetchOptions {
   /** Where a relative path starts. */
   base?: string;
   home?: string;
+  /** How long the whole fetch may take, every call it makes together. */
   timeoutMs?: number;
 }
 
 const firstLine = (s: string) => s.trim().split('\n')[0] ?? '';
 const tooBig = (source: string) => new AccError('bad-template', `${source} is over ${TEMPLATE_MAX_BYTES / 1024} KB, too big for a team template.`);
 
-/** The template's text, fetched with gh or git, or read from the path. Never `gh auth switch` (D-007). */
+/**
+ * The template's text, fetched with gh or git, or read from the path. Never `gh auth switch` (D-007). Its calls
+ * share one deadline, `timeoutMs`, so a fetch that takes two of them waits no longer than one would.
+ */
 export function fetchTemplateText(run: Runner, source: string, opts: FetchOptions = {}): string {
   const src = parseSource(source, opts.base, opts.home);
-  const timeoutMs = opts.timeoutMs ?? FETCH_TIMEOUT_MS;
+  const total = opts.timeoutMs ?? FETCH_TIMEOUT_MS;
+  const deadline = Date.now() + total;
+  const timeoutMs = (): number => {
+    const left = deadline - Date.now();
+    const secs = Math.ceil(total / 1000);
+    if (left <= 0) throw new AccError('no-template', `Couldn't read ${source} within ${secs} second${secs === 1 ? '' : 's'}, so acc stopped.`);
+    return left;
+  };
   const env = opts.env ?? process.env;
   if (src.kind === 'file') {
     if (!existsSync(src.path)) throw new AccError('no-template', `There's no team template at ${source}.`);
@@ -344,12 +359,12 @@ export function fetchTemplateText(run: Runner, source: string, opts: FetchOption
     const who = opts.account ?? 'gh\'s active account';
     let ghEnv = env;
     if (opts.account) {
-      const t = run('gh', ['auth', 'token', '-u', opts.account], { env, timeoutMs });
+      const t = run('gh', ['auth', 'token', '-u', opts.account], { env, timeoutMs: timeoutMs() });
       if (t.code !== 0 || !t.stdout.trim()) throw new AccError('no-github', `gh isn't logged in as ${opts.account}, the account that reads ${source}. Sign in from Setup, or run gh auth login.`);
       ghEnv = { ...env, GH_TOKEN: t.stdout.trim() };
     }
     const path = src.path.split('/').map(encodeURIComponent).join('/');
-    const r = run('gh', ['api', `repos/${src.owner}/${src.repo}/contents/${path}?ref=${encodeURIComponent(src.ref)}`, '-H', 'Accept: application/vnd.github.raw'], { env: ghEnv, timeoutMs });
+    const r = run('gh', ['api', `repos/${src.owner}/${src.repo}/contents/${path}?ref=${encodeURIComponent(src.ref)}`, '-H', 'Accept: application/vnd.github.raw'], { env: ghEnv, timeoutMs: timeoutMs() });
     if (r.code !== 0) {
       const why = firstLine(r.stderr || r.stdout);
       if (/\b404\b|not found/i.test(why)) throw new AccError('no-template', `${source} wasn't found as ${who}. Check the address, and that ${who} can read ${src.owner}/${src.repo}.`);
@@ -362,9 +377,10 @@ export function fetchTemplateText(run: Runner, source: string, opts: FetchOption
   const dir = mkdtempSync(join(tmpdir(), 'acc-template-'));
   try {
     const gitEnv: NodeJS.ProcessEnv = { ...env, GIT_TERMINAL_PROMPT: '0', ...(env.GIT_SSH_COMMAND ? {} : { GIT_SSH_COMMAND: 'ssh -o BatchMode=yes' }) };
-    const clone = run('git', ['clone', '--quiet', '--depth', '1', '--filter=blob:none', '--no-checkout', src.url, join(dir, 'repo')], { env: gitEnv, timeoutMs });
+    // "--" ends the options: the URL comes from a committed config, and is never read as one.
+    const clone = run('git', ['clone', '--quiet', '--depth', '1', '--filter=blob:none', '--no-checkout', '--', src.url, join(dir, 'repo')], { env: gitEnv, timeoutMs: timeoutMs() });
     if (clone.code !== 0) throw new AccError('no-template', `Couldn't fetch ${src.url} with git: ${firstLine(clone.stderr || clone.stdout) || `git exited ${clone.code}`}`);
-    const show = run('git', ['show', `HEAD:${src.path}`], { cwd: join(dir, 'repo'), env: gitEnv, timeoutMs });
+    const show = run('git', ['show', `HEAD:${src.path}`], { cwd: join(dir, 'repo'), env: gitEnv, timeoutMs: timeoutMs() });
     if (show.code !== 0) throw new AccError('no-template', `${src.url} has no ${src.path} on its default branch.`);
     if (Buffer.byteLength(show.stdout) > TEMPLATE_MAX_BYTES) throw tooBig(source);
     return show.stdout;
