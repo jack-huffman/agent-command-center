@@ -590,9 +590,9 @@ before each:
   all of it again just before `gh pr merge <n> --<method> --match-head-commit
   <sha>` as the repo's account, with the first method of merge, squash and
   rebase the repo allows. A head or base that moved, checks still running, or
-  BLOCKED with no checks reported yet, wait; a merge GitHub refuses, BLOCKED by
-  its rules, a cancelled check or a change to `.acc/` is recorded as `merge`,
-  and the task needs you. It keeps `autopilot.merged`, and `acc sync` moves the
+  BLOCKED with no checks reported yet, wait (until 15 minutes after the land);
+  a merge GitHub refuses, BLOCKED by its rules, a cancelled check or a change
+  to `.acc/` is recorded as `merge`, and the task needs you. It keeps `autopilot.merged`, and `acc sync` moves the
   task to done and drafts its update.
 - **A refresh** (D-058) merges origin's copy of the task environment's branch
   into the task branch, in the task's worktree, never the main checkout. It

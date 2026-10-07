@@ -280,6 +280,7 @@ function mergeStep(task: Task, facts: TaskFacts, step: (s: AutopilotStepName, re
     const reason = `Checks were cancelled on GitHub: ${names(c.cancelled)}. Run them again, or merge it yourself.`;
     return { step: null, outcome: 'waiting', reason, record: { step: 'merge', reason } };
   }
+  // c.required is a guard: gh answers --required on a commit with no checks as "no checks reported".
   if (!c.count && (c.required || facts.noChecksYet)) return none('waiting', `GitHub reports no checks on pull request #${pr.number} yet. Autopilot gives them 2 minutes after a land.`);
   // Null is git couldn't tell, which waits: never read as not behind.
   const behind = facts.behind ? facts.behind() : false;

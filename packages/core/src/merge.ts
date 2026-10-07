@@ -24,6 +24,12 @@ import { fetchBranches } from './sync.ts';
 /** How long after a land a pull request with no checks on GitHub waits, so a slow CI can register its own. */
 export const NO_CHECKS_GRACE_MS = 2 * 60_000;
 
+/**
+ * How long after a land a pull request GitHub blocks with no checks waits for the checks its base requires.
+ * After that it's more likely a rule no check meets, such as a required approving review, and it needs you.
+ */
+export const BLOCKED_NO_CHECKS_MS = 15 * 60_000;
+
 /** The order autopilot picks a merge method in, from the ones the repo allows. */
 export const MERGE_METHODS: readonly MergeMethod[] = ['merge', 'squash', 'rebase'];
 
@@ -154,17 +160,23 @@ export function mergePr(paths: RepoPaths, config: Config, id: string, deps: Merg
   if (checks.cancelled.length) throw new AccError('merge', `Checks were cancelled on GitHub: ${checks.cancelled.join(', ')}. Run them again, or merge it yourself.`);
   // None at all counts only where the base requires none, and once a slow CI has had time to start (a person
   // decided). gh can't say which a commit with no checks needs: GitHub's BLOCKED below says the base wants some.
+  const landed = Date.parse(pr.landedAt ?? '');
+  const since = (ms: number) => Number.isFinite(landed) && now().getTime() - landed < ms;
   if (!checks.count) {
-    const landed = Date.parse(pr.landedAt ?? '');
+    // A guard: gh answers --required on a commit with no checks as "no checks reported" (checks.ts).
     if (checks.required) throw wait(`No checks ${env.branch} requires are reported on GitHub yet.`);
-    if (Number.isFinite(landed) && now().getTime() - landed < NO_CHECKS_GRACE_MS) throw wait('No checks are reported on GitHub yet: autopilot gives them 2 minutes after a land.');
+    if (since(NO_CHECKS_GRACE_MS)) throw wait('No checks are reported on GitHub yet: autopilot gives them 2 minutes after a land.');
   }
 
   if (seen.mergeable === 'CONFLICTING' || seen.mergeStateStatus === 'DIRTY') throw new AccError('merge', `GitHub says pull request #${pr.number} conflicts with ${env.branch}.`);
   if (seen.mergeable !== 'MERGEABLE' || !seen.mergeStateStatus || seen.mergeStateStatus === 'UNKNOWN') throw wait(`GitHub is still working out whether pull request #${pr.number} can merge.`);
   if (seen.mergeStateStatus === 'BEHIND') throw wait(`GitHub says pull request #${pr.number} is behind ${env.branch}: autopilot merges it in first.`);
-  // Blocked with no checks reported: most likely ones the base requires that haven't registered yet.
-  if (seen.mergeStateStatus === 'BLOCKED' && !checks.count) throw wait(`GitHub says ${env.branch}'s rules block pull request #${pr.number}, and no checks are reported on it yet: autopilot waits for the checks ${env.branch} requires.`);
+  // Blocked with no checks reported: at first most likely ones the base requires that haven't registered
+  // yet. Still none 15 minutes after the land, it's a rule no check meets, and a person is told.
+  if (seen.mergeStateStatus === 'BLOCKED' && !checks.count) {
+    if (since(BLOCKED_NO_CHECKS_MS)) throw wait(`GitHub says ${env.branch}'s rules block pull request #${pr.number}, and no checks are reported on it yet: autopilot waits for the checks ${env.branch} requires.`);
+    throw new AccError('merge', `GitHub won't merge pull request #${pr.number}: ${env.branch}'s rules block it, and no checks were reported on it in the 15 minutes after its land. It may need an approving review: merge it yourself.`);
+  }
   if (seen.mergeStateStatus === 'BLOCKED') throw new AccError('merge', `GitHub won't merge pull request #${pr.number}: ${env.branch}'s rules block it, such as a required approving review.`);
   if (!MERGEABLE.has(seen.mergeStateStatus)) throw new AccError('merge', `GitHub says pull request #${pr.number} can't merge (${seen.mergeStateStatus}).`);
 

@@ -174,6 +174,11 @@ test('no checks at all count only where the base requires none, 2 minutes after 
   const old = setup({ landedAt: '2026-10-06T11:58:00.000Z' });
   // A base whose rules block it with no checks reported: checks it requires haven't registered yet, so it waits, and records nothing.
   held(old, none(old.sha, { mergeStateStatus: 'BLOCKED' }), 'merge-waits', /^GitHub says main's rules block pull request #42, and no checks are reported on it yet: autopilot waits for the checks main requires\.$/);
+  // Still none 15 minutes after the land: a rule no check meets, such as an approving review, so it needs you.
+  const stale = setup({ landedAt: '2026-10-06T11:45:00.000Z' });
+  held(stale, none(stale.sha, { mergeStateStatus: 'BLOCKED' }), 'merge', /^GitHub won't merge pull request #42: main's rules block it, and no checks were reported on it in the 15 minutes after its land\. It may need an approving review: merge it yourself\.$/);
+  const fresh = setup({ landedAt: '2026-10-06T11:46:00.000Z' });
+  held(fresh, none(fresh.sha, { mergeStateStatus: 'BLOCKED' }), 'merge-waits', /autopilot waits for the checks main requires/);
   const calls: string[] = [];
   mergePr(old.paths, old.config, 'T-1', deps(calls, none(old.sha)), by);
   assert.equal(merges(calls).length, 1, 'this repo has no GitHub checks: its pull requests merge once 2 minutes have passed');

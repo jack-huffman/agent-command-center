@@ -2775,7 +2775,9 @@ their own, and chose an opt-in, off by default and meant for client repos
     gh says "no checks reported" before it looks for required ones, so on a
     commit with none it can't say which the base requires: GitHub's word on
     merging does. BLOCKED with no checks reported waits for the checks the base
-    requires, and records nothing.
+    requires, and records nothing, until 15 minutes after the land. After that
+    it's more likely a rule no check meets, such as a required approving review
+    on a repo with no CI: recorded, and it needs you, so it never waits unseen.
   - GitHub says it's mergeable (`mergeable` MERGEABLE, `mergeStateStatus` CLEAN,
     UNSTABLE or HAS_HOOKS). Still working it out: it waits. BLOCKED with checks
     reported, such as a required approving review, DIRTY or a draft: recorded,
