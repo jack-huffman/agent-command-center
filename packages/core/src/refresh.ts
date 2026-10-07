@@ -3,6 +3,7 @@ import { type Config, environmentByBranch } from './config.ts';
 import { mainCheckout } from './dispatch.ts';
 import { AccError, type RunResult, type Runner } from './exec.ts';
 import { listed, priorTests, runGates } from './gates.ts';
+import { withJob } from './jobs.ts';
 import { type Actor, mutate, readLedger, type Task } from './ledger.ts';
 import { type RepoPaths, repoPaths } from './paths.ts';
 import { satisfies } from './receipts.ts';
@@ -120,6 +121,11 @@ const samePath = (a: string, b: string): boolean => {
  * up to date with its base before it merges it (GH-67). Without it, a refresh is for conflicts only.
  */
 export function refresh(paths: RepoPaths, config: Config, id: string, deps: RefreshDeps, opts: { actor: Actor; by: string; behind?: boolean }): RefreshResult {
+  // Marked under way while it runs, so every window shows it (D-???).
+  return withJob(paths, { kind: 'refresh', task: id, by: opts.by }, () => refreshNow(paths, config, id, deps, opts), deps.now);
+}
+
+function refreshNow(paths: RepoPaths, config: Config, id: string, deps: RefreshDeps, opts: { actor: Actor; by: string; behind?: boolean }): RefreshResult {
   const { run, now } = deps;
   const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
   if (!task) throw new AccError('no-task', `No task ${id}.`);
@@ -208,7 +214,7 @@ export function refresh(paths: RepoPaths, config: Config, id: string, deps: Refr
   let failed: string[] = [];
   try {
     if (required.length) {
-      const ran = runGates(repoPaths(wt, run), config, env, required, priorTests(paths, config, from), { run, now, slots: deps.slots });
+      const ran = runGates(repoPaths(wt, run), config, env, required, priorTests(paths, config, from), { run, now, slots: deps.slots, task: id });
       failed = ran.results.filter((r) => !r.recorded || !satisfies(r.receipt))
         .map((r) => `${r.gate} ${!r.recorded ? 'wasn\'t recorded' : r.status === 'fail' ? 'failed' : 'couldn\'t run'}: ${r.summary.replace(/[.!?]$/, '')}${r.receipt.log ? ` (log ${r.receipt.log})` : ''}`);
     }

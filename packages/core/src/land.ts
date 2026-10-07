@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { autoMergeFor, type Config, type Environment, environmentByBranch } from './config.ts';
 import { AccError, type Runner } from './exec.ts';
+import { withJob } from './jobs.ts';
 import { type Actor, mutate, type PullRequest, readLedger, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
 import { type Receipt, receiptHooks, receiptsAt } from './receipts.ts';
@@ -94,7 +95,12 @@ export function ghToken(run: Runner, account: string): string {
   return t.stdout.trim();
 }
 
+/** A land, with a marker saying it's under way while it runs, so every window shows it (D-???). */
 export function land(paths: RepoPaths, config: Config, id: string, deps: LandDeps, opts: { actor?: Actor; by?: string } = {}): LandResult {
+  return withJob(paths, { kind: 'land', task: id, by: opts.by ?? 'acc land' }, () => landNow(paths, config, id, deps, opts), deps.now);
+}
+
+function landNow(paths: RepoPaths, config: Config, id: string, deps: LandDeps, opts: { actor?: Actor; by?: string }): LandResult {
   const { run, now } = deps;
   const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
   if (!task) throw new AccError('no-task', `No task ${id}.`);

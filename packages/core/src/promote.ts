@@ -5,6 +5,7 @@ import { carriedTasks } from './carried.ts';
 import { type Config, type Environment } from './config.ts';
 import { AccError, type RunResult, type Runner, sfEnv } from './exec.ts';
 import { assertCheckOnly, listed, niced, type Outcome, packageDirs, readDeploy, under } from './gates.ts';
+import { withJob } from './jobs.ts';
 import { mutate, type Promotion, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
 import { type SlotOptions, withSlot } from './semaphore.ts';
@@ -209,7 +210,18 @@ function recordCarried(paths: RepoPaths, plan: PromotionPlan, pr: Promotion['pr'
   return { updates, warning: problems.length ? `The pull request is open. ${problems.join(' ')}` : null };
 }
 
-export function promote(paths: RepoPaths, config: Config, fromName: string, toName: string | undefined, deps: PromoteDeps, opts: { allowDeletions?: boolean; validate?: boolean; by?: string } = {}): PromoteResult {
+type PromoteOpts = { allowDeletions?: boolean; validate?: boolean; by?: string };
+
+/** A promotion, with a marker saying it's under way while it runs, so every window shows it (D-???). */
+export function promote(paths: RepoPaths, config: Config, fromName: string, toName: string | undefined, deps: PromoteDeps, opts: PromoteOpts = {}): PromoteResult {
+  const named = (name: string | undefined) => (name ? config.environments.find((x) => x.branch === name.toLowerCase() || x.name.toLowerCase() === name.toLowerCase()) : undefined);
+  const from = named(fromName);
+  const to = named(toName ?? from?.promotesTo[0]);
+  const job = { kind: 'promote' as const, from: from?.branch ?? fromName, ...(to || toName ? { env: to?.branch ?? toName } : {}), by: opts.by ?? 'acc promote' };
+  return withJob(paths, job, () => promoteNow(paths, config, fromName, toName, deps, opts), deps.now);
+}
+
+function promoteNow(paths: RepoPaths, config: Config, fromName: string, toName: string | undefined, deps: PromoteDeps, opts: PromoteOpts): PromoteResult {
   const { run, now } = deps;
   const plan = planPromotion(paths, config, fromName, toName, deps);
   const none = { tasks: [], updates: [], warning: null };
@@ -238,7 +250,8 @@ export function promote(paths: RepoPaths, config: Config, fromName: string, toNa
       const args = promotionCheckArgs(plan.to.org, source);
       assertCheckOnly('sf', args);
       const [cmd, a] = niced('sf', args);
-      const r = withSlot(() => run(cmd, a, { cwd: wt, env: sfEnv(), timeoutMs: 120 * 60_000 }), { ...deps.slots });
+      const owner = { what: `Validate ${plan.from.branch} → ${plan.to.branch}`, env: plan.to.branch, project: config.project };
+      const r = withSlot(() => run(cmd, a, { cwd: wt, env: sfEnv(), timeoutMs: 120 * 60_000 }), { owner, ...deps.slots });
       validation = readDeploy(r, plan.to.org, [], source.length);
       if (validation.status !== 'pass') {
         return { plan, branch: null, pr: null, validation, stopped: `Validation against ${plan.to.name} didn't pass: ${validation.summary}`, ...none };

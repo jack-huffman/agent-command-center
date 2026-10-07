@@ -132,7 +132,7 @@ export interface SeededBranch {
 
 /** Retrieves the baseline manifest from an org into a checkout. The org is only read. */
 function retrieveInto(run: Runner, dir: string, org: string, deps: SetupDeps): string | null {
-  const r = withSlot(() => run(...niced('sf', ['project', 'retrieve', 'start', '--manifest', BASELINE_MANIFEST, '--target-org', org, '--ignore-conflicts', '--wait', '60', '--json']), { cwd: dir, env: sfEnv(), timeoutMs: 70 * 60_000 }), { ...deps.slots });
+  const r = withSlot(() => run(...niced('sf', ['project', 'retrieve', 'start', '--manifest', BASELINE_MANIFEST, '--target-org', org, '--ignore-conflicts', '--wait', '60', '--json']), { cwd: dir, env: sfEnv(), timeoutMs: 70 * 60_000 }), { owner: { what: `Retrieve the baseline from ${org}`, cwd: dir }, ...deps.slots });
   try {
     const j = parseJsonOutput<{ status?: number; message?: string }>(r.stdout);
     if (r.code === 0 && j.status === 0) return null;

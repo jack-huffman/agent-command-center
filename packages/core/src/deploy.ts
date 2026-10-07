@@ -5,6 +5,7 @@ import { arrivedAt } from './carried.ts';
 import type { Config, Environment } from './config.ts';
 import { AccError, parseJsonOutput, type RunResult, type Runner, sfEnv } from './exec.ts';
 import { listed, niced, packageDirs, under } from './gates.ts';
+import { withJob } from './jobs.ts';
 import { readLedger, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
 import { envByName } from './promote.ts';
@@ -129,7 +130,16 @@ export function deployArgs(plan: DeployPlan): string[] {
   return ['project', 'deploy', 'start', '--target-org', plan.org, '--wait', '90', '--json', '--test-level', plan.testLevel, ...plan.files.flatMap((f) => ['--source-dir', f])];
 }
 
-export function deploy(paths: RepoPaths, config: Config, envName: string, deps: { run: Runner; now: () => Date; slots?: SlotOptions; onWait?: () => void }, opts: { since?: string; confirmed?: boolean; noTests?: boolean; by: string }): DeployResult {
+type DeployDeps = { run: Runner; now: () => Date; slots?: SlotOptions; onWait?: () => void };
+type DeployOpts = { since?: string; confirmed?: boolean; noTests?: boolean; by: string };
+
+/** A deploy, with a marker saying it's under way while it runs, so every window shows it (D-???). */
+export function deploy(paths: RepoPaths, config: Config, envName: string, deps: DeployDeps, opts: DeployOpts): DeployResult {
+  const env = config.environments.find((x) => x.branch === envName.toLowerCase() || x.name.toLowerCase() === envName.toLowerCase());
+  return withJob(paths, { kind: 'deploy', env: env?.branch ?? envName, by: opts.by }, () => deployNow(paths, config, envName, deps, opts), deps.now);
+}
+
+function deployNow(paths: RepoPaths, config: Config, envName: string, deps: DeployDeps, opts: DeployOpts): DeployResult {
   const { run, now } = deps;
   const plan = planDeploy(paths, config, envName, deps, opts);
   if (!plan.files.length && !plan.deleted.length) return { plan, deployed: false, jobId: null, summary: `${plan.env.name} already has ${plan.env.branch} at ${plan.head.slice(0, 7)}.`, updates: [] };
@@ -144,7 +154,8 @@ export function deploy(paths: RepoPaths, config: Config, envName: string, deps: 
     const add = git(run, paths.root, 'worktree', 'add', '--quiet', '--detach', wt, plan.head);
     if (add.code !== 0) throw new AccError('git', `Couldn't check out ${plan.head.slice(0, 7)}: ${add.stderr.trim()}`);
     const [cmd, args] = niced('sf', deployArgs(plan));
-    const r = withSlot(() => run(cmd, args, { cwd: wt, env: sfEnv(), timeoutMs: 120 * 60_000 }), { ...deps.slots, onWait: deps.onWait });
+    const owner = { what: `Deploy ${plan.env.branch}`, env: plan.env.branch, project: config.project };
+    const r = withSlot(() => run(cmd, args, { cwd: wt, env: sfEnv(), timeoutMs: 120 * 60_000 }), { owner, ...deps.slots, onWait: deps.onWait });
     let result: { status?: number; message?: string; result?: { id?: string; success?: boolean; status?: string; details?: { componentFailures?: { fullName?: string; problem?: string }[] | { fullName?: string; problem?: string } } } };
     try {
       result = parseJsonOutput(r.stdout);

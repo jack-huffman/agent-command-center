@@ -5,6 +5,7 @@ import { type CheckRead, readChecks, sendBack } from './checks.ts';
 import { dispatch } from './dispatch.ts';
 import { AccError, type Runner } from './exec.ts';
 import { releaseAwake } from './awake.ts';
+import { withJob } from './jobs.ts';
 import { AUTOPILOT_BY, AUTOPILOT_STEPS, type AutopilotFailure, autopilotFailure, type AutopilotStepName, builderStopped, type ClaudeSession, closedPr, type HistoryEntry, type Ledger, type LedgerEvent, mutate, readLedger, type ReworkCause, reworkCause, sentBackAt, sentBackForChecks, type State, STOPPED_GRACE_MS, type Task } from './ledger.ts';
 import { ghToken, land, type LandResult } from './land.ts';
 import { withLock } from './lock.ts';
@@ -557,8 +558,10 @@ export function autopilotPass(paths: RepoPaths, config: Config, deps: AutopilotD
       continue;
     }
     deps.onStep?.(id, d.step, facts.head);
+    const step = d.step;
     try {
-      const r = steps[d.step](id);
+      // Marked under way while it runs, so every window shows the step, wherever autopilot runs (D-???).
+      const r = withJob(paths, { kind: 'autopilot', task: id, step, by: AUTOPILOT_BY }, () => steps[step](id), deps.now);
       out.steps.push({ task: id, state: task.state, step: d.step, sha, outcome: 'done', reason: r.reason, ...(r.pr ? { pr: r.pr } : {}), ...(r.update ? { update: r.update } : {}) });
       if (r.update) out.updates.push({ task: id, ...r.update });
       if (d.step === 'merge') merged = true;

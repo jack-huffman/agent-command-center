@@ -1143,10 +1143,10 @@ function checkTarget(o: Opts) {
 }
 
 function cmdGateRun(o: Opts, names: string[]): number {
-  const { paths, config, env, branch } = checkTarget(o);
+  const { paths, config, env, branch, task } = checkTarget(o);
   const say = (line: string) => { if (!o.json) process.stderr.write(line + '\n'); };
   const r = runGates(paths, config, env, names, apexTests(o), {
-    run, now,
+    run, now, ...(task ? { task: task.id } : {}),
     onStart: (g) => say(tone(`  … ${g.name}${g.heavy ? ' (heavy)' : ''}`, 'dim')),
     onWait: (g) => say(tone(`  … ${g.name} is waiting for another heavy check on this machine to finish`, 'dim')),
   });
