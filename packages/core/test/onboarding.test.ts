@@ -279,7 +279,7 @@ test('A4.plugin\'s fix is what this machine lacks: the marketplace and the plugi
 
 test('A4.plugin waits for Claude Code, and says unknown for output it can\'t read', () => {
   const missing = plugin({ code: 127, stdout: '', stderr: 'not found' });
-  assert.deepEqual([missing.status, missing.detail, missing.fix], ['fail', 'claude isn\'t installed. Do A1.claude first.', undefined]);
+  assert.deepEqual([missing.status, missing.detail, missing.fix], ['fail', 'claude isn\'t installed. Do A1.claude first.', 'brew install --cask claude-code'], 'Do it installs Claude Code, not the plugin');
   for (const junk of [ok('Installed plugins:\n  acc'), ok('{"id":"acc@agent-command-center"}'), ok('[1, 2]'), { code: 1, stdout: '', stderr: 'error: unknown option \'--json\'' }]) {
     const r = plugin(junk);
     assert.equal(r.status, 'unknown', junk.stdout || junk.stderr);

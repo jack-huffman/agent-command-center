@@ -240,7 +240,8 @@ export const STEPS: Step[] = [
     },
     check(ctx) {
       const list = claudeJson(ctx, ['plugin', 'list', '--json']);
-      if (list === 127) return fail('claude isn\'t installed. Do A1.claude first.');
+      // Its Do it installs Claude Code itself: the plugin's own commands would only say claude isn't found.
+      if (list === 127) return fail('claude isn\'t installed. Do A1.claude first.', 'brew install --cask claude-code');
       if (typeof list === 'string') return unknown(`Couldn't read Claude Code's plugins: ${list}`);
       const mine = list.filter((p) => p.id === PLUGIN_ID);
       const user = mine.find((p) => p.scope === 'user');
