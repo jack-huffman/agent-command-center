@@ -4,7 +4,19 @@
  */
 import type { Doc } from './doc.ts';
 
-export type TrackerKind = 'github' | 'jira' | 'azure';
+/** Every tracker acc reads. The config, the ledger, updates and the Command Center all take their kinds from here. */
+export const TRACKER_KINDS = ['github', 'jira', 'azure', 'monday'] as const;
+export type TrackerKind = (typeof TRACKER_KINDS)[number];
+
+export const isTrackerKind = (v: unknown): v is TrackerKind => (TRACKER_KINDS as readonly unknown[]).includes(v);
+
+const TRACKER_NAMES: Record<TrackerKind, string> = { github: 'GitHub', jira: 'Jira', azure: 'Azure DevOps', monday: 'monday.com' };
+
+/** A tracker's name, for words a person reads: GitHub, Jira, Azure DevOps, monday.com. */
+export const trackerName = (kind: TrackerKind): string => TRACKER_NAMES[kind];
+
+/** What a button that signs in to a tracker says. */
+export const signInLabel = (kind: TrackerKind): string => `Sign in to ${trackerName(kind)}`;
 
 export interface Person {
   /** The tracker's own id: a GitHub login, a Jira accountId. */
@@ -36,7 +48,7 @@ export interface Comment {
 }
 
 export interface Ticket {
-  /** GH-12 for a GitHub issue, the Jira key (MSP-7), or AB-123 for an Azure work item. The same id acc's ledger uses. */
+  /** GH-12 for a GitHub issue, the Jira key (MSP-7), AB-123 for an Azure work item, or MON-123 for a monday.com item. The same id acc's ledger uses. */
   key: string;
   kind: TrackerKind;
   url: string;
@@ -87,8 +99,8 @@ export interface BoardCard {
 }
 
 export interface Board {
-  /** What the columns come from: a Jira board, a GitHub Project, or GitHub's open and closed. */
-  source: 'jira-board' | 'github-project' | 'github-state' | 'azure-board';
+  /** What the columns come from: a Jira board, a GitHub Project, GitHub's open and closed, or a monday.com board's status column. */
+  source: 'jira-board' | 'github-project' | 'github-state' | 'azure-board' | 'monday-board';
   title: string;
   url: string | null;
   columns: BoardColumn[];
@@ -107,7 +119,7 @@ export interface Outside {
 
 export interface TrackerClient {
   readonly kind: TrackerKind;
-  /** "GitHub · owner/repo", "Jira · MSP" or "Azure DevOps · Project", for headings. */
+  /** "GitHub · owner/repo", "Jira · MSP", "Azure DevOps · Project" or "monday.com · acme", for headings. */
   readonly title: string;
   /** Where its tickets come from (D-072), as far as it's known before the board loads: "Jira · ACME · epic ACME-3". */
   readonly place: string;
@@ -158,10 +170,15 @@ export const orList = (names: string[]): string => (names.length < 2 ? names.joi
 
 /**
  * Where a tracker's tickets come from, in words (D-072): "Jira · ACME · epic ACME-3 Premium Support",
- * "GitHub · acme/service · labels billing or invoices", "Azure DevOps · CRM · Sales · area CRM\Billing".
- * With no narrower place, just the project or repo.
+ * "GitHub · acme/service · labels billing or invoices", "Azure DevOps · CRM · Sales · area CRM\Billing",
+ * "monday.com · acme · Client work · group Topics". With no narrower place, just the project, repo or
+ * board. A monday.com board and group are named by id until the board has loaded and said their names.
  */
-export function placeText(p: { kind: TrackerKind; project?: string | null; repo?: string | null; team?: string | null; epic?: string | null; epicName?: string | null; labels?: string[]; areaPath?: string | null }): string {
+export function placeText(p: {
+  kind: TrackerKind; project?: string | null; repo?: string | null; team?: string | null; epic?: string | null; epicName?: string | null; labels?: string[]; areaPath?: string | null;
+  account?: string | null; board?: string | number | null; boardName?: string | null; group?: string | null; groupName?: string | null;
+}): string {
+  if (p.kind === 'monday') return `monday.com · ${p.account ?? '?'} · ${p.boardName ?? `board ${p.board ?? '?'}`}${p.group ? ` · group ${p.groupName ?? p.group}` : ''}`;
   if (p.kind === 'github') {
     const labels = p.labels ?? [];
     return `GitHub · ${p.repo ?? '?'}${labels.length ? ` · label${labels.length > 1 ? 's' : ''} ${orList(labels)}` : ''}`;

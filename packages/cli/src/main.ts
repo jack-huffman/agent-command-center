@@ -14,7 +14,7 @@ import {
   claimUpdate, discardUpdate, draftUpdate, EVENT_WORDS, GH_TIMEOUT_MS, ghToken, githubIssue, isOpenUpdate, listUpdates, markPosted, readUpdate, releaseUpdate, stalePosting, type Update, UPDATE_TEXT_MAX, updateText,
 } from '../../core/src/index.ts';
 import { issueRepo } from '../../core/src/trackers/github.ts';
-import type { Outside } from '../../core/src/trackers/types.ts';
+import { type Outside, TRACKER_KINDS, type TrackerKind, trackerName } from '../../core/src/trackers/types.ts';
 import { checkLabel, gateLabel, stateLabel, table, tone } from './format.ts';
 
 const VERSION = '0.1.0';
@@ -37,13 +37,13 @@ Setup
 
 Tasks
   acc add "<title>" [--brief <text>] [--dep <id>]... [--env <branch>] [--key <T-n>]
-  acc import [--file <tasks.json>]      Add or refresh tasks from JSON (stdin by default). A Jira or Azure DevOps
-                                        key that no tracker in .acc/config.json owns is refused
+  acc import [--file <tasks.json>]      Add or refresh tasks from JSON (stdin by default). A Jira, Azure DevOps or
+                                        monday.com key that no tracker in .acc/config.json owns is refused
   acc intake github [--label <l>]       Add or refresh tasks from the open GitHub issues in the repo's place: its
                                         tracker's repo, and its labels if it names some. A task not started yet
                                         leaves the board when its issue closes, has a skipLabels label, or leaves
                                         the place
-  acc intake jira|azure --file <report.json>
+  acc intake jira|azure|monday --file <report.json>
                                         Follow tickets the Command Center found outside the repo's place, from
                                         { "outside": [{ "key", "why" }] }: a task not started yet leaves the board
   acc status                            One line: how many tasks are in each state
@@ -257,7 +257,7 @@ function upsert(o: Opts, inputs: TaskInput[], own = false): number {
 }
 
 /**
- * The tasks whose Jira or Azure DevOps key a tracker in .acc/config.json owns, and why the rest are refused,
+ * The tasks whose Jira, Azure DevOps or monday.com key a tracker in .acc/config.json owns, and why the rest are refused,
  * so another project's or client's tickets never become tasks here (D-072). Without a Jira sign-in acc can't
  * check an epic, so only the project is held here; the board's check removes strays. A repo that names no
  * trackers has no place to hold to, and takes any.
@@ -268,10 +268,10 @@ function ownTickets(config: Config, inputs: TaskInput[]): { inputs: TaskInput[];
   const kept = inputs.filter((i) => {
     const kind = i?.source?.kind;
     const key = i?.source?.key;
-    if ((kind !== 'jira' && kind !== 'azure') || typeof key !== 'string') return true;
+    if (!isSignedInKind(kind) || typeof key !== 'string') return true;
     const at = trackerForKey(config.trackers, key);
     if (at !== null && config.trackers[at]!.kind === kind) return true;
-    refused.push(`${key.toUpperCase()}: no ${kind === 'jira' ? 'Jira' : 'Azure DevOps'} tracker in .acc/config.json owns it, so it isn't one of this repo's tickets.`);
+    refused.push(`${key.toUpperCase()}: no ${trackerName(kind)} tracker in .acc/config.json owns it, so it isn't one of this repo's tickets.`);
     return false;
   });
   return { inputs: kept, refused };
@@ -297,11 +297,16 @@ function cmdIntakeGithub(o: Opts): number {
   return res.errors.length ? 1 : 0;
 }
 
+/** The trackers only the Command Center signs in to (D-066): every one but GitHub. */
+type SignedInKind = Exclude<TrackerKind, 'github'>;
+const SIGNED_IN_KINDS = TRACKER_KINDS.filter((k): k is SignedInKind => k !== 'github');
+const isSignedInKind = (k: unknown): k is SignedInKind => (SIGNED_IN_KINDS as readonly unknown[]).includes(k);
+
 /**
- * Follows Jira or Azure DevOps tickets that left the repo's place (D-072). Only the Command Center signs in
- * to those (D-066), so it reads them and hands acc what it found: { "outside": [{ "key", "why" }] }.
+ * Follows Jira, Azure DevOps or monday.com tickets that left the repo's place (D-072). Only the Command
+ * Center signs in to those (D-066), so it reads them and hands acc what it found: { "outside": [{ "key", "why" }] }.
  */
-function cmdIntakeOutside(o: Opts, kind: 'jira' | 'azure'): number {
+function cmdIntakeOutside(o: Opts, kind: SignedInKind): number {
   const file = o.file as string | undefined;
   if (!file) throw new AccError('usage', `acc intake ${kind} --file <report.json>, with { "outside": [{ "key": "ACME-7", "why": "it isn't in epic ACME-3" }] }. The Command Center writes it after a board loads.`);
   const data = readInput(file) as { outside?: unknown };
@@ -861,14 +866,12 @@ function personOnlyUpdate(o: Opts, what: string): string {
   return personOnly(o, what);
 }
 
-const TRACKER_NAME: Record<Update['tracker'], string> = { github: 'GitHub', jira: 'Jira', azure: 'Azure DevOps' };
-
 /** An update as a person reads it: its id, state and ticket, what it's about, then its text. */
 function updateLines(u: Update): string[] {
   const state = u.state === 'posting' ? (stalePosting(u, now()) ? tone('may have posted', 'orange') : 'posting') : u.state === 'draft' ? tone('draft', 'orange') : u.state;
   const when = u.posted ? `posted by ${u.posted.by.replace(/^human:/, '')} ${u.posted.at}` : u.discarded ? `discarded by ${u.discarded.by.replace(/^human:/, '')} ${u.discarded.at}` : `drafted by ${u.by.replace(/^human:/, '')} ${u.createdAt}`;
   return [
-    `${u.id.padEnd(12)} ${state}  ${TRACKER_NAME[u.tracker]} ${u.key}: ${EVENT_WORDS[u.event]}${u.env ? ` (${u.env})` : ''}  ${tone(when, 'dim')}`,
+    `${u.id.padEnd(12)} ${state}  ${trackerName(u.tracker)} ${u.key}: ${EVENT_WORDS[u.event]}${u.env ? ` (${u.env})` : ''}  ${tone(when, 'dim')}`,
     ...(u.failed && u.state === 'draft' ? [tone(`    ! The last try didn't post: ${u.failed.reason}`, 'orange')] : []),
     ...(u.posted?.text ?? u.text).split('\n').map((l) => `    ${l}`),
   ];
@@ -908,7 +911,7 @@ function cmdUpdatePost(o: Opts, id: string): number {
   const by = personOnlyUpdate(o, 'post a ticket\'s update');
   const { paths, config } = project(process.cwd());
   const u = updateOrThrow(paths, id);
-  if (u.tracker !== 'github') throw new AccError('refused', `${u.id} is for ${TRACKER_NAME[u.tracker]} ticket ${u.key}. acc posts only on GitHub: post it from the Command Center, which posts as you through this repo's ${TRACKER_NAME[u.tracker]} sign-in.`);
+  if (u.tracker !== 'github') throw new AccError('refused', `${u.id} is for ${trackerName(u.tracker)} ticket ${u.key}. acc posts only on GitHub: post it from the Command Center, which posts as you through this repo's ${trackerName(u.tracker)} sign-in.`);
   const text = postText(o, u);
   const gh = config.github;
   if (!gh) throw new AccError('no-github', 'This project has no "github" section in .acc/config.json, so acc can\'t post as its account.');
@@ -1220,8 +1223,8 @@ export async function main(argv: string[]): Promise<number> {
     }
     case 'intake': {
       if (rest[0] === 'github') return cmdIntakeGithub(o);
-      if (rest[0] === 'jira' || rest[0] === 'azure') return cmdIntakeOutside(o, rest[0]);
-      throw new AccError('usage', 'acc intake github [--label <label>], or acc intake jira|azure --file <report.json>. Jira and Azure DevOps tickets come in through the Command Center\'s Track in acc, or the plugin\'s skill.');
+      if (isSignedInKind(rest[0])) return cmdIntakeOutside(o, rest[0]);
+      throw new AccError('usage', 'acc intake github [--label <label>], or acc intake jira|azure|monday --file <report.json>. Jira, Azure DevOps and monday.com tickets come in through the Command Center\'s Track in acc; Jira and Azure DevOps ones also through the plugin\'s skill.');
     }
     case 'dispatch': {
       if (!rest[0]) throw new AccError('usage', 'acc dispatch <id> [--foreground]');

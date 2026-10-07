@@ -9,7 +9,7 @@ import type { Analysis } from '../../packages/core/src/analyze.ts';
 import { AUTOPILOT_REVIEW_DOES, type AutopilotRecord, reworkedByAutopilot } from '../../packages/core/src/autopilot.ts';
 import type { AutopilotStepName, TaskInput } from '../../packages/core/src/ledger.ts';
 import type { CheckStatus, Step } from '../../packages/core/src/onboarding/types.ts';
-import type { Ticket } from '../../packages/core/src/trackers/types.ts';
+import { isTrackerKind, type Ticket } from '../../packages/core/src/trackers/types.ts';
 import type { Pending } from '../webview/pending.ts';
 
 export const PUBLISHER = 'JackHuffman';
@@ -806,7 +806,7 @@ export function autopilotNotices(steps: AutopilotRecord[], tasks: AutopilotTask[
     } else if (r.step === 'review') say(`Autopilot reviewed ${r.task}: it passed. Autopilot lands it next.`, false);
     else if (r.step === 'land' && r.pr) {
       const pr: [string, string] = ['Open pull request', 'acc.task.openPr'];
-      const ticket = !!t?.source.key && ['github', 'jira', 'azure'].includes(t.source.kind);
+      const ticket = !!t?.source.key && isTrackerKind(t.source.kind);
       const landed = r.pr.opened ? `Autopilot landed ${r.task}: pull request #${r.pr.number}` : `Autopilot updated pull request #${r.pr.number} (${r.task})`;
       if (ticket) say(`${landed}. Its update for the ticket is ready for you to review and post.`, false, [['Review the update', 'acc.task.show'], pr]);
       else say(r.pr.opened ? landed : `${landed}.`, false, [pr]);

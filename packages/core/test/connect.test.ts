@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { replaceTracker, type Tracker, withTracker } from '../src/config.ts';
-import { AZURE, declaredKeys, DESCRIPTIONS, describe, GITHUB, JIRA, parseHost, parseRepo, type SignIn } from '../src/trackers/connect.ts';
+import { AZURE, declaredKeys, DESCRIPTIONS, describe, GITHUB, JIRA, MONDAY, parseHost, parseRepo, type SignIn } from '../src/trackers/connect.ts';
 import { TrackerError } from '../src/trackers/types.ts';
 
-const tracker = (t: Partial<Tracker> & Pick<Tracker, 'kind'>): Tracker => ({ site: null, project: null, repo: null, organization: null, team: null, board: null, prefix: null, skipLabels: [], epic: null, labels: [], areaPath: null, edits: false, ...t });
+const tracker = (t: Partial<Tracker> & Pick<Tracker, 'kind'>): Tracker => ({ site: null, project: null, repo: null, organization: null, account: null, team: null, board: null, statusColumn: null, prefix: null, skipLabels: [], epic: null, labels: [], areaPath: null, group: null, edits: false, ...t });
 const SITE = 'acme.atlassian.net';
 
 test('a Jira tracker is written as the config keeps it, and the whole project takes its epic out', () => {
@@ -45,6 +45,7 @@ test('an existing tracker opens with its own choices, and saves them back as the
     [JIRA, tracker({ kind: 'jira', site: SITE, project: 'ACME', board: 7, epic: 'ACME-3' }), { kind: 'jira', site: SITE, project: 'ACME', board: 7, epic: 'ACME-3' }],
     [GITHUB, tracker({ kind: 'github', labels: ['billing'] }), { kind: 'github', repo: null, labels: ['billing'] }],
     [AZURE, tracker({ kind: 'azure', organization: 'acme', project: 'CRM', team: 'Sales', board: 'Stories', areaPath: 'CRM\\Billing' }), { kind: 'azure', organization: 'acme', project: 'CRM', team: 'Sales', board: 'Stories', areaPath: 'CRM\\Billing' }],
+    [MONDAY, tracker({ kind: 'monday', account: 'acme', board: 1234567890, group: 'topics', statusColumn: 'priority' }), { kind: 'monday', account: 'acme', board: 1234567890, group: 'topics', statusColumn: 'priority' }],
   ];
   for (const [d, t, want] of cases) {
     const { host, values } = d.fromConfig(t, 'acme/service');
@@ -68,6 +69,10 @@ test('a site, organization or repo is taken from whatever is pasted, and anythin
   const token = JIRA.methods[0]!.fields.find((f) => f.type === 'secret')!;
   assert.equal(token.help!.url(SITE), 'https://id.atlassian.com/manage-profile/security/api-tokens');
   assert.equal(AZURE.methods.find((m) => m.id === 'pat')!.fields[0]!.help!.url('acme'), 'https://dev.azure.com/acme/_usersSettings/tokens');
+  for (const pasted of ['acme', 'Acme.monday.com', 'https://acme.monday.com/boards/1234567890/pulses/42', 'acme.monday.com?x=1']) assert.equal(MONDAY.host.parse(pasted), 'acme', pasted);
+  for (const bad of ['acme.atlassian.net', 'https://monday.com', 'not an account!', '']) assert.equal(MONDAY.host.parse(bad), null, bad);
+  const mondayToken = MONDAY.methods[0]!.fields[0]!;
+  assert.deepEqual([mondayToken.type, mondayToken.help!.label, mondayToken.help!.url('acme'), mondayToken.help!.url('')], ['secret', 'Create a token', 'https://acme.monday.com/apps/manage/tokens', null], 'no account yet, no page to open');
 });
 
 test('the lists come from the tracker as the sign-in sees it: Jira\'s projects, epics and boards', async () => {
@@ -117,13 +122,69 @@ test('Azure DevOps lists the default team first, prefers the stories board, and 
 });
 
 test('every tracker the page offers is described, and its keys are declared for checking what a page sends', () => {
-  assert.deepEqual(DESCRIPTIONS.map((d) => d.kind), ['jira', 'github', 'azure']);
+  assert.deepEqual(DESCRIPTIONS.map((d) => d.kind), ['jira', 'github', 'azure', 'monday']);
   assert.equal(describe('azure'), AZURE);
-  assert.equal(describe('monday'), undefined);
+  assert.equal(describe('monday'), MONDAY);
+  assert.equal(describe('linear'), undefined);
   const keys = declaredKeys();
-  assert.deepEqual([...keys.fields].sort(), ['email', 'organization', 'repo', 'site', 'token']);
-  assert.deepEqual([...keys.pickers].sort(), ['areaPath', 'board', 'epic', 'labels', 'project', 'team']);
+  assert.deepEqual([...keys.fields].sort(), ['account', 'email', 'organization', 'repo', 'site', 'token']);
+  assert.deepEqual([...keys.pickers].sort(), ['areaPath', 'board', 'epic', 'group', 'labels', 'project', 'statusColumn', 'team']);
   assert.deepEqual([...keys.methods].sort(), ['gh', 'microsoft', 'pat', 'token']);
-  // Each tracker's project names which tracker it is, so an existing one shows it fixed.
-  assert.deepEqual(DESCRIPTIONS.map((d) => d.pickers.filter((p) => p.identifies).map((p) => p.key)), [['project'], [], ['project']]);
+  // Each tracker's project names which tracker it is, so an existing one shows it fixed. monday.com's is its board.
+  assert.deepEqual(DESCRIPTIONS.map((d) => d.pickers.filter((p) => p.identifies).map((p) => p.key)), [['project'], [], ['project'], ['board']]);
+});
+
+/** monday.com's GraphQL API, answering only this token, by what each query asks for. */
+const MONDAY_TOKEN = 'monday-token-0123456789abcdef';
+function mondayApi(o: { account?: string } = {}) {
+  const asked: { query: string; variables: Record<string, unknown>; version: string | null }[] = [];
+  const fetch = (async (url: string, init: { headers: Record<string, string>; body: string }) => {
+    assert.equal(url, 'https://api.monday.com/v2');
+    const { query, variables } = JSON.parse(init.body) as { query: string; variables: Record<string, unknown> };
+    asked.push({ query, variables, version: init.headers['API-Version'] ?? null });
+    if (init.headers.Authorization !== MONDAY_TOKEN) return Response.json({ errors: [{ message: 'Not Authenticated', extensions: { code: 'Unauthorized', status_code: 401 } }] }, { status: 401 });
+    if (/\bme \{/.test(query)) return Response.json({ data: { me: { id: 7, name: 'Jordan Kim', account: { slug: o.account ?? 'acme' } } } });
+    if (/boards\(limit/.test(query)) {
+      return Response.json({ data: { boards: variables.page === 1 ? [
+        { id: '555', name: 'Approvals', type: 'board', state: 'active', workspace: null },
+        { id: '111', name: 'Client work', type: 'board', state: 'active', workspace: { name: 'Acme' } },
+        { id: '222', name: 'Subitems of Client work', type: 'sub_items_board', state: 'active', workspace: { name: 'Acme' } },
+        { id: '333', name: 'Kickoff notes', type: 'document', state: 'active', workspace: { name: 'Acme' } },
+        { id: '444', name: 'Archive 2025', type: 'board', state: 'archived', workspace: { name: 'Acme' } },
+      ] : [] } });
+    }
+    if (/groups \{ id title archived/.test(query)) return Response.json({ data: { boards: [{ groups: [{ id: 'topics', title: 'This sprint' }, { id: 'old', title: 'Done in 2025', archived: true }, { id: 'gone', title: 'Gone', deleted: true }] }] } });
+    if (/columns\(types: \[status\]\)/.test(query)) {
+      const label = (id: number, name: string, index: number, done = false) => ({ id, label: name, index, is_done: done, is_deactivated: false });
+      return Response.json({ data: { boards: [{ name: 'Client work', columns: [
+        { id: 'priority', title: 'Priority', type: 'status', settings: { labels: [label(0, 'High', 0), label(1, 'Low', 1)] } },
+        { id: 'status', title: 'Status', type: 'status', settings: { labels: [label(5, '', 9), label(0, 'Working on it', 1), label(1, 'Done', 2, true), label(2, 'Stuck', 0)] } },
+      ] }] } });
+    }
+    return Response.json({ errors: [{ message: `no answer for ${query}` }] });
+  }) as unknown as typeof globalThis.fetch;
+  return { fetch, asked };
+}
+
+test('monday.com signs in with a personal API token for the account, then lists its boards, a board\'s groups and its status columns', async () => {
+  const api = mondayApi();
+  const signIn: SignIn = { method: 'token', fields: { token: MONDAY_TOKEN }, header: null, gh: null };
+  const ctx = { host: 'acme', signIn, values: { board: '111' } as Record<string, string | null>, fetch: api.fetch, exec: async () => ({ code: 1, stdout: '', stderr: '' }) };
+  assert.deepEqual(await MONDAY.verify(ctx), { id: '7', name: 'Jordan Kim' });
+  assert.ok(api.asked.every((a) => a.version === '2026-10'), 'every call names its API version');
+  await assert.rejects(MONDAY.verify({ ...ctx, signIn: { ...signIn, fields: { token: 'wrong-token-0123456789' } } }), (e: unknown) => e instanceof TrackerError && e.kind === 'auth' && /didn't accept/.test(e.message));
+  const other = mondayApi({ account: 'globex' });
+  await assert.rejects(MONDAY.verify({ ...ctx, fetch: other.fetch }), (e: unknown) => e instanceof TrackerError && e.kind === 'auth' && /account globex, not acme/.test(e.message), 'a token from another account is refused, naming it');
+
+  assert.deepEqual(MONDAY.pickers.map((p) => [p.key, p.dependsOn, !!p.identifies, !!p.whole, !!p.hideSingle]), [['board', [], true, false, false], ['group', ['board'], false, true, false], ['statusColumn', ['board'], false, false, true]]);
+  const [board, group, status] = MONDAY.pickers;
+  assert.deepEqual(await board!.load(ctx), [{ value: '111', label: 'Client work', detail: 'Acme' }, { value: '555', label: 'Approvals', detail: 'Main workspace' }], 'by workspace, then name; no sub-item boards, documents or archived boards');
+  assert.deepEqual(await group!.load(ctx), [{ value: 'topics', label: 'This sprint' }], 'no archived or deleted groups');
+  assert.equal(group!.whole!({ host: 'acme', values: ctx.values, labels: { board: 'Client work' } }), 'Every group on Client work');
+  assert.deepEqual((await status!.load(ctx)).map((o) => [o.value, o.detail, !!o.default]), [['priority', 'High, Low', false], ['status', 'Stuck, Working on it, Done', true]], 'the one called Status is the usual one; labels in monday\'s order, the blank left out');
+  assert.equal(api.asked.find((a) => /groups/.test(a.query))!.variables.board?.toString(), '111', 'the board goes as a variable');
+
+  // Save leaves out the whole board's group and the usual status column.
+  assert.deepEqual(MONDAY.toConfig({ host: 'acme', values: { board: '111', group: null, statusColumn: 'status' }, defaults: ['statusColumn'], ownRepo: null }), { kind: 'monday', account: 'acme', board: 111, group: null, statusColumn: null });
+  assert.deepEqual(withTracker([], MONDAY.toConfig({ host: 'acme', values: { board: '111', group: null, statusColumn: 'status' }, defaults: ['statusColumn'], ownRepo: null })), [{ kind: 'monday', account: 'acme', board: 111 }]);
 });

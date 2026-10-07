@@ -5,6 +5,7 @@ import { type Config, defaultEnvironment, environmentByBranch } from './config.t
 import { AccError } from './exec.ts';
 import { withLock } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
+import { TRACKER_KINDS } from './trackers/types.ts';
 
 export const STATES = ['todo', 'running', 'review', 'rework', 'blocked', 'done'] as const;
 export type State = (typeof STATES)[number];
@@ -12,7 +13,7 @@ export type State = (typeof STATES)[number];
 export const ACTORS = ['human', 'orchestrator', 'builder', 'reviewer', 'sync'] as const;
 export type Actor = (typeof ACTORS)[number];
 
-export const SOURCE_KINDS = ['github', 'jira', 'azure', 'manual'] as const;
+export const SOURCE_KINDS = [...TRACKER_KINDS, 'manual'] as const;
 export type SourceKind = (typeof SOURCE_KINDS)[number];
 
 export interface Source {

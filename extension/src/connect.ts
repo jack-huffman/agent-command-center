@@ -320,7 +320,10 @@ export class ConnectSession {
     this.deps.log(`[connect] ${this.d.name} (${s.host}): ${why}`);
   }
 
-  /** Loads each list whose choices it depends on are made. An existing tracker's project isn't changed here, so it isn't loaded. */
+  /**
+   * Loads each list whose choices it depends on are made. An existing tracker's project isn't changed here,
+   * so it isn't loaded, unless its values are ids: then it's loaded to show the name.
+   */
   private loadReady(): void {
     const s = this.s;
     if (!s || !this.signIn) return;
@@ -330,7 +333,7 @@ export class ConnectSession {
       for (const p of this.d.pickers) {
         const ps = s.pickers[p.key]!;
         if (ps.state !== 'waiting' || !p.dependsOn.every((k) => s.pickers[k]?.selected.length && ['ready', 'failed'].includes(s.pickers[k]!.state))) continue;
-        if (s.existing && p.identifies) {
+        if (s.existing && p.identifies && !p.idValues) {
           ps.state = 'ready';
           again = true;
           continue;

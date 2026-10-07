@@ -10,7 +10,8 @@ import { AzureClient } from '../../packages/core/src/trackers/azure.ts';
 import { AZURE_SCOPE, describe, type SignIn } from '../../packages/core/src/trackers/connect.ts';
 import { GithubClient } from '../../packages/core/src/trackers/github.ts';
 import { JiraClient } from '../../packages/core/src/trackers/jira.ts';
-import { type Board, type Exec, movesInto, placeText, type Ticket, type TrackerClient, TrackerError, type Transition } from '../../packages/core/src/trackers/types.ts';
+import { MondayClient } from '../../packages/core/src/trackers/monday.ts';
+import { type Board, type Exec, movesInto, placeText, signInLabel, type Ticket, type TrackerClient, TrackerError, trackerName, type Transition } from '../../packages/core/src/trackers/types.ts';
 import { Pending } from '../webview/pending.ts';
 import type { Hub, Project } from './hub.ts';
 import { accImport, cardTracking, credKey, liveTrackKeys, outsideKeys, placeCandidates, repoKey, type TrackReply, type TrackState, trackTicket } from './logic.ts';
@@ -60,14 +61,16 @@ const b64 = (s: string) => Buffer.from(s).toString('base64');
 /** A sign-in as the Connect page keeps it (GH-51). One kept before then has no method: Jira's is its token. */
 type JiraCred = { kind: 'jira'; method?: 'token'; email: string; token: string };
 type AzureCred = { kind: 'azure'; method: 'microsoft'; account: vscode.AuthenticationSessionAccountInformation; tenant: string | null } | { kind: 'azure'; method: 'pat'; token: string };
-type Cred = JiraCred | AzureCred;
+type MondayCred = { kind: 'monday'; method: 'token'; token: string };
+type Cred = JiraCred | AzureCred | MondayCred;
 
-/** A tracker's host: a Jira site or an Azure organization, the part a sign-in is for. */
-const hostOf = (t: Pick<Tracker, 'kind' | 'site' | 'organization'>): string => (t.kind === 'jira' ? t.site ?? '' : t.organization ?? '').replace(/^https?:\/\//, '').replace(/\/+$/, '').toLowerCase();
+/** A tracker's host: a Jira site, an Azure organization or a monday.com account, the part a sign-in is for. */
+const hostOf = (t: Pick<Tracker, 'kind' | 'site' | 'organization' | 'account'>): string =>
+  (t.kind === 'jira' ? t.site ?? '' : t.kind === 'monday' ? t.account ?? '' : t.organization ?? '').replace(/^https?:\/\//, '').replace(/\/+$/, '').toLowerCase();
 
 /**
  * The trackers each repo names in .acc/config.json, with their clients and boards. Sign-ins belong to
- * one repo (D-027): a client's Jira or Azure DevOps login never serves another client's repo. It never
+ * one repo (D-027): a client's Jira, Azure DevOps or monday.com login never serves another client's repo. It never
  * changes a ticket on its own: every write here starts from a person's click (D-026).
  */
 export class Trackers implements vscode.Disposable {
@@ -104,12 +107,12 @@ export class Trackers implements vscode.Disposable {
   }
 
   title(t: Tracker): string {
-    return t.kind === 'github' ? `GitHub · ${t.repo ?? '?'}` : t.kind === 'jira' ? `Jira · ${t.project}` : `Azure DevOps · ${t.project}`;
+    return t.kind === 'github' ? `GitHub · ${t.repo ?? '?'}` : t.kind === 'monday' ? `monday.com · ${t.account}` : `${trackerName(t.kind)} · ${t.project}`;
   }
 
   /** Where a tracker's tickets come from, as its config says (D-072). */
   place(t: Tracker): string {
-    return placeText({ kind: t.kind, project: t.project, repo: t.repo, team: t.team, epic: t.epic, labels: t.labels, areaPath: t.areaPath });
+    return placeText({ kind: t.kind, project: t.project, repo: t.repo, team: t.team, epic: t.epic, labels: t.labels, areaPath: t.areaPath, account: t.account, board: t.board, group: t.group });
   }
 
   /**
@@ -129,14 +132,16 @@ export class Trackers implements vscode.Disposable {
     }
   }
 
-  /** Who a tracker acts as for this repo: the GitHub account, the Jira email, the Microsoft account. */
+  /** Who a tracker acts as for this repo: the GitHub account, the Jira email, the Microsoft account, or a token. */
   async signedInAs(p: Project, index: number): Promise<string | null> {
     const t = this.trackers(p)[index];
     if (!t) return null;
     if (t.kind === 'github') return p.config.github?.account ?? null;
     const c = await this.cred(p, t);
     if (!c) return null;
-    return c.kind === 'jira' ? c.email : c.method === 'microsoft' ? c.account.label : 'a personal access token';
+    if (c.kind === 'jira') return c.email;
+    if (c.kind === 'monday') return 'a personal API token';
+    return c.method === 'microsoft' ? c.account.label : 'a personal access token';
   }
 
   /** The trackers this repo names but hasn't signed in to yet. GitHub signs in through gh, so it's never listed. */
@@ -146,7 +151,7 @@ export class Trackers implements vscode.Disposable {
     return out;
   }
 
-  /** Which tracker a ticket key belongs to: GH-12 to GitHub, AB-123 to Azure, MSP-7 to the Jira project MSP. */
+  /** Which tracker a ticket key belongs to: GH-12 to GitHub, AB-123 to Azure, MON-123 to monday.com, MSP-7 to the Jira project MSP. */
   trackerFor(p: Project, key: string): number | null {
     return trackerForKey(this.trackers(p), key);
   }
@@ -189,6 +194,10 @@ export class Trackers implements vscode.Disposable {
       if (!c || c.kind !== 'jira') throw new TrackerError('auth', `Sign in to Jira (${t.site}) for this repo to see its board and tickets.`);
       return new JiraClient({ site: t.site!, project: t.project!, email: c.email, token: c.token, board: typeof t.board === 'number' ? t.board : null, epic: t.epic });
     }
+    if (t.kind === 'monday') {
+      if (!c || c.kind !== 'monday') throw new TrackerError('auth', `Sign in to monday.com (${t.account}) for this repo to see its board and items.`);
+      return new MondayClient({ account: t.account!, board: t.board!, group: t.group, statusColumn: t.statusColumn, prefix: t.prefix ?? 'MON', token: c.token });
+    }
     if (!c || c.kind !== 'azure') throw new TrackerError('auth', `Sign in to Azure DevOps (${t.organization}) for this repo to see its board and work items.`);
     return new AzureClient({
       organization: t.organization!, project: t.project!, team: t.team, board: typeof t.board === 'string' ? t.board : null, prefix: t.prefix ?? 'AB', areaPath: t.areaPath,
@@ -201,7 +210,7 @@ export class Trackers implements vscode.Disposable {
   }
 
   private signInButton(p: Project, index: number, t: Tracker): BoardState['connect'] {
-    return t.kind === 'github' ? null : { command: 'acc.trackers.signIn', label: t.kind === 'jira' ? 'Sign in to Jira' : 'Sign in to Azure DevOps', arg: JSON.stringify({ root: p.root, index }) };
+    return t.kind === 'github' ? null : { command: 'acc.trackers.signIn', label: signInLabel(t.kind), arg: JSON.stringify({ root: p.root, index }) };
   }
 
   /** Loads every board, or just one project's. Boards load side by side; each shows its own error. */
@@ -250,7 +259,7 @@ export class Trackers implements vscode.Disposable {
   }
 
   /**
-   * After a Jira or Azure DevOps board loads, asks its tracker about this repo's unfinished tasks from it
+   * After a Jira, Azure DevOps or monday.com board loads, asks its tracker about this repo's unfinished tasks from it
    * that the board doesn't show (D-072). acc intake removes the ones outside the place that never started,
    * and names the rest: those stay on the agent board, and this board says so. Only the Command Center
    * signs in to these trackers (D-066). A failed read never counts as outside (D-048), and nothing here
@@ -336,7 +345,7 @@ export class Trackers implements vscode.Disposable {
       pick = chosen?.m;
     }
     if (!pick) {
-      if (!moves.length) void vscode.window.showWarningMessage(`${state.kind === 'jira' ? 'Jira\'s workflow' : 'GitHub'} has no move from ${card.status.name} to ${column.name} for ${key}. Open the ticket to see where it can go.`);
+      if (!moves.length) void vscode.window.showWarningMessage(`${state.kind === 'jira' ? 'Jira\'s workflow' : trackerName(state.kind)} has no move from ${card.status.name} to ${column.name} for ${key}. Open the ticket to see where it can go.`);
       return false;
     }
     await client.transition(key, pick, card);
@@ -370,7 +379,7 @@ export class Trackers implements vscode.Disposable {
   async signOut(arg?: unknown): Promise<void> {
     const chosen = await this.pickTracker(arg, 'Sign out of which tracker?');
     if (!chosen) {
-      void vscode.window.showInformationMessage('No project here has a Jira or Azure DevOps tracker to sign out of.');
+      void vscode.window.showInformationMessage('No project here has a Jira, Azure DevOps or monday.com tracker to sign out of.');
       return;
     }
     const { p, t } = chosen;

@@ -336,7 +336,27 @@ test('acc intake jira --file follows tickets that left the place: removes a task
 
   writeFileSync(file, '{"outside": [{"key": 7}]}');
   assert.equal(acc(dir, ['intake', 'azure', '--file', file]).code, 2, 'a report in the wrong shape');
-  assert.match(acc(dir, ['help']).out, /acc intake jira\|azure --file <report\.json>/);
+  assert.match(acc(dir, ['help']).out, /acc intake jira\|azure\|monday --file <report\.json>/);
+});
+
+test('acc intake monday --file follows items that left the board or its group: removes a task never started, names one that did (D-072)', () => {
+  const dir = repoWithConfig({ ...GENERIC_CONFIG, trackers: [{ kind: 'monday', account: 'acme', board: 1234567890, group: 'topics' }] });
+  const items = ['MON-101', 'MON-102', 'MON-1234567890123'].map((key) => ({ source: { kind: 'monday', key, url: `https://acme.monday.com/boards/1234567890/pulses/${key.slice(4)}` }, title: key }));
+  const added = acc(dir, ['import', '--json'], JSON.stringify(items));
+  assert.equal(added.code, 0, added.err);
+  assert.deepEqual(added.json().added, ['MON-101', 'MON-102', 'MON-1234567890123'], 'an item id too big for 32 bits is a task id like any other');
+  assert.equal(acc(dir, ['set', 'MON-102', 'running']).code, 0);
+  const file = join(dir, 'outside.json');
+  writeFileSync(file, JSON.stringify({ outside: [{ key: 'MON-101', why: 'it\'s in group Backlog' }, { key: 'MON-102', why: 'it\'s on board Other client' }] }));
+  const text = acc(dir, ['intake', 'monday', '--file', file]);
+  assert.equal(text.code, 0, text.err);
+  assert.deepEqual(text.out.trim().split('\n'), [
+    'Removed MON-101: their tickets left this repo\'s place before work started',
+    '! MON-102 left this repo\'s place: it\'s on board Other client; MON-102 is still running',
+  ]);
+  assert.deepEqual((acc(dir, ['list', '--json']).json() as { id: string }[]).map((t) => t.id), ['MON-102', 'MON-1234567890123']);
+  const events = readFileSync(join(dir, '.git', 'acc', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { type: string; task?: string; id?: string });
+  assert.deepEqual(events.filter((e) => e.type === 'task.removed').map((e) => e.task ?? e.id), ['MON-101'], 'the events log says it left');
 });
 
 test('acc import refuses a Jira or Azure DevOps ticket no tracker owns, so another project\'s never becomes a task here (D-072)', () => {
@@ -355,6 +375,24 @@ test('acc import refuses a Jira or Azure DevOps ticket no tracker owns, so anoth
   ]);
   // A repo that names no trackers has no place to hold to.
   assert.equal(acc(repoWithConfig(), ['import'], JSON.stringify([{ source: { kind: 'jira', key: 'OPS-1' }, title: 'x' }])).code, 0);
+});
+
+test('acc import refuses a monday.com item no monday.com tracker owns (D-072)', () => {
+  const dir = repoWithConfig({ ...GENERIC_CONFIG, trackers: [{ kind: 'jira', site: 'acme.atlassian.net', project: 'ACME' }, { kind: 'monday', account: 'acme', board: 111, prefix: 'CW' }] });
+  const items = [
+    { source: { kind: 'monday', key: 'CW-101' }, title: 'Ours' }, { source: { kind: 'monday', key: 'MON-5' }, title: 'Another board\'s, keyed MON' },
+    { source: { kind: 'monday', key: 'ACME-3' }, title: 'A Jira key sent as monday.com' }, { source: { kind: 'jira', key: 'CW-7' }, title: 'A monday.com key sent as Jira' },
+  ];
+  const r = acc(dir, ['import', '--json'], JSON.stringify(items));
+  assert.equal(r.code, 1);
+  assert.deepEqual(r.json().added, ['CW-101']);
+  assert.deepEqual(r.json().errors, [
+    'MON-5: no monday.com tracker in .acc/config.json owns it, so it isn\'t one of this repo\'s tickets.',
+    'ACME-3: no monday.com tracker in .acc/config.json owns it, so it isn\'t one of this repo\'s tickets.',
+    'CW-7: no Jira tracker in .acc/config.json owns it, so it isn\'t one of this repo\'s tickets.',
+  ]);
+  const jiraOnly = repoWithConfig({ ...GENERIC_CONFIG, trackers: [{ kind: 'jira', site: 'acme.atlassian.net', project: 'ACME' }] });
+  assert.match(acc(jiraOnly, ['import', '--json'], JSON.stringify([{ source: { kind: 'monday', key: 'MON-1' }, title: 'x' }])).json().errors[0], /^MON-1: no monday\.com tracker/);
 });
 
 test('intake github moves closed issues\' tasks to done, removes skipped ones, and names those that started', () => {

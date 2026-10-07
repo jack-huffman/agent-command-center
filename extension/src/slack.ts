@@ -12,6 +12,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { AutopilotRecord } from '../../packages/core/src/autopilot.ts';
 import { runStartedAt, type Task } from '../../packages/core/src/ledger.ts';
+import { isTrackerKind } from '../../packages/core/src/trackers/types.ts';
 import { EVENT_WORDS, type Update } from '../../packages/core/src/updates.ts';
 import type { NoticeKind, TaskNotice, TaskRow, Tone } from './logic.ts';
 
@@ -164,7 +165,7 @@ export function taskEvent(p: SlackProject, n: TaskNotice, now: number): SlackEve
 const COULDNT = { review: 'review it', land: 'land it', dispatch: 're-dispatch it', refresh: 'merge its base into it', resume: 'resume its builder', checks: 'send it back for its failing checks' } as const;
 
 /** Whether a task's ticket takes updates: one from a tracker, with a key (D-066). */
-const ticketed = (t: Pick<Task, 'source'> | undefined): boolean => !!t?.source.key && ['github', 'jira', 'azure'].includes(t.source.kind);
+const ticketed = (t: Pick<Task, 'source'> | undefined): boolean => !!t?.source.key && isTrackerKind(t.source.kind);
 
 /**
  * A step autopilot took (D-064), as Slack is told it, or null for one that isn't sent: what it couldn't

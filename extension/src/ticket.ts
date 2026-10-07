@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import type { RepoPaths } from '../../packages/core/src/paths.ts';
 import { receiptsAt } from '../../packages/core/src/receipts.ts';
-import type { Ticket, TrackerClient } from '../../packages/core/src/trackers/types.ts';
+import { signInLabel, type Ticket, type TrackerClient } from '../../packages/core/src/trackers/types.ts';
 import type { Hub, Project } from './hub.ts';
 import { type FromWebview, isFromWebview, type Ref, type TicketAcc, ticketActionRefusal, ticketModel, type TicketModel } from './model.ts';
 import { htmlFor, isWebLink } from './panels.ts';
@@ -151,7 +151,7 @@ export class TicketPanels implements vscode.Disposable {
       o.error = outside ? null : (e as Error).message;
       const t = this.trackers.trackers(p)[o.tracker];
       o.connect = (e as { kind?: string }).kind === 'auth' && t && t.kind !== 'github'
-        ? { command: 'acc.trackers.signIn', label: t.kind === 'jira' ? 'Sign in to Jira' : 'Sign in to Azure DevOps', arg: JSON.stringify({ root: p.root, index: o.tracker }) } : null;
+        ? { command: 'acc.trackers.signIn', label: signInLabel(t.kind), arg: JSON.stringify({ root: p.root, index: o.tracker }) } : null;
     } finally {
       o.loading = false;
     }
@@ -309,8 +309,8 @@ export class TicketPanels implements vscode.Disposable {
 
   private async pickAssignees(client: TrackerClient, o: Open): Promise<boolean> {
     const current = o.ticket!.assignees;
-    if (client.kind === 'github') {
-      // GitHub takes several assignees: a checklist of everyone who can be assigned.
+    if (client.kind === 'github' || client.kind === 'monday') {
+      // GitHub and a monday.com People column take several: a checklist of everyone who can be assigned.
       const people = await client.assignable(o.key, '');
       const items = people.map((x) => ({ label: x.name, picked: current.some((c) => c.id === x.id), x }));
       const chosen = await vscode.window.showQuickPick(items, { title: `Assignees for ${o.key}`, canPickMany: true, placeHolder: 'Tick everyone who should work on it' });

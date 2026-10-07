@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { AccError } from './exec.ts';
+import { isTrackerKind, orList, TRACKER_KINDS, type TrackerKind } from './trackers/types.ts';
 
 export const PROFILES = ['generic', 'salesforce'] as const;
 export type Profile = (typeof PROFILES)[number];
@@ -45,7 +46,7 @@ export interface Environment {
 }
 
 export interface Tracker {
-  kind: 'github' | 'jira' | 'azure';
+  kind: TrackerKind;
   /** Jira: the site, such as acme.atlassian.net. */
   site: string | null;
   /** Jira: the project key. Azure DevOps: the project name. */
@@ -54,22 +55,31 @@ export interface Tracker {
   repo: string | null;
   /** Azure DevOps: the organization, as in dev.azure.com/<organization>. */
   organization: string | null;
+  /** monday.com: the account, as in acme.monday.com. */
+  account: string | null;
   /** Azure DevOps: the team whose board to show. By default, the project's default team. */
   team: string | null;
-  /** The board the Tasks tab shows: a Jira board id, a GitHub Project number, or an Azure board's name. */
+  /**
+   * The board the Tasks tab shows: a Jira board id, a GitHub Project number, or an Azure board's name. A
+   * monday.com board's id, which is also which tracker it is, as a Jira project is.
+   */
   board: number | string | null;
-  /** Azure DevOps: the work item key prefix, AB by default (AB-123). */
+  /** monday.com: the status column whose labels are the board's columns. By default, the one called Status, or the first. */
+  statusColumn: string | null;
+  /** Azure DevOps: the work item key prefix, AB by default (AB-123). monday.com: the item key prefix, MON by default (MON-123). */
   prefix: string | null;
   /** GitHub: issues with any of these labels aren't tasks, such as milestone. */
   skipLabels: string[];
   /**
    * Where in the tracker this repo's tickets come from, narrower than its project or repo (D-072). Jira: an
    * epic's key, so only its child tickets and their sub-tasks count. GitHub: labels, so only issues with one
-   * of them count. Azure DevOps: an area path, so only work items under it count. Unset, the whole project.
+   * of them count. Azure DevOps: an area path, so only work items under it count. monday.com: a group's id,
+   * so only the board's items in that group count. Unset, the whole project or board.
    */
   epic: string | null;
   labels: string[];
   areaPath: string | null;
+  group: string | null;
   /**
    * Whether the task page may change a ticket's status, assignee and labels. Off by default: a client's
    * tracker is theirs, and acc only drafts updates for a person to post (D-066). Your own repo can opt in.
@@ -168,8 +178,12 @@ export function parseConfig(raw: unknown): ParseResult {
   if (raw.trackers !== undefined) {
     if (!Array.isArray(raw.trackers)) errors.push('"trackers" must be a list.');
     else raw.trackers.forEach((t, i) => {
-      if (!isObj(t) || (t.kind !== 'github' && t.kind !== 'jira' && t.kind !== 'azure')) {
-        errors.push(`trackers[${i}]: "kind" must be github, jira or azure.`);
+      if (!isObj(t) || !isTrackerKind(t.kind)) {
+        errors.push(`trackers[${i}]: "kind" must be ${orList([...TRACKER_KINDS])}.`);
+        return;
+      }
+      if (t.kind === 'monday' && (!isStr(t.account) || !/^[A-Za-z0-9][A-Za-z0-9-]*$/.test(t.account.trim()) || !Number.isSafeInteger(t.board) || (t.board as number) <= 0)) {
+        errors.push(`trackers[${i}]: a monday.com tracker needs "account" (as in acme.monday.com) and "board" (the board's id, a number).`);
         return;
       }
       if (t.kind === 'azure' && (!isStr(t.organization) || !isStr(t.project))) {
@@ -196,6 +210,8 @@ export function parseConfig(raw: unknown): ParseResult {
         { key: 'epic', kind: 'jira', on: 'a Jira', ok: isStr(t.epic) && JIRA_ISSUE.test(t.epic.trim()), error: '"epic" must be a Jira epic\'s key, such as ACME-3.' },
         { key: 'labels', kind: 'github', on: 'a GitHub', ok: strList(t.labels), error: '"labels" must be a list of label names, such as ["billing"].' },
         { key: 'areaPath', kind: 'azure', on: 'an Azure DevOps', ok: isStr(t.areaPath), error: '"areaPath" must be an Azure DevOps area path, such as "CRM\\\\Billing".' },
+        { key: 'group', kind: 'monday', on: 'a monday.com', ok: isStr(t.group), error: '"group" must be a monday.com group\'s id, such as "topics".' },
+        { key: 'statusColumn', kind: 'monday', on: 'a monday.com', ok: isStr(t.statusColumn), error: '"statusColumn" must be a monday.com status column\'s id, such as "status".' },
       ] as const;
       const set = placeKeys.filter((p) => t[p.key] !== undefined && t[p.key] !== null);
       const bad = set.filter((p) => !p.ok);
@@ -211,7 +227,7 @@ export function parseConfig(raw: unknown): ParseResult {
         errors.push(`trackers[${i}]: "edits" must be true or false: whether the task page may change a ticket's status, assignee and labels.`);
         return;
       }
-      const boardOk = t.board === undefined || t.board === null || (t.kind === 'azure' ? isStr(t.board) : Number.isInteger(t.board) && (t.board as number) > 0);
+      const boardOk = t.board === undefined || t.board === null || (t.kind === 'azure' ? isStr(t.board) : Number.isSafeInteger(t.board) && (t.board as number) > 0);
       if (!boardOk) {
         errors.push(`trackers[${i}]: "board" must be ${t.kind === 'azure' ? 'an Azure board\'s name, such as Stories' : 'a Jira board id or a GitHub Project number'}.`);
         return;
@@ -222,15 +238,27 @@ export function parseConfig(raw: unknown): ParseResult {
         project: isStr(t.project) ? t.project : null,
         repo: isStr(t.repo) ? t.repo : null,
         organization: isStr(t.organization) ? t.organization : null,
+        account: t.kind === 'monday' && isStr(t.account) ? t.account.trim().toLowerCase() : null,
         team: isStr(t.team) ? t.team : null,
         board: Number.isInteger(t.board) || isStr(t.board) ? (t.board as number | string) : null,
+        statusColumn: t.kind === 'monday' && isStr(t.statusColumn) ? t.statusColumn.trim() : null,
         prefix: isStr(t.prefix) ? t.prefix.toUpperCase() : null,
         skipLabels: t.kind === 'github' && strList(t.skipLabels) ? t.skipLabels : [],
         epic: t.kind === 'jira' && isStr(t.epic) ? t.epic.trim().toUpperCase() : null,
         labels: t.kind === 'github' && strList(t.labels) ? t.labels.map((l) => l.trim()) : [],
         areaPath: t.kind === 'azure' && isStr(t.areaPath) ? t.areaPath.trim() : null,
+        group: t.kind === 'monday' && isStr(t.group) ? t.group.trim() : null,
         edits: t.edits === true,
       });
+    });
+    // Two trackers whose keys start the same: a ticket's key finds only the first, so the second's can't post.
+    const seen = new Map<string, number>();
+    trackers.forEach((t, i) => {
+      const p = keyPrefix(t);
+      if (!p) return;
+      const first = seen.get(p);
+      if (first === undefined) seen.set(p, i);
+      else warnings.push(`trackers[${first}] and trackers[${i}] both give tickets keys like ${p}-12, so those keys go to trackers[${first}]. Give one of them its own "prefix".`);
     });
   }
 
@@ -474,29 +502,41 @@ export function skippedOnRoute(config: Config, from: string, to: string): string
   return [];
 }
 
+/** What a tracker's ticket keys start with: GH, the Jira project, or the Azure DevOps or monday.com prefix. */
+export function keyPrefix(t: Pick<Tracker, 'kind' | 'project' | 'prefix'>): string | null {
+  if (t.kind === 'github') return 'GH';
+  if (t.kind === 'azure') return (t.prefix ?? 'AB').toUpperCase();
+  if (t.kind === 'monday') return (t.prefix ?? 'MON').toUpperCase();
+  return t.project ? t.project.toUpperCase() : null;
+}
+
 /**
  * Which tracker a ticket key belongs to, by its index: GH-12 to GitHub, AB-123 to the Azure DevOps tracker
- * with that prefix, MSP-7 to the Jira project MSP. A repo with two Jira sites posts each ticket's update
- * through its own (D-066).
+ * with that prefix, MON-123 to the monday.com one with its, MSP-7 to the Jira project MSP. A repo with two
+ * Jira sites posts each ticket's update through its own (D-066).
  */
 export function trackerForKey(trackers: Pick<Tracker, 'kind' | 'project' | 'prefix'>[], key: string): number | null {
   const k = key.toUpperCase();
-  const i = trackers.findIndex((t) => (/^GH-\d+$/.test(k) ? t.kind === 'github'
-    : t.kind === 'azure' ? k.startsWith(`${(t.prefix ?? 'AB').toUpperCase()}-`)
-      : t.kind === 'jira' && !!t.project && k.startsWith(`${t.project.toUpperCase()}-`)));
+  const i = trackers.findIndex((t) => {
+    if (/^GH-\d+$/.test(k)) return t.kind === 'github';
+    const p = t.kind === 'github' ? null : keyPrefix(t);
+    return !!p && k.startsWith(`${p}-`);
+  });
   return i >= 0 ? i : null;
 }
 
 /**
  * The raw trackers list with one tracker added, or put in place of the one it describes (same kind,
- * project and site, organization or repo). Settings the new one doesn't name, such as a GitHub tracker's
+ * project and site, organization or repo; a monday.com one by its account and board, since a board is its
+ * project). Settings the new one doesn't name, such as a GitHub tracker's
  * skipLabels (D-048), are kept: re-adding a tracker never quietly drops them. A setting it names as null
  * is taken out, so re-adding one as the whole project clears its epic, labels or area path (D-072).
  */
 export function withTracker(trackers: Record<string, unknown>[], tracker: Record<string, unknown>): Record<string, unknown>[] {
   // A repo left out and one named null are both the project's own.
-  const where = (t: Record<string, unknown>) => t.site ?? t.organization ?? t.repo ?? null;
-  const i = trackers.findIndex((t) => t.kind === tracker.kind && (t.project ?? null) === (tracker.project ?? null) && where(t) === where(tracker));
+  const where = (t: Record<string, unknown>) => t.site ?? t.organization ?? t.account ?? t.repo ?? null;
+  const board = (t: Record<string, unknown>) => (t.kind === 'monday' && t.board !== undefined && t.board !== null ? String(t.board) : null);
+  const i = trackers.findIndex((t) => t.kind === tracker.kind && (t.project ?? null) === (tracker.project ?? null) && where(t) === where(tracker) && board(t) === board(tracker));
   if (i < 0) return [...trackers, setKeys(tracker)];
   return trackers.map((t, k) => (k === i ? setKeys({ ...t, ...tracker }) : t));
 }
