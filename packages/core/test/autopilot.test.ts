@@ -925,6 +925,12 @@ test('auto-merge: what keeps a pull request out of the merge queue, what holds i
   assert.deepEqual(why(mergeable({ checks: green(HEAD, { count: 0, required: false }), noChecksYet: true })), [null, 'waiting', 'GitHub reports no checks on pull request #7 yet. Autopilot gives them 2 minutes after a land.', 'hold']);
   assert.equal(why(mergeable({ checks: green(HEAD, { count: 0, required: true }) }))[3], 'hold');
   assert.equal(decideMerge(l, mergeable({ checks: green(HEAD, { count: 0, required: false }) })).queue, 'in', 'after the grace');
+  // One that conflicts gets no checks from GitHub until its base is merged in, which its turn does: it
+  // joins at once, with none to wait for.
+  const conflicting = landedAt({ conflicts: ['sum.js'] });
+  assert.deepEqual(decideMerge(conflicting, mergeable({ checks: green(HEAD, { count: 0, required: false }), noChecksYet: true })), { step: null, outcome: 'waiting', reason: 'Pull request #7 passed its review and its checks on aaaaaaa: it joins the merge queue.', queue: 'in' });
+  assert.equal(decideMerge(conflicting, mergeable({ checks: green(HEAD, { count: 0, required: true }) })).queue, 'in');
+  assert.equal(decideMerge(conflicting, mergeable({ checks: green(HEAD, { pending: ['e2e'] }) })).queue, 'hold', 'checks GitHub did start still settle first');
   // Anything waiting on a person makes it leave.
   const logless = green(HEAD, { failed: [{ name: 'ci/jenkins', workflow: '', link: 'https://jenkins.acme.example/job/1', job: null }] });
   const noLog = why(mergeable({ checks: logless }));

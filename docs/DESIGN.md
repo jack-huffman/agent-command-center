@@ -342,7 +342,8 @@ or from the project's `.acc/packet.md` if there is one. It contains:
   - End with `acc done`, or with `acc block "<reason>"` if stuck.
 - **Never:**
   - push, merge a pull request, open one, or deploy. Merging the base into its
-    own branch is fine, as the merge queue asks when it conflicts
+    own branch is fine where the merge queue runs, as it asks when it conflicts;
+    only there is it allowed without asking
   - edit files outside the worktree
   - edit an environment-specific file
   - change the ticket
@@ -615,7 +616,8 @@ before each:
   it on, and it never merges into a protected environment. A task in review
   merges when its review passed and its checks settled on the branch's latest
   commit, landed; GitHub's required checks passed there, or every check when the
-  base requires none (none at all count 2 minutes after the land); GitHub says
+  base requires none (none at all count 2 minutes after the land, or at once
+  for the merge queue when it conflicts, since GitHub runs none then); GitHub says
   it's mergeable; it's up to date with its base (the merge queue sees to it);
   no person asked for changes; nothing waits on a person, such as a failed step
   or an agent's question; and it changes nothing under `.acc/`. Autopilot reads

@@ -3261,7 +3261,10 @@ The author wants full swarming (D-080), and chose a merge queue (GH-73).
   minutes), no person asked for changes, nothing waits on a person, and nothing
   under `.acc/` changed (one that did is recorded, as in D-083). Being up to date
   with its base isn't asked, and neither is a conflict: the queue sees to both.
-  The ledger keeps `autopilot.queued` (when, at which commit, and the head's
+  A pull request that conflicts gets no checks at all, since GitHub runs no
+  `pull_request` workflows until it can make the merge, so one that conflicted
+  from its land doesn't wait for checks that won't come: it joins at once, and
+  its turn merges the base in and pushes a commit they run on. The ledger keeps `autopilot.queued` (when, at which commit, and the head's
   phase). One queue a repo, across its environments, in the order tasks were
   ready, ties in ledger order.
 - **Keeping its place, and leaving.** Waits that settle by themselves keep a
@@ -3303,7 +3306,9 @@ The author wants full swarming (D-080), and chose a merge queue (GH-73).
   with the end of its log. The packet's "What the merge queue found" says how to
   merge the base in and resolve them, or what to fix. Builders may run
   `git merge origin/<env>` in their own worktree: the Never line now forbids
-  merging a pull request, not the base, and their settings allow it.
+  merging a pull request, not the base, and their settings allow it where the
+  queue runs. Elsewhere, a Salesforce project above all, a builder asks first,
+  as before.
 - **One limit for autopilot's send-backs** (a person decided). The queue's and
   GitHub checks' (D-076) share it: once a commit, 3 a task, apart from D-055's
   one re-dispatch of a review's rework. `sentBack.kind` tells them apart; one

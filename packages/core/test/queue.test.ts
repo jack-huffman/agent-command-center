@@ -310,7 +310,45 @@ test('the head, behind its base: main is merged in, the full check runs once on 
   assert.ok(![...calls, ...early, ...later].some((c) => c.startsWith('claude -p')));
 });
 
-test('a conflict it can\'t resolve: the branch is as it was, nothing is pushed, and it goes back to its builder with the files; its packet says how to merge main in (GH-73)', () => {
+test('a pull request that conflicted from its land has no checks on GitHub: it joins at once, and its turn merges main in and pushes a commit GitHub\'s checks run on, then merges (GH-73)', () => {
+  const s = setup();
+  // The branch and main each add a decision at the end: they conflict in DECISIONS.md, which autopilot resolves (D-058).
+  const before = s.task('T-1', { 'docs/DECISIONS.md': `${DECISIONS}\n## D-??? Sums of three (2026-10-06)\n\nsum adds three.\n` });
+  const base = s.onMain({ 'docs/DECISIONS.md': `${DECISIONS}\n## D-002 Products (2026-10-05)\n\nproduct multiplies.\n` });
+  // Landed just now, after main moved on: GitHub runs none of its pull_request checks on a pull request that conflicts.
+  mutate(s.paths, now, (l, emit) => {
+    const t = l.tasks.find((x) => x.id === 'T-1')!;
+    t.pr = { ...t.pr!, landedAt: NOW, conflicts: ['docs/DECISIONS.md'] };
+    emit({ type: 'task.updated', task: 'T-1', actor: 'sync', by: 'acc sync', data: { pr: t.pr } });
+  });
+  assert.deepEqual(get(s, 'T-1').pr?.conflicts, ['docs/DECISIONS.md']);
+  const calls: string[] = [];
+  const r = autopilotPass(s.paths, s.config, deps(s, calls));
+  const merge = head(s, 'T-1');
+  assert.deepEqual(brief(r.steps), [['T-1', 'queue', 'done']], 'no 2 minutes waited for checks that won\'t come');
+  assert.equal(r.steps[0]!.reason, `Merged main into ${before.slice(0, 7)} as ${merge.slice(0, 7)}, keeping both sides' additions to docs/DECISIONS.md, and its full check passed. Pushed it to pull request #41: it merges once GitHub's checks pass.`);
+  assert.deepEqual(gitIn(s.dir, 'rev-list', '--parents', '-n', '1', merge).split(' ').slice(1), [before, base]);
+  const kept = gitIn(s.dir, 'show', `${merge}:docs/DECISIONS.md`);
+  assert.ok(kept.includes('## D-002 Products') && kept.includes('## D-??? Sums of three'), kept);
+  assert.equal(checksRun(calls).length, 1);
+  assert.deepEqual(pushes(calls), [`git push --set-upstream origin ${s.branchOf('T-1')}:${s.branchOf('T-1')}`]);
+  const t = get(s, 'T-1');
+  assert.deepEqual([t.pr?.sha, t.pr?.conflicts, t.autopilot?.queued?.phase], [merge, [], 'github'], 'the land found it no longer conflicts');
+
+  // GitHub runs its checks on the merge commit. Until they settle it keeps its place; once they pass, it merges there.
+  const ci = (bucket: string) => ({ more: { 'gh pr checks': ok(JSON.stringify([{ name: 'test', bucket, link: 'https://github.com/acme/tool/actions/runs/1/job/2', workflow: 'CI', state: bucket === 'pass' ? 'SUCCESS' : 'IN_PROGRESS' }])) } });
+  clock += 30_000;
+  const running: string[] = [];
+  const wait = autopilotPass(s.paths, s.config, deps(s, running, ci('pending')));
+  assert.deepEqual([brief(wait.steps), get(s, 'T-1').autopilot?.queued?.phase, merges(running)], [[['T-1', null, 'waiting']], 'github', []]);
+  const later: string[] = [];
+  const done = autopilotPass(s.paths, s.config, deps(s, later, ci('pass')));
+  assert.deepEqual(brief(done.steps), [['T-1', 'merge', 'done']]);
+  assert.deepEqual(merges(later), [`gh pr merge 41 -R acme/tool --merge --match-head-commit ${merge}`]);
+  assert.deepEqual(checksRun([...running, ...later]), [], 'the full check ran once, on the merge');
+});
+
+test('a conflict it can\'t resolve:the branch is as it was, nothing is pushed, and it goes back to its builder with the files; its packet says how to merge main in (GH-73)', () => {
   const s = setup();
   const before = s.task('T-1', { 'sum.js': 'export const sum = (a, b) => a + b; // the branch\n' });
   s.onMain({ 'sum.js': 'export const sum = (a, b) => b + a;\n' });

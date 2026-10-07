@@ -278,7 +278,7 @@ function checksStep(task: Task, facts: TaskFacts, step: (s: AutopilotStepName, r
  * place if it has one. Anything else, a step to take or a wait on a person, and it leaves the queue. Merged
  * already, it waits for acc sync. Checks that were cancelled, or a change to `.acc/`, are written down, so
  * the task needs you. No checks at all count once 2 minutes have passed since the land, where the base
- * requires none.
+ * requires none, and at once where it conflicts: GitHub starts none on a pull request until it merges.
  */
 function queueStep(task: Task, facts: TaskFacts, step: (s: AutopilotStepName, reason: string) => Decision, none: (o: 'waiting' | 'skipped', reason: string) => Decision): Decision {
   const pr = task.pr!;
@@ -299,8 +299,10 @@ function queueStep(task: Task, facts: TaskFacts, step: (s: AutopilotStepName, re
     const reason = `Checks were cancelled on GitHub: ${names(c.cancelled)}. Run them again, or merge it yourself.`;
     return { step: null, outcome: 'waiting', reason, record: { step: 'merge', reason } };
   }
-  // c.required is a guard: gh answers --required on a commit with no checks as "no checks reported".
-  if (!c.count && (c.required || facts.noChecksYet)) return hold(`GitHub reports no checks on pull request #${pr.number} yet. Autopilot gives them 2 minutes after a land.`);
+  // c.required is a guard: gh answers --required on a commit with no checks as "no checks reported". One
+  // that conflicts gets none to wait for: GitHub runs no pull_request workflows until its base is merged in,
+  // which its turn does, pushing a commit they run on.
+  if (!c.count && !pr.conflicts?.length && (c.required || facts.noChecksYet)) return hold(`GitHub reports no checks on pull request #${pr.number} yet. Autopilot gives them 2 minutes after a land.`);
   const placed = inQueueAt(task, facts.head);
   if (!placed) {
     // acc's own config, such as whether a repo auto-merges, is a person's to merge (GH-67): asked as it joins.
