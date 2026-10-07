@@ -305,12 +305,14 @@ export function activate(context: vscode.ExtensionContext): void {
     trackers: (root) => { const p = hub.project(root); return p ? trackers.trackers(p) : []; },
     title: (t) => trackers.title(t),
     storedSignIn: (root, kind, host) => trackers.storedSignIn(root, kind, host),
-    storeSignIn: (root, kind, host, cred) => trackers.storeSignIn(root, kind, host, cred),
+    ownSignIn: (root, kind, host) => trackers.ownSignIn(root, kind, host),
+    storeSignIn: (root, kind, host, cred, shared) => trackers.storeSignIn(root, kind, host, cred, shared),
     gitEmail: (root) => trackers.gitEmail(root),
     ghToken: (root, account) => trackers.ghToken(root, account),
     microsoft: (host, spec) => trackers.microsoft(host, spec),
     write: (root, index, record) => trackers.write(root, index, record),
-    signedIn: async (root) => { await trackers.reload(root); tickets.refresh(); await setup.recheck('B14.tickets'); },
+    // A sign-in for every project on a site lets their boards load too (GH-79).
+    signedIn: async (root, kind, host) => { await trackers.reload(root, { kind, host }); tickets.refresh(); await setup.recheck('B14.tickets'); },
     saved: async (root, name) => {
       await hub.loadProjects();
       await trackers.reload(root);

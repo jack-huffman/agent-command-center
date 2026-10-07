@@ -370,6 +370,8 @@ export function sampleBoards(): BoardInput[] {
     ({ key: `ACME-${n}`, title, url: `https://acme.atlassian.net/browse/ACME-${n}`, status: s, type, assignees: [], labels: [], priority: 'Medium', ...extra });
   return [{
     index: 0, kind: 'jira', title: 'Jira · ACME', error: null, connect: null, loading: false, signedInAs: 'jordan@acme.example',
+    // A sign-in for every project on the site (GH-79), said under the place.
+    signInScope: { shared: true, host: 'acme.atlassian.net' },
     place: 'Jira · ACME · epic ACME-3 Premium Support',
     left: ['ACME-18 left this repo\'s place: it isn\'t in epic ACME-3; ACME-18 is still blocked'],
     tracking: {
@@ -426,6 +428,8 @@ export function sampleMondayBoards(): BoardInput[] {
   const place = 'monday.com · acme · Client work · group This sprint';
   return [{
     index: 0, kind: 'monday', title: 'monday.com · acme', error: null, connect: null, loading: false, signedInAs: 'a personal API token', place,
+    // This project's own sign-in (GH-79).
+    signInScope: { shared: false, host: 'acme' },
     left: ['MON-9081726354 left this repo\'s place: it\'s in group Backlog; MON-9081726354 is still running'],
     tracking: {
       'MON-9081726361': { busy: true, error: null },
@@ -453,14 +457,15 @@ export function sampleMondayBoards(): BoardInput[] {
 }
 
 /** Which Connect page to draw (GH-51). */
-export type ConnectSample = 'start' | 'jira' | 'azure' | 'github' | 'existing' | 'monday';
+export type ConnectSample = 'start' | 'shared' | 'jira' | 'azure' | 'github' | 'existing' | 'monday';
 
 /**
- * The Connect page at each step: a new Jira tracker before signing in; signed in, its project picked, its
- * epics loading and its boards failing; Azure DevOps whose token was refused; GitHub with labels ticked;
- * an existing Jira tracker opened to change, its epic done now but kept; and a monday.com board signed in
- * with Sign in again open, so its token field and token page show beside its board, group and two status
- * columns (GH-70).
+ * The Connect page at each step: a new Jira tracker before signing in; its site given, with the tick for
+ * every project on it (GH-79); signed in for every project on the site, its project picked, its epics
+ * loading and its boards failing; Azure DevOps whose token was refused; GitHub with labels ticked; an
+ * existing Jira tracker opened to change, signed in for this project only, its epic done now but kept; and
+ * a monday.com board signed in for this project only, with Sign in again open, so its token field, token
+ * page and the tick (off) show beside its board, group and two status columns (GH-70).
  */
 export function sampleConnect(which: ConnectSample): ConnectModel {
   const root = '/Users/me/code/acme-service';
@@ -470,10 +475,15 @@ export function sampleConnect(which: ConnectSample): ConnectModel {
   const projects = [{ value: 'ACME', label: 'ACME', detail: 'Acme Service Desk' }, { value: 'OPS', label: 'OPS', detail: 'Operations' }];
   const boards = [{ value: '7', label: 'ACME Service board', detail: 'scrum', preferred: true }, { value: '9', label: 'Support kanban', detail: 'kanban' }];
   if (which === 'start') return connectModel(blankConnect(JIRA, { id: 'c-start', ...base }));
+  if (which === 'shared') {
+    const s = blankConnect(JIRA, { id: 'c-shared', ...base });
+    s.host = 'acme.atlassian.net';
+    return connectModel(s);
+  }
   if (which === 'jira') {
     const s = blankConnect(JIRA, { id: 'c-jira', ...base });
     s.host = 'acme.atlassian.net';
-    s.signIn = ok('Jordan Kim');
+    s.signIn = { ...ok('Jordan Kim'), shared: true };
     s.pickers.project = ready(projects, ['ACME']);
     s.pickers.epic = { options: [], selected: [], state: 'loading', error: null };
     s.pickers.board = { options: [], selected: [], state: 'failed', error: 'Jira answered HTTP 503: the service is unavailable.' };
@@ -496,14 +506,15 @@ export function sampleConnect(which: ConnectSample): ConnectModel {
   if (which === 'monday') {
     const s = blankConnect(MONDAY, { id: 'c-monday', ...base });
     s.host = 'acme';
-    s.signIn = { ...ok('Jordan Kim'), again: true };
+    s.signIn = { ...ok('Jordan Kim'), again: true, shared: false };
+    s.share = false;
     s.pickers.board = ready([{ value: '1234567890', label: 'Client work', detail: 'Acme' }, { value: '1234567999', label: 'Approvals', detail: 'Main workspace' }], ['1234567890']);
     s.pickers.group = ready([{ value: 'topics', label: 'This sprint' }, { value: 'new_group29179', label: 'Backlog' }], ['topics']);
     s.pickers.statusColumn = ready([{ value: 'status', label: 'Status', detail: 'Not started, Working on it, Stuck, Done', default: true }, { value: 'priority', label: 'Priority', detail: 'High, Medium, Low' }], ['status']);
     return connectModel(s);
   }
   const s = blankConnect(JIRA, { id: 'c-existing', ...base, existing: { index: 0, title: 'Jira · ACME', host: 'acme.atlassian.net', values: { project: 'ACME', epic: 'ACME-3', board: '7' } } });
-  s.signIn = ok('Jordan Kim');
+  s.signIn = { ...ok('Jordan Kim'), shared: false };
   s.pickers.project = ready([], ['ACME']);
   s.pickers.epic = ready([{ value: 'ACME-31', label: 'ACME-31', detail: 'Renewals' }, { value: 'ACME-30', label: 'ACME-30', detail: 'Partner portal' }], ['ACME-3']);
   s.pickers.board = ready(boards, ['7']);

@@ -25,11 +25,15 @@ test('every section of the page, and a ticket, has sample data built by the real
     else assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).connect], ['home', kind === 'output' ? 'setup' : kind, null]);
   }
   assert.equal((sampleModel('agents') as HomeModel).agents.whereView, 'folder');
-  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'agent', 'output', 'connect-start', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-settings']);
+  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-settings']);
   assert.equal((sampleModel('environments') as HomeModel).environments.slack?.state, 'on');
   // monday.com's Connect page: its token page, its board picked by name, and two status columns to choose from.
   const monday = (sampleModel('connect-monday') as HomeModel).connect!;
   assert.deepEqual([monday.kind, monday.fields[0]?.help?.url, monday.pickers.map((p) => [p.key, p.hidden])], ['monday', 'https://acme.monday.com/apps/manage/tokens', [['board', false], ['group', false], ['statusColumn', false]]]);
+  // The tick for every project on the site, named for it (GH-79), and the sign-in it keeps said on the board.
+  const shared = (sampleModel('connect-shared') as HomeModel).connect!;
+  assert.deepEqual([shared.share.shown, shared.share.on, shared.share.label], [true, true, 'Use this sign-in for every project on acme.atlassian.net']);
+  assert.equal((sampleModel('tasks') as HomeModel).tasks.projects[0]!.boards[0]!.signIn?.label, 'Signed in as jordan@acme.example, for every project on acme.atlassian.net');
   // A ticket acc doesn't keep yet, being tracked from its card (D-074).
   assert.deepEqual([(sampleModel('ticket-track') as TicketModel).trackable, (sampleModel('ticket-track') as TicketModel).tracking], [true, true]);
   // A ticket being built, one whose analysis has questions, and one too big for one task (D-052).

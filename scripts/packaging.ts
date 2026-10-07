@@ -326,13 +326,14 @@ export const defaultTermDeps = (root: string = ROOT, env: NodeJS.ProcessEnv = pr
 });
 
 /**
- * A tracker sign-in's key, acc.cred:<repoKey>:<kind>:<host> (D-027): its host, and its repo when that's a
- * GitHub repo. An Azure DevOps host is a bare organization, so it's matched only in the forms a URL takes.
+ * A tracker sign-in's key, acc.cred:<repoKey>:<kind>:<host> (D-027) or, shared by every project on a site,
+ * acc.cred:site:<kind>:<host> (GH-79): its host, and its repo when that's a GitHub repo. A site's has no
+ * repo. An Azure DevOps host is a bare organization, so it's matched only in the forms a URL takes.
  */
 export function parseSignIn(key: string): { hosts: string[]; repo: string | null } | null {
   const m = /acc\.cred:([^"]+)/.exec(key);
   const parts = m?.[1]!.split(':') ?? [];
-  if (parts.length < 4) return null;
+  if (parts.length < (parts[0] === 'site' ? 3 : 4)) return null;
   const host = parts.pop()!.toLowerCase();
   parts.pop();
   const repoKey = parts.join(':');

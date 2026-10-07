@@ -149,6 +149,8 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     // Fresh machine results for this folder's profile, so the test doesn't call slow machine CLIs.
     globalState: memento({ 'acc.welcomed': true, 'acc.machineItems': { at: Date.now(), profile: 'generic', items: [{ id: 'A1.git', part: 'machine', title: 'git', status: 'pass', detail: 'git 2.54.0' }] } }),
     workspaceState: memento(),
+    // Tracker sign-ins: none, and a change from another window is listened for (GH-79).
+    secrets: { get: async () => undefined, store: async () => {}, delete: async () => {}, onDidChange: () => ({ dispose: () => {} }) },
     environmentVariableCollection: { description: '', prepend: (k: string, v: string) => prepends.push([k, v]) },
   };
   try {
