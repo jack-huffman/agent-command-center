@@ -3,6 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, 
 import { join } from 'node:path';
 import { agentArgs } from './agents.ts';
 import { type AwakeDeps, holdAwake } from './awake.ts';
+import { sessionName } from './names.ts';
 import { type Config, type Environment, environmentByBranch } from './config.ts';
 import { AccError, type RunResult, type Runner, sfEnv } from './exec.ts';
 import { type Actor, mutate, readLedger, type Task } from './ledger.ts';
@@ -64,6 +65,8 @@ export interface Analysis {
   /** The orgs it read, by alias. */
   orgs: string[];
   sessionId: string;
+  /** What the analyst was called (D-087). Older analyses have none. */
+  name?: string;
   at: string;
   durationMs: number;
   costUsd: number | null;
@@ -146,6 +149,8 @@ export const openQuestions = (a: Analysis | null): AnalysisQuestion[] => (a?.que
 
 export interface Analyzing {
   sessionId: string;
+  /** What the analyst is called (D-087). An analysis started before names has none. */
+  name?: string;
   startedAt: string;
   pid: number;
 }
@@ -314,7 +319,7 @@ export interface AnalyzeDeps {
   /** How to run acc from a hook, so the analyst's commands are checked too. */
   accCommand?: string;
   uuid?: () => string;
-  onStart?: (sessionId: string) => void;
+  onStart?: (sessionId: string, name: string) => void;
   /** For tests: how the Mac is kept awake while the analyst runs (D-067). */
   awake?: AwakeDeps;
 }
@@ -362,17 +367,18 @@ export function analyze(paths: RepoPaths, config: Config, id: string, deps: Anal
   const cwd = sf ? scratchProject(paths, id) : paths.root;
 
   const sessionId = (deps.uuid ?? randomUUID)();
+  const name = sessionName({ project: config.project, key: id, title: task.title, role: 'analysis' });
   mkdirSync(paths.analyses, { recursive: true });
   const marker = runningPath(paths, id);
   const startedAt = now();
-  writeFileSync(marker, JSON.stringify({ sessionId, startedAt: startedAt.toISOString(), pid: process.pid } satisfies Analyzing));
-  deps.onStart?.(sessionId);
+  writeFileSync(marker, JSON.stringify({ sessionId, name, startedAt: startedAt.toISOString(), pid: process.pid } satisfies Analyzing));
+  deps.onStart?.(sessionId, name);
   // The analyst is a child of this acc, so the Mac stays awake while acc lives (D-067).
   const awake = holdAwake(process.pid, deps.awake);
   let out: RunResult;
   try {
     out = run('claude', [
-      '-p', '--session-id', sessionId, '--permission-mode', 'dontAsk', ...agentArgs(config.agents.reviewer),
+      '-p', '--session-id', sessionId, '--name', name, '--permission-mode', 'dontAsk', ...agentArgs(config.agents.reviewer),
       '--output-format', 'json', '--json-schema', JSON.stringify(ANALYSIS_SCHEMA), '--append-system-prompt', system,
       ...(cwd !== paths.root ? ['--add-dir', paths.root] : []),
       ...(settings ? ['--settings', JSON.stringify(settings)] : []),
@@ -393,7 +399,7 @@ export function analyze(paths: RepoPaths, config: Config, id: string, deps: Anal
   const analysis: Analysis = {
     v: 1, task: id, env: env.branch, base, ...parsed.analysis, questions,
     verdict: parsed.analysis.verdict === 'questions' && !questions.some((q) => !q.answer) ? 'ready' : parsed.analysis.verdict,
-    orgs: orgs.map((o) => o.alias), sessionId: parsed.sessionId ?? sessionId,
+    orgs: orgs.map((o) => o.alias), sessionId: parsed.sessionId ?? sessionId, name,
     at: finished.toISOString(), durationMs: finished.getTime() - startedAt.getTime(), costUsd: parsed.costUsd,
   };
   writeAnalysis(paths, analysis);

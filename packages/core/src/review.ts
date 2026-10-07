@@ -9,6 +9,7 @@ import type { RepoPaths } from './paths.ts';
 import { receiptHooks, receiptsAt } from './receipts.ts';
 import { agentArgs } from './agents.ts';
 import { type AwakeDeps, holdAwake } from './awake.ts';
+import { sessionName } from './names.ts';
 
 /**
  * The review (D-032): a fresh agent reads the task, the diff, the checks and the project's rules, and
@@ -44,6 +45,8 @@ export interface Verdict {
   findings: Finding[];
   /** The reviewer's Claude Code session, so its reasoning can be read afterwards. */
   sessionId: string;
+  /** What the reviewer was called (D-087). Older verdicts have none. */
+  name?: string;
   at: string;
   durationMs: number;
   /** Claude Code's estimate of the tokens at API prices. On a subscription it's usage, not a charge. */
@@ -101,6 +104,8 @@ export function latestVerdict(paths: RepoPaths, task: string): Verdict | null {
 
 export interface Reviewing {
   sessionId: string;
+  /** What the reviewer is called (D-087). A review started before names has none. */
+  name?: string;
   sha: string;
   startedAt: string;
   pid: number;
@@ -214,8 +219,8 @@ export interface ReviewDeps {
   env: NodeJS.ProcessEnv;
   /** For tests: makes the session id. */
   uuid?: () => string;
-  /** Told the session id as the review starts, so it can be watched. */
-  onStart?: (sessionId: string, sha: string) => void;
+  /** Told the session id and the reviewer's name as the review starts, so it can be watched. */
+  onStart?: (sessionId: string, sha: string, name: string) => void;
   /** For tests: how the Mac is kept awake while the reviewer runs (D-067). */
   awake?: AwakeDeps;
 }
@@ -262,18 +267,19 @@ export function review(paths: RepoPaths, config: Config, id: string, deps: Revie
   const { system, prompt } = reviewPrompt({ task, config, envName: env.name, envBranch: env.branch, sha, packet, diff, stat, checks, rules });
 
   const sessionId = (deps.uuid ?? randomUUID)();
+  const name = sessionName({ project: config.project, key: id, title: task.title, role: 'review' });
   mkdirSync(paths.reviews, { recursive: true });
   const marker = runningPath(paths, id);
   const startedAt = now();
-  writeFileSync(marker, JSON.stringify({ sessionId, sha, startedAt: startedAt.toISOString(), pid: process.pid } satisfies Reviewing));
-  deps.onStart?.(sessionId, sha);
+  writeFileSync(marker, JSON.stringify({ sessionId, name, sha, startedAt: startedAt.toISOString(), pid: process.pid } satisfies Reviewing));
+  deps.onStart?.(sessionId, sha, name);
   // The reviewer is a child of this acc, so the Mac stays awake while acc lives (D-067).
   const awake = holdAwake(process.pid, deps.awake);
   let out: RunResult;
   try {
     // Read-only by construction: only the read tools are allowed, and dontAsk refuses everything else.
     out = run('claude', [
-      '-p', '--session-id', sessionId, '--permission-mode', 'dontAsk', ...agentArgs(config.agents.reviewer),
+      '-p', '--session-id', sessionId, '--name', name, '--permission-mode', 'dontAsk', ...agentArgs(config.agents.reviewer),
       '--output-format', 'json', '--json-schema', JSON.stringify(VERDICT_SCHEMA), '--append-system-prompt', system,
       '--allowedTools', 'Read', 'Grep', 'Glob',
       '--disallowedTools', 'Bash', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch',
@@ -287,7 +293,7 @@ export function review(paths: RepoPaths, config: Config, id: string, deps: Revie
   const parsed = parseReview(out.stdout);
   const finished = now();
   const verdict: Verdict = {
-    v: 1, task: id, sha, env: env.branch, ...parsed.verdict, sessionId: parsed.sessionId ?? sessionId,
+    v: 1, task: id, sha, env: env.branch, ...parsed.verdict, sessionId: parsed.sessionId ?? sessionId, name,
     at: finished.toISOString(), durationMs: finished.getTime() - startedAt.getTime(), costUsd: parsed.costUsd,
   };
   const file = reviewPath(paths, id, sha);

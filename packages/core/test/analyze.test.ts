@@ -42,18 +42,26 @@ const ANSWER = {
 test('an analysis comes back read-only, with its questions numbered, and is kept for the task (D-052)', () => {
   const { paths, config, id } = setup(SF_CONFIG, { 'sfdx-project.json': JSON.stringify({ packageDirectories: [{ path: 'force-app', default: true }], sourceApiVersion: '62.0' }) });
   let call: { args: string[]; opts?: RunOptions } | null = null;
+  let marked: string | undefined;
   const fake = fakeRunner({});
   const runner = (cmd: string, args: string[], opts?: RunOptions) => {
-    if (cmd === 'claude') { call = { args, opts }; return result(ANSWER); }
+    if (cmd === 'claude') { call = { args, opts }; marked = analyzing(paths, id)?.name; return result(ANSWER); }
     return fake(cmd, args, opts);
   };
-  const a = analyze(paths, config, id, { run: runner, now, env: { PATH: '/bin' }, accCommand: 'acc', uuid: () => 'fixed' });
+  const started: string[] = [];
+  const a = analyze(paths, config, id, { run: runner, now, env: { PATH: '/bin' }, accCommand: 'acc', uuid: () => 'fixed', onStart: (_s, name) => started.push(name) });
   assert.equal(a.verdict, 'questions');
   assert.deepEqual(a.questions.map((q) => q.id), ['q1']);
   assert.deepEqual(a.orgs, ['Acme Production', 'Acme UAT', 'Acme Dev'], 'it may read every listed org');
   assert.deepEqual(readAnalysis(paths, id)?.findings[0]?.area, 'Case');
+  // Named for its project, task and role (D-087): in Claude Code, while it runs, and on the analysis.
+  const name = 'Acme · ACME-7 Escalate premium cases · analysis';
+  assert.deepEqual(started, [name]);
+  assert.equal(marked, name);
+  assert.equal(readAnalysis(paths, id)?.name, name);
   const line = call!.args.join(' ');
-  assert.match(line, /^-p --session-id fixed --permission-mode dontAsk --model claude-opus-5-5 /, 'the reviewer\'s model, acc\'s default when none is chosen (D-052, D-086)');
+  // The reviewer's model, acc's default when none is chosen (D-052, D-086).
+  assert.ok(line.startsWith(`-p --session-id fixed --name ${name} --permission-mode dontAsk --model claude-opus-5-5 `), line.slice(0, 160));
   assert.match(line, /Bash\(sf data query:\*\)/);
   assert.match(line, /Bash\(sf project retrieve start:\*\)/);
   assert.ok(!/Bash\(sf project deploy/.test(line) && !/Bash\(sf apex run/.test(line), 'no writes are allowed');

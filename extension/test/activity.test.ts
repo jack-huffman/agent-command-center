@@ -127,7 +127,8 @@ test('questions are asked by the task their agent works on, and come first on th
   const home = homeModel({ hub, section: 'overview', boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: sampleRuns() });
   assert.equal(home.overview.questions.length, 2);
   const titles = home.overview.attention.map((a) => a.title);
-  assert.ok(!titles.some((t) => t.startsWith('ACME-14') || t.startsWith('ACME-12')), 'a task whose question is shown isn\'t listed again');
+  // Neither as its task nor as its agent, which is named for its project, task and role (D-087).
+  assert.ok(!titles.some((t) => /^(Acme Service · )?ACME-1[24]\b/.test(t)), 'a task whose question is shown isn\'t listed again');
   assert.ok(titles.includes('ACME-11'), 'an agent waiting in its own terminal still shows, to attach to');
   assert.equal(home.nav[0]!.count, needsYouCount(home.overview));
   assert.equal(home.overview.stats.find((s) => s.label === 'Agents working')!.value, '2', 'agents waiting on a question aren\'t counted as working');
@@ -138,6 +139,7 @@ test('an agent\'s page: its task, its question, its actions, and an ended sessio
   const hub = sampleHub();
   const m = agentModel({ hub, key: 's-acme-14', seen: null, entries: [{ k: 'say', id: 's', at: null, text: '**Done** soon' }], readable: true, lastAt: null });
   assert.equal(m.task?.id, 'ACME-14');
+  assert.equal(m.name, 'Acme Service · ACME-14 Route web-to-case submissions by… · builder', 'the name acc gave it, once (D-087)');
   assert.equal(m.look.label, 'Needs you: wants permission');
   assert.equal(m.questions.length, 1);
   assert.deepEqual(m.actions.map((a) => a.command), ['acc.agent.openInClaude', 'acc.agent.attach', 'acc.agent.openFolder', 'acc.agent.stop']);

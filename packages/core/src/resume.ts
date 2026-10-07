@@ -107,13 +107,15 @@ export interface ResumeCommandInput {
  * with: the builder's settings (its allow and deny lists, and its hooks), its role and task, the
  * project's permission mode, and the builder's model and effort, with the model picked for the task if
  * one was (D-086). Pass the config with this clone's choices in it (withCloneAgents, D-036). D-060's
- * reply runs the same.
+ * reply runs the same. It keeps the name its run recorded (D-087): resumed without one, Claude Code
+ * lists the session under a name of its own.
  */
 export function resumeCommand(task: Task, config: Config, i: ResumeCommandInput): { args: string[]; env: Record<string, string>; model: string } {
   const settings = JSON.stringify(builderSettings(task, config, i.accBinDir, i.basePath, i.accCommand));
   const { model } = builderModel(task, config);
+  const name = task.run?.name ? ['--name', task.run.name] : [];
   return {
-    args: ['-p', i.message, '--resume', i.sessionId, '--permission-mode', config.agents.permissionMode, ...agentArgs({ ...config.agents.builder, model }), '--settings', settings],
+    args: ['-p', i.message, '--resume', i.sessionId, ...name, '--permission-mode', config.agents.permissionMode, ...agentArgs({ ...config.agents.builder, model }), '--settings', settings],
     env: { ACC_ROLE: 'builder', ACC_TASK: task.id },
     model,
   };

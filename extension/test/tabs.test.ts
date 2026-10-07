@@ -60,6 +60,32 @@ test('agents: this project first, needs-you on top, background sessions can be s
   assert.equal(m.places[1]!.agents[0]!.background, false, 'interactive sessions are managed where they run');
 });
 
+test('an agent is called by the name acc gave it on the Agents tab, the Overview and its page, though Claude Code lists another (D-087)', async () => {
+  const { agentModel } = await import('../src/model.ts');
+  const name = 'Acme · AV-1 Login page for the partner portal · builder 2';
+  const review = 'Acme · AV-3 Lead routing · review';
+  const h = hub();
+  // A resumed builder Claude Code lists under a name of its own, waiting on you; a reviewer it lists without one.
+  h.agents = [
+    { cwd: '/r.worktrees/AV-1', kind: 'interactive', startedAt: 3, sessionId: 'sess-1', name: 'r-worktrees-5e', status: 'waiting', pid: 11 },
+    { cwd: '/r.worktrees/AV-3', kind: 'interactive', startedAt: 2, sessionId: 'sess-r', status: 'busy', pid: 12 },
+    { cwd: '/r', kind: 'background', startedAt: 1, id: 'bg9', sessionId: 'sess-9', name: 'AV-9', state: 'working', pid: 13 },
+  ];
+  const rows = h.taskRows('/r');
+  h.taskRows = () => rows.map((r) => (r.id === 'AV-1' ? { ...r, title: 'Retitled since', run: { bgId: 'bg1', sessionId: 'sess-1', name } } : r.id === 'AV-3' ? { ...r, state: 'review', reviewing: { sessionId: 'sess-r', name: review } } : r));
+  const names = agentsModel(h).places[0]!.agents.map((a) => a.name);
+  assert.deepEqual(names, [name, review, 'AV-9'], 'by its recorded name; one from before names by Claude Code\'s');
+  const page = agentModel({ hub: h, key: 'sess-1', seen: null, entries: [], readable: false, lastAt: null });
+  assert.equal(page.name, name);
+  assert.equal(page.task?.id, 'AV-1', 'its task, found by its session');
+  assert.equal(agentModel({ hub: h, key: 'sess-r', seen: null, entries: [], readable: false, lastAt: null }).name, review);
+  const m = homeModel({ hub: h, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } });
+  assert.ok(m.overview.attention.some((a) => a.title === name), 'the Overview names a waiting agent the same way');
+  // A card shows its builder's name when its agent line is hovered.
+  const card = tasksModel(h).projects[0]!.columns.flatMap((c) => c.cards).find((c) => c.id === 'AV-1')!;
+  assert.equal(card.agentName, name);
+});
+
 /** The webview/context items VSCode would show for a row with these context keys, in menu order. */
 function menuFor(webviewId: string, keys: Record<string, string | boolean>): string[] {
   const ctx: Record<string, string | boolean> = { webviewId, ...keys };

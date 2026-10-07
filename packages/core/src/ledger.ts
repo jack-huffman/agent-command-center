@@ -54,6 +54,10 @@ export interface Run {
    * picked. Without it, the next dispatch follows the clone's, the project's or acc's default.
    */
   modelPicked?: true;
+  /** What its builder is called (D-087): its session is found by this when no id was recorded. Older runs have none. */
+  name?: string;
+  /** Which of the task's dispatches this is: the second is "builder 2". Older runs count as 1. */
+  n?: number;
 }
 
 export interface PullRequest {
@@ -501,12 +505,17 @@ export interface ClaudeSession {
   status?: string;
 }
 
-/** The sessions that are a running task's builder: its background session, and any carrying on its conversation. */
-export function sessionsOf(task: Pick<Task, 'id' | 'run'>, sessions: ClaudeSession[]): ClaudeSession[] {
+/**
+ * The sessions that are a task's builder: its background session, and any carrying on its conversation,
+ * found by the ids recorded on its run. A builder whose ids weren't recorded is found by the name its run
+ * recorded (D-087), and a run from before names were recorded by a background session named after the
+ * task. Never by a name worked out from the task, whose title can change.
+ */
+export function sessionsOf<S extends ClaudeSession>(task: { id: string; run?: Run | null }, sessions: S[]): S[] {
   const run = task.run;
-  const mine = sessions.filter((s) => (!!run?.bgId && s.id === run.bgId) || (!!run?.sessionId && s.sessionId === run.sessionId));
-  // A builder started some other way, before its session was linked to the task.
-  return mine.length || run?.bgId || run?.sessionId ? mine : sessions.filter((s) => s.kind === 'background' && s.name === task.id);
+  if (run?.bgId || run?.sessionId) return sessions.filter((s) => (!!run.bgId && s.id === run.bgId) || (!!run.sessionId && s.sessionId === run.sessionId));
+  const name = run?.name ?? task.id;
+  return sessions.filter((s) => s.kind === 'background' && s.name === name);
 }
 
 /**

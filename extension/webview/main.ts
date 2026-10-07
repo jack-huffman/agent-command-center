@@ -195,6 +195,12 @@ function clipped(text: string, cls = ''): HTMLElement {
   return td;
 }
 
+/** An element that shows more on hover, such as a card's agent line naming its builder (D-087). */
+function titled(node: HTMLElement, text: string | null): HTMLElement {
+  if (text) node.title = text;
+  return node;
+}
+
 /** A cell that spans several columns, such as a group's heading row. */
 function span(cell: HTMLElement, columns: number): HTMLElement {
   (cell as HTMLTableCellElement).colSpan = columns;
@@ -298,7 +304,7 @@ function renderTasks(m: TasksModel): Node[] {
           card.closedPr ? el('div', 'card-agent', status(card.closedPr)) : null,
           // Its builder stopped before acc done or acc block, and what it last said (D-067): in orange, with its icon.
           card.stopped ? el('div', 'card-agent', status(card.stopped)) : null,
-          card.agent ? el('div', 'card-agent', el('span', 'muted', 'Agent: '), status(card.agent)) : null,
+          card.agent ? titled(el('div', 'card-agent', el('span', 'muted', 'Agent: '), status(card.agent)), card.agentName) : null,
           // The model it runs with (D-086), in plain mono text: a name, not a state.
           card.agent && card.model ? el('div', 'card-where card-model', icon('sparkle'), el('span', 'mono muted', card.model)) : null,
           // Its analysis (D-052), in its own words: under way, waiting on you, or ready to build from.
@@ -796,6 +802,8 @@ function renderTicket(m: TicketModel): Node[] {
 
         ...(a.agent && a.agent.label !== a.look.label ? field('Session', status(a.agent)) : []),
         ...(a.agent && a.model ? field('Model', el('span', 'mono', a.model)) : []),
+        // What its builder is called, in Claude Code and the Command Center alike (D-087).
+        ...(a.agentName ? field('Builder', el('span', 'agent-name', a.agentName)) : []),
         ...(a.branch ? field('Branch', clippedSpan(a.branch)) : []),
         ...(a.worktree ? field('Worktree', clippedSpan(a.worktree.split('/').slice(-2).join('/'))) : []),
       ),
@@ -1354,9 +1362,10 @@ function stepsSummary(items: { tool: string }[]): string {
 }
 
 function renderAgent(m: AgentModel): Node[] {
-  // A builder's page names its task, which opens the task's own page.
-  const name = m.task ? openable(el('span', 'tcard-key', m.task.id), { type: 'run', command: 'acc.task.show', ref: { project: m.task.project, task: m.task.id } }) : el('span', '', m.name);
-  const crumbs = el('div', 'crumbs', icon('hubot'), el('span', '', m.task ? 'Builder' : 'Agent'), el('span', 'muted', '/'), name, m.task && m.name !== m.task.id ? el('span', 'muted', `· ${m.name}`) : null);
+  // The agent's name, once (D-087): it says the project, task and role. A builder's opens its task's own page.
+  const named = titled(el('span', 'crumb-name', m.name), m.name);
+  const name = m.task ? openable(named, { type: 'run', command: 'acc.task.show', ref: { project: m.task.project, task: m.task.id } }) : named;
+  const crumbs = el('div', 'crumbs', icon('hubot'), name);
   const facts = el('div', 'agent-facts muted small',
     m.startedAt ? el('span', '', `Started ${since(m.startedAt)}`) : null,
     m.model ? el('span', '', el('span', 'sep', '·'), el('span', 'mono', m.model)) : null,
@@ -1885,7 +1894,8 @@ function renderAgents(m: AgentsModel): Node[] {
   }
   // One table with a heading row per place, so the columns line up all the way down.
   const table = el('table', 'grid');
-  table.append(el('thead', '', el('tr', '', ...[['Session', ''], ['State', ''], ['Model', 'model'], ['Kind', 'kind'], ['Where', 'wide'], ['Started', 'started'], ['', '']].map(([h, c]) => el('th', c!, h!)))));
+  // The session's name takes the room left over: it says what each agent works on (D-087).
+  table.append(el('thead', '', el('tr', '', ...[['Session', 'wide'], ['State', ''], ['Model', 'model'], ['Kind', 'kind'], ['Where', ''], ['Started', 'started'], ['', '']].map(([h, c]) => el('th', c!, h!)))));
   for (const place of m.places) {
     if (!place.agents.length && !place.root) continue;
     const body = el('tbody');
@@ -1893,7 +1903,8 @@ function renderAgents(m: AgentsModel): Node[] {
     if (!place.agents.length) body.append(el('tr', 'none', span(el('td', 'muted', 'No agent sessions in this project right now.'), 7)));
     for (const a of place.agents) {
       const row = el('tr', a.needsYou ? 'attention' : '',
-        openable(clipped(a.name, 'strong name'), { type: 'run', command: 'acc.agent.watch', ref: { session: a.key } }), el('td', 'nowrap', status(a.look)),
+        // Its whole name, wrapped: the part that says what it works on comes last (D-087).
+        openable(titled(el('td', 'strong agent-name', a.name), a.name), { type: 'run', command: 'acc.agent.watch', ref: { session: a.key } }), el('td', 'nowrap', status(a.look)),
         // The model it runs with (D-086), as plain text, short, with its full name on hover; a dash until it's known.
         Object.assign(el('td', 'nowrap mono muted model', a.model ? shortModel(a.model) : '—'), { title: a.model ?? 'Not known until it first answers' }), el('td', 'nowrap muted kind', a.kind), clipped(a.where, 'mono'), el('td', 'nowrap muted started', since(a.startedAt)),
         el('td', 'actions', menuButton(a.name)));

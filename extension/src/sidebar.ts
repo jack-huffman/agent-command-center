@@ -10,8 +10,8 @@ import { repoPaths } from '../../packages/core/src/paths.ts';
 import { receiptHooks } from '../../packages/core/src/receipts.ts';
 import { endResume } from '../../packages/core/src/resume.ts';
 import type { Hub, Project } from './hub.ts';
-import { type AgentSession, agentName, CLAUDE_EXTENSION, claudeSessionUri, dispatchModelArgs, dispatchModelItems, githubBranchUrl, isSessionId, landMessage, MODEL_CHOICES, sessionFor, sizeLine } from './logic.ts';
-import { laneMove, sessionKey } from './model.ts';
+import { type AgentSession, agentName, CLAUDE_EXTENSION, claudeSessionUri, dispatchModelArgs, dispatchModelItems, displayName, githubBranchUrl, isSessionId, landMessage, MODEL_CHOICES, sessionFor, sizeLine } from './logic.ts';
+import { laneMove, nameOf, sessionKey } from './model.ts';
 import { type RunResult, runFile } from './run.ts';
 import { claudeProjectsDir, savedFolder } from './transcript.ts';
 import type { AgentNode, EnvNode, TaskNode, WorktreeNode } from './nodes.ts';
@@ -78,7 +78,8 @@ export class Sidebar {
     reg('acc.task.watchAnalysis', (n: TaskNode) => this.watchAnalysis(n));
     reg('acc.task.land', (n: TaskNode) => this.landTask(n));
     reg('acc.task.openPr', (n: TaskNode) => n?.kind === 'task' && n.task.pr && vscode.env.openExternal(vscode.Uri.parse(n.task.pr.url)));
-    reg('acc.task.attach', (n: TaskNode) => n.kind === 'task' && n.task.run?.bgId && this.send(n.task.run.worktree ?? n.project.root, `claude attach ${n.task.run.bgId}`, `claude: ${n.task.id}`));
+    // A terminal is named for the agent it attaches to (D-087).
+    reg('acc.task.attach', (n: TaskNode) => n.kind === 'task' && n.task.run?.bgId && this.send(n.task.run.worktree ?? n.project.root, `claude attach ${n.task.run.bgId}`, `claude: ${displayName(undefined, n.task)}`));
     reg('acc.task.openWorktree', (n: TaskNode) => n.kind === 'task' && n.task.run?.worktree && vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(n.task.run.worktree), { forceNewWindow: true }));
     reg('acc.task.abandon', (n: TaskNode) => this.abandonTask(n));
     reg('acc.task.cleanup', (n: TaskNode) => this.cleanupTask(n));
@@ -90,7 +91,7 @@ export class Sidebar {
       const s = sessionFor(n.task, this.hub.agents);
       const id = s?.sessionId ?? n.task.run?.sessionId;
       if (!id) return void vscode.window.showInformationMessage(`${n.task.id} has no agent session to open.`);
-      return this.openInClaude(s ?? { cwd: n.task.run?.worktree ?? n.project.root, kind: 'background', startedAt: Date.now(), sessionId: id, name: n.task.id });
+      return this.openInClaude(s ?? { cwd: n.task.run?.worktree ?? n.project.root, kind: 'background', startedAt: Date.now(), sessionId: id, name: displayName(undefined, n.task) });
     });
     reg('acc.agent.attach', (n: AgentNode) => this.agentTerminal(n, 'attach'));
     // Logs are the activity page now; the terminal is the fallback when there's no page to show.
@@ -321,17 +322,18 @@ export class Sidebar {
       });
     });
     if (!result) return;
-    const r = result as { worktree?: string; bgId?: string | null; reused?: boolean };
+    const r = result as { worktree?: string; bgId?: string | null; reused?: boolean; name?: string };
     await Promise.all([this.hub.loadAgents(), this.hub.loadWorktrees()]);
     const where = r.worktree ? basename(r.worktree) : 'its worktree';
     const pick = await vscode.window.showInformationMessage(
       `${task.id} is running: an agent is working in ${where}${r.reused ? ' (reused)' : ''}. It will finish with acc done, or block if it needs you.`,
       ...(r.bgId ? ['Watch', 'Open in Claude Code'] : []), 'Open worktree');
-    if (pick === 'Watch' && r.bgId && !this.helpers.watch?.(r.bgId)) this.send(r.worktree ?? project.root, `claude attach ${r.bgId}`, `claude: ${task.id}`);
+    const terminal = `claude: ${r.name ?? task.id}`;
+    if (pick === 'Watch' && r.bgId && !this.helpers.watch?.(r.bgId)) this.send(r.worktree ?? project.root, `claude attach ${r.bgId}`, terminal);
     if (pick === 'Open in Claude Code' && r.bgId) {
       const s = this.hub.agents.find((a) => a.id === r.bgId);
       if (s) await this.openInClaude(s);
-      else this.send(r.worktree ?? project.root, `claude attach ${r.bgId}`, `claude: ${task.id}`);
+      else this.send(r.worktree ?? project.root, `claude attach ${r.bgId}`, terminal);
     }
     if (pick === 'Open worktree' && r.worktree) await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(r.worktree), { forceNewWindow: true });
   }
@@ -531,11 +533,12 @@ export class Sidebar {
 
   private watchReview(n: TaskNode): void {
     if (n?.kind !== 'task' || !n.task.reviewing || !n.task.run?.worktree) return;
-    const { sessionId } = n.task.reviewing;
+    const { sessionId, name } = n.task.reviewing;
     const root = n.project.root;
     const id = n.task.id;
     const stillReviewing = () => !!this.hub.taskRows(root).find((t) => t.id === id)?.reviewing;
-    this.helpers.watch?.(sessionId, { cwd: n.task.run.worktree, kind: 'background', startedAt: Date.now(), sessionId, name: `Review ${id}` }, stillReviewing);
+    // Its page keeps the name acc gave it (D-087), after the review is over too.
+    this.helpers.watch?.(sessionId, { cwd: n.task.run.worktree, kind: 'background', startedAt: Date.now(), sessionId, name: name ?? `Review ${id}` }, stillReviewing);
   }
 
   // ------------------------------------------------------------ the analysis before a build (D-052)
@@ -561,11 +564,11 @@ export class Sidebar {
 
   private watchAnalysis(n: TaskNode): void {
     if (n?.kind !== 'task' || !n.task.analyzing) return;
-    const { sessionId } = n.task.analyzing;
+    const { sessionId, name } = n.task.analyzing;
     const root = n.project.root;
     const id = n.task.id;
     const stillAnalyzing = () => !!this.hub.taskRows(root).find((t) => t.id === id)?.analyzing;
-    this.helpers.watch?.(sessionId, { cwd: root, kind: 'background', startedAt: Date.now(), sessionId, name: `Analysis ${id}` }, stillAnalyzing);
+    this.helpers.watch?.(sessionId, { cwd: root, kind: 'background', startedAt: Date.now(), sessionId, name: name ?? `Analysis ${id}` }, stillAnalyzing);
   }
 
   /** Pushes and opens the pull request, after a person says so: it's the first thing that leaves this machine. */
@@ -605,7 +608,7 @@ export class Sidebar {
    */
   async openInClaude(s: AgentSession): Promise<void> {
     if (!isSessionId(s.sessionId)) return void vscode.window.showInformationMessage(`${s.name ?? 'This session'} has no conversation Claude Code can open.`);
-    const name = s.name ?? s.sessionId.slice(0, 8);
+    const name = nameOf(this.hub, s);
     if (!vscode.extensions.getExtension(CLAUDE_EXTENSION)) {
       const pick = await vscode.window.showInformationMessage('Opening a session in a tab needs Claude Code for VSCode.', 'Install it', ...(s.id ? ['Attach in a terminal'] : []));
       if (pick === 'Install it') await vscode.commands.executeCommand('workbench.extensions.installExtension', CLAUDE_EXTENSION);
@@ -616,8 +619,9 @@ export class Sidebar {
     // main checkout it started from, and the window asking may be another repo's (D-046).
     const sessionId = s.sessionId;
     const folders = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
-    const task = this.hub.projects.flatMap((p) => this.hub.taskRows(p.root)).find((t) => t.run?.sessionId === sessionId);
     const live = this.hub.agents.find((a) => a.sessionId === sessionId);
+    // The task it builds, by its session: its name no longer looks like a task's id (D-087).
+    const task = this.hub.projects.flatMap((p) => this.hub.taskRows(p.root)).find((t) => t.run?.sessionId === sessionId || (!!live && sessionFor(t, [live]) === live));
     const folder = savedFolder(claudeProjectsDir(process.env), sessionId, [s.cwd, task?.run?.worktree, ...this.hub.projects.flatMap((p) => p.worktrees.map((w) => w.path))])
       ?? (live?.pid ? s.cwd : null); // a session that has only just started may not have saved anything yet
     if (!folder) {
@@ -628,7 +632,7 @@ export class Sidebar {
     if (live?.kind === 'background' && live.id && live.pid && live.state !== 'done' && live.state !== 'stopped' && live.state !== 'failed') {
       const ok = await vscode.window.showWarningMessage(`Take ${name} over in Claude Code?`, {
         modal: true,
-        detail: `It's ${live.state === 'blocked' ? 'waiting for an answer' : 'working'} in the background. A conversation can't run in two places, so acc stops it there, and a Claude Code tab carries on the same conversation, with its whole history. You drive it from the tab.${live.name && /^[A-Z][A-Z0-9_]*-\d+$/.test(live.name) ? ` Its task stays Running: finish it with acc done ${live.name}, or move it from the page.` : ''}`,
+        detail: `It's ${live.state === 'blocked' ? 'waiting for an answer' : 'working'} in the background. A conversation can't run in two places, so acc stops it there, and a Claude Code tab carries on the same conversation, with its whole history. You drive it from the tab.${task?.state === 'running' ? ` Its task stays Running: finish it with acc done ${task.id}, or move it from the page.` : ''}`,
       }, 'Stop it and open');
       if (ok !== 'Stop it and open') return;
       const r = await runFile('claude', ['stop', live.id], live.cwd, process.env, undefined, 30_000);
@@ -672,7 +676,7 @@ export class Sidebar {
     // Its session has ended: its transcript still says what it did.
     const run = n.task.run;
     const startedAt = Date.parse(this.hub.ledger(n.project.root)?.tasks.find((t) => t.id === n.task.id)?.run?.startedAt ?? '') || Date.now();
-    if (run?.sessionId && run.worktree && this.helpers.watch?.(run.sessionId, { cwd: run.worktree, kind: 'background', startedAt, sessionId: run.sessionId, name: n.task.id })) return;
+    if (run?.sessionId && run.worktree && this.helpers.watch?.(run.sessionId, { cwd: run.worktree, kind: 'background', startedAt, sessionId: run.sessionId, name: displayName(undefined, n.task) })) return;
     void vscode.window.showInformationMessage(`${n.task.id} has no agent session to show.`, ...(n.task.run?.worktree ? ['Open worktree'] : []))
       .then((p) => p && n.task.run?.worktree && vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(n.task.run.worktree), { forceNewWindow: true }));
   }
@@ -684,7 +688,7 @@ export class Sidebar {
       void vscode.window.showInformationMessage(`${s.name ?? 'This session'} is an interactive session in another window or terminal, so there's nothing to attach to here.`, 'Open its folder').then((p) => p && vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(s.cwd), { forceNewWindow: true }));
       return;
     }
-    this.send(s.cwd, `claude ${verb} ${s.id}`, `claude: ${s.name ?? s.id}`);
+    this.send(s.cwd, `claude ${verb} ${s.id}`, `claude: ${nameOf(this.hub, s)}`);
   }
 
   private async stopAgent(n: AgentNode): Promise<void> {
@@ -692,7 +696,7 @@ export class Sidebar {
     const s = n.session;
     const id = s.id;
     if (!id) return;
-    const ok = await vscode.window.showWarningMessage(`Stop ${s.name ?? id}?`, { modal: true, detail: 'The session stops where it is. Its worktree and transcript are kept, and you can resume it later.' }, 'Stop');
+    const ok = await vscode.window.showWarningMessage(`Stop ${nameOf(this.hub, s)}?`, { modal: true, detail: 'The session stops where it is. Its worktree and transcript are kept, and you can resume it later.' }, 'Stop');
     if (ok !== 'Stop') return;
     const r = await runFile('claude', ['stop', id], s.cwd, process.env, undefined, 30_000);
     if (r.code !== 0) void vscode.window.showWarningMessage(`Couldn't stop it: ${(r.stderr || r.stdout).trim().split('\n')[0]}`);

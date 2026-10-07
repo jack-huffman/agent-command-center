@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { type Analysis, type Approach, SIZE_MEANING } from '../../packages/core/src/analyze.ts';
 import { autopilotDoes, type AutopilotRecord, reworkedByAutopilot } from '../../packages/core/src/autopilot.ts';
-import type { AutopilotStepName, TaskInput } from '../../packages/core/src/ledger.ts';
+import { type AutopilotStepName, sessionsOf, type TaskInput } from '../../packages/core/src/ledger.ts';
 import type { CheckStatus, Step } from '../../packages/core/src/onboarding/types.ts';
 import { isTrackerKind, type Ticket } from '../../packages/core/src/trackers/types.ts';
 import type { Pending } from '../webview/pending.ts';
@@ -225,8 +225,11 @@ export interface TaskRow {
   environment: string;
   deps: string[];
   source: { kind: string; url: string | null };
-  /** model: what its builder was started with; modelPicked: a person picked it for this task (D-086). */
-  run?: { bgId?: string; sessionId?: string; worktree?: string; branch?: string; model?: string; modelPicked?: true } | null;
+  /**
+   * Its builder's run: its session's ids, the name it was given (D-087), which older runs don't have, the
+   * model its builder was started with, and modelPicked when a person picked it for this task (D-086).
+   */
+  run?: { bgId?: string; sessionId?: string; worktree?: string; branch?: string; name?: string; model?: string; modelPicked?: true } | null;
   /** The live state of the task's agent session, when one is known. */
   agent?: { label: string; icon: string; tone: Tone } | null;
   /** The model its agent runs with (D-086): what its transcript last answered with, else what acc started it with. */
@@ -235,8 +238,8 @@ export interface TaskRow {
   asking?: boolean;
   /** Its newest review (D-032): current when it's for the branch's latest commit. When it was made, so Slack can tell one from the next. */
   review?: { verdict: 'pass' | 'changes'; summary: string; current: boolean; at?: string } | null;
-  /** A review under way, to watch. */
-  reviewing?: { sessionId: string } | null;
+  /** A review under way, to watch, and its reviewer's name (D-087). */
+  reviewing?: { sessionId: string; name?: string } | null;
   /** Its pull request (D-033). */
   pr?: { number: number; url: string; state: string; ci?: string | null; changesRequested?: boolean; conflicts?: string[] } | null;
   /** A promotion taking its change on to another environment is open (D-075). */
@@ -248,8 +251,8 @@ export interface TaskRow {
    * tasks a split suggests, and its size, shown beside the model to dispatch with (D-086).
    */
   analysis?: { verdict: 'ready' | 'questions' | 'split'; at: string; open: AnalysisAsk[]; split: string[]; size?: Approach['size'] } | null;
-  /** An analysis under way, to watch. */
-  analyzing?: { sessionId: string } | null;
+  /** An analysis under way, to watch, and its analyst's name (D-087). */
+  analyzing?: { sessionId: string; name?: string } | null;
   /** The project wants an analysis before a task is built (D-052). */
   analysisRequired?: boolean;
   /** A step autopilot couldn't take in the task's current state, and why: the task needs you (D-055). */
@@ -391,13 +394,40 @@ export function landMessage(id: string, r: { opened?: boolean; pr?: { number: nu
 }
 
 /**
- * A task's agent: its background id or session id, or a background session named after the task. One
- * with a process comes first: a resumed conversation is listed beside its old background session (D-067).
+ * A task's agent, found as core finds it (sessionsOf): by its background id or session id, else by the
+ * name its run recorded, else, for a run from before names, a background session named after the task
+ * (D-087). One with a process comes first: a resumed conversation is listed beside its old background
+ * session (D-067).
  */
 export function sessionFor(row: Pick<TaskRow, 'id' | 'run'>, sessions: AgentSession[]): AgentSession | undefined {
-  const mine = sessions.filter((s) => (row.run?.bgId && s.id === row.run.bgId) || (row.run?.sessionId && s.sessionId === row.run.sessionId));
-  return mine.find((s) => s.pid) ?? mine[0] ?? sessions.find((s) => s.kind === 'background' && s.name === row.id);
+  const mine = sessionsOf(row, sessions);
+  return mine.find((s) => s.pid) ?? mine[0];
 }
+
+/** Whether a session works for this task: its builder, as sessionFor finds it, or its review or analysis under way. */
+export function ownsSession(row: Pick<TaskRow, 'id' | 'run' | 'reviewing' | 'analyzing'>, s: AgentSession): boolean {
+  if (s.sessionId && (row.reviewing?.sessionId === s.sessionId || row.analyzing?.sessionId === s.sessionId)) return true;
+  return sessionsOf(row, [s]).length > 0;
+}
+
+/**
+ * What an agent is called (D-087): the name acc gave it, recorded on its task's run, review or analysis,
+ * so it stays the same though Claude Code lists a session under another name, as a resume can. Else
+ * Claude Code's name for it, else its session's first characters. Without a session, its task's builder.
+ * The Agents tab, the cards, the agent page, notices and terminals all call it this.
+ */
+export function displayName(s: AgentSession | undefined, row?: Pick<TaskRow, 'id' | 'run' | 'reviewing' | 'analyzing'> | null): string {
+  if (!s) return row?.run?.name ?? row?.id ?? 'Agent';
+  const sid = s.sessionId;
+  const recorded = !row ? undefined
+    : sid && row.reviewing?.sessionId === sid ? row.reviewing.name
+      : sid && row.analyzing?.sessionId === sid ? row.analyzing.name
+        : sessionsOf(row, [s]).length ? row.run?.name : undefined;
+  return recorded ?? s.name ?? s.sessionId?.slice(0, 8) ?? s.id ?? 'Agent';
+}
+
+/** A task's builder in a notice (D-087): its name, or "GH-12's agent" for a run from before names. */
+export const builderName = (t: Pick<TaskRow, 'id' | 'run'>): string => t.run?.name ?? `${t.id}'s agent`;
 
 export function groupTasks(rows: TaskRow[]): { group: TaskGroup; tasks: TaskRow[] }[] {
   return TASK_GROUPS.map((group) => ({ group, tasks: rows.filter((r) => r.display === group) })).filter((g) => g.tasks.length);
@@ -733,8 +763,9 @@ export function taskNotices(before: TaskRow[], after: TaskRow[]): TaskNotice[] {
     else if (moved && t.state === 'rework') say('rework', `The review asked for changes on ${t.id}${t.review?.summary ? `: ${t.review.summary}` : '.'}`, true);
     else if (moved && t.state === 'blocked') say('blocked', `${t.id} is blocked: ${t.title}`, true);
     // Its builder stopped before acc done or acc block (D-067): what it last said, and Resume.
-    if (t.stopped && !p.stopped && t.state === 'running') out.push({ kind: 'stopped', task: t.id, text: stoppedNotice(t.id, t.stopped.said), urgent: true, actions: [['Resume', 'acc.task.resume']] });
-    else if (t.display === 'needs-you' && p.display !== 'needs-you' && t.state === 'running' && !t.asking && !t.stopped && !t.autopilot) say('waiting', `${t.id}'s agent is waiting for you in its own prompt.`, true);
+    // A notice about the agent names it (D-087).
+    if (t.stopped && !p.stopped && t.state === 'running') out.push({ kind: 'stopped', task: t.id, text: stoppedNotice(builderName(t), t.stopped.said), urgent: true, actions: [['Resume', 'acc.task.resume']] });
+    else if (t.display === 'needs-you' && p.display !== 'needs-you' && t.state === 'running' && !t.asking && !t.stopped && !t.autopilot) say('waiting', `${builderName(t)} is waiting for you in its own prompt.`, true);
     const passed = (r: TaskRow) => r.state === 'review' && r.review?.verdict === 'pass' && r.review.current && !r.pr;
     if (passed(t) && !passed(p)) say('passed', `The review passed ${t.id}. It's ready to land.`, false);
     const pr = t.pr;
@@ -761,9 +792,9 @@ export function saidLine(said: string, max = 200): string {
   return one.length > max ? `${one.slice(0, max - 1).trimEnd()}…` : one;
 }
 
-/** "GH-41's agent stopped: API Error: Your computer went to sleep mid-response. …" (D-067). */
-export const stoppedNotice = (id: string, said: string | null): string =>
-  said ? `${id}'s agent stopped: ${endSentence(saidLine(said))}` : `${id}'s agent stopped before acc done or acc block.`;
+/** "Acme · GH-41 Ticket updates · builder stopped: API Error: Your computer went to sleep mid-response. …" (D-067, D-087). */
+export const stoppedNotice = (agent: string, said: string | null): string =>
+  said ? `${agent} stopped: ${endSentence(saidLine(said))}` : `${agent} stopped before acc done or acc block.`;
 
 /** The buttons a notice offers, as [label, command] pairs. The task's page is always the last. */
 export function noticeActions(n: TaskNotice): [label: string, command: string][] {

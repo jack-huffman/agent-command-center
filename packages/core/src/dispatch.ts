@@ -12,6 +12,7 @@ import { type ChecksReport, checksSection, readChecksReport } from './checks.ts'
 import { latestVerdict, type Verdict } from './review.ts';
 import { agentArgs, checkModelName, modelOf } from './agents.ts';
 import { type AwakeDeps, holdAwake, keepAwakeFor } from './awake.ts';
+import { sessionName } from './names.ts';
 
 // ---------------------------------------------------------------- names and places (D-013)
 
@@ -254,6 +255,8 @@ export interface DispatchResult {
   packetPath: string;
   bgId: string | null;
   sessionId: string | null;
+  /** What the builder is called, in Claude Code and the Command Center (D-087). */
+  name: string;
 }
 
 const git = (run: Runner, cwd: string, ...args: string[]) => run('git', args, { cwd });
@@ -316,19 +319,42 @@ function readList(wt: string, rel: string | null): string[] {
 
 const sleep = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
+/** The same folder, however it's spelled: Claude Code lists a session's real path. */
+function samePlace(a: string, b: string): boolean {
+  if (a === b) return true;
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return false;
+  }
+}
+
+export interface FindSessionOptions {
+  /** Started at this time or later, in ms: an older session of the same name is another run's. */
+  since?: number;
+  /** In one of these folders: the one it was started in, or the worktree it may already have entered. */
+  places?: string[];
+}
+
 /**
- * The new background session, found by name and folder in `claude agents --json`, with its process. A
- * session can be listed a moment before its process is, so it's asked again, within the same wait, until
- * the pid shows: without it nothing keeps the Mac awake for the builder (D-067).
+ * The new background session, with its process, found in `claude agents --json` by the name it was given,
+ * the folder it started in and when (D-087). `--bg` makes its own session id and ignores `--session-id`,
+ * so the name is all acc has to go on, and two clones of a repo name a task's builder alike. A session
+ * can be listed a moment before its process is, so it's asked again, within the same wait, until the pid
+ * shows: without it nothing keeps the Mac awake for the builder (D-067).
  */
-export function findSession(run: Runner, wt: string, name: string, waitMs: number): { bgId: string | null; sessionId: string | null; pid: number | null } {
+export function findSession(run: Runner, cwd: string, name: string, waitMs: number, o: FindSessionOptions = {}): { bgId: string | null; sessionId: string | null; pid: number | null } {
   const until = Date.now() + waitMs;
   let found: { bgId: string | null; sessionId: string | null; pid: number | null } | null = null;
+  const ours = (x: { name?: string; cwd?: string; kind?: string; startedAt?: number }): boolean =>
+    x.name === name && x.kind === 'background'
+    && (o.since === undefined || (x.startedAt ?? 0) >= o.since)
+    && (!o.places || !x.cwd || o.places.some((p) => samePlace(x.cwd!, p)));
   do {
-    const r = run('claude', ['agents', '--json'], { cwd: wt, timeoutMs: 20_000 });
+    const r = run('claude', ['agents', '--json'], { cwd, timeoutMs: 20_000 });
     try {
       const list = JSON.parse(r.stdout) as { id?: string; sessionId?: string; name?: string; cwd?: string; kind?: string; startedAt?: number; pid?: number }[];
-      const s = list.filter((x) => x.name === name && x.kind === 'background').sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))[0];
+      const s = list.filter(ours).sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))[0];
       if (s) {
         found = { bgId: s.id ?? null, sessionId: s.sessionId ?? null, pid: Number.isInteger(s.pid) && s.pid! > 0 ? s.pid! : null };
         if (found.pid) return found;
@@ -340,6 +366,9 @@ export function findSession(run: Runner, wt: string, name: string, waitMs: numbe
   } while (Date.now() < until);
   return found ?? { bgId: null, sessionId: null, pid: null };
 }
+
+/** How long before acc launches a builder its session may say it started: the same clock, read a moment apart. */
+const LAUNCH_SLACK_MS = 5_000;
 
 export interface DispatchOptions {
   actor: Actor;
@@ -407,16 +436,20 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
 
   const settings = JSON.stringify(builderSettings(found, config, deps.accBinDir, deps.env.PATH ?? '', deps.accCommand));
   const prompt = `Read your task instructions below and do the task.\n\n${packet}`;
+  // Named for its project, task and role (D-087). The task's second dispatch is its "builder 2"; a run
+  // from before dispatches were counted was its first.
+  const n = (found.run?.n ?? (found.run ? 1 : 0)) + 1;
+  const name = sessionName({ project: config.project, key: found.id, title: found.title, role: 'builder', n });
   // The builder's model and effort (D-036): the model picked for this task, if one was (D-086).
   const { model, picked } = builderModel(found, config, opts.model);
-  const base = ['--name', found.id, '--permission-mode', config.agents.permissionMode, ...agentArgs({ ...config.agents.builder, model }), '--settings', settings];
+  const base = ['--name', name, '--permission-mode', config.agents.permissionMode, ...agentArgs({ ...config.agents.builder, model }), '--settings', settings];
 
   const record = (bgId: string | null, sessionId: string | null) => mutate(paths, now, (ledger, emit) => {
     const task = ledger.tasks.find((t) => t.id === id)!;
     const again = checkMove(ledger, config, task, req, noGateHooks);
     if (again.length) throw new AccError('move-refused', `Can't dispatch ${id}:\n- ${again.join('\n- ')}`);
     applyMove(task, { ...req, reason: reused ? `re-dispatched in ${basename(wt)}` : null }, emit, now, opts.cause ? { cause: opts.cause } : {});
-    task.run = { worktree: wt, branch, startedAt: now().toISOString(), model, ...(picked ? { modelPicked: true as const } : {}), ...(bgId ? { bgId } : {}), ...(sessionId ? { sessionId } : {}) };
+    task.run = { worktree: wt, branch, startedAt: now().toISOString(), model, ...(picked ? { modelPicked: true as const } : {}), ...(bgId ? { bgId } : {}), ...(sessionId ? { sessionId } : {}), name, n };
     emit({ type: 'task.updated', task: id, actor: opts.actor, by: opts.by, data: { run: task.run } });
     return task;
   });
@@ -430,17 +463,18 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
     } finally {
       awake?.release();
     }
-    return { task, worktree: wt, branch, reused, packetPath, bgId: null, sessionId: null };
+    return { task, worktree: wt, branch, reused, packetPath, bgId: null, sessionId: null, name };
   }
 
+  const since = Date.now() - LAUNCH_SLACK_MS;
   const launched = run('claude', ['--bg', ...base, prompt], { cwd: launchDir, env: deps.env, timeoutMs: 60_000 });
   if (launched.code !== 0) throw new AccError('dispatch', `Claude Code didn't start the agent: ${(launched.stderr || launched.stdout).trim().split('\n')[0]}. The worktree is kept at ${wt}.`);
-  const { bgId, sessionId, pid } = findSession(run, launchDir, found.id, deps.findSessionMs ?? 8_000);
+  const { bgId, sessionId, pid } = findSession(run, launchDir, name, deps.findSessionMs ?? 8_000, { since, places: [launchDir, wt] });
   try {
     const task = record(bgId, sessionId);
     // acc exits now, so the Mac is kept awake for the background session's own process (D-067).
     if (pid) keepAwakeFor(paths, id, pid, deps.awake);
-    return { task, worktree: wt, branch, reused, packetPath, bgId, sessionId };
+    return { task, worktree: wt, branch, reused, packetPath, bgId, sessionId, name };
   } catch (e) {
     if (bgId) run('claude', ['stop', bgId], { cwd: wt });
     throw e;

@@ -232,7 +232,9 @@ test('dispatch end to end: worktree from the environment branch, packet, backgro
   assert.ok(launch.args.at(-1)!.includes(`Call the **EnterWorktree** tool with the path \`${out.worktree}\``), 'the agent enters its worktree first');
   assert.equal(spawnSync('git', ['status', '--porcelain'], { cwd: repo, encoding: 'utf8' }).stdout, '', 'the main checkout stays clean');
   assert.equal(spawnSync('git', ['status', '--porcelain'], { cwd: out.worktree, encoding: 'utf8' }).stdout, '', 'the worktree starts clean, linked node_modules or not');
-  assert.deepEqual(launch.args.slice(0, 5), ['--bg', '--name', 'T-1', '--permission-mode', 'acceptEdits']);
+  // Named for its project, task and role (D-087), as Claude Code's session list shows it.
+  assert.deepEqual(launch.args.slice(0, 5), ['--bg', '--name', 'Tool · T-1 Write the changelog · builder', '--permission-mode', 'acceptEdits']);
+  assert.equal(out.name, 'Tool · T-1 Write the changelog · builder');
   const settings = JSON.parse(launch.args[launch.args.indexOf('--settings') + 1]!);
   assert.equal(settings.env.ACC_TASK, 'T-1');
   assert.equal(settings.env.ACC_ROLE, 'builder');
@@ -244,6 +246,8 @@ test('dispatch end to end: worktree from the environment branch, packet, backgro
   assert.equal(task.state, 'running');
   assert.equal(task.run!.bgId, 'bg1');
   assert.equal(task.run!.worktree, out.worktree);
+  assert.equal(task.run!.name, 'Tool · T-1 Write the changelog · builder', 'the name is recorded, so the session is found by it');
+  assert.equal(task.run!.n, 1);
 
   // The builder finishes from inside its worktree, identified by its session environment.
   const done = acc(out.worktree, ['done', '--json'], { ...env, ACC_ROLE: 'builder', ACC_TASK: 'T-1' });
@@ -251,12 +255,34 @@ test('dispatch end to end: worktree from the environment branch, packet, backgro
   assert.equal(done.json().entry.by, 'builder:T-1');
   assert.equal(tasksOf(repo)[0]!.state, 'review');
 
-  // Rework reuses the same worktree and branch.
+  // Rework reuses the same worktree and branch, with the task's second builder.
   assert.equal(acc(repo, ['set', 'T-1', 'rework', '--reason', 'needs a date']).code, 0);
   const again = acc(repo, ['dispatch', 'T-1', '--json'], env);
   assert.equal(again.code, 0, again.err);
   assert.equal(again.json().reused, true);
   assert.equal(again.json().bgId, 'bg2');
+  const second = claude.calls().filter((c) => c.args[0] === '--bg')[1]!;
+  assert.equal(second.args[second.args.indexOf('--name') + 1], 'Tool · T-1 Write the changelog · builder 2');
+  assert.deepEqual([tasksOf(repo)[0]!.run!.name, tasksOf(repo)[0]!.run!.n], ['Tool · T-1 Write the changelog · builder 2', 2]);
+  assert.match(acc(repo, ['show', 'T-1'], env).out, /Agent: Tool · T-1 Write the changelog · builder 2/);
+});
+
+test('a dispatch records its own new session, not an older one of the same name or one named the old way (D-087)', () => {
+  const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG), ...IGNORE }));
+  const claude = fakeClaude();
+  const name = 'Tool · T-1 Write the changelog · builder';
+  // A builder of an older run named the old way, and one of this name from another clone, an hour ago.
+  writeFileSync(join(claude.dir, 'sessions.json'), JSON.stringify([
+    { id: 'old', sessionId: 'sess-old', name: 'T-1', kind: 'background', cwd: repo, startedAt: Date.now(), state: 'done', pid: 3999999 },
+    { id: 'clone', sessionId: 'sess-clone', name, kind: 'background', cwd: repo, startedAt: Date.now() - 3_600_000, state: 'working', pid: 3999998 },
+    { id: 'there', sessionId: 'sess-there', name, kind: 'background', cwd: '/elsewhere/Tool', startedAt: Date.now() + 60_000, state: 'working', pid: 3999997 },
+  ]));
+  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  assert.equal(acc(repo, ['add', 'Write the changelog']).code, 0);
+  const r = acc(repo, ['dispatch', 'T-1', '--json'], env);
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual([r.json().bgId, r.json().sessionId], ['bg4', 'sess-4']);
+  assert.equal(tasksOf(repo)[0]!.run!.bgId, 'bg4');
 });
 
 test('dispatch refuses tasks that aren\'t ready, and stops at the agent cap', () => {
@@ -328,7 +354,7 @@ test('a background dispatch keeps the Mac awake for its session\'s own process, 
   mutate(paths, () => new Date(), (l, emit) => { upsertTasks(l, config, [{ source: { kind: 'manual', key: 'T-1' }, title: 'Write the changelog' }], 'human', 'human:test', emit, () => new Date()); });
   const runner = fakeRunner({
     'claude --bg': ok('backgrounded'),
-    'claude agents --json': ok(JSON.stringify([{ pid: 4242, id: 'bg1', sessionId: 'sess-1', name: 'T-1', kind: 'background', startedAt: 1, state: 'working', status: 'busy' }])),
+    'claude agents --json': () => ok(JSON.stringify([{ pid: 4242, id: 'bg1', sessionId: 'sess-1', name: 'Tool · T-1 Write the changelog · builder', kind: 'background', startedAt: Date.now(), state: 'working', status: 'busy' }])),
   });
   const awake = fakeAwake();
   const r = dispatch(paths, config, 'T-1', { run: runner, now: () => new Date(), accBinDir: '/acc/bin', env: { HOME: trustingHome(repo), PATH: '/usr/bin' }, awake: awake.deps }, { actor: 'human', by: 'human:test' });
@@ -349,6 +375,19 @@ test('a session listed before its process is asked for again until its pid shows
   assert.equal(asked, 3, 'asked until the pid was there');
   const never: typeof run = () => ({ code: 0, stdout: JSON.stringify([session]), stderr: '', timedOut: false });
   assert.deepEqual(findSession(never, '/w', 'T-1', 1_200), { bgId: 'bg1', sessionId: 'sess-1', pid: null }, 'a pid that never shows still finds the session');
+});
+
+test('a new session is found by its name, in the folder it started in or its worktree, once it started (D-087)', () => {
+  const name = 'Tool · T-1 Write the changelog · builder';
+  const listed = (...xs: object[]): typeof run => () => ({ code: 0, stdout: JSON.stringify(xs), stderr: '', timedOut: false });
+  const at = { since: 1_000, places: ['/repo', '/repo/.claude/worktrees/T-1'] };
+  const s = { id: 'bg1', sessionId: 'sess-1', name, kind: 'background', cwd: '/repo', startedAt: 2_000, pid: 7 };
+  assert.deepEqual(findSession(listed(s), '/repo', name, 0, at), { bgId: 'bg1', sessionId: 'sess-1', pid: 7 });
+  assert.equal(findSession(listed({ ...s, cwd: '/repo/.claude/worktrees/T-1' }), '/repo', name, 0, at).bgId, 'bg1', 'already in its worktree');
+  assert.equal(findSession(listed({ ...s, startedAt: 500 }), '/repo', name, 0, at).bgId, null, 'started before this dispatch');
+  assert.equal(findSession(listed({ ...s, cwd: '/other/clone' }), '/repo', name, 0, at).bgId, null, 'another clone\'s');
+  assert.equal(findSession(listed({ ...s, name: 'T-1' }), '/repo', name, 0, at).bgId, null, 'named the old way');
+  assert.equal(findSession(listed({ ...s, kind: 'interactive' }), '/repo', name, 0, at).bgId, null, 'not a background session');
 });
 
 test('dispatch refuses before touching anything when Claude Code doesn\'t trust the repo (D-022)', () => {

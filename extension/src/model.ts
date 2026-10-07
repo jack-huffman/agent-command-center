@@ -15,7 +15,7 @@ import { autoMergeOn, type Environment, type Tracker, trackerForKey } from '../.
 import { promotionPaths } from '../../packages/core/src/promote.ts';
 import type { Answer, HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import { isOpenUpdate, stalePosting, type Update, UPDATE_ID, UPDATE_TEXT_MAX } from '../../packages/core/src/updates.ts';
-import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, BOARD_LANES, conflictLine, type DoctorItem, ENV_ICON, failedChecksLine, fileList, FROM_WORDS, groupTasks, isUnder, prConflicts, questionsWord, type RunPrompt, saidLine, shortPath, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
+import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, BOARD_LANES, conflictLine, displayName, type DoctorItem, ENV_ICON, failedChecksLine, fileList, FROM_WORDS, groupTasks, isUnder, ownsSession, prConflicts, questionsWord, type RunPrompt, saidLine, sessionFor, shortPath, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
 import { isSlackWebhook, SLACK_KINDS, type SlackCard, type SlackKind } from './slack.ts';
 import type { Entry } from './transcript.ts';
 
@@ -97,6 +97,12 @@ export interface HubLike {
 /** The key a session goes by in refs: its session id, else its background id. */
 export const sessionKey = (s: AgentSession): string => s.sessionId ?? s.id ?? `${s.pid ?? ''}:${s.startedAt}`;
 
+/** What a session is called wherever it shows (D-087): the name acc gave it on its task, else Claude Code's. */
+export function nameOf(hub: Pick<HubLike, 'projectFor' | 'taskRows'>, s: AgentSession): string {
+  const p = hub.projectFor(s.cwd);
+  return displayName(s, p ? hub.taskRows(p.root).find((r) => ownsSession(r, s)) : undefined);
+}
+
 // ---------------------------------------------------------------- tasks: the board
 
 export interface Card {
@@ -108,6 +114,8 @@ export interface Card {
   agent: Look | null;
   /** The model its agent runs with, shown beside its state (D-086). */
   model: string | null;
+  /** What its builder is called (D-087), shown when its agent line is hovered. Older runs have none. */
+  agentName: string | null;
   worktree: string | null;
   /** "Conflicts with dev: …" when its open pull request won't merge into its base (D-049). */
   conflicts: string | null;
@@ -267,7 +275,7 @@ export function tasksModel(hub: HubLike, boards: (root: string) => BoardInput[] 
           cards: (byGroup.get(group) ?? []).map((t) => ({
             id: t.id, title: t.title, environment: t.environment, waitingOn: t.deps, url: t.source.url,
             // A stopped builder's line says it all: its old session's own state would only repeat it.
-            agent: t.stopped ? null : t.agent ?? null, model: t.stopped || !t.agent ? null : t.model ?? null, worktree: t.run?.worktree ?? null, conflicts: conflictLine(t), failedChecks: failedChecksLine(t), analysis: analysisLook(t), autopilot: autopilotLook(t), closedPr: closedPrLook(t),
+            agent: t.stopped ? null : t.agent ?? null, model: t.stopped || !t.agent ? null : t.model ?? null, agentName: t.run?.name ?? null, worktree: t.run?.worktree ?? null, conflicts: conflictLine(t), failedChecks: failedChecksLine(t), analysis: analysisLook(t), autopilot: autopilotLook(t), closedPr: closedPrLook(t),
             stopped: t.autopilot ? null : stoppedLook(t),
             actions: cardActions(t, { project: p.root, task: t.id }), drops: dropLanes(t),
           })),
@@ -439,6 +447,8 @@ export interface TicketAcc {
   agent: Look | null;
   /** The model its agent runs with (D-086). */
   model: string | null;
+  /** What its latest builder was called (D-087). Older runs have none. */
+  agentName: string | null;
   worktree: string | null;
   branch: string | null;
   /** waived: a person set it aside on this commit (D-031). */
@@ -590,7 +600,7 @@ export function ticketModel(i: TicketInput): TicketModel {
   const live = i.tracker !== null;
   const acc: TicketAcc | null = i.row && i.task ? {
     look: accLook(i.row, true), environment: i.task.environment, waitingOn: i.row.deps, blocker: i.task.blocker, conflicts: conflictLine(i.row, true), failedChecks: failedChecksLine(i.row),
-    agent: i.row.stopped ? null : i.row.agent ?? null, model: i.row.model ?? null, worktree: i.task.run?.worktree ?? null, branch: i.task.run?.branch ?? null, checks: i.checks,
+    agent: i.row.stopped ? null : i.row.agent ?? null, model: i.row.model ?? null, agentName: i.task.run?.name ?? null, worktree: i.task.run?.worktree ?? null, branch: i.task.run?.branch ?? null, checks: i.checks,
     history: i.task.history.map((h) => ({ at: h.at, from: h.from, to: h.to, by: h.by, reason: h.reason ?? null })).reverse(),
     // Its analysis has its own section, with its own buttons.
     actions: cardActions(i.row, { project: i.project, task: i.row.id }).filter((a) => !['acc.task.show', 'acc.task.openTicket', 'acc.task.analyze', 'acc.task.watchAnalysis'].includes(a.command)),
@@ -843,7 +853,7 @@ export function agentsModel(hub: HubLike, setupItems: DoctorItem[] = []): Agents
     const p = hub.projectFor(s.cwd);
     const key = sessionKey(s);
     const where = p ? (isUnder(s.cwd, p.root) ? s.cwd.slice(p.root.length + 1) || 'main checkout' : s.cwd.split('/').pop() ?? s.cwd) : s.cwd;
-    return { key, background: !!s.id, name: s.name ?? s.sessionId?.slice(0, 8) ?? 'session', look: { label: look.label, icon: look.icon, tone: look.tone }, needsYou: look.needsYou, kind: s.kind, where, startedAt: s.startedAt, model: hub.modelFor?.(s) ?? null };
+    return { key, background: !!s.id, name: nameOf(hub, s), look: { label: look.label, icon: look.icon, tone: look.tone }, needsYou: look.needsYou, kind: s.kind, where, startedAt: s.startedAt, model: hub.modelFor?.(s) ?? null };
   };
   const sorted = [...hub.agents].sort((a, b) => Number(lookOf(b).needsYou) - Number(lookOf(a).needsYou) || b.startedAt - a.startedAt);
   const places = hub.projects.map((p) => ({ label: p.name, root: p.root as string | null, agents: sorted.filter((s) => hub.projectFor(s.cwd) === p).map(rowFor) }));
@@ -1338,7 +1348,8 @@ export function agentModel(i: AgentInput): AgentModel {
   const live = hub.agents.find((s) => sessionKey(s) === i.key || s.id === i.key) ?? null;
   const s = live ?? i.seen;
   const project = s ? hub.projectFor(s.cwd) : undefined;
-  const row = project && s ? hub.taskRows(project.root).find((r) => (s.sessionId && r.run?.sessionId === s.sessionId) || (s.id && r.run?.bgId === s.id) || (s.kind === 'background' && s.name === r.id)) : undefined;
+  // The task it builds, found as the task finds its builder: never by a name alone (D-087).
+  const row = project && s ? hub.taskRows(project.root).find((r) => sessionFor(r, [s]) === s) : undefined;
   const look = s && live ? agentLook(s, hub.askingFor?.(s)) : i.active ? { label: 'Working', icon: 'sync~spin', tone: 'blue' as Tone, needsYou: false } : { label: 'Ended', icon: 'circle-slash', tone: 'neutral' as Tone, needsYou: false };
   const limit = i.limit ?? 400;
   const views = i.entries.slice(-limit).map((e): EntryView => (e.k === 'prompt' ? { k: 'prompt', id: e.id, at: e.at, body: fromMarkdown(e.text), instructions: e.instructions }
@@ -1362,7 +1373,7 @@ export function agentModel(i: AgentInput): AgentModel {
   if (live?.id && live.pid) actions.push({ command: 'acc.agent.stop', label: 'Stop', icon: 'debug-stop', ref, danger: true });
   const where = !s ? '' : project ? (isUnder(s.cwd, project.root) ? s.cwd.slice(project.root.length + 1) || 'main checkout' : s.cwd.split('/').slice(-2).join('/')) : s.cwd;
   return {
-    kind: 'agent', key, name: s?.name ?? row?.id ?? key.slice(0, 8), task: row && project ? { id: row.id, title: row.title, project: project.root } : null,
+    kind: 'agent', key, name: s ? nameOf(hub, s) : key.slice(0, 8), task: row && project ? { id: row.id, title: row.title, project: project.root } : null,
     look: { label: look.label, icon: look.icon, tone: look.tone }, live: !!live || !!i.active, background: !!s?.id, where, startedAt: s?.startedAt ?? null, lastAt: i.lastAt, model: i.model ?? null,
     entries: shown, hidden: Math.max(0, i.entries.length - views.length), readable: i.readable || decisions.length > 0,
     questions: s?.sessionId ? questionCards(hub).filter((q) => q.sessionId === s.sessionId) : [],
@@ -1835,7 +1846,7 @@ export function homeModel(i: HomeInput): HomeModel {
     if (!look.needsYou || (s.id && linked.has(s.id)) || (s.sessionId && asked.has(s.sessionId))) continue;
     const key = sessionKey(s);
     attention.push({
-      key: `a:${key}`, look: { label: look.label, icon: look.icon, tone: look.tone }, title: s.name ?? 'Agent session', detail: hub.projectFor(s.cwd)?.name ?? s.cwd, project: hub.projectFor(s.cwd)?.name ?? '',
+      key: `a:${key}`, look: { label: look.label, icon: look.icon, tone: look.tone }, title: nameOf(hub, s), detail: hub.projectFor(s.cwd)?.name ?? s.cwd, project: hub.projectFor(s.cwd)?.name ?? '',
       actions: [
         // Its conversation in Claude Code when its session id is known; attaching a terminal otherwise.
         ...(s.sessionId ? [{ command: 'acc.agent.openInClaude', label: 'Open in Claude Code', icon: 'comment-discussion', ref: { session: key }, primary: true }]

@@ -45,15 +45,25 @@ test('a passing review is kept for its commit, and the task stays in review, rea
   let call: { args: string[]; opts?: RunOptions } | null = null;
   const fake = fakeRunner({ claude: (opts) => { call = { args: [], opts }; return result({ verdict: 'pass', summary: 'Adds sum with a test.', criteria: [{ text: 'sum returns a + b', met: true, evidence: 'sum.js:1' }], findings: [] }); } });
   const calls: string[] = [];
-  const runner = (cmd: string, args: string[], opts?: RunOptions) => { if (cmd === 'claude') calls.push(args.join(' ')); return fake(cmd, args, opts); };
-  const r = review(paths, config, 'T-1', { run: runner, now, env: {}, uuid: () => 'fixed-uuid' });
+  const marks: (string | undefined)[] = [];
+  const runner = (cmd: string, args: string[], opts?: RunOptions) => {
+    if (cmd === 'claude') { calls.push(args.join(' ')); marks.push(reviewing(paths, 'T-1')?.name); }
+    return fake(cmd, args, opts);
+  };
+  const started: string[] = [];
+  const r = review(paths, config, 'T-1', { run: runner, now, env: {}, uuid: () => 'fixed-uuid', onStart: (_s, _sha, name) => started.push(name) });
   assert.equal(r.verdict.verdict, 'pass');
   assert.equal(r.moved, null);
   assert.equal(readLedger(paths.ledger).tasks[0]!.state, 'review');
   assert.deepEqual(readVerdict(paths, 'T-1', sha)?.criteria[0], { text: 'sum returns a + b', met: true, evidence: 'sum.js:1' });
   assert.equal(readVerdict(paths, 'T-1', sha)?.sessionId, 'sess-review');
+  // Named for its project, task and role (D-087): in Claude Code, while it runs, and on its verdict.
+  const name = 'Tool · T-1 Add a sum function · review';
+  assert.deepEqual(started, [name]);
+  assert.deepEqual(marks, [name]);
+  assert.equal(readVerdict(paths, 'T-1', sha)?.name, name);
   // Read-only by construction, and the long prompt goes on stdin.
-  assert.match(calls[0]!, /^-p --session-id fixed-uuid --permission-mode dontAsk/);
+  assert.ok(calls[0]!.startsWith(`-p --session-id fixed-uuid --name ${name} --permission-mode dontAsk`), calls[0]!.slice(0, 120));
   assert.match(calls[0]!, /--allowedTools Read Grep Glob --disallowedTools Bash Edit Write/);
   assert.match(calls[0]!, /--permission-mode dontAsk --model claude-opus-5-5 /, 'no model chosen: acc\'s default (D-086)');
   assert.ok(!calls[0]!.includes('--effort'), 'no effort chosen: Claude Code\'s default');

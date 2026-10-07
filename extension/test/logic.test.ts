@@ -385,6 +385,54 @@ test('a builder that stopped is told once, with what it last said, and Resume; n
   assert.deepEqual(autopilotStepLook({ seq: 1, at, task: 'GH-41', step: 'resume', outcome: 'done', reason: said }), { look: { label: 'Autopilot resumed it', icon: 'debug-continue', tone: 'blue' }, detail: said, url: null });
 });
 
+test('a task\'s agent is found by its session, else by the name its run recorded, never by a name worked out again, and is called that everywhere (D-087)', async () => {
+  const { displayName, ownsSession, sessionFor, taskNotices } = await import('../src/logic.ts');
+  const { sessionName } = await import('../../packages/core/src/names.ts');
+  type Row = import('../src/logic.ts').TaskRow;
+  const name = sessionName({ project: 'Acme Service', key: 'GH-44', title: 'Case escalation rules', role: 'builder', n: 2 });
+  assert.equal(name, 'Acme Service · GH-44 Case escalation rules · builder 2');
+  const row = (more: Partial<Row> = {}): Row => ({ id: 'GH-44', title: 'Case escalation rules', state: 'running', display: 'running', environment: 'main', deps: [], source: { kind: 'github', url: null }, ...more });
+  const mine = { cwd: '/r', kind: 'background', startedAt: 2, id: 'bg44', sessionId: 'sess-44', name, pid: 7 };
+  const legacy = { cwd: '/r', kind: 'background', startedAt: 1, id: 'bg-old', sessionId: 'sess-old', name: 'GH-44', pid: 8 };
+  const all = [legacy, mine];
+  assert.equal(sessionFor(row({ run: { bgId: 'bg44' } }), all), mine, 'by its background id');
+  assert.equal(sessionFor(row({ run: { sessionId: 'sess-44' } }), all), mine, 'by its session id');
+  assert.equal(sessionFor(row({ run: { bgId: 'gone', sessionId: 'gone-too' } }), all), undefined, 'ids recorded but gone: never another session by name');
+  // Its ids weren't recorded, and its title changed since: the name its run recorded still finds it.
+  const retitled = row({ title: 'Escalation rules, rewritten', run: { worktree: '/w44', name } });
+  assert.equal(sessionFor(retitled, all), mine);
+  const fresh = { ...mine, id: 'bg-new', sessionId: 'sess-new', name: sessionName({ project: 'Acme Service', key: 'GH-44', title: retitled.title, role: 'builder', n: 2 }) };
+  assert.equal(sessionFor(retitled, [legacy, fresh]), undefined, 'not a name worked out from the new title, nor the old-style one');
+  // A run from before names: its session named the old way is still found.
+  assert.equal(sessionFor(row({ run: { worktree: '/w44' } }), all), legacy);
+
+  // Called by the name acc gave it, though Claude Code lists a resumed session under one of its own.
+  const resumed = { cwd: '/w44', kind: 'interactive', startedAt: 3, sessionId: 'sess-44', name: 'probe-5e', pid: 9 };
+  const named = row({ run: { bgId: 'bg44', sessionId: 'sess-44', name } });
+  assert.equal(displayName(resumed, named), name);
+  assert.equal(displayName(mine, named), name);
+  assert.equal(displayName(legacy, row({ run: { bgId: 'bg-old' } })), 'GH-44', 'a run from before names: Claude Code\'s');
+  assert.equal(displayName(undefined, named), name, 'no session: its task\'s builder');
+  assert.equal(displayName(undefined, row()), 'GH-44');
+  assert.equal(displayName({ cwd: '/x', kind: 'interactive', startedAt: 1, sessionId: '0e023162-5807-497b' }), '0e023162');
+  // A review or an analysis under way goes by its own name, not the builder's.
+  const reviewer = { cwd: '/w44', kind: 'interactive', startedAt: 4, sessionId: 'sess-r', name: 'Acme Service · GH-44 Case escalation rules · review', pid: 10 };
+  const reviewing = row({ state: 'review', run: { bgId: 'bg44', name }, reviewing: { sessionId: 'sess-r', name: reviewer.name } });
+  assert.ok(ownsSession(reviewing, reviewer));
+  assert.equal(displayName({ ...reviewer, name: undefined }, reviewing), reviewer.name);
+  assert.equal(displayName(reviewer, row({ run: { bgId: 'bg44', name } })), reviewer.name, 'not its task\'s builder: its own name');
+  const analyst = { ...reviewer, sessionId: 'sess-a', name: undefined };
+  assert.equal(displayName(analyst, row({ state: 'todo', analyzing: { sessionId: 'sess-a', name: 'Acme Service · GH-44 Case escalation rules · analysis' } })), 'Acme Service · GH-44 Case escalation rules · analysis');
+
+  // A notice about the agent names it in place of "GH-44's agent"; a run from before names keeps those words.
+  const said = 'API Error: Your computer went to sleep mid-response.';
+  assert.equal(taskNotices([named], [{ ...named, display: 'needs-you', stopped: { said } }])[0]!.text, `${name} stopped: ${said}`);
+  assert.equal(taskNotices([named], [{ ...named, display: 'needs-you', stopped: { said: null } }])[0]!.text, `${name} stopped before acc done or acc block.`);
+  assert.equal(taskNotices([named], [{ ...named, display: 'needs-you' }])[0]!.text, `${name} is waiting for you in its own prompt.`);
+  assert.equal(taskNotices([row()], [row({ display: 'needs-you' })])[0]!.text, 'GH-44\'s agent is waiting for you in its own prompt.');
+  assert.equal(taskNotices([named], [{ ...named, state: 'review', display: 'review' }])[0]!.text, 'GH-44 is ready for review: Case escalation rules', 'news about the task names the task');
+});
+
 test('D-044\'s review notices stay quiet for a review autopilot ran, and still speak for a person\'s (D-064)', async () => {
   const { taskNotices, withoutAutopilotEcho } = await import('../src/logic.ts');
   type Row = import('../src/logic.ts').TaskRow;
