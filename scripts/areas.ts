@@ -27,6 +27,7 @@ export interface AreaFolder {
 
 export const FOLDERS: AreaFolder[] = [
   { dir: 'packages/cli/src/commands', index: 'index.ts' },
+  { dir: 'extension/src', index: 'areas.ts' },
   { dir: 'extension/src/model', index: 'areas.ts', unions: ['Message'] },
   { dir: 'extension/webview', index: 'areas.ts' },
 ];

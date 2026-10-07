@@ -254,8 +254,8 @@ test('acc.job.stop may be asked for from the page, is declared, hidden from the 
   const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === 'acc.job.stop'));
   assert.ok(manifest.contributes.menus.commandPalette.some((c: { command: string; when: string }) => c.command === 'acc.job.stop' && c.when === 'false'));
-  assert.match(readFileSync(join(root, 'src', 'panels.ts'), 'utf8'), /'acc\.job\.stop', 'acc\.autopilot\.output'/);
-  const ext = readFileSync(join(root, 'src', 'extension.ts'), 'utf8');
+  assert.match(readFileSync(join(root, 'src', 'model', 'overview.ts'), 'utf8'), /'acc\.job\.stop', 'acc\.autopilot\.output'/);
+  const ext = ['extension.ts', 'progress.ts'].map((f) => readFileSync(join(root, 'src', f), 'utf8')).join('\n');
   const body = ext.slice(ext.indexOf("reg('acc.job.stop'"), ext.indexOf('});', ext.indexOf("reg('acc.job.stop'")));
   // Every kind asks first: a modal before claude stop, endResume, a run's stop or autopilot's switch.
   for (const what of ["runFile('claude', ['stop'", 'endResume(', "runs.control(run.id, 'stop')", 'autopilot.toggle(']) {

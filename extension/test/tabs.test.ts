@@ -219,9 +219,9 @@ test('a finished session reads as Finished and never needs you: not on its row, 
 test('Stop finished sessions is on the Agents header while there are any, through a command the page may ask for (D-095)', () => {
   const page = pageSource();
   assert.match(page, /m\.stopFinished \? toolbarButton\('acc\.agents\.stopFinished', `Stop finished sessions \(\$\{m\.stopFinished\}\)`, 'debug-stop'\) : null/);
-  assert.match(readFileSync(join(root, 'src', 'panels.ts'), 'utf8'), /'acc\.agents\.stopFinished'/, 'the page may ask for it');
+  assert.match(readFileSync(join(root, 'src', 'model', 'agents.ts'), 'utf8'), /'acc\.agents\.stopFinished'/, 'the page may ask for it');
   assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === 'acc.agents.stopFinished'));
-  assert.match(readFileSync(join(root, 'src', 'sidebar.ts'), 'utf8'), /reg\('acc\.agents\.stopFinished', \(\) => this\.stopFinished\(\)\)/);
+  assert.match(readFileSync(join(root, 'src', 'agents.ts'), 'utf8'), /reg\('acc\.agents\.stopFinished', \(\) => this\.stopFinished\(\)\)/);
 });
 
 test('the row menus are for the page the rows are on: the Command Center\'s own webview', () => {
@@ -867,7 +867,7 @@ test('a task that waits for others\' files says so with a clock, in blue; its ne
   assert.match(main, /if \(m\.acc\?\.files\)/);
   for (const command of ['acc.task.dispatchAnyway', 'acc.task.stopWaiting']) {
     assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === command), command);
-    assert.match(readFileSync(join(root, 'src', 'panels.ts'), 'utf8'), new RegExp(`'${command.replace('.', '\\.')}'`));
+    assert.match(readFileSync(join(root, 'src', 'model', 'tasks.ts'), 'utf8'), new RegExp(`'${command.replace('.', '\\.')}'`));
     assert.match(readFileSync(join(root, 'src', 'ticket.ts'), 'utf8'), new RegExp(`'${command.replace('.', '\\.')}'`));
   }
 });
@@ -892,7 +892,7 @@ test('How agents run is behind a Settings button, closed until it\'s opened, and
   assert.match(page, /if \(!open\) for \(const s of m\.settings\) if \(s\.billing\?\.tone === 'orange'\)/);
   // The webview's key is model.ts's, which the extension asks the page to open.
   assert.equal(page.match(/const AGENT_SETTINGS = '([^']+)'/)?.[1], AGENT_SETTINGS);
-  assert.match(readFileSync(join(root, 'src', 'extension.ts'), 'utf8'), /go: \(\) => panels\.show\('agents', AGENT_SETTINGS\)/);
+  assert.match(readFileSync(join(root, 'src', 'notices.ts'), 'utf8'), /go: \(\) => panels\.show\('agents', AGENT_SETTINGS\)/);
   assert.match(page, /if \(msg\.open\) \{ const part = msg\.open; remember/);
 });
 
@@ -911,9 +911,9 @@ test('How agents run shows the project\'s autonomy, where it\'s set, and a way t
   // The page asks acc to change it: the webview never writes the config.
   const page = pageSource();
   assert.match(page, /argButton\('acc\.agents\.autonomy', 'Change…', 'edit', s\.root\)/);
-  assert.match(readFileSync(join(root, 'src', 'panels.ts'), 'utf8'), /'acc\.agents\.autonomy'/, 'the page may ask for it');
+  assert.match(readFileSync(join(root, 'src', 'model', 'agents.ts'), 'utf8'), /'acc\.agents\.autonomy'/, 'the page may ask for it');
   assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === 'acc.agents.autonomy'));
-  assert.match(readFileSync(join(root, 'src', 'sidebar.ts'), 'utf8'), /this\.runAcc\(project, \['agents', 'autonomy', pick\.value\]/);
+  assert.match(readFileSync(join(root, 'src', 'agents.ts'), 'utf8'), /this\.runAcc\(project, \['agents', 'autonomy', pick\.value\]/);
 });
 
 test('How agents run has an Auto-merge row: on or off, what it means, and Change… through acc; the autonomy row says when autopilot merges (GH-67)', () => {
@@ -942,12 +942,12 @@ test('How agents run has an Auto-merge row: on or off, what it means, and Change
   const page = pageSource();
   assert.match(page, /icon\(s\.autoMerge\.value === 'on' \? 'git-merge' : 'circle-slash'\), el\('span', 'strong', 'Auto-merge'\)/);
   assert.match(page, /s\.autoMerge\.settable \? argButton\('acc\.agents\.autoMerge', 'Change…', 'edit', s\.root\)/);
-  assert.match(readFileSync(join(root, 'src', 'panels.ts'), 'utf8'), /'acc\.agents\.autoMerge'/, 'the page may ask for it');
+  assert.match(readFileSync(join(root, 'src', 'model', 'agents.ts'), 'utf8'), /'acc\.agents\.autoMerge'/, 'the page may ask for it');
   assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === 'acc.agents.autoMerge'));
-  const sidebar = readFileSync(join(root, 'src', 'sidebar.ts'), 'utf8');
+  const sidebar = readFileSync(join(root, 'src', 'agents.ts'), 'utf8');
   assert.match(sidebar, /this\.runAcc\(project, \['agents', 'auto-merge', pick\.value\]/);
   // The status bar's menu says on or off for each repo, with an icon, and opens the Agents section.
-  const ext = readFileSync(join(root, 'src', 'extension.ts'), 'utf8');
+  const ext = readFileSync(join(root, 'src', 'notices.ts'), 'utf8');
   assert.match(ext, /autopilot\.mergeLooks\(\)\.map/);
   assert.match(ext, /m\.on \? '\$\(git-merge\) Auto-merge: on' : '\$\(circle-slash\) Auto-merge: off'/);
   assert.match(ext, /go: \(\) => panels\.show\('agents', AGENT_SETTINGS\)/);
@@ -972,10 +972,10 @@ test('Dispatch with… sits behind ⋯ wherever Dispatch is offered, and on the 
   const task = { id: 'AV-9', title: 'Task AV-9', brief: '', source: { kind: 'jira', key: 'AV-9', url: null }, environment: 'devbox', deps: [], labels: [], state: 'todo', blocker: null, history: [], createdAt: '', updatedAt: '' } as never;
   const page = ticketModel({ project: '/r', tracker: null, trackerTitle: null, trackerKind: null, key: 'AV-9', ticket: null, loading: false, error: null, connect: null, checks: [], row: { ...row('AV-9', 'todo', 'ready'), deps: [] }, task });
   assert.deepEqual(page.acc!.actions.slice(0, 2).map((a) => a.command), ['acc.task.dispatch', 'acc.task.dispatchWith'], 'the task page offers it beside Dispatch');
-  assert.match(readFileSync(join(root, 'src', 'panels.ts'), 'utf8'), /'acc\.task\.dispatchWith'/);
+  assert.match(readFileSync(join(root, 'src', 'model', 'tasks.ts'), 'utf8'), /'acc\.task\.dispatchWith'/);
   assert.match(readFileSync(join(root, 'src', 'ticket.ts'), 'utf8'), /'acc\.task\.dispatchWith'/);
   assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === 'acc.task.dispatchWith'));
-  assert.match(readFileSync(join(root, 'src', 'sidebar.ts'), 'utf8'), /reg\('acc\.task\.dispatchWith'/);
+  assert.match(readFileSync(join(root, 'src', 'tasks.ts'), 'utf8'), /reg\('acc\.task\.dispatchWith'/);
 });
 
 test('a running card, its task page and its Agents row name the model its agent runs with, in plain text (D-086)', () => {

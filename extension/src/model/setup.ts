@@ -104,6 +104,9 @@ function counts(setup: SetupModel): { todo: number; failing: number } {
 }
 
 export const area: ModelArea = {
+  commands: [
+    'acc.step.check', 'acc.step.fix', 'acc.step.openSetup', 'acc.step.confirm', 'acc.openGuide', 'acc.openProjectWalkthrough',
+  ],
   home: {
     order: 50,
     after({ setup, attention }) {

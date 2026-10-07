@@ -225,6 +225,9 @@ export type Message =
   | { type: 'agents-where'; view: WhereView };
 
 export const area: ModelArea = {
+  commands: [
+    'acc.agent.new', 'acc.agent.attach', 'acc.agent.logs', 'acc.agent.stop', 'acc.agents.stopFinished', 'acc.agent.openFolder', 'acc.agent.watch', 'acc.agent.openInClaude', 'acc.agents.configure', 'acc.agents.autonomy', 'acc.agents.autoMerge',
+  ],
   home: {
     order: 20,
     after({ hub, attention, linked, asked }) {

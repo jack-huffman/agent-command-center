@@ -1,60 +1,32 @@
 import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
-import type { Answer } from '../../packages/core/src/questions.ts';
 import type { Hub } from './hub.ts';
 import { FinishedJobs } from './progress.ts';
-import { answerOf } from './model/questions.ts';
 import type { BoardInput } from './model/boards.ts';
-import type { ConnectMessage, ConnectModel } from './model/connect.ts';
-import { type FromWebview, isFromWebview } from './model/messages.ts';
+import type { ConnectModel } from './model/connect.ts';
+import { type FromWebview, isFromWebview, PAGE_COMMANDS } from './model/messages.ts';
 import { HOME_SECTIONS, type HomeSection, type Ref, type ViewKind } from './model/shared.ts';
-import { homeModel } from './model/home.ts';
 import type { IdentityCard } from './model/environments.ts';
-import { runCard, type RunControl, type RunInput } from './model/runs.ts';
+import { homeModel } from './model/home.ts';
+import { runCard, type RunInput } from './model/runs.ts';
 import type { SlackCard } from './model/slack.ts';
 import { WHERE_VIEWS, type WhereView } from './model/agents.ts';
 import type { Setup } from './setup.ts';
-import type { UpdateActions } from './ticket.ts';
 
-/** Commands the page may ask for. Anything else from a webview is ignored. */
-const ALLOWED = new Set([
-  'acc.task.dispatch', 'acc.task.dispatchWith', 'acc.task.dispatchAnyway', 'acc.task.stopWaiting', 'acc.task.attach', 'acc.task.openWorktree', 'acc.task.abandon', 'acc.task.cleanup',
-  'acc.task.add', 'acc.task.importGithub', 'acc.task.importJira', 'acc.task.show', 'acc.task.move', 'acc.task.block', 'acc.task.unblock', 'acc.task.openTicket',
-  'acc.agent.new', 'acc.agent.attach', 'acc.agent.logs', 'acc.agent.stop', 'acc.agents.stopFinished', 'acc.agent.openFolder', 'acc.agent.watch', 'acc.task.watch', 'acc.task.resume', 'acc.agent.openInClaude', 'acc.task.openInClaude', 'acc.task.review', 'acc.task.watchReview', 'acc.task.land', 'acc.task.openPr',
-  'acc.task.analyze', 'acc.task.watchAnalysis',
-  'acc.worktree.open', 'acc.worktree.terminal', 'acc.worktree.reveal', 'acc.worktree.remove',
-  'acc.env.openOrg', 'acc.env.openGithub', 'acc.env.compare', 'acc.env.promote', 'acc.env.deploy',
-  'acc.step.check', 'acc.step.fix', 'acc.step.openSetup', 'acc.step.confirm', 'acc.openGuide', 'acc.openProjectWalkthrough',
-  'acc.trackers.signIn', 'acc.trackers.refresh', 'acc.trackers.add', 'acc.github.switch', 'acc.github.signIn', 'acc.agents.configure', 'acc.agents.autonomy', 'acc.agents.autoMerge',
-  // In progress (D-092): a job's Stop asks first; autopilot's output for its step.
-  'acc.job.stop', 'acc.autopilot.output',
-]);
+/** Commands the page may ask for, from every area that draws them (D-???). Anything else from a webview is ignored. */
+const ALLOWED = new Set(PAGE_COMMANDS);
 
-/** What the page needs from the rest of the extension, and what its cards ask for. */
+/** What the page needs from the rest of the extension. */
 export interface BoardDeps {
   boards(root: string): BoardInput[];
   identity(root: string): IdentityCard | null;
-  openTicket(project: string, tracker: number | null, key: string): void;
-  move(project: string, tracker: number, key: string, to: string): Promise<void>;
-  /** Track on a tracker board's card (D-074). The card itself is the reply: Tracking…, then acc's task or why not. */
-  track(project: string, tracker: number, key: string): Promise<void>;
-  /** A task's card dropped in a lane of the agent board (D-041). */
-  moveTask(project: string, task: string, lane: string): Promise<void>;
-  /** Agents' questions (D-030) and the commands acc is running. */
-  answer(id: string, a: Answer): void;
-  /** A person's answer to a task's analysis's question, through acc (D-052). */
-  answerAnalysis(project: string, task: string, question: string, text: string): Promise<{ ok: boolean; error?: string }>;
-  /** Posting, discarding and drafting a ticket's updates, through acc (D-066). */
-  updates: UpdateActions;
   /** The unsent edit a task's page holds for an update, following the drafts it replaced (GH-46). */
   edited(root: string, id: string, replaces: string[]): string | null;
   runs(): RunInput[];
-  runInput(id: string, text: string): void;
-  runControl(id: string, action: RunControl): void;
-  /** The Connect page (GH-51): what it shows, what it sends, and closing it with the tab. */
-  connect: { model(): ConnectModel | null; receive(m: ConnectMessage): void; close(): void };
-  /** The Slack card (GH-58): what it shows, never the webhook, and what its controls send. */
-  slack?: { card(): SlackCard | null; receive(m: Extract<FromWebview, { type: 'slack' | 'slack-connect' | 'slack-kinds' }>): void };
+  /** The Connect page (GH-51): what it shows, and closing it with the tab. */
+  connect: { model(): ConnectModel | null; close(): void };
+  /** The Slack card (GH-58): what it shows, never the webhook. */
+  slack?: { card(): SlackCard | null };
   /** Whether autopilot runs for a project's repo in this window, somewhere else, or not at all (D-064), so its merge queue moves (GH-73). */
   autopilot?(root: string): 'on' | 'elsewhere' | null;
 }
@@ -116,6 +88,8 @@ export class Panels implements vscode.Disposable {
   private readonly deps: BoardDeps;
   /** Jobs In progress saw end, kept a minute, by the extension's clock (D-092). */
   private readonly finished = new FinishedJobs();
+  /** Each area's taker of the page's messages of a type (D-???). */
+  private readonly takers = new Map<string, (m: never) => void>();
 
   constructor(ctx: vscode.ExtensionContext, hub: Hub, setup: Setup, resolve: (command: string, ref: Ref) => unknown, onVisible: (visible: boolean) => void, deps: BoardDeps) {
     this.ctx = ctx;
@@ -163,6 +137,17 @@ export class Panels implements vscode.Disposable {
     });
     this.panel = panel;
     this.onVisible(true);
+  }
+
+  /** An area takes the page's messages of a type. Two areas can't both take one. */
+  take<T extends FromWebview['type']>(type: T, fn: (m: Extract<FromWebview, { type: T }>) => void): void {
+    if (this.takers.has(type)) throw new Error(`Two areas take the page's ${type} messages.`);
+    this.takers.set(type, fn as (m: never) => void);
+  }
+
+  /** Tells the page how something it sent went. */
+  reply(msg: Record<string, unknown>): void {
+    void this.panel?.webview.postMessage(msg);
   }
 
   isOpen(): boolean {
@@ -219,66 +204,16 @@ export class Panels implements vscode.Disposable {
       for (const c of REFRESH[this.section]) void vscode.commands.executeCommand(c);
       return;
     }
-    if (m.type === 'ticket') {
-      if (this.hub.project(m.project)) this.deps.openTicket(m.project, m.tracker, m.key);
-      return;
-    }
-    if (m.type === 'move') {
-      if (this.hub.project(m.project)) void this.deps.move(m.project, m.tracker, m.key, m.to);
-      return;
-    }
-    if (m.type === 'track') {
-      if (this.hub.project(m.project)) void this.deps.track(m.project, m.tracker, m.key);
-      else this.post(); // the card stops saying Tracking…
-      return;
-    }
     if (m.type === 'open') {
       if (isWebLink(m.url)) void vscode.env.openExternal(vscode.Uri.parse(m.url));
       return;
     }
-    if (m.type === 'ticket-action') return;
-    if (m.type === 'move-task') {
-      if (this.hub.project(m.project)) void this.deps.moveTask(m.project, m.task, m.to);
-      return;
-    }
-    if (m.type === 'answer') {
-      this.deps.answer(m.id, answerOf(m));
-      return;
-    }
-    if (m.type === 'analysis-answer') {
-      // The page shows it's sending until the question goes. Every answer gets a reply: a refusal, or a
-      // project that isn't open here, tells it to stop and why.
-      void this.deps.answerAnalysis(m.project, m.task, m.question, m.text)
-        .catch((e: unknown) => ({ ok: false, error: (e as Error).message }))
-        .then((r) => this.panel?.webview.postMessage({ type: 'done', action: 'analysis-answer', project: m.project, task: m.task, question: m.question, ...r }));
-      return;
-    }
-    if (m.type === 'update-edit') return; // only a task's own page edits its updates (D-066)
-    if (m.type === 'update-post' || m.type === 'update-discard' || m.type === 'update-ask') {
-      // Posted as drafted, or set aside, from Needs you; edited on the task's page (D-066). Every one gets a reply.
-      const u = this.deps.updates;
-      const which = m.type === 'update-ask' ? { task: m.task, question: m.question } : { id: m.id };
-      const reply = (r: { ok: boolean; error?: string }) => this.panel?.webview.postMessage({ type: 'done', action: m.type, project: m.project, ...which, ...r });
-      if (m.type === 'update-post') {
-        // An edit on its task's page is what Post there sends. A row drawn before the edit arrived would
-        // send acc's text instead, so it's refused, and the row says to post it from there (GH-46).
-        const replaces = this.hub.updates(m.project).find((x) => x.id === m.id)?.replaces ?? [];
-        const edit = this.deps.edited(m.project, m.id, replaces);
-        if (edit !== null && edit.trim() !== m.text.trim()) {
-          void reply({ ok: false, error: 'it was edited on the task page, so post it from there.' });
-          return;
-        }
-      }
-      void (m.type === 'update-post' ? u.post(m.project, m.id, m.text, m.again === true) : m.type === 'update-discard' ? u.discard(m.project, m.id) : u.ask(m.project, m.task, m.question))
-        .catch((e: unknown) => ({ ok: false, error: (e as Error).message }))
-        .then(reply);
-      return;
-    }
-    if (m.type === 'run-input') return this.deps.runInput(m.run, m.text);
-    if (m.type === 'run-control') return this.deps.runControl(m.run, m.action);
-    if (m.type === 'agent-reply') return; // only an agent's own page writes to it (D-060)
-    if (m.type === 'slack' || m.type === 'slack-connect' || m.type === 'slack-kinds') return this.deps.slack?.receive(m);
-    if ('session' in m) return this.deps.connect.receive(m);
+    // The rest are each area's, which takes them in its own module (D-???). None here takes update-edit,
+    // which only a task's own page sends (D-066), agent-reply, only an agent's own page's (D-060), or
+    // ticket-action, a ticket page's.
+    const take = this.takers.get(m.type);
+    if (take) return take(m as never);
+    if (m.type !== 'run' && m.type !== 'toolbar') return;
     if (!ALLOWED.has(m.command)) return;
     if (m.type === 'toolbar') {
       if (m.arg !== undefined) { void vscode.commands.executeCommand(m.command, m.arg); return; }

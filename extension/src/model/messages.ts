@@ -20,6 +20,10 @@ for (const a of AREAS) {
 /** The types of message the page may send, from every area. */
 export const MESSAGE_TYPES: readonly string[] = [...CHECKS.keys()];
 
+/** The acc.* commands the page may ask for, from every area. Two areas can't both claim one. */
+export const PAGE_COMMANDS: readonly string[] = AREAS.flatMap((a) => a.commands ?? []);
+if (new Set(PAGE_COMMANDS).size !== PAGE_COMMANDS.length) throw new Error('Two areas claim the same command.');
+
 export function isFromWebview(m: unknown): m is FromWebview {
   const x = m as Record<string, unknown> | null;
   if (!x || typeof x.type !== 'string') return false;

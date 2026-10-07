@@ -3,6 +3,7 @@ import type { GithubIdentity } from '../../packages/core/src/github.ts';
 import type { Hub, Project } from './hub.ts';
 import { type IdentityCard, lookOf } from './model/environments.ts';
 import { initials } from './model/boards.ts';
+import type { ExtensionArea } from './area.ts';
 
 type AccRun = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
 
@@ -168,3 +169,10 @@ export class RepoIdentity implements vscode.Disposable {
     };
   }
 }
+
+export const area: ExtensionArea = {
+  register({ reg, setup, identity }) {
+    reg('acc.github.signIn', async () => { await setup.githubSignIn(); await identity.refresh(undefined, true); });
+    reg('acc.github.switch', (arg?: unknown) => identity.switch(arg));
+  },
+};

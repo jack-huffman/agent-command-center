@@ -180,6 +180,9 @@ export type Message =
   | { type: 'track'; project: string; tracker: number; key: string };
 
 export const area: ModelArea = {
+  commands: [
+    'acc.trackers.signIn', 'acc.trackers.refresh', 'acc.trackers.add',
+  ],
   home: {
     order: 14,
     attention({ i, attention }, p) {

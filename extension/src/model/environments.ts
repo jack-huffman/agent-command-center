@@ -95,6 +95,9 @@ export function environmentsModel(hub: HubLike, identity: (root: string) => Iden
 }
 
 export const area: ModelArea = {
+  commands: [
+    'acc.env.openOrg', 'acc.env.openGithub', 'acc.env.compare', 'acc.env.promote', 'acc.env.deploy', 'acc.github.switch', 'acc.github.signIn',
+  ],
   home: {
     order: 40,
     nav({ hub, i }) {

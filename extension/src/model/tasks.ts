@@ -104,6 +104,12 @@ export type Message =
   | { type: 'move-task'; project: string; task: string; to: string };
 
 export const area: ModelArea = {
+  commands: [
+    'acc.task.dispatch', 'acc.task.dispatchWith', 'acc.task.dispatchAnyway', 'acc.task.stopWaiting', 'acc.task.attach', 'acc.task.openWorktree', 'acc.task.abandon', 'acc.task.cleanup',
+    'acc.task.add', 'acc.task.importGithub', 'acc.task.importJira', 'acc.task.show', 'acc.task.move', 'acc.task.block', 'acc.task.unblock', 'acc.task.openTicket',
+    'acc.task.watch', 'acc.task.resume', 'acc.task.openInClaude', 'acc.task.review', 'acc.task.watchReview', 'acc.task.land', 'acc.task.openPr',
+    'acc.task.analyze', 'acc.task.watchAnalysis',
+  ],
   home: {
     order: 10,
     attention(c, p) {

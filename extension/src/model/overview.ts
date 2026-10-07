@@ -109,6 +109,10 @@ export function mergeQueues(hub: HubLike, autopilot: HomeInput['autopilot']): Qu
 }
 
 export const area: ModelArea = {
+  commands: [
+    // In progress (D-092): a job's Stop asks first; autopilot's output for its step.
+    'acc.job.stop', 'acc.autopilot.output',
+  ],
   home: {
     order: 0,
     nav({ questions, attention }) {

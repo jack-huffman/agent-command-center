@@ -6,8 +6,9 @@ import {
 } from '../../packages/core/src/questions.ts';
 import type { Hub } from './hub.ts';
 import { isUnder, shq } from './logic/shared.ts';
-import { type QuestionCard, questionCards } from './model/questions.ts';
+import { answerOf, type QuestionCard, questionCards } from './model/questions.ts';
 import { questionEvent, type SlackSink } from './slack.ts';
+import type { ExtensionArea } from './area.ts';
 
 /** How a shell runs the bundled acc: by VSCode's own runtime, so node needn't be on PATH. */
 export const accShellCommand = (accScript: string): string => `ELECTRON_RUN_AS_NODE=1 ${shq(process.execPath)} ${shq(accScript)}`;
@@ -208,3 +209,10 @@ export class Questions implements vscode.Disposable {
     }
   }
 }
+
+export const area: ExtensionArea = {
+  register({ answer, receive }) {
+    // Agents' questions (D-030), answered on the page.
+    receive('answer', (m) => { answer(m.id, answerOf(m)); });
+  },
+};

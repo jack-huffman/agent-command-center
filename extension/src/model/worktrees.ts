@@ -38,6 +38,9 @@ export function worktreesModel(hub: HubLike): WorktreesModel {
 }
 
 export const area: ModelArea = {
+  commands: [
+    'acc.worktree.open', 'acc.worktree.terminal', 'acc.worktree.reveal', 'acc.worktree.remove',
+  ],
   home: {
     order: 30,
     stats({ hub }) {
