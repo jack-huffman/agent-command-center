@@ -303,7 +303,8 @@ export class Sidebar {
       if (!pick) return;
       anyway = pick === 'Dispatch anyway';
     }
-    let result: { held?: boolean; waitsFor?: { task: string; files: string[] }[]; worktree?: string; bgId?: string | null; reused?: boolean } | null = null;
+    type Out = { held?: boolean; waitsFor?: { task: string; files: string[] }[]; first?: string[]; worktree?: string; bgId?: string | null; reused?: boolean };
+    let result: Out | null = null;
     await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Dispatching ${task.id}`, cancellable: false }, async (progress) => {
       progress.report({ message: 'creating the worktree and starting the agent…' });
       await this.runAcc(project, ['dispatch', task.id, ...(anyway ? ['--anyway'] : [])], (out) => {
@@ -312,9 +313,9 @@ export class Sidebar {
       });
     });
     if (!result) return;
-    const r = result as { held?: boolean; waitsFor?: { task: string; files: string[] }[]; worktree?: string; bgId?: string | null; reused?: boolean };
+    const r = result as Out;
     if (r.held) {
-      const pick = await vscode.window.showInformationMessage(`${task.id} ${waitLine(r.waitsFor ?? []).replace(/^Waits/, 'waits')}. It starts on its own once they're free, or once nothing else is ready.`, 'Dispatch anyway');
+      const pick = await vscode.window.showInformationMessage(`${task.id} ${waitLine(r.waitsFor ?? [], false, r.first ?? []).replace(/^Waits/, 'waits')}. It starts on its own once they're free, or once nothing else is ready.`, 'Dispatch anyway');
       if (pick) await this.dispatchAnyway(n);
       return;
     }

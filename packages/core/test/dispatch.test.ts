@@ -540,6 +540,10 @@ test('acc show says when a task\'s files aren\'t known (D-???)', () => {
   acc(repo, ['add', 'Unplanned']);
   assert.match(acc(repo, ['show', 'T-1']).out, /Its files aren't known: it has no analysis, so it never waits for another task's\./);
   assert.equal(acc(repo, ['show', 'T-1', '--json']).json().files.known, false);
+  // An analysis that names no files isn't told it has none.
+  acc(repo, ['add', 'Planned, with no files']);
+  writePlan(repoPaths(repo, run).analyses, 'T-2', []);
+  assert.match(acc(repo, ['show', 'T-2']).out, /Its files aren't known: its analysis names no files, so it never waits for another task's\./);
 });
 
 test('a held task being started elsewhere isn\'t started twice (D-???)', () => {

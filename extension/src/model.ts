@@ -15,7 +15,7 @@ import { type Environment, type Tracker, trackerForKey } from '../../packages/co
 import { promotionPaths } from '../../packages/core/src/promote.ts';
 import type { Answer, HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import { isOpenUpdate, stalePosting, type Update, UPDATE_ID, UPDATE_TEXT_MAX } from '../../packages/core/src/updates.ts';
-import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, BOARD_LANES, conflictLine, FILES_UNKNOWN, sharesLine, taskNames, waitLine, waitsForFiles, type DoctorItem, ENV_ICON, failedChecksLine, fileList, groupTasks, isUnder, prConflicts, questionsWord, type RunPrompt, saidLine, shortPath, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
+import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, BOARD_LANES, conflictLine, filesUnknown, sharesLine, taskNames, waitLine, waitsForFiles, type DoctorItem, ENV_ICON, failedChecksLine, fileList, groupTasks, isUnder, prConflicts, questionsWord, type RunPrompt, saidLine, shortPath, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
 import { isSlackWebhook, SLACK_KINDS, type SlackCard, type SlackKind } from './slack.ts';
 import type { Entry } from './transcript.ts';
 
@@ -174,21 +174,22 @@ export function stoppedLook(t: Pick<TaskRow, 'stopped'>, max = CARD_SAID): Look 
 
 /**
  * What a task says about its files beside other tasks' (D-???). A task a person dispatched that waits for
- * them: a clock, in blue, naming each task and its files, short on a card and in full on its page. Its
- * start failed: the bell, in orange. One that shares them, to do or started beside them: neutral. A Ready
- * task with no analysis: its files aren't known, neutral. Else nothing.
+ * them: a clock, in blue, naming each task and its files, short on a card and in full on its page, and the
+ * Ready tasks that go first. Its start failed: the bell, in orange. One that shares them, to do or started
+ * beside them: neutral. A Ready task with no analysis, or one naming no files: its files aren't known,
+ * neutral. Else nothing.
  */
 export function filesLook(t: Pick<TaskRow, 'state' | 'display' | 'files' | 'analyzing'>, full = false): Look | null {
   const f = t.files;
   if (!f) return null;
   if (t.state === 'todo' && f.held) {
     if (f.held.failed) return { label: `Needs you: ${f.held.byAutopilot ? 'autopilot couldn\'t start it' : 'its start failed'}: ${f.held.failed}`, icon: 'bell', tone: 'orange' };
-    if (f.shares.length && f.first.length) return { label: waitLine(f.shares, full), icon: 'clock', tone: 'blue' };
+    if (f.shares.length && f.first.length) return { label: waitLine(f.shares, full, f.first), icon: 'clock', tone: 'blue' };
     if (f.capped) return { label: 'Waits for an agent: as many are running as the project allows', icon: 'clock', tone: 'blue' };
     return { label: f.shares.length ? `Starting: nothing else is ready, so it shares files with ${taskNames(f.shares.map((s) => s.task))}` : 'Starting: the files it waited for are free', icon: 'clock', tone: 'blue' };
   }
   if (f.shares.length && t.state !== 'done') return { label: sharesLine(f.shares, full), icon: 'files', tone: 'neutral' };
-  if (t.state === 'todo' && t.display === 'ready' && !f.known && !t.analyzing) return { label: FILES_UNKNOWN, icon: 'info', tone: 'neutral' };
+  if (t.state === 'todo' && t.display === 'ready' && !f.known && !t.analyzing) return { label: filesUnknown(!!f.analyzed), icon: 'info', tone: 'neutral' };
   return null;
 }
 

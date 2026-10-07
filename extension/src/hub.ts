@@ -349,7 +349,7 @@ export class Hub implements vscode.Disposable {
         const look = startOrder({ id: t.id, files: own }, candidates, flying, shared);
         const h = t.held;
         const held = h ? { at: h.at, failed: h.failed?.reason ?? null, byAutopilot: !!h.failed && byAutopilot(h.failed.by) } : null;
-        return { known: !!own, shares: look.shares, first: look.first, held, ...(h && capped ? { capped } : {}) };
+        return { known: !!own, analyzed: !!analyses.get(t.id), shares: look.shares, first: look.first, held, ...(h && capped ? { capped } : {}) };
       }
       // Started beside others, while they're still in flight.
       const shares = IN_FLIGHT_STATES.includes(t.state) ? (t.run?.shares ?? []).filter((s) => live.has(s.task)) : [];

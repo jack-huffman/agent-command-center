@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
   ACTORS, AccError, type Actor, type ApexTest, configureRepoAccess, DISPLAY, type DisplayState, displayState, drift, gatesFor, gateTarget, isReady, loadConfig, makeContext, moveTask, mutate,
-  cleanup, type Config, dispatch, filesOf, holdWords, inFlight, plannedFiles, sharesWords, startedWords, startHeld, type StartHeldResult, startLook, stopWaiting, taskList, waits, githubIdentity, intakeGithub, intakeOutside, type IntakeResult, planInit, trackerForKey, useGithubAccount, withCloneAccount, type Profile, readLedger, receiptsAt, STEPS, receiptHooks, repoPaths, run, runGates, runSteps, satisfies, type State, type StepResult, type TaskInput, type UpsertResult,
+  cleanup, type Config, dispatch, filesOf, holdWords, inFlight, plannedFiles, sharesWords, startedWords, startHeld, type StartHeldResult, startLook, type StartLook, stopWaiting, taskList, waits, githubIdentity, intakeGithub, intakeOutside, type IntakeResult, planInit, trackerForKey, useGithubAccount, withCloneAccount, type Profile, readLedger, receiptsAt, STEPS, receiptHooks, repoPaths, run, runGates, runSteps, satisfies, type State, type StepResult, type TaskInput, type UpsertResult,
   upsertTasks, writeConfig, ask, hookOutput, parseHookInput, waiveGates, review, land, sync, planPromotion, promote, skipWarning, planDeploy, deploy, lastDeploy,
   buildBaseline, seedBranches, draftLists, writeReadme, parseEventInput, preToolUseHook, sessionStartHook, stopHook, AGENT_ROLES, type AgentRole, profileView, setProfile, withCloneAgents, type ProfileChange,
   analyze, type Analysis, answerAnalysis, openQuestions, readAnalysis,
@@ -829,14 +829,16 @@ function cmdStatus(o: Opts): number {
 
 /** What acc show says about a task to do and other tasks' files (D-???): it waits for them, shares them, or its own aren't known. */
 function fileLines(paths: ReturnType<typeof repoPaths>, config: Config, ledger: ReturnType<typeof readLedger>, t: ReturnType<typeof readLedger>['tasks'][number]) {
-  const planned = plannedFiles(readAnalysis(paths, t.id), paths.root);
-  const look = startLook(paths, config, ledger, run, t.id);
+  const analysis = readAnalysis(paths, t.id);
+  const planned = plannedFiles(analysis, paths.root);
+  // Files that aren't known share nothing, so work in flight isn't looked at for them.
+  const look: StartLook = planned ? startLook(paths, config, ledger, run, t.id, { files: planned }) : { shares: [], first: [] };
   const held = t.held;
   const lines: string[] = [];
   if (held?.failed) lines.push(tone(`! Its start failed: ${held.failed.reason} Dispatch it again, or stop it waiting: acc dispatch ${t.id} --stop-waiting`, 'orange'));
   else if (held && waits(look)) lines.push(tone(`${holdWords(look)}. It starts on its own once they're free, or: acc dispatch ${t.id} --anyway`, 'blue'));
   else if (held) lines.push(tone(`It waited for ${filesOf(held.waitsFor)}, and may start now: the Command Center or autopilot starts it, or: acc dispatch --held`, 'blue'));
-  else if (!planned) lines.push(tone('Its files aren\'t known: it has no analysis, so it never waits for another task\'s.', 'dim'));
+  else if (!planned) lines.push(tone(`Its files aren't known: ${analysis ? 'its analysis names no files' : 'it has no analysis'}, so it never waits for another task's.`, 'dim'));
   else if (look.shares.length) lines.push(tone(`${sharesWords(look.shares)}.`, 'dim'));
   return { lines, data: { known: !!planned, planned: planned ?? [], ...look } };
 }

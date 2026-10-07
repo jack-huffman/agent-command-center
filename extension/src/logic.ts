@@ -268,6 +268,8 @@ export interface TaskRow {
 export interface RowFiles {
   /** Its analysis names the files it plans to change. */
   known: boolean;
+  /** It has an analysis, though that may name no files. */
+  analyzed?: boolean;
   /**
    * A task to do: the tasks in flight whose files its plan shares, and those files. In flight: the ones
    * it shared when it started, while they're still in flight.
@@ -293,10 +295,20 @@ function namedEach(shares: FileShare[], full: boolean): string[] {
   return shares.map((s, i) => fileList(s.files.map(shortPath), i ? 1 : Math.max(1, 3 - (shares.length - 1))));
 }
 
-/** "Waits for GH-70's files: logic.ts, model.ts", and each further task's: ", and GH-71's: main.ts" (D-???). */
-export function waitLine(shares: FileShare[], full = false): string {
+/**
+ * "Waits for GH-70's files: logic.ts, model.ts", and each further task's: ", and GH-71's: main.ts" (D-???).
+ * With `first`, what starts before it: ", while GH-74 is ready to start", as acc says it.
+ */
+export function waitLine(shares: FileShare[], full = false, first: string[] = []): string {
   const files = namedEach(shares, full);
-  return `Waits for ${shares.map((s, i) => `${s.task}'s${i ? '' : ' files'}: ${files[i]}`).join(', and ')}`;
+  return `Waits for ${shares.map((s, i) => `${s.task}'s${i ? '' : ' files'}: ${files[i]}`).join(', and ')}${whileFirst(first, full)}`;
+}
+
+/** ", while GH-74 is ready to start", or ", while GH-74 and GH-75 are": the Ready tasks that go first. A card names two. */
+function whileFirst(first: string[], full: boolean): string {
+  if (!first.length) return '';
+  const named = full || first.length <= 2 ? taskNames(first) : `${first.slice(0, 2).join(', ')} and ${first.length - 2} more`;
+  return `, while ${named} ${first.length === 1 ? 'is' : 'are'} ready to start`;
 }
 
 /** "Shares files with GH-70: logic.ts", and each further task's: ", and GH-71: main.ts" (D-???). */
@@ -305,8 +317,8 @@ export function sharesLine(shares: FileShare[], full = false): string {
   return `Shares files with ${shares.map((s, i) => `${s.task}: ${files[i]}`).join(', and ')}`;
 }
 
-/** What a Ready card says when its task has no analysis to compare (D-???). */
-export const FILES_UNKNOWN = 'Its files aren\'t known: no analysis to compare with work in flight';
+/** What a Ready card says when its task's files aren't known (D-???): it has no analysis, or one that names no files. */
+export const filesUnknown = (analyzed: boolean): string => `Its files aren't known: ${analyzed ? 'its analysis names no files' : 'no analysis to compare with work in flight'}`;
 
 /** "GH-74", "GH-74 and GH-75", "GH-74, GH-75 and GH-76". */
 export const taskNames = (ids: string[]): string => (ids.length > 1 ? `${ids.slice(0, -1).join(', ')} and ${ids.at(-1)}` : (ids[0] ?? ''));

@@ -335,14 +335,20 @@ test('each step autopilot takes is one notice: what it did, and what it couldn\'
 });
 
 test('a task that waits for others\' files is told in words: what it waits for, what goes first, and what Dispatch anyway risks (D-???)', async () => {
-  const { anywayQuestion, autopilotNotices, FILES_UNKNOWN, noticeActions, sharesLine, startedNotice, waitLine, waitQuestion, waitsForFiles } = await import('../src/logic.ts');
+  const { anywayQuestion, autopilotNotices, filesUnknown, noticeActions, sharesLine, startedNotice, waitLine, waitQuestion, waitsForFiles } = await import('../src/logic.ts');
   const shares = [{ task: 'GH-70', files: ['extension/src/logic.ts', 'extension/src/model.ts', 'packages/cli/src/main.ts', 'docs/x.md'] }, { task: 'GH-71', files: ['extension/src/hub.ts'] }];
   // A card names the first three files short; the task page names every one in full.
   assert.equal(waitLine(shares), 'Waits for GH-70\'s files: src/logic.ts, src/model.ts and 2 more, and GH-71\'s: src/hub.ts', 'three names in all');
   assert.equal(waitLine([shares[0]!]), 'Waits for GH-70\'s files: src/logic.ts, src/model.ts, src/main.ts and 1 more');
   assert.equal(waitLine(shares, true), 'Waits for GH-70\'s files: extension/src/logic.ts, extension/src/model.ts, packages/cli/src/main.ts, docs/x.md, and GH-71\'s: extension/src/hub.ts');
+  // With what goes first, as acc says it: a card names two of them, the page every one.
+  assert.equal(waitLine([shares[1]!], false, ['GH-74']), 'Waits for GH-71\'s files: src/hub.ts, while GH-74 is ready to start');
+  assert.equal(waitLine([shares[1]!], false, ['GH-74', 'GH-75', 'GH-76']), 'Waits for GH-71\'s files: src/hub.ts, while GH-74, GH-75 and 1 more are ready to start');
+  assert.equal(waitLine([shares[1]!], true, ['GH-74', 'GH-75', 'GH-76']), 'Waits for GH-71\'s files: extension/src/hub.ts, while GH-74, GH-75 and GH-76 are ready to start');
   assert.equal(sharesLine([shares[1]!]), 'Shares files with GH-71: src/hub.ts');
-  assert.match(FILES_UNKNOWN, /files aren't known/);
+  // No analysis, or one that names no files: each said as it is.
+  assert.equal(filesUnknown(false), 'Its files aren\'t known: no analysis to compare with work in flight');
+  assert.equal(filesUnknown(true), 'Its files aren\'t known: its analysis names no files');
   const files = { known: true, shares, first: ['GH-74'], held: null };
   assert.ok(waitsForFiles({ state: 'todo', files }));
   assert.ok(!waitsForFiles({ state: 'todo', files: { ...files, first: [] } }), 'nothing else is ready: it starts');

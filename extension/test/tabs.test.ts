@@ -620,11 +620,12 @@ test('a task that waits for others\' files says so with a clock, in blue; its ne
     { ...row('AV-1', 'running', 'running'), run: { bgId: 'bg1', worktree: '/w1', branch: 'b1' }, files: { known: true, shares: [{ task: 'AV-9', files: ['lib/b.ts'] }], first: [], held: null } },
     todo('AV-10', 'needs-you', { known: true, shares: [], first: [], held: { ...held, failed: 'Claude Code doesn\'t trust /r yet.', byAutopilot: true } }),
     todo('AV-11', 'ready', { known: true, shares: [{ task: 'AV-1', files: ['src/a.ts'] }], first: [], held }),
+    todo('AV-12', 'ready', { known: false, analyzed: true, shares: [], first: [], held: null }),
   ];
   const h = { ...hub(), agents: [], taskRows: () => rows };
   const card = (id: string) => tasksModel(h).projects[0]!.columns.flatMap((c) => c.cards).find((c) => c.id === id)!;
-  // Held: a clock and the words, in blue, the files by folder and name.
-  assert.deepEqual(card('AV-5').files, { label: 'Waits for AV-1\'s files: src/a.ts, classes/X.cls', icon: 'clock', tone: 'blue' });
+  // Held: a clock and the words, in blue, the files by folder and name, and the Ready task that goes first.
+  assert.deepEqual(card('AV-5').files, { label: 'Waits for AV-1\'s files: src/a.ts, classes/X.cls, while AV-6 is ready to start', icon: 'clock', tone: 'blue' });
   assert.deepEqual(card('AV-5').actions.filter((a) => a.primary).map((a) => [a.label, a.command]), [['Dispatch anyway', 'acc.task.dispatchAnyway']]);
   assert.ok(card('AV-5').actions.some((a) => a.command === 'acc.task.stopWaiting' && !a.primary), 'Stop waiting, behind ⋯');
   assert.ok(!card('AV-5').actions.some((a) => a.command === 'acc.task.dispatch'), 'it was dispatched already');
@@ -637,6 +638,8 @@ test('a task that waits for others\' files says so with a clock, in blue; its ne
   // No analysis: its files aren't known, said in a neutral tone, and it's dispatched as ever.
   assert.deepEqual(card('AV-7').files, { label: 'Its files aren\'t known: no analysis to compare with work in flight', icon: 'info', tone: 'neutral' });
   assert.deepEqual(card('AV-7').actions.filter((a) => a.primary).map((a) => a.label), ['Dispatch']);
+  // An analysis that names no files isn't told it has none.
+  assert.deepEqual(card('AV-12').files, { label: 'Its files aren\'t known: its analysis names no files', icon: 'info', tone: 'neutral' });
   // Shares files but isn't held: said before Dispatch, and on a task that started beside another.
   assert.deepEqual(card('AV-8').files, { label: 'Shares files with AV-1: src/a.ts', icon: 'files', tone: 'neutral' });
   assert.deepEqual(card('AV-1').files, { label: 'Shares files with AV-9: lib/b.ts', icon: 'files', tone: 'neutral' });
@@ -650,7 +653,7 @@ test('a task that waits for others\' files says so with a clock, in blue; its ne
   // The task page names every file in full; the tracker's card says it waits.
   const task = { id: 'AV-5', title: 'Task AV-5', brief: '', source: { kind: 'jira', key: 'AV-5', url: null }, environment: 'devbox', deps: [], labels: [], state: 'todo', blocker: null, run: null, pr: null, history: [], createdAt: '', updatedAt: '' } as never;
   const page = ticketModel({ project: '/r', tracker: null, trackerTitle: null, trackerKind: null, key: 'AV-5', ticket: null, loading: false, error: null, connect: null, checks: [], row: rows[0]!, task });
-  assert.equal(page.acc!.files!.label, 'Waits for AV-1\'s files: src/a.ts, force-app/main/default/classes/X.cls');
+  assert.equal(page.acc!.files!.label, 'Waits for AV-1\'s files: src/a.ts, force-app/main/default/classes/X.cls, while AV-6 is ready to start');
   assert.deepEqual([page.acc!.look.label, page.acc!.look.icon, page.acc!.look.tone], ['Waits for AV-1\'s files', 'clock', 'blue'], 'its State, in a few words');
   assert.ok(page.acc!.actions.some((a) => a.command === 'acc.task.stopWaiting'));
   const board: BoardInput = {
