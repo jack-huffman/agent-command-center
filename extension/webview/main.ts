@@ -1856,12 +1856,24 @@ function renderHome(m: HomeModel): Node[] {
 /** A model's name short enough for a table cell: claude-opus-5-5 is opus-5-5, and a dated snapshot drops its date. */
 const shortModel = (m: string): string => m.replace(/^claude-/, '').replace(/-\d{8}(?=\[|$)/, '');
 
+/** Where the Agents page remembers How agents run is open: model.ts's AGENT_SETTINGS, which the extension opens. */
+const AGENT_SETTINGS = 'agents:settings';
+
 function renderAgents(m: AgentsModel): Node[] {
   const all = m.places.flatMap((p) => p.agents);
   const needs = all.filter((a) => a.needsYou).length;
-  const out: Node[] = [header('Agents', m.error ?? `${plural(all.length, 'session')} on this machine${needs ? `, ${needs} need${needs === 1 ? 's' : ''} you` : ''}.`, toolbarButton('acc.agent.new', 'Start a background agent', 'add', m.places.find((p) => p.root)?.root ?? undefined, true))];
+  // How agents run is behind Settings, closed until you open it, and remembered for the tab.
+  const open = memory().opened.includes(AGENT_SETTINGS);
+  const settings = m.settings.length ? button(open ? 'Hide settings' : 'Settings', 'settings-gear', () => {
+    remember((x) => { x.opened = open ? x.opened.filter((y) => y !== AGENT_SETTINGS) : [...x.opened, AGENT_SETTINGS]; });
+    if (last) render(last);
+  }, 'ghost') : null;
+  settings?.setAttribute('aria-expanded', String(open));
+  const out: Node[] = [header('Agents', m.error ?? `${plural(all.length, 'session')} on this machine${needs ? `, ${needs} need${needs === 1 ? 's' : ''} you` : ''}.`, settings, toolbarButton('acc.agent.new', 'Start a background agent', 'add', m.places.find((p) => p.root)?.root ?? undefined, true))];
+  // Closed, a billing problem still shows: per-token billing costs money while you're not looking (D-036).
+  if (!open) for (const s of m.settings) if (s.billing?.tone === 'orange') out.push(el('div', 'setting-billing', status(s.billing)));
   // What builders and reviewers run with, and what they bill (D-036).
-  for (const s of m.settings) {
+  for (const s of open ? m.settings : []) {
     const box = el('section', 'agent-settings', el('h2', '', icon('settings-gear'), m.settings.length > 1 ? `How agents run · ${s.project}` : 'How agents run'));
     for (const r of s.roles) {
       box.append(el('div', 'setting-row',
@@ -2397,10 +2409,12 @@ function render(model: Model): void {
 }
 
 window.addEventListener('message', (e: MessageEvent) => {
-  const msg = e.data as { type?: string; model?: Model; action?: string; ok?: boolean; jump?: boolean };
+  const msg = e.data as { type?: string; model?: Model; action?: string; ok?: boolean; jump?: boolean; open?: string };
   if (msg?.type === 'state' && msg.model && msg.model.kind === view) {
     // The extension moves the page only when asked to open a section; otherwise it stays where you are.
     if (msg.model.kind === 'home' && (msg.jump || !section)) setSection(msg.model.section, false);
+    // A part of it to open as well, such as the Agents settings from the status bar's Auto-merge.
+    if (msg.open) { const part = msg.open; remember((x) => { if (!x.opened.includes(part)) x.opened = [...x.opened, part]; }); }
     render(msg.model);
   }
   if (msg?.type === 'done') onDone(msg);

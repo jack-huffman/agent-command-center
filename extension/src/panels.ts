@@ -89,6 +89,8 @@ export function htmlFor(webview: Pick<vscode.Webview, 'cspSource' | 'asWebviewUr
  */
 export class Panels implements vscode.Disposable {
   private panel: vscode.WebviewPanel | null = null;
+  /** A part of the section to open with the next jump, such as the Agents settings. */
+  private opening: string | null = null;
   private section: HomeSection = 'overview';
   private readonly ctx: vscode.ExtensionContext;
   private readonly hub: Hub;
@@ -111,9 +113,13 @@ export class Panels implements vscode.Disposable {
     this.panel?.dispose();
   }
 
-  /** Opens the page, or brings it forward, at a section: the one asked for, else where it was left. */
-  show(section?: ViewKind | HomeSection): void {
+  /**
+   * Opens the page, or brings it forward, at a section: the one asked for, else where it was left. With
+   * open, a part of the section that's closed until you open it opens too, such as the Agents settings.
+   */
+  show(section?: ViewKind | HomeSection, open?: string): void {
     if (section && (HOME_SECTIONS as readonly string[]).includes(section)) this.remember(section as HomeSection);
+    this.opening = open ?? null;
     if (this.panel) {
       this.panel.reveal();
       this.post(true);
@@ -170,9 +176,12 @@ export class Panels implements vscode.Disposable {
     if (this.panel?.visible) void this.panel.webview.postMessage({ type: 'runs', runs: this.deps.runs().map((r) => runCard(r)), ...(focus ? { focus } : {}) });
   }
 
-  /** Sends fresh data to the page. With jump, the page also moves to the section asked for. */
+  /** Sends fresh data to the page. With jump, the page also moves to the section asked for, and opens the part show asked for. */
   post(jump = false): void {
-    if (this.panel?.visible) void this.panel.webview.postMessage({ type: 'state', model: this.model(), jump });
+    if (!this.panel?.visible) return;
+    const open = jump ? this.opening : null;
+    if (jump) this.opening = null;
+    void this.panel.webview.postMessage({ type: 'state', model: this.model(), jump, ...(open ? { open } : {}) });
   }
 
   private receive(m: unknown): void {

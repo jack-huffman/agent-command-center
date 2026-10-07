@@ -18,9 +18,11 @@ test('every section of the page, and a ticket, has sample data built by the real
     else if (kind.startsWith('slack-')) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).environments.slack?.state], ['home', 'environments', kind.slice('slack-'.length)]);
     // The Tasks tab with a monday.com board (GH-70).
     else if (kind === 'tasks-monday') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).tasks.projects[0]!.boards[0]!.kind], ['home', 'tasks', 'monday']);
+    // The Agents tab with How agents run opened by its Settings button.
+    else if (kind === 'agents-settings') assert.deepEqual([m.kind, (m as HomeModel).section], ['home', 'agents']);
     else assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).connect], ['home', kind === 'output' ? 'setup' : kind, null]);
   }
-  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'agent', 'output', 'connect-start', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday']);
+  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'agent', 'output', 'connect-start', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-settings']);
   assert.equal((sampleModel('environments') as HomeModel).environments.slack?.state, 'on');
   // monday.com's Connect page: its token page, its board picked by name, and two status columns to choose from.
   const monday = (sampleModel('connect-monday') as HomeModel).connect!;

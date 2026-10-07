@@ -839,7 +839,7 @@ count; under 820 px wide, it becomes a tab strip along the top.
 |---|---|
 | **Overview** | **Needs you:** agents waiting on a prompt, blocked tasks, steps autopilot couldn't take (with why, and the step to take by hand), missing tracker sign-ins and setup still to do, each with its button. Then, apart, work waiting for review. Stat tiles open their sections. **Ready for an agent** has Dispatch buttons, and **History** lists your answers, every task's moves, each step autopilot took, wherever it ran, and the commands acc ran (D-064) |
 | **Tasks** | The tracker's own board, or acc's agent board (D-026) |
-| **Agents** | **How agents run:** builders' and reviewers' model and effort (D-036), and the project's autonomy (D-064). Then sessions by project, each with the model it runs with (D-086), and a menu on each row (D-023) |
+| **Agents** | Sessions by project, each with the model it runs with (D-086), and a menu on each row (D-023). **Settings** in the header opens **How agents run** above them: builders' and reviewers' model and effort (D-036), the project's autonomy (D-064) and auto-merge (D-083). It's closed until opened, and remembered for the tab; per-token billing shows even while it's closed (D-089) |
 | **Worktrees** | Every checkout, with a menu on each row |
 | **Environments** | The GitHub identity card (D-028), promotion paths, and one card per environment |
 | **Setup** | The checklist, with Do it on each step |

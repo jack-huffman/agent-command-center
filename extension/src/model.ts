@@ -789,6 +789,9 @@ export interface AutoMergeSetting {
   settable: boolean;
 }
 
+/** The key under which the Agents page remembers How agents run is open; the webview keeps the same. */
+export const AGENT_SETTINGS = 'agents:settings';
+
 export interface AgentsModel {
   kind: 'agents';
   error: string | null;

@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import type { TaskRow } from '../src/logic.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
-import { agentsModel, analysisLook, type BoardInput, cardActions, environmentsModel, homeModel, type HubLike, isFromWebview, needsYouCount, promotionPaths, setupModel, tasksModel, ticketModel, trackerBoard, VIEW_KINDS, worktreesModel, dropLanes, laneMove } from '../src/model.ts';
+import { AGENT_SETTINGS, agentsModel, analysisLook, type BoardInput, cardActions, environmentsModel, homeModel, type HubLike, isFromWebview, needsYouCount, promotionPaths, setupModel, tasksModel, ticketModel, trackerBoard, VIEW_KINDS, worktreesModel, dropLanes, laneMove } from '../src/model.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
@@ -650,6 +650,21 @@ test('History tells each step autopilot took once, under Tasks, with its icon an
   assert.match(readFileSync(join(root, 'webview', 'main.ts'), 'utf8'), /const historyKind = \(i: HistoryItem\): string => \(i\.kind === 'autopilot' \? 'move' : i\.kind\);/);
 });
 
+test('How agents run is behind a Settings button, closed until it\'s opened, and the status bar\'s Auto-merge opens it', () => {
+  const page = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
+  // Closed by default, remembered for the tab, with a label that says which way it goes and an icon.
+  assert.match(page, /const open = memory\(\)\.opened\.includes\(AGENT_SETTINGS\)/);
+  assert.match(page, /button\(open \? 'Hide settings' : 'Settings', 'settings-gear',/);
+  assert.match(page, /setAttribute\('aria-expanded', String\(open\)\)/);
+  assert.match(page, /for \(const s of open \? m\.settings : \[\]\)/, 'the settings are drawn only when open');
+  // A billing problem still shows while it's closed.
+  assert.match(page, /if \(!open\) for \(const s of m\.settings\) if \(s\.billing\?\.tone === 'orange'\)/);
+  // The webview's key is model.ts's, which the extension asks the page to open.
+  assert.equal(page.match(/const AGENT_SETTINGS = '([^']+)'/)?.[1], AGENT_SETTINGS);
+  assert.match(readFileSync(join(root, 'src', 'extension.ts'), 'utf8'), /go: \(\) => panels\.show\('agents', AGENT_SETTINGS\)/);
+  assert.match(page, /if \(msg\.open\) \{ const part = msg\.open; remember/);
+});
+
 test('How agents run shows the project\'s autonomy, where it\'s set, and a way to change it (D-064)', () => {
   const h = hub();
   const p = h.projects[0]!;
@@ -704,7 +719,7 @@ test('How agents run has an Auto-merge row: on or off, what it means, and Change
   const ext = readFileSync(join(root, 'src', 'extension.ts'), 'utf8');
   assert.match(ext, /autopilot\.mergeLooks\(\)\.map/);
   assert.match(ext, /m\.on \? '\$\(git-merge\) Auto-merge: on' : '\$\(circle-slash\) Auto-merge: off'/);
-  assert.match(ext, /go: \(\) => panels\.show\('agents'\)/);
+  assert.match(ext, /go: \(\) => panels\.show\('agents', AGENT_SETTINGS\)/);
 });
 
 test('History tells a pull request autopilot merged, with its link (GH-67)', () => {
