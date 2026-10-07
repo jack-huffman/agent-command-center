@@ -11,7 +11,7 @@ import { shipCli } from './ship-cli.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-// Each folder's index of its area modules (D-099), first: the CLI's bundle already reads one.
+// Each folder's index of its area modules (D-099), and core's index (GH-95), first: the CLI's bundle reads them.
 const { writeAreas } = await import('./areas.ts');
 const areas = writeAreas();
 console.log(areas.length ? `updated ${areas.join(', ')}` : 'area indexes up to date');
