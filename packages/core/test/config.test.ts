@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { autoMergeFor, autoMergeOn, branchFor, defaultEnvironment, loadConfig, parseConfig, skippedOnRoute, trackerForKey, withTracker, writeConfig } from '../src/config.ts';
+import { autoMergeFor, autoMergeOn, branchFor, builderGatesFor, defaultEnvironment, loadConfig, parseConfig, requiredGates, skippedOnRoute, trackerForKey, withTracker, writeConfig } from '../src/config.ts';
 import { GENERIC_CONFIG, SF_CONFIG, tempDir } from './support.ts';
 
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x));
@@ -142,6 +142,21 @@ test('this repo lists its decision log as append-only, and lets autopilot merge 
   assert.deepEqual(config.autopilot, { appendOnly: ['docs/DECISIONS.md'], autoMerge: true });
   assert.equal(config.autonomy, 'review');
   assert.equal(autoMergeFor(config, 'main'), true);
+  // Its builders run the typecheck and the tests near what they changed; the full check runs in the merge queue (GH-73).
+  assert.deepEqual([config.gates.builder, config.gates.required, requiredGates(config, 'main', 'builder')], [['typecheck', 'near-tests'], ['check'], ['typecheck', 'near-tests']]);
+  assert.deepEqual(Object.keys(config.gates.commands).sort(), ['check', 'near-tests', 'typecheck']);
+});
+
+test('gates.builder: a list of gate names, kept as written, for builders only where the merge queue runs the full check (GH-73)', () => {
+  const raw = { ...clone(GENERIC_CONFIG), autonomy: 'review', autopilot: { autoMerge: true }, gates: { required: ['check'], builder: ['typecheck'], commands: { check: 'npm run check', typecheck: 'tsc' } } };
+  const c = parseConfig(raw).config!;
+  assert.deepEqual([c.gates.builder, builderGatesFor(c, 'main'), requiredGates(c, 'main', 'builder'), requiredGates(c, 'main', 'merge')], [['typecheck'], true, ['typecheck'], ['check']]);
+  assert.equal(parseConfig({ ...clone(GENERIC_CONFIG) }).config!.gates.builder, undefined, 'left out: builders run the required checks');
+  assert.match(errorsOf({ ...raw, gates: { ...raw.gates, builder: 'typecheck' } }), /"gates\.builder" must be a list of gate names/);
+  assert.match(errorsOf({ ...raw, gates: { ...raw.gates, builder: [''] } }), /"gates\.builder" must be a list of gate names/);
+  const dir = tempDir();
+  writeConfig(join(dir, 'config.json'), c);
+  assert.deepEqual(loadConfig(join(dir, 'config.json')).config.gates.builder, ['typecheck'], 'written back as it was');
 });
 
 test('autopilot.autoMerge: off unless it\'s true, a boolean, never in a Salesforce project, and never into a protected environment (GH-67)', () => {

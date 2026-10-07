@@ -56,11 +56,19 @@
     "required": [
       "check"
     ],
+    "builder": [
+      "typecheck",
+      "near-tests"
+    ],
     "commands": {
-      "check": "npm run check"
+      "check": "npm run check",
+      "typecheck": "npm run typecheck",
+      "near-tests": "node --no-warnings scripts/near-tests.mjs"
     },
     "heavy": [
-      "check"
+      "check",
+      "typecheck",
+      "near-tests"
     ]
   },
   "secretScan": {
