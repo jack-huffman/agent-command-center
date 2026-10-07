@@ -1,14 +1,17 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { type RepoAgents, type SessionTie, tieSession } from '../../packages/core/src/ledger.ts';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
+import { gitIn, makeRepo, tempDir } from '../../packages/core/test/support.ts';
 import {
   afterFullCheck, afterStepCheck, buildWalkthroughs, commandLink, COMMANDS, contextKey, dispatchModelArgs, dispatchModelItems, EXTENSION_ID, followsPullRequests, hasPlaceholder,
   initCommand, isComplete, isWebviewMenuContext, machineCache, mediaPath, MODEL_CHOICES, needsTerminal, productionOrgs, repoRoot, reusableMachine, setupOrgChoices, sizeLine, statusText,
   stepDescription, stepMedia, summarize, tildePath, type DoctorItem,
   credInUse, credKey, credSite, type CredWrites, credWrites, readCreds, reloadRoots, signOutAnswers, signOutPlan, signOutWrites, siteCredKey, trackerHost,
+  agentLook, type AgentSession, commonDirOf, finishedSession, sessionLedger, stopFinishedPlan,
 } from '../src/logic.ts';
 import { staleFiles } from '../scripts/generate.ts';
 
@@ -821,4 +824,100 @@ test('a sign-in kept for a site reloads every open project with a tracker there,
   assert.deepEqual(reloadRoots('/a', { kind: 'jira', host: 'ACME.atlassian.net' }, projects), ['/a', '/b'], 'another site, or another kind on a host of that name, isn\'t reloaded');
   assert.deepEqual(reloadRoots('/e', undefined, projects), ['/e'], 'a sign-in for this project only reloads only it');
   assert.deepEqual(reloadRoots(null, { kind: 'jira', host: 'acme.atlassian.net' }, projects), ['/a', '/b']);
+});
+
+const FINISHED = { label: 'Finished', icon: 'check', tone: 'neutral', needsYou: false };
+const bgSession = (x: Partial<AgentSession> = {}): AgentSession => ({ cwd: '/r', kind: 'background', startedAt: 0, id: 'bg', ...x });
+
+test('a finished session reads as Finished, with a check and a muted label, unless it works or asks; untied, as Claude Code says (D-???)', () => {
+  const done: SessionTie = { task: 'GH-1', role: 'builder', finished: true, why: 'done' };
+  const atWork: SessionTie = { task: 'GH-2', role: 'builder', finished: false, why: null };
+  assert.deepEqual(agentLook(bgSession({ status: 'waiting', pid: 1 }), null, done), FINISHED, 'waiting at its prompt');
+  assert.deepEqual(agentLook(bgSession({ state: 'blocked' }), null, done), FINISHED, 'listed blocked, its process gone');
+  assert.deepEqual(agentLook(bgSession({ state: 'blocked', waitingFor: 'permission prompt', pid: 1 }), null, { ...done, why: 'later-run' }), FINISHED);
+  assert.deepEqual(agentLook(bgSession({ kind: 'interactive', id: undefined, status: 'idle' }), null, { ...done, role: 'review', why: 'reviewed' }), FINISHED, 'an exited reviewer');
+  assert.equal(agentLook(bgSession({ state: 'working', status: 'busy', pid: 1 }), null, done).label, 'Working', 'someone carried it on');
+  assert.deepEqual(agentLook(bgSession({ state: 'blocked', pid: 1 }), 'has a question', done), { label: 'Needs you: has a question', icon: 'bell', tone: 'orange', needsYou: true });
+  // Tied to work under way, or not tied at all: exactly what Claude Code's state said before.
+  for (const s of [bgSession({ state: 'blocked', waitingFor: 'permission prompt' }), bgSession({ status: 'waiting', pid: 1 }), bgSession({ state: 'done' }), bgSession({ state: 'failed' }), bgSession({ kind: 'interactive', status: 'idle', pid: 3 })]) {
+    assert.deepEqual(agentLook(s, null, atWork), agentLook(s));
+    assert.deepEqual(agentLook(s, null, null), agentLook(s));
+  }
+  assert.deepEqual(agentLook(bgSession({ status: 'waiting', pid: 1 }), null, atWork), { label: 'Needs you', icon: 'bell', tone: 'orange', needsYou: true });
+  assert.deepEqual([finishedSession(bgSession({ state: 'blocked' }), done), finishedSession(bgSession({ state: 'blocked' }), done, 'has a question'), finishedSession(bgSession({ state: 'blocked' }), atWork)], [true, false, false]);
+});
+
+test('Stop finished sessions takes background sessions whose work is over, and never one at work, untied, interactive, busy, asking or ended (D-???)', () => {
+  const repo: RepoAgents = {
+    tasks: [
+      { id: 'GH-1', state: 'done', run: { bgId: 'bg-1', sessionId: 's-1' } },
+      { id: 'GH-2', state: 'running', run: { bgId: 'bg-2b', sessionId: 's-2b', n: 2 } },
+      { id: 'GH-3', state: 'review', run: { bgId: 'bg-3', sessionId: 's-3' } },
+      { id: 'GH-4', state: 'rework', run: { bgId: 'bg-4', sessionId: 's-4' } },
+      ...['5', '6', '7', '8'].map((n) => ({ id: `GH-${n}`, state: 'done' as const, run: { bgId: `bg-${n}`, sessionId: `s-${n}` } })),
+    ],
+    runs: [{ task: 'GH-2', bgId: 'bg-2a', sessionId: 's-2a', n: 1 }, { task: 'GH-2', bgId: 'bg-2b', sessionId: 's-2b', n: 2 }],
+    verdicts: [{ task: 'GH-3', sessionId: 'review-3' }],
+    analyses: [],
+    live: [{ task: 'GH-4', sessionId: 'review-4', role: 'review' }],
+  };
+  const bg = (n: string, x: Partial<AgentSession> = {}): AgentSession => bgSession({ id: `bg-${n}`, sessionId: `s-${n}`, state: 'blocked', status: 'waiting', pid: 1, ...x });
+  const sessions: AgentSession[] = [
+    bg('1'), // its task is done
+    bg('2a'), // an earlier run, while its task runs again
+    bg('2b'), bg('3'), bg('4'), // the current builders of tasks running, in review and in rework
+    bg('5', { pid: undefined, status: undefined }), // its task is done, its process gone, still listed blocked
+    bg('6', { state: 'working', status: 'busy' }), // carried on by someone
+    bg('7'), // a question waiting in the Command Center
+    bg('8', { pid: undefined, status: undefined, state: 'done' }), // ended already
+    bg('x'), // untied
+    { cwd: '/r', kind: 'interactive', startedAt: 0, sessionId: 'review-3', status: 'idle', pid: 2 }, // a recorded review's, interactive
+    { cwd: '/r', kind: 'interactive', startedAt: 0, sessionId: 'review-4', status: 'busy', pid: 3 }, // a review under way
+  ];
+  const plan = stopFinishedPlan(sessions, (s) => tieSession(s, repo), (s) => (s.id === 'bg-7' ? 'has a question' : null));
+  assert.deepEqual(plan.map((s) => s.id), ['bg-1', 'bg-2a', 'bg-5']);
+  assert.deepEqual(stopFinishedPlan(sessions, () => null, () => null), [], 'nothing acc can\'t tie');
+});
+
+test('a repo\'s shared git folder is .git, or where a linked worktree\'s .git file points, read without git', () => {
+  const files: Record<string, string> = {
+    '/a/b/.git': 'gitdir: ../main/.git/worktrees/b\n',
+    '/a/main/.git/worktrees/b/commondir': '../..\n',
+    '/c/.git': 'gitdir: /x/.git/worktrees/c',
+    '/x/.git/worktrees/c/commondir': '/x/.git',
+    '/sub/.git': 'gitdir: ../super/.git/modules/sub\n',
+    '/junk/.git': 'not a pointer',
+  };
+  const fake = { isDir: (p: string) => p === '/m/.git', read: (f: string) => files[f] ?? null };
+  assert.equal(commonDirOf('/m', fake), '/m/.git');
+  assert.equal(commonDirOf('/a/b', fake), '/a/main/.git', 'relative');
+  assert.equal(commonDirOf('/c', fake), '/x/.git', 'absolute');
+  assert.equal(commonDirOf('/sub', fake), '/super/.git/modules/sub', 'no commondir: its own folder');
+  assert.equal(commonDirOf('/junk', fake), null);
+  assert.equal(commonDirOf('/none', fake), null);
+  // As git really writes a linked worktree's files.
+  const repo = makeRepo();
+  const wt = join(tempDir(), 'linked');
+  gitIn(repo, 'worktree', 'add', '-q', wt);
+  const disk = {
+    isDir: (p: string) => { try { return statSync(p).isDirectory(); } catch { return false; } },
+    read: (f: string) => { try { return readFileSync(f, 'utf8'); } catch { return null; } },
+  };
+  assert.equal(realpathSync(commonDirOf(wt, disk)!), realpathSync(gitIn(repo, 'rev-parse', '--path-format=absolute', '--git-common-dir').trim()));
+  assert.equal(commonDirOf(repo, disk), join(repo, '.git'));
+});
+
+test('a session\'s ledger is its project\'s here; elsewhere, its repo\'s, a builder\'s worktree\'s by its path (D-???)', () => {
+  const o = {
+    project: (p: string) => (p === '/here' || p.startsWith('/here/') ? '/here/.git/acc/ledger.json' : null),
+    repoFor: (p: string) => repoRoot(p, '/Users/me', (d) => ['/Users/me/clients/Acme', '/Users/me/linked'].includes(d)),
+    commonDir: (r: string) => (r === '/Users/me/linked' ? '/Users/me/clients/Acme/.git' : r === '/Users/me/clients/Acme' ? `${r}/.git` : null),
+  };
+  const acme = '/Users/me/clients/Acme/.git/acc/ledger.json';
+  assert.equal(sessionLedger('/here/.claude/worktrees/X', o), '/here/.git/acc/ledger.json');
+  for (const cwd of ['/Users/me/clients/Acme', '/Users/me/clients/Acme/', '/Users/me/clients/Acme/force-app/main', '/Users/me/clients/Acme/.claude/worktrees/ACME-38', '/Users/me/clients/Acme/.claude/worktrees/ACME-38/src', '/Users/me/linked']) {
+    assert.equal(sessionLedger(cwd, o), acme, cwd);
+  }
+  assert.equal(sessionLedger('/Users/me/Downloads/scratch', o), null, 'in no repo');
+  assert.equal(sessionLedger('/Users/me/other/.claude/worktrees/Y', o), null, 'a worktree path whose repo has no git folder');
 });

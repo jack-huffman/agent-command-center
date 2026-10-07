@@ -157,6 +157,8 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     const ext = createRequire(import.meta.url)(dist) as { activate(c: unknown): void };
     ext.activate(ctx);
     for (const c of Object.values(COMMANDS)) assert.ok(calls.commands.has(c), `${c} registered`);
+    // The Agents tab's Stop finished sessions (D-???), beside a single agent's Stop.
+    for (const c of ['acc.agent.stop', 'acc.agents.stopFinished']) assert.ok(calls.commands.has(c), `${c} registered`);
     // Setup watches each folder's own root, never every file of those names below it, a builder's worktree's included.
     const setupWatch = calls.watched.find((p) => typeof p === 'object' && p !== null && String((p as { pattern: string }).pattern).includes('.acc/config.json')) as { base: { uri: { fsPath: string } }; pattern: string } | undefined;
     assert.ok(setupWatch, 'a watcher for the setup files');

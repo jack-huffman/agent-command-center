@@ -4,7 +4,7 @@
  */
 import type { Analysis } from '../../packages/core/src/analyze.ts';
 import { autopilotDoes, type AutopilotRecord, byAutopilot } from '../../packages/core/src/autopilot.ts';
-import { DISPLAY, findRule, type State, type Task } from '../../packages/core/src/ledger.ts';
+import { DISPLAY, findRule, type SessionTie, type State, type Task } from '../../packages/core/src/ledger.ts';
 import type { GateStatus } from '../../packages/core/src/receipts.ts';
 import { declaredKeys, DESCRIPTIONS, type Option, type TrackerDescription, type Values } from '../../packages/core/src/trackers/connect.ts';
 import { type Doc, fromMarkdown } from '../../packages/core/src/trackers/doc.ts';
@@ -15,7 +15,7 @@ import { autoMergeOn, type Environment, type Tracker, trackerForKey } from '../.
 import { promotionPaths } from '../../packages/core/src/promote.ts';
 import type { Answer, HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import { isOpenUpdate, stalePosting, type Update, UPDATE_ID, UPDATE_TEXT_MAX } from '../../packages/core/src/updates.ts';
-import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, BOARD_LANES, conflictLine, displayName, type DoctorItem, ENV_ICON, failedChecksLine, fileList, FROM_WORDS, groupTasks, isUnder, ownsSession, prConflicts, questionsWord, type RunPrompt, saidLine, sessionFor, shortPath, signInScope, TASK_GROUPS, type TaskRow, tildePath, type Tone } from './logic.ts';
+import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, BOARD_LANES, conflictLine, displayName, type DoctorItem, ENV_ICON, failedChecksLine, fileList, finishedSession, FROM_WORDS, groupTasks, isUnder, ownsSession, prConflicts, questionsWord, type RunPrompt, saidLine, sessionFor, shortPath, signInScope, stopFinishedPlan, TASK_GROUPS, type TaskRow, tildePath, type Tone } from './logic.ts';
 import type { HeavyState } from '../../packages/core/src/semaphore.ts';
 import { type FinishedJobs, inProgress, type ProgressModel, type RepoJobs } from './progress.ts';
 import { isSlackWebhook, SLACK_KINDS, type SlackCard, type SlackKind } from './slack.ts';
@@ -92,6 +92,11 @@ export interface HubLike {
   /** How earlier questions ended (D-037). */
   answers?: HistoryRecord[];
   askingFor?(s: AgentSession): string | null;
+  /**
+   * The task a session works for, from its repo's ledger, here or elsewhere on the machine, and whether its
+   * work is over (D-???). A finished session reads as Finished and never needs you.
+   */
+  tieFor?(s: AgentSession): SessionTie | null;
   /** The model a session runs with (D-086): what its transcript last answered with, else what acc started it with. */
   modelFor?(s: AgentSession): string | null;
   /** The home folder, shown as ~ (GH-83). */
@@ -858,6 +863,8 @@ export interface AgentRow {
   name: string;
   look: Look;
   needsYou: boolean;
+  /** Its work is over (D-???): its task is done or has a later run, or its review or analysis is recorded. */
+  finished: boolean;
   kind: string;
   /** Its folder in context, without the project its group names (GH-83). */
   where: string;
@@ -902,6 +909,8 @@ export interface AgentsModel {
   places: { label: string; root: string | null; agents: AgentRow[] }[];
   /** What the Where column shows, remembered for the window (GH-83). */
   whereView: WhereView;
+  /** How many finished background sessions Stop finished sessions would stop (D-???). */
+  stopFinished: number;
   /** Each project's agent settings, what autopilot may do there, whether it merges, and what its agents bill (D-036). */
   settings: { root: string; project: string; roles: AgentSetting[]; autonomy: AutonomySetting | null; autoMerge: AutoMergeSetting | null; billing: Look | null }[];
 }
@@ -956,13 +965,15 @@ export function billingLook(items: DoctorItem[]): Look | null {
 }
 
 export function agentsModel(hub: HubLike, setupItems: DoctorItem[] = [], whereView: WhereView = 'folder'): AgentsModel {
-  const lookOf = (s: AgentSession) => agentLook(s, hub.askingFor?.(s));
+  const tieOf = (s: AgentSession) => hub.tieFor?.(s) ?? null;
+  const askingOf = (s: AgentSession) => hub.askingFor?.(s) ?? null;
+  const lookOf = (s: AgentSession) => agentLook(s, askingOf(s), tieOf(s));
   const folders = sessionFolders(hub);
   const rowFor = (s: AgentSession): AgentRow => {
     const look = lookOf(s);
     const key = sessionKey(s);
     const f = folders.get(s.cwd)!;
-    return { key, background: !!s.id, name: nameOf(hub, s), look: { label: look.label, icon: look.icon, tone: look.tone }, needsYou: look.needsYou, kind: s.kind, where: f.inProject ?? f.label, path: f.full, startedAt: s.startedAt, model: hub.modelFor?.(s) ?? null };
+    return { key, background: !!s.id, name: nameOf(hub, s), look: { label: look.label, icon: look.icon, tone: look.tone }, needsYou: look.needsYou, finished: finishedSession(s, tieOf(s), askingOf(s)), kind: s.kind, where: f.inProject ?? f.label, path: f.full, startedAt: s.startedAt, model: hub.modelFor?.(s) ?? null };
   };
   const sorted = [...hub.agents].sort((a, b) => Number(lookOf(b).needsYou) - Number(lookOf(a).needsYou) || b.startedAt - a.startedAt);
   const places = hub.projects.map((p) => ({ label: p.name, root: p.root as string | null, agents: sorted.filter((s) => hub.projectFor(s.cwd) === p).map(rowFor) }));
@@ -970,7 +981,7 @@ export function agentsModel(hub: HubLike, setupItems: DoctorItem[] = [], whereVi
   if (elsewhere.length) places.push({ label: 'Elsewhere on this machine', root: null, agents: elsewhere.map(rowFor) });
   const billing = billingLook(setupItems);
   const settings = hub.projects.filter((p) => p.agents).map((p) => ({ root: p.root, project: p.name, roles: agentSettings(p), autonomy: autonomySetting(p), autoMerge: autoMergeSetting(p), billing }));
-  return { kind: 'agents', error: hub.agentsError, places, whereView, settings };
+  return { kind: 'agents', error: hub.agentsError, places, whereView, stopFinished: stopFinishedPlan(hub.agents, tieOf, askingOf).length, settings };
 }
 
 // ---------------------------------------------------------------- worktrees
@@ -1461,7 +1472,7 @@ export function agentModel(i: AgentInput): AgentModel {
   const project = s ? hub.projectFor(s.cwd) : undefined;
   // The task it builds, found as the task finds its builder: never by a name alone (D-087).
   const row = project && s ? hub.taskRows(project.root).find((r) => sessionFor(r, [s]) === s) : undefined;
-  const look = s && live ? agentLook(s, hub.askingFor?.(s)) : i.active ? { label: 'Working', icon: 'sync~spin', tone: 'blue' as Tone, needsYou: false } : { label: 'Ended', icon: 'circle-slash', tone: 'neutral' as Tone, needsYou: false };
+  const look = s && live ? agentLook(s, hub.askingFor?.(s), hub.tieFor?.(s)) : i.active ? { label: 'Working', icon: 'sync~spin', tone: 'blue' as Tone, needsYou: false } : { label: 'Ended', icon: 'circle-slash', tone: 'neutral' as Tone, needsYou: false };
   const limit = i.limit ?? 400;
   const views = i.entries.slice(-limit).map((e): EntryView => (e.k === 'prompt' ? { k: 'prompt', id: e.id, at: e.at, body: fromMarkdown(e.text), instructions: e.instructions }
     : e.k === 'say' ? { k: 'say', id: e.id, at: e.at, body: fromMarkdown(e.text) } : e));
@@ -1982,7 +1993,8 @@ export function homeModel(i: HomeInput): HomeModel {
   }
   const folders = sessionFolders(hub);
   for (const s of hub.agents) {
-    const look = agentLook(s);
+    // A finished session needs nobody, though Claude Code lists it waiting (D-???).
+    const look = agentLook(s, null, hub.tieFor?.(s));
     if (!look.needsYou || (s.id && linked.has(s.id)) || (s.sessionId && asked.has(s.sessionId))) continue;
     const key = sessionKey(s);
     // Its folder in context, after its project as the other cards have it; the whole folder on hover (GH-83).

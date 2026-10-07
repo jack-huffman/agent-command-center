@@ -7,9 +7,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import type { AutopilotRecord } from '../../packages/core/src/autopilot.ts';
-import type { Task } from '../../packages/core/src/ledger.ts';
+import { displayState, emptyLedger, type Task } from '../../packages/core/src/ledger.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
-import { autopilotNotices, taskNotices, type TaskRow } from '../src/logic.ts';
+import { type AgentSession, autopilotNotices, rowSession, taskNotices, type TaskRow } from '../src/logic.ts';
 import { homeModel, isFromWebview } from '../src/model.ts';
 import { News, type NewsInput } from '../src/news.ts';
 import {
@@ -496,6 +496,31 @@ test('a new draft is told once; one that replaces a draft already told isn\'t (D
   late.arm([input(rows)]);
   assert.equal(late.look(input(rows, { log: [land] })).slack.length, 1);
   assert.deepEqual(late.look(input(rows, { log: [land], updates: [draft('ACME-12.1', 'pr-opened', { pr: { number: 38, url: 'https://github.com/acme/service/pull/38' } })] })).slack, []);
+});
+
+test('a finished session never makes its task need you: no waiting notice and no Slack message for a done task\'s builder, nor an earlier run\'s (D-???)', () => {
+  const tasks = [
+    { id: 'ACME-1', state: 'done', run: { bgId: 'bg-1', sessionId: 's-1', name: 'Acme Service · ACME-1 Title · builder', startedAt: iso(T0 - 9_000_000) } },
+    { id: 'ACME-2', state: 'running', run: { bgId: 'bg-2b', sessionId: 's-2b', name: 'Acme Service · ACME-2 Title · builder 2', n: 2, startedAt: iso(T0 - 600_000) } },
+  ];
+  // Each row as the hub derives it: the session its task looks at, and what that makes it show.
+  const rows = (sessions: AgentSession[]) => tasks.map((t) => {
+    const s = rowSession(t, sessions);
+    return row(t.id, t.state, { run: t.run, display: displayState(emptyLedger(), t as unknown as Task, s ? { state: s.state, status: s.status } : undefined) as TaskRow['display'] });
+  });
+  const bg = (id: string, more: Partial<AgentSession>): AgentSession => ({ cwd: '/wt', kind: 'background', startedAt: 0, id, sessionId: `s-${id.slice(3)}`, pid: 1, ...more });
+  const waiting = { state: 'blocked', status: 'waiting' };
+  const working = bg('bg-2b', { state: 'working', status: 'busy' });
+  const before = rows([working]);
+  // ACME-1's builder and ACME-2's first builder are left waiting at their prompts.
+  const after = rows([bg('bg-1', waiting), bg('bg-2a', waiting), working]);
+  assert.deepEqual(after.map((r) => r.display), ['done', 'running']);
+  assert.deepEqual(taskNotices(before, after), [], 'no notice, so nothing for Slack');
+  // Its current builder waiting is news, and goes to Slack as needing you.
+  const current = rows([bg('bg-1', waiting), bg('bg-2a', waiting), bg('bg-2b', waiting)]);
+  const told = taskNotices(before, current);
+  assert.deepEqual(told.map((n) => [n.kind, n.task]), [['waiting', 'ACME-2']]);
+  assert.equal(taskEvent(project(current, tasks.map((t) => ledgerTask(t.id, t.state, [], t.run))), told[0]!, T0)?.kind, 'needs-you');
 });
 
 test('a stopped builder is told once a run, and a review\'s pass by the review: not by when a window saw it', () => {

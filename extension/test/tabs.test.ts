@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import type { SessionTie } from '../../packages/core/src/ledger.ts';
 import { type AgentSession, repoRoot, type TaskRow } from '../src/logic.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
 import { AGENT_SETTINGS, agentsModel, analysisLook, type BoardInput, cardActions, environmentsModel, homeModel, type HubLike, isFromWebview, needsYouCount, promotionPaths, sessionFolders, setupModel, tasksModel, ticketModel, trackerBoard, VIEW_KINDS, worktreesModel, dropLanes, laneMove } from '../src/model.ts';
@@ -157,6 +158,56 @@ function menuFor(webviewId: string, keys: Record<string, string | boolean>): str
 test('agent rows hide their actions behind one menu: Watch first, and background sessions also attach and stop', () => {
   assert.deepEqual(menuFor('acc.home', { webviewSection: 'agent', agentBackground: true }), ['acc.agent.watch', 'acc.agent.openInClaude', 'acc.agent.attach', 'acc.agent.openFolder', 'acc.agent.stop'], 'Stop sits alone at the bottom');
   assert.deepEqual(menuFor('acc.home', { webviewSection: 'agent', agentBackground: false }), ['acc.agent.watch', 'acc.agent.openInClaude', 'acc.agent.openFolder']);
+});
+
+test('a finished session reads as Finished and never needs you: not on its row, the badges, the Overview or its page; an untied one still does (D-???)', async () => {
+  const { agentModel } = await import('../src/model.ts');
+  const done: SessionTie = { task: 'AV-4', role: 'builder', finished: true, why: 'done' };
+  const untied = hub();
+  untied.agents = [
+    // Claude Code lists all three waiting. acc can't tie the first to a task.
+    { cwd: '/r.worktrees/AV-2', kind: 'background', startedAt: 5, id: 'bg1', name: 'av-2', state: 'blocked', waitingFor: 'permission prompt' },
+    // AV-4's builder, here, left waiting at its prompt after its task was done.
+    { cwd: '/r/.claude/worktrees/AV-4', kind: 'background', startedAt: 4, id: 'bg4', sessionId: 's-4', name: 'Acme · AV-4 Login page · builder', state: 'blocked', status: 'waiting', pid: 14 },
+    // Another repo's, elsewhere on the machine: its process gone, still listed blocked.
+    { cwd: '/Users/me/clients/Acme Service/.claude/worktrees/ACME-38', kind: 'background', startedAt: 3, id: 'bg38', sessionId: 's-38', name: 'ACME-38', state: 'blocked' },
+    { cwd: '/elsewhere', kind: 'interactive', startedAt: 1, sessionId: 'uuid', name: 'other', status: 'idle', pid: 9 },
+  ];
+  const tied: HubLike = { ...untied, tieFor: (s) => (s.id === 'bg4' || s.id === 'bg38' ? done : null) };
+  const input = (h: HubLike) => ({ hub: h, section: 'agents' as const, boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set<string>() } });
+  const m = homeModel(input(tied));
+  const was = homeModel(input(untied));
+  const row = (key: string) => m.agents.places.flatMap((p) => p.agents).find((a) => a.key === key)!;
+  for (const key of ['s-4', 's-38']) assert.deepEqual([row(key).look, row(key).needsYou, row(key).finished], [{ label: 'Finished', icon: 'check', tone: 'neutral' }, false, true], key);
+  assert.equal(m.agents.places.find((p) => p.root === null)!.agents.find((a) => a.key === 's-38')?.where, 'Acme Service › worktree ACME-38', 'elsewhere on the machine');
+  assert.deepEqual([row('bg1').look.label, row('bg1').needsYou, row('bg1').finished], ['Needs you: permission prompt', true, false]);
+  assert.deepEqual(m.agents.places[0]!.agents.map((a) => a.key), ['bg1', 's-4'], 'needs you first, then newest');
+  // The rail's Agents badge counts only the untied one.
+  const nav = (x: typeof m) => Object.fromEntries(x.nav.map((n) => [n.section, n]));
+  assert.deepEqual([nav(m).agents!.count, nav(m).agents!.attention, nav(m).agents!.hint], [1, true, '1 waiting on you']);
+  assert.equal(nav(was).agents!.count, 3, 'untied, all three would need you');
+  // The Overview lists the untied one only; its badge, the launcher's and the status bar count one less for each finished one.
+  const titles = m.overview.attention.map((a) => a.title);
+  assert.ok(titles.includes('av-2'));
+  assert.ok(!titles.some((t) => /AV-4|ACME-38/.test(t)), 'no finished session in Needs you');
+  assert.equal(needsYouCount(was.overview) - needsYouCount(m.overview), 2);
+  assert.equal(nav(m).overview!.count, needsYouCount(m.overview));
+  // Its page says Finished too.
+  const page = (h: HubLike, key: string) => agentModel({ hub: h, key, seen: null, entries: [], readable: false, lastAt: null });
+  assert.deepEqual(page(tied, 's-38').look, { label: 'Finished', icon: 'check', tone: 'neutral' });
+  assert.equal(page(untied, 's-38').look.label, 'Needs you');
+  // Both can be stopped together; its row menu still offers Stop.
+  assert.equal(m.agents.stopFinished, 2);
+  assert.equal(was.agents.stopFinished, 0);
+  assert.ok(menuFor('acc.home', { webviewSection: 'agent', agentBackground: row('s-4').background }).includes('acc.agent.stop'));
+});
+
+test('Stop finished sessions is on the Agents header while there are any, through a command the page may ask for (D-???)', () => {
+  const page = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
+  assert.match(page, /m\.stopFinished \? toolbarButton\('acc\.agents\.stopFinished', `Stop finished sessions \(\$\{m\.stopFinished\}\)`, 'debug-stop'\) : null/);
+  assert.match(readFileSync(join(root, 'src', 'panels.ts'), 'utf8'), /'acc\.agents\.stopFinished'/, 'the page may ask for it');
+  assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === 'acc.agents.stopFinished'));
+  assert.match(readFileSync(join(root, 'src', 'sidebar.ts'), 'utf8'), /reg\('acc\.agents\.stopFinished', \(\) => this\.stopFinished\(\)\)/);
 });
 
 test('the row menus are for the page the rows are on: the Command Center\'s own webview', () => {

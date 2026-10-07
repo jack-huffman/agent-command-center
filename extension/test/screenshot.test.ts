@@ -65,6 +65,15 @@ test('the sample data shows every style: each board column, each kind of session
   assert.ok(here.includes('main checkout') && here.some((w) => w.startsWith('worktree ')), 'in the project: its main checkout and a worktree');
   const away = home.agents.places.find((p) => p.root === null)!.agents.map((a) => a.where);
   for (const w of ['clients/Acme Service', 'personal/Acme Service', 'clients/Acme Service › worktree ACME-40', 'side-project › force-app/main', '~', 'scratch']) assert.ok(away.includes(w), `elsewhere: ${w}`);
+  // Finished sessions (D-???): in the project, a done task's builder, an earlier run's and a recorded review's;
+  // elsewhere, two of another repo's done tasks; and an untied one that still needs you. Each can be stopped but the reviewer's.
+  const look = (p: string | null) => home.agents.places.find((x) => x.root === p)!.agents.filter((a) => a.finished).map((a) => [a.name, a.look.label]);
+  const finishedHere = look(home.agents.places[0]!.root);
+  assert.equal(finishedHere.length, 3, 'a done task\'s builder, an earlier run\'s and a recorded review\'s');
+  assert.ok(finishedHere.every(([, label]) => label === 'Finished'));
+  assert.deepEqual(look(null), [['Acme Service · ACME-38 Merge the support queues · builder', 'Finished'], ['ACME-37', 'Finished']]);
+  assert.equal(agents.find((a) => a.name === 'ACME-11')?.look.label, 'Needs you: permission prompt', 'acc can\'t tie it');
+  assert.equal(home.agents.stopFinished, 4);
   const worktrees = home.worktrees.projects[0]!.worktrees;
   assert.deepEqual([...new Set(worktrees.map((w) => w.state.label.replace(/^\d+/, 'N')))].sort(), ['Clean', 'Missing on disk', 'N changed']);
 });

@@ -1970,6 +1970,8 @@ const AGENT_SETTINGS = 'agents:settings';
 function renderAgents(m: AgentsModel): Node[] {
   const all = m.places.flatMap((p) => p.agents);
   const needs = all.filter((a) => a.needsYou).length;
+  // Sessions whose work is over (D-???): counted apart from what needs you, and stopped together.
+  const finished = all.filter((a) => a.finished).length;
   // How agents run is behind Settings, closed until you open it, and remembered for the tab.
   const open = memory().opened.includes(AGENT_SETTINGS);
   const settings = m.settings.length ? button(open ? 'Hide settings' : 'Settings', 'settings-gear', () => {
@@ -1977,7 +1979,8 @@ function renderAgents(m: AgentsModel): Node[] {
     if (last) render(last);
   }, 'ghost') : null;
   settings?.setAttribute('aria-expanded', String(open));
-  const out: Node[] = [header('Agents', m.error ?? `${plural(all.length, 'session')} on this machine${needs ? `, ${needs} need${needs === 1 ? 's' : ''} you` : ''}.`, settings, toolbarButton('acc.agent.new', 'Start a background agent', 'add', m.places.find((p) => p.root)?.root ?? undefined, true))];
+  const stop = m.stopFinished ? toolbarButton('acc.agents.stopFinished', `Stop finished sessions (${m.stopFinished})`, 'debug-stop') : null;
+  const out: Node[] = [header('Agents', m.error ?? `${plural(all.length, 'session')} on this machine${needs ? `, ${needs} need${needs === 1 ? 's' : ''} you` : ''}${finished ? `, ${finished} finished` : ''}.`, settings, stop, toolbarButton('acc.agent.new', 'Start a background agent', 'add', m.places.find((p) => p.root)?.root ?? undefined, true))];
   // Closed, a billing problem still shows: per-token billing costs money while you're not looking (D-036).
   if (!open) for (const s of m.settings) if (s.billing?.tone === 'orange') out.push(el('div', 'setting-billing', status(s.billing)));
   // What builders and reviewers run with, and what they bill (D-036).

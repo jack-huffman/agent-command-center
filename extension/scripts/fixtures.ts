@@ -7,13 +7,13 @@ import type { Analysis } from '../../packages/core/src/analyze.ts';
 import type { AutopilotRecord } from '../../packages/core/src/autopilot.ts';
 import type { Environment } from '../../packages/core/src/config.ts';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
-import type { Task } from '../../packages/core/src/ledger.ts';
+import { type RepoAgents, type State, type Task, tieSession } from '../../packages/core/src/ledger.ts';
 import { sessionName } from '../../packages/core/src/names.ts';
 import { type AdfNode, fromAdf } from '../../packages/core/src/trackers/doc.ts';
 import type { Ticket } from '../../packages/core/src/trackers/types.ts';
 import type { HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
-import { type AgentSession, askingLabel, type DoctorItem, repoRoot, rowAnalysis, type TaskRow } from '../src/logic.ts';
+import { type AgentSession, askingLabel, type DoctorItem, isUnder, repoRoot, rowAnalysis, type TaskRow } from '../src/logic.ts';
 import { AZURE, GITHUB, JIRA, MONDAY } from '../../packages/core/src/trackers/connect.ts';
 import { type AgentModel, agentModel, blankConnect, type BoardInput, type ConnectModel, connectModel, type ConnectState, type HubLike, type IdentityCard, type ProjectLike, type RunInput, ticketModel, type TicketModel } from '../src/model.ts';
 import type { RepoJobs } from '../src/progress.ts';
@@ -21,6 +21,8 @@ import { blankSlack, type SlackCard, slackCard, type SlackState } from '../src/s
 import type { Entry, LastStep } from '../src/transcript.ts';
 
 const MIN = 60_000;
+/** A repo elsewhere on the machine, not open in this window, with a ledger of its own (D-???). */
+const CLIENTS = '/Users/me/clients/Acme Service';
 
 export function sampleHub(now = Date.now()): HubLike {
   const root = '/Users/me/code/acme-service';
@@ -62,6 +64,11 @@ export function sampleHub(now = Date.now()): HubLike {
   const N13 = named('ACME-13', 'Close duplicate leads nightly');
   const N28 = named('ACME-28', 'Send a renewal reminder a month before the renewal date');
   const N29 = named('ACME-29', 'Reassign open cases when an owner leaves');
+  const N10 = named('ACME-10', 'Add a CHANGELOG');
+  // ACME-12's first builder, before the rework that dispatched its second.
+  const N12a = named('ACME-12', 'Case escalation rules for the premium tier');
+  const R20 = sessionName({ project: 'Acme Service', key: 'ACME-20', title: 'Show the renewal date on the Account page', role: 'review' });
+  const N38 = named('ACME-38', 'Merge the support queues');
   const tasks: TaskRow[] = [
     task('ACME-14', 'Route web-to-case submissions by product line', 'running', 'needs-you', { run: { bgId: 'bg14', sessionId: 's-acme-14', worktree: wt('ACME-14'), model: 'claude-opus-5-5', name: N14 }, agent: { label: 'Needs you: wants permission', icon: 'bell', tone: 'orange' }, model: 'claude-opus-5-5', asking: true, since: ago(27), branchStats: { commits: 2, files: 4, uncommitted: 1 } }),
     // Its analysis has questions for you; another says it's too big for one task (D-052).
@@ -92,7 +99,7 @@ export function sampleHub(now = Date.now()): HubLike {
     task('ACME-33', 'Score new leads by the size of their company', 'rework', 'rework', { run: { worktree: wt('ACME-33'), branch: 'task/ACME-33-score-leads-by-size' }, review: { verdict: 'pass', summary: 'Adds the size factor to the lead score.', current: true }, pr: { number: 48, url: 'https://github.com/acme/service/pull/48', state: 'open', ci: 'failing', changesRequested: false, conflicts: [] }, checks: ['validate', 'Apex tests'] }),
     task('ACME-18', 'Migrate the legacy territory triggers', 'blocked', 'blocked'),
     task('ACME-17', 'Dashboards for the escalation rules', 'todo', 'todo', { deps: ['ACME-12'] }),
-    task('ACME-10', 'Add a CHANGELOG', 'done', 'done', { run: { worktree: wt('ACME-10') } }),
+    task('ACME-10', 'Add a CHANGELOG', 'done', 'done', { run: { bgId: 'bg10', sessionId: 's-acme-10', worktree: wt('ACME-10'), name: N10 } }),
   ];
   const agents: AgentSession[] = [
     { cwd: wt('ACME-14'), kind: 'background', startedAt: now - 27 * MIN, id: 'bg14', sessionId: 's-acme-14', name: N14, state: 'working', pid: 4010 },
@@ -101,8 +108,14 @@ export function sampleHub(now = Date.now()): HubLike {
     // Stopped builders: their sessions keep their last state once their process has gone.
     { cwd: root, kind: 'background', startedAt: now - 95 * MIN, id: 'bg28', sessionId: 's-acme-28', name: N28, state: 'blocked' },
     { cwd: root, kind: 'background', startedAt: now - 70 * MIN, id: 'bg29', sessionId: 's-acme-29', name: N29, state: 'blocked' },
-    // A builder dispatched before agents were named for their project, task and role (D-087).
+    // A builder dispatched before agents were named for their project, task and role (D-087). acc can't tie
+    // it to a task, so it reads as Claude Code says: it needs you.
     { cwd: wt('ACME-11'), kind: 'background', startedAt: now - 40 * MIN, id: 'bg11', sessionId: 's-acme-11', name: 'ACME-11', state: 'blocked', waitingFor: 'permission prompt', pid: 4011 },
+    // Finished (D-???): ACME-10's builder, left waiting at its prompt after its task was done; ACME-12's first
+    // builder, before the rework; and ACME-20's reviewer, whose verdict is recorded.
+    { cwd: wt('ACME-10'), kind: 'background', startedAt: now - 3 * 24 * 60 * MIN, id: 'bg10', sessionId: 's-acme-10', name: N10, state: 'blocked', status: 'waiting', pid: 4020 },
+    { cwd: wt('ACME-12'), kind: 'background', startedAt: now - 26 * 60 * MIN, id: 'bg12a', sessionId: 's-acme-12a', name: N12a, state: 'blocked', pid: 4021 },
+    { cwd: wt('ACME-20'), kind: 'interactive', startedAt: now - 8 * MIN, sessionId: 'rv-acme-20', name: R20, status: 'idle' },
     { cwd: root, kind: 'interactive', startedAt: now - 120 * MIN, sessionId: '0e02-main', name: 'acme-dev', status: 'busy', pid: 4100 },
     { cwd: '/Users/me/code/side-project', kind: 'interactive', startedAt: now - 30 * 60 * MIN, sessionId: '7c1d-side', name: 'side-project', status: 'idle', pid: 4200 },
     { cwd: '/Users/me/Documents/a folder with a long name/docs-site', kind: 'background', startedAt: now - 7 * 24 * 60 * MIN, id: 'bg3', name: 'docs-site', state: 'done' },
@@ -114,14 +127,33 @@ export function sampleHub(now = Date.now()): HubLike {
     { cwd: '/Users/me/code/side-project/force-app/main', kind: 'interactive', startedAt: now - 6 * 60 * MIN, sessionId: '8d4a-flows', name: 'side-flows', status: 'idle', pid: 4302 },
     { cwd: '/Users/me', kind: 'interactive', startedAt: now - 8 * 60 * MIN, sessionId: '9e5b-home', name: 'dotfiles', status: 'idle', pid: 4303 },
     { cwd: '/Users/me/Downloads/scratch', kind: 'interactive', startedAt: now - 10 * 60 * MIN, sessionId: 'af6c-scratch', name: 'scratch', status: 'idle' },
+    // Finished elsewhere (D-???): two builders of tasks done in that repo's own ledger. One from before names
+    // lost its process and is still listed, blocked, in the main checkout; the other waits in its worktree.
+    { cwd: CLIENTS, kind: 'background', startedAt: now - 2 * 24 * 60 * MIN, id: 'bg37', sessionId: 's-acme-37', name: 'ACME-37', state: 'blocked' },
+    { cwd: `${CLIENTS}/.claude/worktrees/ACME-38`, kind: 'background', startedAt: now - 20 * 60 * MIN, id: 'bg38', sessionId: 's-acme-38', name: N38, state: 'blocked', status: 'waiting', pid: 4310 },
   ];
+  // What each repo's ledger says about its agents (D-???): this project's, from its tasks, and the one in
+  // ~/clients/Acme Service, which isn't open here.
+  const here: RepoAgents = {
+    tasks: tasks.map((t) => ({ id: t.id, state: t.state as State, run: t.run ?? null })),
+    runs: [{ task: 'ACME-12', bgId: 'bg12a', sessionId: 's-acme-12a', name: N12a, n: 1 }, ...tasks.flatMap((t) => (t.run ? [{ task: t.id, ...t.run }] : []))],
+    verdicts: [{ task: 'ACME-20', sessionId: 'rv-acme-20' }],
+    analyses: Object.values(analyses).map((a) => ({ task: a.task, sessionId: a.sessionId })),
+    live: [{ task: 'ACME-24', sessionId: 'an-acme-24', role: 'analysis' }],
+  };
+  const clients: RepoAgents = {
+    tasks: [{ id: 'ACME-37', state: 'done', run: { bgId: 'bg37', sessionId: 's-acme-37' } }, { id: 'ACME-38', state: 'done', run: { bgId: 'bg38', sessionId: 's-acme-38', name: N38, n: 1 } }],
+    runs: [{ task: 'ACME-37', bgId: 'bg37', sessionId: 's-acme-37' }, { task: 'ACME-38', bgId: 'bg38', sessionId: 's-acme-38', name: N38, n: 1 }],
+    verdicts: [], analyses: [], live: [],
+  };
   // The folders holding .git, for the repo each session elsewhere is in.
-  const repos = new Set([root, '/Users/me/clients/Acme Service', '/Users/me/personal/Acme Service', '/Users/me/code/side-project']);
+  const repos = new Set([root, CLIENTS, '/Users/me/personal/Acme Service', '/Users/me/code/side-project']);
   const questions = sampleQuestions(now, wt);
   const answers = sampleAnswers(now, wt);
   return {
     projects: [project], agents, agentsError: null, questions, answers,
     askingFor: (s) => { const q = questions.find((x) => x.sessionId === s.sessionId); return q ? askingLabel(q.tool) : null; },
+    tieFor: (s) => (isUnder(s.cwd, root) ? tieSession(s, here) : isUnder(s.cwd, CLIENTS) ? tieSession(s, clients) : null),
     // What each session last answered with, or was started with; a dash for one not known yet (D-086).
     modelFor: (s) => tasks.find((t) => t.run?.bgId && t.run.bgId === s.id)?.model ?? ({ '0e02-main': 'claude-opus-5-5', '7c1d-side': 'claude-haiku-4-5-20251001' } as Record<string, string>)[s.sessionId ?? ''] ?? null,
     taskRows: () => tasks,
