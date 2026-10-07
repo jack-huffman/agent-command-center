@@ -1,7 +1,7 @@
 // Renders one editor tab. Every element is built with DOM calls and every string is set as text,
 // so nothing from a ticket, branch or session can become markup. No HTML string is ever parsed.
 import type {
-  Action, AgentModel, AgentsModel, ConnectField, ConnectModel, ConnectPicker, EntryView, EnvironmentsModel, HistoryItem, HomeModel, HomeSection, IdentityCard, Look, Model, PersonChip, QuestionCard, QueuePanel, Ref, RunCard, SetupModel, SetupRow, SlackCard, TasksModel, TicketAnalysis, TicketModel, TrackerBoard, TrackerCard, UpdateCard, ViewKind, WorktreesModel,
+  Action, AgentModel, AgentsModel, ConnectField, ConnectModel, ConnectPicker, EntryView, EnvironmentsModel, HistoryItem, HomeModel, HomeSection, IdentityCard, Look, Model, PersonChip, QuestionCard, QueuePanel, Ref, RunCard, SetupModel, SetupRow, SlackCard, TasksModel, TicketAnalysis, TicketModel, TrackerBoard, TrackerCard, UpdateCard, ViewKind, WhereView, WorktreesModel,
 } from '../src/model.ts';
 import type { Block, Doc, Inline } from '../../packages/core/src/trackers/doc.ts';
 import { type DraftKeys, type EditBase, editFor, keepEdits, Pending } from './pending.ts';
@@ -195,6 +195,12 @@ function clipped(text: string, cls = ''): HTMLElement {
   return td;
 }
 
+/** An element that shows more on hover, such as a card's agent line naming its builder (D-087). */
+function titled(node: HTMLElement, text: string | null): HTMLElement {
+  if (text) node.title = text;
+  return node;
+}
+
 /** A cell that spans several columns, such as a group's heading row. */
 function span(cell: HTMLElement, columns: number): HTMLElement {
   (cell as HTMLTableCellElement).colSpan = columns;
@@ -298,7 +304,9 @@ function renderTasks(m: TasksModel): Node[] {
           card.closedPr ? el('div', 'card-agent', status(card.closedPr)) : null,
           // Its builder stopped before acc done or acc block, and what it last said (D-067): in orange, with its icon.
           card.stopped ? el('div', 'card-agent', status(card.stopped)) : null,
-          card.agent ? el('div', 'card-agent', el('span', 'muted', 'Agent: '), status(card.agent)) : null,
+          card.agent ? titled(el('div', 'card-agent', el('span', 'muted', 'Agent: '), status(card.agent)), card.agentName) : null,
+          // The model it runs with (D-086), in plain mono text: a name, not a state.
+          card.agent && card.model ? el('div', 'card-where card-model', icon('sparkle'), el('span', 'mono muted', card.model)) : null,
           // Its analysis (D-052), in its own words: under way, waiting on you, or ready to build from.
           card.analysis ? el('div', 'card-agent', status(card.analysis)) : null,
           cardFoot(card),
@@ -364,9 +372,9 @@ function openable(e: HTMLElement, msg: unknown): HTMLElement {
   return e;
 }
 
-const SOURCE_LABEL: Record<string, string> = { 'jira-board': 'Jira board', 'github-project': 'GitHub Project', 'github-state': 'Open and closed', 'azure-board': 'Azure board' };
-const KIND_ICON: Record<string, string> = { github: 'github', jira: 'issues', azure: 'azure-devops', acc: 'checklist' };
-const KIND_NAME: Record<string, string> = { github: 'GitHub', jira: 'Jira', azure: 'Azure DevOps' };
+const SOURCE_LABEL: Record<string, string> = { 'jira-board': 'Jira board', 'github-project': 'GitHub Project', 'github-state': 'Open and closed', 'azure-board': 'Azure board', 'monday-board': 'monday.com board' };
+const KIND_ICON: Record<string, string> = { github: 'github', jira: 'issues', azure: 'azure-devops', monday: 'table', acc: 'checklist' };
+const KIND_NAME: Record<string, string> = { github: 'GitHub', jira: 'Jira', azure: 'Azure DevOps', monday: 'monday.com' };
 
 function trackerCard(root: string, b: TrackerBoard, c: TrackerCard): HTMLElement {
   const kind = el('span', 'tcard-type', icon(c.typeIcon));
@@ -793,6 +801,9 @@ function renderTicket(m: TicketModel): Node[] {
         ...(a.waitingOn.length ? field('Waiting on', a.waitingOn.join(', ')) : []),
 
         ...(a.agent && a.agent.label !== a.look.label ? field('Session', status(a.agent)) : []),
+        ...(a.agent && a.model ? field('Model', el('span', 'mono', a.model)) : []),
+        // What its builder is called, in Claude Code and the Command Center alike (D-087).
+        ...(a.agentName ? field('Builder', el('span', 'agent-name', a.agentName)) : []),
         ...(a.branch ? field('Branch', clippedSpan(a.branch)) : []),
         ...(a.worktree ? field('Worktree', clippedSpan(a.worktree.split('/').slice(-2).join('/'))) : []),
       ),
@@ -1354,14 +1365,15 @@ function stepsSummary(items: { tool: string }[]): string {
 }
 
 function renderAgent(m: AgentModel): Node[] {
-  // A builder's page names its task, which opens the task's own page.
-  const name = m.task ? openable(el('span', 'tcard-key', m.task.id), { type: 'run', command: 'acc.task.show', ref: { project: m.task.project, task: m.task.id } }) : el('span', '', m.name);
-  const crumbs = el('div', 'crumbs', icon('hubot'), el('span', '', m.task ? 'Builder' : 'Agent'), el('span', 'muted', '/'), name, m.task && m.name !== m.task.id ? el('span', 'muted', `· ${m.name}`) : null);
+  // The agent's name, once (D-087): it says the project, task and role. A builder's opens its task's own page.
+  const named = titled(el('span', 'crumb-name', m.name), m.name);
+  const name = m.task ? openable(named, { type: 'run', command: 'acc.task.show', ref: { project: m.task.project, task: m.task.id } }) : named;
+  const crumbs = el('div', 'crumbs', icon('hubot'), name);
   const facts = el('div', 'agent-facts muted small',
     m.startedAt ? el('span', '', `Started ${since(m.startedAt)}`) : null,
     m.model ? el('span', '', el('span', 'sep', '·'), el('span', 'mono', m.model)) : null,
     m.lastAt ? el('span', '', el('span', 'sep', '·'), 'last active ', when(m.lastAt)) : null,
-    m.where ? el('span', '', el('span', 'sep', '·'), el('span', 'mono', m.where)) : null);
+    m.where ? el('span', '', el('span', 'sep', '·'), Object.assign(el('span', '', m.where), { title: m.path })) : null);
   const out: Node[] = [el('header', 'ticket-head agent-head', crumbs, el('h1', 'ticket-title', m.task?.title ?? m.name), facts,
     el('div', 'ticket-bar', status(m.look), el('span', 'spacer'), el('div', 'actions', ...m.actions.map(actionButton))))];
   if (m.questions.length) out.push(el('section', 'agent-asks', ...m.questions.map((q) => questionCard(q, { watch: false }))));
@@ -1592,7 +1604,7 @@ function renderConnect(m: ConnectModel): Node[] {
   out.push(step(2, 'Sign in', ...signIn));
   // Until it's signed in there's nothing to list: say so, rather than show empty lists that look ready.
   const waiting = m.signIn.editing && m.pickers.some((p) => !p.fixed) ? el('p', 'muted small connect-hint', icon('lock'), ' Sign in above, and its lists fill in here.') : null;
-  out.push(step(3, 'Its tickets and board', waiting, ...m.pickers.map((p) => connectPicker(m, p))));
+  out.push(step(3, 'Its tickets and board', waiting, ...m.pickers.filter((p) => !p.hidden).map((p) => connectPicker(m, p))));
   const save = button(m.save.label, 'check', () => connectSend(m, { type: 'connect-save' }), 'primary');
   save.disabled = !m.save.can;
   out.push(el('div', 'connect-foot', save, button('Cancel', 'close', () => connectSend(m, { type: 'connect-cancel' }), 'ghost'), m.save.look ? status(m.save.look) : null));
@@ -1872,12 +1884,44 @@ function renderHome(m: HomeModel): Node[] {
   return [el('div', 'home', renderNav(m, current), el('div', 'home-col', main, renderDock(runs)))];
 }
 
+/** A model's name short enough for a table cell: claude-opus-5-5 is opus-5-5, and a dated snapshot drops its date. */
+const shortModel = (m: string): string => m.replace(/^claude-/, '').replace(/-\d{8}(?=\[|$)/, '');
+
+/**
+ * A folder or a path that wraps between its words and after each slash, never inside a name or a key, so
+ * `ACME-12` never splits at its hyphen (GH-83).
+ */
+function slashBreaks(text: string): Node[] {
+  const out: Node[] = [];
+  text.split(' ').forEach((word, w) => {
+    if (w) out.push(document.createTextNode(' '));
+    word.split('/').forEach((part, i, all) => {
+      const last = i === all.length - 1;
+      out.push(el('span', 'unbroken', last ? part : `${part}/`));
+      if (!last) out.push(document.createElement('wbr'));
+    });
+  });
+  return out;
+}
+
+/** Where the Agents page remembers How agents run is open: model.ts's AGENT_SETTINGS, which the extension opens. */
+const AGENT_SETTINGS = 'agents:settings';
+
 function renderAgents(m: AgentsModel): Node[] {
   const all = m.places.flatMap((p) => p.agents);
   const needs = all.filter((a) => a.needsYou).length;
-  const out: Node[] = [header('Agents', m.error ?? `${plural(all.length, 'session')} on this machine${needs ? `, ${needs} need${needs === 1 ? 's' : ''} you` : ''}.`, toolbarButton('acc.agent.new', 'Start a background agent', 'add', m.places.find((p) => p.root)?.root ?? undefined, true))];
+  // How agents run is behind Settings, closed until you open it, and remembered for the tab.
+  const open = memory().opened.includes(AGENT_SETTINGS);
+  const settings = m.settings.length ? button(open ? 'Hide settings' : 'Settings', 'settings-gear', () => {
+    remember((x) => { x.opened = open ? x.opened.filter((y) => y !== AGENT_SETTINGS) : [...x.opened, AGENT_SETTINGS]; });
+    if (last) render(last);
+  }, 'ghost') : null;
+  settings?.setAttribute('aria-expanded', String(open));
+  const out: Node[] = [header('Agents', m.error ?? `${plural(all.length, 'session')} on this machine${needs ? `, ${needs} need${needs === 1 ? 's' : ''} you` : ''}.`, settings, toolbarButton('acc.agent.new', 'Start a background agent', 'add', m.places.find((p) => p.root)?.root ?? undefined, true))];
+  // Closed, a billing problem still shows: per-token billing costs money while you're not looking (D-036).
+  if (!open) for (const s of m.settings) if (s.billing?.tone === 'orange') out.push(el('div', 'setting-billing', status(s.billing)));
   // What builders and reviewers run with, and what they bill (D-036).
-  for (const s of m.settings) {
+  for (const s of open ? m.settings : []) {
     const box = el('section', 'agent-settings', el('h2', '', icon('settings-gear'), m.settings.length > 1 ? `How agents run · ${s.project}` : 'How agents run'));
     for (const r of s.roles) {
       box.append(el('div', 'setting-row',
@@ -1910,22 +1954,51 @@ function renderAgents(m: AgentsModel): Node[] {
   }
   // One table with a heading row per place, so the columns line up all the way down.
   const table = el('table', 'grid');
-  table.append(el('thead', '', el('tr', '', ...[['Session', ''], ['State', ''], ['Kind', 'kind'], ['Where', 'wide'], ['Started', 'started'], ['', '']].map(([h, c]) => el('th', c!, h!)))));
+  // The session's name takes the room left over: it says what each agent works on (D-087).
+  table.append(el('thead', '', el('tr', '', ...[['Session', 'wide'], ['State', ''], ['Model', 'model'], ['Kind', 'kind'], ['Where', ''], ['Started', 'started'], ['', '']].map(([h, c]) => el('th', c!, h!)))));
   for (const place of m.places) {
     if (!place.agents.length && !place.root) continue;
     const body = el('tbody');
-    body.append(el('tr', 'group', span(el('th', '', icon(place.root ? 'repo' : 'device-desktop'), place.label, el('span', 'count', String(place.agents.length))), 6)));
-    if (!place.agents.length) body.append(el('tr', 'none', span(el('td', 'muted', 'No agent sessions in this project right now.'), 6)));
+    body.append(el('tr', 'group', span(el('th', '', icon(place.root ? 'repo' : 'device-desktop'), place.label, el('span', 'count', String(place.agents.length))), 7)));
+    if (!place.agents.length) body.append(el('tr', 'none', span(el('td', 'muted', 'No agent sessions in this project right now.'), 7)));
     for (const a of place.agents) {
+      // Its folder in context, or its full path, wrapped rather than clipped, as the names are: its own
+      // folder comes last, and that's the part a clip would lose. The full path on hover in both (GH-83).
+      const where = m.whereView === 'path' ? el('td', 'mono where-path', ...slashBreaks(a.path)) : el('td', 'where-folder', ...slashBreaks(a.where));
+      where.title = a.path;
       const row = el('tr', a.needsYou ? 'attention' : '',
-        openable(clipped(a.name, 'strong name'), { type: 'run', command: 'acc.agent.watch', ref: { session: a.key } }), el('td', 'nowrap', status(a.look)), el('td', 'nowrap muted kind', a.kind), clipped(a.where, 'mono'), el('td', 'nowrap muted started', since(a.startedAt)),
+        // Its whole name, wrapped: the part that says what it works on comes last (D-087).
+        openable(titled(el('td', 'strong agent-name', a.name), a.name), { type: 'run', command: 'acc.agent.watch', ref: { session: a.key } }), el('td', 'nowrap', status(a.look)),
+        // The model it runs with (D-086), as plain text, short, with its full name on hover; a dash until it's known.
+        Object.assign(el('td', 'nowrap mono muted model', a.model ? shortModel(a.model) : '—'), { title: a.model ?? 'Not known until it first answers' }), el('td', 'nowrap muted kind', a.kind), where, el('td', 'nowrap muted started', since(a.startedAt)),
         el('td', 'actions', menuButton(a.name)));
       body.append(withMenu(row, 'agent', { session: a.key }, { agentBackground: a.background }));
     }
     table.append(body);
   }
-  out.push(wrap(table));
+  out.push(whereBar(m.whereView), wrap(table));
   return out;
+}
+
+/**
+ * What the Where column shows, Folder or Full path (GH-83), just above its heading. In the heading it would
+ * widen the column, so a narrow tab would scroll it out of view. The page switches at once, and the
+ * extension remembers the choice for the window.
+ */
+function whereBar(view: WhereView): HTMLElement {
+  const pick = segmented('Where shows', [
+    { key: 'folder', label: 'Folder', icon: 'folder', on: view === 'folder' },
+    { key: 'path', label: 'Full path', icon: 'list-tree', on: view === 'path' },
+  ], (key) => {
+    const v = key as WhereView;
+    if (last?.kind === 'home') last = { ...last, agents: { ...last.agents, whereView: v } };
+    else if (last?.kind === 'agents') last = { ...last, whereView: v };
+    if (last) render(last);
+    api.postMessage({ type: 'agents-where', view: v });
+  });
+  pick.classList.add('where-view');
+  pick.querySelectorAll('button').forEach((b, i) => { b.dataset.keep = `where-view:${i}`; });
+  return el('div', 'where-bar', el('span', 'where-label', 'Where shows'), pick);
 }
 
 function renderWorktrees(m: WorktreesModel): Node[] {
@@ -2409,10 +2482,12 @@ function render(model: Model): void {
 }
 
 window.addEventListener('message', (e: MessageEvent) => {
-  const msg = e.data as { type?: string; model?: Model; action?: string; ok?: boolean; jump?: boolean };
+  const msg = e.data as { type?: string; model?: Model; action?: string; ok?: boolean; jump?: boolean; open?: string };
   if (msg?.type === 'state' && msg.model && msg.model.kind === view) {
     // The extension moves the page only when asked to open a section; otherwise it stays where you are.
     if (msg.model.kind === 'home' && (msg.jump || !section)) setSection(msg.model.section, false);
+    // A part of it to open as well, such as the Agents settings from the status bar's Auto-merge.
+    if (msg.open) { const part = msg.open; remember((x) => { if (!x.opened.includes(part)) x.opened = [...x.opened, part]; }); }
     render(msg.model);
   }
   if (msg?.type === 'done') onDone(msg);

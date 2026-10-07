@@ -5,8 +5,9 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import {
-  buildWalkthroughs, commandLink, COMMANDS, contextKey, EXTENSION_ID, followsPullRequests, hasPlaceholder, initCommand, isComplete, isWebviewMenuContext, mediaPath,
-  needsTerminal, productionOrgs, reusableMachine, setupOrgChoices, statusText, stepDescription, stepMedia, summarize, type DoctorItem,
+  afterFullCheck, afterStepCheck, buildWalkthroughs, commandLink, COMMANDS, contextKey, dispatchModelArgs, dispatchModelItems, EXTENSION_ID, followsPullRequests, hasPlaceholder,
+  initCommand, isComplete, isWebviewMenuContext, machineCache, mediaPath, MODEL_CHOICES, needsTerminal, productionOrgs, repoRoot, reusableMachine, setupOrgChoices, sizeLine, statusText,
+  stepDescription, stepMedia, summarize, tildePath, type DoctorItem,
 } from '../src/logic.ts';
 import { staleFiles } from '../scripts/generate.ts';
 
@@ -138,6 +139,37 @@ test('machine results are reused only while fresh, and only in a folder with the
   assert.equal(reusableMachine({ ...fresh, at: now - 5000 }, 'salesforce', now, 5000), null, 'stale');
   assert.equal(reusableMachine({ at: now, items }, 'generic', now, 5000), null, 'saved before results knew their profile');
   assert.equal(reusableMachine(undefined, 'generic', now, 5000), null);
+  assert.equal(reusableMachine({ ...fresh, items: [] }, 'salesforce', now, 5000), null, 'an empty list saved by 0.35.0 or earlier, when acc failed, is checked again');
+});
+
+test('a machine check that came back empty is never saved for startup to reuse', () => {
+  const items: DoctorItem[] = [{ id: 'A1.git', part: 'machine', title: 'git', status: 'pass', detail: 'git 2.54.0' }];
+  assert.deepEqual(machineCache(items, 'generic', 42), { at: 42, profile: 'generic', items });
+  assert.equal(machineCache([], 'generic', 42), null, 'acc failed: startup checks again instead of showing no machine rows for 12 hours');
+});
+
+test('a full check replaces each part\'s rows, so a step that no longer applies loses its row (GH-62)', () => {
+  const row = (id: string, part: DoctorItem['part'], status: DoctorItem['status'] = 'pass'): DoctorItem => ({ id, part, title: id, status, detail: '' });
+  const ids = (rows: DoctorItem[]) => rows.map((r) => r.id);
+  // No project open, then `acc init --profile generic`: the machine check no longer lists A1.node.
+  const before = [row('A1.git', 'machine'), row('A1.node', 'machine', 'fail')];
+  const after = afterFullCheck(before, { machine: [row('A1.git', 'machine')], project: [row('B0.config', 'project')] });
+  assert.deepEqual(ids(after), ['A1.git', 'B0.config']);
+  assert.deepEqual(summarize(after, new Set()).failing, [], 'neither done nor to do');
+  // acc failed for a part: its rows stay rather than Setup going blank.
+  const salesforce = [row('A1.git', 'machine'), row('A1.sf', 'machine'), row('B1.orgs', 'project', 'fail'), row('B0.config', 'project')];
+  assert.deepEqual(ids(afterFullCheck(salesforce, { machine: [], project: [row('B0.config', 'project')] })), ['A1.git', 'A1.sf', 'B0.config']);
+  assert.deepEqual(ids(afterFullCheck(salesforce, { machine: [row('A1.git', 'machine')], project: [] })), ['A1.git', 'B1.orgs', 'B0.config']);
+  // A folder that isn't a project drops the project rows and keeps the machine's.
+  assert.deepEqual(ids(afterFullCheck(salesforce, { machine: [row('A1.git', 'machine')], project: null })), ['A1.git']);
+  // Salesforce to generic: B1.orgs and A1.sf go.
+  assert.deepEqual(ids(afterFullCheck(salesforce, { machine: [row('A1.git', 'machine')], project: [row('B0.config', 'project')] })), ['A1.git', 'B0.config']);
+  // A Check of one step changes that row alone.
+  const checked = afterStepCheck(after, [row('A1.git', 'machine', 'fail')]);
+  assert.deepEqual(ids(checked), ['A1.git', 'B0.config']);
+  assert.equal(checked[0]!.status, 'fail');
+  assert.deepEqual(checked[1], after[1]);
+  assert.deepEqual(ids(afterStepCheck(after, [row('B14.tickets', 'project')])), ['A1.git', 'B0.config', 'B14.tickets']);
 });
 
 test('Open in Salesforce offers Developer sandboxes for tracking, and the default org first otherwise', () => {
@@ -281,7 +313,7 @@ test('a row reads its analysis and the one under way from beside the ledger; a d
   };
   writeFileSync(join(paths.analyses, 'T-1.json'), JSON.stringify(a));
   const row = rowAnalysis(readAnalysis(paths, 'T-1')!);
-  assert.deepEqual(row, { verdict: 'questions', at: '2026-10-05T10:00:00.000Z', open: [{ id: 'q1', question: 'Which?', why: 'Because.', suggested: 'This one.' }], split: [] }, 'only the questions nobody answered');
+  assert.deepEqual(row, { verdict: 'questions', at: '2026-10-05T10:00:00.000Z', open: [{ id: 'q1', question: 'Which?', why: 'Because.', suggested: 'This one.' }], split: [], size: 'S' }, 'only the questions nobody answered, and its size (D-086)');
   assert.equal(analysisWait({ state: 'todo', analysis: row }), 'questions');
   assert.equal(analysisWait({ state: 'running', analysis: row }), null, 'only a task to do waits on its analysis');
   assert.equal(analysisWait({ state: 'todo', analysis: row, analyzing: { sessionId: 's2' } }), null, 'nor while it\'s analyzed again');
@@ -383,6 +415,54 @@ test('a builder that stopped is told once, with what it last said, and Resume; n
   const failed = autopilotNotices([{ seq: 2, at, task: 'GH-41', step: 'resume', outcome: 'failed', reason: 'Claude Code didn\'t start.' }], [gh]);
   assert.deepEqual(failed.map((n) => [n.text, n.urgent, noticeActions(n)[0]]), [['Autopilot couldn\'t resume GH-41: Claude Code didn\'t start.', true, ['Resume', 'acc.task.resume']]]);
   assert.deepEqual(autopilotStepLook({ seq: 1, at, task: 'GH-41', step: 'resume', outcome: 'done', reason: said }), { look: { label: 'Autopilot resumed it', icon: 'debug-continue', tone: 'blue' }, detail: said, url: null });
+});
+
+test('a task\'s agent is found by its session, else by the name its run recorded, never by a name worked out again, and is called that everywhere (D-087)', async () => {
+  const { displayName, ownsSession, sessionFor, taskNotices } = await import('../src/logic.ts');
+  const { sessionName } = await import('../../packages/core/src/names.ts');
+  type Row = import('../src/logic.ts').TaskRow;
+  const name = sessionName({ project: 'Acme Service', key: 'GH-44', title: 'Case escalation rules', role: 'builder', n: 2 });
+  assert.equal(name, 'Acme Service · GH-44 Case escalation rules · builder 2');
+  const row = (more: Partial<Row> = {}): Row => ({ id: 'GH-44', title: 'Case escalation rules', state: 'running', display: 'running', environment: 'main', deps: [], source: { kind: 'github', url: null }, ...more });
+  const mine = { cwd: '/r', kind: 'background', startedAt: 2, id: 'bg44', sessionId: 'sess-44', name, pid: 7 };
+  const legacy = { cwd: '/r', kind: 'background', startedAt: 1, id: 'bg-old', sessionId: 'sess-old', name: 'GH-44', pid: 8 };
+  const all = [legacy, mine];
+  assert.equal(sessionFor(row({ run: { bgId: 'bg44' } }), all), mine, 'by its background id');
+  assert.equal(sessionFor(row({ run: { sessionId: 'sess-44' } }), all), mine, 'by its session id');
+  assert.equal(sessionFor(row({ run: { bgId: 'gone', sessionId: 'gone-too' } }), all), undefined, 'ids recorded but gone: never another session by name');
+  // Its ids weren't recorded, and its title changed since: the name its run recorded still finds it.
+  const retitled = row({ title: 'Escalation rules, rewritten', run: { worktree: '/w44', name } });
+  assert.equal(sessionFor(retitled, all), mine);
+  const fresh = { ...mine, id: 'bg-new', sessionId: 'sess-new', name: sessionName({ project: 'Acme Service', key: 'GH-44', title: retitled.title, role: 'builder', n: 2 }) };
+  assert.equal(sessionFor(retitled, [legacy, fresh]), undefined, 'not a name worked out from the new title, nor the old-style one');
+  // A run from before names: its session named the old way is still found.
+  assert.equal(sessionFor(row({ run: { worktree: '/w44' } }), all), legacy);
+
+  // Called by the name acc gave it, though Claude Code lists a resumed session under one of its own.
+  const resumed = { cwd: '/w44', kind: 'interactive', startedAt: 3, sessionId: 'sess-44', name: 'probe-5e', pid: 9 };
+  const named = row({ run: { bgId: 'bg44', sessionId: 'sess-44', name } });
+  assert.equal(displayName(resumed, named), name);
+  assert.equal(displayName(mine, named), name);
+  assert.equal(displayName(legacy, row({ run: { bgId: 'bg-old' } })), 'GH-44', 'a run from before names: Claude Code\'s');
+  assert.equal(displayName(undefined, named), name, 'no session: its task\'s builder');
+  assert.equal(displayName(undefined, row()), 'GH-44');
+  assert.equal(displayName({ cwd: '/x', kind: 'interactive', startedAt: 1, sessionId: '0e023162-5807-497b' }), '0e023162');
+  // A review or an analysis under way goes by its own name, not the builder's.
+  const reviewer = { cwd: '/w44', kind: 'interactive', startedAt: 4, sessionId: 'sess-r', name: 'Acme Service · GH-44 Case escalation rules · review', pid: 10 };
+  const reviewing = row({ state: 'review', run: { bgId: 'bg44', name }, reviewing: { sessionId: 'sess-r', name: reviewer.name } });
+  assert.ok(ownsSession(reviewing, reviewer));
+  assert.equal(displayName({ ...reviewer, name: undefined }, reviewing), reviewer.name);
+  assert.equal(displayName(reviewer, row({ run: { bgId: 'bg44', name } })), reviewer.name, 'not its task\'s builder: its own name');
+  const analyst = { ...reviewer, sessionId: 'sess-a', name: undefined };
+  assert.equal(displayName(analyst, row({ state: 'todo', analyzing: { sessionId: 'sess-a', name: 'Acme Service · GH-44 Case escalation rules · analysis' } })), 'Acme Service · GH-44 Case escalation rules · analysis');
+
+  // A notice about the agent names it in place of "GH-44's agent"; a run from before names keeps those words.
+  const said = 'API Error: Your computer went to sleep mid-response.';
+  assert.equal(taskNotices([named], [{ ...named, display: 'needs-you', stopped: { said } }])[0]!.text, `${name} stopped: ${said}`);
+  assert.equal(taskNotices([named], [{ ...named, display: 'needs-you', stopped: { said: null } }])[0]!.text, `${name} stopped before acc done or acc block.`);
+  assert.equal(taskNotices([named], [{ ...named, display: 'needs-you' }])[0]!.text, `${name} is waiting for you in its own prompt.`);
+  assert.equal(taskNotices([row()], [row({ display: 'needs-you' })])[0]!.text, 'GH-44\'s agent is waiting for you in its own prompt.');
+  assert.equal(taskNotices([named], [{ ...named, state: 'review', display: 'review' }])[0]!.text, 'GH-44 is ready for review: Case escalation rules', 'news about the task names the task');
 });
 
 test('D-044\'s review notices stay quiet for a review autopilot ran, and still speak for a person\'s (D-064)', async () => {
@@ -580,4 +660,63 @@ test('acc sync keeps running while a merged task\'s issue waits to close, so a f
   const merged = { number: 3, url: 'https://github.com/o/r/pull/3', state: 'merged' };
   assert.equal(followsPullRequests({ pr: merged, closing: true }), true);
   assert.equal(followsPullRequests({ pr: merged, closing: false }), false, 'closed, or left as it was: nothing to follow');
+});
+
+test('Dispatch with… offers the model the builder runs with anyway first, saying where it\'s set, then the rest once, then another (D-086)', () => {
+  const builder = (model: string, from: string) => ({ model, from: { model: from } });
+  const labels = (items: { label: string; description: string }[]) => items.map((i) => `${i.label} · ${i.description}`);
+  assert.deepEqual(MODEL_CHOICES.map((m) => m.name), ['claude-opus-5-5', 'claude-fable-5-1', 'claude-sonnet-5-5', 'claude-haiku-4-5-20251001'], 'pinned names, one list for Dispatch with… and Change…');
+  assert.deepEqual(labels(dispatchModelItems({}, builder('claude-opus-5-5', 'acc'))), [
+    'claude-opus-5-5 · acc\'s default', 'claude-fable-5-1 · Claude Fable 5.1', 'claude-sonnet-5-5 · Claude Sonnet 5.5: lighter on your plan',
+    'claude-haiku-4-5-20251001 · Claude Haiku 4.5: the lightest', 'Another model… · an alias or a full model name, as claude --model takes it',
+  ]);
+  const clone = dispatchModelItems({}, builder('claude-sonnet-5-5', 'clone'));
+  assert.deepEqual(clone.map((i) => i.value), ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-fable-5-1', 'claude-haiku-4-5-20251001', null], 'never repeated, and Another model… last');
+  assert.equal(clone[0]!.description, 'this clone');
+  assert.equal(dispatchModelItems({}, builder('opus', 'project'))[0]!.description, 'project default');
+  assert.equal(dispatchModelItems({}, builder('opus', 'project')).length, 6, 'an alias isn\'t one of the pinned names, so all four follow it');
+  // A model picked for the task earlier is what a re-dispatch would run with, so it comes first.
+  const kept = dispatchModelItems({ run: { model: 'claude-haiku-4-5-20251001', modelPicked: true } }, builder('claude-opus-5-5', 'acc'));
+  assert.deepEqual([kept[0]!.value, kept[0]!.description], ['claude-haiku-4-5-20251001', 'picked for this task']);
+  assert.equal(dispatchModelItems({ run: { model: 'claude-haiku-4-5-20251001' } }, builder('claude-opus-5-5', 'acc'))[0]!.value, 'claude-opus-5-5', 'one only started with it follows the settings');
+});
+
+test('Dispatch with… keeps a model for the task only when it\'s one the settings wouldn\'t give it (D-086)', () => {
+  const b = { model: 'claude-opus-5-5' };
+  assert.deepEqual(dispatchModelArgs({}, b, 'claude-opus-5-5'), [], 'the model it runs with anyway: it keeps following the settings');
+  assert.deepEqual(dispatchModelArgs({ run: { model: 'claude-opus-5-5' } }, b, 'claude-opus-5-5'), [], 'started with it, but never picked');
+  assert.deepEqual(dispatchModelArgs({}, b, 'claude-sonnet-5-5'), ['--model', 'claude-sonnet-5-5']);
+  assert.deepEqual(dispatchModelArgs({ run: { model: 'claude-haiku-4-5-20251001', modelPicked: true } }, b, 'claude-haiku-4-5-20251001'), ['--model', 'claude-haiku-4-5-20251001'], 'a pick made before is kept');
+  assert.deepEqual(dispatchModelArgs({ run: { model: 'claude-haiku-4-5-20251001', modelPicked: true } }, b, 'claude-opus-5-5'), ['--model', 'claude-opus-5-5'], 'picking the settings\' model over an earlier pick is a pick too');
+});
+
+test('the analysis\'s size is shown beside the models, in words, and chooses none of them (D-086)', () => {
+  const analysis = (size?: 'S' | 'M' | 'L' | 'XL') => ({ analysis: { verdict: 'ready' as const, at: 't', open: [], split: [], ...(size ? { size } : {}) } });
+  assert.equal(sizeLine(analysis('L')), 'Its analysis sizes it L: a few days.');
+  assert.equal(sizeLine(analysis('S')), 'Its analysis sizes it S: an hour or two.');
+  assert.equal(sizeLine({}), 'Not analyzed: no size to go on.');
+  assert.equal(sizeLine(analysis()), 'Its analysis gave no size.');
+  // The items don't depend on the analysis at all: their input has no room for it.
+  const b = { model: 'claude-opus-5-5', from: { model: 'acc' } };
+  assert.deepEqual(dispatchModelItems({ ...analysis('XL'), run: null }, b), dispatchModelItems({ run: null }, b));
+});
+
+test('a session\'s repo is the nearest folder up holding .git, short of the home folder and / (GH-83)', () => {
+  const holds = (...dirs: string[]) => (d: string) => dirs.includes(d);
+  assert.equal(repoRoot('/Users/me/clients/Acme Service/force-app/main', '/Users/me', holds('/Users/me/clients/Acme Service')), '/Users/me/clients/Acme Service');
+  assert.equal(repoRoot('/Users/me/clients/Acme Service', '/Users/me', holds('/Users/me/clients/Acme Service')), '/Users/me/clients/Acme Service', 'the folder itself first');
+  assert.equal(repoRoot('/Users/me/a/b/c', '/Users/me', holds('/Users/me/a', '/Users/me/a/b')), '/Users/me/a/b', 'the nearest one');
+  assert.equal(repoRoot('/Users/me/Downloads/scratch', '/Users/me', holds()), null);
+  assert.equal(repoRoot('/Users/me/Downloads/scratch', '/Users/me', holds('/Users/me')), null, 'a repo at ~ (dotfiles) is nobody\'s repo');
+  assert.equal(repoRoot('/Users/me', '/Users/me', holds('/Users/me')), null);
+  assert.equal(repoRoot('/opt/tools/x', '/Users/me', holds('/', '/opt/tools')), '/opt/tools', 'outside home it walks up to, not into, /');
+  assert.equal(repoRoot('/opt/x', '/Users/me', holds('/')), null);
+});
+
+test('a path shows the home folder as ~, and a path outside it as it is (GH-83)', () => {
+  assert.equal(tildePath('/Users/me/clients/Acme Service', '/Users/me'), '~/clients/Acme Service');
+  assert.equal(tildePath('/Users/me', '/Users/me'), '~');
+  assert.equal(tildePath('/Users/meg/x', '/Users/me'), '/Users/meg/x', 'a folder whose name starts the same isn\'t home');
+  assert.equal(tildePath('/opt/x', '/Users/me'), '/opt/x');
+  assert.equal(tildePath('/Users/me/x', undefined), '/Users/me/x', 'with no home known, the path as it is');
 });

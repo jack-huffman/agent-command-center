@@ -6,7 +6,7 @@ import {
 } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
 import { githubOutside } from './trackers/github.ts';
-import type { Outside } from './trackers/types.ts';
+import type { Outside, TrackerKind } from './trackers/types.ts';
 
 export interface GithubIssue {
   number: number;
@@ -187,12 +187,12 @@ export function intakeGithub(
 }
 
 /**
- * Brings Jira or Azure DevOps tasks in step with tickets that left the repo's place (D-072): the
+ * Brings Jira, Azure DevOps or monday.com tasks in step with tickets that left the repo's place (D-072): the
  * Command Center reads them after a board loads, since only it signs in to those trackers (D-066). Each
  * task leaves the ledger if work on it never started, or else is named (D-048). Only tickets a tracker
  * read and found outside are listed: a failed read never is.
  */
-export function intakeOutside(paths: RepoPaths, kind: 'jira' | 'azure', outside: Outside[], now: () => Date): IntakeResult {
+export function intakeOutside(paths: RepoPaths, kind: Exclude<TrackerKind, 'github'>, outside: Outside[], now: () => Date): IntakeResult {
   return mutate(paths, now, (ledger, emit) => {
     const res: IntakeResult = { added: [], updated: [], unchanged: [], errors: [], ...noChanges() };
     for (const o of outside) {

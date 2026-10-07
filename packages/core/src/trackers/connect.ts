@@ -1,15 +1,16 @@
 /**
  * What the Connect page asks for each tracker (GH-51): where it is, how to sign in, and how its place and
  * board are picked. The page has no tracker of its own: it draws whatever a description says, so
- * connecting another tracker, such as monday.com, means writing its client and its description here,
- * not another page. Nothing here reaches VSCode: a Microsoft sign-in and gh are methods a description
+ * connecting another tracker means writing its client and its description here, not another page, as
+ * monday.com's was. Nothing here reaches VSCode: a Microsoft sign-in and gh are methods a description
  * names, and the extension carries out.
  */
 import type { Tracker } from '../config.ts';
 import { azureAreas, azureBoards, azureProjects, azureTeams, azureWhoAmI, tenantOf } from './azure.ts';
 import { GithubClient } from './github.ts';
 import { JiraClient, jiraBoards, jiraEpics, jiraProjects } from './jira.ts';
-import type { Exec, Person } from './types.ts';
+import { mondayBoards, mondayGroups, mondayMe, mondayStatusColumns, mondayTokenPage } from './monday.ts';
+import { type Exec, type Person, TrackerError } from './types.ts';
 
 /** One thing to type: an email, or a token, which the page shows as a password field and never keeps. */
 export interface FieldSpec {
@@ -26,7 +27,7 @@ export interface FieldSpec {
   help?: { label: string; url: (host: string) => string | null };
 }
 
-/** Where the tracker is: a Jira site, a GitHub repo, an Azure DevOps organization. It's what a sign-in is for (D-027). */
+/** Where the tracker is: a Jira site, a GitHub repo, an Azure DevOps organization, a monday.com account. It's what a sign-in is for (D-027). */
 export interface HostSpec {
   key: string;
   label: string;
@@ -95,12 +96,16 @@ export interface PickerSpec {
   label: string;
   /** The pickers whose choice this list depends on. */
   dependsOn: string[];
-  /** The choice that takes the whole project, listed first. Chosen, the config leaves the place out (D-072). */
-  whole?: (c: { host: string; values: Values }) => string;
+  /** The choice that takes the whole project, listed first. Chosen, the config leaves the place out (D-072). `labels` names what's chosen. */
+  whole?: (c: { host: string; values: Values; labels?: Record<string, string | null> }) => string;
   /** Several can be ticked, as GitHub labels are. None ticked is the whole. */
   multi?: boolean;
   /** It names which tracker this is, so an existing tracker shows it fixed: another project is another tracker. */
   identifies?: boolean;
+  /** Its values are ids, not names: an existing tracker's fixed choice still loads the list, to show its name. */
+  idValues?: boolean;
+  /** Drawn only when there's a choice to make: a list of one is chosen without being shown. */
+  hideSingle?: boolean;
   /** What the tracker does without a choice, when its list couldn't load: then Save needn't wait for it. */
   fallback?: string;
   hint?: string;
@@ -134,10 +139,14 @@ export interface TrackerDescription {
 
 /**
  * A tracker's host from anything a person pastes: a Jira site or any URL on it, an Azure DevOps
- * organization or any URL in it. Null when it's neither.
+ * organization or any URL in it, a monday.com account or any URL in it. Null when it's none of them.
  */
-export function parseHost(kind: 'jira' | 'azure', input: string): string | null {
+export function parseHost(kind: 'jira' | 'azure' | 'monday', input: string): string | null {
   const s = input.trim().replace(/^https?:\/\//, '');
+  if (kind === 'monday') {
+    const m = /^([a-z0-9][a-z0-9-]*)\.monday\.com(?:[/?#]|$)/i.exec(s) ?? /^([a-z0-9][a-z0-9-]*)$/i.exec(s);
+    return m ? m[1]!.toLowerCase() : null;
+  }
   if (kind === 'azure') {
     const m = /^dev\.azure\.com\/([^/?#]+)/i.exec(s) ?? /^([^./?#]+)\.visualstudio\.com/i.exec(s) ?? /^([A-Za-z0-9][A-Za-z0-9-]*)$/.exec(s);
     return m ? decodeURIComponent(m[1]!) : null;
@@ -259,8 +268,53 @@ export const AZURE: TrackerDescription = {
   fromConfig: (t) => ({ host: t.organization ?? '', values: { project: t.project, team: t.team, board: typeof t.board === 'string' ? t.board : null, areaPath: t.areaPath } }),
 };
 
+const mondayToken = (ctx: Ctx): string => ctx.signIn.fields.token ?? '';
+
+export const MONDAY: TrackerDescription = {
+  kind: 'monday', name: 'monday.com', icon: 'table',
+  host: {
+    key: 'account', label: 'Account', placeholder: 'acme', hint: 'The account, as in acme.monday.com, or any link from it.',
+    parse: (v) => parseHost('monday', v), invalid: 'An account name, such as acme, or a link from acme.monday.com.',
+  },
+  methods: [{
+    id: 'token', label: 'API token', icon: 'key', via: 'fields', test: 'Test connection',
+    hint: 'monday.com takes a personal API token. It sees what you see in monday.com, so it stays in VSCode, for this repo only.',
+    fields: [{
+      key: 'token', label: 'API token', type: 'secret', placeholder: 'Paste the token', check: (v) => (v.trim().length >= 20 ? null : 'Paste the whole token.'),
+      help: { label: 'Create a token', url: (host) => (host ? mondayTokenPage(host) : null) },
+    }],
+  }],
+  pickers: [
+    {
+      key: 'board', label: 'Board', dependsOn: [], identifies: true, idValues: true,
+      load: async (ctx) => (await mondayBoards(mondayToken(ctx), ctx.fetch)).map((b) => ({ value: b.id, label: b.name, detail: b.workspace })),
+    },
+    {
+      key: 'group', label: 'Group', dependsOn: ['board'], whole: (c) => `Every group on ${c.labels?.board ?? 'the board'}`,
+      hint: 'Pick a group to take only its items.',
+      load: async (ctx) => (await mondayGroups(one(ctx.values.board)!, mondayToken(ctx), ctx.fetch)).map((g) => ({ value: g.id, label: g.title })),
+    },
+    {
+      key: 'statusColumn', label: 'Status column', dependsOn: ['board'], hideSingle: true, hint: 'Its labels are the Tasks tab\'s columns.',
+      fallback: 'Without one, the board uses its column called Status, or its first status column.',
+      load: async (ctx) => (await mondayStatusColumns(one(ctx.values.board)!, mondayToken(ctx), ctx.fetch)).map((c) => ({ value: c.id, label: c.title, detail: c.labels.join(', '), ...(c.usual ? { default: true } : {}) })),
+    },
+  ],
+  verify: async (ctx) => {
+    const me = await mondayMe(mondayToken(ctx), ctx.fetch);
+    // A token is one account's: one from another would show another client's boards.
+    if (me.account && me.account !== ctx.host) throw new TrackerError('auth', `This token is for the monday.com account ${me.account}, not ${ctx.host}. Make one in ${ctx.host}.monday.com, or change the account above.`);
+    return { id: me.id, name: me.name };
+  },
+  toConfig: (c) => ({
+    kind: 'monday', account: c.host, board: one(c.values.board) ? Number(one(c.values.board)) : null, group: one(c.values.group),
+    statusColumn: c.defaults.includes('statusColumn') ? null : one(c.values.statusColumn),
+  }),
+  fromConfig: (t) => ({ host: t.account ?? '', values: { board: t.board === null ? null : String(t.board), group: t.group, statusColumn: t.statusColumn } }),
+};
+
 /** Every tracker the Connect page offers, in the order it lists them. */
-export const DESCRIPTIONS: TrackerDescription[] = [JIRA, GITHUB, AZURE];
+export const DESCRIPTIONS: TrackerDescription[] = [JIRA, GITHUB, AZURE, MONDAY];
 
 export const describe = (kind: string, list: TrackerDescription[] = DESCRIPTIONS): TrackerDescription | undefined => list.find((d) => d.kind === kind);
 

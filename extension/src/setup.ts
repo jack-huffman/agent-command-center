@@ -6,7 +6,8 @@ import { type Config, parseConfig } from '../../packages/core/src/config.ts';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import type { Step } from '../../packages/core/src/onboarding/types.ts';
 import {
-  COMMANDS, contextKey, type DoctorItem, EXTENSION_ID, type EnvLike, hasPlaceholder, initCommand, isComplete, type MachineCache, needsTerminal, productionOrgs, reusableMachine,
+  afterFullCheck, afterStepCheck, COMMANDS, contextKey, type DoctorItem, EXTENSION_ID, type EnvLike, hasPlaceholder, initCommand, isComplete, machineCache, type MachineCache, needsTerminal,
+  productionOrgs, reusableMachine,
   setupOrgChoices, sfOpenCommand, statusText, summarize, WALKTHROUGHS, activeGhAccount, expectedOrgUrl, shq,
 } from './logic.ts';
 import { parseOrgUrl } from '../../packages/core/src/onboarding/helpers.ts';
@@ -132,13 +133,29 @@ export class Setup implements vscode.Disposable {
     if (items.length) await this.apply(items);
   }
 
+  private async overlaid(raw: DoctorItem[]): Promise<DoctorItem[]> {
+    return this.overlay ? await this.overlay(raw, this.cwd()).catch(() => raw) : raw;
+  }
+
+  /** Shows re-checked steps: a Check, a re-check or a fix. Every other row stays as it was. */
   private async apply(raw: DoctorItem[]): Promise<void> {
-    const items = this.overlay ? await this.overlay(raw, this.cwd()).catch(() => raw) : raw;
+    const items = await this.overlaid(raw);
+    await this.show(afterStepCheck(this.results(), items), items);
+  }
+
+  /** Shows a full check: each part it listed replaces that part's rows, so a step that no longer applies goes (GH-62). */
+  private async applyFull(machine: DoctorItem[], project: DoctorItem[] | null): Promise<void> {
+    const items = await this.overlaid([...machine, ...(project ?? [])]);
+    const part = (p: DoctorItem['part']) => items.filter((i) => i.part === p);
+    await this.show(afterFullCheck(this.results(), { machine: part('machine'), project: project && part('project') }), items);
+  }
+
+  /** Replaces the rows, and sets the walkthrough's keys for the steps just checked. A dropped step's key stays: acc.profile hides it. */
+  private async show(rows: DoctorItem[], checked: DoctorItem[]): Promise<void> {
+    this.items.clear();
+    for (const it of rows) this.items.set(it.id, it);
     const confirmed = this.allConfirmed();
-    for (const it of items) {
-      this.items.set(it.id, it);
-      await vscode.commands.executeCommand('setContext', contextKey(it.id), isComplete(it.status, confirmed.has(it.id)));
-    }
+    for (const it of checked) await vscode.commands.executeCommand('setContext', contextKey(it.id), isComplete(it.status, confirmed.has(it.id)));
     const profile = this.config()?.profile ?? 'none';
     await vscode.commands.executeCommand('setContext', 'acc.profile', profile);
     this.renderStatus();
@@ -175,10 +192,12 @@ export class Setup implements vscode.Disposable {
           const started = Date.now();
           const profile = this.config()?.profile ?? 'none';
           const reused = opts.reuseMachine ? reusableMachine(this.ctx.globalState.get<MachineCache>('acc.machineItems'), profile, Date.now(), MACHINE_FRESH_MS) : null;
-          const items: DoctorItem[] = reused ? [...reused] : await this.doctor(['--part', 'machine']);
-          if (!reused) await this.ctx.globalState.update('acc.machineItems', { at: Date.now(), profile, items } satisfies MachineCache);
-          if (this.isProject()) items.push(...(await this.doctor(['--part', 'project'])));
-          await this.apply(items);
+          const machine: DoctorItem[] = reused ? [...reused] : await this.doctor(['--part', 'machine']);
+          const cache = reused ? null : machineCache(machine, profile, Date.now());
+          if (cache) await this.ctx.globalState.update('acc.machineItems', cache);
+          const project = this.isProject() ? await this.doctor(['--part', 'project']) : null;
+          await this.applyFull(machine, project);
+          const items = [...machine, ...(project ?? [])];
           const fails = items.filter((i) => i.status === 'fail');
           this.log.info(`Checked ${items.length} steps (${reason}${reused ? ', machine results reused' : ''}) in ${((Date.now() - started) / 1000).toFixed(1)} s: ${fails.length} failing.`);
           for (const f of fails) this.log.warn(`${f.id} ${f.title}: ${f.detail}`);

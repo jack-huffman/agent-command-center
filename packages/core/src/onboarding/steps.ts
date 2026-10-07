@@ -124,6 +124,9 @@ export const PLUGIN = { marketplace: 'agent-command-center', name: 'acc', repo: 
 const PLUGIN_ID = `${PLUGIN.name}@${PLUGIN.marketplace}`;
 const MARKETPLACE_ADD = `claude plugin marketplace add ${PLUGIN.repo}`;
 const PLUGIN_INSTALL = `claude plugin install ${PLUGIN_ID} --scope user`;
+/** A private marketplace doesn't update itself (D-081), so the plugin is updated by hand after a release. */
+const PLUGIN_UPDATE = `claude plugin marketplace update ${PLUGIN.marketplace} && claude plugin update ${PLUGIN_ID} --scope user`;
+const SEMVER = /^\d+\.\d+\.\d+$/;
 
 /**
  * A list `claude … --json` prints, such as `claude plugin list --json`. 127 when claude isn't installed,
@@ -246,7 +249,13 @@ export const STEPS: Step[] = [
       const mine = list.filter((p) => p.id === PLUGIN_ID);
       const user = mine.find((p) => p.scope === 'user');
       const version = typeof user?.version === 'string' ? user.version : '(unknown version)';
-      if (user?.enabled === true) return pass(`acc ${version}, for every Claude Code session.`);
+      if (user?.enabled === true) {
+        // Only an older plugin fails: its hooks may not know what this acc asks of builders. A newer one is fine (GH-62).
+        if (ctx.version && SEMVER.test(version) && SEMVER.test(ctx.version) && !versionAtLeast(version, ctx.version)) {
+          return fail(`acc ${version} is installed, older than this acc (${ctx.version}).`, PLUGIN_UPDATE);
+        }
+        return pass(`acc ${version}, for every Claude Code session.`);
+      }
       if (user) return fail(`acc ${version} is installed but disabled.`, `claude plugin enable ${PLUGIN_ID} --scope user`);
       const scopes = [...new Set(mine.map((p) => String(p.scope)))];
       const only = scopes.length ? ` It's installed for one project only (${scopes.join(', ')} scope), not for every session.` : '';
@@ -639,11 +648,11 @@ export const STEPS: Step[] = [
   },
   {
     id: 'B14.tickets', part: 'project', group: 'B14', title: 'The repo\'s ticket source',
-    why: 'The Tasks board shows this repo\'s own tickets: a Jira project, an Azure DevOps board or GitHub Issues, signed in for this repo only (D-027). If this repo keeps its tasks in acc alone, mark this done.',
+    why: 'The Tasks board shows this repo\'s own tickets: a Jira project, an Azure DevOps board, a monday.com board or GitHub Issues, signed in for this repo only (D-027). If this repo keeps its tasks in acc alone, mark this done.',
     fix: {
       vscode: 'acc.trackers.add',
       confirm: true,
-      text: '"Do it" opens the Connect page in the Command Center: pick Jira, GitHub Issues or Azure DevOps, sign in and test the connection, then pick the project, which of its tickets are this repo\'s (an epic, labels or an area path, or the whole project) and the board. Save writes them to this repo\'s .acc/config.json.',
+      text: '"Do it" opens the Connect page in the Command Center: pick Jira, GitHub Issues, Azure DevOps or monday.com, sign in and test the connection, then pick the project or board, which of its tickets are this repo\'s (an epic, labels, an area path or a group, or the whole of it) and the board\'s columns. Save writes them to this repo\'s .acc/config.json.',
       docs: `${DOCS}#b14-connect-the-ticket-source`,
     },
     check(ctx) {
@@ -653,7 +662,9 @@ export const STEPS: Step[] = [
       if (!list.length) return unknown('No ticket source yet, so tasks come from acc alone. Add one, or mark this done if that\'s how this repo works.');
       // With its place, when it's narrower than the project (D-072).
       const names = list.map((t) => (t.kind === 'github' ? `GitHub Issues${t.repo ? ` (${t.repo})` : ''}${t.labels.length ? ` labelled ${orList(t.labels)}` : ''}`
-        : t.kind === 'jira' ? `Jira ${t.project} on ${t.site}${t.epic ? `, epic ${t.epic}` : ''}` : `Azure DevOps ${t.project} in ${t.organization}${t.areaPath ? `, area ${t.areaPath}` : ''}`));
+        : t.kind === 'jira' ? `Jira ${t.project} on ${t.site}${t.epic ? `, epic ${t.epic}` : ''}`
+          : t.kind === 'monday' ? `monday.com board ${t.board} in ${t.account}${t.group ? `, group ${t.group}` : ''}`
+            : `Azure DevOps ${t.project} in ${t.organization}${t.areaPath ? `, area ${t.areaPath}` : ''}`));
       return pass(`Tickets come from ${names.join(' and ')}.`);
     },
   },

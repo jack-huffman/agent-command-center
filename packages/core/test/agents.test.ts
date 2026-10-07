@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { agentArgs, cloneProfile, profileView, setProfile, withCloneAgents } from '../src/agents.ts';
-import { loadConfig, parseConfig, writeConfig } from '../src/config.ts';
+import { agentArgs, cloneProfile, modelOf, profileView, setProfile, withCloneAgents } from '../src/agents.ts';
+import { DEFAULT_MODEL, loadConfig, parseConfig, writeConfig } from '../src/config.ts';
 import { run } from '../src/exec.ts';
 import { GENERIC_CONFIG, makeRepo, tempDir } from './support.ts';
 
@@ -12,18 +12,41 @@ test('the config takes a model, effort and fallback for builders and reviewers, 
   assert.deepEqual(ok.errors, []);
   assert.deepEqual(ok.config!.agents.builder, { model: 'opus', effort: 'high', fallbackModel: 'sonnet' });
   assert.deepEqual(ok.config!.agents.reviewer, { model: 'claude-sonnet-5-5', effort: null, fallbackModel: null });
-  assert.deepEqual(parseConfig(GENERIC_CONFIG).config!.agents.builder, { model: null, effort: null, fallbackModel: null }, 'unset is Claude Code\'s default');
+  assert.deepEqual(parseConfig(GENERIC_CONFIG).config!.agents.builder, { model: null, effort: null, fallbackModel: null }, 'unset: acc\'s default model, Claude Code\'s effort');
   const bad = parseConfig({ ...GENERIC_CONFIG, agents: { builder: { model: 'two words', effort: 'extreme' }, reviewer: 'sonnet' } });
   assert.match(bad.errors.join(' '), /agents\.builder\.model" must be a model alias/);
   assert.match(bad.errors.join(' '), /agents\.builder\.effort" must be one of low, medium, high, xhigh, max/);
   assert.match(bad.errors.join(' '), /agents\.reviewer" must be an object/);
 });
 
-test('a profile becomes Claude Code\'s flags, and nothing at all when it\'s unset', () => {
+test('a profile becomes Claude Code\'s flags, with acc\'s default model when it names none (D-086)', () => {
+  assert.equal(DEFAULT_MODEL, 'claude-opus-5-5');
   assert.deepEqual(agentArgs({ model: 'sonnet', effort: 'low', fallbackModel: 'haiku' }), ['--model', 'sonnet', '--effort', 'low', '--fallback-model', 'haiku']);
-  assert.deepEqual(agentArgs({ model: null, effort: 'max', fallbackModel: null }), ['--effort', 'max']);
-  assert.deepEqual(agentArgs({ model: null, effort: null, fallbackModel: null }), []);
-  assert.deepEqual(agentArgs(undefined), []);
+  assert.deepEqual(agentArgs({ model: null, effort: 'max', fallbackModel: null }), ['--model', 'claude-opus-5-5', '--effort', 'max']);
+  assert.deepEqual(agentArgs({ model: null, effort: null, fallbackModel: null }), ['--model', 'claude-opus-5-5'], 'effort and fallback stay Claude Code\'s');
+  assert.deepEqual(agentArgs(undefined), ['--model', 'claude-opus-5-5']);
+  assert.deepEqual(agentArgs({ model: 'sonnet', effort: null, fallbackModel: 'sonnet' }), ['--model', 'sonnet'], 'Claude Code won\'t start with a fallback the same as its model');
+  assert.deepEqual(agentArgs({ model: null, effort: null, fallbackModel: 'claude-opus-5-5' }), ['--model', 'claude-opus-5-5'], 'nor with acc\'s default as its fallback');
+  assert.equal(modelOf(undefined), 'claude-opus-5-5');
+  assert.equal(modelOf({ model: 'fable' }), 'fable');
+});
+
+test('with nothing set, each role runs acc\'s default model; the project\'s wins over it, and the clone\'s over both (D-086)', () => {
+  for (const role of ['builder', 'reviewer'] as const) {
+    const dir = makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG) });
+    const file = join(dir, '.acc/config.json');
+    let v = profileView(loadConfig(file).config, run, dir, role);
+    assert.deepEqual([v.model, v.from.model, v.effort, v.from.effort, v.fallbackModel, v.from.fallbackModel], ['claude-opus-5-5', 'acc', null, 'default', null, 'default'], `${role}: acc's model, Claude Code's effort`);
+    assert.deepEqual(agentArgs(withCloneAgents(loadConfig(file).config, dir, run).agents[role]), ['--model', 'claude-opus-5-5']);
+    setProfile(run, dir, file, role, { model: 'claude-sonnet-5-5' }, 'project');
+    v = profileView(loadConfig(file).config, run, dir, role);
+    assert.deepEqual([v.model, v.from.model], ['claude-sonnet-5-5', 'project'], `${role}: the project's`);
+    assert.deepEqual(agentArgs(withCloneAgents(loadConfig(file).config, dir, run).agents[role]), ['--model', 'claude-sonnet-5-5']);
+    setProfile(run, dir, file, role, { model: 'haiku' }, 'clone');
+    v = profileView(loadConfig(file).config, run, dir, role);
+    assert.deepEqual([v.model, v.from.model], ['haiku', 'clone'], `${role}: the clone's`);
+    assert.deepEqual(agentArgs(withCloneAgents(loadConfig(file).config, dir, run).agents[role]), ['--model', 'haiku']);
+  }
 });
 
 test('a clone\'s own choice wins over the project\'s, part by part, and says where each part comes from', () => {

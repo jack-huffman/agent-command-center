@@ -5,8 +5,9 @@ import { parseConfig } from '../src/config.ts';
 import { run } from '../src/exec.ts';
 import {
   ACTORS, applyMove, builderStopped, type ClaudeSession, checkMove, closedPr, displayState, emptyLedger, type Emit, findRule, type Hooks, isReady, type Ledger, type LedgerEvent,
-  moveTask, mutate, noGateHooks, normalizeId, readLedger, readyTasks, RULES, type State, STATES, type Task, upsertTasks,
+  moveTask, mutate, noGateHooks, normalizeId, readLedger, readyTasks, RULES, sessionsOf, type State, STATES, type Task, upsertTasks,
 } from '../src/ledger.ts';
+import { sessionName } from '../src/names.ts';
 import { repoPaths } from '../src/paths.ts';
 import { makeRepo, SF_CONFIG } from './support.ts';
 
@@ -289,6 +290,34 @@ test('a running builder counts as stopped when its session ended, went idle, or 
   const unlinked = { ...t, run: { worktree: '/wt/GH-41', startedAt: t.run.startedAt } };
   assert.equal(builderStopped(unlinked, bg({ state: 'working', pid: 9, status: 'busy' }), { resuming: false, now }), false);
   assert.equal(builderStopped(unlinked, [], { resuming: false, now }), true);
+});
+
+test('a builder is found by its session, else by the name its run recorded, else, from before names, by its task id (D-087)', () => {
+  const name = sessionName({ project: 'Acme Service', key: 'GH-44', title: 'Case escalation rules', role: 'builder' });
+  const mine: ClaudeSession = { id: 'bg1', sessionId: 'sess-1', kind: 'background', name, pid: 7 };
+  const resumed: ClaudeSession = { sessionId: 'sess-1', kind: 'interactive', name, pid: 8 };
+  const other: ClaudeSession = { id: 'bg2', sessionId: 'sess-2', kind: 'background', name: 'Acme Service · GH-45 Something else · builder', pid: 9 };
+  const legacy: ClaudeSession = { id: 'bg3', sessionId: 'sess-3', kind: 'background', name: 'GH-44', pid: 10 };
+  const all = [mine, resumed, other, legacy];
+  assert.deepEqual(sessionsOf({ id: 'GH-44', run: { bgId: 'bg1' } }, all), [mine], 'by its background id');
+  assert.deepEqual(sessionsOf({ id: 'GH-44', run: { sessionId: 'sess-1' } }, all), [mine, resumed], 'by its session id, a resume of it included');
+  assert.deepEqual(sessionsOf({ id: 'GH-44', run: { bgId: 'gone', name } }, all), [], 'a recorded id that\'s gone isn\'t replaced by a name');
+  // Its ids weren't recorded: the name its run recorded, though the title changed since.
+  const t = task(ledgerWith({ id: 'GH-44', state: 'running', title: 'Case escalation rules' }), 'GH-44');
+  t.run = { worktree: '/wt/GH-44', name };
+  t.title = 'Escalation rules for cases, rewritten';
+  assert.deepEqual(sessionsOf(t, all), [mine]);
+  const renamed: ClaudeSession = { id: 'bg4', sessionId: 'sess-4', kind: 'background', name: sessionName({ project: 'Acme Service', key: 'GH-44', title: t.title, role: 'builder' }), pid: 11 };
+  assert.deepEqual(sessionsOf(t, [renamed, legacy]), [], 'a name worked out from the new title isn\'t taken, nor the old-style one');
+  assert.deepEqual(sessionsOf({ id: 'GH-44', run: { name } }, [{ ...mine, kind: 'interactive' }]), [], 'by name, only a background session');
+  // A run from before names: a background session named after the task, as before.
+  const before = { worktree: '/wt/GH-44', startedAt: '2026-10-01T09:00:00Z' };
+  assert.deepEqual(sessionsOf({ id: 'GH-44', run: before }, all), [legacy]);
+  assert.deepEqual(sessionsOf({ id: 'GH-44' }, all), [legacy]);
+  const at = { resuming: false, now: new Date('2026-10-05T22:00:00Z') };
+  const named = { id: 'GH-44', state: 'running' as State, run: { startedAt: '2026-10-05T21:00:00Z', name } };
+  assert.equal(builderStopped(named, [mine], at), false, 'at work, found by its name');
+  assert.equal(builderStopped(named, [legacy], at), true, 'a session named after the task isn\'t it');
 });
 
 test('a stopped builder\'s task needs you; a working one is running', () => {

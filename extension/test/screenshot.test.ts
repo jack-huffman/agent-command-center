@@ -16,12 +16,22 @@ test('every section of the page, and a ticket, has sample data built by the real
     else if (kind.startsWith('connect-')) assert.deepEqual([m.kind, (m as HomeModel).section, !!(m as HomeModel).connect], ['home', 'tasks', true]);
     // The Slack card at each of its states, on Environments (GH-58).
     else if (kind.startsWith('slack-')) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).environments.slack?.state], ['home', 'environments', kind.slice('slack-'.length)]);
+    // The Tasks tab with a monday.com board (GH-70).
+    else if (kind === 'tasks-monday') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).tasks.projects[0]!.boards[0]!.kind], ['home', 'tasks', 'monday']);
+    // The Agents tab with How agents run opened by its Settings button (D-089).
+    else if (kind === 'agents-settings') assert.deepEqual([m.kind, (m as HomeModel).section], ['home', 'agents']);
+    // Agents with its Where column showing full paths (GH-83).
+    else if (kind === 'agents-path') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).agents.whereView], ['home', 'agents', 'path']);
     // The Overview of a project with a merge queue, autopilot on and off (GH-73).
     else if (kind.startsWith('queue')) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).overview.queue[0]?.rows.length, (m as HomeModel).overview.queue[0]?.off], ['home', 'overview', 3, kind === 'queue-off']);
     else assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).connect], ['home', kind === 'output' ? 'setup' : kind, null]);
   }
-  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'agent', 'output', 'connect-start', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'slack-none', 'slack-off', 'slack-paused', 'queue', 'queue-off']);
+  assert.equal((sampleModel('agents') as HomeModel).agents.whereView, 'folder');
+  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'agent', 'output', 'connect-start', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-settings', 'queue', 'queue-off']);
   assert.equal((sampleModel('environments') as HomeModel).environments.slack?.state, 'on');
+  // monday.com's Connect page: its token page, its board picked by name, and two status columns to choose from.
+  const monday = (sampleModel('connect-monday') as HomeModel).connect!;
+  assert.deepEqual([monday.kind, monday.fields[0]?.help?.url, monday.pickers.map((p) => [p.key, p.hidden])], ['monday', 'https://acme.monday.com/apps/manage/tokens', [['board', false], ['group', false], ['statusColumn', false]]]);
   // A ticket acc doesn't keep yet, being tracked from its card (D-074).
   assert.deepEqual([(sampleModel('ticket-track') as TicketModel).trackable, (sampleModel('ticket-track') as TicketModel).tracking], [true, true]);
   // A ticket being built, one whose analysis has questions, and one too big for one task (D-052).
@@ -40,6 +50,11 @@ test('the sample data shows every style: each board column, each kind of session
   const agents = home.agents.places.flatMap((p) => p.agents);
   assert.ok(agents.some((a) => a.needsYou) && agents.some((a) => a.background && !a.needsYou) && agents.some((a) => !a.background));
   assert.ok(home.agents.places.some((p) => p.root === null), 'some sessions are elsewhere on the machine');
+  // Each kind of folder a session can be in, and two repos of one name (GH-83).
+  const here = home.agents.places[0]!.agents.map((a) => a.where);
+  assert.ok(here.includes('main checkout') && here.some((w) => w.startsWith('worktree ')), 'in the project: its main checkout and a worktree');
+  const away = home.agents.places.find((p) => p.root === null)!.agents.map((a) => a.where);
+  for (const w of ['clients/Acme Service', 'personal/Acme Service', 'clients/Acme Service › worktree ACME-40', 'side-project › force-app/main', '~', 'scratch']) assert.ok(away.includes(w), `elsewhere: ${w}`);
   const worktrees = home.worktrees.projects[0]!.worktrees;
   assert.deepEqual([...new Set(worktrees.map((w) => w.state.label.replace(/^\d+/, 'N')))].sort(), ['Clean', 'Missing on disk', 'N changed']);
 });

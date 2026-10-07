@@ -184,6 +184,23 @@ test('each message is a fixed template: the repo, the task, what happened in fix
   assert.match(text(`draft:${draftKey(LEDGER, 'ACME-40.1')}`), /^:memo: \*Draft update waiting\*[^]*An update for its ticket waits for you to post: ready for review\./);
 });
 
+test('a line about an agent names it as acc named its builder, escaped, and says nothing more (D-087)', () => {
+  const name = 'Acme · ACME-12 Case escalation rules · builder 2';
+  const named = (more: Partial<TaskRow> = {}) => row('ACME-12', 'running', { run: { bgId: 'bg12', name }, ...more });
+  const p = (r: TaskRow): SlackProject => ({ name: 'Acme', ledgerPath: LEDGER, rows: [r], tasks: [ledgerTask('ACME-12', 'running')] });
+  const line = (e: SlackEvent | null) => slackMessage(e!).text.split('\n')[2];
+  const told = (before: TaskRow, after: TaskRow) => line(taskEvent(p(after), taskNotices([before], [after])[0]!, T0 + 50));
+  assert.equal(told(named(), named({ display: 'needs-you' })), `${name} is waiting for you in its own prompt.`);
+  assert.equal(told(named(), named({ display: 'needs-you', stopped: { said: SENTINEL.said } })), `${name} stopped before acc done or acc block. It can be resumed from the Command Center.`);
+  const asked = (tool: string, r = named()) => line(questionEvent({ id: 'q', tool, at: T0 + 1 }, p(r), 'ACME-12'));
+  assert.equal(asked('AskUserQuestion'), `${name} has a question for you.`);
+  assert.equal(asked('ExitPlanMode'), `${name} has a plan for you to approve.`);
+  assert.equal(asked('Bash'), `${name} asks for your permission.`);
+  // A run from before names keeps D-078's words; any name is escaped like every other line.
+  assert.equal(asked('Bash', row('ACME-12', 'running')), 'Its agent asks for your permission.');
+  assert.equal(asked('Bash', row('ACME-12', 'running', { run: { name: 'A <b> & c' } })), 'A &lt;b&gt; &amp; c asks for your permission.');
+});
+
 test('the link is the pull request, else the ticket, else none; a title can\'t mention anyone', () => {
   assert.deepEqual(taskLink(row('A-1', 'review', { pr: pr() })), { url: 'https://github.com/acme/service/pull/44', label: 'Pull request #44' });
   assert.deepEqual(taskLink(row('A-1', 'todo')), { url: 'https://acme.atlassian.net/browse/A-1', label: 'The ticket' });

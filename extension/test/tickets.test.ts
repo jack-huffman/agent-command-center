@@ -394,3 +394,35 @@ test('a promotion\'s drafts say what they\'re about: its pull request is ready, 
   assert.equal(updateAbout({ event: 'promoted', env: 'UAT' }), 'Promoted to UAT');
   assert.equal(updateAbout({ event: 'deployed', env: 'UAT' }), 'Deployed to UAT');
 });
+
+test('a monday.com item\'s page: a field edit is refused before monday hears of it, a comment goes out as an update, and Track takes its MON key (D-066, D-074)', async () => {
+  const { MondayClient } = await import('../../packages/core/src/trackers/monday.ts');
+  const sent: { query: string; variables: Record<string, unknown> }[] = [];
+  const f = (async (_url: string, init: RequestInit) => {
+    sent.push(JSON.parse(String(init.body)) as { query: string; variables: Record<string, unknown> });
+    return Response.json({ data: { create_update: { id: 'u1' } } });
+  }) as unknown as typeof fetch;
+  const client = new MondayClient({ account: 'acme', board: 111, token: 'tok', fetch: f });
+  // The page's gate, as its ticket actions run it: the tracker's "edits" first, and only then the client.
+  const act = async (action: string, edits: boolean): Promise<string | null> => {
+    const refused = ticketActionRefusal(action, edits);
+    if (refused) return refused;
+    if (action === 'comment') await client.comment('MON-101', 'Ready for **review**');
+    if (action === 'labels') await client.setLabels();
+    return null;
+  };
+  for (const action of ['status', 'assign', 'labels']) assert.match(await act(action, false) ?? '', /read-only here\. Set "edits": true/, action);
+  assert.equal(sent.length, 0, 'monday.com heard nothing');
+  assert.equal(await act('comment', false), null, 'comments stay');
+  assert.deepEqual([/create_update/.test(sent[0]!.query), sent[0]!.variables], [true, { item: '101', body: '<p>Ready for <b>review</b></p>' }]);
+  await assert.rejects(act('labels', true), (e: unknown) => e instanceof TrackerError && e.kind === 'refused' && e.message === 'monday.com items have no labels.', 'even with edits, in words');
+  assert.equal(sent.length, 1);
+
+  const item: Ticket = {
+    key: 'MON-101', kind: 'monday', url: 'https://acme.monday.com/boards/111/pulses/101', title: 'Escalate premium cases', type: null, status: { id: '0', name: 'Working on it', category: 'doing' },
+    assignees: [], reporter: null, labels: [], priority: null, created: '', updated: '', body: { blocks: [] }, markdown: '## Description\n\nPremium cases escalate.', comments: [], related: [],
+  };
+  assert.deepEqual(trackInput(item), [{ source: { kind: 'monday', key: 'MON-101', url: 'https://acme.monday.com/boards/111/pulses/101' }, title: 'Escalate premium cases', brief: '## Description\n\nPremium cases escalate.', labels: [] }]);
+  const model = ticketModel({ project: '/r', tracker: 0, trackerTitle: 'monday.com · acme', trackerKind: 'monday', key: 'MON-101', ticket: item, loading: false, error: null, connect: null, row: null, task: null, checks: [] });
+  assert.deepEqual([model.sourceKind, model.sourceLabel, model.trackable, model.can], ['monday', 'monday.com · acme', true, { status: false, assign: false, labels: false, comment: true }]);
+});

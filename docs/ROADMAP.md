@@ -31,12 +31,15 @@ writes up every walkthrough step, and how to do it by hand.
 
 Four tasks. acc runs with no Node (D-077); one version, a CHANGELOG and a
 package scanned for personal data (D-079); and the walkthrough's plugin step,
-with the README's Install and first run (D-081). Left: a run-through on a fresh
-machine (GH-62).
+with the README's Install and first run (D-081). GH-62 got the fourth ready:
+Setup forgets steps that no longer apply, A4 fails on an older plugin, and
+[FIRST-RUN.md](FIRST-RUN.md) is the checklist for the run (D-088). Left: 0.36.0
+released, the run itself on another machine, and a follow-up that fixes what
+it finds.
 
 ## Later
 
-- monday.com intake (acc's notices go to Slack already: D-078 in DECISIONS.md)
+- Slack as a ticket source (acc's notices go to Slack already: D-078 in DECISIONS.md)
 - a pull request monitor that turns failing CI or conflicts into rework tasks
 - a merge queue
 - cloud sessions

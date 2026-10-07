@@ -2841,6 +2841,409 @@ their own, and chose an opt-in, off by default and meant for client repos
   - Deleting the branch or worktree after a merge: `acc cleanup` does (D-013).
   - Counting an unposted draft update as waiting on a person.
 
+## D-084 A builder's conversation still opens in its worktree's window: Claude Code can't open it here (2026-10-06)
+
+The author asked whether Open in Claude Code could open a builder in a new tab
+in this window, not a new window (D-041). The author chose to keep the new
+window, after this look at Claude Code for VSCode 2.1.291:
+
+- **Its link finds only the window's own conversations.** `/open?session=<id>`
+  takes a session and a prompt, no folder. The tab opens a session only from
+  its session list, which reads the window folder's conversations alone
+  (`includeWorktrees` is off). A builder's is saved under its worktree, so the
+  tab would show a blank conversation, as D-041 found.
+- **Linking the file into the window's folder isn't safe.** Claude Code refuses
+  a symbolic link (`O_NOFOLLOW`, `lstat`) and, in places that write to it, a
+  hard link (`nlink > 1`), so it could stop saving a running builder's
+  conversation. And its list takes a conversation's folder from the last
+  `relocated` record in the file's last 64 KB, else from the first entry. A
+  builder's first entries name the main checkout, so a long run could resume
+  there instead of in its worktree.
+- Not chosen: a terminal tab in this window (`claude attach`, or `--resume` in
+  the worktree), which works today but shows Claude Code's terminal view, not
+  its panel.
+- Look again when Claude Code's link can open a conversation saved under
+  another worktree of the window's repo.
+
+## D-085 A monday.com board is a tracker, connected on the Connect page (2026-10-06)
+
+D-005 left monday.com for later, and D-073 made a new tracker a client and a
+description. The author asked for it now (GH-70). It's built the way Azure
+DevOps was, with three choices a person made.
+
+- **A board is the tracker, as a Jira project is; a group on it is the place
+  (D-072).** The config names `account` (as in acme.monday.com) and `board`
+  (its id, a number below 2^53), and may name `group`. The board is what an
+  existing tracker shows fixed, by its name, and what a draft is checked
+  against before it posts. Two boards on one account are two trackers:
+  `withTracker` tells monday.com trackers apart by account and board, since
+  they have no project. Board and group names are read from monday.com when
+  the board loads, never stored; before that, the place names them by id.
+- **Sign-in is a personal API token, kept for this repo only (D-027).** It sees
+  everything its person sees in monday.com, so the sign-in check compares the
+  token's account (`me.account.slug`) with the account typed, and refuses one
+  from another account, naming it, beside the token. Create a token opens
+  `https://<account>.monday.com/apps/manage/tokens`, the Developer Center's My
+  access tokens; monday.com's docs give the menu path, not a URL. The Board
+  list is the boards the token can see, by workspace then name, leaving out
+  sub-item boards, documents, and archived or deleted boards.
+- **The board's columns are one status column's labels** (a person decided).
+  A Status column list follows the board, depending on it, with the column
+  called Status chosen, or else the first status column. It's drawn only when
+  the board has more than one, and `statusColumn` is written only when it
+  isn't that usual one. Labels go in monday.com's own order; a done label's
+  column is done, No status is to do, and the rest are in progress. No status
+  comes first, and only when an item has none; a label monday.com has switched
+  off gets a column only while an item is on it; an item on its blank label
+  has no status. Dragging a card sets the label, whether or not the tracker
+  says `"edits"` (D-066), as on the other boards.
+- **An item has no description, so its long-text columns are** (a person
+  decided), in board order, each under its column's title, as the ticket page's
+  body and the builder's brief. With none filled in, the item's oldest update
+  is. Updates and their replies are the comments either way. Sub-items are
+  related tickets, never cards.
+- **`"edits": true` lets the task page change two things** (a person decided):
+  Status sets the chosen status column's label, and Assign sets the board's
+  first People column, ticking any of the board's subscribers, or is refused in
+  words when the board has none. Labels are always refused: monday.com items
+  have no labels. Without `"edits"`, all three are refused before monday.com is
+  asked anything, as for every tracker.
+- **An item's key is `MON-<item id>`**, or the tracker's `prefix`, as Azure's AB
+  is. Item ids are the whole account's, so `ticket()` holds every read to the
+  board, and to the group when there is one: an item elsewhere is outside,
+  naming where it is. `outside()` reads items by id, a hundred at a time; a
+  batch it can't read, or an item it can't see, is never outside (D-048), and
+  with `project` only the board counts.
+- **A second board's keys are its own.** A key finds only the first tracker
+  whose prefix it has, so a second board on the account keyed MON too would
+  lose its items to the first: that board's place check found them on another
+  board, and `acc intake` took the unstarted ones off the ledger, and their
+  drafts could never post. So when the Connect page adds a monday.com tracker
+  whose prefix another tracker already gives (a monday.com board or a Jira
+  project called MON), it writes the first free one, `MON2`, `MON3` and so on,
+  as `prefix`. A prefix the config already names is kept. A config written by
+  hand with two trackers giving one prefix still gets a warning. So does the
+  other order, accepted as unlikely: a Jira project keyed MON added after a
+  monday.com board that uses MON. Only adding a monday.com board picks a free
+  prefix, so the two share it, and only acc's config warning on the command
+  line says so.
+- **Updates post as item updates**, as HTML with every word escaped, through
+  the Command Center only; `acc update post` refuses them as it does Jira's.
+  `acc intake monday --file` follows items that left the place, and
+  `acc import` refuses a monday.com key no monday.com tracker owns. Items come
+  in through Track (D-074); the intake skill has no query for them.
+- **GraphQL at `https://api.monday.com/v2`, pinned to `API-Version: 2026-10`**,
+  monday.com's current version since 2026-10-01. Ids, names and text always go
+  as variables, never into a query's text. A board asks only for its status
+  and People columns, 500 items a page by `items_page` cursors, up to 2,000
+  cards, and only its group's items when there is one. A rate or complexity
+  limit is said with its wait and not retried: the board reloads in 120 s
+  anyway. The status column's labels are read from `columns.settings` in the
+  2026-10 shape (`labels` with `id`, `index`, `is_done`, `is_deactivated`);
+  the older shape, a map of ids to names, is read too. The stand-in in the
+  tests encodes that shape, so one board should be checked against a real
+  account before a release.
+- **The Connect page gained two things any description can use**, still with
+  no tracker named in its drawing: a list drawn only when it has a choice to
+  make (`hideSingle`), and an identifying list whose values are ids, loaded for
+  an existing tracker to show the name (`idValues`). A "whole" choice can name
+  what's chosen above it: "Every group on Client work".
+- **The tracker kinds are listed once** (`TRACKER_KINDS`), and the config,
+  ledger, updates and Command Center take theirs from it, with `trackerName`
+  and `signInLabel` for the words.
+- Not chosen: OAuth or a marketplace app; webhooks or live updates; several
+  boards or groups per tracker; sub-item boards as boards; creating items;
+  posting monday.com updates from the CLI; a brand mark for its icon (it's the
+  `table` codicon).
+- This takes up what D-005 deferred for monday.com. Slack stays a place for
+  acc's notices (D-078), not a ticket source.
+
+## D-086 Opus 5.5 by default, and a model picked per task (2026-10-06)
+
+The author: "We should support picking a model, but let's default to Opus
+5.5" (GH-74). A repo or a clone could set the builder's and reviewer's model
+(D-036), and without one Claude Code chose. This changes D-036's "anything
+unset is Claude Code's own default" for the model.
+
+- **acc's default model is `claude-opus-5-5`,** for builders, reviewers and
+  analysts, wherever neither the clone nor the project names one. The clone
+  still wins over the project, and both over the default. It's a pinned full
+  name, not the alias `opus`, so moving to a newer Opus is an acc release.
+  Effort and fallback stay Claude Code's own when unset.
+- **Every launch names the model.** `agentArgs` builds `--model` for dispatch,
+  resume, review, the analysis, a free-form agent and the reply to any
+  session (D-060), so the default lives in that one place. A fallback that is
+  the model itself is left out: Claude Code won't start with
+  `--fallback-model` the same as `--model`.
+- **`acc agents`** says `model claude-opus-5-5 (acc's default)`, and its JSON
+  gives the model's source as `acc`, apart from `default`, which is Claude
+  Code's, for effort and fallback. How agents run says "acc's default".
+- **A model picked for a task.** `acc dispatch <id> --model <m>`, and
+  **Dispatch with…** behind the card's ⋯ and on the task page, wherever
+  Dispatch or Re-dispatch is offered. A name that isn't a model name is
+  refused before any worktree is made. The run keeps it (`run.model`,
+  `run.modelPicked`), so a re-dispatch of its rework, by a person or by
+  autopilot, `acc resume` and the reply to its builder use it, until another
+  is picked. A run nobody picked a model for records what it started with,
+  and follows the clone's, the project's or acc's default each time.
+- **Builder only** (a person decided). A task's reviewer, and its analyst on
+  a re-analysis, keep the reviewer's profile (D-052).
+- **One list of models** (a person decided): `claude-opus-5-5`,
+  `claude-fable-5-1`, `claude-sonnet-5-5` and `claude-haiku-4-5-20251001`,
+  then Another model…, in Dispatch with… and in How agents run's Change….
+  Change…'s first entry, which clears the choice, reads acc's default
+  (claude-opus-5-5). Dispatch with… puts the model the builder would run with
+  anyway first, saying where it's set: picked for this task, this clone, the
+  project, or acc's default. Choosing that model, for a task with none picked
+  before, dispatches without `--model`, so the task goes on following the
+  settings. Any other choice is kept for the task.
+- **The analysis's size, beside the choice** (a person decided). Dispatch
+  with… says "Its analysis sizes it L: a few days", or "Not analyzed: no size
+  to go on". The size picks and reorders nothing, and the analysis has no
+  suggested-model field. The size's meanings live in one place, which the
+  analyst's schema is built from.
+- **Each running agent's model is shown:** under Agent on its card, as Model
+  on its task page, and in a Model column on Agents. It's the model the
+  agent's transcript last answered with, read from its last 256 KB and kept
+  until the file changes, as the last thing it said is (D-067); before its
+  first answer, the model acc started it with; else a dash. Agents shows it
+  short (`opus-5-5`, the full name on hover), takes Kind's room below 1100 px
+  and drops it below 560 px, so the row menu never covers a column. A
+  transcript that can't be found is looked for again after 30 seconds, not on
+  every poll.
+- **Accepted:** a pick outlasts Abandon and a fresh Dispatch, as the branch
+  does; the card shows the model, so an old pick is seen. The reply to a
+  session that isn't a task's now names acc's default too. This repo's own
+  config already names `claude-opus-5-5` (D-080), so it changes nothing here.
+- Not chosen: picking a model by the analysis's size; a per-task effort or
+  fallback; the aliases (`opus`, `sonnet`) in the lists, which move under you.
+
+## D-087 Agents are named for their project, ticket and role (2026-10-06)
+
+A builder's Claude Code session was named after its task's id alone (`GH-44`),
+and reviewers and analysts had no name. With several builders in several repos
+(D-080), that didn't say whose work it was (GH-77).
+
+- **The name is `<project> · <key> <title> · <role>`** (the author chose it):
+  `Acme Service · ACME-12 Case escalation rules · builder`. The project is
+  `.acc/config.json`'s, the key the task's id, and the role `builder`, `review`
+  or `analysis`. `sessionName()` in core's `names.ts` makes it, for dispatch,
+  review and analyze alike.
+- **Short:** the title, and the project as a guard, are cut at the last space
+  that leaves 39 characters or fewer, with trailing punctuation dropped and `…`
+  added, so each is at most 40. A single longer word is cut at 39. A title
+  that's empty or cleans away leaves the key alone.
+- **Safe to show anywhere:** only letters and digits of any language, spaces
+  and `- _ . , : ( ) + #` stay. Whitespace, control characters, `/`, `\`, `~`
+  and `·` become spaces, so a path falls apart into words and `·` only ever
+  separates; everything else (`"'$!;|&<>*?` and backticks among them) is
+  dropped. A word that looks like a token is dropped too: one starting `ghp_`,
+  `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_`, `sk-`, `xox`, `AKIA` or `eyJ`,
+  or one of 20 characters or more mixing letters and digits. An id that isn't
+  one is cut to what an id holds. A false positive only shortens a name.
+- **Builder N** (a person decided): the Nth dispatch of a task is `builder N`,
+  and the first has no number. acc never runs two builders on one task at once,
+  so the second is a rework or a re-dispatch after Abandon. A run recorded
+  before names counts as the first. A resume keeps its run's name and number.
+  Each review or analysis is a one-off, so it's never numbered.
+- **What Claude Code does** (2.1.292, checked with throwaway `-p` sessions,
+  and by reading the CLI for `--bg`, which won't start in an untrusted folder
+  and can't be started from a builder's worktree):
+  - `-p --name` names the session. `claude agents --json` lists it, as
+    `interactive`, under exactly that name: 84 characters with `·` and `…`
+    came back unchanged.
+  - `-p --resume <id>` without `--name` lists the session under a name of its
+    own (`probe-5e`); with `--name` it's the name given. So a resume, and
+    D-060's reply, pass the run's name.
+  - `--bg` makes its own session id: it warns "--bg manages the session id;
+    ignoring --session-id". So a builder can't be found by an id acc chose.
+- **acc never finds an agent by its name alone.** Dispatch records `name` and
+  `n` on the task's run, and `--name` on the review and analysis puts the name
+  in their running markers and in the verdict and analysis they write. The new
+  background session is found by its name, in the folder it started in (or the
+  worktree it may already have entered), started at most 5 s before the launch:
+  two clones of a repo name a task's builder alike, and an older session of the
+  same name is another run's. After that, `sessionsOf` (core) and `sessionFor`
+  (extension), now one rule, find a task's agent by its background or session
+  id; when neither was recorded, by a background session named as its run
+  recorded; and for a run from before names, by one named the task's id, as
+  before. A title changed later doesn't lose it, and a name worked out from the
+  new title is never taken. builderStopped, resume and autopilot all use it.
+- **The same name everywhere it shows.** `displayName()` gives the name acc
+  recorded (the run's, the review's or the analysis's, by session) before
+  Claude Code's, so a resumed session listed under another name still reads
+  the same. It's used on the Agents tab, the agent page and its tab title, the
+  Overview, the Stop prompt, and the terminals Attach and Watch open
+  (`claude: <name>`); `acc dispatch` and `acc show` print it. The agent page
+  names it once in its breadcrumb, linked to its task, with the task's title
+  as the heading. The task page shows the builder's name under Agent, and a
+  card's agent line shows it on hover. GH-76's In progress section is to use
+  `displayName(session, row)` from extension/src/logic.ts.
+- **Notices and Slack name the agent** (a person decided), which amends
+  D-078's fixed words: a notice about an agent says its name in place of
+  "GH-12's agent" ("… · builder is waiting for you in its own prompt.",
+  "… · builder stopped: …"), and Slack's lines about one do too, escaped like
+  the rest ("… · builder has a question for you."). A run from before names
+  keeps the old words. Other notices name the task, as before.
+- **The Agents table wraps a name** rather than clipping it, since the part
+  that says what an agent works on comes last; the name takes the room left
+  over, and Kind is dropped below 1100px rather than 800px.
+- Open in Claude Code's "Its task stays Running" hint finds the task by its
+  session, not by a session name that looks like a task id.
+- **Accepted:** sessions already running keep their old names; nothing renames
+  them. A `--bg` name of 90 characters wasn't tried live, only `-p`'s. Free-form
+  agents from "New background agent" keep the name a person types; branches,
+  worktree folders, packets and `ACC_ROLE`/`ACC_TASK` are unchanged. Question
+  cards still say which task asks.
+- Not chosen: finding a builder by a name worked out from its task (a title
+  can change); `--bg --session-id` (ignored); numbering reviews; and clipping
+  names in the Agents table.
+
+## D-088 The first run is a checklist someone fills in on another machine; a full check replaces Setup's rows; an older plugin fails A4 (2026-10-06)
+
+GH-62, the last of four packaging tasks, after D-077, D-079 and D-081. It
+asked for a first run on a fresh machine, written up and fixed, and for Setup
+to forget a machine step that no longer applies (GH-59's review).
+
+- **The run is split from this branch** (a person decided). A builder can't
+  drive VSCode on a clean machine, and the author's own account shares
+  `~/.claude`, `~/.acc` and the keychain with the builders running there, so
+  sign-ins would pass that shouldn't. The author installs the release on
+  another machine, or a coworker does after a read invitation to the repo.
+  This branch gets the run ready: `docs/FIRST-RUN.md`, Setup's fix, A4's
+  version check, and 0.36.0 to test. The tester's notes come back as their own
+  task, which fills in FIRST-RUN.md, fixes what takes under about an hour
+  (about a day in all), files the rest with what was seen, and corrects the
+  README's Install and first run.
+- **The samples** (a person decided): a new private throwaway repo under the
+  tester's own GitHub account, as a generic project, all the way to a
+  dispatched task; then a Salesforce Developer Edition org, as far as it goes,
+  noting where it stops. Never a client's org.
+- **FIRST-RUN.md is a checklist.** One heading per step, `### <id>: <title>`:
+  the machine's, a generic project's, then Salesforce's own, in the
+  walkthroughs' order, and a test holds them to the step list. Each has
+  Showed, Unclear, Failed, Result, and Fixed in / filed as. Before them: the
+  machine and release, getting access, and installing; after them, the
+  dispatch. The docs scan (D-079) reads it, since a write-up is where a home
+  path or an account name slips in most easily.
+- **A full check replaces Setup's rows.** Setup merged every result into its
+  rows and cleared them only when the folder changed, so a step a check
+  stopped listing kept its old row: A1.node, A1.sf and A1.code-analyzer, after
+  `acc init --profile generic` in a window that first checked with no
+  project. Now each part a full check lists replaces that part's rows. A part
+  whose check came back empty, which means acc failed, keeps its rows rather
+  than blanking Setup, and a folder that isn't a project has no project rows.
+  A Check of one step, a re-check or a fix still changes only its own row.
+  The walkthrough's context key for a dropped step stays as it was:
+  `acc.profile` already hides the step. Both rules are pure functions in
+  `logic.ts` (`afterFullCheck`, `afterStepCheck`), tested without VSCode.
+- **An empty machine result isn't saved.** It was, and startup reused it for
+  12 hours, showing no machine rows.
+- **A1.node stays listed with no project open** (a person decided, for now).
+  D-077 left it to GH-62. The checklist asks the tester whether A1.node, A1.sf
+  and A1.code-analyzer confused them there; the follow-up can revisit it with
+  that answer.
+- **A4 fails on a plugin older than acc** (a person decided; D-081 left it to
+  GH-62). `acc doctor` passes its own version into the checks
+  (`CheckContext.version`), and A4 compares the installed plugin's with it as
+  numbers. Older fails, and its fix is `claude plugin marketplace update
+  agent-command-center && claude plugin update acc@agent-command-center
+  --scope user`, run in a terminal like any `claude` subcommand. Equal or
+  newer passes. When there's nothing to compare, because a version isn't
+  `x.y.z` or the caller doesn't know acc's, it passes as before. A disabled
+  plugin's fix is still to enable it, and the next check asks for the update.
+  Not chosen: failing on any difference. A newer plugin does no harm, and
+  someone who updated the plugin first shouldn't be told to go back.
+- **0.36.0 is set on this branch**, with its CHANGELOG entry. After it merges,
+  a person packages it, commits `plugin/bin` and releases it (D-079), and the
+  run uses that release.
+- **The README changes only where it's certainly wrong.** A fresh VSCode
+  doesn't put `code` on PATH, so it says how to add it, or to use Install from
+  VSIX. The rest waits for the run, whose checklist asks about what the
+  analysis suspected: no step checks for Homebrew, and the git that comes with
+  Apple's command-line tools may be older than A1.git's 2.40.
+
+## D-089 How agents run is behind a Settings button on the Agents page (2026-10-07)
+
+The author asked for the Agents page's "How agents run" to show only after
+clicking a Settings button. The settings are set once and changed rarely, and
+they pushed the sessions, which change all the time, below the fold.
+
+- **Settings**, with a gear, sits in the Agents header beside Start a
+  background agent. It opens How agents run above the sessions, and reads
+  **Hide settings** while it's open (`aria-expanded` says the same). Closed is
+  the default; the tab remembers which way it was left.
+- **Per-token billing still shows while it's closed.** It costs money while
+  nobody is looking, so its orange line stays above the sessions (D-036).
+- **The status bar's Auto-merge item opens it.** It goes to the Agents section
+  with How agents run open, since that's where Auto-merge is changed (D-083).
+- Not chosen: a separate settings page, which would take you away from the
+  sessions for a row or two of choices.
+
+## D-090 Agents show each session's folder in context, with Full path a toggle (2026-10-06)
+
+The Agents tab's Where column was relative only for a session in a project open
+in the window. Every session elsewhere showed its whole cwd, the same long text
+on every row, clipped at the column's edge. The agent's page and its Needs you
+card each worked the folder out again, three ways (GH-83).
+
+- **One helper names a session's folder,** `sessionFolders` in the extension's
+  model, for the Agents tab, an agent's page, its Needs you card, and GH-76's
+  In progress section when it's built. Each folder has a label and its full
+  path, with `~` for the home folder.
+- **In a project open in this window,** a session reads as where it is in it:
+  `main checkout`, `worktree ACME-12`, `force-app/main`, or `worktree AV-2` for
+  a linked worktree outside the project's folder. The Agents tab leaves out the
+  project, which its group's heading names. The agent's page leads with the
+  project's name from its config: `Acme Service › worktree ACME-14`. The Needs
+  you card reads `Acme Service · worktree ACME-11`, as the other cards put their
+  project first.
+- **Elsewhere,** a session reads as its repo's folder name, then the path inside
+  it: `Acme Service`, `Acme Service › force-app/main`. The repo is the nearest
+  folder up holding `.git`, a folder or a linked worktree's file. A builder's
+  worktree under `.claude/worktrees/` reads as its repo's from the path alone,
+  `Acme Service › worktree ACME-12`, though its own `.git` file would make it a
+  repo. Outside any repo, a session reads as its folder's own name, or `~`.
+- **The walk stops before the home folder and `/`.** A repo at `~` (dotfiles)
+  would otherwise be every folder's repo, and every label would start `me ›`.
+  The hub looks for `.git` once per folder each time `claude agents` answers,
+  so a repo made since shows on the next poll.
+- **Two folders of one name each add their parent folders until they differ:**
+  `clients/Acme Service` and `personal/Acme Service`. The rule compares the
+  folder that names a session, its repo or itself, across every session `claude
+  agents` lists. So a worktree of one says which it is, `clients/Acme Service ›
+  worktree ACME-40`, and a session reads the same in the table, on its page and
+  on its card. Sessions in a project open here are named by their project and
+  aren't compared. Two sessions in one folder share one label.
+- **Folder or Full path, by a toggle with an icon and a label each,** that
+  switches the Agents tab only. It sits just above the Where column's heading,
+  on the right, outside the table. In the heading it set the column's least
+  width: at 1000 px the row menu then covered Started, and at 500 px the toggle
+  scrolled out of view. Folder is the default. The choice is kept in the
+  window's workspaceState (`acc.agents.where`), as the section is, so it
+  survives closing the Command Center and reloading the window. A stored value
+  other than `folder` or `path` is ignored.
+- **Full path shows the whole folder, with `~` for home.** Both views wrap a
+  label too long for its cell, as the session names do (D-087), rather than
+  clip it: beside the names and the Model column, a clipped cell kept only
+  `worktree ACM…` at 1000 px, and clipping a path at its start cut its last
+  letter. They break between words and after a slash, never inside a name or
+  a key (`ACME-12` stays whole), and the cell has no minimum width, so a narrow
+  tab never pushes the table under the row menu. Below 660 px the session's
+  name stops taking all the room left over, so the columns share it. Hovering a Where cell shows the full path in either view, as do the
+  folder on an agent's page and the Needs you card.
+- Folder labels are names, not paths, so they're in the UI's font, on the
+  Agents tab and the agent's page. Full paths stay in the code font.
+- Not chosen:
+  - The toggle switching the agent's page and the Needs you card too: a person
+    decided they always show the folder in context, with the full path on
+    hover.
+  - Resolving a linked worktree's `.git` file back to its main repo. A linked
+    worktree outside `.claude/worktrees/`, in a repo not open here, reads as its
+    own folder.
+  - The Worktrees tab's Location column, question and permission cards, and the
+    acc CLI's output, which name worktrees and files, not sessions' folders.
+
 ## D-??? A merge queue: passing pull requests are refreshed, checked once and merged in turn (2026-10-06)
 
 With auto-merge (D-083), passing pull requests merged on their own, but each

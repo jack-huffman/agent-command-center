@@ -51,8 +51,8 @@ Salesforce. Project types plug in as profiles.
   the two lists and the README's environments table each have a **Do it** in
   the walkthrough. No terminal needed.
 - **How agents run:** builders and reviewers each have a model, effort and
-  fallback, for this clone or the whole project, changed from the Agents
-  section.
+  fallback, for this clone or the whole project, changed from **Settings** on
+  the Agents section.
 - **History:** what agents asked and what you answered stays on the page: in
   each agent's timeline, and in the Overview's History with the task moves and
   commands.
@@ -135,8 +135,10 @@ gh release download -R github.com/jack-huffman/agent-command-center -p '*.vsix'
 code --install-extension agent-command-center-*.vsix
 ```
 
-Or, in VSCode: Extensions view → **⋯** → **Install from VSIX…**, and pick the
-file. Then reload the window (**Developer: Reload Window**). A newer release
+A fresh VSCode doesn't put `code` on your PATH: run **Shell Command: Install
+'code' command in PATH** from its Command Palette first, or, in VSCode:
+Extensions view → **⋯** → **Install from VSIX…**, and pick the file. Then
+reload the window (**Developer: Reload Window**). A newer release
 installs the same way, over the old one.
 
 ### The first run
@@ -160,7 +162,9 @@ installs the same way, over the old one.
    A private marketplace updates itself only when `GITHUB_TOKEN` is set, so
    after each release, update it by hand:
    `claude plugin marketplace update agent-command-center`, then
-   `claude plugin update acc@agent-command-center`.
+   `claude plugin update acc@agent-command-center --scope user`. Until you
+   do, A4 fails on a plugin older than the extension, and its **Do it** runs
+   both.
 3. **A project.** Open the project's repo folder. In a Salesforce folder with
    no `.acc/config.json`, the walkthrough **Agent Command Center: onboard a
    project** opens by itself; anywhere else, run **Agent Command Center:
@@ -241,15 +245,16 @@ docs/           design, roadmap, decisions, research
 Each repo lists its own trackers in `.acc/config.json`, and signs in to them on
 its own. One machine can work across clients with different Jira sites, Azure
 DevOps organizations, GitHub repos and pipelines, and no client's login serves
-another's repo. GitHub Issues, Jira Cloud and Azure DevOps today; monday.com
-comes later. Set one up on the Command Center's **Connect page**: Connect
+another's repo. GitHub Issues, Jira Cloud, Azure DevOps and monday.com. Set
+one up on the Command Center's **Connect page**: Connect
 Jira on the Tasks tab, Add a tracker on the Overview, or **Add a tracker…** from
 the Command Palette. It signs in, tests the connection, and lists the projects,
 places and boards to pick from. See [ONBOARDING.md, B14](docs/ONBOARDING.md#b14-connect-the-ticket-source).
 
-Each tracker names its place: the project or repo, and when set, a Jira epic,
-GitHub labels or an Azure DevOps area path. Boards, ticket pages and intake see
-only tickets in that place, so another project's or client's never show up.
+Each tracker names its place: the project, repo or monday.com board, and when
+set, a Jira epic, GitHub labels, an Azure DevOps area path or a monday.com
+group. Boards, ticket pages and intake see only tickets in that place, so
+another project's or client's never show up.
 
 ## Development
 

@@ -2,7 +2,7 @@
   "name": "agent-command-center",
   "displayName": "Agent Command Center",
   "description": "Set up projects for parallel Claude Code agents, then run and watch them from VSCode.",
-  "version": "0.35.0",
+  "version": "0.36.0",
   "publisher": "JackHuffman",
   "private": true,
   "license": "UNLICENSED",
@@ -339,6 +339,12 @@
         "icon": "$(rocket)"
       },
       {
+        "command": "acc.task.dispatchWith",
+        "title": "Dispatch to an agent with a model you pick",
+        "category": "Agent Command Center",
+        "icon": "$(sparkle)"
+      },
+      {
         "command": "acc.task.attach",
         "title": "Attach to its agent",
         "category": "Agent Command Center",
@@ -584,6 +590,10 @@
         },
         {
           "command": "acc.task.dispatch",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.dispatchWith",
           "when": "false"
         },
         {
@@ -1084,7 +1094,7 @@
           {
             "id": "B14.tickets",
             "title": "The repo's ticket source",
-            "description": "The Tasks board shows this repo's own tickets: a Jira project, an Azure DevOps board or GitHub Issues, signed in for this repo only (D-027). If this repo keeps its tasks in acc alone, mark this done.\n\n[Check](command:acc.step.check?%5B%22B14.tickets%22%5D)\n[Do it](command:acc.step.fix?%5B%22B14.tickets%22%5D)\n[I've done this](command:acc.step.confirm?%5B%22B14.tickets%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B14.tickets%22%5D)",
+            "description": "The Tasks board shows this repo's own tickets: a Jira project, an Azure DevOps board, a monday.com board or GitHub Issues, signed in for this repo only (D-027). If this repo keeps its tasks in acc alone, mark this done.\n\n[Check](command:acc.step.check?%5B%22B14.tickets%22%5D)\n[Do it](command:acc.step.fix?%5B%22B14.tickets%22%5D)\n[I've done this](command:acc.step.confirm?%5B%22B14.tickets%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B14.tickets%22%5D)",
             "media": {
               "markdown": "media/steps/B14.tickets.md"
             },

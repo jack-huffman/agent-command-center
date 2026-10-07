@@ -596,3 +596,226 @@ test('Azure lists a team\'s area paths and the ones under them, for picking a pl
   ]);
   assert.deepEqual(await azureAreas('acme', 'CRM', 'Billing Team', 'x', f), ['CRM\\Billing', 'CRM\\Billing\\Invoices', 'CRM\\Billing\\Refunds', 'CRM\\Sales']);
 });
+
+// ---------------------------------------------------------------- monday.com
+
+type MondayRoute = [RegExp, ((v: Record<string, unknown>) => unknown) | object];
+/** A stand-in for monday.com's GraphQL API: answers by what each query asks for, and records its text, variables and headers. */
+function fakeMonday(routes: MondayRoute[]) {
+  const calls: { query: string; variables: Record<string, unknown>; headers: Record<string, string> }[] = [];
+  const f = (async (url: string, init: RequestInit) => {
+    assert.equal(url, 'https://api.monday.com/v2');
+    const { query, variables } = JSON.parse(String(init.body)) as { query: string; variables: Record<string, unknown> };
+    calls.push({ query, variables, headers: init.headers as Record<string, string> });
+    const hit = routes.find(([re]) => re.test(query));
+    if (!hit) return Response.json({ errors: [{ message: `no route for ${query}`, extensions: { code: 'InvalidArgumentException' } }] });
+    const data = typeof hit[1] === 'function' ? (hit[1] as (v: Record<string, unknown>) => unknown)(variables ?? {}) : hit[1];
+    return data instanceof Response ? data : Response.json({ data });
+  }) as unknown as typeof fetch;
+  return { fetch: f, calls, mutations: () => calls.filter((c) => /^\s*mutation/.test(c.query)) };
+}
+
+const MON_STATUS = { labels: [
+  { id: 5, label: '', index: 9 },
+  { id: 0, label: 'Working on it', index: 1 },
+  { id: 1, label: 'Done', index: 3, is_done: true },
+  { id: 2, label: 'Stuck', index: 2 },
+  { id: 3, label: 'Not started', index: 0 },
+  { id: 4, label: 'On hold', index: 4, is_deactivated: true },
+] };
+const monMeta = (columns: unknown[] = [
+  { id: 'priority', title: 'Priority', type: 'status', settings: { labels: [{ id: 0, label: 'High', index: 0 }, { id: 1, label: 'Low', index: 1 }] } },
+  { id: 'status', title: 'Status', type: 'status', settings: MON_STATUS },
+  { id: 'person', title: 'Owner', type: 'people', settings: {} },
+]) => ({ boards: [{ id: '111', name: 'Client work', columns, groups: [{ id: 'topics', title: 'This sprint' }, { id: 'backlog', title: 'Backlog' }] }] });
+const card = (id: string, name: string, status: number | null, people: { id: number; kind: string }[] = []) => ({ id, name, group: { id: 'topics' }, column_values: [{ id: 'status', index: status }, { id: 'person', persons_and_teams: people }] });
+const monBoardRoutes = (pages: { cursor: string | null; items: unknown[] }[], meta = monMeta()): MondayRoute[] => [
+  [/columns\(types: \[status, people\]\)/, meta],
+  [/groups\(ids: \$group\) \{ items_page/, (v) => ({ boards: [{ groups: (v.group as string[]).includes('topics') ? [{ items_page: pages[0] }] : [] }] })],
+  [/items_page\(limit/, { boards: [{ items_page: pages[0] }] }],
+  [/next_items_page/, (v) => ({ next_items_page: pages[Number(String(v.cursor).slice(1))] })],
+  [/users\(ids/, (v) => ({ users: (v.ids as string[]).filter((id) => id === '9').map((id) => ({ id: Number(id), name: 'Pat Lee' })) })],
+];
+
+test('a monday.com board: its status column\'s labels in monday\'s order, No status first when a card has none, and every page of items', async () => {
+  const { MondayClient } = await import('../src/trackers/monday.ts');
+  const { fetch: f, calls } = fakeMonday(monBoardRoutes([
+    { cursor: 'p1', items: [card('101', 'Escalate premium cases', 0, [{ id: 9, kind: 'person' }, { id: 3, kind: 'team' }]), card('102', 'Fix welcome email', null)] },
+    { cursor: null, items: [card('1234567890123', 'Renewal reminders', 1), card('104', 'Paused work', 4), card('105', 'On the blank label', 5)] },
+  ]));
+  const mon = new MondayClient({ account: 'acme', board: 111, token: 'tok', fetch: f });
+  assert.deepEqual([mon.title, mon.place], ['monday.com · acme', 'monday.com · acme · board 111'], 'by id until the board says its name');
+  const b = await mon.board();
+  assert.deepEqual([b.source, b.title, b.url, b.place, b.notice], ['monday-board', 'Client work', 'https://acme.monday.com/boards/111', 'monday.com · acme · Client work', null]);
+  assert.deepEqual(b.columns.map((c) => [c.name, c.category, c.statusIds]), [
+    ['No status', 'todo', ['none']], ['Not started', 'doing', ['3']], ['Working on it', 'doing', ['0']], ['Stuck', 'doing', ['2']], ['Done', 'done', ['1']], ['On hold', 'doing', ['4']],
+  ], 'the Status column, not the first status column; a switched-off label only while a card is on it');
+  assert.deepEqual(b.cards.map((c) => [c.key, c.status.name, c.assignees.map((a) => a.name)]), [
+    ['MON-101', 'Working on it', ['Pat Lee']], ['MON-102', 'No status', []], ['MON-1234567890123', 'Done', []], ['MON-104', 'On hold', []], ['MON-105', 'No status', []],
+  ], 'ids too big for 32 bits stay as they are');
+  assert.equal(b.cards[0]!.url, 'https://acme.monday.com/boards/111/pulses/101');
+  const first = calls.find((c) => /items_page\(limit/.test(c.query))!;
+  assert.doesNotMatch(first.query, /groups/, 'the whole board');
+  assert.deepEqual(first.variables, { board: ['111'], cols: ['status', 'person'], limit: 500 }, 'only the columns a card needs');
+  assert.deepEqual(calls.find((c) => /next_items_page/.test(c.query))!.variables, { cursor: 'p1', cols: ['status', 'person'], limit: 500 });
+  assert.deepEqual(calls.find((c) => /users\(ids/.test(c.query))!.variables.ids, ['9'], 'people, not teams');
+  assert.ok(calls.every((c) => c.headers.Authorization === 'tok' && c.headers['API-Version'] === '2026-10'));
+
+  // Every card with a status: no No status column, and no column for a switched-off label nobody's on.
+  const all = fakeMonday(monBoardRoutes([{ cursor: null, items: [card('101', 'A', 0), card('102', 'B', 1)] }]));
+  const whole = await new MondayClient({ account: 'acme', board: 111, token: 'tok', fetch: all.fetch }).board();
+  assert.deepEqual(whole.columns.map((c) => c.name), ['Not started', 'Working on it', 'Stuck', 'Done']);
+  const priority = await new MondayClient({ account: 'acme', board: 111, statusColumn: 'priority', token: 'tok', fetch: all.fetch }).board();
+  assert.deepEqual(priority.columns.map((c) => c.name), ['No status', 'High', 'Low'], 'the status column the tracker names, which these cards have no label in');
+  const none = fakeMonday(monBoardRoutes([], monMeta([{ id: 'person', title: 'Owner', type: 'people', settings: {} }])));
+  await assert.rejects(new MondayClient({ account: 'acme', board: 111, token: 'tok', fetch: none.fetch }).board(), /Client work has no status column/);
+});
+
+test('a monday.com group holds the board\'s query to it, and the place says the board\'s and group\'s names once they load', async () => {
+  const { MondayClient } = await import('../src/trackers/monday.ts');
+  const { fetch: f, calls } = fakeMonday(monBoardRoutes([{ cursor: null, items: [card('101', 'Escalate premium cases', 0)] }]));
+  const mon = new MondayClient({ account: 'acme', board: 111, group: 'topics', token: 'tok', fetch: f });
+  assert.equal(mon.place, 'monday.com · acme · board 111 · group topics');
+  const b = await mon.board();
+  assert.deepEqual([b.title, b.place, b.cards.map((c) => c.key)], ['Client work · This sprint', 'monday.com · acme · Client work · group This sprint', ['MON-101']]);
+  const q = calls.find((c) => /items_page/.test(c.query))!;
+  assert.match(q.query, /groups\(ids: \$group\) \{ items_page/);
+  assert.deepEqual(q.variables.group, ['topics'], 'only the group\'s items are asked for');
+  const gone = await new MondayClient({ account: 'acme', board: 111, group: 'old_group', token: 'tok', fetch: f }).board();
+  assert.deepEqual([gone.cards.length, gone.notice], [0, 'The group old_group isn\'t on Client work any more, so no items show. Pick another with Change, above it.']);
+});
+
+const monPlaced = (id: string, board: [string, string], group: [string, string]) => ({ id, board: { id: board[0], name: board[1] }, group: { id: group[0], title: group[1] } });
+const monItem = (id: string, extra: Record<string, unknown> = {}) => ({
+  ...monPlaced(id, ['111', 'Client work'], ['topics', 'This sprint']), name: `Item ${id}`, state: 'active', url: `https://acme.monday.com/boards/111/pulses/${id}`,
+  created_at: '2026-09-01T00:00:00Z', updated_at: '2026-09-04T00:00:00Z', creator: { id: 7, name: 'Jordan Kim' }, column_values: [], updates: [], subitems: [], parent_item: null, ...extra,
+});
+
+test('a monday.com item: its long-text columns are its description, its updates and their replies its comments, its sub-items related', async () => {
+  const { MondayClient } = await import('../src/trackers/monday.ts');
+  const items: Record<string, unknown> = {
+    101: monItem('101', {
+      name: 'Escalate premium cases',
+      column_values: [
+        { id: 'status', type: 'status', text: 'Working on it', column: { title: 'Status' }, index: 0, label: 'Working on it', is_done: false },
+        { id: 'person', type: 'people', text: 'Pat Lee', column: { title: 'Owner' }, persons_and_teams: [{ id: 9, kind: 'person' }] },
+        { id: 'long_text', type: 'long_text', text: 'Premium cases escalate.\n\nTier 2 owns them.\nWithin a day.', column: { title: 'Description' } },
+        { id: 'notes', type: 'long_text', text: '  ', column: { title: 'Notes' } },
+        { id: 'ac', type: 'long_text', text: '- A queue for them **now**', column: { title: 'Acceptance criteria' } },
+      ],
+      updates: [
+        { id: 'u2', body: '<p>On <b>it</b></p>', created_at: '2026-09-02T00:00:00Z', creator: { id: 9, name: 'Pat Lee' }, replies: [{ id: 'r1', body: '<p>Thanks</p>', created_at: '2026-09-03T00:00:00Z', creator: { id: 7, name: 'Jordan Kim' } }] },
+        { id: 'u1', body: '<p>First</p>', created_at: '2026-09-01T00:00:00Z', creator: { id: 7, name: 'Jordan Kim' }, replies: [] },
+      ],
+      subitems: [{ id: '201', name: 'Draft the runbook', url: 'https://acme.monday.com/boards/112/pulses/201' }],
+    }),
+    102: monItem('102', { updates: [{ id: 'u9', body: '<p>The <i>brief</i>, as an update</p>', created_at: '2026-09-01T00:00:00Z', creator: null }, { id: 'u10', body: '<p>Later</p>', created_at: '2026-09-05T00:00:00Z', creator: null }] }),
+  };
+  const { fetch: f, calls } = fakeMonday([
+    [/items\(ids: \$ids\) \{ id board/, (v) => ({ items: (v.ids as string[]).map((id) => items[id]).filter(Boolean) })],
+    [/users\(ids/, { users: [{ id: 9, name: 'Pat Lee' }] }],
+  ]);
+  const mon = new MondayClient({ account: 'acme', board: '111', token: 'tok', fetch: f });
+  const t = await mon.ticket('mon-101');
+  assert.deepEqual([t.key, t.kind, t.title, t.url, t.type, t.priority, t.labels], ['MON-101', 'monday', 'Escalate premium cases', 'https://acme.monday.com/boards/111/pulses/101', null, null, []]);
+  assert.deepEqual([t.status, t.assignees, t.reporter], [{ id: '0', name: 'Working on it', category: 'doing' }, [{ id: '9', name: 'Pat Lee' }], { id: '7', name: 'Jordan Kim' }]);
+  assert.deepEqual(t.body.blocks.map((b) => b.t), ['h', 'p', 'p', 'h', 'p'], 'each long-text column under its title, the empty one left out');
+  assert.deepEqual(t.body.blocks[2], { t: 'p', c: [{ t: 'text', text: 'Tier 2 owns them.' }, { t: 'br' }, { t: 'text', text: 'Within a day.' }] }, 'plain text, its line breaks kept');
+  assert.match(t.markdown, /^## Description\n\nPremium cases escalate\./);
+  assert.match(t.markdown, /## Acceptance criteria\n\n.*A queue for them/, 'the brief has the acceptance criteria');
+  assert.deepEqual(t.comments.map((c) => [c.id, c.author.name, c.url]), [
+    ['u1', 'Jordan Kim', 'https://acme.monday.com/boards/111/pulses/101/posts/u1'], ['u2', 'Pat Lee', 'https://acme.monday.com/boards/111/pulses/101/posts/u2'], ['r1', 'Jordan Kim', 'https://acme.monday.com/boards/111/pulses/101/posts/r1'],
+  ], 'oldest first, each update followed by its replies');
+  assert.deepEqual(t.comments[1]!.body, { blocks: [{ t: 'p', c: [{ t: 'text', text: 'On ' }, { t: 'text', text: 'it', marks: ['strong'] }] }] });
+  assert.deepEqual(t.related, [{ key: 'MON-201', title: 'Draft the runbook', relation: 'sub-item', url: 'https://acme.monday.com/boards/112/pulses/201' }]);
+  assert.deepEqual(calls[0]!.variables, { ids: ['101'] });
+
+  const noText = await mon.ticket('MON-102');
+  assert.deepEqual(noText.body, { blocks: [{ t: 'p', c: [{ t: 'text', text: 'The ' }, { t: 'text', text: 'brief', marks: ['em'] }, { t: 'text', text: ', as an update' }] }] }, 'no long text: its oldest update');
+  assert.deepEqual([noText.status.name, noText.status.category, noText.comments.length, noText.comments[0]!.author.name], ['No status', 'todo', 2, 'Someone'], 'the update still shows as a comment');
+  await assert.rejects(mon.ticket('MON-999'), (e: unknown) => e instanceof TrackerError && e.kind === 'not-found');
+  assert.throws(() => mon.idOf('ACME-1'), /isn't a monday\.com item key \(MON-<id>\)/);
+});
+
+test('a monday.com item on another board, or in another group, is outside the place; a read that fails never counts', async () => {
+  const { MondayClient } = await import('../src/trackers/monday.ts');
+  const known: Record<string, unknown> = {
+    301: monPlaced('301', ['999', 'Other client'], ['topics', 'Topics']),
+    302: monPlaced('302', ['111', 'Client work'], ['backlog', 'Backlog']),
+    101: monPlaced('101', ['111', 'Client work'], ['topics', 'This sprint']),
+  };
+  const full = (id: string) => ({ ...monItem(id), ...(known[id] as object) });
+  const { fetch: f, calls } = fakeMonday([
+    [/items\(ids: \$ids\) \{ id board \{ id name \} group \{ id title \} name/, (v) => ({ items: (v.ids as string[]).filter((id) => known[id]).map(full) })],
+    [/items\(ids: \$ids, limit: \$limit\)/, (v) => {
+      const ids = v.ids as string[];
+      if (ids.includes('666')) return Response.json({ errors: [{ message: 'Internal error', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] });
+      return { items: ids.filter((id) => known[id]).map((id) => known[id]) };
+    }],
+  ]);
+  const whole = new MondayClient({ account: 'acme', board: 111, token: 'tok', fetch: f });
+  await assert.rejects(whole.ticket('MON-301'), isOutside(/^MON-301 isn't one of this repo's tickets, which come from monday\.com · acme · board 111: it's on board Other client\.$/), 'item ids are the account\'s, so the board is checked');
+  assert.equal((await whole.ticket('MON-302')).key, 'MON-302', 'no group: the whole board');
+  const group = new MondayClient({ account: 'acme', board: 111, group: 'topics', token: 'tok', fetch: f });
+  await assert.rejects(group.ticket('MON-302'), isOutside(/which come from monday\.com · acme · board 111 · group topics: it's in group Backlog\./));
+  assert.equal((await group.ticket('MON-101')).key, 'MON-101');
+
+  assert.deepEqual(await group.outside(['MON-301', 'MON-404', 'MON-302', 'MON-101', 'GH-1']), [{ key: 'MON-301', why: 'it\'s on board Other client' }, { key: 'MON-302', why: 'it\'s in group Backlog' }], 'one it can\'t see doesn\'t come back, and isn\'t outside');
+  assert.deepEqual(await group.outside(['MON-302'], { project: true }), [], 'held to the board only, the group doesn\'t count');
+  calls.length = 0;
+  const many = Array.from({ length: 150 }, (_, i) => `MON-${5000 + i}`);
+  assert.deepEqual(await group.outside([...many, 'MON-301']), [{ key: 'MON-301', why: 'it\'s on board Other client' }]);
+  assert.deepEqual(calls.map((c) => (c.variables.ids as string[]).length), [100, 51], 'read a hundred at a time');
+  assert.deepEqual(await group.outside(['MON-301', 'MON-666']), [], 'its batch couldn\'t be read: nothing in it is outside (D-048)');
+});
+
+test('monday.com writes: an update as HTML, a status label by its id, people on the People column, and never labels', async () => {
+  const { MondayClient } = await import('../src/trackers/monday.ts');
+  const { fetch: f, calls, mutations } = fakeMonday([
+    [/columns\(types: \[status, people\]\)/, monMeta()],
+    [/items\(ids: \$ids\) \{ column_values/, { items: [{ column_values: [{ id: 'status', index: 0 }] }] }],
+    [/subscribers/, { boards: [{ subscribers: [{ id: 9, name: 'Pat Lee' }, { id: 7, name: 'Jordan Kim' }] }] }],
+    [/^\s*mutation/, (v) => (v.body !== undefined ? { create_update: { id: 'u5' } } : { change_column_value: { id: v.item } })],
+  ]);
+  const mon = new MondayClient({ account: 'acme', board: 111, token: 'tok', fetch: f });
+  await mon.comment('MON-101', 'Looks **good** if a < b & "you" agree');
+  const posted = mutations().at(-1)!;
+  assert.match(posted.query, /create_update\(item_id: \$item, body: \$body\)/);
+  assert.deepEqual(posted.variables, { item: '101', body: '<p>Looks <b>good</b> if a &lt; b &amp; &quot;you&quot; agree</p>' }, 'the item and the text go as variables, every word escaped');
+  assert.doesNotMatch(posted.query, /Looks|101/, 'nothing posted is in the query\'s text');
+  await assert.rejects(mon.comment('MON-101', '  '), /empty/);
+
+  const moves = await mon.transitions('MON-101');
+  assert.deepEqual(moves.map((m) => [m.id, m.name, m.to.category]), [['3', 'Not started', 'doing'], ['2', 'Stuck', 'doing'], ['1', 'Done', 'done']], 'every label but where it is and switched-off ones');
+  const done = { id: '1', name: 'Done', category: 'done' as const, statusIds: ['1'] };
+  assert.deepEqual(movesInto(moves, done).map((m) => m.name), ['Done'], 'a card dragged to a column takes its label');
+  await mon.transition('MON-101', moves[2]!);
+  const moved = mutations().at(-1)!;
+  assert.match(moved.query, /change_column_value\(board_id: \$board, item_id: \$item, column_id: \$column, value: \$value\)/);
+  assert.deepEqual(moved.variables, { board: '111', item: '101', column: 'status', value: '{"index":1}' });
+
+  assert.deepEqual((await mon.assignable('MON-101', 'pat')).map((p) => p.name), ['Pat Lee'], 'the board\'s people');
+  await mon.assign('MON-101', [{ id: '9', name: 'Pat Lee' }]);
+  assert.deepEqual(mutations().at(-1)!.variables, { board: '111', item: '101', column: 'person', value: '{"personsAndTeams":[{"id":9,"kind":"person"}]}' });
+  const count = mutations().length;
+  await assert.rejects(mon.labels(), (e: unknown) => e instanceof TrackerError && e.kind === 'refused' && e.message === 'monday.com items have no labels.');
+  await assert.rejects(mon.setLabels(), /monday\.com items have no labels/);
+  assert.equal(mutations().length, count, 'nothing was sent');
+
+  const noPeople = fakeMonday([[/columns\(types: \[status, people\]\)/, monMeta([{ id: 'status', title: 'Status', type: 'status', settings: MON_STATUS }])]]);
+  await assert.rejects(new MondayClient({ account: 'acme', board: 111, token: 'tok', fetch: noPeople.fetch }).assign('MON-101', []), /Client work has no People column, so there's no one to assign/);
+  assert.equal(noPeople.mutations().length, 0);
+  assert.equal(calls.filter((c) => /columns\(types/.test(c.query)).length, 1, 'the board\'s columns are read once between boards');
+});
+
+test('monday.com trouble is named: a refused token, a rate limit with its wait, and a refusal', async () => {
+  const { MondayClient, mondayMe } = await import('../src/trackers/monday.ts');
+  const answer = (r: Response) => fakeMonday([[/./, r]]).fetch;
+  const me = (r: Response) => new MondayClient({ account: 'acme', board: 1, token: 'tok', fetch: answer(r) }).me();
+  await assert.rejects(me(Response.json({ errors: [{ message: 'Not Authenticated' }] }, { status: 401 })), (e: unknown) => e instanceof TrackerError && e.kind === 'auth' && /Sign in again/.test(e.message));
+  await assert.rejects(me(Response.json({ errors: [{ message: 'Complexity budget exhausted', extensions: { code: 'COMPLEXITY_BUDGET_EXHAUSTED', retry_in_seconds: 24.2 } }] }, { status: 429 })), /rate limit for this account was reached: it takes requests again in 25 seconds/);
+  await assert.rejects(me(Response.json({ errors: [{ message: 'Rate Limit Exceeded' }] }, { status: 429, headers: { 'retry-after': '40' } })), /again in 40 seconds/);
+  await assert.rejects(me(Response.json({ errors: [{ message: 'User unauthorized to perform action', extensions: { code: 'UserUnauthorizedException', status_code: 403 } }] })), (e: unknown) => e instanceof TrackerError && e.kind === 'refused' && /said no: User unauthorized/.test(e.message));
+  await assert.rejects(me(new Response('<html>oops</html>', { status: 502 })), /answered HTTP 502/);
+  assert.deepEqual(await mondayMe('tok', answer(Response.json({ data: { me: { id: 7, name: 'Jordan Kim', account: { slug: 'Acme' } } } }))), { id: '7', name: 'Jordan Kim', account: 'acme' });
+});

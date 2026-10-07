@@ -193,7 +193,7 @@ test('an Azure DevOps tracker names its organization and project, and may name a
   const base = { schema: 1, project: 'P', profile: 'generic', environments: [{ name: 'main', default: true }] };
   const ok = parseConfig({ ...base, trackers: [{ kind: 'azure', organization: 'acme', project: 'CRM', team: 'Sales', board: 'Stories', prefix: 'av' }] });
   assert.deepEqual(ok.errors, []);
-  assert.deepEqual(ok.config!.trackers[0], { kind: 'azure', site: null, project: 'CRM', repo: null, organization: 'acme', team: 'Sales', board: 'Stories', prefix: 'AV', skipLabels: [], epic: null, labels: [], areaPath: null, edits: false });
+  assert.deepEqual(ok.config!.trackers[0], { kind: 'azure', site: null, project: 'CRM', repo: null, organization: 'acme', account: null, team: 'Sales', board: 'Stories', statusColumn: null, prefix: 'AV', skipLabels: [], epic: null, labels: [], areaPath: null, group: null, edits: false });
   assert.match(parseConfig({ ...base, trackers: [{ kind: 'azure', project: 'CRM' }] }).errors.join(), /needs "organization" and "project"/);
   assert.match(parseConfig({ ...base, trackers: [{ kind: 'azure', organization: 'a', project: 'b', board: 3 }] }).errors.join(), /an Azure board's name/);
   assert.match(parseConfig({ ...base, trackers: [{ kind: 'jira', site: 's', project: 'K', board: 'Main' }] }).errors.join(), /Jira board id/);
@@ -234,6 +234,50 @@ test('a ticket key belongs to the tracker that owns it: GitHub, the Azure prefix
   const list = [{ kind: 'jira' as const, project: 'OPS', prefix: null }, { kind: 'azure' as const, project: 'CRM', prefix: 'AV' }, { kind: 'jira' as const, project: 'MSP', prefix: null }, { kind: 'github' as const, project: null, prefix: null }];
   assert.deepEqual(['MSP-7', 'msp-7', 'OPS-1', 'AV-12', 'GH-41', 'AB-3', 'CRM-2'].map((k) => trackerForKey(list, k)), [2, 2, 0, 1, 3, null, null]);
   assert.equal(trackerForKey([{ kind: 'azure', project: 'CRM', prefix: null }], 'AB-3'), 0, 'Azure keys are AB- by default');
+});
+
+test('a monday.com tracker names its account and board, and may name a group, a status column and a key prefix', () => {
+  const base = clone(GENERIC_CONFIG);
+  const ok = parseConfig({ ...base, trackers: [{ kind: 'monday', account: 'Acme', board: 1234567890, group: 'topics', statusColumn: 'status_1', prefix: 'av' }] });
+  assert.deepEqual(ok.errors, []);
+  assert.deepEqual(ok.config!.trackers[0], { kind: 'monday', site: null, project: null, repo: null, organization: null, account: 'acme', team: null, board: 1234567890, statusColumn: 'status_1', prefix: 'AV', skipLabels: [], epic: null, labels: [], areaPath: null, group: 'topics', edits: false });
+  for (const bad of [{ board: 1 }, { account: 'acme' }, { account: 'acme', board: '1234' }, { account: 'acme', board: -3 }, { account: 'acme', board: 2 ** 53 }, { account: 'acme.monday.com', board: 1 }]) {
+    assert.match(errorsOf({ ...base, trackers: [{ kind: 'monday', ...bad }] }), /a monday\.com tracker needs "account" \(as in acme\.monday\.com\) and "board"/, JSON.stringify(bad));
+  }
+  assert.match(errorsOf({ ...base, trackers: [{ kind: 'monday', account: 'acme', board: 1, group: 7 }] }), /"group" must be a monday\.com group's id/);
+  assert.match(errorsOf({ ...base, trackers: [{ kind: 'monday', account: 'acme', board: 1, edits: 'yes' }] }), /"edits" must be true or false/);
+  assert.match(errorsOf({ ...base, trackers: [{ kind: 'linear' }] }), /"kind" must be github, jira, azure or monday/);
+  const wrong = parseConfig({ ...base, trackers: [{ kind: 'jira', site: 's', project: 'K', group: 'topics', statusColumn: 'status' }] });
+  assert.deepEqual(wrong.errors, []);
+  assert.match(wrong.warnings.join('\n'), /trackers\[0\]: "group" applies only to a monday\.com tracker, so it's ignored/);
+  assert.match(wrong.warnings.join('\n'), /trackers\[0\]: "statusColumn" applies only to a monday\.com tracker/);
+  assert.deepEqual([wrong.config!.trackers[0]!.group, wrong.config!.trackers[0]!.statusColumn], [null, null]);
+  // Two trackers whose keys look alike: only the first gets them.
+  const twins = parseConfig({ ...base, trackers: [{ kind: 'monday', account: 'acme', board: 1 }, { kind: 'monday', account: 'acme', board: 2 }, { kind: 'jira', site: 's', project: 'AB' }, { kind: 'azure', organization: 'a', project: 'CRM' }] });
+  assert.deepEqual(twins.errors, []);
+  assert.match(twins.warnings.join('\n'), /trackers\[0\] and trackers\[1\] both give tickets keys like MON-12/);
+  assert.match(twins.warnings.join('\n'), /trackers\[2\] and trackers\[3\] both give tickets keys like AB-12/);
+
+  const file = join(tempDir(), '.acc', 'config.json');
+  const trackers = [{ kind: 'monday', account: 'acme', board: 1234567890, statusColumn: 'status_1', group: 'topics' }];
+  writeConfig(file, parseConfig({ ...base, trackers }).config!);
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')).trackers, [{ kind: 'monday', account: 'acme', board: 1234567890, statusColumn: 'status_1', group: 'topics' }], 'round-trips, with no empty keys');
+});
+
+test('a monday.com key belongs to its board\'s tracker by prefix, and two boards on one account are two trackers', () => {
+  const list = [{ kind: 'jira' as const, project: 'MSP', prefix: null }, { kind: 'monday' as const, project: null, prefix: null }, { kind: 'monday' as const, project: null, prefix: 'OPS' }];
+  assert.deepEqual(['MON-5', 'mon-1234567890', 'OPS-3', 'MSP-7', 'AB-1'].map((k) => trackerForKey(list, k)), [1, 1, 2, 0, null]);
+  const one = withTracker([], { kind: 'monday', account: 'acme', board: 111, group: 'topics' });
+  const two = withTracker(one, { kind: 'monday', account: 'acme', board: 555, group: null });
+  assert.deepEqual(two, [{ kind: 'monday', account: 'acme', board: 111, group: 'topics' }, { kind: 'monday', account: 'acme', board: 555, prefix: 'MON2' }], 'neither replaces the other, and the second\'s keys are its own');
+  assert.deepEqual(withTracker([...two.slice(0, 1), { ...two[1]!, edits: true }], { kind: 'monday', account: 'acme', board: 555, group: 'topics' })[1], { kind: 'monday', account: 'acme', board: 555, prefix: 'MON2', group: 'topics', edits: true }, 'the same board again is the same tracker, with its prefix');
+  const three = withTracker(two, { kind: 'monday', account: 'globex', board: 111 });
+  assert.deepEqual(three.map((t) => t.prefix), [undefined, 'MON2', 'MON3'], 'another account is another tracker, with the next free prefix');
+  assert.deepEqual(withTracker([{ kind: 'jira', site: 's', project: 'MON' }, { kind: 'monday', account: 'acme', board: 1, prefix: 'MON2' }], { kind: 'monday', account: 'acme', board: 2 }).map((t) => t.prefix), [undefined, 'MON2', 'MON3'], 'a Jira project called MON takes MON too');
+  assert.equal(withTracker(one, { kind: 'monday', account: 'acme', board: 555, prefix: 'OPS' })[1]!.prefix, 'OPS', 'a prefix it names is kept');
+  const parsed = parseConfig({ ...clone(GENERIC_CONFIG), trackers: three });
+  assert.deepEqual([parsed.errors, parsed.warnings.filter((w) => /keys like/.test(w))], [[], []], 'no two give the same keys');
+  assert.deepEqual(['MON-7', 'MON2-7', 'MON3-7'].map((k) => trackerForKey(parsed.config!.trackers, k)), [0, 1, 2]);
 });
 
 test('re-adding a tracker keeps the settings it had, in its place; a new one goes last (D-048)', () => {

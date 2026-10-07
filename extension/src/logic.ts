@@ -5,11 +5,11 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { Analysis } from '../../packages/core/src/analyze.ts';
+import { type Analysis, type Approach, SIZE_MEANING } from '../../packages/core/src/analyze.ts';
 import { autopilotDoes, type AutopilotRecord, reworkedByAutopilot } from '../../packages/core/src/autopilot.ts';
-import type { AutopilotStepName, QueuePhase, TaskInput } from '../../packages/core/src/ledger.ts';
+import { type AutopilotStepName, type QueuePhase, sessionsOf, type TaskInput } from '../../packages/core/src/ledger.ts';
 import type { CheckStatus, Step } from '../../packages/core/src/onboarding/types.ts';
-import type { Ticket } from '../../packages/core/src/trackers/types.ts';
+import { isTrackerKind, type Ticket } from '../../packages/core/src/trackers/types.ts';
 import type { Pending } from '../webview/pending.ts';
 
 export const PUBLISHER = 'JackHuffman';
@@ -127,10 +127,31 @@ export interface MachineCache {
 /**
  * The machine results a refresh may reuse instead of calling slow CLIs: fresh enough, and checked in a
  * folder with the same profile, since the profile decides which machine steps apply (A1.node and A1.sf
- * are Salesforce's).
+ * are Salesforce's). An empty list, which 0.35.0 and earlier could save when acc failed, is never reused.
  */
 export const reusableMachine = (cached: MachineCache | undefined, profile: string, now: number, freshMs: number): DoctorItem[] | null =>
-  cached && cached.profile === profile && now - cached.at < freshMs ? cached.items : null;
+  cached?.items.length && cached.profile === profile && now - cached.at < freshMs ? cached.items : null;
+
+/** What a full machine check saves for startup to reuse. An empty list means acc failed, and isn't kept (GH-62). */
+export const machineCache = (items: DoctorItem[], profile: string, now: number): MachineCache | null =>
+  items.length ? { at: now, profile, items } : null;
+
+/**
+ * Setup's rows after a full check (GH-62). Each part the check listed replaces that part's rows, so a step
+ * that no longer applies goes: A1.node, once `acc init` makes the folder generic. A part whose check came
+ * back empty (acc failed) keeps its rows, and `project: null`, a folder that isn't a project, drops them.
+ */
+export function afterFullCheck(previous: DoctorItem[], checked: { machine: DoctorItem[]; project: DoctorItem[] | null }): DoctorItem[] {
+  const rows = (part: DoctorItem['part'], fresh: DoctorItem[] | null) => (fresh === null ? [] : fresh.length ? fresh : previous.filter((i) => i.part === part));
+  return [...rows('machine', checked.machine), ...rows('project', checked.project)];
+}
+
+/** Setup's rows after a Check of one step, a re-check or a fix: those rows change and every other row stays. */
+export function afterStepCheck(previous: DoctorItem[], checked: DoctorItem[]): DoctorItem[] {
+  const byId = new Map(previous.map((i) => [i.id, i]));
+  for (const it of checked) byId.set(it.id, it);
+  return [...byId.values()];
+}
 
 /** A step counts as complete when it passes, doesn't apply (skip), or a person confirmed it. */
 export const isComplete = (status: CheckStatus, confirmed = false): boolean => status === 'pass' || status === 'skip' || confirmed;
@@ -225,25 +246,34 @@ export interface TaskRow {
   environment: string;
   deps: string[];
   source: { kind: string; url: string | null };
-  run?: { bgId?: string; sessionId?: string; worktree?: string; branch?: string } | null;
+  /**
+   * Its builder's run: its session's ids, the name it was given (D-087), which older runs don't have, the
+   * model its builder was started with, and modelPicked when a person picked it for this task (D-086).
+   */
+  run?: { bgId?: string; sessionId?: string; worktree?: string; branch?: string; name?: string; model?: string; modelPicked?: true } | null;
   /** The live state of the task's agent session, when one is known. */
   agent?: { label: string; icon: string; tone: Tone } | null;
+  /** The model its agent runs with (D-086): what its transcript last answered with, else what acc started it with. */
+  model?: string | null;
   /** Its agent's question is waiting in the Command Center (D-030), not in the agent's own terminal. */
   asking?: boolean;
   /** Its newest review (D-032): current when it's for the branch's latest commit. When it was made, so Slack can tell one from the next. */
   review?: { verdict: 'pass' | 'changes'; summary: string; current: boolean; at?: string } | null;
-  /** A review under way, to watch. */
-  reviewing?: { sessionId: string } | null;
+  /** A review under way, to watch, and its reviewer's name (D-087). */
+  reviewing?: { sessionId: string; name?: string } | null;
   /** Its pull request (D-033). */
   pr?: { number: number; url: string; state: string; ci?: string | null; changesRequested?: boolean; conflicts?: string[] } | null;
   /** A promotion taking its change on to another environment is open (D-075). */
   promoting?: boolean;
   /** Its work merged and acc hasn't closed its GitHub issue yet: the last try failed, or none has run (D-082). */
   closing?: boolean;
-  /** Its analysis (D-052): the verdict, when it was made, the questions nobody has answered, and the smaller tasks a split suggests. */
-  analysis?: { verdict: 'ready' | 'questions' | 'split'; at: string; open: AnalysisAsk[]; split: string[] } | null;
-  /** An analysis under way, to watch. */
-  analyzing?: { sessionId: string } | null;
+  /**
+   * Its analysis (D-052): the verdict, when it was made, the questions nobody has answered, the smaller
+   * tasks a split suggests, and its size, shown beside the model to dispatch with (D-086).
+   */
+  analysis?: { verdict: 'ready' | 'questions' | 'split'; at: string; open: AnalysisAsk[]; split: string[]; size?: Approach['size'] } | null;
+  /** An analysis under way, to watch, and its analyst's name (D-087). */
+  analyzing?: { sessionId: string; name?: string } | null;
   /** The project wants an analysis before a task is built (D-052). */
   analysisRequired?: boolean;
   /** A step autopilot couldn't take in the task's current state, and why: the task needs you (D-055). */
@@ -274,7 +304,56 @@ export interface AnalysisAsk {
 /** What a task's row keeps of its analysis: enough for its card, its notices and the Overview. */
 export function rowAnalysis(a: Analysis): NonNullable<TaskRow['analysis']> {
   const open = a.questions.filter((q) => !q.answer).map(({ id, question, why, suggested }) => ({ id, question, why, suggested }));
-  return { verdict: a.verdict, at: a.at, open, split: a.split };
+  return { verdict: a.verdict, at: a.at, open, split: a.split, size: a.approach.size };
+}
+
+// ---------------------------------------------------------------- models (D-086)
+
+/** The models a person picks from, in this order: Dispatch with… and the Agents settings' Change… offer the same. */
+export const MODEL_CHOICES: readonly { name: string; about: string }[] = [
+  { name: 'claude-opus-5-5', about: 'Claude Opus 5.5' },
+  { name: 'claude-fable-5-1', about: 'Claude Fable 5.1' },
+  { name: 'claude-sonnet-5-5', about: 'Claude Sonnet 5.5: lighter on your plan' },
+  { name: 'claude-haiku-4-5-20251001', about: 'Claude Haiku 4.5: the lightest' },
+];
+
+/** Where a model, effort or fallback is set, in words. A model's default is acc's own, the rest Claude Code's. */
+export const FROM_WORDS: Record<string, string> = { task: 'picked for this task', clone: 'this clone', project: 'project default', acc: 'acc\'s default', default: 'Claude Code\'s default' };
+
+export interface ModelItem {
+  label: string;
+  description: string;
+  /** The model's name, or null for Another model…, which asks for one. */
+  value: string | null;
+}
+
+/**
+ * What Dispatch with… offers (D-086): the model the builder would run with anyway first, saying where
+ * it's set, then the other models, then Another model…. That's the model kept for the task when one was
+ * picked, else the builder's own. Nothing here is chosen or reordered by the analysis's size.
+ */
+export function dispatchModelItems(row: Pick<TaskRow, 'run'>, builder: { model: string; from: { model: string } }): ModelItem[] {
+  const now = row.run?.modelPicked && row.run.model ? { model: row.run.model, from: 'task' } : { model: builder.model, from: builder.from.model };
+  return [
+    { label: now.model, description: FROM_WORDS[now.from] ?? now.from, value: now.model },
+    ...MODEL_CHOICES.filter((m) => m.name !== now.model).map((m) => ({ label: m.name, description: m.about, value: m.name })),
+    { label: 'Another model…', description: 'an alias or a full model name, as claude --model takes it', value: null },
+  ];
+}
+
+/**
+ * acc dispatch's arguments for the model picked in Dispatch with… (D-086). The model the builder runs with
+ * anyway, on a task with no model picked before, adds none: the task goes on following the clone's and the
+ * project's settings, rather than keeping today's model for good.
+ */
+export function dispatchModelArgs(row: Pick<TaskRow, 'run'>, builder: { model: string }, model: string): string[] {
+  return !row.run?.modelPicked && model === builder.model ? [] : ['--model', model];
+}
+
+/** The analysis's size, in words, to weigh the model by (D-086), or that there's none to go on. */
+export function sizeLine(row: Pick<TaskRow, 'analysis'>): string {
+  const size = row.analysis?.size;
+  return size ? `Its analysis sizes it ${size}: ${SIZE_MEANING[size]}.` : row.analysis ? 'Its analysis gave no size.' : 'Not analyzed: no size to go on.';
 }
 
 /** Its analysis is ready to build from: made, not too big, and every question answered. */
@@ -338,13 +417,40 @@ export function landMessage(id: string, r: { opened?: boolean; pr?: { number: nu
 }
 
 /**
- * A task's agent: its background id or session id, or a background session named after the task. One
- * with a process comes first: a resumed conversation is listed beside its old background session (D-067).
+ * A task's agent, found as core finds it (sessionsOf): by its background id or session id, else by the
+ * name its run recorded, else, for a run from before names, a background session named after the task
+ * (D-087). One with a process comes first: a resumed conversation is listed beside its old background
+ * session (D-067).
  */
 export function sessionFor(row: Pick<TaskRow, 'id' | 'run'>, sessions: AgentSession[]): AgentSession | undefined {
-  const mine = sessions.filter((s) => (row.run?.bgId && s.id === row.run.bgId) || (row.run?.sessionId && s.sessionId === row.run.sessionId));
-  return mine.find((s) => s.pid) ?? mine[0] ?? sessions.find((s) => s.kind === 'background' && s.name === row.id);
+  const mine = sessionsOf(row, sessions);
+  return mine.find((s) => s.pid) ?? mine[0];
 }
+
+/** Whether a session works for this task: its builder, as sessionFor finds it, or its review or analysis under way. */
+export function ownsSession(row: Pick<TaskRow, 'id' | 'run' | 'reviewing' | 'analyzing'>, s: AgentSession): boolean {
+  if (s.sessionId && (row.reviewing?.sessionId === s.sessionId || row.analyzing?.sessionId === s.sessionId)) return true;
+  return sessionsOf(row, [s]).length > 0;
+}
+
+/**
+ * What an agent is called (D-087): the name acc gave it, recorded on its task's run, review or analysis,
+ * so it stays the same though Claude Code lists a session under another name, as a resume can. Else
+ * Claude Code's name for it, else its session's first characters. Without a session, its task's builder.
+ * The Agents tab, the cards, the agent page, notices and terminals all call it this.
+ */
+export function displayName(s: AgentSession | undefined, row?: Pick<TaskRow, 'id' | 'run' | 'reviewing' | 'analyzing'> | null): string {
+  if (!s) return row?.run?.name ?? row?.id ?? 'Agent';
+  const sid = s.sessionId;
+  const recorded = !row ? undefined
+    : sid && row.reviewing?.sessionId === sid ? row.reviewing.name
+      : sid && row.analyzing?.sessionId === sid ? row.analyzing.name
+        : sessionsOf(row, [s]).length ? row.run?.name : undefined;
+  return recorded ?? s.name ?? s.sessionId?.slice(0, 8) ?? s.id ?? 'Agent';
+}
+
+/** A task's builder in a notice (D-087): its name, or "GH-12's agent" for a run from before names. */
+export const builderName = (t: Pick<TaskRow, 'id' | 'run'>): string => t.run?.name ?? `${t.id}'s agent`;
 
 export function groupTasks(rows: TaskRow[]): { group: TaskGroup; tasks: TaskRow[] }[] {
   return TASK_GROUPS.map((group) => ({ group, tasks: rows.filter((r) => r.display === group) })).filter((g) => g.tasks.length);
@@ -395,6 +501,24 @@ export const claudeSessionUri = (scheme: string, sessionId: string, prompt?: str
 export const isSessionId = (v: string | undefined): v is string => !!v && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 
 export const isUnder = (path: string, root: string): boolean => path === root || path.startsWith(root.endsWith('/') ? root : `${root}/`);
+
+/** A path with ~ for the home folder: /Users/me/clients/x → ~/clients/x. One outside it stays as it is. */
+export function tildePath(path: string, home: string | null | undefined): string {
+  if (!home || home === '/' || !isUnder(path, home)) return path;
+  return path === home ? '~' : `~${path.slice(home.replace(/\/+$/, '').length)}`;
+}
+
+/**
+ * The repo a folder is in: the nearest folder up from it, itself first, that holds .git, a folder or a
+ * linked worktree's file (GH-83). The walk stops before the home folder and /, so a repo at ~ (dotfiles)
+ * isn't every folder's repo.
+ */
+export function repoRoot(path: string, home: string | null | undefined, hasGit: (dir: string) => boolean): string | null {
+  for (let dir = path; dir !== dirname(dir) && dir !== home; dir = dirname(dir)) {
+    if (hasGit(dir)) return dir;
+  }
+  return null;
+}
 
 export interface Worktree {
   path: string;
@@ -680,8 +804,9 @@ export function taskNotices(before: TaskRow[], after: TaskRow[]): TaskNotice[] {
     else if (moved && t.state === 'rework') say('rework', `The review asked for changes on ${t.id}${t.review?.summary ? `: ${t.review.summary}` : '.'}`, true);
     else if (moved && t.state === 'blocked') say('blocked', `${t.id} is blocked: ${t.title}`, true);
     // Its builder stopped before acc done or acc block (D-067): what it last said, and Resume.
-    if (t.stopped && !p.stopped && t.state === 'running') out.push({ kind: 'stopped', task: t.id, text: stoppedNotice(t.id, t.stopped.said), urgent: true, actions: [['Resume', 'acc.task.resume']] });
-    else if (t.display === 'needs-you' && p.display !== 'needs-you' && t.state === 'running' && !t.asking && !t.stopped && !t.autopilot) say('waiting', `${t.id}'s agent is waiting for you in its own prompt.`, true);
+    // A notice about the agent names it (D-087).
+    if (t.stopped && !p.stopped && t.state === 'running') out.push({ kind: 'stopped', task: t.id, text: stoppedNotice(builderName(t), t.stopped.said), urgent: true, actions: [['Resume', 'acc.task.resume']] });
+    else if (t.display === 'needs-you' && p.display !== 'needs-you' && t.state === 'running' && !t.asking && !t.stopped && !t.autopilot) say('waiting', `${builderName(t)} is waiting for you in its own prompt.`, true);
     const passed = (r: TaskRow) => r.state === 'review' && r.review?.verdict === 'pass' && r.review.current && !r.pr;
     if (passed(t) && !passed(p)) say('passed', `The review passed ${t.id}. It's ready to land.`, false);
     const pr = t.pr;
@@ -708,9 +833,9 @@ export function saidLine(said: string, max = 200): string {
   return one.length > max ? `${one.slice(0, max - 1).trimEnd()}…` : one;
 }
 
-/** "GH-41's agent stopped: API Error: Your computer went to sleep mid-response. …" (D-067). */
-export const stoppedNotice = (id: string, said: string | null): string =>
-  said ? `${id}'s agent stopped: ${endSentence(saidLine(said))}` : `${id}'s agent stopped before acc done or acc block.`;
+/** "Acme · GH-41 Ticket updates · builder stopped: API Error: Your computer went to sleep mid-response. …" (D-067, D-087). */
+export const stoppedNotice = (agent: string, said: string | null): string =>
+  said ? `${agent} stopped: ${endSentence(saidLine(said))}` : `${agent} stopped before acc done or acc block.`;
 
 /** The buttons a notice offers, as [label, command] pairs. The task's page is always the last. */
 export function noticeActions(n: TaskNotice): [label: string, command: string][] {
@@ -818,7 +943,7 @@ export function autopilotNotices(steps: AutopilotRecord[], tasks: AutopilotTask[
     } else if (r.step === 'review') say(`Autopilot reviewed ${r.task}: it passed. Autopilot lands it next.`, false);
     else if (r.step === 'land' && r.pr) {
       const pr: [string, string] = ['Open pull request', 'acc.task.openPr'];
-      const ticket = !!t?.source.key && ['github', 'jira', 'azure'].includes(t.source.kind);
+      const ticket = !!t?.source.key && isTrackerKind(t.source.kind);
       const landed = r.pr.opened ? `Autopilot landed ${r.task}: pull request #${r.pr.number}` : `Autopilot updated pull request #${r.pr.number} (${r.task})`;
       if (ticket) say(`${landed}. Its update for the ticket is ready for you to review and post.`, false, [['Review the update', 'acc.task.show'], pr]);
       else say(r.pr.opened ? landed : `${landed}.`, false, [pr]);

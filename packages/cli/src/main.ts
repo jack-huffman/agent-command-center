@@ -16,7 +16,7 @@ import {
   builderGatesFor, ordinal, phaseWords, queuePlaces, requiredGates,
 } from '../../core/src/index.ts';
 import { issueRepo } from '../../core/src/trackers/github.ts';
-import type { Outside } from '../../core/src/trackers/types.ts';
+import { type Outside, TRACKER_KINDS, type TrackerKind, trackerName } from '../../core/src/trackers/types.ts';
 import { checkLabel, gateLabel, stateLabel, table, tone } from './format.ts';
 import pkg from '../../../package.json' with { type: 'json' };
 
@@ -41,13 +41,13 @@ Setup
 
 Tasks
   acc add "<title>" [--brief <text>] [--dep <id>]... [--env <branch>] [--key <T-n>]
-  acc import [--file <tasks.json>]      Add or refresh tasks from JSON (stdin by default). A Jira or Azure DevOps
-                                        key that no tracker in .acc/config.json owns is refused
+  acc import [--file <tasks.json>]      Add or refresh tasks from JSON (stdin by default). A Jira, Azure DevOps or
+                                        monday.com key that no tracker in .acc/config.json owns is refused
   acc intake github [--label <l>]       Add or refresh tasks from the open GitHub issues in the repo's place: its
                                         tracker's repo, and its labels if it names some. A task not started yet
                                         leaves the board when its issue closes, has a skipLabels label, or leaves
                                         the place
-  acc intake jira|azure --file <report.json>
+  acc intake jira|azure|monday --file <report.json>
                                         Follow tickets the Command Center found outside the repo's place, from
                                         { "outside": [{ "key", "why" }] }: a task not started yet leaves the board
   acc status                            One line: how many tasks are in each state
@@ -57,8 +57,10 @@ Tasks
   acc set <id> <state> [--reason <text>] [--force] [--as <actor>] [--by <name>]
 
 Agents
-  acc dispatch <id> [--foreground] [--without-analysis]
-                                        Worktree, setup, instructions, and a background builder session
+  acc dispatch <id> [--foreground] [--without-analysis] [--model <m>]
+                                        Worktree, setup, instructions, and a background builder session.
+                                        --model picks the builder's model for this task: a re-dispatch and a
+                                        resume keep it. Without one, the builder's model (acc agents)
   acc done [<id>]                       A builder's finish line: moves its task to review
   acc block [<id>] "<reason>"           A builder's way out when stuck
   acc block [<id>] --client "<question>"
@@ -68,7 +70,8 @@ Agents
                                         block, as when the Mac slept: its own session, in its worktree, with the
                                         rules it was dispatched with. It's told it was cut off, or --message
   acc cleanup <id>                      Remove a finished task's worktree, only if nothing would be lost
-  acc agents                            The model and effort builders and reviewers run with, and where each is set
+  acc agents                            The model and effort builders and reviewers run with, and where each is
+                                        set. A model nobody set is acc's default, claude-opus-5-5
   acc agents set <builder|reviewer> [--model <m>] [--effort <low|medium|high|xhigh|max>] [--fallback-model <m>]
                 [--clear <model|effort|fallback-model>]... [--project]
                                         Change them for this clone, or with --project in .acc/config.json
@@ -188,7 +191,7 @@ function renderSteps(results: StepResult[], guided: boolean): string {
 }
 
 function cmdDoctor(o: Opts, guided: boolean): number {
-  const ctx = makeContext(process.cwd(), run);
+  const ctx = makeContext(process.cwd(), run, process.env, VERSION);
   const part = o.part as 'machine' | 'project' | undefined;
   if (part && part !== 'machine' && part !== 'project') throw new AccError('usage', '--part must be machine or project.');
   const only = (o.step as string[] | undefined) ?? [];
@@ -271,7 +274,7 @@ function upsert(o: Opts, inputs: TaskInput[], own = false): number {
 }
 
 /**
- * The tasks whose Jira or Azure DevOps key a tracker in .acc/config.json owns, and why the rest are refused,
+ * The tasks whose Jira, Azure DevOps or monday.com key a tracker in .acc/config.json owns, and why the rest are refused,
  * so another project's or client's tickets never become tasks here (D-072). Without a Jira sign-in acc can't
  * check an epic, so only the project is held here; the board's check removes strays. A repo that names no
  * trackers has no place to hold to, and takes any.
@@ -282,10 +285,10 @@ function ownTickets(config: Config, inputs: TaskInput[]): { inputs: TaskInput[];
   const kept = inputs.filter((i) => {
     const kind = i?.source?.kind;
     const key = i?.source?.key;
-    if ((kind !== 'jira' && kind !== 'azure') || typeof key !== 'string') return true;
+    if (!isSignedInKind(kind) || typeof key !== 'string') return true;
     const at = trackerForKey(config.trackers, key);
     if (at !== null && config.trackers[at]!.kind === kind) return true;
-    refused.push(`${key.toUpperCase()}: no ${kind === 'jira' ? 'Jira' : 'Azure DevOps'} tracker in .acc/config.json owns it, so it isn't one of this repo's tickets.`);
+    refused.push(`${key.toUpperCase()}: no ${trackerName(kind)} tracker in .acc/config.json owns it, so it isn't one of this repo's tickets.`);
     return false;
   });
   return { inputs: kept, refused };
@@ -311,11 +314,16 @@ function cmdIntakeGithub(o: Opts): number {
   return res.errors.length ? 1 : 0;
 }
 
+/** The trackers only the Command Center signs in to (D-066): every one but GitHub. */
+type SignedInKind = Exclude<TrackerKind, 'github'>;
+const SIGNED_IN_KINDS = TRACKER_KINDS.filter((k): k is SignedInKind => k !== 'github');
+const isSignedInKind = (k: unknown): k is SignedInKind => (SIGNED_IN_KINDS as readonly unknown[]).includes(k);
+
 /**
- * Follows Jira or Azure DevOps tickets that left the repo's place (D-072). Only the Command Center signs in
- * to those (D-066), so it reads them and hands acc what it found: { "outside": [{ "key", "why" }] }.
+ * Follows Jira, Azure DevOps or monday.com tickets that left the repo's place (D-072). Only the Command
+ * Center signs in to those (D-066), so it reads them and hands acc what it found: { "outside": [{ "key", "why" }] }.
  */
-function cmdIntakeOutside(o: Opts, kind: 'jira' | 'azure'): number {
+function cmdIntakeOutside(o: Opts, kind: SignedInKind): number {
   const file = o.file as string | undefined;
   if (!file) throw new AccError('usage', `acc intake ${kind} --file <report.json>, with { "outside": [{ "key": "ACME-7", "why": "it isn't in epic ACME-3" }] }. The Command Center writes it after a board loads.`);
   const data = readInput(file) as { outside?: unknown };
@@ -411,7 +419,7 @@ function cmdReview(o: Opts, id: string): number {
   const say = (line: string) => { if (!o.json) process.stderr.write(line + '\n'); };
   const r = review(paths, config, id.toUpperCase(), {
     run, now, env: process.env,
-    onStart: (session, sha) => say(tone(`Reviewing ${id.toUpperCase()} at ${sha.slice(0, 7)}. The reviewer reads and changes nothing. Session ${session}.`, 'dim')),
+    onStart: (session, sha, name) => say(tone(`Reviewing ${id.toUpperCase()} at ${sha.slice(0, 7)}. The reviewer reads and changes nothing. Session ${session}, named ${name}.`, 'dim')),
   }, { by: `reviewer:${id.toUpperCase()} for ${by}` });
   const v = r.verdict;
   const where = (f: { file?: string; line?: number }) => (f.file ? `${f.file}${f.line ? `:${f.line}` : ''}  ` : '');
@@ -452,7 +460,7 @@ function cmdAnalyze(o: Opts, id: string): number {
   const say = (line: string) => { if (!o.json) process.stderr.write(line + '\n'); };
   const a = analyze(paths, config, id.toUpperCase(), {
     run, now, env: process.env, accCommand: accCommand(),
-    onStart: (session) => say(tone(`Analyzing ${id.toUpperCase()}. The analyst reads the ticket${config.profile === 'salesforce' ? ', the code and the orgs' : ' and the code'}, and changes nothing. Session ${session}.`, 'dim')),
+    onStart: (session, name) => say(tone(`Analyzing ${id.toUpperCase()}. The analyst reads the ticket${config.profile === 'salesforce' ? ', the code and the orgs' : ' and the code'}, and changes nothing. Session ${session}, named ${name}.`, 'dim')),
   }, { by: `analyst:${id.toUpperCase()} for ${by}` });
   out(o, () => analysisLines(a).join('\n'), a);
   return a.verdict === 'ready' ? 0 : 1;
@@ -644,10 +652,10 @@ function cmdAgents(o: Opts, sub: string | undefined, roleArg: string | undefined
   if (sub === 'auto-merge') return cmdAutoMerge(o, paths.config, roleArg);
   if (!sub || sub === 'show') {
     const v = views();
-    const from = { clone: ' (this clone)', project: ' (project)', default: '' };
+    const from = { clone: ' (this clone)', project: ' (project)', acc: ' (acc\'s default)', default: '' };
     out(o, () => AGENT_ROLES.map((r) => {
       const p = v[r]!;
-      return `${r.padEnd(9)} model ${p.model ?? 'Claude Code\'s default'}${from[p.from.model]}, effort ${p.effort ?? 'default'}${from[p.from.effort]}${p.fallbackModel ? `, falls back to ${p.fallbackModel}${from[p.from.fallbackModel]}` : ''}`;
+      return `${r.padEnd(9)} model ${p.model}${from[p.from.model]}, effort ${p.effort ?? 'default'}${from[p.from.effort]}${p.fallbackModel ? `, falls back to ${p.fallbackModel}${from[p.from.fallbackModel]}` : ''}`;
     }).join('\n'), v);
     return 0;
   }
@@ -665,7 +673,7 @@ function cmdAgents(o: Opts, sub: string | undefined, roleArg: string | undefined
   if (!Object.keys(change).length) throw new AccError('usage', 'Say what to change: --model, --effort, --fallback-model or --clear.');
   setProfile(run, paths.root, paths.config, roleArg as AgentRole, change, o.project ? 'project' : 'clone');
   const after = profileView(loadConfig(paths.config).config, run, paths.root, roleArg as AgentRole);
-  out(o, () => `${roleArg}: model ${after.model ?? 'Claude Code\'s default'}, effort ${after.effort ?? 'default'}${after.fallbackModel ? `, falls back to ${after.fallbackModel}` : ''}. ${o.project ? 'Set in .acc/config.json: commit it to share it.' : 'Set for this clone only.'} The next ${roleArg} uses it.`, after);
+  out(o, () => `${roleArg}: model ${after.model}${after.from.model === 'acc' ? ' (acc\'s default)' : ''}, effort ${after.effort ?? 'default'}${after.fallbackModel ? `, falls back to ${after.fallbackModel}` : ''}. ${o.project ? 'Set in .acc/config.json: commit it to share it.' : 'Set for this clone only.'} The next ${roleArg} uses it.`, after);
   return 0;
 }
 
@@ -823,11 +831,14 @@ function cmdDispatch(o: Opts, id: string): number {
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
   if (o.foreground && !o.json) process.stdout.write(`Starting ${id.toUpperCase()} in this terminal. Leave the session when it's done.\n`);
-  const r = dispatch(paths, config, id.toUpperCase(), { run, now, accBinDir: accBinDir(), accCommand: accCommand(), env: process.env }, { actor, by, foreground: o.foreground === true, withoutAnalysis: o['without-analysis'] === true });
+  const model = typeof o.model === 'string' ? o.model : undefined;
+  const r = dispatch(paths, config, id.toUpperCase(), { run, now, accBinDir: accBinDir(), accCommand: accCommand(), env: process.env }, { actor, by, foreground: o.foreground === true, withoutAnalysis: o['without-analysis'] === true, model });
   out(o, () => [
     `${r.task.id} → ${stateLabel('running')}`,
     `  worktree: ${r.worktree}${r.reused ? ' (reused)' : ''}`,
     `  branch:   ${r.branch}`,
+    `  name:     ${r.name}`,
+    `  model:    ${r.task.run?.model ?? ''}${r.task.run?.modelPicked ? ' (picked for this task)' : ''}`,
     `  agent:    ${r.bgId ? `background session ${r.bgId}. Watch it with: claude attach ${r.bgId}` : o.foreground ? 'ran in this terminal' : 'started; it will appear in claude agents shortly'}`,
     `  packet:   ${r.packetPath}`,
   ].join('\n'), r);
@@ -890,6 +901,7 @@ function cmdShow(o: Opts, id: string): number {
   out(o, () => [
     `${t.id}  ${stateLabel(displayState(ledger, t, { stopped }))}  ${t.title}`,
     `Environment: ${t.environment}   Source: ${t.source.kind}${t.source.url ? ` ${t.source.url}` : ''}`,
+    t.run?.name ? `Agent: ${t.run.name}` : '',
     t.deps.length ? `Depends on: ${t.deps.join(', ')}` : '',
     t.blocker ? `Blocked: ${t.blocker}` : '',
     failed ? tone(`! Autopilot couldn't ${stepWords(failed.step, failed.sha || 'it')}: ${failed.reason}`, 'orange') : '',
@@ -953,14 +965,12 @@ function personOnlyUpdate(o: Opts, what: string): string {
   return personOnly(o, what);
 }
 
-const TRACKER_NAME: Record<Update['tracker'], string> = { github: 'GitHub', jira: 'Jira', azure: 'Azure DevOps' };
-
 /** An update as a person reads it: its id, state and ticket, what it's about, then its text. */
 function updateLines(u: Update): string[] {
   const state = u.state === 'posting' ? (stalePosting(u, now()) ? tone('may have posted', 'orange') : 'posting') : u.state === 'draft' ? tone('draft', 'orange') : u.state;
   const when = u.posted ? `posted by ${u.posted.by.replace(/^human:/, '')} ${u.posted.at}` : u.discarded ? `discarded by ${u.discarded.by.replace(/^human:/, '')} ${u.discarded.at}` : `drafted by ${u.by.replace(/^human:/, '')} ${u.createdAt}`;
   return [
-    `${u.id.padEnd(12)} ${state}  ${TRACKER_NAME[u.tracker]} ${u.key}: ${EVENT_WORDS[u.event]}${u.env ? ` (${u.env})` : ''}  ${tone(when, 'dim')}`,
+    `${u.id.padEnd(12)} ${state}  ${trackerName(u.tracker)} ${u.key}: ${EVENT_WORDS[u.event]}${u.env ? ` (${u.env})` : ''}  ${tone(when, 'dim')}`,
     ...(u.failed && u.state === 'draft' ? [tone(`    ! The last try didn't post: ${u.failed.reason}`, 'orange')] : []),
     ...(u.posted?.text ?? u.text).split('\n').map((l) => `    ${l}`),
   ];
@@ -1000,7 +1010,7 @@ function cmdUpdatePost(o: Opts, id: string): number {
   const by = personOnlyUpdate(o, 'post a ticket\'s update');
   const { paths, config } = project(process.cwd());
   const u = updateOrThrow(paths, id);
-  if (u.tracker !== 'github') throw new AccError('refused', `${u.id} is for ${TRACKER_NAME[u.tracker]} ticket ${u.key}. acc posts only on GitHub: post it from the Command Center, which posts as you through this repo's ${TRACKER_NAME[u.tracker]} sign-in.`);
+  if (u.tracker !== 'github') throw new AccError('refused', `${u.id} is for ${trackerName(u.tracker)} ticket ${u.key}. acc posts only on GitHub: post it from the Command Center, which posts as you through this repo's ${trackerName(u.tracker)} sign-in.`);
   const text = postText(o, u);
   const gh = config.github;
   if (!gh) throw new AccError('no-github', 'This project has no "github" section in .acc/config.json, so acc can\'t post as its account.');
@@ -1320,11 +1330,11 @@ export async function main(argv: string[]): Promise<number> {
     }
     case 'intake': {
       if (rest[0] === 'github') return cmdIntakeGithub(o);
-      if (rest[0] === 'jira' || rest[0] === 'azure') return cmdIntakeOutside(o, rest[0]);
-      throw new AccError('usage', 'acc intake github [--label <label>], or acc intake jira|azure --file <report.json>. Jira and Azure DevOps tickets come in through the Command Center\'s Track in acc, or the plugin\'s skill.');
+      if (isSignedInKind(rest[0])) return cmdIntakeOutside(o, rest[0]);
+      throw new AccError('usage', 'acc intake github [--label <label>], or acc intake jira|azure|monday --file <report.json>. Jira, Azure DevOps and monday.com tickets come in through the Command Center\'s Track in acc; Jira and Azure DevOps ones also through the plugin\'s skill.');
     }
     case 'dispatch': {
-      if (!rest[0]) throw new AccError('usage', 'acc dispatch <id> [--foreground]');
+      if (!rest[0]) throw new AccError('usage', 'acc dispatch <id> [--foreground] [--without-analysis] [--model <m>]');
       return cmdDispatch(o, rest[0]);
     }
     case 'done': return cmdSet(o, taskIdFrom(rest[0]), 'review');

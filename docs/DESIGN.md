@@ -130,7 +130,7 @@ listed so that drift checks and `doctor` cover it.
 | `environments` | Every org the project has, whether or not it's on a promotion path. Each has a name, a branch (by default the lower-cased name), a `type` (`production`, `full`, `partial`, `developer`, `developer_pro`) and, in the `salesforce` profile, an org alias. A task builds from one environment's branch, and its pull request goes back into it. **Protected** environments never receive agent work. `promotesTo` lists where it can promote to, usual step first ([section 11](#11-landing)) |
 | `environmentSpecific` | A list of files that differ by design in every environment, such as email service addresses, SSO and org settings. These are never edited by a task, never deployed, and never promoted (D-016) |
 | `knownDrift` | Files that a drift check should expect to differ, such as features a sandbox lacks or ordering noise. They can still be edited and promoted |
-| `trackers` | Where intake reads from. Several are allowed. A GitHub tracker's `skipLabels` lists labels whose issues aren't tasks, such as `["milestone"]` (D-048). Each tracker's place holds every read to this repo's tickets: its project or repo, narrowed by a Jira `epic`, GitHub `labels` (any one counts) or an Azure `areaPath` (D-072) |
+| `trackers` | Where intake reads from. Several are allowed. A GitHub tracker's `skipLabels` lists labels whose issues aren't tasks, such as `["milestone"]` (D-048). Each tracker's place holds every read to this repo's tickets: its project, repo or monday.com `board`, narrowed by a Jira `epic`, GitHub `labels` (any one counts), an Azure `areaPath` or a monday.com `group` (D-072). A monday.com tracker names its `account` and `board`, and may name a `statusColumn` (D-085) |
 | `agents.max` | Most builder sessions at once, default 3 |
 | `autonomy` | How much the loop does on its own ([section 12](#12-the-orchestrator-loop)) |
 | `autopilot.appendOnly` | Files, or folders, where autopilot may resolve a conflict with the base when both sides only added to the end, such as a decision log. Left out, there are none ([section 12](#12-the-orchestrator-loop)) |
@@ -234,24 +234,26 @@ never see a half-written file.
 ## 6. Intake
 
 Every source produces the same task input shape, and `acc import` reads it as
-JSON. Adding monday.com later means adding one more producer.
+JSON. monday.com was one more producer (D-085).
 
 | Source | How | Dependencies from |
 |---|---|---|
 | GitHub Issues | `acc intake github [--label L]`, run directly through `gh` with the repo's account | `Depends on #N` and `Blocked by #N` lines in the issue body |
 | Jira, Azure DevOps | **Track** on a ticket's card on the tracker's board, or **Track in acc** on its page (one way for both), or the `acc:intake` skill: Claude queries a connector for the tracker's place and pipes the results to `acc import` | "is blocked by" issue links |
+| monday.com | **Track** on an item's card, or **Track in acc** on its page. The brief is the item's long-text columns, or its first update | none |
 | Manual | `acc add "title" --brief …` | `--dep` |
 
 Intake is idempotent, keyed by tracker key, and it never changes the tracker.
 
 Every read is held to each tracker's place (D-072): its project or repo, and
 when set, a Jira epic (its tickets and their sub-tasks), GitHub labels (any
-one) or an Azure area path. `acc intake github` lists open issues per place
-label, from the tracker's `repo`. `acc import` refuses a Jira or Azure key that
-no tracker owns. After a Jira or Azure board loads, the Command Center asks
-about the repo's unfinished tasks that aren't on it, and hands the ones outside
-the place to `acc intake jira|azure --file`, which removes or names them as
-below.
+one), an Azure area path or a monday.com group. A monday.com board is the
+tracker, as a Jira project is. `acc intake github` lists open issues per place
+label, from the tracker's `repo`. `acc import` refuses a Jira, Azure or
+monday.com key that no tracker owns. After a Jira, Azure or monday.com board
+loads, the Command Center asks about the repo's unfinished tasks that aren't on
+it, and hands the ones outside the place to `acc intake jira|azure|monday
+--file`, which removes or names them as below.
 
 `acc intake github` also follows issues that left the open list (D-048). It asks
 GitHub about each unfinished task whose issue wasn't listed:
@@ -283,14 +285,28 @@ GitHub about each unfinished task whose issue wasn't listed:
    `node_modules` from the main checkout.
 4. **Writes the instructions.** It renders the packet ([section 8](#8-the-packet)).
 5. **Launches the agent.** From the main checkout, which you trust once (D-022), it runs
-   `claude --bg --name <id> --permission-mode <mode> --settings <json> "<packet>"`.
+   `claude --bg --name <name> --permission-mode <mode> --model <model> --settings <json> "<packet>"`.
+   The name is `<project> · <key> <title> · builder`, such as
+   `Acme Service · ACME-12 Case escalation rules · builder`: the title cut to 40
+   characters at a word, and the task's second dispatch `builder 2` (D-087).
+   Reviewers and analysts are named the same way, as `review` and `analysis`.
+   The model is the one picked for the task, if one was, else the builder's:
+   this clone's, the project's, or acc's default, `claude-opus-5-5` (D-086).
    The packet's first instruction is to call EnterWorktree on the task's worktree.
    The settings JSON sets `ACC_TASK` and `ACC_ROLE=builder` in the session's
    environment, plus an allowlist of routine commands, and a PermissionRequest
    hook that sends the builder's prompts and questions to the Command Center
    (D-030).
-6. **Records the run.** It stores the background id and session id, and moves
-   the task to `running`.
+6. **Records the run.** It finds the new session by its name, the folder it
+   started in and its start time, stores the background id, session id, name,
+   number and model, and moves the task to `running`. A task's agent is found
+   again by those ids, else by the recorded name, never by a name worked out
+   from its title.
+
+`acc dispatch --model <m>` picks the builder's model for this task. The run
+keeps it, so a re-dispatch of its rework and a resume use it until another is
+picked; the Command Center's **Dispatch with…** does the same, with the
+analysis's size beside the models (D-086).
 
 `acc dispatch --foreground` runs the same session in the current terminal
 instead. You can drop into any background session with `claude attach <id>`.
@@ -475,8 +491,9 @@ update when:
 Each draft is written for the client, with no word of agents, worktrees, acc,
 builders, reviewers or rework. `acc updates` lists them. A person posts each
 from the Command Center, with their edits: a GitHub issue's through acc as the
-repo's account (`acc update post`), and a Jira or Azure DevOps ticket's through
-the repo's sign-in, claimed in acc first so a second window can't post it again.
+repo's account (`acc update post`), and a Jira, Azure DevOps or monday.com
+ticket's through the repo's sign-in, claimed in acc first so a second window
+can't post it again. A monday.com one posts as an update on the item.
 `acc update discard <id>` sets one aside. A post unconfirmed for five minutes
 may have gone, and says so. Builders, reviewers, analysts and autopilot can't
 post or discard.
@@ -809,8 +826,9 @@ The extension handles every workspace folder that has `.acc/config.json`.
 
 - **The Tasks tab shows each tracker's own board.** A Jira board's columns are
   mapped to their statuses. A GitHub Project's columns are its Status options;
-  with no Project, they're Open and Closed. A toggle switches to acc's agent
-  board.
+  with no Project, they're Open and Closed. A monday.com board's columns are one
+  status column's labels, in monday's order, with No status first when an item
+  has none (D-085). A toggle switches to acc's agent board.
 - **Dragging a card moves the real ticket.** It runs the workflow transition
   whose target status the column holds. When the workflow offers several, you
   pick one; when it offers none, the card goes back and the board says so. It's
@@ -854,7 +872,7 @@ count; under 820 px wide, it becomes a tab strip along the top.
 |---|---|
 | **Overview** | **Needs you:** agents waiting on a prompt, blocked tasks, steps autopilot couldn't take (with why, and the step to take by hand), missing tracker sign-ins and setup still to do, each with its button. Then, apart, work waiting for review. Stat tiles open their sections. **Ready for an agent** has Dispatch buttons, and **History** lists your answers, every task's moves, each step autopilot took, wherever it ran, and the commands acc ran (D-064) |
 | **Tasks** | The tracker's own board, or acc's agent board (D-026) |
-| **Agents** | **How agents run:** builders' and reviewers' model and effort (D-036), and the project's autonomy (D-064). Then sessions by project, with a menu on each row (D-023) |
+| **Agents** | Sessions by project, each with the model it runs with (D-086), and a menu on each row (D-023). **Settings** in the header opens **How agents run** above them: builders' and reviewers' model and effort (D-036), the project's autonomy (D-064) and auto-merge (D-083). It's closed until opened, and remembered for the tab; per-token billing shows even while it's closed (D-089) |
 | **Worktrees** | Every checkout, with a menu on each row |
 | **Environments** | The GitHub identity card (D-028), promotion paths, and one card per environment |
 | **Setup** | The checklist, with Do it on each step |
@@ -934,10 +952,16 @@ step as **title** (`id`): a test holds those to the same list, in its order
 - **Ticks stay ticked.** Once VSCode ticks a step, it stays ticked even if the
   check later fails. The status bar and **Check setup** always show the current
   state.
-- **Checks are throttled.** Startup reuses machine results for 12 hours.
-  Project checks run only in folders with `.acc/config.json` or
+- **Checks are throttled.** Startup reuses machine results for 12 hours,
+  from a folder with the same profile; a check that came back empty isn't
+  kept. Project checks run only in folders with `.acc/config.json` or
   `sfdx-project.json`. The status bar stays hidden elsewhere, unless the
   machine needs something.
+- **A full check replaces the rows it lists.** Each part it checked replaces
+  that part's rows on the Setup page, so a step that no longer applies goes:
+  A1.node once a folder turns generic. A part whose check failed keeps its
+  rows, and a folder that isn't a project has no project rows. A Check of one
+  step changes that row alone.
 - **The extension runs its own copy of `acc`** with VSCode's runtime, so it
   works before Node is on PATH. Every VSCode terminal gets `acc` on its PATH.
   The extension runs `dist/bin/acc.mjs` itself; terminals, Setup's **Do it**
@@ -1012,8 +1036,8 @@ already exists.
 ## 19. Left out of v1
 
 - destructive Salesforce changes
-- monday.com, and Slack as a ticket source (acc's notices can go to Slack:
-  D-078 in DECISIONS.md)
+- Slack as a ticket source (acc's notices can go to Slack: D-078 in
+  DECISIONS.md)
 - cloud sessions
 - sharing a ledger across machines
 - a Developer sandbox for each agent
