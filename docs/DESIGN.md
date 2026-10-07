@@ -473,8 +473,17 @@ environment, builders run `gates.required`, as before. A command gate is told
 what the branch changed, and the tests near those changes, one path a line, in
 `ACC_CHANGED` and `ACC_NEAR_TESTS`: the test files it changed, and, in the same
 package, the tests named for each other file it changed (`merge.ts` →
-`merge.test.ts`, `test_merge.py`) or that import it. This repo's builders run
-`typecheck` and `near-tests`.
+`merge.test.ts`, `test_merge.py`) or that import it. A file a folder's index
+gathers is near the tests of that index and of what loads it (GH-95): an index
+imports the file and most of the other code in its folder, so
+`packages/cli/src/commands/tasks.ts` is near the tests that run
+`packages/cli/src/main.ts`. A package starts at its `src`, `lib` or `app`
+folder, else at the nearest folder with a `package.json`, so the page's modules
+in `extension/webview/` are near `extension/test/`. Only a gate whose command
+names `ACC_NEAR_TESTS`, or names a file in the checkout that does, is given it;
+acc reads each file once to work it out. This repo's builders run `typecheck`
+and `near-tests` (`scripts/near-tests.mjs`, which fails if it isn't given the
+list).
 
 **Agents validate; they never deploy (D-011).** Parallel branches deploying to
 one shared sandbox would overwrite each other's work. A deploy happens after

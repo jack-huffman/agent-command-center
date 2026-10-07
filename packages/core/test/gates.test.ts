@@ -7,7 +7,7 @@ import { builderGatesFor, parseConfig, type Config, requiredGates } from '../src
 import { drift, driftReportPath } from '../src/drift.ts';
 import type { RunOptions, RunResult } from '../src/exec.ts';
 import {
-  assertCheckOnly, changesFor, checkEnv, gatesFor, gateTarget, nearTests, priorTests, readAnalyzer, readDeploy, runGates, validateArgs, waiveGates,
+  assertCheckOnly, changesFor, checkEnv, gatesFor, gateTarget, nearTests, priorTests, readAnalyzer, readDeploy, readsNearTests, runGates, validateArgs, waiveGates,
 } from '../src/gates.ts';
 import { checkMove, emptyLedger, type Task } from '../src/ledger.ts';
 import { builderSettings } from '../src/packet.ts';
@@ -242,6 +242,7 @@ test('a check runs without a builder\'s identity, so it gives the same answer in
     for (const [k, v] of Object.entries(was)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
   }
   assert.deepEqual(checkEnv({ ACC_ROLE: 'builder', ACC_TASK: 'T-1', PATH: '/bin' }), { PATH: '/bin' });
+  assert.deepEqual(checkEnv({ ACC_CHANGED: 'a.ts', ACC_NEAR_TESTS: 'a.test.ts', PATH: '/bin' }), { PATH: '/bin' }, 'a check run inside another check is told only its own run\'s (GH-95)');
   assert.deepEqual(checkEnv({ PATH: '/bin', ACC_HEAVY_DIR: '/outer' }, '/scratch/heavy'), { PATH: '/bin', ACC_HEAVY_DIR: '/scratch/heavy' });
 });
 
@@ -460,6 +461,88 @@ test('the tests near a change: the test files it changed, and those in the same 
   assert.deepEqual(near(['app/util.py']), ['tests/test_util.py']);
   assert.deepEqual(near(['README.md', 'docs/new.md']), [], 'nothing near a document');
   assert.deepEqual(near(['packages/core/test/gone.test.ts']), [], 'only tests the checkout has');
+});
+
+test('a file a folder\'s index gathers is near the tests of that index and of what loads it: the CLI\'s commands, an extension area, a core module (GH-95)', () => {
+  // Shaped like this repo after GH-94: each folder of areas has an index, and an entry loads it.
+  const text: Record<string, string> = {
+    'packages/cli/src/main.ts': 'import { AREAS } from \'./commands/index.ts\';\nimport { tone } from \'./format.ts\';\nimport { VERSION } from \'./shared.ts\';\n',
+    'packages/cli/src/commands/index.ts': 'import { area as agents } from \'./agents.ts\';\nimport { area as setup } from \'./setup.ts\';\nimport { area as tasks } from \'./tasks.ts\';\n',
+    'packages/cli/src/commands/tasks.ts': 'import { VERSION } from \'../shared.ts\';\n',
+    'packages/cli/test/cli.test.ts': 'import { readLedger } from \'../../core/src/index.ts\';\nconst MAIN = fileURLToPath(new URL(\'../src/main.ts\', import.meta.url));\n',
+    'packages/cli/test/launcher.test.ts': 'const launcher = \'../bin/acc\';\n',
+    'extension/src/extension.ts': 'import { AREAS } from \'./areas.ts\';\nimport { Hub } from \'./hub.ts\';\n',
+    'extension/src/areas.ts': 'import { area as agents } from \'./agents.ts\';\nimport { area as runs } from \'./runs.ts\';\nimport { area as tasks } from \'./tasks.ts\';\n',
+    'extension/src/runs.ts': 'import { Hub } from \'./hub.ts\';\n',
+    'extension/test/activate.test.ts': 'const dist = fileURLToPath(new URL(\'../dist/extension.js\', import.meta.url));\n',
+    'extension/webview/main.ts': 'import { AREAS } from \'./areas.ts\';\nimport { state } from \'./state.ts\';\n',
+    'extension/webview/areas.ts': 'import { area as agents } from \'./agents.ts\';\nimport { area as overview } from \'./overview.ts\';\nimport { area as tasks } from \'./tasks.ts\';\n',
+    'extension/test/screenshot.test.ts': 'assert.ok(page.includes(\'src="webview/main.js"\'));\n',
+    'packages/core/src/index.ts': ['config', 'dispatch', 'held', 'ledger', 'paths'].map((m) => `export * from './${m}.ts';\n`).join(''),
+    'packages/core/src/dispatch.ts': 'import { holdTask } from \'./held.ts\';\nimport { readLedger } from \'./ledger.ts\';\n',
+    'packages/core/test/dispatch.test.ts': 'import { startHeld } from \'../src/held.ts\';\n',
+    'packages/core/test/ledger.test.ts': 'import { readLedger } from \'../src/ledger.ts\';\n',
+  };
+  const tracked = [
+    ...Object.keys(text), 'extension/package.json', 'packages/cli/src/format.ts', 'packages/cli/src/shared.ts', 'packages/cli/src/commands/agents.ts', 'packages/cli/src/commands/setup.ts',
+    'extension/src/agents.ts', 'extension/src/tasks.ts', 'extension/src/hub.ts', 'extension/webview/agents.ts', 'extension/webview/overview.ts', 'extension/webview/tasks.ts',
+    'extension/webview/state.ts', 'packages/core/src/config.ts', 'packages/core/src/held.ts', 'packages/core/src/ledger.ts', 'packages/core/src/paths.ts',
+  ];
+  const near = (changed: string[]) => nearTests(changed, tracked, (f) => text[f] ?? '');
+  assert.deepEqual(near(['packages/cli/src/commands/tasks.ts']), ['packages/cli/test/cli.test.ts'], 'commands/index.ts gathers it, and the tests that run main.ts load that');
+  assert.deepEqual(near(['packages/cli/src/shared.ts']), ['packages/cli/test/cli.test.ts'], 'main.ts gathers its own folder');
+  assert.deepEqual(near(['extension/src/runs.ts']), ['extension/test/activate.test.ts'], 'areas.ts gathers it, and extension.ts loads that');
+  assert.deepEqual(near(['extension/src/hub.ts']), [], 'extension.ts loads it, but gathers too little of its folder to be its index');
+  assert.deepEqual(near(['extension/webview/overview.ts']), ['extension/test/screenshot.test.ts'], 'the page\'s tests are its package\'s, in extension/test');
+  assert.deepEqual(near(['packages/core/src/held.ts']), ['packages/core/test/dispatch.test.ts'], 'core\'s index gathers it, but nothing in core loads the index, and the CLI is another package');
+  assert.deepEqual(near(['packages/core/src/ledger.ts']), ['packages/core/test/ledger.test.ts'], 'dispatch.ts imports it, but gathers too little of its folder to count');
+});
+
+test('the tests near a change read each file once, however many files changed (GH-95)', () => {
+  const tracked = ['src/a.ts', 'src/b.ts', 'src/c.ts', 'src/index.ts', 'test/a.test.ts', 'test/b.test.ts', 'test/all.test.ts'];
+  const text: Record<string, string> = { 'src/index.ts': 'export * from \'./a.ts\';\nexport * from \'./b.ts\';\nexport * from \'./c.ts\';\n', 'test/all.test.ts': 'import { a } from \'../src/index.ts\';\n' };
+  const reads = new Map<string, number>();
+  const found = nearTests(['src/a.ts', 'src/b.ts', 'src/c.ts'], tracked, (f) => {
+    reads.set(f, (reads.get(f) ?? 0) + 1);
+    return text[f] ?? '';
+  });
+  assert.deepEqual(found, ['test/a.test.ts', 'test/all.test.ts', 'test/b.test.ts']);
+  assert.ok(reads.size >= 4, `${reads.size} files read`);
+  assert.deepEqual([...reads].filter(([, n]) => n > 1), [], 'none read twice');
+});
+
+test('only a gate that reads ACC_NEAR_TESTS is given it, so the full check and a typecheck don\'t wait while acc reads every test (GH-95)', () => {
+  const out = tempDir('near-env-');
+  const raw = {
+    ...GENERIC_CONFIG,
+    gates: { required: ['typecheck', 'near'], commands: { typecheck: `env > '${join(out, 'typecheck')}'`, near: `node near.mjs '${join(out, 'near')}'` } },
+  };
+  const dir = makeRepo({
+    '.acc/config.json': JSON.stringify(raw), 'src/merge.ts': 'a\n', 'test/merge.test.ts': 'b\n',
+    'near.mjs': 'import { writeFileSync } from \'node:fs\';\nwriteFileSync(process.argv[2], `${process.env.ACC_CHANGED}|${process.env.ACC_NEAR_TESTS}`);\n',
+  });
+  gitIn(dir, 'checkout', '-q', '-b', 'task/T-1');
+  writeFileSync(join(dir, 'src/merge.ts'), 'a, changed\n');
+  gitIn(dir, 'commit', '-q', '-am', 'T-1: change');
+  const c = config(raw);
+  const was = process.env.ACC_NEAR_TESTS;
+  // As when acc's own tests run inside a builder's near-tests gate.
+  process.env.ACC_NEAR_TESTS = 'from/outside.test.ts';
+  try {
+    const ran = runGates(repoPaths(dir, run), c, c.environments[0]!, [], [], { run, now, slots: slots() });
+    assert.deepEqual(ran.results.map((r) => [r.gate, r.status]), [['typecheck', 'pass'], ['near', 'pass']]);
+  } finally {
+    if (was === undefined) delete process.env.ACC_NEAR_TESTS;
+    else process.env.ACC_NEAR_TESTS = was;
+  }
+  const env = readFileSync(join(out, 'typecheck'), 'utf8');
+  assert.match(env, /^ACC_CHANGED=src\/merge\.ts$/m, 'every command gate is told what changed');
+  assert.doesNotMatch(env, /ACC_NEAR_TESTS/, 'a gate that doesn\'t read it isn\'t given it, nor the one acc ran in');
+  assert.equal(readFileSync(join(out, 'near'), 'utf8'), 'src/merge.ts|test/merge.test.ts', 'a script it names reads it');
+  assert.equal(readsNearTests(dir, 'npm run check'), false);
+  assert.equal(readsNearTests(dir, 'echo "$ACC_NEAR_TESTS"'), true, 'the command names it');
+  assert.equal(readsNearTests(dir, 'node --no-warnings near.mjs'), true, 'a file the command names does');
+  assert.equal(readsNearTests(dir, 'node ../near.mjs'), false, 'only files in the checkout');
 });
 
 test('where the merge queue runs the full check, builders run gates.builder, which acc done takes, and the full check covers; elsewhere both are gates.required (GH-73)', () => {
