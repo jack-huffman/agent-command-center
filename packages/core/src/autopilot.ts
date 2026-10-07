@@ -467,6 +467,7 @@ export function autopilotPass(paths: RepoPaths, config: Config, deps: AutopilotD
   const gh = config.github;
   let ghEnv: NodeJS.ProcessEnv | null = null;
   const github: FactsGitHub | undefined = gh ? { repo: gh.repo, env: () => (ghEnv ??= { ...deps.env, GH_TOKEN: ghToken(deps.run, gh.account) }) } : undefined;
+  let fetched = false;
   for (const id of first.tasks.map((t) => t.id)) {
     if (deps.stop?.()) break;
     const ledger = readLedger(paths.ledger);
@@ -475,10 +476,12 @@ export function autopilotPass(paths: RepoPaths, config: Config, deps: AutopilotD
     if (task.state === 'running' && (!look || deps.now().getTime() - look.at > STOPPED_GRACE_MS)) look = { sessions: listSessions(deps.run, paths.root), at: deps.now().getTime() };
     const facts = taskFacts(paths, task, deps.run, look?.sessions ?? null, deps.now(), github);
     // A held task is weighed against what's in flight now (D-???), after any start earlier in the pass.
+    // Autopilot doesn't sync (D-055), so origin is fetched once a pass, for a pull request merged meanwhile.
     if (task.state === 'todo' && task.held && !task.held.failed) {
       try {
         const problems = [...checkMove(ledger, config, task, { to: 'running', actor: 'orchestrator', by: AUTOPILOT_BY }, noGateHooks), ...analysisProblems(paths, config, task)];
-        facts.start = { ...startLook(paths, config, ledger, deps.run, id), problems };
+        facts.start = { ...startLook(paths, config, ledger, deps.run, id, { fetch: !fetched }), problems };
+        fetched = true;
       } catch {
         // git couldn't say: it waits for the next pass
       }

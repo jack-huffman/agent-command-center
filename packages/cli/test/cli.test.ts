@@ -451,7 +451,7 @@ test('acc autopilot: manual does nothing; dispatch isn\'t built yet, and full is
   const manual = acc(dir, ['autopilot', '--json']);
   assert.equal(manual.code, 0, manual.err);
   assert.deepEqual(manual.json(), { autonomy: 'manual', warnings: [], steps: [], updates: [] });
-  assert.match(acc(dir, ['autopilot']).out, /autonomy is "manual" in \.acc\/config\.json, so autopilot does nothing\. Set it to "review" for autopilot to act: it then reviews finished work, .*merges the base into a pull request that conflicts with it\./);
+  assert.match(acc(dir, ['autopilot']).out, /autonomy is "manual" in \.acc\/config\.json, so autopilot does nothing\. Set it to "review" for autopilot to act: it then reviews finished work, .*starts a task a person dispatched once the files it waits for are free\./);
   assert.equal(readFileSync(ledgerFile, 'utf8'), ledger, 'the ledger is untouched');
   assert.ok(!existsSync(join(dir, '.git', 'acc', 'autopilot.lock')));
 
@@ -617,7 +617,7 @@ test('acc agents autonomy: shows it, and a person sets manual or review in .acc/
   assert.equal(set.code, 0, set.err);
   assert.deepEqual(set.json(), { autonomy: 'review' });
   assert.equal(readFileSync(file, 'utf8'), text.replace('"manual"', '"review"'), 'only the value changed');
-  assert.match(acc(dir, ['agents', 'autonomy']).out, /^autonomy review \(project\): autopilot reviews finished work, .*, and merges the base into a pull request that conflicts with it\. It never merges a pull request\./);
+  assert.match(acc(dir, ['agents', 'autonomy']).out, /^autonomy review \(project\): autopilot reviews finished work, .*, and starts a task a person dispatched once the files it waits for are free\. It never merges a pull request\./);
   assert.match(acc(dir, ['agents', 'autonomy', 'manual']).out, /autonomy manual: nothing happens on its own\. Set in \.acc\/config\.json: commit it to share it\./);
   assert.equal(readFileSync(file, 'utf8'), text);
 
