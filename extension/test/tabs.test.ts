@@ -315,8 +315,9 @@ test('the Overview shows each repo\'s merge queue where auto-merge is on: each p
   // Autopilot off: the queue doesn't move, and its head says so.
   const off = model('waiting', false).queue[0]!;
   assert.deepEqual([off.off, off.rows[0]!.look.label, off.rows[0]!.look.tone, off.rows[1]!.look.label], [true, 'Autopilot is off', 'blue', 'Behind GH-1']);
-  // In review, each says where it is in the queue.
-  assert.equal(o.attention.find((a) => a.title === 'GH-2 Task GH-2')?.detail, 'Tools · pull request #42 is in the merge queue, behind GH-1');
+  // Nothing in the queue waits on you: it's in the panel, not in Waiting on you. A task in review outside it still is.
+  assert.deepEqual(o.attention.map((a) => a.title), ['GH-4 Task GH-4']);
+  assert.equal(o.stats.find((s) => s.label === 'Waiting for review')?.value, '1');
   // No panel where auto-merge is off, or nothing is in the queue.
   assert.deepEqual(homeModel({ hub: { ...hub(), projects: [{ ...tools, config: { ...tools.config, autopilot: {} } }], agents: [], taskRows: () => rows('waiting') }, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } }).overview.queue, []);
   assert.deepEqual(homeModel({ hub: { ...hub(), projects: [tools], agents: [], taskRows: () => [row('GH-4', 'review', 'review')] }, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } }).overview.queue, []);

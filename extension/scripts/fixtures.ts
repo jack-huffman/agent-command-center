@@ -144,7 +144,7 @@ export function sampleQueueHub(now = Date.now(), phase: NonNullable<TaskRow['que
   ];
   const at = (ago: number) => new Date(now - ago * MIN).toISOString();
   return {
-    ...base, projects: [project], questions: [], answers: [],
+    ...base, projects: [project], questions: [], answers: [], agents: [],
     taskRows: () => tasks,
     projectFor: (p: string) => (p === root || p.startsWith(`${root}/`) ? project : undefined),
     updates: () => [],

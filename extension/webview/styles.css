@@ -524,6 +524,7 @@ body.vscode-light .logo-light, body.vscode-high-contrast-light .logo-light { dis
 .queue-off { margin: 4px 0 6px; }
 .queue-place { flex: none; min-width: 22px; height: 22px; padding: 0 4px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; border-radius: 11px; border: 1px solid var(--line); font-size: 0.9em; font-variant-numeric: tabular-nums; color: var(--vscode-descriptionForeground); }
 .queue-row:first-child .queue-place { border-color: var(--blue); color: var(--blue); }
+.queue-row .list-text > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .queue-row .chip { margin-left: 0; white-space: nowrap; }
 .queue-row .status { flex: none; white-space: nowrap; }
 @media (max-width: 620px) {

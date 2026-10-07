@@ -1823,11 +1823,13 @@ export function homeModel(i: HomeInput): HomeModel {
         attention.push({ key: `t:${p.root}:${r.id}`, look: r.agent ?? LOOK('Needs you', 'bell-dot', 'orange'), title: `${r.id} ${r.title}`, detail: `${p.name} · its agent is waiting on you in its terminal`, project: p.name, actions: [...(attach ? [{ ...attach, primary: true }] : []), ...(watch ? [{ ...watch, primary: false }] : []), details] });
       } else if (r.display === 'blocked') {
         attention.push({ key: `t:${p.root}:${r.id}`, look: LOOK('Blocked', 'circle-slash', 'orange'), title: `${r.id} ${r.title}`, detail: `${p.name} · blocked`, project: p.name, actions: [details] });
+      } else if (r.display === 'review' && r.queue && autoMergeOn(p.config)) {
+        // In the merge queue, nothing waits on you: the Merge queue panel shows it, with what it waits on (GH-73).
+        continue;
       } else if (r.display === 'review') {
         // Where it is on the way to a pull request, and the one next step.
         const next = acts.find((a) => a.primary && ['acc.task.review', 'acc.task.land', 'acc.task.openPr', 'acc.task.watchReview'].includes(a.command));
-        const where = r.queue ? `pull request #${r.pr?.number ?? '?'} is in the merge queue, ${r.queue.ahead ? `behind ${r.queue.ahead}` : 'first'}`
-          : r.reviewing ? 'its reviewer is reading it' : r.pr?.state === 'open' ? `pull request #${r.pr.number} is open${r.pr.ci === 'pending' ? ', checks running' : r.pr.ci === 'passing' ? ', checks passing' : ''}`
+        const where = r.reviewing ? 'its reviewer is reading it' : r.pr?.state === 'open' ? `pull request #${r.pr.number} is open${r.pr.ci === 'pending' ? ', checks running' : r.pr.ci === 'passing' ? ', checks passing' : ''}`
           : r.review?.current ? (r.review.verdict === 'pass' ? 'reviewed: ready to land' : 'review asked for changes') : 'done by its agent, not reviewed yet';
         attention.push({ key: `t:${p.root}:${r.id}`, look: LOOK(r.pr?.state === 'open' ? 'Pull request open' : 'Waiting for review', r.pr?.state === 'open' ? 'git-pull-request' : 'eye', 'blue'), title: `${r.id} ${r.title}`, detail: `${p.name} · ${where}`, project: p.name, actions: [...(next ? [next] : []), details] });
       } else if (r.display === 'ready') {
@@ -1880,7 +1882,8 @@ export function homeModel(i: HomeInput): HomeModel {
   const onBoard = tasks.projects.reduce((n, p) => n + p.boards.reduce((k, b) => k + b.columns.reduce((c, col) => c + col.cards.length, 0), 0), 0);
   // An agent waiting on a question reads as busy to Claude Code, but it's waiting on you.
   const working = hub.agents.filter((s) => (s.kind === 'background' ? s.state === 'working' : s.status === 'busy') && !hub.askingFor?.(s)).length;
-  const review = rows.filter((r) => r.display === 'review').length;
+  // One in the merge queue isn't for you to check: the queue merges it (GH-73).
+  const review = rows.filter((r) => r.display === 'review' && !r.queue).length;
   const linkedTrees = hub.projects.reduce((n, p) => n + p.worktrees.filter((w) => !w.main).length, 0);
   const stats: StatTile[] = [
     tasks.projects.some((p) => p.boards.length)
