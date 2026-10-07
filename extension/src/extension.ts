@@ -516,12 +516,17 @@ export function activate(context: vscode.ExtensionContext): void {
     // Coming back to VSCode is when an account may have changed elsewhere, such as gh in a terminal.
     vscode.window.onDidChangeWindowState((s) => { if (s.focused) void identity.refresh(); }),
   );
-  const configWatch = vscode.workspace.createFileSystemWatcher('**/.acc/config.json');
+  // Each folder's own .acc/config.json: a builder's worktree inside it has one too, which isn't this project's.
   const reload = () => void hub.loadProjects();
-  configWatch.onDidChange(reload);
-  configWatch.onDidCreate(reload);
-  configWatch.onDidDelete(reload);
-  context.subscriptions.push(configWatch);
+  const watchConfig = (folder: vscode.WorkspaceFolder) => {
+    const w = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, '.acc/config.json'));
+    w.onDidChange(reload);
+    w.onDidCreate(reload);
+    w.onDidDelete(reload);
+    context.subscriptions.push(w);
+  };
+  for (const f of vscode.workspace.workspaceFolders ?? []) watchConfig(f);
+  context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders((e) => e.added.forEach(watchConfig)));
   setup.watch();
 
   void hub.loadProjects().then(() => { questions?.start(); return hub.loadAgents(); }).then(() => {

@@ -487,14 +487,23 @@ export class Setup implements vscode.Disposable {
     this.refreshSoon('active folder changed', 500);
   }
 
+  /**
+   * Each workspace folder's own setup files, at its root. A builder's worktree inside it (.claude/worktrees)
+   * has files of the same names, and its edits aren't this folder's setup changing: matched anywhere, they
+   * re-ran every check each time a builder saved a README.
+   */
   watch(): void {
     const files = '{.acc/config.json,.gitignore,README.md,sfdx-project.json,manifest/*.txt,.sf/config.json}';
-    const w = vscode.workspace.createFileSystemWatcher(`**/${files}`);
     const again = () => this.refreshSoon('a setup file changed');
-    w.onDidChange(again);
-    w.onDidCreate(again);
-    w.onDidDelete(again);
-    this.disposables.push(w);
+    const add = (folder: vscode.WorkspaceFolder) => {
+      const w = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, files));
+      w.onDidChange(again);
+      w.onDidCreate(again);
+      w.onDidDelete(again);
+      this.disposables.push(w);
+    };
+    for (const f of vscode.workspace.workspaceFolders ?? []) add(f);
+    this.disposables.push(vscode.workspace.onDidChangeWorkspaceFolders((e) => e.added.forEach(add)));
   }
 }
 
