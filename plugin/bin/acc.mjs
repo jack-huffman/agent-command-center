@@ -4733,6 +4733,13 @@ function builderSettings(task, config, accBinDir2, basePath, accCommand2) {
     "Bash(acc deploy*)",
     "Bash(acc update*)",
     "Bash(acc resume*)",
+    // Releases are a person's (D-079): npm run * is allowed above, and deny beats allow.
+    "Bash(gh release create*)",
+    "Bash(gh release upload*)",
+    "Bash(gh release edit*)",
+    "Bash(gh release delete*)",
+    "Bash(npm run release*)",
+    "Bash(nice -n 15 npm run release*)",
     ...sf ? ["Bash(sf project deploy start*)", "Bash(sf project deploy quick*)", "Bash(sf org delete *)"] : []
   ];
   return {
@@ -5492,6 +5499,7 @@ function guardBash(b, line) {
       if (sub === "reset" && args.includes("--hard")) return "Don't reset --hard: it throws away work. Revert or amend what you need instead.";
     }
     if (cmd === "gh" && sub === "pr" && ["merge", "create", "close"].includes(rest[0] ?? "")) return "Pull requests are a person's: acc land opens one after review, and a person merges it.";
+    if (cmd === "gh" && sub === "release" && ["create", "upload", "edit", "delete"].includes(rest[0] ?? "") || cmd === "npm" && (sub === "run" || sub === "run-script") && rest[0] === "release" || cmd === "node" && args.some((a) => a.endsWith("scripts/release.mjs"))) return "Releases are a person's: they run npm run release on main, after the merge. Finish with acc done.";
     if (cmd === "sf" && sub === "project" && rest[0] === "deploy") {
       const verb = rest[1];
       if (verb === "quick" || verb === "resume" || verb === "start" && !rest.includes("--dry-run")) return "Builders validate and never deploy (D-011). Use acc gate run validate, which is a check-only deploy.";
@@ -7474,8 +7482,11 @@ function gateLabel(s) {
   return tone(`${c.glyph} ${c.label}`.padEnd(GATE_WIDTH), c.tone);
 }
 
+// package.json
+var package_default = { version: "0.35.0" };
+
 // packages/cli/src/main.ts
-var VERSION = "0.1.0";
+var VERSION = package_default.version;
 var now = () => /* @__PURE__ */ new Date();
 var HELP = `acc ${VERSION}: Agent Command Center
 
