@@ -2,13 +2,14 @@ import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
 import type { Answer } from '../../packages/core/src/questions.ts';
 import type { Hub } from './hub.ts';
-import { answerOf, type BoardInput, type ConnectMessage, type ConnectModel, type FromWebview, HOME_SECTIONS, type HomeSection, homeModel, type IdentityCard, isFromWebview, type Ref, type RunControl, type RunInput, runCard, type SlackCard, type ViewKind } from './model.ts';
+import { FinishedJobs } from './progress.ts';
+import { answerOf, type BoardInput, type ConnectMessage, type ConnectModel, type FromWebview, HOME_SECTIONS, type HomeSection, homeModel, type IdentityCard, isFromWebview, type Ref, type RunControl, type RunInput, runCard, type SlackCard, type ViewKind, WHERE_VIEWS, type WhereView } from './model.ts';
 import type { Setup } from './setup.ts';
 import type { UpdateActions } from './ticket.ts';
 
 /** Commands the page may ask for. Anything else from a webview is ignored. */
 const ALLOWED = new Set([
-  'acc.task.dispatch', 'acc.task.dispatchWith', 'acc.task.attach', 'acc.task.openWorktree', 'acc.task.abandon', 'acc.task.cleanup',
+  'acc.task.dispatch', 'acc.task.dispatchWith', 'acc.task.dispatchAnyway', 'acc.task.stopWaiting', 'acc.task.attach', 'acc.task.openWorktree', 'acc.task.abandon', 'acc.task.cleanup',
   'acc.task.add', 'acc.task.importGithub', 'acc.task.importJira', 'acc.task.show', 'acc.task.move', 'acc.task.block', 'acc.task.unblock', 'acc.task.openTicket',
   'acc.agent.new', 'acc.agent.attach', 'acc.agent.logs', 'acc.agent.stop', 'acc.agent.openFolder', 'acc.agent.watch', 'acc.task.watch', 'acc.task.resume', 'acc.agent.openInClaude', 'acc.task.openInClaude', 'acc.task.review', 'acc.task.watchReview', 'acc.task.land', 'acc.task.openPr',
   'acc.task.analyze', 'acc.task.watchAnalysis',
@@ -16,6 +17,8 @@ const ALLOWED = new Set([
   'acc.env.openOrg', 'acc.env.openGithub', 'acc.env.compare', 'acc.env.promote', 'acc.env.deploy',
   'acc.step.check', 'acc.step.fix', 'acc.step.openSetup', 'acc.step.confirm', 'acc.openGuide', 'acc.openProjectWalkthrough',
   'acc.trackers.signIn', 'acc.trackers.refresh', 'acc.trackers.add', 'acc.github.switch', 'acc.github.signIn', 'acc.agents.configure', 'acc.agents.autonomy', 'acc.agents.autoMerge',
+  // In progress (D-092): a job's Stop asks first; autopilot's output for its step.
+  'acc.job.stop', 'acc.autopilot.output',
 ]);
 
 /** What the page needs from the rest of the extension, and what its cards ask for. */
@@ -43,6 +46,8 @@ export interface BoardDeps {
   connect: { model(): ConnectModel | null; receive(m: ConnectMessage): void; close(): void };
   /** The Slack card (GH-58): what it shows, never the webhook, and what its controls send. */
   slack?: { card(): SlackCard | null; receive(m: Extract<FromWebview, { type: 'slack' | 'slack-connect' | 'slack-kinds' }>): void };
+  /** Whether autopilot runs for a project's repo in this window, somewhere else, or not at all (D-064). */
+  autopilot?(root: string): 'on' | 'elsewhere' | null;
 }
 
 export const isWebLink = (url: string): boolean => /^(https?:|mailto:)/i.test(url);
@@ -89,13 +94,19 @@ export function htmlFor(webview: Pick<vscode.Webview, 'cspSource' | 'asWebviewUr
  */
 export class Panels implements vscode.Disposable {
   private panel: vscode.WebviewPanel | null = null;
+  /** A part of the section to open with the next jump, such as the Agents settings. */
+  private opening: string | null = null;
   private section: HomeSection = 'overview';
+  /** What the Agents tab's Where column shows, remembered for the window (GH-83). */
+  private whereView: WhereView = 'folder';
   private readonly ctx: vscode.ExtensionContext;
   private readonly hub: Hub;
   private readonly setup: Setup;
   private readonly resolve: (command: string, ref: Ref) => unknown;
   private readonly onVisible: (visible: boolean) => void;
   private readonly deps: BoardDeps;
+  /** Jobs In progress saw end, kept a minute, by the extension's clock (D-092). */
+  private readonly finished = new FinishedJobs();
 
   constructor(ctx: vscode.ExtensionContext, hub: Hub, setup: Setup, resolve: (command: string, ref: Ref) => unknown, onVisible: (visible: boolean) => void, deps: BoardDeps) {
     this.ctx = ctx;
@@ -105,15 +116,21 @@ export class Panels implements vscode.Disposable {
     this.onVisible = onVisible;
     this.deps = deps;
     this.section = ctx.workspaceState.get<HomeSection>('acc.home.section') ?? 'overview';
+    const where = ctx.workspaceState.get<string>('acc.agents.where');
+    if ((WHERE_VIEWS as readonly (string | undefined)[]).includes(where)) this.whereView = where as WhereView;
   }
 
   dispose(): void {
     this.panel?.dispose();
   }
 
-  /** Opens the page, or brings it forward, at a section: the one asked for, else where it was left. */
-  show(section?: ViewKind | HomeSection): void {
+  /**
+   * Opens the page, or brings it forward, at a section: the one asked for, else where it was left. With
+   * open, a part of the section that's closed until you open it opens too, such as the Agents settings.
+   */
+  show(section?: ViewKind | HomeSection, open?: string): void {
     if (section && (HOME_SECTIONS as readonly string[]).includes(section)) this.remember(section as HomeSection);
+    this.opening = open ?? null;
     if (this.panel) {
       this.panel.reveal();
       this.post(true);
@@ -162,6 +179,8 @@ export class Panels implements vscode.Disposable {
       hub: this.hub, section: this.section, boards: (r) => this.deps.boards(r), identity: (r) => this.deps.identity(r),
       setup: { items: this.setup.results(), confirmed: this.setup.allConfirmed() }, runs: this.deps.runs(),
       edited: (root, id, replaces) => this.deps.edited(root, id, replaces), connect: this.deps.connect.model(), slack: this.deps.slack?.card() ?? null,
+      whereView: this.whereView,
+      finished: this.finished, autopilot: (root) => this.deps.autopilot?.(root) ?? null, now: Date.now(),
     });
   }
 
@@ -170,15 +189,23 @@ export class Panels implements vscode.Disposable {
     if (this.panel?.visible) void this.panel.webview.postMessage({ type: 'runs', runs: this.deps.runs().map((r) => runCard(r)), ...(focus ? { focus } : {}) });
   }
 
-  /** Sends fresh data to the page. With jump, the page also moves to the section asked for. */
+  /** Sends fresh data to the page. With jump, the page also moves to the section asked for, and opens the part show asked for. */
   post(jump = false): void {
-    if (this.panel?.visible) void this.panel.webview.postMessage({ type: 'state', model: this.model(), jump });
+    if (!this.panel?.visible) return;
+    const open = jump ? this.opening : null;
+    if (jump) this.opening = null;
+    void this.panel.webview.postMessage({ type: 'state', model: this.model(), jump, ...(open ? { open } : {}) });
   }
 
   private receive(m: unknown): void {
     if (!isFromWebview(m)) return;
     if (m.type === 'ready') return this.post(true);
     if (m.type === 'nav') return this.remember(m.section);
+    if (m.type === 'agents-where') {
+      this.whereView = m.view;
+      void this.ctx.workspaceState.update('acc.agents.where', m.view);
+      return this.post();
+    }
     if (m.type === 'refresh') {
       for (const c of REFRESH[this.section]) void vscode.commands.executeCommand(c);
       return;

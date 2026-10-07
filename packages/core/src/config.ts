@@ -117,6 +117,8 @@ export interface Config {
    * protected (GH-67). Off unless it's true; never in a Salesforce project.
    */
   autopilot?: { appendOnly: string[]; autoMerge?: true };
+  /** shared: files, or folders, that never make two tasks wait for each other, such as docs every task edits (D-093). */
+  dispatch?: { shared: string[] };
   /** The team template the project was started from, and its digest then, so Setup can say when it changed (GH-80). */
   template?: TemplateRecord;
 }
@@ -133,7 +135,7 @@ export const TEMPLATE_DIGEST = /^sha256:[0-9a-f]{64}$/;
 
 const TOP_KEYS = new Set([
   'schema', 'project', 'profile', 'github', 'commitIdentity', 'environments', 'environmentSpecific',
-  'knownDrift', 'trackers', 'agents', 'autonomy', 'worktrees', 'gates', 'secretScan', 'analysis', 'autopilot',
+  'knownDrift', 'trackers', 'agents', 'autonomy', 'worktrees', 'gates', 'secretScan', 'analysis', 'autopilot', 'dispatch',
   'template',
 ]);
 
@@ -360,6 +362,19 @@ export function parseConfig(raw: unknown): ParseResult {
     }
   }
 
+  let dispatch: Config['dispatch'];
+  if (raw.dispatch !== undefined) {
+    const d = raw.dispatch;
+    if (!isObj(d)) errors.push('"dispatch" must be an object, such as { "shared": ["README.md"] }.');
+    else {
+      for (const k of Object.keys(d)) if (k !== 'shared') warnings.push(`Unknown key "dispatch.${k}" is ignored.`);
+      const list = d.shared ?? [];
+      if (!strList(list) || list.some((f) => f.startsWith('/') || f.split('/').includes('..'))) {
+        errors.push('"dispatch.shared" must be a list of paths inside the repo, such as ["README.md", "docs"].');
+      } else dispatch = { shared: list };
+    }
+  }
+
   let template: TemplateRecord | undefined;
   if (raw.template !== undefined && raw.template !== null) {
     const t = raw.template;
@@ -395,6 +410,7 @@ export function parseConfig(raw: unknown): ParseResult {
       },
       ...(typeof an.required === 'boolean' ? { analysis: { required: an.required } } : {}),
       ...(autopilot ? { autopilot } : {}),
+      ...(dispatch ? { dispatch } : {}),
       ...(template ? { template } : {}),
     },
     errors,

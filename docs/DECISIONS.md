@@ -3163,6 +3163,365 @@ to forget a machine step that no longer applies (GH-59's review).
   analysis suspected: no step checks for Homebrew, and the git that comes with
   Apple's command-line tools may be older than A1.git's 2.40.
 
+## D-089 How agents run is behind a Settings button on the Agents page (2026-10-07)
+
+The author asked for the Agents page's "How agents run" to show only after
+clicking a Settings button. The settings are set once and changed rarely, and
+they pushed the sessions, which change all the time, below the fold.
+
+- **Settings**, with a gear, sits in the Agents header beside Start a
+  background agent. It opens How agents run above the sessions, and reads
+  **Hide settings** while it's open (`aria-expanded` says the same). Closed is
+  the default; the tab remembers which way it was left.
+- **Per-token billing still shows while it's closed.** It costs money while
+  nobody is looking, so its orange line stays above the sessions (D-036).
+- **The status bar's Auto-merge item opens it.** It goes to the Agents section
+  with How agents run open, since that's where Auto-merge is changed (D-083).
+- Not chosen: a separate settings page, which would take you away from the
+  sessions for a row or two of choices.
+
+## D-090 Agents show each session's folder in context, with Full path a toggle (2026-10-06)
+
+The Agents tab's Where column was relative only for a session in a project open
+in the window. Every session elsewhere showed its whole cwd, the same long text
+on every row, clipped at the column's edge. The agent's page and its Needs you
+card each worked the folder out again, three ways (GH-83).
+
+- **One helper names a session's folder,** `sessionFolders` in the extension's
+  model, for the Agents tab, an agent's page, its Needs you card, and GH-76's
+  In progress section when it's built. Each folder has a label and its full
+  path, with `~` for the home folder.
+- **In a project open in this window,** a session reads as where it is in it:
+  `main checkout`, `worktree ACME-12`, `force-app/main`, or `worktree AV-2` for
+  a linked worktree outside the project's folder. The Agents tab leaves out the
+  project, which its group's heading names. The agent's page leads with the
+  project's name from its config: `Acme Service › worktree ACME-14`. The Needs
+  you card reads `Acme Service · worktree ACME-11`, as the other cards put their
+  project first.
+- **Elsewhere,** a session reads as its repo's folder name, then the path inside
+  it: `Acme Service`, `Acme Service › force-app/main`. The repo is the nearest
+  folder up holding `.git`, a folder or a linked worktree's file. A builder's
+  worktree under `.claude/worktrees/` reads as its repo's from the path alone,
+  `Acme Service › worktree ACME-12`, though its own `.git` file would make it a
+  repo. Outside any repo, a session reads as its folder's own name, or `~`.
+- **The walk stops before the home folder and `/`.** A repo at `~` (dotfiles)
+  would otherwise be every folder's repo, and every label would start `me ›`.
+  The hub looks for `.git` once per folder each time `claude agents` answers,
+  so a repo made since shows on the next poll.
+- **Two folders of one name each add their parent folders until they differ:**
+  `clients/Acme Service` and `personal/Acme Service`. The rule compares the
+  folder that names a session, its repo or itself, across every session `claude
+  agents` lists. So a worktree of one says which it is, `clients/Acme Service ›
+  worktree ACME-40`, and a session reads the same in the table, on its page and
+  on its card. Sessions in a project open here are named by their project and
+  aren't compared. Two sessions in one folder share one label.
+- **Folder or Full path, by a toggle with an icon and a label each,** that
+  switches the Agents tab only. It sits just above the Where column's heading,
+  on the right, outside the table. In the heading it set the column's least
+  width: at 1000 px the row menu then covered Started, and at 500 px the toggle
+  scrolled out of view. Folder is the default. The choice is kept in the
+  window's workspaceState (`acc.agents.where`), as the section is, so it
+  survives closing the Command Center and reloading the window. A stored value
+  other than `folder` or `path` is ignored.
+- **Full path shows the whole folder, with `~` for home.** Both views wrap a
+  label too long for its cell, as the session names do (D-087), rather than
+  clip it: beside the names and the Model column, a clipped cell kept only
+  `worktree ACM…` at 1000 px, and clipping a path at its start cut its last
+  letter. They break between words and after a slash, never inside a name or
+  a key (`ACME-12` stays whole), and the cell has no minimum width, so a narrow
+  tab never pushes the table under the row menu. Below 660 px the session's
+  name stops taking all the room left over, so the columns share it. Hovering a Where cell shows the full path in either view, as do the
+  folder on an agent's page and the Needs you card.
+- Folder labels are names, not paths, so they're in the UI's font, on the
+  Agents tab and the agent's page. Full paths stay in the code font.
+- Not chosen:
+  - The toggle switching the agent's page and the Needs you card too: a person
+    decided they always show the folder in context, with the full path on
+    hover.
+  - Resolving a linked worktree's `.git` file back to its main repo. A linked
+    worktree outside `.claude/worktrees/`, in a repo not open here, reads as its
+    own folder.
+  - The Worktrees tab's Location column, question and permission cards, and the
+    acc CLI's output, which name worktrees and files, not sessions' folders.
+
+## D-091 One tracker sign-in for every project on a site, unless a repo keeps its own (2026-10-07)
+
+D-027 kept every tracker sign-in per repo, so one client's login never serves
+another client's repo. So someone working on ten projects on one company Jira
+site signed in ten times. The author wants coworkers to use one company tracker
+across many projects without friction, and nothing company-specific in acc
+(GH-79). This amends D-027, and D-085's monday.com sign-in, which was kept for
+one repo only because its token sees everything.
+
+- **A sign-in can be kept for its site**, shared by every repo on this machine
+  that uses the same Jira site, Azure DevOps organization or monday.com
+  account: `acc.cred:site:<kind>:<host>`, beside D-027's
+  `acc.cred:<repo>:<kind>:<host>`. The host is the one the tracker's config
+  names, lower case, with no scheme or trailing slash. Jira and Azure DevOps
+  never share one, whatever the host. No repo key starts with `site:`, so the
+  two never meet. Both stay in VSCode's secret storage on this machine, never
+  in a repo, `.acc/config.json`, the page model, the log or the tab's saved
+  state. GitHub is unchanged: it signs in through gh as the repo's account
+  (D-007, D-028).
+- **A repo's own sign-in wins**, then the site's, so a repo that needs another
+  account keeps one. A sign-in kept before this is its repo's own, and keeps
+  working. None is moved or promoted: one becomes shared only when someone
+  signs in again with the tick.
+- **The Connect page offers "Use this sign-in for every project on <host>"**
+  under a sign-in that's typed or Microsoft's, never gh's. It's ticked the
+  first time anyone signs in to a site. After that it starts where this repo's
+  sign-in lives now (a person decided): ticked when the repo keeps nothing of
+  its own (it has no sign-in yet, or uses the site's), unticked when it has its
+  own sign-in or a "this project only" sign-out. Ticked, the sign-in goes under
+  the site's key and the repo's own key is taken out, or the repo would go on
+  ignoring what was just chosen. Unticked, it goes under the repo's key, and
+  the site's stays for every other project. Once a person ticks or unticks it,
+  that choice stays while the page is open: typing or changing the site doesn't
+  put the default back, so an untick made before the site is typed still keeps
+  the sign-in this project's. The tick's label is built from the host, so the
+  page still names no tracker.
+- **A new tracker on a site that already has a sign-in needs nothing typed.**
+  Once its site parses, the page checks the sign-in this repo would use and
+  fills the lists. Before, it looked only for an existing tracker's, so a
+  second repo typed the token again. Test connection with nothing typed for a
+  token looks too. Sign in with Microsoft never does: it always asks VSCode
+  for a Microsoft sign-in, so it can't sign in with a token kept for the
+  organization instead.
+- **The page and the board say which sign-in is in use**: "Signed in as
+  jordan@acme.example, for every project on acme.atlassian.net", or "…for this
+  project only". On the board it's a line under where its tickets come from,
+  with a globe or a repo icon, in place of the "as <who>" chip. GitHub keeps
+  the chip.
+- **Signing out of a shared sign-in asks**, in a modal: "Every project on
+  <host>" or "This project only". Every project deletes the site's key and
+  nothing else. This project only leaves it and writes a sign-out under the
+  repo's own key, `{"kind": "jira", "signedOut": true}`, with no secret in it,
+  where lookup stops. Neither touches another site's sign-in. VSCode's secret
+  storage can't list its keys, so repos with their own sign-in on the site keep
+  it, which suits D-027: those were chosen on purpose. The message says so.
+- **Signing out of a repo's own sign-in doesn't ask** (a person decided),
+  since no other repo uses it. When the site has a shared one, the repo falls
+  back to it, and the message says "<project> now uses the sign-in for every
+  project on <host> (<who>)." Signing out again and choosing This project only
+  signs it out fully.
+- **A sign-in or sign-out reloads every open project with a tracker on that
+  site**, not only the one it started from. A change made in another window
+  arrives through the secret storage's change event and does the same; keys
+  this window just wrote are skipped, so they don't reload twice. Whether
+  VSCode fires that event across windows hasn't been checked in a real
+  two-window run. If it doesn't, other windows catch up on their next refresh.
+- **The rules are pure functions in `logic.ts`** (`readCreds`, `credInUse`,
+  `credWrites`, `signOutWrites`, `signOutPlan`, `siteCredKey`, `credSite`),
+  tested against a Map. `signOutPlan` is how sign-out chooses: it asks only
+  about a site's sign-in, and Cancel writes nothing. The Connect page's tests
+  run them too.
+- **The packaging scan reads site keys** (`parseSignIn`), so `npm run package`
+  still finds the hosts of shared sign-ins. A site key has no repo.
+- **What this costs D-027.** With the tick on by default, keeping two clients'
+  logins apart on one site is a choice made per repo, not the default. A
+  consultant whose clients share a site, signing in to client B's repo with the
+  tick left on, makes that login every project's on the site, and client A's
+  repo uses it unless it has its own. The tick's hint and the board's "for
+  every project on <host>" line are the cues; untick it, or sign out This
+  project only.
+- **A shared Microsoft sign-in** keeps one account and the org's tenant. When
+  its session ends, every project on the org needs signing in again at once,
+  and the error names the scope: "The Microsoft sign-in every project on
+  <org> uses (<account>) has ended."
+- Not chosen: sharing across machines or an organization, or anything
+  company-specific in acc (the CLI still never signs in to these trackers,
+  D-066); listing or managing every stored sign-in; moving existing sign-ins;
+  a sign-out button on the Connect page (D-073 keeps it a command).
+
+## D-092 In progress on the Overview: every job under way, a group a task; heavy checks wait in line (2026-10-07)
+
+GH-76. The author: "Can we develop an 'In Progress' page that shows each of the
+currently running jobs, their statuses and relevant info, grouped per task?"
+With five builders and two heavy-check slots (D-080), what was happening was
+spread over the Agents tab, the output panel, cards and notices.
+
+- **A section on the Overview, right below Needs you,** as the author suggested,
+  with no page of its own. Its heading counts the groups with something under
+  way. The rail's Overview badge still counts only what needs you, so a task can
+  be in both: a stopped builder is in Needs you with Resume, and here as a row.
+  It folds to its heading, kept per tab, as Setup's sections are.
+- **What counts as under way:** a task in Running, whatever its builder's state,
+  and any job for a task: an analysis, a review, a resume, a check holding or
+  waiting for a heavy-check slot, autopilot's step, a land or a refresh.
+  Promotions and deploys belong to an environment (D-034, D-075), so, as the
+  author chose, each has a group of its own, "Promote dev → qa" or "Deploy dev",
+  among the tasks' groups. A promotion's group names the tasks in its source not
+  yet in its destination, as far as the ledger says. Groups go busiest first,
+  then the longest running.
+- **Each row** has an icon and words for its state, how long it has run, and
+  what it's doing. A builder shows its session's state (Working, Waiting on you,
+  Idle, Stopped, D-067), its latest tool step as its page tells it (D-057), its
+  model from its transcript, or its setting until it has answered, and its
+  branch's commits and files since its environment's branch, with files not yet
+  committed. Orange is only for what waits on a person, blue for what's working,
+  neutral for idle, in line or done.
+- **Each row's actions:** Watch, Open in Claude Code, Answer, which brings its
+  question in Needs you into view, and Stop where acc can stop it. Each says
+  what it does on hover, and Stop asks first. As the author chose, Stop pauses a
+  builder with `claude stop`: its task stays Running and shows its agent stopped,
+  with Resume. It also ends a resume, and a command this window started.
+  Autopilot's step offers Turn autopilot off, in the window that runs it (D-064).
+  A land, a check, and anything another window or a terminal started have no
+  Stop: ending acc leaves its child running, and another window's run isn't this
+  one's to end.
+- **The machine line:** heavy checks in use and free, and how many wait, with who
+  holds each slot and who's in line on hover; builders running out of
+  `agents.max` for each repo, where projects sharing a ledger are one repo; and
+  the load in words, from the last minute's load average per core: below 0.7
+  calm, below 1.5 busy, more very busy. Where it reads 0, as on Windows, it says
+  nothing rather than calm.
+- **A heavy-check slot says what holds it.** Its owner file carries what it runs,
+  its task, its project and its folder, or the environment for a deploy, a
+  promotion's validation, a drift check or a baseline retrieve. `acc gate run`
+  names its task (`ACC_TASK`, else its branch's task), and a refresh names its
+  own. An older acc writes only its pid: the line calls it a check from an older
+  acc, and it's in no group.
+- **Heavy checks wait first come, first served,** as the author chose. A check
+  that has to wait writes itself under `~/.acc/heavy/waiting/`, touches the file
+  each poll, and takes a free slot only while fewer live waiters came before it
+  than there are free slots. A waiter whose process has gone, or that hasn't
+  touched its file for 15 seconds, loses its place. Until now, whichever check
+  looked first after a slot freed took it. An older acc doesn't join the line,
+  so it can still take a free slot ahead of it.
+- **Jobs mark themselves under way:** a land, a refresh, a promotion, a deploy and
+  autopilot's step each write `jobs/<key>.json` beside the ledger, with their pid
+  and start, and remove it however they end. acc writes; every window reads
+  (D-012), whichever window or terminal started the work. Autopilot's step stands
+  for the land, refresh or review it runs: one row, not two.
+- **Live:** a jobs poll beside the tasks poll, every 3 seconds on screen and 15
+  hidden (D-044), of stats and small reads. A builder's transcript tail is read
+  only when it has changed, and only on screen; branch counts run in the
+  worktrees poll, which runs only on screen, for running tasks only. The page
+  redraws when something changed, and every 15 seconds while anything is under
+  way, so its times move on.
+- **A job that ends** leaves a one-line done row, such as "Review finished:
+  passed", which fades over a minute and goes. Its age is the extension's clock:
+  the fade starts that far in, so a redraw never restarts it. Nothing ends on the
+  first look after VSCode opens. A group with nothing left in it leaves.
+- Not chosen: a page of its own; reading Claude Code's own job files (D-067);
+  live output for a check, whose log is written when it ends; the reviewer's and
+  analyst's models; changing `agents.max` or the heavy-check slots from here.
+- The analysis had a refresh running its checks in a temporary worktree. It runs
+  them in the task's own worktree, and names its task all the same. Its "merge"
+  is autopilot's refresh (D-058) and, where a repo turns it on, autopilot's merge
+  of a pull request (GH-67), each shown as autopilot's step.
+
+## D-093 Two tasks that change the same files take turns, where another task can go first (2026-10-06)
+
+The author wants more builders at once (D-080). Two tasks that change the same
+files at once end in a merge conflict: four of seven merges on 2026-10-06 needed
+a person. Each task's analysis already lists the files it plans to change
+(GH-72).
+
+- **What's compared.** Before a first dispatch, acc compares the files the
+  task's analysis plans to change (`approach.files`) with every task in flight.
+  A task in flight counts what its analysis plans and what its branch has
+  changed since it left its environment's branch: commits, and in its worktree
+  uncommitted and untracked files. A rename counts as both paths. Paths are
+  made repo-relative (an absolute path under the repo, a leading `./`, a glob
+  as the folder before its wildcard), and match when they're the same file or
+  one is a folder holding the other.
+- **In flight** (a person decided): running, in review, rework or blocked with
+  a branch, until its change merges, since the conflict comes at the merge.
+  Merged means done, its pull request merged, or a pull request was opened and
+  its branch is now an ancestor of origin's copy after a fetch. A squash merge
+  waits for `acc sync` to mark it done.
+- **Prefer, don't block** (a person decided). Matched file by file, nearly
+  every pair of this repo's tasks overlaps (the docs, `logic.ts`, `model.ts`,
+  `main.ts`), so holding on every shared file would run about one builder at a
+  time. A task that shares files waits only while another Ready task shares
+  none, which a person can start first. When nothing else is ready, it starts
+  anyway, and its run records which files it shares with which task. The merge
+  queue (GH-73) takes the rest.
+- **Files every task edits never count:** `autopilot.appendOnly` (D-058), and
+  a new `dispatch.shared` list in `.acc/config.json`, empty by default so the
+  core names no project's files (D-003). This repo lists `docs/DESIGN.md`,
+  `README.md` and `CHANGELOG.md`, and `docs/DECISIONS.md` is append-only.
+- **A task with no analysis**, or one that names no files, never waits, and
+  never counts as one sharing none. Nothing in flight is looked at for it. Its
+  Ready card says its files aren't known, in a neutral tone, and which of the
+  two it is. Its branch's files still count when others are weighed against
+  it. A rework's re-dispatch never waits: its branch already holds its change.
+- **A wait is a hold, not a refusal.** `acc dispatch <id>` records `held` on
+  the task (who asked, when, what it waits for and what goes first), creates
+  nothing, exits 0, and says "GH-73 waits for GH-70's files: …". `--json` gives
+  `{ held: true, waitsFor, first }`. It stays in the Ready lane; there's no new
+  state. Any move ends a hold, as does `acc dispatch <id> --stop-waiting` or
+  Stop waiting behind ⋯.
+- **It starts on its own.** `acc dispatch --held` starts each held task that
+  may go: one sharing nothing first, oldest hold first, then one whose
+  alternatives have gone, weighing the rest again after each start, under
+  `agents.max`. Each is claimed in the ledger before its builder launches, so
+  two windows and autopilot never start one twice; a claim older than 10
+  minutes is stale. The Command Center runs it when its board says a held task
+  may go, at any autonomy: the person's Dispatch click was the consent. It asks
+  at most every 30 seconds a project. While acc keeps saying the same tasks wait
+  and the board sees nothing change, it asks half as often each time, up to
+  every 10 minutes, since each ask fetches and the board can't see everything
+  acc checks (a branch merged on origin, a protected environment). A start
+  that fails is written on the hold, the task needs you (orange, the bell, the
+  reason), and nothing tries again until a person acts.
+- **Autopilot's `start` step.** This amends D-055's "it never starts a task
+  that's to do": autopilot now starts a held task, as the Command Center does,
+  and still never starts one nobody dispatched (autonomy dispatch stays
+  unbuilt). History and notices say "Autopilot started GH-73: GH-70's files are
+  free", or that nothing else was ready, so it shares files with GH-70. A
+  failure says "Autopilot couldn't start GH-73: …", with Dispatch anyway.
+- **Dispatch anyway** (a person's only, as all of `acc dispatch` is). In the
+  Command Center, Dispatch on a task that would wait first asks, naming each
+  task and its files in full: "Wait for GH-70" or "Dispatch anyway". A held
+  card's one next step is Dispatch anyway, behind a confirmation naming the
+  overlap. A dispatch that shares files records them on its move, and
+  `acc dispatch <id> --anyway` adds `anyway` only when it overrode a wait.
+- **In words, with an icon.** A held card says "Waits for GH-70's files: …,
+  while GH-74 is ready to start" with a clock, in blue: three file names in
+  all, short, at least one a task, and two of the tasks that go first; the
+  task page names every file and task in full, and its State says "Waits for
+  GH-70's files". A task sharing files, to do or started beside another, says
+  "Shares files with GH-70: …", neutral. The Command Center works this out
+  from git on the worktree poll, only while a task is Ready or held, one call
+  at a time. acc's answer at dispatch is final.
+- Not chosen:
+  - Holding on every shared file, as the ticket first said: one builder at a
+    time on this repo.
+  - Holding only on files outside a list (`dispatch.shared` alone): code files
+    such as `logic.ts` would still serialize most tasks.
+  - A new display state or lane for held tasks, or counting them toward
+    `agents.max`.
+  - Predicting conflicts by hunk, or resolving them with an agent; holding
+    dispatches for the agent cap; a merge queue (GH-73).
+- **From its review:** a Ready task in a protected environment, or one not in
+  the config, never goes first: acc wouldn't start it there (envNotProtected),
+  so a task waiting on it would wait for nothing. A person's own dispatch of a
+  held task claims it first, as a held start does, so the two never both
+  launch, and lets the claim go if the launch fails. Dispatch anyway, offered
+  after acc holds a dispatch, names the overlap acc reported, not the board's
+  guess.
+- **The author confirmed the wait as built** (2026-10-07): a person's Dispatch
+  of a task that shares files waits while another Ready task shares none, even
+  though nothing starts that one on its own yet, because the Dispatch modal
+  asks first (Wait for GH-x, or Dispatch anyway) and the CLI takes --anyway.
+
+## D-094 A rework a person sends back tells its builder why (2026-10-07)
+
+GH-80 came back from two reworks with no commits. Its review had passed, and
+a person moved it to rework with a list of fixes (`acc set <id> rework
+--reason …`). The packet shows a review's findings only when the review asked
+for changes, so the builder read a passing review, found nothing to fix, and
+finished.
+
+- **The packet quotes the person's reason** under "Why a person sent it back",
+  before where the builder works, whenever the task's latest move into rework
+  was a person's and gave one. A reviewer's send-back keeps its own section,
+  and autopilot's checks send-back its own (D-076).
+- Not chosen: copying the reason into the review's verdict, which is the
+  reviewer's record, not a person's.
+
 ## D-??? A team template starts a project; acc ships none, and never re-applies one (2026-10-06)
 
 The author wants coworkers to start projects the same way, with the team's

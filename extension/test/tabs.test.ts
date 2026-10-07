@@ -3,9 +3,9 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import type { TaskRow } from '../src/logic.ts';
+import { type AgentSession, repoRoot, type TaskRow } from '../src/logic.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
-import { agentsModel, analysisLook, type BoardInput, cardActions, environmentsModel, homeModel, type HubLike, isFromWebview, needsYouCount, promotionPaths, setupModel, tasksModel, ticketModel, trackerBoard, VIEW_KINDS, worktreesModel, dropLanes, laneMove } from '../src/model.ts';
+import { AGENT_SETTINGS, agentsModel, analysisLook, type BoardInput, cardActions, environmentsModel, homeModel, type HubLike, isFromWebview, needsYouCount, promotionPaths, sessionFolders, setupModel, tasksModel, ticketModel, trackerBoard, VIEW_KINDS, worktreesModel, dropLanes, laneMove } from '../src/model.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
@@ -55,7 +55,7 @@ test('agents: this project first, needs-you on top, background sessions can be s
   assert.deepEqual(m.places.map((p) => p.label), ['Acme', 'Elsewhere on this machine']);
   const bg = m.places[0]!.agents[0]!;
   assert.equal(bg.look.label, 'Needs you: permission prompt');
-  assert.equal(bg.where, 'AV-2');
+  assert.equal(bg.where, 'worktree AV-2');
   assert.equal(bg.background, true);
   assert.equal(m.places[1]!.agents[0]!.background, false, 'interactive sessions are managed where they run');
 });
@@ -84,6 +84,58 @@ test('an agent is called by the name acc gave it on the Agents tab, the Overview
   // A card shows its builder's name when its agent line is hovered.
   const card = tasksModel(h).projects[0]!.columns.flatMap((c) => c.cards).find((c) => c.id === 'AV-1')!;
   assert.equal(card.agentName, name);
+});
+
+/** The test hub with these sessions, a home folder, and these folders holding .git. */
+function sessionsAt(cwds: string[], repos: string[] = []): HubLike {
+  const agents: AgentSession[] = cwds.map((cwd, i) => ({ cwd, kind: 'interactive', startedAt: 100 - i, sessionId: `s${i}`, name: `s${i}`, status: 'idle', pid: i + 1 }));
+  return { ...hub(), home: '/Users/me', agents, repoFor: (p) => repoRoot(p, '/Users/me', (d) => repos.includes(d)) };
+}
+const labels = (h: HubLike) => [...sessionFolders(h).values()].map((f) => f.label);
+
+test('a session elsewhere reads as its repo, a worktree of it, a folder inside it, or its folder\'s own name (GH-83)', () => {
+  const acme = '/Users/me/clients/Acme Service';
+  // The worktree has its own .git, a file: the path says it's Acme Service's, and that wins.
+  const h = sessionsAt([acme, `${acme}/.claude/worktrees/ACME-12`, `${acme}/.claude/worktrees/ACME-12/force-app`, `${acme}/force-app/main`, '/Users/me/Downloads/scratch', '/Users/me', '/opt/tools'], [acme, `${acme}/.claude/worktrees/ACME-12`]);
+  assert.deepEqual(labels(h), ['Acme Service', 'Acme Service › worktree ACME-12', 'Acme Service › worktree ACME-12 › force-app', 'Acme Service › force-app/main', 'scratch', '~', 'tools']);
+  const folders = sessionFolders(h);
+  assert.deepEqual([...folders.values()].map((f) => f.full), ['~/clients/Acme Service', '~/clients/Acme Service/.claude/worktrees/ACME-12', '~/clients/Acme Service/.claude/worktrees/ACME-12/force-app', '~/clients/Acme Service/force-app/main', '~/Downloads/scratch', '~', '/opt/tools']);
+  assert.ok([...folders.values()].every((f) => f.inProject === null), 'none is in a project open here');
+  // The Agents tab shows the same, under Elsewhere, with the full path beside it for the toggle and the hover.
+  const rows = agentsModel(h).places.find((p) => p.root === null)!.agents;
+  assert.deepEqual(rows.map((r) => [r.where, r.path]), [...folders.values()].map((f) => [f.label, f.full]));
+  assert.equal(sessionFolders(h, ['/x']).get('/x')!.label, 'x', 'a folder no session has, such as an ended session\'s');
+});
+
+test('a session in a project open here reads as where it is in it, without the project its group names (GH-83)', () => {
+  const h = sessionsAt(['/r', '/r/.claude/worktrees/ACME-12', '/r/force-app/main', '/r.worktrees/AV-2', '/r.worktrees/AV-2/src']);
+  const folders = [...sessionFolders(h).values()];
+  assert.deepEqual(folders.map((f) => f.inProject), ['main checkout', 'worktree ACME-12', 'force-app/main', 'worktree AV-2', 'worktree AV-2 › src']);
+  assert.deepEqual(folders.map((f) => f.label), ['Acme › main checkout', 'Acme › worktree ACME-12', 'Acme › force-app/main', 'Acme › worktree AV-2', 'Acme › worktree AV-2 › src'], 'elsewhere, such as an agent\'s page, it leads with the project');
+  assert.deepEqual(agentsModel(h).places[0]!.agents.map((a) => a.where), folders.map((f) => f.inProject));
+});
+
+test('two folders of one name each add their parent folders until they differ, and one folder always reads one way (GH-83)', () => {
+  const clients = '/Users/me/clients/Acme Service';
+  const personal = '/Users/me/personal/Acme Service';
+  // Every session in a repo of that name says which it is, its worktrees too.
+  assert.deepEqual(labels(sessionsAt([clients, personal, `${clients}/.claude/worktrees/ACME-40`], [clients, personal])), ['clients/Acme Service', 'personal/Acme Service', 'clients/Acme Service › worktree ACME-40']);
+  assert.deepEqual(labels(sessionsAt(['/Users/me/a/x/Acme', '/Users/me/b/x/Acme'])), ['a/x/Acme', 'b/x/Acme']);
+  assert.deepEqual(labels(sessionsAt(['/Users/me/x/Acme', '/opt/x/Acme'])), ['~/x/Acme', 'opt/x/Acme']);
+  // Two sessions in one folder, however its path is written, share one name, and add no parent for it.
+  const same = sessionsAt(['/Users/me/Downloads/scratch', '/Users/me/Downloads/scratch/', '/Users/me/Downloads/scratch']);
+  assert.deepEqual(agentsModel(same).places.find((p) => p.root === null)!.agents.map((a) => a.where), ['scratch', 'scratch', 'scratch']);
+});
+
+test('the Where column shows folders unless the window chose full paths, and the page can only ask for one or the other (GH-83)', () => {
+  const input = { hub: hub(), section: 'agents' as const, boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set<string>() } };
+  assert.equal(homeModel(input).agents.whereView, 'folder');
+  assert.equal(homeModel({ ...input, whereView: 'path' }).agents.whereView, 'path');
+  assert.equal(agentsModel(hub()).whereView, 'folder');
+  assert.ok(isFromWebview({ type: 'agents-where', view: 'folder' }));
+  assert.ok(isFromWebview({ type: 'agents-where', view: 'path' }));
+  assert.ok(!isFromWebview({ type: 'agents-where', view: 'tree' }));
+  assert.ok(!isFromWebview({ type: 'agents-where' }));
 });
 
 /** The webview/context items VSCode would show for a row with these context keys, in menu order. */
@@ -650,6 +702,95 @@ test('History tells each step autopilot took once, under Tasks, with its icon an
   assert.match(readFileSync(join(root, 'webview', 'main.ts'), 'utf8'), /const historyKind = \(i: HistoryItem\): string => \(i\.kind === 'autopilot' \? 'move' : i\.kind\);/);
 });
 
+test('a task that waits for others\' files says so with a clock, in blue; its next step is Dispatch anyway, and Stop waiting sits behind ⋯ (D-093)', () => {
+  const held = { at: '2026-10-06T10:00:00.000Z', failed: null, byAutopilot: false };
+  const todo = (id: string, display: TaskRow['display'], files: TaskRow['files']): TaskRow => ({ ...row(id, 'todo', display), deps: [], files });
+  const rows: TaskRow[] = [
+    todo('AV-5', 'ready', { known: true, shares: [{ task: 'AV-1', files: ['src/a.ts', 'force-app/main/default/classes/X.cls'] }], first: ['AV-6'], held }),
+    todo('AV-6', 'ready', { known: true, shares: [], first: [], held: null }),
+    todo('AV-7', 'ready', { known: false, shares: [], first: [], held: null }),
+    todo('AV-8', 'ready', { known: true, shares: [{ task: 'AV-1', files: ['src/a.ts'] }], first: ['AV-6'], held: null }),
+    { ...row('AV-1', 'running', 'running'), run: { bgId: 'bg1', worktree: '/w1', branch: 'b1' }, files: { known: true, shares: [{ task: 'AV-9', files: ['lib/b.ts'] }], first: [], held: null } },
+    todo('AV-10', 'needs-you', { known: true, shares: [], first: [], held: { ...held, failed: 'Claude Code doesn\'t trust /r yet.', byAutopilot: true } }),
+    todo('AV-11', 'ready', { known: true, shares: [{ task: 'AV-1', files: ['src/a.ts'] }], first: [], held }),
+    todo('AV-12', 'ready', { known: false, analyzed: true, shares: [], first: [], held: null }),
+  ];
+  const h = { ...hub(), agents: [], taskRows: () => rows };
+  const card = (id: string) => tasksModel(h).projects[0]!.columns.flatMap((c) => c.cards).find((c) => c.id === id)!;
+  // Held: a clock and the words, in blue, the files by folder and name, and the Ready task that goes first.
+  assert.deepEqual(card('AV-5').files, { label: 'Waits for AV-1\'s files: src/a.ts, classes/X.cls, while AV-6 is ready to start', icon: 'clock', tone: 'blue' });
+  assert.deepEqual(card('AV-5').actions.filter((a) => a.primary).map((a) => [a.label, a.command]), [['Dispatch anyway', 'acc.task.dispatchAnyway']]);
+  assert.ok(card('AV-5').actions.some((a) => a.command === 'acc.task.stopWaiting' && !a.primary), 'Stop waiting, behind ⋯');
+  assert.ok(!card('AV-5').actions.some((a) => a.command === 'acc.task.dispatch'), 'it was dispatched already');
+  assert.ok(tasksModel(h).projects[0]!.columns.find((c) => c.group === 'ready')!.cards.some((c) => c.id === 'AV-5'), 'it stays in the Ready lane');
+  // Its wait is over: it's about to start.
+  assert.deepEqual([card('AV-11').files?.label, card('AV-11').files?.tone], ['Starting: nothing else is ready, so it shares files with AV-1', 'blue']);
+  // Nothing to say about one that shares nothing.
+  assert.equal(card('AV-6').files, null);
+  assert.deepEqual(card('AV-6').actions.filter((a) => a.primary).map((a) => a.label), ['Dispatch']);
+  // No analysis: its files aren't known, said in a neutral tone, and it's dispatched as ever.
+  assert.deepEqual(card('AV-7').files, { label: 'Its files aren\'t known: no analysis to compare with work in flight', icon: 'info', tone: 'neutral' });
+  assert.deepEqual(card('AV-7').actions.filter((a) => a.primary).map((a) => a.label), ['Dispatch']);
+  // An analysis that names no files isn't told it has none.
+  assert.deepEqual(card('AV-12').files, { label: 'Its files aren\'t known: its analysis names no files', icon: 'info', tone: 'neutral' });
+  // Shares files but isn't held: said before Dispatch, and on a task that started beside another.
+  assert.deepEqual(card('AV-8').files, { label: 'Shares files with AV-1: src/a.ts', icon: 'files', tone: 'neutral' });
+  assert.deepEqual(card('AV-1').files, { label: 'Shares files with AV-9: lib/b.ts', icon: 'files', tone: 'neutral' });
+  // A start that failed needs you: the bell, in orange, and on the Overview with Dispatch anyway.
+  assert.deepEqual(card('AV-10').files, { label: 'Needs you: autopilot couldn\'t start it: Claude Code doesn\'t trust /r yet.', icon: 'bell', tone: 'orange' });
+  const m = homeModel({ hub: h, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } });
+  const item = m.overview.attention.find((a) => a.title === 'AV-10 Task AV-10')!;
+  assert.deepEqual([item.look.label, item.look.icon, item.look.tone, item.detail], ['Needs you: autopilot couldn\'t start it', 'bell', 'orange', 'Acme · Claude Code doesn\'t trust /r yet. Dispatch it anyway, or stop it waiting.']);
+  assert.deepEqual(item.actions.map((a) => a.label), ['Dispatch anyway', 'Open']);
+
+  // The task page names every file in full; the tracker's card says it waits.
+  const task = { id: 'AV-5', title: 'Task AV-5', brief: '', source: { kind: 'jira', key: 'AV-5', url: null }, environment: 'devbox', deps: [], labels: [], state: 'todo', blocker: null, run: null, pr: null, history: [], createdAt: '', updatedAt: '' } as never;
+  const page = ticketModel({ project: '/r', tracker: null, trackerTitle: null, trackerKind: null, key: 'AV-5', ticket: null, loading: false, error: null, connect: null, checks: [], row: rows[0]!, task });
+  assert.equal(page.acc!.files!.label, 'Waits for AV-1\'s files: src/a.ts, force-app/main/default/classes/X.cls, while AV-6 is ready to start');
+  assert.deepEqual([page.acc!.look.label, page.acc!.look.icon, page.acc!.look.tone], ['Waits for AV-1\'s files, while AV-6 is ready to start', 'clock', 'blue'], 'its State, in a few words, with what goes first');
+  assert.ok(page.acc!.actions.some((a) => a.command === 'acc.task.stopWaiting'));
+  const board: BoardInput = {
+    index: 0, kind: 'jira', title: 'Jira', error: null, connect: null, loading: false,
+    board: { source: 'jira-board', title: 'Board', url: null, notice: null, columns: [{ id: 'c', name: 'To Do', category: 'todo', statusIds: ['1'] }], cards: [{ key: 'AV-5', title: 'Task AV-5', url: 'u', status: { id: '1', name: 'To Do' }, type: 'Story', assignees: [], labels: [], priority: null }] },
+  };
+  const tcard = trackerBoard(board, rows, '/r').columns[0]!.cards[0]!;
+  assert.deepEqual([tcard.acc!.look.icon, tcard.acc!.look.tone, tcard.acc!.action?.label], ['clock', 'blue', 'Dispatch anyway']);
+
+  // Drawn with its icon and words, on the card and the page, and the page and menus may run both commands.
+  const main = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
+  assert.match(main, /card\.files \? el\('div', 'card-agent', status\(card\.files\)\) : null/);
+  assert.match(main, /if \(m\.acc\?\.files\)/);
+  for (const command of ['acc.task.dispatchAnyway', 'acc.task.stopWaiting']) {
+    assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === command), command);
+    assert.match(readFileSync(join(root, 'src', 'panels.ts'), 'utf8'), new RegExp(`'${command.replace('.', '\\.')}'`));
+    assert.match(readFileSync(join(root, 'src', 'ticket.ts'), 'utf8'), new RegExp(`'${command.replace('.', '\\.')}'`));
+  }
+});
+
+test('History tells autopilot\'s start of a held task, and one it couldn\'t make (D-093)', async () => {
+  const { autopilotStepLook } = await import('../src/model.ts');
+  const at = '2026-10-06T12:00:00.000Z';
+  const look = (r: Record<string, unknown>) => { const l = autopilotStepLook({ seq: 1, at, task: 'AV-5', step: 'start', outcome: 'done', ...r } as never); return [l.look.label, l.look.icon, l.look.tone, l.detail]; };
+  assert.deepEqual(look({ waitedFor: ['AV-1'] }), ['Autopilot started it: AV-1\'s files are free', 'rocket', 'blue', null]);
+  assert.deepEqual(look({ shares: [{ task: 'AV-1', files: ['src/a.ts'] }] }), ['Autopilot started it: nothing else was ready, so it shares files with AV-1', 'rocket', 'blue', 'AV-1: src/a.ts']);
+  assert.deepEqual(look({ outcome: 'failed', reason: 'No trust' }), ['Autopilot couldn\'t start it', 'warning', 'orange', 'No trust']);
+});
+
+test('How agents run is behind a Settings button, closed until it\'s opened, and the status bar\'s Auto-merge opens it', () => {
+  const page = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
+  // Closed by default, remembered for the tab, with a label that says which way it goes and an icon.
+  assert.match(page, /const open = memory\(\)\.opened\.includes\(AGENT_SETTINGS\)/);
+  assert.match(page, /button\(open \? 'Hide settings' : 'Settings', 'settings-gear',/);
+  assert.match(page, /setAttribute\('aria-expanded', String\(open\)\)/);
+  assert.match(page, /for \(const s of open \? m\.settings : \[\]\)/, 'the settings are drawn only when open');
+  // A billing problem still shows while it's closed.
+  assert.match(page, /if \(!open\) for \(const s of m\.settings\) if \(s\.billing\?\.tone === 'orange'\)/);
+  // The webview's key is model.ts's, which the extension asks the page to open.
+  assert.equal(page.match(/const AGENT_SETTINGS = '([^']+)'/)?.[1], AGENT_SETTINGS);
+  assert.match(readFileSync(join(root, 'src', 'extension.ts'), 'utf8'), /go: \(\) => panels\.show\('agents', AGENT_SETTINGS\)/);
+  assert.match(page, /if \(msg\.open\) \{ const part = msg\.open; remember/);
+});
+
 test('How agents run shows the project\'s autonomy, where it\'s set, and a way to change it (D-064)', () => {
   const h = hub();
   const p = h.projects[0]!;
@@ -659,7 +800,7 @@ test('How agents run shows the project\'s autonomy, where it\'s set, and a way t
   };
   p.config = { ...p.config, autonomy: 'review' };
   const s = agentsModel(h).settings[0]!;
-  assert.deepEqual(s.autonomy, { value: 'review', from: 'project', meaning: 'Autopilot reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, and merges the base into a pull request that conflicts with it. It never merges a pull request.' });
+  assert.deepEqual(s.autonomy, { value: 'review', from: 'project', meaning: 'Autopilot reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, merges the base into a pull request that conflicts with it, and starts a task a person dispatched once the files it waits for are free. It never merges a pull request.' });
   p.config = { ...p.config, autonomy: 'manual' };
   assert.deepEqual(agentsModel(h).settings[0]!.autonomy, { value: 'manual', from: 'project', meaning: 'Nothing happens on its own.' });
   // The page asks acc to change it: the webview never writes the config.
@@ -704,7 +845,7 @@ test('How agents run has an Auto-merge row: on or off, what it means, and Change
   const ext = readFileSync(join(root, 'src', 'extension.ts'), 'utf8');
   assert.match(ext, /autopilot\.mergeLooks\(\)\.map/);
   assert.match(ext, /m\.on \? '\$\(git-merge\) Auto-merge: on' : '\$\(circle-slash\) Auto-merge: off'/);
-  assert.match(ext, /go: \(\) => panels\.show\('agents'\)/);
+  assert.match(ext, /go: \(\) => panels\.show\('agents', AGENT_SETTINGS\)/);
 });
 
 test('History tells a pull request autopilot merged, with its link (GH-67)', () => {
@@ -764,4 +905,15 @@ test('How agents run names acc\'s default model, apart from Claude Code\'s defau
   const [builder, reviewer] = agentsModel(h).settings[0]!.roles;
   assert.deepEqual(builder!.parts, [{ name: 'Model', value: 'claude-opus-5-5', from: 'acc\'s default' }, { name: 'Effort', value: 'default', from: 'Claude Code\'s default' }]);
   assert.deepEqual(reviewer!.parts.map((p) => p.from), ['this clone', 'project default']);
+});
+
+test('a board says who it\'s signed in as, and whether every project on the site shares that sign-in (GH-79)', () => {
+  const board = (b: Partial<BoardInput>): BoardInput => ({ index: 0, kind: 'jira', title: 'Jira · ACME', board: null, error: null, connect: null, loading: false, ...b });
+  const shared = trackerBoard(board({ signedInAs: 'jordan@acme.example', signInScope: { shared: true, host: 'acme.atlassian.net' } }), [], '/r');
+  assert.deepEqual(shared.signIn, { label: 'Signed in as jordan@acme.example, for every project on acme.atlassian.net', icon: 'globe', tone: 'blue' });
+  const own = trackerBoard(board({ signedInAs: 'jordan@acme.example', signInScope: { shared: false, host: 'acme.atlassian.net' } }), [], '/r');
+  assert.deepEqual(own.signIn, { label: 'Signed in as jordan@acme.example, for this project only', icon: 'repo', tone: 'blue' });
+  assert.equal(trackerBoard(board({ signedInAs: null, signInScope: null }), [], '/r').signIn, null, 'not signed in: its error says so');
+  const gh = trackerBoard(board({ kind: 'github', title: 'GitHub · acme/service', signedInAs: 'jordan-kim', signInScope: null }), [], '/r');
+  assert.deepEqual([gh.signIn, gh.signedInAs], [null, 'jordan-kim'], 'GitHub signs in through gh as the repo\'s account (D-007), as before');
 });

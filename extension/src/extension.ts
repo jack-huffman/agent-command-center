@@ -6,12 +6,12 @@ import { Hub } from './hub.ts';
 import type { Answer } from '../../packages/core/src/questions.ts';
 import { agentArgs, withCloneAgents } from '../../packages/core/src/agents.ts';
 import { run as runSync } from '../../packages/core/src/exec.ts';
-import { resumeCommand } from '../../packages/core/src/resume.ts';
+import { endResume, resumeCommand } from '../../packages/core/src/resume.ts';
 import { recordRuntime } from '../../packages/core/src/runtime.ts';
 import { AgentPages } from './activity.ts';
 import { AutopilotHost } from './autopilot.ts';
-import { type AgentSession, analysisAnswerArgs, CLAUDE_EXTENSION, claudeSessionUri, COMMANDS, followsPullRequests, isSessionId, isWebviewMenuContext, shq, WALKTHROUGHS } from './logic.ts';
-import { type NavItem, needsYouCount, type Ref, sessionKey, VIEW_KINDS, type ViewKind } from './model.ts';
+import { type AgentSession, analysisAnswerArgs, CLAUDE_EXTENSION, claudeSessionUri, COMMANDS, followsPullRequests, type HeldAsk, heldAskDue, heldAsked, heldAskKey, heldDue, isSessionId, isWebviewMenuContext, sessionFor, shq, startedNotice, WALKTHROUGHS } from './logic.ts';
+import { AGENT_SETTINGS, type NavItem, needsYouCount, type Ref, sessionKey, VIEW_KINDS, type ViewKind } from './model.ts';
 import { Notices } from './notices.ts';
 import { Panels } from './panels.ts';
 import { accShellCommand, Questions, sessionSettings } from './questions.ts';
@@ -102,6 +102,9 @@ export function activate(context: vscode.ExtensionContext): void {
   const inPlay = () => hub.projects.some((p) => hub.taskRows(p.root).some((t) => t.state === 'running' || !!t.reviewing || !!t.analyzing));
   const POLLS: Record<string, { everyMs: number; hiddenMs?: number; fn: () => Promise<void> }> = {
     tasks: { everyMs: 3_000, hiddenMs: 15_000, fn: () => hub.loadTasks() },
+    // In progress (D-092): slots, job markers and builders' latest steps. Stats and small reads; a builder's
+    // transcript only when it changed, and only while the page is on screen.
+    jobs: { everyMs: 3_000, hiddenMs: 15_000, fn: () => hub.loadJobs(pageVisible) },
     agents: { everyMs: 5_000, hiddenMs: 30_000, fn: () => (pageVisible || inPlay() ? hub.loadAgents() : Promise.resolve()) },
     worktrees: { everyMs: 15_000, fn: () => hub.loadWorktrees() },
     // Tracker boards are network calls, so they refresh slowly, and at once after any move.
@@ -305,12 +308,14 @@ export function activate(context: vscode.ExtensionContext): void {
     trackers: (root) => { const p = hub.project(root); return p ? trackers.trackers(p) : []; },
     title: (t) => trackers.title(t),
     storedSignIn: (root, kind, host) => trackers.storedSignIn(root, kind, host),
-    storeSignIn: (root, kind, host, cred) => trackers.storeSignIn(root, kind, host, cred),
+    ownSignIn: (root, kind, host) => trackers.ownSignIn(root, kind, host),
+    storeSignIn: (root, kind, host, cred, shared) => trackers.storeSignIn(root, kind, host, cred, shared),
     gitEmail: (root) => trackers.gitEmail(root),
     ghToken: (root, account) => trackers.ghToken(root, account),
     microsoft: (host, spec) => trackers.microsoft(host, spec),
     write: (root, index, record) => trackers.write(root, index, record),
-    signedIn: async (root) => { await trackers.reload(root); tickets.refresh(); await setup.recheck('B14.tickets'); },
+    // A sign-in for every project on a site lets their boards load too (GH-79).
+    signedIn: async (root, kind, host) => { await trackers.reload(root, { kind, host }); tickets.refresh(); await setup.recheck('B14.tickets'); },
     saved: async (root, name) => {
       await hub.loadProjects();
       await trackers.reload(root);
@@ -351,6 +356,7 @@ export function activate(context: vscode.ExtensionContext): void {
     runs: () => runs.views(),
     runInput: (id, text) => void runs.input(id, text),
     runControl: (id, action) => runs.control(id, action),
+    autopilot: (root) => autopilotRef?.stateFor(root) ?? null,
     slack: {
       card: () => slackCard(slack.state(), slack.busy),
       receive: (m) => {
@@ -433,7 +439,7 @@ export function activate(context: vscode.ExtensionContext): void {
       ...autopilot.mergeLooks().map((m): Item => ({
         label: m.on ? '$(git-merge) Auto-merge: on' : '$(circle-slash) Auto-merge: off',
         description: `${m.project}${m.on && !m.acts ? ' · autonomy manual, so nothing merges' : ''}`,
-        go: () => panels.show('agents'),
+        go: () => panels.show('agents', AGENT_SETTINGS),
       })),
       ...(runs.live().length ? [{ label: '$(terminal) Show what\'s running', go: () => showRun() }] : []),
       { label: '$(checklist) Setup', description: look.total ? `${look.done} of ${look.total} done${look.checking ? ', checking now' : ''}` : '', go: () => panels.show('setup') },
@@ -445,6 +451,37 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(autopilot);
   reg('acc.autopilot.toggle', (arg?: unknown) => autopilot.toggle(arg));
   reg('acc.autopilot.output', (arg?: unknown) => autopilot.showOutput(arg));
+  // In progress's Stop (D-092): each kind of job stops its own way, after a person says so. A builder is
+  // paused, not abandoned: its task stays Running and shows its agent stopped, with Resume (D-067).
+  reg('acc.job.stop', async (raw?: unknown) => {
+    let a: { kind?: unknown; project?: unknown; task?: unknown; run?: unknown } = {};
+    try { a = JSON.parse(String(raw)) as typeof a; } catch { return; }
+    const p = typeof a.project === 'string' ? hub.project(a.project) : undefined;
+    const task = typeof a.task === 'string' ? a.task : '';
+    const ask = async (title: string, detail: string, button: string) => (await vscode.window.showWarningMessage(title, { modal: true, detail }, button)) === button;
+    if (a.kind === 'builder' && p && task) {
+      const row = hub.taskRows(p.root).find((t) => t.id === task);
+      const s = row ? sessionFor(row, hub.agents) : undefined;
+      if (!s?.id || !s.pid) return void vscode.window.showInformationMessage(`${task}'s builder isn't running in the background any more, so there's nothing to stop.`);
+      if (!(await ask(`Stop ${task}'s builder?`, 'It stops where it is, with claude stop. The task stays Running and shows that its agent stopped, with Resume to carry it on. Its worktree and commits are kept. To set the task aside instead, use Abandon.', 'Stop'))) return;
+      const r = await runFile('claude', ['stop', s.id], s.cwd, process.env, undefined, 30_000);
+      if (r.code !== 0) void vscode.window.showWarningMessage(`Couldn't stop ${task}'s builder: ${(r.stderr || r.stdout).trim().split('\n')[0]}`);
+      await hub.loadAgents();
+    } else if (a.kind === 'resume' && p && task) {
+      if (!(await ask(`Stop ${task}'s resumed builder?`, 'The resumed conversation ends where it is. The task stays Running, with Resume to carry it on again.', 'Stop'))) return;
+      endResume({ stateDir: dirname(p.ledgerPath) }, task);
+      await Promise.all([hub.loadJobs(true), hub.loadAgents()]);
+    } else if (a.kind === 'run' && typeof a.run === 'string') {
+      const run = runs.views().find((r) => r.id === a.run && r.endedAt === null);
+      if (!run) return;
+      if (!(await ask(`Stop ${run.label}?`, 'It\'s this window\'s command, and it ends now. What it finished stays done; what it was in the middle of is left, and you can start it again.', 'Stop'))) return;
+      runs.control(run.id, 'stop');
+    } else if (a.kind === 'autopilot' && p) {
+      if (autopilot.stateFor(p.root) !== 'on') return void vscode.window.showInformationMessage(`Autopilot for ${p.name} runs in another window or a terminal: turn it off there.`);
+      if (!(await ask(`Turn autopilot off for ${p.name}?`, `The step it's taking${task ? ` on ${task}` : ''} ends now (D-064): a review's work is lost, and the next pass starts it again. Turn it on again from the status bar.`, 'Turn autopilot off'))) return;
+      await autopilot.toggle(p.root);
+    }
+  });
   // ------------------------------------------------------------ the launcher (D-029)
   // The activity bar icon opens the page. Its one view lists the sections, for anyone who keeps the sidebar.
   const launcher = new HomeLauncher(() => panels.model().nav);
@@ -506,7 +543,45 @@ export function activate(context: vscode.ExtensionContext): void {
   reg('acc.open.home', (section?: unknown) => panels.show(typeof section === 'string' ? (section as ViewKind) : undefined));
   for (const kind of VIEW_KINDS) reg(`acc.open.${kind}`, () => panels.show(kind));
 
+  // A task a person dispatched that waits for others' files starts on its own once it may (D-093), at any
+  // autonomy: the Dispatch click was the consent. acc decides and claims it, so autopilot or another window
+  // starting it too is harmless. Asked only when the board says one may go, at most every 30 seconds a
+  // project, and less often, up to every 10 minutes, while acc keeps saying the same tasks wait.
+  const startingHeld = new Set<string>();
+  const heldAsks = new Map<string, HeldAsk>();
+  const startHeld = async () => {
+    for (const p of hub.projects) {
+      const rows = hub.taskRows(p.root);
+      const due = heldDue(rows);
+      if (!due.length || startingHeld.has(p.root)) continue;
+      const key = heldAskKey(rows, due);
+      const last = heldAsks.get(p.root);
+      if (!heldAskDue(last, key, Date.now())) continue;
+      startingHeld.add(p.root);
+      // acc couldn't say: as if it kept them all waiting.
+      heldAsks.set(p.root, heldAsked(last, key, Date.now(), due, due));
+      try {
+        const r = await accRunner(accScript)(['dispatch', '--held', '--json'], p.root);
+        if (r.code !== 0) { setup.log.warn(`acc dispatch --held in ${p.name}: ${accSays(r)}`); continue; }
+        const out = JSON.parse(r.stdout) as { started: { task: string; waitedFor: string[]; shares: { task: string; files: string[] }[] }[]; failed: { task: string; reason: string }[]; waiting: { task: string }[] };
+        heldAsks.set(p.root, heldAsked(last, key, Date.now(), due, out.waiting.map((w) => w.task)));
+        for (const s of out.started) {
+          void vscode.window.showInformationMessage(startedNotice(`${s.task} started`, s), 'Watch').then((pick) => pick && resolve('acc.task.watch', { project: p.root, task: s.task }));
+        }
+        for (const f of out.failed) {
+          void vscode.window.showWarningMessage(`${f.task} couldn't start: ${f.reason}`, 'Dispatch anyway').then((pick) => pick && resolve('acc.task.dispatchAnyway', { project: p.root, task: f.task }));
+        }
+      } catch (e) {
+        setup.log.warn(`acc dispatch --held in ${p.name}: ${(e as Error).message}`);
+      } finally {
+        startingHeld.delete(p.root);
+        void hub.loadTasks(true);
+      }
+    }
+  };
+
   hub.onDidChange((part) => {
+    if (part === 'tasks' || part === 'worktrees') void startHeld();
     if (part === 'projects') { void trackers.loadBoards(); void setup.recheck('B14.tickets'); void identity.refresh(); }
     if (part === 'projects' || part === 'worktrees') autopilot.reconcile();
     if (part === 'projects' || part === 'worktrees') questions?.rootsChanged();

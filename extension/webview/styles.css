@@ -189,6 +189,18 @@ table.grid { width: 100%; border-collapse: collapse; }
 /* An agent's name (D-087) wraps rather than clipping, so its task and role stay in view. */
 .grid td.agent-name { min-width: 11em; max-width: 24em; overflow-wrap: anywhere; }
 .grid td.clip.mono { min-width: 9em; }
+/* Where wraps rather than clipping (GH-83): a session's own folder comes last, and a clip would lose it. It
+   breaks between words and after a slash, never inside a name, so the column is at least its longest word. */
+.grid td.where-folder { max-width: 16em; }
+.unbroken { white-space: nowrap; }
+.grid td.where-path { max-width: 22em; }
+/* A narrow tab shares the room: the session's name stops taking all that's left over (D-087), and wraps. */
+@media (max-width: 660px) { .grid th.wide { width: auto; } .grid td.agent-name { min-width: 8em; } }
+/* What the Where column shows, Folder or Full path (GH-83): right above it, outside the table, so it never
+   widens a column or scrolls sideways with it. */
+.where-bar { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
+.where-label { font-size: 0.9em; font-weight: 600; color: var(--vscode-descriptionForeground); }
+.segmented.where-view .seg { font-size: 0.88em; padding: 2px 8px; white-space: nowrap; }
 /* A narrow tab drops the least useful columns, so the row menu never scrolls out of view. Agents' names
    are long (D-087), so Kind goes first, below 1100px, then the Model column (D-086), below 560px. */
 @media (max-width: 1100px) { .grid .kind { display: none; } }
@@ -220,6 +232,7 @@ table.grid { width: 100%; border-collapse: collapse; }
 .tracker-place { display: flex; align-items: baseline; gap: 6px; margin: -4px 0 10px; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
 .tracker-place > .codicon { flex: none; position: relative; top: 2px; }
 .tracker-place strong { color: var(--vscode-foreground); font-weight: 600; }
+.tracker-place + .tracker-signin { margin-top: -6px; }
 .notice.left-place { align-items: flex-start; }
 .notice.left-place > .codicon { margin-top: 2px; flex: none; min-width: 0; }
 .left-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
@@ -510,6 +523,53 @@ body.vscode-light .logo-light, body.vscode-high-contrast-light .logo-light { dis
 .inbox-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inbox-row .actions { justify-content: flex-end; }
 @media (max-width: 620px) { .inbox-row { grid-template-columns: minmax(0, 1fr); gap: 6px; } .inbox-row .actions { justify-content: flex-start; } }
+/* An answer In progress pointed at (D-092). */
+.question.flash { outline: 2px solid var(--vscode-focusBorder); outline-offset: 2px; }
+
+/* In progress (D-092): every job under way, a group a task, the machine on top. Its heading folds it. */
+.in-progress { border: 1px solid var(--line); border-radius: 8px; background: var(--card); padding: 10px 16px 6px; margin-bottom: 18px; }
+.in-progress h2 { margin: 0 0 4px; }
+.progress-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 2px 6px 2px 0; border: 0; border-radius: 4px; background: transparent; color: inherit; font: inherit; font-weight: 600; cursor: pointer; }
+.progress-toggle:hover { background: var(--vscode-toolbar-hoverBackground); }
+.in-progress.open .progress-toggle .tool-chev .codicon { transform: rotate(90deg); }
+.in-progress:not(.open) { padding-bottom: 8px; }
+.in-progress:not(.open) h2 { margin: 0; }
+.machine-line { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 4px 0 10px; border-bottom: 1px solid var(--line); }
+.machine-line .status { cursor: default; font-size: 0.92em; }
+.progress-group { padding: 10px 0 6px; border-top: 1px solid var(--line); }
+.machine-line + .progress-group, .in-progress h2 + .progress-group { border-top: 0; }
+.pg-head { display: flex; align-items: center; justify-content: space-between; gap: 6px 14px; flex-wrap: wrap; }
+.pg-name { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1 1 260px; }
+.pg-name .chip { margin-left: 0; flex: none; }
+.pg-name .tcard-key { flex: none; white-space: nowrap; }
+.pg-title { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pg-state { display: flex; align-items: center; gap: 12px; flex: none; }
+.pg-since { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.pg-since .codicon { font-size: 13px; }
+.pg-note { margin: 2px 0 0; overflow-wrap: anywhere; }
+.pg-row { display: grid; grid-template-columns: 150px minmax(240px, 1fr) minmax(0, auto); align-items: center; gap: 12px; margin: 6px 0 0 14px; padding: 6px 0 6px 12px; border-left: 2px solid var(--line); }
+.pg-row.tone-row-orange { border-left-color: var(--orange); }
+.pg-row.tone-row-blue { border-left-color: var(--blue); }
+.pg-row .status { white-space: normal; align-items: flex-start; }
+.pg-row .status .codicon { margin-top: 2px; flex: none; }
+.pg-text { min-width: 0; }
+.pg-detail { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.pg-meta { overflow-wrap: anywhere; }
+.pg-row .actions { justify-content: flex-end; flex-wrap: wrap; }
+.pg-row .btn.small { line-height: 1.5; white-space: nowrap; }
+.pg-text .strong + .muted { white-space: nowrap; }
+.btn.stop { color: var(--vscode-foreground); }
+/* A job that ended: a line that fades over its minute, then folds away until the next redraw removes it. */
+.pg-done { display: flex; align-items: center; gap: 8px; margin: 4px 0 0 14px; padding: 2px 0 2px 12px; border-left: 2px solid var(--line); font-size: 0.92em; max-height: 3em; overflow: hidden; animation: pg-fade 60s linear forwards; }
+.pg-done .status { flex: none; }
+.pg-done-text { min-width: 0; overflow-wrap: anywhere; color: var(--vscode-descriptionForeground); }
+@keyframes pg-fade { 0%, 60% { opacity: 1; } 95% { opacity: 0.15; max-height: 3em; } 100% { opacity: 0; max-height: 0; padding-top: 0; padding-bottom: 0; margin-top: 0; } }
+@media (max-width: 620px) {
+  .pg-row { grid-template-columns: minmax(0, 1fr); gap: 4px; margin-left: 4px; }
+  .pg-row .actions { justify-content: flex-start; }
+  .pg-done { margin-left: 4px; }
+}
+@media (max-width: 520px) { .machine-line { flex-direction: column; gap: 4px; } .pg-state { width: 100%; justify-content: space-between; } }
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
 .tile { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid var(--line); border-top: 3px solid var(--line); border-radius: 8px; background: var(--card); color: var(--vscode-foreground); font: inherit; text-align: left; cursor: pointer; }
 .tile:hover { border-color: var(--vscode-focusBorder); }
@@ -672,6 +732,8 @@ body[data-view="agent"] .agent-asks { max-height: 50vh; overflow-y: auto; }
 .agent-facts .sep { margin: 0 6px; }
 .agent-asks { margin-bottom: 14px; }
 .notice.recap { border-left: 3px solid var(--blue); color: var(--vscode-foreground); }
+/* A task that waits for other tasks' files (D-093): blue, as waiting is. */
+.notice.waits { border-left: 3px solid var(--blue); color: var(--vscode-foreground); }
 .timeline { list-style: none; margin: 0; padding: 0; }
 .entry { margin: 0; }
 .entry.say, .entry.prompt { margin: 14px 0 8px; }
@@ -832,6 +894,11 @@ body[data-view="agent"] .agent-asks { max-height: 50vh; overflow-y: auto; }
 .tick { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px 2px 5px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; overflow-wrap: anywhere; }
 .tick.on { border-color: var(--blue); }
 .tick input { margin: 0; accent-color: var(--blue); }
+/* Use this sign-in for every project on the site (GH-79): under the fields, in line with them. */
+.connect-share { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 0 0 12px 164px; }
+.connect-share .tick { border-radius: var(--radius); }
+.connect-share .cfield-hint { display: flex; align-items: flex-start; gap: 2px; }
+.connect-share .cfield-hint .codicon { flex: none; margin-top: 2px; }
 .connect-test { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; }
 .connect-test .btn { flex: none; }
 .connect-test .cfield-status { flex: 1 1 200px; padding-top: 3px; }
@@ -842,5 +909,6 @@ body[data-view="agent"] .agent-asks { max-height: 50vh; overflow-y: auto; }
 @media (max-width: 620px) {
   .cfield { grid-template-columns: minmax(0, 1fr); }
   .cfield-label { padding-top: 0; }
+  .connect-share { margin-left: 0; }
   .connect-step { padding: 10px 10px 2px; }
 }

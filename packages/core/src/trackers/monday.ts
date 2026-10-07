@@ -1,5 +1,6 @@
 /**
- * monday.com boards over its GraphQL API, with a personal API token kept for one repo only (D-027). A
+ * monday.com boards over its GraphQL API, with a personal API token kept on this machine, for every project
+ * on the account or for this one only (D-091). A
  * board is the tracker, as a Jira project is; a group on it can be the repo's place (D-072). The board's
  * columns are one status column's labels, in monday's order, and its items are the cards. Item ids are the
  * whole account's, so every read is held to the board, and to the group when there is one. Everything a

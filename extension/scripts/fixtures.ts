@@ -13,11 +13,12 @@ import { type AdfNode, fromAdf } from '../../packages/core/src/trackers/doc.ts';
 import type { Ticket } from '../../packages/core/src/trackers/types.ts';
 import type { HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
-import { type AgentSession, askingLabel, type DoctorItem, rowAnalysis, type TaskRow } from '../src/logic.ts';
+import { type AgentSession, askingLabel, type DoctorItem, repoRoot, rowAnalysis, type TaskRow } from '../src/logic.ts';
 import { AZURE, GITHUB, JIRA, MONDAY } from '../../packages/core/src/trackers/connect.ts';
 import { type AgentModel, agentModel, blankConnect, type BoardInput, type ConnectModel, connectModel, type ConnectState, type HubLike, type IdentityCard, type ProjectLike, type RunInput, ticketModel, type TicketModel } from '../src/model.ts';
+import type { RepoJobs } from '../src/progress.ts';
 import { blankSlack, type SlackCard, slackCard, type SlackState } from '../src/slack.ts';
-import type { Entry } from '../src/transcript.ts';
+import type { Entry, LastStep } from '../src/transcript.ts';
 
 const MIN = 60_000;
 
@@ -48,6 +49,7 @@ export function sampleHub(now = Date.now()): HubLike {
     ],
   };
   const source = (n: number) => ({ kind: 'jira', url: `https://acme.atlassian.net/browse/ACME-${n}` });
+  const ago = (min: number) => new Date(now - min * MIN).toISOString();
   // A Salesforce project wants an analysis before each build (D-052).
   const task = (id: string, title: string, state: string, display: TaskRow['display'], extra: Partial<TaskRow> = {}): TaskRow =>
     ({ id, title, state, display, environment: 'dev', deps: [], source: source(Number(id.split('-')[1])), analysisRequired: true, ...extra });
@@ -61,13 +63,19 @@ export function sampleHub(now = Date.now()): HubLike {
   const N28 = named('ACME-28', 'Send a renewal reminder a month before the renewal date');
   const N29 = named('ACME-29', 'Reassign open cases when an owner leaves');
   const tasks: TaskRow[] = [
-    task('ACME-14', 'Route web-to-case submissions by product line', 'running', 'needs-you', { run: { bgId: 'bg14', sessionId: 's-acme-14', worktree: wt('ACME-14'), model: 'claude-opus-5-5', name: N14 }, agent: { label: 'Needs you: wants permission', icon: 'bell', tone: 'orange' }, model: 'claude-opus-5-5', asking: true }),
+    task('ACME-14', 'Route web-to-case submissions by product line', 'running', 'needs-you', { run: { bgId: 'bg14', sessionId: 's-acme-14', worktree: wt('ACME-14'), model: 'claude-opus-5-5', name: N14 }, agent: { label: 'Needs you: wants permission', icon: 'bell', tone: 'orange' }, model: 'claude-opus-5-5', asking: true, since: ago(27), branchStats: { commits: 2, files: 4, uncommitted: 1 } }),
     // Its analysis has questions for you; another says it's too big for one task (D-052).
     task('ACME-21', 'Contact roles missing on converted leads', 'todo', 'needs-you', analyzed('ACME-21')),
     task('ACME-23', 'Rebuild the partner portal on Experience Cloud', 'todo', 'needs-you', analyzed('ACME-23')),
-    task('ACME-16', 'Add a field history report for Opportunity stage', 'todo', 'ready', analyzed('ACME-16')),
+    task('ACME-16', 'Add a field history report for Opportunity stage', 'todo', 'ready', { ...analyzed('ACME-16'), files: { known: true, shares: [], first: [], held: null } }),
+    // A person dispatched it, and it waits for ACME-12's files while ACME-16, which shares none, goes first (D-093).
+    task('ACME-35', 'Escalate premium cases after one hour without a reply', 'todo', 'ready', { ...analyzed('ACME-16'), files: { known: true, shares: [{ task: 'ACME-12', files: ['force-app/main/default/escalationRules/Case.escalationRules-meta.xml', 'force-app/main/default/classes/CaseTriggerHandler.cls', 'force-app/main/default/classes/CaseTriggerHandlerTest.cls', 'force-app/main/default/flows/Case_Escalation.flow-meta.xml'] }, { task: 'ACME-13', files: ['force-app/main/default/classes/LeadService.cls'] }], first: ['ACME-16'], held: { at: new Date(now - 6 * MIN).toISOString(), failed: null, byAutopilot: false } } }),
+    // Autopilot couldn't start one that waited: it needs you.
+    task('ACME-36', 'Notify the account owner when a premium case escalates', 'todo', 'needs-you', { ...analyzed('ACME-16'), files: { known: true, shares: [], first: [], held: { at: new Date(now - 40 * MIN).toISOString(), failed: 'Claude Code didn\'t start the agent: Claude Code doesn\'t trust this folder yet.', byAutopilot: true } } }),
+    // No analysis: its files aren't known, so it never waits.
+    task('ACME-37', 'Tidy the Case page layout', 'todo', 'ready', { analysisRequired: false, files: { known: false, shares: [], first: [], held: null } }),
     task('ACME-24', 'Sync the renewal date to the billing system', 'todo', 'ready', { analyzing: { sessionId: 'an-acme-24' } }),
-    task('ACME-12', 'Case escalation rules for the premium tier', 'running', 'needs-you', { run: { bgId: 'bg12', sessionId: 's-acme-12', worktree: wt('ACME-12'), model: 'claude-sonnet-5-5', modelPicked: true, name: N12 }, agent: { label: 'Needs you: has a question', icon: 'bell', tone: 'orange' }, model: 'claude-sonnet-5-5', asking: true, ...analyzed('ACME-12') }),
+    task('ACME-12', 'Case escalation rules for the premium tier', 'running', 'needs-you', { run: { bgId: 'bg12', sessionId: 's-acme-12', worktree: wt('ACME-12'), model: 'claude-sonnet-5-5', modelPicked: true, name: N12 }, agent: { label: 'Needs you: has a question', icon: 'bell', tone: 'orange' }, model: 'claude-sonnet-5-5', asking: true, ...analyzed('ACME-12'), since: ago(12), branchStats: { commits: 3, files: 6, uncommitted: 4 } }),
     // Built beside ACME-15, which touched the same layout: its pull request won't merge into dev.
     task('ACME-22', 'Add a Region field to the Lead page', 'review', 'needs-you', { run: { worktree: wt('ACME-22'), branch: 'task/ACME-22-lead-region' }, review: { verdict: 'pass', summary: 'Adds Region__c and puts it on the Lead layout.', current: true }, pr: { number: 44, url: 'https://github.com/acme/service/pull/44', state: 'open', ci: 'passing', changesRequested: false, conflicts: ['force-app/main/default/layouts/Lead-Lead Layout.layout-meta.xml', 'force-app/main/default/objects/Lead/fields/Region__c.field-meta.xml'] } }),
     // Autopilot reviewed it, then couldn't land it: someone pushed to its branch on GitHub (D-055).
@@ -79,10 +87,11 @@ export function sampleHub(now = Date.now()): HubLike {
     // Its checks failed on GitHub again on the commit autopilot already sent back once: a person decides (D-076).
     task('ACME-34', 'Close stale cases after 30 days without a reply', 'review', 'needs-you', { run: { worktree: wt('ACME-34'), branch: 'task/ACME-34-close-stale-cases' }, review: { verdict: 'pass', summary: 'Adds a scheduled job that closes stale cases.', current: true }, pr: { number: 49, url: 'https://github.com/acme/service/pull/49', state: 'open', ci: 'failing', changesRequested: false, conflicts: [] }, autopilot: { step: 'checks', reason: 'Checks failed on GitHub again: Apex tests. Autopilot already sent 7d3e1f0 back once: a person decides.' }, checks: ['Apex tests'] }),
     // The Mac slept mid-response, and its session ended without acc done (D-067): what it last said, and Resume.
-    task('ACME-28', 'Send a renewal reminder a month before the renewal date', 'running', 'needs-you', { run: { bgId: 'bg28', sessionId: 's-acme-28', worktree: wt('ACME-28'), branch: 'task/ACME-28-renewal-reminder', name: N28 }, stopped: { said: SLEPT } }),
+    task('ACME-28', 'Send a renewal reminder a month before the renewal date', 'running', 'needs-you', { run: { bgId: 'bg28', sessionId: 's-acme-28', worktree: wt('ACME-28'), branch: 'task/ACME-28-renewal-reminder', name: N28 }, stopped: { said: SLEPT }, since: ago(95) }),
     // Another ended its turn asking in its own words, without blocking: a long quote, clipped on its card.
-    task('ACME-29', 'Reassign open cases when an owner leaves', 'running', 'needs-you', { run: { bgId: 'bg29', sessionId: 's-acme-29', worktree: wt('ACME-29'), branch: 'task/ACME-29-reassign-open-cases', name: N29 }, stopped: { said: ASKED } }),
-    task('ACME-13', 'Close duplicate leads nightly', 'running', 'running', { run: { bgId: 'bg13', sessionId: 's-acme-13', worktree: wt('ACME-13'), model: 'claude-opus-5-5', name: N13 }, agent: { label: 'Working', icon: 'sync~spin', tone: 'blue' }, model: 'claude-opus-5-5' }),
+    task('ACME-29', 'Reassign open cases when an owner leaves', 'running', 'needs-you', { run: { bgId: 'bg29', sessionId: 's-acme-29', worktree: wt('ACME-29'), branch: 'task/ACME-29-reassign-open-cases', name: N29 }, stopped: { said: ASKED }, since: ago(70) }),
+    // Nothing else was ready, so it started beside ACME-12, sharing a class (D-093).
+    task('ACME-13', 'Close duplicate leads nightly', 'running', 'running', { run: { bgId: 'bg13', sessionId: 's-acme-13', worktree: wt('ACME-13'), model: 'claude-opus-5-5', name: N13 }, agent: { label: 'Working', icon: 'sync~spin', tone: 'blue' }, model: 'claude-opus-5-5', since: ago(14), branchStats: { commits: 5, files: 9, uncommitted: 0 }, files: { known: true, shares: [{ task: 'ACME-12', files: ['force-app/main/default/classes/CaseTriggerHandler.cls'] }], first: [], held: null } }),
     task('ACME-15', 'Rename the Region picklist values', 'review', 'review', { run: { worktree: wt('ACME-15'), branch: 'task/ACME-15-a-very-long-branch-name-that-has-to-truncate-cleanly' }, review: { verdict: 'pass', summary: 'Renames the values and updates both record types.', current: true }, pr: { number: 42, url: 'https://github.com/acme/service/pull/42', state: 'open', ci: 'pending' } }),
     task('ACME-20', 'Show the renewal date on the Account page', 'review', 'review', { run: { worktree: wt('ACME-20'), branch: 'task/ACME-20-renewal-date' }, review: { verdict: 'pass', summary: 'Adds the field to the layout.', current: true } }),
     task('ACME-19', 'Fix the flow that double-sends welcome emails', 'rework', 'rework', { run: { worktree: wt('ACME-19') } }),
@@ -104,7 +113,17 @@ export function sampleHub(now = Date.now()): HubLike {
     { cwd: root, kind: 'interactive', startedAt: now - 120 * MIN, sessionId: '0e02-main', name: 'acme-dev', status: 'busy', pid: 4100 },
     { cwd: '/Users/me/code/side-project', kind: 'interactive', startedAt: now - 30 * 60 * MIN, sessionId: '7c1d-side', name: 'side-project', status: 'idle', pid: 4200 },
     { cwd: '/Users/me/Documents/a folder with a long name/docs-site', kind: 'background', startedAt: now - 7 * 24 * 60 * MIN, id: 'bg3', name: 'docs-site', state: 'done' },
+    // Elsewhere, each kind of folder (GH-83): two repos of one name, a builder's worktree of one, a folder
+    // inside a repo, home, and a folder in no repo. None is working or needs you, so the counts hold.
+    { cwd: '/Users/me/clients/Acme Service', kind: 'interactive', startedAt: now - 3 * 60 * MIN, sessionId: '5a2e-client', name: 'acme-support', status: 'idle', pid: 4300 },
+    { cwd: '/Users/me/personal/Acme Service', kind: 'interactive', startedAt: now - 5 * 60 * MIN, sessionId: '6b3f-personal', name: 'acme-fork', status: 'idle', pid: 4301 },
+    { cwd: '/Users/me/clients/Acme Service/.claude/worktrees/ACME-40', kind: 'background', startedAt: now - 4 * 60 * MIN, id: 'bg40', sessionId: 's-acme-40', name: 'ACME-40', state: 'done' },
+    { cwd: '/Users/me/code/side-project/force-app/main', kind: 'interactive', startedAt: now - 6 * 60 * MIN, sessionId: '8d4a-flows', name: 'side-flows', status: 'idle', pid: 4302 },
+    { cwd: '/Users/me', kind: 'interactive', startedAt: now - 8 * 60 * MIN, sessionId: '9e5b-home', name: 'dotfiles', status: 'idle', pid: 4303 },
+    { cwd: '/Users/me/Downloads/scratch', kind: 'interactive', startedAt: now - 10 * 60 * MIN, sessionId: 'af6c-scratch', name: 'scratch', status: 'idle' },
   ];
+  // The folders holding .git, for the repo each session elsewhere is in.
+  const repos = new Set([root, '/Users/me/clients/Acme Service', '/Users/me/personal/Acme Service', '/Users/me/code/side-project']);
   const questions = sampleQuestions(now, wt);
   const answers = sampleAnswers(now, wt);
   return {
@@ -114,6 +133,8 @@ export function sampleHub(now = Date.now()): HubLike {
     modelFor: (s) => tasks.find((t) => t.run?.bgId && t.run.bgId === s.id)?.model ?? ({ '0e02-main': 'claude-opus-5-5', '7c1d-side': 'claude-haiku-4-5-20251001' } as Record<string, string>)[s.sessionId ?? ''] ?? null,
     taskRows: () => tasks,
     projectFor: (p: string) => (p === root || p.startsWith(`${root}/`) ? project : undefined),
+    home: '/Users/me',
+    repoFor: (p: string) => repoRoot(p, '/Users/me', (d) => repos.has(d)),
     autopilotLog: () => sampleAutopilot(now),
     updates: () => sampleUpdates(now),
     history: () => [
@@ -145,6 +166,9 @@ export function sampleAutopilot(now = Date.now()): AutopilotRecord[] {
     { seq: 218, at: at(9), task: 'ACME-34', step: 'checks', outcome: 'failed', reason: 'Checks failed on GitHub again: Apex tests. Autopilot already sent 7d3e1f0 back once: a person decides.' },
     { seq: 219, at: at(6), task: 'ACME-20', step: 'review', outcome: 'done', verdict: 'pass' },
     { seq: 221, at: at(3), task: 'ACME-33', step: 'checks', outcome: 'done', checks: ['validate', 'Apex tests'], reason: 'Checks failed on GitHub on 9a8b7c6: validate, Apex tests.' },
+    // A task a person dispatched that waited for another's files (D-093): one it started, one it couldn't.
+    { seq: 211, at: at(31), task: 'ACME-29', step: 'start', outcome: 'done', waitedFor: ['ACME-22'] },
+    { seq: 222, at: at(2), task: 'ACME-36', step: 'start', outcome: 'failed', reason: 'Claude Code didn\'t start the agent: Claude Code doesn\'t trust this folder yet.' },
   ];
 }
 
@@ -282,6 +306,70 @@ function sampleAnswers(now: number, wt: (id: string) => string): HistoryRecord[]
   ];
 }
 
+/**
+ * In progress when it's busy (D-092): five builders of five, ACME-13 resumed by autopilot with its validate
+ * in slot 1, ACME-12 asking you with its validate first in line, a promotion from Dev to QA validating in
+ * slot 2, autopilot landing ACME-20, and ACME-24's analysis, which this window started. With `before`, it's
+ * the look 20 seconds earlier, while autopilot was still reviewing ACME-20: the two looks leave its done line.
+ */
+export function sampleBusyHub(now = Date.now(), before = false): HubLike {
+  const hub = sampleHub(now);
+  const root = hub.projects[0]!.root;
+  const at = (min: number) => new Date(now - min * MIN).toISOString();
+  const jobs: RepoJobs = {
+    repo: `${root}/.git/acc/ledger.json`, max: 5,
+    jobs: [
+      before ? { key: 'autopilot-ACME-20-4321-1', kind: 'autopilot', task: 'ACME-20', step: 'review', by: 'orchestrator:autopilot', pid: 4321, startedAt: at(6) }
+        : { key: 'autopilot-ACME-20-4321-2', kind: 'autopilot', task: 'ACME-20', step: 'land', by: 'orchestrator:autopilot', pid: 4321, startedAt: at(0.3) },
+      { key: 'promote-qa-5150-1', kind: 'promote', from: 'dev', env: 'qa', by: 'human:jordan', pid: 5150, startedAt: at(4), carries: ['ACME-10', 'ACME-15'] },
+    ],
+    reviews: [],
+    analyses: [{ task: 'ACME-24', sessionId: 'an-acme-24', startedAt: at(3), pid: 5200 }],
+    resumes: [{ task: 'ACME-13', sessionId: 's-acme-13', startedAt: at(14), by: 'orchestrator:autopilot', pid: 5300 }],
+  };
+  const steps: Record<string, LastStep> = {
+    's-acme-13': { step: { icon: 'terminal', title: 'Run the Apex tests for the duplicate-lead batch', at: at(1) }, model: 'claude-opus-5-5' },
+    's-acme-12': { step: { icon: 'edit', title: 'Edited force-app/main/default/classes/EscalationService.cls', at: at(2) }, model: 'claude-opus-5-5' },
+    's-acme-14': { step: { icon: 'terminal', title: 'Validate the routing against the Dev org', at: at(3) }, model: 'claude-sonnet-5-5' },
+  };
+  // The tasks In progress is about, and nothing else, so Needs you above it stays short enough to see it.
+  const shown = new Set(['ACME-14', 'ACME-12', 'ACME-13', 'ACME-28', 'ACME-20', 'ACME-24', 'ACME-16', 'ACME-15', 'ACME-10']);
+  const rows = hub.taskRows(root).filter((r) => shown.has(r.id));
+  return {
+    ...hub,
+    taskRows: () => rows,
+    updates: () => [],
+    heavy: {
+      dir: '/Users/me/.acc/heavy', slots: 2,
+      held: [
+        { slot: 1, pid: 6001, at: now - 6 * MIN, what: 'validate', task: 'ACME-13', project: 'Acme Service', cwd: `${root}/.claude/worktrees/ACME-13` },
+        { slot: 2, pid: 5150, at: now - 3 * MIN, what: 'Validate dev → qa', env: 'qa', project: 'Acme Service' },
+      ],
+      waiting: [{ pid: 6002, at: now - 2 * MIN, place: 1, what: 'validate', task: 'ACME-12', project: 'Acme Service' }],
+    },
+    machine: { load: 9.1, cpus: 10 },
+    jobsOf: () => jobs,
+    stepOf: (id) => steps[id] ?? null,
+  };
+}
+
+/** The analysis this window started for ACME-24, for In progress's Stop. */
+export const sampleAnalyzeRun = (now = Date.now()): RunInput => ({
+  id: 'r-analyze', label: 'Analyze ACME-24', command: 'acc analyze ACME-24', cwd: '/Users/me/code/acme-service', startedAt: now - 3 * MIN, endedAt: null, code: null, stopped: false, step: null, lines: ['Analyzing ACME-24 against Dev…'], prompt: null,
+});
+
+/** In progress with nothing running anywhere: no builder, no check, no job, and the machine calm. */
+export function sampleIdleHub(now = Date.now()): HubLike {
+  const hub = sampleHub(now);
+  const root = hub.projects[0]!.root;
+  const rows = hub.taskRows(root).filter((r) => r.state !== 'running').map((r) => ({ ...r, analyzing: null }));
+  return {
+    ...hub, taskRows: () => rows, agents: hub.agents.filter((a) => a.kind === 'interactive'), questions: [],
+    heavy: { dir: '/Users/me/.acc/heavy', slots: 2, held: [], waiting: [] }, machine: { load: 1.2, cpus: 10 },
+    jobsOf: () => ({ repo: `${root}/.git/acc/ledger.json`, max: 5, jobs: [], reviews: [], analyses: [], resumes: [] }),
+  };
+}
+
 /** Commands acc ran from Setup: one asking a question, one that failed, one that worked. */
 export function sampleRuns(now = Date.now()): RunInput[] {
   return [
@@ -362,6 +450,8 @@ export function sampleBoards(): BoardInput[] {
     ({ key: `ACME-${n}`, title, url: `https://acme.atlassian.net/browse/ACME-${n}`, status: s, type, assignees: [], labels: [], priority: 'Medium', ...extra });
   return [{
     index: 0, kind: 'jira', title: 'Jira · ACME', error: null, connect: null, loading: false, signedInAs: 'jordan@acme.example',
+    // A sign-in for every project on the site (GH-79), said under the place.
+    signInScope: { shared: true, host: 'acme.atlassian.net' },
     place: 'Jira · ACME · epic ACME-3 Premium Support',
     left: ['ACME-18 left this repo\'s place: it isn\'t in epic ACME-3; ACME-18 is still blocked'],
     tracking: {
@@ -418,6 +508,8 @@ export function sampleMondayBoards(): BoardInput[] {
   const place = 'monday.com · acme · Client work · group This sprint';
   return [{
     index: 0, kind: 'monday', title: 'monday.com · acme', error: null, connect: null, loading: false, signedInAs: 'a personal API token', place,
+    // This project's own sign-in (GH-79).
+    signInScope: { shared: false, host: 'acme' },
     left: ['MON-9081726354 left this repo\'s place: it\'s in group Backlog; MON-9081726354 is still running'],
     tracking: {
       'MON-9081726361': { busy: true, error: null },
@@ -445,14 +537,15 @@ export function sampleMondayBoards(): BoardInput[] {
 }
 
 /** Which Connect page to draw (GH-51). */
-export type ConnectSample = 'start' | 'jira' | 'azure' | 'github' | 'existing' | 'monday';
+export type ConnectSample = 'start' | 'shared' | 'jira' | 'azure' | 'github' | 'existing' | 'monday';
 
 /**
- * The Connect page at each step: a new Jira tracker before signing in; signed in, its project picked, its
- * epics loading and its boards failing; Azure DevOps whose token was refused; GitHub with labels ticked;
- * an existing Jira tracker opened to change, its epic done now but kept; and a monday.com board signed in
- * with Sign in again open, so its token field and token page show beside its board, group and two status
- * columns (GH-70).
+ * The Connect page at each step: a new Jira tracker before signing in; its site given, with the tick for
+ * every project on it (GH-79); signed in for every project on the site, its project picked, its epics
+ * loading and its boards failing; Azure DevOps whose token was refused; GitHub with labels ticked; an
+ * existing Jira tracker opened to change, signed in for this project only, its epic done now but kept; and
+ * a monday.com board signed in for this project only, with Sign in again open, so its token field, token
+ * page and the tick (off) show beside its board, group and two status columns (GH-70).
  */
 export function sampleConnect(which: ConnectSample): ConnectModel {
   const root = '/Users/me/code/acme-service';
@@ -462,10 +555,15 @@ export function sampleConnect(which: ConnectSample): ConnectModel {
   const projects = [{ value: 'ACME', label: 'ACME', detail: 'Acme Service Desk' }, { value: 'OPS', label: 'OPS', detail: 'Operations' }];
   const boards = [{ value: '7', label: 'ACME Service board', detail: 'scrum', preferred: true }, { value: '9', label: 'Support kanban', detail: 'kanban' }];
   if (which === 'start') return connectModel(blankConnect(JIRA, { id: 'c-start', ...base }));
+  if (which === 'shared') {
+    const s = blankConnect(JIRA, { id: 'c-shared', ...base });
+    s.host = 'acme.atlassian.net';
+    return connectModel(s);
+  }
   if (which === 'jira') {
     const s = blankConnect(JIRA, { id: 'c-jira', ...base });
     s.host = 'acme.atlassian.net';
-    s.signIn = ok('Jordan Kim');
+    s.signIn = { ...ok('Jordan Kim'), shared: true };
     s.pickers.project = ready(projects, ['ACME']);
     s.pickers.epic = { options: [], selected: [], state: 'loading', error: null };
     s.pickers.board = { options: [], selected: [], state: 'failed', error: 'Jira answered HTTP 503: the service is unavailable.' };
@@ -488,14 +586,15 @@ export function sampleConnect(which: ConnectSample): ConnectModel {
   if (which === 'monday') {
     const s = blankConnect(MONDAY, { id: 'c-monday', ...base });
     s.host = 'acme';
-    s.signIn = { ...ok('Jordan Kim'), again: true };
+    s.signIn = { ...ok('Jordan Kim'), again: true, shared: false };
+    s.share = false;
     s.pickers.board = ready([{ value: '1234567890', label: 'Client work', detail: 'Acme' }, { value: '1234567999', label: 'Approvals', detail: 'Main workspace' }], ['1234567890']);
     s.pickers.group = ready([{ value: 'topics', label: 'This sprint' }, { value: 'new_group29179', label: 'Backlog' }], ['topics']);
     s.pickers.statusColumn = ready([{ value: 'status', label: 'Status', detail: 'Not started, Working on it, Stuck, Done', default: true }, { value: 'priority', label: 'Priority', detail: 'High, Medium, Low' }], ['status']);
     return connectModel(s);
   }
   const s = blankConnect(JIRA, { id: 'c-existing', ...base, existing: { index: 0, title: 'Jira · ACME', host: 'acme.atlassian.net', values: { project: 'ACME', epic: 'ACME-3', board: '7' } } });
-  s.signIn = ok('Jordan Kim');
+  s.signIn = { ...ok('Jordan Kim'), shared: false };
   s.pickers.project = ready([], ['ACME']);
   s.pickers.epic = ready([{ value: 'ACME-31', label: 'ACME-31', detail: 'Renewals' }, { value: 'ACME-30', label: 'ACME-30', detail: 'Partner portal' }], ['ACME-3']);
   s.pickers.board = ready(boards, ['7']);
@@ -506,9 +605,10 @@ const p = (text: string, marks?: string[]): AdfNode => ({ type: 'paragraph', con
 
 /**
  * Which ticket page to draw: ACME-12 being built, a task to do whose analysis has questions or says to
- * split it, one whose builder stopped, or ACME-31, which acc doesn't keep yet, being tracked from its card.
+ * split it, one whose builder stopped, ACME-31, which acc doesn't keep yet, being tracked from its card,
+ * or ACME-35, which a person dispatched and which waits for other tasks' files (D-093).
  */
-export type TicketSample = 'ACME-12' | 'ACME-21' | 'ACME-23' | 'ACME-29' | 'ACME-31' | 'ACME-33';
+export type TicketSample = 'ACME-12' | 'ACME-21' | 'ACME-23' | 'ACME-29' | 'ACME-31' | 'ACME-33' | 'ACME-35';
 
 /** What GH-41's builder last said when the Mac slept (D-067). */
 export const SLEPT = 'API Error: Your computer went to sleep mid-response. The response above may be incomplete.';
@@ -520,6 +620,7 @@ export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12'):
   if (which === 'ACME-29') return sampleStoppedTicket(now);
   if (which === 'ACME-31') return sampleUntrackedTicket(now);
   if (which === 'ACME-33') return sampleChecksTicket(now);
+  if (which === 'ACME-35') return sampleWaitingTicket(now);
   if (which !== 'ACME-12') return sampleTodoTicket(now, which);
   const hub = sampleHub(now);
   // Back with its builder after its pull request stopped merging into dev.
@@ -647,6 +748,27 @@ function sampleUntrackedTicket(now: number): TicketModel {
   return ticketModel({
     project: ROOT, tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira', key: 'ACME-31', ticket, loading: false, error: null, connect: null, row: null, task: null, checks: [],
     signedInAs: 'jordan@acme.example', trackerEdits: false, boards: sampleBoards(), github: 'jordan-kim', tracking: true, now,
+  });
+}
+
+/** A task a person dispatched that waits for other tasks' files, each named in full on its page (D-093). */
+function sampleWaitingTicket(now: number): TicketModel {
+  const row = sampleHub(now).taskRows(ROOT).find((r) => r.id === 'ACME-35')!;
+  const ticket: Ticket = {
+    key: 'ACME-35', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-35', title: row.title, type: 'Story',
+    status: TODO, assignees: [{ id: 'a1', name: 'Jordan Kim' }], reporter: { id: 'a2', name: 'Pat Lee' }, labels: [{ name: 'sla', color: null }], priority: 'High',
+    created: new Date(now - 86_400_000).toISOString(), updated: new Date(now - 6 * MIN).toISOString(),
+    body: fromAdf({ type: 'doc', content: [p('A premium case with no reply for an hour goes to the Tier 2 queue, on the Premium Support schedule.')] }),
+    markdown: '', comments: [], related: [],
+  };
+  const task = {
+    id: 'ACME-35', title: row.title, brief: '', source: { kind: 'jira', key: 'ACME-35', url: ticket.url }, environment: 'dev', deps: [], labels: [], state: 'todo', blocker: null, run: null, pr: null,
+    history: [{ at: new Date(now - 86_400_000).toISOString(), from: null, to: 'todo', by: 'human:jordan' }],
+    createdAt: new Date(now - 86_400_000).toISOString(), updatedAt: new Date(now - 6 * MIN).toISOString(),
+  } as unknown as Task;
+  return ticketModel({
+    project: ROOT, tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira', key: 'ACME-35', ticket, loading: false, error: null, connect: null, row, task, signedInAs: 'jordan@acme.example',
+    analysis: { ...sampleAnalyses(now)['ACME-16']!, task: 'ACME-35' }, trackerEdits: false, updates: [], boards: sampleBoards(), github: 'jordan-kim', now, checks: ['format', 'static', 'validate'].map((gate) => ({ gate, status: 'skip' as const, summary: 'Not run yet' })),
   });
 }
 

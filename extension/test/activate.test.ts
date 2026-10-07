@@ -149,6 +149,8 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     // Fresh machine results for this folder's profile, so the test doesn't call slow machine CLIs.
     globalState: memento({ 'acc.welcomed': true, 'acc.machineItems': { at: Date.now(), profile: 'generic', items: [{ id: 'A1.git', part: 'machine', title: 'git', status: 'pass', detail: 'git 2.54.0' }] } }),
     workspaceState: memento(),
+    // Tracker sign-ins: none, and a change from another window is listened for (GH-79).
+    secrets: { get: async () => undefined, store: async () => {}, delete: async () => {}, onDidChange: () => ({ dispose: () => {} }) },
     environmentVariableCollection: { description: '', prepend: (k: string, v: string) => prepends.push([k, v]) },
   };
   try {
@@ -203,6 +205,16 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     await calls.commands.get('acc.open.agents')!();
     assert.equal(panels.length, 1, 'one page: opening a section reveals it there');
     assert.equal((tab.posted.at(-1) as Posted).model.section, 'agents');
+    // The Where column's view is kept for the window: the page's pick is saved and reaches the model, and a
+    // view the page can't ask for changes nothing (GH-83).
+    const whereView = () => (tab.posted.at(-1) as { model: { agents: { whereView: string } } }).model.agents.whereView;
+    assert.equal(whereView(), 'folder');
+    tab.receive!({ type: 'agents-where', view: 'path' });
+    assert.equal(ctx.workspaceState.get('acc.agents.where'), 'path');
+    await calls.commands.get('acc.open.agents')!();
+    assert.equal(whereView(), 'path');
+    tab.receive!({ type: 'agents-where', view: 'tree' });
+    assert.equal(ctx.workspaceState.get('acc.agents.where'), 'path', 'not a view the page can ask for');
     tab.receive!({ type: 'run', command: 'workbench.action.quit', ref: {} });
 
     // Every answer sent from a page gets a reply, so it never stays on "Sending your answer…" (D-059).

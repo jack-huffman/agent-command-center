@@ -238,6 +238,12 @@
         "icon": "$(output)"
       },
       {
+        "command": "acc.job.stop",
+        "title": "Stop a job in progress",
+        "category": "Agent Command Center",
+        "icon": "$(debug-stop)"
+      },
+      {
         "command": "acc.worktree.open",
         "title": "Open in new window",
         "category": "Agent Command Center",
@@ -343,6 +349,18 @@
         "title": "Dispatch to an agent with a model you pick",
         "category": "Agent Command Center",
         "icon": "$(sparkle)"
+      },
+      {
+        "command": "acc.task.dispatchAnyway",
+        "title": "Dispatch anyway, though it shares files with work in flight",
+        "category": "Agent Command Center",
+        "icon": "$(rocket)"
+      },
+      {
+        "command": "acc.task.stopWaiting",
+        "title": "Stop waiting for other tasks' files",
+        "category": "Agent Command Center",
+        "icon": "$(debug-pause)"
       },
       {
         "command": "acc.task.attach",
@@ -553,6 +571,10 @@
           "when": "false"
         },
         {
+          "command": "acc.job.stop",
+          "when": "false"
+        },
+        {
           "command": "acc.agent.openFolder",
           "when": "false"
         },
@@ -594,6 +616,14 @@
         },
         {
           "command": "acc.task.dispatchWith",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.dispatchAnyway",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.stopWaiting",
           "when": "false"
         },
         {
@@ -1105,7 +1135,7 @@
           {
             "id": "B14.tickets",
             "title": "The repo's ticket source",
-            "description": "The Tasks board shows this repo's own tickets: a Jira project, an Azure DevOps board, a monday.com board or GitHub Issues, signed in for this repo only (D-027). If this repo keeps its tasks in acc alone, mark this done.\n\n[Check](command:acc.step.check?%5B%22B14.tickets%22%5D)\n[Do it](command:acc.step.fix?%5B%22B14.tickets%22%5D)\n[I've done this](command:acc.step.confirm?%5B%22B14.tickets%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B14.tickets%22%5D)",
+            "description": "The Tasks board shows this repo's own tickets: a Jira project, an Azure DevOps board, a monday.com board or GitHub Issues, signed in on this machine for this repo, or for every project on the same site. If this repo keeps its tasks in acc alone, mark this done.\n\n[Check](command:acc.step.check?%5B%22B14.tickets%22%5D)\n[Do it](command:acc.step.fix?%5B%22B14.tickets%22%5D)\n[I've done this](command:acc.step.confirm?%5B%22B14.tickets%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B14.tickets%22%5D)",
             "media": {
               "markdown": "media/steps/B14.tickets.md"
             },

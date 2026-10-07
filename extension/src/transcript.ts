@@ -6,6 +6,7 @@
  * a record it doesn't recognise is skipped, never an error, and the page links to the terminal when
  * nothing could be read. No vscode import, so it's testable.
  */
+import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
 import { basename, relative } from 'node:path';
 
 export type ToolStatus = 'running' | 'done' | 'error';
@@ -179,6 +180,74 @@ export function foldTranscript(t: Transcript, lines: string[]): Transcript {
     }
   }
   return t;
+}
+
+/** A builder's latest step and the model it answers with, for In progress (D-092). */
+export interface LastStep {
+  /** Its latest tool call, as the agent's page tells it (D-057), or null when the tail has none. */
+  step: { icon: string; title: string; at: string | null } | null;
+  /** The model its latest answer came from (D-036). */
+  model: string | null;
+}
+
+/** How much of a transcript's end is read for its latest step: most steps are near the end, so a small tail first. */
+const STEP_TAILS = [64 * 1024, 256 * 1024];
+
+function tailOf(file: string, bytes: number): { text: string; whole: boolean } | null {
+  let fd: number;
+  try {
+    fd = openSync(file, 'r');
+  } catch {
+    return null;
+  }
+  try {
+    const size = fstatSync(fd).size;
+    const from = Math.max(0, size - bytes);
+    const buf = Buffer.alloc(size - from);
+    readSync(fd, buf, 0, buf.length, from);
+    const text = buf.toString('utf8');
+    // The first line read may be cut in two.
+    return { text: from > 0 ? text.slice(text.indexOf('\n') + 1) : text, whole: from === 0 };
+  } catch {
+    return null;
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
+ * The latest tool call in a transcript, in the agent page's words, and the model of its latest answer.
+ * Only the file's end is read: 64 KB, then 256 KB when the step isn't in the first. A helper agent's
+ * turns are skipped. Null when the file can't be read.
+ */
+export function lastStepIn(file: string): LastStep | null {
+  let out: LastStep | null = null;
+  for (const bytes of STEP_TAILS) {
+    const tail = tailOf(file, bytes);
+    if (!tail) return out;
+    out = { step: null, model: null };
+    const lines = tail.text.split('\n');
+    for (let i = lines.length - 1; i >= 0 && (!out.step || !out.model); i--) {
+      const line = lines[i]!;
+      if (!line.includes('"assistant"')) continue;
+      let r: Record<string, any>;
+      try {
+        r = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (r?.type !== 'assistant' || r.isSidechain || !Array.isArray(r.message?.content)) continue;
+      if (!out.model && typeof r.message.model === 'string' && r.message.model !== '<synthetic>') out.model = r.message.model;
+      if (out.step) continue;
+      const uses = (r.message.content as { type?: string; name?: unknown; input?: unknown }[]).filter((b) => b?.type === 'tool_use' && typeof b.name === 'string');
+      const b = uses.at(-1);
+      if (!b) continue;
+      const d = describeTool(b.name as string, b.input && typeof b.input === 'object' ? b.input as Record<string, unknown> : {}, typeof r.cwd === 'string' ? r.cwd : null);
+      out.step = { icon: d.icon, title: d.title, at: typeof r.timestamp === 'string' ? r.timestamp : null };
+    }
+    if (out.step || tail.whole) return out;
+  }
+  return out;
 }
 
 /** Splits text read from a growing file into whole lines and the partial line still being written. */

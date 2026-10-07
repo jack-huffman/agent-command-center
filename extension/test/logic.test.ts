@@ -6,8 +6,9 @@ import { fileURLToPath } from 'node:url';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import {
   afterFullCheck, afterStepCheck, buildWalkthroughs, commandLink, COMMANDS, contextKey, dispatchModelArgs, dispatchModelItems, EXTENSION_ID, followsPullRequests, hasPlaceholder,
-  initCommand, isComplete, isWebviewMenuContext, machineCache, mediaPath, MODEL_CHOICES, needsTerminal, productionOrgs, rememberTemplate, reusableMachine, setupOrgChoices, shownTemplate, sizeLine, statusText,
-  stepDescription, stepMedia, summarize, templateDetail, type DoctorItem,
+  initCommand, isComplete, isWebviewMenuContext, machineCache, mediaPath, MODEL_CHOICES, needsTerminal, productionOrgs, rememberTemplate, repoRoot, reusableMachine, setupOrgChoices, shownTemplate, sizeLine, statusText,
+  stepDescription, stepMedia, summarize, templateDetail, tildePath, type DoctorItem,
+  credInUse, credKey, credSite, type CredWrites, credWrites, readCreds, reloadRoots, signOutAnswers, signOutPlan, signOutWrites, siteCredKey, trackerHost,
 } from '../src/logic.ts';
 import { staleFiles } from '../scripts/generate.ts';
 
@@ -413,6 +414,81 @@ test('each step autopilot takes is one notice: what it did, and what it couldn\'
   assert.deepEqual(autopilotNotices([rec('GH-31', { step: 'review', verdict: 'pass' }), rec('GH-31', { seq: 2, pr: { number: 40, url: 'u', opened: true } })], [gh]).length, 2, 'one each');
 });
 
+test('a task that waits for others\' files is told in words: what it waits for, what goes first, and what Dispatch anyway risks (D-093)', async () => {
+  const { anywayQuestion, autopilotNotices, filesUnknown, noticeActions, sharesLine, startedNotice, waitLine, waitQuestion, waitsForFiles } = await import('../src/logic.ts');
+  const shares = [{ task: 'GH-70', files: ['extension/src/logic.ts', 'extension/src/model.ts', 'packages/cli/src/main.ts', 'docs/x.md'] }, { task: 'GH-71', files: ['extension/src/hub.ts'] }];
+  // A card names the first three files short; the task page names every one in full.
+  assert.equal(waitLine(shares), 'Waits for GH-70\'s files: src/logic.ts, src/model.ts and 2 more, and GH-71\'s: src/hub.ts', 'three names in all');
+  assert.equal(waitLine([shares[0]!]), 'Waits for GH-70\'s files: src/logic.ts, src/model.ts, src/main.ts and 1 more');
+  assert.equal(waitLine(shares, true), 'Waits for GH-70\'s files: extension/src/logic.ts, extension/src/model.ts, packages/cli/src/main.ts, docs/x.md, and GH-71\'s: extension/src/hub.ts');
+  // With what goes first, as acc says it: a card names two of them, the page every one.
+  assert.equal(waitLine([shares[1]!], false, ['GH-74']), 'Waits for GH-71\'s files: src/hub.ts, while GH-74 is ready to start');
+  assert.equal(waitLine([shares[1]!], false, ['GH-74', 'GH-75', 'GH-76']), 'Waits for GH-71\'s files: src/hub.ts, while GH-74, GH-75 and 1 more are ready to start');
+  assert.equal(waitLine([shares[1]!], true, ['GH-74', 'GH-75', 'GH-76']), 'Waits for GH-71\'s files: extension/src/hub.ts, while GH-74, GH-75 and GH-76 are ready to start');
+  assert.equal(sharesLine([shares[1]!]), 'Shares files with GH-71: src/hub.ts');
+  // No analysis, or one that names no files: each said as it is.
+  assert.equal(filesUnknown(false), 'Its files aren\'t known: no analysis to compare with work in flight');
+  assert.equal(filesUnknown(true), 'Its files aren\'t known: its analysis names no files');
+  const files = { known: true, shares, first: ['GH-74'], held: null };
+  assert.ok(waitsForFiles({ state: 'todo', files }));
+  assert.ok(!waitsForFiles({ state: 'todo', files: { ...files, first: [] } }), 'nothing else is ready: it starts');
+  assert.ok(!waitsForFiles({ state: 'running', files }));
+  const q = waitQuestion({ id: 'GH-73', files });
+  assert.equal(q.message, 'GH-73 shares files with GH-70 and GH-71');
+  assert.equal(q.wait, 'Wait for GH-70 and GH-71');
+  assert.equal(q.detail, 'GH-70: extension/src/logic.ts, extension/src/model.ts, packages/cli/src/main.ts, docs/x.md\nGH-71: extension/src/hub.ts\n\nGH-74 shares no files with work in flight, so it goes first. GH-73 waits, and starts on its own once GH-70 and GH-71 merge or nothing else is ready.');
+  const a = anywayQuestion({ id: 'GH-73', files });
+  assert.equal(a.message, 'Dispatch GH-73 anyway?');
+  assert.match(a.detail, /^It shares files with work in flight:\nGH-70: extension\/src\/logic\.ts, .*\nGH-71: extension\/src\/hub\.ts\n\nBoth builders may change them, and the second pull request to merge may conflict there\.$/);
+  assert.equal(anywayQuestion({ id: 'GH-73', files: { ...files, shares: [] } }).message, 'Dispatch GH-73 now?', 'its wait ended meanwhile');
+  assert.equal(startedNotice('GH-73 started', { waitedFor: ['GH-70'], shares: [] }), 'GH-73 started: GH-70\'s files are free.');
+  assert.equal(startedNotice('GH-73 started', { waitedFor: ['GH-70'], shares: [shares[0]!] }), 'GH-73 started: nothing else was ready, so it shares files with GH-70.');
+  // Autopilot's own start, and one it couldn't make, are its notices.
+  const at = '2026-10-06T12:00:00.000Z';
+  const task = { id: 'GH-73', source: { kind: 'github', key: '73' }, history: [] };
+  const say = (r: Record<string, unknown>) => autopilotNotices([{ seq: 1, at, task: 'GH-73', step: 'start', outcome: 'done', ...r } as never], [task]).map((n) => [n.text, n.urgent, noticeActions(n)]);
+  assert.deepEqual(say({ waitedFor: ['GH-70'] }), [['Autopilot started GH-73: GH-70\'s files are free.', false, [['Watch', 'acc.task.watch'], ['Show', 'acc.task.show']]]]);
+  assert.deepEqual(say({ outcome: 'failed', reason: 'Claude Code doesn\'t trust the repo yet' }), [['Autopilot couldn\'t start GH-73: Claude Code doesn\'t trust the repo yet.', true, [['Dispatch anyway', 'acc.task.dispatchAnyway'], ['Show', 'acc.task.show']]]]);
+});
+
+test('the board asks acc to start held tasks when one may go, and backs off while acc keeps them waiting (D-093)', async () => {
+  const { HELD_ASK_MAX_MS, HELD_ASK_MS, heldAskDue, heldAsked, heldAskKey, heldDue } = await import('../src/logic.ts');
+  const held = { at: '2026-10-06T10:00:00.000Z', failed: null, byAutopilot: false };
+  const todo = (id: string, files: Record<string, unknown>, deps: string[] = []) => ({ id, state: 'todo', deps, pr: null, files: { known: true, shares: [], first: [], held, ...files } as never });
+  const rows = [
+    todo('T-2', {}),
+    todo('T-3', { shares: [{ task: 'T-1', files: ['a.ts'] }], first: ['T-4'] }),
+    todo('T-5', { held: { ...held, failed: 'No trust' } }),
+    todo('T-6', { capped: true }),
+    todo('T-7', {}, ['T-1']),
+    todo('T-8', { held: null }),
+    { id: 'T-1', state: 'running', deps: [], pr: null, files: null },
+  ];
+  // Only T-2 may go: T-3 still waits, T-5's start failed, T-6 waits for an agent, T-7 for T-1, T-8 isn't held.
+  assert.deepEqual(heldDue(rows), ['T-2']);
+  const key = heldAskKey(rows, ['T-2']);
+  let t = 0;
+  assert.ok(heldAskDue(undefined, key, t), 'never asked: ask now');
+  // acc keeps T-2 waiting (the board missed something): 60 seconds, then 2 minutes, then 4, up to 10.
+  let ask = heldAsked(undefined, key, t, ['T-2'], ['T-2']);
+  const delays = [];
+  for (let i = 0; i < 6; i++) {
+    delays.push(ask.delay);
+    assert.ok(!heldAskDue(ask, key, t + ask.delay - 1));
+    t += ask.delay;
+    assert.ok(heldAskDue(ask, key, t));
+    ask = heldAsked(ask, key, t, ['T-2'], ['T-2']);
+  }
+  assert.deepEqual(delays, [2 * HELD_ASK_MS, 4 * HELD_ASK_MS, 8 * HELD_ASK_MS, 16 * HELD_ASK_MS, HELD_ASK_MAX_MS, HELD_ASK_MAX_MS]);
+  // The board sees a change, as T-1's pull request merging: it asks again 30 seconds after its last ask.
+  const merged = heldAskKey(rows.map((r) => (r.id === 'T-1' ? { ...r, pr: { number: 1, url: '', state: 'merged' } } : r)), ['T-2']);
+  assert.ok(!heldAskDue(ask, merged, t + HELD_ASK_MS - 1));
+  assert.ok(heldAskDue(ask, merged, t + HELD_ASK_MS));
+  // acc started it, or it waits no more: back to 30 seconds.
+  assert.equal(heldAsked(ask, key, t, ['T-2'], []).delay, HELD_ASK_MS);
+  assert.equal(heldAsked(ask, merged, t, ['T-2'], ['T-2']).delay, 2 * HELD_ASK_MS, 'a new view starts the back-off over');
+});
+
 test('a builder that stopped is told once, with what it last said, and Resume; not as an agent waiting in its own prompt (D-067)', async () => {
   const { autopilotNotices, noticeActions, sessionFor, taskNotices } = await import('../src/logic.ts');
   const { autopilotStepLook } = await import('../src/model.ts');
@@ -558,14 +634,14 @@ test('the autopilot switch says on or off with an icon and the words, and its to
   const { autopilotStatus } = await import('../src/logic.ts');
   const on = autopilotStatus({ project: 'Tool', many: false, state: 'on', last: '✓ GH-31  Opened pull request #40.' });
   assert.equal(on.text, '$(rocket) Autopilot: on');
-  assert.match(on.tooltip, /^Autopilot is on for Tool: it reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, and merges the base into a pull request that conflicts with it\. It never merges a pull request\./);
+  assert.match(on.tooltip, /^Autopilot is on for Tool: it reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, merges the base into a pull request that conflicts with it, and starts a task a person dispatched once the files it waits for are free\. It never merges a pull request\./);
   assert.match(on.tooltip, /Last: ✓ GH-31 {2}Opened pull request #40\./);
   assert.match(on.tooltip, /Click to turn it off until VSCode closes\.$/);
   assert.doesNotMatch(autopilotStatus({ project: 'Tool', many: false, state: 'on' }).tooltip, /Last:/, 'nothing printed yet');
 
   const off = autopilotStatus({ project: 'Tool', many: false, state: 'off' });
   assert.equal(off.text, '$(debug-pause) Autopilot: off');
-  assert.match(off.tooltip, /^Autopilot is off for Tool\. When it's on, it reviews[^]*merges the base into a pull request that conflicts with it\. It never merges a pull request\.\n\nClick to turn it on until VSCode closes\.$/);
+  assert.match(off.tooltip, /^Autopilot is off for Tool\. When it's on, it reviews[^]*starts a task a person dispatched once the files it waits for are free\. It never merges a pull request\.\n\nClick to turn it on until VSCode closes\.$/);
 
   const elsewhere = autopilotStatus({ project: 'Tool', many: false, state: 'elsewhere', pid: 4242 });
   assert.equal(elsewhere.text, '$(rocket) Autopilot: on elsewhere');
@@ -575,7 +651,7 @@ test('the autopilot switch says on or off with an icon and the words, and its to
   // It can't run: acc's own words say why.
   const { autopilotMode } = await import('../../packages/core/src/autopilot.ts');
   const refusal = autopilotMode({ autonomy: 'dispatch' }).refusal!;
-  assert.match(refusal, /^autonomy "dispatch" \(autopilot also starting Ready tasks\) is not built yet\. Set "autonomy" to "review" in \.acc\/config\.json: autopilot then reviews finished work, [^]*, and merges the base into a pull request that conflicts with it\.$/);
+  assert.match(refusal, /^autonomy "dispatch" \(autopilot also starting Ready tasks\) is not built yet\. Set "autonomy" to "review" in \.acc\/config\.json: autopilot then reviews finished work, [^]*, and starts a task a person dispatched once the files it waits for are free\.$/);
   const refused = autopilotStatus({ project: 'Tool', many: false, state: 'refused', refusal });
   assert.equal(refused.text, '$(circle-slash) Autopilot: off');
   assert.equal(refused.tooltip, `Autopilot can't run for Tool: ${refusal}`);
@@ -689,4 +765,161 @@ test('the analysis\'s size is shown beside the models, in words, and chooses non
   // The items don't depend on the analysis at all: their input has no room for it.
   const b = { model: 'claude-opus-5-5', from: { model: 'acc' } };
   assert.deepEqual(dispatchModelItems({ ...analysis('XL'), run: null }, b), dispatchModelItems({ run: null }, b));
+});
+
+// ---------------------------------------------------------------- one sign-in for every project on a site (GH-79)
+
+const REPO_A = { config: { github: { repo: 'Acme/Service' } }, ledgerPath: '/code/acme-service/.git/acc/ledger.json' };
+const REPO_B = { config: { github: null }, ledgerPath: '/x/.git/acc/ledger.json' };
+type Repo = typeof REPO_A | typeof REPO_B;
+const JIRA_SITE = 'acme.atlassian.net';
+const jordan = { kind: 'jira', method: 'token', email: 'jordan@acme.example', token: 'jordan-token-0123456789' };
+const pat = { kind: 'jira', method: 'token', email: 'pat@acme.example', token: 'pat-token-0123456789' };
+const machine = (entries: [string, unknown][]) => new Map(entries.map(([k, v]) => [k, typeof v === 'string' ? v : JSON.stringify(v)]));
+const applied = (m: Map<string, string>, w: CredWrites) => {
+  for (const [k, v] of w.store) m.set(k, v);
+  for (const k of w.delete) m.delete(k);
+  return m;
+};
+const inUse = async (m: Map<string, string>, p: Repo, kind = 'jira', host = JIRA_SITE) => credInUse(await readCreds((k) => m.get(k), p, kind, host));
+
+test('a site\'s sign-in is found from a second repo, and a repo\'s own wins over it', async () => {
+  assert.equal(siteCredKey('jira', JIRA_SITE), 'acc.cred:site:jira:acme.atlassian.net');
+  assert.equal(credKey(REPO_B, 'jira', JIRA_SITE), 'acc.cred:git:/x/.git:jira:acme.atlassian.net', 'no repo key starts with site:');
+  const m = machine([[siteCredKey('jira', JIRA_SITE), jordan]]);
+  assert.deepEqual(await inUse(m, REPO_B), { cred: jordan, shared: true }, 'repo B never signed in, and uses the site\'s');
+  assert.deepEqual(await inUse(m, REPO_B, 'jira', 'ACME.atlassian.net'), { cred: jordan, shared: true }, 'a host in any case');
+  m.set(credKey(REPO_B, 'jira', JIRA_SITE), JSON.stringify(pat));
+  assert.deepEqual(await inUse(m, REPO_B), { cred: pat, shared: false }, 'its own wins');
+  assert.deepEqual(await inUse(m, REPO_A), { cred: jordan, shared: true }, 'and leaves the rest on the site\'s');
+  assert.equal(await inUse(m, REPO_B, 'azure', 'acme'), null, 'another tracker\'s host is another site');
+  assert.equal(await inUse(machine([[siteCredKey('jira', 'acme'), jordan]]), REPO_B, 'azure', 'acme'), null, 'Jira and Azure never share one, whatever the host');
+  assert.equal((await inUse(machine([[siteCredKey('monday', 'acme'), { kind: 'monday', method: 'token', token: 'x' }]]), REPO_B, 'monday', 'acme'))?.shared, true, 'a monday.com account too');
+});
+
+test('a sign-in kept before GH-79 is still its repo\'s, and a "this project only" sign-out hides the site\'s', async () => {
+  const legacy = { kind: 'jira', email: 'jordan@acme.example', token: 'jordan-token-0123456789' };
+  const m = machine([['acc.cred:github:acme/service:jira:acme.atlassian.net', legacy]]);
+  assert.deepEqual(await inUse(m, REPO_A), { cred: legacy, shared: false }, 'read as it always was, with no method');
+  assert.equal(await inUse(m, REPO_B), null, 'and never another repo\'s');
+  const out = machine([[siteCredKey('jira', JIRA_SITE), jordan], [credKey(REPO_B, 'jira', JIRA_SITE), { kind: 'jira', signedOut: true }]]);
+  assert.deepEqual(await readCreds((k) => out.get(k), REPO_B, 'jira', JIRA_SITE), { own: 'signed-out', site: jordan });
+  assert.equal(await inUse(out, REPO_B), null, 'signed out here, though the site has one');
+  assert.deepEqual(await inUse(out, REPO_A), { cred: jordan, shared: true });
+  assert.equal(await inUse(machine([[credKey(REPO_B, 'jira', JIRA_SITE), 'not json'], [siteCredKey('jira', JIRA_SITE), '[]']]), REPO_B), null, 'one that can\'t be read is none');
+});
+
+test('keeping a sign-in: for the site, taking this repo\'s own key out, or for this repo, leaving the site\'s', () => {
+  const m = machine([[credKey(REPO_B, 'jira', JIRA_SITE), { kind: 'jira', signedOut: true }], [siteCredKey('jira', 'other.atlassian.net'), pat]]);
+  assert.deepEqual(credWrites(REPO_B, 'jira', 'ACME.atlassian.net', jordan, true), { store: [[siteCredKey('jira', JIRA_SITE), JSON.stringify(jordan)]], delete: [credKey(REPO_B, 'jira', JIRA_SITE)] });
+  applied(m, credWrites(REPO_B, 'jira', JIRA_SITE, jordan, true));
+  assert.deepEqual([...m.keys()].sort(), [siteCredKey('jira', JIRA_SITE), siteCredKey('jira', 'other.atlassian.net')], 'the sign-out goes, so this repo uses what was just chosen');
+  applied(m, credWrites(REPO_B, 'jira', JIRA_SITE, pat, false));
+  assert.equal(m.get(credKey(REPO_B, 'jira', JIRA_SITE)), JSON.stringify(pat));
+  assert.equal(m.get(siteCredKey('jira', JIRA_SITE)), JSON.stringify(jordan), 'the site\'s stays for every other project');
+});
+
+test('signing out of a site\'s sign-in, either way, never touches another site\'s or another repo\'s own', async () => {
+  const start = () => machine([
+    [siteCredKey('jira', JIRA_SITE), jordan], [siteCredKey('jira', 'other.atlassian.net'), pat], [siteCredKey('azure', 'acme'), { kind: 'azure', method: 'pat', token: 't' }],
+    [credKey(REPO_A, 'jira', JIRA_SITE), pat],
+  ]);
+  assert.deepEqual(signOutWrites(REPO_B, 'jira', JIRA_SITE, 'every'), { store: [], delete: ['acc.cred:site:jira:acme.atlassian.net'] });
+  const every = applied(start(), signOutWrites(REPO_B, 'jira', JIRA_SITE, 'every'));
+  assert.deepEqual([...every.keys()], [siteCredKey('jira', 'other.atlassian.net'), siteCredKey('azure', 'acme'), credKey(REPO_A, 'jira', JIRA_SITE)]);
+  assert.equal(await inUse(every, REPO_B), null);
+  assert.deepEqual(await inUse(every, REPO_A), { cred: pat, shared: false }, 'a repo with its own keeps it');
+
+  const only = applied(start(), signOutWrites(REPO_B, 'jira', JIRA_SITE, 'this'));
+  assert.deepEqual(JSON.parse(only.get(credKey(REPO_B, 'jira', JIRA_SITE))!), { kind: 'jira', signedOut: true }, 'a sign-out with no secret in it');
+  assert.equal(only.get(siteCredKey('jira', JIRA_SITE)), JSON.stringify(jordan), 'the site\'s stays');
+  assert.equal(await inUse(only, REPO_B), null);
+  assert.equal(only.size, start().size + 1);
+
+  // A repo's own sign-out falls back to the site's: no modal, since no other repo used it.
+  const own = applied(start(), signOutWrites(REPO_A, 'jira', JIRA_SITE, 'own'));
+  assert.deepEqual(await inUse(own, REPO_A), { cred: jordan, shared: true });
+  assert.equal(own.size, start().size - 1);
+});
+
+test('signing out asks only about a site\'s sign-in: Cancel writes nothing, and a repo\'s own goes with no question (GH-79)', async () => {
+  const start = () => machine([[siteCredKey('jira', JIRA_SITE), jordan], [siteCredKey('jira', 'other.atlassian.net'), pat], [credKey(REPO_A, 'jira', JIRA_SITE), pat]]);
+  const asked: { every: string; only: string }[] = [];
+  const answer = (pick: 'every' | 'only' | null) => async (a: { every: string; only: string }) => { asked.push(a); return pick ? a[pick] : undefined; };
+  const plan = async (m: Map<string, string>, p: Repo, pick: 'every' | 'only' | null) => {
+    const r = await signOutPlan(await readCreds((k) => m.get(k), p, 'jira', 'ACME.atlassian.net'), p, 'jira', 'ACME.atlassian.net', answer(pick));
+    if (r) applied(m, r.writes);
+    return r?.choice ?? null;
+  };
+
+  // Repo B uses the site's: it asks, with these two answers.
+  let m = start();
+  assert.equal(await plan(m, REPO_B, null), null, 'Cancel');
+  assert.deepEqual(asked, [{ every: 'Every project on acme.atlassian.net', only: 'This project only' }]);
+  assert.deepEqual(asked[0], signOutAnswers(JIRA_SITE));
+  assert.deepEqual(m, start(), 'Cancel writes nothing');
+  assert.equal(await plan(m, REPO_B, 'every'), 'every');
+  assert.deepEqual([...m.keys()], [siteCredKey('jira', 'other.atlassian.net'), credKey(REPO_A, 'jira', JIRA_SITE)], 'only this site\'s shared sign-in goes');
+  m = start();
+  assert.equal(await plan(m, REPO_B, 'only'), 'this');
+  assert.deepEqual([await inUse(m, REPO_B), m.get(siteCredKey('jira', JIRA_SITE))], [null, JSON.stringify(jordan)], 'signed out here, and the site\'s stays');
+  assert.equal(asked.length, 3);
+
+  // Repo A keeps its own: no question, and it falls back to the site's.
+  m = start();
+  assert.equal(await plan(m, REPO_A, 'every'), 'own');
+  assert.equal(asked.length, 3, 'an own sign-in never shows the question');
+  assert.deepEqual(await inUse(m, REPO_A), { cred: jordan, shared: true });
+  assert.equal(m.get(siteCredKey('jira', JIRA_SITE)), JSON.stringify(jordan));
+
+  // Not signed in, or signed out here already: nothing to ask or write.
+  m = machine([[siteCredKey('jira', JIRA_SITE), jordan], [credKey(REPO_B, 'jira', JIRA_SITE), { kind: 'jira', signedOut: true }]]);
+  const before = new Map(m);
+  assert.equal(await plan(m, REPO_B, 'every'), null);
+  assert.equal(await plan(machine([]), REPO_B, 'every'), null);
+  assert.deepEqual([m, asked.length], [before, 3]);
+});
+
+test('a sign-in\'s key names its tracker and host, a repo\'s or a site\'s', () => {
+  assert.deepEqual(credSite('acc.cred:site:jira:acme.atlassian.net'), { kind: 'jira', host: 'acme.atlassian.net' });
+  assert.deepEqual(credSite('acc.cred:github:acme/service:azure:acme'), { kind: 'azure', host: 'acme' });
+  assert.deepEqual(credSite('acc.cred:git:/a:b/c:monday:acme'), { kind: 'monday', host: 'acme' });
+  assert.equal(credSite('acc.slack.webhook'), null);
+  assert.equal(credSite('acc.cred:jira'), null);
+});
+
+test('a session\'s repo is the nearest folder up holding .git, short of the home folder and / (GH-83)', () => {
+  const holds = (...dirs: string[]) => (d: string) => dirs.includes(d);
+  assert.equal(repoRoot('/Users/me/clients/Acme Service/force-app/main', '/Users/me', holds('/Users/me/clients/Acme Service')), '/Users/me/clients/Acme Service');
+  assert.equal(repoRoot('/Users/me/clients/Acme Service', '/Users/me', holds('/Users/me/clients/Acme Service')), '/Users/me/clients/Acme Service', 'the folder itself first');
+  assert.equal(repoRoot('/Users/me/a/b/c', '/Users/me', holds('/Users/me/a', '/Users/me/a/b')), '/Users/me/a/b', 'the nearest one');
+  assert.equal(repoRoot('/Users/me/Downloads/scratch', '/Users/me', holds()), null);
+  assert.equal(repoRoot('/Users/me/Downloads/scratch', '/Users/me', holds('/Users/me')), null, 'a repo at ~ (dotfiles) is nobody\'s repo');
+  assert.equal(repoRoot('/Users/me', '/Users/me', holds('/Users/me')), null);
+  assert.equal(repoRoot('/opt/tools/x', '/Users/me', holds('/', '/opt/tools')), '/opt/tools', 'outside home it walks up to, not into, /');
+  assert.equal(repoRoot('/opt/x', '/Users/me', holds('/')), null);
+});
+
+test('a path shows the home folder as ~, and a path outside it as it is (GH-83)', () => {
+  assert.equal(tildePath('/Users/me/clients/Acme Service', '/Users/me'), '~/clients/Acme Service');
+  assert.equal(tildePath('/Users/me', '/Users/me'), '~');
+  assert.equal(tildePath('/Users/meg/x', '/Users/me'), '/Users/meg/x', 'a folder whose name starts the same isn\'t home');
+  assert.equal(tildePath('/opt/x', '/Users/me'), '/opt/x');
+  assert.equal(tildePath('/Users/me/x', undefined), '/Users/me/x', 'with no home known, the path as it is');
+});
+
+test('a sign-in kept for a site reloads every open project with a tracker there, and no other (GH-79)', () => {
+  assert.equal(trackerHost({ kind: 'jira', site: 'https://ACME.atlassian.net/' }), 'acme.atlassian.net');
+  assert.equal(trackerHost({ kind: 'azure', organization: 'acme' }), 'acme');
+  assert.equal(trackerHost({ kind: 'monday', account: 'Acme' }), 'acme');
+  const projects = [
+    { root: '/a', trackers: [{ kind: 'jira', site: 'acme.atlassian.net' }] },
+    { root: '/b', trackers: [{ kind: 'github' }, { kind: 'jira', site: 'https://acme.atlassian.net' }] },
+    { root: '/c', trackers: [{ kind: 'jira', site: 'other.atlassian.net' }] },
+    { root: '/d', trackers: [{ kind: 'azure', organization: 'acme.atlassian.net' }] },
+    { root: '/e', trackers: [] },
+  ];
+  assert.deepEqual(reloadRoots('/a', { kind: 'jira', host: 'ACME.atlassian.net' }, projects), ['/a', '/b'], 'another site, or another kind on a host of that name, isn\'t reloaded');
+  assert.deepEqual(reloadRoots('/e', undefined, projects), ['/e'], 'a sign-in for this project only reloads only it');
+  assert.deepEqual(reloadRoots(null, { kind: 'jira', host: 'acme.atlassian.net' }, projects), ['/a', '/b']);
 });

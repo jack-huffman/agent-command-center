@@ -1,26 +1,35 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { cpus, homedir, loadavg } from 'node:os';
 import { dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { profileView, type ProfileView } from '../../packages/core/src/agents.ts';
 import { type Analysis, analysisRequired, analyzing, readAnalysis } from '../../packages/core/src/analyze.ts';
-import { type AutopilotLog, type AutopilotRecord, failedChecks, readAutopilotLog } from '../../packages/core/src/autopilot.ts';
+import { type AutopilotLog, type AutopilotRecord, byAutopilot, failedChecks, readAutopilotLog } from '../../packages/core/src/autopilot.ts';
+import { arrivedAt } from '../../packages/core/src/carried.ts';
 import { type Config, parseConfig } from '../../packages/core/src/config.ts';
 import { run as runSync } from '../../packages/core/src/exec.ts';
 import { CLONE_ACCOUNT_KEY } from '../../packages/core/src/github.ts';
-import { autopilotFailure, builderStopped, displayState, readLedger, type Ledger, type SessionInfo } from '../../packages/core/src/ledger.ts';
+import { jobsUnderWay } from '../../packages/core/src/jobs.ts';
+import { autopilotFailure, builderStopped, displayState, type FileShare, isReady, readLedger, type Ledger, runStartedAt, type SessionInfo, type Task } from '../../packages/core/src/ledger.ts';
+import { envOpen, IN_FLIGHT_STATES, inFlight, nulPaths, plannedFiles, sharedFiles, type StartCandidate, startOrder } from '../../packages/core/src/overlap.ts';
 import type { RepoPaths } from '../../packages/core/src/paths.ts';
 import type { HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import { resuming } from '../../packages/core/src/resume.ts';
 import { latestVerdict, reviewing } from '../../packages/core/src/review.ts';
+import { type HeavyState, heavyState } from '../../packages/core/src/semaphore.ts';
 import { claudeProjectsDir, lastModelIn, lastSaidIn, transcriptFile } from '../../packages/core/src/transcript.ts';
 import { readUpdate, type Update, UPDATE_ID } from '../../packages/core/src/updates.ts';
-import { type AgentSession, agentLook, analysisWait, askingLabel, isUnder, parseWorktrees, rowAnalysis, sessionFor, type TaskRow, type Worktree } from './logic.ts';
+import { type AgentSession, agentLook, analysisWait, askingLabel, isUnder, parseWorktrees, repoRoot, rowAnalysis, type RowFiles, sessionFor, type TaskRow, type Worktree } from './logic.ts';
+import { loadWord, type RepoJobs } from './progress.ts';
 import { runFile } from './run.ts';
+import { type LastStep, lastStepIn } from './transcript.ts';
 
 export interface WorktreeInfo extends Worktree {
   main: boolean;
   /** Files with uncommitted changes, or -1 when git couldn't say. */
   changed: number;
+  /** A running task's branch so far: commits and files changed since its environment's branch (D-092). */
+  branchStats?: { commits: number; files: number } | null;
 }
 
 export interface Project {
@@ -37,7 +46,11 @@ export interface Project {
   agents: { builder: ProfileView; reviewer: ProfileView };
 }
 
-export type HubPart = 'projects' | 'tasks' | 'agents' | 'worktrees';
+export type HubPart = 'projects' | 'tasks' | 'agents' | 'worktrees' | 'jobs';
+
+/** While anything was under way this recently, In progress redraws every TICK_MS, so its times and done lines move on. */
+const BUSY_MS = 90_000;
+const TICK_MS = 15_000;
 
 /** Where a project's analyses are kept: beside the ledger, as acc keeps them (D-052). */
 const analysesOf = (p: Pick<Project, 'ledgerPath'>): RepoPaths => ({ analyses: join(dirname(p.ledgerPath), 'analyses') }) as RepoPaths;
@@ -78,6 +91,10 @@ export class Hub implements vscode.Disposable {
   questions: Question[] = [];
   /** How earlier questions ended, newest last (D-037), set by Questions. */
   answers: HistoryRecord[] = [];
+  /** The home folder, which sessions' folders show as ~ (GH-83). */
+  readonly home = homedir();
+  /** The repo each session's folder is in, as of the last `claude agents`, so a repo made since shows next time (GH-83). */
+  private readonly repos = new Map<string, string | null>();
   private readonly tasks = new Map<string, { stamp: string; ledger: Ledger; rows: TaskRow[] }>();
   /** The steps autopilot took in each repo, by ledger: projects of one repo share them (D-064). */
   private readonly steps = new Map<string, AutopilotLog>();
@@ -96,6 +113,18 @@ export class Hub implements vscode.Disposable {
    * up another's, such as what a builder that has since stopped last said.
    */
   private readonly unsaved = new Map<Map<string, Read<string>>, Map<string, number>>();
+  /** Who holds the machine's heavy-check slots and who waits (D-092), as of the last look. */
+  heavy: HeavyState | null = null;
+  /** The machine's load over the last minute, and its cores, as of the last look. */
+  machine: { load: number; cpus: number } | null = null;
+  /** Each repo's jobs under way, by ledger: projects of one repo share them (D-092). */
+  private readonly repoJobs = new Map<string, RepoJobs>();
+  /** Each running builder's latest step, by session, kept until its transcript changes. */
+  private readonly builderSteps = new Map<string, { file: string; stamp: string; step: LastStep | null }>();
+  private jobsSig = '';
+  private busyAt = 0;
+  /** What each in-flight task's branch has changed, by project and task, from the worktree poll (D-093). */
+  private readonly changed = new Map<string, Map<string, string[]>>();
   private readonly emitter = new vscode.EventEmitter<HubPart>();
   readonly onDidChange = this.emitter.event;
   private readonly timers = new Map<string, NodeJS.Timeout>();
@@ -141,6 +170,12 @@ export class Hub implements vscode.Disposable {
   /** The project a path belongs to: its main checkout or any of its worktrees. */
   projectFor(path: string): Project | undefined {
     return this.projects.find((p) => isUnder(path, p.root) || p.worktrees.some((w) => isUnder(path, w.path)));
+  }
+
+  /** The repo a folder is in: the nearest folder up holding .git, short of the home folder (GH-83). */
+  repoFor(path: string): string | null {
+    if (!this.repos.has(path)) this.repos.set(path, repoRoot(path, this.home, (d) => existsSync(join(d, '.git'))));
+    return this.repos.get(path)!;
   }
 
   // ------------------------------------------------------------ tasks
@@ -318,13 +353,16 @@ export class Hub implements vscode.Disposable {
     const sessions = this.agentsAt && !this.agentsError ? this.agents : null;
     const stateDir = p ? dirname(p.ledgerPath) : null;
     const now = new Date();
+    const analyses = new Map(ledger.tasks.map((t) => [t.id, store && t.state !== 'done' && files.has(`${t.id}.json`) ? this.analysisFrom(store, t.id) : null]));
+    const filesOf = this.rowFiles(ledger, p, analyses, required);
     return ledger.tasks.map((t) => {
-      const a = store && t.state !== 'done' && files.has(`${t.id}.json`) ? this.analysisFrom(store, t.id) : null;
+      const a = analyses.get(t.id) ?? null;
       const running = store && t.state !== 'done' && files.has(`${t.id}.running.json`) ? analyzing(store, t.id) : null;
       const analysis = a ? rowAnalysis(a) : null;
       const waits = analysisWait({ state: t.state, analysis, analyzing: running });
       const verdict = reviews && (t.state === 'review' || t.state === 'rework') ? latestVerdict(reviews, t.id) : null;
       const head = p?.worktrees.find((w) => w.branch === t.run?.branch)?.head;
+      const tree = t.state === 'running' && t.run?.worktree ? p?.worktrees.find((w) => w.path === t.run!.worktree) : undefined;
       const live = reviews && t.state === 'review' ? reviewing(reviews, t.id) : null;
       const base = { id: t.id, run: t.run };
       const session = t.state === 'running' || t.state === 'review' || t.state === 'blocked' ? sessionFor(base, this.agents) : undefined;
@@ -366,8 +404,80 @@ export class Hub implements vscode.Disposable {
         checks: failedChecks(t),
         stopped: stopped ? { said } : null,
         resuming: !!resumed,
+        since: t.state === 'running' ? runStartedAt(t) : null,
+        branchStats: tree?.branchStats ? { ...tree.branchStats, uncommitted: Math.max(0, tree.changed) } : null,
+        files: filesOf(t),
       };
     });
+  }
+
+  /**
+   * Each task's files beside other tasks' (D-093), as acc weighs them at dispatch: a task to do's planned
+   * files against each in-flight task's, planned and changed on its branch (as the worktree poll last
+   * read them), without the files every task shares. acc's own answer at dispatch is final.
+   */
+  private rowFiles(ledger: Ledger, p: Project | undefined, analyses: Map<string, Analysis | null>, required: boolean): (t: Task) => RowFiles | null {
+    if (!p) return () => null;
+    const plan = (id: string) => plannedFiles(analyses.get(id) ?? null, p.root);
+    const changed = this.changed.get(p.root);
+    const flying: FileShare[] = inFlight(ledger).filter((t) => t.pr?.state !== 'merged')
+      .map((t) => ({ task: t.id, files: [...new Set([...(plan(t.id) ?? []), ...(changed?.get(t.id) ?? [])])].sort() }));
+    const live = new Set(flying.map((f) => f.task));
+    const shared = sharedFiles(p.config);
+    // What could start now, as acc's analysisProblems and checkMove see it.
+    const candidates: StartCandidate[] = ledger.tasks.filter((t) => t.state === 'todo').map((t) => {
+      const a = analyses.get(t.id) ?? null;
+      const analyzed = !required || (!!a && a.verdict !== 'split' && a.questions.every((q) => !!q.answer));
+      return { id: t.id, files: plan(t.id), startable: isReady(ledger, t) && envOpen(p.config, t) && !t.held?.failed && analyzed };
+    });
+    const capped = ledger.tasks.filter((t) => t.state === 'running').length >= p.config.agents.max;
+    return (t) => {
+      if (t.state === 'todo') {
+        const own = plan(t.id);
+        const look = startOrder({ id: t.id, files: own }, candidates, flying, shared);
+        const h = t.held;
+        const held = h ? { at: h.at, failed: h.failed?.reason ?? null, byAutopilot: !!h.failed && byAutopilot(h.failed.by) } : null;
+        return { known: !!own, analyzed: !!analyses.get(t.id), shares: look.shares, first: look.first, held, ...(h && capped ? { capped } : {}) };
+      }
+      // Started beside others, while they're still in flight.
+      const shares = IN_FLIGHT_STATES.includes(t.state) ? (t.run?.shares ?? []).filter((s) => live.has(s.task)) : [];
+      return shares.length ? { known: true, shares, first: [], held: null } : null;
+    };
+  }
+
+  /**
+   * What each in-flight task's branch has changed since it left its environment's branch (D-093): its
+   * commits, and in its worktree what isn't committed yet, untracked files too. Read only while a task to
+   * do is Ready or held, when it can matter, one git call at a time, so a machine that stutters isn't
+   * asked for much at once.
+   */
+  private async loadChanged(p: Project): Promise<void> {
+    const ledger = this.tasks.get(p.root)?.ledger;
+    if (!ledger?.tasks.some((t) => t.state === 'todo' && (!!t.held || isReady(ledger, t)))) {
+      this.changed.delete(p.root);
+      return;
+    }
+    const out = new Map<string, string[]>();
+    for (const t of inFlight(ledger)) {
+      if (t.pr?.state === 'merged') continue;
+      const branch = `refs/heads/${t.run!.branch}`;
+      let base = '';
+      for (const ref of [`refs/remotes/origin/${t.environment}`, `refs/heads/${t.environment}`]) {
+        const mb = await runFile('git', ['merge-base', branch, ref], p.root);
+        if (mb.code === 0 && mb.stdout.trim()) { base = mb.stdout.trim(); break; }
+      }
+      if (!base) continue;
+      const files = new Set<string>();
+      const add = (r: { code: number; stdout: string }) => { if (r.code === 0) for (const f of nulPaths(r.stdout)) files.add(f); };
+      add(await runFile('git', ['diff', '--name-only', '--no-renames', '-z', base, branch], p.root));
+      const wt = t.run!.worktree;
+      if (wt && existsSync(wt)) {
+        add(await runFile('git', ['diff', '--name-only', '--no-renames', '-z', base], wt));
+        add(await runFile('git', ['ls-files', '--others', '--exclude-standard', '-z'], wt));
+      }
+      out.set(t.id, [...files].sort());
+    }
+    this.changed.set(p.root, out);
   }
 
   // ------------------------------------------------------------ agents
@@ -392,6 +502,7 @@ export class Hub implements vscode.Disposable {
 
   async loadAgents(): Promise<void> {
     const r = await runFile('claude', ['agents', '--json'], this.projects[0]?.root ?? process.cwd(), process.env, undefined, 20_000);
+    this.repos.clear();
     if (r.code === 127) {
       this.agents = [];
       this.agentsError = 'The Claude Code CLI (claude) isn\'t on PATH.';
@@ -411,6 +522,107 @@ export class Hub implements vscode.Disposable {
     if (this.tasks.size) this.emitter.fire('tasks');
   }
 
+  // ------------------------------------------------------------ jobs under way (D-092)
+
+  /** A project's repo's jobs under way, with its reviews, analyses and resumes, as of the last look. */
+  jobsOf(root: string): RepoJobs {
+    const p = this.project(root);
+    return (p && this.repoJobs.get(p.ledgerPath)) ?? { repo: p?.ledgerPath ?? root, max: p?.config.agents.max ?? 1, jobs: [], reviews: [], analyses: [], resumes: [] };
+  }
+
+  /** A running builder's latest step and model, by its session, as of the last look while the page was on screen. */
+  stepOf(sessionId: string): LastStep | null {
+    return this.builderSteps.get(sessionId)?.step ?? null;
+  }
+
+  /**
+   * Looks at what runs: the machine's heavy-check slots, each repo's job markers, and its review, analysis
+   * and resume markers, all stats and small reads. On screen, each running builder's latest step too, read
+   * from its transcript's tail only when the file changed. Says 'jobs' only when something changed, and
+   * every 15 seconds while anything is under way, so times and done lines move on.
+   */
+  async loadJobs(visible = true): Promise<void> {
+    let heavy: HeavyState | null = null;
+    try {
+      heavy = heavyState();
+    } catch {
+      heavy = null;
+    }
+    const machine = { load: loadavg()[0] ?? 0, cpus: cpus().length || 1 };
+    const seen = new Set<string>();
+    for (const p of this.projects) {
+      if (seen.has(p.ledgerPath)) continue;
+      seen.add(p.ledgerPath);
+      this.repoJobs.set(p.ledgerPath, this.readRepoJobs(p));
+    }
+    for (const k of [...this.repoJobs.keys()]) if (!seen.has(k)) this.repoJobs.delete(k);
+    if (visible) this.readSteps();
+    this.heavy = heavy;
+    this.machine = machine;
+    const running = this.projects.some((p) => this.taskRows(p.root).some((t) => t.state === 'running'));
+    const busy = running || !!heavy?.held.length || !!heavy?.waiting.length || [...this.repoJobs.values()].some((r) => r.jobs.length || r.reviews.length || r.analyses.length || r.resumes.length);
+    const now = Date.now();
+    if (busy) this.busyAt = now;
+    const sig = JSON.stringify([
+      heavy && [heavy.slots, heavy.held, heavy.waiting], [...this.repoJobs.values()], loadWord(machine)?.label ?? null,
+      [...this.builderSteps.entries()].map(([k, v]) => [k, v.step]),
+      visible && now - this.busyAt < BUSY_MS ? Math.floor(now / TICK_MS) : 0,
+    ]);
+    if (sig === this.jobsSig) return;
+    this.jobsSig = sig;
+    this.emitter.fire('jobs');
+  }
+
+  private readRepoJobs(p: Project): RepoJobs {
+    const stateDir = dirname(p.ledgerPath);
+    const list = (dir: string, suffix: string): string[] => {
+      try {
+        return readdirSync(join(stateDir, dir)).filter((n) => n.endsWith(suffix)).map((n) => n.slice(0, -suffix.length));
+      } catch {
+        return [];
+      }
+    };
+    const store = { stateDir, reviews: join(stateDir, 'reviews'), analyses: join(stateDir, 'analyses') } as RepoPaths;
+    const ledger = this.ledger(p.root);
+    // What a promotion takes on, as far as the ledger says: tasks that reached its source and not its destination.
+    const carries = (from: string, to: string) => (ledger?.tasks ?? []).filter((t) => arrivedAt(t, from) && !arrivedAt(t, to)).map((t) => t.id);
+    let jobs: RepoJobs['jobs'] = [];
+    try {
+      jobs = jobsUnderWay({ stateDir }).map((j) => (j.kind === 'promote' && j.from && j.env ? { ...j, carries: carries(j.from, j.env) } : j));
+    } catch {
+      jobs = [];
+    }
+    return {
+      repo: p.ledgerPath,
+      max: p.config.agents.max,
+      jobs,
+      reviews: list('reviews', '.running.json').flatMap((task) => { const r = reviewing(store, task); return r ? [{ task, ...r }] : []; }),
+      analyses: list('analyses', '.running.json').flatMap((task) => { const r = analyzing(store, task); return r ? [{ task, ...r }] : []; }),
+      resumes: list('resumes', '.json').flatMap((task) => { const r = resuming(store, task); return r ? [{ task, sessionId: r.sessionId, startedAt: r.startedAt, by: r.by, pid: r.pid }] : []; }),
+    };
+  }
+
+  /** Each running builder's latest step, from its transcript's tail, read again only when the file changed. */
+  private readSteps(): void {
+    const live = new Set<string>();
+    for (const p of this.projects) {
+      for (const t of this.taskRows(p.root)) {
+        const id = t.state === 'running' ? t.run?.sessionId : undefined;
+        if (!id || live.has(id)) continue;
+        live.add(id);
+        let cached = this.builderSteps.get(id);
+        const file = cached && existsSync(cached.file) ? cached.file : transcriptFile(claudeProjectsDir(process.env), id, [t.run?.worktree, p.root]);
+        const stamp = file ? stampOf(file) : null;
+        if (!file || !stamp) continue;
+        if (cached?.file !== file || cached.stamp !== stamp) {
+          cached = { file, stamp, step: lastStepIn(file) };
+          this.builderSteps.set(id, cached);
+        }
+      }
+    }
+    for (const k of [...this.builderSteps.keys()]) if (!live.has(k)) this.builderSteps.delete(k);
+  }
+
   // ------------------------------------------------------------ worktrees and branches
 
   async loadWorktrees(): Promise<void> {
@@ -421,16 +633,37 @@ export class Hub implements vscode.Disposable {
       ]);
       p.branch = branch.code === 0 ? branch.stdout.trim() || null : null;
       const trees = list.code === 0 ? parseWorktrees(list.stdout) : [];
+      // A running task's branch is counted too, for In progress (D-092): only those, and only on this poll,
+      // which runs while the page is on screen.
+      const running = new Map((this.ledger(p.root)?.tasks ?? []).filter((t) => t.state === 'running' && t.run?.worktree).map((t) => [t.run!.worktree!, t.environment]));
       p.worktrees = await Promise.all(trees.map(async (w, i): Promise<WorktreeInfo> => {
         if (w.prunable || !existsSync(w.path)) return { ...w, main: i === 0, changed: -1 };
-        const s = await runFile('git', ['status', '--porcelain'], w.path);
-        return { ...w, main: i === 0, changed: s.code === 0 ? s.stdout.split('\n').filter(Boolean).length : -1 };
+        const env = running.get(w.path);
+        const [s, branchStats] = await Promise.all([runFile('git', ['status', '--porcelain'], w.path), env ? this.branchStats(w.path, env) : Promise.resolve(null)]);
+        return { ...w, main: i === 0, changed: s.code === 0 ? s.stdout.split('\n').filter(Boolean).length : -1, ...(env ? { branchStats } : {}) };
       }));
+      await this.loadChanged(p);
     }
     this.emitter.fire('worktrees');
     // A branch's latest commit decides whether its review is current, so the rows follow the worktrees.
     for (const [root, cached] of this.tasks) this.tasks.set(root, { ...cached, rows: this.deriveRows(cached.ledger, this.project(root)) });
     if (this.tasks.size) this.emitter.fire('tasks');
+  }
+
+  /**
+   * Commits and files changed on a branch since it left its environment's branch: from the merge base with
+   * origin's copy, else the local one, as the checks measure changes (gates.ts). Null when git can't say.
+   */
+  private async branchStats(path: string, env: string): Promise<{ commits: number; files: number } | null> {
+    let base = '';
+    for (const ref of [`origin/${env}`, env]) {
+      const r = await runFile('git', ['merge-base', 'HEAD', ref], path);
+      if (r.code === 0 && r.stdout.trim()) { base = r.stdout.trim(); break; }
+    }
+    if (!base) return null;
+    const [count, diff] = await Promise.all([runFile('git', ['rev-list', '--count', `${base}..HEAD`], path), runFile('git', ['diff', '--name-only', base, 'HEAD'], path)]);
+    if (count.code !== 0 || diff.code !== 0) return null;
+    return { commits: Number(count.stdout.trim()) || 0, files: diff.stdout.split('\n').filter(Boolean).length };
   }
 
   // ------------------------------------------------------------ polling, only while a view is visible

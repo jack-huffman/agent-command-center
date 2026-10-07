@@ -1,8 +1,9 @@
 // Renders one editor tab. Every element is built with DOM calls and every string is set as text,
 // so nothing from a ticket, branch or session can become markup. No HTML string is ever parsed.
 import type {
-  Action, AgentModel, AgentsModel, ConnectField, ConnectModel, ConnectPicker, EntryView, EnvironmentsModel, HistoryItem, HomeModel, HomeSection, IdentityCard, Look, Model, PersonChip, QuestionCard, Ref, RunCard, SetupModel, SetupRow, SlackCard, TasksModel, TicketAnalysis, TicketModel, TrackerBoard, TrackerCard, UpdateCard, ViewKind, WorktreesModel,
+  Action, AgentModel, AgentsModel, ConnectField, ConnectModel, ConnectPicker, EntryView, EnvironmentsModel, HistoryItem, HomeModel, HomeSection, IdentityCard, Look, Model, PersonChip, QuestionCard, Ref, RunCard, SetupModel, SetupRow, SlackCard, TasksModel, TicketAnalysis, TicketModel, TrackerBoard, TrackerCard, UpdateCard, ViewKind, WhereView, WorktreesModel,
 } from '../src/model.ts';
+import type { ProgressAction, ProgressGroup, ProgressModel } from '../src/progress.ts';
 import type { Block, Doc, Inline } from '../../packages/core/src/trackers/doc.ts';
 import { type DraftKeys, type EditBase, editFor, keepEdits, Pending } from './pending.ts';
 
@@ -304,6 +305,9 @@ function renderTasks(m: TasksModel): Node[] {
           card.closedPr ? el('div', 'card-agent', status(card.closedPr)) : null,
           // Its builder stopped before acc done or acc block, and what it last said (D-067): in orange, with its icon.
           card.stopped ? el('div', 'card-agent', status(card.stopped)) : null,
+          // Its files beside other tasks' (D-093): it waits for them (a clock, in blue), its start failed (the
+          // bell, in orange), it shares them, or a Ready task's aren't known.
+          card.files ? el('div', 'card-agent', status(card.files)) : null,
           card.agent ? titled(el('div', 'card-agent', el('span', 'muted', 'Agent: '), status(card.agent)), card.agentName) : null,
           // The model it runs with (D-086), in plain mono text: a name, not a state.
           card.agent && card.model ? el('div', 'card-where card-model', icon('sparkle'), el('span', 'mono muted', card.model)) : null,
@@ -440,10 +444,12 @@ function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
   tools.push(change);
   const out = el('section', 'tracker',
     el('div', 'tracker-head',
-      el('h2', '', icon(KIND_ICON[b.kind] ?? 'issues'), b.title, b.source ? el('span', 'chip', SOURCE_LABEL[b.source] ?? b.source) : null, b.signedInAs ? el('span', 'acting', icon('account'), `as ${b.signedInAs}`) : null, b.loading ? el('span', 'muted loading', icon('sync~spin'), 'Loading') : null),
+      el('h2', '', icon(KIND_ICON[b.kind] ?? 'issues'), b.title, b.source ? el('span', 'chip', SOURCE_LABEL[b.source] ?? b.source) : null, b.signedInAs && !b.signIn ? el('span', 'acting', icon('account'), `as ${b.signedInAs}`) : null, b.loading ? el('span', 'muted loading', icon('sync~spin'), 'Loading') : null),
       el('div', 'toolbar', ...tools)));
   // Where its tickets come from (D-072): only these are shown, tracked or taken in.
   if (b.place) out.append(el('p', 'tracker-place', icon('filter'), el('span', '', 'Tickets from ', el('strong', '', b.place))));
+  // Who it's signed in as, and whether every project on the site shares that sign-in (GH-79).
+  if (b.signIn) out.append(el('p', 'tracker-place tracker-signin', icon(b.signIn.icon, b.signIn.tone), el('span', '', b.signIn.label)));
   if (b.left.length) {
     out.append(el('div', 'notice attention left-place', icon('warning', 'orange'),
       el('div', 'left-text', el('strong', '', `Left this repo's place after work started: ${plural(b.left.length, 'task')}`),
@@ -766,6 +772,13 @@ function renderTicket(m: TicketModel): Node[] {
   if (m.acc?.failedChecks) {
     const [head, ...names] = m.acc.failedChecks.split(': ');
     top.append(foldable(`checks:${m.project}#${m.key}`, el('div', 'notice attention why', icon('github-action', 'orange'), el('div', 'why-text conflict', el('strong', '', `${head}: `), names.join(': '))), 'why-text', 2));
+  }
+  // Its files beside other tasks', each file in full (D-093): the icon and the words, in the look's tone.
+  if (m.acc?.files) {
+    const f = m.acc.files;
+    const [head, ...rest] = f.label.split(': ');
+    const tone = f.tone === 'orange' ? ' attention' : f.tone === 'blue' ? ' waits' : '';
+    top.append(foldable(`files:${m.project}#${m.key}`, el('div', `notice${tone} why`, icon(f.icon, f.tone), el('div', 'why-text', el('strong', '', rest.length ? `${head}: ` : head), rest.join(': '))), 'why-text', 2));
   }
   if (m.analysis) top.append(renderAnalysis(m, m.analysis));
   const main = el('div', 'ticket-main');
@@ -1107,6 +1120,8 @@ function questionCard(q: QuestionCard, opts: { watch: boolean }): HTMLElement {
     when(new Date(q.askedAt).toISOString()));
   const card = el('article', `question${d.sent ? ' sent' : ''}`, head);
   card.setAttribute('aria-label', `${q.who} ${q.title}`);
+  // In progress's Answer brings this card into view (D-092).
+  card.dataset.question = q.id;
   const tools: Child[] = [];
   const watch = opts.watch ? button('Watch', 'pulse', () => api.postMessage({ type: 'run', command: 'acc.agent.watch', ref: { session: q.session } }), 'ghost small') : null;
   const terminal = el('span', 'q-aside-group',
@@ -1370,7 +1385,7 @@ function renderAgent(m: AgentModel): Node[] {
     m.startedAt ? el('span', '', `Started ${since(m.startedAt)}`) : null,
     m.model ? el('span', '', el('span', 'sep', '·'), el('span', 'mono', m.model)) : null,
     m.lastAt ? el('span', '', el('span', 'sep', '·'), 'last active ', when(m.lastAt)) : null,
-    m.where ? el('span', '', el('span', 'sep', '·'), el('span', 'mono', m.where)) : null);
+    m.where ? el('span', '', el('span', 'sep', '·'), Object.assign(el('span', '', m.where), { title: m.path })) : null);
   const out: Node[] = [el('header', 'ticket-head agent-head', crumbs, el('h1', 'ticket-title', m.task?.title ?? m.name), facts,
     el('div', 'ticket-bar', status(m.look), el('span', 'spacer'), el('div', 'actions', ...m.actions.map(actionButton))))];
   if (m.questions.length) out.push(el('section', 'agent-asks', ...m.questions.map((q) => questionCard(q, { watch: false }))));
@@ -1550,6 +1565,17 @@ function connectPicker(m: ConnectModel, p: ConnectPicker): HTMLElement {
   return connectRow(id, p.label, [select], p.hint, p.look);
 }
 
+/** The tick that keeps the sign-in for every project on its site, or this one only (GH-79). Sent when it changes. */
+function connectShare(m: ConnectModel): HTMLElement {
+  const box = document.createElement('input');
+  box.type = 'checkbox';
+  box.id = 'connect-share';
+  box.checked = m.share.on;
+  box.dataset.keep = `connect:${m.id}:share`;
+  box.addEventListener('change', () => connectSend(m, { type: 'connect-share', on: box.checked }));
+  return el('div', 'connect-share', el('label', `tick${m.share.on ? ' on' : ''}`, box, m.share.label), el('div', 'muted small cfield-hint', icon(m.share.on ? 'globe' : 'repo'), ` ${m.share.hint}`));
+}
+
 /** A row of choices, one on: the tracker's kind, a project, or a way to sign in. */
 function segmented(label: string, items: { key: string; label: string; icon: string; on: boolean }[], pick: (key: string) => void): HTMLElement {
   const g = el('div', 'segmented');
@@ -1596,6 +1622,7 @@ function renderConnect(m: ConnectModel): Node[] {
     m.methods.length ? el('div', 'connect-choose', segmented('How to sign in', m.methods.map((x) => ({ key: x.id, label: x.label, icon: x.icon, on: x.on })), (method) => connectSend(m, { type: 'connect-method', method }))) : null,
     el('p', 'muted small connect-hint', m.method.hint),
     ...m.fields.map((f) => connectInput(m, f, test)),
+    m.share.shown ? connectShare(m) : null,
     el('div', 'connect-test', testButton, el('div', `cfield-status tone-${m.signIn.look.tone}`, icon(m.signIn.look.icon, m.signIn.look.tone), el('span', '', m.signIn.look.label))),
   ] : [el('div', 'connect-test', status(m.signIn.look), button('Sign in again', 'account', () => connectSend(m, { type: 'connect-again' }), 'ghost'))];
   out.push(step(2, 'Sign in', ...signIn));
@@ -1736,7 +1763,7 @@ function renderOverview(m: HomeModel): Node[] {
     const an = a.analysis;
     if (an) inbox.append(el('div', 'inbox-analysis', ...an.questions.map((q) => analysisQuestion(an.project, an.task, q, an.canAsk))));
   }
-  out.push(inbox);
+  out.push(inbox, renderInProgress(o.inProgress));
 
   // At a glance: each tile opens its section.
   const tiles = el('div', 'tiles');
@@ -1758,6 +1785,80 @@ function renderOverview(m: HomeModel): Node[] {
   // Ready work, then the full history below it, with the width to read it.
   out.push(ready, renderHistory(o.history, o.projects.length > 1));
   return out;
+}
+
+/**
+ * In progress (D-092): every job under way, grouped by task, busiest first, with the machine on top. Its
+ * heading folds it to the heading, remembered for the tab. A job that ended stays a minute as a line that
+ * fades; the fade starts as far in as the job is old, by the extension's clock, so a redraw never restarts it.
+ */
+function renderInProgress(p: ProgressModel): HTMLElement {
+  const open = memory().sections?.['in-progress'] ?? true;
+  const toggle = el('button', 'progress-toggle', el('span', 'tool-chev', icon('chevron-right')), icon('pulse', p.count ? 'blue' : undefined), 'In progress', p.count ? el('span', 'count', String(p.count)) : null) as HTMLButtonElement;
+  toggle.type = 'button';
+  toggle.setAttribute('aria-expanded', String(open));
+  toggle.title = open ? 'Fold In progress to its heading' : 'Show what\'s in progress';
+  toggle.addEventListener('click', () => {
+    remember((m) => { m.sections = { ...(m.sections ?? {}), 'in-progress': !open }; });
+    if (last) render(last);
+  });
+  const box = el('section', `in-progress${open ? ' open' : ''}`, el('h2', '', toggle));
+  if (!open) return box;
+  if (p.empty) {
+    box.append(el('p', 'muted quiet', p.empty));
+    return box;
+  }
+  if (p.machine.length) {
+    box.append(el('div', 'machine-line', ...p.machine.map((c) => Object.assign(status(c.look), { title: c.tip }))));
+  }
+  if (!p.groups.length) box.append(el('p', 'muted quiet', 'No task here has anything under way.'));
+  for (const g of p.groups) box.append(progressGroup(g));
+  return box;
+}
+
+function progressGroup(g: ProgressGroup): HTMLElement {
+  const key = el('span', 'tcard-key', g.id);
+  const head = el('div', 'pg-head', el('div', 'pg-name', key, el('span', 'pg-title', g.title), g.project ? el('span', 'chip', g.project) : null),
+    el('div', 'pg-state', status(g.look), g.since ? el('span', 'muted small pg-since', icon('watch'), g.since) : null));
+  if (g.ref) openable(key, { type: 'run', command: 'acc.task.show', ref: g.ref }).title = `Open ${g.id}'s page`;
+  const box = el('div', 'progress-group', head);
+  if (g.note) box.append(el('div', 'muted small pg-note', g.note));
+  for (const j of g.jobs) {
+    box.append(el('div', `pg-row tone-row-${j.look.tone}`, status(j.look),
+      el('div', 'pg-text', el('div', '', el('span', 'strong', j.label), j.since ? el('span', 'muted small', ` · ${j.since}`) : null),
+        j.detail ? Object.assign(el('div', 'muted small pg-detail', j.detail), { title: j.detail }) : null,
+        j.meta ? el('div', 'muted small pg-meta', j.meta) : null),
+      el('div', 'actions', ...j.actions.map(progressButton))));
+  }
+  for (const d of g.done) {
+    const line = el('div', 'pg-done', status(d.look), el('span', 'pg-done-text', d.text));
+    line.style.animationDelay = `-${d.age}s`;
+    box.append(line);
+  }
+  return box;
+}
+
+/** A row's button. Each says what it does on hover; Stop goes through the extension, which asks first. */
+function progressButton(a: ProgressAction): HTMLElement {
+  const b = el('button', `btn small${a.command === 'acc.job.stop' ? ' stop' : ' ghost'}`, icon(a.icon), a.label) as HTMLButtonElement;
+  b.type = 'button';
+  b.title = a.tip;
+  b.addEventListener('click', () => {
+    if (a.question) return answerHere(a.question);
+    if (a.arg !== undefined && a.command) return api.postMessage({ type: 'toolbar', command: a.command, arg: a.arg });
+    if (a.command && a.ref) api.postMessage({ type: 'run', command: a.command, ref: a.ref });
+  });
+  return b;
+}
+
+/** Answer: its question's card, in Needs you on this page, brought into view with its first answer focused. */
+function answerHere(id: string): void {
+  const card = [...document.querySelectorAll<HTMLElement>('.question')].find((q) => q.dataset.question === id);
+  if (!card) return;
+  card.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  card.classList.add('flash');
+  setTimeout(() => card.classList.remove('flash'), 1600);
+  card.querySelector<HTMLElement>('button, textarea, input')?.focus({ preventScroll: true });
 }
 
 /** History filters: everything, or one kind. Remembered for the tab. Autopilot's steps are Tasks (D-064). */
@@ -1856,12 +1957,41 @@ function renderHome(m: HomeModel): Node[] {
 /** A model's name short enough for a table cell: claude-opus-5-5 is opus-5-5, and a dated snapshot drops its date. */
 const shortModel = (m: string): string => m.replace(/^claude-/, '').replace(/-\d{8}(?=\[|$)/, '');
 
+/**
+ * A folder or a path that wraps between its words and after each slash, never inside a name or a key, so
+ * `ACME-12` never splits at its hyphen (GH-83).
+ */
+function slashBreaks(text: string): Node[] {
+  const out: Node[] = [];
+  text.split(' ').forEach((word, w) => {
+    if (w) out.push(document.createTextNode(' '));
+    word.split('/').forEach((part, i, all) => {
+      const last = i === all.length - 1;
+      out.push(el('span', 'unbroken', last ? part : `${part}/`));
+      if (!last) out.push(document.createElement('wbr'));
+    });
+  });
+  return out;
+}
+
+/** Where the Agents page remembers How agents run is open: model.ts's AGENT_SETTINGS, which the extension opens. */
+const AGENT_SETTINGS = 'agents:settings';
+
 function renderAgents(m: AgentsModel): Node[] {
   const all = m.places.flatMap((p) => p.agents);
   const needs = all.filter((a) => a.needsYou).length;
-  const out: Node[] = [header('Agents', m.error ?? `${plural(all.length, 'session')} on this machine${needs ? `, ${needs} need${needs === 1 ? 's' : ''} you` : ''}.`, toolbarButton('acc.agent.new', 'Start a background agent', 'add', m.places.find((p) => p.root)?.root ?? undefined, true))];
+  // How agents run is behind Settings, closed until you open it, and remembered for the tab.
+  const open = memory().opened.includes(AGENT_SETTINGS);
+  const settings = m.settings.length ? button(open ? 'Hide settings' : 'Settings', 'settings-gear', () => {
+    remember((x) => { x.opened = open ? x.opened.filter((y) => y !== AGENT_SETTINGS) : [...x.opened, AGENT_SETTINGS]; });
+    if (last) render(last);
+  }, 'ghost') : null;
+  settings?.setAttribute('aria-expanded', String(open));
+  const out: Node[] = [header('Agents', m.error ?? `${plural(all.length, 'session')} on this machine${needs ? `, ${needs} need${needs === 1 ? 's' : ''} you` : ''}.`, settings, toolbarButton('acc.agent.new', 'Start a background agent', 'add', m.places.find((p) => p.root)?.root ?? undefined, true))];
+  // Closed, a billing problem still shows: per-token billing costs money while you're not looking (D-036).
+  if (!open) for (const s of m.settings) if (s.billing?.tone === 'orange') out.push(el('div', 'setting-billing', status(s.billing)));
   // What builders and reviewers run with, and what they bill (D-036).
-  for (const s of m.settings) {
+  for (const s of open ? m.settings : []) {
     const box = el('section', 'agent-settings', el('h2', '', icon('settings-gear'), m.settings.length > 1 ? `How agents run · ${s.project}` : 'How agents run'));
     for (const r of s.roles) {
       box.append(el('div', 'setting-row',
@@ -1902,18 +2032,43 @@ function renderAgents(m: AgentsModel): Node[] {
     body.append(el('tr', 'group', span(el('th', '', icon(place.root ? 'repo' : 'device-desktop'), place.label, el('span', 'count', String(place.agents.length))), 7)));
     if (!place.agents.length) body.append(el('tr', 'none', span(el('td', 'muted', 'No agent sessions in this project right now.'), 7)));
     for (const a of place.agents) {
+      // Its folder in context, or its full path, wrapped rather than clipped, as the names are: its own
+      // folder comes last, and that's the part a clip would lose. The full path on hover in both (GH-83).
+      const where = m.whereView === 'path' ? el('td', 'mono where-path', ...slashBreaks(a.path)) : el('td', 'where-folder', ...slashBreaks(a.where));
+      where.title = a.path;
       const row = el('tr', a.needsYou ? 'attention' : '',
         // Its whole name, wrapped: the part that says what it works on comes last (D-087).
         openable(titled(el('td', 'strong agent-name', a.name), a.name), { type: 'run', command: 'acc.agent.watch', ref: { session: a.key } }), el('td', 'nowrap', status(a.look)),
         // The model it runs with (D-086), as plain text, short, with its full name on hover; a dash until it's known.
-        Object.assign(el('td', 'nowrap mono muted model', a.model ? shortModel(a.model) : '—'), { title: a.model ?? 'Not known until it first answers' }), el('td', 'nowrap muted kind', a.kind), clipped(a.where, 'mono'), el('td', 'nowrap muted started', since(a.startedAt)),
+        Object.assign(el('td', 'nowrap mono muted model', a.model ? shortModel(a.model) : '—'), { title: a.model ?? 'Not known until it first answers' }), el('td', 'nowrap muted kind', a.kind), where, el('td', 'nowrap muted started', since(a.startedAt)),
         el('td', 'actions', menuButton(a.name)));
       body.append(withMenu(row, 'agent', { session: a.key }, { agentBackground: a.background }));
     }
     table.append(body);
   }
-  out.push(wrap(table));
+  out.push(whereBar(m.whereView), wrap(table));
   return out;
+}
+
+/**
+ * What the Where column shows, Folder or Full path (GH-83), just above its heading. In the heading it would
+ * widen the column, so a narrow tab would scroll it out of view. The page switches at once, and the
+ * extension remembers the choice for the window.
+ */
+function whereBar(view: WhereView): HTMLElement {
+  const pick = segmented('Where shows', [
+    { key: 'folder', label: 'Folder', icon: 'folder', on: view === 'folder' },
+    { key: 'path', label: 'Full path', icon: 'list-tree', on: view === 'path' },
+  ], (key) => {
+    const v = key as WhereView;
+    if (last?.kind === 'home') last = { ...last, agents: { ...last.agents, whereView: v } };
+    else if (last?.kind === 'agents') last = { ...last, whereView: v };
+    if (last) render(last);
+    api.postMessage({ type: 'agents-where', view: v });
+  });
+  pick.classList.add('where-view');
+  pick.querySelectorAll('button').forEach((b, i) => { b.dataset.keep = `where-view:${i}`; });
+  return el('div', 'where-bar', el('span', 'where-label', 'Where shows'), pick);
 }
 
 function renderWorktrees(m: WorktreesModel): Node[] {
@@ -2397,10 +2552,12 @@ function render(model: Model): void {
 }
 
 window.addEventListener('message', (e: MessageEvent) => {
-  const msg = e.data as { type?: string; model?: Model; action?: string; ok?: boolean; jump?: boolean };
+  const msg = e.data as { type?: string; model?: Model; action?: string; ok?: boolean; jump?: boolean; open?: string };
   if (msg?.type === 'state' && msg.model && msg.model.kind === view) {
     // The extension moves the page only when asked to open a section; otherwise it stays where you are.
     if (msg.model.kind === 'home' && (msg.jump || !section)) setSection(msg.model.section, false);
+    // A part of it to open as well, such as the Agents settings from the status bar's Auto-merge.
+    if (msg.open) { const part = msg.open; remember((x) => { if (!x.opened.includes(part)) x.opened = [...x.opened, part]; }); }
     render(msg.model);
   }
   if (msg?.type === 'done') onDone(msg);

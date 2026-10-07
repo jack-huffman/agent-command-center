@@ -58,6 +58,31 @@ export interface Run {
   name?: string;
   /** Which of the task's dispatches this is: the second is "builder 2". Older runs count as 1. */
   n?: number;
+  /** The tasks in flight whose files it shared when it started, with those files (D-093). */
+  shares?: FileShare[];
+}
+
+/** Another task, and the files two tasks share (D-093). */
+export interface FileShare {
+  task: string;
+  files: string[];
+}
+
+/**
+ * A person dispatched a task to do, and it waits for another task's files (D-093): who asked and when,
+ * and what it waited for then, and the tasks that went first. While it's being started, who claimed it;
+ * once a start on its own failed, why, and nothing tries again until a person acts.
+ */
+export interface Hold {
+  at: string;
+  actor: Actor;
+  by: string;
+  waitsFor: FileShare[];
+  first: string[];
+  starting?: { at: string; by: string } | null;
+  failed?: { reason: string; at: string; by: string } | null;
+  /** The model a person picked for its builder when they dispatched it (D-086), which its start launches with. */
+  model?: string;
 }
 
 export interface PullRequest {
@@ -104,7 +129,7 @@ export interface Promotion {
   at: string;
 }
 
-export const AUTOPILOT_STEPS = ['review', 'land', 'dispatch', 'refresh', 'resume', 'checks', 'merge'] as const;
+export const AUTOPILOT_STEPS = ['review', 'land', 'dispatch', 'refresh', 'resume', 'checks', 'merge', 'start'] as const;
 export type AutopilotStepName = (typeof AUTOPILOT_STEPS)[number];
 
 /** How GitHub merges a pull request: the repo allows one or more of these. */
@@ -157,6 +182,8 @@ export interface Task {
    * (D-076), and the pull request it merged (GH-67).
    */
   autopilot?: { failed: AutopilotFailure | null; sentBack?: SentBack | null; merged?: AutopilotMerge | null };
+  /** It waits for another task's files, since a person dispatched it (D-093). Any move ends it. */
+  held?: Hold | null;
   history: HistoryEntry[];
   createdAt: string;
   updatedAt: string;
@@ -426,6 +453,8 @@ export function applyMove(task: Task, req: MoveRequest, emit: Emit, now: () => D
   task.blocker = req.to === 'blocked' ? (entry.reason ?? null) : null;
   // Whatever autopilot couldn't do was about the state the task has left.
   if (task.autopilot?.failed) task.autopilot.failed = null;
+  // So was a wait for another task's files (D-093): a dispatch, a block or done ends it.
+  if (task.held) task.held = null;
   task.state = req.to;
   task.updatedAt = at;
   task.history.push(entry);
@@ -576,6 +605,8 @@ export const sentBackAt = (task: Pick<Task, 'autopilot'>, sha: string | null | u
 
 /** What the UI shows: stored states plus "ready" and "needs you", which are derived (DESIGN.md section 5). */
 export function displayState(ledger: Ledger, task: Task, session?: SessionInfo): DisplayState {
+  // A held task whose start on its own failed waits on you (D-093).
+  if (task.state === 'todo' && task.held?.failed) return 'needs-you';
   if (task.state === 'todo' && isReady(ledger, task)) return 'ready';
   // A step autopilot couldn't take waits on you, or on a new commit (D-055).
   if (autopilotFailure(task)) return 'needs-you';

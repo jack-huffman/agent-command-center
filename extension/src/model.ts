@@ -15,9 +15,11 @@ import { autoMergeOn, type Environment, type Tracker, trackerForKey } from '../.
 import { promotionPaths } from '../../packages/core/src/promote.ts';
 import type { Answer, HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import { isOpenUpdate, stalePosting, type Update, UPDATE_ID, UPDATE_TEXT_MAX } from '../../packages/core/src/updates.ts';
-import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, BOARD_LANES, conflictLine, displayName, type DoctorItem, ENV_ICON, failedChecksLine, fileList, FROM_WORDS, groupTasks, isUnder, ownsSession, prConflicts, questionsWord, type RunPrompt, saidLine, sessionFor, shortPath, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
+import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, BOARD_LANES, conflictLine, displayName, filesUnknown, sharesLine, taskNames, waitLine, waitsForFiles, whileFirst, type DoctorItem, ENV_ICON, failedChecksLine, fileList, FROM_WORDS, groupTasks, isUnder, ownsSession, prConflicts, questionsWord, type RunPrompt, saidLine, sessionFor, shortPath, signInScope, TASK_GROUPS, type TaskRow, tildePath, type Tone } from './logic.ts';
+import type { HeavyState } from '../../packages/core/src/semaphore.ts';
+import { type FinishedJobs, inProgress, type ProgressModel, type RepoJobs } from './progress.ts';
 import { isSlackWebhook, SLACK_KINDS, type SlackCard, type SlackKind } from './slack.ts';
-import type { Entry } from './transcript.ts';
+import type { Entry, LastStep } from './transcript.ts';
 
 export const VIEW_KINDS = ['tasks', 'agents', 'worktrees', 'environments', 'setup'] as const;
 export type ViewKind = (typeof VIEW_KINDS)[number];
@@ -92,6 +94,18 @@ export interface HubLike {
   askingFor?(s: AgentSession): string | null;
   /** The model a session runs with (D-086): what its transcript last answered with, else what acc started it with. */
   modelFor?(s: AgentSession): string | null;
+  /** The home folder, shown as ~ (GH-83). */
+  home?: string;
+  /** The repo a folder is in, by the nearest .git up from it, short of the home folder (GH-83). */
+  repoFor?(path: string): string | null;
+  /** Who holds the machine's heavy-check slots and who waits (D-092). */
+  heavy?: HeavyState | null;
+  /** The machine's load over the last minute, and its cores. */
+  machine?: { load: number; cpus: number } | null;
+  /** A project's repo's jobs under way: land, refresh, promote, deploy, autopilot's step, reviews, analyses and resumes. */
+  jobsOf?(root: string): RepoJobs;
+  /** A running builder's latest step and model, by its session. */
+  stepOf?(sessionId: string): LastStep | null;
 }
 
 /** The key a session goes by in refs: its session id, else its background id. */
@@ -129,6 +143,8 @@ export interface Card {
   closedPr: Look | null;
   /** Its builder stopped before acc done or acc block, with the last thing it said, clipped (D-067). */
   stopped: Look | null;
+  /** Its files beside other tasks' (D-093): it waits for them, its start failed, it shares them, or a Ready task's aren't known. */
+  files: Look | null;
   actions: Action[];
   /** The lanes it can be dropped in: the moves a person may make from where it is (D-041). */
   drops: string[];
@@ -158,7 +174,7 @@ export function analysisLook(t: Pick<TaskRow, 'state' | 'analysis' | 'analyzing'
   return t.analysis ? { label: 'Analyzed: ready to build', icon: 'pass', tone: 'blue' } : null;
 }
 
-const AUTOPILOT_STEP: Record<NonNullable<TaskRow['autopilot']>['step'], string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update from its base', resume: 'resume', checks: 'send it back for its failing checks', merge: 'merge it' };
+const AUTOPILOT_STEP: Record<NonNullable<TaskRow['autopilot']>['step'], string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update from its base', resume: 'resume', checks: 'send it back for its failing checks', merge: 'merge it', start: 'start it' };
 
 /** "Needs you: autopilot couldn't land", and with `why`, its reason after it (D-055). */
 export function autopilotLook(t: Pick<TaskRow, 'autopilot'>, why = true): Look | null {
@@ -183,6 +199,27 @@ export function stoppedLook(t: Pick<TaskRow, 'stopped'>, max = CARD_SAID): Look 
   if (!t.stopped) return null;
   const said = t.stopped.said ? (Number.isFinite(max) ? saidLine(t.stopped.said, max) : t.stopped.said.trim()) : null;
   return { label: `Needs you: its agent stopped${said ? `: ${said}` : ' before acc done or acc block'}`, icon: 'debug-disconnect', tone: 'orange' };
+}
+
+/**
+ * What a task says about its files beside other tasks' (D-093). A task a person dispatched that waits for
+ * them: a clock, in blue, naming each task and its files, short on a card and in full on its page, and the
+ * Ready tasks that go first. Its start failed: the bell, in orange. One that shares them, to do or started
+ * beside them: neutral. A Ready task with no analysis, or one naming no files: its files aren't known,
+ * neutral. Else nothing.
+ */
+export function filesLook(t: Pick<TaskRow, 'state' | 'display' | 'files' | 'analyzing'>, full = false): Look | null {
+  const f = t.files;
+  if (!f) return null;
+  if (t.state === 'todo' && f.held) {
+    if (f.held.failed) return { label: `Needs you: ${f.held.byAutopilot ? 'autopilot couldn\'t start it' : 'its start failed'}: ${f.held.failed}`, icon: 'bell', tone: 'orange' };
+    if (f.shares.length && f.first.length) return { label: waitLine(f.shares, full, f.first), icon: 'clock', tone: 'blue' };
+    if (f.capped) return { label: 'Waits for an agent: as many are running as the project allows', icon: 'clock', tone: 'blue' };
+    return { label: f.shares.length ? `Starting: nothing else is ready, so it shares files with ${taskNames(f.shares.map((s) => s.task))}` : 'Starting: the files it waited for are free', icon: 'clock', tone: 'blue' };
+  }
+  if (f.shares.length && t.state !== 'done') return { label: sharesLine(f.shares, full), icon: 'files', tone: 'neutral' };
+  if (t.state === 'todo' && t.display === 'ready' && !f.known && !t.analyzing) return { label: filesUnknown(!!f.analyzed), icon: 'info', tone: 'neutral' };
+  return null;
 }
 
 /** The lanes a task can be dropped in by a person, by acc's own move rules. Whether it then goes is acc's call. */
@@ -216,7 +253,9 @@ export function cardActions(t: TaskRow, ref: Ref): Action[] {
   // Its questions are answered on its page, where it shows them.
   else if (wait === 'questions') a.push({ command: 'acc.task.show', label: 'Answer', icon: 'question', ref, primary: true });
   else if (wait === 'split') a.push({ command: 'acc.task.show', label: 'See the split', icon: 'split-horizontal', ref, primary: true });
-  if (dispatchable) a.push({ command: 'acc.task.dispatch', label: t.state === 'rework' ? 'Re-dispatch' : 'Dispatch', icon: 'rocket', ref, primary: !a.some((x) => x.primary) });
+  // A task a person dispatched already waits for others' files (D-093): its next step is starting it anyway.
+  const held = todo && !!t.files?.held;
+  if (dispatchable) a.push(held ? { command: 'acc.task.dispatchAnyway', label: 'Dispatch anyway', icon: 'rocket', ref, primary: !a.some((x) => x.primary) } : { command: 'acc.task.dispatch', label: t.state === 'rework' ? 'Re-dispatch' : 'Dispatch', icon: 'rocket', ref, primary: !a.some((x) => x.primary) });
   // The same, with a model a person picks for this task (D-086): behind ⋯ on the card.
   if (dispatchable) a.push({ command: 'acc.task.dispatchWith', label: `${t.state === 'rework' ? 'Re-dispatch' : 'Dispatch'} with…`, icon: 'sparkle', ref });
   if (todo && !t.analyzing && !t.analysis) a.push({ command: 'acc.task.analyze', label: 'Analyze', icon: 'telescope', ref, primary: !!t.analysisRequired && !a.some((x) => x.primary) });
@@ -243,6 +282,7 @@ export function cardActions(t: TaskRow, ref: Ref): Action[] {
   const tidy = t.state === 'done' && !!t.run?.worktree;
   a.push({ command: 'acc.task.move', label: 'Move', icon: 'arrow-swap', ref, primary: !tidy && !a.some((x) => x.primary) });
   if (t.pr && t.pr.state !== 'open') a.push({ command: 'acc.task.openPr', label: `Pull request #${t.pr.number}`, icon: 'git-pull-request', ref });
+  if (held) a.push({ command: 'acc.task.stopWaiting', label: 'Stop waiting', icon: 'debug-pause', ref });
   if (t.state === 'running') a.push({ command: 'acc.task.abandon', label: 'Abandon', icon: 'debug-stop', ref, danger: true });
   else if (t.state === 'blocked') a.push({ command: 'acc.task.unblock', label: 'Unblock', icon: 'debug-restart', ref });
   else if (t.state !== 'done') a.push({ command: 'acc.task.block', label: 'Block', icon: 'circle-slash', ref });
@@ -276,7 +316,7 @@ export function tasksModel(hub: HubLike, boards: (root: string) => BoardInput[] 
             id: t.id, title: t.title, environment: t.environment, waitingOn: t.deps, url: t.source.url,
             // A stopped builder's line says it all: its old session's own state would only repeat it.
             agent: t.stopped ? null : t.agent ?? null, model: t.stopped || !t.agent ? null : t.model ?? null, agentName: t.run?.name ?? null, worktree: t.run?.worktree ?? null, conflicts: conflictLine(t), failedChecks: failedChecksLine(t), analysis: analysisLook(t), autopilot: autopilotLook(t), closedPr: closedPrLook(t),
-            stopped: t.autopilot ? null : stoppedLook(t),
+            stopped: t.autopilot ? null : stoppedLook(t), files: filesLook(t),
             actions: cardActions(t, { project: p.root, task: t.id }), drops: dropLanes(t),
           })),
         };
@@ -334,6 +374,8 @@ export interface BoardInput {
   loading: boolean;
   /** Who the board acts as: the GitHub account, the Jira email, the Microsoft account. */
   signedInAs?: string | null;
+  /** Where a Jira, Azure DevOps or monday.com sign-in is kept (GH-79): for every project on its host, or this one only. */
+  signInScope?: { shared: boolean; host: string } | null;
   /** Where its tickets come from (D-072), such as "Jira · ACME · epic ACME-3 Premium Support". */
   place?: string | null;
   /** Tasks whose tickets left the place after work on them started, each named (D-072). */
@@ -380,6 +422,11 @@ export interface TrackerBoard {
   connect: { command: string; label: string; arg: string } | null;
   loading: boolean;
   signedInAs: string | null;
+  /**
+   * Who it's signed in as and where that sign-in is kept (GH-79), drawn under its place: "Signed in as
+   * jordan@acme.example, for every project on acme.atlassian.net". Null for GitHub, which says who in its title.
+   */
+  signIn: Look | null;
   /** Where its tickets come from (D-072), drawn under its name. */
   place: string | null;
   /**
@@ -403,12 +450,19 @@ function accLook(row: TaskRow, full = false): Look {
   if (row.agent && row.display === 'needs-you') return row.agent;
   const analysis = analysisLook(row);
   if (analysis && (row.display === 'needs-you' || row.analyzing)) return analysis;
+  // A task a person dispatched waits for others' files, or its start failed (D-093), in a few words: the
+  // card's note and the page's notice name the files. The page's State names what goes first, since its
+  // notice may fold that away under Show all.
+  const files = row.files?.held ? filesLook(row) : null;
+  if (files && row.files!.held!.failed) return { ...files, label: row.files!.held!.byAutopilot ? 'Needs you: autopilot couldn\'t start it' : 'Needs you: its start failed' };
+  if (files && waitsForFiles(row)) return { ...files, label: `Waits for ${taskNames(row.files!.shares.map((s) => `${s.task}'s`))} files${full ? whileFirst(row.files!.first, true) : ''}` };
+  if (files) return files;
   const d = DISPLAY[row.display];
   return { label: d.label, icon: d.icon, tone: d.tone };
 }
 
 /** The steps a tracker's card offers for its task: start it, its analysis (D-052), or watch its agent. */
-const NEXT_STEPS = ['acc.task.dispatch', 'acc.task.analyze', 'acc.task.watchAnalysis', 'acc.task.show', 'acc.task.watch', 'acc.task.openInClaude', 'acc.task.resume'];
+const NEXT_STEPS = ['acc.task.dispatch', 'acc.task.dispatchAnyway', 'acc.task.analyze', 'acc.task.watchAnalysis', 'acc.task.show', 'acc.task.watch', 'acc.task.openInClaude', 'acc.task.resume'];
 
 export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): TrackerBoard {
   const byId = new Map(rows.map((r) => [r.id, r]));
@@ -429,6 +483,7 @@ export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): Trac
   return {
     index: b.index, kind: b.kind, title: b.board?.title ?? b.title, source: b.board?.source ?? null, url: b.board?.url ?? null,
     notice: b.board?.notice ?? null, error: b.error, connect: b.connect, loading: b.loading, signedInAs: b.signedInAs ?? null,
+    signIn: b.signedInAs && b.signInScope ? LOOK(`Signed in as ${b.signedInAs}, ${signInScope(b.signInScope.shared, b.signInScope.host)}`, b.signInScope.shared ? 'globe' : 'repo', 'blue') : null,
     place: b.place ?? null, left: b.left ?? [], columns,
   };
 }
@@ -444,6 +499,8 @@ export interface TicketAcc {
   conflicts: string | null;
   /** "Checks failed on GitHub: …", or null (D-076). Not `checks`: those are acc's own, on its commit. */
   failedChecks: string | null;
+  /** Its files beside other tasks', each file in full (D-093), or null. */
+  files: Look | null;
   agent: Look | null;
   /** The model its agent runs with (D-086). */
   model: string | null;
@@ -599,7 +656,7 @@ export function ticketModel(i: TicketInput): TicketModel {
   const t = i.ticket;
   const live = i.tracker !== null;
   const acc: TicketAcc | null = i.row && i.task ? {
-    look: accLook(i.row, true), environment: i.task.environment, waitingOn: i.row.deps, blocker: i.task.blocker, conflicts: conflictLine(i.row, true), failedChecks: failedChecksLine(i.row),
+    look: accLook(i.row, true), environment: i.task.environment, waitingOn: i.row.deps, blocker: i.task.blocker, conflicts: conflictLine(i.row, true), failedChecks: failedChecksLine(i.row), files: filesLook(i.row, true),
     agent: i.row.stopped ? null : i.row.agent ?? null, model: i.row.model ?? null, agentName: i.task.run?.name ?? null, worktree: i.task.run?.worktree ?? null, branch: i.task.run?.branch ?? null, checks: i.checks,
     history: i.task.history.map((h) => ({ at: h.at, from: h.from, to: h.to, by: h.by, reason: h.reason ?? null })).reverse(),
     // Its analysis has its own section, with its own buttons.
@@ -750,6 +807,85 @@ export interface IdentityCard {
 
 // ---------------------------------------------------------------- agents
 
+/** Where a session runs, as acc shows it wherever it shows one (GH-83). */
+export interface SessionFolder {
+  /** The whole path, with ~ for the home folder: what hovering shows, and the Full path view. */
+  full: string;
+  /** The folder in context: `Acme Service › worktree ACME-12`, `clients/Acme Service`, `scratch`, `~`. */
+  label: string;
+  /**
+   * In a project open in this window, the label without the project, which its heading names already:
+   * `main checkout`, `worktree ACME-12`, `force-app/main`. Null for a session elsewhere.
+   */
+  inProject: string | null;
+}
+
+const lastPart = (path: string): string => path.split('/').filter(Boolean).pop() ?? path;
+const inWorktree = (id: string, rest = ''): string => [`worktree ${id}`, rest].filter(Boolean).join(' › ');
+
+/** Where in a project a folder is: its main checkout, a worktree, or a folder inside either. */
+function placeIn(p: ProjectLike, path: string): string {
+  const within = (root: string) => path.slice(root.length + 1);
+  const tree = p.worktrees.filter((w) => !w.main && isUnder(path, w.path)).sort((a, b) => b.path.length - a.path.length)[0];
+  if (tree) return inWorktree(lastPart(tree.path), within(tree.path));
+  if (!isUnder(path, p.root)) return lastPart(path);
+  const wt = /^\.claude\/worktrees\/([^/]+)(?:\/(.+))?$/.exec(within(p.root));
+  return wt ? inWorktree(wt[1]!, wt[2]) : within(p.root) || 'main checkout';
+}
+
+/**
+ * Each session's folder in context, by its cwd: the one place acc works it out, for the Agents tab, an
+ * agent's page, its Needs you card, and the In progress section (GH-76) (GH-83).
+ *
+ * A session in a project open in this window is placed in it: its main checkout, a worktree, or a folder
+ * inside either. Elsewhere it's named by its repo, the nearest folder up holding .git, then the path inside
+ * it; a builder's worktree, under .claude/worktrees/, reads as its repo's from the path alone. Outside any
+ * repo, it's its folder's own name, or ~. Two different folders elsewhere that name sessions the same, such
+ * as two repos called Acme Service, each add their parent folders until they differ, for every session in
+ * them. `extra` adds folders no listed session has, such as an ended session's, to tell apart with the rest.
+ */
+export function sessionFolders(hub: HubLike, extra: string[] = []): Map<string, SessionFolder> {
+  const home = hub.home;
+  const out = new Map<string, SessionFolder>();
+  // Elsewhere: the folder that names it (its repo, or itself), and what follows it.
+  const drafts: { cwd: string; full: string; base: string; rest: string[] }[] = [];
+  for (const cwd of new Set([...hub.agents.map((s) => s.cwd), ...extra])) {
+    const path = cwd.length > 1 ? cwd.replace(/\/+$/, '') : cwd;
+    const full = tildePath(path, home);
+    const p = hub.projectFor(path);
+    if (p) {
+      const inProject = placeIn(p, path);
+      out.set(cwd, { full, label: `${p.name} › ${inProject}`, inProject });
+      continue;
+    }
+    const wt = /^(.+)\/\.claude\/worktrees\/([^/]+)(?:\/(.+))?$/.exec(path);
+    const found = wt ? null : hub.repoFor?.(path) ?? null;
+    const repo = wt ? wt[1]! : found && isUnder(path, found) ? found : null;
+    const rest = wt ? [inWorktree(wt[2]!, wt[3])] : repo && repo !== path ? [path.slice(repo.length + 1)] : [];
+    drafts.push({ cwd, full, base: repo ?? path, rest });
+  }
+  // Each base folder by its last parts, ~ for home: Acme Service, then clients/Acme Service, a parent more
+  // each round for those that still read the same as another.
+  const parts = (base: string) => tildePath(base, home).split('/');
+  const depth = new Map(drafts.map((d) => [d.base, 1]));
+  const named = (base: string) => parts(base).slice(-depth.get(base)!).join('/') || '/';
+  for (let more = true; more;) {
+    more = false;
+    const by = new Map<string, string[]>();
+    for (const base of depth.keys()) by.set(named(base), [...(by.get(named(base)) ?? []), base]);
+    for (const same of by.values()) {
+      if (same.length < 2) continue;
+      for (const base of same) if (depth.get(base)! < parts(base).length) { depth.set(base, depth.get(base)! + 1); more = true; }
+    }
+  }
+  for (const d of drafts) out.set(d.cwd, { full: d.full, label: [named(d.base), ...d.rest].join(' › '), inProject: null });
+  return out;
+}
+
+/** The Agents tab's Where column: each session's folder in context, or its full path (GH-83). */
+export const WHERE_VIEWS = ['folder', 'path'] as const;
+export type WhereView = (typeof WHERE_VIEWS)[number];
+
 export interface AgentRow {
   key: string;
   /** Background sessions can be attached to, logged and stopped from here; interactive ones can't. */
@@ -758,7 +894,10 @@ export interface AgentRow {
   look: Look;
   needsYou: boolean;
   kind: string;
+  /** Its folder in context, without the project its group names (GH-83). */
   where: string;
+  /** Its whole folder, with ~ for the home folder: the Full path view, and the hover in both. */
+  path: string;
   startedAt: number;
   /** The model it runs with (D-086), or null when that isn't known yet. */
   model: string | null;
@@ -789,10 +928,15 @@ export interface AutoMergeSetting {
   settable: boolean;
 }
 
+/** The key under which the Agents page remembers How agents run is open; the webview keeps the same. */
+export const AGENT_SETTINGS = 'agents:settings';
+
 export interface AgentsModel {
   kind: 'agents';
   error: string | null;
   places: { label: string; root: string | null; agents: AgentRow[] }[];
+  /** What the Where column shows, remembered for the window (GH-83). */
+  whereView: WhereView;
   /** Each project's agent settings, what autopilot may do there, whether it merges, and what its agents bill (D-036). */
   settings: { root: string; project: string; roles: AgentSetting[]; autonomy: AutonomySetting | null; autoMerge: AutoMergeSetting | null; billing: Look | null }[];
 }
@@ -846,14 +990,14 @@ export function billingLook(items: DoctorItem[]): Look | null {
   return i.status === 'pass' ? { label: 'Agents use your Claude subscription', icon: 'pass', tone: 'blue' } : { label: `Per-token billing: ${i.detail}`, icon: 'warning', tone: 'orange' };
 }
 
-export function agentsModel(hub: HubLike, setupItems: DoctorItem[] = []): AgentsModel {
+export function agentsModel(hub: HubLike, setupItems: DoctorItem[] = [], whereView: WhereView = 'folder'): AgentsModel {
   const lookOf = (s: AgentSession) => agentLook(s, hub.askingFor?.(s));
+  const folders = sessionFolders(hub);
   const rowFor = (s: AgentSession): AgentRow => {
     const look = lookOf(s);
-    const p = hub.projectFor(s.cwd);
     const key = sessionKey(s);
-    const where = p ? (isUnder(s.cwd, p.root) ? s.cwd.slice(p.root.length + 1) || 'main checkout' : s.cwd.split('/').pop() ?? s.cwd) : s.cwd;
-    return { key, background: !!s.id, name: nameOf(hub, s), look: { label: look.label, icon: look.icon, tone: look.tone }, needsYou: look.needsYou, kind: s.kind, where, startedAt: s.startedAt, model: hub.modelFor?.(s) ?? null };
+    const f = folders.get(s.cwd)!;
+    return { key, background: !!s.id, name: nameOf(hub, s), look: { label: look.label, icon: look.icon, tone: look.tone }, needsYou: look.needsYou, kind: s.kind, where: f.inProject ?? f.label, path: f.full, startedAt: s.startedAt, model: hub.modelFor?.(s) ?? null };
   };
   const sorted = [...hub.agents].sort((a, b) => Number(lookOf(b).needsYou) - Number(lookOf(a).needsYou) || b.startedAt - a.startedAt);
   const places = hub.projects.map((p) => ({ label: p.name, root: p.root as string | null, agents: sorted.filter((s) => hub.projectFor(s.cwd) === p).map(rowFor) }));
@@ -861,7 +1005,7 @@ export function agentsModel(hub: HubLike, setupItems: DoctorItem[] = []): Agents
   if (elsewhere.length) places.push({ label: 'Elsewhere on this machine', root: null, agents: elsewhere.map(rowFor) });
   const billing = billingLook(setupItems);
   const settings = hub.projects.filter((p) => p.agents).map((p) => ({ root: p.root, project: p.name, roles: agentSettings(p), autonomy: autonomySetting(p), autoMerge: autoMergeSetting(p), billing }));
-  return { kind: 'agents', error: hub.agentsError, places, settings };
+  return { kind: 'agents', error: hub.agentsError, places, whereView, settings };
 }
 
 // ---------------------------------------------------------------- worktrees
@@ -1253,6 +1397,12 @@ export function autopilotStepLook(r: AutopilotRecord): { look: Look; detail: str
   if (r.step === 'dispatch') return { look: LOOK(r.cause === 'checks' ? 'Autopilot re-dispatched it for its failing checks' : 'Autopilot re-dispatched it for the review\'s changes', 'debug-restart', 'blue'), detail: null, url: null };
   // A builder that stopped, carried on once (D-067), with the last thing it said.
   if (r.step === 'resume') return { look: LOOK('Autopilot resumed it', 'debug-continue', 'blue'), detail: r.reason || null, url: null };
+  // A task a person dispatched, started once the files it waited for were free, or nothing else was ready (D-093).
+  if (r.step === 'start') {
+    return r.shares?.length
+      ? { look: LOOK(`Autopilot started it: nothing else was ready, so it shares files with ${taskNames(r.shares.map((s) => s.task))}`, 'rocket', 'blue'), detail: r.shares.map((s) => `${s.task}: ${s.files.join(', ')}`).join('; '), url: null }
+      : { look: LOOK(`Autopilot started it${r.waitedFor?.length ? `: ${taskNames(r.waitedFor)}'s files are free` : ''}`, 'rocket', 'blue'), detail: null, url: null };
+  }
   // Merged where the repo turns auto-merge on (GH-67): acc sync moves it to done.
   if (r.step === 'merge') return { look: LOOK(r.pr ? `Autopilot merged pull request #${r.pr.number}` : 'Autopilot merged its pull request', 'git-merge', 'blue'), detail: 'acc sync moves it to done.', url: r.pr?.url || null };
   if (r.base) return { look: LOOK(`Autopilot merged ${r.base} into it`, 'git-merge', 'blue'), detail: 'Its checks passed on the merge. It\'s reviewed next, then landed.', url: null };
@@ -1311,7 +1461,9 @@ export interface AgentModel {
   /** False once Claude Code no longer lists the session. */
   live: boolean;
   background: boolean;
+  /** Its folder in context, as its Agents row says it, and the whole folder for the hover (GH-83). */
   where: string;
+  path: string;
   startedAt: number | null;
   lastAt: string | null;
   model: string | null;
@@ -1371,10 +1523,10 @@ export function agentModel(i: AgentInput): AgentModel {
   if (live?.id) actions.push({ command: 'acc.agent.attach', label: 'Attach in terminal', icon: 'terminal', ref });
   if (s) actions.push({ command: 'acc.agent.openFolder', label: 'Open its folder', icon: 'empty-window', ref });
   if (live?.id && live.pid) actions.push({ command: 'acc.agent.stop', label: 'Stop', icon: 'debug-stop', ref, danger: true });
-  const where = !s ? '' : project ? (isUnder(s.cwd, project.root) ? s.cwd.slice(project.root.length + 1) || 'main checkout' : s.cwd.split('/').slice(-2).join('/')) : s.cwd;
+  const folder = s ? sessionFolders(hub, [s.cwd]).get(s.cwd) : undefined;
   return {
     kind: 'agent', key, name: s ? nameOf(hub, s) : key.slice(0, 8), task: row && project ? { id: row.id, title: row.title, project: project.root } : null,
-    look: { label: look.label, icon: look.icon, tone: look.tone }, live: !!live || !!i.active, background: !!s?.id, where, startedAt: s?.startedAt ?? null, lastAt: i.lastAt, model: i.model ?? null,
+    look: { label: look.label, icon: look.icon, tone: look.tone }, live: !!live || !!i.active, background: !!s?.id, where: folder?.label ?? '', path: folder?.full ?? '', startedAt: s?.startedAt ?? null, lastAt: i.lastAt, model: i.model ?? null,
     entries: shown, hidden: Math.max(0, i.entries.length - views.length), readable: i.readable || decisions.length > 0,
     questions: s?.sessionId ? questionCards(hub).filter((q) => q.sessionId === s.sessionId) : [],
     actions,
@@ -1431,6 +1583,8 @@ export interface RunInput {
   step: string | null;
   /** Lasts as long as the window, such as autopilot (D-064): never the output panel's first pick. */
   background?: boolean;
+  /** Where it runs, so In progress puts it on its project (D-092). */
+  cwd?: string;
 }
 
 export function runCard(r: RunInput, lines = 400): RunCard {
@@ -1478,8 +1632,15 @@ export interface ConnectState {
   /** What's typed in the sign-in's fields, secrets left out. */
   fields: Record<string, string>;
   fieldErrors: Record<string, string>;
-  /** again: Sign in again was clicked, so the fields show though it's signed in. */
-  signIn: { state: 'none' | 'testing' | 'ok' | 'failed'; who: string | null; error: string | null; again: boolean };
+  /**
+   * again: Sign in again was clicked, so the fields show though it's signed in. shared: where the sign-in
+   * in use is kept (GH-79), for every project on the site or this repo only; absent for gh.
+   */
+  signIn: { state: 'none' | 'testing' | 'ok' | 'failed'; who: string | null; error: string | null; again: boolean; shared?: boolean };
+  /** The tick: keep the next sign-in for every project on the site (GH-79), rather than this repo only. */
+  share: boolean;
+  /** The person ticked or unticked it, so its default no longer applies, whatever site is typed next. */
+  shareTouched: boolean;
   pickers: Record<string, ConnectPickerState>;
   saving: boolean;
   saveError: string | null;
@@ -1538,6 +1699,8 @@ export interface ConnectModel {
   method: { id: string; hint: string; test: string };
   fields: ConnectField[];
   signIn: { look: Look; editing: boolean; canTest: boolean };
+  /** Use this sign-in for every project on the site (GH-79): shown while a sign-in is typed, never for gh. */
+  share: { shown: boolean; on: boolean; label: string; hint: string };
   pickers: ConnectPicker[];
   save: { can: boolean; label: string; look: Look | null };
 }
@@ -1558,7 +1721,7 @@ export function blankConnect(d: TrackerDescription, i: {
     id: i.id, rev: 0, root: i.root, projects: i.projects ?? [], projectName: i.projectName, ownRepo: i.ownRepo, ghAccount: i.ghAccount, kind: d.kind,
     existing: i.existing ? { index: i.existing.index, title: i.existing.title } : null, from: i.from,
     host: i.existing?.host ?? (d.host.prefill === 'github-repo' ? i.ownRepo ?? '' : ''), hostError: null,
-    method: method.id, fields, fieldErrors: {}, signIn: { state: 'none', who: null, error: null, again: false }, pickers, saving: false, saveError: null,
+    method: method.id, fields, fieldErrors: {}, signIn: { state: 'none', who: null, error: null, again: false }, share: true, shareTouched: false, pickers, saving: false, saveError: null,
   };
 }
 
@@ -1594,8 +1757,11 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
     };
   });
   const testing = s.signIn.state === 'testing';
+  // The site, organization or account, by name once it's known (GH-79).
+  const site = s.host && !s.hostError ? s.host : `this ${d.host.label.toLowerCase()}`;
+  const scope = s.signIn.shared === undefined ? '' : `, ${signInScope(s.signIn.shared, site)}`;
   const look: Look = testing ? LOOK(method.via === 'microsoft' ? 'Waiting for the Microsoft sign-in' : 'Testing the connection', 'sync~spin', 'blue')
-    : ok ? LOOK(`Signed in as ${s.signIn.who}`, 'pass', 'blue')
+    : ok ? LOOK(`Signed in as ${s.signIn.who}${scope}`, 'pass', 'blue')
       : s.signIn.state === 'failed' ? LOOK(s.signIn.error ?? 'Not signed in', 'warning', 'orange')
         : LOOK(method.via === 'gh' && s.ghAccount ? `Signs in as ${s.ghAccount}` : 'Not signed in yet', 'circle-large-outline', 'neutral');
   const pickers: ConnectPicker[] = d.pickers.map((p) => {
@@ -1621,7 +1787,7 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
   return {
     id: s.id, rev: s.rev,
     title: s.existing ? `Change ${s.existing.title}` : 'Connect a tracker',
-    summary: s.root ? `For ${s.projectName}. acc writes it to that repo's .acc/config.json, and the sign-in stays in VSCode for this repo only.` : 'Choose the project to connect a tracker to.',
+    summary: s.root ? `For ${s.projectName}. acc writes it to that repo's .acc/config.json, and the sign-in stays in VSCode on this machine, never in the file.` : 'Choose the project to connect a tracker to.',
     back: { section: s.from, label: `Back to ${SECTION_WORD[s.from]}` },
     projects: s.existing || s.projects.length < 2 ? [] : s.projects.map((p) => ({ ...p, on: p.root === s.root })),
     kinds: s.existing ? [] : list.map((x) => ({ kind: x.kind, name: x.name, icon: x.icon, on: x.kind === d.kind })),
@@ -1631,6 +1797,10 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
     fields: editing ? fields : [],
     // Not held back by an empty site: Test sends what's typed there, and says beside it what's wrong.
     signIn: { look, editing, canTest: !!s.root && !testing && !s.saving },
+    share: {
+      shown: editing && method.via !== 'gh' && !!s.root, on: s.share, label: `Use this sign-in for every project on ${site}`,
+      hint: s.share ? `Every project on this machine that uses ${site} signs in with it, unless it has a sign-in of its own.` : `Kept for ${s.projectName || 'this project'} only. Other projects on ${site} sign in on their own.`,
+    },
     pickers,
     save: {
       can: !!s.root && ok && ready && !s.saving, label: s.existing ? 'Save changes' : `Connect ${name}`,
@@ -1700,6 +1870,8 @@ export interface OverviewModel {
   ready: { project: string; id: string; title: string; environment: string; action: Action }[];
   /** Everything that happened, newest first (D-037). */
   history: HistoryItem[];
+  /** Every job under way, grouped by task, below Needs you (D-092). It never adds to the badge. */
+  inProgress: ProgressModel;
 }
 
 export interface HomeModel {
@@ -1730,6 +1902,14 @@ export interface HomeInput {
   connect?: ConnectModel | null;
   /** The Slack card, for this machine (GH-58). */
   slack?: SlackCard | null;
+  /** What the Agents tab's Where column shows (GH-83). Folder unless said. */
+  whereView?: WhereView;
+  /** In progress's memory of jobs that ended, kept a minute (D-092). */
+  finished?: FinishedJobs;
+  /** Whether autopilot runs for a project's repo in this window, somewhere else, or not at all (D-064). */
+  autopilot?: (root: string) => 'on' | 'elsewhere' | null;
+  /** The extension's clock, for In progress's times. */
+  now?: number;
 }
 
 /** How many things need a person: each question, and each orange item. The badge and the Overview agree. */
@@ -1743,7 +1923,7 @@ export const needsYouCount = (o: Pick<OverviewModel, 'questions' | 'attention'>)
 export function homeModel(i: HomeInput): HomeModel {
   const { hub } = i;
   const tasks = tasksModel(hub, i.boards);
-  const agents = agentsModel(hub, i.setup.items);
+  const agents = agentsModel(hub, i.setup.items, i.whereView ?? 'folder');
   const worktrees = worktreesModel(hub);
   const environments = environmentsModel(hub, i.identity, i.slack ?? null);
   const setup = setupModel(i.setup.items, i.setup.confirmed);
@@ -1774,6 +1954,12 @@ export function homeModel(i: HomeInput): HomeModel {
         if (r.autopilot) {
           const byHand = acts.find((a) => a.primary && ['acc.task.review', 'acc.task.land', 'acc.task.dispatch', 'acc.task.openPr', 'acc.task.resume'].includes(a.command));
           attention.push({ key: `t:${p.root}:${r.id}`, look: autopilotLook(r, false)!, title: `${r.id} ${r.title}`, detail: `${p.name} · ${r.autopilot.reason.replace(/([^.!?])$/, '$1.')} Do it by hand, or a new commit lets autopilot try again.`, project: p.name, actions: [...(byHand ? [byHand] : []), details] });
+          continue;
+        }
+        // A task a person dispatched couldn't start on its own once its wait was over (D-093): why, and Dispatch anyway.
+        if (r.state === 'todo' && r.files?.held?.failed) {
+          const anyway = acts.find((a) => a.command === 'acc.task.dispatchAnyway');
+          attention.push({ key: `t:${p.root}:${r.id}`, look: LOOK(r.files.held.byAutopilot ? 'Needs you: autopilot couldn\'t start it' : 'Needs you: its start failed', 'bell', 'orange'), title: `${r.id} ${r.title}`, detail: `${p.name} · ${r.files.held.failed.replace(/([^.!?])$/, '$1.')} Dispatch it anyway, or stop it waiting.`, project: p.name, actions: [...(anyway ? [anyway] : []), details] });
           continue;
         }
         // Its builder stopped before acc done or acc block (D-067): what it last said, and Resume.
@@ -1841,12 +2027,16 @@ export function homeModel(i: HomeInput): HomeModel {
       if (b.error && b.connect) attention.push({ key: `b:${p.root}:${b.index}`, look: LOOK('Not signed in', 'plug', 'orange'), title: b.title, detail: `${p.name} · ${b.error}`, project: p.name, actions: [], extra: { command: b.connect.command, label: b.connect.label, icon: 'plug', arg: b.connect.arg } });
     }
   }
+  const folders = sessionFolders(hub);
   for (const s of hub.agents) {
     const look = agentLook(s);
     if (!look.needsYou || (s.id && linked.has(s.id)) || (s.sessionId && asked.has(s.sessionId))) continue;
     const key = sessionKey(s);
+    // Its folder in context, after its project as the other cards have it; the whole folder on hover (GH-83).
+    const p = hub.projectFor(s.cwd);
+    const f = folders.get(s.cwd)!;
     attention.push({
-      key: `a:${key}`, look: { label: look.label, icon: look.icon, tone: look.tone }, title: nameOf(hub, s), detail: hub.projectFor(s.cwd)?.name ?? s.cwd, project: hub.projectFor(s.cwd)?.name ?? '',
+      key: `a:${key}`, look: { label: look.label, icon: look.icon, tone: look.tone }, title: nameOf(hub, s), detail: p && f.inProject ? `${p.name} · ${f.inProject}` : f.label, tip: f.full, project: p?.name ?? '',
       actions: [
         // Its conversation in Claude Code when its session id is known; attaching a terminal otherwise.
         ...(s.sessionId ? [{ command: 'acc.agent.openInClaude', label: 'Open in Claude Code', icon: 'comment-discussion', ref: { session: key }, primary: true }]
@@ -1896,7 +2086,9 @@ export function homeModel(i: HomeInput): HomeModel {
     { section: 'setup', label: 'Setup', icon: 'checklist', count: todo || null, attention: failing > 0, hint: todo ? `${todo} to do` : 'All done' },
   ];
   const runs = (i.runs ?? []).map((r) => runCard(r));
-  return { kind: 'home', section: i.section, nav, overview: { projects, questions, attention, stats, ready, history }, tasks, agents, worktrees, environments, setup, runs, connect: i.connect ?? null };
+  // What's under way, below Needs you. It never changes the badge, which counts only what needs you.
+  const progress = inProgress({ hub, runs: i.runs, finished: i.finished, autopilot: i.autopilot, now: i.now });
+  return { kind: 'home', section: i.section, nav, overview: { projects, questions, attention, stats, ready, history, inProgress: progress }, tasks, agents, worktrees, environments, setup, runs, connect: i.connect ?? null };
 }
 
 export type Model = TasksModel | AgentsModel | WorktreesModel | EnvironmentsModel | SetupModel | TicketModel | HomeModel | AgentModel;
@@ -1929,6 +2121,8 @@ export type FromWebview =
   | { type: 'open'; url: string }
   /** The page moved to another section, so reopening it comes back there. */
   | { type: 'nav'; section: HomeSection }
+  /** The Agents tab's Where column switched between folder and full path, remembered for the window (GH-83). */
+  | { type: 'agents-where'; view: WhereView }
   /** A task's card dropped in another lane of the agent board (D-041). */
   | { type: 'move-task'; project: string; task: string; to: string }
   /** An answer to an agent's question or permission prompt (D-030). */
@@ -1958,6 +2152,8 @@ export type FromWebview =
   | { type: 'connect-set'; session: string; field: string; value: string }
   | { type: 'connect-test'; session: string; host: string; fields: Record<string, string> }
   | { type: 'connect-again'; session: string }
+  /** The tick for keeping the sign-in for every project on the site (GH-79). */
+  | { type: 'connect-share'; session: string; on: boolean }
   | { type: 'connect-pick'; session: string; key: string; value: string | string[] | null }
   | { type: 'connect-save'; session: string }
   | { type: 'connect-cancel'; session: string }
@@ -2009,6 +2205,7 @@ export function isFromWebview(m: unknown): m is FromWebview {
     case 'ticket-action': return (TICKET_ACTIONS as readonly string[]).includes(x.action as string) && (x.text === undefined || (typeof x.text === 'string' && x.text.length <= 65_536));
     case 'open': return short(x.url, 4096) && /^(https?:|mailto:)/i.test(x.url as string);
     case 'nav': return (HOME_SECTIONS as readonly string[]).includes(x.section as string);
+    case 'agents-where': return (WHERE_VIEWS as readonly string[]).includes(x.view as string);
     case 'move-task': return short(x.project, 4096) && short(x.task, 100) && KEY.test(x.task as string) && (TASK_GROUPS as readonly string[]).includes(x.to as string);
     case 'answer': {
       if (!short(x.id, 64) || !['allow', 'deny', 'terminal'].includes(x.decision as string)) return false;
@@ -2040,6 +2237,7 @@ export function isFromWebview(m: unknown): m is FromWebview {
       return !!f && typeof f === 'object' && !Array.isArray(f) && Object.keys(f).length <= 8 && Object.entries(f).every(([k, v]) => CONNECT.fields.has(k) && typeof v === 'string' && v.length <= 4096);
     }
     case 'connect-pick': return short(x.session, 64) && CONNECT.pickers.has(x.key as string) && connectValue(x.value);
+    case 'connect-share': return short(x.session, 64) && typeof x.on === 'boolean';
     case 'connect-again': case 'connect-save': case 'connect-cancel': return short(x.session, 64);
     case 'slack-connect': return typeof x.url === 'string' && isSlackWebhook(x.url.trim());
     case 'slack': return (SLACK_ACTIONS as readonly string[]).includes(x.action as string);
