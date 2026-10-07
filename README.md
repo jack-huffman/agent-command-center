@@ -211,7 +211,11 @@ installs the same way, over the old one.
   first.
 - **Humans keep the gates.** Nothing merges, deploys, closes a ticket or changes
   a ticket's status unless you ask. You can, from the board and the ticket
-  pages. acc never does it on its own.
+  pages. acc never does it on its own, with one opt-in: a repo can turn on
+  auto-merge (`acc agents auto-merge on`), and autopilot then merges a reviewed
+  pull request whose checks passed, with nothing waiting on you, into an
+  environment that isn't protected. It's off by default, and a Salesforce
+  project can't turn it on.
 - **Light on the machine.** A cap on concurrent agents, default 3.
 - **Readable without colour.** Every state has an icon and a label. Where colour
   helps, it is orange against blue, never red against green.

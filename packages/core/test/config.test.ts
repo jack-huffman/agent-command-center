@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { branchFor, defaultEnvironment, loadConfig, parseConfig, skippedOnRoute, trackerForKey, withTracker, writeConfig } from '../src/config.ts';
+import { autoMergeFor, autoMergeOn, branchFor, defaultEnvironment, loadConfig, parseConfig, skippedOnRoute, trackerForKey, withTracker, writeConfig } from '../src/config.ts';
 import { GENERIC_CONFIG, SF_CONFIG, tempDir } from './support.ts';
 
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x));
@@ -136,9 +136,36 @@ test('autopilot.appendOnly lists files inside the repo; left out, there\'s no se
   assert.deepEqual(parseConfig({ ...clone(GENERIC_CONFIG), autopilot: { appendOnly: [], appendonly: ['x'] } }).warnings, ['Unknown key "autopilot.appendonly" is ignored.']);
 });
 
-test('this repo lists its decision log as append-only', () => {
+test('this repo lists its decision log as append-only, and lets autopilot merge under autonomy review (GH-67)', () => {
   const file = join(import.meta.dirname, '..', '..', '..', '.acc', 'config.json');
-  assert.deepEqual(loadConfig(file).config.autopilot, { appendOnly: ['docs/DECISIONS.md'] });
+  const { config } = loadConfig(file);
+  assert.deepEqual(config.autopilot, { appendOnly: ['docs/DECISIONS.md'], autoMerge: true });
+  assert.equal(config.autonomy, 'review');
+  assert.equal(autoMergeFor(config, 'main'), true);
+});
+
+test('autopilot.autoMerge: off unless it\'s true, a boolean, never in a Salesforce project, and never into a protected environment (GH-67)', () => {
+  const on = parseConfig({ ...clone(GENERIC_CONFIG), autonomy: 'review', autopilot: { autoMerge: true } });
+  assert.deepEqual([on.errors, on.warnings, on.config!.autopilot], [[], [], { appendOnly: [], autoMerge: true }]);
+  assert.deepEqual(parseConfig({ ...clone(GENERIC_CONFIG), autopilot: { autoMerge: false } }).config!.autopilot, { appendOnly: [] }, 'false is the same as left out');
+  assert.match(errorsOf({ ...clone(GENERIC_CONFIG), autopilot: { autoMerge: 'yes' } }), /"autopilot\.autoMerge" must be true or false/);
+  const sf = parseConfig({ ...clone(SF_CONFIG), autopilot: { autoMerge: true } });
+  assert.equal(sf.config, null);
+  assert.deepEqual(sf.errors, ['"autopilot.autoMerge" can\'t be on in a Salesforce project: a person merges every pull request there.']);
+  assert.deepEqual(parseConfig({ ...clone(SF_CONFIG), autopilot: { autoMerge: false } }).errors, [], 'off is fine');
+
+  // A protected environment, and one that isn't listed, are never covered; nor is any under manual.
+  const envs = { environments: [{ name: 'main', default: true }, { name: 'release', protected: true }] };
+  const config = parseConfig({ ...clone(GENERIC_CONFIG), ...envs, autonomy: 'review', autopilot: { autoMerge: true } }).config!;
+  assert.deepEqual([autoMergeOn(config), autoMergeFor(config, 'main'), autoMergeFor(config, 'release'), autoMergeFor(config, 'nowhere')], [true, true, false, false]);
+  assert.equal(autoMergeFor({ ...config, autonomy: 'manual' }, 'main'), false);
+  assert.equal(autoMergeFor({ ...config, autopilot: { appendOnly: [] } }, 'main'), false);
+  // A config the parser refused can't get past either: Salesforce is off whatever it says.
+  assert.equal(autoMergeOn({ profile: 'salesforce', autopilot: { autoMerge: true } }), false);
+
+  const dir = tempDir();
+  writeConfig(join(dir, 'config.json'), on.config!);
+  assert.deepEqual(loadConfig(join(dir, 'config.json')).config.autopilot, { appendOnly: [], autoMerge: true }, 'written back as it was');
 });
 
 test('loadConfig explains a missing or broken file', () => {

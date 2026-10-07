@@ -220,6 +220,12 @@
         "icon": "$(rocket)"
       },
       {
+        "command": "acc.agents.autoMerge",
+        "title": "Change whether autopilot merges pull requests…",
+        "category": "Agent Command Center",
+        "icon": "$(git-merge)"
+      },
+      {
         "command": "acc.autopilot.toggle",
         "title": "Turn autopilot on or off",
         "category": "Agent Command Center",

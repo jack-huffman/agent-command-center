@@ -351,6 +351,15 @@ test('autopilot that couldn\'t send a task back for its failing checks needs you
   assert.deepEqual([e?.kind, e?.what], ['needs-you', 'Autopilot couldn\'t send it back for its failing checks. It waits for you.']);
 });
 
+test('a merge autopilot couldn\'t make needs you; one it made isn\'t sent, as no merge is (GH-67, D-078)', () => {
+  const p = { name: 'Acme', ledgerPath: '/r/.git/acc/ledger.json', rows: [], tasks: [] } as unknown as Parameters<typeof autopilotEvent>[0];
+  const at = '2026-10-06T12:00:00.000Z';
+  const failed = autopilotEvent(p, { seq: 10, at, task: 'ACME-35', step: 'merge', outcome: 'failed', reason: 'It changes .acc/, which a person merges: .acc/config.json.' }, true);
+  assert.deepEqual([failed?.kind, failed?.what, failed?.key], ['needs-you', 'Autopilot couldn\'t merge its pull request. It waits for you.', 'a:/r/.git/acc/ledger.json:10']);
+  assert.ok(!JSON.stringify(failed).includes('.acc/config.json'), 'autopilot\'s reason stays out of Slack');
+  assert.equal(autopilotEvent(p, { seq: 11, at, task: 'ACME-35', step: 'merge', outcome: 'done', pr: { number: 72, url: 'https://github.com/acme/tool/pull/72', opened: false } }, false), null);
+});
+
 test('messages go a second apart, a burst is cut short with one line saying how many more, and no log line holds the webhook', async () => {
   const w = window(on());
   for (let i = 0; i < 25; i++) w.slack.offer(ev(`burst-${i}`));

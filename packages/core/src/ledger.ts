@@ -92,8 +92,20 @@ export interface Promotion {
   at: string;
 }
 
-export const AUTOPILOT_STEPS = ['review', 'land', 'dispatch', 'refresh', 'resume', 'checks'] as const;
+export const AUTOPILOT_STEPS = ['review', 'land', 'dispatch', 'refresh', 'resume', 'checks', 'merge'] as const;
 export type AutopilotStepName = (typeof AUTOPILOT_STEPS)[number];
+
+/** How GitHub merges a pull request: the repo allows one or more of these. */
+export type MergeMethod = 'merge' | 'squash' | 'rebase';
+
+/** A pull request autopilot merged (GH-67), kept until acc sync sees it merged and moves the task to done. */
+export interface AutopilotMerge {
+  /** The commit it merged: the branch's latest, landed. */
+  sha: string;
+  pr: { number: number; url: string };
+  method: MergeMethod;
+  at: string;
+}
 
 /** The commit autopilot last sent back to its builder because its checks failed on GitHub, and which (D-076). */
 export interface SentBack {
@@ -128,8 +140,11 @@ export interface Task {
   pr: PullRequest | null;
   /** The promotions that took its change on from its environment, oldest first. */
   promotions?: Promotion[];
-  /** What autopilot couldn't do for it, if anything (D-055), and the commit it last sent back for failing checks (D-076). */
-  autopilot?: { failed: AutopilotFailure | null; sentBack?: SentBack | null };
+  /**
+   * What autopilot couldn't do for it, if anything (D-055), the commit it last sent back for failing checks
+   * (D-076), and the pull request it merged (GH-67).
+   */
+  autopilot?: { failed: AutopilotFailure | null; sentBack?: SentBack | null; merged?: AutopilotMerge | null };
   history: HistoryEntry[];
   createdAt: string;
   updatedAt: string;

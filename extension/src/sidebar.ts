@@ -4,7 +4,7 @@ import * as vscode from 'vscode';
 import { allowedMoves, DISPLAY, findRule, type State } from '../../packages/core/src/ledger.ts';
 import { skippedOn } from '../../packages/core/src/promote.ts';
 import { agentArgs } from '../../packages/core/src/agents.ts';
-import { EFFORTS } from '../../packages/core/src/config.ts';
+import { autoMergeFor, autoMergeOn, EFFORTS } from '../../packages/core/src/config.ts';
 import { run as runSync } from '../../packages/core/src/exec.ts';
 import { repoPaths } from '../../packages/core/src/paths.ts';
 import { receiptHooks } from '../../packages/core/src/receipts.ts';
@@ -99,6 +99,7 @@ export class Sidebar {
     reg('acc.agents.refresh', () => this.hub.loadAgents());
     reg('acc.agents.configure', (arg?: unknown) => this.configureAgents(arg));
     reg('acc.agents.autonomy', (arg?: unknown) => this.configureAutonomy(arg));
+    reg('acc.agents.autoMerge', (arg?: unknown) => this.configureAutoMerge(arg));
     reg('acc.worktree.open', (n: WorktreeNode) => n.kind === 'worktree' && vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(n.worktree.path), { forceNewWindow: true }));
     reg('acc.worktree.terminal', (n: WorktreeNode) => n.kind === 'worktree' && this.terminal(`acc: ${n.worktree.branch ?? basename(n.worktree.path)}`, n.worktree.path).show());
     reg('acc.worktree.reveal', (n: WorktreeNode) => n.kind === 'worktree' && vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(n.worktree.path)));
@@ -456,15 +457,38 @@ export class Sidebar {
     const project = typeof arg === 'string' ? this.hub.project(arg) : await this.pickProject();
     if (!project) return;
     const now = project.config.autonomy;
+    const merges = autoMergeOn(project.config) ? 'merges a reviewed pull request whose checks passed (auto-merge is on)' : 'never merges a pull request';
     const pick = await vscode.window.showQuickPick([
       { label: '$(debug-pause) manual', description: 'Nothing happens on its own', value: 'manual' },
-      { label: '$(rocket) review', description: 'Autopilot reviews, lands, reworks and resumes once, and merges the base into a conflicting pull request; never merges a pull request', value: 'review' },
+      { label: '$(rocket) review', description: `Autopilot reviews, lands, reworks and resumes once, and merges the base into a conflicting pull request; ${merges}`, value: 'review' },
     ].map((x) => ({ ...x, description: x.value === now ? `${x.description} · now` : x.description })), { title: `${project.name}: what may autopilot do on its own?` });
     if (!pick || pick.value === now) return;
     const ok = await this.runAcc(project, ['agents', 'autonomy', pick.value], () => undefined);
     if (!ok) return;
     await this.hub.loadProjects();
     void vscode.window.showInformationMessage(`Autonomy is ${pick.value}. Changed in .acc/config.json: commit it to share it.${pick.value === 'review' ? ' Autopilot stays off until you turn it on in the status bar.' : ''}`);
+  }
+
+  /**
+   * Whether autopilot merges a reviewed pull request whose checks passed (GH-67), changed through acc in
+   * .acc/config.json, for the person to commit. acc refuses it in a Salesforce project.
+   */
+  private async configureAutoMerge(arg: unknown): Promise<void> {
+    const project = typeof arg === 'string' ? this.hub.project(arg) : await this.pickProject();
+    if (!project) return;
+    if (project.config.profile === 'salesforce') return void vscode.window.showInformationMessage(`${project.name} is a Salesforce project, which never auto-merges: a person merges every pull request.`);
+    const now = autoMergeOn(project.config) ? 'on' : 'off';
+    const protectedEnvs = project.config.environments.filter((e) => e.protected).map((e) => e.name);
+    const pick = await vscode.window.showQuickPick([
+      { label: '$(circle-slash) off', description: 'A person merges every pull request', value: 'off' },
+      { label: '$(git-merge) on', description: `Autopilot merges a pull request once its review and checks passed and nothing waits on you, one a pass${protectedEnvs.length ? `; never into ${protectedEnvs.join(', ')}` : ''}`, value: 'on' },
+    ].map((x) => ({ ...x, description: x.value === now ? `${x.description} · now` : x.description })), { title: `${project.name}: may autopilot merge pull requests?` });
+    if (!pick || pick.value === now) return;
+    const ok = await this.runAcc(project, ['agents', 'auto-merge', pick.value], () => undefined);
+    if (!ok) return;
+    await this.hub.loadProjects();
+    const runs = project.config.autonomy === 'review' ? ' It merges while autopilot is on in the status bar.' : ' Autonomy is manual, so nothing merges until it\'s review.';
+    void vscode.window.showInformationMessage(`Auto-merge is ${pick.value}. Changed in .acc/config.json: commit it to share it.${pick.value === 'on' ? runs : ''}`);
   }
 
   // ------------------------------------------------------------ review and land (D-032, D-033)
@@ -532,7 +556,7 @@ export class Sidebar {
     const again = task.pr?.state === 'open';
     const ok = await vscode.window.showWarningMessage(again ? `Update pull request #${task.pr!.number} for ${task.id}?` : `Land ${task.id}?`, {
       modal: true,
-      detail: `${again ? 'Pushes the reviewed commits to' : 'Pushes'} ${task.run?.branch ?? 'its branch'} to ${gh.repo} as ${gh.account}${again ? '.' : `, and opens a pull request into ${task.environment}.`} acc never merges: a person does, on GitHub.`,
+      detail: `${again ? 'Pushes the reviewed commits to' : 'Pushes'} ${task.run?.branch ?? 'its branch'} to ${gh.repo} as ${gh.account}${again ? '.' : `, and opens a pull request into ${task.environment}.`} ${autoMergeFor(project.config, task.environment) ? 'Auto-merge is on: with autopilot running, it merges once its checks pass on GitHub and nothing waits on you. You can merge it first, or ask for changes to hold it.' : 'acc never merges it: a person does, on GitHub.'}`,
     }, again ? 'Update' : 'Push and open');
     if (!ok) return;
     type Landed = { pr?: { number: number; url: string }; opened?: boolean; update?: { id: string; key: string } | null; updateError?: string };

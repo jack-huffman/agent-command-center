@@ -428,6 +428,12 @@ export function activate(context: vscode.ExtensionContext): void {
         description: `${a.project}${a.state === 'elsewhere' ? ' · on in another window' : ''}`,
         go: () => vscode.commands.executeCommand('acc.autopilot.toggle', a.key),
       })),
+      // Whether autopilot merges pull requests in each repo (GH-67), set from the Agents section.
+      ...autopilot.mergeLooks().map((m): Item => ({
+        label: m.on ? '$(git-merge) Auto-merge: on' : '$(circle-slash) Auto-merge: off',
+        description: `${m.project}${m.on && !m.acts ? ' · autonomy manual, so nothing merges' : ''}`,
+        go: () => panels.show('agents'),
+      })),
       ...(runs.live().length ? [{ label: '$(terminal) Show what\'s running', go: () => showRun() }] : []),
       { label: '$(checklist) Setup', description: look.total ? `${look.done} of ${look.total} done${look.checking ? ', checking now' : ''}` : '', go: () => panels.show('setup') },
       ...(account ? [{ label: account.ok ? '$(github) GitHub account' : '$(warning) GitHub account', description: account.name, go: () => vscode.commands.executeCommand('acc.github.switch') }] : []),

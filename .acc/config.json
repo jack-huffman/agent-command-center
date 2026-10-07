@@ -41,8 +41,9 @@
       "model": "claude-opus-5-5"
     }
   },
-  "autonomy": "manual",
+  "autonomy": "review",
   "autopilot": {
+    "autoMerge": true,
     "appendOnly": [
       "docs/DECISIONS.md"
     ]

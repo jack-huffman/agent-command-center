@@ -643,3 +643,48 @@ test('How agents run shows the project\'s autonomy, where it\'s set, and a way t
   assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === 'acc.agents.autonomy'));
   assert.match(readFileSync(join(root, 'src', 'sidebar.ts'), 'utf8'), /this\.runAcc\(project, \['agents', 'autonomy', pick\.value\]/);
 });
+
+test('How agents run has an Auto-merge row: on or off, what it means, and Change… through acc; the autonomy row says when autopilot merges (GH-67)', () => {
+  const h = hub();
+  const p = h.projects[0]!;
+  p.agents = {
+    builder: { model: null, effort: null, fallbackModel: null, from: { model: 'default', effort: 'default', fallbackModel: 'default' } },
+    reviewer: { model: null, effort: null, fallbackModel: null, from: { model: 'default', effort: 'default', fallbackModel: 'default' } },
+  };
+  p.config = { ...p.config, profile: 'generic', autonomy: 'review' };
+  assert.deepEqual(agentsModel(h).settings[0]!.autoMerge, { value: 'off', from: 'project', meaning: 'Autopilot never merges a pull request: a person merges each one.', settable: true });
+  // Its environments include Production, which is protected.
+  assert.ok(p.config.environments.some((e) => e.name === 'Production' && e.protected));
+  p.config = { ...p.config, autopilot: { autoMerge: true } };
+  const s = agentsModel(h).settings[0]!;
+  assert.deepEqual(s.autoMerge, { value: 'on', from: 'project', settable: true, meaning: 'Autopilot merges a pull request once its review and checks passed, it\'s up to date with its base, GitHub says it can merge and nothing waits on you, one a pass. Never into Production: protected.' });
+  assert.match(s.autonomy!.meaning, /Auto-merge is on: it also merges a pull request whose review and checks passed, .* It never merges into a protected environment\.$/);
+  assert.doesNotMatch(s.autonomy!.meaning, /It never merges a pull request/);
+  p.config = { ...p.config, autonomy: 'manual' };
+  assert.match(agentsModel(h).settings[0]!.autoMerge!.meaning, /Autonomy is manual, so nothing merges on its own\.$/);
+  // A Salesforce project never auto-merges, so there's nothing to change.
+  p.config = { ...p.config, profile: 'salesforce' };
+  assert.deepEqual(agentsModel(h).settings[0]!.autoMerge, { value: 'off', from: 'project', meaning: 'A Salesforce project never auto-merges: a person merges every pull request.', settable: false });
+
+  // The page asks acc to change it, with an icon beside the words; the webview never writes the config.
+  const page = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
+  assert.match(page, /icon\(s\.autoMerge\.value === 'on' \? 'git-merge' : 'circle-slash'\), el\('span', 'strong', 'Auto-merge'\)/);
+  assert.match(page, /s\.autoMerge\.settable \? argButton\('acc\.agents\.autoMerge', 'Change…', 'edit', s\.root\)/);
+  assert.match(readFileSync(join(root, 'src', 'panels.ts'), 'utf8'), /'acc\.agents\.autoMerge'/, 'the page may ask for it');
+  assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === 'acc.agents.autoMerge'));
+  const sidebar = readFileSync(join(root, 'src', 'sidebar.ts'), 'utf8');
+  assert.match(sidebar, /this\.runAcc\(project, \['agents', 'auto-merge', pick\.value\]/);
+  // The status bar's menu says on or off for each repo, with an icon, and opens the Agents section.
+  const ext = readFileSync(join(root, 'src', 'extension.ts'), 'utf8');
+  assert.match(ext, /autopilot\.mergeLooks\(\)\.map/);
+  assert.match(ext, /m\.on \? '\$\(git-merge\) Auto-merge: on' : '\$\(circle-slash\) Auto-merge: off'/);
+  assert.match(ext, /go: \(\) => panels\.show\('agents'\)/);
+});
+
+test('History tells a pull request autopilot merged, with its link (GH-67)', () => {
+  const h = hub();
+  h.autopilotLog = () => [{ seq: 12, at: new Date(Date.UTC(2026, 9, 6, 12)).toISOString(), task: 'AV-3', step: 'merge', outcome: 'done', pr: { number: 40, url: 'https://github.com/o/r/pull/40', opened: false } }];
+  const items = homeModel({ hub: h, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } }).overview.history;
+  const merged = items.filter((i) => i.kind === 'autopilot').map((i) => i.kind === 'autopilot' && [i.task, i.look.icon, i.look.label, i.look.tone, i.detail, i.url]);
+  assert.deepEqual(merged, [['AV-3', 'git-merge', 'Autopilot merged pull request #40', 'blue', 'acc sync moves it to done.', 'https://github.com/o/r/pull/40']]);
+});

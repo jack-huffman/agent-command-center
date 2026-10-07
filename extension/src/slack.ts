@@ -161,15 +161,16 @@ export function taskEvent(p: SlackProject, n: TaskNotice, now: number): SlackEve
 }
 
 /** What a step autopilot couldn't take is called. */
-const COULDNT = { review: 'review it', land: 'land it', dispatch: 're-dispatch it', refresh: 'merge its base into it', resume: 'resume its builder', checks: 'send it back for its failing checks' } as const;
+const COULDNT = { review: 'review it', land: 'land it', dispatch: 're-dispatch it', refresh: 'merge its base into it', resume: 'resume its builder', checks: 'send it back for its failing checks', merge: 'merge its pull request' } as const;
 
 /** Whether a task's ticket takes updates: one from a tracker, with a key (D-066). */
 const ticketed = (t: Pick<Task, 'source'> | undefined): boolean => !!t?.source.key && ['github', 'jira', 'azure'].includes(t.source.kind);
 
 /**
  * A step autopilot took (D-064), as Slack is told it, or null for one that isn't sent: what it couldn't
- * do, a review's result, and a pull request it opened. `urgent` is the notice's: a second rework waits
- * for you. Keyed by the step's place in the repo's events.
+ * do, a review's result, and a pull request it opened. A pull request it merged isn't sent, as no merge
+ * is (D-078, GH-67). `urgent` is the notice's: a second rework waits for you. Keyed by the step's place
+ * in the repo's events.
  */
 export function autopilotEvent(p: SlackProject, r: AutopilotRecord, urgent: boolean): SlackEvent | null {
   const row = p.rows.find((x) => x.id === r.task);

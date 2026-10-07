@@ -117,7 +117,7 @@ test('builder settings: identity, acc on PATH, and the dangerous commands denied
   const config = parseConfig(JSON.parse(JSON.stringify(SF_CONFIG))).config!;
   const s = builderSettings({ id: 'ACME-7' } as never, config, '/acc/bin', '/usr/bin') as { env: Record<string, string>; permissions: { allow: string[]; deny: string[] } };
   assert.deepEqual(s.env, { ACC_TASK: 'ACME-7', ACC_ROLE: 'builder', PATH: '/acc/bin:/usr/bin' });
-  for (const d of ['Bash(git push*)', 'Bash(gh pr *)', 'Bash(sf project deploy start*)', 'Bash(acc set *)', 'Bash(git checkout *)', 'Bash(acc agents autonomy*)', 'Bash(gh release create*)', 'Bash(npm run release*)']) assert.ok(s.permissions.deny.includes(d), d);
+  for (const d of ['Bash(git push*)', 'Bash(gh pr *)', 'Bash(sf project deploy start*)', 'Bash(acc set *)', 'Bash(git checkout *)', 'Bash(acc agents autonomy*)', 'Bash(acc agents auto-merge*)', 'Bash(gh release create*)', 'Bash(npm run release*)']) assert.ok(s.permissions.deny.includes(d), d);
   assert.ok(s.permissions.allow.includes('Bash(sf project deploy validate *)'));
   for (const a of ['Bash(acc gate run)', 'Bash(acc gate run *)', 'Bash(acc gate list*)']) assert.ok(s.permissions.allow.includes(a), a);
 });

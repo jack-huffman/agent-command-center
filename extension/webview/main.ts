@@ -1862,6 +1862,14 @@ function renderAgents(m: AgentsModel): Node[] {
           s.autonomy.meaning ? el('span', 'setting-meaning muted small', s.autonomy.meaning) : null),
         argButton('acc.agents.autonomy', 'Change…', 'edit', s.root)));
     }
+    // Whether autopilot merges a reviewed, green pull request (GH-67), set for the project through acc.
+    if (s.autoMerge) {
+      box.append(el('div', 'setting-row',
+        el('span', 'setting-name', icon(s.autoMerge.value === 'on' ? 'git-merge' : 'circle-slash'), el('span', 'strong', 'Auto-merge')),
+        el('span', 'setting-parts', el('span', 'setting-part', el('span', 'mono strong', s.autoMerge.value), el('span', 'muted small', ` · ${s.autoMerge.from}`)),
+          el('span', 'setting-meaning muted small', s.autoMerge.meaning)),
+        s.autoMerge.settable ? argButton('acc.agents.autoMerge', 'Change…', 'edit', s.root) : el('span', '')));
+    }
     if (s.billing) box.append(el('div', 'setting-billing', status(s.billing)));
     out.push(box);
   }

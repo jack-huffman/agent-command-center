@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { autopilotMode } from '../../packages/core/src/autopilot.ts';
+import { autoMergeOn } from '../../packages/core/src/config.ts';
 import { alive } from '../../packages/core/src/lock.ts';
 import type { Hub, Project } from './hub.ts';
 import { type AutopilotStatusInput, autopilotStatus } from './logic.ts';
@@ -173,12 +174,22 @@ export class AutopilotHost implements vscode.Disposable {
   }
 
   /** Each repo's autopilot whose autonomy isn't manual: its name, key, and whether it's on here, off, elsewhere or can't run. */
-  looks(): { key: string; project: string; state: 'on' | 'off' | 'elsewhere' | 'refused'; text: string }[] {
+  looks(): { key: string; project: string; state: 'on' | 'off' | 'elsewhere' | 'refused'; text: string; autoMerge: boolean }[] {
     const many = this.repos.filter((r) => r.project.config.autonomy !== 'manual').length > 1;
     return this.repos.flatMap((r) => {
       const s = this.stateOf(r);
-      return s ? [{ key: r.key, project: r.project.name, state: s.state, text: autopilotStatus({ project: r.project.name, many, ...s }).text }] : [];
+      const autoMerge = autoMergeOn(r.project.config);
+      return s ? [{ key: r.key, project: r.project.name, state: s.state, text: autopilotStatus({ project: r.project.name, many, autoMerge, ...s }).text, autoMerge }] : [];
     });
+  }
+
+  /**
+   * Whether autopilot merges pull requests in each repo (GH-67), whatever its autonomy: on only where
+   * the config turns auto-merge on, and never in a Salesforce project. `acts` is false while autonomy is
+   * manual, when nothing runs to merge.
+   */
+  mergeLooks(): { key: string; root: string; project: string; on: boolean; acts: boolean }[] {
+    return this.repos.map((r) => ({ key: r.key, root: r.project.root, project: r.project.name, on: autoMergeOn(r.project.config), acts: r.project.config.autonomy === 'review' }));
   }
 
   private render(): void {
