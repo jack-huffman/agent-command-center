@@ -4,6 +4,9 @@
   On a task branch, head a new entry `## D-??? <title> (<date>)` and refer to it
   as D-???. Whoever merges gives it the next free number (D-045).
 - The plugin and extension must not depend on any skill outside this repo (D-002).
+- Research and supporting notes stay local: `docs/research/` is gitignored, and
+  nothing committed links to it. Anything taken from another repo is copied in,
+  with where it came from, never linked or fetched at run time (D-098).
 - The core stays project-agnostic. Salesforce behaviour belongs in the
   `salesforce` profile (D-003).
 - Run builds and tests one at a time, under `nice -n 15`. Parallel compiles make

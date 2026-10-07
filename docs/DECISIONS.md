@@ -8,8 +8,16 @@ see what they are overturning.
 Claude Code already runs agents in isolated worktrees, keeps a registry of live
 sessions, and exposes hooks. What is missing is one view in VSCode and intake
 from issue trackers. Standalone tools either live outside VSCode, don't write
-back to trackers, or bring a heavy stack. See
-[research/2026-10-01-landscape.md](research/2026-10-01-landscape.md).
+back to trackers, or bring a heavy stack.
+
+A review on 1 October 2026 (kept locally, D-098) looked at Gas City, Emdash,
+Conductor, Superset, Vibe Kanban, the terminal session monitors and the small
+VSCode extensions:
+- Gas City was worth borrowing ideas from, not adopting. It needs tmux, a Dolt
+  SQL server and a supervisor, runs Claude with permission checks skipped by
+  default, and has no Jira or VSCode support.
+- None of the others had all three of: a capable view inside VSCode, progress
+  written back to the ticket, and Salesforce awareness.
 
 ## D-002 No dependency on other skills (2026-10-01)
 
@@ -3818,3 +3826,20 @@ machine, and each person typed the rest.
 - Not chosen: merging a changed template into a config; inheritance or
   layering; a template gallery or editor; formats other than JSON; templates
   setting analysis, autopilot, worktrees or the secret scan.
+
+## D-098 Research stays local, and the repo depends on no other repo (2026-10-07)
+
+The author's rule: research and supporting notes are for building the tool, not
+part of it.
+
+- `docs/research/` is gitignored. The 1 October landscape review is untracked
+  and kept on disk, and D-001 now says what it found instead of linking to it.
+  Earlier copies stay in git history. That includes the PhotoCraft review,
+  which 3af9b78 committed by mistake and 204ce9b untracked.
+- Nothing committed links to a local-only note. Issues, packets and docs carry
+  their own reasoning.
+- The repo depends on no other repo for tools, and other repos shouldn't depend
+  on this one's files. Anything taken from elsewhere is copied in, with a note
+  of where it came from and when. It's updated only when a person chooses.
+  GH-80's team templates already work this way, and GH-108 makes shared rules
+  work the same way. This extends D-002 from skills to everything.
