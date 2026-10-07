@@ -1,0 +1,474 @@
+# First run on a fresh machine
+
+**Status: not run yet.** This is the checklist for GH-62's first run: someone
+new installs a released `.vsix` on a machine that has never had acc, follows
+the walkthroughs to a dispatched task, and writes down what happened at each
+step. The tester fills it in. Their notes come back as their own task, which
+fixes what's small and files the rest (D-???).
+
+The run tests the release, not this repo's source. Everything below is in the
+order the walkthroughs show it: getting access and installing, the machine
+steps, a generic project's steps up to a dispatched task, then a Salesforce
+project's steps as far as a Developer Edition org goes.
+
+## Before the run (for the author)
+
+- [ ] **A release with GH-62 in it**, 0.36.0 or later. Earlier ones don't have
+  A4's version check or Setup's fix for steps that no longer apply.
+- [ ] **A machine that has never run acc.** Another Mac, or a new macOS user on
+  one, not the author's own account: its `~/.claude`, `~/.acc` and keychain
+  are shared with the builders running there, so sign-ins would pass that
+  shouldn't, and removing the plugin would break them.
+- [ ] **The tester has read access** to
+  `https://github.com/jack-huffman/agent-command-center`: an invitation,
+  accepted with the GitHub account they'll use.
+- [ ] **A throwaway private repo** under the tester's own GitHub account, for
+  the generic project. A README is enough:
+  `gh repo create acc-first-run --private --add-readme --clone`, once gh is
+  signed in.
+- [ ] **A Salesforce Developer Edition org** for the Salesforce project, signed
+  up for this run. Never a client's org. A Developer Edition org has no
+  sandboxes, so the Salesforce run is expected to stop at B1.orgs or soon
+  after: note where.
+
+## How to fill it in
+
+For each step, write:
+
+- **Showed:** the status and the words the step showed, copied exactly, and the
+  name of a screenshot if you took one.
+- **Unclear:** anything you had to guess, look up or ask about.
+- **Failed:** what went wrong, with the exact message: the step's detail, the
+  terminal's output, or a notification.
+- **Result:** keep one word: passed, failed, unclear or not reached.
+
+Leave a line empty when there's nothing to say. Time spent on a step is worth
+noting when it's more than a few minutes.
+
+**Keep personal data out.** Write `~` for your home folder, `<you>` for your
+macOS user, `<account>` for a GitHub account and `<email>` for an email
+address, and crop them out of screenshots. A test scans this file for this
+repo's own account and identity, but not for yours.
+
+When a step fails, the follow-up task links each entry to the commit that fixed
+it or the issue filed for it, after **Fixed in / filed as**.
+
+## The machine and the release
+
+| What | Fill in | How to tell |
+| --- | --- | --- |
+| macOS version | | Apple menu → About This Mac |
+| Apple Silicon or Intel | | the same |
+| VSCode version | | Code → About Visual Studio Code |
+| Release installed | | the `.vsix` file's name |
+| A new macOS user, or a machine that never had acc? | | |
+| No Node on PATH | | `command -v node` prints nothing |
+| No `~/.acc` | | `ls ~/.acc` says no such file |
+| No acc plugin in Claude Code | | `claude plugin list` doesn't list acc, or claude isn't installed |
+| Homebrew installed before the run? | | `command -v brew` |
+| git before the run | | `git --version` |
+| gh installed before the run? | | `command -v gh` |
+| Claude Code installed before the run? | | `command -v claude` |
+
+## Getting access and installing
+
+Follow the README's **Install and first run**, from **What you need** to
+**Installing the extension**, exactly as written.
+
+### What you need
+
+Look for: anything the README assumes you already have. Homebrew isn't checked
+by any step, but most fixes use it.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### Getting access
+
+Look for: whether accepting the invitation, `gh auth login` and
+`git ls-remote` worked as the README says, and whether you needed
+`gh auth setup-git`.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### Installing the extension
+
+Look for: whether `gh release download` found the `.vsix`, and whether `code`
+was on your PATH. A fresh VSCode doesn't put it there: note whether you used
+**Install from VSIX…** instead.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+## This machine
+
+After the reload, the walkthrough **Agent Command Center: set up this
+machine** should open by itself, once. Note whether it did. Do the steps with
+no project folder open.
+
+With no project open, the machine walkthrough also lists the Salesforce tools:
+A1.node, A1.sf and A1.code-analyzer (D-077). **Did those rows confuse you,
+since a generic project doesn't need them?** Answer here:
+
+- **Answer:**
+
+### A1.git: git 2.40 or later
+
+Look for: the git that comes with Apple's command-line tools may be older than
+2.40. Note `git --version` before and after **Do it**, and whether the new git
+was the one on PATH in a new terminal.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### A1.node: Node 20 or later
+
+Look for: whether you installed Node here, though the generic project doesn't
+need it.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### A1.gh: GitHub CLI
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### A1.claude: Claude Code CLI with background sessions
+
+Look for: whether **Do it** installed Claude Code when it was missing, and how
+you signed it in to your Claude account.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### A1.claude-billing: Agents bill your Claude subscription
+
+Look for: whether the check said where the setting is, and whether **I've done
+this** was clear when it couldn't tell.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### A1.sf: Salesforce CLI
+
+Look for: its fix installs with npm, so it needs Node first. Note the order you
+did them in.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### A1.code-analyzer: Salesforce Code Analyzer
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### A2.gh-login: Logged in to GitHub
+
+Look for: whether **Do it** signed you in with the account that accepted the
+invitation.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### A4.plugin: The acc plugin in Claude Code
+
+Look for: **Do it** runs in a terminal and Claude Code clones this private repo
+with your git credentials. Note any prompt it showed, and the version the step
+named once it passed: it should be the release you installed.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+## A generic project, to a dispatched task
+
+Open the throwaway repo's folder. Its walkthrough doesn't open by itself
+outside a Salesforce folder: run **Agent Command Center: Onboard this project**
+from the Command Palette, and note whether that was easy to find.
+
+**At B0.config, check one thing on the Setup page** (the Command Center's
+Setup section). Before **Do it**, note whether This machine lists **Node 20 or
+later**, **Salesforce CLI** and **Salesforce Code Analyzer**. After **Do it**
+and the choice that isn't Salesforce, all three should be gone from This
+machine, without reloading the window. Answer here:
+
+- **Before:**
+- **After:**
+
+### B0.repo: Inside the project's repo
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### B0.config: Project config
+
+Look for: what **Do it** asked, and whether it was clear that you review
+`.acc/config.json` and commit it yourself.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### B2.identity: Commit identity
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### B2.account: The repo's GitHub account is logged in
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### B2.credentials: git pushes as the right account
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### B3.secrets: No credentials in tracked files
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### B6.branches: A branch for every environment
+
+Look for: which branches a generic config names, and whether **Do it** made
+them.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### B10.default-branch: GitHub's default branch is the day-to-day one
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### B10.ignore-worktrees: Task worktrees are git-ignored
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### B10.readme: README names every environment
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### B12.trust: Claude Code trusts the repo for background agents
+
+Look for: **Do it** opens `claude` in a terminal. Note whether the trust prompt
+showed, and whether the step ticked after `/exit`.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### B13.gate-tools: The required checks can run
+
+Look for: a generic project requires no checks, so this should say so and
+count as done.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### B14.tickets: The repo's ticket source
+
+Look for: whether you connected the repo's GitHub Issues or marked it done to
+keep tasks in acc alone, and which was clearer.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### Dispatch
+
+Add a small task: **Agent Command Center: Add task** from the Command Palette,
+such as "Add a line to the README saying what this repo is for". Then
+**Dispatch** it from the Overview. Note whether the builder started, whether
+its permission prompts or questions reached the Overview, and how far it got:
+working, then In review with a pull request. Don't merge it unless you want to.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+## A Salesforce project, as far as it goes
+
+Sign the Salesforce CLI in to the Developer Edition org (`sf org login web`).
+Make a second throwaway repo like the first, put a Salesforce DX project at
+its root (`sfdx-project.json` and `force-app/`; `sf project generate` makes one
+in a folder of its own), and open it. Note how you made it. The
+project walkthrough should open by itself there. The steps the generic run
+already covered show again: note only what differed. The Salesforce steps
+are below. Stop where the org can't go further, and note which step and why.
+
+### B1.orgs: Every org is listed
+
+Look for: B0.config's **Do it** lists Production orgs you're logged in to. Note
+whether a Developer Edition org counted as one.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### B3.gitignore: Client data blocked at the repo root
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### B3.data-files: No client data files in git
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### B4.skeleton: Salesforce project skeleton
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### B5.baseline: Baseline manifest
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### B6.org-match: Each branch points at the right org
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### B8.tracking: Developer sandboxes are source tracked
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### B8.cli-tracking: The CLI knows they're tracked
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### B9.lists: Environment-specific and known-drift lists
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### B10.default-org: The local default org is the day-to-day one
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### B11.drift: The day-to-day org matches its branch
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+## What the run changed
+
+The follow-up task lists here each change to the README's **Install and first
+run**, and each issue filed, with a link.
+
+- (none yet)
