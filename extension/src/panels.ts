@@ -156,7 +156,8 @@ export class Panels implements vscode.Disposable {
 
   /**
    * Opens the page, or brings it forward, at a section: the one asked for, else where it was left. With
-   * open, a part of the section that's closed until you open it opens too, such as the Agents settings.
+   * open, a part of the section that's closed until you open it opens too, such as the Agents settings, and
+   * a part with a heading of that name is scrolled to, such as one of Settings' (settingsKey, GH-109).
    */
   show(section?: ViewKind | HomeSection, open?: string): void {
     if (section && (HOME_SECTIONS as readonly string[]).includes(section)) this.remember(section as HomeSection);
