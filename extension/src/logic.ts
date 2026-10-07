@@ -289,6 +289,13 @@ export interface TaskRow {
   resuming?: boolean;
   /** Its place in its repo's merge queue (GH-73): 1 is the head, which is in `phase`, and held says `why`; the rest wait behind `ahead`. */
   queue?: { place: number; of: number; ahead: string | null; phase: QueuePhase; why?: string | null } | null;
+  /** When its builder last started, while it's running: its dispatch, or its latest resume (D-067). */
+  since?: string | null;
+  /**
+   * Its branch so far, while it's running (D-092): commits and files changed since its environment's
+   * branch, and files nobody has committed yet. Counted only while the page is on screen.
+   */
+  branchStats?: { commits: number; files: number; uncommitted: number } | null;
 }
 
 /** One of an analysis's questions a person hasn't answered: what it asks, why it matters, and what the analyst would assume. */
@@ -610,6 +617,134 @@ export const repoKey = (p: { config: { github: { repo: string } | null }; ledger
 
 /** Where VSCode keeps one repo's sign-in to one tracker host: acc.cred:github:acme/service:jira:acme.atlassian.net. */
 export const credKey = (p: Parameters<typeof repoKey>[0], kind: string, host: string): string => `acc.cred:${repoKey(p)}:${kind}:${host}`;
+
+/**
+ * Where VSCode keeps a sign-in shared by every repo on this machine that uses one site (GH-79): a Jira site,
+ * an Azure DevOps organization or a monday.com account. acc.cred:site:jira:acme.atlassian.net. No repo key
+ * starts with site:, so the two never meet.
+ */
+export const siteCredKey = (kind: string, host: string): string => `acc.cred:site:${kind}:${host}`;
+
+/** The tracker and host a sign-in's key is for, a repo's or a site's: its last two parts. */
+export function credSite(key: string): { kind: string; host: string } | null {
+  if (!key.startsWith('acc.cred:')) return null;
+  const parts = key.slice('acc.cred:'.length).split(':');
+  return parts.length >= 3 ? { kind: parts[parts.length - 2]!, host: parts[parts.length - 1]! } : null;
+}
+
+/** What VSCode keeps for one repo and one tracker host (GH-79). */
+export interface StoredCreds {
+  /** The repo's own key: its sign-in, a "this project only" sign-out, or nothing. */
+  own: Record<string, unknown> | 'signed-out' | null;
+  /** The sign-in for every project on the site. */
+  site: Record<string, unknown> | null;
+}
+
+type SecretGet = (key: string) => PromiseLike<string | undefined> | string | undefined;
+
+const parseCred = (raw: string | undefined): Record<string, unknown> | null => {
+  if (!raw) return null;
+  try {
+    const c = JSON.parse(raw) as unknown;
+    return c && typeof c === 'object' && !Array.isArray(c) ? c as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+};
+
+/** Reads a repo's own key and its site's for one tracker host. One that can't be read is none. */
+export async function readCreds(get: SecretGet, p: Parameters<typeof repoKey>[0], kind: string, host: string): Promise<StoredCreds> {
+  const h = host.toLowerCase();
+  const own = parseCred(await get(credKey(p, kind, h)));
+  return { own: own?.signedOut === true ? 'signed-out' : own, site: parseCred(await get(siteCredKey(kind, h))) };
+}
+
+/**
+ * The sign-in a repo uses (GH-79): its own first, so a repo that needs another account keeps one, then the
+ * one for every project on the site. A "this project only" sign-out stops there. A sign-in kept before
+ * GH-79 is the repo's own, read as it always was.
+ */
+export function credInUse(c: StoredCreds): { cred: Record<string, unknown>; shared: boolean } | null {
+  if (c.own === 'signed-out') return null;
+  if (c.own) return { cred: c.own, shared: false };
+  return c.site ? { cred: c.site, shared: true } : null;
+}
+
+/** What to keep and take out of VSCode's secret storage. Only acc.cred: keys, never another site's. */
+export interface CredWrites {
+  store: [key: string, value: string][];
+  delete: string[];
+}
+
+/**
+ * Keeping a sign-in (GH-79): for every project on its site, or for this repo only (D-027). Shared, the repo's
+ * own key goes, a sign-in or a sign-out, or the repo would go on ignoring the sign-in just chosen. For this
+ * repo, the site's stays for every other project.
+ */
+export function credWrites(p: Parameters<typeof repoKey>[0], kind: string, host: string, cred: Record<string, unknown>, shared: boolean): CredWrites {
+  const h = host.toLowerCase();
+  return shared
+    ? { store: [[siteCredKey(kind, h), JSON.stringify(cred)]], delete: [credKey(p, kind, h)] }
+    : { store: [[credKey(p, kind, h), JSON.stringify(cred)]], delete: [] };
+}
+
+/**
+ * Signing out (GH-79). `every`: the sign-in for every project on the site goes; repos that keep their own
+ * keep it. `this`: the repo stops using the shared one, which stays for the rest, by a sign-out under its
+ * own key that holds no secret. `own`: the repo's own sign-in goes, and it uses the site's again if there is one.
+ */
+export function signOutWrites(p: Parameters<typeof repoKey>[0], kind: string, host: string, choice: 'every' | 'this' | 'own'): CredWrites {
+  const h = host.toLowerCase();
+  if (choice === 'every') return { store: [], delete: [siteCredKey(kind, h)] };
+  if (choice === 'this') return { store: [[credKey(p, kind, h), JSON.stringify({ kind, signedOut: true })]], delete: [] };
+  return { store: [], delete: [credKey(p, kind, h)] };
+}
+
+/** The two answers signing out of a site's sign-in offers (GH-79). VSCode's modal adds Cancel. */
+export const signOutAnswers = (host: string): { every: string; only: string } => ({ every: `Every project on ${host.toLowerCase()}`, only: 'This project only' });
+
+/** A tracker's host: a Jira site, an Azure organization or a monday.com account, the part a sign-in is for (GH-79). */
+export const trackerHost = (t: { kind: string; site?: string | null; organization?: string | null; account?: string | null }): string =>
+  (t.kind === 'jira' ? t.site ?? '' : t.kind === 'monday' ? t.account ?? '' : t.organization ?? '').replace(/^https?:\/\//, '').replace(/\/+$/, '').toLowerCase();
+
+/**
+ * The projects whose boards reload when a sign-in changes (GH-79): the one it changed in, and, for a sign-in
+ * kept for a site, every open project with a tracker of that kind on that host, which it serves.
+ */
+export function reloadRoots(root: string | null, site: { kind: string; host: string } | undefined, projects: { root: string; trackers: Parameters<typeof trackerHost>[0][] }[]): string[] {
+  const roots = new Set(root ? [root] : []);
+  if (site) {
+    const host = site.host.toLowerCase();
+    for (const p of projects) if (p.trackers.some((t) => t.kind === site.kind && trackerHost(t) === host)) roots.add(p.root);
+  }
+  return [...roots];
+}
+
+/**
+ * How signing out goes (GH-79), and what it writes. A repo's own sign-in goes with no question, since no
+ * other repo uses it, and the repo falls back to the site's if there is one. The site's asks: every project
+ * on the site, or this one only. Null, with nothing to write, when the repo isn't signed in or the question
+ * is cancelled.
+ */
+export async function signOutPlan(
+  c: StoredCreds, p: Parameters<typeof repoKey>[0], kind: string, host: string,
+  ask: (answers: { every: string; only: string }) => PromiseLike<string | undefined>,
+): Promise<{ choice: 'every' | 'this' | 'own'; writes: CredWrites } | null> {
+  const using = credInUse(c);
+  if (!using) return null;
+  let choice: 'every' | 'this' | 'own' = 'own';
+  if (using.shared) {
+    const answers = signOutAnswers(host);
+    const pick = await ask(answers);
+    if (pick === answers.every) choice = 'every';
+    else if (pick === answers.only) choice = 'this';
+    else return null;
+  }
+  return { choice, writes: signOutWrites(p, kind, host, choice) };
+}
+
+/** "for every project on acme.atlassian.net", or "for this project only": where the sign-in in use is kept. */
+export const signInScope = (shared: boolean, host: string): string => (shared ? `for every project on ${host}` : 'for this project only');
 
 /**
  * `acc import --json` with these tasks, through a file that's removed after. --json is what accRefusal

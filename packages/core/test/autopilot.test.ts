@@ -8,6 +8,7 @@ import { checksPath } from '../src/checks.ts';
 import { type Config, parseConfig } from '../src/config.ts';
 import { AccError, run, type RunOptions, type RunResult } from '../src/exec.ts';
 import { waiveGates } from '../src/gates.ts';
+import { type Job, jobsUnderWay } from '../src/jobs.ts';
 import { land } from '../src/land.ts';
 import { displayState, emptyLedger, type Ledger, type LedgerEvent, mutate, readLedger, type State, type Task, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
@@ -262,6 +263,18 @@ test('a pass reviews what a builder finished, the next lands it as the orchestra
   assert.deepEqual(others, ['claude -p --session-id', 'gh auth token', 'gh pr checks', 'gh pr create', 'gh pr list', 'gh pr view']);
   const git = [...new Set(calls.filter((c) => c.startsWith('git ')).map((c) => c.split(' ')[1]))].sort();
   assert.deepEqual(git, ['diff', 'fetch', 'merge-tree', 'push', 'rev-parse']);
+});
+
+test('the step autopilot is taking is marked under way on its task while it runs, and only then (D-092)', () => {
+  const s = setup();
+  let during: Job[] = [];
+  const r = autopilotPass(s.paths, s.config, { ...deps([]), steps: { review: () => { during = jobsUnderWay(s.paths); return { reason: 'reviewed' }; } } });
+  assert.deepEqual(brief(r.steps)[0], ['T-1', 'review', 'done']);
+  assert.deepEqual(during.map((j) => [j.kind, j.task, j.step, j.by, j.pid]), [['autopilot', 'T-1', 'review', AUTOPILOT_BY, process.pid]]);
+  assert.deepEqual(jobsUnderWay(s.paths), [], 'gone once the step ends');
+  const failed = autopilotPass(s.paths, s.config, { ...deps([]), steps: { review: () => { throw new Error('the reviewer crashed'); } } });
+  assert.deepEqual(brief(failed.steps)[0], ['T-1', 'review', 'failed']);
+  assert.deepEqual(jobsUnderWay(s.paths), [], 'and when it fails');
 });
 
 test('a review that asks for changes sends it to rework; autopilot re-dispatches it once, and a second rework waits for a person', () => {

@@ -5,6 +5,7 @@ import { type CheckRead, readChecks, sendBack } from './checks.ts';
 import { dispatch } from './dispatch.ts';
 import { AccError, type Runner } from './exec.ts';
 import { releaseAwake } from './awake.ts';
+import { withJob } from './jobs.ts';
 import { AUTOPILOT_BY, AUTOPILOT_STEPS, type AutopilotFailure, autopilotFailure, type AutopilotStepName, builderStopped, type ClaudeSession, closedPr, type HistoryEntry, type Ledger, type LedgerEvent, mutate, readLedger, type ReworkCause, reworkCause, SEND_BACKS, sendBacks, sentBackAt, sentBackByAutopilot, type State, STOPPED_GRACE_MS, type Task } from './ledger.ts';
 import { ghToken, land, type LandResult } from './land.ts';
 import { withLock } from './lock.ts';
@@ -675,7 +676,8 @@ export function autopilotPass(paths: RepoPaths, config: Config, deps: AutopilotD
     deps.onStep?.(id, act, facts.head);
     const entry: AutopilotStep = { task: id, state: task.state, step: act, sha, outcome: 'done', reason: '' };
     out.steps.push(entry);
-    take(entry, () => steps[act](id));
+    // Marked under way while it runs, so every window shows the step, wherever autopilot runs (D-092).
+    take(entry, () => withJob(paths, { kind: 'autopilot', task: id, step: act, by: AUTOPILOT_BY }, () => steps[act](id), deps.now));
   }
   if (queued.size && !deps.stop?.()) queueTurns(paths, config, deps, steps, queued, take);
   return out;
@@ -706,7 +708,8 @@ function queueTurns(paths: RepoPaths, config: Config, deps: AutopilotDeps, steps
     }
     deps.onStep?.(t.id, 'queue', q.head);
     Object.assign(q.entry, { step: 'queue', outcome: 'done' });
-    take(q.entry, () => steps.queue(t.id));
+    // Marked under way as autopilot's step, which stands for the land or merge it runs (D-092).
+    take(q.entry, () => withJob(paths, { kind: 'autopilot', task: t.id, step: 'queue', by: AUTOPILOT_BY }, () => steps.queue(t.id), deps.now));
   });
 }
 

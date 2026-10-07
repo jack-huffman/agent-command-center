@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { autoMergeFor, type Config, type Environment, environmentByBranch, type GateScope } from './config.ts';
 import { AccError, type Runner } from './exec.ts';
+import { withJob } from './jobs.ts';
 import { type Actor, type CarriedReview, mutate, type PullRequest, readLedger, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
 import { type Receipt, receiptHooks, receiptsAt } from './receipts.ts';
@@ -100,11 +101,16 @@ export function ghToken(run: Runner, account: string): string {
 }
 
 /**
- * `gates` is which checks the commit needs (GH-73): a builder's by default, or the merge's, as the merge
- * queue pushes its merge commit, which it checked in full. A merge commit the queue made carries the review
- * of the commit it was made on (reviewedAt).
+ * A land, with a marker saying it's under way while it runs, so every window shows it (D-092). `gates` is
+ * which checks the commit needs (GH-73): a builder's by default, or the merge's, as the merge queue pushes
+ * its merge commit, which it checked in full. A merge commit the queue made carries the review of the
+ * commit it was made on (reviewedAt).
  */
 export function land(paths: RepoPaths, config: Config, id: string, deps: LandDeps, opts: { actor?: Actor; by?: string; gates?: GateScope } = {}): LandResult {
+  return withJob(paths, { kind: 'land', task: id, by: opts.by ?? 'acc land' }, () => landNow(paths, config, id, deps, opts), deps.now);
+}
+
+function landNow(paths: RepoPaths, config: Config, id: string, deps: LandDeps, opts: { actor?: Actor; by?: string; gates?: GateScope }): LandResult {
   const { run, now } = deps;
   const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
   if (!task) throw new AccError('no-task', `No task ${id}.`);

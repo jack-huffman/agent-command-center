@@ -492,8 +492,20 @@ commit.
   account, sign in and click **Test connection**: it says who it signed in as,
   or why not, beside the field. Then pick the project, the place and the board
   from lists of what that sign-in can see, and **Save** writes the repo's
-  `.acc/config.json`. Sign-ins belong to that repo only (D-027), and stay in
-  VSCode's secret storage, never in the file.
+  `.acc/config.json`. Sign-ins stay in VSCode's secret storage on this
+  machine, never in the file.
+- [ ] **One sign-in for every project on a site.** Beside the sign-in, **Use
+  this sign-in for every project on acme.atlassian.net** is ticked the first
+  time you sign in to a site, so every other repo on this machine that uses
+  the same Jira site, Azure DevOps organization or monday.com account signs in
+  with it: connecting its tracker needs nothing typed. Untick it to keep the
+  sign-in for this project only, as for a client whose login mustn't serve
+  another client's repo on the same site; a project's own sign-in always wins
+  over the shared one. The Connect page and the board say which is in use:
+  "Signed in as you@example.com, for every project on acme.atlassian.net", or
+  "…for this project only". **Sign out of a tracker** asks, for a shared
+  sign-in, whether to sign out every project on the site or this one only.
+  GitHub signs in through `gh`, as the repo's account, as before.
 - [ ] The **place** is which of its tickets are this repo's, so another
   project's or another client's never show up here (D-072). The whole project,
   repo, team or board is listed first. A narrower place is an epic (Jira),
@@ -537,8 +549,8 @@ commit.
   - **monday.com:** a personal API token. **Create a token** opens the
     account's Developer Center (`https://acme.monday.com/apps/manage/tokens`);
     paste it in its field. The token sees everything you can see in
-    monday.com, so it's kept for this repo only, and one from another account
-    is refused. Then pick the board, and a group on it for only that group's
+    monday.com, and one from another account is refused. Like any sign-in, it
+    can be kept for every project on the account, or this one only. Then pick the board, and a group on it for only that group's
     items. A board with more than one status column, such as Status and
     Priority, asks which one: its labels are the Tasks tab's columns, in
     monday's order.

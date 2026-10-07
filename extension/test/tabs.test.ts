@@ -375,7 +375,7 @@ test('the Overview shows each repo\'s merge queue where auto-merge is on: each p
   const pr = (n: number) => ({ number: n, url: `https://github.com/o/t/pull/${n}`, state: 'open' });
   const queued = (id: string, place: number, ahead: string | null, phase: NonNullable<TaskRow['queue']>['phase'] = 'waiting', why: string | null = null): TaskRow => ({ ...row(id, 'review', 'review'), environment: 'main', pr: pr(place + 40), queue: { place, of: 3, ahead, phase, why } });
   const rows = (phase: NonNullable<TaskRow['queue']>['phase'], why: string | null = null) => [queued('GH-3', 3, 'GH-2'), queued('GH-1', 1, null, phase, why), queued('GH-2', 2, 'GH-1'), row('GH-4', 'review', 'review')];
-  const model = (phase: NonNullable<TaskRow['queue']>['phase'], on = true, why: string | null = null) => homeModel({ hub: { ...hub(), projects: [tools], agents: [], taskRows: () => rows(phase, why) }, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() }, autopilotOn: () => on }).overview;
+  const model = (phase: NonNullable<TaskRow['queue']>['phase'], on = true, why: string | null = null) => homeModel({ hub: { ...hub(), projects: [tools], agents: [], taskRows: () => rows(phase, why) }, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() }, autopilot: () => (on ? 'on' : null) }).overview;
 
   const o = model('checking');
   assert.equal(o.queue.length, 1);
@@ -871,4 +871,15 @@ test('How agents run names acc\'s default model, apart from Claude Code\'s defau
   const [builder, reviewer] = agentsModel(h).settings[0]!.roles;
   assert.deepEqual(builder!.parts, [{ name: 'Model', value: 'claude-opus-5-5', from: 'acc\'s default' }, { name: 'Effort', value: 'default', from: 'Claude Code\'s default' }]);
   assert.deepEqual(reviewer!.parts.map((p) => p.from), ['this clone', 'project default']);
+});
+
+test('a board says who it\'s signed in as, and whether every project on the site shares that sign-in (GH-79)', () => {
+  const board = (b: Partial<BoardInput>): BoardInput => ({ index: 0, kind: 'jira', title: 'Jira · ACME', board: null, error: null, connect: null, loading: false, ...b });
+  const shared = trackerBoard(board({ signedInAs: 'jordan@acme.example', signInScope: { shared: true, host: 'acme.atlassian.net' } }), [], '/r');
+  assert.deepEqual(shared.signIn, { label: 'Signed in as jordan@acme.example, for every project on acme.atlassian.net', icon: 'globe', tone: 'blue' });
+  const own = trackerBoard(board({ signedInAs: 'jordan@acme.example', signInScope: { shared: false, host: 'acme.atlassian.net' } }), [], '/r');
+  assert.deepEqual(own.signIn, { label: 'Signed in as jordan@acme.example, for this project only', icon: 'repo', tone: 'blue' });
+  assert.equal(trackerBoard(board({ signedInAs: null, signInScope: null }), [], '/r').signIn, null, 'not signed in: its error says so');
+  const gh = trackerBoard(board({ kind: 'github', title: 'GitHub · acme/service', signedInAs: 'jordan-kim', signInScope: null }), [], '/r');
+  assert.deepEqual([gh.signIn, gh.signedInAs], [null, 'jordan-kim'], 'GitHub signs in through gh as the repo\'s account (D-007), as before');
 });

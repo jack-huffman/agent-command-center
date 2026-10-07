@@ -3,6 +3,7 @@
 import type {
   Action, AgentModel, AgentsModel, ConnectField, ConnectModel, ConnectPicker, EntryView, EnvironmentsModel, HistoryItem, HomeModel, HomeSection, IdentityCard, Look, Model, PersonChip, QuestionCard, QueuePanel, Ref, RunCard, SetupModel, SetupRow, SlackCard, TasksModel, TicketAnalysis, TicketModel, TrackerBoard, TrackerCard, UpdateCard, ViewKind, WhereView, WorktreesModel,
 } from '../src/model.ts';
+import type { ProgressAction, ProgressGroup, ProgressModel } from '../src/progress.ts';
 import type { Block, Doc, Inline } from '../../packages/core/src/trackers/doc.ts';
 import { type DraftKeys, type EditBase, editFor, keepEdits, Pending } from './pending.ts';
 
@@ -440,10 +441,12 @@ function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
   tools.push(change);
   const out = el('section', 'tracker',
     el('div', 'tracker-head',
-      el('h2', '', icon(KIND_ICON[b.kind] ?? 'issues'), b.title, b.source ? el('span', 'chip', SOURCE_LABEL[b.source] ?? b.source) : null, b.signedInAs ? el('span', 'acting', icon('account'), `as ${b.signedInAs}`) : null, b.loading ? el('span', 'muted loading', icon('sync~spin'), 'Loading') : null),
+      el('h2', '', icon(KIND_ICON[b.kind] ?? 'issues'), b.title, b.source ? el('span', 'chip', SOURCE_LABEL[b.source] ?? b.source) : null, b.signedInAs && !b.signIn ? el('span', 'acting', icon('account'), `as ${b.signedInAs}`) : null, b.loading ? el('span', 'muted loading', icon('sync~spin'), 'Loading') : null),
       el('div', 'toolbar', ...tools)));
   // Where its tickets come from (D-072): only these are shown, tracked or taken in.
   if (b.place) out.append(el('p', 'tracker-place', icon('filter'), el('span', '', 'Tickets from ', el('strong', '', b.place))));
+  // Who it's signed in as, and whether every project on the site shares that sign-in (GH-79).
+  if (b.signIn) out.append(el('p', 'tracker-place tracker-signin', icon(b.signIn.icon, b.signIn.tone), el('span', '', b.signIn.label)));
   if (b.left.length) {
     out.append(el('div', 'notice attention left-place', icon('warning', 'orange'),
       el('div', 'left-text', el('strong', '', `Left this repo's place after work started: ${plural(b.left.length, 'task')}`),
@@ -1110,6 +1113,8 @@ function questionCard(q: QuestionCard, opts: { watch: boolean }): HTMLElement {
     when(new Date(q.askedAt).toISOString()));
   const card = el('article', `question${d.sent ? ' sent' : ''}`, head);
   card.setAttribute('aria-label', `${q.who} ${q.title}`);
+  // In progress's Answer brings this card into view (D-092).
+  card.dataset.question = q.id;
   const tools: Child[] = [];
   const watch = opts.watch ? button('Watch', 'pulse', () => api.postMessage({ type: 'run', command: 'acc.agent.watch', ref: { session: q.session } }), 'ghost small') : null;
   const terminal = el('span', 'q-aside-group',
@@ -1553,6 +1558,17 @@ function connectPicker(m: ConnectModel, p: ConnectPicker): HTMLElement {
   return connectRow(id, p.label, [select], p.hint, p.look);
 }
 
+/** The tick that keeps the sign-in for every project on its site, or this one only (GH-79). Sent when it changes. */
+function connectShare(m: ConnectModel): HTMLElement {
+  const box = document.createElement('input');
+  box.type = 'checkbox';
+  box.id = 'connect-share';
+  box.checked = m.share.on;
+  box.dataset.keep = `connect:${m.id}:share`;
+  box.addEventListener('change', () => connectSend(m, { type: 'connect-share', on: box.checked }));
+  return el('div', 'connect-share', el('label', `tick${m.share.on ? ' on' : ''}`, box, m.share.label), el('div', 'muted small cfield-hint', icon(m.share.on ? 'globe' : 'repo'), ` ${m.share.hint}`));
+}
+
 /** A row of choices, one on: the tracker's kind, a project, or a way to sign in. */
 function segmented(label: string, items: { key: string; label: string; icon: string; on: boolean }[], pick: (key: string) => void): HTMLElement {
   const g = el('div', 'segmented');
@@ -1599,6 +1615,7 @@ function renderConnect(m: ConnectModel): Node[] {
     m.methods.length ? el('div', 'connect-choose', segmented('How to sign in', m.methods.map((x) => ({ key: x.id, label: x.label, icon: x.icon, on: x.on })), (method) => connectSend(m, { type: 'connect-method', method }))) : null,
     el('p', 'muted small connect-hint', m.method.hint),
     ...m.fields.map((f) => connectInput(m, f, test)),
+    m.share.shown ? connectShare(m) : null,
     el('div', 'connect-test', testButton, el('div', `cfield-status tone-${m.signIn.look.tone}`, icon(m.signIn.look.icon, m.signIn.look.tone), el('span', '', m.signIn.look.label))),
   ] : [el('div', 'connect-test', status(m.signIn.look), button('Sign in again', 'account', () => connectSend(m, { type: 'connect-again' }), 'ghost'))];
   out.push(step(2, 'Sign in', ...signIn));
@@ -1739,7 +1756,7 @@ function renderOverview(m: HomeModel): Node[] {
     const an = a.analysis;
     if (an) inbox.append(el('div', 'inbox-analysis', ...an.questions.map((q) => analysisQuestion(an.project, an.task, q, an.canAsk))));
   }
-  out.push(inbox);
+  out.push(inbox, renderInProgress(o.inProgress));
 
   // At a glance: each tile opens its section.
   const tiles = el('div', 'tiles');
@@ -1790,6 +1807,80 @@ function renderQueue(queues: QueuePanel[], manyProjects: boolean): HTMLElement {
     box.append(list);
   }
   return box;
+}
+
+/**
+ * In progress (D-092): every job under way, grouped by task, busiest first, with the machine on top. Its
+ * heading folds it to the heading, remembered for the tab. A job that ended stays a minute as a line that
+ * fades; the fade starts as far in as the job is old, by the extension's clock, so a redraw never restarts it.
+ */
+function renderInProgress(p: ProgressModel): HTMLElement {
+  const open = memory().sections?.['in-progress'] ?? true;
+  const toggle = el('button', 'progress-toggle', el('span', 'tool-chev', icon('chevron-right')), icon('pulse', p.count ? 'blue' : undefined), 'In progress', p.count ? el('span', 'count', String(p.count)) : null) as HTMLButtonElement;
+  toggle.type = 'button';
+  toggle.setAttribute('aria-expanded', String(open));
+  toggle.title = open ? 'Fold In progress to its heading' : 'Show what\'s in progress';
+  toggle.addEventListener('click', () => {
+    remember((m) => { m.sections = { ...(m.sections ?? {}), 'in-progress': !open }; });
+    if (last) render(last);
+  });
+  const box = el('section', `in-progress${open ? ' open' : ''}`, el('h2', '', toggle));
+  if (!open) return box;
+  if (p.empty) {
+    box.append(el('p', 'muted quiet', p.empty));
+    return box;
+  }
+  if (p.machine.length) {
+    box.append(el('div', 'machine-line', ...p.machine.map((c) => Object.assign(status(c.look), { title: c.tip }))));
+  }
+  if (!p.groups.length) box.append(el('p', 'muted quiet', 'No task here has anything under way.'));
+  for (const g of p.groups) box.append(progressGroup(g));
+  return box;
+}
+
+function progressGroup(g: ProgressGroup): HTMLElement {
+  const key = el('span', 'tcard-key', g.id);
+  const head = el('div', 'pg-head', el('div', 'pg-name', key, el('span', 'pg-title', g.title), g.project ? el('span', 'chip', g.project) : null),
+    el('div', 'pg-state', status(g.look), g.since ? el('span', 'muted small pg-since', icon('watch'), g.since) : null));
+  if (g.ref) openable(key, { type: 'run', command: 'acc.task.show', ref: g.ref }).title = `Open ${g.id}'s page`;
+  const box = el('div', 'progress-group', head);
+  if (g.note) box.append(el('div', 'muted small pg-note', g.note));
+  for (const j of g.jobs) {
+    box.append(el('div', `pg-row tone-row-${j.look.tone}`, status(j.look),
+      el('div', 'pg-text', el('div', '', el('span', 'strong', j.label), j.since ? el('span', 'muted small', ` · ${j.since}`) : null),
+        j.detail ? Object.assign(el('div', 'muted small pg-detail', j.detail), { title: j.detail }) : null,
+        j.meta ? el('div', 'muted small pg-meta', j.meta) : null),
+      el('div', 'actions', ...j.actions.map(progressButton))));
+  }
+  for (const d of g.done) {
+    const line = el('div', 'pg-done', status(d.look), el('span', 'pg-done-text', d.text));
+    line.style.animationDelay = `-${d.age}s`;
+    box.append(line);
+  }
+  return box;
+}
+
+/** A row's button. Each says what it does on hover; Stop goes through the extension, which asks first. */
+function progressButton(a: ProgressAction): HTMLElement {
+  const b = el('button', `btn small${a.command === 'acc.job.stop' ? ' stop' : ' ghost'}`, icon(a.icon), a.label) as HTMLButtonElement;
+  b.type = 'button';
+  b.title = a.tip;
+  b.addEventListener('click', () => {
+    if (a.question) return answerHere(a.question);
+    if (a.arg !== undefined && a.command) return api.postMessage({ type: 'toolbar', command: a.command, arg: a.arg });
+    if (a.command && a.ref) api.postMessage({ type: 'run', command: a.command, ref: a.ref });
+  });
+  return b;
+}
+
+/** Answer: its question's card, in Needs you on this page, brought into view with its first answer focused. */
+function answerHere(id: string): void {
+  const card = [...document.querySelectorAll<HTMLElement>('.question')].find((q) => q.dataset.question === id);
+  if (!card) return;
+  card.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  card.classList.add('flash');
+  setTimeout(() => card.classList.remove('flash'), 1600);
+  card.querySelector<HTMLElement>('button, textarea, input')?.focus({ preventScroll: true });
 }
 
 /** History filters: everything, or one kind. Remembered for the tab. Autopilot's steps are Tasks (D-064). */

@@ -648,7 +648,7 @@ export const STEPS: Step[] = [
   },
   {
     id: 'B14.tickets', part: 'project', group: 'B14', title: 'The repo\'s ticket source',
-    why: 'The Tasks board shows this repo\'s own tickets: a Jira project, an Azure DevOps board, a monday.com board or GitHub Issues, signed in for this repo only (D-027). If this repo keeps its tasks in acc alone, mark this done.',
+    why: 'The Tasks board shows this repo\'s own tickets: a Jira project, an Azure DevOps board, a monday.com board or GitHub Issues, signed in on this machine for this repo, or for every project on the same site. If this repo keeps its tasks in acc alone, mark this done.',
     fix: {
       vscode: 'acc.trackers.add',
       confirm: true,
