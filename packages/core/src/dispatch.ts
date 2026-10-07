@@ -114,6 +114,25 @@ function reviewSection(v: Verdict | null | undefined): string[] {
   ];
 }
 
+/**
+ * On a rework a person sent back: why, in their words. A review that passed shows no findings, so without
+ * this the builder sees nothing to fix and finishes unchanged, as GH-80 did twice.
+ */
+function sentBackSection(task: Task): string[] {
+  const back = [...task.history].reverse().find((h) => h.to === 'rework');
+  if (task.state !== 'rework' || !back || back.actor !== 'human' || !back.reason?.trim()) return [];
+  return [
+    '## Why a person sent it back',
+    '',
+    `${back.by.replace(/^human:/, '')} moved it back to rework${back.from ? ` from ${back.from}` : ''}, saying:`,
+    '',
+    ...back.reason.trim().split('\n').map((l) => `> ${l}`),
+    '',
+    'Do what it asks, and keep the rest of the change as it is. Then finish as below.',
+    '',
+  ];
+}
+
 function commitRef(task: Task): string {
   if (task.source.kind === 'github') return ` Add \`refs #${task.id.replace(/^GH-/, '')}\` on its own line, so GitHub links the commit to the issue.`;
   return '';
@@ -146,6 +165,7 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean }): stri
     '',
     ...analysisSection(p.analysis ?? null),
     ...reviewSection(p.review),
+    ...sentBackSection(task),
     ...checksSection(p.checks),
     '## Where you are',
     '',

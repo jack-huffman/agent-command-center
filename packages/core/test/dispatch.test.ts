@@ -113,6 +113,24 @@ test('a rework autopilot sent back for failing checks tells its builder what Git
   assert.ok(!plain.includes('What GitHub\'s checks said'), 'a first build has none');
 });
 
+test('a rework a person sent back tells its builder why, in their words, though its review passed', () => {
+  const config = parseConfig(GENERIC_CONFIG).config!;
+  const l = emptyLedger();
+  upsertTasks(l, config, [{ source: { kind: 'github', key: '80', url: null }, title: 'Templates', brief: 'b' }], 'human', 'h', () => {}, () => new Date());
+  const env = config.environments[0]!;
+  const t = l.tasks[0]!;
+  const at = '2026-10-07T14:24:31.030Z';
+  const back = { ...t, state: 'rework' as const, history: [...t.history, { at, actor: 'human' as const, by: 'human:jack', from: 'review' as const, to: 'rework' as const, reason: 'Fix (1) the clone.\nThen (2) the docs.' }] };
+  const passed = { v: 1 as const, task: 'GH-80', sha: 'a'.repeat(40), env: 'main', verdict: 'pass' as const, summary: 'Adds templates.', criteria: [], findings: [], sessionId: 's', at, durationMs: 1, costUsd: null };
+  const p = renderPacket({ task: back, config, env, worktree: '/w', branch: 'b', rules: null, environmentSpecific: [], review: passed });
+  for (const must of ['## Why a person sent it back', 'jack moved it back to rework from review, saying:', '> Fix (1) the clone.', '> Then (2) the docs.', 'Do what it asks']) assert.ok(p.includes(must), must);
+  assert.ok(p.indexOf('Why a person sent it back') < p.indexOf('## Where you are'));
+  // Sent back by a reviewer, it's the review's own section; a first build has neither.
+  const byReviewer = { ...back, history: [...t.history, { at, actor: 'reviewer' as const, by: 'reviewer:GH-80', from: 'review' as const, to: 'rework' as const, reason: 'changes' }] };
+  assert.ok(!renderPacket({ task: byReviewer, config, env, worktree: '/w', branch: 'b', rules: null, environmentSpecific: [] }).includes('Why a person sent it back'));
+  assert.ok(!renderPacket({ task: t, config, env, worktree: '/w', branch: 'b', rules: null, environmentSpecific: [] }).includes('Why a person sent it back'));
+});
+
 test('builder settings: identity, acc on PATH, and the dangerous commands denied even if the user allows them', () => {
   const config = parseConfig(JSON.parse(JSON.stringify(SF_CONFIG))).config!;
   const s = builderSettings({ id: 'ACME-7' } as never, config, '/acc/bin', '/usr/bin') as { env: Record<string, string>; permissions: { allow: string[]; deny: string[] } };
