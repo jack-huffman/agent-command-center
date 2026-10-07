@@ -185,7 +185,7 @@ export const JIRA: TrackerDescription = {
   },
   methods: [{
     id: 'token', label: 'API token', icon: 'key', via: 'fields', test: 'Test connection',
-    hint: 'Jira takes your email and an API token. The token stays in VSCode, for this repo only.',
+    hint: 'Jira takes your email and an API token. The token stays in VSCode on this machine, never in the repo.',
     fields: [
       { key: 'email', label: 'Email', type: 'email', placeholder: 'you@example.com', prefill: 'git-email', hint: 'The email you sign in to Jira with.', check: (v) => (/^\S+@\S+\.\S+$/.test(v.trim()) ? null : 'An email address, the one you sign in to Jira with.') },
       { key: 'token', label: 'API token', type: 'secret', placeholder: 'Paste the token', check: (v) => (v.trim().length >= 16 ? null : 'Paste the whole token.'), help: { label: 'Create an API token', url: () => JIRA_TOKENS } },
@@ -278,7 +278,7 @@ export const MONDAY: TrackerDescription = {
   },
   methods: [{
     id: 'token', label: 'API token', icon: 'key', via: 'fields', test: 'Test connection',
-    hint: 'monday.com takes a personal API token. It sees what you see in monday.com, so it stays in VSCode, for this repo only.',
+    hint: 'monday.com takes a personal API token. It sees what you see in monday.com, and stays in VSCode on this machine, never in the repo.',
     fields: [{
       key: 'token', label: 'API token', type: 'secret', placeholder: 'Paste the token', check: (v) => (v.trim().length >= 20 ? null : 'Paste the whole token.'),
       help: { label: 'Create a token', url: (host) => (host ? mondayTokenPage(host) : null) },

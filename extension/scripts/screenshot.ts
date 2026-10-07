@@ -26,7 +26,7 @@ import { type ConnectSample, SAMPLE_EDIT, sampleAgent, sampleBoards, sampleConne
  * card at each of its states (GH-58): sending on Environments itself, then not set up, off and paused, and
  * the Tasks tab with a monday.com board in place of the Jira one (GH-70).
  */
-export const PAGES = [...HOME_SECTIONS, 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'agent', 'output', 'connect-start', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday'] as const;
+export const PAGES = [...HOME_SECTIONS, 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday'] as const;
 export type Page = (typeof PAGES)[number];
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');

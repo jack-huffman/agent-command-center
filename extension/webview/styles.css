@@ -220,6 +220,7 @@ table.grid { width: 100%; border-collapse: collapse; }
 .tracker-place { display: flex; align-items: baseline; gap: 6px; margin: -4px 0 10px; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
 .tracker-place > .codicon { flex: none; position: relative; top: 2px; }
 .tracker-place strong { color: var(--vscode-foreground); font-weight: 600; }
+.tracker-place + .tracker-signin { margin-top: -6px; }
 .notice.left-place { align-items: flex-start; }
 .notice.left-place > .codicon { margin-top: 2px; flex: none; min-width: 0; }
 .left-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
@@ -832,6 +833,11 @@ body[data-view="agent"] .agent-asks { max-height: 50vh; overflow-y: auto; }
 .tick { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px 2px 5px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; overflow-wrap: anywhere; }
 .tick.on { border-color: var(--blue); }
 .tick input { margin: 0; accent-color: var(--blue); }
+/* Use this sign-in for every project on the site (GH-79): under the fields, in line with them. */
+.connect-share { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 0 0 12px 164px; }
+.connect-share .tick { border-radius: var(--radius); }
+.connect-share .cfield-hint { display: flex; align-items: flex-start; gap: 2px; }
+.connect-share .cfield-hint .codicon { flex: none; margin-top: 2px; }
 .connect-test { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; }
 .connect-test .btn { flex: none; }
 .connect-test .cfield-status { flex: 1 1 200px; padding-top: 3px; }
@@ -842,5 +848,6 @@ body[data-view="agent"] .agent-asks { max-height: 50vh; overflow-y: auto; }
 @media (max-width: 620px) {
   .cfield { grid-template-columns: minmax(0, 1fr); }
   .cfield-label { padding-top: 0; }
+  .connect-share { margin-left: 0; }
   .connect-step { padding: 10px 10px 2px; }
 }

@@ -2,8 +2,9 @@
  * The Connect page's other half (GH-51): what's typed, who it signed in as, and each list of the place and
  * board, kept here while the page is open. The page can't reach a tracker (its CSP is default-src 'none'),
  * so every check and list runs here, and only its words go back. A token comes from the page once, to
- * sign in, and goes to VSCode's secret storage for this repo only (D-027): never into the model, the log
- * or .acc/config.json. No vscode import, so it's tested with stand-ins.
+ * sign in, and goes to VSCode's secret storage on this machine, for every project on its site or for this
+ * repo only (GH-79, D-027): never into the model, the log or .acc/config.json. No vscode import, so it's
+ * tested with stand-ins.
  */
 import { randomBytes } from 'node:crypto';
 import type { Tracker } from '../../packages/core/src/config.ts';
@@ -23,10 +24,15 @@ export interface ConnectDeps {
   /** A project's trackers, as the board numbers them. */
   trackers(root: string): Tracker[];
   title(t: Tracker): string;
-  /** The sign-in this repo keeps for a host, ready to use; null when there's none. Throws when it has ended. */
-  storedSignIn(root: string, kind: string, host: string): Promise<SignIn | null>;
-  /** Keeps a sign-in for this repo only (D-027). */
-  storeSignIn(root: string, kind: string, host: string, cred: Record<string, unknown>): Promise<void>;
+  /**
+   * The sign-in this repo uses for a host, ready to use: its own, or the one for every project on the site
+   * (GH-79), and which. Null when there's none. Throws when it has ended.
+   */
+  storedSignIn(root: string, kind: string, host: string): Promise<{ signIn: SignIn; shared: boolean } | null>;
+  /** Whether this repo keeps its own key for a host: a sign-in, or a "this project only" sign-out (GH-79). */
+  ownSignIn(root: string, kind: string, host: string): Promise<boolean>;
+  /** Keeps a sign-in for every project on the site, or for this repo only (GH-79, D-027). */
+  storeSignIn(root: string, kind: string, host: string, cred: Record<string, unknown>, shared: boolean): Promise<void>;
   gitEmail(root: string): Promise<string | null>;
   /** A token for the project's gh account, or a TrackerError saying why not. */
   ghToken(root: string, account: string): Promise<string>;
@@ -34,8 +40,8 @@ export interface ConnectDeps {
   microsoft(host: string, spec: NonNullable<SignInMethod['microsoft']>): Promise<{ header: string; cred: Record<string, unknown> }>;
   /** Writes the tracker to the repo's .acc/config.json: in place of the one at index, or added. */
   write(root: string, index: number | null, record: Record<string, unknown>): void;
-  /** An existing tracker signed in again: its board can load now. */
-  signedIn(root: string): Promise<void>;
+  /** Signed in: the boards that can use it load now, this project's and every one on the site (GH-79). */
+  signedIn(root: string, kind: string, host: string): Promise<void>;
   /** After Save: reload, re-check setup, and show the Tasks tab. */
   saved(root: string, name: string): Promise<void>;
   /** The page has something new to show. */
@@ -99,8 +105,8 @@ export class ConnectSession {
     });
     if (t && o.signIn) this.s.signIn.again = true;
     this.bump();
-    if (t) void this.resume();
-    else this.autoTest();
+    if (this.method.via === 'gh') this.autoTest();
+    else void this.resume();
     return true;
   }
 
@@ -124,6 +130,7 @@ export class ConnectSession {
       case 'connect-set': return this.set(m.field, m.value);
       case 'connect-test': return void this.test(m.host, m.fields);
       case 'connect-again': s.signIn.again = true; return this.bump();
+      case 'connect-share': s.share = m.on; return this.bump();
       case 'connect-pick': return this.pick(m.key, m.value);
       case 'connect-save': return void this.save();
     }
@@ -180,12 +187,15 @@ export class ConnectSession {
         return this.bump();
       }
       s.hostError = null;
-      if (parsed !== s.host) {
+      const changed = parsed !== s.host;
+      if (changed) {
         s.host = parsed;
         this.restart();
       }
       this.bump();
-      this.autoTest();
+      // A site this repo, or every project, signs in to already needs nothing typed (GH-79).
+      if (this.method.via === 'gh') this.autoTest();
+      else if (changed) void this.resume();
       return;
     }
     const f = this.method.fields.find((x) => x.key === field);
@@ -201,46 +211,62 @@ export class ConnectSession {
     this.epoch++;
     this.signIn = null;
     s.signIn = { state: 'none', who: null, error: null, again: false };
+    s.share = true;
     for (const p of this.d.pickers) s.pickers[p.key] = { options: [], selected: [], state: 'waiting', error: null };
   }
 
-  /** An existing tracker: the sign-in this repo keeps, checked, then its lists. */
-  private async resume(): Promise<void> {
+  /**
+   * The sign-in this repo would use for the host, checked, then the lists: an existing tracker's, or a new
+   * one's on a site this repo, or every project, already signs in to (GH-79). The tick for every project
+   * starts where this repo's sign-in is kept now: off when it keeps its own, or signed out here only.
+   * True when one was found, whether or not it still works.
+   */
+  private async resume(): Promise<boolean> {
     const s = this.s!;
-    if (this.method.via === 'gh') return this.autoTest();
+    if (!s.root || !s.host) return false;
     const epoch = this.epoch;
-    s.signIn = { ...s.signIn, state: 'testing' };
-    this.bump();
+    const [root, host] = [s.root, s.host];
     try {
-      const signIn = await this.deps.storedSignIn(s.root!, s.kind, s.host);
-      if (epoch !== this.epoch) return;
-      if (!signIn) {
-        s.signIn = { state: 'none', who: null, error: null, again: true };
-        return this.bump();
+      const own = await this.deps.ownSignIn(root, s.kind, host);
+      if (epoch !== this.epoch) return false;
+      s.share = !own;
+      const stored = await this.deps.storedSignIn(root, s.kind, host);
+      if (epoch !== this.epoch) return false;
+      if (!stored) {
+        if (s.existing) s.signIn = { state: 'none', who: null, error: null, again: true };
+        this.bump();
+        return false;
       }
-      if (this.d.methods.some((m) => m.id === signIn.method)) s.method = signIn.method;
-      const who = await this.d.verify(this.ctx(signIn));
-      if (epoch !== this.epoch) return;
-      this.signedIn(signIn, who.name);
+      s.signIn = { ...s.signIn, state: 'testing' };
+      this.bump();
+      if (this.d.methods.some((m) => m.id === stored.signIn.method)) s.method = stored.signIn.method;
+      const who = await this.d.verify(this.ctx(stored.signIn));
+      if (epoch !== this.epoch) return true;
+      this.signedIn(stored.signIn, who.name, stored.shared);
     } catch (e) {
-      if (epoch !== this.epoch) return;
+      if (epoch !== this.epoch) return true;
       this.failed(e);
       s.signIn.again = true;
       this.bump();
     }
+    return true;
   }
 
-  private signedIn(signIn: SignIn, who: string): void {
+  private signedIn(signIn: SignIn, who: string, shared?: boolean): void {
     const s = this.s!;
     this.signIn = signIn;
-    s.signIn = { state: 'ok', who, error: null, again: false };
+    s.signIn = { state: 'ok', who, error: null, again: false, ...(shared === undefined ? {} : { shared }) };
     s.fieldErrors = {};
     s.hostError = null;
     this.bump();
     this.loadReady();
   }
 
-  /** Test connection: checks what's typed, signs in, keeps the sign-in for this repo, then fills the lists. */
+  /**
+   * Test connection: checks what's typed, signs in, keeps the sign-in for every project on the site or for
+   * this repo, as the tick says (GH-79), then fills the lists. A new site with nothing typed for its secret
+   * first looks for a sign-in kept for it.
+   */
   async test(hostInput: string, typed: Record<string, string>): Promise<void> {
     const s = this.s;
     if (!s?.root) return;
@@ -254,6 +280,9 @@ export class ConnectSession {
     if (host !== s.host) {
       s.host = host;
       this.restart();
+      s.hostError = null;
+      const blank = method.fields.every((f) => f.type !== 'secret' || !(typed[f.key] ?? '').trim());
+      if (method.via !== 'gh' && blank && await this.resume()) return;
     }
     s.hostError = null;
     const values: Record<string, string> = {};
@@ -292,11 +321,12 @@ export class ConnectSession {
       if (epoch !== this.epoch) return;
       const who = await d.verify(this.ctx(signIn));
       if (epoch !== this.epoch) return;
-      // Kept once it works, because the lists need it; only this repo uses it (D-027).
-      if (cred) await this.deps.storeSignIn(s.root, s.kind, host, cred);
+      // Kept once it works, because the lists need it: for every project on the site, or only this repo (GH-79, D-027).
+      const shared = s.share;
+      if (cred) await this.deps.storeSignIn(s.root, s.kind, host, cred, shared);
       if (epoch !== this.epoch) return;
-      this.signedIn(signIn, who.name);
-      if (s.existing) void this.deps.signedIn(s.root);
+      this.signedIn(signIn, who.name, cred ? shared : undefined);
+      if (s.existing || cred) void this.deps.signedIn(s.root, s.kind, host);
     } catch (e) {
       if (epoch !== this.epoch) return;
       this.failed(e);

@@ -14,7 +14,7 @@ import { MondayClient } from '../../packages/core/src/trackers/monday.ts';
 import { type Board, type Exec, movesInto, placeText, signInLabel, type Ticket, type TrackerClient, TrackerError, trackerName, type Transition } from '../../packages/core/src/trackers/types.ts';
 import { Pending } from '../webview/pending.ts';
 import type { Hub, Project } from './hub.ts';
-import { accImport, cardTracking, credKey, liveTrackKeys, outsideKeys, placeCandidates, repoKey, type TrackReply, type TrackState, trackTicket } from './logic.ts';
+import { accImport, cardTracking, credInUse, credSite, type CredWrites, credWrites, liveTrackKeys, outsideKeys, placeCandidates, readCreds, repoKey, signOutWrites, type StoredCreds, type TrackReply, type TrackState, trackTicket } from './logic.ts';
 import { runFile } from './run.ts';
 
 type AccRun = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
@@ -43,6 +43,8 @@ interface Loaded {
   loading: boolean;
   /** Who the board acts as. */
   signedInAs: string | null;
+  /** Where its sign-in is kept (GH-79): for every project on its host, or this one only. Null for GitHub, and when it has none. */
+  signInScope: { shared: boolean; host: string } | null;
 }
 
 /** Runs gh and friends with an argument list, feeding stdin when asked: comments travel that way, never as arguments. gh runs as acc's runner runs it (D-051). */
@@ -68,10 +70,14 @@ type Cred = JiraCred | AzureCred | MondayCred;
 const hostOf = (t: Pick<Tracker, 'kind' | 'site' | 'organization' | 'account'>): string =>
   (t.kind === 'jira' ? t.site ?? '' : t.kind === 'monday' ? t.account ?? '' : t.organization ?? '').replace(/^https?:\/\//, '').replace(/\/+$/, '').toLowerCase();
 
+/** Who a sign-in acts as: the Jira email, the Microsoft account, or a token. */
+const credWho = (c: Cred): string => (c.kind === 'jira' ? c.email : c.kind === 'monday' ? 'a personal API token' : c.method === 'microsoft' ? c.account.label : 'a personal access token');
+
 /**
- * The trackers each repo names in .acc/config.json, with their clients and boards. Sign-ins belong to
- * one repo (D-027): a client's Jira, Azure DevOps or monday.com login never serves another client's repo. It never
- * changes a ticket on its own: every write here starts from a person's click (D-026).
+ * The trackers each repo names in .acc/config.json, with their clients and boards. A sign-in is a repo's
+ * own (D-027) or shared by every project on this machine that uses its site (GH-79), and a repo's own wins,
+ * so one that needs another account keeps it. It never changes a ticket on its own: every write here starts
+ * from a person's click (D-026).
  */
 export class Trackers implements vscode.Disposable {
   private readonly clients = new Map<string, Promise<TrackerClient>>();
@@ -88,15 +94,26 @@ export class Trackers implements vscode.Disposable {
   private readonly hub: Hub;
   private readonly log: vscode.LogOutputChannel;
   private readonly acc: AccRun | null;
+  /** Sign-in keys this window wrote, and when, so their change events don't reload twice. */
+  private readonly wrote = new Map<string, number>();
+  private readonly watch: vscode.Disposable;
 
   constructor(secrets: vscode.SecretStorage, hub: Hub, log: vscode.LogOutputChannel, acc: AccRun | null = null) {
     this.secrets = secrets;
     this.hub = hub;
     this.log = log;
     this.acc = acc;
+    // A sign-in changed in another window: a shared one serves projects open here too (GH-79).
+    this.watch = secrets.onDidChange((e) => {
+      const site = credSite(e.key);
+      const at = this.wrote.get(e.key);
+      this.wrote.delete(e.key);
+      if (site && !(at && Date.now() - at < 10_000)) void this.reload(null, site);
+    });
   }
 
   dispose(): void {
+    this.watch.dispose();
     this.emitter.dispose();
     this.trackEmitter.dispose();
   }
@@ -123,25 +140,43 @@ export class Trackers implements vscode.Disposable {
     return repoKey(p);
   }
 
+  /** What VSCode keeps for this repo and a tracker's host: its own key and the site's (GH-79). */
+  private stored(p: Project, kind: string, host: string): Promise<StoredCreds> {
+    return readCreds((k) => this.secrets.get(k), p, kind, host);
+  }
+
+  /** The sign-in a tracker uses here, its own or its site's (GH-79), and which. */
+  private async credFor(p: Project, t: Tracker): Promise<{ cred: Cred; shared: boolean } | null> {
+    return credInUse(await this.stored(p, t.kind, hostOf(t))) as { cred: Cred; shared: boolean } | null;
+  }
+
   private async cred(p: Project, t: Tracker): Promise<Cred | null> {
-    const raw = await this.secrets.get(credKey(p, t.kind, hostOf(t)));
-    try {
-      return raw ? (JSON.parse(raw) as Cred) : null;
-    } catch {
-      return null;
+    return (await this.credFor(p, t))?.cred ?? null;
+  }
+
+  private async apply(w: CredWrites): Promise<void> {
+    for (const [key, value] of w.store) {
+      this.wrote.set(key, Date.now());
+      await this.secrets.store(key, value);
+    }
+    for (const key of w.delete) {
+      this.wrote.set(key, Date.now());
+      await this.secrets.delete(key);
     }
   }
 
   /** Who a tracker acts as for this repo: the GitHub account, the Jira email, the Microsoft account, or a token. */
   async signedInAs(p: Project, index: number): Promise<string | null> {
+    return (await this.signedInFor(p, index))?.who ?? null;
+  }
+
+  /** Who a tracker acts as, and for a Jira, Azure DevOps or monday.com tracker where its sign-in is kept (GH-79). */
+  async signedInFor(p: Project, index: number): Promise<{ who: string; scope: { shared: boolean; host: string } | null } | null> {
     const t = this.trackers(p)[index];
     if (!t) return null;
-    if (t.kind === 'github') return p.config.github?.account ?? null;
-    const c = await this.cred(p, t);
-    if (!c) return null;
-    if (c.kind === 'jira') return c.email;
-    if (c.kind === 'monday') return 'a personal API token';
-    return c.method === 'microsoft' ? c.account.label : 'a personal access token';
+    if (t.kind === 'github') return p.config.github?.account ? { who: p.config.github.account, scope: null } : null;
+    const c = await this.credFor(p, t);
+    return c ? { who: credWho(c.cred), scope: { shared: c.shared, host: hostOf(t) } } : null;
   }
 
   /** The trackers this repo names but hasn't signed in to yet. GitHub signs in through gh, so it's never listed. */
@@ -189,7 +224,8 @@ export class Trackers implements vscode.Disposable {
       if (!t.repo || !account) throw new TrackerError('other', 'A GitHub tracker needs the project\'s "github" section (repo and account) in .acc/config.json.');
       return new GithubClient({ repo: t.repo, token: await this.ghToken(p.root, account), account, exec, project: typeof t.board === 'number' ? t.board : null, labels: t.labels });
     }
-    const c = await this.cred(p, t);
+    const found = await this.credFor(p, t);
+    const c = found?.cred ?? null;
     if (t.kind === 'jira') {
       if (!c || c.kind !== 'jira') throw new TrackerError('auth', `Sign in to Jira (${t.site}) for this repo to see its board and tickets.`);
       return new JiraClient({ site: t.site!, project: t.project!, email: c.email, token: c.token, board: typeof t.board === 'number' ? t.board : null, epic: t.epic });
@@ -203,7 +239,7 @@ export class Trackers implements vscode.Disposable {
       organization: t.organization!, project: t.project!, team: t.team, board: typeof t.board === 'string' ? t.board : null, prefix: t.prefix ?? 'AB', areaPath: t.areaPath,
       auth: c.method === 'pat' ? async () => `Basic ${b64(`:${c.token}`)}` : async () => {
         const s = await vscode.authentication.getSession('microsoft', azureScopes(c.tenant), { account: c.account, silent: true });
-        if (!s) throw new TrackerError('auth', `The Microsoft sign-in this repo uses (${c.account.label}) has ended. Sign in to Azure DevOps again.`);
+        if (!s) throw new TrackerError('auth', `The Microsoft sign-in ${found!.shared ? `every project on ${hostOf(t)}` : 'this repo'} uses (${c.account.label}) has ended. Sign in to Azure DevOps again.`);
         return `Bearer ${s.accessToken}`;
       },
     });
@@ -226,11 +262,14 @@ export class Trackers implements vscode.Disposable {
         return;
       }
       const prev = this.boards.get(p.root) ?? [];
-      const states: Loaded[] = await Promise.all(list.map(async (t, index) => ({
-        // The last board's place, with its epic's name, until this load says otherwise: no flicker every refresh.
-        index, kind: t.kind, title: this.title(t), place: prev[index]?.board?.place ?? this.place(t), left: prev[index]?.left ?? [], board: prev[index]?.board ?? null,
-        error: null, connect: null, loading: true, signedInAs: await this.signedInAs(p, index),
-      })));
+      const states: Loaded[] = await Promise.all(list.map(async (t, index) => {
+        const as = await this.signedInFor(p, index);
+        return {
+          // The last board's place, with its epic's name, until this load says otherwise: no flicker every refresh.
+          index, kind: t.kind, title: this.title(t), place: prev[index]?.board?.place ?? this.place(t), left: prev[index]?.left ?? [], board: prev[index]?.board ?? null,
+          error: null, connect: null, loading: true, signedInAs: as?.who ?? null, signInScope: as?.scope ?? null,
+        };
+      }));
       this.boards.set(p.root, states);
       this.emitter.fire(p.root);
       await Promise.all(states.map(async (s) => {
@@ -353,7 +392,7 @@ export class Trackers implements vscode.Disposable {
   }
 
 
-  // ------------------------------------------------------------ signing in, one repo at a time
+  // ------------------------------------------------------------ signing in: a repo's own, or every project's on a site
 
   /**
    * One of the trackers that takes a sign-in: the one named, the only one, or the one a person picks.
@@ -376,6 +415,11 @@ export class Trackers implements vscode.Disposable {
     return pick?.c ?? null;
   }
 
+  /**
+   * Signs a repo out of a tracker (GH-79). A shared sign-in asks: every project on its site, or this one
+   * only. A repo's own sign-in goes without asking, since no other repo uses it, and the repo uses its
+   * site's again if there is one. Neither touches another site's sign-in.
+   */
   async signOut(arg?: unknown): Promise<void> {
     const chosen = await this.pickTracker(arg, 'Sign out of which tracker?');
     if (!chosen) {
@@ -383,47 +427,71 @@ export class Trackers implements vscode.Disposable {
       return;
     }
     const { p, t } = chosen;
-    const c = await this.cred(p, t);
-    await this.secrets.delete(credKey(p, t.kind, hostOf(t)));
-    this.clients.clear();
-    const msAccount = c?.kind === 'azure' && c.method === 'microsoft' ? ` Your Microsoft account (${c.account.label}) stays signed in to VSCode; manage it under Accounts.` : '';
-    void vscode.window.showInformationMessage(`${p.name} is signed out of ${this.title(t)}.${msAccount}`);
-    await this.loadBoards(p.root);
+    const host = hostOf(t);
+    const was = await this.stored(p, t.kind, host);
+    const using = credInUse(was) as { cred: Cred; shared: boolean } | null;
+    if (!using) {
+      void vscode.window.showInformationMessage(`${p.name} isn't signed in to ${this.title(t)}.`);
+      return;
+    }
+    const c = using.cred;
+    let choice: 'every' | 'this' | 'own' = 'own';
+    if (using.shared) {
+      const every = `Every project on ${host}`;
+      const only = 'This project only';
+      const pick = await vscode.window.showWarningMessage(`Sign out of ${trackerName(t.kind)} on ${host}?`, {
+        modal: true,
+        detail: `${p.name} uses the sign-in for every project on ${host} (${credWho(c)}). Sign out every project on ${host}, or only ${p.name}, which leaves the rest signed in. Projects with a sign-in of their own keep it.`,
+      }, every, only);
+      if (!pick) return;
+      choice = pick === every ? 'every' : 'this';
+    }
+    await this.apply(signOutWrites(p, t.kind, host, choice));
+    const msAccount = c.kind === 'azure' && c.method === 'microsoft' && choice !== 'this' ? ` Your Microsoft account (${c.account.label}) stays signed in to VSCode; manage it under Accounts.` : '';
+    const site = was.site as Cred | null;
+    void vscode.window.showInformationMessage(
+      choice === 'every' ? `Every project on ${host} is signed out of ${trackerName(t.kind)}. Projects with a sign-in of their own keep it.${msAccount}`
+        : choice === 'this' ? `${p.name} is signed out of ${this.title(t)}. Other projects on ${host} still use the sign-in for every project there (${credWho(c)}).`
+          : site ? `${p.name} now uses the sign-in for every project on ${host} (${credWho(site)}). To sign it out here too, sign out again and choose This project only.${msAccount}`
+            : `${p.name} is signed out of ${this.title(t)}.${msAccount}`,
+    );
+    await this.reload(p.root, { kind: t.kind, host });
   }
 
   // ------------------------------------------------------------ for the Connect page (GH-51)
 
   /**
-   * The sign-in this repo keeps for a host, ready for the Connect page's checks and lists, or null. A
-   * Microsoft sign-in is asked for silently; one that has ended says so.
+   * The sign-in this repo uses for a host, its own or its site's (GH-79), ready for the Connect page's checks
+   * and lists, or null. A Microsoft sign-in is asked for silently; one that has ended says so.
    */
-  async storedSignIn(root: string, kind: string, host: string): Promise<SignIn | null> {
+  async storedSignIn(root: string, kind: string, host: string): Promise<{ signIn: SignIn; shared: boolean } | null> {
     const p = this.hub.project(root);
-    const raw = p ? await this.secrets.get(credKey(p, kind, host.toLowerCase())) : undefined;
-    let c: Record<string, unknown>;
-    try {
-      if (!raw) return null;
-      c = JSON.parse(raw) as Record<string, unknown>;
-    } catch {
-      return null;
-    }
+    const found = p ? credInUse(await this.stored(p, kind, host)) : null;
+    if (!found) return null;
+    const { cred: c, shared } = found;
     if (c.method === 'microsoft') {
       const account = c.account as vscode.AuthenticationSessionAccountInformation;
       const s = await vscode.authentication.getSession('microsoft', azureScopes((c.tenant as string | null) ?? null), { account, silent: true });
-      if (!s) throw new TrackerError('auth', `The Microsoft sign-in this repo used (${account.label}) has ended. Sign in again.`);
-      return { method: 'microsoft', fields: {}, header: `Bearer ${s.accessToken}`, gh: null };
+      if (!s) throw new TrackerError('auth', `The Microsoft sign-in ${shared ? `every project on ${host.toLowerCase()}` : 'this repo'} used (${account.label}) has ended. Sign in again.`);
+      return { signIn: { method: 'microsoft', fields: {}, header: `Bearer ${s.accessToken}`, gh: null }, shared };
     }
     // A Jira sign-in from before GH-51 didn't say its method: it's the only one Jira has.
     const method = typeof c.method === 'string' ? c.method : describe(kind)?.methods.find((m) => m.via === 'fields')?.id ?? '';
     const fields = Object.fromEntries(Object.entries(c).filter(([k, v]) => k !== 'kind' && k !== 'method' && typeof v === 'string')) as Record<string, string>;
-    return { method, fields, header: null, gh: null };
+    return { signIn: { method, fields, header: null, gh: null }, shared };
   }
 
-  /** Keeps a sign-in for this repo only (D-027), under the same key the boards read. */
-  async storeSignIn(root: string, kind: string, host: string, cred: Record<string, unknown>): Promise<void> {
+  /** Whether this repo keeps its own key for a host: a sign-in, or a "this project only" sign-out (GH-79). */
+  async ownSignIn(root: string, kind: string, host: string): Promise<boolean> {
+    const p = this.hub.project(root);
+    return !!p && (await this.stored(p, kind, host)).own !== null;
+  }
+
+  /** Keeps a sign-in for every project on its site, or for this repo only (GH-79, D-027), where the boards read it. */
+  async storeSignIn(root: string, kind: string, host: string, cred: Record<string, unknown>, shared: boolean): Promise<void> {
     const p = this.hub.project(root);
     if (!p) throw new TrackerError('other', 'That project isn\'t open here.');
-    await this.secrets.store(credKey(p, kind, host.toLowerCase()), JSON.stringify(cred));
+    await this.apply(credWrites(p, kind, host, cred, shared));
   }
 
   /** The repo's git user.email, which a Jira sign-in usually is. */
@@ -461,9 +529,17 @@ export class Trackers implements vscode.Disposable {
     writeFileSync(file, JSON.stringify(raw, null, 2) + '\n');
   }
 
-  /** A sign-in changed: every client starts again, and the project's boards reload. */
-  async reload(root: string): Promise<void> {
+  /**
+   * A sign-in changed: every client starts again, and the project's boards reload. With a site, so do those
+   * of every open project with a tracker on it, which a shared sign-in serves (GH-79).
+   */
+  async reload(root: string | null, site?: { kind: string; host: string }): Promise<void> {
     this.clients.clear();
-    await this.loadBoards(root);
+    const roots = new Set(root ? [root] : []);
+    if (site) {
+      const host = site.host.toLowerCase();
+      for (const p of this.hub.projects) if (this.trackers(p).some((t) => t.kind === site.kind && hostOf(t) === host)) roots.add(p.root);
+    }
+    await Promise.all([...roots].map((r) => this.loadBoards(r)));
   }
 }

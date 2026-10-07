@@ -440,10 +440,12 @@ function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
   tools.push(change);
   const out = el('section', 'tracker',
     el('div', 'tracker-head',
-      el('h2', '', icon(KIND_ICON[b.kind] ?? 'issues'), b.title, b.source ? el('span', 'chip', SOURCE_LABEL[b.source] ?? b.source) : null, b.signedInAs ? el('span', 'acting', icon('account'), `as ${b.signedInAs}`) : null, b.loading ? el('span', 'muted loading', icon('sync~spin'), 'Loading') : null),
+      el('h2', '', icon(KIND_ICON[b.kind] ?? 'issues'), b.title, b.source ? el('span', 'chip', SOURCE_LABEL[b.source] ?? b.source) : null, b.signedInAs && !b.signIn ? el('span', 'acting', icon('account'), `as ${b.signedInAs}`) : null, b.loading ? el('span', 'muted loading', icon('sync~spin'), 'Loading') : null),
       el('div', 'toolbar', ...tools)));
   // Where its tickets come from (D-072): only these are shown, tracked or taken in.
   if (b.place) out.append(el('p', 'tracker-place', icon('filter'), el('span', '', 'Tickets from ', el('strong', '', b.place))));
+  // Who it's signed in as, and whether every project on the site shares that sign-in (GH-79).
+  if (b.signIn) out.append(el('p', 'tracker-place tracker-signin', icon(b.signIn.icon, b.signIn.tone), el('span', '', b.signIn.label)));
   if (b.left.length) {
     out.append(el('div', 'notice attention left-place', icon('warning', 'orange'),
       el('div', 'left-text', el('strong', '', `Left this repo's place after work started: ${plural(b.left.length, 'task')}`),
@@ -1550,6 +1552,17 @@ function connectPicker(m: ConnectModel, p: ConnectPicker): HTMLElement {
   return connectRow(id, p.label, [select], p.hint, p.look);
 }
 
+/** The tick that keeps the sign-in for every project on its site, or this one only (GH-79). Sent when it changes. */
+function connectShare(m: ConnectModel): HTMLElement {
+  const box = document.createElement('input');
+  box.type = 'checkbox';
+  box.id = 'connect-share';
+  box.checked = m.share.on;
+  box.dataset.keep = `connect:${m.id}:share`;
+  box.addEventListener('change', () => connectSend(m, { type: 'connect-share', on: box.checked }));
+  return el('div', 'connect-share', el('label', `tick${m.share.on ? ' on' : ''}`, box, m.share.label), el('div', 'muted small cfield-hint', icon(m.share.on ? 'globe' : 'repo'), ` ${m.share.hint}`));
+}
+
 /** A row of choices, one on: the tracker's kind, a project, or a way to sign in. */
 function segmented(label: string, items: { key: string; label: string; icon: string; on: boolean }[], pick: (key: string) => void): HTMLElement {
   const g = el('div', 'segmented');
@@ -1596,6 +1609,7 @@ function renderConnect(m: ConnectModel): Node[] {
     m.methods.length ? el('div', 'connect-choose', segmented('How to sign in', m.methods.map((x) => ({ key: x.id, label: x.label, icon: x.icon, on: x.on })), (method) => connectSend(m, { type: 'connect-method', method }))) : null,
     el('p', 'muted small connect-hint', m.method.hint),
     ...m.fields.map((f) => connectInput(m, f, test)),
+    m.share.shown ? connectShare(m) : null,
     el('div', 'connect-test', testButton, el('div', `cfield-status tone-${m.signIn.look.tone}`, icon(m.signIn.look.icon, m.signIn.look.tone), el('span', '', m.signIn.look.label))),
   ] : [el('div', 'connect-test', status(m.signIn.look), button('Sign in again', 'account', () => connectSend(m, { type: 'connect-again' }), 'ghost'))];
   out.push(step(2, 'Sign in', ...signIn));

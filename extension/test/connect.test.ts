@@ -10,7 +10,7 @@ import { DESCRIPTIONS, type TrackerDescription } from '../../packages/core/src/t
 import { MondayClient } from '../../packages/core/src/trackers/monday.ts';
 import type { Exec } from '../../packages/core/src/trackers/types.ts';
 import { type ConnectDeps, type ConnectProject, ConnectSession } from '../src/connect.ts';
-import { credKey, outsideKeys, placeCandidates } from '../src/logic.ts';
+import { credInUse, credKey, type CredWrites, credWrites, outsideKeys, placeCandidates, readCreds, siteCredKey } from '../src/logic.ts';
 import { blankConnect, type ConnectMessage, type ConnectModel, connectModel, isFromWebview } from '../src/model.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -63,11 +63,23 @@ const gh: Exec = async (_cmd, args) => {
   return { code: 1, stdout: '', stderr: 'unexpected' };
 };
 
-function harness(o: { trackers?: Record<string, unknown>[]; fetch?: typeof fetch; project?: typeof ACME; list?: TrackerDescription[] } = {}) {
+/** A second repo on the same machine, signing in to the same Jira site (GH-79). */
+const BILLING_ROOT = '/Users/me/code/acme-billing';
+const BILLING: typeof ACME = { name: 'Acme Billing', root: BILLING_ROOT, config: { github: { repo: 'acme/billing', account: 'jordan-kim' } }, ledgerPath: `${BILLING_ROOT}/.git/acc/ledger.json` };
+
+/**
+ * The Connect page with stand-ins, and the real rules for where a sign-in is kept and found (GH-79): this
+ * repo's own key first, then the site's. Pass `secrets` to share one machine's sign-ins between repos.
+ */
+function harness(o: { trackers?: Record<string, unknown>[]; fetch?: typeof fetch; project?: typeof ACME; list?: TrackerDescription[]; secrets?: Map<string, string> } = {}) {
   const project = o.project ?? ACME;
+  const apply = (w: CredWrites) => {
+    for (const [k, v] of w.store) h.secrets.set(k, v);
+    for (const k of w.delete) h.secrets.delete(k);
+  };
   const h = {
     raw: o.trackers ?? [] as Record<string, unknown>[],
-    secrets: new Map<string, string>(),
+    secrets: o.secrets ?? new Map<string, string>(),
     posted: [] as string[], logs: [] as string[], saved: [] as string[], signedIn: [] as string[],
     session: null as unknown as ConnectSession,
     model: () => h.session.model() as ConnectModel,
@@ -81,13 +93,16 @@ function harness(o: { trackers?: Record<string, unknown>[]; fetch?: typeof fetch
     projects: () => [project],
     trackers: () => h.raw.map(full),
     title: (t) => `${t.kind} · ${t.project ?? t.repo}`,
+    // As the extension reads it: a Microsoft sign-in asks VSCode for a header, and one from before GH-51 is Jira's token.
     storedSignIn: async (_root, kind, host) => {
-      const raw = h.secrets.get(credKey(project, kind, host.toLowerCase()));
-      if (!raw) return null;
-      const { kind: _k, method, ...fields } = JSON.parse(raw) as Record<string, string>;
-      return { method: method ?? 'token', fields, header: null, gh: null };
+      const found = credInUse(await readCreds((k) => h.secrets.get(k), project, kind, host));
+      if (!found) return null;
+      const { kind: _k, method, ...fields } = found.cred as Record<string, string>;
+      if (method === 'microsoft') return { signIn: { method, fields: {}, header: 'Bearer ms-token', gh: null }, shared: found.shared };
+      return { signIn: { method: method ?? 'token', fields, header: null, gh: null }, shared: found.shared };
     },
-    storeSignIn: async (_root, kind, host, cred) => { h.secrets.set(credKey(project, kind, host.toLowerCase()), JSON.stringify(cred)); },
+    ownSignIn: async (_root, kind, host) => (await readCreds((k) => h.secrets.get(k), project, kind, host)).own !== null,
+    storeSignIn: async (_root, kind, host, cred, shared) => apply(credWrites(project, kind, host, cred, shared)),
     gitEmail: async () => EMAIL,
     ghToken: async () => 'gh-token',
     microsoft: async () => ({ header: 'Bearer ms-token', cred: { account: { id: 'm1', label: 'jordan@acme.example' }, tenant: 'tenant-1' } }),
@@ -136,15 +151,18 @@ test('a new Jira tracker: the email from the repo, nothing to pick until it sign
   assert.equal(h.secrets.size, 0, 'nothing is kept');
 });
 
-test('Test connection signs in for this repo only and fills the lists; Save writes the tracker and nothing else', async () => {
+test('Test connection signs in for every project on the site, as the tick says, and fills the lists; Save writes the tracker and nothing else', async () => {
   const h = harness();
   await h.session.open({ root: ROOT, kind: 'jira', from: 'overview' });
+  assert.deepEqual(h.model().share, { shown: true, on: true, label: 'Use this sign-in for every project on this site', hint: 'Every project on this machine that uses this site signs in with it, unless it has a sign-in of its own.' }, 'ticked the first time a site is signed in to');
   h.send({ type: 'connect-test', host: SITE, fields: { email: EMAIL, token: TOKEN } });
   await settle();
   let m = h.model();
-  assert.deepEqual([m.signIn.look.label, m.signIn.look.icon, m.signIn.look.tone, m.signIn.editing], ['Signed in as Jordan Kim', 'pass', 'blue', false]);
-  assert.deepEqual([...h.secrets.keys()], ['acc.cred:github:acme/service:jira:acme.atlassian.net'], 'kept under this repo\'s key (D-027)');
-  assert.deepEqual(JSON.parse(h.secrets.get('acc.cred:github:acme/service:jira:acme.atlassian.net')!), { kind: 'jira', method: 'token', email: EMAIL, token: TOKEN });
+  assert.deepEqual([m.signIn.look.label, m.signIn.look.icon, m.signIn.look.tone, m.signIn.editing], ['Signed in as Jordan Kim, for every project on acme.atlassian.net', 'pass', 'blue', false]);
+  assert.equal(m.share.shown, false, 'signed in, there\'s nothing to tick');
+  assert.deepEqual([...h.secrets.keys()], ['acc.cred:site:jira:acme.atlassian.net'], 'kept under the site\'s key (GH-79)');
+  assert.deepEqual(JSON.parse(h.secrets.get('acc.cred:site:jira:acme.atlassian.net')!), { kind: 'jira', method: 'token', email: EMAIL, token: TOKEN });
+  assert.deepEqual(h.signedIn, [ROOT], 'every project on the site can load its board now');
   assert.deepEqual(picker(m, 'project').options.map((o) => o.value), ['ACME', 'OPS']);
   assert.deepEqual(picker(m, 'project').selected, [], 'two projects: a person picks');
   assert.equal(m.save.can, false);
@@ -212,7 +230,7 @@ test('an existing tracker opens signed in, its project fixed and its done epic k
   await settle();
   let m = h.model();
   assert.deepEqual([m.title, m.kinds.length, m.host.fixed, m.host.value], ['Change jira · ACME', 0, true, SITE]);
-  assert.equal(m.signIn.look.label, 'Signed in as Jordan Kim');
+  assert.equal(m.signIn.look.label, 'Signed in as Jordan Kim, for this project only', 'still this repo\'s own sign-in (D-027)');
   assert.deepEqual([picker(m, 'project').fixed, picker(m, 'project').selected], [true, ['ACME']], 'another project is another tracker');
   const epic = picker(m, 'epic');
   assert.deepEqual(epic.selected, ['ACME-3']);
@@ -236,10 +254,11 @@ test('opened from a Sign in button, the tracker shows its sign-in to type, and s
   await settle();
   let m = h.model();
   assert.deepEqual([m.signIn.editing, m.signIn.look.label, m.fields.map((f) => f.key)], [true, 'Not signed in yet', ['email', 'token']]);
+  assert.deepEqual([m.share.shown, m.share.on, m.share.label], [true, true, 'Use this sign-in for every project on acme.atlassian.net']);
   h.send({ type: 'connect-test', host: '', fields: { email: EMAIL, token: TOKEN } });
   await settle();
   m = h.model();
-  assert.equal(m.signIn.look.label, 'Signed in as Jordan Kim');
+  assert.equal(m.signIn.look.label, 'Signed in as Jordan Kim, for every project on acme.atlassian.net');
   assert.deepEqual(h.signedIn, [ROOT], 'the board reloads with the new sign-in');
   assert.deepEqual(picker(m, 'board').selected, ['7'], 'no board was set: the first, as the board already shows');
 });
@@ -268,6 +287,7 @@ test('GitHub signs in through gh as the project\'s account, with its labels to t
   await settle();
   let m = h.model();
   assert.deepEqual([m.host.value, m.fields.length, m.signIn.look.label], ['acme/service', 0, 'Signed in as Jordan Kim'], 'nothing to type: it signs in at once');
+  assert.equal(m.share.shown, false, 'gh signs in as the repo\'s account (D-007): nothing to share');
   assert.deepEqual([picker(m, 'labels').multi, picker(m, 'labels').options.map((o) => o.value), picker(m, 'labels').whole], [true, ['billing', 'invoices'], 'Every issue in acme/service']);
   h.send({ type: 'connect-pick', key: 'labels', value: ['billing', 'not-a-label'] });
   m = h.model();
@@ -297,10 +317,12 @@ test('Azure DevOps signs in with Microsoft, picks the default team and the stori
   h.send({ type: 'connect-set', field: 'organization', value: 'https://dev.azure.com/acme/CRM' });
   assert.equal(h.model().fields[0]!.help?.url, 'https://dev.azure.com/acme/_usersSettings/tokens');
   h.send({ type: 'connect-method', method: 'microsoft' });
+  assert.deepEqual([h.model().share.shown, h.model().share.label], [true, 'Use this sign-in for every project on acme'], 'a Microsoft sign-in can be shared too');
   h.send({ type: 'connect-test', host: 'acme', fields: {} });
   await settle();
-  assert.deepEqual(JSON.parse(h.secrets.get('acc.cred:github:acme/service:azure:acme')!), { kind: 'azure', method: 'microsoft', account: { id: 'm1', label: 'jordan@acme.example' }, tenant: 'tenant-1' });
+  assert.deepEqual(JSON.parse(h.secrets.get('acc.cred:site:azure:acme')!), { kind: 'azure', method: 'microsoft', account: { id: 'm1', label: 'jordan@acme.example' }, tenant: 'tenant-1' });
   m = h.model();
+  assert.equal(m.signIn.look.label, 'Signed in as Jordan Kim, for every project on acme');
   assert.deepEqual(picker(m, 'project').selected, ['CRM'], 'the only project');
   assert.deepEqual([picker(m, 'team').selected, picker(m, 'board').selected], [['CRM Team'], ['Stories']]);
   assert.deepEqual([picker(m, 'areaPath').whole, picker(m, 'areaPath').options.map((o) => o.value)], ['All of CRM Team\'s work items', ['CRM\\Billing']]);
@@ -324,6 +346,96 @@ test('a page message names its page, and only what a description declares: a tok
   assert.ok(!isFromWebview({ type: 'connect-pick', session: s, key: 'secret', value: 'x' }), 'a picker no description has');
   assert.ok(!isFromWebview({ type: 'connect-pick', session: s, key: 'labels', value: [1] }));
   assert.ok(!isFromWebview({ type: 'connect-save' }), 'every message names its page');
+  assert.ok(isFromWebview({ type: 'connect-share', session: s, on: false }));
+  assert.ok(!isFromWebview({ type: 'connect-share', session: s, on: 'yes' }), 'the tick is on or off');
+  assert.ok(!isFromWebview({ type: 'connect-share', session: s }));
+});
+
+test('a sign-in for every project on a site: a second repo adding a tracker there signs in with nothing typed (GH-79)', async () => {
+  const secrets = new Map<string, string>();
+  const a = harness({ secrets });
+  await a.session.open({ root: ROOT, kind: 'jira', from: 'tasks' });
+  a.send({ type: 'connect-test', host: SITE, fields: { email: EMAIL, token: TOKEN } });
+  await settle();
+  assert.deepEqual([...secrets.keys()], [siteCredKey('jira', SITE)]);
+
+  const b = harness({ secrets, project: BILLING });
+  await b.session.open({ root: BILLING_ROOT, kind: 'jira', from: 'tasks' });
+  b.send({ type: 'connect-set', field: 'site', value: `https://${SITE}/browse/BILL-1` });
+  await settle();
+  const m = b.model();
+  assert.deepEqual([m.signIn.look.label, m.signIn.look.icon, m.signIn.editing], ['Signed in as Jordan Kim, for every project on acme.atlassian.net', 'pass', false], 'no email or token typed');
+  assert.deepEqual(picker(m, 'project').options.map((o) => o.value), ['ACME', 'OPS'], 'its lists fill from the shared sign-in');
+  assert.deepEqual([...secrets.keys()], [siteCredKey('jira', SITE)], 'nothing new is kept');
+  assert.deepEqual(b.signedIn, [], 'nothing changed, so nothing reloads');
+
+  // Test connection with the site typed and nothing else finds it too.
+  const c = harness({ secrets, project: BILLING });
+  await c.session.open({ root: BILLING_ROOT, kind: 'jira', from: 'tasks' });
+  c.send({ type: 'connect-test', host: SITE, fields: { email: EMAIL, token: '' } });
+  await settle();
+  assert.deepEqual([c.model().signIn.look.label, field(c.model(), 'token') ?? null], ['Signed in as Jordan Kim, for every project on acme.atlassian.net', null]);
+});
+
+test('unticked, a sign-in is this project\'s only: it wins over the site\'s, and the site\'s stays for every other project (GH-79)', async () => {
+  const secrets = new Map<string, string>([[siteCredKey('jira', SITE), JSON.stringify({ kind: 'jira', method: 'token', email: 'ops@other.example', token: 'other-token-0123456789' })]]);
+  const h = harness({ secrets });
+  await h.session.open({ root: ROOT, kind: 'jira', from: 'tasks' });
+  h.send({ type: 'connect-set', field: 'site', value: SITE });
+  await settle();
+  // The site's sign-in is another account, which this fake Jira refuses: Sign in again, unticked.
+  let m = h.model();
+  assert.deepEqual([m.signIn.editing, m.share.on], [true, true], 'the shared one didn\'t work here, so its fields show');
+  h.send({ type: 'connect-share', on: false });
+  m = h.model();
+  assert.deepEqual([m.share.on, m.share.hint], [false, 'Kept for Acme Service only. Other projects on acme.atlassian.net sign in on their own.']);
+  h.send({ type: 'connect-test', host: SITE, fields: { email: EMAIL, token: TOKEN } });
+  await settle();
+  m = h.model();
+  assert.equal(m.signIn.look.label, 'Signed in as Jordan Kim, for this project only');
+  assert.deepEqual(JSON.parse(secrets.get(credKey(ACME, 'jira', SITE))!), { kind: 'jira', method: 'token', email: EMAIL, token: TOKEN }, 'under this repo\'s key');
+  assert.equal(JSON.parse(secrets.get(siteCredKey('jira', SITE))!).email, 'ops@other.example', 'the site\'s is left for the rest');
+
+  // Opened again, this repo's own wins, and the tick starts where its sign-in is kept: off.
+  const again = harness({ secrets });
+  await again.session.open({ root: ROOT, kind: 'jira', from: 'tasks' });
+  again.send({ type: 'connect-set', field: 'site', value: SITE });
+  await settle();
+  assert.deepEqual([again.model().signIn.look.label, again.model().share.on], ['Signed in as Jordan Kim, for this project only', false]);
+  // Another repo on the site still uses the site's.
+  const other = await readCreds((k) => secrets.get(k), BILLING, 'jira', SITE);
+  assert.deepEqual(credInUse(other), { cred: JSON.parse(secrets.get(siteCredKey('jira', SITE))!), shared: true });
+});
+
+test('the tick starts where this repo\'s sign-in is kept: on with none or the site\'s, off with its own or a "this project only" sign-out (GH-79)', async () => {
+  const opened = async (secrets: Map<string, string>) => {
+    const h = harness({ secrets });
+    await h.session.open({ root: ROOT, kind: 'jira', from: 'tasks' });
+    h.send({ type: 'connect-set', field: 'site', value: SITE });
+    await settle();
+    return h;
+  };
+  const shared = JSON.stringify({ kind: 'jira', method: 'token', email: EMAIL, token: TOKEN });
+  assert.equal((await opened(new Map())).model().share.on, true, 'no sign-in for the site yet');
+  assert.equal((await opened(new Map([[siteCredKey('jira', SITE), shared]]))).model().share.on, true, 'this repo uses the site\'s');
+  assert.equal((await opened(new Map([[credKey(ACME, 'jira', SITE), shared]]))).model().share.on, false, 'this repo has its own');
+  const out = await opened(new Map([[siteCredKey('jira', SITE), shared], [credKey(ACME, 'jira', SITE), JSON.stringify({ kind: 'jira', signedOut: true })]]));
+  assert.deepEqual([out.model().share.on, out.model().signIn.look.label], [false, 'Not signed in yet'], 'signed out here only: the site\'s isn\'t used');
+
+  // Ticked again from there, it's kept for the site, and this repo's sign-out goes so it uses it.
+  out.send({ type: 'connect-share', on: true });
+  out.send({ type: 'connect-test', host: SITE, fields: { email: EMAIL, token: TOKEN } });
+  await settle();
+  assert.deepEqual([[...out.secrets.keys()], out.model().signIn.look.label], [[siteCredKey('jira', SITE)], 'Signed in as Jordan Kim, for every project on acme.atlassian.net']);
+});
+
+test('the tick doesn\'t know one tracker from another: monday.com\'s is built from its account (GH-79)', async () => {
+  const h = harness({ fetch: monday() });
+  await h.session.open({ root: ROOT, kind: 'monday', from: 'tasks' });
+  assert.equal(h.model().share.label, 'Use this sign-in for every project on this account');
+  h.send({ type: 'connect-set', field: 'account', value: 'acme' });
+  await settle();
+  assert.deepEqual([h.model().share.shown, h.model().share.label], [true, 'Use this sign-in for every project on acme']);
 });
 
 test('another tracker is a description, not another page: a fifth one gets its fields, sign-in and lists', () => {
@@ -413,8 +525,8 @@ test('monday.com: an account from any link, a token kept for this repo only, the
   h.send({ type: 'connect-test', host: 'acme', fields: { token: MONDAY_TOKEN } });
   await settle();
   m = h.model();
-  assert.equal(m.signIn.look.label, 'Signed in as Jordan Kim');
-  assert.deepEqual(JSON.parse(h.secrets.get('acc.cred:github:acme/service:monday:acme')!), { kind: 'monday', method: 'token', token: MONDAY_TOKEN }, 'in secret storage, for this repo and account');
+  assert.equal(m.signIn.look.label, 'Signed in as Jordan Kim, for every project on acme');
+  assert.deepEqual(JSON.parse(h.secrets.get('acc.cred:site:monday:acme')!), { kind: 'monday', method: 'token', token: MONDAY_TOKEN }, 'in secret storage, for every project on the account');
   assert.ok(![...h.posted, ...h.logs].some((x) => x.includes(MONDAY_TOKEN)), 'never in the page model or the log');
   assert.deepEqual(picker(m, 'board').options.map((o) => [o.value, o.label, o.detail]), [['111', 'Client work', 'Acme'], ['555', 'Approvals', 'Main workspace']], 'no sub-item boards or documents');
   assert.deepEqual([picker(m, 'board').selected, picker(m, 'board').required, m.save.can], [[], true, false], 'a board to choose before Save');
@@ -492,7 +604,7 @@ test('monday.com: a token from another account is refused, naming it, and an exi
   await h.session.open({ root: ROOT, index: 0, from: 'tasks' });
   await settle();
   let m = h.model();
-  assert.deepEqual([m.host.fixed, m.host.value, m.signIn.look.label], [true, 'acme', 'Signed in as Jordan Kim']);
+  assert.deepEqual([m.host.fixed, m.host.value, m.signIn.look.label], [true, 'acme', 'Signed in as Jordan Kim, for this project only']);
   const board = picker(m, 'board');
   assert.deepEqual([board.fixed, board.options.find((o) => o.value === '111')?.label], [true, 'Client work'], 'fixed, by its name rather than its id');
   assert.deepEqual([picker(m, 'group').fixed, picker(m, 'group').selected], [false, ['topics']], 'its group can still change');

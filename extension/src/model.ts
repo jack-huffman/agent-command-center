@@ -15,7 +15,7 @@ import { autoMergeOn, type Environment, type Tracker, trackerForKey } from '../.
 import { promotionPaths } from '../../packages/core/src/promote.ts';
 import type { Answer, HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import { isOpenUpdate, stalePosting, type Update, UPDATE_ID, UPDATE_TEXT_MAX } from '../../packages/core/src/updates.ts';
-import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, BOARD_LANES, conflictLine, displayName, type DoctorItem, ENV_ICON, failedChecksLine, fileList, FROM_WORDS, groupTasks, isUnder, ownsSession, prConflicts, questionsWord, type RunPrompt, saidLine, sessionFor, shortPath, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
+import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, BOARD_LANES, conflictLine, displayName, type DoctorItem, ENV_ICON, failedChecksLine, fileList, FROM_WORDS, groupTasks, isUnder, ownsSession, prConflicts, questionsWord, type RunPrompt, saidLine, sessionFor, shortPath, signInScope, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
 import { isSlackWebhook, SLACK_KINDS, type SlackCard, type SlackKind } from './slack.ts';
 import type { Entry } from './transcript.ts';
 
@@ -334,6 +334,8 @@ export interface BoardInput {
   loading: boolean;
   /** Who the board acts as: the GitHub account, the Jira email, the Microsoft account. */
   signedInAs?: string | null;
+  /** Where a Jira, Azure DevOps or monday.com sign-in is kept (GH-79): for every project on its host, or this one only. */
+  signInScope?: { shared: boolean; host: string } | null;
   /** Where its tickets come from (D-072), such as "Jira · ACME · epic ACME-3 Premium Support". */
   place?: string | null;
   /** Tasks whose tickets left the place after work on them started, each named (D-072). */
@@ -380,6 +382,11 @@ export interface TrackerBoard {
   connect: { command: string; label: string; arg: string } | null;
   loading: boolean;
   signedInAs: string | null;
+  /**
+   * Who it's signed in as and where that sign-in is kept (GH-79), drawn under its place: "Signed in as
+   * jordan@acme.example, for every project on acme.atlassian.net". Null for GitHub, which says who in its title.
+   */
+  signIn: Look | null;
   /** Where its tickets come from (D-072), drawn under its name. */
   place: string | null;
   /**
@@ -429,6 +436,7 @@ export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): Trac
   return {
     index: b.index, kind: b.kind, title: b.board?.title ?? b.title, source: b.board?.source ?? null, url: b.board?.url ?? null,
     notice: b.board?.notice ?? null, error: b.error, connect: b.connect, loading: b.loading, signedInAs: b.signedInAs ?? null,
+    signIn: b.signedInAs && b.signInScope ? LOOK(`Signed in as ${b.signedInAs}, ${signInScope(b.signInScope.shared, b.signInScope.host)}`, b.signInScope.shared ? 'globe' : 'repo', 'blue') : null,
     place: b.place ?? null, left: b.left ?? [], columns,
   };
 }
@@ -1478,8 +1486,13 @@ export interface ConnectState {
   /** What's typed in the sign-in's fields, secrets left out. */
   fields: Record<string, string>;
   fieldErrors: Record<string, string>;
-  /** again: Sign in again was clicked, so the fields show though it's signed in. */
-  signIn: { state: 'none' | 'testing' | 'ok' | 'failed'; who: string | null; error: string | null; again: boolean };
+  /**
+   * again: Sign in again was clicked, so the fields show though it's signed in. shared: where the sign-in
+   * in use is kept (GH-79), for every project on the site or this repo only; absent for gh.
+   */
+  signIn: { state: 'none' | 'testing' | 'ok' | 'failed'; who: string | null; error: string | null; again: boolean; shared?: boolean };
+  /** The tick: keep the next sign-in for every project on the site (GH-79), rather than this repo only. */
+  share: boolean;
   pickers: Record<string, ConnectPickerState>;
   saving: boolean;
   saveError: string | null;
@@ -1538,6 +1551,8 @@ export interface ConnectModel {
   method: { id: string; hint: string; test: string };
   fields: ConnectField[];
   signIn: { look: Look; editing: boolean; canTest: boolean };
+  /** Use this sign-in for every project on the site (GH-79): shown while a sign-in is typed, never for gh. */
+  share: { shown: boolean; on: boolean; label: string; hint: string };
   pickers: ConnectPicker[];
   save: { can: boolean; label: string; look: Look | null };
 }
@@ -1558,7 +1573,7 @@ export function blankConnect(d: TrackerDescription, i: {
     id: i.id, rev: 0, root: i.root, projects: i.projects ?? [], projectName: i.projectName, ownRepo: i.ownRepo, ghAccount: i.ghAccount, kind: d.kind,
     existing: i.existing ? { index: i.existing.index, title: i.existing.title } : null, from: i.from,
     host: i.existing?.host ?? (d.host.prefill === 'github-repo' ? i.ownRepo ?? '' : ''), hostError: null,
-    method: method.id, fields, fieldErrors: {}, signIn: { state: 'none', who: null, error: null, again: false }, pickers, saving: false, saveError: null,
+    method: method.id, fields, fieldErrors: {}, signIn: { state: 'none', who: null, error: null, again: false }, share: true, pickers, saving: false, saveError: null,
   };
 }
 
@@ -1594,8 +1609,11 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
     };
   });
   const testing = s.signIn.state === 'testing';
+  // The site, organization or account, by name once it's known (GH-79).
+  const site = s.host && !s.hostError ? s.host : `this ${d.host.label.toLowerCase()}`;
+  const scope = s.signIn.shared === undefined ? '' : `, ${signInScope(s.signIn.shared, site)}`;
   const look: Look = testing ? LOOK(method.via === 'microsoft' ? 'Waiting for the Microsoft sign-in' : 'Testing the connection', 'sync~spin', 'blue')
-    : ok ? LOOK(`Signed in as ${s.signIn.who}`, 'pass', 'blue')
+    : ok ? LOOK(`Signed in as ${s.signIn.who}${scope}`, 'pass', 'blue')
       : s.signIn.state === 'failed' ? LOOK(s.signIn.error ?? 'Not signed in', 'warning', 'orange')
         : LOOK(method.via === 'gh' && s.ghAccount ? `Signs in as ${s.ghAccount}` : 'Not signed in yet', 'circle-large-outline', 'neutral');
   const pickers: ConnectPicker[] = d.pickers.map((p) => {
@@ -1621,7 +1639,7 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
   return {
     id: s.id, rev: s.rev,
     title: s.existing ? `Change ${s.existing.title}` : 'Connect a tracker',
-    summary: s.root ? `For ${s.projectName}. acc writes it to that repo's .acc/config.json, and the sign-in stays in VSCode for this repo only.` : 'Choose the project to connect a tracker to.',
+    summary: s.root ? `For ${s.projectName}. acc writes it to that repo's .acc/config.json, and the sign-in stays in VSCode on this machine, never in the file.` : 'Choose the project to connect a tracker to.',
     back: { section: s.from, label: `Back to ${SECTION_WORD[s.from]}` },
     projects: s.existing || s.projects.length < 2 ? [] : s.projects.map((p) => ({ ...p, on: p.root === s.root })),
     kinds: s.existing ? [] : list.map((x) => ({ kind: x.kind, name: x.name, icon: x.icon, on: x.kind === d.kind })),
@@ -1631,6 +1649,10 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
     fields: editing ? fields : [],
     // Not held back by an empty site: Test sends what's typed there, and says beside it what's wrong.
     signIn: { look, editing, canTest: !!s.root && !testing && !s.saving },
+    share: {
+      shown: editing && method.via !== 'gh' && !!s.root, on: s.share, label: `Use this sign-in for every project on ${site}`,
+      hint: s.share ? `Every project on this machine that uses ${site} signs in with it, unless it has a sign-in of its own.` : `Kept for ${s.projectName || 'this project'} only. Other projects on ${site} sign in on their own.`,
+    },
     pickers,
     save: {
       can: !!s.root && ok && ready && !s.saving, label: s.existing ? 'Save changes' : `Connect ${name}`,
@@ -1958,6 +1980,8 @@ export type FromWebview =
   | { type: 'connect-set'; session: string; field: string; value: string }
   | { type: 'connect-test'; session: string; host: string; fields: Record<string, string> }
   | { type: 'connect-again'; session: string }
+  /** The tick for keeping the sign-in for every project on the site (GH-79). */
+  | { type: 'connect-share'; session: string; on: boolean }
   | { type: 'connect-pick'; session: string; key: string; value: string | string[] | null }
   | { type: 'connect-save'; session: string }
   | { type: 'connect-cancel'; session: string }
@@ -2040,6 +2064,7 @@ export function isFromWebview(m: unknown): m is FromWebview {
       return !!f && typeof f === 'object' && !Array.isArray(f) && Object.keys(f).length <= 8 && Object.entries(f).every(([k, v]) => CONNECT.fields.has(k) && typeof v === 'string' && v.length <= 4096);
     }
     case 'connect-pick': return short(x.session, 64) && CONNECT.pickers.has(x.key as string) && connectValue(x.value);
+    case 'connect-share': return short(x.session, 64) && typeof x.on === 'boolean';
     case 'connect-again': case 'connect-save': case 'connect-cancel': return short(x.session, 64);
     case 'slack-connect': return typeof x.url === 'string' && isSlackWebhook(x.url.trim());
     case 'slack': return (SLACK_ACTIONS as readonly string[]).includes(x.action as string);
