@@ -3557,9 +3557,11 @@ machine, and each person typed the rest.
   defaults. `--jira-project` replaces the template's project; a `--profile`
   that disagrees with the template's is refused, naming both. A Jira or Azure
   tracker with no project, or a monday.com one with no board, is left out with
-  a note pointing at the Connect page. Gate commands the template adds are
-  listed before anything is written, by `acc init` and by Setup, since they
-  run on every coworker's machine.
+  a note pointing at the Connect page. Gate commands the template adds run on
+  every coworker's machine, so they're listed before anything is written by
+  Setup's confirmation, `acc template show` and `acc init --from … --dry-run`.
+  `acc init --from` without `--dry-run` writes first and lists them in its
+  output; the config is reviewed before it's committed.
 - **A Salesforce template meets the client's real orgs** (a person decided).
   Production's sandbox list decides which environments exist and their types.
   For each sandbox the template names (by lower-case name, D-015), the
@@ -3588,22 +3590,38 @@ machine, and each person typed the rest.
   --dry-run` to preview. A tracker agrees when the project has one of the
   same kind at the same place: its project may differ, as `--jira-project`
   allows. It can't read the template: Check by hand, with the reason; a local
-  file that isn't on this machine: Doesn't apply. It waits 20 seconds at most.
+  file that isn't on this machine: Doesn't apply. It waits 20 seconds at most
+  in all: a GitHub or git template takes two calls, which share one deadline.
+  It reads a GitHub template as the account in the project's `github`.
   Accepted: "I've done this" is kept by step id, so it hides later changes
   too. Re-applying is only ever a person running `acc init --from … --force`.
 - **Setup's "What kind of project is this?" offers "From a team template…"**,
   with the last 5 sources used on this machine, newest first, then "Another
   path or URL…". It reads the template with `acc template show --json`, shows
   a bad one's errors and writes nothing, and asks before starting, showing
-  the name, description, what it sets and its check commands. A Salesforce
-  template goes on to the Production org pick. The list is the extension's
-  machine-wide state (`acc.recentTemplates`), sources and names only.
+  the name, description, what it sets and its check commands. A template that
+  sets no profile goes on to "Salesforce or Other", and acc init gets the
+  answer as `--profile`. A Salesforce one goes on to the Production org pick.
+  The list is the extension's machine-wide state (`acc.recentTemplates`),
+  sources and names only.
+- **A template with no profile leaves an environment's type to the project**
+  when it gives none: null in the template, Production's sandbox list in a
+  Salesforce project, `none` in another. So `--profile salesforce` notes only
+  a type the template gave that Production's list contradicts.
 - **Refused sources:** a URL with a sign-in in it (`https://user:token@…`), a
   plain `http://` URL, any other web address (acc doesn't fetch without gh or
-  git), and a file over 64 KB. git runs with no prompt (GIT_TERMINAL_PROMPT=0,
-  ssh in batch mode), in a temporary folder that's always removed. gh runs
-  with GH_TOKEN for `--github-account`, else the account the repo pushes as,
-  else gh's active one; never `gh auth switch` (D-007).
+  git), a source that starts with `-`, and a file over 64 KB. A committed
+  config's source reaches git on every Setup refresh, so git clone also gets
+  `--` before the URL. git runs with no prompt (GIT_TERMINAL_PROMPT=0, ssh in
+  batch mode), in a temporary folder that's always removed. A
+  raw.githubusercontent.com URL may carry `refs/heads/` or `refs/tags/` before
+  its ref, as GitHub's Raw button links it.
+- **One account reads a GitHub template, for `acc template show` and `acc init
+  --from` alike:** `--github-account`, else the account the repo pushes as
+  when its origin is on GitHub, else gh's active one, through GH_TOKEN, never
+  `gh auth switch` (D-007). A `--github-repo` with no GitHub origin doesn't
+  pick it. So Setup's preview and the acc init after it read as the same
+  account.
 - Not chosen: merging a changed template into a config; inheritance or
   layering; a template gallery or editor; formats other than JSON; templates
   setting analysis, autopilot, worktrees or the secret scan.

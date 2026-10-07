@@ -154,8 +154,9 @@ only* are hidden for a `generic` project.
   template…** instead, and give its path or URL. It sets what the team agreed
   on, such as the checks and the tracker, and acc finds the rest. Setup lists
   what it sets and the commands it runs before anything is written. In a
-  terminal: `acc init --from <template>`. docs/TEMPLATES.md says what a
-  template holds.
+  terminal, `acc template show <template>` lists them first, and
+  `acc init --from <template>` writes the config. docs/TEMPLATES.md says what
+  a template holds.
 
   Review the file and commit it. `acc init --force` writes it again.
 - [ ] **The team template is current** (`B0.template`). A project started

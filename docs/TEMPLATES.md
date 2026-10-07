@@ -13,6 +13,8 @@ acc init --from <template> --production-org "<prod>"   # a Salesforce one
 
 In VSCode, Setup's **Project config** step offers **From a team template…**
 under **Do it**. It remembers the last five templates used on this machine.
+When a template sets no profile, Setup asks whether the project is Salesforce
+or another kind, and passes `--profile`.
 
 ## A sample
 
@@ -50,16 +52,20 @@ and let autopilot review and land:
 | Source | Example | Fetched with |
 |---|---|---|
 | A file in one of the team's GitHub repos | `https://github.com/acme/acc-templates/blob/main/salesforce.json` | `gh api`, as the repo's account |
-| The same file, raw | `https://raw.githubusercontent.com/acme/acc-templates/main/salesforce.json` | `gh api`, as the repo's account |
+| The same file, raw (GitHub's **Raw** button may add `refs/heads/`) | `https://raw.githubusercontent.com/acme/acc-templates/refs/heads/main/salesforce.json` | `gh api`, as the repo's account |
 | A file in any git repo | `https://git.example.com/acme/acc-templates.git#salesforce.json` | a shallow `git clone` |
 | A path on this machine | `~/acme/acc-templates/salesforce.json` | read from disk |
 
-gh reads as `--github-account`, else the account the repo pushes as, else gh's
-active account. acc never runs `gh auth switch` (D-007). git runs without
-prompting for a password, in a temporary folder it always removes.
+`acc template show` and `acc init --from` read a GitHub file as the same
+account: `--github-account`, else the account the repo pushes as when its
+origin is on GitHub, else gh's active account. So Setup's preview and the
+`acc init` after it read as one account. acc never runs `gh auth switch`
+(D-007). git runs without prompting for a password, in a temporary folder it
+always removes.
 
 acc refuses a URL with a sign-in in it (`https://user:token@…`), a plain
-`http://` URL, any other web address, and a file over 64 KB.
+`http://` URL, any other web address, a source that starts with `-` (git would
+read it as an option; write a file named so as `./-…`), and a file over 64 KB.
 
 ## What a template may say
 
@@ -69,7 +75,7 @@ acc refuses a URL with a sign-in in it (`https://user:token@…`), a plain
 | `name` | A short name, such as `ACME Salesforce` |
 | `description` | A sentence or two |
 | `profile` | `generic` or `salesforce` |
-| `environments` | Each one's `name`, `type`, `default`, `protected` and `promotesTo`, under the config's rules (D-015, D-018). In a Salesforce template, a type may be left out: Production's sandbox list gives it |
+| `environments` | Each one's `name`, `type`, `default`, `protected` and `promotesTo`, under the config's rules (D-015, D-018). In a Salesforce template, a type may be left out: Production's sandbox list gives it. In a template with no profile, a type left out is left to the project: Production's list in a Salesforce project, `none` in another |
 | `gates` | `required`, `commands`, `heavy` and `severity`, as in `.acc/config.json` |
 | `tracker` | One tracker: its `kind`, its place and a default project. Jira: `site`, `project`. Azure DevOps: `organization`, `project`, `prefix`. monday.com: `account`, `board`, `prefix`. GitHub: `kind` only, since it reads the project's own repo |
 | `autonomy` | `manual` or `review`. `dispatch` and `full` are a person's choice in the project's own config |
@@ -102,8 +108,11 @@ disagrees with the template's is refused.
   template doesn't name keeps acc's usual path. acc init says which, in a note.
 - **A tracker with no project** (a monday.com one with no board) is left out,
   with a note. Connect it on the Command Center's Connect page.
-- **Check commands** the template adds are listed before anything is written:
-  they run on the machine of everyone who uses the project.
+- **Check commands** the template adds run on the machine of everyone who
+  uses the project. `acc template show`, `acc init --from … --dry-run` and
+  Setup's confirmation list them before anything is written. `acc init
+  --from` without `--dry-run` writes the config first, then lists them in its
+  output, so review the file before you commit it.
 
 The project records where it came from:
 
@@ -117,8 +126,10 @@ committed.
 ## When the template changes
 
 Setup's **The team template is current** step (`B0.template`) reads the
-template again. It passes while it's unchanged, or when it changed but the
-project already agrees. When the project now differs, it asks you to check by
+template again, as the account in the project's `github`. It waits 20
+seconds at most in all: a GitHub or git template takes two calls, and they
+share the time. It passes while the template is unchanged, or when it changed
+but the project already agrees. When the project now differs, it asks you to check by
 hand, names the keys that differ, and offers a preview that writes nothing:
 
 ```bash
