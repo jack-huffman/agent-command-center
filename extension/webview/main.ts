@@ -1,7 +1,7 @@
 // Renders one editor tab. Every element is built with DOM calls and every string is set as text,
 // so nothing from a ticket, branch or session can become markup. No HTML string is ever parsed.
 import type {
-  Action, AgentModel, AgentsModel, ConnectField, ConnectModel, ConnectPicker, EntryView, EnvironmentsModel, HistoryItem, HomeModel, HomeSection, IdentityCard, Look, Model, PersonChip, QuestionCard, Ref, RunCard, SetupModel, SetupRow, SlackCard, TasksModel, TicketAnalysis, TicketModel, TrackerBoard, TrackerCard, UpdateCard, ViewKind, WorktreesModel,
+  Action, AgentModel, AgentsModel, ConnectField, ConnectModel, ConnectPicker, EntryView, EnvironmentsModel, HistoryItem, HomeModel, HomeSection, IdentityCard, Look, Model, PersonChip, QuestionCard, Ref, RunCard, SetupModel, SetupRow, SlackCard, TasksModel, TicketAnalysis, TicketModel, TrackerBoard, TrackerCard, UpdateCard, ViewKind, WhereView, WorktreesModel,
 } from '../src/model.ts';
 import type { Block, Doc, Inline } from '../../packages/core/src/trackers/doc.ts';
 import { type DraftKeys, type EditBase, editFor, keepEdits, Pending } from './pending.ts';
@@ -1370,7 +1370,7 @@ function renderAgent(m: AgentModel): Node[] {
     m.startedAt ? el('span', '', `Started ${since(m.startedAt)}`) : null,
     m.model ? el('span', '', el('span', 'sep', '·'), el('span', 'mono', m.model)) : null,
     m.lastAt ? el('span', '', el('span', 'sep', '·'), 'last active ', when(m.lastAt)) : null,
-    m.where ? el('span', '', el('span', 'sep', '·'), el('span', 'mono', m.where)) : null);
+    m.where ? el('span', '', el('span', 'sep', '·'), Object.assign(el('span', '', m.where), { title: m.path })) : null);
   const out: Node[] = [el('header', 'ticket-head agent-head', crumbs, el('h1', 'ticket-title', m.task?.title ?? m.name), facts,
     el('div', 'ticket-bar', status(m.look), el('span', 'spacer'), el('div', 'actions', ...m.actions.map(actionButton))))];
   if (m.questions.length) out.push(el('section', 'agent-asks', ...m.questions.map((q) => questionCard(q, { watch: false }))));
@@ -1856,6 +1856,23 @@ function renderHome(m: HomeModel): Node[] {
 /** A model's name short enough for a table cell: claude-opus-5-5 is opus-5-5, and a dated snapshot drops its date. */
 const shortModel = (m: string): string => m.replace(/^claude-/, '').replace(/-\d{8}(?=\[|$)/, '');
 
+/**
+ * A folder or a path that wraps between its words and after each slash, never inside a name or a key, so
+ * `ACME-12` never splits at its hyphen (GH-83).
+ */
+function slashBreaks(text: string): Node[] {
+  const out: Node[] = [];
+  text.split(' ').forEach((word, w) => {
+    if (w) out.push(document.createTextNode(' '));
+    word.split('/').forEach((part, i, all) => {
+      const last = i === all.length - 1;
+      out.push(el('span', 'unbroken', last ? part : `${part}/`));
+      if (!last) out.push(document.createElement('wbr'));
+    });
+  });
+  return out;
+}
+
 /** Where the Agents page remembers How agents run is open: model.ts's AGENT_SETTINGS, which the extension opens. */
 const AGENT_SETTINGS = 'agents:settings';
 
@@ -1914,18 +1931,43 @@ function renderAgents(m: AgentsModel): Node[] {
     body.append(el('tr', 'group', span(el('th', '', icon(place.root ? 'repo' : 'device-desktop'), place.label, el('span', 'count', String(place.agents.length))), 7)));
     if (!place.agents.length) body.append(el('tr', 'none', span(el('td', 'muted', 'No agent sessions in this project right now.'), 7)));
     for (const a of place.agents) {
+      // Its folder in context, or its full path, wrapped rather than clipped, as the names are: its own
+      // folder comes last, and that's the part a clip would lose. The full path on hover in both (GH-83).
+      const where = m.whereView === 'path' ? el('td', 'mono where-path', ...slashBreaks(a.path)) : el('td', 'where-folder', ...slashBreaks(a.where));
+      where.title = a.path;
       const row = el('tr', a.needsYou ? 'attention' : '',
         // Its whole name, wrapped: the part that says what it works on comes last (D-087).
         openable(titled(el('td', 'strong agent-name', a.name), a.name), { type: 'run', command: 'acc.agent.watch', ref: { session: a.key } }), el('td', 'nowrap', status(a.look)),
         // The model it runs with (D-086), as plain text, short, with its full name on hover; a dash until it's known.
-        Object.assign(el('td', 'nowrap mono muted model', a.model ? shortModel(a.model) : '—'), { title: a.model ?? 'Not known until it first answers' }), el('td', 'nowrap muted kind', a.kind), clipped(a.where, 'mono'), el('td', 'nowrap muted started', since(a.startedAt)),
+        Object.assign(el('td', 'nowrap mono muted model', a.model ? shortModel(a.model) : '—'), { title: a.model ?? 'Not known until it first answers' }), el('td', 'nowrap muted kind', a.kind), where, el('td', 'nowrap muted started', since(a.startedAt)),
         el('td', 'actions', menuButton(a.name)));
       body.append(withMenu(row, 'agent', { session: a.key }, { agentBackground: a.background }));
     }
     table.append(body);
   }
-  out.push(wrap(table));
+  out.push(whereBar(m.whereView), wrap(table));
   return out;
+}
+
+/**
+ * What the Where column shows, Folder or Full path (GH-83), just above its heading. In the heading it would
+ * widen the column, so a narrow tab would scroll it out of view. The page switches at once, and the
+ * extension remembers the choice for the window.
+ */
+function whereBar(view: WhereView): HTMLElement {
+  const pick = segmented('Where shows', [
+    { key: 'folder', label: 'Folder', icon: 'folder', on: view === 'folder' },
+    { key: 'path', label: 'Full path', icon: 'list-tree', on: view === 'path' },
+  ], (key) => {
+    const v = key as WhereView;
+    if (last?.kind === 'home') last = { ...last, agents: { ...last.agents, whereView: v } };
+    else if (last?.kind === 'agents') last = { ...last, whereView: v };
+    if (last) render(last);
+    api.postMessage({ type: 'agents-where', view: v });
+  });
+  pick.classList.add('where-view');
+  pick.querySelectorAll('button').forEach((b, i) => { b.dataset.keep = `where-view:${i}`; });
+  return el('div', 'where-bar', el('span', 'where-label', 'Where shows'), pick);
 }
 
 function renderWorktrees(m: WorktreesModel): Node[] {

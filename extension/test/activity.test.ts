@@ -146,6 +146,22 @@ test('an agent\'s page: its task, its question, its actions, and an ended sessio
   assert.ok(m.entries[0]!.k === 'say' && m.entries[0]!.body.blocks.length === 1, 'what it said is rendered from markdown');
   const ended = agentModel({ hub, key: 'gone', seen: { cwd: '/x', kind: 'background', startedAt: 1, sessionId: 'gone', name: 'T-9' }, entries: [], readable: false, lastAt: null });
   assert.deepEqual([ended.live, ended.look.label, ended.actions.map((a) => a.command)], [false, 'Ended', ['acc.agent.openInClaude', 'acc.agent.openFolder']], 'an ended session still opens in Claude Code');
+  assert.deepEqual([ended.where, ended.path], ['x', '/x']);
+});
+
+test('an agent\'s page and its Needs you card name its folder in context, with the whole folder on hover (GH-83)', () => {
+  const hub = sampleHub();
+  const page = agentModel({ hub, key: 's-acme-14', seen: null, entries: [], readable: false, lastAt: null });
+  assert.deepEqual([page.where, page.path], ['Acme Service › worktree ACME-14', '~/code/acme-service/.claude/worktrees/ACME-14']);
+  // The same words as its Agents row, which leaves out the project its group names.
+  const home = homeModel({ hub, section: 'agents', boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: sampleRuns() });
+  assert.equal(home.agents.places[0]!.agents.find((a) => a.key === 's-acme-14')!.where, 'worktree ACME-14');
+  const card = home.overview.attention.find((a) => a.title === 'ACME-11')!;
+  assert.deepEqual([card.detail, card.tip], ['Acme Service · worktree ACME-11', '~/code/acme-service/.claude/worktrees/ACME-11']);
+  // Elsewhere, its folder by name, never the whole path: a session in a repo called Acme Service elsewhere says which.
+  const away = { ...hub, agents: [...hub.agents, { cwd: '/Users/me/clients/Acme Service/.claude/worktrees/ACME-41', kind: 'background' as const, startedAt: 1, id: 'bg41', name: 'ACME-41', state: 'blocked' as const }] };
+  const elsewhere = homeModel({ hub: away, section: 'overview', boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: sampleRuns() }).overview.attention.find((a) => a.title === 'ACME-41')!;
+  assert.deepEqual([elsewhere.detail, elsewhere.tip, elsewhere.project], ['clients/Acme Service › worktree ACME-41', '~/clients/Acme Service/.claude/worktrees/ACME-41', '']);
 });
 
 test('answers from the page are checked, and only the fields a decision has reach the hook', () => {

@@ -23,10 +23,11 @@ import { type ConnectSample, SAMPLE_EDIT, sampleAgent, sampleBoards, sampleConne
  * built, two to do whose analysis has questions or says to split it, one whose builder stopped, and one
  * acc doesn't keep yet, being tracked), an agent's page, Setup with the output panel open on a command
  * that's asking something, the Connect page at each of its steps (D-073), Environments with the Slack
- * card at each of its states (GH-58): sending on Environments itself, then not set up, off and paused, and
- * the Tasks tab with a monday.com board in place of the Jira one (GH-70).
+ * card at each of its states (GH-58): sending on Environments itself, then not set up, off and paused,
+ * the Tasks tab with a monday.com board in place of the Jira one (GH-70), Agents with How agents run opened
+ * by its Settings (D-089), and Agents with its Where column showing full paths (GH-83).
  */
-export const PAGES = [...HOME_SECTIONS, 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'agent', 'output', 'connect-start', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-settings'] as const;
+export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'agent', 'output', 'connect-start', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-settings'] as const;
 export type Page = (typeof PAGES)[number];
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -72,9 +73,9 @@ export function sampleModel(kind: Page, now = Date.now()): Model {
   const hub = sampleHub(now);
   const connect = kind.startsWith('connect-') ? sampleConnect(kind.slice('connect-'.length) as ConnectSample) : null;
   const slack = sampleSlack(kind.startsWith('slack-') ? kind.slice('slack-'.length) as SlackSample : 'on', now);
-  const section = (kind === 'output' ? 'setup' : connect || kind === 'tasks-monday' ? 'tasks' : kind.startsWith('slack-') ? 'environments' : kind === 'agents-settings' ? 'agents' : kind) as HomeSection;
+  const section = (kind === 'output' ? 'setup' : connect || kind === 'tasks-monday' ? 'tasks' : kind.startsWith('slack-') ? 'environments' : kind === 'agents-settings' || kind === 'agents-path' ? 'agents' : kind) as HomeSection;
   const boards = kind === 'tasks-monday' ? sampleMondayBoards : sampleBoards;
-  return homeModel({ hub, section, boards: () => boards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: sampleRuns(now), edited: sampleEdited, connect, slack });
+  return homeModel({ hub, section, boards: () => boards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: sampleRuns(now), edited: sampleEdited, connect, slack, whereView: kind === 'agents-path' ? 'path' : 'folder' });
 }
 
 /**

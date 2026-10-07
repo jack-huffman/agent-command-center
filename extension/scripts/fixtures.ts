@@ -13,7 +13,7 @@ import { type AdfNode, fromAdf } from '../../packages/core/src/trackers/doc.ts';
 import type { Ticket } from '../../packages/core/src/trackers/types.ts';
 import type { HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
-import { type AgentSession, askingLabel, type DoctorItem, rowAnalysis, type TaskRow } from '../src/logic.ts';
+import { type AgentSession, askingLabel, type DoctorItem, repoRoot, rowAnalysis, type TaskRow } from '../src/logic.ts';
 import { AZURE, GITHUB, JIRA, MONDAY } from '../../packages/core/src/trackers/connect.ts';
 import { type AgentModel, agentModel, blankConnect, type BoardInput, type ConnectModel, connectModel, type ConnectState, type HubLike, type IdentityCard, type ProjectLike, type RunInput, ticketModel, type TicketModel } from '../src/model.ts';
 import { blankSlack, type SlackCard, slackCard, type SlackState } from '../src/slack.ts';
@@ -104,7 +104,17 @@ export function sampleHub(now = Date.now()): HubLike {
     { cwd: root, kind: 'interactive', startedAt: now - 120 * MIN, sessionId: '0e02-main', name: 'acme-dev', status: 'busy', pid: 4100 },
     { cwd: '/Users/me/code/side-project', kind: 'interactive', startedAt: now - 30 * 60 * MIN, sessionId: '7c1d-side', name: 'side-project', status: 'idle', pid: 4200 },
     { cwd: '/Users/me/Documents/a folder with a long name/docs-site', kind: 'background', startedAt: now - 7 * 24 * 60 * MIN, id: 'bg3', name: 'docs-site', state: 'done' },
+    // Elsewhere, each kind of folder (GH-83): two repos of one name, a builder's worktree of one, a folder
+    // inside a repo, home, and a folder in no repo. None is working or needs you, so the counts hold.
+    { cwd: '/Users/me/clients/Acme Service', kind: 'interactive', startedAt: now - 3 * 60 * MIN, sessionId: '5a2e-client', name: 'acme-support', status: 'idle', pid: 4300 },
+    { cwd: '/Users/me/personal/Acme Service', kind: 'interactive', startedAt: now - 5 * 60 * MIN, sessionId: '6b3f-personal', name: 'acme-fork', status: 'idle', pid: 4301 },
+    { cwd: '/Users/me/clients/Acme Service/.claude/worktrees/ACME-40', kind: 'background', startedAt: now - 4 * 60 * MIN, id: 'bg40', sessionId: 's-acme-40', name: 'ACME-40', state: 'done' },
+    { cwd: '/Users/me/code/side-project/force-app/main', kind: 'interactive', startedAt: now - 6 * 60 * MIN, sessionId: '8d4a-flows', name: 'side-flows', status: 'idle', pid: 4302 },
+    { cwd: '/Users/me', kind: 'interactive', startedAt: now - 8 * 60 * MIN, sessionId: '9e5b-home', name: 'dotfiles', status: 'idle', pid: 4303 },
+    { cwd: '/Users/me/Downloads/scratch', kind: 'interactive', startedAt: now - 10 * 60 * MIN, sessionId: 'af6c-scratch', name: 'scratch', status: 'idle' },
   ];
+  // The folders holding .git, for the repo each session elsewhere is in.
+  const repos = new Set([root, '/Users/me/clients/Acme Service', '/Users/me/personal/Acme Service', '/Users/me/code/side-project']);
   const questions = sampleQuestions(now, wt);
   const answers = sampleAnswers(now, wt);
   return {
@@ -114,6 +124,8 @@ export function sampleHub(now = Date.now()): HubLike {
     modelFor: (s) => tasks.find((t) => t.run?.bgId && t.run.bgId === s.id)?.model ?? ({ '0e02-main': 'claude-opus-5-5', '7c1d-side': 'claude-haiku-4-5-20251001' } as Record<string, string>)[s.sessionId ?? ''] ?? null,
     taskRows: () => tasks,
     projectFor: (p: string) => (p === root || p.startsWith(`${root}/`) ? project : undefined),
+    home: '/Users/me',
+    repoFor: (p: string) => repoRoot(p, '/Users/me', (d) => repos.has(d)),
     autopilotLog: () => sampleAutopilot(now),
     updates: () => sampleUpdates(now),
     history: () => [
