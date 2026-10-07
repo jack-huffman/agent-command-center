@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import type { HeavyState } from '../../packages/core/src/semaphore.ts';
+import { POLL_INTERVALS } from '../src/logic/polls.ts';
 import type { AgentSession, TaskRow } from '../src/logic/shared.ts';
 import { homeModel } from '../src/model/home.ts';
 import type { HubLike, ProjectLike } from '../src/model/shared.ts';
@@ -263,7 +264,9 @@ test('acc.job.stop may be asked for from the page, is declared, hidden from the 
     assert.ok(i > 0, what);
     assert.ok(body.lastIndexOf('await ask(', i) > body.lastIndexOf('} else if', i), `${what} comes after its question`);
   }
-  assert.match(ext, /jobs: \{ everyMs: 3_000, hiddenMs: 15_000, fn: \(\) => hub\.loadJobs\(pageVisible\) \}/, 'polled as tasks are (D-044)');
+  // How often is logic/polls.ts's (GH-109), and the same as tasks'.
+  assert.deepEqual([POLL_INTERVALS.jobs.everyMs, POLL_INTERVALS.jobs.hiddenMs], [POLL_INTERVALS.tasks.everyMs, POLL_INTERVALS.tasks.hiddenMs], 'polled as tasks are (D-044)');
+  assert.match(ext, /jobs: \(\) => hub\.loadJobs\(pageVisible\),/);
 });
 
 test('a builder\'s latest step and model come from its transcript\'s tail, skipping a helper agent\'s turns', () => {

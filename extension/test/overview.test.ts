@@ -25,7 +25,7 @@ test('the Overview gathers what needs a person, counts it once, and groups revie
   const nav = Object.fromEntries(m.nav.map((n) => [n.section, n]));
   assert.deepEqual([nav.overview!.count, nav.overview!.attention], [people, true], 'the rail and the inbox agree');
   assert.deepEqual([nav.setup!.count, nav.setup!.attention], [1, true]);
-  assert.deepEqual(m.nav.map((n) => n.section), ['overview', 'tasks', 'agents', 'worktrees', 'environments', 'setup']);
+  assert.deepEqual(m.nav.map((n) => n.section), ['overview', 'tasks', 'agents', 'worktrees', 'environments', 'setup', 'settings']);
   assert.equal(m.overview.stats.find((s) => s.section === 'setup')!.value, '1/2');
   // An agent already shown through its task isn't listed twice.
   const linked = { ...h, taskRows: () => [{ ...h.taskRows('/r')[1]!, display: 'needs-you' as const, run: { bgId: 'bg1' }, agent: { label: 'Needs you: permission prompt', icon: 'bell', tone: 'orange' as const } }] };
