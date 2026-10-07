@@ -241,9 +241,10 @@ const names = (list: string[]): string => list.join(', ');
 
 /**
  * What a pull request's checks on GitHub mean for a task in review whose pull request is landed at its
- * latest commit and merges cleanly (D-076), or null when they mean nothing to do. Still running: it waits.
- * Failed, with a log to send: back to its builder, once a commit and 3 times a task. Checks that failed
- * again on a commit it already sent back are written down, so the task needs you.
+ * latest commit and merges cleanly (D-076), or, `queueing`, is in the merge queue's hands, conflict or not
+ * (GH-73); null when they mean nothing to do. Still running: it waits, a wait that settles by itself.
+ * Failed, with a log to send: back to its builder, once a commit and 3 times a task, with the queue's
+ * send-backs. Checks that failed again on a commit it already sent back are written down, so the task needs you.
  */
 function checksStep(task: Task, facts: TaskFacts, step: (s: AutopilotStepName, reason: string) => Decision, none: (o: 'waiting' | 'skipped', reason: string) => Decision, queueing = false): Decision | null {
   const pr = task.pr!;
@@ -830,7 +831,7 @@ export function readAutopilotLog(file: string, log?: AutopilotLog): AutopilotLog
  * Runs `fn` holding the repo's autopilot lock, so two autopilots never act on the same tasks. It never
  * goes stale with age, since one pass can take an hour; only a dead owner frees it. A second autopilot is
  * refused at once, naming the one that holds it. Separate from the heavy-check slot, which only a
- * refresh's checks take, as a builder's do (D-058).
+ * refresh's checks and the merge queue's full check take, as a builder's do (D-058, GH-73).
  */
 export function holdAutopilot<T>(paths: RepoPaths, fn: () => T): T {
   // A repo where no task was ever added has no state folder yet, and the lock lives in it.
