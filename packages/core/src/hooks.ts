@@ -6,7 +6,7 @@
  */
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
-import { loadConfig } from './config.ts';
+import { builderGatesFor, loadConfig, requiredGates } from './config.ts';
 import type { Runner } from './exec.ts';
 import { readList } from './gates.ts';
 import { mutate, readLedger, type Task } from './ledger.ts';
@@ -220,13 +220,17 @@ export function preToolUseHook(input: EventInput, ctx: HookContext): Record<stri
   return null;
 }
 
-/** The few lines a builder needs again after its context was compacted or the session resumed. */
-export function shortPacket(task: Task, gates: string[]): string {
+/**
+ * The few lines a builder needs again after its context was compacted or the session resumed. `full` is
+ * the full check, named where the builder's gates are the lighter ones and the merge queue runs it (GH-73).
+ */
+export function shortPacket(task: Task, gates: string[], full: string[] = []): string {
   return [
     `You are the builder for ${task.id}: ${task.title}.`,
     `Work only in ${task.run?.worktree}, on ${task.run?.branch}.`,
     `Finish line: commit everything, run exactly \`acc gate run\`${gates.length ? ` (${gates.join(', ')})` : ''}, then run exactly \`acc done\`. If you're stuck, run \`acc block "<what you need>"\` and stop.`,
-    'Never push, merge, open a pull request or deploy.',
+    ...(full.length ? [`The full check (${full.join(', ')}) runs once, in the merge queue, before the merge.`] : []),
+    'Never push, merge a pull request, open one, or deploy.',
     `Your full instructions: acc show ${task.id}.`,
   ].join('\n');
 }
@@ -253,12 +257,16 @@ export function sessionStartHook(input: EventInput, ctx: HookContext): Record<st
   }
   if (input.source !== 'resume' && input.source !== 'compact') return null;
   let gates: string[] = [];
+  let full: string[] = [];
   try {
-    gates = loadConfig(join(b.root, '.acc', 'config.json')).config.gates.required;
+    const config = loadConfig(join(b.root, '.acc', 'config.json')).config;
+    // A builder's checks: the lighter ones where the merge queue runs the full one (GH-73).
+    gates = requiredGates(config, b.task.environment, 'builder');
+    full = builderGatesFor(config, b.task.environment) ? config.gates.required : [];
   } catch {
     gates = [];
   }
-  return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: shortPacket(b.task, gates) } };
+  return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: shortPacket(b.task, gates, full) } };
 }
 
 /** Where the Stop hook remembers it reminded a session. A resume clears it, so the resumed turn is reminded too (D-067). */

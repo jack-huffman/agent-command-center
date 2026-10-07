@@ -106,8 +106,12 @@ export interface Config {
   agents: { max: number; permissionMode: string; builder: AgentProfile; reviewer: AgentProfile };
   autonomy: Autonomy;
   worktrees: { root: string | null; setup: string[] };
-  /** heavy: gates that take the machine-wide slot (D-024). severity: Code Analyzer's failing level, 1 to 5. */
-  gates: { required: string[]; commands: Record<string, string>; heavy: string[]; severity: number };
+  /**
+   * heavy: gates that take the machine-wide slot (D-024). severity: Code Analyzer's failing level, 1 to 5.
+   * builder: the lighter checks builders run where the merge queue runs `required` once before each merge
+   * (GH-73). Left out, builders run `required`, as everywhere else.
+   */
+  gates: { required: string[]; commands: Record<string, string>; heavy: string[]; severity: number; builder?: string[] };
   secretScan: { paths: string[]; exclude: string[] };
   /** Whether a task needs an analysis before it's built (D-052). Salesforce projects do unless they say not. */
   analysis?: { required: boolean };
@@ -316,6 +320,7 @@ export function parseConfig(raw: unknown): ParseResult {
     else Object.assign(commands, g.commands);
   }
   if (g.heavy !== undefined && !strList(g.heavy)) errors.push('"gates.heavy" must be a list of gate names.');
+  if (g.builder !== undefined && !(Array.isArray(g.builder) && g.builder.every(isStr))) errors.push('"gates.builder" must be a list of gate names: the lighter checks builders run where the merge queue runs the required ones.');
   if (g.severity !== undefined && !(Number.isInteger(g.severity) && (g.severity as number) >= 1 && (g.severity as number) <= 5)) {
     errors.push('"gates.severity" must be a whole number from 1 (only the worst problems fail) to 5 (everything fails).');
   }
@@ -382,6 +387,7 @@ export function parseConfig(raw: unknown): ParseResult {
         commands,
         heavy: strList(g.heavy) ? g.heavy : DEFAULT_HEAVY[profile],
         severity: (g.severity as number | undefined) ?? 2,
+        ...(Array.isArray(g.builder) && g.builder.every(isStr) ? { builder: g.builder as string[] } : {}),
       },
       secretScan: {
         paths: strList(s.paths) ? s.paths : defaultScan,
@@ -528,6 +534,26 @@ export function autoMergeFor(config: Pick<Config, 'profile' | 'autonomy' | 'envi
   if (!autoMergeOn(config) || config.autonomy !== 'review') return false;
   const env = environmentByBranch(config, branch);
   return !!env && !env.protected;
+}
+
+/** Which checks a commit needs: a builder's, before acc done, review and land, or the merge's, before it merges (GH-73). */
+export type GateScope = 'builder' | 'merge';
+
+/**
+ * Whether builders on this environment run the lighter `gates.builder` (GH-73): the repo names some, and
+ * the merge queue runs the full check before each merge, which it does where auto-merge covers the
+ * environment. Elsewhere builders run `gates.required`, as before.
+ */
+export function builderGatesFor(config: Pick<Config, 'profile' | 'autonomy' | 'environments' | 'autopilot' | 'gates'>, branch: string): boolean {
+  return !!config.gates.builder?.length && autoMergeFor(config, branch);
+}
+
+/**
+ * The checks a commit on this environment needs, by scope (GH-73). merge: `gates.required`, always. builder:
+ * `gates.builder` where the merge queue runs the required ones before each merge, else `gates.required`.
+ */
+export function requiredGates(config: Pick<Config, 'profile' | 'autonomy' | 'environments' | 'autopilot' | 'gates'>, branch: string, scope: GateScope): string[] {
+  return scope === 'builder' && builderGatesFor(config, branch) ? config.gates.builder! : config.gates.required;
 }
 
 /**

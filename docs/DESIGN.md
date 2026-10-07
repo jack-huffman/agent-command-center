@@ -136,7 +136,7 @@ listed so that drift checks and `doctor` cover it.
 | `autopilot.appendOnly` | Files, or folders, where autopilot may resolve a conflict with the base when both sides only added to the end, such as a decision log. Left out, there are none ([section 12](#12-the-orchestrator-loop)) |
 | `dispatch.shared` | Files, or folders, that every task edits, such as the docs. Like `autopilot.appendOnly`, they never make one task wait for another's files. Left out, there are none ([section 7](#7-dispatch)) |
 | `worktrees.root` | Where task worktrees go. The default is a sibling folder outside the repo ([section 7](#7-dispatch)) |
-| `gates` | Which checks are required, plus per-check overrides |
+| `gates` | Which checks are required, plus per-check overrides. `gates.builder` names a builder's lighter checks, where the merge queue runs the required ones ([section 9](#9-gates-and-receipts)) |
 
 ## 5. Tasks and the ledger
 
@@ -366,12 +366,16 @@ or from the project's `.acc/packet.md` if there is one. It contains:
 - **Where:** the worktree path, the environment's branch and, for Salesforce,
   its org.
 - **The finish line:**
-  - Run each required check with `acc gate run <name>`.
+  - Run each required check with `acc gate run <name>`: a builder's lighter
+    ones where the merge queue runs the full check (§9, GH-73).
   - Commit as `<id>: <summary>`. For GitHub, add `refs #N`. Never write `fixes`
     or `closes`.
   - End with `acc done`, or with `acc block "<reason>"` if stuck.
 - **Never:**
-  - push, merge or deploy
+  - push, merge a pull request, open one, or deploy. Merging the base into its
+    own branch is fine where the merge queue runs, as it asks when it conflicts;
+    only there, and only its own base (`git merge origin/<its environment>`,
+    with or without flags), is it allowed without asking
   - edit files outside the worktree
   - edit an environment-specific file
   - change the ticket
@@ -421,6 +425,19 @@ config.
 `acc gate run [<gate>...]` runs the required gates, or the ones named, on the
 current commit. `acc gate list` shows each gate and its result on this commit,
 or on the task's latest commit with `--task`.
+
+**A builder's lighter checks** (GH-73). Where auto-merge is on, the merge queue
+runs `gates.required`, the full check, once on the commit that merges (§12). A
+repo can then give its builders lighter ones in `gates.builder`, such as a
+typecheck and the tests near what changed: `acc gate run` with no names runs
+them, and `acc done`, `acc review` and `acc land` take them. The full check
+passing on a commit covers them. Left out, or where auto-merge doesn't cover the
+environment, builders run `gates.required`, as before. A command gate is told
+what the branch changed, and the tests near those changes, one path a line, in
+`ACC_CHANGED` and `ACC_NEAR_TESTS`: the test files it changed, and, in the same
+package, the tests named for each other file it changed (`merge.ts` →
+`merge.test.ts`, `test_merge.py`) or that import it. This repo's builders run
+`typecheck` and `near-tests`.
 
 **Agents validate; they never deploy (D-011).** Parallel branches deploying to
 one shared sandbox would overwrite each other's work. A deploy happens after
@@ -595,7 +612,7 @@ ledger and takes the next step for each task, one task at a time, as the
 | `autonomy` | What runs on its own |
 |---|---|
 | `manual` (default) | Nothing. The extension shows the next steps as buttons, and `acc autopilot` does nothing |
-| `review` | Autopilot reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, merges the base into a pull request that conflicts with it, and starts a task a person dispatched once the files it waits for are free. With `autopilot.autoMerge`, it also merges a reviewed, green pull request |
+| `review` | Autopilot reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, merges the base into a pull request that conflicts with it, and starts a task a person dispatched once the files it waits for are free. With `autopilot.autoMerge`, reviewed, green pull requests merge in turn, through the repo's merge queue |
 | `dispatch` | As `review`, and it also starts Ready tasks up to `agents.max`. Not built yet: autopilot refuses |
 | `full` | Read as `dispatch`, with a warning |
 
@@ -611,11 +628,11 @@ before each:
 | In review, nothing has reviewed its latest commit, no review running | `review` (the reviewer's move, made for autopilot) |
 | In review, its latest commit passed, no pull request, or an open one behind that commit | `land` |
 | In review, its latest commit passed, its pull request closed without merging | Nothing. It needs you, naming the pull request: a person lands it again, or not (D-063) |
-| In review, its latest commit passed and landed, but the pull request conflicts with its base | `refresh`: merge the base in, then run its checks. The next passes review and land the merge |
-| In review, its latest commit passed and landed, and the pull request's checks failed on GitHub there | `checks`: send it back to its builder with each failed check's link and log (D-076). Once a commit and 3 times a task; checks still running wait; a failed check with no log on GitHub needs you |
-| With auto-merge on: in review, its latest commit passed and landed, its checks passed on GitHub, but its base moved on | `refresh`: merge the base in, as for a conflict. The merge is reviewed, landed and checked before it merges |
-| With auto-merge on: in review, its latest commit passed and landed, up to date with its base, its checks passed on GitHub, and nothing waits on a person | `merge`: `gh pr merge --match-head-commit`, one a pass. `acc sync` then moves it to done |
-| In rework, sent back by autopilot for failing checks | `dispatch`, with what the checks said |
+| In review, its latest commit passed and landed, but the pull request conflicts with its base (auto-merge off) | `refresh`: merge the base in, then run its checks. The next passes review and land the merge |
+| In review, its latest commit passed and landed, and the pull request's checks failed on GitHub there | `checks`: send it back to its builder with each failed check's link and log (D-076). Once a commit, and 3 times a task with the merge queue's; checks still running wait; a failed check with no log on GitHub needs you |
+| With auto-merge on: in review, its latest commit passed and landed, its checks passed on GitHub, and nothing waits on a person, conflict or not | It joins the repo's merge queue, at the back. Waits that settle by themselves, such as GitHub's checks running, keep its place; anything that waits on a person makes it leave |
+| With auto-merge on: at the head of the merge queue, after every other task | `queue`: its base merged in if it moved on, the full check once, then pushed, or merged with `gh pr merge --match-head-commit`. One merge a pass. `acc sync` then moves it to done |
+| In rework, sent back by autopilot for failing checks or from the merge queue | `dispatch`, with what the checks or the queue found |
 | In rework from a review or a person, and autopilot hasn't re-dispatched one before | `dispatch`, once. A second rework waits for a person |
 | Running, its builder stopped, and autopilot hasn't resumed it in this run | `resume`, once a run (D-067). A second stop waits for a person; a new dispatch is a new run |
 | Running, its builder at work | Nothing |
@@ -633,8 +650,9 @@ before each:
   it on, and it never merges into a protected environment. A task in review
   merges when its review passed and its checks settled on the branch's latest
   commit, landed; GitHub's required checks passed there, or every check when the
-  base requires none (none at all count 2 minutes after the land); GitHub says
-  it's mergeable; it's up to date with its base (else a `refresh` comes first);
+  base requires none (none at all count 2 minutes after the land, or at once
+  for the merge queue when it conflicts, since GitHub runs none then); GitHub says
+  it's mergeable; it's up to date with its base (the merge queue sees to it);
   no person asked for changes; nothing waits on a person, such as a failed step
   or an agent's question; and it changes nothing under `.acc/`. Autopilot reads
   all of it again just before `gh pr merge <n> --<method> --match-head-commit
@@ -644,6 +662,30 @@ before each:
   a merge GitHub refuses, BLOCKED by its rules, a cancelled check or a change
   to `.acc/` is recorded as `merge`, and the task needs you. It keeps `autopilot.merged`, and `acc sync` moves the
   task to done and drafts its update.
+- **The merge queue** (GH-73) is how auto-merge merges: one queue a repo, in the
+  order autopilot first saw each pull request ready (`autopilot.queued`). Only
+  the head takes a turn, after every other task in a pass. If its base moved
+  on, the base is merged in, in its worktree, by a refresh's rules; then
+  `gates.required` runs once on the result, in a heavy-check slot, unless it
+  already passed there. A merge commit is pushed to the same pull request: it
+  carries the review of the commit it was made on (`autopilot.carried`), with no
+  new verdict, since autopilot resolves nothing but append-only files. Once
+  GitHub's checks pass on it, the next turn merges it. A conflict autopilot
+  can't resolve, or a full check that fails, puts the branch back and sends the
+  task to its builder, review → rework as the orchestrator, with what it found
+  in `<state>/queue/<task>-<sha>.json` for its packet. That send-back shares
+  D-076's limits, once a commit and 3 a task. Past them, a check waived on the
+  commit before, or anything else that stops the turn, such as a dirty worktree
+  or a heavy-check slot that stayed taken, is recorded as `queue` (or `merge`
+  for the merge itself), and the task needs you. Either way it leaves the
+  queue, and the next is the head. A pull request at a commit on GitHub that
+  acc didn't land, such as after Update branch, doesn't wait for GitHub: it
+  takes its turn, whose fetch finds the commit this clone lacks, and it needs
+  you. An agent in its worktree asking a person something keeps it out of the
+  queue. A place counts only while auto-merge covers the task, so switching
+  auto-merge or autonomy review off shows a conflict as needing you again. The
+  Overview shows each queue: each pull request's place, and what it waits on:
+  GitHub's checks only when it's them, else that wait in its own words.
 - **A refresh** (D-058) merges origin's copy of the task environment's branch
   into the task branch, in the task's worktree, never the main checkout. It
   asks git again first, and a conflict that's gone is only marked gone. It
@@ -976,7 +1018,8 @@ step as **title** (`id`): a test holds those to the same list, in its order
 - Nothing merges on its own unless a repo turns auto-merge on. Then autopilot
   merges only a reviewed pull request whose checks passed, that changes nothing
   under `.acc/`, into an environment that isn't protected, and never in a
-  Salesforce project. Branch protection holds: it never uses `--admin`.
+  Salesforce project, one at a time through the merge queue, each with the full
+  check on the commit that merges. Branch protection holds: it never uses `--admin`.
 - Protected environments change only through a person's promotion pull request.
 - Environment-specific files are never edited by a task, deployed or promoted.
 - Every state change records who made it and why.
@@ -1035,7 +1078,6 @@ already exists.
 ## 19. Left out of v1
 
 - destructive Salesforce changes
-- a merge queue
 - Slack as a ticket source (acc's notices can go to Slack: D-078 in
   DECISIONS.md)
 - cloud sessions

@@ -2,14 +2,14 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
-import { type Config, type Environment, environmentByBranch } from './config.ts';
+import { autoMergeFor, builderGatesFor, type Config, type Environment, environmentByBranch, requiredGates } from './config.ts';
 import { AccError, type Runner } from './exec.ts';
-import { type Actor, applyMove, checkMove, type FileShare, mutate, noGateHooks, readLedger, reworkCause, type Task } from './ledger.ts';
+import { type Actor, applyMove, checkMove, type FileShare, mutate, noGateHooks, readLedger, reworkCause, type ReworkCause, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
 import { permissionHook } from './questions.ts';
 import { type Analysis, analysisProblems, analysisSection, readAnalysis } from './analyze.ts';
 import { filesOf, inFlightFiles, plannedFiles, sharedFiles, startCandidates, startLook, type StartLook, startOrder, taskList, waits } from './overlap.ts';
-import { type ChecksReport, checksSection, readChecksReport } from './checks.ts';
+import { type ChecksReport, checksSection, type QueueReport, queueSection, readChecksReport, readQueueReport } from './checks.ts';
 import { latestVerdict, type Verdict } from './review.ts';
 import { agentArgs, checkModelName, modelOf } from './agents.ts';
 import { type AwakeDeps, holdAwake, keepAwakeFor } from './awake.ts';
@@ -91,6 +91,8 @@ export interface PacketInput {
   review?: Verdict | null;
   /** On a rework autopilot sent back, what GitHub's checks said on its pull request (D-076). */
   checks?: ChecksReport | null;
+  /** On a rework the merge queue sent back, what it found: a conflict with the base, or the full check failing (GH-73). */
+  queue?: QueueReport | null;
   /** What the task's analysis found, and what a person answered (D-052). */
   analysis?: Analysis | null;
 }
@@ -141,7 +143,9 @@ function commitRef(task: Task): string {
 export function renderPacket(p: PacketInput & { enterWorktree?: boolean }): string {
   const { task, config, env } = p;
   const sf = config.profile === 'salesforce';
-  const required = config.gates.required;
+  // A builder's checks: the lighter ones, where the merge queue runs the full one before the merge (GH-73).
+  const required = requiredGates(config, env.branch, 'builder');
+  const lighter = builderGatesFor(config, env.branch);
   const lines: string[] = [
     `# Task ${task.id}: ${task.title}`,
     '',
@@ -167,6 +171,7 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean }): stri
     ...reviewSection(p.review),
     ...sentBackSection(task),
     ...checksSection(p.checks),
+    ...queueSection(p.queue),
     '## Where you are',
     '',
     `- **Worktree:** \`${p.worktree}\`. This is your only workspace.`,
@@ -192,6 +197,9 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean }): stri
     lines.push(
       `2. **Checks:** run exactly \`acc gate run\`. It runs the required checks (${required.map((g) => `\`${g}\``).join(', ')}) on your latest commit and records each result; \`acc done\` refuses until every one has passed. If one fails, fix it, commit, and run \`acc gate run\` again. If a check can't run at all (it says error), block and quote its message.`,
     );
+    if (lighter && config.gates.required.length) {
+      lines.push(`   These are the lighter checks, such as the tests near what you changed. The full check (${config.gates.required.map((g) => `\`${g}\``).join(', ')}) runs once, in the merge queue, before your pull request merges, so you needn't run it, though \`acc gate run ${config.gates.required[0]}\` does if you want to.`);
+    }
     if (sf) {
       lines.push('   If you changed Apex, add `--test <TestClass>="<why it covers the change>"` once per test class, for example `acc gate run --test AccountServiceTest="covers the new discount rule"`. Those flags are the only thing to add.');
     }
@@ -206,7 +214,8 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean }): stri
     '',
     '## Never',
     '',
-    '- push, merge, or open a pull request (a person and `acc land` do that)',
+    // Merging the base into this branch is the builder's to do when the merge queue asks (GH-73); a pull request isn't.
+    '- push, merge a pull request, or open one (a person, `acc land` and autopilot do that)',
   );
   if (sf) lines.push('- deploy to any org (`sf project deploy start`)');
   lines.push(
@@ -231,6 +240,10 @@ export function builderSettings(task: Task, config: Config, accBinDir: string, b
   const allow = [
     'Bash(acc done*)', 'Bash(acc block *)', 'Bash(acc show *)', 'Bash(acc gate run)', 'Bash(acc gate run *)', 'Bash(acc gate list*)',
     'Bash(git status*)', 'Bash(git diff*)', 'Bash(git add *)', 'Bash(git commit *)', 'Bash(git log*)', 'Bash(git show *)',
+    // Bringing its own base in, as the merge queue asks when it conflicts (GH-73), with or without flags such
+    // as --no-edit: only where the queue runs, so where auto-merge is off, a Salesforce project above all, a
+    // builder still asks first. Any other branch it still asks about.
+    ...(autoMergeFor(config, task.environment) ? [`Bash(git merge origin/${task.environment})`, `Bash(git merge origin/${task.environment} *)`] : []),
     'Bash(npm test*)', 'Bash(npm run *)', 'Bash(npx prettier *)', 'Bash(npx eslint *)', 'Bash(node --test*)', 'Bash(node --no-warnings --test*)',
     // A project may ask for builds and tests under nice, so the machine stays usable: the same commands, niced.
     'Bash(nice -n 15 npm test*)', 'Bash(nice -n 15 npm run *)', 'Bash(nice -n 15 npx prettier *)', 'Bash(nice -n 15 npx eslint *)',
@@ -413,8 +426,8 @@ export interface DispatchOptions {
   foreground?: boolean;
   /** A person's say-so to build without the analysis the project wants (D-052). */
   withoutAnalysis?: boolean;
-  /** What autopilot re-dispatches a rework for, kept on its move so it's never guessed from words (D-076). */
-  cause?: 'checks' | 'review';
+  /** What autopilot re-dispatches a rework for, kept on its move so it's never guessed from words (D-076, GH-73). */
+  cause?: ReworkCause;
   /** A person's say-so to start it now, though it shares files with work in flight (D-093). */
   anyway?: boolean;
   /** A held task's start, by startHeld: what it shares with work in flight was weighed already. */
@@ -496,13 +509,16 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
 
     const rules = existsSync(join(wt, '.acc', 'rules.md')) ? readFileSync(join(wt, '.acc', 'rules.md'), 'utf8') : null;
     const rework = found.state === 'rework';
-    // Sent back for failing checks on GitHub (D-076): what they said about the branch's latest commit. Only
-    // then: a review's or a person's rework at the same commit has its own reasons, which the report would contradict.
-    const head = rework && reworkCause(found) === 'checks' ? git(run, paths.root, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`).stdout.trim() : '';
+    // Sent back for failing checks on GitHub (D-076), or from the merge queue (GH-73): what they found about
+    // the branch's latest commit. Only then: a review's or a person's rework at the same commit has its own
+    // reasons, which the report would contradict.
+    const cause = rework ? reworkCause(found) : null;
+    const head = cause === 'checks' || cause === 'queue' ? git(run, paths.root, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`).stdout.trim() : '';
     const packet = renderPacket({
       task: found, config, env, worktree: wt, branch, rules, environmentSpecific: readList(wt, config.environmentSpecific), enterWorktree: enter && !opts.foreground,
       accPath: join(deps.accBinDir, 'acc'), review: rework ? latestVerdict(paths, found.id) : null, analysis: readAnalysis(paths, found.id),
-      checks: head ? readChecksReport(paths, found.id, head) : null,
+      checks: head && cause === 'checks' ? readChecksReport(paths, found.id, head) : null,
+      queue: head && cause === 'queue' ? readQueueReport(paths, found.id, head) : null,
     });
     mkdirSync(paths.packets, { recursive: true });
     const packetPath = join(paths.packets, `${found.id}.md`);

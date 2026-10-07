@@ -418,6 +418,46 @@ test('the Overview asks an analysis\'s questions in place, counts each task once
   assert.deepEqual(cards.map((c) => [c.id, c.analysis?.label, c.actions[0]!.label]), [['AV-5', 'Needs you: 2 questions from its analysis', 'Answer'], ['AV-6', 'Needs you: too big for one task', 'See the split']]);
 });
 
+test('the Overview shows each repo\'s merge queue where auto-merge is on: each pull request\'s place, task, link and what it waits on, in blue with an icon; and says when autopilot is off (GH-73)', () => {
+  const tools = {
+    name: 'Tools', root: '/t', branch: 'main', worktrees: [],
+    config: { github: { repo: 'o/t', account: 'me' }, environments: [{ name: 'main', branch: 'main', type: 'none' as const, org: null, default: true, protected: false, promotesTo: [] }], profile: 'generic', autonomy: 'review', autopilot: { autoMerge: true } },
+  };
+  const pr = (n: number) => ({ number: n, url: `https://github.com/o/t/pull/${n}`, state: 'open' });
+  const queued = (id: string, place: number, ahead: string | null, phase: NonNullable<TaskRow['queue']>['phase'] = 'waiting', why: string | null = null): TaskRow => ({ ...row(id, 'review', 'review'), environment: 'main', pr: pr(place + 40), queue: { place, of: 3, ahead, phase, why } });
+  const rows = (phase: NonNullable<TaskRow['queue']>['phase'], why: string | null = null) => [queued('GH-3', 3, 'GH-2'), queued('GH-1', 1, null, phase, why), queued('GH-2', 2, 'GH-1'), row('GH-4', 'review', 'review')];
+  const model = (phase: NonNullable<TaskRow['queue']>['phase'], on = true, why: string | null = null) => homeModel({ hub: { ...hub(), projects: [tools], agents: [], taskRows: () => rows(phase, why) }, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() }, autopilot: () => (on ? 'on' : null) }).overview;
+
+  const o = model('checking');
+  assert.equal(o.queue.length, 1);
+  const q = o.queue[0]!;
+  assert.deepEqual([q.project, q.root, q.off], ['Tools', '/t', false]);
+  assert.deepEqual(q.rows.map((r) => [r.place, r.id, r.pr?.number, r.look.label]), [[1, 'GH-1', 41, 'Running the full check'], [2, 'GH-2', 42, 'Behind GH-1'], [3, 'GH-3', 43, 'Behind GH-2']], 'head first; GH-4 isn\'t in it');
+  assert.deepEqual(q.rows[0]!.ref, { project: '/t', task: 'GH-1' });
+  // Each phase of the head's turn: its words and its icon, in blue. Orange is only for what needs you, and nothing in the queue does.
+  const looks = (['waiting', 'refreshing', 'slot', 'checking', 'github', 'merging'] as const).map((p) => model(p).queue[0]!.rows[0]!.look);
+  assert.deepEqual(looks.map((l) => [l.label, l.icon]), [
+    ['Next to merge', 'arrow-circle-right'], ['Merging main in', 'repo-pull'], ['Waiting for a heavy-check slot', 'watch'],
+    ['Running the full check', 'sync~spin'], ['Waiting for GitHub\'s checks', 'github-action'], ['Merging', 'git-merge'],
+  ]);
+  assert.ok([...looks, ...q.rows.map((r) => r.look)].every((l) => l.tone === 'blue'));
+  // Held on anything else, the head says what, in that wait's own words, all of them on hover: not GitHub's checks for every wait.
+  const why = 'GitHub is still working out whether pull request #41 can merge.';
+  const held = model('held', true, why).queue[0]!.rows;
+  assert.deepEqual([held[0]!.look, held[0]!.tip, held[1]!.tip], [{ label: 'GitHub is still working out whether pull request #41 can merge', icon: 'clock', tone: 'blue' }, why, undefined]);
+  assert.equal(q.rows[0]!.tip, undefined, 'a phase\'s own words need no tip');
+  assert.equal(model('held', false, why).queue[0]!.rows[0]!.look.label, 'Autopilot is off');
+  // Autopilot off: the queue doesn't move, and its head says so.
+  const off = model('waiting', false).queue[0]!;
+  assert.deepEqual([off.off, off.rows[0]!.look.label, off.rows[0]!.look.tone, off.rows[1]!.look.label], [true, 'Autopilot is off', 'blue', 'Behind GH-1']);
+  // Nothing in the queue waits on you: it's in the panel, not in Waiting on you. A task in review outside it still is.
+  assert.deepEqual(o.attention.map((a) => a.title), ['GH-4 Task GH-4']);
+  assert.equal(o.stats.find((s) => s.label === 'Waiting for review')?.value, '1');
+  // No panel where auto-merge is off, or nothing is in the queue.
+  assert.deepEqual(homeModel({ hub: { ...hub(), projects: [{ ...tools, config: { ...tools.config, autopilot: {} } }], agents: [], taskRows: () => rows('waiting') }, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } }).overview.queue, []);
+  assert.deepEqual(homeModel({ hub: { ...hub(), projects: [tools], agents: [], taskRows: () => [row('GH-4', 'review', 'review')] }, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } }).overview.queue, []);
+});
+
 test('each update acc drafted waits in Needs you, orange with its icon, counted, to post, edit or discard; a question sent to the client says so (D-066)', () => {
   const draft = (id: string, extra: Partial<Update> = {}): Update => ({ v: 1, id, task: id.split('.')[0]!, tracker: 'jira', key: id.split('.')[0]!, url: null, event: 'pr-opened', text: 'The change is ready for review: https://github.com/o/r/pull/3\nLeads now keep their region.', state: 'draft', pr: { number: 3, url: 'https://github.com/o/r/pull/3' }, createdAt: '2026-10-05T12:00:00.000Z', by: 'acc land', ...extra });
   const updates = [draft('AV-1.1'), draft('AV-5.1', { event: 'question', question: 'q1', text: 'Before we start, a question for you:\nWhich?' }), draft('AV-3.1', { state: 'discarded' }), draft('AV-4.1', { state: 'posted' })];
@@ -875,8 +915,8 @@ test('How agents run has an Auto-merge row: on or off, what it means, and Change
   assert.ok(p.config.environments.some((e) => e.name === 'Production' && e.protected));
   p.config = { ...p.config, autopilot: { autoMerge: true } };
   const s = agentsModel(h).settings[0]!;
-  assert.deepEqual(s.autoMerge, { value: 'on', from: 'project', settable: true, meaning: 'Autopilot merges a pull request once its review and checks passed, it\'s up to date with its base, GitHub says it can merge and nothing waits on you, one a pass. Never into Production: protected.' });
-  assert.match(s.autonomy!.meaning, /Auto-merge is on: it also merges a pull request whose review and checks passed, .* It never merges into a protected environment\.$/);
+  assert.deepEqual(s.autoMerge, { value: 'on', from: 'project', settable: true, meaning: 'A pull request whose review and checks passed, with nothing waiting on you, joins the merge queue, and they merge in turn: its base merged in, the full check run once, then merged once GitHub says it can. Never into Production: protected.' });
+  assert.match(s.autonomy!.meaning, /Auto-merge is on: a pull request whose review and checks passed, .* joins the repo's merge queue, .* It never merges into a protected environment\.$/);
   assert.doesNotMatch(s.autonomy!.meaning, /It never merges a pull request/);
   p.config = { ...p.config, autonomy: 'manual' };
   assert.match(agentsModel(h).settings[0]!.autoMerge!.meaning, /Autonomy is manual, so nothing merges on its own\.$/);

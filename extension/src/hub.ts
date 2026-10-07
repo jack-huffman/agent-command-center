@@ -15,9 +15,10 @@ import { envOpen, IN_FLIGHT_STATES, inFlight, nulPaths, plannedFiles, sharedFile
 import type { RepoPaths } from '../../packages/core/src/paths.ts';
 import type { HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import { resuming } from '../../packages/core/src/resume.ts';
-import { latestVerdict, reviewing } from '../../packages/core/src/review.ts';
+import { latestVerdict, reviewCurrent, reviewing } from '../../packages/core/src/review.ts';
 import { type HeavyState, heavyState } from '../../packages/core/src/semaphore.ts';
 import { claudeProjectsDir, lastModelIn, lastSaidIn, transcriptFile } from '../../packages/core/src/transcript.ts';
+import { queuePlaces } from '../../packages/core/src/queue.ts';
 import { readUpdate, type Update, UPDATE_ID } from '../../packages/core/src/updates.ts';
 import { type AgentSession, agentLook, analysisWait, askingLabel, commonDirOf, isUnder, parseWorktrees, repoRoot, rowAnalysis, type RowFiles, rowSession, sessionFor, sessionLedger, type TaskRow, type Worktree } from './logic.ts';
 import { loadWord, type RepoJobs } from './progress.ts';
@@ -385,6 +386,8 @@ export class Hub implements vscode.Disposable {
     const sessions = this.agentsAt && !this.agentsError ? this.agents : null;
     const stateDir = p ? dirname(p.ledgerPath) : null;
     const now = new Date();
+    // The repo's merge queue, where auto-merge is on (GH-73): each task's place, and what it waits on.
+    const places = p ? queuePlaces(ledger, p.config) : [];
     const analyses = new Map(ledger.tasks.map((t) => [t.id, store && t.state !== 'done' && files.has(`${t.id}.json`) ? this.analysisFrom(store, t.id) : null]));
     const filesOf = this.rowFiles(ledger, p, analyses, required);
     return ledger.tasks.map((t) => {
@@ -408,13 +411,14 @@ export class Hub implements vscode.Disposable {
       // The model its agent runs with (D-086): what it last answered with, else what acc started it with.
       const model = look && t.run ? (t.run.sessionId ? this.lastModel(t.run.sessionId, [t.run.worktree, session?.cwd, p?.root]) : null) ?? t.run.model ?? null : null;
       const failed = autopilotFailure(t);
+      const queued = places.find((x) => x.id === t.id);
       return {
         id: t.id,
         title: t.title,
         state: t.state,
         // A question waiting in the Command Center makes the agent wait on you, though it reads as busy.
         // So does an analysis with questions for a person, or one that says it's too big for one task.
-        display: waits ? 'needs-you' : displayState(ledger, t, info) as TaskRow['display'],
+        display: waits ? 'needs-you' : displayState(ledger, t, info, p?.config) as TaskRow['display'],
         environment: t.environment,
         deps: t.deps.filter((d) => ledger.tasks.find((x) => x.id === d)?.state !== 'done'),
         source: { kind: t.source.kind, url: t.source.url },
@@ -422,7 +426,8 @@ export class Hub implements vscode.Disposable {
         agent: look ? { label: look.label, icon: look.icon, tone: look.tone } : null,
         model,
         asking: !!asking,
-        review: verdict ? { verdict: verdict.verdict, summary: verdict.summary, current: !!head && verdict.sha === head, at: verdict.at } : null,
+        // Current on its latest commit, or carried there by the merge queue's merge commit (GH-73).
+        review: verdict ? { verdict: verdict.verdict, summary: verdict.summary, current: !!head && !!reviews && reviewCurrent(reviews, t, verdict, head), at: verdict.at } : null,
         // Each agent under way with the name acc gave it (D-087); the builder's is on its run.
         reviewing: live ? { sessionId: live.sessionId, name: live.name } : null,
         pr: t.pr ? { number: t.pr.number, url: t.pr.url, state: t.pr.state, ci: t.pr.ci ?? null, changesRequested: t.pr.changesRequested ?? false, conflicts: t.pr.conflicts ?? [] } : null,
@@ -435,6 +440,7 @@ export class Hub implements vscode.Disposable {
         checks: failedChecks(t),
         stopped: stopped ? { said } : null,
         resuming: !!resumed,
+        queue: queued ? { place: queued.place, of: queued.of, ahead: queued.ahead, phase: queued.phase, why: queued.why } : null,
         since: t.state === 'running' ? runStartedAt(t) : null,
         branchStats: tree?.branchStats ? { ...tree.branchStats, uncommitted: Math.max(0, tree.changed) } : null,
         files: filesOf(t),

@@ -546,7 +546,7 @@ export class Sidebar {
     const protectedEnvs = project.config.environments.filter((e) => e.protected).map((e) => e.name);
     const pick = await vscode.window.showQuickPick([
       { label: '$(circle-slash) off', description: 'A person merges every pull request', value: 'off' },
-      { label: '$(git-merge) on', description: `Autopilot merges a pull request once its review and checks passed and nothing waits on you, one a pass${protectedEnvs.length ? `; never into ${protectedEnvs.join(', ')}` : ''}`, value: 'on' },
+      { label: '$(git-merge) on', description: `Pull requests whose review and checks passed, with nothing waiting on you, merge in turn through a merge queue${protectedEnvs.length ? `; never into ${protectedEnvs.join(', ')}` : ''}`, value: 'on' },
     ].map((x) => ({ ...x, description: x.value === now ? `${x.description} · now` : x.description })), { title: `${project.name}: may autopilot merge pull requests?` });
     if (!pick || pick.value === now) return;
     const ok = await this.runAcc(project, ['agents', 'auto-merge', pick.value], () => undefined);

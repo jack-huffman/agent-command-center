@@ -46,7 +46,7 @@ export interface BoardDeps {
   connect: { model(): ConnectModel | null; receive(m: ConnectMessage): void; close(): void };
   /** The Slack card (GH-58): what it shows, never the webhook, and what its controls send. */
   slack?: { card(): SlackCard | null; receive(m: Extract<FromWebview, { type: 'slack' | 'slack-connect' | 'slack-kinds' }>): void };
-  /** Whether autopilot runs for a project's repo in this window, somewhere else, or not at all (D-064). */
+  /** Whether autopilot runs for a project's repo in this window, somewhere else, or not at all (D-064), so its merge queue moves (GH-73). */
   autopilot?(root: string): 'on' | 'elsewhere' | null;
 }
 

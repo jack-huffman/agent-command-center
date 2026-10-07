@@ -3,11 +3,11 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { parseConfig, type Config } from '../src/config.ts';
+import { builderGatesFor, parseConfig, type Config, requiredGates } from '../src/config.ts';
 import { drift, driftReportPath } from '../src/drift.ts';
 import type { RunOptions, RunResult } from '../src/exec.ts';
 import {
-  assertCheckOnly, changesFor, checkEnv, gatesFor, gateTarget, priorTests, readAnalyzer, readDeploy, runGates, validateArgs, waiveGates,
+  assertCheckOnly, changesFor, checkEnv, gatesFor, gateTarget, nearTests, priorTests, readAnalyzer, readDeploy, runGates, validateArgs, waiveGates,
 } from '../src/gates.ts';
 import { checkMove, emptyLedger, type Task } from '../src/ledger.ts';
 import { builderSettings } from '../src/dispatch.ts';
@@ -439,6 +439,73 @@ test('a person waives a failing gate on one commit, with a reason: it satisfies 
   gitIn(dir, 'add', '-A');
   gitIn(dir, 'commit', '-q', '-m', 'next');
   assert.deepEqual(hooks.missingGates(task), ['lint', 'test'], 'a new commit starts with no checks, waived or not');
+});
+
+// ---------------------------------------------------------------- a builder's lighter checks (GH-73)
+
+test('the tests near a change: the test files it changed, and those in the same package named for, or importing, each file it changed (GH-73)', () => {
+  const tracked = [
+    'packages/core/src/merge.ts', 'packages/core/test/merge.test.ts', 'packages/core/test/land.test.ts', 'packages/core/test/queue.test.ts',
+    'extension/src/model.ts', 'extension/test/tabs.test.ts', 'extension/test/merge.test.ts', 'app/util.py', 'tests/test_util.py', 'README.md',
+  ];
+  const text: Record<string, string> = {
+    'packages/core/test/queue.test.ts': 'import { mergePr } from \'../src/merge.ts\';\n',
+    'extension/test/tabs.test.ts': 'import { homeModel } from \'../src/model.ts\';\n',
+    'packages/core/test/land.test.ts': 'import { land } from \'../src/land.ts\';\n',
+  };
+  const near = (changed: string[]) => nearTests(changed, tracked, (f) => text[f] ?? '');
+  assert.deepEqual(near(['packages/core/src/merge.ts']), ['packages/core/test/merge.test.ts', 'packages/core/test/queue.test.ts'], 'named for it, or importing it, in its own package only');
+  assert.deepEqual(near(['extension/src/model.ts']), ['extension/test/tabs.test.ts']);
+  assert.deepEqual(near(['packages/core/test/land.test.ts']), ['packages/core/test/land.test.ts'], 'a test it changed');
+  assert.deepEqual(near(['app/util.py']), ['tests/test_util.py']);
+  assert.deepEqual(near(['README.md', 'docs/new.md']), [], 'nothing near a document');
+  assert.deepEqual(near(['packages/core/test/gone.test.ts']), [], 'only tests the checkout has');
+});
+
+test('where the merge queue runs the full check, builders run gates.builder, which acc done takes, and the full check covers; elsewhere both are gates.required (GH-73)', () => {
+  const out = join(tempDir('near-'), 'near.out');
+  const raw = {
+    ...GENERIC_CONFIG, autonomy: 'review', autopilot: { autoMerge: true },
+    gates: { required: ['check'], builder: ['typecheck', 'near'], commands: { check: 'exit 3', typecheck: 'true', near: `printf '%s|%s' "$ACC_CHANGED" "$ACC_NEAR_TESTS" > '${out}'` } },
+  };
+  const dir = makeRepo({ '.acc/config.json': JSON.stringify(raw), 'src/merge.ts': 'a\n', 'test/merge.test.ts': 'b\n', 'test/land.test.ts': 'c\n' });
+  gitIn(dir, 'checkout', '-q', '-b', 'task/T-1');
+  writeFileSync(join(dir, 'src/merge.ts'), 'a, changed\n');
+  gitIn(dir, 'commit', '-q', '-am', 'T-1: change');
+  const c = config(raw);
+  const paths = repoPaths(dir, run);
+  const env = c.environments[0]!;
+  const sha = gitIn(dir, 'rev-parse', 'HEAD');
+  const task = { id: 'T-1', state: 'running', environment: 'main', deps: [], run: { branch: 'task/T-1' } } as unknown as Task;
+  const hooks = receiptHooks(paths, c, run);
+
+  // acc gate run with no names: the builder's checks, told what changed and the tests near it.
+  const ran = runGates(paths, c, env, [], [], { run, now, slots: slots() });
+  assert.deepEqual(ran.results.map((r) => [r.gate, r.status]), [['typecheck', 'pass'], ['near', 'pass']]);
+  assert.equal(readFileSync(out, 'utf8'), 'src/merge.ts|test/merge.test.ts');
+  assert.deepEqual([hooks.missingGates(task), hooks.missingGates(task, 'builder'), hooks.missingGates(task, 'merge')], [[], [], ['check']]);
+  // acc done takes them: running → review.
+  assert.deepEqual(checkMove(emptyLedger(), c, task, { to: 'review', actor: 'builder', by: 'builder:T-1' }, hooks), []);
+  assert.equal(readReceipt(paths, sha, 'check'), null, 'the full check didn\'t run');
+
+  // The full check passing, as the queue runs it on its merge, covers a builder's on that commit.
+  writeFileSync(join(dir, 'src/merge.ts'), 'a, again\n');
+  gitIn(dir, 'commit', '-q', '-am', 'T-1: again');
+  const next = gitIn(dir, 'rev-parse', 'HEAD');
+  assert.deepEqual(hooks.missingGates(task), ['typecheck', 'near']);
+  writeReceipt(paths, { gate: 'check', sha: next, env: 'main', status: 'pass', startedAt: '', finishedAt: '', durationMs: 0, summary: 'Passed.', command: null, log: null });
+  assert.deepEqual([hooks.missingGates(task), hooks.missingGates(task, 'merge')], [[], []]);
+
+  // Auto-merge off, a protected environment or no builder gates: both scopes are the required ones, as before.
+  for (const other of [config({ ...raw, autopilot: { autoMerge: false } }), config({ ...raw, autonomy: 'manual' }), config({ ...raw, gates: { ...raw.gates, builder: [] } })]) {
+    const h = receiptHooks(paths, other, run);
+    assert.deepEqual([requiredGates(other, 'main', 'builder'), requiredGates(other, 'main', 'merge'), builderGatesFor(other, 'main')], [['check'], ['check'], false]);
+    writeFileSync(join(dir, 'src/merge.ts'), `${Math.random()}\n`);
+    gitIn(dir, 'commit', '-q', '-am', 'T-1: once more');
+    runGates(paths, other, env, ['typecheck', 'near'], [], { run, now, slots: slots() });
+    assert.deepEqual(h.missingGates(task), ['check'], 'its lighter checks aren\'t enough here');
+    assert.deepEqual(runGates(paths, other, env, [], [], { run, now, slots: slots() }).results.map((r) => r.gate), ['check']);
+  }
 });
 
 test('blocked work whose checks are settled goes to review by a person; a builder can\'t, and can\'t waive (D-031)', () => {

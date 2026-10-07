@@ -135,7 +135,15 @@ const STAMP = /^﻿?\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z ?/;
  * that keeps its end.
  */
 export function tailLog(text: string, lines = LOG_TAIL_LINES, bytes = LOG_TAIL_BYTES): string {
-  const all = text.replace(/\r\n?/g, '\n').split('\n').map((l) => l.replace(CSI, '').replace(PREFIX, '').replace(STAMP, '').trimEnd());
+  return tailOf(text.replace(/\r\n?/g, '\n').split('\n').map((l) => l.replace(CSI, '').replace(PREFIX, '').replace(STAMP, '').trimEnd()), lines, bytes);
+}
+
+/** The end of a check's own log, as acc wrote it on this machine: only colour codes stripped (GH-73). */
+export function tailText(text: string, lines = LOG_TAIL_LINES, bytes = LOG_TAIL_BYTES): string {
+  return tailOf(text.replace(/\r\n?/g, '\n').split('\n').map((l) => l.replace(CSI, '').trimEnd()), lines, bytes);
+}
+
+function tailOf(all: string[], lines: number, bytes: number): string {
   while (all.length && !all.at(-1)) all.pop();
   const kept: string[] = [];
   let size = 0;
@@ -219,6 +227,83 @@ export function checksSection(r: ChecksReport | null | undefined): string[] {
       const f = fence(c.log);
       lines.push('The end of its log:', '', `${f}text`, c.log, f, '');
     } else lines.push(`Couldn't fetch its log: ${sentence(c.noLog ?? 'GitHub gave none')}`, '');
+  }
+  return lines;
+}
+
+// ---------------------------------------------------------------- what the merge queue sent back, kept (GH-73)
+
+/** A gate the merge queue's full check failed, with the end of its log. */
+export interface QueueCheck {
+  gate: string;
+  status: string;
+  summary: string;
+  /** Where its whole log is, on this machine. */
+  file: string | null;
+  log: string | null;
+}
+
+/** What the merge queue found on a commit it sent back to its builder, kept for its packet (GH-73). */
+export interface QueueReport {
+  v: 1;
+  task: string;
+  /** The branch's commit it sent back: the branch is there again. */
+  sha: string;
+  /** The environment's branch it was merging into. */
+  base: string;
+  pr: { number: number; url: string };
+  /** What stopped it: merging the base in conflicted, or the full check failed. */
+  kind: 'conflict' | 'check';
+  /** The files git couldn't merge. */
+  conflicts: string[];
+  /** The gates that failed, and the merge commit they failed on, which was put back; null when there was nothing to merge in. */
+  checks: QueueCheck[];
+  merge: string | null;
+  at: string;
+}
+
+export const queueReportPath = (paths: Pick<RepoPaths, 'queue'>, task: string, sha: string): string => join(paths.queue, `${task}-${sha}.json`);
+
+export function readQueueReport(paths: Pick<RepoPaths, 'queue'>, task: string, sha: string): QueueReport | null {
+  try {
+    const r = JSON.parse(readFileSync(queueReportPath(paths, task, sha), 'utf8')) as QueueReport;
+    return r.v === 1 && r.task === task && Array.isArray(r.checks) && Array.isArray(r.conflicts) ? r : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * On a rework the merge queue sent back (GH-73): the files that conflict with the base, and how to merge it
+ * in here, or each gate of the full check that failed and the end of its log.
+ */
+export function queueSection(r: QueueReport | null | undefined): string[] {
+  if (!r) return [];
+  const base = `\`${r.base}\``;
+  const lines = ['## What the merge queue found', ''];
+  if (r.kind === 'conflict') {
+    lines.push(
+      `This is a rework. Your change is pull request #${r.pr.number}. Its review passed, and the merge queue took it to merge into ${base}, but ${base} has moved on, and merging it into ${short(r.sha)} conflicts in: ${r.conflicts.map((f) => `\`${f}\``).join(', ')}.`,
+      '',
+      `Merge it in here: run \`git merge origin/${r.base}\`, resolve each of those files so that both your change and what ${base} added hold, then commit the merge. Keep the rest of your change as it is. Then finish as below: run \`acc gate run\`, then \`acc done\`. If a conflict can't be resolved without a choice that isn't yours, run \`acc block "<what you found>"\` and stop.`,
+      '',
+    );
+    return lines;
+  }
+  const where = r.merge ? `after merging ${base} in (as ${short(r.merge)}, put back since)` : `on ${short(r.sha)}`;
+  lines.push(
+    `This is a rework. Your change is pull request #${r.pr.number}. Its review passed, and the merge queue took it to merge into ${base}, but the full check failed ${where}: ${r.checks.map((c) => c.gate).join(', ')}. You ran the lighter checks; the full one runs once, in the queue.`,
+    '',
+    `Reproduce each failure here and fix it, keeping the rest of the change as it is.${r.merge ? ` Merge ${base} in first, with \`git merge origin/${r.base}\`, since the failure may come from the two together.` : ''} Run the failing check by name, such as \`acc gate run ${r.checks[0]?.gate ?? 'check'}\`, then finish as below: commit, run \`acc gate run\`, then \`acc done\`. If a failure isn't caused by this change, such as a check that fails on ${base} too, don't work around it: run \`acc block "<what you found>"\` and stop.`,
+    '',
+  );
+  for (const c of r.checks) {
+    lines.push(`### ${c.gate}`, '', sentence(c.summary), '');
+    if (c.file) lines.push(`Its whole log: \`${c.file}\``, '');
+    if (c.log) {
+      const f = fence(c.log);
+      lines.push('The end of its log:', '', `${f}text`, c.log, f, '');
+    }
   }
   return lines;
 }

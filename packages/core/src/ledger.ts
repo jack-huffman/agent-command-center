@@ -1,7 +1,7 @@
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { releaseAwake } from './awake.ts';
-import { type Config, defaultEnvironment, environmentByBranch } from './config.ts';
+import { autoMergeFor, type Config, defaultEnvironment, environmentByBranch, type GateScope } from './config.ts';
 import { AccError } from './exec.ts';
 import { withLock } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
@@ -129,8 +129,46 @@ export interface Promotion {
   at: string;
 }
 
-export const AUTOPILOT_STEPS = ['review', 'land', 'dispatch', 'refresh', 'resume', 'checks', 'merge', 'start'] as const;
+/**
+ * start: a held task started once it may go (D-093). queue: the merge queue's turn for the task at its head,
+ * which merges the base in, checks and pushes (GH-73).
+ */
+export const AUTOPILOT_STEPS = ['review', 'land', 'dispatch', 'refresh', 'resume', 'checks', 'merge', 'start', 'queue'] as const;
 export type AutopilotStepName = (typeof AUTOPILOT_STEPS)[number];
+
+/**
+ * Where the head of a merge queue is in its turn (GH-73). waiting: in line. refreshing: merging its base
+ * in. slot: waiting for a heavy-check slot. checking: running the full check. github: waiting for GitHub's
+ * checks. held: waiting on something else, which its `why` says, such as GitHub working out whether it can
+ * merge. merging: asking GitHub to merge it.
+ */
+export const QUEUE_PHASES = ['waiting', 'refreshing', 'slot', 'checking', 'github', 'held', 'merging'] as const;
+export type QueuePhase = (typeof QUEUE_PHASES)[number];
+
+/** A task's place in its repo's merge queue (GH-73): when it was ready, at which commit, and its phase. */
+export interface Queued {
+  /** When autopilot first saw it ready: the queue goes in this order. */
+  at: string;
+  /** The branch's latest commit when it joined. */
+  sha: string;
+  phase: QueuePhase;
+  /** What the head waits on, in words, while it's held. */
+  why?: string;
+}
+
+/**
+ * The review a merge commit carries (GH-73): the merge queue merged the base into a reviewed commit cleanly,
+ * or by keeping both sides' additions to an append-only file, and checked it in full. It's no new verdict.
+ */
+export interface CarriedReview {
+  /** The reviewed commit, and the merge made on it. */
+  from: string;
+  to: string;
+  base: string;
+  /** Append-only files whose additions on both sides were kept. */
+  resolved: string[];
+  at: string;
+}
 
 /** How GitHub merges a pull request: the repo allows one or more of these. */
 export type MergeMethod = 'merge' | 'squash' | 'rebase';
@@ -144,11 +182,19 @@ export interface AutopilotMerge {
   at: string;
 }
 
-/** The commit autopilot last sent back to its builder because its checks failed on GitHub, and which (D-076). */
+/**
+ * The commit autopilot last sent back to its builder, and why: its checks failed on GitHub, and which
+ * (D-076), or the merge queue found it conflicts with its base or fails the full check (GH-73). One
+ * without a kind is from before the queue: checks.
+ */
 export interface SentBack {
   sha: string;
+  /** The checks that failed: GitHub's, or the queue's full check's gates. */
   checks: string[];
   at: string;
+  kind?: 'checks' | 'queue';
+  /** The files the queue couldn't merge its base into. */
+  conflicts?: string[];
 }
 
 /** A step autopilot took that failed: it isn't tried again on that commit, and the task needs you (D-055). */
@@ -178,10 +224,10 @@ export interface Task {
   /** The promotions that took its change on from its environment, oldest first. */
   promotions?: Promotion[];
   /**
-   * What autopilot couldn't do for it, if anything (D-055), the commit it last sent back for failing checks
-   * (D-076), and the pull request it merged (GH-67).
+   * What autopilot couldn't do for it, if anything (D-055), the commit it last sent back (D-076), the pull
+   * request it merged (GH-67), its place in the merge queue, and the review its merge commit carries (GH-73).
    */
-  autopilot?: { failed: AutopilotFailure | null; sentBack?: SentBack | null; merged?: AutopilotMerge | null };
+  autopilot?: { failed: AutopilotFailure | null; sentBack?: SentBack | null; merged?: AutopilotMerge | null; queued?: Queued | null; carried?: CarriedReview | null };
   /** It waits for another task's files, since a person dispatched it (D-093). Any move ends it. */
   held?: Hold | null;
   history: HistoryEntry[];
@@ -390,8 +436,8 @@ export interface MoveRequest {
 }
 
 export interface Hooks {
-  /** Required checks that have no passing receipt on the task's current commit. */
-  missingGates(task: Task): string[];
+  /** Required checks that have no passing receipt on the task's current commit: a builder's, unless it says the merge's (GH-73). */
+  missingGates(task: Task, scope?: GateScope): string[];
 }
 
 export const noGateHooks: Hooks = { missingGates: () => [] };
@@ -451,8 +497,11 @@ export function applyMove(task: Task, req: MoveRequest, emit: Emit, now: () => D
   const entry: HistoryEntry = { at, actor: req.actor, by: req.by, from: task.state, to: req.to, reason: req.reason?.trim() || null };
   if (req.force) entry.override = true;
   task.blocker = req.to === 'blocked' ? (entry.reason ?? null) : null;
-  // Whatever autopilot couldn't do was about the state the task has left.
+  // Whatever autopilot couldn't do was about the state the task has left. Moved, it leaves the merge queue,
+  // and its next commits are reviewed afresh (GH-73).
   if (task.autopilot?.failed) task.autopilot.failed = null;
+  if (task.autopilot?.queued) task.autopilot.queued = null;
+  if (task.autopilot?.carried) task.autopilot.carried = null;
   // So was a wait for another task's files (D-093): a dispatch, a block or done ends it.
   if (task.held) task.held = null;
   task.state = req.to;
@@ -707,23 +756,53 @@ export const closedPr = (task: Task): PullRequest | null => (task.state === 'rev
 /** Who autopilot is, in the ledger's history and events. */
 export const AUTOPILOT_BY = 'orchestrator:autopilot';
 
-/** Autopilot's own move to rework: a pull request whose checks failed on GitHub (D-076). A review's, even one made for autopilot, isn't. */
-export const sentBackForChecks = (h: Pick<HistoryEntry, 'by'> & { from: string | null; to: string }): boolean => h.from === 'review' && h.to === 'rework' && h.by === AUTOPILOT_BY;
+/**
+ * Autopilot's own move to rework: a pull request whose checks failed on GitHub (D-076), or one the merge
+ * queue sent back (GH-73). A review's, even one made for autopilot, isn't.
+ */
+export const sentBackByAutopilot = (h: Pick<HistoryEntry, 'by'> & { from: string | null; to: string }): boolean => h.from === 'review' && h.to === 'rework' && h.by === AUTOPILOT_BY;
 
-/** What sent a task to rework: autopilot for its failing checks, or a review or a person. */
-export type ReworkCause = 'checks' | 'review';
+/** What sent a task to rework: autopilot for its failing checks or from the merge queue, or a review or a person. */
+export type ReworkCause = 'checks' | 'queue' | 'review';
 
-/** Why the task is in rework now, from the move that put it there, or null when it never was. */
-export function reworkCause(task: { history: (Pick<HistoryEntry, 'by'> & { from: string | null; to: string })[] }): ReworkCause | null {
+/**
+ * Why the task is in rework now, from the move that put it there, or null when it never was. Autopilot's
+ * own send-back says which it was in what it kept of it; one from before the queue is for checks.
+ */
+export function reworkCause(task: { history: (Pick<HistoryEntry, 'by'> & { from: string | null; to: string })[]; autopilot?: { sentBack?: Pick<SentBack, 'kind'> | null } | null }): ReworkCause | null {
   const h = task.history.findLast((x) => x.to === 'rework');
-  return h ? (sentBackForChecks(h) ? 'checks' : 'review') : null;
+  if (!h) return null;
+  return sentBackByAutopilot(h) ? task.autopilot?.sentBack?.kind ?? 'checks' : 'review';
 }
 
-/** Whether autopilot already sent this commit back to its builder for failing checks (D-076). */
+/**
+ * How many times autopilot may send a task back to its builder over its life, for its checks on GitHub
+ * (D-076) and from the merge queue together (GH-73), apart from D-055's one re-dispatch of a review's rework.
+ */
+export const SEND_BACKS = 3;
+
+/** How many times autopilot sent the task back to its builder, for either. */
+export const sendBacks = (task: { history: (Pick<HistoryEntry, 'by'> & { from: string | null; to: string })[] }): number => task.history.filter(sentBackByAutopilot).length;
+
+/** Whether autopilot already sent this commit back to its builder, for its checks on GitHub or from the merge queue (D-076, GH-73). */
 export const sentBackAt = (task: Pick<Task, 'autopilot'>, sha: string | null | undefined): boolean => !!sha && task.autopilot?.sentBack?.sha === sha;
 
-/** What the UI shows: stored states plus "ready" and "needs you", which are derived (DESIGN.md section 5). */
-export function displayState(ledger: Ledger, task: Task, session?: SessionInfo): DisplayState {
+/** What reading the merge queue needs of the config: whether auto-merge still covers a task (GH-73). */
+export type QueueCover = Pick<Config, 'profile' | 'autonomy' | 'environments' | 'autopilot'>;
+
+/**
+ * A task in review in its repo's merge queue (GH-73). Moved, merged or written down as needing you, it has
+ * left. Where auto-merge no longer covers it, switched off or under another autonomy, it's out whatever
+ * autopilot last wrote: no autopilot may run to clear it.
+ */
+export const inQueue = (task: Pick<Task, 'state' | 'autopilot' | 'environment'>, config: QueueCover): boolean =>
+  task.state === 'review' && !!task.autopilot?.queued && autoMergeFor(config, task.environment);
+
+/**
+ * What the UI shows: stored states plus "ready" and "needs you", which are derived (DESIGN.md section 5).
+ * With the repo's config, a pull request in the merge queue that conflicts doesn't need you (GH-73).
+ */
+export function displayState(ledger: Ledger, task: Task, session?: SessionInfo, config?: QueueCover): DisplayState {
   // A held task whose start on its own failed waits on you (D-093).
   if (task.state === 'todo' && task.held?.failed) return 'needs-you';
   if (task.state === 'todo' && isReady(ledger, task)) return 'ready';
@@ -733,8 +812,9 @@ export function displayState(ledger: Ledger, task: Task, session?: SessionInfo):
   if (task.state === 'running' && (session?.stopped || session?.state === 'blocked' || session?.status === 'waiting')) return 'needs-you';
   // An open pull request whose checks fail, that a person asked to change, or that conflicts with its
   // base, waits on you (D-033, D-049). Checks that fail on a commit autopilot already sent back don't:
-  // its fix is on the way, and a second failure there is recorded as autopilot's (D-076).
-  if (task.state === 'review' && task.pr?.state === 'open' && ((task.pr.ci === 'failing' && !sentBackAt(task, task.pr.sha)) || task.pr.changesRequested || !!task.pr.conflicts?.length)) return 'needs-you';
+  // its fix is on the way, and a second failure there is recorded as autopilot's (D-076). Nor does a
+  // conflict in the merge queue, which merges its base in at its turn, while auto-merge covers it (GH-73).
+  if (task.state === 'review' && task.pr?.state === 'open' && ((task.pr.ci === 'failing' && !sentBackAt(task, task.pr.sha)) || task.pr.changesRequested || (!!task.pr.conflicts?.length && !(config && inQueue(task, config))))) return 'needs-you';
   // So does a closed one a person moved back to review: autopilot won't replace it (D-063).
   if (closedPr(task)) return 'needs-you';
   return task.state;

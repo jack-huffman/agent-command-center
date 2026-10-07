@@ -1,13 +1,13 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { autoMergeFor, type Config, type Environment, environmentByBranch } from './config.ts';
+import { autoMergeFor, type Config, type Environment, environmentByBranch, type GateScope } from './config.ts';
 import { AccError, type Runner } from './exec.ts';
 import { withJob } from './jobs.ts';
-import { type Actor, mutate, type PullRequest, readLedger, type Task } from './ledger.ts';
+import { type Actor, type CarriedReview, mutate, type PullRequest, readLedger, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
 import { type Receipt, receiptHooks, receiptsAt } from './receipts.ts';
-import { readVerdict, type Verdict } from './review.ts';
+import { carriedVerdict, readVerdict, type Verdict } from './review.ts';
 import { conflictsOf, FETCH_TIMEOUT_MS, fetchBranches } from './sync.ts';
 import { draftUpdate } from './updates.ts';
 
@@ -60,8 +60,11 @@ export function mergesWords(autoMerge: boolean): string {
     : 'It merges only when a person merges it.';
 }
 
-/** The pull request's description: what it does, its acceptance criteria, its checks and its review. */
-export function prBody(task: Task, env: Environment, sha: string, verdict: Verdict, receipts: Record<string, Receipt>, autoMerge = false): string {
+/**
+ * The pull request's description: what it does, its acceptance criteria, its checks and its review. A merge
+ * commit the merge queue made says the review it carries is of the commit it was made on (GH-73).
+ */
+export function prBody(task: Task, env: Environment, sha: string, verdict: Verdict, receipts: Record<string, Receipt>, autoMerge = false, carried: CarriedReview | null = null): string {
   const ticket = task.source.url ? `[${task.source.key ?? task.id}](${task.source.url})` : null;
   const lines = [
     verdict.summary.trim(),
@@ -79,7 +82,9 @@ export function prBody(task: Task, env: Environment, sha: string, verdict: Verdi
     '',
     '## Review',
     '',
-    `Passed by a reviewer agent that read the change and couldn't edit it.`,
+    carried
+      ? `Passed on ${carried.from.slice(0, 7)} by a reviewer agent that read the change and couldn't edit it. The merge queue then merged \`${carried.base}\` in as ${sha.slice(0, 7)}${carried.resolved.length ? `, keeping both sides' additions to ${carried.resolved.map((f) => `\`${f}\``).join(', ')}` : ''}, and ran the full check on it: the review carries over.`
+      : `Passed by a reviewer agent that read the change and couldn't edit it.`,
     ...(verdict.findings.length ? ['', 'Worth a look, not blocking:', '', ...verdict.findings.map((f) => `- ${f.file ? `\`${f.file}${f.line ? `:${f.line}` : ''}\`: ` : ''}${f.message}`)] : []),
     '',
     '---',
@@ -95,12 +100,17 @@ export function ghToken(run: Runner, account: string): string {
   return t.stdout.trim();
 }
 
-/** A land, with a marker saying it's under way while it runs, so every window shows it (D-092). */
-export function land(paths: RepoPaths, config: Config, id: string, deps: LandDeps, opts: { actor?: Actor; by?: string } = {}): LandResult {
+/**
+ * A land, with a marker saying it's under way while it runs, so every window shows it (D-092). `gates` is
+ * which checks the commit needs (GH-73): a builder's by default, or the merge's, as the merge queue pushes
+ * its merge commit, which it checked in full. A merge commit the queue made carries the review of the
+ * commit it was made on (reviewedAt).
+ */
+export function land(paths: RepoPaths, config: Config, id: string, deps: LandDeps, opts: { actor?: Actor; by?: string; gates?: GateScope } = {}): LandResult {
   return withJob(paths, { kind: 'land', task: id, by: opts.by ?? 'acc land' }, () => landNow(paths, config, id, deps, opts), deps.now);
 }
 
-function landNow(paths: RepoPaths, config: Config, id: string, deps: LandDeps, opts: { actor?: Actor; by?: string }): LandResult {
+function landNow(paths: RepoPaths, config: Config, id: string, deps: LandDeps, opts: { actor?: Actor; by?: string; gates?: GateScope }): LandResult {
   const { run, now } = deps;
   const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
   if (!task) throw new AccError('no-task', `No task ${id}.`);
@@ -113,9 +123,10 @@ function landNow(paths: RepoPaths, config: Config, id: string, deps: LandDeps, o
   if (!branch) throw new AccError('land', `${id} has no branch to land.`);
   const sha = run('git', ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], { cwd: paths.root }).stdout.trim();
   if (!sha) throw new AccError('land', `The branch ${branch} isn't in this clone.`);
-  const missing = receiptHooks(paths, config, run).missingGates(task);
+  const missing = receiptHooks(paths, config, run).missingGates(task, opts.gates);
   if (missing.length) throw new AccError('refused', `${id}'s checks aren't settled on ${sha.slice(0, 7)}: ${missing.join(', ')}.`);
-  const verdict = readVerdict(paths, id, sha);
+  const own = readVerdict(paths, id, sha);
+  const verdict = own ?? carriedVerdict(paths, task, sha);
   if (!verdict) throw new AccError('refused', `${id} hasn't been reviewed on ${sha.slice(0, 7)}. Run acc review ${id} first.`);
   if (verdict.verdict !== 'pass') throw new AccError('refused', `${id}'s review on ${sha.slice(0, 7)} asked for changes: ${verdict.summary}`);
 
@@ -137,7 +148,7 @@ function landNow(paths: RepoPaths, config: Config, id: string, deps: LandDeps, o
   if (push.code !== 0) throw new AccError('land', `git push refused ${branch}: ${(push.stderr || push.stdout).trim().split('\n').slice(-2).join(' ')}`);
 
   const receipts = receiptsAt(paths, sha);
-  const body = prBody(task, env, sha, verdict, receipts, autoMergeFor(config, env.branch));
+  const body = prBody(task, env, sha, verdict, receipts, autoMergeFor(config, env.branch), own ? null : task.autopilot?.carried ?? null);
   const dir = mkdtempSync(join(tmpdir(), 'acc-land-'));
   let pr: PullRequest;
   let opened: boolean;

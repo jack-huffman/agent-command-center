@@ -26,6 +26,8 @@ export interface SlotOptions {
   pollMs?: number;
   /** Called once, when the first attempt finds every slot taken, or kept for those waiting longer. */
   onWait?: () => void;
+  /** Called when a slot is taken after waiting for one, as the merge queue says when its check starts (GH-73). */
+  onTake?: () => void;
   owner?: SlotOwner;
 }
 
@@ -180,6 +182,7 @@ export function withSlot<T>(fn: () => T, opts: SlotOptions = {}): T {
           if (!take(slot, opts.owner)) continue;
           if (mine) rmSync(mine, { force: true });
           mine = null;
+          if (told) opts.onTake?.();
           try {
             return fn();
           } finally {

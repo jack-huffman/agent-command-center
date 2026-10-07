@@ -22,6 +22,7 @@ export * from './updates.ts';
 export * from './autopilot.ts';
 export * from './refresh.ts';
 export * from './merge.ts';
+export * from './queue.ts';
 export * from './checks.ts';
 export * from './sync.ts';
 export * from './closing.ts';

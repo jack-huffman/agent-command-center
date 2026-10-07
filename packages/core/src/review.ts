@@ -94,6 +94,38 @@ export function readVerdict(paths: RepoPaths, task: string, sha: string): Verdic
   }
 }
 
+/**
+ * The review a merge commit carries (GH-73): the merge queue merged the task's base into a commit whose
+ * review passed, cleanly or by keeping both sides' additions to an append-only file, and checked it in
+ * full. Its verdict is that commit's, kept as it was: no reviewer read the merge. Null for any other commit.
+ */
+export function carriedVerdict(paths: RepoPaths, task: Pick<Task, 'id' | 'autopilot'>, sha: string): Verdict | null {
+  const c = task.autopilot?.carried;
+  if (!c || !sha || c.to !== sha) return null;
+  const v = readVerdict(paths, task.id, c.from);
+  return v?.verdict === 'pass' ? v : null;
+}
+
+/**
+ * The passing review that covers a commit: its own, or the one its merge commit carries (GH-73). Land and
+ * the merge accept nothing else, so nothing is pushed or merged without one (D-033). Null when neither passed.
+ */
+export function reviewedAt(paths: RepoPaths, task: Pick<Task, 'id' | 'autopilot'>, sha: string): Verdict | null {
+  const own = readVerdict(paths, task.id, sha);
+  if (own) return own.verdict === 'pass' ? own : null;
+  return carriedVerdict(paths, task, sha);
+}
+
+/**
+ * Whether a verdict is current on a branch's latest commit: made there, or carried there by the merge
+ * queue's merge commit (GH-73), as land and the merge read it. The Command Center asks, so a task in the
+ * queue doesn't show its review as out of date once the queue pushed its merge.
+ */
+export function reviewCurrent(paths: RepoPaths, task: Pick<Task, 'id' | 'autopilot'>, verdict: Pick<Verdict, 'sha'>, head: string): boolean {
+  if (!head) return false;
+  return verdict.sha === head || carriedVerdict(paths, task, head)?.sha === verdict.sha;
+}
+
 /** The task's newest verdict on any commit: what its next run has to fix. */
 export function latestVerdict(paths: RepoPaths, task: string): Verdict | null {
   if (!existsSync(paths.reviews)) return null;

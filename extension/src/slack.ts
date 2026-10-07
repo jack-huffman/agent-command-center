@@ -164,7 +164,7 @@ export function taskEvent(p: SlackProject, n: TaskNotice, now: number): SlackEve
 }
 
 /** What a step autopilot couldn't take is called. */
-const COULDNT = { review: 'review it', land: 'land it', dispatch: 're-dispatch it', refresh: 'merge its base into it', resume: 'resume its builder', checks: 'send it back for its failing checks', merge: 'merge its pull request', start: 'start it' } as const;
+const COULDNT = { review: 'review it', land: 'land it', dispatch: 're-dispatch it', refresh: 'merge its base into it', resume: 'resume its builder', checks: 'send it back for its failing checks', merge: 'merge its pull request', start: 'start it', queue: 'take it through the merge queue' } as const;
 
 /** Whether a task's ticket takes updates: one from a tracker, with a key (D-066). */
 const ticketed = (t: Pick<Task, 'source'> | undefined): boolean => !!t?.source.key && isTrackerKind(t.source.kind);

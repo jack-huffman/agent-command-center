@@ -607,6 +607,42 @@ test('autopilot\'s send-back for failing checks is its own notice and History it
   assert.equal(withoutAutopilotEcho(news, [{ seq: 1, at, task: 'GH-57', step: 'land', outcome: 'done', pr: { number: 9, url: 'u', opened: true } }]).length, 1);
 });
 
+test('the merge queue\'s send-back is its own notice and History item, its merge commit says it merges next, and a turn it couldn\'t take needs you (GH-73)', async () => {
+  const { autopilotNotices, noticeActions, withoutAutopilotEcho, taskNotices } = await import('../src/logic.ts');
+  const { autopilotStepLook } = await import('../src/model.ts');
+  type Rec = import('../../packages/core/src/autopilot.ts').AutopilotRecord;
+  type Row = import('../src/logic.ts').TaskRow;
+  const at = '2026-10-06T12:00:00.000Z';
+  const gh = { id: 'GH-73', source: { kind: 'github', key: '73' }, history: [] };
+  const say = (r: Rec) => autopilotNotices([r], [gh]).map((n) => [n.text, n.urgent, noticeActions(n)]);
+  const show = ['Show', 'acc.task.show'];
+  const pr = ['Open pull request', 'acc.task.openPr'];
+  const conflict: Rec = { seq: 1, at, task: 'GH-73', step: 'queue', outcome: 'done', checks: [], conflicts: ['sum.js', 'docs/DESIGN.md'], reason: 'The merge queue sent it back: merging main in conflicts in sum.js, docs/DESIGN.md.' };
+  const failed: Rec = { seq: 2, at, task: 'GH-73', step: 'queue', outcome: 'done', checks: ['check'], reason: 'The merge queue sent it back: the full check failed with main merged in: check.' };
+  assert.deepEqual(say(conflict).map((n) => [n[0], n[1]]), [['Autopilot sent GH-73 back to its builder from the merge queue: it conflicts with its base in sum.js, docs/DESIGN.md.', false]]);
+  assert.equal(say(failed)[0]![0], 'Autopilot sent GH-73 back to its builder from the merge queue: its full check failed: check.');
+  assert.equal(say({ seq: 3, at, task: 'GH-73', step: 'dispatch', outcome: 'done', cause: 'queue' })[0]![0], 'Autopilot re-dispatched GH-73 with what the merge queue found.');
+  const merged: Rec = { seq: 4, at, task: 'GH-73', step: 'refresh', outcome: 'done', base: 'main', queue: true };
+  assert.deepEqual(say(merged), [['The merge queue merged main into GH-73, and its full check passed. It merges once GitHub\'s checks pass.', false, [pr, show]]]);
+  const stuck = 'GH-73\'s worktree has changes nobody committed, so autopilot leaves it alone.';
+  assert.deepEqual(say({ seq: 5, at, task: 'GH-73', step: 'queue', outcome: 'failed', reason: stuck }), [[`Autopilot couldn't take GH-73 through the merge queue: ${stuck}`, true, [pr, show]]]);
+
+  // History: an icon and its words, neutral for a send-back, blue for its merge commit, orange only for a failure.
+  assert.deepEqual(autopilotStepLook(conflict), { look: { label: 'Autopilot sent it back from the merge queue', icon: 'git-merge', tone: 'neutral' }, detail: 'It conflicts with its base in sum.js, docs/DESIGN.md.', url: null });
+  assert.equal(autopilotStepLook(failed).detail, 'Its full check failed: check.');
+  assert.deepEqual(autopilotStepLook(merged), { look: { label: 'The merge queue merged main into it', icon: 'git-merge', tone: 'blue' }, detail: 'Its full check passed on the merge. It merges once GitHub\'s checks pass.', url: null });
+  assert.equal(autopilotStepLook({ seq: 3, at, task: 'GH-73', step: 'dispatch', outcome: 'done', cause: 'queue' }).look.label, 'Autopilot re-dispatched it with what the merge queue found');
+  assert.deepEqual(autopilotStepLook({ seq: 5, at, task: 'GH-73', step: 'queue', outcome: 'failed', reason: stuck }).look, { label: 'Autopilot couldn\'t take it through the merge queue', icon: 'warning', tone: 'orange' });
+  // A refresh without the queue still says it's reviewed next (D-058).
+  assert.match(autopilotStepLook({ ...merged, queue: undefined }).detail!, /reviewed next, then landed/);
+
+  // D-044's notice of its move to rework keeps quiet when the queue's own said it.
+  const row = (state: string): Row => ({ id: 'GH-73', title: 'Task GH-73', state, display: state as Row['display'], environment: 'main', deps: [], source: { kind: 'github', url: null } });
+  const news = taskNotices([row('review')], [row('rework')]);
+  assert.equal(news.length, 1);
+  assert.deepEqual(withoutAutopilotEcho(news, [conflict]), []);
+});
+
 test('the autopilot switch says on or off with an icon and the words, and its tooltip says what it does (D-064)', async () => {
   const { autopilotStatus } = await import('../src/logic.ts');
   const on = autopilotStatus({ project: 'Tool', many: false, state: 'on', last: '✓ GH-31  Opened pull request #40.' });
@@ -665,9 +701,9 @@ test('a pull request autopilot merged is a notice and a History item; one it cou
   assert.deepEqual(autopilotLook({ autopilot: { step: 'merge', reason } }), { label: `Needs you: autopilot couldn't merge it: ${reason}`, icon: 'bell', tone: 'orange' });
   assert.deepEqual(autopilotLook({ autopilot: { step: 'merge', reason } }, false)?.label, 'Needs you: autopilot couldn\'t merge it');
 
-  // With auto-merge on, the switch's tooltip says when it merges, and no longer that it never does.
+  // With auto-merge on, the switch's tooltip says how it merges, in turn through a merge queue (GH-73), and no longer that it never does.
   const on = autopilotStatus({ project: 'Tool', many: false, state: 'on', autoMerge: true });
-  assert.match(on.tooltip, /Auto-merge is on: it also merges a pull request whose review and checks passed, once it's up to date with its base, GitHub says it can merge and nothing waits on a person, one a pass\. It never merges into a protected environment\./);
+  assert.match(on.tooltip, /Auto-merge is on: a pull request whose review and checks passed, with nothing waiting on a person, joins the repo's merge queue, and they merge in turn\. At its turn its base is merged in, the full check runs once, and it merges once GitHub says it can, or goes back to its builder\. It never merges into a protected environment\./);
   assert.doesNotMatch(on.tooltip, /It never merges a pull request/);
   assert.match(autopilotStatus({ project: 'Tool', many: false, state: 'off', autoMerge: false }).tooltip, /It never merges a pull request\./);
 });

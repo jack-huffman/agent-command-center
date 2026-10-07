@@ -1,8 +1,8 @@
 import { existsSync, realpathSync } from 'node:fs';
-import { type Config, environmentByBranch } from './config.ts';
+import { type Config, type Environment, environmentByBranch } from './config.ts';
 import { mainCheckout } from './dispatch.ts';
 import { AccError, type RunResult, type Runner } from './exec.ts';
-import { listed, priorTests, runGates } from './gates.ts';
+import { type Gate, type GateResult, listed, priorTests, runGates } from './gates.ts';
 import { withJob } from './jobs.ts';
 import { type Actor, mutate, readLedger, type Task } from './ledger.ts';
 import { type RepoPaths, repoPaths } from './paths.ts';
@@ -11,11 +11,12 @@ import type { SlotOptions } from './semaphore.ts';
 import { conflictsOf, fetchBranches } from './sync.ts';
 
 /**
- * Refreshing a pull request (D-058): when its base moved on and it conflicts, or with auto-merge on when
- * it's only behind (GH-67), autopilot merges the base into the task's branch, in the task's worktree. It resolves only files listed in `autopilot.appendOnly`
+ * Refreshing a pull request (D-058): when its base moved on and it conflicts, autopilot merges the base
+ * into the task's branch, in the task's worktree. It resolves only files listed in `autopilot.appendOnly`
  * where both sides added to the end, by keeping both. Any other conflict leaves the branch as it was, for
  * a person. The merge commit's checks run before anything else; it's reviewed and landed in the passes
- * after, like any commit, so nothing that hasn't passed is pushed.
+ * after, like any commit, so nothing that hasn't passed is pushed. Where auto-merge is on, the merge queue
+ * takes the same parts one at a time, at a task's turn (GH-73): mergeBaseIn, then checkCommit.
  */
 
 export interface RefreshDeps {
@@ -116,21 +117,46 @@ const samePath = (a: string, b: string): boolean => {
   }
 };
 
-/**
- * With `behind`, the base is merged in even when it would merge cleanly: auto-merge brings a pull request
- * up to date with its base before it merges it (GH-67). Without it, a refresh is for conflicts only.
- */
-export function refresh(paths: RepoPaths, config: Config, id: string, deps: RefreshDeps, opts: { actor: Actor; by: string; behind?: boolean }): RefreshResult {
-  // Marked under way while it runs, so every window shows it (D-092).
-  return withJob(paths, { kind: 'refresh', task: id, by: opts.by }, () => refreshNow(paths, config, id, deps, opts), deps.now);
+// ---------------------------------------------------------------- the parts, which the merge queue takes one at a time (GH-73)
+
+/** A task's own worktree, where autopilot merges its base in and checks the merge: on its branch, with nothing uncommitted. */
+export interface MergePlace {
+  id: string;
+  env: Environment;
+  branch: string;
+  wt: string;
+  /** The branch's commit before anything is merged: where a failure puts it back. */
+  from: string;
 }
 
-function refreshNow(paths: RepoPaths, config: Config, id: string, deps: RefreshDeps, opts: { actor: Actor; by: string; behind?: boolean }): RefreshResult {
-  const { run, now } = deps;
-  const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
-  if (!task) throw new AccError('no-task', `No task ${id}.`);
-  const pr = task.pr;
-  if (task.state !== 'review' || pr?.state !== 'open') throw new AccError('refused', `${id} is ${task.state}${pr ? ` with pull request #${pr.number} ${pr.state}` : ' with no pull request'}. Autopilot updates the open pull request of a task in review.`);
+/** The base couldn't be merged in: conflicts in files autopilot doesn't resolve. The branch is as it was. */
+export class MergeConflict extends AccError {
+  readonly files: string[];
+  constructor(message: string, files: string[]) {
+    super('refresh', message);
+    this.files = files;
+  }
+}
+
+/** The checks failed on the commit, each with its summary and its log. The branch is as it was. */
+export class CheckFailure extends AccError {
+  readonly failed: GateResult[];
+  constructor(message: string, failed: GateResult[]) {
+    super('refresh', message);
+    this.failed = failed;
+  }
+}
+
+const gitIn = (run: Runner, wt: string) => (...args: string[]) => run('git', args, { cwd: wt });
+const midMerge = (run: Runner, wt: string): boolean => gitIn(run, wt)('rev-parse', '--verify', '--quiet', 'MERGE_HEAD').code === 0;
+const dirtyIn = (run: Runner, wt: string, untracked = true): boolean => gitIn(run, wt)('status', '--porcelain', ...(untracked ? [] : ['--untracked-files=no'])).stdout.trim() !== '';
+
+/**
+ * The task's worktree, ready to merge into (D-058): its own, never the main checkout, on its branch, with
+ * nothing uncommitted and nothing half merged. Anything else is refused, and nothing is touched.
+ */
+export function mergePlace(paths: RepoPaths, config: Config, task: Task, run: Runner): MergePlace {
+  const id = task.id;
   const env = environmentByBranch(config, task.environment);
   if (!env) throw new AccError('refresh', `${id}'s environment "${task.environment}" isn't in the config.`);
   const branch = task.run?.branch;
@@ -138,22 +164,135 @@ function refreshNow(paths: RepoPaths, config: Config, id: string, deps: RefreshD
   if (!branch) throw new AccError('refresh', `${id} has no branch.`);
   if (!wt || !existsSync(wt)) throw new AccError('refresh', `${id}'s worktree isn't on disk any more, so there's nowhere to merge ${env.branch} in.`);
   if (samePath(wt, mainCheckout(run, paths.root))) throw new AccError('refresh', `${id}'s worktree is the main checkout. Autopilot merges only in a task's own worktree.`);
-  const git = (...args: string[]) => run('git', args, { cwd: wt });
+  const git = gitIn(run, wt);
   const on = git('symbolic-ref', '--quiet', '--short', 'HEAD').stdout.trim();
   if (on !== branch) throw new AccError('refresh', `${wt} is on ${on || 'a detached commit'}, not ${branch}.`);
-  const mid = () => git('rev-parse', '--verify', '--quiet', 'MERGE_HEAD').code === 0;
-  const dirty = (untracked = true) => git('status', '--porcelain', ...(untracked ? [] : ['--untracked-files=no'])).stdout.trim() !== '';
-  if (dirty() || mid()) throw new AccError('refresh', `${id}'s worktree has changes nobody committed, so autopilot leaves it alone.`);
-  const from = git('rev-parse', 'HEAD').stdout.trim();
+  if (dirtyIn(run, wt) || midMerge(run, wt)) throw new AccError('refresh', `${id}'s worktree has changes nobody committed, so autopilot leaves it alone.`);
+  return { id, env, branch, wt, from: git('rev-parse', 'HEAD').stdout.trim() };
+}
 
-  // Unattended, so git never stops to ask for a password.
-  if (!fetchBranches(run, paths.root, [env.branch, branch], { ...deps.env, GIT_TERMINAL_PROMPT: '0' })) {
-    throw new AccError('refresh', `Couldn't fetch ${env.branch} and ${branch} from origin.`);
+/**
+ * Brings the base and the branch from origin, unattended, so git never stops to ask for a password. Refuses
+ * when origin's branch has commits this clone's lacks, as after GitHub's "Update branch": merging here
+ * would leave the branch unable to push.
+ */
+export function fetchBase(paths: RepoPaths, place: MergePlace, run: Runner, env: NodeJS.ProcessEnv): void {
+  const { branch, from } = place;
+  if (!fetchBranches(run, paths.root, [place.env.branch, branch], { ...env, GIT_TERMINAL_PROMPT: '0' })) {
+    throw new AccError('refresh', `Couldn't fetch ${place.env.branch} and ${branch} from origin.`);
   }
-  // Someone updated the pull request on GitHub: merging here would leave the branch unable to push.
-  if (git('merge-base', '--is-ancestor', `refs/remotes/origin/${branch}`, from).code !== 0) {
+  if (gitIn(run, place.wt)('merge-base', '--is-ancestor', `refs/remotes/origin/${branch}`, from).code !== 0) {
     throw new AccError('refresh', `origin's ${branch} has commits this clone's branch doesn't, perhaps from GitHub. Bring them in by hand.`);
   }
+}
+
+/** git as the repo's commit identity, with rerere off, so an answer remembered from another merge never stands in. */
+const merging = (config: Config, run: Runner, wt: string) => {
+  const who = config.commitIdentity ? ['-c', `user.name=${config.commitIdentity.name}`, '-c', `user.email=${config.commitIdentity.email}`] : [];
+  return (...args: string[]) => run('git', ['-c', 'rerere.enabled=false', ...who, ...args], { cwd: wt });
+};
+
+/**
+ * Undoes a merge, and says whether the branch is as it was. Files nobody tracks are left out: the
+ * worktree had none before, so any now are what a check wrote.
+ */
+function putBack(config: Config, place: MergePlace, run: Runner, how: string[]): string {
+  const { wt, from } = place;
+  merging(config, run, wt)(...how);
+  const back = gitIn(run, wt)('rev-parse', 'HEAD').stdout.trim() === from && !dirtyIn(run, wt, false) && !midMerge(run, wt);
+  return back ? `The branch is as it was, at ${short(from)}, and nothing was pushed.` : `Putting the branch back at ${short(from)} didn't work: look at ${wt} before anything else.`;
+}
+
+/** Puts the branch back where it was before a merge commit, as the merge queue does when it couldn't push one (GH-73). */
+export const undoMerge = (config: Config, place: MergePlace, run: Runner): string => putBack(config, place, run, ['reset', '--hard', place.from]);
+
+/**
+ * Merges origin's copy of the base into the worktree as one commit (D-058), resolving only append-only
+ * files both sides added to the end of, by keeping both. Null when there was nothing to merge in. A
+ * conflict it can't resolve is a MergeConflict; anything else that stops it is an AccError. Either way the
+ * branch is put back as it was. The repo's hooks run on the commit.
+ */
+export function mergeBaseIn(config: Config, place: MergePlace, run: Runner): { sha: string; resolved: string[] } | null {
+  const { env, branch, wt } = place;
+  const git = gitIn(run, wt);
+  const merge = merging(config, run, wt);
+  const merged = merge('merge', '--no-ff', '--no-commit', `origin/${env.branch}`);
+  if (!midMerge(run, wt)) {
+    if (merged.code === 0) return null; // already up to date
+    throw new AccError('refresh', `git wouldn't merge ${env.branch} in: ${lastLines(merged)} ${putBack(config, place, run, ['reset', '--merge'])}`);
+  }
+  const appendOnly = config.autopilot?.appendOnly ?? [];
+  const mergeBase = git('merge-base', 'HEAD', 'MERGE_HEAD').stdout.trim();
+  const resolved: string[] = [];
+  const left: string[] = [];
+  for (const [path, stages] of unmerged(run, wt)) {
+    if (listed(path, appendOnly) && resolveAppend(run, wt, mergeBase, path, stages)) resolved.push(path);
+    else left.push(path);
+  }
+  if (left.length) throw new MergeConflict(`Conflicts with ${env.branch} that autopilot can't resolve: ${left.join(', ')}. ${putBack(config, place, run, ['merge', '--abort'])}`, left);
+  if (merged.code !== 0 && !resolved.length) throw new AccError('refresh', `git couldn't merge ${env.branch} in: ${lastLines(merged)} ${putBack(config, place, run, ['merge', '--abort'])}`);
+  const message = [`Merge ${env.branch} into ${branch}`, ...(resolved.length ? ['', `Autopilot kept both sides' additions to ${resolved.join(', ')}.`] : [])].join('\n');
+  // The repo's hooks run, as on any commit.
+  const commit = merge('commit', '-m', message);
+  if (commit.code !== 0) throw new AccError('refresh', `The merge commit was refused: ${lastLines(commit)} ${putBack(config, place, run, ['merge', '--abort'])}`);
+  return { sha: git('rev-parse', 'HEAD').stdout.trim(), resolved };
+}
+
+export interface CheckDeps {
+  run: Runner;
+  now: () => Date;
+  slots?: SlotOptions;
+  /** Told when a heavy gate has to wait for the machine's slot, and when it starts. */
+  onWait?: (gate: Gate) => void;
+  onStart?: (gate: Gate) => void;
+}
+
+/**
+ * Runs the gates on the worktree's commit, `sha`, with the tests the commit before named, before anything
+ * else happens. A failure is a CheckFailure, and one that couldn't run, such as a heavy-check slot that
+ * stayed taken (D-069), an AccError with its code. Either way the branch goes back to `from` (D-058).
+ * A waiver is for its own commit (D-031), so a merge commit starts with none.
+ */
+export function checkCommit(paths: RepoPaths, config: Config, place: MergePlace, sha: string, gates: string[], deps: CheckDeps): void {
+  const { env, wt, from } = place;
+  const { run } = deps;
+  const what = sha === from ? 'Its checks' : `Merged ${env.branch} in, but its checks`;
+  let failed: GateResult[] = [];
+  try {
+    if (gates.length) {
+      const ran = runGates(repoPaths(wt, run), config, env, gates, priorTests(paths, config, from), { run, now: deps.now, slots: deps.slots, task: place.id, onWait: deps.onWait, onStart: deps.onStart });
+      failed = ran.results.filter((r) => !r.recorded || !satisfies(r.receipt));
+    }
+  } catch (e) {
+    const err = e as AccError;
+    throw new AccError(err.code ?? 'refresh', `${what} couldn't run: ${err.message} ${putBack(config, place, run, ['reset', '--hard', from])}`);
+  }
+  if (failed.length) {
+    const said = failed.map((r) => `${r.gate} ${!r.recorded ? 'wasn\'t recorded' : r.status === 'fail' ? 'failed' : 'couldn\'t run'}: ${r.summary.replace(/[.!?]$/, '')}${r.receipt.log ? ` (log ${r.receipt.log})` : ''}`);
+    throw new CheckFailure(`${what} failed on ${short(sha)}: ${said.join('; ')}. ${putBack(config, place, run, ['reset', '--hard', from])}`, failed);
+  }
+}
+
+// ---------------------------------------------------------------- a refresh, all of it (D-058)
+
+/**
+ * A refresh is for conflicts only: a pull request only behind its base is left alone. Where auto-merge is
+ * on, the merge queue brings one up to date at its turn (GH-73), with mergeBaseIn and checkCommit.
+ */
+export function refresh(paths: RepoPaths, config: Config, id: string, deps: RefreshDeps, opts: { actor: Actor; by: string }): RefreshResult {
+  // Marked under way while it runs, so every window shows it (D-092).
+  return withJob(paths, { kind: 'refresh', task: id, by: opts.by }, () => refreshNow(paths, config, id, deps, opts), deps.now);
+}
+
+function refreshNow(paths: RepoPaths, config: Config, id: string, deps: RefreshDeps, opts: { actor: Actor; by: string }): RefreshResult {
+  const { run, now } = deps;
+  const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
+  if (!task) throw new AccError('no-task', `No task ${id}.`);
+  const pr = task.pr;
+  if (task.state !== 'review' || pr?.state !== 'open') throw new AccError('refused', `${id} is ${task.state}${pr ? ` with pull request #${pr.number} ${pr.state}` : ' with no pull request'}. Autopilot updates the open pull request of a task in review.`);
+  const place = mergePlace(paths, config, task, run);
+  const { env, branch, from } = place;
+  fetchBase(paths, place, run, deps.env);
   const record = (change: (t: Task) => Record<string, unknown>) => mutate(paths, now, (l, emit) => {
     const t = l.tasks.find((x) => x.id === id);
     if (!t) return;
@@ -168,63 +307,18 @@ function refreshNow(paths: RepoPaths, config: Config, id: string, deps: RefreshD
     });
     return { sha: null, from, resolved: [], reason: `Pull request #${pr.number} no longer conflicts with ${env.branch}, so nothing was merged.` };
   };
-  // What acc last saw can be stale: ask git again before merging anything. A pull request only behind its
-  // base is merged with it all the same.
-  if (!opts.behind && conflictsOf(run, paths.root, env.branch, branch)?.length === 0) return settled();
-  /** Nothing to merge in after all: the base has nothing the branch lacks. A conflict acc saw is marked gone. */
-  const upToDate = (): RefreshResult => (pr.conflicts?.length ? settled() : { sha: null, from, resolved: [], reason: `Pull request #${pr.number} already has everything on ${env.branch}, so nothing was merged.` });
-  if (opts.behind && git('merge-base', '--is-ancestor', `refs/remotes/origin/${env.branch}`, from).code === 0) return upToDate();
+  // What acc last saw can be stale: ask git again before merging anything.
+  if (conflictsOf(run, paths.root, env.branch, branch)?.length === 0) return settled();
 
-  // rerere off, so an answer remembered from another merge never stands in for these rules.
-  const who = config.commitIdentity ? ['-c', `user.name=${config.commitIdentity.name}`, '-c', `user.email=${config.commitIdentity.email}`] : [];
-  const merge = (...args: string[]) => run('git', ['-c', 'rerere.enabled=false', ...who, ...args], { cwd: wt });
-  /**
-   * Undoes the merge, and says whether the branch is as it was. Files nobody tracks are left out: the
-   * worktree had none before, so any now are what a check wrote.
-   */
-  const putBack = (how: string[]): string => {
-    merge(...how);
-    const back = git('rev-parse', 'HEAD').stdout.trim() === from && !dirty(false) && !mid();
-    return back ? `The branch is as it was, at ${short(from)}, and nothing was pushed.` : `Putting the branch back at ${short(from)} didn't work: look at ${wt} before anything else.`;
-  };
-
-  const merged = merge('merge', '--no-ff', '--no-commit', `origin/${env.branch}`);
-  if (!mid()) {
-    if (merged.code === 0) return opts.behind ? upToDate() : settled(); // already up to date
-    throw new AccError('refresh', `git wouldn't merge ${env.branch} in: ${lastLines(merged)} ${putBack(['reset', '--merge'])}`);
-  }
-  const appendOnly = config.autopilot?.appendOnly ?? [];
-  const mergeBase = git('merge-base', 'HEAD', 'MERGE_HEAD').stdout.trim();
-  const resolved: string[] = [];
-  const left: string[] = [];
-  for (const [path, stages] of unmerged(run, wt)) {
-    if (listed(path, appendOnly) && resolveAppend(run, wt, mergeBase, path, stages)) resolved.push(path);
-    else left.push(path);
-  }
-  if (left.length) throw new AccError('refresh', `Conflicts with ${env.branch} that autopilot can't resolve: ${left.join(', ')}. ${putBack(['merge', '--abort'])}`);
-  if (merged.code !== 0 && !resolved.length) throw new AccError('refresh', `git couldn't merge ${env.branch} in: ${lastLines(merged)} ${putBack(['merge', '--abort'])}`);
-  const message = [`Merge ${env.branch} into ${branch}`, ...(resolved.length ? ['', `Autopilot kept both sides' additions to ${resolved.join(', ')}.`] : [])].join('\n');
-  // The repo's hooks run, as on any commit.
-  const commit = merge('commit', '-m', message);
-  if (commit.code !== 0) throw new AccError('refresh', `The merge commit was refused: ${lastLines(commit)} ${putBack(['merge', '--abort'])}`);
-  const sha = git('rev-parse', 'HEAD').stdout.trim();
+  const made = mergeBaseIn(config, place, run);
+  if (!made) return settled(); // already up to date
+  const { sha, resolved } = made;
 
   // Its checks, on the merge commit, before anything else happens. A waiver is for its own commit (D-031).
   const required = config.gates.required;
-  let failed: string[] = [];
-  try {
-    if (required.length) {
-      const ran = runGates(repoPaths(wt, run), config, env, required, priorTests(paths, config, from), { run, now, slots: deps.slots, task: id });
-      failed = ran.results.filter((r) => !r.recorded || !satisfies(r.receipt))
-        .map((r) => `${r.gate} ${!r.recorded ? 'wasn\'t recorded' : r.status === 'fail' ? 'failed' : 'couldn\'t run'}: ${r.summary.replace(/[.!?]$/, '')}${r.receipt.log ? ` (log ${r.receipt.log})` : ''}`);
-    }
-  } catch (e) {
-    const err = e as AccError;
-    throw new AccError(err.code ?? 'refresh', `Merged ${env.branch} in, but its checks couldn't run: ${err.message} ${putBack(['reset', '--hard', from])}`);
-  }
-  if (failed.length) throw new AccError('refresh', `Merged ${env.branch} in, but its checks failed on ${short(sha)}: ${failed.join('; ')}. ${putBack(['reset', '--hard', from])}`);
+  checkCommit(paths, config, place, sha, required, { run, now, slots: deps.slots });
 
-  const refreshed = { base: env.branch, from, to: sha, resolved, ...(opts.behind ? { behind: true } : {}) };
+  const refreshed = { base: env.branch, from, to: sha, resolved };
   record((t) => {
     // Updated, by autopilot: whatever it couldn't do before is behind it (D-055).
     if (t.autopilot?.failed) t.autopilot.failed = null;

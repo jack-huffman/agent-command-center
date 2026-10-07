@@ -4,14 +4,14 @@ import { AccError, parseJsonOutput, type RunResult, type Runner } from './exec.t
 import { GH_TIMEOUT_MS, ghToken } from './land.ts';
 import { type Actor, type AutopilotMerge, type MergeMethod, mutate, readLedger } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
-import { pendingQuestions, questionsDir } from './questions.ts';
+import { askingUnder, pendingQuestions, questionsDir } from './questions.ts';
 import { receiptHooks } from './receipts.ts';
-import { readVerdict } from './review.ts';
+import { reviewedAt } from './review.ts';
 import { fetchBranches } from './sync.ts';
 
 /**
  * Auto-merge (GH-67): where a repo turns it on, autopilot merges a task's open pull request once its
- * review passed and its checks settled on the branch's latest commit, GitHub's checks passed there, GitHub
+ * review passed and its full checks settled on the branch's latest commit, GitHub's checks passed there, GitHub
  * says it can merge, and nothing waits on a person. It merges as the repo's account (D-007), with the
  * method the repo allows, and only the commit it looked at (`--match-head-commit`). It never merges into
  * a protected environment, in a Salesforce project, or a pull request that changes `.acc/`. acc sync then
@@ -62,7 +62,6 @@ interface GhPrState {
 
 const short = (sha: string): string => sha.slice(0, 7) || 'no commit';
 const firstLine = (r: RunResult): string => (r.stderr || r.stdout).trim().split('\n')[0]?.trim() || `exit ${r.code}`;
-const under = (path: string, root: string): boolean => path === root || path.startsWith(root.endsWith('/') ? root : `${root}/`);
 
 /** What GitHub says about the pull request now, or null when gh couldn't say. */
 function viewPr(run: Runner, repo: string, n: number, env: NodeJS.ProcessEnv): GhPrState | null {
@@ -117,14 +116,18 @@ export function mergePr(paths: RepoPaths, config: Config, id: string, deps: Merg
   const head = branch ? run('git', ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], { cwd: paths.root }).stdout.trim() : '';
   if (!branch || !head) throw new AccError('merge', `${id}'s branch isn't in this clone.`);
   const wait = (why: string) => new AccError('merge-waits', why);
+  // A wait for GitHub's checks, which the merge queue's head says it waits on; it says any other wait's own words (GH-73).
+  const waitChecks = (why: string) => Object.assign(wait(why), { checks: true as const });
   if (task.autopilot?.merged?.sha === head) throw wait(`Autopilot already merged pull request #${pr.number}: acc sync moves ${id} to done.`);
   if (pr.sha !== head) throw wait(`Pull request #${pr.number} was landed at ${short(pr.sha ?? '')}, not ${short(head)}: a land comes first.`);
-  if (readVerdict(paths, id, head)?.verdict !== 'pass') throw wait(`${id}'s review hasn't passed on ${short(head)}.`);
-  const missing = receiptHooks(paths, config, run).missingGates(task);
+  // Its own review, or the one the merge queue's merge commit carries (GH-73).
+  if (!reviewedAt(paths, task, head)) throw wait(`${id}'s review hasn't passed on ${short(head)}.`);
+  // The full check, whatever a builder ran (GH-73).
+  const missing = receiptHooks(paths, config, run).missingGates(task, 'merge');
   if (missing.length) throw new AccError('merge', `Its checks aren't settled on ${short(head)}: ${missing.join(', ')}.`);
   // An agent in its worktree asking a person something: the person comes first.
   const wt = task.run?.worktree;
-  if (wt && pendingQuestions(questionsDir(deps.env)).some((q) => under(q.cwd, wt))) throw wait(`An agent in ${id}'s worktree is waiting for your answer.`);
+  if (wt && askingUnder(pendingQuestions(questionsDir(deps.env)), wt)) throw wait(`An agent in ${id}'s worktree is waiting for your answer.`);
 
   // The base and the branch as origin has them: a base that moved on is merged in first (refresh), and
   // what the pull request changes is read from them.
@@ -155,7 +158,7 @@ export function mergePr(paths: RepoPaths, config: Config, id: string, deps: Merg
     throw wait((e as Error).message);
   }
   if (checks.sha !== head) throw wait(`Pull request #${pr.number} is at ${short(checks.sha)} on GitHub, not ${short(head)}.`);
-  if (checks.pending.length) throw wait(`Checks are still running on GitHub: ${checks.pending.join(', ')}.`);
+  if (checks.pending.length) throw waitChecks(`Checks are still running on GitHub: ${checks.pending.join(', ')}.`);
   if (checks.failed.length) throw new AccError('merge', `Checks failed on GitHub: ${checks.failed.map((c) => c.name).join(', ')}.`);
   if (checks.cancelled.length) throw new AccError('merge', `Checks were cancelled on GitHub: ${checks.cancelled.join(', ')}. Run them again, or merge it yourself.`);
   // None at all counts only where the base requires none, and once a slow CI has had time to start (a person
@@ -164,8 +167,8 @@ export function mergePr(paths: RepoPaths, config: Config, id: string, deps: Merg
   const since = (ms: number) => Number.isFinite(landed) && now().getTime() - landed < ms;
   if (!checks.count) {
     // A guard: gh answers --required on a commit with no checks as "no checks reported" (checks.ts).
-    if (checks.required) throw wait(`No checks ${env.branch} requires are reported on GitHub yet.`);
-    if (since(NO_CHECKS_GRACE_MS)) throw wait('No checks are reported on GitHub yet: autopilot gives them 2 minutes after a land.');
+    if (checks.required) throw waitChecks(`No checks ${env.branch} requires are reported on GitHub yet.`);
+    if (since(NO_CHECKS_GRACE_MS)) throw waitChecks('No checks are reported on GitHub yet: autopilot gives them 2 minutes after a land.');
   }
 
   if (seen.mergeable === 'CONFLICTING' || seen.mergeStateStatus === 'DIRTY') throw new AccError('merge', `GitHub says pull request #${pr.number} conflicts with ${env.branch}.`);
@@ -174,7 +177,7 @@ export function mergePr(paths: RepoPaths, config: Config, id: string, deps: Merg
   // Blocked with no checks reported: at first most likely ones the base requires that haven't registered
   // yet. Still none 15 minutes after the land, it's a rule no check meets, and a person is told.
   if (seen.mergeStateStatus === 'BLOCKED' && !checks.count) {
-    if (since(BLOCKED_NO_CHECKS_MS)) throw wait(`GitHub says ${env.branch}'s rules block pull request #${pr.number}, and no checks are reported on it yet: autopilot waits for the checks ${env.branch} requires.`);
+    if (since(BLOCKED_NO_CHECKS_MS)) throw waitChecks(`GitHub says ${env.branch}'s rules block pull request #${pr.number}, and no checks are reported on it yet: autopilot waits for the checks ${env.branch} requires.`);
     throw new AccError('merge', `GitHub won't merge pull request #${pr.number}: ${env.branch}'s rules block it, and no checks were reported on it in the 15 minutes after its land. It may need an approving review: merge it yourself.`);
   }
   if (seen.mergeStateStatus === 'BLOCKED') throw new AccError('merge', `GitHub won't merge pull request #${pr.number}: ${env.branch}'s rules block it, such as a required approving review.`);
@@ -198,6 +201,8 @@ export function mergePr(paths: RepoPaths, config: Config, id: string, deps: Merg
     const t = l.tasks.find((x) => x.id === id);
     if (!t) return;
     t.autopilot = { ...t.autopilot, failed: null, merged };
+    // Merged, it leaves the merge queue (GH-73).
+    if (t.autopilot.queued) t.autopilot.queued = null;
     t.updatedAt = merged.at;
     emit({ type: 'task.updated', task: id, actor: opts.actor, by: opts.by, data: { merged } });
   });

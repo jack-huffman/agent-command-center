@@ -1,7 +1,7 @@
 // Renders one editor tab. Every element is built with DOM calls and every string is set as text,
 // so nothing from a ticket, branch or session can become markup. No HTML string is ever parsed.
 import type {
-  Action, AgentModel, AgentsModel, ConnectField, ConnectModel, ConnectPicker, EntryView, EnvironmentsModel, HistoryItem, HomeModel, HomeSection, IdentityCard, Look, Model, PersonChip, QuestionCard, Ref, RunCard, SetupModel, SetupRow, SlackCard, TasksModel, TicketAnalysis, TicketModel, TrackerBoard, TrackerCard, UpdateCard, ViewKind, WhereView, WorktreesModel,
+  Action, AgentModel, AgentsModel, ConnectField, ConnectModel, ConnectPicker, EntryView, EnvironmentsModel, HistoryItem, HomeModel, HomeSection, IdentityCard, Look, Model, PersonChip, QuestionCard, QueuePanel, Ref, RunCard, SetupModel, SetupRow, SlackCard, TasksModel, TicketAnalysis, TicketModel, TrackerBoard, TrackerCard, UpdateCard, ViewKind, WhereView, WorktreesModel,
 } from '../src/model.ts';
 import type { ProgressAction, ProgressGroup, ProgressModel } from '../src/progress.ts';
 import type { Block, Doc, Inline } from '../../packages/core/src/trackers/doc.ts';
@@ -822,7 +822,10 @@ function renderTicket(m: TicketModel): Node[] {
       ),
       a.checks.length ? el('div', 'checks', el('h3', '', 'Checks'), ...a.checks.map((c) => el('div', 'check',
         status({ label: c.waived ? 'waived' : c.status === 'skip' ? (c.summary.startsWith('Not run') ? 'not run' : 'skip') : c.status, icon: c.waived ? 'debug-step-over' : c.status === 'pass' ? 'pass' : c.status === 'fail' ? 'error' : c.status === 'error' ? 'warning' : 'circle-slash', tone: c.status === 'pass' ? 'blue' : c.status === 'skip' ? 'neutral' : 'orange' }),
-        el('span', 'mono', c.gate), Object.assign(el('span', 'muted small check-sum', c.summary), { title: c.summary }),
+        // A builder's lighter check, or the full one the merge queue runs once (GH-73).
+        el('span', 'check-gate', el('span', 'mono', c.gate),
+          c.scope ? Object.assign(el('span', 'chip', c.scope === 'builder' ? 'builder' : 'merge queue'), { title: c.scope === 'builder' ? 'One of the lighter checks a builder runs before acc done' : 'The full check, run once in the merge queue before the merge' }) : null),
+        Object.assign(el('span', 'muted small check-sum', c.summary), { title: c.summary }),
         // A person can set a failing check aside, with a reason (D-031).
         (c.status === 'fail' || c.status === 'error') && a.branch ? Object.assign(button('Waive…', 'debug-step-over', () => ticketAction('waive', c.gate), 'ghost small check-waive'), { title: `Set ${c.gate} aside on this commit, with a reason` }) : null))) : null,
       el('div', 'actions', ...a.actions.map(actionButton))));
@@ -1775,6 +1778,9 @@ function renderOverview(m: HomeModel): Node[] {
   }
   out.push(tiles);
 
+  // Each repo's merge queue, where auto-merge is on (GH-73): head first, with what each waits on.
+  if (o.queue.length) out.push(renderQueue(o.queue, o.projects.length > 1));
+
   // Ready work beside what just happened.
   const ready = el('section', 'panel-box', el('h2', '', icon('rocket'), 'Ready for an agent', o.ready.length ? el('span', 'count', String(o.ready.length)) : null));
   if (!o.ready.length) ready.append(el('p', 'muted quiet', 'Nothing is ready to dispatch. Track a ticket from a board, or add a task.'));
@@ -1785,6 +1791,32 @@ function renderOverview(m: HomeModel): Node[] {
   // Ready work, then the full history below it, with the width to read it.
   out.push(ready, renderHistory(o.history, o.projects.length > 1));
   return out;
+}
+
+/**
+ * The merge queue (GH-73): pull requests that passed, in the order they'll merge, one repo's to a list.
+ * Each row has its place, its task, its pull request, and what it waits on, in words with an icon.
+ */
+function renderQueue(queues: QueuePanel[], manyProjects: boolean): HTMLElement {
+  const n = queues.reduce((k, q) => k + q.rows.length, 0);
+  const box = el('section', 'panel-box queue', el('h2', '', icon('git-merge'), 'Merge queue', el('span', 'count', String(n))));
+  for (const q of queues) {
+    if (manyProjects || queues.length > 1) box.append(el('div', 'queue-project muted small', q.project));
+    if (q.off) box.append(el('p', 'muted small queue-off', 'Autopilot is off, so the queue waits. Turn it on from the status bar.'));
+    const list = el('ol', 'queue-list');
+    list.setAttribute('aria-label', `${q.project}'s merge queue, next to merge first`);
+    for (const r of q.rows) {
+      const text = openable(el('div', 'list-text', el('span', 'tcard-key', r.id), el('span', '', r.title)), { type: 'run', command: 'acc.task.show', ref: r.ref });
+      list.append(el('li', 'list-row queue-row',
+        Object.assign(el('span', 'queue-place', String(r.place)), { title: r.place === 1 ? 'Next to merge' : `${r.place} in line` }),
+        text,
+        r.pr ? linkTo(r.pr.url, el('span', 'chip', icon('git-pull-request'), ` #${r.pr.number}`)) : null,
+        // A wait in its own words can be long: it ends in an ellipsis, and says it all on hover.
+        r.tip ? Object.assign(el('span', `status tone-${r.look.tone} queue-why`, icon(r.look.icon, r.look.tone), el('span', 'queue-why-text', r.look.label)), { title: r.tip }) : status(r.look)));
+    }
+    box.append(list);
+  }
+  return box;
 }
 
 /**

@@ -800,9 +800,9 @@ test('acc agents auto-merge: shows it, and a person turns it on or off in .acc/c
   assert.deepEqual(on.json(), { autoMerge: true, environments: ['main'], autonomy: 'review' }, 'release is protected');
   assert.equal(readFileSync(file, 'utf8'), text.replace('"autopilot": {\n        "appendOnly"', '"autopilot": {\n        "autoMerge": true,\n        "appendOnly"'), 'only the key was added');
   const said = acc(dir, ['agents', 'auto-merge']).out;
-  assert.match(said, /^auto-merge on \(project\): autopilot merges a pull request into main once its review and checks passed, .*nothing waits on a person, and it changes nothing under \.acc\/\. One a pass\. Never into release: protected, so a person merges\. It merges while autopilot is on\./);
-  // Every word on what autopilot does says it merges now.
-  assert.match(acc(dir, ['agents', 'autonomy']).out, /Auto-merge is on: it also merges a pull request whose review and checks passed, .*It never merges into a protected environment\.$/m);
+  assert.match(said, /^auto-merge on \(project\): a pull request into main whose review and checks passed, with nothing waiting on a person and nothing changed under \.acc\/, joins the repo's merge queue, and they merge in turn: .*Never into release: protected, so a person merges\. It merges while autopilot is on\./);
+  // Every word on what autopilot does says it merges now, in turn through the merge queue (GH-73).
+  assert.match(acc(dir, ['agents', 'autonomy']).out, /Auto-merge is on: a pull request whose review and checks passed, .*joins the repo's merge queue, .*It never merges into a protected environment\.$/m);
   assert.doesNotMatch(acc(dir, ['agents', 'autonomy']).out, /It never merges a pull request/);
 
   assert.match(acc(dir, ['agents', 'auto-merge', 'off']).out, /^auto-merge off \(project\): .* Set in \.acc\/config\.json: commit it to share it\./);

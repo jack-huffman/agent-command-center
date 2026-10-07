@@ -20,6 +20,8 @@ export interface RepoPaths {
   updates: string;
   /** What GitHub's checks said on a commit autopilot sent back to its builder (D-076). */
   checks: string;
+  /** What the merge queue found on a commit it sent back to its builder (GH-73). */
+  queue: string;
   packets: string;
   logs: string;
   config: string;
@@ -46,6 +48,7 @@ export function repoPaths(cwd: string, run: Runner): RepoPaths {
     analyses: join(stateDir, 'analyses'),
     updates: join(stateDir, 'updates'),
     checks: join(stateDir, 'checks'),
+    queue: join(stateDir, 'queue'),
     packets: join(stateDir, 'packets'),
     logs: join(stateDir, 'logs'),
     config: join(root, '.acc', 'config.json'),

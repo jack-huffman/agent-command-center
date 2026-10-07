@@ -8,6 +8,7 @@ import { parseConfig } from '../src/config.ts';
 import { awakePath } from '../src/awake.ts';
 import { builderSettings, dispatch, type DispatchOptions, findSession, renderPacket, slugify, startHeld, stopWaiting, taskBranch, worktreeRoot } from '../src/dispatch.ts';
 import { run } from '../src/exec.ts';
+import { shortPacket } from '../src/hooks.ts';
 import { displayState, emptyLedger, moveTask, mutate, noGateHooks, readLedger, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
 import { bad, fakeAwake, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, SF_CONFIG, tempDir, writePlan } from './support.ts';
@@ -74,7 +75,7 @@ test('the packet tells a Salesforce builder where it is, how to finish, and what
   const env = config.environments.find((e) => e.branch === 'dev')!;
   const p = renderPacket({ task: l.tasks[0]!, config, env, worktree: '/w/ACME-7', branch: 'task/ACME-7-add-a-field', rules: 'Use the selector pattern.', environmentSpecific: ['force-app/main/default/settings/MyDomain.settings-meta.xml'] });
   for (const must of ['# Task ACME-7: Add a field', 'Add Region__c to Account.', 'https://x/ACME-7', '`/w/ACME-7`', '`task/ACME-7-add-a-field`', 'started from `dev`', '`Acme Dev`',
-    'validate, never deploy', '`acc done`', '`acc block', '`format`, `validate`', 'push, merge, or open a pull request', '`sf project deploy start`', 'MyDomain.settings-meta.xml', 'Use the selector pattern.']) {
+    'validate, never deploy', '`acc done`', '`acc block', '`format`, `validate`', 'push, merge a pull request, or open one', '`sf project deploy start`', 'MyDomain.settings-meta.xml', 'Use the selector pattern.']) {
     assert.ok(p.includes(must), must);
   }
   assert.ok(!p.includes('refs #'), 'Jira tasks don\'t get GitHub refs');
@@ -129,6 +130,41 @@ test('a rework a person sent back tells its builder why, in their words, though 
   const byReviewer = { ...back, history: [...t.history, { at, actor: 'reviewer' as const, by: 'reviewer:GH-80', from: 'review' as const, to: 'rework' as const, reason: 'changes' }] };
   assert.ok(!renderPacket({ task: byReviewer, config, env, worktree: '/w', branch: 'b', rules: null, environmentSpecific: [] }).includes('Why a person sent it back'));
   assert.ok(!renderPacket({ task: t, config, env, worktree: '/w', branch: 'b', rules: null, environmentSpecific: [] }).includes('Why a person sent it back'));
+});
+
+test('where the merge queue runs the full check, the packet and the short one name a builder\'s lighter checks, and say the full one runs in the queue (GH-73)', () => {
+  const raw = { ...GENERIC_CONFIG, autonomy: 'review', autopilot: { autoMerge: true }, gates: { required: ['check'], builder: ['typecheck', 'near-tests'], commands: { check: 'npm run check', typecheck: 'tsc', 'near-tests': 'node near.mjs' } } };
+  const config = parseConfig(raw).config!;
+  const l = emptyLedger();
+  upsertTasks(l, config, [{ source: { kind: 'github', key: '73', url: 'https://github.com/acme/tool/issues/73' }, title: 'A queue' }], 'human', 'h', () => {}, () => new Date());
+  const task = { ...l.tasks[0]!, run: { worktree: '/w/GH-73', branch: 'task/GH-73-a-queue' } };
+  const env = config.environments[0]!;
+  const p = renderPacket({ task, config, env, worktree: '/w/GH-73', branch: 'task/GH-73-a-queue', rules: null, environmentSpecific: [] });
+  assert.ok(p.includes('It runs the required checks (`typecheck`, `near-tests`) on your latest commit'), p);
+  assert.ok(p.includes('These are the lighter checks, such as the tests near what you changed. The full check (`check`) runs once, in the merge queue, before your pull request merges'));
+  assert.ok(p.includes('- push, merge a pull request, or open one (a person, `acc land` and autopilot do that)'), 'merging the base in isn\'t forbidden');
+  assert.match(shortPacket(task, ['typecheck', 'near-tests'], ['check']), /run exactly `acc gate run` \(typecheck, near-tests\), then run exactly `acc done`.*\nThe full check \(check\) runs once, in the merge queue, before the merge\.\nNever push, merge a pull request, open one, or deploy\./s);
+  // Elsewhere, as before: the required checks, and nothing about a queue.
+  const off = parseConfig({ ...raw, autopilot: { autoMerge: false } }).config!;
+  const plain = renderPacket({ task, config: off, env, worktree: '/w/GH-73', branch: 'task/GH-73-a-queue', rules: null, environmentSpecific: [] });
+  assert.ok(plain.includes('It runs the required checks (`check`)') && !plain.includes('merge queue'));
+  assert.ok(!shortPacket(task, ['check']).includes('merge queue'));
+  // A builder may bring its own base in, as the queue asks when it conflicts, with flags or without: only
+  // where the queue runs, and no other branch.
+  const allows = (c: typeof config, t = task) => (builderSettings(t, c, '/acc/bin', '/usr/bin') as { permissions: { allow: string[] } }).permissions.allow;
+  const merges = (c: typeof config, t = task) => allows(c, t).filter((a) => a.startsWith('Bash(git merge'));
+  assert.equal(task.environment, 'main');
+  assert.deepEqual(merges(config), ['Bash(git merge origin/main)', 'Bash(git merge origin/main *)']);
+  assert.ok(!allows(config).some((a) => a.includes('origin/*')), 'not any branch on origin');
+  assert.deepEqual(merges(off), [], 'auto-merge off: it asks first, as before');
+  assert.deepEqual(merges(parseConfig({ ...raw, autonomy: 'manual' }).config!), [], 'manual autonomy merges nothing on its own');
+  const kept = parseConfig({ ...raw, environments: [...GENERIC_CONFIG.environments, { name: 'release', protected: true }] }).config!;
+  assert.deepEqual(merges(kept, { ...task, environment: 'release' }), [], 'a protected environment never auto-merges');
+  // The config refuses auto-merge in a Salesforce project; set on one anyway, it still isn't allowed.
+  const sfParsed = parseConfig({ ...JSON.parse(JSON.stringify(SF_CONFIG)), autonomy: 'review' }).config!;
+  const sf = { ...sfParsed, autopilot: { appendOnly: [], autoMerge: true as const } };
+  const sfEnv = sf.environments.find((e) => !e.protected)!;
+  assert.deepEqual(merges(sf, { ...task, environment: sfEnv.branch }), [], 'never in a Salesforce project');
 });
 
 test('builder settings: identity, acc on PATH, and the dangerous commands denied even if the user allows them', () => {

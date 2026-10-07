@@ -585,6 +585,25 @@ body.vscode-light .logo-light, body.vscode-high-contrast-light .logo-light { dis
 .list-row:first-of-type { border-top: 0; }
 .list-text { flex: 1; min-width: 0; display: flex; gap: 8px; align-items: baseline; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; cursor: pointer; }
 .list-text:hover > span:last-child { color: var(--vscode-textLink-foreground); }
+/* The merge queue (GH-73): a place number, the task, its pull request, and what it waits on. */
+.panel-box.queue { margin-bottom: 18px; }
+.queue-list { list-style: none; margin: 0; padding: 0; }
+.queue-project { margin: 8px 0 2px; }
+.queue-off { margin: 4px 0 6px; }
+.queue-place { flex: none; min-width: 22px; height: 22px; padding: 0 4px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; border-radius: 11px; border: 1px solid var(--line); font-size: 0.9em; font-variant-numeric: tabular-nums; color: var(--vscode-descriptionForeground); }
+.queue-row:first-child .queue-place { border-color: var(--blue); color: var(--blue); }
+.queue-row .list-text > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-row .chip { margin-left: 0; white-space: nowrap; }
+.queue-row .status { flex: none; white-space: nowrap; }
+/* A head held on something, in that wait's own words: as much as fits, all of it on hover. */
+.queue-row .status.queue-why { flex: 0 1 auto; min-width: 0; max-width: 45%; }
+.queue-why-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 620px) {
+  .queue-row { flex-wrap: wrap; row-gap: 4px; }
+  .queue-row .list-text { flex-basis: calc(100% - 40px); }
+  .queue-row .chip { margin-left: 32px; }
+  .queue-row .status.queue-why { max-width: calc(100% - 110px); }
+}
 .feed { list-style: none; margin: 4px 0 0; padding: 0; position: relative; }
 .feed li { display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 10px; padding: 6px 0; position: relative; }
 .feed li::before { content: ''; position: absolute; left: 4px; top: 22px; bottom: -6px; width: 1px; background: var(--line); }
