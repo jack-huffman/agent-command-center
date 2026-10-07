@@ -84,7 +84,8 @@ test('a task\'s group lists each job under way for it: builder, analysis, review
 
   const t1 = group(m, 'T-1')!;
   assert.deepEqual(brief(t1.jobs), [['builder', 'Working', 'Builder'], ['check', 'Running', 'Check: validate']]);
-  assert.equal(t1.jobs[0]!.detail, 'Edited src/escalation.ts · claude-opus-5-5 · 3 commits, 7 files changed, 2 not committed', 'its latest step, its model and its branch so far');
+  assert.equal(t1.jobs[0]!.detail, 'Edited src/escalation.ts', 'its latest step');
+  assert.equal(t1.jobs[0]!.meta, 'claude-opus-5-5 · 3 commits, 7 files changed, 2 not committed', 'its model and its branch so far, on a line of their own');
   assert.equal(t1.jobs[0]!.since, '14 min');
   assert.equal(t1.jobs[1]!.detail, 'in heavy-check slot 1 of 2');
   assert.deepEqual([t1.look.label, t1.since, t1.title, t1.ref], ['Running', '14 min', 'Task T-1', { project: '/r', task: 'T-1' }]);
@@ -93,7 +94,8 @@ test('a task\'s group lists each job under way for it: builder, analysis, review
   assert.equal(group(m, 'T-3')!.jobs[0]!.detail, 'reading abcdef1');
   // A resumed builder, its resume, and a check found by its folder: the builder's worktree.
   assert.deepEqual(brief(group(m, 'T-4')!.jobs), [['builder', 'Working', 'Builder'], ['resume', 'Resumed', 'Resume'], ['check', '1st in line', 'Check: validate']]);
-  assert.match(group(m, 'T-4')!.jobs[0]!.detail, /^opus \(its setting\)$/, 'no answer yet: the model it was set to run, said so');
+  assert.equal(group(m, 'T-4')!.jobs[0]!.detail, '');
+  assert.equal(group(m, 'T-4')!.jobs[0]!.meta, 'opus (its setting)', 'no answer yet: the model it was set to run, said so');
   assert.deepEqual(brief(group(m, 'T-5')!.jobs), [['autopilot', 'Reviewing it', 'Autopilot']], 'autopilot\'s review is one row, not two');
   assert.deepEqual(brief(group(m, 'T-6')!.jobs), [['land', 'Landing', 'Land']]);
   assert.match(group(m, 'T-6')!.jobs[0]!.detail, /for jordan$/);

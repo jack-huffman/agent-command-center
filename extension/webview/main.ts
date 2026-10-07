@@ -1789,7 +1789,9 @@ function progressGroup(g: ProgressGroup): HTMLElement {
   if (g.note) box.append(el('div', 'muted small pg-note', g.note));
   for (const j of g.jobs) {
     box.append(el('div', `pg-row tone-row-${j.look.tone}`, status(j.look),
-      el('div', 'pg-text', el('div', '', el('span', 'strong', j.label), j.since ? el('span', 'muted small', ` · ${j.since}`) : null), j.detail ? Object.assign(el('div', 'muted small pg-detail', j.detail), { title: j.detail }) : null),
+      el('div', 'pg-text', el('div', '', el('span', 'strong', j.label), j.since ? el('span', 'muted small', ` · ${j.since}`) : null),
+        j.detail ? Object.assign(el('div', 'muted small pg-detail', j.detail), { title: j.detail }) : null,
+        j.meta ? el('div', 'muted small pg-meta', j.meta) : null),
       el('div', 'actions', ...j.actions.map(progressButton))));
   }
   for (const d of g.done) {

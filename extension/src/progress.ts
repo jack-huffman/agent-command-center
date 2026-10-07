@@ -45,6 +45,8 @@ export interface JobRow {
   look: Look;
   label: string;
   detail: string;
+  /** A builder's model and its branch so far: a line of its own under the detail, so neither is cut off. */
+  meta?: string;
   /** How long it has run, in words. */
   since: string;
   actions: ProgressAction[];
@@ -341,7 +343,8 @@ export function inProgress(i: ProgressInput): ProgressModel {
         ...(r.run?.sessionId ? [{ label: 'Open in Claude Code', icon: 'comment-discussion', tip: 'Take its conversation over in a Claude Code tab: it stops in the background, and you carry on there', command: 'acc.task.openInClaude', ref: ref(r.id) }] : []),
         ...(live && !r.stopped ? [stop({ kind: 'builder', project: p.root, task: r.id }, 'Pause its builder with claude stop. The task stays Running, and Resume carries it on.')] : []),
       ];
-      add(taskGroup(p, r), { key: 'builder', kind: 'builder', look, label: 'Builder', detail: [doing, model, branch].filter(Boolean).join(' · '), since: ago(time(r.since)), actions }, time(r.since));
+      const meta = [model, branch].filter(Boolean).join(' · ');
+      add(taskGroup(p, r), { key: 'builder', kind: 'builder', look, label: 'Builder', detail: doing ?? '', ...(meta ? { meta } : {}), since: ago(time(r.since)), actions }, time(r.since));
     }
 
     for (const a of jobs.analyses) {

@@ -520,6 +520,7 @@ body.vscode-light .logo-light, body.vscode-high-contrast-light .logo-light { dis
 .pg-head { display: flex; align-items: center; justify-content: space-between; gap: 6px 14px; flex-wrap: wrap; }
 .pg-name { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1 1 260px; }
 .pg-name .chip { margin-left: 0; flex: none; }
+.pg-name .tcard-key { flex: none; white-space: nowrap; }
 .pg-title { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pg-state { display: flex; align-items: center; gap: 12px; flex: none; }
 .pg-since { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
@@ -531,7 +532,8 @@ body.vscode-light .logo-light, body.vscode-high-contrast-light .logo-light { dis
 .pg-row .status { white-space: normal; align-items: flex-start; }
 .pg-row .status .codicon { margin-top: 2px; flex: none; }
 .pg-text { min-width: 0; }
-.pg-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pg-detail { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.pg-meta { overflow-wrap: anywhere; }
 .pg-row .actions { justify-content: flex-end; flex-wrap: wrap; }
 .pg-row .btn.small { line-height: 1.5; white-space: nowrap; }
 .pg-text .strong + .muted { white-space: nowrap; }
@@ -544,7 +546,6 @@ body.vscode-light .logo-light, body.vscode-high-contrast-light .logo-light { dis
 @media (max-width: 620px) {
   .pg-row { grid-template-columns: minmax(0, 1fr); gap: 4px; margin-left: 4px; }
   .pg-row .actions { justify-content: flex-start; }
-  .pg-detail { white-space: normal; overflow-wrap: anywhere; }
   .pg-done { margin-left: 4px; }
 }
 @media (max-width: 520px) { .machine-line { flex-direction: column; gap: 4px; } .pg-state { width: 100%; justify-content: space-between; } }
