@@ -737,6 +737,20 @@ else fs.appendFileSync(${JSON.stringify(record)}, JSON.stringify({ cmd: 'claude'
   assert.match(blocked.err, /T-1 is blocked\. Only a running task's builder is resumed\./);
 });
 
+test('acc agents names acc\'s default model where nobody chose one, apart from Claude Code\'s default effort (D-086)', () => {
+  const dir = repoWithConfig();
+  const shown = acc(dir, ['agents']);
+  assert.equal(shown.code, 0, shown.err);
+  assert.equal(shown.out, 'builder   model claude-opus-5-5 (acc\'s default), effort default\nreviewer  model claude-opus-5-5 (acc\'s default), effort default\n');
+  const json = acc(dir, ['agents', '--json']).json();
+  assert.deepEqual([json.builder.model, json.builder.from.model, json.builder.effort, json.builder.from.effort], ['claude-opus-5-5', 'acc', null, 'default']);
+  assert.equal(json.reviewer.from.model, 'acc');
+  const chosen = repoWithConfig({ ...GENERIC_CONFIG, agents: { reviewer: { model: 'claude-sonnet-5-5' } } });
+  assert.match(acc(chosen, ['agents', 'set', 'builder', '--model', 'haiku']).out, /^builder: model haiku, effort default\. Set for this clone only\./);
+  assert.equal(acc(chosen, ['agents']).out, 'builder   model haiku (this clone), effort default\nreviewer  model claude-sonnet-5-5 (project), effort default\n');
+  assert.match(acc(chosen, ['agents', 'set', 'builder', '--clear', 'model']).out, /^builder: model claude-opus-5-5 \(acc's default\), effort default\./);
+});
+
 test('acc agents autonomy: shows it, and a person sets manual or review in .acc/config.json, changing nothing else (D-064)', () => {
   // Spaced and ordered as a person might keep it: the edit moves nothing else.
   const text = '{\n    "schema": 1,\n    "autonomy":   "manual",\n    "project": "Tool",\n    "profile": "generic",\n    "environments": [ { "name": "main", "default": true } ],\n    "agents": { "max": 2 }\n}\n';

@@ -6,7 +6,7 @@ import { awakePath } from '../src/awake.ts';
 import { parseConfig, type Config } from '../src/config.ts';
 import { run, type RunResult } from '../src/exec.ts';
 import { remindedPath } from '../src/hooks.ts';
-import { autopilotFailure, type ClaudeSession, displayState, type LedgerEvent, mutate, readLedger, type State, upsertTasks } from '../src/ledger.ts';
+import { autopilotFailure, type ClaudeSession, displayState, type LedgerEvent, mutate, readLedger, type Run, type State, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
 import { endResume, type Launcher, resume, resumeCommand, resumeMessage, resuming, resumingPath } from '../src/resume.ts';
 import { transcriptDir } from '../src/transcript.ts';
@@ -19,7 +19,7 @@ const RAW = { ...GENERIC_CONFIG, agents: { builder: { model: 'opus', effort: 'me
 const PID = 4_000_001;
 
 /** GH-41 after the Mac slept: running, its background session blocked with no process, its transcript ending in the API error. */
-function setup(o: { state?: State; sessionId?: string | null; sessions?: ClaudeSession[] | null } = {}) {
+function setup(o: { state?: State; sessionId?: string | null; sessions?: ClaudeSession[] | null; run?: Partial<Run> } = {}) {
   const dir = makeRepo({ '.acc/config.json': JSON.stringify(RAW) });
   // This clone's own effort wins over the project's (D-036).
   gitIn(dir, 'config', 'acc.builder.effort', 'high');
@@ -29,7 +29,7 @@ function setup(o: { state?: State; sessionId?: string | null; sessions?: ClaudeS
     upsertTasks(l, config, [{ source: { kind: 'github', key: '#41', url: 'https://github.com/acme/tool/issues/41' }, title: 'Ticket updates are drafts' }], 'human', 'human:test', emit, now);
     const t = l.tasks[0]!;
     t.state = o.state ?? 'running';
-    t.run = { bgId: '5018b73a', ...(o.sessionId === null ? {} : { sessionId: o.sessionId ?? SID }), worktree: dir, branch: 'main', startedAt: '2026-10-05T21:52:13Z' };
+    t.run = { bgId: '5018b73a', ...(o.sessionId === null ? {} : { sessionId: o.sessionId ?? SID }), worktree: dir, branch: 'main', startedAt: '2026-10-05T21:52:13Z', ...o.run };
   });
   const projects = tempDir('projects-');
   mkdirSync(transcriptDir(projects, dir), { recursive: true });
@@ -196,4 +196,28 @@ test('the command is the same for a resume and a reply: claude -p <message> --re
   assert.deepEqual(c.args.slice(8, 10), ['--effort', 'medium'], 'the project\'s effort: the clone\'s is merged in by whoever calls it (withCloneAgents)');
   assert.deepEqual(c.env, { ACC_ROLE: 'builder', ACC_TASK: 'GH-41' });
   assert.equal(JSON.parse(c.args.at(-1)!).hooks, undefined, 'no hooks without a way to run acc');
+  assert.equal(c.model, 'opus');
+});
+
+test('a model picked for the task carries on in a resume and a reply, over the builder\'s, and the run records it (D-086)', () => {
+  const s = setup({ run: { model: 'sonnet', modelPicked: true } });
+  const task = readLedger(s.paths.ledger).tasks[0]!;
+  // D-060's reply to a builder runs this same command.
+  const c = resumeCommand(task, s.config, { sessionId: SID, message: 'Carry on.', accBinDir: '/acc/bin', basePath: '/usr/bin' });
+  assert.deepEqual(c.args.slice(6, 10), ['--model', 'sonnet', '--effort', 'medium'], 'the pick, with the builder\'s effort');
+  resume(s.paths, s.config, 'GH-41', s.deps, { actor: 'human', by: 'human:jack' });
+  assert.deepEqual(s.launched[0]!.args.slice(6, 10), ['--model', 'sonnet', '--effort', 'high']);
+  const run = readLedger(s.paths.ledger).tasks[0]!.run!;
+  assert.deepEqual([run.model, run.modelPicked], ['sonnet', true]);
+});
+
+test('a task nobody picked a model for resumes with the builder\'s model as it is now, and the run records it (D-086)', () => {
+  const s = setup({ run: { model: 'haiku' } });
+  resume(s.paths, s.config, 'GH-41', s.deps, { actor: 'human', by: 'human:jack' });
+  assert.deepEqual(s.launched[0]!.args.slice(6, 8), ['--model', 'opus'], 'the project\'s, not the one it was started with');
+  const run = readLedger(s.paths.ledger).tasks[0]!.run!;
+  assert.equal(run.model, 'opus');
+  assert.equal(run.modelPicked, undefined);
+  const c = resumeCommand({ ...readLedger(s.paths.ledger).tasks[0]!, run: {} }, parseConfig(GENERIC_CONFIG).config!, { sessionId: SID, message: 'Carry on.', accBinDir: '/acc/bin', basePath: '/usr/bin' });
+  assert.deepEqual(c.args.slice(6, 8), ['--model', 'claude-opus-5-5'], 'acc\'s default when nobody chose one');
 });

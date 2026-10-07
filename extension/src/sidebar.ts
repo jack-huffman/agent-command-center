@@ -4,13 +4,13 @@ import * as vscode from 'vscode';
 import { allowedMoves, DISPLAY, findRule, type State } from '../../packages/core/src/ledger.ts';
 import { skippedOn } from '../../packages/core/src/promote.ts';
 import { agentArgs } from '../../packages/core/src/agents.ts';
-import { autoMergeFor, autoMergeOn, EFFORTS } from '../../packages/core/src/config.ts';
+import { autoMergeFor, autoMergeOn, DEFAULT_MODEL, EFFORTS, MODEL_NAME } from '../../packages/core/src/config.ts';
 import { run as runSync } from '../../packages/core/src/exec.ts';
 import { repoPaths } from '../../packages/core/src/paths.ts';
 import { receiptHooks } from '../../packages/core/src/receipts.ts';
 import { endResume } from '../../packages/core/src/resume.ts';
 import type { Hub, Project } from './hub.ts';
-import { type AgentSession, agentName, CLAUDE_EXTENSION, claudeSessionUri, githubBranchUrl, isSessionId, landMessage, sessionFor } from './logic.ts';
+import { type AgentSession, agentName, CLAUDE_EXTENSION, claudeSessionUri, dispatchModelArgs, dispatchModelItems, githubBranchUrl, isSessionId, landMessage, MODEL_CHOICES, sessionFor, sizeLine } from './logic.ts';
 import { laneMove, sessionKey } from './model.ts';
 import { type RunResult, runFile } from './run.ts';
 import { claudeProjectsDir, savedFolder } from './transcript.ts';
@@ -69,6 +69,7 @@ export class Sidebar {
     reg('acc.task.copyId', (n: TaskNode) => n.kind === 'task' && vscode.env.clipboard.writeText(n.task.id));
     reg('acc.tasks.refresh', () => this.hub.loadTasks(true));
     reg('acc.task.dispatch', (n: TaskNode) => this.dispatchTask(n));
+    reg('acc.task.dispatchWith', (n: TaskNode) => this.dispatchWith(n));
     reg('acc.task.watch', (n: TaskNode) => this.watchTask(n));
     reg('acc.task.resume', (n: TaskNode) => this.resumeTask(n));
     reg('acc.task.review', (n: TaskNode) => this.reviewTask(n));
@@ -286,14 +287,35 @@ export class Sidebar {
     await this.runAcc(n.project, ['set', n.task.id, to, ...(reason ? ['--reason', reason] : [])], () => `${n.task.id} → ${DISPLAY[to].label}.`);
   }
 
+  /**
+   * Dispatch with…: the model for this task's builder, picked by a person (D-086). The analysis's size is
+   * shown beside the models to weigh the choice by; it picks nothing. A re-dispatch and a resume keep it.
+   */
+  private async dispatchWith(n: TaskNode): Promise<void> {
+    if (n.kind !== 'task') return;
+    const { project, task } = n;
+    const verb = task.state === 'rework' ? 'Re-dispatch' : 'Dispatch';
+    const pick = await vscode.window.showQuickPick(dispatchModelItems(task, project.agents.builder), { title: `${verb} ${task.id} with which model?`, placeHolder: sizeLine(task) });
+    if (!pick) return;
+    const model = pick.value ?? await this.askModelName(`${verb} ${task.id}: model name`);
+    if (!model) return;
+    await this.dispatchTask(n, dispatchModelArgs(task, project.agents.builder, model));
+  }
+
+  /** A model name a person types, as claude --model takes it. */
+  private async askModelName(title: string): Promise<string | null> {
+    const v = await vscode.window.showInputBox({ title, prompt: 'A model alias or full name, as claude --model takes it', validateInput: (v) => (MODEL_NAME.test(v.trim()) ? undefined : 'Letters, digits, dots, dashes, colons and brackets') });
+    return v?.trim() || null;
+  }
+
   /** Dispatch (D-009, D-013): worktree, setup, packet, background session, task → Running. */
-  private async dispatchTask(n: TaskNode): Promise<void> {
+  private async dispatchTask(n: TaskNode, extra: string[] = []): Promise<void> {
     if (n.kind !== 'task') return;
     const { project, task } = n;
     let result: { worktree?: string; bgId?: string | null; reused?: boolean } | null = null;
     await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Dispatching ${task.id}`, cancellable: false }, async (progress) => {
       progress.report({ message: 'creating the worktree and starting the agent…' });
-      await this.runAcc(project, ['dispatch', task.id], (out) => {
+      await this.runAcc(project, ['dispatch', task.id, ...extra], (out) => {
         result = out;
         return undefined;
       });
@@ -403,27 +425,26 @@ export class Sidebar {
     const now = project.agents[role];
     const label = role === 'builder' ? 'Builders' : 'Reviewers';
     const what = await vscode.window.showQuickPick([
-      { label: '$(symbol-class) Model', description: now.model ?? 'Claude Code\'s default', key: 'model' as const },
+      { label: '$(symbol-class) Model', description: `${now.model}${now.from.model === 'acc' ? ' (acc\'s default)' : ''}`, key: 'model' as const },
       { label: '$(lightbulb) Effort', description: now.effort ?? 'default', detail: 'How hard it thinks: more effort is slower and uses more of your plan', key: 'effort' as const },
       { label: '$(debug-step-back) Fallback model', description: now.fallbackModel ?? 'none', detail: 'Used when the model is overloaded', key: 'fallback' as const },
       { label: '$(discard) Back to the defaults', key: 'reset' as const },
     ], { title: `${label}: what to change?` });
     if (!what) return;
+    // The same models Dispatch with… offers (D-086).
     const models = (current: string | null, none: string) => vscode.window.showQuickPick([
-      { label: none, value: null as string | null },
-      { label: 'opus', description: 'Claude Opus, the latest', value: 'opus' },
-      { label: 'sonnet', description: 'Claude Sonnet, the latest: lighter on your plan', value: 'sonnet' },
-      { label: 'fable', description: 'Claude Fable, the latest', value: 'fable' },
-      { label: 'haiku', description: 'Claude Haiku, the latest: the lightest', value: 'haiku' },
-      { label: 'Another model…', description: 'a full model name', value: '?' },
+      { label: none, description: undefined as string | undefined, value: null as string | null },
+      ...MODEL_CHOICES.map((m) => ({ label: m.name, description: m.about, value: m.name as string | null })),
+      { label: 'Another model…', description: 'an alias or a full model name', value: '?' },
     ].map((m) => ({ ...m, picked: m.value === current, description: m.value === current ? `${m.description ?? ''} · now`.replace(/^ · /, '') : m.description })), { title: `${label}: which model?` });
     const args: string[] = [];
     if (what.key === 'model' || what.key === 'fallback') {
-      const pick = await models(what.key === 'model' ? now.model : now.fallbackModel, what.key === 'model' ? 'Claude Code\'s default' : 'No fallback');
+      // A model nobody chose is acc's default, and choosing that clears it.
+      const pick = await models(what.key === 'model' ? (now.from.model === 'acc' ? null : now.model) : now.fallbackModel, what.key === 'model' ? `acc's default (${DEFAULT_MODEL})` : 'No fallback');
       if (!pick) return;
       let value = pick.value;
       if (value === '?') {
-        value = (await vscode.window.showInputBox({ title: `${label}: model name`, prompt: 'A model alias or full name, as claude --model takes it', validateInput: (v) => (/^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,79}$/.test(v.trim()) ? undefined : 'Letters, digits, dots, dashes, colons and brackets') }))?.trim() ?? null;
+        value = await this.askModelName(`${label}: model name`);
         if (!value) return;
       }
       const flag = what.key === 'model' ? 'model' : 'fallback-model';

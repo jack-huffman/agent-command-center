@@ -5,7 +5,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { Analysis } from '../../packages/core/src/analyze.ts';
+import { type Analysis, type Approach, SIZE_MEANING } from '../../packages/core/src/analyze.ts';
 import { autopilotDoes, type AutopilotRecord, reworkedByAutopilot } from '../../packages/core/src/autopilot.ts';
 import type { AutopilotStepName, TaskInput } from '../../packages/core/src/ledger.ts';
 import type { CheckStatus, Step } from '../../packages/core/src/onboarding/types.ts';
@@ -225,9 +225,12 @@ export interface TaskRow {
   environment: string;
   deps: string[];
   source: { kind: string; url: string | null };
-  run?: { bgId?: string; sessionId?: string; worktree?: string; branch?: string } | null;
+  /** model: what its builder was started with; modelPicked: a person picked it for this task (D-086). */
+  run?: { bgId?: string; sessionId?: string; worktree?: string; branch?: string; model?: string; modelPicked?: true } | null;
   /** The live state of the task's agent session, when one is known. */
   agent?: { label: string; icon: string; tone: Tone } | null;
+  /** The model its agent runs with (D-086): what its transcript last answered with, else what acc started it with. */
+  model?: string | null;
   /** Its agent's question is waiting in the Command Center (D-030), not in the agent's own terminal. */
   asking?: boolean;
   /** Its newest review (D-032): current when it's for the branch's latest commit. When it was made, so Slack can tell one from the next. */
@@ -240,8 +243,11 @@ export interface TaskRow {
   promoting?: boolean;
   /** Its work merged and acc hasn't closed its GitHub issue yet: the last try failed, or none has run (D-082). */
   closing?: boolean;
-  /** Its analysis (D-052): the verdict, when it was made, the questions nobody has answered, and the smaller tasks a split suggests. */
-  analysis?: { verdict: 'ready' | 'questions' | 'split'; at: string; open: AnalysisAsk[]; split: string[] } | null;
+  /**
+   * Its analysis (D-052): the verdict, when it was made, the questions nobody has answered, the smaller
+   * tasks a split suggests, and its size, shown beside the model to dispatch with (D-086).
+   */
+  analysis?: { verdict: 'ready' | 'questions' | 'split'; at: string; open: AnalysisAsk[]; split: string[]; size?: Approach['size'] } | null;
   /** An analysis under way, to watch. */
   analyzing?: { sessionId: string } | null;
   /** The project wants an analysis before a task is built (D-052). */
@@ -272,7 +278,56 @@ export interface AnalysisAsk {
 /** What a task's row keeps of its analysis: enough for its card, its notices and the Overview. */
 export function rowAnalysis(a: Analysis): NonNullable<TaskRow['analysis']> {
   const open = a.questions.filter((q) => !q.answer).map(({ id, question, why, suggested }) => ({ id, question, why, suggested }));
-  return { verdict: a.verdict, at: a.at, open, split: a.split };
+  return { verdict: a.verdict, at: a.at, open, split: a.split, size: a.approach.size };
+}
+
+// ---------------------------------------------------------------- models (D-086)
+
+/** The models a person picks from, in this order: Dispatch with… and the Agents settings' Change… offer the same. */
+export const MODEL_CHOICES: readonly { name: string; about: string }[] = [
+  { name: 'claude-opus-5-5', about: 'Claude Opus 5.5' },
+  { name: 'claude-fable-5-1', about: 'Claude Fable 5.1' },
+  { name: 'claude-sonnet-5-5', about: 'Claude Sonnet 5.5: lighter on your plan' },
+  { name: 'claude-haiku-4-5-20251001', about: 'Claude Haiku 4.5: the lightest' },
+];
+
+/** Where a model, effort or fallback is set, in words. A model's default is acc's own, the rest Claude Code's. */
+export const FROM_WORDS: Record<string, string> = { task: 'picked for this task', clone: 'this clone', project: 'project default', acc: 'acc\'s default', default: 'Claude Code\'s default' };
+
+export interface ModelItem {
+  label: string;
+  description: string;
+  /** The model's name, or null for Another model…, which asks for one. */
+  value: string | null;
+}
+
+/**
+ * What Dispatch with… offers (D-086): the model the builder would run with anyway first, saying where
+ * it's set, then the other models, then Another model…. That's the model kept for the task when one was
+ * picked, else the builder's own. Nothing here is chosen or reordered by the analysis's size.
+ */
+export function dispatchModelItems(row: Pick<TaskRow, 'run'>, builder: { model: string; from: { model: string } }): ModelItem[] {
+  const now = row.run?.modelPicked && row.run.model ? { model: row.run.model, from: 'task' } : { model: builder.model, from: builder.from.model };
+  return [
+    { label: now.model, description: FROM_WORDS[now.from] ?? now.from, value: now.model },
+    ...MODEL_CHOICES.filter((m) => m.name !== now.model).map((m) => ({ label: m.name, description: m.about, value: m.name })),
+    { label: 'Another model…', description: 'an alias or a full model name, as claude --model takes it', value: null },
+  ];
+}
+
+/**
+ * acc dispatch's arguments for the model picked in Dispatch with… (D-086). The model the builder runs with
+ * anyway, on a task with no model picked before, adds none: the task goes on following the clone's and the
+ * project's settings, rather than keeping today's model for good.
+ */
+export function dispatchModelArgs(row: Pick<TaskRow, 'run'>, builder: { model: string }, model: string): string[] {
+  return !row.run?.modelPicked && model === builder.model ? [] : ['--model', model];
+}
+
+/** The analysis's size, in words, to weigh the model by (D-086), or that there's none to go on. */
+export function sizeLine(row: Pick<TaskRow, 'analysis'>): string {
+  const size = row.analysis?.size;
+  return size ? `Its analysis sizes it ${size}: ${SIZE_MEANING[size]}.` : row.analysis ? 'Its analysis gave no size.' : 'Not analyzed: no size to go on.';
 }
 
 /** Its analysis is ready to build from: made, not too big, and every question answered. */

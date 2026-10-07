@@ -339,6 +339,12 @@
         "icon": "$(rocket)"
       },
       {
+        "command": "acc.task.dispatchWith",
+        "title": "Dispatch to an agent with a model you pick",
+        "category": "Agent Command Center",
+        "icon": "$(sparkle)"
+      },
+      {
         "command": "acc.task.attach",
         "title": "Attach to its agent",
         "category": "Agent Command Center",
@@ -584,6 +590,10 @@
         },
         {
           "command": "acc.task.dispatch",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.dispatchWith",
           "when": "false"
         },
         {

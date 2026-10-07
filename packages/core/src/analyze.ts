@@ -43,6 +43,9 @@ export interface Approach {
   size: 'S' | 'M' | 'L' | 'XL';
 }
 
+/** What each size means, as the analyst is told and a person is shown beside the model to dispatch with (D-086). */
+export const SIZE_MEANING: Record<Approach['size'], string> = { S: 'an hour or two', M: 'a day', L: 'a few days', XL: 'split it' };
+
 export interface Analysis {
   v: 1;
   task: string;
@@ -112,7 +115,7 @@ export const ANALYSIS_SCHEMA = {
         },
         risks: strings,
         tests: { ...strings, description: 'How to prove it works: the tests to write or run' },
-        size: { type: 'string', enum: ['S', 'M', 'L', 'XL'], description: 'S: an hour or two. M: a day. L: a few days. XL: split it' },
+        size: { type: 'string', enum: ['S', 'M', 'L', 'XL'], description: Object.entries(SIZE_MEANING).map(([s, m]) => `${s}: ${m}`).join('. ') },
       },
     },
     split: { ...strings, description: 'When the verdict is split: the smaller tasks, one line each. Otherwise empty' },

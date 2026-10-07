@@ -285,14 +285,21 @@ GitHub about each unfinished task whose issue wasn't listed:
    `node_modules` from the main checkout.
 4. **Writes the instructions.** It renders the packet ([section 8](#8-the-packet)).
 5. **Launches the agent.** From the main checkout, which you trust once (D-022), it runs
-   `claude --bg --name <id> --permission-mode <mode> --settings <json> "<packet>"`.
+   `claude --bg --name <id> --permission-mode <mode> --model <model> --settings <json> "<packet>"`.
+   The model is the one picked for the task, if one was, else the builder's:
+   this clone's, the project's, or acc's default, `claude-opus-5-5` (D-086).
    The packet's first instruction is to call EnterWorktree on the task's worktree.
    The settings JSON sets `ACC_TASK` and `ACC_ROLE=builder` in the session's
    environment, plus an allowlist of routine commands, and a PermissionRequest
    hook that sends the builder's prompts and questions to the Command Center
    (D-030).
-6. **Records the run.** It stores the background id and session id, and moves
-   the task to `running`.
+6. **Records the run.** It stores the background id, the session id and the
+   model, and moves the task to `running`.
+
+`acc dispatch --model <m>` picks the builder's model for this task. The run
+keeps it, so a re-dispatch of its rework and a resume use it until another is
+picked; the Command Center's **Dispatch with…** does the same, with the
+analysis's size beside the models (D-086).
 
 `acc dispatch --foreground` runs the same session in the current terminal
 instead. You can drop into any background session with `claude attach <id>`.
@@ -825,7 +832,7 @@ count; under 820 px wide, it becomes a tab strip along the top.
 |---|---|
 | **Overview** | **Needs you:** agents waiting on a prompt, blocked tasks, steps autopilot couldn't take (with why, and the step to take by hand), missing tracker sign-ins and setup still to do, each with its button. Then, apart, work waiting for review. Stat tiles open their sections. **Ready for an agent** has Dispatch buttons, and **History** lists your answers, every task's moves, each step autopilot took, wherever it ran, and the commands acc ran (D-064) |
 | **Tasks** | The tracker's own board, or acc's agent board (D-026) |
-| **Agents** | **How agents run:** builders' and reviewers' model and effort (D-036), and the project's autonomy (D-064). Then sessions by project, with a menu on each row (D-023) |
+| **Agents** | **How agents run:** builders' and reviewers' model and effort (D-036), and the project's autonomy (D-064). Then sessions by project, each with the model it runs with (D-086), and a menu on each row (D-023) |
 | **Worktrees** | Every checkout, with a menu on each row |
 | **Environments** | The GitHub identity card (D-028), promotion paths, and one card per environment |
 | **Setup** | The checklist, with Do it on each step |
