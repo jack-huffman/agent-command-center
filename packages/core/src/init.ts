@@ -4,10 +4,12 @@ import { branchFor, parseConfig, type Config, type EnvType, type Profile } from 
 import { credentialHelper } from './github.ts';
 import { AccError, type Runner } from './exec.ts';
 import { LICENSE_TO_TYPE, parseOrgUrl } from './onboarding/helpers.ts';
+import { type LoadedTemplate, loadTemplate, overlayEnvironments, overlaySettings, type Settings, templateTrackers } from './template.ts';
 
 export interface InitOptions {
   root: string;
-  profile: Profile;
+  /** By default the template's, else generic. One that disagrees with the template's is refused. */
+  profile?: Profile;
   project?: string;
   productionOrg?: string;
   githubRepo?: string;
@@ -16,6 +18,14 @@ export interface InitOptions {
   commitEmail?: string;
   jiraSite?: string;
   jiraProject?: string;
+  /** A team template's source (GH-80), fetched as --github-account, else the account the repo pushes as. */
+  from?: string;
+  /** A template already read, in place of `from`. */
+  template?: LoadedTemplate;
+  /** Where a relative template path starts: the directory acc init ran in. */
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  home?: string;
 }
 
 export interface RawEnv {
@@ -30,6 +40,12 @@ export interface RawEnv {
 export interface InitPlan {
   config: Config;
   notes: string[];
+  /** The config's keys the team template set (GH-80); empty without one. */
+  fromTemplate: string[];
+  /** The keys discovery found: the project, its GitHub repo and account, the commit identity, the environments. */
+  discovered: string[];
+  /** Gate commands the template adds. They run on this machine, so they're shown before anything is written. */
+  templateCommands: Record<string, string>;
 }
 
 const sfJson = (run: Runner, root: string, args: string[]): any => {
@@ -96,7 +112,7 @@ function originRepo(run: Runner, root: string): string | undefined {
 }
 
 /** The account git currently pushes as, read without printing the token. */
-function pushingAccount(run: Runner, root: string): string | undefined {
+export function pushingAccount(run: Runner, root: string): string | undefined {
   const fill = run('git', ['credential', 'fill'], { cwd: root, input: 'protocol=https\nhost=github.com\n\n', env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
   const token = /^password=(.*)$/m.exec(fill.stdout)?.[1];
   if (!token) return undefined;
@@ -109,8 +125,20 @@ export function planInit(run: Runner, opts: InitOptions): InitPlan {
   const root = opts.root;
   const gitGet = (k: string) => run('git', ['config', '--local', '--get', k], { cwd: root }).stdout.trim() || undefined;
 
+  const repo = opts.githubRepo ?? originRepo(run, root);
+  const account = opts.githubAccount ?? (repo ? pushingAccount(run, root) : undefined);
+  if (repo && !account) notes.push('Couldn\'t tell which GitHub account this repo pushes as. Pass --github-account.');
+
+  // Flags, then the team template, then discovery, then acc's defaults (D-???).
+  const loaded = opts.template ?? (opts.from ? loadTemplate(run, opts.from, { account: account ?? null, env: opts.env, base: opts.cwd ?? root, home: opts.home, root }) : null);
+  const t = loaded?.template ?? null;
+  if (opts.profile && t?.profile && opts.profile !== t.profile) {
+    throw new AccError('init', `--profile ${opts.profile} disagrees with the template's profile, ${t.profile}. Leave --profile out, or use another template.`);
+  }
+  const profile: Profile = opts.profile ?? t?.profile ?? 'generic';
+
   let environments: RawEnv[];
-  if (opts.profile === 'salesforce') {
+  if (profile === 'salesforce') {
     if (!opts.productionOrg) throw new AccError('init', 'A Salesforce project needs --production-org <alias>, so its sandboxes can be found.');
     environments = discoverSalesforce(run, root, opts.productionOrg, notes);
   } else {
@@ -119,33 +147,59 @@ export function planInit(run: Runner, opts: InitOptions): InitPlan {
     environments = [{ name: head || cur || 'main', type: 'none', org: null, default: true, protected: false, promotesTo: [] }];
   }
 
-  const repo = opts.githubRepo ?? originRepo(run, root);
-  const account = opts.githubAccount ?? (repo ? pushingAccount(run, root) : undefined);
-  if (repo && !account) notes.push('Couldn\'t tell which GitHub account this repo pushes as. Pass --github-account.');
   const name = opts.commitName ?? gitGet('user.name');
   const email = opts.commitEmail ?? gitGet('user.email');
+  const discovered = ['project', ...(repo && account ? ['github'] : []), ...(name && email ? ['commitIdentity'] : [])];
+  if (profile === 'salesforce' || !t?.environments) discovered.push('environments');
+
+  let settings: Settings = {
+    gates: { required: profile === 'salesforce' ? ['format', 'static', 'validate'] : [], commands: {} },
+    agents: { max: 3, permissionMode: 'acceptEdits' },
+    autonomy: 'manual',
+  };
+  let trackers: Record<string, unknown>[] = opts.jiraSite && opts.jiraProject ? [{ kind: 'jira', site: opts.jiraSite, project: opts.jiraProject }] : [];
+  const fromTemplate: string[] = [];
+  if (t) {
+    if (t.profile) fromTemplate.push('profile');
+    if (t.environments) {
+      environments = overlayEnvironments(t.environments, environments, profile, notes);
+      fromTemplate.push('environments');
+    }
+    settings = overlaySettings(t, settings);
+    if (t.gates) fromTemplate.push('gates');
+    if (t.tracker) {
+      trackers = templateTrackers(t.tracker, { jiraSite: opts.jiraSite, jiraProject: opts.jiraProject }, notes);
+      if (trackers.length) fromTemplate.push('trackers');
+    }
+    if (t.autonomy) fromTemplate.push('autonomy');
+    if (t.agents) fromTemplate.push('agents');
+  }
 
   const listIfPresent = (rel: string) => (existsSync(join(root, rel)) ? rel : undefined);
   const raw = {
     schema: 1,
     project: opts.project ?? root.split('/').filter(Boolean).pop() ?? 'project',
-    profile: opts.profile,
+    profile,
     ...(repo && account ? { github: { repo, account } } : {}),
     ...(name && email ? { commitIdentity: { name, email } } : {}),
     environments,
-    ...(opts.profile === 'salesforce' ? {
+    ...(profile === 'salesforce' ? {
       environmentSpecific: listIfPresent('manifest/environment-specific.txt'),
       knownDrift: listIfPresent('manifest/known-drift.txt'),
     } : {}),
-    trackers: opts.jiraSite && opts.jiraProject ? [{ kind: 'jira', site: opts.jiraSite, project: opts.jiraProject }] : [],
-    agents: { max: 3, permissionMode: 'acceptEdits' },
-    autonomy: 'manual',
+    trackers,
+    agents: settings.agents,
+    autonomy: settings.autonomy,
     worktrees: { root: null, setup: [] },
-    gates: { required: opts.profile === 'salesforce' ? ['format', 'static', 'validate'] : [], commands: {} },
+    gates: settings.gates,
+    ...(loaded ? { template: loaded.record } : {}),
   };
   const parsed = parseConfig(JSON.parse(JSON.stringify(raw)));
-  if (!parsed.config) throw new AccError('init', `The discovered config doesn't validate:\n- ${parsed.errors.join('\n- ')}`);
-  return { config: parsed.config, notes };
+  if (!parsed.config) {
+    const what = loaded ? `The config from ${loaded.record.name} and what was discovered doesn't validate` : 'The discovered config doesn\'t validate';
+    throw new AccError('init', `${what}:\n- ${parsed.errors.join('\n- ')}`);
+  }
+  return { config: parsed.config, notes, fromTemplate, discovered, templateCommands: { ...t?.gates?.commands } };
 }
 
 /** Sets this repo's commit identity and a credential helper pinned to its GitHub account (D-007, ONBOARDING B2). */

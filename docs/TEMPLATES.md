@@ -1,0 +1,129 @@
+# Team templates
+
+A team template starts every project the same way: the team's profile,
+environments, checks, tracker, autonomy and agents. It's a JSON file the team
+keeps wherever it keeps things, and acc doesn't know whose team it is. acc
+ships no template. The one below is ACME's, a made-up team.
+
+```bash
+acc template show <template>                     # what it sets, before using it
+acc init --from <template>                       # a generic project
+acc init --from <template> --production-org "<prod>"   # a Salesforce one
+```
+
+In VSCode, Setup's **Project config** step offers **From a team template…**
+under **Do it**. It remembers the last five templates used on this machine.
+
+## A sample
+
+ACME's Salesforce projects run Dev → UAT → Production, track work in Jira,
+and let autopilot review and land:
+
+```json
+{
+  "schema": 1,
+  "name": "ACME Salesforce",
+  "description": "ACME's Salesforce projects: Dev to UAT to Production, tracked in Jira.",
+  "profile": "salesforce",
+  "environments": [
+    { "name": "Production", "protected": true },
+    { "name": "UAT", "type": "full", "promotesTo": ["production"] },
+    { "name": "Dev", "type": "developer", "default": true, "promotesTo": ["uat", "production"] }
+  ],
+  "gates": {
+    "required": ["format", "static", "validate"],
+    "commands": { "lint": "npm run lint" },
+    "severity": 2
+  },
+  "tracker": { "kind": "jira", "site": "acme.atlassian.net", "project": "ACME" },
+  "autonomy": "review",
+  "agents": {
+    "max": 3,
+    "builder": { "model": "claude-opus-5-5", "effort": "high" },
+    "reviewer": { "model": "claude-opus-5-5" }
+  }
+}
+```
+
+## Where a template lives
+
+| Source | Example | Fetched with |
+|---|---|---|
+| A file in one of the team's GitHub repos | `https://github.com/acme/acc-templates/blob/main/salesforce.json` | `gh api`, as the repo's account |
+| The same file, raw | `https://raw.githubusercontent.com/acme/acc-templates/main/salesforce.json` | `gh api`, as the repo's account |
+| A file in any git repo | `https://git.example.com/acme/acc-templates.git#salesforce.json` | a shallow `git clone` |
+| A path on this machine | `~/acme/acc-templates/salesforce.json` | read from disk |
+
+gh reads as `--github-account`, else the account the repo pushes as, else gh's
+active account. acc never runs `gh auth switch` (D-007). git runs without
+prompting for a password, in a temporary folder it always removes.
+
+acc refuses a URL with a sign-in in it (`https://user:token@…`), a plain
+`http://` URL, any other web address, and a file over 64 KB.
+
+## What a template may say
+
+| Key | What |
+|---|---|
+| `schema` | Always `1` |
+| `name` | A short name, such as `ACME Salesforce` |
+| `description` | A sentence or two |
+| `profile` | `generic` or `salesforce` |
+| `environments` | Each one's `name`, `type`, `default`, `protected` and `promotesTo`, under the config's rules (D-015, D-018). In a Salesforce template, a type may be left out: Production's sandbox list gives it |
+| `gates` | `required`, `commands`, `heavy` and `severity`, as in `.acc/config.json` |
+| `tracker` | One tracker: its `kind`, its place and a default project. Jira: `site`, `project`. Azure DevOps: `organization`, `project`, `prefix`. monday.com: `account`, `board`, `prefix`. GitHub: `kind` only, since it reads the project's own repo |
+| `autonomy` | `manual` or `review`. `dispatch` and `full` are a person's choice in the project's own config |
+| `agents` | `max`, and `builder` and `reviewer`, each with `model`, `effort` and `fallbackModel` |
+
+Any other key is refused, by its dotted path, such as `agents.builder.efort`:
+a typo in a file the whole team uses would otherwise quietly drop a rule. If a
+template was written for a newer acc, update acc.
+
+What belongs to one project is refused too: `github`, `commitIdentity`, an
+environment's `org`, `worktrees`, `secretScan`, `autopilot`,
+`agents.permissionMode`, and a tracker's `edits`, `epic`, `labels` and
+`areaPath`. So is anything that looks like a sign-in, such as `token`,
+`apiToken`, `password` or `email`, at any level. Each person signs in to a
+tracker on the Command Center's Connect page.
+
+## How acc init uses it
+
+Flags win, then the template, then what acc init discovers, then acc's
+defaults. `--jira-project` replaces the template's project. A `--profile` that
+disagrees with the template's is refused.
+
+- **The project, its GitHub repo and account, and its commit identity** are
+  always discovered.
+- **A generic project** takes the template's environments as they are.
+- **A Salesforce project** takes its environments from Production's sandbox
+  list, which decides which exist and their types. For each sandbox the
+  template names, the template's `promotesTo`, `default` and `protected` win.
+  A template environment with no sandbox is left out, and a sandbox the
+  template doesn't name keeps acc's usual path. acc init says which, in a note.
+- **A tracker with no project** (a monday.com one with no board) is left out,
+  with a note. Connect it on the Command Center's Connect page.
+- **Check commands** the template adds are listed before anything is written:
+  they run on the machine of everyone who uses the project.
+
+The project records where it came from:
+
+```json
+"template": { "name": "ACME Salesforce", "source": "https://github.com/acme/acc-templates/blob/main/salesforce.json", "digest": "sha256:…" }
+```
+
+A path is recorded relative to the repo, or as `~/…`, so no home folder is
+committed.
+
+## When the template changes
+
+Setup's **The team template is current** step (`B0.template`) reads the
+template again. It passes while it's unchanged, or when it changed but the
+project already agrees. When the project now differs, it asks you to check by
+hand, names the keys that differ, and offers a preview that writes nothing:
+
+```bash
+acc init --from '<template>' --dry-run
+```
+
+acc never applies a changed template by itself. To take it, run
+`acc init --from '<template>' --force` and review the diff before you commit.
