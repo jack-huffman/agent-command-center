@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { releaseAwake } from './awake.ts';
 import { type Config, defaultEnvironment, environmentByBranch } from './config.ts';
@@ -516,6 +516,125 @@ export function sessionsOf<S extends ClaudeSession>(task: { id: string; run?: Ru
   if (run?.bgId || run?.sessionId) return sessions.filter((s) => (!!run.bgId && s.id === run.bgId) || (!!run.sessionId && s.sessionId === run.sessionId));
   const name = run?.name ?? task.id;
   return sessions.filter((s) => s.kind === 'background' && s.name === name);
+}
+
+/** A run a task's builder had, as its dispatch recorded it in events.jsonl: the task keeps only its current one. */
+export interface RunRecord {
+  task: string;
+  bgId?: string;
+  sessionId?: string;
+  name?: string;
+  n?: number;
+}
+
+/** What has been read of a repo's events for its runs: every one, from the file's first byte. */
+export interface RunsLog {
+  /** The byte after the last whole line read. */
+  offset: number;
+  ino: number;
+  runs: RunRecord[];
+}
+
+/**
+ * Every run each task's builder had, from the repo's events (events.jsonl, never trimmed): each dispatch's
+ * run, and a session its builder's SessionStart linked to the run afterwards. An earlier run can be
+ * anywhere in the file, so the first look reads all of it, and each look after reads only what was added.
+ * A file that shrank or was replaced is read again from the start. Only whole lines: one being written is
+ * read next time. Undefined when there's no file yet.
+ */
+export function readRuns(file: string, prev?: RunsLog): RunsLog | undefined {
+  let st;
+  try {
+    st = statSync(file);
+  } catch {
+    return undefined;
+  }
+  const s: RunsLog = !prev || prev.ino !== st.ino || st.size < prev.offset ? { offset: 0, ino: st.ino, runs: [] } : { ...prev, runs: [...prev.runs] };
+  if (st.size === s.offset) return s;
+  const buf = Buffer.alloc(st.size - s.offset);
+  const fd = openSync(file, 'r');
+  try {
+    readSync(fd, buf, 0, buf.length, s.offset);
+  } finally {
+    closeSync(fd);
+  }
+  const end = buf.lastIndexOf(10);
+  if (end < 0) return s;
+  const text = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
+  for (const line of buf.subarray(0, end).toString('utf8').split('\n')) {
+    let e: { type?: unknown; task?: unknown; data?: Record<string, unknown> };
+    try {
+      e = JSON.parse(line);
+    } catch {
+      continue; // a line that isn't an event
+    }
+    if (e?.type !== 'task.updated' || typeof e.task !== 'string' || !e.data || typeof e.data !== 'object') continue;
+    const task = e.task;
+    const run = e.data.run as Record<string, unknown> | null | undefined;
+    if (run && typeof run === 'object') {
+      const r: RunRecord = { task };
+      for (const k of ['bgId', 'sessionId', 'name'] as const) if (text(run[k])) r[k] = text(run[k]);
+      if (typeof run.n === 'number') r.n = run.n;
+      s.runs.push(r);
+    } else if (text(e.data.sessionId)) {
+      // A session linked to the task's run after its dispatch: one more id for that run.
+      s.runs.push({ ...(s.runs.findLast((r) => r.task === task) ?? { task }), sessionId: text(e.data.sessionId)! });
+    }
+  }
+  return { ...s, offset: s.offset + end + 1 };
+}
+
+/**
+ * What a repo says about the sessions that work for its tasks: its tasks, every run their builders had,
+ * the reviewers and analysts whose verdicts and analyses are recorded, and the reviews and analyses under
+ * way. Read from the repo's ledger and what sits beside it.
+ */
+export interface RepoAgents {
+  tasks: Pick<Task, 'id' | 'state' | 'run'>[];
+  runs: RunRecord[];
+  verdicts: { task: string; sessionId: string }[];
+  /** Each task's current analysis: one a task, replaced when it's analyzed again. */
+  analyses: { task: string; sessionId: string }[];
+  live: { task: string; sessionId: string; role: 'review' | 'analysis' }[];
+}
+
+/** Who a session works for, and whether its work is over. */
+export interface SessionTie {
+  task: string;
+  role: 'builder' | 'review' | 'analysis';
+  /** Nobody waits on it: Claude Code may still list it waiting at its prompt. */
+  finished: boolean;
+  /** Why it's finished: its task is done, its task has a later run, or its verdict or analysis is recorded. */
+  why: 'done' | 'later-run' | 'reviewed' | 'analyzed' | null;
+}
+
+/** Whether a recorded run is the task's current one, by its count or its ids. */
+const currentRun = (r: RunRecord, run: Run | null | undefined): boolean =>
+  !!run && ((r.n !== undefined && r.n === run.n) || (!!r.bgId && r.bgId === run.bgId) || (!!r.sessionId && r.sessionId === run.sessionId));
+
+/**
+ * The task a session works for, as far as its repo can tell, and whether its work is over (D-???). In
+ * order: a review or analysis under way is its task's, at work. A task's current builder, found as
+ * sessionsOf finds it, is finished once the task is done. A reviewer whose verdict, or an analyst whose
+ * analysis, is recorded is finished. A builder of an earlier run is finished: acc never carries an earlier
+ * run on, so a re-dispatch starts a new session. Earlier runs are found by the ids their dispatch recorded,
+ * never by a name (D-087). Anything else, and anything for a task no longer in the ledger, is null: untied.
+ */
+export function tieSession(s: ClaudeSession, repo: RepoAgents): SessionTie | null {
+  const tasks = new Map(repo.tasks.map((t) => [t.id, t]));
+  const sid = s.sessionId;
+  const live = sid ? repo.live.find((l) => l.sessionId === sid && tasks.has(l.task)) : undefined;
+  if (live) return { task: live.task, role: live.role, finished: false, why: null };
+  const built = repo.tasks.find((t) => !!t.run && sessionsOf(t, [s]).length > 0);
+  if (built) return { task: built.id, role: 'builder', finished: built.state === 'done', why: built.state === 'done' ? 'done' : null };
+  if (sid) {
+    const v = repo.verdicts.find((x) => x.sessionId === sid && tasks.has(x.task));
+    if (v) return { task: v.task, role: 'review', finished: true, why: 'reviewed' };
+    const a = repo.analyses.find((x) => x.sessionId === sid && tasks.has(x.task));
+    if (a) return { task: a.task, role: 'analysis', finished: true, why: 'analyzed' };
+  }
+  const earlier = repo.runs.find((r) => tasks.has(r.task) && ((!!r.bgId && s.id === r.bgId) || (!!r.sessionId && sid === r.sessionId)) && !currentRun(r, tasks.get(r.task)!.run));
+  return earlier ? { task: earlier.task, role: 'builder', finished: true, why: 'later-run' } : null;
 }
 
 /**
