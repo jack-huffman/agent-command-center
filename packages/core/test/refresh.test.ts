@@ -348,7 +348,7 @@ test('a conflict acc saw earlier that\'s gone now: nothing is merged, and the pu
   assert.deepEqual(brief(autopilotPass(s.paths, s.config, deps(calls, undefined, s.dir)).steps[0]!), ['T-1', null, 'skipped'], 'up to date');
 });
 
-test('auto-merge: a pull request only behind its base is brought up to date, checked, reviewed and landed, then merged (GH-67)', () => {
+test('auto-merge: the merge queue brings a pull request only behind its base up to date, checks it in full once, pushes it, then merges it, with no review in between (GH-73)', () => {
   const s = setup({ config: { autopilot: { appendOnly: ['docs/DECISIONS.md'], autoMerge: true } } });
   const before = s.onBranch({ 'sum.test.js': 'test("sum", () => {});\n' });
   s.opened(before, []);
@@ -362,23 +362,25 @@ test('auto-merge: a pull request only behind its base is brought up to date, che
   };
   const d = { ...deps(calls, undefined, s.dir, github), env: { ACC_QUESTIONS_DIR: tempDir('questions-') } };
 
-  const refreshed = autopilotPass(s.paths, s.config, d);
-  assert.deepEqual(brief(refreshed.steps[0]!), ['T-1', 'refresh', 'done']);
+  const turn = autopilotPass(s.paths, s.config, d);
+  assert.deepEqual(brief(turn.steps[0]!), ['T-1', 'queue', 'done']);
   const merge = head(s.dir);
-  assert.match(refreshed.steps[0]!.reason, new RegExp(`^Merged main into ${before.slice(0, 7)} as ${merge.slice(0, 7)}\\. Its checks passed\\.`));
+  assert.equal(turn.steps[0]!.reason, `Merged main into ${before.slice(0, 7)} as ${merge.slice(0, 7)}, and its full check passed. Pushed it to pull request #42: it merges once GitHub's checks pass.`);
   assert.deepEqual(gitIn(s.dir, 'rev-list', '--parents', '-n', '1', merge).split(' ').slice(1), [before, base]);
-  assert.equal(readReceipt(s.paths, merge, 'test')?.status, 'pass', 'its checks ran on the merge commit');
-  const e = readFileSync(s.paths.events, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).at(-1);
-  assert.deepEqual(e.data, { refreshed: { base: 'main', from: before, to: merge, resolved: [], behind: true } });
-  assert.deepEqual(merges(calls), [], 'not merged: the merge commit hasn\'t been reviewed');
+  assert.equal(readReceipt(s.paths, merge, 'test')?.status, 'pass', 'its full check ran on the merge commit');
+  assert.equal(calls.filter((c) => c.startsWith('nice -n 15 sh -c')).length, 1, 'once');
+  // It carries the review of the commit it was made on, and was pushed to the same pull request.
+  assert.deepEqual(first(s.paths).autopilot?.carried, { from: before, to: merge, base: 'main', resolved: [], at: now().toISOString() });
+  assert.equal(first(s.paths).pr?.sha, merge);
+  assert.equal(gitIn(s.dir, 'rev-parse', `refs/remotes/origin/${BRANCH}`), merge);
+  assert.deepEqual(merges(calls), [], 'GitHub\'s checks come first');
 
-  assert.deepEqual(brief(autopilotPass(s.paths, s.config, d).steps[0]!), ['T-1', 'review', 'done']);
-  assert.deepEqual(brief(autopilotPass(s.paths, s.config, d).steps[0]!), ['T-1', 'land', 'done']);
-  assert.deepEqual(merges(calls), []);
   const merged = autopilotPass(s.paths, s.config, d);
   assert.deepEqual(brief(merged.steps[0]!), ['T-1', 'merge', 'done']);
   assert.deepEqual(merges(calls), [`gh pr merge 42 -R acme/tool --merge --match-head-commit ${merge}`]);
   assert.equal(first(s.paths).autopilot?.merged?.sha, merge);
+  assert.ok(!calls.some((c) => c.startsWith('claude -p')), 'no review in between: a clean merge carries its review');
+  assert.equal(calls.filter((c) => c.startsWith('nice -n 15 sh -c')).length, 1, 'its full check ran once');
 });
 
 test('refresh: brought up to date when it\'s only behind; without auto-merge, a pull request that merges cleanly is left alone (GH-67)', () => {

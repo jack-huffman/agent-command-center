@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Config } from './config.ts';
+import { type Config, type GateScope, requiredGates } from './config.ts';
 import type { Runner } from './exec.ts';
 import type { Hooks, Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
@@ -68,18 +68,27 @@ export function writeReceipt(paths: RepoPaths, receipt: Receipt): string {
   return f;
 }
 
-/** Gate hooks backed by receipt files: a required gate counts only if it passed, or didn't apply, on the branch's current commit. */
+/**
+ * Gate hooks backed by receipt files: a required gate counts only if it passed, or didn't apply, on the
+ * branch's current commit. By scope (GH-73): a builder's commit needs the builder's checks where the merge
+ * queue runs the full ones before the merge, and the full ones cover them; a merge needs the full ones.
+ */
 export function receiptHooks(paths: RepoPaths, config: Config, run: Runner): Hooks {
   return {
-    missingGates(task: Task): string[] {
-      const required = config.gates.required;
+    missingGates(task: Task, scope: GateScope = 'builder'): string[] {
+      const required = requiredGates(config, task.environment, scope);
       if (!required.length) return [];
       const branch = task.run?.branch;
       if (!branch) return required;
       const sha = run('git', ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], { cwd: paths.root });
       if (sha.code !== 0) return required;
       const head = sha.stdout.trim();
-      return required.filter((g) => !satisfies(readReceipt(paths, head, g)));
+      const passed = (g: string) => satisfies(readReceipt(paths, head, g));
+      const missing = required.filter((g) => !passed(g));
+      // The full check passed on this commit, as the queue runs it on its merge: that covers a builder's.
+      const full = config.gates.required;
+      if (missing.length && required !== full && full.length && full.every(passed)) return [];
+      return missing;
     },
   };
 }

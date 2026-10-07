@@ -12,6 +12,8 @@ export interface SlotOptions {
   pollMs?: number;
   /** Called once, when the first attempt finds every slot taken. */
   onWait?: () => void;
+  /** Called when a slot is taken after waiting for one, as the merge queue says when its check starts (GH-73). */
+  onTake?: () => void;
 }
 
 export const heavyDir = (env: NodeJS.ProcessEnv = process.env): string => env.ACC_HEAVY_DIR || join(homedir(), '.acc', 'heavy');
@@ -98,6 +100,7 @@ export function withSlot<T>(fn: () => T, opts: SlotOptions = {}): T {
       const slot = join(dir, `slot-${i}`);
       reclaim(slot);
       if (!take(slot)) continue;
+      if (waiting) opts.onTake?.();
       try {
         return fn();
       } finally {

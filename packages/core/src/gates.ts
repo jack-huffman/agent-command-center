@@ -5,7 +5,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Config, Environment } from './config.ts';
+import { type Config, type Environment, requiredGates } from './config.ts';
 import { AccError, parseJsonOutput, type RunResult, type Runner, sfEnv } from './exec.ts';
 import type { Ledger, Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
@@ -37,6 +37,8 @@ export interface GateInput {
   tests: ApexTest[];
   /** A folder for files a gate writes, such as Code Analyzer's results. */
   scratch: string;
+  /** The tests near what the branch changed (nearTests), worked out when a gate asks. */
+  near: () => string[];
 }
 
 export interface Outcome {
@@ -46,7 +48,7 @@ export interface Outcome {
 }
 
 /** What a gate will do: decide without running anything, or run a command and read its result. */
-export type Plan = { outcome: Outcome } | { cmd: string; args: string[]; read?: (r: RunResult) => Outcome };
+export type Plan = { outcome: Outcome } | { cmd: string; args: string[]; read?: (r: RunResult) => Outcome; env?: Record<string, string> };
 
 export interface Gate {
   name: string;
@@ -88,9 +90,57 @@ export function checkEnv(env: NodeJS.ProcessEnv = process.env, heavyDir?: string
   return heavyDir ? { ...rest, ACC_HEAVY_DIR: heavyDir } : rest;
 }
 
-/** A gate from `gates.commands`, run by the shell in the checkout. */
+/**
+ * A gate from `gates.commands`, run by the shell in the checkout. It's told what the branch changed, and the
+ * tests near those changes, one path a line (GH-73): `ACC_CHANGED` and `ACC_NEAR_TESTS`, so a builder's
+ * lighter check can run only those.
+ */
 function commandGate(name: string, command: string, heavy: boolean): Gate {
-  return { name, heavy, about: command, plan: () => ({ cmd: 'sh', args: ['-c', command], read: exitRead }) };
+  return {
+    name, heavy, about: command,
+    plan: ({ changes, near }) => ({ cmd: 'sh', args: ['-c', command], read: exitRead, env: { ACC_CHANGED: changes.files.join('\n'), ACC_NEAR_TESTS: near().join('\n') } }),
+  };
+}
+
+// ---------------------------------------------------------------- the tests near a change (GH-73)
+
+/** A test file, by the usual names: foo.test.ts, foo.spec.js, foo_test.go, test_foo.py. */
+const TEST_FILE = /(^|\/)(test_[^/]+\.\w+|[^/]+[._](test|spec)\.\w+)$/;
+const isTest = (path: string): boolean => TEST_FILE.test(path);
+
+/** The folder a source file's package starts in: up to its src, lib or app folder, else its own folder. */
+function packageOf(path: string): string {
+  const parts = path.split('/');
+  const at = parts.findIndex((p, i) => i < parts.length - 1 && ['src', 'lib', 'app'].includes(p));
+  return (at >= 0 ? parts.slice(0, at) : parts.slice(0, -1)).join('/');
+}
+
+const escape = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * The tests near what a branch changed (GH-73): the test files it changed, and, for each other file it
+ * changed, the tests in the same package named for it (merge.ts → merge.test.ts, test_merge.py) or that
+ * import it by name. `tracked` is every file in the checkout; `read` gives a test file's text. Paths are
+ * the repo's, sorted, each once.
+ */
+export function nearTests(changed: string[], tracked: string[], read: (path: string) => string | null): string[] {
+  const tests = tracked.filter(isTest);
+  const out = new Set(changed.filter((f) => isTest(f) && tracked.includes(f)));
+  for (const f of changed.filter((x) => !isTest(x))) {
+    const base = f.split('/').at(-1)!;
+    const stem = base.replace(/\.[^.]+$/, '');
+    if (!stem || stem === base) continue;
+    const pkg = packageOf(f);
+    const inPkg = tests.filter((t) => !pkg || t.startsWith(`${pkg}/`));
+    const named = new RegExp(`(^|/)(${escape(stem)}[._](test|spec)\\.\\w+|test_${escape(stem)}\\.\\w+)$`);
+    // An import or require that names the file: '../src/merge.ts', './merge', "pkg/merge.js".
+    const imports = new RegExp(`['"\`][^'"\`\\n]*\\/${escape(stem)}(\\.[cm]?[jt]sx?)?['"\`]`);
+    for (const t of inPkg) {
+      if (named.test(t)) out.add(t);
+      else if (imports.test(read(t) ?? '')) out.add(t);
+    }
+  }
+  return [...out].sort();
 }
 
 /** The repo's own copy of a Node tool. Worktrees share the main checkout's node_modules (dispatch links it). */
@@ -391,12 +441,14 @@ export const niced = (cmd: string, args: string[]): [string, string[]] => (proce
 
 /**
  * Runs gates in a checkout and records a receipt for each on its current commit. With no names it
- * runs the required gates, or every gate when none is required.
+ * runs the required gates, a builder's where the merge queue runs the full ones (GH-73), or every gate
+ * when none is required.
  */
 export function runGates(paths: RepoPaths, config: Config, env: Environment, names: string[], tests: ApexTest[], deps: GateRunDeps): GateRun {
   const root = paths.root;
   const all = gatesFor(config);
-  const wanted = names.length ? names : config.gates.required.length ? config.gates.required : all.map((g) => g.name);
+  const required = requiredGates(config, env.branch, 'builder');
+  const wanted = names.length ? names : required.length ? required : all.map((g) => g.name);
   const unknownNames = wanted.filter((n) => !all.some((g) => g.name === n));
   if (unknownNames.length) {
     const known = all.map((g) => g.name).join(', ') || 'none yet';
@@ -412,10 +464,18 @@ export function runGates(paths: RepoPaths, config: Config, env: Environment, nam
   } catch (e) {
     if (config.profile === 'salesforce') throw e;
   }
+  let near: string[] | null = null;
   const input: GateInput = {
     root, config, env, tests,
     changes: changes ?? { base: sha, files: [], deleted: [], envSpecific: [] },
     scratch: join(paths.logs, 'gates', sha),
+    near: () => (near ??= nearTests(input.changes.files, git(deps.run, root, ['ls-files', '-z']).stdout.split('\0').filter(Boolean), (f) => {
+      try {
+        return readFileSync(join(root, f), 'utf8');
+      } catch {
+        return null;
+      }
+    })),
   };
   mkdirSync(input.scratch, { recursive: true });
 
@@ -441,7 +501,7 @@ export function runGates(paths: RepoPaths, config: Config, env: Environment, nam
       command = shellLine(plan.cmd, plan.args);
       const [cmd, args] = niced(plan.cmd, plan.args);
       // sf gets a plain environment, so its --json output stays parseable whatever shell ran acc.
-      const exec = () => deps.run(cmd, args, { cwd: root, timeoutMs: (gate.heavy ? 90 : 20) * 60_000, env: plan.cmd === 'sf' ? sfEnv() : checkEnv(process.env, gate.heavy ? join(input.scratch, 'heavy') : undefined) });
+      const exec = () => deps.run(cmd, args, { cwd: root, timeoutMs: (gate.heavy ? 90 : 20) * 60_000, env: plan.cmd === 'sf' ? sfEnv() : { ...checkEnv(process.env, gate.heavy ? join(input.scratch, 'heavy') : undefined), ...plan.env } });
       const r = gate.heavy ? withSlot(exec, { ...deps.slots, onWait: () => deps.onWait?.(gate) }) : exec();
       log = join(input.scratch, `${gate.name}.log`);
       writeFileSync(log, `$ ${command}\n# exit ${r.code}\n\n${r.stdout}${r.stderr ? `\n--- stderr ---\n${r.stderr}` : ''}`);

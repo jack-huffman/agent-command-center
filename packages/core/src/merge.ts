@@ -6,12 +6,12 @@ import { type Actor, type AutopilotMerge, type MergeMethod, mutate, readLedger }
 import type { RepoPaths } from './paths.ts';
 import { pendingQuestions, questionsDir } from './questions.ts';
 import { receiptHooks } from './receipts.ts';
-import { readVerdict } from './review.ts';
+import { reviewedAt } from './review.ts';
 import { fetchBranches } from './sync.ts';
 
 /**
  * Auto-merge (GH-67): where a repo turns it on, autopilot merges a task's open pull request once its
- * review passed and its checks settled on the branch's latest commit, GitHub's checks passed there, GitHub
+ * review passed and its full checks settled on the branch's latest commit, GitHub's checks passed there, GitHub
  * says it can merge, and nothing waits on a person. It merges as the repo's account (D-007), with the
  * method the repo allows, and only the commit it looked at (`--match-head-commit`). It never merges into
  * a protected environment, in a Salesforce project, or a pull request that changes `.acc/`. acc sync then
@@ -119,8 +119,10 @@ export function mergePr(paths: RepoPaths, config: Config, id: string, deps: Merg
   const wait = (why: string) => new AccError('merge-waits', why);
   if (task.autopilot?.merged?.sha === head) throw wait(`Autopilot already merged pull request #${pr.number}: acc sync moves ${id} to done.`);
   if (pr.sha !== head) throw wait(`Pull request #${pr.number} was landed at ${short(pr.sha ?? '')}, not ${short(head)}: a land comes first.`);
-  if (readVerdict(paths, id, head)?.verdict !== 'pass') throw wait(`${id}'s review hasn't passed on ${short(head)}.`);
-  const missing = receiptHooks(paths, config, run).missingGates(task);
+  // Its own review, or the one the merge queue's merge commit carries (GH-73).
+  if (!reviewedAt(paths, task, head)) throw wait(`${id}'s review hasn't passed on ${short(head)}.`);
+  // The full check, whatever a builder ran (GH-73).
+  const missing = receiptHooks(paths, config, run).missingGates(task, 'merge');
   if (missing.length) throw new AccError('merge', `Its checks aren't settled on ${short(head)}: ${missing.join(', ')}.`);
   // An agent in its worktree asking a person something: the person comes first.
   const wt = task.run?.worktree;
@@ -198,6 +200,8 @@ export function mergePr(paths: RepoPaths, config: Config, id: string, deps: Merg
     const t = l.tasks.find((x) => x.id === id);
     if (!t) return;
     t.autopilot = { ...t.autopilot, failed: null, merged };
+    // Merged, it leaves the merge queue (GH-73).
+    if (t.autopilot.queued) t.autopilot.queued = null;
     t.updatedAt = merged.at;
     emit({ type: 'task.updated', task: id, actor: opts.actor, by: opts.by, data: { merged } });
   });

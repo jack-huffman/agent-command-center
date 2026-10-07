@@ -91,6 +91,28 @@ export function readVerdict(paths: RepoPaths, task: string, sha: string): Verdic
   }
 }
 
+/**
+ * The review a merge commit carries (GH-73): the merge queue merged the task's base into a commit whose
+ * review passed, cleanly or by keeping both sides' additions to an append-only file, and checked it in
+ * full. Its verdict is that commit's, kept as it was: no reviewer read the merge. Null for any other commit.
+ */
+export function carriedVerdict(paths: RepoPaths, task: Pick<Task, 'id' | 'autopilot'>, sha: string): Verdict | null {
+  const c = task.autopilot?.carried;
+  if (!c || !sha || c.to !== sha) return null;
+  const v = readVerdict(paths, task.id, c.from);
+  return v?.verdict === 'pass' ? v : null;
+}
+
+/**
+ * The passing review that covers a commit: its own, or the one its merge commit carries (GH-73). Land and
+ * the merge accept nothing else, so nothing is pushed or merged without one (D-033). Null when neither passed.
+ */
+export function reviewedAt(paths: RepoPaths, task: Pick<Task, 'id' | 'autopilot'>, sha: string): Verdict | null {
+  const own = readVerdict(paths, task.id, sha);
+  if (own) return own.verdict === 'pass' ? own : null;
+  return carriedVerdict(paths, task, sha);
+}
+
 /** The task's newest verdict on any commit: what its next run has to fix. */
 export function latestVerdict(paths: RepoPaths, task: string): Verdict | null {
   if (!existsSync(paths.reviews)) return null;

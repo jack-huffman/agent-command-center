@@ -13,6 +13,7 @@ import {
   builderStopped, claudeProjectsDir, clipSaid, lastSaid, listSessions, resume, resuming,
   claimUpdate, closesIssues, closeWords, discardUpdate, draftUpdate, EVENT_WORDS, GH_TIMEOUT_MS, ghToken, githubIssue, isOpenUpdate, listUpdates, markPosted, readUpdate, releaseUpdate, settleCloses, stalePosting, type Update, UPDATE_TEXT_MAX, updateText,
   heavySlots, machineFile, setHeavySlots,
+  builderGatesFor, ordinal, phaseWords, queuePlaces, requiredGates,
 } from '../../core/src/index.ts';
 import { issueRepo } from '../../core/src/trackers/github.ts';
 import type { Outside } from '../../core/src/trackers/types.ts';
@@ -88,7 +89,7 @@ Agents
                                         land it, re-dispatch a rework once, resume a stopped builder once, or merge
                                         the base into a pull request that conflicts with it. It merges a pull request
                                         only where auto-merge is on: reviewed, its checks passed, nothing waiting on
-                                        a person, one a pass. One pass, or one every
+                                        a person, in turn through the repo's merge queue. One pass, or one every
                                         <seconds> (at least 30) until stopped; --json then prints a line a pass
   acc sync                              Follow open pull requests: merged → done, closed → blocked, failing checks or conflicts → needs you.
                                         Where the GitHub tracker says "edits": true, a task's issue closes when it
@@ -489,11 +490,12 @@ function cmdLand(o: Opts, id: string): number {
   return 0;
 }
 
-const STEP_WORD: Record<AutopilotStepName, string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update', resume: 'resume', checks: 'send back', merge: 'merge' };
+const STEP_WORD: Record<AutopilotStepName, string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update', resume: 'resume', checks: 'send back', merge: 'merge', queue: 'take' };
 
 /** A step autopilot couldn't take, in words: "land abc1234", "update abc1234 from its base", "send abc1234 back for its failing checks". */
 const stepWords = (step: AutopilotStepName, sha: string): string => {
   if (step === 'checks') return `send ${sha.slice(0, 7) || 'it'} back for its failing checks`;
+  if (step === 'queue') return `take ${sha.slice(0, 7) || 'it'} through the merge queue`;
   const what = [STEP_WORD[step], sha.slice(0, 7)].filter(Boolean).join(' ');
   return step === 'refresh' ? `${what} from its base` : what;
 };
@@ -519,7 +521,7 @@ function autopilotLines(r: AutopilotResult): string[] {
  * pull request whose GitHub checks fail back to its builder once a commit (D-076), resumes a stopped
  * builder once a run (D-067), and merges the base into a pull request that conflicts with it (D-058), as
  * the orchestrator, up to an open pull request. It merges a pull request only where auto-merge is on
- * (GH-67). One pass, or one every --every seconds until stopped.
+ * (GH-67), in turn through the repo's merge queue (GH-73). One pass, or one every --every seconds until stopped.
  */
 function cmdAutopilot(o: Opts): number {
   const role = process.env.ACC_ROLE;
@@ -541,8 +543,8 @@ function cmdAutopilot(o: Opts): number {
   }
   if (!start.config.github) throw new AccError('no-github', 'Autopilot lands reviewed work as pull requests on GitHub, and this project has no "github" section in .acc/config.json.');
   const say = (line: string) => { if (!o.json) process.stderr.write(tone(line, 'dim') + '\n'); };
-  const doing = { review: 'Reviewing', land: 'Landing', dispatch: 'Re-dispatching', refresh: 'Updating', resume: 'Resuming', checks: 'Sending back', merge: 'Merging' };
-  const after = { review: '. The reviewer reads and changes nothing.', land: '', dispatch: '', refresh: ' from its base, then running its checks.', resume: ': its builder stopped before acc done or acc block.', checks: ' to its builder: its checks failed on GitHub. Reading their logs.', merge: ': its review and checks passed. GitHub is asked again first.' };
+  const doing = { review: 'Reviewing', land: 'Landing', dispatch: 'Re-dispatching', refresh: 'Updating', resume: 'Resuming', checks: 'Sending back', merge: 'Merging', queue: 'Taking' };
+  const after = { review: '. The reviewer reads and changes nothing.', land: '', dispatch: '', refresh: ' from its base, then running its checks.', resume: ': its builder stopped before acc done or acc block.', checks: ' to its builder: its checks failed on GitHub. Reading their logs.', merge: ': its review and checks passed. GitHub is asked again first.', queue: ' through the merge queue: its base is merged in if it moved on, the full check runs once, then it\'s pushed, or merged.' };
   // Started by the Command Center (D-064): once that window's extension host has gone, it stops at the
   // next step or within a second of waiting, even if nothing stopped it. No window, no autopilot.
   const parent = Number(process.env.ACC_AUTOPILOT_PARENT);
@@ -701,7 +703,8 @@ function autoMergeLines(config: Config): string {
   const covered = config.environments.filter((e) => !e.protected).map((e) => e.branch);
   const kept = config.environments.filter((e) => e.protected).map((e) => e.branch);
   return [
-    `auto-merge on (project): autopilot merges a pull request into ${covered.join(', ') || 'no environment'} once its review and checks passed, it's up to date with its base, GitHub says it can merge, nothing waits on a person, and it changes nothing under .acc/. One a pass.`,
+    `auto-merge on (project): a pull request into ${covered.join(', ') || 'no environment'} whose review and checks passed, with nothing waiting on a person and nothing changed under .acc/, joins the repo's merge queue, and they merge in turn: at its turn its base is merged in, the full check runs once, and it merges once GitHub says it can.`,
+    config.gates.builder?.length ? `Builders run ${config.gates.builder.join(', ')}; the full check (${config.gates.required.join(', ') || 'none'}) runs in the queue.` : '',
     kept.length ? `Never into ${kept.join(', ')}: protected, so a person merges.` : '',
     config.autonomy === 'review' ? 'It merges while autopilot is on.' : `autonomy is "${config.autonomy}", so autopilot doesn't run and nothing merges on its own.`,
   ].filter(Boolean).join(' ');
@@ -870,7 +873,7 @@ function cmdStatus(o: Opts): number {
 }
 
 function cmdShow(o: Opts, id: string): number {
-  const { paths } = project(process.cwd());
+  const { paths, config } = project(process.cwd());
   const ledger = readLedger(paths.ledger);
   const t = ledger.tasks.find((x) => x.id === id.toUpperCase());
   if (!t) throw new AccError('no-task', `No task ${id}.`);
@@ -878,6 +881,8 @@ function cmdShow(o: Opts, id: string): number {
   const closed = closedPr(t);
   // Its pull request's checks failed on GitHub, or autopilot sent it back for them (D-076).
   const checks = failedChecks(t);
+  // Its place in the repo's merge queue, and what it waits on (GH-73).
+  const place = queuePlaces(ledger, config).find((p) => p.id === t.id);
   // Whether its builder stopped before acc done or acc block (D-067): only a running task asks Claude Code.
   const stopped = t.state === 'running' && builderStopped(t, listSessions(run, paths.root), { resuming: !!resuming(paths, t.id), now: now() });
   const said = stopped && t.run?.sessionId ? lastSaid(claudeProjectsDir(), t.run.sessionId, [t.run.worktree, paths.root]) : null;
@@ -889,6 +894,7 @@ function cmdShow(o: Opts, id: string): number {
     t.blocker ? `Blocked: ${t.blocker}` : '',
     failed ? tone(`! Autopilot couldn't ${stepWords(failed.step, failed.sha || 'it')}: ${failed.reason}`, 'orange') : '',
     checks ? tone(`! Checks failed on GitHub: ${checks.join(', ')}`, 'orange') : '',
+    place ? tone(`In the merge queue: ${place.ahead ? `${ordinal(place.place)} of ${place.of}, behind ${place.ahead}` : `first of ${place.of}: ${phaseWords(place.phase, t.environment).toLowerCase()}`}.`, 'blue') : '',
     closed ? tone(`! Pull request #${closed.number} was closed without merging. Reopen it on GitHub and land to update it, or land to open a new one.`, 'orange') : '',
     stopped ? tone(`! Its agent stopped: ${quote ?? 'its turn ended before acc done or acc block.'}${quote && !/[.!?…]$/.test(quote) ? '.' : ''} Resume it with acc resume ${t.id}.`, 'orange') : '',
     t.brief ? `\n${t.brief}\n` : '',
@@ -1188,11 +1194,14 @@ function cmdGateList(o: Opts): number {
   const branch = o.task && task?.run?.branch ? task.run.branch : here;
   const head = run('git', ['rev-parse', '--verify', '--quiet', o.task && task?.run?.branch ? `refs/heads/${task.run.branch}` : 'HEAD'], { cwd: paths.root }).stdout.trim();
   const receipts = head ? receiptsAt(paths, head) : {};
-  const gates = gatesFor(config).map((g) => ({ name: g.name, about: g.about, required: config.gates.required.includes(g.name), heavy: g.heavy, receipt: receipts[g.name] ?? null }));
+  // Where the merge queue runs the full check, builders run the lighter ones (GH-73).
+  const lighter = builderGatesFor(config, env.branch);
+  const builder = requiredGates(config, env.branch, 'builder');
+  const gates = gatesFor(config).map((g) => ({ name: g.name, about: g.about, required: config.gates.required.includes(g.name), builder: builder.includes(g.name), heavy: g.heavy, receipt: receipts[g.name] ?? null }));
   out(o, () => gates.length
-    ? [`${branch ?? 'HEAD'} at ${head.slice(0, 7)}, against ${env.name}`, '', table([['Gate', 'Required', 'Heavy', 'This commit', 'Checks'], ...gates.map((g) => [
-      g.name, g.required ? 'yes' : '', g.heavy ? 'yes' : '', g.receipt ? gateLabel(g.receipt.status).trimEnd() : tone('not run', 'dim'), g.about,
-    ])])].join('\n')
+    ? [`${branch ?? 'HEAD'} at ${head.slice(0, 7)}, against ${env.name}`, '', table([['Gate', 'Required', ...(lighter ? ['Builder'] : []), 'Heavy', 'This commit', 'Checks'], ...gates.map((g) => [
+      g.name, g.required ? 'yes' : '', ...(lighter ? [g.builder ? 'yes' : ''] : []), g.heavy ? 'yes' : '', g.receipt ? gateLabel(g.receipt.status).trimEnd() : tone('not run', 'dim'), g.about,
+    ])]), ...(lighter ? ['', tone(`Builders run ${builder.join(', ')}, and acc done takes them. The required ones run once, in the merge queue, before the merge.`, 'dim')] : [])].join('\n')
     : 'No gates. List commands under "gates.commands" in .acc/config.json, and the required ones under "gates.required".', { sha: head, env: env.branch, gates });
   return 0;
 }

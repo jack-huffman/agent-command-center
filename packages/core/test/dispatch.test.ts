@@ -8,6 +8,7 @@ import { parseConfig } from '../src/config.ts';
 import { awakePath } from '../src/awake.ts';
 import { builderSettings, dispatch, findSession, renderPacket, slugify, taskBranch, worktreeRoot } from '../src/dispatch.ts';
 import { run } from '../src/exec.ts';
+import { shortPacket } from '../src/hooks.ts';
 import { emptyLedger, mutate, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
 import { fakeAwake, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, SF_CONFIG, tempDir } from './support.ts';
@@ -74,7 +75,7 @@ test('the packet tells a Salesforce builder where it is, how to finish, and what
   const env = config.environments.find((e) => e.branch === 'dev')!;
   const p = renderPacket({ task: l.tasks[0]!, config, env, worktree: '/w/ACME-7', branch: 'task/ACME-7-add-a-field', rules: 'Use the selector pattern.', environmentSpecific: ['force-app/main/default/settings/MyDomain.settings-meta.xml'] });
   for (const must of ['# Task ACME-7: Add a field', 'Add Region__c to Account.', 'https://x/ACME-7', '`/w/ACME-7`', '`task/ACME-7-add-a-field`', 'started from `dev`', '`Acme Dev`',
-    'validate, never deploy', '`acc done`', '`acc block', '`format`, `validate`', 'push, merge, or open a pull request', '`sf project deploy start`', 'MyDomain.settings-meta.xml', 'Use the selector pattern.']) {
+    'validate, never deploy', '`acc done`', '`acc block', '`format`, `validate`', 'push, merge a pull request, or open one', '`sf project deploy start`', 'MyDomain.settings-meta.xml', 'Use the selector pattern.']) {
     assert.ok(p.includes(must), must);
   }
   assert.ok(!p.includes('refs #'), 'Jira tasks don\'t get GitHub refs');
@@ -111,6 +112,28 @@ test('a rework autopilot sent back for failing checks tells its builder what Git
   assert.ok(p.indexOf('What GitHub\'s checks said') < p.indexOf('## Where you are'), 'before where it works, as a review\'s changes are');
   const plain = renderPacket({ task: l.tasks[0]!, config, env, worktree: '/w/GH-57', branch: 'task/GH-57-add-sum', rules: null, environmentSpecific: [] });
   assert.ok(!plain.includes('What GitHub\'s checks said'), 'a first build has none');
+});
+
+test('where the merge queue runs the full check, the packet and the short one name a builder\'s lighter checks, and say the full one runs in the queue (GH-73)', () => {
+  const raw = { ...GENERIC_CONFIG, autonomy: 'review', autopilot: { autoMerge: true }, gates: { required: ['check'], builder: ['typecheck', 'near-tests'], commands: { check: 'npm run check', typecheck: 'tsc', 'near-tests': 'node near.mjs' } } };
+  const config = parseConfig(raw).config!;
+  const l = emptyLedger();
+  upsertTasks(l, config, [{ source: { kind: 'github', key: '73', url: 'https://github.com/acme/tool/issues/73' }, title: 'A queue' }], 'human', 'h', () => {}, () => new Date());
+  const task = { ...l.tasks[0]!, run: { worktree: '/w/GH-73', branch: 'task/GH-73-a-queue' } };
+  const env = config.environments[0]!;
+  const p = renderPacket({ task, config, env, worktree: '/w/GH-73', branch: 'task/GH-73-a-queue', rules: null, environmentSpecific: [] });
+  assert.ok(p.includes('It runs the required checks (`typecheck`, `near-tests`) on your latest commit'), p);
+  assert.ok(p.includes('These are the lighter checks, such as the tests near what you changed. The full check (`check`) runs once, in the merge queue, before your pull request merges'));
+  assert.ok(p.includes('- push, merge a pull request, or open one (a person, `acc land` and autopilot do that)'), 'merging the base in isn\'t forbidden');
+  assert.match(shortPacket(task, ['typecheck', 'near-tests'], ['check']), /run exactly `acc gate run` \(typecheck, near-tests\), then run exactly `acc done`.*\nThe full check \(check\) runs once, in the merge queue, before the merge\.\nNever push, merge a pull request, open one, or deploy\./s);
+  // Elsewhere, as before: the required checks, and nothing about a queue.
+  const off = parseConfig({ ...raw, autopilot: { autoMerge: false } }).config!;
+  const plain = renderPacket({ task, config: off, env, worktree: '/w/GH-73', branch: 'task/GH-73-a-queue', rules: null, environmentSpecific: [] });
+  assert.ok(plain.includes('It runs the required checks (`check`)') && !plain.includes('merge queue'));
+  assert.ok(!shortPacket(task, ['check']).includes('merge queue'));
+  // A builder may bring the base in, as the queue asks when it conflicts.
+  const s = builderSettings(task, config, '/acc/bin', '/usr/bin') as { permissions: { allow: string[] } };
+  assert.ok(s.permissions.allow.includes('Bash(git merge origin/*)'));
 });
 
 test('builder settings: identity, acc on PATH, and the dangerous commands denied even if the user allows them', () => {
