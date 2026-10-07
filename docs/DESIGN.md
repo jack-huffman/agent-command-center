@@ -283,14 +283,21 @@ GitHub about each unfinished task whose issue wasn't listed:
    `node_modules` from the main checkout.
 4. **Writes the instructions.** It renders the packet ([section 8](#8-the-packet)).
 5. **Launches the agent.** From the main checkout, which you trust once (D-022), it runs
-   `claude --bg --name <id> --permission-mode <mode> --settings <json> "<packet>"`.
+   `claude --bg --name <name> --permission-mode <mode> --settings <json> "<packet>"`.
+   The name is `<project> · <key> <title> · builder`, such as
+   `Acme Service · ACME-12 Case escalation rules · builder`: the title cut to 40
+   characters at a word, and the task's second dispatch `builder 2` (D-???).
+   Reviewers and analysts are named the same way, as `review` and `analysis`.
    The packet's first instruction is to call EnterWorktree on the task's worktree.
    The settings JSON sets `ACC_TASK` and `ACC_ROLE=builder` in the session's
    environment, plus an allowlist of routine commands, and a PermissionRequest
    hook that sends the builder's prompts and questions to the Command Center
    (D-030).
-6. **Records the run.** It stores the background id and session id, and moves
-   the task to `running`.
+6. **Records the run.** It finds the new session by its name, the folder it
+   started in and its start time, stores the background id, session id, name
+   and number, and moves the task to `running`. A task's agent is found again
+   by those ids, else by the recorded name, never by a name worked out from its
+   title.
 
 `acc dispatch --foreground` runs the same session in the current terminal
 instead. You can drop into any background session with `claude attach <id>`.
