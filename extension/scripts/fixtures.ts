@@ -142,10 +142,10 @@ export function sampleHub(now = Date.now()): HubLike {
 
 /**
  * A project where auto-merge is on, with three pull requests in its merge queue (GH-73): the head in
- * `phase`, two behind it, one waiting for review, and one the queue sent back to its builder. A tools repo,
- * since a Salesforce project never auto-merges.
+ * `phase`, or held saying `why`, two behind it, one waiting for review, and one the queue sent back to its
+ * builder. A tools repo, since a Salesforce project never auto-merges.
  */
-export function sampleQueueHub(now = Date.now(), phase: NonNullable<TaskRow['queue']>['phase'] = 'checking'): HubLike {
+export function sampleQueueHub(now = Date.now(), phase: NonNullable<TaskRow['queue']>['phase'] = 'checking', why: string | null = null): HubLike {
   const base = sampleHub(now);
   const root = '/Users/me/code/acme-tools';
   const wt = (id: string) => `${root}/.claude/worktrees/${id}`;
@@ -161,7 +161,7 @@ export function sampleQueueHub(now = Date.now(), phase: NonNullable<TaskRow['que
     ({ id, title, state, display, environment: 'main', deps: [], source: source(Number(id.split('-')[1])), run: { worktree: wt(id), branch: `task/${id}` }, ...extra });
   const passed = { verdict: 'pass' as const, summary: 'Reviewed.', current: true };
   const tasks: TaskRow[] = [
-    task('GH-41', 'Retry webhook deliveries with backoff', 'review', 'review', { review: passed, pr: pr(141), queue: { place: 1, of: 3, ahead: null, phase } }),
+    task('GH-41', 'Retry webhook deliveries with backoff', 'review', 'review', { review: passed, pr: pr(141), queue: { place: 1, of: 3, ahead: null, phase, why } }),
     task('GH-44', 'Show the export\'s progress in the status bar, with the rows left and a time estimate', 'review', 'review', { review: passed, pr: { ...pr(144), conflicts: ['docs/DECISIONS.md'] }, queue: { place: 2, of: 3, ahead: 'GH-41', phase: 'waiting' } }),
     task('GH-47', 'Rename the sync command', 'review', 'review', { review: passed, pr: pr(147), queue: { place: 3, of: 3, ahead: 'GH-44', phase: 'waiting' } }),
     task('GH-48', 'Cache the account lookups', 'review', 'review', { review: null }),

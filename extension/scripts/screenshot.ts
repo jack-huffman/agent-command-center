@@ -28,10 +28,10 @@ import { type ConnectSample, SAMPLE_EDIT, sampleAgent, sampleAnalyzeRun, sampleB
  * the Tasks tab with a monday.com board in place of the Jira one (GH-70), Agents with How agents run opened
  * by its Settings (D-089), Agents with its Where column showing full paths (GH-83), and the Overview with
  * In progress busy, and with nothing running (D-092). Then the Overview of a project whose merge queue
- * holds three pull requests, with autopilot on and the head running its full check, and with autopilot
- * off (GH-73).
+ * holds three pull requests, with autopilot on and the head running its full check, with autopilot off,
+ * and with the head held on GitHub, in that wait's own words (GH-73).
  */
-export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-settings', 'overview-busy', 'overview-idle', 'queue', 'queue-off'] as const;
+export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-settings', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held'] as const;
 export type Page = (typeof PAGES)[number];
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -74,8 +74,10 @@ export function sampleModel(kind: Page, now = Date.now()): Model {
   if (kind === 'ticket-track') return sampleTicket(now, 'ACME-31');
   if (kind === 'ticket-checks') return sampleTicket(now, 'ACME-33');
   if (kind === 'agent') return sampleAgent(now);
-  if (kind === 'queue' || kind === 'queue-off') {
-    return homeModel({ hub: sampleQueueHub(now), section: 'overview', boards: () => [], identity: () => sampleIdentity(), setup: { items: [], confirmed: new Set() }, runs: [], autopilot: () => (kind === 'queue' ? 'on' : null), now });
+  if (kind === 'queue' || kind === 'queue-off' || kind === 'queue-held') {
+    // Held, the head says why in the wait's own words, which can be long.
+    const hub = kind === 'queue-held' ? sampleQueueHub(now, 'held', 'GitHub is still working out whether pull request #141 can merge.') : sampleQueueHub(now);
+    return homeModel({ hub, section: 'overview', boards: () => [], identity: () => sampleIdentity(), setup: { items: [], confirmed: new Set() }, runs: [], autopilot: () => (kind === 'queue-off' ? null : 'on'), now });
   }
   if (kind === 'overview-busy' || kind === 'overview-idle') {
     const base = { section: 'overview' as const, boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), edited: sampleEdited, slack: sampleSlack('on', now) };
@@ -115,9 +117,10 @@ const DEFAULT_HEIGHT = 900;
 
 /**
  * Pages whose part sits below the fold at the default height, shot taller: In progress is below Needs you on
- * the Overview, and taller still at narrow widths, where the Overview's columns stack (D-092).
+ * the Overview, and taller still at narrow widths, where the Overview's columns stack (D-092). So is the
+ * Merge queue panel, below In progress and the tiles (GH-73).
  */
-export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 3600, 'overview-idle': 3200 };
+export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 3600, 'overview-idle': 3200, queue: 1500, 'queue-off': 1500, 'queue-held': 1500 };
 
 export function pageFor(kind: Page, theme: Theme, model: Model): string {
   const vars = Object.entries(THEMES[theme]).map(([k, v]) => `--vscode-${k}: ${v};`).join(' ');
