@@ -1586,6 +1586,8 @@ export interface ConnectState {
   signIn: { state: 'none' | 'testing' | 'ok' | 'failed'; who: string | null; error: string | null; again: boolean; shared?: boolean };
   /** The tick: keep the next sign-in for every project on the site (GH-79), rather than this repo only. */
   share: boolean;
+  /** The person ticked or unticked it, so its default no longer applies, whatever site is typed next. */
+  shareTouched: boolean;
   pickers: Record<string, ConnectPickerState>;
   saving: boolean;
   saveError: string | null;
@@ -1666,7 +1668,7 @@ export function blankConnect(d: TrackerDescription, i: {
     id: i.id, rev: 0, root: i.root, projects: i.projects ?? [], projectName: i.projectName, ownRepo: i.ownRepo, ghAccount: i.ghAccount, kind: d.kind,
     existing: i.existing ? { index: i.existing.index, title: i.existing.title } : null, from: i.from,
     host: i.existing?.host ?? (d.host.prefill === 'github-repo' ? i.ownRepo ?? '' : ''), hostError: null,
-    method: method.id, fields, fieldErrors: {}, signIn: { state: 'none', who: null, error: null, again: false }, share: true, pickers, saving: false, saveError: null,
+    method: method.id, fields, fieldErrors: {}, signIn: { state: 'none', who: null, error: null, again: false }, share: true, shareTouched: false, pickers, saving: false, saveError: null,
   };
 }
 

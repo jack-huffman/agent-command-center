@@ -3274,12 +3274,18 @@ across many projects without friction, and nothing company-specific in acc
   own sign-in or a "this project only" sign-out. Ticked, the sign-in goes under
   the site's key and the repo's own key is taken out, or the repo would go on
   ignoring what was just chosen. Unticked, it goes under the repo's key, and
-  the site's stays for every other project. The tick's label is built from the
-  host, so the page still names no tracker.
+  the site's stays for every other project. Once a person ticks or unticks it,
+  that choice stays while the page is open: typing or changing the site doesn't
+  put the default back, so an untick made before the site is typed still keeps
+  the sign-in this project's. The tick's label is built from the host, so the
+  page still names no tracker.
 - **A new tracker on a site that already has a sign-in needs nothing typed.**
   Once its site parses, the page checks the sign-in this repo would use and
   fills the lists. Before, it looked only for an existing tracker's, so a
-  second repo typed the token again.
+  second repo typed the token again. Test connection with nothing typed for a
+  token looks too. Sign in with Microsoft never does: it always asks VSCode
+  for a Microsoft sign-in, so it can't sign in with a token kept for the
+  organization instead.
 - **The page and the board say which sign-in is in use**: "Signed in as
   jordan@acme.example, for every project on acme.atlassian.net", or "…for this
   project only". On the board it's a line under where its tickets come from,
@@ -3304,8 +3310,10 @@ across many projects without friction, and nothing company-specific in acc
   VSCode fires that event across windows hasn't been checked in a real
   two-window run. If it doesn't, other windows catch up on their next refresh.
 - **The rules are pure functions in `logic.ts`** (`readCreds`, `credInUse`,
-  `credWrites`, `signOutWrites`, `siteCredKey`, `credSite`), tested against a
-  Map. The Connect page's tests run them too.
+  `credWrites`, `signOutWrites`, `signOutPlan`, `siteCredKey`, `credSite`),
+  tested against a Map. `signOutPlan` is how sign-out chooses: it asks only
+  about a site's sign-in, and Cancel writes nothing. The Connect page's tests
+  run them too.
 - **The packaging scan reads site keys** (`parseSignIn`), so `npm run package`
   still finds the hosts of shared sign-ins. A site key has no repo.
 - **What this costs D-027.** With the tick on by default, keeping two clients'

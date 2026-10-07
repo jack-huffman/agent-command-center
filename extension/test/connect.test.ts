@@ -80,7 +80,7 @@ function harness(o: { trackers?: Record<string, unknown>[]; fetch?: typeof fetch
   const h = {
     raw: o.trackers ?? [] as Record<string, unknown>[],
     secrets: o.secrets ?? new Map<string, string>(),
-    posted: [] as string[], logs: [] as string[], saved: [] as string[], signedIn: [] as string[],
+    posted: [] as string[], logs: [] as string[], saved: [] as string[], signedIn: [] as string[], microsoftAsked: 0,
     session: null as unknown as ConnectSession,
     model: () => h.session.model() as ConnectModel,
     send: (m: Record<string, unknown>) => {
@@ -105,7 +105,7 @@ function harness(o: { trackers?: Record<string, unknown>[]; fetch?: typeof fetch
     storeSignIn: async (_root, kind, host, cred, shared) => apply(credWrites(project, kind, host, cred, shared)),
     gitEmail: async () => EMAIL,
     ghToken: async () => 'gh-token',
-    microsoft: async () => ({ header: 'Bearer ms-token', cred: { account: { id: 'm1', label: 'jordan@acme.example' }, tenant: 'tenant-1' } }),
+    microsoft: async () => (h.microsoftAsked++, { header: 'Bearer ms-token', cred: { account: { id: 'm1', label: 'jordan@acme.example' }, tenant: 'tenant-1' } }),
     write: (_root, index, record) => { h.raw = index === null ? withTracker(h.raw, record) : replaceTracker(h.raw, index, record); },
     signedIn: async (r) => { h.signedIn.push(r); },
     saved: async (_root, name) => { h.saved.push(name); },
@@ -427,6 +427,72 @@ test('the tick starts where this repo\'s sign-in is kept: on with none or the si
   out.send({ type: 'connect-test', host: SITE, fields: { email: EMAIL, token: TOKEN } });
   await settle();
   assert.deepEqual([[...out.secrets.keys()], out.model().signIn.look.label], [[siteCredKey('jira', SITE)], 'Signed in as Jordan Kim, for every project on acme.atlassian.net']);
+});
+
+test('an untick is kept across a site typed or changed, so the sign-in stays this project\'s (GH-79, D-027)', async () => {
+  const keptHere = (h: ReturnType<typeof harness>) => [[...h.secrets.keys()], h.model().signIn.look.label];
+  const own = [[credKey(ACME, 'jira', SITE)], 'Signed in as Jordan Kim, for this project only'];
+
+  // Unticked, then the site typed and left, then Test connection.
+  const a = harness();
+  await a.session.open({ root: ROOT, kind: 'jira', from: 'tasks' });
+  a.send({ type: 'connect-share', on: false });
+  a.send({ type: 'connect-set', field: 'site', value: SITE });
+  await settle();
+  assert.equal(a.model().share.on, false, 'the site doesn\'t tick it again');
+  a.send({ type: 'connect-test', host: SITE, fields: { email: EMAIL, token: TOKEN } });
+  await settle();
+  assert.deepEqual(keptHere(a), own, 'under the repo\'s key');
+
+  // Unticked, then Test connection with the site typed and never left.
+  const b = harness();
+  await b.session.open({ root: ROOT, kind: 'jira', from: 'tasks' });
+  b.send({ type: 'connect-share', on: false });
+  b.send({ type: 'connect-test', host: SITE, fields: { email: EMAIL, token: TOKEN } });
+  await settle();
+  assert.deepEqual(keptHere(b), own);
+
+  // Unticked on one site, then another typed in its place: still unticked.
+  const c = harness();
+  await c.session.open({ root: ROOT, kind: 'jira', from: 'tasks' });
+  c.send({ type: 'connect-set', field: 'site', value: 'other.atlassian.net' });
+  await settle();
+  c.send({ type: 'connect-share', on: false });
+  c.send({ type: 'connect-set', field: 'site', value: SITE });
+  await settle();
+  assert.equal(c.model().share.on, false);
+  c.send({ type: 'connect-test', host: SITE, fields: { email: EMAIL, token: TOKEN } });
+  await settle();
+  assert.deepEqual(keptHere(c), own);
+
+  // Ticked by hand on a repo that keeps its own: the site's own default (off) doesn't untick it.
+  const d = harness({ secrets: new Map([[credKey(ACME, 'jira', SITE), JSON.stringify({ kind: 'jira', signedOut: true })]]) });
+  await d.session.open({ root: ROOT, kind: 'jira', from: 'tasks' });
+  d.send({ type: 'connect-share', on: true });
+  d.send({ type: 'connect-set', field: 'site', value: SITE });
+  await settle();
+  assert.equal(d.model().share.on, true);
+});
+
+test('Sign in with Microsoft signs in with Microsoft, never with a token kept for the organization (GH-79)', async () => {
+  const pat = JSON.stringify({ kind: 'azure', method: 'pat', token: 'pat-token-0123456789' });
+  const h = harness({ fetch: azure, secrets: new Map([[siteCredKey('azure', 'acme'), pat]]) });
+  await h.session.open({ root: ROOT, kind: 'azure', from: 'tasks' });
+  assert.equal(h.model().methods.find((x) => x.on)?.id, 'microsoft');
+  h.send({ type: 'connect-test', host: 'acme', fields: {} });
+  await settle();
+  const m = h.model();
+  assert.equal(h.microsoftAsked, 1, 'VSCode is asked for a Microsoft sign-in');
+  assert.deepEqual([h.session.state()?.method, m.signIn.look.label], ['microsoft', 'Signed in as Jordan Kim, for every project on acme']);
+  assert.equal(JSON.parse(h.secrets.get(siteCredKey('azure', 'acme'))!).method, 'microsoft', 'the tick was on, so it takes the token\'s place for the organization');
+
+  // A token method with nothing typed still finds one kept for the organization.
+  const t = harness({ fetch: azure, secrets: new Map([[siteCredKey('azure', 'acme'), JSON.stringify({ kind: 'azure', method: 'microsoft', account: { id: 'm1', label: 'jordan@acme.example' }, tenant: 'tenant-1' })]]) });
+  await t.session.open({ root: ROOT, kind: 'azure', from: 'tasks' });
+  t.send({ type: 'connect-method', method: 'pat' });
+  t.send({ type: 'connect-test', host: 'acme', fields: { token: '' } });
+  await settle();
+  assert.deepEqual([t.microsoftAsked, t.session.state()?.method, t.model().signIn.look.label], [0, 'microsoft', 'Signed in as Jordan Kim, for every project on acme']);
 });
 
 test('the tick doesn\'t know one tracker from another: monday.com\'s is built from its account (GH-79)', async () => {

@@ -130,7 +130,10 @@ export class ConnectSession {
       case 'connect-set': return this.set(m.field, m.value);
       case 'connect-test': return void this.test(m.host, m.fields);
       case 'connect-again': s.signIn.again = true; return this.bump();
-      case 'connect-share': s.share = m.on; return this.bump();
+      case 'connect-share':
+        s.share = m.on;
+        s.shareTouched = true;
+        return this.bump();
       case 'connect-pick': return this.pick(m.key, m.value);
       case 'connect-save': return void this.save();
     }
@@ -205,21 +208,24 @@ export class ConnectSession {
     this.bump();
   }
 
-  /** Signed out of the page's own sign-in, and every list emptied: a new host is another tracker. */
+  /**
+   * Signed out of the page's own sign-in, and every list emptied: a new host is another tracker. The tick
+   * goes back to its default, unless the person has ticked or unticked it (GH-79).
+   */
   private restart(): void {
     const s = this.s!;
     this.epoch++;
     this.signIn = null;
     s.signIn = { state: 'none', who: null, error: null, again: false };
-    s.share = true;
+    if (!s.shareTouched) s.share = true;
     for (const p of this.d.pickers) s.pickers[p.key] = { options: [], selected: [], state: 'waiting', error: null };
   }
 
   /**
    * The sign-in this repo would use for the host, checked, then the lists: an existing tracker's, or a new
    * one's on a site this repo, or every project, already signs in to (GH-79). The tick for every project
-   * starts where this repo's sign-in is kept now: off when it keeps its own, or signed out here only.
-   * True when one was found, whether or not it still works.
+   * starts where this repo's sign-in is kept now: off when it keeps its own, or signed out here only, until
+   * the person ticks or unticks it. True when one was found, whether or not it still works.
    */
   private async resume(): Promise<boolean> {
     const s = this.s!;
@@ -229,7 +235,7 @@ export class ConnectSession {
     try {
       const own = await this.deps.ownSignIn(root, s.kind, host);
       if (epoch !== this.epoch) return false;
-      s.share = !own;
+      if (!s.shareTouched) s.share = !own;
       const stored = await this.deps.storedSignIn(root, s.kind, host);
       if (epoch !== this.epoch) return false;
       if (!stored) {
@@ -265,7 +271,7 @@ export class ConnectSession {
   /**
    * Test connection: checks what's typed, signs in, keeps the sign-in for every project on the site or for
    * this repo, as the tick says (GH-79), then fills the lists. A new site with nothing typed for its secret
-   * first looks for a sign-in kept for it.
+   * first looks for a sign-in kept for it; one with no secret to type, Microsoft's, never does.
    */
   async test(hostInput: string, typed: Record<string, string>): Promise<void> {
     const s = this.s;
@@ -281,8 +287,9 @@ export class ConnectSession {
       s.host = host;
       this.restart();
       s.hostError = null;
-      const blank = method.fields.every((f) => f.type !== 'secret' || !(typed[f.key] ?? '').trim());
-      if (method.via !== 'gh' && blank && await this.resume()) return;
+      // Only a method with a secret to type takes a kept sign-in for it: Microsoft or gh, chosen, signs in that way.
+      const secrets = method.fields.filter((f) => f.type === 'secret');
+      if (secrets.length && secrets.every((f) => !(typed[f.key] ?? '').trim()) && await this.resume()) return;
     }
     s.hostError = null;
     const values: Record<string, string> = {};
