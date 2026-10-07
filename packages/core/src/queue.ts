@@ -1,10 +1,10 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { autoMergeFor, type Config, environmentByBranch, requiredGates } from './config.ts';
+import { type Config, environmentByBranch, requiredGates } from './config.ts';
 import { type QueueCheck, type QueueReport, queueReportPath, tailText } from './checks.ts';
 import { AccError, type Runner } from './exec.ts';
 import type { GateResult } from './gates.ts';
 import { land } from './land.ts';
-import { type Actor, applyMove, checkMove, inQueue, type Ledger, mutate, noGateHooks, type QueuePhase, readLedger, SEND_BACKS, sendBacks, sentBackAt, type Task } from './ledger.ts';
+import { type Actor, applyMove, checkMove, inQueue, type Ledger, mutate, noGateHooks, type QueueCover, type QueuePhase, readLedger, SEND_BACKS, sendBacks, sentBackAt, type Task } from './ledger.ts';
 import { mergePr } from './merge.ts';
 import type { RepoPaths } from './paths.ts';
 import { readReceipt, satisfies } from './receipts.ts';
@@ -29,7 +29,7 @@ import { fetchBranches } from './sync.ts';
  */
 
 /** What the queue reads of the config: whether auto-merge covers an environment, and its checks. */
-export type QueueConfig = Pick<Config, 'profile' | 'autonomy' | 'environments' | 'autopilot'>;
+export type QueueConfig = QueueCover;
 
 const short = (sha: string): string => sha.slice(0, 7) || 'no commit';
 
@@ -39,7 +39,7 @@ const short = (sha: string): string => sha.slice(0, 7) || 'no commit';
  */
 export function queueOrder(ledger: Pick<Ledger, 'tasks'>, config: QueueConfig): Task[] {
   const index = new Map(ledger.tasks.map((t, i) => [t.id, i]));
-  return ledger.tasks.filter((t) => inQueue(t) && autoMergeFor(config, t.environment))
+  return ledger.tasks.filter((t) => inQueue(t, config))
     .sort((a, b) => a.autopilot!.queued!.at.localeCompare(b.autopilot!.queued!.at) || index.get(a.id)! - index.get(b.id)!);
 }
 
@@ -306,7 +306,7 @@ function sendBackFromQueue(paths: RepoPaths, config: Config, task: Task, deps: Q
   mutate(paths, deps.now, (l, emit) => {
     const t = l.tasks.find((x) => x.id === task.id);
     if (!t) throw new AccError('no-task', `No task ${task.id}.`);
-    if (!inQueue(t)) throw new AccError('merge-waits', `${task.id} left the merge queue meanwhile.`);
+    if (!inQueue(t, config)) throw new AccError('merge-waits', `${task.id} left the merge queue meanwhile.`);
     const req = { to: 'rework' as const, actor: who.actor, by: who.by, reason };
     const problems = checkMove(l, config, t, req, noGateHooks);
     if (problems.length) throw new AccError('move-refused', `Can't send ${task.id} back:\n- ${problems.join('\n- ')}`);

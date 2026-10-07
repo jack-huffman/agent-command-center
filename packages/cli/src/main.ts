@@ -853,27 +853,27 @@ function cmdCleanup(o: Opts, id: string): number {
 }
 
 function cmdList(o: Opts, onlyReady: boolean): number {
-  const { paths } = project(process.cwd());
+  const { paths, config } = project(process.cwd());
   const ledger = readLedger(paths.ledger);
   const want = o.state as string | undefined;
-  const tasks = ledger.tasks.filter((t) => (onlyReady ? isReady(ledger, t) : !want || t.state === want || displayState(ledger, t) === want));
+  const tasks = ledger.tasks.filter((t) => (onlyReady ? isReady(ledger, t) : !want || t.state === want || displayState(ledger, t, undefined, config) === want));
   out(o, () => {
     if (!tasks.length) return onlyReady ? 'Nothing is ready.' : 'No tasks.';
     return table([['Id', 'State', 'Env', 'Title', 'Waiting on'], ...tasks.map((t) => [
-      t.id, stateLabel(displayState(ledger, t)), t.environment, t.title,
+      t.id, stateLabel(displayState(ledger, t, undefined, config)), t.environment, t.title,
       t.deps.filter((d) => ledger.tasks.find((x) => x.id === d)?.state !== 'done').join(', '),
     ])]);
-  }, tasks.map((t) => ({ ...t, display: displayState(ledger, t), ready: isReady(ledger, t) })));
+  }, tasks.map((t) => ({ ...t, display: displayState(ledger, t, undefined, config), ready: isReady(ledger, t) })));
   return 0;
 }
 
 function cmdStatus(o: Opts): number {
-  const { paths } = project(process.cwd());
+  const { paths, config } = project(process.cwd());
   const ledger = readLedger(paths.ledger);
   // In the order the line reads: work in flight, then what waits to start.
   const counts: Record<DisplayState, number> = { running: 0, 'needs-you': 0, review: 0, rework: 0, blocked: 0, ready: 0, todo: 0, done: 0 };
   // The ledger alone, without session info, so this never starts claude.
-  for (const t of ledger.tasks) counts[displayState(ledger, t)]++;
+  for (const t of ledger.tasks) counts[displayState(ledger, t, undefined, config)]++;
   out(o, () => {
     const parts = (Object.keys(counts) as DisplayState[])
       .filter((s) => s !== 'done' && counts[s] > 0)
@@ -899,7 +899,7 @@ function cmdShow(o: Opts, id: string): number {
   const said = stopped && t.run?.sessionId ? lastSaid(claudeProjectsDir(), t.run.sessionId, [t.run.worktree, paths.root]) : null;
   const quote = said ? clipSaid(said, 600) : null;
   out(o, () => [
-    `${t.id}  ${stateLabel(displayState(ledger, t, { stopped }))}  ${t.title}`,
+    `${t.id}  ${stateLabel(displayState(ledger, t, { stopped }, config))}  ${t.title}`,
     `Environment: ${t.environment}   Source: ${t.source.kind}${t.source.url ? ` ${t.source.url}` : ''}`,
     t.run?.name ? `Agent: ${t.run.name}` : '',
     t.deps.length ? `Depends on: ${t.deps.join(', ')}` : '',
@@ -950,7 +950,7 @@ function cmdSet(o: Opts, id: string, to: string): number {
   // Only the client can answer it: the ticket gets a draft, which a person reads before it's posted (D-066).
   const update = client ? draftUpdate(paths, task, { event: 'blocked', context: { question: client } }, by, now) : null;
   out(o, () => [
-    `${task.id}: ${entry.from} → ${stateLabel(displayState(readLedger(paths.ledger), task))}${entry.override ? ' (override recorded)' : ''}`,
+    `${task.id}: ${entry.from} → ${stateLabel(displayState(readLedger(paths.ledger), task, undefined, config))}${entry.override ? ' (override recorded)' : ''}`,
     update ? `  Drafted an update for ${update.key} (${update.id}) with your question. A person reads it before it's posted.` : '',
     client && !update ? `  ${task.id} has no ticket to post a question on: a person passes it on.` : '',
   ].filter(Boolean).join('\n'), { task, entry, ...(client ? { update } : {}) });

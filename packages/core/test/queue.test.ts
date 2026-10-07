@@ -162,6 +162,20 @@ test('the queue goes in the order its tasks were ready, ties in ledger order, on
     ['Next to merge', 'Merging main in', 'Waiting for a heavy-check slot', 'Running the full check', 'Waiting for GitHub\'s checks', 'Merging']);
 });
 
+test('a place in the queue counts only while auto-merge covers the task: switched off, or under autonomy manual, a pull request that conflicts needs you again, whatever autopilot last wrote (GH-73)', () => {
+  const l = emptyLedger();
+  upsertTasks(l, CONFIG, [{ source: { kind: 'manual', key: 'T-1' }, title: 'T-1' }], 'human', 'h', () => {}, now);
+  const t = l.tasks[0]!;
+  const sha = 'a'.repeat(40);
+  Object.assign(t, { state: 'review', environment: 'main', pr: { number: 41, url: 'u', state: 'open', sha, conflicts: ['sum.js'] }, autopilot: { failed: null, queued: { at: NOW, sha, phase: 'waiting' } } });
+  assert.equal(displayState(l, t, undefined, CONFIG), 'review', 'in the queue: its turn merges main in');
+  const off = { ...CONFIG, autopilot: { appendOnly: [] } };
+  const manual = { ...CONFIG, autonomy: 'manual' as const };
+  assert.deepEqual([displayState(l, t, undefined, off), displayState(l, t, undefined, manual)], ['needs-you', 'needs-you'], 'no autopilot clears what it wrote: the config decides');
+  assert.equal(displayState(l, t), 'needs-you', 'read without the config, a conflict shows');
+  assert.deepEqual([queueOrder(l, CONFIG).length, queueOrder(l, off).length, queueOrder(l, manual).length], [1, 0, 0]);
+});
+
 test('ready pull requests join in the order autopilot first sees them; a task that leaves and comes back joins at the back (GH-73)', () => {
   const s = setup();
   s.task('T-1', { 'one.js': '1\n' });

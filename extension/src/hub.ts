@@ -360,7 +360,7 @@ export class Hub implements vscode.Disposable {
         state: t.state,
         // A question waiting in the Command Center makes the agent wait on you, though it reads as busy.
         // So does an analysis with questions for a person, or one that says it's too big for one task.
-        display: waits ? 'needs-you' : displayState(ledger, t, info) as TaskRow['display'],
+        display: waits ? 'needs-you' : displayState(ledger, t, info, p?.config) as TaskRow['display'],
         environment: t.environment,
         deps: t.deps.filter((d) => ledger.tasks.find((x) => x.id === d)?.state !== 'done'),
         source: { kind: t.source.kind, url: t.source.url },

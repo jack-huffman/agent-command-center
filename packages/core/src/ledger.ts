@@ -1,7 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { releaseAwake } from './awake.ts';
-import { type Config, defaultEnvironment, environmentByBranch, type GateScope } from './config.ts';
+import { autoMergeFor, type Config, defaultEnvironment, environmentByBranch, type GateScope } from './config.ts';
 import { AccError } from './exec.ts';
 import { withLock } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
@@ -633,11 +633,22 @@ export const sendBacks = (task: { history: (Pick<HistoryEntry, 'by'> & { from: s
 /** Whether autopilot already sent this commit back to its builder, for its checks on GitHub or from the merge queue (D-076, GH-73). */
 export const sentBackAt = (task: Pick<Task, 'autopilot'>, sha: string | null | undefined): boolean => !!sha && task.autopilot?.sentBack?.sha === sha;
 
-/** A task in review in its repo's merge queue (GH-73). Moved, merged or written down as needing you, it has left. */
-export const inQueue = (task: Pick<Task, 'state' | 'autopilot'>): boolean => task.state === 'review' && !!task.autopilot?.queued;
+/** What reading the merge queue needs of the config: whether auto-merge still covers a task (GH-73). */
+export type QueueCover = Pick<Config, 'profile' | 'autonomy' | 'environments' | 'autopilot'>;
 
-/** What the UI shows: stored states plus "ready" and "needs you", which are derived (DESIGN.md section 5). */
-export function displayState(ledger: Ledger, task: Task, session?: SessionInfo): DisplayState {
+/**
+ * A task in review in its repo's merge queue (GH-73). Moved, merged or written down as needing you, it has
+ * left. Where auto-merge no longer covers it, switched off or under another autonomy, it's out whatever
+ * autopilot last wrote: no autopilot may run to clear it.
+ */
+export const inQueue = (task: Pick<Task, 'state' | 'autopilot' | 'environment'>, config: QueueCover): boolean =>
+  task.state === 'review' && !!task.autopilot?.queued && autoMergeFor(config, task.environment);
+
+/**
+ * What the UI shows: stored states plus "ready" and "needs you", which are derived (DESIGN.md section 5).
+ * With the repo's config, a pull request in the merge queue that conflicts doesn't need you (GH-73).
+ */
+export function displayState(ledger: Ledger, task: Task, session?: SessionInfo, config?: QueueCover): DisplayState {
   if (task.state === 'todo' && isReady(ledger, task)) return 'ready';
   // A step autopilot couldn't take waits on you, or on a new commit (D-055).
   if (autopilotFailure(task)) return 'needs-you';
@@ -646,8 +657,8 @@ export function displayState(ledger: Ledger, task: Task, session?: SessionInfo):
   // An open pull request whose checks fail, that a person asked to change, or that conflicts with its
   // base, waits on you (D-033, D-049). Checks that fail on a commit autopilot already sent back don't:
   // its fix is on the way, and a second failure there is recorded as autopilot's (D-076). Nor does a
-  // conflict in the merge queue, which merges its base in at its turn (GH-73).
-  if (task.state === 'review' && task.pr?.state === 'open' && ((task.pr.ci === 'failing' && !sentBackAt(task, task.pr.sha)) || task.pr.changesRequested || (!!task.pr.conflicts?.length && !inQueue(task)))) return 'needs-you';
+  // conflict in the merge queue, which merges its base in at its turn, while auto-merge covers it (GH-73).
+  if (task.state === 'review' && task.pr?.state === 'open' && ((task.pr.ci === 'failing' && !sentBackAt(task, task.pr.sha)) || task.pr.changesRequested || (!!task.pr.conflicts?.length && !(config && inQueue(task, config))))) return 'needs-you';
   // So does a closed one a person moved back to review: autopilot won't replace it (D-063).
   if (closedPr(task)) return 'needs-you';
   return task.state;
