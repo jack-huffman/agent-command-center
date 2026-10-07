@@ -10,7 +10,11 @@ import { isFromWebview } from '../src/model/messages.ts';
 import { needsYouCount } from '../src/model/overview.ts';
 import { runCard, type RunInput } from '../src/model/runs.ts';
 import { describeTool, emptyTranscript, foldTranscript, splitLines, transcriptDir } from '../src/transcript.ts';
-import { sampleBoards, sampleHub, sampleIdentity, sampleRuns, sampleSetup } from '../scripts/fixtures.ts';
+import { sampleBoards } from '../scripts/fixtures/boards.ts';
+import { sampleIdentity } from '../scripts/fixtures/environments.ts';
+import { sampleHub } from '../scripts/fixtures/hub.ts';
+import { sampleRuns } from '../scripts/fixtures/runs.ts';
+import { sampleSetup } from '../scripts/fixtures/setup.ts';
 
 const rec = (r: Record<string, unknown>) => JSON.stringify({ uuid: `u${Math.random()}`, timestamp: '2026-10-02T10:00:00.000Z', cwd: '/w/repo', ...r });
 const user = (content: unknown, extra: Record<string, unknown> = {}) => rec({ type: 'user', message: { role: 'user', content }, ...extra });
