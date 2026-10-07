@@ -202,7 +202,7 @@ test('the packager\'s words come from git, gh, their name and VSCode\'s sign-in 
   const db = new DatabaseSync(state);
   db.exec('CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB)');
   const put = db.prepare('INSERT INTO ItemTable (key, value) VALUES (?, ?)');
-  for (const key of [`acc.cred:github:client-co/app:jira:client.atlassian.net`, `acc.cred:github:${REPO}:jira:other.atlassian.net`, 'acc.cred:git:/tmp/x:azure:clientorg', 'acc.cred:github:acme/service:azure:acme', 'workbench.something']) {
+  for (const key of [`acc.cred:github:client-co/app:jira:client.atlassian.net`, `acc.cred:github:${REPO}:jira:other.atlassian.net`, 'acc.cred:git:/tmp/x:azure:clientorg', 'acc.cred:github:acme/service:azure:acme', 'acc.cred:site:jira:shared.atlassian.net', 'acc.cred:site:azure:sharedorg', 'workbench.something']) {
     put.run(`secret://${JSON.stringify({ extensionId: 'jackhuffman.agent-command-center', key })}`, 'SECRET-TOKEN-VALUE');
   }
   db.close();
@@ -229,13 +229,17 @@ test('the packager\'s words come from git, gh, their name and VSCode\'s sign-in 
   assert.deepEqual(terms.emails, ['jh@corp.example', 'pat.lee@corp.example', 'pat@more.example', 'pat@sys.example', 'pat@work.example'], 'every scope and included file, each include beside the file that names it, deduplicated, placeholders dropped');
   assert.deepEqual(terms.logins, ['jack-huffman', 'pat-lee', 'pat-work']);
   assert.deepEqual(terms.names, ['jack-huffman', 'pat lee', 'patlee']);
-  assert.deepEqual(terms.hosts, ['client.atlassian.net', 'clientorg.visualstudio.com', 'dev.azure.com/clientorg', 'other.atlassian.net']);
+  assert.deepEqual(terms.hosts, ['client.atlassian.net', 'clientorg.visualstudio.com', 'dev.azure.com/clientorg', 'dev.azure.com/sharedorg', 'other.atlassian.net', 'shared.atlassian.net', 'sharedorg.visualstudio.com'], 'a sign-in for every project on a site too (GH-79)');
   assert.deepEqual(terms.repos, ['client-co/app'], 'the repo\'s own isn\'t a client\'s');
   assert.deepEqual(terms.allowed, [`github.com/${REPO}`]);
   assert.doesNotMatch(JSON.stringify(terms), /SECRET/);
   assert.equal(notes.length, 1);
   assert.match(notes[0]!, /^Couldn't read VSCode's sign-ins in .*broken\.vscdb .*checked by pattern only\.$/);
   assert.deepEqual(parseSignIn('acc.cred:git:/a/b:jira:x.atlassian.net'), { hosts: ['x.atlassian.net'], repo: null });
+  // A sign-in for every project on a site (GH-79) has no repo; one that names nothing else isn't a sign-in.
+  assert.deepEqual(parseSignIn('acc.cred:site:jira:x.atlassian.net'), { hosts: ['x.atlassian.net'], repo: null });
+  assert.deepEqual(parseSignIn('acc.cred:site:azure:contoso'), { hosts: ['dev.azure.com/contoso', 'contoso.visualstudio.com'], repo: null });
+  assert.equal(parseSignIn('acc.cred:jira:x.atlassian.net'), null);
   const noted = (vscodeState: string[]) => personalTerms({ root: dir, env: {}, home, username: 'patlee', vscodeState, run: stub({}) }).notes.join('\n');
   assert.match(noted([join(dir, 'missing.vscdb')]), /weren't found, so tracker sites are checked by pattern only/);
   assert.match(noted([]), /weren't read \(ACC_VSCODE_STATE is empty\)/);
