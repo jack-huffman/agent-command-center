@@ -65,6 +65,9 @@ const check = (name: string, bucket: string) => ({ name, bucket, workflow: 'CI',
 
 type Fixture = RunResult | ((o?: RunOptions) => RunResult);
 
+/** What gh says to `gh pr checks`, with --required or without, on a commit with no checks at all. */
+const NO_CHECKS = bad('no checks reported on the \'task/T-1-add-sum\' branch');
+
 /** GitHub as gh reads it: pull request #42 open at `head`, mergeable, its checks passed, every method allowed. */
 function github(head: string, over: { pr?: Record<string, unknown>; checks?: unknown[]; more?: Record<string, Fixture> } = {}): Record<string, Fixture> {
   return {
@@ -154,7 +157,7 @@ test('GitHub\'s checks: running waits; failed or cancelled needs you; none requi
   held(s, github(s.sha, { checks: [check('test', 'fail')] }), 'merge', /^Checks failed on GitHub: test\.$/);
   held(s, github(s.sha, { checks: [check('test', 'pass'), check('preview', 'cancel')] }), 'merge', /^Checks were cancelled on GitHub: preview\. Run them again, or merge it yourself\.$/);
   // GitHub has moved on from the commit autopilot looked at.
-  held(s, github(s.sha, { more: { 'gh pr checks': ok('[]'), 'gh pr view 42 -R acme/tool --json headRefOid': ok(JSON.stringify({ headRefOid: 'c'.repeat(40) })) } }), 'merge-waits', /is at ccccccc on GitHub/);
+  held(s, github(s.sha, { more: { 'gh pr checks': NO_CHECKS, 'gh pr view 42 -R acme/tool --json headRefOid': ok(JSON.stringify({ headRefOid: 'c'.repeat(40) })) } }), 'merge-waits', /is at ccccccc on GitHub/);
   // A base that requires no checks: every check counts, and they passed.
   const calls: string[] = [];
   mergePr(s.paths, s.config, 'T-1', deps(calls, github(s.sha, { more: { 'gh pr checks 42 -R acme/tool --required': bad('no required checks reported on the \'task/T-1\' branch') } })), by);
@@ -163,14 +166,18 @@ test('GitHub\'s checks: running waits; failed or cancelled needs you; none requi
 });
 
 test('no checks at all count only where the base requires none, 2 minutes after the land (GH-67)', () => {
-  const none = (head: string) => github(head, { more: { 'gh pr checks 42 -R acme/tool --required': bad('no required checks reported on the \'task/T-1\' branch'), 'gh pr checks 42 -R acme/tool --json': bad('no checks reported on the \'task/T-1\' branch') } });
+  // gh's reply to --required on a commit with no checks: it looks for any before it looks for required ones.
+  const none = (head: string, pr: Record<string, unknown> = {}) => github(head, { pr, more: { 'gh pr checks': NO_CHECKS } });
   // Landed a minute ago: a slow CI may not have registered yet.
   const young = setup({ landedAt: '2026-10-06T11:59:00.000Z' });
   held(young, none(young.sha), 'merge-waits', /^No checks are reported on GitHub yet: autopilot gives them 2 minutes after a land\.$/);
   const old = setup({ landedAt: '2026-10-06T11:58:00.000Z' });
+  // A base whose rules block it with no checks reported: checks it requires haven't registered yet, so it waits, and records nothing.
+  held(old, none(old.sha, { mergeStateStatus: 'BLOCKED' }), 'merge-waits', /^GitHub says main's rules block pull request #42, and no checks are reported on it yet: autopilot waits for the checks main requires\.$/);
   const calls: string[] = [];
   mergePr(old.paths, old.config, 'T-1', deps(calls, none(old.sha)), by);
   assert.equal(merges(calls).length, 1, 'this repo has no GitHub checks: its pull requests merge once 2 minutes have passed');
+  assert.deepEqual(calls.filter((c) => c.startsWith('gh pr checks')), ['gh pr checks 42 -R acme/tool --required --json name,bucket,link,workflow,state']);
 });
 
 test('GitHub\'s own word: conflicting, blocked or a draft needs you; still working it out, or behind, waits (GH-67)', () => {

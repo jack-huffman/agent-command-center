@@ -575,11 +575,11 @@ before each:
   or an agent's question; and it changes nothing under `.acc/`. Autopilot reads
   all of it again just before `gh pr merge <n> --<method> --match-head-commit
   <sha>` as the repo's account, with the first method of merge, squash and
-  rebase the repo allows. A head or base that moved, or checks still running,
-  wait; a merge GitHub refuses, BLOCKED by its rules, a cancelled check or a
-  change to `.acc/` is recorded as `merge`, and the task needs you. It keeps
-  `autopilot.merged`, and `acc sync` moves the task to done and drafts its
-  update.
+  rebase the repo allows. A head or base that moved, checks still running, or
+  BLOCKED with no checks reported yet, wait; a merge GitHub refuses, BLOCKED by
+  its rules, a cancelled check or a change to `.acc/` is recorded as `merge`,
+  and the task needs you. It keeps `autopilot.merged`, and `acc sync` moves the
+  task to done and drafts its update.
 - **A refresh** (D-058) merges origin's copy of the task environment's branch
   into the task branch, in the task's worktree, never the main checkout. It
   asks git again first, and a conflict that's gone is only marked gone. It

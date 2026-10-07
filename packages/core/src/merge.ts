@@ -152,7 +152,8 @@ export function mergePr(paths: RepoPaths, config: Config, id: string, deps: Merg
   if (checks.pending.length) throw wait(`Checks are still running on GitHub: ${checks.pending.join(', ')}.`);
   if (checks.failed.length) throw new AccError('merge', `Checks failed on GitHub: ${checks.failed.map((c) => c.name).join(', ')}.`);
   if (checks.cancelled.length) throw new AccError('merge', `Checks were cancelled on GitHub: ${checks.cancelled.join(', ')}. Run them again, or merge it yourself.`);
-  // None at all counts only where the base requires none, and once a slow CI has had time to start (a person decided).
+  // None at all counts only where the base requires none, and once a slow CI has had time to start (a person
+  // decided). gh can't say which a commit with no checks needs: GitHub's BLOCKED below says the base wants some.
   if (!checks.count) {
     const landed = Date.parse(pr.landedAt ?? '');
     if (checks.required) throw wait(`No checks ${env.branch} requires are reported on GitHub yet.`);
@@ -162,6 +163,8 @@ export function mergePr(paths: RepoPaths, config: Config, id: string, deps: Merg
   if (seen.mergeable === 'CONFLICTING' || seen.mergeStateStatus === 'DIRTY') throw new AccError('merge', `GitHub says pull request #${pr.number} conflicts with ${env.branch}.`);
   if (seen.mergeable !== 'MERGEABLE' || !seen.mergeStateStatus || seen.mergeStateStatus === 'UNKNOWN') throw wait(`GitHub is still working out whether pull request #${pr.number} can merge.`);
   if (seen.mergeStateStatus === 'BEHIND') throw wait(`GitHub says pull request #${pr.number} is behind ${env.branch}: autopilot merges it in first.`);
+  // Blocked with no checks reported: most likely ones the base requires that haven't registered yet.
+  if (seen.mergeStateStatus === 'BLOCKED' && !checks.count) throw wait(`GitHub says ${env.branch}'s rules block pull request #${pr.number}, and no checks are reported on it yet: autopilot waits for the checks ${env.branch} requires.`);
   if (seen.mergeStateStatus === 'BLOCKED') throw new AccError('merge', `GitHub won't merge pull request #${pr.number}: ${env.branch}'s rules block it, such as a required approving review.`);
   if (!MERGEABLE.has(seen.mergeStateStatus)) throw new AccError('merge', `GitHub says pull request #${pr.number} can't merge (${seen.mergeStateStatus}).`);
 

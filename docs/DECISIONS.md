@@ -2484,9 +2484,14 @@ their own, and chose an opt-in, off by default and meant for client repos
   - no checks at all count as passed only when the base requires none and none
     are reported 2 minutes or more after its last land (`pr.landedAt`), so a slow
     CI has time to register (a person decided). Before that, autopilot waits.
+    gh says "no checks reported" before it looks for required ones, so on a
+    commit with none it can't say which the base requires: GitHub's word on
+    merging does. BLOCKED with no checks reported waits for the checks the base
+    requires, and records nothing.
   - GitHub says it's mergeable (`mergeable` MERGEABLE, `mergeStateStatus` CLEAN,
-    UNSTABLE or HAS_HOOKS). Still working it out: it waits. BLOCKED, such as a
-    required approving review, DIRTY or a draft: recorded, and it needs you.
+    UNSTABLE or HAS_HOOKS). Still working it out: it waits. BLOCKED with checks
+    reported, such as a required approving review, DIRTY or a draft: recorded,
+    and it needs you.
   - no person asked for changes (`reviewDecision`): it waits for them, and acc
     sync shows the task as needs you as before.
   - nothing waits on a person: no step autopilot couldn't take, no agent asking

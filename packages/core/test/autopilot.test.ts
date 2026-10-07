@@ -1021,6 +1021,25 @@ test('auto-merge on: one merge a pass; the next waits for the next pass (GH-67)'
   assert.deepEqual(merged, ['T-1']);
 });
 
+test('auto-merge on: a pull request with no checks on GitHub waits 2 minutes after its land, then merges (GH-67)', () => {
+  const s = setup({ raw: { autopilot: { autoMerge: true } } });
+  passReview(s.paths, s.id, s.sha);
+  gitIn(s.dir, 'push', '-q', 'origin', `${BRANCH}:${BRANCH}`);
+  edit(s.paths, (l) => { l.tasks[0]!.pr = { number: 42, url: 'https://github.com/acme/tool/pull/42', state: 'open', sha: s.sha, landedAt: '2026-10-05T11:59:00.000Z' }; });
+  // gh's reply on a commit with no checks, --required or not: it looks for any before it looks for required ones.
+  const none = { ...merging(s.sha), 'gh pr checks': bad(`no checks reported on the '${BRANCH}' branch`) };
+  const calls: string[] = [];
+  const young = autopilotPass(s.paths, s.config, { ...deps(calls, none), env: { ACC_QUESTIONS_DIR: QUESTIONS } });
+  assert.deepEqual([brief(young.steps)[0], young.steps[0]!.reason], [['T-1', null, 'waiting'], 'GitHub reports no checks on pull request #42 yet. Autopilot gives them 2 minutes after a land.']);
+  assert.ok(!calls.some((c) => c.startsWith('gh pr merge')));
+  // Two and a half minutes after the land, still none: this repo's own pull requests merge like this.
+  const later: string[] = [];
+  const old = autopilotPass(s.paths, s.config, { ...deps(later, none), now: () => new Date('2026-10-05T12:01:30Z'), env: { ACC_QUESTIONS_DIR: QUESTIONS } });
+  assert.deepEqual(brief(old.steps)[0], ['T-1', 'merge', 'done']);
+  assert.deepEqual(later.filter((c) => c.startsWith('gh pr merge')), [`gh pr merge 42 -R acme/tool --merge --match-head-commit ${s.sha}`]);
+  assert.equal(first(s.paths).autopilot?.merged?.sha, s.sha);
+});
+
 test('a merge reads back as a merge, not as a refresh; a refresh still reads as one (GH-67)', () => {
   const at = now().toISOString();
   const e = (data: Record<string, unknown>) => autopilotEvent({ seq: 3, at, type: 'task.updated', task: 'T-1', by: AUTOPILOT_BY, data });

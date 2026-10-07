@@ -37,8 +37,12 @@ test('a base branch that requires no checks: every check on the commit counts; n
   assert.deepEqual([all.required, all.failed.map((c) => c.name)], [false, ['test']]);
   assert.equal(calls.at(-1), 'gh pr checks 42 -R acme/tool --json name,bucket,link,workflow,state', 'asked again without --required');
 
-  const empty = readChecks(fakeRunner({ 'gh pr view': view, 'gh pr checks': bad('no checks reported on the \'task/T-1\' branch') }), 'acme/tool', 42, ENV);
-  assert.deepEqual([empty.failed, empty.pending], [[], []]);
+  // No checks at all: gh says so before it looks for required ones, so --required gets the same reply,
+  // and nothing says the base requires any (GH-67).
+  const asked: string[] = [];
+  const empty = readChecks(fakeRunner({ 'gh pr view': view, 'gh pr checks': bad('no checks reported on the \'task/T-1\' branch') }, asked), 'acme/tool', 42, ENV);
+  assert.deepEqual([empty.required, empty.failed, empty.pending, empty.cancelled, empty.count], [false, [], [], [], 0]);
+  assert.deepEqual(asked.filter((c) => c.startsWith('gh pr checks')), ['gh pr checks 42 -R acme/tool --required --json name,bucket,link,workflow,state'], 'asked once');
 
   // Anything else gh says is named, not taken for no checks.
   assert.throws(() => readChecks(fakeRunner({ 'gh pr view': view, 'gh pr checks': bad('unknown flag: --json') }), 'acme/tool', 42, ENV),
