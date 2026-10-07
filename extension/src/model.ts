@@ -15,7 +15,7 @@ import { autoMergeOn, type Environment, type Tracker, trackerForKey } from '../.
 import { promotionPaths } from '../../packages/core/src/promote.ts';
 import type { Answer, HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import { isOpenUpdate, stalePosting, type Update, UPDATE_ID, UPDATE_TEXT_MAX } from '../../packages/core/src/updates.ts';
-import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, BOARD_LANES, conflictLine, type DoctorItem, ENV_ICON, failedChecksLine, fileList, groupTasks, isUnder, prConflicts, questionsWord, type RunPrompt, saidLine, shortPath, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
+import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, BOARD_LANES, conflictLine, type DoctorItem, ENV_ICON, failedChecksLine, fileList, groupTasks, isUnder, prConflicts, queueWhy, questionsWord, type RunPrompt, saidLine, shortPath, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
 import { isSlackWebhook, SLACK_KINDS, type SlackCard, type SlackKind } from './slack.ts';
 import type { Entry } from './transcript.ts';
 
@@ -146,7 +146,7 @@ export function analysisLook(t: Pick<TaskRow, 'state' | 'analysis' | 'analyzing'
   return t.analysis ? { label: 'Analyzed: ready to build', icon: 'pass', tone: 'blue' } : null;
 }
 
-const AUTOPILOT_STEP: Record<NonNullable<TaskRow['autopilot']>['step'], string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update from its base', resume: 'resume', checks: 'send it back for its failing checks', merge: 'merge it' };
+const AUTOPILOT_STEP: Record<NonNullable<TaskRow['autopilot']>['step'], string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update from its base', resume: 'resume', checks: 'send it back for its failing checks', merge: 'merge it', queue: 'take it through the merge queue' };
 
 /** "Needs you: autopilot couldn't land", and with `why`, its reason after it (D-055). */
 export function autopilotLook(t: Pick<TaskRow, 'autopilot'>, why = true): Look | null {
@@ -433,8 +433,11 @@ export interface TicketAcc {
   agent: Look | null;
   worktree: string | null;
   branch: string | null;
-  /** waived: a person set it aside on this commit (D-031). */
-  checks: { gate: string; status: GateStatus; summary: string; waived?: boolean }[];
+  /**
+   * waived: a person set it aside on this commit (D-031). scope: where the merge queue runs the full check,
+   * whether it's one of a builder's lighter checks or the full one, run once in the queue (GH-73).
+   */
+  checks: { gate: string; status: GateStatus; summary: string; waived?: boolean; scope?: 'builder' | 'merge' }[];
   history: { at: string; from: string | null; to: string; by: string; reason: string | null }[];
   actions: Action[];
 }
@@ -798,7 +801,7 @@ export function autoMergeSetting(p: ProjectLike): AutoMergeSetting | null {
   if (!autoMergeOn(p.config)) return { value: 'off', from: 'project', meaning: 'Autopilot never merges a pull request: a person merges each one.', settable: true };
   const kept = p.config.environments.filter((e) => e.protected).map((e) => e.name);
   const meaning = [
-    'Autopilot merges a pull request once its review and checks passed, it\'s up to date with its base, GitHub says it can merge and nothing waits on you, one a pass.',
+    'A pull request whose review and checks passed, with nothing waiting on you, joins the merge queue, and they merge in turn: its base merged in, the full check run once, then merged once GitHub says it can.',
     kept.length ? `Never into ${kept.join(', ')}: protected.` : '',
     p.config.autonomy === 'review' ? '' : 'Autonomy is manual, so nothing merges on its own.',
   ].filter(Boolean).join(' ');
@@ -1234,11 +1237,15 @@ export function autopilotStepLook(r: AutopilotRecord): { look: Look; detail: str
   if (r.step === 'land' && r.pr) return { look: LOOK(r.pr.opened ? `Autopilot landed it: pull request #${r.pr.number}` : `Autopilot updated pull request #${r.pr.number}`, 'git-pull-request', 'blue'), detail: null, url: r.pr.url || null };
   // Its pull request's checks failed on GitHub: back to its builder, and re-dispatched for them (D-076).
   if (r.step === 'checks') return { look: LOOK('Autopilot sent it back: checks failed on GitHub', 'github-action', 'neutral'), detail: r.checks?.length ? r.checks.join(', ') : r.reason || null, url: null };
-  if (r.step === 'dispatch') return { look: LOOK(r.cause === 'checks' ? 'Autopilot re-dispatched it for its failing checks' : 'Autopilot re-dispatched it for the review\'s changes', 'debug-restart', 'blue'), detail: null, url: null };
+  // The merge queue found a conflict with its base, or its full check failed: back to its builder (GH-73).
+  if (r.step === 'queue') return { look: LOOK('Autopilot sent it back from the merge queue', 'git-merge', 'neutral'), detail: `${queueWhy(r).replace(/^./, (c) => c.toUpperCase())}.`, url: null };
+  if (r.step === 'dispatch') return { look: LOOK(r.cause === 'checks' ? 'Autopilot re-dispatched it for its failing checks' : r.cause === 'queue' ? 'Autopilot re-dispatched it with what the merge queue found' : 'Autopilot re-dispatched it for the review\'s changes', 'debug-restart', 'blue'), detail: null, url: null };
   // A builder that stopped, carried on once (D-067), with the last thing it said.
   if (r.step === 'resume') return { look: LOOK('Autopilot resumed it', 'debug-continue', 'blue'), detail: r.reason || null, url: null };
   // Merged where the repo turns auto-merge on (GH-67): acc sync moves it to done.
   if (r.step === 'merge') return { look: LOOK(r.pr ? `Autopilot merged pull request #${r.pr.number}` : 'Autopilot merged its pull request', 'git-merge', 'blue'), detail: 'acc sync moves it to done.', url: r.pr?.url || null };
+  // The merge queue's own, at its turn: it carries its review, is pushed, and merges once GitHub's checks pass (GH-73).
+  if (r.base && r.queue) return { look: LOOK(`The merge queue merged ${r.base} into it`, 'git-merge', 'blue'), detail: 'Its full check passed on the merge. It merges once GitHub\'s checks pass.', url: null };
   if (r.base) return { look: LOOK(`Autopilot merged ${r.base} into it`, 'git-merge', 'blue'), detail: 'Its checks passed on the merge. It\'s reviewed next, then landed.', url: null };
   return { look: LOOK('Autopilot found it no longer conflicts', 'git-merge', 'blue'), detail: null, url: r.pr?.url || null };
 }
@@ -1672,8 +1679,38 @@ export interface OverviewModel {
   attention: AttentionItem[];
   stats: StatTile[];
   ready: { project: string; id: string; title: string; environment: string; action: Action }[];
+  /** Each project's merge queue, where auto-merge is on and it holds a pull request (GH-73). */
+  queue: QueuePanel[];
   /** Everything that happened, newest first (D-037). */
   history: HistoryItem[];
+}
+
+/** A project's merge queue on the Overview (GH-73): head first, each with its place and what it waits on. */
+export interface QueuePanel {
+  project: string;
+  root: string;
+  /** Autopilot isn't running for the repo, here or elsewhere, so the queue doesn't move. */
+  off: boolean;
+  rows: { place: number; id: string; title: string; ref: Ref; pr: { number: number; url: string } | null; look: Look }[];
+}
+
+/**
+ * What a task in the merge queue waits on (GH-73), with an icon and words, in blue: the head's phase, or
+ * the task ahead of it. With autopilot off, the head says so. A task in the queue never needs you: one
+ * that would has left it.
+ */
+export function queueLook(q: NonNullable<TaskRow['queue']>, base: string, off = false): Look {
+  if (q.ahead) return LOOK(`Behind ${q.ahead}`, 'arrow-up', 'blue');
+  if (off) return LOOK('Autopilot is off', 'debug-pause', 'blue');
+  const look: Record<NonNullable<TaskRow['queue']>['phase'], Look> = {
+    waiting: LOOK('Next to merge', 'arrow-circle-right', 'blue'),
+    refreshing: LOOK(`Merging ${base} in`, 'repo-pull', 'blue'),
+    slot: LOOK('Waiting for a heavy-check slot', 'watch', 'blue'),
+    checking: LOOK('Running the full check', 'sync~spin', 'blue'),
+    github: LOOK('Waiting for GitHub\'s checks', 'github-action', 'blue'),
+    merging: LOOK('Merging', 'git-merge', 'blue'),
+  };
+  return look[q.phase];
 }
 
 export interface HomeModel {
@@ -1704,6 +1741,8 @@ export interface HomeInput {
   connect?: ConnectModel | null;
   /** The Slack card, for this machine (GH-58). */
   slack?: SlackCard | null;
+  /** Whether autopilot runs for a project's repo, here or in another window, so its merge queue moves (GH-73). */
+  autopilotOn?: (root: string) => boolean;
 }
 
 /** How many things need a person: each question, and each orange item. The badge and the Overview agree. */
@@ -1787,7 +1826,8 @@ export function homeModel(i: HomeInput): HomeModel {
       } else if (r.display === 'review') {
         // Where it is on the way to a pull request, and the one next step.
         const next = acts.find((a) => a.primary && ['acc.task.review', 'acc.task.land', 'acc.task.openPr', 'acc.task.watchReview'].includes(a.command));
-        const where = r.reviewing ? 'its reviewer is reading it' : r.pr?.state === 'open' ? `pull request #${r.pr.number} is open${r.pr.ci === 'pending' ? ', checks running' : r.pr.ci === 'passing' ? ', checks passing' : ''}`
+        const where = r.queue ? `pull request #${r.pr?.number ?? '?'} is in the merge queue, ${r.queue.ahead ? `behind ${r.queue.ahead}` : 'first'}`
+          : r.reviewing ? 'its reviewer is reading it' : r.pr?.state === 'open' ? `pull request #${r.pr.number} is open${r.pr.ci === 'pending' ? ', checks running' : r.pr.ci === 'passing' ? ', checks passing' : ''}`
           : r.review?.current ? (r.review.verdict === 'pass' ? 'reviewed: ready to land' : 'review asked for changes') : 'done by its agent, not reviewed yet';
         attention.push({ key: `t:${p.root}:${r.id}`, look: LOOK(r.pr?.state === 'open' ? 'Pull request open' : 'Waiting for review', r.pr?.state === 'open' ? 'git-pull-request' : 'eye', 'blue'), title: `${r.id} ${r.title}`, detail: `${p.name} · ${where}`, project: p.name, actions: [...(next ? [next] : []), details] });
       } else if (r.display === 'ready') {
@@ -1855,6 +1895,20 @@ export function homeModel(i: HomeInput): HomeModel {
 
   const history = historyItems(hub, i.runs ?? []);
   const projects = hub.projects.map((p) => ({ name: p.name, root: p.root, branch: p.branch, account: p.config.github?.account ?? null, trackers: i.boards(p.root).map((b) => b.title) }));
+  // Each repo's merge queue, once, though two projects share a repo's ledger (GH-73).
+  const queue: QueuePanel[] = [];
+  const shown = new Set<string>();
+  for (const p of hub.projects) {
+    if (!autoMergeOn(p.config)) continue;
+    const inLine = hub.taskRows(p.root).filter((r) => r.queue && !shown.has(r.id)).sort((a, b) => a.queue!.place - b.queue!.place);
+    if (!inLine.length) continue;
+    for (const r of inLine) shown.add(r.id);
+    const off = !(i.autopilotOn?.(p.root) ?? false);
+    queue.push({
+      project: p.name, root: p.root, off,
+      rows: inLine.map((r) => ({ place: r.queue!.place, id: r.id, title: r.title, ref: { project: p.root, task: r.id }, pr: r.pr ? { number: r.pr.number, url: r.pr.url } : null, look: queueLook(r.queue!, r.environment, off) })),
+    });
+  }
 
   const people = needsYouCount({ questions, attention });
   const needsAgents = agents.places.reduce((n, pl) => n + pl.agents.filter((a) => a.needsYou).length, 0);
@@ -1870,7 +1924,7 @@ export function homeModel(i: HomeInput): HomeModel {
     { section: 'setup', label: 'Setup', icon: 'checklist', count: todo || null, attention: failing > 0, hint: todo ? `${todo} to do` : 'All done' },
   ];
   const runs = (i.runs ?? []).map((r) => runCard(r));
-  return { kind: 'home', section: i.section, nav, overview: { projects, questions, attention, stats, ready, history }, tasks, agents, worktrees, environments, setup, runs, connect: i.connect ?? null };
+  return { kind: 'home', section: i.section, nav, overview: { projects, questions, attention, stats, ready, queue, history }, tasks, agents, worktrees, environments, setup, runs, connect: i.connect ?? null };
 }
 
 export type Model = TasksModel | AgentsModel | WorktreesModel | EnvironmentsModel | SetupModel | TicketModel | HomeModel | AgentModel;

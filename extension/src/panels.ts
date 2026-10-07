@@ -43,6 +43,8 @@ export interface BoardDeps {
   connect: { model(): ConnectModel | null; receive(m: ConnectMessage): void; close(): void };
   /** The Slack card (GH-58): what it shows, never the webhook, and what its controls send. */
   slack?: { card(): SlackCard | null; receive(m: Extract<FromWebview, { type: 'slack' | 'slack-connect' | 'slack-kinds' }>): void };
+  /** Whether autopilot runs for a project's repo, here or in another window, so its merge queue moves (GH-73). */
+  autopilotOn?(root: string): boolean;
 }
 
 export const isWebLink = (url: string): boolean => /^(https?:|mailto:)/i.test(url);
@@ -162,6 +164,7 @@ export class Panels implements vscode.Disposable {
       hub: this.hub, section: this.section, boards: (r) => this.deps.boards(r), identity: (r) => this.deps.identity(r),
       setup: { items: this.setup.results(), confirmed: this.setup.allConfirmed() }, runs: this.deps.runs(),
       edited: (root, id, replaces) => this.deps.edited(root, id, replaces), connect: this.deps.connect.model(), slack: this.deps.slack?.card() ?? null,
+      autopilotOn: (root) => this.deps.autopilotOn?.(root) ?? false,
     });
   }
 

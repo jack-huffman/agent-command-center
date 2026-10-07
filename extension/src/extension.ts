@@ -361,6 +361,8 @@ export function activate(context: vscode.ExtensionContext): void {
         else void removeSlack();
       },
     },
+    // Whether the merge queue moves: autopilot on here or in another window (GH-73).
+    autopilotOn: (root) => autopilotRef?.runningFor(root) ?? false,
   });
   context.subscriptions.push(panels, tickets);
   // All of acc in one status bar item (D-065): it asks each part where it is.
@@ -415,7 +417,16 @@ export function activate(context: vscode.ExtensionContext): void {
   // Autopilot, while it's switched on here (D-064). It ends with the window, as every run does.
   const autopilot = new AutopilotHost(hub, runs, accShellCommand(accScript), (id) => showRun(id));
   autopilotRef = autopilot;
-  context.subscriptions.push(autopilot.onDidChange(() => notices.draw()));
+  // The Overview's merge queue says whether autopilot runs, so it's drawn again when that changes, and only then (GH-73).
+  let running = '';
+  context.subscriptions.push(autopilot.onDidChange(() => {
+    notices.draw();
+    const now = hub.projects.filter((p) => autopilot.runningFor(p.root)).map((p) => p.root).join('\n');
+    if (now !== running) {
+      running = now;
+      panels.post();
+    }
+  }));
   // What a click on the one status bar item offers (D-065).
   reg('acc.status.menu', async () => {
     const look = setup.look();

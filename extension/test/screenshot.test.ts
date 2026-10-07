@@ -16,9 +16,11 @@ test('every section of the page, and a ticket, has sample data built by the real
     else if (kind.startsWith('connect-')) assert.deepEqual([m.kind, (m as HomeModel).section, !!(m as HomeModel).connect], ['home', 'tasks', true]);
     // The Slack card at each of its states, on Environments (GH-58).
     else if (kind.startsWith('slack-')) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).environments.slack?.state], ['home', 'environments', kind.slice('slack-'.length)]);
+    // The Overview of a project with a merge queue, autopilot on and off (GH-73).
+    else if (kind.startsWith('queue')) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).overview.queue[0]?.rows.length, (m as HomeModel).overview.queue[0]?.off], ['home', 'overview', 3, kind === 'queue-off']);
     else assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).connect], ['home', kind === 'output' ? 'setup' : kind, null]);
   }
-  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'agent', 'output', 'connect-start', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'slack-none', 'slack-off', 'slack-paused']);
+  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'agent', 'output', 'connect-start', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'slack-none', 'slack-off', 'slack-paused', 'queue', 'queue-off']);
   assert.equal((sampleModel('environments') as HomeModel).environments.slack?.state, 'on');
   // A ticket acc doesn't keep yet, being tracked from its card (D-074).
   assert.deepEqual([(sampleModel('ticket-track') as TicketModel).trackable, (sampleModel('ticket-track') as TicketModel).tracking], [true, true]);

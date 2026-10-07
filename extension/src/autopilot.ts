@@ -183,6 +183,14 @@ export class AutopilotHost implements vscode.Disposable {
     });
   }
 
+  /** Whether autopilot runs for a project's repo, here or in another window: its merge queue moves (GH-73). */
+  runningFor(root: string): boolean {
+    const p = this.hub.projects.find((x) => x.root === root);
+    const repo = p ? this.repos.find((r) => r.key === p.ledgerPath) : undefined;
+    const s = repo ? this.stateOf(repo) : null;
+    return s?.state === 'on' || s?.state === 'elsewhere';
+  }
+
   /**
    * Whether autopilot merges pull requests in each repo (GH-67), whatever its autonomy: on only where
    * the config turns auto-merge on, and never in a Salesforce project. `acts` is false while autonomy is

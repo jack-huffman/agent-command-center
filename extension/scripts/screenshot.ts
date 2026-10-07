@@ -16,7 +16,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { HOME_SECTIONS, homeModel, type HomeSection, type Model } from '../src/model.ts';
-import { type ConnectSample, SAMPLE_EDIT, sampleAgent, sampleBoards, sampleConnect, sampleEdited, sampleHub, sampleIdentity, sampleRuns, sampleSetup, sampleSlack, type SlackSample, sampleTicket } from './fixtures.ts';
+import { type ConnectSample, SAMPLE_EDIT, sampleAgent, sampleBoards, sampleConnect, sampleEdited, sampleHub, sampleIdentity, sampleQueueHub, sampleRuns, sampleSetup, sampleSlack, type SlackSample, sampleTicket } from './fixtures.ts';
 
 /**
  * Every page the screenshot script can draw: each section of the Command Center, a ticket's page (being
@@ -24,8 +24,10 @@ import { type ConnectSample, SAMPLE_EDIT, sampleAgent, sampleBoards, sampleConne
  * acc doesn't keep yet, being tracked), an agent's page, Setup with the output panel open on a command
  * that's asking something, the Connect page at each of its steps (D-073), and Environments with the Slack
  * card at each of its states (GH-58): sending on Environments itself, then not set up, off and paused.
+ * Then the Overview of a project whose merge queue holds three pull requests, with autopilot on and the
+ * head running its full check, and with autopilot off (GH-73).
  */
-export const PAGES = [...HOME_SECTIONS, 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'agent', 'output', 'connect-start', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'slack-none', 'slack-off', 'slack-paused'] as const;
+export const PAGES = [...HOME_SECTIONS, 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'agent', 'output', 'connect-start', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'slack-none', 'slack-off', 'slack-paused', 'queue', 'queue-off'] as const;
 export type Page = (typeof PAGES)[number];
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -68,6 +70,9 @@ export function sampleModel(kind: Page, now = Date.now()): Model {
   if (kind === 'ticket-track') return sampleTicket(now, 'ACME-31');
   if (kind === 'ticket-checks') return sampleTicket(now, 'ACME-33');
   if (kind === 'agent') return sampleAgent(now);
+  if (kind === 'queue' || kind === 'queue-off') {
+    return homeModel({ hub: sampleQueueHub(now), section: 'overview', boards: () => [], identity: () => sampleIdentity(), setup: { items: [], confirmed: new Set() }, runs: [], autopilotOn: () => kind === 'queue' });
+  }
   const hub = sampleHub(now);
   const connect = kind.startsWith('connect-') ? sampleConnect(kind.slice('connect-'.length) as ConnectSample) : null;
   const slack = sampleSlack(kind.startsWith('slack-') ? kind.slice('slack-'.length) as SlackSample : 'on', now);

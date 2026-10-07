@@ -13,6 +13,7 @@ import type { HistoryRecord, Question } from '../../packages/core/src/questions.
 import { resuming } from '../../packages/core/src/resume.ts';
 import { latestVerdict, reviewing } from '../../packages/core/src/review.ts';
 import { claudeProjectsDir, lastSaidIn, transcriptFile } from '../../packages/core/src/transcript.ts';
+import { queuePlaces } from '../../packages/core/src/queue.ts';
 import { readUpdate, type Update, UPDATE_ID } from '../../packages/core/src/updates.ts';
 import { type AgentSession, agentLook, analysisWait, askingLabel, isUnder, parseWorktrees, rowAnalysis, sessionFor, type TaskRow, type Worktree } from './logic.ts';
 import { runFile } from './run.ts';
@@ -270,6 +271,8 @@ export class Hub implements vscode.Disposable {
     const sessions = this.agentsAt && !this.agentsError ? this.agents : null;
     const stateDir = p ? dirname(p.ledgerPath) : null;
     const now = new Date();
+    // The repo's merge queue, where auto-merge is on (GH-73): each task's place, and what it waits on.
+    const places = p ? queuePlaces(ledger, p.config) : [];
     return ledger.tasks.map((t) => {
       const a = store && t.state !== 'done' && files.has(`${t.id}.json`) ? this.analysisFrom(store, t.id) : null;
       const running = store && t.state !== 'done' && files.has(`${t.id}.running.json`) ? analyzing(store, t.id) : null;
@@ -289,6 +292,7 @@ export class Hub implements vscode.Disposable {
       const info: SessionInfo | undefined = stopped ? { stopped: true } : carrying ? { status: 'busy' } : session ? (asking ? { state: 'blocked', status: 'waiting' } : { state: session.state, status: session.status }) : undefined;
       const said = stopped && t.run?.sessionId ? this.lastSaid(t.run.sessionId, [t.run.worktree, session?.cwd, p?.root]) : null;
       const failed = autopilotFailure(t);
+      const queued = places.find((x) => x.id === t.id);
       return {
         id: t.id,
         title: t.title,
@@ -314,6 +318,7 @@ export class Hub implements vscode.Disposable {
         checks: failedChecks(t),
         stopped: stopped ? { said } : null,
         resuming: !!resumed,
+        queue: queued ? { place: queued.place, of: queued.of, ahead: queued.ahead, phase: queued.phase } : null,
       };
     });
   }
