@@ -654,7 +654,7 @@ test('a task that waits for others\' files says so with a clock, in blue; its ne
   const task = { id: 'AV-5', title: 'Task AV-5', brief: '', source: { kind: 'jira', key: 'AV-5', url: null }, environment: 'devbox', deps: [], labels: [], state: 'todo', blocker: null, run: null, pr: null, history: [], createdAt: '', updatedAt: '' } as never;
   const page = ticketModel({ project: '/r', tracker: null, trackerTitle: null, trackerKind: null, key: 'AV-5', ticket: null, loading: false, error: null, connect: null, checks: [], row: rows[0]!, task });
   assert.equal(page.acc!.files!.label, 'Waits for AV-1\'s files: src/a.ts, force-app/main/default/classes/X.cls, while AV-6 is ready to start');
-  assert.deepEqual([page.acc!.look.label, page.acc!.look.icon, page.acc!.look.tone], ['Waits for AV-1\'s files', 'clock', 'blue'], 'its State, in a few words');
+  assert.deepEqual([page.acc!.look.label, page.acc!.look.icon, page.acc!.look.tone], ['Waits for AV-1\'s files, while AV-6 is ready to start', 'clock', 'blue'], 'its State, in a few words, with what goes first');
   assert.ok(page.acc!.actions.some((a) => a.command === 'acc.task.stopWaiting'));
   const board: BoardInput = {
     index: 0, kind: 'jira', title: 'Jira', error: null, connect: null, loading: false,

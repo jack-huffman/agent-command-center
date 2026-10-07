@@ -15,7 +15,7 @@ import { type Environment, type Tracker, trackerForKey } from '../../packages/co
 import { promotionPaths } from '../../packages/core/src/promote.ts';
 import type { Answer, HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import { isOpenUpdate, stalePosting, type Update, UPDATE_ID, UPDATE_TEXT_MAX } from '../../packages/core/src/updates.ts';
-import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, BOARD_LANES, conflictLine, filesUnknown, sharesLine, taskNames, waitLine, waitsForFiles, type DoctorItem, ENV_ICON, failedChecksLine, fileList, groupTasks, isUnder, prConflicts, questionsWord, type RunPrompt, saidLine, shortPath, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
+import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, BOARD_LANES, conflictLine, filesUnknown, sharesLine, taskNames, waitLine, waitsForFiles, whileFirst, type DoctorItem, ENV_ICON, failedChecksLine, fileList, groupTasks, isUnder, prConflicts, questionsWord, type RunPrompt, saidLine, shortPath, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
 import { isSlackWebhook, SLACK_KINDS, type SlackCard, type SlackKind } from './slack.ts';
 import type { Entry } from './transcript.ts';
 
@@ -413,10 +413,11 @@ function accLook(row: TaskRow, full = false): Look {
   const analysis = analysisLook(row);
   if (analysis && (row.display === 'needs-you' || row.analyzing)) return analysis;
   // A task a person dispatched waits for others' files, or its start failed (D-???), in a few words: the
-  // card's note and the page's notice name the files.
+  // card's note and the page's notice name the files. The page's State names what goes first, since its
+  // notice may fold that away under Show all.
   const files = row.files?.held ? filesLook(row) : null;
   if (files && row.files!.held!.failed) return { ...files, label: row.files!.held!.byAutopilot ? 'Needs you: autopilot couldn\'t start it' : 'Needs you: its start failed' };
-  if (files && waitsForFiles(row)) return { ...files, label: `Waits for ${taskNames(row.files!.shares.map((s) => `${s.task}'s`))} files` };
+  if (files && waitsForFiles(row)) return { ...files, label: `Waits for ${taskNames(row.files!.shares.map((s) => `${s.task}'s`))} files${full ? whileFirst(row.files!.first, true) : ''}` };
   if (files) return files;
   const d = DISPLAY[row.display];
   return { label: d.label, icon: d.icon, tone: d.tone };

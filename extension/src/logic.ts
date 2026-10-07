@@ -305,7 +305,7 @@ export function waitLine(shares: FileShare[], full = false, first: string[] = []
 }
 
 /** ", while GH-74 is ready to start", or ", while GH-74 and GH-75 are": the Ready tasks that go first. A card names two. */
-function whileFirst(first: string[], full: boolean): string {
+export function whileFirst(first: string[], full: boolean): string {
   if (!first.length) return '';
   const named = full || first.length <= 2 ? taskNames(first) : `${first.slice(0, 2).join(', ')} and ${first.length - 2} more`;
   return `, while ${named} ${first.length === 1 ? 'is' : 'are'} ready to start`;
