@@ -6,8 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import {
   afterFullCheck, afterStepCheck, buildWalkthroughs, commandLink, COMMANDS, contextKey, dispatchModelArgs, dispatchModelItems, EXTENSION_ID, followsPullRequests, hasPlaceholder,
-  initCommand, isComplete, isWebviewMenuContext, machineCache, mediaPath, MODEL_CHOICES, needsTerminal, productionOrgs, reusableMachine, setupOrgChoices, sizeLine, statusText,
-  stepDescription, stepMedia, summarize, type DoctorItem,
+  initCommand, isComplete, isWebviewMenuContext, machineCache, mediaPath, MODEL_CHOICES, needsTerminal, productionOrgs, rememberTemplate, reusableMachine, setupOrgChoices, shownTemplate, sizeLine, statusText,
+  stepDescription, stepMedia, summarize, templateDetail, type DoctorItem,
 } from '../src/logic.ts';
 import { staleFiles } from '../scripts/generate.ts';
 
@@ -62,6 +62,7 @@ test('every button calls a contributed command with its step id', () => {
 test('buttons match what each step needs', () => {
   const labels = (id: string) => links(stepDescription(step(id))).map((l) => l.label);
   assert.deepEqual(labels('B0.config'), ['Check', 'Do it']);
+  assert.deepEqual(labels('B0.template'), ['Check', 'Do it', 'Read the guide'], 'Do it previews the template, writing nothing');
   assert.deepEqual(labels('B2.identity'), ['Check', 'Do it'], 'the check supplies the exact command');
   assert.deepEqual(labels('B8.tracking'), ['Check', 'Open in Salesforce', 'Read the guide'], 'a click only a person can make');
   assert.deepEqual(labels('B14.tickets'), ['Check', 'Do it', 'I\'ve done this', 'Read the guide'], 'Do it runs Add a tracker; a repo with no tracker can be marked done');
@@ -193,8 +194,33 @@ test('acc init offers only logged-in Production orgs', () => {
     scratchOrgs: [{ alias: 'scratch', instanceUrl: 'https://x.my.salesforce.com', isSandbox: false, isScratch: true }],
   } };
   assert.deepEqual(productionOrgs(list), ['Acme Production']);
-  assert.equal(initCommand('salesforce', 'Acme Production'), 'acc init --profile salesforce --production-org "Acme Production"');
-  assert.equal(initCommand('generic'), 'acc init --profile generic');
+  assert.equal(initCommand({ profile: 'salesforce', productionOrg: 'Acme Production' }), 'acc init --profile salesforce --production-org \'Acme Production\'');
+  assert.equal(initCommand({ profile: 'generic' }), 'acc init --profile generic');
+});
+
+test('a team template\'s acc init quotes its source and org, and the recent list keeps the five newest, each source once (GH-80)', () => {
+  const src = 'git@github.com:acme/acc-templates.git#salesforce.json';
+  assert.equal(initCommand({ from: src, profile: 'salesforce', productionOrg: 'Acme Production' }), `acc init --from '${src}' --profile salesforce --production-org 'Acme Production'`);
+  assert.equal(initCommand({ from: '~/team/acme tools.json' }), 'acc init --from \'~/team/acme tools.json\'', 'acc expands ~ itself');
+  const url = 'https://github.com/acme/acc-templates/blob/main/generic.json';
+  assert.equal(initCommand({ from: url }), `acc init --from ${url}`);
+
+  const t = (n: number) => ({ source: `~/team/t${n}.json`, name: `T${n}` });
+  let list = [1, 2, 3, 4, 5].reduce((l, n) => rememberTemplate(l, t(n)), [] as ReturnType<typeof t>[]);
+  assert.deepEqual(list.map((r) => r.name), ['T5', 'T4', 'T3', 'T2', 'T1']);
+  list = rememberTemplate(list, t(6));
+  assert.deepEqual(list.map((r) => r.name), ['T6', 'T5', 'T4', 'T3', 'T2'], 'at most five');
+  list = rememberTemplate(list, { source: '~/team/t3.json', name: 'T3, renamed' });
+  assert.deepEqual(list.map((r) => r.name), ['T3, renamed', 'T6', 'T5', 'T4', 'T2'], 'a source used again moves to the top, once');
+});
+
+test('what acc template show --json said is read as the template, its problems, or why it couldn\'t be read (GH-80)', () => {
+  const good = shownTemplate(JSON.stringify({ ok: true, errors: [], name: 'ACME tools', description: 'Small repos.', profile: 'generic', sets: ['Required checks: test'], commands: { test: 'npm test' } }));
+  assert.deepEqual(good, { ok: true, name: 'ACME tools', description: 'Small repos.', profile: 'generic', sets: ['Required checks: test'], commands: { test: 'npm test' } });
+  assert.ok(good.ok && templateDetail(good).includes('Check commands it runs on this machine:\ntest: npm test'));
+  assert.deepEqual(shownTemplate(JSON.stringify({ ok: false, errors: ['"gatez" isn\'t a template key.'] })), { ok: false, errors: ['"gatez" isn\'t a template key.'] });
+  assert.deepEqual(shownTemplate(JSON.stringify({ error: 'no-template', message: 'There\'s no team template at x.json.' })), { ok: false, errors: ['There\'s no team template at x.json.'] });
+  assert.deepEqual(shownTemplate('', 'node: not found\nmore'), { ok: false, errors: ['node: not found'] });
 });
 
 test('a webview menu passes its row context, which is told apart from a sidebar node', () => {
