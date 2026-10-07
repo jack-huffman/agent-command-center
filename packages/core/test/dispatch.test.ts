@@ -131,9 +131,18 @@ test('where the merge queue runs the full check, the packet and the short one na
   const plain = renderPacket({ task, config: off, env, worktree: '/w/GH-73', branch: 'task/GH-73-a-queue', rules: null, environmentSpecific: [] });
   assert.ok(plain.includes('It runs the required checks (`check`)') && !plain.includes('merge queue'));
   assert.ok(!shortPacket(task, ['check']).includes('merge queue'));
-  // A builder may bring the base in, as the queue asks when it conflicts.
-  const s = builderSettings(task, config, '/acc/bin', '/usr/bin') as { permissions: { allow: string[] } };
-  assert.ok(s.permissions.allow.includes('Bash(git merge origin/*)'));
+  // A builder may bring the base in, as the queue asks when it conflicts: only where the queue runs.
+  const allows = (c: typeof config, t = task) => (builderSettings(t, c, '/acc/bin', '/usr/bin') as { permissions: { allow: string[] } }).permissions.allow;
+  assert.ok(allows(config).includes('Bash(git merge origin/*)'));
+  assert.ok(!allows(off).includes('Bash(git merge origin/*)'), 'auto-merge off: it asks first, as before');
+  assert.ok(!allows(parseConfig({ ...raw, autonomy: 'manual' }).config!).includes('Bash(git merge origin/*)'), 'manual autonomy merges nothing on its own');
+  const kept = parseConfig({ ...raw, environments: [...GENERIC_CONFIG.environments, { name: 'release', protected: true }] }).config!;
+  assert.ok(!allows(kept, { ...task, environment: 'release' }).includes('Bash(git merge origin/*)'), 'a protected environment never auto-merges');
+  // The config refuses auto-merge in a Salesforce project; set on one anyway, it still isn't allowed.
+  const sfParsed = parseConfig({ ...JSON.parse(JSON.stringify(SF_CONFIG)), autonomy: 'review' }).config!;
+  const sf = { ...sfParsed, autopilot: { appendOnly: [], autoMerge: true as const } };
+  const sfEnv = sf.environments.find((e) => !e.protected)!;
+  assert.ok(!allows(sf, { ...task, environment: sfEnv.branch }).includes('Bash(git merge origin/*)'), 'never in a Salesforce project');
 });
 
 test('builder settings: identity, acc on PATH, and the dangerous commands denied even if the user allows them', () => {

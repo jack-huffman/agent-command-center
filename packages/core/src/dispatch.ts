@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
-import { builderGatesFor, type Config, type Environment, environmentByBranch, requiredGates } from './config.ts';
+import { autoMergeFor, builderGatesFor, type Config, type Environment, environmentByBranch, requiredGates } from './config.ts';
 import { AccError, type Runner } from './exec.ts';
 import { type Actor, applyMove, checkMove, mutate, noGateHooks, readLedger, reworkCause, type ReworkCause, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
@@ -219,8 +219,9 @@ export function builderSettings(task: Task, config: Config, accBinDir: string, b
   const allow = [
     'Bash(acc done*)', 'Bash(acc block *)', 'Bash(acc show *)', 'Bash(acc gate run)', 'Bash(acc gate run *)', 'Bash(acc gate list*)',
     'Bash(git status*)', 'Bash(git diff*)', 'Bash(git add *)', 'Bash(git commit *)', 'Bash(git log*)', 'Bash(git show *)',
-    // Bringing the base in, as the merge queue asks when it conflicts (GH-73).
-    'Bash(git merge origin/*)',
+    // Bringing the base in, as the merge queue asks when it conflicts (GH-73): only where the queue runs, so
+    // where auto-merge is off, a Salesforce project above all, a builder still asks first.
+    ...(autoMergeFor(config, task.environment) ? ['Bash(git merge origin/*)'] : []),
     'Bash(npm test*)', 'Bash(npm run *)', 'Bash(npx prettier *)', 'Bash(npx eslint *)', 'Bash(node --test*)', 'Bash(node --no-warnings --test*)',
     // A project may ask for builds and tests under nice, so the machine stays usable: the same commands, niced.
     'Bash(nice -n 15 npm test*)', 'Bash(nice -n 15 npm run *)', 'Bash(nice -n 15 npx prettier *)', 'Bash(nice -n 15 npx eslint *)',
