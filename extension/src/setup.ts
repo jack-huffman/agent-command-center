@@ -22,6 +22,11 @@ const MACHINE_FRESH_MS = 12 * 60 * 60 * 1000;
 const CONFIRMED = { machine: 'acc.confirmed.machine', project: 'acc.confirmed.project' } as const;
 /** The team templates this machine used last, newest first (GH-80). */
 const RECENT_TEMPLATES = 'acc.recentTemplates';
+/** "What kind of project is this?": B0.config's Do it asks, and so does a team template that sets no profile. */
+const PROJECT_KINDS = [
+  { label: '$(cloud) Salesforce project', description: 'Finds every org from Production\'s sandbox list', profile: 'salesforce' as const },
+  { label: '$(folder) Other project', description: 'One branch, no orgs', profile: 'generic' as const },
+];
 
 export class Setup implements vscode.Disposable {
   readonly log = vscode.window.createOutputChannel('Agent Command Center', { log: true });
@@ -443,8 +448,7 @@ export class Setup implements vscode.Disposable {
       return;
     }
     const kind = await vscode.window.showQuickPick([
-      { label: '$(cloud) Salesforce project', description: 'Finds every org from Production\'s sandbox list', profile: 'salesforce' as const },
-      { label: '$(folder) Other project', description: 'One branch, no orgs', profile: 'generic' as const },
+      ...PROJECT_KINDS,
       { label: '$(repo) From a team template…', description: 'Your team\'s settings, from a file, a GitHub file or a git repo', profile: 'template' as const },
     ], { title: 'What kind of project is this?' });
     if (!kind) return;
@@ -507,9 +511,17 @@ export class Setup implements vscode.Disposable {
     const start = 'Start the project';
     const go = await vscode.window.showInformationMessage(`Start this project from ${shown.name}?`, { modal: true, detail: templateDetail(shown) }, start);
     if (go !== start) return;
-    const productionOrg = shown.profile === 'salesforce' ? await this.pickProductionOrg() : undefined;
-    if (shown.profile === 'salesforce' && !productionOrg) return;
-    this.runCommand(initCommand({ from: source, productionOrg }), 'B0.config');
+    // A template that sets no profile leaves it to the person, and acc init gets it as --profile.
+    let picked: 'salesforce' | 'generic' | undefined;
+    if (!shown.profile) {
+      const kind = await vscode.window.showQuickPick(PROJECT_KINDS, { title: `${shown.name} sets no profile. What kind of project is this?` });
+      if (!kind) return;
+      picked = kind.profile;
+    }
+    const profile = shown.profile ?? picked;
+    const productionOrg = profile === 'salesforce' ? await this.pickProductionOrg() : undefined;
+    if (profile === 'salesforce' && !productionOrg) return;
+    this.runCommand(initCommand({ from: source, profile: picked, productionOrg }), 'B0.config');
   }
 
   async chooseFolder(): Promise<void> {

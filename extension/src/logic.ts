@@ -264,6 +264,7 @@ export const templateDetail = (t: Extract<ShownTemplate, { ok: true }>): string 
   return [
     ...(t.description ? [t.description, ''] : []),
     ...t.sets,
+    ...(t.profile ? [] : ['It sets no profile, so you choose Salesforce or Other next.']),
     ...(commands.length ? ['', 'Check commands it runs on this machine:', ...commands.map(([gate, cmd]) => `${gate}: ${cmd}`)] : []),
     '',
     'You review .acc/config.json and commit it yourself.',

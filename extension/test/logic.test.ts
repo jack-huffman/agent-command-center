@@ -205,6 +205,7 @@ test('a team template\'s acc init quotes its source and org, and the recent list
   assert.equal(initCommand({ from: '~/team/acme tools.json' }), 'acc init --from \'~/team/acme tools.json\'', 'acc expands ~ itself');
   const url = 'https://github.com/acme/acc-templates/blob/main/generic.json';
   assert.equal(initCommand({ from: url }), `acc init --from ${url}`);
+  assert.equal(initCommand({ from: url, profile: 'generic' }), `acc init --from ${url} --profile generic`, 'a template with no profile gets the one the person chose');
 
   const t = (n: number) => ({ source: `~/team/t${n}.json`, name: `T${n}` });
   let list = [1, 2, 3, 4, 5].reduce((l, n) => rememberTemplate(l, t(n)), [] as ReturnType<typeof t>[]);
@@ -219,6 +220,9 @@ test('what acc template show --json said is read as the template, its problems, 
   const good = shownTemplate(JSON.stringify({ ok: true, errors: [], name: 'ACME tools', description: 'Small repos.', profile: 'generic', sets: ['Required checks: test'], commands: { test: 'npm test' } }));
   assert.deepEqual(good, { ok: true, name: 'ACME tools', description: 'Small repos.', profile: 'generic', sets: ['Required checks: test'], commands: { test: 'npm test' } });
   assert.ok(good.ok && templateDetail(good).includes('Check commands it runs on this machine:\ntest: npm test'));
+  assert.ok(good.ok && !templateDetail(good).includes('sets no profile'));
+  const noProfile = shownTemplate(JSON.stringify({ ok: true, errors: [], name: 'ACME any', description: null, profile: null, sets: [], commands: {} }));
+  assert.ok(noProfile.ok && noProfile.profile === null && templateDetail(noProfile).includes('It sets no profile, so you choose Salesforce or Other next.'));
   assert.deepEqual(shownTemplate(JSON.stringify({ ok: false, errors: ['"gatez" isn\'t a template key.'] })), { ok: false, errors: ['"gatez" isn\'t a template key.'] });
   assert.deepEqual(shownTemplate(JSON.stringify({ error: 'no-template', message: 'There\'s no team template at x.json.' })), { ok: false, errors: ['There\'s no team template at x.json.'] });
   assert.deepEqual(shownTemplate('', 'node: not found\nmore'), { ok: false, errors: ['node: not found'] });
