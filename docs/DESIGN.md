@@ -134,6 +134,7 @@ listed so that drift checks and `doctor` cover it.
 | `agents.max` | Most builder sessions at once, default 3 |
 | `autonomy` | How much the loop does on its own ([section 12](#12-the-orchestrator-loop)) |
 | `autopilot.appendOnly` | Files, or folders, where autopilot may resolve a conflict with the base when both sides only added to the end, such as a decision log. Left out, there are none ([section 12](#12-the-orchestrator-loop)) |
+| `dispatch.shared` | Files, or folders, that every task edits, such as the docs. Like `autopilot.appendOnly`, they never make one task wait for another's files. Left out, there are none ([section 7](#7-dispatch)) |
 | `worktrees.root` | Where task worktrees go. The default is a sibling folder outside the repo ([section 7](#7-dispatch)) |
 | `gates` | Which checks are required, plus per-check overrides |
 
@@ -274,6 +275,32 @@ GitHub about each unfinished task whose issue wasn't listed:
 
 1. **Checks.** The task is ready, running sessions are below `agents.max`, and
    the environment isn't protected, and its branch matches its org (D-015).
+   Where the project wants an analysis first, the task has one with every
+   question answered (D-052).
+1b. **Weighs its files (D-???).** On a first dispatch, the files the task's
+   analysis plans to change are compared with every task in flight: running,
+   in review, rework or blocked, until its branch merges. A task in flight
+   counts what its analysis plans and what its branch has changed: commits,
+   and in its worktree uncommitted and untracked files. Two paths match when
+   they're the same file or one is a folder holding the other. Files in
+   `autopilot.appendOnly` or `dispatch.shared` never count.
+   - **It shares none:** it goes on.
+   - **It shares some, and another Ready task shares none:** it waits. acc
+     records a hold on the task (who asked, and what it waits for), creates
+     nothing, and says "GH-73 waits for GH-70's files: …". It stays in the
+     Ready lane.
+   - **It shares some, and nothing else is ready:** it goes on, and its run
+     records which files it shares with which task.
+   - **No analysis, or a rework:** it goes on. A task with no analysis says its
+     files aren't known.
+
+   `acc dispatch <id> --anyway` starts it now, and its move records the
+   overlap. `acc dispatch --held` starts each held task that may go now: free
+   ones first, oldest hold first, weighing the rest again after each start. It
+   claims each in the ledger first, so a task is never started twice. The
+   Command Center runs it on its poll, and autopilot's `start` step does the
+   same. A start that fails is written on the task, which needs you, and isn't
+   tried again until a person acts. `--stop-waiting`, or any move, ends a hold.
 2. **Creates the worktree.** It fetches, then runs
    `git worktree add <root>/<id> -b task/<id>-<slug> origin/<branch>`, where `<branch>` is the environment's branch. `<root>` is `.claude/worktrees/` inside the repo (D-022). On a
    rework, it reuses the existing worktree.
@@ -529,7 +556,7 @@ ledger and takes the next step for each task, one task at a time, as the
 | `autonomy` | What runs on its own |
 |---|---|
 | `manual` (default) | Nothing. The extension shows the next steps as buttons, and `acc autopilot` does nothing |
-| `review` | Autopilot reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, and merges the base into a pull request that conflicts with it |
+| `review` | Autopilot reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, merges the base into a pull request that conflicts with it, and starts a task a person dispatched once the files it waits for are free |
 | `dispatch` | As `review`, and it also starts Ready tasks up to `agents.max`. Not built yet: autopilot refuses |
 | `full` | Read as `dispatch`, with a warning |
 
@@ -551,12 +578,13 @@ before each:
 | In rework from a review or a person, and autopilot hasn't re-dispatched one before | `dispatch`, once. A second rework waits for a person |
 | Running, its builder stopped, and autopilot hasn't resumed it in this run | `resume`, once a run (D-067). A second stop waits for a person; a new dispatch is a new run |
 | Running, its builder at work | Nothing |
-| To do (ready or not), blocked or done | Nothing |
+| To do, a person dispatched it, and it waits for another task's files ([section 7](#7-dispatch)) | `start`, once nothing it shares files with is in flight, or nothing else is ready to start, under `agents.max`. A start that fails needs you |
+| To do (ready or not) that nobody dispatched, blocked or done | Nothing |
 
 - **What it never does:** merge a pull request, waive a check, deploy,
   promote, change anything on GitHub besides landing (it only reads checks and
-  their logs), or start a task that's to do. Builders, reviewers and analysts
-  can't run it.
+  their logs), or start a task to do that nobody dispatched. Builders,
+  reviewers and analysts can't run it.
 - **A refresh** (D-058) merges origin's copy of the task environment's branch
   into the task branch, in the task's worktree, never the main checkout. It
   asks git again first, and a conflict that's gone is only marked gone. It

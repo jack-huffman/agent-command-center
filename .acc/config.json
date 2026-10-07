@@ -41,6 +41,13 @@
       "docs/DECISIONS.md"
     ]
   },
+  "dispatch": {
+    "shared": [
+      "docs/DESIGN.md",
+      "README.md",
+      "CHANGELOG.md"
+    ]
+  },
   "worktrees": {
     "root": null,
     "setup": []

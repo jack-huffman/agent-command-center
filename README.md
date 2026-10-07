@@ -77,6 +77,15 @@ Salesforce. Project types plug in as profiles.
   in Slack** card. It's off until you turn it on, sends each moment once
   however many windows are open, and sends only the task's id and title, what
   happened and a link.
+- **Tasks that change the same files take turns, where they can:** before a
+  task starts, acc compares the files its analysis plans to change with the
+  work in flight. When it shares some, and another Ready task shares none, it
+  waits, and its card says "Waits for GH-70's files: …". It starts on its own
+  once those files are free, or once nothing else is ready. Files every task
+  edits never count: `autopilot.appendOnly`, and `dispatch.shared` in
+  `.acc/config.json`. `acc dispatch <id> --anyway` starts it now,
+  `acc dispatch --held` starts whatever may go, and `--stop-waiting` ends a
+  wait.
 - **Next:** M8, the pilots.
 
 Install the extension with `npm run package && npm run install-extension`, then
