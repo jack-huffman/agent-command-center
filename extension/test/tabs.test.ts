@@ -19,6 +19,7 @@ import { needsYouCount } from '../src/model/overview.ts';
 import { setupModel } from '../src/model/setup.ts';
 import { ticketModel } from '../src/model/task-page.ts';
 import { worktreesModel } from '../src/model/worktrees.ts';
+import { pageStyles } from '../scripts/styles.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 /** The page's source: the webview's modules named, in that order, or all of them. */
@@ -613,7 +614,7 @@ test('checks that failed on GitHub say so on the card, the tracker\'s card and t
   assert.match(main, /card\.failedChecks \? el\('div', 'card-note conflict', icon\('github-action'\)/);
   assert.match(main, /c\.acc\?\.failedChecks \? el\('div', 'card-note conflict tcard-conflict', icon\('github-action'\)/);
   assert.match(main, /icon\('github-action', 'orange'\)/);
-  assert.match(readFileSync(join(root, 'webview', 'styles.css'), 'utf8'), /\.card-note \{[^}]*color: var\(--orange\)/);
+  assert.match(pageStyles(), /\.card-note \{[^}]*color: var\(--orange\)/);
 });
 
 test('a task autopilot couldn\'t move on says why on its card and on the Overview, with the step to take by hand (D-055)', () => {
@@ -730,7 +731,7 @@ test('a builder that stopped says so with what it last said, in orange with its 
 });
 
 test('table cells keep table layout (a flex cell misaligns its row\'s lines)', () => {
-  const css = readFileSync(join(root, 'webview', 'styles.css'), 'utf8');
+  const css = pageStyles();
   const src = pageSource();
   // Every class the page puts on a cell or row, so a bare `.actions` rule can't slip past by not naming td.
   const cellClasses = new Set([...src.matchAll(/el\('(?:td|th|tr)', '([^']*)'/g)].flatMap((m) => m[1]!.split(/\s+/)).concat('clip').filter(Boolean));

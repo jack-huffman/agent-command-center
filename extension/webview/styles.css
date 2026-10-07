@@ -2,6 +2,10 @@
    contrast all work. Orange marks what needs a person, blue what's moving or fine; every state
    also carries a word, so colour is never the only signal. */
 
+/* This file holds what every part of the page shares. Each area's own styles are in the .css named for
+   its module here (GH-95). The build writes this file first, then those, by file name, so a rule that
+   two areas need belongs here. */
+
 :root {
   --gap: 12px;
   --radius: 6px;
@@ -66,42 +70,6 @@ h3 { font-size: 0.95em; font-weight: 600; margin: 4px 0 6px; color: var(--vscode
 .empty { padding: 28px; text-align: center; border: 1px dashed var(--line); border-radius: var(--radius); color: var(--vscode-descriptionForeground); }
 .empty .toolbar { justify-content: center; margin-top: 10px; }
 
-/* Board */
-/* Kanban lanes are all one width, however many a board has; the board scrolls sideways. Each lane
-   scrolls on its own below a pinned heading, so the board stays within the window and its
-   scrollbar stays in reach. A fade at an edge says there are more lanes that way. */
-:root { --lane: min(288px, 82vw); }
-.board { display: flex; gap: var(--gap); overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: 10px; align-items: flex-start; }
-.board.more-right { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); }
-.board.more-left { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 36px), transparent); mask-image: linear-gradient(to left, #000 calc(100% - 36px), transparent); }
-.board.more-left.more-right { -webkit-mask-image: linear-gradient(to right, transparent, #000 36px, #000 calc(100% - 36px), transparent); mask-image: linear-gradient(to right, transparent, #000 36px, #000 calc(100% - 36px), transparent); }
-.column { flex: 0 0 var(--lane); width: var(--lane); max-height: max(320px, calc(100vh - 230px)); overflow-y: auto; scroll-snap-align: start; background: var(--vscode-sideBar-background); border: 1px solid var(--line); border-top: 3px solid var(--line); border-radius: var(--radius); padding: 0 10px 10px; min-height: 120px; }
-.column > h2 { position: sticky; top: 0; z-index: 1; margin: 0 -10px 2px; padding: 10px 10px 6px; background: var(--vscode-sideBar-background); }
-@media (max-width: 820px) { .board { scroll-snap-type: x proximity; } .column { max-height: none; } }
-
-/* A page with one board: the board takes the rest of the page's height, and its lanes run full height. */
-.home-main.fill-board { display: flex; flex-direction: column; overflow: hidden; padding-bottom: 12px; }
-.home-main.fill-board > .project, .home-main.fill-board .tracker { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.home-main.fill-board .board { flex: 1; min-height: 0; align-items: stretch; }
-.home-main.fill-board .column { max-height: none; }
-@media (max-width: 820px) {
-  .home-main.fill-board { display: block; overflow: visible; }
-  .home-main.fill-board .board { min-height: 70vh; }
-}
-.column.tone-edge-orange { border-top-color: var(--orange); }
-.column.tone-edge-blue { border-top-color: var(--blue); }
-.column > p { margin: 6px 0 0; font-size: 0.92em; }
-.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 9px 10px; margin-top: 8px; }
-.card:hover { border-color: var(--vscode-focusBorder); }
-.card.done { opacity: 0.75; }
-.card-id { font-family: var(--vscode-editor-font-family); font-size: 0.88em; color: var(--vscode-descriptionForeground); display: flex; align-items: center; }
-.card-title { margin: 3px 0 6px; font-weight: 500; word-break: break-word; }
-.card-note { display: flex; align-items: center; gap: 4px; font-size: 0.9em; color: var(--orange); margin-bottom: 6px; }
-/* A file path can be longer than a card is wide: it breaks rather than widens the card. */
-.card-note.conflict { align-items: flex-start; }
-.card-note.conflict > .codicon { margin-top: 1px; flex: none; }
-.card-note.conflict > span, .why-text.conflict { min-width: 0; overflow-wrap: break-word; }
-.tcard-conflict { margin: 6px 0 0; }
 /* Only rows of buttons are flex; a table's actions cell must stay a cell. */
 div.actions { display: flex; gap: 4px; flex-wrap: wrap; }
 .card .btn, td .btn, .step .btn, .env-card .btn { padding: 1px 7px; font-size: 0.92em; }
@@ -123,61 +91,6 @@ table.grid { width: 100%; border-collapse: collapse; }
 .table-wrap { overflow-x: auto; }
 .quiet { margin: 2px 0 0; font-size: 0.93em; }
 
-/* Environments */
-.flows { display: grid; gap: 6px; margin-bottom: 12px; }
-.flow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.flow-node { font-family: var(--vscode-editor-font-family); padding: 2px 10px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); }
-.arrow { color: var(--vscode-descriptionForeground); display: inline-flex; }
-.env-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: var(--gap); }
-.env-card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; }
-.env-card.current { border-color: var(--blue); }
-.env-head { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
-.env-card dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin: 0; font-size: 0.93em; }
-.env-card dt { color: var(--vscode-descriptionForeground); }
-.env-card dd { margin: 0; word-break: break-all; }
-.env-card .actions { margin-top: 10px; }
-
-/* Setup */
-.progress { height: 6px; border-radius: 3px; background: var(--vscode-progressBar-background, var(--line)); opacity: 0.9; margin: -4px 0 20px; overflow: hidden; }
-.progress-fill { height: 100%; background: var(--blue); }
-.steps { list-style: none; margin: 0; padding: 0; }
-.step { padding: 9px 10px; border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 6px; background: var(--card); }
-.step.attention { border-left: 3px solid var(--orange); }
-.step-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.step .detail { margin: 4px 0 0; }
-.step .why { margin: 4px 0 0; color: var(--vscode-descriptionForeground); font-size: 0.93em; }
-.step .fix { margin: 6px 0 0; padding: 6px 8px; border-radius: 3px; background: var(--vscode-textCodeBlock-background); font-family: var(--vscode-editor-font-family); font-size: 0.9em; white-space: pre-wrap; word-break: break-all; }
-.step .actions { margin-top: 8px; }
-/* Sections, in the order things are set up (D-047). Done steps read as finished: one muted line. */
-.setup-section { margin: 0 0 1px; }
-.setup-section > summary { display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 4px; cursor: pointer; list-style: none; }
-.setup-section > summary::-webkit-details-marker { display: none; }
-.setup-section > summary:hover { background: var(--vscode-list-hoverBackground); }
-.setup-section[open] > summary .tool-chev .codicon { transform: rotate(90deg); }
-.setup-section-title { font-weight: 600; }
-.setup-section.all-done > summary .setup-section-title { font-weight: 500; color: var(--vscode-descriptionForeground); }
-.setup-section > summary .done-count { background: none; color: var(--vscode-descriptionForeground); display: inline-flex; align-items: center; gap: 3px; }
-.setup-section > summary .count.tone-orange { background: none; color: var(--orange); border: 1px solid var(--orange); }
-.setup-section > .steps { padding: 2px 0 4px 22px; }
-.step.done { display: flex; align-items: center; gap: 10px; padding: 4px 10px; border-color: transparent; background: none; margin-bottom: 0; opacity: 0.6; }
-.step.done:hover, .step.done:focus-within { opacity: 0.9; }
-.step.done .status, .step.done .strong { flex: none; font-weight: 400; }
-.step.done .status { color: var(--vscode-descriptionForeground); }
-.step.done .status .codicon { color: inherit; }
-.step.done .step-line { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.step.done .step-run { flex-basis: 100%; }
-.icon-btn { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border: none; border-radius: 4px; background: none; color: var(--vscode-icon-foreground, var(--vscode-foreground)); cursor: pointer; opacity: 0; }
-.step.done:hover .icon-btn, .step.done:focus-within .icon-btn { opacity: 1; }
-.icon-btn:hover { background: var(--vscode-toolbar-hoverBackground); }
-.icon-btn:focus-visible { outline: 1px solid var(--vscode-focusBorder); opacity: 1; }
-.card-agent { display: flex; align-items: center; gap: 4px; font-size: 0.92em; margin-bottom: 6px; }
-/* A long state wraps beside its label, inside the card, instead of running past the edge. */
-.card-agent { align-items: flex-start; }
-.card-agent > .muted { white-space: nowrap; }
-.card .status { white-space: normal; min-width: 0; align-items: flex-start; overflow-wrap: anywhere; }
-.card .status .codicon { margin-top: 1px; }
-.card-where { display: flex; align-items: center; gap: 4px; font-size: 0.85em; margin-bottom: 6px; word-break: break-all; }
-
 /* Grouped tables: one heading row per group keeps every group's columns aligned. */
 .grid tr.group th { padding: 22px 8px 8px; font-size: 1.05em; font-weight: 600; color: var(--vscode-foreground); }
 .grid tbody:first-of-type tr.group th { padding-top: 14px; }
@@ -186,26 +99,6 @@ table.grid { width: 100%; border-collapse: collapse; }
 .grid tr.none:hover td { background: none; }
 .grid .status { vertical-align: middle; }
 .grid td.clip.name { max-width: 18em; }
-/* An agent's name (D-087) wraps rather than clipping, so its task and role stay in view. */
-.grid td.agent-name { min-width: 11em; max-width: 24em; overflow-wrap: anywhere; }
-.grid td.clip.mono { min-width: 9em; }
-/* Where wraps rather than clipping (GH-83): a session's own folder comes last, and a clip would lose it. It
-   breaks between words and after a slash, never inside a name, so the column is at least its longest word. */
-.grid td.where-folder { max-width: 16em; }
-.unbroken { white-space: nowrap; }
-.grid td.where-path { max-width: 22em; }
-/* A narrow tab shares the room: the session's name stops taking all that's left over (D-087), and wraps. */
-@media (max-width: 660px) { .grid th.wide { width: auto; } .grid td.agent-name { min-width: 8em; } }
-/* What the Where column shows, Folder or Full path (GH-83): right above it, outside the table, so it never
-   widens a column or scrolls sideways with it. */
-.where-bar { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
-.where-label { font-size: 0.9em; font-weight: 600; color: var(--vscode-descriptionForeground); }
-.segmented.where-view .seg { font-size: 0.88em; padding: 2px 8px; white-space: nowrap; }
-/* A narrow tab drops the least useful columns, so the row menu never scrolls out of view. Agents' names
-   are long (D-087), so Kind goes first, below 1100px, then the Model column (D-086), below 560px. */
-@media (max-width: 1100px) { .grid .kind { display: none; } }
-@media (max-width: 560px) { .grid .model { display: none; } }
-@media (max-width: 660px) { .grid .started { display: none; } }
 
 /* The row menu: a quiet icon button, like VSCode's own list actions. It sticks to the right edge, so a
    narrow tab scrolls the table under it rather than hiding it. Opaque, so text never shows through. */
@@ -217,7 +110,6 @@ table.grid { width: 100%; border-collapse: collapse; }
 .grid tr:hover .btn.menu-caret, .btn.menu-caret:focus-visible { color: var(--vscode-foreground); }
 .btn.menu-caret:hover { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
 
-/* ---------------------------------------------------------------- tracker boards (D-026) */
 .spacer { flex: 1; }
 .small { font-size: 0.88em; }
 .segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
@@ -225,176 +117,30 @@ table.grid { width: 100%; border-collapse: collapse; }
 .segmented .seg + .seg { border-left: 1px solid var(--line); }
 .segmented .seg.on { background: var(--vscode-button-secondaryBackground); font-weight: 600; }
 .segmented .seg:hover { background: var(--vscode-toolbar-hoverBackground); }
-.tracker + .tracker { margin-top: 28px; }
-.tracker-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
-.tracker-head h2 { margin: 0; }
-/* Where the board's tickets come from (D-072), right under its name. */
-.tracker-place { display: flex; align-items: baseline; gap: 6px; margin: -4px 0 10px; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
-.tracker-place > .codicon { flex: none; position: relative; top: 2px; }
-.tracker-place strong { color: var(--vscode-foreground); font-weight: 600; }
-.tracker-place + .tracker-signin { margin-top: -6px; }
-.notice.left-place { align-items: flex-start; }
-.notice.left-place > .codicon { margin-top: 2px; flex: none; min-width: 0; }
-.left-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.left-text ul { margin: 0; padding-left: 18px; }
+
 .loading { display: inline-flex; align-items: center; gap: 4px; font-size: 0.88em; font-weight: 400; }
 .notice { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; margin-bottom: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); color: var(--vscode-descriptionForeground); }
 .notice.attention { border-left: 3px solid var(--orange); color: var(--vscode-foreground); }
 .notice > span { flex: 1; min-width: 200px; }
 
-.column.done-col { opacity: 0.92; }
-.column.drop-target { outline: 2px dashed var(--vscode-focusBorder); outline-offset: -2px; }
-/* While a task is dragged, the lanes it can't go to dim, so the ones it can stand out. */
-.board.dragging-task .column:not(.can-drop) { opacity: 0.45; }
-.board.dragging-task .column.can-drop { border-style: dashed; }
-.agent-board .card[draggable="true"] { cursor: grab; }
-.card.dragging { opacity: 0.45; }
-.tcard { cursor: pointer; }
-.tcard.attention { border-left: 3px solid var(--orange); }
-.tcard.dragging { opacity: 0.45; }
 .openable:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
-.tcard-top { display: flex; align-items: center; gap: 6px; font-size: 0.88em; color: var(--vscode-descriptionForeground); }
-.tcard-type, .tcard-prio { display: inline-flex; }
-.tcard-key { font-family: var(--vscode-editor-font-family); font-size: 0.95em; color: var(--vscode-descriptionForeground); }
-.openable.tcard-key { color: var(--vscode-textLink-foreground); cursor: pointer; }
-.tcard .card-title { margin: 5px 0 6px; }
-.tcard-acc { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); font-size: 0.92em; }
-/* A Track on its way says Tracking…, and stops looking like a button to press (D-074). */
-.tcard-track:disabled, .ticket-track:disabled { cursor: default; }
-.tcard-track:disabled:hover { background: var(--vscode-button-secondaryBackground); }
-.ticket-track:disabled:hover { background: var(--vscode-button-background); }
-.card .openable.card-title { cursor: pointer; }
-.card .openable.card-title:hover { color: var(--vscode-textLink-foreground); }
 
 .avatar { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; font-size: 9.5px; font-weight: 600; letter-spacing: 0.02em; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); flex: none; }
-.labels { display: flex; gap: 4px; flex-wrap: wrap; }
-.label { display: inline-flex; align-items: center; gap: 4px; padding: 0 7px; border-radius: 10px; font-size: 0.85em; line-height: 1.6; border: 1px solid var(--line); color: var(--vscode-foreground); }
-.label-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 
-/* ---------------------------------------------------------------- a ticket's page */
-body[data-view="ticket"] { padding-top: 18px; }
-.ticket-head { padding-bottom: 14px; margin-bottom: 18px; border-bottom: 1px solid var(--line); }
 /* Long text shows its first lines; Show all opens the rest. */
 .clamped { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--lines, 4); overflow: hidden; }
 .doc.clamped { display: -webkit-box; }
 .foldable { margin-bottom: 8px; }
 .fold-toggle { margin-top: 2px; }
-.notice.why { align-items: flex-start; margin-bottom: 4px; }
-.notice.why > .codicon, .notice.recap > .codicon { margin-top: 2px; flex: none; min-width: 0; }
-.notice.recap { align-items: flex-start; margin-bottom: 4px; }
-.why-text { flex: 1; min-width: 0; color: var(--vscode-foreground); }
-.history-move { display: inline-flex; align-items: baseline; gap: 2px; flex-wrap: wrap; }
-.move-details > summary { cursor: pointer; }
-.move-reason { margin: 4px 0 2px 16px; white-space: pre-wrap; }
-.crumbs { display: flex; align-items: center; gap: 6px; font-size: 0.92em; color: var(--vscode-descriptionForeground); margin-bottom: 6px; }
-/* An agent's name (D-087): one line, clipped with … in a narrow tab, in full on hover. */
-.crumb-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.openable.crumb-name { color: var(--vscode-textLink-foreground); cursor: pointer; }
-.ticket-title { font-size: 1.65em; line-height: 1.25; margin: 0 0 10px; word-break: break-word; }
-.ticket-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.pill { display: inline-flex; align-items: center; padding: 0 8px; border-radius: 3px; font-size: 0.85em; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; line-height: 1.8; border: 1px solid var(--line); background: var(--card); color: var(--vscode-foreground); }
-.pill.tone-blue { border-color: var(--blue); color: var(--blue); }
-.pill.tone-orange { border-color: var(--orange); color: var(--orange); }
-.btn.status-btn { padding: 2px 6px 2px 2px; gap: 4px; background: transparent; }
-.btn.status-btn:hover { background: var(--vscode-toolbar-hoverBackground); }
-.chip-lg { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border-radius: 3px; border: 1px solid var(--line); font-size: 0.92em; color: var(--vscode-descriptionForeground); }
+
 .btn.small { padding: 0 6px; font-size: 0.88em; }
 
-.ticket-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; grid-template-rows: auto 1fr; gap: 0 28px; align-items: start; }
-/* Why it's stuck and its analysis come first, above the description; the side column runs beside both. */
-.ticket-top { grid-column: 1; grid-row: 1; min-width: 0; margin-bottom: 20px; }
-.ticket-main { grid-column: 1; grid-row: 2; min-width: 0; }
-.ticket-side { grid-column: 2; grid-row: 1 / span 2; }
-@media (max-width: 760px) {
-  .ticket-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; gap: 24px; }
-  .ticket-top, .ticket-main, .ticket-side { grid-column: 1; grid-row: auto; }
-  .ticket-top { margin-bottom: 0; }
-  .ticket-side { order: -1; }
-  /* An analysis waiting on you is the next step, so it comes before everything else. */
-  .ticket-top.attention { order: -2; }
-}
-.ticket-main h2, .side-panel h2, .analysis h2 { font-size: 0.95em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--vscode-descriptionForeground); }
-.ticket-main h3 { font-size: 0.95em; margin: 18px 0 8px; color: var(--vscode-foreground); }
-.side-panel { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; background: var(--card); }
-.side-panel + .side-panel { margin-top: 14px; }
-.side-panel.attention { border-left: 3px solid var(--orange); }
-.fields { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 12px; margin: 0; align-items: center; }
-.fields dt { color: var(--vscode-descriptionForeground); font-size: 0.93em; }
-.fields dd { margin: 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
-/* A long state, such as an analysis's questions, wraps inside the panel. */
-.fields dd .status { white-space: normal; align-items: flex-start; }
-.fields dd .status .codicon { margin-top: 2px; flex: none; }
-/* Its label stays beside the first line, as a stopped agent's last words can run long (D-067), and so
-   can an agent's name (D-087). */
-.fields dt:has(+ dd > .status), .fields dt:has(+ dd > .agent-name) { align-self: start; padding-top: 1px; }
-.people { display: flex; flex-direction: column; gap: 4px; }
-.person { display: inline-flex; align-items: center; gap: 6px; }
-.clip-inline { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; display: inline-block; }
-.checks { margin-top: 12px; }
-.checks h3 { font-size: 0.93em; margin: 0 0 6px; color: var(--vscode-descriptionForeground); }
-.check { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 4px 8px; align-items: center; padding: 3px 0; }
-.check-waive { padding: 0 6px; }
-.check-sum { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.side-panel .actions { margin-top: 12px; }
-.related { list-style: none; margin: 0; padding: 0; }
-.related li { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; }
-.related .rel { min-width: 90px; font-size: 0.9em; }
-
-.comment { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
-.comment .avatar { width: 26px; height: 26px; font-size: 10.5px; }
-.comment-head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
-.comment-head a.ext { color: var(--vscode-descriptionForeground); }
 .composer { margin-top: 12px; border: 1px solid var(--vscode-input-border, var(--line)); border-radius: var(--radius); background: var(--vscode-input-background); }
 .composer:focus-within { border-color: var(--vscode-focusBorder); }
 .comment-box { width: 100%; resize: vertical; min-height: 80px; border: 0; padding: 8px 10px; font: inherit; color: var(--vscode-input-foreground); background: transparent; outline: none; }
 .composer-bar { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-top: 1px solid var(--line); }
 .history { list-style: none; margin: 0; padding: 0; }
-/* The ticket's activity as a feed: a rail of icons, newest first, a heading per day. */
-.activity > .composer { margin-bottom: 6px; }
-.act-feed { list-style: none; margin: 4px 0 0; padding: 0; position: relative; }
-.act-feed::before { content: ''; position: absolute; left: 13px; top: 14px; bottom: 14px; border-left: 2px solid var(--line); }
-.act-day { position: relative; margin: 14px 0 4px 38px; font-size: 0.8em; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--vscode-descriptionForeground); }
-.act-day:first-child { margin-top: 2px; }
-.act-item { position: relative; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px; padding: 5px 0; }
-.act-icon { position: relative; z-index: 1; width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--bg, var(--vscode-editor-background)); border: 1px solid var(--line); color: var(--vscode-descriptionForeground); }
-.act-icon.tone-blue { border-color: var(--blue); color: var(--blue); }
-.act-icon.tone-orange { border-color: var(--orange); color: var(--orange); }
-.act-icon .codicon { font-size: 14px; }
-.act-avatar { border: 0; background: none; }
-.act-avatar .avatar { width: 28px; height: 28px; font-size: 10.5px; }
-.act-body { min-width: 0; }
-.act-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-height: 28px; }
-.act-line .status { font-weight: 600; }
-.act-reason { margin: 0; padding: 6px 10px; border-left: 2px solid var(--line); color: var(--vscode-descriptionForeground); }
-.act-reason-text { white-space: pre-wrap; overflow-wrap: anywhere; }
-/* Clipped text fades on its last line, so it reads as cut, not as the end. */
-.act-reason-text.clamped { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1.4em), rgba(0, 0, 0, 0.35)); mask-image: linear-gradient(to bottom, #000 calc(100% - 1.4em), rgba(0, 0, 0, 0.35)); }
-.act-body .foldable { margin-bottom: 2px; }
-.act-body .fold-toggle { margin: 2px 0 0 10px; }
-.act-comment { margin: 4px 0 2px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); }
-.act-more { margin: 4px 0 0 38px; }
-/* An update acc drafted for the ticket (D-066): read, edit, then Post or Discard. Nothing goes until a person posts it. */
-.act-drafts { display: grid; gap: 10px; margin: 4px 0 14px; }
-.act-draft { padding: 8px 10px 10px; border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: var(--radius); background: var(--card); }
-.act-draft.tone-edge-orange { border-left-color: var(--orange); }
-.act-draft.tone-edge-blue { border-left-color: var(--blue); }
-.act-draft-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-height: 24px; }
-.act-draft-head .strong { min-width: 0; overflow-wrap: anywhere; }
-.act-draft-edit { margin-top: 8px; border: 1px solid var(--vscode-input-border, var(--line)); border-radius: var(--radius); background: var(--vscode-input-background); }
-.act-draft-edit:focus-within { border-color: var(--vscode-focusBorder); }
-.act-draft-text { min-height: 60px; }
-.act-draft-text:disabled { opacity: 0.75; }
-.act-draft .composer-bar { flex-wrap: wrap; row-gap: 6px; }
-.act-draft .aq-error { margin: 8px 0 0; }
-/* A replaced draft's edit, carried over (GH-46): a note, and the newer wording to take instead. */
-.act-draft-note { display: flex; align-items: flex-start; gap: 6px; margin: 8px 0 0; font-size: 0.92em; }
-.act-draft-note .codicon { flex: none; margin-top: 2px; }
-.act-draft-note span { min-width: 0; overflow-wrap: anywhere; }
-.act-draft-newer { margin-top: 8px; padding: 6px 10px; border-left: 2px solid var(--blue); }
-.act-draft-newer-text { margin-top: 2px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--vscode-descriptionForeground); }
-.act-draft-newer-bar { display: flex; justify-content: flex-end; margin-top: 6px; }
-.draft-blocked { color: var(--orange); }
-.draft-blocked .codicon { color: var(--orange); }
+
 .history li { padding: 4px 0; display: flex; gap: 6px; flex-wrap: wrap; align-items: baseline; }
 
 /* Rich text from a ticket, drawn from a Doc: never markup from the ticket itself. */
@@ -431,39 +177,6 @@ a.ext { color: var(--vscode-textLink-foreground); text-decoration: none; cursor:
 a.ext:hover { text-decoration: underline; }
 .iconed { display: inline-flex; align-items: center; gap: 5px; }
 
-/* ---------------------------------------------------------------- the repo's GitHub identity (D-028) */
-.identity { border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); padding: 14px 16px; margin: 4px 0 18px; max-width: 760px; }
-.identity.attention { border-left: 3px solid var(--orange); }
-.id-head { display: flex; align-items: center; gap: 12px; }
-.avatar.avatar-lg { width: 40px; height: 40px; font-size: 14px; }
-.id-who { min-width: 0; }
-.id-name { display: flex; align-items: center; gap: 8px; font-size: 1.15em; }
-.chip.chip-blue { border-color: var(--blue); color: var(--blue); }
-.id-lines { display: grid; gap: 6px; margin: 12px 0 2px; }
-.id-line { display: flex; align-items: flex-start; gap: 8px; }
-.id-line > .codicon { margin-top: 2px; flex: none; }
-.id-line > span { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-.scopes { display: inline-flex; gap: 4px; flex-wrap: wrap; }
-.scope { font-family: var(--vscode-editor-font-family); font-size: 0.82em; padding: 0 6px; border-radius: 3px; border: 1px solid var(--line); color: var(--vscode-descriptionForeground); }
-.scope.scope-on { border-color: var(--blue); color: var(--blue); }
-.identity .actions { margin-top: 12px; }
-
-/* ---------------------------------------------------------------- acc's notices in Slack (GH-58) */
-.slack-badge .codicon { font-size: 18px; }
-.slack .id-line > span { min-width: 0; overflow-wrap: anywhere; }
-.slack .id-line time { margin-left: 2px; }
-.slack-kinds, .slack-hook { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 4px 12px; align-items: start; margin-top: 14px; }
-.slack-kinds > :not(.slack-label), .slack-hook > :not(.slack-label) { grid-column: 2; }
-.slack-label { grid-column: 1; grid-row: 1; padding-top: 3px; font-weight: 600; }
-.slack-kinds .ticks { grid-row: 1; }
-.slack-hook .cfield-input { grid-row: 1; }
-.slack .tick .codicon { color: var(--vscode-descriptionForeground); }
-.slack .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-@media (max-width: 620px) {
-  .slack-kinds, .slack-hook { grid-template-columns: minmax(0, 1fr); }
-  .slack-kinds > :not(.slack-label), .slack-hook > :not(.slack-label), .slack-kinds .ticks, .slack-hook .cfield-input { grid-column: 1; grid-row: auto; }
-  .slack-label { padding-top: 0; }
-}
 .acting { display: inline-flex; align-items: center; gap: 4px; font-size: 0.82em; font-weight: 400; color: var(--vscode-descriptionForeground); }
 .composer-bar .acting { font-size: inherit; }
 
@@ -508,108 +221,6 @@ body.vscode-light .logo-light, body.vscode-high-contrast-light .logo-light { dis
   .home-main { overflow: visible; padding: 18px 16px 40px; }
 }
 
-/* Overview */
-.inbox { border: 1px solid var(--line); border-radius: 8px; background: var(--card); padding: 14px 16px 6px; margin-bottom: 18px; }
-.inbox.attention { border-left: 3px solid var(--orange); }
-.inbox h2 { margin-bottom: 6px; }
-.inbox-row { display: grid; grid-template-columns: 210px minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 10px 0; border-top: 1px solid var(--line); }
-.inbox-row .status { white-space: normal; align-items: flex-start; }
-.inbox-row .status .codicon { margin-top: 2px; }
-.inbox-caption { margin: 8px 0 0; padding-top: 10px; border-top: 1px solid var(--line); font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--vscode-descriptionForeground); }
-.inbox-caption + .inbox-row { border-top: 0; }
-.inbox-row:first-of-type { border-top: 0; }
-/* A reason can name a long path with nowhere to break, such as a file autopilot couldn't merge. */
-.inbox-text { min-width: 0; overflow-wrap: anywhere; }
-.inbox-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.inbox-row .actions { justify-content: flex-end; }
-@media (max-width: 620px) { .inbox-row { grid-template-columns: minmax(0, 1fr); gap: 6px; } .inbox-row .actions { justify-content: flex-start; } }
-/* An answer In progress pointed at (D-092). */
-.question.flash { outline: 2px solid var(--vscode-focusBorder); outline-offset: 2px; }
-
-/* In progress (D-092): every job under way, a group a task, the machine on top. Its heading folds it. */
-.in-progress { border: 1px solid var(--line); border-radius: 8px; background: var(--card); padding: 10px 16px 6px; margin-bottom: 18px; }
-.in-progress h2 { margin: 0 0 4px; }
-.progress-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 2px 6px 2px 0; border: 0; border-radius: 4px; background: transparent; color: inherit; font: inherit; font-weight: 600; cursor: pointer; }
-.progress-toggle:hover { background: var(--vscode-toolbar-hoverBackground); }
-.in-progress.open .progress-toggle .tool-chev .codicon { transform: rotate(90deg); }
-.in-progress:not(.open) { padding-bottom: 8px; }
-.in-progress:not(.open) h2 { margin: 0; }
-.machine-line { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 4px 0 10px; border-bottom: 1px solid var(--line); }
-.machine-line .status { cursor: default; font-size: 0.92em; }
-.progress-group { padding: 10px 0 6px; border-top: 1px solid var(--line); }
-.machine-line + .progress-group, .in-progress h2 + .progress-group { border-top: 0; }
-.pg-head { display: flex; align-items: center; justify-content: space-between; gap: 6px 14px; flex-wrap: wrap; }
-.pg-name { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1 1 260px; }
-.pg-name .chip { margin-left: 0; flex: none; }
-.pg-name .tcard-key { flex: none; white-space: nowrap; }
-.pg-title { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pg-state { display: flex; align-items: center; gap: 12px; flex: none; }
-.pg-since { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
-.pg-since .codicon { font-size: 13px; }
-.pg-note { margin: 2px 0 0; overflow-wrap: anywhere; }
-.pg-row { display: grid; grid-template-columns: 150px minmax(240px, 1fr) minmax(0, auto); align-items: center; gap: 12px; margin: 6px 0 0 14px; padding: 6px 0 6px 12px; border-left: 2px solid var(--line); }
-.pg-row.tone-row-orange { border-left-color: var(--orange); }
-.pg-row.tone-row-blue { border-left-color: var(--blue); }
-.pg-row .status { white-space: normal; align-items: flex-start; }
-.pg-row .status .codicon { margin-top: 2px; flex: none; }
-.pg-text { min-width: 0; }
-.pg-detail { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
-.pg-meta { overflow-wrap: anywhere; }
-.pg-row .actions { justify-content: flex-end; flex-wrap: wrap; }
-.pg-row .btn.small { line-height: 1.5; white-space: nowrap; }
-.pg-text .strong + .muted { white-space: nowrap; }
-.btn.stop { color: var(--vscode-foreground); }
-/* A job that ended: a line that fades over its minute, then folds away until the next redraw removes it. */
-.pg-done { display: flex; align-items: center; gap: 8px; margin: 4px 0 0 14px; padding: 2px 0 2px 12px; border-left: 2px solid var(--line); font-size: 0.92em; max-height: 3em; overflow: hidden; animation: pg-fade 60s linear forwards; }
-.pg-done .status { flex: none; }
-.pg-done-text { min-width: 0; overflow-wrap: anywhere; color: var(--vscode-descriptionForeground); }
-@keyframes pg-fade { 0%, 60% { opacity: 1; } 95% { opacity: 0.15; max-height: 3em; } 100% { opacity: 0; max-height: 0; padding-top: 0; padding-bottom: 0; margin-top: 0; } }
-@media (max-width: 620px) {
-  .pg-row { grid-template-columns: minmax(0, 1fr); gap: 4px; margin-left: 4px; }
-  .pg-row .actions { justify-content: flex-start; }
-  .pg-done { margin-left: 4px; }
-}
-@media (max-width: 520px) { .machine-line { flex-direction: column; gap: 4px; } .pg-state { width: 100%; justify-content: space-between; } }
-.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
-.tile { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid var(--line); border-top: 3px solid var(--line); border-radius: 8px; background: var(--card); color: var(--vscode-foreground); font: inherit; text-align: left; cursor: pointer; }
-.tile:hover { border-color: var(--vscode-focusBorder); }
-.tile:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
-.tile.tone-edge-blue { border-top-color: var(--blue); }
-.tile.tone-edge-orange { border-top-color: var(--orange); }
-.tile-top { display: flex; align-items: center; gap: 6px; color: var(--vscode-descriptionForeground); font-size: 0.92em; min-width: 0; }
-.tile-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tile-value { font-size: 1.75em; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
-.two-up { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; align-items: start; }
-.panel-box { border: 1px solid var(--line); border-radius: 8px; background: var(--card); padding: 14px 16px; }
-.list-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
-.list-row:first-of-type { border-top: 0; }
-.list-text { flex: 1; min-width: 0; display: flex; gap: 8px; align-items: baseline; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; cursor: pointer; }
-.list-text:hover > span:last-child { color: var(--vscode-textLink-foreground); }
-/* The merge queue (GH-73): a place number, the task, its pull request, and what it waits on. */
-.panel-box.queue { margin-bottom: 18px; }
-.queue-list { list-style: none; margin: 0; padding: 0; }
-.queue-project { margin: 8px 0 2px; }
-.queue-off { margin: 4px 0 6px; }
-.queue-place { flex: none; min-width: 22px; height: 22px; padding: 0 4px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; border-radius: 11px; border: 1px solid var(--line); font-size: 0.9em; font-variant-numeric: tabular-nums; color: var(--vscode-descriptionForeground); }
-.queue-row:first-child .queue-place { border-color: var(--blue); color: var(--blue); }
-.queue-row .list-text > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.queue-row .chip { margin-left: 0; white-space: nowrap; }
-.queue-row .status { flex: none; white-space: nowrap; }
-/* A head held on something, in that wait's own words: as much as fits, all of it on hover. */
-.queue-row .status.queue-why { flex: 0 1 auto; min-width: 0; max-width: 45%; }
-.queue-why-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@media (max-width: 620px) {
-  .queue-row { flex-wrap: wrap; row-gap: 4px; }
-  .queue-row .list-text { flex-basis: calc(100% - 40px); }
-  .queue-row .chip { margin-left: 32px; }
-  .queue-row .status.queue-why { max-width: calc(100% - 110px); }
-}
-.feed { list-style: none; margin: 4px 0 0; padding: 0; position: relative; }
-.feed li { display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 10px; padding: 6px 0; position: relative; }
-.feed li::before { content: ''; position: absolute; left: 4px; top: 22px; bottom: -6px; width: 1px; background: var(--line); }
-.feed li:last-child::before { display: none; }
-.feed-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 6px; background: var(--card); border: 2px solid var(--vscode-descriptionForeground); }
-
 /* ---------------------------------------------------------------- terminal-free work (D-030) */
 
 /* The page's column: the section, with the output panel under it while there's output. */
@@ -625,282 +236,6 @@ body.vscode-light .logo-light, body.vscode-high-contrast-light .logo-light { dis
 .text-input:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
 .text-input::placeholder { color: var(--vscode-input-placeholderForeground, var(--vscode-descriptionForeground)); }
 
-/* An agent's question. Orange says it needs you; the words say so too. */
-.question { border: 1px solid var(--line); border-left: 3px solid var(--orange); border-radius: var(--radius); background: var(--vscode-editor-background); padding: 10px 12px; margin: 8px 0 10px; }
-.question.sent { opacity: 0.7; border-left-color: var(--blue); }
-.q-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
-.q-head time { margin-left: auto; font-size: 0.88em; white-space: nowrap; }
-.q-who { display: flex; align-items: baseline; gap: 5px; min-width: 0; flex-wrap: wrap; }
-.q-who .codicon { align-self: center; }
-.q-detail { margin: 0 0 6px; color: var(--vscode-descriptionForeground); }
-.q-plan { white-space: pre-wrap; color: var(--vscode-foreground); max-height: 240px; overflow: auto; }
-.q-code { margin: 0 0 8px; padding: 8px 10px; border-radius: 4px; background: var(--vscode-textCodeBlock-background); font-family: var(--vscode-editor-font-family); font-size: 0.92em; white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto; }
-.q-actions { margin-top: 4px; align-items: center; }
-.q-aside { display: inline-flex; gap: 2px; margin-left: auto; }
-.q-aside .btn { white-space: nowrap; }
-.q-aside-group { display: inline-flex; gap: 2px; }
-.q-deny { display: flex; flex-direction: column; gap: 8px; align-items: stretch; margin-top: 6px; }
-.q-deny .actions { justify-content: flex-start; }
-.q-pending { display: flex; align-items: center; gap: 6px; }
-.q-words { width: 100%; resize: vertical; font: inherit; }
-.q-words.mono { font-family: var(--vscode-editor-font-family); font-size: 0.92em; }
-.q-choices { list-style: none; margin: 4px 0 6px; padding: 0; display: grid; gap: 4px; max-width: 760px; }
-.q-choice { display: flex; align-items: center; gap: 8px; width: 100%; height: 100%; padding: 5px 10px; text-align: left; border-radius: 5px; cursor: pointer; font: inherit; color: var(--vscode-foreground); background: transparent; border: 1px solid var(--line); }
-.q-choice:hover, .q-choice:focus-visible { background: var(--vscode-list-hoverBackground); border-color: var(--vscode-focusBorder); }
-.q-choice.primary { border-color: var(--vscode-button-background); }
-.q-choice .codicon { flex: none; }
-.q-rule { font-family: var(--vscode-editor-font-family); font-size: 0.9em; padding: 0 4px; border-radius: 3px; background: var(--vscode-textCodeBlock-background); }
-.q-num { flex: none; width: 18px; height: 18px; margin-top: 1px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.8em; font-weight: 600; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
-.q-choice.primary .q-num { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
-.q-choice-text { min-width: 0; overflow-wrap: anywhere; }
-.q-sending { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 0.92em; }
-.q-set { border: 0; margin: 4px 0 10px; padding: 0; min-width: 0; }
-.q-set legend { display: flex; align-items: center; gap: 6px; padding: 0; margin-bottom: 6px; font-weight: 600; }
-.q-chip { margin-left: 0; }
-.q-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 6px; margin-bottom: 6px; }
-.q-option { display: flex; align-items: flex-start; gap: 8px; padding: 7px 10px; text-align: left; border-radius: 5px; cursor: pointer; font: inherit; color: var(--vscode-foreground); background: var(--card); border: 1px solid var(--line); }
-.q-option:hover { border-color: var(--vscode-focusBorder); }
-.q-option.on { border-color: var(--blue); box-shadow: inset 0 0 0 1px var(--blue); }
-.q-option .codicon { margin-top: 2px; flex: none; }
-.q-option-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.q-set .text-input { width: 100%; }
-.inbox .question { margin: 8px 0 12px; }
-
-/* A setup step's fix while it runs. */
-.step-run { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0 2px; padding: 5px 8px; border-radius: 4px; background: var(--vscode-textCodeBlock-background); }
-.step-run-cmd { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-/* The output panel: under the section, like VSCode's own panel. */
-.dock { flex: none; border-top: 1px solid var(--line); background: var(--vscode-sideBar-background); display: flex; flex-direction: column; max-height: 46vh; }
-.dock.asking { box-shadow: inset 0 3px 0 var(--orange); }
-.dock-bar { display: flex; align-items: center; gap: 4px; padding: 4px 10px 4px 6px; min-height: 34px; }
-.dock-title { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 0 1 auto; max-width: 70%; padding: 3px 6px; border: 0; border-radius: 4px; background: transparent; color: var(--vscode-foreground); font: inherit; cursor: pointer; }
-.dock-title:hover { background: var(--vscode-toolbar-hoverBackground); }
-.dock-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dock-last { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dock-count { white-space: nowrap; margin-right: 4px; }
-.dock-bar .btn.icon-only { flex: none; }
-.dock-pick { max-width: 220px; padding: 2px 4px; font: inherit; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--line)); border-radius: 3px; }
-.dock-cmd { padding: 0 14px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dock-out { margin: 0; padding: 8px 14px 10px; flex: 1; min-height: 120px; overflow: auto; font-family: var(--vscode-editor-font-family); font-size: 0.9em; line-height: 1.5; white-space: pre-wrap; word-break: break-word; background: var(--vscode-editor-background); border-top: 1px solid var(--line); }
-.dock-out:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
-.dock-ask { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; border-top: 1px solid var(--line); background: var(--card); }
-.dock-ask-text { min-width: 0; overflow-wrap: anywhere; }
-@media (max-width: 820px) { .dock { position: sticky; bottom: 0; z-index: 3; } }
-@media (max-width: 560px) { .dock-title { max-width: none; flex: 1; } .dock-pick, .dock-count { display: none; } .dock-title .status { display: none; } }
-
-/* History (D-037): its own scrolling box, newest first, with filters. */
-.history-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
-.history-head h2 { margin: 0; }
-.history-filters { flex-wrap: wrap; }
-.history-filters .seg { font-size: 0.88em; padding: 2px 8px; white-space: nowrap; }
-.panel-box.history { margin-top: 18px; }
-.history-line { display: flex; align-items: baseline; gap: 4px; min-width: 0; flex-wrap: wrap; }
-.history-line > strong, .history-line > span { flex: none; white-space: nowrap; }
-.history-line .tool-code { margin-left: 6px; flex: 0 1 auto; min-width: 0; max-width: 100%; }
-.history-meta { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.history-meta .sep { margin: 0 2px; }
-.history-feed { max-height: min(560px, 60vh); overflow-y: auto; overscroll-behavior: contain; margin: 0; padding-right: 4px; }
-.history-feed:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
-.feed-icon { flex: none; display: inline-flex; margin-top: 2px; }
-.feed-icon.tone-neutral { color: var(--vscode-descriptionForeground); }
-.history-item { min-width: 0; flex: 1; }
-.history-item > summary { cursor: pointer; list-style: none; }
-.history-item > summary::-webkit-details-marker { display: none; }
-.history-item > summary:hover { color: var(--vscode-textLink-foreground); }
-.history-body { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin: 6px 0 4px; }
-.history-body .q-code, .history-body .history-out { margin: 0; width: 100%; max-height: 220px; }
-.history-detail { white-space: pre-wrap; padding: 6px 10px; border-left: 3px solid var(--line); color: var(--vscode-foreground); }
-/* A step autopilot took (D-064): what it did on one line, and why under it, two lines at most. */
-.history-step { min-width: 0; }
-.history-note { --lines: 2; margin-top: 2px; overflow-wrap: anywhere; }
-.entry.decision { margin: 10px 0 10px 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); }
-.entry.decision .entry-who .codicon { color: var(--blue); }
-.decision-body { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; margin-left: 22px; }
-.decision-body .q-code { margin: 0; width: 100%; }
-
-/* How builders and reviewers run (D-036): model, effort and where each is set. */
-.agent-settings { border: 1px solid var(--line); border-radius: 8px; background: var(--card); padding: 12px 16px 8px; margin-bottom: 18px; }
-.agent-settings h2 { margin-bottom: 4px; }
-.setting-row { display: grid; grid-template-columns: 150px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
-.agent-settings h2 + .setting-row { border-top: 0; }
-.setting-name { display: inline-flex; align-items: center; gap: 6px; }
-.setting-parts { display: flex; flex-wrap: wrap; gap: 4px 18px; min-width: 0; }
-.setting-part { white-space: nowrap; }
-.setting-meaning { min-width: 0; }
-.setting-billing { padding: 8px 0 4px; border-top: 1px solid var(--line); }
-@media (max-width: 620px) { .setting-row { grid-template-columns: minmax(0, 1fr) auto; } .setting-parts { grid-column: 1 / -1; grid-row: 2; } }
-
-/* An agent's page: its timeline, newest at the bottom, like a chat. */
-/* The agent's page fits the window: its heading stays, and the timeline scrolls in its own box. */
-body[data-view="agent"] { padding: 14px 24px 0; height: 100vh; overflow: hidden; }
-body[data-view="agent"] #app { display: flex; flex-direction: column; height: 100%; min-height: 0; max-width: 1100px; margin: 0 auto; }
-body[data-view="agent"] #app > * { flex: none; }
-body[data-view="agent"] #app > .timeline { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 4px 24px 0; }
-body[data-view="agent"] .agent-head { margin-bottom: 10px; padding-bottom: 10px; }
-body[data-view="agent"] .agent-head .ticket-title { font-size: 1.35em; margin-bottom: 4px; }
-body[data-view="agent"] .agent-asks { max-height: 50vh; overflow-y: auto; }
-.entry.earlier { margin: 4px 0; }
-.steps-details > summary { list-style: none; cursor: pointer; }
-.steps-details > summary::-webkit-details-marker { display: none; }
-.steps-details > summary:hover { background: var(--vscode-list-hoverBackground); color: var(--vscode-foreground); }
-.steps-details[open] > summary .tool-chev .codicon { transform: rotate(90deg); }
-.steps-list { list-style: none; margin: 0; padding: 0 0 0 12px; }
-.agent-head .ticket-bar { flex-wrap: wrap; row-gap: 8px; margin-top: 10px; }
-.agent-facts { display: flex; align-items: center; flex-wrap: wrap; margin-top: 4px; }
-.agent-facts .sep { margin: 0 6px; }
-.agent-asks { margin-bottom: 14px; }
-.notice.recap { border-left: 3px solid var(--blue); color: var(--vscode-foreground); }
-/* A task that waits for other tasks' files (D-093): blue, as waiting is. */
-.notice.waits { border-left: 3px solid var(--blue); color: var(--vscode-foreground); }
-.timeline { list-style: none; margin: 0; padding: 0; }
-.entry { margin: 0; }
-.entry.say, .entry.prompt { margin: 14px 0 8px; }
-.entry.say .doc, .entry.prompt .doc { margin-left: 22px; }
-.entry.say .doc > :last-child, .entry.prompt .doc > :last-child { margin-bottom: 0; }
-.entry-who { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
-.entry-who time { font-size: 0.88em; }
-.entry.prompt > .entry-who .codicon, .entry.prompt summary .codicon { color: var(--blue); }
-.prompt-details { border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); padding: 6px 10px; }
-.prompt-details > summary { cursor: pointer; display: flex; align-items: center; gap: 6px; }
-.prompt-details[open] > summary { margin-bottom: 8px; }
-.entry.tool { margin: 2px 0 2px 8px; }
-.tool-line { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 3px 8px; border-radius: 4px; color: var(--vscode-descriptionForeground); }
-.tool-details > summary { list-style: none; cursor: pointer; }
-.tool-chev { width: 14px; flex: none; display: inline-flex; }
-.tool-chev .codicon { font-size: 13px; transition: transform 0.12s; }
-.tool-details[open] > summary .tool-chev .codicon { transform: rotate(90deg); }
-.tool-details > summary::-webkit-details-marker { display: none; }
-.tool-details > summary:hover { background: var(--vscode-list-hoverBackground); color: var(--vscode-foreground); }
-.tool-details[open] > summary { color: var(--vscode-foreground); }
-.tool-title { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tool-code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--vscode-editor-font-family); font-size: 0.88em; padding: 0 5px; border-radius: 3px; background: var(--vscode-textCodeBlock-background); }
-.tool.failed .tool-line { color: var(--vscode-foreground); }
-.tool-pre { margin: 4px 0 6px 50px; padding: 8px 10px; border-radius: 4px; background: var(--vscode-textCodeBlock-background); font-family: var(--vscode-editor-font-family); font-size: 0.88em; white-space: pre-wrap; word-break: break-word; max-height: 360px; overflow: auto; }
-.tool-pre.result.failed { border-left: 3px solid var(--orange); }
-.tool-details > .muted.small { margin: 0 0 6px 50px; }
-.entry.live { display: flex; align-items: center; gap: 8px; margin: 14px 0 0; padding: 8px 10px; border-top: 1px solid var(--line); }
-@media (max-width: 620px) {
-  body[data-view="agent"] { padding: 14px 14px 32px; }
-  .entry.tool, .entry.say .doc, .entry.prompt .doc { margin-left: 0; }
-  .tool-pre { margin-left: 0; }
-  .tool-title { max-width: none; flex: 1; }
-  .tool-code { display: none; }
-}
-
-/* A task's analysis (D-052): the verdict in words, the summary, its questions, then the rest folded. */
-.analysis { border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: var(--radius); background: var(--card); padding: 10px 14px 6px; }
-.analysis.tone-edge-orange { border-left-color: var(--orange); }
-.analysis.tone-edge-blue { border-left-color: var(--blue); }
-.an-head { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; margin-bottom: 6px; }
-.an-head h2 { margin: 0; }
-.an-head .status { white-space: normal; }
-.an-head time { font-size: 0.88em; white-space: nowrap; }
-.an-size { margin-left: 0; }
-.an-note { margin: 0 0 8px; }
-.an-summary { margin: 0; }
-.an-split { margin: 8px 0 4px; }
-.an-list { margin: 4px 0 2px; padding-left: 22px; }
-.an-list li { margin: 3px 0; overflow-wrap: anywhere; }
-.an-questions { margin-top: 4px; }
-.an-actions { margin: 8px 0 6px; }
-.an-folds { margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--line); }
-.an-fold > summary { display: flex; align-items: center; gap: 6px; padding: 3px 4px; border-radius: 4px; cursor: pointer; list-style: none; }
-.an-fold > summary::-webkit-details-marker { display: none; }
-.an-fold > summary:hover { background: var(--vscode-list-hoverBackground); }
-.an-fold[open] > summary .tool-chev .codicon { transform: rotate(90deg); }
-.an-fold > .an-list { margin: 2px 0 8px 12px; }
-.an-source { font-size: 0.85em; overflow-wrap: anywhere; }
-.chip.an-change { margin: 0 6px 0 0; }
-.an-path { overflow-wrap: anywhere; }
-
-/* One of its questions: the suggestion in one click, or your own words. */
-.aq { border-top: 1px solid var(--line); padding: 10px 0 8px; }
-.an-questions > .aq:first-child, .inbox-analysis > .aq:first-child { border-top: 0; padding-top: 4px; }
-.aq-q { display: flex; align-items: baseline; gap: 8px; }
-.aq-q .strong { min-width: 0; overflow-wrap: anywhere; }
-.aq-id { flex: none; padding: 0 5px; border-radius: 4px; font-size: 0.8em; font-weight: 600; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
-.aq-why { margin-top: 2px; overflow-wrap: anywhere; }
-.aq-suggest { display: flex; align-items: flex-start; gap: 8px; width: 100%; margin: 8px 0 6px; padding: 6px 10px; text-align: left; border-radius: 5px; cursor: pointer; font: inherit; color: var(--vscode-foreground); background: var(--vscode-editor-background); border: 1px solid var(--line); }
-.aq-suggest:hover, .aq-suggest:focus-visible { background: var(--vscode-list-hoverBackground); border-color: var(--vscode-focusBorder); }
-.aq-suggest .codicon { flex: none; margin-top: 2px; }
-.aq-suggest-text { min-width: 0; overflow-wrap: anywhere; }
-.aq-own { display: flex; gap: 6px; align-items: center; }
-.aq-own .text-input { min-width: 0; }
-.aq-own .btn { flex: none; }
-.aq.sent { opacity: 0.75; }
-.aq .q-sending { margin-top: 8px; }
-.aq-error { display: flex; align-items: flex-start; gap: 6px; margin: 8px 0 6px; font-size: 0.92em; color: var(--orange); }
-.aq-error .codicon { flex: none; margin-top: 2px; }
-.aq-error span { min-width: 0; overflow-wrap: anywhere; }
-
-/* On the Overview, a task's questions sit under its row, in line with its words. */
-.inbox-analysis { margin: -6px 0 8px 224px; }
-@media (max-width: 620px) { .inbox-analysis { margin-left: 0; } }
-/* So does an update's text, two lines then Show all, and who it posts as (D-066). */
-.inbox-update { margin: -6px 0 10px 224px; }
-.inbox-update-text { padding: 2px 10px; border-left: 2px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--vscode-descriptionForeground); }
-.inbox-update .foldable { margin-bottom: 4px; }
-.inbox-update .fold-toggle { margin: 2px 0 0 10px; }
-.inbox-update > .acting { display: flex; margin-left: 10px; }
-.inbox-update .aq-error { margin: 6px 0 0 10px; }
-@media (max-width: 620px) { .inbox-update { margin-left: 0; } }
-/* Whether one of its questions went to the client, or a button to draft it. */
-.aq-client { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 6px; font-size: 0.92em; }
-.aq-client .aq-error { margin: 0; }
-/* Writing to an agent from its page (D-060): under the timeline, always in view. */
-.agent-reply { flex: none; margin-top: 10px; }
-.agent-reply .reply-box { min-height: 56px; }
-.agent-reply .reply-box:disabled { opacity: 0.6; cursor: not-allowed; }
-.agent-reply .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.agent-reply .reply-why { display: inline-flex; align-items: center; gap: 4px; }
-/* A card's actions, intentionally (D-062): one next step in its footer, the rest behind ⋯ in its corner. */
-.card { position: relative; }
-.card-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); min-height: 26px; }
-.card-meta { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; flex-wrap: wrap; }
-.card-meta .card-where { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; word-break: normal; }
-.card-link { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; color: var(--vscode-textLink-foreground); font: inherit; font-size: 0.85em; cursor: pointer; }
-.card-link:hover { text-decoration: underline; }
-.card-link:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
-.card-foot > .btn { flex: none; }
-.card .card-id { padding-right: 26px; }
-.more { position: absolute; top: 6px; right: 6px; }
-.more-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--vscode-descriptionForeground); cursor: pointer; }
-.more-btn:hover, .more-btn[aria-expanded="true"] { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
-.more-btn:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
-.more-menu { position: absolute; top: 26px; right: 0; z-index: 20; min-width: 180px; padding: 4px; border: 1px solid var(--vscode-menu-border, var(--line)); border-radius: 6px; background: var(--vscode-menu-background, var(--card)); color: var(--vscode-menu-foreground, var(--vscode-foreground)); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28); }
-.more-menu[hidden] { display: none; }
-.more-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 8px; border: 0; border-radius: 4px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; white-space: nowrap; }
-.more-item:hover, .more-item:focus-visible { background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground)); color: var(--vscode-menu-selectionForeground, inherit); outline: none; }
-.more-item.danger { color: var(--orange); }
-.more-sep { height: 1px; margin: 4px 2px; background: var(--line); }
-
-
-/* ---------------------------------------------------------------- the Connect page (GH-51) */
-
-/* One tracker's site, sign-in, place and board. A label beside each field, and what's wrong with it right
-   under it: orange with a warning icon and words, never colour alone. Labels go above below 620 px. */
-.connect { max-width: 820px; }
-.connect h1 { display: flex; align-items: center; gap: 8px; }
-.connect h1 .codicon { font-size: 20px; }
-.connect-choose { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 14px; }
-.connect-choose .segmented { flex-wrap: wrap; max-width: 100%; }
-.connect-step { border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); padding: 12px 14px 4px; margin: 0 0 14px; }
-.connect-step h2 { margin-bottom: 10px; }
-.step-n { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; font-size: 0.85em; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
-.connect-hint { margin: 0 0 10px; }
-.cfield { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 4px 14px; align-items: start; margin: 0 0 12px; }
-.cfield-label { padding-top: 4px; font-weight: 600; }
-.cfield-control { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.cfield-input { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.cfield-input .text-input { min-width: 0; flex: 1 1 220px; }
-.cfield-input .btn { flex: none; }
-.cfield-hint { margin: 0; }
-.cfield-status { display: flex; align-items: flex-start; gap: 5px; overflow-wrap: anywhere; }
-.cfield-status .codicon { flex: none; margin-top: 2px; }
-.cfield-status.tone-neutral { color: var(--vscode-descriptionForeground); }
-.cfield-fixed { display: inline-flex; align-items: center; gap: 6px; padding-top: 4px; overflow-wrap: anywhere; }
-.cfield-fixed .codicon { color: var(--vscode-descriptionForeground); }
 .text-input[aria-invalid="true"] { border-color: var(--orange); }
 .select-input {
   width: 100%; padding: 4px 6px; border-radius: 3px; font: inherit;
@@ -913,21 +248,3 @@ body[data-view="agent"] .agent-asks { max-height: 50vh; overflow-y: auto; }
 .tick { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px 2px 5px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; overflow-wrap: anywhere; }
 .tick.on { border-color: var(--blue); }
 .tick input { margin: 0; accent-color: var(--blue); }
-/* Use this sign-in for every project on the site (GH-79): under the fields, in line with them. */
-.connect-share { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 0 0 12px 164px; }
-.connect-share .tick { border-radius: var(--radius); }
-.connect-share .cfield-hint { display: flex; align-items: flex-start; gap: 2px; }
-.connect-share .cfield-hint .codicon { flex: none; margin-top: 2px; }
-.connect-test { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; }
-.connect-test .btn { flex: none; }
-.connect-test .cfield-status { flex: 1 1 200px; padding-top: 3px; }
-.connect-test .status { white-space: normal; padding-top: 3px; }
-.connect .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.connect-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
-.connect-foot .status { white-space: normal; }
-@media (max-width: 620px) {
-  .cfield { grid-template-columns: minmax(0, 1fr); }
-  .cfield-label { padding-top: 0; }
-  .connect-share { margin-left: 0; }
-  .connect-step { padding: 10px 10px 2px; }
-}

@@ -76,7 +76,9 @@ await build({
   logLevel: 'warning',
 });
 mkdirSync(join(ext, 'dist', 'webview', 'codicons'), { recursive: true });
-copyFileSync(join(ext, 'webview', 'styles.css'), join(ext, 'dist', 'webview', 'styles.css'));
+// What every area shares, then each area's own styles (GH-95), as one file.
+const { pageStyles } = await import('../extension/scripts/styles.ts');
+writeFileSync(join(ext, 'dist', 'webview', 'styles.css'), pageStyles());
 for (const f of ['codicon.css', 'codicon.ttf']) copyFileSync(join(root, 'node_modules', '@vscode', 'codicons', 'dist', f), join(ext, 'dist', 'webview', 'codicons', f));
 // Editor tabs show their icon as a plain image, so currentColor comes out black. Give them a fixed
 // colour per theme: white on dark tab bars, dark grey on light ones.

@@ -1,0 +1,16 @@
+/* ---------------------------------------------------------------- acc's notices in Slack (GH-58) */
+.slack-badge .codicon { font-size: 18px; }
+.slack .id-line > span { min-width: 0; overflow-wrap: anywhere; }
+.slack .id-line time { margin-left: 2px; }
+.slack-kinds, .slack-hook { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 4px 12px; align-items: start; margin-top: 14px; }
+.slack-kinds > :not(.slack-label), .slack-hook > :not(.slack-label) { grid-column: 2; }
+.slack-label { grid-column: 1; grid-row: 1; padding-top: 3px; font-weight: 600; }
+.slack-kinds .ticks { grid-row: 1; }
+.slack-hook .cfield-input { grid-row: 1; }
+.slack .tick .codicon { color: var(--vscode-descriptionForeground); }
+.slack .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+@media (max-width: 620px) {
+  .slack-kinds, .slack-hook { grid-template-columns: minmax(0, 1fr); }
+  .slack-kinds > :not(.slack-label), .slack-hook > :not(.slack-label), .slack-kinds .ticks, .slack-hook .cfield-input { grid-column: 1; grid-row: auto; }
+  .slack-label { padding-top: 0; }
+}
