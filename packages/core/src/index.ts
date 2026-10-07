@@ -20,6 +20,7 @@ export * from './autopilot.ts';
 export * from './refresh.ts';
 export * from './checks.ts';
 export * from './sync.ts';
+export * from './closing.ts';
 export * from './promote.ts';
 export * from './deploy.ts';
 export * from './carried.ts';

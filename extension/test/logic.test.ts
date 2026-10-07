@@ -511,3 +511,9 @@ test('acc sync runs for a project while a task\'s pull request or a promotion ta
   assert.equal(followsPullRequests({ pr: pr('closed') }), false);
   assert.equal(followsPullRequests({ pr: null }), false);
 });
+
+test('acc sync keeps running while a merged task\'s issue waits to close, so a failed close is tried again (D-082)', () => {
+  const merged = { number: 3, url: 'https://github.com/o/r/pull/3', state: 'merged' };
+  assert.equal(followsPullRequests({ pr: merged, closing: true }), true);
+  assert.equal(followsPullRequests({ pr: merged, closing: false }), false, 'closed, or left as it was: nothing to follow');
+});

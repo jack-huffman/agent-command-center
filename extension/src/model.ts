@@ -1858,7 +1858,7 @@ export type TicketAction = (typeof TICKET_ACTIONS)[number];
  */
 export function ticketActionRefusal(action: string, edits: boolean): string | null {
   if (edits || !['status', 'assign', 'labels'].includes(action)) return null;
-  return 'This tracker\'s tickets are read-only here. Set "edits": true on it in .acc/config.json to change status, assignee and labels.';
+  return 'This tracker\'s tickets are read-only here. Set "edits": true on it in .acc/config.json to change status, assignee and labels. On GitHub, acc sync then also closes a task\'s issue when its work merges.';
 }
 
 export type FromWebview =

@@ -107,6 +107,7 @@ export function activate(context: vscode.ExtensionContext): void {
     boards: { everyMs: 120_000, fn: () => trackers.loadBoards() },
     // Open pull requests (D-033): merged → done, closed → blocked, failing checks or conflicts → needs you.
     // An open promotion too: its merge drafts each ticket's "now in" update (D-075).
+    // And an issue acc hasn't closed yet, so a failed close is tried again (D-082).
     prs: { everyMs: 120_000, hiddenMs: 300_000, fn: async () => {
       for (const p of hub.projects) {
         if (!hub.taskRows(p.root).some(followsPullRequests)) continue;

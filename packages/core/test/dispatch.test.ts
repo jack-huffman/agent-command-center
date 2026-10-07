@@ -284,3 +284,9 @@ test('dispatch refuses before touching anything when Claude Code doesn\'t trust 
   assert.equal(claude.calls().length, 0, 'claude was never called');
   assert.equal(tasksOf(repo)[0]!.state, 'todo');
 });
+
+test('a builder can\'t close the issues of tasks already done: its settings deny acc sync --close-done, as guardBash and the CLI refuse it (D-082)', () => {
+  const s = builderSettings({ id: 'GH-9' } as never, parseConfig(GENERIC_CONFIG).config!, '/acc/bin', '/usr/bin') as { permissions: { allow: string[]; deny: string[] } };
+  assert.ok(s.permissions.deny.includes('Bash(acc sync --close-done*)'));
+  assert.ok(!s.permissions.allow.some((a) => a.startsWith('Bash(acc sync')), 'nor is a plain sync pre-approved');
+});

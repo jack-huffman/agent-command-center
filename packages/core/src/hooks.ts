@@ -149,6 +149,10 @@ export function guardBash(b: Builder, line: string): string | null {
     if (cmd === 'acc' && sub && (PERSON_ONLY_ACC.has(sub) || (sub === 'gate' && rest[0] === 'waive'))) {
       return `acc ${sub}${sub === 'gate' ? ' waive' : ''} is a person's. A builder finishes with acc done, or acc block "<what you need>".`;
     }
+    // Closing the issues of tasks already done is a person's tidy (D-082); a plain acc sync isn't.
+    if (cmd === 'acc' && sub === 'sync' && rest.some((a) => a === '--close-done' || a.startsWith('--close-done='))) {
+      return 'acc sync --close-done is a person\'s: it closes GitHub issues. A builder finishes with acc done, or acc block "<what you need>".';
+    }
   }
   return null;
 }

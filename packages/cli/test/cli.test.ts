@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSy
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { DISPLAY, transcriptDir } from '../../core/src/index.ts';
+import { DISPLAY, mutate, parseConfig, readLedger, repoPaths, run, transcriptDir, upsertTasks } from '../../core/src/index.ts';
 import { GENERIC_CONFIG, gh41Lines, makeRepo, tempDir } from '../../core/test/support.ts';
 
 const MAIN = fileURLToPath(new URL('../src/main.ts', import.meta.url));
@@ -235,6 +235,100 @@ test('only a person reads, posts or discards a ticket\'s updates: never a builde
     assert.match(autopilot.err, /Only a person can/);
   }
   assert.equal(JSON.parse(readFileSync(join(dir, '.git', 'acc', 'updates', 'GH-3.1.json'), 'utf8')).state, 'draft', 'still a draft');
+});
+
+// ---------------------------------------------------------------- closing issues (D-082)
+
+/** A repo whose GitHub tracker says "edits", with GH-3 and GH-4 done before acc closed issues, and a gh that records each close. */
+function doneRepo() {
+  const raw = { ...GENERIC_CONFIG, github: { repo: 'o/r', account: 'me' }, trackers: [{ kind: 'github', edits: true }] };
+  const dir = repoWithConfig(raw);
+  const config = parseConfig(raw).config!;
+  const now = () => new Date('2026-10-06T12:00:00Z');
+  mutate(repoPaths(dir, run), now, (l, emit) => {
+    upsertTasks(l, config, [3, 4].map((n) => ({ source: { kind: 'github' as const, key: `#${n}`, url: `https://github.com/o/r/issues/${n}` }, title: `Issue ${n}` })), 'human', 'human:test', emit, now);
+    for (const t of l.tasks) {
+      const n = Number(t.id.slice(3)) + 2;
+      t.state = 'done';
+      t.pr = { number: n, url: `https://github.com/o/r/pull/${n}`, state: 'merged' };
+    }
+  });
+  const bin = join(dir, '.fakebin');
+  mkdirSync(bin);
+  writeFileSync(join(bin, 'gh'), `#!/bin/sh
+case "$1 $2" in
+  "auth token") [ "$4" = "me" ] && echo tok-me || exit 1 ;;
+  "issue view") [ "$3" = 3 ] && echo '{"state": "OPEN", "stateReason": null, "url": "https://github.com/o/r/issues/3"}' || echo '{"state": "CLOSED", "stateReason": "COMPLETED", "url": "https://github.com/o/r/issues/4"}' ;;
+  "issue close") [ "$GH_TOKEN" = "tok-me" ] || { echo "wrong account" >&2; exit 1; }; echo "$@" >> "${dir}/closed" ;;
+  *) exit 1 ;;
+esac
+`);
+  chmodSync(join(bin, 'gh'), 0o755);
+  return { dir, env: { PATH: `${bin}:${process.env.PATH}` }, ledger: repoPaths(dir, run).ledger };
+}
+
+test('acc sync --close-done closes the issues of tasks already done, listing each; --plan only lists them, and a second run does nothing', () => {
+  const { dir, env, ledger } = doneRepo();
+  assert.equal(acc(dir, ['sync', '--plan'], undefined, env).code, 2, '--plan goes with --close-done');
+  const seq = readLedger(ledger).seq;
+  const plan = acc(dir, ['sync', '--close-done', '--plan'], undefined, env);
+  assert.equal(plan.code, 0, plan.err);
+  assert.equal(plan.out, [
+    'What acc sync --close-done would do (nothing is changed):',
+    '  GH-3 (pull request #5): would close issue #3',
+    '  GH-4 (pull request #6): would leave issue #4 as it is: it was already closed',
+    'Close them with acc sync --close-done.',
+    '',
+  ].join('\n'));
+  assert.ok(!existsSync(join(dir, 'closed')), '--plan closes nothing');
+  assert.equal(readLedger(ledger).seq, seq, 'and writes nothing');
+
+  const r = acc(dir, ['sync', '--close-done'], undefined, env);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(r.out, ['The issues of tasks already done:', '  GH-3 (pull request #5): closed issue #3', '  GH-4 (pull request #6): left issue #4 as it is: it was already closed', ''].join('\n'));
+  assert.equal(readFileSync(join(dir, 'closed'), 'utf8'), 'issue close 3 -R o/r --reason completed --comment Done: pull request #5 merged into main.\n', 'as the repo\'s account');
+  const tasks = readLedger(ledger).tasks;
+  assert.deepEqual(tasks.map((t) => [t.id, t.pr?.issue?.state, t.pr?.issue?.reason]), [['GH-3', 'closed', undefined], ['GH-4', 'left', 'it was already closed']]);
+
+  const again = acc(dir, ['sync', '--close-done', '--json'], undefined, env);
+  assert.deepEqual(again.json(), { checked: 0, changes: [], closeDone: [] }, 'a second run does nothing');
+  assert.match(acc(dir, ['sync', '--close-done'], undefined, env).out, /No done task's issue is waiting to close\./);
+});
+
+test('acc sync --close-done --json carries each outcome', () => {
+  const { dir, env } = doneRepo();
+  const r = acc(dir, ['sync', '--close-done', '--json'], undefined, env);
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual(r.json().closeDone, [
+    { task: 'GH-3', key: '#3', pr: 5, outcome: 'closed' },
+    { task: 'GH-4', key: '#4', pr: 6, outcome: 'left', reason: 'it was already closed' },
+  ]);
+});
+
+test('only a person runs acc sync --close-done: never a builder, reviewer, analyst or autopilot', () => {
+  const { dir, env, ledger } = doneRepo();
+  const seq = readLedger(ledger).seq;
+  for (const args of [['sync', '--close-done'], ['sync', '--close-done', '--plan']]) {
+    for (const role of ['builder', 'reviewer', 'analyst']) {
+      const r = acc(dir, args, undefined, { ...env, ACC_ROLE: role, ACC_TASK: 'GH-3' });
+      assert.equal(r.code, 1, `${role}: ${args.join(' ')}`);
+      assert.match(r.err, new RegExp(`An? ${role} can't close the issues of tasks already done`), `${role}: ${args.join(' ')}`);
+    }
+    const autopilot = acc(dir, [...args, '--as', 'orchestrator', '--by', 'orchestrator:autopilot'], undefined, env);
+    assert.equal(autopilot.code, 1, args.join(' '));
+    assert.match(autopilot.err, /Only a person can/);
+  }
+  assert.ok(!existsSync(join(dir, 'closed')), 'nothing was closed');
+  assert.equal(readLedger(ledger).seq, seq);
+  const builderSync = acc(dir, ['sync'], undefined, { ...env, ACC_ROLE: 'builder', ACC_TASK: 'GH-3' });
+  assert.equal(builderSync.code, 0, 'a plain sync is anyone\'s');
+});
+
+test('acc sync --close-done says so when no GitHub tracker lets acc change tickets', () => {
+  const dir = repoWithConfig({ ...GENERIC_CONFIG, github: { repo: 'o/r', account: 'me' }, trackers: [{ kind: 'github' }] });
+  const r = acc(dir, ['sync', '--close-done']);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /No GitHub tracker here says "edits": true, so acc closes no issues\./);
 });
 
 test('acc update ask drafts one of the analysis\'s questions for the client, and the Command Center\'s steps claim, record and release a post', () => {

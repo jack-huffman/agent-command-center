@@ -71,8 +71,9 @@ export interface Tracker {
   labels: string[];
   areaPath: string | null;
   /**
-   * Whether the task page may change a ticket's status, assignee and labels. Off by default: a client's
-   * tracker is theirs, and acc only drafts updates for a person to post (D-066). Your own repo can opt in.
+   * Whether the task page may change a ticket's status, assignee and labels, and, on GitHub, whether acc
+   * sync closes a task's issue when its work merges (D-082). Off by default: a client's tracker is theirs,
+   * and acc only drafts updates for a person to post (D-066). Your own repo can opt in.
    */
   edits: boolean;
 }
@@ -208,7 +209,7 @@ export function parseConfig(raw: unknown): ParseResult {
         if (t.kind !== p.kind && !empty) warnings.push(`trackers[${i}]: "${p.key}" applies only to ${p.on} tracker, so it's ignored.`);
       }
       if (t.edits !== undefined && typeof t.edits !== 'boolean') {
-        errors.push(`trackers[${i}]: "edits" must be true or false: whether the task page may change a ticket's status, assignee and labels.`);
+        errors.push(`trackers[${i}]: "edits" must be true or false: whether the task page may change a ticket's status, assignee and labels, and on GitHub, whether acc sync closes an issue when its work merges.`);
         return;
       }
       const boardOk = t.board === undefined || t.board === null || (t.kind === 'azure' ? isStr(t.board) : Number.isInteger(t.board) && (t.board as number) > 0);
