@@ -11,7 +11,7 @@ import { recordRuntime } from '../../packages/core/src/runtime.ts';
 import { AgentPages } from './activity.ts';
 import { AutopilotHost } from './autopilot.ts';
 import { type AgentSession, analysisAnswerArgs, CLAUDE_EXTENSION, claudeSessionUri, COMMANDS, followsPullRequests, isSessionId, isWebviewMenuContext, shq, WALKTHROUGHS } from './logic.ts';
-import { type NavItem, needsYouCount, type Ref, sessionKey, VIEW_KINDS, type ViewKind } from './model.ts';
+import { AGENT_SETTINGS, type NavItem, needsYouCount, type Ref, sessionKey, VIEW_KINDS, type ViewKind } from './model.ts';
 import { Notices } from './notices.ts';
 import { Panels } from './panels.ts';
 import { accShellCommand, Questions, sessionSettings } from './questions.ts';
@@ -435,7 +435,7 @@ export function activate(context: vscode.ExtensionContext): void {
       ...autopilot.mergeLooks().map((m): Item => ({
         label: m.on ? '$(git-merge) Auto-merge: on' : '$(circle-slash) Auto-merge: off',
         description: `${m.project}${m.on && !m.acts ? ' · autonomy manual, so nothing merges' : ''}`,
-        go: () => panels.show('agents'),
+        go: () => panels.show('agents', AGENT_SETTINGS),
       })),
       ...(runs.live().length ? [{ label: '$(terminal) Show what\'s running', go: () => showRun() }] : []),
       { label: '$(checklist) Setup', description: look.total ? `${look.done} of ${look.total} done${look.checking ? ', checking now' : ''}` : '', go: () => panels.show('setup') },

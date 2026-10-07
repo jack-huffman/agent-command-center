@@ -1,7 +1,7 @@
 // Renders one editor tab. Every element is built with DOM calls and every string is set as text,
 // so nothing from a ticket, branch or session can become markup. No HTML string is ever parsed.
 import type {
-  Action, AgentModel, AgentsModel, ConnectField, ConnectModel, ConnectPicker, EntryView, EnvironmentsModel, HistoryItem, HomeModel, HomeSection, IdentityCard, Look, Model, PersonChip, QuestionCard, Ref, RunCard, SetupModel, SetupRow, SlackCard, TasksModel, TicketAnalysis, TicketModel, TrackerBoard, TrackerCard, UpdateCard, ViewKind, WorktreesModel,
+  Action, AgentModel, AgentsModel, ConnectField, ConnectModel, ConnectPicker, EntryView, EnvironmentsModel, HistoryItem, HomeModel, HomeSection, IdentityCard, Look, Model, PersonChip, QuestionCard, Ref, RunCard, SetupModel, SetupRow, SlackCard, TasksModel, TicketAnalysis, TicketModel, TrackerBoard, TrackerCard, UpdateCard, ViewKind, WhereView, WorktreesModel,
 } from '../src/model.ts';
 import type { Block, Doc, Inline } from '../../packages/core/src/trackers/doc.ts';
 import { type DraftKeys, type EditBase, editFor, keepEdits, Pending } from './pending.ts';
@@ -1372,7 +1372,7 @@ function renderAgent(m: AgentModel): Node[] {
     m.startedAt ? el('span', '', `Started ${since(m.startedAt)}`) : null,
     m.model ? el('span', '', el('span', 'sep', '·'), el('span', 'mono', m.model)) : null,
     m.lastAt ? el('span', '', el('span', 'sep', '·'), 'last active ', when(m.lastAt)) : null,
-    m.where ? el('span', '', el('span', 'sep', '·'), el('span', 'mono', m.where)) : null);
+    m.where ? el('span', '', el('span', 'sep', '·'), Object.assign(el('span', '', m.where), { title: m.path })) : null);
   const out: Node[] = [el('header', 'ticket-head agent-head', crumbs, el('h1', 'ticket-title', m.task?.title ?? m.name), facts,
     el('div', 'ticket-bar', status(m.look), el('span', 'spacer'), el('div', 'actions', ...m.actions.map(actionButton))))];
   if (m.questions.length) out.push(el('section', 'agent-asks', ...m.questions.map((q) => questionCard(q, { watch: false }))));
@@ -1870,12 +1870,41 @@ function renderHome(m: HomeModel): Node[] {
 /** A model's name short enough for a table cell: claude-opus-5-5 is opus-5-5, and a dated snapshot drops its date. */
 const shortModel = (m: string): string => m.replace(/^claude-/, '').replace(/-\d{8}(?=\[|$)/, '');
 
+/**
+ * A folder or a path that wraps between its words and after each slash, never inside a name or a key, so
+ * `ACME-12` never splits at its hyphen (GH-83).
+ */
+function slashBreaks(text: string): Node[] {
+  const out: Node[] = [];
+  text.split(' ').forEach((word, w) => {
+    if (w) out.push(document.createTextNode(' '));
+    word.split('/').forEach((part, i, all) => {
+      const last = i === all.length - 1;
+      out.push(el('span', 'unbroken', last ? part : `${part}/`));
+      if (!last) out.push(document.createElement('wbr'));
+    });
+  });
+  return out;
+}
+
+/** Where the Agents page remembers How agents run is open: model.ts's AGENT_SETTINGS, which the extension opens. */
+const AGENT_SETTINGS = 'agents:settings';
+
 function renderAgents(m: AgentsModel): Node[] {
   const all = m.places.flatMap((p) => p.agents);
   const needs = all.filter((a) => a.needsYou).length;
-  const out: Node[] = [header('Agents', m.error ?? `${plural(all.length, 'session')} on this machine${needs ? `, ${needs} need${needs === 1 ? 's' : ''} you` : ''}.`, toolbarButton('acc.agent.new', 'Start a background agent', 'add', m.places.find((p) => p.root)?.root ?? undefined, true))];
+  // How agents run is behind Settings, closed until you open it, and remembered for the tab.
+  const open = memory().opened.includes(AGENT_SETTINGS);
+  const settings = m.settings.length ? button(open ? 'Hide settings' : 'Settings', 'settings-gear', () => {
+    remember((x) => { x.opened = open ? x.opened.filter((y) => y !== AGENT_SETTINGS) : [...x.opened, AGENT_SETTINGS]; });
+    if (last) render(last);
+  }, 'ghost') : null;
+  settings?.setAttribute('aria-expanded', String(open));
+  const out: Node[] = [header('Agents', m.error ?? `${plural(all.length, 'session')} on this machine${needs ? `, ${needs} need${needs === 1 ? 's' : ''} you` : ''}.`, settings, toolbarButton('acc.agent.new', 'Start a background agent', 'add', m.places.find((p) => p.root)?.root ?? undefined, true))];
+  // Closed, a billing problem still shows: per-token billing costs money while you're not looking (D-036).
+  if (!open) for (const s of m.settings) if (s.billing?.tone === 'orange') out.push(el('div', 'setting-billing', status(s.billing)));
   // What builders and reviewers run with, and what they bill (D-036).
-  for (const s of m.settings) {
+  for (const s of open ? m.settings : []) {
     const box = el('section', 'agent-settings', el('h2', '', icon('settings-gear'), m.settings.length > 1 ? `How agents run · ${s.project}` : 'How agents run'));
     for (const r of s.roles) {
       box.append(el('div', 'setting-row',
@@ -1916,18 +1945,43 @@ function renderAgents(m: AgentsModel): Node[] {
     body.append(el('tr', 'group', span(el('th', '', icon(place.root ? 'repo' : 'device-desktop'), place.label, el('span', 'count', String(place.agents.length))), 7)));
     if (!place.agents.length) body.append(el('tr', 'none', span(el('td', 'muted', 'No agent sessions in this project right now.'), 7)));
     for (const a of place.agents) {
+      // Its folder in context, or its full path, wrapped rather than clipped, as the names are: its own
+      // folder comes last, and that's the part a clip would lose. The full path on hover in both (GH-83).
+      const where = m.whereView === 'path' ? el('td', 'mono where-path', ...slashBreaks(a.path)) : el('td', 'where-folder', ...slashBreaks(a.where));
+      where.title = a.path;
       const row = el('tr', a.needsYou ? 'attention' : '',
         // Its whole name, wrapped: the part that says what it works on comes last (D-087).
         openable(titled(el('td', 'strong agent-name', a.name), a.name), { type: 'run', command: 'acc.agent.watch', ref: { session: a.key } }), el('td', 'nowrap', status(a.look)),
         // The model it runs with (D-086), as plain text, short, with its full name on hover; a dash until it's known.
-        Object.assign(el('td', 'nowrap mono muted model', a.model ? shortModel(a.model) : '—'), { title: a.model ?? 'Not known until it first answers' }), el('td', 'nowrap muted kind', a.kind), clipped(a.where, 'mono'), el('td', 'nowrap muted started', since(a.startedAt)),
+        Object.assign(el('td', 'nowrap mono muted model', a.model ? shortModel(a.model) : '—'), { title: a.model ?? 'Not known until it first answers' }), el('td', 'nowrap muted kind', a.kind), where, el('td', 'nowrap muted started', since(a.startedAt)),
         el('td', 'actions', menuButton(a.name)));
       body.append(withMenu(row, 'agent', { session: a.key }, { agentBackground: a.background }));
     }
     table.append(body);
   }
-  out.push(wrap(table));
+  out.push(whereBar(m.whereView), wrap(table));
   return out;
+}
+
+/**
+ * What the Where column shows, Folder or Full path (GH-83), just above its heading. In the heading it would
+ * widen the column, so a narrow tab would scroll it out of view. The page switches at once, and the
+ * extension remembers the choice for the window.
+ */
+function whereBar(view: WhereView): HTMLElement {
+  const pick = segmented('Where shows', [
+    { key: 'folder', label: 'Folder', icon: 'folder', on: view === 'folder' },
+    { key: 'path', label: 'Full path', icon: 'list-tree', on: view === 'path' },
+  ], (key) => {
+    const v = key as WhereView;
+    if (last?.kind === 'home') last = { ...last, agents: { ...last.agents, whereView: v } };
+    else if (last?.kind === 'agents') last = { ...last, whereView: v };
+    if (last) render(last);
+    api.postMessage({ type: 'agents-where', view: v });
+  });
+  pick.classList.add('where-view');
+  pick.querySelectorAll('button').forEach((b, i) => { b.dataset.keep = `where-view:${i}`; });
+  return el('div', 'where-bar', el('span', 'where-label', 'Where shows'), pick);
 }
 
 function renderWorktrees(m: WorktreesModel): Node[] {
@@ -2411,10 +2465,12 @@ function render(model: Model): void {
 }
 
 window.addEventListener('message', (e: MessageEvent) => {
-  const msg = e.data as { type?: string; model?: Model; action?: string; ok?: boolean; jump?: boolean };
+  const msg = e.data as { type?: string; model?: Model; action?: string; ok?: boolean; jump?: boolean; open?: string };
   if (msg?.type === 'state' && msg.model && msg.model.kind === view) {
     // The extension moves the page only when asked to open a section; otherwise it stays where you are.
     if (msg.model.kind === 'home' && (msg.jump || !section)) setSection(msg.model.section, false);
+    // A part of it to open as well, such as the Agents settings from the status bar's Auto-merge.
+    if (msg.open) { const part = msg.open; remember((x) => { if (!x.opened.includes(part)) x.opened = [...x.opened, part]; }); }
     render(msg.model);
   }
   if (msg?.type === 'done') onDone(msg);

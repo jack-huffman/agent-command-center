@@ -1,4 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { profileView, type ProfileView } from '../../packages/core/src/agents.ts';
@@ -14,7 +15,7 @@ import { resuming } from '../../packages/core/src/resume.ts';
 import { latestVerdict, reviewing } from '../../packages/core/src/review.ts';
 import { claudeProjectsDir, lastModelIn, lastSaidIn, transcriptFile } from '../../packages/core/src/transcript.ts';
 import { readUpdate, type Update, UPDATE_ID } from '../../packages/core/src/updates.ts';
-import { type AgentSession, agentLook, analysisWait, askingLabel, isUnder, parseWorktrees, rowAnalysis, sessionFor, type TaskRow, type Worktree } from './logic.ts';
+import { type AgentSession, agentLook, analysisWait, askingLabel, isUnder, parseWorktrees, repoRoot, rowAnalysis, sessionFor, type TaskRow, type Worktree } from './logic.ts';
 import { runFile } from './run.ts';
 
 export interface WorktreeInfo extends Worktree {
@@ -78,6 +79,10 @@ export class Hub implements vscode.Disposable {
   questions: Question[] = [];
   /** How earlier questions ended, newest last (D-037), set by Questions. */
   answers: HistoryRecord[] = [];
+  /** The home folder, which sessions' folders show as ~ (GH-83). */
+  readonly home = homedir();
+  /** The repo each session's folder is in, as of the last `claude agents`, so a repo made since shows next time (GH-83). */
+  private readonly repos = new Map<string, string | null>();
   private readonly tasks = new Map<string, { stamp: string; ledger: Ledger; rows: TaskRow[] }>();
   /** The steps autopilot took in each repo, by ledger: projects of one repo share them (D-064). */
   private readonly steps = new Map<string, AutopilotLog>();
@@ -141,6 +146,12 @@ export class Hub implements vscode.Disposable {
   /** The project a path belongs to: its main checkout or any of its worktrees. */
   projectFor(path: string): Project | undefined {
     return this.projects.find((p) => isUnder(path, p.root) || p.worktrees.some((w) => isUnder(path, w.path)));
+  }
+
+  /** The repo a folder is in: the nearest folder up holding .git, short of the home folder (GH-83). */
+  repoFor(path: string): string | null {
+    if (!this.repos.has(path)) this.repos.set(path, repoRoot(path, this.home, (d) => existsSync(join(d, '.git'))));
+    return this.repos.get(path)!;
   }
 
   // ------------------------------------------------------------ tasks
@@ -392,6 +403,7 @@ export class Hub implements vscode.Disposable {
 
   async loadAgents(): Promise<void> {
     const r = await runFile('claude', ['agents', '--json'], this.projects[0]?.root ?? process.cwd(), process.env, undefined, 20_000);
+    this.repos.clear();
     if (r.code === 127) {
       this.agents = [];
       this.agentsError = 'The Claude Code CLI (claude) isn\'t on PATH.';
