@@ -383,19 +383,13 @@ test('auto-merge: the merge queue brings a pull request only behind its base up 
   assert.equal(calls.filter((c) => c.startsWith('nice -n 15 sh -c')).length, 1, 'its full check ran once');
 });
 
-test('refresh: brought up to date when it\'s only behind; without auto-merge, a pull request that merges cleanly is left alone (GH-67)', () => {
+test('refresh is for conflicts only: a pull request only behind its base, that merges cleanly, is left alone (D-058)', () => {
   const s = setup();
   const before = s.onBranch({ 'sum.test.js': 'test("sum", () => {});\n' });
   s.onMain({ 'README.md': '# test, updated\n' });
   s.opened(before, []);
   const plain = refresh(s.paths, s.config, 'T-1', deps([]), { actor: 'orchestrator', by: 'test' });
-  assert.deepEqual([plain.sha, head(s.dir)], [null, before], 'D-058: for conflicts only');
-  const behind = refresh(s.paths, s.config, 'T-1', deps([]), { actor: 'orchestrator', by: 'test', behind: true });
-  assert.equal(behind.sha, head(s.dir));
-  assert.notEqual(behind.sha, before);
-  // Nothing new on its base: nothing to merge in.
-  const again = refresh(s.paths, s.config, 'T-1', deps([]), { actor: 'orchestrator', by: 'test', behind: true });
-  assert.deepEqual([again.sha, again.reason], [null, 'Pull request #42 already has everything on main, so nothing was merged.']);
+  assert.deepEqual([plain.sha, head(s.dir), plain.reason], [null, before, 'Pull request #42 no longer conflicts with main, so nothing was merged.']);
 });
 
 test('the merge commit is made as the repo\'s commit identity, and a pull request no longer open isn\'t touched', () => {

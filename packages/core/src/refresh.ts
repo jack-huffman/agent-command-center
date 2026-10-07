@@ -185,9 +185,6 @@ export function fetchBase(paths: RepoPaths, place: MergePlace, run: Runner, env:
   }
 }
 
-/** Whether origin's copy of the base has commits the branch lacks, as last fetched. */
-export const behindBase = (place: MergePlace, run: Runner): boolean => gitIn(run, place.wt)('merge-base', '--is-ancestor', `refs/remotes/origin/${place.env.branch}`, place.from).code !== 0;
-
 /** git as the repo's commit identity, with rerere off, so an answer remembered from another merge never stands in. */
 const merging = (config: Config, run: Runner, wt: string) => {
   const who = config.commitIdentity ? ['-c', `user.name=${config.commitIdentity.name}`, '-c', `user.email=${config.commitIdentity.email}`] : [];
@@ -278,18 +275,17 @@ export function checkCommit(paths: RepoPaths, config: Config, place: MergePlace,
 // ---------------------------------------------------------------- a refresh, all of it (D-058)
 
 /**
- * With `behind`, the base is merged in even when it would merge cleanly: auto-merge brings a pull request
- * up to date with its base before it merges it (GH-67). Without it, a refresh is for conflicts only.
+ * A refresh is for conflicts only: a pull request only behind its base is left alone. Where auto-merge is
+ * on, the merge queue brings one up to date at its turn (GH-73), with mergeBaseIn and checkCommit.
  */
-export function refresh(paths: RepoPaths, config: Config, id: string, deps: RefreshDeps, opts: { actor: Actor; by: string; behind?: boolean }): RefreshResult {
+export function refresh(paths: RepoPaths, config: Config, id: string, deps: RefreshDeps, opts: { actor: Actor; by: string }): RefreshResult {
   const { run, now } = deps;
   const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
   if (!task) throw new AccError('no-task', `No task ${id}.`);
   const pr = task.pr;
   if (task.state !== 'review' || pr?.state !== 'open') throw new AccError('refused', `${id} is ${task.state}${pr ? ` with pull request #${pr.number} ${pr.state}` : ' with no pull request'}. Autopilot updates the open pull request of a task in review.`);
   const place = mergePlace(paths, config, task, run);
-  const { env, branch, wt, from } = place;
-  const git = gitIn(run, wt);
+  const { env, branch, from } = place;
   fetchBase(paths, place, run, deps.env);
   const record = (change: (t: Task) => Record<string, unknown>) => mutate(paths, now, (l, emit) => {
     const t = l.tasks.find((x) => x.id === id);
@@ -305,22 +301,18 @@ export function refresh(paths: RepoPaths, config: Config, id: string, deps: Refr
     });
     return { sha: null, from, resolved: [], reason: `Pull request #${pr.number} no longer conflicts with ${env.branch}, so nothing was merged.` };
   };
-  // What acc last saw can be stale: ask git again before merging anything. A pull request only behind its
-  // base is merged with it all the same.
-  if (!opts.behind && conflictsOf(run, paths.root, env.branch, branch)?.length === 0) return settled();
-  /** Nothing to merge in after all: the base has nothing the branch lacks. A conflict acc saw is marked gone. */
-  const upToDate = (): RefreshResult => (pr.conflicts?.length ? settled() : { sha: null, from, resolved: [], reason: `Pull request #${pr.number} already has everything on ${env.branch}, so nothing was merged.` });
-  if (opts.behind && git('merge-base', '--is-ancestor', `refs/remotes/origin/${env.branch}`, from).code === 0) return upToDate();
+  // What acc last saw can be stale: ask git again before merging anything.
+  if (conflictsOf(run, paths.root, env.branch, branch)?.length === 0) return settled();
 
   const made = mergeBaseIn(config, place, run);
-  if (!made) return opts.behind ? upToDate() : settled(); // already up to date
+  if (!made) return settled(); // already up to date
   const { sha, resolved } = made;
 
   // Its checks, on the merge commit, before anything else happens. A waiver is for its own commit (D-031).
   const required = config.gates.required;
   checkCommit(paths, config, place, sha, required, { run, now, slots: deps.slots });
 
-  const refreshed = { base: env.branch, from, to: sha, resolved, ...(opts.behind ? { behind: true } : {}) };
+  const refreshed = { base: env.branch, from, to: sha, resolved };
   record((t) => {
     // Updated, by autopilot: whatever it couldn't do before is behind it (D-055).
     if (t.autopilot?.failed) t.autopilot.failed = null;
