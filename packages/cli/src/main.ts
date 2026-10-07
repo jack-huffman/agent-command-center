@@ -399,7 +399,7 @@ function cmdReview(o: Opts, id: string): number {
   const say = (line: string) => { if (!o.json) process.stderr.write(line + '\n'); };
   const r = review(paths, config, id.toUpperCase(), {
     run, now, env: process.env,
-    onStart: (session, sha) => say(tone(`Reviewing ${id.toUpperCase()} at ${sha.slice(0, 7)}. The reviewer reads and changes nothing. Session ${session}.`, 'dim')),
+    onStart: (session, sha, name) => say(tone(`Reviewing ${id.toUpperCase()} at ${sha.slice(0, 7)}. The reviewer reads and changes nothing. Session ${session}, named ${name}.`, 'dim')),
   }, { by: `reviewer:${id.toUpperCase()} for ${by}` });
   const v = r.verdict;
   const where = (f: { file?: string; line?: number }) => (f.file ? `${f.file}${f.line ? `:${f.line}` : ''}  ` : '');
@@ -440,7 +440,7 @@ function cmdAnalyze(o: Opts, id: string): number {
   const say = (line: string) => { if (!o.json) process.stderr.write(line + '\n'); };
   const a = analyze(paths, config, id.toUpperCase(), {
     run, now, env: process.env, accCommand: accCommand(),
-    onStart: (session) => say(tone(`Analyzing ${id.toUpperCase()}. The analyst reads the ticket${config.profile === 'salesforce' ? ', the code and the orgs' : ' and the code'}, and changes nothing. Session ${session}.`, 'dim')),
+    onStart: (session, name) => say(tone(`Analyzing ${id.toUpperCase()}. The analyst reads the ticket${config.profile === 'salesforce' ? ', the code and the orgs' : ' and the code'}, and changes nothing. Session ${session}, named ${name}.`, 'dim')),
   }, { by: `analyst:${id.toUpperCase()} for ${by}` });
   out(o, () => analysisLines(a).join('\n'), a);
   return a.verdict === 'ready' ? 0 : 1;
@@ -741,6 +741,7 @@ function cmdDispatch(o: Opts, id: string): number {
     `${r.task.id} → ${stateLabel('running')}`,
     `  worktree: ${r.worktree}${r.reused ? ' (reused)' : ''}`,
     `  branch:   ${r.branch}`,
+    `  name:     ${r.name}`,
     `  agent:    ${r.bgId ? `background session ${r.bgId}. Watch it with: claude attach ${r.bgId}` : o.foreground ? 'ran in this terminal' : 'started; it will appear in claude agents shortly'}`,
     `  packet:   ${r.packetPath}`,
   ].join('\n'), r);
@@ -801,6 +802,7 @@ function cmdShow(o: Opts, id: string): number {
   out(o, () => [
     `${t.id}  ${stateLabel(displayState(ledger, t, { stopped }))}  ${t.title}`,
     `Environment: ${t.environment}   Source: ${t.source.kind}${t.source.url ? ` ${t.source.url}` : ''}`,
+    t.run?.name ? `Agent: ${t.run.name}` : '',
     t.deps.length ? `Depends on: ${t.deps.join(', ')}` : '',
     t.blocker ? `Blocked: ${t.blocker}` : '',
     failed ? tone(`! Autopilot couldn't ${stepWords(failed.step, failed.sha || 'it')}: ${failed.reason}`, 'orange') : '',

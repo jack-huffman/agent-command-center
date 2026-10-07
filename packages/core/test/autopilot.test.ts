@@ -88,7 +88,7 @@ function deps(calls: string[], over: Record<string, RunResult | ((o?: RunOptions
       'gh pr edit': ok(''),
       'claude -p': verdictOut('pass'),
       'claude --bg': ok('bg1\n'),
-      'claude agents --json': ok(JSON.stringify([{ id: 'bg1', sessionId: 'sess-1', name: 'T-1', kind: 'background', startedAt: 1, pid: 4_000_001 }])),
+      'claude agents --json': () => ok(JSON.stringify([{ id: 'bg1', sessionId: 'sess-1', name: 'Tool · T-1 Add a sum function · builder 2', kind: 'background', startedAt: Date.now(), pid: 4_000_001 }])),
       ...over,
     }, calls),
     now, env: {}, accBinDir: '/opt/acc/bin',
@@ -278,7 +278,10 @@ test('a review that asks for changes sends it to rework; autopilot re-dispatches
   assert.deepEqual([t.history.at(-1)!.from, t.history.at(-1)!.actor, t.history.at(-1)!.by], ['rework', 'orchestrator', AUTOPILOT_BY]);
   const launches = calls.filter((c) => c.startsWith('claude --bg'));
   assert.equal(launches.length, 1);
-  assert.match(launches[0]!, /--name T-1 /, 'the rework, never a task to do');
+  // Its second builder (D-???): the run it was set up with was its first.
+  assert.ok(launches[0]!.includes('--name Tool · T-1 Add a sum function · builder 2 '), 'the rework, never a task to do');
+  assert.equal(t.run?.name, 'Tool · T-1 Add a sum function · builder 2');
+  assert.equal(t.run?.bgId, 'bg1', 'its new session is found by that name');
   assert.match(launches[0]!, /What the review asked for/, 'its builder is told what to fix');
 
   // The builder finishes, and the reviewer asks for changes again.

@@ -196,4 +196,8 @@ test('the command is the same for a resume and a reply: claude -p <message> --re
   assert.deepEqual(c.args.slice(8, 10), ['--effort', 'medium'], 'the project\'s effort: the clone\'s is merged in by whoever calls it (withCloneAgents)');
   assert.deepEqual(c.env, { ACC_ROLE: 'builder', ACC_TASK: 'GH-41' });
   assert.equal(JSON.parse(c.args.at(-1)!).hooks, undefined, 'no hooks without a way to run acc');
+  // A run that recorded its builder's name keeps it: resumed without one, Claude Code lists a name of its own (D-???).
+  const named = { ...task, run: { ...task.run, name: 'Acme · GH-41 Ticket updates are drafts · builder 2' } };
+  const n = resumeCommand(named, s.config, { sessionId: SID, message: 'Carry on.', accBinDir: '/acc/bin', basePath: '/usr/bin' });
+  assert.deepEqual(n.args.slice(2, 7), ['--resume', SID, '--name', 'Acme · GH-41 Ticket updates are drafts · builder 2', '--permission-mode']);
 });
