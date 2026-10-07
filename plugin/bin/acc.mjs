@@ -91,12 +91,22 @@ function repoPaths(cwd, run2) {
 // packages/core/src/config.ts
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+
+// packages/core/src/trackers/types.ts
+var TRACKER_KINDS = ["github", "jira", "azure", "monday"];
+var isTrackerKind = (v) => TRACKER_KINDS.includes(v);
+var TRACKER_NAMES = { github: "GitHub", jira: "Jira", azure: "Azure DevOps", monday: "monday.com" };
+var trackerName = (kind) => TRACKER_NAMES[kind];
+var orList = (names2) => names2.length < 2 ? names2.join("") : `${names2.slice(0, -1).join(", ")} or ${names2.at(-1)}`;
+
+// packages/core/src/config.ts
 var PROFILES = ["generic", "salesforce"];
 var ENV_TYPES = ["production", "full", "partial", "developer", "developer_pro", "none"];
 var AUTONOMY = ["manual", "dispatch", "review", "full"];
 var PERMISSION_MODES = ["default", "acceptEdits", "plan", "auto", "dontAsk"];
 var EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 var MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,79}$/;
+var DEFAULT_MODEL = "claude-opus-5-5";
 var AGENT_ROLES = ["builder", "reviewer"];
 var noProfile = () => ({ model: null, effort: null, fallbackModel: null });
 var TOP_KEYS = /* @__PURE__ */ new Set([
@@ -166,8 +176,12 @@ function parseConfig(raw) {
   if (raw.trackers !== void 0) {
     if (!Array.isArray(raw.trackers)) errors.push('"trackers" must be a list.');
     else raw.trackers.forEach((t, i) => {
-      if (!isObj(t) || t.kind !== "github" && t.kind !== "jira" && t.kind !== "azure") {
-        errors.push(`trackers[${i}]: "kind" must be github, jira or azure.`);
+      if (!isObj(t) || !isTrackerKind(t.kind)) {
+        errors.push(`trackers[${i}]: "kind" must be ${orList([...TRACKER_KINDS])}.`);
+        return;
+      }
+      if (t.kind === "monday" && (!isStr(t.account) || !/^[A-Za-z0-9][A-Za-z0-9-]*$/.test(t.account.trim()) || !Number.isSafeInteger(t.board) || t.board <= 0)) {
+        errors.push(`trackers[${i}]: a monday.com tracker needs "account" (as in acme.monday.com) and "board" (the board's id, a number).`);
         return;
       }
       if (t.kind === "azure" && (!isStr(t.organization) || !isStr(t.project))) {
@@ -192,7 +206,9 @@ function parseConfig(raw) {
       const placeKeys = [
         { key: "epic", kind: "jira", on: "a Jira", ok: isStr(t.epic) && JIRA_ISSUE.test(t.epic.trim()), error: `"epic" must be a Jira epic's key, such as ACME-3.` },
         { key: "labels", kind: "github", on: "a GitHub", ok: strList(t.labels), error: '"labels" must be a list of label names, such as ["billing"].' },
-        { key: "areaPath", kind: "azure", on: "an Azure DevOps", ok: isStr(t.areaPath), error: '"areaPath" must be an Azure DevOps area path, such as "CRM\\\\Billing".' }
+        { key: "areaPath", kind: "azure", on: "an Azure DevOps", ok: isStr(t.areaPath), error: '"areaPath" must be an Azure DevOps area path, such as "CRM\\\\Billing".' },
+        { key: "group", kind: "monday", on: "a monday.com", ok: isStr(t.group), error: `"group" must be a monday.com group's id, such as "topics".` },
+        { key: "statusColumn", kind: "monday", on: "a monday.com", ok: isStr(t.statusColumn), error: `"statusColumn" must be a monday.com status column's id, such as "status".` }
       ];
       const set = placeKeys.filter((p) => t[p.key] !== void 0 && t[p.key] !== null);
       const bad = set.filter((p) => !p.ok);
@@ -205,10 +221,10 @@ function parseConfig(raw) {
         if (t.kind !== p.kind && !empty) warnings.push(`trackers[${i}]: "${p.key}" applies only to ${p.on} tracker, so it's ignored.`);
       }
       if (t.edits !== void 0 && typeof t.edits !== "boolean") {
-        errors.push(`trackers[${i}]: "edits" must be true or false: whether the task page may change a ticket's status, assignee and labels.`);
+        errors.push(`trackers[${i}]: "edits" must be true or false: whether the task page may change a ticket's status, assignee and labels, and on GitHub, whether acc sync closes an issue when its work merges.`);
         return;
       }
-      const boardOk = t.board === void 0 || t.board === null || (t.kind === "azure" ? isStr(t.board) : Number.isInteger(t.board) && t.board > 0);
+      const boardOk = t.board === void 0 || t.board === null || (t.kind === "azure" ? isStr(t.board) : Number.isSafeInteger(t.board) && t.board > 0);
       if (!boardOk) {
         errors.push(`trackers[${i}]: "board" must be ${t.kind === "azure" ? "an Azure board's name, such as Stories" : "a Jira board id or a GitHub Project number"}.`);
         return;
@@ -219,15 +235,26 @@ function parseConfig(raw) {
         project: isStr(t.project) ? t.project : null,
         repo: isStr(t.repo) ? t.repo : null,
         organization: isStr(t.organization) ? t.organization : null,
+        account: t.kind === "monday" && isStr(t.account) ? t.account.trim().toLowerCase() : null,
         team: isStr(t.team) ? t.team : null,
         board: Number.isInteger(t.board) || isStr(t.board) ? t.board : null,
+        statusColumn: t.kind === "monday" && isStr(t.statusColumn) ? t.statusColumn.trim() : null,
         prefix: isStr(t.prefix) ? t.prefix.toUpperCase() : null,
         skipLabels: t.kind === "github" && strList(t.skipLabels) ? t.skipLabels : [],
         epic: t.kind === "jira" && isStr(t.epic) ? t.epic.trim().toUpperCase() : null,
         labels: t.kind === "github" && strList(t.labels) ? t.labels.map((l3) => l3.trim()) : [],
         areaPath: t.kind === "azure" && isStr(t.areaPath) ? t.areaPath.trim() : null,
+        group: t.kind === "monday" && isStr(t.group) ? t.group.trim() : null,
         edits: t.edits === true
       });
+    });
+    const seen = /* @__PURE__ */ new Map();
+    trackers.forEach((t, i) => {
+      const p = keyPrefix(t);
+      if (!p) return;
+      const first = seen.get(p);
+      if (first === void 0) seen.set(p, i);
+      else warnings.push(`trackers[${first}] and trackers[${i}] both give tickets keys like ${p}-12, so those keys go to trackers[${first}]. Give one of them its own "prefix".`);
     });
   }
   const a = isObj(raw.agents) ? raw.agents : {};
@@ -289,11 +316,16 @@ function parseConfig(raw) {
     const ap = raw.autopilot;
     if (!isObj(ap)) errors.push('"autopilot" must be an object, such as { "appendOnly": ["docs/DECISIONS.md"] }.');
     else {
-      for (const k2 of Object.keys(ap)) if (k2 !== "appendOnly") warnings.push(`Unknown key "autopilot.${k2}" is ignored.`);
+      for (const k2 of Object.keys(ap)) if (k2 !== "appendOnly" && k2 !== "autoMerge") warnings.push(`Unknown key "autopilot.${k2}" is ignored.`);
       const list = ap.appendOnly ?? [];
+      const autoMerge = ap.autoMerge ?? false;
       if (!strList(list) || list.some((f) => f.startsWith("/") || f.split("/").includes(".."))) {
         errors.push('"autopilot.appendOnly" must be a list of paths inside the repo, such as ["docs/DECISIONS.md"].');
-      } else autopilot = { appendOnly: list };
+      } else if (typeof autoMerge !== "boolean") {
+        errors.push('"autopilot.autoMerge" must be true or false: whether autopilot merges a reviewed pull request whose checks passed.');
+      } else if (autoMerge && profile === "salesforce") {
+        errors.push(`"autopilot.autoMerge" can't be on in a Salesforce project: a person merges every pull request there.`);
+      } else autopilot = { appendOnly: list, ...autoMerge ? { autoMerge: true } : {} };
     }
   }
   if (errors.length) return { config: null, errors, warnings };
@@ -443,9 +475,25 @@ function defaultEnvironment(config) {
 function environmentByBranch(config, branch) {
   return config.environments.find((e) => e.branch === branch);
 }
+var autoMergeOn = (config) => config.autopilot?.autoMerge === true && config.profile !== "salesforce";
+function autoMergeFor(config, branch) {
+  if (!autoMergeOn(config) || config.autonomy !== "review") return false;
+  const env = environmentByBranch(config, branch);
+  return !!env && !env.protected;
+}
+function keyPrefix(t) {
+  if (t.kind === "github") return "GH";
+  if (t.kind === "azure") return (t.prefix ?? "AB").toUpperCase();
+  if (t.kind === "monday") return (t.prefix ?? "MON").toUpperCase();
+  return t.project ? t.project.toUpperCase() : null;
+}
 function trackerForKey(trackers, key) {
   const k2 = key.toUpperCase();
-  const i = trackers.findIndex((t) => /^GH-\d+$/.test(k2) ? t.kind === "github" : t.kind === "azure" ? k2.startsWith(`${(t.prefix ?? "AB").toUpperCase()}-`) : t.kind === "jira" && !!t.project && k2.startsWith(`${t.project.toUpperCase()}-`));
+  const i = trackers.findIndex((t) => {
+    if (/^GH-\d+$/.test(k2)) return t.kind === "github";
+    const p = t.kind === "github" ? null : keyPrefix(t);
+    return !!p && k2.startsWith(`${p}-`);
+  });
   return i >= 0 ? i : null;
 }
 
@@ -566,7 +614,7 @@ function releaseAwake(paths, id, deps = {}) {
 // packages/core/src/ledger.ts
 var STATES = ["todo", "running", "review", "rework", "blocked", "done"];
 var ACTORS = ["human", "orchestrator", "builder", "reviewer", "sync"];
-var SOURCE_KINDS = ["github", "jira", "azure", "manual"];
+var SOURCE_KINDS = [...TRACKER_KINDS, "manual"];
 var emptyLedger = () => ({ schema: 1, seq: 0, tasks: [] });
 function readLedger(file) {
   if (!existsSync2(file)) return emptyLedger();
@@ -784,8 +832,9 @@ function isReady(ledger, task) {
 var autopilotFailure = (task) => task.autopilot?.failed && task.autopilot.failed.state === task.state ? task.autopilot.failed : null;
 function sessionsOf(task, sessions) {
   const run2 = task.run;
-  const mine = sessions.filter((s) => !!run2?.bgId && s.id === run2.bgId || !!run2?.sessionId && s.sessionId === run2.sessionId);
-  return mine.length || run2?.bgId || run2?.sessionId ? mine : sessions.filter((s) => s.kind === "background" && s.name === task.id);
+  if (run2?.bgId || run2?.sessionId) return sessions.filter((s) => !!run2.bgId && s.id === run2.bgId || !!run2.sessionId && s.sessionId === run2.sessionId);
+  const name = run2?.name ?? task.id;
+  return sessions.filter((s) => s.kind === "background" && s.name === name);
 }
 function sessionActive(s) {
   if (!s.pid) return false;
@@ -2817,9 +2866,6 @@ var xn = k.parseInline;
 var Rn = T.parse;
 var Tn = R.lex;
 
-// packages/core/src/trackers/types.ts
-var orList = (names2) => names2.length < 2 ? names2.join("") : `${names2.slice(0, -1).join(", ")} or ${names2.at(-1)}`;
-
 // packages/core/src/trackers/github.ts
 var issueRepo = (url) => url ? /github\.com\/([\w.-]+\/[\w.-]+)\/issues\/\d+/i.exec(url)?.[1] ?? null : null;
 function hasPlaceLabel(issue, labels) {
@@ -3234,6 +3280,26 @@ function hookOutput(q2, a) {
 function permissionHook(command) {
   return { PermissionRequest: [{ matcher: "*", hooks: [{ type: "command", command: `${command} hook permission`, timeout: HOOK_TIMEOUT_S }] }] };
 }
+function pendingQuestions(dir) {
+  let names2 = [];
+  try {
+    names2 = readdirSync2(dir).filter((n) => n.endsWith(".json") && !n.endsWith(".answer.json"));
+  } catch {
+    return [];
+  }
+  const out2 = [];
+  for (const n of names2) {
+    const q2 = readJson(join8(dir, n));
+    if (!q2 || q2.v !== 1 || typeof q2.id !== "string" || `${q2.id}.json` !== n || !Number.isInteger(q2.pid)) continue;
+    if (!alive(q2.pid)) {
+      rmSync5(join8(dir, n), { force: true });
+      rmSync5(join8(dir, `${q2.id}.answer.json`), { force: true });
+      continue;
+    }
+    out2.push(q2);
+  }
+  return out2.sort((a, b) => a.at - b.at);
+}
 
 // packages/core/src/analyze.ts
 import { randomUUID } from "node:crypto";
@@ -3256,6 +3322,7 @@ function cloneProfile(run2, root, role) {
   }
   return out2;
 }
+var modelOf = (p) => p?.model ?? DEFAULT_MODEL;
 function profileView(config, run2, root, role) {
   const project2 = config.agents[role];
   const mine = cloneProfile(run2, root, role);
@@ -3263,20 +3330,28 @@ function profileView(config, run2, root, role) {
   const m = pick("model");
   const e = pick("effort");
   const fb = pick("fallbackModel");
-  return { model: m.v, effort: e.v, fallbackModel: fb.v, from: { model: m.from, effort: e.from, fallbackModel: fb.from } };
+  return {
+    model: m.v ?? DEFAULT_MODEL,
+    effort: e.v,
+    fallbackModel: fb.v,
+    from: { model: m.from === "default" ? "acc" : m.from, effort: e.from, fallbackModel: fb.from }
+  };
 }
 function withCloneAgents(config, root, run2) {
   const merge = (role) => ({ ...config.agents[role], ...cloneProfile(run2, root, role) });
   return { ...config, agents: { ...config.agents, builder: merge("builder"), reviewer: merge("reviewer") } };
 }
 function agentArgs(p) {
-  if (!p) return [];
-  return [...p.model ? ["--model", p.model] : [], ...p.effort ? ["--effort", p.effort] : [], ...p.fallbackModel ? ["--fallback-model", p.fallbackModel] : []];
+  const model = modelOf(p);
+  return ["--model", model, ...p?.effort ? ["--effort", p.effort] : [], ...p?.fallbackModel && p.fallbackModel !== model ? ["--fallback-model", p.fallbackModel] : []];
+}
+function checkModelName(v) {
+  if (!MODEL_NAME.test(v)) throw new AccError("usage", `"${v}" isn't a model name. Use an alias such as opus, sonnet or fable, or a full model name.`);
 }
 function check(change2) {
   for (const f of ["model", "fallbackModel"]) {
     const v = change2[f];
-    if (v != null && !MODEL_NAME.test(v)) throw new AccError("usage", `"${v}" isn't a model name. Use an alias such as opus, sonnet or fable, or a full model name.`);
+    if (v != null) checkModelName(v);
   }
   if (change2.effort != null && !EFFORTS.includes(change2.effort)) throw new AccError("usage", `Effort is one of ${EFFORTS.join(", ")}.`);
 }
@@ -3337,8 +3412,70 @@ function setAutonomy(configFile, value) {
   }
   writeFileSync10(configFile, JSON.stringify(wanted, null, 2) + "\n");
 }
+function setAutoMerge(configFile, on) {
+  let text;
+  let raw;
+  try {
+    text = readFileSync9(configFile, "utf8");
+    raw = JSON.parse(text);
+  } catch (e) {
+    throw new AccError("bad-config", `Couldn't read ${configFile}: ${e.message}`);
+  }
+  if (on && raw.profile === "salesforce") throw new AccError("refused", "A Salesforce project never auto-merges: a person merges every pull request there.");
+  const was = raw.autopilot && typeof raw.autopilot === "object" && !Array.isArray(raw.autopilot) ? raw.autopilot : null;
+  if (!on && was?.autoMerge === void 0) return;
+  const wanted = { ...raw, autopilot: { ...was ?? {}, autoMerge: on } };
+  const canon = (v) => v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.keys(v).sort().map((k2) => [k2, canon(v[k2])])) : Array.isArray(v) ? v.map(canon) : v;
+  const fits = (edited) => {
+    try {
+      return JSON.stringify(canon(JSON.parse(edited))) === JSON.stringify(canon(wanted));
+    } catch {
+      return false;
+    }
+  };
+  const tries = [];
+  const value = /("autoMerge"\s*:\s*)(true|false)/;
+  if ([...text.matchAll(new RegExp(value, "g"))].length === 1) tries.push(text.replace(value, `$1${on}`));
+  const block = /("autopilot"\s*:\s*\{)(\s*)(?=")/;
+  if (block.test(text)) tries.push(text.replace(block, (_m, open, gap) => `${open}${gap}"autoMerge": ${on},${gap}`));
+  const indent = /^\{\s*?\n([ \t]+)"/.exec(text)?.[1] ?? "  ";
+  if (!was) tries.push(text.replace(/(\S)(\s*)\}\s*$/, (_m, last, gap) => `${last},
+${indent}"autopilot": {
+${indent}${indent}"autoMerge": ${on}
+${indent}}${gap}}
+`));
+  writeFileSync10(configFile, tries.find(fits) ?? JSON.stringify(wanted, null, 2) + "\n");
+}
+
+// packages/core/src/names.ts
+var NAME_PART_MAX = 40;
+var NAME_SEP = " \xB7 ";
+var SECRET_PREFIX = /^(ghp_|gho_|ghu_|ghs_|ghr_|github_pat_|sk-|xox|AKIA|eyJ)/;
+var tokenLike = (word) => SECRET_PREFIX.test(word) || word.length >= 20 && new RegExp("\\p{L}", "u").test(word) && new RegExp("\\p{N}", "u").test(word);
+function cleanName(text) {
+  return text.normalize("NFC").replace(/[\p{Cc}\p{Z}\s/\\~·]+/gu, " ").replace(/[^\p{L}\p{M}\p{N} _.,:()+#-]/gu, "").split(" ").filter((w) => w && !tokenLike(w)).join(" ");
+}
+function shortTitle(text, max = NAME_PART_MAX) {
+  const chars = Array.from(text);
+  if (chars.length <= max) return text;
+  const head = chars.slice(0, max).join("");
+  const hard = chars.slice(0, max - 1).join("");
+  const space = head.lastIndexOf(" ");
+  const cut = (space > 0 ? head.slice(0, space) : hard).replace(/[\s.,:(+#_-]+$/u, "");
+  return `${cut || hard}\u2026`;
+}
+var cleanKey = (key) => /^[A-Z][A-Z0-9_]*-\d+$/.test(key) ? key : key.replace(/[^A-Za-z0-9_-]/g, "");
+function sessionName(p) {
+  const project2 = shortTitle(cleanName(p.project));
+  const title = shortTitle(cleanName(p.title));
+  const key = cleanKey(p.key);
+  const task = [key, title].filter(Boolean).join(" ");
+  const role = p.role === "builder" && p.n && p.n > 1 ? `${p.role} ${p.n}` : p.role;
+  return [project2, task, role].filter(Boolean).join(NAME_SEP);
+}
 
 // packages/core/src/analyze.ts
+var SIZE_MEANING = { S: "an hour or two", M: "a day", L: "a few days", XL: "split it" };
 var strings = { type: "array", items: { type: "string" } };
 var ANALYSIS_SCHEMA = {
   type: "object",
@@ -3390,7 +3527,7 @@ var ANALYSIS_SCHEMA = {
         },
         risks: strings,
         tests: { ...strings, description: "How to prove it works: the tests to write or run" },
-        size: { type: "string", enum: ["S", "M", "L", "XL"], description: "S: an hour or two. M: a day. L: a few days. XL: split it" }
+        size: { type: "string", enum: ["S", "M", "L", "XL"], description: Object.entries(SIZE_MEANING).map(([s, m]) => `${s}: ${m}`).join(". ") }
       }
     },
     split: { ...strings, description: "When the verdict is split: the smaller tasks, one line each. Otherwise empty" }
@@ -3571,11 +3708,12 @@ function analyze(paths, config, id, deps, opts = {}) {
   const settings = deps.accCommand ? { hooks: { PreToolUse: [{ matcher: "Bash|Edit|Write|MultiEdit|NotebookEdit", hooks: [{ type: "command", command: `${deps.accCommand} hook pre-tool-use` }] }] } } : null;
   const cwd = sf ? scratchProject(paths, id) : paths.root;
   const sessionId = (deps.uuid ?? randomUUID)();
+  const name = sessionName({ project: config.project, key: id, title: task.title, role: "analysis" });
   mkdirSync10(paths.analyses, { recursive: true });
   const marker = runningPath(paths, id);
   const startedAt = now2();
-  writeFileSync11(marker, JSON.stringify({ sessionId, startedAt: startedAt.toISOString(), pid: process.pid }));
-  deps.onStart?.(sessionId);
+  writeFileSync11(marker, JSON.stringify({ sessionId, name, startedAt: startedAt.toISOString(), pid: process.pid }));
+  deps.onStart?.(sessionId, name);
   const awake = holdAwake(process.pid, deps.awake);
   let out2;
   try {
@@ -3583,6 +3721,8 @@ function analyze(paths, config, id, deps, opts = {}) {
       "-p",
       "--session-id",
       sessionId,
+      "--name",
+      name,
       "--permission-mode",
       "dontAsk",
       ...agentArgs(config.agents.reviewer),
@@ -3626,6 +3766,7 @@ function analyze(paths, config, id, deps, opts = {}) {
     verdict: parsed.analysis.verdict === "questions" && !questions.some((q2) => !q2.answer) ? "ready" : parsed.analysis.verdict,
     orgs: orgs.map((o) => o.alias),
     sessionId: parsed.sessionId ?? sessionId,
+    name,
     at: finished.toISOString(),
     durationMs: finished.getTime() - startedAt.getTime(),
     costUsd: parsed.costUsd
@@ -3843,11 +3984,12 @@ ${task.brief}`;
   const rules = existsSync7(rulesFile) ? readFileSync11(rulesFile, "utf8") : null;
   const { system, prompt } = reviewPrompt({ task, config, envName: env.name, envBranch: env.branch, sha, packet, diff, stat, checks, rules });
   const sessionId = (deps.uuid ?? randomUUID2)();
+  const name = sessionName({ project: config.project, key: id, title: task.title, role: "review" });
   mkdirSync11(paths.reviews, { recursive: true });
   const marker = runningPath2(paths, id);
   const startedAt = now2();
-  writeFileSync12(marker, JSON.stringify({ sessionId, sha, startedAt: startedAt.toISOString(), pid: process.pid }));
-  deps.onStart?.(sessionId, sha);
+  writeFileSync12(marker, JSON.stringify({ sessionId, name, sha, startedAt: startedAt.toISOString(), pid: process.pid }));
+  deps.onStart?.(sessionId, sha, name);
   const awake = holdAwake(process.pid, deps.awake);
   let out2;
   try {
@@ -3855,6 +3997,8 @@ ${task.brief}`;
       "-p",
       "--session-id",
       sessionId,
+      "--name",
+      name,
       "--permission-mode",
       "dontAsk",
       ...agentArgs(config.agents.reviewer),
@@ -3891,6 +4035,7 @@ ${task.brief}`;
     env: env.branch,
     ...parsed.verdict,
     sessionId: parsed.sessionId ?? sessionId,
+    name,
     at: finished.toISOString(),
     durationMs: finished.getTime() - startedAt.getTime(),
     costUsd: parsed.costUsd
@@ -3963,7 +4108,7 @@ var EVENT_WORDS = {
 };
 function ticketOf(task) {
   const { kind, key, url } = task.source;
-  if (kind !== "github" && kind !== "jira" && kind !== "azure" || !key) return null;
+  if (!isTrackerKind(kind) || !key) return null;
   return { tracker: kind, key, url };
 }
 function githubIssue(u, repo) {
@@ -4111,6 +4256,113 @@ function discardUpdate(paths, id, by, now2) {
   });
 }
 
+// packages/core/src/closing.ts
+var GH_CALL_MS = 6e4;
+var ALREADY_CLOSED = "it was already closed";
+var STOOD_IN = /* @__PURE__ */ new Set(["pr-opened", "pr-updated", "merged"]);
+function editsTracker(config) {
+  const tracker = config.trackers.find((t) => t.kind === "github");
+  return tracker?.edits && config.github ? tracker : null;
+}
+var closesIssues = (config) => !!editsTracker(config);
+function issueToClose(config, task) {
+  const tracker = editsTracker(config);
+  const n = /^GH-(\d+)$/.exec(task.id)?.[1];
+  if (task.source.kind !== "github" || !tracker || !n) return null;
+  return { repo: tracker.repo ?? config.github.repo, number: Number(n) };
+}
+function closeText(config, task, repo) {
+  const env = environmentByBranch(config, task.environment)?.name ?? task.environment;
+  const prRepo = config.github?.repo;
+  const ref = prRepo && prRepo.toLowerCase() !== repo.toLowerCase() ? `${prRepo}#${task.pr.number}` : `#${task.pr.number}`;
+  return `Done: pull request ${ref} merged into ${env}.`;
+}
+var firstLine = (r) => (r.stderr || r.stdout).trim().split("\n")[0] || `gh exited with ${r.code}.`;
+function look(run2, env, repo, n, leaveReopened) {
+  const r = run2("gh", ["issue", "view", String(n), "-R", repo, "--json", "state,stateReason,url"], { env, timeoutMs: GH_CALL_MS });
+  if (r.code !== 0) {
+    const why = firstLine(r);
+    return /could not resolve to an issue/i.test(why) ? { close: false, outcome: "left", reason: "GitHub can't find it" } : { close: false, outcome: "failed", reason: why };
+  }
+  let issue;
+  try {
+    issue = JSON.parse(r.stdout);
+  } catch {
+    return { close: false, outcome: "failed", reason: "gh's answer wasn't JSON" };
+  }
+  const lives = issueRepo(issue.url);
+  if (lives && lives.toLowerCase() !== repo.toLowerCase()) return { close: false, outcome: "left", reason: `it moved to ${lives}` };
+  const state = String(issue.state ?? "").toUpperCase();
+  if (state === "CLOSED") return { close: false, outcome: "left", reason: ALREADY_CLOSED };
+  if (state !== "OPEN") return { close: false, outcome: "failed", reason: "gh didn't say whether it's open" };
+  if (leaveReopened && String(issue.stateReason ?? "").toUpperCase() === "REOPENED") return { close: false, outcome: "left", reason: "it was reopened" };
+  return { close: true };
+}
+function close(run2, env, repo, n, text) {
+  const r = run2("gh", ["issue", "close", String(n), "-R", repo, "--reason", "completed", "--comment", text], { env, timeoutMs: GH_CALL_MS });
+  if (r.code === 0) return { outcome: "closed" };
+  return { outcome: "failed", reason: r.timedOut ? `gh stopped at its timeout, and may have closed it: ${firstLine(r)}` : firstLine(r) };
+}
+function settleCloses(paths, config, deps, opts = {}) {
+  const { run: run2, now: now2, env } = deps;
+  const tidy = !!opts.tidy;
+  const tasks = readLedger(paths.ledger).tasks.filter((t) => t.state === "done" && (tidy ? t.pr?.state === "merged" && !t.pr.issue : t.pr?.issue?.state === "pending"));
+  const results = [];
+  for (const t of tasks) {
+    const pr = t.pr;
+    const key = t.id.replace(/^GH-/, "#");
+    const target = issueToClose(config, t);
+    if (!target) {
+      if (!tidy) results.push({ task: t.id, key, pr: pr.number, outcome: "left", reason: `its tracker doesn't say "edits": true now` });
+      continue;
+    }
+    const seen = look(run2, env, target.repo, target.number, tidy || !!pr.issue?.reason);
+    if (!seen.close) results.push({ task: t.id, key, pr: pr.number, outcome: seen.outcome, reason: seen.reason });
+    else if (opts.plan) results.push({ task: t.id, key, pr: pr.number, outcome: "to close" });
+    else results.push({ task: t.id, key, pr: pr.number, ...close(run2, env, target.repo, target.number, closeText(config, { environment: t.environment, pr }, target.repo)) });
+  }
+  if (opts.plan || !results.length) return results;
+  const at2 = now2().toISOString();
+  mutate(paths, now2, (ledger, emit) => {
+    for (const r of results) {
+      const t = ledger.tasks.find((x2) => x2.id === r.task);
+      if (!t?.pr || t.pr.number !== r.pr || t.pr.issue && t.pr.issue.state !== "pending") continue;
+      const issue = r.outcome === "failed" ? { state: "pending", at: at2, reason: r.reason ?? "" } : { state: r.outcome === "closed" ? "closed" : "left", at: at2, ...r.reason ? { reason: r.reason } : {} };
+      if (t.pr.issue?.state === issue.state && t.pr.issue.reason === issue.reason) continue;
+      t.pr = { ...t.pr, issue };
+      emit({ type: "task.updated", task: t.id, actor: opts.actor ?? "sync", by: opts.by ?? "acc sync", data: { pr: t.pr } });
+    }
+  });
+  const settled = results.filter((r) => r.outcome === "closed" || r.reason === ALREADY_CLOSED);
+  const drafts = settled.length ? listUpdates(paths) : [];
+  for (const r of settled) {
+    const gone = [];
+    for (const u of drafts) {
+      if (u.task !== r.task || u.state !== "draft" || !STOOD_IN.has(u.event)) continue;
+      try {
+        discardUpdate(paths, u.id, "acc sync", now2);
+        gone.push(u.id);
+      } catch {
+      }
+    }
+    if (gone.length) r.discarded = gone;
+  }
+  return results;
+}
+function closeWords(r, plan = false) {
+  const drafts = r.discarded?.length ? `; discarded its unposted update${r.discarded.length === 1 ? "" : "s"} ${r.discarded.join(", ")}` : "";
+  switch (r.outcome) {
+    case "closed":
+      return `closed issue ${r.key}${drafts}`;
+    case "to close":
+      return `would close issue ${r.key}`;
+    case "left":
+      return `${plan ? "would leave" : "left"} issue ${r.key} as it is: ${r.reason}${drafts}`;
+    case "failed":
+      return plan ? `couldn't look at issue ${r.key}: ${r.reason}` : `couldn't close issue ${r.key} (${r.reason}): the next sync tries again`;
+  }
+}
+
 // packages/core/src/sync.ts
 var mergeShaOf = (p) => p.mergeCommit?.oid && /^[0-9a-f]{40,64}$/.test(p.mergeCommit.oid) ? p.mergeCommit.oid : void 0;
 var FAILED = /* @__PURE__ */ new Set(["FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE", "ERROR"]);
@@ -4141,7 +4393,8 @@ function sync(paths, config, deps) {
   const tasks = readLedger(paths.ledger).tasks;
   const open = tasks.filter((t) => t.pr?.state === "open");
   const promotions = [...new Set(tasks.flatMap((t) => (t.promotions ?? []).filter((p) => p.state === "open").map((p) => p.pr.number)))];
-  if (!open.length && !promotions.length) return { checked: 0, changes: [] };
+  const closing = tasks.some((t) => t.pr?.issue?.state === "pending");
+  if (!open.length && !promotions.length && !closing) return { checked: 0, changes: [] };
   const gh = config.github;
   if (!gh) throw new AccError("no-github", 'This project has no "github" section in .acc/config.json, so there are no pull requests to follow.');
   const token = run2("gh", ["auth", "token", "-u", gh.account]);
@@ -4200,6 +4453,7 @@ function sync(paths, config, deps) {
         if (t.state === "review" && !checkMove(ledger2, config, t, req, noGateHooks).length) {
           moved = { from: t.state, to: "done" };
           applyMove(t, req, emit, now2);
+          if (issueToClose(config, t)) t.pr.issue = { state: "pending", at: at2 };
         }
         note = `#${p.number} merged`;
       } else if (p.state === "CLOSED") {
@@ -4259,7 +4513,7 @@ function sync(paths, config, deps) {
   for (const c of changes) {
     if (c.moved?.to !== "done") continue;
     const t = ledger.tasks.find((x2) => x2.id === c.task);
-    if (!t) continue;
+    if (!t || t.pr?.issue) continue;
     try {
       const u = draftUpdate(paths, t, { event: "merged", env: environmentByBranch(config, t.environment)?.name ?? t.environment }, "acc sync", now2);
       if (u) c.update = { id: u.id, key: u.key };
@@ -4290,6 +4544,14 @@ function sync(paths, config, deps) {
     }
     if (gone.length) change2.note += `; discarded its unposted update ${gone.join(", ")}`;
   }
+  for (const r of settleCloses(paths, config, { run: run2, now: now2, env })) {
+    const issue = { key: r.key, outcome: r.outcome, ...r.reason ? { reason: r.reason } : {} };
+    const c = changes.find((x2) => x2.task === r.task && x2.pr === r.pr && x2.moved?.to === "done");
+    if (c) {
+      c.issue = issue;
+      c.note += `; ${closeWords(r)}`;
+    } else changes.push({ task: r.task, pr: r.pr, moved: null, note: closeWords(r), issue });
+  }
   return { checked: seen.size + promoted.size, changes };
 }
 
@@ -4300,7 +4562,10 @@ var LAND_TIMEOUT_MS = PUSH_TIMEOUT_MS + FETCH_TIMEOUT_MS + 3 * GH_TIMEOUT_MS + 6
 var UPDATE_POST_TIMEOUT_MS = 2 * GH_TIMEOUT_MS + 6e4;
 var STATUS_WORD = { pass: "Passed", fail: "Failed", error: "Couldn't run", skip: "Didn't apply" };
 var cell = (s) => s.replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " ").trim();
-function prBody(task, env, sha, verdict, receipts) {
+function mergesWords(autoMerge) {
+  return autoMerge ? "With autopilot running, it merges once its checks pass on GitHub and nothing waits on a person: auto-merge is on for this repo. Ask for changes to hold it." : "It merges only when a person merges it.";
+}
+function prBody(task, env, sha, verdict, receipts, autoMerge = false) {
   const ticket = task.source.url ? `[${task.source.key ?? task.id}](${task.source.url})` : null;
   const lines = [
     verdict.summary.trim(),
@@ -4322,7 +4587,7 @@ function prBody(task, env, sha, verdict, receipts) {
     ...verdict.findings.length ? ["", "Worth a look, not blocking:", "", ...verdict.findings.map((f) => `- ${f.file ? `\`${f.file}${f.line ? `:${f.line}` : ""}\`: ` : ""}${f.message}`)] : [],
     "",
     "---",
-    `Built by a Claude Code agent and opened by \`acc land\` into \`${env.branch}\` (${env.name}). It merges only when a person merges it.`
+    `Built by a Claude Code agent and opened by \`acc land\` into \`${env.branch}\` (${env.name}). ${mergesWords(autoMerge)}`
   ];
   return lines.join("\n") + "\n";
 }
@@ -4360,7 +4625,7 @@ function land(paths, config, id, deps, opts = {}) {
   const push = run2("git", ["push", "--set-upstream", "origin", `${branch}:${branch}`], { cwd: paths.root, env: deps.env, timeoutMs: PUSH_TIMEOUT_MS });
   if (push.code !== 0) throw new AccError("land", `git push refused ${branch}: ${(push.stderr || push.stdout).trim().split("\n").slice(-2).join(" ")}`);
   const receipts = receiptsAt(paths, sha);
-  const body = prBody(task, env, sha, verdict, receipts);
+  const body = prBody(task, env, sha, verdict, receipts, autoMergeFor(config, env.branch));
   const dir = mkdtempSync(join12(tmpdir(), "acc-land-"));
   let pr;
   let opened;
@@ -4410,7 +4675,7 @@ var LOG_TAIL_BYTES = 10 * 1024;
 var MAX_LOGS = 5;
 var NO_ACTIONS_LOG = "GitHub keeps no log for it: it isn't a GitHub Actions job.";
 var short = (sha) => sha.slice(0, 7) || "no commit";
-var firstLine = (r) => (r.stderr || r.stdout).trim().split("\n")[0]?.trim() || `exit ${r.code}`;
+var firstLine2 = (r) => (r.stderr || r.stdout).trim().split("\n")[0]?.trim() || `exit ${r.code}`;
 var said = (r) => `${r.stderr}
 ${r.stdout}`;
 var JOB_LINK = /^https?:\/\/([^/]+)\/([^/]+\/[^/]+)\/actions\/runs\/\d+\/job\/(\d+)(?:[/?#]|$)/;
@@ -4427,7 +4692,7 @@ function headOf(run2, repo, pr, env) {
   } catch {
     sha = "";
   }
-  if (r.code !== 0 || !/^[0-9a-f]{40,64}$/.test(sha)) throw new AccError("checks", `gh couldn't read pull request #${pr}: ${firstLine(r)}`);
+  if (r.code !== 0 || !/^[0-9a-f]{40,64}$/.test(sha)) throw new AccError("checks", `gh couldn't read pull request #${pr}: ${firstLine2(r)}`);
   return sha;
 }
 function listOf2(r) {
@@ -4449,12 +4714,16 @@ function readChecks(run2, repo, pr, env) {
     r = checks();
     list = listOf2(r);
   }
-  if (!list && /no checks reported/i.test(said(r))) list = [];
-  if (!list) throw new AccError("checks", `gh couldn't read pull request #${pr}'s checks: ${firstLine(r)}`);
+  if (!list && /no checks reported/i.test(said(r))) {
+    required = false;
+    list = [];
+  }
+  if (!list) throw new AccError("checks", `gh couldn't read pull request #${pr}'s checks: ${firstLine2(r)}`);
   const name = (c) => c.name || c.workflow || "a check";
   const failed = list.filter((c) => c.bucket === "fail").map((c) => ({ name: name(c), workflow: c.workflow ?? "", link: c.link ?? "", job: actionsJob(c.link ?? "") }));
   const pending = list.filter((c) => c.bucket === "pending").map(name);
-  return { sha, required, failed, pending };
+  const cancelled = list.filter((c) => c.bucket === "cancel").map(name);
+  return { sha, required, failed, pending, cancelled, count: list.length };
 }
 var CSI = /\x1b\[[0-?]*[ -/]*[@-~]/g;
 var PREFIX = /^[^\t\n]*\t[^\t\n]*\t/;
@@ -4479,7 +4748,7 @@ function fetchLog(run2, job, env) {
   const view = (flag) => run2("gh", ["run", "view", "--job", job.id, flag, "-R", job.repo], { env, timeoutMs: GH_TIMEOUT_MS });
   let r = view("--log-failed");
   if (r.code === 0 && !tailLog(r.stdout)) r = view("--log");
-  if (r.code !== 0) return { error: firstLine(r) };
+  if (r.code !== 0) return { error: firstLine2(r) };
   const log = tailLog(r.stdout);
   return log ? { log } : { error: "GitHub gave an empty log." };
 }
@@ -4755,6 +5024,7 @@ function builderSettings(task, config, accBinDir2, basePath, accCommand2) {
     "Bash(acc review*)",
     "Bash(acc autopilot*)",
     "Bash(acc agents autonomy*)",
+    "Bash(acc agents auto-merge*)",
     "Bash(acc analyze*)",
     "Bash(acc analysis answer*)",
     "Bash(acc promote*)",
@@ -4762,6 +5032,7 @@ function builderSettings(task, config, accBinDir2, basePath, accCommand2) {
     "Bash(acc update*)",
     "Bash(acc resume*)",
     "Bash(acc machine*)",
+    "Bash(acc sync --close-done*)",
     // Releases are a person's (D-079): npm run * is allowed above, and deny beats allow.
     "Bash(gh release create*)",
     "Bash(gh release upload*)",
@@ -4831,14 +5102,23 @@ function readList2(wt2, rel) {
   return readFileSync14(join14(wt2, rel), "utf8").split("\n").map((l3) => l3.trim()).filter((l3) => l3 && !l3.startsWith("#"));
 }
 var sleep2 = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-function findSession(run2, wt2, name, waitMs) {
+function samePlace(a, b) {
+  if (a === b) return true;
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return false;
+  }
+}
+function findSession(run2, cwd, name, waitMs, o = {}) {
   const until = Date.now() + waitMs;
   let found = null;
+  const ours = (x2) => x2.name === name && x2.kind === "background" && (o.since === void 0 || (x2.startedAt ?? 0) >= o.since) && (!o.places || !x2.cwd || o.places.some((p) => samePlace(x2.cwd, p)));
   do {
-    const r = run2("claude", ["agents", "--json"], { cwd: wt2, timeoutMs: 2e4 });
+    const r = run2("claude", ["agents", "--json"], { cwd, timeoutMs: 2e4 });
     try {
       const list = JSON.parse(r.stdout);
-      const s = list.filter((x2) => x2.name === name && x2.kind === "background").sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))[0];
+      const s = list.filter(ours).sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))[0];
       if (s) {
         found = { bgId: s.id ?? null, sessionId: s.sessionId ?? null, pid: Number.isInteger(s.pid) && s.pid > 0 ? s.pid : null };
         if (found.pid) return found;
@@ -4849,8 +5129,14 @@ function findSession(run2, wt2, name, waitMs) {
   } while (Date.now() < until);
   return found ?? { bgId: null, sessionId: null, pid: null };
 }
+var LAUNCH_SLACK_MS = 5e3;
+function builderModel(task, config, chosen) {
+  const picked = chosen ?? (task.run?.modelPicked ? task.run.model : void 0);
+  return picked ? { model: picked, picked: true } : { model: modelOf(config.agents.builder), picked: false };
+}
 function dispatch(paths, config, id, deps, opts) {
   const { run: run2, now: now2 } = deps;
+  if (opts.model !== void 0) checkModelName(opts.model);
   const before = readLedger(paths.ledger);
   const found = before.tasks.find((t) => t.id === id);
   if (!found) throw new AccError("no-task", `No task ${id}.`);
@@ -4897,14 +5183,17 @@ function dispatch(paths, config, id, deps, opts) {
   const prompt = `Read your task instructions below and do the task.
 
 ${packet}`;
-  const base = ["--name", found.id, "--permission-mode", config.agents.permissionMode, ...agentArgs(config.agents.builder), "--settings", settings];
+  const n = (found.run?.n ?? (found.run ? 1 : 0)) + 1;
+  const name = sessionName({ project: config.project, key: found.id, title: found.title, role: "builder", n });
+  const { model, picked } = builderModel(found, config, opts.model);
+  const base = ["--name", name, "--permission-mode", config.agents.permissionMode, ...agentArgs({ ...config.agents.builder, model }), "--settings", settings];
   const record = (bgId2, sessionId2) => mutate(paths, now2, (ledger, emit) => {
     const task = ledger.tasks.find((t) => t.id === id);
     const again = checkMove(ledger, config, task, req, noGateHooks);
     if (again.length) throw new AccError("move-refused", `Can't dispatch ${id}:
 - ${again.join("\n- ")}`);
     applyMove(task, { ...req, reason: reused ? `re-dispatched in ${basename3(wt2)}` : null }, emit, now2, opts.cause ? { cause: opts.cause } : {});
-    task.run = { worktree: wt2, branch, startedAt: now2().toISOString(), ...bgId2 ? { bgId: bgId2 } : {}, ...sessionId2 ? { sessionId: sessionId2 } : {} };
+    task.run = { worktree: wt2, branch, startedAt: now2().toISOString(), model, ...picked ? { modelPicked: true } : {}, ...bgId2 ? { bgId: bgId2 } : {}, ...sessionId2 ? { sessionId: sessionId2 } : {}, name, n };
     emit({ type: "task.updated", task: id, actor: opts.actor, by: opts.by, data: { run: task.run } });
     return task;
   });
@@ -4916,15 +5205,16 @@ ${packet}`;
     } finally {
       awake?.release();
     }
-    return { task, worktree: wt2, branch, reused, packetPath, bgId: null, sessionId: null };
+    return { task, worktree: wt2, branch, reused, packetPath, bgId: null, sessionId: null, name };
   }
+  const since = Date.now() - LAUNCH_SLACK_MS;
   const launched = run2("claude", ["--bg", ...base, prompt], { cwd: launchDir, env: deps.env, timeoutMs: 6e4 });
   if (launched.code !== 0) throw new AccError("dispatch", `Claude Code didn't start the agent: ${(launched.stderr || launched.stdout).trim().split("\n")[0]}. The worktree is kept at ${wt2}.`);
-  const { bgId, sessionId, pid } = findSession(run2, launchDir, found.id, deps.findSessionMs ?? 8e3);
+  const { bgId, sessionId, pid } = findSession(run2, launchDir, name, deps.findSessionMs ?? 8e3, { since, places: [launchDir, wt2] });
   try {
     const task = record(bgId, sessionId);
     if (pid) keepAwakeFor(paths, id, pid, deps.awake);
-    return { task, worktree: wt2, branch, reused, packetPath, bgId, sessionId };
+    return { task, worktree: wt2, branch, reused, packetPath, bgId, sessionId, name };
   } catch (e) {
     if (bgId) run2("claude", ["stop", bgId], { cwd: wt2 });
     throw e;
@@ -5052,7 +5342,7 @@ var pass2 = (detail) => ({ status: "pass", detail });
 var fail2 = (detail, fix) => fix ? { status: "fail", detail, fix } : { status: "fail", detail };
 var unknown = (detail) => ({ status: "unknown", detail });
 var skip2 = (detail) => ({ status: "skip", detail });
-function makeContext(cwd, run2, env = process.env) {
+function makeContext(cwd, run2, env = process.env, version = null) {
   let paths = null;
   try {
     paths = repoPaths(cwd, run2);
@@ -5071,7 +5361,7 @@ function makeContext(cwd, run2, env = process.env) {
     }
   }
   if (config && paths) config = withCloneAccount(config, paths.root, run2);
-  return { cwd, run: run2, env, paths, config, configErrors, cache: /* @__PURE__ */ new Map() };
+  return { cwd, run: run2, env, paths, config, configErrors, cache: /* @__PURE__ */ new Map(), version };
 }
 function cached(ctx, key, fn2) {
   if (!ctx.cache.has(key)) ctx.cache.set(key, fn2());
@@ -5262,9 +5552,129 @@ function configureRepoAccess(run2, root, account, identity) {
 import { closeSync as closeSync4, mkdirSync as mkdirSync17, openSync as openSync4, readFileSync as readFileSync18, readSync as readSync3, statSync as statSync5 } from "node:fs";
 import { join as join20 } from "node:path";
 
+// packages/core/src/merge.ts
+var NO_CHECKS_GRACE_MS = 2 * 6e4;
+var BLOCKED_NO_CHECKS_MS = 15 * 6e4;
+var MERGE_METHODS = ["merge", "squash", "rebase"];
+var MERGEABLE = /* @__PURE__ */ new Set(["CLEAN", "UNSTABLE", "HAS_HOOKS"]);
+var short2 = (sha) => sha.slice(0, 7) || "no commit";
+var firstLine3 = (r) => (r.stderr || r.stdout).trim().split("\n")[0]?.trim() || `exit ${r.code}`;
+var under2 = (path, root) => path === root || path.startsWith(root.endsWith("/") ? root : `${root}/`);
+function viewPr(run2, repo, n, env) {
+  const r = run2("gh", ["pr", "view", String(n), "-R", repo, "--json", "state,headRefOid,mergeable,mergeStateStatus,reviewDecision,baseRefName,isDraft"], { env, timeoutMs: GH_TIMEOUT_MS });
+  if (r.code !== 0) return null;
+  try {
+    return parseJsonOutput(r.stdout);
+  } catch {
+    return null;
+  }
+}
+function mergeMethod(run2, repo, env) {
+  const r = run2("gh", ["repo", "view", repo, "--json", "mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed"], { env, timeoutMs: GH_TIMEOUT_MS });
+  let allowed = null;
+  try {
+    allowed = r.code === 0 ? parseJsonOutput(r.stdout) : null;
+  } catch {
+    allowed = null;
+  }
+  if (!allowed) throw new AccError("merge", `gh couldn't read how ${repo} merges pull requests: ${firstLine3(r)}`);
+  const key = { merge: "mergeCommitAllowed", squash: "squashMergeAllowed", rebase: "rebaseMergeAllowed" };
+  const method = MERGE_METHODS.find((m) => allowed[key[m]] === true);
+  if (!method) throw new AccError("merge", `${repo} allows no way to merge a pull request.`);
+  return method;
+}
+function notCovered(config, env) {
+  if (config.profile === "salesforce") return "A Salesforce project never auto-merges: a person merges every pull request there.";
+  if (env.protected) return `"${env.name}" is protected: a person merges into it.`;
+  if (config.autonomy !== "review") return `autonomy is "${config.autonomy}": autopilot merges only under review.`;
+  return "Auto-merge is off for this project: a person merges its pull requests.";
+}
+function mergePr(paths, config, id, deps, opts) {
+  const { run: run2, now: now2 } = deps;
+  const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
+  if (!task) throw new AccError("no-task", `No task ${id}.`);
+  const pr = task.pr;
+  if (task.state !== "review" || pr?.state !== "open") throw new AccError("refused", `${id} is ${task.state}${pr ? ` with pull request #${pr.number} ${pr.state}` : " with no pull request"}. Autopilot merges the open pull request of a task in review.`);
+  const gh = config.github;
+  if (!gh) throw new AccError("no-github", `This project has no "github" section in .acc/config.json, so there's no pull request to merge.`);
+  const env = environmentByBranch(config, task.environment);
+  if (!env) throw new AccError("merge", `${id}'s environment "${task.environment}" isn't in the config.`);
+  if (!autoMergeFor(config, env.branch)) throw new AccError("refused", notCovered(config, env));
+  const branch = task.run?.branch;
+  const head = branch ? run2("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], { cwd: paths.root }).stdout.trim() : "";
+  if (!branch || !head) throw new AccError("merge", `${id}'s branch isn't in this clone.`);
+  const wait = (why) => new AccError("merge-waits", why);
+  if (task.autopilot?.merged?.sha === head) throw wait(`Autopilot already merged pull request #${pr.number}: acc sync moves ${id} to done.`);
+  if (pr.sha !== head) throw wait(`Pull request #${pr.number} was landed at ${short2(pr.sha ?? "")}, not ${short2(head)}: a land comes first.`);
+  if (readVerdict(paths, id, head)?.verdict !== "pass") throw wait(`${id}'s review hasn't passed on ${short2(head)}.`);
+  const missing = receiptHooks(paths, config, run2).missingGates(task);
+  if (missing.length) throw new AccError("merge", `Its checks aren't settled on ${short2(head)}: ${missing.join(", ")}.`);
+  const wt2 = task.run?.worktree;
+  if (wt2 && pendingQuestions(questionsDir(deps.env)).some((q2) => under2(q2.cwd, wt2))) throw wait(`An agent in ${id}'s worktree is waiting for your answer.`);
+  if (!fetchBranches(run2, paths.root, [env.branch, branch], { ...deps.env, GIT_TERMINAL_PROMPT: "0" })) throw wait(`Couldn't fetch ${env.branch} and ${branch} from origin.`);
+  const git9 = (...args) => run2("git", args, { cwd: paths.root });
+  if (git9("merge-base", "--is-ancestor", `refs/remotes/origin/${env.branch}`, head).code !== 0) throw wait(`${env.branch} moved on since ${short2(head)}: autopilot merges it in first.`);
+  const changed = git9("diff", "--name-only", "--no-renames", `refs/remotes/origin/${env.branch}...${head}`, "--", ".acc");
+  if (changed.code !== 0) throw new AccError("merge", `git couldn't list what pull request #${pr.number} changes: ${firstLine3(changed)}`);
+  const acc = changed.stdout.split("\n").filter(Boolean);
+  if (acc.length) throw new AccError("merge", `It changes .acc/, which a person merges: ${acc.join(", ")}.`);
+  const ghEnv3 = { ...deps.env, GH_TOKEN: ghToken(run2, gh.account) };
+  const seen = viewPr(run2, gh.repo, pr.number, ghEnv3);
+  if (!seen) throw wait(`gh couldn't read pull request #${pr.number}.`);
+  if (seen.state === "MERGED") throw wait(`Pull request #${pr.number} is already merged on GitHub: acc sync moves ${id} to done.`);
+  if (seen.state !== "OPEN") throw wait(`Pull request #${pr.number} is ${String(seen.state ?? "not open").toLowerCase()} on GitHub: acc sync follows it.`);
+  if (seen.headRefOid !== head) throw wait(`Pull request #${pr.number} is at ${short2(seen.headRefOid ?? "")} on GitHub, not ${short2(head)}: a land or a person comes first.`);
+  if (seen.baseRefName !== env.branch) throw new AccError("merge", `Pull request #${pr.number} merges into ${seen.baseRefName || "another branch"} on GitHub, not ${env.branch}: a person merges it.`);
+  if (seen.reviewDecision === "CHANGES_REQUESTED") throw wait(`A person asked for changes on pull request #${pr.number}.`);
+  if (seen.isDraft) throw new AccError("merge", `Pull request #${pr.number} is a draft on GitHub.`);
+  let checks;
+  try {
+    checks = readChecks(run2, gh.repo, pr.number, ghEnv3);
+  } catch (e) {
+    throw wait(e.message);
+  }
+  if (checks.sha !== head) throw wait(`Pull request #${pr.number} is at ${short2(checks.sha)} on GitHub, not ${short2(head)}.`);
+  if (checks.pending.length) throw wait(`Checks are still running on GitHub: ${checks.pending.join(", ")}.`);
+  if (checks.failed.length) throw new AccError("merge", `Checks failed on GitHub: ${checks.failed.map((c) => c.name).join(", ")}.`);
+  if (checks.cancelled.length) throw new AccError("merge", `Checks were cancelled on GitHub: ${checks.cancelled.join(", ")}. Run them again, or merge it yourself.`);
+  const landed = Date.parse(pr.landedAt ?? "");
+  const since = (ms) => Number.isFinite(landed) && now2().getTime() - landed < ms;
+  if (!checks.count) {
+    if (checks.required) throw wait(`No checks ${env.branch} requires are reported on GitHub yet.`);
+    if (since(NO_CHECKS_GRACE_MS)) throw wait("No checks are reported on GitHub yet: autopilot gives them 2 minutes after a land.");
+  }
+  if (seen.mergeable === "CONFLICTING" || seen.mergeStateStatus === "DIRTY") throw new AccError("merge", `GitHub says pull request #${pr.number} conflicts with ${env.branch}.`);
+  if (seen.mergeable !== "MERGEABLE" || !seen.mergeStateStatus || seen.mergeStateStatus === "UNKNOWN") throw wait(`GitHub is still working out whether pull request #${pr.number} can merge.`);
+  if (seen.mergeStateStatus === "BEHIND") throw wait(`GitHub says pull request #${pr.number} is behind ${env.branch}: autopilot merges it in first.`);
+  if (seen.mergeStateStatus === "BLOCKED" && !checks.count) {
+    if (since(BLOCKED_NO_CHECKS_MS)) throw wait(`GitHub says ${env.branch}'s rules block pull request #${pr.number}, and no checks are reported on it yet: autopilot waits for the checks ${env.branch} requires.`);
+    throw new AccError("merge", `GitHub won't merge pull request #${pr.number}: ${env.branch}'s rules block it, and no checks were reported on it in the 15 minutes after its land. It may need an approving review: merge it yourself.`);
+  }
+  if (seen.mergeStateStatus === "BLOCKED") throw new AccError("merge", `GitHub won't merge pull request #${pr.number}: ${env.branch}'s rules block it, such as a required approving review.`);
+  if (!MERGEABLE.has(seen.mergeStateStatus)) throw new AccError("merge", `GitHub says pull request #${pr.number} can't merge (${seen.mergeStateStatus}).`);
+  const method = mergeMethod(run2, gh.repo, ghEnv3);
+  const r = run2("gh", ["pr", "merge", String(pr.number), "-R", gh.repo, `--${method}`, "--match-head-commit", head], { env: ghEnv3, timeoutMs: GH_TIMEOUT_MS });
+  if (r.code !== 0) {
+    const after = viewPr(run2, gh.repo, pr.number, ghEnv3);
+    if (after?.state !== "MERGED") {
+      if (after?.headRefOid && after.headRefOid !== head) throw wait(`Pull request #${pr.number} moved on to ${short2(after.headRefOid)} on GitHub while autopilot merged it.`);
+      throw new AccError("merge", `gh couldn't merge pull request #${pr.number}: ${firstLine3(r)}${after ? "" : " GitHub didn't say afterwards whether it merged."}`);
+    }
+  }
+  const merged = { sha: head, pr: { number: pr.number, url: pr.url }, method, at: now2().toISOString() };
+  mutate(paths, now2, (l3, emit) => {
+    const t = l3.tasks.find((x2) => x2.id === id);
+    if (!t) return;
+    t.autopilot = { ...t.autopilot, failed: null, merged };
+    t.updatedAt = merged.at;
+    emit({ type: "task.updated", task: id, actor: opts.actor, by: opts.by, data: { merged } });
+  });
+  return { sha: head, pr: merged.pr, method, reason: `Merged pull request #${pr.number} into ${env.branch} at ${short2(head)}. acc sync moves ${id} to done.` };
+}
+
 // packages/core/src/refresh.ts
 import { existsSync as existsSync11, realpathSync as realpathSync2 } from "node:fs";
-var short2 = (sha) => sha.slice(0, 7);
+var short3 = (sha) => sha.slice(0, 7);
 var lastLines = (r) => (r.stderr || r.stdout).trim().split("\n").slice(-2).join(" ");
 function appendOnlyMerge(common, ours, theirs) {
   if (!ours.startsWith(common) || !theirs.startsWith(common)) return null;
@@ -5357,17 +5767,19 @@ function refresh(paths, config, id, deps, opts) {
     });
     return { sha: null, from, resolved: [], reason: `Pull request #${pr.number} no longer conflicts with ${env.branch}, so nothing was merged.` };
   };
-  if (conflictsOf(run2, paths.root, env.branch, branch)?.length === 0) return settled();
+  if (!opts.behind && conflictsOf(run2, paths.root, env.branch, branch)?.length === 0) return settled();
+  const upToDate = () => pr.conflicts?.length ? settled() : { sha: null, from, resolved: [], reason: `Pull request #${pr.number} already has everything on ${env.branch}, so nothing was merged.` };
+  if (opts.behind && git9("merge-base", "--is-ancestor", `refs/remotes/origin/${env.branch}`, from).code === 0) return upToDate();
   const who = config.commitIdentity ? ["-c", `user.name=${config.commitIdentity.name}`, "-c", `user.email=${config.commitIdentity.email}`] : [];
   const merge = (...args) => run2("git", ["-c", "rerere.enabled=false", ...who, ...args], { cwd: wt2 });
   const putBack = (how) => {
     merge(...how);
     const back = git9("rev-parse", "HEAD").stdout.trim() === from && !dirty(false) && !mid();
-    return back ? `The branch is as it was, at ${short2(from)}, and nothing was pushed.` : `Putting the branch back at ${short2(from)} didn't work: look at ${wt2} before anything else.`;
+    return back ? `The branch is as it was, at ${short3(from)}, and nothing was pushed.` : `Putting the branch back at ${short3(from)} didn't work: look at ${wt2} before anything else.`;
   };
   const merged = merge("merge", "--no-ff", "--no-commit", `origin/${env.branch}`);
   if (!mid()) {
-    if (merged.code === 0) return settled();
+    if (merged.code === 0) return opts.behind ? upToDate() : settled();
     throw new AccError("refresh", `git wouldn't merge ${env.branch} in: ${lastLines(merged)} ${putBack(["reset", "--merge"])}`);
   }
   const appendOnly = config.autopilot?.appendOnly ?? [];
@@ -5395,14 +5807,14 @@ function refresh(paths, config, id, deps, opts) {
     const err = e;
     throw new AccError(err.code ?? "refresh", `Merged ${env.branch} in, but its checks couldn't run: ${err.message} ${putBack(["reset", "--hard", from])}`);
   }
-  if (failed.length) throw new AccError("refresh", `Merged ${env.branch} in, but its checks failed on ${short2(sha)}: ${failed.join("; ")}. ${putBack(["reset", "--hard", from])}`);
-  const refreshed = { base: env.branch, from, to: sha, resolved };
+  if (failed.length) throw new AccError("refresh", `Merged ${env.branch} in, but its checks failed on ${short3(sha)}: ${failed.join("; ")}. ${putBack(["reset", "--hard", from])}`);
+  const refreshed = { base: env.branch, from, to: sha, resolved, ...opts.behind ? { behind: true } : {} };
   record((t) => {
     if (t.autopilot?.failed) t.autopilot.failed = null;
     return { refreshed };
   });
   const kept = resolved.length ? `, keeping both sides' additions to ${resolved.join(", ")}` : "";
-  return { sha, from, resolved, reason: `Merged ${env.branch} into ${short2(from)} as ${short2(sha)}${kept}.${required.length ? " Its checks passed." : ""} It's reviewed next pass, then landed.` };
+  return { sha, from, resolved, reason: `Merged ${env.branch} into ${short3(from)} as ${short3(sha)}${kept}.${required.length ? " Its checks passed." : ""} It's reviewed next pass, then landed.` };
 }
 
 // packages/core/src/resume.ts
@@ -5429,7 +5841,7 @@ var real = (p) => {
     return resolve2(p);
   }
 };
-var under2 = (path, root) => {
+var under3 = (path, root) => {
   const r = relative(real(root), real(path));
   return r === "" || !r.startsWith("..") && !r.startsWith(sep2) && !/^[A-Za-z]:/.test(r);
 };
@@ -5443,7 +5855,7 @@ function builderFor(ctx) {
     return null;
   }
   const byEnv = ctx.env.ACC_ROLE === "builder" && ctx.env.ACC_TASK ? tasks.find((t) => t.id === ctx.env.ACC_TASK) : void 0;
-  const byFolder = tasks.find((t) => t.run?.worktree && (t.state === "running" || t.state === "rework") && under2(ctx.cwd, t.run.worktree));
+  const byFolder = tasks.find((t) => t.run?.worktree && (t.state === "running" || t.state === "rework") && under3(ctx.cwd, t.run.worktree));
   const task = byEnv ?? byFolder;
   if (!task?.run?.worktree) return null;
   return { task, worktree: task.run.worktree, root };
@@ -5451,7 +5863,7 @@ function builderFor(ctx) {
 function guardEdit(b, filePath, envSpecific) {
   if (!filePath) return null;
   const abs = resolve2(b.worktree, filePath);
-  if (!under2(abs, b.worktree)) return `You're the builder for ${b.task.id}, and your only workspace is ${b.worktree}. ${filePath} is outside it. Make the change in your worktree, or say what you need with acc block.`;
+  if (!under3(abs, b.worktree)) return `You're the builder for ${b.task.id}, and your only workspace is ${b.worktree}. ${filePath} is outside it. Make the change in your worktree, or say what you need with acc block.`;
   const rel = relative(real(b.worktree), real(abs)).split(sep2).join("/");
   if (envSpecific.some((p) => rel === p || rel.startsWith(`${p.replace(/\/+$/, "")}/`))) {
     return `${rel} is environment-specific (D-016): every org keeps its own version, and no task changes it. Leave it, and mention in your summary what it should say.`;
@@ -5536,6 +5948,9 @@ function guardBash(b, line) {
     if (cmd === "sf" && sub === "org" && rest[0] === "delete") return "Builders never delete an org.";
     if (cmd === "acc" && sub && (PERSON_ONLY_ACC.has(sub) || sub === "gate" && rest[0] === "waive")) {
       return `acc ${sub}${sub === "gate" ? " waive" : ""} is a person's. A builder finishes with acc done, or acc block "<what you need>".`;
+    }
+    if (cmd === "acc" && sub === "sync" && rest.some((a) => a === "--close-done" || a.startsWith("--close-done="))) {
+      return `acc sync --close-done is a person's: it closes GitHub issues. A builder finishes with acc done, or acc block "<what you need>".`;
     }
   }
   return null;
@@ -5694,12 +6109,12 @@ function savedFolder(projectsDir, sessionId, likely) {
   return null;
 }
 var TAIL_BYTES = 256 * 1024;
-function lastSaidIn(file) {
+function* assistantTurns(file) {
   let fd;
   try {
     fd = openSync2(file, "r");
   } catch {
-    return null;
+    return;
   }
   let text;
   try {
@@ -5710,7 +6125,7 @@ function lastSaidIn(file) {
     text = buf.toString("utf8");
     if (from > 0) text = text.slice(text.indexOf("\n") + 1);
   } catch {
-    return null;
+    return;
   } finally {
     closeSync2(fd);
   }
@@ -5724,7 +6139,12 @@ function lastSaidIn(file) {
     } catch {
       continue;
     }
-    if (r?.type !== "assistant" || r.isSidechain || !Array.isArray(r.message?.content)) continue;
+    if (r?.type === "assistant" && !r.isSidechain) yield r;
+  }
+}
+function lastSaidIn(file) {
+  for (const r of assistantTurns(file)) {
+    if (!Array.isArray(r.message?.content)) continue;
     const said2 = r.message.content.filter((b) => b?.type === "text" && typeof b.text === "string" && b.text.trim()).map((b) => b.text.trim());
     if (said2.length) return said2[said2.length - 1];
   }
@@ -5788,9 +6208,12 @@ function resumeMessage(task, said2, head) {
 }
 function resumeCommand(task, config, i) {
   const settings = JSON.stringify(builderSettings(task, config, i.accBinDir, i.basePath, i.accCommand));
+  const { model } = builderModel(task, config);
+  const name = task.run?.name ? ["--name", task.run.name] : [];
   return {
-    args: ["-p", i.message, "--resume", i.sessionId, "--permission-mode", config.agents.permissionMode, ...agentArgs(config.agents.builder), "--settings", settings],
-    env: { ACC_ROLE: "builder", ACC_TASK: task.id }
+    args: ["-p", i.message, "--resume", i.sessionId, ...name, "--permission-mode", config.agents.permissionMode, ...agentArgs({ ...config.agents.builder, model }), "--settings", settings],
+    env: { ACC_ROLE: "builder", ACC_TASK: task.id },
+    model
   };
 }
 var launchDetached = (cmd, args, o) => {
@@ -5888,6 +6311,7 @@ function resumeClaimed(paths, config, id, deps, opts, c) {
       const t = l3.tasks.find((x2) => x2.id === id);
       if (!t?.run || t.state !== "running") throw new AccError("refused", `${id} left running meanwhile, so its resume was stopped.`);
       t.run.resumes = [...t.run.resumes ?? [], { at: at2, actor: opts.actor, by: opts.by }];
+      t.run.model = cmd.model;
       if (t.autopilot?.failed) t.autopilot.failed = null;
       t.updatedAt = at2;
       emit({ type: "task.updated", task: id, actor: opts.actor, by: opts.by, data: { resumed: { said: said2 ? clipSaid(said2) : null } } });
@@ -5903,6 +6327,9 @@ function resumeClaimed(paths, config, id, deps, opts, c) {
 // packages/core/src/autopilot.ts
 var AUTOPILOT_MIN_EVERY_S = 30;
 var AUTOPILOT_REVIEW_DOES = "reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, and merges the base into a pull request that conflicts with it";
+function autopilotDoes(autoMerge) {
+  return autoMerge ? `${AUTOPILOT_REVIEW_DOES}. Auto-merge is on: it also merges a pull request whose review and checks passed, once it's up to date with its base, GitHub says it can merge and nothing waits on a person, one a pass. It never merges into a protected environment.` : `${AUTOPILOT_REVIEW_DOES}. It never merges a pull request.`;
+}
 function autopilotMode(config) {
   const autonomy = config.autonomy;
   if (autonomy === "manual") return { autonomy, on: false, warnings: [], refusal: null };
@@ -5915,7 +6342,7 @@ function autopilotMode(config) {
     refusal: `autonomy "dispatch" (autopilot also starting Ready tasks) is not built yet. Set "autonomy" to "review" in .acc/config.json: autopilot then ${AUTOPILOT_REVIEW_DOES}.`
   };
 }
-var short3 = (sha) => sha.slice(0, 7) || "no commit";
+var short4 = (sha) => sha.slice(0, 7) || "no commit";
 var sentence3 = (text) => text.replace(/([^.!?])$/, "$1.");
 function reworkedByAutopilot(task, before) {
   let cause = null;
@@ -5948,18 +6375,21 @@ function nextStep(ledger, config, task, facts) {
   const none = (outcome, reason) => ({ step: null, outcome, reason });
   if (task.state === "review") {
     if (facts.reviewing) return none("waiting", `A review is running (session ${facts.reviewing}).`);
-    if (!facts.verdict) return step("review", `Nothing has reviewed ${short3(facts.head)} yet.`);
-    if (facts.verdict === "changes") return none("waiting", `Its review on ${short3(facts.head)} asked for changes, and it's still in review: a person decides.`);
+    if (!facts.verdict) return step("review", `Nothing has reviewed ${short4(facts.head)} yet.`);
+    if (facts.verdict === "changes") return none("waiting", `Its review on ${short4(facts.head)} asked for changes, and it's still in review: a person decides.`);
     const pr = task.pr;
     if (pr?.state === "merged") return none("skipped", `Pull request #${pr.number} merged.`);
     const closed = closedPr(task);
     if (closed) return none("waiting", `Pull request #${closed.number} was closed without merging. Autopilot won't replace it: reopen it on GitHub and land to update it, or land to open a new one.`);
-    if (pr?.state !== "open") return step("land", `Its review passed on ${short3(facts.head)}, and it has no pull request.`);
+    if (pr?.state !== "open") return step("land", `Its review passed on ${short4(facts.head)}, and it has no pull request.`);
     if (facts.landed === facts.head) {
       if (pr.conflicts?.length) return step("refresh", `Pull request #${pr.number} conflicts with ${task.environment} in ${pr.conflicts.join(", ")}.`);
-      return checksStep(task, facts, step, none) ?? none("skipped", `Pull request #${pr.number} is up to date with ${short3(facts.head)}.`);
+      const checks = checksStep(task, facts, step, none);
+      if (checks) return checks;
+      if (autoMergeFor(config, task.environment)) return mergeStep(task, facts, step, none);
+      return none("skipped", `Pull request #${pr.number} is up to date with ${short4(facts.head)}.`);
     }
-    return step("land", `Its review passed on ${short3(facts.head)}, and pull request #${pr.number} is behind it.`);
+    return step("land", `Its review passed on ${short4(facts.head)}, and pull request #${pr.number} is behind it.`);
   }
   if (task.state === "rework") {
     const checks = reworkCause(task) === "checks";
@@ -5978,9 +6408,9 @@ function nextStep(ledger, config, task, facts) {
   return none("skipped", "Done.");
 }
 function failedWords(s, sha) {
-  if (s === "refresh") return `update ${short3(sha)} from its base`;
-  if (s === "checks") return `send ${short3(sha)} back for its failing checks`;
-  return `${s} ${short3(sha)}`;
+  if (s === "refresh") return `update ${short4(sha)} from its base`;
+  if (s === "checks") return `send ${short4(sha)} back for its failing checks`;
+  return `${s} ${short4(sha)}`;
 }
 var names = (list) => list.join(", ");
 function checksStep(task, facts, step, none) {
@@ -5991,22 +6421,44 @@ function checksStep(task, facts, step, none) {
   if (facts.checksError) return none("waiting", `Autopilot couldn't read pull request #${pr.number}'s checks on GitHub: ${sentence3(facts.checksError)} It tries again next pass.`);
   const c = facts.checks;
   if (!c) return null;
-  if (c.sha !== head) return none("waiting", `Pull request #${pr.number} is at ${short3(c.sha)} on GitHub, not ${short3(head)}: a land or a person comes first.`);
+  if (c.sha !== head) return none("waiting", `Pull request #${pr.number} is at ${short4(c.sha)} on GitHub, not ${short4(head)}: a land or a person comes first.`);
   if (c.pending.length) return none("waiting", `Checks are still running on GitHub: ${names(c.pending)}.`);
   if (!c.failed.length) return null;
   const failed = names(c.failed.map((x2) => x2.name));
   if (!c.failed.some((x2) => x2.job)) return none("waiting", `Checks failed on GitHub: ${failed}. GitHub keeps no log for ${c.failed.length === 1 ? "it" : "them"}, so autopilot doesn't send it back: a person decides.`);
   const record = (reason) => ({ step: null, outcome: "waiting", reason, record: { step: "checks", reason } });
-  if (sentBackAt(task, head)) return record(`Checks failed on GitHub again: ${failed}. Autopilot already sent ${short3(head)} back once: a person decides.`);
+  if (sentBackAt(task, head)) return record(`Checks failed on GitHub again: ${failed}. Autopilot already sent ${short4(head)} back once: a person decides.`);
   if (checksSendBacks(task) >= CHECKS_SEND_BACKS) return record(`Checks failed on GitHub: ${failed}. Autopilot sent ${task.id} back for failing checks ${CHECKS_SEND_BACKS} times already: a person decides.`);
-  return step("checks", `Checks failed on GitHub on ${short3(head)}: ${failed}.`);
+  return step("checks", `Checks failed on GitHub on ${short4(head)}: ${failed}.`);
 }
-function checksWanted(task, facts) {
+function mergeStep(task, facts, step, none) {
+  const pr = task.pr;
+  const merged = task.autopilot?.merged;
+  if (merged?.sha === facts.head) return none("skipped", `Autopilot merged pull request #${merged.pr.number}. acc sync moves it to done.`);
+  const f = task.autopilot?.failed;
+  if (f?.step === "merge" && f.sha === facts.head && f.state === task.state) return step("merge", "");
+  const failure = autopilotFailure(task);
+  if (failure) return none("waiting", `Autopilot couldn't ${failedWords(failure.step, failure.sha)}: a person decides before it merges.`);
+  if (pr.changesRequested) return none("waiting", `A person asked for changes on pull request #${pr.number}, so autopilot doesn't merge it.`);
+  const c = facts.checks;
+  if (!c) return none("waiting", `Autopilot hasn't read pull request #${pr.number}'s checks on GitHub yet.`);
+  if (c.cancelled.length) {
+    const reason = `Checks were cancelled on GitHub: ${names(c.cancelled)}. Run them again, or merge it yourself.`;
+    return { step: null, outcome: "waiting", reason, record: { step: "merge", reason } };
+  }
+  if (!c.count && (c.required || facts.noChecksYet)) return none("waiting", `GitHub reports no checks on pull request #${pr.number} yet. Autopilot gives them 2 minutes after a land.`);
+  const behind = facts.behind ? facts.behind() : false;
+  if (behind === null) return none("waiting", `Autopilot couldn't fetch ${task.environment} and its branch to see whether pull request #${pr.number} is up to date. It tries again next pass.`);
+  if (behind) return step("refresh", `Pull request #${pr.number} is behind ${task.environment}: it's brought up to date before it merges.`);
+  return step("merge", `Pull request #${pr.number} passed its review and its checks on ${short4(facts.head)}.`);
+}
+function checksWanted(task, facts, merging) {
   const pr = task.pr;
   if (task.state !== "review" || pr?.state !== "open" || facts.verdict !== "pass" || facts.reviewing) return false;
-  if (!facts.head || pr.sha !== facts.head || facts.landed !== facts.head || pr.conflicts?.length || pr.ci === "passing") return false;
+  if (!facts.head || pr.sha !== facts.head || facts.landed !== facts.head || pr.conflicts?.length) return false;
+  if (merging ? task.autopilot?.merged?.sha === facts.head : pr.ci === "passing") return false;
   const f = task.autopilot?.failed;
-  return !(f?.step === "checks" && f.sha === facts.head && f.state === task.state);
+  return !(f && (f.step === "checks" || f.step === "merge") && f.sha === facts.head && f.state === task.state);
 }
 var settledChecks = /* @__PURE__ */ new Map();
 function taskFacts(paths, task, run2, sessions = null, now2 = /* @__PURE__ */ new Date(), github) {
@@ -6023,20 +6475,31 @@ function taskFacts(paths, task, run2, sessions = null, now2 = /* @__PURE__ */ ne
   facts.reviewing = reviewing(paths, task.id)?.sessionId ?? null;
   facts.verdict = facts.head ? readVerdict(paths, task.id, facts.head)?.verdict ?? null : null;
   if (task.pr?.state === "open") facts.landed = task.pr.sha ?? (branch ? rev(`refs/remotes/origin/${branch}`) || null : null);
-  if (github && checksWanted(task, facts)) {
+  const merging = !!github?.autoMerge?.(task.environment);
+  if (github && checksWanted(task, facts, merging)) {
     const key = `${paths.ledger}#${task.id}`;
     const settled = settledChecks.get(key);
-    if (settled?.sha === facts.head) {
-      facts.checks = settled.checks;
-      return facts;
+    if (settled?.sha === facts.head) facts.checks = settled.checks;
+    else {
+      try {
+        facts.checks = readChecks(run2, github.repo, task.pr.number, github.env());
+        const c = facts.checks;
+        if (c && c.sha === facts.head && c.count && !c.pending.length && !c.failed.some((x2) => x2.job)) settledChecks.set(key, { sha: facts.head, checks: c });
+      } catch (e) {
+        facts.checksError = firstLines(e.message ?? String(e));
+      }
     }
-    try {
-      facts.checks = readChecks(run2, github.repo, task.pr.number, github.env());
-      const c = facts.checks;
-      if (c && c.sha === facts.head && !c.pending.length && !c.failed.some((x2) => x2.job)) settledChecks.set(key, { sha: facts.head, checks: c });
-    } catch (e) {
-      facts.checksError = firstLines(e.message ?? String(e));
-    }
+    const landedAt = Date.parse(task.pr?.landedAt ?? "");
+    if (facts.checks && !facts.checks.count && Number.isFinite(landedAt)) facts.noChecksYet = now2.getTime() - landedAt < NO_CHECKS_GRACE_MS;
+  }
+  if (merging && github && branch && facts.head) {
+    const base = task.environment;
+    const head = facts.head;
+    facts.behind = () => {
+      if (!fetchBranches(run2, paths.root, [base, branch], { ...github.gitEnv ?? process.env, GIT_TERMINAL_PROMPT: "0" })) return null;
+      const code = run2("git", ["merge-base", "--is-ancestor", `refs/remotes/origin/${base}`, head], { cwd: paths.root }).code;
+      return code === 0 ? false : code === 1 ? true : null;
+    };
   }
   return facts;
 }
@@ -6054,12 +6517,20 @@ function realSteps(paths, config, deps) {
       const r = dispatch(paths, config, id, { run: run2, now: now2, env, accBinDir: deps.accBinDir, accCommand: deps.accCommand }, { actor: "orchestrator", by: AUTOPILOT_BY, cause });
       return { reason: `Re-dispatched${cause === "checks" ? " for its failing checks" : ""} in ${r.worktree}${r.bgId ? `, background session ${r.bgId}` : ""}.` };
     },
-    refresh: (id) => ({ reason: refresh(paths, config, id, { run: run2, now: now2, env, slots: deps.slots }, { actor: "orchestrator", by: AUTOPILOT_BY }).reason }),
+    refresh: (id) => {
+      const t = readLedger(paths.ledger).tasks.find((x2) => x2.id === id);
+      const behind = !!t && autoMergeFor(config, t.environment);
+      return { reason: refresh(paths, config, id, { run: run2, now: now2, env, slots: deps.slots }, { actor: "orchestrator", by: AUTOPILOT_BY, behind }).reason };
+    },
     resume: (id) => {
       const r = resume(paths, config, id, { run: run2, now: now2, env, accBinDir: deps.accBinDir, accCommand: deps.accCommand, ...deps.resume }, { actor: "orchestrator", by: AUTOPILOT_BY });
       return { reason: `Resumed its builder${r.said ? `, which last said: ${clipSaid(r.said, 200)}` : "."}` };
     },
-    checks: (id) => ({ reason: sendBack(paths, config, id, { run: run2, now: now2, env }, { actor: "orchestrator", by: AUTOPILOT_BY }).reason })
+    checks: (id) => ({ reason: sendBack(paths, config, id, { run: run2, now: now2, env }, { actor: "orchestrator", by: AUTOPILOT_BY }).reason }),
+    merge: (id) => {
+      const r = mergePr(paths, config, id, { run: run2, now: now2, env }, { actor: "orchestrator", by: AUTOPILOT_BY });
+      return { reason: r.reason, pr: { number: r.pr.number, url: r.pr.url, opened: false } };
+    }
   };
 }
 function landStep(r) {
@@ -6072,7 +6543,7 @@ function landStep(r) {
 function temporary(e, paths, config, id) {
   const code = e.code;
   if (code === "lock-timeout") return "The ledger was busy. Autopilot tries again next pass.";
-  if (code === "agent-active" || code === "checks-moved") return `${e.message} Autopilot looks again next pass.`;
+  if (code === "agent-active" || code === "checks-moved" || code === "merge-waits") return `${e.message} Autopilot looks again next pass.`;
   if (code === "move-refused") {
     const n = running(readLedger(paths.ledger), id);
     if (n >= config.agents.max) return `${n} tasks are running. The limit is ${config.agents.max}.`;
@@ -6093,17 +6564,23 @@ function autopilotPass(paths, config, deps) {
   const steps = { ...realSteps(paths, config, deps), ...deps.steps };
   const out2 = { steps: [], updates: [] };
   const first = readLedger(paths.ledger);
-  let look = null;
+  let look2 = null;
   const gh = config.github;
   let ghEnv3 = null;
-  const github = gh ? { repo: gh.repo, env: () => ghEnv3 ??= { ...deps.env, GH_TOKEN: ghToken(deps.run, gh.account) } } : void 0;
+  const github = gh ? {
+    repo: gh.repo,
+    env: () => ghEnv3 ??= { ...deps.env, GH_TOKEN: ghToken(deps.run, gh.account) },
+    autoMerge: (branch) => autoMergeFor(config, branch),
+    gitEnv: deps.env
+  } : void 0;
+  let merged = false;
   for (const id of first.tasks.map((t) => t.id)) {
     if (deps.stop?.()) break;
     const ledger = readLedger(paths.ledger);
     const task = ledger.tasks.find((t) => t.id === id);
     if (!task || task.state === "done") continue;
-    if (task.state === "running" && (!look || deps.now().getTime() - look.at > STOPPED_GRACE_MS)) look = { sessions: listSessions(deps.run, paths.root), at: deps.now().getTime() };
-    const facts = taskFacts(paths, task, deps.run, look?.sessions ?? null, deps.now(), github);
+    if (task.state === "running" && (!look2 || deps.now().getTime() - look2.at > STOPPED_GRACE_MS)) look2 = { sessions: listSessions(deps.run, paths.root), at: deps.now().getTime() };
+    const facts = taskFacts(paths, task, deps.run, look2?.sessions ?? null, deps.now(), github);
     if (facts.stopped) releaseAwake(paths, id);
     const d = nextStep(ledger, config, task, facts);
     const sha = facts.head || null;
@@ -6121,11 +6598,16 @@ function autopilotPass(paths, config, deps) {
       out2.steps.push({ task: id, state: task.state, step: null, sha, outcome: d.outcome ?? "skipped", reason: d.reason });
       continue;
     }
+    if (d.step === "merge" && merged) {
+      out2.steps.push({ task: id, state: task.state, step: null, sha, outcome: "waiting", reason: "Autopilot merged a pull request this pass already: it merges one a pass." });
+      continue;
+    }
     deps.onStep?.(id, d.step, facts.head);
     try {
       const r = steps[d.step](id);
       out2.steps.push({ task: id, state: task.state, step: d.step, sha, outcome: "done", reason: r.reason, ...r.pr ? { pr: r.pr } : {}, ...r.update ? { update: r.update } : {} });
       if (r.update) out2.updates.push({ task: id, ...r.update });
+      if (d.step === "merge") merged = true;
     } catch (e) {
       const wait = temporary(e, paths, config, id);
       if (wait) {
@@ -6846,6 +7328,8 @@ var PLUGIN = { marketplace: "agent-command-center", name: "acc", repo: "https://
 var PLUGIN_ID = `${PLUGIN.name}@${PLUGIN.marketplace}`;
 var MARKETPLACE_ADD = `claude plugin marketplace add ${PLUGIN.repo}`;
 var PLUGIN_INSTALL = `claude plugin install ${PLUGIN_ID} --scope user`;
+var PLUGIN_UPDATE = `claude plugin marketplace update ${PLUGIN.marketplace} && claude plugin update ${PLUGIN_ID} --scope user`;
+var SEMVER = /^\d+\.\d+\.\d+$/;
 function claudeJson(ctx, args) {
   const r = ctx.run("claude", args, { env: ctx.env });
   if (r.code === 127) return 127;
@@ -6969,7 +7453,12 @@ var STEPS = [
       const mine = list.filter((p) => p.id === PLUGIN_ID);
       const user = mine.find((p) => p.scope === "user");
       const version = typeof user?.version === "string" ? user.version : "(unknown version)";
-      if (user?.enabled === true) return pass2(`acc ${version}, for every Claude Code session.`);
+      if (user?.enabled === true) {
+        if (ctx.version && SEMVER.test(version) && SEMVER.test(ctx.version) && !versionAtLeast(version, ctx.version)) {
+          return fail2(`acc ${version} is installed, older than this acc (${ctx.version}).`, PLUGIN_UPDATE);
+        }
+        return pass2(`acc ${version}, for every Claude Code session.`);
+      }
       if (user) return fail2(`acc ${version} is installed but disabled.`, `claude plugin enable ${PLUGIN_ID} --scope user`);
       const scopes = [...new Set(mine.map((p) => String(p.scope)))];
       const only = scopes.length ? ` It's installed for one project only (${scopes.join(", ")} scope), not for every session.` : "";
@@ -7443,11 +7932,11 @@ var STEPS = [
     part: "project",
     group: "B14",
     title: "The repo's ticket source",
-    why: "The Tasks board shows this repo's own tickets: a Jira project, an Azure DevOps board or GitHub Issues, signed in for this repo only (D-027). If this repo keeps its tasks in acc alone, mark this done.",
+    why: "The Tasks board shows this repo's own tickets: a Jira project, an Azure DevOps board, a monday.com board or GitHub Issues, signed in for this repo only (D-027). If this repo keeps its tasks in acc alone, mark this done.",
     fix: {
       vscode: "acc.trackers.add",
       confirm: true,
-      text: `"Do it" opens the Connect page in the Command Center: pick Jira, GitHub Issues or Azure DevOps, sign in and test the connection, then pick the project, which of its tickets are this repo's (an epic, labels or an area path, or the whole project) and the board. Save writes them to this repo's .acc/config.json.`,
+      text: `"Do it" opens the Connect page in the Command Center: pick Jira, GitHub Issues, Azure DevOps or monday.com, sign in and test the connection, then pick the project or board, which of its tickets are this repo's (an epic, labels, an area path or a group, or the whole of it) and the board's columns. Save writes them to this repo's .acc/config.json.`,
       docs: `${DOCS}#b14-connect-the-ticket-source`
     },
     check(ctx) {
@@ -7455,7 +7944,7 @@ var STEPS = [
       if (need) return need;
       const list = ctx.config.trackers;
       if (!list.length) return unknown("No ticket source yet, so tasks come from acc alone. Add one, or mark this done if that's how this repo works.");
-      const names2 = list.map((t) => t.kind === "github" ? `GitHub Issues${t.repo ? ` (${t.repo})` : ""}${t.labels.length ? ` labelled ${orList(t.labels)}` : ""}` : t.kind === "jira" ? `Jira ${t.project} on ${t.site}${t.epic ? `, epic ${t.epic}` : ""}` : `Azure DevOps ${t.project} in ${t.organization}${t.areaPath ? `, area ${t.areaPath}` : ""}`);
+      const names2 = list.map((t) => t.kind === "github" ? `GitHub Issues${t.repo ? ` (${t.repo})` : ""}${t.labels.length ? ` labelled ${orList(t.labels)}` : ""}` : t.kind === "jira" ? `Jira ${t.project} on ${t.site}${t.epic ? `, epic ${t.epic}` : ""}` : t.kind === "monday" ? `monday.com board ${t.board} in ${t.account}${t.group ? `, group ${t.group}` : ""}` : `Azure DevOps ${t.project} in ${t.organization}${t.areaPath ? `, area ${t.areaPath}` : ""}`);
       return pass2(`Tickets come from ${names2.join(" and ")}.`);
     }
   },
@@ -7544,7 +8033,7 @@ function gateLabel(s) {
 }
 
 // package.json
-var package_default = { version: "0.35.0" };
+var package_default = { version: "0.36.0" };
 
 // packages/cli/src/main.ts
 var VERSION = package_default.version;
@@ -7566,13 +8055,13 @@ Setup
 
 Tasks
   acc add "<title>" [--brief <text>] [--dep <id>]... [--env <branch>] [--key <T-n>]
-  acc import [--file <tasks.json>]      Add or refresh tasks from JSON (stdin by default). A Jira or Azure DevOps
-                                        key that no tracker in .acc/config.json owns is refused
+  acc import [--file <tasks.json>]      Add or refresh tasks from JSON (stdin by default). A Jira, Azure DevOps or
+                                        monday.com key that no tracker in .acc/config.json owns is refused
   acc intake github [--label <l>]       Add or refresh tasks from the open GitHub issues in the repo's place: its
                                         tracker's repo, and its labels if it names some. A task not started yet
                                         leaves the board when its issue closes, has a skipLabels label, or leaves
                                         the place
-  acc intake jira|azure --file <report.json>
+  acc intake jira|azure|monday --file <report.json>
                                         Follow tickets the Command Center found outside the repo's place, from
                                         { "outside": [{ "key", "why" }] }: a task not started yet leaves the board
   acc status                            One line: how many tasks are in each state
@@ -7582,8 +8071,10 @@ Tasks
   acc set <id> <state> [--reason <text>] [--force] [--as <actor>] [--by <name>]
 
 Agents
-  acc dispatch <id> [--foreground] [--without-analysis]
-                                        Worktree, setup, instructions, and a background builder session
+  acc dispatch <id> [--foreground] [--without-analysis] [--model <m>]
+                                        Worktree, setup, instructions, and a background builder session.
+                                        --model picks the builder's model for this task: a re-dispatch and a
+                                        resume keep it. Without one, the builder's model (acc agents)
   acc done [<id>]                       A builder's finish line: moves its task to review
   acc block [<id>] "<reason>"           A builder's way out when stuck
   acc block [<id>] --client "<question>"
@@ -7593,11 +8084,14 @@ Agents
                                         block, as when the Mac slept: its own session, in its worktree, with the
                                         rules it was dispatched with. It's told it was cut off, or --message
   acc cleanup <id>                      Remove a finished task's worktree, only if nothing would be lost
-  acc agents                            The model and effort builders and reviewers run with, and where each is set
+  acc agents                            The model and effort builders and reviewers run with, and where each is
+                                        set. A model nobody set is acc's default, claude-opus-5-5
   acc agents set <builder|reviewer> [--model <m>] [--effort <low|medium|high|xhigh|max>] [--fallback-model <m>]
                 [--clear <model|effort|fallback-model>]... [--project]
                                         Change them for this clone, or with --project in .acc/config.json
   acc agents autonomy [manual|review]   What autopilot may do on its own, or change it in .acc/config.json
+  acc agents auto-merge [on|off]        Whether autopilot merges a reviewed pull request whose checks passed, into
+                                        an environment that isn't protected, or change it in .acc/config.json
   acc machine heavy-slots [<n>]         How many heavy checks (builds, tests, validations) this machine runs at once,
                                         for every repo on it; with <n>, set it (1 to 8) in ~/.acc/machine.json
   acc analyze <id>                      Before the build: a read-only analyst works out the requirements, what's
@@ -7606,13 +8100,19 @@ Agents
   acc analysis answer <id> <q> "<text>" Answer one of its questions; when the last is answered, it's ready to build
   acc review <id>                       A read-only reviewer agent judges the task's latest commit:
                                         pass, or changes (back to rework, with its findings)
-  acc land <id>                         Push a reviewed task's branch and open its pull request; never merges
+  acc land <id>                         Push a reviewed task's branch and open its pull request; it never merges it
   acc autopilot [--once | --every <seconds>]
                                         With "autonomy": "review", take each task's next step on its own: review it,
                                         land it, re-dispatch a rework once, resume a stopped builder once, or merge
-                                        the base into a pull request that conflicts with it. Never merges a pull request. One pass, or one every
+                                        the base into a pull request that conflicts with it. It merges a pull request
+                                        only where auto-merge is on: reviewed, its checks passed, nothing waiting on
+                                        a person, one a pass. One pass, or one every
                                         <seconds> (at least 30) until stopped; --json then prints a line a pass
-  acc sync                              Follow open pull requests: merged \u2192 done, closed \u2192 blocked, failing checks or conflicts \u2192 needs you
+  acc sync                              Follow open pull requests: merged \u2192 done, closed \u2192 blocked, failing checks or conflicts \u2192 needs you.
+                                        Where the GitHub tracker says "edits": true, a task's issue closes when it
+                                        merges to done, with a comment naming the pull request
+  acc sync --close-done [--plan]        A person's one-off tidy: close the issues of tasks done before acc closed
+                                        them, under the same rule, listing each. --plan lists them, changing nothing
 
 Ticket updates (acc drafts them; only a person posts)
   acc updates [--all] [--task <id>]     The drafts waiting for a person; --all adds the posted and discarded
@@ -7691,7 +8191,7 @@ function renderSteps(results, guided) {
   return lines.join("\n").replace(/^\n/, "");
 }
 function cmdDoctor(o, guided) {
-  const ctx = makeContext(process.cwd(), run);
+  const ctx = makeContext(process.cwd(), run, process.env, VERSION);
   const part = o.part;
   if (part && part !== "machine" && part !== "project") throw new AccError("usage", "--part must be machine or project.");
   const only = o.step ?? [];
@@ -7784,10 +8284,10 @@ function ownTickets(config, inputs) {
   const kept = inputs.filter((i) => {
     const kind = i?.source?.kind;
     const key = i?.source?.key;
-    if (kind !== "jira" && kind !== "azure" || typeof key !== "string") return true;
+    if (!isSignedInKind(kind) || typeof key !== "string") return true;
     const at2 = trackerForKey(config.trackers, key);
     if (at2 !== null && config.trackers[at2].kind === kind) return true;
-    refused.push(`${key.toUpperCase()}: no ${kind === "jira" ? "Jira" : "Azure DevOps"} tracker in .acc/config.json owns it, so it isn't one of this repo's tickets.`);
+    refused.push(`${key.toUpperCase()}: no ${trackerName(kind)} tracker in .acc/config.json owns it, so it isn't one of this repo's tickets.`);
     return false;
   });
   return { inputs: kept, refused };
@@ -7808,6 +8308,8 @@ function cmdIntakeGithub(o) {
   out(o, () => [...upsertLines(res), ...intakeLines(res)].filter(Boolean).join("\n") || "Nothing to do.", res);
   return res.errors.length ? 1 : 0;
 }
+var SIGNED_IN_KINDS = TRACKER_KINDS.filter((k2) => k2 !== "github");
+var isSignedInKind = (k2) => SIGNED_IN_KINDS.includes(k2);
 function cmdIntakeOutside(o, kind) {
   const file = o.file;
   if (!file) throw new AccError("usage", `acc intake ${kind} --file <report.json>, with { "outside": [{ "key": "ACME-7", "why": "it isn't in epic ACME-3" }] }. The Command Center writes it after a board loads.`);
@@ -7890,7 +8392,7 @@ function cmdReview(o, id) {
     run,
     now,
     env: process.env,
-    onStart: (session, sha) => say(tone(`Reviewing ${id.toUpperCase()} at ${sha.slice(0, 7)}. The reviewer reads and changes nothing. Session ${session}.`, "dim"))
+    onStart: (session, sha, name) => say(tone(`Reviewing ${id.toUpperCase()} at ${sha.slice(0, 7)}. The reviewer reads and changes nothing. Session ${session}, named ${name}.`, "dim"))
   }, { by: `reviewer:${id.toUpperCase()} for ${by}` });
   const v = r.verdict;
   const where = (f) => f.file ? `${f.file}${f.line ? `:${f.line}` : ""}  ` : "";
@@ -7931,7 +8433,7 @@ function cmdAnalyze(o, id) {
     now,
     env: process.env,
     accCommand: accCommand(),
-    onStart: (session) => say(tone(`Analyzing ${id.toUpperCase()}. The analyst reads the ticket${config.profile === "salesforce" ? ", the code and the orgs" : " and the code"}, and changes nothing. Session ${session}.`, "dim"))
+    onStart: (session, name) => say(tone(`Analyzing ${id.toUpperCase()}. The analyst reads the ticket${config.profile === "salesforce" ? ", the code and the orgs" : " and the code"}, and changes nothing. Session ${session}, named ${name}.`, "dim"))
   }, { by: `analyst:${id.toUpperCase()} for ${by}` });
   out(o, () => analysisLines(a).join("\n"), a);
   return a.verdict === "ready" ? 0 : 1;
@@ -7961,11 +8463,11 @@ function cmdLand(o, id) {
     r.update ? `  Drafted an update for ${r.update.key} (${r.update.id}). Nothing is posted until a person posts it: acc updates.` : "",
     r.updateError ? tone(`! No update was drafted for ${r.task.id}'s ticket: ${r.updateError}`, "orange") : "",
     r.pr.conflicts?.length ? tone(`! Pull request #${r.pr.number} conflicts with ${r.task.environment} in ${r.pr.conflicts.join(", ")}. GitHub can't merge it until that's resolved.`, "orange") : "",
-    tone("It merges only when a person merges it on GitHub.", "dim")
+    tone(autoMergeFor(config, r.task.environment) ? mergesWords(true) : "It merges only when a person merges it on GitHub.", "dim")
   ].filter(Boolean).join("\n"), r);
   return 0;
 }
-var STEP_WORD = { review: "review", land: "land", dispatch: "re-dispatch", refresh: "update", resume: "resume", checks: "send back" };
+var STEP_WORD = { review: "review", land: "land", dispatch: "re-dispatch", refresh: "update", resume: "resume", checks: "send back", merge: "merge" };
 var stepWords = (step, sha) => {
   if (step === "checks") return `send ${sha.slice(0, 7) || "it"} back for its failing checks`;
   const what = [STEP_WORD[step], sha.slice(0, 7)].filter(Boolean).join(" ");
@@ -8001,7 +8503,7 @@ function cmdAutopilot(o) {
   if (!mode.on) {
     out(
       o,
-      () => `autonomy is "manual" in .acc/config.json, so autopilot does nothing. Set it to "review" for autopilot to act: it then ${AUTOPILOT_REVIEW_DOES}.`,
+      () => `autonomy is "manual" in .acc/config.json, so autopilot does nothing. Set it to "review" for autopilot to act: it then ${autopilotDoes(autoMergeOn(start.config))}`,
       { autonomy: mode.autonomy, warnings: mode.warnings, steps: [], updates: [] }
     );
     return 0;
@@ -8010,8 +8512,8 @@ function cmdAutopilot(o) {
   const say = (line) => {
     if (!o.json) process.stderr.write(tone(line, "dim") + "\n");
   };
-  const doing = { review: "Reviewing", land: "Landing", dispatch: "Re-dispatching", refresh: "Updating", resume: "Resuming", checks: "Sending back" };
-  const after = { review: ". The reviewer reads and changes nothing.", land: "", dispatch: "", refresh: " from its base, then running its checks.", resume: ": its builder stopped before acc done or acc block.", checks: " to its builder: its checks failed on GitHub. Reading their logs." };
+  const doing = { review: "Reviewing", land: "Landing", dispatch: "Re-dispatching", refresh: "Updating", resume: "Resuming", checks: "Sending back", merge: "Merging" };
+  const after = { review: ". The reviewer reads and changes nothing.", land: "", dispatch: "", refresh: " from its base, then running its checks.", resume: ": its builder stopped before acc done or acc block.", checks: " to its builder: its checks failed on GitHub. Reading their logs.", merge: ": its review and checks passed. GitHub is asked again first." };
   const parent = Number(process.env.ACC_AUTOPILOT_PARENT);
   const orphaned = () => Number.isInteger(parent) && parent > 0 && !alive(parent);
   const closed = "The Command Center that started autopilot closed, so it stops.";
@@ -8055,9 +8557,32 @@ function cmdAutopilot(o) {
   });
 }
 function cmdSync(o) {
+  const closeDone = o["close-done"] === true;
+  const plan = o.plan === true;
+  if (plan && !closeDone) throw new AccError("usage", "--plan goes with --close-done: acc sync --close-done --plan");
+  const by = closeDone ? personOnlyUpdate(o, "close the issues of tasks already done") : null;
   const { paths, config } = project(process.cwd());
-  const r = sync(paths, config, { run, now, env: process.env });
-  out(o, () => r.checked ? [`Checked ${r.checked} open pull request${r.checked === 1 ? "" : "s"}.`, ...r.changes.map((c) => `  ${c.task}: ${c.note}${c.moved ? ` \u2192 ${stateLabel(c.moved.to)}` : ""}${c.update ? `. Drafted an update for ${c.update.key} (${c.update.id})` : ""}`)].join("\n") : "No open pull requests to follow.", r);
+  const r = closeDone && plan ? { checked: 0, changes: [] } : sync(paths, config, { run, now, env: process.env });
+  const lines = [
+    ...r.checked ? [`Checked ${r.checked} open pull request${r.checked === 1 ? "" : "s"}.`] : [],
+    ...r.changes.map((c) => `  ${c.task}: ${c.note}${c.moved ? ` \u2192 ${stateLabel(c.moved.to)}` : ""}${c.update ? `. Drafted an update for ${c.update.key} (${c.update.id})` : ""}`)
+  ];
+  if (!by) {
+    out(o, () => lines.length ? lines.join("\n") : "No open pull requests to follow.", r);
+    return 0;
+  }
+  if (!closesIssues(config)) {
+    out(o, () => [...lines, 'No GitHub tracker here says "edits": true, so acc closes no issues.'].join("\n"), { ...r, closeDone: [] });
+    return 0;
+  }
+  const env = { ...process.env, GH_TOKEN: ghToken(run, config.github.account) };
+  const closes = settleCloses(paths, config, { run, now, env }, { tidy: true, plan, actor: "human", by });
+  out(o, () => [
+    ...lines,
+    !closes.length ? "No done task's issue is waiting to close." : plan ? "The done tasks whose issues the tidy would close (nothing is changed). A sync may also close those of tasks merged since it last ran:" : "The issues of tasks already done:",
+    ...closes.map((c) => `  ${c.task} (pull request #${c.pr}): ${closeWords(c, plan)}`),
+    plan && closes.some((c) => c.outcome === "to close") ? tone("Close them with acc sync --close-done.", "dim") : ""
+  ].filter(Boolean).join("\n"), { ...r, closeDone: closes, ...plan ? { plan: true } : {} });
   return 0;
 }
 function cmdMachine(o, sub, value) {
@@ -8077,16 +8602,17 @@ function cmdAgents(o, sub, roleArg) {
   const { config: projectConfig } = loadConfig(paths.config);
   const views = () => Object.fromEntries(AGENT_ROLES.map((r) => [r, profileView(projectConfig, run, paths.root, r)]));
   if (sub === "autonomy") return cmdAutonomy(o, paths.config, roleArg);
+  if (sub === "auto-merge") return cmdAutoMerge(o, paths.config, roleArg);
   if (!sub || sub === "show") {
     const v = views();
-    const from = { clone: " (this clone)", project: " (project)", default: "" };
+    const from = { clone: " (this clone)", project: " (project)", acc: " (acc's default)", default: "" };
     out(o, () => AGENT_ROLES.map((r) => {
       const p = v[r];
-      return `${r.padEnd(9)} model ${p.model ?? "Claude Code's default"}${from[p.from.model]}, effort ${p.effort ?? "default"}${from[p.from.effort]}${p.fallbackModel ? `, falls back to ${p.fallbackModel}${from[p.from.fallbackModel]}` : ""}`;
+      return `${r.padEnd(9)} model ${p.model}${from[p.from.model]}, effort ${p.effort ?? "default"}${from[p.from.effort]}${p.fallbackModel ? `, falls back to ${p.fallbackModel}${from[p.from.fallbackModel]}` : ""}`;
     }).join("\n"), v);
     return 0;
   }
-  if (sub !== "set" || !roleArg || !AGENT_ROLES.includes(roleArg)) throw new AccError("usage", "acc agents set <builder|reviewer> [--model <m>] [--effort <e>] [--fallback-model <m>] [--clear <field>] [--project] | acc agents autonomy [manual|review]");
+  if (sub !== "set" || !roleArg || !AGENT_ROLES.includes(roleArg)) throw new AccError("usage", "acc agents set <builder|reviewer> [--model <m>] [--effort <e>] [--fallback-model <m>] [--clear <field>] [--project] | acc agents autonomy [manual|review] | acc agents auto-merge [on|off]");
   personOnly(o, "change what agents run with");
   const change2 = {};
   if (o.model !== void 0) change2.model = o.model;
@@ -8100,19 +8626,19 @@ function cmdAgents(o, sub, roleArg) {
   if (!Object.keys(change2).length) throw new AccError("usage", "Say what to change: --model, --effort, --fallback-model or --clear.");
   setProfile(run, paths.root, paths.config, roleArg, change2, o.project ? "project" : "clone");
   const after = profileView(loadConfig(paths.config).config, run, paths.root, roleArg);
-  out(o, () => `${roleArg}: model ${after.model ?? "Claude Code's default"}, effort ${after.effort ?? "default"}${after.fallbackModel ? `, falls back to ${after.fallbackModel}` : ""}. ${o.project ? "Set in .acc/config.json: commit it to share it." : "Set for this clone only."} The next ${roleArg} uses it.`, after);
+  out(o, () => `${roleArg}: model ${after.model}${after.from.model === "acc" ? " (acc's default)" : ""}, effort ${after.effort ?? "default"}${after.fallbackModel ? `, falls back to ${after.fallbackModel}` : ""}. ${o.project ? "Set in .acc/config.json: commit it to share it." : "Set for this clone only."} The next ${roleArg} uses it.`, after);
   return 0;
 }
-var AUTONOMY_WORDS = {
+var autonomyWords = (config) => ({
   manual: "nothing happens on its own.",
-  review: `autopilot ${AUTOPILOT_REVIEW_DOES}. It never merges a pull request.`,
+  review: `autopilot ${autopilotDoes(autoMergeOn(config))}`,
   dispatch: "as review, and it also starts Ready tasks. Not built yet: autopilot refuses.",
   full: "read as dispatch. Not built yet: autopilot refuses."
-};
+})[config.autonomy] ?? "";
 function cmdAutonomy(o, configFile, value) {
   if (value === void 0) {
     const { config: config2 } = loadConfig(configFile);
-    out(o, () => `autonomy ${config2.autonomy} (project): ${AUTONOMY_WORDS[config2.autonomy] ?? ""}`.trim(), { autonomy: config2.autonomy });
+    out(o, () => `autonomy ${config2.autonomy} (project): ${autonomyWords(config2)}`.trim(), { autonomy: config2.autonomy });
     return 0;
   }
   const role = process.env.ACC_ROLE;
@@ -8120,7 +8646,35 @@ function cmdAutonomy(o, configFile, value) {
   personOnly(o, "change what autopilot may do");
   setAutonomy(configFile, value);
   const { config } = loadConfig(configFile);
-  out(o, () => `autonomy ${config.autonomy}: ${AUTONOMY_WORDS[config.autonomy]} Set in .acc/config.json: commit it to share it.`, { autonomy: config.autonomy });
+  out(o, () => `autonomy ${config.autonomy}: ${autonomyWords(config)} Set in .acc/config.json: commit it to share it.`, { autonomy: config.autonomy });
+  return 0;
+}
+function autoMergeLines(config) {
+  if (!autoMergeOn(config)) {
+    return config.profile === "salesforce" ? "auto-merge off (project): a Salesforce project never auto-merges. A person merges every pull request." : "auto-merge off (project): autopilot never merges a pull request. A person merges each one.";
+  }
+  const covered2 = config.environments.filter((e) => !e.protected).map((e) => e.branch);
+  const kept = config.environments.filter((e) => e.protected).map((e) => e.branch);
+  return [
+    `auto-merge on (project): autopilot merges a pull request into ${covered2.join(", ") || "no environment"} once its review and checks passed, it's up to date with its base, GitHub says it can merge, nothing waits on a person, and it changes nothing under .acc/. One a pass.`,
+    kept.length ? `Never into ${kept.join(", ")}: protected, so a person merges.` : "",
+    config.autonomy === "review" ? "It merges while autopilot is on." : `autonomy is "${config.autonomy}", so autopilot doesn't run and nothing merges on its own.`
+  ].filter(Boolean).join(" ");
+}
+function cmdAutoMerge(o, configFile, value) {
+  const data = (config2) => ({ autoMerge: autoMergeOn(config2), environments: config2.environments.filter((e) => autoMergeOn(config2) && !e.protected).map((e) => e.branch), autonomy: config2.autonomy });
+  if (value === void 0) {
+    const { config: config2 } = loadConfig(configFile);
+    out(o, () => autoMergeLines(config2), data(config2));
+    return 0;
+  }
+  if (value !== "on" && value !== "off") throw new AccError("usage", "acc agents auto-merge [on|off]");
+  const role = process.env.ACC_ROLE;
+  if (role === "builder" || role === "reviewer" || role === "analyst") throw new AccError("refused", `${role === "analyst" ? "An" : "A"} ${role} can't change whether autopilot merges. A person does that.`);
+  personOnly(o, "change whether autopilot merges");
+  setAutoMerge(configFile, value === "on");
+  const { config } = loadConfig(configFile);
+  out(o, () => `${autoMergeLines(config)} Set in .acc/config.json: commit it to share it.`, data(config));
   return 0;
 }
 function cmdSetup(o, what) {
@@ -8228,11 +8782,14 @@ function cmdDispatch(o, id) {
   const { actor, by } = actorFrom(o);
   if (o.foreground && !o.json) process.stdout.write(`Starting ${id.toUpperCase()} in this terminal. Leave the session when it's done.
 `);
-  const r = dispatch(paths, config, id.toUpperCase(), { run, now, accBinDir: accBinDir(), accCommand: accCommand(), env: process.env }, { actor, by, foreground: o.foreground === true, withoutAnalysis: o["without-analysis"] === true });
+  const model = typeof o.model === "string" ? o.model : void 0;
+  const r = dispatch(paths, config, id.toUpperCase(), { run, now, accBinDir: accBinDir(), accCommand: accCommand(), env: process.env }, { actor, by, foreground: o.foreground === true, withoutAnalysis: o["without-analysis"] === true, model });
   out(o, () => [
     `${r.task.id} \u2192 ${stateLabel("running")}`,
     `  worktree: ${r.worktree}${r.reused ? " (reused)" : ""}`,
     `  branch:   ${r.branch}`,
+    `  name:     ${r.name}`,
+    `  model:    ${r.task.run?.model ?? ""}${r.task.run?.modelPicked ? " (picked for this task)" : ""}`,
     `  agent:    ${r.bgId ? `background session ${r.bgId}. Watch it with: claude attach ${r.bgId}` : o.foreground ? "ran in this terminal" : "started; it will appear in claude agents shortly"}`,
     `  packet:   ${r.packetPath}`
   ].join("\n"), r);
@@ -8287,6 +8844,7 @@ function cmdShow(o, id) {
   out(o, () => [
     `${t.id}  ${stateLabel(displayState(ledger, t, { stopped }))}  ${t.title}`,
     `Environment: ${t.environment}   Source: ${t.source.kind}${t.source.url ? ` ${t.source.url}` : ""}`,
+    t.run?.name ? `Agent: ${t.run.name}` : "",
     t.deps.length ? `Depends on: ${t.deps.join(", ")}` : "",
     t.blocker ? `Blocked: ${t.blocker}` : "",
     failed ? tone(`! Autopilot couldn't ${stepWords(failed.step, failed.sha || "it")}: ${failed.reason}`, "orange") : "",
@@ -8345,12 +8903,11 @@ function personOnlyUpdate(o, what) {
   if (process.env.ACC_ROLE === "analyst") throw new AccError("refused", `An analyst can't ${what}. A person does that.`);
   return personOnly(o, what);
 }
-var TRACKER_NAME = { github: "GitHub", jira: "Jira", azure: "Azure DevOps" };
 function updateLines(u) {
   const state = u.state === "posting" ? stalePosting(u, now()) ? tone("may have posted", "orange") : "posting" : u.state === "draft" ? tone("draft", "orange") : u.state;
   const when = u.posted ? `posted by ${u.posted.by.replace(/^human:/, "")} ${u.posted.at}` : u.discarded ? `discarded by ${u.discarded.by.replace(/^human:/, "")} ${u.discarded.at}` : `drafted by ${u.by.replace(/^human:/, "")} ${u.createdAt}`;
   return [
-    `${u.id.padEnd(12)} ${state}  ${TRACKER_NAME[u.tracker]} ${u.key}: ${EVENT_WORDS[u.event]}${u.env ? ` (${u.env})` : ""}  ${tone(when, "dim")}`,
+    `${u.id.padEnd(12)} ${state}  ${trackerName(u.tracker)} ${u.key}: ${EVENT_WORDS[u.event]}${u.env ? ` (${u.env})` : ""}  ${tone(when, "dim")}`,
     ...u.failed && u.state === "draft" ? [tone(`    ! The last try didn't post: ${u.failed.reason}`, "orange")] : [],
     ...(u.posted?.text ?? u.text).split("\n").map((l3) => `    ${l3}`)
   ];
@@ -8379,7 +8936,7 @@ function cmdUpdatePost(o, id) {
   const by = personOnlyUpdate(o, "post a ticket's update");
   const { paths, config } = project(process.cwd());
   const u = updateOrThrow(paths, id);
-  if (u.tracker !== "github") throw new AccError("refused", `${u.id} is for ${TRACKER_NAME[u.tracker]} ticket ${u.key}. acc posts only on GitHub: post it from the Command Center, which posts as you through this repo's ${TRACKER_NAME[u.tracker]} sign-in.`);
+  if (u.tracker !== "github") throw new AccError("refused", `${u.id} is for ${trackerName(u.tracker)} ticket ${u.key}. acc posts only on GitHub: post it from the Command Center, which posts as you through this repo's ${trackerName(u.tracker)} sign-in.`);
   const text = postText(o, u);
   const gh = config.github;
   if (!gh) throw new AccError("no-github", `This project has no "github" section in .acc/config.json, so acc can't post as its account.`);
@@ -8626,6 +9183,7 @@ async function main(argv) {
       default: { type: "boolean", default: false },
       to: { type: "string" },
       plan: { type: "boolean", default: false },
+      "close-done": { type: "boolean", default: false },
       "allow-deletions": { type: "boolean", default: false },
       "skip-validate": { type: "boolean", default: false },
       since: { type: "string" },
@@ -8681,11 +9239,11 @@ async function main(argv) {
     }
     case "intake": {
       if (rest[0] === "github") return cmdIntakeGithub(o);
-      if (rest[0] === "jira" || rest[0] === "azure") return cmdIntakeOutside(o, rest[0]);
-      throw new AccError("usage", "acc intake github [--label <label>], or acc intake jira|azure --file <report.json>. Jira and Azure DevOps tickets come in through the Command Center's Track in acc, or the plugin's skill.");
+      if (isSignedInKind(rest[0])) return cmdIntakeOutside(o, rest[0]);
+      throw new AccError("usage", "acc intake github [--label <label>], or acc intake jira|azure|monday --file <report.json>. Jira, Azure DevOps and monday.com tickets come in through the Command Center's Track in acc; Jira and Azure DevOps ones also through the plugin's skill.");
     }
     case "dispatch": {
-      if (!rest[0]) throw new AccError("usage", "acc dispatch <id> [--foreground]");
+      if (!rest[0]) throw new AccError("usage", "acc dispatch <id> [--foreground] [--without-analysis] [--model <m>]");
       return cmdDispatch(o, rest[0]);
     }
     case "done":
