@@ -6,11 +6,15 @@ import { mkdtempSync, readdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import type { AutopilotRecord } from '../../packages/core/src/autopilot.ts';
+import type { AutopilotRecord } from '../../packages/core/src/autopilot-log.ts';
 import { displayState, emptyLedger, type Task } from '../../packages/core/src/ledger.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
-import { type AgentSession, autopilotNotices, rowSession, taskNotices, type TaskRow } from '../src/logic.ts';
-import { homeModel, isFromWebview } from '../src/model.ts';
+import type { AgentSession, TaskRow } from '../src/logic/shared.ts';
+import { autopilotNotices } from '../src/logic/autopilot.ts';
+import { rowSession } from '../src/logic/agents.ts';
+import { taskNotices } from '../src/logic/notices.ts';
+import { homeModel } from '../src/model/home.ts';
+import { isFromWebview } from '../src/model/messages.ts';
 import { News, type NewsInput } from '../src/news.ts';
 import {
   autopilotEvent, blankSlack, draftEvents, draftKey, isSlackWebhook, questionEvent, Slack, SLACK_KINDS, SLACK_SECRET, SLACK_SPACING_MS, slackCard, slackEscape, type SlackEvent, slackMessage,

@@ -5,8 +5,9 @@ import { autopilotMode } from '../../packages/core/src/autopilot.ts';
 import { autoMergeOn } from '../../packages/core/src/config.ts';
 import { alive } from '../../packages/core/src/lock.ts';
 import type { Hub, Project } from './hub.ts';
-import { type AutopilotStatusInput, autopilotStatus } from './logic.ts';
+import { autopilotStatus, type AutopilotStatusInput } from './logic/autopilot.ts';
 import type { Runs } from './runs.ts';
+import type { ExtensionArea } from './area.ts';
 
 /** acc's own words for a project autopilot can't land in. */
 const NO_GITHUB = 'Autopilot lands reviewed work as pull requests on GitHub, and this project has no "github" section in .acc/config.json.';
@@ -225,3 +226,10 @@ export class AutopilotHost implements vscode.Disposable {
     return null;
   }
 }
+
+export const area: ExtensionArea = {
+  register({ reg, autopilot }) {
+    reg('acc.autopilot.toggle', (arg?: unknown) => autopilot.toggle(arg));
+    reg('acc.autopilot.output', (arg?: unknown) => autopilot.showOutput(arg));
+  },
+};

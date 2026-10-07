@@ -5,7 +5,10 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { GH_TIMEOUT_MS, PUSH_TIMEOUT_MS } from '../../packages/core/src/land.ts';
 import { FETCH_TIMEOUT_MS } from '../../packages/core/src/sync.ts';
-import { agentLook, agentName, groupTasks, isUnder, landMessage, parseWorktrees, type TaskRow } from '../src/logic.ts';
+import { agentLook, agentName } from '../src/logic/agents.ts';
+import { groupTasks, landMessage } from '../src/logic/tasks.ts';
+import { isUnder, type TaskRow } from '../src/logic/shared.ts';
+import { parseWorktrees } from '../src/logic/worktrees.ts';
 import { accTimeoutMs } from '../src/run.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');

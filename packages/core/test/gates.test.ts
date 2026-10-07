@@ -10,7 +10,7 @@ import {
   assertCheckOnly, changesFor, checkEnv, gatesFor, gateTarget, nearTests, priorTests, readAnalyzer, readDeploy, runGates, validateArgs, waiveGates,
 } from '../src/gates.ts';
 import { checkMove, emptyLedger, type Task } from '../src/ledger.ts';
-import { builderSettings } from '../src/dispatch.ts';
+import { builderSettings } from '../src/packet.ts';
 import { repoPaths } from '../src/paths.ts';
 import { readReceipt, receiptHooks, writeReceipt } from '../src/receipts.ts';
 import { withSlot } from '../src/semaphore.ts';

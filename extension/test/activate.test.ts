@@ -8,7 +8,7 @@ import Module, { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { COMMANDS } from '../src/logic.ts';
+import { COMMANDS } from '../src/logic/setup.ts';
 import { makeRepo } from '../../packages/core/test/support.ts';
 
 const dist = fileURLToPath(new URL('../dist/extension.js', import.meta.url));
@@ -159,6 +159,9 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     for (const c of Object.values(COMMANDS)) assert.ok(calls.commands.has(c), `${c} registered`);
     // The Agents tab's Stop finished sessions (D-095), beside a single agent's Stop.
     for (const c of ['acc.agent.stop', 'acc.agents.stopFinished']) assert.ok(calls.commands.has(c), `${c} registered`);
+    // Every command the manifest contributes is registered when the extension starts, whatever area holds it (D-099).
+    const contributed = (JSON.parse(readFileSync(join(extDir, 'package.json'), 'utf8')) as { contributes: { commands: { command: string }[] } }).contributes.commands;
+    for (const c of contributed) assert.ok(calls.commands.has(c.command), `${c.command} is contributed, so it's registered`);
     // Setup watches each folder's own root, never every file of those names below it, a builder's worktree's included.
     const setupWatch = calls.watched.find((p) => typeof p === 'object' && p !== null && String((p as { pattern: string }).pattern).includes('.acc/config.json')) as { base: { uri: { fsPath: string } }; pattern: string } | undefined;
     assert.ok(setupWatch, 'a watcher for the setup files');

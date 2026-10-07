@@ -15,7 +15,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import { AGENT_SETTINGS, HOME_SECTIONS, homeModel, type HomeSection, type Model } from '../src/model.ts';
+import { AGENT_SETTINGS } from '../src/model/agents.ts';
+import { HOME_SECTIONS, type HomeSection } from '../src/model/shared.ts';
+import { homeModel, type Model } from '../src/model/home.ts';
 import { FinishedJobs } from '../src/progress.ts';
 import { type ConnectSample, SAMPLE_EDIT, sampleAgent, sampleAnalyzeRun, sampleBoards, sampleBusyHub, sampleConnect, sampleEdited, sampleHub, sampleIdentity, sampleIdleHub, sampleMondayBoards, sampleQueueHub, sampleRuns, sampleSetup, sampleSlack, type SlackSample, sampleTicket } from './fixtures.ts';
 

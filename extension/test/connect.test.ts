@@ -10,8 +10,9 @@ import { DESCRIPTIONS, type TrackerDescription } from '../../packages/core/src/t
 import { MondayClient } from '../../packages/core/src/trackers/monday.ts';
 import type { Exec } from '../../packages/core/src/trackers/types.ts';
 import { type ConnectDeps, type ConnectProject, ConnectSession } from '../src/connect.ts';
-import { credInUse, credKey, type CredWrites, credWrites, outsideKeys, placeCandidates, readCreds, siteCredKey } from '../src/logic.ts';
-import { blankConnect, type ConnectMessage, type ConnectModel, connectModel, isFromWebview } from '../src/model.ts';
+import { credInUse, credKey, credWrites, type CredWrites, outsideKeys, placeCandidates, readCreds, siteCredKey } from '../src/logic/connect.ts';
+import { blankConnect, type ConnectMessage, connectModel, type ConnectModel } from '../src/model/connect.ts';
+import { isFromWebview } from '../src/model/messages.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const ROOT = '/Users/me/code/acme-service';
@@ -708,9 +709,9 @@ test('monday.com: a token from another account is refused, naming it, and an exi
 test('the prompts are gone, and the page draws every tracker without knowing one from another', () => {
   const trackers = readFileSync(join(root, 'src', 'trackers.ts'), 'utf8');
   for (const gone of ['showInputBox', 'Add a tracker to which project', ', 1 of ', 'addJira', 'addAzure', 'addGithub', 'listForPlace']) assert.ok(!trackers.includes(gone), `trackers.ts has no ${gone}`);
-  const main = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
+  const main = readFileSync(join(root, 'webview', 'connect.ts'), 'utf8');
   const start = main.indexOf('// ---------------------------------------------------------------- connecting a tracker (GH-51)');
-  const end = main.indexOf('// ---------------------------------------------------------------- the Command Center page');
+  const end = main.length;
   assert.ok(start > 0 && end > start);
   assert.doesNotMatch(main.slice(start, end), /jira|azure|github|monday/i, 'no tracker named in the Connect page\'s drawing');
 });

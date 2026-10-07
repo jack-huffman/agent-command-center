@@ -14,8 +14,9 @@ import { MondayClient } from '../../packages/core/src/trackers/monday.ts';
 import { type Board, type Exec, movesInto, placeText, signInLabel, type Ticket, type TrackerClient, TrackerError, trackerName, type Transition } from '../../packages/core/src/trackers/types.ts';
 import { Pending } from '../webview/pending.ts';
 import type { Hub, Project } from './hub.ts';
-import { accImport, cardTracking, credInUse, credSite, type CredWrites, credWrites, liveTrackKeys, outsideKeys, placeCandidates, readCreds, reloadRoots, repoKey, signOutPlan, type StoredCreds, trackerHost, type TrackReply, type TrackState, trackTicket } from './logic.ts';
+import { accImport, cardTracking, credInUse, credSite, credWrites, type CredWrites, liveTrackKeys, outsideKeys, placeCandidates, readCreds, reloadRoots, repoKey, signOutPlan, type StoredCreds, trackerHost, type TrackReply, type TrackState, trackTicket } from './logic/connect.ts';
 import { runFile } from './run.ts';
+import type { ExtensionArea } from './area.ts';
 
 type AccRun = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
 
@@ -532,3 +533,64 @@ export class Trackers implements vscode.Disposable {
     await Promise.all(roots.map((r) => this.loadBoards(r)));
   }
 }
+
+export const area: ExtensionArea = {
+  register({ reg, hub, setup, trackers, connect, panels, receive }) {
+    /** Opens the Connect page over the section that's showing, which its Back returns to. */
+    const openConnect = async (o: { root?: string; kind?: string; index?: number; signIn?: boolean }) => {
+      if (!(await connect.open({ ...o, from: panels.current() }))) {
+        void vscode.window.showInformationMessage('Onboard this project first: Agent Command Center: Onboard this project.');
+        return;
+      }
+      panels.show();
+    };
+    // From a project's button its root comes along, and from the Jira button the kind too; a board's Change
+    // sends its tracker as JSON. Setup's buttons send a step or an item instead, whose kind isn't a tracker's.
+    reg('acc.trackers.add', (n?: unknown) => {
+      let a = n as { root?: unknown; kind?: unknown; index?: unknown } | undefined;
+      if (typeof n === 'string') try { a = JSON.parse(n); } catch { a = undefined; }
+      return openConnect({
+        root: typeof a?.root === 'string' ? a.root : undefined, kind: typeof a?.kind === 'string' && describe(a.kind) ? a.kind : undefined,
+        index: Number.isInteger(a?.index) ? a!.index as number : undefined,
+      });
+    });
+    // Every Sign in to Jira or Azure DevOps opens that tracker on the Connect page, at its sign-in.
+    reg('acc.trackers.signIn', async (arg?: unknown) => {
+      const chosen = await trackers.pickTracker(arg, 'Sign in to which tracker?');
+      await openConnect(chosen ? { root: chosen.p.root, index: chosen.index, signIn: true } : {});
+    });
+    reg('acc.trackers.signOut', async (arg?: unknown) => { await trackers.signOut(arg); await setup.recheck('B14.tickets'); });
+    // B14: acc doctor sees the config; only the extension can see this repo's sign-ins.
+    setup.setOverlay(async (items, cwd) => {
+      const p = hub.project(cwd) ?? hub.projectFor(cwd);
+      if (!p) return items;
+      const missing = await trackers.missingSignIns(p);
+      return items.map((i) => (i.id === 'B14.tickets' && i.status === 'pass' && missing.length
+        ? { ...i, status: 'fail', detail: `${i.detail} This repo isn't signed in to ${missing.join(' or ')} yet.`, fix: 'acc.trackers.signIn' }
+        : i));
+    });
+    reg('acc.trackers.refresh', () => trackers.loadBoards());
+    // A card dropped on another column of a tracker board moves the real ticket. Track on a tracker board's
+    // card (D-074): the card itself is the reply, Tracking…, then acc's task or why not.
+    const move = async (root: string, tracker: number, key: string, to: string) => {
+      const p = hub.project(root);
+      if (!p) return;
+      try {
+        if (await trackers.move(p, tracker, key, to)) await trackers.loadBoards(root);
+        else panels.post(); // put the card back where it was
+      } catch (e) {
+        void vscode.window.showErrorMessage(`Couldn't move ${key}: ${(e as Error).message}`);
+        panels.post();
+      }
+    };
+    const track = async (root: string, tracker: number, key: string) => {
+      const p = hub.project(root);
+      if (p) await trackers.track(p, tracker, key);
+    };
+    receive('move', (m) => { if (hub.project(m.project)) void move(m.project, m.tracker, m.key, m.to); });
+    receive('track', (m) => {
+      if (hub.project(m.project)) void track(m.project, m.tracker, m.key);
+      else panels.post(); // the card stops saying Tracking…
+    });
+  },
+};

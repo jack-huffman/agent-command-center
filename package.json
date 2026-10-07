@@ -14,7 +14,7 @@
     "test": "node --no-warnings --test --test-timeout=300000 --test-reporter=spec \"packages/*/test/*.test.ts\" \"extension/test/*.test.ts\" \"scripts/test/*.test.ts\"",
     "build": "node --no-warnings scripts/build.mjs",
     "screenshot": "node --no-warnings extension/scripts/screenshot.ts",
-    "check": "npm run typecheck && npm run build && npm test",
+    "check": "node --no-warnings scripts/areas.ts --check && npm run typecheck && npm run build && npm test",
     "acc": "node --no-warnings packages/cli/src/main.ts",
     "package": "node --no-warnings scripts/package.mjs",
     "release": "node --no-warnings scripts/release.mjs",

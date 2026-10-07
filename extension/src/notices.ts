@@ -1,9 +1,12 @@
 import * as vscode from 'vscode';
 import type { Hub } from './hub.ts';
-import { combinedStatus, noticeActions, type StatusParts, type TaskNotice } from './logic.ts';
-import type { Ref } from './model.ts';
+import { combinedStatus, type StatusParts } from './logic/status.ts';
+import { noticeActions, type TaskNotice } from './logic/notices.ts';
+import type { Ref } from './model/shared.ts';
 import { News, type NewsInput } from './news.ts';
 import type { SlackSink } from './slack.ts';
+import type { ExtensionArea } from './area.ts';
+import { AGENT_SETTINGS } from './model/agents.ts';
 
 /**
  * The swarm at a glance (D-044): one status bar item with what needs you, what's running and what's in
@@ -82,3 +85,33 @@ export class Notices implements vscode.Disposable {
     if (chosen) void this.resolve(chosen[1], { project: root, task: n.task });
   }
 }
+
+export const area: ExtensionArea = {
+  register({ reg, setup, identity, autopilot, panels, runs, showRun }) {
+    // What a click on the one status bar item offers (D-065).
+    reg('acc.status.menu', async () => {
+      const look = setup.look();
+      const account = identity.account();
+      type Item = vscode.QuickPickItem & { go: () => unknown };
+      const items: Item[] = [
+        { label: '$(home) Open the Command Center', go: () => panels.show('overview') },
+        ...autopilot.looks().filter((a) => a.state !== 'refused').map((a): Item => ({
+          label: a.state === 'on' ? '$(hubot) Turn autopilot off' : '$(hubot) Turn autopilot on',
+          description: `${a.project}${a.state === 'elsewhere' ? ' · on in another window' : ''}`,
+          go: () => vscode.commands.executeCommand('acc.autopilot.toggle', a.key),
+        })),
+        // Whether autopilot merges pull requests in each repo (GH-67), set from the Agents section.
+        ...autopilot.mergeLooks().map((m): Item => ({
+          label: m.on ? '$(git-merge) Auto-merge: on' : '$(circle-slash) Auto-merge: off',
+          description: `${m.project}${m.on && !m.acts ? ' · autonomy manual, so nothing merges' : ''}`,
+          go: () => panels.show('agents', AGENT_SETTINGS),
+        })),
+        ...(runs.live().length ? [{ label: '$(terminal) Show what\'s running', go: () => showRun() }] : []),
+        { label: '$(checklist) Setup', description: look.total ? `${look.done} of ${look.total} done${look.checking ? ', checking now' : ''}` : '', go: () => panels.show('setup') },
+        ...(account ? [{ label: account.ok ? '$(github) GitHub account' : '$(warning) GitHub account', description: account.name, go: () => vscode.commands.executeCommand('acc.github.switch') }] : []),
+      ];
+      const pick = await vscode.window.showQuickPick(items, { title: 'Agent Command Center' });
+      await pick?.go();
+    });
+  },
+};

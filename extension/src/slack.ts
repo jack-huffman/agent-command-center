@@ -10,11 +10,14 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { AutopilotRecord } from '../../packages/core/src/autopilot.ts';
+import type { AutopilotRecord } from '../../packages/core/src/autopilot-log.ts';
 import { runStartedAt, type Task } from '../../packages/core/src/ledger.ts';
 import { isTrackerKind } from '../../packages/core/src/trackers/types.ts';
 import { EVENT_WORDS, type Update } from '../../packages/core/src/updates.ts';
-import type { NoticeKind, TaskNotice, TaskRow, Tone } from './logic.ts';
+import type { NoticeKind, TaskNotice } from './logic/notices.ts';
+import type { TaskRow, Tone } from './logic/shared.ts';
+import type { ExtensionArea } from './area.ts';
+import type { FromWebview } from './model/messages.ts';
 
 export const SLACK_KINDS = ['needs-you', 'review', 'pr', 'draft'] as const;
 export type SlackKind = (typeof SLACK_KINDS)[number];
@@ -541,3 +544,35 @@ export function slackCard(s: SlackState, busy = false): SlackCard {
     : null;
   return { state, look, lookAt: refusal, tail: s.tail, kinds: SLACK_KINDS.map((k) => ({ key: k, label: SLACK_KIND_WORDS[k].label, icon: SLACK_KIND_WORDS[k].icon, on: s.kinds.includes(k) })), last, busy };
 }
+
+export const area: ExtensionArea = {
+  register({ vscode, reg, slack, panels, receive }) {
+    /** Remove asks first: notices stop until a webhook is pasted again. */
+    const removeSlack = async () => {
+      const pick = await vscode.window.showWarningMessage('Remove the Slack webhook from this machine? acc\'s notices stop going to Slack until one is pasted again.', { modal: true }, 'Remove');
+      if (pick === 'Remove') await slack.remove();
+    };
+    // Its card's buttons.
+    const take = (m: Extract<FromWebview, { type: 'slack' | 'slack-connect' | 'slack-kinds' }>) => {
+      if (m.type === 'slack-connect') void slack.connect(m.url);
+      else if (m.type === 'slack-kinds') void slack.setKinds(m.kinds);
+      else if (m.action === 'test') void slack.test();
+      else if (m.action === 'on') void slack.on();
+      else if (m.action === 'off') void slack.off();
+      else void removeSlack();
+    };
+    for (const type of ['slack', 'slack-connect', 'slack-kinds'] as const) receive(type, take);
+    // The card is where Slack is set up; the commands reach it, and test or stop it, from the Command Palette.
+    reg('acc.slack.connect', () => panels.show('environments'));
+    reg('acc.slack.test', async () => {
+      if (!slack.state().tail) { panels.show('environments'); return; }
+      const r = await slack.test();
+      if (r.ok) void vscode.window.showInformationMessage('The test message went to Slack.');
+      else void vscode.window.showWarningMessage(`The test message didn't go to Slack: ${r.error}.`);
+    });
+    reg('acc.slack.off', async () => {
+      await slack.off();
+      void vscode.window.showInformationMessage('acc\'s notices no longer go to Slack from this machine. Turn them on again in Environments.');
+    });
+  },
+};

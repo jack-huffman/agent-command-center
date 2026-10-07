@@ -6,8 +6,11 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import type { HeavyState } from '../../packages/core/src/semaphore.ts';
-import type { AgentSession, TaskRow } from '../src/logic.ts';
-import { homeModel, type HubLike, needsYouCount, type ProjectLike, type RunInput } from '../src/model.ts';
+import type { AgentSession, TaskRow } from '../src/logic/shared.ts';
+import { homeModel } from '../src/model/home.ts';
+import type { HubLike, ProjectLike } from '../src/model/shared.ts';
+import { needsYouCount } from '../src/model/overview.ts';
+import type { RunInput } from '../src/model/runs.ts';
 import { elapsed, FinishedJobs, inProgress, type JobRow, loadWord, ordinal, type ProgressGroup, type RepoJobs } from '../src/progress.ts';
 import { lastStepIn } from '../src/transcript.ts';
 
@@ -241,7 +244,7 @@ test('In progress sits on the Overview and never changes the badge, which counts
   assert.deepEqual([overview(busy).count, overview(busy).attention], [overview(quiet).count, overview(quiet).attention], 'the rail\'s Overview badge');
   assert.ok(!busy.nav.some((n) => (n.section as string) === 'in-progress'), 'no page of its own');
   // On the page: right after Needs you, folded by its heading, remembered for the tab.
-  const page = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
+  const page = ['overview.ts', 'progress.ts'].map((f) => readFileSync(join(root, 'webview', f), 'utf8')).join('\n');
   assert.match(page, /out\.push\(inbox, renderInProgress\(o\.inProgress\)\);/);
   assert.match(page, /memory\(\)\.sections\?\.\['in-progress'\]/);
   assert.match(page, /line\.style\.animationDelay = `-\$\{d\.age\}s`/, 'the fade starts as far in as the line is old');
@@ -251,8 +254,8 @@ test('acc.job.stop may be asked for from the page, is declared, hidden from the 
   const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === 'acc.job.stop'));
   assert.ok(manifest.contributes.menus.commandPalette.some((c: { command: string; when: string }) => c.command === 'acc.job.stop' && c.when === 'false'));
-  assert.match(readFileSync(join(root, 'src', 'panels.ts'), 'utf8'), /'acc\.job\.stop', 'acc\.autopilot\.output'/);
-  const ext = readFileSync(join(root, 'src', 'extension.ts'), 'utf8');
+  assert.match(readFileSync(join(root, 'src', 'model', 'overview.ts'), 'utf8'), /'acc\.job\.stop', 'acc\.autopilot\.output'/);
+  const ext = ['extension.ts', 'progress.ts'].map((f) => readFileSync(join(root, 'src', f), 'utf8')).join('\n');
   const body = ext.slice(ext.indexOf("reg('acc.job.stop'"), ext.indexOf('});', ext.indexOf("reg('acc.job.stop'")));
   // Every kind asks first: a modal before claude stop, endResume, a run's stop or autopilot's switch.
   for (const what of ["runFile('claude', ['stop'", 'endResume(', "runs.control(run.id, 'stop')", 'autopilot.toggle(']) {

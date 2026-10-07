@@ -1,14 +1,28 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import type { SessionTie } from '../../packages/core/src/ledger.ts';
-import { type AgentSession, repoRoot, type TaskRow } from '../src/logic.ts';
+import type { AgentSession, TaskRow } from '../src/logic/shared.ts';
+import { repoRoot } from '../src/logic/agents.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
-import { AGENT_SETTINGS, agentsModel, analysisLook, type BoardInput, cardActions, environmentsModel, homeModel, type HubLike, isFromWebview, needsYouCount, promotionPaths, sessionFolders, setupModel, tasksModel, ticketModel, trackerBoard, VIEW_KINDS, worktreesModel, dropLanes, laneMove } from '../src/model.ts';
+import { AGENT_SETTINGS, agentsModel, sessionFolders } from '../src/model/agents.ts';
+import { analysisLook, cardActions } from '../src/model/cards.ts';
+import { dropLanes, laneMove, tasksModel } from '../src/model/tasks.ts';
+import { type BoardInput, trackerBoard } from '../src/model/boards.ts';
+import { environmentsModel, promotionPaths } from '../src/model/environments.ts';
+import { homeModel } from '../src/model/home.ts';
+import { type HubLike, VIEW_KINDS } from '../src/model/shared.ts';
+import { isFromWebview } from '../src/model/messages.ts';
+import { needsYouCount } from '../src/model/overview.ts';
+import { setupModel } from '../src/model/setup.ts';
+import { ticketModel } from '../src/model/task-page.ts';
+import { worktreesModel } from '../src/model/worktrees.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+/** The page's source: the webview's modules named, in that order, or all of them. */
+const pageSource = (...files: string[]): string => (files.length ? files : readdirSync(join(root, 'webview')).filter((f) => f.endsWith('.ts')).sort()).map((f) => readFileSync(join(root, 'webview', f), 'utf8')).join('\n');
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 
 const envs = [
@@ -62,7 +76,7 @@ test('agents: this project first, needs-you on top, background sessions can be s
 });
 
 test('an agent is called by the name acc gave it on the Agents tab, the Overview and its page, though Claude Code lists another (D-087)', async () => {
-  const { agentModel } = await import('../src/model.ts');
+  const { agentModel } = await import('../src/model/agent-page.ts');
   const name = 'Acme · AV-1 Login page for the partner portal · builder 2';
   const review = 'Acme · AV-3 Lead routing · review';
   const h = hub();
@@ -161,7 +175,7 @@ test('agent rows hide their actions behind one menu: Watch first, and background
 });
 
 test('a finished session reads as Finished and never needs you: not on its row, the badges, the Overview or its page; an untied one still does (D-095)', async () => {
-  const { agentModel } = await import('../src/model.ts');
+  const { agentModel } = await import('../src/model/agent-page.ts');
   const done: SessionTie = { task: 'AV-4', role: 'builder', finished: true, why: 'done' };
   const untied = hub();
   untied.agents = [
@@ -203,11 +217,11 @@ test('a finished session reads as Finished and never needs you: not on its row, 
 });
 
 test('Stop finished sessions is on the Agents header while there are any, through a command the page may ask for (D-095)', () => {
-  const page = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
+  const page = pageSource();
   assert.match(page, /m\.stopFinished \? toolbarButton\('acc\.agents\.stopFinished', `Stop finished sessions \(\$\{m\.stopFinished\}\)`, 'debug-stop'\) : null/);
-  assert.match(readFileSync(join(root, 'src', 'panels.ts'), 'utf8'), /'acc\.agents\.stopFinished'/, 'the page may ask for it');
+  assert.match(readFileSync(join(root, 'src', 'model', 'agents.ts'), 'utf8'), /'acc\.agents\.stopFinished'/, 'the page may ask for it');
   assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === 'acc.agents.stopFinished'));
-  assert.match(readFileSync(join(root, 'src', 'sidebar.ts'), 'utf8'), /reg\('acc\.agents\.stopFinished', \(\) => this\.stopFinished\(\)\)/);
+  assert.match(readFileSync(join(root, 'src', 'agents.ts'), 'utf8'), /reg\('acc\.agents\.stopFinished', \(\) => this\.stopFinished\(\)\)/);
 });
 
 test('the row menus are for the page the rows are on: the Command Center\'s own webview', () => {
@@ -227,7 +241,7 @@ test('row menus: every item is a declared command, and the rows set the keys the
   const commands = new Set((manifest.contributes.commands as { command: string }[]).map((c) => c.command));
   const menu = manifest.contributes.menus['webview/context'] as { command: string; when: string }[];
   for (const i of menu) assert.ok(commands.has(i.command), `${i.command} is a declared command`);
-  const src = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
+  const src = pageSource('agents.ts', 'worktrees.ts', 'environments.ts', 'dom.ts');
   assert.ok(src.includes("withMenu(row, 'agent', { session: a.key }, { agentBackground: a.background })"));
   assert.ok(src.includes("withMenu(row, 'worktree', { project: p.root, worktree: w.path }, { worktreeLinked: !w.main })"));
   for (const section of new Set(menu.map((i) => /webviewSection == '(\w+)'/.exec(i.when)?.[1]))) assert.ok(src.includes(`withMenu(row, '${section}'`), `some row opens the ${section} menu`);
@@ -308,7 +322,7 @@ test('webview messages: only known shapes and acc commands get through', () => {
 });
 
 test('the tab page never turns data into markup, and runs under a strict nonce CSP', async () => {
-  const src = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
+  const src = pageSource();
   for (const bad of ['innerHTML', 'outerHTML', 'insertAdjacentHTML', 'document.write', 'eval(', 'new Function']) assert.ok(!src.includes(bad), bad);
   const { htmlFor } = await import('../src/panels.ts').catch(() => ({ htmlFor: null as never }));
   void htmlFor; // panels.ts needs vscode; its HTML is checked in the activation test.
@@ -595,7 +609,7 @@ test('checks that failed on GitHub say so on the card, the tracker\'s card and t
   assert.equal(page.acc!.failedChecks, 'Checks failed on GitHub: build, test', 'and its page');
 
   // Drawn as a note, which is orange, with GitHub's checks icon beside the words.
-  const main = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
+  const main = pageSource();
   assert.match(main, /card\.failedChecks \? el\('div', 'card-note conflict', icon\('github-action'\)/);
   assert.match(main, /c\.acc\?\.failedChecks \? el\('div', 'card-note conflict tcard-conflict', icon\('github-action'\)/);
   assert.match(main, /icon\('github-action', 'orange'\)/);
@@ -717,7 +731,7 @@ test('a builder that stopped says so with what it last said, in orange with its 
 
 test('table cells keep table layout (a flex cell misaligns its row\'s lines)', () => {
   const css = readFileSync(join(root, 'webview', 'styles.css'), 'utf8');
-  const src = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
+  const src = pageSource();
   // Every class the page puts on a cell or row, so a bare `.actions` rule can't slip past by not naming td.
   const cellClasses = new Set([...src.matchAll(/el\('(?:td|th|tr)', '([^']*)'/g)].flatMap((m) => m[1]!.split(/\s+/)).concat('clip').filter(Boolean));
   // Comments and @media wrappers out, so rules inside a media query are checked too.
@@ -790,7 +804,7 @@ test('History tells each step autopilot took once, under Tasks, with its icon an
   const moves = items.filter((i) => i.kind === 'move');
   assert.deepEqual(moves.map((i) => i.kind === 'move' && `${i.from}→${i.to}`), ['running→review', 'running→review'], 'autopilot\'s moves aren\'t listed twice; a builder\'s still are');
   // Tasks is the filter they count under: the page has four filters, not five.
-  assert.match(readFileSync(join(root, 'webview', 'main.ts'), 'utf8'), /const historyKind = \(i: HistoryItem\): string => \(i\.kind === 'autopilot' \? 'move' : i\.kind\);/);
+  assert.match(pageSource(), /const historyKind = \(i: HistoryItem\): string => \(i\.kind === 'autopilot' \? 'move' : i\.kind\);/);
 });
 
 test('a task that waits for others\' files says so with a clock, in blue; its next step is Dispatch anyway, and Stop waiting sits behind ⋯ (D-093)', () => {
@@ -848,18 +862,18 @@ test('a task that waits for others\' files says so with a clock, in blue; its ne
   assert.deepEqual([tcard.acc!.look.icon, tcard.acc!.look.tone, tcard.acc!.action?.label], ['clock', 'blue', 'Dispatch anyway']);
 
   // Drawn with its icon and words, on the card and the page, and the page and menus may run both commands.
-  const main = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
+  const main = pageSource();
   assert.match(main, /card\.files \? el\('div', 'card-agent', status\(card\.files\)\) : null/);
   assert.match(main, /if \(m\.acc\?\.files\)/);
   for (const command of ['acc.task.dispatchAnyway', 'acc.task.stopWaiting']) {
     assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === command), command);
-    assert.match(readFileSync(join(root, 'src', 'panels.ts'), 'utf8'), new RegExp(`'${command.replace('.', '\\.')}'`));
+    assert.match(readFileSync(join(root, 'src', 'model', 'tasks.ts'), 'utf8'), new RegExp(`'${command.replace('.', '\\.')}'`));
     assert.match(readFileSync(join(root, 'src', 'ticket.ts'), 'utf8'), new RegExp(`'${command.replace('.', '\\.')}'`));
   }
 });
 
 test('History tells autopilot\'s start of a held task, and one it couldn\'t make (D-093)', async () => {
-  const { autopilotStepLook } = await import('../src/model.ts');
+  const { autopilotStepLook } = await import('../src/model/history.ts');
   const at = '2026-10-06T12:00:00.000Z';
   const look = (r: Record<string, unknown>) => { const l = autopilotStepLook({ seq: 1, at, task: 'AV-5', step: 'start', outcome: 'done', ...r } as never); return [l.look.label, l.look.icon, l.look.tone, l.detail]; };
   assert.deepEqual(look({ waitedFor: ['AV-1'] }), ['Autopilot started it: AV-1\'s files are free', 'rocket', 'blue', null]);
@@ -868,7 +882,7 @@ test('History tells autopilot\'s start of a held task, and one it couldn\'t make
 });
 
 test('How agents run is behind a Settings button, closed until it\'s opened, and the status bar\'s Auto-merge opens it', () => {
-  const page = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
+  const page = pageSource();
   // Closed by default, remembered for the tab, with a label that says which way it goes and an icon.
   assert.match(page, /const open = memory\(\)\.opened\.includes\(AGENT_SETTINGS\)/);
   assert.match(page, /button\(open \? 'Hide settings' : 'Settings', 'settings-gear',/);
@@ -878,7 +892,7 @@ test('How agents run is behind a Settings button, closed until it\'s opened, and
   assert.match(page, /if \(!open\) for \(const s of m\.settings\) if \(s\.billing\?\.tone === 'orange'\)/);
   // The webview's key is model.ts's, which the extension asks the page to open.
   assert.equal(page.match(/const AGENT_SETTINGS = '([^']+)'/)?.[1], AGENT_SETTINGS);
-  assert.match(readFileSync(join(root, 'src', 'extension.ts'), 'utf8'), /go: \(\) => panels\.show\('agents', AGENT_SETTINGS\)/);
+  assert.match(readFileSync(join(root, 'src', 'notices.ts'), 'utf8'), /go: \(\) => panels\.show\('agents', AGENT_SETTINGS\)/);
   assert.match(page, /if \(msg\.open\) \{ const part = msg\.open; remember/);
 });
 
@@ -895,11 +909,11 @@ test('How agents run shows the project\'s autonomy, where it\'s set, and a way t
   p.config = { ...p.config, autonomy: 'manual' };
   assert.deepEqual(agentsModel(h).settings[0]!.autonomy, { value: 'manual', from: 'project', meaning: 'Nothing happens on its own.' });
   // The page asks acc to change it: the webview never writes the config.
-  const page = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
+  const page = pageSource();
   assert.match(page, /argButton\('acc\.agents\.autonomy', 'Change…', 'edit', s\.root\)/);
-  assert.match(readFileSync(join(root, 'src', 'panels.ts'), 'utf8'), /'acc\.agents\.autonomy'/, 'the page may ask for it');
+  assert.match(readFileSync(join(root, 'src', 'model', 'agents.ts'), 'utf8'), /'acc\.agents\.autonomy'/, 'the page may ask for it');
   assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === 'acc.agents.autonomy'));
-  assert.match(readFileSync(join(root, 'src', 'sidebar.ts'), 'utf8'), /this\.runAcc\(project, \['agents', 'autonomy', pick\.value\]/);
+  assert.match(readFileSync(join(root, 'src', 'agents.ts'), 'utf8'), /this\.runAcc\(project, \['agents', 'autonomy', pick\.value\]/);
 });
 
 test('How agents run has an Auto-merge row: on or off, what it means, and Change… through acc; the autonomy row says when autopilot merges (GH-67)', () => {
@@ -925,15 +939,15 @@ test('How agents run has an Auto-merge row: on or off, what it means, and Change
   assert.deepEqual(agentsModel(h).settings[0]!.autoMerge, { value: 'off', from: 'project', meaning: 'A Salesforce project never auto-merges: a person merges every pull request.', settable: false });
 
   // The page asks acc to change it, with an icon beside the words; the webview never writes the config.
-  const page = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
+  const page = pageSource();
   assert.match(page, /icon\(s\.autoMerge\.value === 'on' \? 'git-merge' : 'circle-slash'\), el\('span', 'strong', 'Auto-merge'\)/);
   assert.match(page, /s\.autoMerge\.settable \? argButton\('acc\.agents\.autoMerge', 'Change…', 'edit', s\.root\)/);
-  assert.match(readFileSync(join(root, 'src', 'panels.ts'), 'utf8'), /'acc\.agents\.autoMerge'/, 'the page may ask for it');
+  assert.match(readFileSync(join(root, 'src', 'model', 'agents.ts'), 'utf8'), /'acc\.agents\.autoMerge'/, 'the page may ask for it');
   assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === 'acc.agents.autoMerge'));
-  const sidebar = readFileSync(join(root, 'src', 'sidebar.ts'), 'utf8');
+  const sidebar = readFileSync(join(root, 'src', 'agents.ts'), 'utf8');
   assert.match(sidebar, /this\.runAcc\(project, \['agents', 'auto-merge', pick\.value\]/);
   // The status bar's menu says on or off for each repo, with an icon, and opens the Agents section.
-  const ext = readFileSync(join(root, 'src', 'extension.ts'), 'utf8');
+  const ext = readFileSync(join(root, 'src', 'notices.ts'), 'utf8');
   assert.match(ext, /autopilot\.mergeLooks\(\)\.map/);
   assert.match(ext, /m\.on \? '\$\(git-merge\) Auto-merge: on' : '\$\(circle-slash\) Auto-merge: off'/);
   assert.match(ext, /go: \(\) => panels\.show\('agents', AGENT_SETTINGS\)/);
@@ -958,10 +972,10 @@ test('Dispatch with… sits behind ⋯ wherever Dispatch is offered, and on the 
   const task = { id: 'AV-9', title: 'Task AV-9', brief: '', source: { kind: 'jira', key: 'AV-9', url: null }, environment: 'devbox', deps: [], labels: [], state: 'todo', blocker: null, history: [], createdAt: '', updatedAt: '' } as never;
   const page = ticketModel({ project: '/r', tracker: null, trackerTitle: null, trackerKind: null, key: 'AV-9', ticket: null, loading: false, error: null, connect: null, checks: [], row: { ...row('AV-9', 'todo', 'ready'), deps: [] }, task });
   assert.deepEqual(page.acc!.actions.slice(0, 2).map((a) => a.command), ['acc.task.dispatch', 'acc.task.dispatchWith'], 'the task page offers it beside Dispatch');
-  assert.match(readFileSync(join(root, 'src', 'panels.ts'), 'utf8'), /'acc\.task\.dispatchWith'/);
+  assert.match(readFileSync(join(root, 'src', 'model', 'tasks.ts'), 'utf8'), /'acc\.task\.dispatchWith'/);
   assert.match(readFileSync(join(root, 'src', 'ticket.ts'), 'utf8'), /'acc\.task\.dispatchWith'/);
   assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === 'acc.task.dispatchWith'));
-  assert.match(readFileSync(join(root, 'src', 'sidebar.ts'), 'utf8'), /reg\('acc\.task\.dispatchWith'/);
+  assert.match(readFileSync(join(root, 'src', 'tasks.ts'), 'utf8'), /reg\('acc\.task\.dispatchWith'/);
 });
 
 test('a running card, its task page and its Agents row name the model its agent runs with, in plain text (D-086)', () => {
@@ -980,7 +994,7 @@ test('a running card, its task page and its Agents row name the model its agent 
   h.modelFor = (s) => (s.id === 'bg1' ? 'claude-sonnet-5-5' : null);
   const rows = agentsModel(h).places.flatMap((p) => p.agents);
   assert.deepEqual(rows.map((r) => [r.name, r.model]), [['av-2', 'claude-sonnet-5-5'], ['other', null]]);
-  const main = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
+  const main = pageSource();
   assert.match(main, /\['Model', 'model'\]/, 'a Model column');
   assert.match(main, /el\('td', 'nowrap mono muted model', a\.model \? shortModel\(a\.model\) : '—'\), \{ title: a\.model/, 'a dash until it\'s known, in neutral mono text, its full name on hover');
   assert.match(main, /card\.agent && card\.model \? el\('div', 'card-where card-model'/);

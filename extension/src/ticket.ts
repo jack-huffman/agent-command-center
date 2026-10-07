@@ -6,10 +6,13 @@ import type { RepoPaths } from '../../packages/core/src/paths.ts';
 import { receiptsAt } from '../../packages/core/src/receipts.ts';
 import { signInLabel, type Ticket, type TrackerClient } from '../../packages/core/src/trackers/types.ts';
 import type { Hub, Project } from './hub.ts';
-import { type FromWebview, isFromWebview, type Ref, type TicketAcc, ticketActionRefusal, ticketModel, type TicketModel } from './model.ts';
+import { type FromWebview, isFromWebview } from './model/messages.ts';
+import type { Ref } from './model/shared.ts';
+import { type TicketAcc, ticketActionRefusal, ticketModel, type TicketModel } from './model/task-page.ts';
 import { htmlFor, isWebLink } from './panels.ts';
 import { runFile } from './run.ts';
 import type { Trackers } from './trackers.ts';
+import type { ExtensionArea } from './area.ts';
 
 type AccRun = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
 type Reply = { ok: boolean; error?: string };
@@ -434,3 +437,36 @@ export class TicketPanels implements vscode.Disposable {
     await this.post(o);
   }
 }
+
+export const area: ExtensionArea = {
+  register({ hub, panels, tickets, answerAnalysis, updates, receive }) {
+    receive('ticket', (m) => { if (hub.project(m.project)) tickets.show(m.project, m.tracker, m.key); });
+    receive('analysis-answer', (m) => {
+      // The page shows it's sending until the question goes. Every answer gets a reply: a refusal, or a
+      // project that isn't open here, tells it to stop and why.
+      void answerAnalysis(m.project, m.task, m.question, m.text)
+        .catch((e: unknown) => ({ ok: false, error: (e as Error).message }))
+        .then((r) => panels.reply({ type: 'done', action: 'analysis-answer', project: m.project, task: m.task, question: m.question, ...r }));
+    });
+    const update = (m: Extract<FromWebview, { type: 'update-post' | 'update-discard' | 'update-ask' }>) => {
+      // Posted as drafted, or set aside, from Needs you; edited on the task's page (D-066). Every one gets a reply.
+      const u = updates;
+      const which = m.type === 'update-ask' ? { task: m.task, question: m.question } : { id: m.id };
+      const reply = (r: { ok: boolean; error?: string }) => panels.reply({ type: 'done', action: m.type, project: m.project, ...which, ...r });
+      if (m.type === 'update-post') {
+        // An edit on its task's page is what Post there sends. A row drawn before the edit arrived would
+        // send acc's text instead, so it's refused, and the row says to post it from there (GH-46).
+        const replaces = hub.updates(m.project).find((x) => x.id === m.id)?.replaces ?? [];
+        const edit = tickets.edited(m.project, m.id, replaces);
+        if (edit !== null && edit.trim() !== m.text.trim()) {
+          void reply({ ok: false, error: 'it was edited on the task page, so post it from there.' });
+          return;
+        }
+      }
+      void (m.type === 'update-post' ? u.post(m.project, m.id, m.text, m.again === true) : m.type === 'update-discard' ? u.discard(m.project, m.id) : u.ask(m.project, m.task, m.question))
+        .catch((e: unknown) => ({ ok: false, error: (e as Error).message }))
+        .then(reply);
+    };
+    for (const type of ['update-post', 'update-discard', 'update-ask'] as const) receive(type, update);
+  },
+};

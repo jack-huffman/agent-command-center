@@ -6,13 +6,12 @@ import { fileURLToPath } from 'node:url';
 import { type RepoAgents, type SessionTie, tieSession } from '../../packages/core/src/ledger.ts';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import { gitIn, makeRepo, tempDir } from '../../packages/core/test/support.ts';
-import {
-  afterFullCheck, afterStepCheck, buildWalkthroughs, commandLink, COMMANDS, contextKey, dispatchModelArgs, dispatchModelItems, EXTENSION_ID, followsPullRequests, hasPlaceholder,
-  initCommand, isComplete, isWebviewMenuContext, machineCache, mediaPath, MODEL_CHOICES, needsTerminal, productionOrgs, rememberTemplate, repoRoot, reusableMachine, setupOrgChoices, shownTemplate, sizeLine, statusText,
-  stepDescription, stepMedia, summarize, templateDetail, tildePath, type DoctorItem,
-  credInUse, credKey, credSite, type CredWrites, credWrites, readCreds, reloadRoots, signOutAnswers, signOutPlan, signOutWrites, siteCredKey, trackerHost,
-  agentLook, type AgentSession, commonDirOf, finishedSession, sessionLedger, stopFinishedPlan,
-} from '../src/logic.ts';
+import { afterFullCheck, afterStepCheck, buildWalkthroughs, commandLink, COMMANDS, contextKey, type DoctorItem, EXTENSION_ID, hasPlaceholder, initCommand, isComplete, machineCache, mediaPath, productionOrgs, rememberTemplate, reusableMachine, setupOrgChoices, shownTemplate, statusText, stepDescription, stepMedia, summarize, templateDetail } from '../src/logic/setup.ts';
+import { agentLook, commonDirOf, dispatchModelArgs, dispatchModelItems, finishedSession, MODEL_CHOICES, repoRoot, sessionLedger, stopFinishedPlan } from '../src/logic/agents.ts';
+import { followsPullRequests, sizeLine } from '../src/logic/tasks.ts';
+import { type AgentSession, isWebviewMenuContext, tildePath } from '../src/logic/shared.ts';
+import { needsTerminal } from '../src/logic/runs.ts';
+import { credInUse, credKey, credSite, credWrites, type CredWrites, readCreds, reloadRoots, signOutAnswers, signOutPlan, signOutWrites, siteCredKey, trackerHost } from '../src/logic/connect.ts';
 import { staleFiles } from '../scripts/generate.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -239,7 +238,8 @@ test('a webview menu passes its row context, which is told apart from a sidebar 
 });
 
 test('org logins go where an environment\'s name says, gh\'s active account is read, and aliases with spaces stay whole', async () => {
-  const { activeGhAccount, expectedOrgUrl, shq } = await import('../src/logic.ts');
+  const { activeGhAccount, expectedOrgUrl } = await import('../src/logic/setup.ts');
+  const { shq } = await import('../src/logic/shared.ts');
   assert.equal(expectedOrgUrl('acme', { type: 'production', branch: 'production' }), 'https://acme.my.salesforce.com');
   assert.equal(expectedOrgUrl('acme', { type: 'developer', branch: 'dev' }), 'https://acme--dev.sandbox.my.salesforce.com');
   const status = `github.com
@@ -257,8 +257,9 @@ test('org logins go where an environment\'s name says, gh\'s active account is r
 });
 
 test('task notices say what changed once, and nothing for a task seen for the first time (D-043)', async () => {
-  const { noticeActions, statusSummary, taskNotices } = await import('../src/logic.ts');
-  type Row = import('../src/logic.ts').TaskRow;
+  const { noticeActions, taskNotices } = await import('../src/logic/notices.ts');
+  const { statusSummary } = await import('../src/logic/status.ts');
+  type Row = import('../src/logic/shared.ts').TaskRow;
   const row = (id: string, state: string, more: Partial<Row> = {}): Row => ({ id, title: `Task ${id}`, state, display: state as Row['display'], environment: 'main', deps: [], source: { kind: 'github', url: null }, ...more });
   assert.deepEqual(taskNotices([], [row('T-1', 'review')]), [], 'first look: no news');
   const kinds = (b: Row[], a: Row[]) => taskNotices(b, a).map((n) => `${n.kind}:${n.task}:${n.urgent}`);
@@ -299,8 +300,8 @@ test('task notices say what changed once, and nothing for a task seen for the fi
 });
 
 test('an analysis that comes back says so once: ready, questions for you, or too big; an answer says nothing (D-052)', async () => {
-  const { noticeActions, taskNotices } = await import('../src/logic.ts');
-  type Row = import('../src/logic.ts').TaskRow;
+  const { noticeActions, taskNotices } = await import('../src/logic/notices.ts');
+  type Row = import('../src/logic/shared.ts').TaskRow;
   const row = (more: Partial<Row> = {}): Row => ({ id: 'T-1', title: 'Task T-1', state: 'todo', display: 'ready', environment: 'main', deps: [], source: { kind: 'github', url: null }, ...more });
   const ask = (id: string) => ({ id, question: `Question ${id}?`, why: 'It matters.', suggested: 'Yes.' });
   const analysis = (at: string, verdict: 'ready' | 'questions' | 'split', open = 0) => ({ analysis: { verdict, at, open: ['q1', 'q2', 'q3'].slice(0, open).map(ask), split: verdict === 'split' ? ['One', 'Two'] : [] } });
@@ -319,8 +320,8 @@ test('an analysis that comes back says so once: ready, questions for you, or too
 });
 
 test('an analysis that comes back after the build is news: it asks for nothing the page can\'t take (D-059)', async () => {
-  const { noticeActions, taskNotices } = await import('../src/logic.ts');
-  type Row = import('../src/logic.ts').TaskRow;
+  const { noticeActions, taskNotices } = await import('../src/logic/notices.ts');
+  type Row = import('../src/logic/shared.ts').TaskRow;
   const row = (state: Row['state'], more: Partial<Row> = {}): Row => ({ id: 'T-1', title: 'Task T-1', state, display: state === 'rework' ? 'needs-you' : state, environment: 'main', deps: [], source: { kind: 'github', url: null }, ...more } as Row);
   const ask = (id: string) => ({ id, question: `Question ${id}?`, why: 'It matters.', suggested: 'Yes.' });
   const analysis = (at: string, verdict: 'ready' | 'questions' | 'split', open = 0) => ({ analysis: { verdict, at, open: ['q1', 'q2', 'q3'].slice(0, open).map(ask), split: verdict === 'split' ? ['One', 'Two'] : [] } });
@@ -337,7 +338,7 @@ test('a row reads its analysis and the one under way from beside the ledger; a d
   const { mkdirSync, writeFileSync } = await import('node:fs');
   const { analyzing, readAnalysis } = await import('../../packages/core/src/analyze.ts');
   const { tempDir } = await import('../../packages/core/test/support.ts');
-  const { analysisReady, analysisWait, rowAnalysis } = await import('../src/logic.ts');
+  const { analysisReady, analysisWait, rowAnalysis } = await import('../src/logic/tasks.ts');
   const paths = { analyses: join(tempDir(), 'acc', 'analyses') } as import('../../packages/core/src/paths.ts').RepoPaths;
   mkdirSync(paths.analyses, { recursive: true });
   const a = {
@@ -363,7 +364,7 @@ test('an answer goes through acc, after --, so words that start with - stay word
   const { spawnSync } = await import('node:child_process');
   const { mkdirSync, writeFileSync } = await import('node:fs');
   const { GENERIC_CONFIG, makeRepo } = await import('../../packages/core/test/support.ts');
-  const { analysisAnswerArgs } = await import('../src/logic.ts');
+  const { analysisAnswerArgs } = await import('../src/logic/tasks.ts');
   const args = analysisAnswerArgs('T-1', 'q1', '-5 days, not --json');
   assert.deepEqual(args, ['analysis', 'answer', 'T-1', 'q1', '--json', '--', '-5 days, not --json']);
   const dir = makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG) });
@@ -385,11 +386,12 @@ test('an answer goes through acc, after --, so words that start with - stay word
 });
 
 test('each step autopilot takes is one notice: what it did, and what it couldn\'t, as a warning (D-064)', async () => {
-  const { autopilotNotices, noticeActions } = await import('../src/logic.ts');
-  type Rec = import('../../packages/core/src/autopilot.ts').AutopilotRecord;
+  const { autopilotNotices } = await import('../src/logic/autopilot.ts');
+  const { noticeActions } = await import('../src/logic/notices.ts');
+  type Rec = import('../../packages/core/src/autopilot-log.ts').AutopilotRecord;
   const at = '2026-10-05T12:00:00.000Z';
   const rec = (task: string, more: Partial<Rec>): Rec => ({ seq: 1, at, task, step: 'land', outcome: 'done', ...more });
-  type Task = import('../src/logic.ts').AutopilotTask;
+  type Task = import('../src/logic/autopilot.ts').AutopilotTask;
   const gh: Task = { id: 'GH-31', source: { kind: 'github', key: '31' }, history: [] };
   const say = (r: Rec, tasks: Task[] = [gh]) => autopilotNotices([r], tasks).map((n) => [n.text, n.urgent, noticeActions(n)]);
   const show = ['Show', 'acc.task.show'];
@@ -422,7 +424,9 @@ test('each step autopilot takes is one notice: what it did, and what it couldn\'
 });
 
 test('a task that waits for others\' files is told in words: what it waits for, what goes first, and what Dispatch anyway risks (D-093)', async () => {
-  const { anywayQuestion, autopilotNotices, filesUnknown, noticeActions, sharesLine, startedNotice, waitLine, waitQuestion, waitsForFiles } = await import('../src/logic.ts');
+  const { anywayQuestion, filesUnknown, sharesLine, startedNotice, waitLine, waitQuestion, waitsForFiles } = await import('../src/logic/tasks.ts');
+  const { autopilotNotices } = await import('../src/logic/autopilot.ts');
+  const { noticeActions } = await import('../src/logic/notices.ts');
   const shares = [{ task: 'GH-70', files: ['extension/src/logic.ts', 'extension/src/model.ts', 'packages/cli/src/main.ts', 'docs/x.md'] }, { task: 'GH-71', files: ['extension/src/hub.ts'] }];
   // A card names the first three files short; the task page names every one in full.
   assert.equal(waitLine(shares), 'Waits for GH-70\'s files: src/logic.ts, src/model.ts and 2 more, and GH-71\'s: src/hub.ts', 'three names in all');
@@ -459,7 +463,7 @@ test('a task that waits for others\' files is told in words: what it waits for, 
 });
 
 test('the board asks acc to start held tasks when one may go, and backs off while acc keeps them waiting (D-093)', async () => {
-  const { HELD_ASK_MAX_MS, HELD_ASK_MS, heldAskDue, heldAsked, heldAskKey, heldDue } = await import('../src/logic.ts');
+  const { HELD_ASK_MAX_MS, HELD_ASK_MS, heldAskDue, heldAsked, heldAskKey, heldDue } = await import('../src/logic/tasks.ts');
   const held = { at: '2026-10-06T10:00:00.000Z', failed: null, byAutopilot: false };
   const todo = (id: string, files: Record<string, unknown>, deps: string[] = []) => ({ id, state: 'todo', deps, pr: null, files: { known: true, shares: [], first: [], held, ...files } as never });
   const rows = [
@@ -497,9 +501,11 @@ test('the board asks acc to start held tasks when one may go, and backs off whil
 });
 
 test('a builder that stopped is told once, with what it last said, and Resume; not as an agent waiting in its own prompt (D-067)', async () => {
-  const { autopilotNotices, noticeActions, sessionFor, taskNotices } = await import('../src/logic.ts');
-  const { autopilotStepLook } = await import('../src/model.ts');
-  type Row = import('../src/logic.ts').TaskRow;
+  const { autopilotNotices } = await import('../src/logic/autopilot.ts');
+  const { noticeActions, taskNotices } = await import('../src/logic/notices.ts');
+  const { sessionFor } = await import('../src/logic/agents.ts');
+  const { autopilotStepLook } = await import('../src/model/history.ts');
+  type Row = import('../src/logic/shared.ts').TaskRow;
   const said = 'API Error: Your computer went to sleep mid-response. The response above may be incomplete.';
   const row = (more: Partial<Row> = {}): Row => ({ id: 'GH-41', title: 'Task GH-41', state: 'running', display: 'running', environment: 'main', deps: [], source: { kind: 'github', url: null }, ...more });
   const stopped = row({ display: 'needs-you', stopped: { said } });
@@ -527,9 +533,10 @@ test('a builder that stopped is told once, with what it last said, and Resume; n
 });
 
 test('a task\'s agent is found by its session, else by the name its run recorded, never by a name worked out again, and is called that everywhere (D-087)', async () => {
-  const { displayName, ownsSession, sessionFor, taskNotices } = await import('../src/logic.ts');
+  const { displayName, ownsSession, sessionFor } = await import('../src/logic/agents.ts');
+  const { taskNotices } = await import('../src/logic/notices.ts');
   const { sessionName } = await import('../../packages/core/src/names.ts');
-  type Row = import('../src/logic.ts').TaskRow;
+  type Row = import('../src/logic/shared.ts').TaskRow;
   const name = sessionName({ project: 'Acme Service', key: 'GH-44', title: 'Case escalation rules', role: 'builder', n: 2 });
   assert.equal(name, 'Acme Service · GH-44 Case escalation rules · builder 2');
   const row = (more: Partial<Row> = {}): Row => ({ id: 'GH-44', title: 'Case escalation rules', state: 'running', display: 'running', environment: 'main', deps: [], source: { kind: 'github', url: null }, ...more });
@@ -575,9 +582,10 @@ test('a task\'s agent is found by its session, else by the name its run recorded
 });
 
 test('D-044\'s review notices stay quiet for a review autopilot ran, and still speak for a person\'s (D-064)', async () => {
-  const { taskNotices, withoutAutopilotEcho } = await import('../src/logic.ts');
-  type Row = import('../src/logic.ts').TaskRow;
-  type Rec = import('../../packages/core/src/autopilot.ts').AutopilotRecord;
+  const { taskNotices } = await import('../src/logic/notices.ts');
+  const { withoutAutopilotEcho } = await import('../src/logic/autopilot.ts');
+  type Row = import('../src/logic/shared.ts').TaskRow;
+  type Rec = import('../../packages/core/src/autopilot-log.ts').AutopilotRecord;
   const row = (id: string, state: string, more: Partial<Row> = {}): Row => ({ id, title: `Task ${id}`, state, display: state as Row['display'], environment: 'main', deps: [], source: { kind: 'github', url: null }, ...more });
   const passed = { verdict: 'pass' as const, summary: 'Good.', current: true };
   const changes = { verdict: 'changes' as const, summary: 'No test.', current: true };
@@ -598,11 +606,12 @@ test('D-044\'s review notices stay quiet for a review autopilot ran, and still s
 });
 
 test('autopilot\'s send-back for failing checks is its own notice and History item, and its re-dispatch says what for (D-076)', async () => {
-  const { autopilotNotices, noticeActions, taskNotices, withoutAutopilotEcho } = await import('../src/logic.ts');
-  const { autopilotStepLook } = await import('../src/model.ts');
-  type Rec = import('../../packages/core/src/autopilot.ts').AutopilotRecord;
-  type Task = import('../src/logic.ts').AutopilotTask;
-  type Row = import('../src/logic.ts').TaskRow;
+  const { autopilotNotices, withoutAutopilotEcho } = await import('../src/logic/autopilot.ts');
+  const { noticeActions, taskNotices } = await import('../src/logic/notices.ts');
+  const { autopilotStepLook } = await import('../src/model/history.ts');
+  type Rec = import('../../packages/core/src/autopilot-log.ts').AutopilotRecord;
+  type Task = import('../src/logic/autopilot.ts').AutopilotTask;
+  type Row = import('../src/logic/shared.ts').TaskRow;
   const at = '2026-10-06T12:00:00.000Z';
   const gh: Task = { id: 'GH-57', source: { kind: 'github', key: '57' }, history: [] };
   const say = (r: Rec, tasks: Task[] = [gh]) => autopilotNotices([r], tasks).map((n) => [n.text, n.urgent, noticeActions(n)]);
@@ -638,10 +647,11 @@ test('autopilot\'s send-back for failing checks is its own notice and History it
 });
 
 test('the merge queue\'s send-back is its own notice and History item, its merge commit says it merges next, and a turn it couldn\'t take needs you (GH-73)', async () => {
-  const { autopilotNotices, noticeActions, withoutAutopilotEcho, taskNotices } = await import('../src/logic.ts');
-  const { autopilotStepLook } = await import('../src/model.ts');
-  type Rec = import('../../packages/core/src/autopilot.ts').AutopilotRecord;
-  type Row = import('../src/logic.ts').TaskRow;
+  const { autopilotNotices, withoutAutopilotEcho } = await import('../src/logic/autopilot.ts');
+  const { noticeActions, taskNotices } = await import('../src/logic/notices.ts');
+  const { autopilotStepLook } = await import('../src/model/history.ts');
+  type Rec = import('../../packages/core/src/autopilot-log.ts').AutopilotRecord;
+  type Row = import('../src/logic/shared.ts').TaskRow;
   const at = '2026-10-06T12:00:00.000Z';
   const gh = { id: 'GH-73', source: { kind: 'github', key: '73' }, history: [] };
   const say = (r: Rec) => autopilotNotices([r], [gh]).map((n) => [n.text, n.urgent, noticeActions(n)]);
@@ -674,7 +684,7 @@ test('the merge queue\'s send-back is its own notice and History item, its merge
 });
 
 test('the autopilot switch says on or off with an icon and the words, and its tooltip says what it does (D-064)', async () => {
-  const { autopilotStatus } = await import('../src/logic.ts');
+  const { autopilotStatus } = await import('../src/logic/autopilot.ts');
   const on = autopilotStatus({ project: 'Tool', many: false, state: 'on', last: '✓ GH-31  Opened pull request #40.' });
   assert.equal(on.text, '$(rocket) Autopilot: on');
   assert.match(on.tooltip, /^Autopilot is on for Tool: it reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, merges the base into a pull request that conflicts with it, and starts a task a person dispatched once the files it waits for are free\. It never merges a pull request\./);
@@ -711,9 +721,11 @@ test('the autopilot switch says on or off with an icon and the words, and its to
 });
 
 test('a pull request autopilot merged is a notice and a History item; one it couldn\'t merge needs you, and the switch says it merges (GH-67)', async () => {
-  const { autopilotNotices, autopilotStatus, noticeActions } = await import('../src/logic.ts');
-  const { autopilotLook, autopilotStepLook } = await import('../src/model.ts');
-  type Rec = import('../../packages/core/src/autopilot.ts').AutopilotRecord;
+  const { autopilotNotices, autopilotStatus } = await import('../src/logic/autopilot.ts');
+  const { noticeActions } = await import('../src/logic/notices.ts');
+  const { autopilotLook } = await import('../src/model/cards.ts');
+  const { autopilotStepLook } = await import('../src/model/history.ts');
+  type Rec = import('../../packages/core/src/autopilot-log.ts').AutopilotRecord;
   const at = '2026-10-06T12:00:00.000Z';
   const say = (r: Rec) => autopilotNotices([r], [{ id: 'GH-67', source: { kind: 'github', key: '67' }, history: [] }]).map((n) => [n.text, n.urgent, noticeActions(n)]);
   const pr = ['Open pull request', 'acc.task.openPr'];
@@ -739,7 +751,7 @@ test('a pull request autopilot merged is a notice and a History item; one it cou
 });
 
 test('all of acc is one status bar item: what needs you first, a spinner while busy, the rest in its tooltip (D-065)', async () => {
-  const { combinedStatus } = await import('../src/logic.ts');
+  const { combinedStatus } = await import('../src/logic/status.ts');
   const base = { rows: [], needsYou: 0, asking: null, running: [], checking: false, setup: { done: 31, total: 32, todo: 0 }, autopilot: [], account: { name: 'jhuffman-aleysian', ok: true } };
   assert.equal(combinedStatus(base).text, '', 'nothing to say: it hides');
   assert.match(combinedStatus(base).tooltip.join('\n'), /GitHub: jhuffman-aleysian/);

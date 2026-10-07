@@ -10,7 +10,9 @@ import { randomBytes } from 'node:crypto';
 import type { Tracker } from '../../packages/core/src/config.ts';
 import { type Ctx, describe, DESCRIPTIONS, type PickerSpec, type SignIn, type SignInMethod, type TrackerDescription } from '../../packages/core/src/trackers/connect.ts';
 import { type Exec, TrackerError } from '../../packages/core/src/trackers/types.ts';
-import { blankConnect, type ConnectMessage, type ConnectModel, connectModel, type ConnectState, connectValues, type HomeSection } from './model.ts';
+import { area as page, blankConnect, type ConnectMessage, connectModel, type ConnectModel, type ConnectState, connectValues } from './model/connect.ts';
+import type { HomeSection } from './model/shared.ts';
+import type { ExtensionArea } from './area.ts';
 
 export interface ConnectProject {
   name: string;
@@ -456,3 +458,10 @@ export class ConnectSession {
     }
   }
 }
+
+export const area: ExtensionArea = {
+  register({ connect, receive }) {
+    // Every message the Connect page sends, for the page that's open.
+    for (const type of Object.keys(page.messages ?? {}) as ConnectMessage['type'][]) receive(type, (m) => connect.receive(m));
+  },
+};

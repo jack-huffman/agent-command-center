@@ -41,6 +41,42 @@ Claude Code supplies the agent runtime, and none of it is rebuilt here:
 - live status (`claude agents --json`)
 - hooks
 
+### Where the code lives (D-099)
+
+Each area of the Command Center has its own modules, so parallel builders
+rarely touch the same file. Where something must name every area, each area
+says so in its own module, as `export const area`, and a generated index
+gathers them.
+
+| Folder | What's in it | An area declares |
+|---|---|---|
+| `packages/cli/src/commands/` | One module per group of acc's commands: setup, tasks, agents (dispatch, done, block, resume, cleanup, agents, machine), pipeline (analyze, review, land, autopilot, sync), updates, environments, hooks, github, checks. `main.ts` is the entry, `shared.ts` what every group uses | its help lines (`section`, `order`, `lines`), the options it reads, its commands, and any argv a command needs changed first |
+| `extension/src/model/` | The page's view models, a module per area: overview, history, tasks (the agent board), cards (what a task's card says), boards (tracker boards), task-page, updates, agents, questions, agent-page, runs, connect, worktrees, environments, setup, slack, and page (the page's own messages). `home.ts` builds the page from the areas' parts, `messages.ts` gathers their messages, `shared.ts` holds what several use | the messages its parts send with their checks (`messages`, and its `Message` type), the acc.* commands they may ask for (`commands`), and what it adds to the page (`home`: Needs you for each project or once, stat tiles, its item in the rail, in its `order`) |
+| `extension/src/logic/` | Pure decisions, a module per area: setup and the walkthrough, tasks, agents, worktrees, environments, connect and trackers, runs, notices, autopilot, the status bar; `shared.ts` holds a task's row and an agent's session | nothing: nothing names every area here |
+| `extension/src/` | Each area's VS Code side: tasks, agents, worktrees and environments (their commands, subclasses of `sidebar.ts`'s shared base), setup, trackers and the Connect page, identity, slack, notices (the status bar's menu), autopilot, progress (In progress's Stop), ticket (a task's page), questions, runs. `extension.ts` builds the extension's parts and hands them to every area; `hub.ts` loads, polls and caches (`task-rows.ts` reads a task's row); `panels.ts` handles the page's own messages | `register(parts)`: its commands, and with `receive` the page's messages it takes |
+| `extension/webview/` | The page, flat so its tsconfig and the screenshot harness's staleness check see every file: overview, progress, tasks, task-page, updates, analysis, questions, agents, agent-page, dock, connect, worktrees, environments, slack, setup. `main.ts` is the entry; `state.ts` owns the page's state, `dom.ts` builds elements, `boards.ts` holds what boards share, `rail.ts` draws the rail | the sections and tabs it draws, what it draws over a section, its hooks around a draw, and the extension's messages it takes |
+| `packages/core/src/` | dispatch.ts (the start and cleanup), packet.ts, held.ts and holding.ts (D-093); autopilot.ts (its mode and pass), autopilot-rules.ts, autopilot-log.ts. `index.ts` exports the same names as before | nothing |
+
+**A new command, message or section.** Add it to its area's module: a CLI
+command to its group's `commands`, its help line to `lines` and any options to
+`options`; a message the page sends to the model area's `Message` and
+`messages`, and its handler to the extension area's `register` with
+`receive`; an acc.* command the page asks for to the model area's `commands`.
+**A new area** is a new module in the folder that declares `export const area`.
+Run `npm run build`: `scripts/areas.ts` writes the folder's index (its
+`AREAS`, and in model/ the `Message` union), headed "Generated … Don't edit
+it", and `scripts/test/areas.test.ts` fails while one is stale.
+
+**What still names every section** is the page's table of contents: the
+sections and their titles in `model/shared.ts`, the section models a
+`HomeModel` holds, each section's Refresh in `panels.ts`, and the union of the
+page's models. A whole new section edits those as well as its own modules.
+
+**The rules.** An area module imports shared modules and other areas, never an
+index, so nothing loads an index from inside it. Tests import the area module
+they test, not a barrel. A module node:test loads stays free of vscode: an
+extension area that is also pure takes VS Code's API from the parts.
+
 ## 3. Where state lives
 
 | Path | In git? | Holds |

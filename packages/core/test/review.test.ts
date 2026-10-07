@@ -3,7 +3,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { parseConfig, type Config } from '../src/config.ts';
-import { renderPacket } from '../src/dispatch.ts';
+import { renderPacket } from '../src/packet.ts';
 import { run, type RunOptions, type RunResult } from '../src/exec.ts';
 import { runGates, waiveGates } from '../src/gates.ts';
 import { mutate, readLedger, upsertTasks } from '../src/ledger.ts';

@@ -4,11 +4,24 @@
  * slot, a resume, autopilot's step, and a land, refresh, promotion or deploy. Built from what the hub
  * read, as plain data. No vscode import, so it's testable.
  */
-import type { Job } from '../../packages/core/src/jobs.ts';
-import type { AutopilotStepName } from '../../packages/core/src/ledger.ts';
+import { type Job, jobsUnderWay } from '../../packages/core/src/jobs.ts';
+import type { AutopilotStepName, Ledger } from '../../packages/core/src/ledger.ts';
 import type { HeavyState, SlotHolder, SlotWaiter } from '../../packages/core/src/semaphore.ts';
-import { isUnder, sessionFor, type TaskRow, type Tone } from './logic.ts';
-import type { HubLike, Look, ProjectLike, Ref, RunInput } from './model.ts';
+import { isUnder, type TaskRow, type Tone } from './logic/shared.ts';
+import { sessionFor } from './logic/agents.ts';
+import type { HubLike, Look, ProjectLike, Ref } from './model/shared.ts';
+import type { RunInput } from './model/runs.ts';
+import type { ExtensionArea } from './area.ts';
+import { runFile } from './run.ts';
+import { endResume, resuming } from '../../packages/core/src/resume.ts';
+import { dirname, join } from 'node:path';
+import type { Hub, Project } from './hub.ts';
+import { existsSync, readdirSync } from 'node:fs';
+import type { RepoPaths } from '../../packages/core/src/paths.ts';
+import { arrivedAt } from '../../packages/core/src/carried.ts';
+import { reviewing } from '../../packages/core/src/review.ts';
+import { analyzing } from '../../packages/core/src/analyze.ts';
+import { claudeProjectsDir, type LastStep, lastStepIn, transcriptFile } from './transcript.ts';
 
 /** A repo's jobs under way, as the hub read them: projects of one repo share them. */
 export interface RepoJobs {
@@ -518,3 +531,90 @@ export function inProgress(i: ProgressInput): ProgressModel {
   const idle = !list.length && !heavy?.held.length && !heavy?.waiting.length && !builders;
   return { count, machine: idle ? [] : machine, groups: list.map((b) => b.group), empty: idle ? 'Nothing is running.' : null };
 }
+
+// ---------------------------------------------------------------- reading what runs
+
+export function readRepoJobs(p: Pick<Project, 'ledgerPath' | 'config'>, ledger: Ledger | undefined): RepoJobs {
+  const stateDir = dirname(p.ledgerPath);
+  const list = (dir: string, suffix: string): string[] => {
+    try {
+      return readdirSync(join(stateDir, dir)).filter((n) => n.endsWith(suffix)).map((n) => n.slice(0, -suffix.length));
+    } catch {
+      return [];
+    }
+  };
+  const store = { stateDir, reviews: join(stateDir, 'reviews'), analyses: join(stateDir, 'analyses') } as RepoPaths;
+  // What a promotion takes on, as far as the ledger says: tasks that reached its source and not its destination.
+  const carries = (from: string, to: string) => (ledger?.tasks ?? []).filter((t) => arrivedAt(t, from) && !arrivedAt(t, to)).map((t) => t.id);
+  let jobs: RepoJobs['jobs'] = [];
+  try {
+    jobs = jobsUnderWay({ stateDir }).map((j) => (j.kind === 'promote' && j.from && j.env ? { ...j, carries: carries(j.from, j.env) } : j));
+  } catch {
+    jobs = [];
+  }
+  return {
+    repo: p.ledgerPath,
+    max: p.config.agents.max,
+    jobs,
+    reviews: list('reviews', '.running.json').flatMap((task) => { const r = reviewing(store, task); return r ? [{ task, ...r }] : []; }),
+    analyses: list('analyses', '.running.json').flatMap((task) => { const r = analyzing(store, task); return r ? [{ task, ...r }] : []; }),
+    resumes: list('resumes', '.json').flatMap((task) => { const r = resuming(store, task); return r ? [{ task, sessionId: r.sessionId, startedAt: r.startedAt, by: r.by, pid: r.pid }] : []; }),
+  };
+}
+
+/** Each running builder's latest step, from its transcript's tail, read again only when the file changed. */
+export function readSteps(hub: Pick<Hub, 'projects' | 'taskRows'>, builderSteps: Map<string, { file: string; stamp: string; step: LastStep | null }>, stampOf: (file: string) => string | null): void {
+  const live = new Set<string>();
+  for (const p of hub.projects) {
+    for (const t of hub.taskRows(p.root)) {
+      const id = t.state === 'running' ? t.run?.sessionId : undefined;
+      if (!id || live.has(id)) continue;
+      live.add(id);
+      let cached = builderSteps.get(id);
+      const file = cached && existsSync(cached.file) ? cached.file : transcriptFile(claudeProjectsDir(process.env), id, [t.run?.worktree, p.root]);
+      const stamp = file ? stampOf(file) : null;
+      if (!file || !stamp) continue;
+      if (cached?.file !== file || cached.stamp !== stamp) {
+        cached = { file, stamp, step: lastStepIn(file) };
+        builderSteps.set(id, cached);
+      }
+    }
+  }
+  for (const k of [...builderSteps.keys()]) if (!live.has(k)) builderSteps.delete(k);
+}
+
+export const area: ExtensionArea = {
+  register({ vscode, reg, hub, runs, autopilot }) {
+    // In progress's Stop (D-092): each kind of job stops its own way, after a person says so. A builder is
+    // paused, not abandoned: its task stays Running and shows its agent stopped, with Resume (D-067).
+    reg('acc.job.stop', async (raw?: unknown) => {
+      let a: { kind?: unknown; project?: unknown; task?: unknown; run?: unknown } = {};
+      try { a = JSON.parse(String(raw)) as typeof a; } catch { return; }
+      const p = typeof a.project === 'string' ? hub.project(a.project) : undefined;
+      const task = typeof a.task === 'string' ? a.task : '';
+      const ask = async (title: string, detail: string, button: string) => (await vscode.window.showWarningMessage(title, { modal: true, detail }, button)) === button;
+      if (a.kind === 'builder' && p && task) {
+        const row = hub.taskRows(p.root).find((t) => t.id === task);
+        const s = row ? sessionFor(row, hub.agents) : undefined;
+        if (!s?.id || !s.pid) return void vscode.window.showInformationMessage(`${task}'s builder isn't running in the background any more, so there's nothing to stop.`);
+        if (!(await ask(`Stop ${task}'s builder?`, 'It stops where it is, with claude stop. The task stays Running and shows that its agent stopped, with Resume to carry it on. Its worktree and commits are kept. To set the task aside instead, use Abandon.', 'Stop'))) return;
+        const r = await runFile('claude', ['stop', s.id], s.cwd, process.env, undefined, 30_000);
+        if (r.code !== 0) void vscode.window.showWarningMessage(`Couldn't stop ${task}'s builder: ${(r.stderr || r.stdout).trim().split('\n')[0]}`);
+        await hub.loadAgents();
+      } else if (a.kind === 'resume' && p && task) {
+        if (!(await ask(`Stop ${task}'s resumed builder?`, 'The resumed conversation ends where it is. The task stays Running, with Resume to carry it on again.', 'Stop'))) return;
+        endResume({ stateDir: dirname(p.ledgerPath) }, task);
+        await Promise.all([hub.loadJobs(true), hub.loadAgents()]);
+      } else if (a.kind === 'run' && typeof a.run === 'string') {
+        const run = runs.views().find((r) => r.id === a.run && r.endedAt === null);
+        if (!run) return;
+        if (!(await ask(`Stop ${run.label}?`, 'It\'s this window\'s command, and it ends now. What it finished stays done; what it was in the middle of is left, and you can start it again.', 'Stop'))) return;
+        runs.control(run.id, 'stop');
+      } else if (a.kind === 'autopilot' && p) {
+        if (autopilot.stateFor(p.root) !== 'on') return void vscode.window.showInformationMessage(`Autopilot for ${p.name} runs in another window or a terminal: turn it off there.`);
+        if (!(await ask(`Turn autopilot off for ${p.name}?`, `The step it's taking${task ? ` on ${task}` : ''} ends now (D-064): a review's work is lost, and the next pass starts it again. Turn it on again from the status bar.`, 'Turn autopilot off'))) return;
+        await autopilot.toggle(p.root);
+      }
+    });
+  },
+};

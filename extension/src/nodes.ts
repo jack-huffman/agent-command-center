@@ -4,7 +4,7 @@
  */
 import type { Environment } from '../../packages/core/src/config.ts';
 import type { Project, WorktreeInfo } from './hub.ts';
-import type { AgentSession, TaskGroup, TaskRow } from './logic.ts';
+import type { AgentSession, TaskGroup, TaskRow } from './logic/shared.ts';
 
 export type TaskNode =
   | { kind: 'project'; project: Project }

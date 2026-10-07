@@ -10,6 +10,11 @@ import { fileURLToPath } from 'node:url';
 import { shipCli } from './ship-cli.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+
+// Each folder's index of its area modules (D-099), first: the CLI's bundle already reads one.
+const { writeAreas } = await import('./areas.ts');
+const areas = writeAreas();
+console.log(areas.length ? `updated ${areas.join(', ')}` : 'area indexes up to date');
 // The CLI builds into dist/, which git ignores. The plugin's tracked copy, plugin/bin/, is refreshed only
 // by npm run package, after the package passes its checks, so a branch's checks never change it and pull
 // requests don't conflict over a generated file (D-042, D-079).

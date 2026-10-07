@@ -5,16 +5,15 @@ import * as vscode from 'vscode';
 import { type Config, parseConfig } from '../../packages/core/src/config.ts';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import type { Step } from '../../packages/core/src/onboarding/types.ts';
-import {
-  afterFullCheck, afterStepCheck, COMMANDS, contextKey, type DoctorItem, EXTENSION_ID, type EnvLike, hasPlaceholder, initCommand, isComplete, machineCache, type MachineCache, needsTerminal,
-  productionOrgs, type RecentTemplate, rememberTemplate, reusableMachine,
-  setupOrgChoices, sfOpenCommand, shownTemplate, statusText, summarize, templateDetail, WALKTHROUGHS, activeGhAccount, expectedOrgUrl, shq,
-} from './logic.ts';
+import { activeGhAccount, afterFullCheck, afterStepCheck, COMMANDS, contextKey, type DoctorItem, type EnvLike, expectedOrgUrl, EXTENSION_ID, hasPlaceholder, initCommand, isComplete, machineCache, type MachineCache, productionOrgs, type RecentTemplate, rememberTemplate, reusableMachine, setupOrgChoices, sfOpenCommand, shownTemplate, statusText, summarize, templateDetail, WALKTHROUGHS } from './logic/setup.ts';
+import { needsTerminal } from './logic/runs.ts';
+import { shq } from './logic/shared.ts';
 import { parseOrgUrl } from '../../packages/core/src/onboarding/helpers.ts';
 import { sourceProblem } from '../../packages/core/src/template.ts';
 import { type RunResult, runFile } from './run.ts';
 import type { Runs } from './runs.ts';
 import { exec } from './trackers.ts';
+import type { ExtensionArea } from './area.ts';
 
 const TERMINAL_NAME = 'acc setup';
 /** Machine checks change rarely and call slow CLIs, so startup reuses results this fresh. */
@@ -590,3 +589,21 @@ export function openWalkthrough(id: string): Thenable<unknown> {
   return vscode.commands.executeCommand('workbench.action.openWalkthrough', `${EXTENSION_ID}#${id}`, false);
 }
 
+/** Step commands get a step id from walkthrough buttons, or a Setup view item from menus. */
+const stepId = (a: unknown): string => (typeof a === 'string' ? a : (a as { item?: { id: string } })?.item?.id ?? '');
+
+export const area: ExtensionArea = {
+  register({ reg, setup }) {
+    reg(COMMANDS.check, (a: unknown) => setup.check(stepId(a)));
+    reg(COMMANDS.fix, (a: unknown) => setup.fix(stepId(a)));
+    reg(COMMANDS.openSetup, (a: unknown) => setup.openSetup(stepId(a)));
+    reg(COMMANDS.confirm, (a: unknown) => setup.confirm(stepId(a)));
+    reg(COMMANDS.guide, (a?: unknown) => setup.openGuide(a ? stepId(a) || undefined : undefined));
+    reg(COMMANDS.doctor, () => setup.doctorInTerminal());
+    reg(COMMANDS.machine, () => openWalkthrough(WALKTHROUGHS.machine.id));
+    reg(COMMANDS.project, () => openWalkthrough(WALKTHROUGHS.project.id));
+    reg(COMMANDS.chooseFolder, () => setup.chooseFolder());
+    reg('acc.setup.refresh', () => setup.refresh('refresh clicked'));
+    reg('acc.sf.login', () => setup.sfLogin());
+  },
+};
