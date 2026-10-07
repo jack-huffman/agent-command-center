@@ -388,6 +388,81 @@ test('each step autopilot takes is one notice: what it did, and what it couldn\'
   assert.deepEqual(autopilotNotices([rec('GH-31', { step: 'review', verdict: 'pass' }), rec('GH-31', { seq: 2, pr: { number: 40, url: 'u', opened: true } })], [gh]).length, 2, 'one each');
 });
 
+test('a task that waits for others\' files is told in words: what it waits for, what goes first, and what Dispatch anyway risks (D-093)', async () => {
+  const { anywayQuestion, autopilotNotices, filesUnknown, noticeActions, sharesLine, startedNotice, waitLine, waitQuestion, waitsForFiles } = await import('../src/logic.ts');
+  const shares = [{ task: 'GH-70', files: ['extension/src/logic.ts', 'extension/src/model.ts', 'packages/cli/src/main.ts', 'docs/x.md'] }, { task: 'GH-71', files: ['extension/src/hub.ts'] }];
+  // A card names the first three files short; the task page names every one in full.
+  assert.equal(waitLine(shares), 'Waits for GH-70\'s files: src/logic.ts, src/model.ts and 2 more, and GH-71\'s: src/hub.ts', 'three names in all');
+  assert.equal(waitLine([shares[0]!]), 'Waits for GH-70\'s files: src/logic.ts, src/model.ts, src/main.ts and 1 more');
+  assert.equal(waitLine(shares, true), 'Waits for GH-70\'s files: extension/src/logic.ts, extension/src/model.ts, packages/cli/src/main.ts, docs/x.md, and GH-71\'s: extension/src/hub.ts');
+  // With what goes first, as acc says it: a card names two of them, the page every one.
+  assert.equal(waitLine([shares[1]!], false, ['GH-74']), 'Waits for GH-71\'s files: src/hub.ts, while GH-74 is ready to start');
+  assert.equal(waitLine([shares[1]!], false, ['GH-74', 'GH-75', 'GH-76']), 'Waits for GH-71\'s files: src/hub.ts, while GH-74, GH-75 and 1 more are ready to start');
+  assert.equal(waitLine([shares[1]!], true, ['GH-74', 'GH-75', 'GH-76']), 'Waits for GH-71\'s files: extension/src/hub.ts, while GH-74, GH-75 and GH-76 are ready to start');
+  assert.equal(sharesLine([shares[1]!]), 'Shares files with GH-71: src/hub.ts');
+  // No analysis, or one that names no files: each said as it is.
+  assert.equal(filesUnknown(false), 'Its files aren\'t known: no analysis to compare with work in flight');
+  assert.equal(filesUnknown(true), 'Its files aren\'t known: its analysis names no files');
+  const files = { known: true, shares, first: ['GH-74'], held: null };
+  assert.ok(waitsForFiles({ state: 'todo', files }));
+  assert.ok(!waitsForFiles({ state: 'todo', files: { ...files, first: [] } }), 'nothing else is ready: it starts');
+  assert.ok(!waitsForFiles({ state: 'running', files }));
+  const q = waitQuestion({ id: 'GH-73', files });
+  assert.equal(q.message, 'GH-73 shares files with GH-70 and GH-71');
+  assert.equal(q.wait, 'Wait for GH-70 and GH-71');
+  assert.equal(q.detail, 'GH-70: extension/src/logic.ts, extension/src/model.ts, packages/cli/src/main.ts, docs/x.md\nGH-71: extension/src/hub.ts\n\nGH-74 shares no files with work in flight, so it goes first. GH-73 waits, and starts on its own once GH-70 and GH-71 merge or nothing else is ready.');
+  const a = anywayQuestion({ id: 'GH-73', files });
+  assert.equal(a.message, 'Dispatch GH-73 anyway?');
+  assert.match(a.detail, /^It shares files with work in flight:\nGH-70: extension\/src\/logic\.ts, .*\nGH-71: extension\/src\/hub\.ts\n\nBoth builders may change them, and the second pull request to merge may conflict there\.$/);
+  assert.equal(anywayQuestion({ id: 'GH-73', files: { ...files, shares: [] } }).message, 'Dispatch GH-73 now?', 'its wait ended meanwhile');
+  assert.equal(startedNotice('GH-73 started', { waitedFor: ['GH-70'], shares: [] }), 'GH-73 started: GH-70\'s files are free.');
+  assert.equal(startedNotice('GH-73 started', { waitedFor: ['GH-70'], shares: [shares[0]!] }), 'GH-73 started: nothing else was ready, so it shares files with GH-70.');
+  // Autopilot's own start, and one it couldn't make, are its notices.
+  const at = '2026-10-06T12:00:00.000Z';
+  const task = { id: 'GH-73', source: { kind: 'github', key: '73' }, history: [] };
+  const say = (r: Record<string, unknown>) => autopilotNotices([{ seq: 1, at, task: 'GH-73', step: 'start', outcome: 'done', ...r } as never], [task]).map((n) => [n.text, n.urgent, noticeActions(n)]);
+  assert.deepEqual(say({ waitedFor: ['GH-70'] }), [['Autopilot started GH-73: GH-70\'s files are free.', false, [['Watch', 'acc.task.watch'], ['Show', 'acc.task.show']]]]);
+  assert.deepEqual(say({ outcome: 'failed', reason: 'Claude Code doesn\'t trust the repo yet' }), [['Autopilot couldn\'t start GH-73: Claude Code doesn\'t trust the repo yet.', true, [['Dispatch anyway', 'acc.task.dispatchAnyway'], ['Show', 'acc.task.show']]]]);
+});
+
+test('the board asks acc to start held tasks when one may go, and backs off while acc keeps them waiting (D-093)', async () => {
+  const { HELD_ASK_MAX_MS, HELD_ASK_MS, heldAskDue, heldAsked, heldAskKey, heldDue } = await import('../src/logic.ts');
+  const held = { at: '2026-10-06T10:00:00.000Z', failed: null, byAutopilot: false };
+  const todo = (id: string, files: Record<string, unknown>, deps: string[] = []) => ({ id, state: 'todo', deps, pr: null, files: { known: true, shares: [], first: [], held, ...files } as never });
+  const rows = [
+    todo('T-2', {}),
+    todo('T-3', { shares: [{ task: 'T-1', files: ['a.ts'] }], first: ['T-4'] }),
+    todo('T-5', { held: { ...held, failed: 'No trust' } }),
+    todo('T-6', { capped: true }),
+    todo('T-7', {}, ['T-1']),
+    todo('T-8', { held: null }),
+    { id: 'T-1', state: 'running', deps: [], pr: null, files: null },
+  ];
+  // Only T-2 may go: T-3 still waits, T-5's start failed, T-6 waits for an agent, T-7 for T-1, T-8 isn't held.
+  assert.deepEqual(heldDue(rows), ['T-2']);
+  const key = heldAskKey(rows, ['T-2']);
+  let t = 0;
+  assert.ok(heldAskDue(undefined, key, t), 'never asked: ask now');
+  // acc keeps T-2 waiting (the board missed something): 60 seconds, then 2 minutes, then 4, up to 10.
+  let ask = heldAsked(undefined, key, t, ['T-2'], ['T-2']);
+  const delays = [];
+  for (let i = 0; i < 6; i++) {
+    delays.push(ask.delay);
+    assert.ok(!heldAskDue(ask, key, t + ask.delay - 1));
+    t += ask.delay;
+    assert.ok(heldAskDue(ask, key, t));
+    ask = heldAsked(ask, key, t, ['T-2'], ['T-2']);
+  }
+  assert.deepEqual(delays, [2 * HELD_ASK_MS, 4 * HELD_ASK_MS, 8 * HELD_ASK_MS, 16 * HELD_ASK_MS, HELD_ASK_MAX_MS, HELD_ASK_MAX_MS]);
+  // The board sees a change, as T-1's pull request merging: it asks again 30 seconds after its last ask.
+  const merged = heldAskKey(rows.map((r) => (r.id === 'T-1' ? { ...r, pr: { number: 1, url: '', state: 'merged' } } : r)), ['T-2']);
+  assert.ok(!heldAskDue(ask, merged, t + HELD_ASK_MS - 1));
+  assert.ok(heldAskDue(ask, merged, t + HELD_ASK_MS));
+  // acc started it, or it waits no more: back to 30 seconds.
+  assert.equal(heldAsked(ask, key, t, ['T-2'], []).delay, HELD_ASK_MS);
+  assert.equal(heldAsked(ask, merged, t, ['T-2'], ['T-2']).delay, 2 * HELD_ASK_MS, 'a new view starts the back-off over');
+});
+
 test('a builder that stopped is told once, with what it last said, and Resume; not as an agent waiting in its own prompt (D-067)', async () => {
   const { autopilotNotices, noticeActions, sessionFor, taskNotices } = await import('../src/logic.ts');
   const { autopilotStepLook } = await import('../src/model.ts');
@@ -569,14 +644,14 @@ test('the autopilot switch says on or off with an icon and the words, and its to
   const { autopilotStatus } = await import('../src/logic.ts');
   const on = autopilotStatus({ project: 'Tool', many: false, state: 'on', last: '✓ GH-31  Opened pull request #40.' });
   assert.equal(on.text, '$(rocket) Autopilot: on');
-  assert.match(on.tooltip, /^Autopilot is on for Tool: it reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, and merges the base into a pull request that conflicts with it\. It never merges a pull request\./);
+  assert.match(on.tooltip, /^Autopilot is on for Tool: it reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, merges the base into a pull request that conflicts with it, and starts a task a person dispatched once the files it waits for are free\. It never merges a pull request\./);
   assert.match(on.tooltip, /Last: ✓ GH-31 {2}Opened pull request #40\./);
   assert.match(on.tooltip, /Click to turn it off until VSCode closes\.$/);
   assert.doesNotMatch(autopilotStatus({ project: 'Tool', many: false, state: 'on' }).tooltip, /Last:/, 'nothing printed yet');
 
   const off = autopilotStatus({ project: 'Tool', many: false, state: 'off' });
   assert.equal(off.text, '$(debug-pause) Autopilot: off');
-  assert.match(off.tooltip, /^Autopilot is off for Tool\. When it's on, it reviews[^]*merges the base into a pull request that conflicts with it\. It never merges a pull request\.\n\nClick to turn it on until VSCode closes\.$/);
+  assert.match(off.tooltip, /^Autopilot is off for Tool\. When it's on, it reviews[^]*starts a task a person dispatched once the files it waits for are free\. It never merges a pull request\.\n\nClick to turn it on until VSCode closes\.$/);
 
   const elsewhere = autopilotStatus({ project: 'Tool', many: false, state: 'elsewhere', pid: 4242 });
   assert.equal(elsewhere.text, '$(rocket) Autopilot: on elsewhere');
@@ -586,7 +661,7 @@ test('the autopilot switch says on or off with an icon and the words, and its to
   // It can't run: acc's own words say why.
   const { autopilotMode } = await import('../../packages/core/src/autopilot.ts');
   const refusal = autopilotMode({ autonomy: 'dispatch' }).refusal!;
-  assert.match(refusal, /^autonomy "dispatch" \(autopilot also starting Ready tasks\) is not built yet\. Set "autonomy" to "review" in \.acc\/config\.json: autopilot then reviews finished work, [^]*, and merges the base into a pull request that conflicts with it\.$/);
+  assert.match(refusal, /^autonomy "dispatch" \(autopilot also starting Ready tasks\) is not built yet\. Set "autonomy" to "review" in \.acc\/config\.json: autopilot then reviews finished work, [^]*, and starts a task a person dispatched once the files it waits for are free\.$/);
   const refused = autopilotStatus({ project: 'Tool', many: false, state: 'refused', refusal });
   assert.equal(refused.text, '$(circle-slash) Autopilot: off');
   assert.equal(refused.tooltip, `Autopilot can't run for Tool: ${refusal}`);

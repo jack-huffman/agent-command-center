@@ -4,10 +4,11 @@ import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { autoMergeFor, builderGatesFor, type Config, type Environment, environmentByBranch, requiredGates } from './config.ts';
 import { AccError, type Runner } from './exec.ts';
-import { type Actor, applyMove, checkMove, mutate, noGateHooks, readLedger, reworkCause, type ReworkCause, type Task } from './ledger.ts';
+import { type Actor, applyMove, checkMove, type FileShare, mutate, noGateHooks, readLedger, reworkCause, type ReworkCause, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
 import { permissionHook } from './questions.ts';
 import { type Analysis, analysisProblems, analysisSection, readAnalysis } from './analyze.ts';
+import { filesOf, inFlightFiles, plannedFiles, sharedFiles, startCandidates, startLook, type StartLook, startOrder, taskList, waits } from './overlap.ts';
 import { type ChecksReport, checksSection, type QueueReport, queueSection, readChecksReport, readQueueReport } from './checks.ts';
 import { latestVerdict, type Verdict } from './review.ts';
 import { agentArgs, checkModelName, modelOf } from './agents.ts';
@@ -261,6 +262,7 @@ export interface DispatchDeps {
 }
 
 export interface DispatchResult {
+  held: false;
   task: Task;
   worktree: string;
   branch: string;
@@ -270,7 +272,21 @@ export interface DispatchResult {
   sessionId: string | null;
   /** What the builder is called, in Claude Code and the Command Center (D-087). */
   name: string;
+  /** The tasks in flight it shares files with, and those files, when it started anyway (D-093). */
+  shares: FileShare[];
 }
+
+/** A dispatch that waits for other tasks' files instead of starting (D-093). Nothing was created or launched. */
+export interface HeldResult {
+  held: true;
+  task: Task;
+  /** The tasks in flight whose files its plan shares, and those files. */
+  waitsFor: FileShare[];
+  /** The Ready tasks that share no files with work in flight, which start first. */
+  first: string[];
+}
+
+export type DispatchOutcome = DispatchResult | HeldResult;
 
 const git = (run: Runner, cwd: string, ...args: string[]) => run('git', args, { cwd });
 
@@ -392,6 +408,10 @@ export interface DispatchOptions {
   withoutAnalysis?: boolean;
   /** What autopilot re-dispatches a rework for, kept on its move so it's never guessed from words (D-076, GH-73). */
   cause?: ReworkCause;
+  /** A person's say-so to start it now, though it shares files with work in flight (D-093). */
+  anyway?: boolean;
+  /** A held task's start, by startHeld: what it shares with work in flight was weighed already. */
+  fromHold?: { shares: FileShare[] };
   /** The model a person picked for this task's builder, kept on its run for a re-dispatch and a resume (D-086). */
   model?: string;
 }
@@ -406,7 +426,21 @@ export function builderModel(task: Pick<Task, 'run'>, config: Config, chosen?: s
   return picked ? { model: picked, picked: true } : { model: modelOf(config.agents.builder), picked: false };
 }
 
-export function dispatch(paths: RepoPaths, config: Config, id: string, deps: DispatchDeps, opts: DispatchOptions): DispatchResult {
+/** How long a claim on a held task stands: a start that takes longer than this crashed, and another may take it. */
+export const STARTING_STALE_MS = 10 * 60_000;
+
+/** Who is starting a held task now, unless their claim is stale. */
+const startingNow = (task: Task, now: Date): { at: string; by: string } | null => {
+  const s = task.held?.starting;
+  return s && now.getTime() - Date.parse(s.at) < STARTING_STALE_MS ? s : null;
+};
+
+/**
+ * Dispatches a task: a worktree, its setup, the instructions, and a background builder session. A first
+ * dispatch whose analysis shares files with work in flight waits while another Ready task shares none
+ * (D-093): it's held, and nothing is created or launched. A person can start it anyway.
+ */
+export function dispatch(paths: RepoPaths, config: Config, id: string, deps: DispatchDeps, opts: DispatchOptions): DispatchOutcome {
   const { run, now } = deps;
   if (opts.model !== undefined) checkModelName(opts.model);
   const before = readLedger(paths.ledger);
@@ -418,83 +452,245 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
   // A project that wants an analysis first gets one, unless a person says to go without (D-052).
   const held = analysisProblems(paths, config, found);
   if (held.length && !(opts.withoutAnalysis && opts.actor === 'human')) throw new AccError('move-refused', `Can't dispatch ${id}:\n- ${held.join('\n- ')}`);
-  const env = environmentByBranch(config, found.environment);
-  if (!env) throw new AccError('dispatch', `${id}'s environment "${found.environment}" isn't in the config.`);
-
-  const main = mainCheckout(run, paths.root);
-  const wt = join(worktreeRoot(config, main), found.id);
-  const enter = isClaudeWorktree(main, wt);
-  // Background sessions need a trusted folder (D-022): the main checkout when entering a .claude worktree.
-  const launchDir = enter ? main : wt;
-  if (!opts.foreground && enter && !isTrusted(main, deps.env)) {
-    throw new AccError('not-trusted', `Claude Code doesn't trust ${main} yet, so it won't start a background agent there. Run \`claude\` once in that folder, accept the trust prompt, then type /exit and dispatch again.`);
-  }
-  const branch = found.run?.branch ?? taskBranch(found);
-  const reused = ensureWorktree(run, main, wt, branch, env);
-  setupWorktree(run, config, env, main, wt);
-
-  const rules = existsSync(join(wt, '.acc', 'rules.md')) ? readFileSync(join(wt, '.acc', 'rules.md'), 'utf8') : null;
-  const rework = found.state === 'rework';
-  // Sent back for failing checks on GitHub (D-076), or from the merge queue (GH-73): what they found about
-  // the branch's latest commit. Only then: a review's or a person's rework at the same commit has its own
-  // reasons, which the report would contradict.
-  const cause = rework ? reworkCause(found) : null;
-  const head = cause === 'checks' || cause === 'queue' ? git(run, paths.root, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`).stdout.trim() : '';
-  const packet = renderPacket({
-    task: found, config, env, worktree: wt, branch, rules, environmentSpecific: readList(wt, config.environmentSpecific), enterWorktree: enter && !opts.foreground,
-    accPath: join(deps.accBinDir, 'acc'), review: rework ? latestVerdict(paths, found.id) : null, analysis: readAnalysis(paths, found.id),
-    checks: head && cause === 'checks' ? readChecksReport(paths, found.id, head) : null,
-    queue: head && cause === 'queue' ? readQueueReport(paths, found.id, head) : null,
-  });
-  mkdirSync(paths.packets, { recursive: true });
-  const packetPath = join(paths.packets, `${found.id}.md`);
-  writeFileSync(packetPath, packet);
-
-  const settings = JSON.stringify(builderSettings(found, config, deps.accBinDir, deps.env.PATH ?? '', deps.accCommand));
-  const prompt = `Read your task instructions below and do the task.\n\n${packet}`;
-  // Named for its project, task and role (D-087). The task's second dispatch is its "builder 2"; a run
-  // from before dispatches were counted was its first.
-  const n = (found.run?.n ?? (found.run ? 1 : 0)) + 1;
-  const name = sessionName({ project: config.project, key: found.id, title: found.title, role: 'builder', n });
-  // The builder's model and effort (D-036): the model picked for this task, if one was (D-086).
-  const { model, picked } = builderModel(found, config, opts.model);
-  const base = ['--name', name, '--permission-mode', config.agents.permissionMode, ...agentArgs({ ...config.agents.builder, model }), '--settings', settings];
-
-  const record = (bgId: string | null, sessionId: string | null) => mutate(paths, now, (ledger, emit) => {
-    const task = ledger.tasks.find((t) => t.id === id)!;
-    const again = checkMove(ledger, config, task, req, noGateHooks);
-    if (again.length) throw new AccError('move-refused', `Can't dispatch ${id}:\n- ${again.join('\n- ')}`);
-    applyMove(task, { ...req, reason: reused ? `re-dispatched in ${basename(wt)}` : null }, emit, now, opts.cause ? { cause: opts.cause } : {});
-    task.run = { worktree: wt, branch, startedAt: now().toISOString(), model, ...(picked ? { modelPicked: true as const } : {}), ...(bgId ? { bgId } : {}), ...(sessionId ? { sessionId } : {}), name, n };
-    emit({ type: 'task.updated', task: id, actor: opts.actor, by: opts.by, data: { run: task.run } });
-    return task;
-  });
-
-  if (opts.foreground) {
-    const task = record(null, null);
-    // The session is this terminal's, so the Mac stays awake while acc waits on it (D-067).
-    const awake = holdAwake(process.pid, deps.awake);
-    try {
-      spawnSync('claude', [...base, prompt], { cwd: wt, stdio: 'inherit', env: deps.env });
-    } finally {
-      awake?.release();
+  const starting = opts.fromHold ? null : startingNow(found, now());
+  if (starting) throw new AccError('move-refused', `Can't dispatch ${id}: ${starting.by} is starting it.`);
+  // Only a first dispatch weighs the files: a rework's branch already holds its change (D-093). A task
+  // whose analysis names no files never waits, so nothing in flight is looked at for it.
+  let shares = opts.fromHold?.shares ?? [];
+  let overrode = false;
+  const planned = found.state === 'todo' && !opts.fromHold ? plannedFiles(readAnalysis(paths, id), paths.root) : null;
+  if (planned) {
+    const look = startLook(paths, config, before, run, id, { fetch: true, files: planned });
+    shares = look.shares;
+    if (waits(look)) {
+      if (!(opts.anyway && opts.actor === 'human')) return holdTask(paths, now, id, opts, look);
+      overrode = true;
     }
-    return { task, worktree: wt, branch, reused, packetPath, bgId: null, sessionId: null, name };
   }
-
-  const since = Date.now() - LAUNCH_SLACK_MS;
-  const launched = run('claude', ['--bg', ...base, prompt], { cwd: launchDir, env: deps.env, timeoutMs: 60_000 });
-  if (launched.code !== 0) throw new AccError('dispatch', `Claude Code didn't start the agent: ${(launched.stderr || launched.stdout).trim().split('\n')[0]}. The worktree is kept at ${wt}.`);
-  const { bgId, sessionId, pid } = findSession(run, launchDir, name, deps.findSessionMs ?? 8_000, { since, places: [launchDir, wt] });
+  // A held task a person dispatches is claimed first, as a held start claims it, so the two never both
+  // launch (D-093). One whose start failed needs a person, and this is one: nothing else starts it.
+  const claim = !opts.fromHold && !!found.held && !found.held.failed;
+  if (claim && !claimHeld(paths, now, id, opts)) throw new AccError('move-refused', `Can't dispatch ${id}: it's being started already.`);
   try {
-    const task = record(bgId, sessionId);
-    // acc exits now, so the Mac is kept awake for the background session's own process (D-067).
-    if (pid) keepAwakeFor(paths, id, pid, deps.awake);
-    return { task, worktree: wt, branch, reused, packetPath, bgId, sessionId, name };
+    const env = environmentByBranch(config, found.environment);
+    if (!env) throw new AccError('dispatch', `${id}'s environment "${found.environment}" isn't in the config.`);
+
+    const main = mainCheckout(run, paths.root);
+    const wt = join(worktreeRoot(config, main), found.id);
+    const enter = isClaudeWorktree(main, wt);
+    // Background sessions need a trusted folder (D-022): the main checkout when entering a .claude worktree.
+    const launchDir = enter ? main : wt;
+    if (!opts.foreground && enter && !isTrusted(main, deps.env)) {
+      throw new AccError('not-trusted', `Claude Code doesn't trust ${main} yet, so it won't start a background agent there. Run \`claude\` once in that folder, accept the trust prompt, then type /exit and dispatch again.`);
+    }
+    const branch = found.run?.branch ?? taskBranch(found);
+    const reused = ensureWorktree(run, main, wt, branch, env);
+    setupWorktree(run, config, env, main, wt);
+
+    const rules = existsSync(join(wt, '.acc', 'rules.md')) ? readFileSync(join(wt, '.acc', 'rules.md'), 'utf8') : null;
+    const rework = found.state === 'rework';
+    // Sent back for failing checks on GitHub (D-076), or from the merge queue (GH-73): what they found about
+    // the branch's latest commit. Only then: a review's or a person's rework at the same commit has its own
+    // reasons, which the report would contradict.
+    const cause = rework ? reworkCause(found) : null;
+    const head = cause === 'checks' || cause === 'queue' ? git(run, paths.root, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`).stdout.trim() : '';
+    const packet = renderPacket({
+      task: found, config, env, worktree: wt, branch, rules, environmentSpecific: readList(wt, config.environmentSpecific), enterWorktree: enter && !opts.foreground,
+      accPath: join(deps.accBinDir, 'acc'), review: rework ? latestVerdict(paths, found.id) : null, analysis: readAnalysis(paths, found.id),
+      checks: head && cause === 'checks' ? readChecksReport(paths, found.id, head) : null,
+      queue: head && cause === 'queue' ? readQueueReport(paths, found.id, head) : null,
+    });
+    mkdirSync(paths.packets, { recursive: true });
+    const packetPath = join(paths.packets, `${found.id}.md`);
+    writeFileSync(packetPath, packet);
+
+    const settings = JSON.stringify(builderSettings(found, config, deps.accBinDir, deps.env.PATH ?? '', deps.accCommand));
+    const prompt = `Read your task instructions below and do the task.\n\n${packet}`;
+    // Named for its project, task and role (D-087). The task's second dispatch is its "builder 2"; a run
+    // from before dispatches were counted was its first.
+    const n = (found.run?.n ?? (found.run ? 1 : 0)) + 1;
+    const name = sessionName({ project: config.project, key: found.id, title: found.title, role: 'builder', n });
+    // The builder's model and effort (D-036): the model picked for this task, if one was (D-086), when it was
+    // dispatched or when it began to wait for others' files (D-093).
+    const { model, picked } = builderModel(found, config, opts.model ?? found.held?.model);
+    const base = ['--name', name, '--permission-mode', config.agents.permissionMode, ...agentArgs({ ...config.agents.builder, model }), '--settings', settings];
+
+    const record = (bgId: string | null, sessionId: string | null) => mutate(paths, now, (ledger, emit) => {
+      const task = ledger.tasks.find((t) => t.id === id)!;
+      const again = checkMove(ledger, config, task, req, noGateHooks);
+      if (again.length) throw new AccError('move-refused', `Can't dispatch ${id}:\n- ${again.join('\n- ')}`);
+      // What it shares with work in flight, and whether a person overrode a wait or it waited for it (D-093).
+      const hold = task.held;
+      const data = {
+        ...(opts.cause ? { cause: opts.cause } : {}),
+        ...(shares.length ? { shares } : {}),
+        ...(overrode ? { anyway: true } : {}),
+        ...(opts.fromHold && hold ? { held: { at: hold.at, by: hold.by, waitedFor: hold.waitsFor.map((w) => w.task) } } : {}),
+      };
+      applyMove(task, { ...req, reason: reused ? `re-dispatched in ${basename(wt)}` : null }, emit, now, data);
+      task.run = { worktree: wt, branch, startedAt: now().toISOString(), model, ...(picked ? { modelPicked: true as const } : {}), ...(bgId ? { bgId } : {}), ...(sessionId ? { sessionId } : {}), name, n, ...(shares.length ? { shares } : {}) };
+      emit({ type: 'task.updated', task: id, actor: opts.actor, by: opts.by, data: { run: task.run } });
+      return task;
+    });
+
+    if (opts.foreground) {
+      const task = record(null, null);
+      // The session is this terminal's, so the Mac stays awake while acc waits on it (D-067).
+      const awake = holdAwake(process.pid, deps.awake);
+      try {
+        spawnSync('claude', [...base, prompt], { cwd: wt, stdio: 'inherit', env: deps.env });
+      } finally {
+        awake?.release();
+      }
+      return { held: false, task, worktree: wt, branch, reused, packetPath, bgId: null, sessionId: null, name, shares };
+    }
+
+    const since = Date.now() - LAUNCH_SLACK_MS;
+    const launched = run('claude', ['--bg', ...base, prompt], { cwd: launchDir, env: deps.env, timeoutMs: 60_000 });
+    if (launched.code !== 0) throw new AccError('dispatch', `Claude Code didn't start the agent: ${(launched.stderr || launched.stdout).trim().split('\n')[0]}. The worktree is kept at ${wt}.`);
+    const { bgId, sessionId, pid } = findSession(run, launchDir, name, deps.findSessionMs ?? 8_000, { since, places: [launchDir, wt] });
+    try {
+      const task = record(bgId, sessionId);
+      // acc exits now, so the Mac is kept awake for the background session's own process (D-067).
+      if (pid) keepAwakeFor(paths, id, pid, deps.awake);
+      return { held: false, task, worktree: wt, branch, reused, packetPath, bgId, sessionId, name, shares };
+    } catch (e) {
+      if (bgId) run('claude', ['stop', bgId], { cwd: wt });
+      throw e;
+    }
   } catch (e) {
-    if (bgId) run('claude', ['stop', bgId], { cwd: wt });
+    if (claim) releaseHeld(paths, now, id, opts, null);
     throw e;
   }
+}
+
+// ---------------------------------------------------------------- a task that waits for others' files (D-093)
+
+/** Records the hold. A task already waiting keeps its place, since the oldest hold starts first; one whose start failed is asked again. */
+function holdTask(paths: RepoPaths, now: () => Date, id: string, opts: DispatchOptions, look: StartLook): HeldResult {
+  return mutate(paths, now, (ledger, emit) => {
+    const task = ledger.tasks.find((t) => t.id === id);
+    if (!task) throw new AccError('no-task', `No task ${id}.`);
+    if (task.state !== 'todo') throw new AccError('move-refused', `Can't dispatch ${id}: it's ${task.state} now.`);
+    const at = now().toISOString();
+    const kept = task.held && !task.held.failed ? task.held : null;
+    // A model picked for it (D-086) is kept for its start, until another is picked.
+    const model = opts.model ?? task.held?.model;
+    task.held = { at: kept?.at ?? at, actor: kept?.actor ?? opts.actor, by: kept?.by ?? opts.by, waitsFor: look.shares, first: look.first, ...(model ? { model } : {}) };
+    task.updatedAt = at;
+    emit({ type: 'task.updated', task: id, actor: opts.actor, by: opts.by, data: { held: task.held } });
+    return { held: true as const, task, waitsFor: look.shares, first: look.first };
+  });
+}
+
+/** Why a held task waits, in words: "Waits for GH-70's files: a.ts, while GH-74 is ready to start". */
+export function holdWords(look: StartLook): string {
+  return `Waits for ${filesOf(look.shares)}, while ${taskList(look.first)} ${look.first.length === 1 ? 'is' : 'are'} ready to start`;
+}
+
+export interface StartHeldResult {
+  started: { task: string; worktree: string; bgId: string | null; shares: FileShare[]; waitedFor: string[] }[];
+  /** Held tasks that still wait, and why. */
+  waiting: { task: string; reason: string; waitsFor: FileShare[]; first: string[] }[];
+  /** Held tasks whose start failed: written on each, which then needs a person. */
+  failed: { task: string; reason: string }[];
+}
+
+/** Codes of a start that couldn't go for now, not a failure: the cap filled, or the ledger was busy, between the look and the start. */
+const FOR_NOW = new Set(['move-refused', 'lock-timeout']);
+
+/**
+ * Starts the held tasks that may go now (D-093), as `actor`: a person's own Dispatch click, deferred, or
+ * autopilot. Free ones first, oldest hold first, then, when nothing else is ready, one that shares files.
+ * Each start changes what's in flight, so the rest are weighed again after it. Each is claimed in the
+ * ledger before its builder launches, so two windows and autopilot never start one twice. A start that
+ * fails is written on the task, and isn't tried again until a person acts.
+ */
+export function startHeld(paths: RepoPaths, config: Config, deps: DispatchDeps, opts: { actor: Actor; by: string; only?: string }): StartHeldResult {
+  const out: StartHeldResult = { started: [], waiting: [], failed: [] };
+  const tried = new Set<string>();
+  const shared = sharedFiles(config);
+  let fetched = false;
+  for (;;) {
+    const ledger = readLedger(paths.ledger);
+    const held = ledger.tasks
+      .filter((t) => t.state === 'todo' && t.held && !t.held.failed && !tried.has(t.id) && (!opts.only || t.id === opts.only))
+      .sort((a, b) => a.held!.at.localeCompare(b.held!.at));
+    if (!held.length) break;
+    const flying = inFlightFiles(paths, ledger, deps.run, { fetch: !fetched });
+    fetched = true;
+    const candidates = startCandidates(paths, config, ledger);
+    const looks = held.map((t) => {
+      const look = startOrder({ id: t.id, files: candidates.find((c) => c.id === t.id)?.files ?? null }, candidates, flying, shared);
+      const problems = [...checkMove(ledger, config, t, { to: 'running', actor: opts.actor, by: opts.by }, noGateHooks), ...analysisProblems(paths, config, t)];
+      const claimed = startingNow(t, deps.now());
+      return { t, look, problems, claimed };
+    });
+    const ok = looks.filter((l) => !l.problems.length && !l.claimed);
+    const go = ok.find((l) => !l.look.shares.length) ?? ok.find((l) => !waits(l.look));
+    if (!go) {
+      for (const l of looks) {
+        const reason = l.problems[0] ?? (l.claimed ? `${l.claimed.by} is starting it.` : `${holdWords(l.look)}.`);
+        out.waiting.push({ task: l.t.id, reason, waitsFor: l.look.shares, first: l.look.first });
+      }
+      break;
+    }
+    const id = go.t.id;
+    tried.add(id);
+    if (!claimHeld(paths, deps.now, id, opts)) continue;
+    const waitedFor = go.t.held!.waitsFor.map((w) => w.task);
+    try {
+      const r = dispatch(paths, config, id, deps, { actor: opts.actor, by: opts.by, fromHold: { shares: go.look.shares } });
+      if (r.held) continue;
+      out.started.push({ task: id, worktree: r.worktree, bgId: r.bgId, shares: r.shares, waitedFor });
+    } catch (e) {
+      const reason = (e as Error).message.trim().split('\n').slice(0, 3).join(' ').replace(/\s+/g, ' ');
+      if (FOR_NOW.has((e as AccError).code)) {
+        releaseHeld(paths, deps.now, id, opts, null);
+        out.waiting.push({ task: id, reason, waitsFor: go.look.shares, first: go.look.first });
+      } else {
+        releaseHeld(paths, deps.now, id, opts, reason);
+        out.failed.push({ task: id, reason });
+      }
+    }
+  }
+  return out;
+}
+
+/** Claims a held task for its start, unless it moved, its start failed, or someone else is starting it. */
+function claimHeld(paths: RepoPaths, now: () => Date, id: string, opts: { actor: Actor; by: string }): boolean {
+  return mutate(paths, now, (ledger, emit) => {
+    const t = ledger.tasks.find((x) => x.id === id);
+    if (!t || t.state !== 'todo' || !t.held || t.held.failed || startingNow(t, now())) return false;
+    t.held.starting = { at: now().toISOString(), by: opts.by };
+    emit({ type: 'task.updated', task: id, actor: opts.actor, by: opts.by, data: { held: t.held } });
+    return true;
+  });
+}
+
+/** Lets go of a claim: for now, or with why its start failed, written on the task, which then needs a person. */
+function releaseHeld(paths: RepoPaths, now: () => Date, id: string, opts: { actor: Actor; by: string }, reason: string | null): void {
+  mutate(paths, now, (ledger, emit) => {
+    const t = ledger.tasks.find((x) => x.id === id);
+    if (!t || t.state !== 'todo' || !t.held) return;
+    const at = now().toISOString();
+    t.held = { ...t.held, starting: null, ...(reason ? { failed: { reason, at, by: opts.by } } : {}) };
+    t.updatedAt = at;
+    emit({ type: 'task.updated', task: id, actor: opts.actor, by: opts.by, data: { held: t.held } });
+  });
+}
+
+/** A person stops a held task waiting: it stays to do, and nothing starts it on its own. */
+export function stopWaiting(paths: RepoPaths, now: () => Date, id: string, actor: Actor, by: string): Task {
+  return mutate(paths, now, (ledger, emit) => {
+    const t = ledger.tasks.find((x) => x.id === id);
+    if (!t) throw new AccError('no-task', `No task ${id}.`);
+    if (!t.held) throw new AccError('not-held', `${id} isn't waiting for anything.`);
+    t.held = null;
+    t.updatedAt = now().toISOString();
+    emit({ type: 'task.updated', task: id, actor, by, data: { held: null } });
+    return t;
+  });
 }
 
 // ---------------------------------------------------------------- cleanup (D-013)

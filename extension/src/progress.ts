@@ -136,10 +136,10 @@ export function loadWord(m: { load: number; cpus: number } | null | undefined): 
 /** What autopilot's step is doing, in words. */
 export const STEP_DOING: Record<AutopilotStepName, string> = {
   review: 'Reviewing it', land: 'Landing it', dispatch: 'Re-dispatching it', refresh: 'Merging its base in', resume: 'Resuming its builder',
-  checks: 'Sending it back for its failing checks', merge: 'Merging its pull request', queue: 'Taking its turn in the merge queue',
+  checks: 'Sending it back for its failing checks', merge: 'Merging its pull request', start: 'Starting it', queue: 'Taking its turn in the merge queue',
 };
-const STEP_DONE: Record<AutopilotStepName, string> = { review: 'reviewed it', land: 'landed it', dispatch: 're-dispatched it', refresh: 'merged its base in', resume: 'resumed its builder', checks: 'sent it back for its failing checks', merge: 'merged its pull request', queue: 'took its turn in the merge queue' };
-const STEP_VERB: Record<AutopilotStepName, string> = { review: 'review it', land: 'land it', dispatch: 're-dispatch it', refresh: 'merge its base in', resume: 'resume its builder', checks: 'send it back', merge: 'merge its pull request', queue: 'take its turn in the merge queue' };
+const STEP_DONE: Record<AutopilotStepName, string> = { review: 'reviewed it', land: 'landed it', dispatch: 're-dispatched it', refresh: 'merged its base in', resume: 'resumed its builder', checks: 'sent it back for its failing checks', merge: 'merged its pull request', start: 'started it', queue: 'took its turn in the merge queue' };
+const STEP_VERB: Record<AutopilotStepName, string> = { review: 'review it', land: 'land it', dispatch: 're-dispatch it', refresh: 'merge its base in', resume: 'resume its builder', checks: 'send it back', merge: 'merge its pull request', start: 'start it', queue: 'take its turn in the merge queue' };
 
 /** A task's state at the head of its group. Needs you is orange, as everywhere. */
 function taskLook(r: TaskRow): Look {

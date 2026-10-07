@@ -352,28 +352,40 @@ export const listed = (path: string, list: string[]): boolean => list.some((p) =
 
 const git = (run: Runner, root: string, args: string[]): RunResult => run('git', args, { cwd: root });
 
-/** The merge base with the environment's branch: the remote copy if there is one, else the local branch. */
-export function baseFor(run: Runner, root: string, env: Environment): string {
+/**
+ * The merge base of `head` with the environment's branch: the remote copy if there is one, else the local
+ * branch. `head` is the checkout's own HEAD, or another task's branch (D-093).
+ */
+export function baseFor(run: Runner, root: string, env: Pick<Environment, 'branch'>, head = 'HEAD'): string {
   for (const ref of [`origin/${env.branch}`, env.branch]) {
     if (git(run, root, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]).code !== 0) continue;
-    const mb = git(run, root, ['merge-base', 'HEAD', ref]);
+    const mb = git(run, root, ['merge-base', head, ref]);
     if (mb.code === 0 && mb.stdout.trim()) return mb.stdout.trim();
   }
   throw new AccError('no-base', `There's no ${env.branch} or origin/${env.branch} branch here to compare with.`);
 }
 
+/**
+ * Each path changed since `base`, with its status: up to `head`, or without one, in the working tree of
+ * `cwd`, committed or not. A rename is its old path deleted and its new one added, so both count.
+ */
+export function changedPaths(run: Runner, cwd: string, base: string, head?: string): { status: string; path: string }[] {
+  const r = git(run, cwd, ['diff', '--name-status', '--no-renames', '-z', base, ...(head ? [head] : [])]);
+  if (r.code !== 0) throw new AccError('git', `git diff failed: ${lastLine(r.stderr)}`);
+  const parts = r.stdout.split('\0').filter(Boolean);
+  const out: { status: string; path: string }[] = [];
+  for (let i = 0; i + 1 < parts.length; i += 2) out.push({ status: parts[i]!, path: parts[i + 1]! });
+  return out;
+}
+
 /** Committed changes since the branch left its environment's branch (D-024). */
 export function changesFor(run: Runner, root: string, config: Config, env: Environment): Changes {
   const base = baseFor(run, root, env);
-  const r = git(run, root, ['diff', '--name-status', '--no-renames', '-z', base, 'HEAD']);
-  if (r.code !== 0) throw new AccError('git', `git diff failed: ${lastLine(r.stderr)}`);
-  const parts = r.stdout.split('\0').filter(Boolean);
   const specific = readList(root, config.environmentSpecific);
   const files: string[] = [];
   const deleted: string[] = [];
   const envSpecific: string[] = [];
-  for (let i = 0; i + 1 < parts.length; i += 2) {
-    const [status, path] = [parts[i]!, parts[i + 1]!];
+  for (const { status, path } of changedPaths(run, root, base, 'HEAD')) {
     if (listed(path, specific)) envSpecific.push(path);
     else if (status.startsWith('D')) deleted.push(path);
     else files.push(path);
