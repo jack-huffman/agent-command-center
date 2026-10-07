@@ -343,7 +343,8 @@ or from the project's `.acc/packet.md` if there is one. It contains:
 - **Never:**
   - push, merge a pull request, open one, or deploy. Merging the base into its
     own branch is fine where the merge queue runs, as it asks when it conflicts;
-    only there is it allowed without asking
+    only there, and only its own base (`git merge origin/<its environment>`,
+    with or without flags), is it allowed without asking
   - edit files outside the worktree
   - edit an environment-specific file
   - change the ticket
@@ -644,8 +645,14 @@ before each:
   commit before, or anything else that stops the turn, such as a dirty worktree
   or a heavy-check slot that stayed taken, is recorded as `queue` (or `merge`
   for the merge itself), and the task needs you. Either way it leaves the
-  queue, and the next is the head. The Overview shows each queue: each pull
-  request's place, and what it waits on.
+  queue, and the next is the head. A pull request at a commit on GitHub that
+  acc didn't land, such as after Update branch, doesn't wait for GitHub: it
+  takes its turn, whose fetch finds the commit this clone lacks, and it needs
+  you. An agent in its worktree asking a person something keeps it out of the
+  queue. A place counts only while auto-merge covers the task, so switching
+  auto-merge or autonomy review off shows a conflict as needing you again. The
+  Overview shows each queue: each pull request's place, and what it waits on:
+  GitHub's checks only when it's them, else that wait in its own words.
 - **A refresh** (D-058) merges origin's copy of the task environment's branch
   into the task branch, in the task's worktree, never the main checkout. It
   asks git again first, and a conflict that's gone is only marked gone. It
