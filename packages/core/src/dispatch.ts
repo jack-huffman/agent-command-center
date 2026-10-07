@@ -11,8 +11,9 @@ import { type Analysis, analysisProblems, analysisSection, readAnalysis } from '
 import { filesOf, inFlightFiles, plannedFiles, sharedFiles, startCandidates, startLook, type StartLook, startOrder, taskList, waits } from './overlap.ts';
 import { type ChecksReport, checksSection, readChecksReport } from './checks.ts';
 import { latestVerdict, type Verdict } from './review.ts';
-import { agentArgs } from './agents.ts';
+import { agentArgs, checkModelName, modelOf } from './agents.ts';
 import { type AwakeDeps, holdAwake, keepAwakeFor } from './awake.ts';
+import { sessionName } from './names.ts';
 
 // ---------------------------------------------------------------- names and places (D-013)
 
@@ -218,7 +219,7 @@ export function builderSettings(task: Task, config: Config, accBinDir: string, b
   ];
   const deny = [
     'Bash(git push*)', 'Bash(gh pr *)', 'Bash(git checkout *)', 'Bash(git switch *)', 'Bash(git worktree *)', 'Bash(git reset --hard*)',
-    'Bash(acc set *)', 'Bash(acc dispatch *)', 'Bash(acc init*)', 'Bash(acc gate waive*)', 'Bash(acc land*)', 'Bash(acc review*)', 'Bash(acc autopilot*)', 'Bash(acc agents autonomy*)', 'Bash(acc analyze*)', 'Bash(acc analysis answer*)', 'Bash(acc promote*)', 'Bash(acc deploy*)', 'Bash(acc update*)', 'Bash(acc resume*)',
+    'Bash(acc set *)', 'Bash(acc dispatch *)', 'Bash(acc init*)', 'Bash(acc gate waive*)', 'Bash(acc land*)', 'Bash(acc review*)', 'Bash(acc autopilot*)', 'Bash(acc agents autonomy*)', 'Bash(acc agents auto-merge*)', 'Bash(acc analyze*)', 'Bash(acc analysis answer*)', 'Bash(acc promote*)', 'Bash(acc deploy*)', 'Bash(acc update*)', 'Bash(acc resume*)', 'Bash(acc machine*)', 'Bash(acc sync --close-done*)',
     // Releases are a person's (D-079): npm run * is allowed above, and deny beats allow.
     'Bash(gh release create*)', 'Bash(gh release upload*)', 'Bash(gh release edit*)', 'Bash(gh release delete*)', 'Bash(npm run release*)', 'Bash(nice -n 15 npm run release*)',
     ...(sf ? ['Bash(sf project deploy start*)', 'Bash(sf project deploy quick*)', 'Bash(sf org delete *)'] : []),
@@ -256,6 +257,8 @@ export interface DispatchResult {
   packetPath: string;
   bgId: string | null;
   sessionId: string | null;
+  /** What the builder is called, in Claude Code and the Command Center (D-087). */
+  name: string;
   /** The tasks in flight it shares files with, and those files, when it started anyway (D-???). */
   shares: FileShare[];
 }
@@ -332,19 +335,42 @@ function readList(wt: string, rel: string | null): string[] {
 
 const sleep = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
+/** The same folder, however it's spelled: Claude Code lists a session's real path. */
+function samePlace(a: string, b: string): boolean {
+  if (a === b) return true;
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return false;
+  }
+}
+
+export interface FindSessionOptions {
+  /** Started at this time or later, in ms: an older session of the same name is another run's. */
+  since?: number;
+  /** In one of these folders: the one it was started in, or the worktree it may already have entered. */
+  places?: string[];
+}
+
 /**
- * The new background session, found by name and folder in `claude agents --json`, with its process. A
- * session can be listed a moment before its process is, so it's asked again, within the same wait, until
- * the pid shows: without it nothing keeps the Mac awake for the builder (D-067).
+ * The new background session, with its process, found in `claude agents --json` by the name it was given,
+ * the folder it started in and when (D-087). `--bg` makes its own session id and ignores `--session-id`,
+ * so the name is all acc has to go on, and two clones of a repo name a task's builder alike. A session
+ * can be listed a moment before its process is, so it's asked again, within the same wait, until the pid
+ * shows: without it nothing keeps the Mac awake for the builder (D-067).
  */
-export function findSession(run: Runner, wt: string, name: string, waitMs: number): { bgId: string | null; sessionId: string | null; pid: number | null } {
+export function findSession(run: Runner, cwd: string, name: string, waitMs: number, o: FindSessionOptions = {}): { bgId: string | null; sessionId: string | null; pid: number | null } {
   const until = Date.now() + waitMs;
   let found: { bgId: string | null; sessionId: string | null; pid: number | null } | null = null;
+  const ours = (x: { name?: string; cwd?: string; kind?: string; startedAt?: number }): boolean =>
+    x.name === name && x.kind === 'background'
+    && (o.since === undefined || (x.startedAt ?? 0) >= o.since)
+    && (!o.places || !x.cwd || o.places.some((p) => samePlace(x.cwd!, p)));
   do {
-    const r = run('claude', ['agents', '--json'], { cwd: wt, timeoutMs: 20_000 });
+    const r = run('claude', ['agents', '--json'], { cwd, timeoutMs: 20_000 });
     try {
       const list = JSON.parse(r.stdout) as { id?: string; sessionId?: string; name?: string; cwd?: string; kind?: string; startedAt?: number; pid?: number }[];
-      const s = list.filter((x) => x.name === name && x.kind === 'background').sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))[0];
+      const s = list.filter(ours).sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))[0];
       if (s) {
         found = { bgId: s.id ?? null, sessionId: s.sessionId ?? null, pid: Number.isInteger(s.pid) && s.pid! > 0 ? s.pid! : null };
         if (found.pid) return found;
@@ -356,6 +382,9 @@ export function findSession(run: Runner, wt: string, name: string, waitMs: numbe
   } while (Date.now() < until);
   return found ?? { bgId: null, sessionId: null, pid: null };
 }
+
+/** How long before acc launches a builder its session may say it started: the same clock, read a moment apart. */
+const LAUNCH_SLACK_MS = 5_000;
 
 export interface DispatchOptions {
   actor: Actor;
@@ -370,6 +399,18 @@ export interface DispatchOptions {
   anyway?: boolean;
   /** A held task's start, by startHeld: what it shares with work in flight was weighed already. */
   fromHold?: { shares: FileShare[] };
+  /** The model a person picked for this task's builder, kept on its run for a re-dispatch and a resume (D-086). */
+  model?: string;
+}
+
+/**
+ * The model a task's builder starts with (D-086): one picked for it now, else one picked on an earlier
+ * dispatch, else the builder's own (the clone's, the project's, or acc's default). `picked` says it was a
+ * person's choice for this task, so the run keeps it.
+ */
+export function builderModel(task: Pick<Task, 'run'>, config: Config, chosen?: string): { model: string; picked: boolean } {
+  const picked = chosen ?? (task.run?.modelPicked ? task.run.model : undefined);
+  return picked ? { model: picked, picked: true } : { model: modelOf(config.agents.builder), picked: false };
 }
 
 /** How long a claim on a held task stands: a start that takes longer than this crashed, and another may take it. */
@@ -388,6 +429,7 @@ const startingNow = (task: Task, now: Date): { at: string; by: string } | null =
  */
 export function dispatch(paths: RepoPaths, config: Config, id: string, deps: DispatchDeps, opts: DispatchOptions): DispatchOutcome {
   const { run, now } = deps;
+  if (opts.model !== undefined) checkModelName(opts.model);
   const before = readLedger(paths.ledger);
   const found = before.tasks.find((t) => t.id === id);
   if (!found) throw new AccError('no-task', `No task ${id}.`);
@@ -443,8 +485,14 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
 
   const settings = JSON.stringify(builderSettings(found, config, deps.accBinDir, deps.env.PATH ?? '', deps.accCommand));
   const prompt = `Read your task instructions below and do the task.\n\n${packet}`;
-  // The builder's model and effort (D-036), when the project or this clone chose them.
-  const base = ['--name', found.id, '--permission-mode', config.agents.permissionMode, ...agentArgs(config.agents.builder), '--settings', settings];
+  // Named for its project, task and role (D-087). The task's second dispatch is its "builder 2"; a run
+  // from before dispatches were counted was its first.
+  const n = (found.run?.n ?? (found.run ? 1 : 0)) + 1;
+  const name = sessionName({ project: config.project, key: found.id, title: found.title, role: 'builder', n });
+  // The builder's model and effort (D-036): the model picked for this task, if one was (D-086), when it was
+  // dispatched or when it began to wait for others' files (D-???).
+  const { model, picked } = builderModel(found, config, opts.model ?? found.held?.model);
+  const base = ['--name', name, '--permission-mode', config.agents.permissionMode, ...agentArgs({ ...config.agents.builder, model }), '--settings', settings];
 
   const record = (bgId: string | null, sessionId: string | null) => mutate(paths, now, (ledger, emit) => {
     const task = ledger.tasks.find((t) => t.id === id)!;
@@ -459,7 +507,7 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
       ...(opts.fromHold && hold ? { held: { at: hold.at, by: hold.by, waitedFor: hold.waitsFor.map((w) => w.task) } } : {}),
     };
     applyMove(task, { ...req, reason: reused ? `re-dispatched in ${basename(wt)}` : null }, emit, now, data);
-    task.run = { worktree: wt, branch, startedAt: now().toISOString(), ...(bgId ? { bgId } : {}), ...(sessionId ? { sessionId } : {}), ...(shares.length ? { shares } : {}) };
+    task.run = { worktree: wt, branch, startedAt: now().toISOString(), model, ...(picked ? { modelPicked: true as const } : {}), ...(bgId ? { bgId } : {}), ...(sessionId ? { sessionId } : {}), name, n, ...(shares.length ? { shares } : {}) };
     emit({ type: 'task.updated', task: id, actor: opts.actor, by: opts.by, data: { run: task.run } });
     return task;
   });
@@ -473,17 +521,18 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
     } finally {
       awake?.release();
     }
-    return { held: false, task, worktree: wt, branch, reused, packetPath, bgId: null, sessionId: null, shares };
+    return { held: false, task, worktree: wt, branch, reused, packetPath, bgId: null, sessionId: null, name, shares };
   }
 
+  const since = Date.now() - LAUNCH_SLACK_MS;
   const launched = run('claude', ['--bg', ...base, prompt], { cwd: launchDir, env: deps.env, timeoutMs: 60_000 });
   if (launched.code !== 0) throw new AccError('dispatch', `Claude Code didn't start the agent: ${(launched.stderr || launched.stdout).trim().split('\n')[0]}. The worktree is kept at ${wt}.`);
-  const { bgId, sessionId, pid } = findSession(run, launchDir, found.id, deps.findSessionMs ?? 8_000);
+  const { bgId, sessionId, pid } = findSession(run, launchDir, name, deps.findSessionMs ?? 8_000, { since, places: [launchDir, wt] });
   try {
     const task = record(bgId, sessionId);
     // acc exits now, so the Mac is kept awake for the background session's own process (D-067).
     if (pid) keepAwakeFor(paths, id, pid, deps.awake);
-    return { held: false, task, worktree: wt, branch, reused, packetPath, bgId, sessionId, shares };
+    return { held: false, task, worktree: wt, branch, reused, packetPath, bgId, sessionId, name, shares };
   } catch (e) {
     if (bgId) run('claude', ['stop', bgId], { cwd: wt });
     throw e;
@@ -500,7 +549,9 @@ function holdTask(paths: RepoPaths, now: () => Date, id: string, opts: DispatchO
     if (task.state !== 'todo') throw new AccError('move-refused', `Can't dispatch ${id}: it's ${task.state} now.`);
     const at = now().toISOString();
     const kept = task.held && !task.held.failed ? task.held : null;
-    task.held = { at: kept?.at ?? at, actor: kept?.actor ?? opts.actor, by: kept?.by ?? opts.by, waitsFor: look.shares, first: look.first };
+    // A model picked for it (D-086) is kept for its start, until another is picked.
+    const model = opts.model ?? task.held?.model;
+    task.held = { at: kept?.at ?? at, actor: kept?.actor ?? opts.actor, by: kept?.by ?? opts.by, waitsFor: look.shares, first: look.first, ...(model ? { model } : {}) };
     task.updatedAt = at;
     emit({ type: 'task.updated', task: id, actor: opts.actor, by: opts.by, data: { held: task.held } });
     return { held: true as const, task, waitsFor: look.shares, first: look.first };

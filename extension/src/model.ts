@@ -3,19 +3,19 @@
  * and rendered there with text only (no HTML from data). No vscode import, so it's testable.
  */
 import type { Analysis } from '../../packages/core/src/analyze.ts';
-import { AUTOPILOT_REVIEW_DOES, type AutopilotRecord, byAutopilot } from '../../packages/core/src/autopilot.ts';
+import { autopilotDoes, type AutopilotRecord, byAutopilot } from '../../packages/core/src/autopilot.ts';
 import { DISPLAY, findRule, type State, type Task } from '../../packages/core/src/ledger.ts';
 import type { GateStatus } from '../../packages/core/src/receipts.ts';
 import { declaredKeys, DESCRIPTIONS, type Option, type TrackerDescription, type Values } from '../../packages/core/src/trackers/connect.ts';
 import { type Doc, fromMarkdown } from '../../packages/core/src/trackers/doc.ts';
-import type { StatusCategory, Ticket } from '../../packages/core/src/trackers/types.ts';
+import { isTrackerKind, type StatusCategory, type Ticket, type TrackerKind, trackerName } from '../../packages/core/src/trackers/types.ts';
 import type { GithubIdentity } from '../../packages/core/src/github.ts';
 import { GROUP_TITLES, STEPS } from '../../packages/core/src/onboarding/steps.ts';
-import { type Environment, type Tracker, trackerForKey } from '../../packages/core/src/config.ts';
+import { autoMergeOn, type Environment, type Tracker, trackerForKey } from '../../packages/core/src/config.ts';
 import { promotionPaths } from '../../packages/core/src/promote.ts';
 import type { Answer, HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import { isOpenUpdate, stalePosting, type Update, UPDATE_ID, UPDATE_TEXT_MAX } from '../../packages/core/src/updates.ts';
-import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, BOARD_LANES, conflictLine, filesUnknown, sharesLine, taskNames, waitLine, waitsForFiles, whileFirst, type DoctorItem, ENV_ICON, failedChecksLine, fileList, groupTasks, isUnder, prConflicts, questionsWord, type RunPrompt, saidLine, shortPath, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
+import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, BOARD_LANES, conflictLine, displayName, filesUnknown, sharesLine, taskNames, waitLine, waitsForFiles, whileFirst, type DoctorItem, ENV_ICON, failedChecksLine, fileList, FROM_WORDS, groupTasks, isUnder, ownsSession, prConflicts, questionsWord, type RunPrompt, saidLine, sessionFor, shortPath, TASK_GROUPS, type TaskRow, tildePath, type Tone } from './logic.ts';
 import { isSlackWebhook, SLACK_KINDS, type SlackCard, type SlackKind } from './slack.ts';
 import type { Entry } from './transcript.ts';
 
@@ -64,8 +64,11 @@ export interface ProjectLike {
   name: string;
   root: string;
   agents?: { builder: ProfileLike; reviewer: ProfileLike };
-  /** autonomy: what autopilot may do on its own (D-055), when the config says. trackers: which owns a ticket's key (D-066). */
-  config: { github: { repo: string; account: string } | null; environments: Environment[]; profile: string; autonomy?: string; trackers?: Pick<Tracker, 'kind' | 'project' | 'prefix'>[] };
+  /**
+   * autonomy: what autopilot may do on its own (D-055), when the config says. autopilot.autoMerge: whether
+   * it merges pull requests (GH-67). trackers: which owns a ticket's key (D-066).
+   */
+  config: { github: { repo: string; account: string } | null; environments: Environment[]; profile: string; autonomy?: string; autopilot?: { autoMerge?: boolean }; trackers?: Pick<Tracker, 'kind' | 'project' | 'prefix'>[] };
   branch: string | null;
   worktrees: { path: string; head: string; branch: string | null; main: boolean; changed: number; locked: boolean; prunable: boolean }[];
 }
@@ -87,10 +90,22 @@ export interface HubLike {
   /** How earlier questions ended (D-037). */
   answers?: HistoryRecord[];
   askingFor?(s: AgentSession): string | null;
+  /** The model a session runs with (D-086): what its transcript last answered with, else what acc started it with. */
+  modelFor?(s: AgentSession): string | null;
+  /** The home folder, shown as ~ (GH-83). */
+  home?: string;
+  /** The repo a folder is in, by the nearest .git up from it, short of the home folder (GH-83). */
+  repoFor?(path: string): string | null;
 }
 
 /** The key a session goes by in refs: its session id, else its background id. */
 export const sessionKey = (s: AgentSession): string => s.sessionId ?? s.id ?? `${s.pid ?? ''}:${s.startedAt}`;
+
+/** What a session is called wherever it shows (D-087): the name acc gave it on its task, else Claude Code's. */
+export function nameOf(hub: Pick<HubLike, 'projectFor' | 'taskRows'>, s: AgentSession): string {
+  const p = hub.projectFor(s.cwd);
+  return displayName(s, p ? hub.taskRows(p.root).find((r) => ownsSession(r, s)) : undefined);
+}
 
 // ---------------------------------------------------------------- tasks: the board
 
@@ -101,6 +116,10 @@ export interface Card {
   waitingOn: string[];
   url: string | null;
   agent: Look | null;
+  /** The model its agent runs with, shown beside its state (D-086). */
+  model: string | null;
+  /** What its builder is called (D-087), shown when its agent line is hovered. Older runs have none. */
+  agentName: string | null;
   worktree: string | null;
   /** "Conflicts with dev: …" when its open pull request won't merge into its base (D-049). */
   conflicts: string | null;
@@ -145,7 +164,7 @@ export function analysisLook(t: Pick<TaskRow, 'state' | 'analysis' | 'analyzing'
   return t.analysis ? { label: 'Analyzed: ready to build', icon: 'pass', tone: 'blue' } : null;
 }
 
-const AUTOPILOT_STEP: Record<NonNullable<TaskRow['autopilot']>['step'], string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update from its base', resume: 'resume', checks: 'send it back for its failing checks', start: 'start it' };
+const AUTOPILOT_STEP: Record<NonNullable<TaskRow['autopilot']>['step'], string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update from its base', resume: 'resume', checks: 'send it back for its failing checks', merge: 'merge it', start: 'start it' };
 
 /** "Needs you: autopilot couldn't land", and with `why`, its reason after it (D-055). */
 export function autopilotLook(t: Pick<TaskRow, 'autopilot'>, why = true): Look | null {
@@ -227,6 +246,8 @@ export function cardActions(t: TaskRow, ref: Ref): Action[] {
   // A task a person dispatched already waits for others' files (D-???): its next step is starting it anyway.
   const held = todo && !!t.files?.held;
   if (dispatchable) a.push(held ? { command: 'acc.task.dispatchAnyway', label: 'Dispatch anyway', icon: 'rocket', ref, primary: !a.some((x) => x.primary) } : { command: 'acc.task.dispatch', label: t.state === 'rework' ? 'Re-dispatch' : 'Dispatch', icon: 'rocket', ref, primary: !a.some((x) => x.primary) });
+  // The same, with a model a person picks for this task (D-086): behind ⋯ on the card.
+  if (dispatchable) a.push({ command: 'acc.task.dispatchWith', label: `${t.state === 'rework' ? 'Re-dispatch' : 'Dispatch'} with…`, icon: 'sparkle', ref });
   if (todo && !t.analyzing && !t.analysis) a.push({ command: 'acc.task.analyze', label: 'Analyze', icon: 'telescope', ref, primary: !!t.analysisRequired && !a.some((x) => x.primary) });
   // In review (D-032, D-033): watch the reviewer, review it, land it, or follow its pull request.
   if (t.state === 'review') {
@@ -284,7 +305,7 @@ export function tasksModel(hub: HubLike, boards: (root: string) => BoardInput[] 
           cards: (byGroup.get(group) ?? []).map((t) => ({
             id: t.id, title: t.title, environment: t.environment, waitingOn: t.deps, url: t.source.url,
             // A stopped builder's line says it all: its old session's own state would only repeat it.
-            agent: t.stopped ? null : t.agent ?? null, worktree: t.run?.worktree ?? null, conflicts: conflictLine(t), failedChecks: failedChecksLine(t), analysis: analysisLook(t), autopilot: autopilotLook(t), closedPr: closedPrLook(t),
+            agent: t.stopped ? null : t.agent ?? null, model: t.stopped || !t.agent ? null : t.model ?? null, agentName: t.run?.name ?? null, worktree: t.run?.worktree ?? null, conflicts: conflictLine(t), failedChecks: failedChecksLine(t), analysis: analysisLook(t), autopilot: autopilotLook(t), closedPr: closedPrLook(t),
             stopped: t.autopilot ? null : stoppedLook(t), files: filesLook(t),
             actions: cardActions(t, { project: p.root, task: t.id }), drops: dropLanes(t),
           })),
@@ -335,7 +356,7 @@ export function priorityIcon(priority: string | null): string | null {
 /** What the extension knows about one tracker's board (see trackers.ts). */
 export interface BoardInput {
   index: number;
-  kind: 'github' | 'jira' | 'azure';
+  kind: TrackerKind;
   title: string;
   board: { source: string; title: string; url: string | null; notice: string | null; columns: { id: string; name: string; category: StatusCategory; statusIds: string[] }[]; cards: { key: string; title: string; url: string; status: { id: string; name: string }; type: string | null; assignees: { name: string }[]; labels: { name: string; color: string | null }[]; priority: string | null }[] } | null;
   error: string | null;
@@ -380,7 +401,7 @@ export interface TrackerColumn {
 
 export interface TrackerBoard {
   index: number;
-  kind: 'github' | 'jira' | 'azure';
+  kind: TrackerKind;
   title: string;
   source: string | null;
   url: string | null;
@@ -463,6 +484,10 @@ export interface TicketAcc {
   /** Its files beside other tasks', each file in full (D-???), or null. */
   files: Look | null;
   agent: Look | null;
+  /** The model its agent runs with (D-086). */
+  model: string | null;
+  /** What its latest builder was called (D-087). Older runs have none. */
+  agentName: string | null;
   worktree: string | null;
   branch: string | null;
   /** waived: a person set it aside on this commit (D-031). */
@@ -479,7 +504,7 @@ export interface TicketModel {
   title: string;
   url: string | null;
   sourceLabel: string;
-  sourceKind: 'github' | 'jira' | 'azure' | 'acc';
+  sourceKind: TrackerKind | 'acc';
   loading: boolean;
   error: string | null;
   /** Why the ticket isn't shown: it's outside the repo's place, and names it (D-072). */
@@ -551,7 +576,7 @@ export interface TicketInput {
   project: string;
   tracker: number | null;
   trackerTitle: string | null;
-  trackerKind: 'github' | 'jira' | 'azure' | null;
+  trackerKind: TrackerKind | null;
   key: string;
   ticket: Ticket | null;
   loading: boolean;
@@ -614,7 +639,7 @@ export function ticketModel(i: TicketInput): TicketModel {
   const live = i.tracker !== null;
   const acc: TicketAcc | null = i.row && i.task ? {
     look: accLook(i.row, true), environment: i.task.environment, waitingOn: i.row.deps, blocker: i.task.blocker, conflicts: conflictLine(i.row, true), failedChecks: failedChecksLine(i.row), files: filesLook(i.row, true),
-    agent: i.row.stopped ? null : i.row.agent ?? null, worktree: i.task.run?.worktree ?? null, branch: i.task.run?.branch ?? null, checks: i.checks,
+    agent: i.row.stopped ? null : i.row.agent ?? null, model: i.row.model ?? null, agentName: i.task.run?.name ?? null, worktree: i.task.run?.worktree ?? null, branch: i.task.run?.branch ?? null, checks: i.checks,
     history: i.task.history.map((h) => ({ at: h.at, from: h.from, to: h.to, by: h.by, reason: h.reason ?? null })).reverse(),
     // Its analysis has its own section, with its own buttons.
     actions: cardActions(i.row, { project: i.project, task: i.row.id }).filter((a) => !['acc.task.show', 'acc.task.openTicket', 'acc.task.analyze', 'acc.task.watchAnalysis'].includes(a.command)),
@@ -651,7 +676,7 @@ export interface UpdateCard {
   task: string;
   /** The ticket as its board names it: GH-41, ACME-12. */
   key: string;
-  tracker: 'github' | 'jira' | 'azure';
+  tracker: TrackerKind;
   /** What it's about, in words. */
   about: string;
   look: Look;
@@ -674,10 +699,8 @@ export interface UpdateCard {
   edited: string | null;
 }
 
-const TRACKER_WORD: Record<UpdateCard['tracker'], string> = { github: 'GitHub', jira: 'Jira', azure: 'Azure DevOps' };
-
 /** Whether a task's source is a tracker's ticket, which can take updates. */
-export const hasTicket = (kind: string): boolean => kind === 'github' || kind === 'jira' || kind === 'azure';
+export const hasTicket = (kind: string): boolean => isTrackerKind(kind);
 
 /** What an update is about, for the person posting it. */
 export function updateAbout(u: Pick<Update, 'event' | 'env' | 'pr'>): string {
@@ -699,7 +722,7 @@ export function updateAbout(u: Pick<Update, 'event' | 'env' | 'pr'>): string {
  */
 export function updatePoster(tracker: UpdateCard['tracker'], index: number | null, root: string, github: string | null, boards: BoardInput[]): Pick<UpdateCard, 'postAs' | 'blocked' | 'signIn'> {
   if (tracker === 'github') return github ? { postAs: github, blocked: null, signIn: null } : { postAs: null, blocked: 'This project has no GitHub account in .acc/config.json to post as.', signIn: null };
-  const name = TRACKER_WORD[tracker];
+  const name = trackerName(tracker);
   // The tracker that owns the ticket's key, not the first of its kind: a repo can have two Jira sites.
   const b = index === null ? undefined : boards.find((x) => x.index === index && x.kind === tracker);
   if (!b) return { postAs: null, blocked: `This repo has no ${name} tracker to post through.`, signIn: null };
@@ -766,6 +789,85 @@ export interface IdentityCard {
 
 // ---------------------------------------------------------------- agents
 
+/** Where a session runs, as acc shows it wherever it shows one (GH-83). */
+export interface SessionFolder {
+  /** The whole path, with ~ for the home folder: what hovering shows, and the Full path view. */
+  full: string;
+  /** The folder in context: `Acme Service › worktree ACME-12`, `clients/Acme Service`, `scratch`, `~`. */
+  label: string;
+  /**
+   * In a project open in this window, the label without the project, which its heading names already:
+   * `main checkout`, `worktree ACME-12`, `force-app/main`. Null for a session elsewhere.
+   */
+  inProject: string | null;
+}
+
+const lastPart = (path: string): string => path.split('/').filter(Boolean).pop() ?? path;
+const inWorktree = (id: string, rest = ''): string => [`worktree ${id}`, rest].filter(Boolean).join(' › ');
+
+/** Where in a project a folder is: its main checkout, a worktree, or a folder inside either. */
+function placeIn(p: ProjectLike, path: string): string {
+  const within = (root: string) => path.slice(root.length + 1);
+  const tree = p.worktrees.filter((w) => !w.main && isUnder(path, w.path)).sort((a, b) => b.path.length - a.path.length)[0];
+  if (tree) return inWorktree(lastPart(tree.path), within(tree.path));
+  if (!isUnder(path, p.root)) return lastPart(path);
+  const wt = /^\.claude\/worktrees\/([^/]+)(?:\/(.+))?$/.exec(within(p.root));
+  return wt ? inWorktree(wt[1]!, wt[2]) : within(p.root) || 'main checkout';
+}
+
+/**
+ * Each session's folder in context, by its cwd: the one place acc works it out, for the Agents tab, an
+ * agent's page, its Needs you card, and the In progress section (GH-76) (GH-83).
+ *
+ * A session in a project open in this window is placed in it: its main checkout, a worktree, or a folder
+ * inside either. Elsewhere it's named by its repo, the nearest folder up holding .git, then the path inside
+ * it; a builder's worktree, under .claude/worktrees/, reads as its repo's from the path alone. Outside any
+ * repo, it's its folder's own name, or ~. Two different folders elsewhere that name sessions the same, such
+ * as two repos called Acme Service, each add their parent folders until they differ, for every session in
+ * them. `extra` adds folders no listed session has, such as an ended session's, to tell apart with the rest.
+ */
+export function sessionFolders(hub: HubLike, extra: string[] = []): Map<string, SessionFolder> {
+  const home = hub.home;
+  const out = new Map<string, SessionFolder>();
+  // Elsewhere: the folder that names it (its repo, or itself), and what follows it.
+  const drafts: { cwd: string; full: string; base: string; rest: string[] }[] = [];
+  for (const cwd of new Set([...hub.agents.map((s) => s.cwd), ...extra])) {
+    const path = cwd.length > 1 ? cwd.replace(/\/+$/, '') : cwd;
+    const full = tildePath(path, home);
+    const p = hub.projectFor(path);
+    if (p) {
+      const inProject = placeIn(p, path);
+      out.set(cwd, { full, label: `${p.name} › ${inProject}`, inProject });
+      continue;
+    }
+    const wt = /^(.+)\/\.claude\/worktrees\/([^/]+)(?:\/(.+))?$/.exec(path);
+    const found = wt ? null : hub.repoFor?.(path) ?? null;
+    const repo = wt ? wt[1]! : found && isUnder(path, found) ? found : null;
+    const rest = wt ? [inWorktree(wt[2]!, wt[3])] : repo && repo !== path ? [path.slice(repo.length + 1)] : [];
+    drafts.push({ cwd, full, base: repo ?? path, rest });
+  }
+  // Each base folder by its last parts, ~ for home: Acme Service, then clients/Acme Service, a parent more
+  // each round for those that still read the same as another.
+  const parts = (base: string) => tildePath(base, home).split('/');
+  const depth = new Map(drafts.map((d) => [d.base, 1]));
+  const named = (base: string) => parts(base).slice(-depth.get(base)!).join('/') || '/';
+  for (let more = true; more;) {
+    more = false;
+    const by = new Map<string, string[]>();
+    for (const base of depth.keys()) by.set(named(base), [...(by.get(named(base)) ?? []), base]);
+    for (const same of by.values()) {
+      if (same.length < 2) continue;
+      for (const base of same) if (depth.get(base)! < parts(base).length) { depth.set(base, depth.get(base)! + 1); more = true; }
+    }
+  }
+  for (const d of drafts) out.set(d.cwd, { full: d.full, label: [named(d.base), ...d.rest].join(' › '), inProject: null });
+  return out;
+}
+
+/** The Agents tab's Where column: each session's folder in context, or its full path (GH-83). */
+export const WHERE_VIEWS = ['folder', 'path'] as const;
+export type WhereView = (typeof WHERE_VIEWS)[number];
+
 export interface AgentRow {
   key: string;
   /** Background sessions can be attached to, logged and stopped from here; interactive ones can't. */
@@ -774,8 +876,13 @@ export interface AgentRow {
   look: Look;
   needsYou: boolean;
   kind: string;
+  /** Its folder in context, without the project its group names (GH-83). */
   where: string;
+  /** Its whole folder, with ~ for the home folder: the Full path view, and the hover in both. */
+  path: string;
   startedAt: number;
+  /** The model it runs with (D-086), or null when that isn't known yet. */
+  model: string | null;
 }
 
 export interface AgentSetting {
@@ -794,28 +901,53 @@ export interface AutonomySetting {
   meaning: string;
 }
 
+/** Whether autopilot merges pull requests in a project (GH-67), as the Agents section shows it. */
+export interface AutoMergeSetting {
+  value: 'on' | 'off';
+  from: string;
+  meaning: string;
+  /** Whether a person can change it here: a Salesforce project never auto-merges. */
+  settable: boolean;
+}
+
+/** The key under which the Agents page remembers How agents run is open; the webview keeps the same. */
+export const AGENT_SETTINGS = 'agents:settings';
+
 export interface AgentsModel {
   kind: 'agents';
   error: string | null;
   places: { label: string; root: string | null; agents: AgentRow[] }[];
-  /** Each project's agent settings, what autopilot may do there, and what its agents bill (D-036). */
-  settings: { root: string; project: string; roles: AgentSetting[]; autonomy: AutonomySetting | null; billing: Look | null }[];
+  /** What the Where column shows, remembered for the window (GH-83). */
+  whereView: WhereView;
+  /** Each project's agent settings, what autopilot may do there, whether it merges, and what its agents bill (D-036). */
+  settings: { root: string; project: string; roles: AgentSetting[]; autonomy: AutonomySetting | null; autoMerge: AutoMergeSetting | null; billing: Look | null }[];
 }
 
-const AUTONOMY_MEANING: Record<string, string> = {
-  manual: 'Nothing happens on its own.',
-  review: `Autopilot ${AUTOPILOT_REVIEW_DOES}. It never merges a pull request.`,
-  dispatch: 'Not built yet: autopilot refuses.',
-  full: 'Not built yet: autopilot refuses.',
-};
-
-/** The project's autonomy, set in .acc/config.json and changed through acc (D-064). */
+/** The project's autonomy, set in .acc/config.json and changed through acc (D-064). Review says whether autopilot merges (GH-67). */
 export function autonomySetting(p: ProjectLike): AutonomySetting | null {
   const value = p.config.autonomy;
-  return value ? { value, from: 'project', meaning: AUTONOMY_MEANING[value] ?? '' } : null;
+  const meaning: Record<string, string> = {
+    manual: 'Nothing happens on its own.',
+    review: `Autopilot ${autopilotDoes(autoMergeOn(p.config))}`,
+    dispatch: 'Not built yet: autopilot refuses.',
+    full: 'Not built yet: autopilot refuses.',
+  };
+  return value ? { value, from: 'project', meaning: meaning[value] ?? '' } : null;
 }
 
-const FROM_WORDS: Record<string, string> = { clone: 'this clone', project: 'project default', default: 'Claude Code\'s default' };
+/** Whether autopilot merges a reviewed, green pull request (GH-67), set in .acc/config.json and changed through acc. */
+export function autoMergeSetting(p: ProjectLike): AutoMergeSetting | null {
+  if (!p.config.autonomy) return null;
+  if (p.config.profile === 'salesforce') return { value: 'off', from: 'project', meaning: 'A Salesforce project never auto-merges: a person merges every pull request.', settable: false };
+  if (!autoMergeOn(p.config)) return { value: 'off', from: 'project', meaning: 'Autopilot never merges a pull request: a person merges each one.', settable: true };
+  const kept = p.config.environments.filter((e) => e.protected).map((e) => e.name);
+  const meaning = [
+    'Autopilot merges a pull request once its review and checks passed, it\'s up to date with its base, GitHub says it can merge and nothing waits on you, one a pass.',
+    kept.length ? `Never into ${kept.join(', ')}: protected.` : '',
+    p.config.autonomy === 'review' ? '' : 'Autonomy is manual, so nothing merges on its own.',
+  ].filter(Boolean).join(' ');
+  return { value: 'on', from: 'project', meaning, settable: true };
+}
 
 export function agentSettings(p: ProjectLike): AgentSetting[] {
   if (!p.agents) return [];
@@ -840,22 +972,22 @@ export function billingLook(items: DoctorItem[]): Look | null {
   return i.status === 'pass' ? { label: 'Agents use your Claude subscription', icon: 'pass', tone: 'blue' } : { label: `Per-token billing: ${i.detail}`, icon: 'warning', tone: 'orange' };
 }
 
-export function agentsModel(hub: HubLike, setupItems: DoctorItem[] = []): AgentsModel {
+export function agentsModel(hub: HubLike, setupItems: DoctorItem[] = [], whereView: WhereView = 'folder'): AgentsModel {
   const lookOf = (s: AgentSession) => agentLook(s, hub.askingFor?.(s));
+  const folders = sessionFolders(hub);
   const rowFor = (s: AgentSession): AgentRow => {
     const look = lookOf(s);
-    const p = hub.projectFor(s.cwd);
     const key = sessionKey(s);
-    const where = p ? (isUnder(s.cwd, p.root) ? s.cwd.slice(p.root.length + 1) || 'main checkout' : s.cwd.split('/').pop() ?? s.cwd) : s.cwd;
-    return { key, background: !!s.id, name: s.name ?? s.sessionId?.slice(0, 8) ?? 'session', look: { label: look.label, icon: look.icon, tone: look.tone }, needsYou: look.needsYou, kind: s.kind, where, startedAt: s.startedAt };
+    const f = folders.get(s.cwd)!;
+    return { key, background: !!s.id, name: nameOf(hub, s), look: { label: look.label, icon: look.icon, tone: look.tone }, needsYou: look.needsYou, kind: s.kind, where: f.inProject ?? f.label, path: f.full, startedAt: s.startedAt, model: hub.modelFor?.(s) ?? null };
   };
   const sorted = [...hub.agents].sort((a, b) => Number(lookOf(b).needsYou) - Number(lookOf(a).needsYou) || b.startedAt - a.startedAt);
   const places = hub.projects.map((p) => ({ label: p.name, root: p.root as string | null, agents: sorted.filter((s) => hub.projectFor(s.cwd) === p).map(rowFor) }));
   const elsewhere = sorted.filter((s) => !hub.projectFor(s.cwd));
   if (elsewhere.length) places.push({ label: 'Elsewhere on this machine', root: null, agents: elsewhere.map(rowFor) });
   const billing = billingLook(setupItems);
-  const settings = hub.projects.filter((p) => p.agents).map((p) => ({ root: p.root, project: p.name, roles: agentSettings(p), autonomy: autonomySetting(p), billing }));
-  return { kind: 'agents', error: hub.agentsError, places, settings };
+  const settings = hub.projects.filter((p) => p.agents).map((p) => ({ root: p.root, project: p.name, roles: agentSettings(p), autonomy: autonomySetting(p), autoMerge: autoMergeSetting(p), billing }));
+  return { kind: 'agents', error: hub.agentsError, places, whereView, settings };
 }
 
 // ---------------------------------------------------------------- worktrees
@@ -990,7 +1122,7 @@ function stepOrder(id: string): number {
 }
 
 export function setupModel(items: DoctorItem[], confirmed: Set<string>): SetupModel {
-  const visible = items.filter((i) => !STEPS.find((s) => s.id === i.id)?.planned).sort((a, b) => stepOrder(a.id) - stepOrder(b.id));
+  const visible = [...items].sort((a, b) => stepOrder(a.id) - stepOrder(b.id));
   const rows = (part: 'machine' | 'project') => visible.filter((i) => i.part === part).map((i): SetupRow => {
     const step = STEPS.find((s) => s.id === i.id);
     const status = confirmed.has(i.id) && i.status !== 'pass' ? 'confirmed' : i.status;
@@ -1253,6 +1385,8 @@ export function autopilotStepLook(r: AutopilotRecord): { look: Look; detail: str
       ? { look: LOOK(`Autopilot started it: nothing else was ready, so it shares files with ${taskNames(r.shares.map((s) => s.task))}`, 'rocket', 'blue'), detail: r.shares.map((s) => `${s.task}: ${s.files.join(', ')}`).join('; '), url: null }
       : { look: LOOK(`Autopilot started it${r.waitedFor?.length ? `: ${taskNames(r.waitedFor)}'s files are free` : ''}`, 'rocket', 'blue'), detail: null, url: null };
   }
+  // Merged where the repo turns auto-merge on (GH-67): acc sync moves it to done.
+  if (r.step === 'merge') return { look: LOOK(r.pr ? `Autopilot merged pull request #${r.pr.number}` : 'Autopilot merged its pull request', 'git-merge', 'blue'), detail: 'acc sync moves it to done.', url: r.pr?.url || null };
   if (r.base) return { look: LOOK(`Autopilot merged ${r.base} into it`, 'git-merge', 'blue'), detail: 'Its checks passed on the merge. It\'s reviewed next, then landed.', url: null };
   return { look: LOOK('Autopilot found it no longer conflicts', 'git-merge', 'blue'), detail: null, url: r.pr?.url || null };
 }
@@ -1309,7 +1443,9 @@ export interface AgentModel {
   /** False once Claude Code no longer lists the session. */
   live: boolean;
   background: boolean;
+  /** Its folder in context, as its Agents row says it, and the whole folder for the hover (GH-83). */
   where: string;
+  path: string;
   startedAt: number | null;
   lastAt: string | null;
   model: string | null;
@@ -1346,7 +1482,8 @@ export function agentModel(i: AgentInput): AgentModel {
   const live = hub.agents.find((s) => sessionKey(s) === i.key || s.id === i.key) ?? null;
   const s = live ?? i.seen;
   const project = s ? hub.projectFor(s.cwd) : undefined;
-  const row = project && s ? hub.taskRows(project.root).find((r) => (s.sessionId && r.run?.sessionId === s.sessionId) || (s.id && r.run?.bgId === s.id) || (s.kind === 'background' && s.name === r.id)) : undefined;
+  // The task it builds, found as the task finds its builder: never by a name alone (D-087).
+  const row = project && s ? hub.taskRows(project.root).find((r) => sessionFor(r, [s]) === s) : undefined;
   const look = s && live ? agentLook(s, hub.askingFor?.(s)) : i.active ? { label: 'Working', icon: 'sync~spin', tone: 'blue' as Tone, needsYou: false } : { label: 'Ended', icon: 'circle-slash', tone: 'neutral' as Tone, needsYou: false };
   const limit = i.limit ?? 400;
   const views = i.entries.slice(-limit).map((e): EntryView => (e.k === 'prompt' ? { k: 'prompt', id: e.id, at: e.at, body: fromMarkdown(e.text), instructions: e.instructions }
@@ -1368,10 +1505,10 @@ export function agentModel(i: AgentInput): AgentModel {
   if (live?.id) actions.push({ command: 'acc.agent.attach', label: 'Attach in terminal', icon: 'terminal', ref });
   if (s) actions.push({ command: 'acc.agent.openFolder', label: 'Open its folder', icon: 'empty-window', ref });
   if (live?.id && live.pid) actions.push({ command: 'acc.agent.stop', label: 'Stop', icon: 'debug-stop', ref, danger: true });
-  const where = !s ? '' : project ? (isUnder(s.cwd, project.root) ? s.cwd.slice(project.root.length + 1) || 'main checkout' : s.cwd.split('/').slice(-2).join('/')) : s.cwd;
+  const folder = s ? sessionFolders(hub, [s.cwd]).get(s.cwd) : undefined;
   return {
-    kind: 'agent', key, name: s?.name ?? row?.id ?? key.slice(0, 8), task: row && project ? { id: row.id, title: row.title, project: project.root } : null,
-    look: { label: look.label, icon: look.icon, tone: look.tone }, live: !!live || !!i.active, background: !!s?.id, where, startedAt: s?.startedAt ?? null, lastAt: i.lastAt, model: i.model ?? null,
+    kind: 'agent', key, name: s ? nameOf(hub, s) : key.slice(0, 8), task: row && project ? { id: row.id, title: row.title, project: project.root } : null,
+    look: { label: look.label, icon: look.icon, tone: look.tone }, live: !!live || !!i.active, background: !!s?.id, where: folder?.label ?? '', path: folder?.full ?? '', startedAt: s?.startedAt ?? null, lastAt: i.lastAt, model: i.model ?? null,
     entries: shown, hidden: Math.max(0, i.entries.length - views.length), readable: i.readable || decisions.length > 0,
     questions: s?.sessionId ? questionCards(hub).filter((q) => q.sessionId === s.sessionId) : [],
     actions,
@@ -1510,6 +1647,8 @@ export interface ConnectPicker {
   fixed: boolean;
   /** It needs a choice before Save. */
   required: boolean;
+  /** Not drawn: its one choice is made already, so there's nothing to pick. */
+  hidden: boolean;
   hint: string | null;
 }
 
@@ -1573,6 +1712,11 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
   const ok = s.signIn.state === 'ok';
   const editing = !ok || s.signIn.again;
   const values = connectValues(s, d);
+  // What each list's choice is called, for words such as "Every group on Client work".
+  const labels = Object.fromEntries(d.pickers.map((p) => {
+    const ps = s.pickers[p.key];
+    return [p.key, ps?.options.find((o) => o.value === ps.selected[0])?.label ?? null];
+  }));
   const host: ConnectField = {
     key: d.host.key, label: d.host.label, type: 'text', value: s.host, placeholder: d.host.placeholder, hint: d.host.hint, error: s.hostError, fixed: !!s.existing, help: null,
   };
@@ -1591,7 +1735,7 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
   const pickers: ConnectPicker[] = d.pickers.map((p) => {
     const ps = s.pickers[p.key] ?? { options: [], selected: [], state: 'waiting', error: null };
     const fixed = !!s.existing && !!p.identifies;
-    const whole = p.whole ? p.whole({ host: s.host, values }) : null;
+    const whole = p.whole ? p.whole({ host: s.host, values, labels }) : null;
     const pickerLook = fixed ? null : ps.state === 'loading' ? LOOK('Loading', 'sync~spin', 'blue')
       : ps.state === 'failed' ? LOOK(`Couldn't list them: ${ps.error ?? 'no answer'}${whole ? ' You can take the whole project now, and narrow it later.' : p.fallback ? ` ${p.fallback}` : ''}`, 'warning', 'orange')
         : ps.state === 'ready' && !ps.options.length && !whole ? LOOK('None that this sign-in can see', 'warning', 'orange') : null;
@@ -1601,7 +1745,9 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
     return {
       key: p.key, label: p.label, multi: !!p.multi, whole, options, selected: ps.selected, look: pickerLook,
       // One whose list failed needn't hold Save when the tracker does without it (Jira's first board).
-      disabled: !fixed && (!ok || ps.state === 'waiting' || ps.state === 'loading'), fixed, required: !p.whole && !p.multi && !(p.fallback && ps.state === 'failed'), hint: p.hint ?? null,
+      disabled: !fixed && (!ok || ps.state === 'waiting' || ps.state === 'loading'), fixed, required: !p.whole && !p.multi && !(p.fallback && ps.state === 'failed'),
+      // Shown once there's a choice to make, or to say why its list couldn't be read.
+      hidden: !!p.hideSingle && ps.state !== 'failed' && options.length <= 1, hint: p.hint ?? null,
     };
   });
   const ready = pickers.every((p) => p.fixed || !p.required || p.selected.length) && pickers.every((p) => p.look?.icon !== 'sync~spin');
@@ -1718,6 +1864,8 @@ export interface HomeInput {
   connect?: ConnectModel | null;
   /** The Slack card, for this machine (GH-58). */
   slack?: SlackCard | null;
+  /** What the Agents tab's Where column shows (GH-83). Folder unless said. */
+  whereView?: WhereView;
 }
 
 /** How many things need a person: each question, and each orange item. The badge and the Overview agree. */
@@ -1731,7 +1879,7 @@ export const needsYouCount = (o: Pick<OverviewModel, 'questions' | 'attention'>)
 export function homeModel(i: HomeInput): HomeModel {
   const { hub } = i;
   const tasks = tasksModel(hub, i.boards);
-  const agents = agentsModel(hub, i.setup.items);
+  const agents = agentsModel(hub, i.setup.items, i.whereView ?? 'folder');
   const worktrees = worktreesModel(hub);
   const environments = environmentsModel(hub, i.identity, i.slack ?? null);
   const setup = setupModel(i.setup.items, i.setup.confirmed);
@@ -1835,12 +1983,16 @@ export function homeModel(i: HomeInput): HomeModel {
       if (b.error && b.connect) attention.push({ key: `b:${p.root}:${b.index}`, look: LOOK('Not signed in', 'plug', 'orange'), title: b.title, detail: `${p.name} · ${b.error}`, project: p.name, actions: [], extra: { command: b.connect.command, label: b.connect.label, icon: 'plug', arg: b.connect.arg } });
     }
   }
+  const folders = sessionFolders(hub);
   for (const s of hub.agents) {
     const look = agentLook(s);
     if (!look.needsYou || (s.id && linked.has(s.id)) || (s.sessionId && asked.has(s.sessionId))) continue;
     const key = sessionKey(s);
+    // Its folder in context, after its project as the other cards have it; the whole folder on hover (GH-83).
+    const p = hub.projectFor(s.cwd);
+    const f = folders.get(s.cwd)!;
     attention.push({
-      key: `a:${key}`, look: { label: look.label, icon: look.icon, tone: look.tone }, title: s.name ?? 'Agent session', detail: hub.projectFor(s.cwd)?.name ?? s.cwd, project: hub.projectFor(s.cwd)?.name ?? '',
+      key: `a:${key}`, look: { label: look.label, icon: look.icon, tone: look.tone }, title: nameOf(hub, s), detail: p && f.inProject ? `${p.name} · ${f.inProject}` : f.label, tip: f.full, project: p?.name ?? '',
       actions: [
         // Its conversation in Claude Code when its session id is known; attaching a terminal otherwise.
         ...(s.sessionId ? [{ command: 'acc.agent.openInClaude', label: 'Open in Claude Code', icon: 'comment-discussion', ref: { session: key }, primary: true }]
@@ -1905,7 +2057,7 @@ export type TicketAction = (typeof TICKET_ACTIONS)[number];
  */
 export function ticketActionRefusal(action: string, edits: boolean): string | null {
   if (edits || !['status', 'assign', 'labels'].includes(action)) return null;
-  return 'This tracker\'s tickets are read-only here. Set "edits": true on it in .acc/config.json to change status, assignee and labels.';
+  return 'This tracker\'s tickets are read-only here. Set "edits": true on it in .acc/config.json to change status, assignee and labels. On GitHub, acc sync then also closes a task\'s issue when its work merges.';
 }
 
 export type FromWebview =
@@ -1923,6 +2075,8 @@ export type FromWebview =
   | { type: 'open'; url: string }
   /** The page moved to another section, so reopening it comes back there. */
   | { type: 'nav'; section: HomeSection }
+  /** The Agents tab's Where column switched between folder and full path, remembered for the window (GH-83). */
+  | { type: 'agents-where'; view: WhereView }
   /** A task's card dropped in another lane of the agent board (D-041). */
   | { type: 'move-task'; project: string; task: string; to: string }
   /** An answer to an agent's question or permission prompt (D-030). */
@@ -2003,6 +2157,7 @@ export function isFromWebview(m: unknown): m is FromWebview {
     case 'ticket-action': return (TICKET_ACTIONS as readonly string[]).includes(x.action as string) && (x.text === undefined || (typeof x.text === 'string' && x.text.length <= 65_536));
     case 'open': return short(x.url, 4096) && /^(https?:|mailto:)/i.test(x.url as string);
     case 'nav': return (HOME_SECTIONS as readonly string[]).includes(x.section as string);
+    case 'agents-where': return (WHERE_VIEWS as readonly string[]).includes(x.view as string);
     case 'move-task': return short(x.project, 4096) && short(x.task, 100) && KEY.test(x.task as string) && (TASK_GROUPS as readonly string[]).includes(x.to as string);
     case 'answer': {
       if (!short(x.id, 64) || !['allow', 'deny', 'terminal'].includes(x.decision as string)) return false;

@@ -184,6 +184,23 @@ test('each message is a fixed template: the repo, the task, what happened in fix
   assert.match(text(`draft:${draftKey(LEDGER, 'ACME-40.1')}`), /^:memo: \*Draft update waiting\*[^]*An update for its ticket waits for you to post: ready for review\./);
 });
 
+test('a line about an agent names it as acc named its builder, escaped, and says nothing more (D-087)', () => {
+  const name = 'Acme · ACME-12 Case escalation rules · builder 2';
+  const named = (more: Partial<TaskRow> = {}) => row('ACME-12', 'running', { run: { bgId: 'bg12', name }, ...more });
+  const p = (r: TaskRow): SlackProject => ({ name: 'Acme', ledgerPath: LEDGER, rows: [r], tasks: [ledgerTask('ACME-12', 'running')] });
+  const line = (e: SlackEvent | null) => slackMessage(e!).text.split('\n')[2];
+  const told = (before: TaskRow, after: TaskRow) => line(taskEvent(p(after), taskNotices([before], [after])[0]!, T0 + 50));
+  assert.equal(told(named(), named({ display: 'needs-you' })), `${name} is waiting for you in its own prompt.`);
+  assert.equal(told(named(), named({ display: 'needs-you', stopped: { said: SENTINEL.said } })), `${name} stopped before acc done or acc block. It can be resumed from the Command Center.`);
+  const asked = (tool: string, r = named()) => line(questionEvent({ id: 'q', tool, at: T0 + 1 }, p(r), 'ACME-12'));
+  assert.equal(asked('AskUserQuestion'), `${name} has a question for you.`);
+  assert.equal(asked('ExitPlanMode'), `${name} has a plan for you to approve.`);
+  assert.equal(asked('Bash'), `${name} asks for your permission.`);
+  // A run from before names keeps D-078's words; any name is escaped like every other line.
+  assert.equal(asked('Bash', row('ACME-12', 'running')), 'Its agent asks for your permission.');
+  assert.equal(asked('Bash', row('ACME-12', 'running', { run: { name: 'A <b> & c' } })), 'A &lt;b&gt; &amp; c asks for your permission.');
+});
+
 test('the link is the pull request, else the ticket, else none; a title can\'t mention anyone', () => {
   assert.deepEqual(taskLink(row('A-1', 'review', { pr: pr() })), { url: 'https://github.com/acme/service/pull/44', label: 'Pull request #44' });
   assert.deepEqual(taskLink(row('A-1', 'todo')), { url: 'https://acme.atlassian.net/browse/A-1', label: 'The ticket' });
@@ -349,6 +366,15 @@ test('autopilot that couldn\'t send a task back for its failing checks needs you
   const p = { name: 'Acme', ledgerPath: '/r/.git/acc/ledger.json', rows: [], tasks: [] } as unknown as Parameters<typeof autopilotEvent>[0];
   const e = autopilotEvent(p, { seq: 9, at: '2026-10-06T12:00:00.000Z', task: 'ACME-34', step: 'checks', outcome: 'failed', reason: 'Checks failed on GitHub again: Apex tests.' } as never, true);
   assert.deepEqual([e?.kind, e?.what], ['needs-you', 'Autopilot couldn\'t send it back for its failing checks. It waits for you.']);
+});
+
+test('a merge autopilot couldn\'t make needs you; one it made isn\'t sent, as no merge is (GH-67, D-078)', () => {
+  const p = { name: 'Acme', ledgerPath: '/r/.git/acc/ledger.json', rows: [], tasks: [] } as unknown as Parameters<typeof autopilotEvent>[0];
+  const at = '2026-10-06T12:00:00.000Z';
+  const failed = autopilotEvent(p, { seq: 10, at, task: 'ACME-35', step: 'merge', outcome: 'failed', reason: 'It changes .acc/, which a person merges: .acc/config.json.' }, true);
+  assert.deepEqual([failed?.kind, failed?.what, failed?.key], ['needs-you', 'Autopilot couldn\'t merge its pull request. It waits for you.', 'a:/r/.git/acc/ledger.json:10']);
+  assert.ok(!JSON.stringify(failed).includes('.acc/config.json'), 'autopilot\'s reason stays out of Slack');
+  assert.equal(autopilotEvent(p, { seq: 11, at, task: 'ACME-35', step: 'merge', outcome: 'done', pr: { number: 72, url: 'https://github.com/acme/tool/pull/72', opened: false } }, false), null);
 });
 
 test('messages go a second apart, a burst is cut short with one line saying how many more, and no log line holds the webhook', async () => {

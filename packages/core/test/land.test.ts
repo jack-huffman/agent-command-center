@@ -219,6 +219,10 @@ test('the pull request says what it does, ticks its acceptance criteria, and sho
   assert.match(body, /\| `test` \| Waived by jordan \| a test task \\\| never promoted \|/);
   assert.match(body, /`sum\.js:1`: Consider a JSDoc comment\./);
   assert.ok(!/closes|fixes|resolves/i.test(body), 'a person closes the ticket');
+  assert.match(body, /\(main\)\. It merges only when a person merges it\.\n$/);
+  // Where auto-merge covers its environment, it says autopilot merges it, and how to hold it (GH-67).
+  const auto = prBody(task, s.config.environments[0]!, s.sha, passReview(s.paths, s.id, s.sha, s.base), receiptsAt(s.paths, s.sha), true);
+  assert.match(auto, /\(main\)\. With autopilot running, it merges once its checks pass on GitHub and nothing waits on a person: auto-merge is on for this repo\. Ask for changes to hold it\.\n$/);
 });
 
 // ---------------------------------------------------------------- acc sync

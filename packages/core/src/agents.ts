@@ -1,11 +1,12 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { AccError, type Runner } from './exec.ts';
-import { type AgentProfile, type AgentRole, type Config, EFFORTS, type Effort, MODEL_NAME, noProfile } from './config.ts';
+import { type AgentProfile, type AgentRole, type Config, DEFAULT_MODEL, EFFORTS, type Effort, MODEL_NAME, noProfile } from './config.ts';
 
 /**
  * The model and effort each kind of agent runs with (D-036). The project can set a default in
  * .acc/config.json; a clone can choose its own in git config, which nobody else sees, like its GitHub
- * account (D-028). A model or effort left unset is Claude Code's own default.
+ * account (D-028). A model left unset is acc's own default, Opus 5.5 (D-086); an effort or fallback
+ * left unset is Claude Code's own default.
  */
 
 const KEYS = { model: 'model', effort: 'effort', fallbackModel: 'fallbackmodel' } as const;
@@ -25,9 +26,17 @@ export function cloneProfile(run: Runner, root: string, role: AgentRole): Partia
   return out;
 }
 
+/** The model an agent runs with: its profile's, or acc's default when the profile names none (D-086). */
+export const modelOf = (p: Pick<AgentProfile, 'model'> | undefined): string => p?.model ?? DEFAULT_MODEL;
+
 export interface ProfileView extends AgentProfile {
-  /** Where each value comes from: this clone, the project's config, or Claude Code's default. */
-  from: Record<Field, 'clone' | 'project' | 'default'>;
+  /** Always known: the clone's, the project's, or acc's default. */
+  model: string;
+  /**
+   * Where each value comes from: this clone, the project's config, or a default. The model's default is
+   * acc's own ('acc'); the effort's and the fallback's are Claude Code's ('default').
+   */
+  from: { model: 'clone' | 'project' | 'acc'; effort: 'clone' | 'project' | 'default'; fallbackModel: 'clone' | 'project' | 'default' };
 }
 
 /** What a role runs with in this clone, and where each part comes from. */
@@ -38,7 +47,10 @@ export function profileView(config: Config, run: Runner, root: string, role: Age
   const m = pick('model');
   const e = pick('effort');
   const fb = pick('fallbackModel');
-  return { model: m.v as string | null, effort: e.v as Effort | null, fallbackModel: fb.v as string | null, from: { model: m.from, effort: e.from, fallbackModel: fb.from } };
+  return {
+    model: (m.v as string | null) ?? DEFAULT_MODEL, effort: e.v as Effort | null, fallbackModel: fb.v as string | null,
+    from: { model: m.from === 'default' ? 'acc' : m.from, effort: e.from, fallbackModel: fb.from },
+  };
 }
 
 /** The config with this clone's choices in place of the project's, so dispatch and review use them. */
@@ -47,19 +59,28 @@ export function withCloneAgents(config: Config, root: string, run: Runner): Conf
   return { ...config, agents: { ...config.agents, builder: merge('builder'), reviewer: merge('reviewer') } };
 }
 
-/** Claude Code's flags for a profile. Nothing for what's unset, so Claude Code's default applies. */
+/**
+ * Claude Code's flags for a profile. The model is always named: acc's default when the profile has none
+ * (D-086). An effort or fallback left unset is left out, so Claude Code's default applies. So is a
+ * fallback that is the model itself, which Claude Code refuses to start with.
+ */
 export function agentArgs(p: AgentProfile | undefined): string[] {
-  if (!p) return [];
-  return [...(p.model ? ['--model', p.model] : []), ...(p.effort ? ['--effort', p.effort] : []), ...(p.fallbackModel ? ['--fallback-model', p.fallbackModel] : [])];
+  const model = modelOf(p);
+  return ['--model', model, ...(p?.effort ? ['--effort', p.effort] : []), ...(p?.fallbackModel && p.fallbackModel !== model ? ['--fallback-model', p.fallbackModel] : [])];
 }
 
 /** What a person asked to change: a value to set, null to clear it, undefined to leave it. */
 export type ProfileChange = { [K in Field]?: AgentProfile[K] | null };
 
+/** Refuses what isn't a model name, before anything is set or started with it. */
+export function checkModelName(v: string): void {
+  if (!MODEL_NAME.test(v)) throw new AccError('usage', `"${v}" isn't a model name. Use an alias such as opus, sonnet or fable, or a full model name.`);
+}
+
 function check(change: ProfileChange): void {
   for (const f of ['model', 'fallbackModel'] as const) {
     const v = change[f];
-    if (v != null && !MODEL_NAME.test(v)) throw new AccError('usage', `"${v}" isn't a model name. Use an alias such as opus, sonnet or fable, or a full model name.`);
+    if (v != null) checkModelName(v);
   }
   if (change.effort != null && !(EFFORTS as readonly string[]).includes(change.effort)) throw new AccError('usage', `Effort is one of ${EFFORTS.join(', ')}.`);
 }
@@ -137,7 +158,48 @@ export function setAutonomy(configFile: string, value: string): void {
   writeFileSync(configFile, JSON.stringify(wanted, null, 2) + '\n');
 }
 
+/**
+ * Turns auto-merge on or off in .acc/config.json (GH-67), changing only `autopilot.autoMerge`: the rest of
+ * the file stays as it was, byte for byte. A Salesforce project can't turn it on: a person merges every
+ * pull request there. Off with no key written changes nothing. Nobody else sees it until it's committed.
+ */
+export function setAutoMerge(configFile: string, on: boolean): void {
+  let text: string;
+  let raw: Record<string, any>;
+  try {
+    text = readFileSync(configFile, 'utf8');
+    raw = JSON.parse(text);
+  } catch (e) {
+    throw new AccError('bad-config', `Couldn't read ${configFile}: ${(e as Error).message}`);
+  }
+  if (on && raw.profile === 'salesforce') throw new AccError('refused', 'A Salesforce project never auto-merges: a person merges every pull request there.');
+  const was = raw.autopilot && typeof raw.autopilot === 'object' && !Array.isArray(raw.autopilot) ? raw.autopilot : null;
+  if (!on && was?.autoMerge === undefined) return;
+  const wanted = { ...raw, autopilot: { ...(was ?? {}), autoMerge: on } };
+  // The same values, whatever order the keys are in.
+  const canon = (v: unknown): unknown => (v && typeof v === 'object' && !Array.isArray(v)
+    ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon((v as Record<string, unknown>)[k])]))
+    : Array.isArray(v) ? v.map(canon) : v);
+  const fits = (edited: string): boolean => {
+    try {
+      return JSON.stringify(canon(JSON.parse(edited))) === JSON.stringify(canon(wanted));
+    } catch {
+      return false;
+    }
+  };
+  // The value replaced where it stands; else the key put first in the autopilot block, or the block put
+  // last in the file, indented as the file is. Anything the check doesn't recognise writes the whole file.
+  const tries: string[] = [];
+  const value = /("autoMerge"\s*:\s*)(true|false)/;
+  if ([...text.matchAll(new RegExp(value, 'g'))].length === 1) tries.push(text.replace(value, `$1${on}`));
+  const block = /("autopilot"\s*:\s*\{)(\s*)(?=")/;
+  if (block.test(text)) tries.push(text.replace(block, (_m, open: string, gap: string) => `${open}${gap}"autoMerge": ${on},${gap}`));
+  const indent = /^\{\s*?\n([ \t]+)"/.exec(text)?.[1] ?? '  ';
+  if (!was) tries.push(text.replace(/(\S)(\s*)\}\s*$/, (_m, last: string, gap: string) => `${last},\n${indent}"autopilot": {\n${indent}${indent}"autoMerge": ${on}\n${indent}}${gap}}\n`));
+  writeFileSync(configFile, tries.find(fits) ?? JSON.stringify(wanted, null, 2) + '\n');
+}
+
 export const describeProfile = (p: AgentProfile): string =>
-  [`model ${p.model ?? 'Claude Code\'s default'}`, `effort ${p.effort ?? 'default'}`, ...(p.fallbackModel ? [`falls back to ${p.fallbackModel}`] : [])].join(', ');
+  [`model ${p.model ?? `${DEFAULT_MODEL} (acc's default)`}`, `effort ${p.effort ?? 'default'}`, ...(p.fallbackModel ? [`falls back to ${p.fallbackModel}`] : [])].join(', ');
 
 export { noProfile };

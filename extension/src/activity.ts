@@ -5,7 +5,7 @@ import * as vscode from 'vscode';
 import type { Answer } from '../../packages/core/src/questions.ts';
 import type { Hub } from './hub.ts';
 import type { AgentSession } from './logic.ts';
-import { agentModel, answerOf, isFromWebview, type Ref, sessionKey } from './model.ts';
+import { agentModel, answerOf, isFromWebview, nameOf, type Ref, sessionKey } from './model.ts';
 import { htmlFor, isWebLink } from './panels.ts';
 import { claudeProjectsDir, emptyTranscript, foldTranscript, splitLines, type Transcript, transcriptDir } from './transcript.ts';
 
@@ -78,7 +78,7 @@ export class AgentPages implements vscode.Disposable {
     }
     if (!s) return false;
     const base = vscode.Uri.joinPath(this.ctx.extensionUri, 'dist', 'webview');
-    const name = s.name ?? s.sessionId?.slice(0, 8) ?? 'Agent';
+    const name = nameOf(this.hub, s);
     const panel = vscode.window.createWebviewPanel('acc.agent', `${name} · activity`, vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [base], retainContextWhenHidden: false });
     const icon = (theme: 'light' | 'dark') => vscode.Uri.joinPath(this.ctx.extensionUri, 'dist', 'media', `acc-${theme}.svg`);
     panel.iconPath = { light: icon('light'), dark: icon('dark') };

@@ -30,6 +30,8 @@ function fakeVscode(folder: string) {
     commands: new Map<string, (...a: unknown[]) => unknown>(), contexts: new Map<string, unknown>(), info: [] as string[], warn: [] as string[], terminal: [] as string[],
     /** Every command the extension ran, with what it passed. */
     executed: [] as [string, unknown[]][],
+    /** Every file watcher's pattern. */
+    watched: [] as unknown[],
     /** What a quick pick answers, when a test wants it to. */
     pick: undefined as ((items: { value?: string }[]) => unknown) | undefined,
     /** How many prompts at the top of VSCode were shown: input boxes and quick picks. */
@@ -48,6 +50,7 @@ function fakeVscode(folder: string) {
   const panels: { html: string; posted: unknown[]; receive?: (m: unknown) => void; close?: () => void }[] = [];
   const api = {
     EventEmitter, TreeItem, MarkdownString,
+    RelativePattern: class { base: unknown; pattern: string; constructor(base: unknown, pattern: string) { this.base = base; this.pattern = pattern; } },
     ViewColumn: { Active: -1 },
     TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 },
     StatusBarAlignment: { Left: 1, Right: 2 },
@@ -99,7 +102,7 @@ function fakeVscode(folder: string) {
     workspace: {
       workspaceFolders: [{ uri: { fsPath: folder }, name: 'repo', index: 0 }],
       getWorkspaceFolder: () => undefined,
-      createFileSystemWatcher: () => ({ onDidChange: event(), onDidCreate: event(), onDidDelete: event(), dispose() {} }),
+      createFileSystemWatcher: (pattern: unknown) => { calls.watched.push(pattern); return { onDidChange: event(), onDidCreate: event(), onDidDelete: event(), dispose() {} }; },
       onDidChangeWorkspaceFolders: event(),
       openTextDocument: async () => ({}),
     },
@@ -152,6 +155,11 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     const ext = createRequire(import.meta.url)(dist) as { activate(c: unknown): void };
     ext.activate(ctx);
     for (const c of Object.values(COMMANDS)) assert.ok(calls.commands.has(c), `${c} registered`);
+    // Setup watches each folder's own root, never every file of those names below it, a builder's worktree's included.
+    const setupWatch = calls.watched.find((p) => typeof p === 'object' && p !== null && String((p as { pattern: string }).pattern).includes('.acc/config.json')) as { base: { uri: { fsPath: string } }; pattern: string } | undefined;
+    assert.ok(setupWatch, 'a watcher for the setup files');
+    assert.ok(!setupWatch!.pattern.startsWith('**/'), 'only at the folder\'s root');
+    assert.ok(!calls.watched.some((p) => typeof p === 'string' && p.includes('.acc/config.json')), 'no workspace-wide glob');
     assert.equal(prepends[0]?.[0], 'PATH');
     assert.match(prepends[0]![1], /extension\/dist\/bin:$/);
     assert.equal(readFileSync(RUNTIME_FILE, 'utf8'), `${process.execPath}\n`, 'acc\'s launcher can use this runtime where node isn\'t on PATH');
@@ -195,6 +203,16 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     await calls.commands.get('acc.open.agents')!();
     assert.equal(panels.length, 1, 'one page: opening a section reveals it there');
     assert.equal((tab.posted.at(-1) as Posted).model.section, 'agents');
+    // The Where column's view is kept for the window: the page's pick is saved and reaches the model, and a
+    // view the page can't ask for changes nothing (GH-83).
+    const whereView = () => (tab.posted.at(-1) as { model: { agents: { whereView: string } } }).model.agents.whereView;
+    assert.equal(whereView(), 'folder');
+    tab.receive!({ type: 'agents-where', view: 'path' });
+    assert.equal(ctx.workspaceState.get('acc.agents.where'), 'path');
+    await calls.commands.get('acc.open.agents')!();
+    assert.equal(whereView(), 'path');
+    tab.receive!({ type: 'agents-where', view: 'tree' });
+    assert.equal(ctx.workspaceState.get('acc.agents.where'), 'path', 'not a view the page can ask for');
     tab.receive!({ type: 'run', command: 'workbench.action.quit', ref: {} });
 
     // Every answer sent from a page gets a reply, so it never stays on "Sending your answer…" (D-059).

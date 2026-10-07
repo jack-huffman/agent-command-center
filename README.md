@@ -24,12 +24,15 @@ Salesforce. Project types plug in as profiles.
   Jira board's columns, an Azure DevOps team board's, or a GitHub Project's. Drag a card to move the real
   ticket. Click one for a ticket page, with the description, comments, status,
   assignee and labels, plus acc's agent, checks and history. Status, assignee
-  and labels change from there only when the tracker says `"edits": true`.
-- **Ticket updates are yours to post:** acc never posts on a ticket. When a pull
-  request is ready for review, merges, or deploys, or a builder needs the
-  client's answer, acc drafts an update in plain words. It waits in Needs you
-  and on the task's page, where you edit it and post it as yourself, or discard
-  it. `acc updates` lists them.
+  and labels change from there only when the tracker says `"edits": true`. On
+  a GitHub tracker, `"edits"` also lets `acc sync` close a task's issue when its
+  work merges, with a comment naming the pull request; `acc sync --close-done`
+  closes the issues of tasks done before that.
+- **Ticket updates are yours to post:** apart from that close, acc never posts
+  on a ticket. When a pull request is ready for review, merges, or deploys, or
+  a builder needs the client's answer, acc drafts an update in plain words. It
+  waits in Needs you and on the task's page, where you edit it and post it as
+  yourself, or discard it. `acc updates` lists them.
 - **Who you're working as:** the status bar shows the repo's GitHub account,
   and you can switch it for your clone alone. git push follows the switch, and
   boards and comments say who they act as.
@@ -48,8 +51,8 @@ Salesforce. Project types plug in as profiles.
   the two lists and the README's environments table each have a **Do it** in
   the walkthrough. No terminal needed.
 - **How agents run:** builders and reviewers each have a model, effort and
-  fallback, for this clone or the whole project, changed from the Agents
-  section.
+  fallback, for this clone or the whole project, changed from **Settings** on
+  the Agents section.
 - **History:** what agents asked and what you answered stays on the page: in
   each agent's timeline, and in the Overview's History with the task moves and
   commands.
@@ -88,13 +91,122 @@ Salesforce. Project types plug in as profiles.
   wait.
 - **Next:** M8, the pilots.
 
-Install the extension with `npm run package && npm run install-extension`, then
-reload the VSCode window.
+## Install and first run
 
-**Requirements:** macOS only, on Apple Silicon or Intel. acc needs no Node
-install: with no node 20 or later on PATH, it runs on VSCode's own runtime, which
-the extension records each time it starts. Salesforce projects still need Node,
-for the Salesforce CLI.
+Agent Command Center is a VSCode extension, the `acc` command that comes with
+it, and a Claude Code plugin. This takes a new machine from nothing to its first
+project. [ONBOARDING.md](docs/ONBOARDING.md) has every step in detail.
+
+### What you need
+
+- **macOS**, on Apple Silicon or Intel. acc runs on no other platform.
+- **VSCode.**
+- **Claude Code**, the terminal CLI (`brew install --cask claude-code`), signed
+  in to your Claude account.
+- **A GitHub account**, and the GitHub CLI (`brew install gh`).
+- **git 2.40 or later**, and **Homebrew**, which the walkthrough uses to
+  install what's missing.
+- **For Salesforce projects:** Node 20 or later, the Salesforce CLI and its
+  Code Analyzer plugin.
+
+acc itself needs no Node: with no node 20 or later on PATH, it runs on VSCode's
+own runtime, which the extension records each time it starts. Salesforce
+projects need Node for the Salesforce CLI.
+
+### Getting access
+
+This repo is private, and so are its releases and the plugin's marketplace,
+which is this repo.
+
+1. Ask for an invitation to the repo, and accept it with the GitHub account
+   you'll use for it.
+2. Sign gh in as that account: `gh auth login`.
+3. Check that git can read the repo with your own credentials. Claude Code
+   clones the plugin's marketplace this way:
+
+   ```bash
+   git ls-remote https://github.com/jack-huffman/agent-command-center
+   ```
+
+   If it asks for a password or says the repository isn't found, run
+   `gh auth setup-git`. That changes your global git config: every repo on the
+   machine then gets its github.com credentials from gh's active account,
+   except a repo with its own credential helper (ONBOARDING.md, B2).
+
+### Installing the extension
+
+Each [release](https://github.com/jack-huffman/agent-command-center/releases)
+has the extension as a `.vsix` file. Download the latest, as the account that
+accepted the invitation, and install it:
+
+```bash
+gh release download -R github.com/jack-huffman/agent-command-center -p '*.vsix'
+code --install-extension agent-command-center-*.vsix
+```
+
+A fresh VSCode doesn't put `code` on your PATH: run **Shell Command: Install
+'code' command in PATH** from its Command Palette first, or, in VSCode:
+Extensions view → **⋯** → **Install from VSIX…**, and pick the file. Then
+reload the window (**Developer: Reload Window**). A newer release
+installs the same way, over the old one.
+
+### The first run
+
+1. **This machine.** After the reload, the walkthrough **Agent Command Center:
+   set up this machine** opens by itself, once. To open it again: **Agent
+   Command Center: Set up this machine** in the Command Palette. Each step has
+   **Check** and, for most, **Do it**, which runs the fix in a terminal or an
+   output panel you can watch. A step ticks itself when its check passes. It
+   covers the tools, GitHub, agents' billing, and the acc plugin in Claude
+   Code (A4).
+2. **The plugin.** A4's **Do it** installs it from this repo's marketplace, for
+   every Claude Code session. Start a new Claude Code session afterwards:
+   running ones don't load it. By hand:
+
+   ```bash
+   claude plugin marketplace add https://github.com/jack-huffman/agent-command-center
+   claude plugin install acc@agent-command-center --scope user
+   ```
+
+   A private marketplace updates itself only when `GITHUB_TOKEN` is set, so
+   after each release, update it by hand:
+   `claude plugin marketplace update agent-command-center`, then
+   `claude plugin update acc@agent-command-center --scope user`. Until you
+   do, A4 fails on a plugin older than the extension, and its **Do it** runs
+   both.
+3. **A project.** Open the project's repo folder. In a Salesforce folder with
+   no `.acc/config.json`, the walkthrough **Agent Command Center: onboard a
+   project** opens by itself; anywhere else, run **Agent Command Center:
+   Onboard this project**. Its **Project config** step writes
+   `.acc/config.json`: review it and commit it. The rest set up the repo's
+   GitHub account, branches, orgs and ticket source.
+4. **The Command Center.** Click its icon in the activity bar. **Setup** shows
+   every step and what's left, and `acc doctor` in any VSCode terminal runs the
+   same checks.
+
+### What acc changes on your machine
+
+- **VSCode:** every terminal gets `acc` on its PATH, from the extension's own
+  copy. Tracker sign-ins and the Slack webhook, if you add them, are kept in
+  VSCode's secret storage.
+- **`~/.acc/`:** `runtime`, the path of VSCode's runtime for the launcher;
+  `questions/`, agents' questions waiting for the Command Center; `heavy/`, the
+  slot heavy checks take turns on; and `slack/sent/`, which notices went to
+  Slack.
+- **Claude Code:** the acc plugin, at user scope, with its marketplace's clone
+  under `~/.claude/plugins/`. Its hooks run in every Claude Code session, and
+  do nothing in a repo without `.acc/config.json`. Each project's main checkout
+  is trusted once (B12).
+- **gh:** a login for each account you sign in with through **Do it**. gh's
+  active account is put back as it was.
+- **The Mac:** while an agent acc started runs, `caffeinate -i` keeps the Mac
+  from sleeping; the display still sleeps.
+- **In each project's repo:** `.acc/config.json`, which you commit; acc's
+  ledger in the git directory (`.git/acc/`), never in a commit; task worktrees
+  in `.claude/worktrees/`; `node_modules` in the repo's `info/exclude`; the
+  repo's own commit identity and credential helper in its git config (B2); and
+  what each setup step's **Do it** writes when you run it, such as `.gitignore`
+  lines, the environment branches and the README's environments table.
 
 ## Principles
 
@@ -112,7 +224,11 @@ for the Salesforce CLI.
   first.
 - **Humans keep the gates.** Nothing merges, deploys, closes a ticket or changes
   a ticket's status unless you ask. You can, from the board and the ticket
-  pages. acc never does it on its own.
+  pages. acc never does it on its own, with one opt-in: a repo can turn on
+  auto-merge (`acc agents auto-merge on`), and autopilot then merges a reviewed
+  pull request whose checks passed, with nothing waiting on you, into an
+  environment that isn't protected. It's off by default, and a Salesforce
+  project can't turn it on.
 - **Light on the machine.** A cap on concurrent agents, default 3.
 - **Readable without colour.** Every state has an icon and a label. Where colour
   helps, it is orange against blue, never red against green.
@@ -133,29 +249,16 @@ docs/           design, roadmap, decisions, research
 Each repo lists its own trackers in `.acc/config.json`, and signs in to them on
 its own. One machine can work across clients with different Jira sites, Azure
 DevOps organizations, GitHub repos and pipelines, and no client's login serves
-another's repo. GitHub Issues, Jira Cloud and Azure DevOps today; monday.com
-comes later. Set one up on the Command Center's **Connect page**: Connect
+another's repo. GitHub Issues, Jira Cloud, Azure DevOps and monday.com. Set
+one up on the Command Center's **Connect page**: Connect
 Jira on the Tasks tab, Add a tracker on the Overview, or **Add a tracker…** from
 the Command Palette. It signs in, tests the connection, and lists the projects,
 places and boards to pick from. See [ONBOARDING.md, B14](docs/ONBOARDING.md#b14-connect-the-ticket-source).
 
-Each tracker names its place: the project or repo, and when set, a Jira epic,
-GitHub labels or an Azure DevOps area path. Boards, ticket pages and intake see
-only tickets in that place, so another project's or client's never show up.
-
-## Install the plugin
-
-The plugin adds acc's skills, the reviewer agent and the hooks that keep
-builders in their worktree. This repo is its marketplace, named
-`agent-command-center`:
-
-```bash
-claude plugin marketplace add jack-huffman/agent-command-center  # or the path to a clone
-claude plugin install acc@agent-command-center
-```
-
-To work on the plugin, load it in place for one session instead, from the repo
-root: `claude --plugin-dir plugin`.
+Each tracker names its place: the project, repo or monday.com board, and when
+set, a Jira epic, GitHub labels, an Azure DevOps area path or a monday.com
+group. Boards, ticket pages and intake see only tickets in that place, so
+another project's or client's never show up.
 
 ## Development
 
@@ -173,6 +276,14 @@ npm run set-version -- 0.36.0  # the one way to change the version, everywhere i
 npm run package          # check, package the extension into dist/, scan it for personal data, refresh plugin/bin/
 npm run release          # on main, in a terminal: a GitHub Release with the .vsix and its CHANGELOG entry
 ```
+
+To try a change in your own VSCode, `npm run package && npm run install-extension`,
+then reload the window. Packaging also refreshes `plugin/bin/`; on a branch,
+leave that out of your commits. To work on the plugin, load it in place for one
+session from the repo root: `claude --plugin-dir plugin`. If the plugin is also
+installed from the marketplace (A4), that session may run both copies' hooks;
+`claude plugin disable acc@agent-command-center` turns the installed one off
+until you `enable` it again.
 
 `npm run build` bundles the CLI into `dist/acc.mjs`, which git ignores, puts the
 launcher `dist/acc` beside it, and gives the extension its own copy of both.

@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { type Config, type Environment, environmentByBranch } from './config.ts';
+import { autoMergeFor, type Config, type Environment, environmentByBranch } from './config.ts';
 import { AccError, type Runner } from './exec.ts';
 import { type Actor, mutate, type PullRequest, readLedger, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
@@ -12,8 +12,8 @@ import { draftUpdate } from './updates.ts';
 
 /**
  * Landing (D-033): a reviewed task's branch goes to GitHub as a pull request into its environment's
- * branch, and an update for the ticket is drafted for a person to post (D-066). acc never merges, and
- * never posts: a person does both.
+ * branch, and an update for the ticket is drafted for a person to post (D-066). acc never posts: a person
+ * does. It merges nothing either: a person merges, or autopilot where the repo turns auto-merge on (GH-67).
  */
 
 /** How long acc waits for the push, and for each gh call, before it stops it. */
@@ -52,8 +52,15 @@ export interface LandResult {
 const STATUS_WORD: Record<string, string> = { pass: 'Passed', fail: 'Failed', error: 'Couldn\'t run', skip: 'Didn\'t apply' };
 const cell = (s: string) => s.replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ').trim();
 
+/** How a pull request merges, as its description ends: by a person, or by autopilot where auto-merge covers its environment (GH-67). */
+export function mergesWords(autoMerge: boolean): string {
+  return autoMerge
+    ? 'With autopilot running, it merges once its checks pass on GitHub and nothing waits on a person: auto-merge is on for this repo. Ask for changes to hold it.'
+    : 'It merges only when a person merges it.';
+}
+
 /** The pull request's description: what it does, its acceptance criteria, its checks and its review. */
-export function prBody(task: Task, env: Environment, sha: string, verdict: Verdict, receipts: Record<string, Receipt>): string {
+export function prBody(task: Task, env: Environment, sha: string, verdict: Verdict, receipts: Record<string, Receipt>, autoMerge = false): string {
   const ticket = task.source.url ? `[${task.source.key ?? task.id}](${task.source.url})` : null;
   const lines = [
     verdict.summary.trim(),
@@ -75,7 +82,7 @@ export function prBody(task: Task, env: Environment, sha: string, verdict: Verdi
     ...(verdict.findings.length ? ['', 'Worth a look, not blocking:', '', ...verdict.findings.map((f) => `- ${f.file ? `\`${f.file}${f.line ? `:${f.line}` : ''}\`: ` : ''}${f.message}`)] : []),
     '',
     '---',
-    `Built by a Claude Code agent and opened by \`acc land\` into \`${env.branch}\` (${env.name}). It merges only when a person merges it.`,
+    `Built by a Claude Code agent and opened by \`acc land\` into \`${env.branch}\` (${env.name}). ${mergesWords(autoMerge)}`,
   ];
   return lines.join('\n') + '\n';
 }
@@ -124,7 +131,7 @@ export function land(paths: RepoPaths, config: Config, id: string, deps: LandDep
   if (push.code !== 0) throw new AccError('land', `git push refused ${branch}: ${(push.stderr || push.stdout).trim().split('\n').slice(-2).join(' ')}`);
 
   const receipts = receiptsAt(paths, sha);
-  const body = prBody(task, env, sha, verdict, receipts);
+  const body = prBody(task, env, sha, verdict, receipts, autoMergeFor(config, env.branch));
   const dir = mkdtempSync(join(tmpdir(), 'acc-land-'));
   let pr: PullRequest;
   let opened: boolean;

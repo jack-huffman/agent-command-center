@@ -11,7 +11,7 @@ import { recordRuntime } from '../../packages/core/src/runtime.ts';
 import { AgentPages } from './activity.ts';
 import { AutopilotHost } from './autopilot.ts';
 import { type AgentSession, analysisAnswerArgs, CLAUDE_EXTENSION, claudeSessionUri, COMMANDS, followsPullRequests, type HeldAsk, heldAskDue, heldAsked, heldAskKey, heldDue, isSessionId, isWebviewMenuContext, shq, startedNotice, WALKTHROUGHS } from './logic.ts';
-import { type NavItem, needsYouCount, type Ref, sessionKey, VIEW_KINDS, type ViewKind } from './model.ts';
+import { AGENT_SETTINGS, type NavItem, needsYouCount, type Ref, sessionKey, VIEW_KINDS, type ViewKind } from './model.ts';
 import { Notices } from './notices.ts';
 import { Panels } from './panels.ts';
 import { accShellCommand, Questions, sessionSettings } from './questions.ts';
@@ -26,6 +26,7 @@ import { exec, Trackers } from './trackers.ts';
 import { ConnectSession } from './connect.ts';
 import { Slack, slackCard, SLACK_STATE } from './slack.ts';
 import { describe } from '../../packages/core/src/trackers/connect.ts';
+import { trackerName } from '../../packages/core/src/trackers/types.ts';
 
 /** Step commands get a step id from walkthrough buttons, or a Setup view item from menus. */
 const stepId = (a: unknown): string => (typeof a === 'string' ? a : (a as { item?: { id: string } })?.item?.id ?? '');
@@ -107,6 +108,7 @@ export function activate(context: vscode.ExtensionContext): void {
     boards: { everyMs: 120_000, fn: () => trackers.loadBoards() },
     // Open pull requests (D-033): merged → done, closed → blocked, failing checks or conflicts → needs you.
     // An open promotion too: its merge drafts each ticket's "now in" update (D-075).
+    // And an issue acc hasn't closed yet, so a failed close is tried again (D-082).
     prs: { everyMs: 120_000, hiddenMs: 300_000, fn: async () => {
       for (const p of hub.projects) {
         if (!hub.taskRows(p.root).some(followsPullRequests)) continue;
@@ -200,12 +202,12 @@ export function activate(context: vscode.ExtensionContext): void {
           const r = await acc(['update', 'post', id, `--text-file=${file}`, ...againArgs, '--json'], p.root);
           return r.code === 0 ? { ok: true } : fail(accSays(r));
         }
-        const name = u.tracker === 'jira' ? 'Jira' : 'Azure DevOps';
+        const name = trackerName(u.tracker);
         // Through the tracker that owns the key, not the first of its kind: a repo can have two Jira sites.
         const index = trackers.trackerFor(p, u.key);
         if (index === null || trackers.trackers(p)[index]?.kind !== u.tracker) return fail(`this repo has no ${name} tracker for ${u.key} to post through.`);
         if (!(await trackers.signedInAs(p, index))) return fail(`sign in to ${name} first.`);
-        // Held to the project, not its narrower place (D-072): a ticket moved to another project isn't posted on.
+        // Held to the project or monday.com board, not its narrower place (D-072): a ticket moved to another isn't posted on.
         let client: Awaited<ReturnType<typeof trackers.client>>;
         try {
           client = await trackers.client(p, index);
@@ -213,7 +215,7 @@ export function activate(context: vscode.ExtensionContext): void {
           return fail((e as Error).message);
         }
         const away = (await client.outside([u.key], { project: true }))[0];
-        if (away) return fail(`${u.key} isn't in this repo's ${name} project any more: ${away.why}. Discard the draft if it no longer applies.`);
+        if (away) return fail(`${u.key} isn't in this repo's ${name} ${u.tracker === 'monday' ? 'board' : 'project'} any more: ${away.why}. Discard the draft if it no longer applies.`);
         const claimed = await acc(['update', 'posting', id, ...againArgs, '--json'], p.root);
         if (claimed.code !== 0) return fail(accSays(claimed));
         try {
@@ -427,6 +429,12 @@ export function activate(context: vscode.ExtensionContext): void {
         description: `${a.project}${a.state === 'elsewhere' ? ' · on in another window' : ''}`,
         go: () => vscode.commands.executeCommand('acc.autopilot.toggle', a.key),
       })),
+      // Whether autopilot merges pull requests in each repo (GH-67), set from the Agents section.
+      ...autopilot.mergeLooks().map((m): Item => ({
+        label: m.on ? '$(git-merge) Auto-merge: on' : '$(circle-slash) Auto-merge: off',
+        description: `${m.project}${m.on && !m.acts ? ' · autonomy manual, so nothing merges' : ''}`,
+        go: () => panels.show('agents', AGENT_SETTINGS),
+      })),
       ...(runs.live().length ? [{ label: '$(terminal) Show what\'s running', go: () => showRun() }] : []),
       { label: '$(checklist) Setup', description: look.total ? `${look.done} of ${look.total} done${look.checking ? ', checking now' : ''}` : '', go: () => panels.show('setup') },
       ...(account ? [{ label: account.ok ? '$(github) GitHub account' : '$(warning) GitHub account', description: account.name, go: () => vscode.commands.executeCommand('acc.github.switch') }] : []),
@@ -554,12 +562,17 @@ export function activate(context: vscode.ExtensionContext): void {
     // Coming back to VSCode is when an account may have changed elsewhere, such as gh in a terminal.
     vscode.window.onDidChangeWindowState((s) => { if (s.focused) void identity.refresh(); }),
   );
-  const configWatch = vscode.workspace.createFileSystemWatcher('**/.acc/config.json');
+  // Each folder's own .acc/config.json: a builder's worktree inside it has one too, which isn't this project's.
   const reload = () => void hub.loadProjects();
-  configWatch.onDidChange(reload);
-  configWatch.onDidCreate(reload);
-  configWatch.onDidDelete(reload);
-  context.subscriptions.push(configWatch);
+  const watchConfig = (folder: vscode.WorkspaceFolder) => {
+    const w = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, '.acc/config.json'));
+    w.onDidChange(reload);
+    w.onDidCreate(reload);
+    w.onDidDelete(reload);
+    context.subscriptions.push(w);
+  };
+  for (const f of vscode.workspace.workspaceFolders ?? []) watchConfig(f);
+  context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders((e) => e.added.forEach(watchConfig)));
   setup.watch();
 
   void hub.loadProjects().then(() => { questions?.start(); return hub.loadAgents(); }).then(() => {

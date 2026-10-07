@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
-import { buildWalkthroughs, mediaPath, stepMedia, walkthroughSteps } from '../src/logic.ts';
+import { buildWalkthroughs, mediaPath, stepMedia } from '../src/logic.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -13,7 +13,7 @@ export function expectedFiles(): Map<string, string> {
   const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   manifest.contributes.walkthroughs = buildWalkthroughs(STEPS);
   files.set('package.json', JSON.stringify(manifest, null, 2) + '\n');
-  for (const s of walkthroughSteps(STEPS)) files.set(mediaPath(s.id), stepMedia(s));
+  for (const s of STEPS) files.set(mediaPath(s.id), stepMedia(s));
   return files;
 }
 

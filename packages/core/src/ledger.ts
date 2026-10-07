@@ -5,6 +5,7 @@ import { type Config, defaultEnvironment, environmentByBranch } from './config.t
 import { AccError } from './exec.ts';
 import { withLock } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
+import { TRACKER_KINDS } from './trackers/types.ts';
 
 export const STATES = ['todo', 'running', 'review', 'rework', 'blocked', 'done'] as const;
 export type State = (typeof STATES)[number];
@@ -12,7 +13,7 @@ export type State = (typeof STATES)[number];
 export const ACTORS = ['human', 'orchestrator', 'builder', 'reviewer', 'sync'] as const;
 export type Actor = (typeof ACTORS)[number];
 
-export const SOURCE_KINDS = ['github', 'jira', 'azure', 'manual'] as const;
+export const SOURCE_KINDS = [...TRACKER_KINDS, 'manual'] as const;
 export type SourceKind = (typeof SOURCE_KINDS)[number];
 
 export interface Source {
@@ -46,6 +47,17 @@ export interface Run {
   startedAt?: string;
   /** Each time its session was resumed. A dispatch starts a new run, so a new list. */
   resumes?: Resume[];
+  /** The model its builder was started with, or last resumed with (D-086). */
+  model?: string;
+  /**
+   * A person picked that model for this task (D-086): a re-dispatch and a resume keep it, until another is
+   * picked. Without it, the next dispatch follows the clone's, the project's or acc's default.
+   */
+  modelPicked?: true;
+  /** What its builder is called (D-087): its session is found by this when no id was recorded. Older runs have none. */
+  name?: string;
+  /** Which of the task's dispatches this is: the second is "builder 2". Older runs count as 1. */
+  n?: number;
   /** The tasks in flight whose files it shared when it started, with those files (D-???). */
   shares?: FileShare[];
 }
@@ -69,6 +81,8 @@ export interface Hold {
   first: string[];
   starting?: { at: string; by: string } | null;
   failed?: { reason: string; at: string; by: string } | null;
+  /** The model a person picked for its builder when they dispatched it (D-086), which its start launches with. */
+  model?: string;
 }
 
 export interface PullRequest {
@@ -90,6 +104,12 @@ export interface PullRequest {
   sha?: string;
   /** The commit its merge left on its base, kept by acc sync, so a deploy knows which tasks it carried (D-066). */
   mergeSha?: string;
+  /**
+   * acc closing the task's GitHub issue now that this pull request merged, where its tracker says
+   * "edits": true (D-082). pending until it's settled, with why the last try failed, and each acc sync
+   * tries again; then closed, or left as it was, with why. Once settled, acc never touches the issue again.
+   */
+  issue?: { state: 'pending' | 'closed' | 'left'; at: string; reason?: string };
 }
 
 /**
@@ -109,8 +129,20 @@ export interface Promotion {
   at: string;
 }
 
-export const AUTOPILOT_STEPS = ['review', 'land', 'dispatch', 'refresh', 'resume', 'checks', 'start'] as const;
+export const AUTOPILOT_STEPS = ['review', 'land', 'dispatch', 'refresh', 'resume', 'checks', 'merge', 'start'] as const;
 export type AutopilotStepName = (typeof AUTOPILOT_STEPS)[number];
+
+/** How GitHub merges a pull request: the repo allows one or more of these. */
+export type MergeMethod = 'merge' | 'squash' | 'rebase';
+
+/** A pull request autopilot merged (GH-67), kept until acc sync sees it merged and moves the task to done. */
+export interface AutopilotMerge {
+  /** The commit it merged: the branch's latest, landed. */
+  sha: string;
+  pr: { number: number; url: string };
+  method: MergeMethod;
+  at: string;
+}
 
 /** The commit autopilot last sent back to its builder because its checks failed on GitHub, and which (D-076). */
 export interface SentBack {
@@ -145,8 +177,11 @@ export interface Task {
   pr: PullRequest | null;
   /** The promotions that took its change on from its environment, oldest first. */
   promotions?: Promotion[];
-  /** What autopilot couldn't do for it, if anything (D-055), and the commit it last sent back for failing checks (D-076). */
-  autopilot?: { failed: AutopilotFailure | null; sentBack?: SentBack | null };
+  /**
+   * What autopilot couldn't do for it, if anything (D-055), the commit it last sent back for failing checks
+   * (D-076), and the pull request it merged (GH-67).
+   */
+  autopilot?: { failed: AutopilotFailure | null; sentBack?: SentBack | null; merged?: AutopilotMerge | null };
   /** It waits for another task's files, since a person dispatched it (D-???). Any move ends it. */
   held?: Hold | null;
   history: HistoryEntry[];
@@ -499,12 +534,17 @@ export interface ClaudeSession {
   status?: string;
 }
 
-/** The sessions that are a running task's builder: its background session, and any carrying on its conversation. */
-export function sessionsOf(task: Pick<Task, 'id' | 'run'>, sessions: ClaudeSession[]): ClaudeSession[] {
+/**
+ * The sessions that are a task's builder: its background session, and any carrying on its conversation,
+ * found by the ids recorded on its run. A builder whose ids weren't recorded is found by the name its run
+ * recorded (D-087), and a run from before names were recorded by a background session named after the
+ * task. Never by a name worked out from the task, whose title can change.
+ */
+export function sessionsOf<S extends ClaudeSession>(task: { id: string; run?: Run | null }, sessions: S[]): S[] {
   const run = task.run;
-  const mine = sessions.filter((s) => (!!run?.bgId && s.id === run.bgId) || (!!run?.sessionId && s.sessionId === run.sessionId));
-  // A builder started some other way, before its session was linked to the task.
-  return mine.length || run?.bgId || run?.sessionId ? mine : sessions.filter((s) => s.kind === 'background' && s.name === task.id);
+  if (run?.bgId || run?.sessionId) return sessions.filter((s) => (!!run.bgId && s.id === run.bgId) || (!!run.sessionId && s.sessionId === run.sessionId));
+  const name = run?.name ?? task.id;
+  return sessions.filter((s) => s.kind === 'background' && s.name === name);
 }
 
 /**

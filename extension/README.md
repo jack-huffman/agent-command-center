@@ -5,18 +5,24 @@ VSCode.
 
 ## Setup walkthroughs
 
-Open **Help → Welcome → Walkthroughs** or the Command Palette:
+Open **Help → Welcome → Walkthroughs**, or run the command beside each in the
+Command Palette:
 
-- **Agent Command Center: Set up this machine.** Tools and GitHub accounts.
-- **Agent Command Center: Onboard this project.** Config, the repo's GitHub
-  account, a branch per environment, source tracking and safe defaults.
+- **Agent Command Center: set up this machine** (**Agent Command Center: Set up
+  this machine**). Tools, GitHub accounts, agents' billing, and the acc plugin
+  in Claude Code. It opens by itself the first time the extension runs.
+- **Agent Command Center: onboard a project** (**Agent Command Center: Onboard
+  this project**). Config, the repo's GitHub account, a branch per environment,
+  source tracking, safe defaults and the ticket source.
+
+The Command Center's **Setup** page shows the same steps, with what's left.
 
 Every step has buttons:
 
 | Button | Does |
 |---|---|
 | **Check** | Runs that step's check now |
-| **Do it** | Runs the fix in a terminal, so you see exactly what happens. Commands with `<placeholders>` are typed but not run, so you can fill them in |
+| **Do it** | Runs the fix in a terminal or an output panel, so you see exactly what happens. Commands with `<placeholders>` are typed but not run, so you can fill them in |
 | **Open in Salesforce** | Opens Setup in the right org, for clicks only you can make |
 | **I've done this** | For steps nothing on this machine can check |
 | **Read the guide** | Opens the onboarding guide |
@@ -35,6 +41,8 @@ checks.
 
 ## Requirements
 
-git 2.40+, Node 20+, the GitHub CLI and Claude Code. Salesforce projects also
-need the Salesforce CLI with Code Analyzer. The first walkthrough checks all of
-these.
+macOS, on Apple Silicon or Intel. git 2.40 or later, the GitHub CLI, and Claude
+Code's terminal CLI. Salesforce projects also need Node 20 or later and the
+Salesforce CLI with Code Analyzer. acc itself needs no Node: it runs on VSCode's
+own runtime. The machine walkthrough checks all of these, and installs the acc
+plugin in Claude Code.

@@ -74,17 +74,13 @@ export function savedFolder(projectsDir: string, sessionId: string, likely: (str
 /** How much of a transcript's end is read for the last thing its agent said: they run to megabytes. */
 const TAIL_BYTES = 256 * 1024;
 
-/**
- * The newest text the agent wrote in a transcript, or null. Claude Code's own messages count, such as
- * "API Error: Your computer went to sleep mid-response." (a synthetic record, `isApiErrorMessage`).
- * Only the file's last 256 KB is read; a helper agent's turns are skipped.
- */
-export function lastSaidIn(file: string): string | null {
+/** The agent's own turns at the end of a transcript, newest first: only its last 256 KB is read. */
+function* assistantTurns(file: string): Generator<Record<string, any>> {
   let fd: number;
   try {
     fd = openSync(file, 'r');
   } catch {
-    return null;
+    return;
   }
   let text: string;
   try {
@@ -96,7 +92,7 @@ export function lastSaidIn(file: string): string | null {
     // The first line read may be cut in two.
     if (from > 0) text = text.slice(text.indexOf('\n') + 1);
   } catch {
-    return null;
+    return;
   } finally {
     closeSync(fd);
   }
@@ -110,11 +106,35 @@ export function lastSaidIn(file: string): string | null {
     } catch {
       continue;
     }
-    if (r?.type !== 'assistant' || r.isSidechain || !Array.isArray(r.message?.content)) continue;
+    // A helper agent's turns aren't its own.
+    if (r?.type === 'assistant' && !r.isSidechain) yield r;
+  }
+}
+
+/**
+ * The newest text the agent wrote in a transcript, or null. Claude Code's own messages count, such as
+ * "API Error: Your computer went to sleep mid-response." (a synthetic record, `isApiErrorMessage`).
+ * Only the file's last 256 KB is read; a helper agent's turns are skipped.
+ */
+export function lastSaidIn(file: string): string | null {
+  for (const r of assistantTurns(file)) {
+    if (!Array.isArray(r.message?.content)) continue;
     const said = (r.message.content as { type?: string; text?: unknown }[])
       .filter((b) => b?.type === 'text' && typeof b.text === 'string' && b.text.trim())
       .map((b) => (b.text as string).trim());
     if (said.length) return said[said.length - 1]!;
+  }
+  return null;
+}
+
+/**
+ * The model the agent's latest answer came from (D-086), or null when the end of its transcript has none.
+ * Claude Code's own messages, such as an API error, name no real model (`<synthetic>`), so they're skipped.
+ */
+export function lastModelIn(file: string): string | null {
+  for (const r of assistantTurns(file)) {
+    const model = r.message?.model;
+    if (typeof model === 'string' && model && model !== '<synthetic>') return model;
   }
   return null;
 }

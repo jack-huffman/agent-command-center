@@ -7,7 +7,7 @@ was checked against version 2.1.287 and its docs on that date.
 ## 1. What it does
 
 Agent Command Center turns tickets into reviewed pull requests, with a human
-deciding what merges. Tickets come in from GitHub Issues or Jira and become
+deciding what merges, or autopilot where a repo turns auto-merge on (§12). Tickets come in from GitHub Issues or Jira and become
 tasks. Each ready task gets its own git worktree and a background Claude Code
 session. The agent builds the change and runs the project's checks. A second,
 fresh agent reviews the diff, a pull request opens, and acc drafts an update
@@ -130,7 +130,7 @@ listed so that drift checks and `doctor` cover it.
 | `environments` | Every org the project has, whether or not it's on a promotion path. Each has a name, a branch (by default the lower-cased name), a `type` (`production`, `full`, `partial`, `developer`, `developer_pro`) and, in the `salesforce` profile, an org alias. A task builds from one environment's branch, and its pull request goes back into it. **Protected** environments never receive agent work. `promotesTo` lists where it can promote to, usual step first ([section 11](#11-landing)) |
 | `environmentSpecific` | A list of files that differ by design in every environment, such as email service addresses, SSO and org settings. These are never edited by a task, never deployed, and never promoted (D-016) |
 | `knownDrift` | Files that a drift check should expect to differ, such as features a sandbox lacks or ordering noise. They can still be edited and promoted |
-| `trackers` | Where intake reads from. Several are allowed. A GitHub tracker's `skipLabels` lists labels whose issues aren't tasks, such as `["milestone"]` (D-048). Each tracker's place holds every read to this repo's tickets: its project or repo, narrowed by a Jira `epic`, GitHub `labels` (any one counts) or an Azure `areaPath` (D-072) |
+| `trackers` | Where intake reads from. Several are allowed. A GitHub tracker's `skipLabels` lists labels whose issues aren't tasks, such as `["milestone"]` (D-048). Each tracker's place holds every read to this repo's tickets: its project, repo or monday.com `board`, narrowed by a Jira `epic`, GitHub `labels` (any one counts), an Azure `areaPath` or a monday.com `group` (D-072). A monday.com tracker names its `account` and `board`, and may name a `statusColumn` (D-085) |
 | `agents.max` | Most builder sessions at once, default 3 |
 | `autonomy` | How much the loop does on its own ([section 12](#12-the-orchestrator-loop)) |
 | `autopilot.appendOnly` | Files, or folders, where autopilot may resolve a conflict with the base when both sides only added to the end, such as a decision log. Left out, there are none ([section 12](#12-the-orchestrator-loop)) |
@@ -235,24 +235,26 @@ never see a half-written file.
 ## 6. Intake
 
 Every source produces the same task input shape, and `acc import` reads it as
-JSON. Adding monday.com later means adding one more producer.
+JSON. monday.com was one more producer (D-085).
 
 | Source | How | Dependencies from |
 |---|---|---|
 | GitHub Issues | `acc intake github [--label L]`, run directly through `gh` with the repo's account | `Depends on #N` and `Blocked by #N` lines in the issue body |
 | Jira, Azure DevOps | **Track** on a ticket's card on the tracker's board, or **Track in acc** on its page (one way for both), or the `acc:intake` skill: Claude queries a connector for the tracker's place and pipes the results to `acc import` | "is blocked by" issue links |
+| monday.com | **Track** on an item's card, or **Track in acc** on its page. The brief is the item's long-text columns, or its first update | none |
 | Manual | `acc add "title" --brief …` | `--dep` |
 
 Intake is idempotent, keyed by tracker key, and it never changes the tracker.
 
 Every read is held to each tracker's place (D-072): its project or repo, and
 when set, a Jira epic (its tickets and their sub-tasks), GitHub labels (any
-one) or an Azure area path. `acc intake github` lists open issues per place
-label, from the tracker's `repo`. `acc import` refuses a Jira or Azure key that
-no tracker owns. After a Jira or Azure board loads, the Command Center asks
-about the repo's unfinished tasks that aren't on it, and hands the ones outside
-the place to `acc intake jira|azure --file`, which removes or names them as
-below.
+one), an Azure area path or a monday.com group. A monday.com board is the
+tracker, as a Jira project is. `acc intake github` lists open issues per place
+label, from the tracker's `repo`. `acc import` refuses a Jira, Azure or
+monday.com key that no tracker owns. After a Jira, Azure or monday.com board
+loads, the Command Center asks about the repo's unfinished tasks that aren't on
+it, and hands the ones outside the place to `acc intake jira|azure|monday
+--file`, which removes or names them as below.
 
 `acc intake github` also follows issues that left the open list (D-048). It asks
 GitHub about each unfinished task whose issue wasn't listed:
@@ -314,14 +316,28 @@ GitHub about each unfinished task whose issue wasn't listed:
    `node_modules` from the main checkout.
 4. **Writes the instructions.** It renders the packet ([section 8](#8-the-packet)).
 5. **Launches the agent.** From the main checkout, which you trust once (D-022), it runs
-   `claude --bg --name <id> --permission-mode <mode> --settings <json> "<packet>"`.
+   `claude --bg --name <name> --permission-mode <mode> --model <model> --settings <json> "<packet>"`.
+   The name is `<project> · <key> <title> · builder`, such as
+   `Acme Service · ACME-12 Case escalation rules · builder`: the title cut to 40
+   characters at a word, and the task's second dispatch `builder 2` (D-087).
+   Reviewers and analysts are named the same way, as `review` and `analysis`.
+   The model is the one picked for the task, if one was, else the builder's:
+   this clone's, the project's, or acc's default, `claude-opus-5-5` (D-086).
    The packet's first instruction is to call EnterWorktree on the task's worktree.
    The settings JSON sets `ACC_TASK` and `ACC_ROLE=builder` in the session's
    environment, plus an allowlist of routine commands, and a PermissionRequest
    hook that sends the builder's prompts and questions to the Command Center
    (D-030).
-6. **Records the run.** It stores the background id and session id, and moves
-   the task to `running`.
+6. **Records the run.** It finds the new session by its name, the folder it
+   started in and its start time, stores the background id, session id, name,
+   number and model, and moves the task to `running`. A task's agent is found
+   again by those ids, else by the recorded name, never by a name worked out
+   from its title.
+
+`acc dispatch --model <m>` picks the builder's model for this task. The run
+keeps it, so a re-dispatch of its rework and a resume use it until another is
+picked; the Command Center's **Dispatch with…** does the same, with the
+analysis's size beside the models (D-086).
 
 `acc dispatch --foreground` runs the same session in the current terminal
 instead. You can drop into any background session with `claude attach <id>`.
@@ -463,17 +479,21 @@ review, and passing receipts for every required check. Then it:
    `<git-common-dir>/acc/updates/<task>.<n>.json`, and `--json` names it under
    `update`. A person reads it, edits it and posts it as themselves.
 
-It never merges. Landing again pushes the new commits and updates the open
-pull request's description, rather than opening another, and drafts "updated
+It never merges. A person merges the pull request on GitHub, or autopilot does
+where the repo turns auto-merge on ([section 12](#12-the-orchestrator-loop)),
+and its description's last line says which. Landing again pushes the new
+commits and updates the open pull request's description, rather than opening another, and drafts "updated
 for review". A draft of the same news that nobody posted yet is replaced, so a
 pull request updated three times is one draft; one that still says it's ready
 for review keeps saying so, with the latest link.
 
-**Ticket updates (D-066).** acc never posts on a ticket by itself. It drafts an
+**Ticket updates (D-066).** acc never posts on a ticket by itself, apart from
+closing a GitHub issue where the tracker says `"edits"` (D-082). It drafts an
 update when:
 
 - a pull request opens, or is updated, for review (`acc land`, autopilot)
-- a task's pull request merges into its environment (`acc sync`)
+- a task's pull request merges into its environment (`acc sync`), unless acc
+  closes its GitHub issue instead (D-082, below)
 - a promotion takes a task's change on to the next environment (`acc promote`):
   "ready to go to UAT", then "now in UAT" once `acc sync` sees it merge (D-075)
 - a deploy carries a merged task to its org (`acc deploy`): each task whose
@@ -487,8 +507,9 @@ update when:
 Each draft is written for the client, with no word of agents, worktrees, acc,
 builders, reviewers or rework. `acc updates` lists them. A person posts each
 from the Command Center, with their edits: a GitHub issue's through acc as the
-repo's account (`acc update post`), and a Jira or Azure DevOps ticket's through
-the repo's sign-in, claimed in acc first so a second window can't post it again.
+repo's account (`acc update post`), and a Jira, Azure DevOps or monday.com
+ticket's through the repo's sign-in, claimed in acc first so a second window
+can't post it again. A monday.com one posts as an update on the item.
 `acc update discard <id>` sets one aside. A post unconfirmed for five minutes
 may have gone, and says so. Builders, reviewers, analysts and autopilot can't
 post or discard.
@@ -504,7 +525,21 @@ post or discard.
   **needs you**. It finds conflicts itself, naming the files (D-049). The
   Command Center runs it every two minutes while it's open. Under
   `autonomy: review`, autopilot merges the base into a conflicting pull
-  request's branch when it can ([section 12](#12-the-orchestrator-loop)).
+  request's branch when it can ([section 12](#12-the-orchestrator-loop)). With
+  auto-merge on, it merges the pull request itself once it's reviewed and green,
+  and the next `acc sync` moves the task to done.
+- **Where the GitHub tracker says `"edits": true`,** a task sync moves to done
+  has its issue closed (D-082): as completed, as the repo's account, with one
+  comment, "Done: pull request #42 merged into main.", which stands in for the
+  merged draft and discards the unposted pull request and merged ones. acc
+  looks first, and leaves an issue already closed, moved or gone. The close is
+  marked on the pull request (`pr.issue`: pending, closed or left), so it
+  happens once, and a person who reopens the issue keeps it open. A close that
+  fails is named in sync's output and tried again by each sync, which the
+  Command Center keeps running while one is pending. Jira and Azure DevOps
+  tickets are never changed: their status is the client's workflow.
+  `acc sync --close-done [--plan]` is a person's one-off tidy for tasks done
+  before this, under the same rule, listing each.
 - `acc cleanup <id>` removes the worktree and local branch, but only once the
   pull request is merged and the worktree is clean.
 
@@ -560,7 +595,7 @@ ledger and takes the next step for each task, one task at a time, as the
 | `autonomy` | What runs on its own |
 |---|---|
 | `manual` (default) | Nothing. The extension shows the next steps as buttons, and `acc autopilot` does nothing |
-| `review` | Autopilot reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, merges the base into a pull request that conflicts with it, and starts a task a person dispatched once the files it waits for are free |
+| `review` | Autopilot reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, merges the base into a pull request that conflicts with it, and starts a task a person dispatched once the files it waits for are free. With `autopilot.autoMerge`, it also merges a reviewed, green pull request |
 | `dispatch` | As `review`, and it also starts Ready tasks up to `agents.max`. Not built yet: autopilot refuses |
 | `full` | Read as `dispatch`, with a warning |
 
@@ -578,6 +613,8 @@ before each:
 | In review, its latest commit passed, its pull request closed without merging | Nothing. It needs you, naming the pull request: a person lands it again, or not (D-063) |
 | In review, its latest commit passed and landed, but the pull request conflicts with its base | `refresh`: merge the base in, then run its checks. The next passes review and land the merge |
 | In review, its latest commit passed and landed, and the pull request's checks failed on GitHub there | `checks`: send it back to its builder with each failed check's link and log (D-076). Once a commit and 3 times a task; checks still running wait; a failed check with no log on GitHub needs you |
+| With auto-merge on: in review, its latest commit passed and landed, its checks passed on GitHub, but its base moved on | `refresh`: merge the base in, as for a conflict. The merge is reviewed, landed and checked before it merges |
+| With auto-merge on: in review, its latest commit passed and landed, up to date with its base, its checks passed on GitHub, and nothing waits on a person | `merge`: `gh pr merge --match-head-commit`, one a pass. `acc sync` then moves it to done |
 | In rework, sent back by autopilot for failing checks | `dispatch`, with what the checks said |
 | In rework from a review or a person, and autopilot hasn't re-dispatched one before | `dispatch`, once. A second rework waits for a person |
 | Running, its builder stopped, and autopilot hasn't resumed it in this run | `resume`, once a run (D-067). A second stop waits for a person; a new dispatch is a new run |
@@ -585,10 +622,28 @@ before each:
 | To do, a person dispatched it, and it waits for another task's files ([section 7](#7-dispatch)) | `start`, once nothing it shares files with is in flight, or nothing else is ready to start, under `agents.max`. A start that fails needs you |
 | To do (ready or not) that nobody dispatched, blocked or done | Nothing |
 
-- **What it never does:** merge a pull request, waive a check, deploy,
-  promote, change anything on GitHub besides landing (it only reads checks and
-  their logs), or start a task to do that nobody dispatched. Builders,
-  reviewers and analysts can't run it.
+- **What it never does:** waive a check, deploy, promote, change anything on
+  GitHub besides landing and an auto-merge (it only reads checks and their
+  logs), start a task to do that nobody dispatched, or merge a pull request
+  where the repo hasn't turned auto-merge on. Builders, reviewers and analysts
+  can't run it.
+- **Auto-merge** (GH-67) is off unless `.acc/config.json` says
+  `"autopilot": { "autoMerge": true }`, which `acc agents auto-merge on` writes
+  and the Agents section's Auto-merge row runs. A Salesforce project can't turn
+  it on, and it never merges into a protected environment. A task in review
+  merges when its review passed and its checks settled on the branch's latest
+  commit, landed; GitHub's required checks passed there, or every check when the
+  base requires none (none at all count 2 minutes after the land); GitHub says
+  it's mergeable; it's up to date with its base (else a `refresh` comes first);
+  no person asked for changes; nothing waits on a person, such as a failed step
+  or an agent's question; and it changes nothing under `.acc/`. Autopilot reads
+  all of it again just before `gh pr merge <n> --<method> --match-head-commit
+  <sha>` as the repo's account, with the first method of merge, squash and
+  rebase the repo allows. A head or base that moved, checks still running, or
+  BLOCKED with no checks reported yet, wait (until 15 minutes after the land);
+  a merge GitHub refuses, BLOCKED by its rules, a cancelled check or a change
+  to `.acc/` is recorded as `merge`, and the task needs you. It keeps `autopilot.merged`, and `acc sync` moves the
+  task to done and drafts its update.
 - **A refresh** (D-058) merges origin's copy of the task environment's branch
   into the task branch, in the task's worktree, never the main checkout. It
   asks git again first, and a conflict that's gone is only marked gone. It
@@ -641,7 +696,9 @@ before each:
   started elsewhere shows as "on elsewhere", with its pid. Every window reads
   what autopilot did from the ledger's events: each step is in the Overview's
   History, and a notice. `acc agents autonomy [manual|review]` changes the
-  level, and the Agents section's Autonomy row runs it.
+  level, and the Agents section's Autonomy row runs it. `acc agents auto-merge
+  [on|off]` and its Auto-merge row do the same for auto-merge, which the status
+  bar's menu shows for each repo.
 
 An agent is used for judgment, not routing. The `acc:orchestrate` skill helps
 break a large ticket into tasks, triage a blocked task, or write rework guidance.
@@ -658,10 +715,16 @@ plugin/
   skills/intake/  task/  orchestrate/  land/
 ```
 
-A `.claude-plugin/marketplace.json` at the repo root lists `./plugin`. During
-development, `claude --plugin-dir plugin` loads it in place, and
-`claude plugin marketplace add <this repo>` installs it. `npm run validate-plugin`
-runs `claude plugin validate --strict` on both (D-042).
+A `.claude-plugin/marketplace.json` at the repo root lists `./plugin`, so this
+repo is the plugin's marketplace, `agent-command-center`. The machine
+walkthrough's A4 step installs it at Claude Code's user scope, for every
+session: its check reads `claude plugin list --json`, and its **Do it** runs
+`claude plugin marketplace add https://github.com/jack-huffman/agent-command-center`
+and `claude plugin install acc@agent-command-center --scope user`, or only
+what's missing (D-081). Claude Code clones the private repo with the person's
+own git credentials. During development, `claude --plugin-dir plugin` loads it
+in place. `npm run validate-plugin` runs `claude plugin validate --strict` on
+both (D-042).
 
 `plugin/bin/` is generated, but it's committed, because a plugin installed
 from git has no build step. It's refreshed only by `npm run package`, which
@@ -717,6 +780,14 @@ the root package.json's (D-079). A release goes:
 Builders can't release: their hooks and settings deny `npm run release` and
 `gh release create`, `upload`, `edit` and `delete`.
 
+**Installing a release** (D-081): with access to the private repo, a person
+downloads the `.vsix` from its release (`gh release download -R
+github.com/jack-huffman/agent-command-center -p '*.vsix'`) and installs it in
+VSCode. The machine walkthrough then installs the plugin (A4). A private
+marketplace doesn't update itself without `GITHUB_TOKEN`, so after each
+release the plugin is updated by hand, as the README's Install and first run
+says.
+
 ## 14. VSCode extension
 
 An **Agents** container in the activity bar holds three views:
@@ -755,8 +826,9 @@ The extension handles every workspace folder that has `.acc/config.json`.
 
 - **The Tasks tab shows each tracker's own board.** A Jira board's columns are
   mapped to their statuses. A GitHub Project's columns are its Status options;
-  with no Project, they're Open and Closed. A toggle switches to acc's agent
-  board.
+  with no Project, they're Open and Closed. A monday.com board's columns are one
+  status column's labels, in monday's order, with No status first when an item
+  has none (D-085). A toggle switches to acc's agent board.
 - **Dragging a card moves the real ticket.** It runs the workflow transition
   whose target status the column holds. When the workflow offers several, you
   pick one; when it offers none, the card goes back and the board says so. It's
@@ -771,7 +843,9 @@ The extension handles every workspace folder that has `.acc/config.json`.
   from their brief and history.
 - **Status, assignee and labels are read-only** unless the tracker says
   `"edits": true` in `.acc/config.json`, as this repo's own GitHub tracker does
-  (D-066). A client's tracker is theirs. Comments stay.
+  (D-066). A client's tracker is theirs. Comments stay. On a GitHub tracker,
+  `"edits"` also lets acc sync close a task's issue when its work merges
+  (D-082).
 - **Updates acc drafted** for the ticket come first in its Activity, each in a
   box to edit, with who it posts as, Post and Discard. With no sign-in for its
   tracker, Post waits and offers the sign-in. The Overview's Needs you lists
@@ -798,7 +872,7 @@ count; under 820 px wide, it becomes a tab strip along the top.
 |---|---|
 | **Overview** | **Needs you:** agents waiting on a prompt, blocked tasks, steps autopilot couldn't take (with why, and the step to take by hand), missing tracker sign-ins and setup still to do, each with its button. Then, apart, work waiting for review. Stat tiles open their sections. **Ready for an agent** has Dispatch buttons, and **History** lists your answers, every task's moves, each step autopilot took, wherever it ran, and the commands acc ran (D-064) |
 | **Tasks** | The tracker's own board, or acc's agent board (D-026) |
-| **Agents** | **How agents run:** builders' and reviewers' model and effort (D-036), and the project's autonomy (D-064). Then sessions by project, with a menu on each row (D-023) |
+| **Agents** | Sessions by project, each with the model it runs with (D-086), and a menu on each row (D-023). **Settings** in the header opens **How agents run** above them: builders' and reviewers' model and effort (D-036), the project's autonomy (D-064) and auto-merge (D-083). It's closed until opened, and remembered for the tab; per-token billing shows even while it's closed (D-089) |
 | **Worktrees** | Every checkout, with a menu on each row |
 | **Environments** | The GitHub identity card (D-028), promotion paths, and one card per environment |
 | **Setup** | The checklist, with Do it on each step |
@@ -836,8 +910,9 @@ The extension's first feature is a guided setup, built on VSCode's walkthroughs
 (the **Get Started** pages). It opens on its own the first time a folder has no
 `.acc/config.json`. There are two walkthroughs:
 
-1. **Set up this machine:** steps A1 to A4 in [ONBOARDING.md](ONBOARDING.md).
-2. **Onboard a project:** steps B1 to B11. The Salesforce-only steps are hidden
+1. **Set up this machine:** steps A1 to A4 in [ONBOARDING.md](ONBOARDING.md):
+   the tools, GitHub, agents' billing, and the acc plugin in Claude Code (§13).
+2. **Onboard a project:** steps B0 to B14. The Salesforce-only steps are hidden
    for a `generic` project.
 
 Each step explains why it matters and has up to three buttons:
@@ -864,8 +939,9 @@ one has:
 - a fix: an `acc` command, a Setup path, or a docs link
 
 `acc doctor` runs the same checks and prints the same text. `acc onboard` walks
-through them in a terminal. Later, ONBOARDING.md is generated from the same
-list. The walkthrough, the CLI and the docs can't drift apart.
+through them in a terminal. ONBOARDING.md is written by hand, and names every
+step as **title** (`id`): a test holds those to the same list, in its order
+(D-081). The walkthrough, the CLI and the docs can't drift apart.
 
 **As built in M2:**
 
@@ -876,10 +952,16 @@ list. The walkthrough, the CLI and the docs can't drift apart.
 - **Ticks stay ticked.** Once VSCode ticks a step, it stays ticked even if the
   check later fails. The status bar and **Check setup** always show the current
   state.
-- **Checks are throttled.** Startup reuses machine results for 12 hours.
-  Project checks run only in folders with `.acc/config.json` or
+- **Checks are throttled.** Startup reuses machine results for 12 hours,
+  from a folder with the same profile; a check that came back empty isn't
+  kept. Project checks run only in folders with `.acc/config.json` or
   `sfdx-project.json`. The status bar stays hidden elsewhere, unless the
   machine needs something.
+- **A full check replaces the rows it lists.** Each part it checked replaces
+  that part's rows on the Setup page, so a step that no longer applies goes:
+  A1.node once a folder turns generic. A part whose check failed keeps its
+  rows, and a folder that isn't a project has no project rows. A Check of one
+  step changes that row alone.
 - **The extension runs its own copy of `acc`** with VSCode's runtime, so it
   works before Node is on PATH. Every VSCode terminal gets `acc` on its PATH.
   The extension runs `dist/bin/acc.mjs` itself; terminals, Setup's **Do it**
@@ -891,6 +973,10 @@ list. The walkthrough, the CLI and the docs can't drift apart.
 
 - Agents work only in their own worktree, on their own branch.
 - Agents can't push to an environment branch, merge, deploy, or touch the tracker.
+- Nothing merges on its own unless a repo turns auto-merge on. Then autopilot
+  merges only a reviewed pull request whose checks passed, that changes nothing
+  under `.acc/`, into an environment that isn't protected, and never in a
+  Salesforce project. Branch protection holds: it never uses `--admin`.
 - Protected environments change only through a person's promotion pull request.
 - Environment-specific files are never edited by a task, deployed or promoted.
 - Every state change records who made it and why.
@@ -950,8 +1036,8 @@ already exists.
 
 - destructive Salesforce changes
 - a merge queue
-- monday.com, and Slack as a ticket source (acc's notices can go to Slack:
-  D-078 in DECISIONS.md)
+- Slack as a ticket source (acc's notices can go to Slack: D-078 in
+  DECISIONS.md)
 - cloud sessions
 - sharing a ledger across machines
 - a Developer sandbox for each agent

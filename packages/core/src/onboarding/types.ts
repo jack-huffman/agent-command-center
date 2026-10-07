@@ -40,6 +40,8 @@ export interface CheckContext {
   configErrors: string[];
   /** Shared between checks, so slow commands run once. */
   cache: Map<string, unknown>;
+  /** acc's own version, when the caller knows it: A4.plugin fails on an older plugin (GH-62). */
+  version: string | null;
 }
 
 export interface Step {
@@ -52,8 +54,6 @@ export interface Step {
   /** Profiles this step applies to. Absent means every profile. */
   profiles?: Profile[];
   fix?: Fix;
-  /** The milestone that builds this step's check. Planned steps show in doctor but not in the walkthrough. */
-  planned?: string;
   check(ctx: CheckContext): CheckResult;
 }
 

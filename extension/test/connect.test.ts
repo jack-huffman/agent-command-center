@@ -5,11 +5,12 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { replaceTracker, type Tracker, withTracker } from '../../packages/core/src/config.ts';
+import { replaceTracker, type Tracker, trackerForKey, withTracker } from '../../packages/core/src/config.ts';
 import { DESCRIPTIONS, type TrackerDescription } from '../../packages/core/src/trackers/connect.ts';
+import { MondayClient } from '../../packages/core/src/trackers/monday.ts';
 import type { Exec } from '../../packages/core/src/trackers/types.ts';
 import { type ConnectDeps, type ConnectProject, ConnectSession } from '../src/connect.ts';
-import { credKey } from '../src/logic.ts';
+import { credKey, outsideKeys, placeCandidates } from '../src/logic.ts';
 import { blankConnect, type ConnectMessage, type ConnectModel, connectModel, isFromWebview } from '../src/model.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -23,8 +24,8 @@ const settle = async () => { for (let i = 0; i < 30; i++) await new Promise((r) 
 
 const full = (t: Record<string, unknown>): Tracker => ({
   kind: t.kind as Tracker['kind'], site: (t.site as string) ?? null, project: (t.project as string) ?? null, repo: (t.repo as string) ?? null, organization: (t.organization as string) ?? null,
-  team: (t.team as string) ?? null, board: (t.board as number | string) ?? null, prefix: (t.prefix as string) ?? null, skipLabels: (t.skipLabels as string[]) ?? [],
-  epic: (t.epic as string) ?? null, labels: (t.labels as string[]) ?? [], areaPath: (t.areaPath as string) ?? null, edits: t.edits === true,
+  account: (t.account as string) ?? null, team: (t.team as string) ?? null, board: (t.board as number | string) ?? null, statusColumn: (t.statusColumn as string) ?? null, prefix: (t.prefix as string) ?? null,
+  skipLabels: (t.skipLabels as string[]) ?? [], epic: (t.epic as string) ?? null, labels: (t.labels as string[]) ?? [], areaPath: (t.areaPath as string) ?? null, group: (t.group as string) ?? null, edits: t.edits === true,
 });
 
 type Answer = Response | Promise<Response>;
@@ -111,7 +112,7 @@ test('a new Jira tracker: the email from the repo, nothing to pick until it sign
   assert.equal(await h.session.open({ root: ROOT, kind: 'jira', from: 'tasks' }), true);
   let m = h.model();
   assert.deepEqual([m.kind, m.title, m.back.label], ['jira', 'Connect a tracker', 'Back to Tasks']);
-  assert.deepEqual(m.kinds.map((k) => k.kind), ['jira', 'github', 'azure']);
+  assert.deepEqual(m.kinds.map((k) => k.kind), ['jira', 'github', 'azure', 'monday']);
   assert.equal(field(m, 'email').value, EMAIL, 'the email is the repo\'s git user.email');
   assert.deepEqual([field(m, 'token').type, field(m, 'token').help?.url], ['secret', 'https://id.atlassian.com/manage-profile/security/api-tokens']);
   assert.ok(m.pickers.every((p) => p.disabled), 'nothing to pick before it signs in');
@@ -314,7 +315,9 @@ test('a page message names its page, and only what a description declares: a tok
   assert.ok(isFromWebview({ type: 'connect-pick', session: s, key: 'labels', value: ['billing'] }));
   assert.ok(isFromWebview({ type: 'connect-pick', session: s, key: 'epic', value: null }));
   assert.ok(isFromWebview({ type: 'connect-kind', session: s, kind: 'azure' }));
-  assert.ok(!isFromWebview({ type: 'connect-kind', session: s, kind: 'monday' }), 'a kind no description has');
+  assert.ok(isFromWebview({ type: 'connect-kind', session: s, kind: 'monday' }));
+  assert.ok(isFromWebview({ type: 'connect-pick', session: s, key: 'statusColumn', value: 'status' }));
+  assert.ok(!isFromWebview({ type: 'connect-kind', session: s, kind: 'linear' }), 'a kind no description has');
   assert.ok(!isFromWebview({ type: 'connect-test', session: s, host: SITE, fields: { token: 'x'.repeat(5000) } }), 'an oversized token');
   assert.ok(!isFromWebview({ type: 'connect-test', session: s, host: SITE, fields: { password: TOKEN } }), 'a field no description has');
   assert.ok(!isFromWebview({ type: 'connect-set', session: s, field: 'site', value: 3 }), 'a value that isn\'t words');
@@ -323,26 +326,185 @@ test('a page message names its page, and only what a description declares: a tok
   assert.ok(!isFromWebview({ type: 'connect-save' }), 'every message names its page');
 });
 
-test('another tracker is a description, not another page: a fourth one gets its fields, sign-in and lists', () => {
-  const MONDAY: TrackerDescription = {
-    kind: 'monday', name: 'monday.com', icon: 'calendar',
-    host: { key: 'account', label: 'Account', placeholder: 'acme', hint: 'Your monday.com account.', parse: (v) => v.trim() || null, invalid: 'An account name.' },
-    methods: [{ id: 'apiToken', label: 'API token', icon: 'key', via: 'fields', test: 'Test connection', hint: 'A personal API token.', fields: [{ key: 'apiToken', label: 'API token', type: 'secret', placeholder: 'Paste it', help: { label: 'Get a token', url: (a) => `https://${a}.monday.com/apps/manage/tokens` } }] }],
+test('another tracker is a description, not another page: a fifth one gets its fields, sign-in and lists', () => {
+  const LINEAR: TrackerDescription = {
+    kind: 'linear', name: 'Linear', icon: 'calendar',
+    host: { key: 'workspace', label: 'Workspace', placeholder: 'acme', hint: 'Your Linear workspace.', parse: (v) => v.trim() || null, invalid: 'A workspace name.' },
+    methods: [{ id: 'apiKey', label: 'API key', icon: 'key', via: 'fields', test: 'Test connection', hint: 'A personal API key.', fields: [{ key: 'apiKey', label: 'API key', type: 'secret', placeholder: 'Paste it', help: { label: 'Get a key', url: (a) => `https://linear.app/${a}/settings/api` } }] }],
     pickers: [
-      { key: 'workspace', label: 'Workspace', dependsOn: [], identifies: true, load: async () => [] },
-      { key: 'group', label: 'Group', dependsOn: ['workspace'], whole: () => 'Every group', load: async () => [] },
+      { key: 'team', label: 'Team', dependsOn: [], identifies: true, load: async () => [] },
+      { key: 'cycle', label: 'Cycle', dependsOn: ['team'], whole: () => 'Every cycle', load: async () => [] },
     ],
     verify: async () => ({ id: '1', name: 'Jordan' }),
-    toConfig: (c) => ({ kind: 'monday', account: c.host, workspace: c.values.workspace }),
+    toConfig: (c) => ({ kind: 'linear', workspace: c.host, team: c.values.team }),
     fromConfig: () => ({ host: '', values: {} }),
   };
-  const list = [...DESCRIPTIONS, MONDAY];
-  const s = blankConnect(MONDAY, { id: 'p', root: ROOT, projectName: 'Acme Service', ownRepo: null, ghAccount: null, from: 'tasks' });
+  const list = [...DESCRIPTIONS, LINEAR];
+  const s = blankConnect(LINEAR, { id: 'p', root: ROOT, projectName: 'Acme Service', ownRepo: null, ghAccount: null, from: 'tasks' });
   s.host = 'acme';
   const m = connectModel(s, list);
-  assert.deepEqual(m.kinds.map((k) => k.kind), ['jira', 'github', 'azure', 'monday']);
-  assert.deepEqual([m.host.label, m.fields.map((f) => [f.key, f.type, f.value, f.help?.url]), m.method.test], ['Account', [['apiToken', 'secret', '', 'https://acme.monday.com/apps/manage/tokens']], 'Test connection']);
-  assert.deepEqual(m.pickers.map((p) => [p.key, p.whole, p.required, p.disabled]), [['workspace', null, true, true], ['group', 'Every group', false, true]]);
+  assert.deepEqual(m.kinds.map((k) => k.kind), ['jira', 'github', 'azure', 'monday', 'linear']);
+  assert.deepEqual([m.host.label, m.fields.map((f) => [f.key, f.type, f.value, f.help?.url]), m.method.test], ['Workspace', [['apiKey', 'secret', '', 'https://linear.app/acme/settings/api']], 'Test connection']);
+  assert.deepEqual(m.pickers.map((p) => [p.key, p.whole, p.required, p.disabled]), [['team', null, true, true], ['cycle', 'Every cycle', false, true]]);
+});
+
+/**
+ * monday.com's GraphQL API, answering only this token, by what each query asks for. Board 555 has two
+ * status columns. With `items`, it serves the boards too: item 9001 is on board 555, and 111 is empty.
+ * Each query asked goes in `calls`.
+ */
+const MONDAY_TOKEN = 'monday-token-0123456789abcdef';
+function monday(o: { account?: string; items?: boolean; calls?: string[] } = {}): typeof fetch {
+  const labels = (...names: string[]) => ({ labels: names.map((label, i) => ({ id: i, label, index: i, is_done: label === 'Done' })) });
+  const name = (board: string) => (board === '555' ? 'Approvals' : 'Client work');
+  return (async (url: string, init: { headers: Record<string, string>; body: string }) => {
+    if (url !== 'https://api.monday.com/v2') return new Response('', { status: 404 });
+    if (init.headers.Authorization !== MONDAY_TOKEN) return Response.json({ errors: [{ message: 'Not Authenticated' }] }, { status: 401 });
+    const { query, variables } = JSON.parse(init.body) as { query: string; variables: Record<string, unknown> };
+    o.calls?.push(query);
+    const board = String((variables.board as string[] | undefined)?.[0] ?? '');
+    if (o.items && /columns\(types: \[status, people\]\)/.test(query)) {
+      return Response.json({ data: { boards: [{ id: board, name: name(board), columns: [{ id: 'status', title: 'Status', type: 'status', settings: labels('Working on it', 'Done') }], groups: [{ id: 'topics', title: 'This sprint' }] }] } });
+    }
+    if (o.items && /items_page\(limit/.test(query)) {
+      const items = board === '555' ? [{ id: '9001', name: 'Approve the renewal', group: { id: 'topics' }, column_values: [{ id: 'status', index: 0 }] }] : [];
+      return Response.json({ data: { boards: [{ items_page: { cursor: null, items } }] } });
+    }
+    if (o.items && /items\(ids:/.test(query)) {
+      const items = (variables.ids as string[]).filter((id) => id === '9001').map((id) => ({ id, board: { id: '555', name: 'Approvals' }, group: { id: 'topics', title: 'This sprint' } }));
+      return Response.json({ data: { items } });
+    }
+    if (/\bme \{/.test(query)) return Response.json({ data: { me: { id: 7, name: 'Jordan Kim', account: { slug: o.account ?? 'acme' } } } });
+    if (/boards\(limit/.test(query)) {
+      return Response.json({ data: { boards: [
+        { id: '555', name: 'Approvals', type: 'board', state: 'active', workspace: null },
+        { id: '111', name: 'Client work', type: 'board', state: 'active', workspace: { name: 'Acme' } },
+        { id: '222', name: 'Subitems of Client work', type: 'sub_items_board', state: 'active', workspace: { name: 'Acme' } },
+        { id: '333', name: 'Kickoff notes', type: 'document', state: 'active', workspace: { name: 'Acme' } },
+      ] } });
+    }
+    if (/groups \{ id title archived/.test(query)) return Response.json({ data: { boards: [{ groups: [{ id: 'topics', title: 'This sprint' }, { id: 'old', title: 'Done in 2025', archived: true }] }] } });
+    if (/columns\(types: \[status\]\)/.test(query)) {
+      const columns = [
+        ...(board === '555' ? [{ id: 'priority', title: 'Priority', type: 'status', settings: labels('High', 'Low') }] : []),
+        { id: 'status', title: 'Status', type: 'status', settings: labels('Working on it', 'Done') },
+      ];
+      return Response.json({ data: { boards: [{ name: name(board), columns }] } });
+    }
+    return Response.json({ errors: [{ message: 'no answer' }] });
+  }) as unknown as typeof fetch;
+}
+
+test('monday.com: an account from any link, a token kept for this repo only, the boards it can see, and a group or the whole board', async () => {
+  const h = harness({ fetch: monday() });
+  await h.session.open({ root: ROOT, kind: 'monday', from: 'tasks' });
+  let m = h.model();
+  assert.deepEqual([m.kind, m.name, m.host.label, m.methods.length, m.fields.map((f) => [f.key, f.type]), field(m, 'token').help], ['monday', 'monday.com', 'Account', 0, [['token', 'secret']], null], 'a personal API token, and no token page until the account is known');
+  h.send({ type: 'connect-set', field: 'account', value: 'https://acme.monday.com/boards/111/pulses/42' });
+  m = h.model();
+  assert.deepEqual([m.host.value, field(m, 'token').help], ['acme', { label: 'Create a token', url: 'https://acme.monday.com/apps/manage/tokens' }]);
+
+  h.send({ type: 'connect-test', host: 'acme', fields: { token: 'wrong-token-0123456789' } });
+  await settle();
+  m = h.model();
+  assert.match(field(m, 'token').error ?? '', /didn't accept this repo's API token/, 'a refused token, beside the token');
+  assert.equal(h.secrets.size, 0, 'nothing is kept until it works');
+
+  h.send({ type: 'connect-test', host: 'acme', fields: { token: MONDAY_TOKEN } });
+  await settle();
+  m = h.model();
+  assert.equal(m.signIn.look.label, 'Signed in as Jordan Kim');
+  assert.deepEqual(JSON.parse(h.secrets.get('acc.cred:github:acme/service:monday:acme')!), { kind: 'monday', method: 'token', token: MONDAY_TOKEN }, 'in secret storage, for this repo and account');
+  assert.ok(![...h.posted, ...h.logs].some((x) => x.includes(MONDAY_TOKEN)), 'never in the page model or the log');
+  assert.deepEqual(picker(m, 'board').options.map((o) => [o.value, o.label, o.detail]), [['111', 'Client work', 'Acme'], ['555', 'Approvals', 'Main workspace']], 'no sub-item boards or documents');
+  assert.deepEqual([picker(m, 'board').selected, picker(m, 'board').required, m.save.can], [[], true, false], 'a board to choose before Save');
+
+  h.send({ type: 'connect-pick', key: 'board', value: '111' });
+  await settle();
+  m = h.model();
+  assert.deepEqual([picker(m, 'group').whole, picker(m, 'group').options.map((o) => o.value)], ['Every group on Client work', ['topics']]);
+  assert.deepEqual([picker(m, 'statusColumn').hidden, picker(m, 'statusColumn').selected], [true, ['status']], 'one status column: chosen, and not drawn');
+  assert.equal(m.save.label, 'Connect monday.com');
+  h.send({ type: 'connect-save' });
+  await settle();
+  assert.deepEqual(h.raw, [{ kind: 'monday', account: 'acme', board: 111 }], 'the whole board, and its usual status column, are left out');
+
+  // Another board on the same account is another tracker, with its group and its other status column.
+  await h.session.open({ root: ROOT, kind: 'monday', from: 'tasks' });
+  h.send({ type: 'connect-test', host: 'acme.monday.com', fields: { token: MONDAY_TOKEN } });
+  await settle();
+  h.send({ type: 'connect-pick', key: 'board', value: '555' });
+  await settle();
+  m = h.model();
+  assert.deepEqual([picker(m, 'statusColumn').hidden, picker(m, 'statusColumn').selected, picker(m, 'statusColumn').options.map((o) => [o.label, o.detail])], [false, ['status'], [['Priority', 'High, Low'], ['Status', 'Working on it, Done']]], 'two: shown, the one called Status chosen');
+  h.send({ type: 'connect-pick', key: 'statusColumn', value: 'priority' });
+  h.send({ type: 'connect-pick', key: 'group', value: 'topics' });
+  h.send({ type: 'connect-save' });
+  await settle();
+  assert.deepEqual(h.raw, [{ kind: 'monday', account: 'acme', board: 111 }, { kind: 'monday', account: 'acme', board: 555, group: 'topics', statusColumn: 'priority', prefix: 'MON2' }], 'neither replaces the other, and the second\'s keys are its own');
+});
+
+test('monday.com: an item Tracked from a second board on the account keeps its own key, so the first board\'s place check leaves it alone (D-072)', async () => {
+  const h = harness({ fetch: monday() });
+  for (const board of ['111', '555']) {
+    await h.session.open({ root: ROOT, kind: 'monday', from: 'tasks' });
+    h.send({ type: 'connect-test', host: 'acme', fields: { token: MONDAY_TOKEN } });
+    await settle();
+    h.send({ type: 'connect-pick', key: 'board', value: board });
+    await settle();
+    h.send({ type: 'connect-save' });
+    await settle();
+  }
+  const trackers = h.raw.map(full);
+  assert.deepEqual(trackers.map((t) => [t.board, t.prefix]), [[111, null], [555, 'MON2']]);
+
+  // As the Command Center builds each board's client, and follows its place once it loads.
+  const calls: string[] = [];
+  const api = monday({ items: true, calls });
+  const clients = trackers.map((t) => new MondayClient({ account: t.account!, board: t.board!, group: t.group, statusColumn: t.statusColumn, prefix: t.prefix ?? 'MON', token: MONDAY_TOKEN, fetch: api }));
+  const [first, second] = [await clients[0]!.board(), await clients[1]!.board()];
+  assert.deepEqual(second.cards.map((c) => c.key), ['MON2-9001']);
+  const tasks = [{ id: 'MON2-9001', state: 'todo', source: { kind: 'monday' } }];
+  const owner = (key: string) => trackerForKey(trackers, key);
+  assert.equal(owner('MON2-9001'), 1, 'its drafts post through its own board');
+  const asked = placeCandidates(tasks, { kind: 'monday', index: 0, cards: first.cards }, owner);
+  assert.deepEqual([asked, await outsideKeys(asked, (k) => clients[0]!.outside(k))], [[], []], 'the first board asks nothing about it, so acc intake never takes it off the ledger');
+  assert.equal(calls.filter((q) => /items\(ids:/.test(q)).length, 0);
+  assert.deepEqual(placeCandidates(tasks, { kind: 'monday', index: 1, cards: second.cards }, owner), [], 'its own board shows it');
+  assert.deepEqual(await clients[1]!.outside(['MON2-9001'], { project: true }), [], 'and a draft for it may post');
+
+  // Both keyed MON, as before: the first board took the second's item for its own, and found it outside.
+  const shared = trackers.map((t) => ({ ...t, prefix: null }));
+  const was = placeCandidates([{ id: 'MON-9001', state: 'todo', source: { kind: 'monday' } }], { kind: 'monday', index: 0, cards: first.cards }, (key) => trackerForKey(shared, key));
+  assert.deepEqual(await outsideKeys(was, (k) => clients[0]!.outside(k)), [{ key: 'MON-9001', why: 'it\'s on board Approvals' }]);
+});
+
+test('monday.com: a token from another account is refused, naming it, and an existing tracker shows its account and board fixed', async () => {
+  const other = harness({ fetch: monday({ account: 'globex' }) });
+  await other.session.open({ root: ROOT, kind: 'monday', from: 'tasks' });
+  other.send({ type: 'connect-test', host: 'acme', fields: { token: MONDAY_TOKEN } });
+  await settle();
+  assert.match(field(other.model(), 'token').error ?? '', /This token is for the monday\.com account globex, not acme/);
+  assert.equal(other.secrets.size, 0);
+
+  const h = harness({ fetch: monday(), trackers: [{ kind: 'monday', account: 'acme', board: 111, group: 'topics', edits: true }] });
+  h.secrets.set(credKey(ACME, 'monday', 'acme'), JSON.stringify({ kind: 'monday', method: 'token', token: MONDAY_TOKEN }));
+  await h.session.open({ root: ROOT, index: 0, from: 'tasks' });
+  await settle();
+  let m = h.model();
+  assert.deepEqual([m.host.fixed, m.host.value, m.signIn.look.label], [true, 'acme', 'Signed in as Jordan Kim']);
+  const board = picker(m, 'board');
+  assert.deepEqual([board.fixed, board.options.find((o) => o.value === '111')?.label], [true, 'Client work'], 'fixed, by its name rather than its id');
+  assert.deepEqual([picker(m, 'group').fixed, picker(m, 'group').selected], [false, ['topics']], 'its group can still change');
+  h.send({ type: 'connect-pick', key: 'board', value: '555' });
+  assert.deepEqual(picker(h.model(), 'board').selected, ['111'], 'another board is another tracker');
+  h.send({ type: 'connect-pick', key: 'group', value: null });
+  await settle();
+  m = h.model();
+  assert.equal(picker(m, 'group').whole, 'Every group on Client work');
+  h.send({ type: 'connect-save' });
+  await settle();
+  assert.deepEqual(h.raw, [{ kind: 'monday', account: 'acme', board: 111, edits: true }], 'the whole board now, keeping edits');
 });
 
 test('the prompts are gone, and the page draws every tracker without knowing one from another', () => {
@@ -352,5 +514,5 @@ test('the prompts are gone, and the page draws every tracker without knowing one
   const start = main.indexOf('// ---------------------------------------------------------------- connecting a tracker (GH-51)');
   const end = main.indexOf('// ---------------------------------------------------------------- the Command Center page');
   assert.ok(start > 0 && end > start);
-  assert.doesNotMatch(main.slice(start, end), /jira|azure|github/i, 'no tracker named in the Connect page\'s drawing');
+  assert.doesNotMatch(main.slice(start, end), /jira|azure|github|monday/i, 'no tracker named in the Connect page\'s drawing');
 });

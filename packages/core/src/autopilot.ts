@@ -1,20 +1,22 @@
 import { closeSync, mkdirSync, openSync, readFileSync, readSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Autonomy, Config } from './config.ts';
+import { autoMergeFor, type Autonomy, type Config } from './config.ts';
 import { type CheckRead, readChecks, sendBack } from './checks.ts';
 import { analysisProblems } from './analyze.ts';
 import { dispatch, holdWords, startHeld } from './dispatch.ts';
 import { AccError, type Runner } from './exec.ts';
 import { releaseAwake } from './awake.ts';
-import { AUTOPILOT_BY, AUTOPILOT_STEPS, type AutopilotFailure, type AutopilotStepName, builderStopped, checkMove, type ClaudeSession, closedPr, noGateHooks, type HistoryEntry, type Ledger, type LedgerEvent, mutate, readLedger, type ReworkCause, reworkCause, sentBackAt, sentBackForChecks, type State, STOPPED_GRACE_MS, type Task } from './ledger.ts';
+import { AUTOPILOT_BY, AUTOPILOT_STEPS, type AutopilotFailure, autopilotFailure, type AutopilotStepName, builderStopped, checkMove, type ClaudeSession, closedPr, noGateHooks, type HistoryEntry, type Ledger, type LedgerEvent, mutate, readLedger, type ReworkCause, reworkCause, sentBackAt, sentBackForChecks, type State, STOPPED_GRACE_MS, type Task } from './ledger.ts';
 import { ghToken, land, type LandResult } from './land.ts';
 import { type FileShare, startLook, type StartLook, waits } from './overlap.ts';
 import { withLock } from './lock.ts';
+import { mergePr, NO_CHECKS_GRACE_MS } from './merge.ts';
 import type { RepoPaths } from './paths.ts';
 import { refresh } from './refresh.ts';
 import { clipSaid, listSessions, resume, type ResumeDeps, resuming } from './resume.ts';
 import { readVerdict, review, reviewing } from './review.ts';
 import type { SlotOptions } from './semaphore.ts';
+import { fetchBranches } from './sync.ts';
 
 /**
  * Autopilot (D-055): under `autonomy: review`, each pass reads the ledger and takes the next step for
@@ -24,8 +26,10 @@ import type { SlotOptions } from './semaphore.ts';
  * merge. A builder that stopped before acc done or acc block is resumed, once a run (D-067). A pull
  * request whose checks failed on GitHub goes back to its builder with what they said, once a commit
  * (D-076). A task a person dispatched that waits for another task's files starts once it may (D-???). It
- * goes up to an open pull request: it never merges one, waives a check, deploys, promotes, changes anything
- * on GitHub but its pull request, or starts a task to do that nobody dispatched.
+ * goes up to an open pull request: it waives no check, deploys nothing, promotes nothing, changes nothing
+ * on GitHub but its pull request, and starts no task to do that nobody dispatched. It merges a pull
+ * request only where the repo turns auto-merge on (GH-67): reviewed, green on GitHub, up to date with its
+ * base, into an environment that isn't protected, one a pass, with nothing waiting on a person.
  */
 
 // Who autopilot is, and what sent a task to rework, live with the ledger's moves, so dispatch can read them.
@@ -48,6 +52,16 @@ export interface AutopilotMode {
  * uses it, in acc and the extension, so a step added here is added there too.
  */
 export const AUTOPILOT_REVIEW_DOES = 'reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, merges the base into a pull request that conflicts with it, and starts a task a person dispatched once the files it waits for are free';
+
+/**
+ * What autopilot does under `autonomy: review`, after "autopilot" or "it", and whether it merges pull
+ * requests: never, or, with auto-merge on (autoMergeOn), when (GH-67). Every description of review uses it.
+ */
+export function autopilotDoes(autoMerge: boolean): string {
+  return autoMerge
+    ? `${AUTOPILOT_REVIEW_DOES}. Auto-merge is on: it also merges a pull request whose review and checks passed, once it's up to date with its base, GitHub says it can merge and nothing waits on a person, one a pass. It never merges into a protected environment.`
+    : `${AUTOPILOT_REVIEW_DOES}. It never merges a pull request.`;
+}
 
 /**
  * What `autonomy` means for autopilot. manual: nothing happens on its own. review: autopilot reviews,
@@ -87,6 +101,13 @@ export interface TaskFacts {
   checksError?: string;
   /** A held task to do (D-???): what it shares with work in flight, what could start first, and what stops it starting now. */
   start?: StartLook & { problems: string[] };
+  /** GitHub reports no checks on it, and it was landed under 2 minutes ago: a slow CI may not have started (GH-67). */
+  noChecksYet?: boolean;
+  /**
+   * Whether its base on origin has commits its branch lacks, asked only when auto-merge would merge it
+   * next (GH-67): a fetch, so it's asked when needed. Null when git couldn't tell.
+   */
+  behind?: () => boolean | null;
 }
 
 export type AutopilotOutcome = 'done' | 'failed' | 'waiting' | 'skipped';
@@ -148,8 +169,15 @@ export const resumedByAutopilot = (task: Task): boolean => !!task.run?.resumes?.
 
 const running = (ledger: Ledger, except: string): number => ledger.tasks.filter((t) => t.state === 'running' && t.id !== except).length;
 
-/** The next step for one task, from the ledger and what's known about its branch. Pure, so each rule can be tested on its own. */
-export function nextStep(ledger: Ledger, config: Pick<Config, 'agents'>, task: Task, facts: TaskFacts): Decision {
+/** What nextStep reads of the config: the agent cap, and whether auto-merge covers a task's environment (GH-67). */
+export type StepConfig = Pick<Config, 'agents' | 'profile' | 'autonomy' | 'environments' | 'autopilot'>;
+
+/**
+ * The next step for one task, from the ledger and what's known about its branch. Pure but for a look at
+ * whether its base moved on, made only when auto-merge would merge it next, so each rule can be tested on
+ * its own.
+ */
+export function nextStep(ledger: Ledger, config: StepConfig, task: Task, facts: TaskFacts): Decision {
   const step = (s: AutopilotStepName, reason: string): Decision => {
     // A step that failed isn't tried again on the same commit: a person does it, or a new commit comes.
     const f = task.autopilot?.failed;
@@ -173,7 +201,11 @@ export function nextStep(ledger: Ledger, config: Pick<Config, 'agents'>, task: T
     if (facts.landed === facts.head) {
       // Its base moved on and it conflicts (D-049): the base is merged in, and the merge goes the same way (D-058).
       if (pr.conflicts?.length) return step('refresh', `Pull request #${pr.number} conflicts with ${task.environment} in ${pr.conflicts.join(', ')}.`);
-      return checksStep(task, facts, step, none) ?? none('skipped', `Pull request #${pr.number} is up to date with ${short(facts.head)}.`);
+      const checks = checksStep(task, facts, step, none);
+      if (checks) return checks;
+      // Where the repo turns auto-merge on, and the environment isn't protected: merged, once it's green (GH-67).
+      if (autoMergeFor(config, task.environment)) return mergeStep(task, facts, step, none);
+      return none('skipped', `Pull request #${pr.number} is up to date with ${short(facts.head)}.`);
     }
     return step('land', `Its review passed on ${short(facts.head)}, and pull request #${pr.number} is behind it.`);
   }
@@ -245,22 +277,59 @@ function checksStep(task: Task, facts: TaskFacts, step: (s: AutopilotStepName, r
   return step('checks', `Checks failed on GitHub on ${short(head)}: ${failed}.`);
 }
 
+/**
+ * Whether auto-merge merges a task in review whose pull request is landed at its latest commit, merges
+ * cleanly, and whose checks on GitHub left nothing to send back (GH-67). Merged already: it waits for acc
+ * sync. Anything waiting on a person holds it. Checks that were cancelled are written down, so the task
+ * needs you. No checks at all count once 2 minutes have passed since the land, where the base requires
+ * none. A base that moved on is merged in first.
+ */
+function mergeStep(task: Task, facts: TaskFacts, step: (s: AutopilotStepName, reason: string) => Decision, none: (o: 'waiting' | 'skipped', reason: string) => Decision): Decision {
+  const pr = task.pr!;
+  const merged = task.autopilot?.merged;
+  if (merged?.sha === facts.head) return none('skipped', `Autopilot merged pull request #${merged.pr.number}. acc sync moves it to done.`);
+  const f = task.autopilot?.failed;
+  if (f?.step === 'merge' && f.sha === facts.head && f.state === task.state) return step('merge', '');
+  const failure = autopilotFailure(task);
+  if (failure) return none('waiting', `Autopilot couldn't ${failedWords(failure.step, failure.sha)}: a person decides before it merges.`);
+  if (pr.changesRequested) return none('waiting', `A person asked for changes on pull request #${pr.number}, so autopilot doesn't merge it.`);
+  const c = facts.checks;
+  if (!c) return none('waiting', `Autopilot hasn't read pull request #${pr.number}'s checks on GitHub yet.`);
+  if (c.cancelled.length) {
+    const reason = `Checks were cancelled on GitHub: ${names(c.cancelled)}. Run them again, or merge it yourself.`;
+    return { step: null, outcome: 'waiting', reason, record: { step: 'merge', reason } };
+  }
+  // c.required is a guard: gh answers --required on a commit with no checks as "no checks reported".
+  if (!c.count && (c.required || facts.noChecksYet)) return none('waiting', `GitHub reports no checks on pull request #${pr.number} yet. Autopilot gives them 2 minutes after a land.`);
+  // Null is git couldn't tell, which waits: never read as not behind.
+  const behind = facts.behind ? facts.behind() : false;
+  if (behind === null) return none('waiting', `Autopilot couldn't fetch ${task.environment} and its branch to see whether pull request #${pr.number} is up to date. It tries again next pass.`);
+  if (behind) return step('refresh', `Pull request #${pr.number} is behind ${task.environment}: it's brought up to date before it merges.`);
+  return step('merge', `Pull request #${pr.number} passed its review and its checks on ${short(facts.head)}.`);
+}
+
 /** Who reads GitHub for autopilot: the repo, and its account's environment, fetched once it's needed. */
 export interface FactsGitHub {
   repo: string;
   env: () => NodeJS.ProcessEnv;
+  /** Whether auto-merge covers an environment's branch (GH-67): its pull requests' checks are read, and whether they're behind. */
+  autoMerge?: (branch: string) => boolean;
+  /** The environment git fetches with, to see whether a pull request is behind its base. */
+  gitEnv?: NodeJS.ProcessEnv;
 }
 
 /**
  * Whether to ask GitHub about a task's checks: in review, its review passed, its open pull request landed
- * at its latest commit and merging cleanly, and acc sync didn't last see its checks passing (D-076).
+ * at its latest commit and merging cleanly, and acc sync didn't last see its checks passing (D-076). One
+ * auto-merge could merge is asked even then, unless it merged it already (GH-67).
  */
-function checksWanted(task: Task, facts: TaskFacts): boolean {
+function checksWanted(task: Task, facts: TaskFacts, merging: boolean): boolean {
   const pr = task.pr;
   if (task.state !== 'review' || pr?.state !== 'open' || facts.verdict !== 'pass' || facts.reviewing) return false;
-  if (!facts.head || pr.sha !== facts.head || facts.landed !== facts.head || pr.conflicts?.length || pr.ci === 'passing') return false;
+  if (!facts.head || pr.sha !== facts.head || facts.landed !== facts.head || pr.conflicts?.length) return false;
+  if (merging ? task.autopilot?.merged?.sha === facts.head : pr.ci === 'passing') return false;
   const f = task.autopilot?.failed;
-  return !(f?.step === 'checks' && f.sha === facts.head && f.state === task.state);
+  return !(f && (f.step === 'checks' || f.step === 'merge') && f.sha === facts.head && f.state === task.state);
 }
 
 /**
@@ -290,22 +359,35 @@ export function taskFacts(paths: RepoPaths, task: Task, run: Runner, sessions: C
   facts.verdict = facts.head ? readVerdict(paths, task.id, facts.head)?.verdict ?? null : null;
   // A pull request landed before acc recorded the commit: what GitHub last had, as this clone saw it.
   if (task.pr?.state === 'open') facts.landed = task.pr.sha ?? (branch ? rev(`refs/remotes/origin/${branch}`) || null : null);
-  if (github && checksWanted(task, facts)) {
+  const merging = !!github?.autoMerge?.(task.environment);
+  if (github && checksWanted(task, facts, merging)) {
     const key = `${paths.ledger}#${task.id}`;
     const settled = settledChecks.get(key);
-    if (settled?.sha === facts.head) {
-      facts.checks = settled.checks;
-      return facts;
+    if (settled?.sha === facts.head) facts.checks = settled.checks;
+    else {
+      try {
+        facts.checks = readChecks(run, github.repo, task.pr!.number, github.env());
+        const c = facts.checks;
+        // Settled with nothing to send back (all passed, or only checks GitHub keeps no log for): kept. A
+        // failure autopilot would act on is read again, since its send-back reads it afresh anyway. So is
+        // none at all, which a slow CI can still change (GH-67).
+        if (c && c.sha === facts.head && c.count && !c.pending.length && !c.failed.some((x) => x.job)) settledChecks.set(key, { sha: facts.head, checks: c });
+      } catch (e) {
+        facts.checksError = firstLines((e as Error).message ?? String(e));
+      }
     }
-    try {
-      facts.checks = readChecks(run, github.repo, task.pr!.number, github.env());
-      const c = facts.checks;
-      // Settled with nothing to send back (all passed, or only checks GitHub keeps no log for): kept. A
-      // failure autopilot would act on is read again, since its send-back reads it afresh anyway.
-      if (c && c.sha === facts.head && !c.pending.length && !c.failed.some((x) => x.job)) settledChecks.set(key, { sha: facts.head, checks: c });
-    } catch (e) {
-      facts.checksError = firstLines((e as Error).message ?? String(e));
-    }
+    const landedAt = Date.parse(task.pr?.landedAt ?? '');
+    if (facts.checks && !facts.checks.count && Number.isFinite(landedAt)) facts.noChecksYet = now.getTime() - landedAt < NO_CHECKS_GRACE_MS;
+  }
+  // Whether its base moved on, asked only when auto-merge would merge it next: a fetch, then git (GH-67).
+  if (merging && github && branch && facts.head) {
+    const base = task.environment;
+    const head = facts.head;
+    facts.behind = () => {
+      if (!fetchBranches(run, paths.root, [base, branch], { ...(github.gitEnv ?? process.env), GIT_TERMINAL_PROMPT: '0' })) return null;
+      const code = run('git', ['merge-base', '--is-ancestor', `refs/remotes/origin/${base}`, head], { cwd: paths.root }).code;
+      return code === 0 ? false : code === 1 ? true : null;
+    };
   }
   return facts;
 }
@@ -320,7 +402,7 @@ export interface AutopilotStep {
   sha: string | null;
   outcome: AutopilotOutcome;
   reason: string;
-  /** A land's pull request. */
+  /** A land's pull request, or the one a merge merged. */
   pr?: { number: number; url: string; opened: boolean };
   /** The update a land drafted for the ticket, which waits for a person to post it (D-066). */
   update?: { id: string; key: string };
@@ -344,6 +426,7 @@ export interface AutopilotSteps {
   resume(id: string): StepRun;
   checks(id: string): StepRun;
   start(id: string): StepRun;
+  merge(id: string): StepRun;
 }
 
 export interface AutopilotDeps {
@@ -383,7 +466,12 @@ export function realSteps(paths: RepoPaths, config: Config, deps: AutopilotDeps)
       if (r.held) throw new AccError('start-waits', `${holdWords({ shares: r.waitsFor, first: r.first })}.`);
       return { reason: `Re-dispatched${cause === 'checks' ? ' for its failing checks' : ''} in ${r.worktree}${r.bgId ? `, background session ${r.bgId}` : ''}.` };
     },
-    refresh: (id) => ({ reason: refresh(paths, config, id, { run, now, env, slots: deps.slots }, { actor: 'orchestrator', by: AUTOPILOT_BY }).reason }),
+    refresh: (id) => {
+      // Where auto-merge covers it, a pull request only behind its base is brought up to date too (GH-67).
+      const t = readLedger(paths.ledger).tasks.find((x) => x.id === id);
+      const behind = !!t && autoMergeFor(config, t.environment);
+      return { reason: refresh(paths, config, id, { run, now, env, slots: deps.slots }, { actor: 'orchestrator', by: AUTOPILOT_BY, behind }).reason };
+    },
     resume: (id) => {
       const r = resume(paths, config, id, { run, now, env, accBinDir: deps.accBinDir, accCommand: deps.accCommand, ...deps.resume }, { actor: 'orchestrator', by: AUTOPILOT_BY });
       return { reason: `Resumed its builder${r.said ? `, which last said: ${clipSaid(r.said, 200)}` : '.'}` };
@@ -397,6 +485,10 @@ export function realSteps(paths: RepoPaths, config: Config, deps: AutopilotDeps)
       // Its failure is written on the task already, which then needs a person.
       if (r.failed[0]) throw new AccError('start-failed', r.failed[0].reason);
       throw new AccError('start-waits', r.waiting[0]?.reason ?? 'It waits.');
+    },
+    merge: (id) => {
+      const r = mergePr(paths, config, id, { run, now, env }, { actor: 'orchestrator', by: AUTOPILOT_BY });
+      return { reason: r.reason, pr: { number: r.pr.number, url: r.pr.url, opened: false } };
     },
   };
 }
@@ -418,14 +510,15 @@ function landStep(r: LandResult): StepRun {
 /**
  * Why a step's error is only for now, or null when it's a real failure. Only these wait: the ledger was
  * busy, the agent cap filled up between the look and the dispatch, a stopped builder's agent came back,
- * or a pull request's checks changed between the look and the send-back (D-076). Anything else is
- * recorded, a heavy-check slot that stayed taken for hours among them (D-069).
+ * a pull request's checks changed between the look and the send-back (D-076), or a pull request moved on,
+ * or wasn't settled, between the look and the merge (GH-67). Anything else is recorded, a heavy-check slot
+ * that stayed taken for hours among them (D-069).
  */
 function temporary(e: unknown, paths: RepoPaths, config: Config, id: string): string | null {
   const code = (e as AccError).code;
   if (code === 'lock-timeout') return 'The ledger was busy. Autopilot tries again next pass.';
-  // Its agent came back between the look and the resume, or its checks moved on: nothing to do after all.
-  if (code === 'agent-active' || code === 'checks-moved') return `${(e as Error).message} Autopilot looks again next pass.`;
+  // Its agent came back between the look and the resume, or its checks or pull request moved on: nothing to do after all.
+  if (code === 'agent-active' || code === 'checks-moved' || code === 'merge-waits') return `${(e as Error).message} Autopilot looks again next pass.`;
   // A held task that still waits after all, or whose start was claimed elsewhere (D-???).
   if (code === 'start-waits') return `${sentence((e as Error).message)} Autopilot looks again next pass.`;
   if (code === 'move-refused') {
@@ -452,7 +545,8 @@ function recordFailure(paths: RepoPaths, now: () => Date, id: string, failed: Au
 /**
  * One pass: for each task, in ledger order, the next step, taken one at a time. The ledger is read again
  * before each, so a task a person moved meanwhile is judged as it is now. A task reviewed in this pass
- * lands in the next.
+ * lands in the next. It merges one pull request at most (GH-67): the rest are behind their base after it,
+ * and the next passes bring them up to date first.
  */
 export function autopilotPass(paths: RepoPaths, config: Config, deps: AutopilotDeps): AutopilotResult {
   const steps = { ...realSteps(paths, config, deps), ...deps.steps };
@@ -466,7 +560,11 @@ export function autopilotPass(paths: RepoPaths, config: Config, deps: AutopilotD
   // account, whose token is fetched once, the first time it's needed (D-076).
   const gh = config.github;
   let ghEnv: NodeJS.ProcessEnv | null = null;
-  const github: FactsGitHub | undefined = gh ? { repo: gh.repo, env: () => (ghEnv ??= { ...deps.env, GH_TOKEN: ghToken(deps.run, gh.account) }) } : undefined;
+  const github: FactsGitHub | undefined = gh ? {
+    repo: gh.repo, env: () => (ghEnv ??= { ...deps.env, GH_TOKEN: ghToken(deps.run, gh.account) }),
+    autoMerge: (branch) => autoMergeFor(config, branch), gitEnv: deps.env,
+  } : undefined;
+  let merged = false;
   let fetched = false;
   for (const id of first.tasks.map((t) => t.id)) {
     if (deps.stop?.()) break;
@@ -505,11 +603,16 @@ export function autopilotPass(paths: RepoPaths, config: Config, deps: AutopilotD
       out.steps.push({ task: id, state: task.state, step: null, sha, outcome: d.outcome ?? 'skipped', reason: d.reason });
       continue;
     }
+    if (d.step === 'merge' && merged) {
+      out.steps.push({ task: id, state: task.state, step: null, sha, outcome: 'waiting', reason: 'Autopilot merged a pull request this pass already: it merges one a pass.' });
+      continue;
+    }
     deps.onStep?.(id, d.step, facts.head);
     try {
       const r = steps[d.step](id);
       out.steps.push({ task: id, state: task.state, step: d.step, sha, outcome: 'done', reason: r.reason, ...(r.pr ? { pr: r.pr } : {}), ...(r.update ? { update: r.update } : {}) });
       if (r.update) out.updates.push({ task: id, ...r.update });
+      if (d.step === 'merge') merged = true;
     } catch (e) {
       // A held task's start that failed is written on the task already, which needs a person (D-???).
       if ((e as AccError).code === 'start-failed') {
@@ -549,7 +652,7 @@ export interface AutopilotRecord {
   outcome: 'done' | 'failed';
   /** A review's verdict. */
   verdict?: 'pass' | 'changes';
-  /** A land's pull request, and whether it opened it or updated one. */
+  /** A land's pull request, and whether it opened it or updated one, or the pull request a merge merged. */
   pr?: { number: number; url: string; opened: boolean };
   /** A refresh: the base it merged in, or null when the conflict had gone and nothing was merged. */
   base?: string | null;
@@ -568,9 +671,9 @@ const obj = (v: unknown): Record<string, any> | null => (v && typeof v === 'obje
 const strs = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
 
 /**
- * The step a ledger event records, when autopilot took it, or null. A review that passed, a land and a
- * refresh are task.updated; a review that asked for changes and a re-dispatch are moves; a failure is
- * the failure written on the task. A re-dispatch's run record and a person's steps are null.
+ * The step a ledger event records, when autopilot took it, or null. A review that passed, a land, a
+ * refresh and a merge are task.updated; a review that asked for changes and a re-dispatch are moves; a
+ * failure is the failure written on the task. A re-dispatch's run record and a person's steps are null.
  */
 export function autopilotEvent(e: Pick<LedgerEvent, 'seq' | 'at' | 'type' | 'task' | 'by' | 'data'>): AutopilotRecord | null {
   if (!e || typeof e.by !== 'string' || !byAutopilot(e.by) || typeof e.task !== 'string') return null;
@@ -603,6 +706,10 @@ export function autopilotEvent(e: Pick<LedgerEvent, 'seq' | 'at' | 'type' | 'tas
   if (failed && (AUTOPILOT_STEPS as readonly string[]).includes(failed.step)) {
     return { ...base, step: failed.step as AutopilotStepName, outcome: 'failed', reason: String(failed.reason ?? '') };
   }
+  // A pull request it merged (GH-67): its own key, read before a bare pull request, which is a refresh's.
+  const merged = obj(d.merged);
+  const mergedPr = obj(merged?.pr);
+  if (mergedPr && typeof mergedPr.number === 'number') return { ...base, step: 'merge', outcome: 'done', pr: { number: mergedPr.number, url: String(mergedPr.url ?? ''), opened: false } };
   const reviewed = obj(d.reviewed);
   if (reviewed?.verdict === 'pass') return { ...base, step: 'review', outcome: 'done', verdict: 'pass' };
   const pr = obj(d.pr);

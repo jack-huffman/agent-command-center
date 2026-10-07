@@ -1,6 +1,7 @@
 import { type Config, environmentByBranch } from './config.ts';
 import { releaseAwake } from './awake.ts';
 import { arrivedAt } from './carried.ts';
+import { closeWords, issueToClose, settleCloses } from './closing.ts';
 import { AccError, type Runner } from './exec.ts';
 import { applyMove, checkMove, mutate, noGateHooks, type PullRequest, readLedger, type State } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
@@ -9,10 +10,12 @@ import { discardUpdate, draftUpdate, listUpdates } from './updates.ts';
 /**
  * Keeps tasks in step with their pull requests (D-033): merged is done, closed without merging is
  * blocked, and failing checks, a person's requested changes or a conflict with the base show the task
- * as needs you. It only reads GitHub, and fetches to see the conflicts (D-049). A task it moves to done
- * gets a draft update for its ticket, which a person posts (D-066): sync itself posts nothing. It follows
- * the promotions that took tasks on too (D-075): merged, each task's ticket hears its change is in the
- * next environment; closed without merging, the draft saying it was ready to go is set aside.
+ * as needs you. It reads GitHub, and fetches to see the conflicts (D-049). A task it moves to done gets
+ * a draft update for its ticket, which a person posts (D-066). It follows the promotions that took tasks
+ * on too (D-075): merged, each task's ticket hears its change is in the next environment; closed without
+ * merging, the draft saying it was ready to go is set aside. The one change it makes on GitHub: where the
+ * GitHub tracker says "edits": true, a task it moves to done has its issue closed in place of the draft,
+ * with a comment naming the pull request (D-082), and a close that failed is tried again.
  */
 
 export interface SyncChange {
@@ -23,6 +26,8 @@ export interface SyncChange {
   note: string;
   /** The update it drafted for the ticket, when it moved the task to done or a promotion of it merged. */
   update?: { id: string; key: string };
+  /** What became of the task's GitHub issue, where acc closes it (D-082): closed, left as it is, or not yet, with why. */
+  issue?: { key: string; outcome: 'closed' | 'left' | 'failed'; reason?: string };
 }
 
 interface GhPr {
@@ -89,7 +94,9 @@ export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now:
   const open = tasks.filter((t) => t.pr?.state === 'open');
   // A promotion carries several tasks: each open one is read once (D-075).
   const promotions = [...new Set(tasks.flatMap((t) => (t.promotions ?? []).filter((p) => p.state === 'open').map((p) => p.pr.number)))];
-  if (!open.length && !promotions.length) return { checked: 0, changes: [] };
+  // An issue whose close failed is tried again, even with no pull request left open (D-082).
+  const closing = tasks.some((t) => t.pr?.issue?.state === 'pending');
+  if (!open.length && !promotions.length && !closing) return { checked: 0, changes: [] };
   const gh = config.github;
   if (!gh) throw new AccError('no-github', 'This project has no "github" section in .acc/config.json, so there are no pull requests to follow.');
   const token = run('gh', ['auth', 'token', '-u', gh.account]);
@@ -152,6 +159,8 @@ export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now:
         if (t.state === 'review' && !checkMove(ledger, config, t, req, noGateHooks).length) {
           moved = { from: t.state, to: 'done' };
           applyMove(t, req, emit, now);
+          // Its tracker lets acc change its tickets: the issue closes once the ledger is written (D-082).
+          if (issueToClose(config, t)) t.pr.issue = { state: 'pending', at };
         }
         note = `#${p.number} merged`;
       } else if (p.state === 'CLOSED') {
@@ -220,7 +229,8 @@ export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now:
   for (const c of changes) {
     if (c.moved?.to !== 'done') continue;
     const t = ledger.tasks.find((x) => x.id === c.task);
-    if (!t) continue;
+    // Its issue closes with a comment saying it merged, so no draft says it again (D-082).
+    if (!t || t.pr?.issue) continue;
     try {
       const u = draftUpdate(paths, t, { event: 'merged', env: environmentByBranch(config, t.environment)?.name ?? t.environment }, 'acc sync', now);
       if (u) c.update = { id: u.id, key: u.key };
@@ -255,6 +265,16 @@ export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now:
       }
     }
     if (gone.length) change.note += `; discarded its unposted update ${gone.join(', ')}`;
+  }
+  // Each issue waiting to close, as the repo's account (D-007): those just merged, and any that failed
+  // before. One that fails again is named here, and the next sync tries it again.
+  for (const r of settleCloses(paths, config, { run, now, env })) {
+    const issue = { key: r.key, outcome: r.outcome as 'closed' | 'left' | 'failed', ...(r.reason ? { reason: r.reason } : {}) };
+    const c = changes.find((x) => x.task === r.task && x.pr === r.pr && x.moved?.to === 'done');
+    if (c) {
+      c.issue = issue;
+      c.note += `; ${closeWords(r)}`;
+    } else changes.push({ task: r.task, pr: r.pr, moved: null, note: closeWords(r), issue });
   }
   return { checked: seen.size + promoted.size, changes };
 }

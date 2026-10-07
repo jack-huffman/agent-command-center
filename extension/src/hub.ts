@@ -1,4 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { profileView, type ProfileView } from '../../packages/core/src/agents.ts';
@@ -13,9 +14,9 @@ import type { RepoPaths } from '../../packages/core/src/paths.ts';
 import type { HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import { resuming } from '../../packages/core/src/resume.ts';
 import { latestVerdict, reviewing } from '../../packages/core/src/review.ts';
-import { claudeProjectsDir, lastSaidIn, transcriptFile } from '../../packages/core/src/transcript.ts';
+import { claudeProjectsDir, lastModelIn, lastSaidIn, transcriptFile } from '../../packages/core/src/transcript.ts';
 import { readUpdate, type Update, UPDATE_ID } from '../../packages/core/src/updates.ts';
-import { type AgentSession, agentLook, analysisWait, askingLabel, isUnder, parseWorktrees, rowAnalysis, type RowFiles, sessionFor, type TaskRow, type Worktree } from './logic.ts';
+import { type AgentSession, agentLook, analysisWait, askingLabel, isUnder, parseWorktrees, repoRoot, rowAnalysis, type RowFiles, sessionFor, type TaskRow, type Worktree } from './logic.ts';
 import { runFile } from './run.ts';
 
 export interface WorktreeInfo extends Worktree {
@@ -45,6 +46,16 @@ const analysesOf = (p: Pick<Project, 'ledgerPath'>): RepoPaths => ({ analyses: j
 /** And its tickets' draft updates (D-066). */
 const updatesOf = (p: Pick<Project, 'ledgerPath'>): Pick<RepoPaths, 'updates'> => ({ updates: join(dirname(p.ledgerPath), 'updates') });
 
+/** Something read from a file, kept with the file's stamp until it changes. */
+interface Read<T> {
+  file: string;
+  stamp: string;
+  value: T | null;
+}
+
+/** How long a transcript not found is left before it's looked for again: a search reads every project folder. */
+const UNSAVED_MS = 30_000;
+
 /** When a file last changed, as one value: a rewrite in the same millisecond still has a new size or inode. */
 function stampOf(file: string): string | null {
   try {
@@ -69,6 +80,10 @@ export class Hub implements vscode.Disposable {
   questions: Question[] = [];
   /** How earlier questions ended, newest last (D-037), set by Questions. */
   answers: HistoryRecord[] = [];
+  /** The home folder, which sessions' folders show as ~ (GH-83). */
+  readonly home = homedir();
+  /** The repo each session's folder is in, as of the last `claude agents`, so a repo made since shows next time (GH-83). */
+  private readonly repos = new Map<string, string | null>();
   private readonly tasks = new Map<string, { stamp: string; ledger: Ledger; rows: TaskRow[] }>();
   /** The steps autopilot took in each repo, by ledger: projects of one repo share them (D-064). */
   private readonly steps = new Map<string, AutopilotLog>();
@@ -78,7 +93,15 @@ export class Hub implements vscode.Disposable {
   private readonly updateFiles = new Map<string, { stamp: string; update: Update | null }>();
   private readonly repoUpdates = new Map<string, Update[]>();
   /** The last thing each stopped builder said, by session, kept until its transcript changes (D-067). */
-  private readonly said = new Map<string, { file: string; stamp: string; said: string | null }>();
+  private readonly said = new Map<string, Read<string>>();
+  /** The model each agent last answered with, by session, kept until its transcript changes (D-086). */
+  private readonly models = new Map<string, Read<string>>();
+  /**
+   * When a session's transcript was last looked for and not found, for each thing read from it, so it isn't
+   * searched for every few seconds. One read's miss, such as the model just after a dispatch, doesn't hold
+   * up another's, such as what a builder that has since stopped last said.
+   */
+  private readonly unsaved = new Map<Map<string, Read<string>>, Map<string, number>>();
   /** What each in-flight task's branch has changed, by project and task, from the worktree poll (D-???). */
   private readonly changed = new Map<string, Map<string, string[]>>();
   private readonly emitter = new vscode.EventEmitter<HubPart>();
@@ -126,6 +149,12 @@ export class Hub implements vscode.Disposable {
   /** The project a path belongs to: its main checkout or any of its worktrees. */
   projectFor(path: string): Project | undefined {
     return this.projects.find((p) => isUnder(path, p.root) || p.worktrees.some((w) => isUnder(path, w.path)));
+  }
+
+  /** The repo a folder is in: the nearest folder up holding .git, short of the home folder (GH-83). */
+  repoFor(path: string): string | null {
+    if (!this.repos.has(path)) this.repos.set(path, repoRoot(path, this.home, (d) => existsSync(join(d, '.git'))));
+    return this.repos.get(path)!;
   }
 
   // ------------------------------------------------------------ tasks
@@ -236,20 +265,50 @@ export class Hub implements vscode.Disposable {
   }
 
   /**
-   * The last thing a session's agent said, from the end of its transcript. Read again only when the file
-   * changes: the rows are derived every few seconds.
+   * Something read from the end of a session's transcript. Read again only when the file changes: the
+   * rows are derived every few seconds. A transcript not found is looked for again after a while.
    */
-  private lastSaid(sessionId: string, likely: (string | null | undefined)[]): string | null {
-    let cached = this.said.get(sessionId);
-    const file = cached && existsSync(cached.file) ? cached.file : transcriptFile(claudeProjectsDir(process.env), sessionId, likely);
-    if (!file) return null;
+  private fromTranscript(cache: Map<string, Read<string>>, read: (file: string) => string | null, sessionId: string, likely: (string | null | undefined)[]): string | null {
+    let cached = cache.get(sessionId);
+    let file = cached && existsSync(cached.file) ? cached.file : null;
+    if (!file) {
+      let missed = this.unsaved.get(cache);
+      if (!missed) this.unsaved.set(cache, (missed = new Map()));
+      if (Date.now() - (missed.get(sessionId) ?? 0) < UNSAVED_MS) return null;
+      file = transcriptFile(claudeProjectsDir(process.env), sessionId, likely);
+      if (!file) {
+        missed.set(sessionId, Date.now());
+        return null;
+      }
+      missed.delete(sessionId);
+    }
     const stamp = stampOf(file);
     if (!stamp) return null;
     if (cached?.file !== file || cached.stamp !== stamp) {
-      cached = { file, stamp, said: lastSaidIn(file) };
-      this.said.set(sessionId, cached);
+      cached = { file, stamp, value: read(file) };
+      cache.set(sessionId, cached);
     }
-    return cached.said;
+    return cached.value;
+  }
+
+  /** The last thing a session's agent said, from the end of its transcript (D-067). */
+  private lastSaid(sessionId: string, likely: (string | null | undefined)[]): string | null {
+    return this.fromTranscript(this.said, lastSaidIn, sessionId, likely);
+  }
+
+  /** The model a session's agent last answered with, from the end of its transcript (D-086). */
+  private lastModel(sessionId: string, likely: (string | null | undefined)[]): string | null {
+    return this.fromTranscript(this.models, lastModelIn, sessionId, likely);
+  }
+
+  /**
+   * The model a session runs with (D-086): what its transcript last answered with, else, for a task's
+   * builder, the model acc started it with, before its first answer. Null when neither is known.
+   */
+  modelFor(s: AgentSession): string | null {
+    const task = [...this.tasks.values()].flatMap((c) => c.ledger.tasks).find((t) => (!!s.sessionId && t.run?.sessionId === s.sessionId) || (!!s.id && t.run?.bgId === s.id));
+    const said = s.sessionId ? this.lastModel(s.sessionId, [s.cwd, task?.run?.worktree]) : null;
+    return said ?? task?.run?.model ?? null;
   }
 
   /**
@@ -293,6 +352,8 @@ export class Hub implements vscode.Disposable {
       const look = carrying ? { label: 'Resumed: working', icon: 'sync~spin', tone: 'blue' as const } : session ? agentLook(session, asking) : null;
       const info: SessionInfo | undefined = stopped ? { stopped: true } : carrying ? { status: 'busy' } : session ? (asking ? { state: 'blocked', status: 'waiting' } : { state: session.state, status: session.status }) : undefined;
       const said = stopped && t.run?.sessionId ? this.lastSaid(t.run.sessionId, [t.run.worktree, session?.cwd, p?.root]) : null;
+      // The model its agent runs with (D-086): what it last answered with, else what acc started it with.
+      const model = look && t.run ? (t.run.sessionId ? this.lastModel(t.run.sessionId, [t.run.worktree, session?.cwd, p?.root]) : null) ?? t.run.model ?? null : null;
       const failed = autopilotFailure(t);
       return {
         id: t.id,
@@ -306,13 +367,16 @@ export class Hub implements vscode.Disposable {
         source: { kind: t.source.kind, url: t.source.url },
         run: t.run,
         agent: look ? { label: look.label, icon: look.icon, tone: look.tone } : null,
+        model,
         asking: !!asking,
         review: verdict ? { verdict: verdict.verdict, summary: verdict.summary, current: !!head && verdict.sha === head, at: verdict.at } : null,
-        reviewing: live ? { sessionId: live.sessionId } : null,
+        // Each agent under way with the name acc gave it (D-087); the builder's is on its run.
+        reviewing: live ? { sessionId: live.sessionId, name: live.name } : null,
         pr: t.pr ? { number: t.pr.number, url: t.pr.url, state: t.pr.state, ci: t.pr.ci ?? null, changesRequested: t.pr.changesRequested ?? false, conflicts: t.pr.conflicts ?? [] } : null,
         promoting: (t.promotions ?? []).some((x) => x.state === 'open'),
+        closing: t.pr?.issue?.state === 'pending',
         analysis,
-        analyzing: running ? { sessionId: running.sessionId } : null,
+        analyzing: running ? { sessionId: running.sessionId, name: running.name } : null,
         analysisRequired: required,
         autopilot: failed ? { step: failed.step, reason: failed.reason } : null,
         checks: failedChecks(t),
@@ -414,6 +478,7 @@ export class Hub implements vscode.Disposable {
 
   async loadAgents(): Promise<void> {
     const r = await runFile('claude', ['agents', '--json'], this.projects[0]?.root ?? process.cwd(), process.env, undefined, 20_000);
+    this.repos.clear();
     if (r.code === 127) {
       this.agents = [];
       this.agentsError = 'The Claude Code CLI (claude) isn\'t on PATH.';

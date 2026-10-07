@@ -3,9 +3,9 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import type { TaskRow } from '../src/logic.ts';
+import { type AgentSession, repoRoot, type TaskRow } from '../src/logic.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
-import { agentsModel, analysisLook, type BoardInput, cardActions, environmentsModel, homeModel, type HubLike, isFromWebview, needsYouCount, promotionPaths, setupModel, tasksModel, ticketModel, trackerBoard, VIEW_KINDS, worktreesModel, dropLanes, laneMove } from '../src/model.ts';
+import { AGENT_SETTINGS, agentsModel, analysisLook, type BoardInput, cardActions, environmentsModel, homeModel, type HubLike, isFromWebview, needsYouCount, promotionPaths, sessionFolders, setupModel, tasksModel, ticketModel, trackerBoard, VIEW_KINDS, worktreesModel, dropLanes, laneMove } from '../src/model.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
@@ -55,9 +55,87 @@ test('agents: this project first, needs-you on top, background sessions can be s
   assert.deepEqual(m.places.map((p) => p.label), ['Acme', 'Elsewhere on this machine']);
   const bg = m.places[0]!.agents[0]!;
   assert.equal(bg.look.label, 'Needs you: permission prompt');
-  assert.equal(bg.where, 'AV-2');
+  assert.equal(bg.where, 'worktree AV-2');
   assert.equal(bg.background, true);
   assert.equal(m.places[1]!.agents[0]!.background, false, 'interactive sessions are managed where they run');
+});
+
+test('an agent is called by the name acc gave it on the Agents tab, the Overview and its page, though Claude Code lists another (D-087)', async () => {
+  const { agentModel } = await import('../src/model.ts');
+  const name = 'Acme · AV-1 Login page for the partner portal · builder 2';
+  const review = 'Acme · AV-3 Lead routing · review';
+  const h = hub();
+  // A resumed builder Claude Code lists under a name of its own, waiting on you; a reviewer it lists without one.
+  h.agents = [
+    { cwd: '/r.worktrees/AV-1', kind: 'interactive', startedAt: 3, sessionId: 'sess-1', name: 'r-worktrees-5e', status: 'waiting', pid: 11 },
+    { cwd: '/r.worktrees/AV-3', kind: 'interactive', startedAt: 2, sessionId: 'sess-r', status: 'busy', pid: 12 },
+    { cwd: '/r', kind: 'background', startedAt: 1, id: 'bg9', sessionId: 'sess-9', name: 'AV-9', state: 'working', pid: 13 },
+  ];
+  const rows = h.taskRows('/r');
+  h.taskRows = () => rows.map((r) => (r.id === 'AV-1' ? { ...r, title: 'Retitled since', run: { bgId: 'bg1', sessionId: 'sess-1', name } } : r.id === 'AV-3' ? { ...r, state: 'review', reviewing: { sessionId: 'sess-r', name: review } } : r));
+  const names = agentsModel(h).places[0]!.agents.map((a) => a.name);
+  assert.deepEqual(names, [name, review, 'AV-9'], 'by its recorded name; one from before names by Claude Code\'s');
+  const page = agentModel({ hub: h, key: 'sess-1', seen: null, entries: [], readable: false, lastAt: null });
+  assert.equal(page.name, name);
+  assert.equal(page.task?.id, 'AV-1', 'its task, found by its session');
+  assert.equal(agentModel({ hub: h, key: 'sess-r', seen: null, entries: [], readable: false, lastAt: null }).name, review);
+  const m = homeModel({ hub: h, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } });
+  assert.ok(m.overview.attention.some((a) => a.title === name), 'the Overview names a waiting agent the same way');
+  // A card shows its builder's name when its agent line is hovered.
+  const card = tasksModel(h).projects[0]!.columns.flatMap((c) => c.cards).find((c) => c.id === 'AV-1')!;
+  assert.equal(card.agentName, name);
+});
+
+/** The test hub with these sessions, a home folder, and these folders holding .git. */
+function sessionsAt(cwds: string[], repos: string[] = []): HubLike {
+  const agents: AgentSession[] = cwds.map((cwd, i) => ({ cwd, kind: 'interactive', startedAt: 100 - i, sessionId: `s${i}`, name: `s${i}`, status: 'idle', pid: i + 1 }));
+  return { ...hub(), home: '/Users/me', agents, repoFor: (p) => repoRoot(p, '/Users/me', (d) => repos.includes(d)) };
+}
+const labels = (h: HubLike) => [...sessionFolders(h).values()].map((f) => f.label);
+
+test('a session elsewhere reads as its repo, a worktree of it, a folder inside it, or its folder\'s own name (GH-83)', () => {
+  const acme = '/Users/me/clients/Acme Service';
+  // The worktree has its own .git, a file: the path says it's Acme Service's, and that wins.
+  const h = sessionsAt([acme, `${acme}/.claude/worktrees/ACME-12`, `${acme}/.claude/worktrees/ACME-12/force-app`, `${acme}/force-app/main`, '/Users/me/Downloads/scratch', '/Users/me', '/opt/tools'], [acme, `${acme}/.claude/worktrees/ACME-12`]);
+  assert.deepEqual(labels(h), ['Acme Service', 'Acme Service › worktree ACME-12', 'Acme Service › worktree ACME-12 › force-app', 'Acme Service › force-app/main', 'scratch', '~', 'tools']);
+  const folders = sessionFolders(h);
+  assert.deepEqual([...folders.values()].map((f) => f.full), ['~/clients/Acme Service', '~/clients/Acme Service/.claude/worktrees/ACME-12', '~/clients/Acme Service/.claude/worktrees/ACME-12/force-app', '~/clients/Acme Service/force-app/main', '~/Downloads/scratch', '~', '/opt/tools']);
+  assert.ok([...folders.values()].every((f) => f.inProject === null), 'none is in a project open here');
+  // The Agents tab shows the same, under Elsewhere, with the full path beside it for the toggle and the hover.
+  const rows = agentsModel(h).places.find((p) => p.root === null)!.agents;
+  assert.deepEqual(rows.map((r) => [r.where, r.path]), [...folders.values()].map((f) => [f.label, f.full]));
+  assert.equal(sessionFolders(h, ['/x']).get('/x')!.label, 'x', 'a folder no session has, such as an ended session\'s');
+});
+
+test('a session in a project open here reads as where it is in it, without the project its group names (GH-83)', () => {
+  const h = sessionsAt(['/r', '/r/.claude/worktrees/ACME-12', '/r/force-app/main', '/r.worktrees/AV-2', '/r.worktrees/AV-2/src']);
+  const folders = [...sessionFolders(h).values()];
+  assert.deepEqual(folders.map((f) => f.inProject), ['main checkout', 'worktree ACME-12', 'force-app/main', 'worktree AV-2', 'worktree AV-2 › src']);
+  assert.deepEqual(folders.map((f) => f.label), ['Acme › main checkout', 'Acme › worktree ACME-12', 'Acme › force-app/main', 'Acme › worktree AV-2', 'Acme › worktree AV-2 › src'], 'elsewhere, such as an agent\'s page, it leads with the project');
+  assert.deepEqual(agentsModel(h).places[0]!.agents.map((a) => a.where), folders.map((f) => f.inProject));
+});
+
+test('two folders of one name each add their parent folders until they differ, and one folder always reads one way (GH-83)', () => {
+  const clients = '/Users/me/clients/Acme Service';
+  const personal = '/Users/me/personal/Acme Service';
+  // Every session in a repo of that name says which it is, its worktrees too.
+  assert.deepEqual(labels(sessionsAt([clients, personal, `${clients}/.claude/worktrees/ACME-40`], [clients, personal])), ['clients/Acme Service', 'personal/Acme Service', 'clients/Acme Service › worktree ACME-40']);
+  assert.deepEqual(labels(sessionsAt(['/Users/me/a/x/Acme', '/Users/me/b/x/Acme'])), ['a/x/Acme', 'b/x/Acme']);
+  assert.deepEqual(labels(sessionsAt(['/Users/me/x/Acme', '/opt/x/Acme'])), ['~/x/Acme', 'opt/x/Acme']);
+  // Two sessions in one folder, however its path is written, share one name, and add no parent for it.
+  const same = sessionsAt(['/Users/me/Downloads/scratch', '/Users/me/Downloads/scratch/', '/Users/me/Downloads/scratch']);
+  assert.deepEqual(agentsModel(same).places.find((p) => p.root === null)!.agents.map((a) => a.where), ['scratch', 'scratch', 'scratch']);
+});
+
+test('the Where column shows folders unless the window chose full paths, and the page can only ask for one or the other (GH-83)', () => {
+  const input = { hub: hub(), section: 'agents' as const, boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set<string>() } };
+  assert.equal(homeModel(input).agents.whereView, 'folder');
+  assert.equal(homeModel({ ...input, whereView: 'path' }).agents.whereView, 'path');
+  assert.equal(agentsModel(hub()).whereView, 'folder');
+  assert.ok(isFromWebview({ type: 'agents-where', view: 'folder' }));
+  assert.ok(isFromWebview({ type: 'agents-where', view: 'path' }));
+  assert.ok(!isFromWebview({ type: 'agents-where', view: 'tree' }));
+  assert.ok(!isFromWebview({ type: 'agents-where' }));
 });
 
 /** The webview/context items VSCode would show for a row with these context keys, in menu order. */
@@ -131,16 +209,31 @@ test('setup counts steps done, and offers fixes only where something is open', (
     { id: 'B0.repo', part: 'project', title: 'Repo', status: 'pass', detail: 'ok' },
     { id: 'B2.identity', part: 'project', title: 'Identity', status: 'fail', detail: 'wrong', fix: 'git config user.name x' },
     { id: 'B14.tickets', part: 'project', title: 'Tickets', status: 'fail', detail: 'Not signed in', fix: 'acc.trackers.signIn' },
-    { id: 'A4.plugin', part: 'machine', title: 'Plugin', status: 'skip', detail: 'later' },
+    { id: 'A4.plugin', part: 'machine', title: 'Plugin', status: 'pass', detail: 'acc 0.35.0, for every Claude Code session.' },
   ], new Set());
-  assert.equal(m.total, 3, 'planned steps stay out');
-  assert.equal(m.done, 1);
+  assert.equal(m.total, 4);
+  assert.equal(m.done, 2);
   const steps = m.parts.flatMap((p) => p.steps);
   assert.deepEqual(steps.find((s) => s.id === 'B2.identity')!.actions.map((a) => a.label), ['Do it', 'Check']);
   const tickets = steps.find((s) => s.id === 'B14.tickets')!;
   assert.deepEqual(tickets.actions.map((a) => a.label), ['Do it', 'Check', 'Guide'], 'Do it runs Add a tracker or Sign in, in VSCode');
   assert.equal(tickets.fix, null, 'a VSCode command isn\'t shown as one to copy');
   assert.deepEqual(steps.find((s) => s.id === 'B0.repo')!.actions.map((a) => a.label), ['Check', 'Guide'], 'passing steps keep only Check and the guide')
+  assert.deepEqual(steps.find((s) => s.id === 'A4.plugin')!.actions.map((a) => a.label), ['Check']);
+});
+
+test('setup shows the acc plugin under its own section, with Do it while it fails', () => {
+  const add = 'claude plugin marketplace add https://github.com/jack-huffman/agent-command-center && claude plugin install acc@agent-command-center --scope user';
+  const m = setupModel([
+    { id: 'A2.gh-login', part: 'machine', title: 'Logged in to GitHub', status: 'pass', detail: 'ok' },
+    { id: 'A4.plugin', part: 'machine', title: 'The acc plugin in Claude Code', status: 'fail', detail: 'acc isn\'t installed in Claude Code, and its marketplace isn\'t added.', fix: add },
+  ], new Set());
+  const machine = m.parts.find((p) => p.part === 'machine')!;
+  assert.deepEqual(machine.sections.map((s) => [s.title, s.todo]), [['Accounts', 0], ['The acc plugin', 1]]);
+  const a4 = machine.steps.find((s) => s.id === 'A4.plugin')!;
+  assert.deepEqual(a4.actions.map((a) => a.label), ['Do it', 'Check']);
+  assert.equal(a4.fix, add, 'the command is shown to copy');
+  assert.deepEqual([a4.look.label, a4.look.tone], ['To do', 'orange']);
 });
 
 test('setup reads in the order things are set up, a section for each thing, whatever order the checks finished in (D-047)', () => {
@@ -208,11 +301,11 @@ test('the Overview gathers what needs a person, counts it once, and groups revie
 
 test('cards follow a task through dispatch: Dispatch, then Watch, Attach and Abandon, then Clean up', () => {
   const labels = (r: Partial<TaskRow>) => cardActions({ ...row('AV-9', 'todo', 'ready'), deps: [], ...r } as TaskRow, {}).map((a) => a.label);
-  assert.deepEqual(labels({}), ['Dispatch', 'Analyze', 'Move', 'Block', 'Details']);
+  assert.deepEqual(labels({}), ['Dispatch', 'Dispatch with…', 'Analyze', 'Move', 'Block', 'Details']);
   assert.deepEqual(labels({ state: 'running', display: 'running', run: { bgId: 'bg1', worktree: '/w/AV-9' } }), ['Watch', 'Open in Claude Code', 'Worktree', 'Instructions', 'Move', 'Abandon', 'Details']);
   assert.equal(cardActions({ ...row('AV-9', 'running', 'running'), deps: [], run: { bgId: 'bg1' } } as TaskRow, {})[0]!.primary, true, 'Watch is the main action while it runs');
   assert.deepEqual(labels({ state: 'review', display: 'review', run: { sessionId: 's1', worktree: '/w/AV-9' } }).slice(0, 2), ['Review', 'Watch'], 'in review: Review first, and what its builder did can still be read');
-  assert.deepEqual(labels({ state: 'rework', display: 'rework', run: { worktree: '/w/AV-9' } }), ['Re-dispatch', 'Worktree', 'Instructions', 'Move', 'Block', 'Details']);
+  assert.deepEqual(labels({ state: 'rework', display: 'rework', run: { worktree: '/w/AV-9' } }), ['Re-dispatch', 'Re-dispatch with…', 'Worktree', 'Instructions', 'Move', 'Block', 'Details']);
   assert.deepEqual(labels({ state: 'done', display: 'done', run: { worktree: '/w/AV-9' } }), ['Worktree', 'Instructions', 'Move', 'Clean up', 'Details']);
   assert.equal(cardActions({ ...row('AV-9', 'todo', 'ready'), deps: [] }, {})[0]!.primary, true, 'Dispatch is the main action on a ready card');
 });
@@ -229,12 +322,12 @@ test('before a build, a card offers its analysis first, and Dispatch once it\'s 
   assert.deepEqual(labels({ analysisRequired: true, analyzing: { sessionId: 's' } }), ['Watch the analysis*', 'Move', 'Block', 'Details']);
   assert.deepEqual(labels({ analysisRequired: true, display: 'needs-you', analysis: asks }), ['Answer*', 'Move', 'Block', 'Details']);
   assert.deepEqual(labels({ analysisRequired: true, display: 'needs-you', analysis: tooBig }), ['See the split*', 'Move', 'Block', 'Details']);
-  assert.deepEqual(labels({ analysisRequired: true, analysis: analysed }), ['Dispatch*', 'Move', 'Block', 'Details']);
+  assert.deepEqual(labels({ analysisRequired: true, analysis: analysed }), ['Dispatch*', 'Dispatch with…', 'Move', 'Block', 'Details']);
   assert.deepEqual(labels({ analysisRequired: true, deps: ['AV-1'], display: 'todo' }), ['Analyze*', 'Move', 'Block', 'Details'], 'waiting on another task: analyze it meanwhile');
   // Where it's optional: Dispatch stays, second to answering questions the analysis did ask.
-  assert.deepEqual(labels({}), ['Dispatch*', 'Analyze', 'Move', 'Block', 'Details']);
-  assert.deepEqual(labels({ display: 'needs-you', analysis: asks }), ['Answer*', 'Dispatch', 'Move', 'Block', 'Details']);
-  assert.deepEqual(labels({ analysis: analysed }), ['Dispatch*', 'Move', 'Block', 'Details']);
+  assert.deepEqual(labels({}), ['Dispatch*', 'Dispatch with…', 'Analyze', 'Move', 'Block', 'Details']);
+  assert.deepEqual(labels({ display: 'needs-you', analysis: asks }), ['Answer*', 'Dispatch', 'Dispatch with…', 'Move', 'Block', 'Details']);
+  assert.deepEqual(labels({ analysis: analysed }), ['Dispatch*', 'Dispatch with…', 'Move', 'Block', 'Details']);
   assert.deepEqual(labels({ analyzing: { sessionId: 's' } }), ['Watch the analysis*', 'Move', 'Block', 'Details'], 'not while it\'s being analyzed');
   assert.equal(labels({ state: 'rework', display: 'rework', analysisRequired: true })[0], 'Re-dispatch*', 'a rework already had its analysis');
   // Dragging to Running is dispatching, so it's held the same way.
@@ -683,6 +776,21 @@ test('History tells autopilot\'s start of a held task, and one it couldn\'t make
   assert.deepEqual(look({ outcome: 'failed', reason: 'No trust' }), ['Autopilot couldn\'t start it', 'warning', 'orange', 'No trust']);
 });
 
+test('How agents run is behind a Settings button, closed until it\'s opened, and the status bar\'s Auto-merge opens it', () => {
+  const page = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
+  // Closed by default, remembered for the tab, with a label that says which way it goes and an icon.
+  assert.match(page, /const open = memory\(\)\.opened\.includes\(AGENT_SETTINGS\)/);
+  assert.match(page, /button\(open \? 'Hide settings' : 'Settings', 'settings-gear',/);
+  assert.match(page, /setAttribute\('aria-expanded', String\(open\)\)/);
+  assert.match(page, /for \(const s of open \? m\.settings : \[\]\)/, 'the settings are drawn only when open');
+  // A billing problem still shows while it's closed.
+  assert.match(page, /if \(!open\) for \(const s of m\.settings\) if \(s\.billing\?\.tone === 'orange'\)/);
+  // The webview's key is model.ts's, which the extension asks the page to open.
+  assert.equal(page.match(/const AGENT_SETTINGS = '([^']+)'/)?.[1], AGENT_SETTINGS);
+  assert.match(readFileSync(join(root, 'src', 'extension.ts'), 'utf8'), /go: \(\) => panels\.show\('agents', AGENT_SETTINGS\)/);
+  assert.match(page, /if \(msg\.open\) \{ const part = msg\.open; remember/);
+});
+
 test('How agents run shows the project\'s autonomy, where it\'s set, and a way to change it (D-064)', () => {
   const h = hub();
   const p = h.projects[0]!;
@@ -701,4 +809,100 @@ test('How agents run shows the project\'s autonomy, where it\'s set, and a way t
   assert.match(readFileSync(join(root, 'src', 'panels.ts'), 'utf8'), /'acc\.agents\.autonomy'/, 'the page may ask for it');
   assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === 'acc.agents.autonomy'));
   assert.match(readFileSync(join(root, 'src', 'sidebar.ts'), 'utf8'), /this\.runAcc\(project, \['agents', 'autonomy', pick\.value\]/);
+});
+
+test('How agents run has an Auto-merge row: on or off, what it means, and Change… through acc; the autonomy row says when autopilot merges (GH-67)', () => {
+  const h = hub();
+  const p = h.projects[0]!;
+  p.agents = {
+    builder: { model: null, effort: null, fallbackModel: null, from: { model: 'default', effort: 'default', fallbackModel: 'default' } },
+    reviewer: { model: null, effort: null, fallbackModel: null, from: { model: 'default', effort: 'default', fallbackModel: 'default' } },
+  };
+  p.config = { ...p.config, profile: 'generic', autonomy: 'review' };
+  assert.deepEqual(agentsModel(h).settings[0]!.autoMerge, { value: 'off', from: 'project', meaning: 'Autopilot never merges a pull request: a person merges each one.', settable: true });
+  // Its environments include Production, which is protected.
+  assert.ok(p.config.environments.some((e) => e.name === 'Production' && e.protected));
+  p.config = { ...p.config, autopilot: { autoMerge: true } };
+  const s = agentsModel(h).settings[0]!;
+  assert.deepEqual(s.autoMerge, { value: 'on', from: 'project', settable: true, meaning: 'Autopilot merges a pull request once its review and checks passed, it\'s up to date with its base, GitHub says it can merge and nothing waits on you, one a pass. Never into Production: protected.' });
+  assert.match(s.autonomy!.meaning, /Auto-merge is on: it also merges a pull request whose review and checks passed, .* It never merges into a protected environment\.$/);
+  assert.doesNotMatch(s.autonomy!.meaning, /It never merges a pull request/);
+  p.config = { ...p.config, autonomy: 'manual' };
+  assert.match(agentsModel(h).settings[0]!.autoMerge!.meaning, /Autonomy is manual, so nothing merges on its own\.$/);
+  // A Salesforce project never auto-merges, so there's nothing to change.
+  p.config = { ...p.config, profile: 'salesforce' };
+  assert.deepEqual(agentsModel(h).settings[0]!.autoMerge, { value: 'off', from: 'project', meaning: 'A Salesforce project never auto-merges: a person merges every pull request.', settable: false });
+
+  // The page asks acc to change it, with an icon beside the words; the webview never writes the config.
+  const page = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
+  assert.match(page, /icon\(s\.autoMerge\.value === 'on' \? 'git-merge' : 'circle-slash'\), el\('span', 'strong', 'Auto-merge'\)/);
+  assert.match(page, /s\.autoMerge\.settable \? argButton\('acc\.agents\.autoMerge', 'Change…', 'edit', s\.root\)/);
+  assert.match(readFileSync(join(root, 'src', 'panels.ts'), 'utf8'), /'acc\.agents\.autoMerge'/, 'the page may ask for it');
+  assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === 'acc.agents.autoMerge'));
+  const sidebar = readFileSync(join(root, 'src', 'sidebar.ts'), 'utf8');
+  assert.match(sidebar, /this\.runAcc\(project, \['agents', 'auto-merge', pick\.value\]/);
+  // The status bar's menu says on or off for each repo, with an icon, and opens the Agents section.
+  const ext = readFileSync(join(root, 'src', 'extension.ts'), 'utf8');
+  assert.match(ext, /autopilot\.mergeLooks\(\)\.map/);
+  assert.match(ext, /m\.on \? '\$\(git-merge\) Auto-merge: on' : '\$\(circle-slash\) Auto-merge: off'/);
+  assert.match(ext, /go: \(\) => panels\.show\('agents', AGENT_SETTINGS\)/);
+});
+
+test('History tells a pull request autopilot merged, with its link (GH-67)', () => {
+  const h = hub();
+  h.autopilotLog = () => [{ seq: 12, at: new Date(Date.UTC(2026, 9, 6, 12)).toISOString(), task: 'AV-3', step: 'merge', outcome: 'done', pr: { number: 40, url: 'https://github.com/o/r/pull/40', opened: false } }];
+  const items = homeModel({ hub: h, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } }).overview.history;
+  const merged = items.filter((i) => i.kind === 'autopilot').map((i) => i.kind === 'autopilot' && [i.task, i.look.icon, i.look.label, i.look.tone, i.detail, i.url]);
+  assert.deepEqual(merged, [['AV-3', 'git-merge', 'Autopilot merged pull request #40', 'blue', 'acc sync moves it to done.', 'https://github.com/o/r/pull/40']]);
+});
+
+test('Dispatch with… sits behind ⋯ wherever Dispatch is offered, and on the task page, and the pages may ask for it (D-086)', () => {
+  const actions = (r: Partial<TaskRow>) => cardActions({ ...row('AV-9', 'todo', 'ready'), deps: [], ...r } as TaskRow, { project: '/r', task: 'AV-9' });
+  const withIt = actions({}).find((a) => a.command === 'acc.task.dispatchWith')!;
+  assert.deepEqual([withIt.label, withIt.icon, !!withIt.primary], ['Dispatch with…', 'sparkle', false], 'never the next step, so it sits behind ⋯');
+  assert.equal(actions({ state: 'rework', display: 'rework' }).find((a) => a.command === 'acc.task.dispatchWith')!.label, 'Re-dispatch with…');
+  for (const r of [{ state: 'running', display: 'running' as const, run: { bgId: 'bg1' } }, { state: 'review', display: 'review' as const }, { analysisRequired: true }, { analyzing: { sessionId: 's' } }]) {
+    assert.ok(!actions(r).some((a) => a.command === 'acc.task.dispatchWith'), `only where Dispatch is: ${JSON.stringify(r)}`);
+  }
+  const task = { id: 'AV-9', title: 'Task AV-9', brief: '', source: { kind: 'jira', key: 'AV-9', url: null }, environment: 'devbox', deps: [], labels: [], state: 'todo', blocker: null, history: [], createdAt: '', updatedAt: '' } as never;
+  const page = ticketModel({ project: '/r', tracker: null, trackerTitle: null, trackerKind: null, key: 'AV-9', ticket: null, loading: false, error: null, connect: null, checks: [], row: { ...row('AV-9', 'todo', 'ready'), deps: [] }, task });
+  assert.deepEqual(page.acc!.actions.slice(0, 2).map((a) => a.command), ['acc.task.dispatch', 'acc.task.dispatchWith'], 'the task page offers it beside Dispatch');
+  assert.match(readFileSync(join(root, 'src', 'panels.ts'), 'utf8'), /'acc\.task\.dispatchWith'/);
+  assert.match(readFileSync(join(root, 'src', 'ticket.ts'), 'utf8'), /'acc\.task\.dispatchWith'/);
+  assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === 'acc.task.dispatchWith'));
+  assert.match(readFileSync(join(root, 'src', 'sidebar.ts'), 'utf8'), /reg\('acc\.task\.dispatchWith'/);
+});
+
+test('a running card, its task page and its Agents row name the model its agent runs with, in plain text (D-086)', () => {
+  const h = hub();
+  const running: TaskRow = { ...row('AV-1', 'running', 'running'), run: { bgId: 'bg1', model: 'claude-sonnet-5-5', modelPicked: true }, agent: { label: 'Working', icon: 'sync~spin', tone: 'blue' }, model: 'claude-sonnet-5-5' };
+  const stopped: TaskRow = { ...row('AV-3', 'running', 'needs-you'), run: { sessionId: 's3', model: 'claude-opus-5-5' }, stopped: { said: null }, agent: { label: 'Stopped', icon: 'debug-pause', tone: 'orange' }, model: 'claude-opus-5-5' };
+  h.taskRows = () => [running, stopped, { ...row('AV-2', 'todo', 'ready'), deps: [] }];
+  const cards = tasksModel(h).projects[0]!.columns.flatMap((c) => c.cards);
+  assert.equal(cards.find((c) => c.id === 'AV-1')!.model, 'claude-sonnet-5-5');
+  assert.equal(cards.find((c) => c.id === 'AV-3')!.model, null, 'a stopped builder\'s line says it all');
+  assert.equal(cards.find((c) => c.id === 'AV-2')!.model, null, 'no agent, no model');
+  const task = { id: 'AV-1', title: 'Task AV-1', brief: '', source: { kind: 'jira', key: 'AV-1', url: null }, environment: 'devbox', deps: [], labels: [], state: 'running', blocker: null, run: running.run, history: [], createdAt: '', updatedAt: '' } as never;
+  const page = ticketModel({ project: '/r', tracker: null, trackerTitle: null, trackerKind: null, key: 'AV-1', ticket: null, loading: false, error: null, connect: null, checks: [], row: running, task });
+  assert.equal(page.acc!.model, 'claude-sonnet-5-5');
+  // The Agents tab asks the hub, which reads the transcript, then what acc started it with.
+  h.modelFor = (s) => (s.id === 'bg1' ? 'claude-sonnet-5-5' : null);
+  const rows = agentsModel(h).places.flatMap((p) => p.agents);
+  assert.deepEqual(rows.map((r) => [r.name, r.model]), [['av-2', 'claude-sonnet-5-5'], ['other', null]]);
+  const main = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
+  assert.match(main, /\['Model', 'model'\]/, 'a Model column');
+  assert.match(main, /el\('td', 'nowrap mono muted model', a\.model \? shortModel\(a\.model\) : '—'\), \{ title: a\.model/, 'a dash until it\'s known, in neutral mono text, its full name on hover');
+  assert.match(main, /card\.agent && card\.model \? el\('div', 'card-where card-model'/);
+  assert.match(main, /field\('Model', el\('span', 'mono', a\.model\)\)/);
+});
+
+test('How agents run names acc\'s default model, apart from Claude Code\'s default effort (D-086)', () => {
+  const h = hub();
+  h.projects[0]!.agents = {
+    builder: { model: 'claude-opus-5-5', effort: null, fallbackModel: null, from: { model: 'acc', effort: 'default', fallbackModel: 'default' } },
+    reviewer: { model: 'claude-sonnet-5-5', effort: 'high', fallbackModel: null, from: { model: 'clone', effort: 'project', fallbackModel: 'default' } },
+  };
+  const [builder, reviewer] = agentsModel(h).settings[0]!.roles;
+  assert.deepEqual(builder!.parts, [{ name: 'Model', value: 'claude-opus-5-5', from: 'acc\'s default' }, { name: 'Effort', value: 'default', from: 'Claude Code\'s default' }]);
+  assert.deepEqual(reviewer!.parts.map((p) => p.from), ['this clone', 'project default']);
 });

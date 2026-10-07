@@ -9,12 +9,13 @@ import {
   upsertTasks, writeConfig, ask, hookOutput, parseHookInput, waiveGates, review, land, sync, planPromotion, promote, skipWarning, planDeploy, deploy, lastDeploy,
   buildBaseline, seedBranches, draftLists, writeReadme, parseEventInput, preToolUseHook, sessionStartHook, stopHook, AGENT_ROLES, type AgentRole, profileView, setProfile, withCloneAgents, type ProfileChange,
   analyze, type Analysis, answerAnalysis, openQuestions, readAnalysis,
-  AUTOPILOT_MIN_EVERY_S, AUTOPILOT_REVIEW_DOES, type AutopilotResult, type AutopilotStepName, autopilotFailure, autopilotMode, autopilotPass, closedPr, failedChecks, holdAutopilot, sleep, alive, setAutonomy,
+  AUTOPILOT_MIN_EVERY_S, autopilotDoes, autoMergeFor, autoMergeOn, mergesWords, setAutoMerge, type AutopilotResult, type AutopilotStepName, autopilotFailure, autopilotMode, autopilotPass, closedPr, failedChecks, holdAutopilot, sleep, alive, setAutonomy,
   builderStopped, claudeProjectsDir, clipSaid, lastSaid, listSessions, resume, resuming,
-  claimUpdate, discardUpdate, draftUpdate, EVENT_WORDS, GH_TIMEOUT_MS, ghToken, githubIssue, isOpenUpdate, listUpdates, markPosted, readUpdate, releaseUpdate, stalePosting, type Update, UPDATE_TEXT_MAX, updateText,
+  claimUpdate, closesIssues, closeWords, discardUpdate, draftUpdate, EVENT_WORDS, GH_TIMEOUT_MS, ghToken, githubIssue, isOpenUpdate, listUpdates, markPosted, readUpdate, releaseUpdate, settleCloses, stalePosting, type Update, UPDATE_TEXT_MAX, updateText,
+  heavySlots, machineFile, setHeavySlots,
 } from '../../core/src/index.ts';
 import { issueRepo } from '../../core/src/trackers/github.ts';
-import type { Outside } from '../../core/src/trackers/types.ts';
+import { type Outside, TRACKER_KINDS, type TrackerKind, trackerName } from '../../core/src/trackers/types.ts';
 import { checkLabel, gateLabel, stateLabel, table, tone } from './format.ts';
 import pkg from '../../../package.json' with { type: 'json' };
 
@@ -39,13 +40,13 @@ Setup
 
 Tasks
   acc add "<title>" [--brief <text>] [--dep <id>]... [--env <branch>] [--key <T-n>]
-  acc import [--file <tasks.json>]      Add or refresh tasks from JSON (stdin by default). A Jira or Azure DevOps
-                                        key that no tracker in .acc/config.json owns is refused
+  acc import [--file <tasks.json>]      Add or refresh tasks from JSON (stdin by default). A Jira, Azure DevOps or
+                                        monday.com key that no tracker in .acc/config.json owns is refused
   acc intake github [--label <l>]       Add or refresh tasks from the open GitHub issues in the repo's place: its
                                         tracker's repo, and its labels if it names some. A task not started yet
                                         leaves the board when its issue closes, has a skipLabels label, or leaves
                                         the place
-  acc intake jira|azure --file <report.json>
+  acc intake jira|azure|monday --file <report.json>
                                         Follow tickets the Command Center found outside the repo's place, from
                                         { "outside": [{ "key", "why" }] }: a task not started yet leaves the board
   acc status                            One line: how many tasks are in each state
@@ -55,10 +56,12 @@ Tasks
   acc set <id> <state> [--reason <text>] [--force] [--as <actor>] [--by <name>]
 
 Agents
-  acc dispatch <id> [--foreground] [--without-analysis] [--anyway]
+  acc dispatch <id> [--foreground] [--without-analysis] [--anyway] [--model <m>]
                                         Worktree, setup, instructions, and a background builder session. A task
                                         whose analysis shares files with work in flight waits while another
-                                        Ready task shares none; --anyway starts it now
+                                        Ready task shares none; --anyway starts it now. --model picks the
+                                        builder's model for this task: a re-dispatch and a resume keep it.
+                                        Without one, the builder's model (acc agents)
   acc dispatch --held                   Start the tasks that wait for others' files and may go now
   acc dispatch <id> --stop-waiting      It stops waiting, and stays to do
   acc done [<id>]                       A builder's finish line: moves its task to review
@@ -70,24 +73,35 @@ Agents
                                         block, as when the Mac slept: its own session, in its worktree, with the
                                         rules it was dispatched with. It's told it was cut off, or --message
   acc cleanup <id>                      Remove a finished task's worktree, only if nothing would be lost
-  acc agents                            The model and effort builders and reviewers run with, and where each is set
+  acc agents                            The model and effort builders and reviewers run with, and where each is
+                                        set. A model nobody set is acc's default, claude-opus-5-5
   acc agents set <builder|reviewer> [--model <m>] [--effort <low|medium|high|xhigh|max>] [--fallback-model <m>]
                 [--clear <model|effort|fallback-model>]... [--project]
                                         Change them for this clone, or with --project in .acc/config.json
   acc agents autonomy [manual|review]   What autopilot may do on its own, or change it in .acc/config.json
+  acc agents auto-merge [on|off]        Whether autopilot merges a reviewed pull request whose checks passed, into
+                                        an environment that isn't protected, or change it in .acc/config.json
+  acc machine heavy-slots [<n>]         How many heavy checks (builds, tests, validations) this machine runs at once,
+                                        for every repo on it; with <n>, set it (1 to 8) in ~/.acc/machine.json
   acc analyze <id>                      Before the build: a read-only analyst works out the requirements, what's
                                         there now (the code, and on Salesforce the orgs), the approach, and questions
   acc analysis <id>                     What the task's analysis found
   acc analysis answer <id> <q> "<text>" Answer one of its questions; when the last is answered, it's ready to build
   acc review <id>                       A read-only reviewer agent judges the task's latest commit:
                                         pass, or changes (back to rework, with its findings)
-  acc land <id>                         Push a reviewed task's branch and open its pull request; never merges
+  acc land <id>                         Push a reviewed task's branch and open its pull request; it never merges it
   acc autopilot [--once | --every <seconds>]
                                         With "autonomy": "review", take each task's next step on its own: review it,
                                         land it, re-dispatch a rework once, resume a stopped builder once, or merge
-                                        the base into a pull request that conflicts with it. Never merges a pull request. One pass, or one every
+                                        the base into a pull request that conflicts with it. It merges a pull request
+                                        only where auto-merge is on: reviewed, its checks passed, nothing waiting on
+                                        a person, one a pass. One pass, or one every
                                         <seconds> (at least 30) until stopped; --json then prints a line a pass
-  acc sync                              Follow open pull requests: merged → done, closed → blocked, failing checks or conflicts → needs you
+  acc sync                              Follow open pull requests: merged → done, closed → blocked, failing checks or conflicts → needs you.
+                                        Where the GitHub tracker says "edits": true, a task's issue closes when it
+                                        merges to done, with a comment naming the pull request
+  acc sync --close-done [--plan]        A person's one-off tidy: close the issues of tasks done before acc closed
+                                        them, under the same rule, listing each. --plan lists them, changing nothing
 
 Ticket updates (acc drafts them; only a person posts)
   acc updates [--all] [--task <id>]     The drafts waiting for a person; --all adds the posted and discarded
@@ -180,7 +194,7 @@ function renderSteps(results: StepResult[], guided: boolean): string {
 }
 
 function cmdDoctor(o: Opts, guided: boolean): number {
-  const ctx = makeContext(process.cwd(), run);
+  const ctx = makeContext(process.cwd(), run, process.env, VERSION);
   const part = o.part as 'machine' | 'project' | undefined;
   if (part && part !== 'machine' && part !== 'project') throw new AccError('usage', '--part must be machine or project.');
   const only = (o.step as string[] | undefined) ?? [];
@@ -188,7 +202,7 @@ function cmdDoctor(o: Opts, guided: boolean): number {
   if (unknownIds.length) throw new AccError('usage', `No step ${unknownIds.join(', ')}. Run acc doctor to see them all.`);
   const results = runSteps(ctx, part, only);
   out(o, () => renderSteps(results, guided), results.map(({ step, result }) => ({
-    id: step.id, part: step.part, group: step.group, title: step.title, why: step.why, planned: step.planned ?? null,
+    id: step.id, part: step.part, group: step.group, title: step.title, why: step.why,
     status: result.status, detail: result.detail, fix: result.fix ?? null, howTo: step.fix ?? null, open: result.open ?? null,
   })));
   return results.some((r) => r.result.status === 'fail') ? 1 : 0;
@@ -263,7 +277,7 @@ function upsert(o: Opts, inputs: TaskInput[], own = false): number {
 }
 
 /**
- * The tasks whose Jira or Azure DevOps key a tracker in .acc/config.json owns, and why the rest are refused,
+ * The tasks whose Jira, Azure DevOps or monday.com key a tracker in .acc/config.json owns, and why the rest are refused,
  * so another project's or client's tickets never become tasks here (D-072). Without a Jira sign-in acc can't
  * check an epic, so only the project is held here; the board's check removes strays. A repo that names no
  * trackers has no place to hold to, and takes any.
@@ -274,10 +288,10 @@ function ownTickets(config: Config, inputs: TaskInput[]): { inputs: TaskInput[];
   const kept = inputs.filter((i) => {
     const kind = i?.source?.kind;
     const key = i?.source?.key;
-    if ((kind !== 'jira' && kind !== 'azure') || typeof key !== 'string') return true;
+    if (!isSignedInKind(kind) || typeof key !== 'string') return true;
     const at = trackerForKey(config.trackers, key);
     if (at !== null && config.trackers[at]!.kind === kind) return true;
-    refused.push(`${key.toUpperCase()}: no ${kind === 'jira' ? 'Jira' : 'Azure DevOps'} tracker in .acc/config.json owns it, so it isn't one of this repo's tickets.`);
+    refused.push(`${key.toUpperCase()}: no ${trackerName(kind)} tracker in .acc/config.json owns it, so it isn't one of this repo's tickets.`);
     return false;
   });
   return { inputs: kept, refused };
@@ -303,11 +317,16 @@ function cmdIntakeGithub(o: Opts): number {
   return res.errors.length ? 1 : 0;
 }
 
+/** The trackers only the Command Center signs in to (D-066): every one but GitHub. */
+type SignedInKind = Exclude<TrackerKind, 'github'>;
+const SIGNED_IN_KINDS = TRACKER_KINDS.filter((k): k is SignedInKind => k !== 'github');
+const isSignedInKind = (k: unknown): k is SignedInKind => (SIGNED_IN_KINDS as readonly unknown[]).includes(k);
+
 /**
- * Follows Jira or Azure DevOps tickets that left the repo's place (D-072). Only the Command Center signs in
- * to those (D-066), so it reads them and hands acc what it found: { "outside": [{ "key", "why" }] }.
+ * Follows Jira, Azure DevOps or monday.com tickets that left the repo's place (D-072). Only the Command
+ * Center signs in to those (D-066), so it reads them and hands acc what it found: { "outside": [{ "key", "why" }] }.
  */
-function cmdIntakeOutside(o: Opts, kind: 'jira' | 'azure'): number {
+function cmdIntakeOutside(o: Opts, kind: SignedInKind): number {
   const file = o.file as string | undefined;
   if (!file) throw new AccError('usage', `acc intake ${kind} --file <report.json>, with { "outside": [{ "key": "ACME-7", "why": "it isn't in epic ACME-3" }] }. The Command Center writes it after a board loads.`);
   const data = readInput(file) as { outside?: unknown };
@@ -403,7 +422,7 @@ function cmdReview(o: Opts, id: string): number {
   const say = (line: string) => { if (!o.json) process.stderr.write(line + '\n'); };
   const r = review(paths, config, id.toUpperCase(), {
     run, now, env: process.env,
-    onStart: (session, sha) => say(tone(`Reviewing ${id.toUpperCase()} at ${sha.slice(0, 7)}. The reviewer reads and changes nothing. Session ${session}.`, 'dim')),
+    onStart: (session, sha, name) => say(tone(`Reviewing ${id.toUpperCase()} at ${sha.slice(0, 7)}. The reviewer reads and changes nothing. Session ${session}, named ${name}.`, 'dim')),
   }, { by: `reviewer:${id.toUpperCase()} for ${by}` });
   const v = r.verdict;
   const where = (f: { file?: string; line?: number }) => (f.file ? `${f.file}${f.line ? `:${f.line}` : ''}  ` : '');
@@ -444,7 +463,7 @@ function cmdAnalyze(o: Opts, id: string): number {
   const say = (line: string) => { if (!o.json) process.stderr.write(line + '\n'); };
   const a = analyze(paths, config, id.toUpperCase(), {
     run, now, env: process.env, accCommand: accCommand(),
-    onStart: (session) => say(tone(`Analyzing ${id.toUpperCase()}. The analyst reads the ticket${config.profile === 'salesforce' ? ', the code and the orgs' : ' and the code'}, and changes nothing. Session ${session}.`, 'dim')),
+    onStart: (session, name) => say(tone(`Analyzing ${id.toUpperCase()}. The analyst reads the ticket${config.profile === 'salesforce' ? ', the code and the orgs' : ' and the code'}, and changes nothing. Session ${session}, named ${name}.`, 'dim')),
   }, { by: `analyst:${id.toUpperCase()} for ${by}` });
   out(o, () => analysisLines(a).join('\n'), a);
   return a.verdict === 'ready' ? 0 : 1;
@@ -477,12 +496,12 @@ function cmdLand(o: Opts, id: string): number {
     r.update ? `  Drafted an update for ${r.update.key} (${r.update.id}). Nothing is posted until a person posts it: acc updates.` : '',
     r.updateError ? tone(`! No update was drafted for ${r.task.id}'s ticket: ${r.updateError}`, 'orange') : '',
     r.pr.conflicts?.length ? tone(`! Pull request #${r.pr.number} conflicts with ${r.task.environment} in ${r.pr.conflicts.join(', ')}. GitHub can't merge it until that's resolved.`, 'orange') : '',
-    tone('It merges only when a person merges it on GitHub.', 'dim'),
+    tone(autoMergeFor(config, r.task.environment) ? mergesWords(true) : 'It merges only when a person merges it on GitHub.', 'dim'),
   ].filter(Boolean).join('\n'), r);
   return 0;
 }
 
-const STEP_WORD: Record<AutopilotStepName, string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update', resume: 'resume', checks: 'send back', start: 'start' };
+const STEP_WORD: Record<AutopilotStepName, string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update', resume: 'resume', checks: 'send back', merge: 'merge', start: 'start' };
 
 /** A step autopilot couldn't take, in words: "land abc1234", "update abc1234 from its base", "send abc1234 back for its failing checks". */
 const stepWords = (step: AutopilotStepName, sha: string): string => {
@@ -513,8 +532,8 @@ function autopilotLines(r: AutopilotResult): string[] {
  * pull request whose GitHub checks fail back to its builder once a commit (D-076), resumes a stopped
  * builder once a run (D-067), merges the base into a pull request that conflicts with it (D-058), and
  * starts a task a person dispatched once the files it waits for are free (D-???), as the orchestrator, up
- * to an open pull request. It never merges a pull request. One pass, or one every
- * --every seconds until stopped.
+ * to an open pull request. It merges a pull request only where auto-merge is on (GH-67). One pass, or one
+ * every --every seconds until stopped.
  */
 function cmdAutopilot(o: Opts): number {
   const role = process.env.ACC_ROLE;
@@ -530,14 +549,14 @@ function cmdAutopilot(o: Opts): number {
   for (const w of mode.warnings) process.stderr.write(`warning: ${w}\n`);
   if (mode.refusal) throw new AccError('refused', mode.refusal);
   if (!mode.on) {
-    out(o, () => `autonomy is "manual" in .acc/config.json, so autopilot does nothing. Set it to "review" for autopilot to act: it then ${AUTOPILOT_REVIEW_DOES}.`,
+    out(o, () => `autonomy is "manual" in .acc/config.json, so autopilot does nothing. Set it to "review" for autopilot to act: it then ${autopilotDoes(autoMergeOn(start.config))}`,
       { autonomy: mode.autonomy, warnings: mode.warnings, steps: [], updates: [] });
     return 0;
   }
   if (!start.config.github) throw new AccError('no-github', 'Autopilot lands reviewed work as pull requests on GitHub, and this project has no "github" section in .acc/config.json.');
   const say = (line: string) => { if (!o.json) process.stderr.write(tone(line, 'dim') + '\n'); };
-  const doing: Record<AutopilotStepName, string> = { review: 'Reviewing', land: 'Landing', dispatch: 'Re-dispatching', refresh: 'Updating', resume: 'Resuming', checks: 'Sending back', start: 'Starting' };
-  const after: Record<AutopilotStepName, string> = { review: '. The reviewer reads and changes nothing.', land: '', dispatch: '', refresh: ' from its base, then running its checks.', resume: ': its builder stopped before acc done or acc block.', checks: ' to its builder: its checks failed on GitHub. Reading their logs.', start: ': a person dispatched it, and it waited for another task\'s files.' };
+  const doing: Record<AutopilotStepName, string> = { review: 'Reviewing', land: 'Landing', dispatch: 'Re-dispatching', refresh: 'Updating', resume: 'Resuming', checks: 'Sending back', merge: 'Merging', start: 'Starting' };
+  const after: Record<AutopilotStepName, string> = { review: '. The reviewer reads and changes nothing.', land: '', dispatch: '', refresh: ' from its base, then running its checks.', resume: ': its builder stopped before acc done or acc block.', checks: ' to its builder: its checks failed on GitHub. Reading their logs.', merge: ': its review and checks passed. GitHub is asked again first.', start: ': a person dispatched it, and it waited for another task\'s files.' };
   // Started by the Command Center (D-064): once that window's extension host has gone, it stops at the
   // next step or within a second of waiting, even if nothing stopped it. No window, no autopilot.
   const parent = Number(process.env.ACC_AUTOPILOT_PARENT);
@@ -582,31 +601,69 @@ function cmdAutopilot(o: Opts): number {
 }
 
 function cmdSync(o: Opts): number {
+  const closeDone = o['close-done'] === true;
+  const plan = o.plan === true;
+  if (plan && !closeDone) throw new AccError('usage', '--plan goes with --close-done: acc sync --close-done --plan');
+  // Closing the issues of tasks already done is a person's: never a builder's, reviewer's, analyst's or autopilot's (D-082).
+  const by = closeDone ? personOnlyUpdate(o, 'close the issues of tasks already done') : null;
   const { paths, config } = project(process.cwd());
-  const r = sync(paths, config, { run, now, env: process.env });
-  out(o, () => (r.checked
-    ? [`Checked ${r.checked} open pull request${r.checked === 1 ? '' : 's'}.`, ...r.changes.map((c) => `  ${c.task}: ${c.note}${c.moved ? ` → ${stateLabel(c.moved.to)}` : ''}${c.update ? `. Drafted an update for ${c.update.key} (${c.update.id})` : ''}`)].join('\n')
-    : 'No open pull requests to follow.'), r);
+  // --plan only looks, so it doesn't sync either: a sync writes the ledger, and may close an issue.
+  const r = closeDone && plan ? { checked: 0, changes: [] } : sync(paths, config, { run, now, env: process.env });
+  const lines = [
+    ...(r.checked ? [`Checked ${r.checked} open pull request${r.checked === 1 ? '' : 's'}.`] : []),
+    ...r.changes.map((c) => `  ${c.task}: ${c.note}${c.moved ? ` → ${stateLabel(c.moved.to)}` : ''}${c.update ? `. Drafted an update for ${c.update.key} (${c.update.id})` : ''}`),
+  ];
+  if (!by) {
+    out(o, () => (lines.length ? lines.join('\n') : 'No open pull requests to follow.'), r);
+    return 0;
+  }
+  if (!closesIssues(config)) {
+    out(o, () => [...lines, 'No GitHub tracker here says "edits": true, so acc closes no issues.'].join('\n'), { ...r, closeDone: [] });
+    return 0;
+  }
+  const env = { ...process.env, GH_TOKEN: ghToken(run, config.github!.account) };
+  const closes = settleCloses(paths, config, { run, now, env }, { tidy: true, plan, actor: 'human', by });
+  out(o, () => [
+    ...lines,
+    !closes.length ? 'No done task\'s issue is waiting to close.' : plan ? 'The done tasks whose issues the tidy would close (nothing is changed). A sync may also close those of tasks merged since it last ran:' : 'The issues of tasks already done:',
+    ...closes.map((c) => `  ${c.task} (pull request #${c.pr}): ${closeWords(c, plan)}`),
+    plan && closes.some((c) => c.outcome === 'to close') ? tone('Close them with acc sync --close-done.', 'dim') : '',
+  ].filter(Boolean).join('\n'), { ...r, closeDone: closes, ...(plan ? { plan: true } : {}) });
   return 0;
 }
 
 /** Builders' and reviewers' model and effort (D-036). */
+/** This machine's settings, for every repo on it (D-080): how many heavy checks run at once. */
+function cmdMachine(o: Opts, sub: string | undefined, value: string | undefined): number {
+  if (sub !== 'heavy-slots') throw new AccError('usage', 'acc machine heavy-slots [<n>]');
+  if (value === undefined) {
+    const n = heavySlots();
+    out(o, () => `${n} heavy check${n === 1 ? '' : 's'} at once on this machine${process.env.ACC_HEAVY_SLOTS ? ' (from ACC_HEAVY_SLOTS)' : ''}.`, { heavySlots: n });
+    return 0;
+  }
+  personOnly(o, 'change how many heavy checks this machine runs');
+  const n = setHeavySlots(Number(value));
+  out(o, () => `This machine now runs ${n} heavy check${n === 1 ? '' : 's'} at once, for every repo on it. Set in ${machineFile()}.`, { heavySlots: n });
+  return 0;
+}
+
 function cmdAgents(o: Opts, sub: string | undefined, roleArg: string | undefined): number {
   const { paths } = project(process.cwd());
   // Shown from the project's own config, so where each value comes from is clear.
   const { config: projectConfig } = loadConfig(paths.config);
   const views = () => Object.fromEntries(AGENT_ROLES.map((r) => [r, profileView(projectConfig, run, paths.root, r)]));
   if (sub === 'autonomy') return cmdAutonomy(o, paths.config, roleArg);
+  if (sub === 'auto-merge') return cmdAutoMerge(o, paths.config, roleArg);
   if (!sub || sub === 'show') {
     const v = views();
-    const from = { clone: ' (this clone)', project: ' (project)', default: '' };
+    const from = { clone: ' (this clone)', project: ' (project)', acc: ' (acc\'s default)', default: '' };
     out(o, () => AGENT_ROLES.map((r) => {
       const p = v[r]!;
-      return `${r.padEnd(9)} model ${p.model ?? 'Claude Code\'s default'}${from[p.from.model]}, effort ${p.effort ?? 'default'}${from[p.from.effort]}${p.fallbackModel ? `, falls back to ${p.fallbackModel}${from[p.from.fallbackModel]}` : ''}`;
+      return `${r.padEnd(9)} model ${p.model}${from[p.from.model]}, effort ${p.effort ?? 'default'}${from[p.from.effort]}${p.fallbackModel ? `, falls back to ${p.fallbackModel}${from[p.from.fallbackModel]}` : ''}`;
     }).join('\n'), v);
     return 0;
   }
-  if (sub !== 'set' || !roleArg || !(AGENT_ROLES as readonly string[]).includes(roleArg)) throw new AccError('usage', 'acc agents set <builder|reviewer> [--model <m>] [--effort <e>] [--fallback-model <m>] [--clear <field>] [--project] | acc agents autonomy [manual|review]');
+  if (sub !== 'set' || !roleArg || !(AGENT_ROLES as readonly string[]).includes(roleArg)) throw new AccError('usage', 'acc agents set <builder|reviewer> [--model <m>] [--effort <e>] [--fallback-model <m>] [--clear <field>] [--project] | acc agents autonomy [manual|review] | acc agents auto-merge [on|off]');
   personOnly(o, 'change what agents run with');
   const change: ProfileChange = {};
   if (o.model !== undefined) change.model = o.model as string;
@@ -620,22 +677,23 @@ function cmdAgents(o: Opts, sub: string | undefined, roleArg: string | undefined
   if (!Object.keys(change).length) throw new AccError('usage', 'Say what to change: --model, --effort, --fallback-model or --clear.');
   setProfile(run, paths.root, paths.config, roleArg as AgentRole, change, o.project ? 'project' : 'clone');
   const after = profileView(loadConfig(paths.config).config, run, paths.root, roleArg as AgentRole);
-  out(o, () => `${roleArg}: model ${after.model ?? 'Claude Code\'s default'}, effort ${after.effort ?? 'default'}${after.fallbackModel ? `, falls back to ${after.fallbackModel}` : ''}. ${o.project ? 'Set in .acc/config.json: commit it to share it.' : 'Set for this clone only.'} The next ${roleArg} uses it.`, after);
+  out(o, () => `${roleArg}: model ${after.model}${after.from.model === 'acc' ? ' (acc\'s default)' : ''}, effort ${after.effort ?? 'default'}${after.fallbackModel ? `, falls back to ${after.fallbackModel}` : ''}. ${o.project ? 'Set in .acc/config.json: commit it to share it.' : 'Set for this clone only.'} The next ${roleArg} uses it.`, after);
   return 0;
 }
 
-const AUTONOMY_WORDS: Record<string, string> = {
+/** What an autonomy level means, in words; review's says whether autopilot merges pull requests (GH-67). */
+const autonomyWords = (config: Config): string => ({
   manual: 'nothing happens on its own.',
-  review: `autopilot ${AUTOPILOT_REVIEW_DOES}. It never merges a pull request.`,
+  review: `autopilot ${autopilotDoes(autoMergeOn(config))}`,
   dispatch: 'as review, and it also starts Ready tasks. Not built yet: autopilot refuses.',
   full: 'read as dispatch. Not built yet: autopilot refuses.',
-};
+} as Record<string, string>)[config.autonomy] ?? '';
 
 /** What autopilot may do on its own (D-055): shown, or set in .acc/config.json by a person. */
 function cmdAutonomy(o: Opts, configFile: string, value: string | undefined): number {
   if (value === undefined) {
     const { config } = loadConfig(configFile);
-    out(o, () => `autonomy ${config.autonomy} (project): ${AUTONOMY_WORDS[config.autonomy] ?? ''}`.trim(), { autonomy: config.autonomy });
+    out(o, () => `autonomy ${config.autonomy} (project): ${autonomyWords(config)}`.trim(), { autonomy: config.autonomy });
     return 0;
   }
   const role = process.env.ACC_ROLE;
@@ -643,7 +701,41 @@ function cmdAutonomy(o: Opts, configFile: string, value: string | undefined): nu
   personOnly(o, 'change what autopilot may do');
   setAutonomy(configFile, value);
   const { config } = loadConfig(configFile);
-  out(o, () => `autonomy ${config.autonomy}: ${AUTONOMY_WORDS[config.autonomy]} Set in .acc/config.json: commit it to share it.`, { autonomy: config.autonomy });
+  out(o, () => `autonomy ${config.autonomy}: ${autonomyWords(config)} Set in .acc/config.json: commit it to share it.`, { autonomy: config.autonomy });
+  return 0;
+}
+
+/** Whether autopilot merges, and into which environments, in words (GH-67). */
+function autoMergeLines(config: Config): string {
+  if (!autoMergeOn(config)) {
+    return config.profile === 'salesforce'
+      ? 'auto-merge off (project): a Salesforce project never auto-merges. A person merges every pull request.'
+      : 'auto-merge off (project): autopilot never merges a pull request. A person merges each one.';
+  }
+  const covered = config.environments.filter((e) => !e.protected).map((e) => e.branch);
+  const kept = config.environments.filter((e) => e.protected).map((e) => e.branch);
+  return [
+    `auto-merge on (project): autopilot merges a pull request into ${covered.join(', ') || 'no environment'} once its review and checks passed, it's up to date with its base, GitHub says it can merge, nothing waits on a person, and it changes nothing under .acc/. One a pass.`,
+    kept.length ? `Never into ${kept.join(', ')}: protected, so a person merges.` : '',
+    config.autonomy === 'review' ? 'It merges while autopilot is on.' : `autonomy is "${config.autonomy}", so autopilot doesn't run and nothing merges on its own.`,
+  ].filter(Boolean).join(' ');
+}
+
+/** Whether autopilot merges a reviewed, green pull request (GH-67): shown, or set in .acc/config.json by a person. */
+function cmdAutoMerge(o: Opts, configFile: string, value: string | undefined): number {
+  const data = (config: Config) => ({ autoMerge: autoMergeOn(config), environments: config.environments.filter((e) => autoMergeOn(config) && !e.protected).map((e) => e.branch), autonomy: config.autonomy });
+  if (value === undefined) {
+    const { config } = loadConfig(configFile);
+    out(o, () => autoMergeLines(config), data(config));
+    return 0;
+  }
+  if (value !== 'on' && value !== 'off') throw new AccError('usage', 'acc agents auto-merge [on|off]');
+  const role = process.env.ACC_ROLE;
+  if (role === 'builder' || role === 'reviewer' || role === 'analyst') throw new AccError('refused', `${role === 'analyst' ? 'An' : 'A'} ${role} can't change whether autopilot merges. A person does that.`);
+  personOnly(o, 'change whether autopilot merges');
+  setAutoMerge(configFile, value === 'on');
+  const { config } = loadConfig(configFile);
+  out(o, () => `${autoMergeLines(config)} Set in .acc/config.json: commit it to share it.`, data(config));
   return 0;
 }
 
@@ -749,14 +841,15 @@ function cmdDispatch(o: Opts, id: string | undefined): number {
     out(o, () => heldLines(r).join('\n'), r);
     return 0;
   }
-  if (!id) throw new AccError('usage', 'acc dispatch <id> [--foreground] [--without-analysis] [--anyway], acc dispatch --held, or acc dispatch <id> --stop-waiting');
+  if (!id) throw new AccError('usage', 'acc dispatch <id> [--foreground] [--without-analysis] [--anyway] [--model <m>], acc dispatch --held, or acc dispatch <id> --stop-waiting');
   if (o['stop-waiting']) {
     const t = stopWaiting(paths, now, id.toUpperCase(), actor, by);
     out(o, () => `${t.id} stopped waiting. It stays to do, and nothing starts it on its own.`, t);
     return 0;
   }
   if (o.foreground && !o.json) process.stdout.write(`Starting ${id.toUpperCase()} in this terminal. Leave the session when it's done.\n`);
-  const r = dispatch(paths, config, id.toUpperCase(), deps, { actor, by, foreground: o.foreground === true, withoutAnalysis: o['without-analysis'] === true, anyway: o.anyway === true });
+  const model = typeof o.model === 'string' ? o.model : undefined;
+  const r = dispatch(paths, config, id.toUpperCase(), deps, { actor, by, foreground: o.foreground === true, withoutAnalysis: o['without-analysis'] === true, anyway: o.anyway === true, model });
   if (r.held) {
     // Held, not refused: the dispatch is kept, and the task starts on its own (D-???).
     const blockers = r.waitsFor.map((w) => w.task);
@@ -772,6 +865,8 @@ function cmdDispatch(o: Opts, id: string | undefined): number {
     `${r.task.id} → ${stateLabel('running')}`,
     `  worktree: ${r.worktree}${r.reused ? ' (reused)' : ''}`,
     `  branch:   ${r.branch}`,
+    `  name:     ${r.name}`,
+    `  model:    ${r.task.run?.model ?? ''}${r.task.run?.modelPicked ? ' (picked for this task)' : ''}`,
     `  agent:    ${r.bgId ? `background session ${r.bgId}. Watch it with: claude attach ${r.bgId}` : o.foreground ? 'ran in this terminal' : 'started; it will appear in claude agents shortly'}`,
     `  packet:   ${r.packetPath}`,
     r.shares.length ? tone(`  ${sharesWords(r.shares)}. The second pull request to merge may conflict there.`, 'dim') : '',
@@ -864,6 +959,7 @@ function cmdShow(o: Opts, id: string): number {
   out(o, () => [
     `${t.id}  ${stateLabel(displayState(ledger, t, { stopped }))}  ${t.title}`,
     `Environment: ${t.environment}   Source: ${t.source.kind}${t.source.url ? ` ${t.source.url}` : ''}`,
+    t.run?.name ? `Agent: ${t.run.name}` : '',
     t.deps.length ? `Depends on: ${t.deps.join(', ')}` : '',
     t.blocker ? `Blocked: ${t.blocker}` : '',
     failed ? tone(`! Autopilot couldn't ${stepWords(failed.step, failed.sha || 'it')}: ${failed.reason}`, 'orange') : '',
@@ -928,14 +1024,12 @@ function personOnlyUpdate(o: Opts, what: string): string {
   return personOnly(o, what);
 }
 
-const TRACKER_NAME: Record<Update['tracker'], string> = { github: 'GitHub', jira: 'Jira', azure: 'Azure DevOps' };
-
 /** An update as a person reads it: its id, state and ticket, what it's about, then its text. */
 function updateLines(u: Update): string[] {
   const state = u.state === 'posting' ? (stalePosting(u, now()) ? tone('may have posted', 'orange') : 'posting') : u.state === 'draft' ? tone('draft', 'orange') : u.state;
   const when = u.posted ? `posted by ${u.posted.by.replace(/^human:/, '')} ${u.posted.at}` : u.discarded ? `discarded by ${u.discarded.by.replace(/^human:/, '')} ${u.discarded.at}` : `drafted by ${u.by.replace(/^human:/, '')} ${u.createdAt}`;
   return [
-    `${u.id.padEnd(12)} ${state}  ${TRACKER_NAME[u.tracker]} ${u.key}: ${EVENT_WORDS[u.event]}${u.env ? ` (${u.env})` : ''}  ${tone(when, 'dim')}`,
+    `${u.id.padEnd(12)} ${state}  ${trackerName(u.tracker)} ${u.key}: ${EVENT_WORDS[u.event]}${u.env ? ` (${u.env})` : ''}  ${tone(when, 'dim')}`,
     ...(u.failed && u.state === 'draft' ? [tone(`    ! The last try didn't post: ${u.failed.reason}`, 'orange')] : []),
     ...(u.posted?.text ?? u.text).split('\n').map((l) => `    ${l}`),
   ];
@@ -975,7 +1069,7 @@ function cmdUpdatePost(o: Opts, id: string): number {
   const by = personOnlyUpdate(o, 'post a ticket\'s update');
   const { paths, config } = project(process.cwd());
   const u = updateOrThrow(paths, id);
-  if (u.tracker !== 'github') throw new AccError('refused', `${u.id} is for ${TRACKER_NAME[u.tracker]} ticket ${u.key}. acc posts only on GitHub: post it from the Command Center, which posts as you through this repo's ${TRACKER_NAME[u.tracker]} sign-in.`);
+  if (u.tracker !== 'github') throw new AccError('refused', `${u.id} is for ${trackerName(u.tracker)} ticket ${u.key}. acc posts only on GitHub: post it from the Command Center, which posts as you through this repo's ${trackerName(u.tracker)} sign-in.`);
   const text = postText(o, u);
   const gh = config.github;
   if (!gh) throw new AccError('no-github', 'This project has no "github" section in .acc/config.json, so acc can\'t post as its account.');
@@ -1204,8 +1298,11 @@ function cmdDrift(o: Opts, envName: string): number {
 // ---------------------------------------------------------------- entry
 
 export async function main(argv: string[]): Promise<number> {
+  // --project names the project for acc init, and is a plain switch for acc agents set: give the switch a
+  // value, so the Command Center's "for the project" works (D-036).
+  const args = argv[0] === 'agents' ? argv.map((x) => (x === '--project' ? '--project=yes' : x)) : argv;
   const { values, positionals } = parseArgs({
-    args: argv,
+    args,
     allowPositionals: true,
     strict: true,
     options: {
@@ -1249,6 +1346,7 @@ export async function main(argv: string[]): Promise<number> {
       default: { type: 'boolean', default: false },
       to: { type: 'string' },
       plan: { type: 'boolean', default: false },
+      'close-done': { type: 'boolean', default: false },
       'allow-deletions': { type: 'boolean', default: false },
       'skip-validate': { type: 'boolean', default: false },
       since: { type: 'string' },
@@ -1278,6 +1376,7 @@ export async function main(argv: string[]): Promise<number> {
     case 'init': return cmdInit(o);
     case 'setup': return cmdSetup(o, rest[0]);
     case 'agents': return cmdAgents(o, rest[0], rest[1]);
+    case 'machine': return cmdMachine(o, rest[0], rest[1]);
     case 'add': {
       const title = rest.join(' ').trim();
       if (!title) throw new AccError('usage', 'acc add "<title>"');
@@ -1290,8 +1389,8 @@ export async function main(argv: string[]): Promise<number> {
     }
     case 'intake': {
       if (rest[0] === 'github') return cmdIntakeGithub(o);
-      if (rest[0] === 'jira' || rest[0] === 'azure') return cmdIntakeOutside(o, rest[0]);
-      throw new AccError('usage', 'acc intake github [--label <label>], or acc intake jira|azure --file <report.json>. Jira and Azure DevOps tickets come in through the Command Center\'s Track in acc, or the plugin\'s skill.');
+      if (isSignedInKind(rest[0])) return cmdIntakeOutside(o, rest[0]);
+      throw new AccError('usage', 'acc intake github [--label <label>], or acc intake jira|azure|monday --file <report.json>. Jira, Azure DevOps and monday.com tickets come in through the Command Center\'s Track in acc; Jira and Azure DevOps ones also through the plugin\'s skill.');
     }
     case 'dispatch': return cmdDispatch(o, rest[0]);
     case 'done': return cmdSet(o, taskIdFrom(rest[0]), 'review');

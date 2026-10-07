@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSy
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { DISPLAY, transcriptDir } from '../../core/src/index.ts';
+import { DISPLAY, mutate, parseConfig, readLedger, repoPaths, run, transcriptDir, upsertTasks } from '../../core/src/index.ts';
 import { GENERIC_CONFIG, gh41Lines, makeRepo, tempDir } from '../../core/test/support.ts';
 
 const MAIN = fileURLToPath(new URL('../src/main.ts', import.meta.url));
@@ -237,6 +237,100 @@ test('only a person reads, posts or discards a ticket\'s updates: never a builde
   assert.equal(JSON.parse(readFileSync(join(dir, '.git', 'acc', 'updates', 'GH-3.1.json'), 'utf8')).state, 'draft', 'still a draft');
 });
 
+// ---------------------------------------------------------------- closing issues (D-082)
+
+/** A repo whose GitHub tracker says "edits", with GH-3 and GH-4 done before acc closed issues, and a gh that records each close. */
+function doneRepo() {
+  const raw = { ...GENERIC_CONFIG, github: { repo: 'o/r', account: 'me' }, trackers: [{ kind: 'github', edits: true }] };
+  const dir = repoWithConfig(raw);
+  const config = parseConfig(raw).config!;
+  const now = () => new Date('2026-10-06T12:00:00Z');
+  mutate(repoPaths(dir, run), now, (l, emit) => {
+    upsertTasks(l, config, [3, 4].map((n) => ({ source: { kind: 'github' as const, key: `#${n}`, url: `https://github.com/o/r/issues/${n}` }, title: `Issue ${n}` })), 'human', 'human:test', emit, now);
+    for (const t of l.tasks) {
+      const n = Number(t.id.slice(3)) + 2;
+      t.state = 'done';
+      t.pr = { number: n, url: `https://github.com/o/r/pull/${n}`, state: 'merged' };
+    }
+  });
+  const bin = join(dir, '.fakebin');
+  mkdirSync(bin);
+  writeFileSync(join(bin, 'gh'), `#!/bin/sh
+case "$1 $2" in
+  "auth token") [ "$4" = "me" ] && echo tok-me || exit 1 ;;
+  "issue view") [ "$3" = 3 ] && echo '{"state": "OPEN", "stateReason": null, "url": "https://github.com/o/r/issues/3"}' || echo '{"state": "CLOSED", "stateReason": "COMPLETED", "url": "https://github.com/o/r/issues/4"}' ;;
+  "issue close") [ "$GH_TOKEN" = "tok-me" ] || { echo "wrong account" >&2; exit 1; }; echo "$@" >> "${dir}/closed" ;;
+  *) exit 1 ;;
+esac
+`);
+  chmodSync(join(bin, 'gh'), 0o755);
+  return { dir, env: { PATH: `${bin}:${process.env.PATH}` }, ledger: repoPaths(dir, run).ledger };
+}
+
+test('acc sync --close-done closes the issues of tasks already done, listing each; --plan only lists them, and a second run does nothing', () => {
+  const { dir, env, ledger } = doneRepo();
+  assert.equal(acc(dir, ['sync', '--plan'], undefined, env).code, 2, '--plan goes with --close-done');
+  const seq = readLedger(ledger).seq;
+  const plan = acc(dir, ['sync', '--close-done', '--plan'], undefined, env);
+  assert.equal(plan.code, 0, plan.err);
+  assert.equal(plan.out, [
+    'The done tasks whose issues the tidy would close (nothing is changed). A sync may also close those of tasks merged since it last ran:',
+    '  GH-3 (pull request #5): would close issue #3',
+    '  GH-4 (pull request #6): would leave issue #4 as it is: it was already closed',
+    'Close them with acc sync --close-done.',
+    '',
+  ].join('\n'));
+  assert.ok(!existsSync(join(dir, 'closed')), '--plan closes nothing');
+  assert.equal(readLedger(ledger).seq, seq, 'and writes nothing');
+
+  const r = acc(dir, ['sync', '--close-done'], undefined, env);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(r.out, ['The issues of tasks already done:', '  GH-3 (pull request #5): closed issue #3', '  GH-4 (pull request #6): left issue #4 as it is: it was already closed', ''].join('\n'));
+  assert.equal(readFileSync(join(dir, 'closed'), 'utf8'), 'issue close 3 -R o/r --reason completed --comment Done: pull request #5 merged into main.\n', 'as the repo\'s account');
+  const tasks = readLedger(ledger).tasks;
+  assert.deepEqual(tasks.map((t) => [t.id, t.pr?.issue?.state, t.pr?.issue?.reason]), [['GH-3', 'closed', undefined], ['GH-4', 'left', 'it was already closed']]);
+
+  const again = acc(dir, ['sync', '--close-done', '--json'], undefined, env);
+  assert.deepEqual(again.json(), { checked: 0, changes: [], closeDone: [] }, 'a second run does nothing');
+  assert.match(acc(dir, ['sync', '--close-done'], undefined, env).out, /No done task's issue is waiting to close\./);
+});
+
+test('acc sync --close-done --json carries each outcome', () => {
+  const { dir, env } = doneRepo();
+  const r = acc(dir, ['sync', '--close-done', '--json'], undefined, env);
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual(r.json().closeDone, [
+    { task: 'GH-3', key: '#3', pr: 5, outcome: 'closed' },
+    { task: 'GH-4', key: '#4', pr: 6, outcome: 'left', reason: 'it was already closed' },
+  ]);
+});
+
+test('only a person runs acc sync --close-done: never a builder, reviewer, analyst or autopilot', () => {
+  const { dir, env, ledger } = doneRepo();
+  const seq = readLedger(ledger).seq;
+  for (const args of [['sync', '--close-done'], ['sync', '--close-done', '--plan']]) {
+    for (const role of ['builder', 'reviewer', 'analyst']) {
+      const r = acc(dir, args, undefined, { ...env, ACC_ROLE: role, ACC_TASK: 'GH-3' });
+      assert.equal(r.code, 1, `${role}: ${args.join(' ')}`);
+      assert.match(r.err, new RegExp(`An? ${role} can't close the issues of tasks already done`), `${role}: ${args.join(' ')}`);
+    }
+    const autopilot = acc(dir, [...args, '--as', 'orchestrator', '--by', 'orchestrator:autopilot'], undefined, env);
+    assert.equal(autopilot.code, 1, args.join(' '));
+    assert.match(autopilot.err, /Only a person can/);
+  }
+  assert.ok(!existsSync(join(dir, 'closed')), 'nothing was closed');
+  assert.equal(readLedger(ledger).seq, seq);
+  const builderSync = acc(dir, ['sync'], undefined, { ...env, ACC_ROLE: 'builder', ACC_TASK: 'GH-3' });
+  assert.equal(builderSync.code, 0, 'a plain sync is anyone\'s');
+});
+
+test('acc sync --close-done says so when no GitHub tracker lets acc change tickets', () => {
+  const dir = repoWithConfig({ ...GENERIC_CONFIG, github: { repo: 'o/r', account: 'me' }, trackers: [{ kind: 'github' }] });
+  const r = acc(dir, ['sync', '--close-done']);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /No GitHub tracker here says "edits": true, so acc closes no issues\./);
+});
+
 test('acc update ask drafts one of the analysis\'s questions for the client, and the Command Center\'s steps claim, record and release a post', () => {
   const { dir } = ticketsRepo();
   mkdirSync(join(dir, '.git', 'acc', 'analyses'), { recursive: true });
@@ -339,7 +433,27 @@ test('acc intake jira --file follows tickets that left the place: removes a task
 
   writeFileSync(file, '{"outside": [{"key": 7}]}');
   assert.equal(acc(dir, ['intake', 'azure', '--file', file]).code, 2, 'a report in the wrong shape');
-  assert.match(acc(dir, ['help']).out, /acc intake jira\|azure --file <report\.json>/);
+  assert.match(acc(dir, ['help']).out, /acc intake jira\|azure\|monday --file <report\.json>/);
+});
+
+test('acc intake monday --file follows items that left the board or its group: removes a task never started, names one that did (D-072)', () => {
+  const dir = repoWithConfig({ ...GENERIC_CONFIG, trackers: [{ kind: 'monday', account: 'acme', board: 1234567890, group: 'topics' }] });
+  const items = ['MON-101', 'MON-102', 'MON-1234567890123'].map((key) => ({ source: { kind: 'monday', key, url: `https://acme.monday.com/boards/1234567890/pulses/${key.slice(4)}` }, title: key }));
+  const added = acc(dir, ['import', '--json'], JSON.stringify(items));
+  assert.equal(added.code, 0, added.err);
+  assert.deepEqual(added.json().added, ['MON-101', 'MON-102', 'MON-1234567890123'], 'an item id too big for 32 bits is a task id like any other');
+  assert.equal(acc(dir, ['set', 'MON-102', 'running']).code, 0);
+  const file = join(dir, 'outside.json');
+  writeFileSync(file, JSON.stringify({ outside: [{ key: 'MON-101', why: 'it\'s in group Backlog' }, { key: 'MON-102', why: 'it\'s on board Other client' }] }));
+  const text = acc(dir, ['intake', 'monday', '--file', file]);
+  assert.equal(text.code, 0, text.err);
+  assert.deepEqual(text.out.trim().split('\n'), [
+    'Removed MON-101: their tickets left this repo\'s place before work started',
+    '! MON-102 left this repo\'s place: it\'s on board Other client; MON-102 is still running',
+  ]);
+  assert.deepEqual((acc(dir, ['list', '--json']).json() as { id: string }[]).map((t) => t.id), ['MON-102', 'MON-1234567890123']);
+  const events = readFileSync(join(dir, '.git', 'acc', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { type: string; task?: string; id?: string });
+  assert.deepEqual(events.filter((e) => e.type === 'task.removed').map((e) => e.task ?? e.id), ['MON-101'], 'the events log says it left');
 });
 
 test('acc import refuses a Jira or Azure DevOps ticket no tracker owns, so another project\'s never becomes a task here (D-072)', () => {
@@ -358,6 +472,24 @@ test('acc import refuses a Jira or Azure DevOps ticket no tracker owns, so anoth
   ]);
   // A repo that names no trackers has no place to hold to.
   assert.equal(acc(repoWithConfig(), ['import'], JSON.stringify([{ source: { kind: 'jira', key: 'OPS-1' }, title: 'x' }])).code, 0);
+});
+
+test('acc import refuses a monday.com item no monday.com tracker owns (D-072)', () => {
+  const dir = repoWithConfig({ ...GENERIC_CONFIG, trackers: [{ kind: 'jira', site: 'acme.atlassian.net', project: 'ACME' }, { kind: 'monday', account: 'acme', board: 111, prefix: 'CW' }] });
+  const items = [
+    { source: { kind: 'monday', key: 'CW-101' }, title: 'Ours' }, { source: { kind: 'monday', key: 'MON-5' }, title: 'Another board\'s, keyed MON' },
+    { source: { kind: 'monday', key: 'ACME-3' }, title: 'A Jira key sent as monday.com' }, { source: { kind: 'jira', key: 'CW-7' }, title: 'A monday.com key sent as Jira' },
+  ];
+  const r = acc(dir, ['import', '--json'], JSON.stringify(items));
+  assert.equal(r.code, 1);
+  assert.deepEqual(r.json().added, ['CW-101']);
+  assert.deepEqual(r.json().errors, [
+    'MON-5: no monday.com tracker in .acc/config.json owns it, so it isn\'t one of this repo\'s tickets.',
+    'ACME-3: no monday.com tracker in .acc/config.json owns it, so it isn\'t one of this repo\'s tickets.',
+    'CW-7: no Jira tracker in .acc/config.json owns it, so it isn\'t one of this repo\'s tickets.',
+  ]);
+  const jiraOnly = repoWithConfig({ ...GENERIC_CONFIG, trackers: [{ kind: 'jira', site: 'acme.atlassian.net', project: 'ACME' }] });
+  assert.match(acc(jiraOnly, ['import', '--json'], JSON.stringify([{ source: { kind: 'monday', key: 'MON-1' }, title: 'x' }])).json().errors[0], /^MON-1: no monday\.com tracker/);
 });
 
 test('intake github moves closed issues\' tasks to done, removes skipped ones, and names those that started', () => {
@@ -605,6 +737,20 @@ else fs.appendFileSync(${JSON.stringify(record)}, JSON.stringify({ cmd: 'claude'
   assert.match(blocked.err, /T-1 is blocked\. Only a running task's builder is resumed\./);
 });
 
+test('acc agents names acc\'s default model where nobody chose one, apart from Claude Code\'s default effort (D-086)', () => {
+  const dir = repoWithConfig();
+  const shown = acc(dir, ['agents']);
+  assert.equal(shown.code, 0, shown.err);
+  assert.equal(shown.out, 'builder   model claude-opus-5-5 (acc\'s default), effort default\nreviewer  model claude-opus-5-5 (acc\'s default), effort default\n');
+  const json = acc(dir, ['agents', '--json']).json();
+  assert.deepEqual([json.builder.model, json.builder.from.model, json.builder.effort, json.builder.from.effort], ['claude-opus-5-5', 'acc', null, 'default']);
+  assert.equal(json.reviewer.from.model, 'acc');
+  const chosen = repoWithConfig({ ...GENERIC_CONFIG, agents: { reviewer: { model: 'claude-sonnet-5-5' } } });
+  assert.match(acc(chosen, ['agents', 'set', 'builder', '--model', 'haiku']).out, /^builder: model haiku, effort default\. Set for this clone only\./);
+  assert.equal(acc(chosen, ['agents']).out, 'builder   model haiku (this clone), effort default\nreviewer  model claude-sonnet-5-5 (project), effort default\n');
+  assert.match(acc(chosen, ['agents', 'set', 'builder', '--clear', 'model']).out, /^builder: model claude-opus-5-5 \(acc's default\), effort default\./);
+});
+
 test('acc agents autonomy: shows it, and a person sets manual or review in .acc/config.json, changing nothing else (D-064)', () => {
   // Spaced and ordered as a person might keep it: the edit moves nothing else.
   const text = '{\n    "schema": 1,\n    "autonomy":   "manual",\n    "project": "Tool",\n    "profile": "generic",\n    "environments": [ { "name": "main", "default": true } ],\n    "agents": { "max": 2 }\n}\n';
@@ -640,6 +786,53 @@ test('acc agents autonomy: shows it, and a person sets manual or review in .acc/
   assert.deepEqual(JSON.parse(readFileSync(join(bare, '.acc', 'config.json'), 'utf8')), { ...GENERIC_CONFIG, autonomy: 'review' });
 });
 
+test('acc agents auto-merge: shows it, and a person turns it on or off in .acc/config.json, changing nothing else (GH-67)', () => {
+  // Spaced and ordered as a person might keep it: the edit moves nothing else.
+  const text = '{\n    "schema": 1,\n    "project": "Tool",\n    "profile": "generic",\n    "autonomy": "review",\n    "environments": [ { "name": "main", "default": true }, { "name": "release", "protected": true } ],\n    "autopilot": {\n        "appendOnly": [ "docs/DECISIONS.md" ]\n    }\n}\n';
+  const dir = makeRepo({ '.acc/config.json': text });
+  const file = join(dir, '.acc', 'config.json');
+  assert.deepEqual(acc(dir, ['agents', 'auto-merge', '--json']).json(), { autoMerge: false, environments: [], autonomy: 'review' });
+  assert.match(acc(dir, ['agents', 'auto-merge']).out, /^auto-merge off \(project\): autopilot never merges a pull request\. A person merges each one\./);
+  assert.match(acc(dir, ['agents', 'autonomy']).out, /It never merges a pull request\.$/m);
+
+  const on = acc(dir, ['agents', 'auto-merge', 'on', '--json']);
+  assert.equal(on.code, 0, on.err);
+  assert.deepEqual(on.json(), { autoMerge: true, environments: ['main'], autonomy: 'review' }, 'release is protected');
+  assert.equal(readFileSync(file, 'utf8'), text.replace('"autopilot": {\n        "appendOnly"', '"autopilot": {\n        "autoMerge": true,\n        "appendOnly"'), 'only the key was added');
+  const said = acc(dir, ['agents', 'auto-merge']).out;
+  assert.match(said, /^auto-merge on \(project\): autopilot merges a pull request into main once its review and checks passed, .*nothing waits on a person, and it changes nothing under \.acc\/\. One a pass\. Never into release: protected, so a person merges\. It merges while autopilot is on\./);
+  // Every word on what autopilot does says it merges now.
+  assert.match(acc(dir, ['agents', 'autonomy']).out, /Auto-merge is on: it also merges a pull request whose review and checks passed, .*It never merges into a protected environment\.$/m);
+  assert.doesNotMatch(acc(dir, ['agents', 'autonomy']).out, /It never merges a pull request/);
+
+  assert.match(acc(dir, ['agents', 'auto-merge', 'off']).out, /^auto-merge off \(project\): .* Set in \.acc\/config\.json: commit it to share it\./);
+  assert.equal(readFileSync(file, 'utf8'), text.replace('"autopilot": {\n        "appendOnly"', '"autopilot": {\n        "autoMerge": false,\n        "appendOnly"'), 'the value changed in place');
+  assert.equal(acc(dir, ['agents', 'auto-merge', 'on']).code, 0);
+  assert.equal(acc(dir, ['agents', 'auto-merge', 'maybe']).code, 2);
+  const before = readFileSync(file, 'utf8');
+  for (const role of ['builder', 'reviewer', 'analyst']) {
+    const r = acc(dir, ['agents', 'auto-merge', 'off'], undefined, { ACC_ROLE: role, ACC_TASK: 'T-1' });
+    assert.equal(r.code, 1, role);
+    assert.match(r.err, new RegExp(`${role} can't change whether autopilot merges`));
+  }
+  assert.equal(readFileSync(file, 'utf8'), before, 'nothing refused touched the file');
+
+  // A config with no autopilot block gets one at its end, and keeps the rest.
+  const bare = repoWithConfig();
+  assert.equal(acc(bare, ['agents', 'auto-merge', 'off']).code, 0);
+  assert.deepEqual(JSON.parse(readFileSync(join(bare, '.acc', 'config.json'), 'utf8')), GENERIC_CONFIG, 'off with nothing written: nothing to change');
+  assert.equal(acc(bare, ['agents', 'auto-merge', 'on']).code, 0);
+  assert.deepEqual(JSON.parse(readFileSync(join(bare, '.acc', 'config.json'), 'utf8')), { ...GENERIC_CONFIG, autopilot: { autoMerge: true } });
+  assert.match(acc(bare, ['agents', 'auto-merge']).out, /autonomy is "manual", so autopilot doesn't run and nothing merges on its own\./);
+
+  // A Salesforce project never auto-merges.
+  const sf = makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, profile: 'salesforce', environments: [{ name: 'Dev', type: 'developer', org: 'Acme Dev', default: true }] }) });
+  const refused = acc(sf, ['agents', 'auto-merge', 'on']);
+  assert.equal(refused.code, 1);
+  assert.match(refused.err, /A Salesforce project never auto-merges: a person merges every pull request there\./);
+  assert.match(acc(sf, ['agents', 'auto-merge']).out, /^auto-merge off \(project\): a Salesforce project never auto-merges\./);
+});
+
 test('acc autopilot --every stops by itself once the Command Center that started it has gone (D-064)', () => {
   const dir = repoWithConfig({ ...GENERIC_CONFIG, autonomy: 'review', github: { repo: 'acme/tool', account: 'jordan-kim' } });
   assert.equal(acc(dir, ['add', 'Ready to start']).code, 0);
@@ -659,4 +852,27 @@ test('acc autopilot --every stops by itself once the Command Center that started
   assert.match(r.stdout, /Nothing for autopilot to do\./, 'it did its pass first');
   assert.match(r.stderr, /The Command Center that started autopilot closed, so it stops\./);
   assert.ok(!existsSync(join(dir, '.git', 'acc', 'autopilot.lock')), 'and let go of its lock');
+});
+
+test('acc machine heavy-slots shows and sets how many heavy checks this machine runs; a builder can\'t change it (D-080)', () => {
+  const dir = makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG) });
+  const file = join(tempDir('acc-machine-'), 'machine.json');
+  const env = { ACC_MACHINE_FILE: file, ACC_HEAVY_SLOTS: '' };
+  assert.match(acc(dir, ['machine', 'heavy-slots'], undefined, env).out, /^1 heavy check at once on this machine\./);
+  const set = acc(dir, ['machine', 'heavy-slots', '2', '--json'], undefined, env);
+  assert.equal(set.code, 0, set.err);
+  assert.deepEqual(set.json(), { heavySlots: 2 });
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { heavySlots: 2 });
+  assert.match(acc(dir, ['machine', 'heavy-slots'], undefined, env).out, /^2 heavy checks at once/);
+  assert.equal(acc(dir, ['machine', 'heavy-slots', '12'], undefined, env).code, 2, 'out of range');
+  assert.notEqual(acc(dir, ['machine', 'heavy-slots', '4'], undefined, { ...env, ACC_ROLE: 'builder', ACC_TASK: 'T-1' }).code, 0, 'a builder can\'t');
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { heavySlots: 2 }, 'unchanged');
+});
+
+test('acc agents set --project is a switch, as the Command Center sends it last, and writes .acc/config.json (D-036)', () => {
+  const dir = makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG) });
+  const r = acc(dir, ['agents', 'set', 'builder', '--model', 'claude-opus-5-5', '--project']);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(JSON.parse(readFileSync(join(dir, '.acc', 'config.json'), 'utf8')).agents.builder.model, 'claude-opus-5-5');
+  assert.match(r.out, /Set in \.acc\/config\.json/);
 });

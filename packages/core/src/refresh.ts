@@ -10,8 +10,8 @@ import type { SlotOptions } from './semaphore.ts';
 import { conflictsOf, fetchBranches } from './sync.ts';
 
 /**
- * Refreshing a pull request (D-058): when its base moved on and it conflicts, autopilot merges the base
- * into the task's branch, in the task's worktree. It resolves only files listed in `autopilot.appendOnly`
+ * Refreshing a pull request (D-058): when its base moved on and it conflicts, or with auto-merge on when
+ * it's only behind (GH-67), autopilot merges the base into the task's branch, in the task's worktree. It resolves only files listed in `autopilot.appendOnly`
  * where both sides added to the end, by keeping both. Any other conflict leaves the branch as it was, for
  * a person. The merge commit's checks run before anything else; it's reviewed and landed in the passes
  * after, like any commit, so nothing that hasn't passed is pushed.
@@ -115,7 +115,11 @@ const samePath = (a: string, b: string): boolean => {
   }
 };
 
-export function refresh(paths: RepoPaths, config: Config, id: string, deps: RefreshDeps, opts: { actor: Actor; by: string }): RefreshResult {
+/**
+ * With `behind`, the base is merged in even when it would merge cleanly: auto-merge brings a pull request
+ * up to date with its base before it merges it (GH-67). Without it, a refresh is for conflicts only.
+ */
+export function refresh(paths: RepoPaths, config: Config, id: string, deps: RefreshDeps, opts: { actor: Actor; by: string; behind?: boolean }): RefreshResult {
   const { run, now } = deps;
   const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
   if (!task) throw new AccError('no-task', `No task ${id}.`);
@@ -158,8 +162,12 @@ export function refresh(paths: RepoPaths, config: Config, id: string, deps: Refr
     });
     return { sha: null, from, resolved: [], reason: `Pull request #${pr.number} no longer conflicts with ${env.branch}, so nothing was merged.` };
   };
-  // What acc last saw can be stale: ask git again before merging anything.
-  if (conflictsOf(run, paths.root, env.branch, branch)?.length === 0) return settled();
+  // What acc last saw can be stale: ask git again before merging anything. A pull request only behind its
+  // base is merged with it all the same.
+  if (!opts.behind && conflictsOf(run, paths.root, env.branch, branch)?.length === 0) return settled();
+  /** Nothing to merge in after all: the base has nothing the branch lacks. A conflict acc saw is marked gone. */
+  const upToDate = (): RefreshResult => (pr.conflicts?.length ? settled() : { sha: null, from, resolved: [], reason: `Pull request #${pr.number} already has everything on ${env.branch}, so nothing was merged.` });
+  if (opts.behind && git('merge-base', '--is-ancestor', `refs/remotes/origin/${env.branch}`, from).code === 0) return upToDate();
 
   // rerere off, so an answer remembered from another merge never stands in for these rules.
   const who = config.commitIdentity ? ['-c', `user.name=${config.commitIdentity.name}`, '-c', `user.email=${config.commitIdentity.email}`] : [];
@@ -176,7 +184,7 @@ export function refresh(paths: RepoPaths, config: Config, id: string, deps: Refr
 
   const merged = merge('merge', '--no-ff', '--no-commit', `origin/${env.branch}`);
   if (!mid()) {
-    if (merged.code === 0) return settled(); // already up to date
+    if (merged.code === 0) return opts.behind ? upToDate() : settled(); // already up to date
     throw new AccError('refresh', `git wouldn't merge ${env.branch} in: ${lastLines(merged)} ${putBack(['reset', '--merge'])}`);
   }
   const appendOnly = config.autopilot?.appendOnly ?? [];
@@ -210,7 +218,7 @@ export function refresh(paths: RepoPaths, config: Config, id: string, deps: Refr
   }
   if (failed.length) throw new AccError('refresh', `Merged ${env.branch} in, but its checks failed on ${short(sha)}: ${failed.join('; ')}. ${putBack(['reset', '--hard', from])}`);
 
-  const refreshed = { base: env.branch, from, to: sha, resolved };
+  const refreshed = { base: env.branch, from, to: sha, resolved, ...(opts.behind ? { behind: true } : {}) };
   record((t) => {
     // Updated, by autopilot: whatever it couldn't do before is behind it (D-055).
     if (t.autopilot?.failed) t.autopilot.failed = null;
