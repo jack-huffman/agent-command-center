@@ -10,8 +10,8 @@ import { repoPaths } from '../../packages/core/src/paths.ts';
 import { receiptHooks } from '../../packages/core/src/receipts.ts';
 import { endResume } from '../../packages/core/src/resume.ts';
 import type { Hub, Project } from './hub.ts';
-import { type AgentSession, agentName, anywayQuestion, CLAUDE_EXTENSION, claudeSessionUri, dispatchModelArgs, dispatchModelItems, displayName, githubBranchUrl, isSessionId, landMessage, MODEL_CHOICES, sessionFor, sizeLine, waitLine, waitQuestion, waitsForFiles } from './logic.ts';
-import { laneMove, nameOf, sessionKey } from './model.ts';
+import { type AgentSession, agentName, anywayQuestion, CLAUDE_EXTENSION, claudeSessionUri, dispatchModelArgs, dispatchModelItems, displayName, githubBranchUrl, isSessionId, landMessage, MODEL_CHOICES, sessionFor, sizeLine, stopFinishedPlan, waitLine, waitQuestion, waitsForFiles } from './logic.ts';
+import { laneMove, nameOf, sessionFolders, sessionKey } from './model.ts';
 import { type RunResult, runFile } from './run.ts';
 import { claudeProjectsDir, savedFolder } from './transcript.ts';
 import type { AgentNode, EnvNode, TaskNode, WorktreeNode } from './nodes.ts';
@@ -101,6 +101,7 @@ export class Sidebar {
     reg('acc.agent.stop', (n: AgentNode) => this.stopAgent(n));
     reg('acc.agent.openFolder', (n: AgentNode) => n.kind === 'agent' && vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(n.session.cwd), { forceNewWindow: true }));
     reg('acc.agents.refresh', () => this.hub.loadAgents());
+    reg('acc.agents.stopFinished', () => this.stopFinished());
     reg('acc.agents.configure', (arg?: unknown) => this.configureAgents(arg));
     reg('acc.agents.autonomy', (arg?: unknown) => this.configureAutonomy(arg));
     reg('acc.agents.autoMerge', (arg?: unknown) => this.configureAutoMerge(arg));
@@ -742,6 +743,47 @@ export class Sidebar {
     const r = await runFile('claude', ['stop', id], s.cwd, process.env, undefined, 30_000);
     if (r.code !== 0) void vscode.window.showWarningMessage(`Couldn't stop it: ${(r.stderr || r.stdout).trim().split('\n')[0]}`);
     await this.hub.loadAgents();
+  }
+
+  /**
+   * Stops every background session whose work is over (D-095): its task is done or has a later run, or its
+   * review or analysis is recorded. One list and one confirm. Claude Code is asked again once you've said
+   * so, and only what is still finished then is stopped, one at a time.
+   */
+  private async stopFinished(): Promise<void> {
+    const plan = () => stopFinishedPlan(this.hub.agents, (s) => this.hub.tieFor(s), (s) => this.hub.askingFor(s));
+    await this.hub.loadAgents();
+    // claude agents failing lists nothing: say so, rather than that nothing is finished.
+    if (this.hub.agentsError) return void vscode.window.showWarningMessage(`Couldn't list Claude Code's sessions: ${this.hub.agentsError}`);
+    const first = plan();
+    if (!first.length) return void vscode.window.showInformationMessage('No finished sessions to stop.');
+    const folders = sessionFolders(this.hub, first.map((s) => s.cwd));
+    const list = first.map((s) => `${nameOf(this.hub, s)} · ${folders.get(s.cwd)?.label ?? s.cwd}`).join('\n');
+    const one = first.length === 1;
+    const ok = await vscode.window.showWarningMessage(`Stop ${one ? '1 finished session' : `${first.length} finished sessions`}?`, {
+      modal: true,
+      detail: `${list}\n\n${one ? 'Its task is done or has a later run, or its review or analysis is recorded.' : 'Their tasks are done or have a later run, or their review or analysis is recorded.'} Transcripts and worktrees are kept.`,
+    }, 'Stop');
+    if (ok !== 'Stop') return;
+    await this.hub.loadAgents();
+    const still = new Set(plan().map((s) => s.id));
+    const stopped: string[] = [];
+    const failed: string[] = [];
+    let left = 0;
+    for (const s of first) {
+      if (!still.has(s.id)) { left++; continue; }
+      const name = nameOf(this.hub, s);
+      const r = await runFile('claude', ['stop', s.id!], existsSync(s.cwd) ? s.cwd : (this.hub.projects[0]?.root ?? this.hub.home), process.env, undefined, 30_000);
+      if (r.code === 0) stopped.push(name);
+      else failed.push(`${name}: ${(r.stderr || r.stdout).trim().split('\n')[0] || `claude stop exited ${r.code}`}`);
+    }
+    await this.hub.loadAgents();
+    const said = [
+      stopped.length ? `Stopped ${stopped.length === 1 ? stopped[0] : `${stopped.length} finished sessions`}.` : '',
+      left ? `${left === 1 ? '1 was' : `${left} were`} left: no longer finished.` : '',
+    ].filter(Boolean).join(' ');
+    if (failed.length) void vscode.window.showWarningMessage(`${said ? `${said} ` : ''}Couldn't stop ${failed.length === 1 ? 'one' : failed.length}: ${failed.join('; ')}`);
+    else if (said) void vscode.window.showInformationMessage(said);
   }
 
   // ------------------------------------------------------------ worktrees and environments

@@ -1,15 +1,16 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { parseConfig } from '../src/config.ts';
 import { run } from '../src/exec.ts';
 import {
   ACTORS, applyMove, builderStopped, type ClaudeSession, checkMove, closedPr, displayState, emptyLedger, type Emit, findRule, type Hooks, isReady, type Ledger, type LedgerEvent,
-  moveTask, mutate, noGateHooks, normalizeId, readLedger, readyTasks, RULES, sessionsOf, type State, STATES, type Task, upsertTasks,
+  moveTask, mutate, noGateHooks, normalizeId, readLedger, readRuns, readyTasks, type RepoAgents, RULES, type SessionTie, sessionsOf, type State, STATES, type Task, tieSession, upsertTasks,
 } from '../src/ledger.ts';
 import { sessionName } from '../src/names.ts';
 import { repoPaths } from '../src/paths.ts';
-import { makeRepo, SF_CONFIG } from './support.ts';
+import { makeRepo, SF_CONFIG, tempDir } from './support.ts';
 
 const config = parseConfig(JSON.parse(JSON.stringify(SF_CONFIG))).config!;
 const clock = () => new Date('2026-10-01T12:00:00Z');
@@ -339,4 +340,104 @@ test('a stopped builder\'s task needs you; a working one is running', () => {
   assert.equal(displayState(l, task(l, 'ACME-1'), { stopped: true }), 'needs-you');
   assert.equal(displayState(l, task(l, 'ACME-1'), { stopped: false, state: 'working', status: 'busy' }), 'running');
   assert.equal(displayState(l, task(l, 'ACME-2'), { stopped: true }), 'review', 'only a running task stops');
+});
+
+test('every run a task\'s builder had is read from the events, from the first byte, then only what was added (D-095)', () => {
+  const dir = tempDir();
+  const file = join(dir, 'events.jsonl');
+  assert.equal(readRuns(file), undefined, 'no events yet');
+  const ev = (task: string, data: Record<string, unknown>, type = 'task.updated') => `${JSON.stringify({ seq: 1, at: '2026-10-07T09:00:00Z', type, task, actor: 'human', by: 'human:test', data })}\n`;
+  // The first run is at the very start of a long file: an earlier run can be anywhere in it.
+  writeFileSync(file, ev('GH-1', { run: { bgId: 'bg1', sessionId: 's1', worktree: '/wt/GH-1', name: 'GH-1 builder', n: 1 } })
+    + ev('GH-1', { title: 'Renamed' }).repeat(3000) + ev('GH-2', { from: 'todo', to: 'running' }, 'task.moved') + 'not an event\n'
+    // Its builder's SessionStart linked another session to that run.
+    + ev('GH-1', { sessionId: 's1b' }));
+  assert.ok(statSync(file).size > 256 * 1024, 'longer than a first look at autopilot\'s steps reads');
+  const first = readRuns(file)!;
+  assert.deepEqual(first.runs, [{ task: 'GH-1', bgId: 'bg1', sessionId: 's1', name: 'GH-1 builder', n: 1 }, { task: 'GH-1', bgId: 'bg1', sessionId: 's1b', name: 'GH-1 builder', n: 1 }]);
+  assert.equal(first.offset, statSync(file).size);
+  // Only what was added is read: what the last look kept stays as it was. A half-written line waits.
+  const half = '{"seq":9,"type":"task.updated","task":"GH-3","data":{"run":{"bgId":"bg3"';
+  appendFileSync(file, ev('GH-1', { run: { bgId: 'bg1-2', n: 2 } }) + half);
+  const kept = { ...first, runs: [{ task: 'KEPT' }] };
+  const next = readRuns(file, kept)!;
+  assert.deepEqual(next.runs, [{ task: 'KEPT' }, { task: 'GH-1', bgId: 'bg1-2', n: 2 }]);
+  assert.equal(next.offset, statSync(file).size - half.length);
+  appendFileSync(file, '}}}\n');
+  assert.deepEqual(readRuns(file, next)!.runs.slice(1), [{ task: 'GH-1', bgId: 'bg1-2', n: 2 }, { task: 'GH-3', bgId: 'bg3' }]);
+  // A file that shrank, or was replaced, is read again from the start.
+  writeFileSync(file, ev('GH-7', { run: { sessionId: 's7' } }));
+  assert.deepEqual(readRuns(file, next)!.runs, [{ task: 'GH-7', sessionId: 's7' }], 'shrank');
+  const before = readRuns(file)!;
+  rmSync(file);
+  writeFileSync(join(dir, 'other'), 'x');
+  writeFileSync(file, ev('GH-7', { run: { sessionId: 's7' } }) + ev('GH-8', { run: { bgId: 'bg8' } }));
+  assert.notEqual(statSync(file).ino, before.ino);
+  assert.deepEqual(readRuns(file, { ...before, runs: [{ task: 'OLD' }] })!.runs.map((r) => r.task), ['GH-7', 'GH-8'], 'a new file');
+});
+
+test('the runs read are those dispatch records, through the ledger\'s own events', () => {
+  const paths = repoPaths(makeRepo(), run);
+  mutate(paths, clock, (l, emit) => {
+    upsertTasks(l, config, [{ source: { kind: 'jira', key: 'ACME-1' }, title: 'One' }], 'human', 'human:test', emit, clock);
+    const t = task(l, 'ACME-1');
+    for (const ids of [{ bgId: 'bg-a', sessionId: 's-a', name: 'ACME-1 builder', n: 1 }, { bgId: 'bg-b', sessionId: 's-b', name: 'ACME-1 builder 2', n: 2 }]) {
+      t.run = { worktree: '/wt/ACME-1', startedAt: clock().toISOString(), ...ids };
+      emit({ type: 'task.updated', task: t.id, actor: 'human', by: 'human:test', data: { run: t.run } });
+    }
+  });
+  assert.deepEqual(readRuns(paths.events)!.runs, [{ task: 'ACME-1', bgId: 'bg-a', sessionId: 's-a', name: 'ACME-1 builder', n: 1 }, { task: 'ACME-1', bgId: 'bg-b', sessionId: 's-b', name: 'ACME-1 builder 2', n: 2 }]);
+});
+
+test('a session is tied to its task by ids: a done task\'s builder, an earlier run\'s, and a recorded review or analysis are finished (D-095)', () => {
+  const run = (id: string, n?: number, name?: string) => ({ bgId: `bg-${id}`, sessionId: `s-${id}`, ...(n ? { n } : {}), ...(name ? { name } : {}) });
+  const repo: RepoAgents = {
+    tasks: [
+      { id: 'GH-1', state: 'done', run: run('1') },
+      { id: 'GH-2', state: 'running', run: run('2b', 2, 'GH-2 builder 2') },
+      { id: 'GH-3', state: 'review', run: run('3') },
+      { id: 'GH-4', state: 'rework', run: run('4') },
+      { id: 'GH-5', state: 'todo', run: run('5') },
+      { id: 'GH-6', state: 'blocked', run: run('6') },
+      { id: 'GH-7', state: 'done', run: null },
+    ],
+    runs: [
+      { task: 'GH-1', ...run('1') },
+      { task: 'GH-2', ...run('2a', 1, 'GH-2 builder') },
+      // An earlier run of GH-2 that recorded no ids: it can't be found.
+      { task: 'GH-2', name: 'GH-2 builder 0' },
+      { task: 'GH-2', ...run('2b', 2, 'GH-2 builder 2') },
+      // A session linked to the current run, since replaced on it: still the current run's.
+      { task: 'GH-2', bgId: 'bg-2b', sessionId: 's-2b-old', n: 2 },
+      { task: 'GH-9', ...run('9') },
+    ],
+    verdicts: [{ task: 'GH-3', sessionId: 'review-3' }, { task: 'GH-9', sessionId: 'review-9' }],
+    analyses: [{ task: 'GH-5', sessionId: 'analysis-5' }, { task: 'GH-6', sessionId: 'analysis-6' }],
+    live: [{ task: 'GH-5', sessionId: 'analysis-5-again', role: 'analysis' }, { task: 'GH-6', sessionId: 'analysis-6', role: 'analysis' }],
+  };
+  const bg = (id: string, sessionId?: string, name?: string): ClaudeSession => ({ kind: 'background', id, ...(sessionId ? { sessionId } : {}), ...(name ? { name } : {}), state: 'blocked', pid: 1 });
+  const resumed = (sessionId: string): ClaudeSession => ({ kind: 'interactive', sessionId, status: 'waiting', pid: 2 });
+  const finished = (task: string, role: SessionTie['role'], why: SessionTie['why']): SessionTie => ({ task, role, finished: true, why });
+  // A done task's builder, by its background id or its session id.
+  assert.deepEqual(tieSession(bg('bg-1'), repo), finished('GH-1', 'builder', 'done'));
+  assert.deepEqual(tieSession(resumed('s-1'), repo), finished('GH-1', 'builder', 'done'));
+  // An earlier run's builder, by the ids its dispatch recorded, while its task runs again.
+  assert.deepEqual(tieSession(bg('bg-2a'), repo), finished('GH-2', 'builder', 'later-run'));
+  assert.deepEqual(tieSession(resumed('s-2a'), repo), finished('GH-2', 'builder', 'later-run'));
+  // The current builder of a task that isn't done is its task's, at work, whatever the task's state.
+  for (const id of ['2b', '3', '4', '5', '6']) assert.equal(tieSession(bg(`bg-${id}`), repo)?.finished, false, `bg-${id}: its task's current builder`);
+  assert.deepEqual(tieSession(bg('bg-2b'), repo), { task: 'GH-2', role: 'builder', finished: false, why: null });
+  assert.equal(tieSession(resumed('s-2b-old'), repo), null, 'a session of the current run is never an earlier run\'s');
+  // A recorded verdict or analysis; not an analysis still under way.
+  assert.deepEqual(tieSession(resumed('review-3'), repo), finished('GH-3', 'review', 'reviewed'));
+  assert.deepEqual(tieSession(resumed('analysis-5'), repo), finished('GH-5', 'analysis', 'analyzed'), 'the analysis on file, while another runs');
+  assert.deepEqual(tieSession(resumed('analysis-5-again'), repo), { task: 'GH-5', role: 'analysis', finished: false, why: null });
+  assert.deepEqual(tieSession(resumed('analysis-6'), repo), { task: 'GH-6', role: 'analysis', finished: false, why: null }, 'under way, though its analysis is written');
+  // Untied: unknown ids, a name alone, and a task no longer in the ledger.
+  assert.equal(tieSession(bg('bg-x', 's-x'), repo), null);
+  assert.equal(tieSession(bg('bg-x', 's-x', 'GH-2 builder'), repo), null, 'an earlier run\'s name alone');
+  assert.equal(tieSession(bg('bg-x', 's-x', 'GH-2 builder 0'), repo), null, 'an earlier run that recorded no ids');
+  assert.equal(tieSession(bg('bg-x', 's-x', 'GH-7'), repo), null, 'a task never dispatched has no builder');
+  assert.equal(tieSession(bg('bg-9'), repo), null, 'a removed task\'s builder');
+  assert.equal(tieSession(resumed('review-9'), repo), null, 'a removed task\'s reviewer');
 });

@@ -4,10 +4,10 @@
  */
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { type Analysis, type Approach, SIZE_MEANING } from '../../packages/core/src/analyze.ts';
 import { autopilotDoes, type AutopilotRecord, reworkedByAutopilot } from '../../packages/core/src/autopilot.ts';
-import { type AutopilotStepName, type FileShare, sessionsOf, type TaskInput } from '../../packages/core/src/ledger.ts';
+import { type AutopilotStepName, type FileShare, type SessionTie, sessionsOf, type TaskInput } from '../../packages/core/src/ledger.ts';
 import type { CheckStatus, Step } from '../../packages/core/src/onboarding/types.ts';
 import { isTrackerKind, type Ticket } from '../../packages/core/src/trackers/types.ts';
 import type { Pending } from '../webview/pending.ts';
@@ -526,6 +526,15 @@ export function sessionFor(row: Pick<TaskRow, 'id' | 'run'>, sessions: AgentSess
   return mine.find((s) => s.pid) ?? mine[0];
 }
 
+/**
+ * The builder session a task's row, its notices and Slack look at: its current run's, only while the task
+ * runs, is in review or is blocked. Never a done task's, nor an earlier run's, so a finished session can't
+ * make its task need you (D-095).
+ */
+export function rowSession(row: Pick<TaskRow, 'id' | 'state' | 'run'>, sessions: AgentSession[]): AgentSession | undefined {
+  return row.state === 'running' || row.state === 'review' || row.state === 'blocked' ? sessionFor(row, sessions) : undefined;
+}
+
 /** Whether a session works for this task: its builder, as sessionFor finds it, or its review or analysis under way. */
 export function ownsSession(row: Pick<TaskRow, 'id' | 'run' | 'reviewing' | 'analyzing'>, s: AgentSession): boolean {
   if (s.sessionId && (row.reviewing?.sessionId === s.sessionId || row.analyzing?.sessionId === s.sessionId)) return true;
@@ -581,15 +590,42 @@ export interface AgentLook {
 /** What an agent's waiting question asks for, in a few words, from the tool it's about (D-030). */
 export const askingLabel = (tool: string): string => (tool === 'AskUserQuestion' ? 'has a question' : tool === 'ExitPlanMode' ? 'has a plan to approve' : 'wants permission');
 
-/** `asking` is what a question waiting in the Command Center asks for; the session reads as busy meanwhile. */
-export function agentLook(s: AgentSession, asking?: string | null): AgentLook {
+/**
+ * Whether a session's work is over (D-095): acc tied it to a task that's done or has a later run, or to a
+ * review or analysis that's recorded. Claude Code may still list it waiting at its prompt, but nobody
+ * waits on it. One that's busy, or has a question waiting in the Command Center, isn't.
+ */
+export function finishedSession(s: AgentSession, tie: SessionTie | null | undefined, asking?: string | null): boolean {
+  if (!tie?.finished || asking) return false;
+  return s.state === 'blocked' || s.status === 'waiting' || !(s.state === 'working' || s.status === 'busy');
+}
+
+/**
+ * `asking` is what a question waiting in the Command Center asks for; the session reads as busy meanwhile.
+ * `tie` is the task acc tied it to: a finished session reads as Finished, never as Needs you (D-095).
+ * Without one, it reads as Claude Code says.
+ */
+export function agentLook(s: AgentSession, asking?: string | null, tie?: SessionTie | null): AgentLook {
   if (asking) return { label: `Needs you: ${asking}`, icon: 'bell', tone: 'orange', needsYou: true };
+  if (finishedSession(s, tie)) return { label: 'Finished', icon: 'check', tone: 'neutral', needsYou: false };
   if (s.state === 'blocked' || s.status === 'waiting') return { label: s.waitingFor ? `Needs you: ${s.waitingFor}` : 'Needs you', icon: 'bell', tone: 'orange', needsYou: true };
   if (s.state === 'failed') return { label: 'Failed', icon: 'warning', tone: 'orange', needsYou: true };
   if (s.state === 'working' || s.status === 'busy') return { label: 'Working', icon: 'sync~spin', tone: 'blue', needsYou: false };
   if (s.state === 'done') return { label: 'Done', icon: 'check', tone: 'neutral', needsYou: false };
   if (s.state === 'stopped') return { label: 'Stopped', icon: 'debug-stop', tone: 'neutral', needsYou: false };
   return { label: s.pid ? 'Idle' : 'Idle (exited)', icon: 'circle-outline', tone: 'neutral', needsYou: false };
+}
+
+/**
+ * The sessions Stop finished sessions stops (D-095): background sessions whose work is over, that Claude
+ * Code still holds. A builder left at its prompt can have lost its process and still be listed, blocked,
+ * until it's stopped; one that's done, stopped or failed with no process has ended already. Never a
+ * session acc can't tie, its task's current builder while the task isn't done, a review or analysis
+ * under way, an interactive session, or one that's busy or has a question waiting.
+ */
+export function stopFinishedPlan(sessions: AgentSession[], tieFor: (s: AgentSession) => SessionTie | null | undefined, askingFor: (s: AgentSession) => string | null | undefined): AgentSession[] {
+  const held = (s: AgentSession) => !!s.pid || !(s.state === 'done' || s.state === 'stopped' || s.state === 'failed');
+  return sessions.filter((s) => s.kind === 'background' && !!s.id && held(s) && finishedSession(s, tieFor(s), askingFor(s)));
 }
 
 /** Claude Code for VSCode (D-040): its documented link opens a session's conversation in a tab. */
@@ -617,6 +653,36 @@ export function repoRoot(path: string, home: string | null | undefined, hasGit: 
     if (hasGit(dir)) return dir;
   }
   return null;
+}
+
+/**
+ * A repo's git folder that all its worktrees share, where acc keeps its ledger (D-012): .git itself when
+ * it's a folder. A linked worktree's .git is a file naming its own git folder, whose commondir names the
+ * shared one. Read with plain file reads, never git, since it's asked every few seconds. Null when it
+ * can't tell.
+ */
+export function commonDirOf(repo: string, fs: { isDir(path: string): boolean; read(file: string): string | null }): string | null {
+  const dotGit = join(repo, '.git');
+  if (fs.isDir(dotGit)) return dotGit;
+  const gitdir = /^gitdir:\s*(.+?)\s*$/m.exec(fs.read(dotGit) ?? '')?.[1];
+  if (!gitdir) return null;
+  const own = resolve(repo, gitdir);
+  const common = fs.read(join(own, 'commondir'))?.trim();
+  return common ? resolve(own, common) : own;
+}
+
+/**
+ * The ledger that says whose a session is (D-095): its project's, when it's in one open here. Elsewhere, the
+ * ledger of the repo its folder is in: a builder's worktree's by its path, as its folder reads (D-090),
+ * else the nearest folder up holding .git (GH-83), and that repo's shared git folder. Null outside a repo.
+ */
+export function sessionLedger(cwd: string, o: { project(path: string): string | null; repoFor(path: string): string | null; commonDir(repo: string): string | null }): string | null {
+  const path = cwd.length > 1 ? cwd.replace(/\/+$/, '') : cwd;
+  const own = o.project(path);
+  if (own) return own;
+  const repo = /^(.+)\/\.claude\/worktrees\/[^/]+(?:\/.*)?$/.exec(path)?.[1] ?? o.repoFor(path);
+  const common = repo ? o.commonDir(repo) : null;
+  return common ? join(common, 'acc', 'ledger.json') : null;
 }
 
 export interface Worktree {

@@ -208,6 +208,12 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "acc.agents.stopFinished",
+        "title": "Stop finished sessions",
+        "category": "Agent Command Center",
+        "icon": "$(debug-stop)"
+      },
+      {
         "command": "acc.agents.configure",
         "title": "Change what agents run with…",
         "category": "Agent Command Center",

@@ -10,7 +10,7 @@ import { type Config, parseConfig } from '../../packages/core/src/config.ts';
 import { run as runSync } from '../../packages/core/src/exec.ts';
 import { CLONE_ACCOUNT_KEY } from '../../packages/core/src/github.ts';
 import { jobsUnderWay } from '../../packages/core/src/jobs.ts';
-import { autopilotFailure, builderStopped, displayState, type FileShare, isReady, readLedger, type Ledger, runStartedAt, type SessionInfo, type Task } from '../../packages/core/src/ledger.ts';
+import { autopilotFailure, builderStopped, displayState, type FileShare, isReady, readLedger, readRuns, type Ledger, type RepoAgents, runStartedAt, type RunsLog, type SessionInfo, type SessionTie, type Task, tieSession } from '../../packages/core/src/ledger.ts';
 import { envOpen, IN_FLIGHT_STATES, inFlight, nulPaths, plannedFiles, sharedFiles, type StartCandidate, startOrder } from '../../packages/core/src/overlap.ts';
 import type { RepoPaths } from '../../packages/core/src/paths.ts';
 import type { HistoryRecord, Question } from '../../packages/core/src/questions.ts';
@@ -19,7 +19,7 @@ import { latestVerdict, reviewing } from '../../packages/core/src/review.ts';
 import { type HeavyState, heavyState } from '../../packages/core/src/semaphore.ts';
 import { claudeProjectsDir, lastModelIn, lastSaidIn, transcriptFile } from '../../packages/core/src/transcript.ts';
 import { readUpdate, type Update, UPDATE_ID } from '../../packages/core/src/updates.ts';
-import { type AgentSession, agentLook, analysisWait, askingLabel, isUnder, parseWorktrees, repoRoot, rowAnalysis, type RowFiles, sessionFor, type TaskRow, type Worktree } from './logic.ts';
+import { type AgentSession, agentLook, analysisWait, askingLabel, commonDirOf, isUnder, parseWorktrees, repoRoot, rowAnalysis, type RowFiles, rowSession, sessionFor, sessionLedger, type TaskRow, type Worktree } from './logic.ts';
 import { loadWord, type RepoJobs } from './progress.ts';
 import { runFile } from './run.ts';
 import { type LastStep, lastStepIn } from './transcript.ts';
@@ -66,6 +66,24 @@ interface Read<T> {
 
 /** How long a transcript not found is left before it's looked for again: a search reads every project folder. */
 const UNSAVED_MS = 30_000;
+
+/** Plain file reads for finding a repo's shared git folder: never git, which is too slow to ask every few seconds. */
+const FILES = {
+  isDir: (p: string): boolean => {
+    try {
+      return statSync(p).isDirectory();
+    } catch {
+      return false;
+    }
+  },
+  read: (f: string): string | null => {
+    try {
+      return readFileSync(f, 'utf8');
+    } catch {
+      return null;
+    }
+  },
+};
 
 /** When a file last changed, as one value: a rewrite in the same millisecond still has a new size or inode. */
 function stampOf(file: string): string | null {
@@ -121,6 +139,17 @@ export class Hub implements vscode.Disposable {
   private readonly repoJobs = new Map<string, RepoJobs>();
   /** Each running builder's latest step, by session, kept until its transcript changes. */
   private readonly builderSteps = new Map<string, { file: string; stamp: string; step: LastStep | null }>();
+  /**
+   * What each repo's ledger says about its agents (D-095), by ledger, wherever the repo is: read again only
+   * when the ledger, its events, its reviews or its analyses change. Its runs are read on from where they
+   * were, and each verdict is read once, until its file changes.
+   */
+  private readonly agentRepos = new Map<string, { stamp: string; runs: RunsLog | undefined; repo: RepoAgents | null }>();
+  private readonly verdictFiles = new Map<string, { stamp: string; verdict: { task: string; sessionId: string } | null }>();
+  /** Each session folder's ledger, and each session's tie, as of the last look: worked out once a look. */
+  private readonly sessionLedgers = new Map<string, string | null>();
+  private readonly ledgerAgents = new Map<string, RepoAgents | null>();
+  private ties = new WeakMap<AgentSession, SessionTie | null>();
   private jobsSig = '';
   private busyAt = 0;
   /** What each in-flight task's branch has changed, by project and task, from the worktree poll (D-093). */
@@ -158,6 +187,7 @@ export class Hub implements vscode.Disposable {
       found.push({ name: config.project, root, config, githubFrom: config.github ? (chosen ? 'clone' : 'config') : null, ledgerPath: join(common.stdout.trim(), 'acc', 'ledger.json'), branch: old?.branch ?? null, worktrees: old?.worktrees ?? [], agents });
     }
     this.projects = found;
+    this.forgetTies(true);
     await vscode.commands.executeCommand('setContext', 'acc.hasProject', found.length > 0);
     this.emitter.fire('projects');
     await Promise.all([this.loadTasks(true), this.loadWorktrees()]);
@@ -211,6 +241,8 @@ export class Hub implements vscode.Disposable {
       const stamp = `${stampOf(p.ledgerPath) ?? 0}|${stampOf(analysesOf(p).analyses) ?? 0}|${stampOf(updatesOf(p).updates) ?? 0}`;
       const cached = this.tasks.get(p.root);
       if (!force && cached && cached.stamp === stamp) continue;
+      // A task that moved can finish its agents (D-095).
+      this.forgetTies();
       let ledger: Ledger;
       try {
         ledger = readLedger(p.ledgerPath);
@@ -364,14 +396,13 @@ export class Hub implements vscode.Disposable {
       const head = p?.worktrees.find((w) => w.branch === t.run?.branch)?.head;
       const tree = t.state === 'running' && t.run?.worktree ? p?.worktrees.find((w) => w.path === t.run!.worktree) : undefined;
       const live = reviews && t.state === 'review' ? reviewing(reviews, t.id) : null;
-      const base = { id: t.id, run: t.run };
-      const session = t.state === 'running' || t.state === 'review' || t.state === 'blocked' ? sessionFor(base, this.agents) : undefined;
+      const session = rowSession(t, this.agents);
       const asking = session ? this.askingFor(session) : null;
       const resumed = stateDir && t.state === 'running' ? resuming({ stateDir }, t.id) : null;
       const stopped = builderStopped(t, sessions, { resuming: !!resumed, now });
       // A resume just started isn't listed yet, and its old background session may still say blocked.
       const carrying = !!resumed && !session?.pid;
-      const look = carrying ? { label: 'Resumed: working', icon: 'sync~spin', tone: 'blue' as const } : session ? agentLook(session, asking) : null;
+      const look = carrying ? { label: 'Resumed: working', icon: 'sync~spin', tone: 'blue' as const } : session ? agentLook(session, asking, this.tieFor(session)) : null;
       const info: SessionInfo | undefined = stopped ? { stopped: true } : carrying ? { status: 'busy' } : session ? (asking ? { state: 'blocked', status: 'waiting' } : { state: session.state, status: session.status }) : undefined;
       const said = stopped && t.run?.sessionId ? this.lastSaid(t.run.sessionId, [t.run.worktree, session?.cwd, p?.root]) : null;
       // The model its agent runs with (D-086): what it last answered with, else what acc started it with.
@@ -488,6 +519,102 @@ export class Hub implements vscode.Disposable {
     return q ? askingLabel(q.tool) : null;
   }
 
+  /**
+   * The task a session works for, and whether its work is over (D-095), from the ledger of the repo it's in:
+   * a project open here, or any repo elsewhere on the machine. Null when acc can't tie it, and it reads as
+   * Claude Code says. Worked out once a look, from files read again only when they change.
+   */
+  tieFor(s: AgentSession): SessionTie | null {
+    const known = this.ties.get(s);
+    if (known !== undefined) return known;
+    let ledger = this.sessionLedgers.get(s.cwd);
+    if (ledger === undefined) {
+      ledger = sessionLedger(s.cwd, { project: (p) => this.projectFor(p)?.ledgerPath ?? null, repoFor: (p) => this.repoFor(p), commonDir: (r) => commonDirOf(r, FILES) });
+      this.sessionLedgers.set(s.cwd, ledger);
+    }
+    let repo = ledger ? this.ledgerAgents.get(ledger) : null;
+    if (ledger && repo === undefined) {
+      repo = this.agentRepo(ledger);
+      this.ledgerAgents.set(ledger, repo);
+    }
+    const tie = repo ? tieSession(s, repo) : null;
+    this.ties.set(s, tie);
+    return tie;
+  }
+
+  /** Forgets each session's tie, so the next look works it out again; with `folders`, each folder's ledger too. */
+  private forgetTies(folders = false): void {
+    this.ties = new WeakMap();
+    this.ledgerAgents.clear();
+    if (folders) this.sessionLedgers.clear();
+  }
+
+  /**
+   * What a repo's ledger, events, verdicts and analyses say about its agents. Null without a ledger, or with
+   * one this version can't read: its sessions stay untied.
+   */
+  private agentRepo(ledgerPath: string): RepoAgents | null {
+    const dir = dirname(ledgerPath);
+    const store = { stateDir: dir, reviews: join(dir, 'reviews'), analyses: join(dir, 'analyses') } as RepoPaths;
+    const events = join(dir, 'events.jsonl');
+    const stamp = [ledgerPath, events, store.reviews, store.analyses].map((f) => stampOf(f) ?? 0).join('|');
+    const cached = this.agentRepos.get(ledgerPath);
+    if (cached?.stamp === stamp) return cached.repo;
+    let ledger: Ledger | null = null;
+    try {
+      ledger = existsSync(ledgerPath) ? readLedger(ledgerPath) : null;
+    } catch {
+      ledger = null;
+    }
+    if (!ledger) {
+      this.agentRepos.set(ledgerPath, { stamp, runs: undefined, repo: null });
+      return null;
+    }
+    const runs = readRuns(events, cached?.runs);
+    const names = (d: string): string[] => {
+      try {
+        return readdirSync(d);
+      } catch {
+        return [];
+      }
+    };
+    const verdicts: RepoAgents['verdicts'] = [];
+    const seen = new Set<string>();
+    for (const n of names(store.reviews)) {
+      if (!n.endsWith('.json') || n.endsWith('.running.json')) continue;
+      const file = join(store.reviews, n);
+      const fileStamp = stampOf(file);
+      if (!fileStamp) continue;
+      seen.add(file);
+      let v = this.verdictFiles.get(file);
+      if (v?.stamp !== fileStamp) {
+        let read: { task?: unknown; sessionId?: unknown } | null = null;
+        try {
+          read = JSON.parse(readFileSync(file, 'utf8'));
+        } catch {
+          read = null;
+        }
+        v = { stamp: fileStamp, verdict: typeof read?.task === 'string' && typeof read.sessionId === 'string' ? { task: read.task, sessionId: read.sessionId } : null };
+        this.verdictFiles.set(file, v);
+      }
+      if (v.verdict) verdicts.push(v.verdict);
+    }
+    for (const f of [...this.verdictFiles.keys()]) if (f.startsWith(`${store.reviews}/`) && !seen.has(f)) this.verdictFiles.delete(f);
+    const analysisFiles = new Set(names(store.analyses));
+    const analyses = ledger.tasks.flatMap((t) => {
+      const a = analysisFiles.has(`${t.id}.json`) ? this.analysisFrom(store, t.id) : null;
+      return a?.sessionId ? [{ task: t.id, sessionId: a.sessionId }] : [];
+    });
+    const running = (d: string) => names(d).filter((n) => n.endsWith('.running.json')).map((n) => n.slice(0, -'.running.json'.length));
+    const live: RepoAgents['live'] = [
+      ...running(store.reviews).flatMap((task) => { const r = reviewing(store, task); return r ? [{ task, sessionId: r.sessionId, role: 'review' as const }] : []; }),
+      ...running(store.analyses).flatMap((task) => { const r = analyzing(store, task); return r ? [{ task, sessionId: r.sessionId, role: 'analysis' as const }] : []; }),
+    ];
+    const repo: RepoAgents = { tasks: ledger.tasks, runs: runs?.runs ?? [], verdicts, analyses, live };
+    this.agentRepos.set(ledgerPath, { stamp, runs, repo });
+    return repo;
+  }
+
   setAnswers(answers: HistoryRecord[]): void {
     this.answers = answers;
     this.emitter.fire('agents');
@@ -503,6 +630,7 @@ export class Hub implements vscode.Disposable {
   async loadAgents(): Promise<void> {
     const r = await runFile('claude', ['agents', '--json'], this.projects[0]?.root ?? process.cwd(), process.env, undefined, 20_000);
     this.repos.clear();
+    this.forgetTies(true);
     if (r.code === 127) {
       this.agents = [];
       this.agentsError = 'The Claude Code CLI (claude) isn\'t on PATH.';
@@ -645,6 +773,8 @@ export class Hub implements vscode.Disposable {
       await this.loadChanged(p);
     }
     this.emitter.fire('worktrees');
+    // A session in one of a project's worktrees outside its folder is the project's from now on.
+    this.forgetTies(true);
     // A branch's latest commit decides whether its review is current, so the rows follow the worktrees.
     for (const [root, cached] of this.tasks) this.tasks.set(root, { ...cached, rows: this.deriveRows(cached.ledger, this.project(root)) });
     if (this.tasks.size) this.emitter.fire('tasks');
