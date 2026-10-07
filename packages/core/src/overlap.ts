@@ -181,10 +181,11 @@ export function startCandidates(paths: RepoPaths, config: Config, ledger: Ledger
   }));
 }
 
-/** startOrder for one task to do, against what's in flight now, read from git. */
-export function startLook(paths: RepoPaths, config: Config, ledger: Ledger, run: Runner, id: string, o: { fetch?: boolean; flying?: FileShare[] } = {}): StartLook {
+/** startOrder for one task to do, against what's in flight now, read from git. `files` are its planned files, when they were read already. */
+export function startLook(paths: RepoPaths, config: Config, ledger: Ledger, run: Runner, id: string, o: { fetch?: boolean; flying?: FileShare[]; files?: string[] | null } = {}): StartLook {
+  const files = o.files !== undefined ? o.files : plannedFiles(readAnalysis(paths, id), paths.root);
   const flying = o.flying ?? inFlightFiles(paths, ledger, run, { except: id, fetch: o.fetch });
-  return startOrder({ id, files: plannedFiles(readAnalysis(paths, id), paths.root) }, startCandidates(paths, config, ledger), flying, sharedFiles(config));
+  return startOrder({ id, files }, startCandidates(paths, config, ledger), flying, sharedFiles(config));
 }
 
 // ---------------------------------------------------------------- in words

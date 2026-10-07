@@ -317,6 +317,8 @@ function swarm(plans: Record<string, string[] | null>, o: { max?: number } = {})
     repo, paths, config, deps, go, task, moves, finish,
     held: () => startHeld(paths, config, deps, { actor: 'human', by: 'human:test' }),
     launches: () => calls.filter((c) => c.startsWith('claude --bg')).length,
+    /** How many times work in flight was looked at: its worktree's untracked files. */
+    looks: () => calls.filter((c) => c.startsWith('git ls-files --others')).length,
     failLaunch: () => { launch = bad('Claude Code needs you to log in'); },
   };
 }
@@ -349,10 +351,23 @@ test('no overlap, an overlap only in an append-only file, or no analysis: it sta
   const log = s.go('T-3');
   assert.ok(!log.held, 'both append to the decision log: that never counts');
   assert.deepEqual(log.shares, []);
-  // T-4 has no analysis: its files aren't known, so it never waits, though T-5 is Ready and free.
+  // T-4 has no analysis: its files aren't known, so it never waits, though T-5 is Ready and free, and
+  // nothing in flight is looked at for it.
+  const looked = s.looks();
   const unknown = s.go('T-4');
   assert.ok(!unknown.held);
   assert.equal(s.task('T-4').state, 'running');
+  assert.equal(s.looks(), looked, 'no git calls for work in flight');
+});
+
+test('an analysis that names no files: it starts, and nothing in flight is looked at (D-???)', () => {
+  const s = swarm({ 'T-1': ['src/a.ts'], 'T-2': [], 'T-3': ['src/c.ts'] });
+  s.go('T-1');
+  const looked = s.looks();
+  const r = s.go('T-2');
+  assert.ok(!r.held);
+  assert.deepEqual(r.shares, []);
+  assert.equal(s.looks(), looked);
 });
 
 test('when nothing else is ready, a task that shares files starts anyway, and says what it shares (D-???)', () => {
@@ -383,6 +398,15 @@ test('a person dispatches anyway: it starts at once, and its move records the ov
   const s2 = swarm({ 'T-1': ['src/a.ts'], 'T-2': ['src/a.ts'], 'T-3': ['src/c.ts'] });
   s2.go('T-1');
   assert.ok(s2.go('T-2', { anyway: true, actor: 'orchestrator', by: 'orchestrator:test' }).held);
+});
+
+test('anyway is recorded only when it overrode a wait: with nothing else ready, it would have started (D-???)', () => {
+  const s = swarm({ 'T-1': ['src/a.ts'], 'T-2': ['src/a.ts'] });
+  s.go('T-1');
+  const r = s.go('T-2', { anyway: true });
+  assert.ok(!r.held);
+  const move = s.moves('T-2').at(-1);
+  assert.deepEqual([move.data.anyway, move.data.shares], [undefined, [{ task: 'T-1', files: ['src/a.ts'] }]]);
 });
 
 test('a rework\'s re-dispatch never waits: its branch already holds its change (D-???)', () => {

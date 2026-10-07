@@ -8,7 +8,7 @@ import { type Actor, applyMove, checkMove, type FileShare, mutate, noGateHooks, 
 import type { RepoPaths } from './paths.ts';
 import { permissionHook } from './questions.ts';
 import { type Analysis, analysisProblems, analysisSection, readAnalysis } from './analyze.ts';
-import { filesOf, inFlightFiles, sharedFiles, startCandidates, startLook, type StartLook, startOrder, taskList, waits } from './overlap.ts';
+import { filesOf, inFlightFiles, plannedFiles, sharedFiles, startCandidates, startLook, type StartLook, startOrder, taskList, waits } from './overlap.ts';
 import { type ChecksReport, checksSection, readChecksReport } from './checks.ts';
 import { latestVerdict, type Verdict } from './review.ts';
 import { agentArgs } from './agents.ts';
@@ -399,12 +399,18 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
   if (held.length && !(opts.withoutAnalysis && opts.actor === 'human')) throw new AccError('move-refused', `Can't dispatch ${id}:\n- ${held.join('\n- ')}`);
   const starting = opts.fromHold ? null : startingNow(found, now());
   if (starting) throw new AccError('move-refused', `Can't dispatch ${id}: ${starting.by} is starting it.`);
-  // Only a first dispatch weighs the files: a rework's branch already holds its change (D-???).
+  // Only a first dispatch weighs the files: a rework's branch already holds its change (D-???). A task
+  // whose analysis names no files never waits, so nothing in flight is looked at for it.
   let shares = opts.fromHold?.shares ?? [];
-  if (found.state === 'todo' && !opts.fromHold) {
-    const look = startLook(paths, config, before, run, id, { fetch: true });
+  let overrode = false;
+  const planned = found.state === 'todo' && !opts.fromHold ? plannedFiles(readAnalysis(paths, id), paths.root) : null;
+  if (planned) {
+    const look = startLook(paths, config, before, run, id, { fetch: true, files: planned });
     shares = look.shares;
-    if (waits(look) && !(opts.anyway && opts.actor === 'human')) return holdTask(paths, now, id, opts, look);
+    if (waits(look)) {
+      if (!(opts.anyway && opts.actor === 'human')) return holdTask(paths, now, id, opts, look);
+      overrode = true;
+    }
   }
   const env = environmentByBranch(config, found.environment);
   if (!env) throw new AccError('dispatch', `${id}'s environment "${found.environment}" isn't in the config.`);
@@ -444,12 +450,12 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
     const task = ledger.tasks.find((t) => t.id === id)!;
     const again = checkMove(ledger, config, task, req, noGateHooks);
     if (again.length) throw new AccError('move-refused', `Can't dispatch ${id}:\n- ${again.join('\n- ')}`);
-    // What it shares with work in flight, and whether a person said to go anyway or it waited for it (D-???).
+    // What it shares with work in flight, and whether a person overrode a wait or it waited for it (D-???).
     const hold = task.held;
     const data = {
       ...(opts.cause ? { cause: opts.cause } : {}),
       ...(shares.length ? { shares } : {}),
-      ...(shares.length && opts.anyway ? { anyway: true } : {}),
+      ...(overrode ? { anyway: true } : {}),
       ...(opts.fromHold && hold ? { held: { at: hold.at, by: hold.by, waitedFor: hold.waitsFor.map((w) => w.task) } } : {}),
     };
     applyMove(task, { ...req, reason: reused ? `re-dispatched in ${basename(wt)}` : null }, emit, now, data);
