@@ -216,6 +216,11 @@ installs the same way, over the old one.
   pull request whose checks passed, with nothing waiting on you, into an
   environment that isn't protected. It's off by default, and a Salesforce
   project can't turn it on.
+- **One merge at a time.** With auto-merge on, passing pull requests line up in
+  a merge queue, shown on the Overview. At its turn, each has its base merged
+  in, runs the full check once, and merges; one that conflicts or fails goes
+  back to its builder. Builders can then run lighter checks (`gates.builder`),
+  such as the tests near what they changed.
 - **Light on the machine.** A cap on concurrent agents, default 3.
 - **Readable without colour.** Every state has an icon and a label. Where colour
   helps, it is orange against blue, never red against green.
