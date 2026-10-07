@@ -187,13 +187,13 @@ test('setup shows the acc plugin under its own section, with Do it while it fail
 test('setup reads in the order things are set up, a section for each thing, whatever order the checks finished in (D-047)', () => {
   // B14 is re-checked first, as soon as projects load: it still comes after the repo's own steps.
   const item = (id: string, status: 'pass' | 'fail' | 'skip' | 'unknown' = 'pass') => ({ id, part: id.startsWith('A') ? 'machine' as const : 'project' as const, title: id, status, detail: 'd' });
-  const m = setupModel([item('B14.tickets', 'unknown'), item('B2.account'), item('B0.config'), item('B0.repo'), item('B2.identity', 'fail'), item('B12.trust'), item('B13.gate-tools', 'skip'), item('A1.claude-billing'), item('A1.git'), item('A2.gh-login')], new Set());
+  const m = setupModel([item('B14.tickets', 'unknown'), item('B2.account'), item('B0.template', 'skip'), item('B0.config'), item('B0.repo'), item('B2.identity', 'fail'), item('B12.trust'), item('B13.gate-tools', 'skip'), item('A1.claude-billing'), item('A1.git'), item('A2.gh-login')], new Set());
   const project = m.parts.find((p) => p.part === 'project')!;
-  assert.deepEqual(project.steps.map((s) => s.id), ['B0.repo', 'B0.config', 'B2.identity', 'B2.account', 'B12.trust', 'B13.gate-tools', 'B14.tickets']);
-  assert.deepEqual(project.sections.map((s) => [s.title, s.todo, s.steps.length]), [['The repo', 0, 2], ['GitHub account', 1, 2], ['Background agents', 0, 2], ['Tickets', 1, 1]], 'neighbouring groups that set up one thing share a section');
+  assert.deepEqual(project.steps.map((s) => s.id), ['B0.repo', 'B0.config', 'B0.template', 'B2.identity', 'B2.account', 'B12.trust', 'B13.gate-tools', 'B14.tickets']);
+  assert.deepEqual(project.sections.map((s) => [s.title, s.todo, s.steps.length]), [['The repo', 0, 3], ['GitHub account', 1, 2], ['Background agents', 0, 2], ['Tickets', 1, 1]], 'neighbouring groups that set up one thing share a section');
   assert.deepEqual(m.parts.find((p) => p.part === 'machine')!.steps.map((s) => s.id), ['A1.git', 'A1.claude-billing', 'A2.gh-login'], 'a step this build doesn\'t know goes at the end of its group');
-  assert.deepEqual(project.steps.map((s) => [s.look.label, s.done]), [['Done', true], ['Done', true], ['To do', false], ['Done', true], ['Done', true], ['Doesn\'t apply', true], ['Check by hand', false]]);
-  assert.deepEqual([m.done, m.total], [8, 10]);
+  assert.deepEqual(project.steps.map((s) => [s.look.label, s.done]), [['Done', true], ['Done', true], ['Doesn\'t apply', true], ['To do', false], ['Done', true], ['Done', true], ['Doesn\'t apply', true], ['Check by hand', false]]);
+  assert.deepEqual([m.done, m.total], [9, 11]);
 });
 
 test('webview messages: only known shapes and acc commands get through', () => {

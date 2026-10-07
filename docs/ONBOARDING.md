@@ -150,7 +150,22 @@ only* are hidden for a `generic` project.
   acc init --profile generic
   ```
 
+  If your team keeps a template of its settings, choose **From a team
+  template…** instead, and give its path or URL. It sets what the team agreed
+  on, such as the checks and the tracker, and acc finds the rest. Setup lists
+  what it sets and the commands it runs before anything is written. In a
+  terminal: `acc init --from <template>`. docs/TEMPLATES.md says what a
+  template holds.
+
   Review the file and commit it. `acc init --force` writes it again.
+- [ ] **The team template is current** (`B0.template`). A project started
+  from a team template records which one. This step reads it again, and
+  passes while it's unchanged, or when the project already agrees with it.
+  When the team has changed it and the project now differs, it names what
+  differs, for you to check by hand. **Do it** previews what the template
+  would write, changing nothing. acc never applies it by itself: to take it,
+  run `acc init --from '<template>' --force` and review the diff. A project
+  not started from a template skips this step.
 
 ### B1. Decide where everything lives
 
