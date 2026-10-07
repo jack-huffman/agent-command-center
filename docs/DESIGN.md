@@ -860,10 +860,16 @@ step as **title** (`id`): a test holds those to the same list, in its order
 - **Ticks stay ticked.** Once VSCode ticks a step, it stays ticked even if the
   check later fails. The status bar and **Check setup** always show the current
   state.
-- **Checks are throttled.** Startup reuses machine results for 12 hours.
-  Project checks run only in folders with `.acc/config.json` or
+- **Checks are throttled.** Startup reuses machine results for 12 hours,
+  from a folder with the same profile; a check that came back empty isn't
+  kept. Project checks run only in folders with `.acc/config.json` or
   `sfdx-project.json`. The status bar stays hidden elsewhere, unless the
   machine needs something.
+- **A full check replaces the rows it lists.** Each part it checked replaces
+  that part's rows on the Setup page, so a step that no longer applies goes:
+  A1.node once a folder turns generic. A part whose check failed keeps its
+  rows, and a folder that isn't a project has no project rows. A Check of one
+  step changes that row alone.
 - **The extension runs its own copy of `acc`** with VSCode's runtime, so it
   works before Node is on PATH. Every VSCode terminal gets `acc` on its PATH.
   The extension runs `dist/bin/acc.mjs` itself; terminals, Setup's **Do it**
