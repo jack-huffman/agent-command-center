@@ -8,7 +8,7 @@ import {
   afterFullCheck, afterStepCheck, buildWalkthroughs, commandLink, COMMANDS, contextKey, dispatchModelArgs, dispatchModelItems, EXTENSION_ID, followsPullRequests, hasPlaceholder,
   initCommand, isComplete, isWebviewMenuContext, machineCache, mediaPath, MODEL_CHOICES, needsTerminal, productionOrgs, repoRoot, reusableMachine, setupOrgChoices, sizeLine, statusText,
   stepDescription, stepMedia, summarize, tildePath, type DoctorItem,
-  credInUse, credKey, credSite, type CredWrites, credWrites, readCreds, signOutWrites, siteCredKey,
+  credInUse, credKey, credSite, type CredWrites, credWrites, readCreds, signOutAnswers, signOutPlan, signOutWrites, siteCredKey,
 } from '../src/logic.ts';
 import { staleFiles } from '../scripts/generate.ts';
 
@@ -739,6 +739,44 @@ test('signing out of a site\'s sign-in, either way, never touches another site\'
   const own = applied(start(), signOutWrites(REPO_A, 'jira', JIRA_SITE, 'own'));
   assert.deepEqual(await inUse(own, REPO_A), { cred: jordan, shared: true });
   assert.equal(own.size, start().size - 1);
+});
+
+test('signing out asks only about a site\'s sign-in: Cancel writes nothing, and a repo\'s own goes with no question (GH-79)', async () => {
+  const start = () => machine([[siteCredKey('jira', JIRA_SITE), jordan], [siteCredKey('jira', 'other.atlassian.net'), pat], [credKey(REPO_A, 'jira', JIRA_SITE), pat]]);
+  const asked: { every: string; only: string }[] = [];
+  const answer = (pick: 'every' | 'only' | null) => async (a: { every: string; only: string }) => { asked.push(a); return pick ? a[pick] : undefined; };
+  const plan = async (m: Map<string, string>, p: Repo, pick: 'every' | 'only' | null) => {
+    const r = await signOutPlan(await readCreds((k) => m.get(k), p, 'jira', 'ACME.atlassian.net'), p, 'jira', 'ACME.atlassian.net', answer(pick));
+    if (r) applied(m, r.writes);
+    return r?.choice ?? null;
+  };
+
+  // Repo B uses the site's: it asks, with these two answers.
+  let m = start();
+  assert.equal(await plan(m, REPO_B, null), null, 'Cancel');
+  assert.deepEqual(asked, [{ every: 'Every project on acme.atlassian.net', only: 'This project only' }]);
+  assert.deepEqual(asked[0], signOutAnswers(JIRA_SITE));
+  assert.deepEqual(m, start(), 'Cancel writes nothing');
+  assert.equal(await plan(m, REPO_B, 'every'), 'every');
+  assert.deepEqual([...m.keys()], [siteCredKey('jira', 'other.atlassian.net'), credKey(REPO_A, 'jira', JIRA_SITE)], 'only this site\'s shared sign-in goes');
+  m = start();
+  assert.equal(await plan(m, REPO_B, 'only'), 'this');
+  assert.deepEqual([await inUse(m, REPO_B), m.get(siteCredKey('jira', JIRA_SITE))], [null, JSON.stringify(jordan)], 'signed out here, and the site\'s stays');
+  assert.equal(asked.length, 3);
+
+  // Repo A keeps its own: no question, and it falls back to the site's.
+  m = start();
+  assert.equal(await plan(m, REPO_A, 'every'), 'own');
+  assert.equal(asked.length, 3, 'an own sign-in never shows the question');
+  assert.deepEqual(await inUse(m, REPO_A), { cred: jordan, shared: true });
+  assert.equal(m.get(siteCredKey('jira', JIRA_SITE)), JSON.stringify(jordan));
+
+  // Not signed in, or signed out here already: nothing to ask or write.
+  m = machine([[siteCredKey('jira', JIRA_SITE), jordan], [credKey(REPO_B, 'jira', JIRA_SITE), { kind: 'jira', signedOut: true }]]);
+  const before = new Map(m);
+  assert.equal(await plan(m, REPO_B, 'every'), null);
+  assert.equal(await plan(machine([]), REPO_B, 'every'), null);
+  assert.deepEqual([m, asked.length], [before, 3]);
 });
 
 test('a sign-in\'s key names its tracker and host, a repo\'s or a site\'s', () => {

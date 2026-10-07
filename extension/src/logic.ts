@@ -691,6 +691,32 @@ export function signOutWrites(p: Parameters<typeof repoKey>[0], kind: string, ho
   return { store: [], delete: [credKey(p, kind, h)] };
 }
 
+/** The two answers signing out of a site's sign-in offers (GH-79). VSCode's modal adds Cancel. */
+export const signOutAnswers = (host: string): { every: string; only: string } => ({ every: `Every project on ${host.toLowerCase()}`, only: 'This project only' });
+
+/**
+ * How signing out goes (GH-79), and what it writes. A repo's own sign-in goes with no question, since no
+ * other repo uses it, and the repo falls back to the site's if there is one. The site's asks: every project
+ * on the site, or this one only. Null, with nothing to write, when the repo isn't signed in or the question
+ * is cancelled.
+ */
+export async function signOutPlan(
+  c: StoredCreds, p: Parameters<typeof repoKey>[0], kind: string, host: string,
+  ask: (answers: { every: string; only: string }) => PromiseLike<string | undefined>,
+): Promise<{ choice: 'every' | 'this' | 'own'; writes: CredWrites } | null> {
+  const using = credInUse(c);
+  if (!using) return null;
+  let choice: 'every' | 'this' | 'own' = 'own';
+  if (using.shared) {
+    const answers = signOutAnswers(host);
+    const pick = await ask(answers);
+    if (pick === answers.every) choice = 'every';
+    else if (pick === answers.only) choice = 'this';
+    else return null;
+  }
+  return { choice, writes: signOutWrites(p, kind, host, choice) };
+}
+
 /** "for every project on acme.atlassian.net", or "for this project only": where the sign-in in use is kept. */
 export const signInScope = (shared: boolean, host: string): string => (shared ? `for every project on ${host}` : 'for this project only');
 

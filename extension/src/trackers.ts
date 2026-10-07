@@ -14,7 +14,7 @@ import { MondayClient } from '../../packages/core/src/trackers/monday.ts';
 import { type Board, type Exec, movesInto, placeText, signInLabel, type Ticket, type TrackerClient, TrackerError, trackerName, type Transition } from '../../packages/core/src/trackers/types.ts';
 import { Pending } from '../webview/pending.ts';
 import type { Hub, Project } from './hub.ts';
-import { accImport, cardTracking, credInUse, credSite, type CredWrites, credWrites, liveTrackKeys, outsideKeys, placeCandidates, readCreds, repoKey, signOutWrites, type StoredCreds, type TrackReply, type TrackState, trackTicket } from './logic.ts';
+import { accImport, cardTracking, credInUse, credSite, type CredWrites, credWrites, liveTrackKeys, outsideKeys, placeCandidates, readCreds, repoKey, signOutPlan, type StoredCreds, type TrackReply, type TrackState, trackTicket } from './logic.ts';
 import { runFile } from './run.ts';
 
 type AccRun = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
@@ -435,18 +435,13 @@ export class Trackers implements vscode.Disposable {
       return;
     }
     const c = using.cred;
-    let choice: 'every' | 'this' | 'own' = 'own';
-    if (using.shared) {
-      const every = `Every project on ${host}`;
-      const only = 'This project only';
-      const pick = await vscode.window.showWarningMessage(`Sign out of ${trackerName(t.kind)} on ${host}?`, {
-        modal: true,
-        detail: `${p.name} uses the sign-in for every project on ${host} (${credWho(c)}). Sign out every project on ${host}, or only ${p.name}, which leaves the rest signed in. Projects with a sign-in of their own keep it.`,
-      }, every, only);
-      if (!pick) return;
-      choice = pick === every ? 'every' : 'this';
-    }
-    await this.apply(signOutWrites(p, t.kind, host, choice));
+    const plan = await signOutPlan(was, p, t.kind, host, ({ every, only }) => vscode.window.showWarningMessage(`Sign out of ${trackerName(t.kind)} on ${host}?`, {
+      modal: true,
+      detail: `${p.name} uses the sign-in for every project on ${host} (${credWho(c)}). Sign out every project on ${host}, or only ${p.name}, which leaves the rest signed in. Projects with a sign-in of their own keep it.`,
+    }, every, only));
+    if (!plan) return;
+    const { choice } = plan;
+    await this.apply(plan.writes);
     const msAccount = c.kind === 'azure' && c.method === 'microsoft' && choice !== 'this' ? ` Your Microsoft account (${c.account.label}) stays signed in to VSCode; manage it under Accounts.` : '';
     const site = was.site as Cred | null;
     void vscode.window.showInformationMessage(
