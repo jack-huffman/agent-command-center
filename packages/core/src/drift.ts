@@ -128,7 +128,7 @@ export function drift(paths: RepoPaths, config: Config, envName: string, deps: D
   try {
     const args = ['project', 'retrieve', 'start', '--manifest', manifest, '--target-org', env.org!, '--ignore-conflicts', '--wait', '60', '--json'];
     const retrieve = () => deps.run(...niced('sf', args), { cwd: dir, timeoutMs: 70 * 60_000, env: sfEnv() });
-    const r = withSlot(retrieve, { ...deps.slots, onWait: deps.onWait });
+    const r = withSlot(retrieve, { owner: { what: `Drift check on ${env.branch}`, env: env.branch, project: config.project }, ...deps.slots, onWait: deps.onWait });
     const log = join(paths.logs, 'drift', `${env.branch}.log`);
     mkdirSync(join(paths.logs, 'drift'), { recursive: true });
     writeFileSync(log, `$ ${shellLine('sf', args)}\n# exit ${r.code}\n\n${r.stdout}${r.stderr ? `\n--- stderr ---\n${r.stderr}` : ''}`);

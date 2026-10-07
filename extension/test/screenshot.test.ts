@@ -22,10 +22,12 @@ test('every section of the page, and a ticket, has sample data built by the real
     else if (kind === 'agents-settings') assert.deepEqual([m.kind, (m as HomeModel).section], ['home', 'agents']);
     // Agents with its Where column showing full paths (GH-83).
     else if (kind === 'agents-path') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).agents.whereView], ['home', 'agents', 'path']);
+    // The Overview with In progress busy, and with nothing running (D-092).
+    else if (kind.startsWith('overview-')) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).overview.inProgress.empty === null], ['home', 'overview', kind === 'overview-busy']);
     else assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).connect], ['home', kind === 'output' ? 'setup' : kind, null]);
   }
   assert.equal((sampleModel('agents') as HomeModel).agents.whereView, 'folder');
-  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-settings']);
+  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-settings', 'overview-busy', 'overview-idle']);
   assert.equal((sampleModel('environments') as HomeModel).environments.slack?.state, 'on');
   // monday.com's Connect page: its token page, its board picked by name, and two status columns to choose from.
   const monday = (sampleModel('connect-monday') as HomeModel).connect!;
@@ -34,6 +36,12 @@ test('every section of the page, and a ticket, has sample data built by the real
   const shared = (sampleModel('connect-shared') as HomeModel).connect!;
   assert.deepEqual([shared.share.shown, shared.share.on, shared.share.label], [true, true, 'Use this sign-in for every project on acme.atlassian.net']);
   assert.equal((sampleModel('tasks') as HomeModel).tasks.projects[0]!.boards[0]!.signIn?.label, 'Signed in as jordan@acme.example, for every project on acme.atlassian.net');
+  // Busy: several tasks with two or three jobs each, both slots held and one check waiting, and a done line (D-092).
+  const busy = (sampleModel('overview-busy') as HomeModel).overview.inProgress;
+  assert.ok(busy.groups.filter((g) => g.jobs.length >= 2).length >= 3, 'several tasks with two or three jobs');
+  assert.ok(busy.groups.some((g) => g.done.length), 'a done line');
+  assert.equal(busy.machine[0]!.look.label, 'Heavy checks: 2 of 2 in use, none free, 1 waiting');
+  assert.equal((sampleModel('overview-idle') as HomeModel).overview.inProgress.empty, 'Nothing is running.');
   // A ticket acc doesn't keep yet, being tracked from its card (D-074).
   assert.deepEqual([(sampleModel('ticket-track') as TicketModel).trackable, (sampleModel('ticket-track') as TicketModel).tracking], [true, true]);
   // A ticket being built, one whose analysis has questions, and one too big for one task (D-052).

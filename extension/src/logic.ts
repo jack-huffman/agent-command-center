@@ -287,6 +287,13 @@ export interface TaskRow {
   stopped?: { said: string | null } | null;
   /** A resume of its builder is under way. */
   resuming?: boolean;
+  /** When its builder last started, while it's running: its dispatch, or its latest resume (D-067). */
+  since?: string | null;
+  /**
+   * Its branch so far, while it's running (D-092): commits and files changed since its environment's
+   * branch, and files nobody has committed yet. Counted only while the page is on screen.
+   */
+  branchStats?: { commits: number; files: number; uncommitted: number } | null;
 }
 
 /** One of an analysis's questions a person hasn't answered: what it asks, why it matters, and what the analyst would assume. */

@@ -365,6 +365,8 @@ export interface GateRunDeps {
   run: Runner;
   now: () => Date;
   slots?: SlotOptions;
+  /** The task the checks are for, named on the heavy-check slot each heavy gate holds or waits for (D-092). */
+  task?: string;
   /** Told before each gate starts, and when a heavy gate has to wait for the machine's slot. */
   onStart?: (gate: Gate) => void;
   onWait?: (gate: Gate) => void;
@@ -442,7 +444,9 @@ export function runGates(paths: RepoPaths, config: Config, env: Environment, nam
       const [cmd, args] = niced(plan.cmd, plan.args);
       // sf gets a plain environment, so its --json output stays parseable whatever shell ran acc.
       const exec = () => deps.run(cmd, args, { cwd: root, timeoutMs: (gate.heavy ? 90 : 20) * 60_000, env: plan.cmd === 'sf' ? sfEnv() : checkEnv(process.env, gate.heavy ? join(input.scratch, 'heavy') : undefined) });
-      const r = gate.heavy ? withSlot(exec, { ...deps.slots, onWait: () => deps.onWait?.(gate) }) : exec();
+      // The slot says what it's for: the Command Center shows which task each heavy check runs for (D-092).
+      const owner = { what: gate.name, ...(deps.task ? { task: deps.task } : {}), project: config.project, cwd: root };
+      const r = gate.heavy ? withSlot(exec, { owner, ...deps.slots, onWait: () => deps.onWait?.(gate) }) : exec();
       log = join(input.scratch, `${gate.name}.log`);
       writeFileSync(log, `$ ${command}\n# exit ${r.code}\n\n${r.stdout}${r.stderr ? `\n--- stderr ---\n${r.stderr}` : ''}`);
       outcome = (plan.read ?? exitRead)(r);

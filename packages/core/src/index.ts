@@ -5,6 +5,7 @@ export * from './lock.ts';
 export * from './ledger.ts';
 export * from './receipts.ts';
 export * from './semaphore.ts';
+export * from './jobs.ts';
 export * from './gates.ts';
 export * from './drift.ts';
 export * from './intake.ts';

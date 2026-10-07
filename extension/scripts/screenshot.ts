@@ -16,7 +16,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { AGENT_SETTINGS, HOME_SECTIONS, homeModel, type HomeSection, type Model } from '../src/model.ts';
-import { type ConnectSample, SAMPLE_EDIT, sampleAgent, sampleBoards, sampleConnect, sampleEdited, sampleHub, sampleIdentity, sampleMondayBoards, sampleRuns, sampleSetup, sampleSlack, type SlackSample, sampleTicket } from './fixtures.ts';
+import { FinishedJobs } from '../src/progress.ts';
+import { type ConnectSample, SAMPLE_EDIT, sampleAgent, sampleAnalyzeRun, sampleBoards, sampleBusyHub, sampleConnect, sampleEdited, sampleHub, sampleIdentity, sampleIdleHub, sampleMondayBoards, sampleRuns, sampleSetup, sampleSlack, type SlackSample, sampleTicket } from './fixtures.ts';
 
 /**
  * Every page the screenshot script can draw: each section of the Command Center, a ticket's page (being
@@ -25,9 +26,10 @@ import { type ConnectSample, SAMPLE_EDIT, sampleAgent, sampleBoards, sampleConne
  * that's asking something, the Connect page at each of its steps (D-073), Environments with the Slack
  * card at each of its states (GH-58): sending on Environments itself, then not set up, off and paused,
  * the Tasks tab with a monday.com board in place of the Jira one (GH-70), Agents with How agents run opened
- * by its Settings (D-089), and Agents with its Where column showing full paths (GH-83).
+ * by its Settings (D-089), Agents with its Where column showing full paths (GH-83), and the Overview with
+ * In progress busy, and with nothing running (D-092).
  */
-export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-settings'] as const;
+export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-settings', 'overview-busy', 'overview-idle'] as const;
 export type Page = (typeof PAGES)[number];
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -70,6 +72,15 @@ export function sampleModel(kind: Page, now = Date.now()): Model {
   if (kind === 'ticket-track') return sampleTicket(now, 'ACME-31');
   if (kind === 'ticket-checks') return sampleTicket(now, 'ACME-33');
   if (kind === 'agent') return sampleAgent(now);
+  if (kind === 'overview-busy' || kind === 'overview-idle') {
+    const base = { section: 'overview' as const, boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), edited: sampleEdited, slack: sampleSlack('on', now) };
+    if (kind === 'overview-idle') return homeModel({ ...base, hub: sampleIdleHub(now), runs: sampleRuns(now), now });
+    // Two looks, 20 seconds apart: autopilot's review of ACME-20 ended between them, so it's a done line.
+    const finished = new FinishedJobs();
+    const runs = [...sampleRuns(now), sampleAnalyzeRun(now)];
+    homeModel({ ...base, hub: sampleBusyHub(now, true), runs, finished, autopilot: () => 'on', now: now - 20_000 });
+    return homeModel({ ...base, hub: sampleBusyHub(now), runs, finished, autopilot: () => 'on', now });
+  }
   const hub = sampleHub(now);
   const connect = kind.startsWith('connect-') ? sampleConnect(kind.slice('connect-'.length) as ConnectSample) : null;
   const slack = sampleSlack(kind.startsWith('slack-') ? kind.slice('slack-'.length) as SlackSample : 'on', now);
@@ -94,6 +105,15 @@ const viewOf = (kind: Page): string => (kind.startsWith('ticket') ? 'ticket' : k
  * A page that loads the built webview the way VSCode does: a stub API answers `ready` with the model.
  * Screenshots can't hover, so each :hover rule is copied to a class put on the first row or card.
  */
+/** How tall a shot is unless --height says. */
+const DEFAULT_HEIGHT = 900;
+
+/**
+ * Pages whose part sits below the fold at the default height, shot taller: In progress is below Needs you on
+ * the Overview, and taller still at narrow widths, where the Overview's columns stack (D-092).
+ */
+export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 3600, 'overview-idle': 3200 };
+
 export function pageFor(kind: Page, theme: Theme, model: Model): string {
   const vars = Object.entries(THEMES[theme]).map(([k, v]) => `--vscode-${k}: ${v};`).join(' ');
   // `<` escaped, so no string in the model can close the script tag.
@@ -151,7 +171,7 @@ function staleBuild(): string | null {
 function main(argv: string[]): number {
   const { values, positionals } = parseArgs({
     args: argv, allowPositionals: true,
-    options: { width: { type: 'string', default: '1000,620,500' }, theme: { type: 'string', default: 'dark,light' }, height: { type: 'string', default: '900' }, out: { type: 'string' } },
+    options: { width: { type: 'string', default: '1000,620,500' }, theme: { type: 'string', default: 'dark,light' }, height: { type: 'string' }, out: { type: 'string' } },
   });
   const views = positionals.length ? positionals : [...PAGES];
   const bad = views.filter((v) => !(PAGES as readonly string[]).includes(v));
@@ -159,7 +179,7 @@ function main(argv: string[]): number {
   const themes = values.theme.split(',');
   if (themes.some((t) => !(t in THEMES))) return fail(`Themes: ${Object.keys(THEMES).join(', ')}.`);
   const widths = values.width.split(',').map(Number);
-  const height = Number(values.height);
+  const height = Number(values.height ?? DEFAULT_HEIGHT);
   if ([...widths, height].some((n) => !Number.isInteger(n) || n < 200)) return fail('Widths and height are whole pixels, 200 or more.');
   // Chrome won't make a window narrower than 500 px: it lays the page out at 500 and crops the shot,
   // which looks like the page overflowing when it doesn't.
@@ -181,13 +201,15 @@ function main(argv: string[]): number {
         writeFileSync(page, pageFor(view, theme, sampleModel(view, now)));
         for (const width of widths) {
           const png = join(out, `${view}-${theme}-${width}.png`);
+          // A page whose part sits low on it is shot taller unless --height says otherwise (D-092).
+          const tall = values.height === undefined ? Math.max(height, PAGE_HEIGHT[view] ?? 0) : height;
           rmSync(png, { force: true });
           const args = [
             // No --user-data-dir: headless Chrome already uses a throwaway profile, and a fresh one makes it
             // hang after writing the shot.
             '--headless=new', '--disable-gpu', '--hide-scrollbars', '--no-first-run', '--no-default-browser-check',
             '--allow-file-access-from-files', '--force-device-scale-factor=2',
-            '--virtual-time-budget=3000', `--window-size=${width},${height}`, `--screenshot=${png}`, pathToFileURL(page).href,
+            '--virtual-time-budget=3000', `--window-size=${width},${tall}`, `--screenshot=${png}`, pathToFileURL(page).href,
           ];
           const [cmd, cmdArgs] = process.platform === 'win32' ? [chrome, args] : ['nice', ['-n', '15', chrome, ...args]];
           const r = spawnSync(cmd, cmdArgs, { stdio: 'ignore', timeout: 30_000 });

@@ -173,6 +173,14 @@ export class AutopilotHost implements vscode.Disposable {
     return pid ? { state: 'elsewhere', pid } : { state: 'off' };
   }
 
+  /** Whether autopilot runs for a project's repo in this window, somewhere else, or not at all, for In progress (D-092). */
+  stateFor(root: string): 'on' | 'elsewhere' | null {
+    const p = this.hub.project(root);
+    const repo = p && this.repos.find((r) => r.key === p.ledgerPath);
+    const s = repo ? this.stateOf(repo) : null;
+    return s?.state === 'on' || s?.state === 'elsewhere' ? s.state : null;
+  }
+
   /** Each repo's autopilot whose autonomy isn't manual: its name, key, and whether it's on here, off, elsewhere or can't run. */
   looks(): { key: string; project: string; state: 'on' | 'off' | 'elsewhere' | 'refused'; text: string; autoMerge: boolean }[] {
     const many = this.repos.filter((r) => r.project.config.autonomy !== 'manual').length > 1;
