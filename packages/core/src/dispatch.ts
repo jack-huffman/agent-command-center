@@ -219,9 +219,10 @@ export function builderSettings(task: Task, config: Config, accBinDir: string, b
   const allow = [
     'Bash(acc done*)', 'Bash(acc block *)', 'Bash(acc show *)', 'Bash(acc gate run)', 'Bash(acc gate run *)', 'Bash(acc gate list*)',
     'Bash(git status*)', 'Bash(git diff*)', 'Bash(git add *)', 'Bash(git commit *)', 'Bash(git log*)', 'Bash(git show *)',
-    // Bringing the base in, as the merge queue asks when it conflicts (GH-73): only where the queue runs, so
-    // where auto-merge is off, a Salesforce project above all, a builder still asks first.
-    ...(autoMergeFor(config, task.environment) ? ['Bash(git merge origin/*)'] : []),
+    // Bringing its own base in, as the merge queue asks when it conflicts (GH-73), with or without flags such
+    // as --no-edit: only where the queue runs, so where auto-merge is off, a Salesforce project above all, a
+    // builder still asks first. Any other branch it still asks about.
+    ...(autoMergeFor(config, task.environment) ? [`Bash(git merge origin/${task.environment})`, `Bash(git merge origin/${task.environment} *)`] : []),
     'Bash(npm test*)', 'Bash(npm run *)', 'Bash(npx prettier *)', 'Bash(npx eslint *)', 'Bash(node --test*)', 'Bash(node --no-warnings --test*)',
     // A project may ask for builds and tests under nice, so the machine stays usable: the same commands, niced.
     'Bash(nice -n 15 npm test*)', 'Bash(nice -n 15 npm run *)', 'Bash(nice -n 15 npx prettier *)', 'Bash(nice -n 15 npx eslint *)',
