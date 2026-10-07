@@ -20,12 +20,12 @@ import { type ConnectSample, SAMPLE_EDIT, sampleAgent, sampleBoards, sampleConne
 
 /**
  * Every page the screenshot script can draw: each section of the Command Center, a ticket's page (being
- * built, two to do whose analysis has questions or says to split it, one whose builder stopped, and one
- * acc doesn't keep yet, being tracked), an agent's page, Setup with the output panel open on a command
- * that's asking something, the Connect page at each of its steps (D-073), and Environments with the Slack
+ * built, two to do whose analysis has questions or says to split it, one whose builder stopped, one that
+ * waits for other tasks' files, and one acc doesn't keep yet, being tracked), an agent's page, Setup with
+ * the output panel open on a command that's asking something, the Connect page at each of its steps (D-073), and Environments with the Slack
  * card at each of its states (GH-58): sending on Environments itself, then not set up, off and paused.
  */
-export const PAGES = [...HOME_SECTIONS, 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'agent', 'output', 'connect-start', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'slack-none', 'slack-off', 'slack-paused'] as const;
+export const PAGES = [...HOME_SECTIONS, 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'agent', 'output', 'connect-start', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'slack-none', 'slack-off', 'slack-paused'] as const;
 export type Page = (typeof PAGES)[number];
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -67,6 +67,7 @@ export function sampleModel(kind: Page, now = Date.now()): Model {
   if (kind === 'ticket-stopped') return sampleTicket(now, 'ACME-29');
   if (kind === 'ticket-track') return sampleTicket(now, 'ACME-31');
   if (kind === 'ticket-checks') return sampleTicket(now, 'ACME-33');
+  if (kind === 'ticket-waits') return sampleTicket(now, 'ACME-35');
   if (kind === 'agent') return sampleAgent(now);
   const hub = sampleHub(now);
   const connect = kind.startsWith('connect-') ? sampleConnect(kind.slice('connect-'.length) as ConnectSample) : null;

@@ -664,6 +664,8 @@ body[data-view="agent"] .agent-asks { max-height: 50vh; overflow-y: auto; }
 .agent-facts .sep { margin: 0 6px; }
 .agent-asks { margin-bottom: 14px; }
 .notice.recap { border-left: 3px solid var(--blue); color: var(--vscode-foreground); }
+/* A task that waits for other tasks' files (D-???): blue, as waiting is. */
+.notice.waits { border-left: 3px solid var(--blue); color: var(--vscode-foreground); }
 .timeline { list-style: none; margin: 0; padding: 0; }
 .entry { margin: 0; }
 .entry.say, .entry.prompt { margin: 14px 0 8px; }

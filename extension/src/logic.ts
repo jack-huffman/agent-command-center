@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { Analysis } from '../../packages/core/src/analyze.ts';
 import { AUTOPILOT_REVIEW_DOES, type AutopilotRecord, reworkedByAutopilot } from '../../packages/core/src/autopilot.ts';
-import type { AutopilotStepName, TaskInput } from '../../packages/core/src/ledger.ts';
+import type { AutopilotStepName, FileShare, TaskInput } from '../../packages/core/src/ledger.ts';
 import type { CheckStatus, Step } from '../../packages/core/src/onboarding/types.ts';
 import type { Ticket } from '../../packages/core/src/trackers/types.ts';
 import type { Pending } from '../webview/pending.ts';
@@ -260,6 +260,88 @@ export interface TaskRow {
   stopped?: { said: string | null } | null;
   /** A resume of its builder is under way. */
   resuming?: boolean;
+  /** What it shares with other tasks' files (D-???), worked out by the hub, or null when nothing says. */
+  files?: RowFiles | null;
+}
+
+/** A task's files beside other tasks' (D-???). acc decides at dispatch; this is what the board shows. */
+export interface RowFiles {
+  /** Its analysis names the files it plans to change. */
+  known: boolean;
+  /**
+   * A task to do: the tasks in flight whose files its plan shares, and those files. In flight: the ones
+   * it shared when it started, while they're still in flight.
+   */
+  shares: FileShare[];
+  /** A task to do: Ready tasks that share no files with work in flight, which start before it. */
+  first: string[];
+  /** A person dispatched it, and it waits: when, why its start failed if it did, and whether autopilot tried. */
+  held: { at: string; failed: string | null; byAutopilot: boolean } | null;
+  /** The agent cap is reached, so a held task waits for that too. */
+  capped?: boolean;
+}
+
+/** Whether a task to do would wait for others' files: it shares some, and another Ready task shares none (D-???). */
+export const waitsForFiles = (row: Pick<TaskRow, 'state' | 'files'>): boolean => row.state === 'todo' && !!row.files?.shares.length && !!row.files.first.length;
+
+/**
+ * Each task's files for a card: three names in all, short, at least one a task, the rest going to the
+ * first; or every file in full, for a task's page.
+ */
+function namedEach(shares: FileShare[], full: boolean): string[] {
+  if (full) return shares.map((s) => s.files.join(', '));
+  return shares.map((s, i) => fileList(s.files.map(shortPath), i ? 1 : Math.max(1, 3 - (shares.length - 1))));
+}
+
+/** "Waits for GH-70's files: logic.ts, model.ts", and each further task's: ", and GH-71's: main.ts" (D-???). */
+export function waitLine(shares: FileShare[], full = false): string {
+  const files = namedEach(shares, full);
+  return `Waits for ${shares.map((s, i) => `${s.task}'s${i ? '' : ' files'}: ${files[i]}`).join(', and ')}`;
+}
+
+/** "Shares files with GH-70: logic.ts", and each further task's: ", and GH-71: main.ts" (D-???). */
+export function sharesLine(shares: FileShare[], full = false): string {
+  const files = namedEach(shares, full);
+  return `Shares files with ${shares.map((s, i) => `${s.task}: ${files[i]}`).join(', and ')}`;
+}
+
+/** What a Ready card says when its task has no analysis to compare (D-???). */
+export const FILES_UNKNOWN = 'Its files aren\'t known: no analysis to compare with work in flight';
+
+/** "GH-74", "GH-74 and GH-75", "GH-74, GH-75 and GH-76". */
+export const taskNames = (ids: string[]): string => (ids.length > 1 ? `${ids.slice(0, -1).join(', ')} and ${ids.at(-1)}` : (ids[0] ?? ''));
+
+/**
+ * What Dispatch asks first when a task would wait for others' files (D-???): which tasks, with each file in
+ * full, and what goes first. Its buttons are Wait for GH-x, and Dispatch anyway.
+ */
+export function waitQuestion(row: Pick<TaskRow, 'id'> & { files: Pick<RowFiles, 'shares' | 'first'> }): { message: string; detail: string; wait: string } {
+  const { shares, first } = row.files;
+  const blockers = taskNames(shares.map((s) => s.task));
+  return {
+    message: `${row.id} shares files with ${blockers}`,
+    detail: [
+      ...shares.map((s) => `${s.task}: ${s.files.join(', ')}`),
+      '',
+      `${taskNames(first)} ${first.length === 1 ? 'shares' : 'share'} no files with work in flight, so ${first.length === 1 ? 'it goes' : 'they go'} first. ${row.id} waits, and starts on its own once ${blockers} ${shares.length === 1 ? 'merges' : 'merge'} or nothing else is ready.`,
+    ].join('\n'),
+    wait: `Wait for ${blockers}`,
+  };
+}
+
+/** What Dispatch anyway confirms (D-???): each task it shares files with, and those files in full. */
+export function anywayQuestion(row: Pick<TaskRow, 'id'> & { files?: Pick<RowFiles, 'shares'> | null }): { message: string; detail: string } {
+  const shares = row.files?.shares ?? [];
+  if (!shares.length) return { message: `Dispatch ${row.id} now?`, detail: 'An agent starts on it in its own worktree.' };
+  return {
+    message: `Dispatch ${row.id} anyway?`,
+    detail: [
+      'It shares files with work in flight:',
+      ...shares.map((s) => `${s.task}: ${s.files.join(', ')}`),
+      '',
+      'Both builders may change them, and the second pull request to merge may conflict there.',
+    ].join('\n'),
+  };
 }
 
 /** One of an analysis's questions a person hasn't answered: what it asks, why it matters, and what the analyst would assume. */
@@ -764,6 +846,15 @@ export function statusSummary(rows: Pick<TaskRow, 'id' | 'title' | 'display'>[],
 
 // ---------------------------------------------------------------- autopilot, hosted by the Command Center (D-064)
 
+/**
+ * A held task that started (D-???): "GH-73 started: GH-70's files are free", or that nothing else was
+ * ready, so it shares files with GH-70. `what` says who started it.
+ */
+export function startedNotice(what: string, s: { waitedFor?: string[]; shares?: FileShare[] }): string {
+  if (s.shares?.length) return `${what}: nothing else was ready, so it shares files with ${taskNames(s.shares.map((x) => x.task))}.`;
+  return s.waitedFor?.length ? `${what}: ${taskNames(s.waitedFor)}'s files are free.` : `${what}.`;
+}
+
 /** What a step autopilot couldn't take is called, as acc says it: "couldn't land GH-31", "couldn't send GH-31 back for its failing checks". */
 const AUTOPILOT_VERB: Record<AutopilotStepName, [string, string]> = {
   review: ['review', ''], land: ['land', ''], dispatch: ['re-dispatch', ''], refresh: ['update', ' from its base'], resume: ['resume', ''], checks: ['send', ' back for its failing checks'], start: ['start', ''],
@@ -813,6 +904,8 @@ export function autopilotNotices(steps: AutopilotRecord[], tasks: AutopilotTask[
     } else if (r.step === 'dispatch') say(r.cause === 'checks' ? `Autopilot re-dispatched ${r.task} for its failing checks.` : `Autopilot re-dispatched ${r.task} with its review's changes.`, false, [['Watch', 'acc.task.watch']]);
     // A builder that stopped, carried on once (D-067): what it last said.
     else if (r.step === 'resume') say(`Autopilot resumed ${r.task}${r.reason ? `: ${endSentence(saidLine(r.reason))}` : '.'}`, false, [['Watch', 'acc.task.watch']]);
+    // A task a person dispatched that waited for others' files (D-???).
+    else if (r.step === 'start') say(startedNotice(`Autopilot started ${r.task}`, r), false, [['Watch', 'acc.task.watch']]);
     else if (r.step === 'refresh') {
       if (r.base) say(`Autopilot merged ${r.base} into ${r.task}, and its checks passed. It's reviewed next, then landed.`, false, [['Open pull request', 'acc.task.openPr']]);
       else say(`${r.pr ? `Pull request #${r.pr.number} (${r.task})` : r.task} no longer conflicts with its base: autopilot found nothing to merge.`, false);

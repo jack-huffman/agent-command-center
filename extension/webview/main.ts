@@ -298,6 +298,9 @@ function renderTasks(m: TasksModel): Node[] {
           card.closedPr ? el('div', 'card-agent', status(card.closedPr)) : null,
           // Its builder stopped before acc done or acc block, and what it last said (D-067): in orange, with its icon.
           card.stopped ? el('div', 'card-agent', status(card.stopped)) : null,
+          // Its files beside other tasks' (D-???): it waits for them (a clock, in blue), its start failed (the
+          // bell, in orange), it shares them, or a Ready task's aren't known.
+          card.files ? el('div', 'card-agent', status(card.files)) : null,
           card.agent ? el('div', 'card-agent', el('span', 'muted', 'Agent: '), status(card.agent)) : null,
           // Its analysis (D-052), in its own words: under way, waiting on you, or ready to build from.
           card.analysis ? el('div', 'card-agent', status(card.analysis)) : null,
@@ -758,6 +761,13 @@ function renderTicket(m: TicketModel): Node[] {
   if (m.acc?.failedChecks) {
     const [head, ...names] = m.acc.failedChecks.split(': ');
     top.append(foldable(`checks:${m.project}#${m.key}`, el('div', 'notice attention why', icon('github-action', 'orange'), el('div', 'why-text conflict', el('strong', '', `${head}: `), names.join(': '))), 'why-text', 2));
+  }
+  // Its files beside other tasks', each file in full (D-???): the icon and the words, in the look's tone.
+  if (m.acc?.files) {
+    const f = m.acc.files;
+    const [head, ...rest] = f.label.split(': ');
+    const tone = f.tone === 'orange' ? ' attention' : f.tone === 'blue' ? ' waits' : '';
+    top.append(foldable(`files:${m.project}#${m.key}`, el('div', `notice${tone} why`, icon(f.icon, f.tone), el('div', 'why-text', el('strong', '', rest.length ? `${head}: ` : head), rest.join(': '))), 'why-text', 2));
   }
   if (m.analysis) top.append(renderAnalysis(m, m.analysis));
   const main = el('div', 'ticket-main');

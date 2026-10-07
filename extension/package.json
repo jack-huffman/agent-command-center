@@ -333,6 +333,18 @@
         "icon": "$(rocket)"
       },
       {
+        "command": "acc.task.dispatchAnyway",
+        "title": "Dispatch anyway, though it shares files with work in flight",
+        "category": "Agent Command Center",
+        "icon": "$(rocket)"
+      },
+      {
+        "command": "acc.task.stopWaiting",
+        "title": "Stop waiting for other tasks' files",
+        "category": "Agent Command Center",
+        "icon": "$(debug-pause)"
+      },
+      {
         "command": "acc.task.attach",
         "title": "Attach to its agent",
         "category": "Agent Command Center",
@@ -578,6 +590,14 @@
         },
         {
           "command": "acc.task.dispatch",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.dispatchAnyway",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.stopWaiting",
           "when": "false"
         },
         {

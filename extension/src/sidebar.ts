@@ -10,7 +10,7 @@ import { repoPaths } from '../../packages/core/src/paths.ts';
 import { receiptHooks } from '../../packages/core/src/receipts.ts';
 import { endResume } from '../../packages/core/src/resume.ts';
 import type { Hub, Project } from './hub.ts';
-import { type AgentSession, agentName, CLAUDE_EXTENSION, claudeSessionUri, githubBranchUrl, isSessionId, landMessage, sessionFor } from './logic.ts';
+import { type AgentSession, agentName, anywayQuestion, CLAUDE_EXTENSION, claudeSessionUri, githubBranchUrl, isSessionId, landMessage, sessionFor, waitLine, waitQuestion, waitsForFiles } from './logic.ts';
 import { laneMove, sessionKey } from './model.ts';
 import { type RunResult, runFile } from './run.ts';
 import { claudeProjectsDir, savedFolder } from './transcript.ts';
@@ -69,6 +69,8 @@ export class Sidebar {
     reg('acc.task.copyId', (n: TaskNode) => n.kind === 'task' && vscode.env.clipboard.writeText(n.task.id));
     reg('acc.tasks.refresh', () => this.hub.loadTasks(true));
     reg('acc.task.dispatch', (n: TaskNode) => this.dispatchTask(n));
+    reg('acc.task.dispatchAnyway', (n: TaskNode) => this.dispatchAnyway(n));
+    reg('acc.task.stopWaiting', (n: TaskNode) => this.stopWaiting(n));
     reg('acc.task.watch', (n: TaskNode) => this.watchTask(n));
     reg('acc.task.resume', (n: TaskNode) => this.resumeTask(n));
     reg('acc.task.review', (n: TaskNode) => this.reviewTask(n));
@@ -247,6 +249,8 @@ export class Sidebar {
     const to = laneMove(lane);
     if (!to) { await this.hub.loadTasks(true); return; }
     if (to === 'dispatch') {
+      // One that would wait for others' files asks that instead (D-???).
+      if (waitsForFiles(task) && task.files) { await this.dispatchTask(n); await this.hub.loadTasks(true); return; }
       const ok = await vscode.window.showInformationMessage(`Dispatch ${id}?`, { modal: true, detail: 'An agent starts on it in its own worktree.' }, 'Dispatch');
       if (ok === 'Dispatch') await this.dispatchTask(n);
       else await this.hub.loadTasks(true);
@@ -285,20 +289,35 @@ export class Sidebar {
     await this.runAcc(n.project, ['set', n.task.id, to, ...(reason ? ['--reason', reason] : [])], () => `${n.task.id} → ${DISPLAY[to].label}.`);
   }
 
-  /** Dispatch (D-009, D-013): worktree, setup, packet, background session, task → Running. */
-  private async dispatchTask(n: TaskNode): Promise<void> {
+  /**
+   * Dispatch (D-009, D-013): worktree, setup, packet, background session, task → Running. A first dispatch
+   * that would wait for others' files asks first, naming each task and its files (D-???): wait, and it
+   * starts on its own, or dispatch anyway. acc decides, and a hold it records is said so.
+   */
+  private async dispatchTask(n: TaskNode, anyway = false): Promise<void> {
     if (n.kind !== 'task') return;
     const { project, task } = n;
-    let result: { worktree?: string; bgId?: string | null; reused?: boolean } | null = null;
+    if (!anyway && task.state === 'todo' && waitsForFiles(task) && task.files) {
+      const q = waitQuestion({ id: task.id, files: task.files });
+      const pick = await vscode.window.showInformationMessage(q.message, { modal: true, detail: q.detail }, q.wait, 'Dispatch anyway');
+      if (!pick) return;
+      anyway = pick === 'Dispatch anyway';
+    }
+    let result: { held?: boolean; waitsFor?: { task: string; files: string[] }[]; worktree?: string; bgId?: string | null; reused?: boolean } | null = null;
     await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Dispatching ${task.id}`, cancellable: false }, async (progress) => {
       progress.report({ message: 'creating the worktree and starting the agent…' });
-      await this.runAcc(project, ['dispatch', task.id], (out) => {
+      await this.runAcc(project, ['dispatch', task.id, ...(anyway ? ['--anyway'] : [])], (out) => {
         result = out;
         return undefined;
       });
     });
     if (!result) return;
-    const r = result as { worktree?: string; bgId?: string | null; reused?: boolean };
+    const r = result as { held?: boolean; waitsFor?: { task: string; files: string[] }[]; worktree?: string; bgId?: string | null; reused?: boolean };
+    if (r.held) {
+      const pick = await vscode.window.showInformationMessage(`${task.id} ${waitLine(r.waitsFor ?? []).replace(/^Waits/, 'waits')}. It starts on its own once they're free, or once nothing else is ready.`, 'Dispatch anyway');
+      if (pick) await this.dispatchAnyway(n);
+      return;
+    }
     await Promise.all([this.hub.loadAgents(), this.hub.loadWorktrees()]);
     const where = r.worktree ? basename(r.worktree) : 'its worktree';
     const pick = await vscode.window.showInformationMessage(
@@ -311,6 +330,21 @@ export class Sidebar {
       else this.send(r.worktree ?? project.root, `claude attach ${r.bgId}`, `claude: ${task.id}`);
     }
     if (pick === 'Open worktree' && r.worktree) await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(r.worktree), { forceNewWindow: true });
+  }
+
+  /** Dispatch anyway (D-???): a task that waits for others' files starts now, once a person confirms, named overlap and all. */
+  private async dispatchAnyway(n: TaskNode): Promise<void> {
+    if (n.kind !== 'task') return;
+    const row = this.hub.taskRows(n.project.root).find((t) => t.id === n.task.id) ?? n.task;
+    const q = anywayQuestion(row);
+    const ok = await vscode.window.showWarningMessage(q.message, { modal: true, detail: q.detail }, 'Dispatch anyway');
+    if (ok) await this.dispatchTask({ ...n, task: row }, true);
+  }
+
+  /** It stops waiting for others' files, and stays to do (D-???). */
+  private async stopWaiting(n: TaskNode): Promise<void> {
+    if (n.kind !== 'task') return;
+    await this.runAcc(n.project, ['dispatch', n.task.id, '--stop-waiting'], () => `${n.task.id} stopped waiting. It stays in Ready, and nothing starts it on its own.`);
   }
 
   /** Stops the task's agent and moves it back to To do. The worktree and its commits are kept. */
