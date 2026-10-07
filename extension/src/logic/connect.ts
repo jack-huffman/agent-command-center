@@ -1,6 +1,6 @@
 /**
- * Connect and trackers: sign-ins kept for a project or a whole site (D-091), and tracking a tracker's
- * ticket as a task (D-074).
+ * Connect and trackers: sign-ins kept for a project or a whole site, and tracking a tracker's
+ * ticket as a task.
  * Like the rest of logic/, no `vscode` import, so it can be tested with node:test.
  */
 

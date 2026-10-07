@@ -1,5 +1,5 @@
 /**
- * Agents' sessions: which task each belongs to, how each looks, the models builders run with (D-086), and
+ * Agents' sessions: which task each belongs to, how each looks, the models builders run with, and
  * opening one in Claude Code.
  * Like the rest of logic/, no `vscode` import, so it can be tested with node:test.
  */

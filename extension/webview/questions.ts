@@ -1,4 +1,4 @@
-// Agents' questions (D-030): a permission prompt or a question, answered in place.
+// Agents' questions: a permission prompt or a question, answered in place.
 
 import type { QuestionCard } from '../src/model/questions.ts';
 import { button, type Child, el, icon, keptInput, when } from './dom.ts';

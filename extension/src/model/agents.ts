@@ -1,5 +1,5 @@
 /**
- * The Agents section: sessions by where they run (GH-83), and how agents run (D-036, D-089).
+ * The Agents section: sessions by where they run, and how agents run.
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 

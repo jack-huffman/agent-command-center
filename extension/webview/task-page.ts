@@ -1,4 +1,4 @@
-// A ticket's page (D-026): the ticket, its fields, its comments and its activity.
+// A ticket's page: the ticket, its fields, its comments and its activity.
 
 import type { Look } from '../src/model/shared.ts';
 import type { PersonChip } from '../src/model/boards.ts';

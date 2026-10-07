@@ -1,5 +1,5 @@
 /**
- * The Command Center page (D-029): every section on one page, with what each area adds to it.
+ * The Command Center page: every section on one page, with what each area adds to it.
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 

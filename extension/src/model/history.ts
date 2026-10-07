@@ -1,5 +1,5 @@
 /**
- * History on the Overview (D-037): your answers, every task's moves, autopilot's steps and the commands acc ran.
+ * History on the Overview: your answers, every task's moves, autopilot's steps and the commands acc ran.
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 

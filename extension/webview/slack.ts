@@ -1,4 +1,4 @@
-// acc's notices in Slack (GH-58): the card on Environments.
+// acc's notices in Slack: the card on Environments.
 
 import type { SlackCard } from '../src/model/slack.ts';
 import { button, type Child, el, icon, keptInput, when } from './dom.ts';

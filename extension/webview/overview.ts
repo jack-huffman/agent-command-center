@@ -1,4 +1,4 @@
-// The Overview (D-029): what needs you, the stat tiles, the merge queue, and History (D-037).
+// The Overview: what needs you, the stat tiles, the merge queue, and History.
 
 import type { HistoryItem } from '../src/model/history.ts';
 import type { HomeModel } from '../src/model/home.ts';

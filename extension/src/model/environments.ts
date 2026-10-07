@@ -1,5 +1,5 @@
 /**
- * The Environments section: the repo's GitHub identity (D-028), promotion paths, and a card per environment.
+ * The Environments section: the repo's GitHub identity, promotion paths, and a card per environment.
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 

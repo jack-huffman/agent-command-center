@@ -18,7 +18,7 @@ import type { TaskNode } from './nodes.ts';
 import type { ExtensionArea } from './area.ts';
 import { Sidebar } from './sidebar.ts';
 
-/** The Tasks area's commands: adding, moving, dispatching, reviewing and landing tasks, all through acc (D-012). */
+/** The Tasks area's commands: adding, moving, dispatching, reviewing and landing tasks, all through acc. */
 class TaskCommands extends Sidebar {
   constructor(from: Sidebar) {
     super(from.hub, from.acc, from.log, from.openTicket, from.helpers, from.terminals);

@@ -1,4 +1,4 @@
-// Ticket updates (D-066) on the Overview and a task's page, and the replies to what the page sent.
+// Ticket updates on the Overview and a task's page, and the replies to what the page sent.
 
 import type { Action } from '../src/model/shared.ts';
 import type { Model } from '../src/model/home.ts';

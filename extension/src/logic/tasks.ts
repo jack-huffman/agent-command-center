@@ -1,6 +1,6 @@
 /**
- * What a task shows and does: waiting for other tasks' files and starting held ones (D-093), its analysis
- * (D-052), its pull request, and landing it.
+ * What a task shows and does: waiting for other tasks' files and starting held ones, its analysis
+ *, its pull request, and landing it.
  * Like the rest of logic/, no `vscode` import, so it can be tested with node:test.
  */
 

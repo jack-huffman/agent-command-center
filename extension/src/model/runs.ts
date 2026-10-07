@@ -1,5 +1,5 @@
 /**
- * Commands acc runs for you (D-030), in the page's output panel.
+ * Commands acc runs for you, in the page's output panel.
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 

@@ -141,7 +141,7 @@ export const short = (v: unknown, max = 500): v is string => typeof v === 'strin
 export interface ModelArea {
   /** The messages its parts send, by type, each with what such a message must hold. Everything else is ignored. */
   messages?: Record<string, (x: Record<string, unknown>) => boolean>;
-  /** The acc.* commands its parts of the page may ask for (D-029). Anything else from a webview is ignored. */
+  /** The acc.* commands its parts of the page may ask for. Anything else from a webview is ignored. */
   commands?: readonly string[];
   /** What it adds to the Command Center page. */
   home?: HomeArea;

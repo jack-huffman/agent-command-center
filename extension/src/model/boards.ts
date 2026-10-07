@@ -1,5 +1,5 @@
 /**
- * Tracker boards on the Tasks section (D-026): each tracker's own columns and cards, with acc's side of each.
+ * Tracker boards on the Tasks section: each tracker's own columns and cards, with acc's side of each.
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 

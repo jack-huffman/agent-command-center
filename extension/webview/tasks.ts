@@ -1,4 +1,4 @@
-// The Tasks section: acc's agent board, and each tracker's own board (D-026).
+// The Tasks section: acc's agent board, and each tracker's own board.
 
 import type { TrackerBoard, TrackerCard } from '../src/model/boards.ts';
 import type { TasksModel } from '../src/model/tasks.ts';

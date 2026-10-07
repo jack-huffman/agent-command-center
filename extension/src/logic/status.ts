@@ -1,5 +1,5 @@
 /**
- * One status bar item (D-065): what it says, and its tooltip.
+ * One status bar item: what it says, and its tooltip.
  * Like the rest of logic/, no `vscode` import, so it can be tested with node:test.
  */
 

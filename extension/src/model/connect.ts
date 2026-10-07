@@ -1,5 +1,5 @@
 /**
- * Connecting a tracker (GH-51): the Connect page, drawn from a tracker's description.
+ * Connecting a tracker: the Connect page, drawn from a tracker's description.
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 

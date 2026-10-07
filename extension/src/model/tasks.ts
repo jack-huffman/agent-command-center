@@ -1,5 +1,5 @@
 /**
- * The Tasks section's agent board (D-041): its lanes and cards, and what needs you about a task.
+ * The Tasks section's agent board: its lanes and cards, and what needs you about a task.
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 

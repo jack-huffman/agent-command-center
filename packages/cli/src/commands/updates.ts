@@ -1,4 +1,4 @@
-// acc's Ticket updates commands (D-066): acc drafts them, and only a person posts.
+// acc's Ticket updates commands: acc drafts them, and only a person posts.
 
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

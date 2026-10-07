@@ -1,5 +1,5 @@
 /**
- * The Overview (D-029): what needs you, its stat tiles, and each project's merge queue (GH-73).
+ * The Overview: what needs you, its stat tiles, and each project's merge queue.
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 

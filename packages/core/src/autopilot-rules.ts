@@ -1,4 +1,4 @@
-// Autopilot's rules (D-055): the facts a task's next step is decided on, and the step.
+// Autopilot's rules: the facts a task's next step is decided on, and the step.
 
 import { autoMergeFor, type Config } from './config.ts';
 import { type CheckRead, readChecks } from './checks.ts';

@@ -1,4 +1,4 @@
-// The Connect page (GH-51), drawn over the section that was showing.
+// The Connect page, drawn over the section that was showing.
 
 import type { Look } from '../src/model/shared.ts';
 import type { ConnectField, ConnectModel, ConnectPicker } from '../src/model/connect.ts';

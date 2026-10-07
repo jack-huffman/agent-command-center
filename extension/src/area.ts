@@ -37,9 +37,9 @@ export interface Parts {
   connect: ConnectSession;
   slack: Slack;
   autopilot: AutopilotHost;
-  /** What the sidebar's commands share: the hub, acc, terminals and the helpers (D-030). */
+  /** What the sidebar's commands share: the hub, acc, terminals and the helpers. */
   sidebar: Sidebar;
-  /** acc's bundle, which the extension runs itself (D-012). */
+  /** acc's bundle, which the extension runs itself. */
   accScript: string;
   /** Registers a command. regNode turns a row's menu context into its node first. */
   reg: (id: string, fn: Handler) => void;
@@ -48,7 +48,7 @@ export interface Parts {
   resolve: (command: string, ref: Ref) => unknown;
   /** What acc said when it refused, in its own words. */
   accSays: (r: { code: number; stdout: string; stderr: string }) => string;
-  /** An answer to an agent's question (D-030). */
+  /** An answer to an agent's question. */
   answer: (id: string, a: Answer) => void;
   /** A person's answer to a task's analysis's question, through acc (D-052). */
   answerAnalysis: (root: string, task: string, question: string, text: string) => Promise<{ ok: boolean; error?: string }>;
@@ -56,7 +56,7 @@ export interface Parts {
   updates: UpdateActions;
   /** Shows the page's output panel, at a run when given. */
   showRun: (id?: string) => void;
-  /** Takes the Command Center page's messages of one type (D-029). */
+  /** Takes the Command Center page's messages of one type. */
   receive<T extends FromWebview['type']>(type: T, fn: (m: Extract<FromWebview, { type: T }>) => void): void;
 }
 

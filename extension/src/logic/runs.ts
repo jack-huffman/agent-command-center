@@ -1,5 +1,5 @@
 /**
- * Commands acc runs for you (D-030): their output, and what they ask.
+ * Commands acc runs for you: their output, and what they ask.
  * Like the rest of logic/, no `vscode` import, so it can be tested with node:test.
  */
 

@@ -1,5 +1,5 @@
 /**
- * What changed, said once (D-044): a task's notices and their buttons.
+ * What changed, said once: a task's notices and their buttons.
  * Like the rest of logic/, no `vscode` import, so it can be tested with node:test.
  */
 

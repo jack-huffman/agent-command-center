@@ -1,5 +1,5 @@
 /**
- * Autopilot, hosted by the Command Center (D-064): what each step it took says, and its switch.
+ * Autopilot, hosted by the Command Center: what each step it took says, and its switch.
  * Like the rest of logic/, no `vscode` import, so it can be tested with node:test.
  */
 

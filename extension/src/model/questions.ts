@@ -1,5 +1,5 @@
 /**
- * Agents' questions (D-030): permission prompts and AskUserQuestion, answered on the page.
+ * Agents' questions: permission prompts and AskUserQuestion, answered on the page.
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 

@@ -552,7 +552,7 @@ export const area: ExtensionArea = {
       const pick = await vscode.window.showWarningMessage('Remove the Slack webhook from this machine? acc\'s notices stop going to Slack until one is pasted again.', { modal: true }, 'Remove');
       if (pick === 'Remove') await slack.remove();
     };
-    // Its card's buttons (GH-58).
+    // Its card's buttons.
     const take = (m: Extract<FromWebview, { type: 'slack' | 'slack-connect' | 'slack-kinds' }>) => {
       if (m.type === 'slack-connect') void slack.connect(m.url);
       else if (m.type === 'slack-kinds') void slack.setKinds(m.kinds);

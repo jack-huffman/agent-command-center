@@ -1,4 +1,4 @@
-// acc's GitHub commands (D-028): which account the repo works as, and switching it for this clone.
+// acc's GitHub commands: which account the repo works as, and switching it for this clone.
 
 import { AccError, githubIdentity, loadConfig, repoPaths, run, useGithubAccount } from '../../../core/src/index.ts';
 import { tone } from '../format.ts';

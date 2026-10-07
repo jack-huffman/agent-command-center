@@ -1,4 +1,4 @@
-// The Environments section: the repo's GitHub identity (D-028), and a card per environment.
+// The Environments section: the repo's GitHub identity, and a card per environment.
 
 import type { EnvironmentsModel, IdentityCard } from '../src/model/environments.ts';
 import { actionButton, argButton, type Child, el, empty, header, icon, toolbarButton } from './dom.ts';

@@ -1,4 +1,4 @@
-// What autopilot did, read back from the repo's events (D-064).
+// What autopilot did, read back from the repo's events.
 
 import { closeSync, openSync, readSync, statSync } from 'node:fs';
 import { AUTOPILOT_BY, AUTOPILOT_STEPS, type AutopilotStepName, type LedgerEvent, type ReworkCause } from './ledger.ts';

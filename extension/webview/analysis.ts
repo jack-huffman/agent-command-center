@@ -1,4 +1,4 @@
-// A task's analysis (D-052): its questions, answered on the page or sent to the client.
+// A task's analysis: its questions, answered on the page or sent to the client.
 
 import type { TicketAnalysis, TicketModel } from '../src/model/task-page.ts';
 import { actionButton, button, type Child, el, foldable, icon, keptInput, status, when } from './dom.ts';

@@ -1,4 +1,4 @@
-// In progress on the Overview (D-092): every job under way, a group a task.
+// In progress on the Overview: every job under way, a group a task.
 
 import type { ProgressAction, ProgressGroup, ProgressModel } from '../src/progress.ts';
 import { el, icon, openable, status } from './dom.ts';

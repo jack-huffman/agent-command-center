@@ -1,5 +1,5 @@
 /**
- * A ticket's page (D-026): the ticket, acc's side of it, and its analysis (D-052).
+ * A ticket's page: the ticket, acc's side of it, and its analysis.
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 

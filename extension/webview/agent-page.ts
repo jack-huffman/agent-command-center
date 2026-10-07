@@ -1,4 +1,4 @@
-// An agent's page (D-030): its timeline, and replying to it.
+// An agent's page: its timeline, and replying to it.
 
 import type { Look } from '../src/model/shared.ts';
 import type { AgentModel, EntryView } from '../src/model/agent-page.ts';

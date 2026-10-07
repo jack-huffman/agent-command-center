@@ -461,7 +461,7 @@ export class ConnectSession {
 
 export const area: ExtensionArea = {
   register({ connect, receive }) {
-    // Every message the Connect page sends, for the page that's open (GH-51).
+    // Every message the Connect page sends, for the page that's open.
     for (const type of Object.keys(page.messages ?? {}) as ConnectMessage['type'][]) receive(type, (m) => connect.receive(m));
   },
 };

@@ -1,5 +1,5 @@
 /**
- * An agent's page (D-030): its timeline, its question, and replying to it.
+ * An agent's page: its timeline, its question, and replying to it.
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 

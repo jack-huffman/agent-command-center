@@ -1,5 +1,5 @@
 /**
- * Ticket updates (D-066): what acc drafted for a ticket, for a person to read, edit and post.
+ * Ticket updates: what acc drafted for a ticket, for a person to read, edit and post.
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 

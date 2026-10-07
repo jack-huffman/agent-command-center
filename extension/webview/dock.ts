@@ -1,4 +1,4 @@
-// The output panel (D-030): the commands acc runs for you, under every section.
+// The output panel: the commands acc runs for you, under every section.
 
 import type { RunCard } from '../src/model/runs.ts';
 import { button, el, icon, keepFocus, keptInput, status } from './dom.ts';

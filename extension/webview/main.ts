@@ -40,7 +40,7 @@ const FALLBACK = AREAS.find((a) => a.fallback);
 
 function renderHome(m: HomeModel): Node[] {
   const current = state.section ?? m.section;
-  // An area may draw over the section, as the Connect page does while it's open (GH-51).
+  // An area may draw over the section, as the Connect page does while it's open.
   const covers = AREAS.map((a) => a.cover?.(m) ?? null);
   const section = SECTIONS.get(current) ?? Object.values(FALLBACK?.sections ?? {})[0];
   const content = covers.find((c) => c !== null) ?? section!.draw(m);
