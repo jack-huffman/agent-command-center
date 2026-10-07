@@ -124,6 +124,9 @@ export const PLUGIN = { marketplace: 'agent-command-center', name: 'acc', repo: 
 const PLUGIN_ID = `${PLUGIN.name}@${PLUGIN.marketplace}`;
 const MARKETPLACE_ADD = `claude plugin marketplace add ${PLUGIN.repo}`;
 const PLUGIN_INSTALL = `claude plugin install ${PLUGIN_ID} --scope user`;
+/** A private marketplace doesn't update itself (D-081), so the plugin is updated by hand after a release. */
+const PLUGIN_UPDATE = `claude plugin marketplace update ${PLUGIN.marketplace} && claude plugin update ${PLUGIN_ID} --scope user`;
+const SEMVER = /^\d+\.\d+\.\d+$/;
 
 /**
  * A list `claude … --json` prints, such as `claude plugin list --json`. 127 when claude isn't installed,
@@ -246,7 +249,13 @@ export const STEPS: Step[] = [
       const mine = list.filter((p) => p.id === PLUGIN_ID);
       const user = mine.find((p) => p.scope === 'user');
       const version = typeof user?.version === 'string' ? user.version : '(unknown version)';
-      if (user?.enabled === true) return pass(`acc ${version}, for every Claude Code session.`);
+      if (user?.enabled === true) {
+        // Only an older plugin fails: its hooks may not know what this acc asks of builders. A newer one is fine (GH-62).
+        if (ctx.version && SEMVER.test(version) && SEMVER.test(ctx.version) && !versionAtLeast(version, ctx.version)) {
+          return fail(`acc ${version} is installed, older than this acc (${ctx.version}).`, PLUGIN_UPDATE);
+        }
+        return pass(`acc ${version}, for every Claude Code session.`);
+      }
       if (user) return fail(`acc ${version} is installed but disabled.`, `claude plugin enable ${PLUGIN_ID} --scope user`);
       const scopes = [...new Set(mine.map((p) => String(p.scope)))];
       const only = scopes.length ? ` It's installed for one project only (${scopes.join(', ')} scope), not for every session.` : '';

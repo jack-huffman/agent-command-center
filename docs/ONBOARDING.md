@@ -77,8 +77,10 @@ purpose, mark the step done.
   The check reads `claude plugin list --json`, and asks for only what's
   missing: the marketplace and the plugin, the plugin alone, or
   `claude plugin enable acc@agent-command-center --scope user` when it's
-  installed but disabled. Sessions already running don't load the plugin, so
-  start a new one.
+  installed but disabled. A plugin older than acc fails too, and its fix
+  updates it: `claude plugin marketplace update agent-command-center`, then
+  `claude plugin update acc@agent-command-center --scope user`. A newer one
+  passes. Sessions already running don't load the plugin, so start a new one.
 
   **The marketplace is this private repo.** Claude Code clones it with your own
   git credentials, so:

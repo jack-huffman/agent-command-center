@@ -157,7 +157,9 @@ installs the same way, over the old one.
    A private marketplace updates itself only when `GITHUB_TOKEN` is set, so
    after each release, update it by hand:
    `claude plugin marketplace update agent-command-center`, then
-   `claude plugin update acc@agent-command-center`.
+   `claude plugin update acc@agent-command-center --scope user`. Until you
+   do, A4 fails on a plugin older than the extension, and its **Do it** runs
+   both.
 3. **A project.** Open the project's repo folder. In a Salesforce folder with
    no `.acc/config.json`, the walkthrough **Agent Command Center: onboard a
    project** opens by itself; anywhere else, run **Agent Command Center:

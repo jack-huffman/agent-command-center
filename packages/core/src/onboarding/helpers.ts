@@ -11,7 +11,7 @@ export const fail = (detail: string, fix?: string): CheckResult => (fix ? { stat
 export const unknown = (detail: string): CheckResult => ({ status: 'unknown', detail });
 export const skip = (detail: string): CheckResult => ({ status: 'skip', detail });
 
-export function makeContext(cwd: string, run: Runner, env: NodeJS.ProcessEnv = process.env): CheckContext {
+export function makeContext(cwd: string, run: Runner, env: NodeJS.ProcessEnv = process.env, version: string | null = null): CheckContext {
   let paths = null;
   try {
     paths = repoPaths(cwd, run);
@@ -31,7 +31,7 @@ export function makeContext(cwd: string, run: Runner, env: NodeJS.ProcessEnv = p
   }
   // This clone's own choice of GitHub account, when it made one, is the one every check uses (D-028).
   if (config && paths) config = withCloneAccount(config, paths.root, run);
-  return { cwd, run, env, paths, config, configErrors, cache: new Map() };
+  return { cwd, run, env, paths, config, configErrors, cache: new Map(), version };
 }
 
 export function cached<T>(ctx: CheckContext, key: string, fn: () => T): T {
