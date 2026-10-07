@@ -1,0 +1,20 @@
+[
+  {
+    "command": "acc.slack.connect",
+    "title": "Send notices to Slack…",
+    "category": "Agent Command Center",
+    "icon": "$(bell)"
+  },
+  {
+    "command": "acc.slack.test",
+    "title": "Send a test message to Slack",
+    "category": "Agent Command Center",
+    "icon": "$(send)"
+  },
+  {
+    "command": "acc.slack.off",
+    "title": "Stop sending notices to Slack",
+    "category": "Agent Command Center",
+    "icon": "$(debug-pause)"
+  }
+]

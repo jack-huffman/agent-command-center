@@ -1,0 +1,74 @@
+[
+  {
+    "command": "acc.agent.new",
+    "title": "Start a background agent…",
+    "category": "Agent Command Center",
+    "icon": "$(add)"
+  },
+  {
+    "command": "acc.agent.watch",
+    "title": "Watch activity",
+    "category": "Agent Command Center",
+    "icon": "$(pulse)"
+  },
+  {
+    "command": "acc.agent.openInClaude",
+    "title": "Open in Claude Code",
+    "category": "Agent Command Center",
+    "icon": "$(comment-discussion)"
+  },
+  {
+    "command": "acc.agent.attach",
+    "title": "Attach",
+    "category": "Agent Command Center",
+    "icon": "$(terminal)"
+  },
+  {
+    "command": "acc.agent.logs",
+    "title": "Show logs",
+    "category": "Agent Command Center",
+    "icon": "$(output)"
+  },
+  {
+    "command": "acc.agent.stop",
+    "title": "Stop agent",
+    "category": "Agent Command Center",
+    "icon": "$(debug-stop)"
+  },
+  {
+    "command": "acc.agent.openFolder",
+    "title": "Open its folder",
+    "category": "Agent Command Center",
+    "icon": "$(folder-opened)"
+  },
+  {
+    "command": "acc.agents.refresh",
+    "title": "Refresh agents",
+    "category": "Agent Command Center",
+    "icon": "$(refresh)"
+  },
+  {
+    "command": "acc.agents.stopFinished",
+    "title": "Stop finished sessions",
+    "category": "Agent Command Center",
+    "icon": "$(debug-stop)"
+  },
+  {
+    "command": "acc.agents.configure",
+    "title": "Change what agents run with…",
+    "category": "Agent Command Center",
+    "icon": "$(settings-gear)"
+  },
+  {
+    "command": "acc.agents.autonomy",
+    "title": "Change what autopilot may do on its own…",
+    "category": "Agent Command Center",
+    "icon": "$(rocket)"
+  },
+  {
+    "command": "acc.agents.autoMerge",
+    "title": "Change whether autopilot merges pull requests…",
+    "category": "Agent Command Center",
+    "icon": "$(git-merge)"
+  }
+]

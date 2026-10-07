@@ -1,0 +1,26 @@
+[
+  {
+    "command": "acc.trackers.refresh",
+    "title": "Refresh tracker boards",
+    "category": "Agent Command Center",
+    "icon": "$(refresh)"
+  },
+  {
+    "command": "acc.trackers.add",
+    "title": "Add a tracker…",
+    "category": "Agent Command Center",
+    "icon": "$(add)"
+  },
+  {
+    "command": "acc.trackers.signIn",
+    "title": "Sign in to a tracker",
+    "category": "Agent Command Center",
+    "icon": "$(account)"
+  },
+  {
+    "command": "acc.trackers.signOut",
+    "title": "Sign out of a tracker",
+    "category": "Agent Command Center",
+    "icon": "$(sign-out)"
+  }
+]

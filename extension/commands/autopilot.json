@@ -1,0 +1,14 @@
+[
+  {
+    "command": "acc.autopilot.toggle",
+    "title": "Turn autopilot on or off",
+    "category": "Agent Command Center",
+    "icon": "$(rocket)"
+  },
+  {
+    "command": "acc.autopilot.output",
+    "title": "Show autopilot's output",
+    "category": "Agent Command Center",
+    "icon": "$(output)"
+  }
+]

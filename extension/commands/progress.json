@@ -1,0 +1,8 @@
+[
+  {
+    "command": "acc.job.stop",
+    "title": "Stop a job in progress",
+    "category": "Agent Command Center",
+    "icon": "$(debug-stop)"
+  }
+]

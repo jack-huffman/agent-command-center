@@ -1,0 +1,14 @@
+[
+  {
+    "command": "acc.github.signIn",
+    "title": "Sign in to GitHub as this repo's account",
+    "category": "Agent Command Center",
+    "icon": "$(github)"
+  },
+  {
+    "command": "acc.github.switch",
+    "title": "Switch this repo's GitHub account",
+    "category": "Agent Command Center",
+    "icon": "$(arrow-swap)"
+  }
+]
