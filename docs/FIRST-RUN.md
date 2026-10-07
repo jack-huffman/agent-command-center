@@ -251,6 +251,17 @@ Look for: what **Do it** asked, and whether it was clear that you review
 - **Result:**
 - **Fixed in / filed as:**
 
+### B0.template: The team template is current
+
+Look for: whether it said "Doesn't apply" for a project not started from a
+template, without asking you anything.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
 ### B2.identity: Commit identity
 
 - **Showed:**

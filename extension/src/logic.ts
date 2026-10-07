@@ -220,8 +220,56 @@ export function productionOrgs(sfOrgList: unknown): string[] {
   return out.sort();
 }
 
-export const initCommand = (profile: 'salesforce' | 'generic', productionOrg?: string): string =>
-  profile === 'salesforce' ? `acc init --profile salesforce --production-org "${productionOrg}"` : 'acc init --profile generic';
+/** acc init as B0.config's Do it runs it: a profile, or a team template, and Production's org for Salesforce (GH-80). */
+export const initCommand = (o: { profile?: 'salesforce' | 'generic'; productionOrg?: string; from?: string }): string =>
+  ['acc init', ...(o.from ? ['--from', shq(o.from)] : []), ...(o.profile ? ['--profile', o.profile] : []), ...(o.productionOrg ? ['--production-org', shq(o.productionOrg)] : [])].join(' ');
+
+/** A team template this machine used: its source and name, nothing more (GH-80). */
+export interface RecentTemplate {
+  source: string;
+  name: string;
+}
+
+/** The recent templates with one used just now: newest first, each source once, at most `max`. */
+export const rememberTemplate = (list: RecentTemplate[], entry: RecentTemplate, max = 5): RecentTemplate[] =>
+  [entry, ...list.filter((r) => r.source !== entry.source)].slice(0, max);
+
+export type ShownTemplate =
+  | { ok: true; name: string; description: string | null; profile: 'salesforce' | 'generic' | null; sets: string[]; commands: Record<string, string> }
+  | { ok: false; errors: string[] };
+
+/** What `acc template show --json` said: the template, or every problem with it, or why it couldn't be read. */
+export function shownTemplate(stdout: string, stderr = ''): ShownTemplate {
+  try {
+    const j = JSON.parse(stdout) as Record<string, unknown>;
+    if (j.ok === true && typeof j.name === 'string') {
+      return {
+        ok: true, name: j.name, description: typeof j.description === 'string' ? j.description : null,
+        profile: j.profile === 'salesforce' || j.profile === 'generic' ? j.profile : null,
+        sets: Array.isArray(j.sets) ? j.sets.map(String) : [],
+        commands: j.commands && typeof j.commands === 'object' ? Object.fromEntries(Object.entries(j.commands).map(([k, v]) => [k, String(v)])) : {},
+      };
+    }
+    if (Array.isArray(j.errors) && j.errors.length) return { ok: false, errors: j.errors.map(String) };
+    if (typeof j.message === 'string') return { ok: false, errors: [j.message] };
+  } catch {
+    // said below
+  }
+  return { ok: false, errors: [(stderr || stdout).trim().split('\n')[0] || 'acc template show printed nothing.'] };
+}
+
+/** The confirmation's detail: what the template is, what it sets, and the commands it would run on this machine. */
+export const templateDetail = (t: Extract<ShownTemplate, { ok: true }>): string => {
+  const commands = Object.entries(t.commands);
+  return [
+    ...(t.description ? [t.description, ''] : []),
+    ...t.sets,
+    ...(t.profile ? [] : ['It sets no profile, so you choose Salesforce or Other next.']),
+    ...(commands.length ? ['', 'Check commands it runs on this machine:', ...commands.map(([gate, cmd]) => `${gate}: ${cmd}`)] : []),
+    '',
+    'You review .acc/config.json and commit it yourself.',
+  ].join('\n');
+};
 
 // ---------------------------------------------------------------- sidebar (views)
 

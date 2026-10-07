@@ -123,11 +123,24 @@ export interface Config {
   autopilot?: { appendOnly: string[]; autoMerge?: true };
   /** shared: files, or folders, that never make two tasks wait for each other, such as docs every task edits (D-093). */
   dispatch?: { shared: string[] };
+  /** The team template the project was started from, and its digest then, so Setup can say when it changed (GH-80). */
+  template?: TemplateRecord;
 }
+
+export interface TemplateRecord {
+  name: string;
+  /** Where it was fetched from: a GitHub file URL, <git-url>#<path>, or a path as ~/… or inside the repo. */
+  source: string;
+  /** sha256 of the template's JSON with its keys sorted, as sha256:<hex>. */
+  digest: string;
+}
+
+export const TEMPLATE_DIGEST = /^sha256:[0-9a-f]{64}$/;
 
 const TOP_KEYS = new Set([
   'schema', 'project', 'profile', 'github', 'commitIdentity', 'environments', 'environmentSpecific',
   'knownDrift', 'trackers', 'agents', 'autonomy', 'worktrees', 'gates', 'secretScan', 'analysis', 'autopilot', 'dispatch',
+  'template',
 ]);
 
 /** Gates that take the machine-wide slot unless `gates.heavy` says otherwise (D-024). */
@@ -367,6 +380,14 @@ export function parseConfig(raw: unknown): ParseResult {
     }
   }
 
+  let template: TemplateRecord | undefined;
+  if (raw.template !== undefined && raw.template !== null) {
+    const t = raw.template;
+    if (!isObj(t) || !isStr(t.name) || !isStr(t.source) || typeof t.digest !== 'string' || !TEMPLATE_DIGEST.test(t.digest)) {
+      errors.push('"template" needs "name", "source" and "digest" (sha256:<64 hex digits>): the team template the project was started from.');
+    } else template = { name: t.name, source: t.source, digest: t.digest };
+  }
+
   if (errors.length) return { config: null, errors, warnings };
   return {
     config: {
@@ -396,18 +417,27 @@ export function parseConfig(raw: unknown): ParseResult {
       ...(typeof an.required === 'boolean' ? { analysis: { required: an.required } } : {}),
       ...(autopilot ? { autopilot } : {}),
       ...(dispatch ? { dispatch } : {}),
+      ...(template ? { template } : {}),
     },
     errors,
     warnings,
   };
 }
 
-function parseEnvironments(raw: unknown, profile: Profile, errors: string[]): Environment[] {
+/**
+ * The environments, under D-015 and D-018's rules: branches, one default, promotesTo targets and no loops.
+ * `typesFromDiscovery` is a team template's (GH-80): a Salesforce environment may leave its type to
+ * Production's sandbox list, and comes back with type null. So does one in a template that sets no profile
+ * (profile null), whose type the project's profile decides at acc init.
+ */
+export function parseEnvironments(raw: unknown, profile: Profile | null, errors: string[], opts: { typesFromDiscovery: true }): (Omit<Environment, 'type'> & { type: EnvType | null })[];
+export function parseEnvironments(raw: unknown, profile: Profile, errors: string[], opts?: { typesFromDiscovery?: false }): Environment[];
+export function parseEnvironments(raw: unknown, profile: Profile | null, errors: string[], opts: { typesFromDiscovery?: boolean } = {}): (Omit<Environment, 'type'> & { type: EnvType | null })[] {
   if (!Array.isArray(raw) || raw.length === 0) {
     errors.push('"environments" must list at least one environment.');
     return [];
   }
-  const envs: Environment[] = [];
+  const envs: (Omit<Environment, 'type'> & { type: EnvType | null })[] = [];
   raw.forEach((e, i) => {
     const at = `environments[${i}]`;
     if (!isObj(e) || !isStr(e.name)) { errors.push(`${at}: needs a "name".`); return; }
@@ -415,20 +445,22 @@ function parseEnvironments(raw: unknown, profile: Profile, errors: string[]): En
     if (e.branch !== undefined && e.branch !== branch) {
       errors.push(`${at}: the branch for "${e.name}" must be "${branch}", the environment name in lower case (D-015).`);
     }
-    const type = (e.type ?? (profile === 'salesforce' ? undefined : 'none')) as EnvType | undefined;
-    if (type === undefined || !ENV_TYPES.includes(type)) {
+    const left = opts.typesFromDiscovery && profile !== 'generic' && e.type === undefined;
+    const type = (e.type ?? (profile === 'generic' ? 'none' : undefined)) as EnvType | undefined;
+    if (!left && (type === undefined || !ENV_TYPES.includes(type))) {
       errors.push(`${at}: "type" must be one of ${ENV_TYPES.join(', ')}.`);
       return;
     }
     if (profile === 'salesforce' && type === 'none') errors.push(`${at}: a Salesforce environment needs its org type.`);
     if (e.org !== undefined && e.org !== null && !isStr(e.org)) errors.push(`${at}: "org" must be an org alias.`);
-    const isProd = type === 'production';
+    // A Salesforce environment whose type is left to discovery is Production by its name.
+    const isProd = type === 'production' || (left && profile === 'salesforce' && branch === 'production');
     if (isProd && e.protected === false) errors.push(`${at}: Production is always protected.`);
     if (e.promotesTo !== undefined && !strList(e.promotesTo)) errors.push(`${at}: "promotesTo" must be a list of branches.`);
     envs.push({
       name: e.name,
       branch,
-      type,
+      type: type ?? null,
       org: isStr(e.org) ? e.org : null,
       default: e.default === true,
       protected: isProd || e.protected === true,
@@ -455,7 +487,7 @@ function parseEnvironments(raw: unknown, profile: Profile, errors: string[]): En
   return envs;
 }
 
-function findCycle(envs: Environment[]): string[] | null {
+function findCycle(envs: Pick<Environment, 'branch' | 'promotesTo'>[]): string[] | null {
   const next = new Map(envs.map((e) => [e.branch, e.promotesTo]));
   const state = new Map<string, 'visiting' | 'done'>();
   const stack: string[] = [];

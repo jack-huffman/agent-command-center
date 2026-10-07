@@ -137,6 +137,7 @@ listed so that drift checks and `doctor` cover it.
 | `dispatch.shared` | Files, or folders, that every task edits, such as the docs. Like `autopilot.appendOnly`, they never make one task wait for another's files. Left out, there are none ([section 7](#7-dispatch)) |
 | `worktrees.root` | Where task worktrees go. The default is a sibling folder outside the repo ([section 7](#7-dispatch)) |
 | `gates` | Which checks are required, plus per-check overrides. `gates.builder` names a builder's lighter checks, where the merge queue runs the required ones ([section 9](#9-gates-and-receipts)) |
+| `template` | The team template the project was started from, written by `acc init --from`: its `name`, its `source` (a GitHub file URL, `<git-url>#<path>`, or a path inside the repo, under `~/`, or an absolute path elsewhere) and its `digest` (`sha256:` of its JSON with sorted keys). Setup's B0.template step says when the template has changed and the project now differs; nothing re-applies it ([docs/TEMPLATES.md](TEMPLATES.md), D-097) |
 
 ## 5. Tasks and the ledger
 

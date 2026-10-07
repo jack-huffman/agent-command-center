@@ -898,6 +898,17 @@
             ]
           },
           {
+            "id": "B0.template",
+            "title": "The team template is current",
+            "description": "A project started from a team template records which one. This says when the team has changed it since, and where this project now differs. It never changes .acc/config.json: applying a change is yours to do.\n\n[Check](command:acc.step.check?%5B%22B0.template%22%5D)\n[Do it](command:acc.step.fix?%5B%22B0.template%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B0.template%22%5D)",
+            "media": {
+              "markdown": "media/steps/B0.template.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B0.template"
+            ]
+          },
+          {
             "id": "B1.orgs",
             "title": "Every org is listed",
             "description": "Pipelines differ by client, so the config lists every sandbox Production has, with its type (D-018).\n\n[Check](command:acc.step.check?%5B%22B1.orgs%22%5D)\n[Do it](command:acc.step.fix?%5B%22B1.orgs%22%5D)",

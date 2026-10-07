@@ -13,6 +13,7 @@ export * from './dispatch.ts';
 export * from './overlap.ts';
 export * from './names.ts';
 export * from './init.ts';
+export * from './template.ts';
 export * from './github.ts';
 export * from './questions.ts';
 export * from './review.ts';

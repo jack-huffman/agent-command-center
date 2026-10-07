@@ -7,6 +7,7 @@ import { type DriftResult, driftReportPath } from '../drift.ts';
 import { parseJsonOutput } from '../exec.ts';
 import { gatesFor } from '../gates.ts';
 import { credentialHelper } from '../github.ts';
+import { parseSource, previewCommand, type ReadTemplate, readTemplate, templateDifferences } from '../template.ts';
 import { orList } from '../trackers/types.ts';
 import {
   cached, fail, firstVersion, ghEnv, LICENSE_TO_TYPE, parseOrgUrl, pass, readText, SECRET_PATTERN, sfJson, skip, unknown, versionAtLeast,
@@ -292,6 +293,41 @@ export const STEPS: Step[] = [
       }
       if (!existsSync(ctx.paths.config)) return fail('There\'s no .acc/config.json yet.');
       return fail(`.acc/config.json has problems: ${ctx.configErrors.join(' ')}`);
+    },
+  },
+  {
+    id: 'B0.template', part: 'project', group: 'B0', title: 'The team template is current',
+    why: 'A project started from a team template records which one. This says when the team has changed it since, and where this project now differs. It never changes .acc/config.json: applying a change is yours to do.',
+    fix: { fromCheck: true, docs: `${DOCS}#b0-open-the-repo-and-give-it-a-config` },
+    check(ctx) {
+      const need = needsProject(ctx);
+      if (need) return need;
+      const config = ctx.config!;
+      const rec = config.template;
+      if (!rec) return skip('Not started from a team template.');
+      const root = ctx.paths!.root;
+      const home = ctx.env.HOME || homedir();
+      let local: string | null = null;
+      try {
+        const src = parseSource(rec.source, root, home);
+        if (src.kind === 'file') local = src.path;
+      } catch (e) {
+        return unknown(`The template's recorded source, ${rec.source}, can't be read: ${(e as Error).message}`);
+      }
+      if (local && !existsSync(local)) return skip(`${rec.name} is a file, ${rec.source}, that isn't on this machine.`);
+      let read: ReadTemplate;
+      try {
+        // A short wait, for its two calls together: it runs on every Setup refresh.
+        read = readTemplate(ctx.run, rec.source, { account: config.github?.account ?? null, env: ctx.env, base: root, home, timeoutMs: 20_000 });
+      } catch (e) {
+        return unknown(`Couldn't read ${rec.name} from ${rec.source}: ${(e as Error).message}`);
+      }
+      if (read.digest === rec.digest) return pass(`${rec.name}, unchanged since this project was made from it.`);
+      if (!read.template) return unknown(`${rec.name} has changed since this project was made from it, and now has problems: ${read.errors.join(' ')}`);
+      const diffs = templateDifferences(read.template, config);
+      if (!diffs.length) return pass(`${rec.name} has changed since this project was made from it, and this project already agrees with it.`);
+      const preview = previewCommand(read.template, rec, config);
+      return { status: 'unknown', detail: `${rec.name} has changed since this project was made from it, and this project differs on ${diffs.join(', ')}. The fix previews what it would write, and changes nothing.`, fix: preview };
     },
   },
   {

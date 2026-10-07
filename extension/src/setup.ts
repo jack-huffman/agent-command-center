@@ -7,10 +7,11 @@ import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import type { Step } from '../../packages/core/src/onboarding/types.ts';
 import {
   afterFullCheck, afterStepCheck, COMMANDS, contextKey, type DoctorItem, EXTENSION_ID, type EnvLike, hasPlaceholder, initCommand, isComplete, machineCache, type MachineCache, needsTerminal,
-  productionOrgs, reusableMachine,
-  setupOrgChoices, sfOpenCommand, statusText, summarize, WALKTHROUGHS, activeGhAccount, expectedOrgUrl, shq,
+  productionOrgs, type RecentTemplate, rememberTemplate, reusableMachine,
+  setupOrgChoices, sfOpenCommand, shownTemplate, statusText, summarize, templateDetail, WALKTHROUGHS, activeGhAccount, expectedOrgUrl, shq,
 } from './logic.ts';
 import { parseOrgUrl } from '../../packages/core/src/onboarding/helpers.ts';
+import { sourceProblem } from '../../packages/core/src/template.ts';
 import { type RunResult, runFile } from './run.ts';
 import type { Runs } from './runs.ts';
 import { exec } from './trackers.ts';
@@ -19,6 +20,13 @@ const TERMINAL_NAME = 'acc setup';
 /** Machine checks change rarely and call slow CLIs, so startup reuses results this fresh. */
 const MACHINE_FRESH_MS = 12 * 60 * 60 * 1000;
 const CONFIRMED = { machine: 'acc.confirmed.machine', project: 'acc.confirmed.project' } as const;
+/** The team templates this machine used last, newest first (GH-80). */
+const RECENT_TEMPLATES = 'acc.recentTemplates';
+/** "What kind of project is this?": B0.config's Do it asks, and so does a team template that sets no profile. */
+const PROJECT_KINDS = [
+  { label: '$(cloud) Salesforce project', description: 'Finds every org from Production\'s sandbox list', profile: 'salesforce' as const },
+  { label: '$(folder) Other project', description: 'One branch, no orgs', profile: 'generic' as const },
+];
 
 export class Setup implements vscode.Disposable {
   readonly log = vscode.window.createOutputChannel('Agent Command Center', { log: true });
@@ -433,19 +441,25 @@ export class Setup implements vscode.Disposable {
     void vscode.window.showInformationMessage(`Sign in to ${e.name} in the browser that opens. The step re-checks itself when you're done.`);
   }
 
-  /** B0.config's "Do it": choose the profile and, for Salesforce, the Production org, then run acc init. */
+  /** B0.config's "Do it": choose the profile and, for Salesforce, the Production org, then run acc init. Or start from a team template. */
   async initFlow(): Promise<void> {
     if (!this.folder()) {
       void vscode.window.showWarningMessage('Open the project\'s folder first (File → Open Folder).');
       return;
     }
     const kind = await vscode.window.showQuickPick([
-      { label: '$(cloud) Salesforce project', description: 'Finds every org from Production\'s sandbox list', profile: 'salesforce' as const },
-      { label: '$(folder) Other project', description: 'One branch, no orgs', profile: 'generic' as const },
+      ...PROJECT_KINDS,
+      { label: '$(repo) From a team template…', description: 'Your team\'s settings, from a file, a GitHub file or a git repo', profile: 'template' as const },
     ], { title: 'What kind of project is this?' });
     if (!kind) return;
-    if (kind.profile === 'generic') return this.runCommand(initCommand('generic'), 'B0.config');
+    if (kind.profile === 'template') return this.templateFlow();
+    if (kind.profile === 'generic') return this.runCommand(initCommand({ profile: 'generic' }), 'B0.config');
+    const prod = await this.pickProductionOrg();
+    if (prod) this.runCommand(initCommand({ profile: 'salesforce', productionOrg: prod }), 'B0.config');
+  }
 
+  /** Which logged-in org is Production. Undefined when the person backed out, or went to log in to another. */
+  private async pickProductionOrg(): Promise<string | undefined> {
     const list = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Finding your logged-in Production orgs' },
       () => runFile('sf', ['org', 'list', '--json'], this.cwd(), { ...process.env, SF_NO_UPDATE_NOTIFIER: 'true' }));
     let orgs: string[] = [];
@@ -456,12 +470,58 @@ export class Setup implements vscode.Disposable {
     }
     const other = '$(add) Log in to another Production org…';
     const pick = await vscode.window.showQuickPick([...orgs, other], { title: 'Which org is Production?', placeHolder: orgs.length ? undefined : 'No Production org is logged in yet' });
-    if (!pick) return;
+    if (!pick) return undefined;
     if (pick === other) {
       this.runCommand('sf org login web --alias "<alias>" --instance-url https://<domain>.my.salesforce.com');
+      return undefined;
+    }
+    return pick;
+  }
+
+  /**
+   * "From a team template…" (GH-80): a source used before on this machine, or a new one; acc reads it, a bad
+   * one's problems are shown and nothing is written, and a good one is confirmed before acc init runs.
+   */
+  private async templateFlow(): Promise<void> {
+    const recent = this.ctx.globalState.get<RecentTemplate[]>(RECENT_TEMPLATES) ?? [];
+    let source: string | undefined;
+    if (recent.length) {
+      const another = { label: '$(add) Another path or URL…', description: '', source: undefined as string | undefined };
+      const pick = await vscode.window.showQuickPick([...recent.map((r) => ({ label: `$(repo) ${r.name}`, description: r.source, source: r.source as string | undefined })), another], { title: 'Which team template?' });
+      if (!pick) return;
+      source = pick.source;
+    }
+    source ??= (await vscode.window.showInputBox({
+      title: 'A team template',
+      prompt: 'A path on this machine, a GitHub file URL, or <git-url>#<path>. gh and git sign in for you.',
+      placeHolder: 'https://github.com/acme/acc-templates/blob/main/salesforce.json',
+      ignoreFocusOut: true,
+      validateInput: (v) => sourceProblem(v),
+    }))?.trim();
+    if (!source) return;
+    const r = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Reading the team template…' },
+      (_p, token) => this.acc(['template', 'show', source, '--json'], token));
+    const shown = shownTemplate(r.stdout, r.stderr);
+    if (!shown.ok) {
+      this.log.warn(`${source} can't be used as a team template: ${shown.errors.join(' ')}`);
+      void vscode.window.showErrorMessage(`✗ That team template can't be used. Nothing was written.`, { modal: true, detail: shown.errors.map((e) => `• ${e}`).join('\n') });
       return;
     }
-    this.runCommand(initCommand('salesforce', pick), 'B0.config');
+    await this.ctx.globalState.update(RECENT_TEMPLATES, rememberTemplate(recent, { source, name: shown.name }));
+    const start = 'Start the project';
+    const go = await vscode.window.showInformationMessage(`Start this project from ${shown.name}?`, { modal: true, detail: templateDetail(shown) }, start);
+    if (go !== start) return;
+    // A template that sets no profile leaves it to the person, and acc init gets it as --profile.
+    let picked: 'salesforce' | 'generic' | undefined;
+    if (!shown.profile) {
+      const kind = await vscode.window.showQuickPick(PROJECT_KINDS, { title: `${shown.name} sets no profile. What kind of project is this?` });
+      if (!kind) return;
+      picked = kind.profile;
+    }
+    const profile = shown.profile ?? picked;
+    const productionOrg = profile === 'salesforce' ? await this.pickProductionOrg() : undefined;
+    if (profile === 'salesforce' && !productionOrg) return;
+    this.runCommand(initCommand({ from: source, profile: picked, productionOrg }), 'B0.config');
   }
 
   async chooseFolder(): Promise<void> {

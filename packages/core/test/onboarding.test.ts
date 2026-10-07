@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import type { RunResult } from '../src/exec.ts';
 import { makeContext, parseOrgUrl } from '../src/onboarding/helpers.ts';
 import { PLUGIN, runSteps, STEPS } from '../src/onboarding/steps.ts';
 import type { CheckStatus } from '../src/onboarding/types.ts';
+import { templateDigest } from '../src/template.ts';
 import { fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, SF_CONFIG, sf, tempDir } from './support.ts';
 
 const SANDBOX_Q = 'sf data query --use-tooling-api -q SELECT SandboxName, LicenseType FROM SandboxInfo';
@@ -477,4 +478,67 @@ test('B14 asks for a ticket source until the repo names one, then says where tic
   // A narrower place is named too (D-072).
   const placed = statuses(sfRepo({ config: { ...SF_CONFIG, trackers: [{ kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', epic: 'ACME-3' }, { kind: 'azure', organization: 'acme', project: 'CRM', areaPath: 'CRM\\Billing' }, { kind: 'github', labels: ['billing', 'invoices'] }] } }))['B14.tickets']!;
   assert.equal(placed.detail, 'Tickets come from Jira ACME on acme.atlassian.net, epic ACME-3 and Azure DevOps CRM in acme, area CRM\\Billing and GitHub Issues labelled billing or invoices.');
+});
+
+/** B0.template's result in a repo, with gh and sf answered from fixtures (GH-80). */
+function templateCheck(repo: string, fixtures: Record<string, RunResult | ((o?: { env?: NodeJS.ProcessEnv }) => RunResult)> = {}, calls: string[] = []) {
+  const ctx = makeContext(repo, fakeRunner(fixtures, calls), testEnv());
+  return runSteps(ctx, 'project', ['B0.template'])[0]!.result;
+}
+
+test('B0.template doesn\'t apply without a template, passes while it\'s unchanged or the project agrees, and names what differs without writing (GH-80)', () => {
+  assert.equal(templateCheck(makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG) })).status, 'skip');
+
+  const file = join(tempDir('team-'), 'tools.json');
+  const template = { schema: 1, name: 'ACME tools', gates: { required: ['test'], commands: { test: 'npm test' } }, agents: { max: 2 } };
+  writeFileSync(file, JSON.stringify(template, null, 2));
+  const config = { ...GENERIC_CONFIG, gates: template.gates, agents: { max: 2 }, template: { name: 'ACME tools', source: file, digest: templateDigest(template) } };
+  const repo = makeRepo({ '.acc/config.json': JSON.stringify(config, null, 2) });
+  const before = readFileSync(join(repo, '.acc', 'config.json'), 'utf8');
+
+  assert.deepEqual(Object.values(templateCheck(repo)), ['pass', 'ACME tools, unchanged since this project was made from it.']);
+  writeFileSync(file, JSON.stringify({ agents: { max: 2 }, gates: template.gates, name: 'ACME tools', schema: 1 }));
+  assert.equal(templateCheck(repo).status, 'pass', 'reformatted and reordered is unchanged');
+
+  writeFileSync(file, JSON.stringify({ ...template, description: 'ACME\'s small repos.' }));
+  const agrees = templateCheck(repo);
+  assert.deepEqual([agrees.status, /already agrees with it/.test(agrees.detail)], ['pass', true]);
+
+  writeFileSync(file, JSON.stringify({ ...template, gates: { required: ['test', 'lint'], commands: { test: 'npm test', lint: 'npm run lint' } }, agents: { max: 4 } }));
+  const differs = templateCheck(repo);
+  assert.equal(differs.status, 'unknown', 'checked by hand: the template is the team\'s, and the project may differ on purpose');
+  assert.match(differs.detail, /ACME tools has changed since this project was made from it, and this project differs on gates\.required, gates\.commands, agents\.max\./);
+  assert.equal(differs.fix, `acc init --from '${file}' --profile generic --dry-run`);
+
+  writeFileSync(file, JSON.stringify({ ...template, gatez: {} }));
+  assert.match(templateCheck(repo).detail, /now has problems: "gatez" isn't a template key/);
+
+  rmSync(file);
+  const gone = templateCheck(repo);
+  assert.deepEqual([gone.status, /isn't on this machine/.test(gone.detail)], ['skip', true]);
+  assert.equal(readFileSync(join(repo, '.acc', 'config.json'), 'utf8'), before, 'the check never writes .acc/config.json');
+});
+
+test('B0.template reads a GitHub template as the repo\'s account, and one it can\'t read is checked by hand (GH-80)', () => {
+  const template = { schema: 1, name: 'ACME tools', autonomy: 'review' };
+  const source = 'https://github.com/acme/acc-templates/blob/main/tools.json';
+  const repo = makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, github: { repo: 'acme/app', account: 'acme-dev' }, autonomy: 'review', template: { name: 'ACME tools', source, digest: templateDigest(template) } }) });
+  const api = 'gh api repos/acme/acc-templates/contents/tools.json?ref=main';
+  const token = { 'gh auth token -u acme-dev': ok('tok-acme') };
+  assert.equal(templateCheck(repo, { ...token, [api]: (o) => (o?.env?.GH_TOKEN === 'tok-acme' ? ok(JSON.stringify(template)) : sf(null, 1)) }).status, 'pass');
+  const down = templateCheck(repo, { ...token, [api]: { code: 1, stdout: '', stderr: 'HTTP 502: Server Error' } });
+  assert.equal(down.status, 'unknown');
+  assert.match(down.detail, /Couldn't read ACME tools from https:\/\/github\.com\/acme\/acc-templates\/blob\/main\/tools\.json: .*502/);
+  assert.equal(templateCheck(repo, {}).status, 'unknown', 'gh not logged in as the account');
+});
+
+test('B0.template never hands git a committed source that starts with "-" (GH-80)', () => {
+  const source = '--upload-pack=touch acc-owned#tools.json';
+  const repo = makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, template: { name: 'ACME tools', source, digest: `sha256:${'0'.repeat(64)}` } }) });
+  const calls: string[] = [];
+  const r = templateCheck(repo, {}, calls);
+  assert.equal(r.status, 'unknown');
+  assert.match(r.detail, /can't start with "-", which git would read as an option/);
+  assert.ok(!calls.some((c) => c.startsWith('git clone')), calls.join('\n'));
+  assert.ok(!existsSync(join(repo, 'acc-owned')));
 });

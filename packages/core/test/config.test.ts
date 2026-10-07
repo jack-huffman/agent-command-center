@@ -105,6 +105,22 @@ test('writeConfig round-trips and leaves derived branches out of the file', () =
   assert.deepEqual(loadConfig(file).config, config);
 });
 
+test('the team template a project came from round-trips with no warning, and a bad record is refused (GH-80)', () => {
+  const template = { name: 'ACME Salesforce', source: 'https://github.com/acme/acc-templates/blob/main/salesforce.json', digest: `sha256:${'a'.repeat(64)}` };
+  const { config, errors, warnings } = parseConfig({ ...clone(SF_CONFIG), template });
+  assert.deepEqual([errors, warnings], [[], []]);
+  assert.deepEqual(config!.template, template);
+  const file = join(tempDir(), 'config.json');
+  writeConfig(file, config!);
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')).template, template);
+  const again = loadConfig(file);
+  assert.deepEqual([again.warnings, again.config], [[], config]);
+  assert.equal(parseConfig(clone(SF_CONFIG)).config!.template, undefined, 'without one, there\'s no "template" key');
+  for (const bad of [{ ...template, digest: 'md5:abc' }, { ...template, digest: `sha256:${'A'.repeat(64)}` }, { ...template, source: '' }, { name: 'x' }, 'ACME']) {
+    assert.match(errorsOf({ ...clone(SF_CONFIG), template: bad }), /"template" needs "name", "source" and "digest"/);
+  }
+});
+
 test('a config acc writes with trackers loads again: what a tracker doesn\'t set stays out of the file, as acc init --jira-site writes it', () => {
   const trackers = [{ kind: 'jira', site: 'acme.atlassian.net', project: 'MSP' }, { kind: 'github', skipLabels: ['milestone'], edits: true }];
   const { config, errors } = parseConfig({ ...clone(SF_CONFIG), trackers });

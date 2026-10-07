@@ -45,6 +45,48 @@ test('init --profile generic writes a config that doctor accepts', () => {
   assert.equal(doctor.find((d) => d.id === 'B0.config')!.status, 'pass');
 });
 
+test('init --from a team template records it, template show says what it sets, and a bad one writes nothing (GH-80)', () => {
+  const team = tempDir('team-');
+  const file = join(team, 'tools.json');
+  writeFileSync(file, JSON.stringify({ schema: 1, name: 'ACME tools', description: 'ACME\'s small repos.', gates: { required: ['test'], commands: { test: 'npm test' } }, autonomy: 'review', agents: { max: 2 } }));
+  const dir = makeRepo();
+
+  const shown = acc(dir, ['template', 'show', file, '--json']);
+  assert.equal(shown.code, 0, shown.err);
+  const s = shown.json();
+  assert.deepEqual([s.ok, s.name, s.description, s.commands], [true, 'ACME tools', 'ACME\'s small repos.', { test: 'npm test' }]);
+  assert.ok(s.sets.includes('Required checks: test'), s.sets.join('\n'));
+  assert.match(acc(dir, ['template', 'show', file]).out, /Check commands, which run on each machine that uses it:\n {2}test: npm test/);
+
+  const r = acc(dir, ['init', '--from', file, '--profile', 'generic', '--json']);
+  assert.equal(r.code, 0, r.err);
+  const cfg = JSON.parse(readFileSync(join(dir, '.acc', 'config.json'), 'utf8'));
+  assert.deepEqual([cfg.template.name, cfg.template.source], ['ACME tools', file]);
+  assert.match(cfg.template.digest, /^sha256:[0-9a-f]{64}$/);
+  assert.deepEqual([cfg.autonomy, cfg.agents.max, cfg.gates.required], ['review', 2, ['test']]);
+  assert.deepEqual([r.json().fromTemplate, r.json().discovered], [['gates', 'autonomy', 'agents'], ['project', 'commitIdentity', 'environments']]);
+  const preview = acc(dir, ['init', '--from', file, '--dry-run']);
+  assert.match(preview.out, /From the template ACME tools: gates, autonomy, agents\nDiscovered: project, commitIdentity, environments/);
+  assert.match(preview.out, /Check commands from the template, which run on this machine:\n {2}test: npm test/);
+  const doctor = acc(dir, ['doctor', '--step', 'B0.template', '--json']).json() as { id: string; status: string }[];
+  assert.deepEqual(doctor.map((d) => [d.id, d.status]), [['B0.template', 'pass']]);
+
+  const bad = join(team, 'bad.json');
+  writeFileSync(bad, JSON.stringify({ schema: 1, name: 'Bad', gatez: {} }));
+  const fresh = makeRepo();
+  const refused = acc(fresh, ['init', '--from', bad]);
+  assert.equal(refused.code, 1);
+  assert.match(refused.err, /"gatez" isn't a template key/);
+  assert.ok(!existsSync(join(fresh, '.acc', 'config.json')), 'nothing is written');
+  const badShow = acc(fresh, ['template', 'show', bad, '--json']);
+  assert.equal(badShow.code, 1);
+  assert.deepEqual(badShow.json().ok, false);
+  assert.match(badShow.json().errors.join('\n'), /"gatez" isn't a template key/);
+  const sf = acc(fresh, ['init', '--from', file, '--profile', 'salesforce']);
+  assert.equal(sf.code, 1, 'a profile the template doesn\'t set is fine; this one has none, so it needs --production-org');
+  assert.match(sf.err + sf.out, /needs --production-org/);
+});
+
 test('add, list, ready, set and show: a task through its life', () => {
   const dir = repoWithConfig();
   assert.equal(acc(dir, ['add', 'First thing']).code, 0);
