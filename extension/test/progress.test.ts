@@ -244,7 +244,7 @@ test('In progress sits on the Overview and never changes the badge, which counts
   assert.deepEqual([overview(busy).count, overview(busy).attention], [overview(quiet).count, overview(quiet).attention], 'the rail\'s Overview badge');
   assert.ok(!busy.nav.some((n) => (n.section as string) === 'in-progress'), 'no page of its own');
   // On the page: right after Needs you, folded by its heading, remembered for the tab.
-  const page = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
+  const page = ['overview.ts', 'progress.ts'].map((f) => readFileSync(join(root, 'webview', f), 'utf8')).join('\n');
   assert.match(page, /out\.push\(inbox, renderInProgress\(o\.inProgress\)\);/);
   assert.match(page, /memory\(\)\.sections\?\.\['in-progress'\]/);
   assert.match(page, /line\.style\.animationDelay = `-\$\{d\.age\}s`/, 'the fade starts as far in as the line is old');

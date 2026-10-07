@@ -709,9 +709,9 @@ test('monday.com: a token from another account is refused, naming it, and an exi
 test('the prompts are gone, and the page draws every tracker without knowing one from another', () => {
   const trackers = readFileSync(join(root, 'src', 'trackers.ts'), 'utf8');
   for (const gone of ['showInputBox', 'Add a tracker to which project', ', 1 of ', 'addJira', 'addAzure', 'addGithub', 'listForPlace']) assert.ok(!trackers.includes(gone), `trackers.ts has no ${gone}`);
-  const main = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
+  const main = readFileSync(join(root, 'webview', 'connect.ts'), 'utf8');
   const start = main.indexOf('// ---------------------------------------------------------------- connecting a tracker (GH-51)');
-  const end = main.indexOf('// ---------------------------------------------------------------- the Command Center page');
+  const end = main.length;
   assert.ok(start > 0 && end > start);
   assert.doesNotMatch(main.slice(start, end), /jira|azure|github|monday/i, 'no tracker named in the Connect page\'s drawing');
 });
