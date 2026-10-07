@@ -19,6 +19,15 @@ as the notes.
   linking to this repo, rather than a person's GitHub account.
 - Releases are on GitHub, made by a person with `npm run release`. Agents can't
   make one.
+- More builders at once: a machine sets how many heavy checks (builds, tests,
+  validations) run together with `acc machine heavy-slots`, two here, and this
+  repo runs up to five builders, on Opus 5.5.
+- Setup has a real step for the acc plugin in Claude Code: it checks the plugin
+  is installed for every session and installs it from this repo. The README has
+  an Install and first run section for someone new, and ONBOARDING.md matches
+  the walkthrough.
+- Setup no longer re-runs its checks each time a builder saves a file in its
+  worktree, and saving a project's settings from the Command Center works again.
 
 ## 0.34.0
 
