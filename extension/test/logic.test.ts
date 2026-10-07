@@ -723,7 +723,7 @@ test('the autopilot switch says on or off with an icon and the words, and its to
 test('a pull request autopilot merged is a notice and a History item; one it couldn\'t merge needs you, and the switch says it merges (GH-67)', async () => {
   const { autopilotNotices, autopilotStatus } = await import('../src/logic/autopilot.ts');
   const { noticeActions } = await import('../src/logic/notices.ts');
-  const { autopilotLook } = await import('../src/model/tasks.ts');
+  const { autopilotLook } = await import('../src/model/cards.ts');
   const { autopilotStepLook } = await import('../src/model/history.ts');
   type Rec = import('../../packages/core/src/autopilot.ts').AutopilotRecord;
   const at = '2026-10-06T12:00:00.000Z';

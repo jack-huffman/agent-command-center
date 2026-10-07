@@ -9,7 +9,7 @@ import { conflictLine, failedChecksLine, waitsForFiles, whileFirst } from '../lo
 import { taskNames, type TaskRow, type Tone } from '../logic/shared.ts';
 import { signInScope } from '../logic/connect.ts';
 import { type Action, KEY, type Look, LOOK, type ModelArea, short } from './shared.ts';
-import { analysisLook, autopilotLook, CARD_SAID, cardActions, closedPrLook, filesLook, stoppedLook } from './tasks.ts';
+import { analysisLook, autopilotLook, CARD_SAID, cardActions, closedPrLook, filesLook, stoppedLook } from './cards.ts';
 
 // ---------------------------------------------------------------- tracker boards (D-026)
 

@@ -13,7 +13,7 @@ import { type AnalysisAsk, questionsWord, type TaskRow, type Tone } from '../log
 import { conflictLine, failedChecksLine } from '../logic/tasks.ts';
 import { accLook, type BoardInput, CATEGORY_TONE, chip, type PersonChip, priorityIcon, typeIcon } from './boards.ts';
 import { type Action, KEY, type Look, type ModelArea, type Ref, short } from './shared.ts';
-import { cardActions, filesLook } from './tasks.ts';
+import { cardActions, filesLook } from './cards.ts';
 import { hasTicket, type UpdateCard, updateCards, withClient } from './updates.ts';
 
 // ---------------------------------------------------------------- a ticket's page (D-026)

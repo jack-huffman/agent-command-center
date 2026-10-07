@@ -10,7 +10,7 @@ import { queueWhy } from '../logic/autopilot.ts';
 import { describePermission, questionsOf } from './questions.ts';
 import { runCard, type RunInput } from './runs.ts';
 import { type HubLike, type Look, LOOK, sessionKey } from './shared.ts';
-import { AUTOPILOT_STEP } from './tasks.ts';
+import { AUTOPILOT_STEP } from './cards.ts';
 
 // ---------------------------------------------------------------- what happened to each question (D-037)
 
