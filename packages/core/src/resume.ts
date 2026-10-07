@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { agentArgs, withCloneAgents } from './agents.ts';
 import { type AwakeDeps, keepAwakeFor, releaseAwake } from './awake.ts';
 import type { Config } from './config.ts';
-import { builderSettings } from './dispatch.ts';
+import { builderModel, builderSettings } from './dispatch.ts';
 import { AccError, parseJsonOutput, type Runner } from './exec.ts';
 import { remindedPath } from './hooks.ts';
 import { type Actor, type ClaudeSession, mutate, readLedger, sessionActive, sessionsOf, type Task } from './ledger.ts';
@@ -105,14 +105,17 @@ export interface ResumeCommandInput {
 /**
  * The resumed builder's claude: its session carried on with a message, and the rules it was dispatched
  * with: the builder's settings (its allow and deny lists, and its hooks), its role and task, the
- * project's permission mode, and the builder's model and effort. Pass the config with this clone's
- * choices in it (withCloneAgents, D-036). D-060's reply runs the same.
+ * project's permission mode, and the builder's model and effort, with the model picked for the task if
+ * one was (D-???). Pass the config with this clone's choices in it (withCloneAgents, D-036). D-060's
+ * reply runs the same.
  */
-export function resumeCommand(task: Task, config: Config, i: ResumeCommandInput): { args: string[]; env: Record<string, string> } {
+export function resumeCommand(task: Task, config: Config, i: ResumeCommandInput): { args: string[]; env: Record<string, string>; model: string } {
   const settings = JSON.stringify(builderSettings(task, config, i.accBinDir, i.basePath, i.accCommand));
+  const { model } = builderModel(task, config);
   return {
-    args: ['-p', i.message, '--resume', i.sessionId, '--permission-mode', config.agents.permissionMode, ...agentArgs(config.agents.builder), '--settings', settings],
+    args: ['-p', i.message, '--resume', i.sessionId, '--permission-mode', config.agents.permissionMode, ...agentArgs({ ...config.agents.builder, model }), '--settings', settings],
     env: { ACC_ROLE: 'builder', ACC_TASK: task.id },
+    model,
   };
 }
 
@@ -269,6 +272,7 @@ function resumeClaimed(paths: RepoPaths, config: Config, id: string, deps: Resum
       const t = l.tasks.find((x) => x.id === id);
       if (!t?.run || t.state !== 'running') throw new AccError('refused', `${id} left running meanwhile, so its resume was stopped.`);
       t.run.resumes = [...(t.run.resumes ?? []), { at, actor: opts.actor, by: opts.by }];
+      t.run.model = cmd.model;
       // Done by hand or by autopilot, it clears what autopilot couldn't do (D-055).
       if (t.autopilot?.failed) t.autopilot.failed = null;
       t.updatedAt = at;

@@ -10,7 +10,7 @@ import { permissionHook } from './questions.ts';
 import { type Analysis, analysisProblems, analysisSection, readAnalysis } from './analyze.ts';
 import { type ChecksReport, checksSection, readChecksReport } from './checks.ts';
 import { latestVerdict, type Verdict } from './review.ts';
-import { agentArgs } from './agents.ts';
+import { agentArgs, checkModelName, modelOf } from './agents.ts';
 import { type AwakeDeps, holdAwake, keepAwakeFor } from './awake.ts';
 
 // ---------------------------------------------------------------- names and places (D-013)
@@ -350,10 +350,23 @@ export interface DispatchOptions {
   withoutAnalysis?: boolean;
   /** What autopilot re-dispatches a rework for, kept on its move so it's never guessed from words (D-076). */
   cause?: 'checks' | 'review';
+  /** The model a person picked for this task's builder, kept on its run for a re-dispatch and a resume (D-???). */
+  model?: string;
+}
+
+/**
+ * The model a task's builder starts with (D-???): one picked for it now, else one picked on an earlier
+ * dispatch, else the builder's own (the clone's, the project's, or acc's default). `picked` says it was a
+ * person's choice for this task, so the run keeps it.
+ */
+export function builderModel(task: Pick<Task, 'run'>, config: Config, chosen?: string): { model: string; picked: boolean } {
+  const picked = chosen ?? (task.run?.modelPicked ? task.run.model : undefined);
+  return picked ? { model: picked, picked: true } : { model: modelOf(config.agents.builder), picked: false };
 }
 
 export function dispatch(paths: RepoPaths, config: Config, id: string, deps: DispatchDeps, opts: DispatchOptions): DispatchResult {
   const { run, now } = deps;
+  if (opts.model !== undefined) checkModelName(opts.model);
   const before = readLedger(paths.ledger);
   const found = before.tasks.find((t) => t.id === id);
   if (!found) throw new AccError('no-task', `No task ${id}.`);
@@ -394,15 +407,16 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
 
   const settings = JSON.stringify(builderSettings(found, config, deps.accBinDir, deps.env.PATH ?? '', deps.accCommand));
   const prompt = `Read your task instructions below and do the task.\n\n${packet}`;
-  // The builder's model and effort (D-036), when the project or this clone chose them.
-  const base = ['--name', found.id, '--permission-mode', config.agents.permissionMode, ...agentArgs(config.agents.builder), '--settings', settings];
+  // The builder's model and effort (D-036): the model picked for this task, if one was (D-???).
+  const { model, picked } = builderModel(found, config, opts.model);
+  const base = ['--name', found.id, '--permission-mode', config.agents.permissionMode, ...agentArgs({ ...config.agents.builder, model }), '--settings', settings];
 
   const record = (bgId: string | null, sessionId: string | null) => mutate(paths, now, (ledger, emit) => {
     const task = ledger.tasks.find((t) => t.id === id)!;
     const again = checkMove(ledger, config, task, req, noGateHooks);
     if (again.length) throw new AccError('move-refused', `Can't dispatch ${id}:\n- ${again.join('\n- ')}`);
     applyMove(task, { ...req, reason: reused ? `re-dispatched in ${basename(wt)}` : null }, emit, now, opts.cause ? { cause: opts.cause } : {});
-    task.run = { worktree: wt, branch, startedAt: now().toISOString(), ...(bgId ? { bgId } : {}), ...(sessionId ? { sessionId } : {}) };
+    task.run = { worktree: wt, branch, startedAt: now().toISOString(), model, ...(picked ? { modelPicked: true as const } : {}), ...(bgId ? { bgId } : {}), ...(sessionId ? { sessionId } : {}) };
     emit({ type: 'task.updated', task: id, actor: opts.actor, by: opts.by, data: { run: task.run } });
     return task;
   });

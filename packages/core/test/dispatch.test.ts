@@ -133,6 +133,84 @@ test('a builder runs with the project\'s model and this clone\'s effort, when th
   assert.deepEqual(launch.args.slice(5, 9), ['--model', 'opus', '--effort', 'low']);
 });
 
+const modelOfLaunch = (args: string[]) => args[args.indexOf('--model') + 1];
+
+test('a builder nobody chose a model for runs acc\'s default, and its run says so without calling it picked (D-???)', () => {
+  const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG), ...IGNORE }));
+  const claude = fakeClaude();
+  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  acc(repo, ['add', 'Write the changelog']);
+  const r = acc(repo, ['dispatch', 'T-1'], env);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /model: {4}claude-opus-5-5\n/);
+  const launch = claude.calls().find((c) => c.args[0] === '--bg')!;
+  assert.deepEqual(launch.args.slice(5, 7), ['--model', 'claude-opus-5-5']);
+  assert.equal(launch.args.filter((a) => a === '--model').length, 1);
+  const run = tasksOf(repo)[0]!.run!;
+  assert.equal(run.model, 'claude-opus-5-5');
+  assert.ok(!('modelPicked' in run));
+});
+
+test('a model picked for a task reaches claude --bg over the project\'s and the clone\'s, and a rework keeps it (D-???)', () => {
+  const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, agents: { builder: { model: 'opus', fallbackModel: 'sonnet' } } }), ...IGNORE }));
+  gitIn(repo, 'config', 'acc.builder.model', 'haiku');
+  const claude = fakeClaude();
+  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  acc(repo, ['add', 'Write the changelog']);
+  const r = acc(repo, ['dispatch', 'T-1', '--model', 'sonnet', '--json'], env);
+  assert.equal(r.code, 0, r.err);
+  const first = claude.calls().filter((c) => c.args[0] === '--bg')[0]!;
+  assert.equal(modelOfLaunch(first.args), 'sonnet');
+  assert.ok(!first.args.includes('--fallback-model'), 'the fallback is the model itself, which Claude Code refuses');
+  assert.deepEqual([tasksOf(repo)[0]!.run!.model, tasksOf(repo)[0]!.run!.modelPicked], ['sonnet', true]);
+  assert.equal(r.json().task.run.model, 'sonnet');
+
+  // Sent back for rework, it's re-dispatched with no --model, as autopilot does: the pick stays.
+  acc(r.json().worktree, ['done'], { ...env, ACC_ROLE: 'builder', ACC_TASK: 'T-1' });
+  assert.equal(acc(repo, ['set', 'T-1', 'rework', '--reason', 'needs a date']).code, 0);
+  const again = acc(repo, ['dispatch', 'T-1', '--json'], env);
+  assert.equal(again.code, 0, again.err);
+  assert.equal(modelOfLaunch(claude.calls().filter((c) => c.args[0] === '--bg')[1]!.args), 'sonnet');
+  assert.deepEqual([tasksOf(repo)[0]!.run!.model, tasksOf(repo)[0]!.run!.modelPicked], ['sonnet', true]);
+
+  // Another pick replaces it.
+  acc(again.json().worktree, ['done'], { ...env, ACC_ROLE: 'builder', ACC_TASK: 'T-1' });
+  acc(repo, ['set', 'T-1', 'rework', '--reason', 'and a heading']);
+  assert.equal(acc(repo, ['dispatch', 'T-1', '--model', 'claude-fable-5-1'], env).code, 0);
+  assert.equal(modelOfLaunch(claude.calls().filter((c) => c.args[0] === '--bg')[2]!.args), 'claude-fable-5-1');
+  assert.equal(tasksOf(repo)[0]!.run!.model, 'claude-fable-5-1');
+});
+
+test('a task nobody picked a model for follows the clone\'s choice as it is at each re-dispatch (D-???)', () => {
+  const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, agents: { builder: { model: 'opus' } } }), ...IGNORE }));
+  const claude = fakeClaude();
+  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  acc(repo, ['add', 'Write the changelog']);
+  const r = acc(repo, ['dispatch', 'T-1', '--json'], env);
+  assert.equal(modelOfLaunch(claude.calls().filter((c) => c.args[0] === '--bg')[0]!.args), 'opus', 'the project\'s');
+  assert.equal(tasksOf(repo)[0]!.run!.model, 'opus');
+  acc(r.json().worktree, ['done'], { ...env, ACC_ROLE: 'builder', ACC_TASK: 'T-1' });
+  acc(repo, ['set', 'T-1', 'rework', '--reason', 'needs a date']);
+  gitIn(repo, 'config', 'acc.builder.model', 'haiku');
+  assert.equal(acc(repo, ['dispatch', 'T-1'], env).code, 0);
+  assert.equal(modelOfLaunch(claude.calls().filter((c) => c.args[0] === '--bg')[1]!.args), 'haiku', 'the clone\'s, chosen since');
+  const run = tasksOf(repo)[0]!.run!;
+  assert.equal(run.model, 'haiku');
+  assert.ok(!('modelPicked' in run));
+});
+
+test('dispatch refuses a model that isn\'t a model name before it makes a worktree (D-???)', () => {
+  const repo = makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG), ...IGNORE });
+  const claude = fakeClaude();
+  acc(repo, ['add', 'Work']);
+  const r = acc(repo, ['dispatch', 'T-1', '--model', 'two words'], { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) });
+  assert.equal(r.code, 2, 'a usage error');
+  assert.match(r.err, /"two words" isn't a model name/);
+  assert.equal(existsSync(join(repo, '.claude', 'worktrees', 'T-1')), false, 'no worktree was made');
+  assert.equal(claude.calls().length, 0);
+  assert.equal(tasksOf(repo)[0]!.state, 'todo');
+});
+
 test('dispatch end to end: worktree from the environment branch, packet, background session, ledger', () => {
   const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG), ...IGNORE }));
   const claude = fakeClaude();

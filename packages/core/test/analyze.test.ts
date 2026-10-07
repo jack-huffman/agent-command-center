@@ -53,7 +53,7 @@ test('an analysis comes back read-only, with its questions numbered, and is kept
   assert.deepEqual(a.orgs, ['Acme Production', 'Acme UAT', 'Acme Dev'], 'it may read every listed org');
   assert.deepEqual(readAnalysis(paths, id)?.findings[0]?.area, 'Case');
   const line = call!.args.join(' ');
-  assert.match(line, /^-p --session-id fixed --permission-mode dontAsk/);
+  assert.match(line, /^-p --session-id fixed --permission-mode dontAsk --model claude-opus-5-5 /, 'the reviewer\'s model, acc\'s default when none is chosen (D-052, D-???)');
   assert.match(line, /Bash\(sf data query:\*\)/);
   assert.match(line, /Bash\(sf project retrieve start:\*\)/);
   assert.ok(!/Bash\(sf project deploy/.test(line) && !/Bash\(sf apex run/.test(line), 'no writes are allowed');

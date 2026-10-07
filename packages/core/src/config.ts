@@ -18,7 +18,10 @@ export const PERMISSION_MODES = ['default', 'acceptEdits', 'plan', 'auto', 'dont
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 export type Effort = (typeof EFFORTS)[number];
 
-/** The model and effort a kind of agent runs with. Anything left out is Claude Code's own default (D-036). */
+/**
+ * The model and effort a kind of agent runs with (D-036). A model left out is acc's own default,
+ * DEFAULT_MODEL (D-???); an effort or fallback left out is Claude Code's own default.
+ */
 export interface AgentProfile {
   /** An alias such as opus, sonnet or fable, or a full model name. */
   model: string | null;
@@ -28,6 +31,8 @@ export interface AgentProfile {
 }
 
 export const MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,79}$/;
+/** The model an agent runs with when neither the project nor the clone names one (D-???). */
+export const DEFAULT_MODEL = 'claude-opus-5-5';
 export const AGENT_ROLES = ['builder', 'reviewer'] as const;
 export type AgentRole = (typeof AGENT_ROLES)[number];
 export const noProfile = (): AgentProfile => ({ model: null, effort: null, fallbackModel: null });

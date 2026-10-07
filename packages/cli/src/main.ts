@@ -55,8 +55,10 @@ Tasks
   acc set <id> <state> [--reason <text>] [--force] [--as <actor>] [--by <name>]
 
 Agents
-  acc dispatch <id> [--foreground] [--without-analysis]
-                                        Worktree, setup, instructions, and a background builder session
+  acc dispatch <id> [--foreground] [--without-analysis] [--model <m>]
+                                        Worktree, setup, instructions, and a background builder session.
+                                        --model picks the builder's model for this task: a re-dispatch and a
+                                        resume keep it. Without one, the builder's model (acc agents)
   acc done [<id>]                       A builder's finish line: moves its task to review
   acc block [<id>] "<reason>"           A builder's way out when stuck
   acc block [<id>] --client "<question>"
@@ -66,7 +68,8 @@ Agents
                                         block, as when the Mac slept: its own session, in its worktree, with the
                                         rules it was dispatched with. It's told it was cut off, or --message
   acc cleanup <id>                      Remove a finished task's worktree, only if nothing would be lost
-  acc agents                            The model and effort builders and reviewers run with, and where each is set
+  acc agents                            The model and effort builders and reviewers run with, and where each is
+                                        set. A model nobody set is acc's default, claude-opus-5-5
   acc agents set <builder|reviewer> [--model <m>] [--effort <low|medium|high|xhigh|max>] [--fallback-model <m>]
                 [--clear <model|effort|fallback-model>]... [--project]
                                         Change them for this clone, or with --project in .acc/config.json
@@ -593,10 +596,10 @@ function cmdAgents(o: Opts, sub: string | undefined, roleArg: string | undefined
   if (sub === 'autonomy') return cmdAutonomy(o, paths.config, roleArg);
   if (!sub || sub === 'show') {
     const v = views();
-    const from = { clone: ' (this clone)', project: ' (project)', default: '' };
+    const from = { clone: ' (this clone)', project: ' (project)', acc: ' (acc\'s default)', default: '' };
     out(o, () => AGENT_ROLES.map((r) => {
       const p = v[r]!;
-      return `${r.padEnd(9)} model ${p.model ?? 'Claude Code\'s default'}${from[p.from.model]}, effort ${p.effort ?? 'default'}${from[p.from.effort]}${p.fallbackModel ? `, falls back to ${p.fallbackModel}${from[p.from.fallbackModel]}` : ''}`;
+      return `${r.padEnd(9)} model ${p.model}${from[p.from.model]}, effort ${p.effort ?? 'default'}${from[p.from.effort]}${p.fallbackModel ? `, falls back to ${p.fallbackModel}${from[p.from.fallbackModel]}` : ''}`;
     }).join('\n'), v);
     return 0;
   }
@@ -614,7 +617,7 @@ function cmdAgents(o: Opts, sub: string | undefined, roleArg: string | undefined
   if (!Object.keys(change).length) throw new AccError('usage', 'Say what to change: --model, --effort, --fallback-model or --clear.');
   setProfile(run, paths.root, paths.config, roleArg as AgentRole, change, o.project ? 'project' : 'clone');
   const after = profileView(loadConfig(paths.config).config, run, paths.root, roleArg as AgentRole);
-  out(o, () => `${roleArg}: model ${after.model ?? 'Claude Code\'s default'}, effort ${after.effort ?? 'default'}${after.fallbackModel ? `, falls back to ${after.fallbackModel}` : ''}. ${o.project ? 'Set in .acc/config.json: commit it to share it.' : 'Set for this clone only.'} The next ${roleArg} uses it.`, after);
+  out(o, () => `${roleArg}: model ${after.model}${after.from.model === 'acc' ? ' (acc\'s default)' : ''}, effort ${after.effort ?? 'default'}${after.fallbackModel ? `, falls back to ${after.fallbackModel}` : ''}. ${o.project ? 'Set in .acc/config.json: commit it to share it.' : 'Set for this clone only.'} The next ${roleArg} uses it.`, after);
   return 0;
 }
 
@@ -736,11 +739,13 @@ function cmdDispatch(o: Opts, id: string): number {
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
   if (o.foreground && !o.json) process.stdout.write(`Starting ${id.toUpperCase()} in this terminal. Leave the session when it's done.\n`);
-  const r = dispatch(paths, config, id.toUpperCase(), { run, now, accBinDir: accBinDir(), accCommand: accCommand(), env: process.env }, { actor, by, foreground: o.foreground === true, withoutAnalysis: o['without-analysis'] === true });
+  const model = typeof o.model === 'string' ? o.model : undefined;
+  const r = dispatch(paths, config, id.toUpperCase(), { run, now, accBinDir: accBinDir(), accCommand: accCommand(), env: process.env }, { actor, by, foreground: o.foreground === true, withoutAnalysis: o['without-analysis'] === true, model });
   out(o, () => [
     `${r.task.id} → ${stateLabel('running')}`,
     `  worktree: ${r.worktree}${r.reused ? ' (reused)' : ''}`,
     `  branch:   ${r.branch}`,
+    `  model:    ${r.task.run?.model ?? ''}${r.task.run?.modelPicked ? ' (picked for this task)' : ''}`,
     `  agent:    ${r.bgId ? `background session ${r.bgId}. Watch it with: claude attach ${r.bgId}` : o.foreground ? 'ran in this terminal' : 'started; it will appear in claude agents shortly'}`,
     `  packet:   ${r.packetPath}`,
   ].join('\n'), r);
@@ -1226,7 +1231,7 @@ export async function main(argv: string[]): Promise<number> {
       throw new AccError('usage', 'acc intake github [--label <label>], or acc intake jira|azure --file <report.json>. Jira and Azure DevOps tickets come in through the Command Center\'s Track in acc, or the plugin\'s skill.');
     }
     case 'dispatch': {
-      if (!rest[0]) throw new AccError('usage', 'acc dispatch <id> [--foreground]');
+      if (!rest[0]) throw new AccError('usage', 'acc dispatch <id> [--foreground] [--without-analysis] [--model <m>]');
       return cmdDispatch(o, rest[0]);
     }
     case 'done': return cmdSet(o, taskIdFrom(rest[0]), 'review');

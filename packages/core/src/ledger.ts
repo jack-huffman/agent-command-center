@@ -46,6 +46,13 @@ export interface Run {
   startedAt?: string;
   /** Each time its session was resumed. A dispatch starts a new run, so a new list. */
   resumes?: Resume[];
+  /** The model its builder was started with, or last resumed with (D-???). */
+  model?: string;
+  /**
+   * A person picked that model for this task (D-???): a re-dispatch and a resume keep it, until another is
+   * picked. Without it, the next dispatch follows the clone's, the project's or acc's default.
+   */
+  modelPicked?: true;
 }
 
 export interface PullRequest {
