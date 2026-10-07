@@ -407,8 +407,8 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Each area registers its commands, and takes the page's messages that are its own (D-099).
   const parts: Parts = {
-    vscode, hub, setup, runs, panels, tickets, trackers, identity, connect, slack, autopilot, sidebar, accScript,
-    reg, regNode, resolve, accSays, answer, answerAnalysis, updates, showRun,
+    vscode, hub, setup, runs, panels, tickets, pages, trackers, identity, connect, slack, autopilot, sidebar, accScript,
+    reg, subscribe: (d) => context.subscriptions.push(d), regNode, resolve, accSays, answer, answerAnalysis, updates, showRun,
     receive: (type, fn) => panels.take(type, fn),
   };
   for (const a of AREAS) a.register?.(parts);

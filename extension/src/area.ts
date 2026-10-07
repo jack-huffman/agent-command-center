@@ -6,6 +6,7 @@
  */
 import type * as vscode from 'vscode';
 import type { Answer } from '../../packages/core/src/questions.ts';
+import type { AgentPages } from './activity.ts';
 import type { AutopilotHost } from './autopilot.ts';
 import type { ConnectSession } from './connect.ts';
 import type { Hub } from './hub.ts';
@@ -32,6 +33,8 @@ export interface Parts {
   runs: Runs;
   panels: Panels;
   tickets: TicketPanels;
+  /** Each agent's own page (D-030). */
+  pages: AgentPages;
   trackers: Trackers;
   identity: RepoIdentity;
   connect: ConnectSession;
@@ -43,6 +46,8 @@ export interface Parts {
   accScript: string;
   /** Registers a command. regNode turns a row's menu context into its node first. */
   reg: (id: string, fn: Handler) => void;
+  /** Ends something with the extension, such as a listener. */
+  subscribe: (d: vscode.Disposable) => void;
   regNode: (id: string, fn: Handler) => void;
   /** Runs a command for what a tab's Ref names, as the sidebar's node. */
   resolve: (command: string, ref: Ref) => unknown;

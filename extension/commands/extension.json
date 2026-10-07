@@ -36,6 +36,12 @@
     "icon": "$(link-external)"
   },
   {
+    "command": "acc.open.settings",
+    "title": "Open Settings as a tab",
+    "category": "Agent Command Center",
+    "icon": "$(link-external)"
+  },
+  {
     "command": "acc.runs.show",
     "title": "Show command output",
     "category": "Agent Command Center",

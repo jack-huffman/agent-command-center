@@ -16,11 +16,11 @@ import type { RepoJobs } from '../progress.ts';
 import type { LastStep } from '../transcript.ts';
 import type { HomeArea } from './home.ts';
 
-export const VIEW_KINDS = ['tasks', 'agents', 'worktrees', 'environments', 'setup'] as const;
+export const VIEW_KINDS = ['tasks', 'agents', 'worktrees', 'environments', 'setup', 'settings'] as const;
 export type ViewKind = (typeof VIEW_KINDS)[number];
 
 export const VIEW_TITLES: Record<ViewKind, string> = {
-  tasks: 'Tasks', agents: 'Agents', worktrees: 'Worktrees', environments: 'Environments', setup: 'Setup',
+  tasks: 'Tasks', agents: 'Agents', worktrees: 'Worktrees', environments: 'Environments', setup: 'Setup', settings: 'Settings',
 };
 
 /** Identifies what an action applies to. The extension turns it back into the sidebar's node. */

@@ -9,7 +9,8 @@ import type { Hub, Project } from './hub.ts';
 import { type FromWebview, isFromWebview } from './model/messages.ts';
 import type { Ref } from './model/shared.ts';
 import { type TicketAcc, ticketActionRefusal, ticketModel, type TicketModel } from './model/task-page.ts';
-import { htmlFor, isWebLink } from './panels.ts';
+import { htmlFor, isWebLink, TabTheme } from './panels.ts';
+import type { ThemeChoice } from './model/settings.ts';
 import { runFile } from './run.ts';
 import type { Trackers } from './trackers.ts';
 import type { ExtensionArea } from './area.ts';
@@ -38,6 +39,8 @@ interface Open {
   connect: TicketModel['connect'];
   /** Its updates' unsent edits, by update id, as the page last said (GH-46). */
   edits: Map<string, string>;
+  /** Keeps it in the Command Center's theme (GH-109). */
+  theme: TabTheme;
 }
 
 /** Commands a ticket page may run, the same ones its task's card offers. */
@@ -112,8 +115,8 @@ export class TicketPanels implements vscode.Disposable {
     const panel = vscode.window.createWebviewPanel('acc.ticket', key, vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [base] });
     const icon = (theme: 'light' | 'dark') => vscode.Uri.joinPath(this.ctx.extensionUri, 'dist', 'media', `acc-${theme}.svg`);
     panel.iconPath = { light: icon('light'), dark: icon('dark') };
-    panel.webview.html = htmlFor(panel.webview, base, 'ticket', randomBytes(16).toString('base64'), key);
-    const o: Open = { panel, project: root, tracker: index, key: key.toUpperCase(), ticket: null, loading: index !== null, error: null, outside: null, connect: null, edits: new Map() };
+    const theme = new TabTheme(panel, (t) => htmlFor(panel.webview, base, 'ticket', randomBytes(16).toString('base64'), key, t));
+    const o: Open = { panel, project: root, tracker: index, key: key.toUpperCase(), ticket: null, loading: index !== null, error: null, outside: null, connect: null, edits: new Map(), theme };
     this.open.set(id, o);
     // Closing the page drops its edits (D-066), and the Overview goes back to acc's text.
     panel.onDidDispose(() => {
@@ -123,6 +126,11 @@ export class TicketPanels implements vscode.Disposable {
     panel.onDidChangeViewState((e) => { if (e.webviewPanel.visible) void this.post(o); });
     panel.webview.onDidReceiveMessage((m: unknown) => void this.receive(o, m));
     void this.load(o);
+  }
+
+  /** Settings changed the theme (GH-109): every task page restyles. */
+  retheme(theme: ThemeChoice): void {
+    for (const o of this.open.values()) o.theme.set(theme);
   }
 
   /** Re-draws every open page, for instance after the ledger or an agent changed. */

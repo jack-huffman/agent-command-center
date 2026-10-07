@@ -9,7 +9,8 @@ import { agentModel } from './model/agent-page.ts';
 import { answerOf } from './model/questions.ts';
 import { isFromWebview } from './model/messages.ts';
 import { nameOf, type Ref, sessionKey } from './model/shared.ts';
-import { htmlFor, isWebLink } from './panels.ts';
+import { htmlFor, isWebLink, TabTheme } from './panels.ts';
+import type { ThemeChoice } from './model/settings.ts';
 import { claudeProjectsDir, emptyTranscript, foldTranscript, splitLines, type Transcript, transcriptDir } from './transcript.ts';
 
 /** A first read takes at most this much of a transcript, from its end: a day-long session can be large. */
@@ -31,6 +32,8 @@ interface Page {
   active?: () => boolean;
   /** A message sent from the page is being answered (D-060). */
   replying?: boolean;
+  /** Keeps it in the Command Center's theme (GH-109). */
+  theme: TabTheme;
 }
 
 /**
@@ -85,8 +88,8 @@ export class AgentPages implements vscode.Disposable {
     const panel = vscode.window.createWebviewPanel('acc.agent', `${name} · activity`, vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [base], retainContextWhenHidden: false });
     const icon = (theme: 'light' | 'dark') => vscode.Uri.joinPath(this.ctx.extensionUri, 'dist', 'media', `acc-${theme}.svg`);
     panel.iconPath = { light: icon('light'), dark: icon('dark') };
-    panel.webview.html = htmlFor(panel.webview, base, 'agent', randomBytes(16).toString('base64'), `${name} · activity`);
-    const page: Page = { panel, key: k, seen: s, file: null, offset: 0, rest: '', transcript: emptyTranscript(), timer: undefined, shown: false, active };
+    const theme = new TabTheme(panel, (t) => htmlFor(panel.webview, base, 'agent', randomBytes(16).toString('base64'), `${name} · activity`, t));
+    const page: Page = { panel, key: k, seen: s, file: null, offset: 0, rest: '', transcript: emptyTranscript(), timer: undefined, shown: false, active, theme };
     this.pages.set(k, page);
     panel.webview.onDidReceiveMessage((m: unknown) => this.receive(page, m));
     panel.onDidChangeViewState((e) => this.tick(page, e.webviewPanel.visible));
@@ -97,6 +100,11 @@ export class AgentPages implements vscode.Disposable {
     });
     this.tick(page, true);
     return true;
+  }
+
+  /** Settings changed the theme (GH-109): every agent page restyles. */
+  retheme(theme: ThemeChoice): void {
+    for (const p of this.pages.values()) p.theme.set(theme);
   }
 
   /** Re-posts every open page: the agents or questions changed. */
