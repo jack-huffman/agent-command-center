@@ -5,6 +5,36 @@ extension, the plugin and acc share one version. Each release is a GitHub
 Release of this repo, with the extension's `.vsix` attached and its entry here
 as the notes.
 
+## 0.37.0
+
+- Team templates: start a project from a team's settings with `acc init
+  --from <template>`, or **From a team template** in Setup. A template is a
+  JSON file kept at a path, in a GitHub file or in any git repo. It's checked
+  key by key before anything is written, and Setup says when the team's
+  template has changed since. `acc template show` previews one.
+- One tracker sign-in for every project on the same Jira site, Azure DevOps
+  organization or monday.com account. The Connect page asks whether a sign-in
+  is for every project there or this one only, and a project that keeps its
+  own sign-in never loses it to the shared one.
+- In progress on the Overview: every job under way, grouped by task, with its
+  state, what it's doing, its model and its branch so far. A machine line on
+  top shows the heavy-check slots in use, the builders running and the load.
+- Two tasks that change the same files take turns: a dispatch that would
+  overlap work in flight waits while another Ready task can go first, says
+  what it waits for, and starts on its own once it's free. **Dispatch anyway**
+  overrides.
+- A merge queue where auto-merge is on: pull requests that pass join in turn,
+  and the one at the head has its base merged in and the full check run once,
+  then merges. Builders run lighter checks, the tests near what they changed,
+  and the full one runs in the queue.
+- A finished task's leftover agent session reads as Finished, not Needs you,
+  and **Stop finished sessions** stops them in one go.
+- The Agents tab shows each session's folder in context (`Acme Service ›
+  worktree ACME-12`), with a toggle for the full path. How agents run is
+  behind a **Settings** button.
+- A rework a person sends back tells its builder why, in the builder's
+  instructions.
+
 ## 0.36.0
 
 - Builders, reviewers and analysts run on Claude Opus 5.5 unless the clone or
