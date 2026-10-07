@@ -8,7 +8,7 @@ import { DISPLAY, findRule, type State, type Task } from '../../packages/core/sr
 import type { GateStatus } from '../../packages/core/src/receipts.ts';
 import { declaredKeys, DESCRIPTIONS, type Option, type TrackerDescription, type Values } from '../../packages/core/src/trackers/connect.ts';
 import { type Doc, fromMarkdown } from '../../packages/core/src/trackers/doc.ts';
-import type { StatusCategory, Ticket } from '../../packages/core/src/trackers/types.ts';
+import { isTrackerKind, type StatusCategory, type Ticket, type TrackerKind, trackerName } from '../../packages/core/src/trackers/types.ts';
 import type { GithubIdentity } from '../../packages/core/src/github.ts';
 import { GROUP_TITLES, STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import { autoMergeOn, type Environment, type Tracker, trackerForKey } from '../../packages/core/src/config.ts';
@@ -312,7 +312,7 @@ export function priorityIcon(priority: string | null): string | null {
 /** What the extension knows about one tracker's board (see trackers.ts). */
 export interface BoardInput {
   index: number;
-  kind: 'github' | 'jira' | 'azure';
+  kind: TrackerKind;
   title: string;
   board: { source: string; title: string; url: string | null; notice: string | null; columns: { id: string; name: string; category: StatusCategory; statusIds: string[] }[]; cards: { key: string; title: string; url: string; status: { id: string; name: string }; type: string | null; assignees: { name: string }[]; labels: { name: string; color: string | null }[]; priority: string | null }[] } | null;
   error: string | null;
@@ -357,7 +357,7 @@ export interface TrackerColumn {
 
 export interface TrackerBoard {
   index: number;
-  kind: 'github' | 'jira' | 'azure';
+  kind: TrackerKind;
   title: string;
   source: string | null;
   url: string | null;
@@ -447,7 +447,7 @@ export interface TicketModel {
   title: string;
   url: string | null;
   sourceLabel: string;
-  sourceKind: 'github' | 'jira' | 'azure' | 'acc';
+  sourceKind: TrackerKind | 'acc';
   loading: boolean;
   error: string | null;
   /** Why the ticket isn't shown: it's outside the repo's place, and names it (D-072). */
@@ -519,7 +519,7 @@ export interface TicketInput {
   project: string;
   tracker: number | null;
   trackerTitle: string | null;
-  trackerKind: 'github' | 'jira' | 'azure' | null;
+  trackerKind: TrackerKind | null;
   key: string;
   ticket: Ticket | null;
   loading: boolean;
@@ -619,7 +619,7 @@ export interface UpdateCard {
   task: string;
   /** The ticket as its board names it: GH-41, ACME-12. */
   key: string;
-  tracker: 'github' | 'jira' | 'azure';
+  tracker: TrackerKind;
   /** What it's about, in words. */
   about: string;
   look: Look;
@@ -642,10 +642,8 @@ export interface UpdateCard {
   edited: string | null;
 }
 
-const TRACKER_WORD: Record<UpdateCard['tracker'], string> = { github: 'GitHub', jira: 'Jira', azure: 'Azure DevOps' };
-
 /** Whether a task's source is a tracker's ticket, which can take updates. */
-export const hasTicket = (kind: string): boolean => kind === 'github' || kind === 'jira' || kind === 'azure';
+export const hasTicket = (kind: string): boolean => isTrackerKind(kind);
 
 /** What an update is about, for the person posting it. */
 export function updateAbout(u: Pick<Update, 'event' | 'env' | 'pr'>): string {
@@ -667,7 +665,7 @@ export function updateAbout(u: Pick<Update, 'event' | 'env' | 'pr'>): string {
  */
 export function updatePoster(tracker: UpdateCard['tracker'], index: number | null, root: string, github: string | null, boards: BoardInput[]): Pick<UpdateCard, 'postAs' | 'blocked' | 'signIn'> {
   if (tracker === 'github') return github ? { postAs: github, blocked: null, signIn: null } : { postAs: null, blocked: 'This project has no GitHub account in .acc/config.json to post as.', signIn: null };
-  const name = TRACKER_WORD[tracker];
+  const name = trackerName(tracker);
   // The tracker that owns the ticket's key, not the first of its kind: a repo can have two Jira sites.
   const b = index === null ? undefined : boards.find((x) => x.index === index && x.kind === tracker);
   if (!b) return { postAs: null, blocked: `This repo has no ${name} tracker to post through.`, signIn: null };
@@ -1496,6 +1494,8 @@ export interface ConnectPicker {
   fixed: boolean;
   /** It needs a choice before Save. */
   required: boolean;
+  /** Not drawn: its one choice is made already, so there's nothing to pick. */
+  hidden: boolean;
   hint: string | null;
 }
 
@@ -1559,6 +1559,11 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
   const ok = s.signIn.state === 'ok';
   const editing = !ok || s.signIn.again;
   const values = connectValues(s, d);
+  // What each list's choice is called, for words such as "Every group on Client work".
+  const labels = Object.fromEntries(d.pickers.map((p) => {
+    const ps = s.pickers[p.key];
+    return [p.key, ps?.options.find((o) => o.value === ps.selected[0])?.label ?? null];
+  }));
   const host: ConnectField = {
     key: d.host.key, label: d.host.label, type: 'text', value: s.host, placeholder: d.host.placeholder, hint: d.host.hint, error: s.hostError, fixed: !!s.existing, help: null,
   };
@@ -1577,7 +1582,7 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
   const pickers: ConnectPicker[] = d.pickers.map((p) => {
     const ps = s.pickers[p.key] ?? { options: [], selected: [], state: 'waiting', error: null };
     const fixed = !!s.existing && !!p.identifies;
-    const whole = p.whole ? p.whole({ host: s.host, values }) : null;
+    const whole = p.whole ? p.whole({ host: s.host, values, labels }) : null;
     const pickerLook = fixed ? null : ps.state === 'loading' ? LOOK('Loading', 'sync~spin', 'blue')
       : ps.state === 'failed' ? LOOK(`Couldn't list them: ${ps.error ?? 'no answer'}${whole ? ' You can take the whole project now, and narrow it later.' : p.fallback ? ` ${p.fallback}` : ''}`, 'warning', 'orange')
         : ps.state === 'ready' && !ps.options.length && !whole ? LOOK('None that this sign-in can see', 'warning', 'orange') : null;
@@ -1587,7 +1592,9 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
     return {
       key: p.key, label: p.label, multi: !!p.multi, whole, options, selected: ps.selected, look: pickerLook,
       // One whose list failed needn't hold Save when the tracker does without it (Jira's first board).
-      disabled: !fixed && (!ok || ps.state === 'waiting' || ps.state === 'loading'), fixed, required: !p.whole && !p.multi && !(p.fallback && ps.state === 'failed'), hint: p.hint ?? null,
+      disabled: !fixed && (!ok || ps.state === 'waiting' || ps.state === 'loading'), fixed, required: !p.whole && !p.multi && !(p.fallback && ps.state === 'failed'),
+      // Shown once there's a choice to make, or to say why its list couldn't be read.
+      hidden: !!p.hideSingle && ps.state !== 'failed' && options.length <= 1, hint: p.hint ?? null,
     };
   });
   const ready = pickers.every((p) => p.fixed || !p.required || p.selected.length) && pickers.every((p) => p.look?.icon !== 'sync~spin');

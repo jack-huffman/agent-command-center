@@ -13,7 +13,7 @@ import type { Ticket } from '../../packages/core/src/trackers/types.ts';
 import type { HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
 import { type AgentSession, askingLabel, type DoctorItem, rowAnalysis, type TaskRow } from '../src/logic.ts';
-import { AZURE, GITHUB, JIRA } from '../../packages/core/src/trackers/connect.ts';
+import { AZURE, GITHUB, JIRA, MONDAY } from '../../packages/core/src/trackers/connect.ts';
 import { type AgentModel, agentModel, blankConnect, type BoardInput, type ConnectModel, connectModel, type ConnectState, type HubLike, type IdentityCard, type ProjectLike, type RunInput, ticketModel, type TicketModel } from '../src/model.ts';
 import { blankSlack, type SlackCard, slackCard, type SlackState } from '../src/slack.ts';
 import type { Entry } from '../src/transcript.ts';
@@ -385,13 +385,58 @@ export function sampleBoards(): BoardInput[] {
   }];
 }
 
+/**
+ * A monday.com board (GH-70): its Status column's labels as its columns, in monday's order, with No status
+ * first because an item has none, and a group as its place. Item ids are long. acc keeps none of its
+ * items yet, so every card not done shows Track: ready, on its way, or refused because the item moved to
+ * another group. A task whose item left the group after it started is named above the board.
+ */
+export function sampleMondayBoards(): BoardInput[] {
+  const card = (id: number, title: string, s: { id: string; name: string }, assignees: string[] = []) =>
+    ({ key: `MON-${id}`, title, url: `https://acme.monday.com/boards/1234567890/pulses/${id}`, status: s, type: null, assignees: assignees.map((name) => ({ name })), labels: [], priority: null });
+  const NONE = { id: 'none', name: 'No status' };
+  const NOT_STARTED = { id: '3', name: 'Not started' };
+  const WORKING = { id: '0', name: 'Working on it' };
+  const STUCK = { id: '2', name: 'Stuck' };
+  const FINISHED = { id: '1', name: 'Done' };
+  const place = 'monday.com · acme · Client work · group This sprint';
+  return [{
+    index: 0, kind: 'monday', title: 'monday.com · acme', error: null, connect: null, loading: false, signedInAs: 'a personal API token', place,
+    left: ['MON-9081726354 left this repo\'s place: it\'s in group Backlog; MON-9081726354 is still running'],
+    tracking: {
+      'MON-9081726361': { busy: true, error: null },
+      'MON-9081726368': { busy: false, error: `MON-9081726368 isn't one of this repo's tickets, which come from ${place}: it's in group Backlog.` },
+    },
+    board: {
+      source: 'monday-board', title: 'Client work · This sprint', url: 'https://acme.monday.com/boards/1234567890', notice: null,
+      columns: [
+        { id: 'none', name: 'No status', category: 'todo', statusIds: ['none'] }, { id: '3', name: 'Not started', category: 'doing', statusIds: ['3'] },
+        { id: '0', name: 'Working on it', category: 'doing', statusIds: ['0'] }, { id: '2', name: 'Stuck', category: 'doing', statusIds: ['2'] },
+        { id: '1', name: 'Done', category: 'done', statusIds: ['1'] },
+      ],
+      cards: [
+        card(9081726399, 'Collect the partner logos for the portal', NONE),
+        card(9081726347, 'Move the renewal calendar to the shared drive', NOT_STARTED, ['Pat Lee']),
+        card(9081726361, 'Send the onboarding checklist to new accounts', NOT_STARTED),
+        card(9081726368, 'Draft the escalation runbook for tier 2', NOT_STARTED, ['Jordan Kim']),
+        card(9081726372, 'Review the support hours with the client', WORKING, ['Jordan Kim', 'Pat Lee']),
+        card(9081726380, 'Tidy the case reasons picklist', WORKING, ['Pat Lee']),
+        card(9081726385, 'Get sign-off on the new SLA wording', STUCK),
+        card(9081726311, 'Kick-off call with the support team', FINISHED, ['Jordan Kim']),
+      ],
+    },
+  }];
+}
+
 /** Which Connect page to draw (GH-51). */
-export type ConnectSample = 'start' | 'jira' | 'azure' | 'github' | 'existing';
+export type ConnectSample = 'start' | 'jira' | 'azure' | 'github' | 'existing' | 'monday';
 
 /**
  * The Connect page at each step: a new Jira tracker before signing in; signed in, its project picked, its
  * epics loading and its boards failing; Azure DevOps whose token was refused; GitHub with labels ticked;
- * and an existing Jira tracker opened to change, its epic done now but kept.
+ * an existing Jira tracker opened to change, its epic done now but kept; and a monday.com board signed in
+ * with Sign in again open, so its token field and token page show beside its board, group and two status
+ * columns (GH-70).
  */
 export function sampleConnect(which: ConnectSample): ConnectModel {
   const root = '/Users/me/code/acme-service';
@@ -422,6 +467,15 @@ export function sampleConnect(which: ConnectSample): ConnectModel {
     const s = blankConnect(GITHUB, { id: 'c-github', ...base });
     s.signIn = ok('jordan-kim');
     s.pickers.labels = ready(['billing', 'bug', 'documentation', 'enhancement', 'good first issue', 'invoices', 'milestone', 'question'].map((l) => ({ value: l, label: l })), ['billing', 'invoices']);
+    return connectModel(s);
+  }
+  if (which === 'monday') {
+    const s = blankConnect(MONDAY, { id: 'c-monday', ...base });
+    s.host = 'acme';
+    s.signIn = { ...ok('Jordan Kim'), again: true };
+    s.pickers.board = ready([{ value: '1234567890', label: 'Client work', detail: 'Acme' }, { value: '1234567999', label: 'Approvals', detail: 'Main workspace' }], ['1234567890']);
+    s.pickers.group = ready([{ value: 'topics', label: 'This sprint' }, { value: 'new_group29179', label: 'Backlog' }], ['topics']);
+    s.pickers.statusColumn = ready([{ value: 'status', label: 'Status', detail: 'Not started, Working on it, Stuck, Done', default: true }, { value: 'priority', label: 'Priority', detail: 'High, Medium, Low' }], ['status']);
     return connectModel(s);
   }
   const s = blankConnect(JIRA, { id: 'c-existing', ...base, existing: { index: 0, title: 'Jira · ACME', host: 'acme.atlassian.net', values: { project: 'ACME', epic: 'ACME-3', board: '7' } } });

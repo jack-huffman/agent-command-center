@@ -4,6 +4,7 @@ import { AccError } from './exec.ts';
 import type { Task } from './ledger.ts';
 import { withLock } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
+import { isTrackerKind, type TrackerKind } from './trackers/types.ts';
 
 /**
  * Ticket updates (D-066): acc never posts on a ticket by itself. When something a client cares about
@@ -18,7 +19,7 @@ export type UpdateEvent = (typeof UPDATE_EVENTS)[number];
 export const UPDATE_STATES = ['draft', 'posting', 'posted', 'discarded'] as const;
 export type UpdateState = (typeof UPDATE_STATES)[number];
 
-export type UpdateTracker = 'github' | 'jira' | 'azure';
+export type UpdateTracker = TrackerKind;
 
 export interface Update {
   v: 1;
@@ -26,7 +27,7 @@ export interface Update {
   id: string;
   task: string;
   tracker: UpdateTracker;
-  /** The ticket as its tracker knows it: #41, ACME-12, AB-7. */
+  /** The ticket as its tracker knows it: #41, ACME-12, AB-7, MON-123. */
   key: string;
   /** The ticket's own page, which names the repo a GitHub issue lives in. */
   url: string | null;
@@ -83,7 +84,7 @@ export const EVENT_WORDS: Record<UpdateEvent, string> = {
 /** Whether a task's ticket can take updates: one from a tracker, with a key. A task acc alone keeps can't. */
 export function ticketOf(task: Pick<Task, 'source'>): { tracker: UpdateTracker; key: string; url: string | null } | null {
   const { kind, key, url } = task.source;
-  if ((kind !== 'github' && kind !== 'jira' && kind !== 'azure') || !key) return null;
+  if (!isTrackerKind(kind) || !key) return null;
   return { tracker: kind, key, url };
 }
 

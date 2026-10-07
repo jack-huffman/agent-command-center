@@ -36,7 +36,7 @@ machine (GH-62).
 
 ## Later
 
-- monday.com intake (acc's notices go to Slack already: D-078 in DECISIONS.md)
+- Slack as a ticket source (acc's notices go to Slack already: D-078 in DECISIONS.md)
 - a pull request monitor that turns failing CI or conflicts into rework tasks
 - a merge queue
 - cloud sessions

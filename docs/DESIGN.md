@@ -130,7 +130,7 @@ listed so that drift checks and `doctor` cover it.
 | `environments` | Every org the project has, whether or not it's on a promotion path. Each has a name, a branch (by default the lower-cased name), a `type` (`production`, `full`, `partial`, `developer`, `developer_pro`) and, in the `salesforce` profile, an org alias. A task builds from one environment's branch, and its pull request goes back into it. **Protected** environments never receive agent work. `promotesTo` lists where it can promote to, usual step first ([section 11](#11-landing)) |
 | `environmentSpecific` | A list of files that differ by design in every environment, such as email service addresses, SSO and org settings. These are never edited by a task, never deployed, and never promoted (D-016) |
 | `knownDrift` | Files that a drift check should expect to differ, such as features a sandbox lacks or ordering noise. They can still be edited and promoted |
-| `trackers` | Where intake reads from. Several are allowed. A GitHub tracker's `skipLabels` lists labels whose issues aren't tasks, such as `["milestone"]` (D-048). Each tracker's place holds every read to this repo's tickets: its project or repo, narrowed by a Jira `epic`, GitHub `labels` (any one counts) or an Azure `areaPath` (D-072) |
+| `trackers` | Where intake reads from. Several are allowed. A GitHub tracker's `skipLabels` lists labels whose issues aren't tasks, such as `["milestone"]` (D-048). Each tracker's place holds every read to this repo's tickets: its project, repo or monday.com `board`, narrowed by a Jira `epic`, GitHub `labels` (any one counts), an Azure `areaPath` or a monday.com `group` (D-072). A monday.com tracker names its `account` and `board`, and may name a `statusColumn` (D-085) |
 | `agents.max` | Most builder sessions at once, default 3 |
 | `autonomy` | How much the loop does on its own ([section 12](#12-the-orchestrator-loop)) |
 | `autopilot.appendOnly` | Files, or folders, where autopilot may resolve a conflict with the base when both sides only added to the end, such as a decision log. Left out, there are none ([section 12](#12-the-orchestrator-loop)) |
@@ -234,24 +234,26 @@ never see a half-written file.
 ## 6. Intake
 
 Every source produces the same task input shape, and `acc import` reads it as
-JSON. Adding monday.com later means adding one more producer.
+JSON. monday.com was one more producer (D-085).
 
 | Source | How | Dependencies from |
 |---|---|---|
 | GitHub Issues | `acc intake github [--label L]`, run directly through `gh` with the repo's account | `Depends on #N` and `Blocked by #N` lines in the issue body |
 | Jira, Azure DevOps | **Track** on a ticket's card on the tracker's board, or **Track in acc** on its page (one way for both), or the `acc:intake` skill: Claude queries a connector for the tracker's place and pipes the results to `acc import` | "is blocked by" issue links |
+| monday.com | **Track** on an item's card, or **Track in acc** on its page. The brief is the item's long-text columns, or its first update | none |
 | Manual | `acc add "title" --brief …` | `--dep` |
 
 Intake is idempotent, keyed by tracker key, and it never changes the tracker.
 
 Every read is held to each tracker's place (D-072): its project or repo, and
 when set, a Jira epic (its tickets and their sub-tasks), GitHub labels (any
-one) or an Azure area path. `acc intake github` lists open issues per place
-label, from the tracker's `repo`. `acc import` refuses a Jira or Azure key that
-no tracker owns. After a Jira or Azure board loads, the Command Center asks
-about the repo's unfinished tasks that aren't on it, and hands the ones outside
-the place to `acc intake jira|azure --file`, which removes or names them as
-below.
+one), an Azure area path or a monday.com group. A monday.com board is the
+tracker, as a Jira project is. `acc intake github` lists open issues per place
+label, from the tracker's `repo`. `acc import` refuses a Jira, Azure or
+monday.com key that no tracker owns. After a Jira, Azure or monday.com board
+loads, the Command Center asks about the repo's unfinished tasks that aren't on
+it, and hands the ones outside the place to `acc intake jira|azure|monday
+--file`, which removes or names them as below.
 
 `acc intake github` also follows issues that left the open list (D-048). It asks
 GitHub about each unfinished task whose issue wasn't listed:
@@ -460,8 +462,9 @@ update when:
 Each draft is written for the client, with no word of agents, worktrees, acc,
 builders, reviewers or rework. `acc updates` lists them. A person posts each
 from the Command Center, with their edits: a GitHub issue's through acc as the
-repo's account (`acc update post`), and a Jira or Azure DevOps ticket's through
-the repo's sign-in, claimed in acc first so a second window can't post it again.
+repo's account (`acc update post`), and a Jira, Azure DevOps or monday.com
+ticket's through the repo's sign-in, claimed in acc first so a second window
+can't post it again. A monday.com one posts as an update on the item.
 `acc update discard <id>` sets one aside. A post unconfirmed for five minutes
 may have gone, and says so. Builders, reviewers, analysts and autopilot can't
 post or discard.
@@ -776,8 +779,9 @@ The extension handles every workspace folder that has `.acc/config.json`.
 
 - **The Tasks tab shows each tracker's own board.** A Jira board's columns are
   mapped to their statuses. A GitHub Project's columns are its Status options;
-  with no Project, they're Open and Closed. A toggle switches to acc's agent
-  board.
+  with no Project, they're Open and Closed. A monday.com board's columns are one
+  status column's labels, in monday's order, with No status first when an item
+  has none (D-085). A toggle switches to acc's agent board.
 - **Dragging a card moves the real ticket.** It runs the workflow transition
   whose target status the column holds. When the workflow offers several, you
   pick one; when it offers none, the card goes back and the board says so. It's
@@ -979,8 +983,8 @@ already exists.
 
 - destructive Salesforce changes
 - a merge queue
-- monday.com, and Slack as a ticket source (acc's notices can go to Slack:
-  D-078 in DECISIONS.md)
+- Slack as a ticket source (acc's notices can go to Slack: D-078 in
+  DECISIONS.md)
 - cloud sessions
 - sharing a ledger across machines
 - a Developer sandbox for each agent

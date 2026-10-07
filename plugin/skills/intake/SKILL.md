@@ -1,6 +1,6 @@
 ---
 name: intake
-description: Bring tickets into acc's task ledger, from GitHub issues, Jira or Azure DevOps, so agents can be dispatched to them. Use when someone asks to import, pull in or track tickets.
+description: Bring tickets into acc's task ledger, from GitHub issues, Jira, Azure DevOps or monday.com, so agents can be dispatched to them. Use when someone asks to import, pull in or track tickets.
 ---
 
 # Bring tickets into acc
@@ -22,7 +22,7 @@ From a session, first read the tracker's place from `.acc/config.json`, and ask 
 - **Jira:** the tracker's `project`, and its `epic` when it names one. Search with `project = "ACME"`, plus `AND parent = ACME-3` for the epic's tickets. Their sub-tasks count too (`parent in (<those keys>)`); the epic itself doesn't.
 - **Azure DevOps:** the tracker's `project`, and its `areaPath` when it names one: `[System.TeamProject] = 'CRM' AND [System.AreaPath] UNDER 'CRM\Billing'`.
 
-`acc import` refuses a Jira or Azure DevOps key that no tracker in the config owns, such as OPS-1 when the only Jira tracker is ACME. It can't check an epic or area path without a sign-in, so keep the query to the place: the Command Center's board removes any that slip through, if work on them never started.
+`acc import` refuses a Jira, Azure DevOps or monday.com key that no tracker in the config owns, such as OPS-1 when the only Jira tracker is ACME. It can't check an epic or area path without a sign-in, so keep the query to the place: the Command Center's board removes any that slip through, if work on them never started.
 
 Then hand acc a JSON list on stdin:
 
@@ -34,8 +34,12 @@ acc import <<'JSON'
 JSON
 ```
 
-- `source.kind` is `jira`, `azure`, `github` or `manual`. The key becomes the task id.
+- `source.kind` is `jira`, `azure`, `monday`, `github` or `manual`. The key becomes the task id.
 - Put the acceptance criteria in `brief`: the builder works from it, and the reviewer checks each one.
 - Running it again refreshes the tasks it already has.
 
 Then `acc ready` lists what an agent can start.
+
+## monday.com
+
+monday.com items come in through the Command Center only: **Track** on an item's card on the board, or **Track in acc** on its page. The board shows only items on the tracker's `board`, and in its `group` when it names one. An item's task is `MON-<item id>` (or the tracker's `prefix`), and its brief is the item's long-text columns. There's no query to run from a session.
