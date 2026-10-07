@@ -3294,7 +3294,9 @@ The author wants full swarming (D-080), and chose a merge queue (GH-73).
   file, carries the passing review of the commit it was made on, plus its own
   full check: `autopilot.carried` says so, and it's no new verdict. `reviewedAt`
   is the one place land and the merge accept it, so nothing is pushed or merged
-  without a passing review (D-033). Autopilot resolves no other conflict, so a
+  without a passing review (D-033). The Command Center reads it the same way
+  (`reviewCurrent`), so the task's card and page don't show the review as out
+  of date once the queue pushes its merge. Autopilot resolves no other conflict, so a
   merge that needed a real resolution never reaches a push: it goes back to the
   builder. The pull request's description says the review was of the commit
   before the merge.

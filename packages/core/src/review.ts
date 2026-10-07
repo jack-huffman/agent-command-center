@@ -116,6 +116,16 @@ export function reviewedAt(paths: RepoPaths, task: Pick<Task, 'id' | 'autopilot'
   return carriedVerdict(paths, task, sha);
 }
 
+/**
+ * Whether a verdict is current on a branch's latest commit: made there, or carried there by the merge
+ * queue's merge commit (GH-73), as land and the merge read it. The Command Center asks, so a task in the
+ * queue doesn't show its review as out of date once the queue pushed its merge.
+ */
+export function reviewCurrent(paths: RepoPaths, task: Pick<Task, 'id' | 'autopilot'>, verdict: Pick<Verdict, 'sha'>, head: string): boolean {
+  if (!head) return false;
+  return verdict.sha === head || carriedVerdict(paths, task, head)?.sha === verdict.sha;
+}
+
 /** The task's newest verdict on any commit: what its next run has to fix. */
 export function latestVerdict(paths: RepoPaths, task: string): Verdict | null {
   if (!existsSync(paths.reviews)) return null;

@@ -12,7 +12,7 @@ import { autopilotFailure, builderStopped, displayState, readLedger, type Ledger
 import type { RepoPaths } from '../../packages/core/src/paths.ts';
 import type { HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import { resuming } from '../../packages/core/src/resume.ts';
-import { latestVerdict, reviewing } from '../../packages/core/src/review.ts';
+import { latestVerdict, reviewCurrent, reviewing } from '../../packages/core/src/review.ts';
 import { claudeProjectsDir, lastModelIn, lastSaidIn, transcriptFile } from '../../packages/core/src/transcript.ts';
 import { queuePlaces } from '../../packages/core/src/queue.ts';
 import { readUpdate, type Update, UPDATE_ID } from '../../packages/core/src/updates.ts';
@@ -368,7 +368,8 @@ export class Hub implements vscode.Disposable {
         agent: look ? { label: look.label, icon: look.icon, tone: look.tone } : null,
         model,
         asking: !!asking,
-        review: verdict ? { verdict: verdict.verdict, summary: verdict.summary, current: !!head && verdict.sha === head, at: verdict.at } : null,
+        // Current on its latest commit, or carried there by the merge queue's merge commit (GH-73).
+        review: verdict ? { verdict: verdict.verdict, summary: verdict.summary, current: !!head && !!reviews && reviewCurrent(reviews, t, verdict, head), at: verdict.at } : null,
         // Each agent under way with the name acc gave it (D-087); the builder's is on its run.
         reviewing: live ? { sessionId: live.sessionId, name: live.name } : null,
         pr: t.pr ? { number: t.pr.number, url: t.pr.url, state: t.pr.state, ci: t.pr.ci ?? null, changesRequested: t.pr.changesRequested ?? false, conflicts: t.pr.conflicts ?? [] } : null,

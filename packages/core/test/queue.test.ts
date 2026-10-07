@@ -11,7 +11,7 @@ import { AUTOPILOT_BY, displayState, emptyLedger, type LedgerEvent, mutate, read
 import { repoPaths } from '../src/paths.ts';
 import { ordinal, phaseWords, queueOrder, queuePlaces, queueWaits } from '../src/queue.ts';
 import { readReceipt, writeReceipt } from '../src/receipts.ts';
-import { reviewedAt, reviewPath, type Verdict } from '../src/review.ts';
+import { latestVerdict, reviewCurrent, reviewedAt, reviewPath, type Verdict } from '../src/review.ts';
 import { bad, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, tempDir } from './support.ts';
 
 const NOW = '2026-10-06T12:00:00Z';
@@ -288,6 +288,11 @@ test('the head, behind its base: main is merged in, the full check runs once on 
   // It carries the review of the commit it was made on: one place says so, for land and the merge alike.
   assert.equal(reviewedAt(s.paths, t, merge)?.sha, before);
   assert.equal(reviewedAt(s.paths, { id: 'T-1', autopilot: undefined }, merge), null, 'no carried review, no review');
+  // The Command Center reads it the same way: the review stays current on the merge, not out of date.
+  const latest = latestVerdict(s.paths, 'T-1')!;
+  assert.deepEqual([latest.sha, reviewCurrent(s.paths, t, latest, merge), reviewCurrent(s.paths, t, latest, before)], [before, true, true]);
+  assert.equal(reviewCurrent(s.paths, { id: 'T-1', autopilot: undefined }, latest, merge), false, 'no carried review: out of date on a later commit');
+  assert.equal(reviewCurrent(s.paths, t, latest, ''), false, 'no branch, nothing current');
   // History: the queue's merge, and the land that pushed it.
   const told = events(s).map(autopilotEvent).filter(Boolean);
   assert.deepEqual(told.map((e) => [e!.step, e!.outcome, e!.queue ?? null]).slice(-2), [['refresh', 'done', true], ['land', 'done', null]]);
