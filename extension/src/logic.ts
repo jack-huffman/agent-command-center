@@ -592,6 +592,91 @@ export const repoKey = (p: { config: { github: { repo: string } | null }; ledger
 export const credKey = (p: Parameters<typeof repoKey>[0], kind: string, host: string): string => `acc.cred:${repoKey(p)}:${kind}:${host}`;
 
 /**
+ * Where VSCode keeps a sign-in shared by every repo on this machine that uses one site (GH-79): a Jira site,
+ * an Azure DevOps organization or a monday.com account. acc.cred:site:jira:acme.atlassian.net. No repo key
+ * starts with site:, so the two never meet.
+ */
+export const siteCredKey = (kind: string, host: string): string => `acc.cred:site:${kind}:${host}`;
+
+/** The tracker and host a sign-in's key is for, a repo's or a site's: its last two parts. */
+export function credSite(key: string): { kind: string; host: string } | null {
+  if (!key.startsWith('acc.cred:')) return null;
+  const parts = key.slice('acc.cred:'.length).split(':');
+  return parts.length >= 3 ? { kind: parts[parts.length - 2]!, host: parts[parts.length - 1]! } : null;
+}
+
+/** What VSCode keeps for one repo and one tracker host (GH-79). */
+export interface StoredCreds {
+  /** The repo's own key: its sign-in, a "this project only" sign-out, or nothing. */
+  own: Record<string, unknown> | 'signed-out' | null;
+  /** The sign-in for every project on the site. */
+  site: Record<string, unknown> | null;
+}
+
+type SecretGet = (key: string) => PromiseLike<string | undefined> | string | undefined;
+
+const parseCred = (raw: string | undefined): Record<string, unknown> | null => {
+  if (!raw) return null;
+  try {
+    const c = JSON.parse(raw) as unknown;
+    return c && typeof c === 'object' && !Array.isArray(c) ? c as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+};
+
+/** Reads a repo's own key and its site's for one tracker host. One that can't be read is none. */
+export async function readCreds(get: SecretGet, p: Parameters<typeof repoKey>[0], kind: string, host: string): Promise<StoredCreds> {
+  const h = host.toLowerCase();
+  const own = parseCred(await get(credKey(p, kind, h)));
+  return { own: own?.signedOut === true ? 'signed-out' : own, site: parseCred(await get(siteCredKey(kind, h))) };
+}
+
+/**
+ * The sign-in a repo uses (GH-79): its own first, so a repo that needs another account keeps one, then the
+ * one for every project on the site. A "this project only" sign-out stops there. A sign-in kept before
+ * GH-79 is the repo's own, read as it always was.
+ */
+export function credInUse(c: StoredCreds): { cred: Record<string, unknown>; shared: boolean } | null {
+  if (c.own === 'signed-out') return null;
+  if (c.own) return { cred: c.own, shared: false };
+  return c.site ? { cred: c.site, shared: true } : null;
+}
+
+/** What to keep and take out of VSCode's secret storage. Only acc.cred: keys, never another site's. */
+export interface CredWrites {
+  store: [key: string, value: string][];
+  delete: string[];
+}
+
+/**
+ * Keeping a sign-in (GH-79): for every project on its site, or for this repo only (D-027). Shared, the repo's
+ * own key goes, a sign-in or a sign-out, or the repo would go on ignoring the sign-in just chosen. For this
+ * repo, the site's stays for every other project.
+ */
+export function credWrites(p: Parameters<typeof repoKey>[0], kind: string, host: string, cred: Record<string, unknown>, shared: boolean): CredWrites {
+  const h = host.toLowerCase();
+  return shared
+    ? { store: [[siteCredKey(kind, h), JSON.stringify(cred)]], delete: [credKey(p, kind, h)] }
+    : { store: [[credKey(p, kind, h), JSON.stringify(cred)]], delete: [] };
+}
+
+/**
+ * Signing out (GH-79). `every`: the sign-in for every project on the site goes; repos that keep their own
+ * keep it. `this`: the repo stops using the shared one, which stays for the rest, by a sign-out under its
+ * own key that holds no secret. `own`: the repo's own sign-in goes, and it uses the site's again if there is one.
+ */
+export function signOutWrites(p: Parameters<typeof repoKey>[0], kind: string, host: string, choice: 'every' | 'this' | 'own'): CredWrites {
+  const h = host.toLowerCase();
+  if (choice === 'every') return { store: [], delete: [siteCredKey(kind, h)] };
+  if (choice === 'this') return { store: [[credKey(p, kind, h), JSON.stringify({ kind, signedOut: true })]], delete: [] };
+  return { store: [], delete: [credKey(p, kind, h)] };
+}
+
+/** "for every project on acme.atlassian.net", or "for this project only": where the sign-in in use is kept. */
+export const signInScope = (shared: boolean, host: string): string => (shared ? `for every project on ${host}` : 'for this project only');
+
+/**
  * `acc import --json` with these tasks, through a file that's removed after. --json is what accRefusal
  * reads acc's reasons from (D-074).
  */
