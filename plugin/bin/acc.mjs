@@ -881,11 +881,39 @@ function receiptHooks(paths, config, run2) {
 }
 
 // packages/core/src/semaphore.ts
-import { mkdirSync as mkdirSync6, readFileSync as readFileSync6, rmSync as rmSync3, statSync as statSync2, writeFileSync as writeFileSync6 } from "node:fs";
+import { mkdirSync as mkdirSync6, readFileSync as readFileSync6, renameSync as renameSync3, rmSync as rmSync3, statSync as statSync2, writeFileSync as writeFileSync6 } from "node:fs";
 import { homedir } from "node:os";
 import { join as join5 } from "node:path";
 var heavyDir = (env = process.env) => env.ACC_HEAVY_DIR || join5(homedir(), ".acc", "heavy");
-var heavySlots = (env = process.env) => Math.max(1, Math.floor(Number(env.ACC_HEAVY_SLOTS)) || 1);
+var machineFile = (env = process.env) => env.ACC_MACHINE_FILE || join5(homedir(), ".acc", "machine.json");
+var MAX_HEAVY_SLOTS = 8;
+var slotCount = (v) => {
+  const n = Math.floor(Number(v));
+  return Number.isFinite(n) && n >= 1 ? Math.min(MAX_HEAVY_SLOTS, n) : null;
+};
+function heavySlots(env = process.env) {
+  const fromEnv = slotCount(env.ACC_HEAVY_SLOTS);
+  if (fromEnv) return fromEnv;
+  try {
+    return slotCount(JSON.parse(readFileSync6(machineFile(env), "utf8")).heavySlots) ?? 1;
+  } catch {
+    return 1;
+  }
+}
+function setHeavySlots(n, env = process.env) {
+  const slots = slotCount(n);
+  if (!slots || slots !== n) throw new AccError("usage", `Heavy-check slots are a whole number from 1 to ${MAX_HEAVY_SLOTS}.`);
+  const file = machineFile(env);
+  let current = {};
+  try {
+    current = JSON.parse(readFileSync6(file, "utf8"));
+  } catch {
+  }
+  mkdirSync6(join5(file, ".."), { recursive: true });
+  writeFileSync6(`${file}.tmp`, JSON.stringify({ ...current, heavySlots: slots }, null, 2) + "\n");
+  renameSync3(`${file}.tmp`, file);
+  return slots;
+}
 var UNOWNED_GRACE_MS = 1e4;
 function take(slot) {
   try {
@@ -2927,7 +2955,7 @@ import { homedir as homedir3 } from "node:os";
 import { basename as basename3, dirname as dirname3, isAbsolute, join as join14, resolve, sep } from "node:path";
 
 // packages/core/src/questions.ts
-import { chmodSync, closeSync, fstatSync, linkSync, mkdirSync as mkdirSync9, openSync, readdirSync as readdirSync2, readFileSync as readFileSync8, readSync, renameSync as renameSync3, rmSync as rmSync5, statSync as statSync3, writeFileSync as writeFileSync9, writeSync } from "node:fs";
+import { chmodSync, closeSync, fstatSync, linkSync, mkdirSync as mkdirSync9, openSync, readdirSync as readdirSync2, readFileSync as readFileSync8, readSync, renameSync as renameSync4, rmSync as rmSync5, statSync as statSync3, writeFileSync as writeFileSync9, writeSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { homedir as homedir2 } from "node:os";
 import { join as join8 } from "node:path";
@@ -2947,7 +2975,7 @@ function readJson(file) {
 function writePrivate(file, data) {
   const tmp = `${file}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
   writeFileSync9(tmp, JSON.stringify(data), { mode: 384 });
-  renameSync3(tmp, file);
+  renameSync4(tmp, file);
 }
 function ensureDir(dir) {
   mkdirSync9(join8(dir, "listeners"), { recursive: true, mode: 448 });
@@ -3014,7 +3042,7 @@ function trimHistory(file) {
 function writePrivateText(file, text) {
   const tmp = `${file}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
   writeFileSync9(tmp, text, { mode: 384 });
-  renameSync3(tmp, file);
+  renameSync4(tmp, file);
 }
 function readRecord(line) {
   try {
@@ -3209,7 +3237,7 @@ function permissionHook(command) {
 
 // packages/core/src/analyze.ts
 import { randomUUID } from "node:crypto";
-import { copyFileSync, existsSync as existsSync6, mkdirSync as mkdirSync10, readFileSync as readFileSync10, renameSync as renameSync4, rmSync as rmSync6, writeFileSync as writeFileSync11 } from "node:fs";
+import { copyFileSync, existsSync as existsSync6, mkdirSync as mkdirSync10, readFileSync as readFileSync10, renameSync as renameSync5, rmSync as rmSync6, writeFileSync as writeFileSync11 } from "node:fs";
 import { join as join9 } from "node:path";
 
 // packages/core/src/agents.ts
@@ -3382,7 +3410,7 @@ function writeAnalysis(paths, a) {
   mkdirSync10(paths.analyses, { recursive: true });
   const file = analysisPath(paths, a.task);
   writeFileSync11(`${file}.tmp`, JSON.stringify(a, null, 2) + "\n");
-  renameSync4(`${file}.tmp`, file);
+  renameSync5(`${file}.tmp`, file);
 }
 var openQuestions = (a) => (a?.questions ?? []).filter((q2) => !q2.answer);
 var analysisRequired = (config) => config.analysis?.required ?? config.profile === "salesforce";
@@ -3656,7 +3684,7 @@ import { join as join12 } from "node:path";
 
 // packages/core/src/review.ts
 import { randomUUID as randomUUID2 } from "node:crypto";
-import { existsSync as existsSync7, mkdirSync as mkdirSync11, readdirSync as readdirSync3, readFileSync as readFileSync11, renameSync as renameSync5, rmSync as rmSync7, writeFileSync as writeFileSync12 } from "node:fs";
+import { existsSync as existsSync7, mkdirSync as mkdirSync11, readdirSync as readdirSync3, readFileSync as readFileSync11, renameSync as renameSync6, rmSync as rmSync7, writeFileSync as writeFileSync12 } from "node:fs";
 import { join as join10 } from "node:path";
 var VERDICT_SCHEMA = {
   type: "object",
@@ -3869,7 +3897,7 @@ ${task.brief}`;
   };
   const file = reviewPath(paths, id, sha);
   writeFileSync12(`${file}.tmp`, JSON.stringify(verdict, null, 2) + "\n");
-  renameSync5(`${file}.tmp`, file);
+  renameSync6(`${file}.tmp`, file);
   const actor = opts.actor ?? "reviewer";
   const by = opts.by ?? `reviewer:${id}`;
   const moved = mutate(paths, now2, (l3, emit) => {
@@ -3916,7 +3944,7 @@ function carriedTasks(paths, run2, plan) {
 }
 
 // packages/core/src/updates.ts
-import { mkdirSync as mkdirSync12, readdirSync as readdirSync4, readFileSync as readFileSync12, renameSync as renameSync6, rmSync as rmSync8, writeFileSync as writeFileSync13 } from "node:fs";
+import { mkdirSync as mkdirSync12, readdirSync as readdirSync4, readFileSync as readFileSync12, renameSync as renameSync7, rmSync as rmSync8, writeFileSync as writeFileSync13 } from "node:fs";
 import { join as join11 } from "node:path";
 var STALE_POSTING_MS = 5 * 6e4;
 var UPDATE_TEXT_MAX = 65536;
@@ -3993,7 +4021,7 @@ var stalePosting = (u, now2) => u.state === "posting" && !!u.posting && now2.get
 function writeUpdate(paths, u) {
   const file = updateFile(paths, u.id);
   writeFileSync13(`${file}.tmp`, JSON.stringify(u, null, 2) + "\n");
-  renameSync6(`${file}.tmp`, file);
+  renameSync7(`${file}.tmp`, file);
 }
 function locked(paths, fn2) {
   mkdirSync12(paths.updates, { recursive: true });
@@ -4733,6 +4761,7 @@ function builderSettings(task, config, accBinDir2, basePath, accCommand2) {
     "Bash(acc deploy*)",
     "Bash(acc update*)",
     "Bash(acc resume*)",
+    "Bash(acc machine*)",
     // Releases are a person's (D-079): npm run * is allowed above, and deny beats allow.
     "Bash(gh release create*)",
     "Bash(gh release upload*)",
@@ -5482,7 +5511,7 @@ function commandsOf(line) {
   }).filter((w) => w.length);
 }
 var CLOSING = /\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\b[\s:]+(#\d+|[A-Z][A-Z0-9_]*-\d+|https?:\/\/)/i;
-var PERSON_ONLY_ACC = /* @__PURE__ */ new Set(["set", "dispatch", "land", "review", "autopilot", "analyze", "promote", "deploy", "init", "cleanup", "agents", "setup", "update", "updates", "resume"]);
+var PERSON_ONLY_ACC = /* @__PURE__ */ new Set(["set", "dispatch", "land", "review", "autopilot", "analyze", "promote", "deploy", "init", "cleanup", "agents", "setup", "update", "updates", "resume", "machine"]);
 function guardBash(b, line) {
   for (const w of commandsOf(line)) {
     const [cmd, sub, ...rest] = w;
@@ -6332,7 +6361,7 @@ function promote(paths, config, fromName, toName, deps, opts = {}) {
 var skipWarning = describeSkip;
 
 // packages/core/src/deploy.ts
-import { existsSync as existsSync15, mkdirSync as mkdirSync19, mkdtempSync as mkdtempSync3, readFileSync as readFileSync19, renameSync as renameSync7, rmSync as rmSync12, writeFileSync as writeFileSync20 } from "node:fs";
+import { existsSync as existsSync15, mkdirSync as mkdirSync19, mkdtempSync as mkdtempSync3, readFileSync as readFileSync19, renameSync as renameSync8, rmSync as rmSync12, writeFileSync as writeFileSync20 } from "node:fs";
 import { tmpdir as tmpdir3 } from "node:os";
 import { join as join22 } from "node:path";
 var deployRecordPath = (paths, env) => join22(paths.stateDir, "deploys", `${env}.json`);
@@ -6429,7 +6458,7 @@ function deploy(paths, config, envName, deps, opts) {
     const file = deployRecordPath(paths, plan.env.branch);
     mkdirSync19(join22(paths.stateDir, "deploys"), { recursive: true });
     writeFileSync20(`${file}.tmp`, JSON.stringify(record, null, 2) + "\n");
-    renameSync7(`${file}.tmp`, file);
+    renameSync8(`${file}.tmp`, file);
     const updates = [];
     let unsaid = "";
     try {
@@ -6813,6 +6842,21 @@ function billingSettings(file) {
   if (s.env && typeof s.env === "object") found.push(...billingVars(s.env).map((v) => `${v} under env`));
   return found;
 }
+var PLUGIN = { marketplace: "agent-command-center", name: "acc", repo: "https://github.com/jack-huffman/agent-command-center" };
+var PLUGIN_ID = `${PLUGIN.name}@${PLUGIN.marketplace}`;
+var MARKETPLACE_ADD = `claude plugin marketplace add ${PLUGIN.repo}`;
+var PLUGIN_INSTALL = `claude plugin install ${PLUGIN_ID} --scope user`;
+function claudeJson(ctx, args) {
+  const r = ctx.run("claude", args, { env: ctx.env });
+  if (r.code === 127) return 127;
+  if (r.code !== 0) return `claude ${args.slice(0, 2).join(" ")} didn't run: ${(r.stderr || r.stdout).trim().split("\n")[0] || `exit ${r.code}`}`;
+  try {
+    const list = parseJsonOutput(r.stdout);
+    if (Array.isArray(list) && list.every((x2) => x2 && typeof x2 === "object")) return list;
+  } catch {
+  }
+  return `claude ${args.slice(0, 2).join(" ")} printed something other than a list.`;
+}
 function versionStep(id, title, why, cmd, args, min, fix, profiles) {
   return {
     id,
@@ -6912,10 +6956,27 @@ var STEPS = [
     id: "A4.plugin",
     part: "machine",
     group: "A4",
-    title: "The acc plugin",
-    why: "Gives every agent the acc command, the guard hooks and the skills.",
-    planned: "M6",
-    check: () => skip2("The plugin arrives with milestone M6.")
+    title: "The acc plugin in Claude Code",
+    why: "Its hooks keep each builder inside its own worktree and away from pushes, merges and deploys, and send it back to the finish line if it stops early. It also gives agents acc's skills and the reviewer. It's installed once, for every Claude Code session, and does nothing in a repo without .acc/config.json.",
+    fix: {
+      command: `${MARKETPLACE_ADD} && ${PLUGIN_INSTALL}`,
+      text: "Claude Code clones this private repo with your own git credentials, so accept the invitation to it first. Sessions already running don't load the plugin: start a new one."
+    },
+    check(ctx) {
+      const list = claudeJson(ctx, ["plugin", "list", "--json"]);
+      if (list === 127) return fail2("claude isn't installed. Do A1.claude first.", "brew install --cask claude-code");
+      if (typeof list === "string") return unknown(`Couldn't read Claude Code's plugins: ${list}`);
+      const mine = list.filter((p) => p.id === PLUGIN_ID);
+      const user = mine.find((p) => p.scope === "user");
+      const version = typeof user?.version === "string" ? user.version : "(unknown version)";
+      if (user?.enabled === true) return pass2(`acc ${version}, for every Claude Code session.`);
+      if (user) return fail2(`acc ${version} is installed but disabled.`, `claude plugin enable ${PLUGIN_ID} --scope user`);
+      const scopes = [...new Set(mine.map((p) => String(p.scope)))];
+      const only = scopes.length ? ` It's installed for one project only (${scopes.join(", ")} scope), not for every session.` : "";
+      const markets = claudeJson(ctx, ["plugin", "marketplace", "list", "--json"]);
+      if (Array.isArray(markets) && markets.some((m) => m.name === PLUGIN.marketplace)) return fail2(`acc isn't installed in Claude Code.${only}`, PLUGIN_INSTALL);
+      return fail2(`acc isn't installed in Claude Code, and its marketplace isn't added.${only}`, `${MARKETPLACE_ADD} && ${PLUGIN_INSTALL}`);
+    }
   },
   // ------------------------------------------------------------ Part B: this project
   {
@@ -7537,6 +7598,8 @@ Agents
                 [--clear <model|effort|fallback-model>]... [--project]
                                         Change them for this clone, or with --project in .acc/config.json
   acc agents autonomy [manual|review]   What autopilot may do on its own, or change it in .acc/config.json
+  acc machine heavy-slots [<n>]         How many heavy checks (builds, tests, validations) this machine runs at once,
+                                        for every repo on it; with <n>, set it (1 to 8) in ~/.acc/machine.json
   acc analyze <id>                      Before the build: a read-only analyst works out the requirements, what's
                                         there now (the code, and on Salesforce the orgs), the approach, and questions
   acc analysis <id>                     What the task's analysis found
@@ -7641,7 +7704,6 @@ function cmdDoctor(o, guided) {
     group: step.group,
     title: step.title,
     why: step.why,
-    planned: step.planned ?? null,
     status: result.status,
     detail: result.detail,
     fix: result.fix ?? null,
@@ -7996,6 +8058,18 @@ function cmdSync(o) {
   const { paths, config } = project(process.cwd());
   const r = sync(paths, config, { run, now, env: process.env });
   out(o, () => r.checked ? [`Checked ${r.checked} open pull request${r.checked === 1 ? "" : "s"}.`, ...r.changes.map((c) => `  ${c.task}: ${c.note}${c.moved ? ` \u2192 ${stateLabel(c.moved.to)}` : ""}${c.update ? `. Drafted an update for ${c.update.key} (${c.update.id})` : ""}`)].join("\n") : "No open pull requests to follow.", r);
+  return 0;
+}
+function cmdMachine(o, sub, value) {
+  if (sub !== "heavy-slots") throw new AccError("usage", "acc machine heavy-slots [<n>]");
+  if (value === void 0) {
+    const n2 = heavySlots();
+    out(o, () => `${n2} heavy check${n2 === 1 ? "" : "s"} at once on this machine${process.env.ACC_HEAVY_SLOTS ? " (from ACC_HEAVY_SLOTS)" : ""}.`, { heavySlots: n2 });
+    return 0;
+  }
+  personOnly(o, "change how many heavy checks this machine runs");
+  const n = setHeavySlots(Number(value));
+  out(o, () => `This machine now runs ${n} heavy check${n === 1 ? "" : "s"} at once, for every repo on it. Set in ${machineFile()}.`, { heavySlots: n });
   return 0;
 }
 function cmdAgents(o, sub, roleArg) {
@@ -8509,8 +8583,9 @@ Kept the retrieved copy at ${r.kept}. Remove it with: git worktree remove --forc
   return found ? 1 : 0;
 }
 async function main(argv) {
+  const args = argv[0] === "agents" ? argv.map((x2) => x2 === "--project" ? "--project=yes" : x2) : argv;
   const { values, positionals } = parseArgs({
-    args: argv,
+    args,
     allowPositionals: true,
     strict: true,
     options: {
@@ -8592,6 +8667,8 @@ async function main(argv) {
       return cmdSetup(o, rest[0]);
     case "agents":
       return cmdAgents(o, rest[0], rest[1]);
+    case "machine":
+      return cmdMachine(o, rest[0], rest[1]);
     case "add": {
       const title = rest.join(" ").trim();
       if (!title) throw new AccError("usage", 'acc add "<title>"');
