@@ -1,7 +1,7 @@
 // Renders one editor tab. Every element is built with DOM calls and every string is set as text,
 // so nothing from a ticket, branch or session can become markup. No HTML string is ever parsed.
 import type {
-  Action, AgentModel, AgentsModel, ConnectField, ConnectModel, ConnectPicker, EntryView, EnvironmentsModel, HistoryItem, HomeModel, HomeSection, IdentityCard, Look, Model, PersonChip, QuestionCard, Ref, RunCard, SetupModel, SetupRow, SlackCard, TasksModel, TicketAnalysis, TicketModel, TrackerBoard, TrackerCard, UpdateCard, ViewKind, WorktreesModel,
+  Action, AgentModel, AgentsModel, ConnectField, ConnectModel, ConnectPicker, EntryView, EnvironmentsModel, HistoryItem, HomeModel, HomeSection, IdentityCard, Look, Model, PersonChip, QuestionCard, Ref, RunCard, SetupModel, SetupRow, SlackCard, TasksModel, TicketAnalysis, TicketModel, TrackerBoard, TrackerCard, UpdateCard, ViewKind, WhereView, WorktreesModel,
 } from '../src/model.ts';
 import type { Block, Doc, Inline } from '../../packages/core/src/trackers/doc.ts';
 import { type DraftKeys, type EditBase, editFor, keepEdits, Pending } from './pending.ts';
@@ -1358,7 +1358,7 @@ function renderAgent(m: AgentModel): Node[] {
     m.startedAt ? el('span', '', `Started ${since(m.startedAt)}`) : null,
     m.model ? el('span', '', el('span', 'sep', '·'), el('span', 'mono', m.model)) : null,
     m.lastAt ? el('span', '', el('span', 'sep', '·'), 'last active ', when(m.lastAt)) : null,
-    m.where ? el('span', '', el('span', 'sep', '·'), el('span', 'mono', m.where)) : null);
+    m.where ? el('span', '', el('span', 'sep', '·'), Object.assign(el('span', '', m.where), { title: m.path })) : null);
   const out: Node[] = [el('header', 'ticket-head agent-head', crumbs, el('h1', 'ticket-title', m.task?.title ?? m.name), facts,
     el('div', 'ticket-bar', status(m.look), el('span', 'spacer'), el('div', 'actions', ...m.actions.map(actionButton))))];
   if (m.questions.length) out.push(el('section', 'agent-asks', ...m.questions.map((q) => questionCard(q, { watch: false }))));
@@ -1886,15 +1886,40 @@ function renderAgents(m: AgentsModel): Node[] {
     body.append(el('tr', 'group', span(el('th', '', icon(place.root ? 'repo' : 'device-desktop'), place.label, el('span', 'count', String(place.agents.length))), 6)));
     if (!place.agents.length) body.append(el('tr', 'none', span(el('td', 'muted', 'No agent sessions in this project right now.'), 6)));
     for (const a of place.agents) {
+      // Its folder in context, or its full path, clipped at the front so its own folder stays in view; the
+      // full path on hover in both (GH-83).
+      const where = m.whereView === 'path' ? el('td', 'clip mono path-tail', Object.assign(el('span', '', a.path), { dir: 'ltr' })) : el('td', 'clip folder', a.where);
+      where.title = a.path;
       const row = el('tr', a.needsYou ? 'attention' : '',
-        openable(clipped(a.name, 'strong name'), { type: 'run', command: 'acc.agent.watch', ref: { session: a.key } }), el('td', 'nowrap', status(a.look)), el('td', 'nowrap muted kind', a.kind), clipped(a.where, 'mono'), el('td', 'nowrap muted started', since(a.startedAt)),
+        openable(clipped(a.name, 'strong name'), { type: 'run', command: 'acc.agent.watch', ref: { session: a.key } }), el('td', 'nowrap', status(a.look)), el('td', 'nowrap muted kind', a.kind), where, el('td', 'nowrap muted started', since(a.startedAt)),
         el('td', 'actions', menuButton(a.name)));
       body.append(withMenu(row, 'agent', { session: a.key }, { agentBackground: a.background }));
     }
     table.append(body);
   }
-  out.push(wrap(table));
+  out.push(whereBar(m.whereView), wrap(table));
   return out;
+}
+
+/**
+ * What the Where column shows, Folder or Full path (GH-83), just above its heading. In the heading it would
+ * widen the column, so a narrow tab would scroll it out of view. The page switches at once, and the
+ * extension remembers the choice for the window.
+ */
+function whereBar(view: WhereView): HTMLElement {
+  const pick = segmented('Where shows', [
+    { key: 'folder', label: 'Folder', icon: 'folder', on: view === 'folder' },
+    { key: 'path', label: 'Full path', icon: 'list-tree', on: view === 'path' },
+  ], (key) => {
+    const v = key as WhereView;
+    if (last?.kind === 'home') last = { ...last, agents: { ...last.agents, whereView: v } };
+    else if (last?.kind === 'agents') last = { ...last, whereView: v };
+    if (last) render(last);
+    api.postMessage({ type: 'agents-where', view: v });
+  });
+  pick.classList.add('where-view');
+  pick.querySelectorAll('button').forEach((b, i) => { b.dataset.keep = `where-view:${i}`; });
+  return el('div', 'where-bar', el('span', 'where-label', 'Where shows'), pick);
 }
 
 function renderWorktrees(m: WorktreesModel): Node[] {

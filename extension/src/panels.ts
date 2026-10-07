@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
 import type { Answer } from '../../packages/core/src/questions.ts';
 import type { Hub } from './hub.ts';
-import { answerOf, type BoardInput, type ConnectMessage, type ConnectModel, type FromWebview, HOME_SECTIONS, type HomeSection, homeModel, type IdentityCard, isFromWebview, type Ref, type RunControl, type RunInput, runCard, type SlackCard, type ViewKind } from './model.ts';
+import { answerOf, type BoardInput, type ConnectMessage, type ConnectModel, type FromWebview, HOME_SECTIONS, type HomeSection, homeModel, type IdentityCard, isFromWebview, type Ref, type RunControl, type RunInput, runCard, type SlackCard, type ViewKind, WHERE_VIEWS, type WhereView } from './model.ts';
 import type { Setup } from './setup.ts';
 import type { UpdateActions } from './ticket.ts';
 
@@ -90,6 +90,8 @@ export function htmlFor(webview: Pick<vscode.Webview, 'cspSource' | 'asWebviewUr
 export class Panels implements vscode.Disposable {
   private panel: vscode.WebviewPanel | null = null;
   private section: HomeSection = 'overview';
+  /** What the Agents tab's Where column shows, remembered for the window (GH-83). */
+  private whereView: WhereView = 'folder';
   private readonly ctx: vscode.ExtensionContext;
   private readonly hub: Hub;
   private readonly setup: Setup;
@@ -105,6 +107,8 @@ export class Panels implements vscode.Disposable {
     this.onVisible = onVisible;
     this.deps = deps;
     this.section = ctx.workspaceState.get<HomeSection>('acc.home.section') ?? 'overview';
+    const where = ctx.workspaceState.get<string>('acc.agents.where');
+    if ((WHERE_VIEWS as readonly (string | undefined)[]).includes(where)) this.whereView = where as WhereView;
   }
 
   dispose(): void {
@@ -162,6 +166,7 @@ export class Panels implements vscode.Disposable {
       hub: this.hub, section: this.section, boards: (r) => this.deps.boards(r), identity: (r) => this.deps.identity(r),
       setup: { items: this.setup.results(), confirmed: this.setup.allConfirmed() }, runs: this.deps.runs(),
       edited: (root, id, replaces) => this.deps.edited(root, id, replaces), connect: this.deps.connect.model(), slack: this.deps.slack?.card() ?? null,
+      whereView: this.whereView,
     });
   }
 
@@ -179,6 +184,11 @@ export class Panels implements vscode.Disposable {
     if (!isFromWebview(m)) return;
     if (m.type === 'ready') return this.post(true);
     if (m.type === 'nav') return this.remember(m.section);
+    if (m.type === 'agents-where') {
+      this.whereView = m.view;
+      void this.ctx.workspaceState.update('acc.agents.where', m.view);
+      return this.post();
+    }
     if (m.type === 'refresh') {
       for (const c of REFRESH[this.section]) void vscode.commands.executeCommand(c);
       return;

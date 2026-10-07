@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import {
   buildWalkthroughs, commandLink, COMMANDS, contextKey, EXTENSION_ID, followsPullRequests, hasPlaceholder, initCommand, isComplete, isWebviewMenuContext, mediaPath,
-  needsTerminal, productionOrgs, reusableMachine, setupOrgChoices, statusText, stepDescription, stepMedia, summarize, type DoctorItem,
+  needsTerminal, productionOrgs, repoRoot, reusableMachine, setupOrgChoices, statusText, stepDescription, stepMedia, summarize, tildePath, type DoctorItem,
 } from '../src/logic.ts';
 import { staleFiles } from '../scripts/generate.ts';
 
@@ -544,4 +544,24 @@ test('acc sync keeps running while a merged task\'s issue waits to close, so a f
   const merged = { number: 3, url: 'https://github.com/o/r/pull/3', state: 'merged' };
   assert.equal(followsPullRequests({ pr: merged, closing: true }), true);
   assert.equal(followsPullRequests({ pr: merged, closing: false }), false, 'closed, or left as it was: nothing to follow');
+});
+
+test('a session\'s repo is the nearest folder up holding .git, short of the home folder and / (GH-83)', () => {
+  const holds = (...dirs: string[]) => (d: string) => dirs.includes(d);
+  assert.equal(repoRoot('/Users/me/clients/Acme Service/force-app/main', '/Users/me', holds('/Users/me/clients/Acme Service')), '/Users/me/clients/Acme Service');
+  assert.equal(repoRoot('/Users/me/clients/Acme Service', '/Users/me', holds('/Users/me/clients/Acme Service')), '/Users/me/clients/Acme Service', 'the folder itself first');
+  assert.equal(repoRoot('/Users/me/a/b/c', '/Users/me', holds('/Users/me/a', '/Users/me/a/b')), '/Users/me/a/b', 'the nearest one');
+  assert.equal(repoRoot('/Users/me/Downloads/scratch', '/Users/me', holds()), null);
+  assert.equal(repoRoot('/Users/me/Downloads/scratch', '/Users/me', holds('/Users/me')), null, 'a repo at ~ (dotfiles) is nobody\'s repo');
+  assert.equal(repoRoot('/Users/me', '/Users/me', holds('/Users/me')), null);
+  assert.equal(repoRoot('/opt/tools/x', '/Users/me', holds('/', '/opt/tools')), '/opt/tools', 'outside home it walks up to, not into, /');
+  assert.equal(repoRoot('/opt/x', '/Users/me', holds('/')), null);
+});
+
+test('a path shows the home folder as ~, and a path outside it as it is (GH-83)', () => {
+  assert.equal(tildePath('/Users/me/clients/Acme Service', '/Users/me'), '~/clients/Acme Service');
+  assert.equal(tildePath('/Users/me', '/Users/me'), '~');
+  assert.equal(tildePath('/Users/meg/x', '/Users/me'), '/Users/meg/x', 'a folder whose name starts the same isn\'t home');
+  assert.equal(tildePath('/opt/x', '/Users/me'), '/opt/x');
+  assert.equal(tildePath('/Users/me/x', undefined), '/Users/me/x', 'with no home known, the path as it is');
 });

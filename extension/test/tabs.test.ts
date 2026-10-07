@@ -3,9 +3,9 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import type { TaskRow } from '../src/logic.ts';
+import { type AgentSession, repoRoot, type TaskRow } from '../src/logic.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
-import { agentsModel, analysisLook, type BoardInput, cardActions, environmentsModel, homeModel, type HubLike, isFromWebview, needsYouCount, promotionPaths, setupModel, tasksModel, ticketModel, trackerBoard, VIEW_KINDS, worktreesModel, dropLanes, laneMove } from '../src/model.ts';
+import { agentsModel, analysisLook, type BoardInput, cardActions, environmentsModel, homeModel, type HubLike, isFromWebview, needsYouCount, promotionPaths, sessionFolders, setupModel, tasksModel, ticketModel, trackerBoard, VIEW_KINDS, worktreesModel, dropLanes, laneMove } from '../src/model.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
@@ -55,9 +55,61 @@ test('agents: this project first, needs-you on top, background sessions can be s
   assert.deepEqual(m.places.map((p) => p.label), ['Acme', 'Elsewhere on this machine']);
   const bg = m.places[0]!.agents[0]!;
   assert.equal(bg.look.label, 'Needs you: permission prompt');
-  assert.equal(bg.where, 'AV-2');
+  assert.equal(bg.where, 'worktree AV-2');
   assert.equal(bg.background, true);
   assert.equal(m.places[1]!.agents[0]!.background, false, 'interactive sessions are managed where they run');
+});
+
+/** The test hub with these sessions, a home folder, and these folders holding .git. */
+function sessionsAt(cwds: string[], repos: string[] = []): HubLike {
+  const agents: AgentSession[] = cwds.map((cwd, i) => ({ cwd, kind: 'interactive', startedAt: 100 - i, sessionId: `s${i}`, name: `s${i}`, status: 'idle', pid: i + 1 }));
+  return { ...hub(), home: '/Users/me', agents, repoFor: (p) => repoRoot(p, '/Users/me', (d) => repos.includes(d)) };
+}
+const labels = (h: HubLike) => [...sessionFolders(h).values()].map((f) => f.label);
+
+test('a session elsewhere reads as its repo, a worktree of it, a folder inside it, or its folder\'s own name (GH-83)', () => {
+  const acme = '/Users/me/clients/Acme Service';
+  // The worktree has its own .git, a file: the path says it's Acme Service's, and that wins.
+  const h = sessionsAt([acme, `${acme}/.claude/worktrees/ACME-12`, `${acme}/.claude/worktrees/ACME-12/force-app`, `${acme}/force-app/main`, '/Users/me/Downloads/scratch', '/Users/me', '/opt/tools'], [acme, `${acme}/.claude/worktrees/ACME-12`]);
+  assert.deepEqual(labels(h), ['Acme Service', 'Acme Service › worktree ACME-12', 'Acme Service › worktree ACME-12 › force-app', 'Acme Service › force-app/main', 'scratch', '~', 'tools']);
+  const folders = sessionFolders(h);
+  assert.deepEqual([...folders.values()].map((f) => f.full), ['~/clients/Acme Service', '~/clients/Acme Service/.claude/worktrees/ACME-12', '~/clients/Acme Service/.claude/worktrees/ACME-12/force-app', '~/clients/Acme Service/force-app/main', '~/Downloads/scratch', '~', '/opt/tools']);
+  assert.ok([...folders.values()].every((f) => f.inProject === null), 'none is in a project open here');
+  // The Agents tab shows the same, under Elsewhere, with the full path beside it for the toggle and the hover.
+  const rows = agentsModel(h).places.find((p) => p.root === null)!.agents;
+  assert.deepEqual(rows.map((r) => [r.where, r.path]), [...folders.values()].map((f) => [f.label, f.full]));
+  assert.equal(sessionFolders(h, ['/x']).get('/x')!.label, 'x', 'a folder no session has, such as an ended session\'s');
+});
+
+test('a session in a project open here reads as where it is in it, without the project its group names (GH-83)', () => {
+  const h = sessionsAt(['/r', '/r/.claude/worktrees/ACME-12', '/r/force-app/main', '/r.worktrees/AV-2', '/r.worktrees/AV-2/src']);
+  const folders = [...sessionFolders(h).values()];
+  assert.deepEqual(folders.map((f) => f.inProject), ['main checkout', 'worktree ACME-12', 'force-app/main', 'worktree AV-2', 'worktree AV-2 › src']);
+  assert.deepEqual(folders.map((f) => f.label), ['Acme › main checkout', 'Acme › worktree ACME-12', 'Acme › force-app/main', 'Acme › worktree AV-2', 'Acme › worktree AV-2 › src'], 'elsewhere, such as an agent\'s page, it leads with the project');
+  assert.deepEqual(agentsModel(h).places[0]!.agents.map((a) => a.where), folders.map((f) => f.inProject));
+});
+
+test('two folders of one name each add their parent folders until they differ, and one folder always reads one way (GH-83)', () => {
+  const clients = '/Users/me/clients/Acme Service';
+  const personal = '/Users/me/personal/Acme Service';
+  // Every session in a repo of that name says which it is, its worktrees too.
+  assert.deepEqual(labels(sessionsAt([clients, personal, `${clients}/.claude/worktrees/ACME-40`], [clients, personal])), ['clients/Acme Service', 'personal/Acme Service', 'clients/Acme Service › worktree ACME-40']);
+  assert.deepEqual(labels(sessionsAt(['/Users/me/a/x/Acme', '/Users/me/b/x/Acme'])), ['a/x/Acme', 'b/x/Acme']);
+  assert.deepEqual(labels(sessionsAt(['/Users/me/x/Acme', '/opt/x/Acme'])), ['~/x/Acme', 'opt/x/Acme']);
+  // Two sessions in one folder, however its path is written, share one name, and add no parent for it.
+  const same = sessionsAt(['/Users/me/Downloads/scratch', '/Users/me/Downloads/scratch/', '/Users/me/Downloads/scratch']);
+  assert.deepEqual(agentsModel(same).places.find((p) => p.root === null)!.agents.map((a) => a.where), ['scratch', 'scratch', 'scratch']);
+});
+
+test('the Where column shows folders unless the window chose full paths, and the page can only ask for one or the other (GH-83)', () => {
+  const input = { hub: hub(), section: 'agents' as const, boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set<string>() } };
+  assert.equal(homeModel(input).agents.whereView, 'folder');
+  assert.equal(homeModel({ ...input, whereView: 'path' }).agents.whereView, 'path');
+  assert.equal(agentsModel(hub()).whereView, 'folder');
+  assert.ok(isFromWebview({ type: 'agents-where', view: 'folder' }));
+  assert.ok(isFromWebview({ type: 'agents-where', view: 'path' }));
+  assert.ok(!isFromWebview({ type: 'agents-where', view: 'tree' }));
+  assert.ok(!isFromWebview({ type: 'agents-where' }));
 });
 
 /** The webview/context items VSCode would show for a row with these context keys, in menu order. */

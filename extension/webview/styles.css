@@ -186,7 +186,14 @@ table.grid { width: 100%; border-collapse: collapse; }
 .grid tr.none:hover td { background: none; }
 .grid .status { vertical-align: middle; }
 .grid td.clip.name { max-width: 18em; }
-.grid td.clip.mono { min-width: 9em; }
+.grid td.clip.mono, .grid td.clip.folder { min-width: 9em; }
+/* A full path too long for its cell loses its start, not its end, where its own folder is (GH-83). */
+.grid td.clip.path-tail { direction: rtl; text-align: left; }
+/* What the Where column shows, Folder or Full path (GH-83): right above it, outside the table, so it never
+   widens a column or scrolls sideways with it. */
+.where-bar { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
+.where-label { font-size: 0.9em; font-weight: 600; color: var(--vscode-descriptionForeground); }
+.segmented.where-view .seg { font-size: 0.88em; padding: 2px 8px; white-space: nowrap; }
 /* A narrow tab drops the least useful columns, so the row menu never scrolls out of view. */
 @media (max-width: 800px) { .grid .kind { display: none; } }
 @media (max-width: 660px) { .grid .started { display: none; } }

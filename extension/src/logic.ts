@@ -394,6 +394,24 @@ export const isSessionId = (v: string | undefined): v is string => !!v && /^[0-9
 
 export const isUnder = (path: string, root: string): boolean => path === root || path.startsWith(root.endsWith('/') ? root : `${root}/`);
 
+/** A path with ~ for the home folder: /Users/me/clients/x → ~/clients/x. One outside it stays as it is. */
+export function tildePath(path: string, home: string | null | undefined): string {
+  if (!home || home === '/' || !isUnder(path, home)) return path;
+  return path === home ? '~' : `~${path.slice(home.replace(/\/+$/, '').length)}`;
+}
+
+/**
+ * The repo a folder is in: the nearest folder up from it, itself first, that holds .git, a folder or a
+ * linked worktree's file (GH-83). The walk stops before the home folder and /, so a repo at ~ (dotfiles)
+ * isn't every folder's repo.
+ */
+export function repoRoot(path: string, home: string | null | undefined, hasGit: (dir: string) => boolean): string | null {
+  for (let dir = path; dir !== dirname(dir) && dir !== home; dir = dirname(dir)) {
+    if (hasGit(dir)) return dir;
+  }
+  return null;
+}
+
 export interface Worktree {
   path: string;
   head: string;

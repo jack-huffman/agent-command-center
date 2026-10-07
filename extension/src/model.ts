@@ -15,7 +15,7 @@ import { autoMergeOn, type Environment, type Tracker, trackerForKey } from '../.
 import { promotionPaths } from '../../packages/core/src/promote.ts';
 import type { Answer, HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import { isOpenUpdate, stalePosting, type Update, UPDATE_ID, UPDATE_TEXT_MAX } from '../../packages/core/src/updates.ts';
-import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, BOARD_LANES, conflictLine, type DoctorItem, ENV_ICON, failedChecksLine, fileList, groupTasks, isUnder, prConflicts, questionsWord, type RunPrompt, saidLine, shortPath, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
+import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, BOARD_LANES, conflictLine, type DoctorItem, ENV_ICON, failedChecksLine, fileList, groupTasks, isUnder, prConflicts, questionsWord, type RunPrompt, saidLine, shortPath, TASK_GROUPS, type TaskRow, tildePath, type Tone } from './logic.ts';
 import { isSlackWebhook, SLACK_KINDS, type SlackCard, type SlackKind } from './slack.ts';
 import type { Entry } from './transcript.ts';
 
@@ -90,6 +90,10 @@ export interface HubLike {
   /** How earlier questions ended (D-037). */
   answers?: HistoryRecord[];
   askingFor?(s: AgentSession): string | null;
+  /** The home folder, shown as ~ (GH-83). */
+  home?: string;
+  /** The repo a folder is in, by the nearest .git up from it, short of the home folder (GH-83). */
+  repoFor?(path: string): string | null;
 }
 
 /** The key a session goes by in refs: its session id, else its background id. */
@@ -734,6 +738,85 @@ export interface IdentityCard {
 
 // ---------------------------------------------------------------- agents
 
+/** Where a session runs, as acc shows it wherever it shows one (GH-83). */
+export interface SessionFolder {
+  /** The whole path, with ~ for the home folder: what hovering shows, and the Full path view. */
+  full: string;
+  /** The folder in context: `Acme Service › worktree ACME-12`, `clients/Acme Service`, `scratch`, `~`. */
+  label: string;
+  /**
+   * In a project open in this window, the label without the project, which its heading names already:
+   * `main checkout`, `worktree ACME-12`, `force-app/main`. Null for a session elsewhere.
+   */
+  inProject: string | null;
+}
+
+const lastPart = (path: string): string => path.split('/').filter(Boolean).pop() ?? path;
+const inWorktree = (id: string, rest = ''): string => [`worktree ${id}`, rest].filter(Boolean).join(' › ');
+
+/** Where in a project a folder is: its main checkout, a worktree, or a folder inside either. */
+function placeIn(p: ProjectLike, path: string): string {
+  const within = (root: string) => path.slice(root.length + 1);
+  const tree = p.worktrees.filter((w) => !w.main && isUnder(path, w.path)).sort((a, b) => b.path.length - a.path.length)[0];
+  if (tree) return inWorktree(lastPart(tree.path), within(tree.path));
+  if (!isUnder(path, p.root)) return lastPart(path);
+  const wt = /^\.claude\/worktrees\/([^/]+)(?:\/(.+))?$/.exec(within(p.root));
+  return wt ? inWorktree(wt[1]!, wt[2]) : within(p.root) || 'main checkout';
+}
+
+/**
+ * Each session's folder in context, by its cwd: the one place acc works it out, for the Agents tab, an
+ * agent's page, its Needs you card, and the In progress section (GH-76) (GH-83).
+ *
+ * A session in a project open in this window is placed in it: its main checkout, a worktree, or a folder
+ * inside either. Elsewhere it's named by its repo, the nearest folder up holding .git, then the path inside
+ * it; a builder's worktree, under .claude/worktrees/, reads as its repo's from the path alone. Outside any
+ * repo, it's its folder's own name, or ~. Two different folders elsewhere that name sessions the same, such
+ * as two repos called Acme Service, each add their parent folders until they differ, for every session in
+ * them. `extra` adds folders no listed session has, such as an ended session's, to tell apart with the rest.
+ */
+export function sessionFolders(hub: HubLike, extra: string[] = []): Map<string, SessionFolder> {
+  const home = hub.home;
+  const out = new Map<string, SessionFolder>();
+  // Elsewhere: the folder that names it (its repo, or itself), and what follows it.
+  const drafts: { cwd: string; full: string; base: string; rest: string[] }[] = [];
+  for (const cwd of new Set([...hub.agents.map((s) => s.cwd), ...extra])) {
+    const path = cwd.length > 1 ? cwd.replace(/\/+$/, '') : cwd;
+    const full = tildePath(path, home);
+    const p = hub.projectFor(path);
+    if (p) {
+      const inProject = placeIn(p, path);
+      out.set(cwd, { full, label: `${p.name} › ${inProject}`, inProject });
+      continue;
+    }
+    const wt = /^(.+)\/\.claude\/worktrees\/([^/]+)(?:\/(.+))?$/.exec(path);
+    const found = wt ? null : hub.repoFor?.(path) ?? null;
+    const repo = wt ? wt[1]! : found && isUnder(path, found) ? found : null;
+    const rest = wt ? [inWorktree(wt[2]!, wt[3])] : repo && repo !== path ? [path.slice(repo.length + 1)] : [];
+    drafts.push({ cwd, full, base: repo ?? path, rest });
+  }
+  // Each base folder by its last parts, ~ for home: Acme Service, then clients/Acme Service, a parent more
+  // each round for those that still read the same as another.
+  const parts = (base: string) => tildePath(base, home).split('/');
+  const depth = new Map(drafts.map((d) => [d.base, 1]));
+  const named = (base: string) => parts(base).slice(-depth.get(base)!).join('/') || '/';
+  for (let more = true; more;) {
+    more = false;
+    const by = new Map<string, string[]>();
+    for (const base of depth.keys()) by.set(named(base), [...(by.get(named(base)) ?? []), base]);
+    for (const same of by.values()) {
+      if (same.length < 2) continue;
+      for (const base of same) if (depth.get(base)! < parts(base).length) { depth.set(base, depth.get(base)! + 1); more = true; }
+    }
+  }
+  for (const d of drafts) out.set(d.cwd, { full: d.full, label: [named(d.base), ...d.rest].join(' › '), inProject: null });
+  return out;
+}
+
+/** The Agents tab's Where column: each session's folder in context, or its full path (GH-83). */
+export const WHERE_VIEWS = ['folder', 'path'] as const;
+export type WhereView = (typeof WHERE_VIEWS)[number];
+
 export interface AgentRow {
   key: string;
   /** Background sessions can be attached to, logged and stopped from here; interactive ones can't. */
@@ -742,7 +825,10 @@ export interface AgentRow {
   look: Look;
   needsYou: boolean;
   kind: string;
+  /** Its folder in context, without the project its group names (GH-83). */
   where: string;
+  /** Its whole folder, with ~ for the home folder: the Full path view, and the hover in both. */
+  path: string;
   startedAt: number;
 }
 
@@ -775,6 +861,8 @@ export interface AgentsModel {
   kind: 'agents';
   error: string | null;
   places: { label: string; root: string | null; agents: AgentRow[] }[];
+  /** What the Where column shows, remembered for the window (GH-83). */
+  whereView: WhereView;
   /** Each project's agent settings, what autopilot may do there, whether it merges, and what its agents bill (D-036). */
   settings: { root: string; project: string; roles: AgentSetting[]; autonomy: AutonomySetting | null; autoMerge: AutoMergeSetting | null; billing: Look | null }[];
 }
@@ -830,14 +918,14 @@ export function billingLook(items: DoctorItem[]): Look | null {
   return i.status === 'pass' ? { label: 'Agents use your Claude subscription', icon: 'pass', tone: 'blue' } : { label: `Per-token billing: ${i.detail}`, icon: 'warning', tone: 'orange' };
 }
 
-export function agentsModel(hub: HubLike, setupItems: DoctorItem[] = []): AgentsModel {
+export function agentsModel(hub: HubLike, setupItems: DoctorItem[] = [], whereView: WhereView = 'folder'): AgentsModel {
   const lookOf = (s: AgentSession) => agentLook(s, hub.askingFor?.(s));
+  const folders = sessionFolders(hub);
   const rowFor = (s: AgentSession): AgentRow => {
     const look = lookOf(s);
-    const p = hub.projectFor(s.cwd);
     const key = sessionKey(s);
-    const where = p ? (isUnder(s.cwd, p.root) ? s.cwd.slice(p.root.length + 1) || 'main checkout' : s.cwd.split('/').pop() ?? s.cwd) : s.cwd;
-    return { key, background: !!s.id, name: s.name ?? s.sessionId?.slice(0, 8) ?? 'session', look: { label: look.label, icon: look.icon, tone: look.tone }, needsYou: look.needsYou, kind: s.kind, where, startedAt: s.startedAt };
+    const f = folders.get(s.cwd)!;
+    return { key, background: !!s.id, name: s.name ?? s.sessionId?.slice(0, 8) ?? 'session', look: { label: look.label, icon: look.icon, tone: look.tone }, needsYou: look.needsYou, kind: s.kind, where: f.inProject ?? f.label, path: f.full, startedAt: s.startedAt };
   };
   const sorted = [...hub.agents].sort((a, b) => Number(lookOf(b).needsYou) - Number(lookOf(a).needsYou) || b.startedAt - a.startedAt);
   const places = hub.projects.map((p) => ({ label: p.name, root: p.root as string | null, agents: sorted.filter((s) => hub.projectFor(s.cwd) === p).map(rowFor) }));
@@ -845,7 +933,7 @@ export function agentsModel(hub: HubLike, setupItems: DoctorItem[] = []): Agents
   if (elsewhere.length) places.push({ label: 'Elsewhere on this machine', root: null, agents: elsewhere.map(rowFor) });
   const billing = billingLook(setupItems);
   const settings = hub.projects.filter((p) => p.agents).map((p) => ({ root: p.root, project: p.name, roles: agentSettings(p), autonomy: autonomySetting(p), autoMerge: autoMergeSetting(p), billing }));
-  return { kind: 'agents', error: hub.agentsError, places, settings };
+  return { kind: 'agents', error: hub.agentsError, places, whereView, settings };
 }
 
 // ---------------------------------------------------------------- worktrees
@@ -1295,7 +1383,9 @@ export interface AgentModel {
   /** False once Claude Code no longer lists the session. */
   live: boolean;
   background: boolean;
+  /** Its folder in context, as its Agents row says it, and the whole folder for the hover (GH-83). */
   where: string;
+  path: string;
   startedAt: number | null;
   lastAt: string | null;
   model: string | null;
@@ -1354,10 +1444,10 @@ export function agentModel(i: AgentInput): AgentModel {
   if (live?.id) actions.push({ command: 'acc.agent.attach', label: 'Attach in terminal', icon: 'terminal', ref });
   if (s) actions.push({ command: 'acc.agent.openFolder', label: 'Open its folder', icon: 'empty-window', ref });
   if (live?.id && live.pid) actions.push({ command: 'acc.agent.stop', label: 'Stop', icon: 'debug-stop', ref, danger: true });
-  const where = !s ? '' : project ? (isUnder(s.cwd, project.root) ? s.cwd.slice(project.root.length + 1) || 'main checkout' : s.cwd.split('/').slice(-2).join('/')) : s.cwd;
+  const folder = s ? sessionFolders(hub, [s.cwd]).get(s.cwd) : undefined;
   return {
     kind: 'agent', key, name: s?.name ?? row?.id ?? key.slice(0, 8), task: row && project ? { id: row.id, title: row.title, project: project.root } : null,
-    look: { label: look.label, icon: look.icon, tone: look.tone }, live: !!live || !!i.active, background: !!s?.id, where, startedAt: s?.startedAt ?? null, lastAt: i.lastAt, model: i.model ?? null,
+    look: { label: look.label, icon: look.icon, tone: look.tone }, live: !!live || !!i.active, background: !!s?.id, where: folder?.label ?? '', path: folder?.full ?? '', startedAt: s?.startedAt ?? null, lastAt: i.lastAt, model: i.model ?? null,
     entries: shown, hidden: Math.max(0, i.entries.length - views.length), readable: i.readable || decisions.length > 0,
     questions: s?.sessionId ? questionCards(hub).filter((q) => q.sessionId === s.sessionId) : [],
     actions,
@@ -1704,6 +1794,8 @@ export interface HomeInput {
   connect?: ConnectModel | null;
   /** The Slack card, for this machine (GH-58). */
   slack?: SlackCard | null;
+  /** What the Agents tab's Where column shows (GH-83). Folder unless said. */
+  whereView?: WhereView;
 }
 
 /** How many things need a person: each question, and each orange item. The badge and the Overview agree. */
@@ -1717,7 +1809,7 @@ export const needsYouCount = (o: Pick<OverviewModel, 'questions' | 'attention'>)
 export function homeModel(i: HomeInput): HomeModel {
   const { hub } = i;
   const tasks = tasksModel(hub, i.boards);
-  const agents = agentsModel(hub, i.setup.items);
+  const agents = agentsModel(hub, i.setup.items, i.whereView ?? 'folder');
   const worktrees = worktreesModel(hub);
   const environments = environmentsModel(hub, i.identity, i.slack ?? null);
   const setup = setupModel(i.setup.items, i.setup.confirmed);
@@ -1815,12 +1907,16 @@ export function homeModel(i: HomeInput): HomeModel {
       if (b.error && b.connect) attention.push({ key: `b:${p.root}:${b.index}`, look: LOOK('Not signed in', 'plug', 'orange'), title: b.title, detail: `${p.name} · ${b.error}`, project: p.name, actions: [], extra: { command: b.connect.command, label: b.connect.label, icon: 'plug', arg: b.connect.arg } });
     }
   }
+  const folders = sessionFolders(hub);
   for (const s of hub.agents) {
     const look = agentLook(s);
     if (!look.needsYou || (s.id && linked.has(s.id)) || (s.sessionId && asked.has(s.sessionId))) continue;
     const key = sessionKey(s);
+    // Its folder in context, after its project as the other cards have it; the whole folder on hover (GH-83).
+    const p = hub.projectFor(s.cwd);
+    const f = folders.get(s.cwd)!;
     attention.push({
-      key: `a:${key}`, look: { label: look.label, icon: look.icon, tone: look.tone }, title: s.name ?? 'Agent session', detail: hub.projectFor(s.cwd)?.name ?? s.cwd, project: hub.projectFor(s.cwd)?.name ?? '',
+      key: `a:${key}`, look: { label: look.label, icon: look.icon, tone: look.tone }, title: s.name ?? 'Agent session', detail: p && f.inProject ? `${p.name} · ${f.inProject}` : f.label, tip: f.full, project: p?.name ?? '',
       actions: [
         // Its conversation in Claude Code when its session id is known; attaching a terminal otherwise.
         ...(s.sessionId ? [{ command: 'acc.agent.openInClaude', label: 'Open in Claude Code', icon: 'comment-discussion', ref: { session: key }, primary: true }]
@@ -1903,6 +1999,8 @@ export type FromWebview =
   | { type: 'open'; url: string }
   /** The page moved to another section, so reopening it comes back there. */
   | { type: 'nav'; section: HomeSection }
+  /** The Agents tab's Where column switched between folder and full path, remembered for the window (GH-83). */
+  | { type: 'agents-where'; view: WhereView }
   /** A task's card dropped in another lane of the agent board (D-041). */
   | { type: 'move-task'; project: string; task: string; to: string }
   /** An answer to an agent's question or permission prompt (D-030). */
@@ -1983,6 +2081,7 @@ export function isFromWebview(m: unknown): m is FromWebview {
     case 'ticket-action': return (TICKET_ACTIONS as readonly string[]).includes(x.action as string) && (x.text === undefined || (typeof x.text === 'string' && x.text.length <= 65_536));
     case 'open': return short(x.url, 4096) && /^(https?:|mailto:)/i.test(x.url as string);
     case 'nav': return (HOME_SECTIONS as readonly string[]).includes(x.section as string);
+    case 'agents-where': return (WHERE_VIEWS as readonly string[]).includes(x.view as string);
     case 'move-task': return short(x.project, 4096) && short(x.task, 100) && KEY.test(x.task as string) && (TASK_GROUPS as readonly string[]).includes(x.to as string);
     case 'answer': {
       if (!short(x.id, 64) || !['allow', 'deny', 'terminal'].includes(x.decision as string)) return false;
