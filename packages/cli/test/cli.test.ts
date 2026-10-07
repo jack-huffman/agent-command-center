@@ -274,7 +274,7 @@ test('acc sync --close-done closes the issues of tasks already done, listing eac
   const plan = acc(dir, ['sync', '--close-done', '--plan'], undefined, env);
   assert.equal(plan.code, 0, plan.err);
   assert.equal(plan.out, [
-    'What acc sync --close-done would do (nothing is changed):',
+    'The done tasks whose issues the tidy would close (nothing is changed). A sync may also close those of tasks merged since it last ran:',
     '  GH-3 (pull request #5): would close issue #3',
     '  GH-4 (pull request #6): would leave issue #4 as it is: it was already closed',
     'Close them with acc sync --close-done.',
