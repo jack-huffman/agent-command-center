@@ -400,20 +400,23 @@ Read the drafts before committing them. By hand:
   page** in the Command Center, with nothing to edit by hand. This step's **Do
   it** opens it, and so do **Connect Jira** on the Tasks tab, **Add a tracker**
   on the Overview, **New work**, and **Agent Command Center: Add a tracker…** in
-  the Command Palette. Pick Jira, GitHub Issues or Azure DevOps, give its site,
-  repo or organization, sign in and click **Test connection**: it says who it
+  the Command Palette. Pick Jira, GitHub Issues, Azure DevOps or monday.com,
+  give its site, repo, organization or account, sign in and click **Test
+  connection**: it says who it
   signed in as, or why not, beside the field. Then pick the project, the place
   and the board from lists of what that sign-in can see, and **Save** writes
   the repo's `.acc/config.json`. Sign-ins belong to that repo only (D-027), and
   stay in VSCode's secret storage, never in the file.
 - [ ] The **place** is which of its tickets are this repo's, so another
   project's or another client's never show up here (D-072). The whole project,
-  repo or team is listed first. A narrower place is an epic (Jira), labels
-  (GitHub) or an area path (Azure DevOps). The board shows only tickets in the
+  repo, team or board is listed first. A narrower place is an epic (Jira),
+  labels (GitHub), an area path (Azure DevOps) or a group (monday.com). The
+  board shows only tickets in the
   place, says where they come from under its name, and a ticket outside it
   can't be opened or tracked. **Change**, on the board, opens the tracker on the
   Connect page to change its place, board or team, or to sign in again; every
-  **Sign in to Jira** or **Sign in to Azure DevOps** button opens it there too.
+  **Sign in to Jira**, **Sign in to Azure DevOps** or **Sign in to monday.com**
+  button opens it there too.
   Another project is another tracker. **Sign out of a tracker** is in the
   Command Palette.
   - **Azure DevOps:** choose **Sign in with Microsoft** and pick the account
@@ -444,8 +447,23 @@ Read the drafts before committing them. By hand:
   - A ticket that leaves the place, because it moved or the place was
     narrowed, leaves acc's board if work on it never started. One that started
     stays on the agent board, and the tracker's board names it for you.
-  - **monday.com:** later. Slack isn't a ticket source; acc's notices can go
-    to it instead (A5).
+  - **monday.com:** a personal API token. **Create a token** opens the
+    account's Developer Center (`https://acme.monday.com/apps/manage/tokens`);
+    paste it in its field. The token sees everything you can see in
+    monday.com, so it's kept for this repo only, and one from another account
+    is refused. Then pick the board, and a group on it for only that group's
+    items. A board with more than one status column, such as Status and
+    Priority, asks which one: its labels are the Tasks tab's columns, in
+    monday's order.
+    `{ "kind": "monday", "account": "acme", "board": 1234567890 }`, plus
+    `"group": "topics"` for one group, `"statusColumn": "status_1"` for a
+    status column other than the one called Status, and `"prefix": "CW"` when
+    two monday.com trackers would both give keys like MON-123. An item is a
+    task as `MON-<item id>`; its long-text columns are its brief. Updates
+    post as item updates. With `"edits": true`, the task page can change its
+    status label and its board's first People column; monday.com items have
+    no labels.
+  - Slack isn't a ticket source; acc's notices can go to it instead (A5).
 
 If a repo keeps its tasks in acc alone, mark the step done. `acc doctor` checks
 that the config names a source (B14.tickets). The walkthrough also checks that
