@@ -144,9 +144,11 @@ export function taskEvent(p: SlackProject, n: TaskNotice, now: number): SlackEve
   const run = (task ? runStartedAt(task) : null) ?? '';
   const pr = row.pr?.number ?? 0;
   const at = (iso: string | null) => ms(iso, now);
+  // A line about the agent names it (D-???): the name acc gave its builder, escaped with the rest.
+  const agent = row.run?.name;
   const by: Record<string, { d: string; what: string; at: number }> = {
-    waiting: { d: run, what: 'Its agent is waiting for you in its own prompt.', at: now },
-    stopped: { d: run, what: 'Its builder stopped before acc done or acc block. It can be resumed from the Command Center.', at: now },
+    waiting: { d: run, what: `${agent ?? 'Its agent'} is waiting for you in its own prompt.`, at: now },
+    stopped: { d: run, what: `${agent ?? 'Its builder'} stopped before acc done or acc block. It can be resumed from the Command Center.`, at: now },
     blocked: { d: moved ?? '', what: 'It\'s blocked.', at: at(moved) },
     'ci-failed': { d: `${pr}:${run}`, what: `Checks failed on pull request #${pr}.`, at: now },
     changes: { d: `${pr}:${run}`, what: `A reviewer asked for changes on pull request #${pr}.`, at: now },
@@ -217,14 +219,18 @@ export function draftEvents(p: SlackProject, drafts: Update[], log: AutopilotRec
   return out;
 }
 
-/** What an agent's question asks for, in fixed words: never the question or the command. */
-const ASKS: Record<string, string> = { AskUserQuestion: 'Its agent has a question for you.', ExitPlanMode: 'Its agent has a plan for you to approve.' };
+/** What an agent's question asks for, in fixed words after its name: never the question or the command. */
+const ASKS: Record<string, string> = { AskUserQuestion: 'has a question for you.', ExitPlanMode: 'has a plan for you to approve.' };
 
-/** A task's agent asks something (D-030). A question no task asks isn't sent: the message names a task. */
+/**
+ * A task's agent asks something (D-030), named as acc named its builder (D-???). A question no task asks
+ * isn't sent: the message names a task.
+ */
 export function questionEvent(q: { id: string; tool: string; at: number }, p: { name: string; rows: TaskRow[] }, task: string | null): SlackEvent | null {
   const row = task ? p.rows.find((r) => r.id === task) : undefined;
   if (!row) return null;
-  return { key: `q:${q.id}`, kind: 'needs-you', project: p.name, task: row.id, title: row.title, what: ASKS[q.tool] ?? 'Its agent asks for your permission.', link: taskLink(row), at: q.at };
+  const what = `${row.run?.name ?? 'Its agent'} ${ASKS[q.tool] ?? 'asks for your permission.'}`;
+  return { key: `q:${q.id}`, kind: 'needs-you', project: p.name, task: row.id, title: row.title, what, link: taskLink(row), at: q.at };
 }
 
 // ---------------------------------------------------------------- the sender

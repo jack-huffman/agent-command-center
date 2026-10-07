@@ -186,9 +186,12 @@ table.grid { width: 100%; border-collapse: collapse; }
 .grid tr.none:hover td { background: none; }
 .grid .status { vertical-align: middle; }
 .grid td.clip.name { max-width: 18em; }
+/* An agent's name (D-???) wraps rather than clipping, so its task and role stay in view. */
+.grid td.agent-name { min-width: 11em; max-width: 24em; overflow-wrap: anywhere; }
 .grid td.clip.mono { min-width: 9em; }
-/* A narrow tab drops the least useful columns, so the row menu never scrolls out of view. */
-@media (max-width: 800px) { .grid .kind { display: none; } }
+/* A narrow tab drops the least useful columns, so the row menu never scrolls out of view. Agents' names
+   are long (D-???), so Kind goes first, below 1100px. */
+@media (max-width: 1100px) { .grid .kind { display: none; } }
 @media (max-width: 660px) { .grid .started { display: none; } }
 
 /* The row menu: a quiet icon button, like VSCode's own list actions. It sticks to the right edge, so a
@@ -270,6 +273,9 @@ body[data-view="ticket"] { padding-top: 18px; }
 .move-details > summary { cursor: pointer; }
 .move-reason { margin: 4px 0 2px 16px; white-space: pre-wrap; }
 .crumbs { display: flex; align-items: center; gap: 6px; font-size: 0.92em; color: var(--vscode-descriptionForeground); margin-bottom: 6px; }
+/* An agent's name (D-???): one line, clipped with … in a narrow tab, in full on hover. */
+.crumb-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.openable.crumb-name { color: var(--vscode-textLink-foreground); cursor: pointer; }
 .ticket-title { font-size: 1.65em; line-height: 1.25; margin: 0 0 10px; word-break: break-word; }
 .ticket-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .pill { display: inline-flex; align-items: center; padding: 0 8px; border-radius: 3px; font-size: 0.85em; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; line-height: 1.8; border: 1px solid var(--line); background: var(--card); color: var(--vscode-foreground); }
@@ -304,8 +310,9 @@ body[data-view="ticket"] { padding-top: 18px; }
 /* A long state, such as an analysis's questions, wraps inside the panel. */
 .fields dd .status { white-space: normal; align-items: flex-start; }
 .fields dd .status .codicon { margin-top: 2px; flex: none; }
-/* Its label stays beside the first line, as a stopped agent's last words can run long (D-067). */
-.fields dt:has(+ dd > .status) { align-self: start; padding-top: 1px; }
+/* Its label stays beside the first line, as a stopped agent's last words can run long (D-067), and so
+   can an agent's name (D-???). */
+.fields dt:has(+ dd > .status), .fields dt:has(+ dd > .agent-name) { align-self: start; padding-top: 1px; }
 .people { display: flex; flex-direction: column; gap: 4px; }
 .person { display: inline-flex; align-items: center; gap: 6px; }
 .clip-inline { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; display: inline-block; }
