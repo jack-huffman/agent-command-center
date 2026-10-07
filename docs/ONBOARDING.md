@@ -457,8 +457,9 @@ Read the drafts before committing them. By hand:
     monday's order.
     `{ "kind": "monday", "account": "acme", "board": 1234567890 }`, plus
     `"group": "topics"` for one group, `"statusColumn": "status_1"` for a
-    status column other than the one called Status, and `"prefix": "CW"` when
-    two monday.com trackers would both give keys like MON-123. An item is a
+    status column other than the one called Status, and `"prefix": "CW"` for
+    keys like CW-123. A second board on the account gets `"prefix": "MON2"`
+    from the Connect page, so each board's keys are its own. An item is a
     task as `MON-<item id>`; its long-text columns are its brief. Updates
     post as item updates. With `"edits": true`, the task page can change its
     status label and its board's first People column; monday.com items have

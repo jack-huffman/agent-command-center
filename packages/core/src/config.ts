@@ -531,14 +531,33 @@ export function trackerForKey(trackers: Pick<Tracker, 'kind' | 'project' | 'pref
  * project). Settings the new one doesn't name, such as a GitHub tracker's
  * skipLabels (D-048), are kept: re-adding a tracker never quietly drops them. A setting it names as null
  * is taken out, so re-adding one as the whole project clears its epic, labels or area path (D-072).
+ * A new monday.com tracker whose keys another tracker already gives gets a prefix of its own.
  */
 export function withTracker(trackers: Record<string, unknown>[], tracker: Record<string, unknown>): Record<string, unknown>[] {
   // A repo left out and one named null are both the project's own.
   const where = (t: Record<string, unknown>) => t.site ?? t.organization ?? t.account ?? t.repo ?? null;
   const board = (t: Record<string, unknown>) => (t.kind === 'monday' && t.board !== undefined && t.board !== null ? String(t.board) : null);
   const i = trackers.findIndex((t) => t.kind === tracker.kind && (t.project ?? null) === (tracker.project ?? null) && where(t) === where(tracker) && board(t) === board(tracker));
-  if (i < 0) return [...trackers, setKeys(tracker)];
+  if (i < 0) return [...trackers, setKeys(ownPrefix(trackers, tracker))];
   return trackers.map((t, k) => (k === i ? setKeys({ ...t, ...tracker }) : t));
+}
+
+const rawPrefix = (t: Record<string, unknown>): string | null =>
+  keyPrefix({ kind: t.kind as TrackerKind, project: isStr(t.project) ? t.project : null, prefix: isStr(t.prefix) ? t.prefix : null });
+
+/**
+ * A second board on a monday.com account would give its items MON keys too. Those go to the first board,
+ * whose place check then takes the second's from the ledger (D-072), and their drafts can't post. So a new
+ * one gets the first of MON2, MON3 and so on that no tracker uses. One that names its prefix keeps it.
+ */
+function ownPrefix(trackers: Record<string, unknown>[], tracker: Record<string, unknown>): Record<string, unknown> {
+  const base = rawPrefix(tracker);
+  if (tracker.kind !== 'monday' || isStr(tracker.prefix) || !base) return tracker;
+  const used = new Set(trackers.map(rawPrefix));
+  if (!used.has(base)) return tracker;
+  let n = 2;
+  while (used.has(`${base}${n}`)) n++;
+  return { ...tracker, prefix: `${base}${n}` };
 }
 
 const setKeys = (t: Record<string, unknown>) => Object.fromEntries(Object.entries(t).filter(([, v]) => v !== null && v !== undefined));

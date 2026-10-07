@@ -227,9 +227,15 @@ test('a monday.com key belongs to its board\'s tracker by prefix, and two boards
   assert.deepEqual(['MON-5', 'mon-1234567890', 'OPS-3', 'MSP-7', 'AB-1'].map((k) => trackerForKey(list, k)), [1, 1, 2, 0, null]);
   const one = withTracker([], { kind: 'monday', account: 'acme', board: 111, group: 'topics' });
   const two = withTracker(one, { kind: 'monday', account: 'acme', board: 555, group: null });
-  assert.deepEqual(two, [{ kind: 'monday', account: 'acme', board: 111, group: 'topics' }, { kind: 'monday', account: 'acme', board: 555 }], 'neither replaces the other');
-  assert.deepEqual(withTracker([...two.slice(0, 1), { ...two[1]!, edits: true }], { kind: 'monday', account: 'acme', board: 555, group: 'topics' })[1], { kind: 'monday', account: 'acme', board: 555, group: 'topics', edits: true }, 'the same board again is the same tracker');
-  assert.equal(withTracker(two, { kind: 'monday', account: 'globex', board: 111 }).length, 3, 'another account is another tracker');
+  assert.deepEqual(two, [{ kind: 'monday', account: 'acme', board: 111, group: 'topics' }, { kind: 'monday', account: 'acme', board: 555, prefix: 'MON2' }], 'neither replaces the other, and the second\'s keys are its own');
+  assert.deepEqual(withTracker([...two.slice(0, 1), { ...two[1]!, edits: true }], { kind: 'monday', account: 'acme', board: 555, group: 'topics' })[1], { kind: 'monday', account: 'acme', board: 555, prefix: 'MON2', group: 'topics', edits: true }, 'the same board again is the same tracker, with its prefix');
+  const three = withTracker(two, { kind: 'monday', account: 'globex', board: 111 });
+  assert.deepEqual(three.map((t) => t.prefix), [undefined, 'MON2', 'MON3'], 'another account is another tracker, with the next free prefix');
+  assert.deepEqual(withTracker([{ kind: 'jira', site: 's', project: 'MON' }, { kind: 'monday', account: 'acme', board: 1, prefix: 'MON2' }], { kind: 'monday', account: 'acme', board: 2 }).map((t) => t.prefix), [undefined, 'MON2', 'MON3'], 'a Jira project called MON takes MON too');
+  assert.equal(withTracker(one, { kind: 'monday', account: 'acme', board: 555, prefix: 'OPS' })[1]!.prefix, 'OPS', 'a prefix it names is kept');
+  const parsed = parseConfig({ ...clone(GENERIC_CONFIG), trackers: three });
+  assert.deepEqual([parsed.errors, parsed.warnings.filter((w) => /keys like/.test(w))], [[], []], 'no two give the same keys');
+  assert.deepEqual(['MON-7', 'MON2-7', 'MON3-7'].map((k) => trackerForKey(parsed.config!.trackers, k)), [0, 1, 2]);
 });
 
 test('re-adding a tracker keeps the settings it had, in its place; a new one goes last (D-048)', () => {

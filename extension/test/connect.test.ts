@@ -5,11 +5,12 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { replaceTracker, type Tracker, withTracker } from '../../packages/core/src/config.ts';
+import { replaceTracker, type Tracker, trackerForKey, withTracker } from '../../packages/core/src/config.ts';
 import { DESCRIPTIONS, type TrackerDescription } from '../../packages/core/src/trackers/connect.ts';
+import { MondayClient } from '../../packages/core/src/trackers/monday.ts';
 import type { Exec } from '../../packages/core/src/trackers/types.ts';
 import { type ConnectDeps, type ConnectProject, ConnectSession } from '../src/connect.ts';
-import { credKey } from '../src/logic.ts';
+import { credKey, outsideKeys, placeCandidates } from '../src/logic.ts';
 import { blankConnect, type ConnectMessage, type ConnectModel, connectModel, isFromWebview } from '../src/model.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -347,15 +348,32 @@ test('another tracker is a description, not another page: a fifth one gets its f
   assert.deepEqual(m.pickers.map((p) => [p.key, p.whole, p.required, p.disabled]), [['team', null, true, true], ['cycle', 'Every cycle', false, true]]);
 });
 
-/** monday.com's GraphQL API, answering only this token, by what each query asks for. Board 555 has two status columns. */
+/**
+ * monday.com's GraphQL API, answering only this token, by what each query asks for. Board 555 has two
+ * status columns. With `items`, it serves the boards too: item 9001 is on board 555, and 111 is empty.
+ * Each query asked goes in `calls`.
+ */
 const MONDAY_TOKEN = 'monday-token-0123456789abcdef';
-function monday(o: { account?: string } = {}): typeof fetch {
+function monday(o: { account?: string; items?: boolean; calls?: string[] } = {}): typeof fetch {
   const labels = (...names: string[]) => ({ labels: names.map((label, i) => ({ id: i, label, index: i, is_done: label === 'Done' })) });
+  const name = (board: string) => (board === '555' ? 'Approvals' : 'Client work');
   return (async (url: string, init: { headers: Record<string, string>; body: string }) => {
     if (url !== 'https://api.monday.com/v2') return new Response('', { status: 404 });
     if (init.headers.Authorization !== MONDAY_TOKEN) return Response.json({ errors: [{ message: 'Not Authenticated' }] }, { status: 401 });
     const { query, variables } = JSON.parse(init.body) as { query: string; variables: Record<string, unknown> };
+    o.calls?.push(query);
     const board = String((variables.board as string[] | undefined)?.[0] ?? '');
+    if (o.items && /columns\(types: \[status, people\]\)/.test(query)) {
+      return Response.json({ data: { boards: [{ id: board, name: name(board), columns: [{ id: 'status', title: 'Status', type: 'status', settings: labels('Working on it', 'Done') }], groups: [{ id: 'topics', title: 'This sprint' }] }] } });
+    }
+    if (o.items && /items_page\(limit/.test(query)) {
+      const items = board === '555' ? [{ id: '9001', name: 'Approve the renewal', group: { id: 'topics' }, column_values: [{ id: 'status', index: 0 }] }] : [];
+      return Response.json({ data: { boards: [{ items_page: { cursor: null, items } }] } });
+    }
+    if (o.items && /items\(ids:/.test(query)) {
+      const items = (variables.ids as string[]).filter((id) => id === '9001').map((id) => ({ id, board: { id: '555', name: 'Approvals' }, group: { id: 'topics', title: 'This sprint' } }));
+      return Response.json({ data: { items } });
+    }
     if (/\bme \{/.test(query)) return Response.json({ data: { me: { id: 7, name: 'Jordan Kim', account: { slug: o.account ?? 'acme' } } } });
     if (/boards\(limit/.test(query)) {
       return Response.json({ data: { boards: [
@@ -371,7 +389,7 @@ function monday(o: { account?: string } = {}): typeof fetch {
         ...(board === '555' ? [{ id: 'priority', title: 'Priority', type: 'status', settings: labels('High', 'Low') }] : []),
         { id: 'status', title: 'Status', type: 'status', settings: labels('Working on it', 'Done') },
       ];
-      return Response.json({ data: { boards: [{ name: board === '555' ? 'Approvals' : 'Client work', columns }] } });
+      return Response.json({ data: { boards: [{ name: name(board), columns }] } });
     }
     return Response.json({ errors: [{ message: 'no answer' }] });
   }) as unknown as typeof fetch;
@@ -423,7 +441,42 @@ test('monday.com: an account from any link, a token kept for this repo only, the
   h.send({ type: 'connect-pick', key: 'group', value: 'topics' });
   h.send({ type: 'connect-save' });
   await settle();
-  assert.deepEqual(h.raw, [{ kind: 'monday', account: 'acme', board: 111 }, { kind: 'monday', account: 'acme', board: 555, group: 'topics', statusColumn: 'priority' }], 'neither replaces the other');
+  assert.deepEqual(h.raw, [{ kind: 'monday', account: 'acme', board: 111 }, { kind: 'monday', account: 'acme', board: 555, group: 'topics', statusColumn: 'priority', prefix: 'MON2' }], 'neither replaces the other, and the second\'s keys are its own');
+});
+
+test('monday.com: an item Tracked from a second board on the account keeps its own key, so the first board\'s place check leaves it alone (D-072)', async () => {
+  const h = harness({ fetch: monday() });
+  for (const board of ['111', '555']) {
+    await h.session.open({ root: ROOT, kind: 'monday', from: 'tasks' });
+    h.send({ type: 'connect-test', host: 'acme', fields: { token: MONDAY_TOKEN } });
+    await settle();
+    h.send({ type: 'connect-pick', key: 'board', value: board });
+    await settle();
+    h.send({ type: 'connect-save' });
+    await settle();
+  }
+  const trackers = h.raw.map(full);
+  assert.deepEqual(trackers.map((t) => [t.board, t.prefix]), [[111, null], [555, 'MON2']]);
+
+  // As the Command Center builds each board's client, and follows its place once it loads.
+  const calls: string[] = [];
+  const api = monday({ items: true, calls });
+  const clients = trackers.map((t) => new MondayClient({ account: t.account!, board: t.board!, group: t.group, statusColumn: t.statusColumn, prefix: t.prefix ?? 'MON', token: MONDAY_TOKEN, fetch: api }));
+  const [first, second] = [await clients[0]!.board(), await clients[1]!.board()];
+  assert.deepEqual(second.cards.map((c) => c.key), ['MON2-9001']);
+  const tasks = [{ id: 'MON2-9001', state: 'todo', source: { kind: 'monday' } }];
+  const owner = (key: string) => trackerForKey(trackers, key);
+  assert.equal(owner('MON2-9001'), 1, 'its drafts post through its own board');
+  const asked = placeCandidates(tasks, { kind: 'monday', index: 0, cards: first.cards }, owner);
+  assert.deepEqual([asked, await outsideKeys(asked, (k) => clients[0]!.outside(k))], [[], []], 'the first board asks nothing about it, so acc intake never takes it off the ledger');
+  assert.equal(calls.filter((q) => /items\(ids:/.test(q)).length, 0);
+  assert.deepEqual(placeCandidates(tasks, { kind: 'monday', index: 1, cards: second.cards }, owner), [], 'its own board shows it');
+  assert.deepEqual(await clients[1]!.outside(['MON2-9001'], { project: true }), [], 'and a draft for it may post');
+
+  // Both keyed MON, as before: the first board took the second's item for its own, and found it outside.
+  const shared = trackers.map((t) => ({ ...t, prefix: null }));
+  const was = placeCandidates([{ id: 'MON-9001', state: 'todo', source: { kind: 'monday' } }], { kind: 'monday', index: 0, cards: first.cards }, (key) => trackerForKey(shared, key));
+  assert.deepEqual(await outsideKeys(was, (k) => clients[0]!.outside(k)), [{ key: 'MON-9001', why: 'it\'s on board Approvals' }]);
 });
 
 test('monday.com: a token from another account is refused, naming it, and an existing tracker shows its account and board fixed', async () => {

@@ -2499,8 +2499,16 @@ DevOps was, with three choices a person made.
   board, and to the group when there is one: an item elsewhere is outside,
   naming where it is. `outside()` reads items by id, a hundred at a time; a
   batch it can't read, or an item it can't see, is never outside (D-048), and
-  with `project` only the board counts. A config whose two trackers give the
-  same key prefix gets a warning, since a key finds only the first.
+  with `project` only the board counts.
+- **A second board's keys are its own.** A key finds only the first tracker
+  whose prefix it has, so a second board on the account keyed MON too would
+  lose its items to the first: that board's place check found them on another
+  board, and `acc intake` took the unstarted ones off the ledger, and their
+  drafts could never post. So when the Connect page adds a monday.com tracker
+  whose prefix another tracker already gives (a monday.com board or a Jira
+  project called MON), it writes the first free one, `MON2`, `MON3` and so on,
+  as `prefix`. A prefix the config already names is kept. A config written by
+  hand with two trackers giving one prefix still gets a warning.
 - **Updates post as item updates**, as HTML with every word escaped, through
   the Command Center only; `acc update post` refuses them as it does Jira's.
   `acc intake monday --file` follows items that left the place, and
