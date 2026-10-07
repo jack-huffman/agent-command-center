@@ -122,7 +122,8 @@ export function settleCloses(
 ): IssueClose[] {
   const { run, now, env } = deps;
   const tidy = !!opts.tidy;
-  const tasks = readLedger(paths.ledger).tasks.filter((t) => (tidy ? t.state === 'done' && t.pr?.state === 'merged' && !t.pr.issue : t.pr?.issue?.state === 'pending'));
+  // Only a done task's issue closes: one a person sent back to rework while its close waited keeps its issue open.
+  const tasks = readLedger(paths.ledger).tasks.filter((t) => t.state === 'done' && (tidy ? t.pr?.state === 'merged' && !t.pr.issue : t.pr?.issue?.state === 'pending'));
   const results: IssueClose[] = [];
   for (const t of tasks) {
     const pr = t.pr!;

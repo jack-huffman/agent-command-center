@@ -2678,7 +2678,11 @@ this repo's own GitHub tracker does.
   (HTTP 502): the next sync tries again"), stays pending with why, and each acc
   sync tries again, even with no pull request left open. The Command Center's
   poll keeps running acc sync while a close is pending (`followsPullRequests`).
-  A retry leaves an issue a person reopened in between. One a timed-out close
+  A retry leaves an open issue GitHub marks as reopened (`stateReason`
+  REOPENED), from any reopen, not only one since the merge: that's what acc
+  can tell, and it errs toward leaving an issue open. A pending close is only
+  settled while its task is done: one a person sent back to rework keeps its
+  issue open. One a timed-out close
   may have closed (D-051) is recorded as already closed. A failure that repeats
   word for word leaves the ledger alone. A pending close whose tracker no longer
   says `"edits"` is left. Each gh call gets a minute, as sync's others do.
@@ -2692,8 +2696,13 @@ this repo's own GitHub tracker does.
   and no close marked, under the same rule. It closes the open ones with the
   comment, and leaves those already closed, reopened (`stateReason` REOPENED) or
   moved, recording them as left. It lists every one with its outcome, and a
-  second run does nothing. `--plan` only looks: it lists what it would close or
-  leave, without syncing, closing or writing. A done task with no pull request,
+  second run does nothing. `--plan` only looks: it lists what the tidy would
+  close or leave, without syncing, closing or writing, and says that a sync may
+  also close the issues of tasks merged since it last ran.
+- **Accepted:** two syncs at the same moment (two windows' polls, or a person's
+  sync during one) can both close an issue and post the comment twice. gh's
+  check that it's already closed narrows that to near-simultaneous runs, and
+  it's this repo's own issues only. A done task with no pull request,
   such as one intake moved to done because its issue closed, isn't listed.
   `--json` carries each outcome, as it does for sync's changes.
 - **Only a person runs the tidy.** Builders, reviewers, analysts and autopilot

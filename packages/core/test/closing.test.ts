@@ -137,6 +137,17 @@ test('a close that fails is named, stays pending, and the next sync tries again 
   assert.deepEqual(sync(s.paths, s.config, { run: fixed.fake, now, env: {} }), { checked: 0, changes: [] }, 'settled: nothing left to follow');
 });
 
+test('a pending close waits while its task is back in rework: the issue stays open (D-082)', () => {
+  const s = inReview();
+  sync(s.paths, s.config, { run: github(issue('OPEN'), bad('HTTP 502: Bad Gateway')).fake, now, env: {} });
+  assert.equal(task(s).pr?.issue?.state, 'pending');
+  mutate(s.paths, now, (l, emit) => { l.tasks.find((t) => t.id === 'GH-9')!.state = 'rework'; emit({ type: 'task.updated', task: 'GH-9', actor: 'human', by: 'human:test', data: {} }); });
+  const fixed = github(issue('OPEN'));
+  sync(s.paths, s.config, { run: fixed.fake, now, env: {} });
+  assert.equal(fixed.calls.filter((c) => c.startsWith('gh issue close')).length, 0, 'not closed while it\'s reworked');
+  assert.equal(task(s).pr?.issue?.state, 'pending');
+});
+
 test('after a failed try, an issue a person reopened is left as it is, and so is one closed meanwhile: a timeout may have closed it', () => {
   const reopened = inReview();
   const slow = github(issue('OPEN'), { code: 124, stdout: '', stderr: 'context deadline exceeded', timedOut: true });

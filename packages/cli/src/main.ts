@@ -607,7 +607,7 @@ function cmdSync(o: Opts): number {
   const closes = settleCloses(paths, config, { run, now, env }, { tidy: true, plan, actor: 'human', by });
   out(o, () => [
     ...lines,
-    !closes.length ? 'No done task\'s issue is waiting to close.' : plan ? 'What acc sync --close-done would do (nothing is changed):' : 'The issues of tasks already done:',
+    !closes.length ? 'No done task\'s issue is waiting to close.' : plan ? 'The done tasks whose issues the tidy would close (nothing is changed). A sync may also close those of tasks merged since it last ran:' : 'The issues of tasks already done:',
     ...closes.map((c) => `  ${c.task} (pull request #${c.pr}): ${closeWords(c, plan)}`),
     plan && closes.some((c) => c.outcome === 'to close') ? tone('Close them with acc sync --close-done.', 'dim') : '',
   ].filter(Boolean).join('\n'), { ...r, closeDone: closes, ...(plan ? { plan: true } : {}) });
