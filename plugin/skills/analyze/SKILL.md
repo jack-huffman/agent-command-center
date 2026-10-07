@@ -28,7 +28,7 @@ A builder only knows what it's told. The analysis tells it: what the ticket real
 
    The verdict is **ready**, **questions**, or **split**: too big for one task, with the smaller tasks it suggests.
 3. **Answer its questions:** `acc analysis answer <id> <q> "<answer>"`. Only a person answers. Each question comes with a suggested answer. When the last one is answered, the task is ready to build.
-4. **Build it:** `acc dispatch <id>`, or `acc dispatch <id> --model <m>` to pick the builder's model for this task. The size can help a person choose, but nothing picks a model by it. The builder's instructions include the whole analysis and the answers. Salesforce projects won't dispatch a task until it has an analysis with every question answered. Other projects can skip it. A person can override that with `--without-analysis`.
+4. **Build it:** `acc dispatch <id>`, or `acc dispatch <id> --model <m>` to pick the builder's model for this task. The size can help a person choose, but nothing picks a model by it. The builder's instructions include the whole analysis and the answers. Salesforce projects won't dispatch a task until it has an analysis with every question answered. Other projects can skip it. A person can override that with `--without-analysis`. The files the analysis plans to change decide whether the task waits: when they share files with work in flight and another Ready task shares none, it waits, and starts on its own once they're free. `--anyway` starts it now.
 
 Analyzing again keeps the answers to questions it asks again.
 

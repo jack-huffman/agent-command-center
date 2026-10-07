@@ -117,11 +117,13 @@ export interface Config {
    * protected (GH-67). Off unless it's true; never in a Salesforce project.
    */
   autopilot?: { appendOnly: string[]; autoMerge?: true };
+  /** shared: files, or folders, that never make two tasks wait for each other, such as docs every task edits (D-093). */
+  dispatch?: { shared: string[] };
 }
 
 const TOP_KEYS = new Set([
   'schema', 'project', 'profile', 'github', 'commitIdentity', 'environments', 'environmentSpecific',
-  'knownDrift', 'trackers', 'agents', 'autonomy', 'worktrees', 'gates', 'secretScan', 'analysis', 'autopilot',
+  'knownDrift', 'trackers', 'agents', 'autonomy', 'worktrees', 'gates', 'secretScan', 'analysis', 'autopilot', 'dispatch',
 ]);
 
 /** Gates that take the machine-wide slot unless `gates.heavy` says otherwise (D-024). */
@@ -347,6 +349,19 @@ export function parseConfig(raw: unknown): ParseResult {
     }
   }
 
+  let dispatch: Config['dispatch'];
+  if (raw.dispatch !== undefined) {
+    const d = raw.dispatch;
+    if (!isObj(d)) errors.push('"dispatch" must be an object, such as { "shared": ["README.md"] }.');
+    else {
+      for (const k of Object.keys(d)) if (k !== 'shared') warnings.push(`Unknown key "dispatch.${k}" is ignored.`);
+      const list = d.shared ?? [];
+      if (!strList(list) || list.some((f) => f.startsWith('/') || f.split('/').includes('..'))) {
+        errors.push('"dispatch.shared" must be a list of paths inside the repo, such as ["README.md", "docs"].');
+      } else dispatch = { shared: list };
+    }
+  }
+
   if (errors.length) return { config: null, errors, warnings };
   return {
     config: {
@@ -374,6 +389,7 @@ export function parseConfig(raw: unknown): ParseResult {
       },
       ...(typeof an.required === 'boolean' ? { analysis: { required: an.required } } : {}),
       ...(autopilot ? { autopilot } : {}),
+      ...(dispatch ? { dispatch } : {}),
     },
     errors,
     warnings,

@@ -10,7 +10,7 @@ import { endResume, resumeCommand } from '../../packages/core/src/resume.ts';
 import { recordRuntime } from '../../packages/core/src/runtime.ts';
 import { AgentPages } from './activity.ts';
 import { AutopilotHost } from './autopilot.ts';
-import { type AgentSession, analysisAnswerArgs, CLAUDE_EXTENSION, claudeSessionUri, COMMANDS, followsPullRequests, isSessionId, isWebviewMenuContext, sessionFor, shq, WALKTHROUGHS } from './logic.ts';
+import { type AgentSession, analysisAnswerArgs, CLAUDE_EXTENSION, claudeSessionUri, COMMANDS, followsPullRequests, type HeldAsk, heldAskDue, heldAsked, heldAskKey, heldDue, isSessionId, isWebviewMenuContext, sessionFor, shq, startedNotice, WALKTHROUGHS } from './logic.ts';
 import { AGENT_SETTINGS, type NavItem, needsYouCount, type Ref, sessionKey, VIEW_KINDS, type ViewKind } from './model.ts';
 import { Notices } from './notices.ts';
 import { Panels } from './panels.ts';
@@ -543,7 +543,45 @@ export function activate(context: vscode.ExtensionContext): void {
   reg('acc.open.home', (section?: unknown) => panels.show(typeof section === 'string' ? (section as ViewKind) : undefined));
   for (const kind of VIEW_KINDS) reg(`acc.open.${kind}`, () => panels.show(kind));
 
+  // A task a person dispatched that waits for others' files starts on its own once it may (D-093), at any
+  // autonomy: the Dispatch click was the consent. acc decides and claims it, so autopilot or another window
+  // starting it too is harmless. Asked only when the board says one may go, at most every 30 seconds a
+  // project, and less often, up to every 10 minutes, while acc keeps saying the same tasks wait.
+  const startingHeld = new Set<string>();
+  const heldAsks = new Map<string, HeldAsk>();
+  const startHeld = async () => {
+    for (const p of hub.projects) {
+      const rows = hub.taskRows(p.root);
+      const due = heldDue(rows);
+      if (!due.length || startingHeld.has(p.root)) continue;
+      const key = heldAskKey(rows, due);
+      const last = heldAsks.get(p.root);
+      if (!heldAskDue(last, key, Date.now())) continue;
+      startingHeld.add(p.root);
+      // acc couldn't say: as if it kept them all waiting.
+      heldAsks.set(p.root, heldAsked(last, key, Date.now(), due, due));
+      try {
+        const r = await accRunner(accScript)(['dispatch', '--held', '--json'], p.root);
+        if (r.code !== 0) { setup.log.warn(`acc dispatch --held in ${p.name}: ${accSays(r)}`); continue; }
+        const out = JSON.parse(r.stdout) as { started: { task: string; waitedFor: string[]; shares: { task: string; files: string[] }[] }[]; failed: { task: string; reason: string }[]; waiting: { task: string }[] };
+        heldAsks.set(p.root, heldAsked(last, key, Date.now(), due, out.waiting.map((w) => w.task)));
+        for (const s of out.started) {
+          void vscode.window.showInformationMessage(startedNotice(`${s.task} started`, s), 'Watch').then((pick) => pick && resolve('acc.task.watch', { project: p.root, task: s.task }));
+        }
+        for (const f of out.failed) {
+          void vscode.window.showWarningMessage(`${f.task} couldn't start: ${f.reason}`, 'Dispatch anyway').then((pick) => pick && resolve('acc.task.dispatchAnyway', { project: p.root, task: f.task }));
+        }
+      } catch (e) {
+        setup.log.warn(`acc dispatch --held in ${p.name}: ${(e as Error).message}`);
+      } finally {
+        startingHeld.delete(p.root);
+        void hub.loadTasks(true);
+      }
+    }
+  };
+
   hub.onDidChange((part) => {
+    if (part === 'tasks' || part === 'worktrees') void startHeld();
     if (part === 'projects') { void trackers.loadBoards(); void setup.recheck('B14.tickets'); void identity.refresh(); }
     if (part === 'projects' || part === 'worktrees') autopilot.reconcile();
     if (part === 'projects' || part === 'worktrees') questions?.rootsChanged();

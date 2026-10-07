@@ -702,6 +702,80 @@ test('History tells each step autopilot took once, under Tasks, with its icon an
   assert.match(readFileSync(join(root, 'webview', 'main.ts'), 'utf8'), /const historyKind = \(i: HistoryItem\): string => \(i\.kind === 'autopilot' \? 'move' : i\.kind\);/);
 });
 
+test('a task that waits for others\' files says so with a clock, in blue; its next step is Dispatch anyway, and Stop waiting sits behind ⋯ (D-093)', () => {
+  const held = { at: '2026-10-06T10:00:00.000Z', failed: null, byAutopilot: false };
+  const todo = (id: string, display: TaskRow['display'], files: TaskRow['files']): TaskRow => ({ ...row(id, 'todo', display), deps: [], files });
+  const rows: TaskRow[] = [
+    todo('AV-5', 'ready', { known: true, shares: [{ task: 'AV-1', files: ['src/a.ts', 'force-app/main/default/classes/X.cls'] }], first: ['AV-6'], held }),
+    todo('AV-6', 'ready', { known: true, shares: [], first: [], held: null }),
+    todo('AV-7', 'ready', { known: false, shares: [], first: [], held: null }),
+    todo('AV-8', 'ready', { known: true, shares: [{ task: 'AV-1', files: ['src/a.ts'] }], first: ['AV-6'], held: null }),
+    { ...row('AV-1', 'running', 'running'), run: { bgId: 'bg1', worktree: '/w1', branch: 'b1' }, files: { known: true, shares: [{ task: 'AV-9', files: ['lib/b.ts'] }], first: [], held: null } },
+    todo('AV-10', 'needs-you', { known: true, shares: [], first: [], held: { ...held, failed: 'Claude Code doesn\'t trust /r yet.', byAutopilot: true } }),
+    todo('AV-11', 'ready', { known: true, shares: [{ task: 'AV-1', files: ['src/a.ts'] }], first: [], held }),
+    todo('AV-12', 'ready', { known: false, analyzed: true, shares: [], first: [], held: null }),
+  ];
+  const h = { ...hub(), agents: [], taskRows: () => rows };
+  const card = (id: string) => tasksModel(h).projects[0]!.columns.flatMap((c) => c.cards).find((c) => c.id === id)!;
+  // Held: a clock and the words, in blue, the files by folder and name, and the Ready task that goes first.
+  assert.deepEqual(card('AV-5').files, { label: 'Waits for AV-1\'s files: src/a.ts, classes/X.cls, while AV-6 is ready to start', icon: 'clock', tone: 'blue' });
+  assert.deepEqual(card('AV-5').actions.filter((a) => a.primary).map((a) => [a.label, a.command]), [['Dispatch anyway', 'acc.task.dispatchAnyway']]);
+  assert.ok(card('AV-5').actions.some((a) => a.command === 'acc.task.stopWaiting' && !a.primary), 'Stop waiting, behind ⋯');
+  assert.ok(!card('AV-5').actions.some((a) => a.command === 'acc.task.dispatch'), 'it was dispatched already');
+  assert.ok(tasksModel(h).projects[0]!.columns.find((c) => c.group === 'ready')!.cards.some((c) => c.id === 'AV-5'), 'it stays in the Ready lane');
+  // Its wait is over: it's about to start.
+  assert.deepEqual([card('AV-11').files?.label, card('AV-11').files?.tone], ['Starting: nothing else is ready, so it shares files with AV-1', 'blue']);
+  // Nothing to say about one that shares nothing.
+  assert.equal(card('AV-6').files, null);
+  assert.deepEqual(card('AV-6').actions.filter((a) => a.primary).map((a) => a.label), ['Dispatch']);
+  // No analysis: its files aren't known, said in a neutral tone, and it's dispatched as ever.
+  assert.deepEqual(card('AV-7').files, { label: 'Its files aren\'t known: no analysis to compare with work in flight', icon: 'info', tone: 'neutral' });
+  assert.deepEqual(card('AV-7').actions.filter((a) => a.primary).map((a) => a.label), ['Dispatch']);
+  // An analysis that names no files isn't told it has none.
+  assert.deepEqual(card('AV-12').files, { label: 'Its files aren\'t known: its analysis names no files', icon: 'info', tone: 'neutral' });
+  // Shares files but isn't held: said before Dispatch, and on a task that started beside another.
+  assert.deepEqual(card('AV-8').files, { label: 'Shares files with AV-1: src/a.ts', icon: 'files', tone: 'neutral' });
+  assert.deepEqual(card('AV-1').files, { label: 'Shares files with AV-9: lib/b.ts', icon: 'files', tone: 'neutral' });
+  // A start that failed needs you: the bell, in orange, and on the Overview with Dispatch anyway.
+  assert.deepEqual(card('AV-10').files, { label: 'Needs you: autopilot couldn\'t start it: Claude Code doesn\'t trust /r yet.', icon: 'bell', tone: 'orange' });
+  const m = homeModel({ hub: h, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } });
+  const item = m.overview.attention.find((a) => a.title === 'AV-10 Task AV-10')!;
+  assert.deepEqual([item.look.label, item.look.icon, item.look.tone, item.detail], ['Needs you: autopilot couldn\'t start it', 'bell', 'orange', 'Acme · Claude Code doesn\'t trust /r yet. Dispatch it anyway, or stop it waiting.']);
+  assert.deepEqual(item.actions.map((a) => a.label), ['Dispatch anyway', 'Open']);
+
+  // The task page names every file in full; the tracker's card says it waits.
+  const task = { id: 'AV-5', title: 'Task AV-5', brief: '', source: { kind: 'jira', key: 'AV-5', url: null }, environment: 'devbox', deps: [], labels: [], state: 'todo', blocker: null, run: null, pr: null, history: [], createdAt: '', updatedAt: '' } as never;
+  const page = ticketModel({ project: '/r', tracker: null, trackerTitle: null, trackerKind: null, key: 'AV-5', ticket: null, loading: false, error: null, connect: null, checks: [], row: rows[0]!, task });
+  assert.equal(page.acc!.files!.label, 'Waits for AV-1\'s files: src/a.ts, force-app/main/default/classes/X.cls, while AV-6 is ready to start');
+  assert.deepEqual([page.acc!.look.label, page.acc!.look.icon, page.acc!.look.tone], ['Waits for AV-1\'s files, while AV-6 is ready to start', 'clock', 'blue'], 'its State, in a few words, with what goes first');
+  assert.ok(page.acc!.actions.some((a) => a.command === 'acc.task.stopWaiting'));
+  const board: BoardInput = {
+    index: 0, kind: 'jira', title: 'Jira', error: null, connect: null, loading: false,
+    board: { source: 'jira-board', title: 'Board', url: null, notice: null, columns: [{ id: 'c', name: 'To Do', category: 'todo', statusIds: ['1'] }], cards: [{ key: 'AV-5', title: 'Task AV-5', url: 'u', status: { id: '1', name: 'To Do' }, type: 'Story', assignees: [], labels: [], priority: null }] },
+  };
+  const tcard = trackerBoard(board, rows, '/r').columns[0]!.cards[0]!;
+  assert.deepEqual([tcard.acc!.look.icon, tcard.acc!.look.tone, tcard.acc!.action?.label], ['clock', 'blue', 'Dispatch anyway']);
+
+  // Drawn with its icon and words, on the card and the page, and the page and menus may run both commands.
+  const main = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
+  assert.match(main, /card\.files \? el\('div', 'card-agent', status\(card\.files\)\) : null/);
+  assert.match(main, /if \(m\.acc\?\.files\)/);
+  for (const command of ['acc.task.dispatchAnyway', 'acc.task.stopWaiting']) {
+    assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === command), command);
+    assert.match(readFileSync(join(root, 'src', 'panels.ts'), 'utf8'), new RegExp(`'${command.replace('.', '\\.')}'`));
+    assert.match(readFileSync(join(root, 'src', 'ticket.ts'), 'utf8'), new RegExp(`'${command.replace('.', '\\.')}'`));
+  }
+});
+
+test('History tells autopilot\'s start of a held task, and one it couldn\'t make (D-093)', async () => {
+  const { autopilotStepLook } = await import('../src/model.ts');
+  const at = '2026-10-06T12:00:00.000Z';
+  const look = (r: Record<string, unknown>) => { const l = autopilotStepLook({ seq: 1, at, task: 'AV-5', step: 'start', outcome: 'done', ...r } as never); return [l.look.label, l.look.icon, l.look.tone, l.detail]; };
+  assert.deepEqual(look({ waitedFor: ['AV-1'] }), ['Autopilot started it: AV-1\'s files are free', 'rocket', 'blue', null]);
+  assert.deepEqual(look({ shares: [{ task: 'AV-1', files: ['src/a.ts'] }] }), ['Autopilot started it: nothing else was ready, so it shares files with AV-1', 'rocket', 'blue', 'AV-1: src/a.ts']);
+  assert.deepEqual(look({ outcome: 'failed', reason: 'No trust' }), ['Autopilot couldn\'t start it', 'warning', 'orange', 'No trust']);
+});
+
 test('How agents run is behind a Settings button, closed until it\'s opened, and the status bar\'s Auto-merge opens it', () => {
   const page = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
   // Closed by default, remembered for the tab, with a label that says which way it goes and an icon.
@@ -726,7 +800,7 @@ test('How agents run shows the project\'s autonomy, where it\'s set, and a way t
   };
   p.config = { ...p.config, autonomy: 'review' };
   const s = agentsModel(h).settings[0]!;
-  assert.deepEqual(s.autonomy, { value: 'review', from: 'project', meaning: 'Autopilot reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, and merges the base into a pull request that conflicts with it. It never merges a pull request.' });
+  assert.deepEqual(s.autonomy, { value: 'review', from: 'project', meaning: 'Autopilot reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, merges the base into a pull request that conflicts with it, and starts a task a person dispatched once the files it waits for are free. It never merges a pull request.' });
   p.config = { ...p.config, autonomy: 'manual' };
   assert.deepEqual(agentsModel(h).settings[0]!.autonomy, { value: 'manual', from: 'project', meaning: 'Nothing happens on its own.' });
   // The page asks acc to change it: the webview never writes the config.

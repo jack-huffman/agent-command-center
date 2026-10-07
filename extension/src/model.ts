@@ -15,7 +15,7 @@ import { autoMergeOn, type Environment, type Tracker, trackerForKey } from '../.
 import { promotionPaths } from '../../packages/core/src/promote.ts';
 import type { Answer, HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import { isOpenUpdate, stalePosting, type Update, UPDATE_ID, UPDATE_TEXT_MAX } from '../../packages/core/src/updates.ts';
-import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, BOARD_LANES, conflictLine, displayName, type DoctorItem, ENV_ICON, failedChecksLine, fileList, FROM_WORDS, groupTasks, isUnder, ownsSession, prConflicts, questionsWord, type RunPrompt, saidLine, sessionFor, shortPath, signInScope, TASK_GROUPS, type TaskRow, tildePath, type Tone } from './logic.ts';
+import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, BOARD_LANES, conflictLine, displayName, filesUnknown, sharesLine, taskNames, waitLine, waitsForFiles, whileFirst, type DoctorItem, ENV_ICON, failedChecksLine, fileList, FROM_WORDS, groupTasks, isUnder, ownsSession, prConflicts, questionsWord, type RunPrompt, saidLine, sessionFor, shortPath, signInScope, TASK_GROUPS, type TaskRow, tildePath, type Tone } from './logic.ts';
 import type { HeavyState } from '../../packages/core/src/semaphore.ts';
 import { type FinishedJobs, inProgress, type ProgressModel, type RepoJobs } from './progress.ts';
 import { isSlackWebhook, SLACK_KINDS, type SlackCard, type SlackKind } from './slack.ts';
@@ -143,6 +143,8 @@ export interface Card {
   closedPr: Look | null;
   /** Its builder stopped before acc done or acc block, with the last thing it said, clipped (D-067). */
   stopped: Look | null;
+  /** Its files beside other tasks' (D-093): it waits for them, its start failed, it shares them, or a Ready task's aren't known. */
+  files: Look | null;
   actions: Action[];
   /** The lanes it can be dropped in: the moves a person may make from where it is (D-041). */
   drops: string[];
@@ -172,7 +174,7 @@ export function analysisLook(t: Pick<TaskRow, 'state' | 'analysis' | 'analyzing'
   return t.analysis ? { label: 'Analyzed: ready to build', icon: 'pass', tone: 'blue' } : null;
 }
 
-const AUTOPILOT_STEP: Record<NonNullable<TaskRow['autopilot']>['step'], string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update from its base', resume: 'resume', checks: 'send it back for its failing checks', merge: 'merge it' };
+const AUTOPILOT_STEP: Record<NonNullable<TaskRow['autopilot']>['step'], string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update from its base', resume: 'resume', checks: 'send it back for its failing checks', merge: 'merge it', start: 'start it' };
 
 /** "Needs you: autopilot couldn't land", and with `why`, its reason after it (D-055). */
 export function autopilotLook(t: Pick<TaskRow, 'autopilot'>, why = true): Look | null {
@@ -197,6 +199,27 @@ export function stoppedLook(t: Pick<TaskRow, 'stopped'>, max = CARD_SAID): Look 
   if (!t.stopped) return null;
   const said = t.stopped.said ? (Number.isFinite(max) ? saidLine(t.stopped.said, max) : t.stopped.said.trim()) : null;
   return { label: `Needs you: its agent stopped${said ? `: ${said}` : ' before acc done or acc block'}`, icon: 'debug-disconnect', tone: 'orange' };
+}
+
+/**
+ * What a task says about its files beside other tasks' (D-093). A task a person dispatched that waits for
+ * them: a clock, in blue, naming each task and its files, short on a card and in full on its page, and the
+ * Ready tasks that go first. Its start failed: the bell, in orange. One that shares them, to do or started
+ * beside them: neutral. A Ready task with no analysis, or one naming no files: its files aren't known,
+ * neutral. Else nothing.
+ */
+export function filesLook(t: Pick<TaskRow, 'state' | 'display' | 'files' | 'analyzing'>, full = false): Look | null {
+  const f = t.files;
+  if (!f) return null;
+  if (t.state === 'todo' && f.held) {
+    if (f.held.failed) return { label: `Needs you: ${f.held.byAutopilot ? 'autopilot couldn\'t start it' : 'its start failed'}: ${f.held.failed}`, icon: 'bell', tone: 'orange' };
+    if (f.shares.length && f.first.length) return { label: waitLine(f.shares, full, f.first), icon: 'clock', tone: 'blue' };
+    if (f.capped) return { label: 'Waits for an agent: as many are running as the project allows', icon: 'clock', tone: 'blue' };
+    return { label: f.shares.length ? `Starting: nothing else is ready, so it shares files with ${taskNames(f.shares.map((s) => s.task))}` : 'Starting: the files it waited for are free', icon: 'clock', tone: 'blue' };
+  }
+  if (f.shares.length && t.state !== 'done') return { label: sharesLine(f.shares, full), icon: 'files', tone: 'neutral' };
+  if (t.state === 'todo' && t.display === 'ready' && !f.known && !t.analyzing) return { label: filesUnknown(!!f.analyzed), icon: 'info', tone: 'neutral' };
+  return null;
 }
 
 /** The lanes a task can be dropped in by a person, by acc's own move rules. Whether it then goes is acc's call. */
@@ -230,7 +253,9 @@ export function cardActions(t: TaskRow, ref: Ref): Action[] {
   // Its questions are answered on its page, where it shows them.
   else if (wait === 'questions') a.push({ command: 'acc.task.show', label: 'Answer', icon: 'question', ref, primary: true });
   else if (wait === 'split') a.push({ command: 'acc.task.show', label: 'See the split', icon: 'split-horizontal', ref, primary: true });
-  if (dispatchable) a.push({ command: 'acc.task.dispatch', label: t.state === 'rework' ? 'Re-dispatch' : 'Dispatch', icon: 'rocket', ref, primary: !a.some((x) => x.primary) });
+  // A task a person dispatched already waits for others' files (D-093): its next step is starting it anyway.
+  const held = todo && !!t.files?.held;
+  if (dispatchable) a.push(held ? { command: 'acc.task.dispatchAnyway', label: 'Dispatch anyway', icon: 'rocket', ref, primary: !a.some((x) => x.primary) } : { command: 'acc.task.dispatch', label: t.state === 'rework' ? 'Re-dispatch' : 'Dispatch', icon: 'rocket', ref, primary: !a.some((x) => x.primary) });
   // The same, with a model a person picks for this task (D-086): behind ⋯ on the card.
   if (dispatchable) a.push({ command: 'acc.task.dispatchWith', label: `${t.state === 'rework' ? 'Re-dispatch' : 'Dispatch'} with…`, icon: 'sparkle', ref });
   if (todo && !t.analyzing && !t.analysis) a.push({ command: 'acc.task.analyze', label: 'Analyze', icon: 'telescope', ref, primary: !!t.analysisRequired && !a.some((x) => x.primary) });
@@ -257,6 +282,7 @@ export function cardActions(t: TaskRow, ref: Ref): Action[] {
   const tidy = t.state === 'done' && !!t.run?.worktree;
   a.push({ command: 'acc.task.move', label: 'Move', icon: 'arrow-swap', ref, primary: !tidy && !a.some((x) => x.primary) });
   if (t.pr && t.pr.state !== 'open') a.push({ command: 'acc.task.openPr', label: `Pull request #${t.pr.number}`, icon: 'git-pull-request', ref });
+  if (held) a.push({ command: 'acc.task.stopWaiting', label: 'Stop waiting', icon: 'debug-pause', ref });
   if (t.state === 'running') a.push({ command: 'acc.task.abandon', label: 'Abandon', icon: 'debug-stop', ref, danger: true });
   else if (t.state === 'blocked') a.push({ command: 'acc.task.unblock', label: 'Unblock', icon: 'debug-restart', ref });
   else if (t.state !== 'done') a.push({ command: 'acc.task.block', label: 'Block', icon: 'circle-slash', ref });
@@ -290,7 +316,7 @@ export function tasksModel(hub: HubLike, boards: (root: string) => BoardInput[] 
             id: t.id, title: t.title, environment: t.environment, waitingOn: t.deps, url: t.source.url,
             // A stopped builder's line says it all: its old session's own state would only repeat it.
             agent: t.stopped ? null : t.agent ?? null, model: t.stopped || !t.agent ? null : t.model ?? null, agentName: t.run?.name ?? null, worktree: t.run?.worktree ?? null, conflicts: conflictLine(t), failedChecks: failedChecksLine(t), analysis: analysisLook(t), autopilot: autopilotLook(t), closedPr: closedPrLook(t),
-            stopped: t.autopilot ? null : stoppedLook(t),
+            stopped: t.autopilot ? null : stoppedLook(t), files: filesLook(t),
             actions: cardActions(t, { project: p.root, task: t.id }), drops: dropLanes(t),
           })),
         };
@@ -424,12 +450,19 @@ function accLook(row: TaskRow, full = false): Look {
   if (row.agent && row.display === 'needs-you') return row.agent;
   const analysis = analysisLook(row);
   if (analysis && (row.display === 'needs-you' || row.analyzing)) return analysis;
+  // A task a person dispatched waits for others' files, or its start failed (D-093), in a few words: the
+  // card's note and the page's notice name the files. The page's State names what goes first, since its
+  // notice may fold that away under Show all.
+  const files = row.files?.held ? filesLook(row) : null;
+  if (files && row.files!.held!.failed) return { ...files, label: row.files!.held!.byAutopilot ? 'Needs you: autopilot couldn\'t start it' : 'Needs you: its start failed' };
+  if (files && waitsForFiles(row)) return { ...files, label: `Waits for ${taskNames(row.files!.shares.map((s) => `${s.task}'s`))} files${full ? whileFirst(row.files!.first, true) : ''}` };
+  if (files) return files;
   const d = DISPLAY[row.display];
   return { label: d.label, icon: d.icon, tone: d.tone };
 }
 
 /** The steps a tracker's card offers for its task: start it, its analysis (D-052), or watch its agent. */
-const NEXT_STEPS = ['acc.task.dispatch', 'acc.task.analyze', 'acc.task.watchAnalysis', 'acc.task.show', 'acc.task.watch', 'acc.task.openInClaude', 'acc.task.resume'];
+const NEXT_STEPS = ['acc.task.dispatch', 'acc.task.dispatchAnyway', 'acc.task.analyze', 'acc.task.watchAnalysis', 'acc.task.show', 'acc.task.watch', 'acc.task.openInClaude', 'acc.task.resume'];
 
 export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): TrackerBoard {
   const byId = new Map(rows.map((r) => [r.id, r]));
@@ -466,6 +499,8 @@ export interface TicketAcc {
   conflicts: string | null;
   /** "Checks failed on GitHub: …", or null (D-076). Not `checks`: those are acc's own, on its commit. */
   failedChecks: string | null;
+  /** Its files beside other tasks', each file in full (D-093), or null. */
+  files: Look | null;
   agent: Look | null;
   /** The model its agent runs with (D-086). */
   model: string | null;
@@ -621,7 +656,7 @@ export function ticketModel(i: TicketInput): TicketModel {
   const t = i.ticket;
   const live = i.tracker !== null;
   const acc: TicketAcc | null = i.row && i.task ? {
-    look: accLook(i.row, true), environment: i.task.environment, waitingOn: i.row.deps, blocker: i.task.blocker, conflicts: conflictLine(i.row, true), failedChecks: failedChecksLine(i.row),
+    look: accLook(i.row, true), environment: i.task.environment, waitingOn: i.row.deps, blocker: i.task.blocker, conflicts: conflictLine(i.row, true), failedChecks: failedChecksLine(i.row), files: filesLook(i.row, true),
     agent: i.row.stopped ? null : i.row.agent ?? null, model: i.row.model ?? null, agentName: i.task.run?.name ?? null, worktree: i.task.run?.worktree ?? null, branch: i.task.run?.branch ?? null, checks: i.checks,
     history: i.task.history.map((h) => ({ at: h.at, from: h.from, to: h.to, by: h.by, reason: h.reason ?? null })).reverse(),
     // Its analysis has its own section, with its own buttons.
@@ -1362,6 +1397,12 @@ export function autopilotStepLook(r: AutopilotRecord): { look: Look; detail: str
   if (r.step === 'dispatch') return { look: LOOK(r.cause === 'checks' ? 'Autopilot re-dispatched it for its failing checks' : 'Autopilot re-dispatched it for the review\'s changes', 'debug-restart', 'blue'), detail: null, url: null };
   // A builder that stopped, carried on once (D-067), with the last thing it said.
   if (r.step === 'resume') return { look: LOOK('Autopilot resumed it', 'debug-continue', 'blue'), detail: r.reason || null, url: null };
+  // A task a person dispatched, started once the files it waited for were free, or nothing else was ready (D-093).
+  if (r.step === 'start') {
+    return r.shares?.length
+      ? { look: LOOK(`Autopilot started it: nothing else was ready, so it shares files with ${taskNames(r.shares.map((s) => s.task))}`, 'rocket', 'blue'), detail: r.shares.map((s) => `${s.task}: ${s.files.join(', ')}`).join('; '), url: null }
+      : { look: LOOK(`Autopilot started it${r.waitedFor?.length ? `: ${taskNames(r.waitedFor)}'s files are free` : ''}`, 'rocket', 'blue'), detail: null, url: null };
+  }
   // Merged where the repo turns auto-merge on (GH-67): acc sync moves it to done.
   if (r.step === 'merge') return { look: LOOK(r.pr ? `Autopilot merged pull request #${r.pr.number}` : 'Autopilot merged its pull request', 'git-merge', 'blue'), detail: 'acc sync moves it to done.', url: r.pr?.url || null };
   if (r.base) return { look: LOOK(`Autopilot merged ${r.base} into it`, 'git-merge', 'blue'), detail: 'Its checks passed on the merge. It\'s reviewed next, then landed.', url: null };
@@ -1913,6 +1954,12 @@ export function homeModel(i: HomeInput): HomeModel {
         if (r.autopilot) {
           const byHand = acts.find((a) => a.primary && ['acc.task.review', 'acc.task.land', 'acc.task.dispatch', 'acc.task.openPr', 'acc.task.resume'].includes(a.command));
           attention.push({ key: `t:${p.root}:${r.id}`, look: autopilotLook(r, false)!, title: `${r.id} ${r.title}`, detail: `${p.name} · ${r.autopilot.reason.replace(/([^.!?])$/, '$1.')} Do it by hand, or a new commit lets autopilot try again.`, project: p.name, actions: [...(byHand ? [byHand] : []), details] });
+          continue;
+        }
+        // A task a person dispatched couldn't start on its own once its wait was over (D-093): why, and Dispatch anyway.
+        if (r.state === 'todo' && r.files?.held?.failed) {
+          const anyway = acts.find((a) => a.command === 'acc.task.dispatchAnyway');
+          attention.push({ key: `t:${p.root}:${r.id}`, look: LOOK(r.files.held.byAutopilot ? 'Needs you: autopilot couldn\'t start it' : 'Needs you: its start failed', 'bell', 'orange'), title: `${r.id} ${r.title}`, detail: `${p.name} · ${r.files.held.failed.replace(/([^.!?])$/, '$1.')} Dispatch it anyway, or stop it waiting.`, project: p.name, actions: [...(anyway ? [anyway] : []), details] });
           continue;
         }
         // Its builder stopped before acc done or acc block (D-067): what it last said, and Resume.
