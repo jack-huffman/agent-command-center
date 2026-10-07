@@ -1,0 +1,63 @@
+[
+  {
+    "command": "acc.doctor",
+    "title": "Check setup",
+    "category": "Agent Command Center",
+    "icon": "$(checklist)"
+  },
+  {
+    "command": "acc.openMachineWalkthrough",
+    "title": "Set up this machine",
+    "category": "Agent Command Center"
+  },
+  {
+    "command": "acc.openProjectWalkthrough",
+    "title": "Onboard this project",
+    "category": "Agent Command Center"
+  },
+  {
+    "command": "acc.chooseFolder",
+    "title": "Choose the project folder",
+    "category": "Agent Command Center"
+  },
+  {
+    "command": "acc.openGuide",
+    "title": "Open the onboarding guide",
+    "category": "Agent Command Center"
+  },
+  {
+    "command": "acc.step.check",
+    "title": "Check step",
+    "category": "Agent Command Center",
+    "icon": "$(refresh)"
+  },
+  {
+    "command": "acc.step.fix",
+    "title": "Fix step",
+    "category": "Agent Command Center",
+    "icon": "$(wrench)"
+  },
+  {
+    "command": "acc.step.openSetup",
+    "title": "Open step in Salesforce",
+    "category": "Agent Command Center",
+    "icon": "$(globe)"
+  },
+  {
+    "command": "acc.step.confirm",
+    "title": "Mark step done",
+    "category": "Agent Command Center"
+  },
+  {
+    "command": "acc.setup.refresh",
+    "title": "Re-check setup",
+    "category": "Agent Command Center",
+    "icon": "$(refresh)"
+  },
+  {
+    "command": "acc.sf.login",
+    "title": "Log in to an environment's Salesforce org",
+    "category": "Agent Command Center",
+    "icon": "$(cloud)"
+  }
+]

@@ -3,8 +3,8 @@
  * A builder runs them with `acc gate run`; `acc done` accepts the task once every required gate has
  * passed, or didn't apply, on the branch's latest commit. Gates check. They never deploy (D-011).
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { isAbsolute, join, posix } from 'node:path';
 import { type Config, type Environment, requiredGates } from './config.ts';
 import { AccError, parseJsonOutput, type RunResult, type Runner, sfEnv } from './exec.ts';
 import type { Ledger, Task } from './ledger.ts';
@@ -83,23 +83,45 @@ const exitRead = (r: RunResult): Outcome => (r.code === 0 ? pass('Passed.') : r.
  * The environment a check runs in: acc's own, without a builder's identity, so a check gives the same
  * answer inside a builder as outside one (D-044). GH-13's builder found tests that ran acc, saw its
  * ACC_TASK and failed. A heavy check's own heavy work is part of it: it gets a slot folder of its own,
- * so it never waits for the slot its check holds. GH-12's check did, until it was stopped.
+ * so it never waits for the slot its check holds. GH-12's check did, until it was stopped. What a branch
+ * changed and the tests near it come from this run only, never from a check running acc's own tests.
  */
 export function checkEnv(env: NodeJS.ProcessEnv = process.env, heavyDir?: string): NodeJS.ProcessEnv {
-  const { ACC_ROLE: _role, ACC_TASK: _task, ...rest } = env;
+  const { ACC_ROLE: _role, ACC_TASK: _task, ACC_CHANGED: _changed, ACC_NEAR_TESTS: _near, ...rest } = env;
   return heavyDir ? { ...rest, ACC_HEAVY_DIR: heavyDir } : rest;
 }
 
 /**
  * A gate from `gates.commands`, run by the shell in the checkout. It's told what the branch changed, and the
  * tests near those changes, one path a line (GH-73): `ACC_CHANGED` and `ACC_NEAR_TESTS`, so a builder's
- * lighter check can run only those.
+ * lighter check can run only those. Only a gate that reads `ACC_NEAR_TESTS` is given it (GH-95), so the
+ * full check and a typecheck don't wait while acc reads every test.
  */
 function commandGate(name: string, command: string, heavy: boolean): Gate {
   return {
     name, heavy, about: command,
-    plan: ({ changes, near }) => ({ cmd: 'sh', args: ['-c', command], read: exitRead, env: { ACC_CHANGED: changes.files.join('\n'), ACC_NEAR_TESTS: near().join('\n') } }),
+    plan: ({ root, changes, near }) => ({
+      cmd: 'sh', args: ['-c', command], read: exitRead,
+      env: { ACC_CHANGED: changes.files.join('\n'), ...(readsNearTests(root, command) ? { ACC_NEAR_TESTS: near().join('\n') } : {}) },
+    }),
   };
+}
+
+/**
+ * Whether a command reads `ACC_NEAR_TESTS` (GH-95): it names it, or names a file in the checkout that does,
+ * as this repo's `node --no-warnings scripts/near-tests.mjs` does.
+ */
+export function readsNearTests(root: string, command: string): boolean {
+  if (command.includes('ACC_NEAR_TESTS')) return true;
+  return command.split(/\s+/).map((w) => w.replace(/^['"]|['"]$/g, '')).some((w) => {
+    if (!w || w.startsWith('-') || isAbsolute(w) || w.split('/').includes('..')) return false;
+    try {
+      const file = join(root, w);
+      return statSync(file).isFile() && readFileSync(file, 'utf8').includes('ACC_NEAR_TESTS');
+    } catch {
+      return false;
+    }
+  });
 }
 
 // ---------------------------------------------------------------- the tests near a change (GH-73)
@@ -108,36 +130,87 @@ function commandGate(name: string, command: string, heavy: boolean): Gate {
 const TEST_FILE = /(^|\/)(test_[^/]+\.\w+|[^/]+[._](test|spec)\.\w+)$/;
 const isTest = (path: string): boolean => TEST_FILE.test(path);
 
-/** The folder a source file's package starts in: up to its src, lib or app folder, else its own folder. */
-function packageOf(path: string): string {
+/**
+ * The folder a source file's package starts in: up to its src, lib or app folder, else the nearest folder
+ * above it with a package.json (extension/webview/main.ts is extension's), else its own folder.
+ */
+function packageOf(path: string, tracked: Set<string>): string {
   const parts = path.split('/');
   const at = parts.findIndex((p, i) => i < parts.length - 1 && ['src', 'lib', 'app'].includes(p));
-  return (at >= 0 ? parts.slice(0, at) : parts.slice(0, -1)).join('/');
+  if (at >= 0) return parts.slice(0, at).join('/');
+  for (let n = parts.length - 1; n >= 0; n--) if (tracked.has([...parts.slice(0, n), 'package.json'].join('/'))) return parts.slice(0, n).join('/');
+  return parts.slice(0, -1).join('/');
 }
 
 const escape = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+/** Code an import can name. The folder rule (GH-95) only follows these. */
+const CODE = /\.[cm]?[jt]sx?$/;
+const withoutExt = (path: string): string => path.replace(CODE, '');
+
 /**
  * The tests near what a branch changed (GH-73): the test files it changed, and, for each other file it
  * changed, the tests in the same package named for it (merge.ts → merge.test.ts, test_merge.py) or that
- * import it by name. `tracked` is every file in the checkout; `read` gives a test file's text. Paths are
- * the repo's, sorted, each once.
+ * import it by name.
+ *
+ * A file a folder's index gathers is also near the tests of that index and of what loads it (GH-95), as
+ * the tests that run packages/cli/src/main.ts test every module in its commands/ folder. An index is a
+ * file that imports the changed file and most of the other code in its folder; what loads it is any other
+ * code in the package that imports it by its path.
+ *
+ * `tracked` is every file in the checkout; `read` gives a file's text, and is asked once a file. Paths
+ * are the repo's, sorted, each once.
  */
 export function nearTests(changed: string[], tracked: string[], read: (path: string) => string | null): string[] {
+  const files = new Set(tracked);
+  const texts = new Map<string, string>();
+  const text = (f: string): string => {
+    if (!texts.has(f)) texts.set(f, read(f) ?? '');
+    return texts.get(f)!;
+  };
+  // The paths a file names relative to itself, without their extension: './commands/index.ts', '../src/main.ts'.
+  const relative = new Map<string, Set<string>>();
+  const pathsIn = (f: string): Set<string> => {
+    if (!relative.has(f)) relative.set(f, new Set([...text(f).matchAll(/['"`](\.\.?\/[^'"`\n]*)['"`]/g)].map((m) => withoutExt(posix.join(posix.dirname(f), m[1]!)))));
+    return relative.get(f)!;
+  };
   const tests = tracked.filter(isTest);
-  const out = new Set(changed.filter((f) => isTest(f) && tracked.includes(f)));
-  for (const f of changed.filter((x) => !isTest(x))) {
+  const code = tracked.filter((f) => CODE.test(f) && !isTest(f));
+  const folderOf = (f: string): string => posix.dirname(f);
+  // A file imports an index by its path, or by its folder's when it's named index: './commands'.
+  const importsIndex = (f: string, index: string): boolean => pathsIn(f).has(withoutExt(index)) || (/^index\./.test(posix.basename(index)) && pathsIn(f).has(folderOf(index)));
+
+  /** The tests in a file's package named for it or importing it by name. */
+  const nearOne = (f: string): string[] => {
     const base = f.split('/').at(-1)!;
     const stem = base.replace(/\.[^.]+$/, '');
-    if (!stem || stem === base) continue;
-    const pkg = packageOf(f);
-    const inPkg = tests.filter((t) => !pkg || t.startsWith(`${pkg}/`));
+    if (!stem || stem === base) return [];
+    const pkg = packageOf(f, files);
     const named = new RegExp(`(^|/)(${escape(stem)}[._](test|spec)\\.\\w+|test_${escape(stem)}\\.\\w+)$`);
     // An import or require that names the file: '../src/merge.ts', './merge', "pkg/merge.js".
     const imports = new RegExp(`['"\`][^'"\`\\n]*\\/${escape(stem)}(\\.[cm]?[jt]sx?)?['"\`]`);
-    for (const t of inPkg) {
-      if (named.test(t)) out.add(t);
-      else if (imports.test(read(t) ?? '')) out.add(t);
+    return tests.filter((t) => (!pkg || t.startsWith(`${pkg}/`)) && (named.test(t) || imports.test(text(t))));
+  };
+
+  /** The indexes that gather a file: code in its folder that imports it and more than half the rest. */
+  const indexesOf = (f: string): string[] => {
+    if (!CODE.test(f)) return [];
+    const folder = code.filter((c) => folderOf(c) === folderOf(f));
+    return folder.filter((i) => {
+      if (i === f || !pathsIn(i).has(withoutExt(f))) return false;
+      const others = folder.filter((c) => c !== i);
+      const gathered = others.filter((c) => pathsIn(i).has(withoutExt(c))).length;
+      return gathered >= 2 && gathered * 2 > others.length;
+    });
+  };
+
+  const out = new Set(changed.filter((f) => isTest(f) && files.has(f)));
+  for (const f of changed.filter((x) => !isTest(x))) {
+    for (const t of nearOne(f)) out.add(t);
+    const pkg = packageOf(f, files);
+    for (const index of indexesOf(f)) {
+      const loaders = code.filter((c) => c !== index && (!pkg || c.startsWith(`${pkg}/`)) && importsIndex(c, index));
+      for (const g of [index, ...loaders]) for (const t of nearOne(g)) out.add(t);
     }
   }
   return [...out].sort();

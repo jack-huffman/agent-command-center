@@ -1,0 +1,7 @@
+[
+  {
+    "command": "acc.status.menu",
+    "title": "Show the Command Center menu",
+    "category": "Agent Command Center"
+  }
+]

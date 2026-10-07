@@ -11,7 +11,7 @@ import { shipCli } from './ship-cli.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-// Each folder's index of its area modules (D-099), first: the CLI's bundle already reads one.
+// Each folder's index of its area modules (D-099), and core's index (GH-95), first: the CLI's bundle reads them.
 const { writeAreas } = await import('./areas.ts');
 const areas = writeAreas();
 console.log(areas.length ? `updated ${areas.join(', ')}` : 'area indexes up to date');
@@ -76,7 +76,9 @@ await build({
   logLevel: 'warning',
 });
 mkdirSync(join(ext, 'dist', 'webview', 'codicons'), { recursive: true });
-copyFileSync(join(ext, 'webview', 'styles.css'), join(ext, 'dist', 'webview', 'styles.css'));
+// What every area shares, then each area's own styles (GH-95), as one file.
+const { pageStyles } = await import('../extension/scripts/styles.ts');
+writeFileSync(join(ext, 'dist', 'webview', 'styles.css'), pageStyles());
 for (const f of ['codicon.css', 'codicon.ttf']) copyFileSync(join(root, 'node_modules', '@vscode', 'codicons', 'dist', f), join(ext, 'dist', 'webview', 'codicons', f));
 // Editor tabs show their icon as a plain image, so currentColor comes out black. Give them a fixed
 // colour per theme: white on dark tab bars, dark grey on light ones.

@@ -1,0 +1,44 @@
+[
+  {
+    "command": "acc.open.home",
+    "title": "Open Command Center",
+    "category": "Agent Command Center",
+    "icon": "$(home)"
+  },
+  {
+    "command": "acc.open.tasks",
+    "title": "Open the Tasks board as a tab",
+    "category": "Agent Command Center",
+    "icon": "$(link-external)"
+  },
+  {
+    "command": "acc.open.agents",
+    "title": "Open Agents as a tab",
+    "category": "Agent Command Center",
+    "icon": "$(link-external)"
+  },
+  {
+    "command": "acc.open.worktrees",
+    "title": "Open Worktrees as a tab",
+    "category": "Agent Command Center",
+    "icon": "$(link-external)"
+  },
+  {
+    "command": "acc.open.environments",
+    "title": "Open Environments as a tab",
+    "category": "Agent Command Center",
+    "icon": "$(link-external)"
+  },
+  {
+    "command": "acc.open.setup",
+    "title": "Open Setup as a tab",
+    "category": "Agent Command Center",
+    "icon": "$(link-external)"
+  },
+  {
+    "command": "acc.runs.show",
+    "title": "Show command output",
+    "category": "Agent Command Center",
+    "icon": "$(output)"
+  }
+]

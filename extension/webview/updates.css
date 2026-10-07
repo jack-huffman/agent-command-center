@@ -1,0 +1,22 @@
+/* An update acc drafted for the ticket (D-066): read, edit, then Post or Discard. Nothing goes until a person posts it. */
+.act-drafts { display: grid; gap: 10px; margin: 4px 0 14px; }
+.act-draft { padding: 8px 10px 10px; border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: var(--radius); background: var(--card); }
+.act-draft.tone-edge-orange { border-left-color: var(--orange); }
+.act-draft.tone-edge-blue { border-left-color: var(--blue); }
+.act-draft-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-height: 24px; }
+.act-draft-head .strong { min-width: 0; overflow-wrap: anywhere; }
+.act-draft-edit { margin-top: 8px; border: 1px solid var(--vscode-input-border, var(--line)); border-radius: var(--radius); background: var(--vscode-input-background); }
+.act-draft-edit:focus-within { border-color: var(--vscode-focusBorder); }
+.act-draft-text { min-height: 60px; }
+.act-draft-text:disabled { opacity: 0.75; }
+.act-draft .composer-bar { flex-wrap: wrap; row-gap: 6px; }
+.act-draft .aq-error { margin: 8px 0 0; }
+/* A replaced draft's edit, carried over (GH-46): a note, and the newer wording to take instead. */
+.act-draft-note { display: flex; align-items: flex-start; gap: 6px; margin: 8px 0 0; font-size: 0.92em; }
+.act-draft-note .codicon { flex: none; margin-top: 2px; }
+.act-draft-note span { min-width: 0; overflow-wrap: anywhere; }
+.act-draft-newer { margin-top: 8px; padding: 6px 10px; border-left: 2px solid var(--blue); }
+.act-draft-newer-text { margin-top: 2px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--vscode-descriptionForeground); }
+.act-draft-newer-bar { display: flex; justify-content: flex-end; margin-top: 6px; }
+.draft-blocked { color: var(--orange); }
+.draft-blocked .codicon { color: var(--orange); }

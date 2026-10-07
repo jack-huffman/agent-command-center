@@ -19,7 +19,18 @@ import { AGENT_SETTINGS } from '../src/model/agents.ts';
 import { HOME_SECTIONS, type HomeSection } from '../src/model/shared.ts';
 import { homeModel, type Model } from '../src/model/home.ts';
 import { FinishedJobs } from '../src/progress.ts';
-import { type ConnectSample, SAMPLE_EDIT, sampleAgent, sampleAnalyzeRun, sampleBoards, sampleBusyHub, sampleConnect, sampleEdited, sampleHub, sampleIdentity, sampleIdleHub, sampleMondayBoards, sampleQueueHub, sampleRuns, sampleSetup, sampleSlack, type SlackSample, sampleTicket } from './fixtures.ts';
+import { sampleAgent } from './fixtures/agent-page.ts';
+import { sampleBoards, sampleMondayBoards } from './fixtures/boards.ts';
+import { type ConnectSample, sampleConnect } from './fixtures/connect.ts';
+import { sampleIdentity } from './fixtures/environments.ts';
+import { sampleHub } from './fixtures/hub.ts';
+import { sampleQueueHub } from './fixtures/overview.ts';
+import { sampleAnalyzeRun, sampleBusyHub, sampleIdleHub } from './fixtures/progress.ts';
+import { sampleRuns } from './fixtures/runs.ts';
+import { sampleSetup } from './fixtures/setup.ts';
+import { sampleSlack, type SlackSample } from './fixtures/slack.ts';
+import { sampleTicket } from './fixtures/task-page.ts';
+import { SAMPLE_EDIT, sampleEdited } from './fixtures/updates.ts';
 
 /**
  * Every page the screenshot script can draw: each section of the Command Center, a ticket's page (being

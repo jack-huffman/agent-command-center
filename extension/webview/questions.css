@@ -1,0 +1,40 @@
+/* An agent's question. Orange says it needs you; the words say so too. */
+.question { border: 1px solid var(--line); border-left: 3px solid var(--orange); border-radius: var(--radius); background: var(--vscode-editor-background); padding: 10px 12px; margin: 8px 0 10px; }
+.question.sent { opacity: 0.7; border-left-color: var(--blue); }
+.q-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+.q-head time { margin-left: auto; font-size: 0.88em; white-space: nowrap; }
+.q-who { display: flex; align-items: baseline; gap: 5px; min-width: 0; flex-wrap: wrap; }
+.q-who .codicon { align-self: center; }
+.q-detail { margin: 0 0 6px; color: var(--vscode-descriptionForeground); }
+.q-plan { white-space: pre-wrap; color: var(--vscode-foreground); max-height: 240px; overflow: auto; }
+.q-code { margin: 0 0 8px; padding: 8px 10px; border-radius: 4px; background: var(--vscode-textCodeBlock-background); font-family: var(--vscode-editor-font-family); font-size: 0.92em; white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto; }
+.q-actions { margin-top: 4px; align-items: center; }
+.q-aside { display: inline-flex; gap: 2px; margin-left: auto; }
+.q-aside .btn { white-space: nowrap; }
+.q-aside-group { display: inline-flex; gap: 2px; }
+.q-deny { display: flex; flex-direction: column; gap: 8px; align-items: stretch; margin-top: 6px; }
+.q-deny .actions { justify-content: flex-start; }
+.q-pending { display: flex; align-items: center; gap: 6px; }
+.q-words { width: 100%; resize: vertical; font: inherit; }
+.q-words.mono { font-family: var(--vscode-editor-font-family); font-size: 0.92em; }
+.q-choices { list-style: none; margin: 4px 0 6px; padding: 0; display: grid; gap: 4px; max-width: 760px; }
+.q-choice { display: flex; align-items: center; gap: 8px; width: 100%; height: 100%; padding: 5px 10px; text-align: left; border-radius: 5px; cursor: pointer; font: inherit; color: var(--vscode-foreground); background: transparent; border: 1px solid var(--line); }
+.q-choice:hover, .q-choice:focus-visible { background: var(--vscode-list-hoverBackground); border-color: var(--vscode-focusBorder); }
+.q-choice.primary { border-color: var(--vscode-button-background); }
+.q-choice .codicon { flex: none; }
+.q-rule { font-family: var(--vscode-editor-font-family); font-size: 0.9em; padding: 0 4px; border-radius: 3px; background: var(--vscode-textCodeBlock-background); }
+.q-num { flex: none; width: 18px; height: 18px; margin-top: 1px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.8em; font-weight: 600; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+.q-choice.primary .q-num { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+.q-choice-text { min-width: 0; overflow-wrap: anywhere; }
+.q-sending { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 0.92em; }
+.q-set { border: 0; margin: 4px 0 10px; padding: 0; min-width: 0; }
+.q-set legend { display: flex; align-items: center; gap: 6px; padding: 0; margin-bottom: 6px; font-weight: 600; }
+.q-chip { margin-left: 0; }
+.q-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 6px; margin-bottom: 6px; }
+.q-option { display: flex; align-items: flex-start; gap: 8px; padding: 7px 10px; text-align: left; border-radius: 5px; cursor: pointer; font: inherit; color: var(--vscode-foreground); background: var(--card); border: 1px solid var(--line); }
+.q-option:hover { border-color: var(--vscode-focusBorder); }
+.q-option.on { border-color: var(--blue); box-shadow: inset 0 0 0 1px var(--blue); }
+.q-option .codicon { margin-top: 2px; flex: none; }
+.q-option-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.q-set .text-input { width: 100%; }
+.inbox .question { margin: 8px 0 12px; }

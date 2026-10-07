@@ -30,136 +30,6 @@
   "contributes": {
     "commands": [
       {
-        "command": "acc.open.home",
-        "title": "Open Command Center",
-        "category": "Agent Command Center",
-        "icon": "$(home)"
-      },
-      {
-        "command": "acc.status.menu",
-        "title": "Show the Command Center menu",
-        "category": "Agent Command Center"
-      },
-      {
-        "command": "acc.doctor",
-        "title": "Check setup",
-        "category": "Agent Command Center",
-        "icon": "$(checklist)"
-      },
-      {
-        "command": "acc.openMachineWalkthrough",
-        "title": "Set up this machine",
-        "category": "Agent Command Center"
-      },
-      {
-        "command": "acc.openProjectWalkthrough",
-        "title": "Onboard this project",
-        "category": "Agent Command Center"
-      },
-      {
-        "command": "acc.chooseFolder",
-        "title": "Choose the project folder",
-        "category": "Agent Command Center"
-      },
-      {
-        "command": "acc.openGuide",
-        "title": "Open the onboarding guide",
-        "category": "Agent Command Center"
-      },
-      {
-        "command": "acc.step.check",
-        "title": "Check step",
-        "category": "Agent Command Center",
-        "icon": "$(refresh)"
-      },
-      {
-        "command": "acc.step.fix",
-        "title": "Fix step",
-        "category": "Agent Command Center",
-        "icon": "$(wrench)"
-      },
-      {
-        "command": "acc.step.openSetup",
-        "title": "Open step in Salesforce",
-        "category": "Agent Command Center",
-        "icon": "$(globe)"
-      },
-      {
-        "command": "acc.step.confirm",
-        "title": "Mark step done",
-        "category": "Agent Command Center"
-      },
-      {
-        "command": "acc.setup.refresh",
-        "title": "Re-check setup",
-        "category": "Agent Command Center",
-        "icon": "$(refresh)"
-      },
-      {
-        "command": "acc.task.intake",
-        "title": "Intake: new work for agents…",
-        "category": "Agent Command Center",
-        "icon": "$(inbox)"
-      },
-      {
-        "command": "acc.task.add",
-        "title": "Add task",
-        "category": "Agent Command Center",
-        "icon": "$(add)"
-      },
-      {
-        "command": "acc.task.importGithub",
-        "title": "Import GitHub issues",
-        "category": "Agent Command Center",
-        "icon": "$(github)"
-      },
-      {
-        "command": "acc.task.importJira",
-        "title": "Import from Jira",
-        "category": "Agent Command Center",
-        "icon": "$(cloud-download)"
-      },
-      {
-        "command": "acc.task.show",
-        "title": "Show task details",
-        "category": "Agent Command Center"
-      },
-      {
-        "command": "acc.task.move",
-        "title": "Move task…",
-        "category": "Agent Command Center",
-        "icon": "$(arrow-swap)"
-      },
-      {
-        "command": "acc.task.block",
-        "title": "Block task…",
-        "category": "Agent Command Center",
-        "icon": "$(circle-slash)"
-      },
-      {
-        "command": "acc.task.unblock",
-        "title": "Unblock task",
-        "category": "Agent Command Center",
-        "icon": "$(debug-restart)"
-      },
-      {
-        "command": "acc.task.openTicket",
-        "title": "Open ticket",
-        "category": "Agent Command Center",
-        "icon": "$(link-external)"
-      },
-      {
-        "command": "acc.task.copyId",
-        "title": "Copy task id",
-        "category": "Agent Command Center"
-      },
-      {
-        "command": "acc.tasks.refresh",
-        "title": "Refresh tasks",
-        "category": "Agent Command Center",
-        "icon": "$(refresh)"
-      },
-      {
         "command": "acc.agent.new",
         "title": "Start a background agent…",
         "category": "Agent Command Center",
@@ -244,42 +114,6 @@
         "icon": "$(output)"
       },
       {
-        "command": "acc.job.stop",
-        "title": "Stop a job in progress",
-        "category": "Agent Command Center",
-        "icon": "$(debug-stop)"
-      },
-      {
-        "command": "acc.worktree.open",
-        "title": "Open in new window",
-        "category": "Agent Command Center",
-        "icon": "$(empty-window)"
-      },
-      {
-        "command": "acc.worktree.terminal",
-        "title": "Open terminal here",
-        "category": "Agent Command Center",
-        "icon": "$(terminal)"
-      },
-      {
-        "command": "acc.worktree.reveal",
-        "title": "Reveal in Finder",
-        "category": "Agent Command Center",
-        "icon": "$(folder-opened)"
-      },
-      {
-        "command": "acc.worktree.remove",
-        "title": "Remove worktree…",
-        "category": "Agent Command Center",
-        "icon": "$(trash)"
-      },
-      {
-        "command": "acc.worktrees.refresh",
-        "title": "Refresh worktrees",
-        "category": "Agent Command Center",
-        "icon": "$(refresh)"
-      },
-      {
         "command": "acc.env.openOrg",
         "title": "Open org",
         "category": "Agent Command Center",
@@ -315,6 +149,12 @@
         "category": "Agent Command Center"
       },
       {
+        "command": "acc.open.home",
+        "title": "Open Command Center",
+        "category": "Agent Command Center",
+        "icon": "$(home)"
+      },
+      {
         "command": "acc.open.tasks",
         "title": "Open the Tasks board as a tab",
         "category": "Agent Command Center",
@@ -343,6 +183,178 @@
         "title": "Open Setup as a tab",
         "category": "Agent Command Center",
         "icon": "$(link-external)"
+      },
+      {
+        "command": "acc.runs.show",
+        "title": "Show command output",
+        "category": "Agent Command Center",
+        "icon": "$(output)"
+      },
+      {
+        "command": "acc.github.signIn",
+        "title": "Sign in to GitHub as this repo's account",
+        "category": "Agent Command Center",
+        "icon": "$(github)"
+      },
+      {
+        "command": "acc.github.switch",
+        "title": "Switch this repo's GitHub account",
+        "category": "Agent Command Center",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "acc.status.menu",
+        "title": "Show the Command Center menu",
+        "category": "Agent Command Center"
+      },
+      {
+        "command": "acc.job.stop",
+        "title": "Stop a job in progress",
+        "category": "Agent Command Center",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "acc.doctor",
+        "title": "Check setup",
+        "category": "Agent Command Center",
+        "icon": "$(checklist)"
+      },
+      {
+        "command": "acc.openMachineWalkthrough",
+        "title": "Set up this machine",
+        "category": "Agent Command Center"
+      },
+      {
+        "command": "acc.openProjectWalkthrough",
+        "title": "Onboard this project",
+        "category": "Agent Command Center"
+      },
+      {
+        "command": "acc.chooseFolder",
+        "title": "Choose the project folder",
+        "category": "Agent Command Center"
+      },
+      {
+        "command": "acc.openGuide",
+        "title": "Open the onboarding guide",
+        "category": "Agent Command Center"
+      },
+      {
+        "command": "acc.step.check",
+        "title": "Check step",
+        "category": "Agent Command Center",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "acc.step.fix",
+        "title": "Fix step",
+        "category": "Agent Command Center",
+        "icon": "$(wrench)"
+      },
+      {
+        "command": "acc.step.openSetup",
+        "title": "Open step in Salesforce",
+        "category": "Agent Command Center",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "acc.step.confirm",
+        "title": "Mark step done",
+        "category": "Agent Command Center"
+      },
+      {
+        "command": "acc.setup.refresh",
+        "title": "Re-check setup",
+        "category": "Agent Command Center",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "acc.sf.login",
+        "title": "Log in to an environment's Salesforce org",
+        "category": "Agent Command Center",
+        "icon": "$(cloud)"
+      },
+      {
+        "command": "acc.slack.connect",
+        "title": "Send notices to Slack…",
+        "category": "Agent Command Center",
+        "icon": "$(bell)"
+      },
+      {
+        "command": "acc.slack.test",
+        "title": "Send a test message to Slack",
+        "category": "Agent Command Center",
+        "icon": "$(send)"
+      },
+      {
+        "command": "acc.slack.off",
+        "title": "Stop sending notices to Slack",
+        "category": "Agent Command Center",
+        "icon": "$(debug-pause)"
+      },
+      {
+        "command": "acc.task.intake",
+        "title": "Intake: new work for agents…",
+        "category": "Agent Command Center",
+        "icon": "$(inbox)"
+      },
+      {
+        "command": "acc.task.add",
+        "title": "Add task",
+        "category": "Agent Command Center",
+        "icon": "$(add)"
+      },
+      {
+        "command": "acc.task.importGithub",
+        "title": "Import GitHub issues",
+        "category": "Agent Command Center",
+        "icon": "$(github)"
+      },
+      {
+        "command": "acc.task.importJira",
+        "title": "Import from Jira",
+        "category": "Agent Command Center",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "acc.task.show",
+        "title": "Show task details",
+        "category": "Agent Command Center"
+      },
+      {
+        "command": "acc.task.move",
+        "title": "Move task…",
+        "category": "Agent Command Center",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "acc.task.block",
+        "title": "Block task…",
+        "category": "Agent Command Center",
+        "icon": "$(circle-slash)"
+      },
+      {
+        "command": "acc.task.unblock",
+        "title": "Unblock task",
+        "category": "Agent Command Center",
+        "icon": "$(debug-restart)"
+      },
+      {
+        "command": "acc.task.openTicket",
+        "title": "Open ticket",
+        "category": "Agent Command Center",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "acc.task.copyId",
+        "title": "Copy task id",
+        "category": "Agent Command Center"
+      },
+      {
+        "command": "acc.tasks.refresh",
+        "title": "Refresh tasks",
+        "category": "Agent Command Center",
+        "icon": "$(refresh)"
       },
       {
         "command": "acc.task.dispatch",
@@ -476,46 +488,34 @@
         "icon": "$(sign-out)"
       },
       {
-        "command": "acc.github.signIn",
-        "title": "Sign in to GitHub as this repo's account",
+        "command": "acc.worktree.open",
+        "title": "Open in new window",
         "category": "Agent Command Center",
-        "icon": "$(github)"
+        "icon": "$(empty-window)"
       },
       {
-        "command": "acc.sf.login",
-        "title": "Log in to an environment's Salesforce org",
+        "command": "acc.worktree.terminal",
+        "title": "Open terminal here",
         "category": "Agent Command Center",
-        "icon": "$(cloud)"
+        "icon": "$(terminal)"
       },
       {
-        "command": "acc.github.switch",
-        "title": "Switch this repo's GitHub account",
+        "command": "acc.worktree.reveal",
+        "title": "Reveal in Finder",
         "category": "Agent Command Center",
-        "icon": "$(arrow-swap)"
+        "icon": "$(folder-opened)"
       },
       {
-        "command": "acc.runs.show",
-        "title": "Show command output",
+        "command": "acc.worktree.remove",
+        "title": "Remove worktree…",
         "category": "Agent Command Center",
-        "icon": "$(output)"
+        "icon": "$(trash)"
       },
       {
-        "command": "acc.slack.connect",
-        "title": "Send notices to Slack…",
+        "command": "acc.worktrees.refresh",
+        "title": "Refresh worktrees",
         "category": "Agent Command Center",
-        "icon": "$(bell)"
-      },
-      {
-        "command": "acc.slack.test",
-        "title": "Send a test message to Slack",
-        "category": "Agent Command Center",
-        "icon": "$(send)"
-      },
-      {
-        "command": "acc.slack.off",
-        "title": "Stop sending notices to Slack",
-        "category": "Agent Command Center",
-        "icon": "$(debug-pause)"
+        "icon": "$(refresh)"
       }
     ],
     "menus": {

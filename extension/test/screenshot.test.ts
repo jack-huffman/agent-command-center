@@ -1,14 +1,13 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { test } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { tempDir } from '../../packages/core/test/support.ts';
 import { HOME_SECTIONS } from '../src/model/shared.ts';
 import type { HomeModel } from '../src/model/home.ts';
 import type { TicketModel } from '../src/model/task-page.ts';
 import { findChrome, PAGES, pageFor, sampleModel, THEMES } from '../scripts/screenshot.ts';
-
-const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+import { pageStyles, styleFiles } from '../scripts/styles.ts';
 
 test('every section of the page, and a ticket, has sample data built by the real model functions', () => {
   for (const kind of PAGES) {
@@ -83,11 +82,24 @@ test('the sample data shows every style: each board column, each kind of session
 });
 
 test('both themes define every VSCode colour and font the tabs read', () => {
-  const css = readFileSync(join(root, 'webview', 'styles.css'), 'utf8');
+  const css = pageStyles();
   const used = new Set([...css.matchAll(/var\(--vscode-([\w-]+)/g)].map((m) => m[1]!));
   for (const [name, vars] of Object.entries(THEMES)) {
     for (const v of used) assert.ok(v in vars, `${name} theme defines --vscode-${v}`);
   }
+});
+
+test('the page\'s styles: what every area shares first, then each area\'s own by file name, each named for a module of the page (GH-95)', () => {
+  const files = styleFiles();
+  assert.ok(files.length >= 10, `${files.length} stylesheets`);
+  assert.deepEqual([files[0], files.slice(1)], ['styles.css', [...files.slice(1)].sort()]);
+  assert.ok(pageStyles().startsWith('/* Theme-native'), 'styles.css comes first');
+  const dir = tempDir('acc-styles-');
+  for (const f of ['styles.css', 'tasks.css', 'tasks.ts', 'agents.css', 'agents.ts']) writeFileSync(join(dir, f), `/* ${f} */\n`);
+  assert.deepEqual(styleFiles(dir), ['styles.css', 'agents.css', 'tasks.css']);
+  assert.equal(pageStyles(dir), '/* styles.css */\n\n/* agents.css */\n\n/* tasks.css */\n');
+  writeFileSync(join(dir, 'cards.css'), '');
+  assert.throws(() => styleFiles(dir), /No module of the page is named for cards\.css/);
 });
 
 test('the page hands the model to the real webview, and no string in it can close the script', () => {

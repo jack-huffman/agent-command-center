@@ -1,0 +1,49 @@
+/* A task's analysis (D-052): the verdict in words, the summary, its questions, then the rest folded. */
+.analysis { border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: var(--radius); background: var(--card); padding: 10px 14px 6px; }
+.analysis.tone-edge-orange { border-left-color: var(--orange); }
+.analysis.tone-edge-blue { border-left-color: var(--blue); }
+.an-head { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.an-head h2 { margin: 0; }
+.an-head .status { white-space: normal; }
+.an-head time { font-size: 0.88em; white-space: nowrap; }
+.an-size { margin-left: 0; }
+.an-note { margin: 0 0 8px; }
+.an-summary { margin: 0; }
+.an-split { margin: 8px 0 4px; }
+.an-list { margin: 4px 0 2px; padding-left: 22px; }
+.an-list li { margin: 3px 0; overflow-wrap: anywhere; }
+.an-questions { margin-top: 4px; }
+.an-actions { margin: 8px 0 6px; }
+.an-folds { margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--line); }
+.an-fold > summary { display: flex; align-items: center; gap: 6px; padding: 3px 4px; border-radius: 4px; cursor: pointer; list-style: none; }
+.an-fold > summary::-webkit-details-marker { display: none; }
+.an-fold > summary:hover { background: var(--vscode-list-hoverBackground); }
+.an-fold[open] > summary .tool-chev .codicon { transform: rotate(90deg); }
+.an-fold > .an-list { margin: 2px 0 8px 12px; }
+.an-source { font-size: 0.85em; overflow-wrap: anywhere; }
+.chip.an-change { margin: 0 6px 0 0; }
+.an-path { overflow-wrap: anywhere; }
+
+/* One of its questions: the suggestion in one click, or your own words. */
+.aq { border-top: 1px solid var(--line); padding: 10px 0 8px; }
+.an-questions > .aq:first-child, .inbox-analysis > .aq:first-child { border-top: 0; padding-top: 4px; }
+.aq-q { display: flex; align-items: baseline; gap: 8px; }
+.aq-q .strong { min-width: 0; overflow-wrap: anywhere; }
+.aq-id { flex: none; padding: 0 5px; border-radius: 4px; font-size: 0.8em; font-weight: 600; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+.aq-why { margin-top: 2px; overflow-wrap: anywhere; }
+.aq-suggest { display: flex; align-items: flex-start; gap: 8px; width: 100%; margin: 8px 0 6px; padding: 6px 10px; text-align: left; border-radius: 5px; cursor: pointer; font: inherit; color: var(--vscode-foreground); background: var(--vscode-editor-background); border: 1px solid var(--line); }
+.aq-suggest:hover, .aq-suggest:focus-visible { background: var(--vscode-list-hoverBackground); border-color: var(--vscode-focusBorder); }
+.aq-suggest .codicon { flex: none; margin-top: 2px; }
+.aq-suggest-text { min-width: 0; overflow-wrap: anywhere; }
+.aq-own { display: flex; gap: 6px; align-items: center; }
+.aq-own .text-input { min-width: 0; }
+.aq-own .btn { flex: none; }
+.aq.sent { opacity: 0.75; }
+.aq .q-sending { margin-top: 8px; }
+.aq-error { display: flex; align-items: flex-start; gap: 6px; margin: 8px 0 6px; font-size: 0.92em; color: var(--orange); }
+.aq-error .codicon { flex: none; margin-top: 2px; }
+.aq-error span { min-width: 0; overflow-wrap: anywhere; }
+
+/* Whether one of its questions went to the client, or a button to draft it. */
+.aq-client { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 6px; font-size: 0.92em; }
+.aq-client .aq-error { margin: 0; }

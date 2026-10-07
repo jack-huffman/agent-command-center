@@ -1,0 +1,32 @@
+[
+  {
+    "command": "acc.worktree.open",
+    "title": "Open in new window",
+    "category": "Agent Command Center",
+    "icon": "$(empty-window)"
+  },
+  {
+    "command": "acc.worktree.terminal",
+    "title": "Open terminal here",
+    "category": "Agent Command Center",
+    "icon": "$(terminal)"
+  },
+  {
+    "command": "acc.worktree.reveal",
+    "title": "Reveal in Finder",
+    "category": "Agent Command Center",
+    "icon": "$(folder-opened)"
+  },
+  {
+    "command": "acc.worktree.remove",
+    "title": "Remove worktree…",
+    "category": "Agent Command Center",
+    "icon": "$(trash)"
+  },
+  {
+    "command": "acc.worktrees.refresh",
+    "title": "Refresh worktrees",
+    "category": "Agent Command Center",
+    "icon": "$(refresh)"
+  }
+]

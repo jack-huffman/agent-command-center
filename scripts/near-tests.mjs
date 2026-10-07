@@ -1,10 +1,15 @@
 // This repo's near-tests gate (GH-73): a builder's lighter check runs only the tests near what it
 // changed, as acc gives them in ACC_NEAR_TESTS, one path a line. The full check, npm run check, runs once,
 // in the merge queue. Tests that read the build (the extension's, the packaging's and the launcher's) get
-// one first. With none near the change, there's nothing to run.
+// one first. With none near the change, there's nothing to run. acc gives ACC_NEAR_TESTS only to a gate
+// that reads it (GH-95), so without it this fails rather than pass having run nothing.
 import { spawnSync } from 'node:child_process';
 
-const tests = (process.env.ACC_NEAR_TESTS ?? '').split('\n').map((t) => t.trim()).filter(Boolean);
+if (process.env.ACC_NEAR_TESTS === undefined) {
+  console.error('ACC_NEAR_TESTS isn\'t set. Run this through acc gate run, which sets it.');
+  process.exit(1);
+}
+const tests = process.env.ACC_NEAR_TESTS.split('\n').map((t) => t.trim()).filter(Boolean);
 if (!tests.length) {
   console.log('No tests near the change.');
   process.exit(0);

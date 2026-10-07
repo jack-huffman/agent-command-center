@@ -1,0 +1,30 @@
+/* Environments */
+.flows { display: grid; gap: 6px; margin-bottom: 12px; }
+.flow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.flow-node { font-family: var(--vscode-editor-font-family); padding: 2px 10px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); }
+.arrow { color: var(--vscode-descriptionForeground); display: inline-flex; }
+.env-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: var(--gap); }
+.env-card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; }
+.env-card.current { border-color: var(--blue); }
+.env-head { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.env-card dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin: 0; font-size: 0.93em; }
+.env-card dt { color: var(--vscode-descriptionForeground); }
+.env-card dd { margin: 0; word-break: break-all; }
+.env-card .actions { margin-top: 10px; }
+
+/* ---------------------------------------------------------------- the repo's GitHub identity (D-028) */
+.identity { border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); padding: 14px 16px; margin: 4px 0 18px; max-width: 760px; }
+.identity.attention { border-left: 3px solid var(--orange); }
+.id-head { display: flex; align-items: center; gap: 12px; }
+.avatar.avatar-lg { width: 40px; height: 40px; font-size: 14px; }
+.id-who { min-width: 0; }
+.id-name { display: flex; align-items: center; gap: 8px; font-size: 1.15em; }
+.chip.chip-blue { border-color: var(--blue); color: var(--blue); }
+.id-lines { display: grid; gap: 6px; margin: 12px 0 2px; }
+.id-line { display: flex; align-items: flex-start; gap: 8px; }
+.id-line > .codicon { margin-top: 2px; flex: none; }
+.id-line > span { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.scopes { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.scope { font-family: var(--vscode-editor-font-family); font-size: 0.82em; padding: 0 6px; border-radius: 3px; border: 1px solid var(--line); color: var(--vscode-descriptionForeground); }
+.scope.scope-on { border-color: var(--blue); color: var(--blue); }
+.identity .actions { margin-top: 12px; }

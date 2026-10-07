@@ -1,0 +1,173 @@
+[
+  {
+    "command": "acc.task.intake",
+    "title": "Intake: new work for agents…",
+    "category": "Agent Command Center",
+    "icon": "$(inbox)"
+  },
+  {
+    "command": "acc.task.add",
+    "title": "Add task",
+    "category": "Agent Command Center",
+    "icon": "$(add)"
+  },
+  {
+    "command": "acc.task.importGithub",
+    "title": "Import GitHub issues",
+    "category": "Agent Command Center",
+    "icon": "$(github)"
+  },
+  {
+    "command": "acc.task.importJira",
+    "title": "Import from Jira",
+    "category": "Agent Command Center",
+    "icon": "$(cloud-download)"
+  },
+  {
+    "command": "acc.task.show",
+    "title": "Show task details",
+    "category": "Agent Command Center"
+  },
+  {
+    "command": "acc.task.move",
+    "title": "Move task…",
+    "category": "Agent Command Center",
+    "icon": "$(arrow-swap)"
+  },
+  {
+    "command": "acc.task.block",
+    "title": "Block task…",
+    "category": "Agent Command Center",
+    "icon": "$(circle-slash)"
+  },
+  {
+    "command": "acc.task.unblock",
+    "title": "Unblock task",
+    "category": "Agent Command Center",
+    "icon": "$(debug-restart)"
+  },
+  {
+    "command": "acc.task.openTicket",
+    "title": "Open ticket",
+    "category": "Agent Command Center",
+    "icon": "$(link-external)"
+  },
+  {
+    "command": "acc.task.copyId",
+    "title": "Copy task id",
+    "category": "Agent Command Center"
+  },
+  {
+    "command": "acc.tasks.refresh",
+    "title": "Refresh tasks",
+    "category": "Agent Command Center",
+    "icon": "$(refresh)"
+  },
+  {
+    "command": "acc.task.dispatch",
+    "title": "Dispatch to an agent",
+    "category": "Agent Command Center",
+    "icon": "$(rocket)"
+  },
+  {
+    "command": "acc.task.dispatchWith",
+    "title": "Dispatch to an agent with a model you pick",
+    "category": "Agent Command Center",
+    "icon": "$(sparkle)"
+  },
+  {
+    "command": "acc.task.dispatchAnyway",
+    "title": "Dispatch anyway, though it shares files with work in flight",
+    "category": "Agent Command Center",
+    "icon": "$(rocket)"
+  },
+  {
+    "command": "acc.task.stopWaiting",
+    "title": "Stop waiting for other tasks' files",
+    "category": "Agent Command Center",
+    "icon": "$(debug-pause)"
+  },
+  {
+    "command": "acc.task.attach",
+    "title": "Attach to its agent",
+    "category": "Agent Command Center",
+    "icon": "$(terminal)"
+  },
+  {
+    "command": "acc.task.watch",
+    "title": "Watch its agent",
+    "category": "Agent Command Center",
+    "icon": "$(pulse)"
+  },
+  {
+    "command": "acc.task.openInClaude",
+    "title": "Open its agent in Claude Code",
+    "category": "Agent Command Center",
+    "icon": "$(comment-discussion)"
+  },
+  {
+    "command": "acc.task.resume",
+    "title": "Resume its stopped agent",
+    "category": "Agent Command Center",
+    "icon": "$(debug-continue)"
+  },
+  {
+    "command": "acc.task.review",
+    "title": "Review with an agent",
+    "category": "Agent Command Center",
+    "icon": "$(checklist)"
+  },
+  {
+    "command": "acc.task.watchReview",
+    "title": "Watch the review",
+    "category": "Agent Command Center",
+    "icon": "$(pulse)"
+  },
+  {
+    "command": "acc.task.analyze",
+    "title": "Analyze before the build",
+    "category": "Agent Command Center",
+    "icon": "$(telescope)"
+  },
+  {
+    "command": "acc.task.watchAnalysis",
+    "title": "Watch the analysis",
+    "category": "Agent Command Center",
+    "icon": "$(pulse)"
+  },
+  {
+    "command": "acc.task.land",
+    "title": "Land: push and open the pull request",
+    "category": "Agent Command Center",
+    "icon": "$(git-pull-request-create)"
+  },
+  {
+    "command": "acc.task.openPr",
+    "title": "Open the pull request",
+    "category": "Agent Command Center",
+    "icon": "$(git-pull-request)"
+  },
+  {
+    "command": "acc.task.openWorktree",
+    "title": "Open its worktree",
+    "category": "Agent Command Center",
+    "icon": "$(empty-window)"
+  },
+  {
+    "command": "acc.task.openPacket",
+    "title": "Open its instructions",
+    "category": "Agent Command Center"
+  },
+  {
+    "command": "acc.task.abandon",
+    "title": "Abandon…",
+    "category": "Agent Command Center",
+    "icon": "$(debug-stop)"
+  },
+  {
+    "command": "acc.task.cleanup",
+    "title": "Clean up its worktree…",
+    "category": "Agent Command Center",
+    "icon": "$(trash)"
+  }
+]

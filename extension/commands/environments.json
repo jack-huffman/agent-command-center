@@ -1,0 +1,37 @@
+[
+  {
+    "command": "acc.env.openOrg",
+    "title": "Open org",
+    "category": "Agent Command Center",
+    "icon": "$(globe)"
+  },
+  {
+    "command": "acc.env.openGithub",
+    "title": "Open branch on GitHub",
+    "category": "Agent Command Center",
+    "icon": "$(github)"
+  },
+  {
+    "command": "acc.env.compare",
+    "title": "Compare with production",
+    "category": "Agent Command Center",
+    "icon": "$(diff)"
+  },
+  {
+    "command": "acc.env.promote",
+    "title": "Promote…",
+    "category": "Agent Command Center",
+    "icon": "$(git-merge)"
+  },
+  {
+    "command": "acc.env.deploy",
+    "title": "Deploy…",
+    "category": "Agent Command Center",
+    "icon": "$(cloud-upload)"
+  },
+  {
+    "command": "acc.env.copyBranch",
+    "title": "Copy branch name",
+    "category": "Agent Command Center"
+  }
+]

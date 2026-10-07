@@ -1,0 +1,54 @@
+/** The sample project's tasks, as the hub reads their rows: every state, and each kind of trouble. */
+import { rowAnalysis } from '../../src/logic/tasks.ts';
+import type { TaskRow } from '../../src/logic/shared.ts';
+import { sampleAnalyses } from './analysis.ts';
+import { ASKED, MIN, N10, N12, N13, N14, N28, N29, SLEPT, wt } from './shared.ts';
+
+export function sampleTasks(now = Date.now()): TaskRow[] {
+  const source = (n: number) => ({ kind: 'jira', url: `https://acme.atlassian.net/browse/ACME-${n}` });
+  const ago = (min: number) => new Date(now - min * MIN).toISOString();
+  // A Salesforce project wants an analysis before each build (D-052).
+  const task = (id: string, title: string, state: string, display: TaskRow['display'], extra: Partial<TaskRow> = {}): TaskRow =>
+    ({ id, title, state, display, environment: 'dev', deps: [], source: source(Number(id.split('-')[1])), analysisRequired: true, ...extra });
+  const analyses = sampleAnalyses(now);
+  const analyzed = (id: string) => ({ analysis: rowAnalysis(analyses[id]!) });
+  return [
+    task('ACME-14', 'Route web-to-case submissions by product line', 'running', 'needs-you', { run: { bgId: 'bg14', sessionId: 's-acme-14', worktree: wt('ACME-14'), model: 'claude-opus-5-5', name: N14 }, agent: { label: 'Needs you: wants permission', icon: 'bell', tone: 'orange' }, model: 'claude-opus-5-5', asking: true, since: ago(27), branchStats: { commits: 2, files: 4, uncommitted: 1 } }),
+    // Its analysis has questions for you; another says it's too big for one task (D-052).
+    task('ACME-21', 'Contact roles missing on converted leads', 'todo', 'needs-you', analyzed('ACME-21')),
+    task('ACME-23', 'Rebuild the partner portal on Experience Cloud', 'todo', 'needs-you', analyzed('ACME-23')),
+    task('ACME-16', 'Add a field history report for Opportunity stage', 'todo', 'ready', { ...analyzed('ACME-16'), files: { known: true, shares: [], first: [], held: null } }),
+    // A person dispatched it, and it waits for ACME-12's files while ACME-16, which shares none, goes first (D-093).
+    task('ACME-35', 'Escalate premium cases after one hour without a reply', 'todo', 'ready', { ...analyzed('ACME-16'), files: { known: true, shares: [{ task: 'ACME-12', files: ['force-app/main/default/escalationRules/Case.escalationRules-meta.xml', 'force-app/main/default/classes/CaseTriggerHandler.cls', 'force-app/main/default/classes/CaseTriggerHandlerTest.cls', 'force-app/main/default/flows/Case_Escalation.flow-meta.xml'] }, { task: 'ACME-13', files: ['force-app/main/default/classes/LeadService.cls'] }], first: ['ACME-16'], held: { at: new Date(now - 6 * MIN).toISOString(), failed: null, byAutopilot: false } } }),
+    // Autopilot couldn't start one that waited: it needs you.
+    task('ACME-36', 'Notify the account owner when a premium case escalates', 'todo', 'needs-you', { ...analyzed('ACME-16'), files: { known: true, shares: [], first: [], held: { at: new Date(now - 40 * MIN).toISOString(), failed: 'Claude Code didn\'t start the agent: Claude Code doesn\'t trust this folder yet.', byAutopilot: true } } }),
+    // No analysis: its files aren't known, so it never waits.
+    task('ACME-37', 'Tidy the Case page layout', 'todo', 'ready', { analysisRequired: false, files: { known: false, shares: [], first: [], held: null } }),
+    task('ACME-24', 'Sync the renewal date to the billing system', 'todo', 'ready', { analyzing: { sessionId: 'an-acme-24' } }),
+    task('ACME-12', 'Case escalation rules for the premium tier', 'running', 'needs-you', { run: { bgId: 'bg12', sessionId: 's-acme-12', worktree: wt('ACME-12'), model: 'claude-sonnet-5-5', modelPicked: true, name: N12 }, agent: { label: 'Needs you: has a question', icon: 'bell', tone: 'orange' }, model: 'claude-sonnet-5-5', asking: true, ...analyzed('ACME-12'), since: ago(12), branchStats: { commits: 3, files: 6, uncommitted: 4 } }),
+    // Built beside ACME-15, which touched the same layout: its pull request won't merge into dev.
+    task('ACME-22', 'Add a Region field to the Lead page', 'review', 'needs-you', { run: { worktree: wt('ACME-22'), branch: 'task/ACME-22-lead-region' }, review: { verdict: 'pass', summary: 'Adds Region__c and puts it on the Lead layout.', current: true }, pr: { number: 44, url: 'https://github.com/acme/service/pull/44', state: 'open', ci: 'passing', changesRequested: false, conflicts: ['force-app/main/default/layouts/Lead-Lead Layout.layout-meta.xml', 'force-app/main/default/objects/Lead/fields/Region__c.field-meta.xml'] } }),
+    // Autopilot reviewed it, then couldn't land it: someone pushed to its branch on GitHub (D-055).
+    task('ACME-25', 'Merge duplicate contacts on import', 'review', 'needs-you', { run: { worktree: wt('ACME-25'), branch: 'task/ACME-25-merge-duplicate-contacts' }, review: { verdict: 'pass', summary: 'Merges on email, keeping the older record.', current: true }, autopilot: { step: 'land', reason: 'git push refused task/ACME-25-merge-duplicate-contacts: ! [rejected] (fetch first) error: failed to push some refs' } }),
+    // Its base moved on, and autopilot couldn't merge it in: both sides edited the same Apex (D-058).
+    task('ACME-26', 'Default the case owner from the product line', 'review', 'needs-you', { run: { worktree: wt('ACME-26'), branch: 'task/ACME-26-default-case-owner' }, review: { verdict: 'pass', summary: 'Sets the owner in the case trigger handler.', current: true }, pr: { number: 46, url: 'https://github.com/acme/service/pull/46', state: 'open', ci: 'passing', changesRequested: false, conflicts: ['force-app/main/default/classes/CaseTriggerHandler.cls'] }, autopilot: { step: 'refresh', reason: 'Conflicts with dev that autopilot can\'t resolve: force-app/main/default/classes/CaseTriggerHandler.cls. The branch is as it was, at 3f9c2ab, and nothing was pushed.' } }),
+    // Someone closed its pull request, then moved it back to review: autopilot won't open another (D-063).
+    task('ACME-27', 'Recalculate lead scores only when a scoring field changes', 'review', 'needs-you', { run: { worktree: wt('ACME-27'), branch: 'task/ACME-27-lead-score-recalc' }, review: { verdict: 'pass', summary: 'Checks the scoring fields before recalculating.', current: true }, pr: { number: 47, url: 'https://github.com/acme/service/pull/47', state: 'closed', ci: 'passing', changesRequested: false, conflicts: [] } }),
+    // Its checks failed on GitHub again on the commit autopilot already sent back once: a person decides (D-076).
+    task('ACME-34', 'Close stale cases after 30 days without a reply', 'review', 'needs-you', { run: { worktree: wt('ACME-34'), branch: 'task/ACME-34-close-stale-cases' }, review: { verdict: 'pass', summary: 'Adds a scheduled job that closes stale cases.', current: true }, pr: { number: 49, url: 'https://github.com/acme/service/pull/49', state: 'open', ci: 'failing', changesRequested: false, conflicts: [] }, autopilot: { step: 'checks', reason: 'Checks failed on GitHub again: Apex tests. Autopilot already sent 7d3e1f0 back once: a person decides.' }, checks: ['Apex tests'] }),
+    // The Mac slept mid-response, and its session ended without acc done (D-067): what it last said, and Resume.
+    task('ACME-28', 'Send a renewal reminder a month before the renewal date', 'running', 'needs-you', { run: { bgId: 'bg28', sessionId: 's-acme-28', worktree: wt('ACME-28'), branch: 'task/ACME-28-renewal-reminder', name: N28 }, stopped: { said: SLEPT }, since: ago(95) }),
+    // Another ended its turn asking in its own words, without blocking: a long quote, clipped on its card.
+    task('ACME-29', 'Reassign open cases when an owner leaves', 'running', 'needs-you', { run: { bgId: 'bg29', sessionId: 's-acme-29', worktree: wt('ACME-29'), branch: 'task/ACME-29-reassign-open-cases', name: N29 }, stopped: { said: ASKED }, since: ago(70) }),
+    // Nothing else was ready, so it started beside ACME-12, sharing a class (D-093).
+    task('ACME-13', 'Close duplicate leads nightly', 'running', 'running', { run: { bgId: 'bg13', sessionId: 's-acme-13', worktree: wt('ACME-13'), model: 'claude-opus-5-5', name: N13 }, agent: { label: 'Working', icon: 'sync~spin', tone: 'blue' }, model: 'claude-opus-5-5', since: ago(14), branchStats: { commits: 5, files: 9, uncommitted: 0 }, files: { known: true, shares: [{ task: 'ACME-12', files: ['force-app/main/default/classes/CaseTriggerHandler.cls'] }], first: [], held: null } }),
+    task('ACME-15', 'Rename the Region picklist values', 'review', 'review', { run: { worktree: wt('ACME-15'), branch: 'task/ACME-15-a-very-long-branch-name-that-has-to-truncate-cleanly' }, review: { verdict: 'pass', summary: 'Renames the values and updates both record types.', current: true }, pr: { number: 42, url: 'https://github.com/acme/service/pull/42', state: 'open', ci: 'pending' } }),
+    task('ACME-20', 'Show the renewal date on the Account page', 'review', 'review', { run: { worktree: wt('ACME-20'), branch: 'task/ACME-20-renewal-date' }, review: { verdict: 'pass', summary: 'Adds the field to the layout.', current: true } }),
+    task('ACME-19', 'Fix the flow that double-sends welcome emails', 'rework', 'rework', { run: { worktree: wt('ACME-19') } }),
+    // Its pull request's checks failed on GitHub, so autopilot sent it back to its builder (D-076).
+    task('ACME-33', 'Score new leads by the size of their company', 'rework', 'rework', { run: { worktree: wt('ACME-33'), branch: 'task/ACME-33-score-leads-by-size' }, review: { verdict: 'pass', summary: 'Adds the size factor to the lead score.', current: true }, pr: { number: 48, url: 'https://github.com/acme/service/pull/48', state: 'open', ci: 'failing', changesRequested: false, conflicts: [] }, checks: ['validate', 'Apex tests'] }),
+    task('ACME-18', 'Migrate the legacy territory triggers', 'blocked', 'blocked'),
+    task('ACME-17', 'Dashboards for the escalation rules', 'todo', 'todo', { deps: ['ACME-12'] }),
+    task('ACME-10', 'Add a CHANGELOG', 'done', 'done', { run: { bgId: 'bg10', sessionId: 's-acme-10', worktree: wt('ACME-10'), name: N10 } }),
+  ];
+}
