@@ -132,8 +132,10 @@ gh release download -R github.com/jack-huffman/agent-command-center -p '*.vsix'
 code --install-extension agent-command-center-*.vsix
 ```
 
-Or, in VSCode: Extensions view → **⋯** → **Install from VSIX…**, and pick the
-file. Then reload the window (**Developer: Reload Window**). A newer release
+A fresh VSCode doesn't put `code` on your PATH: run **Shell Command: Install
+'code' command in PATH** from its Command Palette first, or, in VSCode:
+Extensions view → **⋯** → **Install from VSIX…**, and pick the file. Then
+reload the window (**Developer: Reload Window**). A newer release
 installs the same way, over the old one.
 
 ### The first run
