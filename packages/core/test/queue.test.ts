@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { type AutopilotDeps, autopilotEvent, autopilotPass, type AutopilotStep } from '../src/autopilot.ts';
@@ -148,9 +148,9 @@ test('the queue goes in the order its tasks were ready, ties in ledger order, on
   }
   assert.deepEqual(queueOrder(l, CONFIG).map((t) => t.id), ['T-2', 'T-1', 'T-3'], 'T-4 is in rework, T-5 never joined, T-6 is protected');
   assert.deepEqual(queuePlaces(l, CONFIG), [
-    { id: 'T-2', place: 1, of: 3, ahead: null, phase: 'waiting' },
-    { id: 'T-1', place: 2, of: 3, ahead: 'T-2', phase: 'waiting' },
-    { id: 'T-3', place: 3, of: 3, ahead: 'T-1', phase: 'waiting' },
+    { id: 'T-2', place: 1, of: 3, ahead: null, phase: 'waiting', why: null },
+    { id: 'T-1', place: 2, of: 3, ahead: 'T-2', phase: 'waiting', why: null },
+    { id: 'T-3', place: 3, of: 3, ahead: 'T-1', phase: 'waiting', why: null },
   ]);
   assert.deepEqual(queueOrder(l, { ...CONFIG, autopilot: { appendOnly: [] } }), [], 'auto-merge off: no queue');
   assert.deepEqual(queueOrder(l, { ...CONFIG, autonomy: 'manual' }), []);
@@ -158,8 +158,11 @@ test('the queue goes in the order its tasks were ready, ties in ledger order, on
   // What each waits on, in words.
   const places = queuePlaces(l, CONFIG);
   assert.deepEqual(places.map((p) => queueWaits(p, 'main')), ['Next to merge', 'Behind T-2', 'Behind T-1']);
-  assert.deepEqual((['waiting', 'refreshing', 'slot', 'checking', 'github', 'merging'] as const).map((p) => phaseWords(p, 'main')),
-    ['Next to merge', 'Merging main in', 'Waiting for a heavy-check slot', 'Running the full check', 'Waiting for GitHub\'s checks', 'Merging']);
+  assert.deepEqual((['waiting', 'refreshing', 'slot', 'checking', 'github', 'held', 'merging'] as const).map((p) => phaseWords(p, 'main')),
+    ['Next to merge', 'Merging main in', 'Waiting for a heavy-check slot', 'Running the full check', 'Waiting for GitHub\'s checks', 'Waiting', 'Merging']);
+  // Held, the head says why, in the wait's own words.
+  assert.equal(phaseWords('held', 'main', 'GitHub is still working out whether pull request #41 can merge.'), 'GitHub is still working out whether pull request #41 can merge');
+  assert.equal(queueWaits({ ...places[0]!, phase: 'held', why: 'Couldn\'t fetch main and task/T-2 from origin.' }, 'main'), 'Couldn\'t fetch main and task/T-2 from origin');
 });
 
 test('a place in the queue counts only while auto-merge covers the task: switched off, or under autonomy manual, a pull request that conflicts needs you again, whatever autopilot last wrote (GH-73)', () => {
@@ -487,6 +490,84 @@ test('what stops the queue for a person: a dirty worktree, a heavy-check slot th
   const rf = autopilotPass(refused.paths, refused.config, deps(refused, [], { more: { 'gh pr merge 41': bad('GraphQL: Pull request is not mergeable') } }));
   assert.deepEqual(brief(rf.steps), [['T-1', 'merge', 'failed']]);
   assert.equal(rf.steps[0]!.reason, 'gh couldn\'t merge pull request #41: GraphQL: Pull request is not mergeable');
+});
+
+test('a pull request pushed to on GitHub, such as with Update branch, at the head of the queue: its turn fetches it and finds the commit this clone lacks, so it needs you rather than hold the queue for good, and the next is the head (GH-73)', () => {
+  const s = setup();
+  const before = s.task('T-1', { 'one.js': '1\n' });
+  s.task('T-2', { 'two.js': '2\n' });
+  const base = s.onMain({ 'README.md': '# test, updated\n' });
+  // Update branch on GitHub: main merged into T-1's branch there. GitHub's pull request, and its checks, are at that commit.
+  const updated = gitIn(s.dir, 'commit-tree', `${before}^{tree}`, '-p', before, '-p', base, '-m', 'Merge branch \'main\' into task/T-1');
+  gitIn(s.dir, 'push', '-q', s.origin, `${updated}:refs/heads/${s.branchOf('T-1')}`);
+  const calls: string[] = [];
+  const r = autopilotPass(s.paths, s.config, deps(s, calls));
+  assert.deepEqual(brief(r.steps), [['T-1', 'queue', 'failed'], ['T-2', null, 'waiting']]);
+  assert.equal(r.steps[0]!.reason, `origin's task/T-1 has commits this clone's branch doesn't, perhaps pushed on GitHub, such as with Update branch. Bring them into ${before.slice(0, 7)} by hand, and autopilot reviews it again.`);
+  assert.equal(of(r.steps, 'T-2').reason, 'In the merge queue, 2nd: behind T-1.');
+  assert.deepEqual([head(s, 'T-1'), clean(s.wtOf('T-1'))], [before, true], 'nothing merged in');
+  assert.deepEqual([pushes(calls), merges(calls), checksRun(calls)], [[], [], []]);
+  const t = get(s, 'T-1');
+  assert.deepEqual([t.autopilot?.failed?.step, t.autopilot?.queued, displayState(ledger(s), t, undefined, s.config)], ['queue', null, 'needs-you']);
+  // Next pass, T-2 is the head, and takes its turn.
+  const next = autopilotPass(s.paths, s.config, deps(s, []));
+  assert.deepEqual(brief(next.steps), [['T-1', null, 'waiting'], ['T-2', 'queue', 'done']]);
+});
+
+test('an agent in its worktree waiting for your answer keeps a pull request out of the merge queue: it never joins, one in it leaves, and once answered it joins at the back (GH-73)', () => {
+  const s = setup();
+  s.task('T-1', { 'one.js': '1\n' });
+  s.task('T-2', { 'two.js': '2\n' });
+  const turns: string[] = [];
+  const d = deps(s, []);
+  const quiet = { ...d, steps: { queue: (id: string) => { turns.push(id); return { step: 'queue' as const, outcome: 'waiting' as const, reason: 'Waiting for GitHub.' }; } } };
+  // An agent working in T-1's worktree asks a person something.
+  const file = join(d.env.ACC_QUESTIONS_DIR!, 'q-1.json');
+  const ask = () => writeFileSync(file, JSON.stringify({ v: 1, id: 'q-1', pid: process.pid, at: Date.now(), sessionId: 's-1', cwd: join(s.wtOf('T-1'), 'src'), transcript: null, tool: 'Bash', input: { command: 'npm test' }, suggestions: [] }));
+  ask();
+  const r = autopilotPass(s.paths, s.config, quiet);
+  assert.equal(of(r.steps, 'T-1').reason, 'An agent in T-1\'s worktree is waiting for your answer: it joins the merge queue once you\'ve answered.');
+  assert.deepEqual([queueOrder(ledger(s), s.config).map((t) => t.id), turns], [['T-2'], ['T-2']]);
+  // Answered: it joins, behind T-2.
+  rmSync(file);
+  clock += 60_000;
+  autopilotPass(s.paths, s.config, quiet);
+  assert.deepEqual(queueOrder(ledger(s), s.config).map((t) => t.id), ['T-2', 'T-1']);
+  // Asked again while it's in the queue: it leaves.
+  ask();
+  clock += 60_000;
+  autopilotPass(s.paths, s.config, quiet);
+  assert.deepEqual([queueOrder(ledger(s), s.config).map((t) => t.id), get(s, 'T-1').autopilot?.queued], [['T-2'], null]);
+});
+
+test('the head says what it waits on, from the wait itself: GitHub\'s checks only when it\'s them, else the wait\'s own words (GH-73)', () => {
+  const s = setup();
+  const one = s.task('T-1', { 'one.js': '1\n' });
+  s.task('T-2', { 'two.js': '2\n' });
+  const view = (mergeable: string, status: string) => ({ 'gh pr view 41': ok(JSON.stringify({ state: 'OPEN', headRefOid: one, mergeable, mergeStateStatus: status, reviewDecision: null, baseRefName: 'main', isDraft: false })) });
+  const ci = (bucket: string) => ({ 'gh pr checks': ok(JSON.stringify([{ name: 'test', bucket, link: 'https://github.com/acme/tool/actions/runs/1/job/2', workflow: 'CI', state: bucket === 'pass' ? 'SUCCESS' : 'IN_PROGRESS' }])) });
+  const waits = () => queueWaits(queuePlaces(ledger(s), s.config)[0]!, 'main');
+  // Its turn: the full check passes, and GitHub is still working out whether it can merge.
+  const calls: string[] = [];
+  const r = autopilotPass(s.paths, s.config, deps(s, calls, { more: view('UNKNOWN', 'UNKNOWN') }));
+  assert.deepEqual(brief(r.steps), [['T-1', 'queue', 'waiting'], ['T-2', null, 'waiting']]);
+  assert.deepEqual([get(s, 'T-1').autopilot?.queued?.phase, get(s, 'T-1').autopilot?.queued?.why], ['held', 'GitHub is still working out whether pull request #41 can merge.']);
+  assert.equal(waits(), 'GitHub is still working out whether pull request #41 can merge');
+  assert.equal(checksRun(calls).length, 1);
+  // gh can't read its checks: held, in those words.
+  clock += 60_000;
+  autopilotPass(s.paths, s.config, deps(s, [], { more: { ...view('MERGEABLE', 'CLEAN'), 'gh pr checks': bad('HTTP 502: Bad Gateway') } }));
+  assert.match(waits(), /^Autopilot couldn't read pull request #41's checks on GitHub: gh couldn't read pull request #41's checks: HTTP 502: Bad Gateway\. It tries again next pass$/);
+  // GitHub's checks are running: that's what it waits for, and nothing else is kept.
+  clock += 60_000;
+  autopilotPass(s.paths, s.config, deps(s, [], { more: { ...view('MERGEABLE', 'CLEAN'), ...ci('pending') } }));
+  assert.deepEqual([get(s, 'T-1').autopilot?.queued?.phase, get(s, 'T-1').autopilot?.queued?.why, waits()], ['github', undefined, 'Waiting for GitHub\'s checks']);
+  // They pass: it merges, with no second full check.
+  clock += 60_000;
+  const later: string[] = [];
+  const done = autopilotPass(s.paths, s.config, deps(s, later, { more: { ...view('MERGEABLE', 'CLEAN'), ...ci('pass') } }));
+  assert.deepEqual(brief(done.steps), [['T-1', 'merge', 'done'], ['T-2', null, 'waiting']]);
+  assert.deepEqual([merges(later), checksRun(later)], [[`gh pr merge 41 -R acme/tool --merge --match-head-commit ${one}`], []]);
 });
 
 test('a waiver holds for its own commit: a full check waived there that fails on the merge needs you, not its builder (GH-73, D-031)', () => {

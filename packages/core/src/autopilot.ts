@@ -10,7 +10,8 @@ import { ghToken, land, type LandResult } from './land.ts';
 import { withLock } from './lock.ts';
 import { NO_CHECKS_GRACE_MS } from './merge.ts';
 import type { RepoPaths } from './paths.ts';
-import { joinQueue, leaveQueue, ordinal, queueOrder, queueTurn } from './queue.ts';
+import { holdHead, joinQueue, leaveQueue, ordinal, queueOrder, queueTurn } from './queue.ts';
+import { askingUnder, pendingQuestions, type Question, questionsDir } from './questions.ts';
 import { refresh } from './refresh.ts';
 import { clipSaid, listSessions, resume, type ResumeDeps, resuming } from './resume.ts';
 import { carriedVerdict, readVerdict, review, reviewing } from './review.ts';
@@ -105,6 +106,8 @@ export interface TaskFacts {
    * merge queue (GH-73). The merge asks again, fetched.
    */
   accChanges?: () => string[];
+  /** An agent in its worktree waits for a person's answer, asked only where it could join the merge queue (GH-73). */
+  asking?: boolean;
 }
 
 export type AutopilotOutcome = 'done' | 'failed' | 'waiting' | 'skipped';
@@ -121,6 +124,8 @@ export interface Decision {
   record?: { step: AutopilotStepName; reason: string };
   /** A wait that settles by itself, such as GitHub's checks still running: a task in the merge queue keeps its place. */
   settles?: true;
+  /** The wait is for GitHub's checks: the head of the merge queue says so, and otherwise says why it waits (GH-73). */
+  checks?: true;
   /**
    * The merge queue (GH-73). in: ready to merge, so it joins the queue, or keeps its place. hold: it waits
    * on something that settles by itself, and keeps its place if it has one. Without it, it leaves.
@@ -253,12 +258,13 @@ function checksStep(task: Task, facts: TaskFacts, step: (s: AutopilotStepName, r
   const f = task.autopilot?.failed;
   if (f?.step === 'checks' && f.sha === head && f.state === task.state) return step('checks', '');
   // Waits that settle by themselves: a task in the merge queue keeps its place through them (GH-73).
-  const settling = (reason: string): Decision => ({ step: null, outcome: 'waiting', reason, ...(queueing ? { settles: true as const } : {}) });
+  const settling = (reason: string, checks = false): Decision => ({ step: null, outcome: 'waiting', reason, ...(queueing ? { settles: true as const, ...(checks ? { checks: true as const } : {}) } : {}) });
   if (facts.checksError) return settling(`Autopilot couldn't read pull request #${pr.number}'s checks on GitHub: ${sentence(facts.checksError)} It tries again next pass.`);
   const c = facts.checks;
   if (!c) return null;
-  if (c.sha !== head) return settling(`Pull request #${pr.number} is at ${short(c.sha)} on GitHub, not ${short(head)}: a land or a person comes first.`);
-  if (c.pending.length) return settling(`Checks are still running on GitHub: ${names(c.pending)}.`);
+  // Another commit on GitHub: in the merge queue, its turn looks at it (queueStep), since it may never settle.
+  if (c.sha !== head) return queueing ? null : settling(`Pull request #${pr.number} is at ${short(c.sha)} on GitHub, not ${short(head)}: a land or a person comes first.`);
+  if (c.pending.length) return settling(`Checks are still running on GitHub: ${names(c.pending)}.`, true);
   if (!c.failed.length) return null;
   const failed = names(c.failed.map((x) => x.name));
   // A commit status or another app's check keeps no log on GitHub: nothing to send its builder (D-076).
@@ -275,10 +281,12 @@ function checksStep(task: Task, facts: TaskFacts, step: (s: AutopilotStepName, r
  * where the repo turns auto-merge on (GH-73): GH-67's merge conditions, but for being up to date with its
  * base, which the queue sees to at its turn, conflict or not. in: it joins the queue, or keeps its place.
  * hold: it waits on something that settles by itself, such as GitHub's checks still running, and keeps its
- * place if it has one. Anything else, a step to take or a wait on a person, and it leaves the queue. Merged
- * already, it waits for acc sync. Checks that were cancelled, or a change to `.acc/`, are written down, so
- * the task needs you. No checks at all count once 2 minutes have passed since the land, where the base
- * requires none, and at once where it conflicts: GitHub starts none on a pull request until it merges.
+ * place if it has one. Anything else, a step to take or a wait on a person, such as an agent in its
+ * worktree asking something, and it leaves the queue. Merged already, it waits for acc sync. Checks that
+ * were cancelled, or a change to `.acc/`, are written down, so the task needs you. No checks at all count
+ * once 2 minutes have passed since the land, where the base requires none, and at once where it conflicts:
+ * GitHub starts none on a pull request until it merges. One at another commit on GitHub, such as after
+ * Update branch, is in: its turn fetches the branch, and finds what a person has to bring in.
  */
 function queueStep(task: Task, facts: TaskFacts, step: (s: AutopilotStepName, reason: string) => Decision, none: (o: 'waiting' | 'skipped', reason: string) => Decision): Decision {
   const pr = task.pr!;
@@ -292,17 +300,24 @@ function queueStep(task: Task, facts: TaskFacts, step: (s: AutopilotStepName, re
   const failure = autopilotFailure(task);
   if (failure) return none('waiting', `Autopilot couldn't ${failedWords(failure.step, failure.sha)}: a person decides before it merges.`);
   if (pr.changesRequested) return none('waiting', `A person asked for changes on pull request #${pr.number}, so autopilot doesn't merge it.`);
-  const hold = (reason: string): Decision => ({ step: null, outcome: 'waiting', reason, queue: 'hold' });
+  // An agent in its worktree asking a person something: nothing may wait on a person in the queue, so it
+  // joins once they've answered.
+  if (facts.asking) return none('waiting', `An agent in ${task.id}'s worktree is waiting for your answer: it joins the merge queue once you've answered.`);
+  const hold = (reason: string, checks = false): Decision => ({ step: null, outcome: 'waiting', reason, queue: 'hold', ...(checks ? { checks: true as const } : {}) });
   const c = facts.checks;
   if (!c) return hold(`Autopilot hasn't read pull request #${pr.number}'s checks on GitHub yet.`);
-  if (c.cancelled.length) {
+  // GitHub has a commit acc didn't land, such as one Update branch made: its checks say nothing about this
+  // one, and waiting would hold the queue for good. Its turn fetches the branch, and a commit this clone
+  // lacks needs a person.
+  const moved = c.sha !== facts.head;
+  if (!moved && c.cancelled.length) {
     const reason = `Checks were cancelled on GitHub: ${names(c.cancelled)}. Run them again, or merge it yourself.`;
     return { step: null, outcome: 'waiting', reason, record: { step: 'merge', reason } };
   }
   // c.required is a guard: gh answers --required on a commit with no checks as "no checks reported". One
   // that conflicts gets none to wait for: GitHub runs no pull_request workflows until its base is merged in,
   // which its turn does, pushing a commit they run on.
-  if (!c.count && !pr.conflicts?.length && (c.required || facts.noChecksYet)) return hold(`GitHub reports no checks on pull request #${pr.number} yet. Autopilot gives them 2 minutes after a land.`);
+  if (!moved && !c.count && !pr.conflicts?.length && (c.required || facts.noChecksYet)) return hold(`GitHub reports no checks on pull request #${pr.number} yet. Autopilot gives them 2 minutes after a land.`, true);
   const placed = inQueueAt(task, facts.head);
   if (!placed) {
     // acc's own config, such as whether a repo auto-merges, is a person's to merge (GH-67): asked as it joins.
@@ -312,6 +327,7 @@ function queueStep(task: Task, facts: TaskFacts, step: (s: AutopilotStepName, re
       return { step: null, outcome: 'waiting', reason, record: { step: 'merge', reason } };
     }
   }
+  if (moved) return { step: null, outcome: 'waiting', reason: `Pull request #${pr.number} is at ${short(c.sha)} on GitHub, not ${short(facts.head)}, the commit acc landed: at its turn the merge queue fetches it, and a commit this clone lacks needs a person.`, queue: 'in' };
   return { step: null, outcome: 'waiting', reason: placed ? 'In the merge queue.' : `Pull request #${pr.number} passed its review and its checks on ${short(facts.head)}: it joins the merge queue.`, queue: 'in' };
 }
 
@@ -327,6 +343,8 @@ export interface FactsGitHub {
   env: () => NodeJS.ProcessEnv;
   /** Whether auto-merge covers an environment's branch (GH-67): its pull requests' checks are read for the merge queue (GH-73). */
   autoMerge?: (branch: string) => boolean;
+  /** Whether an agent working in a folder waits for a person's answer, asked of a task that could join the merge queue (GH-73). */
+  asking?: (worktree: string) => boolean;
 }
 
 /**
@@ -402,6 +420,9 @@ export function taskFacts(paths: RepoPaths, task: Task, run: Runner, sessions: C
       return r.code === 0 ? r.stdout.split('\n').filter(Boolean) : [];
     };
   }
+  // Nothing waits on a person in the merge queue: an agent in its worktree asking one something keeps it out (GH-73).
+  const wt = task.run?.worktree;
+  if (merging && wt && task.pr?.state === 'open' && facts.verdict === 'pass' && github?.asking) facts.asking = github.asking(wt);
   return facts;
 }
 
@@ -562,9 +583,12 @@ export function autopilotPass(paths: RepoPaths, config: Config, deps: AutopilotD
   // account, whose token is fetched once, the first time it's needed (D-076).
   const gh = config.github;
   let ghEnv: NodeJS.ProcessEnv | null = null;
+  // Agents' questions waiting for a person, read once a pass, the first time a task could join the merge queue.
+  let asked: Question[] | null = null;
   const github: FactsGitHub | undefined = gh ? {
     repo: gh.repo, env: () => (ghEnv ??= { ...deps.env, GH_TOKEN: ghToken(deps.run, gh.account) }),
     autoMerge: (branch) => autoMergeFor(config, branch),
+    asking: (wt) => askingUnder((asked ??= pendingQuestions(questionsDir(deps.env))), wt),
   } : undefined;
   const who = { actor: 'orchestrator' as const, by: AUTOPILOT_BY };
   const queued = new Map<string, InQueue>();
@@ -672,6 +696,12 @@ function queueTurns(paths: RepoPaths, config: Config, deps: AutopilotDeps, steps
     }
     if (q.decision.queue !== 'in') {
       q.entry.reason = `First in the merge queue. ${q.decision.reason}`;
+      // The Command Center says what it waits on: GitHub's checks, or this wait in its own words.
+      try {
+        holdHead(paths, deps.now, t.id, { checks: !!q.decision.checks, why: q.decision.reason }, { actor: 'orchestrator', by: AUTOPILOT_BY });
+      } catch {
+        // said next pass
+      }
       return;
     }
     deps.onStep?.(t.id, 'queue', q.head);

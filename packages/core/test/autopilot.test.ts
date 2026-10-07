@@ -915,14 +915,16 @@ test('auto-merge: what keeps a pull request out of the merge queue, what holds i
     assert.notEqual(d.queue, 'in', d.reason);
     return [d.step, d.outcome, d.reason, d.queue ?? null];
   };
-  // Waits that settle by themselves hold its place: GitHub's checks running, gh not answering, GitHub
-  // a commit behind, or none reported yet.
+  // Waits that settle by themselves hold its place: GitHub's checks running, gh not answering, or none
+  // reported yet. Those on GitHub's checks say so, for the head of the queue to show.
   assert.deepEqual(why(mergeable({ checks: green(HEAD, { pending: ['e2e'] }) })), [null, 'waiting', 'Checks are still running on GitHub: e2e.', 'hold']);
   assert.deepEqual(why(mergeable({ checks: undefined })), [null, 'waiting', 'Autopilot hasn\'t read pull request #7\'s checks on GitHub yet.', 'hold']);
   assert.deepEqual(why(mergeable({ checksError: 'HTTP 502' })), [null, 'waiting', 'Autopilot couldn\'t read pull request #7\'s checks on GitHub: HTTP 502. It tries again next pass.', 'hold']);
-  const moved = why(mergeable({ checks: green(OLDER) }));
-  assert.deepEqual([moved[0], moved[1], moved[3]], [null, 'waiting', 'hold'], 'GitHub has another commit');
   assert.deepEqual(why(mergeable({ checks: green(HEAD, { count: 0, required: false }), noChecksYet: true })), [null, 'waiting', 'GitHub reports no checks on pull request #7 yet. Autopilot gives them 2 minutes after a land.', 'hold']);
+  assert.deepEqual([mergeable({ checks: green(HEAD, { pending: ['e2e'] }) }), mergeable({ checks: green(HEAD, { count: 0, required: false }), noChecksYet: true }), mergeable({ checksError: 'HTTP 502' }), mergeable({ checks: undefined })].map((f) => decideMerge(l, f).checks ?? null), [true, true, null, null]);
+  // GitHub has another commit, such as one Update branch made: its checks say nothing of this one, and it
+  // never settles by itself. It's in: its turn fetches the branch, and a commit this clone lacks needs you.
+  assert.deepEqual(decideMerge(l, mergeable({ checks: green(OLDER, { cancelled: ['preview'], count: 0 }) })), { step: null, outcome: 'waiting', reason: 'Pull request #7 is at bbbbbbb on GitHub, not aaaaaaa, the commit acc landed: at its turn the merge queue fetches it, and a commit this clone lacks needs a person.', queue: 'in' });
   assert.equal(why(mergeable({ checks: green(HEAD, { count: 0, required: true }) }))[3], 'hold');
   assert.equal(decideMerge(l, mergeable({ checks: green(HEAD, { count: 0, required: false }) })).queue, 'in', 'after the grace');
   // One that conflicts gets no checks from GitHub until its base is merged in, which its turn does: it
@@ -942,6 +944,11 @@ test('auto-merge: what keeps a pull request out of the merge queue, what holds i
   t.pr = pr({ sha: HEAD, changesRequested: true });
   assert.deepEqual(why(mergeable()), [null, 'waiting', 'A person asked for changes on pull request #7, so autopilot doesn\'t merge it.', null]);
   t.pr = pr({ sha: HEAD });
+  // An agent in its worktree asks a person something: it never joins, and in the queue, it leaves.
+  assert.deepEqual(why(mergeable({ asking: true })), [null, 'waiting', 'An agent in T-1\'s worktree is waiting for your answer: it joins the merge queue once you\'ve answered.', null]);
+  t.autopilot = { failed: null, queued: { at: now().toISOString(), sha: HEAD, phase: 'waiting' } };
+  assert.equal(decideMerge(l, mergeable({ asking: true })).queue, undefined);
+  t.autopilot = undefined;
   // Something autopilot couldn't do waits on a person first.
   t.autopilot = { failed: { step: 'land', sha: OLDER, state: 'review', reason: 'git push refused', at: now().toISOString() } };
   assert.deepEqual(why(mergeable()), [null, 'waiting', 'Autopilot couldn\'t land bbbbbbb: a person decides before it merges.', null]);

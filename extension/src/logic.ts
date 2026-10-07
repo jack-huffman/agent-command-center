@@ -287,8 +287,8 @@ export interface TaskRow {
   stopped?: { said: string | null } | null;
   /** A resume of its builder is under way. */
   resuming?: boolean;
-  /** Its place in its repo's merge queue (GH-73): 1 is the head, which is in `phase`; the rest wait behind `ahead`. */
-  queue?: { place: number; of: number; ahead: string | null; phase: QueuePhase } | null;
+  /** Its place in its repo's merge queue (GH-73): 1 is the head, which is in `phase`, and held says `why`; the rest wait behind `ahead`. */
+  queue?: { place: number; of: number; ahead: string | null; phase: QueuePhase; why?: string | null } | null;
 }
 
 /** One of an analysis's questions a person hasn't answered: what it asks, why it matters, and what the analyst would assume. */

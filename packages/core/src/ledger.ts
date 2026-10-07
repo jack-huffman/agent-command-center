@@ -110,10 +110,11 @@ export type AutopilotStepName = (typeof AUTOPILOT_STEPS)[number];
 
 /**
  * Where the head of a merge queue is in its turn (GH-73). waiting: in line. refreshing: merging its base
- * in. slot: waiting for a heavy-check slot. checking: running the full check. github: pushed, waiting for
- * GitHub's checks. merging: asking GitHub to merge it.
+ * in. slot: waiting for a heavy-check slot. checking: running the full check. github: waiting for GitHub's
+ * checks. held: waiting on something else, which its `why` says, such as GitHub working out whether it can
+ * merge. merging: asking GitHub to merge it.
  */
-export const QUEUE_PHASES = ['waiting', 'refreshing', 'slot', 'checking', 'github', 'merging'] as const;
+export const QUEUE_PHASES = ['waiting', 'refreshing', 'slot', 'checking', 'github', 'held', 'merging'] as const;
 export type QueuePhase = (typeof QUEUE_PHASES)[number];
 
 /** A task's place in its repo's merge queue (GH-73): when it was ready, at which commit, and its phase. */
@@ -123,6 +124,8 @@ export interface Queued {
   /** The branch's latest commit when it joined. */
   sha: string;
   phase: QueuePhase;
+  /** What the head waits on, in words, while it's held. */
+  why?: string;
 }
 
 /**

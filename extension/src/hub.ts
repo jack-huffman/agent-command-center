@@ -382,7 +382,7 @@ export class Hub implements vscode.Disposable {
         checks: failedChecks(t),
         stopped: stopped ? { said } : null,
         resuming: !!resumed,
-        queue: queued ? { place: queued.place, of: queued.of, ahead: queued.ahead, phase: queued.phase } : null,
+        queue: queued ? { place: queued.place, of: queued.of, ahead: queued.ahead, phase: queued.phase, why: queued.why } : null,
       };
     });
   }

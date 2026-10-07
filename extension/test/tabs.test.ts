@@ -373,9 +373,9 @@ test('the Overview shows each repo\'s merge queue where auto-merge is on: each p
     config: { github: { repo: 'o/t', account: 'me' }, environments: [{ name: 'main', branch: 'main', type: 'none' as const, org: null, default: true, protected: false, promotesTo: [] }], profile: 'generic', autonomy: 'review', autopilot: { autoMerge: true } },
   };
   const pr = (n: number) => ({ number: n, url: `https://github.com/o/t/pull/${n}`, state: 'open' });
-  const queued = (id: string, place: number, ahead: string | null, phase: NonNullable<TaskRow['queue']>['phase'] = 'waiting'): TaskRow => ({ ...row(id, 'review', 'review'), environment: 'main', pr: pr(place + 40), queue: { place, of: 3, ahead, phase } });
-  const rows = (phase: NonNullable<TaskRow['queue']>['phase']) => [queued('GH-3', 3, 'GH-2'), queued('GH-1', 1, null, phase), queued('GH-2', 2, 'GH-1'), row('GH-4', 'review', 'review')];
-  const model = (phase: NonNullable<TaskRow['queue']>['phase'], on = true) => homeModel({ hub: { ...hub(), projects: [tools], agents: [], taskRows: () => rows(phase) }, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() }, autopilotOn: () => on }).overview;
+  const queued = (id: string, place: number, ahead: string | null, phase: NonNullable<TaskRow['queue']>['phase'] = 'waiting', why: string | null = null): TaskRow => ({ ...row(id, 'review', 'review'), environment: 'main', pr: pr(place + 40), queue: { place, of: 3, ahead, phase, why } });
+  const rows = (phase: NonNullable<TaskRow['queue']>['phase'], why: string | null = null) => [queued('GH-3', 3, 'GH-2'), queued('GH-1', 1, null, phase, why), queued('GH-2', 2, 'GH-1'), row('GH-4', 'review', 'review')];
+  const model = (phase: NonNullable<TaskRow['queue']>['phase'], on = true, why: string | null = null) => homeModel({ hub: { ...hub(), projects: [tools], agents: [], taskRows: () => rows(phase, why) }, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() }, autopilotOn: () => on }).overview;
 
   const o = model('checking');
   assert.equal(o.queue.length, 1);
@@ -390,6 +390,12 @@ test('the Overview shows each repo\'s merge queue where auto-merge is on: each p
     ['Running the full check', 'sync~spin'], ['Waiting for GitHub\'s checks', 'github-action'], ['Merging', 'git-merge'],
   ]);
   assert.ok([...looks, ...q.rows.map((r) => r.look)].every((l) => l.tone === 'blue'));
+  // Held on anything else, the head says what, in that wait's own words, all of them on hover: not GitHub's checks for every wait.
+  const why = 'GitHub is still working out whether pull request #41 can merge.';
+  const held = model('held', true, why).queue[0]!.rows;
+  assert.deepEqual([held[0]!.look, held[0]!.tip, held[1]!.tip], [{ label: 'GitHub is still working out whether pull request #41 can merge', icon: 'clock', tone: 'blue' }, why, undefined]);
+  assert.equal(q.rows[0]!.tip, undefined, 'a phase\'s own words need no tip');
+  assert.equal(model('held', false, why).queue[0]!.rows[0]!.look.label, 'Autopilot is off');
   // Autopilot off: the queue doesn't move, and its head says so.
   const off = model('waiting', false).queue[0]!;
   assert.deepEqual([off.off, off.rows[0]!.look.label, off.rows[0]!.look.tone, off.rows[1]!.look.label], [true, 'Autopilot is off', 'blue', 'Behind GH-1']);

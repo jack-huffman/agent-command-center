@@ -906,7 +906,7 @@ function cmdShow(o: Opts, id: string): number {
     t.blocker ? `Blocked: ${t.blocker}` : '',
     failed ? tone(`! Autopilot couldn't ${stepWords(failed.step, failed.sha || 'it')}: ${failed.reason}`, 'orange') : '',
     checks ? tone(`! Checks failed on GitHub: ${checks.join(', ')}`, 'orange') : '',
-    place ? tone(`In the merge queue: ${place.ahead ? `${ordinal(place.place)} of ${place.of}, behind ${place.ahead}` : `first of ${place.of}: ${phaseWords(place.phase, t.environment).toLowerCase()}`}.`, 'blue') : '',
+    place ? tone(`In the merge queue: ${place.ahead ? `${ordinal(place.place)} of ${place.of}, behind ${place.ahead}` : place.phase === 'held' ? `first of ${place.of}, waiting: ${phaseWords(place.phase, t.environment, place.why)}` : `first of ${place.of}: ${phaseWords(place.phase, t.environment).toLowerCase()}`}.`, 'blue') : '',
     closed ? tone(`! Pull request #${closed.number} was closed without merging. Reopen it on GitHub and land to update it, or land to open a new one.`, 'orange') : '',
     stopped ? tone(`! Its agent stopped: ${quote ?? 'its turn ended before acc done or acc block.'}${quote && !/[.!?…]$/.test(quote) ? '.' : ''} Resume it with acc resume ${t.id}.`, 'orange') : '',
     t.brief ? `\n${t.brief}\n` : '',

@@ -471,6 +471,10 @@ export function pendingQuestions(dir: string): Question[] {
   return out.sort((a, b) => a.at - b.at);
 }
 
+/** Whether one of these questions comes from an agent working in a folder, or under it. */
+export const askingUnder = (questions: Pick<Question, 'cwd'>[], dir: string): boolean =>
+  questions.some((q) => q.cwd === dir || q.cwd.startsWith(dir.endsWith('/') ? dir : `${dir}/`));
+
 /**
  * Answers a question, once. False when it was already answered (another window got there first) or
  * isn't waiting any more.

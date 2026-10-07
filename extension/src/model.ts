@@ -13,6 +13,7 @@ import type { GithubIdentity } from '../../packages/core/src/github.ts';
 import { GROUP_TITLES, STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import { autoMergeOn, type Environment, type Tracker, trackerForKey } from '../../packages/core/src/config.ts';
 import { promotionPaths } from '../../packages/core/src/promote.ts';
+import { phaseWords } from '../../packages/core/src/queue.ts';
 import type { Answer, HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import { isOpenUpdate, stalePosting, type Update, UPDATE_ID, UPDATE_TEXT_MAX } from '../../packages/core/src/updates.ts';
 import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, BOARD_LANES, conflictLine, displayName, type DoctorItem, ENV_ICON, failedChecksLine, fileList, FROM_WORDS, groupTasks, isUnder, ownsSession, prConflicts, queueWhy, questionsWord, type RunPrompt, saidLine, sessionFor, shortPath, TASK_GROUPS, type TaskRow, tildePath, type Tone } from './logic.ts';
@@ -1810,13 +1811,14 @@ export interface QueuePanel {
   root: string;
   /** Autopilot isn't running for the repo, here or elsewhere, so the queue doesn't move. */
   off: boolean;
-  rows: { place: number; id: string; title: string; ref: Ref; pr: { number: number; url: string } | null; look: Look }[];
+  /** tip: what the head waits on in full, when its words are the wait's own and may not fit. */
+  rows: { place: number; id: string; title: string; ref: Ref; pr: { number: number; url: string } | null; look: Look; tip?: string }[];
 }
 
 /**
  * What a task in the merge queue waits on (GH-73), with an icon and words, in blue: the head's phase, or
- * the task ahead of it. With autopilot off, the head says so. A task in the queue never needs you: one
- * that would has left it.
+ * the task ahead of it. Held, the head says why, in the wait's own words. With autopilot off, the head
+ * says so. A task in the queue never needs you: one that would has left it.
  */
 export function queueLook(q: NonNullable<TaskRow['queue']>, base: string, off = false): Look {
   if (q.ahead) return LOOK(`Behind ${q.ahead}`, 'arrow-up', 'blue');
@@ -1827,6 +1829,7 @@ export function queueLook(q: NonNullable<TaskRow['queue']>, base: string, off = 
     slot: LOOK('Waiting for a heavy-check slot', 'watch', 'blue'),
     checking: LOOK('Running the full check', 'sync~spin', 'blue'),
     github: LOOK('Waiting for GitHub\'s checks', 'github-action', 'blue'),
+    held: LOOK(phaseWords('held', base, q.why), 'clock', 'blue'),
     merging: LOOK('Merging', 'git-merge', 'blue'),
   };
   return look[q.phase];
@@ -2034,7 +2037,7 @@ export function homeModel(i: HomeInput): HomeModel {
     const off = !(i.autopilotOn?.(p.root) ?? false);
     queue.push({
       project: p.name, root: p.root, off,
-      rows: inLine.map((r) => ({ place: r.queue!.place, id: r.id, title: r.title, ref: { project: p.root, task: r.id }, pr: r.pr ? { number: r.pr.number, url: r.pr.url } : null, look: queueLook(r.queue!, r.environment, off) })),
+      rows: inLine.map((r) => ({ place: r.queue!.place, id: r.id, title: r.title, ref: { project: p.root, task: r.id }, pr: r.pr ? { number: r.pr.number, url: r.pr.url } : null, look: queueLook(r.queue!, r.environment, off), ...(!off && !r.queue!.ahead && r.queue!.phase === 'held' && r.queue!.why ? { tip: r.queue!.why } : {}) })),
     });
   }
 

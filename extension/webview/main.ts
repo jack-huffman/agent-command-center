@@ -1784,7 +1784,8 @@ function renderQueue(queues: QueuePanel[], manyProjects: boolean): HTMLElement {
         Object.assign(el('span', 'queue-place', String(r.place)), { title: r.place === 1 ? 'Next to merge' : `${r.place} in line` }),
         text,
         r.pr ? linkTo(r.pr.url, el('span', 'chip', icon('git-pull-request'), ` #${r.pr.number}`)) : null,
-        status(r.look)));
+        // A wait in its own words can be long: it ends in an ellipsis, and says it all on hover.
+        r.tip ? Object.assign(el('span', `status tone-${r.look.tone} queue-why`, icon(r.look.icon, r.look.tone), el('span', 'queue-why-text', r.look.label)), { title: r.tip }) : status(r.look)));
     }
     box.append(list);
   }

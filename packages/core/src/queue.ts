@@ -58,27 +58,30 @@ export interface QueuePlace {
   /** The task right ahead of it, or null at the head. */
   ahead: string | null;
   phase: QueuePhase;
+  /** What the head waits on, in words, while it's held. */
+  why: string | null;
 }
 
 export function queuePlaces(ledger: Pick<Ledger, 'tasks'>, config: QueueConfig): QueuePlace[] {
   const order = queueOrder(ledger, config);
-  return order.map((t, i) => ({ id: t.id, place: i + 1, of: order.length, ahead: i ? order[i - 1]!.id : null, phase: t.autopilot!.queued!.phase }));
+  return order.map((t, i) => ({ id: t.id, place: i + 1, of: order.length, ahead: i ? order[i - 1]!.id : null, phase: t.autopilot!.queued!.phase, why: t.autopilot!.queued!.why ?? null }));
 }
 
-/** What the head of a queue is doing, in words, as acc and the Command Center say it. */
-export function phaseWords(phase: QueuePhase, base: string): string {
+/** What the head of a queue is doing, in words, as acc and the Command Center say it. Held, it's why it waits. */
+export function phaseWords(phase: QueuePhase, base: string, why?: string | null): string {
   return {
     waiting: 'Next to merge',
     refreshing: `Merging ${base} in`,
     slot: 'Waiting for a heavy-check slot',
     checking: 'Running the full check',
     github: 'Waiting for GitHub\'s checks',
+    held: why?.trim().replace(/\.$/, '') || 'Waiting',
     merging: 'Merging',
   }[phase];
 }
 
 /** What a task in the queue waits on, in words: the head's phase, or the task ahead of it. */
-export const queueWaits = (p: QueuePlace, base: string): string => (p.ahead ? `Behind ${p.ahead}` : phaseWords(p.phase, base));
+export const queueWaits = (p: QueuePlace, base: string): string => (p.ahead ? `Behind ${p.ahead}` : phaseWords(p.phase, base, p.why));
 
 // ---------------------------------------------------------------- joining, leaving and the phase
 
@@ -112,14 +115,23 @@ export function leaveQueue(paths: RepoPaths, now: () => Date, id: string, who: W
   });
 }
 
-/** Where the head is in its turn, so the Command Center shows it while the turn runs. */
-function setPhase(paths: RepoPaths, now: () => Date, id: string, phase: QueuePhase, who: Who): void {
+/** Where the head is in its turn, so the Command Center shows it while the turn runs, and, held, why it waits. */
+function setPhase(paths: RepoPaths, now: () => Date, id: string, phase: QueuePhase, who: Who, why?: string): void {
   setQueued(paths, now, id, who, (t) => {
     const q = t.autopilot?.queued;
-    if (!q || q.phase === phase) return false;
-    t.autopilot!.queued = { ...q, phase };
+    if (!q || (q.phase === phase && q.why === why)) return false;
+    t.autopilot!.queued = { at: q.at, sha: q.sha, phase, ...(why ? { why } : {}) };
     return true;
   });
+}
+
+/**
+ * The head waits before its turn: on GitHub's checks, or on something else, in that wait's own words. The
+ * Command Center says which, not one word for every wait.
+ */
+export function holdHead(paths: RepoPaths, now: () => Date, id: string, wait: { checks: boolean; why: string }, who: Who): void {
+  if (wait.checks) setPhase(paths, now, id, 'github', who);
+  else setPhase(paths, now, id, 'held', who, wait.why);
 }
 
 // ---------------------------------------------------------------- the head's turn
@@ -169,10 +181,20 @@ export function queueTurn(paths: RepoPaths, config: Config, id: string, deps: Qu
   const head = branch ? git('rev-parse', '--verify', '--quiet', `refs/heads/${branch}`).stdout.trim() : '';
   if (!branch || !head) throw new AccError('queue', `${id}'s branch isn't in this clone.`);
   if (pr.sha !== head) throw waits(`Pull request #${pr.number} was landed at ${short(pr.sha ?? '')}, not ${short(head)}: a land comes first.`);
-  const phase = (p: QueuePhase) => setPhase(paths, now, id, p, who);
+  const phase = (p: QueuePhase, why?: string) => setPhase(paths, now, id, p, who, why);
 
   // The base and the branch as origin has them, unattended.
   if (!fetchBranches(run, paths.root, [env.branch, branch], { ...deps.env, GIT_TERMINAL_PROMPT: '0' })) throw waits(`Couldn't fetch ${env.branch} and ${branch} from origin.`);
+  // The pull request is at the commit acc landed. One pushed to it since, such as by GitHub's Update branch,
+  // is a person's to bring in: merging here would leave a branch that can't push, and waiting for GitHub
+  // to come back to the landed commit would hold the queue for good.
+  const remote = git('rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`).stdout.trim();
+  if (remote !== head) {
+    const more = !remote || git('merge-base', '--is-ancestor', remote, head).code !== 0;
+    throw new AccError('queue', more
+      ? `origin's ${branch} has commits this clone's branch doesn't, perhaps pushed on GitHub, such as with Update branch. Bring them into ${short(head)} by hand, and autopilot reviews it again.`
+      : `origin's ${branch} is at ${short(remote)}, behind ${short(head)}, the commit acc landed. Land it again.`);
+  }
   const behind = git('merge-base', '--is-ancestor', `refs/remotes/origin/${env.branch}`, head).code !== 0;
 
   // Its worktree, asked for only when there's something to do in it.
@@ -187,10 +209,6 @@ export function queueTurn(paths: RepoPaths, config: Config, id: string, deps: Qu
   let made: { sha: string; resolved: string[] } | null = null;
   if (behind) {
     const p = placed();
-    // Someone updated the pull request on GitHub: merging here would leave the branch unable to push.
-    if (git('merge-base', '--is-ancestor', `refs/remotes/origin/${branch}`, head).code !== 0) {
-      throw new AccError('queue', `origin's ${branch} has commits this clone's branch doesn't, perhaps from GitHub. Bring them in by hand.`);
-    }
     phase('refreshing');
     try {
       made = mergeBaseIn(config, p, run);
@@ -254,8 +272,11 @@ export function queueTurn(paths: RepoPaths, config: Config, id: string, deps: Qu
     return { step: 'merge', outcome: 'done', reason: r.reason, pr: { number: r.pr.number, url: r.pr.url, opened: false } };
   } catch (e) {
     if ((e as AccError).code === 'merge-waits') {
-      phase('github');
-      return { step: 'queue', outcome: 'waiting', reason: (e as Error).message };
+      // What it waits on: GitHub's checks, or anything else in that wait's own words.
+      const why = (e as Error).message;
+      if ((e as { checks?: true }).checks) phase('github');
+      else phase('held', why);
+      return { step: 'queue', outcome: 'waiting', reason: why };
     }
     throw asMerge(e);
   }
