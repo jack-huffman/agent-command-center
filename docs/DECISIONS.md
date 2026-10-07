@@ -3502,3 +3502,7 @@ a person. Each task's analysis already lists the files it plans to change
   launch, and lets the claim go if the launch fails. Dispatch anyway, offered
   after acc holds a dispatch, names the overlap acc reported, not the board's
   guess.
+- **The author confirmed the wait as built** (2026-10-07): a person's Dispatch
+  of a task that shares files waits while another Ready task shares none, even
+  though nothing starts that one on its own yet, because the Dispatch modal
+  asks first (Wait for GH-x, or Dispatch anyway) and the CLI takes --anyway.
