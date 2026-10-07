@@ -13,6 +13,7 @@ import {
   builderStopped, claudeProjectsDir, clipSaid, lastSaid, listSessions, resume, resuming,
   claimUpdate, closesIssues, closeWords, discardUpdate, draftUpdate, EVENT_WORDS, GH_TIMEOUT_MS, ghToken, githubIssue, isOpenUpdate, listUpdates, markPosted, readUpdate, releaseUpdate, settleCloses, stalePosting, type Update, UPDATE_TEXT_MAX, updateText,
   heavySlots, machineFile, setHeavySlots,
+  describeTemplate, parseSource, pushingAccount, readTemplate,
 } from '../../core/src/index.ts';
 import { issueRepo } from '../../core/src/trackers/github.ts';
 import { type Outside, TRACKER_KINDS, type TrackerKind, trackerName } from '../../core/src/trackers/types.ts';
@@ -37,6 +38,10 @@ Setup
            [--github-account <a>] [--commit-name <n> --commit-email <e>] [--configure-git]
            [--jira-site <site> --jira-project <key>] [--dry-run] [--force]
   acc init --profile generic [...]
+  acc init --from <template> [--production-org <alias>] [...]
+                                        Start from a team template: a path, a GitHub file URL, or <git-url>#<path>.
+                                        It wins where it speaks, and discovery fills the rest; flags win over both
+  acc template show <template>          What a team template sets, and its check commands, before using it
 
 Tasks
   acc add "<title>" [--brief <text>] [--dep <id>]... [--env <branch>] [--key <T-n>]
@@ -206,12 +211,14 @@ function cmdDoctor(o: Opts, guided: boolean): number {
 
 function cmdInit(o: Opts): number {
   const paths = repoPaths(process.cwd(), run);
-  const profile = (o.profile as Profile | undefined) ?? 'generic';
-  if (profile !== 'generic' && profile !== 'salesforce') throw new AccError('usage', '--profile must be generic or salesforce.');
+  const profile = o.profile as Profile | undefined;
+  if (profile !== undefined && profile !== 'generic' && profile !== 'salesforce') throw new AccError('usage', '--profile must be generic or salesforce.');
   if (existsSync(paths.config) && !o.force && !o['dry-run']) throw new AccError('exists', `${paths.config} already exists. Use --force to replace it.`);
   const plan = planInit(run, {
     root: paths.root,
     profile,
+    from: o.from as string | undefined,
+    cwd: process.cwd(),
     project: o.project as string | undefined,
     productionOrg: o['production-org'] as string | undefined,
     githubRepo: o['github-repo'] as string | undefined,
@@ -230,17 +237,61 @@ function cmdInit(o: Opts): number {
     const rows = [['Environment', 'Branch', 'Type', 'Org alias', 'Promotes to'], ...c.environments.map((e) => [
       e.name + (e.default ? ' (default)' : '') + (e.protected ? ' (protected)' : ''), e.branch, e.type, e.org ?? '(not logged in)', e.promotesTo.join(', ') || '–',
     ])];
+    const commands = Object.entries(plan.templateCommands);
     return [
       `${o['dry-run'] ? 'Would write' : 'Wrote'} ${paths.config}`,
       '',
       table(rows),
       '',
       `GitHub: ${c.github ? `${c.github.repo} as ${c.github.account}` : '(none)'}   Commits: ${c.commitIdentity ? `${c.commitIdentity.name} <${c.commitIdentity.email}>` : '(not set)'}`,
+      ...(c.template ? [
+        `From the template ${c.template.name}: ${plan.fromTemplate.join(', ') || 'nothing'}`,
+        `Discovered: ${plan.discovered.join(', ')}`,
+      ] : []),
+      ...(commands.length ? ['', 'Check commands from the template, which run on this machine:', ...commands.map(([gate, cmd]) => `  ${gate}: ${cmd}`)] : []),
       ...plan.notes.map((n) => `note: ${n}`),
       '',
       'Next: acc doctor',
     ].join('\n');
-  }, { written: !o['dry-run'], path: paths.config, config: plan.config, notes: plan.notes });
+  }, {
+    written: !o['dry-run'], path: paths.config, config: plan.config, notes: plan.notes,
+    template: plan.config.template ?? null, fromTemplate: plan.fromTemplate, discovered: plan.discovered, templateCommands: plan.templateCommands,
+  });
+  return 0;
+}
+
+/**
+ * What a team template sets, before anything is written (GH-80). The account that reads a GitHub one is
+ * --github-account, else the one this repo pushes as, else gh's active one. Exits 1 listing its problems.
+ */
+function cmdTemplate(o: Opts, sub: string | undefined, source: string | undefined): number {
+  if (sub !== 'show' || !source) throw new AccError('usage', 'acc template show <path | GitHub file URL | git-url#path> [--json]');
+  // Only gh needs an account: a path or a git URL never reads the credential.
+  let account = (o['github-account'] as string | undefined) ?? null;
+  if (!account && parseSource(source).kind === 'github') {
+    try {
+      account = pushingAccount(run, repoPaths(process.cwd(), run).root) ?? null;
+    } catch {
+      account = null;
+    }
+  }
+  const r = readTemplate(run, source, { account, base: process.cwd() });
+  const t = r.template;
+  if (!t) {
+    out(o, () => [tone(`✗ ${source} isn't a team template acc can use:`, 'orange'), ...r.errors.map((e) => `  - ${e}`)].join('\n'), { source, ok: false, errors: r.errors });
+    return 1;
+  }
+  const commands = Object.entries(t.gates?.commands ?? {});
+  const sets = describeTemplate(t);
+  out(o, () => [
+    t.name,
+    ...(t.description ? [t.description] : []),
+    '',
+    ...(sets.length ? sets : ['It sets nothing: acc init would use what it discovers.']),
+    ...(commands.length ? ['', 'Check commands, which run on each machine that uses it:', ...commands.map(([gate, cmd]) => `  ${gate}: ${cmd}`)] : []),
+    '',
+    `Start a project from it: acc init --from '${source.replace(/'/g, `'\\''`)}'${t.profile === 'salesforce' ? ' --production-org <alias>' : ''}`,
+  ].join('\n'), { source, ok: true, errors: [], name: t.name, description: t.description, profile: t.profile, digest: r.digest, sets, commands: t.gates?.commands ?? {}, template: t });
   return 0;
 }
 
@@ -1256,6 +1307,7 @@ export async function main(argv: string[]): Promise<number> {
       'configure-git': { type: 'boolean', default: false },
       'jira-site': { type: 'string' },
       'jira-project': { type: 'string' },
+      from: { type: 'string' },
       'dry-run': { type: 'boolean', default: false },
       force: { type: 'boolean', default: false },
       brief: { type: 'string' },
@@ -1306,6 +1358,7 @@ export async function main(argv: string[]): Promise<number> {
     case 'doctor': return cmdDoctor(o, false);
     case 'onboard': return cmdDoctor(o, true);
     case 'init': return cmdInit(o);
+    case 'template': return cmdTemplate(o, rest[0], rest[1]);
     case 'setup': return cmdSetup(o, rest[0]);
     case 'agents': return cmdAgents(o, rest[0], rest[1]);
     case 'machine': return cmdMachine(o, rest[0], rest[1]);
