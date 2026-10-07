@@ -12,6 +12,7 @@ import {
   AUTOPILOT_MIN_EVERY_S, AUTOPILOT_REVIEW_DOES, type AutopilotResult, type AutopilotStepName, autopilotFailure, autopilotMode, autopilotPass, closedPr, failedChecks, holdAutopilot, sleep, alive, setAutonomy,
   builderStopped, claudeProjectsDir, clipSaid, lastSaid, listSessions, resume, resuming,
   claimUpdate, discardUpdate, draftUpdate, EVENT_WORDS, GH_TIMEOUT_MS, ghToken, githubIssue, isOpenUpdate, listUpdates, markPosted, readUpdate, releaseUpdate, stalePosting, type Update, UPDATE_TEXT_MAX, updateText,
+  heavySlots, machineFile, setHeavySlots,
 } from '../../core/src/index.ts';
 import { issueRepo } from '../../core/src/trackers/github.ts';
 import type { Outside } from '../../core/src/trackers/types.ts';
@@ -71,6 +72,8 @@ Agents
                 [--clear <model|effort|fallback-model>]... [--project]
                                         Change them for this clone, or with --project in .acc/config.json
   acc agents autonomy [manual|review]   What autopilot may do on its own, or change it in .acc/config.json
+  acc machine heavy-slots [<n>]         How many heavy checks (builds, tests, validations) this machine runs at once,
+                                        for every repo on it; with <n>, set it (1 to 8) in ~/.acc/machine.json
   acc analyze <id>                      Before the build: a read-only analyst works out the requirements, what's
                                         there now (the code, and on Salesforce the orgs), the approach, and questions
   acc analysis <id>                     What the task's analysis found
@@ -585,6 +588,20 @@ function cmdSync(o: Opts): number {
 }
 
 /** Builders' and reviewers' model and effort (D-036). */
+/** This machine's settings, for every repo on it (D-080): how many heavy checks run at once. */
+function cmdMachine(o: Opts, sub: string | undefined, value: string | undefined): number {
+  if (sub !== 'heavy-slots') throw new AccError('usage', 'acc machine heavy-slots [<n>]');
+  if (value === undefined) {
+    const n = heavySlots();
+    out(o, () => `${n} heavy check${n === 1 ? '' : 's'} at once on this machine${process.env.ACC_HEAVY_SLOTS ? ' (from ACC_HEAVY_SLOTS)' : ''}.`, { heavySlots: n });
+    return 0;
+  }
+  personOnly(o, 'change how many heavy checks this machine runs');
+  const n = setHeavySlots(Number(value));
+  out(o, () => `This machine now runs ${n} heavy check${n === 1 ? '' : 's'} at once, for every repo on it. Set in ${machineFile()}.`, { heavySlots: n });
+  return 0;
+}
+
 function cmdAgents(o: Opts, sub: string | undefined, roleArg: string | undefined): number {
   const { paths } = project(process.cwd());
   // Shown from the project's own config, so where each value comes from is clear.
@@ -1139,8 +1156,11 @@ function cmdDrift(o: Opts, envName: string): number {
 // ---------------------------------------------------------------- entry
 
 export async function main(argv: string[]): Promise<number> {
+  // --project names the project for acc init, and is a plain switch for acc agents set: give the switch a
+  // value, so the Command Center's "for the project" works (D-036).
+  const args = argv[0] === 'agents' ? argv.map((x) => (x === '--project' ? '--project=yes' : x)) : argv;
   const { values, positionals } = parseArgs({
-    args: argv,
+    args,
     allowPositionals: true,
     strict: true,
     options: {
@@ -1210,6 +1230,7 @@ export async function main(argv: string[]): Promise<number> {
     case 'init': return cmdInit(o);
     case 'setup': return cmdSetup(o, rest[0]);
     case 'agents': return cmdAgents(o, rest[0], rest[1]);
+    case 'machine': return cmdMachine(o, rest[0], rest[1]);
     case 'add': {
       const title = rest.join(' ').trim();
       if (!title) throw new AccError('usage', 'acc add "<title>"');

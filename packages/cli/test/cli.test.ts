@@ -660,3 +660,26 @@ test('acc autopilot --every stops by itself once the Command Center that started
   assert.match(r.stderr, /The Command Center that started autopilot closed, so it stops\./);
   assert.ok(!existsSync(join(dir, '.git', 'acc', 'autopilot.lock')), 'and let go of its lock');
 });
+
+test('acc machine heavy-slots shows and sets how many heavy checks this machine runs; a builder can\'t change it (D-080)', () => {
+  const dir = makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG) });
+  const file = join(tempDir('acc-machine-'), 'machine.json');
+  const env = { ACC_MACHINE_FILE: file, ACC_HEAVY_SLOTS: '' };
+  assert.match(acc(dir, ['machine', 'heavy-slots'], undefined, env).out, /^1 heavy check at once on this machine\./);
+  const set = acc(dir, ['machine', 'heavy-slots', '2', '--json'], undefined, env);
+  assert.equal(set.code, 0, set.err);
+  assert.deepEqual(set.json(), { heavySlots: 2 });
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { heavySlots: 2 });
+  assert.match(acc(dir, ['machine', 'heavy-slots'], undefined, env).out, /^2 heavy checks at once/);
+  assert.equal(acc(dir, ['machine', 'heavy-slots', '12'], undefined, env).code, 2, 'out of range');
+  assert.notEqual(acc(dir, ['machine', 'heavy-slots', '4'], undefined, { ...env, ACC_ROLE: 'builder', ACC_TASK: 'T-1' }).code, 0, 'a builder can\'t');
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { heavySlots: 2 }, 'unchanged');
+});
+
+test('acc agents set --project is a switch, as the Command Center sends it last, and writes .acc/config.json (D-036)', () => {
+  const dir = makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG) });
+  const r = acc(dir, ['agents', 'set', 'builder', '--model', 'claude-opus-5-5', '--project']);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(JSON.parse(readFileSync(join(dir, '.acc', 'config.json'), 'utf8')).agents.builder.model, 'claude-opus-5-5');
+  assert.match(r.out, /Set in \.acc\/config\.json/);
+});

@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { AccError } from './exec.ts';
@@ -15,7 +15,40 @@ export interface SlotOptions {
 }
 
 export const heavyDir = (env: NodeJS.ProcessEnv = process.env): string => env.ACC_HEAVY_DIR || join(homedir(), '.acc', 'heavy');
-export const heavySlots = (env: NodeJS.ProcessEnv = process.env): number => Math.max(1, Math.floor(Number(env.ACC_HEAVY_SLOTS)) || 1);
+/** This machine's own settings, shared by every repo and worktree on it (D-080). */
+export const machineFile = (env: NodeJS.ProcessEnv = process.env): string => env.ACC_MACHINE_FILE || join(homedir(), '.acc', 'machine.json');
+
+/** The most heavy checks a machine may run at once, whatever it's set to. */
+export const MAX_HEAVY_SLOTS = 8;
+
+const slotCount = (v: unknown): number | null => {
+  const n = Math.floor(Number(v));
+  return Number.isFinite(n) && n >= 1 ? Math.min(MAX_HEAVY_SLOTS, n) : null;
+};
+
+/** How many heavy checks may run at once on this machine: ACC_HEAVY_SLOTS, else machine.json's heavySlots, else one (D-024, D-080). */
+export function heavySlots(env: NodeJS.ProcessEnv = process.env): number {
+  const fromEnv = slotCount(env.ACC_HEAVY_SLOTS);
+  if (fromEnv) return fromEnv;
+  try {
+    return slotCount((JSON.parse(readFileSync(machineFile(env), 'utf8')) as { heavySlots?: unknown }).heavySlots) ?? 1;
+  } catch {
+    return 1;
+  }
+}
+
+/** Sets this machine's heavy-check slots in machine.json, keeping what else it holds. */
+export function setHeavySlots(n: number, env: NodeJS.ProcessEnv = process.env): number {
+  const slots = slotCount(n);
+  if (!slots || slots !== n) throw new AccError('usage', `Heavy-check slots are a whole number from 1 to ${MAX_HEAVY_SLOTS}.`);
+  const file = machineFile(env);
+  let current: Record<string, unknown> = {};
+  try { current = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>; } catch { /* a new file */ }
+  mkdirSync(join(file, '..'), { recursive: true });
+  writeFileSync(`${file}.tmp`, JSON.stringify({ ...current, heavySlots: slots }, null, 2) + '\n');
+  renameSync(`${file}.tmp`, file);
+  return slots;
+}
 
 /** A slot whose owner file isn't written yet is being taken right now; past this age, its taker died. */
 const UNOWNED_GRACE_MS = 10_000;
