@@ -7,6 +7,29 @@ as the notes.
 
 ## 0.36.0
 
+- Builders, reviewers and analysts run on Claude Opus 5.5 unless the clone or
+  the project names another model. **Dispatch with…**, on a card's ⋯ menu and
+  the task page, picks a model for one task, with the analysis's size beside
+  the choices (`acc dispatch --model` does the same). A rework and a resume
+  keep the pick. Cards, the task page and the Agents tab show each agent's
+  model.
+- Every agent acc starts is named for its project, ticket and role, such as
+  `Acme Service · ACME-12 Case escalation rules · builder`, in Claude Code's
+  session list, the Command Center, notices and terminals alike. A task's
+  second builder is `builder 2`.
+- Auto-merge, off unless a repo turns it on: with autonomy at review, autopilot
+  merges a pull request once its review and GitHub's checks passed, it's up to
+  date with its base, GitHub says it can merge, and nothing waits on you. One a
+  pass, never into a protected environment, never in a Salesforce project, and
+  never a pull request that changes `.acc/`. Turn it on with **Auto-merge** in
+  How agents run, or `acc agents auto-merge on`.
+- Where a GitHub tracker says `"edits": true`, `acc sync` closes a task's issue
+  when its pull request merges, with one comment saying so. `acc sync
+  --close-done` does the same for tasks done before (`--plan` lists them
+  first). Jira and Azure DevOps tickets are never changed.
+- monday.com connects on the Connect page: an account, a personal API token, a
+  board, and if wanted one group on it. Its status labels are the Tasks tab's
+  columns.
 - Setup forgets a step that no longer applies. Opening a folder with no
   project, then giving it a generic config, used to leave Node 20 or later
   (and the Salesforce CLI and Code Analyzer) listed under This machine, counted
