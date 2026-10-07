@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { claudeProjectsDir, lastSaid, lastSaidIn, savedFolder, transcriptDir, transcriptFile } from '../src/transcript.ts';
+import { claudeProjectsDir, lastModelIn, lastSaid, lastSaidIn, savedFolder, transcriptDir, transcriptFile } from '../src/transcript.ts';
 import { gh41Lines, SLEPT, tempDir } from './support.ts';
 
 test('the last thing an agent said is its newest text, Claude Code\'s own API error included (GH-41)', () => {
@@ -28,6 +28,16 @@ test('only the end of a long transcript is read, and a cut first line is skipped
   assert.equal(lastSaidIn(file), 'the latest words');
   writeFileSync(file, [said('said long ago'), ...Array(400).fill(filler)].join('\n'));
   assert.equal(lastSaidIn(file), null, 'words before the last 256 KB aren\'t looked for');
+});
+
+test('the model an agent last answered with is read from its transcript\'s end, past Claude Code\'s own messages and a helper\'s turns (D-???)', () => {
+  const file = join(tempDir('projects-'), 'model.jsonl');
+  const turn = (model: string, o: Record<string, unknown> = {}) => JSON.stringify({ type: 'assistant', ...o, message: { model, content: [{ type: 'text', text: 'hi' }] } });
+  writeFileSync(file, [turn('claude-opus-5-5'), turn('claude-sonnet-5-5'), turn('claude-haiku-4-5-20251001', { isSidechain: true }), turn('<synthetic>'), JSON.stringify({ type: 'user', message: { content: 'go on' } })].join('\n') + '\n');
+  assert.equal(lastModelIn(file), 'claude-sonnet-5-5');
+  writeFileSync(file, JSON.stringify({ type: 'user', message: { content: 'start' } }) + '\n');
+  assert.equal(lastModelIn(file), null, 'before its first answer');
+  assert.equal(lastModelIn(join(tempDir('projects-'), 'missing.jsonl')), null);
 });
 
 test('Claude Code\'s projects folder follows CLAUDE_CONFIG_DIR', () => {

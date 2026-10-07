@@ -299,6 +299,8 @@ function renderTasks(m: TasksModel): Node[] {
           // Its builder stopped before acc done or acc block, and what it last said (D-067): in orange, with its icon.
           card.stopped ? el('div', 'card-agent', status(card.stopped)) : null,
           card.agent ? el('div', 'card-agent', el('span', 'muted', 'Agent: '), status(card.agent)) : null,
+          // The model it runs with (D-???), in plain mono text: a name, not a state.
+          card.agent && card.model ? el('div', 'card-where card-model', icon('sparkle'), el('span', 'mono muted', card.model)) : null,
           // Its analysis (D-052), in its own words: under way, waiting on you, or ready to build from.
           card.analysis ? el('div', 'card-agent', status(card.analysis)) : null,
           cardFoot(card),
@@ -793,6 +795,7 @@ function renderTicket(m: TicketModel): Node[] {
         ...(a.waitingOn.length ? field('Waiting on', a.waitingOn.join(', ')) : []),
 
         ...(a.agent && a.agent.label !== a.look.label ? field('Session', status(a.agent)) : []),
+        ...(a.agent && a.model ? field('Model', el('span', 'mono', a.model)) : []),
         ...(a.branch ? field('Branch', clippedSpan(a.branch)) : []),
         ...(a.worktree ? field('Worktree', clippedSpan(a.worktree.split('/').slice(-2).join('/'))) : []),
       ),
@@ -1841,6 +1844,9 @@ function renderHome(m: HomeModel): Node[] {
   return [el('div', 'home', renderNav(m, current), el('div', 'home-col', main, renderDock(runs)))];
 }
 
+/** A model's name short enough for a table cell: claude-opus-5-5 is opus-5-5, and a dated snapshot drops its date. */
+const shortModel = (m: string): string => m.replace(/^claude-/, '').replace(/-\d{8}(?=\[|$)/, '');
+
 function renderAgents(m: AgentsModel): Node[] {
   const all = m.places.flatMap((p) => p.agents);
   const needs = all.filter((a) => a.needsYou).length;
@@ -1871,15 +1877,17 @@ function renderAgents(m: AgentsModel): Node[] {
   }
   // One table with a heading row per place, so the columns line up all the way down.
   const table = el('table', 'grid');
-  table.append(el('thead', '', el('tr', '', ...[['Session', ''], ['State', ''], ['Kind', 'kind'], ['Where', 'wide'], ['Started', 'started'], ['', '']].map(([h, c]) => el('th', c!, h!)))));
+  table.append(el('thead', '', el('tr', '', ...[['Session', ''], ['State', ''], ['Model', 'model'], ['Kind', 'kind'], ['Where', 'wide'], ['Started', 'started'], ['', '']].map(([h, c]) => el('th', c!, h!)))));
   for (const place of m.places) {
     if (!place.agents.length && !place.root) continue;
     const body = el('tbody');
-    body.append(el('tr', 'group', span(el('th', '', icon(place.root ? 'repo' : 'device-desktop'), place.label, el('span', 'count', String(place.agents.length))), 6)));
-    if (!place.agents.length) body.append(el('tr', 'none', span(el('td', 'muted', 'No agent sessions in this project right now.'), 6)));
+    body.append(el('tr', 'group', span(el('th', '', icon(place.root ? 'repo' : 'device-desktop'), place.label, el('span', 'count', String(place.agents.length))), 7)));
+    if (!place.agents.length) body.append(el('tr', 'none', span(el('td', 'muted', 'No agent sessions in this project right now.'), 7)));
     for (const a of place.agents) {
       const row = el('tr', a.needsYou ? 'attention' : '',
-        openable(clipped(a.name, 'strong name'), { type: 'run', command: 'acc.agent.watch', ref: { session: a.key } }), el('td', 'nowrap', status(a.look)), el('td', 'nowrap muted kind', a.kind), clipped(a.where, 'mono'), el('td', 'nowrap muted started', since(a.startedAt)),
+        openable(clipped(a.name, 'strong name'), { type: 'run', command: 'acc.agent.watch', ref: { session: a.key } }), el('td', 'nowrap', status(a.look)),
+        // The model it runs with (D-???), as plain text, short, with its full name on hover; a dash until it's known.
+        Object.assign(el('td', 'nowrap mono muted model', a.model ? shortModel(a.model) : '—'), { title: a.model ?? 'Not known until it first answers' }), el('td', 'nowrap muted kind', a.kind), clipped(a.where, 'mono'), el('td', 'nowrap muted started', since(a.startedAt)),
         el('td', 'actions', menuButton(a.name)));
       body.append(withMenu(row, 'agent', { session: a.key }, { agentBackground: a.background }));
     }

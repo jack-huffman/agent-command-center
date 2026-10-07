@@ -12,7 +12,7 @@ import type { RepoPaths } from '../../packages/core/src/paths.ts';
 import type { HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import { resuming } from '../../packages/core/src/resume.ts';
 import { latestVerdict, reviewing } from '../../packages/core/src/review.ts';
-import { claudeProjectsDir, lastSaidIn, transcriptFile } from '../../packages/core/src/transcript.ts';
+import { claudeProjectsDir, lastModelIn, lastSaidIn, transcriptFile } from '../../packages/core/src/transcript.ts';
 import { readUpdate, type Update, UPDATE_ID } from '../../packages/core/src/updates.ts';
 import { type AgentSession, agentLook, analysisWait, askingLabel, isUnder, parseWorktrees, rowAnalysis, sessionFor, type TaskRow, type Worktree } from './logic.ts';
 import { runFile } from './run.ts';
@@ -43,6 +43,16 @@ export type HubPart = 'projects' | 'tasks' | 'agents' | 'worktrees';
 const analysesOf = (p: Pick<Project, 'ledgerPath'>): RepoPaths => ({ analyses: join(dirname(p.ledgerPath), 'analyses') }) as RepoPaths;
 /** And its tickets' draft updates (D-066). */
 const updatesOf = (p: Pick<Project, 'ledgerPath'>): Pick<RepoPaths, 'updates'> => ({ updates: join(dirname(p.ledgerPath), 'updates') });
+
+/** Something read from a file, kept with the file's stamp until it changes. */
+interface Read<T> {
+  file: string;
+  stamp: string;
+  value: T | null;
+}
+
+/** How long a transcript not found is left before it's looked for again: a search reads every project folder. */
+const UNSAVED_MS = 30_000;
 
 /** When a file last changed, as one value: a rewrite in the same millisecond still has a new size or inode. */
 function stampOf(file: string): string | null {
@@ -77,7 +87,11 @@ export class Hub implements vscode.Disposable {
   private readonly updateFiles = new Map<string, { stamp: string; update: Update | null }>();
   private readonly repoUpdates = new Map<string, Update[]>();
   /** The last thing each stopped builder said, by session, kept until its transcript changes (D-067). */
-  private readonly said = new Map<string, { file: string; stamp: string; said: string | null }>();
+  private readonly said = new Map<string, Read<string>>();
+  /** The model each agent last answered with, by session, kept until its transcript changes (D-???). */
+  private readonly models = new Map<string, Read<string>>();
+  /** When a session's transcript was last looked for and not found, so it isn't searched for every few seconds. */
+  private readonly unsaved = new Map<string, number>();
   private readonly emitter = new vscode.EventEmitter<HubPart>();
   readonly onDidChange = this.emitter.event;
   private readonly timers = new Map<string, NodeJS.Timeout>();
@@ -233,20 +247,48 @@ export class Hub implements vscode.Disposable {
   }
 
   /**
-   * The last thing a session's agent said, from the end of its transcript. Read again only when the file
-   * changes: the rows are derived every few seconds.
+   * Something read from the end of a session's transcript. Read again only when the file changes: the
+   * rows are derived every few seconds. A transcript not found is looked for again after a while.
    */
-  private lastSaid(sessionId: string, likely: (string | null | undefined)[]): string | null {
-    let cached = this.said.get(sessionId);
-    const file = cached && existsSync(cached.file) ? cached.file : transcriptFile(claudeProjectsDir(process.env), sessionId, likely);
-    if (!file) return null;
+  private fromTranscript(cache: Map<string, Read<string>>, read: (file: string) => string | null, sessionId: string, likely: (string | null | undefined)[]): string | null {
+    let cached = cache.get(sessionId);
+    let file = cached && existsSync(cached.file) ? cached.file : null;
+    if (!file) {
+      if (Date.now() - (this.unsaved.get(sessionId) ?? 0) < UNSAVED_MS) return null;
+      file = transcriptFile(claudeProjectsDir(process.env), sessionId, likely);
+      if (!file) {
+        this.unsaved.set(sessionId, Date.now());
+        return null;
+      }
+      this.unsaved.delete(sessionId);
+    }
     const stamp = stampOf(file);
     if (!stamp) return null;
     if (cached?.file !== file || cached.stamp !== stamp) {
-      cached = { file, stamp, said: lastSaidIn(file) };
-      this.said.set(sessionId, cached);
+      cached = { file, stamp, value: read(file) };
+      cache.set(sessionId, cached);
     }
-    return cached.said;
+    return cached.value;
+  }
+
+  /** The last thing a session's agent said, from the end of its transcript (D-067). */
+  private lastSaid(sessionId: string, likely: (string | null | undefined)[]): string | null {
+    return this.fromTranscript(this.said, lastSaidIn, sessionId, likely);
+  }
+
+  /** The model a session's agent last answered with, from the end of its transcript (D-???). */
+  private lastModel(sessionId: string, likely: (string | null | undefined)[]): string | null {
+    return this.fromTranscript(this.models, lastModelIn, sessionId, likely);
+  }
+
+  /**
+   * The model a session runs with (D-???): what its transcript last answered with, else, for a task's
+   * builder, the model acc started it with, before its first answer. Null when neither is known.
+   */
+  modelFor(s: AgentSession): string | null {
+    const task = [...this.tasks.values()].flatMap((c) => c.ledger.tasks).find((t) => (!!s.sessionId && t.run?.sessionId === s.sessionId) || (!!s.id && t.run?.bgId === s.id));
+    const said = s.sessionId ? this.lastModel(s.sessionId, [s.cwd, task?.run?.worktree]) : null;
+    return said ?? task?.run?.model ?? null;
   }
 
   /**
@@ -288,6 +330,8 @@ export class Hub implements vscode.Disposable {
       const look = carrying ? { label: 'Resumed: working', icon: 'sync~spin', tone: 'blue' as const } : session ? agentLook(session, asking) : null;
       const info: SessionInfo | undefined = stopped ? { stopped: true } : carrying ? { status: 'busy' } : session ? (asking ? { state: 'blocked', status: 'waiting' } : { state: session.state, status: session.status }) : undefined;
       const said = stopped && t.run?.sessionId ? this.lastSaid(t.run.sessionId, [t.run.worktree, session?.cwd, p?.root]) : null;
+      // The model its agent runs with (D-???): what it last answered with, else what acc started it with.
+      const model = look && t.run ? (t.run.sessionId ? this.lastModel(t.run.sessionId, [t.run.worktree, session?.cwd, p?.root]) : null) ?? t.run.model ?? null : null;
       const failed = autopilotFailure(t);
       return {
         id: t.id,
@@ -301,6 +345,7 @@ export class Hub implements vscode.Disposable {
         source: { kind: t.source.kind, url: t.source.url },
         run: t.run,
         agent: look ? { label: look.label, icon: look.icon, tone: look.tone } : null,
+        model,
         asking: !!asking,
         review: verdict ? { verdict: verdict.verdict, summary: verdict.summary, current: !!head && verdict.sha === head, at: verdict.at } : null,
         reviewing: live ? { sessionId: live.sessionId } : null,

@@ -15,7 +15,7 @@ import { type Environment, type Tracker, trackerForKey } from '../../packages/co
 import { promotionPaths } from '../../packages/core/src/promote.ts';
 import type { Answer, HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import { isOpenUpdate, stalePosting, type Update, UPDATE_ID, UPDATE_TEXT_MAX } from '../../packages/core/src/updates.ts';
-import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, BOARD_LANES, conflictLine, type DoctorItem, ENV_ICON, failedChecksLine, fileList, groupTasks, isUnder, prConflicts, questionsWord, type RunPrompt, saidLine, shortPath, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
+import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, BOARD_LANES, conflictLine, type DoctorItem, ENV_ICON, failedChecksLine, fileList, FROM_WORDS, groupTasks, isUnder, prConflicts, questionsWord, type RunPrompt, saidLine, shortPath, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
 import { isSlackWebhook, SLACK_KINDS, type SlackCard, type SlackKind } from './slack.ts';
 import type { Entry } from './transcript.ts';
 
@@ -87,6 +87,8 @@ export interface HubLike {
   /** How earlier questions ended (D-037). */
   answers?: HistoryRecord[];
   askingFor?(s: AgentSession): string | null;
+  /** The model a session runs with (D-???): what its transcript last answered with, else what acc started it with. */
+  modelFor?(s: AgentSession): string | null;
 }
 
 /** The key a session goes by in refs: its session id, else its background id. */
@@ -101,6 +103,8 @@ export interface Card {
   waitingOn: string[];
   url: string | null;
   agent: Look | null;
+  /** The model its agent runs with, shown beside its state (D-???). */
+  model: string | null;
   worktree: string | null;
   /** "Conflicts with dev: …" when its open pull request won't merge into its base (D-049). */
   conflicts: string | null;
@@ -202,6 +206,8 @@ export function cardActions(t: TaskRow, ref: Ref): Action[] {
   else if (wait === 'questions') a.push({ command: 'acc.task.show', label: 'Answer', icon: 'question', ref, primary: true });
   else if (wait === 'split') a.push({ command: 'acc.task.show', label: 'See the split', icon: 'split-horizontal', ref, primary: true });
   if (dispatchable) a.push({ command: 'acc.task.dispatch', label: t.state === 'rework' ? 'Re-dispatch' : 'Dispatch', icon: 'rocket', ref, primary: !a.some((x) => x.primary) });
+  // The same, with a model a person picks for this task (D-???): behind ⋯ on the card.
+  if (dispatchable) a.push({ command: 'acc.task.dispatchWith', label: `${t.state === 'rework' ? 'Re-dispatch' : 'Dispatch'} with…`, icon: 'sparkle', ref });
   if (todo && !t.analyzing && !t.analysis) a.push({ command: 'acc.task.analyze', label: 'Analyze', icon: 'telescope', ref, primary: !!t.analysisRequired && !a.some((x) => x.primary) });
   // In review (D-032, D-033): watch the reviewer, review it, land it, or follow its pull request.
   if (t.state === 'review') {
@@ -258,7 +264,7 @@ export function tasksModel(hub: HubLike, boards: (root: string) => BoardInput[] 
           cards: (byGroup.get(group) ?? []).map((t) => ({
             id: t.id, title: t.title, environment: t.environment, waitingOn: t.deps, url: t.source.url,
             // A stopped builder's line says it all: its old session's own state would only repeat it.
-            agent: t.stopped ? null : t.agent ?? null, worktree: t.run?.worktree ?? null, conflicts: conflictLine(t), failedChecks: failedChecksLine(t), analysis: analysisLook(t), autopilot: autopilotLook(t), closedPr: closedPrLook(t),
+            agent: t.stopped ? null : t.agent ?? null, model: t.stopped || !t.agent ? null : t.model ?? null, worktree: t.run?.worktree ?? null, conflicts: conflictLine(t), failedChecks: failedChecksLine(t), analysis: analysisLook(t), autopilot: autopilotLook(t), closedPr: closedPrLook(t),
             stopped: t.autopilot ? null : stoppedLook(t),
             actions: cardActions(t, { project: p.root, task: t.id }), drops: dropLanes(t),
           })),
@@ -428,6 +434,8 @@ export interface TicketAcc {
   /** "Checks failed on GitHub: …", or null (D-076). Not `checks`: those are acc's own, on its commit. */
   failedChecks: string | null;
   agent: Look | null;
+  /** The model its agent runs with (D-???). */
+  model: string | null;
   worktree: string | null;
   branch: string | null;
   /** waived: a person set it aside on this commit (D-031). */
@@ -579,7 +587,7 @@ export function ticketModel(i: TicketInput): TicketModel {
   const live = i.tracker !== null;
   const acc: TicketAcc | null = i.row && i.task ? {
     look: accLook(i.row, true), environment: i.task.environment, waitingOn: i.row.deps, blocker: i.task.blocker, conflicts: conflictLine(i.row, true), failedChecks: failedChecksLine(i.row),
-    agent: i.row.stopped ? null : i.row.agent ?? null, worktree: i.task.run?.worktree ?? null, branch: i.task.run?.branch ?? null, checks: i.checks,
+    agent: i.row.stopped ? null : i.row.agent ?? null, model: i.row.model ?? null, worktree: i.task.run?.worktree ?? null, branch: i.task.run?.branch ?? null, checks: i.checks,
     history: i.task.history.map((h) => ({ at: h.at, from: h.from, to: h.to, by: h.by, reason: h.reason ?? null })).reverse(),
     // Its analysis has its own section, with its own buttons.
     actions: cardActions(i.row, { project: i.project, task: i.row.id }).filter((a) => !['acc.task.show', 'acc.task.openTicket', 'acc.task.analyze', 'acc.task.watchAnalysis'].includes(a.command)),
@@ -741,6 +749,8 @@ export interface AgentRow {
   kind: string;
   where: string;
   startedAt: number;
+  /** The model it runs with (D-???), or null when that isn't known yet. */
+  model: string | null;
 }
 
 export interface AgentSetting {
@@ -780,8 +790,6 @@ export function autonomySetting(p: ProjectLike): AutonomySetting | null {
   return value ? { value, from: 'project', meaning: AUTONOMY_MEANING[value] ?? '' } : null;
 }
 
-const FROM_WORDS: Record<string, string> = { clone: 'this clone', project: 'project default', default: 'Claude Code\'s default' };
-
 export function agentSettings(p: ProjectLike): AgentSetting[] {
   if (!p.agents) return [];
   const role = (r: 'builder' | 'reviewer'): AgentSetting => {
@@ -812,7 +820,7 @@ export function agentsModel(hub: HubLike, setupItems: DoctorItem[] = []): Agents
     const p = hub.projectFor(s.cwd);
     const key = sessionKey(s);
     const where = p ? (isUnder(s.cwd, p.root) ? s.cwd.slice(p.root.length + 1) || 'main checkout' : s.cwd.split('/').pop() ?? s.cwd) : s.cwd;
-    return { key, background: !!s.id, name: s.name ?? s.sessionId?.slice(0, 8) ?? 'session', look: { label: look.label, icon: look.icon, tone: look.tone }, needsYou: look.needsYou, kind: s.kind, where, startedAt: s.startedAt };
+    return { key, background: !!s.id, name: s.name ?? s.sessionId?.slice(0, 8) ?? 'session', look: { label: look.label, icon: look.icon, tone: look.tone }, needsYou: look.needsYou, kind: s.kind, where, startedAt: s.startedAt, model: hub.modelFor?.(s) ?? null };
   };
   const sorted = [...hub.agents].sort((a, b) => Number(lookOf(b).needsYou) - Number(lookOf(a).needsYou) || b.startedAt - a.startedAt);
   const places = hub.projects.map((p) => ({ label: p.name, root: p.root as string | null, agents: sorted.filter((s) => hub.projectFor(s.cwd) === p).map(rowFor) }));

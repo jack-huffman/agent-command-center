@@ -208,11 +208,11 @@ test('the Overview gathers what needs a person, counts it once, and groups revie
 
 test('cards follow a task through dispatch: Dispatch, then Watch, Attach and Abandon, then Clean up', () => {
   const labels = (r: Partial<TaskRow>) => cardActions({ ...row('AV-9', 'todo', 'ready'), deps: [], ...r } as TaskRow, {}).map((a) => a.label);
-  assert.deepEqual(labels({}), ['Dispatch', 'Analyze', 'Move', 'Block', 'Details']);
+  assert.deepEqual(labels({}), ['Dispatch', 'Dispatch with…', 'Analyze', 'Move', 'Block', 'Details']);
   assert.deepEqual(labels({ state: 'running', display: 'running', run: { bgId: 'bg1', worktree: '/w/AV-9' } }), ['Watch', 'Open in Claude Code', 'Worktree', 'Instructions', 'Move', 'Abandon', 'Details']);
   assert.equal(cardActions({ ...row('AV-9', 'running', 'running'), deps: [], run: { bgId: 'bg1' } } as TaskRow, {})[0]!.primary, true, 'Watch is the main action while it runs');
   assert.deepEqual(labels({ state: 'review', display: 'review', run: { sessionId: 's1', worktree: '/w/AV-9' } }).slice(0, 2), ['Review', 'Watch'], 'in review: Review first, and what its builder did can still be read');
-  assert.deepEqual(labels({ state: 'rework', display: 'rework', run: { worktree: '/w/AV-9' } }), ['Re-dispatch', 'Worktree', 'Instructions', 'Move', 'Block', 'Details']);
+  assert.deepEqual(labels({ state: 'rework', display: 'rework', run: { worktree: '/w/AV-9' } }), ['Re-dispatch', 'Re-dispatch with…', 'Worktree', 'Instructions', 'Move', 'Block', 'Details']);
   assert.deepEqual(labels({ state: 'done', display: 'done', run: { worktree: '/w/AV-9' } }), ['Worktree', 'Instructions', 'Move', 'Clean up', 'Details']);
   assert.equal(cardActions({ ...row('AV-9', 'todo', 'ready'), deps: [] }, {})[0]!.primary, true, 'Dispatch is the main action on a ready card');
 });
@@ -229,12 +229,12 @@ test('before a build, a card offers its analysis first, and Dispatch once it\'s 
   assert.deepEqual(labels({ analysisRequired: true, analyzing: { sessionId: 's' } }), ['Watch the analysis*', 'Move', 'Block', 'Details']);
   assert.deepEqual(labels({ analysisRequired: true, display: 'needs-you', analysis: asks }), ['Answer*', 'Move', 'Block', 'Details']);
   assert.deepEqual(labels({ analysisRequired: true, display: 'needs-you', analysis: tooBig }), ['See the split*', 'Move', 'Block', 'Details']);
-  assert.deepEqual(labels({ analysisRequired: true, analysis: analysed }), ['Dispatch*', 'Move', 'Block', 'Details']);
+  assert.deepEqual(labels({ analysisRequired: true, analysis: analysed }), ['Dispatch*', 'Dispatch with…', 'Move', 'Block', 'Details']);
   assert.deepEqual(labels({ analysisRequired: true, deps: ['AV-1'], display: 'todo' }), ['Analyze*', 'Move', 'Block', 'Details'], 'waiting on another task: analyze it meanwhile');
   // Where it's optional: Dispatch stays, second to answering questions the analysis did ask.
-  assert.deepEqual(labels({}), ['Dispatch*', 'Analyze', 'Move', 'Block', 'Details']);
-  assert.deepEqual(labels({ display: 'needs-you', analysis: asks }), ['Answer*', 'Dispatch', 'Move', 'Block', 'Details']);
-  assert.deepEqual(labels({ analysis: analysed }), ['Dispatch*', 'Move', 'Block', 'Details']);
+  assert.deepEqual(labels({}), ['Dispatch*', 'Dispatch with…', 'Analyze', 'Move', 'Block', 'Details']);
+  assert.deepEqual(labels({ display: 'needs-you', analysis: asks }), ['Answer*', 'Dispatch', 'Dispatch with…', 'Move', 'Block', 'Details']);
+  assert.deepEqual(labels({ analysis: analysed }), ['Dispatch*', 'Dispatch with…', 'Move', 'Block', 'Details']);
   assert.deepEqual(labels({ analyzing: { sessionId: 's' } }), ['Watch the analysis*', 'Move', 'Block', 'Details'], 'not while it\'s being analyzed');
   assert.equal(labels({ state: 'rework', display: 'rework', analysisRequired: true })[0], 'Re-dispatch*', 'a rework already had its analysis');
   // Dragging to Running is dispatching, so it's held the same way.
@@ -627,4 +627,55 @@ test('How agents run shows the project\'s autonomy, where it\'s set, and a way t
   assert.match(readFileSync(join(root, 'src', 'panels.ts'), 'utf8'), /'acc\.agents\.autonomy'/, 'the page may ask for it');
   assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === 'acc.agents.autonomy'));
   assert.match(readFileSync(join(root, 'src', 'sidebar.ts'), 'utf8'), /this\.runAcc\(project, \['agents', 'autonomy', pick\.value\]/);
+});
+
+test('Dispatch with… sits behind ⋯ wherever Dispatch is offered, and on the task page, and the pages may ask for it (D-???)', () => {
+  const actions = (r: Partial<TaskRow>) => cardActions({ ...row('AV-9', 'todo', 'ready'), deps: [], ...r } as TaskRow, { project: '/r', task: 'AV-9' });
+  const withIt = actions({}).find((a) => a.command === 'acc.task.dispatchWith')!;
+  assert.deepEqual([withIt.label, withIt.icon, !!withIt.primary], ['Dispatch with…', 'sparkle', false], 'never the next step, so it sits behind ⋯');
+  assert.equal(actions({ state: 'rework', display: 'rework' }).find((a) => a.command === 'acc.task.dispatchWith')!.label, 'Re-dispatch with…');
+  for (const r of [{ state: 'running', display: 'running' as const, run: { bgId: 'bg1' } }, { state: 'review', display: 'review' as const }, { analysisRequired: true }, { analyzing: { sessionId: 's' } }]) {
+    assert.ok(!actions(r).some((a) => a.command === 'acc.task.dispatchWith'), `only where Dispatch is: ${JSON.stringify(r)}`);
+  }
+  const task = { id: 'AV-9', title: 'Task AV-9', brief: '', source: { kind: 'jira', key: 'AV-9', url: null }, environment: 'devbox', deps: [], labels: [], state: 'todo', blocker: null, history: [], createdAt: '', updatedAt: '' } as never;
+  const page = ticketModel({ project: '/r', tracker: null, trackerTitle: null, trackerKind: null, key: 'AV-9', ticket: null, loading: false, error: null, connect: null, checks: [], row: { ...row('AV-9', 'todo', 'ready'), deps: [] }, task });
+  assert.deepEqual(page.acc!.actions.slice(0, 2).map((a) => a.command), ['acc.task.dispatch', 'acc.task.dispatchWith'], 'the task page offers it beside Dispatch');
+  assert.match(readFileSync(join(root, 'src', 'panels.ts'), 'utf8'), /'acc\.task\.dispatchWith'/);
+  assert.match(readFileSync(join(root, 'src', 'ticket.ts'), 'utf8'), /'acc\.task\.dispatchWith'/);
+  assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === 'acc.task.dispatchWith'));
+  assert.match(readFileSync(join(root, 'src', 'sidebar.ts'), 'utf8'), /reg\('acc\.task\.dispatchWith'/);
+});
+
+test('a running card, its task page and its Agents row name the model its agent runs with, in plain text (D-???)', () => {
+  const h = hub();
+  const running: TaskRow = { ...row('AV-1', 'running', 'running'), run: { bgId: 'bg1', model: 'claude-sonnet-5-5', modelPicked: true }, agent: { label: 'Working', icon: 'sync~spin', tone: 'blue' }, model: 'claude-sonnet-5-5' };
+  const stopped: TaskRow = { ...row('AV-3', 'running', 'needs-you'), run: { sessionId: 's3', model: 'claude-opus-5-5' }, stopped: { said: null }, agent: { label: 'Stopped', icon: 'debug-pause', tone: 'orange' }, model: 'claude-opus-5-5' };
+  h.taskRows = () => [running, stopped, { ...row('AV-2', 'todo', 'ready'), deps: [] }];
+  const cards = tasksModel(h).projects[0]!.columns.flatMap((c) => c.cards);
+  assert.equal(cards.find((c) => c.id === 'AV-1')!.model, 'claude-sonnet-5-5');
+  assert.equal(cards.find((c) => c.id === 'AV-3')!.model, null, 'a stopped builder\'s line says it all');
+  assert.equal(cards.find((c) => c.id === 'AV-2')!.model, null, 'no agent, no model');
+  const task = { id: 'AV-1', title: 'Task AV-1', brief: '', source: { kind: 'jira', key: 'AV-1', url: null }, environment: 'devbox', deps: [], labels: [], state: 'running', blocker: null, run: running.run, history: [], createdAt: '', updatedAt: '' } as never;
+  const page = ticketModel({ project: '/r', tracker: null, trackerTitle: null, trackerKind: null, key: 'AV-1', ticket: null, loading: false, error: null, connect: null, checks: [], row: running, task });
+  assert.equal(page.acc!.model, 'claude-sonnet-5-5');
+  // The Agents tab asks the hub, which reads the transcript, then what acc started it with.
+  h.modelFor = (s) => (s.id === 'bg1' ? 'claude-sonnet-5-5' : null);
+  const rows = agentsModel(h).places.flatMap((p) => p.agents);
+  assert.deepEqual(rows.map((r) => [r.name, r.model]), [['av-2', 'claude-sonnet-5-5'], ['other', null]]);
+  const main = readFileSync(join(root, 'webview', 'main.ts'), 'utf8');
+  assert.match(main, /\['Model', 'model'\]/, 'a Model column');
+  assert.match(main, /el\('td', 'nowrap mono muted model', a\.model \? shortModel\(a\.model\) : '—'\), \{ title: a\.model/, 'a dash until it\'s known, in neutral mono text, its full name on hover');
+  assert.match(main, /card\.agent && card\.model \? el\('div', 'card-where card-model'/);
+  assert.match(main, /field\('Model', el\('span', 'mono', a\.model\)\)/);
+});
+
+test('How agents run names acc\'s default model, apart from Claude Code\'s default effort (D-???)', () => {
+  const h = hub();
+  h.projects[0]!.agents = {
+    builder: { model: 'claude-opus-5-5', effort: null, fallbackModel: null, from: { model: 'acc', effort: 'default', fallbackModel: 'default' } },
+    reviewer: { model: 'claude-sonnet-5-5', effort: 'high', fallbackModel: null, from: { model: 'clone', effort: 'project', fallbackModel: 'default' } },
+  };
+  const [builder, reviewer] = agentsModel(h).settings[0]!.roles;
+  assert.deepEqual(builder!.parts, [{ name: 'Model', value: 'claude-opus-5-5', from: 'acc\'s default' }, { name: 'Effort', value: 'default', from: 'Claude Code\'s default' }]);
+  assert.deepEqual(reviewer!.parts.map((p) => p.from), ['this clone', 'project default']);
 });

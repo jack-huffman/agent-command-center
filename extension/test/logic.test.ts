@@ -5,8 +5,8 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import {
-  buildWalkthroughs, commandLink, COMMANDS, contextKey, EXTENSION_ID, followsPullRequests, hasPlaceholder, initCommand, isComplete, isWebviewMenuContext, mediaPath,
-  productionOrgs, reusableMachine, setupOrgChoices, statusText, stepDescription, summarize, walkthroughSteps, type DoctorItem,
+  buildWalkthroughs, commandLink, COMMANDS, contextKey, dispatchModelItems, EXTENSION_ID, followsPullRequests, hasPlaceholder, initCommand, isComplete, isWebviewMenuContext, mediaPath,
+  MODEL_CHOICES, productionOrgs, reusableMachine, setupOrgChoices, sizeLine, statusText, stepDescription, summarize, walkthroughSteps, type DoctorItem,
 } from '../src/logic.ts';
 import { staleFiles } from '../scripts/generate.ts';
 
@@ -260,7 +260,7 @@ test('a row reads its analysis and the one under way from beside the ledger; a d
   };
   writeFileSync(join(paths.analyses, 'T-1.json'), JSON.stringify(a));
   const row = rowAnalysis(readAnalysis(paths, 'T-1')!);
-  assert.deepEqual(row, { verdict: 'questions', at: '2026-10-05T10:00:00.000Z', open: [{ id: 'q1', question: 'Which?', why: 'Because.', suggested: 'This one.' }], split: [] }, 'only the questions nobody answered');
+  assert.deepEqual(row, { verdict: 'questions', at: '2026-10-05T10:00:00.000Z', open: [{ id: 'q1', question: 'Which?', why: 'Because.', suggested: 'This one.' }], split: [], size: 'S' }, 'only the questions nobody answered, and its size (D-???)');
   assert.equal(analysisWait({ state: 'todo', analysis: row }), 'questions');
   assert.equal(analysisWait({ state: 'running', analysis: row }), null, 'only a task to do waits on its analysis');
   assert.equal(analysisWait({ state: 'todo', analysis: row, analyzing: { sessionId: 's2' } }), null, 'nor while it\'s analyzed again');
@@ -489,4 +489,34 @@ test('acc sync runs for a project while a task\'s pull request or a promotion ta
   assert.equal(followsPullRequests({ pr: pr('merged'), promoting: false }), false);
   assert.equal(followsPullRequests({ pr: pr('closed') }), false);
   assert.equal(followsPullRequests({ pr: null }), false);
+});
+
+test('Dispatch with… offers the model the builder runs with anyway first, saying where it\'s set, then the rest once, then another (D-???)', () => {
+  const builder = (model: string, from: string) => ({ model, from: { model: from } });
+  const labels = (items: { label: string; description: string }[]) => items.map((i) => `${i.label} · ${i.description}`);
+  assert.deepEqual(MODEL_CHOICES.map((m) => m.name), ['claude-opus-5-5', 'claude-fable-5-1', 'claude-sonnet-5-5', 'claude-haiku-4-5-20251001'], 'pinned names, one list for Dispatch with… and Change…');
+  assert.deepEqual(labels(dispatchModelItems({}, builder('claude-opus-5-5', 'acc'))), [
+    'claude-opus-5-5 · acc\'s default', 'claude-fable-5-1 · Claude Fable 5.1', 'claude-sonnet-5-5 · Claude Sonnet 5.5: lighter on your plan',
+    'claude-haiku-4-5-20251001 · Claude Haiku 4.5: the lightest', 'Another model… · an alias or a full model name, as claude --model takes it',
+  ]);
+  const clone = dispatchModelItems({}, builder('claude-sonnet-5-5', 'clone'));
+  assert.deepEqual(clone.map((i) => i.value), ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-fable-5-1', 'claude-haiku-4-5-20251001', null], 'never repeated, and Another model… last');
+  assert.equal(clone[0]!.description, 'this clone');
+  assert.equal(dispatchModelItems({}, builder('opus', 'project'))[0]!.description, 'project default');
+  assert.equal(dispatchModelItems({}, builder('opus', 'project')).length, 6, 'an alias isn\'t one of the pinned names, so all four follow it');
+  // A model picked for the task earlier is what a re-dispatch would run with, so it comes first.
+  const kept = dispatchModelItems({ run: { model: 'claude-haiku-4-5-20251001', modelPicked: true } }, builder('claude-opus-5-5', 'acc'));
+  assert.deepEqual([kept[0]!.value, kept[0]!.description], ['claude-haiku-4-5-20251001', 'picked for this task']);
+  assert.equal(dispatchModelItems({ run: { model: 'claude-haiku-4-5-20251001' } }, builder('claude-opus-5-5', 'acc'))[0]!.value, 'claude-opus-5-5', 'one only started with it follows the settings');
+});
+
+test('the analysis\'s size is shown beside the models, in words, and chooses none of them (D-???)', () => {
+  const analysis = (size?: 'S' | 'M' | 'L' | 'XL') => ({ analysis: { verdict: 'ready' as const, at: 't', open: [], split: [], ...(size ? { size } : {}) } });
+  assert.equal(sizeLine(analysis('L')), 'Its analysis sizes it L: a few days.');
+  assert.equal(sizeLine(analysis('S')), 'Its analysis sizes it S: an hour or two.');
+  assert.equal(sizeLine({}), 'Not analyzed: no size to go on.');
+  assert.equal(sizeLine(analysis()), 'Its analysis gave no size.');
+  // The items don't depend on the analysis at all: their input has no room for it.
+  const b = { model: 'claude-opus-5-5', from: { model: 'acc' } };
+  assert.deepEqual(dispatchModelItems({ ...analysis('XL'), run: null }, b), dispatchModelItems({ run: null }, b));
 });
