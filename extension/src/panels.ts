@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
 import type { Answer } from '../../packages/core/src/questions.ts';
 import type { Hub } from './hub.ts';
+import { FinishedJobs } from './progress.ts';
 import { answerOf, type BoardInput, type ConnectMessage, type ConnectModel, type FromWebview, HOME_SECTIONS, type HomeSection, homeModel, type IdentityCard, isFromWebview, type Ref, type RunControl, type RunInput, runCard, type SlackCard, type ViewKind } from './model.ts';
 import type { Setup } from './setup.ts';
 import type { UpdateActions } from './ticket.ts';
@@ -16,6 +17,8 @@ const ALLOWED = new Set([
   'acc.env.openOrg', 'acc.env.openGithub', 'acc.env.compare', 'acc.env.promote', 'acc.env.deploy',
   'acc.step.check', 'acc.step.fix', 'acc.step.openSetup', 'acc.step.confirm', 'acc.openGuide', 'acc.openProjectWalkthrough',
   'acc.trackers.signIn', 'acc.trackers.refresh', 'acc.trackers.add', 'acc.github.switch', 'acc.github.signIn', 'acc.agents.configure', 'acc.agents.autonomy', 'acc.agents.autoMerge',
+  // In progress (D-???): a job's Stop asks first; autopilot's output for its step.
+  'acc.job.stop', 'acc.autopilot.output',
 ]);
 
 /** What the page needs from the rest of the extension, and what its cards ask for. */
@@ -43,6 +46,8 @@ export interface BoardDeps {
   connect: { model(): ConnectModel | null; receive(m: ConnectMessage): void; close(): void };
   /** The Slack card (GH-58): what it shows, never the webhook, and what its controls send. */
   slack?: { card(): SlackCard | null; receive(m: Extract<FromWebview, { type: 'slack' | 'slack-connect' | 'slack-kinds' }>): void };
+  /** Whether autopilot runs for a project's repo in this window, somewhere else, or not at all (D-064). */
+  autopilot?(root: string): 'on' | 'elsewhere' | null;
 }
 
 export const isWebLink = (url: string): boolean => /^(https?:|mailto:)/i.test(url);
@@ -96,6 +101,8 @@ export class Panels implements vscode.Disposable {
   private readonly resolve: (command: string, ref: Ref) => unknown;
   private readonly onVisible: (visible: boolean) => void;
   private readonly deps: BoardDeps;
+  /** Jobs In progress saw end, kept a minute, by the extension's clock (D-???). */
+  private readonly finished = new FinishedJobs();
 
   constructor(ctx: vscode.ExtensionContext, hub: Hub, setup: Setup, resolve: (command: string, ref: Ref) => unknown, onVisible: (visible: boolean) => void, deps: BoardDeps) {
     this.ctx = ctx;
@@ -162,6 +169,7 @@ export class Panels implements vscode.Disposable {
       hub: this.hub, section: this.section, boards: (r) => this.deps.boards(r), identity: (r) => this.deps.identity(r),
       setup: { items: this.setup.results(), confirmed: this.setup.allConfirmed() }, runs: this.deps.runs(),
       edited: (root, id, replaces) => this.deps.edited(root, id, replaces), connect: this.deps.connect.model(), slack: this.deps.slack?.card() ?? null,
+      finished: this.finished, autopilot: (root) => this.deps.autopilot?.(root) ?? null, now: Date.now(),
     });
   }
 

@@ -89,8 +89,8 @@ export class Runs implements vscode.Disposable {
     return this.list.map((r) => this.view(r));
   }
 
-  private view({ id, label, command, startedAt, endedAt, code, ok, stopped, lines, prompt, step, background }: Run): RunInput {
-    return { id, label, command, startedAt, endedAt, code, ...(ok === undefined ? {} : { ok }), stopped, lines, prompt, step, ...(background ? { background } : {}) };
+  private view({ id, label, command, cwd, startedAt, endedAt, code, ok, stopped, lines, prompt, step, background }: Run): RunInput {
+    return { id, label, command, cwd, startedAt, endedAt, code, ...(ok === undefined ? {} : { ok }), stopped, lines, prompt, step, ...(background ? { background } : {}) };
   }
 
   running(step?: string): boolean {

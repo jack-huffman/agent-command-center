@@ -16,8 +16,10 @@ import { promotionPaths } from '../../packages/core/src/promote.ts';
 import type { Answer, HistoryRecord, Question } from '../../packages/core/src/questions.ts';
 import { isOpenUpdate, stalePosting, type Update, UPDATE_ID, UPDATE_TEXT_MAX } from '../../packages/core/src/updates.ts';
 import { agentLook, type AgentSession, type AnalysisAsk, analysisReady, analysisWait, BOARD_LANES, conflictLine, type DoctorItem, ENV_ICON, failedChecksLine, fileList, groupTasks, isUnder, prConflicts, questionsWord, type RunPrompt, saidLine, shortPath, TASK_GROUPS, type TaskRow, type Tone } from './logic.ts';
+import type { HeavyState } from '../../packages/core/src/semaphore.ts';
+import { type FinishedJobs, inProgress, type ProgressModel, type RepoJobs } from './progress.ts';
 import { isSlackWebhook, SLACK_KINDS, type SlackCard, type SlackKind } from './slack.ts';
-import type { Entry } from './transcript.ts';
+import type { Entry, LastStep } from './transcript.ts';
 
 export const VIEW_KINDS = ['tasks', 'agents', 'worktrees', 'environments', 'setup'] as const;
 export type ViewKind = (typeof VIEW_KINDS)[number];
@@ -90,6 +92,14 @@ export interface HubLike {
   /** How earlier questions ended (D-037). */
   answers?: HistoryRecord[];
   askingFor?(s: AgentSession): string | null;
+  /** Who holds the machine's heavy-check slots and who waits (D-???). */
+  heavy?: HeavyState | null;
+  /** The machine's load over the last minute, and its cores. */
+  machine?: { load: number; cpus: number } | null;
+  /** A project's repo's jobs under way: land, refresh, promote, deploy, autopilot's step, reviews, analyses and resumes. */
+  jobsOf?(root: string): RepoJobs;
+  /** A running builder's latest step and model, by its session. */
+  stepOf?(sessionId: string): LastStep | null;
 }
 
 /** The key a session goes by in refs: its session id, else its background id. */
@@ -1414,6 +1424,8 @@ export interface RunInput {
   step: string | null;
   /** Lasts as long as the window, such as autopilot (D-064): never the output panel's first pick. */
   background?: boolean;
+  /** Where it runs, so In progress puts it on its project (D-???). */
+  cwd?: string;
 }
 
 export function runCard(r: RunInput, lines = 400): RunCard {
@@ -1674,6 +1686,8 @@ export interface OverviewModel {
   ready: { project: string; id: string; title: string; environment: string; action: Action }[];
   /** Everything that happened, newest first (D-037). */
   history: HistoryItem[];
+  /** Every job under way, grouped by task, below Needs you (D-???). It never adds to the badge. */
+  inProgress: ProgressModel;
 }
 
 export interface HomeModel {
@@ -1704,6 +1718,12 @@ export interface HomeInput {
   connect?: ConnectModel | null;
   /** The Slack card, for this machine (GH-58). */
   slack?: SlackCard | null;
+  /** In progress's memory of jobs that ended, kept a minute (D-???). */
+  finished?: FinishedJobs;
+  /** Whether autopilot runs for a project's repo in this window, somewhere else, or not at all (D-064). */
+  autopilot?: (root: string) => 'on' | 'elsewhere' | null;
+  /** The extension's clock, for In progress's times. */
+  now?: number;
 }
 
 /** How many things need a person: each question, and each orange item. The badge and the Overview agree. */
@@ -1870,7 +1890,9 @@ export function homeModel(i: HomeInput): HomeModel {
     { section: 'setup', label: 'Setup', icon: 'checklist', count: todo || null, attention: failing > 0, hint: todo ? `${todo} to do` : 'All done' },
   ];
   const runs = (i.runs ?? []).map((r) => runCard(r));
-  return { kind: 'home', section: i.section, nav, overview: { projects, questions, attention, stats, ready, history }, tasks, agents, worktrees, environments, setup, runs, connect: i.connect ?? null };
+  // What's under way, below Needs you. It never changes the badge, which counts only what needs you.
+  const progress = inProgress({ hub, runs: i.runs, finished: i.finished, autopilot: i.autopilot, now: i.now });
+  return { kind: 'home', section: i.section, nav, overview: { projects, questions, attention, stats, ready, history, inProgress: progress }, tasks, agents, worktrees, environments, setup, runs, connect: i.connect ?? null };
 }
 
 export type Model = TasksModel | AgentsModel | WorktreesModel | EnvironmentsModel | SetupModel | TicketModel | HomeModel | AgentModel;

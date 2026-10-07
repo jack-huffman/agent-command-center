@@ -16,16 +16,18 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { HOME_SECTIONS, homeModel, type HomeSection, type Model } from '../src/model.ts';
-import { type ConnectSample, SAMPLE_EDIT, sampleAgent, sampleBoards, sampleConnect, sampleEdited, sampleHub, sampleIdentity, sampleRuns, sampleSetup, sampleSlack, type SlackSample, sampleTicket } from './fixtures.ts';
+import { FinishedJobs } from '../src/progress.ts';
+import { type ConnectSample, SAMPLE_EDIT, sampleAgent, sampleAnalyzeRun, sampleBoards, sampleBusyHub, sampleConnect, sampleEdited, sampleHub, sampleIdentity, sampleIdleHub, sampleRuns, sampleSetup, sampleSlack, type SlackSample, sampleTicket } from './fixtures.ts';
 
 /**
  * Every page the screenshot script can draw: each section of the Command Center, a ticket's page (being
  * built, two to do whose analysis has questions or says to split it, one whose builder stopped, and one
  * acc doesn't keep yet, being tracked), an agent's page, Setup with the output panel open on a command
  * that's asking something, the Connect page at each of its steps (D-073), and Environments with the Slack
- * card at each of its states (GH-58): sending on Environments itself, then not set up, off and paused.
+ * card at each of its states (GH-58): sending on Environments itself, then not set up, off and paused. And
+ * the Overview with In progress busy, and with nothing running (D-???).
  */
-export const PAGES = [...HOME_SECTIONS, 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'agent', 'output', 'connect-start', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'slack-none', 'slack-off', 'slack-paused'] as const;
+export const PAGES = [...HOME_SECTIONS, 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'agent', 'output', 'connect-start', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'slack-none', 'slack-off', 'slack-paused', 'overview-busy', 'overview-idle'] as const;
 export type Page = (typeof PAGES)[number];
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -68,6 +70,15 @@ export function sampleModel(kind: Page, now = Date.now()): Model {
   if (kind === 'ticket-track') return sampleTicket(now, 'ACME-31');
   if (kind === 'ticket-checks') return sampleTicket(now, 'ACME-33');
   if (kind === 'agent') return sampleAgent(now);
+  if (kind === 'overview-busy' || kind === 'overview-idle') {
+    const base = { section: 'overview' as const, boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), edited: sampleEdited, slack: sampleSlack('on', now) };
+    if (kind === 'overview-idle') return homeModel({ ...base, hub: sampleIdleHub(now), runs: sampleRuns(now), now });
+    // Two looks, 20 seconds apart: autopilot's review of ACME-20 ended between them, so it's a done line.
+    const finished = new FinishedJobs();
+    const runs = [...sampleRuns(now), sampleAnalyzeRun(now)];
+    homeModel({ ...base, hub: sampleBusyHub(now, true), runs, finished, autopilot: () => 'on', now: now - 20_000 });
+    return homeModel({ ...base, hub: sampleBusyHub(now), runs, finished, autopilot: () => 'on', now });
+  }
   const hub = sampleHub(now);
   const connect = kind.startsWith('connect-') ? sampleConnect(kind.slice('connect-'.length) as ConnectSample) : null;
   const slack = sampleSlack(kind.startsWith('slack-') ? kind.slice('slack-'.length) as SlackSample : 'on', now);

@@ -238,6 +238,12 @@
         "icon": "$(output)"
       },
       {
+        "command": "acc.job.stop",
+        "title": "Stop a job in progress",
+        "category": "Agent Command Center",
+        "icon": "$(debug-stop)"
+      },
+      {
         "command": "acc.worktree.open",
         "title": "Open in new window",
         "category": "Agent Command Center",
@@ -544,6 +550,10 @@
         },
         {
           "command": "acc.agent.stop",
+          "when": "false"
+        },
+        {
+          "command": "acc.job.stop",
           "when": "false"
         },
         {

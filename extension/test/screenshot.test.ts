@@ -16,10 +16,18 @@ test('every section of the page, and a ticket, has sample data built by the real
     else if (kind.startsWith('connect-')) assert.deepEqual([m.kind, (m as HomeModel).section, !!(m as HomeModel).connect], ['home', 'tasks', true]);
     // The Slack card at each of its states, on Environments (GH-58).
     else if (kind.startsWith('slack-')) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).environments.slack?.state], ['home', 'environments', kind.slice('slack-'.length)]);
+    // The Overview with In progress busy, and with nothing running (D-???).
+    else if (kind.startsWith('overview-')) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).overview.inProgress.empty === null], ['home', 'overview', kind === 'overview-busy']);
     else assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).connect], ['home', kind === 'output' ? 'setup' : kind, null]);
   }
-  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'agent', 'output', 'connect-start', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'slack-none', 'slack-off', 'slack-paused']);
+  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'agent', 'output', 'connect-start', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'slack-none', 'slack-off', 'slack-paused', 'overview-busy', 'overview-idle']);
   assert.equal((sampleModel('environments') as HomeModel).environments.slack?.state, 'on');
+  // Busy: several tasks with two or three jobs each, both slots held and one check waiting, and a done line (D-???).
+  const busy = (sampleModel('overview-busy') as HomeModel).overview.inProgress;
+  assert.ok(busy.groups.filter((g) => g.jobs.length >= 2).length >= 3, 'several tasks with two or three jobs');
+  assert.ok(busy.groups.some((g) => g.done.length), 'a done line');
+  assert.equal(busy.machine[0]!.look.label, 'Heavy checks: 2 of 2 in use, none free, 1 waiting');
+  assert.equal((sampleModel('overview-idle') as HomeModel).overview.inProgress.empty, 'Nothing is running.');
   // A ticket acc doesn't keep yet, being tracked from its card (D-074).
   assert.deepEqual([(sampleModel('ticket-track') as TicketModel).trackable, (sampleModel('ticket-track') as TicketModel).tracking], [true, true]);
   // A ticket being built, one whose analysis has questions, and one too big for one task (D-052).
