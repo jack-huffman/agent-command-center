@@ -9,6 +9,7 @@ export * from './gates.ts';
 export * from './drift.ts';
 export * from './intake.ts';
 export * from './dispatch.ts';
+export * from './overlap.ts';
 export * from './init.ts';
 export * from './github.ts';
 export * from './questions.ts';

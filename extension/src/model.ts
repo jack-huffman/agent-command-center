@@ -143,7 +143,7 @@ export function analysisLook(t: Pick<TaskRow, 'state' | 'analysis' | 'analyzing'
   return t.analysis ? { label: 'Analyzed: ready to build', icon: 'pass', tone: 'blue' } : null;
 }
 
-const AUTOPILOT_STEP: Record<NonNullable<TaskRow['autopilot']>['step'], string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update from its base', resume: 'resume', checks: 'send it back for its failing checks' };
+const AUTOPILOT_STEP: Record<NonNullable<TaskRow['autopilot']>['step'], string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update from its base', resume: 'resume', checks: 'send it back for its failing checks', start: 'start it' };
 
 /** "Needs you: autopilot couldn't land", and with `why`, its reason after it (D-055). */
 export function autopilotLook(t: Pick<TaskRow, 'autopilot'>, why = true): Look | null {

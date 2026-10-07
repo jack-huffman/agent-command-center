@@ -2,11 +2,13 @@ import { closeSync, mkdirSync, openSync, readFileSync, readSync, statSync } from
 import { join } from 'node:path';
 import type { Autonomy, Config } from './config.ts';
 import { type CheckRead, readChecks, sendBack } from './checks.ts';
-import { dispatch } from './dispatch.ts';
+import { analysisProblems } from './analyze.ts';
+import { dispatch, holdWords, startHeld } from './dispatch.ts';
 import { AccError, type Runner } from './exec.ts';
 import { releaseAwake } from './awake.ts';
-import { AUTOPILOT_BY, AUTOPILOT_STEPS, type AutopilotFailure, type AutopilotStepName, builderStopped, type ClaudeSession, closedPr, type HistoryEntry, type Ledger, type LedgerEvent, mutate, readLedger, type ReworkCause, reworkCause, sentBackAt, sentBackForChecks, type State, STOPPED_GRACE_MS, type Task } from './ledger.ts';
+import { AUTOPILOT_BY, AUTOPILOT_STEPS, type AutopilotFailure, type AutopilotStepName, builderStopped, checkMove, type ClaudeSession, closedPr, noGateHooks, type HistoryEntry, type Ledger, type LedgerEvent, mutate, readLedger, type ReworkCause, reworkCause, sentBackAt, sentBackForChecks, type State, STOPPED_GRACE_MS, type Task } from './ledger.ts';
 import { ghToken, land, type LandResult } from './land.ts';
+import { type FileShare, startLook, type StartLook, waits } from './overlap.ts';
 import { withLock } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
 import { refresh } from './refresh.ts';
@@ -21,8 +23,9 @@ import type { SlotOptions } from './semaphore.ts';
  * it merges the base into the branch and runs its checks (D-058), so the next passes review and land the
  * merge. A builder that stopped before acc done or acc block is resumed, once a run (D-067). A pull
  * request whose checks failed on GitHub goes back to its builder with what they said, once a commit
- * (D-076). It goes up to an open pull request: it never merges one, waives a check, deploys, promotes,
- * changes anything on GitHub but its pull request, or starts a task that's to do.
+ * (D-076). A task a person dispatched that waits for another task's files starts once it may (D-???). It
+ * goes up to an open pull request: it never merges one, waives a check, deploys, promotes, changes anything
+ * on GitHub but its pull request, or starts a task to do that nobody dispatched.
  */
 
 // Who autopilot is, and what sent a task to rework, live with the ledger's moves, so dispatch can read them.
@@ -44,13 +47,13 @@ export interface AutopilotMode {
  * What autopilot does under `autonomy: review`, after "autopilot" or "it". Every description of review
  * uses it, in acc and the extension, so a step added here is added there too.
  */
-export const AUTOPILOT_REVIEW_DOES = 'reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, and merges the base into a pull request that conflicts with it';
+export const AUTOPILOT_REVIEW_DOES = 'reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, merges the base into a pull request that conflicts with it, and starts a task a person dispatched once the files it waits for are free';
 
 /**
  * What `autonomy` means for autopilot. manual: nothing happens on its own. review: autopilot reviews,
  * lands, re-dispatches a rework once, sends back a pull request whose GitHub checks fail once a commit
- * (D-076), resumes a stopped builder once a run (D-067), and merges the base into a pull request that
- * conflicts with it (D-058). dispatch: as review, and it also starts Ready tasks up to agents.max; that
+ * (D-076), resumes a stopped builder once a run (D-067), merges the base into a pull request that
+ * conflicts with it (D-058), and starts a held task once it may (D-???). dispatch: as review, and it also starts Ready tasks up to agents.max; that
  * part isn't built, so it refuses. full is read as dispatch.
  */
 export function autopilotMode(config: Pick<Config, 'autonomy'>): AutopilotMode {
@@ -82,6 +85,8 @@ export interface TaskFacts {
   checks?: CheckRead;
   /** Why gh couldn't read them. */
   checksError?: string;
+  /** A held task to do (D-???): what it shares with work in flight, what could start first, and what stops it starting now. */
+  start?: StartLook & { problems: string[] };
 }
 
 export type AutopilotOutcome = 'done' | 'failed' | 'waiting' | 'skipped';
@@ -180,7 +185,20 @@ export function nextStep(ledger: Ledger, config: Pick<Config, 'agents'>, task: T
     if (n >= config.agents.max) return none('waiting', `${n} tasks are running. The limit is ${config.agents.max}.`);
     return step('dispatch', checks ? `Checks failed on GitHub: ${task.autopilot?.sentBack?.checks.join(', ') || 'see its pull request'}.` : 'The reviewer asked for changes.');
   }
-  if (task.state === 'todo') return none('skipped', 'To do: autopilot never starts a task that\'s to do.');
+  if (task.state === 'todo') {
+    // A person's Dispatch that waits for another task's files is started once it may (D-???); nothing else is.
+    const held = task.held;
+    if (!held) return none('skipped', 'To do: autopilot starts a task to do only once a person has dispatched it.');
+    if (held.failed) return none('waiting', `Its start failed: ${sentence(held.failed.reason)} It waits for a person.`);
+    const s = facts.start;
+    if (!s) return none('waiting', 'Autopilot couldn\'t tell what it shares with work in flight. It looks again next pass.');
+    if (s.problems.length) return none('waiting', s.problems[0]!);
+    if (waits(s)) return none('waiting', `${holdWords(s)}.`);
+    const n = running(ledger, task.id);
+    if (n >= config.agents.max) return none('waiting', `${n} tasks are running. The limit is ${config.agents.max}.`);
+    if (s.shares.length) return step('start', `Nothing else is ready to start, so it starts sharing files with ${s.shares.map((x) => x.task).join(', ')}.`);
+    return step('start', held.waitsFor.length ? `${held.waitsFor.map((x) => x.task).join(', ')}'s files are free.` : 'Nothing in flight shares its files.');
+  }
   if (task.state === 'running') {
     if (!facts.stopped) return none('skipped', 'Its builder is working.');
     if (resumedByAutopilot(task)) return none('waiting', 'Its agent stopped again. Autopilot resumed it once already: a person resumes it.');
@@ -194,6 +212,7 @@ export function nextStep(ledger: Ledger, config: Pick<Config, 'agents'>, task: T
 function failedWords(s: AutopilotStepName, sha: string): string {
   if (s === 'refresh') return `update ${short(sha)} from its base`;
   if (s === 'checks') return `send ${short(sha)} back for its failing checks`;
+  if (s === 'start') return 'start it';
   return `${s} ${short(sha)}`;
 }
 
@@ -324,6 +343,7 @@ export interface AutopilotSteps {
   refresh(id: string): StepRun;
   resume(id: string): StepRun;
   checks(id: string): StepRun;
+  start(id: string): StepRun;
 }
 
 export interface AutopilotDeps {
@@ -359,6 +379,8 @@ export function realSteps(paths: RepoPaths, config: Config, deps: AutopilotDeps)
       const t = readLedger(paths.ledger).tasks.find((x) => x.id === id);
       const cause = (t && reworkCause(t)) ?? 'review';
       const r = dispatch(paths, config, id, { run, now, env, accBinDir: deps.accBinDir, accCommand: deps.accCommand }, { actor: 'orchestrator', by: AUTOPILOT_BY, cause });
+      // A rework is never held: its branch already holds its change (D-???).
+      if (r.held) throw new AccError('start-waits', `${holdWords({ shares: r.waitsFor, first: r.first })}.`);
       return { reason: `Re-dispatched${cause === 'checks' ? ' for its failing checks' : ''} in ${r.worktree}${r.bgId ? `, background session ${r.bgId}` : ''}.` };
     },
     refresh: (id) => ({ reason: refresh(paths, config, id, { run, now, env, slots: deps.slots }, { actor: 'orchestrator', by: AUTOPILOT_BY }).reason }),
@@ -367,7 +389,22 @@ export function realSteps(paths: RepoPaths, config: Config, deps: AutopilotDeps)
       return { reason: `Resumed its builder${r.said ? `, which last said: ${clipSaid(r.said, 200)}` : '.'}` };
     },
     checks: (id) => ({ reason: sendBack(paths, config, id, { run, now, env }, { actor: 'orchestrator', by: AUTOPILOT_BY }).reason }),
+    start: (id) => {
+      // A held task, started as the person's Dispatch would have been, once it may (D-???).
+      const r = startHeld(paths, config, { run, now, env, accBinDir: deps.accBinDir, accCommand: deps.accCommand }, { actor: 'orchestrator', by: AUTOPILOT_BY, only: id });
+      const s = r.started[0];
+      if (s) return { reason: `${startedWords(s)}${s.bgId ? `, background session ${s.bgId}` : ''}.` };
+      // Its failure is written on the task already, which then needs a person.
+      if (r.failed[0]) throw new AccError('start-failed', r.failed[0].reason);
+      throw new AccError('start-waits', r.waiting[0]?.reason ?? 'It waits.');
+    },
   };
+}
+
+/** "Started it: GH-70's files are free", or that nothing else was ready, so it shares files with GH-70 (D-???). */
+export function startedWords(s: { waitedFor?: string[]; shares?: FileShare[] }): string {
+  if (s.shares?.length) return `Started it: nothing else was ready, so it shares files with ${s.shares.map((x) => x.task).join(', ')}`;
+  return s.waitedFor?.length ? `Started it: ${s.waitedFor.join(', ')}'s files are free` : 'Started it';
 }
 
 function landStep(r: LandResult): StepRun {
@@ -389,6 +426,8 @@ function temporary(e: unknown, paths: RepoPaths, config: Config, id: string): st
   if (code === 'lock-timeout') return 'The ledger was busy. Autopilot tries again next pass.';
   // Its agent came back between the look and the resume, or its checks moved on: nothing to do after all.
   if (code === 'agent-active' || code === 'checks-moved') return `${(e as Error).message} Autopilot looks again next pass.`;
+  // A held task that still waits after all, or whose start was claimed elsewhere (D-???).
+  if (code === 'start-waits') return `${sentence((e as Error).message)} Autopilot looks again next pass.`;
   if (code === 'move-refused') {
     const n = running(readLedger(paths.ledger), id);
     if (n >= config.agents.max) return `${n} tasks are running. The limit is ${config.agents.max}.`;
@@ -435,6 +474,15 @@ export function autopilotPass(paths: RepoPaths, config: Config, deps: AutopilotD
     if (!task || task.state === 'done') continue;
     if (task.state === 'running' && (!look || deps.now().getTime() - look.at > STOPPED_GRACE_MS)) look = { sessions: listSessions(deps.run, paths.root), at: deps.now().getTime() };
     const facts = taskFacts(paths, task, deps.run, look?.sessions ?? null, deps.now(), github);
+    // A held task is weighed against what's in flight now (D-???), after any start earlier in the pass.
+    if (task.state === 'todo' && task.held && !task.held.failed) {
+      try {
+        const problems = [...checkMove(ledger, config, task, { to: 'running', actor: 'orchestrator', by: AUTOPILOT_BY }, noGateHooks), ...analysisProblems(paths, config, task)];
+        facts.start = { ...startLook(paths, config, ledger, deps.run, id), problems };
+      } catch {
+        // git couldn't say: it waits for the next pass
+      }
+    }
     // A stopped builder's process can linger, idle: it no longer keeps the Mac awake.
     if (facts.stopped) releaseAwake(paths, id);
     const d = nextStep(ledger, config, task, facts);
@@ -460,6 +508,11 @@ export function autopilotPass(paths: RepoPaths, config: Config, deps: AutopilotD
       out.steps.push({ task: id, state: task.state, step: d.step, sha, outcome: 'done', reason: r.reason, ...(r.pr ? { pr: r.pr } : {}), ...(r.update ? { update: r.update } : {}) });
       if (r.update) out.updates.push({ task: id, ...r.update });
     } catch (e) {
+      // A held task's start that failed is written on the task already, which needs a person (D-???).
+      if ((e as AccError).code === 'start-failed') {
+        out.steps.push({ task: id, state: task.state, step: d.step, sha, outcome: 'failed', reason: firstLines((e as Error).message) });
+        continue;
+      }
       const wait = temporary(e, paths, config, id);
       if (wait) {
         out.steps.push({ task: id, state: task.state, step: d.step, sha, outcome: 'waiting', reason: wait });
@@ -503,9 +556,13 @@ export interface AutopilotRecord {
   checks?: string[];
   /** What a re-dispatch was for: the checks it sent back for, or a review's changes. */
   cause?: ReworkCause;
+  /** A held task's start (D-???): the tasks whose files it waited for, and those it shares files with when nothing else was ready. */
+  waitedFor?: string[];
+  shares?: FileShare[];
 }
 
 const obj = (v: unknown): Record<string, any> | null => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, any>) : null);
+const strs = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
 
 /**
  * The step a ledger event records, when autopilot took it, or null. A review that passed, a land and a
@@ -527,9 +584,18 @@ export function autopilotEvent(e: Pick<LedgerEvent, 'seq' | 'at' | 'type' | 'tas
       return { ...base, step: 'review', outcome: 'done', verdict: 'changes', ...(reason ? { reason } : {}) };
     }
     if (d.from === 'rework' && d.to === 'running') return { ...base, step: 'dispatch', outcome: 'done', ...(d.cause === 'checks' || d.cause === 'review' ? { cause: d.cause } : {}) };
+    // A held task it started (D-???).
+    if (d.from === 'todo' && d.to === 'running') {
+      const waitedFor = strs(obj(d.held)?.waitedFor);
+      const shares = (Array.isArray(d.shares) ? d.shares : []).map(obj).filter((x): x is Record<string, any> => typeof x?.task === 'string').map((x) => ({ task: x.task as string, files: strs(x.files) }));
+      return { ...base, step: 'start', outcome: 'done', ...(waitedFor.length ? { waitedFor } : {}), ...(shares.length ? { shares } : {}) };
+    }
     return null;
   }
   if (e.type !== 'task.updated') return null;
+  // A held task's start that failed is written on its hold (D-???).
+  const startFailed = obj(obj(d.held)?.failed);
+  if (startFailed) return { ...base, step: 'start', outcome: 'failed', reason: String(startFailed.reason ?? '') };
   const failed = obj(obj(d.autopilot)?.failed);
   if (failed && (AUTOPILOT_STEPS as readonly string[]).includes(failed.step)) {
     return { ...base, step: failed.step as AutopilotStepName, outcome: 'failed', reason: String(failed.reason ?? '') };

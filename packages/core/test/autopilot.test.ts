@@ -15,7 +15,7 @@ import { readVerdict, reviewPath, type Verdict } from '../src/review.ts';
 import { withSlot } from '../src/semaphore.ts';
 import { listUpdates } from '../src/updates.ts';
 import { transcriptDir } from '../src/transcript.ts';
-import { bad, fakeAwake, fakeRunner, GENERIC_CONFIG, gh41Lines, gitIn, makeRepo, ok, SLEPT, tempDir } from './support.ts';
+import { bad, fakeAwake, fakeRunner, GENERIC_CONFIG, gh41Lines, gitIn, makeRepo, ok, SLEPT, tempDir, writePlan } from './support.ts';
 
 const now = () => new Date('2026-10-05T12:00:00Z');
 const BRANCH = 'task/T-1-add-sum';
@@ -214,7 +214,57 @@ test('a task to do, ready or not, is never started; nor is one running or blocke
   const l = ledgerOf({ id: 'T-1' }, { id: 'T-2', deps: ['T-1'] }, { id: 'T-3', state: 'running' }, { id: 'T-4', state: 'blocked' });
   assert.equal(displayState(l, l.tasks[0]!), 'ready');
   for (const id of ['T-1', 'T-2', 'T-3', 'T-4']) assert.deepEqual(decide(l, id, facts()), [null, 'skipped'], id);
-  assert.match(nextStep(l, RULES_CONFIG, l.tasks[0]!, facts()).reason, /never starts a task that's to do/);
+  assert.match(nextStep(l, RULES_CONFIG, l.tasks[0]!, facts()).reason, /only once a person has dispatched it/);
+});
+
+test('a task a person dispatched that waits for another\'s files: it waits while another can go first, then starts (D-???)', () => {
+  const hold = { at: now().toISOString(), actor: 'human' as const, by: 'human:test', waitsFor: [{ task: 'T-2', files: ['src/a.ts'] }], first: ['T-3'] };
+  const l = ledgerOf({ id: 'T-1', held: hold }, { id: 'T-2', state: 'running' }, { id: 'T-3' });
+  const shares = [{ task: 'T-2', files: ['src/a.ts'] }];
+  const look = (f: Partial<NonNullable<TaskFacts['start']>> = {}) => facts({ head: '', start: { shares, first: ['T-3'], problems: [], ...f } });
+  assert.deepEqual(decide(l, 'T-1', look()), [null, 'waiting']);
+  assert.equal(nextStep(l, RULES_CONFIG, l.tasks[0]!, look()).reason, 'Waits for T-2\'s files: src/a.ts, while T-3 is ready to start.');
+  // Nothing else is ready: it starts, sharing files.
+  assert.deepEqual(decide(l, 'T-1', look({ first: [] })), ['start', null]);
+  assert.match(nextStep(l, RULES_CONFIG, l.tasks[0]!, look({ first: [] })).reason, /Nothing else is ready to start, so it starts sharing files with T-2/);
+  // Its files are free.
+  assert.deepEqual(decide(l, 'T-1', look({ shares: [], first: [] })), ['start', null]);
+  assert.equal(nextStep(l, RULES_CONFIG, l.tasks[0]!, look({ shares: [], first: [] })).reason, 'T-2\'s files are free.');
+  // What stops a dispatch stops this start: the cap, a dependency.
+  assert.deepEqual(nextStep(l, RULES_CONFIG, l.tasks[0]!, look({ shares: [], problems: ['2 tasks are already running. The limit is 2.'] })), { step: null, outcome: 'waiting', reason: '2 tasks are already running. The limit is 2.' });
+  // A start that failed waits for a person.
+  l.tasks[0]!.held = { ...hold, failed: { reason: 'Claude Code needs you to log in', at: now().toISOString(), by: AUTOPILOT_BY } };
+  assert.deepEqual(decide(l, 'T-1', look({ shares: [] })), [null, 'waiting']);
+  assert.match(nextStep(l, RULES_CONFIG, l.tasks[0]!, look({ shares: [] })).reason, /Its start failed: Claude Code needs you to log in\. It waits for a person\./);
+});
+
+test('a pass starts a held task once nothing else is ready, as the orchestrator, and reads back as a start (D-???)', () => {
+  const s = setup();
+  // T-1, in review, changed sum.js; T-2 plans it too, and a person dispatched it. T-3 waits on T-2, so nothing else is ready.
+  writePlan(s.paths.analyses, 'T-2', ['sum.js']);
+  edit(s.paths, (l) => {
+    l.tasks[1]!.held = { at: now().toISOString(), actor: 'human', by: 'human:test', waitsFor: [{ task: 'T-1', files: ['sum.js'] }], first: ['T-9'] };
+  });
+  const calls: string[] = [];
+  const r = autopilotPass(s.paths, s.config, deps(calls));
+  assert.deepEqual(brief(r.steps), [['T-1', 'review', 'done'], ['T-2', 'start', 'done'], ['T-3', null, 'skipped']]);
+  assert.match(r.steps[1]!.reason, /^Started it: nothing else was ready, so it shares files with T-1/);
+  const t = readLedger(s.paths.ledger).tasks[1]!;
+  assert.deepEqual([t.state, t.held, t.run?.shares], ['running', null, [{ task: 'T-1', files: ['sum.js'] }]]);
+  assert.deepEqual([t.history.at(-1)!.actor, t.history.at(-1)!.by], ['orchestrator', AUTOPILOT_BY]);
+  const moved = events(s.paths).filter((e) => e.type === 'task.moved').at(-1)!;
+  assert.deepEqual(autopilotEvent(moved), { seq: moved.seq, at: moved.at, task: 'T-2', step: 'start', outcome: 'done', waitedFor: ['T-1'], shares: [{ task: 'T-1', files: ['sum.js'] }] });
+  assert.equal(calls.filter((c) => c.startsWith('claude --bg')).length, 1);
+});
+
+test('autopilot\'s starts and failed starts read back as its steps; a person\'s don\'t (D-???)', () => {
+  const at = now().toISOString();
+  const e = (by: string, type: LedgerEvent['type'], data: Record<string, unknown>) => autopilotEvent({ seq: 1, at, type, task: 'T-2', by, data });
+  assert.deepEqual(e(AUTOPILOT_BY, 'task.moved', { from: 'todo', to: 'running', held: { waitedFor: ['T-1'] } }), { seq: 1, at, task: 'T-2', step: 'start', outcome: 'done', waitedFor: ['T-1'] });
+  assert.deepEqual(e(AUTOPILOT_BY, 'task.updated', { held: { at, failed: { reason: 'No trust', at, by: AUTOPILOT_BY } } }), { seq: 1, at, task: 'T-2', step: 'start', outcome: 'failed', reason: 'No trust' });
+  assert.equal(e(AUTOPILOT_BY, 'task.updated', { held: { at, starting: { at, by: AUTOPILOT_BY } } }), null, 'its claim is no step');
+  assert.equal(e('human:test', 'task.moved', { from: 'todo', to: 'running' }), null, 'a person\'s dispatch');
+  assert.equal(e('human:test', 'task.updated', { held: { at, failed: { reason: 'x', at, by: 'human:test' } } }), null, 'the Command Center\'s start, as the person');
 });
 
 test('a step that failed isn\'t tried again on the same commit, but is on a new one', () => {

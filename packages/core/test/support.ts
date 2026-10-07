@@ -126,3 +126,13 @@ export function gh41Lines(sessionId: string, cwd: string): string[] {
     '{ a line that isn\'t JSON',
   ];
 }
+
+/** An analysis that's ready to build, planning to change these files, written where acc keeps it (D-052). */
+export function writePlan(analyses: string, task: string, files: string[], extra: Record<string, unknown> = {}): void {
+  mkdirSync(analyses, { recursive: true });
+  writeFileSync(join(analyses, `${task}.json`), JSON.stringify({
+    v: 1, task, env: 'main', base: '', verdict: 'ready', summary: '', requirements: { goal: '', criteria: [], assumptions: [], outOfScope: [] },
+    questions: [], findings: [], approach: { plan: [], files: files.map((path) => ({ path, change: 'update', why: '' })), refactors: [], risks: [], tests: [], size: 'S' },
+    split: [], orgs: [], sessionId: 's', at: '2026-10-06T10:00:00.000Z', durationMs: 1, costUsd: null, ...extra,
+  }));
+}

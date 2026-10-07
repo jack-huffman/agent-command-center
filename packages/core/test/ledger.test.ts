@@ -207,6 +207,20 @@ test('a step autopilot couldn\'t take shows its task as needs you, in the state 
   assert.deepEqual([t.autopilot.failed, displayState(l, t)], [null, 'running'], 'a person re-dispatched it by hand');
 });
 
+test('a task waiting for another\'s files stays Ready, needs you once its start failed, and any move ends the wait (D-???)', () => {
+  const hold = { at: '2026-10-06T10:00:00.000Z', actor: 'human' as const, by: 'human:jordan', waitsFor: [{ task: 'ACME-2', files: ['src/a.ts'] }], first: ['ACME-3'] };
+  for (const to of ['running', 'blocked', 'done'] as const) {
+    const l = ledgerWith({ id: 'ACME-1' });
+    const t = task(l, 'ACME-1');
+    t.held = { ...hold };
+    assert.equal(displayState(l, t), 'ready', 'it stays in the Ready lane');
+    t.held = { ...hold, failed: { reason: 'Claude Code doesn\'t trust the repo yet.', at: hold.at, by: 'human:jordan' } };
+    assert.equal(displayState(l, t), 'needs-you');
+    applyMove(t, { to, actor: to === 'done' ? 'sync' : 'human', by: 'human:jordan', reason: 'because' }, sink, clock);
+    assert.equal(t.held, null, `a move to ${to} ends it`);
+  }
+});
+
 test('autopilot may send work in review back, with a reason; a builder may not (D-076)', () => {
   const l = ledgerWith({ id: 'ACME-1', state: 'review' });
   const t = task(l, 'ACME-1');

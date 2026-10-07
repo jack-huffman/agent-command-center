@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
   ACTORS, AccError, type Actor, type ApexTest, configureRepoAccess, DISPLAY, type DisplayState, displayState, drift, gatesFor, gateTarget, isReady, loadConfig, makeContext, moveTask, mutate,
-  cleanup, type Config, dispatch, githubIdentity, intakeGithub, intakeOutside, type IntakeResult, planInit, trackerForKey, useGithubAccount, withCloneAccount, type Profile, readLedger, receiptsAt, STEPS, receiptHooks, repoPaths, run, runGates, runSteps, satisfies, type State, type StepResult, type TaskInput, type UpsertResult,
+  cleanup, type Config, dispatch, filesOf, holdWords, inFlight, plannedFiles, sharesWords, startedWords, startHeld, type StartHeldResult, startLook, stopWaiting, taskList, waits, githubIdentity, intakeGithub, intakeOutside, type IntakeResult, planInit, trackerForKey, useGithubAccount, withCloneAccount, type Profile, readLedger, receiptsAt, STEPS, receiptHooks, repoPaths, run, runGates, runSteps, satisfies, type State, type StepResult, type TaskInput, type UpsertResult,
   upsertTasks, writeConfig, ask, hookOutput, parseHookInput, waiveGates, review, land, sync, planPromotion, promote, skipWarning, planDeploy, deploy, lastDeploy,
   buildBaseline, seedBranches, draftLists, writeReadme, parseEventInput, preToolUseHook, sessionStartHook, stopHook, AGENT_ROLES, type AgentRole, profileView, setProfile, withCloneAgents, type ProfileChange,
   analyze, type Analysis, answerAnalysis, openQuestions, readAnalysis,
@@ -55,8 +55,12 @@ Tasks
   acc set <id> <state> [--reason <text>] [--force] [--as <actor>] [--by <name>]
 
 Agents
-  acc dispatch <id> [--foreground] [--without-analysis]
-                                        Worktree, setup, instructions, and a background builder session
+  acc dispatch <id> [--foreground] [--without-analysis] [--anyway]
+                                        Worktree, setup, instructions, and a background builder session. A task
+                                        whose analysis shares files with work in flight waits while another
+                                        Ready task shares none; --anyway starts it now
+  acc dispatch --held                   Start the tasks that wait for others' files and may go now
+  acc dispatch <id> --stop-waiting      It stops waiting, and stays to do
   acc done [<id>]                       A builder's finish line: moves its task to review
   acc block [<id>] "<reason>"           A builder's way out when stuck
   acc block [<id>] --client "<question>"
@@ -478,11 +482,12 @@ function cmdLand(o: Opts, id: string): number {
   return 0;
 }
 
-const STEP_WORD: Record<AutopilotStepName, string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update', resume: 'resume', checks: 'send back' };
+const STEP_WORD: Record<AutopilotStepName, string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update', resume: 'resume', checks: 'send back', start: 'start' };
 
 /** A step autopilot couldn't take, in words: "land abc1234", "update abc1234 from its base", "send abc1234 back for its failing checks". */
 const stepWords = (step: AutopilotStepName, sha: string): string => {
   if (step === 'checks') return `send ${sha.slice(0, 7) || 'it'} back for its failing checks`;
+  if (step === 'start') return 'start it';
   const what = [STEP_WORD[step], sha.slice(0, 7)].filter(Boolean).join(' ');
   return step === 'refresh' ? `${what} from its base` : what;
 };
@@ -492,7 +497,7 @@ function autopilotLines(r: AutopilotResult): string[] {
   const lines: string[] = [];
   for (const s of r.steps) {
     if (s.outcome === 'done') lines.push(`${tone(`✓ ${s.task}  ${s.reason}`, 'blue')}${s.pr ? `  ${s.pr.url}` : ''}`);
-    else if (s.outcome === 'failed') lines.push(tone(`! ${s.task}  Couldn't ${stepWords(s.step!, s.sha ?? '')}: ${s.reason}`, 'orange'), tone('    It isn\'t tried again on this commit. Do it by hand, or a new commit lets autopilot try again.', 'dim'));
+    else if (s.outcome === 'failed') lines.push(tone(`! ${s.task}  Couldn't ${stepWords(s.step!, s.sha ?? '')}: ${s.reason}`, 'orange'), tone(s.step === 'start' ? `    It isn't tried again until a person dispatches it, or stops it waiting: acc dispatch ${s.task} --stop-waiting` : '    It isn\'t tried again on this commit. Do it by hand, or a new commit lets autopilot try again.', 'dim'));
     else if (s.outcome === 'waiting') lines.push(tone(`… ${s.task}  Waiting: ${s.reason}`, 'dim'));
   }
   // Autopilot posts nothing: each land's update waits for a person (D-066).
@@ -506,8 +511,9 @@ function autopilotLines(r: AutopilotResult): string[] {
 /**
  * Autopilot (D-055): under "autonomy": "review", it reviews, lands, re-dispatches a rework once, sends a
  * pull request whose GitHub checks fail back to its builder once a commit (D-076), resumes a stopped
- * builder once a run (D-067), and merges the base into a pull request that conflicts with it (D-058), as
- * the orchestrator, up to an open pull request. It never merges a pull request. One pass, or one every
+ * builder once a run (D-067), merges the base into a pull request that conflicts with it (D-058), and
+ * starts a task a person dispatched once the files it waits for are free (D-???), as the orchestrator, up
+ * to an open pull request. It never merges a pull request. One pass, or one every
  * --every seconds until stopped.
  */
 function cmdAutopilot(o: Opts): number {
@@ -530,8 +536,8 @@ function cmdAutopilot(o: Opts): number {
   }
   if (!start.config.github) throw new AccError('no-github', 'Autopilot lands reviewed work as pull requests on GitHub, and this project has no "github" section in .acc/config.json.');
   const say = (line: string) => { if (!o.json) process.stderr.write(tone(line, 'dim') + '\n'); };
-  const doing = { review: 'Reviewing', land: 'Landing', dispatch: 'Re-dispatching', refresh: 'Updating', resume: 'Resuming', checks: 'Sending back' };
-  const after = { review: '. The reviewer reads and changes nothing.', land: '', dispatch: '', refresh: ' from its base, then running its checks.', resume: ': its builder stopped before acc done or acc block.', checks: ' to its builder: its checks failed on GitHub. Reading their logs.' };
+  const doing: Record<AutopilotStepName, string> = { review: 'Reviewing', land: 'Landing', dispatch: 'Re-dispatching', refresh: 'Updating', resume: 'Resuming', checks: 'Sending back', start: 'Starting' };
+  const after: Record<AutopilotStepName, string> = { review: '. The reviewer reads and changes nothing.', land: '', dispatch: '', refresh: ' from its base, then running its checks.', resume: ': its builder stopped before acc done or acc block.', checks: ' to its builder: its checks failed on GitHub. Reading their logs.', start: ': a person dispatched it, and it waited for another task\'s files.' };
   // Started by the Command Center (D-064): once that window's extension host has gone, it stops at the
   // next step or within a second of waiting, even if nothing stopped it. No window, no autopilot.
   const parent = Number(process.env.ACC_AUTOPILOT_PARENT);
@@ -732,19 +738,55 @@ function cmdDeploy(o: Opts, envName: string): number {
   return r.deployed || !r.plan.files.length ? 0 : 1;
 }
 
-function cmdDispatch(o: Opts, id: string): number {
+function cmdDispatch(o: Opts, id: string | undefined): number {
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
+  const deps = { run, now, accBinDir: accBinDir(), accCommand: accCommand(), env: process.env };
+  // The tasks that wait for others' files, started once they may (D-???): the Command Center runs this.
+  if (o.held) {
+    if (id) throw new AccError('usage', 'acc dispatch --held starts every waiting task that may go: give it no id.');
+    const r = startHeld(paths, config, deps, { actor, by });
+    out(o, () => heldLines(r).join('\n'), r);
+    return 0;
+  }
+  if (!id) throw new AccError('usage', 'acc dispatch <id> [--foreground] [--without-analysis] [--anyway], acc dispatch --held, or acc dispatch <id> --stop-waiting');
+  if (o['stop-waiting']) {
+    const t = stopWaiting(paths, now, id.toUpperCase(), actor, by);
+    out(o, () => `${t.id} stopped waiting. It stays to do, and nothing starts it on its own.`, t);
+    return 0;
+  }
   if (o.foreground && !o.json) process.stdout.write(`Starting ${id.toUpperCase()} in this terminal. Leave the session when it's done.\n`);
-  const r = dispatch(paths, config, id.toUpperCase(), { run, now, accBinDir: accBinDir(), accCommand: accCommand(), env: process.env }, { actor, by, foreground: o.foreground === true, withoutAnalysis: o['without-analysis'] === true });
+  const r = dispatch(paths, config, id.toUpperCase(), deps, { actor, by, foreground: o.foreground === true, withoutAnalysis: o['without-analysis'] === true, anyway: o.anyway === true });
+  if (r.held) {
+    // Held, not refused: the dispatch is kept, and the task starts on its own (D-???).
+    const blockers = r.waitsFor.map((w) => w.task);
+    out(o, () => [
+      tone(`${r.task.id} waits for ${filesOf(r.waitsFor)}.`, 'blue'),
+      `  ${taskList(r.first)} ${r.first.length === 1 ? 'shares' : 'share'} no files with work in flight, so ${r.first.length === 1 ? 'it goes' : 'they go'} first.`,
+      `  ${r.task.id} starts on its own once ${taskList(blockers)} ${blockers.length === 1 ? 'merges' : 'merge'}, or once nothing else is ready to start: the Command Center or autopilot starts it.`,
+      `  Start it now: acc dispatch ${r.task.id} --anyway`,
+    ].join('\n'), r);
+    return 0;
+  }
   out(o, () => [
     `${r.task.id} → ${stateLabel('running')}`,
     `  worktree: ${r.worktree}${r.reused ? ' (reused)' : ''}`,
     `  branch:   ${r.branch}`,
     `  agent:    ${r.bgId ? `background session ${r.bgId}. Watch it with: claude attach ${r.bgId}` : o.foreground ? 'ran in this terminal' : 'started; it will appear in claude agents shortly'}`,
     `  packet:   ${r.packetPath}`,
-  ].join('\n'), r);
+    r.shares.length ? tone(`  ${sharesWords(r.shares)}. The second pull request to merge may conflict there.`, 'dim') : '',
+  ].filter(Boolean).join('\n'), r);
   return 0;
+}
+
+/** What acc dispatch --held did: each start, each failure in orange, and what still waits (D-???). */
+function heldLines(r: StartHeldResult): string[] {
+  const lines = [
+    ...r.started.map((s) => tone(`✓ ${s.task}  ${startedWords(s)}.${s.bgId ? ` Watch it with: claude attach ${s.bgId}` : ''}`, 'blue')),
+    ...r.failed.flatMap((f) => [tone(`! ${f.task}  Couldn't start it: ${f.reason}`, 'orange'), tone(`    It isn't tried again until a person dispatches it, or stops it waiting: acc dispatch ${f.task} --stop-waiting`, 'dim')]),
+    ...r.waiting.map((w) => tone(`… ${w.task}  Waiting: ${w.reason}`, 'dim')),
+  ];
+  return lines.length ? lines : ['No task waits for another\'s files.'];
 }
 
 function cmdCleanup(o: Opts, id: string): number {
@@ -785,8 +827,22 @@ function cmdStatus(o: Opts): number {
   return 0;
 }
 
+/** What acc show says about a task to do and other tasks' files (D-???): it waits for them, shares them, or its own aren't known. */
+function fileLines(paths: ReturnType<typeof repoPaths>, config: Config, ledger: ReturnType<typeof readLedger>, t: ReturnType<typeof readLedger>['tasks'][number]) {
+  const planned = plannedFiles(readAnalysis(paths, t.id), paths.root);
+  const look = startLook(paths, config, ledger, run, t.id);
+  const held = t.held;
+  const lines: string[] = [];
+  if (held?.failed) lines.push(tone(`! Its start failed: ${held.failed.reason} Dispatch it again, or stop it waiting: acc dispatch ${t.id} --stop-waiting`, 'orange'));
+  else if (held && waits(look)) lines.push(tone(`${holdWords(look)}. It starts on its own once they're free, or: acc dispatch ${t.id} --anyway`, 'blue'));
+  else if (held) lines.push(tone(`It waited for ${filesOf(held.waitsFor)}, and may start now: the Command Center or autopilot starts it, or: acc dispatch --held`, 'blue'));
+  else if (!planned) lines.push(tone('Its files aren\'t known: it has no analysis, so it never waits for another task\'s.', 'dim'));
+  else if (look.shares.length) lines.push(tone(`${sharesWords(look.shares)}.`, 'dim'));
+  return { lines, data: { known: !!planned, planned: planned ?? [], ...look } };
+}
+
 function cmdShow(o: Opts, id: string): number {
-  const { paths } = project(process.cwd());
+  const { paths, config } = project(process.cwd());
   const ledger = readLedger(paths.ledger);
   const t = ledger.tasks.find((x) => x.id === id.toUpperCase());
   if (!t) throw new AccError('no-task', `No task ${id}.`);
@@ -798,6 +854,11 @@ function cmdShow(o: Opts, id: string): number {
   const stopped = t.state === 'running' && builderStopped(t, listSessions(run, paths.root), { resuming: !!resuming(paths, t.id), now: now() });
   const said = stopped && t.run?.sessionId ? lastSaid(claudeProjectsDir(), t.run.sessionId, [t.run.worktree, paths.root]) : null;
   const quote = said ? clipSaid(said, 600) : null;
+  // A task to do: what it shares with work in flight, or that its files aren't known (D-???).
+  const files = t.state === 'todo' ? fileLines(paths, config, ledger, t) : { lines: [], data: null };
+  // A task that started beside others it shares files with, while they're still in flight.
+  const flying = new Set(inFlight(ledger).map((x) => x.id));
+  const shared = (t.run?.shares ?? []).filter((s) => flying.has(s.task));
   out(o, () => [
     `${t.id}  ${stateLabel(displayState(ledger, t, { stopped }))}  ${t.title}`,
     `Environment: ${t.environment}   Source: ${t.source.kind}${t.source.url ? ` ${t.source.url}` : ''}`,
@@ -807,10 +868,12 @@ function cmdShow(o: Opts, id: string): number {
     checks ? tone(`! Checks failed on GitHub: ${checks.join(', ')}`, 'orange') : '',
     closed ? tone(`! Pull request #${closed.number} was closed without merging. Reopen it on GitHub and land to update it, or land to open a new one.`, 'orange') : '',
     stopped ? tone(`! Its agent stopped: ${quote ?? 'its turn ended before acc done or acc block.'}${quote && !/[.!?…]$/.test(quote) ? '.' : ''} Resume it with acc resume ${t.id}.`, 'orange') : '',
+    ...files.lines,
+    shared.length ? tone(`${sharesWords(shared)}.`, 'dim') : '',
     t.brief ? `\n${t.brief}\n` : '',
     'History:',
     ...t.history.map((h) => `  ${h.at}  ${h.from ?? '–'} → ${h.to}  by ${h.by}${h.reason ? `: ${h.reason}` : ''}${h.override ? ' (override)' : ''}`),
-  ].filter(Boolean).join('\n'), { ...t, stopped: stopped ? { said } : null });
+  ].filter(Boolean).join('\n'), { ...t, stopped: stopped ? { said } : null, files: files.data });
   return 0;
 }
 
@@ -1173,6 +1236,9 @@ export async function main(argv: string[]): Promise<number> {
       label: { type: 'string' },
       foreground: { type: 'boolean', default: false },
       'without-analysis': { type: 'boolean', default: false },
+      anyway: { type: 'boolean', default: false },
+      held: { type: 'boolean', default: false },
+      'stop-waiting': { type: 'boolean', default: false },
       'no-tests': { type: 'boolean', default: false },
       test: { type: 'string', multiple: true },
       task: { type: 'string' },
@@ -1225,10 +1291,7 @@ export async function main(argv: string[]): Promise<number> {
       if (rest[0] === 'jira' || rest[0] === 'azure') return cmdIntakeOutside(o, rest[0]);
       throw new AccError('usage', 'acc intake github [--label <label>], or acc intake jira|azure --file <report.json>. Jira and Azure DevOps tickets come in through the Command Center\'s Track in acc, or the plugin\'s skill.');
     }
-    case 'dispatch': {
-      if (!rest[0]) throw new AccError('usage', 'acc dispatch <id> [--foreground]');
-      return cmdDispatch(o, rest[0]);
-    }
+    case 'dispatch': return cmdDispatch(o, rest[0]);
     case 'done': return cmdSet(o, taskIdFrom(rest[0]), 'review');
     case 'block': {
       const [first, ...more] = rest;

@@ -4,10 +4,11 @@ import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { type Config, type Environment, environmentByBranch } from './config.ts';
 import { AccError, type Runner } from './exec.ts';
-import { type Actor, applyMove, checkMove, mutate, noGateHooks, readLedger, reworkCause, type Task } from './ledger.ts';
+import { type Actor, applyMove, checkMove, type FileShare, mutate, noGateHooks, readLedger, reworkCause, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
 import { permissionHook } from './questions.ts';
 import { type Analysis, analysisProblems, analysisSection, readAnalysis } from './analyze.ts';
+import { filesOf, inFlightFiles, sharedFiles, startCandidates, startLook, type StartLook, startOrder, taskList, waits } from './overlap.ts';
 import { type ChecksReport, checksSection, readChecksReport } from './checks.ts';
 import { latestVerdict, type Verdict } from './review.ts';
 import { agentArgs } from './agents.ts';
@@ -247,6 +248,7 @@ export interface DispatchDeps {
 }
 
 export interface DispatchResult {
+  held: false;
   task: Task;
   worktree: string;
   branch: string;
@@ -254,7 +256,21 @@ export interface DispatchResult {
   packetPath: string;
   bgId: string | null;
   sessionId: string | null;
+  /** The tasks in flight it shares files with, and those files, when it started anyway (D-???). */
+  shares: FileShare[];
 }
+
+/** A dispatch that waits for other tasks' files instead of starting (D-???). Nothing was created or launched. */
+export interface HeldResult {
+  held: true;
+  task: Task;
+  /** The tasks in flight whose files its plan shares, and those files. */
+  waitsFor: FileShare[];
+  /** The Ready tasks that share no files with work in flight, which start first. */
+  first: string[];
+}
+
+export type DispatchOutcome = DispatchResult | HeldResult;
 
 const git = (run: Runner, cwd: string, ...args: string[]) => run('git', args, { cwd });
 
@@ -350,9 +366,27 @@ export interface DispatchOptions {
   withoutAnalysis?: boolean;
   /** What autopilot re-dispatches a rework for, kept on its move so it's never guessed from words (D-076). */
   cause?: 'checks' | 'review';
+  /** A person's say-so to start it now, though it shares files with work in flight (D-???). */
+  anyway?: boolean;
+  /** A held task's start, by startHeld: what it shares with work in flight was weighed already. */
+  fromHold?: { shares: FileShare[] };
 }
 
-export function dispatch(paths: RepoPaths, config: Config, id: string, deps: DispatchDeps, opts: DispatchOptions): DispatchResult {
+/** How long a claim on a held task stands: a start that takes longer than this crashed, and another may take it. */
+export const STARTING_STALE_MS = 10 * 60_000;
+
+/** Who is starting a held task now, unless their claim is stale. */
+const startingNow = (task: Task, now: Date): { at: string; by: string } | null => {
+  const s = task.held?.starting;
+  return s && now.getTime() - Date.parse(s.at) < STARTING_STALE_MS ? s : null;
+};
+
+/**
+ * Dispatches a task: a worktree, its setup, the instructions, and a background builder session. A first
+ * dispatch whose analysis shares files with work in flight waits while another Ready task shares none
+ * (D-???): it's held, and nothing is created or launched. A person can start it anyway.
+ */
+export function dispatch(paths: RepoPaths, config: Config, id: string, deps: DispatchDeps, opts: DispatchOptions): DispatchOutcome {
   const { run, now } = deps;
   const before = readLedger(paths.ledger);
   const found = before.tasks.find((t) => t.id === id);
@@ -363,6 +397,15 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
   // A project that wants an analysis first gets one, unless a person says to go without (D-052).
   const held = analysisProblems(paths, config, found);
   if (held.length && !(opts.withoutAnalysis && opts.actor === 'human')) throw new AccError('move-refused', `Can't dispatch ${id}:\n- ${held.join('\n- ')}`);
+  const starting = opts.fromHold ? null : startingNow(found, now());
+  if (starting) throw new AccError('move-refused', `Can't dispatch ${id}: ${starting.by} is starting it.`);
+  // Only a first dispatch weighs the files: a rework's branch already holds its change (D-???).
+  let shares = opts.fromHold?.shares ?? [];
+  if (found.state === 'todo' && !opts.fromHold) {
+    const look = startLook(paths, config, before, run, id, { fetch: true });
+    shares = look.shares;
+    if (waits(look) && !(opts.anyway && opts.actor === 'human')) return holdTask(paths, now, id, opts, look);
+  }
   const env = environmentByBranch(config, found.environment);
   if (!env) throw new AccError('dispatch', `${id}'s environment "${found.environment}" isn't in the config.`);
 
@@ -401,8 +444,16 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
     const task = ledger.tasks.find((t) => t.id === id)!;
     const again = checkMove(ledger, config, task, req, noGateHooks);
     if (again.length) throw new AccError('move-refused', `Can't dispatch ${id}:\n- ${again.join('\n- ')}`);
-    applyMove(task, { ...req, reason: reused ? `re-dispatched in ${basename(wt)}` : null }, emit, now, opts.cause ? { cause: opts.cause } : {});
-    task.run = { worktree: wt, branch, startedAt: now().toISOString(), ...(bgId ? { bgId } : {}), ...(sessionId ? { sessionId } : {}) };
+    // What it shares with work in flight, and whether a person said to go anyway or it waited for it (D-???).
+    const hold = task.held;
+    const data = {
+      ...(opts.cause ? { cause: opts.cause } : {}),
+      ...(shares.length ? { shares } : {}),
+      ...(shares.length && opts.anyway ? { anyway: true } : {}),
+      ...(opts.fromHold && hold ? { held: { at: hold.at, by: hold.by, waitedFor: hold.waitsFor.map((w) => w.task) } } : {}),
+    };
+    applyMove(task, { ...req, reason: reused ? `re-dispatched in ${basename(wt)}` : null }, emit, now, data);
+    task.run = { worktree: wt, branch, startedAt: now().toISOString(), ...(bgId ? { bgId } : {}), ...(sessionId ? { sessionId } : {}), ...(shares.length ? { shares } : {}) };
     emit({ type: 'task.updated', task: id, actor: opts.actor, by: opts.by, data: { run: task.run } });
     return task;
   });
@@ -416,7 +467,7 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
     } finally {
       awake?.release();
     }
-    return { task, worktree: wt, branch, reused, packetPath, bgId: null, sessionId: null };
+    return { held: false, task, worktree: wt, branch, reused, packetPath, bgId: null, sessionId: null, shares };
   }
 
   const launched = run('claude', ['--bg', ...base, prompt], { cwd: launchDir, env: deps.env, timeoutMs: 60_000 });
@@ -426,11 +477,138 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
     const task = record(bgId, sessionId);
     // acc exits now, so the Mac is kept awake for the background session's own process (D-067).
     if (pid) keepAwakeFor(paths, id, pid, deps.awake);
-    return { task, worktree: wt, branch, reused, packetPath, bgId, sessionId };
+    return { held: false, task, worktree: wt, branch, reused, packetPath, bgId, sessionId, shares };
   } catch (e) {
     if (bgId) run('claude', ['stop', bgId], { cwd: wt });
     throw e;
   }
+}
+
+// ---------------------------------------------------------------- a task that waits for others' files (D-???)
+
+/** Records the hold. A task already waiting keeps its place, since the oldest hold starts first; one whose start failed is asked again. */
+function holdTask(paths: RepoPaths, now: () => Date, id: string, opts: DispatchOptions, look: StartLook): HeldResult {
+  return mutate(paths, now, (ledger, emit) => {
+    const task = ledger.tasks.find((t) => t.id === id);
+    if (!task) throw new AccError('no-task', `No task ${id}.`);
+    if (task.state !== 'todo') throw new AccError('move-refused', `Can't dispatch ${id}: it's ${task.state} now.`);
+    const at = now().toISOString();
+    const kept = task.held && !task.held.failed ? task.held : null;
+    task.held = { at: kept?.at ?? at, actor: kept?.actor ?? opts.actor, by: kept?.by ?? opts.by, waitsFor: look.shares, first: look.first };
+    task.updatedAt = at;
+    emit({ type: 'task.updated', task: id, actor: opts.actor, by: opts.by, data: { held: task.held } });
+    return { held: true as const, task, waitsFor: look.shares, first: look.first };
+  });
+}
+
+/** Why a held task waits, in words: "Waits for GH-70's files: a.ts, while GH-74 is ready to start". */
+export function holdWords(look: StartLook): string {
+  return `Waits for ${filesOf(look.shares)}, while ${taskList(look.first)} ${look.first.length === 1 ? 'is' : 'are'} ready to start`;
+}
+
+export interface StartHeldResult {
+  started: { task: string; worktree: string; bgId: string | null; shares: FileShare[]; waitedFor: string[] }[];
+  /** Held tasks that still wait, and why. */
+  waiting: { task: string; reason: string; waitsFor: FileShare[]; first: string[] }[];
+  /** Held tasks whose start failed: written on each, which then needs a person. */
+  failed: { task: string; reason: string }[];
+}
+
+/** Codes of a start that couldn't go for now, not a failure: the cap filled, or the ledger was busy, between the look and the start. */
+const FOR_NOW = new Set(['move-refused', 'lock-timeout']);
+
+/**
+ * Starts the held tasks that may go now (D-???), as `actor`: a person's own Dispatch click, deferred, or
+ * autopilot. Free ones first, oldest hold first, then, when nothing else is ready, one that shares files.
+ * Each start changes what's in flight, so the rest are weighed again after it. Each is claimed in the
+ * ledger before its builder launches, so two windows and autopilot never start one twice. A start that
+ * fails is written on the task, and isn't tried again until a person acts.
+ */
+export function startHeld(paths: RepoPaths, config: Config, deps: DispatchDeps, opts: { actor: Actor; by: string; only?: string }): StartHeldResult {
+  const out: StartHeldResult = { started: [], waiting: [], failed: [] };
+  const tried = new Set<string>();
+  const shared = sharedFiles(config);
+  let fetched = false;
+  for (;;) {
+    const ledger = readLedger(paths.ledger);
+    const held = ledger.tasks
+      .filter((t) => t.state === 'todo' && t.held && !t.held.failed && !tried.has(t.id) && (!opts.only || t.id === opts.only))
+      .sort((a, b) => a.held!.at.localeCompare(b.held!.at));
+    if (!held.length) break;
+    const flying = inFlightFiles(paths, ledger, deps.run, { fetch: !fetched });
+    fetched = true;
+    const candidates = startCandidates(paths, config, ledger);
+    const looks = held.map((t) => {
+      const look = startOrder({ id: t.id, files: candidates.find((c) => c.id === t.id)?.files ?? null }, candidates, flying, shared);
+      const problems = [...checkMove(ledger, config, t, { to: 'running', actor: opts.actor, by: opts.by }, noGateHooks), ...analysisProblems(paths, config, t)];
+      const claimed = startingNow(t, deps.now());
+      return { t, look, problems, claimed };
+    });
+    const ok = looks.filter((l) => !l.problems.length && !l.claimed);
+    const go = ok.find((l) => !l.look.shares.length) ?? ok.find((l) => !waits(l.look));
+    if (!go) {
+      for (const l of looks) {
+        const reason = l.problems[0] ?? (l.claimed ? `${l.claimed.by} is starting it.` : `${holdWords(l.look)}.`);
+        out.waiting.push({ task: l.t.id, reason, waitsFor: l.look.shares, first: l.look.first });
+      }
+      break;
+    }
+    const id = go.t.id;
+    tried.add(id);
+    if (!claimHeld(paths, deps.now, id, opts)) continue;
+    const waitedFor = go.t.held!.waitsFor.map((w) => w.task);
+    try {
+      const r = dispatch(paths, config, id, deps, { actor: opts.actor, by: opts.by, fromHold: { shares: go.look.shares } });
+      if (r.held) continue;
+      out.started.push({ task: id, worktree: r.worktree, bgId: r.bgId, shares: r.shares, waitedFor });
+    } catch (e) {
+      const reason = (e as Error).message.trim().split('\n').slice(0, 3).join(' ').replace(/\s+/g, ' ');
+      if (FOR_NOW.has((e as AccError).code)) {
+        releaseHeld(paths, deps.now, id, opts, null);
+        out.waiting.push({ task: id, reason, waitsFor: go.look.shares, first: go.look.first });
+      } else {
+        releaseHeld(paths, deps.now, id, opts, reason);
+        out.failed.push({ task: id, reason });
+      }
+    }
+  }
+  return out;
+}
+
+/** Claims a held task for its start, unless it moved, its start failed, or someone else is starting it. */
+function claimHeld(paths: RepoPaths, now: () => Date, id: string, opts: { actor: Actor; by: string }): boolean {
+  return mutate(paths, now, (ledger, emit) => {
+    const t = ledger.tasks.find((x) => x.id === id);
+    if (!t || t.state !== 'todo' || !t.held || t.held.failed || startingNow(t, now())) return false;
+    t.held.starting = { at: now().toISOString(), by: opts.by };
+    emit({ type: 'task.updated', task: id, actor: opts.actor, by: opts.by, data: { held: t.held } });
+    return true;
+  });
+}
+
+/** Lets go of a claim: for now, or with why its start failed, written on the task, which then needs a person. */
+function releaseHeld(paths: RepoPaths, now: () => Date, id: string, opts: { actor: Actor; by: string }, reason: string | null): void {
+  mutate(paths, now, (ledger, emit) => {
+    const t = ledger.tasks.find((x) => x.id === id);
+    if (!t || t.state !== 'todo' || !t.held) return;
+    const at = now().toISOString();
+    t.held = { ...t.held, starting: null, ...(reason ? { failed: { reason, at, by: opts.by } } : {}) };
+    t.updatedAt = at;
+    emit({ type: 'task.updated', task: id, actor: opts.actor, by: opts.by, data: { held: t.held } });
+  });
+}
+
+/** A person stops a held task waiting: it stays to do, and nothing starts it on its own. */
+export function stopWaiting(paths: RepoPaths, now: () => Date, id: string, actor: Actor, by: string): Task {
+  return mutate(paths, now, (ledger, emit) => {
+    const t = ledger.tasks.find((x) => x.id === id);
+    if (!t) throw new AccError('no-task', `No task ${id}.`);
+    if (!t.held) throw new AccError('not-held', `${id} isn't waiting for anything.`);
+    t.held = null;
+    t.updatedAt = now().toISOString();
+    emit({ type: 'task.updated', task: id, actor, by, data: { held: null } });
+    return t;
+  });
 }
 
 // ---------------------------------------------------------------- cleanup (D-013)

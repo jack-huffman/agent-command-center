@@ -766,7 +766,7 @@ export function statusSummary(rows: Pick<TaskRow, 'id' | 'title' | 'display'>[],
 
 /** What a step autopilot couldn't take is called, as acc says it: "couldn't land GH-31", "couldn't send GH-31 back for its failing checks". */
 const AUTOPILOT_VERB: Record<AutopilotStepName, [string, string]> = {
-  review: ['review', ''], land: ['land', ''], dispatch: ['re-dispatch', ''], refresh: ['update', ' from its base'], resume: ['resume', ''], checks: ['send', ' back for its failing checks'],
+  review: ['review', ''], land: ['land', ''], dispatch: ['re-dispatch', ''], refresh: ['update', ' from its base'], resume: ['resume', ''], checks: ['send', ' back for its failing checks'], start: ['start', ''],
 };
 
 /** What autopilot needs to know about a task to tell its steps: who it's tracked in, and its moves. */
@@ -789,7 +789,7 @@ export function autopilotNotices(steps: AutopilotRecord[], tasks: AutopilotTask[
     const say = (text: string, urgent: boolean, actions: [string, string][] = []) => out.push({ kind: 'autopilot', task: r.task, text, urgent, actions, step: r });
     if (r.outcome === 'failed') {
       const by: Record<AutopilotStepName, [string, string]> = {
-        review: ['Review', 'acc.task.review'], land: ['Land', 'acc.task.land'], dispatch: ['Re-dispatch', 'acc.task.dispatch'], refresh: ['Open pull request', 'acc.task.openPr'], resume: ['Resume', 'acc.task.resume'], checks: ['Open pull request', 'acc.task.openPr'],
+        review: ['Review', 'acc.task.review'], land: ['Land', 'acc.task.land'], dispatch: ['Re-dispatch', 'acc.task.dispatch'], refresh: ['Open pull request', 'acc.task.openPr'], resume: ['Resume', 'acc.task.resume'], checks: ['Open pull request', 'acc.task.openPr'], start: ['Dispatch anyway', 'acc.task.dispatchAnyway'],
       };
       const [verb, rest] = AUTOPILOT_VERB[r.step];
       say(`Autopilot couldn't ${verb} ${r.task}${rest}: ${endSentence(r.reason || 'it didn\'t say why')}`, true, [by[r.step]]);
