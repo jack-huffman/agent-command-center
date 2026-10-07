@@ -3,7 +3,9 @@
  * Like the rest of logic/, no `vscode` import, so it can be tested with node:test.
  */
 
-import { autopilotDoes, type AutopilotRecord, reworkedByAutopilot } from '../../../packages/core/src/autopilot.ts';
+import { autopilotDoes } from '../../../packages/core/src/autopilot.ts';
+import type { AutopilotRecord } from '../../../packages/core/src/autopilot-log.ts';
+import { reworkedByAutopilot } from '../../../packages/core/src/autopilot-rules.ts';
 import type { AutopilotStepName } from '../../../packages/core/src/ledger.ts';
 import { isTrackerKind } from '../../../packages/core/src/trackers/types.ts';
 import { endSentence, type TaskNotice } from './notices.ts';

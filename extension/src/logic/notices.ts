@@ -3,7 +3,7 @@
  * Like the rest of logic/, no `vscode` import, so it can be tested with node:test.
  */
 
-import type { AutopilotRecord } from '../../../packages/core/src/autopilot.ts';
+import type { AutopilotRecord } from '../../../packages/core/src/autopilot-log.ts';
 import { builderName } from './agents.ts';
 import { fileList, prConflicts, questionsWord, saidLine, type TaskRow } from './shared.ts';
 

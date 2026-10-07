@@ -4,7 +4,7 @@
  * area`. Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 
-import type { AutopilotRecord } from '../../../packages/core/src/autopilot.ts';
+import type { AutopilotRecord } from '../../../packages/core/src/autopilot-log.ts';
 import type { SessionTie } from '../../../packages/core/src/ledger.ts';
 import type { Environment, Tracker } from '../../../packages/core/src/config.ts';
 import type { HistoryRecord, Question } from '../../../packages/core/src/questions.ts';

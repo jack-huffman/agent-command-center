@@ -4,7 +4,7 @@ import { appendFileSync, existsSync, readdirSync, readFileSync, statSync, writeF
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { builderSettings } from '../src/dispatch.ts';
+import { builderSettings } from '../src/packet.ts';
 import {
   answerQuestion, appendHistory, ask, covered, HISTORY_TRIM_EVERY_BYTES, type HistoryRecord, type HookInput, hookOutput, isAnswer, listen, listeners, parseHookInput, pendingQuestions, permissionHook, type Question, questionHistory, stopListening, editedMessage, preapprove, takePreapproval,
 } from '../src/questions.ts';

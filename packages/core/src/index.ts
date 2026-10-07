@@ -10,6 +10,10 @@ export * from './gates.ts';
 export * from './drift.ts';
 export * from './intake.ts';
 export * from './dispatch.ts';
+export * from './packet.ts';
+export * from './held.ts';
+// holding.ts's claims are dispatch.ts's and held.ts's own; this is its one public name.
+export { STARTING_STALE_MS } from './holding.ts';
 export * from './overlap.ts';
 export * from './names.ts';
 export * from './init.ts';
@@ -21,6 +25,9 @@ export * from './analyze.ts';
 export * from './land.ts';
 export * from './updates.ts';
 export * from './autopilot.ts';
+// autopilot-rules.ts shares its wording helpers with autopilot.ts; these are its own.
+export { type AutopilotOutcome, type Decision, type FactsGitHub, failedChecks, inQueueAt, nextStep, resumedByAutopilot, reworkedByAutopilot, type StepConfig, type TaskFacts, taskFacts } from './autopilot-rules.ts';
+export * from './autopilot-log.ts';
 export * from './refresh.ts';
 export * from './merge.ts';
 export * from './queue.ts';

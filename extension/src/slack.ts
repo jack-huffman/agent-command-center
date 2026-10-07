@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { AutopilotRecord } from '../../packages/core/src/autopilot.ts';
+import type { AutopilotRecord } from '../../packages/core/src/autopilot-log.ts';
 import { runStartedAt, type Task } from '../../packages/core/src/ledger.ts';
 import { isTrackerKind } from '../../packages/core/src/trackers/types.ts';
 import { EVENT_WORDS, type Update } from '../../packages/core/src/updates.ts';

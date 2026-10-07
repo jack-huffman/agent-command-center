@@ -6,7 +6,7 @@ import { mkdtempSync, readdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import type { AutopilotRecord } from '../../packages/core/src/autopilot.ts';
+import type { AutopilotRecord } from '../../packages/core/src/autopilot-log.ts';
 import { displayState, emptyLedger, type Task } from '../../packages/core/src/ledger.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
 import type { AgentSession, TaskRow } from '../src/logic/shared.ts';

@@ -388,7 +388,7 @@ test('an answer goes through acc, after --, so words that start with - stay word
 test('each step autopilot takes is one notice: what it did, and what it couldn\'t, as a warning (D-064)', async () => {
   const { autopilotNotices } = await import('../src/logic/autopilot.ts');
   const { noticeActions } = await import('../src/logic/notices.ts');
-  type Rec = import('../../packages/core/src/autopilot.ts').AutopilotRecord;
+  type Rec = import('../../packages/core/src/autopilot-log.ts').AutopilotRecord;
   const at = '2026-10-05T12:00:00.000Z';
   const rec = (task: string, more: Partial<Rec>): Rec => ({ seq: 1, at, task, step: 'land', outcome: 'done', ...more });
   type Task = import('../src/logic/autopilot.ts').AutopilotTask;
@@ -585,7 +585,7 @@ test('D-044\'s review notices stay quiet for a review autopilot ran, and still s
   const { taskNotices } = await import('../src/logic/notices.ts');
   const { withoutAutopilotEcho } = await import('../src/logic/autopilot.ts');
   type Row = import('../src/logic/shared.ts').TaskRow;
-  type Rec = import('../../packages/core/src/autopilot.ts').AutopilotRecord;
+  type Rec = import('../../packages/core/src/autopilot-log.ts').AutopilotRecord;
   const row = (id: string, state: string, more: Partial<Row> = {}): Row => ({ id, title: `Task ${id}`, state, display: state as Row['display'], environment: 'main', deps: [], source: { kind: 'github', url: null }, ...more });
   const passed = { verdict: 'pass' as const, summary: 'Good.', current: true };
   const changes = { verdict: 'changes' as const, summary: 'No test.', current: true };
@@ -609,7 +609,7 @@ test('autopilot\'s send-back for failing checks is its own notice and History it
   const { autopilotNotices, withoutAutopilotEcho } = await import('../src/logic/autopilot.ts');
   const { noticeActions, taskNotices } = await import('../src/logic/notices.ts');
   const { autopilotStepLook } = await import('../src/model/history.ts');
-  type Rec = import('../../packages/core/src/autopilot.ts').AutopilotRecord;
+  type Rec = import('../../packages/core/src/autopilot-log.ts').AutopilotRecord;
   type Task = import('../src/logic/autopilot.ts').AutopilotTask;
   type Row = import('../src/logic/shared.ts').TaskRow;
   const at = '2026-10-06T12:00:00.000Z';
@@ -650,7 +650,7 @@ test('the merge queue\'s send-back is its own notice and History item, its merge
   const { autopilotNotices, withoutAutopilotEcho } = await import('../src/logic/autopilot.ts');
   const { noticeActions, taskNotices } = await import('../src/logic/notices.ts');
   const { autopilotStepLook } = await import('../src/model/history.ts');
-  type Rec = import('../../packages/core/src/autopilot.ts').AutopilotRecord;
+  type Rec = import('../../packages/core/src/autopilot-log.ts').AutopilotRecord;
   type Row = import('../src/logic/shared.ts').TaskRow;
   const at = '2026-10-06T12:00:00.000Z';
   const gh = { id: 'GH-73', source: { kind: 'github', key: '73' }, history: [] };
@@ -725,7 +725,7 @@ test('a pull request autopilot merged is a notice and a History item; one it cou
   const { noticeActions } = await import('../src/logic/notices.ts');
   const { autopilotLook } = await import('../src/model/cards.ts');
   const { autopilotStepLook } = await import('../src/model/history.ts');
-  type Rec = import('../../packages/core/src/autopilot.ts').AutopilotRecord;
+  type Rec = import('../../packages/core/src/autopilot-log.ts').AutopilotRecord;
   const at = '2026-10-06T12:00:00.000Z';
   const say = (r: Rec) => autopilotNotices([r], [{ id: 'GH-67', source: { kind: 'github', key: '67' }, history: [] }]).map((n) => [n.text, n.urgent, noticeActions(n)]);
   const pr = ['Open pull request', 'acc.task.openPr'];

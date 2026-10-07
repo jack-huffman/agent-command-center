@@ -4,7 +4,7 @@
  * stays quiet while the page shows the board, and Slack has its own switch. No vscode import, so it's
  * tested with stand-ins.
  */
-import type { AutopilotRecord } from '../../packages/core/src/autopilot.ts';
+import type { AutopilotRecord } from '../../packages/core/src/autopilot-log.ts';
 import type { Task } from '../../packages/core/src/ledger.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
 import { autopilotNotices, withoutAutopilotEcho } from './logic/autopilot.ts';

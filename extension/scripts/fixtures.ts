@@ -4,7 +4,7 @@
  * receives, so it can't drift from the types.
  */
 import type { Analysis } from '../../packages/core/src/analyze.ts';
-import type { AutopilotRecord } from '../../packages/core/src/autopilot.ts';
+import type { AutopilotRecord } from '../../packages/core/src/autopilot-log.ts';
 import type { Environment } from '../../packages/core/src/config.ts';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import { type RepoAgents, type State, type Task, tieSession } from '../../packages/core/src/ledger.ts';

@@ -3,7 +3,7 @@
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 
-import { type AutopilotRecord, byAutopilot } from '../../../packages/core/src/autopilot.ts';
+import { type AutopilotRecord, byAutopilot } from '../../../packages/core/src/autopilot-log.ts';
 import type { HistoryRecord } from '../../../packages/core/src/questions.ts';
 import { isUnder, taskNames } from '../logic/shared.ts';
 import { queueWhy } from '../logic/autopilot.ts';
