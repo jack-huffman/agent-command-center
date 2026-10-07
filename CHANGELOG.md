@@ -5,6 +5,22 @@ extension, the plugin and acc share one version. Each release is a GitHub
 Release of this repo, with the extension's `.vsix` attached and its entry here
 as the notes.
 
+## 0.36.0
+
+- Setup forgets a step that no longer applies. Opening a folder with no
+  project, then giving it a generic config, used to leave Node 20 or later
+  (and the Salesforce CLI and Code Analyzer) listed under This machine, counted
+  as to do, until the window reloaded. Now each full check replaces the rows
+  it lists. When a check can't run, Setup keeps the rows it had rather than
+  going blank, and doesn't save the empty result for the next start.
+- The acc plugin step fails when the plugin in Claude Code is older than the
+  extension, and its **Do it** updates the marketplace and the plugin. A newer
+  plugin passes.
+- The README says how to put VSCode's `code` command on PATH before installing
+  the `.vsix` with it.
+- `docs/FIRST-RUN.md` is the checklist for a first run on a fresh machine, to
+  be filled in step by step.
+
 ## 0.35.0
 
 - One version for everything: acc, the extension, the plugin and its

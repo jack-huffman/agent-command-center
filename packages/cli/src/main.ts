@@ -190,7 +190,7 @@ function renderSteps(results: StepResult[], guided: boolean): string {
 }
 
 function cmdDoctor(o: Opts, guided: boolean): number {
-  const ctx = makeContext(process.cwd(), run);
+  const ctx = makeContext(process.cwd(), run, process.env, VERSION);
   const part = o.part as 'machine' | 'project' | undefined;
   if (part && part !== 'machine' && part !== 'project') throw new AccError('usage', '--part must be machine or project.');
   const only = (o.step as string[] | undefined) ?? [];

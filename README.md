@@ -135,8 +135,10 @@ gh release download -R github.com/jack-huffman/agent-command-center -p '*.vsix'
 code --install-extension agent-command-center-*.vsix
 ```
 
-Or, in VSCode: Extensions view → **⋯** → **Install from VSIX…**, and pick the
-file. Then reload the window (**Developer: Reload Window**). A newer release
+A fresh VSCode doesn't put `code` on your PATH: run **Shell Command: Install
+'code' command in PATH** from its Command Palette first, or, in VSCode:
+Extensions view → **⋯** → **Install from VSIX…**, and pick the file. Then
+reload the window (**Developer: Reload Window**). A newer release
 installs the same way, over the old one.
 
 ### The first run
@@ -160,7 +162,9 @@ installs the same way, over the old one.
    A private marketplace updates itself only when `GITHUB_TOKEN` is set, so
    after each release, update it by hand:
    `claude plugin marketplace update agent-command-center`, then
-   `claude plugin update acc@agent-command-center`.
+   `claude plugin update acc@agent-command-center --scope user`. Until you
+   do, A4 fails on a plugin older than the extension, and its **Do it** runs
+   both.
 3. **A project.** Open the project's repo folder. In a Salesforce folder with
    no `.acc/config.json`, the walkthrough **Agent Command Center: onboard a
    project** opens by itself; anywhere else, run **Agent Command Center:

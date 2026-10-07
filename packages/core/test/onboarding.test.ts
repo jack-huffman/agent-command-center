@@ -244,11 +244,11 @@ test('Claude Code that isn\'t installed is installed with Homebrew, which needs 
 });
 
 /** A4.plugin's result, with `claude plugin list --json` and `claude plugin marketplace list --json` answering as given. */
-function plugin(list: RunResult, markets: RunResult = ok('[]'), calls: string[] = []) {
+function plugin(list: RunResult, markets: RunResult = ok('[]'), calls: string[] = [], acc: string | null = null) {
   const f = healthy();
   f['claude plugin list --json'] = list;
   f['claude plugin marketplace list --json'] = markets;
-  return runSteps(makeContext(tempDir(), fakeRunner(f, calls), testEnv()), 'machine', ['A4.plugin'])[0]!.result;
+  return runSteps(makeContext(tempDir(), fakeRunner(f, calls), testEnv(), acc), 'machine', ['A4.plugin'])[0]!.result;
 }
 const ACC = { id: 'acc@agent-command-center', version: '0.35.0', scope: 'user', enabled: true };
 const ADD = 'claude plugin marketplace add https://github.com/jack-huffman/agent-command-center';
@@ -275,6 +275,23 @@ test('A4.plugin\'s fix is what this machine lacks: the marketplace and the plugi
   assert.match(project.detail, /for one project only \(project scope\)/);
   // A marketplace list that doesn't run gets both: adding a marketplace that's there already is harmless.
   assert.equal(plugin(ok('[]'), { code: 1, stdout: '', stderr: 'boom' }).fix, `${ADD} && ${INSTALL}`);
+});
+
+test('A4.plugin fails on a plugin older than this acc, with the update as its fix, and passes an equal or newer one (GH-62)', () => {
+  const at = (version: unknown, acc: string | null) => plugin(ok(JSON.stringify([{ ...ACC, version }])), ok('[]'), [], acc);
+  const old = at('0.35.0', '0.36.0');
+  assert.deepEqual([old.status, old.detail], ['fail', 'acc 0.35.0 is installed, older than this acc (0.36.0).']);
+  assert.equal(old.fix, 'claude plugin marketplace update agent-command-center && claude plugin update acc@agent-command-center --scope user');
+  assert.equal(at('0.9.0', '0.10.0').status, 'fail', 'compared as numbers, not text');
+  assert.deepEqual([at('0.36.0', '0.36.0').status, at('0.36.0', '0.36.0').detail], ['pass', 'acc 0.36.0, for every Claude Code session.']);
+  assert.equal(at('0.37.0', '0.36.0').status, 'pass', 'a newer plugin is fine');
+  // Nothing to compare: the caller doesn't know acc's version, or the plugin's isn't one.
+  assert.equal(at('0.35.0', null).status, 'pass');
+  assert.equal(at('9d655cb', '0.36.0').status, 'pass');
+  assert.equal(at(undefined, '0.36.0').status, 'pass');
+  // A disabled plugin is turned on first; the next check asks for the update.
+  const off = plugin(ok(JSON.stringify([{ ...ACC, enabled: false }])), ok('[]'), [], '0.36.0');
+  assert.equal(off.fix, 'claude plugin enable acc@agent-command-center --scope user');
 });
 
 test('A4.plugin waits for Claude Code, and says unknown for output it can\'t read', () => {

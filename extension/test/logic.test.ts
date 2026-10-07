@@ -5,8 +5,9 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import {
-  buildWalkthroughs, commandLink, COMMANDS, contextKey, dispatchModelArgs, dispatchModelItems, EXTENSION_ID, followsPullRequests, hasPlaceholder, initCommand, isComplete, isWebviewMenuContext, mediaPath,
-  MODEL_CHOICES, needsTerminal, productionOrgs, reusableMachine, setupOrgChoices, sizeLine, statusText, stepDescription, stepMedia, summarize, type DoctorItem,
+  afterFullCheck, afterStepCheck, buildWalkthroughs, commandLink, COMMANDS, contextKey, dispatchModelArgs, dispatchModelItems, EXTENSION_ID, followsPullRequests, hasPlaceholder,
+  initCommand, isComplete, isWebviewMenuContext, machineCache, mediaPath, MODEL_CHOICES, needsTerminal, productionOrgs, reusableMachine, setupOrgChoices, sizeLine, statusText,
+  stepDescription, stepMedia, summarize, type DoctorItem,
 } from '../src/logic.ts';
 import { staleFiles } from '../scripts/generate.ts';
 
@@ -138,6 +139,37 @@ test('machine results are reused only while fresh, and only in a folder with the
   assert.equal(reusableMachine({ ...fresh, at: now - 5000 }, 'salesforce', now, 5000), null, 'stale');
   assert.equal(reusableMachine({ at: now, items }, 'generic', now, 5000), null, 'saved before results knew their profile');
   assert.equal(reusableMachine(undefined, 'generic', now, 5000), null);
+  assert.equal(reusableMachine({ ...fresh, items: [] }, 'salesforce', now, 5000), null, 'an empty list saved by 0.35.0 or earlier, when acc failed, is checked again');
+});
+
+test('a machine check that came back empty is never saved for startup to reuse', () => {
+  const items: DoctorItem[] = [{ id: 'A1.git', part: 'machine', title: 'git', status: 'pass', detail: 'git 2.54.0' }];
+  assert.deepEqual(machineCache(items, 'generic', 42), { at: 42, profile: 'generic', items });
+  assert.equal(machineCache([], 'generic', 42), null, 'acc failed: startup checks again instead of showing no machine rows for 12 hours');
+});
+
+test('a full check replaces each part\'s rows, so a step that no longer applies loses its row (GH-62)', () => {
+  const row = (id: string, part: DoctorItem['part'], status: DoctorItem['status'] = 'pass'): DoctorItem => ({ id, part, title: id, status, detail: '' });
+  const ids = (rows: DoctorItem[]) => rows.map((r) => r.id);
+  // No project open, then `acc init --profile generic`: the machine check no longer lists A1.node.
+  const before = [row('A1.git', 'machine'), row('A1.node', 'machine', 'fail')];
+  const after = afterFullCheck(before, { machine: [row('A1.git', 'machine')], project: [row('B0.config', 'project')] });
+  assert.deepEqual(ids(after), ['A1.git', 'B0.config']);
+  assert.deepEqual(summarize(after, new Set()).failing, [], 'neither done nor to do');
+  // acc failed for a part: its rows stay rather than Setup going blank.
+  const salesforce = [row('A1.git', 'machine'), row('A1.sf', 'machine'), row('B1.orgs', 'project', 'fail'), row('B0.config', 'project')];
+  assert.deepEqual(ids(afterFullCheck(salesforce, { machine: [], project: [row('B0.config', 'project')] })), ['A1.git', 'A1.sf', 'B0.config']);
+  assert.deepEqual(ids(afterFullCheck(salesforce, { machine: [row('A1.git', 'machine')], project: [] })), ['A1.git', 'B1.orgs', 'B0.config']);
+  // A folder that isn't a project drops the project rows and keeps the machine's.
+  assert.deepEqual(ids(afterFullCheck(salesforce, { machine: [row('A1.git', 'machine')], project: null })), ['A1.git']);
+  // Salesforce to generic: B1.orgs and A1.sf go.
+  assert.deepEqual(ids(afterFullCheck(salesforce, { machine: [row('A1.git', 'machine')], project: [row('B0.config', 'project')] })), ['A1.git', 'B0.config']);
+  // A Check of one step changes that row alone.
+  const checked = afterStepCheck(after, [row('A1.git', 'machine', 'fail')]);
+  assert.deepEqual(ids(checked), ['A1.git', 'B0.config']);
+  assert.equal(checked[0]!.status, 'fail');
+  assert.deepEqual(checked[1], after[1]);
+  assert.deepEqual(ids(afterStepCheck(after, [row('B14.tickets', 'project')])), ['A1.git', 'B0.config', 'B14.tickets']);
 });
 
 test('Open in Salesforce offers Developer sandboxes for tracking, and the default org first otherwise', () => {

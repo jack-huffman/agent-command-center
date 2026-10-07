@@ -40,6 +40,8 @@ export interface CheckContext {
   configErrors: string[];
   /** Shared between checks, so slow commands run once. */
   cache: Map<string, unknown>;
+  /** acc's own version, when the caller knows it: A4.plugin fails on an older plugin (GH-62). */
+  version: string | null;
 }
 
 export interface Step {

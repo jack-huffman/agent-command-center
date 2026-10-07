@@ -127,10 +127,31 @@ export interface MachineCache {
 /**
  * The machine results a refresh may reuse instead of calling slow CLIs: fresh enough, and checked in a
  * folder with the same profile, since the profile decides which machine steps apply (A1.node and A1.sf
- * are Salesforce's).
+ * are Salesforce's). An empty list, which 0.35.0 and earlier could save when acc failed, is never reused.
  */
 export const reusableMachine = (cached: MachineCache | undefined, profile: string, now: number, freshMs: number): DoctorItem[] | null =>
-  cached && cached.profile === profile && now - cached.at < freshMs ? cached.items : null;
+  cached?.items.length && cached.profile === profile && now - cached.at < freshMs ? cached.items : null;
+
+/** What a full machine check saves for startup to reuse. An empty list means acc failed, and isn't kept (GH-62). */
+export const machineCache = (items: DoctorItem[], profile: string, now: number): MachineCache | null =>
+  items.length ? { at: now, profile, items } : null;
+
+/**
+ * Setup's rows after a full check (GH-62). Each part the check listed replaces that part's rows, so a step
+ * that no longer applies goes: A1.node, once `acc init` makes the folder generic. A part whose check came
+ * back empty (acc failed) keeps its rows, and `project: null`, a folder that isn't a project, drops them.
+ */
+export function afterFullCheck(previous: DoctorItem[], checked: { machine: DoctorItem[]; project: DoctorItem[] | null }): DoctorItem[] {
+  const rows = (part: DoctorItem['part'], fresh: DoctorItem[] | null) => (fresh === null ? [] : fresh.length ? fresh : previous.filter((i) => i.part === part));
+  return [...rows('machine', checked.machine), ...rows('project', checked.project)];
+}
+
+/** Setup's rows after a Check of one step, a re-check or a fix: those rows change and every other row stays. */
+export function afterStepCheck(previous: DoctorItem[], checked: DoctorItem[]): DoctorItem[] {
+  const byId = new Map(previous.map((i) => [i.id, i]));
+  for (const it of checked) byId.set(it.id, it);
+  return [...byId.values()];
+}
 
 /** A step counts as complete when it passes, doesn't apply (skip), or a person confirmed it. */
 export const isComplete = (status: CheckStatus, confirmed = false): boolean => status === 'pass' || status === 'skip' || confirmed;
