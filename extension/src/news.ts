@@ -7,7 +7,9 @@
 import type { AutopilotRecord } from '../../packages/core/src/autopilot.ts';
 import type { Task } from '../../packages/core/src/ledger.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
-import { autopilotNotices, type TaskNotice, taskNotices, type TaskRow, withoutAutopilotEcho } from './logic.ts';
+import { autopilotNotices, withoutAutopilotEcho } from './logic/autopilot.ts';
+import { type TaskNotice, taskNotices } from './logic/notices.ts';
+import type { TaskRow } from './logic/shared.ts';
 import { autopilotEvent, draftEvents, type SlackEvent, type SlackProject, taskEvent } from './slack.ts';
 
 /** One project as a reload left it. */

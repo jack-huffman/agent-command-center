@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { accImport, accRefusal, cardTracking, liveTrackKeys, outsideKeys, placeCandidates, rowAnalysis, type TaskRow, trackInput, type TrackSteps, trackTicket } from '../src/logic.ts';
+import { accImport, accRefusal, cardTracking, liveTrackKeys, outsideKeys, placeCandidates, trackInput, type TrackSteps, trackTicket } from '../src/logic/connect.ts';
+import { rowAnalysis } from '../src/logic/tasks.ts';
+import type { TaskRow } from '../src/logic/shared.ts';
 import type { Analysis } from '../../packages/core/src/analyze.ts';
-import { type BoardInput, initials, isFromWebview, priorityIcon, ticketActionRefusal, ticketModel, trackerBoard, typeIcon, updateAbout } from '../src/model.ts';
+import { type BoardInput, initials, priorityIcon, trackerBoard, typeIcon } from '../src/model/boards.ts';
+import { isFromWebview } from '../src/model/messages.ts';
+import { ticketActionRefusal, ticketModel } from '../src/model/task-page.ts';
+import { updateAbout } from '../src/model/updates.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
 import { type Ticket, TrackerError } from '../../packages/core/src/trackers/types.ts';
 import { Pending } from '../webview/pending.ts';
@@ -324,7 +329,7 @@ test('a task\'s page shows each update waiting to be posted, with who it posts a
 });
 
 test('pasted tracker URLs give the organization or site', async () => {
-  const { parseHost } = await import('../src/logic.ts');
+  const { parseHost } = await import('../src/logic/connect.ts');
   assert.equal(parseHost('azure', 'https://dev.azure.com/avalign-co/CRM/_boards/board/t/Team/Stories'), 'avalign-co');
   assert.equal(parseHost('azure', 'acme.visualstudio.com/CRM'), 'acme');
   assert.equal(parseHost('azure', 'acme'), 'acme');
@@ -334,7 +339,7 @@ test('pasted tracker URLs give the organization or site', async () => {
 });
 
 test('a repo\'s GitHub identity reads at a glance: what\'s wrong is said in words', async () => {
-  const { lookOf } = await import('../src/model.ts');
+  const { lookOf } = await import('../src/model/environments.ts');
   const base = { repo: 'o/r', account: 'me', from: 'config' as const, projectAccount: 'me', signedIn: true, commit: { name: 'Me', email: 'me@x.y' }, pushesAs: 'me', push: 'follows' as const,
     accounts: [{ login: 'me', active: false, scopes: ['repo', 'project'] }, { login: 'work', active: true, scopes: ['repo'] }] };
   assert.deepEqual(lookOf(base), { ok: true, problem: null, scopes: ['repo', 'project'], projects: true });

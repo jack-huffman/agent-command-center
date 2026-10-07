@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { appendOutput, claudeSessionUri, isSessionId, needsTerminal, promptOf } from '../src/logic.ts';
-import {
-  agentModel, alwaysLabel, answerOf, choicesFor, decisionOf, describePermission, historyItems, homeModel, isFromWebview, needsYouCount, questionCards, runCard, type RunInput,
-} from '../src/model.ts';
+import { appendOutput, needsTerminal, promptOf } from '../src/logic/runs.ts';
+import { claudeSessionUri, isSessionId } from '../src/logic/agents.ts';
+import { agentModel } from '../src/model/agent-page.ts';
+import { alwaysLabel, answerOf, choicesFor, describePermission, questionCards } from '../src/model/questions.ts';
+import { decisionOf, historyItems } from '../src/model/history.ts';
+import { homeModel } from '../src/model/home.ts';
+import { isFromWebview } from '../src/model/messages.ts';
+import { needsYouCount } from '../src/model/overview.ts';
+import { runCard, type RunInput } from '../src/model/runs.ts';
 import { describeTool, emptyTranscript, foldTranscript, splitLines, transcriptDir } from '../src/transcript.ts';
 import { sampleBoards, sampleHub, sampleIdentity, sampleRuns, sampleSetup } from '../scripts/fixtures.ts';
 
@@ -251,7 +256,8 @@ test('a conversation is found where it is saved, from any window: likely folders
 });
 
 test('you can write to an agent from its page only when it isn\'t working, asking, or open elsewhere (D-060)', async () => {
-  const { replyState, isFromWebview } = await import('../src/model.ts');
+  const { replyState } = await import('../src/model/agent-page.ts');
+  const { isFromWebview } = await import('../src/model/messages.ts');
   const bg = { kind: 'background', id: 'abc12345', pid: 42, cwd: '/w', startedAt: 1, sessionId: '7bc4abb5-b4aa-4b62-a376-eced9d81d05a' } as const;
   assert.deepEqual(replyState(null, false, false, false).can, true, 'an ended session carries on from its page');
   assert.match(replyState({ ...bg, state: 'done', status: 'idle' } as never, false, false, false).hint, /stops its background session/);

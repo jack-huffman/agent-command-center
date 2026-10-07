@@ -8,7 +8,7 @@ import Module, { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { COMMANDS } from '../src/logic.ts';
+import { COMMANDS } from '../src/logic/setup.ts';
 import { makeRepo } from '../../packages/core/test/support.ts';
 
 const dist = fileURLToPath(new URL('../dist/extension.js', import.meta.url));

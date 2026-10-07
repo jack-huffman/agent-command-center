@@ -14,7 +14,8 @@ import type { AutopilotRecord } from '../../packages/core/src/autopilot.ts';
 import { runStartedAt, type Task } from '../../packages/core/src/ledger.ts';
 import { isTrackerKind } from '../../packages/core/src/trackers/types.ts';
 import { EVENT_WORDS, type Update } from '../../packages/core/src/updates.ts';
-import type { NoticeKind, TaskNotice, TaskRow, Tone } from './logic.ts';
+import type { NoticeKind, TaskNotice } from './logic/notices.ts';
+import type { TaskRow, Tone } from './logic/shared.ts';
 
 export const SLACK_KINDS = ['needs-you', 'review', 'pr', 'draft'] as const;
 export type SlackKind = (typeof SLACK_KINDS)[number];

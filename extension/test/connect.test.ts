@@ -10,8 +10,9 @@ import { DESCRIPTIONS, type TrackerDescription } from '../../packages/core/src/t
 import { MondayClient } from '../../packages/core/src/trackers/monday.ts';
 import type { Exec } from '../../packages/core/src/trackers/types.ts';
 import { type ConnectDeps, type ConnectProject, ConnectSession } from '../src/connect.ts';
-import { credInUse, credKey, type CredWrites, credWrites, outsideKeys, placeCandidates, readCreds, siteCredKey } from '../src/logic.ts';
-import { blankConnect, type ConnectMessage, type ConnectModel, connectModel, isFromWebview } from '../src/model.ts';
+import { credInUse, credKey, credWrites, type CredWrites, outsideKeys, placeCandidates, readCreds, siteCredKey } from '../src/logic/connect.ts';
+import { blankConnect, type ConnectMessage, connectModel, type ConnectModel } from '../src/model/connect.ts';
+import { isFromWebview } from '../src/model/messages.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const ROOT = '/Users/me/code/acme-service';

@@ -20,7 +20,10 @@ import { type HeavyState, heavyState } from '../../packages/core/src/semaphore.t
 import { claudeProjectsDir, lastModelIn, lastSaidIn, transcriptFile } from '../../packages/core/src/transcript.ts';
 import { queuePlaces } from '../../packages/core/src/queue.ts';
 import { readUpdate, type Update, UPDATE_ID } from '../../packages/core/src/updates.ts';
-import { type AgentSession, agentLook, analysisWait, askingLabel, commonDirOf, isUnder, parseWorktrees, repoRoot, rowAnalysis, type RowFiles, rowSession, sessionFor, sessionLedger, type TaskRow, type Worktree } from './logic.ts';
+import { type AgentSession, isUnder, type RowFiles, type TaskRow } from './logic/shared.ts';
+import { agentLook, askingLabel, commonDirOf, repoRoot, rowSession, sessionFor, sessionLedger } from './logic/agents.ts';
+import { analysisWait, rowAnalysis } from './logic/tasks.ts';
+import { parseWorktrees, type Worktree } from './logic/worktrees.ts';
 import { loadWord, type RepoJobs } from './progress.ts';
 import { runFile } from './run.ts';
 import { type LastStep, lastStepIn } from './transcript.ts';

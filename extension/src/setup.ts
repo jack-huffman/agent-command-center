@@ -5,11 +5,9 @@ import * as vscode from 'vscode';
 import { type Config, parseConfig } from '../../packages/core/src/config.ts';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import type { Step } from '../../packages/core/src/onboarding/types.ts';
-import {
-  afterFullCheck, afterStepCheck, COMMANDS, contextKey, type DoctorItem, EXTENSION_ID, type EnvLike, hasPlaceholder, initCommand, isComplete, machineCache, type MachineCache, needsTerminal,
-  productionOrgs, type RecentTemplate, rememberTemplate, reusableMachine,
-  setupOrgChoices, sfOpenCommand, shownTemplate, statusText, summarize, templateDetail, WALKTHROUGHS, activeGhAccount, expectedOrgUrl, shq,
-} from './logic.ts';
+import { activeGhAccount, afterFullCheck, afterStepCheck, COMMANDS, contextKey, type DoctorItem, type EnvLike, expectedOrgUrl, EXTENSION_ID, hasPlaceholder, initCommand, isComplete, machineCache, type MachineCache, productionOrgs, type RecentTemplate, rememberTemplate, reusableMachine, setupOrgChoices, sfOpenCommand, shownTemplate, statusText, summarize, templateDetail, WALKTHROUGHS } from './logic/setup.ts';
+import { needsTerminal } from './logic/runs.ts';
+import { shq } from './logic/shared.ts';
 import { parseOrgUrl } from '../../packages/core/src/onboarding/helpers.ts';
 import { sourceProblem } from '../../packages/core/src/template.ts';
 import { type RunResult, runFile } from './run.ts';

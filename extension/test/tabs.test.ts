@@ -4,9 +4,20 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import type { SessionTie } from '../../packages/core/src/ledger.ts';
-import { type AgentSession, repoRoot, type TaskRow } from '../src/logic.ts';
+import type { AgentSession, TaskRow } from '../src/logic/shared.ts';
+import { repoRoot } from '../src/logic/agents.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
-import { AGENT_SETTINGS, agentsModel, analysisLook, type BoardInput, cardActions, environmentsModel, homeModel, type HubLike, isFromWebview, needsYouCount, promotionPaths, sessionFolders, setupModel, tasksModel, ticketModel, trackerBoard, VIEW_KINDS, worktreesModel, dropLanes, laneMove } from '../src/model.ts';
+import { AGENT_SETTINGS, agentsModel, sessionFolders } from '../src/model/agents.ts';
+import { analysisLook, cardActions, dropLanes, laneMove, tasksModel } from '../src/model/tasks.ts';
+import { type BoardInput, trackerBoard } from '../src/model/boards.ts';
+import { environmentsModel, promotionPaths } from '../src/model/environments.ts';
+import { homeModel } from '../src/model/home.ts';
+import { type HubLike, VIEW_KINDS } from '../src/model/shared.ts';
+import { isFromWebview } from '../src/model/messages.ts';
+import { needsYouCount } from '../src/model/overview.ts';
+import { setupModel } from '../src/model/setup.ts';
+import { ticketModel } from '../src/model/task-page.ts';
+import { worktreesModel } from '../src/model/worktrees.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
@@ -62,7 +73,7 @@ test('agents: this project first, needs-you on top, background sessions can be s
 });
 
 test('an agent is called by the name acc gave it on the Agents tab, the Overview and its page, though Claude Code lists another (D-087)', async () => {
-  const { agentModel } = await import('../src/model.ts');
+  const { agentModel } = await import('../src/model/agent-page.ts');
   const name = 'Acme · AV-1 Login page for the partner portal · builder 2';
   const review = 'Acme · AV-3 Lead routing · review';
   const h = hub();
@@ -161,7 +172,7 @@ test('agent rows hide their actions behind one menu: Watch first, and background
 });
 
 test('a finished session reads as Finished and never needs you: not on its row, the badges, the Overview or its page; an untied one still does (D-095)', async () => {
-  const { agentModel } = await import('../src/model.ts');
+  const { agentModel } = await import('../src/model/agent-page.ts');
   const done: SessionTie = { task: 'AV-4', role: 'builder', finished: true, why: 'done' };
   const untied = hub();
   untied.agents = [
@@ -859,7 +870,7 @@ test('a task that waits for others\' files says so with a clock, in blue; its ne
 });
 
 test('History tells autopilot\'s start of a held task, and one it couldn\'t make (D-093)', async () => {
-  const { autopilotStepLook } = await import('../src/model.ts');
+  const { autopilotStepLook } = await import('../src/model/history.ts');
   const at = '2026-10-06T12:00:00.000Z';
   const look = (r: Record<string, unknown>) => { const l = autopilotStepLook({ seq: 1, at, task: 'AV-5', step: 'start', outcome: 'done', ...r } as never); return [l.look.label, l.look.icon, l.look.tone, l.detail]; };
   assert.deepEqual(look({ waitedFor: ['AV-1'] }), ['Autopilot started it: AV-1\'s files are free', 'rocket', 'blue', null]);

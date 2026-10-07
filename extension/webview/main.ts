@@ -1,8 +1,22 @@
 // Renders one editor tab. Every element is built with DOM calls and every string is set as text,
 // so nothing from a ticket, branch or session can become markup. No HTML string is ever parsed.
-import type {
-  Action, AgentModel, AgentsModel, ConnectField, ConnectModel, ConnectPicker, EntryView, EnvironmentsModel, HistoryItem, HomeModel, HomeSection, IdentityCard, Look, Model, PersonChip, QuestionCard, QueuePanel, Ref, RunCard, SetupModel, SetupRow, SlackCard, TasksModel, TicketAnalysis, TicketModel, TrackerBoard, TrackerCard, UpdateCard, ViewKind, WhereView, WorktreesModel,
-} from '../src/model.ts';
+import type { Action, HomeSection, Look, Ref, ViewKind } from '../src/model/shared.ts';
+import type { AgentModel, EntryView } from '../src/model/agent-page.ts';
+import type { AgentsModel, WhereView } from '../src/model/agents.ts';
+import type { ConnectField, ConnectModel, ConnectPicker } from '../src/model/connect.ts';
+import type { EnvironmentsModel, IdentityCard } from '../src/model/environments.ts';
+import type { HistoryItem } from '../src/model/history.ts';
+import type { HomeModel, Model } from '../src/model/home.ts';
+import type { PersonChip, TrackerBoard, TrackerCard } from '../src/model/boards.ts';
+import type { QuestionCard } from '../src/model/questions.ts';
+import type { QueuePanel } from '../src/model/overview.ts';
+import type { RunCard } from '../src/model/runs.ts';
+import type { SetupModel, SetupRow } from '../src/model/setup.ts';
+import type { SlackCard } from '../src/model/slack.ts';
+import type { TasksModel } from '../src/model/tasks.ts';
+import type { TicketAnalysis, TicketModel } from '../src/model/task-page.ts';
+import type { UpdateCard } from '../src/model/updates.ts';
+import type { WorktreesModel } from '../src/model/worktrees.ts';
 import type { ProgressAction, ProgressGroup, ProgressModel } from '../src/progress.ts';
 import type { Block, Doc, Inline } from '../../packages/core/src/trackers/doc.ts';
 import { type DraftKeys, type EditBase, editFor, keepEdits, Pending } from './pending.ts';

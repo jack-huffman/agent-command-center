@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import type { GithubIdentity } from '../../packages/core/src/github.ts';
 import type { Hub, Project } from './hub.ts';
-import { type IdentityCard, initials, lookOf } from './model.ts';
+import { type IdentityCard, lookOf } from './model/environments.ts';
+import { initials } from './model/boards.ts';
 
 type AccRun = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
 

@@ -6,8 +6,11 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import type { HeavyState } from '../../packages/core/src/semaphore.ts';
-import type { AgentSession, TaskRow } from '../src/logic.ts';
-import { homeModel, type HubLike, needsYouCount, type ProjectLike, type RunInput } from '../src/model.ts';
+import type { AgentSession, TaskRow } from '../src/logic/shared.ts';
+import { homeModel } from '../src/model/home.ts';
+import type { HubLike, ProjectLike } from '../src/model/shared.ts';
+import { needsYouCount } from '../src/model/overview.ts';
+import type { RunInput } from '../src/model/runs.ts';
 import { elapsed, FinishedJobs, inProgress, type JobRow, loadWord, ordinal, type ProgressGroup, type RepoJobs } from '../src/progress.ts';
 import { lastStepIn } from '../src/transcript.ts';
 

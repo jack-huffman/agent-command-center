@@ -3,7 +3,9 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { HOME_SECTIONS, type HomeModel, type TicketModel } from '../src/model.ts';
+import { HOME_SECTIONS } from '../src/model/shared.ts';
+import type { HomeModel } from '../src/model/home.ts';
+import type { TicketModel } from '../src/model/task-page.ts';
 import { findChrome, PAGES, pageFor, sampleModel, THEMES } from '../scripts/screenshot.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');

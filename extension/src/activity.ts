@@ -4,8 +4,11 @@ import { join } from 'node:path';
 import * as vscode from 'vscode';
 import type { Answer } from '../../packages/core/src/questions.ts';
 import type { Hub } from './hub.ts';
-import type { AgentSession } from './logic.ts';
-import { agentModel, answerOf, isFromWebview, nameOf, type Ref, sessionKey } from './model.ts';
+import type { AgentSession } from './logic/shared.ts';
+import { agentModel } from './model/agent-page.ts';
+import { answerOf } from './model/questions.ts';
+import { isFromWebview } from './model/messages.ts';
+import { nameOf, type Ref, sessionKey } from './model/shared.ts';
 import { htmlFor, isWebLink } from './panels.ts';
 import { claudeProjectsDir, emptyTranscript, foldTranscript, splitLines, type Transcript, transcriptDir } from './transcript.ts';
 

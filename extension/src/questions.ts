@@ -5,8 +5,8 @@ import {
   type Answer, answerQuestion, listen, LISTENER_EVERY_MS, pendingQuestions, permissionHook, type Question, questionHistory, questionsDir, stopListening,
 } from '../../packages/core/src/questions.ts';
 import type { Hub } from './hub.ts';
-import { isUnder, shq } from './logic.ts';
-import { type QuestionCard, questionCards } from './model.ts';
+import { isUnder, shq } from './logic/shared.ts';
+import { type QuestionCard, questionCards } from './model/questions.ts';
 import { questionEvent, type SlackSink } from './slack.ts';
 
 /** How a shell runs the bundled acc: by VSCode's own runtime, so node needn't be on PATH. */

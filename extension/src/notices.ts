@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import type { Hub } from './hub.ts';
-import { combinedStatus, noticeActions, type StatusParts, type TaskNotice } from './logic.ts';
-import type { Ref } from './model.ts';
+import { combinedStatus, type StatusParts } from './logic/status.ts';
+import { noticeActions, type TaskNotice } from './logic/notices.ts';
+import type { Ref } from './model/shared.ts';
 import { News, type NewsInput } from './news.ts';
 import type { SlackSink } from './slack.ts';
 

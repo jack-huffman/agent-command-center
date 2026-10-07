@@ -5,7 +5,7 @@ import { autopilotMode } from '../../packages/core/src/autopilot.ts';
 import { autoMergeOn } from '../../packages/core/src/config.ts';
 import { alive } from '../../packages/core/src/lock.ts';
 import type { Hub, Project } from './hub.ts';
-import { type AutopilotStatusInput, autopilotStatus } from './logic.ts';
+import { autopilotStatus, type AutopilotStatusInput } from './logic/autopilot.ts';
 import type { Runs } from './runs.ts';
 
 /** acc's own words for a project autopilot can't land in. */

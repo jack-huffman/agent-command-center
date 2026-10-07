@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
-import { buildWalkthroughs, mediaPath, stepMedia } from '../src/logic.ts';
+import { buildWalkthroughs, mediaPath, stepMedia } from '../src/logic/setup.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 

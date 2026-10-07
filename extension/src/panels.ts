@@ -3,7 +3,16 @@ import * as vscode from 'vscode';
 import type { Answer } from '../../packages/core/src/questions.ts';
 import type { Hub } from './hub.ts';
 import { FinishedJobs } from './progress.ts';
-import { answerOf, type BoardInput, type ConnectMessage, type ConnectModel, type FromWebview, HOME_SECTIONS, type HomeSection, homeModel, type IdentityCard, isFromWebview, type Ref, type RunControl, type RunInput, runCard, type SlackCard, type ViewKind, WHERE_VIEWS, type WhereView } from './model.ts';
+import { answerOf } from './model/questions.ts';
+import type { BoardInput } from './model/boards.ts';
+import type { ConnectMessage, ConnectModel } from './model/connect.ts';
+import { type FromWebview, isFromWebview } from './model/messages.ts';
+import { HOME_SECTIONS, type HomeSection, type Ref, type ViewKind } from './model/shared.ts';
+import { homeModel } from './model/home.ts';
+import type { IdentityCard } from './model/environments.ts';
+import { runCard, type RunControl, type RunInput } from './model/runs.ts';
+import type { SlackCard } from './model/slack.ts';
+import { WHERE_VIEWS, type WhereView } from './model/agents.ts';
 import type { Setup } from './setup.ts';
 import type { UpdateActions } from './ticket.ts';
 

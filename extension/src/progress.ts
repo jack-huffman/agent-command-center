@@ -7,8 +7,10 @@
 import type { Job } from '../../packages/core/src/jobs.ts';
 import type { AutopilotStepName } from '../../packages/core/src/ledger.ts';
 import type { HeavyState, SlotHolder, SlotWaiter } from '../../packages/core/src/semaphore.ts';
-import { isUnder, sessionFor, type TaskRow, type Tone } from './logic.ts';
-import type { HubLike, Look, ProjectLike, Ref, RunInput } from './model.ts';
+import { isUnder, type TaskRow, type Tone } from './logic/shared.ts';
+import { sessionFor } from './logic/agents.ts';
+import type { HubLike, Look, ProjectLike, Ref } from './model/shared.ts';
+import type { RunInput } from './model/runs.ts';
 
 /** A repo's jobs under way, as the hub read them: projects of one repo share them. */
 export interface RepoJobs {

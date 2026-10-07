@@ -3,8 +3,8 @@ import { randomBytes } from 'node:crypto';
 import { delimiter } from 'node:path';
 import * as vscode from 'vscode';
 import { sfEnv } from '../../packages/core/src/exec.ts';
-import { appendOutput, promptOf, type RunPrompt } from './logic.ts';
-import type { RunInput } from './model.ts';
+import { appendOutput, promptOf, type RunPrompt } from './logic/runs.ts';
+import type { RunInput } from './model/runs.ts';
 
 interface Run extends RunInput {
   cwd: string;
