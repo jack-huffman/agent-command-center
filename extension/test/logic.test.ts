@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import {
   buildWalkthroughs, commandLink, COMMANDS, contextKey, EXTENSION_ID, followsPullRequests, hasPlaceholder, initCommand, isComplete, isWebviewMenuContext, mediaPath,
-  productionOrgs, reusableMachine, setupOrgChoices, statusText, stepDescription, summarize, walkthroughSteps, type DoctorItem,
+  needsTerminal, productionOrgs, reusableMachine, setupOrgChoices, statusText, stepDescription, stepMedia, summarize, type DoctorItem,
 } from '../src/logic.ts';
 import { staleFiles } from '../scripts/generate.ts';
 
@@ -25,11 +25,10 @@ test('the manifest identifies the extension the walkthrough commands open', () =
   assert.equal(manifest.main, './dist/extension.js');
 });
 
-test('machine and project walkthroughs hold every step except planned ones', () => {
+test('machine and project walkthroughs hold every step, in order', () => {
   const [machine, project] = buildWalkthroughs(STEPS);
   const ids = [...machine!.steps, ...project!.steps].map((s) => s.id);
-  assert.deepEqual(ids, walkthroughSteps(STEPS).map((s) => s.id));
-  assert.ok(!ids.includes('A4.plugin'), 'planned steps stay out');
+  assert.deepEqual(ids, STEPS.map((s) => s.id));
   assert.ok(ids.includes('B11.drift') && ids.includes('B13.gate-tools'), 'M4\'s steps are in');
   assert.ok(machine!.steps.every((s) => s.id.startsWith('A')));
   assert.ok(project!.steps.every((s) => s.id.startsWith('B')));
@@ -49,7 +48,7 @@ test('every step ticks itself from its own context key, and Salesforce-only step
 
 test('every button calls a contributed command with its step id', () => {
   const contributed = new Set(manifest.contributes.commands.map((c: { command: string }) => c.command));
-  for (const s of walkthroughSteps(STEPS)) {
+  for (const s of STEPS) {
     const ls = links(stepDescription(s));
     assert.ok(ls.length >= 1, `${s.id} has buttons`);
     for (const l of ls) {
@@ -69,6 +68,28 @@ test('buttons match what each step needs', () => {
   assert.deepEqual(labels('A2.gh-login'), ['Check', 'Do it'], 'GitHub sign-in through VSCode, nothing to confirm by hand');
   assert.deepEqual(labels('B2.account'), ['Check', 'Do it']);
   assert.deepEqual(labels('B6.org-match'), ['Check', 'Do it'], 'pick an environment; the login opens in the browser');
+  assert.deepEqual(labels('A4.plugin'), ['Check', 'Do it'], 'nothing to confirm by hand: the check reads Claude Code');
+});
+
+test('the README that ships in the extension names the walkthroughs by their titles, and asks for no Node of acc\'s own', () => {
+  const readme = readFileSync(join(root, 'README.md'), 'utf8').replace(/\s+/g, ' ');
+  for (const w of buildWalkthroughs(STEPS)) assert.ok(readme.includes(w.title), w.title);
+  assert.ok(!/Node 20\+/.test(readme), 'acc runs on VSCode\'s runtime (D-077)');
+});
+
+test('the acc plugin is a machine step after the GitHub login, and installs in a terminal that can ask for git credentials', () => {
+  const [machine] = buildWalkthroughs(STEPS);
+  const ids = machine!.steps.map((s) => s.id);
+  assert.equal(ids.indexOf('A4.plugin'), ids.indexOf('A2.gh-login') + 1);
+  assert.equal(machine!.steps.find((s) => s.id === 'A4.plugin')!.when, undefined, 'every profile');
+  const a4 = step('A4.plugin');
+  assert.ok(needsTerminal(a4.fix!.command!));
+  assert.ok(needsTerminal('claude plugin install acc@agent-command-center --scope user'));
+  assert.ok(needsTerminal('claude plugin enable acc@agent-command-center --scope user'));
+  const media = stepMedia(a4);
+  assert.ok(media.includes(`\`\`\`bash\n${a4.fix!.command}\n\`\`\``), 'its page shows the command Do it runs');
+  assert.match(media, /accept the invitation/);
+  assert.match(media, /start a new one/);
 });
 
 test('internal step commands are hidden from the Command Palette', () => {

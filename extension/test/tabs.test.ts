@@ -131,16 +131,31 @@ test('setup counts steps done, and offers fixes only where something is open', (
     { id: 'B0.repo', part: 'project', title: 'Repo', status: 'pass', detail: 'ok' },
     { id: 'B2.identity', part: 'project', title: 'Identity', status: 'fail', detail: 'wrong', fix: 'git config user.name x' },
     { id: 'B14.tickets', part: 'project', title: 'Tickets', status: 'fail', detail: 'Not signed in', fix: 'acc.trackers.signIn' },
-    { id: 'A4.plugin', part: 'machine', title: 'Plugin', status: 'skip', detail: 'later' },
+    { id: 'A4.plugin', part: 'machine', title: 'Plugin', status: 'pass', detail: 'acc 0.35.0, for every Claude Code session.' },
   ], new Set());
-  assert.equal(m.total, 3, 'planned steps stay out');
-  assert.equal(m.done, 1);
+  assert.equal(m.total, 4);
+  assert.equal(m.done, 2);
   const steps = m.parts.flatMap((p) => p.steps);
   assert.deepEqual(steps.find((s) => s.id === 'B2.identity')!.actions.map((a) => a.label), ['Do it', 'Check']);
   const tickets = steps.find((s) => s.id === 'B14.tickets')!;
   assert.deepEqual(tickets.actions.map((a) => a.label), ['Do it', 'Check', 'Guide'], 'Do it runs Add a tracker or Sign in, in VSCode');
   assert.equal(tickets.fix, null, 'a VSCode command isn\'t shown as one to copy');
   assert.deepEqual(steps.find((s) => s.id === 'B0.repo')!.actions.map((a) => a.label), ['Check', 'Guide'], 'passing steps keep only Check and the guide')
+  assert.deepEqual(steps.find((s) => s.id === 'A4.plugin')!.actions.map((a) => a.label), ['Check']);
+});
+
+test('setup shows the acc plugin under its own section, with Do it while it fails', () => {
+  const add = 'claude plugin marketplace add https://github.com/jack-huffman/agent-command-center && claude plugin install acc@agent-command-center --scope user';
+  const m = setupModel([
+    { id: 'A2.gh-login', part: 'machine', title: 'Logged in to GitHub', status: 'pass', detail: 'ok' },
+    { id: 'A4.plugin', part: 'machine', title: 'The acc plugin in Claude Code', status: 'fail', detail: 'acc isn\'t installed in Claude Code, and its marketplace isn\'t added.', fix: add },
+  ], new Set());
+  const machine = m.parts.find((p) => p.part === 'machine')!;
+  assert.deepEqual(machine.sections.map((s) => [s.title, s.todo]), [['Accounts', 0], ['The acc plugin', 1]]);
+  const a4 = machine.steps.find((s) => s.id === 'A4.plugin')!;
+  assert.deepEqual(a4.actions.map((a) => a.label), ['Do it', 'Check']);
+  assert.equal(a4.fix, add, 'the command is shown to copy');
+  assert.deepEqual([a4.look.label, a4.look.tone], ['To do', 'orange']);
 });
 
 test('setup reads in the order things are set up, a section for each thing, whatever order the checks finished in (D-047)', () => {

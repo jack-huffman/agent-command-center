@@ -24,8 +24,15 @@ The build follows the milestones in [DESIGN.md section 18](DESIGN.md#18-build-or
 8. **M8** Pilots
 
 Each milestone is filed as GitHub Issues on this repo. From M3 on, the work is
-dispatched to agents with what already exists. The manual steps are written up
-in [ONBOARDING.md](ONBOARDING.md) until the walkthrough replaces them.
+dispatched to agents with what already exists. [ONBOARDING.md](ONBOARDING.md)
+writes up every walkthrough step, and how to do it by hand.
+
+## Under way: packaging for other people to install
+
+Four tasks. acc runs with no Node (D-077); one version, a CHANGELOG and a
+package scanned for personal data (D-079); and the walkthrough's plugin step,
+with the README's Install and first run (D-081). Left: a run-through on a fresh
+machine (GH-62).
 
 ## Later
 
@@ -33,4 +40,3 @@ in [ONBOARDING.md](ONBOARDING.md) until the walkthrough replaces them.
 - a pull request monitor that turns failing CI or conflicts into rework tasks
 - a merge queue
 - cloud sessions
-- packaging for other people to install

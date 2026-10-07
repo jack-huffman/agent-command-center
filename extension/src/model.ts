@@ -955,7 +955,7 @@ function stepOrder(id: string): number {
 }
 
 export function setupModel(items: DoctorItem[], confirmed: Set<string>): SetupModel {
-  const visible = items.filter((i) => !STEPS.find((s) => s.id === i.id)?.planned).sort((a, b) => stepOrder(a.id) - stepOrder(b.id));
+  const visible = [...items].sort((a, b) => stepOrder(a.id) - stepOrder(b.id));
   const rows = (part: 'machine' | 'project') => visible.filter((i) => i.part === part).map((i): SetupRow => {
     const step = STEPS.find((s) => s.id === i.id);
     const status = confirmed.has(i.id) && i.status !== 'pass' ? 'confirmed' : i.status;

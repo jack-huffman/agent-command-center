@@ -17,7 +17,7 @@ export const NAME = 'agent-command-center';
 export const EXTENSION_ID = `${PUBLISHER}.${NAME}`;
 
 export const WALKTHROUGHS = {
-  machine: { id: 'acc.machine', title: 'Agent Command Center: set up this machine', description: 'Tools and accounts the orchestrator needs. Each step ticks itself when its check passes.' },
+  machine: { id: 'acc.machine', title: 'Agent Command Center: set up this machine', description: 'Tools, accounts and the acc plugin that agents need. Each step ticks itself when its check passes.' },
   project: { id: 'acc.project', title: 'Agent Command Center: onboard a project', description: 'Get a repo ready for parallel agents: config, GitHub account, branches per environment, source tracking and safe defaults.' },
 } as const;
 
@@ -45,10 +45,6 @@ export function commandLink(label: string, command: string, args: unknown[] = []
 export const needsConfirmation = (step: Step): boolean => (!!step.fix?.text && !step.fix.command && !step.fix.setupPath && !step.fix.vscode) || !!step.fix?.confirm;
 
 export const hasRunnableFix = (step: Step): boolean => !!step.fix?.command || !!step.fix?.fromCheck || !!step.fix?.vscode;
-
-export function walkthroughSteps(steps: Step[]): Step[] {
-  return steps.filter((s) => !s.planned);
-}
 
 export function stepDescription(step: Step): string {
   const lines = [step.why, ''];
@@ -102,10 +98,9 @@ export function buildWalkthroughs(steps: Step[]): WalkthroughJson[] {
     completionEvents: [`onContext:${contextKey(s.id)}`],
     ...(s.profiles && !s.profiles.includes('generic') ? { when: 'acc.profile != generic' } : {}),
   });
-  const visible = walkthroughSteps(steps);
   return [
-    { ...WALKTHROUGHS.machine, steps: visible.filter((s) => s.part === 'machine').map(toJson) },
-    { ...WALKTHROUGHS.project, featuredFor: ['sfdx-project.json', '.acc/config.json'], steps: visible.filter((s) => s.part === 'project').map(toJson) },
+    { ...WALKTHROUGHS.machine, steps: steps.filter((s) => s.part === 'machine').map(toJson) },
+    { ...WALKTHROUGHS.project, featuredFor: ['sfdx-project.json', '.acc/config.json'], steps: steps.filter((s) => s.part === 'project').map(toJson) },
   ];
 }
 

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import type { RunResult } from '../src/exec.ts';
 import { makeContext, parseOrgUrl } from '../src/onboarding/helpers.ts';
-import { runSteps, STEPS } from '../src/onboarding/steps.ts';
+import { PLUGIN, runSteps, STEPS } from '../src/onboarding/steps.ts';
 import type { CheckStatus } from '../src/onboarding/types.ts';
 import { fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, SF_CONFIG, sf, tempDir } from './support.ts';
 
@@ -18,6 +18,7 @@ function healthy(): Record<string, RunResult | ((o?: { env?: NodeJS.ProcessEnv }
     'gh --version': ok('gh version 2.101.0 (2026-09-15)'),
     'claude --version': ok('2.1.287 (Claude Code)'),
     'claude --help': ok('  --bg, --background   Start the session in the background'),
+    'claude plugin list --json': ok(JSON.stringify([{ id: 'acc@agent-command-center', version: '0.35.0', scope: 'user', enabled: true, installPath: '/tmp/plugins/cache/acc/0.35.0' }])),
     'sf --version': ok('@salesforce/cli/2.151.7 darwin-arm64'),
     'sf plugins': ok('code-analyzer 5.6.1'),
     'gh auth status': ok('github.com\n  ✓ Logged in to github.com account work-account (keyring)'),
@@ -82,7 +83,7 @@ function statuses(repo: string, fixtures = healthy()): Record<string, { status: 
   return Object.fromEntries(runSteps(ctx).map(({ step, result }) => [step.id, result]));
 }
 
-test('step ids are unique and every group matches ONBOARDING.md', () => {
+test('step ids are unique, and each starts with its group', () => {
   const ids = STEPS.map((s) => s.id);
   assert.equal(new Set(ids).size, ids.length);
   for (const s of STEPS) {
@@ -92,12 +93,47 @@ test('step ids are unique and every group matches ONBOARDING.md', () => {
   }
 });
 
+const ROOT = join(import.meta.dirname, '..', '..', '..');
+const doc = (rel: string) => readFileSync(join(ROOT, rel), 'utf8');
+
+/** Every step ONBOARDING.md names, as [id, title], in its order: it writes each one as **title** (`id`). */
+const guideSteps = (md: string): [string, string][] =>
+  [...md.matchAll(/\*\*([^*]+)\*\*\s+\(`([AB]\d+\.[\w-]+)`\)/g)].map((m) => [m[2]!, m[1]!.replace(/\s+/g, ' ').trim()]);
+
+/** A heading's anchor, as GitHub and VSCode's preview make it. */
+const slug = (heading: string) => heading.trim().toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/\s/g, '-');
+const anchors = (md: string) => new Set([...md.matchAll(/^#{1,6}\s+(.+)$/gm)].map((m) => slug(m[1]!)));
+
+test('ONBOARDING.md names every step by its id and title, in the walkthrough\'s order', () => {
+  const want = STEPS.map((s): [string, string] => [s.id, s.title]);
+  const got = guideSteps(doc('docs/ONBOARDING.md'));
+  const title = new Map(want);
+  const missing = want.filter(([id]) => !got.some(([g]) => g === id)).map(([id]) => id);
+  const extra = got.filter(([id]) => !title.has(id)).map(([id]) => id);
+  const mismatched = got.filter(([id, t]) => title.has(id) && title.get(id) !== t).map(([id, t]) => `${id} is "${t}", not "${title.get(id)}"`);
+  assert.deepEqual(got, want, [
+    'docs/ONBOARDING.md should write each step as **<title>** (`<id>`), once, in the step list\'s order.',
+    `Missing: ${missing.join(', ') || 'none'}. Extra: ${extra.join(', ') || 'none'}. Mismatched: ${mismatched.join('; ') || 'none'}.`,
+  ].join(' '));
+});
+
+test('the guide links that steps and the README give lead to headings in ONBOARDING.md, and back', () => {
+  const headings = anchors(doc('docs/ONBOARDING.md'));
+  const fromSteps = STEPS.flatMap((s) => (s.fix?.docs?.startsWith('docs/ONBOARDING.md#') ? [[s.id, s.fix.docs.slice('docs/ONBOARDING.md#'.length)]] : []));
+  assert.ok(fromSteps.length >= 7, 'B0, B5, B6, B9, B11, B13 and B14 link to the guide');
+  const fromReadme = [...doc('README.md').matchAll(/docs\/ONBOARDING\.md#([\w-]+)/g)].map((m) => ['README.md', m[1]!]);
+  assert.ok(fromReadme.length, 'the README links into the guide');
+  for (const [from, anchor] of [...fromSteps, ...fromReadme]) assert.ok(headings.has(anchor!), `${from} links to #${anchor}, which isn't a heading in ONBOARDING.md`);
+  const readme = anchors(doc('README.md'));
+  for (const [, anchor] of doc('docs/ONBOARDING.md').matchAll(/\.\.\/README\.md#([\w-]+)/g)) assert.ok(readme.has(anchor!), `ONBOARDING.md links to README.md#${anchor}, which isn't a heading`);
+});
+
 test('a fully set-up Salesforce project passes every check that can be automated', () => {
   const r = statuses(sfRepo());
   const notPassing = Object.entries(r).filter(([, v]) => v.status !== 'pass' && v.status !== 'skip');
   assert.deepEqual(notPassing.map(([id, v]) => `${id}: ${v.detail}`), []);
   assert.equal(r['B6.org-match']!.detail, 'production → acme, uat → acme--uat, dev → acme--dev');
-  assert.equal(r['A4.plugin']!.status, 'skip');
+  assert.equal(r['A4.plugin']!.detail, 'acc 0.35.0, for every Claude Code session.');
   assert.equal(r['B11.drift']!.status, 'pass');
   assert.equal(r['B13.gate-tools']!.detail, 'Ready: format, validate.');
   assert.equal(r['B14.tickets']!.detail, 'Tickets come from Jira ACME on acme.atlassian.net.');
@@ -205,6 +241,60 @@ test('Claude Code that isn\'t installed is installed with Homebrew, which needs 
   const res = runSteps(ctx, 'machine', ['A1.claude'])[0]!.result;
   assert.equal(res.status, 'fail');
   assert.equal(res.fix, 'brew install --cask claude-code');
+});
+
+/** A4.plugin's result, with `claude plugin list --json` and `claude plugin marketplace list --json` answering as given. */
+function plugin(list: RunResult, markets: RunResult = ok('[]'), calls: string[] = []) {
+  const f = healthy();
+  f['claude plugin list --json'] = list;
+  f['claude plugin marketplace list --json'] = markets;
+  return runSteps(makeContext(tempDir(), fakeRunner(f, calls), testEnv()), 'machine', ['A4.plugin'])[0]!.result;
+}
+const ACC = { id: 'acc@agent-command-center', version: '0.35.0', scope: 'user', enabled: true };
+const ADD = 'claude plugin marketplace add https://github.com/jack-huffman/agent-command-center';
+const INSTALL = 'claude plugin install acc@agent-command-center --scope user';
+
+test('A4.plugin passes when acc is installed for every session and enabled, and names its version', () => {
+  const calls: string[] = [];
+  const r = plugin(ok(JSON.stringify([{ id: 'cloudflare@cloudflare', version: '1.0.0', scope: 'user', enabled: true }, ACC])), ok('[]'), calls);
+  assert.deepEqual([r.status, r.detail], ['pass', 'acc 0.35.0, for every Claude Code session.']);
+  assert.ok(!calls.some((c) => c.includes('marketplace')), 'an installed plugin needs no marketplace check');
+});
+
+test('A4.plugin\'s fix is what this machine lacks: the marketplace and the plugin, the plugin, or turning it on', () => {
+  const none = plugin(ok('[]'), ok(JSON.stringify([{ name: 'claude-plugins-official', source: 'github' }])));
+  assert.deepEqual([none.status, none.fix], ['fail', `${ADD} && ${INSTALL}`]);
+  assert.match(none.detail, /marketplace isn't added/);
+  const added = plugin(ok('[]'), ok(JSON.stringify([{ name: 'agent-command-center', source: 'git' }])));
+  assert.deepEqual([added.status, added.fix, added.detail], ['fail', INSTALL, 'acc isn\'t installed in Claude Code.']);
+  const off = plugin(ok(JSON.stringify([{ ...ACC, enabled: false }])));
+  assert.deepEqual([off.status, off.fix, off.detail], ['fail', 'claude plugin enable acc@agent-command-center --scope user', 'acc 0.35.0 is installed but disabled.']);
+  // One project's install isn't every session's.
+  const project = plugin(ok(JSON.stringify([{ ...ACC, scope: 'project' }])), ok(JSON.stringify([{ name: 'agent-command-center' }])));
+  assert.equal(project.fix, INSTALL);
+  assert.match(project.detail, /for one project only \(project scope\)/);
+  // A marketplace list that doesn't run gets both: adding a marketplace that's there already is harmless.
+  assert.equal(plugin(ok('[]'), { code: 1, stdout: '', stderr: 'boom' }).fix, `${ADD} && ${INSTALL}`);
+});
+
+test('A4.plugin waits for Claude Code, and says unknown for output it can\'t read', () => {
+  const missing = plugin({ code: 127, stdout: '', stderr: 'not found' });
+  assert.deepEqual([missing.status, missing.detail, missing.fix], ['fail', 'claude isn\'t installed. Do A1.claude first.', undefined]);
+  for (const junk of [ok('Installed plugins:\n  acc'), ok('{"id":"acc@agent-command-center"}'), ok('[1, 2]'), { code: 1, stdout: '', stderr: 'error: unknown option \'--json\'' }]) {
+    const r = plugin(junk);
+    assert.equal(r.status, 'unknown', junk.stdout || junk.stderr);
+    assert.match(r.detail, /^Couldn't read Claude Code's plugins: claude plugin list/);
+  }
+});
+
+test('A4.plugin\'s names and address are the marketplace\'s and the plugin\'s own', () => {
+  const market = JSON.parse(doc('.claude-plugin/marketplace.json'));
+  const manifest = JSON.parse(doc('plugin/.claude-plugin/plugin.json'));
+  assert.deepEqual(PLUGIN, { marketplace: market.name, name: market.plugins[0].name, repo: manifest.repository });
+  assert.equal(market.plugins[0].source, './plugin');
+  const fix = STEPS.find((s) => s.id === 'A4.plugin')!.fix!.command!;
+  assert.equal(fix, `${ADD} && ${INSTALL}`);
+  assert.ok(!/<[^>]+>/.test(fix), 'Do it runs it as it is, with nothing to fill in');
 });
 
 test('Node is a Salesforce project\'s step: acc itself doesn\'t need it (D-077)', () => {

@@ -187,7 +187,7 @@ function cmdDoctor(o: Opts, guided: boolean): number {
   if (unknownIds.length) throw new AccError('usage', `No step ${unknownIds.join(', ')}. Run acc doctor to see them all.`);
   const results = runSteps(ctx, part, only);
   out(o, () => renderSteps(results, guided), results.map(({ step, result }) => ({
-    id: step.id, part: step.part, group: step.group, title: step.title, why: step.why, planned: step.planned ?? null,
+    id: step.id, part: step.part, group: step.group, title: step.title, why: step.why,
     status: result.status, detail: result.detail, fix: result.fix ?? null, howTo: step.fix ?? null, open: result.open ?? null,
   })));
   return results.some((r) => r.result.status === 'fail') ? 1 : 0;

@@ -4,6 +4,7 @@ import { dirname, join, sep } from 'node:path';
 import { branchFor, type Environment } from '../config.ts';
 import { isTrusted, mainCheckout } from '../dispatch.ts';
 import { type DriftResult, driftReportPath } from '../drift.ts';
+import { parseJsonOutput } from '../exec.ts';
 import { gatesFor } from '../gates.ts';
 import { credentialHelper } from '../github.ts';
 import { orList } from '../trackers/types.ts';
@@ -115,6 +116,32 @@ function billingSettings(file: string): string[] | null {
   return found;
 }
 
+/**
+ * The acc plugin, as this repo's marketplace lists it (.claude-plugin/marketplace.json). The repo is
+ * written as a full github.com URL, the one form of it a package may hold (D-079).
+ */
+export const PLUGIN = { marketplace: 'agent-command-center', name: 'acc', repo: 'https://github.com/jack-huffman/agent-command-center' } as const;
+const PLUGIN_ID = `${PLUGIN.name}@${PLUGIN.marketplace}`;
+const MARKETPLACE_ADD = `claude plugin marketplace add ${PLUGIN.repo}`;
+const PLUGIN_INSTALL = `claude plugin install ${PLUGIN_ID} --scope user`;
+
+/**
+ * A list `claude … --json` prints, such as `claude plugin list --json`. 127 when claude isn't installed,
+ * and a reason when it didn't run or printed something else.
+ */
+function claudeJson(ctx: CheckContext, args: string[]): Record<string, unknown>[] | 127 | string {
+  const r = ctx.run('claude', args, { env: ctx.env });
+  if (r.code === 127) return 127;
+  if (r.code !== 0) return `claude ${args.slice(0, 2).join(' ')} didn't run: ${(r.stderr || r.stdout).trim().split('\n')[0] || `exit ${r.code}`}`;
+  try {
+    const list = parseJsonOutput<unknown>(r.stdout);
+    if (Array.isArray(list) && list.every((x) => x && typeof x === 'object')) return list as Record<string, unknown>[];
+  } catch {
+    // said below
+  }
+  return `claude ${args.slice(0, 2).join(' ')} printed something other than a list.`;
+}
+
 function versionStep(id: string, title: string, why: string, cmd: string, args: string[], min: string | null, fix: string, profiles?: Step['profiles']): Step {
   return {
     id, part: 'machine', group: 'A1', title, why, profiles, fix: { command: fix },
@@ -205,10 +232,27 @@ export const STEPS: Step[] = [
     },
   },
   {
-    id: 'A4.plugin', part: 'machine', group: 'A4', title: 'The acc plugin',
-    why: 'Gives every agent the acc command, the guard hooks and the skills.',
-    planned: 'M6',
-    check: () => skip('The plugin arrives with milestone M6.'),
+    id: 'A4.plugin', part: 'machine', group: 'A4', title: 'The acc plugin in Claude Code',
+    why: 'Its hooks keep each builder inside its own worktree and away from pushes, merges and deploys, and send it back to the finish line if it stops early. It also gives agents acc\'s skills and the reviewer. It\'s installed once, for every Claude Code session, and does nothing in a repo without .acc/config.json.',
+    fix: {
+      command: `${MARKETPLACE_ADD} && ${PLUGIN_INSTALL}`,
+      text: 'Claude Code clones this private repo with your own git credentials, so accept the invitation to it first. Sessions already running don\'t load the plugin: start a new one.',
+    },
+    check(ctx) {
+      const list = claudeJson(ctx, ['plugin', 'list', '--json']);
+      if (list === 127) return fail('claude isn\'t installed. Do A1.claude first.');
+      if (typeof list === 'string') return unknown(`Couldn't read Claude Code's plugins: ${list}`);
+      const mine = list.filter((p) => p.id === PLUGIN_ID);
+      const user = mine.find((p) => p.scope === 'user');
+      const version = typeof user?.version === 'string' ? user.version : '(unknown version)';
+      if (user?.enabled === true) return pass(`acc ${version}, for every Claude Code session.`);
+      if (user) return fail(`acc ${version} is installed but disabled.`, `claude plugin enable ${PLUGIN_ID} --scope user`);
+      const scopes = [...new Set(mine.map((p) => String(p.scope)))];
+      const only = scopes.length ? ` It's installed for one project only (${scopes.join(', ')} scope), not for every session.` : '';
+      const markets = claudeJson(ctx, ['plugin', 'marketplace', 'list', '--json']);
+      if (Array.isArray(markets) && markets.some((m) => m.name === PLUGIN.marketplace)) return fail(`acc isn't installed in Claude Code.${only}`, PLUGIN_INSTALL);
+      return fail(`acc isn't installed in Claude Code, and its marketplace isn't added.${only}`, `${MARKETPLACE_ADD} && ${PLUGIN_INSTALL}`);
+    },
   },
 
   // ------------------------------------------------------------ Part B: this project
