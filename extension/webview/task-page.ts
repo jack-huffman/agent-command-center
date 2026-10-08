@@ -2,7 +2,7 @@
 
 import type { Look } from '../src/model/shared.ts';
 import type { PersonChip } from '../src/model/boards.ts';
-import type { TicketModel } from '../src/model/task-page.ts';
+import type { TicketModel, TicketRatchet } from '../src/model/task-page.ts';
 import { renderAnalysis } from './analysis.ts';
 import { actionButton, avatar, button, type Child, clippedSpan, el, foldable, icon, iconed, labelChip, linkTo, openable, renderDoc, status, when } from './dom.ts';
 import { api, memory, type PageArea, remember, state } from './state.ts';
@@ -13,6 +13,17 @@ import { updateDraft } from './updates.ts';
 
 function ticketAction(action: string, text?: string): void {
   api.postMessage({ type: 'ticket-action', action, ...(text !== undefined ? { text } : {}) });
+}
+
+/**
+ * A ratchet's numbers (GH-99), "669 → 674 (+5)" beside its name, with an arrow for the way it went: blue
+ * when it got better or held, orange when it got worse. The numbers say it; the arrow and its colour only
+ * add to them. Hovered, it says them with its label, then what the check said.
+ */
+function ratchetNumbers(r: TicketRatchet, summary: string): HTMLElement {
+  const diff = r.diff ?? 0;
+  const better = r.limit === 'floor' ? diff >= 0 : diff <= 0;
+  return Object.assign(el('span', 'small check-sum check-ratchet', icon(diff > 0 ? 'arrow-up' : diff < 0 ? 'arrow-down' : 'arrow-right', better ? 'blue' : 'orange'), r.numbers ?? ''), { title: `${r.line}. ${summary}` });
 }
 
 function editButton(label: string, action: string): HTMLElement {
@@ -151,9 +162,9 @@ export function renderTicket(m: TicketModel): Node[] {
         // A builder's lighter check, or the full one the merge queue runs once (GH-73).
         el('span', 'check-gate', el('span', 'mono', c.gate),
           c.scope ? Object.assign(el('span', 'chip', c.scope === 'builder' ? 'builder' : 'merge queue'), { title: c.scope === 'builder' ? 'One of the lighter checks a builder runs before acc done' : 'The full check, run once in the merge queue before the merge' }) : null),
-        Object.assign(el('span', 'muted small check-sum', c.summary), { title: c.summary }),
-        // A person can set a failing check aside, with a reason (D-031).
-        (c.status === 'fail' || c.status === 'error') && a.branch ? Object.assign(button('Waive…', 'debug-step-over', () => ticketAction('waive', c.gate), 'ghost small check-waive'), { title: `Set ${c.gate} aside on this commit, with a reason` }) : null))) : null,
+        c.ratchet?.numbers ? ratchetNumbers(c.ratchet, c.summary) : Object.assign(el('span', 'muted small check-sum', c.summary), { title: c.summary }),
+        // A person can set a failing check aside, with a reason (D-031). Not a ratchet: a person relaxes its floor instead (GH-99).
+        (c.status === 'fail' || c.status === 'error') && a.branch && !c.ratchet ? Object.assign(button('Waive…', 'debug-step-over', () => ticketAction('waive', c.gate), 'ghost small check-waive'), { title: `Set ${c.gate} aside on this commit, with a reason` }) : null))) : null,
       el('div', 'actions', ...a.actions.map(actionButton))));
   } else if (m.trackable) {
     // Tracking… while it's on its way, from here or its card, so a second click starts nothing (D-074).

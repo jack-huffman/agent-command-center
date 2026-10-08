@@ -7,11 +7,12 @@ import type { TaskRow } from '../src/logic/shared.ts';
 import type { Analysis } from '../../packages/core/src/analyze.ts';
 import { type BoardInput, initials, priorityIcon, trackerBoard, typeIcon } from '../src/model/boards.ts';
 import { isFromWebview } from '../src/model/messages.ts';
-import { ticketActionRefusal, ticketModel } from '../src/model/task-page.ts';
+import { ticketActionRefusal, ticketCheck, ticketModel } from '../src/model/task-page.ts';
 import { updateAbout } from '../src/model/updates.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
 import { type Ticket, TrackerError } from '../../packages/core/src/trackers/types.ts';
 import { Pending } from '../webview/pending.ts';
+import { pageSource } from './support.ts';
 
 const row = (id: string, state: string, display: TaskRow['display'], extra: Partial<TaskRow> = {}): TaskRow =>
   ({ id, title: `Task ${id}`, state, display, environment: 'dev', deps: [], source: { kind: 'jira', url: null }, ...extra });
@@ -430,4 +431,22 @@ test('a monday.com item\'s page: a field edit is refused before monday hears of 
   assert.deepEqual(trackInput(item), [{ source: { kind: 'monday', key: 'MON-101', url: 'https://acme.monday.com/boards/111/pulses/101' }, title: 'Escalate premium cases', brief: '## Description\n\nPremium cases escalate.', labels: [] }]);
   const model = ticketModel({ project: '/r', tracker: 0, trackerTitle: 'monday.com · acme', trackerKind: 'monday', key: 'MON-101', ticket: item, loading: false, error: null, connect: null, row: null, task: null, checks: [] });
   assert.deepEqual([model.sourceKind, model.sourceLabel, model.trackable, model.can], ['monday', 'monday.com · acme', true, { status: false, assign: false, labels: false, comment: true }]);
+});
+
+test('a ratchet\'s check carries its numbers, from the environment\'s floor to this commit\'s; one not yet measured carries none (GH-99)', () => {
+  const spec = { command: 'node scripts/count-tests.mjs', limit: 'floor' as const, label: 'tests' };
+  const receipt = { status: 'pass' as const, summary: 'tests 674, at its floor.', details: { ratchet: { label: 'tests', limit: 'floor', value: 674, floor: 674, base: 669, diff: 5 } } };
+  assert.deepEqual(ticketCheck('tests', receipt, 'Not run on this commit', { scope: 'builder' }, spec), {
+    gate: 'tests', status: 'pass', summary: 'tests 674, at its floor.', waived: false, scope: 'builder',
+    ratchet: { label: 'tests', limit: 'floor', from: 669, to: 674, diff: 5, numbers: '669 → 674 (+5)', line: 'tests 669 → 674 (+5)' },
+  });
+  const first = { ...receipt, details: { ratchet: { label: 'tests', limit: 'floor', value: 674, floor: null, base: null, diff: null } } };
+  assert.deepEqual([ticketCheck('tests', first, '', {}, spec).ratchet?.numbers, ticketCheck('tests', first, '', {}, spec).ratchet?.line], ['674, the first floor', 'tests 674 (first floor)']);
+  assert.deepEqual(ticketCheck('tests', null, 'Not run on this commit', {}, spec), { gate: 'tests', status: 'skip', summary: 'Not run on this commit', ratchet: { label: 'tests', limit: 'floor', from: null, to: null, diff: null, numbers: null, line: null } }, 'not measured: no numbers, but still a ratchet, so the page offers no Waive…');
+  assert.deepEqual(ticketCheck('tests', { status: 'error', summary: 'tests couldn\'t be measured.' }, '', {}, spec).ratchet?.to, null);
+  assert.deepEqual(ticketCheck('lint', { status: 'pass', summary: 'Passed.' }, '', {}), { gate: 'lint', status: 'pass', summary: 'Passed.', waived: false }, 'any other check is as it was');
+  // The page shows the line, with an arrow, and never offers Waive… on a ratchet.
+  const page = pageSource('task-page.ts');
+  assert.match(page, /c\.ratchet\?\.numbers \? ratchetNumbers\(c\.ratchet, c\.summary\)/);
+  assert.match(page, /a\.branch && !c\.ratchet \? Object\.assign\(button\('Waive…'/);
 });
