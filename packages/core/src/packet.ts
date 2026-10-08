@@ -207,7 +207,7 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean }): stri
   if (p.environmentSpecific.length) {
     lines.push('- edit an environment-specific file (D-016). Each org keeps its own version of these:', ...p.environmentSpecific.map((f) => `  - \`${f}\``));
   }
-  // The profile's rules, then rules copied in, then the repo's own, which win (GH-108): rulesText's order.
+  // Every project's rules (GH-104), the profile's, then rules copied in, then the repo's own, which win (GH-108): rulesText's order.
   if (p.rules?.trim()) lines.push('', '## Rules', '', p.rules.trim());
   return lines.join('\n') + '\n';
 }

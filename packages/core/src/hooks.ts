@@ -260,6 +260,8 @@ export function shortPacket(task: Task, gates: string[], full: string[] = []): s
     `Finish line: commit everything, run exactly \`acc gate run\`${gates.length ? ` (${gates.join(', ')})` : ''}, then finish with your note, all on one line: \`${DONE_COMMAND}\`. Give a flag again for each further line; use double quotes, with no backticks or $ inside. If you're stuck, run \`acc block "<what you need>"\` and stop.`,
     ...(full.length ? [`The full check (${full.join(', ')}) runs once, in the merge queue, before the merge.`] : []),
     'Never push, merge a pull request, open one, or deploy.',
+    // Every project's rules (GH-104), which keep parallel work mergeable, in one line.
+    'Rules: put new behaviour in its own file, registered with one line where a list names every area; if another task\'s change breaks your build, `acc block` with the reason and don\'t edit its files; write a manifest or config file whole, to a temp file then a rename.',
     `Your full instructions: acc show ${task.id}.`,
   ].join('\n');
 }
