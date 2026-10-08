@@ -8,6 +8,7 @@ import { makeContext, parseOrgUrl } from '../src/onboarding/helpers.ts';
 import { PLUGIN, runSteps, STEPS } from '../src/onboarding/steps.ts';
 import type { CheckStatus } from '../src/onboarding/types.ts';
 import { repoPaths } from '../src/paths.ts';
+import { importRules, renderHeader, rulesDigest } from '../src/rules.ts';
 import { writeReadme } from '../src/setup.ts';
 import { templateDigest } from '../src/template.ts';
 import { fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, SF_CONFIG, sf, tempDir } from './support.ts';
@@ -544,6 +545,63 @@ test('B0.template reads a GitHub template as the repo\'s account, and one it can
   assert.equal(down.status, 'unknown');
   assert.match(down.detail, /Couldn't read ACME tools from https:\/\/github\.com\/acme\/acc-templates\/blob\/main\/tools\.json: .*502/);
   assert.equal(templateCheck(repo, {}).status, 'unknown', 'gh not logged in as the account');
+});
+
+/** B0.rules's result in a repo (GH-108). */
+function rulesCheck(repo: string, fixtures: Parameters<typeof templateCheck>[1] = {}, calls: string[] = []) {
+  const ctx = makeContext(repo, fakeRunner(fixtures, calls), testEnv());
+  return runSteps(ctx, 'project', ['B0.rules'])[0]!.result;
+}
+
+test('B0.rules doesn\'t apply with nothing copied in, passes while each source is unchanged though a copy was edited here, and shows a change without applying it (GH-108)', () => {
+  const repo = makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG) });
+  assert.deepEqual([rulesCheck(repo).status, /No rules are copied in/.test(rulesCheck(repo).detail)], ['skip', true]);
+
+  const file = join(tempDir('team-'), 'acme.md');
+  writeFileSync(file, '- Every change has a test.\n');
+  importRules(run, repo, file, { name: 'acme' });
+  const copy = join(repo, '.acc', 'rules', 'acme.md');
+  assert.deepEqual(Object.values(rulesCheck(repo)), ['pass', '.acc/rules/acme.md: unchanged at its source.']);
+  writeFileSync(copy, `${readFileSync(copy, 'utf8')}- And this repo's own line.\n`);
+  const edited = rulesCheck(repo);
+  assert.deepEqual([edited.status, /was edited here/.test(edited.detail)], ['pass', true], 'an edit made here isn\'t a change at the source');
+  const before = readFileSync(copy, 'utf8');
+
+  writeFileSync(file, '- Every change has a test and a changelog line.\n');
+  const changed = rulesCheck(repo);
+  assert.equal(changed.status, 'unknown');
+  assert.match(changed.detail, /^\.acc\/rules\/acme\.md has changed at the source since it was copied in\. The fix shows the difference and changes nothing/);
+  assert.equal(changed.fix, 'acc rules diff acme');
+  assert.equal(readFileSync(copy, 'utf8'), before, 'the check never writes the copy');
+
+  rmSync(file);
+  const gone = rulesCheck(repo);
+  assert.deepEqual([gone.status, /came from a file that isn't on this machine/.test(gone.detail)], ['skip', true]);
+  assert.equal(readFileSync(copy, 'utf8'), before);
+});
+
+test('B0.rules reads a GitHub source as the repo\'s account, and one it can\'t read, or a bad header, is checked by hand (GH-108)', () => {
+  const source = 'https://github.com/acme/acc-rules/blob/main/salesforce.md';
+  const text = '- Apex has tests.\n';
+  const repo = makeRepo({
+    '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, github: { repo: 'acme/app', account: 'acme-dev' } }),
+    '.acc/rules/salesforce.md': renderHeader({ source, commit: null, copied: '2026-10-01', sha256: rulesDigest(text) }) + text,
+  });
+  const api = 'gh api repos/acme/acc-rules/contents/salesforce.md?ref=main';
+  const token = { 'gh auth token -u acme-dev': ok('tok-acme') };
+  assert.equal(rulesCheck(repo, { ...token, [api]: (o) => (o?.env?.GH_TOKEN === 'tok-acme' ? ok(text) : sf(null, 1)) }).status, 'pass');
+  const down = rulesCheck(repo, { ...token, [api]: { code: 1, stdout: '', stderr: 'HTTP 502: Server Error' } });
+  assert.equal(down.status, 'unknown');
+  assert.match(down.detail, /\.acc\/rules\/salesforce\.md: Couldn't read https:\/\/github\.com\/acme\/acc-rules\/blob\/main\/salesforce\.md: .*502/);
+  assert.equal(down.fix, undefined, 'nothing to run');
+
+  writeFileSync(join(repo, '.acc', 'rules', 'evil.md'), renderHeader({ source: '--upload-pack=touch acc-owned#x.md', commit: null, copied: '2026-10-01', sha256: rulesDigest('x') }) + 'x');
+  const calls: string[] = [];
+  const evil = rulesCheck(repo, { ...token, [api]: ok(text) }, calls);
+  assert.equal(evil.status, 'unknown');
+  assert.match(evil.detail, /\.acc\/rules\/evil\.md: Its header's source, .*can't start with "-"/);
+  assert.ok(!calls.some((c) => c.startsWith('git clone')), calls.join('\n'));
+  assert.ok(!existsSync(join(repo, 'acc-owned')));
 });
 
 test('B0.template never hands git a committed source that starts with "-" (GH-80)', () => {

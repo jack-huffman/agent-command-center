@@ -1,4 +1,4 @@
-/* The Agents tab: its table's columns, and how agents run. */
+/* The Agents tab: its table's columns, and what agents bill. */
 
 /* An agent's name (D-087) wraps rather than clipping, so its task and role stay in view. */
 .grid td.agent-name { min-width: 11em; max-width: 24em; overflow-wrap: anywhere; }
@@ -21,14 +21,8 @@
 @media (max-width: 560px) { .grid .model { display: none; } }
 @media (max-width: 660px) { .grid .started { display: none; } }
 
-/* How builders and reviewers run (D-036): model, effort and where each is set. */
-.agent-settings { border: 1px solid var(--line); border-radius: 8px; background: var(--card); padding: 12px 16px 8px; margin-bottom: 18px; }
-.agent-settings h2 { margin-bottom: 4px; }
-.setting-row { display: grid; grid-template-columns: 150px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
-.agent-settings h2 + .setting-row { border-top: 0; }
-.setting-name { display: inline-flex; align-items: center; gap: 6px; }
-.setting-parts { display: flex; flex-wrap: wrap; gap: 4px 18px; min-width: 0; }
-.setting-part { white-space: nowrap; }
-.setting-meaning { min-width: 0; }
-.setting-billing { padding: 8px 0 4px; border-top: 1px solid var(--line); }
-@media (max-width: 620px) { .setting-row { grid-template-columns: minmax(0, 1fr) auto; } .setting-parts { grid-column: 1 / -1; grid-row: 2; } }
+/* Per-token billing (D-036): above the sessions, as well as in Settings' How agents run (GH-110). */
+.setting-billing { margin: 0 0 12px; }
+/* Its reason can be long: it wraps rather than running off a narrow tab. */
+.setting-billing .status { white-space: normal; align-items: flex-start; }
+.setting-billing .status .codicon { margin-top: 2px; }

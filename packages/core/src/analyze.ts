@@ -9,6 +9,7 @@ import { AccError, type RunResult, type Runner, sfEnv } from './exec.ts';
 import { type Actor, mutate, readLedger, type Task } from './ledger.ts';
 import { alive } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
+import { rulesText } from './rules.ts';
 
 /**
  * The analysis (D-052): before a task is built, a read-only agent works out what it asks for, what's
@@ -259,7 +260,7 @@ export function analysisPrompt(i: AnalysisInput): { system: string; prompt: stri
       'Don\'t ask these again.',
       '',
     ] : []),
-    ...(i.rules?.trim() ? ['## The project\'s rules', '', i.rules.trim(), ''] : []),
+    ...(i.rules?.trim() ? ['## Rules', '', i.rules.trim(), ''] : []),
   ].join('\n');
   return { system, prompt };
 }
@@ -357,9 +358,8 @@ export function analyze(paths: RepoPaths, config: Config, id: string, deps: Anal
   const base = git(run, paths.root, 'rev-parse', '--verify', '--quiet', env.branch).stdout.trim() || git(run, paths.root, 'rev-parse', 'HEAD').stdout.trim();
   const current = git(run, paths.root, 'branch', '--show-current').stdout.trim();
   const orgs = sf ? config.environments.filter((e) => e.org).map((e) => ({ alias: e.org!, name: e.name, type: e.type })) : [];
-  const rulesFile = join(paths.root, '.acc', 'rules.md');
   const previous = readAnalysis(paths, id);
-  const { system, prompt } = analysisPrompt({ task, config, env, root: paths.root, checkedOut: current && current !== env.branch ? current : null, orgs, rules: existsSync(rulesFile) ? readFileSync(rulesFile, 'utf8') : null, previous });
+  const { system, prompt } = analysisPrompt({ task, config, env, root: paths.root, checkedOut: current && current !== env.branch ? current : null, orgs, rules: rulesText(paths.root, config.profile), previous });
 
   const allowed = [...ANALYST_COMMANDS.any, ...(sf ? ANALYST_COMMANDS.salesforce : [])].map((c) => `Bash(${c}:*)`);
   // Belt and braces: the hook refuses anything but those reads, even if a pattern lets more through.

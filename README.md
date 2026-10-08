@@ -51,8 +51,8 @@ Salesforce. Project types plug in as profiles.
   the two lists and the README's environments table each have a **Do it** in
   the walkthrough. No terminal needed.
 - **How agents run:** builders and reviewers each have a model, effort and
-  fallback, for this clone or the whole project, changed from **Settings** on
-  the Agents section.
+  fallback, for this clone or the whole project, changed in the Command
+  Center's **Settings**, with each project's autonomy and auto-merge.
 - **History:** what agents asked and what you answered stays on the page: in
   each agent's timeline, and in the Overview's History with the task moves and
   commands.
@@ -264,6 +264,28 @@ Each tracker names its place: the project, repo or monday.com board, and when
 set, a Jira epic, GitHub labels, an Azure DevOps area path or a monday.com
 group. Boards, ticket pages and intake see only tickets in that place, so
 another project's or client's never show up.
+
+## Settings
+
+The extension has three settings, under **Agent Command Center** in VSCode's
+Settings.
+
+- `agentCommandCenter.openFromActivityBar` (on by default): clicking the Command Center's icon
+  in the activity bar opens its page and tucks the sidebar away. Off, the
+  sidebar keeps a short list of sections instead.
+- `agentCommandCenter.notifications` (on by default): say when a task changes in a way that
+  needs you or is news, such as a builder finishing, a review's verdict, or a
+  pull request's checks failing or its merge. It's quiet while the Command
+  Center shows that board. Notices to Slack have their own switch, on the
+  Environments section's **Notices in Slack** card.
+- `agentCommandCenter.theme`: how the Command Center's pages look: `vscode`
+  (Match VSCode, the default), `light` or `dark`. It changes only acc's own
+  pages; VSCode keeps its theme. It's kept on this machine, and set from
+  **Appearance** in the Command Center's Settings section.
+
+Each project's own settings are in its `.acc/config.json`.
+[DESIGN.md section 4](docs/DESIGN.md#4-config) says what each key does, and
+acc warns about a key it doesn't know.
 
 ## Development
 

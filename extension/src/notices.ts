@@ -6,7 +6,7 @@ import type { Ref } from './model/shared.ts';
 import { News, type NewsInput } from './news.ts';
 import type { SlackSink } from './slack.ts';
 import type { ExtensionArea } from './area.ts';
-import { AGENT_SETTINGS } from './model/agents.ts';
+import { settingsKey } from './model/settings.ts';
 
 /**
  * The swarm at a glance (D-044): one status bar item with what needs you, what's running and what's in
@@ -100,11 +100,11 @@ export const area: ExtensionArea = {
           description: `${a.project}${a.state === 'elsewhere' ? ' · on in another window' : ''}`,
           go: () => vscode.commands.executeCommand('acc.autopilot.toggle', a.key),
         })),
-        // Whether autopilot merges pull requests in each repo (GH-67), set from the Agents section.
+        // Whether autopilot merges pull requests in each repo (GH-67), set in Settings' How agents run (GH-110).
         ...autopilot.mergeLooks().map((m): Item => ({
           label: m.on ? '$(git-merge) Auto-merge: on' : '$(circle-slash) Auto-merge: off',
           description: `${m.project}${m.on && !m.acts ? ' · autonomy manual, so nothing merges' : ''}`,
-          go: () => panels.show('agents', AGENT_SETTINGS),
+          go: () => panels.show('settings', settingsKey('agents')),
         })),
         ...(runs.live().length ? [{ label: '$(terminal) Show what\'s running', go: () => showRun() }] : []),
         { label: '$(checklist) Setup', description: look.total ? `${look.done} of ${look.total} done${look.checking ? ', checking now' : ''}` : '', go: () => panels.show('setup') },

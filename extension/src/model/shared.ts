@@ -48,7 +48,7 @@ export interface Look {
   tone: Tone;
 }
 
-/** What a kind of agent runs with, as the Agents section shows it (D-036). */
+/** What a kind of agent runs with, as Settings' How agents run shows it (D-036). */
 export interface ProfileLike {
   model: string | null;
   effort: string | null;

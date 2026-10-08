@@ -21,7 +21,6 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import { AGENT_SETTINGS } from '../src/model/agents.ts';
 import { HOME_SECTIONS, type HomeSection } from '../src/model/shared.ts';
 import { homeModel, type Model } from '../src/model/home.ts';
 import { FinishedJobs } from '../src/progress.ts';
@@ -33,11 +32,12 @@ import { sampleHub } from './fixtures/hub.ts';
 import { sampleQueueHub } from './fixtures/overview.ts';
 import { sampleAnalyzeRun, sampleBusyHub, sampleIdleHub } from './fixtures/progress.ts';
 import { sampleRuns } from './fixtures/runs.ts';
+import { samplePerTokenSetup, sampleSettingsHub } from './fixtures/settings.ts';
 import { sampleSetup } from './fixtures/setup.ts';
 import { sampleSlack, type SlackSample } from './fixtures/slack.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
 import { SAMPLE_EDIT, sampleEdited } from './fixtures/updates.ts';
-import type { ThemeChoice } from '../src/model/settings.ts';
+import { settingsKey, type ThemeChoice } from '../src/model/settings.ts';
 import { PALETTE_THEMES, type PaletteTheme, palettes, vscodeDefaults } from './styles.ts';
 
 /**
@@ -48,12 +48,14 @@ import { PALETTE_THEMES, type PaletteTheme, palettes, vscodeDefaults } from './s
  * and starting a project from a Jira epic, an Azure DevOps area path or GitHub labels (GH-81),
  * Environments with the Slack card at each of its states (GH-58): sending on Environments itself, then not
  * set up, off and paused, the Tasks tab with a monday.com board in place of the Jira one (GH-70), Agents
- * with How agents run opened by its Settings (D-089), Agents with its Where column showing full paths
- * (GH-83), and the Overview with In progress busy, and with nothing running (D-092). Then the Overview of a
- * project whose merge queue holds three pull requests, with autopilot on and the head running its full
- * check, with autopilot off, and with the head held on GitHub, in that wait's own words (GH-73).
+ * with agents that would bill per token (D-089), Agents with its Where column showing full paths (GH-83),
+ * and the Overview with In progress busy, and with nothing running (D-092). Then the Overview of a project
+ * whose merge queue holds three pull requests, with autopilot on and the head running its full check, with
+ * autopilot off, and with the head held on GitHub, in that wait's own words (GH-73). Last, Settings opened
+ * at How agents run, as Agents' Settings and the status bar's Auto-merge open it, with two projects and
+ * per-token billing (GH-110).
  */
-export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-settings', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held'] as const;
+export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents'] as const;
 export type Page = (typeof PAGES)[number];
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -95,25 +97,28 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
     homeModel({ ...base, hub: sampleBusyHub(now, true), runs, finished, autopilot: () => 'on', now: now - 20_000 });
     return homeModel({ ...base, hub: sampleBusyHub(now), runs, finished, autopilot: () => 'on', now });
   }
-  const hub = sampleHub(now);
+  // Settings at How agents run, and Agents, with two projects and agents that would bill per token (GH-110).
+  const perToken = kind === 'settings-agents' || kind === 'agents-billing';
+  const hub = perToken ? sampleSettingsHub(now) : sampleHub(now);
   const connect = kind.startsWith('connect-') ? sampleConnect(kind.slice('connect-'.length) as ConnectSample) : null;
   const slack = sampleSlack(kind.startsWith('slack-') ? kind.slice('slack-'.length) as SlackSample : 'on', now);
-  const section = (kind === 'output' ? 'setup' : connect || kind === 'tasks-monday' ? 'tasks' : kind.startsWith('slack-') ? 'environments' : kind === 'agents-settings' || kind === 'agents-path' ? 'agents' : kind) as HomeSection;
+  const section = (kind === 'output' ? 'setup' : connect || kind === 'tasks-monday' ? 'tasks' : kind.startsWith('slack-') ? 'environments' : kind === 'agents-billing' || kind === 'agents-path' ? 'agents' : kind === 'settings-agents' ? 'settings' : kind) as HomeSection;
   const boards = kind === 'tasks-monday' ? sampleMondayBoards : sampleBoards;
-  return homeModel({ hub, section, boards: () => boards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: sampleRuns(now), edited: sampleEdited, connect, slack, whereView: kind === 'agents-path' ? 'path' : 'folder', theme });
+  return homeModel({ hub, section, boards: () => boards(), identity: () => sampleIdentity(), setup: perToken ? samplePerTokenSetup() : sampleSetup(), runs: sampleRuns(now), edited: sampleEdited, connect, slack, whereView: kind === 'agents-path' ? 'path' : 'folder', theme });
 }
 
 /**
  * What the page remembers when it opens: the output page starts with the panel open, the split ticket
- * with two of its analysis's lists open, to see them laid out, ACME-12's with the edit typed for the
- * draft a newer one replaced (GH-46), and agents-settings with How agents run opened by its Settings.
+ * with two of its analysis's lists open, to see them laid out, and ACME-12's with the edit typed for the
+ * draft a newer one replaced (GH-46).
  */
 // ACC_SHOT_STATE, a JSON object, starts every page with that state instead: for checking what a page restores.
 const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ? JSON.parse(process.env.ACC_SHOT_STATE) : kind === 'output' ? { dock: { open: true, run: 'r-login' } }
-  : kind === 'agents-settings' ? { opened: [AGENT_SETTINGS] }
   : kind === 'ticket-split' ? { opened: ['files', 'findings'].map((f) => `an:/Users/me/code/acme-service#ACME-23:${f}`) }
     : kind === 'ticket' ? { drafts: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: SAMPLE_EDIT.text }, bases: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: { text: SAMPLE_EDIT.base } } } : undefined);
 const viewOf = (kind: Page): string => (kind.startsWith('ticket') ? 'ticket' : kind === 'agent' ? kind : 'home');
+/** A part the extension asks the page to go to as it opens, as the status bar's Auto-merge does (GH-110). */
+export const openAt = (kind: Page): string | null => (kind === 'settings-agents' ? settingsKey('agents') : null);
 
 /**
  * A page that loads the built webview the way VSCode does: a stub API answers `ready` with the model.
@@ -126,8 +131,10 @@ const DEFAULT_HEIGHT = 900;
  * Pages whose part sits below the fold at the default height, shot taller: In progress is below Needs you on
  * the Overview, and taller still at narrow widths, where the Overview's columns stack (D-092). So is the
  * Merge queue panel, below In progress and the tiles (GH-73), and the last of Settings' parts (GH-109).
+ * Settings at How agents run is shot tall enough not to scroll (GH-110): under 820 px its jump scrolls the
+ * document itself, which headless Chrome draws as a blank band above the tab strip.
  */
-export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 3600, 'overview-idle': 3200, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 2600 };
+export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 3600, 'overview-idle': 3200, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 2800, 'settings-agents': 3300 };
 
 /** The colour properties the colour check compares, on every element and its ::before and ::after. */
 export const COLOUR_PROPERTIES = [
@@ -175,6 +182,7 @@ export function pageFor(kind: Page, theme: ThemeChoice, model: Model, under: The
   const vars = Object.entries({ ...palettes()[under], ...FONTS }).map(([k, v]) => `--vscode-${k}: ${v};`).join(' ');
   // `<` escaped, so no string in the model can close the script tag.
   const json = JSON.stringify(model).replace(/</g, '\\u003c');
+  const open = openAt(kind);
   return `<!DOCTYPE html>
 <html lang="en" data-theme="${theme}" style="${vars.replace(/"/g, '&quot;')}"><head><meta charset="UTF-8">
 <style>${vscodeDefaults()}</style>
@@ -190,7 +198,7 @@ function forceHover() {
   (document.querySelector('tbody tr:not(.group):not(.none)') ?? document.querySelector('.card'))?.classList.add('acc-hover');
 }${collect ? COLLECT + COLLECT_COLOURS : ''}
 window.acquireVsCodeApi = () => ({
-  postMessage(m) { if (m.type === 'ready') setTimeout(() => { window.postMessage({ type: 'state', model: MODEL }, '*'); setTimeout(forceHover, 50);${collect ? ' setTimeout(collectColours, 500);' : ''} }); },
+  postMessage(m) { if (m.type === 'ready') setTimeout(() => { window.postMessage({ type: 'state', model: MODEL${open ? `, jump: true, open: ${JSON.stringify(open)}` : ''} }, '*'); setTimeout(forceHover, 50);${collect ? ' setTimeout(collectColours, 500);' : ''} }); },
   getState() { return ${JSON.stringify(startState(kind)) ?? 'undefined'}; }, setState() {},
 });
 </script>
@@ -232,7 +240,7 @@ function chromeRun(chrome: string, args: string[], dump = false): ReturnType<typ
 }
 
 /** The pages the colour check draws (GH-109): the busiest sections, Settings, a task's page and an agent's. */
-export const COLOUR_PAGES: Page[] = ['overview', 'tasks', 'settings', 'ticket', 'agent'];
+export const COLOUR_PAGES: Page[] = ['overview', 'tasks', 'settings', 'settings-agents', 'ticket', 'agent'];
 
 /** A page's computed colours, as its collector gathered them: what each element is, and its colours in COLOUR_PROPERTIES' order. */
 export type Colours = [string, string[]][];

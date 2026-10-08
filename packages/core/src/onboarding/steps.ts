@@ -7,8 +7,10 @@ import { type DriftResult, driftReportPath } from '../drift.ts';
 import { parseJsonOutput } from '../exec.ts';
 import { gatesFor } from '../gates.ts';
 import { credentialHelper } from '../github.ts';
+import { rulesStatus } from '../rules.ts';
 import { readmePlaces } from '../setup.ts';
-import { parseSource, previewCommand, type ReadTemplate, readTemplate, templateDifferences } from '../template.ts';
+import { parseSource } from '../source.ts';
+import { previewCommand, type ReadTemplate, readTemplate, templateDifferences } from '../template.ts';
 import { orList } from '../trackers/types.ts';
 import {
   cached, fail, firstVersion, ghEnv, LICENSE_TO_TYPE, parseOrgUrl, pass, readText, SECRET_PATTERN, sfJson, skip, unknown, versionAtLeast,
@@ -325,10 +327,44 @@ export const STEPS: Step[] = [
       }
       if (read.digest === rec.digest) return pass(`${rec.name}, unchanged since this project was made from it.`);
       if (!read.template) return unknown(`${rec.name} has changed since this project was made from it, and now has problems: ${read.errors.join(' ')}`);
-      const diffs = templateDifferences(read.template, config);
+      const diffs = templateDifferences(read.template, config, { root, home });
       if (!diffs.length) return pass(`${rec.name} has changed since this project was made from it, and this project already agrees with it.`);
       const preview = previewCommand(read.template, rec, config);
       return { status: 'unknown', detail: `${rec.name} has changed since this project was made from it, and this project differs on ${diffs.join(', ')}. The fix previews what it would write, and changes nothing.`, fix: preview };
+    },
+  },
+  {
+    id: 'B0.rules', part: 'project', group: 'B0', title: 'Copied-in rules are current',
+    why: 'A team\'s shared rules are copied into .acc/rules/, each with where it came from (GH-108), and agents read only those copies. This says when a source has changed since its copy. It never copies one in again: that is yours to choose.',
+    fix: { fromCheck: true, docs: `${DOCS}#b0-open-the-repo-and-give-it-a-config` },
+    offer: { vscode: 'acc.importRules', label: 'Import rules…', icon: 'cloud-download' },
+    check(ctx) {
+      const need = needsProject(ctx);
+      if (need) return need;
+      const root = ctx.paths!.root;
+      // One short wait for every source together: it runs on every Setup refresh.
+      const copies = rulesStatus(ctx.run, root, { account: ctx.config!.github?.account ?? null, env: ctx.env, home: ctx.env.HOME || homedir(), timeoutMs: 20_000 });
+      const sourced = copies.filter((c) => c.state !== 'local');
+      const names = (cs: typeof copies) => (cs.length < 2 ? cs.map((c) => c.file).join('') : `${cs.slice(0, -1).map((c) => c.file).join(', ')} and ${cs.at(-1)!.file}`);
+      if (!sourced.length) return skip(copies.length ? `${names(copies)} ${copies.length === 1 ? 'has' : 'have'} no source to compare with.` : 'No rules are copied in. Import rules… copies a team\'s rules file into .acc/rules/.');
+      const changed = copies.filter((c) => c.state === 'changed');
+      const open = copies.filter((c) => c.state === 'unreachable' || c.state === 'unchecked' || c.state === 'bad-header');
+      if (changed.length || open.length) {
+        const detail = [
+          ...(changed.length ? [`${names(changed)} ${changed.length === 1 ? 'has' : 'have'} changed at the source since ${changed.length === 1 ? 'it was' : 'they were'} copied in. The fix shows the difference and changes nothing; copying one in again is yours to choose.`] : []),
+          ...open.map((c) => `${c.file}: ${c.reason}`),
+        ].join(' ');
+        return { status: 'unknown', detail, ...(changed.length ? { fix: `acc rules diff${changed.length === 1 ? ` ${changed[0]!.name}` : ''}` } : {}) };
+      }
+      const same = copies.filter((c) => c.state === 'unchanged');
+      const away = copies.filter((c) => c.state === 'not-here');
+      if (!same.length) return skip(`${names(away)} came from ${away.length === 1 ? 'a file that isn\'t' : 'files that aren\'t'} on this machine.`);
+      const edited = same.filter((c) => c.edited);
+      return pass([
+        `${names(same)}: unchanged at ${same.length === 1 ? 'its source' : 'their sources'}.`,
+        ...(edited.length ? [`${names(edited)} ${edited.length === 1 ? 'was' : 'were'} edited here, as a copy may be.`] : []),
+        ...(away.length ? [`${names(away)} came from ${away.length === 1 ? 'a file that isn\'t' : 'files that aren\'t'} on this machine.`] : []),
+      ].join(' '));
     },
   },
   {

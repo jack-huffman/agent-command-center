@@ -49,6 +49,7 @@ export function stepDescription(step: Step): string {
   lines.push(commandLink('Check', COMMANDS.check, [step.id]));
   if (hasRunnableFix(step)) lines.push(commandLink('Do it', COMMANDS.fix, [step.id]));
   if (step.fix?.setupPath) lines.push(commandLink('Open in Salesforce', COMMANDS.openSetup, [step.id]));
+  if (step.offer) lines.push(commandLink(step.offer.label, step.offer.vscode, [step.id]));
   if (needsConfirmation(step)) lines.push(commandLink('I\'ve done this', COMMANDS.confirm, [step.id]));
   if (step.fix?.docs) lines.push(commandLink('Read the guide', COMMANDS.guide, [step.id]));
   return lines.join('\n');
@@ -57,6 +58,7 @@ export function stepDescription(step: Step): string {
 /** The page shown beside the step: what it is, why it matters, and exactly what fixing it involves. */
 export function stepMedia(step: Step): string {
   const out = [`# ${step.title}`, '', `\`${step.id}\``, '', step.why, ''];
+  if (step.offer) out.push(`**${step.offer.label}** is here whatever the step shows.`, '');
   const f = step.fix;
   if (f?.command || f?.fromCheck || f?.vscode || f?.text || f?.setupPath || f?.docs) out.push('## How to fix it', '');
   if (f?.command) out.push('**Do it** runs this in a terminal, so you see exactly what happens:', '', '```bash', f.command, '```', '');
@@ -331,6 +333,48 @@ export const templateDetail = (t: Extract<ShownTemplate, { ok: true }>): string 
     'You review .acc/config.json and commit it yourself.',
   ].join('\n');
 };
+
+/** `acc rules import`, with a copy's name when one is given, and --force to replace one already there (GH-108). */
+export const importRulesCommand = (o: { source: string; name?: string; force?: boolean }): string =>
+  ['acc rules import', shq(o.source), ...(o.name ? ['--name', shq(o.name)] : []), ...(o.force ? ['--force'] : [])].join(' ');
+
+export type ShownRules =
+  | {
+    ok: true; name: string; file: string; source: string; commit: string | null; copied: string; lines: number; preview: string[];
+    /** The copy already there under this name, if any. */
+    replaces: { source: string | null; copied: string | null; edited: boolean } | null;
+  }
+  | { ok: false; errors: string[] };
+
+/** What `acc rules import --dry-run --json` said: the copy it would write, or why it can't. */
+export function shownRules(stdout: string, stderr = ''): ShownRules {
+  try {
+    const j = JSON.parse(stdout) as Record<string, unknown>;
+    if (j.written === false && typeof j.name === 'string' && typeof j.file === 'string') {
+      const r = j.replaces as Record<string, unknown> | null;
+      return {
+        ok: true, name: j.name, file: j.file, source: String(j.source ?? ''), commit: typeof j.commit === 'string' ? j.commit : null, copied: String(j.copied ?? ''),
+        lines: typeof j.lines === 'number' ? j.lines : 0, preview: Array.isArray(j.preview) ? j.preview.map(String) : [],
+        replaces: r && typeof r === 'object' ? { source: typeof r.source === 'string' ? r.source : null, copied: typeof r.copied === 'string' ? r.copied : null, edited: r.edited === true } : null,
+      };
+    }
+    if (typeof j.message === 'string') return { ok: false, errors: [j.message] };
+  } catch {
+    // said below
+  }
+  return { ok: false, errors: [(stderr || stdout).trim().split('\n')[0] || 'acc rules import printed nothing.'] };
+}
+
+/** The confirmation's detail: where the copy goes, where it's from, its first lines, and that a person commits it. */
+export const rulesDetail = (r: Extract<ShownRules, { ok: true }>): string => [
+  `From ${r.source}${r.commit ? `, at commit ${r.commit.slice(0, 7)}` : ''}: ${r.lines} line${r.lines === 1 ? '' : 's'}.`,
+  ...(r.replaces ? [`It replaces the copy${r.replaces.source ? ` from ${r.replaces.source}` : ''}${r.replaces.copied ? `, copied on ${r.replaces.copied}` : ''}${r.replaces.edited ? ', and the edits made to it here' : ''}.`] : []),
+  '',
+  ...r.preview.slice(0, 10),
+  ...(r.lines > 10 ? ['…'] : []),
+  '',
+  `You review ${r.file} and commit it yourself. acc never updates it on its own: Setup says when its source changes.`,
+].join('\n');
 
 /** The org URL an environment should have (D-015): Production at <domain>.my.salesforce.com, a sandbox named after its branch. */
 export function expectedOrgUrl(domain: string, env: { type: string; branch: string }): string {

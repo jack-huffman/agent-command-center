@@ -184,6 +184,18 @@ only* are hidden for a `generic` project.
   would write, changing nothing. acc never applies it by itself: to take it,
   run `acc init --from '<template>' --force` and review the diff. A project
   not started from a template skips this step.
+- [ ] **Copied-in rules are current** (`B0.rules`). Rules your team shares,
+  such as its Apex standards, are copied into `.acc/rules/`, each with a
+  header saying where it came from and when. Builders, reviewers and the
+  analyst read only those copies, after the profile's rules and before the
+  repo's own `.acc/rules.md`, which wins. **Import rules…** on this row copies
+  one in from a path, a GitHub file or a git repo, and previews it first. In a
+  terminal: `acc rules import <source>`. Review the file and commit it. This
+  step reads each source again: it passes while each is unchanged, even when
+  the copy was edited here. When one has changed, **Do it** shows the
+  difference and changes nothing; to take it, run
+  `acc rules import <source> --name <name> --force` and review the diff. A
+  repo with no copies skips this step. docs/RULES.md says more.
 
 ### B1. Decide where everything lives
 

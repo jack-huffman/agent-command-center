@@ -10,7 +10,7 @@ import type { AgentSession, TaskRow, Tone } from './shared.ts';
 
 // ---------------------------------------------------------------- models (D-086)
 
-/** The models a person picks from, in this order: Dispatch with… and the Agents settings' Change… offer the same. */
+/** The models a person picks from, in this order: Dispatch with… and How agents run's Change…, in Settings, offer the same. */
 export const MODEL_CHOICES: readonly { name: string; about: string }[] = [
   { name: 'claude-opus-5-5', about: 'Claude Opus 5.5' },
   { name: 'claude-fable-5-1', about: 'Claude Fable 5.1' },
