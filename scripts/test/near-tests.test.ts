@@ -1,32 +1,35 @@
-// This repo's near-tests gate (GH-73, GH-95): it builds first when a test near the change reads the build,
-// runs only the tests near the change, passes when none is, and fails when acc didn't say which. After
-// GH-94's split, every area module still has tests near it.
+// This repo's near-tests gate (GH-73, GH-95, GH-117): it builds first when a test near the change reads the
+// build, runs only the tests near the change and those of what reads a per-area file it changed, passes when
+// none is, and fails when acc didn't say which. After GH-94's split, every area module still has tests near
+// it, and a module of core isn't near tests that only quote an index.
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { nearTests } from '../../packages/core/src/gates.ts';
-import { fakeBin, tempDir } from '../../packages/core/test/support.ts';
+import { fakeBin, makeRepo } from '../../packages/core/test/support.ts';
 import { areaFiles, CORE_INDEX, FOLDERS } from '../areas.ts';
+import { nearReaders, READS } from '../near-reads.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..');
 const PASS = 'import { test } from \'node:test\';\ntest(\'a near test passes\', () => {});\n';
 const FAIL = 'import { test } from \'node:test\';\ntest(\'a near test fails\', () => { throw new Error(\'no\'); });\n';
 
-/** Runs the gate in a folder holding these tests, with npm a stand-in that logs what it's asked and exits with `npmExit`. */
-function gate(near: string | undefined, tests: Record<string, string> = {}, npmExit = 0) {
-  const dir = tempDir('near-tests-');
-  for (const [rel, text] of Object.entries(tests)) {
-    mkdirSync(join(dir, rel, '..'), { recursive: true });
-    writeFileSync(join(dir, rel), text);
-  }
+/**
+ * Runs the gate in a checkout holding these files, told the near tests and what changed, with npm a stand-in
+ * that logs what it's asked and exits with `npmExit`.
+ */
+function gate(near: string | undefined, files: Record<string, string> = {}, npmExit = 0, changed = '') {
+  const dir = makeRepo(files);
   const log = join(dir, 'npm.log');
   const env = fakeBin('npm', `echo "$*" >> '${log}'\nexit ${npmExit}\n`);
   // Not a test this runner started: the gate's own node --test reports for itself.
   delete env.NODE_TEST_CONTEXT;
   if (near === undefined) delete env.ACC_NEAR_TESTS;
   else env.ACC_NEAR_TESTS = near;
+  // Nor what the acc running these tests says changed.
+  env.ACC_CHANGED = changed;
   const r = spawnSync(process.execPath, ['--no-warnings', join(ROOT, 'scripts', 'near-tests.mjs')], { cwd: dir, env, encoding: 'utf8' });
   return { code: r.status, out: r.stdout + r.stderr, npm: existsSync(log) ? readFileSync(log, 'utf8') : '' };
 }
@@ -53,6 +56,21 @@ test('a build that fails fails the gate before any test runs', () => {
   const r = gate('extension/test/tabs.test.mjs', { 'extension/test/tabs.test.mjs': PASS }, 2);
   assert.equal(r.code, 2);
   assert.doesNotMatch(r.out, /a near test passes/);
+});
+
+test('a per-area file a test reads through a script brings that test, though acc found none near it (GH-117)', () => {
+  const files = {
+    'extension/package.json': '{}\n', 'extension/webview/tasks.css': '.task {}\n', 'extension/scripts/styles.ts': '',
+    // node --test runs it, so it names the reader in a comment: // reads '../scripts/styles.ts'
+    'extension/test/screenshot.test.ts': `${PASS}// reads '../scripts/styles.ts'\n`, 'extension/test/other.test.ts': FAIL,
+  };
+  const r = gate('', files, 0, 'extension/webview/tasks.css');
+  assert.equal(r.code, 0, r.out);
+  assert.equal(r.npm, 'run build\n', 'its test reads the build');
+  assert.match(r.out, /Tests near the change: extension\/test\/screenshot\.test\.ts\n/);
+  assert.match(r.out, /✔ a near test passes/);
+  assert.doesNotMatch(r.out, /a near test fails/);
+  assert.equal(gate(undefined, files, 0, 'extension/webview/tasks.css').code, 1, 'still fails when acc didn\'t say which');
 });
 
 test('the gate passes when no test is near the change, running nothing, and fails when acc didn\'t say which are', () => {
@@ -117,4 +135,24 @@ test('a module extension.ts gathers is near activate.test.ts, which loads its bu
   const gathered = [...read(entry)!.matchAll(/from '\.\/([^'/]+\.ts)'/g)].map((m) => `extension/src/${m[1]}`).filter((f) => tracked.includes(f));
   for (const f of gathered) assert.ok(nearTests([f], tracked, read).includes('extension/test/activate.test.ts'), f);
   assert.ok(gathered.length >= 15, `${gathered.length} modules extension.ts gathers`);
+});
+
+const inFolder = (dir: string, ext: string): string[] => readdirSync(join(ROOT, dir)).filter((f) => f.endsWith(ext)).map((f) => `${dir}/${f}`);
+
+test('each per-area file a test reads through a script is near it: every stylesheet screenshot.test.ts, every command list and package.json areas.test.ts (GH-117)', () => {
+  const kinds = [
+    // What styles.ts and generate.ts read: every .css beside the page's modules, every .json in commands/.
+    { files: inFolder('extension/webview', '.css'), test: 'extension/test/screenshot.test.ts', least: 15 },
+    { files: inFolder('extension/commands', '.json'), test: 'extension/test/areas.test.ts', least: 10 },
+    { files: ['extension/package.json'], test: 'extension/test/areas.test.ts', least: 1 },
+  ];
+  for (const k of kinds) {
+    for (const f of k.files) {
+      assert.ok(tracked.includes(f), `${f} is in the checkout`);
+      assert.ok(nearReaders([f], () => tracked, read).includes(k.test), `${f}: ${nearReaders([f], () => tracked, read).join(', ')}`);
+    }
+    assert.ok(k.files.length >= k.least, `${k.files.length} files near ${k.test}`);
+  }
+  for (const r of READS) assert.ok(tracked.includes(r.reader), `${r.reader} is in the checkout`);
+  assert.deepEqual(nearReaders(['extension/src/runs.ts', 'README.md'], () => assert.fail('no reader, so no listing'), read), [], 'other files have no reader');
 });
