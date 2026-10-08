@@ -405,14 +405,18 @@ export function templateTrackers(t: TemplateTracker | null, flags: { jiraSite?: 
 
 /**
  * The one tracker acc init writes for `--tracker` (GH-81), its null keys left out. It replaces the
- * template's tracker and --jira-site and --jira-project, and a note says which it replaced. parseConfig
- * checks it with the rest of the config.
+ * template's tracker and --jira-site and --jira-project, and a note says which it replaced. When the
+ * template's is the same kind on the same host, its key prefix stays unless the picked one names its own,
+ * as withTracker keeps it on a replace. parseConfig checks it with the rest of the config.
  */
 export function pickedTracker(tracker: Record<string, unknown>, was: { template: TemplateTracker | null; jiraSite?: string; jiraProject?: string }, notes: string[]): Record<string, unknown> {
   const picked = Object.fromEntries(Object.entries(tracker).filter(([, v]) => v !== null && v !== undefined));
-  if (was.template) notes.push(`The tracker picked (--tracker) replaces the template's: ${trackerWords(was.template)}.`);
+  const t = was.template;
+  const host = (r: Record<string, unknown>) => String(r.site ?? r.organization ?? r.account ?? r.repo ?? '').toLowerCase();
+  const prefix = t?.prefix && t.kind === picked.kind && host(trackerRaw(t)) === host(picked) && typeof picked.prefix !== 'string' ? t.prefix : null;
+  if (t) notes.push(`The tracker picked (--tracker) replaces the template's: ${trackerWords(t)}${prefix ? `, keeping its key prefix ${prefix}` : ''}.`);
   if (was.jiraSite || was.jiraProject) notes.push('The tracker picked (--tracker) replaces --jira-site and --jira-project.');
-  return picked;
+  return prefix ? { ...picked, prefix } : picked;
 }
 
 // ---------------------------------------------------------------- what it sets, and what differs

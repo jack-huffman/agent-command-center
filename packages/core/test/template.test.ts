@@ -371,6 +371,25 @@ test('a tracker picked on the Connect page is written as it is, narrowed to its 
   assert.deepEqual(jira.config.trackers.map((t) => [t.project, t.epic]), [['ACME', 'ACME-3']]);
   assert.ok(jira.notes.some((n) => /replaces --jira-site and --jira-project/.test(n)), jira.notes.join('\n'));
 
+  // A template's key prefix stays on the same kind of tracker on the same host, unless the one picked names
+  // its own, as withTracker keeps it on a replace. Another host, or another kind, starts without it.
+  const azureTemplate = { ...GENERIC_TEMPLATE, tracker: { kind: 'azure', organization: 'Acme', project: 'CRM', prefix: 'crm' } };
+  const prefixes: [Record<string, unknown>, unknown][] = [
+    [cases[1]![0], 'CRM'],
+    [{ ...cases[1]![0], prefix: 'BIL' }, 'BIL'],
+    [{ ...cases[1]![0], prefix: null }, 'CRM'],
+    [{ ...cases[1]![0], organization: 'contoso' }, undefined],
+    [cases[0]![0], undefined],
+  ];
+  let kept = 0;
+  for (const [tracker, want] of prefixes) {
+    const plan = planInit(run, { root: repo, template: loaded(azureTemplate), tracker });
+    assert.equal(plan.config.trackers[0]!.prefix ?? undefined, want, JSON.stringify(tracker));
+    assert.equal(plan.notes.some((n) => /keeping its key prefix CRM/.test(n)), want === 'CRM', plan.notes.join('\n'));
+    kept++;
+  }
+  assert.equal(kept, prefixes.length);
+
   // Checked as the config is: an unknown kind, or a Jira tracker with no project, is refused.
   assert.throws(() => planInit(run, { root: repo, tracker: { kind: 'trello', board: 1 } }), /trackers\[0\]: "kind" must be/);
   assert.throws(() => planInit(run, { root: repo, tracker: { kind: 'jira', site: 'acme.atlassian.net', epic: 'ACME-3' } }), /a Jira tracker needs "site" and "project"/);
