@@ -10,7 +10,7 @@ import { parseConfig } from '../src/config.ts';
 import { dispatch } from '../src/dispatch.ts';
 import { holdTask } from '../src/holding.ts';
 import { startHeld } from '../src/held.ts';
-import { agentsMaxSet, ledgersDir, machineAgents, machineCapProblem, machineCapWords, machineDir, machineJson, machineLoad, machineRepos, MAX_MACHINE_AGENTS, median, RECENT, recentWork, registerLedger, setAgentsMax, setBuilderGates, setMachineAgents, setRequiredGates } from '../src/limits.ts';
+import { agentsMaxSet, configSets, ledgersDir, machineAgents, machineCapProblem, machineCapWords, machineDir, machineJson, machineLoad, machineRepos, MAX_MACHINE_AGENTS, median, RECENT, recentWork, registerLedger, setAgentsMax, setBuilderGates, setMachineAgents, setRequiredGates } from '../src/limits.ts';
 import { emptyLedger, type Ledger, mutate, projectCapWords, readLedger, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
 import { run } from '../src/exec.ts';
@@ -42,6 +42,7 @@ test('a project\'s cap and checks are set one key at a time, and a name it doesn
   assert.equal(setAgentsMax(file, 6), 6);
   assert.equal(readFileSync(file, 'utf8'), text.replace('\n  }\n}\n', '\n  },\n  "agents": {\n    "max": 6\n  }\n}\n'));
   assert.equal(agentsMaxSet(file), true);
+  assert.deepEqual([configSets(file, ['gates', 'required']), configSets(file, ['gates', 'builder']), configSets(file, ['schema', 'max']), configSets(join(tempDir('none-'), 'x.json'), ['agents'])], [true, false, false, false]);
   for (const bad of [0, 17, 2.5, Number.NaN]) assert.throws(() => setAgentsMax(file, bad), /whole number from 1 to 16/, String(bad));
 
   const before = readFileSync(file, 'utf8');

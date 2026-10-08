@@ -25,6 +25,8 @@ export interface ProjectLimits {
   /** Its tasks in Running. */
   running: number;
   required: string[];
+  /** Whether its .acc/config.json names the required checks (gates.required), or leaves them to acc's default. */
+  requiredFrom: 'project' | 'acc';
   /** Builders' lighter checks (gates.builder), or null where it names none. */
   builder: string[] | null;
   /** The checks it has, to choose from. */
@@ -249,7 +251,7 @@ export function limitsModel(f: LimitsFacts, billing: Look | null = null): Limits
     const queue = p.queue.length ? names(p.queue) : null;
     const required: LimitRow = {
       key: `required:${p.root}`, name: 'Required checks', icon: 'checklist', value: p.required.join(', ') || 'None',
-      from: `Set in ${config}, for everyone on the repo once it's committed.${queue ? ` Where the merge queue runs (${queue}), they run once in it, before each merge.` : ' acc done, review and land take them.'}`,
+      from: `${p.requiredFrom === 'project' ? `Set in ${config}, for everyone on the repo once it's committed.` : `acc's default: ${config} sets none (gates.required). A change sets it there, for everyone on the repo once it's committed.`}${queue ? ` Where the merge queue runs (${queue}), they run once in it, before each merge.` : ' acc done, review and land take them.'}`,
       look: p.required.length ? null : { label: 'None: acc done takes any commit', icon: 'warning', tone: 'orange' },
       command: LIMIT_COMMANDS.requiredGates, arg: p.root,
       why: p.gates.length ? null : `${p.name} has no checks to choose from yet: add commands under "gates.commands" in ${config}.`,

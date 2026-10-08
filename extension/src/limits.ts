@@ -10,7 +10,7 @@ import type * as vscode from 'vscode';
 import { autoMergeFor, type Config } from '../../packages/core/src/config.ts';
 import { gatesFor } from '../../packages/core/src/gates.ts';
 import { builders, type Ledger } from '../../packages/core/src/ledger.ts';
-import { agentsMaxSet, machineAgents, machineRepos, MAX_AGENTS, MAX_MACHINE_AGENTS, realLedger, recentWork } from '../../packages/core/src/limits.ts';
+import { agentsMaxSet, configSets, machineAgents, machineRepos, MAX_AGENTS, MAX_MACHINE_AGENTS, realLedger, recentWork } from '../../packages/core/src/limits.ts';
 import { heavySlots, type HeavyState, machineFile, MAX_HEAVY_SLOTS } from '../../packages/core/src/semaphore.ts';
 import type { ExtensionArea } from './area.ts';
 import type { LimitsFacts } from './model/limits.ts';
@@ -76,7 +76,7 @@ export function readLimits(projects: LimitsProject[], ledgerOf: (root: string) =
         name: p.name, root: p.root, repo: p.ledgerPath,
         max: p.config.agents.max, maxFrom: agentsMaxSet(join(p.root, '.acc', 'config.json')) ? 'project' : 'acc',
         running: builders(ledger, ''),
-        required: p.config.gates.required, builder: p.config.gates.builder?.length ? p.config.gates.builder : null,
+        required: p.config.gates.required, requiredFrom: configSets(join(p.root, '.acc', 'config.json'), ['gates', 'required']) ? 'project' : 'acc', builder: p.config.gates.builder?.length ? p.config.gates.builder : null,
         gates: gatesFor(p.config).map((g) => ({ name: g.name, about: g.about })),
         queue: queueOf(p.config),
         model: p.agents.builder.model, modelFrom: p.agents.builder.from.model,

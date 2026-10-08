@@ -91,6 +91,10 @@ test('the heavy-check slots and each project\'s checks: value, where set, state,
   assert.deepEqual(other.slots.look, { label: 'None in use', icon: 'circle-large-outline', tone: 'neutral' });
   assert.deepEqual(other.checks.map((c) => c.project), ['Acme Service', 'Tool']);
   assert.deepEqual(other.checks[0]!.rows[0]!.look, { label: 'None: acc done takes any commit', icon: 'warning', tone: 'orange' });
+  // Where the required checks come from: the project's file when it names them, else acc's default (GH-111).
+  assert.match(required!.from, /^Set in Acme Service's \.acc\/config\.json, for everyone/);
+  assert.match(other.checks[0]!.rows[0]!.from, /^acc's default: Acme Service's \.acc\/config\.json sets none \(gates\.required\)\. A change sets it there/);
+  assert.match(other.checks[1]!.rows[0]!.from, /^Set in Tool's \.acc\/config\.json/);
   const tool = other.checks[1]!.rows;
   assert.deepEqual(tool.map((r) => r.value), ['check', 'typecheck, near-tests']);
   assert.match(tool[1]!.from, /builders run these where the merge queue runs \(main\), and the required checks run once in it\./);
@@ -132,7 +136,12 @@ test('the part reads its limits from the machine and each project, and counts ev
   const project: LimitsProject = { name: 'Tool', root: dir, config, ledgerPath: paths.ledger, agents: { builder: { model: 'claude-opus-5-5', from: { model: 'acc' } } } };
   const f = readLimits([project], () => readLedger(paths.ledger), { dir: '', slots: 2, held: [{ pid: 1 }], waiting: [] } as never, env, '/nowhere');
   assert.deepEqual(f.machine, { slots: 2, slotsFrom: 'machine', inUse: 1, waiting: 0, total: 5, running: 3, repos: 2, file: machine });
-  assert.deepEqual([f.projects[0]!.max, f.projects[0]!.maxFrom, f.projects[0]!.running, f.projects[0]!.required, f.projects[0]!.builder, f.projects[0]!.queue], [3, 'acc', 1, ['check'], ['quick'], ['main']]);
+  assert.deepEqual([f.projects[0]!.max, f.projects[0]!.maxFrom, f.projects[0]!.running, f.projects[0]!.required, f.projects[0]!.requiredFrom, f.projects[0]!.builder, f.projects[0]!.queue], [3, 'acc', 1, ['check'], 'project', ['quick'], ['main']]);
+  // A config that names no required checks has acc's default.
+  const bareRaw = { ...GENERIC_CONFIG, project: 'Bare' };
+  const bareDir = makeRepo({ '.acc/config.json': JSON.stringify(bareRaw) });
+  const bare: LimitsProject = { name: 'Bare', root: bareDir, config: parseConfig(bareRaw).config!, ledgerPath: repoPaths(bareDir, run).ledger, agents: project.agents };
+  assert.equal(readLimits([bare], () => undefined, null, env).projects[0]!.requiredFrom, 'acc');
   assert.deepEqual(f.projects[0]!.gates.map((g) => g.name), ['check', 'quick']);
   assert.equal(readLimits([project], () => readLedger(paths.ledger), null, { ...env, ACC_HEAVY_SLOTS: '3' }).machine.slotsFrom, 'env');
   assert.equal(readLimits([project], () => undefined, null, { ACC_MACHINE_FILE: join(tempDir('m-'), 'machine.json') }).machine.slotsFrom, 'default');

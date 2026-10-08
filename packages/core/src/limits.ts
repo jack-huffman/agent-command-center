@@ -30,15 +30,19 @@ export function setAgentsMax(configFile: string, n: number): number {
   return n;
 }
 
-/** Whether the project's config names its cap, or leaves it to acc's default. */
-export function agentsMaxSet(configFile: string): boolean {
+/** Whether the project's config names a key, such as ['gates', 'required'], or leaves it to acc's default. */
+export function configSets(configFile: string, key: string[]): boolean {
   try {
-    const raw = JSON.parse(readFileSync(configFile, 'utf8')) as { agents?: { max?: unknown } };
-    return raw.agents?.max !== undefined;
+    let v: unknown = JSON.parse(readFileSync(configFile, 'utf8'));
+    for (const k of key) v = v && typeof v === 'object' && Object.hasOwn(v, k) ? (v as Record<string, unknown>)[k] : undefined;
+    return v !== undefined;
   } catch {
     return false;
   }
 }
+
+/** Whether the project's config names its cap, or leaves it to acc's default. */
+export const agentsMaxSet = (configFile: string): boolean => configSets(configFile, ['agents', 'max']);
 
 /** Names, each once, in the order given; every one a check the project has. */
 function gateNames(configFile: string, names: string[], what: string): string[] {

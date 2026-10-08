@@ -12,7 +12,7 @@ export function sampleProjectLimits(): ProjectLimits {
   return {
     name: 'Acme Service', root: ROOT, repo: `${ROOT}/.git/acc/ledger.json`,
     max: 3, maxFrom: 'project', running: 3,
-    required: ['format', 'static', 'validate'], builder: null, gates: SF, queue: [],
+    required: ['format', 'static', 'validate'], requiredFrom: 'project', builder: null, gates: SF, queue: [],
     model: 'claude-opus-5-5', modelFrom: 'acc',
     recent: { builds: [42, 35, 61, 28, 50, 47].map((m) => m * MIN), reviews: [0.84, 1.12, 0.61, 0.95], analyses: [1.4, 1.05] },
   };
@@ -36,10 +36,10 @@ export function sampleLimitsOther(): LimitsFacts {
   return {
     machine: { slots: 1, slotsFrom: 'env', inUse: 0, waiting: 0, total: null, running: 0, repos: 0, file: '~/.acc/machine.json' },
     projects: [
-      { ...sampleProjectLimits(), max: 1, maxFrom: 'acc', running: 0, required: [], recent: none },
+      { ...sampleProjectLimits(), max: 1, maxFrom: 'acc', running: 0, required: [], requiredFrom: 'acc', recent: none },
       {
         name: 'Tool', root: '/Users/me/code/tool', repo: '/Users/me/code/tool/.git/acc/ledger.json', max: 16, maxFrom: 'project', running: 0,
-        required: ['check'], builder: ['typecheck', 'near-tests'],
+        required: ['check'], requiredFrom: 'project', builder: ['typecheck', 'near-tests'],
         gates: [{ name: 'check', about: 'npm run check' }, { name: 'typecheck', about: 'npm run typecheck' }, { name: 'near-tests', about: 'node scripts/near-tests.mjs' }],
         queue: ['main'], model: 'claude-sonnet-5-5', modelFrom: 'project', recent: none,
       },
