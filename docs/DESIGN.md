@@ -1264,10 +1264,10 @@ its own: its launcher falls back to VSCode's runtime (§13).
     `entryPointsOf`: every command, and every subcommand its group declares
     (35 and 33 today). Each gets no arguments, empty strings, wrong types, a
     100 KB string, an unknown id, paths outside the repo and `../` ids, then
-    every string option its group declares set to junk (empty, a wrong type,
-    long, a 1 MB file, a folder, a missing `../` path), with junk on stdin up
-    to 1 MB. About 900 calls, about 2 minutes.
-  - Each call runs the built acc in a fresh copy of a throwaway repo, three at
+    every string option its group declares set to junk (empty, long, a 1 MB
+    file, a folder, a missing `../` path), with junk on stdin up to 1 MB. About
+    770 calls, about 2½ minutes.
+  - Each call runs the built acc in a fresh copy of a throwaway repo, two at
     once. HOME, TMPDIR, Claude Code's state and acc's machine files are in a
     sandbox, and fake `gh`, `claude` and `sf` that fail at once come first on
     PATH. A call must exit 0, 1 or 2 within 20 seconds (3 is an error acc

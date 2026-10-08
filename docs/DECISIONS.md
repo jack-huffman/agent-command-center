@@ -4315,8 +4315,11 @@ junk tests read the registries and run in `npm run check`, never skipped.
   acc's machine files point inside it; fake `gh`, `claude` and `sf` fail at
   once. Home, the template and an OUTSIDE folder, with bait a `../` id would
   reach, are hashed before and after each command. It runs the built acc,
-  three calls at once, as spawning the source took a second a call; the
+  two calls at once, as spawning the source took a second a call; the
   near-tests gate builds first.
+- **Its cost.** At three calls at once, cli.test.ts ran past its 300-second
+  limit in `npm run check`. So two run at once, cases that overlapped were
+  merged, and the regression tests run in their own file, refusals.test.ts.
 - **What it found.** acc: a file it can't read exited 3 with a raw ENOENT or
   EISDIR; a folder named as a template or rules file did too; `acc analysis
   answer ../…` rewrote a JSON file outside the repo; long `--json` output was

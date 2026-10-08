@@ -23,7 +23,7 @@ const ACC = fileURLToPath(new URL('../../../dist/acc.mjs', import.meta.url));
 const COMMANDS_DIR = fileURLToPath(new URL('../src/commands/', import.meta.url));
 /** How long one call may take, and how many run at once. */
 const LIMIT_MS = 20_000;
-const AT_ONCE = 3;
+const AT_ONCE = 2;
 /** The longest line a failure may print: main.ts cuts its message, with its mark in front. */
 const LONGEST_LINE = MESSAGE_MAX + 2;
 const MB = 1024 * 1024;
@@ -145,19 +145,18 @@ function casesFor(s: Sandbox, words: string[], options: string[]): Case[] {
   const positional: [string, string[]][] = [
     ['no arguments', []],
     ['empty strings', ['', '', '']],
-    ['a wrong type', ['abc', 'NaN', '1e400']],
-    ['numbers out of range', ['0', '99999999999999999999', '3.5']],
+    ['a wrong type, or a number out of range', ['abc', '1e400', '99999999999999999999']],
     ['a 100 KB string', [LONG_ARG]],
     ['an unknown id', ['ZZ-99999', 'q1', 'ZZ-99999']],
     ['paths outside the repo', [out, join(out, 'big.txt'), join(out, 'missing')]],
     ['../ paths out of the repo', [s.dotdot, 'q1', s.dotdot]],
-    ['--as and --by junk', ['ZZ-99999', '--as', 'NaN', '--by', LONG_ARG]],
   ];
+  // Who's asking is read the same way by every command, so each command gets it once, not each subcommand.
+  if (words.length === 1) positional.push(['--as and --by junk', ['ZZ-99999', '--as', 'NaN', '--by', LONG_ARG]]);
   // Every option at once, so a call stays under macOS's limit on arguments.
   const each = options.length ? Math.floor(Math.min(100 * 1024, (600 * 1024) / options.length)) : 0;
   const optionCases: [string, (name: string) => string][] = [
     ['every option empty', () => ''],
-    ['every option a wrong type', () => 'NaN'],
     ['every option a long string', () => 'x'.repeat(each)],
     ['every option a 1 MB file outside the repo', () => join(out, 'big.txt')],
     ['every option a folder', () => out],
@@ -307,6 +306,6 @@ test('every acc command and subcommand survives junk arguments, options and stdi
   // Nothing drops out silently: every command and every subcommand the registry holds was called.
   assert.equal(reached.size, commands.size + subcommands, 'every command and subcommand was called');
   assert.ok(commands.size >= 35 && subcommands >= 33, `the registry holds ${commands.size} commands and ${subcommands} subcommands`);
-  assert.ok(calls >= entries.length * 9, `${calls} calls`);
+  assert.ok(calls >= entries.length * 7, `${calls} calls`);
   rmSync(s.root, { recursive: true, force: true });
 });
