@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { parseConfig, type Config } from '../src/config.ts';
 import { run, type RunOptions, type RunResult } from '../src/exec.ts';
 import { repoPaths } from '../src/paths.ts';
-import { buildBaseline, draftLists, environmentsSection, parseManifest, README_END, README_START, seedBranches, unionManifests, writeReadme } from '../src/setup.ts';
+import { buildBaseline, draftLists, environmentsSection, parseManifest, README_END, README_START, readmePlaces, seedBranches, unionManifests, writeReadme } from '../src/setup.ts';
 import { gitIn, makeRepo, ok, SF_CONFIG, tempDir } from './support.ts';
 
 const now = () => new Date('2026-10-02T12:00:00Z');
@@ -107,6 +107,32 @@ test('B9: the lists are drafted from how each sandbox differs from production, a
   const again = draftLists(paths, config(), { run, now });
   assert.deepEqual([again.knownDrift.written, again.knownDrift.entries], [false, ['force-app/main/default/objects/Case/Case.object-meta.xml']], 'contentassets is already listed as a folder');
   assert.equal(readFileSync(join(dir, 'manifest/known-drift.txt'), 'utf8'), '# mine\nforce-app/main/default/contentassets\n');
+});
+
+test('B10: the README names where the tickets come from, by key with a link, for a Jira epic, an Azure area path and GitHub labels (GH-81)', () => {
+  const generic = (trackers: unknown[], github: unknown = { repo: 'acme/service', account: 'jordan-kim' }) => {
+    const r = parseConfig({ schema: 1, project: 'acme-portal', profile: 'generic', github, environments: [{ name: 'main', default: true }], trackers });
+    assert.deepEqual(r.errors, []);
+    return r.config!;
+  };
+  const cases: [unknown, string, string[]][] = [
+    [{ kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', epic: 'ACME-3' }, 'Jira epic [ACME-3](https://acme.atlassian.net/browse/ACME-3)', ['https://acme.atlassian.net/browse/ACME-3']],
+    [{ kind: 'azure', organization: 'acme', project: 'CRM Online', areaPath: 'CRM Online\\Billing' }, 'Azure DevOps area path `CRM Online\\Billing` in [CRM Online](https://dev.azure.com/acme/CRM%20Online)', ['CRM Online\\Billing', 'https://dev.azure.com/acme/CRM%20Online']],
+    [{ kind: 'github', labels: ['billing', 'good first issue'] }, 'GitHub labels [billing](https://github.com/acme/service/issues?q=is%3Aissue%20label%3A%22billing%22) or [good first issue](https://github.com/acme/service/issues?q=is%3Aissue%20label%3A%22good%20first%20issue%22)', ['https://github.com/acme/service/issues?q=is%3Aissue%20label%3A%22billing%22', 'https://github.com/acme/service/issues?q=is%3Aissue%20label%3A%22good%20first%20issue%22']],
+    [{ kind: 'monday', account: 'acme', board: 1234, group: 'topics' }, 'monday.com group `topics` on [board 1234](https://acme.monday.com/boards/1234)', ['topics', 'https://acme.monday.com/boards/1234']],
+  ];
+  let checked = 0;
+  for (const [t, line, needs] of cases) {
+    const c = generic([t]);
+    assert.deepEqual(readmePlaces(c).map((p) => [p.line, p.needs]), [[line, needs]]);
+    assert.ok(environmentsSection(c).includes(`**Its tickets come from** ${line}.`), environmentsSection(c));
+    assert.ok(!/Premium|Renewals/.test(environmentsSection(c)), 'the key, never the epic\'s name');
+    checked++;
+  }
+  assert.equal(checked, 4);
+  assert.deepEqual(readmePlaces(generic([{ kind: 'jira', site: 'acme.atlassian.net', project: 'ACME' }, { kind: 'github' }])), [], 'a whole project or repo is no place');
+  assert.ok(!environmentsSection(generic([])).includes('tickets come from'));
+  assert.equal(readmePlaces(generic([{ kind: 'github', labels: ['billing'] }], null))[0]!.line, 'GitHub label `billing` in this repo', 'no repo to link');
 });
 
 test('B10: the README gets its environments section between markers, written once and updated in place after', () => {

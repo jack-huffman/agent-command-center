@@ -12,6 +12,7 @@ import { BASELINE_MANIFEST } from './drift.ts';
 import { lastLine, listed, niced, packageDirs, readList, under } from './gates.ts';
 import type { RepoPaths } from './paths.ts';
 import { promotionPaths } from './promote.ts';
+import { orList } from './trackers/types.ts';
 import { type SlotOptions, withSlot } from './semaphore.ts';
 
 export interface SetupDeps {
@@ -301,6 +302,48 @@ export function draftLists(paths: RepoPaths, config: Config, deps: SetupDeps): L
 export const README_START = '<!-- acc:environments -->';
 export const README_END = '<!-- /acc:environments -->';
 
+/** A tracker's place (D-072) as the README names it: its words, and what the README must carry for B10 to pass. */
+export interface ReadmePlace {
+  /** Markdown, such as "Jira epic [ACME-3](https://acme.atlassian.net/browse/ACME-3)". */
+  line: string;
+  /** "the Jira epic ACME-3", for B10's message. */
+  words: string;
+  /** The links, and an area path or group, the README must contain. */
+  needs: string[];
+}
+
+const linkText = (s: string): string => s.replace(/([[\]\\])/g, '\\$1');
+const code = (s: string): string => `\`${s.replace(/`/g, '')}\``;
+
+/**
+ * Where each tracker's tickets come from, when it's narrower than its project (GH-81): a Jira epic by its
+ * key, linked; an Azure DevOps area path, in its project, linked; each GitHub label, linked to its issues;
+ * a monday.com group, on its board, linked. The key, never the epic's name: the README doesn't go stale when
+ * an epic is renamed, and nothing is read from the tracker to write it.
+ */
+export function readmePlaces(config: Config): ReadmePlace[] {
+  const out: ReadmePlace[] = [];
+  for (const t of config.trackers) {
+    if (t.kind === 'jira' && t.epic && t.site) {
+      const url = `https://${t.site}/browse/${encodeURIComponent(t.epic)}`;
+      out.push({ line: `Jira epic [${linkText(t.epic)}](${url})`, words: `the Jira epic ${t.epic}`, needs: [url] });
+    } else if (t.kind === 'azure' && t.areaPath && t.organization && t.project) {
+      const url = `https://dev.azure.com/${encodeURIComponent(t.organization)}/${encodeURIComponent(t.project)}`;
+      out.push({ line: `Azure DevOps area path ${code(t.areaPath)} in [${linkText(t.project)}](${url})`, words: `the Azure DevOps area path ${t.areaPath}`, needs: [t.areaPath, url] });
+    } else if (t.kind === 'github' && t.labels.length) {
+      const repo = t.repo ?? config.github?.repo ?? null;
+      const s = t.labels.length > 1 ? 's' : '';
+      const urls = repo ? t.labels.map((l) => `https://github.com/${repo}/issues?q=${encodeURIComponent(`is:issue label:"${l}"`)}`) : [];
+      const links = repo ? t.labels.map((l, i) => `[${linkText(l)}](${urls[i]})`) : t.labels.map(code);
+      out.push({ line: `GitHub label${s} ${orList(links)}${repo ? '' : ' in this repo'}`, words: `the GitHub label${s} ${orList(t.labels)}`, needs: repo ? urls : t.labels });
+    } else if (t.kind === 'monday' && t.group && t.account && t.board !== null) {
+      const url = `https://${t.account}.monday.com/boards/${t.board}`;
+      out.push({ line: `monday.com group ${code(t.group)} on [board ${t.board}](${url})`, words: `the monday.com group ${t.group}`, needs: [t.group, url] });
+    }
+  }
+  return out;
+}
+
 /** The README's environments section: which branch is which org, and how changes move. */
 export function environmentsSection(config: Config): string {
   const envs = config.environments;
@@ -312,6 +355,7 @@ export function environmentsSection(config: Config): string {
   ].filter(Boolean).join('; ') || '–';
   const rows = envs.map((e) => `| ${e.name} | ${name(e.branch)} | ${e.org ?? '–'} | ${e.type === 'none' ? 'branch' : e.type.replace('_', ' ')} | ${role(e)} |`);
   const paths = promotionPaths(envs);
+  const places = readmePlaces(config);
   return [
     README_START,
     '## Environments',
@@ -323,6 +367,7 @@ export function environmentsSection(config: Config): string {
     ...rows,
     '',
     ...(paths.length ? ['**How changes move:** ' + paths.map((p) => p.map(name).join(' → ')).join(', or ') + '. Each step is a pull request (`acc promote`), and a deploy after it merges (`acc deploy`).', ''] : []),
+    ...(places.length ? [`**Its tickets come from** ${places.map((p) => p.line).join(', and ')}.`, ''] : []),
     ...(config.environmentSpecific ? [`**Environment-specific files,** listed in \`${config.environmentSpecific}\`, differ in every org by design. They're never promoted, deployed, or changed as part of a task.`, ''] : []),
     `_This section is kept by \`acc setup readme\`; edit the environments in \`.acc/config.json\`._`,
     README_END,
