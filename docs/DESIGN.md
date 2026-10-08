@@ -143,7 +143,17 @@ branches and the pull requests.
 
 A project with no Salesforce in it, such as this repo, sets
 `"profile": "generic"`, gives one environment (`main`, no org), and lists its
-check commands under `gates`.
+check commands under `gates`. A number that may only get better, such as how
+many tests run, is a ratchet under `gates.ratchets` ([section 9](#9-gates-and-receipts)):
+
+```json
+"gates": {
+  "required": ["check", "tests"],
+  "builder": ["typecheck", "near-tests", "tests"],
+  "commands": { "check": "npm run check", "typecheck": "npm run typecheck", "near-tests": "node --no-warnings scripts/near-tests.mjs" },
+  "ratchets": { "tests": { "command": "node --no-warnings scripts/count-tests.mjs", "limit": "floor", "label": "tests" } }
+}
+```
 
 **A branch is named after its environment (D-015).** The branch is the
 environment name in lower case: `dev`, `uat`, `production`. Nobody has to
@@ -186,6 +196,7 @@ listed so that drift checks and `doctor` cover it.
 | `dispatch.shared` | Files, or folders, that every task edits, such as the docs. Like `autopilot.appendOnly`, they never make one task wait for another's files. Left out, there are none ([section 7](#7-dispatch)) |
 | `worktrees.root` | Where task worktrees go. The default is a sibling folder outside the repo ([section 7](#7-dispatch)) |
 | `gates` | Which checks are required, plus per-check overrides. `gates.builder` names a builder's lighter checks, where the merge queue runs the required ones ([section 9](#9-gates-and-receipts)) |
+| `gates.ratchets` | Checks whose command prints one number that may only get better (GH-99): each names its `command`, whose last line is the number, its `limit` (`floor`, which may only go up, or `ceiling`, which may only go down) and a short `label` for pages. Its name is a gate's, so it can be required or a builder's. Its floor lives in `.acc/floors.json`, committed ([section 9](#9-gates-and-receipts)) |
 | `template` | The team template the project was started from, written by `acc init --from`: its `name`, its `source` (a GitHub file URL, `<git-url>#<path>`, or a path inside the repo, under `~/`, or an absolute path elsewhere) and its `digest` (`sha256:` of its JSON with sorted keys). Setup's B0.template step says when the template has changed and the project now differs; nothing re-applies it ([docs/TEMPLATES.md](TEMPLATES.md), D-097) |
 
 ## 5. Tasks and the ledger
@@ -470,7 +481,7 @@ config.
   a failing check on the ticket page. Its receipt keeps who waived it, why, and
   what it had been. It holds for that commit only, and `acc gate run` leaves it
   alone. Builders can't waive: the CLI refuses them, and their settings deny the
-  command.
+  command. A ratchet can't be waived; a person relaxes its floor instead (below).
 
 `acc gate run [<gate>...]` runs the required gates, or the ones named, on the
 current commit. `acc gate list` shows each gate and its result on this commit,
@@ -496,7 +507,50 @@ in `extension/webview/` are near `extension/test/`. Only a gate whose command
 names `ACC_NEAR_TESTS`, or names a file in the checkout that does, is given it;
 acc reads each file once to work it out. This repo's builders run `typecheck`
 and `near-tests` (`scripts/near-tests.mjs`, which fails if it isn't given the
-list).
+list), and the `tests` ratchet below.
+
+**Ratchets** (GH-99). A ratchet is a check whose command prints one number that
+may only get better: a test count, coverage, Apex coverage, or Code Analyzer's
+violations, which may only go down. `gates.ratchets` names its command, its
+limit (`floor` or `ceiling`) and a label (§4). Its name is a gate's, so `acc gate
+list` shows it with its floor, and it can be required, a builder's, or heavy.
+This repo's one ratchet, `tests`, is the number of tests `npm test` runs:
+`scripts/count-tests.mjs` loads every test file with node:test, each test
+marked skipped, so it counts them in seconds without running a body. Its own
+test pins it to a full run's count. It's required and a builder's check, and
+not heavy.
+
+- **The floors** live in `.acc/floors.json`, committed, so they travel with
+  branches and a person can read them: `{ "tests": { "floor": 669 } }`, or
+  `{ "violations": { "ceiling": 4 } }`, one entry a ratchet.
+- **The check.** The command's last line of output must be one number; none,
+  or a command that fails, is `error`, never `pass`. Worse than the floor
+  fails; at it or better passes. The receipt keeps the number, the floor, the
+  environment's floor where the branch began, and the difference, and the pull
+  request and the ticket page show them: `tests 669 → 674 (+5)`.
+- **acc raises a floor itself.** When a task's number beats its floor, `acc gate
+  run` writes the new floor in the task's worktree and says so. Its receipt
+  satisfies nothing until the builder commits `.acc/floors.json` with the
+  change, as the packet's finish line says. A commit whose only change is that
+  raise carries its parent's checks, marked `carried`, so nothing runs twice.
+  The first number a task measures, with no floor yet, is its first floor.
+  acc never writes the file on an environment's branch, in the main checkout,
+  with uncommitted changes, or in a refresh's or the merge queue's check: those
+  say `beats the floor … by N` and leave it.
+- **Only a person relaxes a floor.** A branch whose floor is worse than its
+  environment's where it began fails, unless a person relaxed it to that number:
+  `acc gate relax <ratchet> --to <n> --reason "<why>" [--task <id>]` writes the
+  worse number into the floors file (in the task's worktree with `--task`), with
+  who, why, when and what it was, and acc keeps a record in its state, beside
+  the receipts. Builders can't: the CLI refuses them, and their settings deny
+  the command. A ratchet can't be waived, since a waived one could merge below
+  its floor and fail every task after it. The ticket page shows a ratchet's
+  numbers and offers no Waive… beside one.
+- **Two tasks that both raised a floor** never wait for each other at dispatch:
+  the floors file is always shared. Where their floors conflict, autopilot keeps
+  the better of each, for a refresh and the merge queue alike. Where one side
+  relaxed a floor, the conflict is a person's: keeping the better value would
+  bring back what they relaxed.
 
 **Agents validate; they never deploy (D-011).** Parallel branches deploying to
 one shared sandbox would overwrite each other's work. A deploy happens after

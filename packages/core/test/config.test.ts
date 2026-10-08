@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { autoMergeFor, autoMergeOn, branchFor, builderGatesFor, defaultEnvironment, loadConfig, parseConfig, requiredGates, skippedOnRoute, trackerForKey, withTracker, writeConfig } from '../src/config.ts';
+import { parseFloors } from '../src/ratchets.ts';
 import { GENERIC_CONFIG, SF_CONFIG, tempDir } from './support.ts';
 
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x));
@@ -159,8 +160,13 @@ test('this repo lists its decision log as append-only, and lets autopilot merge 
   assert.equal(config.autonomy, 'review');
   assert.equal(autoMergeFor(config, 'main'), true);
   // Its builders run the typecheck and the tests near what they changed; the full check runs in the merge queue (GH-73).
-  assert.deepEqual([config.gates.builder, config.gates.required, requiredGates(config, 'main', 'builder')], [['typecheck', 'near-tests'], ['check'], ['typecheck', 'near-tests']]);
+  // Both count the tests npm test runs, a number that may only go up, and quickly enough not to be heavy (GH-99).
+  assert.deepEqual([config.gates.builder, config.gates.required, requiredGates(config, 'main', 'builder')], [['typecheck', 'near-tests', 'tests'], ['check', 'tests'], ['typecheck', 'near-tests', 'tests']]);
   assert.deepEqual(Object.keys(config.gates.commands).sort(), ['check', 'near-tests', 'typecheck']);
+  assert.deepEqual(config.gates.ratchets, { tests: { command: 'node --no-warnings scripts/count-tests.mjs', limit: 'floor', label: 'tests' } });
+  assert.ok(!config.gates.heavy.includes('tests'));
+  const floors = parseFloors(readFileSync(join(import.meta.dirname, '..', '..', '..', '.acc', 'floors.json'), 'utf8'));
+  assert.ok(floors && Object.keys(floors).length === 1 && (floors.tests?.floor ?? 0) > 0, 'its floors file holds the one floor, measured');
 });
 
 test('gates.builder: a list of gate names, kept as written, for builders only where the merge queue runs the full check (GH-73)', () => {
