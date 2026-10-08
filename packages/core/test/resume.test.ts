@@ -6,7 +6,7 @@ import { awakePath } from '../src/awake.ts';
 import { parseConfig, type Config } from '../src/config.ts';
 import { run, type RunResult } from '../src/exec.ts';
 import { remindedPath } from '../src/hooks.ts';
-import { autopilotFailure, type ClaudeSession, displayState, type LedgerEvent, mutate, readLedger, type Run, type State, upsertTasks } from '../src/ledger.ts';
+import { autopilotFailure, type ClaudeSession, displayState, DONE_COMMAND, type LedgerEvent, mutate, readLedger, type Run, type State, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
 import { endResume, type Launcher, resume, resumeCommand, resumeMessage, resuming, resumingPath } from '../src/resume.ts';
 import { transcriptDir } from '../src/transcript.ts';
@@ -181,7 +181,8 @@ test('the ready message names the task, quotes what it last said, names its late
   assert.match(m, /^You are the builder for GH-41: Ticket updates are drafts\. Your last turn ended before you ran acc done or acc block, so GH-41 is still running\./);
   assert.ok(m.includes(`> ${SLEPT}`));
   assert.match(m, /If you were cut off, carry on from where you left off\. If you stopped to ask something, decide it yourself where the task allows, or block and ask\./);
-  assert.match(m, /Start with `git status` and `git log --oneline -3` \(your branch's latest commit is af9971f\), then finish the task and its finish line: commit everything, run exactly `acc gate run`, then run exactly `acc done`\. If you're stuck, run exactly `acc block "<what you need>"` and stop\.$/);
+  assert.match(m, /Start with `git status` and `git log --oneline -3` \(your branch's latest commit is af9971f\), then finish the task and its finish line: commit everything, run exactly `acc gate run`, then finish with your note, all on one line: `acc done --landed "<what landed>" --moved "<tests, checks, ratchets that moved>" --open "<what's still open, or none>"`\. If you're stuck, run exactly `acc block "<what you need>"` and stop\.$/);
+  assert.ok(m.includes(`\`${DONE_COMMAND}\``), 'the finish command, word for word (D-106)');
   const bare = resumeMessage({ id: 'GH-41', title: 'Ticket updates are drafts' }, null, null);
   assert.doesNotMatch(bare, /^> /m, 'no quote without words');
   assert.doesNotMatch(bare, /The last thing you said/);

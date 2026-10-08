@@ -4,7 +4,7 @@
  */
 
 import type { Analysis } from '../../../packages/core/src/analyze.ts';
-import type { Task } from '../../../packages/core/src/ledger.ts';
+import { type RunNote, shownNote, type Task } from '../../../packages/core/src/ledger.ts';
 import type { GateStatus } from '../../../packages/core/src/receipts.ts';
 import { type Doc, fromMarkdown } from '../../../packages/core/src/trackers/doc.ts';
 import type { Ticket, TrackerKind } from '../../../packages/core/src/trackers/types.ts';
@@ -43,6 +43,13 @@ export interface TicketAcc {
   checks: { gate: string; status: GateStatus; summary: string; waived?: boolean; scope?: 'builder' | 'merge' }[];
   history: { at: string; from: string | null; to: string; by: string; reason: string | null }[];
   actions: Action[];
+  /**
+   * Its builder's handoff note (D-106): its run's, or while a new run is under way, the last run's
+   * (fromLast). Each still-open line can be drafted as a task.
+   */
+  note: (Pick<RunNote, 'landed' | 'moved' | 'open' | 'at' | 'ended'> & { fromLast: boolean }) | null;
+  /** That the run that ended, or the last one, left no note, in words; else null. */
+  noteMissing: string | null;
 }
 
 export interface TicketModel {
@@ -183,6 +190,17 @@ export function ticketAnalysis(row: TaskRow, a: Analysis | null, ref: Ref, updat
   };
 }
 
+/** A task's note as its page shows it (D-106), and what it says when its run left none. */
+function ticketNote(task: Task): Pick<TicketAcc, 'note' | 'noteMissing'> {
+  const { note, fromLast, missing } = shownNote(task);
+  return {
+    note: note ? { landed: note.landed, moved: note.moved, open: note.open, at: note.at, ended: note.ended, fromLast } : null,
+    noteMissing: !missing ? null
+      : fromLast ? 'Its last run left no note, so this run was told to check its branch before building on it.'
+        : 'Its builder left no note when its run ended. Check its branch before trusting what\'s there.',
+  };
+}
+
 export function ticketModel(i: TicketInput): TicketModel {
   const t = i.ticket;
   const live = i.tracker !== null;
@@ -192,6 +210,7 @@ export function ticketModel(i: TicketInput): TicketModel {
     history: i.task.history.map((h) => ({ at: h.at, from: h.from, to: h.to, by: h.by, reason: h.reason ?? null })).reverse(),
     // Its analysis has its own section, with its own buttons.
     actions: cardActions(i.row, { project: i.project, task: i.row.id }).filter((a) => !['acc.task.show', 'acc.task.openTicket', 'acc.task.analyze', 'acc.task.watchAnalysis'].includes(a.command)),
+    ...ticketNote(i.task),
   } : null;
   const own = !live && i.task;
   return {
@@ -216,7 +235,8 @@ export function ticketModel(i: TicketInput): TicketModel {
   };
 }
 
-export const TICKET_ACTIONS = ['comment', 'status', 'assign', 'labels', 'track', 'refresh', 'waive'] as const;
+/** task: draft a task from one of its note's still-open lines (D-106), which a person confirms. */
+export const TICKET_ACTIONS = ['comment', 'status', 'assign', 'labels', 'track', 'refresh', 'waive', 'task'] as const;
 export type TicketAction = (typeof TICKET_ACTIONS)[number];
 
 /**

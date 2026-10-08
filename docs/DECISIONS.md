@@ -4011,6 +4011,276 @@ and GH-110 to GH-114 fill the rest. It amends D-089.
 - Not done here: high-contrast palettes of acc's own, and the low contrast of
   orange text on white that the Light shots show, which was there before.
 
+## D-102 Every command gate is told the near tests, an index named index is found by its path, and per-area files reach the tests that read them (2026-10-07)
+
+GH-117, from GH-95's review. It amends D-100. The merge queue's full check
+still ran every test, but a builder could finish believing its change was
+tested when it wasn't.
+
+- **Every command gate is given `ACC_NEAR_TESTS` again**, as before GH-95.
+  This replaces D-100's "only for a gate that reads `ACC_NEAR_TESTS`": acc
+  couldn't tell that `npm run test:near` or `make near` reads it, and a script
+  given an empty list ran nothing and passed. `readsNearTests` is gone. The
+  list is worked out once a run, reading each file once, so the typecheck and
+  the full check wait for it again, 25 to 60 ms on this repo. A check still
+  never inherits either variable from the acc it runs under.
+- **A file named index is found by its path, not its name.** It's named for
+  its folder, and many folders have one: gates.test.ts quotes
+  `packages/cli/src/commands/index.ts` as data, so every change to a module of
+  core ran it. Its tests are now those named for it or that load it by its
+  path or its folder's. This rewords D-100's "a module of core near only its
+  own tests": a module of core is near its own tests and the tests that load
+  core's index by its path (lock.test.ts, whose workers import it), and no
+  longer near a test that only mentions an index. Across this repo's 248
+  tracked .ts, .css and .json files, 30 near lists changed, all modules of
+  core, each losing only gates.test.ts.
+- **Any other index is still found by its name.** The ticket asked for every
+  index by its path. But extension.ts imports more than half of
+  `extension/src`, so it's the index of the 18 modules there it imports, and
+  its tests load its build, `dist/extension.js`, not its source. By path alone
+  those modules would lose activate.test.ts. A test pins that they keep it.
+- **A per-area file that a test reads through a script, not an import, is
+  near that test.** The rule is a table in this repo, not an acc config key:
+  `READS` in `scripts/near-reads.ts` gives each kind of file and the script
+  that reads it, and the near-tests gate adds the tests near that script for
+  each such file in `ACC_CHANGED`. Each area's stylesheet, styles.css
+  included, reaches screenshot.test.ts, which checks every theme defines the
+  colours the styles use, through styles.ts. Each commands file and
+  extension/package.json reach areas.test.ts through generate.ts. Naming the
+  script rather than the test also brings page.test.ts, cards.test.ts and
+  setup.test.ts, and a new test that reads the styles needs no edit to the
+  table. It stays this repo's, since only its own scripts know what they
+  read. DESIGN.md §2 says a new kind of per-area file adds a row.
+- Not done here: the plugin's bundled acc (0.37.0, built before GH-95)
+  already gives every gate the list, and takes the index rule at the next
+  `npm run package`. The screenshot fixtures, and tests that read the page
+  through `pageSource()`, still have no near rule (D-100).
+
+## D-103 Every config key and setting is read and described, checked both ways (2026-10-07)
+
+GH-107. A setting that does nothing is worse than a missing one: PhotoCraft
+found 60 of its 135 preferences read by nothing. acc's `.acc/config.json`, the
+extension's settings and DESIGN §4's table could drift the same way, and had:
+§4 described 21 of the 57 keys, and the README neither setting.
+
+- **The keys parseConfig knows are data.** `CONFIG_KEYS` in config.ts lists
+  every key by its path: `gates.severity`, `environments[].org`,
+  `trackers[].team`, `agents.builder.model`. A list of strings or a map such as
+  `gates.commands` is one key. It's typed against `Config`, so tsc refuses a
+  path that isn't one, and a key a Config has that's left out.
+- **An unknown key warns at every level**, from that list: `gates.foo`,
+  `trackers[0].foo`, `agents.builder.foo`. Before, only the top level,
+  `autopilot` and `dispatch` warned, and a misspelt nested key was dropped
+  without a word. A config that loaded quietly may now print a warning; it's a
+  warning, not an error, and what the config does is the same.
+- **scripts/test/settings.test.ts checks both ways.** Each key has a read in
+  source outside the tests, and is described in §4's Field table: a row of its
+  own, or its nearest parent's row naming it in backticks. Each contributed
+  `agentCommandCenter.*` setting is read with
+  `getConfiguration('agentCommandCenter').get('<name>')` in extension/src and
+  named in README.md. Every setting extension/src names is contributed, and
+  every key read from a raw parse of .acc/config.json, at the three places
+  `RAW_READS` pins, is one parseConfig knows. Each part asserts how many it
+  checked, and each finding names the key, what's missing where, and the fix.
+- **What counts as a read.** TypeScript 7 has no language service to ask, so
+  it's the source text: a qualified read, such as `gates.severity` or
+  `autopilot?.autoMerge`, anywhere; for a key read through a variable (an
+  environment's, a tracker's, an agent role's, the secret scan's, the
+  template's), `.<key>` in the files `READ_IN` names. A pointer that goes stale
+  fails, and says to move it. Comments and quoted strings don't count, nor does
+  config.ts's validator, its writers or its key lists (`NOT_READS`, pinned by
+  declaration); its helpers that act on a key, such as `autoMergeOn` and
+  `defaultEnvironment`, do.
+- **Two keys only the validator reads, pinned.** `VALIDATOR_ONLY` holds
+  `schema`, which must be 1, and the raw `environments[].branch`, which must be
+  the lower-cased name; code reads the branch it derives from the name. The
+  test pins the list to these two, so it can't grow quietly.
+- **A key nothing reads is listed before it's removed.** `UNREAD_KEYS` takes
+  it, with the ticket or decision that will read it, and the test fails once
+  something reads it, so it comes off. Remove a key only when no decision or
+  doc promises it: a removed key makes configs that set it warn. The list is
+  empty today.
+- **The Command Center hides a listed key.** How agents run tags each part and
+  row with its key and shows none that's listed, nor a role with no parts left;
+  the Connect page offers no picker whose `trackers[].<key>` is listed, and
+  keeps the tracker's value for it. An extension setting is never listed:
+  VSCode's Settings can't hide a contributed one, so a setting nothing reads
+  comes out of package.json.
+- **Gaps fixed:** §4 has a row or a named mention for every key, and its
+  `worktrees.root` row and example say `.claude/worktrees/`, per D-022, not a
+  sibling folder. The README has a Settings part.
+- Not done here: the team template's own keys (template.ts's `ALLOWED` and
+  `PROJECT_ONLY`, where `dispatch` and `gates.builder` get the generic "isn't
+  a template key" error), writing §4's table from `CONFIG_KEYS`, and the
+  plugin's skills, which name tracker keys in prose.
+
+## D-104 How agents run moves to Settings, and Agents keeps per-token billing (2026-10-07)
+
+GH-110, the second of the six tasks GH-109 began. It amends D-089: How agents
+run is no longer behind the Agents page's Settings button but a part of the
+Settings section, second after Appearance.
+
+- **What moved:** builders' and reviewers' model, effort and fallback (D-036,
+  D-086), and each project's autonomy (D-064) and auto-merge (D-083). Each
+  keeps its **Change…**, the same `acc.agents.configure`, `acc.agents.autonomy`
+  and `acc.agents.autoMerge` as before, which ask acc. This clone's choice goes
+  in its git config, a project's in its `.acc/config.json`, for the person to
+  commit. The page writes neither. The commands keep their ids and stay in the
+  Agents area's `src/agents.ts`, but the Settings area lists them as the
+  page's to ask for, since it draws them.
+- **Every project setting is under its project's name,** even with one
+  project, and each value says where it's set, in words with an icon: this
+  clone (a desktop), project default or project (a repo), acc's default or
+  Claude Code's default (an empty circle). Autonomy and auto-merge say
+  "project": no clone sets them.
+- **Each state has an icon and a label:** autonomy review (a rocket) or manual
+  (pause), and dispatch or full, which autopilot refuses, in orange with a
+  warning; auto-merge on (a merge) or off (a slash). Billing is blue on the
+  subscription and orange per token. Colour adds to the words, never stands
+  for them.
+- **Billing is said once,** as this machine's, for every project, not once per
+  project as Agents did. Per token or not checked yet, it has **Open Setup**,
+  whose check says why and how to fix it.
+- **Agents keeps per-token billing** above its sessions, as it did while How
+  agents run was closed (D-089): it costs money while nobody looks. The
+  subscription line shows only in Settings. Agents' model has a `billing` of
+  its own instead of each project's settings.
+- **The Agents page's Settings button and the status bar's Auto-merge open
+  Settings at How agents run,** by `settingsKey('agents')`: the button within
+  the page (`go(section, part)`), the status bar through `Panels.show`. Agents
+  opens nothing in place any more, so the page's memory of an opened
+  `agents:settings`, and a Settings link's `open`, are gone.
+- **A jump stops below the tab strip.** Under 820 px the rail is a strip stuck
+  to the top, and GH-109's jump scrolled the heading under it. `jumpTo` now
+  leaves the strip's height above the heading. In headless Chrome, at 500 px
+  the heading lands 13 px below the strip, and at 1000 px only the section
+  scrolls.
+- **With no onboarded project,** the part says so, with **Open Setup**.
+- **Checked:** the part's model and page by `settings.test.ts`; Agents' button
+  and billing by `agents.test.ts`; each Change… and the status bar's
+  Auto-merge in the activation test, through the real acc: a builder's model
+  for this clone lands in git config and not the project's, a reviewer's
+  effort for the project in `.acc/config.json`, auto-merge turns on, and the
+  menu item opens Settings at How agents run showing all three. Screenshots
+  `settings-agents` (two projects, every source and state, per-token billing)
+  and `agents-billing`, at 1000, 620 and 500 px in Light and Dark; `--colours`
+  finds no difference across themes on them and `settings` (1204 elements).
+- **Shot tall:** `settings-agents` is shot 3300 px tall so the page doesn't
+  scroll. Headless Chrome draws a document a jump scrolled with a blank band
+  above the tab strip, which VSCode doesn't.
+
+## D-105 Shared rules are copied in, with where they came from (2026-10-07)
+
+A lesson learned in one project should reach the next project's agents
+(GH-108). Each repo had only its own `.acc/rules.md`, and nothing carried a
+rule across. PhotoCraft's sibling apps read shared standards by a relative
+path (`../craftrules`), which breaks for anyone who clones one app alone; its
+release playbook copies files in, and each app keeps its own. D-098 chose the
+second: anything taken from elsewhere is copied in, with where it came from.
+
+- **A copy, never a link.** `acc rules import <source>` copies a rules file into
+  `.acc/rules/<name>.md`, named after the source's file or `--name`. The source
+  is a path, a GitHub file URL or `<git-url>#<path>`, read and refused exactly
+  as a team template is (D-097): one module, `source.ts`, now serves both,
+  each naming itself in its messages. A person commits the copy. Shared rules
+  are the author's own text, not skills, so D-002 holds.
+- **The header is the only record.** The copy starts with an HTML comment:
+  its source (a path recorded from the repo's root or `~/`, never a home path,
+  D-079), the commit it was read at (on GitHub, the last commit to change the
+  file at its ref; in git, the clone's HEAD; none for a path), the day it was
+  copied, and the sha256 of the text as copied. It's read strictly, and no
+  config key repeats it. A file in `.acc/rules/` with no header is rules kept
+  here, with no source to compare.
+- **Agents read only the repo's files.** The packet, the review and the
+  analysis each get one Rules section, in a fixed order: the profile's rules,
+  then each copy by file name, then `.acc/rules.md`. A sentence says the later
+  one wins, so the repo's own rules win where they conflict. Nothing reads a
+  source at dispatch, review or analysis, so a source that moves or goes
+  changes nothing: the packet is byte for byte the same.
+- **The profile's rules are the reviewer's old Salesforce focus list.** No
+  rules text existed per profile; the reviewer's system prompt had four
+  Salesforce lines builders never saw. They're `PROFILE_RULES.salesforce` now,
+  first in the section every agent gets, and out of the system prompt so
+  they're said once. A generic project has none.
+- **An update is a person's choice.** Setup's B0.rules step reads each source
+  again, sharing 20 seconds, and compares digests, so an edit made in the repo
+  never counts as a change at the source. Unchanged: pass, naming copies
+  edited here. Changed: check by hand, with `acc rules diff <name>` as the fix,
+  which shows the copy against the source now (what copying in again would
+  change) and says when that would replace edits made here. Unreadable: check
+  by hand, with the reason. A path not on this machine: doesn't apply. A
+  header's source is untrusted, as a committed config's is: one acc won't fetch
+  never reaches gh or git. To take a change, a person runs
+  `acc rules import <source> --name <name> --force`; there's no merging.
+- **A team template may name rules** (`"rules": [<source>, …]`), each a URL or
+  a path from `/` or `~/`: a relative path would mean a different file on each
+  machine. `acc init --from` reads every one before it writes anything, then
+  copies each in, keeping a copy already there. B0.template counts `rules` as
+  different when the template names a source with no copy.
+- **Limits:** each file at most 64 KB, as a template; all the copies together
+  at most 128 KB, since every packet, review and analysis carries them. An
+  empty file, or one with a NUL, is refused.
+- **A person's, not a builder's.** The hook and the builder's deny list refuse
+  `acc rules import`; `acc rules list` and `acc rules diff` only read. Copies
+  live under `.acc/`, so the merge queue and autopilot leave them to a person.
+- **`--name`, not `--as`:** `--as` is every command's actor option.
+- **Setup's row always offers Import rules…,** from a step's new `offer` field,
+  so the page and the walkthrough both show it. It previews with
+  `acc rules import --dry-run --json` before anything is written.
+- Not done here: the `.acc/packet.md` override and `templates/packet.md` that
+  DESIGN.md §8 names still don't exist.
+
+## D-106 A builder ends with a note that the reviewer, the next builder and the pull request read (2026-10-07)
+
+GH-101. Sessions end abruptly: a crash, a full context, a stopped Mac.
+PhotoCraft's answer is a dev log each session appends to, but it's gitignored
+and local, so no other machine, contributor or fresh clone can read it. acc
+keeps the note where every later reader gets it: on the run, in the ledger.
+Before, `acc done` only moved the task to review.
+
+- **Three flags, a line each.** `acc done --landed "…" --moved "…" --open
+  "…"`: what landed, which numbers moved (tests, checks, ratchets), what's
+  still open. A flag again adds a line, up to 10 a part and 300 characters a
+  line. Not a free-text `--note`, nor a note file: a file in the worktree could
+  be committed, and lines are what Make a task needs.
+- **All three are required of a builder's `acc done`** (a person decided):
+  `--moved none` and `--open none` are accepted, so nothing is a statement, not
+  an omission; something must have landed. It's a `note` requirement on the
+  running → review rule, so the rule stays data, and it applies to a builder
+  only: a person's move needs none. Refused, acc gives the exact command.
+  `acc block` takes the same flags, optional, since its reason is required.
+- **One finish command.** `DONE_COMMAND` in ledger.ts is the text the packet,
+  the SessionStart short packet, the Stop hook, a resume's message and the
+  refusal all give; before, five places wrote `acc done` by hand. Tests pin
+  each to it.
+- **The shell.** The packet says one line, double quotes, no backticks or `$`.
+  guardBash refuses an `acc done` or `acc block` with a backtick or `$` outside
+  single quotes, since the shell would run or expand it before acc saw it.
+- **Kept with the run, one step back.** `run.note`, with when, who and whether
+  it ended in review or blocked; the move's event carries it, written in the
+  same locked mutate as the move. A dispatch replaces the run, so the new run
+  keeps the last one's note as `run.before`, or `null` when it left none. Older
+  notes stay in events.jsonl. A note is refused on a move that isn't done or a
+  block, or on a task with no run, rather than dropped.
+- **Readers.** The reviewer gets it with the instruction to check it against
+  the diff, not trust it. The PR body has a Builder's note section, as the
+  builder's own words, unredacted, as review findings already are; the packet
+  says it's posted there. A re-dispatch's packet has the last run's note, or,
+  when it left none, says so and to start with `git status`, `git log
+  --oneline origin/<branch>..HEAD` and `acc gate list`. A dependent task's
+  packet has each direct dependency's note; one with none isn't listed, so
+  tasks finished before this add no noise. `acc show` prints it.
+- **Make a task** (a person decided): each still-open line on the task page
+  drafts an acc task (T-n) through `acc add`, in the source task's environment,
+  titled with the line, its brief citing the source task, its builder's run and
+  the note's date, and depending on the source task while it isn't done. The
+  title and brief are prefilled in input boxes to edit; Esc makes nothing. It
+  never writes to a tracker (D-006, D-066).
+- Not done here: acc working out the numbers from receipts itself; posting the
+  note on the ticket; recording which open lines became tasks, so one can be
+  made twice; a CLI command for Make a task; Slack and the status bar; notes
+  for runs that finished before this.
+
 ## D-??? Settings raises or lowers how many builders run at once, with what it means; this machine can cap every repo's together (2026-10-07)
 
 GH-111, the third of GH-109's six tasks. The author asked to raise or lower how

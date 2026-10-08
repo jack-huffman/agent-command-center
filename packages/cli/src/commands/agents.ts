@@ -1,7 +1,7 @@
 // acc's Agents commands for builders and how they run: dispatch, done, block, resume, cleanup, agents
 // and machine.
 
-import { AccError, AGENT_ROLES, type AgentRole, agentsMaxSet, autoMergeOn, autopilotDoes, builders, cleanup, clipSaid, type Config, DEFAULT_AGENTS, dispatch, filesOf, heavySlots, loadConfig, machineAgents, machineFile, machineRepos, type ProfileChange, profileView, readLedger, resume, run, setAgentsMax, setAutoMerge, setAutonomy, setHeavySlots, setMachineAgents, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList } from '../../../core/src/index.ts';
+import { AccError, AGENT_ROLES, type AgentRole, agentsMaxSet, autoMergeOn, autopilotDoes, builders, cleanup, clipSaid, type Config, DEFAULT_AGENTS, dispatch, filesOf, heavySlots, loadConfig, machineAgents, machineFile, machineRepos, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, readLedger, resume, run, setAgentsMax, setAutoMerge, setAutonomy, setHeavySlots, setMachineAgents, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
 import { accBinDir, accCommand, actorFrom, type CommandArea, noAgent, now, type Opts, out, personOnly, project, taskIdFrom } from '../shared.ts';
 import { cmdSet } from './tasks.ts';
@@ -251,6 +251,12 @@ function cmdResume(o: Opts, id: string): number {
   return 0;
 }
 
+/** The note acc done or acc block was given (D-106), or null when it was given none. */
+function noteFrom(o: Opts): NoteInput | null {
+  const n = noteInput({ landed: o.landed as string[] | undefined, moved: o.moved as string[] | undefined, open: o.open as string[] | undefined });
+  return noteGiven(n) ? n : null;
+}
+
 export const area: CommandArea = {
   help: {
     section: 'Agents',
@@ -263,8 +269,14 @@ export const area: CommandArea = {
                                         Without one, the builder's model (acc agents)
   acc dispatch --held                   Start the tasks that wait for others' files and may go now
   acc dispatch <id> --stop-waiting      It stops waiting, and stays to do
-  acc done [<id>]                       A builder's finish line: moves its task to review
-  acc block [<id>] "<reason>"           A builder's way out when stuck
+  acc done [<id>] --landed "<line>"... --moved "<line>"... --open "<line>"...
+                                        A builder's finish line: moves its task to review, with a note for
+                                        whoever comes next: what landed, which numbers moved (tests, checks,
+                                        ratchets), and what's still open. A builder must give all three. A
+                                        flag again adds a line; --moved none or --open none says there was
+                                        nothing
+  acc block [<id>] "<reason>" [--landed …] [--moved …] [--open …]
+                                        A builder's way out when stuck, with a note if it has one
   acc block [<id>] --client "<question>"
                                         Stuck on something only the client can answer: blocks, and drafts an
                                         update for the ticket that a person reviews before posting
@@ -303,6 +315,10 @@ export const area: CommandArea = {
     reason: { type: 'string' },
     message: { type: 'string' },
     none: { type: 'boolean', default: false },
+    // A builder's handoff note (D-106), a line each time a flag is given.
+    landed: { type: 'string', multiple: true },
+    moved: { type: 'string', multiple: true },
+    open: { type: 'string', multiple: true },
   },
   // --project names the project for acc init, and is a plain switch for acc agents set: give the switch a
   // value, so the Command Center's "for the project" works (D-036).
@@ -311,7 +327,7 @@ export const area: CommandArea = {
     agents: (o, rest) => cmdAgents(o, rest[0], rest[1]),
     machine: (o, rest) => cmdMachine(o, rest[0], rest[1]),
     dispatch: (o, rest) => cmdDispatch(o, rest[0]),
-    done: (o, rest) => cmdSet(o, taskIdFrom(rest[0]), 'review'),
+    done: (o, rest) => cmdSet(o, taskIdFrom(rest[0]), 'review', noteFrom(o)),
     block: (o, rest) => {
       const [first, ...more] = rest;
       // An id with words after it, or with --client, whose question is the reason: acc block ACME-7 --client "…".
@@ -321,7 +337,7 @@ export const area: CommandArea = {
       // A question for the client is the reason too, so the board says what it waits on.
       const reason = (o.reason as string | undefined) ?? ((looksLikeId ? more : rest).join(' ').trim() || (client ? `Waiting on the client: ${client}` : ''));
       if (!reason) throw new AccError('usage', 'acc block "<what you need>", or acc block --client "<question>" when only the client can answer');
-      return cmdSet({ ...o, reason }, id, 'blocked');
+      return cmdSet({ ...o, reason }, id, 'blocked', noteFrom(o));
     },
     resume: (o, rest) => {
       if (!rest[0]) throw new AccError('usage', 'acc resume <id> [--message "<text>"]');

@@ -9,7 +9,7 @@ import { matcher, ROOT, scanFiles, scanLine, type Terms } from '../packaging.ts'
 
 const config = JSON.parse(readFileSync(join(ROOT, '.acc', 'config.json'), 'utf8'));
 const steps = readdirSync(join(ROOT, 'extension', 'media', 'steps')).map((f) => `extension/media/steps/${f}`);
-const DOCS = ['README.md', 'docs/ONBOARDING.md', 'docs/FIRST-RUN.md', 'docs/TEMPLATES.md', 'extension/README.md', 'extension/package.json', ...steps];
+const DOCS = ['README.md', 'docs/ONBOARDING.md', 'docs/FIRST-RUN.md', 'docs/TEMPLATES.md', 'docs/RULES.md', 'extension/README.md', 'extension/package.json', ...steps];
 
 /** This repo's own account, commit email and name, as GH-60's scan would find them, and its address allowed. */
 const TERMS = (): Terms => ({
@@ -17,7 +17,7 @@ const TERMS = (): Terms => ({
   hosts: [], repos: [], allowed: [`github.com/${config.github.repo}`],
 });
 
-test('the README, the onboarding guide, the first run, the template guide and the extension\'s pages hold nothing personal: only the repo\'s own address', () => {
+test('the README, the onboarding guide, the first run, the template and rules guides and the extension\'s pages hold nothing personal: only the repo\'s own address', () => {
   assert.ok(steps.includes('extension/media/steps/A4.plugin.md'));
   const hits = scanFiles(DOCS.map((rel) => [rel, join(ROOT, rel)]), matcher(TERMS())).map((h) => `${h.file}:${h.line}: ${h.what}`);
   assert.deepEqual(hits, []);

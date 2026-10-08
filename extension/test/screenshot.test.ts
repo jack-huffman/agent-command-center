@@ -19,8 +19,9 @@ test('every section of the page, and a ticket, has sample data built by the real
     else if (kind.startsWith('slack-')) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).environments.slack?.state], ['home', 'environments', kind.slice('slack-'.length)]);
     // The Tasks tab with a monday.com board (GH-70).
     else if (kind === 'tasks-monday') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).tasks.projects[0]!.boards[0]!.kind], ['home', 'tasks', 'monday']);
-    // The Agents tab with How agents run opened by its Settings button (D-089).
-    else if (kind === 'agents-settings') assert.deepEqual([m.kind, (m as HomeModel).section], ['home', 'agents']);
+    // The Agents tab with agents that would bill per token (D-089), and Settings at How agents run (GH-110).
+    else if (kind === 'agents-billing') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).agents.billing?.tone], ['home', 'agents', 'orange']);
+    else if (kind === 'settings-agents') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).settings.agents.projects.length], ['home', 'settings', 2]);
     // Agents with its Where column showing full paths (GH-83).
     else if (kind === 'agents-path') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).agents.whereView], ['home', 'agents', 'path']);
     // The Overview with In progress busy, and with nothing running (D-092).
@@ -32,7 +33,7 @@ test('every section of the page, and a ticket, has sample data built by the real
     else assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).connect], ['home', kind === 'output' ? 'setup' : kind, null]);
   }
   assert.equal((sampleModel('agents') as HomeModel).agents.whereView, 'folder');
-  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-settings', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-limits']);
+  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-limits']);
   assert.equal((sampleModel('environments') as HomeModel).environments.slack?.state, 'on');
   // monday.com's Connect page: its token page, its board picked by name, and two status columns to choose from.
   const monday = (sampleModel('connect-monday') as HomeModel).connect!;
@@ -47,6 +48,9 @@ test('every section of the page, and a ticket, has sample data built by the real
   assert.ok(busy.groups.some((g) => g.done.length), 'a done line');
   assert.equal(busy.machine[0]!.look.label, 'Heavy checks: 2 of 2 in use, none free, 1 waiting');
   assert.equal((sampleModel('overview-idle') as HomeModel).overview.inProgress.empty, 'Nothing is running.');
+  // A task in review with its builder's note, two lines still open (D-106).
+  const noted = (sampleModel('ticket-note') as TicketModel).acc!.note!;
+  assert.deepEqual([noted.landed.length, noted.moved.length, noted.open.length, noted.fromLast], [2, 2, 2, false]);
   // A ticket acc doesn't keep yet, being tracked from its card (D-074).
   assert.deepEqual([(sampleModel('ticket-track') as TicketModel).trackable, (sampleModel('ticket-track') as TicketModel).tracking], [true, true]);
   // A ticket being built, one whose analysis has questions, and one too big for one task (D-052).
@@ -158,7 +162,7 @@ test('the colour check reads what a page gathered, and finds where two drawings 
   assert.deepEqual(colourDiffs(rows, other), [{ what: 'span::before', property: 'background-color', a: 'rgb(1, 1, 1)', b: 'rgb(9, 9, 9)' }]);
   assert.deepEqual(colourDiffs(rows, rows.slice(1)), [{ what: 'the page, from element 0', property: 'its elements', a: '2 elements, div.a there', b: '1 elements, span::before there' }], 'different elements differ as a whole');
   assert.deepEqual(colourDiffs(rows, rows.slice(0, 1)).map((d) => d.what), ['the page, from element 1'], 'and so does one with fewer');
-  assert.deepEqual(COLOUR_PAGES, ['overview', 'tasks', 'settings', 'ticket', 'agent']);
+  assert.deepEqual(COLOUR_PAGES, ['overview', 'tasks', 'settings', 'settings-agents', 'ticket', 'agent']);
 });
 
 test('the page\'s styles: what every area shares first, then each area\'s own by file name, each named for a module of the page (GH-95)', () => {

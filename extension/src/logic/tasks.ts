@@ -5,7 +5,7 @@
  */
 
 import { type Analysis, SIZE_MEANING } from '../../../packages/core/src/analyze.ts';
-import type { FileShare } from '../../../packages/core/src/ledger.ts';
+import { type FileShare, shownNote, type Task } from '../../../packages/core/src/ledger.ts';
 import { fileList, prConflicts, type RowFiles, shortPath, TASK_GROUPS, type TaskGroup, taskNames, type TaskRow } from './shared.ts';
 
 /** Whether a task to do would wait for others' files: it shares some, and another Ready task shares none (D-093). */
@@ -187,3 +187,24 @@ export function heldAsked(last: HeldAsk | undefined, key: string, now: number, d
   const delay = same ? Math.min((last?.key === key ? last.delay : HELD_ASK_MS) * 2, HELD_ASK_MAX_MS) : HELD_ASK_MS;
   return { key, at: now, delay };
 }
+
+/**
+ * A task drafted from a still-open line of a task's note (D-106), for a person to edit and confirm: the
+ * line as its title, a brief that cites the task, its run and the note's date, the same environment, and,
+ * while the task isn't done, a dependency on it. Null when the line isn't one of the note's.
+ */
+export function draftFromOpen(task: Pick<Task, 'id' | 'title' | 'environment' | 'state' | 'run'>, line: string): { title: string; brief: string; env: string; deps: string[] } | null {
+  const { note, fromLast } = shownNote(task);
+  if (!note || !note.open.includes(line)) return null;
+  const n = (task.run?.n ?? 1) - (fromLast ? 1 : 0);
+  return {
+    title: line,
+    brief: `Still open from ${task.id} (${task.title}), as its builder ${n} noted on ${note.at.slice(0, 10)}:\n\n${line}`,
+    env: task.environment,
+    deps: task.state === 'done' ? [] : [task.id],
+  };
+}
+
+/** acc add's arguments for a task drafted from a note's line (D-106). The title goes last and the brief after =, so a leading - is words. */
+export const addTaskArgs = (d: { title: string; brief: string; env: string; deps: string[] }): string[] =>
+  ['add', `--brief=${d.brief}`, '--env', d.env, ...d.deps.flatMap((x) => ['--dep', x]), '--json', '--', d.title];
