@@ -2,7 +2,7 @@
 // described for a person, and code reads no key or setting that isn't one (GH-107). A setting that does
 // nothing is worse than a missing one.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, test } from 'node:test';
@@ -102,6 +102,31 @@ test('a key read through a variable is found only in the files READ_IN names, an
   assert.match(say(gone!), /no `\.team` in extension\/src\/trackers\.ts \(extension\/src\/trackers\.ts isn't there\)/);
   const [none] = check({}, { readIn: {} });
   assert.match(say(none!), /^trackers\[\]\.team has no read found: it's read through a variable, and READ_IN in scripts\/settings\.ts names no file that reads it\./);
+});
+
+test('a READ_IN entry that pins the read counts only a read of the config, not the same name on something else', () => {
+  const pinned = { readIn: { 'trackers[].team': [{ file: 'extension/src/trackers.ts', via: /\bt\.team\b/g }] } };
+  const issueOnly = { 'extension/src/trackers.ts': 'export const team = (issue: Issue) => issue.team;\n' };
+  assert.deepEqual(check({}, pinned), [], 't.team reads it, and a global pattern is tested a line at a time all the same');
+  assert.deepEqual(check(issueOnly), [], 'unpinned, any .team counts');
+  const [other, ...rest] = check(issueOnly, pinned);
+  assert.equal(rest.length, 0);
+  assert.ok(say(other!).startsWith('trackers[].team has no read: no /\\bt\\.team\\b/g in extension/src/trackers.ts. '), say(other!));
+
+  // The real entries, on the real files with the config's read taken out: an issue's labels, or another
+  // .name, isn't a read of trackers[].labels or environments[].name.
+  for (const [key, file, read, unrelated] of [
+    ['trackers[].labels', 'packages/core/src/intake.ts', /\btracker\?\.labels\b/g, /\bi\.labels\b/],
+    ['environments[].name', 'packages/core/src/packet.ts', /\benv\.name\b/g, /\btask\.name\b/],
+  ] as const) {
+    const real = `${readFileSync(join(ROOT, file), 'utf8')}export const shown = (task: { name: string }) => task.name;\n`;
+    const without = real.replace(read, 'undefined');
+    assert.notEqual(without, real, `${file} reads ${key}`);
+    assert.match(without, unrelated, `${file} still reads .${key.split('.').pop()} off something else`);
+    const unreadIn = (text: string) => check({ [file]: text }, { keys: [key], readIn: { [key]: READ_IN[key]! } }).filter((f) => f.missing === 'read').map((f) => f.key);
+    assert.deepEqual(unreadIn(real), [], `${key} is read in ${file}`);
+    assert.deepEqual(unreadIn(without), [key], `only ${read.source} reads ${key}`);
+  }
 });
 
 test('a key DESIGN §4 doesn\'t describe is named, with the row to add or the parent row to extend', () => {

@@ -42,15 +42,19 @@ const TRACKER_CLIENTS = ['extension/src/trackers.ts'];
 const AGENT_FLAGS = ['packages/core/src/agents.ts'];
 const SETUP_STEPS = ['packages/core/src/onboarding/steps.ts'];
 
+/** A file that reads a key through a variable, or the file and the read itself, such as `tracker?.labels`. */
+export type ReadPlace = string | { file: string; via: RegExp };
+
 /**
  * Where code reads a key whose last part alone would match unrelated code: an environment's or a tracker's,
  * read through a variable such as env or t, an agent role's, which agentArgs reads, the secret scan's and the
- * template's. The check looks for `.<last part>` in these files only. Every other key is found by its
- * qualified read anywhere, such as `gates.severity` or `autopilot?.autoMerge`. When a read moves, the check
- * fails and names this list, so the pointer moves with it.
+ * template's. The check looks for `.<last part>` in these files only, or, where that file reads the same name
+ * off something else, such as an issue's labels, for the read of the config object the entry pins. Every
+ * other key is found by its qualified read anywhere, such as `gates.severity` or `autopilot?.autoMerge`. When
+ * a read moves, the check fails and names this list, so the pointer moves with it.
  */
-export const READ_IN: Partial<Record<ConfigPath, string[]>> = {
-  'environments[].name': ['packages/core/src/packet.ts'],
+export const READ_IN: Partial<Record<ConfigPath, ReadPlace[]>> = {
+  'environments[].name': [{ file: 'packages/core/src/packet.ts', via: /\benv\.name\b/ }],
   'environments[].type': ['packages/core/src/onboarding/steps.ts'],
   'environments[].org': ['packages/core/src/packet.ts'],
   'environments[].default': ['packages/core/src/config.ts'],
@@ -68,7 +72,7 @@ export const READ_IN: Partial<Record<ConfigPath, string[]>> = {
   'trackers[].prefix': TRACKER_CLIENTS,
   'trackers[].skipLabels': ['packages/core/src/intake.ts'],
   'trackers[].epic': TRACKER_CLIENTS,
-  'trackers[].labels': ['packages/core/src/intake.ts'],
+  'trackers[].labels': [{ file: 'packages/core/src/intake.ts', via: /\btracker\??\.labels\b/ }],
   'trackers[].areaPath': TRACKER_CLIENTS,
   'trackers[].group': TRACKER_CLIENTS,
   'trackers[].edits': ['packages/core/src/closing.ts'],
@@ -137,7 +141,7 @@ export interface SettingsInputs {
   keys: readonly string[];
   unread: Partial<Record<string, string>>;
   validatorOnly: Partial<Record<string, string>>;
-  readIn: Partial<Record<string, string[]>>;
+  readIn: Partial<Record<string, ReadPlace[]>>;
   rawReads: RawRead[];
   notReads: Record<string, string[] | 'all'>;
 }
@@ -236,9 +240,25 @@ const qualified = (key: string): RegExp => {
 /** `.leaf` on anything: a read through a variable, such as t.team. */
 const anyRead = (key: string): RegExp => new RegExp(`[\\w$)\\]][?!]?\\.${esc(leafOf(key))}\\b`);
 
+const fileOf = (p: ReadPlace): string => (typeof p === 'string' ? p : p.file);
+/** What a place's read looks like: `.leaf`, or the read it pins, tested a line at a time, so never global. */
+const readAt = (key: string, p: ReadPlace): RegExp => (typeof p === 'string' ? anyRead(key) : new RegExp(p.via.source, p.via.flags.replace(/[gy]/g, '')));
+/** What was looked for where, for a finding: `.team` in a.ts, nor /\btracker\??\.labels\b/ in b.ts. */
+const lookedFor = (key: string, places: ReadPlace[]): string => {
+  const plain = places.filter((p): p is string => typeof p === 'string');
+  const pinned = places.flatMap((p) => (typeof p === 'string' ? [] : [`${p.via} in ${p.file}`]));
+  return [...(plain.length ? [`\`.${leafOf(key)}\` in ${plain.join(', ')}`] : []), ...pinned].join(', nor ');
+};
+
 /** Where a key is read, as file:line, or null. */
-function readOf(key: string, files: Source[], readIn: string[] | undefined): string | null {
-  if (readIn) return firstHit(files.filter((s) => readIn.includes(s.file)), anyRead(key));
+function readOf(key: string, files: Source[], readIn: ReadPlace[] | undefined): string | null {
+  if (readIn) {
+    for (const p of readIn) {
+      const hit = firstHit(files.filter((s) => s.file === fileOf(p)), readAt(key, p));
+      if (hit) return hit;
+    }
+    return null;
+  }
   if (throughVariable(key)) return null;
   return firstHit(files, qualified(key));
 }
@@ -293,18 +313,18 @@ export function checkSettings(over: Partial<SettingsInputs> = {}): SettingsResul
   for (const key of i.keys) {
     const pointer = i.readIn[key];
     if (i.unread[key] !== undefined || i.validatorOnly[key] !== undefined) {
-      if (pointer) findings.push({ key, missing: 'listed', where: `is listed as not read, but READ_IN points at ${pointer.join(', ')}`, fix: 'Take it off READ_IN in scripts/settings.ts, or off the list.' });
+      if (pointer) findings.push({ key, missing: 'listed', where: `is listed as not read, but READ_IN points at ${pointer.map(fileOf).join(', ')}`, fix: 'Take it off READ_IN in scripts/settings.ts, or off the list.' });
       if (i.unread[key] === undefined) continue;
       // Read through a variable, such as a role's p?.fallbackModel, it's read where its siblings are.
-      const near = i.keys.filter((k) => k !== key && parentOf(k) === parentOf(key)).flatMap((k) => i.readIn[k] ?? []);
+      const near = i.keys.filter((k) => k !== key && parentOf(k) === parentOf(key)).flatMap((k) => (i.readIn[k] ?? []).map(fileOf));
       const hit = firstHit(files, throughVariable(key) ? anyRead(key) : qualified(key)) ?? firstHit(files.filter((s) => near.includes(s.file)), anyRead(key));
       if (hit) findings.push({ key, missing: 'listed', where: `is read in ${hit}; take it off the unread list`, fix: 'Take it out of UNREAD_KEYS in packages/core/src/config.ts: something reads it now.' });
       continue;
     }
     counted.reads++;
-    const missingFiles = (pointer ?? []).filter((f) => !existsSync(join(i.root, f)));
+    const missingFiles = (pointer ?? []).map(fileOf).filter((f) => !existsSync(join(i.root, f)));
     if (readOf(key, files, pointer)) continue;
-    const looked = pointer ? `has no read: no \`.${leafOf(key)}\` in ${pointer.join(', ')}${missingFiles.length ? ` (${missingFiles.join(', ')} isn't there)` : ''}`
+    const looked = pointer ? `has no read: no ${lookedFor(key, pointer)}${missingFiles.length ? ` (${missingFiles.join(', ')} isn't there)` : ''}`
       : throughVariable(key) ? 'has no read found: it\'s read through a variable, and READ_IN in scripts/settings.ts names no file that reads it'
         : `has no read: no \`${parentOf(key) ? leafOf(parentOf(key)) : 'config'}.${leafOf(key)}\` in ${SOURCE_DIRS.join(', ')}, outside the tests and config.ts's validator`;
     findings.push({ key, missing: 'read', where: looked, fix: `Read it, take it out of Config and CONFIG_KEYS, or ${listFix}. If its read moved, point READ_IN in scripts/settings.ts at the file that reads it now.` });
