@@ -111,6 +111,7 @@ the test that reads it.
 | `<git-common-dir>/acc/events.jsonl` | no | Append-only log of every change |
 | `<git-common-dir>/acc/receipts/<sha>/<gate>.json` | no | Check results, tied to a commit |
 | `<git-common-dir>/acc/reviews/<task>-<sha>.json` | no | Reviewer verdicts |
+| `<git-common-dir>/acc/rules/<id>.<n>.json` | no | What a person did with each rule suggested from the reviews: accepted, with the task it added, or dismissed, with the findings it had (GH-102, [section 10](#10-review)) |
 | `<git-common-dir>/acc/packets/<task>.md` | no | The rendered instructions each builder got |
 | `<git-common-dir>/acc/logs/` | no | Full check output |
 | `~/.acc/` | n/a | Machine-wide: `repos.json`, the roots of the repos acc set up here and nothing else, each one's config read when it's needed (GH-81); the heavy-check semaphore (`heavy/`) and how many it allows (`machine.json`); the runtime acc's launcher falls back to (`runtime`); Slack notices already sent (`slack/sent/`) |
@@ -646,14 +647,68 @@ session can be watched like any agent's.
 - **It skips formatting,** which the checks already cover.
 - **Its verdict:** `{ "verdict": "pass" | "changes", "summary", "criteria":
   [{ "text", "met", "evidence" }], "findings": [{ "message", "must", "file",
-  "line", "rule" }] }`. A pass with a finding that must be fixed counts as
+  "line", "rule", "kind" }] }`. A pass with a finding that must be fixed counts as
   changes. Verdicts are kept at `<git-common-dir>/acc/reviews/<task>-<sha>.json`.
+  `kind` is optional: a few words naming the kind of problem. The reviewer is
+  shown the kinds earlier reviews named, most used first, to reuse (GH-102).
 - **On `changes`:** the task moves to `rework`, and the findings are added to
   the packet for the next run.
 - **Profiles add their own checks** (D-003), as the profile's rules: the first
   part of the Rules section the builder gets too ([section 8](#8-the-packet)).
   Salesforce asks about bulk safety, sharing and field access, tests that
   assert outcomes, and org-specific values in metadata.
+
+### Findings that keep coming back (GH-102)
+
+Every verdict is kept, so acc can see the same finding turn up in task after
+task, and offer it as a rule, then as a check. A rule written only in prose
+decays; one a tool checks holds.
+
+- **Grouping.** acc reads every verdict in the clone, for any environment and
+  any task state, skipping a review under way. A finding that cites a rule
+  groups by that rule: its source tags (`CLAUDE.md:`, `(CLAUDE.md)`, `Task:`),
+  parentheticals and anything after the first `:` or `;` are dropped, and what's
+  left is compared by its words, so the many ways a reviewer writes one rule
+  land in one group. A cite that starts with a decision id (`D-072`) groups by
+  the id. A finding that cites none groups by its `kind`, or else by its first
+  sentence with paths, identifiers, code and numbers left out. Each finding
+  joins the group whose first finding shares enough of its words (0.6 for a
+  rule, 0.5 for wording), oldest first, or starts its own.
+- **The threshold.** A group is offered at 3 or more findings across at least 2
+  tasks. A finding counts once per task and file: a later review of the same
+  task repeating it on the same file isn't a new one, and the same rule in
+  another file of the task is. Both blocking and non-blocking findings count,
+  and the card says how many were must.
+- **Rule or check.** When the rule is already written (a line in
+  `.acc/rules.md`, a copy in `.acc/rules/`, `CLAUDE.md` or `AGENTS.md`, a
+  decision, or a file the cite names), the offer is a check: "Already a rule
+  (CLAUDE.md). It keeps coming back: add a check". Otherwise it's a rule, with a
+  drafted line for `.acc/rules.md`: the cited rule, or the first finding's first
+  sentence. A wording hint (lint, test or gate) only sets the draft's check to
+  begin with.
+- **In the Command Center.** Each offer is under Needs you, after the orange
+  items, in a neutral tone with an icon and a label (Rule suggested, Check
+  suggested), and never counts in the badge. It shows the line, the counts and a
+  link per finding to its review, which opens the reviewer's session as Watch
+  the review does. `acc rules suggested [--all]` lists the same.
+- **Accept.** Accept opens a draft of the task: the line, the title, Ask for a
+  check too (a lint, test or gate, always on for a check), and notes for the
+  builder. Nothing is added until Confirm, which runs `acc rules accept`: one
+  manual task in To do, whose brief holds the line, the check as an acceptance
+  criterion that names the check beside the rule, and every finding with its
+  review and reviewer session. Autopilot doesn't start To do tasks, and the
+  task's pull request changes `.acc/`, which a person merges.
+- **Dismiss and return.** `acc rules dismiss` records the findings the group had.
+  It stays hidden until 3 more places join it; then it's shown again, saying it
+  was dismissed. One accepted as a rule that comes back 3 more times is offered
+  again, as a check. Records match a group by its findings, not its id.
+- **Only a person.** Working out the offers only reads. Accept and dismiss each
+  write one record under `<git-common-dir>/acc/rules/`, and accept adds the
+  task; both refuse a builder, reviewer, analyst or autopilot, and guardBash and
+  the builder's deny list block them. acc never writes `.acc/rules.md`.
+- **Per clone.** Reviews, offers and dismissals are this clone's, as reviews and
+  ticket updates are (D-008): a teammate's clone, with other reviews, sees other
+  offers.
 
 ## 11. Landing
 
