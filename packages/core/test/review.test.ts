@@ -9,6 +9,7 @@ import { runGates, waiveGates } from '../src/gates.ts';
 import { mutate, readLedger, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
 import { latestVerdict, parseReview, readVerdict, review, reviewing, reviewPrompt } from '../src/review.ts';
+import { rulesText } from '../src/rules.ts';
 import { fakeAwake, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo } from './support.ts';
 
 const now = () => new Date('2026-10-02T12:00:00Z');
@@ -136,13 +137,16 @@ test('the verdict is read strictly: a pass with something that must be fixed is 
   assert.deepEqual([verdict.criteria[0]!.met, 'line' in verdict.findings[0]!], [false, false], 'only well-formed values are kept');
 });
 
-test('the reviewer is told to judge each criterion and skip style, with the profile\'s own checks for Salesforce', () => {
+test('the reviewer is told to judge each criterion and skip style, and Salesforce\'s own checks come first among its rules (GH-108)', () => {
   const base = { task: { id: 'T-1', title: 'x' } as never, envName: 'Dev', envBranch: 'dev', sha: 'abcdef1234', packet: 'p', diff: 'd', stat: 's', checks: [], rules: null };
-  const sf = reviewPrompt({ ...base, config: { profile: 'salesforce' } as never });
+  const dir = makeRepo();
+  const sf = reviewPrompt({ ...base, config: { profile: 'salesforce' } as never, rules: rulesText(dir, 'salesforce') });
   assert.match(sf.system, /acceptance criterion/);
   assert.match(sf.system, /Skip formatting/);
-  assert.match(sf.system, /bulk-safe/);
-  assert.ok(!reviewPrompt({ ...base, config: { profile: 'generic' } as never }).system.includes('Apex'), 'the core stays project-agnostic');
+  assert.ok(!sf.system.includes('bulk-safe'), 'the profile\'s rules are said once, among the rules, not again here');
+  assert.match(sf.prompt, /## Rules\n\n.*this repo's own rules win over the others\.\n\n### The Salesforce profile's rules\n\n- Apex is bulk-safe/);
+  const generic = reviewPrompt({ ...base, config: { profile: 'generic' } as never, rules: rulesText(dir, 'generic') });
+  assert.ok(!generic.system.includes('Apex') && !generic.prompt.includes('Apex'), 'the core stays project-agnostic');
   assert.match(reviewPrompt({ ...base, config: { profile: 'generic' } as never, diff: 'x'.repeat(200_000) }).prompt, /too long to include/);
 });
 

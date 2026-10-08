@@ -104,7 +104,8 @@ the test that reads it.
 | Path | In git? | Holds |
 |---|---|---|
 | `.acc/config.json` | yes | Project settings ([section 4](#4-config)) |
-| `.acc/rules.md` | yes, optional | Project rules the reviewer checks |
+| `.acc/rules.md` | yes, optional | The repo's own rules, which builders, reviewers and the analyst keep to. They win over every other ([section 8](#8-the-packet)) |
+| `.acc/rules/<name>.md` | yes, optional | Rules copied in from elsewhere by `acc rules import`, each after a header naming its source, the commit or date it was copied, and its sha256 (GH-108, [docs/RULES.md](RULES.md)) |
 | `.acc/packet.md` | yes, optional | Override for the builder's instructions template |
 | `<git-common-dir>/acc/ledger.json` | no | Tasks: the current snapshot |
 | `<git-common-dir>/acc/events.jsonl` | no | Append-only log of every change |
@@ -209,6 +210,20 @@ doesn't know, at any level (GH-107).
 | `secretScan.paths`, `secretScan.exclude` | Where setup's B3.secrets step looks for credentials in tracked files, and what it skips there. By default the whole repo, or in Salesforce `force-app`, `config` and `scripts`, skipping nothing |
 | `analysis.required` | Whether a task needs an analysis before it's built (D-052). Left out, a Salesforce project's do and a generic one's don't |
 | `template` | The team template the project was started from, written by `acc init --from`: its `name`, its `source` (a GitHub file URL, `<git-url>#<path>`, or a path inside the repo, under `~/`, or an absolute path elsewhere) and its `digest` (`sha256:` of its JSON with sorted keys). Setup's B0.template step says when the template has changed and the project now differs; nothing re-applies it ([docs/TEMPLATES.md](TEMPLATES.md), D-097) |
+
+**Shared rules are copied in, not linked (GH-108).** A team's rules, such as
+its Apex standards, reach a project as a copy in `.acc/rules/<name>.md`, never
+as a path or URL read at run time, so a source that moves or goes changes
+nothing here. `acc rules import <source>` makes the copy. The source is a path,
+a GitHub file URL or `<git-url>#<path>`, fetched and refused as a team
+template's is (D-097), and the copy starts with a header naming where it came
+from. A team template's `rules` key names files to copy in when `acc init
+--from` starts the project. No config key records them: each copy's header is
+the only record. Setup's B0.rules step reads each source again, within 20
+seconds for all of them, and says when one has changed. A person runs `acc
+rules diff` to see how, and `acc rules import <source> --name <name> --force`
+to take it. Copies live under `.acc/`, so the merge queue and autopilot leave
+a change to them for a person to merge ([docs/RULES.md](RULES.md)).
 
 ## 5. Tasks and the ledger
 
@@ -451,7 +466,16 @@ or from the project's `.acc/packet.md` if there is one. It contains:
   - edit files outside the worktree
   - edit an environment-specific file
   - change the ticket
-- **Rules:** the profile's rules and the project's `.acc/rules.md`.
+- **Rules:** one section, in a fixed order (GH-108). First the profile's rules
+  (Salesforce's: bulk-safe Apex, sharing and field access, tests that assert
+  outcomes, no org-specific values in metadata; a generic project has none),
+  then each copy in `.acc/rules/` by file name, under a heading naming its
+  source, then `.acc/rules.md`. A sentence before them says the later one
+  wins, so the repo's own rules win where they conflict. They're read from the
+  task's worktree, so a copy reaches builders once it's committed on the
+  environment's branch. The copies' headers aren't sent. The reviewer and the
+  analyst get the same section in the same order. The analyst reads it from
+  the main checkout.
 
 When the session resumes or compacts, the SessionStart hook injects a short
 version again.
@@ -565,9 +589,10 @@ session can be watched like any agent's.
   changes. Verdicts are kept at `<git-common-dir>/acc/reviews/<task>-<sha>.json`.
 - **On `changes`:** the task moves to `rework`, and the findings are added to
   the packet for the next run.
-- **Profiles add their own checks** (D-003). Salesforce asks about bulk safety,
-  sharing and field access, tests that assert outcomes, and org-specific values
-  in metadata.
+- **Profiles add their own checks** (D-003), as the profile's rules: the first
+  part of the Rules section the builder gets too ([section 8](#8-the-packet)).
+  Salesforce asks about bulk safety, sharing and field access, tests that
+  assert outcomes, and org-specific values in metadata.
 
 ## 11. Landing
 
