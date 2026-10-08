@@ -140,7 +140,8 @@ const withoutExt = (path: string): string => path.replace(CODE, '');
  * A file a folder's index gathers is also near the tests of that index and of what loads it (GH-95), as
  * the tests that run packages/cli/src/main.ts test every module in its commands/ folder. An index is a
  * file that imports the changed file and most of the other code in its folder; what loads it is any other
- * code in the package that imports it by its path.
+ * code in the package that imports it by its path. An index named index has as its own tests those named
+ * for it or that load it by its path or its folder's (GH-117), not any that quotes a path ending in index.
  *
  * `tracked` is every file in the checkout; `read` gives a file's text, and is asked once a file. Paths
  * are the repo's, sorted, each once.
@@ -164,8 +165,8 @@ export function nearTests(changed: string[], tracked: string[], read: (path: str
   // A file imports an index by its path, or by its folder's when it's named index: './commands'.
   const importsIndex = (f: string, index: string): boolean => pathsIn(f).has(withoutExt(index)) || (/^index\./.test(posix.basename(index)) && pathsIn(f).has(folderOf(index)));
 
-  /** The tests in a file's package named for it or importing it by name. */
-  const nearOne = (f: string): string[] => {
+  /** The tests in a file's package named for it, or that `loads` says load it: by default, any importing it by name. */
+  const nearOne = (f: string, loads?: (t: string) => boolean): string[] => {
     const base = f.split('/').at(-1)!;
     const stem = base.replace(/\.[^.]+$/, '');
     if (!stem || stem === base) return [];
@@ -173,8 +174,13 @@ export function nearTests(changed: string[], tracked: string[], read: (path: str
     const named = new RegExp(`(^|/)(${escape(stem)}[._](test|spec)\\.\\w+|test_${escape(stem)}\\.\\w+)$`);
     // An import or require that names the file: '../src/merge.ts', './merge', "pkg/merge.js".
     const imports = new RegExp(`['"\`][^'"\`\\n]*\\/${escape(stem)}(\\.[cm]?[jt]sx?)?['"\`]`);
-    return tests.filter((t) => (!pkg || t.startsWith(`${pkg}/`)) && (named.test(t) || imports.test(text(t))));
+    return tests.filter((t) => (!pkg || t.startsWith(`${pkg}/`)) && (named.test(t) || (loads ? loads(t) : imports.test(text(t)))));
   };
+  // A file named index is named for its folder, and many folders have one, so its tests are those that load it
+  // by its path or its folder's (GH-117): a test that quotes 'packages/cli/src/commands/index.ts' isn't near
+  // every module core's index gathers. Any other index's name is its own, and its tests may load its build
+  // instead, as activate.test.ts loads dist/extension.js, so they're found by name.
+  const nearIndex = (index: string): string[] => (/^index\./.test(posix.basename(index)) ? nearOne(index, (t) => importsIndex(t, index)) : nearOne(index));
 
   /** The indexes that gather a file: code in its folder that imports it and more than half the rest. */
   const indexesOf = (f: string): string[] => {
@@ -194,7 +200,7 @@ export function nearTests(changed: string[], tracked: string[], read: (path: str
     const pkg = packageOf(f, files);
     for (const index of indexesOf(f)) {
       const loaders = code.filter((c) => c !== index && (!pkg || c.startsWith(`${pkg}/`)) && importsIndex(c, index));
-      for (const g of [index, ...loaders]) for (const t of nearOne(g)) out.add(t);
+      for (const t of [...nearIndex(index), ...loaders.flatMap((g) => nearOne(g))]) out.add(t);
     }
   }
   return [...out].sort();

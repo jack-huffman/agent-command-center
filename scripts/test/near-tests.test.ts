@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { nearTests } from '../../packages/core/src/gates.ts';
 import { fakeBin, tempDir } from '../../packages/core/test/support.ts';
-import { areaFiles, FOLDERS } from '../areas.ts';
+import { areaFiles, CORE_INDEX, FOLDERS } from '../areas.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..');
 const PASS = 'import { test } from \'node:test\';\ntest(\'a near test passes\', () => {});\n';
@@ -64,15 +64,17 @@ test('the gate passes when no test is near the change, running nothing, and fail
   assert.match(unset.out, /ACC_NEAR_TESTS isn't set/);
 });
 
+/** This checkout's files, and a file's text, as acc gives nearTests them. */
+const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8' }).split('\0').filter(Boolean);
+const read = (f: string): string | null => {
+  try {
+    return readFileSync(join(ROOT, f), 'utf8');
+  } catch {
+    return null;
+  }
+};
+
 test('after the split (D-099), every area module has tests near it: the CLI\'s are cli.test.ts, and an extension area\'s include its entry\'s', () => {
-  const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8' }).split('\0').filter(Boolean);
-  const read = (f: string): string | null => {
-    try {
-      return readFileSync(join(ROOT, f), 'utf8');
-    } catch {
-      return null;
-    }
-  };
   // What loads each folder's index, whose tests count for every module in it.
   const entry: Record<string, string> = {
     'packages/cli/src/commands': 'packages/cli/test/cli.test.ts',
@@ -89,4 +91,30 @@ test('after the split (D-099), every area module has tests near it: the CLI\'s a
     }
   }
   assert.ok(checked >= 50, `${checked} area modules`);
+});
+
+test('a module of core is near its own tests and the one that loads core\'s index by its path, not gates.test.ts, which only quotes indexes (GH-117)', () => {
+  const index = `${CORE_INDEX.dir}/${CORE_INDEX.index}`;
+  const lock = 'packages/core/test/lock.test.ts';
+  const gates = 'packages/core/test/gates.test.ts';
+  assert.ok(read(lock)?.includes('\'../src/index.ts\''), 'lock.test.ts loads core\'s index by its path');
+  let checked = 0;
+  for (const m of tracked.filter((f) => f.startsWith(`${CORE_INDEX.dir}/`) && /^[^/]+\.ts$/.test(f.slice(CORE_INDEX.dir.length + 1)) && f !== index)) {
+    const stem = m.split('/').at(-1)!.replace(/\.ts$/, '');
+    // Its own tests: named for it, or naming a path that ends in it.
+    const own = (t: string): boolean => t.endsWith(`/${stem}.test.ts`) || new RegExp(`['"\`][^'"\`\\n]*/${stem}(\\.[cm]?[jt]sx?)?['"\`]`).test(read(t) ?? '');
+    const near = nearTests([m], tracked, read);
+    assert.ok(near.includes(lock), `${m}: core's index gathers it, and lock.test.ts loads that`);
+    assert.deepEqual(near.filter((t) => t !== lock && !own(t)), [], `${m}: nothing else the index adds`);
+    assert.equal(near.includes(gates), own(gates), `${m}: gates.test.ts only if it names it`);
+    checked++;
+  }
+  assert.ok(checked >= 40, `${checked} modules of core`);
+});
+
+test('a module extension.ts gathers is near activate.test.ts, which loads its build, so an index named for itself is still found by name (GH-117)', () => {
+  const entry = 'extension/src/extension.ts';
+  const gathered = [...read(entry)!.matchAll(/from '\.\/([^'/]+\.ts)'/g)].map((m) => `extension/src/${m[1]}`).filter((f) => tracked.includes(f));
+  for (const f of gathered) assert.ok(nearTests([f], tracked, read).includes('extension/test/activate.test.ts'), f);
+  assert.ok(gathered.length >= 15, `${gathered.length} modules extension.ts gathers`);
 });

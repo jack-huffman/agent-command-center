@@ -498,6 +498,32 @@ test('a file a folder\'s index gathers is near the tests of that index and of wh
   assert.deepEqual(near(['packages/core/src/ledger.ts']), ['packages/core/test/ledger.test.ts'], 'dispatch.ts imports it, but gathers too little of its folder to count');
 });
 
+test('a file named index has as its tests those that load it by its path, not any that quotes a path ending in index; another index is still found by name (GH-117)', () => {
+  // Fixture texts keep their quotes escaped, so this file loads no index by its path itself.
+  const text: Record<string, string> = {
+    'packages/core/src/index.ts': ['config', 'held', 'ledger'].map((m) => `export * from './${m}.ts';\n`).join(''),
+    'packages/core/test/gates.test.ts': 'const tracked = [\'packages/cli/src/commands/index.ts\', \'packages/core/src/index.ts\'];\n',
+    'packages/core/test/fixture.test.ts': "const text = 'import { a } from \\'../src/index.ts\\';';\n",
+    'packages/core/test/lock.test.ts': 'const coreSrc = fileURLToPath(new URL(\'../src/index.ts\', import.meta.url));\n',
+    'packages/core/test/barrel.test.ts': 'import * as core from \'../src\';\n',
+    'packages/core/test/index.test.ts': '',
+    'packages/core/test/held.test.ts': '',
+    'packages/cli/test/cli.test.ts': 'import { readLedger } from \'../../core/src/index.ts\';\n',
+    // An index with a name of its own, whose tests load its build.
+    'extension/src/extension.ts': 'import { Hub } from \'./hub.ts\';\nimport { runs } from \'./runs.ts\';\nimport { tasks } from \'./tasks.ts\';\n',
+    'extension/test/activate.test.ts': 'const dist = fileURLToPath(new URL(\'../dist/extension.js\', import.meta.url));\n',
+  };
+  const tracked = [
+    ...Object.keys(text), 'packages/core/src/config.ts', 'packages/core/src/held.ts', 'packages/core/src/ledger.ts',
+    'extension/package.json', 'extension/src/hub.ts', 'extension/src/runs.ts', 'extension/src/tasks.ts',
+  ];
+  const near = (changed: string[]) => nearTests(changed, tracked, (f) => text[f] ?? '');
+  const loaders = ['packages/core/test/barrel.test.ts', 'packages/core/test/index.test.ts', 'packages/core/test/lock.test.ts'];
+  assert.deepEqual(near(['packages/core/src/config.ts']), loaders, 'by its path or its folder\'s, or named for it; not data that names an index, nor an escaped fixture, nor another package');
+  assert.deepEqual(near(['packages/core/src/held.ts']), [...loaders, 'packages/core/test/held.test.ts'].sort(), 'and its own');
+  assert.deepEqual(near(['extension/src/hub.ts']), ['extension/test/activate.test.ts'], 'an index named for itself is still found by name');
+});
+
 test('the tests near a change read each file once, however many files changed (GH-95)', () => {
   const tracked = ['src/a.ts', 'src/b.ts', 'src/c.ts', 'src/index.ts', 'test/a.test.ts', 'test/b.test.ts', 'test/all.test.ts'];
   const text: Record<string, string> = { 'src/index.ts': 'export * from \'./a.ts\';\nexport * from \'./b.ts\';\nexport * from \'./c.ts\';\n', 'test/all.test.ts': 'import { a } from \'../src/index.ts\';\n' };
