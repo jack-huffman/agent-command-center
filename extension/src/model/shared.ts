@@ -8,6 +8,7 @@ import type { AutopilotRecord } from '../../../packages/core/src/autopilot-log.t
 import type { SessionTie } from '../../../packages/core/src/ledger.ts';
 import type { Environment, Tracker } from '../../../packages/core/src/config.ts';
 import type { HistoryRecord, Question } from '../../../packages/core/src/questions.ts';
+import type { Suggestion } from '../../../packages/core/src/rule-suggestions.ts';
 import type { Update } from '../../../packages/core/src/updates.ts';
 import type { AgentSession, TaskRow, Tone } from '../logic/shared.ts';
 import { displayName, ownsSession } from '../logic/agents.ts';
@@ -81,6 +82,8 @@ export interface HubLike {
   autopilotLog?(root: string): AutopilotRecord[];
   /** The updates acc drafted for a project's tickets, posted or not (D-066). */
   updates?(root: string): Update[];
+  /** The rules suggested by a project's review findings that keep coming back, not yet accepted or dismissed (GH-102). */
+  suggestions?(root: string): Suggestion[];
   /** Agents' questions waiting in the Command Center (D-030). */
   questions?: Question[];
   /** How earlier questions ended (D-037). */

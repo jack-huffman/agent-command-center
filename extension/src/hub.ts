@@ -13,6 +13,8 @@ import type { RepoPaths } from '../../packages/core/src/paths.ts';
 import { type HistoryRecord, listeners, type Question, questionsDir } from '../../packages/core/src/questions.ts';
 import { rememberRepo } from '../../packages/core/src/repos.ts';
 import { reviewing } from '../../packages/core/src/review.ts';
+import { type Suggestion, suggestRules, WRITTEN_RULE_FILES } from '../../packages/core/src/rule-suggestions.ts';
+import { RULES_DIR } from '../../packages/core/src/rules.ts';
 import { type HeavyState, heavyState } from '../../packages/core/src/semaphore.ts';
 import { claudeProjectsDir, lastModelIn, lastSaidIn, transcriptFile } from '../../packages/core/src/transcript.ts';
 import { readUpdate, type Update, UPDATE_ID } from '../../packages/core/src/updates.ts';
@@ -55,6 +57,10 @@ const TICK_MS = 15_000;
 
 /** And its tickets' draft updates (D-066). */
 const updatesOf = (p: Pick<Project, 'ledgerPath'>): Pick<RepoPaths, 'updates'> => ({ updates: join(dirname(p.ledgerPath), 'updates') });
+
+/** Where a project's reviews and what a person did with each suggested rule are kept (GH-102). */
+const suggestionsOf = (p: Pick<Project, 'ledgerPath' | 'root'>): Pick<RepoPaths, 'root' | 'reviews' | 'suggestions'> =>
+  ({ root: p.root, reviews: join(dirname(p.ledgerPath), 'reviews'), suggestions: join(dirname(p.ledgerPath), 'rules') });
 
 /** Something read from a file, kept with the file's stamp until it changes. */
 interface Read<T> {
@@ -125,6 +131,8 @@ export class Hub implements vscode.Disposable {
   /** Each ticket update read, by file, kept until it changes; and each repo's, by ledger, as of the last load (D-066). */
   private readonly updateFiles = new Map<string, { stamp: string; update: Update | null }>();
   private readonly repoUpdates = new Map<string, Update[]>();
+  /** Each project's suggested rules, by root, kept until its reviews, its records or its written rules change (GH-102). */
+  private readonly ruleSuggestions = new Map<string, { stamp: string; suggestions: Suggestion[] }>();
   /** The last thing each stopped builder said, by session, kept until its transcript changes (D-067). */
   private readonly said = new Map<string, Read<string>>();
   /** The model each agent last answered with, by session, kept until its transcript changes (D-086). */
@@ -245,7 +253,9 @@ export class Hub implements vscode.Disposable {
     let changed = false;
     const read = new Set<string>();
     for (const p of this.projects) {
-      const stamp = `${stampOf(p.ledgerPath) ?? 0}|${stampOf(analysesOf(p).analyses) ?? 0}|${stampOf(updatesOf(p).updates) ?? 0}`;
+      // A verdict on a task that moved meanwhile writes no event, so the reviews folder is watched too (GH-102).
+      const store = suggestionsOf(p);
+      const stamp = [p.ledgerPath, analysesOf(p).analyses, updatesOf(p).updates, store.reviews, store.suggestions].map((f) => stampOf(f) ?? 0).join('|');
       const cached = this.tasks.get(p.root);
       if (!force && cached && cached.stamp === stamp) continue;
       // A task that moved can finish its agents (D-095).
@@ -269,6 +279,27 @@ export class Hub implements vscode.Disposable {
       changed = true;
     }
     if (changed || force) this.emitter.fire('tasks');
+  }
+
+  /**
+   * The rules a project's review findings suggest, not yet accepted or dismissed (GH-102). Worked out again
+   * only when a verdict is added, a person acts on one, or a file of written rules changes; it only reads.
+   */
+  suggestions(root: string): Suggestion[] {
+    const p = this.project(root);
+    if (!p) return [];
+    const store = suggestionsOf(p);
+    const stamp = [store.reviews, store.suggestions, join(p.root, RULES_DIR), ...WRITTEN_RULE_FILES.map((f) => join(p.root, f))].map((f) => stampOf(f) ?? 0).join('|');
+    const cached = this.ruleSuggestions.get(p.root);
+    if (cached?.stamp === stamp) return cached.suggestions;
+    let suggestions: Suggestion[] = [];
+    try {
+      suggestions = suggestRules(store) as Suggestion[];
+    } catch {
+      suggestions = cached?.suggestions ?? []; // mid-write: keep what we had
+    }
+    this.ruleSuggestions.set(p.root, { stamp, suggestions });
+    return suggestions;
   }
 
   /** A project's ticket updates, oldest first: drafts, those being posted, and what's done with (D-066). */

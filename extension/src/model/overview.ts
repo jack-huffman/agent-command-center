@@ -9,6 +9,7 @@ import type { ProgressModel } from '../progress.ts';
 import type { HistoryItem } from './history.ts';
 import type { QuestionCard } from './questions.ts';
 import { type Action, type HomeSection, type HubLike, type Look, LOOK, type ModelArea, type Ref } from './shared.ts';
+import type { RuleCard } from './rules.ts';
 import type { UpdateCard } from './updates.ts';
 import type { HomeInput } from './home.ts';
 import { autoMergeOn } from '../../../packages/core/src/config.ts';
@@ -30,6 +31,8 @@ export interface AttentionItem {
   analysis?: { project: string; task: string; questions: AnalysisAsk[]; canAsk?: boolean };
   /** An update for a ticket, to post or discard right here, or edit on its task's page (D-066). */
   update?: UpdateCard;
+  /** A rule or check suggested by a review finding that keeps coming back, to accept or dismiss right here (GH-102). */
+  rule?: RuleCard;
 }
 
 export interface StatTile {
