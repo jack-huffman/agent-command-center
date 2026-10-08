@@ -101,6 +101,8 @@ export interface AgentLook {
   icon: string;
   tone: Tone;
   needsYou: boolean;
+  /** At work now: the Agents page's header counts these (GH-119). */
+  working?: boolean;
 }
 
 /** What an agent's waiting question asks for, in a few words, from the tool it's about (D-030). */
@@ -126,7 +128,7 @@ export function agentLook(s: AgentSession, asking?: string | null, tie?: Session
   if (finishedSession(s, tie)) return { label: 'Finished', icon: 'check', tone: 'neutral', needsYou: false };
   if (s.state === 'blocked' || s.status === 'waiting') return { label: s.waitingFor ? `Needs you: ${s.waitingFor}` : 'Needs you', icon: 'bell', tone: 'orange', needsYou: true };
   if (s.state === 'failed') return { label: 'Failed', icon: 'warning', tone: 'orange', needsYou: true };
-  if (s.state === 'working' || s.status === 'busy') return { label: 'Working', icon: 'sync~spin', tone: 'blue', needsYou: false };
+  if (s.state === 'working' || s.status === 'busy') return { label: 'Working', icon: 'sync~spin', tone: 'blue', needsYou: false, working: true };
   if (s.state === 'done') return { label: 'Done', icon: 'check', tone: 'neutral', needsYou: false };
   if (s.state === 'stopped') return { label: 'Stopped', icon: 'debug-stop', tone: 'neutral', needsYou: false };
   return { label: s.pid ? 'Idle' : 'Idle (exited)', icon: 'circle-outline', tone: 'neutral', needsYou: false };

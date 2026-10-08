@@ -771,7 +771,8 @@ export function readRuns(file: string, prev?: RunsLog): RunsLog | undefined {
  * way. Read from the repo's ledger and what sits beside it.
  */
 export interface RepoAgents {
-  tasks: Pick<Task, 'id' | 'state' | 'run'>[];
+  /** Its tasks, with their titles where it has them: the Agents page heads each task's agents with it (GH-119). */
+  tasks: (Pick<Task, 'id' | 'state' | 'run'> & Partial<Pick<Task, 'title'>>)[];
   runs: RunRecord[];
   verdicts: { task: string; sessionId: string }[];
   /** Each task's current analysis: one a task, replaced when it's analyzed again. */
@@ -787,6 +788,10 @@ export interface SessionTie {
   finished: boolean;
   /** Why it's finished: its task is done, its task has a later run, or its verdict or analysis is recorded. */
   why: 'done' | 'later-run' | 'reviewed' | 'analyzed' | null;
+  /** Its task's title, when the ledger has it: the Agents page names a task elsewhere by it (GH-119). */
+  title?: string;
+  /** A builder's run's count, when its dispatch recorded one: the second is "builder 2" (D-087). */
+  n?: number;
 }
 
 /** Whether a recorded run is the task's current one, by its count or its ids. */
@@ -803,19 +808,24 @@ const currentRun = (r: RunRecord, run: Run | null | undefined): boolean =>
  */
 export function tieSession(s: ClaudeSession, repo: RepoAgents): SessionTie | null {
   const tasks = new Map(repo.tasks.map((t) => [t.id, t]));
+  // Its task's title and its run's count go with it, where the ledger has them (GH-119).
+  const tie = (task: string, role: SessionTie['role'], why: SessionTie['why'], n?: number): SessionTie => {
+    const title = tasks.get(task)?.title;
+    return { task, role, finished: why !== null, why, ...(title ? { title } : {}), ...(n !== undefined ? { n } : {}) };
+  };
   const sid = s.sessionId;
   const live = sid ? repo.live.find((l) => l.sessionId === sid && tasks.has(l.task)) : undefined;
-  if (live) return { task: live.task, role: live.role, finished: false, why: null };
+  if (live) return tie(live.task, live.role, null);
   const built = repo.tasks.find((t) => !!t.run && sessionsOf(t, [s]).length > 0);
-  if (built) return { task: built.id, role: 'builder', finished: built.state === 'done', why: built.state === 'done' ? 'done' : null };
+  if (built) return tie(built.id, 'builder', built.state === 'done' ? 'done' : null, built.run?.n);
   if (sid) {
     const v = repo.verdicts.find((x) => x.sessionId === sid && tasks.has(x.task));
-    if (v) return { task: v.task, role: 'review', finished: true, why: 'reviewed' };
+    if (v) return tie(v.task, 'review', 'reviewed');
     const a = repo.analyses.find((x) => x.sessionId === sid && tasks.has(x.task));
-    if (a) return { task: a.task, role: 'analysis', finished: true, why: 'analyzed' };
+    if (a) return tie(a.task, 'analysis', 'analyzed');
   }
   const earlier = repo.runs.find((r) => tasks.has(r.task) && ((!!r.bgId && s.id === r.bgId) || (!!r.sessionId && sid === r.sessionId)) && !currentRun(r, tasks.get(r.task)!.run));
-  return earlier ? { task: earlier.task, role: 'builder', finished: true, why: 'later-run' } : null;
+  return earlier ? tie(earlier.task, 'builder', 'later-run', earlier.n) : null;
 }
 
 /**

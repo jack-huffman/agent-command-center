@@ -28,7 +28,8 @@ class AgentCommands extends Sidebar {
     reg('acc.agent.stop', (n: AgentNode) => this.stopAgent(n));
     reg('acc.agent.openFolder', (n: AgentNode) => n.kind === 'agent' && vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(n.session.cwd), { forceNewWindow: true }));
     reg('acc.agents.refresh', () => this.hub.loadAgents());
-    reg('acc.agents.stopFinished', () => this.stopFinished());
+    // With a repo's folder, as a repo's Stop all on the Agents page sends it, only that repo's (GH-119).
+    reg('acc.agents.stopFinished', (repo?: unknown) => this.stopFinished(typeof repo === 'string' ? repo : null));
     reg('acc.agents.configure', (arg?: unknown) => this.configureAgents(arg));
     reg('acc.agents.autonomy', (arg?: unknown) => this.configureAutonomy(arg));
     reg('acc.agents.autoMerge', (arg?: unknown) => this.configureAutoMerge(arg));
@@ -189,10 +190,15 @@ class AgentCommands extends Sidebar {
   /**
    * Stops every background session whose work is over (D-095): its task is done or has a later run, or its
    * review or analysis is recorded. One list and one confirm. Claude Code is asked again once you've said
-   * so, and only what is still finished then is stopped, one at a time.
+   * so, and only what is still finished then is stopped, one at a time. With a repo, only the sessions in it,
+   * by the folder rule the Agents page groups them by (GH-119).
    */
-  private async stopFinished(): Promise<void> {
-    const plan = () => stopFinishedPlan(this.hub.agents, (s) => this.hub.tieFor(s), (s) => this.hub.askingFor(s));
+  private async stopFinished(repo: string | null = null): Promise<void> {
+    const plan = () => {
+      const all = stopFinishedPlan(this.hub.agents, (s) => this.hub.tieFor(s), (s) => this.hub.askingFor(s));
+      const folders = repo ? sessionFolders(this.hub) : null;
+      return folders ? all.filter((s) => folders.get(s.cwd)?.repo?.path === repo) : all;
+    };
     await this.hub.loadAgents();
     // claude agents failing lists nothing: say so, rather than that nothing is finished.
     if (this.hub.agentsError) return void vscode.window.showWarningMessage(`Couldn't list Claude Code's sessions: ${this.hub.agentsError}`);

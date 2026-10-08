@@ -24,6 +24,8 @@ test('every section of the page, and a ticket, has sample data built by the real
     else if (kind === 'settings-agents') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).settings.agents.projects.length], ['home', 'settings', 2]);
     // Agents with its Where column showing full paths (GH-83).
     else if (kind === 'agents-path') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).agents.whereView], ['home', 'agents', 'path']);
+    // Agents with each repo's finished sessions to open (GH-119).
+    else if (kind === 'agents-finished') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).agents.repos.filter((r) => r.finished.length).length], ['home', 'agents', 2]);
     // The Overview with In progress busy, and with nothing running (D-092).
     else if (kind.startsWith('overview-')) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).overview.inProgress.empty === null], ['home', 'overview', kind === 'overview-busy']);
     // The Overview of a project with a merge queue, autopilot on and off, and its head held (GH-73).
@@ -31,7 +33,7 @@ test('every section of the page, and a ticket, has sample data built by the real
     else assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).connect], ['home', kind === 'output' ? 'setup' : kind, null]);
   }
   assert.equal((sampleModel('agents') as HomeModel).agents.whereView, 'folder');
-  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents']);
+  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'agents-finished']);
   assert.equal((sampleModel('environments') as HomeModel).environments.slack?.state, 'on');
   // monday.com's Connect page: its token page, its board picked by name, and two status columns to choose from.
   const monday = (sampleModel('connect-monday') as HomeModel).connect!;
@@ -64,22 +66,27 @@ test('the sample data shows every style: each board column, each kind of session
   const track = (key: string) => tcards.find((x) => x.key === key)!.track;
   assert.deepEqual([track('ACME-30'), track('ACME-31')?.busy, !!track('ACME-32')?.error], [{ busy: false, error: null }, true, true]);
   assert.ok(tcards.some((x) => x.done && !x.acc && !x.track), 'a done ticket acc doesn\'t keep has no Track');
-  const agents = home.agents.places.flatMap((p) => p.agents);
+  const repos = home.agents.repos;
+  const agents = repos.flatMap((r) => [...r.tasks.flatMap((t) => t.agents), ...r.finished]);
   assert.ok(agents.some((a) => a.needsYou) && agents.some((a) => a.background && !a.needsYou) && agents.some((a) => !a.background));
-  assert.ok(home.agents.places.some((p) => p.root === null), 'some sessions are elsewhere on the machine');
-  // Each kind of folder a session can be in, and two repos of one name (GH-83).
-  const here = home.agents.places[0]!.agents.map((a) => a.where);
-  assert.ok(here.includes('main checkout') && here.some((w) => w.startsWith('worktree ')), 'in the project: its main checkout and a worktree');
-  const away = home.agents.places.find((p) => p.root === null)!.agents.map((a) => a.where);
-  for (const w of ['clients/Acme Service', 'personal/Acme Service', 'clients/Acme Service › worktree ACME-40', 'side-project › force-app/main', '~', 'scratch']) assert.ok(away.includes(w), `elsewhere: ${w}`);
+  // Every kind of repo heading (GH-119): this window's project, a repo in another window, repos elsewhere by
+  // name, two of one name telling themselves apart (GH-83), and Other folders.
+  assert.deepEqual(repos.map((r) => [r.label, r.window]), [['Acme Service', 'this'], ['clients/Acme Service', 'other'], ['personal/Acme Service', null], ['side-project', null], ['Other folders', null]]);
+  // Where shows only off a task's own worktree: the main checkout, a folder in a repo, home (GH-119).
+  const wheres = agents.map((a) => a.where);
+  for (const w of ['main checkout', 'force-app/main', '~']) assert.ok(wheres.includes(w), `where: ${w}`);
+  assert.ok(wheres.includes(null), 'and nothing in a task\'s own worktree');
+  // A task with a builder and a review under way, in the repo in another window.
+  assert.deepEqual(repos[1]!.tasks.find((t) => t.key === 'ACME-42')?.agents.map((a) => a.label), ['review', 'builder']);
   // Finished sessions (D-095): in the project, a done task's builder, an earlier run's and a recorded review's;
-  // elsewhere, two of another repo's done tasks; and an untied one that still needs you. Each can be stopped but the reviewer's.
-  const look = (p: string | null) => home.agents.places.find((x) => x.root === p)!.agents.filter((a) => a.finished).map((a) => [a.name, a.look.label]);
-  const finishedHere = look(home.agents.places[0]!.root);
-  assert.equal(finishedHere.length, 3, 'a done task\'s builder, an earlier run\'s and a recorded review\'s');
-  assert.ok(finishedHere.every(([, label]) => label === 'Finished'));
-  assert.deepEqual(look(null), [['Acme Service · ACME-38 Merge the support queues · builder', 'Finished'], ['ACME-37', 'Finished']]);
+  // in another repo, two of its done tasks'. Each names its task, since no task line heads it.
+  const finished = (r: number) => repos[r]!.finished.map((a) => `${a.task?.key} ${a.label}`);
+  assert.deepEqual(finished(0), ['ACME-20 review', 'ACME-12 builder', 'ACME-10 builder']);
+  assert.deepEqual(finished(1), ['ACME-38 builder', 'ACME-37 builder']);
+  assert.ok(agents.filter((a) => a.finished).every((a) => a.look.label === 'Finished'));
+  // An untied one that still needs you, by its own name; each repo's Stop all, but for the reviewer's.
   assert.equal(agents.find((a) => a.name === 'ACME-11')?.look.label, 'Needs you: permission prompt', 'acc can\'t tie it');
+  assert.deepEqual(repos.map((r) => r.stopFinished), [2, 2, 0, 0, 0]);
   assert.equal(home.agents.stopFinished, 4);
   const worktrees = home.worktrees.projects[0]!.worktrees;
   assert.deepEqual([...new Set(worktrees.map((w) => w.state.label.replace(/^\d+/, 'N')))].sort(), ['Clean', 'Missing on disk', 'N changed']);
@@ -178,7 +185,7 @@ test('the page\'s styles: what every area shares first, then each area\'s own by
 
 test('the page hands the model to the real webview, and no string in it can close the script', () => {
   const model = sampleModel('agents') as HomeModel;
-  model.agents.places[0]!.agents[0]!.name = '</script><img src=x onerror=alert(1)>';
+  model.agents.repos[0]!.tasks[0]!.agents[0]!.name = '</script><img src=x onerror=alert(1)>';
   const page = pageFor('agents', 'dark', model);
   assert.ok(!page.includes('</script><img'));
   assert.ok(page.includes('src="webview/main.js"') && page.includes('data-view="home"'));

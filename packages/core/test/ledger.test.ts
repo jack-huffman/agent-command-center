@@ -479,11 +479,11 @@ test('a session is tied to its task by ids: a done task\'s builder, an earlier r
   assert.deepEqual(tieSession(bg('bg-1'), repo), finished('GH-1', 'builder', 'done'));
   assert.deepEqual(tieSession(resumed('s-1'), repo), finished('GH-1', 'builder', 'done'));
   // An earlier run's builder, by the ids its dispatch recorded, while its task runs again.
-  assert.deepEqual(tieSession(bg('bg-2a'), repo), finished('GH-2', 'builder', 'later-run'));
-  assert.deepEqual(tieSession(resumed('s-2a'), repo), finished('GH-2', 'builder', 'later-run'));
+  assert.deepEqual(tieSession(bg('bg-2a'), repo), { ...finished('GH-2', 'builder', 'later-run'), n: 1 }, 'with its run\'s count (GH-119)');
+  assert.deepEqual(tieSession(resumed('s-2a'), repo), { ...finished('GH-2', 'builder', 'later-run'), n: 1 });
   // The current builder of a task that isn't done is its task's, at work, whatever the task's state.
   for (const id of ['2b', '3', '4', '5', '6']) assert.equal(tieSession(bg(`bg-${id}`), repo)?.finished, false, `bg-${id}: its task's current builder`);
-  assert.deepEqual(tieSession(bg('bg-2b'), repo), { task: 'GH-2', role: 'builder', finished: false, why: null });
+  assert.deepEqual(tieSession(bg('bg-2b'), repo), { task: 'GH-2', role: 'builder', finished: false, why: null, n: 2 });
   assert.equal(tieSession(resumed('s-2b-old'), repo), null, 'a session of the current run is never an earlier run\'s');
   // A recorded verdict or analysis; not an analysis still under way.
   assert.deepEqual(tieSession(resumed('review-3'), repo), finished('GH-3', 'review', 'reviewed'));
@@ -497,4 +497,8 @@ test('a session is tied to its task by ids: a done task\'s builder, an earlier r
   assert.equal(tieSession(bg('bg-x', 's-x', 'GH-7'), repo), null, 'a task never dispatched has no builder');
   assert.equal(tieSession(bg('bg-9'), repo), null, 'a removed task\'s builder');
   assert.equal(tieSession(resumed('review-9'), repo), null, 'a removed task\'s reviewer');
+  // Its task's title goes with it, where the ledger has one, for the Agents page's task lines (GH-119).
+  const titled: RepoAgents = { ...repo, tasks: repo.tasks.map((t) => (t.id === 'GH-3' ? { ...t, title: 'Case escalation rules' } : t)) };
+  assert.equal(tieSession(resumed('review-3'), titled)?.title, 'Case escalation rules');
+  assert.deepEqual(tieSession(bg('bg-3'), titled), { task: 'GH-3', role: 'builder', finished: false, why: null, title: 'Case escalation rules' });
 });
