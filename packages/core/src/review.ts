@@ -31,6 +31,11 @@ export interface Finding {
   file?: string;
   line?: number;
   rule?: string;
+  /**
+   * A short name for the kind of problem, such as "UI change not screenshotted", reused across reviews so
+   * the same finding is seen coming back (GH-102). Older verdicts have none.
+   */
+  kind?: string;
 }
 
 export interface Verdict {
@@ -76,6 +81,7 @@ export const VERDICT_SCHEMA = {
           message: { type: 'string', description: 'What is wrong, and what to do instead' },
           must: { type: 'boolean', description: 'true if it has to be fixed before merging' },
           file: { type: 'string' }, line: { type: 'integer' }, rule: { type: 'string', description: 'The project rule it breaks, if any' },
+          kind: { type: 'string', description: 'A short name for the kind of problem, a few words: reuse one of the kinds you are given when it fits' },
         },
       },
     },
@@ -127,12 +133,44 @@ export function reviewCurrent(paths: RepoPaths, task: Pick<Task, 'id' | 'autopil
   return verdict.sha === head || carriedVerdict(paths, task, head)?.sha === verdict.sha;
 }
 
+/**
+ * Every verdict in the clone, or only a task's, oldest first. A review under way (`<task>.running.json`)
+ * and a file that can't be read are skipped, wherever the folder is listed (GH-102).
+ */
+export function readVerdicts(paths: Pick<RepoPaths, 'reviews'>, task?: string): Verdict[] {
+  let names: string[];
+  try {
+    names = readdirSync(paths.reviews);
+  } catch {
+    return [];
+  }
+  const all: Verdict[] = [];
+  for (const n of names) {
+    if (!n.endsWith('.json') || n.endsWith('.running.json') || (task && !n.startsWith(`${task}-`))) continue;
+    try {
+      const v = JSON.parse(readFileSync(join(paths.reviews, n), 'utf8')) as Verdict;
+      if (typeof v?.task !== 'string' || typeof v.sha !== 'string' || typeof v.at !== 'string' || !Array.isArray(v.findings)) continue;
+      if (`${v.task}-${v.sha}.json` === n && (!task || v.task === task)) all.push(v);
+    } catch {
+      // mid-write or unreadable: it's read next time
+    }
+  }
+  return all.sort((a, b) => a.at.localeCompare(b.at) || a.task.localeCompare(b.task) || a.sha.localeCompare(b.sha));
+}
+
 /** The task's newest verdict on any commit: what its next run has to fix. */
 export function latestVerdict(paths: RepoPaths, task: string): Verdict | null {
-  if (!existsSync(paths.reviews)) return null;
-  const mine = readdirSync(paths.reviews).filter((n) => n.startsWith(`${task}-`) && n.endsWith('.json'));
-  const all = mine.map((n) => readVerdict(paths, task, n.slice(task.length + 1, -5))).filter((v): v is Verdict => !!v && v.task === task);
-  return all.sort((a, b) => b.at.localeCompare(a.at))[0] ?? null;
+  return readVerdicts(paths, task).at(-1) ?? null;
+}
+
+/** The most kinds of finding the reviewer is shown to reuse. */
+const KINDS_MAX = 30;
+
+/** The kinds of finding earlier reviews named, most used first, for the reviewer to reuse (GH-102). */
+export function knownKinds(paths: Pick<RepoPaths, 'reviews'>): string[] {
+  const n = new Map<string, number>();
+  for (const v of readVerdicts(paths)) for (const f of v.findings) if (typeof f.kind === 'string' && f.kind.trim()) n.set(f.kind.trim(), (n.get(f.kind.trim()) ?? 0) + 1);
+  return [...n].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, KINDS_MAX).map(([k]) => k);
 }
 
 export interface Reviewing {
@@ -167,6 +205,8 @@ export interface ReviewInput {
   checks: string[];
   /** rulesText's: the profile's rules, then rules copied in, then the repo's own (GH-108). */
   rules: string | null;
+  /** The kinds of finding earlier reviews named, to reuse (GH-102). */
+  kinds?: string[];
 }
 
 /** The reviewer's standing instructions, and what it's given to review. */
@@ -183,6 +223,7 @@ export function reviewPrompt(i: ReviewInput): { system: string; prompt: string }
     'Skip formatting and style: the checks cover those. A check that a person waived is settled; don\'t reopen it.',
     'Give "changes" only for problems that must be fixed before this merges, each as a finding with must: true. Lesser points are findings with must: false, and they don\'t block.',
     'Be specific: the file, the line, what is wrong, and what to do instead.',
+    'Give each finding a kind: a few words naming the kind of problem. Reuse one of the kinds you are given when it fits, so a finding that keeps coming back is seen.',
   ].join('\n');
   const prompt = [
     `# Review ${i.task.id}: ${i.task.title}`,
@@ -205,6 +246,7 @@ export function reviewPrompt(i: ReviewInput): { system: string; prompt: string }
       : ['The builder left no note.']),
     '',
     ...(i.rules?.trim() ? ['## Rules', '', i.rules.trim(), ''] : []),
+    ...(i.kinds?.length ? ['## Kinds of finding earlier reviews named', '', ...i.kinds.map((k) => `- ${k}`), ''] : []),
     '## What changed',
     '',
     '```',
@@ -236,6 +278,7 @@ export function parseReview(stdout: string): { verdict: Pick<Verdict, 'verdict' 
     ...(typeof f.file === 'string' && f.file ? { file: f.file } : {}),
     ...(Number.isInteger(f.line) ? { line: f.line } : {}),
     ...(typeof f.rule === 'string' && f.rule ? { rule: f.rule } : {}),
+    ...(typeof f.kind === 'string' && f.kind.trim() ? { kind: f.kind.trim().slice(0, 80) } : {}),
   }));
   // A pass with something that must be fixed isn't a pass.
   const verdict = s.verdict === 'pass' && findings.some((f: Finding) => f.must) ? 'changes' : s.verdict;
@@ -293,7 +336,7 @@ export function review(paths: RepoPaths, config: Config, id: string, deps: Revie
   const packetFile = join(paths.packets, `${id}.md`);
   const packet = existsSync(packetFile) ? readFileSync(packetFile, 'utf8') : `# ${task.id}: ${task.title}\n\n${task.brief}`;
   const rules = rulesText(worktree, config.profile);
-  const { system, prompt } = reviewPrompt({ task, config, envName: env.name, envBranch: env.branch, sha, packet, diff, stat, checks, rules });
+  const { system, prompt } = reviewPrompt({ task, config, envName: env.name, envBranch: env.branch, sha, packet, diff, stat, checks, rules, kinds: knownKinds(paths) });
 
   const sessionId = (deps.uuid ?? randomUUID)();
   const name = sessionName({ project: config.project, key: id, title: task.title, role: 'review' });

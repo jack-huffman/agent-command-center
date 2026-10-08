@@ -40,6 +40,7 @@ export * from './refresh.ts';
 export * from './repos.ts';
 export * from './resume.ts';
 export * from './review.ts';
+export * from './rule-suggestions.ts';
 export * from './rules.ts';
 export * from './runtime.ts';
 export * from './semaphore.ts';
