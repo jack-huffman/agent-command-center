@@ -10,6 +10,7 @@ export * from './awake.ts';
 export * from './carried.ts';
 export * from './checks.ts';
 export * from './closing.ts';
+export * from './config-edit.ts';
 export * from './config.ts';
 export * from './deploy.ts';
 export * from './dispatch.ts';
