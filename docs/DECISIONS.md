@@ -4256,7 +4256,9 @@ sign-ins (D-091) and GH-80's team templates (D-097).
 - **acc init writes it once.** `acc init --tracker '<json>'` takes one tracker
   as a description's toConfig gives it, and parseConfig checks it with the
   rest. It replaces a template's tracker and `--jira-*`, with a note: flags
-  beat templates (D-097). The page's Save runs it with the rest of the
+  beat templates (D-097). A template's tracker of the same kind on the same
+  host keeps its key prefix unless the one picked names its own, as
+  withTracker keeps it on a replace. The page's Save runs it with the rest of the
   choice's arguments; acc's refusal shows beside Save in its own words, and
   the page stays open. One write, rather than acc init and then a patch from
   the extension, so a failed second step can't leave a half-started project.
@@ -4274,7 +4276,8 @@ sign-ins (D-091) and GH-80's team templates (D-097).
 - **This machine lists the repos acc set up:** `~/.acc/repos.json`
   (`ACC_REPOS_FILE` in tests), their roots and nothing else. acc init adds the
   repo it writes, and the Command Center each project it loads, so repos set up
-  before count too. Each listed config is read when a place list loads, and
+  before count too. A root listed already stays where it is, so loading the
+  projects again writes nothing. Each listed config is read when a place list loads, and
   one that's gone or broken is skipped, never holding the list up.
 - **A place another repo here uses is marked "used by <repo>"** (a person
   decided what counts): the same Jira epic on the same site, the same GitHub
