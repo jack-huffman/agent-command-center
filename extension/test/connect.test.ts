@@ -6,10 +6,11 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { replaceTracker, type Tracker, trackerForKey, withTracker } from '../../packages/core/src/config.ts';
+import type { RepoInUse } from '../../packages/core/src/repos.ts';
 import { DESCRIPTIONS, type TrackerDescription } from '../../packages/core/src/trackers/connect.ts';
 import { MondayClient } from '../../packages/core/src/trackers/monday.ts';
 import type { Exec } from '../../packages/core/src/trackers/types.ts';
-import { type ConnectDeps, type ConnectProject, ConnectSession } from '../src/connect.ts';
+import { type ConnectDeps, type ConnectProject, ConnectSession, type StartProject } from '../src/connect.ts';
 import { credInUse, credKey, credWrites, type CredWrites, outsideKeys, placeCandidates, readCreds, siteCredKey } from '../src/logic/connect.ts';
 import { blankConnect, type ConnectMessage, connectModel, type ConnectModel } from '../src/model/connect.ts';
 import { isFromWebview } from '../src/model/messages.ts';
@@ -72,7 +73,7 @@ const BILLING: typeof ACME = { name: 'Acme Billing', root: BILLING_ROOT, config:
  * The Connect page with stand-ins, and the real rules for where a sign-in is kept and found (GH-79): this
  * repo's own key first, then the site's. Pass `secrets` to share one machine's sign-ins between repos.
  */
-function harness(o: { trackers?: Record<string, unknown>[]; fetch?: typeof fetch; project?: typeof ACME; list?: TrackerDescription[]; secrets?: Map<string, string> } = {}) {
+function harness(o: { trackers?: Record<string, unknown>[]; fetch?: typeof fetch; exec?: Exec; project?: typeof ACME; list?: TrackerDescription[]; secrets?: Map<string, string>; repos?: RepoInUse[]; confirm?: boolean; start?: (record: Record<string, unknown>) => void } = {}) {
   const project = o.project ?? ACME;
   const apply = (w: CredWrites) => {
     for (const [k, v] of w.store) h.secrets.set(k, v);
@@ -81,7 +82,9 @@ function harness(o: { trackers?: Record<string, unknown>[]; fetch?: typeof fetch
   const h = {
     raw: o.trackers ?? [] as Record<string, unknown>[],
     secrets: o.secrets ?? new Map<string, string>(),
-    posted: [] as string[], logs: [] as string[], saved: [] as string[], signedIn: [] as string[], microsoftAsked: 0,
+    posted: [] as string[], logs: [] as string[], saved: [] as string[], signedIn: [] as (string | null)[], microsoftAsked: 0,
+    /** What Start the project ran acc init with (GH-81), what was asked, and how often anything wrote the config. */
+    started: [] as { root: string; args: string[]; record: Record<string, unknown> }[], asked: [] as string[], writes: 0,
     session: null as unknown as ConnectSession,
     model: () => h.session.model() as ConnectModel,
     send: (m: Record<string, unknown>) => {
@@ -95,24 +98,27 @@ function harness(o: { trackers?: Record<string, unknown>[]; fetch?: typeof fetch
     trackers: () => h.raw.map(full),
     title: (t) => `${t.kind} · ${t.project ?? t.repo}`,
     // As the extension reads it: a Microsoft sign-in asks VSCode for a header, and one from before GH-51 is Jira's token.
-    storedSignIn: async (_root, kind, host) => {
-      const found = credInUse(await readCreds((k) => h.secrets.get(k), project, kind, host));
+    storedSignIn: async (p, kind, host) => {
+      const found = credInUse(await readCreds((k) => h.secrets.get(k), p, kind, host));
       if (!found) return null;
       const { kind: _k, method, ...fields } = found.cred as Record<string, string>;
       if (method === 'microsoft') return { signIn: { method, fields: {}, header: 'Bearer ms-token', gh: null }, shared: found.shared };
       return { signIn: { method: method ?? 'token', fields, header: null, gh: null }, shared: found.shared };
     },
-    ownSignIn: async (_root, kind, host) => (await readCreds((k) => h.secrets.get(k), project, kind, host)).own !== null,
-    storeSignIn: async (_root, kind, host, cred, shared) => apply(credWrites(project, kind, host, cred, shared)),
+    ownSignIn: async (p, kind, host) => (await readCreds((k) => h.secrets.get(k), p, kind, host)).own !== null,
+    storeSignIn: async (p, kind, host, cred, shared) => apply(credWrites(p, kind, host, cred, shared)),
     gitEmail: async () => EMAIL,
     ghToken: async () => 'gh-token',
     microsoft: async () => (h.microsoftAsked++, { header: 'Bearer ms-token', cred: { account: { id: 'm1', label: 'jordan@acme.example' }, tenant: 'tenant-1' } }),
-    write: (_root, index, record) => { h.raw = index === null ? withTracker(h.raw, record) : replaceTracker(h.raw, index, record); },
+    write: (_root, index, record) => { h.writes++; h.raw = index === null ? withTracker(h.raw, record) : replaceTracker(h.raw, index, record); },
     signedIn: async (r) => { h.signedIn.push(r); },
-    saved: async (_root, name) => { h.saved.push(name); },
+    saved: async (_root, name, started) => { h.saved.push(started ? `${name}, started` : name); },
+    start: async (p, record) => { h.started.push({ root: p.root, args: p.args, record }); o.start?.(record); },
+    confirm: async (message) => { h.asked.push(message); return o.confirm ?? false; },
+    repos: () => o.repos ?? [],
     changed: () => h.posted.push(JSON.stringify(h.session.model())),
     log: (line) => h.logs.push(line),
-    exec: gh,
+    exec: o.exec ?? gh,
     fetch: o.fetch ?? jira(),
     list: o.list,
   };
@@ -330,6 +336,252 @@ test('Azure DevOps signs in with Microsoft, picks the default team and the stori
   h.send({ type: 'connect-save' });
   await settle();
   assert.deepEqual(h.raw, [{ kind: 'azure', organization: 'acme', project: 'CRM', board: 'Stories' }]);
+});
+
+// ---------------------------------------------------------------- starting a project from an epic (GH-81)
+
+/** A folder with no .acc/config.json yet, as acc init's dry run found it, started from the Connect page. */
+const NEW_ROOT = '/Users/me/code/acme-renewals';
+const RENEWALS: StartProject = { name: 'acme-renewals', root: NEW_ROOT, config: { github: { repo: 'acme/renewals', account: 'jordan-kim' } }, ledgerPath: `${NEW_ROOT}/.git/acc/ledger.json`, args: ['--profile', 'generic'], tracker: null };
+const JIRA_SITE_SIGN_IN = (): Map<string, string> => new Map([[siteCredKey('jira', SITE), JSON.stringify({ kind: 'jira', method: 'token', email: EMAIL, token: TOKEN })]]);
+const AZURE_SITE_SIGN_IN = (): Map<string, string> => new Map([[siteCredKey('azure', 'acme'), JSON.stringify({ kind: 'azure', method: 'microsoft', account: { id: 'm1', label: 'jordan@acme.example' }, tenant: 'tenant-1' })]]);
+/** Another repo acc set up on this machine, as core reads it from ~/.acc/repos.json. */
+const other = (name: string, key: string, trackers: Record<string, unknown>[], github: string | null = null): RepoInUse => ({ root: `/Users/me/code/${name}`, name, key, github, trackers: trackers.map(full) });
+
+test('From a Jira epic: the site every project shares fills in signed in, the epic is required, and Start the project runs acc init once, with it (GH-81)', async () => {
+  const repos = [other('acme-billing', 'github:acme/billing', [{ kind: 'jira', site: SITE, project: 'OPS' }])];
+  const h = harness({ secrets: JIRA_SITE_SIGN_IN(), repos });
+  assert.equal(await h.session.open({ start: RENEWALS, from: 'setup' }), true);
+  await settle();
+  let m = h.model();
+  assert.deepEqual([m.title, m.back.label, m.projects, m.kind, m.host.value, m.host.fixed], ['Start acme-renewals from an epic in Jira', 'Back to Setup', [], 'jira', SITE, false]);
+  assert.deepEqual([m.signIn.look.label, m.signIn.editing], ['Signed in as Jordan Kim, for every project on acme.atlassian.net', false], 'nothing typed (GH-79)');
+  assert.match(m.summary, /^acc init writes acme-renewals's \.acc\/config\.json when you start it, with its tickets from the epic you pick\. Until then nothing is written, and picking only reads Jira: nothing is ever written to it\./);
+  assert.deepEqual(m.place, { key: 'epic', words: DESCRIPTIONS[0]!.place.words });
+  assert.deepEqual(m.kinds.map((k) => k.kind), ['jira', 'github', 'azure', 'monday'], 'Azure DevOps and GitHub start the same way');
+  assert.deepEqual(picker(m, 'project').options.map((o) => o.value), ['ACME', 'OPS']);
+
+  h.send({ type: 'connect-pick', key: 'project', value: 'ACME' });
+  await settle();
+  m = h.model();
+  const epic = picker(m, 'epic');
+  assert.deepEqual([epic.whole, epic.required, epic.hint, epic.options.map((o) => [o.value, o.detail, o.usedBy])], [null, true, DESCRIPTIONS[0]!.place.words, [['ACME-31', 'Renewals', null]]], 'no whole project: that\'s Other project');
+  assert.deepEqual(picker(m, 'board').selected, ['7']);
+  assert.deepEqual([m.save.can, m.save.label], [false, 'Start the project'], 'not until an epic is picked');
+  h.send({ type: 'connect-save' });
+  await settle();
+  assert.deepEqual(h.started, [], 'Save waits for the epic');
+
+  h.send({ type: 'connect-pick', key: 'epic', value: 'ACME-31' });
+  h.send({ type: 'connect-pick', key: 'board', value: '9' });
+  assert.equal(h.model().save.can, true);
+  h.send({ type: 'connect-save' });
+  await settle();
+  assert.deepEqual(h.started, [{ root: NEW_ROOT, args: ['--profile', 'generic'], record: { kind: 'jira', site: SITE, project: 'ACME', board: 9, epic: 'ACME-31' } }]);
+  assert.equal(h.writes, 0, 'acc init writes the config, once: nothing patches it after');
+  assert.deepEqual([h.saved, h.session.model()], [['Jira, started'], null], 'then the projects load, Setup checks again, and the Tasks tab opens');
+  assert.deepEqual([...h.secrets.keys()], [siteCredKey('jira', SITE)], 'nothing new kept');
+
+  // Back or Cancel before Start the project: nothing started, nothing written.
+  const left = harness({ secrets: JIRA_SITE_SIGN_IN(), repos });
+  await left.session.open({ start: RENEWALS, from: 'setup' });
+  await settle();
+  left.send({ type: 'connect-pick', key: 'project', value: 'ACME' });
+  await settle();
+  left.send({ type: 'connect-pick', key: 'epic', value: 'ACME-31' });
+  left.send({ type: 'connect-cancel' });
+  await settle();
+  assert.deepEqual([left.started, left.writes, left.saved, left.session.model()], [[], 0, [], null]);
+});
+
+test('From a Jira epic: acc init\'s refusal stays beside Start the project, in its own words, and the page stays open (GH-81)', async () => {
+  const h = harness({ secrets: JIRA_SITE_SIGN_IN(), repos: [other('acme-billing', 'github:acme/billing', [{ kind: 'jira', site: SITE, project: 'OPS' }])], start: () => { throw new Error('"Acme Production" isn\'t logged in: No authorization information found.'); } });
+  await h.session.open({ start: { ...RENEWALS, args: ['--profile', 'salesforce', '--production-org', 'Acme Production'] }, from: 'setup' });
+  await settle();
+  h.send({ type: 'connect-pick', key: 'project', value: 'ACME' });
+  await settle();
+  h.send({ type: 'connect-pick', key: 'epic', value: 'ACME-31' });
+  h.send({ type: 'connect-save' });
+  await settle();
+  const m = h.model();
+  assert.deepEqual([m.save.look?.label, m.save.look?.icon, m.save.look?.tone, m.save.can], ['Couldn\'t start the project: "Acme Production" isn\'t logged in: No authorization information found.', 'warning', 'orange', true]);
+  assert.deepEqual([h.started.length, h.saved, h.writes], [1, [], 0], 'tried once, and nothing reloads');
+});
+
+test('From a Jira epic: a site with no sign-in yet is typed, and a sign-in for this project only is kept under the key it has once acc init writes it (GH-81)', async () => {
+  const h = harness();
+  await h.session.open({ start: RENEWALS, from: 'setup' });
+  await settle();
+  assert.deepEqual([h.model().host.value, h.model().signIn.editing], ['', true], 'no other repo here uses a site');
+  h.send({ type: 'connect-share', on: false });
+  h.send({ type: 'connect-test', host: SITE, fields: { email: EMAIL, token: TOKEN } });
+  await settle();
+  assert.deepEqual([...h.secrets.keys()], [credKey(RENEWALS, 'jira', SITE)]);
+  assert.equal(credKey(RENEWALS, 'jira', SITE), 'acc.cred:github:acme/renewals:jira:acme.atlassian.net');
+  assert.deepEqual(h.signedIn, [null], 'it has no board yet: only the site\'s other projects load again');
+});
+
+test('an epic another repo here uses says so, and picking it asks first: Cancel keeps the choice before; a clone of this repo never counts (GH-81)', async () => {
+  const repos = [
+    other('acme-portal', 'github:acme/portal', [{ kind: 'jira', site: SITE, project: 'ACME', epic: 'ACME-31' }]),
+    other('acme-renewals-copy', 'github:acme/renewals', [{ kind: 'jira', site: SITE, project: 'ACME', epic: 'ACME-31' }]),
+  ];
+  for (const confirm of [false, true]) {
+    const h = harness({ secrets: JIRA_SITE_SIGN_IN(), repos, confirm });
+    await h.session.open({ start: RENEWALS, from: 'setup' });
+    await settle();
+    h.send({ type: 'connect-pick', key: 'project', value: 'ACME' });
+    await settle();
+    assert.deepEqual(picker(h.model(), 'epic').options.map((o) => [o.value, o.usedBy]), [['ACME-31', 'used by acme-portal']], 'its clone isn\'t another repo');
+    h.send({ type: 'connect-pick', key: 'epic', value: 'ACME-31' });
+    await settle();
+    assert.deepEqual(h.asked, ['Use ACME-31 for acme-renewals too?']);
+    const epic = picker(h.model(), 'epic');
+    if (!confirm) {
+      assert.deepEqual([epic.selected, epic.used, h.model().save.can], [[], null, false], 'Cancel keeps the choice before it');
+      continue;
+    }
+    assert.deepEqual(epic.selected, ['ACME-31']);
+    assert.deepEqual(epic.used, { label: 'ACME-31: used by acme-portal, so two repos would show the same tickets.', icon: 'warning', tone: 'orange' }, 'an icon and words, not colour alone');
+    h.send({ type: 'connect-pick', key: 'board', value: '9' });
+    await settle();
+    assert.equal(h.asked.length, 1, 'chosen already: not asked again');
+  }
+
+  // Add a tracker marks them too: it's the same list.
+  const add = harness({ secrets: JIRA_SITE_SIGN_IN(), repos });
+  await add.session.open({ root: ROOT, kind: 'jira', from: 'tasks' });
+  add.send({ type: 'connect-set', field: 'site', value: SITE });
+  await settle();
+  add.send({ type: 'connect-pick', key: 'project', value: 'ACME' });
+  await settle();
+  const epic = picker(add.model(), 'epic');
+  assert.deepEqual([epic.whole, epic.required, epic.options.map((o) => o.usedBy)], ['The whole ACME project', false, ['used by acme-portal or acme-renewals-copy']], 'the whole project is still on offer there, and from another repo both count');
+});
+
+test('From an Azure DevOps area path: the same flow, its area path required, and one under another\'s marked as overlapping (GH-81)', async () => {
+  const repos = [other('crm-everything', 'github:acme/crm', [{ kind: 'azure', organization: 'acme', project: 'CRM', areaPath: 'CRM' }])];
+  const h = harness({ fetch: azure, secrets: AZURE_SITE_SIGN_IN(), repos, confirm: true });
+  await h.session.open({ start: RENEWALS, kind: 'azure', from: 'setup' });
+  await settle();
+  let m = h.model();
+  assert.deepEqual([m.title, m.host.value, m.signIn.look.label], ['Start acme-renewals from an area path in Azure DevOps', 'acme', 'Signed in as Jordan Kim, for every project on acme']);
+  const area = picker(m, 'areaPath');
+  assert.deepEqual([area.whole, area.required, area.hint, area.options.map((o) => [o.value, o.usedBy])], [null, true, 'In Azure DevOps, an area path stands in for an epic: only the work items under it are this project\'s.', [['CRM\\Billing', 'overlaps crm-everything']]]);
+  assert.equal(m.save.can, false);
+  h.send({ type: 'connect-pick', key: 'areaPath', value: 'CRM\\Billing' });
+  await settle();
+  assert.deepEqual(h.asked, ['Use CRM\\Billing for acme-renewals too?']);
+  m = h.model();
+  assert.equal(picker(m, 'areaPath').used?.label, 'CRM\\Billing: overlaps crm-everything, so two repos would show some of the same tickets.');
+  assert.equal(m.save.can, true);
+  h.send({ type: 'connect-save' });
+  await settle();
+  assert.deepEqual(h.started.map((x) => x.record), [{ kind: 'azure', organization: 'acme', project: 'CRM', team: null, board: 'Stories', areaPath: 'CRM\\Billing' }]);
+  assert.equal(h.writes, 0);
+});
+
+test('From GitHub labels: gh as the account acc init found, at least one label ticked, and the same label on another repo isn\'t this repo\'s (GH-81)', async () => {
+  const repos = [other('acme-renewals-api', 'github:acme/api', [{ kind: 'github', labels: ['invoices'] }], 'acme/api'), other('acme-billing', 'github:acme/billing', [{ kind: 'github', repo: 'acme/renewals', labels: ['Billing'] }])];
+  const h = harness({ repos, confirm: true });
+  await h.session.open({ start: RENEWALS, kind: 'github', from: 'setup' });
+  await settle();
+  let m = h.model();
+  assert.deepEqual([m.title, m.host.value, m.signIn.look.label], ['Start acme-renewals from labels in GitHub Issues', 'acme/renewals', 'Signed in as Jordan Kim']);
+  const labels = picker(m, 'labels');
+  assert.deepEqual([labels.whole, labels.required, labels.options.map((o) => [o.value, o.usedBy])], [null, true, [['billing', 'used by acme-billing'], ['invoices', null]]], 'invoices on another repo isn\'t the same place');
+  assert.equal(m.save.can, false, 'at least one label');
+  h.send({ type: 'connect-pick', key: 'labels', value: ['invoices'] });
+  m = h.model();
+  assert.deepEqual([h.asked, m.save.can], [[], true], 'a label no other repo uses here: nothing to ask');
+  h.send({ type: 'connect-save' });
+  await settle();
+  assert.deepEqual(h.started.map((x) => x.record), [{ kind: 'github', repo: null, labels: ['invoices'] }], 'its own repo is left out');
+
+  // A folder acc init found no GitHub account for says so, in words about this folder, not a config.
+  const bare = harness();
+  await bare.session.open({ start: { ...RENEWALS, config: { github: null } }, kind: 'github', from: 'setup' });
+  bare.send({ type: 'connect-test', host: 'acme/renewals', fields: {} });
+  await settle();
+  assert.match(bare.model().host.error ?? '', /^acc init found no GitHub repo and account for this folder/);
+});
+
+test('a team template\'s tracker fills in the page: its kind, site and project, the place still the person\'s to pick (GH-81)', async () => {
+  const h = harness({ secrets: JIRA_SITE_SIGN_IN() });
+  await h.session.open({ start: { ...RENEWALS, tracker: { kind: 'jira', host: 'https://acme.atlassian.net', values: { project: 'OPS' } } }, from: 'setup' });
+  await settle();
+  const m = h.model();
+  assert.deepEqual([m.kind, m.host.value, picker(m, 'project').selected, picker(m, 'epic').selected], ['jira', SITE, ['OPS'], []]);
+  const az = harness({ fetch: azure, secrets: AZURE_SITE_SIGN_IN() });
+  await az.session.open({ start: { ...RENEWALS, tracker: { kind: 'azure', host: 'acme', values: { project: 'CRM' } } }, from: 'setup' });
+  assert.deepEqual([az.model().kind, az.model().host.value], ['azure', 'acme'], 'its kind too');
+});
+
+/** Every request a flow makes, by method and URL, and every command, so a test can say nothing was written. */
+function recording(f: typeof fetch, x: Exec) {
+  const requests: string[] = [];
+  const commands: string[][] = [];
+  const fetch = ((url: string, init?: { method?: string }) => { requests.push(`${init?.method ?? 'GET'} ${url}`); return f(url as never, init as never); }) as unknown as typeof globalThis.fetch;
+  const exec: Exec = (cmd, args, opts) => { commands.push([cmd, ...args]); return x(cmd, args, opts); };
+  return { requests, commands, fetch, exec };
+}
+
+/** What reads a tracker: GET and HEAD, and Azure DevOps' two queries, which are POSTs that change nothing. */
+const reads = (r: string) => /^(GET|HEAD) /.test(r) || /^POST https:\/\/dev\.azure\.com\/[^/]+\/[^/]+\/_apis\/wit\/(wiql|workitemsbatch)\b/.test(r);
+/** gh's read commands: an api GET (no method, no fields), and a list or view. */
+const ghReads = (c: string[]) => c[0] === 'gh' && ((c[1] === 'api' && !c.some((a) => /^(-X|--method|-f|-F|--field|--raw-field|--input)$/.test(a))) || ['list', 'view'].includes(c[2] ?? ''));
+
+test('picking an epic, an area path or labels only reads the tracker: every request is a read (GH-81)', async () => {
+  const flows: [string, () => Promise<ReturnType<typeof recording>>][] = [
+    ['jira', async () => {
+      const r = recording(jira(), gh);
+      const h = harness({ fetch: r.fetch, exec: r.exec, secrets: JIRA_SITE_SIGN_IN(), repos: [other('acme-billing', 'github:acme/billing', [{ kind: 'jira', site: SITE, project: 'OPS' }])] });
+      await h.session.open({ start: RENEWALS, from: 'setup' });
+      await settle();
+      h.send({ type: 'connect-pick', key: 'project', value: 'ACME' });
+      await settle();
+      h.send({ type: 'connect-pick', key: 'epic', value: 'ACME-31' });
+      h.send({ type: 'connect-save' });
+      await settle();
+      assert.equal(h.started.length, 1);
+      return r;
+    }],
+    ['azure', async () => {
+      const r = recording(azure, gh);
+      const h = harness({ fetch: r.fetch, exec: r.exec, secrets: AZURE_SITE_SIGN_IN(), repos: [other('crm', 'github:acme/crm', [{ kind: 'azure', organization: 'acme', project: 'CRM' }])] });
+      await h.session.open({ start: RENEWALS, kind: 'azure', from: 'setup' });
+      await settle();
+      h.send({ type: 'connect-pick', key: 'areaPath', value: 'CRM\\Billing' });
+      h.send({ type: 'connect-save' });
+      await settle();
+      assert.equal(h.started.length, 1);
+      return r;
+    }],
+    ['github', async () => {
+      const r = recording(jira(), gh);
+      const h = harness({ fetch: r.fetch, exec: r.exec });
+      await h.session.open({ start: RENEWALS, kind: 'github', from: 'setup' });
+      await settle();
+      h.send({ type: 'connect-pick', key: 'labels', value: ['billing'] });
+      h.send({ type: 'connect-save' });
+      await settle();
+      assert.equal(h.started.length, 1);
+      return r;
+    }],
+  ];
+  let checked = 0;
+  for (const [kind, flow] of flows) {
+    const r = await flow();
+    const all = [...r.requests, ...r.commands.map((c) => c.join(' '))];
+    assert.ok(all.length > 0, `${kind}: the flow made requests to check`);
+    for (const q of r.requests) assert.ok(reads(q), `${kind}: ${q} only reads`);
+    for (const c of r.commands) assert.ok(ghReads(c), `${kind}: ${c.join(' ')} only reads`);
+    checked += all.length;
+  }
+  assert.ok(checked >= 10, `${checked} requests checked`);
+  // The allow-lists refuse what writes.
+  for (const w of ['PATCH https://dev.azure.com/acme/CRM/_apis/wit/workitems/7', 'POST https://dev.azure.com/acme/CRM/_apis/wit/workItems/7/comments', 'PUT https://acme.atlassian.net/rest/api/3/issue/ACME-1', 'POST https://acme.atlassian.net/rest/api/3/issue/ACME-1/transitions']) assert.ok(!reads(w), w);
+  for (const w of [['gh', 'issue', 'edit', '7'], ['gh', 'api', '-X', 'PATCH', 'repos/acme/renewals/issues/7'], ['gh', 'label', 'create', 'x']]) assert.ok(!ghReads(w), w.join(' '));
 });
 
 test('a page message names its page, and only what a description declares: a token has a size, a pick a shape', () => {

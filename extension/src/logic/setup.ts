@@ -3,7 +3,11 @@
  * and `acc doctor`. Like the rest of logic/, no `vscode` import, so it can be tested with node:test.
  */
 
+import { join } from 'node:path';
+import type { Tracker } from '../../../packages/core/src/config.ts';
 import type { CheckStatus, Step } from '../../../packages/core/src/onboarding/types.ts';
+import { describe } from '../../../packages/core/src/trackers/connect.ts';
+import type { StartProject } from '../connect.ts';
 import { shq } from './shared.ts';
 
 export const PUBLISHER = 'JackHuffman';
@@ -214,9 +218,62 @@ export function productionOrgs(sfOrgList: unknown): string[] {
   return out.sort();
 }
 
-/** acc init as B0.config's Do it runs it: a profile, or a team template, and Production's org for Salesforce (GH-80). */
-export const initCommand = (o: { profile?: 'salesforce' | 'generic'; productionOrg?: string; from?: string }): string =>
-  ['acc init', ...(o.from ? ['--from', shq(o.from)] : []), ...(o.profile ? ['--profile', o.profile] : []), ...(o.productionOrg ? ['--production-org', shq(o.productionOrg)] : [])].join(' ');
+/** Where B0.config's Do it takes a new project's settings from: a profile, or a team template, and Production's org for Salesforce (GH-80). */
+export interface InitChoice {
+  profile?: 'salesforce' | 'generic';
+  productionOrg?: string;
+  from?: string;
+}
+
+/** acc init's arguments, each value one argument: a choice, and a tracker picked on the Connect page as JSON (GH-81). */
+export const initArgs = (o: InitChoice & { tracker?: Record<string, unknown> }): string[] => [
+  ...(o.from ? ['--from', o.from] : []), ...(o.profile ? ['--profile', o.profile] : []), ...(o.productionOrg ? ['--production-org', o.productionOrg] : []),
+  ...(o.tracker ? ['--tracker', JSON.stringify(o.tracker)] : []),
+];
+
+/** acc init as B0.config's Do it runs it in a terminal: each argument quoted as the shell needs. */
+export const initCommand = (o: InitChoice & { tracker?: Record<string, unknown> }): string => ['acc init', ...initArgs(o).map(shq)].join(' ');
+
+/** What `acc init --json` wrote, or with --dry-run would write (GH-81): the project's name and GitHub, or acc's own words. */
+export type InitOutput = { ok: true; project: string; github: { repo: string; account: string } | null } | { ok: false; error: string };
+
+export function initOutput(stdout: string, stderr = ''): InitOutput {
+  try {
+    const j = JSON.parse(stdout) as { config?: { project?: unknown; github?: { repo?: unknown; account?: unknown } | null }; message?: unknown };
+    const c = j.config;
+    if (c && typeof c.project === 'string') {
+      const g = c.github;
+      return { ok: true, project: c.project, github: g && typeof g.repo === 'string' && typeof g.account === 'string' ? { repo: g.repo, account: g.account } : null };
+    }
+    if (typeof j.message === 'string') return { ok: false, error: j.message };
+  } catch {
+    // said below
+  }
+  return { ok: false, error: (stderr || stdout).trim().split('\n')[0] || 'acc init printed nothing.' };
+}
+
+/**
+ * A project to start on the Connect page (GH-81), as acc init would write it: the folder, the name and
+ * GitHub the dry run found, and its ledger in the git directory its clones share, so a sign-in kept for it
+ * alone is under the key it has once it's written. The rest of acc init's arguments go with it, for Save.
+ */
+export function pendingProject(i: { root: string; dry: Extract<InitOutput, { ok: true }>; commonDir: string; args: string[]; tracker: Record<string, unknown> | null }): StartProject {
+  return { name: i.dry.project, root: i.root, config: { github: i.dry.github }, ledgerPath: join(i.commonDir, 'acc', 'ledger.json'), args: i.args, tracker: startTracker(i.tracker) };
+}
+
+/**
+ * Where a team template says the tracker is (GH-81), as the Connect page fills it in: its kind, its site,
+ * organization or account, and its project or board. A template never names an epic, labels or an area
+ * path (D-097), so the place is always the person's to pick.
+ */
+export function startTracker(t: Record<string, unknown> | null): StartProject['tracker'] {
+  const d = t && typeof t.kind === 'string' ? describe(t.kind) : undefined;
+  if (!t || !d) return null;
+  const blank: Tracker = { kind: d.kind as Tracker['kind'], site: null, project: null, repo: null, organization: null, account: null, team: null, board: null, statusColumn: null, prefix: null, skipLabels: [], epic: null, labels: [], areaPath: null, group: null, edits: false };
+  const { host, values } = d.fromConfig({ ...blank, ...t } as Tracker, null);
+  const ids = new Set(d.pickers.filter((p) => p.identifies).map((p) => p.key));
+  return { kind: d.kind, host: host || null, values: Object.fromEntries(Object.entries(values).filter(([k, v]) => ids.has(k) && v !== null)) };
+}
 
 /** A team template this machine used: its source and name, nothing more (GH-80). */
 export interface RecentTemplate {
@@ -229,8 +286,17 @@ export const rememberTemplate = (list: RecentTemplate[], entry: RecentTemplate, 
   [entry, ...list.filter((r) => r.source !== entry.source)].slice(0, max);
 
 export type ShownTemplate =
-  | { ok: true; name: string; description: string | null; profile: 'salesforce' | 'generic' | null; sets: string[]; commands: Record<string, string> }
+  | {
+    ok: true; name: string; description: string | null; profile: 'salesforce' | 'generic' | null; sets: string[]; commands: Record<string, string>;
+    /** Its tracker, which a project started from an epic fills in on the Connect page (GH-81). */
+    tracker: Record<string, unknown> | null;
+  }
   | { ok: false; errors: string[] };
+
+const trackerOf = (t: unknown): Record<string, unknown> | null => {
+  const tracker = t && typeof t === 'object' ? (t as { tracker?: unknown }).tracker : null;
+  return tracker && typeof tracker === 'object' && !Array.isArray(tracker) ? tracker as Record<string, unknown> : null;
+};
 
 /** What `acc template show --json` said: the template, or every problem with it, or why it couldn't be read. */
 export function shownTemplate(stdout: string, stderr = ''): ShownTemplate {
@@ -242,6 +308,7 @@ export function shownTemplate(stdout: string, stderr = ''): ShownTemplate {
         profile: j.profile === 'salesforce' || j.profile === 'generic' ? j.profile : null,
         sets: Array.isArray(j.sets) ? j.sets.map(String) : [],
         commands: j.commands && typeof j.commands === 'object' ? Object.fromEntries(Object.entries(j.commands).map(([k, v]) => [k, String(v)])) : {},
+        tracker: trackerOf(j.template),
       };
     }
     if (Array.isArray(j.errors) && j.errors.length) return { ok: false, errors: j.errors.map(String) };

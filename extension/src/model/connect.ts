@@ -9,9 +9,12 @@ import { type HomeSection, type Look, LOOK, type ModelArea, short, VIEW_TITLES }
 
 // ---------------------------------------------------------------- connecting a tracker (GH-51)
 
+/** A choice in a list, and which other repo on this machine uses it already, in words (GH-81). */
+export type ConnectOption = Option & { usedBy?: string };
+
 /** One list on the Connect page, as the extension keeps it while the page is open. */
 export interface ConnectPickerState {
-  options: Option[];
+  options: ConnectOption[];
   /** The values chosen. None is the whole project for a picker that has one. */
   selected: string[];
   state: 'waiting' | 'loading' | 'ready' | 'failed';
@@ -36,6 +39,11 @@ export interface ConnectState {
   kind: string;
   /** The tracker being changed, by its place in the list, or null for a new one. */
   existing: { index: number; title: string } | null;
+  /**
+   * A project being started from an epic, an area path or labels (GH-81): acc init writes its config on
+   * Save, the place is required, and the whole project isn't offered.
+   */
+  start: boolean;
   /** The section to go back to. */
   from: HomeSection;
   host: string;
@@ -78,10 +86,13 @@ export interface ConnectPicker {
   multi: boolean;
   /** The whole project, listed first; chosen when nothing is. */
   whole: string | null;
-  options: { value: string; label: string; detail: string | null }[];
+  /** usedBy: "used by acme-portal", when another repo on this machine uses it already (GH-81). */
+  options: { value: string; label: string; detail: string | null; usedBy: string | null }[];
   selected: string[];
   /** Loading, or why the list couldn't be read, beside it. Null when there's nothing to say. */
   look: Look | null;
+  /** A choice another repo here uses already, with an icon and words under the list (GH-81). */
+  used: Look | null;
   disabled: boolean;
   fixed: boolean;
   /** It needs a choice before Save. */
@@ -114,13 +125,15 @@ export interface ConnectModel {
   /** Use this sign-in for every project on the site (GH-79): shown while a sign-in is typed, never for gh. */
   share: { shown: boolean; on: boolean; label: string; hint: string };
   pickers: ConnectPicker[];
+  /** Starting a project (GH-81): which list stands in for an epic, and the description's words for it. Null otherwise. */
+  place: { key: string; words: string } | null;
   save: { can: boolean; label: string; look: Look | null };
 }
 
 /** A fresh page for one kind of tracker, or for an existing one with its choices filled in. */
 export function blankConnect(d: TrackerDescription, i: {
   id: string; root: string | null; projects?: ConnectState['projects']; projectName: string; ownRepo: string | null; ghAccount: string | null; from: HomeSection;
-  gitEmail?: string | null; existing?: { index: number; title: string; host: string; values: Values } | null;
+  gitEmail?: string | null; existing?: { index: number; title: string; host: string; values: Values } | null; start?: boolean;
 }): ConnectState {
   const method = d.methods[0]!;
   const fields = Object.fromEntries(d.methods.flatMap((m) => m.fields).filter((f) => f.type !== 'secret').map((f) => [f.key, f.prefill === 'git-email' ? i.gitEmail ?? '' : '']));
@@ -131,7 +144,7 @@ export function blankConnect(d: TrackerDescription, i: {
   }));
   return {
     id: i.id, rev: 0, root: i.root, projects: i.projects ?? [], projectName: i.projectName, ownRepo: i.ownRepo, ghAccount: i.ghAccount, kind: d.kind,
-    existing: i.existing ? { index: i.existing.index, title: i.existing.title } : null, from: i.from,
+    existing: i.existing ? { index: i.existing.index, title: i.existing.title } : null, start: !!i.start && !i.existing, from: i.from,
     host: i.existing?.host ?? (d.host.prefill === 'github-repo' ? i.ownRepo ?? '' : ''), hostError: null,
     method: method.id, fields, fieldErrors: {}, signIn: { state: 'none', who: null, error: null, again: false }, share: true, shareTouched: false, pickers, saving: false, saveError: null,
   };
@@ -179,27 +192,37 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
   const pickers: ConnectPicker[] = d.pickers.map((p) => {
     const ps = s.pickers[p.key] ?? { options: [], selected: [], state: 'waiting', error: null };
     const fixed = !!s.existing && !!p.identifies;
-    const whole = p.whole ? p.whole({ host: s.host, values, labels }) : null;
+    // Starting a project from its place, the place is required: the whole project is Other project's (GH-81).
+    const place = s.start && p.key === d.place.key;
+    const whole = p.whole && !place ? p.whole({ host: s.host, values, labels }) : null;
     const pickerLook = fixed ? null : ps.state === 'loading' ? LOOK('Loading', 'sync~spin', 'blue')
       : ps.state === 'failed' ? LOOK(`Couldn't list them: ${ps.error ?? 'no answer'}${whole ? ' You can take the whole project now, and narrow it later.' : p.fallback ? ` ${p.fallback}` : ''}`, 'warning', 'orange')
         : ps.state === 'ready' && !ps.options.length && !whole ? LOOK('None that this sign-in can see', 'warning', 'orange') : null;
     // Each option once, and a choice the list no longer has (an epic that's done) kept, so Save doesn't drop it.
-    const options = ps.options.map((o) => ({ value: o.value, label: o.label, detail: o.detail ?? null }));
-    for (const v of ps.selected) if (!options.some((o) => o.value === v)) options.unshift({ value: v, label: v, detail: ps.state === 'ready' && !fixed ? 'chosen before, not listed now' : null });
+    const options = ps.options.map((o) => ({ value: o.value, label: o.label, detail: o.detail ?? null, usedBy: o.usedBy ?? null }));
+    for (const v of ps.selected) if (!options.some((o) => o.value === v)) options.unshift({ value: v, label: v, detail: ps.state === 'ready' && !fixed ? 'chosen before, not listed now' : null, usedBy: null });
+    // A choice another repo here uses already says so under the list, with an icon and words (GH-81).
+    const used = options.filter((o) => o.usedBy && ps.selected.includes(o.value));
     return {
       key: p.key, label: p.label, multi: !!p.multi, whole, options, selected: ps.selected, look: pickerLook,
+      used: used.length ? LOOK(`${used.map((o) => `${o.label}: ${o.usedBy}`).join('; ')}, so two repos would show ${used.every((o) => o.usedBy!.startsWith('overlaps')) ? 'some of ' : ''}the same tickets.`, 'warning', 'orange') : null,
       // One whose list failed needn't hold Save when the tracker does without it (Jira's first board).
-      disabled: !fixed && (!ok || ps.state === 'waiting' || ps.state === 'loading'), fixed, required: !p.whole && !p.multi && !(p.fallback && ps.state === 'failed'),
+      disabled: !fixed && (!ok || ps.state === 'waiting' || ps.state === 'loading'), fixed, required: place || (!p.whole && !p.multi && !(p.fallback && ps.state === 'failed')),
       // Shown once there's a choice to make, or to say why its list couldn't be read.
-      hidden: !!p.hideSingle && ps.state !== 'failed' && options.length <= 1, hint: p.hint ?? null,
+      hidden: !!p.hideSingle && ps.state !== 'failed' && options.length <= 1, hint: place ? d.place.words : p.hint ?? null,
     };
   });
   const ready = pickers.every((p) => p.fixed || !p.required || p.selected.length) && pickers.every((p) => p.look?.icon !== 'sync~spin');
   const name = d.name;
+  const placePicker = d.pickers.find((p) => p.key === d.place.key);
+  const placeLabel = (placePicker?.label ?? 'place').toLowerCase();
+  // "an epic", "an area path", "labels", "a group": what the project is started from.
+  const placeName = placePicker?.multi ? placeLabel : `${/^[aeiou]/.test(placeLabel) ? 'an' : 'a'} ${placeLabel}`;
   return {
     id: s.id, rev: s.rev,
-    title: s.existing ? `Change ${s.existing.title}` : 'Connect a tracker',
-    summary: s.root ? `For ${s.projectName}. acc writes it to that repo's .acc/config.json, and the sign-in stays in VSCode on this machine, never in the file.` : 'Choose the project to connect a tracker to.',
+    title: s.start ? `Start ${s.projectName} from ${placeName} in ${name}` : s.existing ? `Change ${s.existing.title}` : 'Connect a tracker',
+    summary: s.start ? `acc init writes ${s.projectName}'s .acc/config.json when you start it, with its tickets from the ${placeLabel} you pick. Until then nothing is written, and picking only reads ${name}: nothing is ever written to it. The sign-in stays in VSCode on this machine.`
+      : s.root ? `For ${s.projectName}. acc writes it to that repo's .acc/config.json, and the sign-in stays in VSCode on this machine, never in the file.` : 'Choose the project to connect a tracker to.',
     back: { section: s.from, label: `Back to ${SECTION_WORD[s.from]}` },
     projects: s.existing || s.projects.length < 2 ? [] : s.projects.map((p) => ({ ...p, on: p.root === s.root })),
     kinds: s.existing ? [] : list.map((x) => ({ kind: x.kind, name: x.name, icon: x.icon, on: x.kind === d.kind })),
@@ -214,9 +237,10 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
       hint: s.share ? `Every project on this machine that uses ${site} signs in with it, unless it has a sign-in of its own.` : `Kept for ${s.projectName || 'this project'} only. Other projects on ${site} sign in on their own.`,
     },
     pickers,
+    place: s.start ? { key: d.place.key, words: d.place.words } : null,
     save: {
-      can: !!s.root && ok && ready && !s.saving, label: s.existing ? 'Save changes' : `Connect ${name}`,
-      look: s.saving ? LOOK('Saving', 'sync~spin', 'blue') : s.saveError ? LOOK(s.saveError, 'warning', 'orange') : null,
+      can: !!s.root && ok && ready && !s.saving, label: s.start ? 'Start the project' : s.existing ? 'Save changes' : `Connect ${name}`,
+      look: s.saving ? LOOK(s.start ? 'Starting the project' : 'Saving', 'sync~spin', 'blue') : s.saveError ? LOOK(s.saveError, 'warning', 'orange') : null,
     },
   };
 }

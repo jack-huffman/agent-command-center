@@ -1,10 +1,14 @@
 // Setup and its walkthroughs: the steps, their buttons and commands, the orgs and templates acc init offers, and what Setup shows.
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { parseConfig } from '../../packages/core/src/config.ts';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
-import { afterFullCheck, afterStepCheck, buildWalkthroughs, commandLink, COMMANDS, contextKey, type DoctorItem, EXTENSION_ID, hasPlaceholder, initCommand, isComplete, machineCache, mediaPath, productionOrgs, rememberTemplate, reusableMachine, setupOrgChoices, shownTemplate, statusText, stepDescription, stepMedia, summarize, templateDetail } from '../src/logic/setup.ts';
+import { makeRepo, tempDir } from '../../packages/core/test/support.ts';
+import { repoKey } from '../src/logic/connect.ts';
+import { afterFullCheck, afterStepCheck, buildWalkthroughs, commandLink, COMMANDS, contextKey, type DoctorItem, EXTENSION_ID, hasPlaceholder, initArgs, initCommand, initOutput, isComplete, machineCache, mediaPath, pendingProject, productionOrgs, rememberTemplate, reusableMachine, setupOrgChoices, shownTemplate, startTracker, statusText, stepDescription, stepMedia, summarize, templateDetail } from '../src/logic/setup.ts';
 import { needsTerminal } from '../src/logic/runs.ts';
 import { staleFiles } from '../scripts/generate.ts';
 import { setupModel } from '../src/model/setup.ts';
@@ -215,7 +219,7 @@ test('a team template\'s acc init quotes its source and org, and the recent list
 
 test('what acc template show --json said is read as the template, its problems, or why it couldn\'t be read (GH-80)', () => {
   const good = shownTemplate(JSON.stringify({ ok: true, errors: [], name: 'ACME tools', description: 'Small repos.', profile: 'generic', sets: ['Required checks: test'], commands: { test: 'npm test' } }));
-  assert.deepEqual(good, { ok: true, name: 'ACME tools', description: 'Small repos.', profile: 'generic', sets: ['Required checks: test'], commands: { test: 'npm test' } });
+  assert.deepEqual(good, { ok: true, name: 'ACME tools', description: 'Small repos.', profile: 'generic', sets: ['Required checks: test'], commands: { test: 'npm test' }, tracker: null });
   assert.ok(good.ok && templateDetail(good).includes('Check commands it runs on this machine:\ntest: npm test'));
   assert.ok(good.ok && !templateDetail(good).includes('sets no profile'));
   const noProfile = shownTemplate(JSON.stringify({ ok: true, errors: [], name: 'ACME any', description: null, profile: null, sets: [], commands: {} }));
@@ -223,6 +227,54 @@ test('what acc template show --json said is read as the template, its problems, 
   assert.deepEqual(shownTemplate(JSON.stringify({ ok: false, errors: ['"gatez" isn\'t a template key.'] })), { ok: false, errors: ['"gatez" isn\'t a template key.'] });
   assert.deepEqual(shownTemplate(JSON.stringify({ error: 'no-template', message: 'There\'s no team template at x.json.' })), { ok: false, errors: ['There\'s no team template at x.json.'] });
   assert.deepEqual(shownTemplate('', 'node: not found\nmore'), { ok: false, errors: ['node: not found'] });
+});
+
+test('From a Jira epic: acc init gets the tracker as one argument, a template\'s tracker fills in the page, and acc\'s words come back (GH-81)', () => {
+  const tracker = { kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', board: 7, epic: 'ACME-3' };
+  assert.deepEqual(initArgs({ profile: 'generic', tracker }), ['--profile', 'generic', '--tracker', JSON.stringify(tracker)]);
+  assert.equal(initCommand({ profile: 'generic', tracker }), `acc init --profile generic --tracker '${JSON.stringify(tracker)}'`, 'the JSON is one argument');
+  assert.equal(initCommand({ tracker: { kind: 'github', labels: ['won\'t fix'] } }), `acc init --tracker '{"kind":"github","labels":["won'\\''t fix"]}'`);
+  assert.deepEqual(initArgs({ from: '~/team/acme tools.json', profile: 'salesforce', productionOrg: 'Acme Production' }), ['--from', '~/team/acme tools.json', '--profile', 'salesforce', '--production-org', 'Acme Production'], 'each value one argument, unquoted, for running acc itself');
+
+  // The template's tracker, as acc template show --json gives it: its site and project, never a place (D-097).
+  const shown = shownTemplate(JSON.stringify({ ok: true, errors: [], name: 'ACME', description: null, profile: 'generic', sets: [], commands: {}, template: { tracker: { kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', organization: null } } }));
+  assert.ok(shown.ok);
+  assert.deepEqual(startTracker(shown.tracker), { kind: 'jira', host: 'acme.atlassian.net', values: { project: 'ACME' } });
+  assert.deepEqual(startTracker({ kind: 'azure', organization: 'acme', project: null }), { kind: 'azure', host: 'acme', values: {} });
+  assert.deepEqual(startTracker({ kind: 'monday', account: 'acme', board: 1234 }), { kind: 'monday', host: 'acme', values: { board: '1234' } });
+  assert.deepEqual(startTracker({ kind: 'github' }), { kind: 'github', host: null, values: {} });
+  assert.equal(startTracker({ kind: 'trello' }), null);
+  assert.equal(startTracker(null), null);
+
+  assert.deepEqual(initOutput(JSON.stringify({ written: false, config: { project: 'acme-renewals', github: { repo: 'acme/renewals', account: 'jordan-kim' } } })), { ok: true, project: 'acme-renewals', github: { repo: 'acme/renewals', account: 'jordan-kim' } });
+  assert.deepEqual(initOutput(JSON.stringify({ written: false, config: { project: 'tool', github: null } })), { ok: true, project: 'tool', github: null });
+  assert.deepEqual(initOutput(JSON.stringify({ error: 'init', message: '"Acme Production" isn\'t logged in: sf failed' })), { ok: false, error: '"Acme Production" isn\'t logged in: sf failed' });
+  assert.deepEqual(initOutput('', 'node: not found\nmore'), { ok: false, error: 'node: not found' });
+});
+
+test('a project started from an epic signs in under the key it has once acc init writes it: its dry run and its written config agree (GH-81)', () => {
+  const dir = makeRepo();
+  const reposFile = join(tempDir('acc-repos-'), 'repos.json');
+  const acc = (args: string[]) => spawnSync(process.execPath, ['--no-warnings', join(root, '..', 'packages', 'cli', 'src', 'main.ts'), ...args], { cwd: dir, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', ACC_ROLE: '', ACC_TASK: '', ACC_REPOS_FILE: reposFile } });
+  const args = initArgs({ profile: 'generic' });
+  const dry = initOutput(acc(['init', ...args, '--dry-run', '--json']).stdout);
+  assert.ok(dry.ok, JSON.stringify(dry));
+  const common = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: dir, encoding: 'utf8' }).stdout.trim();
+  const pending = pendingProject({ root: dir, dry, commonDir: common, args, tracker: null });
+  assert.deepEqual([pending.name, pending.args, pending.tracker], [dir.split('/').pop(), ['--profile', 'generic'], null]);
+
+  const tracker = { kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', epic: 'ACME-3' };
+  const done = acc(['init', ...pending.args, ...initArgs({ tracker }), '--json']);
+  assert.equal(done.status, 0, done.stdout + done.stderr);
+  const written = parseConfig(JSON.parse(readFileSync(join(dir, '.acc', 'config.json'), 'utf8'))).config!;
+  assert.deepEqual(written.trackers.map((t) => [t.kind, t.epic]), [['jira', 'ACME-3']]);
+  // As the hub builds a project from its folder once it's written.
+  const loaded = { config: written, ledgerPath: join(common, 'acc', 'ledger.json') };
+  assert.equal(repoKey(pending), repoKey(loaded));
+  assert.equal(repoKey(pending), `git:${common}`);
+  // With a GitHub repo, by the repo, as every clone shares it.
+  const withGithub = pendingProject({ root: dir, dry: { ok: true, project: 'acme-renewals', github: { repo: 'Acme/Renewals', account: 'jordan-kim' } }, commonDir: common, args, tracker: null });
+  assert.equal(repoKey(withGithub), repoKey({ config: { github: { repo: 'Acme/Renewals' } }, ledgerPath: '/elsewhere/.git/acc/ledger.json' }));
 });
 
 test('org logins go where an environment\'s name says, gh\'s active account is read, and aliases with spaces stay whole', async () => {
