@@ -10,7 +10,7 @@ import { run as runSync } from '../../packages/core/src/exec.ts';
 import { CLONE_ACCOUNT_KEY } from '../../packages/core/src/github.ts';
 import { type Ledger, readLedger, readRuns, type RepoAgents, type RunsLog, type SessionTie, tieSession } from '../../packages/core/src/ledger.ts';
 import type { RepoPaths } from '../../packages/core/src/paths.ts';
-import type { HistoryRecord, Question } from '../../packages/core/src/questions.ts';
+import { type HistoryRecord, listeners, type Question, questionsDir } from '../../packages/core/src/questions.ts';
 import { reviewing } from '../../packages/core/src/review.ts';
 import { type HeavyState, heavyState } from '../../packages/core/src/semaphore.ts';
 import { claudeProjectsDir, lastModelIn, lastSaidIn, transcriptFile } from '../../packages/core/src/transcript.ts';
@@ -109,6 +109,11 @@ export class Hub implements vscode.Disposable {
   answers: HistoryRecord[] = [];
   /** The home folder, which sessions' folders show as ~ (GH-83). */
   readonly home = homedir();
+  /**
+   * The folders other windows' Command Centers show, by the listener files each keeps fresh while it's open
+   * (D-030), as of the last `claude agents`: the Agents page says a repo is in another window (GH-119).
+   */
+  otherWindows: string[] = [];
   /** The repo each session's folder is in, as of the last `claude agents`, so a repo made since shows next time (GH-83). */
   private readonly repos = new Map<string, string | null>();
   private readonly tasks = new Map<string, { stamp: string; ledger: Ledger; rows: TaskRow[] }>();
@@ -482,6 +487,7 @@ export class Hub implements vscode.Disposable {
     const r = await runFile('claude', ['agents', '--json'], this.projects[0]?.root ?? process.cwd(), process.env, undefined, 20_000);
     this.repos.clear();
     this.forgetTies(true);
+    this.otherWindows = listeners(questionsDir()).filter((l) => l.pid !== process.pid).flatMap((l) => l.roots.filter((x) => typeof x === 'string'));
     if (r.code === 127) {
       this.agents = [];
       this.agentsError = 'The Claude Code CLI (claude) isn\'t on PATH.';

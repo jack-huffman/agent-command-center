@@ -69,7 +69,7 @@ function progressButton(a: ProgressAction): HTMLElement {
 }
 
 /** Answer: its question's card, in Needs you on this page, brought into view with its first answer focused. */
-function answerHere(id: string): void {
+export function answerHere(id: string): void {
   const card = [...document.querySelectorAll<HTMLElement>('.question')].find((q) => q.dataset.question === id);
   if (!card) return;
   card.scrollIntoView({ block: 'center', behavior: 'smooth' });

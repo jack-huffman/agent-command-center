@@ -140,7 +140,8 @@ test('questions are asked by the task their agent works on, and come first on th
   assert.ok(!titles.some((t) => /^(Acme Service · )?ACME-1[24]\b/.test(t)), 'a task whose question is shown isn\'t listed again');
   assert.ok(titles.includes('ACME-11'), 'an agent waiting in its own terminal still shows, to attach to');
   assert.equal(home.nav[0]!.count, needsYouCount(home.overview));
-  assert.equal(home.overview.stats.find((s) => s.label === 'Agents working')!.value, '2', 'agents waiting on a question aren\'t counted as working');
+  // ACME-13's builder, acme-dev, ACME-24's analyst and ACME-42's reviewer elsewhere (GH-119); not ACME-12's or ACME-14's.
+  assert.equal(home.overview.stats.find((s) => s.label === 'Agents working')!.value, '4', 'agents waiting on a question aren\'t counted as working');
   assert.equal(home.runs[0]!.look.label, 'Waiting for you');
 });
 
@@ -162,9 +163,10 @@ test('an agent\'s page and its Needs you card name its folder in context, with t
   const hub = sampleHub();
   const page = agentModel({ hub, key: 's-acme-14', seen: null, entries: [], readable: false, lastAt: null });
   assert.deepEqual([page.where, page.path], ['Acme Service › worktree ACME-14', '~/code/acme-service/.claude/worktrees/ACME-14']);
-  // The same words as its Agents row, which leaves out the project its group names.
+  // Its Agents line says nothing of it: it's in its task's own worktree, under its task and its project (GH-119).
   const home = homeModel({ hub, section: 'agents', boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: sampleRuns() });
-  assert.equal(home.agents.places[0]!.agents.find((a) => a.key === 's-acme-14')!.where, 'worktree ACME-14');
+  const line = home.agents.repos[0]!.tasks.find((t) => t.key === 'ACME-14')!.agents[0]!;
+  assert.deepEqual([line.key, line.label, line.where, line.path], ['s-acme-14', 'builder', null, '~/code/acme-service/.claude/worktrees/ACME-14']);
   const card = home.overview.attention.find((a) => a.title === 'ACME-11')!;
   assert.deepEqual([card.detail, card.tip], ['Acme Service · worktree ACME-11', '~/code/acme-service/.claude/worktrees/ACME-11']);
   // Elsewhere, its folder by name, never the whole path: a session in a repo called Acme Service elsewhere says which.

@@ -32,6 +32,7 @@ import { sampleHub } from './fixtures/hub.ts';
 import { sampleQueueHub } from './fixtures/overview.ts';
 import { sampleAnalyzeRun, sampleBusyHub, sampleIdleHub } from './fixtures/progress.ts';
 import { sampleRuns } from './fixtures/runs.ts';
+import { CLIENTS, ROOT } from './fixtures/shared.ts';
 import { samplePerTokenSetup, sampleSettingsHub } from './fixtures/settings.ts';
 import { sampleSetup } from './fixtures/setup.ts';
 import { sampleSlack, type SlackSample } from './fixtures/slack.ts';
@@ -52,9 +53,9 @@ import { PALETTE_THEMES, type PaletteTheme, palettes, vscodeDefaults } from './s
  * whose merge queue holds three pull requests, with autopilot on and the head running its full check, with
  * autopilot off, and with the head held on GitHub, in that wait's own words (GH-73). Last, Settings opened
  * at How agents run, as Agents' Settings and the status bar's Auto-merge open it, with two projects and
- * per-token billing (GH-110).
+ * per-token billing (GH-110). Last, Agents with each repo's finished sessions opened (GH-119).
  */
-export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents'] as const;
+export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'agents-finished'] as const;
 export type Page = (typeof PAGES)[number];
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -98,10 +99,12 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
   }
   // Settings at How agents run, and Agents, with two projects and agents that would bill per token (GH-110).
   const perToken = kind === 'settings-agents' || kind === 'agents-billing';
-  const hub = perToken ? sampleSettingsHub(now) : sampleHub(now);
+  // Agents, on a busy machine: this window's two projects, one with no agents, and repos elsewhere (GH-119).
+  const agents = kind === 'agents' || kind === 'agents-path' || kind === 'agents-finished';
+  const hub = perToken || agents ? sampleSettingsHub(now) : sampleHub(now);
   const connect = kind.startsWith('connect-') ? sampleConnect(kind.slice('connect-'.length) as ConnectSample) : null;
   const slack = sampleSlack(kind.startsWith('slack-') ? kind.slice('slack-'.length) as SlackSample : 'on', now);
-  const section = (kind === 'output' ? 'setup' : connect || kind === 'tasks-monday' ? 'tasks' : kind.startsWith('slack-') ? 'environments' : kind === 'agents-billing' || kind === 'agents-path' ? 'agents' : kind === 'settings-agents' ? 'settings' : kind) as HomeSection;
+  const section = (kind === 'output' ? 'setup' : connect || kind === 'tasks-monday' ? 'tasks' : kind.startsWith('slack-') ? 'environments' : kind === 'agents-billing' || kind === 'agents-path' || kind === 'agents-finished' ? 'agents' : kind === 'settings-agents' ? 'settings' : kind) as HomeSection;
   const boards = kind === 'tasks-monday' ? sampleMondayBoards : sampleBoards;
   return homeModel({ hub, section, boards: () => boards(), identity: () => sampleIdentity(), setup: perToken ? samplePerTokenSetup() : sampleSetup(), runs: sampleRuns(now), edited: sampleEdited, connect, slack, whereView: kind === 'agents-path' ? 'path' : 'folder', theme });
 }
@@ -113,6 +116,7 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
  */
 // ACC_SHOT_STATE, a JSON object, starts every page with that state instead: for checking what a page restores.
 const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ? JSON.parse(process.env.ACC_SHOT_STATE) : kind === 'output' ? { dock: { open: true, run: 'r-login' } }
+  : kind === 'agents-finished' ? { opened: [ROOT, CLIENTS].map((r) => `agents-finished:${r}`) }
   : kind === 'ticket-split' ? { opened: ['files', 'findings'].map((f) => `an:/Users/me/code/acme-service#ACME-23:${f}`) }
     : kind === 'ticket' ? { drafts: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: SAMPLE_EDIT.text }, bases: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: { text: SAMPLE_EDIT.base } } } : undefined);
 const viewOf = (kind: Page): string => (kind.startsWith('ticket') ? 'ticket' : kind === 'agent' ? kind : 'home');
@@ -131,9 +135,10 @@ const DEFAULT_HEIGHT = 900;
  * the Overview, and taller still at narrow widths, where the Overview's columns stack (D-092). So is the
  * Merge queue panel, below In progress and the tiles (GH-73), and the last of Settings' parts (GH-109).
  * Settings at How agents run is shot tall enough not to scroll (GH-110): under 820 px its jump scrolls the
- * document itself, which headless Chrome draws as a blank band above the tab strip.
+ * document itself, which headless Chrome draws as a blank band above the tab strip. Agents is shot tall enough
+ * to show every repo on the busy machine, down to Other folders (GH-119).
  */
-export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 3600, 'overview-idle': 3200, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 2800, 'settings-agents': 3300 };
+export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 3600, 'overview-idle': 3200, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 2800, 'settings-agents': 3300, agents: 2000, 'agents-path': 2300, 'agents-finished': 2300 };
 
 /** The colour properties the colour check compares, on every element and its ::before and ::after. */
 export const COLOUR_PROPERTIES = [
