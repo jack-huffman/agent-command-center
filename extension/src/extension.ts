@@ -17,6 +17,7 @@ import { CLAUDE_EXTENSION, claudeSessionUri, isSessionId } from './logic/agents.
 import { POLL_INTERVALS, POLL_KEYS, type PollKey } from './logic/polls.ts';
 import type { NavItem } from './model/home.ts';
 import { needsYouCount } from './model/overview.ts';
+import { settingsKey } from './model/settings.ts';
 import { type Ref, sessionKey, VIEW_KINDS, type ViewKind } from './model/shared.ts';
 import { Notices } from './notices.ts';
 import { Panels } from './panels.ts';
@@ -308,15 +309,18 @@ export function activate(context: vscode.ExtensionContext): void {
     write: (root, index, record) => trackers.write(root, index, record),
     // A sign-in for every project on a site lets their boards load too (GH-79).
     signedIn: async (root, kind, host) => { await trackers.reload(root, { kind, host }); tickets.refresh(); await setup.recheck('B14.tickets'); },
-    saved: async (root, name, started) => {
+    saved: async (root, name, from, started) => {
       await hub.loadProjects();
       await trackers.reload(root);
       tickets.refresh();
-      panels.show('tasks');
+      // Opened from Settings, it goes back there, to its trackers (GH-112); otherwise to the tracker's board.
+      const settings = from === 'settings';
+      if (settings) panels.show('settings', settingsKey('trackers'));
+      else panels.show('tasks');
       const project = hub.project(root)?.name ?? 'the project';
       void vscode.window.showInformationMessage(started
         ? `${project} is started: acc init wrote .acc/config.json with ${name}, and its tickets are on the Tasks tab. Review the file and commit it; Setup's B10 writes the README's line for where its tickets come from.`
-        : `${name} for ${project} is saved in .acc/config.json, and its tickets are on the Tasks tab. Commit the file on each environment's branch, so every checkout shows the same board.`);
+        : `${name} for ${project} is saved in .acc/config.json, and its tickets are on the Tasks tab${settings ? ': Settings lists it under Trackers and sign-ins' : ''}. Commit the file on each environment's branch, so every checkout shows the same board.`);
       if (started) await setup.refresh('a project started on the Connect page');
       else await setup.recheck('B14.tickets');
     },

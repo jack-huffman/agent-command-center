@@ -107,8 +107,9 @@ export const RAW_READS: RawRead[] = [
     ],
   },
   {
-    file: 'extension/src/trackers.ts',
-    why: 'the Connect page writes one tracker, keeping the rest of the file as it was',
+    // saveTracker, outside NOT_READS' validator and writers (GH-112).
+    file: 'packages/core/src/config.ts',
+    why: 'acc trackers set, which the Connect page asks, writes one tracker, keeping the rest of the file as it was',
     reads: [{ pattern: /\braw\.(\w+)/g, keys: (m) => [m[1]!] }],
   },
   {

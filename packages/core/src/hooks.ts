@@ -173,8 +173,9 @@ export function guardBash(b: Builder, line: string): string | null {
       if (verb === 'quick' || verb === 'resume' || (verb === 'start' && !rest.includes('--dry-run'))) return 'Builders validate and never deploy (D-011). Use acc gate run validate, which is a check-only deploy.';
     }
     if (cmd === 'sf' && sub === 'org' && rest[0] === 'delete') return 'Builders never delete an org.';
-    // Copying rules in is a person's too (GH-108); listing them and their differences only reads.
-    const personSub = sub === 'gate' && rest[0] === 'waive' ? 'gate waive' : sub === 'rules' && rest[0] === 'import' ? 'rules import' : null;
+    // Copying rules in is a person's too (GH-108); listing them and their differences only reads. So is
+    // connecting or changing a tracker (GH-112).
+    const personSub = sub === 'gate' && rest[0] === 'waive' ? 'gate waive' : sub === 'rules' && rest[0] === 'import' ? 'rules import' : sub === 'trackers' && rest[0] === 'set' ? 'trackers set' : null;
     if (isAcc(cmd) && sub && (PERSON_ONLY_ACC.has(sub) || personSub)) {
       return `acc ${personSub ?? sub} is a person's. A builder finishes with acc done, or acc block "<what you need>".`;
     }

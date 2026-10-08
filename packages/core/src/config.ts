@@ -752,3 +752,29 @@ export function replaceTracker(trackers: Record<string, unknown>[], index: numbe
   if (!was || was.kind !== tracker.kind) throw new AccError('config-changed', 'The trackers in .acc/config.json changed since this page opened. Open it again from the board.');
   return trackers.map((t, k) => (k === index ? setKeys({ ...t, ...tracker }) : t));
 }
+
+/**
+ * Connects a tracker, or changes one, in the repo's .acc/config.json, as acc trackers set does for the
+ * Connect page (GH-112): added with withTracker, or put in place of the one at `index` with replaceTracker.
+ * The config it would make is checked first, and one with problems is refused with nothing written. The
+ * rest of the file is kept as it was. Returns where the tracker is in the list, and the config's warnings.
+ */
+export function saveTracker(file: string, index: number | null, record: Record<string, unknown>): { index: number; warnings: string[] } {
+  if (!isObj(record) || !isTrackerKind(record.kind)) throw new AccError('usage', `A tracker needs a "kind": ${orList([...TRACKER_KINDS])}.`);
+  if (index !== null && (!Number.isInteger(index) || index < 0)) throw new AccError('usage', 'The tracker to change is its place in the list, from 0.');
+  let raw: Record<string, unknown>;
+  try {
+    raw = JSON.parse(readFileSync(file, 'utf8'));
+  } catch (e) {
+    throw new AccError(existsSync(file) ? 'bad-config' : 'no-config', existsSync(file) ? `${file} isn't valid JSON: ${(e as Error).message}` : `No ${file}. Run "acc init" first.`);
+  }
+  if (!isObj(raw)) throw new AccError('bad-config', `${file} must be a JSON object.`);
+  const was = Array.isArray(raw.trackers) ? raw.trackers as Record<string, unknown>[] : [];
+  const trackers = index === null ? withTracker(was, record) : replaceTracker(was, index, record);
+  const wanted = { ...raw, trackers };
+  const checked = parseConfig(wanted);
+  if (!checked.config) throw new AccError('bad-config', `That tracker would leave ${file} with problems, so nothing was written:\n- ${checked.errors.join('\n- ')}`);
+  writeFileSync(file, JSON.stringify(wanted, null, 2) + '\n');
+  // Added, it's where withTracker put it: in place of the one it describes, or last. Either is a new object.
+  return { index: index ?? trackers.findIndex((t, k) => was[k] !== t), warnings: checked.warnings };
+}

@@ -3,7 +3,7 @@
 import type { Look } from '../src/model/shared.ts';
 import type { ConnectField, ConnectModel, ConnectPicker } from '../src/model/connect.ts';
 import { button, type Child, el, icon, keptInput, segmented, status } from './dom.ts';
-import { api, type PageArea, state } from './state.ts';
+import { api, go, type PageArea, state } from './state.ts';
 
 // ---------------------------------------------------------------- connecting a tracker (GH-51)
 
@@ -119,7 +119,8 @@ export function renderConnect(m: ConnectModel): Node[] {
   for (const [k, rev] of connectSent) if (m.rev > rev) { connectTyped.delete(k); connectSent.delete(k); }
   // Signed in, the page shows no sign-in fields, so what was typed there (the token) is forgotten by key.
   if (!m.signIn.editing) for (const k of [...connectTyped.keys()]) if (k.startsWith(`${m.id}:`) && k !== `${m.id}:${m.host.key}`) connectTyped.delete(k);
-  const back = button(m.back.label, 'arrow-left', () => connectSend(m, { type: 'connect-cancel' }), 'ghost');
+  // Back to Settings goes to its Trackers and sign-ins, which opened the page (GH-112); going there closes it.
+  const back = button(m.back.label, 'arrow-left', () => (m.back.part ? go(m.back.section, m.back.part) : connectSend(m, { type: 'connect-cancel' })), 'ghost');
   const test = () => {
     const typed = (key: string, value: string) => connectTyped.get(`${m.id}:${key}`) ?? value;
     connectSend(m, { type: 'connect-test', host: typed(m.host.key, m.host.value), fields: Object.fromEntries(m.fields.map((f) => [f.key, typed(f.key, f.value)])) });

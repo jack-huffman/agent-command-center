@@ -41,3 +41,20 @@
   .settings-row.has-change { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
   .settings-row.has-change > .settings-value { grid-column: 1 / -1; grid-row: 2; }
 }
+/* Trackers and sign-ins (GH-112): a group per project, and a block per tracker, its buttons beside its name
+   and wrapping under it on a narrow tab, then a row each for its place, board and sign-in. */
+.settings-tracker { padding: 8px 0 4px; border-top: 1px solid var(--line); }
+.settings-tracker-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
+.settings-tracker-name { display: flex; align-items: center; gap: 6px; margin: 0; min-width: 0; font-size: 1em; }
+.settings-tracker-name > span:last-child { overflow-wrap: anywhere; }
+.settings-tracker-actions .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.settings-tracker-actions .btn:disabled:hover { background: var(--vscode-button-secondaryBackground); }
+.settings-tracker-row { padding: 4px 0 0; border-top: 0; }
+.settings-tracker-row .settings-name { padding-top: 0; }
+.settings-tracker-row .settings-now { padding-top: 0; }
+.settings-place { overflow-wrap: anywhere; }
+.settings-tracker-none { margin: 6px 0 0; }
+@media (max-width: 620px) {
+  /* Its rows' names are short, so they stay beside their values, and a tracker stays a few lines tall. */
+  .settings-tracker-row { grid-template-columns: 5.5em minmax(0, 1fr); gap: 8px; }
+}

@@ -73,7 +73,7 @@ const BILLING: typeof ACME = { name: 'Acme Billing', root: BILLING_ROOT, config:
  * The Connect page with stand-ins, and the real rules for where a sign-in is kept and found (GH-79): this
  * repo's own key first, then the site's. Pass `secrets` to share one machine's sign-ins between repos.
  */
-function harness(o: { trackers?: Record<string, unknown>[]; fetch?: typeof fetch; exec?: Exec; project?: typeof ACME; list?: TrackerDescription[]; secrets?: Map<string, string>; repos?: RepoInUse[]; confirm?: boolean; start?: (record: Record<string, unknown>) => void } = {}) {
+function harness(o: { trackers?: Record<string, unknown>[]; fetch?: typeof fetch; exec?: Exec; project?: typeof ACME; list?: TrackerDescription[]; secrets?: Map<string, string>; repos?: RepoInUse[]; confirm?: boolean; start?: (record: Record<string, unknown>) => void; refuse?: string } = {}) {
   const project = o.project ?? ACME;
   const apply = (w: CredWrites) => {
     for (const [k, v] of w.store) h.secrets.set(k, v);
@@ -82,7 +82,7 @@ function harness(o: { trackers?: Record<string, unknown>[]; fetch?: typeof fetch
   const h = {
     raw: o.trackers ?? [] as Record<string, unknown>[],
     secrets: o.secrets ?? new Map<string, string>(),
-    posted: [] as string[], logs: [] as string[], saved: [] as string[], signedIn: [] as (string | null)[], microsoftAsked: 0,
+    posted: [] as string[], logs: [] as string[], saved: [] as string[], savedFrom: [] as string[], signedIn: [] as (string | null)[], microsoftAsked: 0,
     /** What Start the project ran acc init with (GH-81), what was asked, and how often anything wrote the config. */
     started: [] as { root: string; args: string[]; record: Record<string, unknown> }[], asked: [] as string[], writes: 0,
     session: null as unknown as ConnectSession,
@@ -110,9 +110,14 @@ function harness(o: { trackers?: Record<string, unknown>[]; fetch?: typeof fetch
     gitEmail: async () => EMAIL,
     ghToken: async () => 'gh-token',
     microsoft: async () => (h.microsoftAsked++, { header: 'Bearer ms-token', cred: { account: { id: 'm1', label: 'jordan@acme.example' }, tenant: 'tenant-1' } }),
-    write: (_root, index, record) => { h.writes++; h.raw = index === null ? withTracker(h.raw, record) : replaceTracker(h.raw, index, record); },
+    // As acc trackers set writes it (GH-112), or refuses with its reason.
+    write: async (_root, index, record) => {
+      if (o.refuse) throw new Error(o.refuse);
+      h.writes++;
+      h.raw = index === null ? withTracker(h.raw, record) : replaceTracker(h.raw, index, record);
+    },
     signedIn: async (r) => { h.signedIn.push(r); },
-    saved: async (_root, name, started) => { h.saved.push(started ? `${name}, started` : name); },
+    saved: async (_root, name, from, started) => { h.saved.push(started ? `${name}, started` : name); h.savedFrom.push(from); },
     start: async (p, record) => { h.started.push({ root: p.root, args: p.args, record }); o.start?.(record); },
     confirm: async (message) => { h.asked.push(message); return o.confirm ?? false; },
     repos: () => o.repos ?? [],
@@ -253,6 +258,31 @@ test('an existing tracker opens signed in, its project fixed and its done epic k
   h.send({ type: 'connect-save' });
   await settle();
   assert.deepEqual(h.raw, [{ kind: 'github', skipLabels: ['milestone'] }, { kind: 'jira', site: SITE, project: 'ACME', epic: 'ACME-31', board: 9, edits: true }], 'in place, keeping what the page doesn\'t manage');
+});
+
+test('opened from Settings, Back and Save go back to its Trackers and sign-ins; acc\'s refusal stays beside Save (GH-112)', async () => {
+  const h = harness({ trackers: [{ kind: 'jira', site: SITE, project: 'ACME', board: 9 }] });
+  h.secrets.set(siteCredKey('jira', SITE), JSON.stringify({ kind: 'jira', method: 'token', email: EMAIL, token: TOKEN }));
+  await h.session.open({ root: ROOT, index: 0, from: 'settings' });
+  await settle();
+  assert.deepEqual(h.model().back, { section: 'settings', label: 'Back to Settings', part: 'settings:trackers' });
+  h.send({ type: 'connect-pick', key: 'epic', value: 'ACME-31' });
+  await settle();
+  h.send({ type: 'connect-save' });
+  await settle();
+  assert.deepEqual([h.raw[0]!.epic, h.saved, h.savedFrom], ['ACME-31', ['Jira'], ['settings']], 'written, then Settings opens again');
+  // Opened from anywhere else, Back is just Back: Save shows the tracker's board.
+  await h.session.open({ root: ROOT, index: 0, from: 'tasks' });
+  assert.equal(h.model().back.part, null);
+
+  const refused = harness({ trackers: [{ kind: 'jira', site: SITE, project: 'ACME' }], secrets: h.secrets, refuse: 'The trackers in .acc/config.json changed since this page opened. Open it again from the board.' });
+  await refused.session.open({ root: ROOT, index: 0, from: 'settings' });
+  await settle();
+  refused.send({ type: 'connect-save' });
+  await settle();
+  const m = refused.model();
+  assert.deepEqual([m.save.look?.label, m.save.look?.icon, m.save.look?.tone, m.save.can], ['Couldn\'t save: The trackers in .acc/config.json changed since this page opened. Open it again from the board.', 'warning', 'orange', true], 'acc\'s words, and Save to try again');
+  assert.deepEqual(refused.saved, [], 'nothing reloads, and the page stays open');
 });
 
 test('opened from a Sign in button, the tracker shows its sign-in to type, and signing in lets its board load', async () => {

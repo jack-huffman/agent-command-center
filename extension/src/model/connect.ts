@@ -6,6 +6,7 @@
 import { type ConfigPath, keyShown, UNREAD_KEYS } from '../../../packages/core/src/config.ts';
 import { declaredKeys, DESCRIPTIONS, type Option, type TrackerDescription, type Values } from '../../../packages/core/src/trackers/connect.ts';
 import { signInScope } from '../logic/connect.ts';
+import { settingsKey } from './settings.ts';
 import { type HomeSection, type Look, LOOK, type ModelArea, short, VIEW_TITLES } from './shared.ts';
 
 // ---------------------------------------------------------------- connecting a tracker (GH-51)
@@ -109,7 +110,8 @@ export interface ConnectModel {
   rev: number;
   title: string;
   summary: string;
-  back: { section: HomeSection; label: string };
+  /** The section to go back to, and, opened from Settings, its part: Trackers and sign-ins (GH-112). */
+  back: { section: HomeSection; label: string; part: string | null };
   /** A project to choose, when there are several and none was named. */
   projects: { root: string; name: string; on: boolean }[];
   /** The kinds to choose from; empty for an existing tracker. */
@@ -225,7 +227,7 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
     title: s.start ? `Start ${s.projectName} from ${placeName} in ${name}` : s.existing ? `Change ${s.existing.title}` : 'Connect a tracker',
     summary: s.start ? `acc init writes ${s.projectName}'s .acc/config.json when you start it, with its tickets from the ${placeLabel} you pick. Until then nothing is written, and picking only reads ${name}: nothing is ever written to it. The sign-in stays in VSCode on this machine.`
       : s.root ? `For ${s.projectName}. acc writes it to that repo's .acc/config.json, and the sign-in stays in VSCode on this machine, never in the file.` : 'Choose the project to connect a tracker to.',
-    back: { section: s.from, label: `Back to ${SECTION_WORD[s.from]}` },
+    back: { section: s.from, label: `Back to ${SECTION_WORD[s.from]}`, part: s.from === 'settings' ? settingsKey('trackers') : null },
     projects: s.existing || s.projects.length < 2 ? [] : s.projects.map((p) => ({ ...p, on: p.root === s.root })),
     kinds: s.existing ? [] : list.map((x) => ({ kind: x.kind, name: x.name, icon: x.icon, on: x.kind === d.kind })),
     kind: d.kind, name, icon: d.icon, host,
