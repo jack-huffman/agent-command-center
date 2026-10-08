@@ -104,6 +104,8 @@ only its own:
 | `<git-common-dir>/acc/packets/<task>.md` | no | The rendered instructions each builder got |
 | `<git-common-dir>/acc/logs/` | no | Full check output |
 | `~/.acc/` | n/a | Machine-wide: list of managed repos, the heavy-check semaphore |
+| `~/.acc/machine.json` | n/a | This machine's settings: its heavy-check slots (D-080) and its total of builders across every repo (GH-111), each set by `acc machine` |
+| `~/.acc/ledgers/` | n/a | A file for each repo that dispatched a builder here, naming its ledger, so this machine's total counts every repo's builders (GH-111) |
 | `~/.acc/questions/` | n/a | Agents' questions waiting for the Command Center, and which windows are listening (D-030) |
 
 **Why the git common directory (D-008).** `git rev-parse --git-common-dir`
@@ -180,12 +182,12 @@ listed so that drift checks and `doctor` cover it.
 | `environmentSpecific` | A list of files that differ by design in every environment, such as email service addresses, SSO and org settings. These are never edited by a task, never deployed, and never promoted (D-016) |
 | `knownDrift` | Files that a drift check should expect to differ, such as features a sandbox lacks or ordering noise. They can still be edited and promoted |
 | `trackers` | Where intake reads from. Several are allowed. A GitHub tracker's `skipLabels` lists labels whose issues aren't tasks, such as `["milestone"]` (D-048). Each tracker's place holds every read to this repo's tickets: its project, repo or monday.com `board`, narrowed by a Jira `epic`, GitHub `labels` (any one counts), an Azure `areaPath` or a monday.com `group` (D-072). A monday.com tracker names its `account` and `board`, and may name a `statusColumn` (D-085) |
-| `agents.max` | Most builder sessions at once, default 3 |
+| `agents.max` | Most builder sessions at once, default 3. `acc agents max <n>` and Settings' Limits and checks change it; this machine's total, if it has one (`acc machine agents`), caps every repo's builders together (GH-111) |
 | `autonomy` | How much the loop does on its own ([section 12](#12-the-orchestrator-loop)) |
 | `autopilot.appendOnly` | Files, or folders, where autopilot may resolve a conflict with the base when both sides only added to the end, such as a decision log. Left out, there are none ([section 12](#12-the-orchestrator-loop)) |
 | `dispatch.shared` | Files, or folders, that every task edits, such as the docs. Like `autopilot.appendOnly`, they never make one task wait for another's files. Left out, there are none ([section 7](#7-dispatch)) |
 | `worktrees.root` | Where task worktrees go. The default is a sibling folder outside the repo ([section 7](#7-dispatch)) |
-| `gates` | Which checks are required, plus per-check overrides. `gates.builder` names a builder's lighter checks, where the merge queue runs the required ones ([section 9](#9-gates-and-receipts)) |
+| `gates` | Which checks are required, plus per-check overrides. `gates.builder` names a builder's lighter checks, where the merge queue runs the required ones ([section 9](#9-gates-and-receipts)). `acc gate required` and `acc gate builder` change the two lists, as Settings does (GH-111) |
 | `template` | The team template the project was started from, written by `acc init --from`: its `name`, its `source` (a GitHub file URL, `<git-url>#<path>`, or a path inside the repo, under `~/`, or an absolute path elsewhere) and its `digest` (`sha256:` of its JSON with sorted keys). Setup's B0.template step says when the template has changed and the project now differs; nothing re-applies it ([docs/TEMPLATES.md](TEMPLATES.md), D-097) |
 
 ## 5. Tasks and the ledger
@@ -325,8 +327,11 @@ GitHub about each unfinished task whose issue wasn't listed:
 
 `acc dispatch <id>` does the following:
 
-1. **Checks.** The task is ready, running sessions are below `agents.max`, and
-   the environment isn't protected, and its branch matches its org (D-015).
+1. **Checks.** The task is ready, running sessions are below `agents.max` and
+   below this machine's total across every repo, when it has one (GH-111), and
+   the environment isn't protected, and its branch matches its org (D-015). A
+   dispatch past either cap is refused, naming which; a held start and
+   autopilot's re-dispatch wait, naming it too.
    Where the project wants an analysis first, the task has one with every
    question answered (D-052).
 1b. **Weighs its files (D-093).** On a first dispatch, the files the task's
@@ -977,7 +982,7 @@ count; under 820 px wide, it becomes a tab strip along the top.
 | **Worktrees** | Every checkout, with a menu on each row |
 | **Environments** | The GitHub identity card (D-028), promotion paths, and one card per environment |
 | **Setup** | The checklist, with Do it on each step |
-| **Settings** | Last in the rail, with a gear (GH-109). **Appearance** first, then a part for each area whose settings move there: How agents run, Limits and checks, Trackers and sign-ins, Notices in Slack, GitHub accounts, the Command Center, and About. Each part has a heading another page can open Settings at; until its settings move, it says where they live today, with a button there when there is one |
+| **Settings** | Last in the rail, with a gear (GH-109). **Appearance** first, then a part for each area whose settings move there: How agents run, **Limits and checks** (GH-111), Trackers and sign-ins, Notices in Slack, GitHub accounts, the Command Center, and About. Each part has a heading another page can open Settings at; until its settings move, it says where they live today, with a button there when there is one |
 
 The page polls only while it's visible. The section you leave it on is where it
 opens next. The sidebar keeps a single launcher view listing the sections; set
@@ -995,6 +1000,17 @@ A tab on screen restyles in place; a hidden one's HTML is written again, since
 VSCode rebuilds it from that. `npm run screenshot` shoots each page forced
 under VSCode's other theme, and `npm run screenshot -- --colours` compares
 every element's computed colours across themes.
+
+**Limits and checks** (GH-111): each project's builder cap and this machine's
+total across every repo side by side, each with −, its number, + and Change…,
+how many run now and where it's set; what a change means, in this machine's
+own numbers; the heavy-check slots; and each project's required and builders'
+checks. Every change runs acc (`acc agents max`, `acc machine agents`, `acc
+machine heavy-slots`, `acc gate required`, `acc gate builder`), which changes
+only its key. The extension reads the part's facts in `extension/src/limits.ts`
+at most every 15 seconds, since the total counts every repo's ledger acc noted
+under `~/.acc/ledgers/`, and runs its commands there; `model/limits.ts` words
+them, and `webview/limits.ts` draws them.
 
 The page is a webview under a nonce content security policy. It renders text
 only and accepts only allow-listed `acc.*` commands. Ticket pages stay their
