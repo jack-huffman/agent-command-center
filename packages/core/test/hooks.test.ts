@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { run } from '../src/exec.ts';
-import { commandsOf } from '../src/hooks.ts';
-import { mutate, readLedger, upsertTasks } from '../src/ledger.ts';
+import { commandsOf, expands, shortPacket } from '../src/hooks.ts';
+import { DONE_COMMAND, mutate, readLedger, type Task, upsertTasks } from '../src/ledger.ts';
 import { parseConfig, type Config } from '../src/config.ts';
 import { repoPaths } from '../src/paths.ts';
 import { GENERIC_CONFIG, gitIn, makeRepo, tempDir } from './support.ts';
@@ -69,7 +69,9 @@ test('the finish-line reminder comes once a session, and only while the task is 
   const r = repo();
   const env = { ACC_ROLE: 'builder', ACC_TASK: 'T-1' };
   const input = { hook_event_name: 'Stop', session_id: 'sess-1', cwd: r.wt };
-  assert.equal(hook('stop', input, env, r.wt).out?.decision, 'block');
+  const first = hook('stop', input, env, r.wt).out;
+  assert.equal(first?.decision, 'block');
+  assert.ok(first.reason.includes(DONE_COMMAND), 'the finish command, word for word (D-???)');
   assert.equal(hook('stop', input, env, r.wt).out, null, 'not twice');
   mutate(repoPaths(r.root, run), now, (l, emit) => { l.tasks[0]!.state = 'review'; emit({ type: 'task.updated', task: 'T-1', actor: 'builder', by: 't', data: {} }); });
   assert.equal(hook('stop', { ...input, session_id: 'sess-2' }, env, r.wt).out, null, 'finished: nothing to remind');
@@ -80,4 +82,16 @@ test('commands are read through quotes, chains and wrappers, the way the shell w
   assert.deepEqual(commandsOf('FOO=1 nice -n 15 npm test'), [['npm', 'test']]);
   assert.deepEqual(commandsOf("echo 'git push'"), [['echo', 'git push']], 'a quoted mention isn\'t a push');
   assert.deepEqual(commandsOf('(cd x; git push)'), [['cd', 'x'], ['git', 'push']]);
+});
+
+test('the short instructions give the finish command word for word, and a note the shell would expand is refused (D-???)', () => {
+  const task = { id: 'T-1', title: 'Do the thing', run: { worktree: '/w/T-1', branch: 'task/T-1-a' } } as Task;
+  assert.ok(shortPacket(task, ['test']).includes(`then finish with your note, all on one line: \`${DONE_COMMAND}\``));
+  // A backtick or a $ the shell acts on: anywhere but inside single quotes, or escaped.
+  assert.equal(expands('acc done --landed "Adds `sum`"'), true);
+  assert.equal(expands('acc done --landed "Saves $5"'), true);
+  assert.equal(expands('acc block $(whoami)'), true);
+  assert.equal(expands("acc done --landed 'Saves $5 and `x`'"), false);
+  assert.equal(expands('acc done --landed "Saves \\$5" --open "it\'s fine"'), false);
+  assert.equal(expands(DONE_COMMAND), false, 'the command it asks for is safe as written');
 });

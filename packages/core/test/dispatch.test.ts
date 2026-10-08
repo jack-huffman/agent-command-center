@@ -11,7 +11,7 @@ import { dispatch, type DispatchOptions, findSession, slugify, taskBranch, workt
 import { startHeld, stopWaiting } from '../src/held.ts';
 import { run } from '../src/exec.ts';
 import { shortPacket } from '../src/hooks.ts';
-import { displayState, emptyLedger, moveTask, mutate, noGateHooks, readLedger, upsertTasks } from '../src/ledger.ts';
+import { displayState, DONE_COMMAND, emptyLedger, moveTask, mutate, noGateHooks, readLedger, type RunNote, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
 import { bad, fakeAwake, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, SF_CONFIG, tempDir, writePlan } from './support.ts';
 
@@ -58,6 +58,9 @@ function acc(cwd: string, args: string[], env: NodeJS.ProcessEnv = {}) {
   return { code: r.status ?? 1, out: r.stdout, err: r.stderr, json: () => JSON.parse(r.stdout) };
 }
 
+/** A builder's note on acc done (D-???): what landed, and nothing moved or open. */
+const NOTE = ['--landed', 'The change', '--moved', 'none', '--open', 'none'];
+
 const tasksOf = (repo: string) => JSON.parse(readFileSync(join(repo, '.git', 'acc', 'ledger.json'), 'utf8')).tasks as { id: string; state: string; run?: Record<string, string> }[];
 
 test('names: slugs are short and branch-safe, and worktrees sit beside the repo (D-013)', () => {
@@ -81,7 +84,7 @@ test('the packet tells a Salesforce builder where it is, how to finish, and what
     assert.ok(p.includes(must), must);
   }
   assert.ok(!p.includes('refs #'), 'Jira tasks don\'t get GitHub refs');
-  assert.ok(p.includes('running exactly `acc done`, as its own command'), 'the finish line is a bare acc done');
+  assert.ok(p.includes(`by running \`acc done\` as its own command, all on one line: \`${DONE_COMMAND}\``), 'the finish line is acc done with its note, word for word (D-???)');
   assert.ok(p.includes('npm scripts'), 'wrappers are ruled out');
   assert.ok(p.includes('run exactly `acc gate run`') && p.includes('`acc gate run --test AccountServiceTest="covers the new discount rule"`'), 'Apex changes add --test to the same command');
   assert.ok(p.indexOf('**Commit**') < p.indexOf('**Checks:**'), 'commit first: receipts vouch for a commit');
@@ -108,7 +111,7 @@ test('a rework autopilot sent back for failing checks tells its builder what Git
   for (const must of [
     '## What GitHub\'s checks said', 'pull request #42, and its checks failed on GitHub on aaaaaaa: test, lint', '### test (CI)', 'Link: https://github.com/acme/tool/actions/runs/1/job/2',
     '```text\nnot ok 1 - sum adds\n# fail 1\n```', '### lint (CI)', 'Couldn\'t fetch its log: failed to get run log: log not found.',
-    'run `acc block "<what you found>"` and stop', 'run exactly `acc gate run`', 'running exactly `acc done`',
+    'run `acc block "<what you found>"` and stop', 'run exactly `acc gate run`', '`acc done` as its own command',
   ]) assert.ok(p.includes(must), must);
   assert.ok(!p.includes('What the review asked for'), 'its review passed');
   assert.ok(p.indexOf('What GitHub\'s checks said') < p.indexOf('## Where you are'), 'before where it works, as a review\'s changes are');
@@ -145,7 +148,7 @@ test('where the merge queue runs the full check, the packet and the short one na
   assert.ok(p.includes('It runs the required checks (`typecheck`, `near-tests`) on your latest commit'), p);
   assert.ok(p.includes('These are the lighter checks, such as the tests near what you changed. The full check (`check`) runs once, in the merge queue, before your pull request merges'));
   assert.ok(p.includes('- push, merge a pull request, or open one (a person, `acc land` and autopilot do that)'), 'merging the base in isn\'t forbidden');
-  assert.match(shortPacket(task, ['typecheck', 'near-tests'], ['check']), /run exactly `acc gate run` \(typecheck, near-tests\), then run exactly `acc done`.*\nThe full check \(check\) runs once, in the merge queue, before the merge\.\nNever push, merge a pull request, open one, or deploy\./s);
+  assert.match(shortPacket(task, ['typecheck', 'near-tests'], ['check']), /run exactly `acc gate run` \(typecheck, near-tests\), then finish with your note, all on one line: `acc done --landed .*\nThe full check \(check\) runs once, in the merge queue, before the merge\.\nNever push, merge a pull request, open one, or deploy\./s);
   // Elsewhere, as before: the required checks, and nothing about a queue.
   const off = parseConfig({ ...raw, autopilot: { autoMerge: false } }).config!;
   const plain = renderPacket({ task, config: off, env, worktree: '/w/GH-73', branch: 'task/GH-73-a-queue', rules: null, environmentSpecific: [] });
@@ -222,7 +225,7 @@ test('a model picked for a task reaches claude --bg over the project\'s and the 
   assert.equal(r.json().task.run.model, 'sonnet');
 
   // Sent back for rework, it's re-dispatched with no --model, as autopilot does: the pick stays.
-  acc(r.json().worktree, ['done'], { ...env, ACC_ROLE: 'builder', ACC_TASK: 'T-1' });
+  acc(r.json().worktree, ['done', ...NOTE], { ...env, ACC_ROLE: 'builder', ACC_TASK: 'T-1' });
   assert.equal(acc(repo, ['set', 'T-1', 'rework', '--reason', 'needs a date']).code, 0);
   const again = acc(repo, ['dispatch', 'T-1', '--json'], env);
   assert.equal(again.code, 0, again.err);
@@ -230,7 +233,7 @@ test('a model picked for a task reaches claude --bg over the project\'s and the 
   assert.deepEqual([tasksOf(repo)[0]!.run!.model, tasksOf(repo)[0]!.run!.modelPicked], ['sonnet', true]);
 
   // Another pick replaces it.
-  acc(again.json().worktree, ['done'], { ...env, ACC_ROLE: 'builder', ACC_TASK: 'T-1' });
+  acc(again.json().worktree, ['done', ...NOTE], { ...env, ACC_ROLE: 'builder', ACC_TASK: 'T-1' });
   acc(repo, ['set', 'T-1', 'rework', '--reason', 'and a heading']);
   assert.equal(acc(repo, ['dispatch', 'T-1', '--model', 'claude-fable-5-1'], env).code, 0);
   assert.equal(modelOfLaunch(claude.calls().filter((c) => c.args[0] === '--bg')[2]!.args), 'claude-fable-5-1');
@@ -245,7 +248,7 @@ test('a task nobody picked a model for follows the clone\'s choice as it is at e
   const r = acc(repo, ['dispatch', 'T-1', '--json'], env);
   assert.equal(modelOfLaunch(claude.calls().filter((c) => c.args[0] === '--bg')[0]!.args), 'opus', 'the project\'s');
   assert.equal(tasksOf(repo)[0]!.run!.model, 'opus');
-  acc(r.json().worktree, ['done'], { ...env, ACC_ROLE: 'builder', ACC_TASK: 'T-1' });
+  acc(r.json().worktree, ['done', ...NOTE], { ...env, ACC_ROLE: 'builder', ACC_TASK: 'T-1' });
   acc(repo, ['set', 'T-1', 'rework', '--reason', 'needs a date']);
   gitIn(repo, 'config', 'acc.builder.model', 'haiku');
   assert.equal(acc(repo, ['dispatch', 'T-1'], env).code, 0);
@@ -306,7 +309,7 @@ test('dispatch end to end: worktree from the environment branch, packet, backgro
   assert.equal(task.run!.n, 1);
 
   // The builder finishes from inside its worktree, identified by its session environment.
-  const done = acc(out.worktree, ['done', '--json'], { ...env, ACC_ROLE: 'builder', ACC_TASK: 'T-1' });
+  const done = acc(out.worktree, ['done', ...NOTE, '--json'], { ...env, ACC_ROLE: 'builder', ACC_TASK: 'T-1' });
   assert.equal(done.code, 0, done.err);
   assert.equal(done.json().entry.by, 'builder:T-1');
   assert.equal(tasksOf(repo)[0]!.state, 'review');
@@ -369,6 +372,80 @@ test('a builder can block with a reason, but can\'t mark work done or move other
   assert.match(acc(wt, ['set', 'T-1', 'todo'], b).err, /A builder can't move a task from blocked to todo/);
 });
 
+test('a builder finishes with a note that its next run, a task that depends on it and acc show read (D-???)', () => {
+  const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG), ...IGNORE }));
+  const claude = fakeClaude();
+  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  acc(repo, ['add', 'Write the changelog']);
+  acc(repo, ['add', 'Link the changelog', '--dep', 'T-1']);
+  const wt = acc(repo, ['dispatch', 'T-1', '--json'], env).json().worktree;
+  const b = { ...env, ACC_ROLE: 'builder', ACC_TASK: 'T-1' };
+  const packet = () => readFileSync(join(repo, '.git', 'acc', 'packets', 'T-1.md'), 'utf8');
+  assert.ok(packet().includes(`\`${DONE_COMMAND}\``), 'the finish line gives the command word for word');
+  assert.match(packet(), /posted on the pull request on GitHub, so keep secrets and client data out of it/);
+
+  // Without a note, acc done is refused with the exact command, and the task stays running.
+  const bare = acc(wt, ['done'], b);
+  assert.equal(bare.code, 1);
+  assert.ok(bare.err.includes(DONE_COMMAND), bare.err);
+  assert.match(acc(wt, ['done', '--landed', 'The changelog'], b).err, /says nothing about --moved, --open/);
+  assert.equal(tasksOf(repo)[0]!.state, 'running');
+
+  // With one, each flag a line, and none an empty part.
+  const done = acc(wt, ['done', '--landed', 'CHANGELOG.md with one entry', '--moved', 'none', '--open', 'Link it from the README', '--open', 'Date the entry', '--json'], b);
+  assert.equal(done.code, 0, done.err);
+  const note = (tasksOf(repo)[0]!.run as unknown as { note: RunNote }).note;
+  assert.deepEqual({ ...note, at: '' }, { landed: ['CHANGELOG.md with one entry'], moved: [], open: ['Link it from the README', 'Date the entry'], at: '', by: 'builder:T-1', ended: 'review' });
+  const moved = readFileSync(join(repo, '.git', 'acc', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.type === 'task.moved' && e.data.to === 'review');
+  assert.deepEqual(moved.at(-1).data.note, note, 'its event carries it');
+  const shown = acc(repo, ['show', 'T-1']).out;
+  assert.match(shown, /Builder's note \(builder:T-1, to review .*\):\n {2}What landed:\n {4}- CHANGELOG.md with one entry\n {2}Numbers that moved:\n {4}none\n {2}Still open:\n {4}- Link it from the README\n {4}- Date the entry/);
+  assert.deepEqual(acc(repo, ['show', 'T-1', '--json']).json().run.note, note);
+
+  // A rework's next run is told what the last one left, and keeps it as run.before.
+  assert.equal(acc(repo, ['set', 'T-1', 'rework', '--reason', 'needs a date']).code, 0);
+  assert.equal(acc(repo, ['dispatch', 'T-1'], env).code, 0);
+  assert.match(packet(), /## What your last run left\n\nThis task ran before \(builder 1\), and its builder left this note when it moved it to review\. It's that builder's own account: check it against the tree \(`git status`, `git log --oneline origin\/main\.\.HEAD` and `acc gate list`\)/);
+  assert.match(packet(), /\*\*Still open\*\*\n\n- Link it from the README\n- Date the entry/);
+  const run = tasksOf(repo)[0]!.run as unknown as { note?: RunNote; before?: RunNote | null };
+  assert.deepEqual([run.before, run.note], [note, undefined]);
+  assert.match(acc(repo, ['show', 'T-1']).out, /Builder's note, from its last run/);
+
+  // A block needs no note, and may give one.
+  assert.equal(acc(wt, ['block', 'Which date format?', '--open', 'Pick a date format'], b).code, 0);
+  const blocked = (tasksOf(repo)[0]!.run as unknown as { note: RunNote }).note;
+  assert.deepEqual([blocked.landed, blocked.moved, blocked.open, blocked.ended], [[], [], ['Pick a date format'], 'blocked']);
+
+  // A person's move to review needs none. Once T-1 is done, T-2's packet holds T-1's note.
+  assert.equal(acc(repo, ['set', 'T-1', 'review']).code, 0);
+  assert.equal(acc(repo, ['set', 'T-1', 'done']).code, 0);
+  const second = acc(repo, ['dispatch', 'T-2', '--json'], env);
+  assert.equal(second.code, 0, second.err);
+  assert.match(readFileSync(second.json().packetPath, 'utf8'), /## What the tasks it depends on left\n\nThis task builds on another, whose builder left a note when it finished\. Each is that builder's own account\.\n\n### T-1: Write the changelog\n\n\*\*What landed\*\*\n\n- none\n\n\*\*Numbers that moved\*\*\n\n- none\n\n\*\*Still open\*\*\n\n- Pick a date format\n/);
+  assert.doesNotMatch(readFileSync(second.json().packetPath, 'utf8'), /last run/, 'a first run has no last run');
+});
+
+test('a re-dispatch after a run that left no note tells its builder to check the tree first (D-???)', () => {
+  const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG), ...IGNORE }));
+  const claude = fakeClaude();
+  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  acc(repo, ['add', 'Write the changelog']);
+  acc(repo, ['add', 'Link the changelog', '--dep', 'T-1']);
+  assert.equal(acc(repo, ['dispatch', 'T-1'], env).code, 0);
+  // Its builder crashed, and a person set it aside.
+  assert.equal(acc(repo, ['set', 'T-1', 'todo', '--reason', 'its builder crashed']).code, 0);
+  const again = acc(repo, ['dispatch', 'T-1', '--json'], env);
+  assert.equal(again.code, 0, again.err);
+  const packet = readFileSync(again.json().packetPath, 'utf8');
+  assert.match(packet, /## Your last run left no note\n\nThis task ran before \(builder 1\), and that run ended without a note: it may have crashed, run out of context or been stopped, or a person moved it\. Don't assume its work is finished, or that none was done\. Start by checking the tree: `git status`, `git log --oneline origin\/main\.\.HEAD` and `acc gate list`\./);
+  assert.equal(tasksOf(repo)[0]!.run!.before, null);
+  assert.match(acc(repo, ['show', 'T-1']).out, /Its last run left no note\./);
+  // A dependency that left no note isn't listed.
+  assert.equal(acc(repo, ['set', 'T-1', 'review']).code, 0);
+  assert.equal(acc(repo, ['set', 'T-1', 'done']).code, 0);
+  assert.doesNotMatch(readFileSync(acc(repo, ['dispatch', 'T-2', '--json'], env).json().packetPath, 'utf8'), /tasks it depends on/);
+});
+
 test('Salesforce dispatch points the worktree at the environment\'s org', () => {
   const repo = makeRepo({ '.acc/config.json': JSON.stringify(SF_CONFIG), ...IGNORE });
   gitIn(repo, 'branch', 'dev');
@@ -390,7 +467,7 @@ test('cleanup keeps a worktree with uncommitted or unmerged work, and removes it
   acc(repo, ['add', 'Docs']);
   const { worktree, branch } = acc(repo, ['dispatch', 'T-1', '--json'], env).json();
   assert.match(acc(repo, ['cleanup', 'T-1']).out, /still running/);
-  acc(worktree, ['done'], { ...env, ACC_ROLE: 'builder', ACC_TASK: 'T-1' });
+  acc(worktree, ['done', ...NOTE], { ...env, ACC_ROLE: 'builder', ACC_TASK: 'T-1' });
   writeFileSync(join(worktree, 'NOTES.md'), 'draft\n');
   assert.match(acc(repo, ['cleanup', 'T-1']).out, /1 uncommitted change/);
   gitIn(worktree, 'add', 'NOTES.md');

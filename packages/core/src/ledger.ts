@@ -60,7 +60,32 @@ export interface Run {
   n?: number;
   /** The tasks in flight whose files it shared when it started, with those files (D-093). */
   shares?: FileShare[];
+  /** What its builder said as it finished (D-???): given with acc done, and maybe with acc block. */
+  note?: RunNote;
+  /**
+   * The note the task's run before this one left, kept when this one was dispatched, or null when it left
+   * none: a crash, an abandon, a person's move or a block without one. A first run has neither.
+   */
+  before?: RunNote | null;
 }
+
+/**
+ * A builder's handoff note (D-???): what landed, which numbers moved (tests, checks, ratchets) and what's
+ * still open, a line each. It's the builder's own account: acc works out none of it. An empty part says
+ * there was nothing.
+ */
+export interface RunNote {
+  landed: string[];
+  moved: string[];
+  open: string[];
+  at: string;
+  by: string;
+  /** Where the run ended: in review, by acc done, or blocked. */
+  ended: 'review' | 'blocked';
+}
+
+/** A note as given: a part left out is undefined, where "none" is an empty list. */
+export type NoteInput = Partial<Pick<RunNote, 'landed' | 'moved' | 'open'>>;
 
 /** Another task, and the files two tasks share (D-093). */
 export interface FileShare {
@@ -400,7 +425,71 @@ export function upsertTasks(
 
 // ---------------------------------------------------------------- transitions
 
-export type Requirement = 'depsDone' | 'underCap' | 'envNotProtected' | 'reason' | 'gatesPassed';
+/** note: a builder's move gives a handoff note (D-???). A person's needs none. */
+export type Requirement = 'depsDone' | 'underCap' | 'envNotProtected' | 'reason' | 'gatesPassed' | 'note';
+
+/**
+ * How a builder finishes (D-???), word for word everywhere it's told: the packet, its short version, the
+ * Stop hook, a resume, and acc done's refusal. Each flag can be given again for another line.
+ */
+export const DONE_COMMAND = 'acc done --landed "<what landed>" --moved "<tests, checks, ratchets that moved>" --open "<what\'s still open, or none>"';
+
+/** The most a note's part holds, and the longest a line may be. */
+export const NOTE_LIMITS = { lines: 10, chars: 300 } as const;
+
+const NOTE_PARTS = ['landed', 'moved', 'open'] as const;
+
+/** A note's lines as given, one line each, whitespace collapsed and blanks dropped; "none" says there's nothing. */
+export function noteInput(parts: { landed?: string[]; moved?: string[]; open?: string[] }): NoteInput {
+  const out: NoteInput = {};
+  for (const k of NOTE_PARTS) {
+    const given = parts[k];
+    if (given === undefined) continue;
+    out[k] = given.map((l) => l.replace(/\s+/g, ' ').trim()).filter((l) => l && l.toLowerCase() !== 'none');
+  }
+  return out;
+}
+
+/** What each part of a note is called, wherever it's shown. */
+export const NOTE_LABELS = { landed: 'What landed', moved: 'Numbers that moved', open: 'Still open' } as const;
+
+/** A note as markdown: each part's label, then its lines, or "none" for a part with nothing. */
+export function noteMarkdown(n: Pick<RunNote, 'landed' | 'moved' | 'open'>): string[] {
+  return NOTE_PARTS.flatMap((k, i) => [...(i ? [''] : []), `**${NOTE_LABELS[k]}**`, '', ...(n[k].length ? n[k].map((l) => `- ${l}`) : ['- none'])]);
+}
+
+/**
+ * The note to show for a task (D-???): its run's, or the last run's while a new one is under way. missing:
+ * the run that ended, or while one runs the run before it, left none. A done task's missing note isn't news.
+ */
+export function shownNote(task: Pick<Task, 'state' | 'run'>): { note: RunNote | null; fromLast: boolean; missing: boolean } {
+  const r = task.run;
+  if (!r) return { note: null, fromLast: false, missing: false };
+  if (r.note) return { note: r.note, fromLast: false, missing: false };
+  if (task.state === 'running') return { note: r.before ?? null, fromLast: true, missing: r.before === null };
+  return { note: null, fromLast: false, missing: task.state !== 'done' };
+}
+
+/** Whether a note says anything at all. */
+export const noteGiven = (n: NoteInput | null | undefined): n is NoteInput => !!n && NOTE_PARTS.some((k) => n[k] !== undefined);
+
+/** What's wrong with a note: a part over the limits, or, where one is required, a part left out. */
+export function noteProblems(n: NoteInput | null | undefined, required: boolean): string[] {
+  const p: string[] = [];
+  for (const k of NOTE_PARTS) {
+    const lines = n?.[k] ?? [];
+    if (lines.length > NOTE_LIMITS.lines) p.push(`The note's --${k} has ${lines.length} lines. It takes at most ${NOTE_LIMITS.lines}.`);
+    const long = lines.filter((l) => l.length > NOTE_LIMITS.chars).length;
+    if (long) p.push(`${long === 1 ? 'A line' : `${long} lines`} in the note's --${k} ${long === 1 ? 'is' : 'are'} over ${NOTE_LIMITS.chars} characters. Say it shorter.`);
+  }
+  if (required) {
+    const missing = NOTE_PARTS.filter((k) => n?.[k] === undefined || (k === 'landed' && !n[k]!.length));
+    if (missing.length) {
+      p.push(`A builder finishes with a note for whoever comes next: what landed, which numbers moved, and what's still open (it says nothing about ${missing.map((k) => `--${k}`).join(', ')}). Run: ${DONE_COMMAND}. Give a flag again for each further line. --moved none and --open none say there was nothing.`);
+    }
+  }
+  return p;
+}
 
 export interface Rule {
   from: State | 'any';
@@ -412,7 +501,7 @@ export interface Rule {
 /** DESIGN.md section 5. Anything not listed needs --force and a reason, and is recorded as an override. */
 export const RULES: Rule[] = [
   { from: 'todo', to: 'running', actors: ['human', 'orchestrator'], requires: ['depsDone', 'underCap', 'envNotProtected'] },
-  { from: 'running', to: 'review', actors: ['builder', 'human'], requires: ['gatesPassed'] },
+  { from: 'running', to: 'review', actors: ['builder', 'human'], requires: ['gatesPassed', 'note'] },
   // The orchestrator is autopilot sending back a pull request whose checks failed on GitHub (D-076).
   { from: 'review', to: 'rework', actors: ['reviewer', 'human', 'orchestrator'], requires: ['reason'] },
   { from: 'rework', to: 'running', actors: ['human', 'orchestrator'], requires: ['underCap', 'envNotProtected'] },
@@ -433,6 +522,8 @@ export interface MoveRequest {
   by: string;
   reason?: string | null;
   force?: boolean;
+  /** The builder's handoff note (D-???), kept on the run it ends: with acc done, or acc block. */
+  note?: NoteInput | null;
 }
 
 export interface Hooks {
@@ -453,6 +544,12 @@ export function checkMove(ledger: Ledger, config: Config, task: Task, req: MoveR
   if (!ACTORS.includes(req.actor)) return [`"${req.actor}" isn't an actor.`];
   if (task.state === req.to) return [`${task.id} is already ${req.to}.`];
   const reason = req.reason?.trim() ?? '';
+  // A note ends a run (D-???): it goes with done or a block, on a task that has one, and keeps to its limits.
+  if (noteGiven(req.note)) {
+    if (!task.run || (req.to !== 'review' && req.to !== 'blocked')) return [`A note goes with a run's end: acc done, or acc block. ${task.id} ${task.run ? `is moving to ${req.to}` : 'has no run'}.`];
+    const over = noteProblems(req.note, false);
+    if (over.length) return over;
+  }
   if (req.force) {
     const p: string[] = [];
     if (req.actor !== 'human') p.push('Only a person can force a move.');
@@ -487,6 +584,7 @@ export function checkMove(ledger: Ledger, config: Config, task: Task, req: MoveR
       const missing = hooks.missingGates(task);
       if (missing.length) problems.push(`These required checks haven't passed on the current commit: ${missing.join(', ')}. Commit everything, then run: acc gate run`);
     }
+    if (r === 'note' && req.actor === 'builder') problems.push(...noteProblems(req.note, true));
   }
   return problems;
 }
@@ -504,10 +602,15 @@ export function applyMove(task: Task, req: MoveRequest, emit: Emit, now: () => D
   if (task.autopilot?.carried) task.autopilot.carried = null;
   // So was a wait for another task's files (D-093): a dispatch, a block or done ends it.
   if (task.held) task.held = null;
+  // The builder's note stays with the run it ended (D-???), and its event carries it too.
+  const note: RunNote | null = noteGiven(req.note) && task.run && (req.to === 'review' || req.to === 'blocked')
+    ? { landed: req.note.landed ?? [], moved: req.note.moved ?? [], open: req.note.open ?? [], at, by: req.by, ended: req.to }
+    : null;
+  if (note) task.run!.note = note;
   task.state = req.to;
   task.updatedAt = at;
   task.history.push(entry);
-  emit({ type: 'task.moved', task: task.id, actor: req.actor, by: req.by, data: { from: entry.from, to: entry.to, reason: entry.reason, override: req.force ?? false, ...data } });
+  emit({ type: 'task.moved', task: task.id, actor: req.actor, by: req.by, data: { from: entry.from, to: entry.to, reason: entry.reason, override: req.force ?? false, ...(note ? { note } : {}), ...data } });
   return entry;
 }
 

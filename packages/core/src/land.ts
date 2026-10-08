@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { autoMergeFor, type Config, type Environment, environmentByBranch, type GateScope } from './config.ts';
 import { AccError, type Runner } from './exec.ts';
 import { withJob } from './jobs.ts';
-import { type Actor, type CarriedReview, mutate, type PullRequest, readLedger, type Task } from './ledger.ts';
+import { type Actor, type CarriedReview, mutate, noteMarkdown, type PullRequest, readLedger, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
 import { type Receipt, receiptHooks, receiptsAt } from './receipts.ts';
 import { carriedVerdict, readVerdict, type Verdict } from './review.ts';
@@ -86,6 +86,11 @@ export function prBody(task: Task, env: Environment, sha: string, verdict: Verdi
       ? `Passed on ${carried.from.slice(0, 7)} by a reviewer agent that read the change and couldn't edit it. The merge queue then merged \`${carried.base}\` in as ${sha.slice(0, 7)}${carried.resolved.length ? `, keeping both sides' additions to ${carried.resolved.map((f) => `\`${f}\``).join(', ')}` : ''}, and ran the full check on it: the review carries over.`
       : `Passed by a reviewer agent that read the change and couldn't edit it.`,
     ...(verdict.findings.length ? ['', 'Worth a look, not blocking:', '', ...verdict.findings.map((f) => `- ${f.file ? `\`${f.file}${f.line ? `:${f.line}` : ''}\`: ` : ''}${f.message}`)] : []),
+    '',
+    // Its builder's handoff note (D-???), as its own account: the review above is what checked the change.
+    '## Builder\'s note',
+    '',
+    ...(task.run?.note ? ['In its builder\'s own words, as it finished. The review above is what checked the change.', '', ...noteMarkdown(task.run.note)] : ['_Its builder left no note._']),
     '',
     '---',
     `Built by a Claude Code agent and opened by \`acc land\` into \`${env.branch}\` (${env.name}). ${mergesWords(autoMerge)}`,

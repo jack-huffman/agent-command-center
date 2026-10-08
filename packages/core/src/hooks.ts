@@ -9,7 +9,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import { builderGatesFor, loadConfig, requiredGates } from './config.ts';
 import type { Runner } from './exec.ts';
 import { readList } from './gates.ts';
-import { mutate, readLedger, type Task } from './ledger.ts';
+import { DONE_COMMAND, mutate, readLedger, type Task } from './ledger.ts';
 import { repoPaths } from './paths.ts';
 import { ANALYST_COMMANDS } from './analyze.ts';
 
@@ -121,9 +121,30 @@ export function commandsOf(line: string): string[][] {
 const CLOSING = /\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\b[\s:]+(#\d+|[A-Z][A-Z0-9_]*-\d+|https?:\/\/)/i;
 const PERSON_ONLY_ACC = new Set(['set', 'dispatch', 'land', 'review', 'autopilot', 'analyze', 'promote', 'deploy', 'init', 'cleanup', 'agents', 'setup', 'update', 'updates', 'resume', 'machine']);
 
+/**
+ * Whether a command line has a backtick or a $ the shell would act on: anywhere outside single quotes,
+ * unless a backslash escapes it. In a note, it would run or expand before acc saw the words (D-???).
+ */
+export function expands(line: string): boolean {
+  let quote: '"' | "'" | null = null;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]!;
+    if (quote === "'") { if (c === "'") quote = null; continue; }
+    if (c === '\\') { i++; continue; }
+    if (c === '`' || c === '$') return true;
+    if (c === '"') quote = quote ? null : '"';
+    else if (c === "'" && !quote) quote = "'";
+  }
+  return false;
+}
+
 /** Why a builder may not run this, or null. Belt and braces with the builder's deny list (D-012). */
 export function guardBash(b: Builder, line: string): string | null {
-  for (const w of commandsOf(line)) {
+  const commands = commandsOf(line);
+  if (commands.some(([cmd, sub]) => cmd === 'acc' && (sub === 'done' || sub === 'block')) && expands(line)) {
+    return `The shell would run or expand a backtick or $ in that before acc saw your words. Write it again without them, in double quotes, all on one line: ${DONE_COMMAND}`;
+  }
+  for (const w of commands) {
     const [cmd, sub, ...rest] = w;
     const args = [sub, ...rest].filter((x): x is string => !!x);
     if (cmd === 'git') {
@@ -228,7 +249,7 @@ export function shortPacket(task: Task, gates: string[], full: string[] = []): s
   return [
     `You are the builder for ${task.id}: ${task.title}.`,
     `Work only in ${task.run?.worktree}, on ${task.run?.branch}.`,
-    `Finish line: commit everything, run exactly \`acc gate run\`${gates.length ? ` (${gates.join(', ')})` : ''}, then run exactly \`acc done\`. If you're stuck, run \`acc block "<what you need>"\` and stop.`,
+    `Finish line: commit everything, run exactly \`acc gate run\`${gates.length ? ` (${gates.join(', ')})` : ''}, then finish with your note, all on one line: \`${DONE_COMMAND}\`. Give a flag again for each further line; use double quotes, with no backticks or $ inside. If you're stuck, run \`acc block "<what you need>"\` and stop.`,
     ...(full.length ? [`The full check (${full.join(', ')}) runs once, in the merge queue, before the merge.`] : []),
     'Never push, merge a pull request, open one, or deploy.',
     `Your full instructions: acc show ${task.id}.`,
@@ -292,7 +313,7 @@ export function stopHook(input: EventInput, ctx: HookContext): Record<string, un
   }
   return {
     decision: 'block',
-    reason: `${b.task.id} is still running. If the work is done: commit everything, run exactly \`acc gate run\`, then \`acc done\`. If you can't finish it, run \`acc block "<what you need>"\` and stop. If you are still working, carry on.`,
+    reason: `${b.task.id} is still running. If the work is done: commit everything, run exactly \`acc gate run\`, then finish with your note, all on one line: \`${DONE_COMMAND}\`. If you can't finish it, run \`acc block "<what you need>"\` and stop. If you are still working, carry on.`,
   };
 }
 
