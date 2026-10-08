@@ -40,6 +40,7 @@ import { sampleTicket } from './fixtures/task-page.ts';
 import { SAMPLE_EDIT, sampleEdited } from './fixtures/updates.ts';
 import { settingsKey, type ThemeChoice } from '../src/model/settings.ts';
 import { PALETTE_THEMES, type PaletteTheme, palettes, vscodeDefaults } from './styles.ts';
+import { CHECKS, COLLECT_GEOMETRY, dumpedGeometry, geometrySummary, judge, type Render, runFailures } from './geometry.ts';
 
 /**
  * Every page the screenshot script can draw: each section of the Command Center, a ticket's page (being
@@ -123,7 +124,7 @@ const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ? JSON.p
   : kind === 'agents-finished' ? { opened: [ROOT, CLIENTS].map((r) => `agents-finished:${r}`) }
   : kind === 'ticket-split' ? { opened: ['files', 'findings'].map((f) => `an:/Users/me/code/acme-service#ACME-23:${f}`) }
     : kind === 'ticket' ? { drafts: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: SAMPLE_EDIT.text }, bases: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: { text: SAMPLE_EDIT.base } } } : undefined);
-const viewOf = (kind: Page): string => (kind.startsWith('ticket') ? 'ticket' : kind === 'agent' ? kind : 'home');
+export const viewOf = (kind: Page): string => (kind.startsWith('ticket') ? 'ticket' : kind === 'agent' ? kind : 'home');
 /** A part the extension asks the page to go to as it opens, as the status bar's Auto-merge does (GH-110). */
 export const openAt = (kind: Page): string | null => (kind === 'settings-agents' ? settingsKey('agents') : null);
 
@@ -185,9 +186,11 @@ function collectColours() {
  * A page as VSCode would show it with `under`'s theme (GH-109): VSCode's own webview stylesheet first in
  * the head, that theme's colours inline on <html> and its class on <body>, and the page's theme in
  * data-theme. A shot forces Light or Dark under VSCode's other theme, so a colour that still comes from
- * VSCode's shows in it. With collect, the page also gathers its computed colours for the colour check.
+ * VSCode's shows in it. With collect, the page also gathers its computed colours for the colour check;
+ * with measure, its geometry for the geometry checks (GH-105), once its fonts have loaded and two frames
+ * have drawn.
  */
-export function pageFor(kind: Page, theme: ThemeChoice, model: Model, under: Theme = theme === 'light' ? 'dark' : 'light', collect = false): string {
+export function pageFor(kind: Page, theme: ThemeChoice, model: Model, under: Theme = theme === 'light' ? 'dark' : 'light', collect = false, measure = false): string {
   const vars = Object.entries({ ...palettes()[under], ...FONTS }).map(([k, v]) => `--vscode-${k}: ${v};`).join(' ');
   // `<` escaped, so no string in the model can close the script tag.
   const json = JSON.stringify(model).replace(/</g, '\\u003c');
@@ -205,9 +208,9 @@ function forceHover() {
     for (const r of rules) if (r.selectorText && r.selectorText.includes(':hover')) sheet.insertRule(r.cssText.replaceAll(':hover', '.acc-hover'), sheet.cssRules.length);
   }
   (document.querySelector('tbody tr:not(.group):not(.none)') ?? document.querySelector('.card'))?.classList.add('acc-hover');
-}${collect ? COLLECT + COLLECT_COLOURS : ''}
+}${collect || measure ? COLLECT : ''}${collect ? COLLECT_COLOURS : ''}${measure ? COLLECT_GEOMETRY : ''}
 window.acquireVsCodeApi = () => ({
-  postMessage(m) { if (m.type === 'ready') setTimeout(() => { window.postMessage({ type: 'state', model: MODEL${open ? `, jump: true, open: ${JSON.stringify(open)}` : ''} }, '*'); setTimeout(forceHover, 50);${collect ? ' setTimeout(collectColours, 500);' : ''} }); },
+  postMessage(m) { if (m.type === 'ready') setTimeout(() => { window.postMessage({ type: 'state', model: MODEL${open ? `, jump: true, open: ${JSON.stringify(open)}` : ''} }, '*'); setTimeout(forceHover, 50);${collect ? ' setTimeout(collectColours, 500);' : ''}${measure ? ' setTimeout(() => document.fonts.ready.then(() => requestAnimationFrame(() => requestAnimationFrame(collectGeometry))), 300);' : ''} }); },
   getState() { return ${JSON.stringify(startState(kind)) ?? 'undefined'}; }, setState() {},
 });
 </script>
@@ -354,14 +357,16 @@ function main(argv: string[]): number {
   const out = resolve(values.out ?? join(extensionDir, '..', 'dist', 'screenshots'));
   mkdirSync(out, { recursive: true });
   const work = mkdtempSync(join(tmpdir(), 'acc-screenshots-'));
+  const renders: Render[] = [];
   try {
     cpSync(join(extensionDir, 'dist', 'webview'), join(work, 'webview'), { recursive: true });
     const now = Date.now();
     for (const view of views as Page[]) {
       for (const theme of themes as Theme[]) {
-        // Forced, under VSCode's other theme: a colour still taken from VSCode's would show (GH-109).
+        // Forced, under VSCode's other theme: a colour still taken from VSCode's would show (GH-109). Each
+        // shot also measures its geometry, which Chrome prints with the page (GH-105).
         const page = join(work, `${view}-${theme}.html`);
-        writeFileSync(page, pageFor(view, theme, sampleModel(view, now, theme), other(theme)));
+        writeFileSync(page, pageFor(view, theme, sampleModel(view, now, theme), other(theme), false, true));
         for (const width of widths) {
           const png = join(out, `${view}-${theme}-${width}.png`);
           // A page whose part sits low on it is shot taller unless --height says otherwise (D-092).
@@ -372,17 +377,29 @@ function main(argv: string[]): number {
             // hang after writing the shot.
             '--headless=new', '--disable-gpu', '--hide-scrollbars', '--no-first-run', '--no-default-browser-check',
             '--allow-file-access-from-files', '--force-device-scale-factor=2',
-            '--virtual-time-budget=3000', `--window-size=${width},${tall}`, `--screenshot=${png}`, pathToFileURL(page).href,
+            '--virtual-time-budget=3000', `--window-size=${width},${tall}`, `--screenshot=${png}`, '--dump-dom', pathToFileURL(page).href,
           ];
-          const r = chromeRun(chrome, args);
+          const r = chromeRun(chrome, args, true);
           if (r.error) return fail(`Chrome didn't finish ${view} (${theme}, ${width}px) within 30 s: ${r.error.message}`);
           if (!existsSync(png)) return fail(`Chrome didn't write ${png} (exit ${r.status ?? r.signal}).`);
-          console.log(png);
+          const shot = dumpedGeometry(String(r.stdout ?? ''));
+          if (!shot) return fail(`${view} (${theme}, ${width}px) measured no geometry (exit ${r.status ?? r.signal}).`);
+          const verdict = judge(shot, viewOf(view) === 'home');
+          renders.push({ page: view, theme, width, verdict });
+          console.log(`${png}  ${CHECKS.map((c) => `${c} ${verdict.examined[c]}`).join(', ')}${verdict.violations.length ? `, ${verdict.violations.length} found` : ''}`);
         }
       }
     }
   } finally {
     rmSync(work, { recursive: true, force: true });
+  }
+  // Exceptions and floors are a whole run's: a run of a few pages may not reach them.
+  const full = views.length === PAGES.length && themes.length === PALETTE_THEMES.length && values.width === '1000,620,500';
+  const failures = runFailures(renders, full);
+  console.log(geometrySummary(renders));
+  if (failures.length) {
+    for (const f of failures) console.error(f);
+    return fail(`${failures.length} geometry finding${failures.length === 1 ? '' : 's'}. Fix each, or list it in GEOMETRY_EXCEPTIONS (extension/scripts/geometry.ts) with why. The shots are written all the same.`);
   }
   return 0;
 }
