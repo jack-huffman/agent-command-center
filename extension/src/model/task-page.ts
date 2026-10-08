@@ -18,6 +18,45 @@ import { hasTicket, type UpdateCard, updateCards, withClient } from './updates.t
 
 // ---------------------------------------------------------------- a ticket's page (D-026)
 
+/**
+ * A check on the task branch's latest commit, as the page is given it. waived: a person set it aside on this
+ * commit (D-031). scope: where the merge queue runs the full check, whether it's one of a builder's lighter
+ * checks or the full one, run once in the queue (GH-73). counts: what its tests ran, "312 run, 2 skipped" or
+ * "not read", and countsNote what that was compared with (GH-100).
+ */
+export interface CheckIn {
+  gate: string;
+  status: GateStatus;
+  summary: string;
+  waived?: boolean;
+  scope?: 'builder' | 'merge';
+  counts?: string;
+  countsNote?: string;
+}
+
+/** A check as the page shows it: its look, always with words, and whether a person can waive it here. */
+export interface CheckRow extends CheckIn {
+  look: Look;
+  waivable: boolean;
+}
+
+/** How a check looks: orange where it needs a look, blue where it passed, each with its own icon and words. */
+export function checkLook(c: CheckIn): Look {
+  if (c.waived) return { label: 'waived', icon: 'debug-step-over', tone: 'neutral' };
+  switch (c.status) {
+    case 'pass': return { label: 'pass', icon: 'pass', tone: 'blue' };
+    case 'fail': return { label: 'fail', icon: 'error', tone: 'orange' };
+    case 'error': return { label: 'error', icon: 'warning', tone: 'orange' };
+    // It ran no tests, or skipped more than before: a person decides (GH-100).
+    case 'hold': return { label: 'needs a person', icon: 'person', tone: 'orange' };
+    case 'skip': return { label: c.summary.startsWith('Not run') ? 'not run' : 'skip', icon: 'circle-slash', tone: 'neutral' };
+  }
+}
+
+/** The checks with their looks. A person can set aside a failing one, or one that needs them, with a reason (D-031). */
+export const checkRows = (checks: CheckIn[], branch: string | null): CheckRow[] =>
+  checks.map((c) => ({ ...c, look: checkLook(c), waivable: !!branch && !c.waived && (c.status === 'fail' || c.status === 'error' || c.status === 'hold') }));
+
 export interface TicketAcc {
   look: Look;
   environment: string;
@@ -36,11 +75,7 @@ export interface TicketAcc {
   agentName: string | null;
   worktree: string | null;
   branch: string | null;
-  /**
-   * waived: a person set it aside on this commit (D-031). scope: where the merge queue runs the full check,
-   * whether it's one of a builder's lighter checks or the full one, run once in the queue (GH-73).
-   */
-  checks: { gate: string; status: GateStatus; summary: string; waived?: boolean; scope?: 'builder' | 'merge' }[];
+  checks: CheckRow[];
   history: { at: string; from: string | null; to: string; by: string; reason: string | null }[];
   actions: Action[];
 }
@@ -135,7 +170,7 @@ export interface TicketInput {
   connect: TicketModel['connect'];
   row: TaskRow | null;
   task: Task | null;
-  checks: TicketAcc['checks'];
+  checks: CheckIn[];
   signedInAs?: string | null;
   /** Its analysis, read whole (D-052). */
   analysis?: Analysis | null;
@@ -188,7 +223,7 @@ export function ticketModel(i: TicketInput): TicketModel {
   const live = i.tracker !== null;
   const acc: TicketAcc | null = i.row && i.task ? {
     look: accLook(i.row, true), environment: i.task.environment, waitingOn: i.row.deps, blocker: i.task.blocker, conflicts: conflictLine(i.row, true), failedChecks: failedChecksLine(i.row), files: filesLook(i.row, true),
-    agent: i.row.stopped ? null : i.row.agent ?? null, model: i.row.model ?? null, agentName: i.task.run?.name ?? null, worktree: i.task.run?.worktree ?? null, branch: i.task.run?.branch ?? null, checks: i.checks,
+    agent: i.row.stopped ? null : i.row.agent ?? null, model: i.row.model ?? null, agentName: i.task.run?.name ?? null, worktree: i.task.run?.worktree ?? null, branch: i.task.run?.branch ?? null, checks: checkRows(i.checks, i.task.run?.branch ?? null),
     history: i.task.history.map((h) => ({ at: h.at, from: h.from, to: h.to, by: h.by, reason: h.reason ?? null })).reverse(),
     // Its analysis has its own section, with its own buttons.
     actions: cardActions(i.row, { project: i.project, task: i.row.id }).filter((a) => !['acc.task.show', 'acc.task.openTicket', 'acc.task.analyze', 'acc.task.watchAnalysis'].includes(a.command)),

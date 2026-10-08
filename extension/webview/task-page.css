@@ -54,9 +54,13 @@ body[data-view="ticket"] { padding-top: 18px; }
 .clip-inline { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; display: inline-block; }
 .checks { margin-top: 12px; }
 .checks h3 { font-size: 0.93em; margin: 0 0 6px; color: var(--vscode-descriptionForeground); }
-.check { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 4px 8px; align-items: center; padding: 3px 0; }
-.check-waive { padding: 0 6px; }
-.check-sum { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A check: its state and name on one line; its summary and Waive… under them; then what its tests ran (GH-100). */
+.check { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; padding: 4px 0; }
+.check-head { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.check-gate { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.check-sum { grid-column: 1; padding-left: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.check-waive { grid-column: 2; padding: 0 6px; }
+.check-tests { grid-column: 1 / -1; display: flex; gap: 4px; align-items: center; min-width: 0; white-space: nowrap; }
 .side-panel .actions { margin-top: 12px; }
 .related { list-style: none; margin: 0; padding: 0; }
 .related li { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; }

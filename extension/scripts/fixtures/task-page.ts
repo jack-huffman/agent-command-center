@@ -78,8 +78,9 @@ export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12'):
     checks: [
       { gate: 'format', status: 'pass', summary: '3 changed files formatted.' },
       { gate: 'static', status: 'skip', summary: 'Waived by jordan: the 2 violations predate this change', waived: true },
-      { gate: 'validate', status: 'fail', summary: '4 of 21 tests failed in Acme Dev: CaseRoutingTest.premiumEscalates' },
-      { gate: 'lwc-tests', status: 'skip', summary: 'Not run on this commit' },
+      { gate: 'validate', status: 'fail', summary: '4 of 21 tests failed in Acme Dev: CaseRoutingTest.premiumEscalates', counts: '21 run, 4 failed, 0 skipped' },
+      // An LWC change with no Jest tests near it: it ran none, so a person decides (GH-100).
+      { gate: 'lwc-tests', status: 'hold', summary: 'Ran no tests, so it can\'t vouch for the change.', counts: '0 run, 0 skipped' },
     ],
   });
 }
@@ -134,7 +135,7 @@ function sampleChecksTicket(now: number): TicketModel {
     trackerEdits: false, updates: [], boards: sampleBoards(), github: 'jordan-kim', now,
     checks: [
       { gate: 'format', status: 'pass', summary: '2 changed files formatted.' },
-      { gate: 'validate', status: 'pass', summary: 'Validated in Acme Dev: LeadScoringTest, 12 of 12 passing.' },
+      { gate: 'validate', status: 'pass', summary: 'Validated in Acme Dev: LeadScoringTest, 12 of 12 passing.', counts: '12 run, 0 skipped' },
     ],
   });
 }

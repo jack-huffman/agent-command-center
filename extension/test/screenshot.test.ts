@@ -47,6 +47,8 @@ test('every section of the page, and a ticket, has sample data built by the real
   assert.equal((sampleModel('overview-idle') as HomeModel).overview.inProgress.empty, 'Nothing is running.');
   // A ticket acc doesn't keep yet, being tracked from its card (D-074).
   assert.deepEqual([(sampleModel('ticket-track') as TicketModel).trackable, (sampleModel('ticket-track') as TicketModel).tracking], [true, true]);
+  // A ticket's checks say what their tests ran, and one needs a person (GH-100).
+  assert.deepEqual((sampleModel('ticket') as TicketModel).acc!.checks.filter((c) => c.counts).map((c) => [c.gate, c.look.label, c.counts]), [['validate', 'fail', '21 run, 4 failed, 0 skipped'], ['lwc-tests', 'needs a person', '0 run, 0 skipped']]);
   // A ticket being built, one whose analysis has questions, and one too big for one task (D-052).
   assert.deepEqual(['ticket', 'ticket-questions', 'ticket-split'].map((k) => (sampleModel(k as never) as TicketModel).analysis?.look.label), ['Analyzed before the build', '2 questions for you', 'Too big for one task']);
 });
