@@ -158,6 +158,23 @@ only* are hidden for a `generic` project.
   `acc init --from <template>` writes the config. docs/TEMPLATES.md says what
   a template holds.
 
+  If the project's tickets are one epic in a tracker your team shares, choose
+  **From a Jira epic…**. It asks where the rest of the settings come from
+  (Salesforce, Other, or a team template), then opens the Command Center's
+  Connect page for this folder: the site, signed in already when another
+  project on this machine signs in to it for every project (B14), then the
+  project, the epic from the project's open epics, and the board. Azure
+  DevOps works the same way with an area path, and GitHub Issues with labels;
+  monday.com with a group. An epic another repo on this machine uses already
+  says "used by <repo>", and picking it asks first. **Start the project**
+  runs `acc init` once, with that tracker narrowed to the epic; leaving the
+  page writes nothing, and nothing is ever written to the tracker. In a
+  terminal, `acc init` takes the tracker as JSON:
+
+  ```bash
+  acc init --profile generic --tracker '{"kind":"jira","site":"acme.atlassian.net","project":"ACME","epic":"ACME-3"}'
+  ```
+
   Review the file and commit it. `acc init --force` writes it again.
 - [ ] **The team template is current** (`B0.template`). A project started
   from a team template records which one. This step reads it again, and
@@ -451,6 +468,10 @@ Source: [Enable Source Tracking in Sandboxes](https://developer.salesforce.com/d
   README.md and keeps them up to date; the rest are yours:
   - the environments table: environment, branch, alias, type, My Domain, role
   - the promotion flow
+  - where the tickets come from, when a tracker is narrowed to an epic, an
+    area path, labels or a group: its key, linked, such as "Jira epic
+    [ACME-3](https://acme.atlassian.net/browse/ACME-3)". This applies even
+    with one environment, and the step fails until the README links it
   - getting-started commands
   - the environment-specific rule
   - drift numbers
