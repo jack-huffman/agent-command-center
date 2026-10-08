@@ -1,8 +1,12 @@
-// acc's shared rules commands (GH-108): copy a rules file in, list the copies, and compare one with its source.
+// acc's rules commands: copy a team's rules file in, list the copies and compare one with its source (GH-108),
+// and the rules suggested by findings that keep coming back, which only a person accepts or dismisses (GH-102).
 
-import { AccError, type CopyState, type CopyStatus, importedRules, importRules, parseSource, reimportCommand, repoPaths, rulesDiff, rulesStatus, run, templateAccount } from '../../../core/src/index.ts';
+import {
+  AccError, acceptSuggestion, CHECK_ASKS, type CheckAsk, type CopyState, type CopyStatus, dismissSuggestion, type HiddenSuggestion, importedRules, importRules, parseSource,
+  reimportCommand, repoPaths, rulesDiff, rulesStatus, run, SUGGESTION_ID, type Suggestion, suggestRules, templateAccount,
+} from '../../../core/src/index.ts';
 import { table, tone } from '../format.ts';
-import { type CommandArea, now, type Opts, out, personOnly } from '../shared.ts';
+import { type CommandArea, now, type Opts, out, personOnly, project } from '../shared.ts';
 
 const STATE: Record<CopyState, { words: string; look: 'blue' | 'orange' | 'dim' }> = {
   unchanged: { words: '✓ unchanged at its source', look: 'blue' },
@@ -101,6 +105,71 @@ function cmdDiff(o: Opts, name: string | undefined): number {
   return 0;
 }
 
+// ---------------------------------------------------------------- suggested rules (GH-102)
+
+/** Accepting and dismissing a suggestion is a person's: never a builder's, reviewer's, analyst's or autopilot's. */
+function personOnlyRule(o: Opts, what: string): string {
+  if (process.env.ACC_ROLE === 'analyst') throw new AccError('refused', `An analyst can't ${what}. A person does that.`);
+  return personOnly(o, what);
+}
+
+const isHidden = (s: Suggestion | HiddenSuggestion): s is HiddenSuggestion => 'hidden' in s;
+
+/** A suggestion as a person reads it: what it is, its counts, the line, and each finding it came from. */
+function suggestionLines(s: Suggestion | HiddenSuggestion): string[] {
+  const look = s.kind === 'check' ? tone('Check suggested', 'blue') : tone('Rule suggested', 'blue');
+  const counts = `${s.findings} findings across ${s.tasks} tasks${s.must ? ` (${s.must} must)` : ''}`;
+  const hidden = isHidden(s) ? `${s.hidden.outcome} by ${s.hidden.by.replace(/^human:/, '')} ${s.hidden.at.slice(0, 10)}: back after ${s.hidden.more} more` : '';
+  return [
+    `${s.id}  ${look}  ${counts}${hidden ? `  ${tone(hidden, 'dim')}` : ''}`,
+    ...(s.kind === 'check' ? [`    ${s.written ? `Already a rule (${s.written}).` : 'Accepted as a rule before.'} It keeps coming back: add a check.`] : []),
+    `    ${s.line}`,
+    ...s.sources.map((x) => tone(`      ${x.task}  ${x.sha.slice(0, 7)}  ${x.at.slice(0, 10)}  ${x.file ? `${x.file}${x.line ? `:${x.line}` : ''}` : '–'}${x.must ? '  must' : ''}${x.counted ? '' : '  (said again, not counted)'}`, 'dim')),
+  ];
+}
+
+function cmdSuggested(o: Opts): number {
+  const { paths } = project(process.cwd());
+  const list = suggestRules(paths, { all: o.all === true });
+  out(o, () => (list.length
+    ? [...list.flatMap((s) => [...suggestionLines(s), '']), tone('Accept one from the Command Center, or with acc rules accept <id>: it drafts a task a person confirms. acc rules dismiss <id> sets one aside.', 'dim')].join('\n')
+    : 'No review finding keeps coming back: a rule is suggested at 3 findings across 2 tasks.'), list);
+  return 0;
+}
+
+function suggestionId(id: string | undefined, usage: string): string {
+  const x = (id ?? '').toLowerCase();
+  if (!SUGGESTION_ID.test(x)) throw new AccError('usage', usage);
+  return x;
+}
+
+function cmdAccept(o: Opts, raw: string | undefined): number {
+  const id = suggestionId(raw, 'acc rules accept <id> [--line <text>] [--title <text>] [--check lint|test|gate|any|none] [--note <text>]');
+  const by = personOnlyRule(o, 'accept a suggested rule');
+  const check = o.check as string | undefined;
+  if (check !== undefined && !CHECK_ASKS.includes(check as CheckAsk)) throw new AccError('usage', `--check is ${CHECK_ASKS.join(', ')}, not "${check}".`);
+  const { paths, config } = project(process.cwd());
+  const r = acceptSuggestion(paths, config, id, {
+    ...(typeof o.line === 'string' ? { line: o.line } : {}), ...(typeof o.title === 'string' ? { title: o.title } : {}),
+    ...(check ? { check: check as CheckAsk } : {}), ...(typeof o.note === 'string' ? { note: o.note } : {}),
+  }, 'human', by, now);
+  out(o, () => [
+    tone(`✓ Added ${r.task}: ${r.input.title}`, 'blue'),
+    `  It's in To do. Its brief holds the rule${r.input.brief?.includes('- [ ] A ') ? ', the check it asks for,' : ''} and the ${r.record.findings.length} findings it came from.`,
+    '  acc never writes .acc/rules.md: the task does, and a person merges its pull request.',
+  ].join('\n'), { task: r.task, title: r.input.title, brief: r.input.brief, record: r.record });
+  return 0;
+}
+
+function cmdDismiss(o: Opts, raw: string | undefined): number {
+  const id = suggestionId(raw, 'acc rules dismiss <id>');
+  const by = personOnlyRule(o, 'dismiss a suggested rule');
+  const { paths } = project(process.cwd());
+  const r = dismissSuggestion(paths, id, by, now);
+  out(o, () => `Dismissed ${id}. It stays hidden until its finding comes back 3 more times.`, r);
+  return 0;
+}
+
 export const area: CommandArea = {
   help: {
     section: 'Setup',
@@ -109,21 +178,35 @@ export const area: CommandArea = {
                                         Copy a team's rules file into .acc/rules/, with where it came from:
                                         a path, a GitHub file URL, or <git-url>#<path>. You review and commit it
   acc rules list                        Each copy, where it came from, and whether its source has changed
-  acc rules diff [<name>]               How each copy differs from its source now. It changes nothing`,
+  acc rules diff [<name>]               How each copy differs from its source now. It changes nothing
+  acc rules suggested [--all]           Review findings that keep coming back (3 across 2 tasks), each offered as
+                                        a rule for .acc/rules.md, or as a check where it's already a rule. --all
+                                        adds the ones a person accepted or dismissed
+  acc rules accept <id> [--line <text>] [--title <text>] [--check lint|test|gate|any|none] [--note <text>]
+                                        Add the drafted task that adds the rule, or its check. Only a person
+  acc rules dismiss <id>                Set a suggestion aside until its finding comes back 3 more times`,
   },
   options: {
     name: { type: 'string' },
     'github-account': { type: 'string' },
     'dry-run': { type: 'boolean', default: false },
     force: { type: 'boolean', default: false },
+    all: { type: 'boolean', default: false },
+    line: { type: 'string' },
+    title: { type: 'string' },
+    check: { type: 'string' },
+    note: { type: 'string' },
   },
-  subcommands: { rules: ['import', 'list', 'diff'] },
+  subcommands: { rules: ['import', 'list', 'diff', 'suggested', 'accept', 'dismiss'] },
   commands: {
     rules: (o, rest) => {
       if (rest[0] === 'import') return cmdImport(o, rest[1]);
       if (rest[0] === 'list') return cmdList(o);
       if (rest[0] === 'diff') return cmdDiff(o, rest[1]);
-      throw new AccError('usage', 'acc rules import <source> [--name <name>] [--force] [--dry-run] | list | diff [<name>]');
+      if (rest[0] === 'suggested') return cmdSuggested(o);
+      if (rest[0] === 'accept') return cmdAccept(o, rest[1]);
+      if (rest[0] === 'dismiss') return cmdDismiss(o, rest[1]);
+      throw new AccError('usage', 'acc rules import <source> [--name <name>] [--force] [--dry-run] | list | diff [<name>] | suggested [--all] | accept <id> | dismiss <id>');
     },
   },
 };

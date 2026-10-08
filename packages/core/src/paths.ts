@@ -22,6 +22,8 @@ export interface RepoPaths {
   checks: string;
   /** What the merge queue found on a commit it sent back to its builder (GH-73). */
   queue: string;
+  /** What a person did with each rule acc suggested from the reviews: accepted or dismissed (GH-102). */
+  suggestions: string;
   packets: string;
   logs: string;
   config: string;
@@ -49,6 +51,7 @@ export function repoPaths(cwd: string, run: Runner): RepoPaths {
     updates: join(stateDir, 'updates'),
     checks: join(stateDir, 'checks'),
     queue: join(stateDir, 'queue'),
+    suggestions: join(stateDir, 'rules'),
     packets: join(stateDir, 'packets'),
     logs: join(stateDir, 'logs'),
     config: join(root, '.acc', 'config.json'),

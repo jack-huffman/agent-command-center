@@ -1,0 +1,37 @@
+/* A rule or check suggested by a review finding that keeps coming back (GH-102), under its Needs you row:
+   the drafted line, each review it came from, and the task's draft once Accept opens it. Neutral: nothing
+   waits on it, so it never takes orange. */
+.inbox-rule { margin: -6px 0 10px 224px; min-width: 0; }
+@media (max-width: 620px) { .inbox-rule { margin-left: 0; } }
+.rule-line { margin: 0 0 6px; padding: 2px 10px; border-left: 2px solid var(--blue); white-space: pre-wrap; overflow-wrap: anywhere; }
+.rule-again { display: flex; align-items: flex-start; gap: 6px; margin: 0 0 6px 10px; }
+.rule-again .codicon { flex: none; margin-top: 2px; }
+.rule-sources-head { margin: 0 0 2px 10px; }
+.rule-sources-wrap, .inbox-rule > .rule-sources { margin-left: 10px; }
+.rule-sources-wrap .fold-toggle { margin-top: 2px; }
+.rule-sources { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.rule-source { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; row-gap: 0; min-width: 0; }
+.rule-source .chip { display: inline-flex; align-items: center; gap: 3px; margin-left: 0; white-space: nowrap; }
+.rule-source-link {
+  display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; font: inherit; cursor: pointer;
+  color: var(--vscode-textLink-foreground); white-space: nowrap;
+}
+.rule-source-link:hover, .rule-source-link:focus-visible { text-decoration: underline; }
+.rule-source-link:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+.rule-where { min-width: 0; overflow-wrap: anywhere; color: var(--vscode-descriptionForeground); }
+.rule-must .codicon { color: var(--orange); font-size: 12px; }
+.rule-message { flex-basis: 100%; min-width: 0; overflow-wrap: anywhere; }
+.inbox-rule .aq-error { margin: 6px 0 0 10px; }
+
+/* The task's draft: what Confirm adds. */
+.rule-draft { display: grid; gap: 8px; margin: 10px 0 0 10px; padding: 10px; border: 1px solid var(--line); border-left: 3px solid var(--blue); border-radius: var(--radius); background: var(--card); }
+.rule-draft-head { display: flex; align-items: center; gap: 6px; }
+.rule-field { display: grid; gap: 3px; min-width: 0; }
+.rule-label { font-size: 0.9em; color: var(--vscode-descriptionForeground); }
+.rule-input { width: 100%; min-width: 0; resize: vertical; }
+textarea.rule-input { min-height: 44px; }
+.rule-check-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.rule-check { width: auto; min-width: 160px; }
+.rule-draft-note { display: flex; align-items: flex-start; gap: 6px; margin: 0; }
+.rule-draft-note .codicon { flex: none; margin-top: 2px; }
+.rule-draft-bar { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }

@@ -8,6 +8,7 @@ import type { AutopilotRecord } from '../../../packages/core/src/autopilot-log.t
 import type { SessionTie } from '../../../packages/core/src/ledger.ts';
 import type { Environment, Tracker } from '../../../packages/core/src/config.ts';
 import type { HistoryRecord, Question } from '../../../packages/core/src/questions.ts';
+import type { Suggestion } from '../../../packages/core/src/rule-suggestions.ts';
 import type { TidyStatus } from '../../../packages/core/src/tidy.ts';
 import type { Update } from '../../../packages/core/src/updates.ts';
 import type { AgentSession, TaskRow, Tone } from '../logic/shared.ts';
@@ -85,6 +86,8 @@ export interface HubLike {
   updates?(root: string): Update[];
   /** Whether a project's repo has a tidy-up due, and the ledger it's counted from, which projects of one repo share (GH-104). */
   tidy?(root: string): (Pick<TidyStatus, 'due' | 'count' | 'every'> & { ledger: string }) | null;
+  /** The rules suggested by a project's review findings that keep coming back, not yet accepted or dismissed (GH-102). */
+  suggestions?(root: string): Suggestion[];
   /** Agents' questions waiting in the Command Center (D-030). */
   questions?: Question[];
   /** How earlier questions ended (D-037). */

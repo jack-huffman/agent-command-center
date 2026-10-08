@@ -8,6 +8,7 @@ import { actionButton, argButton, button, type Child, el, foldable, icon, linkTo
 import { renderInProgress } from './progress.ts';
 import { questionCard } from './questions.ts';
 import { api, go, memory, type PageArea, remember, state } from './state.ts';
+import { ruleButtons, ruleDetail } from './rules.ts';
 import { overviewUpdateButtons, posterLine, updateKey, updateNotes } from './updates.ts';
 
 export function renderOverview(m: HomeModel): Node[] {
@@ -41,7 +42,7 @@ export function renderOverview(m: HomeModel): Node[] {
     }
     const u = a.update;
     // An update posts as acc drafted it, or opens its task's page to edit it first (D-066).
-    const buttons: Child[] = u ? overviewUpdateButtons(u, a.actions) : a.actions.map(actionButton);
+    const buttons: Child[] = u ? overviewUpdateButtons(u, a.actions) : a.rule ? ruleButtons(a.rule) : a.actions.map(actionButton);
     if (a.extra) buttons.push(argButton(a.extra.command, a.extra.label, a.extra.icon, a.extra.arg, true));
     if (a.go) {
       const g = a.go;
@@ -54,6 +55,8 @@ export function renderOverview(m: HomeModel): Node[] {
     // An update's text, two lines then Show all, with who it posts as (D-066).
     // Edited on its task's page, it shows that edit: the text Post there would send (GH-46).
     if (u) inbox.append(el('div', 'inbox-update', foldable(`${updateKey(u.project, u.id)}:text`, el('div', 'inbox-update-text', u.edited ?? u.text), null, 2), posterLine(u), ...updateNotes(u)));
+    // A rule or check suggested by a finding that keeps coming back, with each review it came from (GH-102).
+    if (a.rule) inbox.append(ruleDetail(a.rule));
     // A task's analysis's questions, answered right here (D-052).
     const an = a.analysis;
     if (an) inbox.append(el('div', 'inbox-analysis', ...an.questions.map((q) => analysisQuestion(an.project, an.task, q, an.canAsk))));

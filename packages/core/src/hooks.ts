@@ -124,7 +124,7 @@ const CLOSING = /\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\b[\s:]+(#\d+|[A-Z][A-Z0
  * builder's: acc gate run and list are, but not waiving a check or changing which checks run (GH-111), and
  * acc rules list is, but not copying rules in (GH-108).
  */
-export const PERSON_ONLY_ACC = new Set(['set', 'dispatch', 'land', 'review', 'autopilot', 'analyze', 'promote', 'deploy', 'init', 'cleanup', 'agents', 'setup', 'update', 'updates', 'resume', 'machine', 'gate waive', 'gate required', 'gate builder', 'rules import', 'trackers set', 'tidy add', 'tidy skip']);
+export const PERSON_ONLY_ACC = new Set(['set', 'dispatch', 'land', 'review', 'autopilot', 'analyze', 'promote', 'deploy', 'init', 'cleanup', 'agents', 'setup', 'update', 'updates', 'resume', 'machine', 'gate waive', 'gate required', 'gate builder', 'rules import', 'trackers set', 'tidy add', 'tidy skip', 'rules accept', 'rules dismiss']);
 
 /**
  * Whether a command line has a backtick or a $ the shell would act on: anywhere outside single quotes,
@@ -179,7 +179,8 @@ export function guardBash(b: Builder, line: string): string | null {
     }
     if (cmd === 'sf' && sub === 'org' && rest[0] === 'delete') return 'Builders never delete an org.';
     // A command is a person's by its name, or by its name and subcommand, such as acc rules import (GH-108)
-    // or acc tidy add (GH-104); acc tidy alone only reads.
+    // or acc tidy add (GH-104), and accepting or dismissing a suggested rule (GH-102); acc tidy alone, and
+    // listing rules, their differences and the suggestions, only read.
     const two = `${sub} ${rest[0] ?? ''}`;
     if (isAcc(cmd) && sub && (PERSON_ONLY_ACC.has(sub) || PERSON_ONLY_ACC.has(two))) {
       return `acc ${PERSON_ONLY_ACC.has(sub) ? sub : two} is a person's. A builder finishes with acc done, or acc block "<what you need>".`;

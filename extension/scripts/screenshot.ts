@@ -32,6 +32,7 @@ import { sampleHub } from './fixtures/hub.ts';
 import { sampleLimitsOther } from './fixtures/limits.ts';
 import { sampleQueueHub } from './fixtures/overview.ts';
 import { sampleAnalyzeRun, sampleBusyHub, sampleIdleHub } from './fixtures/progress.ts';
+import { sampleRulesHub } from './fixtures/rules.ts';
 import { sampleRuns } from './fixtures/runs.ts';
 import { CLIENTS, ROOT } from './fixtures/shared.ts';
 import { samplePerTokenSetup, sampleSettingsHub, sampleTrackerBoards } from './fixtures/settings.ts';
@@ -58,9 +59,11 @@ import { PALETTE_THEMES, type PaletteTheme, palettes, vscodeDefaults } from './s
  * at How agents run, as Agents' Settings and the status bar's Auto-merge open it, with two projects and
  * per-token billing (GH-110), and at Trackers and sign-ins, with a tracker in every state its sign-in and
  * board can be in (GH-112); Settings' Limits and checks in their other states: no total across repos,
- * slots set by the environment, and two projects, one building through the merge queue (GH-111). Last, Agents with each repo's finished sessions opened (GH-119).
+ * slots set by the environment, and two projects, one building through the merge queue (GH-111). Last, Agents with each repo's finished sessions opened (GH-119). Then the
+ * Overview with a suggested rule and a suggested check under Needs you, and with the rule's draft task open
+ * after Accept (GH-102).
  */
-export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished'] as const;
+export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept'] as const;
 export type Page = (typeof PAGES)[number];
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -94,6 +97,10 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
     const hub = kind === 'queue-held' ? sampleQueueHub(now, 'held', 'GitHub is still working out whether pull request #141 can merge.') : sampleQueueHub(now);
     return homeModel({ hub, section: 'overview', boards: () => [], identity: () => sampleIdentity(), setup: { items: [], confirmed: new Set() }, runs: [], autopilot: () => (kind === 'queue-off' ? null : 'on'), now });
   }
+  // Rules suggested by review findings that keep coming back, on the quiet Overview (GH-102).
+  if (kind === 'rules' || kind === 'rules-accept') {
+    return homeModel({ hub: sampleRulesHub(now), section: 'overview', boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: [], edited: sampleEdited, slack: sampleSlack('on', now), now });
+  }
   if (kind === 'overview-busy' || kind === 'overview-idle') {
     const base = { section: 'overview' as const, boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), edited: sampleEdited, slack: sampleSlack('on', now) };
     if (kind === 'overview-idle') return homeModel({ ...base, hub: sampleIdleHub(now), runs: sampleRuns(now), now });
@@ -125,6 +132,7 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
  */
 // ACC_SHOT_STATE, a JSON object, starts every page with that state instead: for checking what a page restores.
 const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ? JSON.parse(process.env.ACC_SHOT_STATE) : kind === 'output' ? { dock: { open: true, run: 'r-login' } }
+  : kind === 'rules-accept' ? { opened: ['rule:/Users/me/code/acme-service#r-4c0f1e:draft'] }
   : kind === 'agents-finished' ? { opened: [ROOT, CLIENTS].map((r) => `agents-finished:${r}`) }
   : kind === 'ticket-split' ? { opened: ['files', 'findings'].map((f) => `an:/Users/me/code/acme-service#ACME-23:${f}`) }
     : kind === 'ticket' ? { drafts: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: SAMPLE_EDIT.text }, bases: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: { text: SAMPLE_EDIT.base } } } : undefined);
@@ -149,7 +157,7 @@ const DEFAULT_HEIGHT = 900;
  * tall enough to show every repo on the busy machine, down to Other folders (GH-119), and so is Settings at
  * Trackers and sign-ins, further down (GH-112).
  */
-export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 3600, 'overview-idle': 3200, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 3800, 'settings-agents': 3800, 'settings-limits': 3800, 'ticket-note': 1600, agents: 2000, 'agents-path': 2300, 'agents-finished': 2300, 'settings-trackers': 5000 };
+export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 3600, 'overview-idle': 3200, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 3800, 'settings-agents': 3800, 'settings-limits': 3800, 'ticket-note': 1600, agents: 2000, 'agents-path': 2300, 'agents-finished': 2300, 'settings-trackers': 5000, rules: 1500, 'rules-accept': 1900 };
 
 /** The colour properties the colour check compares, on every element and its ::before and ::after. */
 export const COLOUR_PROPERTIES = [
