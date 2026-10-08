@@ -284,7 +284,7 @@ export function readRelaxed(file: string): RelaxRecord[] {
  */
 export function relaxedTo(records: RelaxRecord[], name: string, limit: RatchetLimit, value: number, base: number): boolean {
   const mine = records.filter((r) => r.ratchet === name && r.limit === limit);
-  const from = new Set([base]);
+  const from = new Set<number | null>([base]);
   for (let grew = true; grew; ) {
     grew = false;
     for (const r of mine) if (from.has(r.was) && !from.has(r.to)) { from.add(r.to); grew = true; }
