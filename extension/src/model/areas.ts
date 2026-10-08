@@ -14,10 +14,11 @@ import { area as setup } from './setup.ts';
 import { area as slack } from './slack.ts';
 import { area as taskPage } from './task-page.ts';
 import { area as tasks } from './tasks.ts';
+import { area as tidy } from './tidy.ts';
 import { area as updates } from './updates.ts';
 import { area as worktrees } from './worktrees.ts';
 
-export const AREAS = [agentPage, agents, boards, connect, environments, overview, page, questions, runs, settings, setup, slack, taskPage, tasks, updates, worktrees];
+export const AREAS = [agentPage, agents, boards, connect, environments, overview, page, questions, runs, settings, setup, slack, taskPage, tasks, tidy, updates, worktrees];
 export type Message =
   | import('./agent-page.ts').Message
   | import('./agents.ts').Message

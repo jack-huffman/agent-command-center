@@ -142,6 +142,8 @@ export function activate(context: vscode.ExtensionContext): void {
       const env = project?.config.environments.find((e) => e.branch === ref.env);
       return env ? { kind: 'env', project, env } : undefined;
     }
+    // A project's own, such as its tidy-up (GH-104).
+    if (project) return { kind: 'project', project };
     return undefined;
   };
   const resolve = (command: string, ref: Ref): unknown => {

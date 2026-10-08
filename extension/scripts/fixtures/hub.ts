@@ -9,6 +9,7 @@ import { sampleAutopilot, sampleHistory } from './history.ts';
 import { sampleAnswers, sampleQuestions } from './questions.ts';
 import { CLIENTS, ROOT, wt } from './shared.ts';
 import { sampleTasks } from './tasks.ts';
+import { sampleTidy } from './tidy.ts';
 import { sampleUpdates } from './updates.ts';
 
 export function sampleHub(now = Date.now()): HubLike {
@@ -53,6 +54,7 @@ export function sampleHub(now = Date.now()): HubLike {
     repoFor: (p: string) => repoRoot(p, '/Users/me', (d) => REPOS.has(d)),
     autopilotLog: () => sampleAutopilot(now),
     updates: () => sampleUpdates(now),
+    tidy: sampleTidy,
     history: () => sampleHistory(now),
   };
 }
