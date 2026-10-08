@@ -268,7 +268,7 @@ export function checkCommit(paths: RepoPaths, config: Config, place: MergePlace,
     throw new AccError(err.code ?? 'refresh', `${what} couldn't run: ${err.message} ${putBack(config, place, run, ['reset', '--hard', from])}`);
   }
   if (failed.length) {
-    const said = failed.map((r) => `${r.gate} ${!r.recorded ? 'wasn\'t recorded' : r.status === 'fail' ? 'failed' : 'couldn\'t run'}: ${r.summary.replace(/[.!?]$/, '')}${r.receipt.log ? ` (log ${r.receipt.log})` : ''}`);
+    const said = failed.map((r) => `${r.gate} ${!r.recorded ? 'wasn\'t recorded' : r.status === 'fail' ? 'failed' : r.status === 'hold' ? 'needs a person' : 'couldn\'t run'}: ${r.summary.replace(/[.!?]$/, '')}${r.receipt.log ? ` (log ${r.receipt.log})` : ''}`);
     throw new CheckFailure(`${what} failed on ${short(sha)}: ${said.join('; ')}. ${putBack(config, place, run, ['reset', '--hard', from])}`, failed);
   }
 }

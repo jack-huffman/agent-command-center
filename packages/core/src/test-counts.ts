@@ -120,10 +120,16 @@ export function apexCounts(result: { numberTestsTotal?: unknown; numberTestError
   return { run, passed: Math.max(run - failed, 0), failed, skipped: 0, todo: 0, runner: 'apex' };
 }
 
+/** What a test check whose output holds no summary acc can read says, rather than guess. */
+export const NO_COUNTS = 'No test summary acc can read in its output, so it can\'t say how many tests ran.';
+
 /** The counts in a few words: "312 run, 2 skipped", with failed and todo only when there are some. */
 export function countsLine(c: Pick<TestCounts, 'run' | 'failed' | 'skipped' | 'todo'>): string {
   return [`${c.run} run`, ...(c.failed ? [`${c.failed} failed`] : []), `${c.skipped} skipped`, ...(c.todo ? [`${c.todo} todo`] : [])].join(', ');
 }
+
+/** What a check's tests ran, for a table or a list: its counts, "not read" where acc couldn't tell, or nothing for a check that runs none. */
+export const testsText = (r: { counts?: TestCounts; countsNote?: string }): string => (r.counts ? countsLine(r.counts) : r.countsNote === NO_COUNTS ? 'not read' : '');
 
 /**
  * The tests skipped now that weren't before, by name, where both say: a name skipped twice now and once

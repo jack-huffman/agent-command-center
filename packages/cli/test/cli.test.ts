@@ -591,6 +591,23 @@ test('gate run records receipts on the commit, exits 1 while a required check fa
   assert.match(acc(dir, ['drift', 'main']).err, /no orgs/);
 });
 
+test('gate run prints what each test check ran and how a hold is cleared; gate list shows the counts (GH-100)', () => {
+  const heavy = { ACC_HEAVY_DIR: join(makeRepo(), 'slots') };
+  const block = (pass: number, skipped: number) => `ℹ tests ${pass + skipped}\\nℹ pass ${pass}\\nℹ fail 0\\nℹ cancelled 0\\nℹ skipped ${skipped}\\nℹ todo 0\\n`;
+  const cfg = { ...GENERIC_CONFIG, gates: { required: ['test', 'none', 'lint'], tests: ['none'], commands: { test: `printf '${block(312, 2)}'`, none: `printf '${block(0, 0)}'`, lint: 'true' } } };
+  const dir = repoWithConfig(cfg);
+  const r = acc(dir, ['gate', 'run'], undefined, heavy);
+  assert.equal(r.code, 1, r.err);
+  assert.match(r.out, /✓ pass\s+test\s+Passed\. · tests: 312 run, 2 skipped\n\s+Nothing earlier on main to compare its skipped tests with\./);
+  assert.match(r.out, /\? needs a person\s*none\s+Ran no tests, so it can't vouch for the change\. · tests: 0 run, 0 skipped/);
+  assert.match(r.out, /✓ pass\s+lint\s+Passed\.\n/);
+  assert.match(r.out, /1 needs a person: none\. Add the tests, or un-skip them\. If the task asks for the skip, say so with acc block "<why>": only a person can waive it\./);
+  assert.ok(!/to fix/.test(r.out), 'a hold isn\'t a failure to fix');
+  const list = acc(dir, ['gate', 'list']);
+  assert.match(list.out, /^Gate\s+Required\s+Heavy\s+This commit\s+Tests\s+Checks$/m);
+  assert.match(list.out, /^test\s+yes\s+yes\s+✓ pass\s+312 run, 2 skipped\s+printf/m);
+});
+
 test('acc gate waive: a person waives a task\'s failing check with a reason; a builder never can (D-031)', () => {
   const dir = repoWithConfig({ ...GENERIC_CONFIG, gates: { required: ['test'], commands: { test: 'exit 3' } } });
   assert.equal(acc(dir, ['add', 'Try the process', '--json']).code, 0);

@@ -11,6 +11,7 @@ import { run, type RunOptions, type RunResult } from '../src/exec.ts';
 import { AUTOPILOT_BY, displayState, emptyLedger, type LedgerEvent, mutate, readLedger, reworkCause, type Task, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
 import { ordinal, phaseWords, queueOrder, queuePlaces, queueWaits } from '../src/queue.ts';
+import { waiveGates } from '../src/gates.ts';
 import { readReceipt, writeReceipt } from '../src/receipts.ts';
 import { latestVerdict, reviewCurrent, reviewedAt, reviewPath, type Verdict } from '../src/review.ts';
 import { bad, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, tempDir } from './support.ts';
@@ -447,6 +448,33 @@ test('a full check that fails on the merge: put back, sent back with each gate a
   const fourth = autopilotPass(many.paths, many.config, deps(many, [], { check: failing }));
   assert.deepEqual(brief(fourth.steps), [['T-1', 'queue', 'failed']]);
   assert.match(fourth.steps[0]!.reason, /Autopilot sent T-1 back to its builder 3 times already: a person decides\./);
+});
+
+test('a full check that ran no tests stops the queue for a person: nothing is sent back, the task stays in review, and a person\'s waiver lets it merge (GH-100)', () => {
+  const s = setup();
+  const sha = s.task('T-1', { 'one.js': '1\n' });
+  const none = ok(['ℹ tests 0', 'ℹ suites 0', 'ℹ pass 0', 'ℹ fail 0', 'ℹ cancelled 0', 'ℹ skipped 0', 'ℹ todo 0', 'ℹ duration_ms 3'].join('\n'));
+  const calls: string[] = [];
+  const r = autopilotPass(s.paths, s.config, deps(s, calls, { check: none }));
+  assert.deepEqual(brief(r.steps), [['T-1', 'queue', 'failed']]);
+  assert.equal(r.steps[0]!.reason, `The full check needs a person: test: Ran no tests, so it can't vouch for the change. A person decides: waive it on ${sha.slice(0, 7)}, with a reason, or ask its builder for changes.`);
+  assert.deepEqual([merges(calls), pushes(calls)], [[], []]);
+  const t = get(s, 'T-1');
+  assert.deepEqual([t.state, t.autopilot?.sentBack ?? null, readQueueReport(s.paths, 'T-1', sha)], ['review', null, null], 'its builder isn\'t sent anything');
+  assert.equal(displayState(ledger(s), t), 'needs-you');
+  const receipt = readReceipt(s.paths, sha, 'test')!;
+  assert.deepEqual([receipt.status, receipt.counts?.run], ['hold', 0]);
+
+  // A person waives it on that commit: the next pass merges it.
+  waiveGates(s.paths, s.config, { sha, env: s.config.environments[0]!, gates: ['test'], reason: 'docs only: nothing to test', by: 'human:jordan', now });
+  mutate(s.paths, now, (l, emit) => {
+    const x = l.tasks.find((y) => y.id === 'T-1')!;
+    x.autopilot = { ...x.autopilot!, failed: null };
+    emit({ type: 'task.updated', task: 'T-1', actor: 'human', by: 'human:jordan', data: {} });
+  });
+  const after: string[] = [];
+  const next = autopilotPass(s.paths, s.config, deps(s, after, { check: none }));
+  assert.deepEqual([brief(next.steps), merges(after).length, checksRun(after)], [[['T-1', 'merge', 'done']], 1, []]);
 });
 
 test('what stops the queue for a person: a dirty worktree, a heavy-check slot that stays taken, GitHub blocking it, or gh failing to merge; the next task is the head on the next pass (GH-73)', () => {
