@@ -190,6 +190,23 @@ export async function accImport(acc: (args: string[], cwd: string) => Promise<{ 
   }
 }
 
+/**
+ * The Connect page's Save (GH-112): `acc trackers set --json` with the tracker, through a file that's
+ * removed after, so acc writes .acc/config.json and the Command Center never does (D-064). In place of the
+ * one at `index`, or added. Throws acc's reason when it refuses.
+ */
+export async function accSetTracker(acc: (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>, root: string, index: number | null, record: Record<string, unknown>): Promise<void> {
+  const dir = mkdtempSync(join(tmpdir(), 'acc-tracker-'));
+  try {
+    const file = join(dir, 'tracker.json');
+    writeFileSync(file, JSON.stringify(record));
+    const why = accRefusal(await acc(['trackers', 'set', '--file', file, ...(index === null ? [] : ['--index', String(index)]), '--json'], root));
+    if (why !== null) throw new Error(why);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 /** What `acc import` takes for a tracker's ticket: its title, description and label names. The ticket isn't changed (D-066). */
 export function trackInput(t: Pick<Ticket, 'kind' | 'key' | 'url' | 'title' | 'markdown' | 'labels'>): TaskInput[] {
   return [{

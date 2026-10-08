@@ -108,7 +108,7 @@ export function deriveRows(hub: Hub, ledger: Ledger, p?: Project): TaskRow[] {
  * files against each in-flight task's, planned and changed on its branch (as the worktree poll last
  * read them), without the files every task shares. acc's own answer at dispatch is final.
  */
-export function rowFiles(hub: Pick<Hub, 'changed'>, ledger: Ledger, p: Project | undefined, analyses: Map<string, Analysis | null>, required: boolean): (t: Task) => RowFiles | null {
+export function rowFiles(hub: Pick<Hub, 'changed' | 'limits'>, ledger: Ledger, p: Project | undefined, analyses: Map<string, Analysis | null>, required: boolean): (t: Task) => RowFiles | null {
   if (!p) return () => null;
   const plan = (id: string) => plannedFiles(analyses.get(id) ?? null, p.root);
   const changed = hub.changed.get(p.root);
@@ -122,7 +122,11 @@ export function rowFiles(hub: Pick<Hub, 'changed'>, ledger: Ledger, p: Project |
     const analyzed = !required || (!!a && a.verdict !== 'split' && a.questions.every((q) => !!q.answer));
     return { id: t.id, files: plan(t.id), startable: isReady(ledger, t) && envOpen(p.config, t) && !t.held?.failed && analyzed };
   });
-  const capped = ledger.tasks.filter((t) => t.state === 'running').length >= p.config.agents.max;
+  // A cap a held task waits for: the project's, else this machine's total across every repo (GH-111), read
+  // only while a task is held, since it counts every repo's ledger.
+  const projectFull = ledger.tasks.filter((t) => t.state === 'running').length >= p.config.agents.max;
+  const machine = !projectFull && ledger.tasks.some((t) => t.state === 'todo' && t.held) ? hub.limits()?.machine : null;
+  const capped = projectFull ? 'project' as const : machine && machine.total !== null && machine.running >= machine.total ? 'machine' as const : null;
   return (t) => {
     if (t.state === 'todo') {
       const own = plan(t.id);

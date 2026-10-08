@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { autoMergeFor, autoMergeOn, branchFor, builderGatesFor, CONFIG_KEYS, defaultEnvironment, keyShown, loadConfig, parseConfig, requiredGates, skippedOnRoute, trackerForKey, UNREAD_KEYS, VALIDATOR_ONLY, withTracker, writeConfig } from '../src/config.ts';
+import { autoMergeFor, autoMergeOn, branchFor, builderGatesFor, CONFIG_KEYS, defaultEnvironment, isTestGate, keyShown, loadConfig, parseConfig, requiredGates, saveTracker, skippedOnRoute, trackerForKey, UNREAD_KEYS, VALIDATOR_ONLY, withTracker, writeConfig } from '../src/config.ts';
 import { parseFloors } from '../src/ratchets.ts';
 import { GENERIC_CONFIG, SF_CONFIG, tempDir } from './support.ts';
 
@@ -167,6 +167,8 @@ test('this repo lists its decision log as append-only, and lets autopilot merge 
   assert.ok(!config.gates.heavy.includes('tests'));
   const floors = parseFloors(readFileSync(join(import.meta.dirname, '..', '..', '..', '.acc', 'floors.json'), 'utf8'));
   assert.ok(floors && Object.keys(floors).length === 1 && (floors.tests?.floor ?? 0) > 0, 'its floors file holds the one floor, measured');
+  // Its full check and the tests near a change run tests, so their receipts count what ran (GH-100); the typecheck doesn't.
+  assert.deepEqual(['check', 'near-tests', 'typecheck'].map((g) => isTestGate(config, g)), [true, true, false]);
 });
 
 test('gates.builder: a list of gate names, kept as written, for builders only where the merge queue runs the full check (GH-73)', () => {
@@ -200,6 +202,19 @@ test('gates.ratchets: a command, which way its number may go, and a short label;
   const dir = tempDir();
   writeConfig(join(dir, 'config.json'), c);
   assert.deepEqual(loadConfig(join(dir, 'config.json')).config.gates, c.gates, 'written back as it was');
+});
+
+test('gates.tests: a list of gate names whose receipts count the tests they ran, besides test and Salesforce\'s lwc-tests (GH-100)', () => {
+  const raw = { ...clone(GENERIC_CONFIG), gates: { required: ['check'], tests: ['check'], commands: { check: 'npm run check', test: 'npm test', lint: 'eslint .' } } };
+  const c = parseConfig(raw).config!;
+  assert.deepEqual(c.gates.tests, ['check']);
+  assert.deepEqual(['check', 'test', 'lint', 'lwc-tests'].map((g) => isTestGate(c, g)), [true, true, false, false]);
+  assert.equal(isTestGate(parseConfig(clone(SF_CONFIG)).config!, 'lwc-tests'), true, 'Salesforce\'s Jest gate runs tests');
+  assert.equal(parseConfig(clone(GENERIC_CONFIG)).config!.gates.tests, undefined, 'left out, only those acc knows');
+  for (const bad of ['check', [''], [1], {}]) assert.match(errorsOf({ ...raw, gates: { ...raw.gates, tests: bad } }), /"gates\.tests" must be a list of gate names/, JSON.stringify(bad));
+  const dir = tempDir();
+  writeConfig(join(dir, 'config.json'), c);
+  assert.deepEqual(loadConfig(join(dir, 'config.json')).config.gates.tests, ['check'], 'written back as it was');
 });
 
 test('autopilot.autoMerge: off unless it\'s true, a boolean, never in a Salesforce project, and never into a protected environment (GH-67)', () => {
@@ -330,6 +345,33 @@ test('re-adding a tracker keeps the settings it had, in its place; a new one goe
   assert.deepEqual(withTracker(list, { kind: 'jira', site: 'acme.atlassian.net', project: 'OPS' }).map((t) => t.project), [undefined, 'CRM', 'OPS'], 'another project is another tracker');
 });
 
+test('saveTracker connects a tracker or changes one in .acc/config.json, keeping the rest, and writes nothing that wouldn\'t load (GH-112)', () => {
+  const file = join(tempDir('acc-save-'), 'config.json');
+  const start = { ...clone(GENERIC_CONFIG), github: { repo: 'acme/tool', account: 'jordan' }, trackers: [{ kind: 'github', skipLabels: ['milestone'] }] };
+  writeFileSync(file, JSON.stringify(start));
+  const read = () => JSON.parse(readFileSync(file, 'utf8'));
+  // Added last, with the rest of the file as it was.
+  assert.deepEqual(saveTracker(file, null, { kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', board: 7, epic: 'ACME-3' }), { index: 1, warnings: [] });
+  assert.deepEqual(read(), { ...start, trackers: [start.trackers[0], { kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', board: 7, epic: 'ACME-3' }] });
+  assert.ok(readFileSync(file, 'utf8').endsWith('}\n'));
+  // Re-added, it's the same tracker, in its place: the index withTracker put it at.
+  assert.equal(saveTracker(file, null, { kind: 'github', labels: ['billing'] }).index, 0);
+  assert.deepEqual(read().trackers[0], { kind: 'github', skipLabels: ['milestone'], labels: ['billing'] }, 'skipLabels kept');
+  // Changed at its place: a key named null is taken out, and the rest kept.
+  assert.deepEqual(saveTracker(file, 1, { kind: 'jira', epic: null, board: 9 }), { index: 1, warnings: [] });
+  assert.deepEqual(read().trackers[1], { kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', board: 9 });
+  // Refused, with the file as it was: another kind at that place, a config that wouldn't load, no kind.
+  const before = readFileSync(file, 'utf8');
+  assert.throws(() => saveTracker(file, 0, { kind: 'jira', board: 3 }), /changed since this page opened/);
+  assert.throws(() => saveTracker(file, null, { kind: 'jira', project: 'OPS' }), /would leave .* with problems, so nothing was written:\n- .*needs "site" and "project"/);
+  assert.throws(() => saveTracker(file, null, { kind: 'linear' }), /needs a "kind": /);
+  assert.throws(() => saveTracker(file, -1, { kind: 'jira' }), /place in the list, from 0/);
+  assert.equal(readFileSync(file, 'utf8'), before);
+  // A key the kind doesn't use is a warning, as parseConfig says.
+  assert.match(saveTracker(file, 0, { kind: 'github', epic: 'X-1' }).warnings.join(' '), /epic/);
+  assert.throws(() => saveTracker(join(tempDir('acc-none-'), 'config.json'), null, { kind: 'github' }), /Run "acc init" first/);
+});
+
 test('a tracker names its place: a Jira epic, GitHub labels or an Azure area path; a wrong type is an error, the wrong kind a warning (D-072)', () => {
   const base = clone(GENERIC_CONFIG);
   const one = (t: Record<string, unknown>) => parseConfig({ ...base, trackers: [t] });
@@ -393,7 +435,8 @@ const EVERY_KEY = {
   },
   autonomy: 'review',
   worktrees: { root: '.claude/worktrees', setup: ['npm ci'] },
-  gates: { required: ['check'], commands: { check: 'npm run check', typecheck: 'npm run typecheck' }, heavy: ['check'], severity: 3, builder: ['typecheck'], ratchets: { tests: { command: 'node scripts/count-tests.mjs', limit: 'floor', label: 'tests' } } },
+  gates: { required: ['check'], commands: { check: 'npm run check', typecheck: 'npm run typecheck' }, heavy: ['check'], severity: 3, builder: ['typecheck'], tests: ['check'],
+    ratchets: { tests: { command: 'node scripts/count-tests.mjs', limit: 'floor', label: 'tests' } } },
   secretScan: { paths: ['.'], exclude: ['fixtures'] },
   analysis: { required: true },
   autopilot: { appendOnly: ['docs/DECISIONS.md'], autoMerge: true },

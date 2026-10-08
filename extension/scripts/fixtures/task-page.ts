@@ -14,9 +14,10 @@ const p = (text: string, marks?: string[]): AdfNode => ({ type: 'paragraph', con
 /**
  * Which ticket page to draw: ACME-12 being built, a task to do whose analysis has questions or says to
  * split it, one whose builder stopped, ACME-31, which acc doesn't keep yet, being tracked from its card,
- * or ACME-35, which a person dispatched and which waits for other tasks' files (D-093).
+ * ACME-35, which a person dispatched and which waits for other tasks' files (D-093), or ACME-20, in review
+ * with its builder's note (D-106).
  */
-export type TicketSample = 'ACME-12' | 'ACME-21' | 'ACME-23' | 'ACME-29' | 'ACME-31' | 'ACME-33' | 'ACME-35';
+export type TicketSample = 'ACME-12' | 'ACME-20' | 'ACME-21' | 'ACME-23' | 'ACME-29' | 'ACME-31' | 'ACME-33' | 'ACME-35';
 
 /** A Jira ticket with everything a description can hold, and the acc task working on it. */
 export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12'): TicketModel {
@@ -24,6 +25,7 @@ export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12'):
   if (which === 'ACME-31') return sampleUntrackedTicket(now);
   if (which === 'ACME-33') return sampleChecksTicket(now);
   if (which === 'ACME-35') return sampleWaitingTicket(now);
+  if (which === 'ACME-20') return sampleNoteTicket(now);
   if (which !== 'ACME-12') return sampleTodoTicket(now, which);
   const hub = sampleHub(now);
   // Back with its builder after its pull request stopped merging into dev.
@@ -78,11 +80,13 @@ export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12'):
     checks: [
       { gate: 'format', status: 'pass', summary: '3 changed files formatted.' },
       { gate: 'static', status: 'skip', summary: 'Waived by jordan: the 2 violations predate this change', waived: true },
-      { gate: 'validate', status: 'fail', summary: '4 of 21 tests failed in Acme Dev: CaseRoutingTest.premiumEscalates' },
-      { gate: 'lwc-tests', status: 'skip', summary: 'Not run on this commit' },
+      { gate: 'validate', status: 'fail', summary: '4 of 21 tests failed in Acme Dev: CaseRoutingTest.premiumEscalates', counts: '21 run, 4 failed, 0 skipped' },
       // Ratchets (GH-99): one that got better, and one that got worse, which has no Waive….
       { gate: 'apex-coverage', status: 'pass', summary: 'Apex coverage 81, at its floor.', ratchet: { label: 'Apex coverage', limit: 'floor', from: 78, to: 81, diff: 3, numbers: '78 → 81 (+3)', line: 'Apex coverage 78 → 81 (+3)' } },
       { gate: 'violations', status: 'fail', summary: 'violations 6 is above its ceiling 4, by 2. Make it 4 or better. If this change has to make it worse, block and say why: only a person relaxes a ceiling.', ratchet: { label: 'violations', limit: 'ceiling', from: 4, to: 6, diff: 2, numbers: '4 → 6 (+2)', line: 'violations 4 → 6 (+2)' } },
+      // A test check that skipped more than dev's last count: a person decides (GH-100).
+      { gate: 'flow-tests', status: 'hold', summary: '2 skipped, up from 0 on 4f2a9c1: OrderFlowTest.discount, OrderFlowTest.tax newly skipped.', counts: '38 run, 2 skipped' },
+      { gate: 'lwc-tests', status: 'skip', summary: 'Not run on this commit' },
     ],
   });
 }
@@ -137,7 +141,53 @@ function sampleChecksTicket(now: number): TicketModel {
     trackerEdits: false, updates: [], boards: sampleBoards(), github: 'jordan-kim', now,
     checks: [
       { gate: 'format', status: 'pass', summary: '2 changed files formatted.' },
-      { gate: 'validate', status: 'pass', summary: 'Validated in Acme Dev: LeadScoringTest, 12 of 12 passing.' },
+      { gate: 'validate', status: 'pass', summary: 'Validated in Acme Dev: LeadScoringTest, 12 of 12 passing.', counts: '12 run, 0 skipped' },
+    ],
+  });
+}
+
+/**
+ * A task in review whose builder finished with a note (D-106): what landed, which numbers moved, and
+ * what's still open, with a Make a task on each still-open line. One line runs long, to wrap.
+ */
+function sampleNoteTicket(now: number): TicketModel {
+  const row = sampleHub(now).taskRows(ROOT).find((r) => r.id === 'ACME-20')!;
+  const ticket: Ticket = {
+    key: 'ACME-20', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-20', title: row.title, type: 'Story',
+    status: REVIEW, assignees: [{ id: 'a1', name: 'Jordan Kim' }], reporter: { id: 'a2', name: 'Pat Lee' }, labels: [{ name: 'sales', color: null }], priority: 'Medium',
+    created: new Date(now - 3 * 86_400_000).toISOString(), updated: new Date(now - 40 * MIN).toISOString(),
+    body: fromAdf({ type: 'doc', content: [p('Account managers miss renewals because the renewal date sits on the contract. Show it on the Account page, beside the contract end date.')] }),
+    markdown: '', comments: [], related: [],
+  };
+  const finished = new Date(now - 42 * MIN).toISOString();
+  const task = {
+    id: 'ACME-20', title: row.title, brief: '', source: { kind: 'jira', key: 'ACME-20', url: ticket.url }, environment: 'dev', deps: [], labels: [], state: 'review', blocker: null,
+    run: {
+      ...row.run, n: 1, name: 'Acme Service · ACME-20 Show the renewal date on the Account page · builder',
+      note: {
+        landed: ['The Account page shows the renewal date beside the contract end date', 'Renewal_Date__c is read-only for everyone but Sales Ops'],
+        moved: ['Apex tests: 41 of 41 passing, 2 added', 'validate passes in Acme Dev'],
+        open: [
+          'The renewal date isn\'t on the Account list views yet',
+          'Sales Ops asked for an email to the account owner 60 days before each renewal, which needs its own flow and a decision on who else is copied',
+        ],
+        at: finished, by: 'builder:ACME-20', ended: 'review',
+      },
+    },
+    pr: null,
+    history: [
+      { at: new Date(now - 3 * 86_400_000).toISOString(), from: null, to: 'todo', by: 'human:jordan' },
+      { at: new Date(now - 3 * 3_600_000).toISOString(), from: 'todo', to: 'running', by: 'human:jordan' },
+      { at: finished, from: 'running', to: 'review', by: 'builder:ACME-20' },
+    ],
+    createdAt: new Date(now - 3 * 86_400_000).toISOString(), updatedAt: finished,
+  } as unknown as Task;
+  return ticketModel({
+    project: ROOT, tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira', key: 'ACME-20', ticket, loading: false, error: null, connect: null, row, task, signedInAs: 'jordan@acme.example',
+    trackerEdits: false, updates: [], boards: sampleBoards(), github: 'jordan-kim', now,
+    checks: [
+      { gate: 'format', status: 'pass', summary: '3 changed files formatted.' },
+      { gate: 'validate', status: 'pass', summary: 'Validated in Acme Dev: AccountRenewalTest, 41 of 41 passing.' },
     ],
   });
 }

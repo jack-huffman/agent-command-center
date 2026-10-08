@@ -9,6 +9,7 @@ import { area as pipeline } from './pipeline.ts';
 import { area as rules } from './rules.ts';
 import { area as setup } from './setup.ts';
 import { area as tasks } from './tasks.ts';
+import { area as trackers } from './trackers.ts';
 import { area as updates } from './updates.ts';
 
-export const AREAS = [agents, checks, environments, github, hooks, pipeline, rules, setup, tasks, updates];
+export const AREAS = [agents, checks, environments, github, hooks, pipeline, rules, setup, tasks, trackers, updates];

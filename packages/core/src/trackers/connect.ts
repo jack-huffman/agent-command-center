@@ -122,6 +122,17 @@ export interface Chosen {
   ownRepo: string | null;
 }
 
+/**
+ * Which of a tracker's lists narrows it to part of a project, as an epic does in Jira (D-072), and the words
+ * the page shows for it. A project started from an epic picks this one (GH-81).
+ */
+export interface PlaceSpec {
+  /** One of the description's pickers. */
+  key: string;
+  /** What stands in for an epic here, said on the page: "In Azure DevOps an area path stands in for an epic". */
+  words: string;
+}
+
 export interface TrackerDescription {
   kind: string;
   name: string;
@@ -129,6 +140,8 @@ export interface TrackerDescription {
   host: HostSpec;
   methods: SignInMethod[];
   pickers: PickerSpec[];
+  /** The picker that stands in for an epic (GH-81). */
+  place: PlaceSpec;
   /** Who the sign-in is, or a TrackerError saying why not. */
   verify: (ctx: Ctx) => Promise<Person>;
   /** The tracker as .acc/config.json keeps it. A key set to null is taken out of an existing one. */
@@ -204,6 +217,7 @@ export const JIRA: TrackerDescription = {
       load: async (ctx) => (await jiraBoards(ctx.host, one(ctx.values.project)!, jiraWith(ctx).email, jiraWith(ctx).token, ctx.fetch)).map((b, i) => ({ value: String(b.id), label: b.name, detail: b.type, preferred: i === 0 })),
     },
   ],
+  place: { key: 'epic', words: 'In Jira, it\'s the epic itself: only its child tickets and their sub-tasks are this project\'s.' },
   verify: (ctx) => new JiraClient({ site: ctx.host, project: '', ...jiraWith(ctx), fetch: ctx.fetch }).me(),
   toConfig: (c) => ({ kind: 'jira', site: c.host, project: one(c.values.project), board: one(c.values.board) ? Number(one(c.values.board)) : null, epic: one(c.values.epic) }),
   fromConfig: (t) => ({ host: t.site ?? '', values: { project: t.project, epic: t.epic, board: t.board === null ? null : String(t.board) } }),
@@ -224,6 +238,7 @@ export const GITHUB: TrackerDescription = {
     hint: 'Tick labels to take only issues with one of them. Tick none for every issue.',
     load: async (ctx) => (await github(ctx).labels()).map((l) => ({ value: l.name, label: l.name })),
   }],
+  place: { key: 'labels', words: 'In GitHub, labels stand in for an epic: only issues with one of them are this project\'s.' },
   verify: (ctx) => github(ctx).me(),
   toConfig: (c) => ({ kind: 'github', repo: c.ownRepo && c.host.toLowerCase() === c.ownRepo.toLowerCase() ? null : c.host, labels: many(c.values.labels).length ? many(c.values.labels) : null }),
   fromConfig: (t, ownRepo) => ({ host: t.repo ?? ownRepo ?? '', values: { labels: t.labels.length ? t.labels : null } }),
@@ -263,6 +278,7 @@ export const AZURE: TrackerDescription = {
       load: async (ctx) => (await azureAreas(ctx.host, one(ctx.values.project)!, one(ctx.values.team)!, azureAuth(ctx.signIn), ctx.fetch)).map((a) => ({ value: a, label: a })),
     },
   ],
+  place: { key: 'areaPath', words: 'In Azure DevOps, an area path stands in for an epic: only the work items under it are this project\'s.' },
   verify: (ctx) => azureWhoAmI(ctx.host, azureAuth(ctx.signIn), ctx.fetch),
   toConfig: (c) => ({ kind: 'azure', organization: c.host, project: one(c.values.project), team: c.defaults.includes('team') ? null : one(c.values.team), board: one(c.values.board), areaPath: one(c.values.areaPath) }),
   fromConfig: (t) => ({ host: t.organization ?? '', values: { project: t.project, team: t.team, board: typeof t.board === 'string' ? t.board : null, areaPath: t.areaPath } }),
@@ -300,6 +316,7 @@ export const MONDAY: TrackerDescription = {
       load: async (ctx) => (await mondayStatusColumns(one(ctx.values.board)!, mondayToken(ctx), ctx.fetch)).map((c) => ({ value: c.id, label: c.title, detail: c.labels.join(', '), ...(c.usual ? { default: true } : {}) })),
     },
   ],
+  place: { key: 'group', words: 'On monday.com, a group stands in for an epic: only its items are this project\'s.' },
   verify: async (ctx) => {
     const me = await mondayMe(mondayToken(ctx), ctx.fetch);
     // A token is one account's: one from another would show another client's boards.

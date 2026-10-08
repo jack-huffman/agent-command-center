@@ -1,9 +1,9 @@
 import { execFile } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import { replaceTracker, type Tracker, trackerForKey, withTracker } from '../../packages/core/src/config.ts';
+import { type Tracker, trackerForKey } from '../../packages/core/src/config.ts';
 import { ghEnv, isGh } from '../../packages/core/src/exec.ts';
 import type { IntakeResult } from '../../packages/core/src/intake.ts';
 import { AzureClient } from '../../packages/core/src/trackers/azure.ts';
@@ -14,11 +14,13 @@ import { MondayClient } from '../../packages/core/src/trackers/monday.ts';
 import { type Board, type Exec, movesInto, placeText, signInLabel, type Ticket, type TrackerClient, TrackerError, trackerName, type Transition } from '../../packages/core/src/trackers/types.ts';
 import { Pending } from '../webview/pending.ts';
 import type { Hub, Project } from './hub.ts';
-import { accImport, cardTracking, credInUse, credSite, credWrites, type CredWrites, liveTrackKeys, outsideKeys, placeCandidates, readCreds, reloadRoots, repoKey, signOutPlan, type StoredCreds, trackerHost, type TrackReply, type TrackState, trackTicket } from './logic/connect.ts';
+import { accImport, accSetTracker, cardTracking, credInUse, credSite, credWrites, type CredWrites, liveTrackKeys, outsideKeys, placeCandidates, readCreds, reloadRoots, repoKey, signOutPlan, type StoredCreds, trackerHost, type TrackReply, type TrackState, trackTicket } from './logic/connect.ts';
 import { runFile } from './run.ts';
 import type { ExtensionArea } from './area.ts';
 
 type AccRun = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
+/** What a sign-in is kept by (D-027): an open project, or one being started on the Connect page (GH-81). */
+type SignInProject = Parameters<typeof repoKey>[0];
 
 /** A ticket's Track (D-074): on its way, and why its last try didn't go. */
 export type { TrackState };
@@ -140,7 +142,7 @@ export class Trackers implements vscode.Disposable {
   }
 
   /** What VSCode keeps for this repo and a tracker's host: its own key and the site's (GH-79). */
-  private stored(p: Project, kind: string, host: string): Promise<StoredCreds> {
+  private stored(p: SignInProject, kind: string, host: string): Promise<StoredCreds> {
     return readCreds((k) => this.secrets.get(k), p, kind, host);
   }
 
@@ -458,9 +460,8 @@ export class Trackers implements vscode.Disposable {
    * The sign-in this repo uses for a host, its own or its site's (GH-79), ready for the Connect page's checks
    * and lists, or null. A Microsoft sign-in is asked for silently; one that has ended says so.
    */
-  async storedSignIn(root: string, kind: string, host: string): Promise<{ signIn: SignIn; shared: boolean } | null> {
-    const p = this.hub.project(root);
-    const found = p ? credInUse(await this.stored(p, kind, host)) : null;
+  async storedSignIn(p: SignInProject, kind: string, host: string): Promise<{ signIn: SignIn; shared: boolean } | null> {
+    const found = credInUse(await this.stored(p, kind, host));
     if (!found) return null;
     const { cred: c, shared } = found;
     if (c.method === 'microsoft') {
@@ -476,15 +477,15 @@ export class Trackers implements vscode.Disposable {
   }
 
   /** Whether this repo keeps its own key for a host: a sign-in, or a "this project only" sign-out (GH-79). */
-  async ownSignIn(root: string, kind: string, host: string): Promise<boolean> {
-    const p = this.hub.project(root);
-    return !!p && (await this.stored(p, kind, host)).own !== null;
+  async ownSignIn(p: SignInProject, kind: string, host: string): Promise<boolean> {
+    return (await this.stored(p, kind, host)).own !== null;
   }
 
-  /** Keeps a sign-in for every project on its site, or for this repo only (GH-79, D-027), where the boards read it. */
-  async storeSignIn(root: string, kind: string, host: string, cred: Record<string, unknown>, shared: boolean): Promise<void> {
-    const p = this.hub.project(root);
-    if (!p) throw new TrackerError('other', 'That project isn\'t open here.');
+  /**
+   * Keeps a sign-in for every project on its site, or for this repo only (GH-79, D-027), where the boards read
+   * it. A project being started has the keys it will have once acc init writes it (GH-81).
+   */
+  async storeSignIn(p: SignInProject, kind: string, host: string, cred: Record<string, unknown>, shared: boolean): Promise<void> {
     await this.apply(credWrites(p, kind, host, cred, shared));
   }
 
@@ -513,14 +514,13 @@ export class Trackers implements vscode.Disposable {
   }
 
   /**
-   * Writes a tracker to the repo's own config: in place of the one at `index`, or added, replacing one for
-   * the same project. Keys it doesn't name are kept, and those it names as null are taken out (D-072).
+   * Asks acc to write a tracker to the repo's own config (GH-112): in place of the one at `index`, or added,
+   * replacing one for the same project. Keys it doesn't name are kept, and those it names as null are taken
+   * out (D-072). The Command Center never writes the file itself (D-064). Throws acc's reason.
    */
-  write(root: string, index: number | null, record: Record<string, unknown>): void {
-    const file = join(root, '.acc', 'config.json');
-    const raw = JSON.parse(readFileSync(file, 'utf8')) as { trackers?: Record<string, unknown>[] };
-    raw.trackers = index === null ? withTracker(raw.trackers ?? [], record) : replaceTracker(raw.trackers ?? [], index, record);
-    writeFileSync(file, JSON.stringify(raw, null, 2) + '\n');
+  async write(root: string, index: number | null, record: Record<string, unknown>): Promise<void> {
+    if (!this.acc) throw new Error('This window can\'t run acc.');
+    await accSetTracker(this.acc, root, index, record);
   }
 
   /**
@@ -560,6 +560,11 @@ export const area: ExtensionArea = {
       await openConnect(chosen ? { root: chosen.p.root, index: chosen.index, signIn: true } : {});
     });
     reg('acc.trackers.signOut', async (arg?: unknown) => { await trackers.signOut(arg); await setup.recheck('B14.tickets'); });
+    // Setup's "From a Jira epic…" (GH-81): the Connect page, over Setup, for a folder with no config yet.
+    setup.useStarter(async (start) => {
+      await connect.open({ start, from: 'setup' });
+      panels.show('setup');
+    });
     // B14: acc doctor sees the config; only the extension can see this repo's sign-ins.
     setup.setOverlay(async (items, cwd) => {
       const p = hub.project(cwd) ?? hub.projectFor(cwd);

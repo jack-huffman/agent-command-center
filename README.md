@@ -234,7 +234,11 @@ installs the same way, over the old one.
   in, runs the full check once, and merges; one that conflicts or fails goes
   back to its builder. Builders can then run lighter checks (`gates.builder`),
   such as the tests near what they changed.
-- **Light on the machine.** A cap on concurrent agents, default 3.
+- **Light on the machine.** A cap on concurrent builders for each project,
+  default 3, and, if you set one, a total for this machine across every repo,
+  since usage limits are your Claude account's. Heavy checks take turns in this
+  machine's slots. **Settings → Limits and checks** raises or lowers each, and
+  says what a change means in this machine's own numbers.
 - **Readable without colour.** Every state has an icon and a label. Where colour
   helps, it is orange against blue, never red against green.
 
@@ -258,7 +262,10 @@ another's repo. GitHub Issues, Jira Cloud, Azure DevOps and monday.com. Set
 one up on the Command Center's **Connect page**: Connect
 Jira on the Tasks tab, Add a tracker on the Overview, or **Add a tracker…** from
 the Command Palette. It signs in, tests the connection, and lists the projects,
-places and boards to pick from. See [ONBOARDING.md, B14](docs/ONBOARDING.md#b14-connect-the-ticket-source).
+places and boards to pick from, and acc writes the tracker to `.acc/config.json`
+for you to commit. The Command Center's **Settings** lists every open project's
+trackers under **Trackers and sign-ins**, with who each signs in as, and signs
+each in again, signs it out, or changes its place. See [ONBOARDING.md, B14](docs/ONBOARDING.md#b14-connect-the-ticket-source).
 
 Each tracker names its place: the project, repo or monday.com board, and when
 set, a Jira epic, GitHub labels, an Azure DevOps area path or a monday.com

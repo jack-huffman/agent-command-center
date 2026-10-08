@@ -1,11 +1,12 @@
 /**
  * The sessions Claude Code lists, and what each repo's ledger says about them (D-095): the sample project's
- * builders and reviewer, sessions elsewhere on the machine, and a repo that isn't open here.
+ * builders, reviewer and analyst, sessions elsewhere on the machine, and a repo that isn't open here but is
+ * in another window, with a task whose builder and reviewer are both listed (GH-119).
  */
 import type { RepoAgents, State } from '../../../packages/core/src/ledger.ts';
 import type { AgentSession, TaskRow } from '../../src/logic/shared.ts';
 import { sampleAnalyses } from './analysis.ts';
-import { CLIENTS, MIN, N10, N12, N12a, N13, N14, N28, N29, N38, R20, ROOT, wt } from './shared.ts';
+import { A24, CLIENTS, MIN, N10, N12, N12a, N13, N14, N28, N29, N38, N42, R20, R42, ROOT, T42, wt } from './shared.ts';
 
 export function sampleAgents(now = Date.now()): AgentSession[] {
   const root = ROOT;
@@ -25,6 +26,8 @@ export function sampleAgents(now = Date.now()): AgentSession[] {
     { cwd: wt('ACME-12'), kind: 'background', startedAt: now - 26 * 60 * MIN, id: 'bg12a', sessionId: 's-acme-12a', name: N12a, state: 'blocked', pid: 4021 },
     { cwd: wt('ACME-20'), kind: 'interactive', startedAt: now - 8 * MIN, sessionId: 'rv-acme-20', name: R20, status: 'idle' },
     { cwd: root, kind: 'interactive', startedAt: now - 120 * MIN, sessionId: '0e02-main', name: 'acme-dev', status: 'busy', pid: 4100 },
+    // ACME-24's analyst, reading the ticket and the code in the main checkout before the build (GH-119).
+    { cwd: root, kind: 'interactive', startedAt: now - 3 * MIN, sessionId: 'an-acme-24', name: A24, status: 'busy', pid: 4110 },
     { cwd: '/Users/me/code/side-project', kind: 'interactive', startedAt: now - 30 * 60 * MIN, sessionId: '7c1d-side', name: 'side-project', status: 'idle', pid: 4200 },
     { cwd: '/Users/me/Documents/a folder with a long name/docs-site', kind: 'background', startedAt: now - 7 * 24 * 60 * MIN, id: 'bg3', name: 'docs-site', state: 'done' },
     // Elsewhere, each kind of folder (GH-83): two repos of one name, a builder's worktree of one, a folder
@@ -39,6 +42,9 @@ export function sampleAgents(now = Date.now()): AgentSession[] {
     // lost its process and is still listed, blocked, in the main checkout; the other waits in its worktree.
     { cwd: CLIENTS, kind: 'background', startedAt: now - 2 * 24 * 60 * MIN, id: 'bg37', sessionId: 's-acme-37', name: 'ACME-37', state: 'blocked' },
     { cwd: `${CLIENTS}/.claude/worktrees/ACME-38`, kind: 'background', startedAt: now - 20 * 60 * MIN, id: 'bg38', sessionId: 's-acme-38', name: N38, state: 'blocked', status: 'waiting', pid: 4310 },
+    // ACME-42 in that repo, in review (GH-119): its builder, its turn done after acc done, and its reviewer at work.
+    { cwd: `${CLIENTS}/.claude/worktrees/ACME-42`, kind: 'background', startedAt: now - 50 * MIN, id: 'bg42', sessionId: 's-acme-42', name: N42, state: 'done', status: 'idle', pid: 4320 },
+    { cwd: `${CLIENTS}/.claude/worktrees/ACME-42`, kind: 'interactive', startedAt: now - 6 * MIN, sessionId: 'rv-acme-42', name: R42, status: 'busy', pid: 4321 },
   ];
 }
 
@@ -46,16 +52,20 @@ export function sampleAgents(now = Date.now()): AgentSession[] {
 export function sampleLedgers(now: number, tasks: TaskRow[]): { here: RepoAgents; clients: RepoAgents } {
   const analyses = sampleAnalyses(now);
   const here: RepoAgents = {
-    tasks: tasks.map((t) => ({ id: t.id, state: t.state as State, run: t.run ?? null })),
+    tasks: tasks.map((t) => ({ id: t.id, title: t.title, state: t.state as State, run: t.run ?? null })),
     runs: [{ task: 'ACME-12', bgId: 'bg12a', sessionId: 's-acme-12a', name: N12a, n: 1 }, ...tasks.flatMap((t) => (t.run ? [{ task: t.id, ...t.run }] : []))],
     verdicts: [{ task: 'ACME-20', sessionId: 'rv-acme-20' }],
     analyses: Object.values(analyses).map((a) => ({ task: a.task, sessionId: a.sessionId })),
     live: [{ task: 'ACME-24', sessionId: 'an-acme-24', role: 'analysis' }],
   };
   const clients: RepoAgents = {
-    tasks: [{ id: 'ACME-37', state: 'done', run: { bgId: 'bg37', sessionId: 's-acme-37' } }, { id: 'ACME-38', state: 'done', run: { bgId: 'bg38', sessionId: 's-acme-38', name: N38, n: 1 } }],
-    runs: [{ task: 'ACME-37', bgId: 'bg37', sessionId: 's-acme-37' }, { task: 'ACME-38', bgId: 'bg38', sessionId: 's-acme-38', name: N38, n: 1 }],
-    verdicts: [], analyses: [], live: [],
+    tasks: [
+      { id: 'ACME-37', title: 'Close cases a customer confirms by email', state: 'done', run: { bgId: 'bg37', sessionId: 's-acme-37' } },
+      { id: 'ACME-38', title: 'Merge the support queues', state: 'done', run: { bgId: 'bg38', sessionId: 's-acme-38', name: N38, n: 1 } },
+      { id: 'ACME-42', title: T42, state: 'review', run: { bgId: 'bg42', sessionId: 's-acme-42', name: N42, n: 1 } },
+    ],
+    runs: [{ task: 'ACME-37', bgId: 'bg37', sessionId: 's-acme-37' }, { task: 'ACME-38', bgId: 'bg38', sessionId: 's-acme-38', name: N38, n: 1 }, { task: 'ACME-42', bgId: 'bg42', sessionId: 's-acme-42', name: N42, n: 1 }],
+    verdicts: [], analyses: [], live: [{ task: 'ACME-42', sessionId: 'rv-acme-42', role: 'review' }],
   };
   return { here, clients };
 }
@@ -64,4 +74,4 @@ export function sampleLedgers(now: number, tasks: TaskRow[]): { here: RepoAgents
 export const REPOS = new Set([ROOT, CLIENTS, '/Users/me/personal/Acme Service', '/Users/me/code/side-project']);
 
 /** What sessions no task ran last answered with, or were started with (D-086). */
-export const SESSION_MODELS: Record<string, string> = { '0e02-main': 'claude-opus-5-5', '7c1d-side': 'claude-haiku-4-5-20251001' };
+export const SESSION_MODELS: Record<string, string> = { '0e02-main': 'claude-opus-5-5', '7c1d-side': 'claude-haiku-4-5-20251001', 'an-acme-24': 'claude-opus-5-5', 's-acme-42': 'claude-opus-5-5', 'rv-acme-42': 'claude-sonnet-5-5' };

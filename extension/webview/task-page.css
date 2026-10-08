@@ -54,12 +54,28 @@ body[data-view="ticket"] { padding-top: 18px; }
 .clip-inline { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; display: inline-block; }
 .checks { margin-top: 12px; }
 .checks h3 { font-size: 0.93em; margin: 0 0 6px; color: var(--vscode-descriptionForeground); }
-.check { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 4px 8px; align-items: center; padding: 3px 0; }
-.check-waive { padding: 0 6px; }
-.check-sum { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A check: its state and name on one line; its summary and Waive… under them; then what its tests ran (GH-100). */
+.check { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; padding: 4px 0; }
+.check-head { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.check-gate { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.check-sum { grid-column: 1; padding-left: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.check-waive { grid-column: 2; padding: 0 6px; }
+.check-tests { grid-column: 1 / -1; display: flex; gap: 4px; align-items: center; min-width: 0; white-space: nowrap; }
 /* A ratchet's numbers (GH-99): the arrow sits on the line of text it adds to. */
 .check-ratchet .codicon { font-size: 12px; vertical-align: -2px; margin-right: 4px; }
 .side-panel .actions { margin-top: 12px; }
+/* A builder's handoff note (D-106): three labelled parts, each line wrapping, and Make a task beside each
+   still-open line, dropping below it where the tab is narrow. */
+.note-who { margin: 0 0 4px; }
+.ticket-main .note-part h3 { display: flex; align-items: center; gap: 6px; margin: 12px 0 4px; }
+.note-lines { margin: 0; padding-left: 22px; }
+.note-lines li { padding: 2px 0; overflow-wrap: anywhere; }
+.note-none { margin: 0 0 0 22px; }
+.note-open .note-lines { list-style: none; padding-left: 22px; }
+.note-open .note-lines li { display: flex; align-items: flex-start; gap: 4px 10px; flex-wrap: wrap; padding: 4px 0; }
+.note-open .note-lines li + li { border-top: 1px solid var(--line); }
+.note-line { flex: 1 1 240px; min-width: 0; }
+.note-task { flex: none; padding: 0 6px; }
 .related { list-style: none; margin: 0; padding: 0; }
 .related li { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; }
 .related .rel { min-width: 90px; font-size: 0.9em; }

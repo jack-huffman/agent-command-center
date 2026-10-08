@@ -85,6 +85,10 @@
       "check",
       "typecheck",
       "near-tests"
+    ],
+    "tests": [
+      "check",
+      "near-tests"
     ]
   },
   "secretScan": {

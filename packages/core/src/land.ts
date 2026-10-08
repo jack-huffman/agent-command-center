@@ -4,13 +4,14 @@ import { join } from 'node:path';
 import { autoMergeFor, type Config, type Environment, environmentByBranch, type GateScope } from './config.ts';
 import { AccError, type Runner } from './exec.ts';
 import { withJob } from './jobs.ts';
-import { type Actor, type CarriedReview, mutate, type PullRequest, readLedger, type Task } from './ledger.ts';
+import { type Actor, type CarriedReview, mutate, noteMarkdown, type PullRequest, readLedger, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
 import { ratchetLine } from './ratchets.ts';
-import { ratchetOf, type Receipt, receiptHooks, receiptsAt } from './receipts.ts';
+import { type GateStatus, ratchetOf, type Receipt, receiptHooks, receiptsAt } from './receipts.ts';
 import { resolvedWords } from './refresh.ts';
 import { carriedVerdict, readVerdict, type Verdict } from './review.ts';
 import { conflictsOf, FETCH_TIMEOUT_MS, fetchBranches } from './sync.ts';
+import { testsText } from './test-counts.ts';
 import { draftUpdate } from './updates.ts';
 
 /**
@@ -52,7 +53,7 @@ export interface LandResult {
   updateError?: string;
 }
 
-const STATUS_WORD: Record<string, string> = { pass: 'Passed', fail: 'Failed', error: 'Couldn\'t run', skip: 'Didn\'t apply' };
+const STATUS_WORD: Record<GateStatus, string> = { pass: 'Passed', fail: 'Failed', error: 'Couldn\'t run', skip: 'Didn\'t apply', hold: 'Needs a person' };
 const cell = (s: string) => s.replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ').trim();
 
 /** How a pull request merges, as its description ends: by a person, or by autopilot where auto-merge covers its environment (GH-67). */
@@ -64,10 +65,12 @@ export function mergesWords(autoMerge: boolean): string {
 
 /**
  * The pull request's description: what it does, its acceptance criteria, its checks and its review. A merge
- * commit the merge queue made says the review it carries is of the commit it was made on (GH-73).
+ * commit the merge queue made says the review it carries is of the commit it was made on (GH-73). Where a
+ * check counted its tests, or tried to, the table says what ran (GH-100).
  */
 export function prBody(task: Task, env: Environment, sha: string, verdict: Verdict, receipts: Record<string, Receipt>, autoMerge = false, carried: CarriedReview | null = null): string {
   const ticket = task.source.url ? `[${task.source.key ?? task.id}](${task.source.url})` : null;
+  const counted = Object.values(receipts).some((r) => testsText(r));
   const lines = [
     verdict.summary.trim(),
     '',
@@ -78,10 +81,10 @@ export function prBody(task: Task, env: Environment, sha: string, verdict: Verdi
     '',
     `## Checks on ${sha.slice(0, 7)}`,
     '',
-    '| Check | Result | Detail |',
-    '|---|---|---|',
+    counted ? '| Check | Result | Tests | Detail |' : '| Check | Result | Detail |',
+    counted ? '|---|---|---|---|' : '|---|---|---|',
     // A ratchet shows its numbers, from the environment's floor to this commit's: tests 669 → 674 (+5) (GH-99).
-    ...Object.values(receipts).map((r) => `| \`${r.gate}\` | ${r.waived ? `Waived by ${r.waived.by.replace(/^human:/, '')}` : STATUS_WORD[r.status] ?? r.status} | ${cell(r.waived ? r.waived.reason : ratchetOf(r) ? ratchetLine(ratchetOf(r)!) : r.summary)} |`),
+    ...Object.values(receipts).map((r) => `| \`${r.gate}\` | ${r.waived ? `Waived by ${r.waived.by.replace(/^human:/, '')}` : STATUS_WORD[r.status] ?? r.status} |${counted ? ` ${testsText(r)} |` : ''} ${cell(r.waived ? r.waived.reason : ratchetOf(r) ? ratchetLine(ratchetOf(r)!) : r.summary)} |`),
     '',
     '## Review',
     '',
@@ -89,6 +92,11 @@ export function prBody(task: Task, env: Environment, sha: string, verdict: Verdi
       ? `Passed on ${carried.from.slice(0, 7)} by a reviewer agent that read the change and couldn't edit it. The merge queue then merged \`${carried.base}\` in as ${sha.slice(0, 7)}${carried.resolved.length ? `, ${resolvedWords(carried.resolved, 'keeping', (f) => `\`${f}\``)}` : ''}, and ran the full check on it: the review carries over.`
       : `Passed by a reviewer agent that read the change and couldn't edit it.`,
     ...(verdict.findings.length ? ['', 'Worth a look, not blocking:', '', ...verdict.findings.map((f) => `- ${f.file ? `\`${f.file}${f.line ? `:${f.line}` : ''}\`: ` : ''}${f.message}`)] : []),
+    '',
+    // Its builder's handoff note (D-106), as its own account: the review above is what checked the change.
+    '## Builder\'s note',
+    '',
+    ...(task.run?.note ? [`In its builder's own words, ${task.run.note.ended === 'blocked' ? 'when it blocked' : 'as it finished'}. The review above is what checked the change.`, '', ...noteMarkdown(task.run.note)] : ['_Its builder left no note._']),
     '',
     '---',
     `Built by a Claude Code agent and opened by \`acc land\` into \`${env.branch}\` (${env.name}). ${mergesWords(autoMerge)}`,

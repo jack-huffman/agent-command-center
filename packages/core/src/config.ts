@@ -109,10 +109,15 @@ export interface Config {
   /**
    * heavy: gates that take the machine-wide slot (D-024). severity: Code Analyzer's failing level, 1 to 5.
    * builder: the lighter checks builders run where the merge queue runs `required` once before each merge
-   * (GH-73). Left out, builders run `required`, as everywhere else. ratchets: checks whose command prints a
-   * number that may only get better, kept against a floor or a ceiling in `.acc/floors.json` (GH-99).
+   * (GH-73). Left out, builders run `required`, as everywhere else. tests: the checks that run tests, whose
+   * receipts count what ran and which need a person when none did (GH-100), besides those acc knows.
+   * ratchets: checks whose command prints a number that may only get better, kept against a floor or a
+   * ceiling in `.acc/floors.json` (GH-99).
    */
-  gates: { required: string[]; commands: Record<string, string>; heavy: string[]; severity: number; builder?: string[]; ratchets?: Record<string, RatchetSpec> };
+  gates: {
+    required: string[]; commands: Record<string, string>; heavy: string[]; severity: number; builder?: string[]; tests?: string[];
+    ratchets?: Record<string, RatchetSpec>;
+  };
   secretScan: { paths: string[]; exclude: string[] };
   /** Whether a task needs an analysis before it's built (D-052). Salesforce projects do unless they say not. */
   analysis?: { required: boolean };
@@ -181,7 +186,8 @@ export const CONFIG_KEYS = [
   'trackers[].epic', 'trackers[].labels', 'trackers[].areaPath', 'trackers[].group', 'trackers[].edits',
   'agents.max', 'agents.permissionMode', 'agents.builder.model', 'agents.builder.effort', 'agents.builder.fallbackModel',
   'agents.reviewer.model', 'agents.reviewer.effort', 'agents.reviewer.fallbackModel', 'autonomy',
-  'worktrees.root', 'worktrees.setup', 'gates.required', 'gates.commands', 'gates.heavy', 'gates.severity', 'gates.builder', 'gates.ratchets',
+  'worktrees.root', 'worktrees.setup', 'gates.required', 'gates.commands', 'gates.heavy', 'gates.severity', 'gates.builder', 'gates.tests',
+  'gates.ratchets',
   'secretScan.paths', 'secretScan.exclude', 'analysis.required', 'autopilot.appendOnly', 'autopilot.autoMerge',
   'dispatch.shared', 'template.name', 'template.source', 'template.digest',
 ] as const satisfies readonly ConfigPath[];
@@ -433,6 +439,7 @@ export function parseConfig(raw: unknown): ParseResult {
   }
   if (g.heavy !== undefined && !strList(g.heavy)) errors.push('"gates.heavy" must be a list of gate names.');
   if (g.builder !== undefined && !(Array.isArray(g.builder) && g.builder.every(isStr))) errors.push('"gates.builder" must be a list of gate names: the lighter checks builders run where the merge queue runs the required ones.');
+  if (g.tests !== undefined && !strList(g.tests)) errors.push('"gates.tests" must be a list of gate names: the checks that run tests, whose receipts count what ran.');
   if (g.severity !== undefined && !(Number.isInteger(g.severity) && (g.severity as number) >= 1 && (g.severity as number) <= 5)) {
     errors.push('"gates.severity" must be a whole number from 1 (only the worst problems fail) to 5 (everything fails).');
   }
@@ -524,6 +531,7 @@ export function parseConfig(raw: unknown): ParseResult {
         severity: (g.severity as number | undefined) ?? 2,
         ...(Array.isArray(g.builder) && g.builder.every(isStr) ? { builder: g.builder as string[] } : {}),
         ...(g.ratchets !== undefined ? { ratchets } : {}),
+        ...(strList(g.tests) ? { tests: g.tests } : {}),
       },
       secretScan: {
         paths: strList(s.paths) ? s.paths : defaultScan,
@@ -704,6 +712,15 @@ export function requiredGates(config: Pick<Config, 'profile' | 'autonomy' | 'env
 }
 
 /**
+ * Whether a gate runs tests (GH-100): one `gates.tests` names, a gate called `test`, or Salesforce's
+ * `lwc-tests`. Its receipt says when acc couldn't read what ran, and it needs a person when none did.
+ * validate is one only when it runs Apex tests, which it says itself.
+ */
+export function isTestGate(config: Pick<Config, 'profile' | 'gates'>, name: string): boolean {
+  return !!config.gates.tests?.includes(name) || name === 'test' || (config.profile === 'salesforce' && name === 'lwc-tests');
+}
+
+/**
  * Environments the usual path from `from` passes through before reaching `to`, which a direct
  * promotion would skip (D-018). Empty when `to` is the usual next step or isn't on the usual path.
  */
@@ -790,4 +807,30 @@ export function replaceTracker(trackers: Record<string, unknown>[], index: numbe
   const was = trackers[index];
   if (!was || was.kind !== tracker.kind) throw new AccError('config-changed', 'The trackers in .acc/config.json changed since this page opened. Open it again from the board.');
   return trackers.map((t, k) => (k === index ? setKeys({ ...t, ...tracker }) : t));
+}
+
+/**
+ * Connects a tracker, or changes one, in the repo's .acc/config.json, as acc trackers set does for the
+ * Connect page (GH-112): added with withTracker, or put in place of the one at `index` with replaceTracker.
+ * The config it would make is checked first, and one with problems is refused with nothing written. The
+ * rest of the file is kept as it was. Returns where the tracker is in the list, and the config's warnings.
+ */
+export function saveTracker(file: string, index: number | null, record: Record<string, unknown>): { index: number; warnings: string[] } {
+  if (!isObj(record) || !isTrackerKind(record.kind)) throw new AccError('usage', `A tracker needs a "kind": ${orList([...TRACKER_KINDS])}.`);
+  if (index !== null && (!Number.isInteger(index) || index < 0)) throw new AccError('usage', 'The tracker to change is its place in the list, from 0.');
+  let raw: Record<string, unknown>;
+  try {
+    raw = JSON.parse(readFileSync(file, 'utf8'));
+  } catch (e) {
+    throw new AccError(existsSync(file) ? 'bad-config' : 'no-config', existsSync(file) ? `${file} isn't valid JSON: ${(e as Error).message}` : `No ${file}. Run "acc init" first.`);
+  }
+  if (!isObj(raw)) throw new AccError('bad-config', `${file} must be a JSON object.`);
+  const was = Array.isArray(raw.trackers) ? raw.trackers as Record<string, unknown>[] : [];
+  const trackers = index === null ? withTracker(was, record) : replaceTracker(was, index, record);
+  const wanted = { ...raw, trackers };
+  const checked = parseConfig(wanted);
+  if (!checked.config) throw new AccError('bad-config', `That tracker would leave ${file} with problems, so nothing was written:\n- ${checked.errors.join('\n- ')}`);
+  writeFileSync(file, JSON.stringify(wanted, null, 2) + '\n');
+  // Added, it's where withTracker put it: in place of the one it describes, or last. Either is a new object.
+  return { index: index ?? trackers.findIndex((t, k) => was[k] !== t), warnings: checked.warnings };
 }

@@ -4,10 +4,11 @@
  */
 
 import type { Analysis } from '../../../packages/core/src/analyze.ts';
-import type { Task } from '../../../packages/core/src/ledger.ts';
+import { type RunNote, shownNote, type Task } from '../../../packages/core/src/ledger.ts';
 import type { RatchetLimit, RatchetSpec } from '../../../packages/core/src/config.ts';
 import { num, ratchetLine, signed } from '../../../packages/core/src/ratchets.ts';
 import { type GateStatus, ratchetOf, type Receipt } from '../../../packages/core/src/receipts.ts';
+import { testsText } from '../../../packages/core/src/test-counts.ts';
 import { type Doc, fromMarkdown } from '../../../packages/core/src/trackers/doc.ts';
 import type { Ticket, TrackerKind } from '../../../packages/core/src/trackers/types.ts';
 import type { Update } from '../../../packages/core/src/updates.ts';
@@ -35,24 +36,63 @@ export interface TicketRatchet {
   line: string | null;
 }
 
-export interface TicketCheck {
+/**
+ * A check on the task branch's latest commit, as the page is given it. waived: a person set it aside on this
+ * commit (D-031). scope: where the merge queue runs the full check, whether it's one of a builder's lighter
+ * checks or the full one, run once in the queue (GH-73). counts: what its tests ran, "312 run, 2 skipped" or
+ * "not read", and countsNote what that was compared with (GH-100). ratchet: a number that may only get
+ * better, from the environment's floor to this commit's (GH-99).
+ */
+export interface CheckIn {
   gate: string;
   status: GateStatus;
   summary: string;
   waived?: boolean;
   scope?: 'builder' | 'merge';
+  counts?: string;
+  countsNote?: string;
   ratchet?: TicketRatchet;
 }
 
-/** A check as the page shows it, from its receipt on the branch's latest commit, or `unrun` when there's none. */
-export function ticketCheck(gate: string, receipt: Pick<Receipt, 'status' | 'summary' | 'waived' | 'details'> | null, unrun: string, scope: { scope?: 'builder' | 'merge' }, ratchet?: RatchetSpec): TicketCheck {
-  const check: TicketCheck = receipt ? { gate, status: receipt.status, summary: receipt.summary, waived: !!receipt.waived, ...scope } : { gate, status: 'skip', summary: unrun, ...scope };
+/**
+ * A check as the page is given it, from its receipt on the branch's latest commit, or `unrun` when there's
+ * none: what its tests ran, as the pull request says it (GH-100), and a ratchet's numbers (GH-99).
+ */
+export function ticketCheck(gate: string, receipt: Pick<Receipt, 'status' | 'summary' | 'waived' | 'details' | 'counts' | 'countsNote'> | null, unrun: string, scope: { scope?: 'builder' | 'merge' }, ratchet?: RatchetSpec): CheckIn {
+  const counted = receipt ? { ...(testsText(receipt) ? { counts: testsText(receipt) } : {}), ...(receipt.countsNote ? { countsNote: receipt.countsNote } : {}) } : {};
+  const check: CheckIn = receipt ? { gate, status: receipt.status, summary: receipt.summary, waived: !!receipt.waived, ...scope, ...counted } : { gate, status: 'skip', summary: unrun, ...scope };
   if (!ratchet) return check;
   const d = ratchetOf(receipt);
   if (!d) return { ...check, ratchet: { label: ratchet.label, limit: ratchet.limit, from: null, to: null, diff: null, numbers: null, line: null } };
   const numbers = d.base === null ? `${num(d.value)}, the first ${d.limit}` : `${num(d.base)} → ${num(d.value)} (${signed(d.diff ?? d.value - d.base)})`;
   return { ...check, ratchet: { label: d.label, limit: d.limit, from: d.base, to: d.value, diff: d.diff, numbers, line: ratchetLine(d) } };
 }
+
+/** A check as the page shows it: its look, always with words, and whether a person can waive it here. */
+export interface CheckRow extends CheckIn {
+  look: Look;
+  waivable: boolean;
+}
+
+/** How a check looks: orange where it needs a look, blue where it passed, each with its own icon and words. */
+export function checkLook(c: CheckIn): Look {
+  if (c.waived) return { label: 'waived', icon: 'debug-step-over', tone: 'neutral' };
+  switch (c.status) {
+    case 'pass': return { label: 'pass', icon: 'pass', tone: 'blue' };
+    case 'fail': return { label: 'fail', icon: 'error', tone: 'orange' };
+    case 'error': return { label: 'error', icon: 'warning', tone: 'orange' };
+    // It ran no tests, or skipped more than before: a person decides (GH-100).
+    case 'hold': return { label: 'needs a person', icon: 'person', tone: 'orange' };
+    case 'skip': return { label: c.summary.startsWith('Not run') ? 'not run' : 'skip', icon: 'circle-slash', tone: 'neutral' };
+  }
+}
+
+/**
+ * The checks with their looks. A person can set aside a failing one, or one that needs them, with a reason
+ * (D-031). Not a ratchet: a person relaxes its floor instead, with acc gate relax (GH-99).
+ */
+export const checkRows = (checks: CheckIn[], branch: string | null): CheckRow[] =>
+  checks.map((c) => ({ ...c, look: checkLook(c), waivable: !!branch && !c.waived && !c.ratchet && (c.status === 'fail' || c.status === 'error' || c.status === 'hold') }));
 
 export interface TicketAcc {
   look: Look;
@@ -72,14 +112,16 @@ export interface TicketAcc {
   agentName: string | null;
   worktree: string | null;
   branch: string | null;
-  /**
-   * waived: a person set it aside on this commit (D-031). scope: where the merge queue runs the full check,
-   * whether it's one of a builder's lighter checks or the full one, run once in the queue (GH-73). ratchet:
-   * a number that may only get better, from the environment's floor to this commit's (GH-99).
-   */
-  checks: TicketCheck[];
+  checks: CheckRow[];
   history: { at: string; from: string | null; to: string; by: string; reason: string | null }[];
   actions: Action[];
+  /**
+   * Its builder's handoff note (D-106): its run's, or while a new run is under way, the last run's
+   * (fromLast). Each still-open line can be drafted as a task.
+   */
+  note: (Pick<RunNote, 'landed' | 'moved' | 'open' | 'at' | 'ended'> & { fromLast: boolean }) | null;
+  /** That the run that ended, or the last one, left no note, in words; else null. */
+  noteMissing: string | null;
 }
 
 export interface TicketModel {
@@ -172,7 +214,7 @@ export interface TicketInput {
   connect: TicketModel['connect'];
   row: TaskRow | null;
   task: Task | null;
-  checks: TicketAcc['checks'];
+  checks: CheckIn[];
   signedInAs?: string | null;
   /** Its analysis, read whole (D-052). */
   analysis?: Analysis | null;
@@ -220,15 +262,27 @@ export function ticketAnalysis(row: TaskRow, a: Analysis | null, ref: Ref, updat
   };
 }
 
+/** A task's note as its page shows it (D-106), and what it says when its run left none. */
+function ticketNote(task: Task): Pick<TicketAcc, 'note' | 'noteMissing'> {
+  const { note, fromLast, missing } = shownNote(task);
+  return {
+    note: note ? { landed: note.landed, moved: note.moved, open: note.open, at: note.at, ended: note.ended, fromLast } : null,
+    noteMissing: !missing ? null
+      : fromLast ? 'Its last run left no note, so this run was told to check its branch before building on it.'
+        : 'Its builder left no note when its run ended. Check its branch before trusting what\'s there.',
+  };
+}
+
 export function ticketModel(i: TicketInput): TicketModel {
   const t = i.ticket;
   const live = i.tracker !== null;
   const acc: TicketAcc | null = i.row && i.task ? {
     look: accLook(i.row, true), environment: i.task.environment, waitingOn: i.row.deps, blocker: i.task.blocker, conflicts: conflictLine(i.row, true), failedChecks: failedChecksLine(i.row), files: filesLook(i.row, true),
-    agent: i.row.stopped ? null : i.row.agent ?? null, model: i.row.model ?? null, agentName: i.task.run?.name ?? null, worktree: i.task.run?.worktree ?? null, branch: i.task.run?.branch ?? null, checks: i.checks,
+    agent: i.row.stopped ? null : i.row.agent ?? null, model: i.row.model ?? null, agentName: i.task.run?.name ?? null, worktree: i.task.run?.worktree ?? null, branch: i.task.run?.branch ?? null, checks: checkRows(i.checks, i.task.run?.branch ?? null),
     history: i.task.history.map((h) => ({ at: h.at, from: h.from, to: h.to, by: h.by, reason: h.reason ?? null })).reverse(),
     // Its analysis has its own section, with its own buttons.
     actions: cardActions(i.row, { project: i.project, task: i.row.id }).filter((a) => !['acc.task.show', 'acc.task.openTicket', 'acc.task.analyze', 'acc.task.watchAnalysis'].includes(a.command)),
+    ...ticketNote(i.task),
   } : null;
   const own = !live && i.task;
   return {
@@ -253,7 +307,8 @@ export function ticketModel(i: TicketInput): TicketModel {
   };
 }
 
-export const TICKET_ACTIONS = ['comment', 'status', 'assign', 'labels', 'track', 'refresh', 'waive'] as const;
+/** task: draft a task from one of its note's still-open lines (D-106), which a person confirms. */
+export const TICKET_ACTIONS = ['comment', 'status', 'assign', 'labels', 'track', 'refresh', 'waive', 'task'] as const;
 export type TicketAction = (typeof TICKET_ACTIONS)[number];
 
 /**

@@ -3,7 +3,7 @@
 import type { Look } from '../src/model/shared.ts';
 import type { ConnectField, ConnectModel, ConnectPicker } from '../src/model/connect.ts';
 import { button, type Child, el, icon, keptInput, segmented, status } from './dom.ts';
-import { api, type PageArea, state } from './state.ts';
+import { api, go, type PageArea, state } from './state.ts';
 
 // ---------------------------------------------------------------- connecting a tracker (GH-51)
 
@@ -42,9 +42,13 @@ function connectInput(m: ConnectModel, f: ConnectField, onEnter: () => void): HT
   return connectRow(id, f.label, [el('div', 'cfield-input', input, help)], f.hint, errorLook(f.error));
 }
 
+/** A choice another repo on this machine uses already (GH-81): an icon and its words, never colour alone. */
+const usedMark = (words: string): HTMLElement => el('span', 'used-by tone-orange', icon('warning', 'orange'), el('span', '', words));
+
 function connectPicker(m: ConnectModel, p: ConnectPicker): HTMLElement {
   const id = `connect-${p.key}`;
   const text = (o: { label: string; detail: string | null }) => (o.detail ? `${o.label} · ${o.detail}` : o.label);
+  const used = p.used ? el('div', `cfield-status tone-${p.used.tone}`, icon(p.used.icon, p.used.tone), el('span', '', p.used.label)) : null;
   if (p.fixed) {
     const o = p.options.find((x) => x.value === p.selected[0]);
     return connectRow(id, p.label, [el('span', 'cfield-fixed', icon('lock'), o ? text(o) : p.selected[0] ?? '')], 'Another one is another tracker: connect it on its own.', null);
@@ -62,10 +66,10 @@ function connectPicker(m: ConnectModel, p: ConnectPicker): HTMLElement {
       box.value = o.value;
       box.dataset.keep = `connect:${m.id}:${p.key}:${o.value}`;
       box.addEventListener('change', () => connectSend(m, { type: 'connect-pick', key: p.key, value: [...ticks.querySelectorAll<HTMLInputElement>('input:checked')].map((b) => b.value) }));
-      ticks.append(el('label', `tick${box.checked ? ' on' : ''}`, box, text(o)));
+      ticks.append(el('label', `tick${box.checked ? ' on' : ''}`, box, text(o), o.usedBy ? usedMark(o.usedBy) : null));
     }
     const none = p.whole ? el('div', 'muted small', icon(p.selected.length ? 'filter' : 'project'), p.selected.length ? ` Only issues with ${p.selected.length === 1 ? 'this label' : 'one of these labels'}.` : ` None ticked: ${p.whole}.`) : null;
-    return connectRow(id, p.label, [p.options.length ? ticks : null, none], p.hint, p.look);
+    return connectRow(id, p.label, [p.options.length ? ticks : null, none, used], p.hint, p.look);
   }
   const select = document.createElement('select');
   select.id = id;
@@ -79,12 +83,14 @@ function connectPicker(m: ConnectModel, p: ConnectPicker): HTMLElement {
     o.disabled = disabled;
     select.append(o);
   };
+  const label = p.label.toLowerCase();
   if (p.whole) add('', p.whole);
-  else if (!p.selected.length) add('', p.look?.icon === 'sync~spin' ? 'Loading…' : p.disabled ? '' : `Choose a ${p.label.toLowerCase()}…`, true);
-  for (const o of p.options) add(o.value, text(o));
+  else if (!p.selected.length) add('', p.look?.icon === 'sync~spin' ? 'Loading…' : p.disabled ? '' : `Choose ${/^[aeiou]/.test(label) ? 'an' : 'a'} ${label}…`, true);
+  // A list's own words carry the mark: an option can't hold an icon, so the one chosen shows it below.
+  for (const o of p.options) add(o.value, o.usedBy ? `${text(o)} · ${o.usedBy}` : text(o));
   select.value = p.selected[0] ?? '';
   select.addEventListener('change', () => connectSend(m, { type: 'connect-pick', key: p.key, value: select.value || null }));
-  return connectRow(id, p.label, [select], p.hint, p.look);
+  return connectRow(id, p.label, [select, used], p.hint, p.look);
 }
 
 /** The tick that keeps the sign-in for every project on its site, or this one only (GH-79). Sent when it changes. */
@@ -113,7 +119,8 @@ export function renderConnect(m: ConnectModel): Node[] {
   for (const [k, rev] of connectSent) if (m.rev > rev) { connectTyped.delete(k); connectSent.delete(k); }
   // Signed in, the page shows no sign-in fields, so what was typed there (the token) is forgotten by key.
   if (!m.signIn.editing) for (const k of [...connectTyped.keys()]) if (k.startsWith(`${m.id}:`) && k !== `${m.id}:${m.host.key}`) connectTyped.delete(k);
-  const back = button(m.back.label, 'arrow-left', () => connectSend(m, { type: 'connect-cancel' }), 'ghost');
+  // Back to Settings goes to its Trackers and sign-ins, which opened the page (GH-112); going there closes it.
+  const back = button(m.back.label, 'arrow-left', () => (m.back.part ? go(m.back.section, m.back.part) : connectSend(m, { type: 'connect-cancel' })), 'ghost');
   const test = () => {
     const typed = (key: string, value: string) => connectTyped.get(`${m.id}:${key}`) ?? value;
     connectSend(m, { type: 'connect-test', host: typed(m.host.key, m.host.value), fields: Object.fromEntries(m.fields.map((f) => [f.key, typed(f.key, f.value)])) });

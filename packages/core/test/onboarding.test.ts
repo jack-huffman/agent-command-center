@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
-import type { RunResult } from '../src/exec.ts';
+import { parseConfig } from '../src/config.ts';
+import { run, type RunResult } from '../src/exec.ts';
 import { makeContext, parseOrgUrl } from '../src/onboarding/helpers.ts';
 import { PLUGIN, runSteps, STEPS } from '../src/onboarding/steps.ts';
 import type { CheckStatus } from '../src/onboarding/types.ts';
-import { run } from '../src/exec.ts';
+import { repoPaths } from '../src/paths.ts';
 import { importRules, renderHeader, rulesDigest } from '../src/rules.ts';
+import { writeReadme } from '../src/setup.ts';
 import { templateDigest } from '../src/template.ts';
 import { fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, SF_CONFIG, sf, tempDir } from './support.ts';
 
@@ -415,6 +417,17 @@ test('a single-environment project skips the README environment map', () => {
   const ctx = makeContext(repo, fakeRunner({}));
   const res = runSteps(ctx, 'project').find((x) => x.step.id === 'B10.readme')!.result;
   assert.equal(res.status, 'skip');
+});
+
+test('B10.readme applies to one environment once a tracker has a place, and fails until the README links it (GH-81)', () => {
+  const config = { schema: 1, project: 'acme-portal', environments: [{ name: 'main', default: true }], trackers: [{ kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', epic: 'ACME-3' }] };
+  const repo = makeRepo({ '.acc/config.json': JSON.stringify(config), 'README.md': '# acme-portal\n' });
+  const readme = () => runSteps(makeContext(repo, fakeRunner({})), 'project', ['B10.readme'])[0]!.result;
+  assert.deepEqual(readme(), { status: 'fail', detail: 'README.md doesn\'t link the Jira epic ACME-3, where this repo\'s tickets come from.' });
+  assert.equal(STEPS.find((s) => s.id === 'B10.readme')!.fix?.command, 'acc setup readme', 'Do it writes it');
+  writeReadme(repoPaths(repo, run), parseConfig(config).config!);
+  assert.match(readFileSync(join(repo, 'README.md'), 'utf8'), /\*\*Its tickets come from\*\* Jira epic \[ACME-3\]\(https:\/\/acme\.atlassian\.net\/browse\/ACME-3\)\./);
+  assert.deepEqual(readme(), { status: 'pass', detail: 'The README says where this repo\'s tickets come from.' });
 });
 
 test('outside a repo, B0.repo points at the project repo next to an old folder', () => {

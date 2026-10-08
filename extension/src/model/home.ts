@@ -11,7 +11,7 @@ import { fileList, prConflicts, saidLine, shortPath, type TaskRow } from '../log
 import { type FinishedJobs, inProgress } from '../progress.ts';
 import type { SlackCard } from '../slack.ts';
 import type { AgentModel } from './agent-page.ts';
-import { agentsModel, type AgentsModel, sessionFolders, type WhereView } from './agents.ts';
+import { agentsModel, type AgentsModel, billingLook, sessionFolders, type WhereView } from './agents.ts';
 import type { BoardInput } from './boards.ts';
 import type { ConnectModel } from './connect.ts';
 import { environmentsModel, type EnvironmentsModel, type IdentityCard } from './environments.ts';
@@ -19,6 +19,7 @@ import { historyItems } from './history.ts';
 import { type AttentionItem, mergeQueues, needsYouCount, type OverviewModel, queueLook, type QueuePanel, type StatTile } from './overview.ts';
 import { type QuestionCard, questionCards } from './questions.ts';
 import { runCard, type RunCard, type RunInput } from './runs.ts';
+import { limitsModel } from './limits.ts';
 import { settingsModel, type SettingsModel, type ThemeChoice } from './settings.ts';
 import { setupModel, type SetupModel } from './setup.ts';
 import { type Action, type HomeSection, type HubLike, LOOK, nameOf, type ProjectLike, type Ref, sessionKey } from './shared.ts';
@@ -133,7 +134,9 @@ export function homeModel(i: HomeInput): HomeModel {
   const worktrees = worktreesModel(hub);
   const environments = environmentsModel(hub, i.identity, i.slack ?? null);
   const setup = setupModel(i.setup.items, i.setup.confirmed);
-  const settings = settingsModel({ theme: i.theme ?? 'vscode', projects: hub.projects, setup: i.setup.items });
+  // Limits read every repo's ledger acc noted on this machine, so only while Settings shows (GH-111).
+  const limits = i.section === 'settings' ? hub.limits?.() ?? null : null;
+  const settings = settingsModel({ theme: i.theme ?? 'vscode', projects: hub.projects, setup: i.setup.items, limits: limits ? limitsModel(limits, billingLook(i.setup.items)) : null, boards: i.boards });
   const questions = questionCards(hub);
   const asked = new Set(questions.map((q) => q.sessionId));
   const c: HomeContext = { i, hub, tasks, agents, worktrees, environments, setup, questions, asked, linked: new Set(), rows: hub.projects.flatMap((p) => hub.taskRows(p.root)), attention: [], ready: [] };

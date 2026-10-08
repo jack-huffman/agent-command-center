@@ -4230,6 +4230,485 @@ second: anything taken from elsewhere is copied in, with where it came from.
 - Not done here: the `.acc/packet.md` override and `templates/packet.md` that
   DESIGN.md §8 names still don't exist.
 
+## D-106 A builder ends with a note that the reviewer, the next builder and the pull request read (2026-10-07)
+
+GH-101. Sessions end abruptly: a crash, a full context, a stopped Mac.
+PhotoCraft's answer is a dev log each session appends to, but it's gitignored
+and local, so no other machine, contributor or fresh clone can read it. acc
+keeps the note where every later reader gets it: on the run, in the ledger.
+Before, `acc done` only moved the task to review.
+
+- **Three flags, a line each.** `acc done --landed "…" --moved "…" --open
+  "…"`: what landed, which numbers moved (tests, checks, ratchets), what's
+  still open. A flag again adds a line, up to 10 a part and 300 characters a
+  line. Not a free-text `--note`, nor a note file: a file in the worktree could
+  be committed, and lines are what Make a task needs.
+- **All three are required of a builder's `acc done`** (a person decided):
+  `--moved none` and `--open none` are accepted, so nothing is a statement, not
+  an omission; something must have landed. It's a `note` requirement on the
+  running → review rule, so the rule stays data, and it applies to a builder
+  only: a person's move needs none. Refused, acc gives the exact command.
+  `acc block` takes the same flags, optional, since its reason is required.
+- **One finish command.** `DONE_COMMAND` in ledger.ts is the text the packet,
+  the SessionStart short packet, the Stop hook, a resume's message and the
+  refusal all give; before, five places wrote `acc done` by hand. Tests pin
+  each to it.
+- **The shell.** The packet says one line, double quotes, no backticks or `$`.
+  guardBash refuses an `acc done` or `acc block` with a backtick or `$` outside
+  single quotes, since the shell would run or expand it before acc saw it.
+- **Kept with the run, one step back.** `run.note`, with when, who and whether
+  it ended in review or blocked; the move's event carries it, written in the
+  same locked mutate as the move. A dispatch replaces the run, so the new run
+  keeps the last one's note as `run.before`, or `null` when it left none. Older
+  notes stay in events.jsonl. A note is refused on a move that isn't done or a
+  block, or on a task with no run, rather than dropped.
+- **Readers.** The reviewer gets it with the instruction to check it against
+  the diff, not trust it. The PR body has a Builder's note section, as the
+  builder's own words, unredacted, as review findings already are; the packet
+  says it's posted there. A re-dispatch's packet has the last run's note, or,
+  when it left none, says so and to start with `git status`, `git log
+  --oneline origin/<branch>..HEAD` and `acc gate list`. A dependent task's
+  packet has each direct dependency's note; one with none isn't listed, so
+  tasks finished before this add no noise. `acc show` prints it.
+- **Make a task** (a person decided): each still-open line on the task page
+  drafts an acc task (T-n) through `acc add`, in the source task's environment,
+  titled with the line, its brief citing the source task, its builder's run and
+  the note's date, and depending on the source task while it isn't done. The
+  title and brief are prefilled in input boxes to edit; Esc makes nothing. It
+  never writes to a tracker (D-006, D-066).
+- Not done here: acc working out the numbers from receipts itself; posting the
+  note on the ticket; recording which open lines became tasks, so one can be
+  made twice; a CLI command for Make a task; Slack and the status bar; notes
+  for runs that finished before this.
+
+## D-107 The Agents page is grouped by repo, then by task, and says nothing twice (2026-10-07)
+
+GH-119, after GH-110 moved How agents run off the page. In a window with
+another repo open, every session of this repo sat under "Elsewhere on this
+machine"; each row named its project twice, in its name and in Where; Where
+repeated the worktree the task's key implies and wrapped over five lines; Kind
+took a column; and an empty project took a heading and a row. The author chose
+to group the page by repo, then by task.
+
+- **Repos, each a heading with its count:** this window's projects, in the
+  window's order, then every other repo on the machine by name, then **Other
+  folders** for sessions in no repo. Nothing is lumped into "Elsewhere". A
+  session's repo is GH-83's folder rule (`sessionFolders`, D-090), which now
+  says each folder's repo, its place in it, and its worktree: a project open
+  here by its config's name, else its repo's folder, named as its label names
+  it (`clients/Acme Service`). The heading's hover is the repo's folder.
+- **"another window"**, with an icon, on a repo another window's Command Center
+  shows. Each window already keeps a listener file of the folders it shows, for
+  questions (D-030), fresh every 15 s; the hub reads the others' with each
+  `claude agents` look. A window that shows the repo, or a folder or worktree
+  in it, has it open; one showing a folder above it doesn't. A repo open in a
+  window without acc's extension doesn't say so.
+- **One line per task, its agents beneath it.** The task's key and title head
+  it, opening its page where its project is open here; a task elsewhere has no
+  page here, so its line opens nothing. Its title comes from the task row, else
+  from its repo's ledger: `SessionTie` now carries the task's `title` and a
+  builder run's count `n`. Each agent's line is its role, as D-087 names it
+  (builder, builder 2, review, analysis; a count the run didn't record is read
+  from the name acc gave it), an icon for interactive or background with its
+  word on hover, its state with an icon and a label, its model, how long it has
+  run (`27 min`, with when it started on hover), and its menu. Sessions tied to
+  no task go under **Other sessions**, by their own names; that line shows only
+  beside tasks, since alone the repo's heading says enough.
+- **Nothing said twice.** A line names neither its repo nor its task. Where
+  shows only when an agent isn't in its task's own worktree: `main checkout`,
+  a folder in the repo, or, inside its worktree, just that folder
+  (`force-app`). A session tied to no task shows where it is in its repo; one
+  named for its folder, as Claude Code names some, shows no Where. Folder or
+  Full path still switches it (D-090), and the toggle shows only while some
+  line has a Where. An agent's hover has its whole name, its model and its
+  whole folder. Kind is no longer a column.
+- **Needs you first.** Within a repo, tasks with an agent that needs you come
+  first, then the rest by their newest agent, then Other sessions, unless one
+  of those needs you; within a task, the same. A line that needs you has
+  **Answer** while its question waits in the Command Center, **Watch**, and
+  **Open in Claude Code** (Attach for a background session with no session id).
+  Answer goes to the Overview and brings its question's card into view, as In
+  progress's does (GH-76). Below 1280 px Watch and Open in Claude Code show
+  their icons only, and below 660 px Answer too, each named on hover and to a
+  screen reader.
+- **Finished sessions fold** into one **Finished (N)** line under each repo,
+  closed unless opened, remembered per tab like other folds. Its lines name
+  their task, key and title, and role, since no task line heads them, and say
+  no state: the fold's heading does. **Stop all** stops that repo's finished
+  background sessions: `acc.agents.stopFinished` takes the repo's folder and
+  filters D-095's plan by the same folder rule, with the same one dialog.
+- **A repo with no agents is one quiet line:** "Acme Portal · no agents right
+  now". With no sessions at all the page says so once, as before.
+- **The header** keeps Settings, **Stop finished (N)** (shorter than "Stop
+  finished sessions") and Start a background agent. Its summary counts every
+  session, and how many are working, need you, and are finished: "23 sessions:
+  4 working, 5 need you, 5 finished."
+- **Layout:** one table for the page, so the columns line up down every repo.
+  States stay on one line above 660 px and wrap to two below. Below 560 px the
+  Model column goes, its model on the agent's hover. A finished line's title
+  and a long session name are clamped, never `nowrap`: a `nowrap` title was
+  the cell's least width, which widened the table until the sticky row menu
+  covered Running. Task titles and Where take two lines at most, with their
+  whole text on hover.
+- **Checked:** `agents.test.ts` groups a busy machine: this window's projects
+  first, the empty one too, a repo another window has open and one it
+  doesn't, Other folders, a task's builder and review together, builder 2, an
+  untied session, needs you first, a finished one folded with Stop all, Where
+  only off a task's own worktree, and the repo the page and Stop all agree on.
+  Core's tie test checks the title and count. Screenshots `agents` (two
+  projects here, one empty; a repo in another window with a task whose builder
+  and reviewer are both listed; an analyst in the main checkout; Other
+  folders), `agents-finished` (each repo's Finished open), `agents-path` and
+  `agents-billing`, at 1000, 620 and 500 px in Light and Dark; `--colours`
+  finds no difference across themes on `agents` and `agents-finished` (1434
+  elements).
+- Not chosen: Other sessions always last, which would put an untied session
+  that needs you below every task; a Where column, mostly empty once a line in
+  its own worktree says nothing; telling a repo elsewhere apart from a project
+  here of the same name, which D-090's rule doesn't compare.
+
+## D-108 A project starts from an epic, an area path or labels, picked on the Connect page (2026-10-07)
+
+GH-81. The author plans to run each new project from an epic in a shared
+Jira: "we plan on building out epics and tickets in there for future
+projects." A repo's tracker could be narrowed to an epic (D-072) only once the
+repo was set up and its tracker connected after. It builds on GH-79's shared
+sign-ins (D-091) and GH-80's team templates (D-097).
+
+- **Setup's "What kind of project is this?" offers "From a Jira epic…",**
+  beside Salesforce, Other and From a team template. It asks where the rest of
+  the settings come from (one of those three, with GH-80's confirmation of a
+  template's check commands), reads `acc init … --dry-run --json` for the
+  project's name and GitHub, then opens the Connect page (D-073) for a folder
+  with no config yet, over Setup. Nothing is written until **Start the
+  project**.
+- **The place is required in this flow** (a person decided), and the whole
+  project isn't offered: taking a whole project stays Other project, then Add
+  a tracker. Jira's place is an epic from the project's open epics, Azure
+  DevOps' an area path, GitHub's at least one label, monday.com's a group.
+  Each tracker's description in `trackers/connect.ts` names which of its
+  lists stands in for an epic, with words the page shows under it ("In Azure
+  DevOps, an area path stands in for an epic: …"), so the page still names no
+  tracker; a test checks each names one of its lists.
+- **acc init writes it once.** `acc init --tracker '<json>'` takes one tracker
+  as a description's toConfig gives it, and parseConfig checks it with the
+  rest. It replaces a template's tracker and `--jira-*`, with a note: flags
+  beat templates (D-097). A template's tracker of the same kind on the same
+  host keeps its key prefix unless the one picked names its own, as
+  withTracker keeps it on a replace. The page's Save runs it with the rest of the
+  choice's arguments; acc's refusal shows beside Save in its own words, and
+  the page stays open. One write, rather than acc init and then a patch from
+  the extension, so a failed second step can't leave a half-started project.
+  Back, Cancel or closing the tab write nothing; only a sign-in tested on the
+  page stays, in VSCode's secret storage, as D-073 and D-091 allow.
+- **A sign-in kept for the new project alone is under the key it will have.**
+  The page's sign-in calls take the project as an object, its GitHub repo and
+  its ledger in the git directory its clones share, rather than a root looked
+  up among open projects, so the key is D-027's from the dry run. A test
+  checks the dry run's key and the written config's are the same.
+- **A site every project shares fills in signed in** (GH-79). With no
+  template tracker, the page takes the first site another repo on this
+  machine uses, the most used first, that has a sign-in kept for it. A
+  template's tracker fills in its site or organization and its project.
+- **This machine lists the repos acc set up:** `~/.acc/repos.json`
+  (`ACC_REPOS_FILE` in tests), their roots and nothing else. acc init adds the
+  repo it writes, and the Command Center each project it loads, so repos set up
+  before count too. A root listed already stays where it is, so loading the
+  projects again writes nothing. Each listed config is read when a place list loads, and
+  one that's gone or broken is skipped, never holding the list up.
+- **A place another repo here uses is marked "used by <repo>"** (a person
+  decided what counts): the same Jira epic on the same site, the same GitHub
+  label on the same repo, the same monday.com group on the same board, and an
+  Azure area path equal to another's, or over or under it ("overlaps
+  <repo>"). Names and keys match whatever their case. A clone or worktree of
+  the same repo (D-027's key) never counts. The mark is in the list's words,
+  and the one chosen says it under the list with a warning icon and words;
+  a label says it in its tick. Picking a marked one asks in a modal: Use it
+  too selects it, Cancel keeps the choice before. Add a tracker and Change
+  mark them too: it's the same list.
+- **Nothing is written to the tracker.** The page only reads: a test records
+  every request through the Jira, Azure DevOps and GitHub flows and allows
+  only GET and HEAD, Azure's two read POSTs (`_apis/wit/wiql` and
+  `workitemsbatch`), and gh's api GETs, lists and views, failing on none
+  recorded.
+- **The README names the place** (B10): `acc setup readme` writes "Its
+  tickets come from Jira epic [ACME-3](…/browse/ACME-3)", an Azure area path
+  with its project linked, each GitHub label linked to its issues, or a
+  monday.com group with its board linked. The key, never the epic's name, so
+  it doesn't go stale and nothing is read from the tracker to write it.
+  B10.readme applies once a tracker has a place, even with one environment,
+  and fails until the README links it. Repos already narrowed to a place see
+  it fail until `acc setup readme` runs again. Setup leaves this to B10's Do
+  it rather than editing README.md as the project starts.
+- **After Start the project** the projects load, the Tasks tab shows the
+  board ("Tickets from Jira · ACME · epic ACME-3 …"), every card not done has
+  Track (D-074), and Setup checks again.
+- Not chosen: creating or changing anything in a tracker; several epics per
+  repo, JQL or components (D-072); a template naming an epic, labels or an
+  area path (D-097 keeps those per project); the CLI listing epics or signing
+  in (D-066); sharing the repos list or sign-ins across machines; a GitHub
+  Project picker.
+
+## D-109 Settings lists every tracker and its sign-in, and acc writes a tracker (2026-10-07)
+
+GH-112, the fourth of the six tasks GH-109 began. A tracker's sign-in, its place
+and connecting another were on each tracker's board on Tasks, one project at a
+time, and Sign out was only a command. This amends D-073 and D-091.
+
+- **One list across the open projects,** in Settings' Trackers and sign-ins,
+  each project under its name, as How agents run does (D-104). Each tracker
+  shows its kind and title, where its tickets come from and its board (D-072),
+  and who it signs in as, for every project on its site or this project only
+  (D-091). It's drawn from what each board already knows (`BoardInput`), so
+  Settings reads no tracker and no secret of its own. A project with none
+  says so, and one whose trackers haven't been read yet says it's reading.
+- **Where each is set:** the place and the board say "project", with a repo
+  icon: they're the project's `.acc/config.json`, and no clone sets them. The
+  sign-in says "VSCode on this machine", with a key, or for GitHub "gh on this
+  machine". It's never in a file.
+- **Every state has an icon and words,** blue or orange: signed in for every
+  project on the site (a globe) or this project only (a repo); not signed in
+  (a plug); signed in but refused, with the tracker's reason (a warning); gh
+  as the project's account. The board: its name once read, Reading it (a
+  spinner), Shows once it's signed in, or why it couldn't be read. The sign-in's
+  line says what's wrong with it, and the board's doesn't say it twice.
+- **Sign in again, Sign out and Change place…** on each Jira, Azure DevOps and
+  monday.com tracker, each named for whose tracker it is. Sign in again and
+  Change place… run `acc.trackers.signIn` and `acc.trackers.add` with the
+  tracker, which open the Connect page at it, as the board's buttons do. Sign
+  out runs `acc.trackers.signOut`, which the page may now ask for: a site's
+  sign-in still asks every project or this one, and a project's own goes with
+  no question (D-091). Not signed in, Sign in leads, and Sign out is disabled
+  with why. **Connect a tracker…** ends the part, and the Connect page asks
+  which project. GitHub has only Change place…: it signs in through gh as the
+  project's account (D-007), which GH-113's GitHub accounts part will gather.
+- **acc writes a tracker,** not the Command Center. `acc trackers set --file
+  <tracker.json> [--index <n>]` adds one, or changes the one at that place,
+  keeping keys the record doesn't name and taking out those it names as null,
+  as D-073's Save did. Core's `saveTracker` checks the config it would make and
+  writes nothing when it wouldn't load. The Connect page's Save hands it the
+  record through a file that's removed after, and shows acc's refusal beside
+  Save. It's a person's: the hook and the builder's deny list refuse it, as
+  they refuse `acc rules import`. So every change Settings starts goes through
+  acc or VSCode's secret storage (D-064). The settings check's raw read of the
+  config (D-103) moves with it, to `saveTracker`.
+- **The Connect page comes back to Settings** when it was opened from there:
+  Back goes to the Trackers and sign-ins heading, and so does Save, in place of
+  the Tasks tab. Opened anywhere else, it goes where it did.
+- Not chosen: a Connect a tracker per project, since the Connect page asks;
+  listing every sign-in VSCode keeps, which its secret storage can't (D-091);
+  a sign-out button on the Connect page, which D-091 turned down. Sign out is a
+  button in Settings, beside each tracker.
+- **Checked:** `settings.test.ts` for every sign-in and board state, the
+  buttons and their commands, and the page; `connect.test.ts` for Back and
+  Save from Settings and acc's refusal; `activate.test.ts` through the built
+  extension and acc: `acc trackers set` adds a Jira tracker, Settings lists it,
+  a project's own sign-out asks nothing, a site's asks and keeps it for the
+  rest, and Sign in again and Change place open the Connect page with Back to
+  Settings. `config.test.ts` and `cli.test.ts` for `acc trackers set`, a hook
+  fixture and the deny list. Screenshots `settings-trackers` at 1000, 620 and
+  500 px in Light and Dark; `--colours` finds no difference across themes on
+  its 650 elements.
+
+## D-110 Settings raises or lowers how many builders run at once, with what it means; this machine can cap every repo's together (2026-10-07)
+
+GH-111, the third of GH-109's six tasks. The author asked to raise or lower how
+many agents run at once from Settings, with what a change means, and chose
+acc commands for each limit and check, so the page never writes a file
+(D-064). It amends D-092, which left changing `agents.max` or the heavy-check
+slots out of the Command Center: a terminal was the only place to set them.
+
+- **Two caps, side by side,** each with −, its number, + and Change…, how many
+  run now and where it's set. **This project's cap** is `agents.max` in
+  `.acc/config.json`, shared with everyone on the repo once it's committed,
+  set with `acc agents max <n>`; it names its project, and says when it's
+  acc's default of three. **This machine's total** counts every repo on the
+  machine, since usage limits belong to the Claude account, not a project. It's
+  `agents` in `~/.acc/machine.json`, beside the heavy-check slots, set with
+  `acc machine agents <n>` (1 to 64) or taken out with `--none`. Unset, there's
+  no total. A − or + that can't move says why, and a machine with no total
+  has neither: Change… sets one.
+- **The machine counts every repo** from a note acc writes, the first time a
+  repo dispatches, under `~/.acc/ledgers/`: a file naming its ledger. Its
+  builders are its tasks in Running, as each project's cap counts them. A note
+  whose ledger has gone is left out, and dropped only by acc's own commands (a
+  start, and `acc machine agents`): the Command Center's read writes nothing
+  (D-012). With no total, nothing else is read. The total is read and written
+  through one path, `machineJson`; where acc's environment has no home (a
+  test's made-up one), nothing machine-wide is read, and setting the total is
+  refused rather than written under the real home.
+- **A start that would pass either cap says which.** "3 builders are running in
+  this project, and its cap is 3 (agents.max)", or "6 builders are running on
+  this machine, across every repo, and its total is 6 (acc machine agents)".
+  A held start (D-093) and autopilot's re-dispatch wait with those words, and
+  a held task's card says "as many are running as the project allows", or "as
+  this machine's total allows, across every repo". A person's own dispatch is
+  refused with them, as it was at the project's cap: D-093 left holding a
+  dispatch for the cap out, and this keeps it so.
+- **What a change means, in this machine's numbers.** Each agent is a Claude
+  Code session on your account, with the builders' model (Opus 5.5 unless
+  set); more at once uses the plan's limits that many times faster, and at the
+  limit Claude Code pauses them until it resets; on per-token billing each one
+  costs as it runs, and recent reviews' and analyses' recorded `costUsd` say
+  how much. Builders' checks wait for this machine's heavy-check slots, so
+  those past the slots wait in line, and recent builders' times (dispatch to
+  acc done, the middle of the last ten) say how long they take. More at once
+  means more tasks touching the same files: they take turns (D-093), and
+  conflicts at merge get likelier. With no numbers yet, each says so.
+- **The heavy-check slots and each project's checks** are rows with Change…:
+  `acc machine heavy-slots` (D-080), and `acc gate required [<name>…]` and
+  `acc gate builder [<name>…|--none]` (D-096), both picked many at a time from
+  the project's own checks. Slots that `ACC_HEAVY_SLOTS` sets stay in view,
+  with why they can't change here. No required checks shows in orange. The
+  required checks, like the cap, say when they're acc's default because the
+  project's file names none.
+- **Read only while it's seen.** The Command Center reads the limits only
+  while Settings shows, or while a task is held and the project's own cap has
+  room, never on another section's render: the author's machine feels
+  background load.
+- **One key, byte for byte.** Each project command edits only its key in
+  `.acc/config.json` (`config-edit.ts`): the value replaced where it stands, or
+  a new key put after its object's last, indented as the file is, and every
+  edit read back against JSON.parse before it's written, else the file is
+  written whole.
+- **A person's, at all three layers.** The new commands, and `acc agents set`,
+  refuse builders, reviewers and analysts by name in the CLI, and autopilot as
+  not a person. The hook's PERSON_ONLY_ACC names `gate waive`, `gate required`
+  and `gate builder` beside `agents` and `machine`. The builder's deny list
+  gains `acc agents set*`, which it lacked, `acc agents max*`, `acc gate
+  required*` and `acc gate builder*`; `acc machine*` was there. A test runs
+  every such command through all three.
+- **Every state has an icon and words:** blue while builders work, neutral
+  when none do or the next start waits in line, orange for per-token billing
+  and for no required checks. Light, Dark and Match VSCode drew the same
+  colours on every Settings page the colour check reads, Limits and checks'
+  other states among them (505 elements there, 4,663 on all eight pages).
+- Not chosen: holding a person's dispatch for a cap (D-093's call stands); a
+  per-clone cap, since a cap is shared, and the machine's total is the
+  person's own; counting Claude Code's sessions for the total, which counts
+  finished sessions and not a stopped builder, unlike the project's cap; a lock
+  across repos, so two repos dispatching in the same instant can both pass a
+  total by one.
+
+## D-111 The settings check matches only real reads: variables, the config's own reads, and the intake skill (2026-10-08)
+
+GH-122, from GH-107's review. It amends D-103. Its check could pass in three
+ways it shouldn't, each a gap in how strictly it matched a read, not a key left
+unread today.
+
+- **A listed key read through a variable still fails the list.** A key on
+  `UNREAD_KEYS` was looked for only by its qualified name, such as
+  `builder.fallbackModel`, while agentArgs reads `p?.fallbackModel` for every
+  role. The check now also looks for `.<key>` in the files `READ_IN` names for
+  the key's siblings, as the read check does: listing
+  `agents.builder.fallbackModel` fails, pointing at agents.ts. This errs
+  towards failing the list, the safe side.
+- **A `READ_IN` entry can pin the config's read.** An entry is a file or
+  `{ file, via }`, where `via` is the read itself. `trackers[].labels` is pinned
+  to `tracker?.labels` in intake.ts, where an issue's `i.labels` satisfied it
+  before, and `environments[].name` to `env.name` in packet.ts. A finding names
+  the pattern it looked for. A sibling search uses only the entry's file.
+- **The intake skill is on `RAW_READS`.** It tells a session to read the
+  tracker's place from `.acc/config.json`, so each tracker key it names in
+  backticks, after "tracker's", "its" or "it names" (`repo`, `labels`,
+  `skipLabels`, `project`, `epic`, `areaPath`, `board`, `group`, `prefix`),
+  must be one parseConfig knows. A place that isn't source is read from disk,
+  whole, comments and all. This closes part of D-103's "the plugin's skills".
+- Not done here: pinning the other `READ_IN` entries whose `.<key>` also
+  matches unrelated reads in the same file, such as `.repo` in intake.ts, which
+  `gh.repo` would satisfy; the other skills that name config keys.
+
+## D-112 A test check counts what ran; none run, or more skipped, needs a person (2026-10-07)
+
+GH-100. A check that ran nothing looked the same as one that passed:
+PhotoCraft's two worst false greens were a fuzz test nothing ran and GPU tests
+that print "skipping" and pass, and a builder that marks a failing test skip
+to get green is the same failure. acc kept only an exit code and a summary
+line. It extends D-024 (what a receipt proves) and D-031 (waiving).
+
+- **A receipt counts what its tests ran,** where its output holds a summary
+  acc can read: run, passed, failed, skipped and todo, from node:test's spec
+  or TAP reporter, Jest's `Tests:` line (`No tests found` is none), or Apex's
+  `numTestsRun` and `numFailures` in validate's deploy result. `run` is passed
+  plus failed (node's cancelled counts as failed); Apex has no skip or todo.
+  The skipped tests' names are kept where the runner prints them. Counts live
+  in their own `counts` field: `details.tests` already holds the Apex tests a
+  builder named, which `priorTests` reads back.
+- **Every complete summary counts once.** The analysis proposed the last
+  block per runner. A command that runs its tests in parts, such as
+  `npm test --workspaces` or `node --test a && node --test b`, prints one
+  summary per part, and taking the last would undercount, which is the false
+  green this ticket is about. A test's own output can't fake one: node's TAP
+  reporter prints it behind `# `, Jest indents it, and a summary in a
+  failure's message is indented; a block must be unindented and complete
+  (tests, pass, fail, skipped and todo; Jest's `Test Suites:` line just
+  before `Tests:`). What's left is a test that prints a complete, unindented
+  spec summary of a run of its own, which would be added in: an overcount, not
+  a false green.
+- **Output acc can't read is never guessed at.** A test check, one
+  `gates.tests` names, a gate called `test`, Salesforce's `lwc-tests`, or
+  validate when it runs Apex tests, records no counts and a note saying so
+  ("not read"). Counts are read from any gate's output, as the person decided;
+  only a test check gets the note.
+- **A new status, `hold`: "needs a person".** A would-be pass that ran no tests,
+  or skipped more than the count it's compared with, is a hold. Like `fail`
+  it satisfies nothing, so done, review, land and the merge queue all stop,
+  with no change to `satisfies()`'s callers. Unlike `fail` the builder can't
+  fix it by fixing the change, so `acc gate run` tells it to add or un-skip
+  tests, or `acc block` if the task asks for the skip, and the merge queue
+  stops for a person instead of sending the task back. A fail or an error
+  keeps its status. `skip` keeps its meaning: the check didn't apply. Orange,
+  a person icon and the words "needs a person", never colour alone.
+- **What a count is compared with.** The nearest earlier receipt with counts
+  for the same gate and the same command, at or before the branch's merge base
+  with its environment's branch, walking back up to 500 commits from it. Not
+  the tip, which can hold changes the branch doesn't, and never the commit's
+  own receipt, so running a held check again doesn't compare it with itself.
+  With nothing earlier the check isn't held, and its receipt says there was
+  nothing to compare with. Receipts from before this have no counts, so the
+  first counted run of each gate is its baseline. A repo that squashes or
+  rebases loses the ancestry, and always has nothing to compare with.
+- **A person's waiver is a count they accepted.** The waived receipt keeps
+  its counts and the command they came from, and a waiver with counts on the
+  branch's own commits is the first thing compared with.
+- **A person's waiver on the head clears a hold on the queue's merge of that
+  head, counts or not.** When a branch is behind, the merge queue checks a
+  merge commit it makes again on each pass, and asks a person to waive a hold
+  on the head. A builder never runs the full check there, so that waiver
+  usually has no counts, and comparing alone found nothing: the queue merged,
+  held and stopped again on every pass, for good. Now `checkCommit` tells
+  `runGates` the head it merged the base into, and a hold on that merge where a
+  person waived the gate on the head is written as their waiver: a skip, by
+  them, with their reason, naming the head, keeping the merge's counts and the
+  hold it was. It covers a zero-run hold as well as more skipped. Only a hold:
+  a fail or an error on the merge still needs a person, since a waiver holds for
+  its own commit (D-031) and a fail there is a new finding, not the one they
+  accepted. Refresh's merge (D-058) goes through the same `checkCommit`.
+- **Which checks are compared.** The person decided: only those whose test set
+  doesn't depend on the change, "not one acc gives ACC_NEAR_TESTS, not
+  lwc-tests, not validate", so that in this repo `check` is compared in the
+  merge queue. Since D-102 every command gate is given ACC_NEAR_TESTS, so that
+  test no longer tells them apart. The rule is the one the config already
+  holds: a builder's lighter check, one `gates.builder` names that
+  `gates.required` doesn't, isn't compared, nor are the built-in `lwc-tests`
+  and `validate` (`changeBound` on the gate). It gives the decided outcome:
+  `check` is compared, `near-tests` isn't. Those still record counts, and the
+  reviewer catches a new skip in the diff.
+- **The reviewer is told** that a newly added skip, only or todo in a test is
+  a finding that must be fixed unless the task asks for it, and reads each
+  check's counts. acc doesn't scan the diff for them itself.
+- **Shown everywhere a check is:** the pull request's check table gains a
+  Tests column where any check counted ("312 run, 2 skipped"; failed and todo
+  only when there are some; "not read"), the ticket page shows it under each
+  check, and `acc gate run` and `acc gate list` print it. The ticket page's
+  check look moved from the webview's ternaries, where an unknown status fell
+  through to another's icon, into the model, where a test covers every status.
+- Not done here: an empty ACC_NEAR_TESTS
+  list is still a pass with no counts, not a skip; a gate whose output reports
+  failed tests but exits 0 still passes; GitHub's own checks (D-076); and the
+  release-only plugin bundle (D-042), which takes this at the next
+  `npm run package`.
+
 ## D-??? A number that may only get better: acc raises its floor, and only a person relaxes it (2026-10-07)
 
 GH-99. Agents trade quality for speed when nothing stops them. PhotoCraft holds

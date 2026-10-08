@@ -111,6 +111,13 @@ disagrees with the template's is refused.
   template doesn't name keeps acc's usual path. acc init says which, in a note.
 - **A tracker with no project** (a monday.com one with no board) is left out,
   with a note. Connect it on the Command Center's Connect page.
+- **A project started from an epic** (Setup's **From a Jira epic…** with a
+  template) opens the Connect page at the template's tracker, with its site or
+  organization and its project filled in. The epic, area path or labels are
+  always the person's to pick, never the template's. The tracker picked
+  (`acc init --tracker`) replaces the template's, with a note. On the same
+  kind of tracker and host it keeps the template's `prefix`, unless the
+  picked one names its own.
 - **Check commands** the template adds run on the machine of everyone who
   uses the project. `acc template show`, `acc init --from … --dry-run` and
   Setup's confirmation list them before anything is written. `acc init

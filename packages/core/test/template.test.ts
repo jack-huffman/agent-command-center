@@ -342,6 +342,59 @@ test('flags beat the template: --jira-project replaces its project, and a --prof
   assert.deepEqual(planInit(run, { root: repo, template: loaded(noProject), jiraProject: 'ACME' }).config.trackers.map((t) => t.project), ['ACME']);
 });
 
+test('a tracker picked on the Connect page is written as it is, narrowed to its place, and replaces the template\'s (GH-81)', () => {
+  const { repo, run } = genericRepo();
+  // As each description's toConfig gives it: nulls for what wasn't picked.
+  const cases: [Record<string, unknown>, unknown[]][] = [
+    [{ kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', board: 7, epic: 'ACME-3' }, ['jira', 'acme.atlassian.net', 'ACME', 7, 'ACME-3', [], null]],
+    [{ kind: 'azure', organization: 'acme', project: 'CRM', team: 'Sales', board: 'Stories', areaPath: 'CRM\\Billing' }, ['azure', 'acme', 'CRM', 'Stories', null, [], 'CRM\\Billing']],
+    [{ kind: 'github', repo: null, labels: ['billing', 'invoices'] }, ['github', null, null, null, null, ['billing', 'invoices'], null]],
+  ];
+  let checked = 0;
+  for (const [tracker, want] of cases) {
+    const plan = planInit(run, { root: repo, tracker });
+    assert.equal(plan.config.trackers.length, 1);
+    const t = plan.config.trackers[0]!;
+    assert.deepEqual([t.kind, t.site ?? t.organization, t.project, t.board, t.epic, t.labels, t.areaPath], want, tracker.kind as string);
+    assert.deepEqual(plan.notes.filter((n) => /--tracker/.test(n)), [], 'nothing replaced, nothing to say');
+    checked++;
+  }
+  assert.equal(checked, 3);
+
+  // The template's Jira tracker gives way to an Azure one, and --jira-* to a Jira epic, each with a note.
+  const azure = planInit(run, { root: repo, template: loaded(GENERIC_TEMPLATE), tracker: cases[1]![0] });
+  assert.deepEqual(azure.config.trackers.map((t) => [t.kind, t.areaPath]), [['azure', 'CRM\\Billing']]);
+  assert.ok(azure.notes.includes('The tracker picked (--tracker) replaces the template\'s: Jira on acme.atlassian.net, project ACME.'), azure.notes.join('\n'));
+  assert.ok(!azure.fromTemplate.includes('trackers'), 'the tracker isn\'t the template\'s');
+  assert.deepEqual(azure.config.gates.required, ['test', 'lint'], 'the rest of the template still applies');
+  const jira = planInit(run, { root: repo, template: loaded(GENERIC_TEMPLATE), jiraProject: 'OPS', tracker: cases[0]![0] });
+  assert.deepEqual(jira.config.trackers.map((t) => [t.project, t.epic]), [['ACME', 'ACME-3']]);
+  assert.ok(jira.notes.some((n) => /replaces --jira-site and --jira-project/.test(n)), jira.notes.join('\n'));
+
+  // A template's key prefix stays on the same kind of tracker on the same host, unless the one picked names
+  // its own, as withTracker keeps it on a replace. Another host, or another kind, starts without it.
+  const azureTemplate = { ...GENERIC_TEMPLATE, tracker: { kind: 'azure', organization: 'Acme', project: 'CRM', prefix: 'crm' } };
+  const prefixes: [Record<string, unknown>, unknown][] = [
+    [cases[1]![0], 'CRM'],
+    [{ ...cases[1]![0], prefix: 'BIL' }, 'BIL'],
+    [{ ...cases[1]![0], prefix: null }, 'CRM'],
+    [{ ...cases[1]![0], organization: 'contoso' }, undefined],
+    [cases[0]![0], undefined],
+  ];
+  let kept = 0;
+  for (const [tracker, want] of prefixes) {
+    const plan = planInit(run, { root: repo, template: loaded(azureTemplate), tracker });
+    assert.equal(plan.config.trackers[0]!.prefix ?? undefined, want, JSON.stringify(tracker));
+    assert.equal(plan.notes.some((n) => /keeping its key prefix CRM/.test(n)), want === 'CRM', plan.notes.join('\n'));
+    kept++;
+  }
+  assert.equal(kept, prefixes.length);
+
+  // Checked as the config is: an unknown kind, or a Jira tracker with no project, is refused.
+  assert.throws(() => planInit(run, { root: repo, tracker: { kind: 'trello', board: 1 } }), /trackers\[0\]: "kind" must be/);
+  assert.throws(() => planInit(run, { root: repo, tracker: { kind: 'jira', site: 'acme.atlassian.net', epic: 'ACME-3' } }), /a Jira tracker needs "site" and "project"/);
+});
+
 test('acc init --from reads the template as the account the repo pushes as', () => {
   const { repo, calls } = genericRepo();
   const text = JSON.stringify(GENERIC_TEMPLATE);

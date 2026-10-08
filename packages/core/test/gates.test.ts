@@ -7,13 +7,14 @@ import { BUILT_IN_GATES, builderGatesFor, parseConfig, type Config, requiredGate
 import { drift, driftReportPath } from '../src/drift.ts';
 import type { RunOptions, RunResult, Runner } from '../src/exec.ts';
 import {
-  assertCheckOnly, changesFor, checkEnv, gatesFor, gateTarget, nearTests, priorTests, readAnalyzer, readDeploy, runGates, validateArgs, waiveGates,
+  assertCheckOnly, changesFor, checkEnv, gatesFor, gateTarget, nearTests, priorTests, readAnalyzer, readDeploy, runGates, settle, validateArgs, waiveGates,
 } from '../src/gates.ts';
 import { checkMove, emptyLedger, type Task } from '../src/ledger.ts';
 import { builderSettings } from '../src/packet.ts';
 import { repoPaths } from '../src/paths.ts';
 import { formatFloors, relaxFloor } from '../src/ratchets.ts';
-import { readReceipt, receiptHooks, writeReceipt } from '../src/receipts.ts';
+import { readReceipt, type Receipt, receiptHooks, satisfies, writeReceipt } from '../src/receipts.ts';
+import { NO_COUNTS, type TestCounts } from '../src/test-counts.ts';
 import { withSlot } from '../src/semaphore.ts';
 import { run } from '../src/exec.ts';
 import { fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, SF_CONFIG, tempDir } from './support.ts';
@@ -171,6 +172,7 @@ test('the Salesforce gates decide from the changes, run under nice, and leave re
   const sha = gitIn(dir, 'rev-parse', 'HEAD');
   const receipt = readReceipt(paths, sha, 'validate')!;
   assert.equal(receipt.status, 'pass');
+  assert.deepEqual([receipt.counts, receipt.countsNote], [undefined, NO_COUNTS], 'it ran Apex tests, and sf\'s result didn\'t say how many (GH-100)');
   assert.equal(receipt.env, 'dev');
   assert.deepEqual(receipt.details!.tests, [{ name: 'AccountTest', reason: 'covers Account' }]);
   assert.deepEqual(priorTests(paths, c, sha), [{ name: 'AccountTest', reason: 'covers Account' }], 'what a commit made from this one is validated with');
@@ -443,6 +445,127 @@ test('a person waives a failing gate on one commit, with a reason: it satisfies 
   assert.deepEqual(hooks.missingGates(task), ['lint', 'test'], 'a new commit starts with no checks, waived or not');
 });
 
+// ---------------------------------------------------------------- what a test check ran (GH-100)
+
+/** node:test's spec summary, as `npm test` prints it at the end, with each skipped test's line before it. */
+const summary = (pass: number, skipped: string[] = [], fail = 0) => [
+  ...skipped.map((n) => `﹣ ${n} (0.1ms) # SKIP`),
+  `ℹ tests ${pass + fail + skipped.length}`, 'ℹ suites 0', `ℹ pass ${pass}`, `ℹ fail ${fail}`, 'ℹ cancelled 0', `ℹ skipped ${skipped.length}`, 'ℹ todo 0', 'ℹ duration_ms 12.5', '',
+].join('\n');
+const counted = (run: number, skipped: string[] = []): TestCounts => ({ run, passed: run, failed: 0, skipped: skipped.length, todo: 0, ...(skipped.length ? { skippedNames: skipped } : {}), runner: 'node:test' });
+
+test('a test check\'s outcome, given what it ran: none run, or more skipped than before, needs a person; a fail stays a fail (GH-100)', () => {
+  const passed = { status: 'pass' as const, summary: 'Passed.' };
+  const check = { tests: true, compared: false, earlier: null, env: 'main' };
+  // It ran tests: a pass, with nothing to add.
+  assert.deepEqual(settle({ ...passed, counts: counted(312, ['a']) }, check), { ...passed, counts: counted(312, ['a']) });
+  // It ran none: a hold, which satisfies nothing.
+  const none = settle({ ...passed, counts: counted(0) }, check);
+  assert.deepEqual([none.status, none.summary, satisfies(none)], ['hold', 'Ran no tests, so it can\'t vouch for the change.', false]);
+  assert.equal(settle({ ...passed, counts: counted(0, ['a', 'b']) }, check).summary, 'Ran no tests (0 run, 2 skipped), so it can\'t vouch for the change.');
+  // A fail or an error keeps its status, with what it ran.
+  assert.equal(settle({ status: 'fail', summary: 'x', counts: counted(0) }, check).status, 'fail');
+  // Output acc can't read: a test check says so, and passes; a check that runs no tests says nothing.
+  assert.deepEqual(settle(passed, check), { ...passed, countsNote: NO_COUNTS });
+  assert.deepEqual(settle({ status: 'error', summary: 'sh: npm: not found' }, check).countsNote, NO_COUNTS);
+  assert.deepEqual(settle(passed, { ...check, tests: false }), passed);
+  assert.deepEqual(settle({ status: 'skip', summary: 'No LWC has changed.' }, check), { status: 'skip', summary: 'No LWC has changed.' }, 'one that didn\'t apply ran nothing to count');
+
+  // Compared: with nothing earlier it says so; with fewer skipped before, it's a hold naming the new ones.
+  const compared = { ...check, compared: true };
+  assert.equal(settle({ ...passed, counts: counted(10, ['a']) }, compared).countsNote, 'Nothing earlier on main to compare its skipped tests with.');
+  const earlier = { sha: 'b'.repeat(40), counts: counted(9, ['a']) } as Receipt;
+  const more = settle({ ...passed, counts: counted(10, ['a', 'flaky sync']) }, { ...compared, earlier });
+  assert.deepEqual([more.status, more.summary, more.countsNote], ['hold', '2 skipped, up from 1 on bbbbbbb: flaky sync newly skipped.', 'Compared with 1 skipped on bbbbbbb, the nearest earlier count on main. Newly skipped: flaky sync.']);
+  const same = settle({ ...passed, counts: counted(10, ['b']) }, { ...compared, earlier });
+  assert.deepEqual([same.status, same.countsNote], ['pass', 'Compared with 1 skipped on bbbbbbb, the nearest earlier count on main. Newly skipped: b.'], 'as many as before passes, naming the swap');
+  assert.equal(settle({ ...passed, counts: counted(10, []) }, { ...compared, earlier }).status, 'pass', 'fewer passes');
+});
+
+test('a test check counts what ran on its receipt: zero run is a hold, unreadable output says so, and a check that runs no tests says nothing (GH-100)', () => {
+  const gates = {
+    required: ['test'], tests: ['listed'],
+    commands: { test: 'cat summary.txt', none: `printf '${summary(0).replace(/\n/g, '\\n')}'`, listed: 'echo all good', typecheck: 'echo no errors' },
+  };
+  const dir = makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, gates }), 'summary.txt': summary(3, ['slow one']) });
+  const c = config(JSON.parse(readFileSync(join(dir, '.acc/config.json'), 'utf8')));
+  const paths = repoPaths(dir, run);
+  const r = runGates(paths, c, c.environments[0]!, ['test', 'none', 'listed', 'typecheck'], [], { run, now, slots: slots() });
+  assert.deepEqual(r.results.map((x) => [x.gate, x.status]), [['test', 'pass'], ['none', 'hold'], ['listed', 'pass'], ['typecheck', 'pass']]);
+  const sha = gitIn(dir, 'rev-parse', 'HEAD');
+  const test = readReceipt(paths, sha, 'test')!;
+  assert.deepEqual(test.counts, counted(3, ['slow one']));
+  assert.equal(test.countsNote, 'Nothing earlier on main to compare its skipped tests with.');
+  // Ran none: needs a person, which acc done won't take.
+  const none = readReceipt(paths, sha, 'none')!;
+  assert.deepEqual([none.status, none.summary, none.counts?.run, satisfies(none)], ['hold', 'Ran no tests, so it can\'t vouch for the change.', 0, false]);
+  // A test gate whose output holds no summary: no counts, and a note saying so. A typecheck: neither.
+  const listed = readReceipt(paths, sha, 'listed')!;
+  assert.deepEqual([listed.status, listed.counts, listed.countsNote], ['pass', undefined, NO_COUNTS]);
+  const typecheck = readReceipt(paths, sha, 'typecheck')!;
+  assert.deepEqual([typecheck.counts, typecheck.countsNote], [undefined, undefined]);
+});
+
+test('more skipped than the nearest earlier count on the environment\'s branch is a hold; a builder\'s lighter check isn\'t compared; a person\'s waiver keeps the counts and stands for the branch (GH-100)', () => {
+  const gates = { required: ['check'], builder: ['near'], tests: ['check', 'near'], commands: { check: 'cat summary.txt', near: 'cat summary.txt' } };
+  const raw = { ...GENERIC_CONFIG, autonomy: 'review', autopilot: { autoMerge: true }, gates };
+  const dir = makeRepo({ '.acc/config.json': JSON.stringify(raw), 'summary.txt': summary(5, ['old one']) });
+  const c = config(raw);
+  const paths = repoPaths(dir, run);
+  const env = c.environments[0]!;
+  const deps = { run, now, slots: slots() };
+  const status = (names: string[]) => runGates(paths, c, env, names, [], deps).results.map((x) => [x.gate, x.status]);
+  // On main: nothing earlier to compare with.
+  assert.deepEqual(status(['check', 'near']), [['check', 'pass'], ['near', 'pass']]);
+  const m0 = gitIn(dir, 'rev-parse', 'HEAD');
+
+  // A task skips one more test.
+  gitIn(dir, 'checkout', '-q', '-b', 'task/T-1');
+  writeFileSync(join(dir, 'summary.txt'), summary(4, ['old one', 'sync retries']));
+  commitAll(dir, 'T-1: skip a test');
+  const t1 = gitIn(dir, 'rev-parse', 'HEAD');
+  assert.deepEqual(status(['check', 'near']), [['check', 'hold'], ['near', 'pass']], 'the lighter check runs the tests near the change, so it isn\'t compared');
+  const held = readReceipt(paths, t1, 'check')!;
+  assert.equal(held.summary, `2 skipped, up from 1 on ${m0.slice(0, 7)}: sync retries newly skipped.`);
+  assert.equal(held.countsNote, `Compared with 1 skipped on ${m0.slice(0, 7)}, the nearest earlier count on main. Newly skipped: sync retries.`);
+  assert.equal(readReceipt(paths, t1, 'near')!.countsNote, undefined);
+  assert.deepEqual(receiptHooks(paths, c, run).missingGates({ id: 'T-1', run: { branch: 'task/T-1' } } as Task, 'merge'), ['check']);
+  // Running it again on the same commit doesn't compare it with itself.
+  assert.deepEqual(status(['check']), [['check', 'hold']]);
+
+  // As many skipped as before, but another test: it passes, naming the swap.
+  gitIn(dir, 'checkout', '-q', '-b', 'task/T-2', m0);
+  writeFileSync(join(dir, 'summary.txt'), summary(5, ['other one']));
+  commitAll(dir, 'T-2: swap a skip');
+  assert.deepEqual(status(['check']), [['check', 'pass']]);
+  assert.match(readReceipt(paths, gitIn(dir, 'rev-parse', 'HEAD'), 'check')!.countsNote!, /^Compared with 1 skipped on [0-9a-f]{7}, .* Newly skipped: other one\.$/);
+
+  // A person waives T-1's hold: the waiver keeps its counts, and what they came from.
+  gitIn(dir, 'checkout', '-q', 'task/T-1');
+  const [waived] = waiveGates(paths, c, { sha: t1, env, gates: ['check'], reason: 'sync retries are flaky until GH-9', by: 'human:jordan', now });
+  assert.deepEqual([waived!.status, waived!.waived?.was, waived!.counts, waived!.command], ['skip', 'hold', held.counts, held.command]);
+  assert.equal(held.command, 'sh -c \'cat summary.txt\'');
+  // main moves on, and the merge queue merges it into T-1: compared with the count the person accepted on the branch, it passes.
+  gitIn(dir, 'checkout', '-q', 'main');
+  writeFileSync(join(dir, 'other.txt'), 'more\n');
+  commitAll(dir, 'Another task');
+  gitIn(dir, 'checkout', '-q', 'task/T-1');
+  gitIn(dir, 'merge', '-q', '--no-edit', 'main');
+  assert.deepEqual(status(['check']), [['check', 'pass']]);
+  assert.match(readReceipt(paths, gitIn(dir, 'rev-parse', 'HEAD'), 'check')!.countsNote!, new RegExp(`^Compared with 2 skipped on ${t1.slice(0, 7)}, `));
+});
+
+test('validate counts Apex\'s tests only when it runs some: NoTestRun has none and is never held (GH-100)', () => {
+  const apex = JSON.parse(readFileSync(join(import.meta.dirname, 'fixtures', 'test-counts', 'apex-deploy.json'), 'utf8'));
+  const failed = readDeploy({ code: 1, stderr: '', stdout: JSON.stringify(apex) }, 'Acme Dev', [{ name: 'CaseRoutingTest', reason: '' }], 3);
+  assert.deepEqual([failed.status, failed.counts], ['fail', { run: 21, passed: 17, failed: 4, skipped: 0, todo: 0, runner: 'apex' }]);
+  const passing = { status: 0, result: { ...apex.result, success: true, numberTestErrors: 0, numberTestsCompleted: 21, details: { runTestResult: { numTestsRun: '21', numFailures: '0' } } } };
+  assert.deepEqual(readDeploy(ok(JSON.stringify(passing)), 'Acme Dev', [{ name: 'CaseRoutingTest', reason: '' }], 3).counts?.run, 21);
+  const noTests = readDeploy(ok(JSON.stringify({ status: 0, result: { id: '0Af1', success: true, numberComponentsTotal: 2, numberTestsTotal: 0 } })), 'Acme Dev', [], 2);
+  assert.deepEqual([noTests.status, noTests.counts], ['pass', undefined]);
+  assert.deepEqual(settle(noTests, { tests: false, compared: false, earlier: null, env: 'dev' }), noTests, 'not a test run: no note, no hold');
+});
+
 // ---------------------------------------------------------------- a builder's lighter checks (GH-73)
 
 test('the tests near a change: the test files it changed, and those in the same package named for, or importing, each file it changed (GH-73)', () => {
@@ -597,7 +720,7 @@ test('where the merge queue runs the full check, builders run gates.builder, whi
   assert.equal(readFileSync(out, 'utf8'), 'src/merge.ts|test/merge.test.ts');
   assert.deepEqual([hooks.missingGates(task), hooks.missingGates(task, 'builder'), hooks.missingGates(task, 'merge')], [[], [], ['check']]);
   // acc done takes them: running → review.
-  assert.deepEqual(checkMove(emptyLedger(), c, task, { to: 'review', actor: 'builder', by: 'builder:T-1' }, hooks), []);
+  assert.deepEqual(checkMove(emptyLedger(), c, task, { to: 'review', actor: 'builder', by: 'builder:T-1', note: { landed: ['The merge'], moved: [], open: [] } }, hooks), []);
   assert.equal(readReceipt(paths, sha, 'check'), null, 'the full check didn\'t run');
 
   // The full check passing, as the queue runs it on its merge, covers a builder's on that commit.

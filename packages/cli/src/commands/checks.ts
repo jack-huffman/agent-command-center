@@ -3,11 +3,11 @@
 import { existsSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  AccError, type ApexTest, builderGatesFor, type Config, drift, FLOORS_FILE, gatesFor, gateTarget, mainCheckout, mutate, num, ratchetOf, readFloors, readLedger, receiptsAt, relaxFloor,
-  requiredGates, run, runGates, satisfies, type Task, valueOf, waiveGates,
+  AccError, type ApexTest, autoMergeFor, builderGatesFor, type Config, drift, FLOORS_FILE, gatesFor, gateTarget, loadConfig, mainCheckout, mutate, num, ratchetOf, readFloors, readLedger,
+  receiptsAt, relaxFloor, requiredGates, run, runGates, satisfies, setBuilderGates, setRequiredGates, type Task, testsText, valueOf, waiveGates,
 } from '../../../core/src/index.ts';
 import { gateLabel, table, tone } from '../format.ts';
-import { actorFrom, type CommandArea, now, type Opts, out, project } from '../shared.ts';
+import { actorFrom, type CommandArea, noAgent, now, type Opts, out, project } from '../shared.ts';
 
 // ---------------------------------------------------------------- checks
 
@@ -58,11 +58,18 @@ function cmdGateRun(o: Opts, names: string[]): number {
   // A raised floor isn't a failure: it's a file to commit (GH-99).
   const bad = r.results.filter((x) => !satisfies(x) && !ratchetOf(x)?.raised);
   const raised = r.raised.map((x) => `${x.label} ${x.from === null ? `${num(x.to)}, its first floor` : `${num(x.from)} → ${num(x.to)}`}`);
+  // A hold is cleared by more tests, or by a person (GH-100), not by fixing the change.
+  const held = bad.filter((x) => x.status === 'hold');
+  const fix = bad.filter((x) => x.status !== 'hold');
   out(o, () => [
     `${branch ?? 'HEAD'} at ${r.sha.slice(0, 7)}, against ${r.env.name}${r.env.org ? ` (${r.env.org})` : ''}`,
-    ...r.results.map((x) => `  ${gateLabel(x.status)}${x.gate.padEnd(11)} ${x.summary}`),
+    ...r.results.flatMap((x) => [
+      `  ${gateLabel(x.status)}${x.gate.padEnd(11)} ${x.summary}${testsText(x) ? tone(` · tests: ${testsText(x)}`, 'dim') : ''}`,
+      ...(x.countsNote ? [tone(`      ${x.countsNote}`, 'dim')] : []),
+    ]),
     r.dirty ? tone('Not recorded: there are uncommitted changes, so these results can\'t vouch for a commit. Commit, then run acc gate run again.', 'orange') : '',
-    bad.length ? `${bad.length} to fix: ${bad.map((x) => x.gate).join(', ')}.` : '',
+    fix.length ? `${fix.length} to fix: ${fix.map((x) => x.gate).join(', ')}.` : '',
+    held.length ? `${held.length} ${held.length === 1 ? 'needs' : 'need'} a person: ${held.map((x) => x.gate).join(', ')}. Add the tests, or un-skip them. If the task asks for the skip, say so with acc block "<why>": only a person can waive it.` : '',
     raised.length ? tone(`Raised in ${FLOORS_FILE}: ${raised.join(', ')}. Commit that file, then run acc gate run again: acc done takes the commit that records it.`, 'orange') : '',
     bad.length || raised.length || r.dirty ? '' : 'All recorded. acc done will accept this commit.',
   ].filter(Boolean).join('\n'), r);
@@ -145,11 +152,70 @@ function cmdGateList(o: Opts): number {
     return v === null ? `; no ${spec.limit} yet` : `; ${spec.limit} ${num(v)}`;
   };
   const gates = gatesFor(config).map((g) => ({ name: g.name, about: g.about + floorOf(g.name), required: config.gates.required.includes(g.name), builder: builder.includes(g.name), heavy: g.heavy, receipt: receipts[g.name] ?? null }));
+  // What each check's tests ran on this commit, where any counted (GH-100).
+  const counted = gates.some((g) => g.receipt && testsText(g.receipt));
   out(o, () => gates.length
-    ? [`${branch ?? 'HEAD'} at ${head.slice(0, 7)}, against ${env.name}`, '', table([['Gate', 'Required', ...(lighter ? ['Builder'] : []), 'Heavy', 'This commit', 'Checks'], ...gates.map((g) => [
-      g.name, g.required ? 'yes' : '', ...(lighter ? [g.builder ? 'yes' : ''] : []), g.heavy ? 'yes' : '', g.receipt ? gateLabel(g.receipt.status).trimEnd() : tone('not run', 'dim'), g.about,
+    ? [`${branch ?? 'HEAD'} at ${head.slice(0, 7)}, against ${env.name}`, '', table([['Gate', 'Required', ...(lighter ? ['Builder'] : []), 'Heavy', 'This commit', ...(counted ? ['Tests'] : []), 'Checks'], ...gates.map((g) => [
+      g.name, g.required ? 'yes' : '', ...(lighter ? [g.builder ? 'yes' : ''] : []), g.heavy ? 'yes' : '', g.receipt ? gateLabel(g.receipt.status).trimEnd() : tone('not run', 'dim'), ...(counted ? [g.receipt ? testsText(g.receipt) : ''] : []), g.about,
     ])]), ...(lighter ? ['', tone(`Builders run ${builder.join(', ')}, and acc done takes them. The required ones run once, in the merge queue, before the merge.`, 'dim')] : [])].join('\n')
     : 'No gates. List commands under "gates.commands" (or numbers that may only get better under "gates.ratchets") in .acc/config.json, and the required ones under "gates.required".', { sha: head, env: env.branch, gates });
+  return 0;
+}
+
+/** The environments whose pull requests go through the merge queue, where builders may run lighter checks (D-096). */
+const queueEnvs = (config: Config): string[] => config.environments.filter((e) => autoMergeFor(config, e.branch)).map((e) => e.branch);
+
+/** The checks every task must pass (gates.required): shown, or set by a person in .acc/config.json (GH-111). */
+function cmdGateRequired(o: Opts, names: string[]): number {
+  const { paths } = project(process.cwd());
+  const show = (set: boolean) => {
+    const { config } = loadConfig(paths.config);
+    const queue = queueEnvs(config);
+    const required = config.gates.required;
+    out(o, () => [
+      required.length ? `${set ? 'Required checks are now' : 'Required checks'}: ${required.join(', ')}.` : 'No required checks: acc done takes any commit.',
+      queue.length && required.length ? `Where the merge queue runs (${queue.join(', ')}), they run once in it, before each merge${config.gates.builder?.length ? `, and builders run ${config.gates.builder.join(', ')}` : ''}.` : '',
+      set ? 'Set in .acc/config.json: commit it to share it.' : '',
+    ].filter(Boolean).join(' '), { required, gates: gatesFor(config).map((g) => g.name), queue });
+  };
+  if (!names.length) {
+    show(false);
+    return 0;
+  }
+  noAgent(o, 'change the checks a task must pass');
+  setRequiredGates(paths.config, names);
+  show(true);
+  return 0;
+}
+
+/**
+ * Builders' lighter checks where the merge queue runs the required ones (gates.builder, D-096): shown, or set
+ * by a person in .acc/config.json, or taken out with --none so builders run the required checks (GH-111).
+ */
+function cmdGateBuilder(o: Opts, names: string[]): number {
+  const { paths } = project(process.cwd());
+  const show = (set: boolean) => {
+    const { config } = loadConfig(paths.config);
+    const queue = queueEnvs(config);
+    const builder = config.gates.builder?.length ? config.gates.builder : null;
+    const required = config.gates.required.join(', ') || 'none';
+    out(o, () => [
+      !builder
+        ? `${set ? 'Builders now run' : 'Builders run'} the required checks (${required}): no lighter ones are named.`
+        : queue.length
+          ? `${set ? 'Builders now run' : 'Builders run'} ${builder.join(', ')} where the merge queue runs (${queue.join(', ')}), and the required checks (${required}) run once in it, before each merge.`
+          : `gates.builder names ${builder.join(', ')}${set ? ' now' : ''}, but no environment's pull requests go through the merge queue (auto-merge, under autonomy review), so builders run the required checks (${required}).`,
+      set ? 'Set in .acc/config.json: commit it to share it.' : '',
+    ].filter(Boolean).join(' '), { builder, required: config.gates.required, queue, gates: gatesFor(config).map((g) => g.name) });
+  };
+  if (!names.length && o.none !== true) {
+    show(false);
+    return 0;
+  }
+  if (names.length && o.none === true) throw new AccError('usage', 'acc gate builder <name>…, or acc gate builder --none: not both.');
+  noAgent(o, 'change the checks builders run');
+  setBuilderGates(paths.config, o.none === true ? null : names);
+  show(true);
   return 0;
 }
 
@@ -188,6 +254,10 @@ export const area: CommandArea = {
                                         A person sets checks aside on this commit (or the task's), with a reason
   acc gate relax <ratchet> --to <n> --reason "<why>" [--task <id>]
                                         A person relaxes a ratchet's floor here (or in the task's worktree), with a reason
+  acc gate required [<gate>...]         The checks every task must pass; with names, set them in .acc/config.json.
+                                        Where the merge queue runs, they run once in it, before each merge
+  acc gate builder [<gate>...|--none]   Builders' lighter checks where the merge queue runs the required ones; with
+                                        names, set them in .acc/config.json, or with --none take them out
   acc drift <environment> [--manifest <path>] [--keep]
                                         What changed in an org since its branch; prints nothing if none`,
   },
@@ -199,6 +269,7 @@ export const area: CommandArea = {
     to: { type: 'string' },
     manifest: { type: 'string' },
     keep: { type: 'boolean', default: false },
+    none: { type: 'boolean', default: false },
   },
   commands: {
     gate: (o, rest) => {
@@ -207,8 +278,9 @@ export const area: CommandArea = {
       if (sub === 'list') return cmdGateList(o);
       if (sub === 'waive') return cmdGateWaive(o, names);
       if (sub === 'relax') return cmdGateRelax(o, names);
-      throw new AccError('usage', 'acc gate run [<gate>...] | acc gate list | acc gate waive <gate>... --reason "<why>" | acc gate relax <ratchet> --to <n> --reason "<why>"');
-
+      if (sub === 'required') return cmdGateRequired(o, names);
+      if (sub === 'builder') return cmdGateBuilder(o, names);
+      throw new AccError('usage', 'acc gate run [<gate>...] | acc gate list | acc gate waive <gate>... --reason "<why>" | acc gate relax <ratchet> --to <n> --reason "<why>" | acc gate required [<gate>...] | acc gate builder [<gate>...|--none]');
     },
     drift: (o, rest) => {
       if (!rest[0]) throw new AccError('usage', 'acc drift <environment>');

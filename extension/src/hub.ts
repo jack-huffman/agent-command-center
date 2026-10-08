@@ -10,7 +10,8 @@ import { run as runSync } from '../../packages/core/src/exec.ts';
 import { CLONE_ACCOUNT_KEY } from '../../packages/core/src/github.ts';
 import { type Ledger, readLedger, readRuns, type RepoAgents, type RunsLog, type SessionTie, tieSession } from '../../packages/core/src/ledger.ts';
 import type { RepoPaths } from '../../packages/core/src/paths.ts';
-import type { HistoryRecord, Question } from '../../packages/core/src/questions.ts';
+import { type HistoryRecord, listeners, type Question, questionsDir } from '../../packages/core/src/questions.ts';
+import { rememberRepo } from '../../packages/core/src/repos.ts';
 import { reviewing } from '../../packages/core/src/review.ts';
 import { type HeavyState, heavyState } from '../../packages/core/src/semaphore.ts';
 import { claudeProjectsDir, lastModelIn, lastSaidIn, transcriptFile } from '../../packages/core/src/transcript.ts';
@@ -23,6 +24,8 @@ import { runFile } from './run.ts';
 import { branchStats as readBranchStats } from './worktrees.ts';
 import type { LastStep } from './transcript.ts';
 import { analysesOf, deriveRows, loadChanged } from './task-rows.ts';
+import { readLimits } from './limits.ts';
+import type { LimitsFacts } from './model/limits.ts';
 
 export interface WorktreeInfo extends Worktree {
   main: boolean;
@@ -51,6 +54,8 @@ export type HubPart = 'projects' | 'tasks' | 'agents' | 'worktrees' | 'jobs';
 /** While anything was under way this recently, In progress redraws every TICK_MS, so its times and done lines move on. */
 const BUSY_MS = 90_000;
 const TICK_MS = 15_000;
+/** How long Settings' limits are kept before they're read again (GH-111). */
+const LIMITS_MS = 15_000;
 
 /** And its tickets' draft updates (D-066). */
 const updatesOf = (p: Pick<Project, 'ledgerPath'>): Pick<RepoPaths, 'updates'> => ({ updates: join(dirname(p.ledgerPath), 'updates') });
@@ -109,6 +114,11 @@ export class Hub implements vscode.Disposable {
   answers: HistoryRecord[] = [];
   /** The home folder, which sessions' folders show as ~ (GH-83). */
   readonly home = homedir();
+  /**
+   * The folders other windows' Command Centers show, by the listener files each keeps fresh while it's open
+   * (D-030), as of the last `claude agents`: the Agents page says a repo is in another window (GH-119).
+   */
+  otherWindows: string[] = [];
   /** The repo each session's folder is in, as of the last `claude agents`, so a repo made since shows next time (GH-83). */
   private readonly repos = new Map<string, string | null>();
   private readonly tasks = new Map<string, { stamp: string; ledger: Ledger; rows: TaskRow[] }>();
@@ -150,6 +160,8 @@ export class Hub implements vscode.Disposable {
   private ties = new WeakMap<AgentSession, SessionTie | null>();
   private jobsSig = '';
   private busyAt = 0;
+  /** Settings' limits (GH-111), as of the last read, kept a while: it reads every repo's ledger acc noted on this machine. */
+  private limitsRead: { at: number; facts: LimitsFacts } | null = null;
   /** What each in-flight task's branch has changed, by project and task, from the worktree poll (D-093). */
   readonly changed = new Map<string, Map<string, string[]>>();
   private readonly emitter = new vscode.EventEmitter<HubPart>();
@@ -185,6 +197,9 @@ export class Hub implements vscode.Disposable {
       found.push({ name: config.project, root, config, githubFrom: config.github ? (chosen ? 'clone' : 'config') : null, ledgerPath: join(common.stdout.trim(), 'acc', 'ledger.json'), branch: old?.branch ?? null, worktrees: old?.worktrees ?? [], agents });
     }
     this.projects = found;
+    // This machine's repos, so the Connect page can say which epic another repo uses (GH-81). A repo set up
+    // before the list existed joins it the first time it's open here.
+    for (const p of found) rememberRepo(p.root);
     this.forgetTies(true);
     await vscode.commands.executeCommand('setContext', 'acc.hasProject', found.length > 0);
     this.emitter.fire('projects');
@@ -482,6 +497,7 @@ export class Hub implements vscode.Disposable {
     const r = await runFile('claude', ['agents', '--json'], this.projects[0]?.root ?? process.cwd(), process.env, undefined, 20_000);
     this.repos.clear();
     this.forgetTies(true);
+    this.otherWindows = listeners(questionsDir()).filter((l) => l.pid !== process.pid).flatMap((l) => l.roots.filter((x) => typeof x === 'string'));
     if (r.code === 127) {
       this.agents = [];
       this.agentsError = 'The Claude Code CLI (claude) isn\'t on PATH.';
@@ -549,6 +565,26 @@ export class Hub implements vscode.Disposable {
     ]);
     if (sig === this.jobsSig) return;
     this.jobsSig = sig;
+    this.emitter.fire('jobs');
+  }
+
+  // ------------------------------------------------------------ limits (GH-111)
+
+  /** This machine's limits and each project's, read again at most every LIMITS_MS, or once forgotten. */
+  limits(): LimitsFacts | null {
+    const now = Date.now();
+    if (this.limitsRead && now - this.limitsRead.at < LIMITS_MS) return this.limitsRead.facts;
+    try {
+      this.limitsRead = { at: now, facts: readLimits(this.projects, (root) => this.ledger(root), this.heavy) };
+    } catch {
+      this.limitsRead = null;
+    }
+    return this.limitsRead?.facts ?? null;
+  }
+
+  /** A limit changed: the next look reads them again, and the page redraws. */
+  forgetLimits(): void {
+    this.limitsRead = null;
     this.emitter.fire('jobs');
   }
 

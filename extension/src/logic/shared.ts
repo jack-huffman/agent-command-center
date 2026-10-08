@@ -98,8 +98,8 @@ export interface RowFiles {
   first: string[];
   /** A person dispatched it, and it waits: when, why its start failed if it did, and whether autopilot tried. */
   held: { at: string; failed: string | null; byAutopilot: boolean } | null;
-  /** The agent cap is reached, so a held task waits for that too. */
-  capped?: boolean;
+  /** A cap is reached, so a held task waits for that too: the project's (agents.max), or this machine's total (GH-111). */
+  capped?: 'project' | 'machine';
 }
 
 /** "GH-74", "GH-74 and GH-75", "GH-74, GH-75 and GH-76". */

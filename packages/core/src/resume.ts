@@ -8,7 +8,7 @@ import { builderModel } from './dispatch.ts';
 import { builderSettings } from './packet.ts';
 import { AccError, parseJsonOutput, type Runner } from './exec.ts';
 import { remindedPath } from './hooks.ts';
-import { type Actor, type ClaudeSession, mutate, readLedger, sessionActive, sessionsOf, type Task } from './ledger.ts';
+import { type Actor, type ClaudeSession, DONE_COMMAND, mutate, readLedger, sessionActive, sessionsOf, type Task } from './ledger.ts';
 import { alive } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
 import { claudeProjectsDir, lastSaid, savedFolder } from './transcript.ts';
@@ -89,7 +89,7 @@ export function resumeMessage(task: Pick<Task, 'id' | 'title'>, said: string | n
     '',
     'If you were cut off, carry on from where you left off. If you stopped to ask something, decide it yourself where the task allows, or block and ask.',
     '',
-    `Start with \`git status\` and \`git log --oneline -3\`${head ? ` (your branch's latest commit is ${head})` : ''}, then finish the task and its finish line: commit everything, run exactly \`acc gate run\`, then run exactly \`acc done\`. If you're stuck, run exactly \`acc block "<what you need>"\` and stop.`,
+    `Start with \`git status\` and \`git log --oneline -3\`${head ? ` (your branch's latest commit is ${head})` : ''}, then finish the task and its finish line: commit everything, run exactly \`acc gate run\`, then finish with your note, all on one line: \`${DONE_COMMAND}\`. If you're stuck, run exactly \`acc block "<what you need>"\` and stop.`,
   ].join('\n');
 }
 

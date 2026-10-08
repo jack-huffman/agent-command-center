@@ -221,7 +221,10 @@ test('a source that moves changes nothing for the repo: the packet is the same, 
   moveTask(paths, config, 'T-1', { to: 'todo', actor: 'human', by: 'human:test', force: true, reason: 'again' }, noGateHooks, now);
   calls.length = 0;
   go();
-  assert.equal(packetOf(), first, 'byte for byte the same');
+  // The second run is also told the first left no note (D-106); the rest, rules and all, is the same.
+  const again = packetOf();
+  assert.ok(again.includes('## Your last run left no note'));
+  assert.equal(again.replace(/## Your last run left no note\n\n[^\n]*\n\n/, ''), first, 'byte for byte the same');
   const reads = calls.filter((c) => !c.startsWith('claude '));
   assert.ok(!reads.some((c) => c.startsWith('gh ') || c.includes(dirname(file))), reads.join('\n'));
 

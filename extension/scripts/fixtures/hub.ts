@@ -6,6 +6,7 @@ import { isUnder } from '../../src/logic/shared.ts';
 import type { HubLike, ProjectLike } from '../../src/model/shared.ts';
 import { REPOS, SESSION_MODELS, sampleAgents, sampleLedgers } from './agents.ts';
 import { sampleAutopilot, sampleHistory } from './history.ts';
+import { sampleLimits } from './limits.ts';
 import { sampleAnswers, sampleQuestions } from './questions.ts';
 import { CLIENTS, ROOT, wt } from './shared.ts';
 import { sampleTasks } from './tasks.ts';
@@ -51,8 +52,11 @@ export function sampleHub(now = Date.now()): HubLike {
     projectFor: (p: string) => (p === root || p.startsWith(`${root}/`) ? project : undefined),
     home: '/Users/me',
     repoFor: (p: string) => repoRoot(p, '/Users/me', (d) => REPOS.has(d)),
+    // Another window's Command Center shows ~/clients/Acme Service (GH-119).
+    otherWindows: [CLIENTS, `${CLIENTS}/.claude/worktrees/ACME-42`],
     autopilotLog: () => sampleAutopilot(now),
     updates: () => sampleUpdates(now),
     history: () => sampleHistory(now),
+    limits: () => sampleLimits(),
   };
 }

@@ -4,7 +4,7 @@ import { branchFor, parseConfig, type Config, type EnvType, type Profile } from 
 import { credentialHelper } from './github.ts';
 import { AccError, type Runner } from './exec.ts';
 import { LICENSE_TO_TYPE, parseOrgUrl } from './onboarding/helpers.ts';
-import { type LoadedTemplate, loadTemplate, overlayEnvironments, overlaySettings, type Settings, templateTrackers } from './template.ts';
+import { type LoadedTemplate, loadTemplate, overlayEnvironments, overlaySettings, pickedTracker, type Settings, templateTrackers } from './template.ts';
 
 export interface InitOptions {
   root: string;
@@ -18,6 +18,11 @@ export interface InitOptions {
   commitEmail?: string;
   jiraSite?: string;
   jiraProject?: string;
+  /**
+   * One tracker, as a description's toConfig gives it (GH-81): a project started from an epic, an area path
+   * or labels picked on the Connect page. It replaces the template's tracker and --jira-*, with a note.
+   */
+  tracker?: Record<string, unknown>;
   /** A team template's source (GH-80), fetched as templateAccount says. */
   from?: string;
   /** A template already read, in place of `from`. */
@@ -188,13 +193,16 @@ export function planInit(run: Runner, opts: InitOptions): InitPlan {
     }
     settings = overlaySettings(t, settings);
     if (t.gates) fromTemplate.push('gates');
-    if (t.tracker) {
+    if (t.tracker && !opts.tracker) {
       trackers = templateTrackers(t.tracker, { jiraSite: opts.jiraSite, jiraProject: opts.jiraProject }, notes);
       if (trackers.length) fromTemplate.push('trackers');
     }
     if (t.autonomy) fromTemplate.push('autonomy');
     if (t.agents) fromTemplate.push('agents');
   }
+
+  // A tracker picked on the Connect page wins over the template's and --jira-*, as flags beat templates (D-097).
+  if (opts.tracker) trackers = [pickedTracker(opts.tracker, { template: t?.tracker ?? null, jiraSite: opts.jiraSite, jiraProject: opts.jiraProject }, notes)];
 
   const listIfPresent = (rel: string) => (existsSync(join(root, rel)) ? rel : undefined);
   const raw = {

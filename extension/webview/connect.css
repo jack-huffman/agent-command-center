@@ -34,6 +34,11 @@
 .connect-test .cfield-status { flex: 1 1 200px; padding-top: 3px; }
 .connect-test .status { white-space: normal; padding-top: 3px; }
 .connect .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* A choice another repo on this machine uses (GH-81): an icon and words in the tick, wrapping under its
+   label at 500 px rather than widening it. */
+.tick .used-by { display: inline-flex; align-items: center; gap: 3px; font-size: 0.9em; flex-wrap: wrap; }
+.tick .used-by .codicon { font-size: 13px; }
 .connect-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
 .connect-foot .status { white-space: normal; }
 @media (max-width: 620px) {

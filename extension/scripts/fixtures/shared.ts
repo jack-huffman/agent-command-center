@@ -31,3 +31,9 @@ export const N10 = named('ACME-10', 'Add a CHANGELOG');
 export const N12a = named('ACME-12', 'Case escalation rules for the premium tier');
 export const R20 = sessionName({ project: 'Acme Service', key: 'ACME-20', title: 'Show the renewal date on the Account page', role: 'review' });
 export const N38 = named('ACME-38', 'Merge the support queues');
+// In ~/clients/Acme Service, open in another window (GH-119): a task in review, its builder and its reviewer.
+export const T42 = 'Archive closed cases after a year';
+export const N42 = named('ACME-42', T42);
+export const R42 = sessionName({ project: 'Acme Service', key: 'ACME-42', title: T42, role: 'review' });
+// The analyst reading ACME-24 before it's built, in the main checkout (D-087).
+export const A24 = sessionName({ project: 'Acme Service', key: 'ACME-24', title: 'Sync the renewal date to the billing system', role: 'analysis' });

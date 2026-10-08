@@ -5,6 +5,7 @@ import { area as agents } from './agents.ts';
 import { area as boards } from './boards.ts';
 import { area as connect } from './connect.ts';
 import { area as environments } from './environments.ts';
+import { area as limits } from './limits.ts';
 import { area as overview } from './overview.ts';
 import { area as page } from './page.ts';
 import { area as questions } from './questions.ts';
@@ -17,7 +18,7 @@ import { area as tasks } from './tasks.ts';
 import { area as updates } from './updates.ts';
 import { area as worktrees } from './worktrees.ts';
 
-export const AREAS = [agentPage, agents, boards, connect, environments, overview, page, questions, runs, settings, setup, slack, taskPage, tasks, updates, worktrees];
+export const AREAS = [agentPage, agents, boards, connect, environments, limits, overview, page, questions, runs, settings, setup, slack, taskPage, tasks, updates, worktrees];
 export type Message =
   | import('./agent-page.ts').Message
   | import('./agents.ts').Message

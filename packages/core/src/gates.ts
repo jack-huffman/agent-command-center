@@ -5,13 +5,14 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, posix } from 'node:path';
-import { type Config, type Environment, requiredGates } from './config.ts';
+import { type Config, type Environment, isTestGate, requiredGates } from './config.ts';
 import { AccError, parseJsonOutput, type RunResult, type Runner, sfEnv } from './exec.ts';
 import type { Ledger, Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
 import { carriesOver, FLOORS_FILE, floorsAt, judgeRatchet, type RatchetFloors, ratchetGate, readFloors, readRelaxed, withRaises, writeFloors } from './ratchets.ts';
-import { type GateStatus, ratchetOf, readReceipt, type Receipt, receiptsAt, writeReceipt } from './receipts.ts';
+import { earlierCounts, type GateStatus, ratchetOf, readReceipt, type Receipt, receiptsAt, writeReceipt } from './receipts.ts';
 import { type SlotOptions, withSlot } from './semaphore.ts';
+import { apexCounts, countsLine, newlySkipped, NO_COUNTS, readTestCounts, type TestCounts } from './test-counts.ts';
 
 export interface Changes {
   /** The commit the branch grew from: its merge base with the environment's branch. */
@@ -48,16 +49,28 @@ export interface Outcome {
   status: GateStatus;
   summary: string;
   details?: Record<string, unknown>;
+  /** What a test check ran, as its runner reported it (GH-100). */
+  counts?: TestCounts;
+  /** That acc couldn't read what a test check ran, or what its count was compared with. */
+  countsNote?: string;
 }
 
-/** What a gate will do: decide without running anything, or run a command and read its result. */
-export type Plan = { outcome: Outcome } | { cmd: string; args: string[]; read?: (r: RunResult) => Outcome; env?: Record<string, string> };
+/**
+ * What a gate will do: decide without running anything, or run a command and read its result. `tests` says
+ * whether the run runs tests where the gate's name doesn't, as validate does when it's given Apex tests.
+ */
+export type Plan = { outcome: Outcome } | { cmd: string; args: string[]; read?: (r: RunResult) => Outcome; env?: Record<string, string>; tests?: boolean };
 
 export interface Gate {
   name: string;
   heavy: boolean;
   /** What it checks, in a few words, for `acc gate list`. */
   about: string;
+  /**
+   * Which tests it runs depends on the change, as the tests related to it or named for it, so its skipped
+   * count isn't compared with another commit's (GH-100): lwc-tests, validate and a builder's lighter checks.
+   */
+  changeBound?: boolean;
   plan(input: GateInput): Plan;
 }
 
@@ -101,9 +114,9 @@ export function checkEnv(env: NodeJS.ProcessEnv = process.env, heavyDir?: string
  * `npm run test:near` reads the list, and a script given none would run nothing and pass. The list is
  * worked out once a run, reading each file once.
  */
-function commandGate(name: string, command: string, heavy: boolean): Gate {
+function commandGate(name: string, command: string, heavy: boolean, changeBound: boolean): Gate {
   return {
-    name, heavy, about: command,
+    name, heavy, about: command, changeBound,
     plan: ({ changes, near }) => ({
       cmd: 'sh', args: ['-c', command], read: exitRead,
       env: { ACC_CHANGED: changes.files.join('\n'), ACC_NEAR_TESTS: near().join('\n') },
@@ -265,7 +278,7 @@ const lint: Gate = {
 };
 
 const lwcTests: Gate = {
-  name: 'lwc-tests', heavy: true, about: 'Jest tests related to changed LWC',
+  name: 'lwc-tests', heavy: true, about: 'Jest tests related to changed LWC', changeBound: true,
   plan({ root, changes }) {
     const files = changes.files.filter((f) => LWC.test(f));
     if (!files.length) return { outcome: skip('No LWC has changed.') };
@@ -333,8 +346,8 @@ export function validateArgs(org: string, source: string[], tests: ApexTest[]): 
 const asList = <T>(x: T | T[] | undefined | null): T[] => (x == null ? [] : Array.isArray(x) ? x : [x]);
 
 interface DeployResult {
-  id?: string; success?: boolean; status?: string; numberComponentsTotal?: number; numberTestsCompleted?: number;
-  details?: { componentFailures?: unknown; runTestResult?: { failures?: unknown } };
+  id?: string; success?: boolean; status?: string; numberComponentsTotal?: number; numberTestsCompleted?: number; numberTestsTotal?: number; numberTestErrors?: number;
+  details?: { componentFailures?: unknown; runTestResult?: { failures?: unknown; numTestsRun?: unknown; numFailures?: unknown } };
 }
 
 /** Reads `sf project deploy start --json`, which reports on stdout whether or not the deploy worked. */
@@ -349,19 +362,22 @@ export function readDeploy(r: RunResult, org: string, tests: ApexTest[], sourceC
   if (!res?.id) return error(j.message?.trim() || lastLine(r.stderr) || 'sf returned no deploy result.');
   const details = { jobId: res.id, org, testLevel: tests.length ? 'RunSpecifiedTests' : 'NoTestRun', tests };
   const n = res.numberComponentsTotal ?? sourceCount;
+  // What Apex ran, where the builder named tests (GH-100). NoTestRun ran none on purpose, so it has no counts.
+  const counts = tests.length ? apexCounts(res) : null;
+  const withCounts = (o: Outcome): Outcome => (counts ? { ...o, counts } : o);
   if (res.success) {
     const ran = tests.length ? `, ${plural(res.numberTestsCompleted ?? 0, 'test')} passed` : '';
-    return pass(`Validated ${plural(n, 'component')} against ${org}${ran}. Nothing was saved (job ${res.id}).`, details);
+    return withCounts(pass(`Validated ${plural(n, 'component')} against ${org}${ran}. Nothing was saved (job ${res.id}).`, details));
   }
   const problems = [
     ...asList(res.details?.componentFailures as { fileName?: string; fullName?: string; lineNumber?: number; problem?: string }[]).map((f) => `${f.fileName ?? f.fullName ?? '?'}${f.lineNumber ? `:${f.lineNumber}` : ''}: ${f.problem ?? 'failed'}`),
     ...asList(res.details?.runTestResult?.failures as { name?: string; methodName?: string; message?: string }[]).map((f) => `${f.name}.${f.methodName}: ${f.message}`),
   ];
-  return fail(problems.length ? `${plural(problems.length, 'problem')}: ${listOf(problems, 2)}` : (j.message?.trim() || `The validation ${res.status ?? 'failed'}.`), { ...details, problems });
+  return withCounts(fail(problems.length ? `${plural(problems.length, 'problem')}: ${listOf(problems, 2)}` : (j.message?.trim() || `The validation ${res.status ?? 'failed'}.`), { ...details, problems }));
 }
 
 const validate: Gate = {
-  name: 'validate', heavy: true, about: 'a check-only deploy of changed source to the environment\'s org',
+  name: 'validate', heavy: true, about: 'a check-only deploy of changed source to the environment\'s org', changeBound: true,
   plan({ root, env, changes, tests }) {
     if (!env.org) return { outcome: error(`${env.name} has no org alias in .acc/config.json.`) };
     if (env.protected) return { outcome: error(`${env.name} is protected. Tasks are checked against their own environment, never a protected one.`) };
@@ -377,7 +393,7 @@ const validate: Gate = {
     if (apex.length && !tests.length) {
       return { outcome: fail(`Apex changed (${listOf(apex)}). Name the test classes that cover it: acc gate run validate --test <TestClass>="<why it covers the change>"`) };
     }
-    return { cmd: 'sf', args: validateArgs(env.org, source, tests), read: (r) => readDeploy(r, env.org!, tests, source.length) };
+    return { cmd: 'sf', args: validateArgs(env.org, source, tests), read: (r) => readDeploy(r, env.org!, tests, source.length), tests: tests.length > 0 };
   },
 };
 
@@ -385,12 +401,14 @@ const SALESFORCE_GATES = [format, lint, staticGate, lwcTests, validate];
 
 /**
  * The project's gates: the profile's built-ins, then `gates.commands`, which can replace a built-in by name,
- * then `gates.ratchets` (GH-99), whose names are their own.
+ * then `gates.ratchets` (GH-99), whose names are their own. A builder's lighter check, one `gates.builder`
+ * names that the full check doesn't, is bound to the change.
  */
 export function gatesFor(config: Config): Gate[] {
   const heavy = (name: string) => config.gates.heavy.includes(name);
+  const lighter = (name: string) => !!config.gates.builder?.includes(name) && !config.gates.required.includes(name);
   const builtIn = config.profile === 'salesforce' ? SALESFORCE_GATES.map((g) => ({ ...g, heavy: heavy(g.name) })) : [];
-  const custom = Object.entries(config.gates.commands).map(([name, cmd]) => commandGate(name, cmd, heavy(name)));
+  const custom = Object.entries(config.gates.commands).map(([name, cmd]) => commandGate(name, cmd, heavy(name), lighter(name)));
   const ratchets = Object.entries(config.gates.ratchets ?? {}).map(([name, spec]) => ratchetGate(name, spec, heavy(name)));
   return [...builtIn.filter((g) => !config.gates.commands[g.name]), ...custom, ...ratchets];
 }
@@ -508,6 +526,11 @@ export interface GateRunDeps {
    * the merge queue's check, whose worktree must stay clean.
    */
   raise?: boolean;
+  /**
+   * The branch's head, when this commit merges its base into it: a person's waiver of a gate there clears
+   * a hold here, counts or not, so the queue's next merge of a waived head doesn't stop again (GH-100).
+   */
+  waivedOn?: string;
 }
 
 export interface GateRun {
@@ -526,6 +549,39 @@ export function assertCheckOnly(cmd: string, args: string[]): void {
   if (/(^|\/)sf$/.test(cmd) && i >= 0 && args[i + 1] !== 'validate' && !args.includes('--dry-run')) {
     throw new AccError('refused', `A gate tried to run a real deploy (${[cmd, ...args.slice(0, 4)].join(' ')} …). Gates only validate.`);
   }
+}
+
+export interface SettleCheck {
+  /** Whether the run runs tests: it's a test gate, or its plan says so. */
+  tests: boolean;
+  /** Whether its skipped count is compared: a test set that doesn't depend on the change, with a base to look back from. */
+  compared: boolean;
+  /** The nearest earlier receipt with counts for the same gate and command on the environment's branch, if any. */
+  earlier: Receipt | null;
+  /** The environment's branch, as the receipt's note names it. */
+  env: string;
+}
+
+/**
+ * What a gate's outcome comes to, given what its tests ran (GH-100). A would-be pass that ran no tests, or
+ * skipped more than its nearest earlier count, is a hold: a person decides. A fail or an error keeps its
+ * status. A test check whose output acc couldn't read says so; one compared says with what.
+ */
+export function settle(outcome: Outcome, check: SettleCheck): Outcome {
+  const c = outcome.counts;
+  if (!c) return check.tests && outcome.status !== 'skip' ? { ...outcome, countsNote: NO_COUNTS } : outcome;
+  if (outcome.status !== 'pass') return outcome;
+  if (c.run === 0) {
+    return { ...outcome, status: 'hold', summary: `Ran no tests${c.skipped || c.todo ? ` (${countsLine(c)})` : ''}, so it can't vouch for the change.` };
+  }
+  if (!check.compared) return outcome;
+  const before = check.earlier?.counts;
+  if (!check.earlier || !before) return { ...outcome, countsNote: `Nothing earlier on ${check.env} to compare its skipped tests with.` };
+  const at = check.earlier.sha.slice(0, 7);
+  const fresh = newlySkipped(c, before);
+  const note = `Compared with ${before.skipped} skipped on ${at}, the nearest earlier count on ${check.env}.${fresh.length ? ` Newly skipped: ${fresh.join(', ')}.` : ''}`;
+  if (c.skipped <= before.skipped) return { ...outcome, countsNote: note };
+  return { ...outcome, status: 'hold', summary: `${c.skipped} skipped, up from ${before.skipped} on ${at}${fresh.length ? `: ${listOf(fresh)} newly skipped` : ''}.`, countsNote: note };
 }
 
 /** Every gate runs under nice, so checks don't make the machine stutter. */
@@ -588,14 +644,18 @@ export function runGates(paths: RepoPaths, config: Config, env: Environment, nam
     // A person waived it on this commit (D-031): that stands until there's a new commit.
     const kept = readReceipt(paths, sha, gate.name);
     if (kept?.waived) {
-      results.push({ status: 'skip', summary: kept.summary, gate: gate.name, recorded: true, receipt: kept });
+      results.push({ status: 'skip', summary: kept.summary, ...(kept.counts ? { counts: kept.counts } : {}), gate: gate.name, recorded: true, receipt: kept });
       continue;
     }
     // This commit only records the floors acc raised on the one before, which measured them (GH-99).
     const carried = carryFrom ? carryReceipt(paths, config, input, gate.name, carryFrom, sha) : null;
     if (carried) {
       if (!dirty) writeReceipt(paths, carried);
-      results.push({ status: carried.status, summary: carried.summary, ...(carried.details ? { details: carried.details } : {}), gate: gate.name, recorded: !dirty, receipt: carried });
+      results.push({
+        status: carried.status, summary: carried.summary, ...(carried.details ? { details: carried.details } : {}),
+        ...(carried.counts ? { counts: carried.counts } : {}), ...(carried.countsNote ? { countsNote: carried.countsNote } : {}),
+        gate: gate.name, recorded: !dirty, receipt: carried,
+      });
       continue;
     }
     deps.onStart?.(gate);
@@ -618,12 +678,24 @@ export function runGates(paths: RepoPaths, config: Config, env: Environment, nam
       log = join(input.scratch, `${gate.name}.log`);
       writeFileSync(log, `$ ${command}\n# exit ${r.code}\n\n${r.stdout}${r.stderr ? `\n--- stderr ---\n${r.stderr}` : ''}`);
       outcome = (plan.read ?? exitRead)(r);
+      // Any gate's output that holds a test summary is counted; a test gate's that doesn't says so (GH-100).
+      const counts = outcome.counts ?? readTestCounts(r.stdout, r.stderr);
+      if (counts) outcome = { ...outcome, counts };
+      const compared = !gate.changeBound && !!changes;
+      const earlier = compared && counts && outcome.status === 'pass' ? earlierCounts(paths, deps.run, changes!.base, gate.name, command, sha) : null;
+      outcome = settle(outcome, { tests: plan.tests ?? isTestGate(config, gate.name), compared, earlier, env: env.branch });
     }
     const finished = deps.now();
+    // A person waived this gate on the head this merges its base into: a hold is theirs to clear, and they did.
+    const waiver = outcome.status === 'hold' && deps.waivedOn && deps.waivedOn !== sha ? readReceipt(paths, deps.waivedOn, gate.name)?.waived : undefined;
+    const held = outcome.summary;
+    if (waiver) outcome = { ...outcome, status: 'skip', summary: `Waived by ${waiver.by.replace(/^human:/, '')} on ${deps.waivedOn!.slice(0, 7)}, the branch's head: ${waiver.reason}` };
     const receipt: Receipt = {
       gate: gate.name, sha, env: env.branch, status: outcome.status,
       startedAt: started.toISOString(), finishedAt: finished.toISOString(), durationMs: finished.getTime() - started.getTime(),
       summary: outcome.summary, command, log, ...(outcome.details ? { details: outcome.details } : {}),
+      ...(outcome.counts ? { counts: outcome.counts } : {}), ...(outcome.countsNote ? { countsNote: outcome.countsNote } : {}),
+      ...(waiver ? { waived: { ...waiver, was: 'hold' as const, wasSummary: held } } : {}),
     };
     if (!dirty) writeReceipt(paths, receipt);
     results.push({ ...outcome, gate: gate.name, recorded: !dirty, receipt });
@@ -708,10 +780,12 @@ export function waiveGates(paths: RepoPaths, config: Config, req: WaiveRequest):
     if (before?.status === 'pass') throw new AccError('refused', `${gate} already passes on ${req.sha.slice(0, 7)}, so there's nothing to waive.`);
     const was = before?.waived ? before.waived.was : before?.status ?? null;
     const wasSummary = before?.waived ? before.waived.wasSummary : before?.summary ?? null;
+    // What its tests ran stays, with the command it came from: a waived hold is the count the next commit is compared with (GH-100).
     const receipt: Receipt = {
       gate, sha: req.sha, env: req.env.branch, status: 'skip', startedAt: at, finishedAt: at, durationMs: 0,
-      summary: `Waived by ${req.by.replace(/^human:/, '')}: ${reason}`, command: null, log: before?.log ?? null,
+      summary: `Waived by ${req.by.replace(/^human:/, '')}: ${reason}`, command: before?.counts ? before.command : null, log: before?.log ?? null,
       ...(before?.details ? { details: before.details } : {}),
+      ...(before?.counts ? { counts: before.counts } : {}), ...(before?.countsNote ? { countsNote: before.countsNote } : {}),
       waived: { by: req.by, reason, at, was, wasSummary },
     };
     writeReceipt(paths, receipt);
