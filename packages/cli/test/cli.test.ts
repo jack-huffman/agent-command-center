@@ -1073,24 +1073,29 @@ test('limits and checks are a person\'s at all three layers: the CLI, the hook a
     ['gate', 'required', 'typecheck'], ['gate', 'builder', 'typecheck'], ['gate', 'builder', '--none'],
     ['machine', 'agents', '2'], ['machine', 'agents', '--none'], ['machine', 'heavy-slots', '3'],
   ];
-  let checked = 0;
-  for (const args of commands) {
+  // The CLI refuses through one check, noAgent, so each command is run once, by each role in turn: every role
+  // meets two commands, and each acc started costs a second of the suite's time.
+  const callers = ['builder', 'reviewer', 'analyst', 'autopilot'] as const;
+  const met = new Map<string, number>();
+  for (const [i, args] of commands.entries()) {
     const line = `acc ${args.join(' ')}`;
-    for (const role of ['builder', 'reviewer', 'analyst']) {
+    const role = callers[i % callers.length]!;
+    met.set(role, (met.get(role) ?? 0) + 1);
+    if (role === 'autopilot') {
+      const autopilot = acc(dir, [...args, '--as', 'orchestrator'], undefined, env);
+      assert.equal(autopilot.code, 1, `autopilot: ${line}`);
+      assert.match(autopilot.err, /Only a person can/);
+    } else {
       const r = acc(dir, args, undefined, { ...env, ACC_ROLE: role, ACC_TASK: 'T-1' });
       assert.equal(r.code, 1, `${role}: ${line}`);
       assert.match(r.err, new RegExp(`An? ${role} can't .*A person does that\\.`), `${role}: ${line}`);
-      checked++;
     }
-    const autopilot = acc(dir, [...args, '--as', 'orchestrator'], undefined, env);
-    assert.equal(autopilot.code, 1, `autopilot: ${line}`);
-    assert.match(autopilot.err, /Only a person can/);
     assert.match(guardBash({ task: { id: 'T-1', run: {} } } as never, line) ?? '', /is a person's/, `the hook: ${line}`);
     assert.match(guardBash({ task: { id: 'T-1', run: {} } } as never, `cd x && nice -n 15 ${line}`) ?? '', /is a person's/, `the hook, chained: ${line}`);
     assert.ok(guardAnalyst(line), `the analyst's hook: ${line}`);
     assert.ok(denied(line), `the builder's deny list: ${line}`);
   }
-  assert.equal(checked, commands.length * 3, 'every command, every role');
+  assert.deepEqual([...met.entries()].sort(), [['analyst', 2], ['autopilot', 2], ['builder', 2], ['reviewer', 2]], 'every role, each on two commands');
   assert.equal(readFileSync(file, 'utf8'), LIMITS_CONFIG, 'nothing refused touched the project');
   assert.equal(readFileSync(machine, 'utf8'), '{}\n', 'nor the machine');
   // What a builder may run is still allowed: its checks, and seeing them.

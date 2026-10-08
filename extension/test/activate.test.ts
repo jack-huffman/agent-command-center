@@ -451,7 +451,8 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     calls.pick = (items) => items.find((i) => (i as { value?: unknown }).value === 4);
     await calls.commands.get('acc.settings.agentsMax')!(root);
     calls.pick = undefined;
-    assert.deepEqual(JSON.parse(readFileSync(configFile, 'utf8')).agents, { max: 4 });
+    // How agents run's steps above set the reviewer's effort here (GH-110): kept, with max beside it.
+    assert.deepEqual(JSON.parse(readFileSync(configFile, 'utf8')).agents, { ...JSON.parse(before).agents, max: 4 });
     assert.match(calls.info.at(-1) ?? '', /^Tool now runs at most 4 builders at once\. Changed in \.acc\/config\.json: commit it to share it\.$/);
     await calls.commands.get('acc.settings.machineAgents')!('5');
     assert.deepEqual(JSON.parse(readFileSync(MACHINE_FILE, 'utf8')), { agents: 5 });
@@ -462,9 +463,10 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     await calls.commands.get('acc.settings.requiredGates')!(root);
     assert.equal(calls.prompts, asked);
     assert.match(calls.info.at(-1) ?? '', /^Tool has no checks to choose from yet/);
-    // The new key goes after the last, indented as the file is, and nothing else moved.
-    assert.match(before, /\n {2}"autonomy": "review"\n\}\n$/, 'as acc agents autonomy left it, above');
-    assert.equal(readFileSync(configFile, 'utf8'), before.replace(/\n\}\n$/, ',\n  "agents": {\n    "max": 4\n  }\n}\n'));
+    // The new key goes after its object's last, indented as the file is, and nothing else moved.
+    const agentsWas = '  "agents": {\n    "reviewer": {\n      "effort": "high"\n    }\n  },\n';
+    assert.ok(before.includes(agentsWas), 'as acc agents set left it, above');
+    assert.equal(readFileSync(configFile, 'utf8'), before.replace(agentsWas, '  "agents": {\n    "reviewer": {\n      "effort": "high"\n    },\n    "max": 4\n  },\n'));
 
     await calls.commands.get(COMMANDS.check)!('B0.repo');
     assert.match(calls.info.at(-1) ?? '', /^✓ Inside the project's repo: Repo at /);
