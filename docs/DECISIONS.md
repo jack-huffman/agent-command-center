@@ -4302,9 +4302,12 @@ slots out of the Command Center: a terminal was the only place to set them.
 - **The machine counts every repo** from a note acc writes, the first time a
   repo dispatches, under `~/.acc/ledgers/`: a file naming its ledger. Its
   builders are its tasks in Running, as each project's cap counts them. A note
-  whose ledger has gone is dropped. With no total, nothing else is read.
-  Where acc's environment has no home (a test's made-up one), nothing
-  machine-wide is read or written.
+  whose ledger has gone is left out, and dropped only by acc's own commands (a
+  start, and `acc machine agents`): the Command Center's read writes nothing
+  (D-012). With no total, nothing else is read. The total is read and written
+  through one path, `machineJson`; where acc's environment has no home (a
+  test's made-up one), nothing machine-wide is read, and setting the total is
+  refused rather than written under the real home.
 - **A start that would pass either cap says which.** "3 builders are running in
   this project, and its cap is 3 (agents.max)", or "6 builders are running on
   this machine, across every repo, and its total is 6 (acc machine agents)".
@@ -4327,7 +4330,13 @@ slots out of the Command Center: a terminal was the only place to set them.
   `acc machine heavy-slots` (D-080), and `acc gate required [<name>…]` and
   `acc gate builder [<name>…|--none]` (D-096), both picked many at a time from
   the project's own checks. Slots that `ACC_HEAVY_SLOTS` sets stay in view,
-  with why they can't change here. No required checks shows in orange.
+  with why they can't change here. No required checks shows in orange. The
+  required checks, like the cap, say when they're acc's default because the
+  project's file names none.
+- **Read only while it's seen.** The Command Center reads the limits only
+  while Settings shows, or while a task is held and the project's own cap has
+  room, never on another section's render: the author's machine feels
+  background load.
 - **One key, byte for byte.** Each project command edits only its key in
   `.acc/config.json` (`config-edit.ts`): the value replaced where it stands, or
   a new key put after its object's last, indented as the file is, and every

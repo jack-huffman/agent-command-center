@@ -1137,9 +1137,13 @@ own numbers; the heavy-check slots; and each project's required and builders'
 checks. Every change runs acc (`acc agents max`, `acc machine agents`, `acc
 machine heavy-slots`, `acc gate required`, `acc gate builder`), which changes
 only its key. The extension reads the part's facts in `extension/src/limits.ts`
-at most every 15 seconds, since the total counts every repo's ledger acc noted
-under `~/.acc/ledgers/`, and runs its commands there; `model/limits.ts` words
-them, and `webview/limits.ts` draws them.
+only while Settings shows, or a held task waits, and then at most every 15
+seconds, since the total counts every repo's ledger acc noted under
+`~/.acc/ledgers/`. That read writes nothing (D-012): a note whose ledger has
+gone is left for acc's own commands to drop. It runs its commands there too;
+`model/limits.ts` words them, and `webview/limits.ts` draws them. A project's
+cap and required checks each say whether its `.acc/config.json` sets them or
+they're acc's default.
 
 The page is a webview under a nonce content security policy. It renders text
 only and accepts only allow-listed `acc.*` commands. Ticket pages stay their
