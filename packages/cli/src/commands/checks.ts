@@ -124,7 +124,10 @@ function cmdGateRelax(o: Opts, names: string[]): number {
   }
   out(o, () => [
     `Relaxed ${name}'s ${record.limit} from ${record.was === null ? 'nothing' : num(record.was)} to ${num(record.to)} in ${join(where, FLOORS_FILE)}: ${record.reason}`,
-    tone(`Commit that file with the change. A branch whose ${record.limit} is worse than its environment's passes only at a number a person relaxed it to, as acc's record of this one says.`, 'dim'),
+    // As DESIGN §9 has it: a worse floor passes at the number relaxed to or a better one, from the floor relaxed.
+    tone(`Commit that file with the change. ${record.was === null
+      ? `A branch with no ${record.limit} where it began passes at ${num(record.to)} or a better number.`
+      : `A branch that began at ${record.limit} ${num(record.was)} now passes with its ${record.limit} at ${num(record.to)} or a better one, as acc's record of this relax says. One that began at another ${record.limit} isn't backed by it.`}`, 'dim'),
   ].join('\n'), record);
   return 0;
 }

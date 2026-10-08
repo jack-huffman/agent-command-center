@@ -815,6 +815,10 @@ test('acc gate run raises a ratchet\'s floor only in a task\'s own worktree; acc
   assert.deepEqual([record.ratchet, record.to, record.was, record.task, realpathSync(record.root)], ['tests', 640, 674, 'T-1', realpathSync(wt)]);
   const event = readFileSync(join(dir, '.git', 'acc', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).at(-1);
   assert.deepEqual([event.task, event.actor, event.data.relaxed.to], ['T-1', 'human', 640]);
+  // It says what passes now, as DESIGN §9 does: the relaxed number or a better one, from the floor it relaxed.
+  const said = acc(dir, ['gate', 'relax', 'tests', '--to', '630', '--reason', 'and the flaky one', '--task', 'T-1']);
+  assert.equal(said.code, 0, said.err);
+  assert.match(said.out, /A branch that began at floor 640 now passes with its floor at 630 or a better one, as acc's record of this relax says\. One that began at another floor isn't backed by it\./);
   assert.match(acc(dir, ['gate', 'waive', 'tests', '--reason', 'flaky']).err, /tests is a ratchet: .*acc gate relax tests/);
 });
 
