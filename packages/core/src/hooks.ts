@@ -124,7 +124,7 @@ const CLOSING = /\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\b[\s:]+(#\d+|[A-Z][A-Z0
  * builder's: acc gate run and list are, but not waiving a check or changing which checks run (GH-111), and
  * acc rules list is, but not copying rules in (GH-108).
  */
-export const PERSON_ONLY_ACC = new Set(['set', 'dispatch', 'land', 'review', 'autopilot', 'analyze', 'promote', 'deploy', 'init', 'cleanup', 'agents', 'setup', 'update', 'updates', 'resume', 'machine', 'gate waive', 'gate required', 'gate builder', 'rules import', 'trackers set']);
+export const PERSON_ONLY_ACC = new Set(['set', 'dispatch', 'land', 'review', 'autopilot', 'analyze', 'promote', 'deploy', 'init', 'cleanup', 'agents', 'setup', 'update', 'updates', 'resume', 'machine', 'gate waive', 'gate required', 'gate builder', 'rules import', 'trackers set', 'tidy add', 'tidy skip']);
 
 /**
  * Whether a command line has a backtick or a $ the shell would act on: anywhere outside single quotes,
@@ -178,7 +178,8 @@ export function guardBash(b: Builder, line: string): string | null {
       if (verb === 'quick' || verb === 'resume' || (verb === 'start' && !rest.includes('--dry-run'))) return 'Builders validate and never deploy (D-011). Use acc gate run validate, which is a check-only deploy.';
     }
     if (cmd === 'sf' && sub === 'org' && rest[0] === 'delete') return 'Builders never delete an org.';
-    // A command is a person's by its name, or by its name and subcommand, such as acc rules import (GH-108).
+    // A command is a person's by its name, or by its name and subcommand, such as acc rules import (GH-108)
+    // or acc tidy add (GH-104); acc tidy alone only reads.
     const two = `${sub} ${rest[0] ?? ''}`;
     if (isAcc(cmd) && sub && (PERSON_ONLY_ACC.has(sub) || PERSON_ONLY_ACC.has(two))) {
       return `acc ${PERSON_ONLY_ACC.has(sub) ? sub : two} is a person's. A builder finishes with acc done, or acc block "<what you need>".`;
@@ -265,6 +266,8 @@ export function shortPacket(task: Task, gates: string[], full: string[] = []): s
     `Finish line: commit everything, run exactly \`acc gate run\`${gates.length ? ` (${gates.join(', ')})` : ''}, then finish with your note, all on one line: \`${DONE_COMMAND}\`. Give a flag again for each further line; use double quotes, with no backticks or $ inside. If you're stuck, run \`acc block "<what you need>"\` and stop.`,
     ...(full.length ? [`The full check (${full.join(', ')}) runs once, in the merge queue, before the merge.`] : []),
     'Never push, merge a pull request, open one, or deploy.',
+    // Every project's rules (GH-104), which keep parallel work mergeable, in one line.
+    'Rules: put new behaviour in its own file, registered with one line where a list names every area; if another task\'s change breaks your build, `acc block` with the reason and don\'t edit its files; write a manifest or config file whole, to a temp file then a rename.',
     `Your full instructions: acc show ${task.id}.`,
   ].join('\n');
 }

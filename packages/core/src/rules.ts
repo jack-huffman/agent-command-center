@@ -20,8 +20,19 @@ export const OWN_RULES = '.acc/rules.md';
 export const RULES_TOTAL_MAX_BYTES = 128 * 1024;
 
 /**
+ * Every project's rules (GH-104): what keeps many builders' work mergeable at once, whatever the profile.
+ * They come first of all, and a profile adds its own after them. A manifest such as package.xml is a
+ * manifest too, so Salesforce keeps these as well.
+ */
+export const BASE_RULES: string[] = [
+  'Put new behaviour in its own file. Where a list must name every area, such as an index or a registry, register it there with one line. Parallel tasks then rarely change the same lines, so their work merges.',
+  'If another task\'s change breaks your build, block with the reason (`acc block "<what broke, and which change>"`); don\'t edit its files. That task fixes its own breakage, and two fixes to one breakage conflict.',
+  'Write a manifest or config file whole: write a temp file beside it, then rename it into place. Never leave one half-written for another process, or a crash, to find.',
+];
+
+/**
  * The profile's rules (D-003): what every builder, reviewer and analyst of this kind of project keeps to.
- * They come first, so a team's copied-in rules and the repo's own can say otherwise.
+ * They come after BASE_RULES, so a team's copied-in rules and the repo's own can say otherwise.
  */
 export const PROFILE_RULES: Record<Profile, string[]> = {
   generic: [],
@@ -36,7 +47,7 @@ export const PROFILE_RULES: Record<Profile, string[]> = {
 const PROFILE_NAME: Record<Profile, string> = { generic: 'generic', salesforce: 'Salesforce' };
 
 /** What the packet, the review and the analysis each say about the order, before the rules. */
-export const RULES_ORDER = 'These come in a fixed order: the profile\'s rules, then rules copied in from elsewhere, then this repo\'s own. Where two disagree, the later one wins, so this repo\'s own rules win over the others.';
+export const RULES_ORDER = 'These come in a fixed order: every project\'s rules, then the profile\'s, then rules copied in from elsewhere, then this repo\'s own. Where two disagree, the later one wins, so this repo\'s own rules win over the others.';
 
 export const rulesDigest = (text: string): string => createHash('sha256').update(text).digest('hex');
 
@@ -128,11 +139,6 @@ export function importedRules(dir: string): RulesCopy[] {
 }
 
 /**
- * Every rule the builder, the reviewer and the analyst keep to, in the one order (GH-108): the profile's,
- * then each copy in .acc/rules/ by file name, then .acc/rules.md, which wins. Null when there are none.
- * It reads only `dir`: a task's worktree, or the main checkout.
- */
-/**
  * A copy's rules without a leading acc header (GH-108): one whose header can't be read keeps it in its body,
  * and a copy imported from another project's .acc/rules/ carries that project's. Neither is a rule.
  */
@@ -142,8 +148,13 @@ export function withoutHeader(body: string): string {
   return end >= 0 ? body.slice(end + 4).replace(/^\n/, '') : body.split('\n').slice(1).join('\n');
 }
 
-export function rulesText(dir: string, profile: Profile): string | null {
-  const parts: string[] = [];
+/**
+ * Every rule the builder, the reviewer and the analyst keep to, in the one order (GH-108): every project's
+ * (GH-104), then the profile's, then each copy in .acc/rules/ by file name, then .acc/rules.md, which wins.
+ * It reads only `dir`: a task's worktree, or the main checkout.
+ */
+export function rulesText(dir: string, profile: Profile): string {
+  const parts: string[] = ['### Every project\'s rules', '', ...BASE_RULES.map((r) => `- ${r}`), ''];
   const own = PROFILE_RULES[profile];
   if (own.length) parts.push(`### The ${PROFILE_NAME[profile]} profile's rules`, '', ...own.map((r) => `- ${r}`), '');
   for (const c of importedRules(dir)) {
@@ -155,7 +166,6 @@ export function rulesText(dir: string, profile: Profile): string | null {
   const ownFile = join(dir, OWN_RULES);
   const mine = existsSync(ownFile) ? readFileSync(ownFile, 'utf8').trim() : '';
   if (mine) parts.push(`### This repo's own rules (\`${OWN_RULES}\`)`, '', mine, '');
-  if (!parts.length) return null;
   return [RULES_ORDER, '', ...parts].join('\n').trim();
 }
 

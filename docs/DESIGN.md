@@ -206,6 +206,7 @@ doesn't know, at any level (GH-107).
 | `autopilot.appendOnly` | Files, or folders, where autopilot may resolve a conflict with the base when both sides only added to the end, such as a decision log. Left out, there are none ([section 12](#12-the-orchestrator-loop)) |
 | `autopilot.autoMerge` | `true` lets autopilot merge a reviewed pull request whose checks passed, with nothing waiting on you, into an environment that isn't protected, through the merge queue, under autonomy `review` (GH-67). Off unless it's `true`, and never in a Salesforce project. `acc agents auto-merge on` sets it ([section 12](#12-the-orchestrator-loop)) |
 | `dispatch.shared` | Files, or folders, that every task edits, such as the docs. Like `autopilot.appendOnly`, they never make one task wait for another's files. Left out, there are none ([section 7](#7-dispatch)) |
+| `tidy.every` | How many tasks merge in the repo, after the last tidy-up a person added or skipped, before the Command Center offers a tidy-up task for them to confirm (GH-104). A whole number from 0 to 100; left out, 8; 0 never offers one ([section 12](#12-the-orchestrator-loop)) |
 | `worktrees.root` | Where task worktrees go. The default is `.claude/worktrees/` inside the repo, where a background agent started from the trusted main checkout can enter one without a trust prompt (D-022, [section 7](#7-dispatch)) |
 | `worktrees.setup` | Commands run in each new task worktree, in order, once it's made and `node_modules` is linked in from the main checkout, such as `npm ci`. One that fails stops the dispatch |
 | `gates` | Which checks are required, plus per-check overrides ([section 9](#9-gates-and-receipts)). `gates.required` names the checks a commit needs before review and landing, and `gates.commands` gives each check its command. `gates.heavy` names those that take the machine-wide slot, one at a time across every repo (D-024); left out, `build`, `test` and `check`, or in Salesforce `static`, `lwc-tests` and `validate`. `gates.severity` is the Code Analyzer level that fails `static`, from 1 (only the worst problems) to 5 (everything), default 2. `gates.builder` names a builder's lighter checks, where the merge queue runs the required ones. `acc gate required` and `acc gate builder` change the two lists, as Settings does (GH-111). `gates.tests` names the checks that run tests, besides `test` and Salesforce's `lwc-tests`: their receipts count what ran, and one that ran none needs a person (GH-100) |
@@ -475,10 +476,15 @@ or from the project's `.acc/packet.md` if there is one. It contains:
   - edit files outside the worktree
   - edit an environment-specific file
   - change the ticket
-- **Rules:** one section, in a fixed order (GH-108). First the profile's rules
-  (Salesforce's: bulk-safe Apex, sharing and field access, tests that assert
-  outcomes, no org-specific values in metadata; a generic project has none),
-  then each copy in `.acc/rules/` by file name, under a heading naming its
+- **Rules:** one section, in a fixed order (GH-108). First every project's
+  rules, in every profile (GH-104), which keep many builders' work mergeable:
+  put new behaviour in its own file, and where a list must name every area,
+  register it there with one line; if another task's change breaks your build,
+  block with the reason and don't edit its files; write a manifest or config
+  file whole, to a temp file then a rename, never half-written. Then the
+  profile's rules (Salesforce's: bulk-safe Apex, sharing and field access,
+  tests that assert outcomes, no org-specific values in metadata; a generic
+  project has none), then each copy in `.acc/rules/` by file name, under a heading naming its
   source, then `.acc/rules.md`. A sentence before them says the later one
   wins, so the repo's own rules win where they conflict. They're read from the
   task's worktree, so a copy reaches builders once it's committed on the
@@ -487,7 +493,7 @@ or from the project's `.acc/packet.md` if there is one. It contains:
   the main checkout.
 
 When the session resumes or compacts, the SessionStart hook injects a short
-version again.
+version again, with every project's three rules in one line.
 
 **The builder's note (D-106).** A session can end abruptly: a crash, a full
 context, a stopped Mac. So a builder ends with a short note for whoever comes
@@ -728,6 +734,12 @@ session can be watched like any agent's.
   skipped test passes having checked nothing (GH-100). Its list of the commit's
   checks says what each test check ran, what that was compared with, and any
   newly skipped tests by name (§9).
+- **It looks for a duplicated helper** (GH-104), in every profile: a new helper
+  that does what an existing one already does. It searches for one and names
+  both in the finding, each as `file:line`. When the existing one is exported,
+  the finding must be fixed: use it instead. A near-copy of a local one doesn't
+  block. The plugin's reviewer says the same. A burst of merges also brings a
+  tidy-up for what slips past ([section 12](#12-the-orchestrator-loop)).
 - **It reads the builder's note as a claim.** Its instructions say the note is
   the builder's own account of what landed, which numbers moved and what's
   still open, to check against the diff rather than trust, and to say where
@@ -1009,6 +1021,39 @@ before each:
   level, and the Autonomy row in Settings' How agents run runs it. `acc agents auto-merge
   [on|off]` and its Auto-merge row do the same for auto-merge, which the status
   bar's menu shows for each repo.
+
+**The tidy-up after a burst of parallel work (GH-104).** Many builders at once
+keep their work mergeable by the rules every packet carries
+([section 8](#8-the-packet)), but nobody tidies: one helper gathers local
+copies, and comments come to say the opposite of code elsewhere. So once
+`tidy.every` tasks (8 by default) have merged in a repo since the last
+tidy-up, the Command Center offers one.
+
+- **What counts:** tasks a merged pull request moved to done, per repo ledger,
+  across its environments, since the last tidy-up a person added or skipped
+  (`<git-common-dir>/acc/tidy.json`, written whole: a temp file, then a rename).
+  A tidy-up's own task (label `tidy-up`) doesn't count. With none on record
+  yet, only the newest `every` count, so a busy repo gets an offer at once with
+  a scope a person can read. While a tidy-up task isn't done, no new offer
+  comes. `tidy.every: 0` turns offers off.
+- **Its scope:** the files those tasks' merges changed (each merge commit
+  against its first parent; without one, the merge that took its branch in),
+  kept when they still exist on the default environment's branch, which is
+  fetched first. Append-only files, environment-specific files and `.acc/` are
+  left out. A task whose files can't be found is listed by name, with why,
+  never dropped quietly.
+- **What it asks:** find duplicated helpers and comments that contradict the
+  code, in those files only, and change no behaviour: no test's expectations
+  change.
+- **Drafted, never created on its own.** Neither sync nor autopilot adds it.
+  The Overview shows one blue "Tidy-up due" item per repo, with Draft tidy-up
+  and Not now; it's an offer, so it doesn't raise the badge. Draft runs
+  `acc tidy --json` and shows the tasks it covers and its files in a dialog;
+  only Add task runs `acc tidy add`, which adds a manual T-n task in To do,
+  labelled `tidy-up`, and records it. Not now runs `acc tidy skip`, which
+  records who skipped it and when. Either starts the count again. Both are a
+  person's: builders, reviewers and analysts are refused. `acc tidy` alone
+  shows the count and the draft and changes nothing.
 
 An agent is used for judgment, not routing. The `acc:orchestrate` skill helps
 break a large ticket into tasks, triage a blocked task, or write rework guidance.

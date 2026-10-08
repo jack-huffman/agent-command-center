@@ -166,7 +166,7 @@ export interface ReviewInput {
   diff: string;
   stat: string;
   checks: string[];
-  /** rulesText's: the profile's rules, then rules copied in, then the repo's own (GH-108). */
+  /** rulesText's: every project's rules (GH-104), the profile's, then rules copied in, then the repo's own (GH-108). */
   rules: string | null;
 }
 
@@ -180,6 +180,13 @@ export function checkLine(r: Receipt): string {
   return `- ${r.gate}: ${result}${tests ? ` Tests: ${tests}.` : ''}${r.countsNote ? ` ${r.countsNote}` : ''}`;
 }
 
+/**
+ * What the reviewer looks for in every profile (GH-104): a new helper that repeats one the code already has.
+ * With nobody looking, one helper gathers dozens of local copies. A finding holds one place, so the
+ * message names the other.
+ */
+export const DUPLICATE_HELPER = 'Does it add a helper that does what an existing one already does? Search for one (Grep for its name and for what it does), and name both in the finding\'s message, each as file:line. When the existing one is exported, the finding must be fixed (must: true): use it instead. A near-copy of a local, unexported one is must: false.';
+
 /** The reviewer's standing instructions, and what it's given to review. */
 export function reviewPrompt(i: ReviewInput): { system: string; prompt: string } {
   const system = [
@@ -191,6 +198,7 @@ export function reviewPrompt(i: ReviewInput): { system: string; prompt: string }
     '- Did it change anything the task didn\'t ask for?',
     '- Do the tests actually exercise the change?',
     '- Did it add a skip, only or todo to a test (it.skip, xit, describe.skip, test.only, fit, it.todo, { skip: true }, t.skip(), t.todo())? Each is a finding with must: true, unless the task asks for it: a skipped test passes having checked nothing.',
+    `- ${DUPLICATE_HELPER}`,
     'The builder\'s note is its own account of what landed, which numbers moved and what\'s still open. Check it against the diff rather than trust it, and say where it\'s wrong.',
     'Skip formatting and style: the checks cover those. A check that a person waived is settled; don\'t reopen it.',
     'Give "changes" only for problems that must be fixed before this merges, each as a finding with must: true. Lesser points are findings with must: false, and they don\'t block.',
