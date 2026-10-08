@@ -258,7 +258,12 @@ export class Panels implements vscode.Disposable {
   private receive(m: unknown): void {
     if (!isFromWebview(m)) return;
     if (m.type === 'ready') { this.tab?.ready(); return this.post(true); }
-    if (m.type === 'nav') return this.remember(m.section);
+    if (m.type === 'nav') {
+      this.remember(m.section);
+      // Settings' limits are read only while it shows (GH-111), so arriving there reads them.
+      if (m.section === 'settings') this.post();
+      return;
+    }
     if (m.type === 'agents-where') {
       this.whereView = m.view;
       void this.ctx.workspaceState.update('acc.agents.where', m.view);

@@ -14,6 +14,7 @@ import { agentArgs, checkModelName, modelOf } from './agents.ts';
 import { type AwakeDeps, holdAwake, keepAwakeFor } from './awake.ts';
 import { sessionName } from './names.ts';
 import { claimHeld, holdTask, releaseHeld, startingNow } from './holding.ts';
+import { machineCapProblem, machineLoad } from './limits.ts';
 import { builderSettings, renderPacket } from './packet.ts';
 import { rulesText } from './rules.ts';
 
@@ -270,7 +271,10 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
   const found = before.tasks.find((t) => t.id === id);
   if (!found) throw new AccError('no-task', `No task ${id}.`);
   const req = { to: 'running' as const, actor: opts.actor, by: opts.by };
-  const problems = checkMove(before, config, found, req, noGateHooks);
+  // Beside the project's cap, this machine's total across every repo (GH-111), which no one ledger knows.
+  const machine = machineLoad(paths, config.project, deps.env);
+  const overMachine = (l: typeof before) => { const p = machineCapProblem(l, id, machine); return p ? [p] : []; };
+  const problems = [...checkMove(before, config, found, req, noGateHooks), ...overMachine(before)];
   if (problems.length) throw new AccError('move-refused', `Can't dispatch ${id}:\n- ${problems.join('\n- ')}`);
   // A project that wants an analysis first gets one, unless a person says to go without (D-052).
   const held = analysisProblems(paths, config, found);
@@ -343,7 +347,7 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
 
     const record = (bgId: string | null, sessionId: string | null) => mutate(paths, now, (ledger, emit) => {
       const task = ledger.tasks.find((t) => t.id === id)!;
-      const again = checkMove(ledger, config, task, req, noGateHooks);
+      const again = [...checkMove(ledger, config, task, req, noGateHooks), ...overMachine(ledger)];
       if (again.length) throw new AccError('move-refused', `Can't dispatch ${id}:\n- ${again.join('\n- ')}`);
       // What it shares with work in flight, and whether a person overrode a wait or it waited for it (D-093).
       const hold = task.held;

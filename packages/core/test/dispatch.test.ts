@@ -353,7 +353,7 @@ test('dispatch refuses tasks that aren\'t ready, and stops at the agent cap', ()
   acc(repo, ['add', 'Third']);
   assert.match(acc(repo, ['dispatch', 'T-2'], env).err, /waiting on T-1, which is todo/);
   assert.equal(acc(repo, ['dispatch', 'T-1'], env).code, 0);
-  assert.match(acc(repo, ['dispatch', 'T-3'], env).err, /1 tasks are already running. The limit is 1/);
+  assert.match(acc(repo, ['dispatch', 'T-3'], env).err, /1 builder is running in this project, and its cap is 1 \(agents\.max\)/);
   assert.equal(claude.calls().filter((c) => c.args[0] === '--bg').length, 1, 'no session was started for the refused tasks');
 });
 
@@ -695,7 +695,7 @@ test('a held task starts once nothing else is ready, sharing files; at the cap i
   s.go('T-3');
   const capped = s.held();
   assert.deepEqual(capped.started, []);
-  assert.match(capped.waiting[0]!.reason, /2 tasks are already running\. The limit is 2\./);
+  assert.match(capped.waiting[0]!.reason, /2 builders are running in this project, and its cap is 2 \(agents\.max\)\./);
   s.finish('T-3');
   const r = s.held();
   assert.deepEqual(r.started.map((x) => [x.task, x.shares]), [['T-2', [{ task: 'T-1', files: ['src/a.ts'] }]]], 'nothing else is ready: it starts beside T-1');

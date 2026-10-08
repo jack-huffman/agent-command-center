@@ -114,6 +114,8 @@ the test that reads it.
 | `<git-common-dir>/acc/packets/<task>.md` | no | The rendered instructions each builder got |
 | `<git-common-dir>/acc/logs/` | no | Full check output |
 | `~/.acc/` | n/a | Machine-wide: `repos.json`, the roots of the repos acc set up here and nothing else, each one's config read when it's needed (GH-81); the heavy-check semaphore (`heavy/`) and how many it allows (`machine.json`); the runtime acc's launcher falls back to (`runtime`); Slack notices already sent (`slack/sent/`) |
+| `~/.acc/machine.json` | n/a | This machine's settings: its heavy-check slots (D-080) and its total of builders across every repo (GH-111), each set by `acc machine` |
+| `~/.acc/ledgers/` | n/a | A file for each repo that dispatched a builder here, naming its ledger, so this machine's total counts every repo's builders (GH-111) |
 | `~/.acc/questions/` | n/a | Agents' questions waiting for the Command Center, and which windows are listening (D-030) |
 
 **Why the git common directory (D-008).** `git rev-parse --git-common-dir`
@@ -197,7 +199,7 @@ doesn't know, at any level (GH-107).
 | `environmentSpecific` | A list of files that differ by design in every environment, such as email service addresses, SSO and org settings. These are never edited by a task, never deployed, and never promoted (D-016) |
 | `knownDrift` | Files that a drift check should expect to differ, such as features a sandbox lacks or ordering noise. They can still be edited and promoted |
 | `trackers` | Where intake reads from. Several are allowed, each of a `kind`: `jira`, `github`, `azure` or `monday`. A Jira tracker names its `site` and `project` key; a GitHub one its `repo`, the project's own by default; an Azure DevOps one its `organization` and `project`, and may name the `team` whose board to show; a monday.com one its `account` and `board`, and may name a `statusColumn` (D-085). An Azure DevOps or monday.com tracker's keys start with its `prefix`, `AB` or `MON` by default, so two trackers never give the same keys. A GitHub tracker's `skipLabels` lists labels whose issues aren't tasks, such as `["milestone"]` (D-048). Each tracker's place holds every read to this repo's tickets: its project, repo or monday.com `board`, narrowed by a Jira `epic`, GitHub `labels` (any one counts), an Azure `areaPath` or a monday.com `group` (D-072). Elsewhere, `board` is the board the Tasks tab shows: a Jira board id, a GitHub Project number or an Azure board's name. `edits`, when `true`, lets the task page change a ticket's status, assignee and labels, and `acc sync` close a GitHub issue when its work merges; it's off by default (D-066, D-082) |
-| `agents.max` | Most builder sessions at once, default 3 |
+| `agents.max` | Most builder sessions at once, default 3. `acc agents max <n>` and Settings' Limits and checks change it; this machine's total, if it has one (`acc machine agents`), caps every repo's builders together (GH-111) |
 | `agents.permissionMode` | The permission mode builders run in: `default`, `acceptEdits` (the default), `plan`, `auto` or `dontAsk`. `bypassPermissions` is never allowed |
 | `agents.builder`, `agents.reviewer` | The `model`, `effort` and `fallbackModel` builders and reviewers run with (D-036). A `model` is an alias, such as `opus`, or a full name; left out, acc's default, `claude-opus-5-5` (D-086). `effort` is `low`, `medium`, `high`, `xhigh` or `max`, and `fallbackModel` is the model Claude Code turns to when the first is overloaded; either left out is Claude Code's own default. A clone's own choice, made with `acc agents set`, wins over these ([section 7](#7-dispatch)) |
 | `autonomy` | How much the loop does on its own ([section 12](#12-the-orchestrator-loop)) |
@@ -206,7 +208,7 @@ doesn't know, at any level (GH-107).
 | `dispatch.shared` | Files, or folders, that every task edits, such as the docs. Like `autopilot.appendOnly`, they never make one task wait for another's files. Left out, there are none ([section 7](#7-dispatch)) |
 | `worktrees.root` | Where task worktrees go. The default is `.claude/worktrees/` inside the repo, where a background agent started from the trusted main checkout can enter one without a trust prompt (D-022, [section 7](#7-dispatch)) |
 | `worktrees.setup` | Commands run in each new task worktree, in order, once it's made and `node_modules` is linked in from the main checkout, such as `npm ci`. One that fails stops the dispatch |
-| `gates` | Which checks are required, plus per-check overrides ([section 9](#9-gates-and-receipts)). `gates.required` names the checks a commit needs before review and landing, and `gates.commands` gives each check its command. `gates.heavy` names those that take the machine-wide slot, one at a time across every repo (D-024); left out, `build`, `test` and `check`, or in Salesforce `static`, `lwc-tests` and `validate`. `gates.severity` is the Code Analyzer level that fails `static`, from 1 (only the worst problems) to 5 (everything), default 2. `gates.builder` names a builder's lighter checks, where the merge queue runs the required ones |
+| `gates` | Which checks are required, plus per-check overrides ([section 9](#9-gates-and-receipts)). `gates.required` names the checks a commit needs before review and landing, and `gates.commands` gives each check its command. `gates.heavy` names those that take the machine-wide slot, one at a time across every repo (D-024); left out, `build`, `test` and `check`, or in Salesforce `static`, `lwc-tests` and `validate`. `gates.severity` is the Code Analyzer level that fails `static`, from 1 (only the worst problems) to 5 (everything), default 2. `gates.builder` names a builder's lighter checks, where the merge queue runs the required ones. `acc gate required` and `acc gate builder` change the two lists, as Settings does (GH-111) |
 | `secretScan.paths`, `secretScan.exclude` | Where setup's B3.secrets step looks for credentials in tracked files, and what it skips there. By default the whole repo, or in Salesforce `force-app`, `config` and `scripts`, skipping nothing |
 | `analysis.required` | Whether a task needs an analysis before it's built (D-052). Left out, a Salesforce project's do and a generic one's don't |
 | `template` | The team template the project was started from, written by `acc init --from`: its `name`, its `source` (a GitHub file URL, `<git-url>#<path>`, or a path inside the repo, under `~/`, or an absolute path elsewhere) and its `digest` (`sha256:` of its JSON with sorted keys). Setup's B0.template step says when the template has changed and the project now differs; nothing re-applies it ([docs/TEMPLATES.md](TEMPLATES.md), D-097) |
@@ -362,8 +364,11 @@ GitHub about each unfinished task whose issue wasn't listed:
 
 `acc dispatch <id>` does the following:
 
-1. **Checks.** The task is ready, running sessions are below `agents.max`, and
-   the environment isn't protected, and its branch matches its org (D-015).
+1. **Checks.** The task is ready, running sessions are below `agents.max` and
+   below this machine's total across every repo, when it has one (GH-111), and
+   the environment isn't protected, and its branch matches its org (D-015). A
+   dispatch past either cap is refused, naming which; a held start and
+   autopilot's re-dispatch wait, naming it too.
    Where the project wants an analysis first, the task has one with every
    question answered (D-052).
 1b. **Weighs its files (D-093).** On a first dispatch, the files the task's
@@ -1096,7 +1101,7 @@ count; under 820 px wide, it becomes a tab strip along the top.
 | **Worktrees** | Every checkout, with a menu on each row |
 | **Environments** | The GitHub identity card (D-028), promotion paths, and one card per environment |
 | **Setup** | The checklist, with Do it on each step |
-| **Settings** | Last in the rail, with a gear (GH-109). **Appearance** first, then **How agents run** (GH-110), then a part for each area whose settings move there: Limits and checks, **Trackers and sign-ins** (GH-112), Notices in Slack, GitHub accounts, the Command Center, and About. Each part has a heading another page can open Settings at; until its settings move, it says where they live today, with a button there when there is one |
+| **Settings** | Last in the rail, with a gear (GH-109). **Appearance** first, then **How agents run** (GH-110), then **Limits and checks** (GH-111) and **Trackers and sign-ins** (GH-112), then a part for each area whose settings move there: Notices in Slack, GitHub accounts, the Command Center, and About. Each part has a heading another page can open Settings at; until its settings move, it says where they live today, with a button there when there is one |
 
 The page polls only while it's visible. The section you leave it on is where it
 opens next. The sidebar keeps a single launcher view listing the sections; set
@@ -1136,6 +1141,21 @@ A tab on screen restyles in place; a hidden one's HTML is written again, since
 VSCode rebuilds it from that. `npm run screenshot` shoots each page forced
 under VSCode's other theme, and `npm run screenshot -- --colours` compares
 every element's computed colours across themes.
+
+**Limits and checks** (GH-111): each project's builder cap and this machine's
+total across every repo side by side, each with −, its number, + and Change…,
+how many run now and where it's set; what a change means, in this machine's
+own numbers; the heavy-check slots; and each project's required and builders'
+checks. Every change runs acc (`acc agents max`, `acc machine agents`, `acc
+machine heavy-slots`, `acc gate required`, `acc gate builder`), which changes
+only its key. The extension reads the part's facts in `extension/src/limits.ts`
+only while Settings shows, or a held task waits, and then at most every 15
+seconds, since the total counts every repo's ledger acc noted under
+`~/.acc/ledgers/`. That read writes nothing (D-012): a note whose ledger has
+gone is left for acc's own commands to drop. It runs its commands there too;
+`model/limits.ts` words them, and `webview/limits.ts` draws them. A project's
+cap and required checks each say whether its `.acc/config.json` sets them or
+they're acc's default.
 
 The page is a webview under a nonce content security policy. It renders text
 only and accepts only allow-listed `acc.*` commands. Ticket pages stay their

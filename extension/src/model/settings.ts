@@ -1,7 +1,7 @@
 /**
  * The Settings section (GH-109): the Command Center's own choices on this machine, how agents run in each
- * project (GH-110), a part for each area that will gather its settings here, and, until a part is built,
- * where its settings live today.
+ * project (GH-110), the limits and checks they run under (GH-111), a part for each area that will gather its
+ * settings here, and, until a part is built, where its settings live today.
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 
@@ -15,6 +15,7 @@ import { intervalWords, POLL_INTERVALS, POLL_KEYS } from '../logic/polls.ts';
 import type { DoctorItem } from '../logic/setup.ts';
 import { billingLook } from './agents.ts';
 import type { BoardInput } from './boards.ts';
+import type { LimitsModel } from './limits.ts';
 import { type HomeSection, type Look, LOOK, type ModelArea, type ProjectLike } from './shared.ts';
 
 // ---------------------------------------------------------------- the theme
@@ -326,6 +327,8 @@ export interface SettingsModel {
   /** Trackers and sign-ins (GH-112). */
   trackers: TrackersAndSignIns;
   parts: SettingsPartModel[];
+  /** Limits and checks (GH-111): the caps, what a change means, the heavy-check slots and each project's checks. Null until read. */
+  limits: LimitsModel | null;
 }
 
 export interface SettingsInput {
@@ -336,6 +339,8 @@ export interface SettingsInput {
   setup: DoctorItem[];
   /** What each project's tracker boards know: place, board and sign-in (GH-112). None unless given. */
   boards?: (root: string) => BoardInput[];
+  /** Limits and checks, as read from this machine and each project (GH-111), while Settings shows. */
+  limits?: LimitsModel | null;
 }
 
 /** How often each thing refreshes today, in words. */
@@ -358,8 +363,7 @@ export function settingsModel(i: SettingsInput): SettingsModel {
         : ['No project in this workspace is onboarded yet. Once Setup onboards one, its builders and reviewers show here.'],
       links: agents.projects.length ? [] : [{ label: 'Open Setup', icon: 'checklist', section: 'setup' }],
     },
-    later('limits', 'Limits and checks', 'dashboard', 'How many heavy checks this machine runs at once, how many builders each project runs, and the checks a task must pass.',
-      'Set outside the Command Center for now: this machine\'s heavy-check slots with acc machine heavy-slots in a terminal, and each project\'s builder cap (agents.max) and checks (gates) in its .acc/config.json.'),
+    { id: 'limits', title: 'Limits and checks', icon: 'dashboard', summary: 'How many builders run at once, this project\'s cap and this machine\'s total, what a change means, the heavy checks this machine runs at once, and the checks a task must pass. Each change goes through acc.', built: true, today: null, details: [], links: [] },
     {
       id: 'trackers', title: 'Trackers and sign-ins', icon: 'issues',
       summary: 'Each project\'s trackers: where their tickets come from, the board, and the account each signs in as, for that project only or for every project on its site.',
@@ -378,7 +382,7 @@ export function settingsModel(i: SettingsInput): SettingsModel {
     later('about', 'About', 'info', 'The versions of acc, the extension and the plugin, and whether a newer release is out.',
       'On Setup for now: its checklist checks the acc plugin in Claude Code.', [{ label: 'Open Setup', icon: 'checklist', section: 'setup' }]),
   ];
-  return { kind: 'settings', theme: i.theme, themes: THEME_CHOICES.map((key) => ({ key, ...THEMES[key] })), agents, trackers, parts };
+  return { kind: 'settings', theme: i.theme, themes: THEME_CHOICES.map((key) => ({ key, ...THEMES[key] })), agents, trackers, parts, limits: i.limits ?? null };
 }
 
 export const area: ModelArea = {
@@ -388,6 +392,6 @@ export const area: ModelArea = {
   home: {
     // Last in the rail, after every other area's.
     order: 90,
-    nav: () => ({ section: 'settings', label: 'Settings', icon: 'settings-gear', count: null, attention: false, hint: 'Appearance, how agents run, trackers and sign-ins, and where each other setting lives' }),
+    nav: () => ({ section: 'settings', label: 'Settings', icon: 'settings-gear', count: null, attention: false, hint: 'Appearance, how agents run, limits and checks, trackers and sign-ins, and where each other setting lives' }),
   },
 };

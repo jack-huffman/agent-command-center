@@ -107,12 +107,14 @@ test('the board asks acc to start held tasks when one may go, and backs off whil
     todo('T-2', {}),
     todo('T-3', { shares: [{ task: 'T-1', files: ['a.ts'] }], first: ['T-4'] }),
     todo('T-5', { held: { ...held, failed: 'No trust' } }),
-    todo('T-6', { capped: true }),
+    todo('T-6', { capped: 'project' }),
+    todo('T-9', { capped: 'machine' }),
     todo('T-7', {}, ['T-1']),
     todo('T-8', { held: null }),
     { id: 'T-1', state: 'running', deps: [], pr: null, files: null },
   ];
-  // Only T-2 may go: T-3 still waits, T-5's start failed, T-6 waits for an agent, T-7 for T-1, T-8 isn't held.
+  // Only T-2 may go: T-3 still waits, T-5's start failed, T-6 and T-9 wait for an agent (the project's cap, this
+  // machine's total), T-7 for T-1, T-8 isn't held.
   assert.deepEqual(heldDue(rows), ['T-2']);
   const key = heldAskKey(rows, ['T-2']);
   let t = 0;

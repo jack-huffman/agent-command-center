@@ -29,6 +29,7 @@ import { sampleBoards, sampleMondayBoards } from './fixtures/boards.ts';
 import { type ConnectSample, sampleConnect } from './fixtures/connect.ts';
 import { sampleIdentity } from './fixtures/environments.ts';
 import { sampleHub } from './fixtures/hub.ts';
+import { sampleLimitsOther } from './fixtures/limits.ts';
 import { sampleQueueHub } from './fixtures/overview.ts';
 import { sampleAnalyzeRun, sampleBusyHub, sampleIdleHub } from './fixtures/progress.ts';
 import { sampleRuns } from './fixtures/runs.ts';
@@ -56,9 +57,10 @@ import { PALETTE_THEMES, type PaletteTheme, palettes, vscodeDefaults } from './s
  * autopilot off, and with the head held on GitHub, in that wait's own words (GH-73). Last, Settings opened
  * at How agents run, as Agents' Settings and the status bar's Auto-merge open it, with two projects and
  * per-token billing (GH-110), and at Trackers and sign-ins, with a tracker in every state its sign-in and
- * board can be in (GH-112). Last, Agents with each repo's finished sessions opened (GH-119).
+ * board can be in (GH-112); Settings' Limits and checks in their other states: no total across repos,
+ * slots set by the environment, and two projects, one building through the merge queue (GH-111). Last, Agents with each repo's finished sessions opened (GH-119).
  */
-export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'agents-finished'] as const;
+export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished'] as const;
 export type Page = (typeof PAGES)[number];
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -105,7 +107,8 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
   const perToken = kind === 'settings-agents' || kind === 'agents-billing';
   // Agents, on a busy machine: this window's two projects, one with no agents, and repos elsewhere (GH-119).
   const agents = kind === 'agents' || kind === 'agents-path' || kind === 'agents-finished';
-  const hub = perToken || agents || kind === 'settings-trackers' ? sampleSettingsHub(now) : sampleHub(now);
+  // Settings' Limits and checks in their other states (GH-111): no total, slots from the environment, two projects.
+  const hub = kind === 'settings-limits' ? { ...sampleHub(now), limits: () => sampleLimitsOther() } : perToken || agents || kind === 'settings-trackers' ? sampleSettingsHub(now) : sampleHub(now);
   const connect = kind.startsWith('connect-') ? sampleConnect(kind.slice('connect-'.length) as ConnectSample) : null;
   const slack = sampleSlack(kind.startsWith('slack-') ? kind.slice('slack-'.length) as SlackSample : 'on', now);
   // A project started from an epic opens the Connect page over Setup, where "From a Jira epic…" is (GH-81).
@@ -146,7 +149,7 @@ const DEFAULT_HEIGHT = 900;
  * tall enough to show every repo on the busy machine, down to Other folders (GH-119), and so is Settings at
  * Trackers and sign-ins, further down (GH-112).
  */
-export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 3600, 'overview-idle': 3200, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 2800, 'settings-agents': 3300, 'ticket-note': 1600, agents: 2000, 'agents-path': 2300, 'agents-finished': 2300, 'settings-trackers': 4000 };
+export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 3600, 'overview-idle': 3200, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 3800, 'settings-agents': 3800, 'settings-limits': 3800, 'ticket-note': 1600, agents: 2000, 'agents-path': 2300, 'agents-finished': 2300, 'settings-trackers': 5000 };
 
 /** The colour properties the colour check compares, on every element and its ::before and ::after. */
 export const COLOUR_PROPERTIES = [
@@ -252,7 +255,7 @@ function chromeRun(chrome: string, args: string[], dump = false): ReturnType<typ
 }
 
 /** The pages the colour check draws (GH-109): the busiest sections, Settings, a task's page and an agent's. */
-export const COLOUR_PAGES: Page[] = ['overview', 'tasks', 'settings', 'settings-agents', 'settings-trackers', 'ticket', 'agent'];
+export const COLOUR_PAGES: Page[] = ['overview', 'tasks', 'settings', 'settings-agents', 'settings-trackers', 'settings-limits', 'ticket', 'agent'];
 
 /** A page's computed colours, as its collector gathered them: what each element is, and its colours in COLOUR_PROPERTIES' order. */
 export type Colours = [string, string[]][];

@@ -6,6 +6,7 @@ import { isUnder } from '../../src/logic/shared.ts';
 import type { HubLike, ProjectLike } from '../../src/model/shared.ts';
 import { REPOS, SESSION_MODELS, sampleAgents, sampleLedgers } from './agents.ts';
 import { sampleAutopilot, sampleHistory } from './history.ts';
+import { sampleLimits } from './limits.ts';
 import { sampleAnswers, sampleQuestions } from './questions.ts';
 import { CLIENTS, ROOT, wt } from './shared.ts';
 import { sampleTasks } from './tasks.ts';
@@ -56,5 +57,6 @@ export function sampleHub(now = Date.now()): HubLike {
     autopilotLog: () => sampleAutopilot(now),
     updates: () => sampleUpdates(now),
     history: () => sampleHistory(now),
+    limits: () => sampleLimits(),
   };
 }

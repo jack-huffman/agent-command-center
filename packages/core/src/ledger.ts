@@ -538,6 +538,12 @@ export function findRule(from: State, to: State): Rule | undefined {
     ?? RULES.find((r) => r.from === 'any' && r.to === to && from !== 'blocked' && from !== 'done');
 }
 
+/** The builders running in a repo, but `except`'s: its tasks in Running, whose builder may have stopped (D-067). */
+export const builders = (ledger: Pick<Ledger, 'tasks'>, except: string): number => ledger.tasks.filter((t) => t.state === 'running' && t.id !== except).length;
+
+/** A start that would pass the project's cap, in words that name it, beside this machine's total (GH-111). */
+export const projectCapWords = (n: number, max: number): string => `${n} ${n === 1 ? 'builder is' : 'builders are'} running in this project, and its cap is ${max} (agents.max).`;
+
 /** Everything that stops this move. Empty means it's allowed. */
 export function checkMove(ledger: Ledger, config: Config, task: Task, req: MoveRequest, hooks: Hooks): string[] {
   if (!STATES.includes(req.to)) return [`"${req.to}" isn't a state. States: ${STATES.join(', ')}.`];
@@ -572,8 +578,8 @@ export function checkMove(ledger: Ledger, config: Config, task: Task, req: MoveR
       }
     }
     if (r === 'underCap') {
-      const running = ledger.tasks.filter((t) => t.state === 'running' && t.id !== task.id).length;
-      if (running >= config.agents.max) problems.push(`${running} tasks are already running. The limit is ${config.agents.max}.`);
+      const running = builders(ledger, task.id);
+      if (running >= config.agents.max) problems.push(projectCapWords(running, config.agents.max));
     }
     if (r === 'envNotProtected') {
       const env = environmentByBranch(config, task.environment);

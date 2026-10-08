@@ -1,0 +1,32 @@
+[
+  {
+    "command": "acc.settings.agentsMax",
+    "title": "Change how many builders a project runs at once",
+    "category": "Agent Command Center",
+    "icon": "$(hubot)"
+  },
+  {
+    "command": "acc.settings.machineAgents",
+    "title": "Change how many builders this machine runs at once, across every repo",
+    "category": "Agent Command Center",
+    "icon": "$(device-desktop)"
+  },
+  {
+    "command": "acc.settings.heavySlots",
+    "title": "Change how many heavy checks this machine runs at once",
+    "category": "Agent Command Center",
+    "icon": "$(server-process)"
+  },
+  {
+    "command": "acc.settings.requiredGates",
+    "title": "Change the checks every task must pass",
+    "category": "Agent Command Center",
+    "icon": "$(checklist)"
+  },
+  {
+    "command": "acc.settings.builderGates",
+    "title": "Change builders' lighter checks",
+    "category": "Agent Command Center",
+    "icon": "$(tools)"
+  }
+]

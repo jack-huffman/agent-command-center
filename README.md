@@ -234,7 +234,11 @@ installs the same way, over the old one.
   in, runs the full check once, and merges; one that conflicts or fails goes
   back to its builder. Builders can then run lighter checks (`gates.builder`),
   such as the tests near what they changed.
-- **Light on the machine.** A cap on concurrent agents, default 3.
+- **Light on the machine.** A cap on concurrent builders for each project,
+  default 3, and, if you set one, a total for this machine across every repo,
+  since usage limits are your Claude account's. Heavy checks take turns in this
+  machine's slots. **Settings → Limits and checks** raises or lowers each, and
+  says what a change means in this machine's own numbers.
 - **Readable without colour.** Every state has an icon and a label. Where colour
   helps, it is orange against blue, never red against green.
 

@@ -1,8 +1,8 @@
 // acc's Checks commands: gate run, list and waive, and drift.
 
-import { AccError, type ApexTest, builderGatesFor, drift, gatesFor, gateTarget, readLedger, receiptsAt, requiredGates, run, runGates, satisfies, waiveGates } from '../../../core/src/index.ts';
+import { AccError, type ApexTest, autoMergeFor, builderGatesFor, type Config, drift, gatesFor, gateTarget, loadConfig, readLedger, receiptsAt, requiredGates, run, runGates, satisfies, setBuilderGates, setRequiredGates, waiveGates } from '../../../core/src/index.ts';
 import { gateLabel, table, tone } from '../format.ts';
-import { actorFrom, type CommandArea, now, type Opts, out, project } from '../shared.ts';
+import { actorFrom, type CommandArea, noAgent, now, type Opts, out, project } from '../shared.ts';
 
 // ---------------------------------------------------------------- checks
 
@@ -86,6 +86,63 @@ function cmdGateList(o: Opts): number {
   return 0;
 }
 
+/** The environments whose pull requests go through the merge queue, where builders may run lighter checks (D-096). */
+const queueEnvs = (config: Config): string[] => config.environments.filter((e) => autoMergeFor(config, e.branch)).map((e) => e.branch);
+
+/** The checks every task must pass (gates.required): shown, or set by a person in .acc/config.json (GH-111). */
+function cmdGateRequired(o: Opts, names: string[]): number {
+  const { paths } = project(process.cwd());
+  const show = (set: boolean) => {
+    const { config } = loadConfig(paths.config);
+    const queue = queueEnvs(config);
+    const required = config.gates.required;
+    out(o, () => [
+      required.length ? `${set ? 'Required checks are now' : 'Required checks'}: ${required.join(', ')}.` : 'No required checks: acc done takes any commit.',
+      queue.length && required.length ? `Where the merge queue runs (${queue.join(', ')}), they run once in it, before each merge${config.gates.builder?.length ? `, and builders run ${config.gates.builder.join(', ')}` : ''}.` : '',
+      set ? 'Set in .acc/config.json: commit it to share it.' : '',
+    ].filter(Boolean).join(' '), { required, gates: gatesFor(config).map((g) => g.name), queue });
+  };
+  if (!names.length) {
+    show(false);
+    return 0;
+  }
+  noAgent(o, 'change the checks a task must pass');
+  setRequiredGates(paths.config, names);
+  show(true);
+  return 0;
+}
+
+/**
+ * Builders' lighter checks where the merge queue runs the required ones (gates.builder, D-096): shown, or set
+ * by a person in .acc/config.json, or taken out with --none so builders run the required checks (GH-111).
+ */
+function cmdGateBuilder(o: Opts, names: string[]): number {
+  const { paths } = project(process.cwd());
+  const show = (set: boolean) => {
+    const { config } = loadConfig(paths.config);
+    const queue = queueEnvs(config);
+    const builder = config.gates.builder?.length ? config.gates.builder : null;
+    const required = config.gates.required.join(', ') || 'none';
+    out(o, () => [
+      !builder
+        ? `${set ? 'Builders now run' : 'Builders run'} the required checks (${required}): no lighter ones are named.`
+        : queue.length
+          ? `${set ? 'Builders now run' : 'Builders run'} ${builder.join(', ')} where the merge queue runs (${queue.join(', ')}), and the required checks (${required}) run once in it, before each merge.`
+          : `gates.builder names ${builder.join(', ')}${set ? ' now' : ''}, but no environment's pull requests go through the merge queue (auto-merge, under autonomy review), so builders run the required checks (${required}).`,
+      set ? 'Set in .acc/config.json: commit it to share it.' : '',
+    ].filter(Boolean).join(' '), { builder, required: config.gates.required, queue, gates: gatesFor(config).map((g) => g.name) });
+  };
+  if (!names.length && o.none !== true) {
+    show(false);
+    return 0;
+  }
+  if (names.length && o.none === true) throw new AccError('usage', 'acc gate builder <name>…, or acc gate builder --none: not both.');
+  noAgent(o, 'change the checks builders run');
+  setBuilderGates(paths.config, o.none === true ? null : names);
+  show(true);
+  return 0;
+}
+
 function cmdDrift(o: Opts, envName: string): number {
   const { paths, config } = project(process.cwd());
   if (!o.json) process.stderr.write(tone(`Retrieving the baseline from ${envName}. This only reads the org.\n`, 'dim'));
@@ -119,6 +176,10 @@ export const area: CommandArea = {
                                         The project's checks, and their results on this commit
   acc gate waive <gate>... --reason "<why>" [--task <id>]
                                         A person sets checks aside on this commit (or the task's), with a reason
+  acc gate required [<gate>...]         The checks every task must pass; with names, set them in .acc/config.json.
+                                        Where the merge queue runs, they run once in it, before each merge
+  acc gate builder [<gate>...|--none]   Builders' lighter checks where the merge queue runs the required ones; with
+                                        names, set them in .acc/config.json, or with --none take them out
   acc drift <environment> [--manifest <path>] [--keep]
                                         What changed in an org since its branch; prints nothing if none`,
   },
@@ -129,6 +190,7 @@ export const area: CommandArea = {
     reason: { type: 'string' },
     manifest: { type: 'string' },
     keep: { type: 'boolean', default: false },
+    none: { type: 'boolean', default: false },
   },
   commands: {
     gate: (o, rest) => {
@@ -136,7 +198,9 @@ export const area: CommandArea = {
       if (sub === 'run') return cmdGateRun(o, names);
       if (sub === 'list') return cmdGateList(o);
       if (sub === 'waive') return cmdGateWaive(o, names);
-      throw new AccError('usage', 'acc gate run [<gate>...] | acc gate list | acc gate waive <gate>... --reason "<why>"');
+      if (sub === 'required') return cmdGateRequired(o, names);
+      if (sub === 'builder') return cmdGateBuilder(o, names);
+      throw new AccError('usage', 'acc gate run [<gate>...] | acc gate list | acc gate waive <gate>... --reason "<why>" | acc gate required [<gate>...] | acc gate builder [<gate>...|--none]');
     },
     drift: (o, rest) => {
       if (!rest[0]) throw new AccError('usage', 'acc drift <environment>');

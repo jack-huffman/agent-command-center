@@ -1,23 +1,77 @@
 // acc's Agents commands for builders and how they run: dispatch, done, block, resume, cleanup, agents
 // and machine.
 
-import { AccError, AGENT_ROLES, type AgentRole, autoMergeOn, autopilotDoes, cleanup, clipSaid, type Config, dispatch, filesOf, heavySlots, loadConfig, machineFile, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, resume, run, setAutoMerge, setAutonomy, setHeavySlots, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList } from '../../../core/src/index.ts';
+import { AccError, AGENT_ROLES, type AgentRole, agentsMaxSet, autoMergeOn, autopilotDoes, builders, cleanup, clipSaid, type Config, DEFAULT_AGENTS, dispatch, filesOf, heavySlots, loadConfig, machineAgents, machineFile, machineJson, machineRepos, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, readLedger, resume, run, setAgentsMax, setAutoMerge, setAutonomy, setHeavySlots, setMachineAgents, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
-import { accBinDir, accCommand, actorFrom, type CommandArea, now, type Opts, out, personOnly, project, taskIdFrom } from '../shared.ts';
+import { accBinDir, accCommand, actorFrom, type CommandArea, noAgent, now, type Opts, out, personOnly, project, taskIdFrom } from '../shared.ts';
 import { cmdSet } from './tasks.ts';
 
-/** Builders' and reviewers' model and effort (D-036). */
-/** This machine's settings, for every repo on it (D-080): how many heavy checks run at once. */
+/** "1 builder", "3 builders". */
+const buildersOf = (n: number): string => `${n} builder${n === 1 ? '' : 's'}`;
+
+/**
+ * This machine's settings, for every repo on it: how many heavy checks run at once (D-080), and how many
+ * builders run at once across every repo, since usage limits are the Claude account's, not a project's (GH-111).
+ */
 function cmdMachine(o: Opts, sub: string | undefined, value: string | undefined): number {
-  if (sub !== 'heavy-slots') throw new AccError('usage', 'acc machine heavy-slots [<n>]');
+  if (sub === 'agents') return cmdMachineAgents(o, value);
+  if (sub !== 'heavy-slots') throw new AccError('usage', 'acc machine heavy-slots [<n>] | acc machine agents [<n>|--none]');
   if (value === undefined) {
     const n = heavySlots();
     out(o, () => `${n} heavy check${n === 1 ? '' : 's'} at once on this machine${process.env.ACC_HEAVY_SLOTS ? ' (from ACC_HEAVY_SLOTS)' : ''}.`, { heavySlots: n });
     return 0;
   }
-  personOnly(o, 'change how many heavy checks this machine runs');
+  noAgent(o, 'change how many heavy checks this machine runs');
   const n = setHeavySlots(Number(value));
   out(o, () => `This machine now runs ${n} heavy check${n === 1 ? '' : 's'} at once, for every repo on it. Set in ${machineFile()}.`, { heavySlots: n });
+  return 0;
+}
+
+/** How many builders this machine runs at once across every repo, and how many run now: shown, or set by a person. */
+function cmdMachineAgents(o: Opts, value: string | undefined): number {
+  const show = (max: number | null, set: boolean) => {
+    // acc's own command, so it may drop the note of a repo whose ledger has gone.
+    const repos = machineRepos(process.env, { prune: true }).filter((r) => r.running > 0);
+    const running = repos.reduce((n, r) => n + r.running, 0);
+    const now = `${buildersOf(running)} running now${repos.length > 1 ? `, in ${repos.length} repos` : repos.length ? ` in ${repos[0]!.project}` : ''}.`;
+    out(o, () => [
+      max === null
+        ? `${set ? 'This machine has no total now' : 'No total on this machine'}: each project's cap (agents.max) is the only limit.`
+        : `${set ? 'This machine now runs' : 'This machine runs'} at most ${buildersOf(max)} at once, across every repo on it.`,
+      now,
+      set ? `Set in ${machineJson()}.` : '',
+    ].filter(Boolean).join(' '), { agents: max, running, repos });
+  };
+  if (value === undefined && o.none !== true) {
+    show(machineAgents(), false);
+    return 0;
+  }
+  if (value !== undefined && o.none === true) throw new AccError('usage', 'acc machine agents <n>, or acc machine agents --none: not both.');
+  noAgent(o, 'change how many builders this machine runs');
+  const n = o.none === true ? null : /^\d+$/.test(value!) ? Number(value) : NaN;
+  show(setMachineAgents(n), true);
+  return 0;
+}
+
+/** This project's builder cap (agents.max): shown, with how many run now, or set by a person in .acc/config.json (GH-111). */
+function cmdAgentsMax(o: Opts, configFile: string, ledgerFile: string, value: string | undefined): number {
+  const show = (set: boolean) => {
+    const { config } = loadConfig(configFile);
+    const named = agentsMaxSet(configFile);
+    const running = builders(readLedger(ledgerFile), '');
+    out(o, () => [
+      `${set ? 'This project now runs' : 'This project runs'} at most ${buildersOf(config.agents.max)} at once (agents.max${named ? ', .acc/config.json' : `, acc's default: .acc/config.json sets none`}).`,
+      `${buildersOf(running)} running now.`,
+      set ? 'Set in .acc/config.json: commit it to share it.' : '',
+    ].filter(Boolean).join(' '), { max: config.agents.max, from: named ? 'project' : 'acc', running });
+  };
+  if (value === undefined) {
+    show(false);
+    return 0;
+  }
+  noAgent(o, 'change how many builders this project runs');
+  setAgentsMax(configFile, /^\d+$/.test(value) ? Number(value) : NaN);
+  show(true);
   return 0;
 }
 
@@ -28,6 +82,7 @@ function cmdAgents(o: Opts, sub: string | undefined, roleArg: string | undefined
   const views = () => Object.fromEntries(AGENT_ROLES.map((r) => [r, profileView(projectConfig, run, paths.root, r)]));
   if (sub === 'autonomy') return cmdAutonomy(o, paths.config, roleArg);
   if (sub === 'auto-merge') return cmdAutoMerge(o, paths.config, roleArg);
+  if (sub === 'max') return cmdAgentsMax(o, paths.config, paths.ledger, roleArg);
   if (!sub || sub === 'show') {
     const v = views();
     const from = { clone: ' (this clone)', project: ' (project)', acc: ' (acc\'s default)', default: '' };
@@ -37,8 +92,8 @@ function cmdAgents(o: Opts, sub: string | undefined, roleArg: string | undefined
     }).join('\n'), v);
     return 0;
   }
-  if (sub !== 'set' || !roleArg || !(AGENT_ROLES as readonly string[]).includes(roleArg)) throw new AccError('usage', 'acc agents set <builder|reviewer> [--model <m>] [--effort <e>] [--fallback-model <m>] [--clear <field>] [--project] | acc agents autonomy [manual|review] | acc agents auto-merge [on|off]');
-  personOnly(o, 'change what agents run with');
+  if (sub !== 'set' || !roleArg || !(AGENT_ROLES as readonly string[]).includes(roleArg)) throw new AccError('usage', 'acc agents set <builder|reviewer> [--model <m>] [--effort <e>] [--fallback-model <m>] [--clear <field>] [--project] | acc agents autonomy [manual|review] | acc agents auto-merge [on|off] | acc agents max [<n>]');
+  noAgent(o, 'change what agents run with');
   const change: ProfileChange = {};
   if (o.model !== undefined) change.model = o.model as string;
   if (o.effort !== undefined) change.effort = o.effort as never;
@@ -238,8 +293,13 @@ export const area: CommandArea = {
   acc agents autonomy [manual|review]   What autopilot may do on its own, or change it in .acc/config.json
   acc agents auto-merge [on|off]        Whether autopilot merges a reviewed pull request whose checks passed, into
                                         an environment that isn't protected, or change it in .acc/config.json
+  acc agents max [<n>]                  How many builders this project runs at once, and how many run now; with
+                                        <n>, set it (1 to 16) in .acc/config.json, for everyone on the repo
   acc machine heavy-slots [<n>]         How many heavy checks (builds, tests, validations) this machine runs at once,
-                                        for every repo on it; with <n>, set it (1 to 8) in ~/.acc/machine.json`,
+                                        for every repo on it; with <n>, set it (1 to 8) in ~/.acc/machine.json
+  acc machine agents [<n>|--none]       How many builders this machine runs at once across every repo, and how many
+                                        run now; with <n>, set a total (1 to 64) in ~/.acc/machine.json, or with
+                                        --none take it out, so each project's cap is the only limit`,
   },
   options: {
     foreground: { type: 'boolean', default: false },
@@ -255,6 +315,7 @@ export const area: CommandArea = {
     client: { type: 'string' },
     reason: { type: 'string' },
     message: { type: 'string' },
+    none: { type: 'boolean', default: false },
     // A builder's handoff note (D-106), a line each time a flag is given.
     landed: { type: 'string', multiple: true },
     moved: { type: 'string', multiple: true },

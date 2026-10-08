@@ -22,6 +22,10 @@ process.env.ACC_SLACK_DIR = mkdtempSync(join(tmpdir(), 'acc-slack-'));
 // And this machine's repos, which it adds each project it loads to (GH-81).
 const REPOS_FILE = join(mkdtempSync(join(tmpdir(), 'acc-repos-')), 'repos.json');
 process.env.ACC_REPOS_FILE = REPOS_FILE;
+// And this machine's limits (GH-111): its total and slots, and the repos it counts, which Settings reads and changes.
+const MACHINE_FILE = join(mkdtempSync(join(tmpdir(), 'acc-machine-')), 'machine.json');
+process.env.ACC_MACHINE_FILE = MACHINE_FILE;
+delete process.env.ACC_HEAVY_SLOTS;
 // The extension runs acc as the person at VSCode, even when these tests run in a builder's session.
 delete process.env.ACC_ROLE;
 delete process.env.ACC_TASK;
@@ -515,6 +519,29 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     assert.equal(settings.get('agentCommandCenter.theme'), 'dark');
     assert.ok([tab, hidden].every((t) => /<html lang="en" data-theme="dark">/.test(t.html)), 'both hidden tabs come back dark');
     assert.equal(themes(tab).length, 1, 'hidden, it isn\'t sent the change');
+
+    // Limits and checks (GH-111): Change… picks, and − or + sends the number; acc changes the file, and only its key.
+    const configFile = join(repo, '.acc', 'config.json');
+    const configWas = readFileSync(configFile, 'utf8');
+    calls.pick = (items) => items.find((i) => (i as { value?: unknown }).value === 4);
+    await calls.commands.get('acc.settings.agentsMax')!(root);
+    calls.pick = undefined;
+    // How agents run's steps above set the reviewer's effort here (GH-110): kept, with max beside it.
+    assert.deepEqual(JSON.parse(readFileSync(configFile, 'utf8')).agents, { ...JSON.parse(configWas).agents, max: 4 });
+    assert.match(calls.info.at(-1) ?? '', /^Tool now runs at most 4 builders at once\. Changed in \.acc\/config\.json: commit it to share it\.$/);
+    await calls.commands.get('acc.settings.machineAgents')!('5');
+    assert.deepEqual(JSON.parse(readFileSync(MACHINE_FILE, 'utf8')), { agents: 5 });
+    await calls.commands.get('acc.settings.heavySlots')!('2');
+    assert.deepEqual(JSON.parse(readFileSync(MACHINE_FILE, 'utf8')), { agents: 5, heavySlots: 2 });
+    // This project has no checks to pick from: it says so, and asks nothing.
+    const promptsWere = calls.prompts;
+    await calls.commands.get('acc.settings.requiredGates')!(root);
+    assert.equal(calls.prompts, promptsWere);
+    assert.match(calls.info.at(-1) ?? '', /^Tool has no checks to choose from yet/);
+    // The new key goes after its object's last, indented as the file is, and nothing else moved.
+    const agentsWas = '  "agents": {\n    "reviewer": {\n      "effort": "high"\n    }\n  },\n';
+    assert.ok(configWas.includes(agentsWas), 'as acc agents set left it, above');
+    assert.equal(readFileSync(configFile, 'utf8'), configWas.replace(agentsWas, '  "agents": {\n    "reviewer": {\n      "effort": "high"\n    },\n    "max": 4\n  },\n'));
 
     await calls.commands.get(COMMANDS.check)!('B0.repo');
     assert.match(calls.info.at(-1) ?? '', /^✓ Inside the project's repo: Repo at /);

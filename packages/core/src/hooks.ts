@@ -119,7 +119,12 @@ export function commandsOf(line: string): string[][] {
 }
 
 const CLOSING = /\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\b[\s:]+(#\d+|[A-Z][A-Z0-9_]*-\d+|https?:\/\/)/i;
-const PERSON_ONLY_ACC = new Set(['set', 'dispatch', 'land', 'review', 'autopilot', 'analyze', 'promote', 'deploy', 'init', 'cleanup', 'agents', 'setup', 'update', 'updates', 'resume', 'machine']);
+/**
+ * acc's commands that are a person's, by name, or by name and subcommand where the rest of the command is a
+ * builder's: acc gate run and list are, but not waiving a check or changing which checks run (GH-111), and
+ * acc rules list is, but not copying rules in (GH-108).
+ */
+export const PERSON_ONLY_ACC = new Set(['set', 'dispatch', 'land', 'review', 'autopilot', 'analyze', 'promote', 'deploy', 'init', 'cleanup', 'agents', 'setup', 'update', 'updates', 'resume', 'machine', 'gate waive', 'gate required', 'gate builder', 'rules import', 'trackers set']);
 
 /**
  * Whether a command line has a backtick or a $ the shell would act on: anywhere outside single quotes,
@@ -173,11 +178,10 @@ export function guardBash(b: Builder, line: string): string | null {
       if (verb === 'quick' || verb === 'resume' || (verb === 'start' && !rest.includes('--dry-run'))) return 'Builders validate and never deploy (D-011). Use acc gate run validate, which is a check-only deploy.';
     }
     if (cmd === 'sf' && sub === 'org' && rest[0] === 'delete') return 'Builders never delete an org.';
-    // Copying rules in is a person's too (GH-108); listing them and their differences only reads. So is
-    // connecting or changing a tracker (GH-112).
-    const personSub = sub === 'gate' && rest[0] === 'waive' ? 'gate waive' : sub === 'rules' && rest[0] === 'import' ? 'rules import' : sub === 'trackers' && rest[0] === 'set' ? 'trackers set' : null;
-    if (isAcc(cmd) && sub && (PERSON_ONLY_ACC.has(sub) || personSub)) {
-      return `acc ${personSub ?? sub} is a person's. A builder finishes with acc done, or acc block "<what you need>".`;
+    // A command is a person's by its name, or by its name and subcommand, such as acc rules import (GH-108).
+    const two = `${sub} ${rest[0] ?? ''}`;
+    if (isAcc(cmd) && sub && (PERSON_ONLY_ACC.has(sub) || PERSON_ONLY_ACC.has(two))) {
+      return `acc ${PERSON_ONLY_ACC.has(sub) ? sub : two} is a person's. A builder finishes with acc done, or acc block "<what you need>".`;
     }
     // Closing the issues of tasks already done is a person's tidy (D-082); a plain acc sync isn't.
     if (isAcc(cmd) && sub === 'sync' && rest.some((a) => a === '--close-done' || a.startsWith('--close-done='))) {

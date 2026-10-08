@@ -19,7 +19,8 @@ import { refresh } from './refresh.ts';
 import { clipSaid, listSessions, resume, type ResumeDeps } from './resume.ts';
 import { review } from './review.ts';
 import type { SlotOptions } from './semaphore.ts';
-import { type AutopilotOutcome, type Decision, type FactsGitHub, firstLines, inQueueAt, nextStep, running, sentence, taskFacts } from './autopilot-rules.ts';
+import { type AutopilotOutcome, capWait, type Decision, type FactsGitHub, firstLines, inQueueAt, nextStep, sentence, taskFacts } from './autopilot-rules.ts';
+import { machineCapProblem, machineLoad, type MachineLoad } from './limits.ts';
 
 /**
  * Autopilot (D-055): under `autonomy: review`, each pass reads the ledger and takes the next step for
@@ -200,22 +201,20 @@ function landStep(r: LandResult): StepRun {
 
 /**
  * Why a step's error is only for now, or null when it's a real failure. Only these wait: the ledger was
- * busy, the agent cap filled up between the look and the dispatch, a stopped builder's agent came back,
+ * busy, the project's cap or this machine's total filled up between the look and the dispatch, a stopped builder's agent came back,
  * a pull request's checks changed between the look and the send-back (D-076), or a pull request moved on,
  * or wasn't settled, between the look and the merge (GH-67). Anything else is recorded, a heavy-check slot
  * that stayed taken for hours among them (D-069).
  */
-function temporary(e: unknown, paths: RepoPaths, config: Config, id: string): string | null {
+function temporary(e: unknown, paths: RepoPaths, config: Config, id: string, machine: MachineLoad | null): string | null {
   const code = (e as AccError).code;
   if (code === 'lock-timeout') return 'The ledger was busy. Autopilot tries again next pass.';
   // Its agent came back between the look and the resume, or its checks or pull request moved on: nothing to do after all.
   if (code === 'agent-active' || code === 'checks-moved' || code === 'merge-waits') return `${(e as Error).message} Autopilot looks again next pass.`;
   // A held task that still waits after all, or whose start was claimed elsewhere (D-093).
   if (code === 'start-waits') return `${sentence((e as Error).message)} Autopilot looks again next pass.`;
-  if (code === 'move-refused') {
-    const n = running(readLedger(paths.ledger), id);
-    if (n >= config.agents.max) return `${n} tasks are running. The limit is ${config.agents.max}.`;
-  }
+  // A cap filled between the look and the start: the project's, or this machine's across every repo (GH-111).
+  if (code === 'move-refused') return capWait(readLedger(paths.ledger), config, id, machine);
   return null;
 }
 
@@ -271,6 +270,10 @@ export function autopilotPass(paths: RepoPaths, config: Config, deps: AutopilotD
   const who = { actor: 'orchestrator' as const, by: AUTOPILOT_BY };
   const queued = new Map<string, InQueue>();
   let fetched = false;
+  // This machine's total and the builders in its other repos (GH-111), read once a pass, the first time a
+  // task could start a builder: a rework to re-dispatch, or a held task.
+  let machine: MachineLoad | null = null;
+  const load = (): MachineLoad => (machine ??= machineLoad(paths, config.project, deps.env));
   /** Takes a step and fills in its entry: done, waiting for now, or failed and written down on the task. */
   const take = (entry: AutopilotStep, fn: () => TurnRun): void => {
     const id = entry.task;
@@ -284,7 +287,7 @@ export function autopilotPass(paths: RepoPaths, config: Config, deps: AutopilotD
         Object.assign(entry, { outcome: 'failed', reason: firstLines((e as Error).message) });
         return;
       }
-      const wait = temporary(e, paths, config, id);
+      const wait = temporary(e, paths, config, id, machine);
       if (wait) {
         Object.assign(entry, { outcome: 'waiting', reason: wait });
         return;
@@ -309,11 +312,13 @@ export function autopilotPass(paths: RepoPaths, config: Config, deps: AutopilotD
     if (!task || task.state === 'done') continue;
     if (task.state === 'running' && (!look || deps.now().getTime() - look.at > STOPPED_GRACE_MS)) look = { sessions: listSessions(deps.run, paths.root), at: deps.now().getTime() };
     const facts = taskFacts(paths, task, deps.run, look?.sessions ?? null, deps.now(), github);
+    if (task.state === 'rework' || (task.state === 'todo' && task.held && !task.held.failed)) facts.machine = load();
     // A held task is weighed against what's in flight now (D-093), after any start earlier in the pass.
     // Autopilot doesn't sync (D-055), so origin is fetched once a pass, for a pull request merged meanwhile.
     if (task.state === 'todo' && task.held && !task.held.failed) {
       try {
-        const problems = [...checkMove(ledger, config, task, { to: 'running', actor: 'orchestrator', by: AUTOPILOT_BY }, noGateHooks), ...analysisProblems(paths, config, task)];
+        const over = machineCapProblem(ledger, id, facts.machine ?? null);
+        const problems = [...checkMove(ledger, config, task, { to: 'running', actor: 'orchestrator', by: AUTOPILOT_BY }, noGateHooks), ...(over ? [over] : []), ...analysisProblems(paths, config, task)];
         facts.start = { ...startLook(paths, config, ledger, deps.run, id, { fetch: !fetched }), problems };
         fetched = true;
       } catch {

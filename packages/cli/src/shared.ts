@@ -107,3 +107,13 @@ export function personOnly(o: Opts, what: string): string {
   if (actor !== 'human') throw new AccError('refused', `Only a person can ${what}.`);
   return by;
 }
+
+/**
+ * What only a person changes, such as a limit or a check (GH-111): refused for a builder, a reviewer or an
+ * analyst by name, whatever it claims to be, then for anyone not a person, autopilot among them.
+ */
+export function noAgent(o: Opts, what: string): string {
+  const role = process.env.ACC_ROLE;
+  if (role === 'builder' || role === 'reviewer' || role === 'analyst') throw new AccError('refused', `${role === 'analyst' ? 'An' : 'A'} ${role} can't ${what}. A person does that.`);
+  return personOnly(o, what);
+}

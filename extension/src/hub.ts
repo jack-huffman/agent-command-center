@@ -24,6 +24,8 @@ import { runFile } from './run.ts';
 import { branchStats as readBranchStats } from './worktrees.ts';
 import type { LastStep } from './transcript.ts';
 import { analysesOf, deriveRows, loadChanged } from './task-rows.ts';
+import { readLimits } from './limits.ts';
+import type { LimitsFacts } from './model/limits.ts';
 
 export interface WorktreeInfo extends Worktree {
   main: boolean;
@@ -52,6 +54,8 @@ export type HubPart = 'projects' | 'tasks' | 'agents' | 'worktrees' | 'jobs';
 /** While anything was under way this recently, In progress redraws every TICK_MS, so its times and done lines move on. */
 const BUSY_MS = 90_000;
 const TICK_MS = 15_000;
+/** How long Settings' limits are kept before they're read again (GH-111). */
+const LIMITS_MS = 15_000;
 
 /** And its tickets' draft updates (D-066). */
 const updatesOf = (p: Pick<Project, 'ledgerPath'>): Pick<RepoPaths, 'updates'> => ({ updates: join(dirname(p.ledgerPath), 'updates') });
@@ -156,6 +160,8 @@ export class Hub implements vscode.Disposable {
   private ties = new WeakMap<AgentSession, SessionTie | null>();
   private jobsSig = '';
   private busyAt = 0;
+  /** Settings' limits (GH-111), as of the last read, kept a while: it reads every repo's ledger acc noted on this machine. */
+  private limitsRead: { at: number; facts: LimitsFacts } | null = null;
   /** What each in-flight task's branch has changed, by project and task, from the worktree poll (D-093). */
   readonly changed = new Map<string, Map<string, string[]>>();
   private readonly emitter = new vscode.EventEmitter<HubPart>();
@@ -559,6 +565,26 @@ export class Hub implements vscode.Disposable {
     ]);
     if (sig === this.jobsSig) return;
     this.jobsSig = sig;
+    this.emitter.fire('jobs');
+  }
+
+  // ------------------------------------------------------------ limits (GH-111)
+
+  /** This machine's limits and each project's, read again at most every LIMITS_MS, or once forgotten. */
+  limits(): LimitsFacts | null {
+    const now = Date.now();
+    if (this.limitsRead && now - this.limitsRead.at < LIMITS_MS) return this.limitsRead.facts;
+    try {
+      this.limitsRead = { at: now, facts: readLimits(this.projects, (root) => this.ledger(root), this.heavy) };
+    } catch {
+      this.limitsRead = null;
+    }
+    return this.limitsRead?.facts ?? null;
+  }
+
+  /** A limit changed: the next look reads them again, and the page redraws. */
+  forgetLimits(): void {
+    this.limitsRead = null;
     this.emitter.fire('jobs');
   }
 
