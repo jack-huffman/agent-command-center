@@ -1,7 +1,7 @@
 // The repos acc has set up on this machine (GH-81), and which of them uses an epic, a label, an area path
 // or a group already. Every test keeps its list in a temporary file (ACC_REPOS_FILE), never ~/.acc.
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { parseConfig, type Tracker } from '../src/config.ts';
@@ -25,6 +25,11 @@ test('the list holds roots only, in a file of its own, and a repo whose config i
   assert.equal(rememberRepo(a, env), false, 'listed already: nothing written');
   assert.equal(rememberRepo(b, env), true);
   assert.deepEqual(listedRepos(env), [a, b]);
+  // Loading the projects again remembers each: one listed already stays where it is, and nothing is written.
+  const written = statSync(env.ACC_REPOS_FILE).ino;
+  assert.deepEqual([rememberRepo(a, env), rememberRepo(b, env), rememberRepo(a, env)], [false, false, false]);
+  assert.deepEqual(listedRepos(env), [a, b], 'not moved to the end');
+  assert.equal(statSync(env.ACC_REPOS_FILE).ino, written, 'the file wasn\'t replaced');
   assert.deepEqual(Object.keys(JSON.parse(readFileSync(env.ACC_REPOS_FILE, 'utf8'))), ['schema', 'repos'], 'roots, never a copy of a config');
   assert.deepEqual(reposInUse(env).map((r) => [r.name, r.trackers.map((t) => t.epic)]), [['acme-portal', ['ACME-3']], ['acme-billing', ['ACME-3']]], 'each config read now');
 

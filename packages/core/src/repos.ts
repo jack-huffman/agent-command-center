@@ -28,14 +28,15 @@ export function listedRepos(env: NodeJS.ProcessEnv = process.env): string[] {
 }
 
 /**
- * Adds a repo's root to the list, and drops roots whose config is gone. It writes the whole file or nothing,
- * and only when the list changed. A list that can't be written is no reason to fail what called it, so it
- * says false. True when it wrote.
+ * Adds a repo's root to the end of the list, and drops roots whose config is gone. A root listed already
+ * stays where it is, so loading the projects again writes nothing. It writes the whole file or nothing, and
+ * only when the list changed. A list that can't be written is no reason to fail what called it, so it says
+ * false. True when it wrote.
  */
 export function rememberRepo(root: string, env: NodeJS.ProcessEnv = process.env): boolean {
   const was = listedRepos(env);
-  const kept = was.filter((r) => r !== root && existsSync(configOf(r)));
-  const next = [...kept, root];
+  const kept = was.filter((r) => r === root || existsSync(configOf(r)));
+  const next = kept.includes(root) ? kept : [...kept, root];
   if (was.length === next.length && was.every((r, i) => r === next[i])) return false;
   const file = reposFile(env);
   const tmp = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
