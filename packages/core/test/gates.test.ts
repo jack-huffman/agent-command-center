@@ -753,6 +753,29 @@ test('a floor the builder lowered by hand fails; one a person relaxed, with a re
   assert.deepEqual(relaxed.results[1]!.details?.ratchet, { label: 'tests', limit: 'floor', value: 640, floor: 640, base: 669, diff: -29 });
 });
 
+test('a floor a person relaxed, raised again by acc but still below the environment\'s, passes once the raise is committed (GH-99)', () => {
+  const r = ratchetRepo();
+  relaxFloor(r.paths.relaxed, r.paths.floors, r.dir, r.c, { ratchet: 'tests', to: 640, reason: 'the slow suite moved to its own job', by: 'human:jordan', now, task: 'T-1' });
+  const sha = r.set({ 'count.txt': '650\n' }, 'T-1: relax the tests floor, and ten tests back');
+  const ran = r.gate(true);
+  assert.deepEqual([ran.results[1]!.status, ran.raised], ['pass', [{ gate: 'tests', label: 'tests', from: 640, to: 650 }]]);
+  assert.equal(r.floorsText(), formatFloors({ tests: { floor: 650 } }));
+
+  // Committed as the packet says: 650 is still below main's 669, and the person's relax to 640 backs it.
+  commitAll(r.dir, 'T-1: raise the tests floor');
+  const next = gitIn(r.dir, 'rev-parse', 'HEAD');
+  const again = r.gate(true);
+  assert.deepEqual([again.results[1]!.status, again.results[1]!.summary, again.raised], ['pass', 'tests 650, at its floor.', []]);
+  assert.deepEqual(readReceipt(r.paths, next, 'tests')?.carried, { from: sha });
+  assert.deepEqual(r.hooks.missingGates(r.task), []);
+
+  // A fresh run on a later commit passes too; a floor below the one the person relaxed to still fails.
+  r.set({ 'note.txt': 'x' }, 'T-1: a change');
+  assert.equal(r.gate(true).results[1]!.summary, 'tests 650, at its floor.');
+  r.set({ '.acc/floors.json': formatFloors({ tests: { floor: 630 } }), 'count.txt': '630\n' }, 'T-1: lower it again, by hand');
+  assert.match(r.gate(true).results[1]!.summary, /^\.acc\/floors\.json lowers tests's floor to 630, from 669 on main, and no person relaxed it\./);
+});
+
 test('a ratchet can\'t be waived: a person relaxes its floor instead (GH-99)', () => {
   const r = ratchetRepo();
   const sha = r.set({ 'count.txt': '660\n' });

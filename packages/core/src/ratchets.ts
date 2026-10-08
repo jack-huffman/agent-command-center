@@ -272,9 +272,12 @@ export function readRelaxed(file: string): RelaxRecord[] {
   });
 }
 
-/** Whether a person relaxed this ratchet to this number. */
+/**
+ * Whether a person relaxed this ratchet to this number or a worse one. A floor acc raised again after a
+ * person relaxed it is still backed by that record, so the commit that records the raise passes.
+ */
 export const relaxedTo = (records: RelaxRecord[], name: string, limit: RatchetLimit, value: number): boolean =>
-  records.some((r) => r.ratchet === name && r.limit === limit && r.to === value);
+  records.some((r) => r.ratchet === name && r.limit === limit && (r.to === value || isWorse(limit, r.to, value)));
 
 export interface RelaxRequest {
   ratchet: string;
