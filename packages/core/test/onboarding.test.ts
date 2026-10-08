@@ -4,8 +4,8 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { parseConfig } from '../src/config.ts';
 import { run, type RunResult } from '../src/exec.ts';
-import { makeContext, parseOrgUrl } from '../src/onboarding/helpers.ts';
-import { PLUGIN, runSteps, STEPS } from '../src/onboarding/steps.ts';
+import { makeContext, parseOrgUrl, pluginBehind } from '../src/onboarding/helpers.ts';
+import { PLUGIN, runSteps, STEPS, userPlugin } from '../src/onboarding/steps.ts';
 import type { CheckStatus } from '../src/onboarding/types.ts';
 import { repoPaths } from '../src/paths.ts';
 import { importRules, renderHeader, rulesDigest } from '../src/rules.ts';
@@ -613,4 +613,12 @@ test('B0.template never hands git a committed source that starts with "-" (GH-80
   assert.match(r.detail, /can't start with "-", which git would read as an option/);
   assert.ok(!calls.some((c) => c.startsWith('git clone')), calls.join('\n'));
   assert.ok(!existsSync(join(repo, 'acc-owned')));
+});
+
+test('the plugin is behind acc only when both are x.y.z and it\'s older: the one comparison A4 and Settings\' About share (GH-114)', () => {
+  assert.deepEqual([pluginBehind('0.36.0', '0.37.0'), pluginBehind('0.9.0', '0.10.0'), pluginBehind('0.37.0', '0.37.0'), pluginBehind('0.38.0', '0.37.0')], [true, true, false, false]);
+  assert.deepEqual([pluginBehind(null, '0.37.0'), pluginBehind('0.36.0', null), pluginBehind('0.36', '0.37.0'), pluginBehind('9d655cb', '0.37.0'), pluginBehind('0.36.0', '')], [false, false, false, false, false]);
+  assert.deepEqual(userPlugin([{ id: 'acc@agent-command-center', scope: 'project', version: '1.0.0', enabled: true }, { id: 'acc@agent-command-center', scope: 'user', version: '0.37.0', enabled: false }]), { version: '0.37.0', enabled: false });
+  assert.deepEqual(userPlugin([{ id: 'acc@agent-command-center', scope: 'user', version: 37 }]), { version: null, enabled: false });
+  assert.equal(userPlugin([{ id: 'other@x', scope: 'user' }]), null);
 });

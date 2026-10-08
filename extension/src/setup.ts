@@ -17,6 +17,17 @@ import { exec } from './trackers.ts';
 import type { ExtensionArea } from './area.ts';
 
 const TERMINAL_NAME = 'acc setup';
+
+/** The extension's version, as its package.json says, read now. Unknown, it's '', which no saved result has. */
+export function extensionVersion(file: string): string {
+  try {
+    const v = (JSON.parse(readFileSync(file, 'utf8')) as { version?: unknown }).version;
+    return typeof v === 'string' ? v : '';
+  } catch {
+    return '';
+  }
+}
+
 /** Machine checks change rarely and call slow CLIs, so startup reuses results this fresh. */
 const MACHINE_FRESH_MS = 12 * 60 * 60 * 1000;
 const CONFIRMED = { machine: 'acc.confirmed.machine', project: 'acc.confirmed.project' } as const;
@@ -47,6 +58,8 @@ export class Setup implements vscode.Disposable {
   private readonly guide: string;
   private readonly ctx: vscode.ExtensionContext;
   private lastFolder: string | undefined;
+  /** The extension's version, from its own package.json: the machine's saved results are this version's (GH-114). */
+  readonly version: string;
   private readonly changed = new vscode.EventEmitter<void>();
   /** Fires when check results or confirmations change, for the Setup view. */
   readonly onDidChange = this.changed.event;
@@ -55,6 +68,7 @@ export class Setup implements vscode.Disposable {
     this.ctx = ctx;
     this.accScript = ctx.asAbsolutePath(join('dist', 'bin', 'acc.mjs'));
     this.guide = ctx.asAbsolutePath(join('dist', 'ONBOARDING.md'));
+    this.version = extensionVersion(ctx.asAbsolutePath('package.json'));
     this.status.name = 'Agent Command Center setup';
     this.status.command = COMMANDS.project;
     this.disposables.push(this.log, this.status, this.changed);
@@ -204,9 +218,9 @@ export class Setup implements vscode.Disposable {
         await (async () => {
           const started = Date.now();
           const profile = this.config()?.profile ?? 'none';
-          const reused = opts.reuseMachine ? reusableMachine(this.ctx.globalState.get<MachineCache>('acc.machineItems'), profile, Date.now(), MACHINE_FRESH_MS) : null;
+          const reused = opts.reuseMachine ? reusableMachine(this.ctx.globalState.get<MachineCache>('acc.machineItems'), profile, this.version, Date.now(), MACHINE_FRESH_MS) : null;
           const machine: DoctorItem[] = reused ? [...reused] : await this.doctor(['--part', 'machine']);
-          const cache = reused ? null : machineCache(machine, profile, Date.now());
+          const cache = reused ? null : machineCache(machine, profile, this.version, Date.now());
           if (cache) await this.ctx.globalState.update('acc.machineItems', cache);
           const project = this.isProject() ? await this.doctor(['--part', 'project']) : null;
           await this.applyFull(machine, project);

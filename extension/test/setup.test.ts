@@ -133,23 +133,27 @@ test('status text counts what is left, and attention means something failed', ()
   assert.equal(isComplete('fail'), false);
 });
 
-test('machine results are reused only while fresh, and only in a folder with the same profile', () => {
+test('machine results are reused only while fresh, in a folder with the same profile, and by the same version (GH-114)', () => {
   const items: DoctorItem[] = [{ id: 'A1.node', part: 'machine', title: 'Node', status: 'fail', detail: 'node isn\'t installed.' }];
   const now = 1_000_000;
-  const fresh = { at: now - 1000, profile: 'salesforce', items };
-  assert.deepEqual(reusableMachine(fresh, 'salesforce', now, 5000), items);
-  assert.equal(reusableMachine(fresh, 'generic', now, 5000), null, 'a generic folder never shows A1.node from a Salesforce folder\'s check');
-  assert.equal(reusableMachine(fresh, 'none', now, 5000), null);
-  assert.equal(reusableMachine({ ...fresh, at: now - 5000 }, 'salesforce', now, 5000), null, 'stale');
-  assert.equal(reusableMachine({ at: now, items }, 'generic', now, 5000), null, 'saved before results knew their profile');
-  assert.equal(reusableMachine(undefined, 'generic', now, 5000), null);
-  assert.equal(reusableMachine({ ...fresh, items: [] }, 'salesforce', now, 5000), null, 'an empty list saved by 0.35.0 or earlier, when acc failed, is checked again');
+  const fresh = { at: now - 1000, profile: 'salesforce', version: '0.37.0', items };
+  assert.deepEqual(reusableMachine(fresh, 'salesforce', '0.37.0', now, 5000), items);
+  assert.equal(reusableMachine(fresh, 'generic', '0.37.0', now, 5000), null, 'a generic folder never shows A1.node from a Salesforce folder\'s check');
+  assert.equal(reusableMachine(fresh, 'none', '0.37.0', now, 5000), null);
+  assert.equal(reusableMachine({ ...fresh, at: now - 5000 }, 'salesforce', '0.37.0', now, 5000), null, 'stale');
+  assert.equal(reusableMachine({ at: now, version: '0.37.0', items }, 'generic', '0.37.0', now, 5000), null, 'saved before results knew their profile');
+  assert.equal(reusableMachine(undefined, 'generic', '0.37.0', now, 5000), null);
+  assert.equal(reusableMachine({ ...fresh, items: [] }, 'salesforce', '0.37.0', now, 5000), null, 'an empty list saved by 0.35.0 or earlier, when acc failed, is checked again');
+  // An upgrade checks the machine again: the new acc may fail a plugin the old one passed (A4, D-088).
+  assert.equal(reusableMachine(fresh, 'salesforce', '0.38.0', now, 5000), null, 'checked by another version');
+  assert.equal(reusableMachine({ at: now, profile: 'salesforce', items }, 'salesforce', '0.37.0', now, 5000), null, 'saved before results knew their version');
+  assert.equal(reusableMachine({ ...fresh, version: '' }, 'salesforce', '', now, 5000), null, 'saved when the version couldn\'t be read');
 });
 
 test('a machine check that came back empty is never saved for startup to reuse', () => {
   const items: DoctorItem[] = [{ id: 'A1.git', part: 'machine', title: 'git', status: 'pass', detail: 'git 2.54.0' }];
-  assert.deepEqual(machineCache(items, 'generic', 42), { at: 42, profile: 'generic', items });
-  assert.equal(machineCache([], 'generic', 42), null, 'acc failed: startup checks again instead of showing no machine rows for 12 hours');
+  assert.deepEqual(machineCache(items, 'generic', '0.37.0', 42), { at: 42, profile: 'generic', version: '0.37.0', items });
+  assert.equal(machineCache([], 'generic', '0.37.0', 42), null, 'acc failed: startup checks again instead of showing no machine rows for 12 hours');
 });
 
 test('a full check replaces each part\'s rows, so a step that no longer applies loses its row (GH-62)', () => {
