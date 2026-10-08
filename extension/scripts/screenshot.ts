@@ -44,7 +44,8 @@ import { PALETTE_THEMES, type PaletteTheme, palettes, vscodeDefaults } from './s
  * Every page the screenshot script can draw: each section of the Command Center, a ticket's page (being
  * built, two to do whose analysis has questions or says to split it, one whose builder stopped, one that
  * waits for other tasks' files, and one acc doesn't keep yet, being tracked), an agent's page, Setup with
- * the output panel open on a command that's asking something, the Connect page at each of its steps (D-073),
+ * the output panel open on a command that's asking something, the Connect page at each of its steps (D-073)
+ * and starting a project from a Jira epic, an Azure DevOps area path or GitHub labels (GH-81),
  * Environments with the Slack card at each of its states (GH-58): sending on Environments itself, then not
  * set up, off and paused, the Tasks tab with a monday.com board in place of the Jira one (GH-70), Agents
  * with How agents run opened by its Settings (D-089), Agents with its Where column showing full paths
@@ -52,7 +53,7 @@ import { PALETTE_THEMES, type PaletteTheme, palettes, vscodeDefaults } from './s
  * project whose merge queue holds three pull requests, with autopilot on and the head running its full
  * check, with autopilot off, and with the head held on GitHub, in that wait's own words (GH-73).
  */
-export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-settings', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held'] as const;
+export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-settings', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held'] as const;
 export type Page = (typeof PAGES)[number];
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');
