@@ -508,6 +508,18 @@ export function templateTrackers(t: TemplateTracker | null, flags: { jiraSite?: 
   return out;
 }
 
+/**
+ * The one tracker acc init writes for `--tracker` (GH-81), its null keys left out. It replaces the
+ * template's tracker and --jira-site and --jira-project, and a note says which it replaced. parseConfig
+ * checks it with the rest of the config.
+ */
+export function pickedTracker(tracker: Record<string, unknown>, was: { template: TemplateTracker | null; jiraSite?: string; jiraProject?: string }, notes: string[]): Record<string, unknown> {
+  const picked = Object.fromEntries(Object.entries(tracker).filter(([, v]) => v !== null && v !== undefined));
+  if (was.template) notes.push(`The tracker picked (--tracker) replaces the template's: ${trackerWords(was.template)}.`);
+  if (was.jiraSite || was.jiraProject) notes.push('The tracker picked (--tracker) replaces --jira-site and --jira-project.');
+  return picked;
+}
+
 // ---------------------------------------------------------------- what it sets, and what differs
 
 const envWords = (e: TemplateEnvironment) =>

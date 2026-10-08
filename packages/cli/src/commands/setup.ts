@@ -1,7 +1,7 @@
 // acc's Setup commands: doctor, onboard, init, template and setup.
 
 import { existsSync } from 'node:fs';
-import { AccError, buildBaseline, configureRepoAccess, describeTemplate, draftLists, makeContext, parseSource, planInit, type Profile, readTemplate, repoPaths, run, runSteps, seedBranches, type StepResult, STEPS, templateAccount, writeConfig, writeReadme } from '../../../core/src/index.ts';
+import { AccError, buildBaseline, configureRepoAccess, describeTemplate, draftLists, makeContext, parseSource, planInit, type Profile, readTemplate, rememberRepo, repoPaths, run, runSteps, seedBranches, type StepResult, STEPS, templateAccount, writeConfig, writeReadme } from '../../../core/src/index.ts';
 import { checkLabel, table, tone } from '../format.ts';
 import { type CommandArea, now, type Opts, out, personOnly, project, VERSION } from '../shared.ts';
 
@@ -51,11 +51,24 @@ function cmdDoctor(o: Opts, guided: boolean): number {
   return results.some((r) => r.result.status === 'fail') ? 1 : 0;
 }
 
+/** --tracker's JSON: one tracker, as the Connect page writes it (GH-81). parseConfig checks the rest. */
+function trackerFlag(json: string): Record<string, unknown> {
+  let t: unknown;
+  try {
+    t = JSON.parse(json);
+  } catch {
+    t = null;
+  }
+  if (!t || typeof t !== 'object' || Array.isArray(t)) throw new AccError('usage', '--tracker must be one tracker as JSON, such as {"kind":"jira","site":"acme.atlassian.net","project":"ACME","epic":"ACME-3"}.');
+  return t as Record<string, unknown>;
+}
+
 function cmdInit(o: Opts): number {
   const paths = repoPaths(process.cwd(), run);
   const profile = o.profile as Profile | undefined;
   if (profile !== undefined && profile !== 'generic' && profile !== 'salesforce') throw new AccError('usage', '--profile must be generic or salesforce.');
   if (existsSync(paths.config) && !o.force && !o['dry-run']) throw new AccError('exists', `${paths.config} already exists. Use --force to replace it.`);
+  const tracker = o.tracker === undefined ? undefined : trackerFlag(o.tracker as string);
   const plan = planInit(run, {
     root: paths.root,
     profile,
@@ -69,9 +82,12 @@ function cmdInit(o: Opts): number {
     commitEmail: o['commit-email'] as string | undefined,
     jiraSite: o['jira-site'] as string | undefined,
     jiraProject: o['jira-project'] as string | undefined,
+    tracker,
   });
   if (!o['dry-run']) {
     writeConfig(paths.config, plan.config);
+    // This machine's repos, so the Connect page can say which epic another repo uses already (GH-81).
+    rememberRepo(paths.root);
     if (o['configure-git'] && plan.config.github) configureRepoAccess(run, paths.root, plan.config.github.account, plan.config.commitIdentity);
   }
   out(o, () => {
@@ -192,6 +208,8 @@ export const area: CommandArea = {
   acc init --from <template> [--production-org <alias>] [...]
                                         Start from a team template: a path, a GitHub file URL, or <git-url>#<path>.
                                         It wins where it speaks, and discovery fills the rest; flags win over both
+  acc init ... --tracker <json>         One tracker, as the Connect page picks it: a Jira epic, an Azure area path or
+                                        GitHub labels. It replaces the template's tracker and --jira-*
   acc template show <template>          What a team template sets, and its check commands, before using it`,
   },
   options: {
@@ -207,6 +225,7 @@ export const area: CommandArea = {
     'configure-git': { type: 'boolean', default: false },
     'jira-site': { type: 'string' },
     'jira-project': { type: 'string' },
+    tracker: { type: 'string' },
     from: { type: 'string' },
     'dry-run': { type: 'boolean', default: false },
     force: { type: 'boolean', default: false },
