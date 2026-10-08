@@ -207,7 +207,7 @@ function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
   }
   const board = el('div', 'board');
   for (const c of b.columns) {
-    const col = el('section', `column tone-edge-${c.tone}${c.done ? ' done-col' : ''}`, el('h2', '', c.name, el('span', 'count', String(c.cards.length))));
+    const col = el('section', `column tone-edge-${c.tone}${c.done ? ' done-col' : ''}`, el('h2', '', icon(c.icon, c.tone), c.name, el('span', 'count', String(c.cards.length))));
     col.setAttribute('aria-label', `${c.name}: ${plural(c.cards.length, 'ticket')}`);
     col.dataset.col = c.id;
     for (const card of c.cards) col.append(trackerCard(root, b, card));

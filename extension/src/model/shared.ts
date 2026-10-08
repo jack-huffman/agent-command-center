@@ -5,7 +5,7 @@
  */
 
 import type { AutopilotRecord } from '../../../packages/core/src/autopilot-log.ts';
-import type { SessionTie } from '../../../packages/core/src/ledger.ts';
+import { DISPLAY, type DisplayState, type SessionTie } from '../../../packages/core/src/ledger.ts';
 import type { Environment, Tracker } from '../../../packages/core/src/config.ts';
 import type { HistoryRecord, Question } from '../../../packages/core/src/questions.ts';
 import type { Update } from '../../../packages/core/src/updates.ts';
@@ -119,6 +119,9 @@ export function nameOf(hub: Pick<HubLike, 'projectFor' | 'taskRows'>, s: AgentSe
 }
 
 export const LOOK = (label: string, icon: string, tone: Tone): Look => ({ label, icon, tone });
+
+/** A task's state as core's DISPLAY shows it, and DESIGN.md's table: every page that shows a task's state reads it here (GH-105). */
+export const displayLook = (d: DisplayState): Look => ({ label: DISPLAY[d].label, icon: DISPLAY[d].icon, tone: DISPLAY[d].tone });
 
 export const HOME_SECTIONS = ['overview', ...VIEW_KINDS] as const;
 export type HomeSection = (typeof HOME_SECTIONS)[number];

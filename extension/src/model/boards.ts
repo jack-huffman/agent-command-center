@@ -3,18 +3,18 @@
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 
-import { DISPLAY } from '../../../packages/core/src/ledger.ts';
 import type { StatusCategory, TrackerKind } from '../../../packages/core/src/trackers/types.ts';
 import { conflictLine, failedChecksLine, waitsForFiles, whileFirst } from '../logic/tasks.ts';
 import { taskNames, type TaskRow, type Tone } from '../logic/shared.ts';
 import { signInScope } from '../logic/connect.ts';
-import { type Action, KEY, type Look, LOOK, type ModelArea, short } from './shared.ts';
+import { type Action, displayLook, KEY, type Look, LOOK, type ModelArea, short } from './shared.ts';
 import { analysisLook, autopilotLook, CARD_SAID, cardActions, closedPrLook, filesLook, stoppedLook } from './cards.ts';
 
 // ---------------------------------------------------------------- tracker boards (D-026)
 
 /** Blue while a ticket is moving; to-do and done stay neutral, so orange keeps meaning a person is needed. */
-export const CATEGORY_TONE: Record<StatusCategory, Tone> = { todo: 'neutral', doing: 'blue', done: 'neutral' };
+/** A tracker's status by its category (GH-105): an icon beside the tracker's own name for it, and its tone, as acc's own states show. */
+export const CATEGORY_LOOK: Record<StatusCategory, { icon: string; tone: Tone }> = { todo: { icon: 'circle-outline', tone: 'neutral' }, doing: { icon: 'sync', tone: 'blue' }, done: { icon: 'check', tone: 'neutral' } };
 
 export interface PersonChip {
   name: string;
@@ -91,6 +91,7 @@ export interface TrackerCard {
 export interface TrackerColumn {
   id: string;
   name: string;
+  icon: string;
   tone: Tone;
   done: boolean;
   cards: TrackerCard[];
@@ -142,8 +143,7 @@ export function accLook(row: TaskRow, full = false): Look {
   if (files && row.files!.held!.failed) return { ...files, label: row.files!.held!.byAutopilot ? 'Needs you: autopilot couldn\'t start it' : 'Needs you: its start failed' };
   if (files && waitsForFiles(row)) return { ...files, label: `Waits for ${taskNames(row.files!.shares.map((s) => `${s.task}'s`))} files${full ? whileFirst(row.files!.first, true) : ''}` };
   if (files) return files;
-  const d = DISPLAY[row.display];
-  return { label: d.label, icon: d.icon, tone: d.tone };
+  return displayLook(row.display);
 }
 
 /** The steps a tracker's card offers for its task: start it, its analysis (D-052), or watch its agent. */
@@ -152,7 +152,7 @@ const NEXT_STEPS = ['acc.task.dispatch', 'acc.task.dispatchAnyway', 'acc.task.an
 export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): TrackerBoard {
   const byId = new Map(rows.map((r) => [r.id, r]));
   const columns: TrackerColumn[] = (b.board?.columns ?? []).map((c) => ({
-    id: c.id, name: c.name, tone: CATEGORY_TONE[c.category], done: c.category === 'done',
+    id: c.id, name: c.name, ...CATEGORY_LOOK[c.category], done: c.category === 'done',
     cards: (b.board?.cards ?? []).filter((card) => c.statusIds.includes(card.status.id)).map((card): TrackerCard => {
       const row = byId.get(card.key);
       const next = row ? cardActions(row, { project: root, task: row.id }).find((a) => a.primary && NEXT_STEPS.includes(a.command)) ?? null : null;

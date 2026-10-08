@@ -3,7 +3,7 @@
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 
-import type { HubLike, Look, ModelArea } from './shared.ts';
+import type { HubLike, Look, ModelArea, ProjectLike } from './shared.ts';
 
 // ---------------------------------------------------------------- worktrees
 
@@ -20,16 +20,20 @@ export interface WorktreesModel {
   projects: { name: string; root: string; worktrees: WorktreeRow[] }[];
 }
 
+/** A worktree's state: missing, unknown or changed in orange, clean in blue. */
+export function worktreeLook(w: Pick<ProjectLike['worktrees'][number], 'prunable' | 'changed'>): Look {
+  if (w.prunable) return { label: 'Missing on disk', icon: 'warning', tone: 'orange' };
+  if (w.changed < 0) return { label: 'Status unknown', icon: 'question', tone: 'orange' };
+  return w.changed > 0 ? { label: `${w.changed} changed`, icon: 'diff-modified', tone: 'orange' } : { label: 'Clean', icon: 'check', tone: 'blue' };
+}
+
 export function worktreesModel(hub: HubLike): WorktreesModel {
   return {
     kind: 'worktrees',
     projects: hub.projects.map((p) => ({
       name: p.name, root: p.root,
       worktrees: p.worktrees.map((w) => {
-        const state: Look = w.prunable ? { label: 'Missing on disk', icon: 'warning', tone: 'orange' }
-          : w.changed < 0 ? { label: 'Status unknown', icon: 'question', tone: 'orange' }
-            : w.changed > 0 ? { label: `${w.changed} changed`, icon: 'diff-modified', tone: 'orange' }
-              : { label: 'Clean', icon: 'check', tone: 'blue' };
+        const state = worktreeLook(w);
         const place = w.main ? 'Main checkout' : w.path.replace(p.root.replace(/\/[^/]+$/, ''), '…');
         return { path: w.path, branch: w.branch ?? `detached at ${w.head.slice(0, 7)}`, place: w.locked ? `${place} · locked` : place, state, main: w.main };
       }),

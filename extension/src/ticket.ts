@@ -8,7 +8,7 @@ import { signInLabel, type Ticket, type TrackerClient } from '../../packages/cor
 import type { Hub, Project } from './hub.ts';
 import { type FromWebview, isFromWebview } from './model/messages.ts';
 import type { Ref } from './model/shared.ts';
-import { type TicketAcc, ticketActionRefusal, ticketModel, type TicketModel } from './model/task-page.ts';
+import { type GateCheck, ticketActionRefusal, ticketModel, type TicketModel } from './model/task-page.ts';
 import { htmlFor, isWebLink, TabTheme } from './panels.ts';
 import type { ThemeChoice } from './model/settings.ts';
 import { runFile } from './run.ts';
@@ -176,7 +176,7 @@ export class TicketPanels implements vscode.Disposable {
    * Each required check and any other recorded on the task branch's latest commit. Where the merge queue
    * runs the full check, a builder's lighter ones come first, then the full one, each saying which it is (GH-73).
    */
-  private async checks(p: Project, branch: string | null, environment: string): Promise<TicketAcc['checks']> {
+  private async checks(p: Project, branch: string | null, environment: string): Promise<GateCheck[]> {
     const lighter = builderGatesFor(p.config, environment);
     const builder = requiredGates(p.config, environment, 'builder');
     const required = [...new Set([...builder, ...p.config.gates.required])];
