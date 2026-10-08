@@ -3,13 +3,14 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { loadConfig, parseConfig, writeConfig } from '../src/config.ts';
-import type { RunOptions, RunResult } from '../src/exec.ts';
+import { run, type RunOptions, type RunResult } from '../src/exec.ts';
 import { planInit, templateAccount } from '../src/init.ts';
 import { makeContext } from '../src/onboarding/helpers.ts';
 import { runSteps } from '../src/onboarding/steps.ts';
+import { importRules } from '../src/rules.ts';
 import { parseSource, recordedSource, sourceProblem } from '../src/source.ts';
 import { describeTemplate, fetchTemplateText, loadTemplate, parseTemplate, previewCommand, readTemplate, type Template, templateDifferences, templateDigest } from '../src/template.ts';
-import { bad, fakeRunner, gitIn, makeRepo, ok, sf, tempDir } from './support.ts';
+import { bad, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, sf, tempDir } from './support.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..');
 
@@ -58,6 +59,7 @@ test('the ACME sample in docs/TEMPLATES.md is a template acc accepts', () => {
   assert.deepEqual(t.tracker, { kind: 'jira', site: 'acme.atlassian.net', organization: null, account: null, project: 'ACME', board: null, prefix: null });
   assert.equal(t.autonomy, 'review');
   assert.deepEqual(t.agents, { max: 3, builder: { model: 'claude-opus-5-5', effort: 'high' }, reviewer: { model: 'claude-opus-5-5' } });
+  assert.deepEqual(t.rules, ['https://github.com/acme/acc-rules/blob/main/salesforce.md']);
   assert.ok(describeTemplate(t).includes('Tracker: Jira on acme.atlassian.net, project ACME'));
 });
 
@@ -496,6 +498,32 @@ test('templateDifferences names the keys a project now differs on, and agrees wh
   changed.autonomy = 'manual';
   assert.deepEqual(templateDifferences(parsed(changed), base), ['environments', 'gates.required', 'tracker', 'autonomy', 'agents.max', 'agents.builder.effort']);
   assert.deepEqual(templateDifferences(parsed(withKey(['profile'], 'salesforce', { schema: 1, name: 'x' })), base), ['profile']);
+});
+
+test('a template may name rules files to copy in: URLs or paths from / or ~/, each to its own name (GH-108)', () => {
+  const rules = ['https://github.com/acme/acc-rules/blob/main/salesforce.md', 'git@github.com:acme/acc-rules.git#apex-logging.md', '~/team/acme-security.md'];
+  const t = parsed({ ...clone(GENERIC_TEMPLATE), rules });
+  assert.deepEqual(t.rules, rules);
+  assert.ok(describeTemplate(t).includes(`Rules copied into .acc/rules/: ${rules.join('; ')}`));
+  assert.equal(parsed(clone(GENERIC_TEMPLATE)).rules, null, 'none named: none copied');
+  assert.match(errorsOf({ ...clone(GENERIC_TEMPLATE), rules: 'https://github.com/acme/acc-rules/blob/main/salesforce.md' }), /"rules" must be a list of rules files to copy in/);
+  assert.match(errorsOf({ ...clone(GENERIC_TEMPLATE), rules: [] }), /"rules" must be a list/);
+  assert.match(errorsOf({ ...clone(GENERIC_TEMPLATE), rules: ['team/acme.md'] }), /"rules\[0\]": team\/acme\.md is a relative path, which would mean a different file on each machine/);
+  assert.match(errorsOf({ ...clone(GENERIC_TEMPLATE), rules: ['http://git.example.com/r.git#x.md'] }), /"rules\[0\]": Use https:\/\/: acc doesn't fetch a rules file over plain http/);
+  assert.match(errorsOf({ ...clone(GENERIC_TEMPLATE), rules: ['--upload-pack=x#y.md'] }), /"rules\[0\]": A rules file's source can't start with "-"/);
+  assert.match(errorsOf({ ...clone(GENERIC_TEMPLATE), rules: ['/srv/a/acme.md', '/srv/b/ACME.md'] }), /"rules\[1\]" and "rules\[0\]" would both be copied to \.acc\/rules\/acme\.md/);
+});
+
+test('templateDifferences says rules differ when the template names a source with no copy in the repo (GH-108)', () => {
+  const file = join(tempDir('team-'), 'acme.md');
+  writeFileSync(file, '- Every change has a test.\n');
+  const repo = makeRepo();
+  const t = parsed({ schema: 1, name: 'ACME tools', rules: [file] });
+  const config = parseConfig(GENERIC_CONFIG).config!;
+  assert.deepEqual(templateDifferences(t, config, { root: repo }), ['rules']);
+  assert.deepEqual(templateDifferences(t, config), [], 'without the repo, rules aren\'t compared');
+  importRules(run, repo, file);
+  assert.deepEqual(templateDifferences(t, config, { root: repo }), []);
 });
 
 test('the preview of a template that turns a project Salesforce names the Production org it needs', () => {

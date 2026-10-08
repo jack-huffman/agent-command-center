@@ -217,11 +217,28 @@ export function prepareImport(run: Runner, root: string, source: string, opts: I
   const copies = importedRules(root);
   const there = copies.find((c) => c.name === name);
   const header: RulesHeader = { source: recordedSource(s, { base: opts.base, home: opts.home, root, kind: 'rules' }), commit: fetched.commit, copied: day((opts.now ?? (() => new Date()))()), sha256: rulesDigest(text) };
-  const total = copies.filter((c) => c.name !== name).reduce((n, c) => n + c.bytes, 0) + Buffer.byteLength(renderHeader(header) + text);
+  const imp = { name, file, path, header, text, replaces: there ? { source: there.header?.source ?? null, copied: there.header?.copied ?? null, edited: there.edited } : null };
+  checkTotal(root, [imp], s);
+  return imp;
+}
+
+/** Refuses copies that would bring every copy together over what a packet can carry. */
+function checkTotal(root: string, imps: Pick<RulesImport, 'name' | 'header' | 'text'>[], what: string): void {
+  const names = new Set(imps.map((i) => i.name));
+  const total = importedRules(root).filter((c) => !names.has(c.name)).reduce((n, c) => n + c.bytes, 0) + imps.reduce((n, i) => n + Buffer.byteLength(renderHeader(i.header) + i.text), 0);
   if (total > RULES_TOTAL_MAX_BYTES) {
-    throw new AccError('bad-rules', `With ${s}, the copied-in rules would come to ${Math.ceil(total / 1024)} KB, over the ${RULES_TOTAL_MAX_BYTES / 1024} KB every packet, review and analysis can carry. Copy in less, or remove a copy from ${RULES_DIR}/ first.`);
+    throw new AccError('bad-rules', `With ${what}, the copied-in rules would come to ${Math.ceil(total / 1024)} KB, over the ${RULES_TOTAL_MAX_BYTES / 1024} KB every packet, review and analysis can carry. Copy in less, or remove a copy from ${RULES_DIR}/ first.`);
   }
-  return { name, file, path, header, text, replaces: there ? { source: there.header?.source ?? null, copied: there.header?.copied ?? null, edited: there.edited } : null };
+}
+
+/**
+ * Several rules files read together, as a team template names them (GH-108), writing nothing. Each is read
+ * before any is written, so one that can't be read leaves the repo as it was. A copy already here is kept.
+ */
+export function prepareImports(run: Runner, root: string, sources: string[], opts: ImportOptions = {}): RulesImport[] {
+  const imps = sources.map((s) => prepareImport(run, root, s, opts));
+  checkTotal(root, imps.filter((i) => !i.replaces), sources.length === 1 ? sources[0]! : 'the template\'s rules');
+  return imps;
 }
 
 /** Writes a prepared copy: its header, then the source's text as it was read. */

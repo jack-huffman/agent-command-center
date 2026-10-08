@@ -10,6 +10,7 @@ import {
 } from './config.ts';
 import { AccError, type Runner } from './exec.ts';
 import type { RawEnv } from './init.ts';
+import { importedRules, rulesName, templateRulesProblem } from './rules.ts';
 import { type FetchOptions, fetchSource, recordedSource, COPY_KINDS } from './source.ts';
 import { isTrackerKind, orList, TRACKER_KINDS, type TrackerKind, trackerName } from './trackers/types.ts';
 
@@ -59,6 +60,8 @@ export interface Template {
   tracker: TemplateTracker | null;
   autonomy: (typeof TEMPLATE_AUTONOMY)[number] | null;
   agents: TemplateAgents | null;
+  /** Rules files acc init copies into .acc/rules/, each as acc rules import would (GH-108). */
+  rules: string[] | null;
 }
 
 export interface TemplateParse {
@@ -77,7 +80,7 @@ const SIGN_IN = /^(token|api[-_]?token|access[-_]?token|api[-_]?key|password|pas
 
 /** The keys a template may set, by where they sit. */
 const ALLOWED = {
-  top: ['schema', 'name', 'description', 'profile', 'environments', 'gates', 'tracker', 'autonomy', 'agents'],
+  top: ['schema', 'name', 'description', 'profile', 'environments', 'gates', 'tracker', 'autonomy', 'agents', 'rules'],
   environment: ['name', 'type', 'default', 'protected', 'promotesTo', 'branch'],
   gates: ['required', 'commands', 'heavy', 'severity'],
   agents: ['max', ...AGENT_ROLES],
@@ -235,6 +238,23 @@ export function parseTemplate(raw: unknown): TemplateParse {
     else errors.push(`"autonomy" must be one of ${TEMPLATE_AUTONOMY.join(', ')}.`);
   }
 
+  let rules: string[] | null = null;
+  if (given(raw.rules)) {
+    if (!Array.isArray(raw.rules) || !raw.rules.length || !raw.rules.every(isStr)) errors.push('"rules" must be a list of rules files to copy in, such as ["https://github.com/acme/acc-rules/blob/main/salesforce.md"].');
+    else {
+      // Each copy is named for its file, so two can't share a name.
+      const named = new Map<string, number>();
+      raw.rules.forEach((s: string, i) => {
+        const problem = templateRulesProblem(s);
+        if (problem) return errors.push(`"rules[${i}]": ${problem}`);
+        const name = rulesName(s);
+        if (named.has(name)) errors.push(`"rules[${i}]" and "rules[${named.get(name)}]" would both be copied to .acc/rules/${name}.md. Rename one of the files.`);
+        named.set(name, i);
+      });
+      rules = raw.rules.map((s: string) => s.trim());
+    }
+  }
+
   const checked = parseConfig(probe);
   errors.push(...checked.errors.map((e) => e.replace(/^trackers\[0\]: /, 'tracker: ')));
 
@@ -243,7 +263,7 @@ export function parseTemplate(raw: unknown): TemplateParse {
     template: {
       name: (raw.name as string).trim(),
       description: isStr(raw.description) ? raw.description.trim() : null,
-      profile, environments, gates, tracker, autonomy, agents,
+      profile, environments, gates, tracker, autonomy, agents, rules,
     },
     errors: [],
   };
@@ -410,6 +430,7 @@ export function describeTemplate(t: Template): string[] {
   if (t.autonomy) lines.push(`Autonomy: ${t.autonomy}`);
   if (t.agents?.max !== undefined) lines.push(`Agents: at most ${t.agents.max} at once`);
   for (const role of AGENT_ROLES) if (t.agents?.[role]) lines.push(`${role === 'builder' ? 'Builders' : 'Reviewers'}: ${roleWords(t.agents[role]!)}`);
+  if (t.rules) lines.push(`Rules copied into .acc/rules/: ${t.rules.join('; ')}`);
   return lines;
 }
 
@@ -421,8 +442,9 @@ const place = (t: { site?: string | null; organization?: string | null; account?
  * Where a project disagrees with what a template now says, as dotted keys (B0.template). It's the template
  * applied over the project's own settings, as acc init would, compared with them. A tracker agrees when the
  * project has one of the same kind at the same place: its project may differ, as --jira-project allows.
+ * Given the repo's root, rules differ when the template names a source with no copy in .acc/rules/.
  */
-export function templateDifferences(t: Template, config: Config): string[] {
+export function templateDifferences(t: Template, config: Config, repo?: { root: string; home?: string }): string[] {
   const diffs: string[] = [];
   if (t.profile && t.profile !== config.profile) diffs.push('profile');
   if (t.environments && (t.profile ?? config.profile) === config.profile) {
@@ -440,6 +462,10 @@ export function templateDifferences(t: Template, config: Config): string[] {
   if (t.agents?.max !== undefined && t.agents.max !== config.agents.max) diffs.push('agents.max');
   for (const role of AGENT_ROLES) {
     for (const [k, v] of Object.entries(t.agents?.[role] ?? {})) if (config.agents[role][k as keyof AgentProfile] !== v) diffs.push(`agents.${role}.${k}`);
+  }
+  if (t.rules && repo) {
+    const copied = new Set(importedRules(repo.root).map((c) => c.header?.source));
+    if (t.rules.some((s) => !copied.has(recordedSource(s, { root: repo.root, home: repo.home, kind: 'rules' })))) diffs.push('rules');
   }
   return diffs;
 }

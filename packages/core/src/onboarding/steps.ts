@@ -326,7 +326,7 @@ export const STEPS: Step[] = [
       }
       if (read.digest === rec.digest) return pass(`${rec.name}, unchanged since this project was made from it.`);
       if (!read.template) return unknown(`${rec.name} has changed since this project was made from it, and now has problems: ${read.errors.join(' ')}`);
-      const diffs = templateDifferences(read.template, config);
+      const diffs = templateDifferences(read.template, config, { root, home });
       if (!diffs.length) return pass(`${rec.name} has changed since this project was made from it, and this project already agrees with it.`);
       const preview = previewCommand(read.template, rec, config);
       return { status: 'unknown', detail: `${rec.name} has changed since this project was made from it, and this project differs on ${diffs.join(', ')}. The fix previews what it would write, and changes nothing.`, fix: preview };
