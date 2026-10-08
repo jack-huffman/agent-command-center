@@ -534,6 +534,7 @@ test('another tracker is a description, not another page: a fifth one gets its f
       { key: 'team', label: 'Team', dependsOn: [], identifies: true, load: async () => [] },
       { key: 'cycle', label: 'Cycle', dependsOn: ['team'], whole: () => 'Every cycle', load: async () => [] },
     ],
+    place: { key: 'cycle', words: 'In Linear, a cycle stands in for an epic.' },
     verify: async () => ({ id: '1', name: 'Jordan' }),
     toConfig: (c) => ({ kind: 'linear', workspace: c.host, team: c.values.team }),
     fromConfig: () => ({ host: '', values: {} }),
