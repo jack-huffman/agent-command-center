@@ -4,7 +4,7 @@
  */
 
 import { autopilotDoes } from '../../../packages/core/src/autopilot.ts';
-import { autoMergeOn } from '../../../packages/core/src/config.ts';
+import { autoMergeOn, type ConfigPath, keyShown, UNREAD_KEYS } from '../../../packages/core/src/config.ts';
 import { agentLook, finishedSession, FROM_WORDS, stopFinishedPlan } from '../logic/agents.ts';
 import { type AgentSession, isUnder, tildePath } from '../logic/shared.ts';
 import type { DoctorItem } from '../logic/setup.ts';
@@ -115,12 +115,13 @@ export interface AgentSetting {
   role: 'builder' | 'reviewer';
   label: string;
   icon: string;
-  /** Each part in words, with where it's set. */
-  parts: { name: string; value: string; from: string }[];
+  /** Each part in words, with where it's set, and the config key it is (GH-107). */
+  parts: { key: ConfigPath; name: string; value: string; from: string }[];
 }
 
 /** What autopilot may do on its own in a project (D-055), as the Agents section shows it. */
 export interface AutonomySetting {
+  key: 'autonomy';
   value: string;
   from: string;
   /** What that level means, in words. */
@@ -129,6 +130,7 @@ export interface AutonomySetting {
 
 /** Whether autopilot merges pull requests in a project (GH-67), as the Agents section shows it. */
 export interface AutoMergeSetting {
+  key: 'autopilot.autoMerge';
   value: 'on' | 'off';
   from: string;
   meaning: string;
@@ -151,46 +153,50 @@ export interface AgentsModel {
   settings: { root: string; project: string; roles: AgentSetting[]; autonomy: AutonomySetting | null; autoMerge: AutoMergeSetting | null; billing: Look | null }[];
 }
 
+/** Keys nothing reads yet, which How agents run shows no row for (GH-107): UNREAD_KEYS, or a test's own. */
+type Unread = Partial<Record<ConfigPath, string>>;
+
 /** The project's autonomy, set in .acc/config.json and changed through acc (D-064). Review says whether autopilot merges (GH-67). */
-export function autonomySetting(p: ProjectLike): AutonomySetting | null {
+export function autonomySetting(p: ProjectLike, unread: Unread = UNREAD_KEYS): AutonomySetting | null {
   const value = p.config.autonomy;
+  if (!keyShown('autonomy', unread)) return null;
   const meaning: Record<string, string> = {
     manual: 'Nothing happens on its own.',
     review: `Autopilot ${autopilotDoes(autoMergeOn(p.config))}`,
     dispatch: 'Not built yet: autopilot refuses.',
     full: 'Not built yet: autopilot refuses.',
   };
-  return value ? { value, from: 'project', meaning: meaning[value] ?? '' } : null;
+  return value ? { key: 'autonomy', value, from: 'project', meaning: meaning[value] ?? '' } : null;
 }
 
 /** Whether autopilot merges a reviewed, green pull request (GH-67), set in .acc/config.json and changed through acc. */
-export function autoMergeSetting(p: ProjectLike): AutoMergeSetting | null {
-  if (!p.config.autonomy) return null;
-  if (p.config.profile === 'salesforce') return { value: 'off', from: 'project', meaning: 'A Salesforce project never auto-merges: a person merges every pull request.', settable: false };
-  if (!autoMergeOn(p.config)) return { value: 'off', from: 'project', meaning: 'Autopilot never merges a pull request: a person merges each one.', settable: true };
+export function autoMergeSetting(p: ProjectLike, unread: Unread = UNREAD_KEYS): AutoMergeSetting | null {
+  if (!p.config.autonomy || !keyShown('autopilot.autoMerge', unread)) return null;
+  const key = 'autopilot.autoMerge';
+  if (p.config.profile === 'salesforce') return { key, value: 'off', from: 'project', meaning: 'A Salesforce project never auto-merges: a person merges every pull request.', settable: false };
+  if (!autoMergeOn(p.config)) return { key, value: 'off', from: 'project', meaning: 'Autopilot never merges a pull request: a person merges each one.', settable: true };
   const kept = p.config.environments.filter((e) => e.protected).map((e) => e.name);
   const meaning = [
     'A pull request whose review and checks passed, with nothing waiting on you, joins the merge queue, and they merge in turn: its base merged in, the full check run once, then merged once GitHub says it can.',
     kept.length ? `Never into ${kept.join(', ')}: protected.` : '',
     p.config.autonomy === 'review' ? '' : 'Autonomy is manual, so nothing merges on its own.',
   ].filter(Boolean).join(' ');
-  return { value: 'on', from: 'project', meaning, settable: true };
+  return { key, value: 'on', from: 'project', meaning, settable: true };
 }
 
-export function agentSettings(p: ProjectLike): AgentSetting[] {
+/** Builders' and reviewers' model, effort and fallback (D-036), each part tagged with its key, and none whose key nothing reads (GH-107). */
+export function agentSettings(p: ProjectLike, unread: Unread = UNREAD_KEYS): AgentSetting[] {
   if (!p.agents) return [];
-  const role = (r: 'builder' | 'reviewer'): AgentSetting => {
+  const role = (r: 'builder' | 'reviewer'): AgentSetting | null => {
     const v = p.agents![r];
-    return {
-      role: r, label: r === 'builder' ? 'Builders' : 'Reviewers', icon: r === 'builder' ? 'tools' : 'checklist',
-      parts: [
-        { name: 'Model', value: v.model ?? 'default', from: FROM_WORDS[v.from.model] ?? v.from.model },
-        { name: 'Effort', value: v.effort ?? 'default', from: FROM_WORDS[v.from.effort] ?? v.from.effort },
-        ...(v.fallbackModel ? [{ name: 'Falls back to', value: v.fallbackModel, from: FROM_WORDS[v.from.fallbackModel] ?? v.from.fallbackModel }] : []),
-      ],
-    };
+    const parts = [
+      { key: `agents.${r}.model` as const, name: 'Model', value: v.model ?? 'default', from: FROM_WORDS[v.from.model] ?? v.from.model },
+      { key: `agents.${r}.effort` as const, name: 'Effort', value: v.effort ?? 'default', from: FROM_WORDS[v.from.effort] ?? v.from.effort },
+      ...(v.fallbackModel ? [{ key: `agents.${r}.fallbackModel` as const, name: 'Falls back to', value: v.fallbackModel, from: FROM_WORDS[v.from.fallbackModel] ?? v.from.fallbackModel }] : []),
+    ].filter((x) => keyShown(x.key, unread));
+    return parts.length ? { role: r, label: r === 'builder' ? 'Builders' : 'Reviewers', icon: r === 'builder' ? 'tools' : 'checklist', parts } : null;
   };
-  return [role('builder'), role('reviewer')];
+  return [role('builder'), role('reviewer')].filter((x) => x !== null);
 }
 
 /** What the billing check says, as a line in the Agents settings. Null until that check has run. */
@@ -200,7 +206,7 @@ export function billingLook(items: DoctorItem[]): Look | null {
   return i.status === 'pass' ? { label: 'Agents use your Claude subscription', icon: 'pass', tone: 'blue' } : { label: `Per-token billing: ${i.detail}`, icon: 'warning', tone: 'orange' };
 }
 
-export function agentsModel(hub: HubLike, setupItems: DoctorItem[] = [], whereView: WhereView = 'folder'): AgentsModel {
+export function agentsModel(hub: HubLike, setupItems: DoctorItem[] = [], whereView: WhereView = 'folder', unread: Unread = UNREAD_KEYS): AgentsModel {
   const tieOf = (s: AgentSession) => hub.tieFor?.(s) ?? null;
   const askingOf = (s: AgentSession) => hub.askingFor?.(s) ?? null;
   const lookOf = (s: AgentSession) => agentLook(s, askingOf(s), tieOf(s));
@@ -216,7 +222,7 @@ export function agentsModel(hub: HubLike, setupItems: DoctorItem[] = [], whereVi
   const elsewhere = sorted.filter((s) => !hub.projectFor(s.cwd));
   if (elsewhere.length) places.push({ label: 'Elsewhere on this machine', root: null, agents: elsewhere.map(rowFor) });
   const billing = billingLook(setupItems);
-  const settings = hub.projects.filter((p) => p.agents).map((p) => ({ root: p.root, project: p.name, roles: agentSettings(p), autonomy: autonomySetting(p), autoMerge: autoMergeSetting(p), billing }));
+  const settings = hub.projects.filter((p) => p.agents).map((p) => ({ root: p.root, project: p.name, roles: agentSettings(p, unread), autonomy: autonomySetting(p, unread), autoMerge: autoMergeSetting(p, unread), billing }));
   return { kind: 'agents', error: hub.agentsError, places, whereView, stopFinished: stopFinishedPlan(hub.agents, tieOf, askingOf).length, settings };
 }
 

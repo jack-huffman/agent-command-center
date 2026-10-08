@@ -3,6 +3,7 @@
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 
+import { type ConfigPath, keyShown, UNREAD_KEYS } from '../../../packages/core/src/config.ts';
 import { declaredKeys, DESCRIPTIONS, type Option, type TrackerDescription, type Values } from '../../../packages/core/src/trackers/connect.ts';
 import { signInScope } from '../logic/connect.ts';
 import { type HomeSection, type Look, LOOK, type ModelArea, short, VIEW_TITLES } from './shared.ts';
@@ -147,7 +148,8 @@ export function connectValues(s: ConnectState, d: TrackerDescription): Values {
 
 const SECTION_WORD: Record<HomeSection, string> = { overview: 'Overview', ...VIEW_TITLES };
 
-export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCRIPTIONS): ConnectModel {
+/** What the Connect page draws. A picker whose tracker key nothing reads yet isn't offered (GH-107): `unread` is UNREAD_KEYS, or a test's own. */
+export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCRIPTIONS, unread: Partial<Record<ConfigPath, string>> = UNREAD_KEYS): ConnectModel {
   const d = list.find((x) => x.kind === s.kind) ?? list[0]!;
   const method = d.methods.find((m) => m.id === s.method) ?? d.methods[0]!;
   const ok = s.signIn.state === 'ok';
@@ -176,7 +178,7 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
     : ok ? LOOK(`Signed in as ${s.signIn.who}${scope}`, 'pass', 'blue')
       : s.signIn.state === 'failed' ? LOOK(s.signIn.error ?? 'Not signed in', 'warning', 'orange')
         : LOOK(method.via === 'gh' && s.ghAccount ? `Signs in as ${s.ghAccount}` : 'Not signed in yet', 'circle-large-outline', 'neutral');
-  const pickers: ConnectPicker[] = d.pickers.map((p) => {
+  const pickers: ConnectPicker[] = d.pickers.filter((p) => keyShown(`trackers[].${p.key}` as ConfigPath, unread)).map((p) => {
     const ps = s.pickers[p.key] ?? { options: [], selected: [], state: 'waiting', error: null };
     const fixed = !!s.existing && !!p.identifies;
     const whole = p.whole ? p.whole({ host: s.host, values, labels }) : null;
