@@ -1,7 +1,7 @@
 // acc's Agents commands for builders and how they run: dispatch, done, block, resume, cleanup, agents
 // and machine.
 
-import { AccError, AGENT_ROLES, type AgentRole, agentsMaxSet, autoMergeOn, autopilotDoes, builders, cleanup, clipSaid, type Config, DEFAULT_AGENTS, dispatch, filesOf, heavySlots, loadConfig, machineAgents, machineFile, machineRepos, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, readLedger, resume, run, setAgentsMax, setAutoMerge, setAutonomy, setHeavySlots, setMachineAgents, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList } from '../../../core/src/index.ts';
+import { AccError, AGENT_ROLES, type AgentRole, agentsMaxSet, autoMergeOn, autopilotDoes, builders, cleanup, clipSaid, type Config, DEFAULT_AGENTS, dispatch, filesOf, heavySlots, loadConfig, machineAgents, machineFile, machineJson, machineRepos, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, readLedger, resume, run, setAgentsMax, setAutoMerge, setAutonomy, setHeavySlots, setMachineAgents, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
 import { accBinDir, accCommand, actorFrom, type CommandArea, noAgent, now, type Opts, out, personOnly, project, taskIdFrom } from '../shared.ts';
 import { cmdSet } from './tasks.ts';
@@ -30,7 +30,8 @@ function cmdMachine(o: Opts, sub: string | undefined, value: string | undefined)
 /** How many builders this machine runs at once across every repo, and how many run now: shown, or set by a person. */
 function cmdMachineAgents(o: Opts, value: string | undefined): number {
   const show = (max: number | null, set: boolean) => {
-    const repos = machineRepos().filter((r) => r.running > 0);
+    // acc's own command, so it may drop the note of a repo whose ledger has gone.
+    const repos = machineRepos(process.env, { prune: true }).filter((r) => r.running > 0);
     const running = repos.reduce((n, r) => n + r.running, 0);
     const now = `${buildersOf(running)} running now${repos.length > 1 ? `, in ${repos.length} repos` : repos.length ? ` in ${repos[0]!.project}` : ''}.`;
     out(o, () => [
@@ -38,7 +39,7 @@ function cmdMachineAgents(o: Opts, value: string | undefined): number {
         ? `${set ? 'This machine has no total now' : 'No total on this machine'}: each project's cap (agents.max) is the only limit.`
         : `${set ? 'This machine now runs' : 'This machine runs'} at most ${buildersOf(max)} at once, across every repo on it.`,
       now,
-      set ? `Set in ${machineFile()}.` : '',
+      set ? `Set in ${machineJson()}.` : '',
     ].filter(Boolean).join(' '), { agents: max, running, repos });
   };
   if (value === undefined && o.none !== true) {

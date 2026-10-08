@@ -10,7 +10,7 @@ import { parseConfig } from '../src/config.ts';
 import { dispatch } from '../src/dispatch.ts';
 import { holdTask } from '../src/holding.ts';
 import { startHeld } from '../src/held.ts';
-import { agentsMaxSet, ledgersDir, machineAgents, machineCapProblem, machineCapWords, machineDir, machineLoad, machineRepos, MAX_MACHINE_AGENTS, median, RECENT, recentWork, registerLedger, setAgentsMax, setBuilderGates, setMachineAgents, setRequiredGates } from '../src/limits.ts';
+import { agentsMaxSet, ledgersDir, machineAgents, machineCapProblem, machineCapWords, machineDir, machineJson, machineLoad, machineRepos, MAX_MACHINE_AGENTS, median, RECENT, recentWork, registerLedger, setAgentsMax, setBuilderGates, setMachineAgents, setRequiredGates } from '../src/limits.ts';
 import { emptyLedger, type Ledger, mutate, projectCapWords, readLedger, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
 import { run } from '../src/exec.ts';
@@ -74,14 +74,23 @@ test('this machine\'s total is a key of machine.json, beside its heavy-check slo
   assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { heavySlots: 2 });
   writeFileSync(file, JSON.stringify({ agents: 'lots' }));
   assert.equal(machineAgents(env), null, 'one it can\'t read is none');
-  // A made-up environment with no home reaches nothing on the machine running the test.
+  // A made-up environment with no home reaches nothing on the machine running the test: the total is read
+  // and written through one path, and with none, a write is refused rather than made in the real home.
   assert.equal(machineDir({}), null);
   assert.equal(ledgersDir({}), null);
+  assert.equal(machineJson({}), null);
   assert.equal(machineAgents({}), null);
+  assert.throws(() => setMachineAgents(4, {}), (e: Error & { code?: string }) => e.code === 'refused' && /no HOME\. Set HOME, or ACC_MACHINE_FILE/.test(e.message));
+  assert.throws(() => setMachineAgents(null, {}), /no HOME/);
   assert.equal(machineDir({ HOME: '/home/someone' }), '/home/someone/.acc');
+  assert.equal(machineJson({ HOME: '/home/someone' }), '/home/someone/.acc/machine.json');
+  assert.equal(machineJson(env), file);
+  const home = tempDir('home-');
+  assert.equal(setMachineAgents(5, { HOME: home }), 5);
+  assert.deepEqual([machineAgents({ HOME: home }), JSON.parse(readFileSync(join(home, '.acc', 'machine.json'), 'utf8'))], [5, { agents: 5 }], 'written where it\'s read');
 });
 
-test('every repo that runs builders is noted once, and counted from its own ledger; one whose ledger went is forgotten', () => {
+test('every repo that runs builders is noted once, and counted from its own ledger; one whose ledger went is left out, and only acc forgets it', () => {
   const env = machine();
   const a = repoWith('Alpha', ['T-1', 'T-2', 'T-3'], ['T-1', 'T-2']);
   const b = repoWith('Beta', ['T-1'], ['T-1']);
@@ -93,14 +102,20 @@ test('every repo that runs builders is noted once, and counted from its own ledg
   assert.equal(readdirSync(dir).length, 2, 'a repo is one note, however often it\'s noted');
   const all = machineRepos(env).sort((x, y) => x.project.localeCompare(y.project));
   assert.deepEqual(all.map((r) => [r.project, r.running]), [['Alpha', 2], ['Beta', 1]]);
-  assert.deepEqual(machineRepos(env, b.paths.ledger).map((r) => r.project), ['Alpha'], 'a repo leaves itself out');
+  assert.deepEqual(machineRepos(env, { except: b.paths.ledger }).map((r) => r.project), ['Alpha'], 'a repo leaves itself out');
   // With no total, nothing elsewhere is read; with one, the rest of the machine is.
   assert.deepEqual(machineLoad(b.paths, 'Beta', env), { max: null, elsewhere: 0 });
   setMachineAgents(4, env);
   assert.deepEqual(machineLoad(b.paths, 'Beta', env), { max: 4, elsewhere: 2 });
   rmSync(join(a.dir, '.git'), { recursive: true, force: true });
+  // A read leaves it out and deletes nothing, as the Command Center reads (D-012); acc's own start forgets it.
   assert.deepEqual(machineRepos(env).map((r) => r.project), ['Beta']);
-  assert.equal(readdirSync(dir).length, 1, 'its note is gone');
+  assert.equal(readdirSync(dir).length, 2, 'a read leaves its note');
+  assert.deepEqual(machineLoad(b.paths, 'Beta', env), { max: 4, elsewhere: 0 });
+  assert.equal(readdirSync(dir).length, 1, 'acc\'s own start drops its note');
+  registerLedger(join(tempDir('gone-'), 'ledger.json'), 'Gone', env);
+  assert.deepEqual(machineRepos(env, { prune: true }).map((r) => r.project), ['Beta']);
+  assert.equal(readdirSync(dir).length, 1, 'and so does acc machine agents');
 });
 
 test('a start that would pass either cap says which: the project\'s first, then this machine\'s', () => {

@@ -1,12 +1,12 @@
 // Settings' Limits and checks (GH-111): the part's model, in words and states, from this machine's own
 // numbers; what it reads; and every command it runs, each through acc, with a stand-in for VS Code.
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { parseConfig } from '../../packages/core/src/config.ts';
 import { mutate, readLedger, upsertTasks } from '../../packages/core/src/ledger.ts';
-import { registerLedger, setMachineAgents } from '../../packages/core/src/limits.ts';
+import { ledgersDir, registerLedger, setMachineAgents } from '../../packages/core/src/limits.ts';
 import { repoPaths } from '../../packages/core/src/paths.ts';
 import { run } from '../../packages/core/src/exec.ts';
 import { GENERIC_CONFIG, makeRepo, tempDir } from '../../packages/core/test/support.ts';
@@ -136,6 +136,12 @@ test('the part reads its limits from the machine and each project, and counts ev
   assert.deepEqual(f.projects[0]!.gates.map((g) => g.name), ['check', 'quick']);
   assert.equal(readLimits([project], () => readLedger(paths.ledger), null, { ...env, ACC_HEAVY_SLOTS: '3' }).machine.slotsFrom, 'env');
   assert.equal(readLimits([project], () => undefined, null, { ACC_MACHINE_FILE: join(tempDir('m-'), 'machine.json') }).machine.slotsFrom, 'default');
+  // The Command Center only reads (D-012): a repo whose ledger has gone is left out, and its note left for acc.
+  registerLedger(join(tempDir('gone-'), 'ledger.json'), 'Gone', env);
+  const notes = readdirSync(ledgersDir(env)!).sort();
+  assert.equal(notes.length, 3);
+  assert.deepEqual(readLimits([project], () => readLedger(paths.ledger), null, env).machine.repos, 2);
+  assert.deepEqual(readdirSync(ledgersDir(env)!).sort(), notes, 'the read deleted nothing');
 });
 
 test('a held task\'s card says which cap it waits for: the project\'s, or this machine\'s total', () => {

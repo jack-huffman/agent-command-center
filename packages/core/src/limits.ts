@@ -12,7 +12,6 @@ import { AccError } from './exec.ts';
 import { gatesFor } from './gates.ts';
 import { builders, type Ledger, readLedger } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
-import { machineFile } from './semaphore.ts';
 
 // ---------------------------------------------------------------- this project's (.acc/config.json)
 
@@ -95,7 +94,14 @@ export function machineDir(env: NodeJS.ProcessEnv = process.env): string | null 
   return home ? join(home, '.acc') : null;
 }
 
-const machineJson = (env: NodeJS.ProcessEnv): string | null => env.ACC_MACHINE_FILE || (machineDir(env) ? join(machineDir(env)!, 'machine.json') : null);
+/**
+ * This machine's machine.json, as its total is read and written: ACC_MACHINE_FILE, else machine.json in
+ * machineDir. None without a home, so the total is neither read nor written there.
+ */
+export function machineJson(env: NodeJS.ProcessEnv = process.env): string | null {
+  const dir = machineDir(env);
+  return env.ACC_MACHINE_FILE || (dir ? join(dir, 'machine.json') : null);
+}
 
 const agentCount = (v: unknown): number | null => (Number.isInteger(v) && (v as number) >= 1 ? Math.min(MAX_MACHINE_AGENTS, v as number) : null);
 
@@ -113,12 +119,16 @@ export function machineAgents(env: NodeJS.ProcessEnv = process.env): number | nu
   }
 }
 
-/** Sets this machine's total in machine.json, or, with null, takes it out, keeping what else the file holds. */
+/**
+ * Sets this machine's total in machine.json, or, with null, takes it out, keeping what else the file holds.
+ * It writes where machineAgents reads, and refuses where that's nowhere.
+ */
 export function setMachineAgents(n: number | null, env: NodeJS.ProcessEnv = process.env): number | null {
   if (n !== null && (!Number.isInteger(n) || n < 1 || n > MAX_MACHINE_AGENTS)) {
     throw new AccError('usage', `This machine's total is a whole number from 1 to ${MAX_MACHINE_AGENTS}, or --none for no total.`);
   }
-  const file = machineFile(env);
+  const file = machineJson(env);
+  if (!file) throw new AccError('refused', 'acc can\'t tell where this machine\'s settings are kept: its environment has no HOME. Set HOME, or ACC_MACHINE_FILE, and try again.');
   let current: Record<string, unknown> = {};
   try { current = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>; } catch { /* a new file */ }
   const { agents: _was, ...rest } = current;
@@ -178,10 +188,11 @@ export interface RepoBuilders {
 
 /**
  * The builders running in each repo noted on this machine: tasks in Running, as each repo's own cap counts
- * them, whose builder may have stopped (D-067). A repo whose ledger has gone is forgotten; one this acc
- * can't read is left out. `except` leaves out one ledger, such as the repo asking.
+ * them, whose builder may have stopped (D-067). A repo whose ledger has gone, or one this acc can't read, is
+ * left out. `except` leaves out one ledger, such as the repo asking. `prune` also deletes the note of a repo
+ * whose ledger has gone: only acc's own commands turn it on, since the Command Center only reads (D-012).
  */
-export function machineRepos(env: NodeJS.ProcessEnv = process.env, except?: string): RepoBuilders[] {
+export function machineRepos(env: NodeJS.ProcessEnv = process.env, { except, prune = false }: { except?: string; prune?: boolean } = {}): RepoBuilders[] {
   const dir = ledgersDir(env);
   if (!dir) return [];
   let names: string[] = [];
@@ -204,7 +215,7 @@ export function machineRepos(env: NodeJS.ProcessEnv = process.env, except?: stri
     try {
       statSync(entry.ledger);
     } catch {
-      rmSync(join(dir, n), { force: true });
+      if (prune) rmSync(join(dir, n), { force: true });
       continue;
     }
     try {
@@ -234,7 +245,7 @@ export function machineLoad(paths: Pick<RepoPaths, 'ledger'>, project: string, e
   registerLedger(paths.ledger, project, env);
   const max = machineAgents(env);
   if (max === null) return { max, elsewhere: 0 };
-  return { max, elsewhere: machineRepos(env, paths.ledger).reduce((n, r) => n + r.running, 0) };
+  return { max, elsewhere: machineRepos(env, { except: paths.ledger, prune: true }).reduce((n, r) => n + r.running, 0) };
 }
 
 /** "1 builder is", "3 builders are". */
