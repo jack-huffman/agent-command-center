@@ -40,12 +40,12 @@ export interface ConnectDeps {
   ghToken(root: string, account: string): Promise<string>;
   /** VSCode's Microsoft sign-in, asking which account: the header to use, and what to keep. */
   microsoft(host: string, spec: NonNullable<SignInMethod['microsoft']>): Promise<{ header: string; cred: Record<string, unknown> }>;
-  /** Writes the tracker to the repo's .acc/config.json: in place of the one at index, or added. */
-  write(root: string, index: number | null, record: Record<string, unknown>): void;
+  /** Asks acc to write the tracker to the repo's .acc/config.json (GH-112): in place of the one at index, or added. Throws acc's reason. */
+  write(root: string, index: number | null, record: Record<string, unknown>): Promise<void>;
   /** Signed in: the boards that can use it load now, this project's and every one on the site (GH-79). */
   signedIn(root: string, kind: string, host: string): Promise<void>;
-  /** After Save: reload, re-check setup, and show the Tasks tab. */
-  saved(root: string, name: string): Promise<void>;
+  /** After Save: reload, re-check setup, and show the section the page was opened from when it's Settings (GH-112), else the Tasks tab. */
+  saved(root: string, name: string, from: HomeSection): Promise<void>;
   /** The page has something new to show. */
   changed(): void;
   log(line: string): void;
@@ -434,7 +434,7 @@ export class ConnectSession {
     this.loadReady();
   }
 
-  /** Writes the tracker to the repo's config, then shows its board. */
+  /** Asks acc to write the tracker to the repo's config (GH-112), then shows its board, or Settings when it was opened from there. */
   private async save(): Promise<void> {
     const s = this.s!;
     if (!this.model()?.save.can) return;
@@ -445,16 +445,21 @@ export class ConnectSession {
     try {
       const defaults = d.pickers.filter((p) => s.pickers[p.key]!.options.find((o) => o.value === s.pickers[p.key]!.selected[0])?.default).map((p) => p.key);
       const record = d.toConfig({ host: s.host, values: connectValues(s, d), defaults, ownRepo: s.ownRepo });
-      this.deps.write(s.root!, s.existing?.index ?? null, record);
-      const root = s.root!;
-      this.close();
-      await this.deps.saved(root, d.name);
+      await this.deps.write(s.root!, s.existing?.index ?? null, record);
     } catch (e) {
-      // Written, then the reload after it failed: the page has closed, so the log says so.
-      if (this.s !== s) { this.deps.log(`[connect] ${d.name}: saved, but reloading after it failed: ${(e as Error).message}`); return; }
+      // acc's reason beside Save, or, when the page closed while acc ran, in the log.
+      if (this.s !== s) { this.deps.log(`[connect] ${d.name}: couldn't save: ${(e as Error).message}`); return; }
       s.saving = false;
       s.saveError = `Couldn't save: ${(e as Error).message}`;
       this.bump();
+      return;
+    }
+    if (this.s === s) this.close();
+    try {
+      await this.deps.saved(s.root!, d.name, s.from);
+    } catch (e) {
+      // Written, then the reload after it failed: the page has closed, so the log says so.
+      this.deps.log(`[connect] ${d.name}: saved, but reloading after it failed: ${(e as Error).message}`);
     }
   }
 }
