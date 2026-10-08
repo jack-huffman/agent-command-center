@@ -11,7 +11,7 @@ import { reposInUse } from '../../packages/core/src/repos.ts';
 import { recordRuntime } from '../../packages/core/src/runtime.ts';
 import { AgentPages } from './activity.ts';
 import { AutopilotHost } from './autopilot.ts';
-import { type AgentSession, isWebviewMenuContext, shq } from './logic/shared.ts';
+import { type AgentSession, isWebviewMenuContext, nodeArg, shq } from './logic/shared.ts';
 import { analysisAnswerArgs, followsPullRequests } from './logic/tasks.ts';
 import { CLAUDE_EXTENSION, claudeSessionUri, isSessionId } from './logic/agents.ts';
 import { POLL_INTERVALS, POLL_KEYS, type PollKey } from './logic/polls.ts';
@@ -153,7 +153,7 @@ export function activate(context: vscode.ExtensionContext): void {
     return arg === undefined ? undefined : vscode.commands.executeCommand(command, arg);
   };
   // Commands run from a tab's native context menu get the row's data-vscode-context; turn it into the node.
-  const regNode = (id: string, fn: (...args: any[]) => unknown) => reg(id, (a: unknown, ...rest: unknown[]) => fn(isWebviewMenuContext(a) ? nodeFor(a.accRef as Ref) : a, ...rest));
+  const regNode = (id: string, fn: (...args: any[]) => unknown) => reg(id, (a: unknown, ...rest: unknown[]) => fn(isWebviewMenuContext(a) ? nodeFor(a.accRef as Ref) : nodeArg(a), ...rest));
   /**
    * A person's answer to one of a task's analysis's questions, from either page (D-052). acc records it
    * (D-012): the page never writes the analysis itself. What acc refuses, it says why.

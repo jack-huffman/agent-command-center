@@ -42,6 +42,7 @@ export const area: CommandArea = {
     file: { type: 'string' },
     index: { type: 'string' },
   },
+  subcommands: { trackers: ['set'] },
   commands: {
     trackers: (o, rest) => {
       if (rest[0] === 'set') return cmdSet(o);

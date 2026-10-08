@@ -117,6 +117,7 @@ export const area: CommandArea = {
     'dry-run': { type: 'boolean', default: false },
     force: { type: 'boolean', default: false },
   },
+  subcommands: { rules: ['import', 'list', 'diff'] },
   commands: {
     rules: (o, rest) => {
       if (rest[0] === 'import') return cmdImport(o, rest[1]);

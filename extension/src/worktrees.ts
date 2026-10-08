@@ -13,9 +13,9 @@ class WorktreeCommands extends Sidebar {
   }
 
   register(reg: (id: string, fn: (...args: any[]) => unknown) => void): void {
-    reg('acc.worktree.open', (n: WorktreeNode) => n.kind === 'worktree' && vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(n.worktree.path), { forceNewWindow: true }));
-    reg('acc.worktree.terminal', (n: WorktreeNode) => n.kind === 'worktree' && this.terminal(`acc: ${n.worktree.branch ?? basename(n.worktree.path)}`, n.worktree.path).show());
-    reg('acc.worktree.reveal', (n: WorktreeNode) => n.kind === 'worktree' && vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(n.worktree.path)));
+    reg('acc.worktree.open', (n: WorktreeNode) => n?.kind === 'worktree' && vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(n.worktree.path), { forceNewWindow: true }));
+    reg('acc.worktree.terminal', (n: WorktreeNode) => n?.kind === 'worktree' && this.terminal(`acc: ${n.worktree.branch ?? basename(n.worktree.path)}`, n.worktree.path).show());
+    reg('acc.worktree.reveal', (n: WorktreeNode) => n?.kind === 'worktree' && vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(n.worktree.path)));
     reg('acc.worktree.remove', (n: WorktreeNode) => this.removeWorktree(n));
     reg('acc.worktrees.refresh', () => this.hub.loadWorktrees());
   }
@@ -24,7 +24,7 @@ class WorktreeCommands extends Sidebar {
 
   /** Refuses anything that would lose work: uncommitted files, or commits that exist only here (D-013). */
   private async removeWorktree(n: WorktreeNode): Promise<void> {
-    if (n.kind !== 'worktree' || n.worktree.main) return;
+    if (n?.kind !== 'worktree' || n.worktree.main) return;
     const w = n.worktree;
     if (w.changed > 0) return void vscode.window.showWarningMessage(`${w.branch ?? w.path} has ${w.changed} uncommitted file${w.changed === 1 ? '' : 's'}. Commit or discard them first.`);
     const unpushed = await runFile('git', ['log', '--oneline', '-1', 'HEAD', '--not', '--remotes'], w.path);

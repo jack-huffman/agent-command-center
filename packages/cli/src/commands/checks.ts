@@ -158,8 +158,9 @@ function cmdGateBuilder(o: Opts, names: string[]): number {
 
 function cmdDrift(o: Opts, envName: string): number {
   const { paths, config } = project(process.cwd());
-  if (!o.json) process.stderr.write(tone(`Retrieving the baseline from ${envName}. This only reads the org.\n`, 'dim'));
-  const r = drift(paths, config, envName, { run, now, onWait: () => { if (!o.json) process.stderr.write(tone('Waiting for another heavy check on this machine to finish…\n', 'dim')); } }, { manifest: o.manifest as string | undefined, keep: o.keep === true });
+  // Said once the environment is found, so a refusal is the only line it prints (GH-106).
+  const onRetrieve = (env: { name: string }) => { if (!o.json) process.stderr.write(tone(`Retrieving the baseline from ${env.name}. This only reads the org.\n`, 'dim')); };
+  const r = drift(paths, config, envName, { run, now, onRetrieve, onWait: () => { if (!o.json) process.stderr.write(tone('Waiting for another heavy check on this machine to finish…\n', 'dim')); } }, { manifest: o.manifest as string | undefined, keep: o.keep === true });
   const found = r.changed.length + r.added.length + r.missing.length;
   if (o.json) {
     out(o, () => '', r);
@@ -205,6 +206,7 @@ export const area: CommandArea = {
     keep: { type: 'boolean', default: false },
     none: { type: 'boolean', default: false },
   },
+  subcommands: { gate: ['run', 'list', 'waive', 'required', 'builder'] },
   commands: {
     gate: (o, rest) => {
       const [sub, ...names] = rest;

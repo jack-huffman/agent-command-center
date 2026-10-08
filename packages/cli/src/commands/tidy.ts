@@ -63,6 +63,7 @@ export const area: CommandArea = {
   acc tidy add                          Add that tidy-up as a task, labelled tidy-up. A person's choice
   acc tidy skip                         Set it aside. Either starts the count again`,
   },
+  subcommands: { tidy: ['add', 'skip'] },
   commands: {
     tidy: (o, rest) => {
       if (!rest.length) return cmdTidy(o);

@@ -126,8 +126,17 @@ export const ANALYSIS_SCHEMA = {
   },
 } as const;
 
-export const analysisPath = (paths: RepoPaths, task: string): string => join(paths.analyses, `${task}.json`);
-const runningPath = (paths: RepoPaths, task: string): string => join(paths.analyses, `${task}.running.json`);
+/**
+ * A task id as a file name under .git/acc/analyses. An id that could leave that folder, such as ../../X, is
+ * refused before any path is built from it (GH-106).
+ */
+function fileId(task: string): string {
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(task) || task.includes('..')) throw new AccError('usage', `${task} isn't a task id.`);
+  return task;
+}
+
+export const analysisPath = (paths: RepoPaths, task: string): string => join(paths.analyses, `${fileId(task)}.json`);
+const runningPath = (paths: RepoPaths, task: string): string => join(paths.analyses, `${fileId(task)}.running.json`);
 
 export function readAnalysis(paths: RepoPaths, task: string): Analysis | null {
   try {
@@ -329,7 +338,7 @@ const git = (run: Runner, cwd: string, ...args: string[]): RunResult => run('git
 
 /** A scratch Salesforce project for retrieves, so nothing the analyst fetches lands in the repo. */
 function scratchProject(paths: RepoPaths, id: string): string {
-  const dir = join(paths.analyses, `${id}.work`);
+  const dir = join(paths.analyses, `${fileId(id)}.work`);
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(join(dir, 'force-app'), { recursive: true });
   const project = join(paths.root, 'sfdx-project.json');

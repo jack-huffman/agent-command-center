@@ -324,6 +324,7 @@ export const area: CommandArea = {
   // --project names the project for acc init, and is a plain switch for acc agents set: give the switch a
   // value, so the Command Center's "for the project" works (D-036).
   argv: { agents: (argv) => argv.map((x) => (x === '--project' ? '--project=yes' : x)) },
+  subcommands: { agents: ['show', 'set', 'autonomy', 'auto-merge', 'max'], machine: ['heavy-slots', 'agents'] },
   commands: {
     agents: (o, rest) => cmdAgents(o, rest[0], rest[1]),
     machine: (o, rest) => cmdMachine(o, rest[0], rest[1]),
