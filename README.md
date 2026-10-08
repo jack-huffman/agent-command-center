@@ -258,7 +258,10 @@ another's repo. GitHub Issues, Jira Cloud, Azure DevOps and monday.com. Set
 one up on the Command Center's **Connect page**: Connect
 Jira on the Tasks tab, Add a tracker on the Overview, or **Add a tracker…** from
 the Command Palette. It signs in, tests the connection, and lists the projects,
-places and boards to pick from. See [ONBOARDING.md, B14](docs/ONBOARDING.md#b14-connect-the-ticket-source).
+places and boards to pick from, and acc writes the tracker to `.acc/config.json`
+for you to commit. The Command Center's **Settings** lists every open project's
+trackers under **Trackers and sign-ins**, with who each signs in as, and signs
+each in again, signs it out, or changes its place. See [ONBOARDING.md, B14](docs/ONBOARDING.md#b14-connect-the-ticket-source).
 
 Each tracker names its place: the project, repo or monday.com board, and when
 set, a Jira epic, GitHub labels, an Azure DevOps area path or a monday.com

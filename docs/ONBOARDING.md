@@ -519,9 +519,9 @@ commit.
   Issues, Azure DevOps or monday.com, give its site, repo, organization or
   account, sign in and click **Test connection**: it says who it signed in as,
   or why not, beside the field. Then pick the project, the place and the board
-  from lists of what that sign-in can see, and **Save** writes the repo's
-  `.acc/config.json`. Sign-ins stay in VSCode's secret storage on this
-  machine, never in the file.
+  from lists of what that sign-in can see, and **Save** asks acc to write the
+  repo's `.acc/config.json` (`acc trackers set`), for you to commit. Sign-ins
+  stay in VSCode's secret storage on this machine, never in the file.
 - [ ] **One sign-in for every project on a site.** Beside the sign-in, **Use
   this sign-in for every project on acme.atlassian.net** is ticked the first
   time you sign in to a site, so every other repo on this machine that uses
@@ -546,6 +546,11 @@ commit.
   button opens it there too.
   Another project is another tracker. **Sign out of a tracker** is in the
   Command Palette.
+- [ ] **Settings' Trackers and sign-ins** lists every open project's trackers
+  in one place: each one's place and board, and who it signs in as, for this
+  project only or for every project on its site. Each has **Sign in again**,
+  **Sign out** and **Change place…**, and **Connect a tracker…** adds another.
+  Opened from there, the Connect page goes back there.
   - **Azure DevOps:** choose **Sign in with Microsoft** and pick the account
     that belongs to that client in the chooser VSCode shows at the top of the
     window. If the client's tenant blocks it, choose **Personal access token**:

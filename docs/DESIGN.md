@@ -1032,7 +1032,7 @@ count; under 820 px wide, it becomes a tab strip along the top.
 | **Worktrees** | Every checkout, with a menu on each row |
 | **Environments** | The GitHub identity card (D-028), promotion paths, and one card per environment |
 | **Setup** | The checklist, with Do it on each step |
-| **Settings** | Last in the rail, with a gear (GH-109). **Appearance** first, then **How agents run** (GH-110), then a part for each area whose settings move there: Limits and checks, Trackers and sign-ins, Notices in Slack, GitHub accounts, the Command Center, and About. Each part has a heading another page can open Settings at; until its settings move, it says where they live today, with a button there when there is one |
+| **Settings** | Last in the rail, with a gear (GH-109). **Appearance** first, then **How agents run** (GH-110), then a part for each area whose settings move there: Limits and checks, **Trackers and sign-ins** (GH-112), Notices in Slack, GitHub accounts, the Command Center, and About. Each part has a heading another page can open Settings at; until its settings move, it says where they live today, with a button there when there is one |
 
 The page polls only while it's visible. The section you leave it on is where it
 opens next. The sidebar keeps a single launcher view listing the sections; set
@@ -1048,6 +1048,18 @@ config, a project's in its `.acc/config.json`. The page writes neither. Then
 what this machine's agents bill, once, with **Open Setup** while it's per token
 or not checked. The Agents page's **Settings** and the status bar's Auto-merge
 open Settings here.
+
+**Trackers and sign-ins** (GH-112): every open project under its name, and
+each of its trackers with its kind, where its tickets come from and its board
+(D-072), both set in the project's `.acc/config.json`, and who it signs in as:
+for every project on its site or this project only (D-091), kept in VSCode on
+this machine, or through gh for GitHub. Each state has an icon and words, blue
+or orange. Each tracker has **Sign in again** and **Change place…**, which open
+the Connect page at it, and **Sign out**, which asks every project or this one
+for a site's sign-in; GitHub has only Change place…. **Connect a tracker…**
+starts a new one. Opened from Settings, the Connect page's Back and Save come
+back to this part. Save asks `acc trackers set` to write the tracker, so the
+Command Center writes no config itself (D-064).
 
 **Appearance** (GH-109): the Command Center, task pages and agent pages are
 Match VSCode (the default), Light or Dark; VSCode keeps its own theme. The pick
