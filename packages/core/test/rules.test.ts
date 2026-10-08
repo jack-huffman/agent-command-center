@@ -143,6 +143,18 @@ test('a template\'s rules are a URL or a path from / or ~/: a relative path mean
   assert.match(templateRulesProblem('http://example.com/r.git#x.md')!, /Use https/);
 });
 
+test('docs/RULES.md\'s ACME sample copies in, and its header is the one acc writes', () => {
+  const md = readFileSync(join(import.meta.dirname, '..', '..', '..', 'docs', 'RULES.md'), 'utf8');
+  const [sample, copy] = [...md.matchAll(/```markdown\n([\s\S]*?)```/g)].map((m) => m[1]!);
+  assert.ok(sample?.startsWith('# ACME Salesforce rules') && copy, 'docs/RULES.md has the sample, then its copy');
+  const repo = makeRepo();
+  const r = importRules(run, repo, teamFile(sample, 'salesforce.md'), { now });
+  const written = readFileSync(join(repo, r.file), 'utf8');
+  assert.equal(copy.split('\n')[0], written.split('\n')[0], 'the doc shows the header\'s first line as acc writes it');
+  assert.deepEqual(copy.split('\n').slice(1, 5).map((l) => l.split(':')[0]), ['source', 'commit', 'copied', 'sha256'], 'and its keys, in order');
+  assert.ok(rulesText(repo, 'salesforce')!.includes(sample.trim()));
+});
+
 // ---------------------------------------------------------------- the order
 
 /** A Salesforce repo with the profile's rules, one copy and its own .acc/rules.md. */
