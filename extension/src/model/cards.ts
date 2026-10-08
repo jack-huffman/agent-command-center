@@ -68,7 +68,7 @@ export function filesLook(t: Pick<TaskRow, 'state' | 'display' | 'files' | 'anal
   if (t.state === 'todo' && f.held) {
     if (f.held.failed) return { label: `Needs you: ${f.held.byAutopilot ? 'autopilot couldn\'t start it' : 'its start failed'}: ${f.held.failed}`, icon: 'bell', tone: 'orange' };
     if (f.shares.length && f.first.length) return { label: waitLine(f.shares, full, f.first), icon: 'clock', tone: 'blue' };
-    if (f.capped) return { label: 'Waits for an agent: as many are running as the project allows', icon: 'clock', tone: 'blue' };
+    if (f.capped) return { label: `Waits for an agent: as many are running as ${f.capped === 'machine' ? 'this machine\'s total allows, across every repo' : 'the project allows'}`, icon: 'clock', tone: 'blue' };
     return { label: f.shares.length ? `Starting: nothing else is ready, so it shares files with ${taskNames(f.shares.map((s) => s.task))}` : 'Starting: the files it waited for are free', icon: 'clock', tone: 'blue' };
   }
   if (f.shares.length && t.state !== 'done') return { label: sharesLine(f.shares, full), icon: 'files', tone: 'neutral' };

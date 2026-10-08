@@ -4038,9 +4038,11 @@ slots out of the Command Center: a terminal was the only place to set them.
 - **A start that would pass either cap says which.** "3 builders are running in
   this project, and its cap is 3 (agents.max)", or "6 builders are running on
   this machine, across every repo, and its total is 6 (acc machine agents)".
-  A held start (D-093) and autopilot's re-dispatch wait with those words. A
-  person's own dispatch is refused with them, as it was at the project's cap:
-  D-093 left holding a dispatch for the cap out, and this keeps it so.
+  A held start (D-093) and autopilot's re-dispatch wait with those words, and
+  a held task's card says "as many are running as the project allows", or "as
+  this machine's total allows, across every repo". A person's own dispatch is
+  refused with them, as it was at the project's cap: D-093 left holding a
+  dispatch for the cap out, and this keeps it so.
 - **What a change means, in this machine's numbers.** Each agent is a Claude
   Code session on your account, with the builders' model (Opus 5.5 unless
   set); more at once uses the plan's limits that many times faster, and at the

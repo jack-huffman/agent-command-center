@@ -13,6 +13,7 @@ import { GENERIC_CONFIG, makeRepo, tempDir } from '../../packages/core/test/supp
 import { sampleLimits, sampleLimitsOther } from '../scripts/fixtures/limits.ts';
 import { limitCommands, type LimitsDeps, type LimitsProject, readLimits } from '../src/limits.ts';
 import { PAGE_COMMANDS } from '../src/model/messages.ts';
+import { filesLook } from '../src/model/cards.ts';
 import { durationWords, LIMIT_COMMANDS, limitsModel, modelWords } from '../src/model/limits.ts';
 import type { Look } from '../src/model/shared.ts';
 import { pageSource, root } from './support.ts';
@@ -135,6 +136,13 @@ test('the part reads its limits from the machine and each project, and counts ev
   assert.deepEqual(f.projects[0]!.gates.map((g) => g.name), ['check', 'quick']);
   assert.equal(readLimits([project], () => readLedger(paths.ledger), null, { ...env, ACC_HEAVY_SLOTS: '3' }).machine.slotsFrom, 'env');
   assert.equal(readLimits([project], () => undefined, null, { ACC_MACHINE_FILE: join(tempDir('m-'), 'machine.json') }).machine.slotsFrom, 'default');
+});
+
+test('a held task\'s card says which cap it waits for: the project\'s, or this machine\'s total', () => {
+  const held = (capped?: 'project' | 'machine') => filesLook({ state: 'todo', display: 'ready', analyzing: false, files: { known: true, shares: [], first: [], held: { at: 't', failed: null, byAutopilot: false }, ...(capped ? { capped } : {}) } } as never);
+  assert.deepEqual(held('project'), { label: 'Waits for an agent: as many are running as the project allows', icon: 'clock', tone: 'blue' });
+  assert.deepEqual(held('machine'), { label: 'Waits for an agent: as many are running as this machine\'s total allows, across every repo', icon: 'clock', tone: 'blue' });
+  assert.equal(held()?.label, 'Starting: the files it waited for are free');
 });
 
 /** A stand-in for VS Code's window: what each quick pick answers, and what was said. */
