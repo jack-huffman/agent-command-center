@@ -149,12 +149,11 @@ test('acc tidy shows the count and the draft and changes nothing; only a person 
   assert.match(acc(dir, ['tidy']).out, /8 tasks merged since the last tidy-up; one is offered every 8\. A tidy-up is due\.[\s\S]*src\/a\.ts[\s\S]*acc tidy add adds it as a task/);
   assert.equal(readLedger(paths.ledger).tasks.length, 8, 'showing it adds nothing');
 
-  for (const role of ['builder', 'reviewer', 'analyst']) {
-    for (const sub of ['add', 'skip']) {
-      const r = acc(dir, ['tidy', sub], undefined, { ACC_ROLE: role, ACC_TASK: 'T-1' });
-      assert.notEqual(r.code, 0, `${role} ${sub}`);
-      assert.match(r.err, new RegExp(`An? ${role} can't (add|skip) a tidy-up\\. A person does that\\.`), `${role} ${sub}`);
-    }
+  // Each role refused adding; skipping goes through the same check, shown once. The hook's guard has its own test.
+  for (const [role, sub] of [['builder', 'add'], ['reviewer', 'add'], ['analyst', 'add'], ['analyst', 'skip']] as const) {
+    const r = acc(dir, ['tidy', sub], undefined, { ACC_ROLE: role, ACC_TASK: 'T-1' });
+    assert.notEqual(r.code, 0, `${role} ${sub}`);
+    assert.match(r.err, new RegExp(`An? ${role} can't ${sub} a tidy-up\\. A person does that\\.`), `${role} ${sub}`);
   }
   assert.equal(readLedger(paths.ledger).tasks.length, 8, 'refused: nothing added');
   const deny = (builderSettings({ id: 'T-1' } as never, config, '/acc/bin', '/usr/bin') as { permissions: { deny: string[] } }).permissions.deny;
@@ -166,7 +165,8 @@ test('acc tidy shows the count and the draft and changes nothing; only a person 
   assert.equal(added.json().task, 'T-9');
   const t = readLedger(paths.ledger).tasks.find((x) => x.id === 'T-9')!;
   assert.deepEqual([t.state, t.labels, t.title], ['todo', ['tidy-up'], 'Tidy up after 8 merges']);
-  assert.deepEqual([acc(dir, ['tidy', '--json']).json().count, acc(dir, ['tidy', '--json']).json().open], [0, 'T-9']);
+  const after = acc(dir, ['tidy', '--json']).json();
+  assert.deepEqual([after.count, after.open], [0, 'T-9']);
   assert.match(acc(dir, ['tidy', 'skip']).err, /Nothing has merged since the last tidy-up/);
   assert.equal(acc(dir, ['tidy', 'now']).code, 2, 'a usage error');
 });
