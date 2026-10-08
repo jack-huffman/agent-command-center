@@ -89,7 +89,7 @@ export interface RawRead {
   file: string;
   /** What it reads the file for. */
   why: string;
-  /** A read's pattern, and the key paths a match reads. */
+  /** A read's pattern, global, and the key paths a match reads. */
   reads: { pattern: RegExp; keys: (m: RegExpMatchArray) => string[] }[];
 }
 
@@ -214,10 +214,10 @@ export function sources(root: string, notReads: Record<string, string[] | 'all'>
   return { files, stale };
 }
 
-/** The first line matching a pattern, as file:line. */
-function firstHit(files: Source[], pattern: RegExp, field: 'code' | 'bare' = 'bare'): string | null {
+/** The first line matching a pattern, quoted strings left out, as file:line. */
+function firstHit(files: Source[], pattern: RegExp): string | null {
   for (const s of files) {
-    const i = s[field].findIndex((l) => pattern.test(l));
+    const i = s.bare.findIndex((l) => pattern.test(l));
     if (i >= 0) return `${s.file}:${i + 1}`;
   }
   return null;
@@ -327,14 +327,17 @@ export function checkSettings(over: Partial<SettingsInputs> = {}): SettingsResul
   const getRead = new RegExp(`getConfiguration\\(\\s*'${SECTION}'\\s*\\)\\s*\\.get(?:<[^>]*>)?\\(\\s*'([^']+)'`, 'g');
   const named = new RegExp(`'${SECTION}\\.([^']+)'`, 'g');
   const readme = existsSync(join(i.root, README)) ? readFileSync(join(i.root, README), 'utf8') : '';
+  // Read with get, and named anywhere, as affectsConfiguration names one: each by where it's first seen.
+  const got = new Set<string>();
   const reads = new Map<string, string>();
   for (const s of ext) s.code.forEach((l, n) => {
+    for (const m of l.matchAll(getRead)) got.add(m[1]!);
     for (const m of [...l.matchAll(getRead), ...l.matchAll(named)]) if (!reads.has(m[1]!)) reads.set(m[1]!, `${s.file}:${n + 1}`);
   });
-  counted.settingReads = reads.size;
+  counted.settingReads = got.size;
   for (const name of contributed) {
     const key = `${SECTION}.${name}`;
-    if (![...ext].some((s) => s.code.some((l) => [...l.matchAll(getRead)].some((m) => m[1] === name)))) {
+    if (!got.has(name)) {
       findings.push({ key, missing: 'read', where: `is contributed in ${PACKAGE}, but nothing in extension/src reads it with getConfiguration('${SECTION}').get('${name}')`, fix: `Read it, or take it out of contributes.configuration in ${PACKAGE}: VSCode's Settings can't hide one that does nothing.` });
     }
     if (!new RegExp(`\\b${esc(key)}\\b`).test(readme)) {
@@ -352,7 +355,7 @@ export function checkSettings(over: Partial<SettingsInputs> = {}): SettingsResul
     let found = 0;
     s?.code.forEach((l, n) => {
       for (const { pattern, keys } of r.reads) {
-        for (const m of l.matchAll(new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`))) {
+        for (const m of l.matchAll(pattern)) {
           for (const key of keys(m)) {
             found++;
             if (!known(key, i.keys)) findings.push({ key, missing: 'known', where: `is read raw in ${r.file}:${n + 1}, but parseConfig doesn't know it`, fix: 'Add it to Config and CONFIG_KEYS in packages/core/src/config.ts, or stop reading it.' });
