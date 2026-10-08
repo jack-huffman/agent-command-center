@@ -122,9 +122,10 @@ const CLOSING = /\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\b[\s:]+(#\d+|[A-Z][A-Z0
 /**
  * acc's commands that are a person's, by name, or by name and subcommand where the rest of the command is a
  * builder's: acc gate run and list are, but not waiving a check or changing which checks run (GH-111), and
- * acc rules list is, but not copying rules in (GH-108).
+ * acc rules list is, but not copying rules in (GH-108), and acc github status is, but not switching the account a
+ * clone pushes as (GH-113).
  */
-export const PERSON_ONLY_ACC = new Set(['set', 'dispatch', 'land', 'review', 'autopilot', 'analyze', 'promote', 'deploy', 'init', 'cleanup', 'agents', 'setup', 'update', 'updates', 'resume', 'machine', 'gate waive', 'gate required', 'gate builder', 'rules import', 'trackers set']);
+export const PERSON_ONLY_ACC = new Set(['set', 'dispatch', 'land', 'review', 'autopilot', 'analyze', 'promote', 'deploy', 'init', 'cleanup', 'agents', 'setup', 'update', 'updates', 'resume', 'machine', 'gate waive', 'gate required', 'gate builder', 'rules import', 'trackers set', 'github use']);
 
 /**
  * Whether a command line has a backtick or a $ the shell would act on: anywhere outside single quotes,
