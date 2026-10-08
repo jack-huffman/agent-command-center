@@ -6,10 +6,11 @@ import { AccError, type RunResult, type Runner } from './exec.ts';
 import { type Actor, applyMove, checkMove, mutate, noGateHooks, readLedger, type Task } from './ledger.ts';
 import { alive } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
-import { receiptHooks, receiptsAt } from './receipts.ts';
+import { type Receipt, receiptHooks, receiptsAt } from './receipts.ts';
 import { agentArgs } from './agents.ts';
 import { type AwakeDeps, holdAwake } from './awake.ts';
 import { sessionName } from './names.ts';
+import { testsText } from './test-counts.ts';
 
 /**
  * The review (D-032): a fresh agent reads the task, the diff, the checks and the project's rules, and
@@ -177,6 +178,16 @@ export interface ReviewInput {
   rules: string | null;
 }
 
+/**
+ * A check as the reviewer reads it: its result, and what its tests ran, with what that was compared with
+ * and any newly skipped (GH-100).
+ */
+export function checkLine(r: Receipt): string {
+  const result = r.waived ? `waived (it was ${r.waived.was ?? 'not run'}), because ${r.waived.reason}` : `${r.status}. ${r.summary}`;
+  const tests = testsText(r);
+  return `- ${r.gate}: ${result}${tests ? ` Tests: ${tests}.` : ''}${r.countsNote ? ` ${r.countsNote}` : ''}`;
+}
+
 /** The reviewer's standing instructions, and what it's given to review. */
 export function reviewPrompt(i: ReviewInput): { system: string; prompt: string } {
   const focus = FOCUS[i.config.profile] ?? [];
@@ -188,6 +199,7 @@ export function reviewPrompt(i: ReviewInput): { system: string; prompt: string }
     '- Does it follow the project\'s rules, if there are any?',
     '- Did it change anything the task didn\'t ask for?',
     '- Do the tests actually exercise the change?',
+    '- Did it add a skip, only or todo to a test (it.skip, xit, describe.skip, test.only, fit, it.todo, { skip: true }, t.skip(), t.todo())? Each is a finding with must: true, unless the task asks for it: a skipped test passes having checked nothing.',
     ...(focus.length ? ['- For this kind of project, also check:', ...focus.map((f) => `  - ${f}`)] : []),
     'Skip formatting and style: the checks cover those. A check that a person waived is settled; don\'t reopen it.',
     'Give "changes" only for problems that must be fixed before this merges, each as a finding with must: true. Lesser points are findings with must: false, and they don\'t block.',
@@ -291,7 +303,7 @@ export function review(paths: RepoPaths, config: Config, id: string, deps: Revie
   const diff = git(run, paths.root, 'diff', '--no-color', '--find-renames', `${base}...${sha}`).stdout;
   const stat = git(run, paths.root, 'diff', '--stat=120', '--find-renames', `${base}...${sha}`).stdout;
   const receipts = receiptsAt(paths, sha);
-  const checks = Object.values(receipts).map((r) => `- ${r.gate}: ${r.waived ? `waived (it was ${r.waived.was ?? 'not run'}), because ${r.waived.reason}` : `${r.status}. ${r.summary}`}`);
+  const checks = Object.values(receipts).map(checkLine);
   const packetFile = join(paths.packets, `${id}.md`);
   const packet = existsSync(packetFile) ? readFileSync(packetFile, 'utf8') : `# ${task.id}: ${task.title}\n\n${task.brief}`;
   const rulesFile = join(worktree, '.acc', 'rules.md');

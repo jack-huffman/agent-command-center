@@ -8,10 +8,13 @@ import { run, type RunOptions, type RunResult } from '../src/exec.ts';
 import { runGates, waiveGates } from '../src/gates.ts';
 import { mutate, readLedger, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
-import { latestVerdict, parseReview, readVerdict, review, reviewing, reviewPrompt } from '../src/review.ts';
+import type { Receipt } from '../src/receipts.ts';
+import { checkLine, latestVerdict, parseReview, readVerdict, review, reviewing, reviewPrompt } from '../src/review.ts';
+import { NO_COUNTS } from '../src/test-counts.ts';
 import { fakeAwake, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo } from './support.ts';
 
-const now = () => new Date('2026-10-02T12:00:00Z');
+const NOW = '2026-10-02T12:00:00Z';
+const now = () => new Date(NOW);
 const RAW = { ...GENERIC_CONFIG, gates: { required: ['test'], commands: { test: 'true' } } };
 
 /** A repo with one task in review on a branch with a commit, its checks passed. */
@@ -144,6 +147,25 @@ test('the reviewer is told to judge each criterion and skip style, with the prof
   assert.match(sf.system, /bulk-safe/);
   assert.ok(!reviewPrompt({ ...base, config: { profile: 'generic' } as never }).system.includes('Apex'), 'the core stays project-agnostic');
   assert.match(reviewPrompt({ ...base, config: { profile: 'generic' } as never, diff: 'x'.repeat(200_000) }).prompt, /too long to include/);
+});
+
+test('the reviewer is told a newly added skip, only or todo is a must-fix finding unless the task asks for it, and reads what each check\'s tests ran (GH-100)', () => {
+  const base = { task: { id: 'T-1', title: 'x' } as never, envName: 'Dev', envBranch: 'dev', sha: 'abcdef1234', packet: 'p', diff: 'd', stat: 's', rules: null };
+  for (const profile of ['generic', 'salesforce']) {
+    const { system } = reviewPrompt({ ...base, checks: [], config: { profile } as never });
+    assert.match(system, /^- Did it add a skip, only or todo to a test \(it\.skip, xit, describe\.skip, test\.only, fit, it\.todo, \{ skip: true \}, t\.skip\(\), t\.todo\(\)\)\? Each is a finding with must: true, unless the task asks for it/m, profile);
+  }
+  const at = { sha: 'a'.repeat(40), env: 'main', startedAt: NOW, finishedAt: NOW, durationMs: 1, log: null };
+  const counted: Receipt = { ...at, gate: 'check', status: 'hold', summary: '3 skipped, up from 1 on bbbbbbb: slow sync newly skipped.', command: 'npm run check', counts: { run: 312, passed: 312, failed: 0, skipped: 3, todo: 0, skippedNames: ['a', 'b', 'slow sync'], runner: 'node:test' }, countsNote: 'Compared with 1 skipped on bbbbbbb, the nearest earlier count on main. Newly skipped: slow sync.' };
+  const unread: Receipt = { ...at, gate: 'test', status: 'pass', summary: 'Passed.', command: 'make test', countsNote: NO_COUNTS };
+  const plain: Receipt = { ...at, gate: 'lint', status: 'pass', summary: 'Passed.', command: 'eslint .' };
+  assert.deepEqual([counted, unread, plain].map(checkLine), [
+    '- check: hold. 3 skipped, up from 1 on bbbbbbb: slow sync newly skipped. Tests: 312 run, 3 skipped. Compared with 1 skipped on bbbbbbb, the nearest earlier count on main. Newly skipped: slow sync.',
+    `- test: pass. Passed. Tests: not read. ${NO_COUNTS}`,
+    '- lint: pass. Passed.',
+  ]);
+  const { prompt } = reviewPrompt({ ...base, checks: [counted].map(checkLine), config: { profile: 'generic' } as never });
+  assert.match(prompt, /## The checks on this commit\n\n- check: hold\. .* Tests: 312 run, 3 skipped\./);
 });
 
 test('the Mac stays awake while the reviewer runs, for acc\'s own process, and not after, even when it times out (D-067)', () => {
