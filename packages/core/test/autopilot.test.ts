@@ -211,7 +211,7 @@ test('in rework: re-dispatch once as autopilot; a second rework waits for a pers
 
   const full = ledgerOf({ id: 'T-1', state: 'rework' }, { id: 'T-2', state: 'running' }, { id: 'T-3', state: 'running' });
   assert.deepEqual(decide(full, 'T-1', facts()), [null, 'waiting']);
-  assert.match(nextStep(full, RULES_CONFIG, full.tasks[0]!, facts()).reason, /2 tasks are running\. The limit is 2\./);
+  assert.match(nextStep(full, RULES_CONFIG, full.tasks[0]!, facts()).reason, /2 builders are running in this project, and its cap is 2 \(agents\.max\)\./);
 });
 
 test('a task to do, ready or not, is never started; nor is one running or blocked touched', () => {
@@ -235,7 +235,7 @@ test('a task a person dispatched that waits for another\'s files: it waits while
   assert.deepEqual(decide(l, 'T-1', look({ shares: [], first: [] })), ['start', null]);
   assert.equal(nextStep(l, RULES_CONFIG, l.tasks[0]!, look({ shares: [], first: [] })).reason, 'T-2\'s files are free.');
   // What stops a dispatch stops this start: the cap, a dependency.
-  assert.deepEqual(nextStep(l, RULES_CONFIG, l.tasks[0]!, look({ shares: [], problems: ['2 tasks are already running. The limit is 2.'] })), { step: null, outcome: 'waiting', reason: '2 tasks are already running. The limit is 2.' });
+  assert.deepEqual(nextStep(l, RULES_CONFIG, l.tasks[0]!, look({ shares: [], problems: ['2 builders are running in this project, and its cap is 2 (agents.max).'] })), { step: null, outcome: 'waiting', reason: '2 builders are running in this project, and its cap is 2 (agents.max).' });
   // A start that failed waits for a person.
   l.tasks[0]!.held = { ...hold, failed: { reason: 'Claude Code needs you to log in', at: now().toISOString(), by: AUTOPILOT_BY } };
   assert.deepEqual(decide(l, 'T-1', look({ shares: [] })), [null, 'waiting']);
@@ -398,16 +398,16 @@ test('what waits isn\'t a failure: a full agent cap, a cap that fills meanwhile,
   edit(s.paths, (l) => { l.tasks.find((t) => t.id === 'T-2')!.state = 'running'; });
   const calls: string[] = [];
   const r = autopilotPass(s.paths, s.config, deps(calls));
-  assert.deepEqual([r.steps[0]!.outcome, r.steps[0]!.reason], ['waiting', '1 tasks are running. The limit is 1.']);
+  assert.deepEqual([r.steps[0]!.outcome, r.steps[0]!.reason], ['waiting', '1 builder is running in this project, and its cap is 1 (agents.max).']);
   // Nothing was dispatched. A task is running, so the pass looked at Claude Code's sessions once (D-067).
   assert.deepEqual(calls.filter((c) => c.startsWith('claude')), ['claude agents --json']);
 
   const s2 = setup({ state: 'rework', max: 1 });
   const fills = autopilotPass(s2.paths, s2.config, { ...deps([]), steps: { dispatch: () => {
     edit(s2.paths, (l) => { l.tasks.find((t) => t.id === 'T-2')!.state = 'running'; });
-    throw new AccError('move-refused', 'Can\'t dispatch T-1:\n- 1 tasks are already running. The limit is 1.');
+    throw new AccError('move-refused', 'Can\'t dispatch T-1:\n- 1 builder is running in this project, and its cap is 1 (agents.max).');
   } } });
-  assert.deepEqual([fills.steps[0]!.outcome, fills.steps[0]!.reason], ['waiting', '1 tasks are running. The limit is 1.']);
+  assert.deepEqual([fills.steps[0]!.outcome, fills.steps[0]!.reason], ['waiting', '1 builder is running in this project, and its cap is 1 (agents.max).']);
   const busy = autopilotPass(s2.paths, { ...s2.config, agents: { ...s2.config.agents, max: 3 } }, { ...deps([]), steps: { dispatch: () => { throw new AccError('lock-timeout', 'Another acc process is holding the ledger.'); } } });
   assert.deepEqual([busy.steps[0]!.outcome, busy.steps[0]!.reason], ['waiting', 'The ledger was busy. Autopilot tries again next pass.']);
   assert.equal(first(s2.paths).autopilot, undefined, 'nothing recorded');

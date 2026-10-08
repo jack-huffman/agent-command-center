@@ -4,7 +4,8 @@ import { autoMergeFor, type Config } from './config.ts';
 import { type CheckRead, readChecks } from './checks.ts';
 import { holdWords } from './held.ts';
 import type { Runner } from './exec.ts';
-import { autopilotFailure, type AutopilotStepName, builderStopped, type ClaudeSession, closedPr, type HistoryEntry, type Ledger, reworkCause, SEND_BACKS, sendBacks, sentBackAt, sentBackByAutopilot, type Task } from './ledger.ts';
+import { autopilotFailure, type AutopilotStepName, builders, builderStopped, type ClaudeSession, closedPr, type HistoryEntry, type Ledger, projectCapWords, reworkCause, SEND_BACKS, sendBacks, sentBackAt, sentBackByAutopilot, type Task } from './ledger.ts';
+import { machineCapProblem, type MachineLoad } from './limits.ts';
 import { type StartLook, waits } from './overlap.ts';
 import { NO_CHECKS_GRACE_MS } from './merge.ts';
 import type { RepoPaths } from './paths.ts';
@@ -41,6 +42,8 @@ export interface TaskFacts {
   accChanges?: () => string[];
   /** An agent in its worktree waits for a person's answer, asked only where it could join the merge queue (GH-73). */
   asking?: boolean;
+  /** This machine's total, and the builders running in its other repos, read once a pass where a start could pass it (GH-111). */
+  machine?: MachineLoad | null;
 }
 
 export type AutopilotOutcome = 'done' | 'failed' | 'waiting' | 'skipped';
@@ -102,7 +105,17 @@ export function failedChecks(task: Pick<Task, 'state' | 'pr' | 'autopilot' | 'hi
 /** Autopilot already resumed this run's builder once: a second stop waits for a person (D-067). A new dispatch is a new run. */
 export const resumedByAutopilot = (task: Task): boolean => !!task.run?.resumes?.some((r) => byAutopilot(r.by));
 
-export const running = (ledger: Ledger, except: string): number => ledger.tasks.filter((t) => t.state === 'running' && t.id !== except).length;
+export const running = (ledger: Ledger, except: string): number => builders(ledger, except);
+
+/**
+ * Why another builder can't start beside those running, or null: the project's cap (agents.max), then this
+ * machine's total across every repo (GH-111), each named, so it's clear which to raise.
+ */
+export function capWait(ledger: Ledger, config: Pick<Config, 'agents'>, except: string, machine: MachineLoad | null | undefined): string | null {
+  const n = builders(ledger, except);
+  if (n >= config.agents.max) return projectCapWords(n, config.agents.max);
+  return machineCapProblem(ledger, except, machine ?? null);
+}
 
 /** What nextStep reads of the config: the agent cap, and whether auto-merge covers a task's environment (GH-67). */
 export type StepConfig = Pick<Config, 'agents' | 'profile' | 'autonomy' | 'environments' | 'autopilot'>;
@@ -150,8 +163,8 @@ export function nextStep(ledger: Ledger, config: StepConfig, task: Task, facts: 
     const cause = reworkCause(task);
     const own = cause === 'checks' || cause === 'queue';
     if (!own && reworkedByAutopilot(task)) return none('waiting', 'Autopilot re-dispatched it once already. A second rework waits for a person.');
-    const n = running(ledger, task.id);
-    if (n >= config.agents.max) return none('waiting', `${n} tasks are running. The limit is ${config.agents.max}.`);
+    const capped = capWait(ledger, config, task.id, facts.machine);
+    if (capped) return none('waiting', capped);
     const back = task.autopilot?.sentBack;
     if (cause === 'queue') return step('dispatch', back?.conflicts?.length ? `The merge queue found it conflicts with ${task.environment}: ${back.conflicts.join(', ')}.` : `The merge queue's full check failed: ${back?.checks.join(', ') || 'see its report'}.`);
     return step('dispatch', own ? `Checks failed on GitHub: ${back?.checks.join(', ') || 'see its pull request'}.` : 'The reviewer asked for changes.');
@@ -165,8 +178,8 @@ export function nextStep(ledger: Ledger, config: StepConfig, task: Task, facts: 
     if (!s) return none('waiting', 'Autopilot couldn\'t tell what it shares with work in flight. It looks again next pass.');
     if (s.problems.length) return none('waiting', s.problems[0]!);
     if (waits(s)) return none('waiting', `${holdWords(s)}.`);
-    const n = running(ledger, task.id);
-    if (n >= config.agents.max) return none('waiting', `${n} tasks are running. The limit is ${config.agents.max}.`);
+    const capped = capWait(ledger, config, task.id, facts.machine);
+    if (capped) return none('waiting', capped);
     if (s.shares.length) return step('start', `Nothing else is ready to start, so it starts sharing files with ${s.shares.map((x) => x.task).join(', ')}.`);
     return step('start', held.waitsFor.length ? `${held.waitsFor.map((x) => x.task).join(', ')}'s files are free.` : 'Nothing in flight shares its files.');
   }

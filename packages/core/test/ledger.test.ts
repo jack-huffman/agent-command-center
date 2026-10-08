@@ -138,8 +138,8 @@ test('dispatching needs every dependency done', () => {
 
 test('the agent cap stops dispatch at agents.max (2 in this config)', () => {
   const l = ledgerWith({ id: 'ACME-1', state: 'running' }, { id: 'ACME-2', state: 'running' }, { id: 'ACME-3' }, { id: 'ACME-4', state: 'rework' });
-  assert.match(checkMove(l, config, task(l, 'ACME-3'), { to: 'running', actor: 'orchestrator', by: 'o' }, noGateHooks).join(), /2 tasks are already running. The limit is 2/);
-  assert.match(checkMove(l, config, task(l, 'ACME-4'), { to: 'running', actor: 'human', by: 'h' }, noGateHooks).join(), /limit is 2/);
+  assert.match(checkMove(l, config, task(l, 'ACME-3'), { to: 'running', actor: 'orchestrator', by: 'o' }, noGateHooks).join(), /2 builders are running in this project, and its cap is 2 \(agents\.max\)/);
+  assert.match(checkMove(l, config, task(l, 'ACME-4'), { to: 'running', actor: 'human', by: 'h' }, noGateHooks).join(), /its cap is 2 \(agents\.max\)/);
   task(l, 'ACME-2').state = 'review';
   assert.deepEqual(checkMove(l, config, task(l, 'ACME-3'), { to: 'running', actor: 'orchestrator', by: 'o' }, noGateHooks), []);
 });

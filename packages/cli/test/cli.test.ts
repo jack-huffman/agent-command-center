@@ -4,16 +4,19 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSy
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { DISPLAY, mutate, parseConfig, readLedger, repoPaths, run, transcriptDir, upsertTasks } from '../../core/src/index.ts';
+import { builderSettings, DISPLAY, guardAnalyst, guardBash, mutate, parseConfig, readLedger, registerLedger, repoPaths, run, transcriptDir, upsertTasks } from '../../core/src/index.ts';
 import { GENERIC_CONFIG, gh41Lines, makeRepo, tempDir } from '../../core/test/support.ts';
 
 const MAIN = fileURLToPath(new URL('../src/main.ts', import.meta.url));
 // A builder's `acc gate run` runs these tests with its own ACC_TASK set, holding the machine's heavy-check slot.
 const HEAVY_DIR = join(tempDir('acc-heavy-'), 'slots');
+// This machine's settings and the repos it counts are the tests' own, so a dispatch here is never noted, or
+// counted, on the machine running them (GH-111).
+const MACHINE_FILE = join(tempDir('acc-machine-'), 'machine.json');
 
 function acc(cwd: string, args: string[], input?: string, env: NodeJS.ProcessEnv = {}) {
   const r = spawnSync(process.execPath, ['--no-warnings', MAIN, ...args], {
-    cwd, input, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', ACC_ROLE: '', ACC_TASK: '', ACC_HEAVY_DIR: HEAVY_DIR, ...env },
+    cwd, input, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', ACC_ROLE: '', ACC_TASK: '', ACC_HEAVY_DIR: HEAVY_DIR, ACC_MACHINE_FILE: MACHINE_FILE, ...env },
   });
   return { code: r.status ?? 1, out: r.stdout, err: r.stderr, json: () => JSON.parse(r.stdout) };
 }
@@ -909,6 +912,122 @@ test('acc machine heavy-slots shows and sets how many heavy checks this machine 
   assert.equal(acc(dir, ['machine', 'heavy-slots', '12'], undefined, env).code, 2, 'out of range');
   assert.notEqual(acc(dir, ['machine', 'heavy-slots', '4'], undefined, { ...env, ACC_ROLE: 'builder', ACC_TASK: 'T-1' }).code, 0, 'a builder can\'t');
   assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { heavySlots: 2 }, 'unchanged');
+});
+
+// ---------------------------------------------------------------- limits and checks (GH-111)
+
+/** A project as a person keeps it: its own spacing, with checks to choose from. */
+const LIMITS_CONFIG = '{\n  "schema": 1,\n  "project": "Tool",\n  "profile": "generic",\n  "environments": [\n    { "name": "main", "default": true }\n  ],\n  "agents": {\n    "max": 3\n  },\n  "autonomy": "review",\n  "autopilot": { "autoMerge": true },\n  "gates": {\n    "required": [\n      "check"\n    ],\n    "commands": {\n      "check": "true",\n      "typecheck": "true",\n      "near-tests": "true"\n    }\n  }\n}\n';
+
+test('acc agents max shows the project\'s builder cap and how many run, and a person sets it, changing only that key (GH-111)', () => {
+  const dir = makeRepo({ '.acc/config.json': LIMITS_CONFIG });
+  const file = join(dir, '.acc', 'config.json');
+  assert.equal(acc(dir, ['add', 'One']).code, 0);
+  assert.deepEqual(acc(dir, ['agents', 'max', '--json']).json(), { max: 3, from: 'project', running: 0 });
+  assert.equal(acc(dir, ['agents', 'max']).out, 'This project runs at most 3 builders at once (agents.max, .acc/config.json). 0 builders running now.\n');
+  const set = acc(dir, ['agents', 'max', '5']);
+  assert.equal(set.code, 0, set.err);
+  assert.equal(set.out, 'This project now runs at most 5 builders at once (agents.max, .acc/config.json). 0 builders running now. Set in .acc/config.json: commit it to share it.\n');
+  assert.equal(readFileSync(file, 'utf8'), LIMITS_CONFIG.replace('"max": 3', '"max": 5'), 'byte for byte, but the value');
+  for (const bad of ['0', '17', 'two', '2.5']) assert.equal(acc(dir, ['agents', 'max', bad]).code, 2, bad);
+  assert.equal(readFileSync(file, 'utf8'), LIMITS_CONFIG.replace('"max": 3', '"max": 5'));
+  // A config that names no cap says it's acc's, and gets the key.
+  const bare = repoWithConfig();
+  assert.match(acc(bare, ['agents', 'max']).out, /^This project runs at most 3 builders at once \(agents\.max, acc's default: \.acc\/config\.json sets none\)\./);
+  assert.equal(acc(bare, ['agents', 'max', '2']).code, 0);
+  assert.deepEqual(JSON.parse(readFileSync(join(bare, '.acc', 'config.json'), 'utf8')), { ...GENERIC_CONFIG, agents: { max: 2 } });
+});
+
+test('acc machine agents shows this machine\'s total across every repo and how many run, and a person sets it or takes it out (GH-111)', () => {
+  const file = join(tempDir('acc-machine-'), 'machine.json');
+  writeFileSync(file, JSON.stringify({ heavySlots: 2 }));
+  const env = { ACC_MACHINE_FILE: file };
+  const other = repoWithConfig({ ...GENERIC_CONFIG, project: 'Other' });
+  assert.equal(acc(other, ['add', 'Busy']).code, 0);
+  mutate(repoPaths(other, run), () => new Date(), (l, emit) => { l.tasks[0]!.state = 'running'; emit({ type: 'task.updated', task: l.tasks[0]!.id, actor: 'human', by: 'test', data: {} }); });
+  registerLedger(repoPaths(other, run).ledger, 'Other', env);
+  const dir = repoWithConfig();
+  assert.equal(acc(dir, ['machine', 'agents'], undefined, env).out, 'No total on this machine: each project\'s cap (agents.max) is the only limit. 1 builder running now in Other.\n');
+  const set = acc(dir, ['machine', 'agents', '6', '--json'], undefined, env);
+  assert.equal(set.code, 0, set.err);
+  assert.deepEqual([set.json().agents, set.json().running], [6, 1]);
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { heavySlots: 2, agents: 6 }, 'beside the heavy-check slots, which stay');
+  assert.match(acc(dir, ['machine', 'agents'], undefined, env).out, /^This machine runs at most 6 builders at once, across every repo on it\. 1 builder running now in Other\.$/m);
+  assert.equal(acc(dir, ['machine', 'agents', '65'], undefined, env).code, 2, 'out of range');
+  assert.equal(acc(dir, ['machine', 'agents', '4', '--none'], undefined, env).code, 2, 'not both');
+  assert.match(acc(dir, ['machine', 'agents', '--none'], undefined, env).out, /^This machine has no total now: each project's cap \(agents\.max\) is the only limit\. .* Set in /);
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { heavySlots: 2 });
+});
+
+test('acc gate required and acc gate builder show and set a project\'s checks, one key each; a name it doesn\'t have is refused (GH-111)', () => {
+  const dir = makeRepo({ '.acc/config.json': LIMITS_CONFIG });
+  const file = join(dir, '.acc', 'config.json');
+  assert.deepEqual(acc(dir, ['gate', 'required', '--json']).json(), { required: ['check'], gates: ['check', 'typecheck', 'near-tests'], queue: ['main'] });
+  assert.equal(acc(dir, ['gate', 'required']).out, 'Required checks: check. Where the merge queue runs (main), they run once in it, before each merge.\n');
+  assert.equal(acc(dir, ['gate', 'builder']).out, 'Builders run the required checks (check): no lighter ones are named.\n');
+
+  const lighter = acc(dir, ['gate', 'builder', 'typecheck', 'near-tests']);
+  assert.equal(lighter.code, 0, lighter.err);
+  assert.equal(lighter.out, 'Builders now run typecheck, near-tests where the merge queue runs (main), and the required checks (check) run once in it, before each merge. Set in .acc/config.json: commit it to share it.\n');
+  const withBuilder = LIMITS_CONFIG.replace('"near-tests": "true"\n    }\n  }', '"near-tests": "true"\n    },\n    "builder": [\n      "typecheck",\n      "near-tests"\n    ]\n  }');
+  assert.equal(readFileSync(file, 'utf8'), withBuilder);
+  // acc gate list marks them, as it did when a person edited the file by hand (D-096).
+  assert.match(acc(dir, ['gate', 'list']).out, /Builders run typecheck, near-tests, and acc done takes them\./);
+
+  assert.equal(acc(dir, ['gate', 'required', 'check', 'typecheck']).code, 0);
+  assert.equal(readFileSync(file, 'utf8'), withBuilder.replace('"required": [\n      "check"\n    ]', '"required": [\n      "check",\n      "typecheck"\n    ]'));
+  const unknown = acc(dir, ['gate', 'required', 'deploy']);
+  assert.equal(unknown.code, 2);
+  assert.match(unknown.err, /deploy isn't a check this project has\. Name the required checks from: check, typecheck, near-tests\./);
+  assert.equal(acc(dir, ['gate', 'builder', 'typecheck', '--none']).code, 2, 'not both');
+
+  assert.equal(acc(dir, ['gate', 'builder', '--none']).code, 0);
+  assert.equal(readFileSync(file, 'utf8'), LIMITS_CONFIG.replace('"required": [\n      "check"\n    ]', '"required": [\n      "check",\n      "typecheck"\n    ]'), 'taken out, the rest as it was');
+  // Named where no merge queue runs, they're named, and builders still run the required checks.
+  const manual = makeRepo({ '.acc/config.json': LIMITS_CONFIG.replace('"autonomy": "review"', '"autonomy": "manual"') });
+  assert.equal(acc(manual, ['gate', 'builder', 'typecheck']).code, 0);
+  assert.match(acc(manual, ['gate', 'builder']).out, /^gates\.builder names typecheck, but no environment's pull requests go through the merge queue .*so builders run the required checks \(check\)\./);
+});
+
+test('limits and checks are a person\'s at all three layers: the CLI, the hook and the builder\'s deny list, for every command that sets one (GH-111)', () => {
+  const dir = makeRepo({ '.acc/config.json': LIMITS_CONFIG });
+  const file = join(dir, '.acc', 'config.json');
+  const machine = join(tempDir('acc-machine-'), 'machine.json');
+  writeFileSync(machine, '{}\n');
+  const env = { ACC_MACHINE_FILE: machine };
+  const deny = (builderSettings({ id: 'T-1' } as never, parseConfig(JSON.parse(LIMITS_CONFIG)).config!, '/acc/bin', '/usr/bin') as { permissions: { deny: string[] } }).permissions.deny;
+  // Claude Code's Bash(prefix*) rule: the command starts with what's before the star.
+  const denied = (line: string) => deny.some((d) => { const p = /^Bash\((.*)\)$/.exec(d)?.[1] ?? ''; return p.endsWith('*') ? line.startsWith(p.slice(0, -1)) : line === p; });
+  const commands = [
+    ['agents', 'max', '9'], ['agents', 'set', 'builder', '--model', 'sonnet', '--project'],
+    ['gate', 'required', 'typecheck'], ['gate', 'builder', 'typecheck'], ['gate', 'builder', '--none'],
+    ['machine', 'agents', '2'], ['machine', 'agents', '--none'], ['machine', 'heavy-slots', '3'],
+  ];
+  let checked = 0;
+  for (const args of commands) {
+    const line = `acc ${args.join(' ')}`;
+    for (const role of ['builder', 'reviewer', 'analyst']) {
+      const r = acc(dir, args, undefined, { ...env, ACC_ROLE: role, ACC_TASK: 'T-1' });
+      assert.equal(r.code, 1, `${role}: ${line}`);
+      assert.match(r.err, new RegExp(`An? ${role} can't .*A person does that\\.`), `${role}: ${line}`);
+      checked++;
+    }
+    const autopilot = acc(dir, [...args, '--as', 'orchestrator'], undefined, env);
+    assert.equal(autopilot.code, 1, `autopilot: ${line}`);
+    assert.match(autopilot.err, /Only a person can/);
+    assert.match(guardBash({ task: { id: 'T-1', run: {} } } as never, line) ?? '', /is a person's/, `the hook: ${line}`);
+    assert.match(guardBash({ task: { id: 'T-1', run: {} } } as never, `cd x && nice -n 15 ${line}`) ?? '', /is a person's/, `the hook, chained: ${line}`);
+    assert.ok(guardAnalyst(line), `the analyst's hook: ${line}`);
+    assert.ok(denied(line), `the builder's deny list: ${line}`);
+  }
+  assert.equal(checked, commands.length * 3, 'every command, every role');
+  assert.equal(readFileSync(file, 'utf8'), LIMITS_CONFIG, 'nothing refused touched the project');
+  assert.equal(readFileSync(machine, 'utf8'), '{}\n', 'nor the machine');
+  // What a builder may run is still allowed: its checks, and seeing them.
+  for (const line of ['acc gate run', 'acc gate list', 'acc gate run typecheck']) {
+    assert.equal(guardBash({ task: { id: 'T-1', run: {} } } as never, line), null, line);
+    assert.ok(!denied(line), line);
+  }
 });
 
 test('acc agents set --project is a switch, as the Command Center sends it last, and writes .acc/config.json (D-036)', () => {

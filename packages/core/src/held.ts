@@ -8,6 +8,7 @@ import { analysisProblems } from './analyze.ts';
 import { filesOf, inFlightFiles, sharedFiles, startCandidates, type StartLook, startOrder, taskList, waits } from './overlap.ts';
 import { dispatch, type DispatchDeps } from './dispatch.ts';
 import { claimHeld, releaseHeld, startingNow } from './holding.ts';
+import { machineCapProblem, machineLoad } from './limits.ts';
 
 /** Why a held task waits, in words: "Waits for GH-70's files: a.ts, while GH-74 is ready to start". */
 export function holdWords(look: StartLook): string {
@@ -22,7 +23,7 @@ export interface StartHeldResult {
   failed: { task: string; reason: string }[];
 }
 
-/** Codes of a start that couldn't go for now, not a failure: the cap filled, or the ledger was busy, between the look and the start. */
+/** Codes of a start that couldn't go for now, not a failure: a cap filled, the project's or the machine's, or the ledger was busy, between the look and the start. */
 const FOR_NOW = new Set(['move-refused', 'lock-timeout']);
 
 /**
@@ -37,6 +38,8 @@ export function startHeld(paths: RepoPaths, config: Config, deps: DispatchDeps, 
   const tried = new Set<string>();
   const shared = sharedFiles(config);
   let fetched = false;
+  // This machine's total, and the builders in its other repos (GH-111): each start here is counted from the ledger.
+  const machine = machineLoad(paths, config.project, deps.env);
   for (;;) {
     const ledger = readLedger(paths.ledger);
     const held = ledger.tasks
@@ -48,7 +51,8 @@ export function startHeld(paths: RepoPaths, config: Config, deps: DispatchDeps, 
     const candidates = startCandidates(paths, config, ledger);
     const looks = held.map((t) => {
       const look = startOrder({ id: t.id, files: candidates.find((c) => c.id === t.id)?.files ?? null }, candidates, flying, shared);
-      const problems = [...checkMove(ledger, config, t, { to: 'running', actor: opts.actor, by: opts.by }, noGateHooks), ...analysisProblems(paths, config, t)];
+      const over = machineCapProblem(ledger, t.id, machine);
+      const problems = [...checkMove(ledger, config, t, { to: 'running', actor: opts.actor, by: opts.by }, noGateHooks), ...(over ? [over] : []), ...analysisProblems(paths, config, t)];
       const claimed = startingNow(t, deps.now());
       return { t, look, problems, claimed };
     });
