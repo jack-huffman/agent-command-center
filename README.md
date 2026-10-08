@@ -76,8 +76,8 @@ Salesforce. Project types plug in as profiles.
   Autopilot resumes one once by itself.
 - **Notices in Slack:** away from VSCode, what needs you can come to a Slack
   channel or your own DM, by an incoming webhook kept in VSCode's secret
-  storage on this machine. Set it up on the Environments section's **Notices
-  in Slack** card. It's off until you turn it on, sends each moment once
+  storage on this machine. Set it up in the Settings section's **Notices in
+  Slack**. It's off until you turn it on, sends each moment once
   however many windows are open, and sends only the task's id and title, what
   happened and a link.
 - **Tasks that change the same files take turns, where they can:** before a
@@ -274,7 +274,7 @@ another project's or client's never show up.
 
 ## Settings
 
-The extension has three settings, under **Agent Command Center** in VSCode's
+The extension has four settings, under **Agent Command Center** in VSCode's
 Settings.
 
 - `agentCommandCenter.openFromActivityBar` (on by default): clicking the Command Center's icon
@@ -283,12 +283,21 @@ Settings.
 - `agentCommandCenter.notifications` (on by default): say when a task changes in a way that
   needs you or is news, such as a builder finishing, a review's verdict, or a
   pull request's checks failing or its merge. It's quiet while the Command
-  Center shows that board. Notices to Slack have their own switch, on the
-  Environments section's **Notices in Slack** card.
+  Center shows that board. Notices to Slack have their own switch, in the
+  Settings section's **Notices in Slack**.
 - `agentCommandCenter.theme`: how the Command Center's pages look: `vscode`
   (Match VSCode, the default), `light` or `dark`. It changes only acc's own
   pages; VSCode keeps its theme. It's kept on this machine, and set from
   **Appearance** in the Command Center's Settings section.
+- `agentCommandCenter.refreshPace`: how often the Command Center refreshes
+  while it's on screen: `normal` (the default), `relaxed` (each interval twice
+  as long) or `slow` (four times). While it's hidden it refreshes as it always
+  does, and agents' questions and autopilot aren't slowed. It's kept on this
+  machine, and set from **The Command Center** in the Settings section.
+
+Two more choices there are this window's own, kept by VSCode for the window:
+the section the Command Center opens on (where you left it, or one you name),
+and whether Agents' Where column shows each session's folder or its full path.
 
 Each project's own settings are in its `.acc/config.json`.
 [DESIGN.md section 4](docs/DESIGN.md#4-config) says what each key does, and

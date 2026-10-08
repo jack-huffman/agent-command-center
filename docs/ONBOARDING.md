@@ -108,9 +108,9 @@ and nothing needs it.
 1. In Slack, make an incoming webhook for a channel, or for a DM to yourself:
    [api.slack.com/messaging/webhooks](https://api.slack.com/messaging/webhooks).
    It looks like `https://hooks.slack.com/services/T…/B…/…`.
-2. In the Command Center, open **Environments**. Under **This machine**, paste
-   it on the **Notices in Slack** card and choose **Connect**. A test message
-   goes to Slack, and the card says whether it arrived.
+2. In the Command Center, open **Settings**. Under **Notices in Slack**, paste
+   it and choose **Connect**. A test message goes to Slack, and the card says
+   whether it arrived.
 3. Untick any kind you don't want: **Needs you**, **Review finished**, **Pull
    request opened**, **Draft update waiting**. **Turn off** stops them all;
    **Remove** deletes the webhook from this machine.
