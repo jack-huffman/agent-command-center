@@ -13,8 +13,8 @@ test('every section of the page, and a ticket, has sample data built by the real
   for (const kind of PAGES) {
     const m = sampleModel(kind);
     if (kind.startsWith('ticket') || kind === 'agent') assert.equal(m.kind, kind.startsWith('ticket') ? 'ticket' : kind);
-    // The Connect page opens over the section it came from (GH-51).
-    else if (kind.startsWith('connect-')) assert.deepEqual([m.kind, (m as HomeModel).section, !!(m as HomeModel).connect], ['home', 'tasks', true]);
+    // The Connect page opens over the section it came from (GH-51): a project started from an epic, over Setup (GH-81).
+    else if (kind.startsWith('connect-')) assert.deepEqual([m.kind, (m as HomeModel).section, !!(m as HomeModel).connect, (m as HomeModel).connect?.back.label], ['home', kind.startsWith('connect-epic') ? 'setup' : 'tasks', true, kind.startsWith('connect-epic') ? 'Back to Setup' : 'Back to Tasks']);
     // The Slack card at each of its states, on Environments (GH-58).
     else if (kind.startsWith('slack-')) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).environments.slack?.state], ['home', 'environments', kind.slice('slack-'.length)]);
     // The Tasks tab with a monday.com board (GH-70).

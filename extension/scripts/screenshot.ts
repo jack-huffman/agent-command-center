@@ -102,7 +102,8 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
   const hub = perToken ? sampleSettingsHub(now) : sampleHub(now);
   const connect = kind.startsWith('connect-') ? sampleConnect(kind.slice('connect-'.length) as ConnectSample) : null;
   const slack = sampleSlack(kind.startsWith('slack-') ? kind.slice('slack-'.length) as SlackSample : 'on', now);
-  const section = (kind === 'output' ? 'setup' : connect || kind === 'tasks-monday' ? 'tasks' : kind.startsWith('slack-') ? 'environments' : kind === 'agents-billing' || kind === 'agents-path' ? 'agents' : kind === 'settings-agents' ? 'settings' : kind) as HomeSection;
+  // A project started from an epic opens the Connect page over Setup, where "From a Jira epic…" is (GH-81).
+  const section = (kind === 'output' || kind.startsWith('connect-epic') ? 'setup' : connect || kind === 'tasks-monday' ? 'tasks' : kind.startsWith('slack-') ? 'environments' : kind === 'agents-billing' || kind === 'agents-path' ? 'agents' : kind === 'settings-agents' ? 'settings' : kind) as HomeSection;
   const boards = kind === 'tasks-monday' ? sampleMondayBoards : sampleBoards;
   return homeModel({ hub, section, boards: () => boards(), identity: () => sampleIdentity(), setup: perToken ? samplePerTokenSetup() : sampleSetup(), runs: sampleRuns(now), edited: sampleEdited, connect, slack, whereView: kind === 'agents-path' ? 'path' : 'folder', theme });
 }
