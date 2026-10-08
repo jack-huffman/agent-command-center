@@ -269,6 +269,12 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "acc.importRules",
+        "title": "Import a team's rules into this repo…",
+        "category": "Agent Command Center",
+        "icon": "$(cloud-download)"
+      },
+      {
         "command": "acc.sf.login",
         "title": "Log in to an environment's Salesforce org",
         "category": "Agent Command Center",
@@ -906,6 +912,17 @@
             },
             "completionEvents": [
               "onContext:acc.step.B0.template"
+            ]
+          },
+          {
+            "id": "B0.rules",
+            "title": "Copied-in rules are current",
+            "description": "A team's shared rules are copied into .acc/rules/, each with where it came from (GH-108), and agents read only those copies. This says when a source has changed since its copy. It never copies one in again: that is yours to choose.\n\n[Check](command:acc.step.check?%5B%22B0.rules%22%5D)\n[Do it](command:acc.step.fix?%5B%22B0.rules%22%5D)\n[Import rules…](command:acc.importRules?%5B%22B0.rules%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B0.rules%22%5D)",
+            "media": {
+              "markdown": "media/steps/B0.rules.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B0.rules"
             ]
           },
           {

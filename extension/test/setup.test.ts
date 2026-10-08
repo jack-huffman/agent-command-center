@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
-import { afterFullCheck, afterStepCheck, buildWalkthroughs, commandLink, COMMANDS, contextKey, type DoctorItem, EXTENSION_ID, hasPlaceholder, initCommand, isComplete, machineCache, mediaPath, productionOrgs, rememberTemplate, reusableMachine, setupOrgChoices, shownTemplate, statusText, stepDescription, stepMedia, summarize, templateDetail } from '../src/logic/setup.ts';
+import { afterFullCheck, afterStepCheck, buildWalkthroughs, commandLink, COMMANDS, contextKey, type DoctorItem, EXTENSION_ID, hasPlaceholder, importRulesCommand, initCommand, isComplete, machineCache, mediaPath, productionOrgs, rememberTemplate, reusableMachine, rulesDetail, setupOrgChoices, shownRules, shownTemplate, statusText, stepDescription, stepMedia, summarize, templateDetail } from '../src/logic/setup.ts';
 import { needsTerminal } from '../src/logic/runs.ts';
 import { staleFiles } from '../scripts/generate.ts';
 import { setupModel } from '../src/model/setup.ts';
@@ -61,6 +61,7 @@ test('buttons match what each step needs', () => {
   const labels = (id: string) => links(stepDescription(step(id))).map((l) => l.label);
   assert.deepEqual(labels('B0.config'), ['Check', 'Do it']);
   assert.deepEqual(labels('B0.template'), ['Check', 'Do it', 'Read the guide'], 'Do it previews the template, writing nothing');
+  assert.deepEqual(labels('B0.rules'), ['Check', 'Do it', 'Import rules…', 'Read the guide'], 'Do it shows the difference; Import rules… copies one in');
   assert.deepEqual(labels('B2.identity'), ['Check', 'Do it'], 'the check supplies the exact command');
   assert.deepEqual(labels('B8.tracking'), ['Check', 'Open in Salesforce', 'Read the guide'], 'a click only a person can make');
   assert.deepEqual(labels('B14.tickets'), ['Check', 'Do it', 'I\'ve done this', 'Read the guide'], 'Do it runs Add a tracker; a repo with no tracker can be marked done');
@@ -223,6 +224,35 @@ test('what acc template show --json said is read as the template, its problems, 
   assert.deepEqual(shownTemplate(JSON.stringify({ ok: false, errors: ['"gatez" isn\'t a template key.'] })), { ok: false, errors: ['"gatez" isn\'t a template key.'] });
   assert.deepEqual(shownTemplate(JSON.stringify({ error: 'no-template', message: 'There\'s no team template at x.json.' })), { ok: false, errors: ['There\'s no team template at x.json.'] });
   assert.deepEqual(shownTemplate('', 'node: not found\nmore'), { ok: false, errors: ['node: not found'] });
+});
+
+test('the copied-in rules row offers Import rules… whatever it shows, after Check, and the command is the page\'s to ask for (GH-108)', () => {
+  const item = (status: 'pass' | 'skip' | 'unknown') => ({ id: 'B0.rules', part: 'project' as const, title: 'Copied-in rules are current', status, detail: 'd', ...(status === 'unknown' ? { fix: 'acc rules diff acme' } : {}) });
+  const actions = (status: 'pass' | 'skip' | 'unknown') => setupModel([item(status)], new Set()).parts[0]!.steps[0]!.actions.map((a) => [a.label, a.command]);
+  const importRules = ['Import rules…', 'acc.importRules'];
+  assert.deepEqual(actions('skip'), [['Check', 'acc.step.check'], importRules, ['Guide', 'acc.openGuide']], 'nothing copied in yet: Import rules… is how one starts');
+  assert.deepEqual(actions('pass'), [['Check', 'acc.step.check'], importRules, ['Guide', 'acc.openGuide']]);
+  assert.deepEqual(actions('unknown'), [['Do it', 'acc.step.fix'], ['Check', 'acc.step.check'], importRules, ['I\'ve done this', 'acc.step.confirm'], ['Guide', 'acc.openGuide']], 'Do it shows the difference, and writes nothing');
+  assert.equal(setupModel([item('unknown')], new Set()).parts[0]!.steps[0]!.fix, 'acc rules diff acme');
+  assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === 'acc.importRules'), 'contributed');
+  assert.ok(stepMedia(STEPS.find((s) => s.id === 'B0.rules')!).includes('**Import rules…** is here whatever the step shows.'));
+});
+
+test('what acc rules import --dry-run --json said is read as the copy it would write, or why it can\'t, and the command it runs replaces only when asked (GH-108)', () => {
+  const dry = { written: false, name: 'acme', file: '.acc/rules/acme.md', source: '~/team/acme.md', commit: null, copied: '2026-10-07', sha256: 'x', bytes: 40, lines: 12, exists: true,
+    replaces: { source: '~/team/old.md', copied: '2026-09-01', edited: true }, preview: Array.from({ length: 12 }, (_, i) => `- Rule ${i + 1}.`) };
+  const shown = shownRules(JSON.stringify(dry));
+  assert.ok(shown.ok);
+  assert.deepEqual([shown.file, shown.lines, shown.replaces], ['.acc/rules/acme.md', 12, { source: '~/team/old.md', copied: '2026-09-01', edited: true }]);
+  const detail = rulesDetail(shown);
+  assert.match(detail, /^From ~\/team\/acme\.md: 12 lines\.\nIt replaces the copy from ~\/team\/old\.md, copied on 2026-09-01, and the edits made to it here\.\n\n- Rule 1\./);
+  assert.ok(detail.includes('- Rule 10.\n…') && !detail.includes('Rule 11'), 'ten lines, then more');
+  assert.match(detail, /You review \.acc\/rules\/acme\.md and commit it yourself\. acc never updates it on its own/);
+  assert.match(rulesDetail(shownRules(JSON.stringify({ ...dry, commit: 'c0ffee'.padEnd(40, '0'), replaces: null, lines: 1, preview: ['x'] })) as Extract<ReturnType<typeof shownRules>, { ok: true }>), /^From ~\/team\/acme\.md, at commit c0ffee0: 1 line\.\n\nx\n/);
+  assert.deepEqual(shownRules(JSON.stringify({ error: 'bad-rules', message: 'Use https://: acc doesn\'t fetch a rules file over plain http.' })), { ok: false, errors: ['Use https://: acc doesn\'t fetch a rules file over plain http.'] });
+  assert.deepEqual(shownRules('', 'node: not found'), { ok: false, errors: ['node: not found'] });
+  assert.equal(importRulesCommand({ source: 'https://github.com/acme/acc-rules/blob/main/salesforce.md' }), 'acc rules import https://github.com/acme/acc-rules/blob/main/salesforce.md');
+  assert.equal(importRulesCommand({ source: '~/Team Rules/acme.md', name: 'acme-2', force: true }), 'acc rules import \'~/Team Rules/acme.md\' --name acme-2 --force');
 });
 
 test('org logins go where an environment\'s name says, gh\'s active account is read, and aliases with spaces stay whole', async () => {
