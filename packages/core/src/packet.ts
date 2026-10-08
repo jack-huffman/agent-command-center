@@ -1,7 +1,7 @@
 // The builder's packet and its session's settings: what acc writes into a task's worktree when it dispatches it.
 
 import { autoMergeFor, builderGatesFor, type Config, type Environment, requiredGates } from './config.ts';
-import type { Task } from './ledger.ts';
+import { DONE_COMMAND, NOTE_LIMITS, noteMarkdown, type Task } from './ledger.ts';
 import { permissionHook } from './questions.ts';
 import { type Analysis, analysisSection } from './analyze.ts';
 import { type ChecksReport, checksSection, type QueueReport, queueSection } from './checks.ts';
@@ -27,6 +27,52 @@ export interface PacketInput {
   queue?: QueueReport | null;
   /** What the task's analysis found, and what a person answered (D-052). */
   analysis?: Analysis | null;
+  /** The tasks it depends on, directly, with the note each one's builder left (D-106). */
+  deps?: Pick<Task, 'id' | 'title' | 'run'>[];
+}
+
+/**
+ * On a re-dispatch, what the task's last run left (D-106): its builder's note, or that it left none, so
+ * this builder checks the tree before trusting what's there. `task.run` is still the last run here.
+ */
+function lastRunSection(task: Task, env: Environment): string[] {
+  const r = task.run;
+  if (!r) return [];
+  const check = `\`git status\`, \`git log --oneline origin/${env.branch}..HEAD\` and \`acc gate list\``;
+  const which = r.n ? ` (builder ${r.n})` : '';
+  const blocked = [...task.history].reverse().find((h) => h.to === 'blocked' && h.from === 'running' && (!r.startedAt || h.at >= r.startedAt));
+  const said = blocked?.reason?.trim() ? ['', 'It blocked, saying:', '', ...blocked.reason.trim().split('\n').map((l) => `> ${l}`)] : [];
+  if (!r.note) {
+    return [
+      '## Your last run left no note',
+      '',
+      `This task ran before${which}, and that run ended without a note: it may have crashed, run out of context or been stopped, or a person moved it. Don't assume its work is finished, or that none was done. Start by checking the tree: ${check}.`,
+      ...said,
+      '',
+    ];
+  }
+  return [
+    '## What your last run left',
+    '',
+    `This task ran before${which}, and its builder left this note when it ${r.note.ended === 'blocked' ? 'blocked' : 'moved it to review'}. It's that builder's own account: check it against the tree (${check}) before you build on it.`,
+    ...said,
+    '',
+    ...noteMarkdown(r.note),
+    '',
+  ];
+}
+
+/** The notes the tasks it depends on left when they finished (D-106). One that left none isn't listed. */
+function depsSection(deps: PacketInput['deps']): string[] {
+  const noted = (deps ?? []).filter((d) => d.run?.note);
+  if (!noted.length) return [];
+  return [
+    '## What the tasks it depends on left',
+    '',
+    `This task builds on ${noted.length === 1 ? 'another, whose builder' : `${noted.length} others, whose builders each`} left a note when it finished. Each is that builder's own account.`,
+    '',
+    ...noted.flatMap((d) => [`### ${d.id}: ${d.title}`, '', ...noteMarkdown(d.run!.note!), '']),
+  ];
 }
 
 /** On a rework: what the review asked for, so the next run fixes that and leaves the rest. */
@@ -100,6 +146,8 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean }): stri
     task.source.url ? `Ticket: ${task.source.url}` : `Source: ${task.source.kind}`,
     '',
     ...analysisSection(p.analysis ?? null),
+    ...depsSection(p.deps),
+    ...lastRunSection(task, env),
     ...reviewSection(p.review),
     ...sentBackSection(task),
     ...checksSection(p.checks),
@@ -115,7 +163,7 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean }): stri
     '## How to work',
     '',
     `- **Commits:** \`${task.id}: <what changed>\`, one logical change per commit.${commitRef(task)} Never write "fixes", "closes" or "resolves" in a commit message; the ticket is closed by a person.`,
-    '- **Changes:** keep them to what the task asks. If you find something else that needs fixing, mention it in your final message instead of fixing it.',
+    '- **Changes:** keep them to what the task asks. If you find something else that needs fixing, put it in your note\'s `--open` lines (see the finish line) instead of fixing it.',
   );
   if (sf) {
     lines.push(
@@ -139,10 +187,12 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean }): stri
     lines.push('2. **Checks:** run the project\'s tests or build if it has them, and report the results.');
   }
   lines.push(
-    '3. **Finish** by running exactly `acc done`, as its own command. It is already on your PATH and pre-approved. Don\'t run it through npm scripts, `npx`, or other wrappers, and don\'t chain it with other commands, or it will stop for permission. If you\'re stuck, run exactly `acc block "<what you need>"` instead, and stop.',
+    `3. **Finish** with a note, by running \`acc done\` as its own command, all on one line: \`${DONE_COMMAND}\`. It is already on your PATH and pre-approved. Don't run it through npm scripts, \`npx\`, or other wrappers, and don't chain it with other commands, or it will stop for permission.`,
+    `   The note is for whoever comes next: the reviewer, the next builder and the pull request read it, and it's posted on the pull request on GitHub, so keep secrets and client data out of it. \`--landed\` says what the change does now; \`--moved\` which numbers moved (tests added, checks passed, ratchets raised); \`--open\` what's left undone or worth a follow-up, each line something a person could make a task of. Give a flag again for each further line, up to ${NOTE_LIMITS.lines} a part and ${NOTE_LIMITS.chars} characters a line. \`--moved none\` and \`--open none\` say there was nothing. Use double quotes, with no backticks or \`$\` inside them. \`acc done\` refuses without a note.`,
+    '   If you\'re stuck, run exactly `acc block "<what you need>"` instead, and stop. If part of the work landed, add the same `--landed`, `--moved` and `--open` to it.',
     '   If only the client can answer what you need (a business rule, access you don\'t have, or a choice that\'s theirs to make), run exactly `acc block --client "<your question>"` instead, and stop. Write the question for the client, in plain words with no code, file or tool names: a person reads it before it goes on the ticket.',
     ...(p.accPath ? [`   If \`acc\` really isn't found, its full path is \`${p.accPath}\`.`] : []),
-    '4. **Summarize** in your final message: what changed, how you checked it, and anything a reviewer should look at.',
+    '4. **Summarize** your note in your final message, with anything a reviewer should look at.',
     '',
     '## Never',
     '',

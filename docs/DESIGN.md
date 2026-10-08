@@ -237,7 +237,7 @@ A task is one unit of work, usually one ticket.
 | `environment` | `dev` | One of the config environments. Defaults to the `default` one |
 | `deps` | `["ACME-30"]` | Tasks that must be `done` first |
 | `state` | `running` | See below |
-| `run` | `{ "bgId", "sessionId", "worktree", "branch", "startedAt" }` | Set on dispatch |
+| `run` | `{ "bgId", "sessionId", "worktree", "branch", "startedAt", "note", "before" }` | Set on dispatch. `note` is what its builder said as it finished ([section 8](#8-the-packet)), and `before` the note the run before it left, or `null` when it left none (D-106) |
 | `pr` | `{ "number", "url", "state" }` | Set on land |
 | `history` | `[{ "at", "by", "from", "to", "reason" }]` | Every change, and who made it |
 
@@ -302,7 +302,7 @@ has an icon and a label, so colour never carries the meaning alone.
 | Change | Who may make it | Requires |
 |---|---|---|
 | todo → running | human, orchestrator | Every dependency done, below `agents.max`, environment not protected |
-| running → review | builder (`acc done`), human | A passing receipt for every required check, on the current `HEAD` |
+| running → review | builder (`acc done`), human | A passing receipt for every required check, on the current `HEAD`. A builder also gives its note ([section 8](#8-the-packet), D-106) |
 | review → rework | reviewer, human, orchestrator (autopilot sending back checks that failed on GitHub, D-076) | Findings or a reason |
 | rework → running | human, orchestrator | |
 | review → done | `acc sync` (pull request merged), human | |
@@ -457,7 +457,10 @@ or from the project's `.acc/packet.md` if there is one. It contains:
     ones where the merge queue runs the full check (§9, GH-73).
   - Commit as `<id>: <summary>`. For GitHub, add `refs #N`. Never write `fixes`
     or `closes`.
-  - End with `acc done`, or with `acc block "<reason>"` if stuck.
+  - End with `acc done` and a note, or with `acc block "<reason>"` if stuck
+    (below).
+- **What came before** (D-106): on a re-dispatch, what the task's last run
+  left; and for a task that depends on others, what theirs left.
 - **Never:**
   - push, merge a pull request, open one, or deploy. Merging the base into its
     own branch is fine where the merge queue runs, as it asks when it conflicts;
@@ -479,6 +482,59 @@ or from the project's `.acc/packet.md` if there is one. It contains:
 
 When the session resumes or compacts, the SessionStart hook injects a short
 version again.
+
+**The builder's note (D-106).** A session can end abruptly: a crash, a full
+context, a stopped Mac. So a builder ends with a short note for whoever comes
+next, kept where every later reader gets it, not in a local log:
+
+```
+acc done --landed "<what landed>" --moved "<tests, checks, ratchets that moved>" --open "<what's still open, or none>"
+```
+
+- **Three parts, a line per flag.** `--landed` says what the change does now,
+  `--moved` which numbers moved (tests added, checks passed, ratchets raised),
+  `--open` what's left undone or worth a follow-up. A flag given again adds a
+  line, up to 10 a part and 300 characters a line. `--moved none` and `--open
+  none` say there was nothing, so nothing is an explicit statement, not an
+  omission. Something must have landed.
+- **Required of a builder's `acc done`.** Without it, or with a part left out,
+  acc refuses and gives that exact command. A person's move to review needs
+  none. `acc block` takes the same flags if it has something to say; its reason
+  is required already.
+- **Said the same everywhere.** The packet's finish line, the short version,
+  the Stop hook's reminder and a resume's message all give the command word
+  for word, from one constant. The packet says to keep it on one line, in
+  double quotes with no backticks or `$`, and the hook refuses an `acc done` or
+  `acc block` the shell would expand. It also says the note is posted on the
+  pull request, so secrets and client data stay out of it.
+- **Kept with the run.** It's `run.note`, with when, who, and whether the run
+  ended in review or blocked, and the `task.moved` event carries it too. A
+  dispatch replaces the run, so the new one keeps the last one's note as
+  `run.before`, or `null` when it left none. `acc show` prints it.
+- **It's the builder's own account.** acc works out none of it. The reviewer
+  checks it against the diff ([section 10](#10-review)), and the pull request
+  labels it as the builder's words ([section 11](#11-landing)).
+
+Who reads it after the builder:
+
+- **The next run of the same task.** A rework's packet has **What your last
+  run left**: the note, with the reason if it blocked, and a reminder to check
+  it against the tree. A run that left no note (it crashed, was stopped or
+  abandoned, or a person moved it) gets **Your last run left no note**
+  instead, which says to start with `git status`, `git log --oneline
+  origin/<branch>..HEAD` and `acc gate list` before trusting what's there.
+- **A task that depends on it.** Its packet has **What the tasks it depends on
+  left**: each direct dependency's id, title and note. One with no note isn't
+  listed, so tasks finished before notes existed add no noise.
+- **The task page** shows the three parts, each with its icon and words: What
+  landed (blue), Numbers that moved, and Still open (orange when it has lines).
+  While a rework runs it shows the last run's note, labelled so. A run that
+  ended without one says so. Each still-open line has **Make a task**: it opens
+  input boxes prefilled with the line as the title and a brief citing the
+  task, its builder's run and the note's date. Esc makes nothing; confirming
+  runs `acc add` in the same environment, depending on the task while it isn't
+  done. Nothing goes to a tracker, and nothing records which lines became
+  tasks.
 
 ## 9. Gates and receipts
 
@@ -565,12 +621,13 @@ updated, ignoring `knownDrift` and `environmentSpecific`. The org isn't changed.
 
 ## 10. Review
 
-`acc review <id>` gives a fresh agent four things:
+`acc review <id>` gives a fresh agent five things:
 
 - the packet
 - the diff against the environment's branch
 - the receipts
 - the project's rules
+- the builder's note ([section 8](#8-the-packet), D-106), or that it left none
 
 It runs as `claude -p --permission-mode dontAsk --allowedTools Read Grep Glob
 --output-format json --json-schema <verdict> --session-id <id>` inside the
@@ -582,6 +639,10 @@ session can be watched like any agent's.
 - **It checks:** whether the acceptance criteria are met, whether the project
   rules are followed, whether the change strayed outside the ticket, and whether
   the tests actually exercise the change.
+- **It reads the builder's note as a claim.** Its instructions say the note is
+  the builder's own account of what landed, which numbers moved and what's
+  still open, to check against the diff rather than trust, and to say where
+  it's wrong.
 - **It skips formatting,** which the checks already cover.
 - **Its verdict:** `{ "verdict": "pass" | "changes", "summary", "criteria":
   [{ "text", "met", "evidence" }], "findings": [{ "message", "must", "file",
@@ -602,8 +663,9 @@ review, and passing receipts for every required check. Then it:
 1. Pushes `task/<id>-…` with the repo's account.
 2. Opens the pull request:
    `gh pr create --base <branch> --title "<id>: <title>"`. The generated body
-   holds a summary, an acceptance checklist, the check table, the review verdict
-   and the ticket link.
+   holds a summary, an acceptance checklist, the check table, the review
+   verdict, the builder's note under **Builder's note**, labelled as its own
+   words, or "_Its builder left no note._" (D-106), and the ticket link.
 3. Drafts an update for the ticket (D-066): the pull request's link and one
    plain sentence for the client, which the review writes (`client`), or the
    task's title when it has none. It posts nothing. The draft is kept in
@@ -994,8 +1056,10 @@ The extension handles every workspace folder that has `.acc/config.json`.
   the next step, such as Dispatch or Attach.
 - **A ticket's page** has the rendered description, the comments with a comment
   box, status, assignee and labels, and related tickets. Alongside them are acc's
-  state, the agent, worktree, branch, checks and history. A ticket acc doesn't
-  keep yet can be tracked from there. Tasks with no tracker get the same page
+  state, the agent, worktree, branch, checks and history, and its builder's
+  note, with **Make a task** on each still-open line
+  ([section 8](#8-the-packet)). A ticket acc doesn't keep yet can be tracked
+  from there. Tasks with no tracker get the same page
   from their brief and history.
 - **Status, assignee and labels are read-only** unless the tracker says
   `"edits": true` in `.acc/config.json`, as this repo's own GitHub tracker does

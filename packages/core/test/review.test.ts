@@ -150,6 +150,15 @@ test('the reviewer is told to judge each criterion and skip style, and Salesforc
   assert.match(reviewPrompt({ ...base, config: { profile: 'generic' } as never, diff: 'x'.repeat(200_000) }).prompt, /too long to include/);
 });
 
+test('the reviewer reads the builder\'s note as its own account, to check against the diff, or that it left none (D-106)', () => {
+  const base = { envName: 'Dev', envBranch: 'dev', sha: 'abcdef1234', packet: 'p', diff: 'd', stat: 's', checks: ['- test: pass. ok'], rules: null, config: { profile: 'generic' } as never };
+  const note = { landed: ['sum(a, b) adds'], moved: ['1 test added'], open: ['sum of three numbers'], at: '2026-10-01T12:00:00Z', by: 'builder:T-1', ended: 'review' as const };
+  const r = reviewPrompt({ ...base, task: { id: 'T-1', title: 'x', run: { note } } as never });
+  assert.match(r.system, /The builder's note is its own account of what landed, which numbers moved and what's still open\. Check it against the diff rather than trust it/);
+  assert.match(r.prompt, /- test: pass\. ok\n\n## The builder's note\n\nWhat the builder said as it finished, in its own words\. Check it against the diff\.\n\n\*\*What landed\*\*\n\n- sum\(a, b\) adds\n\n\*\*Numbers that moved\*\*\n\n- 1 test added\n\n\*\*Still open\*\*\n\n- sum of three numbers\n/);
+  assert.match(reviewPrompt({ ...base, task: { id: 'T-1', title: 'x', run: {} } as never }).prompt, /## The builder's note\n\nThe builder left no note\.\n/);
+});
+
 test('the Mac stays awake while the reviewer runs, for acc\'s own process, and not after, even when it times out (D-067)', () => {
   const { paths, config } = setup();
   const awake = fakeAwake();

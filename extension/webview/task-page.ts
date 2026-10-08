@@ -109,6 +109,8 @@ export function renderTicket(m: TicketModel): Node[] {
   if (m.analysis) top.append(renderAnalysis(m, m.analysis));
   const main = el('div', 'ticket-main');
   main.append(el('section', 'block', el('h2', '', 'Description'), m.loading && !m.body.blocks.length ? el('p', 'muted', 'Loading…') : foldable(`desc:${m.project}#${m.key}`, renderDoc(m.body, 'No description.'), null, 6)));
+  const note = renderNote(m);
+  if (note) main.append(note);
   if (m.related.length) {
     main.append(el('section', 'block', el('h2', '', 'Related'), el('ul', 'related', ...m.related.map((r) => {
       const name = /^[A-Z][A-Z0-9_]*-\d+$/i.test(r.key) ? openable(el('span', 'tcard-key', r.key), { type: 'ticket', project: m.project, tracker: m.tracker, key: r.key }) : el('span', 'tcard-key', r.key);
@@ -173,6 +175,30 @@ export function renderTicket(m: TicketModel): Node[] {
   }
   out.push(el('div', 'ticket-grid', top.childElementCount ? top : null, main, side));
   return out;
+}
+
+/**
+ * Its builder's handoff note (D-106): what landed, which numbers moved and what's still open, each part with
+ * its icon and its words, and a Make a task beside each still-open line. A run that ended without one says so.
+ */
+function renderNote(m: TicketModel): HTMLElement | null {
+  const a = m.acc;
+  if (!a?.note) return a?.noteMissing ? el('section', 'block note', el('h2', '', 'Builder\'s note'), el('div', 'notice attention why', icon('warning', 'orange'), el('div', 'why-text', a.noteMissing))) : null;
+  const n = a.note;
+  const part = (key: string, iconName: string, tone: string | undefined, label: string, lines: string[], tool?: (line: string) => HTMLElement) =>
+    el('div', `note-part note-${key}`, el('h3', '', icon(iconName, tone), label),
+      lines.length ? el('ul', 'note-lines', ...lines.map((l) => el('li', '', el('span', 'note-line', l), tool?.(l) ?? null))) : el('p', 'muted note-none', 'None'));
+  const makeTask = (line: string) => {
+    const b = button('Make a task', 'add', () => ticketAction('task', line), 'ghost small note-task');
+    b.title = 'Draft a task from this line, to edit and confirm before it\'s added';
+    b.setAttribute('aria-label', `Make a task: ${line}`);
+    return b;
+  };
+  return el('section', 'block note', el('h2', '', 'Builder\'s note'),
+    el('p', 'muted small note-who', `${n.fromLast ? 'From its last run, in' : 'In'} its builder's own words as it ${n.ended === 'blocked' ? 'blocked' : 'finished'}, `, when(n.at), '. The review checks the change itself.'),
+    part('landed', 'pass', 'blue', 'What landed', n.landed),
+    part('moved', 'graph', undefined, 'Numbers that moved', n.moved),
+    part('open', 'issues', n.open.length ? 'orange' : undefined, 'Still open', n.open, makeTask));
 }
 
 /** How each state reads in the feed: its word, its icon, and orange or blue (never red against green). */

@@ -170,7 +170,7 @@ test('add, list, ready, set and show: a task through its life', () => {
   assert.match(refused.err, /waiting on T-1, which is todo/);
 
   assert.equal(acc(dir, ['set', 'T-1', 'running']).code, 0);
-  assert.equal(acc(dir, ['set', 't-1', 'review', '--as', 'builder']).code, 0, 'ids are case-insensitive');
+  assert.equal(acc(dir, ['set', 't-1', 'review']).code, 0, 'ids are case-insensitive');
   assert.equal(acc(dir, ['set', 'T-1', 'done', '--as', 'builder']).code, 1, 'a builder cannot mark work done');
   assert.equal(acc(dir, ['set', 'T-1', 'done']).code, 0);
   assert.deepEqual((acc(dir, ['ready', '--json']).json() as { id: string }[]).map((t) => t.id), ['T-2']);
@@ -748,7 +748,7 @@ test('a task in review whose pull request was closed shows as needs you, and acc
   const dir = repoWithConfig();
   assert.equal(acc(dir, ['add', 'Add a sum function']).code, 0);
   assert.equal(acc(dir, ['set', 'T-1', 'running']).code, 0);
-  assert.equal(acc(dir, ['set', 'T-1', 'review', '--as', 'builder']).code, 0);
+  assert.equal(acc(dir, ['set', 'T-1', 'review']).code, 0);
   const file = join(dir, '.git', 'acc', 'ledger.json');
   const l = JSON.parse(readFileSync(file, 'utf8'));
   l.tasks[0].pr = { number: 41, url: 'https://github.com/acme/tool/pull/41', state: 'closed' };
@@ -770,7 +770,7 @@ test('a task autopilot couldn\'t move on shows as needs you, and acc show says w
   const dir = repoWithConfig();
   assert.equal(acc(dir, ['add', 'Add a sum function']).code, 0);
   assert.equal(acc(dir, ['set', 'T-1', 'running']).code, 0);
-  assert.equal(acc(dir, ['set', 'T-1', 'review', '--as', 'builder']).code, 0);
+  assert.equal(acc(dir, ['set', 'T-1', 'review']).code, 0);
   const file = join(dir, '.git', 'acc', 'ledger.json');
   const l = JSON.parse(readFileSync(file, 'utf8'));
   l.tasks[0].autopilot = { failed: { step: 'land', sha: 'abcdef0123456789abcdef0123456789abcdef01', state: 'review', reason: 'git push refused task/T-1-add-a-sum-function: rejected', at: '2026-10-05T12:00:00.000Z' } };

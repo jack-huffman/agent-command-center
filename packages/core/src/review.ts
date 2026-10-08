@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, w
 import { join } from 'node:path';
 import { type Config, environmentByBranch } from './config.ts';
 import { AccError, type RunResult, type Runner } from './exec.ts';
-import { type Actor, applyMove, checkMove, mutate, noGateHooks, readLedger, type Task } from './ledger.ts';
+import { type Actor, applyMove, checkMove, mutate, noGateHooks, noteMarkdown, readLedger, type Task } from './ledger.ts';
 import { alive } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
 import { receiptHooks, receiptsAt } from './receipts.ts';
@@ -179,6 +179,7 @@ export function reviewPrompt(i: ReviewInput): { system: string; prompt: string }
     '- Does it follow the rules you\'re given, if there are any? Where two disagree, the later one wins: this repo\'s own rules over the others.',
     '- Did it change anything the task didn\'t ask for?',
     '- Do the tests actually exercise the change?',
+    'The builder\'s note is its own account of what landed, which numbers moved and what\'s still open. Check it against the diff rather than trust it, and say where it\'s wrong.',
     'Skip formatting and style: the checks cover those. A check that a person waived is settled; don\'t reopen it.',
     'Give "changes" only for problems that must be fixed before this merges, each as a finding with must: true. Lesser points are findings with must: false, and they don\'t block.',
     'Be specific: the file, the line, what is wrong, and what to do instead.',
@@ -195,6 +196,13 @@ export function reviewPrompt(i: ReviewInput): { system: string; prompt: string }
     '## The checks on this commit',
     '',
     ...(i.checks.length ? i.checks : ['- none recorded']),
+    '',
+    // What the builder said as it finished or blocked (D-106): its claim, for the reviewer to check.
+    '## The builder\'s note',
+    '',
+    ...(i.task.run?.note
+      ? [`What the builder said ${i.task.run.note.ended === 'blocked' ? 'when it blocked' : 'as it finished'}, in its own words. Check it against the diff.`, '', ...noteMarkdown(i.task.run.note)]
+      : ['The builder left no note.']),
     '',
     ...(i.rules?.trim() ? ['## Rules', '', i.rules.trim(), ''] : []),
     '## What changed',

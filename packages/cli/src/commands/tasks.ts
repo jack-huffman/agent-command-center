@@ -1,7 +1,7 @@
 // acc's Tasks commands: add, import, intake, status, list, ready, show and set.
 
 import { readFileSync } from 'node:fs';
-import { AccError, autopilotFailure, builderStopped, claudeProjectsDir, clipSaid, closedPr, type Config, DISPLAY, displayState, type DisplayState, draftUpdate, failedChecks, filesOf, holdWords, inFlight, intakeGithub, intakeOutside, type IntakeResult, isReady, lastSaid, listSessions, moveTask, mutate, ordinal, phaseWords, plannedFiles, queuePlaces, readAnalysis, readLedger, receiptHooks, repoPaths, resuming, run, sharesWords, startLook, type StartLook, type State, type TaskInput, trackerForKey, type UpsertResult, upsertTasks, waits } from '../../../core/src/index.ts';
+import { AccError, autopilotFailure, builderStopped, claudeProjectsDir, clipSaid, closedPr, type Config, DISPLAY, displayState, type DisplayState, draftUpdate, failedChecks, filesOf, holdWords, inFlight, intakeGithub, intakeOutside, type IntakeResult, isReady, lastSaid, listSessions, moveTask, mutate, NOTE_LABELS, type NoteInput, ordinal, phaseWords, plannedFiles, queuePlaces, readAnalysis, readLedger, receiptHooks, repoPaths, resuming, run, shownNote, type Task, sharesWords, startLook, type StartLook, type State, type TaskInput, trackerForKey, type UpsertResult, upsertTasks, waits } from '../../../core/src/index.ts';
 import { type Outside, TRACKER_KINDS, type TrackerKind, trackerName } from '../../../core/src/trackers/types.ts';
 import { stateLabel, table, tone } from '../format.ts';
 import { actorFrom, type CommandArea, now, type Opts, out, project, stepWords } from '../shared.ts';
@@ -145,6 +145,14 @@ function fileLines(paths: ReturnType<typeof repoPaths>, config: Config, ledger: 
   return { lines, data: { known: !!planned, planned: planned ?? [], ...look } };
 }
 
+/** The note its builder left (D-106), or its last run's while a new one runs, or that it left none. */
+function noteShown(t: Task): string[] {
+  const { note, fromLast, missing } = shownNote(t);
+  if (!note) return missing ? [tone(fromLast ? 'Its last run left no note.' : 'Its builder left no note.', 'orange'), ''] : [];
+  const parts = (['landed', 'moved', 'open'] as const).flatMap((k) => [`  ${NOTE_LABELS[k]}:`, ...(note[k].length ? note[k].map((l) => `    - ${l}`) : ['    none'])]);
+  return [`Builder's note${fromLast ? ', from its last run' : ''} (${note.by}, ${note.ended === 'blocked' ? 'blocked' : 'to review'} ${note.at}):`, ...parts, ''];
+}
+
 function cmdShow(o: Opts, id: string): number {
   const { paths, config } = project(process.cwd());
   const ledger = readLedger(paths.ledger);
@@ -179,25 +187,27 @@ function cmdShow(o: Opts, id: string): number {
     ...files.lines,
     shared.length ? tone(`${sharesWords(shared)}.`, 'dim') : '',
     t.brief ? `\n${t.brief}\n` : '',
+    ...noteShown(t),
     'History:',
     ...t.history.map((h) => `  ${h.at}  ${h.from ?? '–'} → ${h.to}  by ${h.by}${h.reason ? `: ${h.reason}` : ''}${h.override ? ' (override)' : ''}`),
   ].filter(Boolean).join('\n'), { ...t, stopped: stopped ? { said } : null, files: files.data });
   return 0;
 }
 
-export function cmdSet(o: Opts, id: string, to: string): number {
+export function cmdSet(o: Opts, id: string, to: string, note: NoteInput | null = null): number {
   const client = typeof o.client === 'string' ? o.client.trim() : undefined;
   if (o.client !== undefined && to !== 'blocked') throw new AccError('usage', '--client goes with blocking: acc block --client "<question>".');
   if (o.client !== undefined && !client) throw new AccError('usage', 'acc block --client "<the question, for the client>"');
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
   const { task, entry } = moveTask(paths, config, id.toUpperCase(), {
-    to: to as State, actor, by, reason: (o.reason as string | undefined) ?? (client ? `Waiting on the client: ${client}` : null), force: o.force === true,
+    to: to as State, actor, by, reason: (o.reason as string | undefined) ?? (client ? `Waiting on the client: ${client}` : null), force: o.force === true, note,
   }, receiptHooks(paths, config, run), now);
   // Only the client can answer it: the ticket gets a draft, which a person reads before it's posted (D-066).
   const update = client ? draftUpdate(paths, task, { event: 'blocked', context: { question: client } }, by, now) : null;
   out(o, () => [
     `${task.id}: ${entry.from} → ${stateLabel(displayState(readLedger(paths.ledger), task, undefined, config))}${entry.override ? ' (override recorded)' : ''}`,
+    task.run?.note && note ? '  Your note is kept with the run: the reviewer, the next builder and the pull request read it.' : '',
     update ? `  Drafted an update for ${update.key} (${update.id}) with your question. A person reads it before it's posted.` : '',
     client && !update ? `  ${task.id} has no ticket to post a question on: a person passes it on.` : '',
   ].filter(Boolean).join('\n'), { task, entry, ...(client ? { update } : {}) });
