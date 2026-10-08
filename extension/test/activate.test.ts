@@ -543,6 +543,53 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     assert.ok(configWas.includes(agentsWas), 'as acc agents set left it, above');
     assert.equal(readFileSync(configFile, 'utf8'), configWas.replace(agentsWas, '  "agents": {\n    "reviewer": {\n      "effort": "high"\n    },\n    "max": 4\n  },\n'));
 
+    // The Command Center's own preferences (GH-113), each through its command, and Slack's way to its card.
+    type Prefs = { jump?: boolean; open?: string; model?: { section: string; settings: { page: { preferences: { id: string; choices: { key: string; on: boolean }[] }[]; refresh: string[] } }; agents: { whereView: string } } };
+    const lastModel = () => (tab.posted.filter((x) => (x as Prefs).model).at(-1) as Prefs).model!;
+    const chosen = () => lastModel().settings.page.preferences.map((p) => p.choices.find((c) => c.on)?.key);
+    tab.visible = true;
+    await calls.commands.get('acc.open.settings')!();
+    // The Where view is as Agents' toggle left it above; the others are their defaults.
+    assert.deepEqual([chosen()[0], chosen()[2]], ['left', 'normal']);
+    // The pace: a machine setting, written through VSCode; Settings says the intervals at it.
+    await calls.commands.get('acc.settings.pace')!('slow');
+    assert.equal(settings.get('agentCommandCenter.refreshPace'), 'slow');
+    assert.deepEqual([chosen()[2], lastModel().settings.page.refresh[0]], ['slow', 'Tasks: every 12 s while the Command Center is on screen, every 15 s while it isn\'t.']);
+    let prefWarned = calls.warn.length;
+    await calls.commands.get('acc.settings.pace')!('fast');
+    assert.match(calls.warn[prefWarned] ?? '', /^How often the Command Center refreshes is Normal, Relaxed, Slow: not fast\.$/);
+    assert.equal(settings.get('agentCommandCenter.refreshPace'), 'slow', 'refused, nothing changes');
+    calls.pick = (items) => items.find((i) => i.value === 'relaxed');
+    await calls.commands.get('acc.settings.pace')!();
+    calls.pick = undefined;
+    assert.equal(settings.get('agentCommandCenter.refreshPace'), 'relaxed', 'without a choice, it asks');
+    // Agents' Where, for this window: the same as Agents' own toggle.
+    await calls.commands.get('acc.settings.where')!('folder');
+    assert.deepEqual([ctx.workspaceState.get('acc.agents.where'), chosen()[1]], ['folder', 'folder']);
+    await calls.commands.get('acc.settings.where')!('path');
+    assert.deepEqual([ctx.workspaceState.get('acc.agents.where'), lastModel().agents.whereView, chosen()[1]], ['path', 'path', 'path']);
+    tab.receive!({ type: 'agents-where', view: 'folder' });
+    await until(() => ctx.workspaceState.get('acc.agents.where') === 'folder');
+    // The section it opens on, for this window: kept in its workspaceState, and used when it opens afresh.
+    prefWarned = calls.warn.length;
+    await calls.commands.get('acc.settings.opensOn')!('home');
+    assert.match(calls.warn[prefWarned] ?? '', /^The section the Command Center opens on is Where I left it, Overview, Tasks, Agents, Worktrees, Environments, Setup, Settings: not home\.$/);
+    await calls.commands.get('acc.settings.opensOn')!('worktrees');
+    assert.deepEqual([ctx.workspaceState.get('acc.home.opensOn'), chosen()[0]], ['worktrees', 'worktrees']);
+    await calls.commands.get('acc.open.home')!();
+    assert.equal(lastModel().section, 'settings', 'already open, it stays where it is');
+    tab.close!();
+    await calls.commands.get('acc.open.home')!();
+    const reopened = panels.at(-1)!;
+    reopened.receive!({ type: 'ready' });
+    assert.equal((reopened.posted.filter((x) => (x as Prefs).model).at(-1) as Prefs).model!.section, 'worktrees', 'opened afresh, on the section chosen');
+    await calls.commands.get('acc.open.tasks')!();
+    assert.equal((reopened.posted.filter((x) => (x as Prefs).model).at(-1) as Prefs).model!.section, 'tasks', 'a section asked for still opens');
+    // Notices in Slack: its commands open Settings at its part (GH-113).
+    await calls.commands.get('acc.slack.connect')!();
+    const toSlack = reopened.posted.at(-1) as Prefs;
+    assert.deepEqual([toSlack.jump, toSlack.open, toSlack.model!.section], [true, 'settings:slack', 'settings']);
+
     await calls.commands.get(COMMANDS.check)!('B0.repo');
     assert.match(calls.info.at(-1) ?? '', /^✓ Inside the project's repo: Repo at /);
   } finally {

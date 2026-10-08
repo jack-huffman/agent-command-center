@@ -6,6 +6,24 @@
     "icon": "$(color-mode)"
   },
   {
+    "command": "acc.settings.opensOn",
+    "title": "Choose the section the Command Center opens on in this window",
+    "category": "Agent Command Center",
+    "icon": "$(home)"
+  },
+  {
+    "command": "acc.settings.where",
+    "title": "Choose what Agents' Where column shows in this window",
+    "category": "Agent Command Center",
+    "icon": "$(folder)"
+  },
+  {
+    "command": "acc.settings.pace",
+    "title": "Choose how often the Command Center refreshes",
+    "category": "Agent Command Center",
+    "icon": "$(sync)"
+  },
+  {
     "command": "acc.settings.refresh",
     "title": "Refresh settings",
     "category": "Agent Command Center",

@@ -18,6 +18,7 @@ import type { NoticeKind, TaskNotice } from './logic/notices.ts';
 import type { TaskRow, Tone } from './logic/shared.ts';
 import type { ExtensionArea } from './area.ts';
 import type { FromWebview } from './model/messages.ts';
+import { settingsKey } from './model/settings.ts';
 
 export const SLACK_KINDS = ['needs-you', 'review', 'pr', 'draft'] as const;
 export type SlackKind = (typeof SLACK_KINDS)[number];
@@ -511,7 +512,7 @@ export class Slack implements SlackSink {
   }
 }
 
-// ---------------------------------------------------------------- the card in Environments
+// ---------------------------------------------------------------- the card in Settings (GH-113)
 
 export interface SlackCard {
   /** none: no webhook. off: a webhook kept, sending off. on: sending. paused: on, but Slack refused a message. */
@@ -562,17 +563,19 @@ export const area: ExtensionArea = {
       else void removeSlack();
     };
     for (const type of ['slack', 'slack-connect', 'slack-kinds'] as const) receive(type, take);
-    // The card is where Slack is set up; the commands reach it, and test or stop it, from the Command Palette.
-    reg('acc.slack.connect', () => panels.show('environments'));
+    // The card is where Slack is set up, in Settings (GH-113); the commands reach it, and test or stop it,
+    // from the Command Palette.
+    const toCard = () => panels.show('settings', settingsKey('slack'));
+    reg('acc.slack.connect', toCard);
     reg('acc.slack.test', async () => {
-      if (!slack.state().tail) { panels.show('environments'); return; }
+      if (!slack.state().tail) { toCard(); return; }
       const r = await slack.test();
       if (r.ok) void vscode.window.showInformationMessage('The test message went to Slack.');
       else void vscode.window.showWarningMessage(`The test message didn't go to Slack: ${r.error}.`);
     });
     reg('acc.slack.off', async () => {
       await slack.off();
-      void vscode.window.showInformationMessage('acc\'s notices no longer go to Slack from this machine. Turn them on again in Environments.');
+      void vscode.window.showInformationMessage('acc\'s notices no longer go to Slack from this machine. Turn them on again in Settings, under Notices in Slack.');
     });
   },
 };

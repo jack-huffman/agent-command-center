@@ -1,9 +1,8 @@
 // The Environments section: the repo's GitHub identity, and a card per environment.
 
 import type { EnvironmentsModel, IdentityCard } from '../src/model/environments.ts';
-import { actionButton, argButton, type Child, el, empty, header, icon, toolbarButton } from './dom.ts';
-import { slackCardView } from './slack.ts';
-import { api, type PageArea } from './state.ts';
+import { actionButton, argButton, button, type Child, el, empty, header, icon, toolbarButton } from './dom.ts';
+import { api, go, type PageArea } from './state.ts';
 
 /**
  * Who this repo is on GitHub: the account, where that's set, and whether gh and git push agree. Anything
@@ -36,9 +35,16 @@ function identityCard(root: string, repo: string, id: IdentityCard): HTMLElement
       profile));
 }
 
+/** Notices in Slack moved to Settings (GH-113): This machine says so, with a way to its part there. */
+function slackMoved(m: EnvironmentsModel): HTMLElement {
+  const to = m.slackMoved;
+  return el('section', 'block', el('h2', '', icon('device-desktop'), 'This machine'),
+    el('div', 'moved', el('span', 'status tone-neutral', icon('info'), 'Notices in Slack moved to Settings.'), button(to.label, to.icon, () => go(to.section, to.part))));
+}
+
 export function renderEnvironments(m: EnvironmentsModel): Node[] {
-  const machine = m.slack ? el('section', 'block', el('h2', '', icon('device-desktop'), 'This machine'), slackCardView(m.slack)) : null;
-  if (!m.projects.length) return [header('Environments', 'No onboarded project in this workspace.'), empty('Environments appear here once this folder is an onboarded project.', toolbarButton('acc.openProjectWalkthrough', 'Onboard this project', 'rocket', undefined, true)), ...(machine ? [machine] : [])];
+  const machine = slackMoved(m);
+  if (!m.projects.length) return [header('Environments', 'No onboarded project in this workspace.'), empty('Environments appear here once this folder is an onboarded project.', toolbarButton('acc.openProjectWalkthrough', 'Onboard this project', 'rocket', undefined, true)), machine];
   const out: Node[] = [header('Environments', 'Each environment has its own branch, named after it. Changes move between them by pull request.')];
   for (const p of m.projects) {
     const section = el('section', 'block', el('h2', '', icon('repo'), p.name, p.identity ? null : p.github ? el('span', 'muted', ` · ${p.github}`) : null));
@@ -70,7 +76,7 @@ export function renderEnvironments(m: EnvironmentsModel): Node[] {
     section.append(cards);
     out.push(section);
   }
-  if (machine) out.push(machine);
+  out.push(machine);
   return out;
 }
 

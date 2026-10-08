@@ -1,9 +1,10 @@
 // The Settings section (GH-109): Appearance, How agents run (GH-110), Limits and checks (GH-111), then a part
 // for each area that will gather its settings here, each saying where its settings live until then, with a way there.
 
-import type { AgentRunProject, SettingFrom, SettingsLink, SettingsModel, SettingsPartModel, TrackerAction, TrackerProject, TrackerSetting } from '../src/model/settings.ts';
+import type { AgentRunProject, GithubAccountSetting, PagePreference, SettingFrom, SettingsAction, SettingsLink, SettingsModel, SettingsPartModel, TrackerProject, TrackerSetting } from '../src/model/settings.ts';
 import { argButton, button, el, header, icon, segmented, status, toolbarButton } from './dom.ts';
 import { renderLimits } from './limits.ts';
+import { slackCardView } from './slack.ts';
 import { api, go, type PageArea } from './state.ts';
 
 /** The theme: Match VSCode, Light or Dark. The extension keeps the pick, and every open page follows it. */
@@ -66,10 +67,10 @@ function howAgentsRun(m: SettingsModel): Node[] {
 }
 
 /**
- * A tracker's button (GH-112): one of the commands the page may ask for, with its tracker, named for what it
- * does and to whose. One that can't be used now is disabled, and says why.
+ * A button of Settings' (GH-112, GH-113): one of the commands the page may ask for, with what it's for, named
+ * for what it does and to whose. One that can't be used now is disabled, and says why.
  */
-function trackerButton(a: TrackerAction): HTMLElement {
+function trackerButton(a: SettingsAction): HTMLElement {
   const b = (a.arg === null ? toolbarButton(a.command, a.label, a.icon, undefined, a.primary) : argButton(a.command, a.label, a.icon, a.arg, a.primary)) as HTMLButtonElement;
   b.setAttribute('aria-label', a.name);
   if (a.disabled) {
@@ -116,6 +117,71 @@ function trackersPart(m: SettingsModel): Node[] {
   return [...m.trackers.projects.map(trackerProject), ...(m.trackers.connect ? [el('div', 'actions settings-links', trackerButton(m.trackers.connect))] : [])];
 }
 
+/**
+ * One project's GitHub account (GH-113), under its name: who its repo pushes as, from this clone or the
+ * project, gh's sign-in and the commit identity, and Switch…, which asks acc to make the change.
+ */
+function githubProject(g: GithubAccountSetting): HTMLElement {
+  const box = el('div', 'settings-project settings-github');
+  box.setAttribute('role', 'group');
+  box.setAttribute('aria-label', g.project);
+  box.append(
+    el('div', 'settings-tracker-head', el('h3', 'settings-project-name', icon('repo'), el('span', '', g.project)), el('div', 'actions settings-tracker-actions', ...g.actions.map(trackerButton))),
+    el('div', 'settings-row settings-tracker-row', el('span', 'settings-name', icon('github'), el('span', 'strong', 'Pushes as')),
+      el('div', 'settings-value', el('div', 'settings-now', status(g.look), g.from ? from(g.from) : null),
+        g.repo ? el('p', 'muted small settings-meaning mono', g.repo) : null,
+        ...g.lines.map((l) => el('div', 'settings-state', status(l))))),
+  );
+  return box;
+}
+
+/** GitHub accounts (GH-113): every open project's, each under its name. */
+function githubPart(m: SettingsModel): Node[] {
+  return m.github.projects.map(githubProject);
+}
+
+/**
+ * One of the Command Center's own preferences (GH-113): a few choices side by side, or many as a list, each
+ * asking for its command with the choice; what the one chosen means; and where VSCode keeps it.
+ */
+function preference(p: PagePreference): HTMLElement {
+  let pick: HTMLElement;
+  if (p.control === 'segmented') {
+    pick = segmented(p.name, p.choices, (key) => api.postMessage({ type: 'toolbar', command: p.command, arg: key }));
+    pick.querySelectorAll('button').forEach((b, i) => { b.dataset.keep = `settings-${p.id}:${i}`; });
+  } else {
+    const select = document.createElement('select');
+    select.className = 'select-input settings-select';
+    select.id = `settings-${p.id}`;
+    select.dataset.keep = `settings-${p.id}`;
+    select.setAttribute('aria-label', p.name);
+    for (const c of p.choices) {
+      const o = document.createElement('option');
+      o.value = c.key;
+      o.textContent = c.label;
+      select.append(o);
+    }
+    select.value = p.choices.find((c) => c.on)?.key ?? '';
+    select.addEventListener('change', () => api.postMessage({ type: 'toolbar', command: p.command, arg: select.value }));
+    // An option can't hold an icon, so the one chosen shows it before the list, which says its label.
+    const on = p.choices.find((c) => c.on);
+    const mark = on ? icon(on.icon) : null;
+    pick = el('div', 'settings-pick', mark ? el('span', 'settings-chosen', mark) : null, select);
+  }
+  return el('div', 'settings-row', el('span', 'settings-name', icon(p.icon), el('span', 'strong', p.name)),
+    el('div', 'settings-value', el('div', 'settings-now', pick, from(p.from)), el('p', 'muted small settings-meaning', p.meaning)));
+}
+
+/** The Command Center's own preferences (GH-113), then how often each part refreshes at the pace chosen. */
+function pagePart(m: SettingsModel): Node[] {
+  return [...m.page.preferences.map(preference), el('ul', 'settings-details settings-refresh muted small', ...m.page.refresh.map((d) => el('li', '', d)))];
+}
+
+/** Notices in Slack (GH-58), moved here from Environments (GH-113): the card it had there. */
+function slackPart(m: SettingsModel): Node[] {
+  return m.slack ? [slackCardView(m.slack)] : [];
+}
+
 /** A part not built here yet: where its settings live today, and a way there. */
 function today(p: SettingsPartModel): HTMLElement {
   return el('div', 'settings-today',
@@ -125,7 +191,7 @@ function today(p: SettingsPartModel): HTMLElement {
 }
 
 export function renderSettings(m: SettingsModel): Node[] {
-  const out: Node[] = [header('Settings', 'How the Command Center looks on this machine, how agents run in each project, the limits and checks they run under, and each project\'s trackers and sign-ins. Each part below gathers an area\'s settings; until it does, it says where they are.')];
+  const out: Node[] = [header('Settings', 'How the Command Center looks and behaves on this machine, how agents run in each project and the limits they run under, each project\'s trackers and GitHub account, and notices in Slack. A part not here yet says where its settings are.')];
   for (const p of m.parts) {
     // Its heading is where another page opens Settings at this part.
     const h = el('h2', '', icon(p.icon), p.title);
@@ -138,6 +204,9 @@ export function renderSettings(m: SettingsModel): Node[] {
     if (p.id === 'agents') part.append(...howAgentsRun(m));
     if (p.id === 'limits') part.append(...renderLimits(m.limits));
     if (p.id === 'trackers') part.append(...trackersPart(m));
+    if (p.id === 'slack') part.append(...slackPart(m));
+    if (p.id === 'github') part.append(...githubPart(m));
+    if (p.id === 'page') part.append(...pagePart(m));
     if (p.built && p.details.length) part.append(...p.details.map((d) => el('p', 'muted small settings-note', d)));
     if (p.built && p.links.length) part.append(el('div', 'actions settings-links', ...p.links.map(linkButton)));
     if (!p.built) part.append(today(p));

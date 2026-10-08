@@ -14,13 +14,13 @@ import { AutopilotHost } from './autopilot.ts';
 import { type AgentSession, isWebviewMenuContext, shq } from './logic/shared.ts';
 import { analysisAnswerArgs, followsPullRequests } from './logic/tasks.ts';
 import { CLAUDE_EXTENSION, claudeSessionUri, isSessionId } from './logic/agents.ts';
-import { POLL_INTERVALS, POLL_KEYS, type PollKey } from './logic/polls.ts';
+import { PACE_SETTING, POLL_KEYS, pollEvery, type PollKey } from './logic/polls.ts';
 import type { NavItem } from './model/home.ts';
 import { needsYouCount } from './model/overview.ts';
 import { settingsKey } from './model/settings.ts';
 import { type Ref, sessionKey, VIEW_KINDS, type ViewKind } from './model/shared.ts';
 import { Notices } from './notices.ts';
-import { Panels } from './panels.ts';
+import { currentPace, Panels } from './panels.ts';
 import { accShellCommand, Questions, sessionSettings } from './questions.ts';
 import { Runs } from './runs.ts';
 import { accRunner, runFile } from './run.ts';
@@ -61,13 +61,13 @@ export function activate(context: vscode.ExtensionContext): void {
   const reg = (id: string, fn: (...args: any[]) => unknown) => context.subscriptions.push(vscode.commands.registerCommand(id, fn));
 
   // acc's notices in Slack (GH-58): one webhook for this machine, in VSCode's secret storage, off until a
-  // person turns it on on the Environments section's card. Every window offers what it sees; one sends it.
+  // person turns it on in Settings' Notices in Slack (GH-113). Every window offers what it sees; one sends it.
   const slack = new Slack({
     secrets: context.secrets,
     state: { get: () => context.globalState.get(SLACK_STATE), set: (s) => context.globalState.update(SLACK_STATE, s) },
     log: (line, warn) => (warn ? setup.log.warn(line) : setup.log.info(line)),
-    paused: (reason) => void vscode.window.showWarningMessage(`acc's notices to Slack are paused: ${reason}. Send a test from Environments once it's fixed, or paste a new webhook.`, 'Open Environments')
-      .then((pick) => pick && panels.show('environments')),
+    paused: (reason) => void vscode.window.showWarningMessage(`acc's notices to Slack are paused: ${reason}. Send a test from Settings once it's fixed, or paste a new webhook.`, 'Open Settings')
+      .then((pick) => pick && panels.show('settings', settingsKey('slack'))),
     changed: () => changed(),
   });
   slack.prune();
@@ -115,13 +115,20 @@ export function activate(context: vscode.ExtensionContext): void {
       await hub.loadTasks();
     },
   };
+  // The refresh pace (GH-113) stretches the on-screen intervals only; hidden ones stay as they are.
   const pagePolls = (visible: boolean) => {
     pageVisible = visible;
+    const pace = currentPace();
     for (const key of POLL_KEYS) {
-      const ms = visible ? POLL_INTERVALS[key].everyMs : POLL_INTERVALS[key].hiddenMs;
+      const ms = pollEvery(key, visible, pace);
       hub.poll(key, ms ?? 0, POLLS[key], !!ms);
     }
   };
+  // A new pace from Settings, in this window or another, takes at once: once the first polls have started.
+  let polling = false;
+  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => {
+    if (polling && e.affectsConfiguration(`${PACE_SETTING.section}.${PACE_SETTING.key}`)) pagePolls(pageVisible);
+  }));
 
   // ------------------------------------------------------------ the same views as editor tabs
   /** Turns a tab's Ref back into the sidebar's node, so every command works the same from either place. */
@@ -459,6 +466,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   void hub.loadProjects().then(() => { questions?.start(); return hub.loadAgents(); }).then(() => {
     notices.arm();
+    polling = true;
     pagePolls(panels.visible());
   });
   void openPendingConversation(context);

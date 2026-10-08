@@ -5,7 +5,6 @@
 
 import type { GithubIdentity } from '../../../packages/core/src/github.ts';
 import { ENV_ICON } from '../logic/environments.ts';
-import type { SlackCard } from '../slack.ts';
 import type { Action, HubLike, ModelArea, Ref } from './shared.ts';
 import { promotionPaths } from '../../../packages/core/src/promote.ts';
 
@@ -64,14 +63,17 @@ export interface EnvCard {
 export interface EnvironmentsModel {
   kind: 'environments';
   projects: { name: string; root: string; github: string | null; identity: IdentityCard | null; envs: EnvCard[]; paths: string[][] }[];
-  /** acc's notices in Slack, for this machine (GH-58). Never the webhook: only its last four characters. */
-  slack: SlackCard | null;
+  /**
+   * acc's notices in Slack moved to Settings (GH-113): under This machine, Environments says so, with a way
+   * there, the part's heading.
+   */
+  slackMoved: { label: string; icon: string; section: 'settings'; part: string };
 }
 
-export function environmentsModel(hub: HubLike, identity: (root: string) => IdentityCard | null = () => null, slack: SlackCard | null = null): EnvironmentsModel {
+export function environmentsModel(hub: HubLike, identity: (root: string) => IdentityCard | null = () => null): EnvironmentsModel {
   return {
     kind: 'environments',
-    slack,
+    slackMoved: { label: 'Open Notices in Slack', icon: 'settings-gear', section: 'settings', part: 'settings:slack' },
     projects: hub.projects.map((p) => ({
       name: p.name, root: p.root,
       github: p.config.github ? `${p.config.github.repo} as ${p.config.github.account}` : null,
@@ -100,9 +102,7 @@ export const area: ModelArea = {
   ],
   home: {
     order: 40,
-    nav({ hub, i }) {
-        // Slack paused because it refused a message needs you too (GH-58).
-      return { section: 'environments', label: 'Environments', icon: 'server-environment', count: null, attention: hub.projects.some((p) => !!i.identity(p.root)?.problem) || i.slack?.state === 'paused', hint: i.slack?.state === 'paused' ? 'Notices to Slack are paused' : 'Branches, orgs, your GitHub account and Slack' };
-    },
+    // Slack's badge moved to Settings with its card (GH-113): a GitHub account that's wrong still needs you here.
+    nav: ({ hub, i }) => ({ section: 'environments', label: 'Environments', icon: 'server-environment', count: null, attention: hub.projects.some((p) => !!i.identity(p.root)?.problem), hint: 'Branches, orgs and your GitHub account' }),
   },
 };

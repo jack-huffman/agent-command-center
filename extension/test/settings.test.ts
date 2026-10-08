@@ -2,16 +2,19 @@
 // the rail, the theme and the setting that keeps it, and how often the extension refreshes, which it says.
 // How agents run (GH-110): each project's builders, reviewers, autonomy and auto-merge, where each is set,
 // the commands its Change… buttons run, what agents bill, and the ways other pages open it. Limits and
-// checks (GH-111) has its own tests, in limits.test.ts.
+// checks (GH-111) has its own tests, in limits.test.ts. Notices in Slack, moved here with its badge and toast,
+// GitHub accounts, and the Command Center's own preferences, among them the refresh pace (GH-113).
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { intervalWords, POLL_INTERVALS, POLL_KEYS } from '../src/logic/polls.ts';
+import { intervalWords, PACE_SETTING, PACE_WORDS, paceChoice, PACES, POLL_INTERVALS, POLL_KEYS, pollEvery } from '../src/logic/polls.ts';
 import { AREAS } from '../src/model/areas.ts';
+import type { IdentityCard } from '../src/model/environments.ts';
+import { blankSlack, slackCard } from '../src/slack.ts';
 import { homeModel, type HomeModel } from '../src/model/home.ts';
 import { PAGE_COMMANDS } from '../src/model/messages.ts';
-import { agentSettings, area as settingsArea, autoMergeSetting, autonomySetting, GH_SIGN_IN_KEPT, howAgentsRun, refreshLines, settingFrom, SETTINGS_PARTS, settingsKey, settingsModel, SIGN_IN_KEPT, THEME_CHOICES, THEME_SETTING, themeChoice, THEMES, trackerSetting, trackersAndSignIns } from '../src/model/settings.ts';
+import { agentSettings, area as settingsArea, autoMergeSetting, autonomySetting, GH_SIGN_IN_KEPT, githubAccount, githubAccounts, howAgentsRun, MACHINE_KEPT, OPENS_ON_CHOICES, opensOnChoice, pagePreferences, refreshLines, settingFrom, SETTINGS_PARTS, settingsKey, settingsModel, SIGN_IN_KEPT, THEME_CHOICES, THEME_SETTING, themeChoice, THEMES, trackerSetting, trackersAndSignIns, WINDOW_KEPT } from '../src/model/settings.ts';
 import { area as boardsArea, type BoardInput } from '../src/model/boards.ts';
 import type { DoctorItem } from '../src/logic/setup.ts';
 import type { ProjectLike } from '../src/model/shared.ts';
@@ -44,16 +47,18 @@ test('the theme is a VSCode setting kept on this machine, Match VSCode until cha
 test('Settings is a section like the others, last in the rail with a gear', () => {
   assert.deepEqual([VIEW_KINDS.at(-1), VIEW_TITLES.settings, HOME_SECTIONS.includes('settings')], ['settings', 'Settings', true]);
   const m = home();
-  assert.deepEqual(m.nav.at(-1), { section: 'settings', label: 'Settings', icon: 'settings-gear', count: null, attention: false, hint: 'Appearance, how agents run, limits and checks, trackers and sign-ins, and where each other setting lives' });
+  assert.deepEqual(m.nav.at(-1), { section: 'settings', label: 'Settings', icon: 'settings-gear', count: null, attention: false, hint: 'Appearance, agents, limits, trackers, Slack, GitHub accounts and the Command Center\'s own preferences' });
   assert.deepEqual(m.nav.map((n) => n.section), ['overview', 'tasks', 'agents', 'worktrees', 'environments', 'setup', 'settings']);
   const orders = AREAS.flatMap((a) => (a.home ? [a.home.order] : []));
   const own = settingsArea.home!.order;
   assert.ok(AREAS.includes(settingsArea));
   assert.ok(orders.every((o) => o <= own) && orders.filter((o) => o === own).length === 1, 'its turn comes after every other area\'s');
   // The page may ask for the theme, How agents run's Change… (GH-110) and a tracker's Sign out (GH-112), and
-  // Limits and checks' changes, which the limits area asks for (GH-111): its Refresh is the header's.
-  assert.deepEqual(settingsArea.commands, ['acc.settings.theme', 'acc.agents.configure', 'acc.agents.autonomy', 'acc.agents.autoMerge', 'acc.trackers.signOut']);
+  // Limits and checks' changes, which the limits area asks for (GH-111), and the page's own preferences
+  // (GH-113): its Refresh is the header's. GitHub accounts' Switch… and Sign in are Environments' to claim.
+  assert.deepEqual(settingsArea.commands, ['acc.settings.theme', 'acc.agents.configure', 'acc.agents.autonomy', 'acc.agents.autoMerge', 'acc.trackers.signOut', 'acc.settings.opensOn', 'acc.settings.where', 'acc.settings.pace']);
   assert.ok(settingsArea.commands!.every((c) => PAGE_COMMANDS.includes(c)));
+  assert.ok(['acc.github.switch', 'acc.github.signIn'].every((c) => PAGE_COMMANDS.includes(c)));
   assert.ok(!PAGE_COMMANDS.includes('acc.settings.refresh'));
   assert.match(readFileSync(join(root, 'src', 'panels.ts'), 'utf8'), /settings: \['acc\.settings\.refresh'\]/);
 });
@@ -62,7 +67,7 @@ test('each part of Settings is built here or says where its settings live today,
   const m = home().settings;
   assert.deepEqual(m.parts.map((p) => p.id), [...SETTINGS_PARTS]);
   assert.deepEqual(SETTINGS_PARTS, ['appearance', 'agents', 'limits', 'trackers', 'slack', 'github', 'page', 'about']);
-  assert.deepEqual(m.parts.filter((p) => p.built).map((p) => p.id), ['appearance', 'agents', 'limits', 'trackers'], 'Appearance, How agents run, Limits and checks (GH-111), and Trackers and sign-ins (GH-112) are built');
+  assert.deepEqual(m.parts.filter((p) => p.built).map((p) => p.id), ['appearance', 'agents', 'limits', 'trackers', 'slack', 'github', 'page'], 'every part but About is built (GH-113)');
   for (const p of m.parts) {
     assert.ok(p.title && p.icon && p.summary, `${p.id} has a title, an icon and a summary`);
     assert.equal(!!p.today, !p.built, `${p.id}: ${p.built ? 'built, so nothing about today' : 'says where its settings live today'}`);
@@ -151,8 +156,11 @@ test('How agents run is a built part, or says no project is onboarded yet, with 
   const none = part([]);
   assert.deepEqual([none.built, none.links], [true, [{ label: 'Open Setup', icon: 'checklist', section: 'setup' }]]);
   assert.match(none.details[0]!, /^No project in this workspace is onboarded yet\./);
-  // The Command Center passes the hub's projects, Setup's checks, the limits while Settings shows (GH-111) and what the trackers' boards know.
-  assert.match(source('src', 'model', 'home.ts'), /settingsModel\(\{ theme: i\.theme \?\? 'vscode', projects: hub\.projects, setup: i\.setup\.items, limits: .*, boards: i\.boards \}\)/);
+  // The Command Center passes the hub's projects, Setup's checks, the limits while Settings shows (GH-111) and
+  // what the trackers' boards know; and Slack's card, each repo's GitHub identity, and the page's own preferences (GH-113).
+  const home = source('src', 'model', 'home.ts');
+  assert.match(home, /settingsModel\(\{\n {4}theme: i\.theme \?\? 'vscode', projects: hub\.projects, setup: i\.setup\.items, limits: .*, boards: i\.boards,\n/);
+  assert.ok(home.includes('slack: i.slack ?? null, identity: i.identity, opensOn: i.opensOn, whereView: i.whereView, pace: i.pace,'));
 });
 
 test('each Change… asks acc through a command the page may ask for, named for what and whose it changes (D-064)', () => {
@@ -205,19 +213,187 @@ test('the screenshots show How agents run with every state: two projects, each s
   assert.deepEqual([(sampleModel('settings') as HomeModel).settings.agents.billing.look.tone, (sampleModel('agents-billing') as HomeModel).agents.billing?.tone], ['blue', 'orange']);
 });
 
-test('the Command Center part says how often it refreshes, from the numbers the extension polls by', () => {
+test('the Command Center part says how often it refreshes, from the numbers the extension polls by, at the pace chosen', () => {
   assert.deepEqual([...POLL_KEYS], ['tasks', 'jobs', 'agents', 'worktrees', 'boards', 'prs']);
   assert.deepEqual([3_000, 59_000, 60_000, 90_000, 300_000].map(intervalWords), ['3 s', '59 s', '1 min', '1 min 30 s', '5 min']);
   const lines = refreshLines();
   assert.equal(lines.length, POLL_KEYS.length);
   assert.equal(lines[0], 'Tasks: every 3 s while the Command Center is on screen, every 15 s while it isn\'t.');
   assert.equal(lines[3], 'Worktrees: every 15 s while the Command Center is on screen, not at all while it isn\'t.');
-  assert.deepEqual(home().settings.parts.find((p) => p.id === 'page')!.details, lines);
-  // extension.ts polls by these and no number of its own.
+  assert.deepEqual(home().settings.page.refresh, lines, 'Normal until chosen');
+  // Relaxed doubles each on-screen interval and Slow makes it four times as long; hidden ones stay as they are.
+  assert.equal(refreshLines('relaxed')[0], 'Tasks: every 6 s while the Command Center is on screen, every 15 s while it isn\'t.');
+  assert.equal(refreshLines('slow')[4], 'Trackers\' boards: every 8 min while the Command Center is on screen, not at all while it isn\'t.');
+  let checked = 0;
+  for (const pace of PACES) {
+    for (const k of POLL_KEYS) {
+      assert.equal(pollEvery(k, true, pace), POLL_INTERVALS[k].everyMs * PACE_WORDS[pace].times, `${k} on screen, ${pace}`);
+      assert.equal(pollEvery(k, false, pace), POLL_INTERVALS[k].hiddenMs, `${k} hidden, ${pace}: as it always is`);
+      checked++;
+    }
+  }
+  assert.equal(checked, 18);
+  assert.deepEqual(PACES.map((p) => PACE_WORDS[p].times), [1, 2, 4]);
+  assert.deepEqual(settingsModel({ theme: 'vscode', projects: [], setup: [], pace: 'slow' }).page.refresh, refreshLines('slow'));
+  // extension.ts polls by these, at the pace, and no number of its own; a new pace takes at once.
   const ext = readFileSync(join(root, 'src', 'extension.ts'), 'utf8');
-  assert.match(ext, /POLL_INTERVALS\[key\]\.everyMs : POLL_INTERVALS\[key\]\.hiddenMs/);
+  assert.ok(ext.includes('const pace = currentPace();') && ext.includes('const ms = pollEvery(key, visible, pace);'));
+  assert.ok(ext.includes('if (polling && e.affectsConfiguration(`${PACE_SETTING.section}.${PACE_SETTING.key}`)) pagePolls(pageVisible);'));
   assert.doesNotMatch(ext, /everyMs: \d/);
   assert.ok(POLL_KEYS.every((k) => POLL_INTERVALS[k].everyMs > 0));
+  // Agents' questions and autopilot's timers don't poll by these, so the pace leaves them alone.
+  for (const f of ['questions.ts', 'autopilot.ts']) assert.doesNotMatch(source('src', f), /pollEvery|PACE_|currentPace/, f);
+});
+
+test('the refresh pace is Normal, Relaxed or Slow, a VSCode setting kept on this machine, and anything else is Normal', () => {
+  assert.deepEqual([...PACES], ['normal', 'relaxed', 'slow']);
+  for (const p of PACES) assert.equal(paceChoice(p), p);
+  for (const v of ['fast', 'Slow', '', undefined, null, 4, '__proto__', {}]) assert.equal(paceChoice(v), 'normal', String(v));
+  assert.deepEqual(PACES.map((p) => PACE_WORDS[p].label), ['Normal', 'Relaxed', 'Slow']);
+  for (const p of PACES) assert.ok(PACE_WORDS[p].icon && PACE_WORDS[p].meaning, `${p} has an icon and says what it does`);
+  const s = manifest.contributes.configuration.properties[`${PACE_SETTING.section}.${PACE_SETTING.key}`];
+  assert.deepEqual([s.type, s.enum, s.default, s.scope, s.enumDescriptions.length], ['string', [...PACES], 'normal', 'machine', 3]);
+  // Read by its literal name, so the settings check sees what reads it (D-103).
+  assert.ok(source('src', 'panels.ts').includes("paceChoice(vscode.workspace.getConfiguration('agentCommandCenter').get('refreshPace'))"));
+});
+
+test('the Command Center\'s preferences: the section it opens on and Agents\' Where for this window, the pace for this machine, each with an icon and a label', () => {
+  const page = (i: Partial<Parameters<typeof pagePreferences>[0]> = {}) => pagePreferences({ opensOn: 'left', whereView: 'folder', pace: 'normal', ...i });
+  const d = page();
+  assert.deepEqual(d.preferences.map((p) => [p.id, p.command, p.control, p.from.label, p.choices.find((c) => c.on)?.key]), [
+    ['opensOn', 'acc.settings.opensOn', 'list', 'this window', 'left'],
+    ['where', 'acc.settings.where', 'segmented', 'this window', 'folder'],
+    ['pace', 'acc.settings.pace', 'segmented', 'VSCode on this machine', 'normal'],
+  ]);
+  assert.deepEqual([WINDOW_KEPT, MACHINE_KEPT], [{ label: 'this window', icon: 'window' }, { label: 'VSCode on this machine', icon: 'device-desktop' }]);
+  // Where I left it first, then each section by name, each with an icon.
+  const opens = d.preferences[0]!;
+  assert.deepEqual(opens.choices.map((c) => c.label), ['Where I left it', 'Overview', 'Tasks', 'Agents', 'Worktrees', 'Environments', 'Setup', 'Settings']);
+  assert.deepEqual(opens.choices.map((c) => c.key), [...OPENS_ON_CHOICES]);
+  assert.deepEqual([...OPENS_ON_CHOICES], ['left', ...HOME_SECTIONS]);
+  for (const p of d.preferences) for (const c of p.choices) assert.ok(c.icon && c.label, `${p.id}: ${c.key} has an icon and a label`);
+  assert.deepEqual(d.preferences[1]!.choices.map((c) => [c.label, c.icon]), [['Folder', 'folder'], ['Full path', 'list-tree']]);
+  assert.match(opens.meaning, /the section you left it at/);
+  // Each choice changes what's on and what it says.
+  const set = page({ opensOn: 'tasks', whereView: 'path', pace: 'slow' });
+  assert.deepEqual(set.preferences.map((p) => p.choices.filter((c) => c.on).map((c) => c.key)), [['tasks'], ['path'], ['slow']]);
+  assert.match(set.preferences[0]!.meaning, /shows Tasks, wherever you left it/);
+  assert.match(set.preferences[1]!.meaning, /whole folder/);
+  assert.match(set.preferences[2]!.meaning, /a quarter as often/);
+  assert.deepEqual(set.refresh, refreshLines('slow'));
+  // A stored section the page doesn't have is Where I left it.
+  for (const v of ['left', 'tasks', 'settings']) assert.equal(opensOnChoice(v), v);
+  for (const v of ['home', 'Tasks', '', undefined, null, '__proto__']) assert.equal(opensOnChoice(v), 'left', String(v));
+  // The Command Center passes the window's choices and the machine's pace.
+  assert.deepEqual(homeModel({ hub: hub(), section: 'settings', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() }, opensOn: 'agents', whereView: 'path', pace: 'relaxed' }).settings.page.preferences.map((p) => p.choices.find((c) => c.on)?.key), ['agents', 'path', 'relaxed']);
+  assert.ok(source('src', 'panels.ts').includes('whereView: this.whereView, theme: this.tab?.theme ?? currentTheme(), pace: currentPace(), opensOn: this.opens,'));
+});
+
+test('the section it opens on is kept per window, and used only when the Command Center opens with no section asked for', () => {
+  const panels = source('src', 'panels.ts');
+  assert.ok(panels.includes("export const OPENS_ON_STATE = 'acc.home.opensOn';") && panels.includes('this.opens = opensOnChoice(ctx.workspaceState.get(OPENS_ON_STATE));'));
+  assert.ok(panels.includes('await this.ctx.workspaceState.update(OPENS_ON_STATE, choice);'), 'kept in the window\'s workspaceState');
+  assert.ok(panels.includes("else if (!section && !this.panel && this.opens !== 'left') this.remember(this.opens);"), 'only when it opens afresh, with no section asked for');
+  // Agents' toggle and Settings both set the Where view through one path.
+  assert.ok(panels.includes("if (m.type === 'agents-where') {\n      void this.setWhere(m.view);") && panels.includes("await this.ctx.workspaceState.update('acc.agents.where', view);"));
+});
+
+test('each preference\'s command takes a choice, or asks; one it doesn\'t know is refused in words, and the page asks for it with the choice', () => {
+  const ext = source('src', 'settings.ts');
+  for (const id of ['acc.settings.opensOn', 'acc.settings.where', 'acc.settings.pace']) {
+    assert.ok(ext.includes(`reg('${id}', async (arg?: unknown) => {`), `${id} is registered`);
+    assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === id), `${id} is contributed`);
+  }
+  assert.ok(ext.includes('if (pick) await panels.setOpensOn(pick);') && ext.includes('if (pick) await panels.setWhere(pick);'));
+  assert.ok(ext.includes('await config().update(PACE_SETTING.key, pick, vscode.ConfigurationTarget.Global);'), 'the pace is a machine setting, written through VSCode');
+  assert.ok(ext.includes('void vscode.window.showWarningMessage(`${what} is ${choices.map((c) => words(c).label).join(\', \')}: not ${String(pick)}.`);'));
+  const page = pageSource('settings.ts');
+  assert.ok(page.includes("pick = segmented(p.name, p.choices, (key) => api.postMessage({ type: 'toolbar', command: p.command, arg: key }));"));
+  assert.ok(page.includes("select.addEventListener('change', () => api.postMessage({ type: 'toolbar', command: p.command, arg: select.value }));"));
+  assert.ok(page.includes("select.setAttribute('aria-label', p.name);"), 'the list is named');
+  assert.ok(page.includes("pick = el('div', 'settings-pick', mark ? el('span', 'settings-chosen', mark) : null, select);"), 'the one chosen shows its icon before the list');
+  assert.ok(page.includes("if (p.id === 'page') part.append(...pagePart(m));"));
+});
+
+// ---------------------------------------------------------------- Notices in Slack and GitHub accounts (GH-113)
+
+test('Notices in Slack is Settings\' part now: its card, its badge and its toast, and Environments says it moved', () => {
+  const card = slackCard({ ...blankSlack(), on: true, tail: 'x9Qa', paused: 'Slack refused it: channel_is_archived' });
+  assert.deepEqual([card.state, card.look.icon, card.look.tone], ['paused', 'warning', 'orange']);
+  const m = homeModel({ hub: hub(), section: 'environments', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() }, slack: card });
+  assert.equal(m.settings.slack, card);
+  assert.deepEqual(m.environments.slackMoved, { label: 'Open Notices in Slack', icon: 'settings-gear', section: 'settings', part: 'settings:slack' });
+  assert.ok(!('slack' in m.environments), 'Environments no longer holds the card');
+  // The badge: Settings is orange while Slack is paused; Environments isn't, for Slack.
+  const nav = (s: string) => m.nav.find((n) => n.section === s)!;
+  assert.deepEqual([nav('settings').attention, nav('settings').hint, nav('environments').attention], [true, 'Notices to Slack are paused', false]);
+  // The toast and the commands open Settings at the part.
+  assert.ok(source('src', 'extension.ts').includes("'Open Settings')\n      .then((pick) => pick && panels.show('settings', settingsKey('slack'))),"));
+  const slack = source('src', 'slack.ts');
+  assert.ok(slack.includes("const toCard = () => panels.show('settings', settingsKey('slack'));") && slack.includes("reg('acc.slack.connect', toCard);") && slack.includes('if (!slack.state().tail) { toCard(); return; }'));
+  assert.doesNotMatch(slack + source('src', 'extension.ts'), /panels\.show\('environments'\)/);
+  // The page draws the card in its part, and Environments a line saying it moved, with a way there.
+  const page = pageSource('settings.ts');
+  assert.ok(page.includes('return m.slack ? [slackCardView(m.slack)] : [];') && page.includes("if (p.id === 'slack') part.append(...slackPart(m));"));
+  const env = pageSource('environments.ts');
+  assert.ok(env.includes("el('span', 'status tone-neutral', icon('info'), 'Notices in Slack moved to Settings.'), button(to.label, to.icon, () => go(to.section, to.part))"));
+  assert.doesNotMatch(env, /slackCardView/);
+  assert.match(manifest.contributes.configuration.properties['agentCommandCenter.notifications'].markdownDescription, /in the Settings section's Notices in Slack\.$/);
+});
+
+/** A repo's GitHub identity as Environments' card has it. */
+const identity = (more: Partial<IdentityCard> = {}): IdentityCard => ({
+  account: 'jordan-kim', initials: 'JK', from: 'config', projectAccount: 'jordan-kim', signedIn: true, scopes: ['repo', 'project'], projects: true,
+  problem: null, pushesAs: 'jordan-kim', commit: 'Jordan Kim <jordan@acme.example>', profile: 'https://github.com/jordan-kim', others: 1, ...more,
+});
+
+test('GitHub accounts names each project, who its repo pushes as, and whether that\'s this clone\'s choice or the project\'s, with an icon and a label', () => {
+  const p = hub().projects[0]!;
+  const gh = { ...p, config: { ...p.config, github: { repo: 'acme/service', account: 'acme-bot' } } };
+  const ok = githubAccount(gh, identity());
+  assert.deepEqual([ok.project, ok.repo, ok.look, ok.from], [p.name, 'acme/service', { label: 'jordan-kim', icon: 'github', tone: 'blue' }, { label: 'project', icon: 'repo' }]);
+  assert.deepEqual(ok.lines, [{ label: 'gh is signed in as jordan-kim', icon: 'pass', tone: 'blue' }, { label: 'Commits as Jordan Kim <jordan@acme.example>', icon: 'git-commit', tone: 'neutral' }]);
+  assert.deepEqual(ok.actions.map((a) => [a.command, a.label, a.arg, a.primary, a.disabled]), [['acc.github.switch', 'Switch…', p.root, false, null]]);
+  assert.equal(ok.actions[0]!.name, `Switch the GitHub account ${p.name} pushes as, in this clone`);
+  // This clone's choice says so, and whose the project's is.
+  const clone = githubAccount(gh, identity({ from: 'clone', projectAccount: 'acme-bot', projects: false }));
+  assert.deepEqual(clone.from, { label: 'this clone', icon: 'device-desktop' });
+  assert.deepEqual(clone.lines.map((l) => l.label), ['The project\'s account is acme-bot. Switch… goes back to it.', 'gh is signed in as jordan-kim, without GitHub Projects access', 'Commits as Jordan Kim <jordan@acme.example>']);
+  assert.deepEqual(clone.actions.map((a) => [a.command, a.label, a.primary]), [['acc.github.switch', 'Switch…', false], ['acc.github.signIn', 'Add Projects access', false]]);
+  // Not signed in: orange, with a warning and why, said once, and Sign in leads.
+  const out = githubAccount(gh, identity({ signedIn: false, projects: false, problem: 'gh isn\'t signed in as jordan-kim', commit: null }));
+  assert.deepEqual(out.look, { label: 'jordan-kim, but gh isn\'t signed in as jordan-kim', icon: 'warning', tone: 'orange' });
+  assert.deepEqual(out.lines, [{ label: 'No commit identity set for this repo', icon: 'warning', tone: 'orange' }]);
+  assert.deepEqual(out.actions.map((a) => [a.label, a.primary]), [['Switch…', false], ['Sign in', true]]);
+  // Pushing as another account: Switch… leads.
+  assert.deepEqual(githubAccount(gh, identity({ problem: 'git push would use someone-else' })).actions.map((a) => a.primary), [true]);
+  // Not read yet: checking, blue, with the project's account; Switch… still works, as it reads first.
+  const reading = githubAccount(gh, null);
+  assert.deepEqual([reading.look, reading.from, reading.actions[0]!.disabled], [{ label: 'Checking which account it pushes as: the project\'s is acme-bot', icon: 'sync~spin', tone: 'blue' }, null, null]);
+  // No GitHub repo: says so, and its Switch… is disabled with why.
+  const none = githubAccount({ ...p, config: { ...p.config, github: null } }, identity());
+  assert.deepEqual([none.repo, none.look.icon, none.look.tone, none.actions.map((a) => a.disabled)], [null, 'circle-slash', 'neutral', ['It names no GitHub repo, so there\'s no account to switch.']]);
+  // Every state has an icon and a label, orange against blue.
+  for (const g of [ok, clone, out, reading, none]) for (const l of [g.look, ...g.lines]) assert.ok(l.icon && l.label && ['blue', 'orange', 'neutral'].includes(l.tone), l.label);
+});
+
+test('GitHub accounts lists every open project from what Environments read, is built, and the page draws each with its buttons', () => {
+  const projects = hub().projects;
+  const m = settingsModel({ theme: 'vscode', projects, setup: [], identity: (r) => (r === projects[0]!.root ? identity() : null) });
+  assert.equal(m.github.projects.length, projects.length);
+  const part = m.parts.find((p) => p.id === 'github')!;
+  assert.deepEqual([part.built, part.links], [true, []]);
+  assert.match(part.details[0]!, /^acc github use makes the switch, in this clone's git config: nobody else sees it, nothing committed changes, and no agent may make it\./);
+  assert.deepEqual(settingsModel({ theme: 'vscode', projects: [], setup: [] }).parts.find((p) => p.id === 'github')!.links, [{ label: 'Open Setup', icon: 'checklist', section: 'setup' }]);
+  assert.deepEqual(githubAccounts(projects, () => null).projects.map((g) => g.root), projects.map((p) => p.root));
+  // Switch… is the status bar's and Environments' acc.github.switch, which asks acc github use.
+  const id = source('src', 'identity.ts');
+  assert.ok(id.includes("const r = await this.acc(login ? ['github', 'use', login, '--json'] : ['github', 'use', '--default', '--json'], p.root);"));
+  assert.ok(id.includes("const p = (typeof arg === 'string' ? this.hub.project(arg) : undefined) ?? this.active();"), 'the project it was asked for');
+  const page = pageSource('settings.ts');
+  assert.ok(page.includes("if (p.id === 'github') part.append(...githubPart(m));"));
+  assert.ok(page.includes("el('div', 'actions settings-tracker-actions', ...g.actions.map(trackerButton))"), 'each named and disabled as a tracker\'s are');
+  assert.ok(page.includes("g.from ? from(g.from) : null"), 'where it\'s chosen, beside it');
 });
 
 test('the page draws each part under a heading another page can open Settings at', () => {

@@ -20,7 +20,8 @@ import { type AttentionItem, mergeQueues, needsYouCount, type OverviewModel, que
 import { type QuestionCard, questionCards } from './questions.ts';
 import { runCard, type RunCard, type RunInput } from './runs.ts';
 import { limitsModel } from './limits.ts';
-import { settingsModel, type SettingsModel, type ThemeChoice } from './settings.ts';
+import type { Pace } from '../logic/polls.ts';
+import { type OpensOn, settingsModel, type SettingsModel, type ThemeChoice } from './settings.ts';
 import { setupModel, type SetupModel } from './setup.ts';
 import { type Action, type HomeSection, type HubLike, LOOK, nameOf, type ProjectLike, type Ref, sessionKey } from './shared.ts';
 import type { TicketModel } from './task-page.ts';
@@ -84,6 +85,9 @@ export interface HomeInput {
   now?: number;
   /** The Command Center's theme, as Settings keeps it on this machine (GH-109). Match VSCode unless said. */
   theme?: ThemeChoice;
+  /** How often it refreshes on screen, kept on this machine, and the section it opens on in this window (GH-113). */
+  pace?: Pace;
+  opensOn?: OpensOn;
 }
 
 /** What homeModel has worked out, for each area's part of the page. Areas add to attention and ready as they go. */
@@ -132,11 +136,14 @@ export function homeModel(i: HomeInput): HomeModel {
   const tasks = tasksModel(hub, i.boards);
   const agents = agentsModel(hub, i.setup.items, i.whereView ?? 'folder');
   const worktrees = worktreesModel(hub);
-  const environments = environmentsModel(hub, i.identity, i.slack ?? null);
+  const environments = environmentsModel(hub, i.identity);
   const setup = setupModel(i.setup.items, i.setup.confirmed);
   // Limits read every repo's ledger acc noted on this machine, so only while Settings shows (GH-111).
   const limits = i.section === 'settings' ? hub.limits?.() ?? null : null;
-  const settings = settingsModel({ theme: i.theme ?? 'vscode', projects: hub.projects, setup: i.setup.items, limits: limits ? limitsModel(limits, billingLook(i.setup.items)) : null, boards: i.boards });
+  const settings = settingsModel({
+    theme: i.theme ?? 'vscode', projects: hub.projects, setup: i.setup.items, limits: limits ? limitsModel(limits, billingLook(i.setup.items)) : null, boards: i.boards,
+    slack: i.slack ?? null, identity: i.identity, opensOn: i.opensOn, whereView: i.whereView, pace: i.pace,
+  });
   const questions = questionCards(hub);
   const asked = new Set(questions.map((q) => q.sessionId));
   const c: HomeContext = { i, hub, tasks, agents, worktrees, environments, setup, questions, asked, linked: new Set(), rows: hub.projects.flatMap((p) => hub.taskRows(p.root)), attention: [], ready: [] };
