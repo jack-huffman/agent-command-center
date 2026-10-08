@@ -224,6 +224,11 @@ test('the pull request says what it does, ticks its acceptance criteria, and sho
   // Where auto-merge covers its environment, it says autopilot merges it, and how to hold it (GH-67).
   const auto = prBody(task, s.config.environments[0]!, s.sha, passReview(s.paths, s.id, s.sha, s.base), receiptsAt(s.paths, s.sha), true);
   assert.match(auto, /\(main\)\. With autopilot running, it merges once its checks pass on GitHub and nothing waits on a person: auto-merge is on for this repo\. Ask for changes to hold it\.\n$/);
+  // Its builder's note, as the builder's own account (D-106), or that it left none.
+  assert.match(body, /## Builder's note\n\n_Its builder left no note\._\n/);
+  const note = { landed: ['sum(a, b)'], moved: ['1 test added'], open: [], at: '2026-10-01T12:00:00Z', by: 'builder:T-1', ended: 'review' as const };
+  const noted = prBody({ ...task, run: { ...task.run, note } }, s.config.environments[0]!, s.sha, passReview(s.paths, s.id, s.sha, s.base), receiptsAt(s.paths, s.sha));
+  assert.match(noted, /## Review\n[\s\S]*## Builder's note\n\nIn its builder's own words, as it finished\. The review above is what checked the change\.\n\n\*\*What landed\*\*\n\n- sum\(a, b\)\n\n\*\*Numbers that moved\*\*\n\n- 1 test added\n\n\*\*Still open\*\*\n\n- none\n\n---\n/);
 });
 
 test('the pull request\'s checks say what each test check ran, "not read" where acc couldn\'t tell, and a hold as needing a person (GH-100)', () => {

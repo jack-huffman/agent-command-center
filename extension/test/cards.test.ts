@@ -300,7 +300,7 @@ test('a running card, its task page and its Agents row name the model its agent 
   assert.equal(page.acc!.model, 'claude-sonnet-5-5');
   // The Agents tab asks the hub, which reads the transcript, then what acc started it with.
   h.modelFor = (s) => (s.id === 'bg1' ? 'claude-sonnet-5-5' : null);
-  const rows = agentsModel(h).places.flatMap((p) => p.agents);
+  const rows = agentsModel(h).repos.flatMap((r) => r.tasks.flatMap((t) => t.agents));
   assert.deepEqual(rows.map((r) => [r.name, r.model]), [['av-2', 'claude-sonnet-5-5'], ['other', null]]);
   const main = pageSource();
   assert.match(main, /\['Model', 'model'\]/, 'a Model column');

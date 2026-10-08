@@ -5,8 +5,8 @@ import { test } from 'node:test';
 import { parseConfig } from '../src/config.ts';
 import { run } from '../src/exec.ts';
 import {
-  ACTORS, applyMove, builderStopped, type ClaudeSession, checkMove, closedPr, displayState, emptyLedger, type Emit, findRule, type Hooks, isReady, type Ledger, type LedgerEvent,
-  moveTask, mutate, noGateHooks, normalizeId, readLedger, readRuns, readyTasks, type RepoAgents, RULES, type SessionTie, sessionsOf, type State, STATES, type Task, tieSession, upsertTasks,
+  ACTORS, applyMove, builderStopped, DONE_COMMAND, type ClaudeSession, checkMove, closedPr, displayState, emptyLedger, type Emit, findRule, type Hooks, isReady, type Ledger, type LedgerEvent,
+  moveTask, mutate, noGateHooks, type NoteInput, noteInput, noteMarkdown, normalizeId, readLedger, readRuns, readyTasks, type RepoAgents, RULES, type SessionTie, sessionsOf, shownNote, type State, STATES, type Task, tieSession, upsertTasks,
 } from '../src/ledger.ts';
 import { sessionName } from '../src/names.ts';
 import { repoPaths } from '../src/paths.ts';
@@ -84,7 +84,10 @@ test('every state has rules in and out, and every allowed move works for its act
     for (const f of from) {
       for (const actor of ACTORS) {
         const l = ledgerWith({ id: 'ACME-1', state: f });
-        const problems = checkMove(l, config, task(l, 'ACME-1'), { to: rule.to, actor, by: actor, reason: 'because' }, passAll);
+        // A builder's finish gives its note (D-106), and ends a run.
+        const note = rule.requires.includes('note') ? { landed: ['it'], moved: [], open: [] } : undefined;
+        if (note) task(l, 'ACME-1').run = { branch: 'task/ACME-1' };
+        const problems = checkMove(l, config, task(l, 'ACME-1'), { to: rule.to, actor, by: actor, reason: 'because', note }, passAll);
         if (rule.actors.includes(actor)) assert.deepEqual(problems, [], `${actor} ${f} → ${rule.to}`);
         else assert.match(problems.join(), /can't move a task/, `${actor} should not ${f} → ${rule.to}`);
       }
@@ -154,7 +157,61 @@ test('finishing needs passing receipts for every required check', () => {
   const l = ledgerWith({ id: 'ACME-1', state: 'running' });
   const missing: Hooks = { missingGates: () => ['format', 'validate'] };
   assert.match(checkMove(l, config, task(l, 'ACME-1'), { to: 'review', actor: 'builder', by: 'b' }, missing).join(), /haven't passed on the current commit: format, validate/);
-  assert.deepEqual(checkMove(l, config, task(l, 'ACME-1'), { to: 'review', actor: 'builder', by: 'b' }, noGateHooks), []);
+  task(l, 'ACME-1').run = { branch: 'task/ACME-1' };
+  assert.deepEqual(checkMove(l, config, task(l, 'ACME-1'), { to: 'review', actor: 'builder', by: 'b', note: { landed: ['A'], moved: [], open: [] } }, noGateHooks), []);
+});
+
+test('a builder finishes with a note, which stays with its run and its event (D-106)', () => {
+  const l = ledgerWith({ id: 'ACME-1', state: 'running' });
+  const t = task(l, 'ACME-1');
+  t.run = { branch: 'task/ACME-1', startedAt: '2026-10-01T11:00:00Z' };
+  const builder = (note?: NoteInput) => checkMove(l, config, t, { to: 'review', actor: 'builder', by: 'builder:ACME-1', ...(note ? { note } : {}) }, noGateHooks);
+
+  // Without one, or with a part left out, it's refused with the exact command to run instead.
+  const none = builder();
+  assert.equal(none.length, 1);
+  assert.ok(none[0]!.includes(DONE_COMMAND), none.join());
+  assert.match(none[0]!, /says nothing about --landed, --moved, --open/);
+  assert.match(builder({ landed: ['A'] }).join(), /says nothing about --moved, --open/);
+  assert.match(builder(noteInput({ landed: ['none'], moved: ['none'], open: ['none'] })).join(), /says nothing about --landed/, 'something landed, or it isn\'t done');
+  assert.deepEqual(builder(noteInput({ landed: ['A'], moved: ['none'], open: ['none'] })), [], 'none says there was nothing');
+  // A person's move needs none.
+  assert.deepEqual(checkMove(l, config, t, { to: 'review', actor: 'human', by: 'human:jo' }, noGateHooks), []);
+
+  // The limits: ten lines a part, three hundred characters a line.
+  assert.match(builder({ landed: ['A'], moved: Array.from({ length: 11 }, (_, i) => `line ${i}`), open: [] }).join(), /--moved has 11 lines\. It takes at most 10/);
+  assert.match(builder({ landed: ['x'.repeat(301)], moved: [], open: [] }).join(), /A line in the note's --landed is over 300 characters/);
+  assert.deepEqual(builder({ landed: ['x'.repeat(300)], moved: Array.from({ length: 10 }, () => 'm'), open: [] }), []);
+  // A note ends a run: not a move to rework or to do, nor a task with no run.
+  assert.match(checkMove(l, config, t, { to: 'todo', actor: 'human', by: 'h', reason: 'r', note: { open: ['x'] } }, noGateHooks).join(), /A note goes with a run's end/);
+  assert.match(checkMove(ledgerWith({ id: 'ACME-2' }), config, task(ledgerWith({ id: 'ACME-2' }), 'ACME-2'), { to: 'blocked', actor: 'human', by: 'h', reason: 'r', note: { open: ['x'] } }, noGateHooks).join(), /has no run/);
+
+  // Its lines as given: one each, whitespace collapsed, blanks and "none" dropped, a part left out undefined.
+  assert.deepEqual(noteInput({ landed: ['  The  page\nworks ', ''], open: ['None'] }), { landed: ['The page works'], open: [] });
+
+  const events: Omit<LedgerEvent, 'seq' | 'at'>[] = [];
+  applyMove(t, { to: 'review', actor: 'builder', by: 'builder:ACME-1', note: { landed: ['A'], moved: ['3 tests added'], open: ['B', 'C'] } }, (e) => events.push(e), clock);
+  const note = { landed: ['A'], moved: ['3 tests added'], open: ['B', 'C'], at: '2026-10-01T12:00:00.000Z', by: 'builder:ACME-1', ended: 'review' };
+  assert.deepEqual(t.run.note, note);
+  assert.deepEqual(events[0]!.data.note, note, 'the task.moved event carries it');
+  assert.deepEqual(shownNote(t), { note, fromLast: false, missing: false });
+
+  // A block may carry one too, and says it ended blocked.
+  const b = ledgerWith({ id: 'ACME-3', state: 'running' });
+  task(b, 'ACME-3').run = { branch: 'task/ACME-3' };
+  applyMove(task(b, 'ACME-3'), { to: 'blocked', actor: 'builder', by: 'builder:ACME-3', reason: 'r', note: { open: ['Z'] } }, sink, clock);
+  assert.deepEqual(task(b, 'ACME-3').run!.note, { landed: [], moved: [], open: ['Z'], at: '2026-10-01T12:00:00.000Z', by: 'builder:ACME-3', ended: 'blocked' });
+});
+
+test('the note a task shows: its run\'s, the last run\'s while one runs, or that it left none (D-106)', () => {
+  const note = { landed: ['A'], moved: [], open: [], at: 'a', by: 'b', ended: 'review' as const };
+  assert.deepEqual(shownNote({ state: 'todo', run: null }), { note: null, fromLast: false, missing: false });
+  assert.deepEqual(shownNote({ state: 'running', run: {} }), { note: null, fromLast: true, missing: false }, 'a first run');
+  assert.deepEqual(shownNote({ state: 'running', run: { before: note } }), { note, fromLast: true, missing: false });
+  assert.deepEqual(shownNote({ state: 'running', run: { before: null } }), { note: null, fromLast: true, missing: true });
+  assert.deepEqual(shownNote({ state: 'review', run: {} }), { note: null, fromLast: false, missing: true });
+  assert.deepEqual(shownNote({ state: 'done', run: {} }), { note: null, fromLast: false, missing: false }, 'merged: not news');
+  assert.deepEqual(noteMarkdown({ landed: ['A'], moved: [], open: ['B'] }), ['**What landed**', '', '- A', '', '**Numbers that moved**', '', '- none', '', '**Still open**', '', '- B']);
 });
 
 test('ready and needs-you are derived, never stored', () => {
@@ -422,11 +479,11 @@ test('a session is tied to its task by ids: a done task\'s builder, an earlier r
   assert.deepEqual(tieSession(bg('bg-1'), repo), finished('GH-1', 'builder', 'done'));
   assert.deepEqual(tieSession(resumed('s-1'), repo), finished('GH-1', 'builder', 'done'));
   // An earlier run's builder, by the ids its dispatch recorded, while its task runs again.
-  assert.deepEqual(tieSession(bg('bg-2a'), repo), finished('GH-2', 'builder', 'later-run'));
-  assert.deepEqual(tieSession(resumed('s-2a'), repo), finished('GH-2', 'builder', 'later-run'));
+  assert.deepEqual(tieSession(bg('bg-2a'), repo), { ...finished('GH-2', 'builder', 'later-run'), n: 1 }, 'with its run\'s count (GH-119)');
+  assert.deepEqual(tieSession(resumed('s-2a'), repo), { ...finished('GH-2', 'builder', 'later-run'), n: 1 });
   // The current builder of a task that isn't done is its task's, at work, whatever the task's state.
   for (const id of ['2b', '3', '4', '5', '6']) assert.equal(tieSession(bg(`bg-${id}`), repo)?.finished, false, `bg-${id}: its task's current builder`);
-  assert.deepEqual(tieSession(bg('bg-2b'), repo), { task: 'GH-2', role: 'builder', finished: false, why: null });
+  assert.deepEqual(tieSession(bg('bg-2b'), repo), { task: 'GH-2', role: 'builder', finished: false, why: null, n: 2 });
   assert.equal(tieSession(resumed('s-2b-old'), repo), null, 'a session of the current run is never an earlier run\'s');
   // A recorded verdict or analysis; not an analysis still under way.
   assert.deepEqual(tieSession(resumed('review-3'), repo), finished('GH-3', 'review', 'reviewed'));
@@ -440,4 +497,8 @@ test('a session is tied to its task by ids: a done task\'s builder, an earlier r
   assert.equal(tieSession(bg('bg-x', 's-x', 'GH-7'), repo), null, 'a task never dispatched has no builder');
   assert.equal(tieSession(bg('bg-9'), repo), null, 'a removed task\'s builder');
   assert.equal(tieSession(resumed('review-9'), repo), null, 'a removed task\'s reviewer');
+  // Its task's title goes with it, where the ledger has one, for the Agents page's task lines (GH-119).
+  const titled: RepoAgents = { ...repo, tasks: repo.tasks.map((t) => (t.id === 'GH-3' ? { ...t, title: 'Case escalation rules' } : t)) };
+  assert.equal(tieSession(resumed('review-3'), titled)?.title, 'Case escalation rules');
+  assert.deepEqual(tieSession(bg('bg-3'), titled), { task: 'GH-3', role: 'builder', finished: false, why: null, title: 'Case escalation rules' });
 });

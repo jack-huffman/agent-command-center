@@ -1,7 +1,8 @@
 // acc's Setup commands: doctor, onboard, init, template and setup.
 
 import { existsSync } from 'node:fs';
-import { AccError, buildBaseline, configureRepoAccess, describeTemplate, draftLists, makeContext, parseSource, planInit, type Profile, readTemplate, repoPaths, run, runSteps, seedBranches, type StepResult, STEPS, templateAccount, writeConfig, writeReadme } from '../../../core/src/index.ts';
+import { join } from 'node:path';
+import { AccError, buildBaseline, configureRepoAccess, describeTemplate, draftLists, makeContext, parseSource, planInit, prepareImports, type Profile, readTemplate, repoPaths, RULES_DIR, rulesName, run, runSteps, seedBranches, type StepResult, STEPS, templateAccount, writeConfig, writeImport, writeReadme } from '../../../core/src/index.ts';
 import { checkLabel, table, tone } from '../format.ts';
 import { type CommandArea, now, type Opts, out, personOnly, project, VERSION } from '../shared.ts';
 
@@ -70,10 +71,23 @@ function cmdInit(o: Opts): number {
     jiraSite: o['jira-site'] as string | undefined,
     jiraProject: o['jira-project'] as string | undefined,
   });
+  // The template's rules (GH-108): each read before anything is written, so one that can't be read writes
+  // nothing, then copied in as acc rules import would. A copy already here is kept; a dry run reads none.
+  const rules = plan.rules.map((source) => ({ source, name: rulesName(source) }));
+  // A copy already here is kept, and its source isn't read, so one that can't be reached now fails nothing.
+  const here = rules.filter((r) => existsSync(join(paths.root, RULES_DIR, `${r.name}.md`)));
+  const fresh = rules.filter((r) => !here.includes(r)).map((r) => r.source);
+  const copies = o['dry-run'] ? [] : prepareImports(run, paths.root, fresh, { account: plan.readAs, base: process.cwd(), now });
+  const kept = o['dry-run'] ? [] : here.map((r) => ({ name: r.name, file: `${RULES_DIR}/${r.name}.md` }));
   if (!o['dry-run']) {
     writeConfig(paths.config, plan.config);
+    for (const c of copies) if (!c.replaces) writeImport(c);
     if (o['configure-git'] && plan.config.github) configureRepoAccess(run, paths.root, plan.config.github.account, plan.config.commitIdentity);
   }
+  const ruleRows = rules.map((r) => {
+    const c = copies.find((x) => x.name === r.name);
+    return { source: r.source, file: `.acc/rules/${r.name}.md`, written: !!c && !c.replaces, commit: c?.header.commit ?? null };
+  });
   out(o, () => {
     const c = plan.config;
     const rows = [['Environment', 'Branch', 'Type', 'Org alias', 'Promotes to'], ...c.environments.map((e) => [
@@ -91,13 +105,18 @@ function cmdInit(o: Opts): number {
         `Discovered: ${plan.discovered.join(', ')}`,
       ] : []),
       ...(commands.length ? ['', 'Check commands from the template, which run on this machine:', ...commands.map(([gate, cmd]) => `  ${gate}: ${cmd}`)] : []),
+      ...(ruleRows.length ? [
+        '', `Rules from the template, ${o['dry-run'] ? 'which it would copy' : 'copied'} into .acc/rules/ for you to review and commit:`,
+        ...ruleRows.map((r) => `  ${r.file}: ${r.source}${r.written || o['dry-run'] ? '' : ' (already here, so it\'s kept)'}`),
+      ] : []),
+      ...kept.map((c) => `note: ${c.file} is already here, so it's kept. acc rules import <source> --name ${c.name} --force replaces it.`),
       ...plan.notes.map((n) => `note: ${n}`),
       '',
       'Next: acc doctor',
     ].join('\n');
   }, {
     written: !o['dry-run'], path: paths.config, config: plan.config, notes: plan.notes,
-    template: plan.config.template ?? null, fromTemplate: plan.fromTemplate, discovered: plan.discovered, templateCommands: plan.templateCommands,
+    template: plan.config.template ?? null, fromTemplate: plan.fromTemplate, discovered: plan.discovered, templateCommands: plan.templateCommands, rules: ruleRows,
   });
   return 0;
 }
@@ -136,7 +155,7 @@ function cmdTemplate(o: Opts, sub: string | undefined, source: string | undefine
     ...(commands.length ? ['', 'Check commands, which run on each machine that uses it:', ...commands.map(([gate, cmd]) => `  ${gate}: ${cmd}`)] : []),
     '',
     `Start a project from it: acc init --from '${source.replace(/'/g, `'\\''`)}'${t.profile === 'salesforce' ? ' --production-org <alias>' : ''}`,
-  ].join('\n'), { source, ok: true, errors: [], name: t.name, description: t.description, profile: t.profile, digest: r.digest, sets, commands: t.gates?.commands ?? {}, template: t });
+  ].join('\n'), { source, ok: true, errors: [], name: t.name, description: t.description, profile: t.profile, digest: r.digest, sets, commands: t.gates?.commands ?? {}, rules: t.rules ?? [], template: t });
   return 0;
 }
 

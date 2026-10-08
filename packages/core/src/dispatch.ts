@@ -15,6 +15,7 @@ import { type AwakeDeps, holdAwake, keepAwakeFor } from './awake.ts';
 import { sessionName } from './names.ts';
 import { claimHeld, holdTask, releaseHeld, startingNow } from './holding.ts';
 import { builderSettings, renderPacket } from './packet.ts';
+import { rulesText } from './rules.ts';
 
 // ---------------------------------------------------------------- names and places (D-013)
 
@@ -309,7 +310,8 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
     const reused = ensureWorktree(run, main, wt, branch, env);
     setupWorktree(run, config, env, main, wt);
 
-    const rules = existsSync(join(wt, '.acc', 'rules.md')) ? readFileSync(join(wt, '.acc', 'rules.md'), 'utf8') : null;
+    // The worktree's own copies only (GH-108): a source elsewhere is never read here.
+    const rules = rulesText(wt, config.profile);
     const rework = found.state === 'rework';
     // Sent back for failing checks on GitHub (D-076), or from the merge queue (GH-73): what they found about
     // the branch's latest commit. Only then: a review's or a person's rework at the same commit has its own
@@ -321,6 +323,8 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
       accPath: join(deps.accBinDir, 'acc'), review: rework ? latestVerdict(paths, found.id) : null, analysis: readAnalysis(paths, found.id),
       checks: head && cause === 'checks' ? readChecksReport(paths, found.id, head) : null,
       queue: head && cause === 'queue' ? readQueueReport(paths, found.id, head) : null,
+      // The notes the tasks it builds on left (D-106).
+      deps: found.deps.flatMap((d) => before.tasks.filter((t) => t.id === d)),
     });
     mkdirSync(paths.packets, { recursive: true });
     const packetPath = join(paths.packets, `${found.id}.md`);
@@ -350,7 +354,9 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
         ...(opts.fromHold && hold ? { held: { at: hold.at, by: hold.by, waitedFor: hold.waitsFor.map((w) => w.task) } } : {}),
       };
       applyMove(task, { ...req, reason: reused ? `re-dispatched in ${basename(wt)}` : null }, emit, now, data);
-      task.run = { worktree: wt, branch, startedAt: now().toISOString(), model, ...(picked ? { modelPicked: true as const } : {}), ...(bgId ? { bgId } : {}), ...(sessionId ? { sessionId } : {}), name, n, ...(shares.length ? { shares } : {}) };
+      // The last run's note, or that it left none (D-106): the run it was is replaced here.
+      const last = task.run ? { before: task.run.note ?? null } : {};
+      task.run = { worktree: wt, branch, startedAt: now().toISOString(), model, ...(picked ? { modelPicked: true as const } : {}), ...(bgId ? { bgId } : {}), ...(sessionId ? { sessionId } : {}), name, n, ...(shares.length ? { shares } : {}), ...last };
       emit({ type: 'task.updated', task: id, actor: opts.actor, by: opts.by, data: { run: task.run } });
       return task;
     });

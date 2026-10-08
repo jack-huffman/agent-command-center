@@ -51,6 +51,8 @@ export function sampleHub(now = Date.now()): HubLike {
     projectFor: (p: string) => (p === root || p.startsWith(`${root}/`) ? project : undefined),
     home: '/Users/me',
     repoFor: (p: string) => repoRoot(p, '/Users/me', (d) => REPOS.has(d)),
+    // Another window's Command Center shows ~/clients/Acme Service (GH-119).
+    otherWindows: [CLIENTS, `${CLIENTS}/.claude/worktrees/ACME-42`],
     autopilotLog: () => sampleAutopilot(now),
     updates: () => sampleUpdates(now),
     history: () => sampleHistory(now),

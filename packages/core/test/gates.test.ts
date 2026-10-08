@@ -719,7 +719,7 @@ test('where the merge queue runs the full check, builders run gates.builder, whi
   assert.equal(readFileSync(out, 'utf8'), 'src/merge.ts|test/merge.test.ts');
   assert.deepEqual([hooks.missingGates(task), hooks.missingGates(task, 'builder'), hooks.missingGates(task, 'merge')], [[], [], ['check']]);
   // acc done takes them: running → review.
-  assert.deepEqual(checkMove(emptyLedger(), c, task, { to: 'review', actor: 'builder', by: 'builder:T-1' }, hooks), []);
+  assert.deepEqual(checkMove(emptyLedger(), c, task, { to: 'review', actor: 'builder', by: 'builder:T-1', note: { landed: ['The merge'], moved: [], open: [] } }, hooks), []);
   assert.equal(readReceipt(paths, sha, 'check'), null, 'the full check didn\'t run');
 
   // The full check passing, as the queue runs it on its merge, covers a builder's on that commit.

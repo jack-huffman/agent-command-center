@@ -10,6 +10,7 @@ import { mutate, readLedger, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
 import type { Receipt } from '../src/receipts.ts';
 import { checkLine, latestVerdict, parseReview, readVerdict, review, reviewing, reviewPrompt } from '../src/review.ts';
+import { rulesText } from '../src/rules.ts';
 import { NO_COUNTS } from '../src/test-counts.ts';
 import { fakeAwake, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo } from './support.ts';
 
@@ -139,13 +140,16 @@ test('the verdict is read strictly: a pass with something that must be fixed is 
   assert.deepEqual([verdict.criteria[0]!.met, 'line' in verdict.findings[0]!], [false, false], 'only well-formed values are kept');
 });
 
-test('the reviewer is told to judge each criterion and skip style, with the profile\'s own checks for Salesforce', () => {
+test('the reviewer is told to judge each criterion and skip style, and Salesforce\'s own checks come first among its rules (GH-108)', () => {
   const base = { task: { id: 'T-1', title: 'x' } as never, envName: 'Dev', envBranch: 'dev', sha: 'abcdef1234', packet: 'p', diff: 'd', stat: 's', checks: [], rules: null };
-  const sf = reviewPrompt({ ...base, config: { profile: 'salesforce' } as never });
+  const dir = makeRepo();
+  const sf = reviewPrompt({ ...base, config: { profile: 'salesforce' } as never, rules: rulesText(dir, 'salesforce') });
   assert.match(sf.system, /acceptance criterion/);
   assert.match(sf.system, /Skip formatting/);
-  assert.match(sf.system, /bulk-safe/);
-  assert.ok(!reviewPrompt({ ...base, config: { profile: 'generic' } as never }).system.includes('Apex'), 'the core stays project-agnostic');
+  assert.ok(!sf.system.includes('bulk-safe'), 'the profile\'s rules are said once, among the rules, not again here');
+  assert.match(sf.prompt, /## Rules\n\n.*this repo's own rules win over the others\.\n\n### The Salesforce profile's rules\n\n- Apex is bulk-safe/);
+  const generic = reviewPrompt({ ...base, config: { profile: 'generic' } as never, rules: rulesText(dir, 'generic') });
+  assert.ok(!generic.system.includes('Apex') && !generic.prompt.includes('Apex'), 'the core stays project-agnostic');
   assert.match(reviewPrompt({ ...base, config: { profile: 'generic' } as never, diff: 'x'.repeat(200_000) }).prompt, /too long to include/);
 });
 
@@ -166,6 +170,15 @@ test('the reviewer is told a newly added skip, only or todo is a must-fix findin
   ]);
   const { prompt } = reviewPrompt({ ...base, checks: [counted].map(checkLine), config: { profile: 'generic' } as never });
   assert.match(prompt, /## The checks on this commit\n\n- check: hold\. .* Tests: 312 run, 3 skipped\./);
+});
+
+test('the reviewer reads the builder\'s note as its own account, to check against the diff, or that it left none (D-106)', () => {
+  const base = { envName: 'Dev', envBranch: 'dev', sha: 'abcdef1234', packet: 'p', diff: 'd', stat: 's', checks: ['- test: pass. ok'], rules: null, config: { profile: 'generic' } as never };
+  const note = { landed: ['sum(a, b) adds'], moved: ['1 test added'], open: ['sum of three numbers'], at: '2026-10-01T12:00:00Z', by: 'builder:T-1', ended: 'review' as const };
+  const r = reviewPrompt({ ...base, task: { id: 'T-1', title: 'x', run: { note } } as never });
+  assert.match(r.system, /The builder's note is its own account of what landed, which numbers moved and what's still open\. Check it against the diff rather than trust it/);
+  assert.match(r.prompt, /- test: pass\. ok\n\n## The builder's note\n\nWhat the builder said as it finished, in its own words\. Check it against the diff\.\n\n\*\*What landed\*\*\n\n- sum\(a, b\) adds\n\n\*\*Numbers that moved\*\*\n\n- 1 test added\n\n\*\*Still open\*\*\n\n- sum of three numbers\n/);
+  assert.match(reviewPrompt({ ...base, task: { id: 'T-1', title: 'x', run: {} } as never }).prompt, /## The builder's note\n\nThe builder left no note\.\n/);
 });
 
 test('the Mac stays awake while the reviewer runs, for acc\'s own process, and not after, even when it times out (D-067)', () => {

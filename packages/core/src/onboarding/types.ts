@@ -54,6 +54,8 @@ export interface Step {
   /** Profiles this step applies to. Absent means every profile. */
   profiles?: Profile[];
   fix?: Fix;
+  /** Something the step always offers, whatever its result, such as Import rules… (GH-108): a VSCode command. */
+  offer?: { vscode: string; label: string; icon: string };
   check(ctx: CheckContext): CheckResult;
 }
 

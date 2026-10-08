@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { accImport, accRefusal, cardTracking, liveTrackKeys, outsideKeys, placeCandidates, trackInput, type TrackSteps, trackTicket } from '../src/logic/connect.ts';
-import { rowAnalysis } from '../src/logic/tasks.ts';
+import { addTaskArgs, draftFromOpen, rowAnalysis } from '../src/logic/tasks.ts';
 import type { TaskRow } from '../src/logic/shared.ts';
 import type { Analysis } from '../../packages/core/src/analyze.ts';
 import { type BoardInput, initials, priorityIcon, trackerBoard, typeIcon } from '../src/model/boards.ts';
@@ -166,6 +166,33 @@ test('a stopped builder\'s task page quotes what it last said in full, and lists
   assert.ok(page.acc!.actions.some((a) => a.command === 'acc.task.watch'));
 });
 
+test('a task\'s page shows its builder\'s note, the last run\'s while one runs, or that it left none (D-106)', () => {
+  const note = { landed: ['The page'], moved: ['2 tests added'], open: ['Link it from the README'], at: '2026-10-01T12:00:00Z', by: 'builder:ACME-1', ended: 'review' as const };
+  const task = (state: string, run: object | null) => ({ id: 'ACME-1', title: 'Ready one', brief: '', source: { kind: 'jira', key: 'ACME-1', url: null }, environment: 'dev', deps: [], labels: [], state, blocker: null, run, pr: null, history: [], createdAt: '', updatedAt: '' }) as never;
+  const page = (state: string, run: object | null) => ticketModel({ project: '/r', tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira', key: 'ACME-1', loading: false, error: null, connect: null, checks: [], ticket, row: row('ACME-1', state, state as TaskRow['display']), task: task(state, run) }).acc!;
+  const { at: _, by: __, ...shown } = note;
+  assert.deepEqual([page('review', { note }).note, page('review', { note }).noteMissing], [{ ...shown, at: note.at, fromLast: false }, null]);
+  // A rework under way shows what its last run left, labelled so.
+  assert.deepEqual(page('running', { n: 2, before: note }).note, { ...shown, at: note.at, fromLast: true });
+  // A run that ended without one, and one under way after a run that left none, say so; a first run and a done task don't.
+  assert.match(page('review', {}).noteMissing!, /^Its builder left no note when its run ended/);
+  assert.match(page('running', { before: null }).noteMissing!, /^Its last run left no note/);
+  assert.deepEqual([page('running', {}).note, page('running', {}).noteMissing, page('done', {}).noteMissing, page('todo', null).note], [null, null, null, null]);
+});
+
+test('Make a task drafts a still-open line as a task citing its source, which waits on it while it isn\'t done (D-106)', () => {
+  const note = { landed: ['A'], moved: [], open: ['Link it from the README', '-- a line that starts with dashes'], at: '2026-10-01T12:00:00Z', by: 'builder:GH-7', ended: 'review' as const };
+  const task = { id: 'GH-7', title: 'Write the changelog', environment: 'main', state: 'review' as const, run: { n: 2, note } };
+  const d = draftFromOpen(task, 'Link it from the README');
+  assert.deepEqual(d, { title: 'Link it from the README', brief: 'Still open from GH-7 (Write the changelog), as its builder 2 noted on 2026-10-01:\n\nLink it from the README', env: 'main', deps: ['GH-7'] });
+  assert.equal(draftFromOpen({ ...task, state: 'done' }, 'Link it from the README')!.deps.length, 0, 'a done task holds nothing up');
+  assert.equal(draftFromOpen(task, 'Not in the note'), null, 'only a line the note holds');
+  // While the next run is under way, the line is the last run's.
+  assert.match(draftFromOpen({ ...task, state: 'running', run: { n: 3, before: note } }, 'Link it from the README')!.brief, /as its builder 2 noted/);
+  // acc add with the title last, after --, and the brief after =, so a leading dash is words.
+  assert.deepEqual(addTaskArgs(draftFromOpen(task, '-- a line that starts with dashes')!), ['add', '--brief=Still open from GH-7 (Write the changelog), as its builder 2 noted on 2026-10-01:\n\n-- a line that starts with dashes', '--env', 'main', '--dep', 'GH-7', '--json', '--', '-- a line that starts with dashes']);
+});
+
 test('a ticket page: the tracker\'s ticket takes comments, and its fields change only where the tracker says edits; acc\'s side shows when acc keeps it; otherwise it offers Track in acc', () => {
   const task = { id: 'ACME-1', title: 'Ready one', brief: 'Brief', source: { kind: 'jira', key: 'ACME-1', url: null }, environment: 'dev', deps: [], labels: [], state: 'todo', blocker: null, run: null, pr: null,
     history: [{ at: '2026-09-01T00:00:00Z', from: null, to: 'todo', by: 'human:me' }, { at: '2026-09-02T00:00:00Z', from: 'todo', to: 'running', by: 'human:me' }], createdAt: '', updatedAt: '' } as never;
@@ -280,6 +307,8 @@ test('messages from the board and ticket pages are checked before anything acts 
     { type: 'move', project: '/r', tracker: 0, key: 'ACME-1', to: 'col-2' },
     { type: 'track', project: '/r', tracker: 0, key: 'ACME-2' }, { type: 'track', project: '/r', tracker: 1, key: 'gh-12' },
     { type: 'ticket-action', action: 'comment', text: 'Looks good' }, { type: 'ticket-action', action: 'status' },
+    // A still-open line of the builder's note, to draft as a task (D-106).
+    { type: 'ticket-action', action: 'task', text: 'Link it from the README' },
     { type: 'open', url: 'https://acme.atlassian.net/browse/ACME-1' },
     { type: 'toolbar', command: 'acc.trackers.signIn', arg: '{"root":"/r","index":0}' },
     { type: 'analysis-answer', project: '/r', task: 'ACME-1', question: 'q1', text: 'Only the primary contact.' },

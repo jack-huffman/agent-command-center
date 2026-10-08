@@ -5,11 +5,11 @@ import * as vscode from 'vscode';
 import { type Config, parseConfig } from '../../packages/core/src/config.ts';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import type { Step } from '../../packages/core/src/onboarding/types.ts';
-import { activeGhAccount, afterFullCheck, afterStepCheck, COMMANDS, contextKey, type DoctorItem, type EnvLike, expectedOrgUrl, EXTENSION_ID, hasPlaceholder, initCommand, isComplete, machineCache, type MachineCache, productionOrgs, type RecentTemplate, rememberTemplate, reusableMachine, setupOrgChoices, sfOpenCommand, shownTemplate, statusText, summarize, templateDetail, WALKTHROUGHS } from './logic/setup.ts';
+import { activeGhAccount, afterFullCheck, afterStepCheck, COMMANDS, contextKey, type DoctorItem, type EnvLike, expectedOrgUrl, EXTENSION_ID, hasPlaceholder, importRulesCommand, initCommand, isComplete, machineCache, type MachineCache, productionOrgs, type RecentTemplate, rememberTemplate, reusableMachine, rulesDetail, setupOrgChoices, sfOpenCommand, shownRules, shownTemplate, statusText, summarize, templateDetail, WALKTHROUGHS } from './logic/setup.ts';
 import { needsTerminal } from './logic/runs.ts';
 import { shq } from './logic/shared.ts';
 import { parseOrgUrl } from '../../packages/core/src/onboarding/helpers.ts';
-import { sourceProblem } from '../../packages/core/src/template.ts';
+import { sourceProblem } from '../../packages/core/src/source.ts';
 import { type RunResult, runFile } from './run.ts';
 import type { Runs } from './runs.ts';
 import { exec } from './trackers.ts';
@@ -21,6 +21,8 @@ const MACHINE_FRESH_MS = 12 * 60 * 60 * 1000;
 const CONFIRMED = { machine: 'acc.confirmed.machine', project: 'acc.confirmed.project' } as const;
 /** The team templates this machine used last, newest first (GH-80). */
 const RECENT_TEMPLATES = 'acc.recentTemplates';
+/** The rules files this machine copied in last, newest first (GH-108). */
+const RECENT_RULES = 'acc.recentRules';
 /** "What kind of project is this?": B0.config's Do it asks, and so does a team template that sets no profile. */
 const PROJECT_KINDS = [
   { label: '$(cloud) Salesforce project', description: 'Finds every org from Production\'s sandbox list', profile: 'salesforce' as const },
@@ -523,6 +525,61 @@ export class Setup implements vscode.Disposable {
     this.runCommand(initCommand({ from: source, profile: picked, productionOrg }), 'B0.config');
   }
 
+  /**
+   * B0.rules's "Import rules…" (GH-108): a source used before on this machine, or a new one; acc reads it and
+   * says what it would write, writing nothing; a person confirms, then acc rules import copies it in. A copy
+   * already there under that name is replaced only when they say so, or kept by giving the new one another name.
+   */
+  async importRules(): Promise<void> {
+    if (!this.folder()) {
+      void vscode.window.showWarningMessage('Open the project\'s repo first (File → Open Folder): rules are copied into its .acc/rules/.');
+      return;
+    }
+    const recent = this.ctx.globalState.get<RecentTemplate[]>(RECENT_RULES) ?? [];
+    let source: string | undefined;
+    if (recent.length) {
+      const another = { label: '$(add) Another path or URL…', description: '', source: undefined as string | undefined };
+      const pick = await vscode.window.showQuickPick([...recent.map((r) => ({ label: `$(book) ${r.name}`, description: r.source, source: r.source as string | undefined })), another], { title: 'Which rules file?' });
+      if (!pick) return;
+      source = pick.source;
+    }
+    source ??= (await vscode.window.showInputBox({
+      title: 'A team\'s rules file',
+      prompt: 'A path on this machine, a GitHub file URL, or <git-url>#<path>. gh and git sign in for you. acc copies it in, and never fetches it again by itself.',
+      placeHolder: 'https://github.com/acme/acc-rules/blob/main/salesforce.md',
+      ignoreFocusOut: true,
+      validateInput: (v) => sourceProblem(v, 'rules'),
+    }))?.trim();
+    if (!source) return;
+    let name: string | undefined;
+    for (;;) {
+      const args = ['rules', 'import', source, '--dry-run', '--json', ...(name ? ['--name', name] : [])];
+      const r = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Reading the rules file…' }, (_p, token) => this.acc(args, token));
+      const shown = shownRules(r.stdout, r.stderr);
+      if (!shown.ok) {
+        this.log.warn(`${source} can't be copied in as rules: ${shown.errors.join(' ')}`);
+        void vscode.window.showErrorMessage('✗ That rules file can\'t be copied in. Nothing was written.', { modal: true, detail: shown.errors.map((e) => `• ${e}`).join('\n') });
+        return;
+      }
+      await this.ctx.globalState.update(RECENT_RULES, rememberTemplate(recent, { source, name: shown.file.replace(/^\.acc\/rules\//, '') }));
+      const copy = 'Copy it in';
+      const replace = `Replace ${shown.file}`;
+      const rename = 'Use another name…';
+      const go = await vscode.window.showInformationMessage(
+        shown.replaces ? `${shown.file} is already here. Replace it with this?` : `Copy these rules into ${shown.file}?`,
+        { modal: true, detail: rulesDetail(shown) }, ...(shown.replaces ? [replace, rename] : [copy]),
+      );
+      if (go === rename) {
+        name = (await vscode.window.showInputBox({ title: 'A name for this copy', prompt: 'Lower-case letters, digits, dots, dashes and underscores. It becomes .acc/rules/<name>.md.', value: `${shown.name}-2`, ignoreFocusOut: true, validateInput: (v) => (/^[a-z0-9][a-z0-9._-]{0,59}$/i.test(v.trim().replace(/\.md$/i, '')) ? null : 'Such as acme-salesforce') }))?.trim();
+        if (!name) return;
+        continue;
+      }
+      if (go !== copy && go !== replace) return;
+      this.runCommand(importRulesCommand({ source, name, force: go === replace }), 'B0.rules');
+      return;
+    }
+  }
+
   async chooseFolder(): Promise<void> {
     const folders = vscode.workspace.workspaceFolders ?? [];
     if (folders.length < 2) {
@@ -571,7 +628,7 @@ export class Setup implements vscode.Disposable {
    * re-ran every check each time a builder saved a README.
    */
   watch(): void {
-    const files = '{.acc/config.json,.gitignore,README.md,sfdx-project.json,manifest/*.txt,.sf/config.json}';
+    const files = '{.acc/config.json,.acc/rules.md,.acc/rules/*.md,.gitignore,README.md,sfdx-project.json,manifest/*.txt,.sf/config.json}';
     const again = () => this.refreshSoon('a setup file changed');
     const add = (folder: vscode.WorkspaceFolder) => {
       const w = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, files));
@@ -605,5 +662,6 @@ export const area: ExtensionArea = {
     reg(COMMANDS.chooseFolder, () => setup.chooseFolder());
     reg('acc.setup.refresh', () => setup.refresh('refresh clicked'));
     reg('acc.sf.login', () => setup.sfLogin());
+    reg('acc.importRules', () => setup.importRules());
   },
 };

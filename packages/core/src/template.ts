@@ -4,22 +4,20 @@
  * ships none: docs/TEMPLATES.md shows ACME's.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   type AgentProfile, AGENT_ROLES, type AgentRole, type Autonomy, branchFor, type Config, type EnvType, type Environment, parseConfig, parseEnvironments,
   type Profile, PROFILES, type TemplateRecord,
 } from './config.ts';
 import { AccError, type Runner } from './exec.ts';
 import type { RawEnv } from './init.ts';
+import { importedRules, rulesName, templateRulesProblem } from './rules.ts';
+import { type FetchOptions, fetchSource, recordedSource, COPY_KINDS } from './source.ts';
 import { isTrackerKind, orList, TRACKER_KINDS, type TrackerKind, trackerName } from './trackers/types.ts';
 
 /** A template is a short settings file: anything larger isn't one. */
-export const TEMPLATE_MAX_BYTES = 64 * 1024;
+export const TEMPLATE_MAX_BYTES = COPY_KINDS.template.maxBytes;
 /** The autonomy a template may start a project at: the two `acc agents autonomy` offers (D-097, amending D-014). */
 export const TEMPLATE_AUTONOMY = ['manual', 'review'] as const;
-const FETCH_TIMEOUT_MS = 2 * 60_000;
 
 export type TemplateEnvironment = Omit<Environment, 'type' | 'org'> & { type: EnvType | null };
 
@@ -62,6 +60,8 @@ export interface Template {
   tracker: TemplateTracker | null;
   autonomy: (typeof TEMPLATE_AUTONOMY)[number] | null;
   agents: TemplateAgents | null;
+  /** Rules files acc init copies into .acc/rules/, each as acc rules import would (GH-108). */
+  rules: string[] | null;
 }
 
 export interface TemplateParse {
@@ -80,7 +80,7 @@ const SIGN_IN = /^(token|api[-_]?token|access[-_]?token|api[-_]?key|password|pas
 
 /** The keys a template may set, by where they sit. */
 const ALLOWED = {
-  top: ['schema', 'name', 'description', 'profile', 'environments', 'gates', 'tracker', 'autonomy', 'agents'],
+  top: ['schema', 'name', 'description', 'profile', 'environments', 'gates', 'tracker', 'autonomy', 'agents', 'rules'],
   environment: ['name', 'type', 'default', 'protected', 'promotesTo', 'branch'],
   gates: ['required', 'commands', 'heavy', 'severity'],
   agents: ['max', ...AGENT_ROLES],
@@ -238,6 +238,23 @@ export function parseTemplate(raw: unknown): TemplateParse {
     else errors.push(`"autonomy" must be one of ${TEMPLATE_AUTONOMY.join(', ')}.`);
   }
 
+  let rules: string[] | null = null;
+  if (given(raw.rules)) {
+    if (!Array.isArray(raw.rules) || !raw.rules.length || !raw.rules.every(isStr)) errors.push('"rules" must be a list of rules files to copy in, such as ["https://github.com/acme/acc-rules/blob/main/salesforce.md"].');
+    else {
+      // Each copy is named for its file, so two can't share a name.
+      const named = new Map<string, number>();
+      raw.rules.forEach((s: string, i) => {
+        const problem = templateRulesProblem(s);
+        if (problem) return errors.push(`"rules[${i}]": ${problem}`);
+        const name = rulesName(s);
+        if (named.has(name)) errors.push(`"rules[${i}]" and "rules[${named.get(name)}]" would both be copied to .acc/rules/${name}.md. Rename one of the files.`);
+        named.set(name, i);
+      });
+      rules = raw.rules.map((s: string) => s.trim());
+    }
+  }
+
   const checked = parseConfig(probe);
   errors.push(...checked.errors.map((e) => e.replace(/^trackers\[0\]: /, 'tracker: ')));
 
@@ -246,13 +263,13 @@ export function parseTemplate(raw: unknown): TemplateParse {
     template: {
       name: (raw.name as string).trim(),
       description: isStr(raw.description) ? raw.description.trim() : null,
-      profile, environments, gates, tracker, autonomy, agents,
+      profile, environments, gates, tracker, autonomy, agents, rules,
     },
     errors: [],
   };
 }
 
-// ---------------------------------------------------------------- digest and source
+// ---------------------------------------------------------------- digest and fetch
 
 const canonical = (v: unknown): unknown =>
   Array.isArray(v) ? v.map(canonical) : isObj(v) ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canonical(v[k])])) : v;
@@ -260,134 +277,12 @@ const canonical = (v: unknown): unknown =>
 /** sha256 of the template's JSON with its keys sorted: whitespace and key order don't change it. */
 export const templateDigest = (raw: unknown): string => `sha256:${createHash('sha256').update(JSON.stringify(canonical(raw))).digest('hex')}`;
 
-export type TemplateSource =
-  | { kind: 'github'; owner: string; repo: string; ref: string; path: string }
-  | { kind: 'git'; url: string; path: string }
-  | { kind: 'file'; path: string };
-
 /**
- * What's wrong with a source before anything is fetched: a sign-in in its URL, which would be written into the
- * project's config, plain http, or a leading -, which git would take as an option. A committed config's source
- * reaches git on every Setup refresh. Null when it's fine to try.
- */
-export function sourceProblem(source: string): string | null {
-  const s = source.trim();
-  if (!s) return 'Give a path, a GitHub file URL, or <git-url>#<path>.';
-  if (s.startsWith('-')) return 'A template\'s source can\'t start with "-", which git would read as an option. For a file, start it with ./';
-  if (/^http:\/\//i.test(s)) return 'Use https://: acc doesn\'t fetch a template over plain http.';
-  const userinfo = /^[a-z][a-z0-9+.-]*:\/\/([^/@#?]*)@/i.exec(s);
-  if (userinfo && (/^https:/i.test(s) || userinfo[1]!.includes(':'))) return 'Take the sign-in out of the URL: gh and git sign in for you, and the source is written into the project\'s config.';
-  return null;
-}
-
-const GITHUB_BLOB = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(?:blob|raw)\/([^/?#]+)\/([^?#]+)(?:[?#].*)?$/;
-// GitHub's Raw button links as …/<owner>/<repo>/refs/heads/<branch>/<path>, so a leading refs/heads/ or refs/tags/ isn't part of the ref.
-const GITHUB_RAW = /^https:\/\/raw\.githubusercontent\.com\/([\w.-]+)\/([\w.-]+)\/(?:refs\/(?:heads|tags)\/)?([^/?#]+)\/([^?#]+)(?:[?#].*)?$/;
-
-/** Where a template is: a GitHub file, a file in a git repo (<git-url>#<path>), or a path, with ~ for the home folder. */
-export function parseSource(source: string, base: string = process.cwd(), home: string = homedir()): TemplateSource {
-  const s = source.trim();
-  const problem = sourceProblem(s);
-  if (problem) throw new AccError('bad-template', problem);
-  const gh = GITHUB_BLOB.exec(s) ?? GITHUB_RAW.exec(s);
-  if (gh) return { kind: 'github', owner: gh[1]!, repo: gh[2]!, ref: decodeURIComponent(gh[3]!), path: decodeURIComponent(gh[4]!) };
-  const hash = s.lastIndexOf('#');
-  if (hash > 0) {
-    const path = s.slice(hash + 1).replace(/^\/+/, '');
-    if (!path || path.split('/').includes('..')) throw new AccError('bad-template', `"${s}" needs a file's path in the repo after the #, such as #templates/salesforce.json.`);
-    return { kind: 'git', url: s.slice(0, hash), path };
-  }
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) {
-    throw new AccError('bad-template', `acc fetches a template only with gh or git. Give a github.com file URL, <git-url>#<path>, or a path. "${s}" is neither.`);
-  }
-  const expanded = s === '~' ? home : s.startsWith('~/') ? join(home, s.slice(2)) : s;
-  return { kind: 'file', path: resolve(base, expanded) };
-}
-
-/**
- * The source as the project's config records it. A path inside the repo is relative to it, and one under the
- * home folder starts ~/, so the committed config holds no home path (D-079). URLs are kept as given.
- */
-export function recordedSource(source: string, opts: { base?: string; home?: string; root?: string } = {}): string {
-  const src = parseSource(source, opts.base, opts.home);
-  if (src.kind !== 'file') return source.trim();
-  const inside = (dir: string) => {
-    const rel = relative(dir, src.path);
-    return rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel.split(sep).join('/') : null;
-  };
-  const inRepo = opts.root ? inside(opts.root) : null;
-  // A name that starts with - is kept as ./-…, so it's never read as an option, nor refused as one.
-  if (inRepo) return inRepo.startsWith('-') ? `./${inRepo}` : inRepo;
-  const inHome = inside(opts.home ?? homedir());
-  return inHome ? `~/${inHome}` : src.path;
-}
-
-export interface FetchOptions {
-  /** The GitHub account gh reads as, through GH_TOKEN. Null: gh's active account. */
-  account?: string | null;
-  env?: NodeJS.ProcessEnv;
-  /** Where a relative path starts. */
-  base?: string;
-  home?: string;
-  /** How long the whole fetch may take, every call it makes together. */
-  timeoutMs?: number;
-}
-
-const firstLine = (s: string) => s.trim().split('\n')[0] ?? '';
-const tooBig = (source: string) => new AccError('bad-template', `${source} is over ${TEMPLATE_MAX_BYTES / 1024} KB, too big for a team template.`);
-
-/**
- * The template's text, fetched with gh or git, or read from the path. Never `gh auth switch` (D-007). Its calls
- * share one deadline, `timeoutMs`, so a fetch that takes two of them waits no longer than one would.
+ * The template's text, fetched with gh or git, or read from the path (source.ts). Never `gh auth switch`
+ * (D-007), and its calls share one deadline.
  */
 export function fetchTemplateText(run: Runner, source: string, opts: FetchOptions = {}): string {
-  const src = parseSource(source, opts.base, opts.home);
-  const total = opts.timeoutMs ?? FETCH_TIMEOUT_MS;
-  const deadline = Date.now() + total;
-  const timeoutMs = (): number => {
-    const left = deadline - Date.now();
-    const secs = Math.ceil(total / 1000);
-    if (left <= 0) throw new AccError('no-template', `Couldn't read ${source} within ${secs} second${secs === 1 ? '' : 's'}, so acc stopped.`);
-    return left;
-  };
-  const env = opts.env ?? process.env;
-  if (src.kind === 'file') {
-    if (!existsSync(src.path)) throw new AccError('no-template', `There's no team template at ${source}.`);
-    if (statSync(src.path).size > TEMPLATE_MAX_BYTES) throw tooBig(source);
-    return readFileSync(src.path, 'utf8');
-  }
-  if (src.kind === 'github') {
-    const who = opts.account ?? 'gh\'s active account';
-    let ghEnv = env;
-    if (opts.account) {
-      const t = run('gh', ['auth', 'token', '-u', opts.account], { env, timeoutMs: timeoutMs() });
-      if (t.code !== 0 || !t.stdout.trim()) throw new AccError('no-github', `gh isn't logged in as ${opts.account}, the account that reads ${source}. Sign in from Setup, or run gh auth login.`);
-      ghEnv = { ...env, GH_TOKEN: t.stdout.trim() };
-    }
-    const path = src.path.split('/').map(encodeURIComponent).join('/');
-    const r = run('gh', ['api', `repos/${src.owner}/${src.repo}/contents/${path}?ref=${encodeURIComponent(src.ref)}`, '-H', 'Accept: application/vnd.github.raw'], { env: ghEnv, timeoutMs: timeoutMs() });
-    if (r.code !== 0) {
-      const why = firstLine(r.stderr || r.stdout);
-      if (/\b404\b|not found/i.test(why)) throw new AccError('no-template', `${source} wasn't found as ${who}. Check the address, and that ${who} can read ${src.owner}/${src.repo}.`);
-      throw new AccError('no-template', `Couldn't read ${source} as ${who}: ${why || `gh exited ${r.code}`}`);
-    }
-    if (Buffer.byteLength(r.stdout) > TEMPLATE_MAX_BYTES) throw tooBig(source);
-    return r.stdout;
-  }
-  // A shallow clone with no files checked out, then the one file: nothing waits for a password, and the folder always goes.
-  const dir = mkdtempSync(join(tmpdir(), 'acc-template-'));
-  try {
-    const gitEnv: NodeJS.ProcessEnv = { ...env, GIT_TERMINAL_PROMPT: '0', ...(env.GIT_SSH_COMMAND ? {} : { GIT_SSH_COMMAND: 'ssh -o BatchMode=yes' }) };
-    // "--" ends the options: the URL comes from a committed config, and is never read as one.
-    const clone = run('git', ['clone', '--quiet', '--depth', '1', '--filter=blob:none', '--no-checkout', '--', src.url, join(dir, 'repo')], { env: gitEnv, timeoutMs: timeoutMs() });
-    if (clone.code !== 0) throw new AccError('no-template', `Couldn't fetch ${src.url} with git: ${firstLine(clone.stderr || clone.stdout) || `git exited ${clone.code}`}`);
-    const show = run('git', ['show', `HEAD:${src.path}`], { cwd: join(dir, 'repo'), env: gitEnv, timeoutMs: timeoutMs() });
-    if (show.code !== 0) throw new AccError('no-template', `${src.url} has no ${src.path} on its default branch.`);
-    if (Buffer.byteLength(show.stdout) > TEMPLATE_MAX_BYTES) throw tooBig(source);
-    return show.stdout;
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  return fetchSource(run, source, 'template', opts).text;
 }
 
 export interface ReadTemplate extends TemplateParse {
@@ -535,6 +430,7 @@ export function describeTemplate(t: Template): string[] {
   if (t.autonomy) lines.push(`Autonomy: ${t.autonomy}`);
   if (t.agents?.max !== undefined) lines.push(`Agents: at most ${t.agents.max} at once`);
   for (const role of AGENT_ROLES) if (t.agents?.[role]) lines.push(`${role === 'builder' ? 'Builders' : 'Reviewers'}: ${roleWords(t.agents[role]!)}`);
+  if (t.rules) lines.push(`Rules copied into .acc/rules/: ${t.rules.join('; ')}`);
   return lines;
 }
 
@@ -546,8 +442,9 @@ const place = (t: { site?: string | null; organization?: string | null; account?
  * Where a project disagrees with what a template now says, as dotted keys (B0.template). It's the template
  * applied over the project's own settings, as acc init would, compared with them. A tracker agrees when the
  * project has one of the same kind at the same place: its project may differ, as --jira-project allows.
+ * Given the repo's root, rules differ when the template names a source with no copy in .acc/rules/.
  */
-export function templateDifferences(t: Template, config: Config): string[] {
+export function templateDifferences(t: Template, config: Config, repo?: { root: string; home?: string }): string[] {
   const diffs: string[] = [];
   if (t.profile && t.profile !== config.profile) diffs.push('profile');
   if (t.environments && (t.profile ?? config.profile) === config.profile) {
@@ -565,6 +462,10 @@ export function templateDifferences(t: Template, config: Config): string[] {
   if (t.agents?.max !== undefined && t.agents.max !== config.agents.max) diffs.push('agents.max');
   for (const role of AGENT_ROLES) {
     for (const [k, v] of Object.entries(t.agents?.[role] ?? {})) if (config.agents[role][k as keyof AgentProfile] !== v) diffs.push(`agents.${role}.${k}`);
+  }
+  if (t.rules && repo) {
+    const copied = new Set(importedRules(repo.root).map((c) => c.header?.source));
+    if (t.rules.some((s) => !copied.has(recordedSource(s, { root: repo.root, home: repo.home, kind: 'rules' })))) diffs.push('rules');
   }
   return diffs;
 }

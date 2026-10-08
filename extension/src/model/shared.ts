@@ -48,7 +48,7 @@ export interface Look {
   tone: Tone;
 }
 
-/** What a kind of agent runs with, as the Agents section shows it (D-036). */
+/** What a kind of agent runs with, as Settings' How agents run shows it (D-036). */
 export interface ProfileLike {
   model: string | null;
   effort: string | null;
@@ -97,6 +97,8 @@ export interface HubLike {
   home?: string;
   /** The repo a folder is in, by the nearest .git up from it, short of the home folder (GH-83). */
   repoFor?(path: string): string | null;
+  /** The folders other windows' Command Centers show (D-030): a repo among them is in another window (GH-119). */
+  otherWindows?: string[];
   /** Who holds the machine's heavy-check slots and who waits (D-092). */
   heavy?: HeavyState | null;
   /** The machine's load over the last minute, and its cores. */
