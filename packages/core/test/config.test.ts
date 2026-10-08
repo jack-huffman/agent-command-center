@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { autoMergeFor, autoMergeOn, branchFor, builderGatesFor, CONFIG_KEYS, defaultEnvironment, keyShown, loadConfig, parseConfig, requiredGates, skippedOnRoute, trackerForKey, UNREAD_KEYS, VALIDATOR_ONLY, withTracker, writeConfig } from '../src/config.ts';
+import { autoMergeFor, autoMergeOn, branchFor, builderGatesFor, CONFIG_KEYS, defaultEnvironment, keyShown, loadConfig, parseConfig, requiredGates, skippedOnRoute, TIDY_EVERY, tidyEvery, trackerForKey, UNREAD_KEYS, VALIDATOR_ONLY, withTracker, writeConfig } from '../src/config.ts';
 import { GENERIC_CONFIG, SF_CONFIG, tempDir } from './support.ts';
 
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x));
@@ -199,6 +199,29 @@ test('autopilot.autoMerge: off unless it\'s true, a boolean, never in a Salesfor
   assert.deepEqual(loadConfig(join(dir, 'config.json')).config.autopilot, { appendOnly: [], autoMerge: true }, 'written back as it was');
 });
 
+test('tidy.every: left out, 8; a whole number from 0 to 100, or an error; it round-trips (GH-104)', () => {
+  const plain = parseConfig(clone(GENERIC_CONFIG));
+  assert.deepEqual([plain.config!.tidy, tidyEvery(plain.config!), TIDY_EVERY], [undefined, 8, 8]);
+  assert.doesNotMatch(JSON.stringify(plain.config), /tidy/, 'writeConfig adds nothing to a config that didn\'t say');
+  assert.equal(tidyEvery(parseConfig({ ...clone(GENERIC_CONFIG), tidy: {} }).config!), 8);
+  for (const every of [0, 3, 100]) {
+    const r = parseConfig({ ...clone(GENERIC_CONFIG), tidy: { every } });
+    assert.deepEqual([r.errors, r.warnings, tidyEvery(r.config!)], [[], [], every]);
+  }
+  let refused = 0;
+  for (const every of [-1, 101, 2.5, 'x', null, true]) {
+    assert.match(errorsOf({ ...clone(GENERIC_CONFIG), tidy: { every } }), /"tidy\.every" must be a whole number from 0 to 100: how many tasks merge before a tidy-up is offered, or 0 for never\./, JSON.stringify(every));
+    refused++;
+  }
+  assert.equal(refused, 6);
+  assert.match(errorsOf({ ...clone(GENERIC_CONFIG), tidy: 8 }), /"tidy" must be an object, such as \{ "every": 8 \}\./);
+  assert.deepEqual(parseConfig({ ...clone(GENERIC_CONFIG), tidy: { every: 3, often: 1 } }).warnings, ['Unknown key "tidy.often" is ignored.']);
+  const set = parseConfig({ ...clone(GENERIC_CONFIG), tidy: { every: 5 } }).config!;
+  const file = join(tempDir(), '.acc', 'config.json');
+  writeConfig(file, set);
+  assert.deepEqual(loadConfig(file).config.tidy, { every: 5 }, 'written back as it was');
+});
+
 test('loadConfig explains a missing or broken file', () => {
   const dir = tempDir();
   assert.throws(() => loadConfig(join(dir, 'nope.json')), /Run "acc init" first/);
@@ -371,6 +394,7 @@ const EVERY_KEY = {
   analysis: { required: true },
   autopilot: { appendOnly: ['docs/DECISIONS.md'], autoMerge: true },
   dispatch: { shared: ['README.md'] },
+  tidy: { every: 12 },
   template: { name: 'Acme', source: '~/templates/acme.json', digest: `sha256:${'a'.repeat(64)}` },
 };
 

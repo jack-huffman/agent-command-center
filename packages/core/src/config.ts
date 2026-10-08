@@ -123,6 +123,11 @@ export interface Config {
   autopilot?: { appendOnly: string[]; autoMerge?: true };
   /** shared: files, or folders, that never make two tasks wait for each other, such as docs every task edits (D-093). */
   dispatch?: { shared: string[] };
+  /**
+   * every: how many tasks merge in a repo before the Command Center offers a tidy-up task (GH-104), which a
+   * person confirms. Left out, 8; 0 never offers one.
+   */
+  tidy?: { every: number };
   /** The team template the project was started from, and its digest then, so Setup can say when it changed (GH-80). */
   template?: TemplateRecord;
 }
@@ -168,7 +173,7 @@ export const CONFIG_KEYS = [
   'agents.reviewer.model', 'agents.reviewer.effort', 'agents.reviewer.fallbackModel', 'autonomy',
   'worktrees.root', 'worktrees.setup', 'gates.required', 'gates.commands', 'gates.heavy', 'gates.severity', 'gates.builder',
   'secretScan.paths', 'secretScan.exclude', 'analysis.required', 'autopilot.appendOnly', 'autopilot.autoMerge',
-  'dispatch.shared', 'template.name', 'template.source', 'template.digest',
+  'dispatch.shared', 'tidy.every', 'template.name', 'template.source', 'template.digest',
 ] as const satisfies readonly ConfigPath[];
 
 type LeftOut = Exclude<ConfigPath, (typeof CONFIG_KEYS)[number]>;
@@ -456,6 +461,17 @@ export function parseConfig(raw: unknown): ParseResult {
     }
   }
 
+  let tidy: Config['tidy'];
+  if (raw.tidy !== undefined) {
+    const t = raw.tidy;
+    if (!isObj(t)) errors.push('"tidy" must be an object, such as { "every": 8 }.');
+    else if (t.every !== undefined) {
+      if (typeof t.every !== 'number' || !Number.isInteger(t.every) || t.every < 0 || t.every > 100) {
+        errors.push('"tidy.every" must be a whole number from 0 to 100: how many tasks merge before a tidy-up is offered, or 0 for never.');
+      } else tidy = { every: t.every };
+    }
+  }
+
   let template: TemplateRecord | undefined;
   if (raw.template !== undefined && raw.template !== null) {
     const t = raw.template;
@@ -493,6 +509,7 @@ export function parseConfig(raw: unknown): ParseResult {
       ...(typeof an.required === 'boolean' ? { analysis: { required: an.required } } : {}),
       ...(autopilot ? { autopilot } : {}),
       ...(dispatch ? { dispatch } : {}),
+      ...(tidy ? { tidy } : {}),
       ...(template ? { template } : {}),
     },
     errors,
@@ -619,6 +636,12 @@ export function writeConfig(file: string, config: Config): void {
   };
   writeFileSync(file, JSON.stringify(out, null, 2) + '\n');
 }
+
+/** How many tasks merge in a repo before a tidy-up is offered, when the config doesn't say (GH-104). */
+export const TIDY_EVERY = 8;
+
+/** How many tasks merge before the Command Center offers a tidy-up (GH-104). 0 never offers one. */
+export const tidyEvery = (config: Pick<Config, 'tidy'>): number => config.tidy?.every ?? TIDY_EVERY;
 
 export function defaultEnvironment(config: Config): Environment {
   const env = config.environments.find((e) => e.default);

@@ -46,6 +46,7 @@ export * from './setup.ts';
 export * from './source.ts';
 export * from './sync.ts';
 export * from './template.ts';
+export * from './tidy.ts';
 export * from './transcript.ts';
 export * from './updates.ts';
 export * from './onboarding/types.ts';
