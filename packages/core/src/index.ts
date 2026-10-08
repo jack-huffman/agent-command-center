@@ -44,6 +44,7 @@ export * from './semaphore.ts';
 export * from './setup.ts';
 export * from './sync.ts';
 export * from './template.ts';
+export * from './test-counts.ts';
 export * from './transcript.ts';
 export * from './updates.ts';
 export * from './onboarding/types.ts';

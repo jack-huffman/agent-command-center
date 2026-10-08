@@ -1,0 +1,31 @@
+[0m[7m[1m[32m PASS [39m[22m[27m[0m [2mlwc/sample/__tests__/[22m[1mother.test.js[22m
+  [1m● [22mConsole
+
+    [2mconsole.log[22m
+      Tests:       9 failed, 99 total
+[2m[22m
+[2m      [2mat Object.log ([22m[2m[0m[36mother.test.js[39m[0m[2m:2:11)[22m[2m[22m
+
+[0m[7m[1m[31m FAIL [39m[22m[27m[0m [2mlwc/sample/__tests__/[22m[1msample.test.js[22m
+[1m[31m  [1m● [22m[1mgroup › divides wrongly[39m[22m
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
+
+    Expected: [32m3[39m
+    Received: [31m2[39m
+[2m[22m
+[2m    [0m [90m 3 |[39m   it([32m'subtracts'[39m[33m,[39m () [33m=>[39m expect([35m2[39m [33m-[39m [35m1[39m)[33m.[39mtoBe([35m1[39m))[33m;[39m[22m
+[2m     [90m 4 |[39m   it([32m'multiplies'[39m[33m,[39m () [33m=>[39m expect([35m2[39m [33m*[39m [35m2[39m)[33m.[39mtoBe([35m4[39m))[33m;[39m[22m
+[2m    [31m[1m>[22m[2m[39m[90m 5 |[39m   it([32m'divides wrongly'[39m[33m,[39m () [33m=>[39m expect([35m4[39m [33m/[39m [35m2[39m)[33m.[39mtoBe([35m3[39m))[33m;[39m[22m
+[2m     [90m   |[39m                                             [31m[1m^[22m[2m[39m[22m
+[2m     [90m 6 |[39m   it[33m.[39mskip([32m'skipped one'[39m[33m,[39m () [33m=>[39m {})[33m;[39m[22m
+[2m     [90m 7 |[39m   xit([32m'skipped two'[39m[33m,[39m () [33m=>[39m {})[33m;[39m[22m
+[2m     [90m 8 |[39m   it[33m.[39mtodo([32m'to do later'[39m)[33m;[39m[0m[22m
+[2m[22m
+[2m      [2mat Object.toBe ([22m[2m[0m[36msample.test.js[39m[0m[2m:5:45)[22m[2m[22m
+
+[1mTest Suites: [22m[1m[31m1 failed[39m[22m, [1m[32m1 passed[39m[22m, 2 total
+[1mTests:       [22m[1m[31m1 failed[39m[22m, [1m[33m2 skipped[39m[22m, [1m[35m1 todo[39m[22m, [1m[32m4 passed[39m[22m, 8 total
+[1mSnapshots:   [22m0 total
+[1mTime:[22m        0.418 s
+[2mRan all test suites[22m[2m.[22m
