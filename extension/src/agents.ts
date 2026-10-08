@@ -26,7 +26,7 @@ class AgentCommands extends Sidebar {
     // Logs are the activity page now; the terminal is the fallback when there's no page to show.
     reg('acc.agent.logs', (n: AgentNode) => (n?.kind === 'agent' && this.helpers.watch?.(sessionKey(n.session))) || this.agentTerminal(n, 'logs'));
     reg('acc.agent.stop', (n: AgentNode) => this.stopAgent(n));
-    reg('acc.agent.openFolder', (n: AgentNode) => n.kind === 'agent' && vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(n.session.cwd), { forceNewWindow: true }));
+    reg('acc.agent.openFolder', (n: AgentNode) => n?.kind === 'agent' && vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(n.session.cwd), { forceNewWindow: true }));
     reg('acc.agents.refresh', () => this.hub.loadAgents());
     reg('acc.agents.stopFinished', () => this.stopFinished());
     reg('acc.agents.configure', (arg?: unknown) => this.configureAgents(arg));
@@ -165,7 +165,7 @@ class AgentCommands extends Sidebar {
   }
 
   private agentTerminal(n: AgentNode, verb: 'attach' | 'logs'): void {
-    if (n.kind !== 'agent') return;
+    if (n?.kind !== 'agent') return;
     const s = n.session;
     if (!s.id) {
       void vscode.window.showInformationMessage(`${s.name ?? 'This session'} is an interactive session in another window or terminal, so there's nothing to attach to here.`, 'Open its folder').then((p) => p && vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(s.cwd), { forceNewWindow: true }));
@@ -175,7 +175,7 @@ class AgentCommands extends Sidebar {
   }
 
   private async stopAgent(n: AgentNode): Promise<void> {
-    if (n.kind !== 'agent') return;
+    if (n?.kind !== 'agent') return;
     const s = n.session;
     const id = s.id;
     if (!id) return;

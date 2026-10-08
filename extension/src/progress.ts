@@ -590,6 +590,8 @@ export const area: ExtensionArea = {
     reg('acc.job.stop', async (raw?: unknown) => {
       let a: { kind?: unknown; project?: unknown; task?: unknown; run?: unknown } = {};
       try { a = JSON.parse(String(raw)) as typeof a; } catch { return; }
+      // JSON that isn't an object, such as null or 5, names no job.
+      if (!a || typeof a !== 'object') return;
       const p = typeof a.project === 'string' ? hub.project(a.project) : undefined;
       const task = typeof a.task === 'string' ? a.task : '';
       const ask = async (title: string, detail: string, button: string) => (await vscode.window.showWarningMessage(title, { modal: true, detail }, button)) === button;

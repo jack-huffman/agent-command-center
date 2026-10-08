@@ -8,7 +8,7 @@ import { type RepoAgents, type SessionTie, tieSession } from '../../packages/cor
 import { gitIn, makeRepo, tempDir } from '../../packages/core/test/support.ts';
 import { agentLook, commonDirOf, dispatchModelArgs, dispatchModelItems, finishedSession, MODEL_CHOICES, repoRoot, sessionLedger, stopFinishedPlan } from '../src/logic/agents.ts';
 import { sizeLine } from '../src/logic/tasks.ts';
-import { type AgentSession, tildePath } from '../src/logic/shared.ts';
+import { type AgentSession, nodeArg, tildePath } from '../src/logic/shared.ts';
 import { agentsModel, sessionFolders } from '../src/model/agents.ts';
 import { howAgentsRun, settingsKey } from '../src/model/settings.ts';
 import { tasksModel } from '../src/model/tasks.ts';
@@ -403,4 +403,23 @@ test('How agents run, in Settings, shows no row for a config key nothing reads y
   // A role with every part hidden has no row, and nor does autonomy.
   const fewer = howAgentsRun(h.projects, [], { 'agents.reviewer.model': why, 'agents.reviewer.effort': why, autonomy: why }).projects[0]!;
   assert.deepEqual([fewer.roles.map((r) => r.role), fewer.autonomy], [['builder'], null]);
+});
+
+test('a node command gets a node of the right shape, its own string, or nothing (GH-106)', () => {
+  // Given an object that isn't a row, such as { kind: 'task' }, each of these read a field it lacked and threw:
+  // acc.agent.attach, logs, openFolder, openInClaude, stop, watch; acc.task.abandon, analyze, attach, block,
+  // cleanup, copyId, dispatch, dispatchAnyway, dispatchWith, land, move, openInClaude, openPacket, openPr,
+  // openTicket, openWorktree, resume, review, show, stopWaiting, unblock, watch, watchAnalysis, watchReview.
+  // Given nothing or null, these read n.kind and threw, until it became n?.kind: acc.agent.openFolder;
+  // acc.env.openOrg, openGithub, copyBranch, compare; acc.task.openTicket, copyId, attach, openWorktree and the
+  // task methods behind them; acc.worktree.open, terminal, reveal, remove.
+  const project = { root: '/repo', config: { environments: [] } };
+  const task = { kind: 'task', project, task: { id: 'T-1', source: { kind: 'manual' } } };
+  const nodes = [task, { kind: 'project', project }, { kind: 'group', project, group: 'ready', tasks: [] }, { kind: 'place', label: 'x', root: null, sessions: [] }, { kind: 'agent', session: { cwd: '/repo' }, project }, { kind: 'worktree', project, worktree: { path: '/repo/w' } }, { kind: 'env', project, env: { branch: 'main' } }];
+  for (const n of nodes) assert.equal(nodeArg(n), n, n.kind);
+  // A root or an id still reaches the commands that take one, as acc.agents.autonomy(root) does.
+  for (const v of [undefined, '/repo', 'builder|/repo', 0]) assert.equal(nodeArg(v), v);
+  for (const junk of [null, {}, [], { kind: 'task' }, { kind: 'task', project }, { kind: 'task', project: '/repo', task: { id: 'T-1' } }, { kind: 'agent', session: null }, { kind: 'env', project, env: {} }, { kind: 'worktree', project: {}, worktree: { path: '/w' } }, { kind: 'nope', project }, { root: '/outside' }]) {
+    assert.equal(nodeArg(junk), undefined, JSON.stringify(junk));
+  }
 });

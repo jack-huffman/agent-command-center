@@ -5,7 +5,7 @@ import * as vscode from 'vscode';
 import { type Config, parseConfig } from '../../packages/core/src/config.ts';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import type { Step } from '../../packages/core/src/onboarding/types.ts';
-import { activeGhAccount, afterFullCheck, afterStepCheck, COMMANDS, contextKey, type DoctorItem, type EnvLike, expectedOrgUrl, EXTENSION_ID, hasPlaceholder, importRulesCommand, initCommand, isComplete, machineCache, type MachineCache, productionOrgs, type RecentTemplate, rememberTemplate, reusableMachine, rulesDetail, setupOrgChoices, sfOpenCommand, shownRules, shownTemplate, statusText, summarize, templateDetail, WALKTHROUGHS } from './logic/setup.ts';
+import { activeGhAccount, afterFullCheck, afterStepCheck, COMMANDS, contextKey, type DoctorItem, type EnvLike, expectedOrgUrl, EXTENSION_ID, hasPlaceholder, importRulesCommand, initCommand, isComplete, machineCache, type MachineCache, productionOrgs, type RecentTemplate, rememberTemplate, reusableMachine, rulesDetail, setupOrgChoices, sfOpenCommand, shownRules, shownTemplate, statusText, stepIdOf, summarize, templateDetail, WALKTHROUGHS } from './logic/setup.ts';
 import { needsTerminal } from './logic/runs.ts';
 import { shq } from './logic/shared.ts';
 import { parseOrgUrl } from '../../packages/core/src/onboarding/helpers.ts';
@@ -646,16 +646,20 @@ export function openWalkthrough(id: string): Thenable<unknown> {
   return vscode.commands.executeCommand('workbench.action.openWalkthrough', `${EXTENSION_ID}#${id}`, false);
 }
 
-/** Step commands get a step id from walkthrough buttons, or a Setup view item from menus. */
-const stepId = (a: unknown): string => (typeof a === 'string' ? a : (a as { item?: { id: string } })?.item?.id ?? '');
+const STEP_IDS = STEPS.map((s) => s.id);
 
 export const area: ExtensionArea = {
   register({ reg, setup }) {
-    reg(COMMANDS.check, (a: unknown) => setup.check(stepId(a)));
-    reg(COMMANDS.fix, (a: unknown) => setup.fix(stepId(a)));
-    reg(COMMANDS.openSetup, (a: unknown) => setup.openSetup(stepId(a)));
-    reg(COMMANDS.confirm, (a: unknown) => setup.confirm(stepId(a)));
-    reg(COMMANDS.guide, (a?: unknown) => setup.openGuide(a ? stepId(a) || undefined : undefined));
+    /** A step command on a step that isn't there says so in one line, and does nothing. */
+    const onStep = (f: (id: string) => Promise<unknown>) => (a: unknown) => {
+      const id = stepIdOf(a, STEP_IDS);
+      return id ? f(id) : vscode.window.showWarningMessage('That isn\'t one of the setup steps, so there\'s nothing to do.');
+    };
+    reg(COMMANDS.check, onStep((id) => setup.check(id)));
+    reg(COMMANDS.fix, onStep((id) => setup.fix(id)));
+    reg(COMMANDS.openSetup, onStep((id) => setup.openSetup(id)));
+    reg(COMMANDS.confirm, onStep((id) => setup.confirm(id)));
+    reg(COMMANDS.guide, (a?: unknown) => setup.openGuide(stepIdOf(a, STEP_IDS)));
     reg(COMMANDS.doctor, () => setup.doctorInTerminal());
     reg(COMMANDS.machine, () => openWalkthrough(WALKTHROUGHS.machine.id));
     reg(COMMANDS.project, () => openWalkthrough(WALKTHROUGHS.project.id));
