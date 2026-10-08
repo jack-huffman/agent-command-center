@@ -1,4 +1,5 @@
-// Agents: who each session is, where it runs, which model it uses, and how agents run.
+// Agents: who each session is, where it runs, which model it uses, and what agents bill. How agents run
+// is in Settings (GH-110), whose tests are settings.test.ts.
 import assert from 'node:assert/strict';
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -8,7 +9,8 @@ import { gitIn, makeRepo, tempDir } from '../../packages/core/test/support.ts';
 import { agentLook, commonDirOf, dispatchModelArgs, dispatchModelItems, finishedSession, MODEL_CHOICES, repoRoot, sessionLedger, stopFinishedPlan } from '../src/logic/agents.ts';
 import { sizeLine } from '../src/logic/tasks.ts';
 import { type AgentSession, tildePath } from '../src/logic/shared.ts';
-import { AGENT_SETTINGS, agentsModel, sessionFolders } from '../src/model/agents.ts';
+import { agentsModel, sessionFolders } from '../src/model/agents.ts';
+import { settingsKey } from '../src/model/settings.ts';
 import { tasksModel } from '../src/model/tasks.ts';
 import { homeModel } from '../src/model/home.ts';
 import type { HubLike } from '../src/model/shared.ts';
@@ -365,85 +367,20 @@ test('Stop finished sessions is on the Agents header while there are any, throug
   assert.match(readFileSync(join(root, 'src', 'agents.ts'), 'utf8'), /reg\('acc\.agents\.stopFinished', \(\) => this\.stopFinished\(\)\)/);
 });
 
-test('How agents run is behind a Settings button, closed until it\'s opened, and the status bar\'s Auto-merge opens it', () => {
-  const page = pageSource();
-  // Closed by default, remembered for the tab, with a label that says which way it goes and an icon.
-  assert.match(page, /const open = memory\(\)\.opened\.includes\(AGENT_SETTINGS\)/);
-  assert.match(page, /button\(open \? 'Hide settings' : 'Settings', 'settings-gear',/);
-  assert.match(page, /setAttribute\('aria-expanded', String\(open\)\)/);
-  assert.match(page, /for \(const s of open \? m\.settings : \[\]\)/, 'the settings are drawn only when open');
-  // A billing problem still shows while it's closed.
-  assert.match(page, /if \(!open\) for \(const s of m\.settings\) if \(s\.billing\?\.tone === 'orange'\)/);
-  // The webview's key is model.ts's, which the extension asks the page to open.
-  assert.equal(page.match(/const AGENT_SETTINGS = '([^']+)'/)?.[1], AGENT_SETTINGS);
-  assert.match(readFileSync(join(root, 'src', 'notices.ts'), 'utf8'), /go: \(\) => panels\.show\('agents', AGENT_SETTINGS\)/);
-  assert.match(page, /if \(msg\.open\) \{ const part = msg\.open; remember/);
-});
-
-test('How agents run shows the project\'s autonomy, where it\'s set, and a way to change it (D-064)', () => {
-  const h = hub();
-  const p = h.projects[0]!;
-  p.agents = {
-    builder: { model: null, effort: null, fallbackModel: null, from: { model: 'default', effort: 'default', fallbackModel: 'default' } },
-    reviewer: { model: null, effort: null, fallbackModel: null, from: { model: 'default', effort: 'default', fallbackModel: 'default' } },
-  };
-  p.config = { ...p.config, autonomy: 'review' };
-  const s = agentsModel(h).settings[0]!;
-  assert.deepEqual(s.autonomy, { value: 'review', from: 'project', meaning: 'Autopilot reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, merges the base into a pull request that conflicts with it, and starts a task a person dispatched once the files it waits for are free. It never merges a pull request.' });
-  p.config = { ...p.config, autonomy: 'manual' };
-  assert.deepEqual(agentsModel(h).settings[0]!.autonomy, { value: 'manual', from: 'project', meaning: 'Nothing happens on its own.' });
-  // The page asks acc to change it: the webview never writes the config.
-  const page = pageSource();
-  assert.match(page, /argButton\('acc\.agents\.autonomy', 'Change…', 'edit', s\.root\)/);
-  assert.match(readFileSync(join(root, 'src', 'model', 'agents.ts'), 'utf8'), /'acc\.agents\.autonomy'/, 'the page may ask for it');
-  assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === 'acc.agents.autonomy'));
-  assert.match(readFileSync(join(root, 'src', 'agents.ts'), 'utf8'), /this\.runAcc\(project, \['agents', 'autonomy', pick\.value\]/);
-});
-
-test('How agents run has an Auto-merge row: on or off, what it means, and Change… through acc; the autonomy row says when autopilot merges (GH-67)', () => {
-  const h = hub();
-  const p = h.projects[0]!;
-  p.agents = {
-    builder: { model: null, effort: null, fallbackModel: null, from: { model: 'default', effort: 'default', fallbackModel: 'default' } },
-    reviewer: { model: null, effort: null, fallbackModel: null, from: { model: 'default', effort: 'default', fallbackModel: 'default' } },
-  };
-  p.config = { ...p.config, profile: 'generic', autonomy: 'review' };
-  assert.deepEqual(agentsModel(h).settings[0]!.autoMerge, { value: 'off', from: 'project', meaning: 'Autopilot never merges a pull request: a person merges each one.', settable: true });
-  // Its environments include Production, which is protected.
-  assert.ok(p.config.environments.some((e) => e.name === 'Production' && e.protected));
-  p.config = { ...p.config, autopilot: { autoMerge: true } };
-  const s = agentsModel(h).settings[0]!;
-  assert.deepEqual(s.autoMerge, { value: 'on', from: 'project', settable: true, meaning: 'A pull request whose review and checks passed, with nothing waiting on you, joins the merge queue, and they merge in turn: its base merged in, the full check run once, then merged once GitHub says it can. Never into Production: protected.' });
-  assert.match(s.autonomy!.meaning, /Auto-merge is on: a pull request whose review and checks passed, .* joins the repo's merge queue, .* It never merges into a protected environment\.$/);
-  assert.doesNotMatch(s.autonomy!.meaning, /It never merges a pull request/);
-  p.config = { ...p.config, autonomy: 'manual' };
-  assert.match(agentsModel(h).settings[0]!.autoMerge!.meaning, /Autonomy is manual, so nothing merges on its own\.$/);
-  // A Salesforce project never auto-merges, so there's nothing to change.
-  p.config = { ...p.config, profile: 'salesforce' };
-  assert.deepEqual(agentsModel(h).settings[0]!.autoMerge, { value: 'off', from: 'project', meaning: 'A Salesforce project never auto-merges: a person merges every pull request.', settable: false });
-
-  // The page asks acc to change it, with an icon beside the words; the webview never writes the config.
-  const page = pageSource();
-  assert.match(page, /icon\(s\.autoMerge\.value === 'on' \? 'git-merge' : 'circle-slash'\), el\('span', 'strong', 'Auto-merge'\)/);
-  assert.match(page, /s\.autoMerge\.settable \? argButton\('acc\.agents\.autoMerge', 'Change…', 'edit', s\.root\)/);
-  assert.match(readFileSync(join(root, 'src', 'model', 'agents.ts'), 'utf8'), /'acc\.agents\.autoMerge'/, 'the page may ask for it');
-  assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === 'acc.agents.autoMerge'));
-  const sidebar = readFileSync(join(root, 'src', 'agents.ts'), 'utf8');
-  assert.match(sidebar, /this\.runAcc\(project, \['agents', 'auto-merge', pick\.value\]/);
-  // The status bar's menu says on or off for each repo, with an icon, and opens the Agents section.
-  const ext = readFileSync(join(root, 'src', 'notices.ts'), 'utf8');
-  assert.match(ext, /autopilot\.mergeLooks\(\)\.map/);
-  assert.match(ext, /m\.on \? '\$\(git-merge\) Auto-merge: on' : '\$\(circle-slash\) Auto-merge: off'/);
-  assert.match(ext, /go: \(\) => panels\.show\('agents', AGENT_SETTINGS\)/);
-});
-
-test('How agents run names acc\'s default model, apart from Claude Code\'s default effort (D-086)', () => {
-  const h = hub();
-  h.projects[0]!.agents = {
-    builder: { model: 'claude-opus-5-5', effort: null, fallbackModel: null, from: { model: 'acc', effort: 'default', fallbackModel: 'default' } },
-    reviewer: { model: 'claude-sonnet-5-5', effort: 'high', fallbackModel: null, from: { model: 'clone', effort: 'project', fallbackModel: 'default' } },
-  };
-  const [builder, reviewer] = agentsModel(h).settings[0]!.roles;
-  assert.deepEqual(builder!.parts, [{ name: 'Model', value: 'claude-opus-5-5', from: 'acc\'s default' }, { name: 'Effort', value: 'default', from: 'Claude Code\'s default' }]);
-  assert.deepEqual(reviewer!.parts.map((p) => p.from), ['this clone', 'project default']);
+test('Agents\' Settings button goes to How agents run in Settings, and per-token billing stays on Agents (GH-110)', () => {
+  const page = pageSource('agents.ts');
+  // The button goes to Settings' heading for it, by the key the model gives it, with a name that says so.
+  assert.equal(page.match(/const HOW_AGENTS_RUN = '([^']+)'/)?.[1], settingsKey('agents'));
+  assert.match(page, /button\('Settings', 'settings-gear', \(\) => go\('settings', HOW_AGENTS_RUN\), 'ghost'\)/);
+  assert.match(page, /setAttribute\('aria-label', 'Settings: How agents run'\)/);
+  // How agents run itself isn't drawn here any more: no Change… of its own.
+  for (const c of ['acc.agents.configure', 'acc.agents.autonomy', 'acc.agents.autoMerge']) assert.ok(!page.includes(c), `Agents draws no ${c}`);
+  // Per-token billing shows above the sessions, once for the machine; the subscription doesn't.
+  assert.match(page, /if \(m\.billing\?\.tone === 'orange'\) out\.push\(el\('div', 'setting-billing', status\(m\.billing\)\)\)/);
+  const billing = (status: 'pass' | 'fail' | 'skip' | null) => agentsModel(hub(), status ? [{ id: 'A1.claude-billing', part: 'machine', title: 'Billing', status, detail: status === 'fail' ? 'ANTHROPIC_API_KEY in the environment.' : 'Agents use your Claude subscription.' }] : []).billing;
+  assert.deepEqual(billing('fail'), { label: 'Per-token billing: ANTHROPIC_API_KEY in the environment.', icon: 'warning', tone: 'orange' });
+  assert.deepEqual(billing('pass'), { label: 'Agents use your Claude subscription', icon: 'pass', tone: 'blue' });
+  assert.deepEqual([billing('skip'), billing(null)], [null, null], 'nothing until the check has run');
+  // It's the machine's, so a hub with no project still says it.
+  assert.equal(agentsModel({ ...hub(), projects: [] }, [{ id: 'A1.claude-billing', part: 'machine', title: 'Billing', status: 'fail', detail: 'x' }]).billing?.tone, 'orange');
 });

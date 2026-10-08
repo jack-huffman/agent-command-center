@@ -97,7 +97,7 @@ export class AutopilotHost implements vscode.Disposable {
     let repo = typeof arg === 'string' ? this.repos.find((r) => r.key === arg || r.project.root === arg) : shown.length === 1 ? shown[0] : undefined;
     if (!repo && shown.length > 1) repo = (await vscode.window.showQuickPick(shown.map((r) => ({ label: r.project.name, description: this.stateOf(r)?.state, r })), { title: 'Autopilot for which project?' }))?.r;
     if (!repo) {
-      if (!shown.length) void vscode.window.showInformationMessage('Autopilot is off: every project here has autonomy manual. Change it under How agents run, in the Agents section.');
+      if (!shown.length) void vscode.window.showInformationMessage('Autopilot is off: every project here has autonomy manual. Change it in Settings, under How agents run.');
       return;
     }
     const name = repo.project.name;
@@ -109,7 +109,7 @@ export class AutopilotHost implements vscode.Disposable {
     }
     this.lookAtLocks();
     const s = this.stateOf(repo);
-    if (!s) return void vscode.window.showInformationMessage(`Autopilot is off for ${name}: its autonomy is manual. Change it under How agents run, in the Agents section.`);
+    if (!s) return void vscode.window.showInformationMessage(`Autopilot is off for ${name}: its autonomy is manual. Change it in Settings, under How agents run.`);
     if (s.state === 'refused') return void vscode.window.showWarningMessage(s.refusal ?? `Autopilot can't run for ${name}.`);
     if (s.state === 'elsewhere') {
       this.render();

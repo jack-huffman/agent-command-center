@@ -12,7 +12,7 @@ import { boardEdges, dragAutoScroll, wheelSideways } from './boards.ts';
 import { renderDock, stickToBottom } from './dock.ts';
 import { el, keepFocus } from './dom.ts';
 import { renderNav } from './rail.ts';
-import { api, app, memory, type PageArea, remember, setSection, state, view } from './state.ts';
+import { api, app, jumpTo, memory, type PageArea, remember, setSection, state, view } from './state.ts';
 
 type Section = NonNullable<PageArea['sections']>[HomeSection] & {};
 type Draw = (m: never) => Node[];
@@ -112,23 +112,14 @@ export function render(model: Model): void {
 }
 state.draw = render;
 
-/** Scrolls to the heading a part names with data-part, and focuses it, so a screen reader starts there too. */
-function jumpTo(part: string): void {
-  const heading = document.querySelector<HTMLElement>(`[data-part="${CSS.escape(part)}"]`);
-  if (!heading) return;
-  heading.scrollIntoView({ block: 'start' });
-  heading.focus({ preventScroll: true });
-}
-
 window.addEventListener('message', (e: MessageEvent) => {
   const msg = e.data as { type?: string; model?: Model; action?: string; ok?: boolean; jump?: boolean; open?: string };
   if (msg?.type === 'state' && msg.model && msg.model.kind === view) {
     // The extension moves the page only when asked to open a section; otherwise it stays where you are.
     if (msg.model.kind === 'home' && (msg.jump || !state.section)) setSection(msg.model.section, false);
-    // A part of it to open as well, such as the Agents settings from the status bar's Auto-merge.
-    if (msg.open) { const part = msg.open; remember((x) => { if (!x.opened.includes(part)) x.opened = [...x.opened, part]; }); }
     render(msg.model);
-    // Or a part's heading to go to, such as one of Settings' parts (GH-109): it scrolls into view and takes focus.
+    // A part's heading to go to, such as Settings' How agents run from the status bar's Auto-merge (GH-109,
+    // GH-110): it scrolls into view and takes focus.
     if (msg.open) jumpTo(msg.open);
   }
   if (typeof msg?.type === 'string') RECEIVE.get(msg.type)?.(msg as never);

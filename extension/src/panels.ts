@@ -130,7 +130,7 @@ export class Panels implements vscode.Disposable {
   private panel: vscode.WebviewPanel | null = null;
   /** Keeps the tab in the Command Center's theme (GH-109). */
   private tab: TabTheme | null = null;
-  /** A part of the section to open with the next jump, such as the Agents settings. */
+  /** A part of the section to go to with the next jump, such as Settings' How agents run. */
   private opening: string | null = null;
   private section: HomeSection = 'overview';
   /** What the Agents tab's Where column shows, remembered for the window (GH-83). */
@@ -164,8 +164,8 @@ export class Panels implements vscode.Disposable {
 
   /**
    * Opens the page, or brings it forward, at a section: the one asked for, else where it was left. With
-   * open, a part of the section that's closed until you open it opens too, such as the Agents settings, and
-   * a part with a heading of that name is scrolled to, such as one of Settings' (settingsKey, GH-109).
+   * open, the part with a heading of that name is scrolled to and focused, such as one of Settings'
+   * (settingsKey, GH-109).
    */
   show(section?: ViewKind | HomeSection, open?: string): void {
     if (section && (HOME_SECTIONS as readonly string[]).includes(section)) this.remember(section as HomeSection);
