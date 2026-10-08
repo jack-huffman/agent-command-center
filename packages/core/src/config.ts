@@ -109,9 +109,10 @@ export interface Config {
   /**
    * heavy: gates that take the machine-wide slot (D-024). severity: Code Analyzer's failing level, 1 to 5.
    * builder: the lighter checks builders run where the merge queue runs `required` once before each merge
-   * (GH-73). Left out, builders run `required`, as everywhere else.
+   * (GH-73). Left out, builders run `required`, as everywhere else. tests: the checks that run tests, whose
+   * receipts count what ran and which need a person when none did (GH-100), besides those acc knows.
    */
-  gates: { required: string[]; commands: Record<string, string>; heavy: string[]; severity: number; builder?: string[] };
+  gates: { required: string[]; commands: Record<string, string>; heavy: string[]; severity: number; builder?: string[]; tests?: string[] };
   secretScan: { paths: string[]; exclude: string[] };
   /** Whether a task needs an analysis before it's built (D-052). Salesforce projects do unless they say not. */
   analysis?: { required: boolean };
@@ -166,7 +167,7 @@ export const CONFIG_KEYS = [
   'trackers[].epic', 'trackers[].labels', 'trackers[].areaPath', 'trackers[].group', 'trackers[].edits',
   'agents.max', 'agents.permissionMode', 'agents.builder.model', 'agents.builder.effort', 'agents.builder.fallbackModel',
   'agents.reviewer.model', 'agents.reviewer.effort', 'agents.reviewer.fallbackModel', 'autonomy',
-  'worktrees.root', 'worktrees.setup', 'gates.required', 'gates.commands', 'gates.heavy', 'gates.severity', 'gates.builder',
+  'worktrees.root', 'worktrees.setup', 'gates.required', 'gates.commands', 'gates.heavy', 'gates.severity', 'gates.builder', 'gates.tests',
   'secretScan.paths', 'secretScan.exclude', 'analysis.required', 'autopilot.appendOnly', 'autopilot.autoMerge',
   'dispatch.shared', 'template.name', 'template.source', 'template.digest',
 ] as const satisfies readonly ConfigPath[];
@@ -412,6 +413,7 @@ export function parseConfig(raw: unknown): ParseResult {
   }
   if (g.heavy !== undefined && !strList(g.heavy)) errors.push('"gates.heavy" must be a list of gate names.');
   if (g.builder !== undefined && !(Array.isArray(g.builder) && g.builder.every(isStr))) errors.push('"gates.builder" must be a list of gate names: the lighter checks builders run where the merge queue runs the required ones.');
+  if (g.tests !== undefined && !strList(g.tests)) errors.push('"gates.tests" must be a list of gate names: the checks that run tests, whose receipts count what ran.');
   if (g.severity !== undefined && !(Number.isInteger(g.severity) && (g.severity as number) >= 1 && (g.severity as number) <= 5)) {
     errors.push('"gates.severity" must be a whole number from 1 (only the worst problems fail) to 5 (everything fails).');
   }
@@ -485,6 +487,7 @@ export function parseConfig(raw: unknown): ParseResult {
         heavy: strList(g.heavy) ? g.heavy : DEFAULT_HEAVY[profile],
         severity: (g.severity as number | undefined) ?? 2,
         ...(Array.isArray(g.builder) && g.builder.every(isStr) ? { builder: g.builder as string[] } : {}),
+        ...(strList(g.tests) ? { tests: g.tests } : {}),
       },
       secretScan: {
         paths: strList(s.paths) ? s.paths : defaultScan,
@@ -662,6 +665,15 @@ export function builderGatesFor(config: Pick<Config, 'profile' | 'autonomy' | 'e
  */
 export function requiredGates(config: Pick<Config, 'profile' | 'autonomy' | 'environments' | 'autopilot' | 'gates'>, branch: string, scope: GateScope): string[] {
   return scope === 'builder' && builderGatesFor(config, branch) ? config.gates.builder! : config.gates.required;
+}
+
+/**
+ * Whether a gate runs tests (GH-100): one `gates.tests` names, a gate called `test`, or Salesforce's
+ * `lwc-tests`. Its receipt says when acc couldn't read what ran, and it needs a person when none did.
+ * validate is one only when it runs Apex tests, which it says itself.
+ */
+export function isTestGate(config: Pick<Config, 'profile' | 'gates'>, name: string): boolean {
+  return !!config.gates.tests?.includes(name) || name === 'test' || (config.profile === 'salesforce' && name === 'lwc-tests');
 }
 
 /**
