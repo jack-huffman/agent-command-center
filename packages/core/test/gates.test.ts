@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { builderGatesFor, parseConfig, type Config, requiredGates } from '../src/config.ts';
+import { BUILT_IN_GATES, builderGatesFor, parseConfig, type Config, requiredGates } from '../src/config.ts';
 import { drift, driftReportPath } from '../src/drift.ts';
 import type { RunOptions, RunResult } from '../src/exec.ts';
 import {
@@ -12,6 +12,7 @@ import {
 import { checkMove, emptyLedger, type Task } from '../src/ledger.ts';
 import { builderSettings } from '../src/packet.ts';
 import { repoPaths } from '../src/paths.ts';
+import { formatFloors, relaxFloor } from '../src/ratchets.ts';
 import { readReceipt, receiptHooks, writeReceipt } from '../src/receipts.ts';
 import { withSlot } from '../src/semaphore.ts';
 import { run } from '../src/exec.ts';
@@ -602,4 +603,135 @@ test('blocked work whose checks are settled goes to review by a person; a builde
   assert.match(checkMove(ledger, c, task, { to: 'review', actor: 'builder', by: 'builder:T-1' }, settled).join(' '), /can't move/);
   const deny = (builderSettings({ id: 'T-1' } as never, c, '/acc/bin', '/usr/bin') as { permissions: { deny: string[] } }).permissions.deny;
   assert.ok(deny.includes('Bash(acc gate waive*)'));
+  assert.ok(deny.includes('Bash(acc gate relax*)'), 'nor relax a floor (GH-99)');
+});
+
+// ---------------------------------------------------------------- ratchets (GH-99)
+
+/**
+ * A repo on main whose ratchets read numbers from files, with T-1's branch checked out. The commands log
+ * that they ran, outside the repo, so a carried check is seen not to run.
+ */
+function ratchetRepo(floors: Record<string, unknown> | null = { tests: { floor: 669 } }) {
+  const ran = join(tempDir('ran-'), 'ran.log');
+  const raw = {
+    ...GENERIC_CONFIG,
+    gates: {
+      required: ['typecheck', 'tests'],
+      commands: { typecheck: `echo typecheck >> '${ran}'` },
+      ratchets: { tests: { command: `echo tests >> '${ran}'; cat count.txt`, limit: 'floor', label: 'tests' }, violations: { command: 'cat violations.txt', limit: 'ceiling', label: 'violations' } },
+    },
+  };
+  const dir = makeRepo({ '.acc/config.json': JSON.stringify(raw), 'count.txt': '669\n', 'violations.txt': '10\n', ...(floors ? { '.acc/floors.json': formatFloors(floors as never) } : {}) });
+  gitIn(dir, 'checkout', '-q', '-b', 'task/T-1');
+  const c = config(raw);
+  const paths = repoPaths(dir, run);
+  const env = c.environments[0]!;
+  const task = { id: 'T-1', state: 'running', environment: 'main', deps: [], run: { branch: 'task/T-1' } } as unknown as Task;
+  const set = (files: Record<string, string>, msg = 'T-1: change') => {
+    for (const [rel, text] of Object.entries(files)) write(dir, rel, text);
+    commitAll(dir, msg);
+    return gitIn(dir, 'rev-parse', 'HEAD');
+  };
+  const gate = (raise: boolean, names: string[] = []) => runGates(paths, c, env, names, [], { run, now, slots: slots(), raise });
+  const floorsText = () => readFileSync(join(dir, '.acc/floors.json'), 'utf8');
+  const runs = () => (existsSync(ran) ? readFileSync(ran, 'utf8').trim().split('\n') : []);
+  return { dir, c, paths, env, task, set, gate, floorsText, runs, hooks: receiptHooks(paths, c, run) };
+}
+
+test('a ratchet is a gate: listed after the commands, heavy when gates.heavy says, and its name can\'t be a built-in\'s (GH-99)', () => {
+  const c = config({ ...GENERIC_CONFIG, gates: { commands: { check: 'npm run check' }, ratchets: { tests: { command: 'node scripts/count-tests.mjs', limit: 'floor', label: 'tests' } }, heavy: ['tests'] } });
+  assert.deepEqual(gatesFor(c).map((g) => [g.name, g.heavy]), [['check', false], ['tests', true]]);
+  assert.equal(gatesFor(c)[1]!.about, 'node scripts/count-tests.mjs (tests, which may only go up)');
+  // The names config.ts keeps a ratchet from taking are the Salesforce gates' own.
+  assert.deepEqual(gatesFor(sfConfig({ required: [] })).map((g) => g.name).sort(), [...BUILT_IN_GATES.salesforce].sort());
+  assert.deepEqual(BUILT_IN_GATES.generic, []);
+});
+
+test('a ratchet that beats its floor in a clean task worktree writes the new floor there; acc done waits for it, and the commit that records it carries its checks (GH-99)', () => {
+  const r = ratchetRepo();
+  const sha = r.set({ 'count.txt': '674\n' }, 'T-1: five more tests');
+  const ran = r.gate(true);
+  assert.deepEqual(ran.results.map((x) => [x.gate, x.status, x.summary]), [['typecheck', 'pass', 'Passed.'], ['tests', 'pass', 'tests 674 beats the floor 669: raised it in .acc/floors.json. Commit that file, then run acc gate run again.']]);
+  assert.deepEqual(ran.raised, [{ gate: 'tests', label: 'tests', from: 669, to: 674 }]);
+  assert.equal(r.floorsText(), formatFloors({ tests: { floor: 674 } }), 'written in the worktree');
+  assert.equal(gitIn(r.dir, 'status', '--porcelain'), 'M .acc/floors.json', 'and nothing else');
+  assert.deepEqual(readReceipt(r.paths, sha, 'tests')?.details?.ratchet, { label: 'tests', limit: 'floor', value: 674, floor: 669, base: 669, diff: 5, raised: { from: 669, to: 674 } });
+  assert.deepEqual(r.hooks.missingGates(r.task), ['tests'], 'acc done waits for the raise to be committed');
+  assert.deepEqual(r.runs(), ['typecheck', 'tests']);
+
+  // Committed, alone: its checks carry over from the commit that measured them, and nothing runs again.
+  commitAll(r.dir, 'T-1: raise the tests floor');
+  const next = gitIn(r.dir, 'rev-parse', 'HEAD');
+  const again = r.gate(true);
+  assert.deepEqual(again.raised, []);
+  assert.deepEqual(again.results.map((x) => [x.gate, x.status, x.summary]), [['typecheck', 'pass', 'Passed.'], ['tests', 'pass', 'tests 674, at its floor.']]);
+  assert.deepEqual(r.runs(), ['typecheck', 'tests'], 'carried, not run');
+  const carried = readReceipt(r.paths, next, 'tests')!;
+  assert.deepEqual([carried.carried, carried.sha, carried.details?.ratchet], [{ from: sha }, next, { label: 'tests', limit: 'floor', value: 674, floor: 674, base: 669, diff: 5 }]);
+  assert.deepEqual(readReceipt(r.paths, next, 'typecheck')?.carried, { from: sha });
+  assert.deepEqual(r.hooks.missingGates(r.task), []);
+  assert.equal(gitIn(r.dir, 'status', '--porcelain'), '');
+
+  // Anything else in the commit, and every check runs again.
+  r.set({ 'count.txt': '675\n', '.acc/floors.json': formatFloors({ tests: { floor: 675 } }) }, 'T-1: a hand-made raise and a test');
+  r.gate(false);
+  assert.deepEqual(r.runs(), ['typecheck', 'tests', 'typecheck', 'tests']);
+});
+
+test('acc writes no floor where it may not raise one: with raise off, as a refresh\'s and the merge queue\'s checks run, or with uncommitted changes (GH-99)', () => {
+  const r = ratchetRepo();
+  r.set({ 'count.txt': '674\n' });
+  const before = r.floorsText();
+  const off = r.gate(false);
+  assert.deepEqual([off.results[1]!.status, off.results[1]!.summary, off.raised], ['pass', 'tests 674 beats the floor 669 by 5.', []]);
+  assert.deepEqual([r.floorsText(), gitIn(r.dir, 'status', '--porcelain')], [before, ''], 'byte for byte the same, and the worktree clean');
+  assert.deepEqual(r.hooks.missingGates(r.task), [], 'nothing to commit, so it satisfies acc done');
+
+  write(r.dir, 'scratch.txt', 'wip');
+  const dirty = r.gate(true);
+  assert.deepEqual([dirty.dirty, dirty.results[1]!.summary, dirty.raised, r.floorsText()], [true, 'tests 674 beats the floor 669 by 5.', [], before]);
+});
+
+test('below its floor fails; a ceiling fails above it, and is raised by going down (GH-99)', () => {
+  const r = ratchetRepo({ tests: { floor: 669 }, violations: { ceiling: 10 } });
+  r.set({ 'count.txt': '660\n', 'violations.txt': '12\n' });
+  const ran = r.gate(true);
+  assert.deepEqual(ran.results.map((x) => [x.gate, x.status]), [['typecheck', 'pass'], ['tests', 'fail']]);
+  assert.match(ran.results[1]!.summary, /^tests 660 is below its floor 669, by 9\./);
+  assert.deepEqual(r.hooks.missingGates(r.task), ['tests']);
+  assert.match(r.gate(true, ['violations']).results[0]!.summary, /^violations 12 is above its ceiling 10, by 2\./);
+  r.set({ 'violations.txt': '10\n' });
+  assert.equal(r.gate(true, ['violations']).results[0]!.summary, 'violations 10, at its ceiling.');
+  r.set({ 'violations.txt': '8\n' });
+  assert.deepEqual(r.gate(true, ['violations']).raised, [{ gate: 'violations', label: 'violations', from: 10, to: 8 }]);
+  assert.equal(r.floorsText(), formatFloors({ tests: { floor: 669 }, violations: { ceiling: 8 } }), 'the other ratchet\'s entry is kept as it was');
+});
+
+test('a floor the builder lowered by hand fails; one a person relaxed, with a reason, passes at that number (GH-99)', () => {
+  const r = ratchetRepo();
+  r.set({ 'count.txt': '650\n', '.acc/floors.json': formatFloors({ tests: { floor: 640 } }) }, 'T-1: lower the bar');
+  const low = r.gate(true);
+  assert.equal(low.results[1]!.status, 'fail');
+  assert.equal(low.results[1]!.summary, '.acc/floors.json lowers tests\'s floor to 640, from 669 on main, and no person relaxed it. Put it back to 669: only a person relaxes a floor, with acc gate relax.');
+  assert.deepEqual([low.raised, r.floorsText()], [[], formatFloors({ tests: { floor: 640 } })], 'nothing raised on a failure');
+
+  // A person puts it back, then relaxes it, saying why.
+  r.set({ '.acc/floors.json': formatFloors({ tests: { floor: 669 } }), 'count.txt': '640\n' }, 'T-1: put the floor back');
+  relaxFloor(r.paths.relaxed, r.paths.floors, r.dir, r.c, { ratchet: 'tests', to: 640, reason: 'the slow suite moved to its own job', by: 'human:jordan', now, task: 'T-1' });
+  commitAll(r.dir, 'T-1: relax the tests floor');
+  const relaxed = r.gate(true);
+  assert.deepEqual([relaxed.results[1]!.status, relaxed.results[1]!.summary, relaxed.raised], ['pass', 'tests 640, at its floor.', []]);
+  assert.deepEqual(relaxed.results[1]!.details?.ratchet, { label: 'tests', limit: 'floor', value: 640, floor: 640, base: 669, diff: -29 });
+});
+
+test('a ratchet can\'t be waived: a person relaxes its floor instead (GH-99)', () => {
+  const r = ratchetRepo();
+  const sha = r.set({ 'count.txt': '660\n' });
+  r.gate(true);
+  assert.throws(
+    () => waiveGates(r.paths, r.c, { sha, env: r.env, gates: ['tests'], reason: 'flaky', by: 'human:jordan', now }),
+    (e: Error & { code?: string }) => e.code === 'refused' && e.message === 'tests is a ratchet: waived, its number could merge below its floor and fail every task after it. A person relaxes the floor instead: acc gate relax tests --to <n> --reason "<why>".',
+  );
+  assert.equal(readReceipt(r.paths, sha, 'tests')?.status, 'fail', 'its receipt is as it was');
 });

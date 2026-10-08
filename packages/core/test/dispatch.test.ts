@@ -134,6 +134,25 @@ test('a rework a person sent back tells its builder why, in their words, though 
   assert.ok(!renderPacket({ task: t, config, env, worktree: '/w', branch: 'b', rules: null, environmentSpecific: [] }).includes('Why a person sent it back'));
 });
 
+test('where a ratchet is a builder\'s check, the finish line says to commit the floor acc raised and never to make one worse; a builder can\'t relax one (GH-99)', () => {
+  const raw = {
+    ...GENERIC_CONFIG, autonomy: 'review', autopilot: { autoMerge: true },
+    gates: { required: ['check', 'tests'], builder: ['typecheck', 'tests'], commands: { check: 'npm run check', typecheck: 'tsc' }, ratchets: { tests: { command: 'node scripts/count-tests.mjs', limit: 'floor', label: 'tests' } } },
+  };
+  const config = parseConfig(raw).config!;
+  const l = emptyLedger();
+  upsertTasks(l, config, [{ source: { kind: 'github', key: '99', url: 'https://github.com/acme/tool/issues/99' }, title: 'A ratchet' }], 'human', 'h', () => {}, () => new Date());
+  const task = { ...l.tasks[0]!, run: { worktree: '/w/GH-99', branch: 'task/GH-99-a-ratchet' } };
+  const env = config.environments[0]!;
+  const p = renderPacket({ task, config, env, worktree: '/w/GH-99', branch: 'task/GH-99-a-ratchet', rules: null, environmentSpecific: [] });
+  assert.ok(p.includes('   `tests` is a ratchet: a number that may only get better. When yours beats its floor, `acc gate run` writes the new floor to `.acc/floors.json`: commit that file, then run `acc gate run` again. Never make the number, or a floor in that file, worse by hand. If this change has to make one worse, block and say why: only a person relaxes a floor.'), p);
+  assert.ok(p.indexOf('is a ratchet') < p.indexOf('3. **Finish**'), 'in the checks step');
+  const without = parseConfig({ ...raw, gates: { ...raw.gates, builder: ['typecheck'] } }).config!;
+  assert.ok(!renderPacket({ task, config: without, env, worktree: '/w', branch: 'b', rules: null, environmentSpecific: [] }).includes('is a ratchet'), 'not where builders don\'t run one');
+  const deny = (builderSettings(task, config, '/acc/bin', '/usr/bin') as { permissions: { deny: string[] } }).permissions.deny;
+  assert.ok(deny.includes('Bash(acc gate relax*)') && deny.includes('Bash(acc gate waive*)'));
+});
+
 test('where the merge queue runs the full check, the packet and the short one name a builder\'s lighter checks, and say the full one runs in the queue (GH-73)', () => {
   const raw = { ...GENERIC_CONFIG, autonomy: 'review', autopilot: { autoMerge: true }, gates: { required: ['check'], builder: ['typecheck', 'near-tests'], commands: { check: 'npm run check', typecheck: 'tsc', 'near-tests': 'node near.mjs' } } };
   const config = parseConfig(raw).config!;

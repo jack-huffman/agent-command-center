@@ -6,6 +6,7 @@ import { type Gate, type GateResult, listed, priorTests, runGates } from './gate
 import { withJob } from './jobs.ts';
 import { type Actor, mutate, readLedger, type Task } from './ledger.ts';
 import { type RepoPaths, repoPaths } from './paths.ts';
+import { FLOORS_FILE, mergeFloors } from './ratchets.ts';
 import { satisfies } from './receipts.ts';
 import type { SlotOptions } from './semaphore.ts';
 import { conflictsOf, fetchBranches } from './sync.ts';
@@ -87,26 +88,41 @@ function unmerged(run: Runner, wt: string): Map<string, Map<number, Stage>> {
 const isText = (s: string): boolean => !s.includes('\0') && !s.includes('�');
 
 /**
- * Resolves one conflicted file by keeping both sides' additions, when that's all they were. Edited
- * anywhere but its end, added on both sides, deleted, renamed, a link or binary: false, and it's left.
+ * Resolves one conflicted file with `merge`, given the merge base's text and each side's, when it's a
+ * plain text file at the same path on both sides. Deleted, renamed, a link or binary, or a merge that
+ * returns null: false, and it's left. A file added on both sides has no merge base's text: only with
+ * `added`, as the floors file can be (GH-99), is it merged from an empty one.
  */
-function resolveAppend(run: Runner, wt: string, mergeBase: string, path: string, stages: Map<number, Stage>): boolean {
+function resolveWith(run: Runner, wt: string, mergeBase: string, path: string, stages: Map<number, Stage>, merge: (common: string, ours: string, theirs: string) => string | null, added = false): boolean {
   const git = (...args: string[]) => run('git', args, { cwd: wt });
   const [common, ours, theirs] = [stages.get(1), stages.get(2), stages.get(3)];
-  if (!common || !ours || !theirs) return false;
-  if (![common, ours, theirs].every((s) => s.mode === '100644' || s.mode === '100755')) return false;
+  if ((!common && !added) || !ours || !theirs) return false;
+  if (![common, ours, theirs].every((s) => !s || s.mode === '100644' || s.mode === '100755')) return false;
   // The same path on each side and in the merge base: a rename put none of these stages here.
   const at = (ref: string) => git('rev-parse', '--verify', '--quiet', `${ref}:${path}`).stdout.trim();
-  if (at(mergeBase) !== common.sha || at('HEAD') !== ours.sha || at('MERGE_HEAD') !== theirs.sha) return false;
-  const blobs = [common, ours, theirs].map((s) => git('cat-file', 'blob', s.sha));
+  if (at(mergeBase) !== (common?.sha ?? '') || at('HEAD') !== ours.sha || at('MERGE_HEAD') !== theirs.sha) return false;
+  const blobs = [common, ours, theirs].map((s) => (s ? git('cat-file', 'blob', s.sha) : { code: 0, stdout: '', stderr: '' }));
   if (blobs.some((b) => b.code !== 0 || !isText(b.stdout))) return false;
-  const merged = appendOnlyMerge(blobs[0]!.stdout, blobs[1]!.stdout, blobs[2]!.stdout);
+  const merged = merge(blobs[0]!.stdout, blobs[1]!.stdout, blobs[2]!.stdout);
   if (merged === null) return false;
   // Into the index as it is, then out to the file, so the repo's line endings and filters apply.
   const blob = run('git', ['hash-object', '-w', '--stdin'], { cwd: wt, input: merged });
   if (blob.code !== 0) return false;
   if (git('update-index', '--cacheinfo', `${ours.mode},${blob.stdout.trim()},${path}`).code !== 0) return false;
   return git('checkout', '--', path).code === 0;
+}
+
+/**
+ * What autopilot did to the files it resolved, as a merge message, a refresh and a pull request say it:
+ * "kept both sides' additions to docs/DECISIONS.md", "kept the better of each ratchet's floors in
+ * .acc/floors.json" (GH-99), or both. `keeping` for a clause after a comma; `file` names a file as wanted.
+ */
+export function resolvedWords(resolved: string[], verb: 'kept' | 'keeping' = 'kept', file = (f: string) => f): string {
+  const added = resolved.filter((f) => f !== FLOORS_FILE);
+  return [
+    ...(added.length ? [`${verb} both sides' additions to ${added.map(file).join(', ')}`] : []),
+    ...(resolved.includes(FLOORS_FILE) ? [`${verb} the better of each ratchet's floors in ${file(FLOORS_FILE)}`] : []),
+  ].join(', and ');
 }
 
 const samePath = (a: string, b: string): boolean => {
@@ -226,12 +242,13 @@ export function mergeBaseIn(config: Config, place: MergePlace, run: Runner): { s
   const resolved: string[] = [];
   const left: string[] = [];
   for (const [path, stages] of unmerged(run, wt)) {
-    if (listed(path, appendOnly) && resolveAppend(run, wt, mergeBase, path, stages)) resolved.push(path);
+    // Both sides raised floors (GH-99): each ratchet keeps the better. One that a person relaxed is left.
+    if (path === FLOORS_FILE ? resolveWith(run, wt, mergeBase, path, stages, mergeFloors, true) : listed(path, appendOnly) && resolveWith(run, wt, mergeBase, path, stages, appendOnlyMerge)) resolved.push(path);
     else left.push(path);
   }
   if (left.length) throw new MergeConflict(`Conflicts with ${env.branch} that autopilot can't resolve: ${left.join(', ')}. ${putBack(config, place, run, ['merge', '--abort'])}`, left);
   if (merged.code !== 0 && !resolved.length) throw new AccError('refresh', `git couldn't merge ${env.branch} in: ${lastLines(merged)} ${putBack(config, place, run, ['merge', '--abort'])}`);
-  const message = [`Merge ${env.branch} into ${branch}`, ...(resolved.length ? ['', `Autopilot kept both sides' additions to ${resolved.join(', ')}.`] : [])].join('\n');
+  const message = [`Merge ${env.branch} into ${branch}`, ...(resolved.length ? ['', `Autopilot ${resolvedWords(resolved)}.`] : [])].join('\n');
   // The repo's hooks run, as on any commit.
   const commit = merge('commit', '-m', message);
   if (commit.code !== 0) throw new AccError('refresh', `The merge commit was refused: ${lastLines(commit)} ${putBack(config, place, run, ['merge', '--abort'])}`);
@@ -324,6 +341,6 @@ function refreshNow(paths: RepoPaths, config: Config, id: string, deps: RefreshD
     if (t.autopilot?.failed) t.autopilot.failed = null;
     return { refreshed };
   });
-  const kept = resolved.length ? `, keeping both sides' additions to ${resolved.join(', ')}` : '';
+  const kept = resolved.length ? `, ${resolvedWords(resolved, 'keeping')}` : '';
   return { sha, from, resolved, reason: `Merged ${env.branch} into ${short(from)} as ${short(sha)}${kept}.${required.length ? ' Its checks passed.' : ''} It's reviewed next pass, then landed.` };
 }

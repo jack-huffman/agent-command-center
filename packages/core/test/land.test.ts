@@ -9,7 +9,7 @@ import { runGates, waiveGates } from '../src/gates.ts';
 import { land, prBody } from '../src/land.ts';
 import { displayState, mutate, readLedger, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
-import { receiptsAt } from '../src/receipts.ts';
+import { type Receipt, receiptsAt } from '../src/receipts.ts';
 import { reviewPath, type Verdict } from '../src/review.ts';
 import { listUpdates, readUpdate } from '../src/updates.ts';
 import { ciOf, failingOf, sync } from '../src/sync.ts';
@@ -223,6 +223,14 @@ test('the pull request says what it does, ticks its acceptance criteria, and sho
   // Where auto-merge covers its environment, it says autopilot merges it, and how to hold it (GH-67).
   const auto = prBody(task, s.config.environments[0]!, s.sha, passReview(s.paths, s.id, s.sha, s.base), receiptsAt(s.paths, s.sha), true);
   assert.match(auto, /\(main\)\. With autopilot running, it merges once its checks pass on GitHub and nothing waits on a person: auto-merge is on for this repo\. Ask for changes to hold it\.\n$/);
+  // A ratchet shows its numbers, from the environment's floor to this commit's (GH-99).
+  const ratchet = (value: number, base: number | null): Receipt => ({
+    gate: 'tests', sha: s.sha, env: 'main', status: 'pass', startedAt: '', finishedAt: '', durationMs: 0, summary: 'tests 674, at its floor.', command: 'node scripts/count-tests.mjs', log: null,
+    details: { ratchet: { label: 'tests', limit: 'floor', value, floor: value, base, diff: base === null ? null : value - base } },
+  });
+  const review = passReview(s.paths, s.id, s.sha, s.base);
+  assert.match(prBody(task, s.config.environments[0]!, s.sha, review, { tests: ratchet(674, 669) }), /\| `tests` \| Passed \| tests 669 → 674 \(\+5\) \|/);
+  assert.match(prBody(task, s.config.environments[0]!, s.sha, review, { tests: ratchet(674, null) }), /\| `tests` \| Passed \| tests 674 \(first floor\) \|/);
 });
 
 // ---------------------------------------------------------------- acc sync

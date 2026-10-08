@@ -175,6 +175,27 @@ test('gates.builder: a list of gate names, kept as written, for builders only wh
   assert.deepEqual(loadConfig(join(dir, 'config.json')).config.gates.builder, ['typecheck'], 'written back as it was');
 });
 
+test('gates.ratchets: a command, which way its number may go, and a short label; a name of its own, and written back as it was (GH-99)', () => {
+  const tests = { command: 'node scripts/count-tests.mjs', limit: 'floor', label: 'tests' };
+  const raw = { ...clone(GENERIC_CONFIG), gates: { required: ['tests'], commands: { check: 'npm run check' }, ratchets: { tests, violations: { command: 'sf code-analyzer run', limit: 'ceiling', label: ' violations ' } } } };
+  const c = parseConfig(raw).config!;
+  assert.deepEqual(c.gates.ratchets, { tests, violations: { command: 'sf code-analyzer run', limit: 'ceiling', label: 'violations' } });
+  assert.equal(parseConfig({ ...clone(GENERIC_CONFIG) }).config!.gates.ratchets, undefined, 'left out: none, and none written');
+  const bad = (ratchets: unknown) => errorsOf({ ...raw, gates: { ...raw.gates, ratchets } });
+  assert.match(bad([]), /"gates\.ratchets" must map names to \{ "command", "limit", "label" \}/);
+  assert.match(bad({ tests: { ...tests, limit: 'up' } }), /"gates\.ratchets\.tests\.limit" must be "floor" \(the number may only go up\) or "ceiling" \(it may only go down\)/);
+  assert.match(bad({ tests: { ...tests, command: ' ' } }), /"gates\.ratchets\.tests" needs "command": one whose last line of output is the number/);
+  assert.match(bad({ tests: { ...tests, label: '' } }), /"gates\.ratchets\.tests\.label" must be a short name/);
+  assert.match(bad({ tests: { ...tests, label: 'the number of tests npm test runs' } }), /up to 24 characters/);
+  assert.match(bad({ 'no spaces': tests }), /a ratchet's name is letters, digits/);
+  assert.match(bad({ check: tests }), /"gates\.ratchets\.check": check is already a gate in "gates\.commands"\. Give the ratchet a name of its own\./);
+  assert.match(errorsOf({ ...clone(SF_CONFIG), gates: { ratchets: { validate: tests } } }), /"gates\.ratchets\.validate": validate is already a gate, built into the salesforce profile/);
+  assert.match(parseConfig({ ...raw, gates: { ratchets: { tests: { ...tests, extra: 1 } } } }).warnings.join(), /Unknown key "gates\.ratchets\.tests\.extra" is ignored/);
+  const dir = tempDir();
+  writeConfig(join(dir, 'config.json'), c);
+  assert.deepEqual(loadConfig(join(dir, 'config.json')).config.gates, c.gates, 'written back as it was');
+});
+
 test('autopilot.autoMerge: off unless it\'s true, a boolean, never in a Salesforce project, and never into a protected environment (GH-67)', () => {
   const on = parseConfig({ ...clone(GENERIC_CONFIG), autonomy: 'review', autopilot: { autoMerge: true } });
   assert.deepEqual([on.errors, on.warnings, on.config!.autopilot], [[], [], { appendOnly: [], autoMerge: true }]);

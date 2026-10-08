@@ -663,10 +663,10 @@ export const STEPS: Step[] = [
       if (!required.length) return skip('No checks are required ("gates.required" is empty).');
       const defined = gatesFor(config).map((g) => g.name);
       const undefinedGates = required.filter((n) => !defined.includes(n));
-      if (undefinedGates.length) return fail(`Required, but with no command: ${undefinedGates.join(', ')}. Give each one under "gates.commands" in .acc/config.json.`);
+      if (undefinedGates.length) return fail(`Required, but with no command: ${undefinedGates.join(', ')}. Give each one under "gates.commands", or "gates.ratchets" for a number that may only get better, in .acc/config.json.`);
       // A builder's lighter checks, where the merge queue runs the required ones (GH-73).
       const builderOnly = (config.gates.builder ?? []).filter((n) => !defined.includes(n));
-      if (builderOnly.length) return fail(`Listed for builders, but with no command: ${builderOnly.join(', ')}. Give each one under "gates.commands" in .acc/config.json.`);
+      if (builderOnly.length) return fail(`Listed for builders, but with no command: ${builderOnly.join(', ')}. Give each one under "gates.commands", or "gates.ratchets" for a number that may only get better, in .acc/config.json.`);
       let main = ctx.paths!.root;
       try {
         main = mainCheckout(ctx.run, ctx.paths!.root);

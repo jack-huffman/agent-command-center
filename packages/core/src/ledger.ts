@@ -165,7 +165,7 @@ export interface CarriedReview {
   from: string;
   to: string;
   base: string;
-  /** Append-only files whose additions on both sides were kept. */
+  /** Files autopilot resolved: append-only ones, keeping both sides' additions, and the floors file, keeping the better floors (GH-99). */
   resolved: string[];
   at: string;
 }

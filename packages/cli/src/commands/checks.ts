@@ -1,6 +1,11 @@
 // acc's Checks commands: gate run, list and waive, and drift.
 
-import { AccError, type ApexTest, builderGatesFor, drift, gatesFor, gateTarget, readLedger, receiptsAt, requiredGates, run, runGates, satisfies, waiveGates } from '../../../core/src/index.ts';
+import { existsSync, realpathSync } from 'node:fs';
+import { join } from 'node:path';
+import {
+  AccError, type ApexTest, builderGatesFor, type Config, drift, FLOORS_FILE, gatesFor, gateTarget, mainCheckout, mutate, num, ratchetOf, readFloors, readLedger, receiptsAt, relaxFloor,
+  requiredGates, run, runGates, satisfies, type Task, valueOf, waiveGates,
+} from '../../../core/src/index.ts';
 import { gateLabel, table, tone } from '../format.ts';
 import { actorFrom, type CommandArea, now, type Opts, out, project } from '../shared.ts';
 
@@ -28,22 +33,40 @@ function checkTarget(o: Opts) {
   return { paths, config, env, task, branch };
 }
 
+/**
+ * Whether acc gate run may write a better floor here (GH-99): in a task's own worktree, on the task's
+ * branch. Never on an environment's branch, and never in the main checkout.
+ */
+function raisesHere(root: string, config: Config, branch: string | null, task: Task | null): boolean {
+  if (!branch || !task?.run?.branch || branch !== task.run.branch) return false;
+  if (config.environments.some((e) => e.branch === branch)) return false;
+  try {
+    return realpathSync(mainCheckout(run, root)) !== realpathSync(root);
+  } catch {
+    return false;
+  }
+}
+
 function cmdGateRun(o: Opts, names: string[]): number {
   const { paths, config, env, branch, task } = checkTarget(o);
   const say = (line: string) => { if (!o.json) process.stderr.write(line + '\n'); };
   const r = runGates(paths, config, env, names, apexTests(o), {
-    run, now, ...(task ? { task: task.id } : {}),
+    run, now, ...(task ? { task: task.id } : {}), raise: raisesHere(paths.root, config, branch, task),
     onStart: (g) => say(tone(`  … ${g.name}${g.heavy ? ' (heavy)' : ''}`, 'dim')),
     onWait: (g) => say(tone(`  … ${g.name} is waiting for another heavy check on this machine to finish`, 'dim')),
   });
-  const bad = r.results.filter((x) => !satisfies(x));
+  // A raised floor isn't a failure: it's a file to commit (GH-99).
+  const bad = r.results.filter((x) => !satisfies(x) && !ratchetOf(x)?.raised);
+  const raised = r.raised.map((x) => `${x.label} ${x.from === null ? `${num(x.to)}, its first floor` : `${num(x.from)} → ${num(x.to)}`}`);
   out(o, () => [
     `${branch ?? 'HEAD'} at ${r.sha.slice(0, 7)}, against ${r.env.name}${r.env.org ? ` (${r.env.org})` : ''}`,
     ...r.results.map((x) => `  ${gateLabel(x.status)}${x.gate.padEnd(11)} ${x.summary}`),
     r.dirty ? tone('Not recorded: there are uncommitted changes, so these results can\'t vouch for a commit. Commit, then run acc gate run again.', 'orange') : '',
-    bad.length ? `${bad.length} to fix: ${bad.map((x) => x.gate).join(', ')}.` : r.dirty ? '' : 'All recorded. acc done will accept this commit.',
+    bad.length ? `${bad.length} to fix: ${bad.map((x) => x.gate).join(', ')}.` : '',
+    raised.length ? tone(`Raised in ${FLOORS_FILE}: ${raised.join(', ')}. Commit that file, then run acc gate run again: acc done takes the commit that records it.`, 'orange') : '',
+    bad.length || raised.length || r.dirty ? '' : 'All recorded. acc done will accept this commit.',
   ].filter(Boolean).join('\n'), r);
-  return bad.length ? 1 : 0;
+  return bad.length || raised.length ? 1 : 0;
 }
 
 /**
@@ -68,6 +91,37 @@ function cmdGateWaive(o: Opts, names: string[]): number {
   return 0;
 }
 
+/**
+ * A person relaxes a ratchet's floor, with a reason (GH-99): in the task's worktree with --task, else in
+ * this checkout. A builder never can, as it can't waive (D-031): it would be lowering its own bar.
+ */
+function cmdGateRelax(o: Opts, names: string[]): number {
+  if (process.env.ACC_ROLE === 'builder') throw new AccError('refused', 'A builder can\'t relax a floor. If this change has to make a number worse, say why with acc block "<why>", and a person decides.');
+  const { actor, by } = actorFrom(o);
+  if (actor !== 'human') throw new AccError('refused', 'Only a person can relax a floor.');
+  const [name, ...extra] = names;
+  if (!name || extra.length) throw new AccError('usage', 'acc gate relax <ratchet> --to <n> --reason "<why>" [--task <id>]');
+  const to = typeof o.to === 'string' && o.to.trim() ? Number(o.to) : NaN;
+  if (!Number.isFinite(to)) throw new AccError('usage', `--to takes the new floor, a number: acc gate relax ${name} --to <n> --reason "<why>".`);
+  const { paths, config, task } = checkTarget(o);
+  const where = o.task ? task?.run?.worktree : paths.root;
+  if (!where || !existsSync(where)) throw new AccError('usage', `${task?.id ?? String(o.task)} has no worktree on disk, so there's no floors file to relax.`);
+  const record = relaxFloor(paths.relaxed, join(where, FLOORS_FILE), where, config, { ratchet: name, to, reason: (o.reason as string | undefined) ?? '', by, now, ...(o.task && task ? { task: task.id } : {}) });
+  if (o.task && task) {
+    mutate(paths, now, (l, emit) => {
+      const t = l.tasks.find((x) => x.id === task.id);
+      if (!t) return;
+      t.updatedAt = now().toISOString();
+      emit({ type: 'task.updated', task: task.id, actor, by, data: { relaxed: { ratchet: record.ratchet, limit: record.limit, to: record.to, was: record.was, reason: record.reason } } });
+    });
+  }
+  out(o, () => [
+    `Relaxed ${name}'s ${record.limit} from ${record.was === null ? 'nothing' : num(record.was)} to ${num(record.to)} in ${join(where, FLOORS_FILE)}: ${record.reason}`,
+    tone(`Commit that file with the change. A branch whose ${record.limit} is worse than its environment's passes only at a number a person relaxed it to, as acc's record of this one says.`, 'dim'),
+  ].join('\n'), record);
+  return 0;
+}
+
 function cmdGateList(o: Opts): number {
   const { paths, config, env, branch: here, task } = checkTarget(o);
   // With --task, the task's latest commit, wherever this is run from.
@@ -77,12 +131,25 @@ function cmdGateList(o: Opts): number {
   // Where the merge queue runs the full check, builders run the lighter ones (GH-73).
   const lighter = builderGatesFor(config, env.branch);
   const builder = requiredGates(config, env.branch, 'builder');
-  const gates = gatesFor(config).map((g) => ({ name: g.name, about: g.about, required: config.gates.required.includes(g.name), builder: builder.includes(g.name), heavy: g.heavy, receipt: receipts[g.name] ?? null }));
+  // A ratchet's floor (GH-99), as this checkout's floors file has it.
+  let floors: ReturnType<typeof readFloors> = {};
+  try {
+    floors = readFloors(paths.floors);
+  } catch {
+    // A broken floors file is the ratchet's own error, when it runs.
+  }
+  const floorOf = (name: string): string => {
+    const spec = config.gates.ratchets?.[name];
+    if (!spec) return '';
+    const v = valueOf(floors[name], spec.limit);
+    return v === null ? `; no ${spec.limit} yet` : `; ${spec.limit} ${num(v)}`;
+  };
+  const gates = gatesFor(config).map((g) => ({ name: g.name, about: g.about + floorOf(g.name), required: config.gates.required.includes(g.name), builder: builder.includes(g.name), heavy: g.heavy, receipt: receipts[g.name] ?? null }));
   out(o, () => gates.length
     ? [`${branch ?? 'HEAD'} at ${head.slice(0, 7)}, against ${env.name}`, '', table([['Gate', 'Required', ...(lighter ? ['Builder'] : []), 'Heavy', 'This commit', 'Checks'], ...gates.map((g) => [
       g.name, g.required ? 'yes' : '', ...(lighter ? [g.builder ? 'yes' : ''] : []), g.heavy ? 'yes' : '', g.receipt ? gateLabel(g.receipt.status).trimEnd() : tone('not run', 'dim'), g.about,
     ])]), ...(lighter ? ['', tone(`Builders run ${builder.join(', ')}, and acc done takes them. The required ones run once, in the merge queue, before the merge.`, 'dim')] : [])].join('\n')
-    : 'No gates. List commands under "gates.commands" in .acc/config.json, and the required ones under "gates.required".', { sha: head, env: env.branch, gates });
+    : 'No gates. List commands under "gates.commands" (or numbers that may only get better under "gates.ratchets") in .acc/config.json, and the required ones under "gates.required".', { sha: head, env: env.branch, gates });
   return 0;
 }
 
@@ -119,6 +186,8 @@ export const area: CommandArea = {
                                         The project's checks, and their results on this commit
   acc gate waive <gate>... --reason "<why>" [--task <id>]
                                         A person sets checks aside on this commit (or the task's), with a reason
+  acc gate relax <ratchet> --to <n> --reason "<why>" [--task <id>]
+                                        A person relaxes a ratchet's floor here (or in the task's worktree), with a reason
   acc drift <environment> [--manifest <path>] [--keep]
                                         What changed in an org since its branch; prints nothing if none`,
   },
@@ -127,6 +196,7 @@ export const area: CommandArea = {
     env: { type: 'string' },
     task: { type: 'string' },
     reason: { type: 'string' },
+    to: { type: 'string' },
     manifest: { type: 'string' },
     keep: { type: 'boolean', default: false },
   },
@@ -136,7 +206,9 @@ export const area: CommandArea = {
       if (sub === 'run') return cmdGateRun(o, names);
       if (sub === 'list') return cmdGateList(o);
       if (sub === 'waive') return cmdGateWaive(o, names);
-      throw new AccError('usage', 'acc gate run [<gate>...] | acc gate list | acc gate waive <gate>... --reason "<why>"');
+      if (sub === 'relax') return cmdGateRelax(o, names);
+      throw new AccError('usage', 'acc gate run [<gate>...] | acc gate list | acc gate waive <gate>... --reason "<why>" | acc gate relax <ratchet> --to <n> --reason "<why>"');
+
     },
     drift: (o, rest) => {
       if (!rest[0]) throw new AccError('usage', 'acc drift <environment>');

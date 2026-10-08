@@ -27,10 +27,40 @@ export interface Receipt {
   details?: Record<string, unknown>;
   /** Set when a person set the gate aside on this commit (D-031): who, why, and what it had been. */
   waived?: { by: string; reason: string; at: string; was: GateStatus | null; wasSummary: string | null };
+  /**
+   * Set when the receipt was carried from the commit before (GH-99): this commit only records the floors
+   * acc raised there, which that commit's own checks measured.
+   */
+  carried?: { from: string };
 }
 
-/** A skip satisfies a required gate: `lint` with no JavaScript changed has nothing to find, and a waived gate is a skip a person chose. */
-export const satisfies = (r: Pick<Receipt, 'status'> | null): boolean => r?.status === 'pass' || r?.status === 'skip';
+/**
+ * What a ratchet measured (GH-99), in its receipt's `details.ratchet`: its number, the floor (or ceiling) it
+ * was held to, the one on the environment's branch where this branch began, and the difference from that.
+ * `raised` is set when acc wrote a better floor into the task's worktree, which the builder still has to commit.
+ */
+export interface RatchetDetails {
+  label: string;
+  limit: 'floor' | 'ceiling';
+  value: number;
+  floor: number | null;
+  base: number | null;
+  diff: number | null;
+  raised?: { from: number | null; to: number };
+}
+
+/** A receipt's ratchet numbers, when it's a ratchet's and it measured one. */
+export function ratchetOf(r: Pick<Receipt, 'details'> | null | undefined): RatchetDetails | null {
+  const d = r?.details?.ratchet as Partial<RatchetDetails> | undefined;
+  return d && typeof d.value === 'number' && typeof d.label === 'string' && (d.limit === 'floor' || d.limit === 'ceiling') ? (d as RatchetDetails) : null;
+}
+
+/**
+ * A skip satisfies a required gate: `lint` with no JavaScript changed has nothing to find, and a waived gate
+ * is a skip a person chose. A ratchet whose better floor acc wrote doesn't, until that floor is committed
+ * and checked (GH-99).
+ */
+export const satisfies = (r: Pick<Receipt, 'status' | 'details'> | null): boolean => (r?.status === 'pass' || r?.status === 'skip') && !ratchetOf(r)?.raised;
 
 export function receiptPath(paths: RepoPaths, sha: string, gate: string): string {
   return join(paths.receipts, sha, `${gate}.json`);

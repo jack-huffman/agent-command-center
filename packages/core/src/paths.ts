@@ -25,6 +25,10 @@ export interface RepoPaths {
   packets: string;
   logs: string;
   config: string;
+  /** Each ratchet's floor or ceiling, committed with the branch (GH-99). */
+  floors: string;
+  /** Who relaxed a ratchet's floor, to what, and why: a person, always (GH-99). */
+  relaxed: string;
 }
 
 export function repoPaths(cwd: string, run: Runner): RepoPaths {
@@ -52,5 +56,7 @@ export function repoPaths(cwd: string, run: Runner): RepoPaths {
     packets: join(stateDir, 'packets'),
     logs: join(stateDir, 'logs'),
     config: join(root, '.acc', 'config.json'),
+    floors: join(root, '.acc', 'floors.json'),
+    relaxed: join(stateDir, 'relaxed.jsonl'),
   };
 }
