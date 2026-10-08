@@ -9,7 +9,7 @@ import { activeGhAccount, afterFullCheck, afterStepCheck, COMMANDS, contextKey, 
 import { needsTerminal } from './logic/runs.ts';
 import { shq } from './logic/shared.ts';
 import { parseOrgUrl } from '../../packages/core/src/onboarding/helpers.ts';
-import { sourceProblem } from '../../packages/core/src/template.ts';
+import { sourceProblem } from '../../packages/core/src/source.ts';
 import { type RunResult, runFile } from './run.ts';
 import type { Runs } from './runs.ts';
 import { exec } from './trackers.ts';

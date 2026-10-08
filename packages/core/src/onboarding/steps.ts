@@ -7,7 +7,8 @@ import { type DriftResult, driftReportPath } from '../drift.ts';
 import { parseJsonOutput } from '../exec.ts';
 import { gatesFor } from '../gates.ts';
 import { credentialHelper } from '../github.ts';
-import { parseSource, previewCommand, type ReadTemplate, readTemplate, templateDifferences } from '../template.ts';
+import { parseSource } from '../source.ts';
+import { previewCommand, type ReadTemplate, readTemplate, templateDifferences } from '../template.ts';
 import { orList } from '../trackers/types.ts';
 import {
   cached, fail, firstVersion, ghEnv, LICENSE_TO_TYPE, parseOrgUrl, pass, readText, SECRET_PATTERN, sfJson, skip, unknown, versionAtLeast,

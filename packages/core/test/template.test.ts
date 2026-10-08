@@ -7,7 +7,8 @@ import type { RunOptions, RunResult } from '../src/exec.ts';
 import { planInit, templateAccount } from '../src/init.ts';
 import { makeContext } from '../src/onboarding/helpers.ts';
 import { runSteps } from '../src/onboarding/steps.ts';
-import { describeTemplate, fetchTemplateText, loadTemplate, parseSource, parseTemplate, previewCommand, readTemplate, recordedSource, sourceProblem, type Template, templateDifferences, templateDigest } from '../src/template.ts';
+import { parseSource, recordedSource, sourceProblem } from '../src/source.ts';
+import { describeTemplate, fetchTemplateText, loadTemplate, parseTemplate, previewCommand, readTemplate, type Template, templateDifferences, templateDigest } from '../src/template.ts';
 import { bad, fakeRunner, gitIn, makeRepo, ok, sf, tempDir } from './support.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..');
