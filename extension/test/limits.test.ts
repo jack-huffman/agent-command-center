@@ -317,6 +317,6 @@ test('the limits are read only while Settings shows, or a task is held: never on
   assert.deepEqual(page('settings').settings.limits?.caps.map((c) => c.value), ['3', '6']);
   assert.equal(reads, 1);
   // Arriving at Settings posts the page again, so it reads them; a held task's row reads only this machine's total.
-  assert.match(readFileSync(join(root, 'src', 'panels.ts'), 'utf8'), /this\.remember\(m\.section\);\n\s+\/\/[^\n]*\n\s+if \(m\.section === 'settings'\) this\.post\(\);/);
+  assert.match(readFileSync(join(root, 'src', 'panels.ts'), 'utf8'), /this\.remember\(m\.section\);\n\s+\/\/[^\n]*\n\s+if \(m\.section === 'settings'\) \{ this\.arrived\(\); this\.post\(\); \}/);
   assert.match(readFileSync(join(root, 'src', 'task-rows.ts'), 'utf8'), /ledger\.tasks\.some\(\(t\) => t\.state === 'todo' && t\.held\) \? hub\.limits\(\)\?\.machine : null/);
 });

@@ -174,8 +174,8 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     subscriptions: [] as unknown[],
     asAbsolutePath: (p: string) => join(extDir, p),
     extensionUri: { fsPath: extDir, toString: () => `file://${extDir}` },
-    // Fresh machine results for this folder's profile, so the test doesn't call slow machine CLIs.
-    globalState: memento({ 'acc.welcomed': true, 'acc.machineItems': { at: Date.now(), profile: 'generic', items: [{ id: 'A1.git', part: 'machine', title: 'git', status: 'pass', detail: 'git 2.54.0' }] } }),
+    // Fresh machine results for this folder's profile, checked by this version (GH-114), so the test doesn't call slow machine CLIs.
+    globalState: memento({ 'acc.welcomed': true, 'acc.machineItems': { at: Date.now(), profile: 'generic', version: (JSON.parse(readFileSync(join(extDir, 'package.json'), 'utf8')) as { version: string }).version, items: [{ id: 'A1.git', part: 'machine', title: 'git', status: 'pass', detail: 'git 2.54.0' }] } }),
     workspaceState: memento(),
     // Tracker sign-ins, none to start with, and the keys asked for; a change from another window is listened for (GH-79).
     secrets: {
@@ -483,6 +483,10 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     type Themed = { model: { section: string; settings: { theme: string } } };
     const lastState = (t: (typeof panels)[number]) => (t.posted.filter((x) => (x as Themed).model).at(-1) as Themed).model;
     assert.deepEqual([lastState(tab).section, lastState(tab).settings.theme], ['settings', 'vscode']);
+    // About (GH-114): the extension's own version, from its package.json, and Check now, which the page may ask for.
+    type WithAbout = { settings: { about: { rows: { key: string; look: { label: string } }[]; release: { check: { command: string } } } | null } };
+    const about = (lastState(tab) as unknown as WithAbout).settings.about!;
+    assert.deepEqual([about.rows.find((r) => r.key === 'extension')!.look.label, about.release.check.command], [(JSON.parse(readFileSync(join(extDir, 'package.json'), 'utf8')) as { version: string }).version, 'acc.about.check']);
     const executed = calls.executed.length;
     tab.receive!({ type: 'refresh' });
     assert.deepEqual(calls.executed.slice(executed).map(([id]) => id), ['acc.settings.refresh']);

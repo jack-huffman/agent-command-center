@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { Hub } from './hub.ts';
@@ -25,7 +25,8 @@ import { accShellCommand, Questions, sessionSettings } from './questions.ts';
 import { Runs } from './runs.ts';
 import { accRunner, runFile } from './run.ts';
 import { claudeProjectsDir, savedFolder } from './transcript.ts';
-import { Setup } from './setup.ts';
+import { extensionVersion, Setup } from './setup.ts';
+import { About } from './about.ts';
 import { Sidebar } from './sidebar.ts';
 import { RepoIdentity } from './identity.ts';
 import { TicketPanels, type UpdateActions } from './ticket.ts';
@@ -332,7 +333,17 @@ export function activate(context: vscode.ExtensionContext): void {
     log: (line) => setup.log.warn(line),
     exec,
   });
+  // Settings' About (GH-114): the versions, read fresh, and the latest release, read as gh's active account.
+  const about = new About({
+    extension: () => extensionVersion(context.asAbsolutePath('package.json')),
+    acc: () => accRunner(accScript)(['--version'], homedir()),
+    run: (cmd, args, env) => runFile(cmd, args, homedir(), env),
+    now: () => Date.now(),
+    changed: () => panels.post(),
+    env: process.env,
+  });
   const panels = new Panels(context, hub, setup, resolve, (visible) => pagePolls(visible), {
+    about,
     connect: { model: () => connect.model(), close: () => connect.close() },
     boards: (root) => trackers.boardStates(root),
     identity: (root) => identity.card(root),
@@ -420,7 +431,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Each area registers its commands, and takes the page's messages that are its own (D-099).
   const parts: Parts = {
-    vscode, hub, setup, runs, panels, tickets, pages, trackers, identity, connect, slack, autopilot, sidebar, accScript,
+    vscode, hub, setup, runs, panels, tickets, pages, trackers, identity, connect, slack, autopilot, sidebar, about, accScript,
     reg, subscribe: (d) => context.subscriptions.push(d), regNode, resolve, accSays, answer, answerAnalysis, updates, showRun,
     receive: (type, fn) => panels.take(type, fn),
   };

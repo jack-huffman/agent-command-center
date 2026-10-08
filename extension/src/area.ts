@@ -6,6 +6,7 @@
  */
 import type * as vscode from 'vscode';
 import type { Answer } from '../../packages/core/src/questions.ts';
+import type { About } from './about.ts';
 import type { AgentPages } from './activity.ts';
 import type { AutopilotHost } from './autopilot.ts';
 import type { ConnectSession } from './connect.ts';
@@ -42,6 +43,8 @@ export interface Parts {
   autopilot: AutopilotHost;
   /** What the sidebar's commands share: the hub, acc, terminals and the helpers. */
   sidebar: Sidebar;
+  /** Settings' About (GH-114): the versions, and the latest release. */
+  about: About;
   /** acc's bundle, which the extension runs itself. */
   accScript: string;
   /** Registers a command. regNode turns a row's menu context into its node first. */

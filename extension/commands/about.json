@@ -1,0 +1,8 @@
+[
+  {
+    "command": "acc.about.check",
+    "title": "Check now for a newer release of Agent Command Center",
+    "category": "Agent Command Center",
+    "icon": "$(refresh)"
+  }
+]

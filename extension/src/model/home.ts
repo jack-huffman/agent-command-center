@@ -20,6 +20,7 @@ import { type AttentionItem, mergeQueues, needsYouCount, type OverviewModel, que
 import { type QuestionCard, questionCards } from './questions.ts';
 import { runCard, type RunCard, type RunInput } from './runs.ts';
 import { limitsModel } from './limits.ts';
+import { type AboutFacts, aboutModel } from './about.ts';
 import { settingsModel, type SettingsModel, type ThemeChoice } from './settings.ts';
 import { setupModel, type SetupModel } from './setup.ts';
 import { type Action, type HomeSection, type HubLike, LOOK, nameOf, type ProjectLike, type Ref, sessionKey } from './shared.ts';
@@ -84,6 +85,8 @@ export interface HomeInput {
   now?: number;
   /** The Command Center's theme, as Settings keeps it on this machine (GH-109). Match VSCode unless said. */
   theme?: ThemeChoice;
+  /** What Settings' About has read: the versions and the latest release (GH-114). */
+  about?: AboutFacts | null;
 }
 
 /** What homeModel has worked out, for each area's part of the page. Areas add to attention and ready as they go. */
@@ -136,7 +139,7 @@ export function homeModel(i: HomeInput): HomeModel {
   const setup = setupModel(i.setup.items, i.setup.confirmed);
   // Limits read every repo's ledger acc noted on this machine, so only while Settings shows (GH-111).
   const limits = i.section === 'settings' ? hub.limits?.() ?? null : null;
-  const settings = settingsModel({ theme: i.theme ?? 'vscode', projects: hub.projects, setup: i.setup.items, limits: limits ? limitsModel(limits, billingLook(i.setup.items)) : null, boards: i.boards });
+  const settings = settingsModel({ theme: i.theme ?? 'vscode', projects: hub.projects, setup: i.setup.items, limits: limits ? limitsModel(limits, billingLook(i.setup.items)) : null, boards: i.boards, about: i.about ? aboutModel(i.about, i.now ?? Date.now()) : null });
   const questions = questionCards(hub);
   const asked = new Set(questions.map((q) => q.sessionId));
   const c: HomeContext = { i, hub, tasks, agents, worktrees, environments, setup, questions, asked, linked: new Set(), rows: hub.projects.flatMap((p) => hub.taskRows(p.root)), attention: [], ready: [] };

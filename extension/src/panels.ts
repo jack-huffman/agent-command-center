@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
 import type { Hub } from './hub.ts';
 import { FinishedJobs } from './progress.ts';
+import type { AboutFacts } from './model/about.ts';
 import type { BoardInput } from './model/boards.ts';
 import type { ConnectModel } from './model/connect.ts';
 import { type FromWebview, isFromWebview, PAGE_COMMANDS } from './model/messages.ts';
@@ -30,6 +31,8 @@ export interface BoardDeps {
   slack?: { card(): SlackCard | null };
   /** Whether autopilot runs for a project's repo in this window, somewhere else, or not at all (D-064), so its merge queue moves (GH-73). */
   autopilot?(root: string): 'on' | 'elsewhere' | null;
+  /** Settings' About (GH-114): what it knows, and Settings arrived at, which reads the versions again. */
+  about?: { facts(): AboutFacts; arrive(): Promise<void> };
 }
 
 export const isWebLink = (url: string): boolean => /^(https?:|mailto:)/i.test(url);
@@ -173,6 +176,8 @@ export class Panels implements vscode.Disposable {
     this.opening = open ?? null;
     if (this.panel) {
       this.panel.reveal();
+      // About starts reading first, so the jump is the last thing posted, and says it's reading.
+      this.arrived();
       this.post(true);
       return;
     }
@@ -184,7 +189,9 @@ export class Panels implements vscode.Disposable {
     panel.webview.onDidReceiveMessage((m: unknown) => this.receive(m));
     panel.onDidChangeViewState((e) => {
       this.onVisible(e.webviewPanel.visible);
-      if (e.webviewPanel.visible) this.post();
+      if (!e.webviewPanel.visible) return;
+      this.arrived();
+      this.post();
     });
     panel.onDidDispose(() => {
       this.panel = null;
@@ -227,6 +234,11 @@ export class Panels implements vscode.Disposable {
     return this.section;
   }
 
+  /** Settings is on screen: About reads the versions again, and looks for a release when one is due (GH-114). */
+  private arrived(): void {
+    if (this.section === 'settings') void this.deps.about?.arrive();
+  }
+
   private remember(section: HomeSection): void {
     this.section = section;
     void this.ctx.workspaceState.update('acc.home.section', section);
@@ -238,7 +250,7 @@ export class Panels implements vscode.Disposable {
       setup: { items: this.setup.results(), confirmed: this.setup.allConfirmed() }, runs: this.deps.runs(),
       edited: (root, id, replaces) => this.deps.edited(root, id, replaces), connect: this.deps.connect.model(), slack: this.deps.slack?.card() ?? null,
       whereView: this.whereView, theme: this.tab?.theme ?? currentTheme(),
-      finished: this.finished, autopilot: (root) => this.deps.autopilot?.(root) ?? null, now: Date.now(),
+      finished: this.finished, autopilot: (root) => this.deps.autopilot?.(root) ?? null, now: Date.now(), about: this.deps.about?.facts() ?? null,
     });
   }
 
@@ -257,11 +269,11 @@ export class Panels implements vscode.Disposable {
 
   private receive(m: unknown): void {
     if (!isFromWebview(m)) return;
-    if (m.type === 'ready') { this.tab?.ready(); return this.post(true); }
+    if (m.type === 'ready') { this.tab?.ready(); this.arrived(); return this.post(true); }
     if (m.type === 'nav') {
       this.remember(m.section);
-      // Settings' limits are read only while it shows (GH-111), so arriving there reads them.
-      if (m.section === 'settings') this.post();
+      // Settings' limits are read only while it shows (GH-111), so arriving there reads them, and About's versions (GH-114).
+      if (m.section === 'settings') { this.arrived(); this.post(); }
       return;
     }
     if (m.type === 'agents-where') {

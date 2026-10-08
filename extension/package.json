@@ -30,6 +30,12 @@
   "contributes": {
     "commands": [
       {
+        "command": "acc.about.check",
+        "title": "Check now for a newer release of Agent Command Center",
+        "category": "Agent Command Center",
+        "icon": "$(refresh)"
+      },
+      {
         "command": "acc.agent.new",
         "title": "Start a background agent…",
         "category": "Agent Command Center",

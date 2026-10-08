@@ -44,7 +44,7 @@ test('the theme is a VSCode setting kept on this machine, Match VSCode until cha
 test('Settings is a section like the others, last in the rail with a gear', () => {
   assert.deepEqual([VIEW_KINDS.at(-1), VIEW_TITLES.settings, HOME_SECTIONS.includes('settings')], ['settings', 'Settings', true]);
   const m = home();
-  assert.deepEqual(m.nav.at(-1), { section: 'settings', label: 'Settings', icon: 'settings-gear', count: null, attention: false, hint: 'Appearance, how agents run, limits and checks, trackers and sign-ins, and where each other setting lives' });
+  assert.deepEqual(m.nav.at(-1), { section: 'settings', label: 'Settings', icon: 'settings-gear', count: null, attention: false, hint: 'Appearance, how agents run, limits and checks, trackers and sign-ins, the versions, and where each other setting lives' });
   assert.deepEqual(m.nav.map((n) => n.section), ['overview', 'tasks', 'agents', 'worktrees', 'environments', 'setup', 'settings']);
   const orders = AREAS.flatMap((a) => (a.home ? [a.home.order] : []));
   const own = settingsArea.home!.order;
@@ -62,7 +62,7 @@ test('each part of Settings is built here or says where its settings live today,
   const m = home().settings;
   assert.deepEqual(m.parts.map((p) => p.id), [...SETTINGS_PARTS]);
   assert.deepEqual(SETTINGS_PARTS, ['appearance', 'agents', 'limits', 'trackers', 'slack', 'github', 'page', 'about']);
-  assert.deepEqual(m.parts.filter((p) => p.built).map((p) => p.id), ['appearance', 'agents', 'limits', 'trackers'], 'Appearance, How agents run, Limits and checks (GH-111), and Trackers and sign-ins (GH-112) are built');
+  assert.deepEqual(m.parts.filter((p) => p.built).map((p) => p.id), ['appearance', 'agents', 'limits', 'trackers', 'about'], 'Appearance, How agents run, Limits and checks (GH-111), Trackers and sign-ins (GH-112) and About (GH-114) are built');
   for (const p of m.parts) {
     assert.ok(p.title && p.icon && p.summary, `${p.id} has a title, an icon and a summary`);
     assert.equal(!!p.today, !p.built, `${p.id}: ${p.built ? 'built, so nothing about today' : 'says where its settings live today'}`);
@@ -151,8 +151,8 @@ test('How agents run is a built part, or says no project is onboarded yet, with 
   const none = part([]);
   assert.deepEqual([none.built, none.links], [true, [{ label: 'Open Setup', icon: 'checklist', section: 'setup' }]]);
   assert.match(none.details[0]!, /^No project in this workspace is onboarded yet\./);
-  // The Command Center passes the hub's projects, Setup's checks, the limits while Settings shows (GH-111) and what the trackers' boards know.
-  assert.match(source('src', 'model', 'home.ts'), /settingsModel\(\{ theme: i\.theme \?\? 'vscode', projects: hub\.projects, setup: i\.setup\.items, limits: .*, boards: i\.boards \}\)/);
+  // The Command Center passes the hub's projects, Setup's checks, the limits while Settings shows (GH-111), what the trackers' boards know, and what About read (GH-114).
+  assert.match(source('src', 'model', 'home.ts'), /settingsModel\(\{ theme: i\.theme \?\? 'vscode', projects: hub\.projects, setup: i\.setup\.items, limits: .*, boards: i\.boards, about: .* \}\)/);
 });
 
 test('each Change… asks acc through a command the page may ask for, named for what and whose it changes (D-064)', () => {
