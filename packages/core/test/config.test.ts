@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { autoMergeFor, autoMergeOn, branchFor, builderGatesFor, CONFIG_KEYS, defaultEnvironment, isTestGate, keyShown, loadConfig, parseConfig, requiredGates, saveTracker, skippedOnRoute, trackerForKey, UNREAD_KEYS, VALIDATOR_ONLY, withTracker, writeConfig } from '../src/config.ts';
+import { autoMergeFor, autoMergeOn, branchFor, builderGatesFor, CONFIG_KEYS, defaultEnvironment, fullGates, isTestGate, keyShown, loadConfig, parseConfig, requiredGates, saveTracker, skippedOnRoute, trackerForKey, UNREAD_KEYS, VALIDATOR_ONLY, withTracker, writeConfig } from '../src/config.ts';
 import { GENERIC_CONFIG, SF_CONFIG, tempDir } from './support.ts';
 
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x));
@@ -159,7 +159,8 @@ test('this repo lists its decision log as append-only, and lets autopilot merge 
   assert.equal(config.autonomy, 'review');
   assert.equal(autoMergeFor(config, 'main'), true);
   // Its builders run the typecheck and the tests near what they changed; the full check runs in the merge queue (GH-73).
-  assert.deepEqual([config.gates.builder, config.gates.required, requiredGates(config, 'main', 'builder')], [['typecheck', 'near-tests'], ['check'], ['typecheck', 'near-tests']]);
+  // Both have stray-files, which its config doesn't name (GH-103).
+  assert.deepEqual([config.gates.builder, config.gates.required, requiredGates(config, 'main', 'builder'), requiredGates(config, 'main', 'merge')], [['typecheck', 'near-tests'], ['check'], ['typecheck', 'near-tests', 'stray-files'], ['check', 'stray-files']]);
   assert.deepEqual(Object.keys(config.gates.commands).sort(), ['check', 'near-tests', 'typecheck']);
   // Its full check and the tests near a change run tests, so their receipts count what ran (GH-100); the typecheck doesn't.
   assert.deepEqual(['check', 'near-tests', 'typecheck'].map((g) => isTestGate(config, g)), [true, true, false]);
@@ -168,7 +169,7 @@ test('this repo lists its decision log as append-only, and lets autopilot merge 
 test('gates.builder: a list of gate names, kept as written, for builders only where the merge queue runs the full check (GH-73)', () => {
   const raw = { ...clone(GENERIC_CONFIG), autonomy: 'review', autopilot: { autoMerge: true }, gates: { required: ['check'], builder: ['typecheck'], commands: { check: 'npm run check', typecheck: 'tsc' } } };
   const c = parseConfig(raw).config!;
-  assert.deepEqual([c.gates.builder, builderGatesFor(c, 'main'), requiredGates(c, 'main', 'builder'), requiredGates(c, 'main', 'merge')], [['typecheck'], true, ['typecheck'], ['check']]);
+  assert.deepEqual([c.gates.builder, builderGatesFor(c, 'main'), requiredGates(c, 'main', 'builder'), requiredGates(c, 'main', 'merge')], [['typecheck'], true, ['typecheck', 'stray-files'], ['check', 'stray-files']]);
   assert.equal(parseConfig({ ...clone(GENERIC_CONFIG) }).config!.gates.builder, undefined, 'left out: builders run the required checks');
   assert.match(errorsOf({ ...raw, gates: { ...raw.gates, builder: 'typecheck' } }), /"gates\.builder" must be a list of gate names/);
   assert.match(errorsOf({ ...raw, gates: { ...raw.gates, builder: [''] } }), /"gates\.builder" must be a list of gate names/);
@@ -188,6 +189,56 @@ test('gates.tests: a list of gate names whose receipts count the tests they ran,
   const dir = tempDir();
   writeConfig(join(dir, 'config.json'), c);
   assert.deepEqual(loadConfig(join(dir, 'config.json')).config.gates.tests, ['check'], 'written back as it was');
+});
+
+test('stray-files is required in both profiles and both scopes with nothing set, and strayFiles.required: false turns it off (GH-103)', () => {
+  const lighter = { autonomy: 'review', autopilot: { autoMerge: true }, gates: { required: ['check'], builder: ['typecheck'], commands: { check: 'x', typecheck: 'y' } } };
+  for (const raw of [clone(GENERIC_CONFIG), { ...clone(GENERIC_CONFIG), ...lighter }, clone(SF_CONFIG)]) {
+    const c = parseConfig(raw).config!;
+    const env = defaultEnvironment(c).branch;
+    assert.deepEqual(c.strayFiles, { required: true, allow: [], data: [] });
+    assert.ok(requiredGates(c, env, 'builder').includes('stray-files'), `${c.profile} builder`);
+    assert.ok(requiredGates(c, env, 'merge').includes('stray-files'), `${c.profile} merge`);
+    assert.ok(fullGates(c).includes('stray-files'));
+    const off = parseConfig({ ...raw, strayFiles: { required: false } }).config!;
+    assert.ok(![...requiredGates(off, env, 'builder'), ...requiredGates(off, env, 'merge'), ...fullGates(off)].includes('stray-files'), `${c.profile} off`);
+  }
+  assert.deepEqual(fullGates(parseConfig(clone(SF_CONFIG)).config!), ['format', 'validate', 'stray-files'], 'after the ones the project names');
+  assert.deepEqual(fullGates(parseConfig({ ...clone(GENERIC_CONFIG), gates: { required: ['stray-files', 'check'] } }).config!), ['stray-files', 'check'], 'named once');
+});
+
+test('strayFiles: allow and data are repo paths, required a boolean, data a warning outside Salesforce, and a team template can\'t set it (GH-103)', () => {
+  const sf = parseConfig({ ...clone(SF_CONFIG), strayFiles: { allow: ['LICENSE', 'fixtures/'], data: ['data/samples'] } });
+  assert.deepEqual([sf.errors, sf.warnings, sf.config!.strayFiles], [[], [], { required: true, allow: ['LICENSE', 'fixtures/'], data: ['data/samples'] }]);
+  assert.match(errorsOf({ ...clone(GENERIC_CONFIG), strayFiles: { allow: ['/etc/passwd'] } }), /"strayFiles\.allow" must be a list of paths inside the repo/);
+  assert.match(errorsOf({ ...clone(GENERIC_CONFIG), strayFiles: { allow: ['../x'] } }), /"strayFiles\.allow" must be a list of paths inside the repo/);
+  assert.match(errorsOf({ ...clone(SF_CONFIG), strayFiles: { data: 'exports' } }), /"strayFiles\.data" must be a list of folders inside the repo/);
+  assert.match(errorsOf({ ...clone(GENERIC_CONFIG), strayFiles: { required: 'no' } }), /"strayFiles\.required" must be true or false/);
+  assert.match(errorsOf({ ...clone(GENERIC_CONFIG), strayFiles: ['LICENSE'] }), /"strayFiles" must be an object/);
+  const generic = parseConfig({ ...clone(GENERIC_CONFIG), strayFiles: { data: ['exports'] } });
+  assert.deepEqual([generic.errors, generic.warnings], [[], ['"strayFiles.data" applies only to a Salesforce project, so it\'s ignored.']]);
+});
+
+test('code reads the required checks through fullGates and requiredGates, never gates.required itself, but where a template is compared with what the project sets (GH-103)', () => {
+  const root = join(import.meta.dirname, '..', '..', '..');
+  const files: string[] = [];
+  const walk = (rel: string) => {
+    for (const e of readdirSync(join(root, rel), { withFileTypes: true })) {
+      const r = `${rel}/${e.name}`;
+      if (e.isDirectory()) walk(r);
+      else if (/\.ts$/.test(e.name)) files.push(r);
+    }
+  };
+  for (const pkg of readdirSync(join(root, 'packages'))) walk(`packages/${pkg}/src`);
+  walk('extension/src');
+  assert.ok(files.length > 50, `${files.length} files scanned`);
+  // fullGates's own read, and the exceptions, with how far each reaches: in template.ts, B0.template's
+  // comparison of the project's raw list with a template's, where stray-files would always differ, and the
+  // template's own list as it's shown; and Settings' picker for the required checks, which edits the
+  // project's own list (GH-111).
+  const EXCEPTIONS: Record<string, number> = { 'packages/core/src/config.ts': 1, 'packages/core/src/template.ts': 2, 'extension/src/limits.ts': 1 };
+  const reads = (f: string) => readFileSync(join(root, f), 'utf8').split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l) && /\.gates\.required\b/.test(l)).length;
+  assert.deepEqual(Object.fromEntries(files.map((f) => [f, reads(f)]).filter(([, n]) => n)), EXCEPTIONS);
 });
 
 test('autopilot.autoMerge: off unless it\'s true, a boolean, never in a Salesforce project, and never into a protected environment (GH-67)', () => {
@@ -410,6 +461,8 @@ const EVERY_KEY = {
   worktrees: { root: '.claude/worktrees', setup: ['npm ci'] },
   gates: { required: ['check'], commands: { check: 'npm run check', typecheck: 'npm run typecheck' }, heavy: ['check'], severity: 3, builder: ['typecheck'], tests: ['check'] },
   secretScan: { paths: ['.'], exclude: ['fixtures'] },
+  // A generic project's data folders are ignored, with a warning when it names any.
+  strayFiles: { required: true, allow: ['LICENSE', 'fixtures'], data: [] },
   analysis: { required: true },
   autopilot: { appendOnly: ['docs/DECISIONS.md'], autoMerge: true },
   dispatch: { shared: ['README.md'] },

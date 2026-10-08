@@ -59,7 +59,7 @@ test('every section of the page, and a ticket, has sample data built by the real
   assert.deepEqual([(sampleModel('ticket-track') as TicketModel).trackable, (sampleModel('ticket-track') as TicketModel).tracking], [true, true]);
   // A ticket's checks say what their tests ran, and one needs a person (GH-100).
   assert.deepEqual((sampleModel('ticket') as TicketModel).acc!.checks.filter((c) => c.counts).map((c) => [c.gate, c.look.label, c.counts]), [['validate', 'fail', '21 run, 4 failed, 0 skipped'], ['flow-tests', 'needs a person', '38 run, 2 skipped']]);
-  assert.deepEqual((sampleModel('ticket') as TicketModel).acc!.checks.slice(-2).map((c) => [c.gate, c.summary]), [['flow-tests', '2 skipped, up from 0 on 4f2a9c1: OrderFlowTest.discount, OrderFlowTest.tax newly skipped.'], ['lwc-tests', 'Not run on this commit']], 'the hold sits beside a check not run on this commit');
+  assert.deepEqual((sampleModel('ticket') as TicketModel).acc!.checks.slice(-3, -1).map((c) => [c.gate, c.summary]), [['flow-tests', '2 skipped, up from 0 on 4f2a9c1: OrderFlowTest.discount, OrderFlowTest.tax newly skipped.'], ['lwc-tests', 'Not run on this commit']], 'the hold sits beside a check not run on this commit, with stray-files after them (GH-103)');
   // A ticket being built, one whose analysis has questions, and one too big for one task (D-052).
   assert.deepEqual(['ticket', 'ticket-questions', 'ticket-split'].map((k) => (sampleModel(k as never) as TicketModel).analysis?.look.label), ['Analyzed before the build', '2 questions for you', 'Too big for one task']);
 });

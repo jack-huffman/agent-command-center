@@ -1,6 +1,6 @@
 // acc's Checks commands: gate run, list and waive, and drift.
 
-import { AccError, type ApexTest, autoMergeFor, builderGatesFor, type Config, drift, gatesFor, gateTarget, loadConfig, readLedger, receiptsAt, requiredGates, run, runGates, satisfies, setBuilderGates, setRequiredGates, testsText, waiveGates } from '../../../core/src/index.ts';
+import { AccError, type ApexTest, autoMergeFor, builderGatesFor, type Config, drift, fullGates, gatesFor, gateTarget, loadConfig, readLedger, receiptsAt, requiredGates, run, runGates, satisfies, setBuilderGates, setRequiredGates, STRAY_FILES, testsText, waiveGates } from '../../../core/src/index.ts';
 import { gateLabel, table, tone } from '../format.ts';
 import { actorFrom, type CommandArea, noAgent, now, type Opts, out, project } from '../shared.ts';
 
@@ -85,7 +85,8 @@ function cmdGateList(o: Opts): number {
   // Where the merge queue runs the full check, builders run the lighter ones (GH-73).
   const lighter = builderGatesFor(config, env.branch);
   const builder = requiredGates(config, env.branch, 'builder');
-  const gates = gatesFor(config).map((g) => ({ name: g.name, about: g.about, required: config.gates.required.includes(g.name), builder: builder.includes(g.name), heavy: g.heavy, receipt: receipts[g.name] ?? null }));
+  const full = fullGates(config);
+  const gates = gatesFor(config).map((g) => ({ name: g.name, about: g.about, required: full.includes(g.name), builder: builder.includes(g.name), heavy: g.heavy, receipt: receipts[g.name] ?? null }));
   // What each check's tests ran on this commit, where any counted (GH-100).
   const counted = gates.some((g) => g.receipt && testsText(g.receipt));
   out(o, () => gates.length
@@ -105,12 +106,13 @@ function cmdGateRequired(o: Opts, names: string[]): number {
   const show = (set: boolean) => {
     const { config } = loadConfig(paths.config);
     const queue = queueEnvs(config);
-    const required = config.gates.required;
+    // What every task must pass, stray-files with them unless it's off (GH-103).
+    const required = fullGates(config);
     out(o, () => [
       required.length ? `${set ? 'Required checks are now' : 'Required checks'}: ${required.join(', ')}.` : 'No required checks: acc done takes any commit.',
       queue.length && required.length ? `Where the merge queue runs (${queue.join(', ')}), they run once in it, before each merge${config.gates.builder?.length ? `, and builders run ${config.gates.builder.join(', ')}` : ''}.` : '',
       set ? 'Set in .acc/config.json: commit it to share it.' : '',
-    ].filter(Boolean).join(' '), { required, gates: gatesFor(config).map((g) => g.name), queue });
+    ].filter(Boolean).join(' '), { required, gates: gatesFor(config).map((g) => g.name).filter((g) => g !== STRAY_FILES), queue });
   };
   if (!names.length) {
     show(false);
@@ -132,7 +134,8 @@ function cmdGateBuilder(o: Opts, names: string[]): number {
     const { config } = loadConfig(paths.config);
     const queue = queueEnvs(config);
     const builder = config.gates.builder?.length ? config.gates.builder : null;
-    const required = config.gates.required.join(', ') || 'none';
+    const full = fullGates(config);
+    const required = full.join(', ') || 'none';
     out(o, () => [
       !builder
         ? `${set ? 'Builders now run' : 'Builders run'} the required checks (${required}): no lighter ones are named.`
@@ -140,7 +143,7 @@ function cmdGateBuilder(o: Opts, names: string[]): number {
           ? `${set ? 'Builders now run' : 'Builders run'} ${builder.join(', ')} where the merge queue runs (${queue.join(', ')}), and the required checks (${required}) run once in it, before each merge.`
           : `gates.builder names ${builder.join(', ')}${set ? ' now' : ''}, but no environment's pull requests go through the merge queue (auto-merge, under autonomy review), so builders run the required checks (${required}).`,
       set ? 'Set in .acc/config.json: commit it to share it.' : '',
-    ].filter(Boolean).join(' '), { builder, required: config.gates.required, queue, gates: gatesFor(config).map((g) => g.name) });
+    ].filter(Boolean).join(' '), { builder, required: full, queue, gates: gatesFor(config).map((g) => g.name).filter((g) => g !== STRAY_FILES) });
   };
   if (!names.length && o.none !== true) {
     show(false);

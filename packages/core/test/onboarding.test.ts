@@ -140,7 +140,7 @@ test('a fully set-up Salesforce project passes every check that can be automated
   assert.equal(r['B6.org-match']!.detail, 'production → acme, uat → acme--uat, dev → acme--dev');
   assert.equal(r['A4.plugin']!.detail, 'acc 0.35.0, for every Claude Code session.');
   assert.equal(r['B11.drift']!.status, 'pass');
-  assert.equal(r['B13.gate-tools']!.detail, 'Ready: format, validate.');
+  assert.equal(r['B13.gate-tools']!.detail, 'Ready: format, validate, stray-files.');
   assert.equal(r['B14.tickets']!.detail, 'Tickets come from Jira ACME on acme.atlassian.net.');
 });
 

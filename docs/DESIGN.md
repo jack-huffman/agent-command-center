@@ -210,6 +210,7 @@ doesn't know, at any level (GH-107).
 | `worktrees.setup` | Commands run in each new task worktree, in order, once it's made and `node_modules` is linked in from the main checkout, such as `npm ci`. One that fails stops the dispatch |
 | `gates` | Which checks are required, plus per-check overrides ([section 9](#9-gates-and-receipts)). `gates.required` names the checks a commit needs before review and landing, and `gates.commands` gives each check its command. `gates.heavy` names those that take the machine-wide slot, one at a time across every repo (D-024); left out, `build`, `test` and `check`, or in Salesforce `static`, `lwc-tests` and `validate`. `gates.severity` is the Code Analyzer level that fails `static`, from 1 (only the worst problems) to 5 (everything), default 2. `gates.builder` names a builder's lighter checks, where the merge queue runs the required ones. `acc gate required` and `acc gate builder` change the two lists, as Settings does (GH-111). `gates.tests` names the checks that run tests, besides `test` and Salesforce's `lwc-tests`: their receipts count what ran, and one that ran none needs a person (GH-100) |
 | `secretScan.paths`, `secretScan.exclude` | Where setup's B3.secrets step looks for credentials in tracked files, and what it skips there. By default the whole repo, or in Salesforce `force-app`, `config` and `scripts`, skipping nothing |
+| `strayFiles.required`, `strayFiles.allow`, `strayFiles.data` | The built-in `stray-files` check ([section 9](#9-gates-and-receipts), GH-103). It's required, for builders and the merge queue, unless `strayFiles.required` is `false`. `strayFiles.allow` lists files, or folders, a change may add that it would fail, such as `LICENSE`. In Salesforce, `strayFiles.data` lists folders where data files (`.csv`, `.xls`, `.xlsx`, `.eml`) belong. Each is a path inside the repo, with no globs; left out, there are none. It's read from the checked commit's own config |
 | `analysis.required` | Whether a task needs an analysis before it's built (D-052). Left out, a Salesforce project's do and a generic one's don't |
 | `template` | The team template the project was started from, written by `acc init --from`: its `name`, its `source` (a GitHub file URL, `<git-url>#<path>`, or a path inside the repo, under `~/`, or an absolute path elsewhere) and its `digest` (`sha256:` of its JSON with sorted keys). Setup's B0.template step says when the template has changed and the project now differs; nothing re-applies it ([docs/TEMPLATES.md](TEMPLATES.md), D-097) |
 
@@ -549,10 +550,28 @@ since the environment's branch), whether it's required, and whether it's heavy.
 **Generic profile.** `format`, `lint`, `test` and `build` run the commands in
 config.
 
+**Both profiles: `stray-files`** (GH-103). A built-in check that runs nothing
+but git. It fails a change that adds a log, temp file or merge leftover
+(`*.log`, `*.tmp`, `*.orig`, `*.rej`, `.DS_Store`, at any depth), a new file at
+the repo root, or a file whose committed blob is over 1 MB. In Salesforce it
+also fails a data file (`.csv`, `.xls`, `.xlsx`, `.eml`) outside the folders
+`strayFiles.data` lists. Only the files the change adds count, never ones
+already on the environment's branch, and a rename's new path is added. A path
+or folder in `strayFiles.allow` passes every rule. The allowances come from the
+checked commit's own `.acc/config.json`, so a builder and the merge queue agree,
+and a listing shows in the pull request's diff. The failure names each file
+with the rule it broke, and the fix: `git rm --cached <file>` and add it to
+`.gitignore`, or list it under `strayFiles`. A change that adds nothing
+records `skip`; a generic repo with no environment branch to compare with
+records `error`. It's required in both scopes, a builder's and the merge
+queue's, unless `strayFiles.required` is `false`; `gates.required` needn't name
+it. A `gates.commands` entry named `stray-files` replaces it.
+
 **Salesforce profile:**
 
 | Gate | Runs | Required |
 |---|---|---|
+| `stray-files` | No logs, temp files, new root files, files over 1 MB or data exports added, as above | yes, unless `strayFiles.required` is `false` |
 | `format` | `prettier --check` on changed Apex (`.cls`, `.trigger`) and LWC code (`.js`, `.html`, `.css`). Never metadata XML (D-025) | yes |
 | `lint` | ESLint on changed LWC and Aura JavaScript | when any changed |
 | `static` | `sf code-analyzer run` on changed files. Fails at severity 2 or worse, which is configurable | yes |

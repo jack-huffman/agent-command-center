@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { type Config, type GateScope, requiredGates } from './config.ts';
+import { type Config, fullGates, type GateScope, requiredGates } from './config.ts';
 import type { Runner } from './exec.ts';
 import type { Hooks, Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
@@ -122,9 +122,10 @@ export function receiptHooks(paths: RepoPaths, config: Config, run: Runner): Hoo
       const head = sha.stdout.trim();
       const passed = (g: string) => satisfies(readReceipt(paths, head, g));
       const missing = required.filter((g) => !passed(g));
-      // The full check passed on this commit, as the queue runs it on its merge: that covers a builder's.
-      const full = config.gates.required;
-      if (missing.length && required !== full && full.length && full.every(passed)) return [];
+      // The full check passed on this commit, as the queue runs it on its merge: that covers a builder's. When
+      // the two lists are the same, what's missing is in both, so the full check can't have passed.
+      const full = fullGates(config);
+      if (missing.length && full.length && full.every(passed)) return [];
       return missing;
     },
   };

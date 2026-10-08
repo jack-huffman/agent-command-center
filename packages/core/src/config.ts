@@ -114,6 +114,11 @@ export interface Config {
    */
   gates: { required: string[]; commands: Record<string, string>; heavy: string[]; severity: number; builder?: string[]; tests?: string[] };
   secretScan: { paths: string[]; exclude: string[] };
+  /**
+   * The stray-files check (GH-103): whether it's required, the files or folders a change may add that it
+   * would otherwise fail (`allow`), and in Salesforce the folders where data files belong (`data`).
+   */
+  strayFiles: { required: boolean; allow: string[]; data: string[] };
   /** Whether a task needs an analysis before it's built (D-052). Salesforce projects do unless they say not. */
   analysis?: { required: boolean };
   /**
@@ -168,7 +173,7 @@ export const CONFIG_KEYS = [
   'agents.max', 'agents.permissionMode', 'agents.builder.model', 'agents.builder.effort', 'agents.builder.fallbackModel',
   'agents.reviewer.model', 'agents.reviewer.effort', 'agents.reviewer.fallbackModel', 'autonomy',
   'worktrees.root', 'worktrees.setup', 'gates.required', 'gates.commands', 'gates.heavy', 'gates.severity', 'gates.builder', 'gates.tests',
-  'secretScan.paths', 'secretScan.exclude', 'analysis.required', 'autopilot.appendOnly', 'autopilot.autoMerge',
+  'secretScan.paths', 'secretScan.exclude', 'strayFiles.required', 'strayFiles.allow', 'strayFiles.data', 'analysis.required', 'autopilot.appendOnly', 'autopilot.autoMerge',
   'dispatch.shared', 'template.name', 'template.source', 'template.digest',
 ] as const satisfies readonly ConfigPath[];
 
@@ -236,6 +241,8 @@ export function branchFor(name: string): string {
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isStr = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '';
 const strList = (v: unknown): v is string[] => Array.isArray(v) && v.every(isStr);
+/** Paths inside the repo, as git names them: never absolute, never climbing out. */
+const inRepo = (v: unknown): v is string[] => strList(v) && !v.some((f) => f.startsWith('/') || f.split('/').includes('..'));
 const JIRA_ISSUE = /^[A-Za-z][A-Za-z0-9_]*-\d+$/;
 
 export interface ParseResult {
@@ -423,6 +430,13 @@ export function parseConfig(raw: unknown): ParseResult {
   if (s.exclude !== undefined && !strList(s.exclude)) errors.push('"secretScan.exclude" must be a list.');
   const defaultScan = profile === 'salesforce' ? ['force-app', 'config', 'scripts'] : ['.'];
 
+  const sf = isObj(raw.strayFiles) ? raw.strayFiles : {};
+  if (raw.strayFiles !== undefined && !isObj(raw.strayFiles)) errors.push('"strayFiles" must be an object, such as { "allow": ["LICENSE"] }.');
+  if (sf.required !== undefined && typeof sf.required !== 'boolean') errors.push('"strayFiles.required" must be true or false: whether a change must pass the stray-files check.');
+  if (sf.allow !== undefined && !inRepo(sf.allow)) errors.push('"strayFiles.allow" must be a list of paths inside the repo, such as ["LICENSE", "fixtures"].');
+  if (sf.data !== undefined && !inRepo(sf.data)) errors.push('"strayFiles.data" must be a list of folders inside the repo, such as ["data/samples"].');
+  if (profile !== 'salesforce' && Array.isArray(sf.data) && sf.data.length) warnings.push('"strayFiles.data" applies only to a Salesforce project, so it\'s ignored.');
+
   const an = isObj(raw.analysis) ? raw.analysis : {};
   if (raw.analysis !== undefined && !isObj(raw.analysis)) errors.push('"analysis" must be an object, such as { "required": true }.');
   if (an.required !== undefined && typeof an.required !== 'boolean') errors.push('"analysis.required" must be true or false.');
@@ -434,8 +448,7 @@ export function parseConfig(raw: unknown): ParseResult {
     else {
       const list = ap.appendOnly ?? [];
       const autoMerge = ap.autoMerge ?? false;
-      // Paths inside the repo, as git names them: never absolute, never climbing out.
-      if (!strList(list) || list.some((f) => f.startsWith('/') || f.split('/').includes('..'))) {
+      if (!inRepo(list)) {
         errors.push('"autopilot.appendOnly" must be a list of paths inside the repo, such as ["docs/DECISIONS.md"].');
       } else if (typeof autoMerge !== 'boolean') {
         errors.push('"autopilot.autoMerge" must be true or false: whether autopilot merges a reviewed pull request whose checks passed.');
@@ -452,7 +465,7 @@ export function parseConfig(raw: unknown): ParseResult {
     if (!isObj(d)) errors.push('"dispatch" must be an object, such as { "shared": ["README.md"] }.');
     else {
       const list = d.shared ?? [];
-      if (!strList(list) || list.some((f) => f.startsWith('/') || f.split('/').includes('..'))) {
+      if (!inRepo(list)) {
         errors.push('"dispatch.shared" must be a list of paths inside the repo, such as ["README.md", "docs"].');
       } else dispatch = { shared: list };
     }
@@ -492,6 +505,11 @@ export function parseConfig(raw: unknown): ParseResult {
       secretScan: {
         paths: strList(s.paths) ? s.paths : defaultScan,
         exclude: strList(s.exclude) ? s.exclude : [],
+      },
+      strayFiles: {
+        required: sf.required !== false,
+        allow: inRepo(sf.allow) ? sf.allow : [],
+        data: inRepo(sf.data) ? sf.data : [],
       },
       ...(typeof an.required === 'boolean' ? { analysis: { required: an.required } } : {}),
       ...(autopilot ? { autopilot } : {}),
@@ -659,12 +677,26 @@ export function builderGatesFor(config: Pick<Config, 'profile' | 'autonomy' | 'e
   return !!config.gates.builder?.length && autoMergeFor(config, branch);
 }
 
+/** The built-in check every project has, that a change adds no logs, temp files, new root files, big files or data exports (GH-103). */
+export const STRAY_FILES = 'stray-files';
+
+/** A list of checks with stray-files added, unless `strayFiles.required` turns it off (GH-103). */
+export const withStrayFiles = (config: Pick<Config, 'strayFiles'>, gates: string[]): string[] =>
+  config.strayFiles.required && !gates.includes(STRAY_FILES) ? [...gates, STRAY_FILES] : gates;
+
 /**
- * The checks a commit on this environment needs, by scope (GH-73). merge: `gates.required`, always. builder:
- * `gates.builder` where the merge queue runs the required ones before each merge, else `gates.required`.
+ * The full check: `gates.required`, and stray-files unless the project turned it off (GH-103). It's what the
+ * merge queue runs, and what code asks for, never `gates.required` itself, so every place names the same list.
  */
-export function requiredGates(config: Pick<Config, 'profile' | 'autonomy' | 'environments' | 'autopilot' | 'gates'>, branch: string, scope: GateScope): string[] {
-  return scope === 'builder' && builderGatesFor(config, branch) ? config.gates.builder! : config.gates.required;
+export const fullGates = (config: Pick<Config, 'gates' | 'strayFiles'>): string[] => withStrayFiles(config, config.gates.required);
+
+/**
+ * The checks a commit on this environment needs, by scope (GH-73). merge: the full check, always. builder:
+ * `gates.builder` where the merge queue runs the full one before each merge, else the full one. Both have
+ * stray-files unless the project turned it off (GH-103), as it's cheap and the builder can fix what it finds.
+ */
+export function requiredGates(config: Pick<Config, 'profile' | 'autonomy' | 'environments' | 'autopilot' | 'gates' | 'strayFiles'>, branch: string, scope: GateScope): string[] {
+  return scope === 'builder' && builderGatesFor(config, branch) ? withStrayFiles(config, config.gates.builder!) : fullGates(config);
 }
 
 /**

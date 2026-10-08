@@ -23,6 +23,9 @@ function acc(cwd: string, args: string[], input?: string, env: NodeJS.ProcessEnv
   return { code: r.status ?? 1, out: r.stdout, err: r.stderr, json: () => JSON.parse(r.stdout) };
 }
 
+/** For a test of moving tasks by hand, not their checks: stray-files off, so a task needs none (GH-103). */
+const UNCHECKED = { ...GENERIC_CONFIG, strayFiles: { required: false } };
+
 function repoWithConfig(config: unknown = GENERIC_CONFIG): string {
   return makeRepo({ '.acc/config.json': JSON.stringify(config) });
 }
@@ -220,7 +223,7 @@ test('init --from copies the rules a team template names into .acc/rules/, and -
 });
 
 test('add, list, ready, set and show: a task through its life', () => {
-  const dir = repoWithConfig();
+  const dir = repoWithConfig(UNCHECKED);
   assert.equal(acc(dir, ['add', 'First thing']).code, 0);
   assert.equal(acc(dir, ['add', 'Second thing', '--dep', 'T-1', '--brief', 'Needs the first']).code, 0);
   const ready = acc(dir, ['ready', '--json']).json() as { id: string }[];
@@ -717,7 +720,8 @@ test('gate run records receipts on the commit, exits 1 while a required check fa
   assert.equal(passing.code, 0, passing.err);
   assert.match(passing.out, /All recorded\. acc done will accept this commit\./);
   const list = acc(dir, ['gate', 'list', '--json']).json() as { gates: { name: string; required: boolean; heavy: boolean; receipt: { status: string } | null }[] };
-  assert.deepEqual(list.gates.map((g) => [g.name, g.required, g.heavy, g.receipt?.status]), [['lint', true, false, 'pass'], ['test', true, true, 'pass']]);
+  // stray-files is built in and required (GH-103), and skips: the commit is main's own, so it adds nothing.
+  assert.deepEqual(list.gates.map((g) => [g.name, g.required, g.heavy, g.receipt?.status]), [['stray-files', true, false, 'skip'], ['lint', true, false, 'pass'], ['test', true, true, 'pass']]);
   assert.equal(acc(dir, ['gate', 'run', 'nope']).code, 2, 'an unknown gate is a usage error');
   assert.equal(acc(dir, ['gate', 'run', 'lint', '--test', 'not a class']).code, 2);
   assert.match(acc(dir, ['drift', 'main']).err, /no orgs/);
@@ -738,6 +742,17 @@ test('gate run prints what each test check ran and how a hold is cleared; gate l
   const list = acc(dir, ['gate', 'list']);
   assert.match(list.out, /^Gate\s+Required\s+Heavy\s+This commit\s+Tests\s+Checks$/m);
   assert.match(list.out, /^test\s+yes\s+yes\s+✓ pass\s+312 run, 2 skipped\s+printf/m);
+});
+
+test('acc gate run on a branch that commits a log exits 1, naming the file and the fix (GH-103)', () => {
+  const dir = repoWithConfig();
+  spawnSync('git', ['checkout', '-q', '-b', 'task/T-1-thing'], { cwd: dir });
+  writeFileSync(join(dir, 'debug.log'), 'scratch\n');
+  spawnSync('git', ['add', '-A'], { cwd: dir });
+  spawnSync('git', ['commit', '-qm', 'add a log'], { cwd: dir });
+  const r = acc(dir, ['gate', 'run', '--env', 'main']);
+  assert.equal(r.code, 1, r.err);
+  assert.match(r.out, /✗ fail\s+stray-files\s+This change adds a file that shouldn't be committed: debug\.log \(a log, temp file or merge leftover\)\. Take each out of the commit with git rm --cached debug\.log and add it to \.gitignore, or, if it belongs in the repo, list it under "strayFiles\.allow" in \.acc\/config\.json\./);
 });
 
 test('acc gate waive: a person waives a task\'s failing check with a reason; a builder never can (D-031)', () => {
@@ -824,7 +839,7 @@ test('acc autopilot runs on a repo where no task was ever added, which has no st
 });
 
 test('a task in review whose pull request was closed shows as needs you, and acc show names the pull request (D-063)', () => {
-  const dir = repoWithConfig();
+  const dir = repoWithConfig(UNCHECKED);
   assert.equal(acc(dir, ['add', 'Add a sum function']).code, 0);
   assert.equal(acc(dir, ['set', 'T-1', 'running']).code, 0);
   assert.equal(acc(dir, ['set', 'T-1', 'review']).code, 0);
@@ -846,7 +861,7 @@ test('a task in review whose pull request was closed shows as needs you, and acc
 });
 
 test('a task autopilot couldn\'t move on shows as needs you, and acc show says why (D-055)', () => {
-  const dir = repoWithConfig();
+  const dir = repoWithConfig(UNCHECKED);
   assert.equal(acc(dir, ['add', 'Add a sum function']).code, 0);
   assert.equal(acc(dir, ['set', 'T-1', 'running']).code, 0);
   assert.equal(acc(dir, ['set', 'T-1', 'review']).code, 0);
@@ -1109,17 +1124,17 @@ test('acc machine agents shows this machine\'s total across every repo and how m
 test('acc gate required and acc gate builder show and set a project\'s checks, one key each; a name it doesn\'t have is refused (GH-111)', () => {
   const dir = makeRepo({ '.acc/config.json': LIMITS_CONFIG });
   const file = join(dir, '.acc', 'config.json');
-  assert.deepEqual(acc(dir, ['gate', 'required', '--json']).json(), { required: ['check'], gates: ['check', 'typecheck', 'near-tests'], queue: ['main'] });
-  assert.equal(acc(dir, ['gate', 'required']).out, 'Required checks: check. Where the merge queue runs (main), they run once in it, before each merge.\n');
-  assert.equal(acc(dir, ['gate', 'builder']).out, 'Builders run the required checks (check): no lighter ones are named.\n');
+  assert.deepEqual(acc(dir, ['gate', 'required', '--json']).json(), { required: ['check', 'stray-files'], gates: ['check', 'typecheck', 'near-tests'], queue: ['main'] }, 'stray-files is required beside them, and never named (GH-103)');
+  assert.equal(acc(dir, ['gate', 'required']).out, 'Required checks: check, stray-files. Where the merge queue runs (main), they run once in it, before each merge.\n');
+  assert.equal(acc(dir, ['gate', 'builder']).out, 'Builders run the required checks (check, stray-files): no lighter ones are named.\n');
 
   const lighter = acc(dir, ['gate', 'builder', 'typecheck', 'near-tests']);
   assert.equal(lighter.code, 0, lighter.err);
-  assert.equal(lighter.out, 'Builders now run typecheck, near-tests where the merge queue runs (main), and the required checks (check) run once in it, before each merge. Set in .acc/config.json: commit it to share it.\n');
+  assert.equal(lighter.out, 'Builders now run typecheck, near-tests where the merge queue runs (main), and the required checks (check, stray-files) run once in it, before each merge. Set in .acc/config.json: commit it to share it.\n');
   const withBuilder = LIMITS_CONFIG.replace('"near-tests": "true"\n    }\n  }', '"near-tests": "true"\n    },\n    "builder": [\n      "typecheck",\n      "near-tests"\n    ]\n  }');
   assert.equal(readFileSync(file, 'utf8'), withBuilder);
   // acc gate list marks them, as it did when a person edited the file by hand (D-096).
-  assert.match(acc(dir, ['gate', 'list']).out, /Builders run typecheck, near-tests, and acc done takes them\./);
+  assert.match(acc(dir, ['gate', 'list']).out, /Builders run typecheck, near-tests, stray-files, and acc done takes them\./);
 
   assert.equal(acc(dir, ['gate', 'required', 'check', 'typecheck']).code, 0);
   assert.equal(readFileSync(file, 'utf8'), withBuilder.replace('"required": [\n      "check"\n    ]', '"required": [\n      "check",\n      "typecheck"\n    ]'));
@@ -1133,7 +1148,7 @@ test('acc gate required and acc gate builder show and set a project\'s checks, o
   // Named where no merge queue runs, they're named, and builders still run the required checks.
   const manual = makeRepo({ '.acc/config.json': LIMITS_CONFIG.replace('"autonomy": "review"', '"autonomy": "manual"') });
   assert.equal(acc(manual, ['gate', 'builder', 'typecheck']).code, 0);
-  assert.match(acc(manual, ['gate', 'builder']).out, /^gates\.builder names typecheck, but no environment's pull requests go through the merge queue .*so builders run the required checks \(check\)\./);
+  assert.match(acc(manual, ['gate', 'builder']).out, /^gates\.builder names typecheck, but no environment's pull requests go through the merge queue .*so builders run the required checks \(check, stray-files\)\./);
 });
 
 test('limits and checks are a person\'s at all three layers: the CLI, the hook and the builder\'s deny list, for every command that sets one (GH-111)', () => {

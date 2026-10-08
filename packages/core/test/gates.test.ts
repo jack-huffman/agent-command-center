@@ -88,15 +88,28 @@ test('changes are measured from the environment\'s branch: renames count as dele
   assert.deepEqual(ch.files.sort(), ['force-app/main/default/classes/Account.cls', 'force-app/main/default/classes/New.cls', 'force-app/main/default/lwc/card/card.js']);
   assert.deepEqual(ch.deleted, ['force-app/main/default/classes/Old.cls']);
   assert.deepEqual(ch.envSpecific, ['force-app/main/default/emailservices/EmailToCase.xml-meta.xml']);
+  // What it adds is kept apart from what it modifies (GH-103): a rename's new path is added.
+  assert.deepEqual(ch.added.sort(), ['force-app/main/default/classes/New.cls', 'force-app/main/default/lwc/card/card.js']);
 });
 
-test('the gates: Salesforce built-ins, replaced by name from gates.commands; generic projects have only their commands', () => {
+test('a generic project that requires nothing runs every gate on a bare acc gate run, its commands and stray-files (GH-103)', () => {
+  const dir = makeRepo();
+  gitIn(dir, 'checkout', '-q', '-b', 'task/T-1-thing');
+  write(dir, 'src/a.ts', 'export {};\n');
+  commitAll(dir);
+  const c = config({ ...GENERIC_CONFIG, gates: { commands: { lint: 'true', test: 'true' } } });
+  assert.deepEqual(requiredGates(c, 'main', 'builder'), ['stray-files'], 'only the built-in is required');
+  const ran = runGates(repoPaths(dir, run), c, c.environments[0]!, [], [], { run, now, slots: slots() });
+  assert.deepEqual(ran.results.map((r) => [r.gate, r.status]), [['stray-files', 'pass'], ['lint', 'pass'], ['test', 'pass']]);
+});
+
+test('the gates: Salesforce built-ins, replaced by name from gates.commands; generic projects have only their commands; both have stray-files (GH-103)', () => {
   const sf = gatesFor(sfConfig({ required: ['format'], commands: { format: 'npm run prettier:verify', extra: 'true' } }));
-  assert.deepEqual(sf.map((g) => g.name), ['lint', 'static', 'lwc-tests', 'validate', 'format', 'extra']);
+  assert.deepEqual(sf.map((g) => g.name), ['stray-files', 'lint', 'static', 'lwc-tests', 'validate', 'format', 'extra']);
   assert.equal(sf.find((g) => g.name === 'format')!.about, 'npm run prettier:verify');
   assert.deepEqual(sf.filter((g) => g.heavy).map((g) => g.name), ['static', 'lwc-tests', 'validate']);
   const generic = gatesFor(config({ ...GENERIC_CONFIG, gates: { commands: { check: 'npm run check', lint: 'true' }, heavy: ['lint'] } }));
-  assert.deepEqual(generic.map((g) => [g.name, g.heavy]), [['check', false], ['lint', true]], 'gates.heavy replaces the defaults');
+  assert.deepEqual(generic.map((g) => [g.name, g.heavy]), [['stray-files', false], ['check', false], ['lint', true]], 'gates.heavy replaces the defaults');
   assert.deepEqual(config({ ...GENERIC_CONFIG }).gates.heavy, ['build', 'test', 'check']);
   assert.match(parseConfig({ ...GENERIC_CONFIG, gates: { severity: 9 } }).errors.join(), /severity/);
 });
@@ -159,7 +172,7 @@ test('the Salesforce gates decide from the changes, run under nice, and leave re
   const runner = fakeRunner({ [`nice -n 15 ${join(bin, 'prettier')} --check`]: ok('Checking formatting...\nAll matched files use Prettier code style!'), 'nice -n 15 sf project deploy start --dry-run': deployOk }, calls);
 
   const first = runGates(paths, c, dev(c), [], [], { run: runner, now, slots: slots() });
-  assert.deepEqual(first.results.map((r) => [r.gate, r.status]), [['format', 'pass'], ['lint', 'skip'], ['validate', 'fail']]);
+  assert.deepEqual(first.results.map((r) => [r.gate, r.status]), [['format', 'pass'], ['lint', 'skip'], ['validate', 'fail'], ['stray-files', 'skip']]);
   assert.match(first.results[2]!.summary, /Apex changed .*--test <TestClass>=/);
   assert.ok(!calls.some((l) => l.includes('deploy start')), 'no validation without the tests that cover the Apex');
 
@@ -183,7 +196,7 @@ test('the Salesforce gates decide from the changes, run under nice, and leave re
   assert.deepEqual(receiptHooks(paths, c, run).missingGates(task), []);
   write(dir, 'force-app/main/default/classes/Account.cls', 'public class Account {  }\n');
   commitAll(dir, 'again');
-  assert.deepEqual(receiptHooks(paths, c, run).missingGates(task), ['format', 'lint', 'validate'], 'a new commit needs new receipts');
+  assert.deepEqual(receiptHooks(paths, c, run).missingGates(task), ['format', 'lint', 'validate', 'stray-files'], 'a new commit needs new receipts');
 });
 
 test('prior tests come from the salesforce profile: a commit\'s validate receipt, minus entries that aren\'t tests; none on a generic project', () => {
@@ -205,7 +218,7 @@ test('a missing tool is an error, not a failure, and validate refuses deletions 
   const paths = repoPaths(dir, run);
   const deployOk = ok(JSON.stringify({ status: 0, result: { id: '0Af9', success: true } }));
   const r = runGates(paths, c, dev(c), [], [], { run: fakeRunner({ 'nice -n 15 sf project deploy start': deployOk }), now, slots: slots() });
-  assert.deepEqual(r.results.map((x) => [x.gate, x.status]), [['format', 'error'], ['lint', 'error'], ['lwc-tests', 'error'], ['validate', 'pass']]);
+  assert.deepEqual(r.results.map((x) => [x.gate, x.status]), [['format', 'error'], ['lint', 'error'], ['lwc-tests', 'error'], ['validate', 'pass'], ['stray-files', 'pass']]);
   assert.match(r.results[0]!.summary, /prettier isn't installed .*npm install/);
 
   gitIn(dir, 'rm', '-q', 'force-app/main/default/classes/Old.cls');
@@ -221,14 +234,14 @@ test('uncommitted changes: the gates run but record nothing, and an unknown gate
   const c = config(JSON.parse(readFileSync(join(dir, '.acc/config.json'), 'utf8')));
   const paths = repoPaths(dir, run);
   const deps = { run, now, slots: slots() };
-  assert.deepEqual(runGates(paths, c, c.environments[0]!, [], [], deps).results.map((x) => [x.gate, x.status, x.recorded]), [['lint', 'pass', true]], 'the required gates by default');
+  assert.deepEqual(runGates(paths, c, c.environments[0]!, [], [], deps).results.map((x) => [x.gate, x.status, x.recorded]), [['lint', 'pass', true], ['stray-files', 'skip', true]], 'the required gates by default, and stray-files (GH-103)');
   assert.equal(runGates(paths, c, c.environments[0]!, ['test'], [], deps).results[0]!.status, 'fail');
   writeFileSync(join(dir, 'scratch.txt'), 'wip');
   const dirty = runGates(paths, c, c.environments[0]!, ['lint'], [], deps);
   assert.equal(dirty.dirty, true);
   assert.equal(dirty.results[0]!.recorded, false);
   rmSync(join(dir, 'scratch.txt'));
-  assert.throws(() => runGates(paths, c, c.environments[0]!, ['nope'], [], deps), /No gate nope\. This project's gates: lint, test/);
+  assert.throws(() => runGates(paths, c, c.environments[0]!, ['nope'], [], deps), /No gate nope\. This project's gates: stray-files, lint, test/);
 });
 
 test('a check runs without a builder\'s identity, so it gives the same answer inside a builder as outside one', () => {
@@ -239,7 +252,7 @@ test('a check runs without a builder\'s identity, so it gives the same answer in
   const was = { ACC_ROLE: process.env.ACC_ROLE, ACC_TASK: process.env.ACC_TASK, ACC_HEAVY_DIR: process.env.ACC_HEAVY_DIR };
   Object.assign(process.env, { ACC_ROLE: 'builder', ACC_TASK: 'GH-13', ACC_HEAVY_DIR: '/outer' });
   try {
-    assert.deepEqual(runGates(repoPaths(dir, run), c, c.environments[0]!, [], [], { run, now, slots: slots() }).results.map((r) => [r.gate, r.status]), [['who', 'pass'], ['nested', 'pass']]);
+    assert.deepEqual(runGates(repoPaths(dir, run), c, c.environments[0]!, [], [], { run, now, slots: slots() }).results.map((r) => [r.gate, r.status]), [['who', 'pass'], ['nested', 'pass'], ['stray-files', 'skip']]);
   } finally {
     for (const [k, v] of Object.entries(was)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
   }
@@ -441,7 +454,7 @@ test('a person waives a failing gate on one commit, with a reason: it satisfies 
   writeFileSync(join(dir, 'next.txt'), 'more');
   gitIn(dir, 'add', '-A');
   gitIn(dir, 'commit', '-q', '-m', 'next');
-  assert.deepEqual(hooks.missingGates(task), ['lint', 'test'], 'a new commit starts with no checks, waived or not');
+  assert.deepEqual(hooks.missingGates(task), ['lint', 'test', 'stray-files'], 'a new commit starts with no checks, waived or not');
 });
 
 // ---------------------------------------------------------------- what a test check ran (GH-100)
@@ -507,7 +520,8 @@ test('a test check counts what ran on its receipt: zero run is a hold, unreadabl
 
 test('more skipped than the nearest earlier count on the environment\'s branch is a hold; a builder\'s lighter check isn\'t compared; a person\'s waiver keeps the counts and stands for the branch (GH-100)', () => {
   const gates = { required: ['check'], builder: ['near'], tests: ['check', 'near'], commands: { check: 'cat summary.txt', near: 'cat summary.txt' } };
-  const raw = { ...GENERIC_CONFIG, autonomy: 'review', autopilot: { autoMerge: true }, gates };
+  // Its repo adds summary.txt at the root; stray-files has its own tests (GH-103).
+  const raw = { ...GENERIC_CONFIG, autonomy: 'review', autopilot: { autoMerge: true }, gates, strayFiles: { required: false } };
   const dir = makeRepo({ '.acc/config.json': JSON.stringify(raw), 'summary.txt': summary(5, ['old one']) });
   const c = config(raw);
   const paths = repoPaths(dir, run);
@@ -680,7 +694,7 @@ test('every command gate is given ACC_NEAR_TESTS, worked out once a run, though 
   process.env.ACC_NEAR_TESTS = 'from/outside.test.ts';
   try {
     const ran = runGates(repoPaths(dir, run), c, c.environments[0]!, [], [], { run: counted, now, slots: slots() });
-    assert.deepEqual(ran.results.map((r) => [r.gate, r.status]), gates.map((g) => [g, 'pass']));
+    assert.deepEqual(ran.results.map((r) => [r.gate, r.status]), [...gates.map((g) => [g, 'pass']), ['stray-files', 'skip']]);
   } finally {
     if (was === undefined) delete process.env.ACC_NEAR_TESTS;
     else process.env.ACC_NEAR_TESTS = was;
@@ -715,7 +729,7 @@ test('where the merge queue runs the full check, builders run gates.builder, whi
 
   // acc gate run with no names: the builder's checks, told what changed and the tests near it.
   const ran = runGates(paths, c, env, [], [], { run, now, slots: slots() });
-  assert.deepEqual(ran.results.map((r) => [r.gate, r.status]), [['typecheck', 'pass'], ['near', 'pass']]);
+  assert.deepEqual(ran.results.map((r) => [r.gate, r.status]), [['typecheck', 'pass'], ['near', 'pass'], ['stray-files', 'skip']]);
   assert.equal(readFileSync(out, 'utf8'), 'src/merge.ts|test/merge.test.ts');
   assert.deepEqual([hooks.missingGates(task), hooks.missingGates(task, 'builder'), hooks.missingGates(task, 'merge')], [[], [], ['check']]);
   // acc done takes them: running → review.
@@ -726,19 +740,20 @@ test('where the merge queue runs the full check, builders run gates.builder, whi
   writeFileSync(join(dir, 'src/merge.ts'), 'a, again\n');
   gitIn(dir, 'commit', '-q', '-am', 'T-1: again');
   const next = gitIn(dir, 'rev-parse', 'HEAD');
-  assert.deepEqual(hooks.missingGates(task), ['typecheck', 'near']);
-  writeReceipt(paths, { gate: 'check', sha: next, env: 'main', status: 'pass', startedAt: '', finishedAt: '', durationMs: 0, summary: 'Passed.', command: null, log: null });
+  assert.deepEqual(hooks.missingGates(task), ['typecheck', 'near', 'stray-files']);
+  // The queue's full check is gates.required and stray-files (GH-103).
+  for (const gate of ['check', 'stray-files']) writeReceipt(paths, { gate, sha: next, env: 'main', status: 'pass', startedAt: '', finishedAt: '', durationMs: 0, summary: 'Passed.', command: null, log: null });
   assert.deepEqual([hooks.missingGates(task), hooks.missingGates(task, 'merge')], [[], []]);
 
   // Auto-merge off, a protected environment or no builder gates: both scopes are the required ones, as before.
   for (const other of [config({ ...raw, autopilot: { autoMerge: false } }), config({ ...raw, autonomy: 'manual' }), config({ ...raw, gates: { ...raw.gates, builder: [] } })]) {
     const h = receiptHooks(paths, other, run);
-    assert.deepEqual([requiredGates(other, 'main', 'builder'), requiredGates(other, 'main', 'merge'), builderGatesFor(other, 'main')], [['check'], ['check'], false]);
+    assert.deepEqual([requiredGates(other, 'main', 'builder'), requiredGates(other, 'main', 'merge'), builderGatesFor(other, 'main')], [['check', 'stray-files'], ['check', 'stray-files'], false]);
     writeFileSync(join(dir, 'src/merge.ts'), `${Math.random()}\n`);
     gitIn(dir, 'commit', '-q', '-am', 'T-1: once more');
     runGates(paths, other, env, ['typecheck', 'near'], [], { run, now, slots: slots() });
-    assert.deepEqual(h.missingGates(task), ['check'], 'its lighter checks aren\'t enough here');
-    assert.deepEqual(runGates(paths, other, env, [], [], { run, now, slots: slots() }).results.map((r) => r.gate), ['check']);
+    assert.deepEqual(h.missingGates(task), ['check', 'stray-files'], 'its lighter checks aren\'t enough here');
+    assert.deepEqual(runGates(paths, other, env, [], [], { run, now, slots: slots() }).results.map((r) => r.gate), ['check', 'stray-files']);
   }
 });
 

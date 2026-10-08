@@ -6,7 +6,7 @@
  */
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
-import { builderGatesFor, loadConfig, requiredGates } from './config.ts';
+import { builderGatesFor, fullGates, loadConfig, requiredGates } from './config.ts';
 import type { Runner } from './exec.ts';
 import { readList } from './gates.ts';
 import { DONE_COMMAND, mutate, readLedger, type Task } from './ledger.ts';
@@ -296,7 +296,7 @@ export function sessionStartHook(input: EventInput, ctx: HookContext): Record<st
     const config = loadConfig(join(b.root, '.acc', 'config.json')).config;
     // A builder's checks: the lighter ones where the merge queue runs the full one (GH-73).
     gates = requiredGates(config, b.task.environment, 'builder');
-    full = builderGatesFor(config, b.task.environment) ? config.gates.required : [];
+    full = builderGatesFor(config, b.task.environment) ? fullGates(config).filter((g) => !gates.includes(g)) : [];
   } catch {
     gates = [];
   }

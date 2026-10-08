@@ -35,6 +35,8 @@ function setup(opts: { config?: Record<string, unknown> } = {}) {
     environments: [{ name: 'main', default: true }, { name: 'release', protected: true }],
     gates: { required: ['test'], builder: ['lint'], commands: { test: 'npm test', lint: 'npm run lint' } },
     autopilot: { appendOnly: ['docs/DECISIONS.md'], autoMerge: true },
+    // Its tasks add files at the root; stray-files has its own tests (GH-103).
+    strayFiles: { required: false },
     ...opts.config,
   };
   const origin = tempDir('origin-');

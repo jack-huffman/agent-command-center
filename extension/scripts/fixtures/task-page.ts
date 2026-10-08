@@ -84,6 +84,7 @@ export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12'):
       // A test check that skipped more than dev's last count: a person decides (GH-100).
       { gate: 'flow-tests', status: 'hold', summary: '2 skipped, up from 0 on 4f2a9c1: OrderFlowTest.discount, OrderFlowTest.tax newly skipped.', counts: '38 run, 2 skipped' },
       { gate: 'lwc-tests', status: 'skip', summary: 'Not run on this commit' },
+      { gate: 'stray-files', status: 'fail', summary: 'This change adds 2 files that shouldn\'t be committed: fb-test.log (a log, temp file or merge leftover), exports/accounts.csv (a data export). Take each out of the commit with git rm --cached fb-test.log exports/accounts.csv and add it to .gitignore, or, if it belongs in the repo, list it under "strayFiles.allow" in .acc/config.json, or a data file\'s folder under "strayFiles.data".' },
     ],
   });
 }

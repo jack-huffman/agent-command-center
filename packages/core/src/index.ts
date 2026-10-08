@@ -47,6 +47,7 @@ export * from './runtime.ts';
 export * from './semaphore.ts';
 export * from './setup.ts';
 export * from './source.ts';
+export * from './stray-files.ts';
 export * from './sync.ts';
 export * from './template.ts';
 export * from './test-counts.ts';

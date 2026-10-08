@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, sep } from 'node:path';
-import { branchFor, type Environment } from '../config.ts';
+import { branchFor, type Environment, fullGates } from '../config.ts';
 import { isTrusted, mainCheckout } from '../dispatch.ts';
 import { type DriftResult, driftReportPath } from '../drift.ts';
 import { parseJsonOutput } from '../exec.ts';
@@ -9,6 +9,7 @@ import { gatesFor } from '../gates.ts';
 import { credentialHelper } from '../github.ts';
 import { rulesStatus } from '../rules.ts';
 import { readmePlaces } from '../setup.ts';
+import { DATA_EXT } from '../stray-files.ts';
 import { parseSource } from '../source.ts';
 import { previewCommand, type ReadTemplate, readTemplate, templateDifferences } from '../template.ts';
 import { orList } from '../trackers/types.ts';
@@ -19,7 +20,6 @@ import type { CheckContext, CheckResult, Step, StepResult } from './types.ts';
 
 const DOCS = 'docs/ONBOARDING.md';
 const GH_SIGN_IN = '"Do it" opens VSCode\'s GitHub sign-in: pick this repo\'s account, or add it, and gh gets that login, with access to GitHub Projects for the board. gh\'s active account stays as it was. In a terminal: gh auth login.';
-const DATA_EXT = /\.(csv|xls|xlsx|eml)$/i;
 const BACKSTOP = ['/*.csv', '/*.xls', '/*.xlsx', '/*.eml'];
 
 /** Project steps need a repo and a valid config. This returns the reason they can't run yet, if any. */
@@ -702,8 +702,8 @@ export const STEPS: Step[] = [
       const need = needsProject(ctx);
       if (need) return need;
       const config = ctx.config!;
-      const required = config.gates.required;
-      if (!required.length) return skip('No checks are required ("gates.required" is empty).');
+      const required = fullGates(config);
+      if (!required.length) return skip('No checks are required ("gates.required" is empty, and "strayFiles.required" is false).');
       const defined = gatesFor(config).map((g) => g.name);
       const undefinedGates = required.filter((n) => !defined.includes(n));
       if (undefinedGates.length) return fail(`Required, but with no command: ${undefinedGates.join(', ')}. Give each one under "gates.commands" in .acc/config.json.`);

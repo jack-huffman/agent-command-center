@@ -57,6 +57,8 @@ function setup(opts: { appendOnly?: string[]; config?: Record<string, unknown>; 
     ...GENERIC_CONFIG, github: { repo: 'acme/tool', account: 'jordan-kim' }, autonomy: 'review',
     gates: { required: ['test'], commands: { test: 'npm test' } },
     autopilot: { appendOnly: opts.appendOnly ?? ['docs/DECISIONS.md'] },
+    // Its tasks add files at the root; stray-files has its own tests (GH-103).
+    strayFiles: { required: false },
     ...opts.config,
   };
   const origin = tempDir('origin-');
