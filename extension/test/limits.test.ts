@@ -16,7 +16,9 @@ import { PAGE_COMMANDS } from '../src/model/messages.ts';
 import { filesLook } from '../src/model/cards.ts';
 import { durationWords, LIMIT_COMMANDS, limitsModel, modelWords } from '../src/model/limits.ts';
 import type { Look } from '../src/model/shared.ts';
-import { pageSource, root } from './support.ts';
+import { hub, pageSource, root } from './support.ts';
+import { homeModel } from '../src/model/home.ts';
+import { HOME_SECTIONS, type HomeSection } from '../src/model/shared.ts';
 
 const TONES = new Set(['orange', 'blue', 'neutral']);
 
@@ -304,4 +306,17 @@ test('the page asks the extension for each change, which acc makes: neither writ
   assert.doesNotMatch(ext, /writeFile|appendFile|renameSync|rmSync|mkdirSync|\.update\(/, 'the extension\'s side only reads; acc writes');
   // A control that can't act stays in view with its reason, and never does nothing silently.
   assert.ok(page.includes("b.setAttribute('aria-disabled', 'true')") && page.includes('if (!why) run();') && page.includes('`${label}: ${why}`'));
+});
+
+test('the limits are read only while Settings shows, or a task is held: never on another section\'s render', () => {
+  let reads = 0;
+  const h = { ...hub(), limits: () => { reads++; return sampleLimits(); } };
+  const page = (section: HomeSection) => homeModel({ hub: h, section, boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } });
+  for (const section of HOME_SECTIONS.filter((x) => x !== 'settings')) assert.equal(page(section).settings.limits, null, section);
+  assert.equal(reads, 0, 'no other section reads them');
+  assert.deepEqual(page('settings').settings.limits?.caps.map((c) => c.value), ['3', '6']);
+  assert.equal(reads, 1);
+  // Arriving at Settings posts the page again, so it reads them; a held task's row reads only this machine's total.
+  assert.match(readFileSync(join(root, 'src', 'panels.ts'), 'utf8'), /this\.remember\(m\.section\);\n\s+\/\/[^\n]*\n\s+if \(m\.section === 'settings'\) this\.post\(\);/);
+  assert.match(readFileSync(join(root, 'src', 'task-rows.ts'), 'utf8'), /ledger\.tasks\.some\(\(t\) => t\.state === 'todo' && t\.held\) \? hub\.limits\(\)\?\.machine : null/);
 });
