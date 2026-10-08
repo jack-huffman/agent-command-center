@@ -49,6 +49,10 @@ export interface InitPlan {
    * writes; acc template show, --dry-run and Setup's confirmation list them before.
    */
   templateCommands: Record<string, string>;
+  /** The rules files the template names (GH-108), which acc init copies into .acc/rules/. */
+  rules: string[];
+  /** The GitHub account the template was read as, so its rules are read as the same one. */
+  readAs: string | null;
 }
 
 const sfJson = (run: Runner, root: string, args: string[]): any => {
@@ -146,8 +150,8 @@ export function planInit(run: Runner, opts: InitOptions): InitPlan {
 
   // Flags, then the team template, then discovery, then acc's defaults (D-097). The template is read by the
   // rule acc template show uses: a --github-repo with no GitHub origin doesn't pick the account.
-  const readAs = () => templateAccount(run, root, opts.githubAccount, () => account);
-  const loaded = opts.template ?? (opts.from ? loadTemplate(run, opts.from, { account: readAs(), env: opts.env, base: opts.cwd ?? root, home: opts.home, root }) : null);
+  const readAs = opts.from && !opts.template ? templateAccount(run, root, opts.githubAccount, () => account) : null;
+  const loaded = opts.template ?? (opts.from ? loadTemplate(run, opts.from, { account: readAs, env: opts.env, base: opts.cwd ?? root, home: opts.home, root }) : null);
   const t = loaded?.template ?? null;
   if (opts.profile && t?.profile && opts.profile !== t.profile) {
     throw new AccError('init', `--profile ${opts.profile} disagrees with the template's profile, ${t.profile}. Leave --profile out, or use another template.`);
@@ -216,7 +220,7 @@ export function planInit(run: Runner, opts: InitOptions): InitPlan {
     const what = loaded ? `The config from ${loaded.record.name} and what was discovered doesn't validate` : 'The discovered config doesn\'t validate';
     throw new AccError('init', `${what}:\n- ${parsed.errors.join('\n- ')}`);
   }
-  return { config: parsed.config, notes, fromTemplate, discovered, templateCommands: { ...t?.gates?.commands } };
+  return { config: parsed.config, notes, fromTemplate, discovered, templateCommands: { ...t?.gates?.commands }, rules: [...(t?.rules ?? [])], readAs };
 }
 
 /** Sets this repo's commit identity and a credential helper pinned to its GitHub account (D-007, ONBOARDING B2). */

@@ -133,7 +133,7 @@ export function homeModel(i: HomeInput): HomeModel {
   const worktrees = worktreesModel(hub);
   const environments = environmentsModel(hub, i.identity, i.slack ?? null);
   const setup = setupModel(i.setup.items, i.setup.confirmed);
-  const settings = settingsModel({ theme: i.theme ?? 'vscode', agentSettings: agents.settings.length > 0 });
+  const settings = settingsModel({ theme: i.theme ?? 'vscode', projects: hub.projects, setup: i.setup.items });
   const questions = questionCards(hub);
   const asked = new Set(questions.map((q) => q.sessionId));
   const c: HomeContext = { i, hub, tasks, agents, worktrees, environments, setup, questions, asked, linked: new Set(), rows: hub.projects.flatMap((p) => hub.taskRows(p.root)), attention: [], ready: [] };

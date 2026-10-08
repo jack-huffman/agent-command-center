@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { autoMergeFor, autoMergeOn, branchFor, builderGatesFor, defaultEnvironment, loadConfig, parseConfig, requiredGates, skippedOnRoute, trackerForKey, withTracker, writeConfig } from '../src/config.ts';
+import { autoMergeFor, autoMergeOn, branchFor, builderGatesFor, CONFIG_KEYS, defaultEnvironment, keyShown, loadConfig, parseConfig, requiredGates, skippedOnRoute, trackerForKey, UNREAD_KEYS, VALIDATOR_ONLY, withTracker, writeConfig } from '../src/config.ts';
 import { parseFloors } from '../src/ratchets.ts';
 import { GENERIC_CONFIG, SF_CONFIG, tempDir } from './support.ts';
 
@@ -365,5 +365,99 @@ test('a place is written as it was given, left out when unset, and re-adding a t
   assert.deepEqual(withTracker([trackers[2]!], { kind: 'azure', organization: 'a', project: 'CRM', board: 'Stories', areaPath: null }), [{ kind: 'azure', organization: 'a', project: 'CRM', board: 'Stories' }]);
   assert.deepEqual(withTracker([], { kind: 'jira', site: 's', project: 'ACME', epic: null }), [{ kind: 'jira', site: 's', project: 'ACME' }], 'a new one is written without it');
   assert.deepEqual(withTracker([trackers[0]!], { kind: 'jira', site: 's', project: 'ACME', epic: 'ACME-9' }), [{ ...trackers[0], epic: 'ACME-9' }], 'or picks another');
+});
+
+/** A config that sets every key parseConfig knows: generic, so auto-merge can be on, with a tracker of each kind. */
+const EVERY_KEY = {
+  schema: 1,
+  project: 'Acme',
+  profile: 'generic',
+  github: { repo: 'acme-co/acme', account: 'work-account' },
+  commitIdentity: { name: 'Test Person', email: 'test@example.com' },
+  environments: [
+    { name: 'Main', branch: 'main', type: 'none', org: 'Acme Dev', default: true, protected: false, promotesTo: ['release'] },
+    { name: 'Release', type: 'none', protected: true },
+  ],
+  environmentSpecific: 'manifest/environment-specific.txt',
+  knownDrift: 'manifest/known-drift.txt',
+  trackers: [
+    { kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', board: 7, epic: 'ACME-3' },
+    { kind: 'github', repo: 'acme-co/tickets', skipLabels: ['milestone'], labels: ['billing'], edits: true },
+    { kind: 'azure', organization: 'acme', project: 'CRM', team: 'Billing', board: 'Stories', prefix: 'AB', areaPath: 'CRM\\Billing' },
+    { kind: 'monday', account: 'acme', board: 42, statusColumn: 'status', prefix: 'MON', group: 'topics' },
+  ],
+  agents: {
+    max: 4, permissionMode: 'acceptEdits',
+    builder: { model: 'sonnet', effort: 'high', fallbackModel: 'haiku' },
+    reviewer: { model: 'opus', effort: 'max', fallbackModel: 'sonnet' },
+  },
+  autonomy: 'review',
+  worktrees: { root: '.claude/worktrees', setup: ['npm ci'] },
+  gates: { required: ['check'], commands: { check: 'npm run check', typecheck: 'npm run typecheck' }, heavy: ['check'], severity: 3, builder: ['typecheck'], ratchets: { tests: { command: 'node scripts/count-tests.mjs', limit: 'floor', label: 'tests' } } },
+  secretScan: { paths: ['.'], exclude: ['fixtures'] },
+  analysis: { required: true },
+  autopilot: { appendOnly: ['docs/DECISIONS.md'], autoMerge: true },
+  dispatch: { shared: ['README.md'] },
+  template: { name: 'Acme', source: '~/templates/acme.json', digest: `sha256:${'a'.repeat(64)}` },
+};
+
+/** The key paths a raw config sets, as CONFIG_KEYS writes them: trackers[].team, gates.commands. */
+function pathsIn(v: unknown, at = ''): string[] {
+  if ((CONFIG_KEYS as readonly string[]).includes(at)) return [at];
+  if (Array.isArray(v)) return v.flatMap((e) => pathsIn(e, `${at}[]`));
+  if (v && typeof v === 'object') return Object.entries(v).flatMap(([k, x]) => pathsIn(x, at ? `${at}.${k}` : k));
+  return [at];
+}
+
+test('a config that sets every key parseConfig knows parses with no error or warning, and writeConfig gives it back (GH-107)', () => {
+  assert.deepEqual([...new Set(pathsIn(EVERY_KEY))].sort(), [...CONFIG_KEYS].sort(), 'it sets every key, and only those');
+  assert.equal(new Set(CONFIG_KEYS).size, CONFIG_KEYS.length, 'no key listed twice');
+  const { config, errors, warnings } = parseConfig(clone(EVERY_KEY));
+  assert.deepEqual([errors, warnings], [[], []]);
+  const file = join(tempDir(), '.acc', 'config.json');
+  writeConfig(file, config!);
+  const again = loadConfig(file);
+  assert.deepEqual([again.errors, again.warnings], [[], []]);
+  assert.deepEqual(again.config, config);
+});
+
+test('a key parseConfig doesn\'t know is a warning at every level, named by its place in the file (GH-107)', () => {
+  const raw = clone(EVERY_KEY) as Record<string, any>;
+  raw.gates.foo = 1;
+  raw.trackers[2].foo = 'x';
+  raw.agents.builder.foo = 'x';
+  raw.environments[1].colour = 'blue';
+  raw.worktrees.rooot = '../x';
+  raw.secretScan.excludes = [];
+  raw.analysis.require = true;
+  raw.template.url = 'x';
+  raw.github.token = 'x';
+  raw.dispatch.shard = [];
+  const { config, warnings } = parseConfig(raw);
+  assert.ok(config, 'warnings, not errors');
+  assert.deepEqual(warnings, [
+    'Unknown key "github.token" is ignored.',
+    'Unknown key "environments[1].colour" is ignored.',
+    'Unknown key "trackers[2].foo" is ignored.',
+    'Unknown key "agents.builder.foo" is ignored.',
+    'Unknown key "worktrees.rooot" is ignored.',
+    'Unknown key "gates.foo" is ignored.',
+    'Unknown key "secretScan.excludes" is ignored.',
+    'Unknown key "analysis.require" is ignored.',
+    'Unknown key "dispatch.shard" is ignored.',
+    'Unknown key "template.url" is ignored.',
+  ]);
+  // A map's keys are values, not keys: a gate's name never warns.
+  assert.deepEqual(parseConfig({ ...clone(GENERIC_CONFIG), gates: { commands: { anything: 'x' } } }).warnings, []);
+});
+
+test('the keys nothing reads are keys parseConfig knows, each with its reason, and the Command Center hides those listed unread (GH-107)', () => {
+  for (const [k, why] of Object.entries({ ...UNREAD_KEYS, ...VALIDATOR_ONLY })) {
+    assert.ok((CONFIG_KEYS as readonly string[]).includes(k), k);
+    assert.ok(why && why.trim().length > 10, `${k} says why`);
+  }
+  assert.equal(keyShown('autonomy'), UNREAD_KEYS.autonomy === undefined);
+  assert.equal(keyShown('autonomy', { autonomy: 'GH-1 will read it.' }), false);
+  assert.equal(keyShown('autonomy', {}), true);
 });
 

@@ -10,6 +10,7 @@ import { receiptHooks, receiptsAt } from './receipts.ts';
 import { agentArgs } from './agents.ts';
 import { type AwakeDeps, holdAwake } from './awake.ts';
 import { sessionName } from './names.ts';
+import { rulesText } from './rules.ts';
 
 /**
  * The review (D-032): a fresh agent reads the task, the diff, the checks and the project's rules, and
@@ -153,16 +154,6 @@ export function reviewing(paths: RepoPaths, task: string): Reviewing | null {
   }
 }
 
-/** Extra things to look for, by profile (D-003): the core stays project-agnostic. */
-const FOCUS: Record<string, string[]> = {
-  salesforce: [
-    'Apex is bulk-safe: no SOQL or DML inside loops, and triggers handle 200 records.',
-    'Apex respects sharing and object and field access where the data calls for it.',
-    'Apex tests assert outcomes, cover the changed paths, and don\'t depend on org data they don\'t create.',
-    'Metadata carries no values that belong to one org: user names, record ids, org URLs.',
-  ],
-};
-
 export interface ReviewInput {
   task: Task;
   config: Config;
@@ -174,21 +165,20 @@ export interface ReviewInput {
   diff: string;
   stat: string;
   checks: string[];
+  /** rulesText's: the profile's rules, then rules copied in, then the repo's own (GH-108). */
   rules: string | null;
 }
 
 /** The reviewer's standing instructions, and what it's given to review. */
 export function reviewPrompt(i: ReviewInput): { system: string; prompt: string } {
-  const focus = FOCUS[i.config.profile] ?? [];
   const system = [
     `You are the reviewer for ${i.task.id}. A builder agent made this change; you judge it before a person sees the pull request.`,
     'You can read files in this worktree with Read, Grep and Glob. You can\'t change anything, run commands, or ask questions.',
     'Judge it as a careful senior engineer would:',
     '- Does it do what the task asks? Go through each acceptance criterion in the task, and say whether it is met, with the file and line that meets it.',
-    '- Does it follow the project\'s rules, if there are any?',
+    '- Does it follow the rules you\'re given, if there are any? Where two disagree, the later one wins: this repo\'s own rules over the others.',
     '- Did it change anything the task didn\'t ask for?',
     '- Do the tests actually exercise the change?',
-    ...(focus.length ? ['- For this kind of project, also check:', ...focus.map((f) => `  - ${f}`)] : []),
     'Skip formatting and style: the checks cover those. A check that a person waived is settled; don\'t reopen it.',
     'Give "changes" only for problems that must be fixed before this merges, each as a finding with must: true. Lesser points are findings with must: false, and they don\'t block.',
     'Be specific: the file, the line, what is wrong, and what to do instead.',
@@ -206,7 +196,7 @@ export function reviewPrompt(i: ReviewInput): { system: string; prompt: string }
     '',
     ...(i.checks.length ? i.checks : ['- none recorded']),
     '',
-    ...(i.rules?.trim() ? ['## The project\'s rules', '', i.rules.trim(), ''] : []),
+    ...(i.rules?.trim() ? ['## Rules', '', i.rules.trim(), ''] : []),
     '## What changed',
     '',
     '```',
@@ -294,8 +284,7 @@ export function review(paths: RepoPaths, config: Config, id: string, deps: Revie
   const checks = Object.values(receipts).map((r) => `- ${r.gate}: ${r.waived ? `waived (it was ${r.waived.was ?? 'not run'}), because ${r.waived.reason}` : `${r.status}. ${r.summary}`}`);
   const packetFile = join(paths.packets, `${id}.md`);
   const packet = existsSync(packetFile) ? readFileSync(packetFile, 'utf8') : `# ${task.id}: ${task.title}\n\n${task.brief}`;
-  const rulesFile = join(worktree, '.acc', 'rules.md');
-  const rules = existsSync(rulesFile) ? readFileSync(rulesFile, 'utf8') : null;
+  const rules = rulesText(worktree, config.profile);
   const { system, prompt } = reviewPrompt({ task, config, envName: env.name, envBranch: env.branch, sha, packet, diff, stat, checks, rules });
 
   const sessionId = (deps.uuid ?? randomUUID)();

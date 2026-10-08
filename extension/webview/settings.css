@@ -16,4 +16,28 @@
 .settings-details { margin: 6px 0 0; padding-left: 20px; }
 .settings-details li { margin: 2px 0; }
 .settings-today .actions { margin-top: 8px; }
-@media (max-width: 620px) { .settings-row { grid-template-columns: minmax(0, 1fr); gap: 6px; } .settings-name { padding-top: 0; } }
+/* How agents run (GH-110): a group per project under its name, a row per setting with its Change… on the
+   right, and each value's where it's set beside it. */
+.settings-row.has-change { grid-template-columns: 150px minmax(0, 1fr) auto; }
+.settings-row.has-change > .btn { align-self: start; }
+.settings-project + .settings-project { margin-top: 12px; }
+.settings-project-name { display: flex; align-items: center; gap: 6px; margin: 10px 0 2px; font-size: 1em; color: var(--vscode-foreground); }
+.settings-project-name > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+/* Builders' and reviewers' columns start at the same widths, so they line up for the usual names; a longer
+   one, such as a dated model's, widens only its own. */
+.settings-parts { display: grid; grid-template-columns: minmax(6.5em, max-content) minmax(9.5em, max-content) minmax(0, 1fr); align-items: center; gap: 3px 12px; padding-top: 4px; }
+.settings-setting { overflow-wrap: anywhere; }
+.settings-from { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.settings-now { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding-top: 4px; }
+/* A long state, such as per-token billing's reason, wraps rather than running off a narrow tab. */
+.settings-now .status, .settings-state .status { white-space: normal; align-items: flex-start; }
+.settings-now .status .codicon, .settings-state .status .codicon { margin-top: 2px; }
+.settings-state { padding-top: 4px; }
+.settings-note { margin: 10px 0 0; }
+.settings-links { margin-top: 8px; }
+@media (max-width: 620px) {
+  .settings-row { grid-template-columns: minmax(0, 1fr); gap: 6px; } .settings-name { padding-top: 0; }
+  /* The name and its Change… share a line, and the value takes the whole width under them. */
+  .settings-row.has-change { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+  .settings-row.has-change > .settings-value { grid-column: 1 / -1; grid-row: 2; }
+}

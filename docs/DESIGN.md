@@ -51,7 +51,7 @@ gathers them.
 | Folder | What's in it | An area declares |
 |---|---|---|
 | `packages/cli/src/commands/` | One module per group of acc's commands: setup, tasks, agents (dispatch, done, block, resume, cleanup, agents, machine), pipeline (analyze, review, land, autopilot, sync), updates, environments, hooks, github, checks. `main.ts` is the entry, `shared.ts` what every group uses | its help lines (`section`, `order`, `lines`), the options it reads, its commands, and any argv a command needs changed first |
-| `extension/src/model/` | The page's view models, a module per area: overview, history, tasks (the agent board), cards (what a task's card says), boards (tracker boards), task-page, updates, agents, questions, agent-page, runs, connect, worktrees, environments, setup, slack, settings (its parts and the theme's choices), and page (the page's own messages). `home.ts` builds the page from the areas' parts, `messages.ts` gathers their messages, `shared.ts` holds what several use | the messages its parts send with their checks (`messages`, and its `Message` type), the acc.* commands they may ask for (`commands`), and what it adds to the page (`home`: Needs you for each project or once, stat tiles, its item in the rail, in its `order`) |
+| `extension/src/model/` | The page's view models, a module per area: overview, history, tasks (the agent board), cards (what a task's card says), boards (tracker boards), task-page, updates, agents, questions, agent-page, runs, connect, worktrees, environments, setup, slack, settings (its parts, the theme's choices, and How agents run: each project's builders, reviewers, autonomy and auto-merge), and page (the page's own messages). `home.ts` builds the page from the areas' parts, `messages.ts` gathers their messages, `shared.ts` holds what several use | the messages its parts send with their checks (`messages`, and its `Message` type), the acc.* commands they may ask for (`commands`), and what it adds to the page (`home`: Needs you for each project or once, stat tiles, its item in the rail, in its `order`) |
 | `extension/src/logic/` | Pure decisions, a module per area: setup and the walkthrough, tasks, agents, worktrees, environments, connect and trackers, runs, notices, autopilot, the status bar, polls (how often each thing is looked at again, which Settings says); `shared.ts` holds a task's row and an agent's session | nothing: nothing names every area here |
 | `extension/src/` | Each area's VS Code side: tasks, agents, worktrees and environments (their commands, subclasses of `sidebar.ts`'s shared base), setup, trackers and the Connect page, identity, slack, notices (the status bar's menu), autopilot, progress (In progress's Stop), ticket (a task's page), questions, runs, settings (the theme every tab follows, and Settings' Refresh). `extension.ts` builds the extension's parts and hands them to every area; `hub.ts` loads, polls and caches (`task-rows.ts` reads a task's row); `panels.ts` handles the page's own messages | `register(parts)`: its commands, and with `receive` the page's messages it takes |
 | `extension/webview/` | The page, flat so its tsconfig and the screenshot harness's staleness check see every file: overview, progress, tasks, task-page, updates, analysis, questions, agents, agent-page, dock, connect, worktrees, environments, slack, setup, settings, and theme (the page's `data-theme`). `main.ts` is the entry; `state.ts` owns the page's state, `dom.ts` builds elements, `boards.ts` holds what boards share, `rail.ts` draws the rail | the sections and tabs it draws, what it draws over a section, its hooks around a draw, and the extension's messages it takes |
@@ -84,18 +84,28 @@ only its own:
 
 | What | Where | Adding one |
 |---|---|---|
-| The screenshots' sample data | `extension/scripts/fixtures/`, a module per area: tasks, agents (their sessions and ledgers), questions, history (and autopilot's steps), updates, analysis, boards, connect, task-page, agent-page, setup, runs, slack, environments, progress (In progress), overview (the merge queue). `hub.ts` puts the sample project together; `shared.ts` holds its paths and its builders' names | add it to its area's module; the screenshot script imports the module it draws from |
+| The screenshots' sample data | `extension/scripts/fixtures/`, a module per area: tasks, agents (their sessions and ledgers), questions, history (and autopilot's steps), updates, analysis, boards, connect, task-page, agent-page, setup, runs, slack, environments, progress (In progress), overview (the merge queue), settings (a second project and per-token billing, for How agents run). `hub.ts` puts the sample project together; `shared.ts` holds its paths and its builders' names | add it to its area's module; the screenshot script imports the module it draws from |
 | The page's styles | `extension/webview/styles.css` holds what every area shares; `<module>.css` beside a module of the page holds that area's own. `theme.css` holds the Light and Dark palettes: no other file writes a colour, but for the masks and the one fallback a test pins (GH-109). npm run build writes styles.css first, then the rest by file name, into one `dist/webview/styles.css`; `extension/scripts/styles.ts` gives the tests the same | a rule two areas need goes in styles.css, since the areas' order is only their names. A `.css` named for no module of the page fails the build |
 | The extension's tests | `extension/test/<area>.test.ts`, named for what they test: setup, page, notices, tasks, cards, autopilot, agents, trackers, worktrees, environments, overview, updates, history, boards, and connect, progress, slack, tickets and the rest from before. `support.ts` holds what several share | put it in its area's file, so the near-tests gate (§9) finds it by name as well as by import |
 | The commands the extension contributes | `extension/commands/<module>.json`, named for the module in `extension/src/` that registers them. npm run build writes package.json's `contributes.commands` from them, by file name; `extension/test/areas.test.ts` checks each is in the right file | add it to its registering module's file, then run npm run build |
 | Core's exports | `packages/core/src/index.ts`, written by `scripts/areas.ts` | nothing, for a new module |
+
+**A new kind of per-area file** that tests read through a script, not by
+import, adds a row to `READS` in `scripts/near-reads.ts`: the files, and the
+script that reads them (GH-117). The near-tests gate (§9) then runs the tests
+near that script whenever one of the files changes, as it does for the
+stylesheets (`extension/scripts/styles.ts`), the commands files and
+`extension/package.json` (`extension/scripts/generate.ts`).
+scripts/test/near-tests.test.ts checks that every file of each kind is near
+the test that reads it.
 
 ## 3. Where state lives
 
 | Path | In git? | Holds |
 |---|---|---|
 | `.acc/config.json` | yes | Project settings ([section 4](#4-config)) |
-| `.acc/rules.md` | yes, optional | Project rules the reviewer checks |
+| `.acc/rules.md` | yes, optional | The repo's own rules, which builders, reviewers and the analyst keep to. They win over every other ([section 8](#8-the-packet)) |
+| `.acc/rules/<name>.md` | yes, optional | Rules copied in from elsewhere by `acc rules import`, each after a header naming its source, the commit or date it was copied, and its sha256 (GH-108, [docs/RULES.md](RULES.md)) |
 | `.acc/packet.md` | yes, optional | Override for the builder's instructions template |
 | `<git-common-dir>/acc/ledger.json` | no | Tasks: the current snapshot |
 | `<git-common-dir>/acc/events.jsonl` | no | Append-only log of every change |
@@ -136,7 +146,7 @@ branches and the pull requests.
   "trackers": [{ "kind": "jira", "site": "example.atlassian.net", "project": "ACME" }],
   "agents": { "max": 3, "permissionMode": "acceptEdits" },
   "autonomy": "manual",
-  "worktrees": { "root": "../acme-salesforce.worktrees" },
+  "worktrees": { "setup": ["npm ci"] },
   "gates": { "required": ["format", "static", "validate"] }
 }
 ```
@@ -183,21 +193,48 @@ sandboxes support source tracking, so `acc doctor` checks it only there. A
 always protected. An org that's on no path, such as a training sandbox, is still
 listed so that drift checks and `doctor` cover it.
 
+Every key is read by code and described here, and acc warns about a key it
+doesn't know, at any level (GH-107).
+
 | Field | Meaning |
 |---|---|
-| `github.account` | The `gh` account for this repo (D-007). `acc` passes `GH_TOKEN` on every call and sets the repo's commit identity and credential helper on `acc init` |
-| `environments` | Every org the project has, whether or not it's on a promotion path. Each has a name, a branch (by default the lower-cased name), a `type` (`production`, `full`, `partial`, `developer`, `developer_pro`) and, in the `salesforce` profile, an org alias. A task builds from one environment's branch, and its pull request goes back into it. **Protected** environments never receive agent work. `promotesTo` lists where it can promote to, usual step first ([section 11](#11-landing)) |
+| `schema` | The file's format: always `1`. acc refuses any other |
+| `project` | The project's name, as the Command Center and agents' session names show it |
+| `profile` | `generic` or `salesforce`: which checks, setup steps and rules apply (D-003). Left out, `generic` |
+| `github.repo`, `github.account` | The repo, as `owner/name`, and the `gh` account for it (D-007). `acc` passes that account's `GH_TOKEN` on every call and sets the repo's credential helper on `acc init` |
+| `commitIdentity.name`, `commitIdentity.email` | Who the repo's commits are by. `acc init` sets them as the repo's own `user.name` and `user.email`, so a machine's global identity never signs a project's commits (B2.identity) |
+| `environments` | Every org the project has, whether or not it's on a promotion path. Each has a `name`; a `branch`, always the lower-cased name, which can be left out (D-015); a `type` (`production`, `full`, `partial`, `developer`, `developer_pro`, or `none` outside Salesforce) and, in the `salesforce` profile, an `org` alias. Exactly one is the `default`, the one day-to-day work starts from. A task builds from one environment's branch, and its pull request goes back into it. **Protected** environments (`protected`, and Production always) never receive agent work. `promotesTo` lists where it can promote to, usual step first ([section 11](#11-landing)) |
 | `environmentSpecific` | A list of files that differ by design in every environment, such as email service addresses, SSO and org settings. These are never edited by a task, never deployed, and never promoted (D-016) |
 | `knownDrift` | Files that a drift check should expect to differ, such as features a sandbox lacks or ordering noise. They can still be edited and promoted |
-| `trackers` | Where intake reads from. Several are allowed. A GitHub tracker's `skipLabels` lists labels whose issues aren't tasks, such as `["milestone"]` (D-048). Each tracker's place holds every read to this repo's tickets: its project, repo or monday.com `board`, narrowed by a Jira `epic`, GitHub `labels` (any one counts), an Azure `areaPath` or a monday.com `group` (D-072). A monday.com tracker names its `account` and `board`, and may name a `statusColumn` (D-085) |
+| `trackers` | Where intake reads from. Several are allowed, each of a `kind`: `jira`, `github`, `azure` or `monday`. A Jira tracker names its `site` and `project` key; a GitHub one its `repo`, the project's own by default; an Azure DevOps one its `organization` and `project`, and may name the `team` whose board to show; a monday.com one its `account` and `board`, and may name a `statusColumn` (D-085). An Azure DevOps or monday.com tracker's keys start with its `prefix`, `AB` or `MON` by default, so two trackers never give the same keys. A GitHub tracker's `skipLabels` lists labels whose issues aren't tasks, such as `["milestone"]` (D-048). Each tracker's place holds every read to this repo's tickets: its project, repo or monday.com `board`, narrowed by a Jira `epic`, GitHub `labels` (any one counts), an Azure `areaPath` or a monday.com `group` (D-072). Elsewhere, `board` is the board the Tasks tab shows: a Jira board id, a GitHub Project number or an Azure board's name. `edits`, when `true`, lets the task page change a ticket's status, assignee and labels, and `acc sync` close a GitHub issue when its work merges; it's off by default (D-066, D-082) |
 | `agents.max` | Most builder sessions at once, default 3 |
+| `agents.permissionMode` | The permission mode builders run in: `default`, `acceptEdits` (the default), `plan`, `auto` or `dontAsk`. `bypassPermissions` is never allowed |
+| `agents.builder`, `agents.reviewer` | The `model`, `effort` and `fallbackModel` builders and reviewers run with (D-036). A `model` is an alias, such as `opus`, or a full name; left out, acc's default, `claude-opus-5-5` (D-086). `effort` is `low`, `medium`, `high`, `xhigh` or `max`, and `fallbackModel` is the model Claude Code turns to when the first is overloaded; either left out is Claude Code's own default. A clone's own choice, made with `acc agents set`, wins over these ([section 7](#7-dispatch)) |
 | `autonomy` | How much the loop does on its own ([section 12](#12-the-orchestrator-loop)) |
 | `autopilot.appendOnly` | Files, or folders, where autopilot may resolve a conflict with the base when both sides only added to the end, such as a decision log. Left out, there are none ([section 12](#12-the-orchestrator-loop)) |
+| `autopilot.autoMerge` | `true` lets autopilot merge a reviewed pull request whose checks passed, with nothing waiting on you, into an environment that isn't protected, through the merge queue, under autonomy `review` (GH-67). Off unless it's `true`, and never in a Salesforce project. `acc agents auto-merge on` sets it ([section 12](#12-the-orchestrator-loop)) |
 | `dispatch.shared` | Files, or folders, that every task edits, such as the docs. Like `autopilot.appendOnly`, they never make one task wait for another's files. Left out, there are none ([section 7](#7-dispatch)) |
-| `worktrees.root` | Where task worktrees go. The default is a sibling folder outside the repo ([section 7](#7-dispatch)) |
-| `gates` | Which checks are required, plus per-check overrides. `gates.builder` names a builder's lighter checks, where the merge queue runs the required ones ([section 9](#9-gates-and-receipts)) |
+| `worktrees.root` | Where task worktrees go. The default is `.claude/worktrees/` inside the repo, where a background agent started from the trusted main checkout can enter one without a trust prompt (D-022, [section 7](#7-dispatch)) |
+| `worktrees.setup` | Commands run in each new task worktree, in order, once it's made and `node_modules` is linked in from the main checkout, such as `npm ci`. One that fails stops the dispatch |
+| `gates` | Which checks are required, plus per-check overrides ([section 9](#9-gates-and-receipts)). `gates.required` names the checks a commit needs before review and landing, and `gates.commands` gives each check its command. `gates.heavy` names those that take the machine-wide slot, one at a time across every repo (D-024); left out, `build`, `test` and `check`, or in Salesforce `static`, `lwc-tests` and `validate`. `gates.severity` is the Code Analyzer level that fails `static`, from 1 (only the worst problems) to 5 (everything), default 2. `gates.builder` names a builder's lighter checks, where the merge queue runs the required ones |
 | `gates.ratchets` | Checks whose command prints one number that may only get better (GH-99): each names its `command`, whose last line is the number, its `limit` (`floor`, which may only go up, or `ceiling`, which may only go down) and a short `label` for pages. Its name is a gate's, so it can be required or a builder's. Its floor lives in `.acc/floors.json`, committed ([section 9](#9-gates-and-receipts)) |
+| `secretScan.paths`, `secretScan.exclude` | Where setup's B3.secrets step looks for credentials in tracked files, and what it skips there. By default the whole repo, or in Salesforce `force-app`, `config` and `scripts`, skipping nothing |
+| `analysis.required` | Whether a task needs an analysis before it's built (D-052). Left out, a Salesforce project's do and a generic one's don't |
 | `template` | The team template the project was started from, written by `acc init --from`: its `name`, its `source` (a GitHub file URL, `<git-url>#<path>`, or a path inside the repo, under `~/`, or an absolute path elsewhere) and its `digest` (`sha256:` of its JSON with sorted keys). Setup's B0.template step says when the template has changed and the project now differs; nothing re-applies it ([docs/TEMPLATES.md](TEMPLATES.md), D-097) |
+
+**Shared rules are copied in, not linked (GH-108).** A team's rules, such as
+its Apex standards, reach a project as a copy in `.acc/rules/<name>.md`, never
+as a path or URL read at run time, so a source that moves or goes changes
+nothing here. `acc rules import <source>` makes the copy. The source is a path,
+a GitHub file URL or `<git-url>#<path>`, fetched and refused as a team
+template's is (D-097), and the copy starts with a header naming where it came
+from. A team template's `rules` key names files to copy in when `acc init
+--from` starts the project. No config key records them: each copy's header is
+the only record. Setup's B0.rules step reads each source again, within 20
+seconds for all of them, and says when one has changed. A person runs `acc
+rules diff` to see how, and `acc rules import <source> --name <name> --force`
+to take it. Copies live under `.acc/`, so the merge queue and autopilot leave
+a change to them for a person to merge ([docs/RULES.md](RULES.md)).
 
 ## 5. Tasks and the ledger
 
@@ -440,7 +477,16 @@ or from the project's `.acc/packet.md` if there is one. It contains:
   - edit files outside the worktree
   - edit an environment-specific file
   - change the ticket
-- **Rules:** the profile's rules and the project's `.acc/rules.md`.
+- **Rules:** one section, in a fixed order (GH-108). First the profile's rules
+  (Salesforce's: bulk-safe Apex, sharing and field access, tests that assert
+  outcomes, no org-specific values in metadata; a generic project has none),
+  then each copy in `.acc/rules/` by file name, under a heading naming its
+  source, then `.acc/rules.md`. A sentence before them says the later one
+  wins, so the repo's own rules win where they conflict. They're read from the
+  task's worktree, so a copy reaches builders once it's committed on the
+  environment's branch. The copies' headers aren't sent. The reviewer and the
+  analyst get the same section in the same order. The analyst reads it from
+  the main checkout.
 
 When the session resumes or compacts, the SessionStart hook injects a short
 version again.
@@ -493,21 +539,30 @@ repo can then give its builders lighter ones in `gates.builder`, such as a
 typecheck and the tests near what changed: `acc gate run` with no names runs
 them, and `acc done`, `acc review` and `acc land` take them. The full check
 passing on a commit covers them. Left out, or where auto-merge doesn't cover the
-environment, builders run `gates.required`, as before. A command gate is told
-what the branch changed, and the tests near those changes, one path a line, in
-`ACC_CHANGED` and `ACC_NEAR_TESTS`: the test files it changed, and, in the same
-package, the tests named for each other file it changed (`merge.ts` →
-`merge.test.ts`, `test_merge.py`) or that import it. A file a folder's index
-gathers is near the tests of that index and of what loads it (GH-95): an index
-imports the file and most of the other code in its folder, so
-`packages/cli/src/commands/tasks.ts` is near the tests that run
-`packages/cli/src/main.ts`. A package starts at its `src`, `lib` or `app`
-folder, else at the nearest folder with a `package.json`, so the page's modules
-in `extension/webview/` are near `extension/test/`. Only a gate whose command
-names `ACC_NEAR_TESTS`, or names a file in the checkout that does, is given it;
-acc reads each file once to work it out. This repo's builders run `typecheck`
-and `near-tests` (`scripts/near-tests.mjs`, which fails if it isn't given the
-list), and the `tests` ratchet below.
+environment, builders run `gates.required`, as before. Every command gate is
+told what the branch changed, and the tests near those changes, one path a
+line, in `ACC_CHANGED` and `ACC_NEAR_TESTS` (GH-117): acc can't tell whether
+`npm run test:near` reads the list, and a script given none would run nothing
+and pass. acc works the list out once a run, reading each file once. It holds
+the test files the branch changed, and, in the same package, the tests named
+for each other file it changed (`merge.ts` → `merge.test.ts`, `test_merge.py`)
+or that import it. A file a folder's index gathers is near the tests of that
+index and of what loads it (GH-95): an index imports the file and most of the
+other code in its folder, so `packages/cli/src/commands/tasks.ts` is near the
+tests that run `packages/cli/src/main.ts`. A file named `index` is named for
+its folder, so its tests are those that load it by its path or its folder's
+(GH-117): core's modules are near `lock.test.ts`, which loads core's index,
+and not `gates.test.ts`, which only quotes index paths as data. Any other
+index, such as `extension.ts`, is still found by its name, since its tests
+may load its build. A package starts at its `src`, `lib` or `app` folder,
+else at the nearest folder with a `package.json`, so the page's modules in
+`extension/webview/` are near `extension/test/`. This repo's builders run
+`typecheck` and `near-tests` (`scripts/near-tests.mjs`, which fails if it
+isn't given the list). That gate also runs the tests near what reads a
+per-area file the branch changed, from `scripts/near-reads.ts` (§2): an
+area's stylesheet brings `screenshot.test.ts`, and a commands file or
+`extension/package.json` brings `areas.test.ts`. They also run the `tests`
+ratchet below.
 
 **Ratchets** (GH-99). A ratchet is a check whose command prints one number that
 may only get better: a test count, coverage, Apex coverage, or Code Analyzer's
@@ -589,9 +644,10 @@ session can be watched like any agent's.
   changes. Verdicts are kept at `<git-common-dir>/acc/reviews/<task>-<sha>.json`.
 - **On `changes`:** the task moves to `rework`, and the findings are added to
   the packet for the next run.
-- **Profiles add their own checks** (D-003). Salesforce asks about bulk safety,
-  sharing and field access, tests that assert outcomes, and org-specific values
-  in metadata.
+- **Profiles add their own checks** (D-003), as the profile's rules: the first
+  part of the Rules section the builder gets too ([section 8](#8-the-packet)).
+  Salesforce asks about bulk safety, sharing and field access, tests that
+  assert outcomes, and org-specific values in metadata.
 
 ## 11. Landing
 
@@ -759,7 +815,7 @@ before each:
   can't run it.
 - **Auto-merge** (GH-67) is off unless `.acc/config.json` says
   `"autopilot": { "autoMerge": true }`, which `acc agents auto-merge on` writes
-  and the Agents section's Auto-merge row runs. A Salesforce project can't turn
+  and the Auto-merge row in Settings' How agents run runs. A Salesforce project can't turn
   it on, and it never merges into a protected environment. A task in review
   merges when its review passed and its checks settled on the branch's latest
   commit, landed; GitHub's required checks passed there, or every check when the
@@ -851,7 +907,7 @@ before each:
   started elsewhere shows as "on elsewhere", with its pid. Every window reads
   what autopilot did from the ledger's events: each step is in the Overview's
   History, and a notice. `acc agents autonomy [manual|review]` changes the
-  level, and the Agents section's Autonomy row runs it. `acc agents auto-merge
+  level, and the Autonomy row in Settings' How agents run runs it. `acc agents auto-merge
   [on|off]` and its Auto-merge row do the same for auto-merge, which the status
   bar's menu shows for each repo.
 
@@ -1027,16 +1083,26 @@ count; under 820 px wide, it becomes a tab strip along the top.
 |---|---|
 | **Overview** | **Needs you:** agents waiting on a prompt, blocked tasks, steps autopilot couldn't take (with why, and the step to take by hand), missing tracker sign-ins and setup still to do, each with its button. Then, apart, work waiting for review. Stat tiles open their sections. **Ready for an agent** has Dispatch buttons, and **History** lists your answers, every task's moves, each step autopilot took, wherever it ran, and the commands acc ran (D-064) |
 | **Tasks** | The tracker's own board, or acc's agent board (D-026) |
-| **Agents** | Sessions by project, each with the model it runs with (D-086), and a menu on each row (D-023). **Settings** in the header opens **How agents run** above them: builders' and reviewers' model and effort (D-036), the project's autonomy (D-064) and auto-merge (D-083). It's closed until opened, and remembered for the tab; per-token billing shows even while it's closed (D-089) |
+| **Agents** | Sessions by project, each with the model it runs with (D-086), and a menu on each row (D-023). **Settings** in the header opens Settings at **How agents run** (GH-110). Per-token billing shows above the sessions, since it costs money while nobody looks (D-036, D-089) |
 | **Worktrees** | Every checkout, with a menu on each row |
 | **Environments** | The GitHub identity card (D-028), promotion paths, and one card per environment |
 | **Setup** | The checklist, with Do it on each step |
-| **Settings** | Last in the rail, with a gear (GH-109). **Appearance** first, then a part for each area whose settings move there: How agents run, Limits and checks, Trackers and sign-ins, Notices in Slack, GitHub accounts, the Command Center, and About. Each part has a heading another page can open Settings at; until its settings move, it says where they live today, with a button there when there is one |
+| **Settings** | Last in the rail, with a gear (GH-109). **Appearance** first, then **How agents run** (GH-110), then a part for each area whose settings move there: Limits and checks, Trackers and sign-ins, Notices in Slack, GitHub accounts, the Command Center, and About. Each part has a heading another page can open Settings at; until its settings move, it says where they live today, with a button there when there is one |
 
 The page polls only while it's visible. The section you leave it on is where it
 opens next. The sidebar keeps a single launcher view listing the sections; set
 `agentCommandCenter.openFromActivityBar` to false to keep it open instead. The
 icon's badge counts what needs you.
+
+**How agents run** (GH-110): each onboarded project under its name, with its
+builders' and reviewers' model, effort and fallback (D-036, D-086), its autonomy
+(D-064) and its auto-merge (D-083). Each value says where it's set, in words
+with an icon: this clone, the project, or a default. Each **Change…** runs the
+same command as before, which asks acc: this clone's choice goes in its git
+config, a project's in its `.acc/config.json`. The page writes neither. Then
+what this machine's agents bill, once, with **Open Setup** while it's per token
+or not checked. The Agents page's **Settings** and the status bar's Auto-merge
+open Settings here.
 
 **Appearance** (GH-109): the Command Center, task pages and agent pages are
 Match VSCode (the default), Light or Dark; VSCode keeps its own theme. The pick

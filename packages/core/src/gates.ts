@@ -3,8 +3,8 @@
  * A builder runs them with `acc gate run`; `acc done` accepts the task once every required gate has
  * passed, or didn't apply, on the branch's latest commit. Gates check. They never deploy (D-011).
  */
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join, posix } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join, posix } from 'node:path';
 import { type Config, type Environment, requiredGates } from './config.ts';
 import { AccError, parseJsonOutput, type RunResult, type Runner, sfEnv } from './exec.ts';
 import type { Ledger, Task } from './ledger.ts';
@@ -97,34 +97,18 @@ export function checkEnv(env: NodeJS.ProcessEnv = process.env, heavyDir?: string
 /**
  * A gate from `gates.commands`, run by the shell in the checkout. It's told what the branch changed, and the
  * tests near those changes, one path a line (GH-73): `ACC_CHANGED` and `ACC_NEAR_TESTS`, so a builder's
- * lighter check can run only those. Only a gate that reads `ACC_NEAR_TESTS` is given it (GH-95), so the
- * full check and a typecheck don't wait while acc reads every test.
+ * lighter check can run only those. Every command gate is told both (GH-117): acc can't tell whether
+ * `npm run test:near` reads the list, and a script given none would run nothing and pass. The list is
+ * worked out once a run, reading each file once.
  */
 function commandGate(name: string, command: string, heavy: boolean): Gate {
   return {
     name, heavy, about: command,
-    plan: ({ root, changes, near }) => ({
+    plan: ({ changes, near }) => ({
       cmd: 'sh', args: ['-c', command], read: exitRead,
-      env: { ACC_CHANGED: changes.files.join('\n'), ...(readsNearTests(root, command) ? { ACC_NEAR_TESTS: near().join('\n') } : {}) },
+      env: { ACC_CHANGED: changes.files.join('\n'), ACC_NEAR_TESTS: near().join('\n') },
     }),
   };
-}
-
-/**
- * Whether a command reads `ACC_NEAR_TESTS` (GH-95): it names it, or names a file in the checkout that does,
- * as this repo's `node --no-warnings scripts/near-tests.mjs` does.
- */
-export function readsNearTests(root: string, command: string): boolean {
-  if (command.includes('ACC_NEAR_TESTS')) return true;
-  return command.split(/\s+/).map((w) => w.replace(/^['"]|['"]$/g, '')).some((w) => {
-    if (!w || w.startsWith('-') || isAbsolute(w) || w.split('/').includes('..')) return false;
-    try {
-      const file = join(root, w);
-      return statSync(file).isFile() && readFileSync(file, 'utf8').includes('ACC_NEAR_TESTS');
-    } catch {
-      return false;
-    }
-  });
 }
 
 // ---------------------------------------------------------------- the tests near a change (GH-73)
@@ -159,7 +143,8 @@ const withoutExt = (path: string): string => path.replace(CODE, '');
  * A file a folder's index gathers is also near the tests of that index and of what loads it (GH-95), as
  * the tests that run packages/cli/src/main.ts test every module in its commands/ folder. An index is a
  * file that imports the changed file and most of the other code in its folder; what loads it is any other
- * code in the package that imports it by its path.
+ * code in the package that imports it by its path. An index named index has as its own tests those named
+ * for it or that load it by its path or its folder's (GH-117), not any that quotes a path ending in index.
  *
  * `tracked` is every file in the checkout; `read` gives a file's text, and is asked once a file. Paths
  * are the repo's, sorted, each once.
@@ -183,8 +168,8 @@ export function nearTests(changed: string[], tracked: string[], read: (path: str
   // A file imports an index by its path, or by its folder's when it's named index: './commands'.
   const importsIndex = (f: string, index: string): boolean => pathsIn(f).has(withoutExt(index)) || (/^index\./.test(posix.basename(index)) && pathsIn(f).has(folderOf(index)));
 
-  /** The tests in a file's package named for it or importing it by name. */
-  const nearOne = (f: string): string[] => {
+  /** The tests in a file's package named for it, or that `loads` says load it: by default, any importing it by name. */
+  const nearOne = (f: string, loads?: (t: string) => boolean): string[] => {
     const base = f.split('/').at(-1)!;
     const stem = base.replace(/\.[^.]+$/, '');
     if (!stem || stem === base) return [];
@@ -192,8 +177,13 @@ export function nearTests(changed: string[], tracked: string[], read: (path: str
     const named = new RegExp(`(^|/)(${escape(stem)}[._](test|spec)\\.\\w+|test_${escape(stem)}\\.\\w+)$`);
     // An import or require that names the file: '../src/merge.ts', './merge', "pkg/merge.js".
     const imports = new RegExp(`['"\`][^'"\`\\n]*\\/${escape(stem)}(\\.[cm]?[jt]sx?)?['"\`]`);
-    return tests.filter((t) => (!pkg || t.startsWith(`${pkg}/`)) && (named.test(t) || imports.test(text(t))));
+    return tests.filter((t) => (!pkg || t.startsWith(`${pkg}/`)) && (named.test(t) || (loads ? loads(t) : imports.test(text(t)))));
   };
+  // A file named index is named for its folder, and many folders have one, so its tests are those that load it
+  // by its path or its folder's (GH-117): a test that quotes 'packages/cli/src/commands/index.ts' isn't near
+  // every module core's index gathers. Any other index's name is its own, and its tests may load its build
+  // instead, as activate.test.ts loads dist/extension.js, so they're found by name.
+  const nearIndex = (index: string): string[] => (/^index\./.test(posix.basename(index)) ? nearOne(index, (t) => importsIndex(t, index)) : nearOne(index));
 
   /** The indexes that gather a file: code in its folder that imports it and more than half the rest. */
   const indexesOf = (f: string): string[] => {
@@ -213,7 +203,7 @@ export function nearTests(changed: string[], tracked: string[], read: (path: str
     const pkg = packageOf(f, files);
     for (const index of indexesOf(f)) {
       const loaders = code.filter((c) => c !== index && (!pkg || c.startsWith(`${pkg}/`)) && importsIndex(c, index));
-      for (const g of [index, ...loaders]) for (const t of nearOne(g)) out.add(t);
+      for (const t of [...nearIndex(index), ...loaders.flatMap((g) => nearOne(g))]) out.add(t);
     }
   }
   return [...out].sort();

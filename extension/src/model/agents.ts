@@ -1,11 +1,9 @@
 /**
- * The Agents section: sessions by where they run, and how agents run.
+ * The Agents section: sessions by where they run, and what they bill. How agents run is in Settings (GH-110).
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 
-import { autopilotDoes } from '../../../packages/core/src/autopilot.ts';
-import { autoMergeOn } from '../../../packages/core/src/config.ts';
-import { agentLook, finishedSession, FROM_WORDS, stopFinishedPlan } from '../logic/agents.ts';
+import { agentLook, finishedSession, stopFinishedPlan } from '../logic/agents.ts';
 import { type AgentSession, isUnder, tildePath } from '../logic/shared.ts';
 import type { DoctorItem } from '../logic/setup.ts';
 import { lookOf } from './environments.ts';
@@ -111,34 +109,6 @@ export interface AgentRow {
   model: string | null;
 }
 
-export interface AgentSetting {
-  role: 'builder' | 'reviewer';
-  label: string;
-  icon: string;
-  /** Each part in words, with where it's set. */
-  parts: { name: string; value: string; from: string }[];
-}
-
-/** What autopilot may do on its own in a project (D-055), as the Agents section shows it. */
-export interface AutonomySetting {
-  value: string;
-  from: string;
-  /** What that level means, in words. */
-  meaning: string;
-}
-
-/** Whether autopilot merges pull requests in a project (GH-67), as the Agents section shows it. */
-export interface AutoMergeSetting {
-  value: 'on' | 'off';
-  from: string;
-  meaning: string;
-  /** Whether a person can change it here: a Salesforce project never auto-merges. */
-  settable: boolean;
-}
-
-/** The key under which the Agents page remembers How agents run is open; the webview keeps the same. */
-export const AGENT_SETTINGS = 'agents:settings';
-
 export interface AgentsModel {
   kind: 'agents';
   error: string | null;
@@ -147,53 +117,14 @@ export interface AgentsModel {
   whereView: WhereView;
   /** How many finished background sessions Stop finished sessions would stop (D-095). */
   stopFinished: number;
-  /** Each project's agent settings, what autopilot may do there, whether it merges, and what its agents bill (D-036). */
-  settings: { root: string; project: string; roles: AgentSetting[]; autonomy: AutonomySetting | null; autoMerge: AutoMergeSetting | null; billing: Look | null }[];
+  /**
+   * What this machine's agents bill (D-036). How agents run is in Settings now (GH-110), but per-token
+   * billing costs money while nobody looks, so Agents says so too.
+   */
+  billing: Look | null;
 }
 
-/** The project's autonomy, set in .acc/config.json and changed through acc (D-064). Review says whether autopilot merges (GH-67). */
-export function autonomySetting(p: ProjectLike): AutonomySetting | null {
-  const value = p.config.autonomy;
-  const meaning: Record<string, string> = {
-    manual: 'Nothing happens on its own.',
-    review: `Autopilot ${autopilotDoes(autoMergeOn(p.config))}`,
-    dispatch: 'Not built yet: autopilot refuses.',
-    full: 'Not built yet: autopilot refuses.',
-  };
-  return value ? { value, from: 'project', meaning: meaning[value] ?? '' } : null;
-}
-
-/** Whether autopilot merges a reviewed, green pull request (GH-67), set in .acc/config.json and changed through acc. */
-export function autoMergeSetting(p: ProjectLike): AutoMergeSetting | null {
-  if (!p.config.autonomy) return null;
-  if (p.config.profile === 'salesforce') return { value: 'off', from: 'project', meaning: 'A Salesforce project never auto-merges: a person merges every pull request.', settable: false };
-  if (!autoMergeOn(p.config)) return { value: 'off', from: 'project', meaning: 'Autopilot never merges a pull request: a person merges each one.', settable: true };
-  const kept = p.config.environments.filter((e) => e.protected).map((e) => e.name);
-  const meaning = [
-    'A pull request whose review and checks passed, with nothing waiting on you, joins the merge queue, and they merge in turn: its base merged in, the full check run once, then merged once GitHub says it can.',
-    kept.length ? `Never into ${kept.join(', ')}: protected.` : '',
-    p.config.autonomy === 'review' ? '' : 'Autonomy is manual, so nothing merges on its own.',
-  ].filter(Boolean).join(' ');
-  return { value: 'on', from: 'project', meaning, settable: true };
-}
-
-export function agentSettings(p: ProjectLike): AgentSetting[] {
-  if (!p.agents) return [];
-  const role = (r: 'builder' | 'reviewer'): AgentSetting => {
-    const v = p.agents![r];
-    return {
-      role: r, label: r === 'builder' ? 'Builders' : 'Reviewers', icon: r === 'builder' ? 'tools' : 'checklist',
-      parts: [
-        { name: 'Model', value: v.model ?? 'default', from: FROM_WORDS[v.from.model] ?? v.from.model },
-        { name: 'Effort', value: v.effort ?? 'default', from: FROM_WORDS[v.from.effort] ?? v.from.effort },
-        ...(v.fallbackModel ? [{ name: 'Falls back to', value: v.fallbackModel, from: FROM_WORDS[v.from.fallbackModel] ?? v.from.fallbackModel }] : []),
-      ],
-    };
-  };
-  return [role('builder'), role('reviewer')];
-}
-
-/** What the billing check says, as a line in the Agents settings. Null until that check has run. */
+/** What the billing check says, on Agents and in Settings' How agents run. Null until that check has run. */
 export function billingLook(items: DoctorItem[]): Look | null {
   const i = items.find((x) => x.id === 'A1.claude-billing');
   if (!i || i.status === 'skip') return null;
@@ -215,9 +146,7 @@ export function agentsModel(hub: HubLike, setupItems: DoctorItem[] = [], whereVi
   const places = hub.projects.map((p) => ({ label: p.name, root: p.root as string | null, agents: sorted.filter((s) => hub.projectFor(s.cwd) === p).map(rowFor) }));
   const elsewhere = sorted.filter((s) => !hub.projectFor(s.cwd));
   if (elsewhere.length) places.push({ label: 'Elsewhere on this machine', root: null, agents: elsewhere.map(rowFor) });
-  const billing = billingLook(setupItems);
-  const settings = hub.projects.filter((p) => p.agents).map((p) => ({ root: p.root, project: p.name, roles: agentSettings(p), autonomy: autonomySetting(p), autoMerge: autoMergeSetting(p), billing }));
-  return { kind: 'agents', error: hub.agentsError, places, whereView, stopFinished: stopFinishedPlan(hub.agents, tieOf, askingOf).length, settings };
+  return { kind: 'agents', error: hub.agentsError, places, whereView, stopFinished: stopFinishedPlan(hub.agents, tieOf, askingOf).length, billing: billingLook(setupItems) };
 }
 
 export type Message =
@@ -226,7 +155,7 @@ export type Message =
 
 export const area: ModelArea = {
   commands: [
-    'acc.agent.new', 'acc.agent.attach', 'acc.agent.logs', 'acc.agent.stop', 'acc.agents.stopFinished', 'acc.agent.openFolder', 'acc.agent.watch', 'acc.agent.openInClaude', 'acc.agents.configure', 'acc.agents.autonomy', 'acc.agents.autoMerge',
+    'acc.agent.new', 'acc.agent.attach', 'acc.agent.logs', 'acc.agent.stop', 'acc.agents.stopFinished', 'acc.agent.openFolder', 'acc.agent.watch', 'acc.agent.openInClaude',
   ],
   home: {
     order: 20,

@@ -11,7 +11,7 @@ import { homeModel } from './model/home.ts';
 import { runCard, type RunInput } from './model/runs.ts';
 import type { SlackCard } from './model/slack.ts';
 import { WHERE_VIEWS, type WhereView } from './model/agents.ts';
-import { THEME_SETTING, themeChoice, type ThemeChoice } from './model/settings.ts';
+import { themeChoice, type ThemeChoice } from './model/settings.ts';
 import type { Setup } from './setup.ts';
 
 /** Commands the page may ask for, from every area that draws them (D-099). Anything else from a webview is ignored. */
@@ -46,7 +46,8 @@ const REFRESH: Record<HomeSection, string[]> = {
 };
 
 /** The Command Center's theme, as Settings keeps it on this machine (GH-109). */
-export const currentTheme = (): ThemeChoice => themeChoice(vscode.workspace.getConfiguration(THEME_SETTING.section).get(THEME_SETTING.key));
+// Read by its literal name (THEME_SETTING's), so the settings check sees what reads it (D-103).
+export const currentTheme = (): ThemeChoice => themeChoice(vscode.workspace.getConfiguration('agentCommandCenter').get('theme'));
 
 /**
  * Keeps one tab in the Command Center's theme (GH-109). On screen, the tab is told, and restyles without
@@ -130,7 +131,7 @@ export class Panels implements vscode.Disposable {
   private panel: vscode.WebviewPanel | null = null;
   /** Keeps the tab in the Command Center's theme (GH-109). */
   private tab: TabTheme | null = null;
-  /** A part of the section to open with the next jump, such as the Agents settings. */
+  /** A part of the section to go to with the next jump, such as Settings' How agents run. */
   private opening: string | null = null;
   private section: HomeSection = 'overview';
   /** What the Agents tab's Where column shows, remembered for the window (GH-83). */
@@ -164,8 +165,8 @@ export class Panels implements vscode.Disposable {
 
   /**
    * Opens the page, or brings it forward, at a section: the one asked for, else where it was left. With
-   * open, a part of the section that's closed until you open it opens too, such as the Agents settings, and
-   * a part with a heading of that name is scrolled to, such as one of Settings' (settingsKey, GH-109).
+   * open, the part with a heading of that name is scrolled to and focused, such as one of Settings'
+   * (settingsKey, GH-109).
    */
   show(section?: ViewKind | HomeSection, open?: string): void {
     if (section && (HOME_SECTIONS as readonly string[]).includes(section)) this.remember(section as HomeSection);

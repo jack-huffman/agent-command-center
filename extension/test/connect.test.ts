@@ -525,6 +525,17 @@ test('the tick doesn\'t know one tracker from another: monday.com\'s is built fr
   assert.deepEqual([h.model().share.shown, h.model().share.label], [true, 'Use this sign-in for every project on acme']);
 });
 
+test('the Connect page offers no picker for a tracker key nothing reads yet, and with none listed it offers them all (GH-107)', () => {
+  const jira = DESCRIPTIONS.find((d) => d.kind === 'jira')!;
+  const s = blankConnect(jira, { id: 'p', root: ROOT, projectName: 'Acme Service', ownRepo: null, ghAccount: null, from: 'tasks', existing: { index: 0, title: 'Jira · ACME', host: SITE, values: { project: 'ACME', epic: 'ACME-3', board: '7' } } });
+  assert.deepEqual(connectModel(s).pickers.map((p) => p.key), ['project', 'epic', 'board']);
+  assert.deepEqual(connectModel(s, DESCRIPTIONS, {}), connectModel(s), 'the real list is empty today, so nothing is hidden');
+  const hidden = connectModel(s, DESCRIPTIONS, { 'trackers[].epic': 'GH-1 will read it.' });
+  assert.deepEqual(hidden.pickers.map((p) => p.key), ['project', 'board']);
+  // Not offered isn't dropped: Save writes back the epic the tracker already has.
+  assert.equal(s.pickers.epic!.selected[0], 'ACME-3');
+});
+
 test('another tracker is a description, not another page: a fifth one gets its fields, sign-in and lists', () => {
   const LINEAR: TrackerDescription = {
     kind: 'linear', name: 'Linear', icon: 'calendar',

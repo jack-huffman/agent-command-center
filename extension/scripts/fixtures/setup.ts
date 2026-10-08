@@ -13,6 +13,10 @@ export function sampleSetup(): { items: DoctorItem[]; confirmed: Set<string> } {
       status: 'unknown', detail: 'ACME tools has changed since this project was made from it, and this project differs on gates.required, agents.max. The fix previews what it would write, and changes nothing.',
       fix: 'acc init --from \'~/acme/acc-templates/tools.json\' --profile generic --dry-run',
     },
+    'B0.rules': {
+      status: 'unknown', detail: '.acc/rules/acme-salesforce.md has changed at the source since it was copied in. The fix shows the difference and changes nothing; copying one in again is yours to choose.',
+      fix: 'acc rules diff acme-salesforce',
+    },
     'B2.identity': { status: 'fail', detail: 'Commits here would go out as someone@else.example.', fix: 'git config user.email you@example.com' },
     'B8.tracking': { status: 'unknown', detail: 'Turn on source tracking in Setup, then check again.' },
     'B10.readme': { status: 'skip', detail: 'Only one environment, so there is no map to show.' },

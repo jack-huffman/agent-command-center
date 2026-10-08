@@ -66,6 +66,8 @@ export function setupModel(items: DoctorItem[], confirmed: Set<string>): SetupMo
     const status = confirmed.has(i.id) && i.status !== 'pass' ? 'confirmed' : i.status;
     const ref: Ref = { step: i.id };
     const actions: Action[] = [{ command: 'acc.step.check', label: 'Check', icon: 'refresh', ref }];
+    // What the step always offers, whatever its status, such as Import rules… (GH-108).
+    if (step?.offer) actions.push({ command: step.offer.vscode, label: step.offer.label, icon: step.offer.icon, ref });
     const open = status === 'fail' || status === 'unknown';
     if (open && (step?.fix?.command || step?.fix?.fromCheck || step?.fix?.vscode)) actions.unshift({ command: 'acc.step.fix', label: 'Do it', icon: 'wrench', ref, primary: true });
     if (open && step?.fix?.setupPath) actions.push({ command: 'acc.step.openSetup', label: 'Open in Salesforce', icon: 'globe', ref });
@@ -105,7 +107,7 @@ function counts(setup: SetupModel): { todo: number; failing: number } {
 
 export const area: ModelArea = {
   commands: [
-    'acc.step.check', 'acc.step.fix', 'acc.step.openSetup', 'acc.step.confirm', 'acc.openGuide', 'acc.openProjectWalkthrough',
+    'acc.step.check', 'acc.step.fix', 'acc.step.openSetup', 'acc.step.confirm', 'acc.openGuide', 'acc.openProjectWalkthrough', 'acc.importRules',
   ],
   home: {
     order: 50,

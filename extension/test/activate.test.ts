@@ -344,6 +344,39 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     await calls.commands.get('acc.autopilot.toggle')!();
     assert.match(calls.warn[warned] ?? '', /no "github" section/, 'a click says why, and starts nothing');
 
+    // How agents run is in Settings (GH-110). Each Change… asks acc, which writes this clone's git config or
+    // the project's .acc/config.json; the page writes neither.
+    const answer = (...picks: ((items: Record<string, unknown>[]) => unknown)[]) => { let n = 0; calls.pick = (items) => picks[n++]?.(items as Record<string, unknown>[]); };
+    const config = () => JSON.parse(readFileSync(join(repo, '.acc', 'config.json'), 'utf8'));
+    answer((i) => i.find((x) => x.key === 'model'), (i) => i.find((x) => x.value === 'claude-sonnet-5-5'), (i) => i.find((x) => x.project === false));
+    await calls.commands.get('acc.agents.configure')!(`builder|${root}`);
+    assert.equal(spawnSync('git', ['config', '--get', 'acc.builder.model'], { cwd: repo, encoding: 'utf8' }).stdout.trim(), 'claude-sonnet-5-5', 'this clone only: its git config');
+    assert.equal(config().agents?.builder?.model, undefined, 'and not the project\'s');
+    answer((i) => i.find((x) => x.key === 'effort'), (i) => i.find((x) => x.value === 'high'), (i) => i.find((x) => x.project === true));
+    await calls.commands.get('acc.agents.configure')!(`reviewer|${root}`);
+    assert.equal(config().agents.reviewer.effort, 'high', 'the project\'s default: its .acc/config.json');
+    answer((i) => i.find((x) => x.value === 'on'));
+    await calls.commands.get('acc.agents.autoMerge')!(root);
+    calls.pick = undefined;
+    assert.equal(config().autopilot.autoMerge, true);
+    assert.match(calls.info.at(-1) ?? '', /^Auto-merge is on\. Changed in \.acc\/config\.json: commit it to share it\./);
+    // The status bar's Auto-merge opens Settings at How agents run, which shows each change under the
+    // project's name, with where it's set.
+    calls.pick = (items) => (items as { label: string }[]).find((i) => /Auto-merge: on/.test(i.label));
+    await calls.commands.get('acc.status.menu')!();
+    calls.pick = undefined;
+    type Opened = { jump?: boolean; open?: string; model?: { section: string; settings: SettingsShown } };
+    type SettingsShown = { agents: { projects: { project: string; roles: { parts: { name: string; value: string; from: { label: string } }[] }[]; autoMerge: { look: { label: string } } }[] } };
+    const opened = tab.posted.filter((x) => (x as Opened).model).at(-1) as Opened;
+    assert.deepEqual([opened.jump, opened.open, opened.model!.section], [true, 'settings:agents', 'settings']);
+    const shown = opened.model!.settings.agents.projects[0]!;
+    assert.equal(shown.project, 'Tool');
+    assert.deepEqual(shown.roles.map((r) => r.parts.slice(0, 2).map((p) => `${p.name} ${p.value} · ${p.from.label}`)), [
+      ['Model claude-sonnet-5-5 · this clone', 'Effort default · Claude Code\'s default'],
+      ['Model claude-opus-5-5 · acc\'s default', 'Effort high · project default'],
+    ]);
+    assert.equal(shown.autoMerge.look.label, 'on');
+
     // The Jira button, on a repo with no Jira yet, connects one here with Jira chosen: never a file to edit.
     const ran = calls.executed.length;
     await calls.commands.get('acc.task.importJira')!();

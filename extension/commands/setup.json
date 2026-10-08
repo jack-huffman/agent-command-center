@@ -55,6 +55,12 @@
     "icon": "$(refresh)"
   },
   {
+    "command": "acc.importRules",
+    "title": "Import a team's rules into this repo…",
+    "category": "Agent Command Center",
+    "icon": "$(cloud-download)"
+  },
+  {
     "command": "acc.sf.login",
     "title": "Log in to an environment's Salesforce org",
     "category": "Agent Command Center",
