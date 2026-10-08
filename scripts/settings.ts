@@ -5,7 +5,8 @@
  *
  * - Each key in CONFIG_KEYS is read by code outside config.ts and the tests, unless UNREAD_KEYS or
  *   VALIDATOR_ONLY lists it, and is described in DESIGN.md §4's Field table.
- * - A key on UNREAD_KEYS has no read anywhere: once one is read, it comes off the list.
+ * - A key on UNREAD_KEYS has no read anywhere, nor through a variable in the files READ_IN names for its
+ *   siblings: once one is read, it comes off the list.
  * - Each setting in extension/package.json's contributes.configuration is read with
  *   getConfiguration('agentCommandCenter').get('<name>') in extension/src, and named in README.md.
  * - Every agentCommandCenter setting extension/src names is contributed, and every key read from a raw
@@ -294,7 +295,9 @@ export function checkSettings(over: Partial<SettingsInputs> = {}): SettingsResul
     if (i.unread[key] !== undefined || i.validatorOnly[key] !== undefined) {
       if (pointer) findings.push({ key, missing: 'listed', where: `is listed as not read, but READ_IN points at ${pointer.join(', ')}`, fix: 'Take it off READ_IN in scripts/settings.ts, or off the list.' });
       if (i.unread[key] === undefined) continue;
-      const hit = firstHit(files, throughVariable(key) ? anyRead(key) : qualified(key));
+      // Read through a variable, such as a role's p?.fallbackModel, it's read where its siblings are.
+      const near = i.keys.filter((k) => k !== key && parentOf(k) === parentOf(key)).flatMap((k) => i.readIn[k] ?? []);
+      const hit = firstHit(files, throughVariable(key) ? anyRead(key) : qualified(key)) ?? firstHit(files.filter((s) => near.includes(s.file)), anyRead(key));
       if (hit) findings.push({ key, missing: 'listed', where: `is read in ${hit}; take it off the unread list`, fix: 'Take it out of UNREAD_KEYS in packages/core/src/config.ts: something reads it now.' });
       continue;
     }

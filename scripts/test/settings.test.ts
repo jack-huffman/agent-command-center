@@ -147,6 +147,28 @@ test('a key on the unread list that something reads fails, so it comes off the l
   assert.match(say(pointed[0]!), /^trackers\[\]\.team is listed as not read, but READ_IN points at extension\/src\/trackers\.ts\./);
 });
 
+test('a listed key read through a variable, in a file READ_IN names for its siblings, fails the list too', () => {
+  const keys = ['gates.severity', 'trackers[].team', 'agents.builder.model', 'agents.builder.fallbackModel'];
+  const docs = DESIGN('| `gates` | `severity` |', '| `trackers` | `team` |', '| `agents` | A role\'s `model` and `fallbackModel` |');
+  const over = { keys, readIn: { 'trackers[].team': ['extension/src/trackers.ts'], 'agents.builder.model': ['packages/core/src/agents.ts'] }, unread: { 'agents.builder.fallbackModel': 'GH-1 will read it.' } };
+  const agents = (files: Record<string, string>) => check({ 'docs/DESIGN.md': docs, ...files }, over);
+  assert.deepEqual(agents({ 'packages/core/src/agents.ts': 'export const flags = (p?: Profile) => [p?.model];\n' }), []);
+  assert.deepEqual(agents({ 'packages/core/src/agents.ts': 'export const flags = (p?: Profile) => [p?.model, p?.fallbackModel];\n' }).map(say), [
+    'agents.builder.fallbackModel is read in packages/core/src/agents.ts:1; take it off the unread list. Take it out of UNREAD_KEYS in packages/core/src/config.ts: something reads it now.',
+  ]);
+  // Away from its siblings' files, .fallbackModel on a variable isn't its read; builder.fallbackModel is, anywhere.
+  const elsewhere = (text: string) => agents({ 'packages/core/src/agents.ts': 'export const flags = (p?: Profile) => [p?.model];\n', 'packages/core/src/other.ts': text }).map((f) => `${f.key} ${f.missing}`);
+  assert.deepEqual(elsewhere('export const f = (x: Profile) => x.fallbackModel;\n'), []);
+  assert.deepEqual(elsewhere('export const f = (agents: Agents) => agents.builder?.fallbackModel;\n'), ['agents.builder.fallbackModel listed']);
+
+  // On the repo: agentArgs reads p?.fallbackModel for every role, so listing the builder's fails.
+  const key = 'agents.builder.fallbackModel';
+  const readIn = Object.fromEntries(Object.entries(READ_IN).filter(([k]) => k !== key));
+  const real = checkSettings({ unread: { [key]: 'GH-1 will read it.' }, readIn }).findings;
+  assert.deepEqual(real.map((f) => `${f.key} ${f.missing}`), [`${key} listed`]);
+  assert.match(say(real[0]!), /^agents\.builder\.fallbackModel is read in packages\/core\/src\/agents\.ts:\d+; take it off the unread list\./);
+});
+
 test('a raw read of .acc/config.json that names a key parseConfig doesn\'t know is named, and a raw-read place that finds no read fails', () => {
   const rawReads = [{ file: 'scripts/packaging.ts', why: 'release', reads: [{ pattern: /\bfield\(config, '(\w+)', '(\w+)'\)/g, keys: (m: RegExpMatchArray) => [`${m[1]}.${m[2]}`] }] }];
   const keys = ['gates.severity', 'trackers[].team', 'github.repo'];
