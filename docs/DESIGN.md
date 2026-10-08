@@ -136,7 +136,7 @@ branches and the pull requests.
   "trackers": [{ "kind": "jira", "site": "example.atlassian.net", "project": "ACME" }],
   "agents": { "max": 3, "permissionMode": "acceptEdits" },
   "autonomy": "manual",
-  "worktrees": { "root": "../acme-salesforce.worktrees" },
+  "worktrees": { "setup": ["npm ci"] },
   "gates": { "required": ["format", "static", "validate"] }
 }
 ```
@@ -173,19 +173,32 @@ sandboxes support source tracking, so `acc doctor` checks it only there. A
 always protected. An org that's on no path, such as a training sandbox, is still
 listed so that drift checks and `doctor` cover it.
 
+Every key is read by code and described here, and acc warns about a key it
+doesn't know, at any level (GH-107).
+
 | Field | Meaning |
 |---|---|
-| `github.account` | The `gh` account for this repo (D-007). `acc` passes `GH_TOKEN` on every call and sets the repo's commit identity and credential helper on `acc init` |
-| `environments` | Every org the project has, whether or not it's on a promotion path. Each has a name, a branch (by default the lower-cased name), a `type` (`production`, `full`, `partial`, `developer`, `developer_pro`) and, in the `salesforce` profile, an org alias. A task builds from one environment's branch, and its pull request goes back into it. **Protected** environments never receive agent work. `promotesTo` lists where it can promote to, usual step first ([section 11](#11-landing)) |
+| `schema` | The file's format: always `1`. acc refuses any other |
+| `project` | The project's name, as the Command Center and agents' session names show it |
+| `profile` | `generic` or `salesforce`: which checks, setup steps and rules apply (D-003). Left out, `generic` |
+| `github.repo`, `github.account` | The repo, as `owner/name`, and the `gh` account for it (D-007). `acc` passes that account's `GH_TOKEN` on every call and sets the repo's credential helper on `acc init` |
+| `commitIdentity.name`, `commitIdentity.email` | Who the repo's commits are by. `acc init` sets them as the repo's own `user.name` and `user.email`, so a machine's global identity never signs a project's commits (B2.identity) |
+| `environments` | Every org the project has, whether or not it's on a promotion path. Each has a `name`; a `branch`, always the lower-cased name, which can be left out (D-015); a `type` (`production`, `full`, `partial`, `developer`, `developer_pro`, or `none` outside Salesforce) and, in the `salesforce` profile, an `org` alias. Exactly one is the `default`, the one day-to-day work starts from. A task builds from one environment's branch, and its pull request goes back into it. **Protected** environments (`protected`, and Production always) never receive agent work. `promotesTo` lists where it can promote to, usual step first ([section 11](#11-landing)) |
 | `environmentSpecific` | A list of files that differ by design in every environment, such as email service addresses, SSO and org settings. These are never edited by a task, never deployed, and never promoted (D-016) |
 | `knownDrift` | Files that a drift check should expect to differ, such as features a sandbox lacks or ordering noise. They can still be edited and promoted |
-| `trackers` | Where intake reads from. Several are allowed. A GitHub tracker's `skipLabels` lists labels whose issues aren't tasks, such as `["milestone"]` (D-048). Each tracker's place holds every read to this repo's tickets: its project, repo or monday.com `board`, narrowed by a Jira `epic`, GitHub `labels` (any one counts), an Azure `areaPath` or a monday.com `group` (D-072). A monday.com tracker names its `account` and `board`, and may name a `statusColumn` (D-085) |
+| `trackers` | Where intake reads from. Several are allowed, each of a `kind`: `jira`, `github`, `azure` or `monday`. A Jira tracker names its `site` and `project` key; a GitHub one its `repo`, the project's own by default; an Azure DevOps one its `organization` and `project`, and may name the `team` whose board to show; a monday.com one its `account` and `board`, and may name a `statusColumn` (D-085). An Azure DevOps or monday.com tracker's keys start with its `prefix`, `AB` or `MON` by default, so two trackers never give the same keys. A GitHub tracker's `skipLabels` lists labels whose issues aren't tasks, such as `["milestone"]` (D-048). Each tracker's place holds every read to this repo's tickets: its project, repo or monday.com `board`, narrowed by a Jira `epic`, GitHub `labels` (any one counts), an Azure `areaPath` or a monday.com `group` (D-072). Elsewhere, `board` is the board the Tasks tab shows: a Jira board id, a GitHub Project number or an Azure board's name. `edits`, when `true`, lets the task page change a ticket's status, assignee and labels, and `acc sync` close a GitHub issue when its work merges; it's off by default (D-066, D-082) |
 | `agents.max` | Most builder sessions at once, default 3 |
+| `agents.permissionMode` | The permission mode builders run in: `default`, `acceptEdits` (the default), `plan`, `auto` or `dontAsk`. `bypassPermissions` is never allowed |
+| `agents.builder`, `agents.reviewer` | The `model`, `effort` and `fallbackModel` builders and reviewers run with (D-036). A `model` is an alias, such as `opus`, or a full name; left out, acc's default, `claude-opus-5-5` (D-086). `effort` is `low`, `medium`, `high`, `xhigh` or `max`, and `fallbackModel` is the model Claude Code turns to when the first is overloaded; either left out is Claude Code's own default. A clone's own choice, made with `acc agents set`, wins over these ([section 7](#7-dispatch)) |
 | `autonomy` | How much the loop does on its own ([section 12](#12-the-orchestrator-loop)) |
 | `autopilot.appendOnly` | Files, or folders, where autopilot may resolve a conflict with the base when both sides only added to the end, such as a decision log. Left out, there are none ([section 12](#12-the-orchestrator-loop)) |
+| `autopilot.autoMerge` | `true` lets autopilot merge a reviewed pull request whose checks passed, with nothing waiting on you, into an environment that isn't protected, through the merge queue, under autonomy `review` (GH-67). Off unless it's `true`, and never in a Salesforce project. `acc agents auto-merge on` sets it ([section 12](#12-the-orchestrator-loop)) |
 | `dispatch.shared` | Files, or folders, that every task edits, such as the docs. Like `autopilot.appendOnly`, they never make one task wait for another's files. Left out, there are none ([section 7](#7-dispatch)) |
-| `worktrees.root` | Where task worktrees go. The default is a sibling folder outside the repo ([section 7](#7-dispatch)) |
-| `gates` | Which checks are required, plus per-check overrides. `gates.builder` names a builder's lighter checks, where the merge queue runs the required ones ([section 9](#9-gates-and-receipts)) |
+| `worktrees.root` | Where task worktrees go. The default is `.claude/worktrees/` inside the repo, where a background agent started from the trusted main checkout can enter one without a trust prompt (D-022, [section 7](#7-dispatch)) |
+| `worktrees.setup` | Commands run in each new task worktree, in order, once it's made and `node_modules` is linked in from the main checkout, such as `npm ci`. One that fails stops the dispatch |
+| `gates` | Which checks are required, plus per-check overrides ([section 9](#9-gates-and-receipts)). `gates.required` names the checks a commit needs before review and landing, and `gates.commands` gives each check its command. `gates.heavy` names those that take the machine-wide slot, one at a time across every repo (D-024); left out, `build`, `test` and `check`, or in Salesforce `static`, `lwc-tests` and `validate`. `gates.severity` is the Code Analyzer level that fails `static`, from 1 (only the worst problems) to 5 (everything), default 2. `gates.builder` names a builder's lighter checks, where the merge queue runs the required ones |
+| `secretScan.paths`, `secretScan.exclude` | Where setup's B3.secrets step looks for credentials in tracked files, and what it skips there. By default the whole repo, or in Salesforce `force-app`, `config` and `scripts`, skipping nothing |
+| `analysis.required` | Whether a task needs an analysis before it's built (D-052). Left out, a Salesforce project's do and a generic one's don't |
 | `template` | The team template the project was started from, written by `acc init --from`: its `name`, its `source` (a GitHub file URL, `<git-url>#<path>`, or a path inside the repo, under `~/`, or an absolute path elsewhere) and its `digest` (`sha256:` of its JSON with sorted keys). Setup's B0.template step says when the template has changed and the project now differs; nothing re-applies it ([docs/TEMPLATES.md](TEMPLATES.md), D-097) |
 
 ## 5. Tasks and the ledger
