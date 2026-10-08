@@ -3,8 +3,8 @@
  * A builder runs them with `acc gate run`; `acc done` accepts the task once every required gate has
  * passed, or didn't apply, on the branch's latest commit. Gates check. They never deploy (D-011).
  */
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join, posix } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join, posix } from 'node:path';
 import { type Config, type Environment, requiredGates } from './config.ts';
 import { AccError, parseJsonOutput, type RunResult, type Runner, sfEnv } from './exec.ts';
 import type { Ledger, Task } from './ledger.ts';
@@ -94,34 +94,18 @@ export function checkEnv(env: NodeJS.ProcessEnv = process.env, heavyDir?: string
 /**
  * A gate from `gates.commands`, run by the shell in the checkout. It's told what the branch changed, and the
  * tests near those changes, one path a line (GH-73): `ACC_CHANGED` and `ACC_NEAR_TESTS`, so a builder's
- * lighter check can run only those. Only a gate that reads `ACC_NEAR_TESTS` is given it (GH-95), so the
- * full check and a typecheck don't wait while acc reads every test.
+ * lighter check can run only those. Every command gate is told both (GH-117): acc can't tell whether
+ * `npm run test:near` reads the list, and a script given none would run nothing and pass. The list is
+ * worked out once a run, reading each file once.
  */
 function commandGate(name: string, command: string, heavy: boolean): Gate {
   return {
     name, heavy, about: command,
-    plan: ({ root, changes, near }) => ({
+    plan: ({ changes, near }) => ({
       cmd: 'sh', args: ['-c', command], read: exitRead,
-      env: { ACC_CHANGED: changes.files.join('\n'), ...(readsNearTests(root, command) ? { ACC_NEAR_TESTS: near().join('\n') } : {}) },
+      env: { ACC_CHANGED: changes.files.join('\n'), ACC_NEAR_TESTS: near().join('\n') },
     }),
   };
-}
-
-/**
- * Whether a command reads `ACC_NEAR_TESTS` (GH-95): it names it, or names a file in the checkout that does,
- * as this repo's `node --no-warnings scripts/near-tests.mjs` does.
- */
-export function readsNearTests(root: string, command: string): boolean {
-  if (command.includes('ACC_NEAR_TESTS')) return true;
-  return command.split(/\s+/).map((w) => w.replace(/^['"]|['"]$/g, '')).some((w) => {
-    if (!w || w.startsWith('-') || isAbsolute(w) || w.split('/').includes('..')) return false;
-    try {
-      const file = join(root, w);
-      return statSync(file).isFile() && readFileSync(file, 'utf8').includes('ACC_NEAR_TESTS');
-    } catch {
-      return false;
-    }
-  });
 }
 
 // ---------------------------------------------------------------- the tests near a change (GH-73)

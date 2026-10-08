@@ -5,9 +5,9 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { builderGatesFor, parseConfig, type Config, requiredGates } from '../src/config.ts';
 import { drift, driftReportPath } from '../src/drift.ts';
-import type { RunOptions, RunResult } from '../src/exec.ts';
+import type { RunOptions, RunResult, Runner } from '../src/exec.ts';
 import {
-  assertCheckOnly, changesFor, checkEnv, gatesFor, gateTarget, nearTests, priorTests, readAnalyzer, readDeploy, readsNearTests, runGates, validateArgs, waiveGates,
+  assertCheckOnly, changesFor, checkEnv, gatesFor, gateTarget, nearTests, priorTests, readAnalyzer, readDeploy, runGates, validateArgs, waiveGates,
 } from '../src/gates.ts';
 import { checkMove, emptyLedger, type Task } from '../src/ledger.ts';
 import { builderSettings } from '../src/packet.ts';
@@ -511,38 +511,40 @@ test('the tests near a change read each file once, however many files changed (G
   assert.deepEqual([...reads].filter(([, n]) => n > 1), [], 'none read twice');
 });
 
-test('only a gate that reads ACC_NEAR_TESTS is given it, so the full check and a typecheck don\'t wait while acc reads every test (GH-95)', () => {
+test('every command gate is given ACC_NEAR_TESTS, worked out once a run, though its command never names it (GH-117)', () => {
   const out = tempDir('near-env-');
-  const raw = {
-    ...GENERIC_CONFIG,
-    gates: { required: ['typecheck', 'near'], commands: { typecheck: `env > '${join(out, 'typecheck')}'`, near: `node near.mjs '${join(out, 'near')}'` } },
-  };
-  const dir = makeRepo({
-    '.acc/config.json': JSON.stringify(raw), 'src/merge.ts': 'a\n', 'test/merge.test.ts': 'b\n',
-    'near.mjs': 'import { writeFileSync } from \'node:fs\';\nwriteFileSync(process.argv[2], `${process.env.ACC_CHANGED}|${process.env.ACC_NEAR_TESTS}`);\n',
-  });
+  // Like `npm run test:near` or `make near`: acc can't see what they read, so each is told.
+  const gates = ['typecheck', 'near', 'check'];
+  const raw = { ...GENERIC_CONFIG, gates: { required: gates, commands: Object.fromEntries(gates.map((g) => [g, `env > '${join(out, g)}'`])) } };
+  const dir = makeRepo({ '.acc/config.json': JSON.stringify(raw), 'src/merge.ts': 'a\n', 'test/merge.test.ts': 'b\n', 'test/land.test.ts': 'c\n' });
   gitIn(dir, 'checkout', '-q', '-b', 'task/T-1');
   writeFileSync(join(dir, 'src/merge.ts'), 'a, changed\n');
   gitIn(dir, 'commit', '-q', '-am', 'T-1: change');
   const c = config(raw);
+  const lists: string[][] = [];
+  const counted: Runner = (cmd, args, opts) => {
+    if (cmd === 'git' && args[0] === 'ls-files') lists.push(args);
+    return run(cmd, args, opts);
+  };
   const was = process.env.ACC_NEAR_TESTS;
   // As when acc's own tests run inside a builder's near-tests gate.
   process.env.ACC_NEAR_TESTS = 'from/outside.test.ts';
   try {
-    const ran = runGates(repoPaths(dir, run), c, c.environments[0]!, [], [], { run, now, slots: slots() });
-    assert.deepEqual(ran.results.map((r) => [r.gate, r.status]), [['typecheck', 'pass'], ['near', 'pass']]);
+    const ran = runGates(repoPaths(dir, run), c, c.environments[0]!, [], [], { run: counted, now, slots: slots() });
+    assert.deepEqual(ran.results.map((r) => [r.gate, r.status]), gates.map((g) => [g, 'pass']));
   } finally {
     if (was === undefined) delete process.env.ACC_NEAR_TESTS;
     else process.env.ACC_NEAR_TESTS = was;
   }
-  const env = readFileSync(join(out, 'typecheck'), 'utf8');
-  assert.match(env, /^ACC_CHANGED=src\/merge\.ts$/m, 'every command gate is told what changed');
-  assert.doesNotMatch(env, /ACC_NEAR_TESTS/, 'a gate that doesn\'t read it isn\'t given it, nor the one acc ran in');
-  assert.equal(readFileSync(join(out, 'near'), 'utf8'), 'src/merge.ts|test/merge.test.ts', 'a script it names reads it');
-  assert.equal(readsNearTests(dir, 'npm run check'), false);
-  assert.equal(readsNearTests(dir, 'echo "$ACC_NEAR_TESTS"'), true, 'the command names it');
-  assert.equal(readsNearTests(dir, 'node --no-warnings near.mjs'), true, 'a file the command names does');
-  assert.equal(readsNearTests(dir, 'node ../near.mjs'), false, 'only files in the checkout');
+  for (const g of gates) {
+    // One variable at a time, so a failure doesn't print the whole environment.
+    const lines = readFileSync(join(out, g), 'utf8').split('\n');
+    const line = (name: string) => lines.find((l) => l.startsWith(`${name}=`));
+    assert.equal(line('ACC_CHANGED'), 'ACC_CHANGED=src/merge.ts', `${g} is told what changed`);
+    assert.equal(line('ACC_NEAR_TESTS'), 'ACC_NEAR_TESTS=test/merge.test.ts', `${g} is told this run's near tests, not the ones acc ran in`);
+    assert.ok(!lines.some((l) => l.includes('from/outside')), g);
+  }
+  assert.equal(lists.length, 1, `the checkout's files are listed once for ${gates.length} gates: ${JSON.stringify(lists)}`);
 });
 
 test('where the merge queue runs the full check, builders run gates.builder, which acc done takes, and the full check covers; elsewhere both are gates.required (GH-73)', () => {

@@ -6,7 +6,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { nearTests, readsNearTests } from '../../packages/core/src/gates.ts';
+import { nearTests } from '../../packages/core/src/gates.ts';
 import { fakeBin, tempDir } from '../../packages/core/test/support.ts';
 import { areaFiles, FOLDERS } from '../areas.ts';
 
@@ -62,13 +62,6 @@ test('the gate passes when no test is near the change, running nothing, and fail
   const unset = gate(undefined);
   assert.equal(unset.code, 1);
   assert.match(unset.out, /ACC_NEAR_TESTS isn't set/);
-});
-
-test('acc gives this repo\'s near-tests gate ACC_NEAR_TESTS, and its typecheck and full check go without', () => {
-  const { gates } = JSON.parse(readFileSync(join(ROOT, '.acc', 'config.json'), 'utf8')) as { gates: { commands: Record<string, string> } };
-  assert.equal(readsNearTests(ROOT, gates.commands['near-tests']!), true);
-  assert.equal(readsNearTests(ROOT, gates.commands.typecheck!), false);
-  assert.equal(readsNearTests(ROOT, gates.commands.check!), false);
 });
 
 test('after the split (D-099), every area module has tests near it: the CLI\'s are cli.test.ts, and an extension area\'s include its entry\'s', () => {
