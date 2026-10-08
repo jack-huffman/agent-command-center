@@ -1,0 +1,19 @@
+/* The Settings section (GH-109): a card for each part, its heading what other pages open Settings at. */
+.settings-part { border: 1px solid var(--line); border-radius: 8px; background: var(--card); padding: 12px 16px; margin-bottom: 14px; max-width: 860px; }
+.settings-part h2 { margin-bottom: 2px; scroll-margin-top: 12px; }
+.settings-part h2:focus { outline: none; }
+.settings-part h2:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; border-radius: 3px; }
+.settings-summary { margin: 0 0 8px; }
+.settings-row { display: grid; grid-template-columns: 150px minmax(0, 1fr); align-items: start; gap: 12px; padding: 8px 0 2px; border-top: 1px solid var(--line); }
+.settings-name { display: inline-flex; align-items: center; gap: 6px; padding-top: 4px; }
+.settings-value { min-width: 0; }
+.settings-meaning { margin: 6px 0 0; }
+.settings-today { padding-top: 8px; border-top: 1px solid var(--line); }
+.settings-today p { margin: 0; }
+/* Its label runs into the sentence, on the sentence's line. */
+.settings-today .status { display: inline; white-space: normal; font-weight: 600; color: var(--vscode-descriptionForeground); }
+.settings-today .status .codicon { vertical-align: -3px; margin-right: 4px; }
+.settings-details { margin: 6px 0 0; padding-left: 20px; }
+.settings-details li { margin: 2px 0; }
+.settings-today .actions { margin-top: 8px; }
+@media (max-width: 620px) { .settings-row { grid-template-columns: minmax(0, 1fr); gap: 6px; } .settings-name { padding-top: 0; } }

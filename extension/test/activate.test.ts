@@ -46,8 +46,15 @@ function fakeVscode(folder: string) {
   class EventEmitter { private ls: ((e: unknown) => void)[] = []; event = (l: (e: unknown) => void) => { this.ls.push(l); return disposable; }; fire(e?: unknown) { for (const l of this.ls) l(e); } dispose() {} }
   class TreeItem { label: string; collapsibleState: number; [k: string]: unknown; constructor(label: string, state = 0) { this.label = label; this.collapsibleState = state; } }
   class MarkdownString { value: string; supportThemeIcons = false; constructor(v = '') { this.value = v; } }
-  /** Each editor tab: what it was sent, what it says back, and closing it. */
-  const panels: { html: string; posted: unknown[]; receive?: (m: unknown) => void; close?: () => void }[] = [];
+  /**
+   * Each editor tab: what it was sent, what it says back, and closing it. Hiding it tells its listeners, as
+   * VSCode does when another tab covers it, and its HTML is what VSCode would rebuild it from.
+   */
+  type Tab = { html: string; htmlSets: number; posted: unknown[]; visible: boolean; receive?: (m: unknown) => void; close?: () => void; views: ((e: unknown) => void)[]; hide(): void };
+  const panels: Tab[] = [];
+  /** VSCode's settings, by full name, and who listens for a change (GH-109). */
+  const settings = new Map<string, unknown>();
+  const configListeners: ((e: { affectsConfiguration(s: string): boolean }) => void)[] = [];
   const api = {
     EventEmitter, TreeItem, MarkdownString,
     RelativePattern: class { base: unknown; pattern: string; constructor(base: unknown, pattern: string) { this.base = base; this.pattern = pattern; } },
@@ -84,18 +91,19 @@ function fakeVscode(folder: string) {
       createTreeView: (id: string, o: { treeDataProvider: never }) => { trees.set(id, o.treeDataProvider); return { visible: false, onDidChangeVisibility: event(), badge: undefined, dispose() {} }; },
       showInputBox: async () => { calls.prompts++; return undefined; },
       createWebviewPanel: () => {
-        const rec: (typeof panels)[number] = { html: '', posted: [] };
-        panels.push(rec);
-        return {
-          visible: true, iconPath: undefined, reveal() {}, dispose() {},
-          onDidChangeViewState: event(), onDidDispose: (l: () => void) => { rec.close = l; return disposable; },
+        const panel = {
+          get visible() { return rec.visible; }, iconPath: undefined, reveal() {}, dispose() {},
+          onDidChangeViewState: (l: (e: unknown) => void) => { rec.views.push(l); return disposable; }, onDidDispose: (l: () => void) => { rec.close = l; return disposable; },
           webview: {
             cspSource: 'vscode-resource:', asWebviewUri: (u: { toString(): string }) => u,
-            set html(v: string) { rec.html = v; }, get html() { return rec.html; },
+            set html(v: string) { rec.html = v; rec.htmlSets++; }, get html() { return rec.html; },
             postMessage: async (m: unknown) => { rec.posted.push(m); return true; },
             onDidReceiveMessage: (l: (m: unknown) => void) => { rec.receive = l; return disposable; },
           },
         };
+        const rec: Tab = { html: '', htmlSets: 0, posted: [], visible: true, views: [], hide() { rec.visible = false; for (const l of rec.views) l({ webviewPanel: panel }); } };
+        panels.push(rec);
+        return panel;
       },
       showTextDocument: async () => undefined,
     },
@@ -105,14 +113,23 @@ function fakeVscode(folder: string) {
       createFileSystemWatcher: (pattern: unknown) => { calls.watched.push(pattern); return { onDidChange: event(), onDidCreate: event(), onDidDelete: event(), dispose() {} }; },
       onDidChangeWorkspaceFolders: event(),
       openTextDocument: async () => ({}),
+      getConfiguration: (section: string) => ({
+        get: (key: string, fallback?: unknown) => settings.get(`${section}.${key}`) ?? fallback,
+        update: async (key: string, value: unknown) => {
+          settings.set(`${section}.${key}`, value);
+          for (const l of configListeners) l({ affectsConfiguration: (s: string) => s === section || s === `${section}.${key}` });
+        },
+      }),
+      onDidChangeConfiguration: (l: (typeof configListeners)[number]) => { configListeners.push(l); return disposable; },
     },
+    ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
     commands: {
       registerCommand: (id: string, fn: (...a: unknown[]) => unknown) => { calls.commands.set(id, fn); return disposable; },
       executeCommand: async (id: string, ...args: unknown[]) => { calls.executed.push([id, args]); if (id === 'setContext') calls.contexts.set(args[0] as string, args[1]); return undefined; },
     },
     env: { openExternal: async () => true, clipboard: { writeText: async () => {} } },
   };
-  return { api, calls, status, trees, panels, autopilot };
+  return { api, calls, status, trees, panels, autopilot, settings };
 }
 
 function memento(initial: Record<string, unknown> = {}) {
@@ -135,7 +152,7 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
   writeFileSync(join(claudeDir, '.claude.json'), JSON.stringify({ projects: { [realpathSync(repo)]: { hasTrustDialogAccepted: true } } }));
   const savedClaudeDir = process.env.CLAUDE_CONFIG_DIR;
   process.env.CLAUDE_CONFIG_DIR = claudeDir;
-  const { api, calls, status, trees, panels, autopilot } = fakeVscode(repo);
+  const { api, calls, status, trees, panels, autopilot, settings } = fakeVscode(repo);
   const load = (Module as unknown as { _load: (r: string, ...a: unknown[]) => unknown })._load;
   (Module as unknown as { _load: unknown })._load = function (request: string, ...rest: unknown[]) {
     return request === 'vscode' ? api : load.call(this, request, ...rest);
@@ -185,7 +202,7 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     assert.deepEqual([...trees.keys()], ['acc.home']);
     await until(() => calls.contexts.get('acc.hasProject') === true);
     const launcher = trees.get('acc.home')!;
-    assert.deepEqual((launcher.getChildren() as { section: string }[]).map((n) => n.section), ['overview', 'tasks', 'agents', 'worktrees', 'environments', 'setup']);
+    assert.deepEqual((launcher.getChildren() as { section: string }[]).map((n) => n.section), ['overview', 'tasks', 'agents', 'worktrees', 'environments', 'setup', 'settings'], 'Settings last (GH-109)');
     // The extension runs the bundle itself; terminals get the launcher beside it.
     const accBin = join(extDir, 'dist', 'bin', 'acc.mjs');
     const added = spawnSync(process.execPath, [accBin, 'add', 'Try the page'], { cwd: repo, encoding: 'utf8' });
@@ -199,6 +216,7 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     assert.doesNotMatch(tab.html, /unsafe-inline|unsafe-eval/);
     assert.match(tab.html, /<script nonce="[A-Za-z0-9+/=]+" src=/);
     assert.match(tab.html, /data-view="home"/);
+    assert.match(tab.html, /<html lang="en" data-theme="vscode">/, 'Match VSCode until Settings says otherwise (GH-109)');
     tab.receive!({ type: 'ready' });
     type Posted = { model: { kind: string; section: string; overview: { ready: { id: string }[] }; tasks: { projects: { root: string; columns: { group: string; cards: { id: string }[] }[] }[] }; environments: { projects: { envs: { name: string }[] }[] } } };
     const state = tab.posted.at(-1) as Posted;
@@ -347,6 +365,48 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
       await until(() => connectShown() === null);
     }
     assert.equal(calls.prompts, prompted, 'no input box or quick pick');
+
+    // Settings (GH-109): a section like the others, its Refresh, and the theme every tab follows.
+    await calls.commands.get('acc.open.settings')!();
+    type Themed = { model: { section: string; settings: { theme: string } } };
+    const lastState = (t: (typeof panels)[number]) => (t.posted.filter((x) => (x as Themed).model).at(-1) as Themed).model;
+    assert.deepEqual([lastState(tab).section, lastState(tab).settings.theme], ['settings', 'vscode']);
+    const executed = calls.executed.length;
+    tab.receive!({ type: 'refresh' });
+    assert.deepEqual(calls.executed.slice(executed).map(([id]) => id), ['acc.settings.refresh']);
+    // A task page opened with a theme the setting can't hold is Match VSCode; then it's hidden behind another tab.
+    settings.set('agentCommandCenter.theme', 'blue');
+    tab.receive!({ type: 'ticket', project: root, tracker: null, key: 'T-2' });
+    const hidden = panels.at(-1)!;
+    assert.match(hidden.html, /<html lang="en" data-theme="vscode">/);
+    settings.delete('agentCommandCenter.theme');
+    hidden.hide();
+    const themes = (t: (typeof panels)[number]) => t.posted.filter((x) => (x as { type: string }).type === 'theme');
+    // Not one of the three: refused in words, and nothing changes.
+    const warnedBefore = calls.warn.length;
+    await calls.commands.get('acc.settings.theme')!('blue');
+    assert.match(calls.warn[warnedBefore] ?? '', /Match VSCode, Light, Dark: not blue/);
+    assert.deepEqual([settings.get('agentCommandCenter.theme'), themes(tab).length, hidden.htmlSets], [undefined, 0, 1]);
+    // Light: kept as the machine's setting. The tab on screen restyles in place, with no new HTML, and
+    // Settings shows the pick; the hidden one's HTML is written again, so it comes back light.
+    const tabHtml = tab.htmlSets;
+    await calls.commands.get('acc.settings.theme')!('light');
+    assert.equal(settings.get('agentCommandCenter.theme'), 'light');
+    assert.deepEqual(themes(tab), [{ type: 'theme', theme: 'light' }]);
+    assert.deepEqual([tab.htmlSets, lastState(tab).settings.theme], [tabHtml, 'light']);
+    assert.match(hidden.html, /<html lang="en" data-theme="light">/);
+    assert.deepEqual(themes(hidden), [], 'a hidden tab isn\'t sent it: VSCode rebuilds it from its HTML');
+    // The tab that was on screen gets its HTML written again once it's hidden, so it comes back light too.
+    assert.match(tab.html, /data-theme="vscode"/);
+    tab.hide();
+    assert.deepEqual([tab.htmlSets, /<html lang="en" data-theme="light">/.test(tab.html)], [tabHtml + 1, true]);
+    // Without an argument, it asks.
+    calls.pick = (items) => items.find((i) => i.value === 'dark');
+    await calls.commands.get('acc.settings.theme')!();
+    calls.pick = undefined;
+    assert.equal(settings.get('agentCommandCenter.theme'), 'dark');
+    assert.ok([tab, hidden].every((t) => /<html lang="en" data-theme="dark">/.test(t.html)), 'both hidden tabs come back dark');
+    assert.equal(themes(tab).length, 1, 'hidden, it isn\'t sent the change');
 
     await calls.commands.get(COMMANDS.check)!('B0.repo');
     assert.match(calls.info.at(-1) ?? '', /^✓ Inside the project's repo: Repo at /);

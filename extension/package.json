@@ -185,6 +185,12 @@
         "icon": "$(link-external)"
       },
       {
+        "command": "acc.open.settings",
+        "title": "Open Settings as a tab",
+        "category": "Agent Command Center",
+        "icon": "$(link-external)"
+      },
+      {
         "command": "acc.runs.show",
         "title": "Show command output",
         "category": "Agent Command Center",
@@ -212,6 +218,18 @@
         "title": "Stop a job in progress",
         "category": "Agent Command Center",
         "icon": "$(debug-stop)"
+      },
+      {
+        "command": "acc.settings.theme",
+        "title": "Choose the Command Center's theme",
+        "category": "Agent Command Center",
+        "icon": "$(color-mode)"
+      },
+      {
+        "command": "acc.settings.refresh",
+        "title": "Refresh settings",
+        "category": "Agent Command Center",
+        "icon": "$(refresh)"
       },
       {
         "command": "acc.doctor",
@@ -1199,6 +1217,22 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "Say when a task changes in a way that needs you or is news: a builder finished, a review passed or asked for changes, a pull request's checks failed or it merged. Quiet while the Command Center shows that board. Notices to Slack have their own switch, on the Environments section's Notices in Slack card."
+        },
+        "agentCommandCenter.theme": {
+          "type": "string",
+          "enum": [
+            "vscode",
+            "light",
+            "dark"
+          ],
+          "enumDescriptions": [
+            "Match VSCode: the Command Center follows VSCode's theme.",
+            "Light: the Command Center, task pages and agent pages are light, whatever VSCode's theme is.",
+            "Dark: the Command Center, task pages and agent pages are dark, whatever VSCode's theme is."
+          ],
+          "default": "vscode",
+          "scope": "machine",
+          "markdownDescription": "The Command Center's theme, also on its Settings section. Only acc's own pages change: VSCode keeps its own theme. Kept on this machine: Settings Sync leaves it out."
         }
       }
     }

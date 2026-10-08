@@ -13,6 +13,7 @@ import { AutopilotHost } from './autopilot.ts';
 import { type AgentSession, isWebviewMenuContext, shq } from './logic/shared.ts';
 import { analysisAnswerArgs, followsPullRequests } from './logic/tasks.ts';
 import { CLAUDE_EXTENSION, claudeSessionUri, isSessionId } from './logic/agents.ts';
+import { POLL_INTERVALS, POLL_KEYS, type PollKey } from './logic/polls.ts';
 import type { NavItem } from './model/home.ts';
 import { needsYouCount } from './model/overview.ts';
 import { type Ref, sessionKey, VIEW_KINDS, type ViewKind } from './model/shared.ts';
@@ -90,32 +91,33 @@ export function activate(context: vscode.ExtensionContext): void {
   // (D-044). VSCode stays light: the author's machine stutters under load.
   let pageVisible = false;
   const inPlay = () => hub.projects.some((p) => hub.taskRows(p.root).some((t) => t.state === 'running' || !!t.reviewing || !!t.analyzing));
-  const POLLS: Record<string, { everyMs: number; hiddenMs?: number; fn: () => Promise<void> }> = {
-    tasks: { everyMs: 3_000, hiddenMs: 15_000, fn: () => hub.loadTasks() },
+  // How often each is looked at is logic/polls.ts's, which the Settings section says too (GH-109).
+  const POLLS: Record<PollKey, () => Promise<void>> = {
+    tasks: () => hub.loadTasks(),
     // In progress (D-092): slots, job markers and builders' latest steps. Stats and small reads; a builder's
     // transcript only when it changed, and only while the page is on screen.
-    jobs: { everyMs: 3_000, hiddenMs: 15_000, fn: () => hub.loadJobs(pageVisible) },
-    agents: { everyMs: 5_000, hiddenMs: 30_000, fn: () => (pageVisible || inPlay() ? hub.loadAgents() : Promise.resolve()) },
-    worktrees: { everyMs: 15_000, fn: () => hub.loadWorktrees() },
+    jobs: () => hub.loadJobs(pageVisible),
+    agents: () => (pageVisible || inPlay() ? hub.loadAgents() : Promise.resolve()),
+    worktrees: () => hub.loadWorktrees(),
     // Tracker boards are network calls, so they refresh slowly, and at once after any move.
-    boards: { everyMs: 120_000, fn: () => trackers.loadBoards() },
+    boards: () => trackers.loadBoards(),
     // Open pull requests (D-033): merged → done, closed → blocked, failing checks or conflicts → needs you.
     // An open promotion too: its merge drafts each ticket's "now in" update (D-075).
     // And an issue acc hasn't closed yet, so a failed close is tried again (D-082).
-    prs: { everyMs: 120_000, hiddenMs: 300_000, fn: async () => {
+    prs: async () => {
       for (const p of hub.projects) {
         if (!hub.taskRows(p.root).some(followsPullRequests)) continue;
         const r = await accRunner(accScript)(['sync', '--json'], p.root);
         if (r.code !== 0) setup.log.warn(`acc sync in ${p.name}: ${(r.stderr || r.stdout).trim().split('\n')[0]}`);
       }
       await hub.loadTasks();
-    } },
+    },
   };
   const pagePolls = (visible: boolean) => {
     pageVisible = visible;
-    for (const [key, p] of Object.entries(POLLS)) {
-      const ms = visible ? p.everyMs : p.hiddenMs;
-      hub.poll(key, ms ?? 0, p.fn, !!ms);
+    for (const key of POLL_KEYS) {
+      const ms = visible ? POLL_INTERVALS[key].everyMs : POLL_INTERVALS[key].hiddenMs;
+      hub.poll(key, ms ?? 0, POLLS[key], !!ms);
     }
   };
 
@@ -405,8 +407,8 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Each area registers its commands, and takes the page's messages that are its own (D-099).
   const parts: Parts = {
-    vscode, hub, setup, runs, panels, tickets, trackers, identity, connect, slack, autopilot, sidebar, accScript,
-    reg, regNode, resolve, accSays, answer, answerAnalysis, updates, showRun,
+    vscode, hub, setup, runs, panels, tickets, pages, trackers, identity, connect, slack, autopilot, sidebar, accScript,
+    reg, subscribe: (d) => context.subscriptions.push(d), regNode, resolve, accSays, answer, answerAnalysis, updates, showRun,
     receive: (type, fn) => panels.take(type, fn),
   };
   for (const a of AREAS) a.register?.(parts);

@@ -6,8 +6,8 @@ import { tempDir } from '../../packages/core/test/support.ts';
 import { HOME_SECTIONS } from '../src/model/shared.ts';
 import type { HomeModel } from '../src/model/home.ts';
 import type { TicketModel } from '../src/model/task-page.ts';
-import { findChrome, PAGES, pageFor, sampleModel, THEMES } from '../scripts/screenshot.ts';
-import { pageStyles, styleFiles } from '../scripts/styles.ts';
+import { COLOUR_PAGES, COLOUR_PROPERTIES, colourDiffs, type Colours, dumpedColours, findChrome, FONTS, PAGES, pageFor, sampleModel } from '../scripts/screenshot.ts';
+import { cssRules, pageStyles, palettes, readsVars, styleFile, styleFiles, vscodeDefaults } from '../scripts/styles.ts';
 
 test('every section of the page, and a ticket, has sample data built by the real model functions', () => {
   for (const kind of PAGES) {
@@ -81,12 +81,82 @@ test('the sample data shows every style: each board column, each kind of session
   assert.deepEqual([...new Set(worktrees.map((w) => w.state.label.replace(/^\d+/, 'N')))].sort(), ['Clean', 'Missing on disk', 'N changed']);
 });
 
-test('both themes define every VSCode colour and font the tabs read', () => {
-  const css = pageStyles();
-  const used = new Set([...css.matchAll(/var\(--vscode-([\w-]+)/g)].map((m) => m[1]!));
-  for (const [name, vars] of Object.entries(THEMES)) {
-    for (const v of used) assert.ok(v in vars, `${name} theme defines --vscode-${v}`);
+test('Light and Dark each set exactly the colours the pages and VSCode\'s webview stylesheet read, both ways (GH-109)', () => {
+  const read = new Set([...readsVars(pageStyles()), ...readsVars(vscodeDefaults())]);
+  // The only variables read that aren't colours: fonts, which stay VSCode's in Light and Dark.
+  assert.deepEqual(Object.keys(FONTS).sort(), ['editor-font-family', 'font-family', 'font-size', 'font-weight']);
+  const colours = [...read].filter((v) => !(v in FONTS)).sort();
+  assert.ok(colours.length >= 40, `${colours.length} colours compared`);
+  assert.ok(colours.includes('scrollbarSlider-background') && colours.includes('charts-orange'), 'from VSCode\'s stylesheet and the page\'s');
+  const all = palettes();
+  assert.deepEqual(Object.keys(all).sort(), ['dark', 'light']);
+  for (const [theme, palette] of Object.entries(all)) {
+    const set = Object.keys(palette).sort();
+    assert.deepEqual(set.filter((v) => !colours.includes(v)), [], `${theme} sets no colour nothing reads`);
+    assert.deepEqual(colours.filter((v) => !set.includes(v)), [], `${theme} sets every colour read`);
+    for (const f of Object.keys(FONTS)) assert.ok(!(f in palette), `${theme} leaves ${f} to VSCode`);
   }
+});
+
+test('the palettes are theme.css\'s alone: !important on <html>, each with its color-scheme, and nothing else keys on VSCode\'s theme (GH-109)', () => {
+  const rules = cssRules(styleFile('theme.css'));
+  assert.deepEqual(rules.map((r) => r.selector), ['html[data-theme="dark"]', 'html[data-theme="light"]']);
+  for (const r of rules) {
+    const theme = /"(\w+)"/.exec(r.selector)![1];
+    assert.deepEqual(r.declarations.filter((d) => d.name === 'color-scheme').map((d) => d.value), [theme], `${theme} sets its color-scheme`);
+    const colours = r.declarations.filter((d) => d.name !== 'color-scheme');
+    assert.ok(colours.length >= 40, `${theme}: ${colours.length} colours`);
+    for (const d of colours) assert.ok(d.name.startsWith('--vscode-') && d.important, `${theme}: ${d.name} is a --vscode-* colour, !important`);
+  }
+  // Outside theme.css, VSCode's body classes count only while the page matches VSCode, and no rule sets a --vscode-* colour.
+  let keyed = 0;
+  for (const f of styleFiles().filter((x) => x !== 'theme.css')) {
+    for (const r of cssRules(styleFile(f))) {
+      for (const sel of r.selector.split(',').map((s) => s.trim())) {
+        if (!/\.vscode-(light|dark|high-contrast)/.test(sel)) continue;
+        keyed++;
+        assert.ok(sel.includes('[data-theme="vscode"]'), `${f}: ${sel} keys on VSCode's theme only under [data-theme="vscode"]`);
+      }
+      for (const d of r.declarations) assert.ok(!d.name.startsWith('--vscode-'), `${f}: ${r.selector} sets ${d.name}`);
+    }
+  }
+  assert.ok(keyed >= 4, `${keyed} selectors key on VSCode's theme: the mark's`);
+});
+
+test('no colour is written into the page\'s styles outside theme.css, but for masks and a fallback (GH-109)', () => {
+  const literal = /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\(/g;
+  const found = Object.fromEntries(styleFiles().filter((f) => f !== 'theme.css').map((f) => [f, (styleFile(f).replace(/\/\*[\s\S]*?\*\//g, '').match(literal) ?? []).length]).filter(([, n]) => n));
+  // The board's and a clamped reason's fade are masks, which use only alpha, so they're the same in every
+  // theme. --line's fallback is for a VSCode theme that sets neither border colour; Light and Dark set both.
+  assert.deepEqual(found, { 'boards.css': 8, 'task-page.css': 4, 'styles.css': 1 });
+  assert.equal((styleFile('theme.css').replace(/\/\*[\s\S]*?\*\//g, '').match(literal) ?? []).length, 112, 'and theme.css holds every colour of both palettes');
+});
+
+test('a shot forces its theme under VSCode\'s other one, with VSCode\'s own stylesheet first (GH-109)', () => {
+  const page = pageFor('settings', 'light', sampleModel('settings', Date.now(), 'light'));
+  assert.match(page, /<html lang="en" data-theme="light" style="[^"]*--vscode-editor-background: #1f1f1f;/, 'Dark\'s colours injected, as VSCode would');
+  assert.match(page, /--vscode-font-family: -apple-system/);
+  assert.match(page, /<body class="vscode-dark" data-view="home"/);
+  assert.ok(page.indexOf('@layer vscode-default') < page.indexOf('webview/styles.css'), 'VSCode\'s stylesheet comes first');
+  assert.ok(!page.includes('collectColours'), 'a shot gathers no colours');
+  const matched = pageFor('overview', 'vscode', sampleModel('overview'), 'light', true);
+  assert.match(matched, /<html lang="en" data-theme="vscode" style="[^"]*--vscode-editor-background: #ffffff;/);
+  assert.ok(matched.includes('setTimeout(collectColours, 500)') && matched.includes('window.requestAnimationFrame = '), 'gathered once the page\'s frame callbacks have run');
+  const settings = sampleModel('settings', Date.now(), 'dark') as HomeModel;
+  assert.deepEqual([settings.section, settings.settings.theme], ['settings', 'dark']);
+});
+
+test('the colour check reads what a page gathered, and finds where two drawings differ (GH-109)', () => {
+  const rows: Colours = [['div.a', COLOUR_PROPERTIES.map(() => 'rgb(0, 0, 0)')], ['span::before', COLOUR_PROPERTIES.map(() => 'rgb(1, 1, 1)')]];
+  assert.deepEqual(dumpedColours(`<html><body><main></main><script type="application/json" id="acc-colours">${JSON.stringify(rows)}</script></body></html>`), rows);
+  assert.equal(dumpedColours('<html><body></body></html>'), null);
+  assert.deepEqual(colourDiffs(rows, rows), []);
+  const other = structuredClone(rows);
+  other[1]![1][1] = 'rgb(9, 9, 9)';
+  assert.deepEqual(colourDiffs(rows, other), [{ what: 'span::before', property: 'background-color', a: 'rgb(1, 1, 1)', b: 'rgb(9, 9, 9)' }]);
+  assert.deepEqual(colourDiffs(rows, rows.slice(1)), [{ what: 'the page, from element 0', property: 'its elements', a: '2 elements, div.a there', b: '1 elements, span::before there' }], 'different elements differ as a whole');
+  assert.deepEqual(colourDiffs(rows, rows.slice(0, 1)).map((d) => d.what), ['the page, from element 1'], 'and so does one with fewer');
+  assert.deepEqual(COLOUR_PAGES, ['overview', 'tasks', 'settings', 'ticket', 'agent']);
 });
 
 test('the page\'s styles: what every area shares first, then each area\'s own by file name, each named for a module of the page (GH-95)', () => {
@@ -108,7 +178,7 @@ test('the page hands the model to the real webview, and no string in it can clos
   const page = pageFor('agents', 'dark', model);
   assert.ok(!page.includes('</script><img'));
   assert.ok(page.includes('src="webview/main.js"') && page.includes('data-view="home"'));
-  assert.ok(page.includes('--vscode-editor-background: #1f1f1f'));
+  assert.ok(page.includes('data-theme="dark"') && page.includes('--vscode-editor-background: #ffffff'), 'Dark, under VSCode\'s light theme');
 });
 
 test('Chrome is found from $CHROME first, and a wrong $CHROME is reported, not guessed past', () => {

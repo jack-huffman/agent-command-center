@@ -1,0 +1,135 @@
+/* Light and Dark (GH-109): the Command Center's own palettes, for when Settings says Light or Dark instead
+   of Match VSCode. The page's <html data-theme> says which: vscode, light or dark. VSCode sets its theme's
+   --vscode-* variables inline on <html>, so each colour here is !important to win over them.
+
+   Each palette sets every colour the page reads, and every colour VSCode's own webview stylesheet reads
+   (links on hover, code, quotes, keys, scrollbars and find highlights), so while one is on no colour comes
+   from VSCode's theme. A test checks both ways. Fonts aren't here: they stay VSCode's.
+
+   The colours are close to VSCode's Dark Modern and Light Modern themes: the screenshots drew with them
+   before GH-109. The last sixteen of each, the ones VSCode's webview stylesheet reads, are copied from
+   VSCode 1.139.0 on 2026-10-07 (D-098): extensions/theme-defaults/themes/dark_modern.json and
+   light_modern.json, and the colour registry's defaults in out/vs/workbench/workbench.desktop.main.js where
+   those themes leave one unset. A newer VSCode may read more: check again on an upgrade. */
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --vscode-foreground: #cccccc !important;
+  --vscode-descriptionForeground: #9d9d9d !important;
+  --vscode-errorForeground: #f85149 !important;
+  --vscode-focusBorder: #0078d4 !important;
+  --vscode-editor-background: #1f1f1f !important;
+  --vscode-editorWidget-background: #202020 !important;
+  --vscode-sideBar-background: #181818 !important;
+  --vscode-panel-border: #2b2b2b !important;
+  --vscode-widget-border: #313131 !important;
+  --vscode-list-hoverBackground: #2a2d2e !important;
+  --vscode-toolbar-hoverBackground: rgba(90, 93, 94, 0.31) !important;
+  --vscode-button-background: #0078d4 !important;
+  --vscode-button-foreground: #ffffff !important;
+  --vscode-button-hoverBackground: #026ec1 !important;
+  --vscode-button-border: rgba(255, 255, 255, 0.07) !important;
+  --vscode-button-secondaryBackground: #313131 !important;
+  --vscode-button-secondaryForeground: #cccccc !important;
+  --vscode-button-secondaryHoverBackground: #3c3c3c !important;
+  --vscode-badge-background: #616161 !important;
+  --vscode-badge-foreground: #f8f8f8 !important;
+  --vscode-textLink-foreground: #4daafc !important;
+  --vscode-menu-background: #1f1f1f !important;
+  --vscode-menu-border: #454545 !important;
+  --vscode-menu-foreground: #cccccc !important;
+  --vscode-menu-selectionBackground: #0078d4 !important;
+  --vscode-menu-selectionForeground: #ffffff !important;
+  --vscode-textCodeBlock-background: #2b2b2b !important;
+  --vscode-progressBar-background: #0078d4 !important;
+  --vscode-charts-orange: #d18616 !important;
+  --vscode-charts-blue: #3794ff !important;
+  --vscode-input-background: #313131 !important;
+  --vscode-input-foreground: #cccccc !important;
+  --vscode-input-border: #3c3c3c !important;
+  --vscode-dropdown-background: #313131 !important;
+  --vscode-dropdown-foreground: #cccccc !important;
+  --vscode-dropdown-border: #3c3c3c !important;
+  --vscode-input-placeholderForeground: #989898 !important;
+  --vscode-icon-foreground: #cccccc !important;
+  --vscode-list-activeSelectionBackground: #04395e !important;
+  --vscode-list-activeSelectionForeground: #ffffff !important;
+  /* What VSCode's webview stylesheet reads: Dark Modern's own, or the registry's dark default. */
+  --vscode-editor-foreground: #cccccc !important;
+  --vscode-textLink-activeForeground: #4daafc !important;
+  --vscode-textPreformat-foreground: #d0d0d0 !important;
+  --vscode-textPreformat-background: #3c3c3c !important;
+  --vscode-textBlockQuote-background: #2b2b2b !important;
+  --vscode-textBlockQuote-border: #616161 !important;
+  --vscode-keybindingLabel-background: rgba(128, 128, 128, 0.17) !important;
+  --vscode-keybindingLabel-foreground: #cccccc !important;
+  --vscode-keybindingLabel-border: rgba(51, 51, 51, 0.6) !important;
+  --vscode-keybindingLabel-bottomBorder: rgba(68, 68, 68, 0.6) !important;
+  --vscode-widget-shadow: rgba(0, 0, 0, 0.36) !important;
+  --vscode-scrollbarSlider-background: rgba(121, 121, 121, 0.4) !important;
+  --vscode-scrollbarSlider-hoverBackground: rgba(100, 100, 100, 0.7) !important;
+  --vscode-scrollbarSlider-activeBackground: rgba(191, 191, 191, 0.4) !important;
+  --vscode-editor-findMatchHighlightBackground: #ea5c0055 !important;
+  --vscode-editor-findMatchBackground: #9e6a03 !important;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+  --vscode-foreground: #3b3b3b !important;
+  --vscode-descriptionForeground: #6f6f6f !important;
+  --vscode-errorForeground: #e51400 !important;
+  --vscode-focusBorder: #005fb8 !important;
+  --vscode-editor-background: #ffffff !important;
+  --vscode-editorWidget-background: #f8f8f8 !important;
+  --vscode-sideBar-background: #f8f8f8 !important;
+  --vscode-panel-border: #e5e5e5 !important;
+  --vscode-widget-border: #e5e5e5 !important;
+  --vscode-list-hoverBackground: #f2f2f2 !important;
+  --vscode-toolbar-hoverBackground: rgba(184, 184, 184, 0.31) !important;
+  --vscode-button-background: #005fb8 !important;
+  --vscode-button-foreground: #ffffff !important;
+  --vscode-button-hoverBackground: #0258a8 !important;
+  --vscode-button-border: rgba(0, 0, 0, 0.1) !important;
+  --vscode-button-secondaryBackground: #e5e5e5 !important;
+  --vscode-button-secondaryForeground: #3b3b3b !important;
+  --vscode-button-secondaryHoverBackground: #cccccc !important;
+  --vscode-badge-background: #cccccc !important;
+  --vscode-badge-foreground: #3b3b3b !important;
+  --vscode-textLink-foreground: #005fb8 !important;
+  --vscode-menu-background: #ffffff !important;
+  --vscode-menu-border: #cecece !important;
+  --vscode-menu-foreground: #3b3b3b !important;
+  --vscode-menu-selectionBackground: #005fb8 !important;
+  --vscode-menu-selectionForeground: #ffffff !important;
+  --vscode-textCodeBlock-background: #f2f2f2 !important;
+  --vscode-progressBar-background: #005fb8 !important;
+  --vscode-charts-orange: #d18616 !important;
+  --vscode-charts-blue: #1a85ff !important;
+  --vscode-input-background: #ffffff !important;
+  --vscode-input-foreground: #3b3b3b !important;
+  --vscode-input-border: #cecece !important;
+  --vscode-dropdown-background: #ffffff !important;
+  --vscode-dropdown-foreground: #3b3b3b !important;
+  --vscode-dropdown-border: #cecece !important;
+  --vscode-input-placeholderForeground: #767676 !important;
+  --vscode-icon-foreground: #424242 !important;
+  --vscode-list-activeSelectionBackground: #e4e6f1 !important;
+  --vscode-list-activeSelectionForeground: #000000 !important;
+  /* What VSCode's webview stylesheet reads: Light Modern's own, or the registry's light default. */
+  --vscode-editor-foreground: #3b3b3b !important;
+  --vscode-textLink-activeForeground: #005fb8 !important;
+  --vscode-textPreformat-foreground: #3b3b3b !important;
+  --vscode-textPreformat-background: #0000001f !important;
+  --vscode-textBlockQuote-background: #f8f8f8 !important;
+  --vscode-textBlockQuote-border: #e5e5e5 !important;
+  --vscode-keybindingLabel-background: rgba(221, 221, 221, 0.4) !important;
+  --vscode-keybindingLabel-foreground: #3b3b3b !important;
+  --vscode-keybindingLabel-border: rgba(204, 204, 204, 0.4) !important;
+  --vscode-keybindingLabel-bottomBorder: rgba(187, 187, 187, 0.4) !important;
+  --vscode-widget-shadow: rgba(0, 0, 0, 0.16) !important;
+  --vscode-scrollbarSlider-background: rgba(100, 100, 100, 0.4) !important;
+  --vscode-scrollbarSlider-hoverBackground: rgba(100, 100, 100, 0.7) !important;
+  --vscode-scrollbarSlider-activeBackground: rgba(0, 0, 0, 0.6) !important;
+  --vscode-editor-findMatchHighlightBackground: #ea5c0055 !important;
+  --vscode-editor-findMatchBackground: #a8ac94 !important;
+}

@@ -1,0 +1,14 @@
+[
+  {
+    "command": "acc.settings.theme",
+    "title": "Choose the Command Center's theme",
+    "category": "Agent Command Center",
+    "icon": "$(color-mode)"
+  },
+  {
+    "command": "acc.settings.refresh",
+    "title": "Refresh settings",
+    "category": "Agent Command Center",
+    "icon": "$(refresh)"
+  }
+]

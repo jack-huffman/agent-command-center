@@ -102,7 +102,7 @@
 .more-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--vscode-descriptionForeground); cursor: pointer; }
 .more-btn:hover, .more-btn[aria-expanded="true"] { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
 .more-btn:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
-.more-menu { position: absolute; top: 26px; right: 0; z-index: 20; min-width: 180px; padding: 4px; border: 1px solid var(--vscode-menu-border, var(--line)); border-radius: 6px; background: var(--vscode-menu-background, var(--card)); color: var(--vscode-menu-foreground, var(--vscode-foreground)); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28); }
+.more-menu { position: absolute; top: 26px; right: 0; z-index: 20; min-width: 180px; padding: 4px; border: 1px solid var(--vscode-menu-border, var(--line)); border-radius: 6px; background: var(--vscode-menu-background, var(--card)); color: var(--vscode-menu-foreground, var(--vscode-foreground)); box-shadow: 0 4px 14px var(--vscode-widget-shadow, transparent); }
 .more-menu[hidden] { display: none; }
 .more-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 8px; border: 0; border-radius: 4px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; white-space: nowrap; }
 .more-item:hover, .more-item:focus-visible { background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground)); color: var(--vscode-menu-selectionForeground, inherit); outline: none; }

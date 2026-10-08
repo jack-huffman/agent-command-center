@@ -1,6 +1,7 @@
-/* Theme-native: every colour comes from the user's VSCode theme, so light, dark and high
-   contrast all work. Orange marks what needs a person, blue what's moving or fine; every state
-   also carries a word, so colour is never the only signal. */
+/* Theme-native: every colour comes from a --vscode-* variable, so light, dark and high contrast all
+   work. VSCode's theme sets them, unless Settings says Light or Dark: then theme.css's palette does
+   (GH-109). Orange marks what needs a person, blue what's moving or fine; every state also carries a
+   word, so colour is never the only signal. */
 
 /* This file holds what every part of the page shares. Each area's own styles are in the .css named for
    its module here (GH-95). The build writes this file first, then those, by file name, so a rule that
@@ -187,9 +188,10 @@ body[data-view="home"] { padding: 0; height: 100vh; overflow: hidden; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 2px 8px 10px; border-bottom: 1px solid var(--line); }
 .brand-mark { display: inline-flex; width: 26px; height: 26px; flex: none; }
 .brand-mark img { width: 26px; height: 26px; }
+/* The mark follows the page's theme (GH-109): Light, or VSCode's light themes while it matches VSCode. */
 .logo-light { display: none; }
-body.vscode-light .logo-dark, body.vscode-high-contrast-light .logo-dark { display: none; }
-body.vscode-light .logo-light, body.vscode-high-contrast-light .logo-light { display: inline; }
+html[data-theme="light"] .logo-dark, html[data-theme="vscode"] body.vscode-light .logo-dark, html[data-theme="vscode"] body.vscode-high-contrast-light .logo-dark { display: none; }
+html[data-theme="light"] .logo-light, html[data-theme="vscode"] body.vscode-light .logo-light, html[data-theme="vscode"] body.vscode-high-contrast-light .logo-light { display: inline; }
 .brand-text { display: flex; flex-direction: column; min-width: 0; }
 .brand-name { font-weight: 600; font-size: 1.05em; }
 .brand-text .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

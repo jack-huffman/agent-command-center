@@ -19,6 +19,7 @@ import { historyItems } from './history.ts';
 import { type AttentionItem, mergeQueues, needsYouCount, type OverviewModel, queueLook, type QueuePanel, type StatTile } from './overview.ts';
 import { type QuestionCard, questionCards } from './questions.ts';
 import { runCard, type RunCard, type RunInput } from './runs.ts';
+import { settingsModel, type SettingsModel, type ThemeChoice } from './settings.ts';
 import { setupModel, type SetupModel } from './setup.ts';
 import { type Action, type HomeSection, type HubLike, LOOK, nameOf, type ProjectLike, type Ref, sessionKey } from './shared.ts';
 import type { TicketModel } from './task-page.ts';
@@ -50,6 +51,7 @@ export interface HomeModel {
   worktrees: WorktreesModel;
   environments: EnvironmentsModel;
   setup: SetupModel;
+  settings: SettingsModel;
   /** Commands acc ran for you, newest first, shown in the page's output panel. */
   runs: RunCard[];
   /** The Connect page, while it's open: it shows in place of the section, with Back to it (GH-51). */
@@ -79,6 +81,8 @@ export interface HomeInput {
   autopilot?: (root: string) => 'on' | 'elsewhere' | null;
   /** The extension's clock, for In progress's times. */
   now?: number;
+  /** The Command Center's theme, as Settings keeps it on this machine (GH-109). Match VSCode unless said. */
+  theme?: ThemeChoice;
 }
 
 /** What homeModel has worked out, for each area's part of the page. Areas add to attention and ready as they go. */
@@ -129,6 +133,7 @@ export function homeModel(i: HomeInput): HomeModel {
   const worktrees = worktreesModel(hub);
   const environments = environmentsModel(hub, i.identity, i.slack ?? null);
   const setup = setupModel(i.setup.items, i.setup.confirmed);
+  const settings = settingsModel({ theme: i.theme ?? 'vscode', agentSettings: agents.settings.length > 0 });
   const questions = questionCards(hub);
   const asked = new Set(questions.map((q) => q.sessionId));
   const c: HomeContext = { i, hub, tasks, agents, worktrees, environments, setup, questions, asked, linked: new Set(), rows: hub.projects.flatMap((p) => hub.taskRows(p.root)), attention: [], ready: [] };
@@ -149,7 +154,7 @@ export function homeModel(i: HomeInput): HomeModel {
   const runs = (i.runs ?? []).map((r) => runCard(r));
   // What's under way, below Needs you. It never changes the badge, which counts only what needs you.
   const progress = inProgress({ hub, runs: i.runs, finished: i.finished, autopilot: i.autopilot, now: i.now });
-  return { kind: 'home', section: i.section, nav, overview: { projects, questions, attention, stats, ready, queue, history, inProgress: progress }, tasks, agents, worktrees, environments, setup, runs, connect: i.connect ?? null };
+  return { kind: 'home', section: i.section, nav, overview: { projects, questions, attention, stats, ready, queue, history, inProgress: progress }, tasks, agents, worktrees, environments, setup, settings, runs, connect: i.connect ?? null };
 }
 
-export type Model = TasksModel | AgentsModel | WorktreesModel | EnvironmentsModel | SetupModel | TicketModel | HomeModel | AgentModel;
+export type Model = TasksModel | AgentsModel | WorktreesModel | EnvironmentsModel | SetupModel | SettingsModel | TicketModel | HomeModel | AgentModel;

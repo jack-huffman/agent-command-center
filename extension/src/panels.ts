@@ -11,6 +11,7 @@ import { homeModel } from './model/home.ts';
 import { runCard, type RunInput } from './model/runs.ts';
 import type { SlackCard } from './model/slack.ts';
 import { WHERE_VIEWS, type WhereView } from './model/agents.ts';
+import { THEME_SETTING, themeChoice, type ThemeChoice } from './model/settings.ts';
 import type { Setup } from './setup.ts';
 
 /** Commands the page may ask for, from every area that draws them (D-099). Anything else from a webview is ignored. */
@@ -41,9 +42,61 @@ const REFRESH: Record<HomeSection, string[]> = {
   worktrees: ['acc.worktrees.refresh'],
   environments: ['acc.worktrees.refresh'],
   setup: ['acc.setup.refresh'],
+  settings: ['acc.settings.refresh'],
 };
 
-export function htmlFor(webview: Pick<vscode.Webview, 'cspSource' | 'asWebviewUri'>, base: vscode.Uri, kind: 'home' | 'ticket' | 'agent', nonce: string, title = kind === 'ticket' ? 'Ticket' : kind === 'agent' ? 'Agent' : 'Command Center'): string {
+/** The Command Center's theme, as Settings keeps it on this machine (GH-109). */
+export const currentTheme = (): ThemeChoice => themeChoice(vscode.workspace.getConfiguration(THEME_SETTING.section).get(THEME_SETTING.key));
+
+/**
+ * Keeps one tab in the Command Center's theme (GH-109). On screen, the tab is told, and restyles without
+ * reloading, so nothing you're typing or looking at is lost. Hidden, VSCode rebuilds it from its HTML when
+ * it's shown again, so the HTML is written again with the new theme: at once, or, for a tab that was on
+ * screen, as soon as it goes out of sight.
+ */
+export class TabTheme {
+  private readonly panel: vscode.WebviewPanel;
+  private readonly html: (theme: ThemeChoice) => string;
+  /** The theme its HTML holds, and the one it should show. */
+  private written: ThemeChoice;
+  private wanted: ThemeChoice;
+
+  constructor(panel: vscode.WebviewPanel, html: (theme: ThemeChoice) => string, theme: ThemeChoice = currentTheme()) {
+    this.panel = panel;
+    this.html = html;
+    this.written = theme;
+    this.wanted = theme;
+    panel.webview.html = html(theme);
+    panel.onDidChangeViewState((e) => { if (!e.webviewPanel.visible) this.catchUp(); });
+  }
+
+  get theme(): ThemeChoice {
+    return this.wanted;
+  }
+
+  set(theme: ThemeChoice): void {
+    this.wanted = theme;
+    if (this.panel.visible) void this.panel.webview.postMessage({ type: 'theme', theme });
+    else this.catchUp();
+  }
+
+  /**
+   * The page says it's ready: a page that reloaded while on screen, such as from Developer: Reload Webviews,
+   * came back from HTML in the old theme, so it's told the new one.
+   */
+  ready(): void {
+    if (this.written !== this.wanted) void this.panel.webview.postMessage({ type: 'theme', theme: this.wanted });
+  }
+
+  private catchUp(): void {
+    if (this.written === this.wanted) return;
+    this.written = this.wanted;
+    this.panel.webview.html = this.html(this.wanted);
+  }
+}
+
+/** A tab's HTML. Its theme goes on <html data-theme>, where the palettes key on it: anything but the three choices is vscode (GH-109). */
+export function htmlFor(webview: Pick<vscode.Webview, 'cspSource' | 'asWebviewUri'>, base: vscode.Uri, kind: 'home' | 'ticket' | 'agent', nonce: string, title = kind === 'ticket' ? 'Ticket' : kind === 'agent' ? 'Agent' : 'Command Center', theme: unknown = 'vscode'): string {
   const res = (p: string) => webview.asWebviewUri(vscode.Uri.joinPath(base, p)).toString();
   const csp = [
     "default-src 'none'",
@@ -53,7 +106,7 @@ export function htmlFor(webview: Pick<vscode.Webview, 'cspSource' | 'asWebviewUr
     `script-src 'nonce-${nonce}'`,
   ].join('; ');
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="${themeChoice(theme)}">
 <head>
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
@@ -75,6 +128,8 @@ export function htmlFor(webview: Pick<vscode.Webview, 'cspSource' | 'asWebviewUr
  */
 export class Panels implements vscode.Disposable {
   private panel: vscode.WebviewPanel | null = null;
+  /** Keeps the tab in the Command Center's theme (GH-109). */
+  private tab: TabTheme | null = null;
   /** A part of the section to open with the next jump, such as the Agents settings. */
   private opening: string | null = null;
   private section: HomeSection = 'overview';
@@ -109,7 +164,8 @@ export class Panels implements vscode.Disposable {
 
   /**
    * Opens the page, or brings it forward, at a section: the one asked for, else where it was left. With
-   * open, a part of the section that's closed until you open it opens too, such as the Agents settings.
+   * open, a part of the section that's closed until you open it opens too, such as the Agents settings, and
+   * a part with a heading of that name is scrolled to, such as one of Settings' (settingsKey, GH-109).
    */
   show(section?: ViewKind | HomeSection, open?: string): void {
     if (section && (HOME_SECTIONS as readonly string[]).includes(section)) this.remember(section as HomeSection);
@@ -123,7 +179,7 @@ export class Panels implements vscode.Disposable {
     const panel = vscode.window.createWebviewPanel('acc.home', 'Command Center', vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [base] });
     const icon = (theme: 'light' | 'dark') => vscode.Uri.joinPath(this.ctx.extensionUri, 'dist', 'media', `acc-${theme}.svg`);
     panel.iconPath = { light: icon('light'), dark: icon('dark') };
-    panel.webview.html = htmlFor(panel.webview, base, 'home', randomBytes(16).toString('base64'));
+    this.tab = new TabTheme(panel, (theme) => htmlFor(panel.webview, base, 'home', randomBytes(16).toString('base64'), undefined, theme));
     panel.webview.onDidReceiveMessage((m: unknown) => this.receive(m));
     panel.onDidChangeViewState((e) => {
       this.onVisible(e.webviewPanel.visible);
@@ -131,12 +187,19 @@ export class Panels implements vscode.Disposable {
     });
     panel.onDidDispose(() => {
       this.panel = null;
+      this.tab = null;
       this.onVisible(false);
       // A Connect page closes with its tab: reopened, the Command Center shows its section.
       this.deps.connect.close();
     });
     this.panel = panel;
     this.onVisible(true);
+  }
+
+  /** Settings changed the theme (GH-109): the page restyles, and Settings shows the new choice. */
+  retheme(theme: ThemeChoice): void {
+    this.tab?.set(theme);
+    this.post();
   }
 
   /** An area takes the page's messages of a type. Two areas can't both take one. */
@@ -173,7 +236,7 @@ export class Panels implements vscode.Disposable {
       hub: this.hub, section: this.section, boards: (r) => this.deps.boards(r), identity: (r) => this.deps.identity(r),
       setup: { items: this.setup.results(), confirmed: this.setup.allConfirmed() }, runs: this.deps.runs(),
       edited: (root, id, replaces) => this.deps.edited(root, id, replaces), connect: this.deps.connect.model(), slack: this.deps.slack?.card() ?? null,
-      whereView: this.whereView,
+      whereView: this.whereView, theme: this.tab?.theme ?? currentTheme(),
       finished: this.finished, autopilot: (root) => this.deps.autopilot?.(root) ?? null, now: Date.now(),
     });
   }
@@ -193,7 +256,7 @@ export class Panels implements vscode.Disposable {
 
   private receive(m: unknown): void {
     if (!isFromWebview(m)) return;
-    if (m.type === 'ready') return this.post(true);
+    if (m.type === 'ready') { this.tab?.ready(); return this.post(true); }
     if (m.type === 'nav') return this.remember(m.section);
     if (m.type === 'agents-where') {
       this.whereView = m.view;

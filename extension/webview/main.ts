@@ -112,6 +112,14 @@ export function render(model: Model): void {
 }
 state.draw = render;
 
+/** Scrolls to the heading a part names with data-part, and focuses it, so a screen reader starts there too. */
+function jumpTo(part: string): void {
+  const heading = document.querySelector<HTMLElement>(`[data-part="${CSS.escape(part)}"]`);
+  if (!heading) return;
+  heading.scrollIntoView({ block: 'start' });
+  heading.focus({ preventScroll: true });
+}
+
 window.addEventListener('message', (e: MessageEvent) => {
   const msg = e.data as { type?: string; model?: Model; action?: string; ok?: boolean; jump?: boolean; open?: string };
   if (msg?.type === 'state' && msg.model && msg.model.kind === view) {
@@ -120,6 +128,8 @@ window.addEventListener('message', (e: MessageEvent) => {
     // A part of it to open as well, such as the Agents settings from the status bar's Auto-merge.
     if (msg.open) { const part = msg.open; remember((x) => { if (!x.opened.includes(part)) x.opened = [...x.opened, part]; }); }
     render(msg.model);
+    // Or a part's heading to go to, such as one of Settings' parts (GH-109): it scrolls into view and takes focus.
+    if (msg.open) jumpTo(msg.open);
   }
   if (typeof msg?.type === 'string') RECEIVE.get(msg.type)?.(msg as never);
 });
