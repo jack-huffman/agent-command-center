@@ -470,10 +470,15 @@ or from the project's `.acc/packet.md` if there is one. It contains:
   - edit files outside the worktree
   - edit an environment-specific file
   - change the ticket
-- **Rules:** one section, in a fixed order (GH-108). First the profile's rules
-  (Salesforce's: bulk-safe Apex, sharing and field access, tests that assert
-  outcomes, no org-specific values in metadata; a generic project has none),
-  then each copy in `.acc/rules/` by file name, under a heading naming its
+- **Rules:** one section, in a fixed order (GH-108). First every project's
+  rules, in every profile (GH-104), which keep many builders' work mergeable:
+  put new behaviour in its own file, and where a list must name every area,
+  register it there with one line; if another task's change breaks your build,
+  block with the reason and don't edit its files; write a manifest or config
+  file whole, to a temp file then a rename, never half-written. Then the
+  profile's rules (Salesforce's: bulk-safe Apex, sharing and field access,
+  tests that assert outcomes, no org-specific values in metadata; a generic
+  project has none), then each copy in `.acc/rules/` by file name, under a heading naming its
   source, then `.acc/rules.md`. A sentence before them says the later one
   wins, so the repo's own rules win where they conflict. They're read from the
   task's worktree, so a copy reaches builders once it's committed on the
@@ -482,7 +487,7 @@ or from the project's `.acc/packet.md` if there is one. It contains:
   the main checkout.
 
 When the session resumes or compacts, the SessionStart hook injects a short
-version again.
+version again, with every project's three rules in one line.
 
 **The builder's note (D-106).** A session can end abruptly: a crash, a full
 context, a stopped Mac. So a builder ends with a short note for whoever comes
@@ -640,6 +645,12 @@ session can be watched like any agent's.
 - **It checks:** whether the acceptance criteria are met, whether the project
   rules are followed, whether the change strayed outside the ticket, and whether
   the tests actually exercise the change.
+- **It looks for a duplicated helper** (GH-104), in every profile: a new helper
+  that does what an existing one already does. It searches for one and names
+  both in the finding, each as `file:line`. When the existing one is exported,
+  the finding must be fixed: use it instead. A near-copy of a local one doesn't
+  block. The plugin's reviewer says the same. A burst of merges also brings a
+  tidy-up for what slips past ([section 12](#12-the-orchestrator-loop)).
 - **It reads the builder's note as a claim.** Its instructions say the note is
   the builder's own account of what landed, which numbers moved and what's
   still open, to check against the diff rather than trust, and to say where
@@ -918,6 +929,39 @@ before each:
   level, and the Autonomy row in Settings' How agents run runs it. `acc agents auto-merge
   [on|off]` and its Auto-merge row do the same for auto-merge, which the status
   bar's menu shows for each repo.
+
+**The tidy-up after a burst of parallel work (GH-104).** Many builders at once
+keep their work mergeable by the rules every packet carries
+([section 8](#8-the-packet)), but nobody tidies: one helper gathers local
+copies, and comments come to say the opposite of code elsewhere. So once
+`tidy.every` tasks (8 by default) have merged in a repo since the last
+tidy-up, the Command Center offers one.
+
+- **What counts:** tasks a merged pull request moved to done, per repo ledger,
+  across its environments, since the last tidy-up a person added or skipped
+  (`<git-common-dir>/acc/tidy.json`, written whole: a temp file, then a rename).
+  A tidy-up's own task (label `tidy-up`) doesn't count. With none on record
+  yet, only the newest `every` count, so a busy repo gets an offer at once with
+  a scope a person can read. While a tidy-up task isn't done, no new offer
+  comes. `tidy.every: 0` turns offers off.
+- **Its scope:** the files those tasks' merges changed (each merge commit
+  against its first parent; without one, the merge that took its branch in),
+  kept when they still exist on the default environment's branch, which is
+  fetched first. Append-only files, environment-specific files and `.acc/` are
+  left out. A task whose files can't be found is listed by name, with why,
+  never dropped quietly.
+- **What it asks:** find duplicated helpers and comments that contradict the
+  code, in those files only, and change no behaviour: no test's expectations
+  change.
+- **Drafted, never created on its own.** Neither sync nor autopilot adds it.
+  The Overview shows one blue "Tidy-up due" item per repo, with Draft tidy-up
+  and Not now; it's an offer, so it doesn't raise the badge. Draft runs
+  `acc tidy --json` and shows the tasks it covers and its files in a dialog;
+  only Add task runs `acc tidy add`, which adds a manual T-n task in To do,
+  labelled `tidy-up`, and records it. Not now runs `acc tidy skip`, which
+  records who skipped it and when. Either starts the count again. Both are a
+  person's: builders, reviewers and analysts are refused. `acc tidy` alone
+  shows the count and the draft and changes nothing.
 
 An agent is used for judgment, not routing. The `acc:orchestrate` skill helps
 break a large ticket into tasks, triage a blocked task, or write rework guidance.
