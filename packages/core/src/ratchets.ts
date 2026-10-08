@@ -6,7 +6,7 @@
  * better floor in the task's worktree and the builder commits it with the change. acc never raises one
  * anywhere else, and only a person relaxes one, with a reason, as only a person waives a check (D-031).
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { Config, RatchetLimit, RatchetSpec } from './config.ts';
 import { AccError, type RunResult, type Runner } from './exec.ts';
@@ -74,9 +74,12 @@ export function readFloors(file: string): Floors {
   return floors;
 }
 
+/** Written whole or not at all, so a reader never finds half a floors file. */
 export function writeFloors(file: string, floors: Floors): void {
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, formatFloors(floors));
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, formatFloors(floors));
+  renameSync(tmp, file);
 }
 
 /** The floors committed at a commit: none when it has no file. A broken file is an error. */
@@ -275,11 +278,19 @@ export function readRelaxed(file: string): RelaxRecord[] {
 /**
  * Whether a person relaxed this ratchet, from the floor the branch began at, to this number or a worse one.
  * A floor acc raised again after a person relaxed it is still backed by that record, so the commit that
- * records the raise passes. A record relaxed from any other floor backs nothing here: an old relax, from
- * another task or another time, never lets a builder lower today's floor by hand.
+ * records the raise passes. A person who relaxes it again relaxes from the floor they set, so the chain of
+ * relaxes that starts at the branch's floor backs the last one. A record relaxed from any other floor backs
+ * nothing here: an old relax, from another task or another time, never lets a builder lower today's floor by hand.
  */
-export const relaxedTo = (records: RelaxRecord[], name: string, limit: RatchetLimit, value: number, base: number): boolean =>
-  records.some((r) => r.ratchet === name && r.limit === limit && r.was === base && (r.to === value || isWorse(limit, r.to, value)));
+export function relaxedTo(records: RelaxRecord[], name: string, limit: RatchetLimit, value: number, base: number): boolean {
+  const mine = records.filter((r) => r.ratchet === name && r.limit === limit);
+  const from = new Set([base]);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const r of mine) if (from.has(r.was) && !from.has(r.to)) { from.add(r.to); grew = true; }
+  }
+  return mine.some((r) => from.has(r.was) && (r.to === value || isWorse(limit, r.to, value)));
+}
 
 export interface RelaxRequest {
   ratchet: string;

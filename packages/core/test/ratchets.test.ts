@@ -1,6 +1,6 @@
 // Ratchets (GH-99): a number that may only get better, held to a floor or a ceiling in .acc/floors.json.
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { parseConfig, type RatchetSpec } from '../src/config.ts';
@@ -65,6 +65,10 @@ test('a floor the branch made worse by hand fails, unless a person relaxed it, f
   assert.equal(judge(TESTS, 650, { ...lowered, relaxed: [{ ...record, to: 630 }] }).status, 'pass', 'to a worse one, which acc then raised: it backs the raise');
   assert.equal(judge(TESTS, 635, { ...lowered, relaxed: [record] }).status, 'fail', 'and the relaxed floor still holds');
   assert.equal(judge(TESTS, 650, { ...lowered, relaxed: [{ ...record, was: 700 }] }).status, 'fail', 'relaxed from another floor: it backs nothing here');
+  const again = { ...record, to: 620, was: 640 };
+  const twice = held({ tests: { floor: 620 } }, { tests: { floor: 669 } });
+  assert.equal(judge(TESTS, 625, { ...twice, relaxed: [record, again] }).status, 'pass', 'relaxed twice: 669 to 640, then 640 to 620');
+  assert.equal(judge(TESTS, 625, { ...twice, relaxed: [again] }).status, 'fail', 'the second relax alone starts from a floor this branch never had');
   const moved = held({ tests: { floor: 690 } }, { tests: { floor: 700 } });
   assert.match(judge(TESTS, 690, { ...moved, relaxed: [record] }).summary, /lowers tests's floor to 690, from 700 on main, and no person relaxed it/, 'an old relax from 669 never lets a builder lower today\'s 700');
   assert.match(judge(TESTS, 680, held({}, { tests: { floor: 669 } })).summary, /drops tests's floor, from 669 on main, and no person relaxed it/);
@@ -134,6 +138,10 @@ test('a person relaxes a floor in a checkout, with a reason: the file says who a
   assert.deepEqual(r, { ratchet: 'tests', limit: 'floor', to: 640, was: 669, by: 'human:jordan', reason: 'the slow suite moved to its own job', at: '2026-10-07T09:00:00.000Z', task: 'GH-5', root: dir });
   assert.deepEqual(JSON.parse(readFileSync(floors, 'utf8')), { tests: { floor: 640, relaxed: { by: 'human:jordan', reason: 'the slow suite moved to its own job', at: '2026-10-07T09:00:00.000Z', was: 669 } } });
   assert.deepEqual(readRelaxed(records), [r]);
+  const r2 = relax(620, 'and again');
+  assert.equal(r2.was, 640, 'a second relax starts from the floor the first set');
+  assert.deepEqual(readRelaxed(records), [r, r2]);
+  assert.deepEqual(readdirSync(join(dir, '.acc')), ['floors.json'], 'written whole: no temp file left beside it');
 });
 
 test('a commit that only records the floors acc raised on its parent carries its parent\'s checks; anything else is checked afresh', () => {
