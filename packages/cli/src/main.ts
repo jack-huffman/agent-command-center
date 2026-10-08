@@ -43,6 +43,22 @@ export function commandsOf(areas: readonly CommandArea[]): Map<string, { run: Co
   return all;
 }
 
+/**
+ * Every way into acc, as the words that start it: each command, and each command with each word it takes
+ * before its arguments (acc gate run). The junk test (GH-106) calls every one of them.
+ */
+export function entryPointsOf(areas: readonly CommandArea[]): string[][] {
+  const all: string[][] = [];
+  for (const a of areas) {
+    for (const [name, subs] of Object.entries(a.subcommands ?? {})) {
+      if (!Object.hasOwn(a.commands, name)) throw new Error(`acc ${name} has subcommands but isn't a command of its group.`);
+      if (new Set(subs).size !== subs.length) throw new Error(`acc ${name} lists a subcommand twice.`);
+    }
+    for (const name of Object.keys(a.commands)) all.push([name], ...(a.subcommands?.[name] ?? []).map((s) => [name, s]));
+  }
+  return all;
+}
+
 /** acc help: each section's title and its groups' lines, sections in the order of their first group. */
 export function helpOf(areas: readonly CommandArea[]): string {
   const sections = new Map<string, CommandArea['help'][]>();
@@ -52,6 +68,15 @@ export function helpOf(areas: readonly CommandArea[]): string {
     ...[...sections].map(([title, parts]) => [title, ...parts.map((p) => p.lines)].join('\n')),
     'Every command takes --json. Docs: docs/ONBOARDING.md, docs/DESIGN.md.',
   ].join('\n\n');
+}
+
+/** The longest message a failure prints. One that echoes junk back, such as a 100 KB id, stops here (GH-106). */
+export const MESSAGE_MAX = 300;
+
+/** A failure's message, cut to MESSAGE_MAX characters with an ellipsis. */
+export function failureLine(message: string): string {
+  const m = message.trim();
+  return m.length > MESSAGE_MAX ? `${m.slice(0, MESSAGE_MAX - 1)}…` : m;
 }
 
 const OPTIONS = optionsOf(AREAS);
@@ -76,16 +101,28 @@ const isEntry = (() => {
     return false;
   }
 })();
+/**
+ * Exits once what acc printed has reached the reader. A pipe takes writes in turn, so process.exit right after
+ * a long --json answer cut it short at 8 KB (GH-106): this waits for both streams to drain first.
+ */
+function exitAfterOutput(code: number): void {
+  let open = 2;
+  const drained = () => { if (--open === 0) process.exit(code); };
+  process.stdout.write('', drained);
+  process.stderr.write('', drained);
+}
+
 if (isEntry) {
   main(process.argv.slice(2)).then(
-    (code) => process.exit(code),
+    (code) => exitAfterOutput(code),
     (e: unknown) => {
       const err = e as Error & { code?: string };
+      const message = failureLine(String(err?.message ?? e));
       const json = process.argv.includes('--json');
-      if (json) process.stdout.write(JSON.stringify({ error: err.code ?? 'error', message: err.message }) + '\n');
-      else process.stderr.write(tone(`✗ ${err.message}`, 'orange') + '\n');
-      const usage = err.code === 'usage' || String(err.code ?? '').startsWith('ERR_PARSE_ARGS');
-      process.exit(usage ? 2 : err instanceof AccError ? 1 : 3);
+      if (json) process.stdout.write(JSON.stringify({ error: err?.code ?? 'error', message }) + '\n');
+      else process.stderr.write(tone(`✗ ${message}`, 'orange') + '\n');
+      const usage = err?.code === 'usage' || String(err?.code ?? '').startsWith('ERR_PARSE_ARGS');
+      exitAfterOutput(usage ? 2 : err instanceof AccError ? 1 : 3);
     },
   );
 }

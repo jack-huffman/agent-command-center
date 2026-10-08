@@ -1,7 +1,7 @@
 // What every group of acc's commands uses: the version, how a command prints, the project it runs in,
 // who is asking, and how acc starts itself again.
 
-import { realpathSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { ParseArgsOptionsConfig } from 'node:util';
 import { AccError, type Actor, ACTORS, type AutopilotStepName, loadConfig, repoPaths, run, withCloneAccount, withCloneAgents } from '../../core/src/index.ts';
@@ -33,8 +33,34 @@ export interface CommandArea {
   /** The options its commands read. Two groups may both declare one, the same way. */
   options?: ParseArgsOptionsConfig;
   commands: Record<string, Command>;
+  /**
+   * For a command that takes a word before its arguments (acc gate run, acc update post), each word it
+   * takes. The junk test (GH-106) calls every one, and fails on a word a command compares to that isn't here.
+   */
+  subcommands?: Record<string, readonly string[]>;
   /** For a command whose arguments need changing before they're parsed, how. */
   argv?: Record<string, (argv: string[]) => string[]>;
+}
+
+const READ_ERRORS: Record<string, string> = {
+  ENOENT: 'there\'s no such file',
+  EISDIR: 'it\'s a folder',
+  EACCES: 'it isn\'t readable',
+  ENAMETOOLONG: 'the name is too long',
+  ENOTDIR: 'part of the path isn\'t a folder',
+};
+
+/** A file a person named, as text. One that can't be read is a usage error in words, never a raw ENOENT (GH-106). */
+export function readFileArg(file: string | 0): string {
+  try {
+    return readFileSync(file, 'utf8');
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code ?? '';
+    const why = READ_ERRORS[code] ?? (e as Error).message;
+    // A long name is shortened, so the reason survives main.ts cutting the message short.
+    const name = file === 0 ? 'stdin' : file.length > 120 ? `${file.slice(0, 119)}…` : file;
+    throw new AccError('usage', `Can't read ${name}: ${why}.`);
+  }
 }
 
 export function out(o: Opts, human: () => string, data: unknown): void {

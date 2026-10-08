@@ -231,6 +231,7 @@ export const area: CommandArea = {
     force: { type: 'boolean', default: false },
     push: { type: 'boolean', default: false },
   },
+  subcommands: { template: ['show'], setup: ['baseline', 'branches', 'lists', 'readme'] },
   commands: {
     doctor: (o) => cmdDoctor(o, false),
     onboard: (o) => cmdDoctor(o, true),

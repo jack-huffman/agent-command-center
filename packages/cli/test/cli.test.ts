@@ -988,3 +988,72 @@ test('acc agents set --project is a switch, as the Command Center sends it last,
   assert.equal(JSON.parse(readFileSync(join(dir, '.acc', 'config.json'), 'utf8')).agents.builder.model, 'claude-opus-5-5');
   assert.match(r.out, /Set in \.acc\/config\.json/);
 });
+
+// Regressions the junk test found (GH-106): one test a cause, each naming the commands it covers.
+
+/** A refusal in one line on stderr, with no stack: what every junk call must get. */
+const oneLine = (r: { code: number; err: string }, code: number): string => {
+  assert.equal(r.code, code, r.err);
+  const lines = r.err.split('\n').filter((l) => l.trim());
+  assert.equal(lines.length, 1, r.err);
+  assert.doesNotMatch(r.err, /^\s+at /m);
+  return lines[0]!;
+};
+
+test('a file that can\'t be read is a usage error in words, not a raw ENOENT: acc import --file, acc intake jira|azure|monday --file, acc update post --text-file (GH-106)', () => {
+  const dir = repoWithConfig();
+  const folder = tempDir('acc-folder-');
+  assert.match(oneLine(acc(dir, ['import', '--file', join(folder, 'missing.json')]), 2), /^✗ Can't read .*missing\.json: there's no such file\.$/);
+  assert.match(oneLine(acc(dir, ['import', '--file', folder]), 2), /: it's a folder\.$/);
+  assert.match(oneLine(acc(dir, ['import', '--file', 'x'.repeat(5000)]), 2), /: the name is too long\.$/);
+  for (const kind of ['jira', 'azure', 'monday']) assert.match(oneLine(acc(dir, ['intake', kind, '--file', join(folder, 'nope.json')]), 2), /there's no such file/, kind);
+  const json = acc(dir, ['import', '--file', folder, '--json']);
+  assert.equal(json.code, 2);
+  assert.deepEqual(json.json(), { error: 'usage', message: `Can't read ${folder}: it's a folder.` });
+});
+
+test('a folder named as a team template or rules file is refused in one line: acc template show, acc init --from, acc rules import (GH-106)', () => {
+  const dir = repoWithConfig();
+  const folder = tempDir('acc-folder-');
+  assert.match(oneLine(acc(dir, ['template', 'show', folder]), 1), /isn't a file, so it can't be a team template\./);
+  assert.match(oneLine(acc(makeRepo(), ['init', '--from', folder]), 1), /isn't a file/);
+  assert.match(oneLine(acc(dir, ['rules', 'import', folder]), 1), /isn't a file/);
+});
+
+test('an id that climbs out of the repo reaches no file: acc analysis, acc analysis answer (GH-106)', () => {
+  const dir = repoWithConfig();
+  // What "../../../../OUTSIDE/X" reaches from .git/acc/analyses: a folder beside the repo, with an analysis that names it.
+  const outside = join(dir, '..', 'OUTSIDE');
+  mkdirSync(outside, { recursive: true });
+  const id = '../../../../OUTSIDE/X';
+  const bait = JSON.stringify({ v: 1, task: id, verdict: 'questions', questions: [{ id: 'q1', text: 'Bait?', options: [] }] });
+  writeFileSync(join(outside, 'X.json'), bait);
+  assert.match(oneLine(acc(dir, ['analysis', 'answer', id, 'q1', 'hi']), 1), /hasn't been analyzed yet/);
+  assert.equal(readFileSync(join(outside, 'X.json'), 'utf8'), bait, 'the file outside is unchanged');
+  assert.match(oneLine(acc(dir, ['analysis', id]), 1), /hasn't been analyzed yet/, 'nor read');
+  rmSync(outside, { recursive: true, force: true });
+});
+
+test('a failure that echoes a long argument is cut to 300 characters: acc show, dispatch, review and every other id (GH-106)', () => {
+  const dir = repoWithConfig();
+  const long = 'x'.repeat(100_000);
+  for (const args of [['show', long], ['dispatch', long], ['review', long]]) {
+    const line = oneLine(acc(dir, args), 1);
+    assert.ok(line.length <= 302, `acc ${args[0]}: ${line.length} characters`);
+    assert.ok(line.endsWith('…'), line.slice(-20));
+  }
+  assert.equal((acc(dir, ['show', long, '--json']).json() as { message: string }).message.length, 300);
+});
+
+test('long output reaches a pipe whole before acc exits: acc doctor --json, acc onboard --json (GH-106)', () => {
+  const dir = repoWithConfig();
+  for (const cmd of ['doctor', 'onboard']) {
+    const r = acc(dir, [cmd, '--json']);
+    assert.ok(r.out.length > 8192, `${cmd} printed ${r.out.length} characters, more than a pipe takes at once`);
+    assert.ok(Array.isArray(r.json()), `${cmd}'s JSON is whole`);
+  }
+});
+
+test('acc drift refuses a project with no orgs in one line, before saying it retrieves anything (GH-106)', () => {
+  assert.match(oneLine(acc(repoWithConfig(), ['drift', 'main']), 2), /This project has no orgs\./);
+});
