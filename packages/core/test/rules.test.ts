@@ -145,8 +145,8 @@ test('a template\'s rules are a URL or a path from / or ~/: a relative path mean
 
 test('docs/RULES.md\'s ACME sample copies in, and its header is the one acc writes', () => {
   const md = readFileSync(join(import.meta.dirname, '..', '..', '..', 'docs', 'RULES.md'), 'utf8');
-  const [sample, copy] = [...md.matchAll(/```markdown\n([\s\S]*?)```/g)].map((m) => m[1]!);
-  assert.ok(sample?.startsWith('# ACME Salesforce rules') && copy, 'docs/RULES.md has the sample, then its copy');
+  const [sample = '', copy = ''] = [...md.matchAll(/```markdown\n([\s\S]*?)```/g)].map((m) => m[1]!);
+  assert.ok(sample.startsWith('# ACME Salesforce rules') && copy, 'docs/RULES.md has the sample, then its copy');
   const repo = makeRepo();
   const r = importRules(run, repo, teamFile(sample, 'salesforce.md'), { now });
   const written = readFileSync(join(repo, r.file), 'utf8');
