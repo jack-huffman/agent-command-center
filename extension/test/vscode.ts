@@ -4,12 +4,6 @@
 // stand-in reads as one, never as a bug in the extension.
 import Module, { createRequire } from 'node:module';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-/** The built extension, which these tests load. Run after npm run build. */
-export const dist = fileURLToPath(new URL('../dist/extension.js', import.meta.url));
-/** The extension's folder, as VSCode gives it: its package.json, media/ and dist/. */
-export const extDir = join(dist, '..', '..');
 
 const disposable = { dispose() {} };
 const event = () => () => disposable;
@@ -153,7 +147,8 @@ export function fakeVscode(folder: string) {
     },
     // No other extension is installed, and no account is signed in.
     extensions: { getExtension: () => undefined },
-    authentication: { getSession: async () => undefined },
+    // Asked to sign in, the person closes it, which VSCode reports by rejecting; asked quietly, there's none.
+    authentication: { getSession: async (_p: string, _s: string[], o?: { createIfNone?: boolean }) => { if (o?.createIfNone) throw new Error('User did not consent to login.'); return undefined; } },
     env: { uriScheme: 'vscode', openExternal: async (u: { toString(): string }) => { calls.opened.push(String(u)); return true; }, clipboard: { writeText: async () => {}, readText: async () => '' } },
   };
   return { api: strict(api), calls, status, trees, panels, autopilot, settings };
@@ -173,10 +168,12 @@ export async function until(fn: () => boolean, ms = 20_000): Promise<void> {
 }
 
 /**
- * Loads the built extension against the fake, and activates it on a context like VSCode's. stop() disposes
- * what it started, so its polls end, and gives require('vscode') back.
+ * Loads the built extension (its dist/extension.js, which each test names, so acc counts it near the
+ * extension's modules) against the fake, and activates it on a context like VSCode's. stop() disposes what it
+ * started, so its polls end, and gives require('vscode') back.
  */
-export function activate(fake: ReturnType<typeof fakeVscode>, globalState: Record<string, unknown> = {}) {
+export function activate(dist: string, fake: ReturnType<typeof fakeVscode>, globalState: Record<string, unknown> = {}) {
+  const extDir = join(dist, '..', '..');
   const load = (Module as unknown as { _load: (r: string, ...a: unknown[]) => unknown })._load;
   (Module as unknown as { _load: unknown })._load = function (request: string, ...rest: unknown[]) {
     return request === 'vscode' ? fake.api : load.call(this, request, ...rest);

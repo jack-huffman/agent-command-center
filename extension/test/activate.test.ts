@@ -6,9 +6,14 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { COMMANDS } from '../src/logic/setup.ts';
 import { makeRepo } from '../../packages/core/test/support.ts';
-import { activate, extDir, fakeVscode, until } from './vscode.ts';
+import { activate, fakeVscode, until } from './vscode.ts';
+
+const dist = fileURLToPath(new URL('../dist/extension.js', import.meta.url));
+/** The extension's folder, as VSCode gives it: its package.json, media/ and dist/. */
+const extDir = join(dist, '..', '..');
 
 // The extension says it's listening for agents' questions (D-030); keep that out of the real ~/.acc.
 process.env.ACC_QUESTIONS_DIR = mkdtempSync(join(tmpdir(), 'acc-questions-'));
@@ -31,7 +36,7 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
   const fake = fakeVscode(repo);
   const { calls, status, trees, panels, autopilot, settings } = fake;
   // Fresh machine results for this folder's profile, so the test doesn't call slow machine CLIs.
-  const started = activate(fake, { 'acc.welcomed': true, 'acc.machineItems': { at: Date.now(), profile: 'generic', items: [{ id: 'A1.git', part: 'machine', title: 'git', status: 'pass', detail: 'git 2.54.0' }] } });
+  const started = activate(dist, fake, { 'acc.welcomed': true, 'acc.machineItems': { at: Date.now(), profile: 'generic', items: [{ id: 'A1.git', part: 'machine', title: 'git', status: 'pass', detail: 'git 2.54.0' }] } });
   const { ctx, prepends } = started;
   try {
     for (const c of Object.values(COMMANDS)) assert.ok(calls.commands.has(c), `${c} registered`);
