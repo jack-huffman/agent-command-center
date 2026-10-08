@@ -134,15 +134,6 @@ test('the palettes are theme.css\'s alone: !important on <html>, each with its c
   assert.ok(keyed >= 4, `${keyed} selectors key on VSCode's theme: the mark's`);
 });
 
-test('no colour is written into the page\'s styles outside theme.css, but for masks and a fallback (GH-109)', () => {
-  const literal = /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\(/g;
-  const found = Object.fromEntries(styleFiles().filter((f) => f !== 'theme.css').map((f) => [f, (styleFile(f).replace(/\/\*[\s\S]*?\*\//g, '').match(literal) ?? []).length]).filter(([, n]) => n));
-  // The board's and a clamped reason's fade are masks, which use only alpha, so they're the same in every
-  // theme. --line's fallback is for a VSCode theme that sets neither border colour; Light and Dark set both.
-  assert.deepEqual(found, { 'boards.css': 8, 'task-page.css': 4, 'styles.css': 1 });
-  assert.equal((styleFile('theme.css').replace(/\/\*[\s\S]*?\*\//g, '').match(literal) ?? []).length, 112, 'and theme.css holds every colour of both palettes');
-});
-
 test('a shot forces its theme under VSCode\'s other one, with VSCode\'s own stylesheet first (GH-109)', () => {
   const page = pageFor('settings', 'light', sampleModel('settings', Date.now(), 'light'));
   assert.match(page, /<html lang="en" data-theme="light" style="[^"]*--vscode-editor-background: #1f1f1f;/, 'Dark\'s colours injected, as VSCode would');

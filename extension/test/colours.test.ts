@@ -1,0 +1,134 @@
+// Colours come from the theme (GH-105): the page's styles and code name no colour of their own. Every
+// colour is a --vscode-* variable, which VSCode's theme sets, or Light's and Dark's palettes in theme.css
+// (GH-109), or one of the page's tokens built from them. A colour written anywhere else is one the
+// theme can't change, and the author, who is colourblind, can't count on.
+import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import test from 'node:test';
+import { styleFile, styleFiles } from '../scripts/styles.ts';
+import { root } from './support.ts';
+
+const WEBVIEW = join(root, 'webview');
+
+/** Every colour CSS names. transparent, currentColor and the like aren't here: they name no colour of their own. */
+export const NAMED_COLOURS = new Set(`aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet brown burlywood
+cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue darkcyan darkgoldenrod darkgray darkgreen darkgrey
+darkkhaki darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen darkslateblue darkslategray darkslategrey
+darkturquoise darkviolet deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite forestgreen fuchsia gainsboro ghostwhite
+gold goldenrod gray green greenyellow grey honeydew hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon
+lightblue lightcoral lightcyan lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen lightskyblue
+lightslategray lightslategrey lightsteelblue lightyellow lime limegreen linen magenta maroon mediumaquamarine mediumblue mediumorchid
+mediumpurple mediumseagreen mediumslateblue mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream mistyrose moccasin
+navajowhite navy oldlace olive olivedrab orange orangered orchid palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff
+peru pink plum powderblue purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell sienna silver skyblue
+slateblue slategray slategrey snow springgreen steelblue tan teal thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen`.split(/\s+/));
+
+/** A colour written as a hex, or as rgb() or hsl(). */
+const LITERAL = /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?)\(/gi;
+
+export interface ColourHit { file: string; line: number; property: string; text: string }
+
+/**
+ * The colours a stylesheet writes, in its declarations' values only, so white-space or .tone-orange aren't
+ * colours. A var() name, such as --vscode-charts-orange, isn't one either.
+ */
+export function cssColours(file: string, css: string): ColourHit[] {
+  // Comments out, their lines kept, so each hit keeps its line.
+  const text = css.replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ' '));
+  const hits: ColourHit[] = [];
+  for (const block of text.matchAll(/\{([^{}]*)\}/g)) {
+    const body = block[1]!;
+    const at = block.index! + 1;
+    for (const d of body.matchAll(/([\w-]+)\s*:\s*([^;]+)/g)) {
+      const value = d[2]!.replace(/var\(\s*--[\w-]+/g, 'var(').replace(/--[\w-]+/g, '');
+      const named = value.match(/[a-z]+/gi)?.filter((w) => NAMED_COLOURS.has(w.toLowerCase())) ?? [];
+      for (const c of [...(value.match(LITERAL) ?? []), ...named]) {
+        hits.push({ file, line: text.slice(0, at + d.index!).split('\n').length, property: d[1]!, text: c });
+      }
+    }
+  }
+  return hits;
+}
+
+/** The string and template literals in a module, comments skipped, each with its line. */
+export function literals(ts: string): { line: number; text: string }[] {
+  const out: { line: number; text: string }[] = [];
+  let i = 0;
+  const lineAt = (at: number) => ts.slice(0, at).split('\n').length;
+  while (i < ts.length) {
+    if (ts.startsWith('//', i)) { i = ts.indexOf('\n', i); if (i < 0) break; continue; }
+    if (ts.startsWith('/*', i)) { i = ts.indexOf('*/', i) + 2; if (i < 2) break; continue; }
+    const q = ts[i]!;
+    if (q === '\'' || q === '"' || q === '`') {
+      let j = i + 1;
+      while (j < ts.length && ts[j] !== q) j += ts[j] === '\\' ? 2 : 1;
+      out.push({ line: lineAt(i), text: ts.slice(i + 1, j) });
+      i = j + 1;
+      continue;
+    }
+    i++;
+  }
+  return out;
+}
+
+/**
+ * The colours a module of the page writes: a hex, rgb() or hsl() in any string, or a named colour or a hex
+ * built from data put into a colour property of an element's style. A word like "orange" elsewhere, as in
+ * tone-orange, is a name, and a # elsewhere, as in a task's key, isn't a colour.
+ */
+export function codeColours(file: string, ts: string): ColourHit[] {
+  const hits: ColourHit[] = [];
+  for (const l of literals(ts)) for (const c of l.text.match(LITERAL) ?? []) hits.push({ file, line: l.line, property: 'a string', text: c });
+  for (const m of ts.matchAll(/\.style\.(\w*(?:[cC]olor|[bB]ackground|[bB]order|[fF]ill|[sS]troke|[sS]hadow)\w*)\s*=\s*(['"`])([^'"`]*)\2/g)) {
+    const line = ts.slice(0, m.index).split('\n').length;
+    for (const w of m[3]!.match(/#\$\{|[a-z]+/gi) ?? []) if (w === '#${' || NAMED_COLOURS.has(w.toLowerCase())) hits.push({ file, line, property: m[1]!, text: w });
+  }
+  return hits;
+}
+
+/**
+ * The colours the page may write, each with why. The test fails on one that matches nothing, so the list
+ * only shrinks.
+ */
+export const COLOUR_EXCEPTIONS: { name: string; matches: (h: ColourHit) => boolean; reason: string }[] = [
+  {
+    name: 'mask alpha', matches: (h) => /mask-image$/.test(h.property),
+    reason: 'A mask uses only its colours\' alpha, to fade an edge: black or any colour is the same in every theme.',
+  },
+  {
+    name: 'a tracker label\'s colour', matches: (h) => h.file === 'dom.ts' && h.text === '#${',
+    reason: 'The dot beside a tracker\'s label is the colour the tracker gave it: its data, not the page\'s palette. The label\'s name always shows beside it.',
+  },
+];
+
+/** Every colour the page's styles and modules write, but theme.css's palettes, which are the theme. */
+export function pageColours(dir = WEBVIEW): ColourHit[] {
+  const css = styleFiles(dir).filter((f) => f !== 'theme.css').flatMap((f) => cssColours(f, styleFile(f, dir)));
+  const ts = readdirSync(dir).filter((f) => f.endsWith('.ts')).sort().flatMap((f) => codeColours(f, readFileSync(join(dir, f), 'utf8')));
+  return [...css, ...ts];
+}
+
+const where = (h: ColourHit) => `${h.file}:${h.line}: ${h.property} ${h.text}`;
+
+test('the page\'s styles and code write no colour of their own: each comes from the theme, or is an exception with why (GH-105)', (t) => {
+  const hits = pageColours();
+  const unexcused = hits.filter((h) => !COLOUR_EXCEPTIONS.some((e) => e.matches(h)));
+  assert.deepEqual(unexcused.map(where), [], 'a colour written outside the theme: use a --vscode-* variable or --orange, --blue, --line or --card');
+  for (const e of COLOUR_EXCEPTIONS) assert.ok(hits.some((h) => e.matches(h)), `the exception for ${e.name} matches nothing: take it off the list`);
+  const css = styleFiles().filter((f) => f !== 'theme.css').length;
+  t.diagnostic(`scanned ${css} stylesheets and ${readdirSync(WEBVIEW).filter((f) => f.endsWith('.ts')).length} modules: ${hits.length} colours, each an exception`);
+  assert.ok(css >= 15, `scanned ${css} stylesheets`);
+});
+
+test('the scan finds a hex, rgb(), hsl() and a named colour, with file and line, and passes names that aren\'t colours (GH-105)', () => {
+  const css = '.a { color: #f00; }\n/* #123 in a comment */\n.b { background: rgb(1, 2, 3); border-color: hsl(0 50% 50%); }\n.c { outline: 1px solid red; white-space: nowrap; }\n.tone-orange { color: var(--vscode-charts-orange, transparent); }\n@media (max-width: 820px) { .d { fill: currentColor; } }\n';
+  assert.deepEqual(cssColours('x.css', css).map(where), ['x.css:1: color #f00', 'x.css:3: background rgb(', 'x.css:3: border-color hsl(', 'x.css:4: outline red']);
+  const ts = 'const a = \'tone-orange\'; // #fff in a comment\nel.style.background = `#${c}`; const k = `${p}#${key}`;\nel.style.color = \'red\';\nconst b = "rgba(0, 0, 0, 0.5)";\n/* hsl( */\nconst c = \'issue #12\';\n';
+  assert.deepEqual(codeColours('x.ts', ts).map(where), ['x.ts:4: a string rgba(', 'x.ts:2: background #${', 'x.ts:3: color red']);
+});
+
+test('theme.css holds every colour of both palettes, and nothing else does (GH-109, GH-105)', () => {
+  const literal = /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\(/g;
+  assert.equal((styleFile('theme.css').replace(/\/\*[\s\S]*?\*\//g, '').match(literal) ?? []).length, 110);
+});
