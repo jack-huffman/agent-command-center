@@ -515,6 +515,11 @@ export interface GateRunDeps {
   /** Told before each gate starts, and when a heavy gate has to wait for the machine's slot. */
   onStart?: (gate: Gate) => void;
   onWait?: (gate: Gate) => void;
+  /**
+   * The branch's head, when this commit merges its base into it: a person's waiver of a gate there clears
+   * a hold here, counts or not, so the queue's next merge of a waived head doesn't stop again (GH-100).
+   */
+  waivedOn?: string;
 }
 
 export interface GateRun {
@@ -646,11 +651,16 @@ export function runGates(paths: RepoPaths, config: Config, env: Environment, nam
       outcome = settle(outcome, { tests: plan.tests ?? isTestGate(config, gate.name), compared, earlier, env: env.branch });
     }
     const finished = deps.now();
+    // A person waived this gate on the head this merges its base into: a hold is theirs to clear, and they did.
+    const waiver = outcome.status === 'hold' && deps.waivedOn && deps.waivedOn !== sha ? readReceipt(paths, deps.waivedOn, gate.name)?.waived : undefined;
+    const held = outcome.summary;
+    if (waiver) outcome = { ...outcome, status: 'skip', summary: `Waived by ${waiver.by.replace(/^human:/, '')} on ${deps.waivedOn!.slice(0, 7)}, the branch's head: ${waiver.reason}` };
     const receipt: Receipt = {
       gate: gate.name, sha, env: env.branch, status: outcome.status,
       startedAt: started.toISOString(), finishedAt: finished.toISOString(), durationMs: finished.getTime() - started.getTime(),
       summary: outcome.summary, command, log, ...(outcome.details ? { details: outcome.details } : {}),
       ...(outcome.counts ? { counts: outcome.counts } : {}), ...(outcome.countsNote ? { countsNote: outcome.countsNote } : {}),
+      ...(waiver ? { waived: { ...waiver, was: 'hold' as const, wasSummary: held } } : {}),
     };
     if (!dirty) writeReceipt(paths, receipt);
     results.push({ ...outcome, gate: gate.name, recorded: !dirty, receipt });

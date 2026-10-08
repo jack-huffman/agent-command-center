@@ -260,7 +260,7 @@ export function checkCommit(paths: RepoPaths, config: Config, place: MergePlace,
   let failed: GateResult[] = [];
   try {
     if (gates.length) {
-      const ran = runGates(repoPaths(wt, run), config, env, gates, priorTests(paths, config, from), { run, now: deps.now, slots: deps.slots, task: place.id, onWait: deps.onWait, onStart: deps.onStart });
+      const ran = runGates(repoPaths(wt, run), config, env, gates, priorTests(paths, config, from), { run, now: deps.now, slots: deps.slots, task: place.id, onWait: deps.onWait, onStart: deps.onStart, waivedOn: from });
       failed = ran.results.filter((r) => !r.recorded || !satisfies(r.receipt));
     }
   } catch (e) {

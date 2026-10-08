@@ -618,7 +618,16 @@ nothing. Where the runner names its skipped tests, the receipt keeps the names.
 - **Only a person clears a hold.** A fail or an error keeps its own status,
   with its counts. `acc gate run` tells a builder to add the tests or un-skip
   them, or to `acc block "<why>"` if the task asks for the skip. The merge
-  queue stops for a person rather than sending the task back. The ticket page,
+  queue stops for a person rather than sending the task back, and asks them to
+  waive it on the branch's head.
+- **A person's waiver on the head clears a hold on the merge of that head,**
+  counts or not. When the branch is behind, the queue checks a merge commit of
+  its own, made again on each pass, and a builder never runs the full check on
+  the head, so a waiver there usually has no counts to compare with. A hold on
+  a merge of the base into a head where a person waived that gate is recorded
+  as waived: a skip, by them, with their reason, naming the head, and keeping
+  the counts the merge ran and the hold it was. A fail or an error on the merge
+  isn't cleared that way: a waiver holds for its own commit (D-031). The ticket page,
   `acc gate run` and `acc gate list`, the pull request's check table (§11) and
   the reviewer's list of checks (§10) all show the counts: "312 run, 2
   skipped", with failed and todo only when there are some.

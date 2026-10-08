@@ -477,6 +477,55 @@ test('a full check that ran no tests stops the queue for a person: nothing is se
   assert.deepEqual([brief(next.steps), merges(after).length, checksRun(after)], [[['T-1', 'merge', 'done']], 1, []]);
 });
 
+/** node:test's spec summary as the full check prints it, each skipped test's line before it. */
+const specSummary = (pass: number, skipped: string[] = []) => ok([
+  ...skipped.map((n) => `﹣ ${n} (0.1ms) # SKIP`),
+  `ℹ tests ${pass + skipped.length}`, 'ℹ suites 0', `ℹ pass ${pass}`, 'ℹ fail 0', 'ℹ cancelled 0', `ℹ skipped ${skipped.length}`, 'ℹ todo 0', 'ℹ duration_ms 3',
+].join('\n'));
+
+for (const held of ['ran none', 'more skipped'] as const) {
+  test(`a branch behind its base whose full check ${held === 'ran none' ? 'ran no tests' : 'skipped more than main\'s count'} on the queue's merge: it stops for a person, and their waiver on the head, with no counts there, clears it on the next merge rather than stopping again (GH-100)`, () => {
+    const s = setup();
+    const base = gitIn(s.dir, 'rev-parse', 'main');
+    if (held === 'more skipped') {
+      const counts = { run: 5, passed: 5, failed: 0, skipped: 1, todo: 0, skippedNames: ['old one'], runner: 'node:test' as const };
+      writeReceipt(s.paths, { gate: 'test', sha: base, env: 'main', status: 'pass', startedAt: NOW, finishedAt: NOW, durationMs: 1, summary: 'Passed.', command: 'sh -c \'npm test\'', log: null, counts });
+    }
+    const sha = s.task('T-1', { 'one.js': '1\n' });
+    s.onMain({ 'README.md': '# test, updated\n' });
+    const check = held === 'ran none' ? specSummary(0) : specSummary(5, ['old one', 'flaky sync']);
+    const said = held === 'ran none' ? 'Ran no tests, so it can\'t vouch for the change' : `2 skipped, up from 1 on ${base.slice(0, 7)}: flaky sync newly skipped`;
+
+    const calls: string[] = [];
+    const r = autopilotPass(s.paths, s.config, deps(s, calls, { check }));
+    assert.deepEqual(brief(r.steps), [['T-1', 'queue', 'failed']]);
+    assert.equal(r.steps[0]!.reason, `The full check with main merged in needs a person: test: ${said}. A person decides: waive it on ${sha.slice(0, 7)}, with a reason, or ask its builder for changes.`);
+    assert.deepEqual([head(s, 'T-1'), clean(s.wtOf('T-1')), pushes(calls), get(s, 'T-1').autopilot?.sentBack ?? null], [sha, true, [], null], 'put back, and nothing sent to its builder');
+
+    // A person waives the full check on the head, where it never ran: the waiver has no counts.
+    const [waiver] = waiveGates(s.paths, s.config, { sha, env: s.config.environments[0]!, gates: ['test'], reason: 'the skip is the task', by: 'human:jordan', now });
+    assert.deepEqual([waiver!.counts, waiver!.waived?.was], [undefined, null]);
+    mutate(s.paths, now, (l, emit) => {
+      const x = l.tasks.find((y) => y.id === 'T-1')!;
+      x.autopilot = { ...x.autopilot!, failed: null };
+      emit({ type: 'task.updated', task: 'T-1', actor: 'human', by: 'human:jordan', data: {} });
+    });
+
+    // The next pass merges main in again, as a new commit: the same hold, cleared by that waiver, and landed.
+    clock += 60_000;
+    const after: string[] = [];
+    const next = autopilotPass(s.paths, s.config, deps(s, after, { check }));
+    assert.deepEqual([brief(next.steps), checksRun(after).length], [[['T-1', 'queue', 'done']], 1]);
+    const merged = head(s, 'T-1');
+    assert.notEqual(merged, sha);
+    const receipt = readReceipt(s.paths, merged, 'test')!;
+    assert.deepEqual(
+      [receipt.status, receipt.summary, receipt.waived?.by, receipt.waived?.was, receipt.waived?.wasSummary, receipt.counts?.skipped],
+      ['skip', `Waived by jordan on ${sha.slice(0, 7)}, the branch's head: the skip is the task`, 'human:jordan', 'hold', `${said}.`, held === 'ran none' ? 0 : 2],
+    );
+  });
+}
+
 test('what stops the queue for a person: a dirty worktree, a heavy-check slot that stays taken, GitHub blocking it, or gh failing to merge; the next task is the head on the next pass (GH-73)', () => {
   // Its worktree has changes nobody committed.
   const dirty = setup();

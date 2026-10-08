@@ -4418,10 +4418,21 @@ line. It extends D-024 (what a receipt proves) and D-031 (waiving).
   first counted run of each gate is its baseline. A repo that squashes or
   rebases loses the ancestry, and always has nothing to compare with.
 - **A person's waiver is a count they accepted.** The waived receipt keeps
-  its counts and the command they came from, and a waiver on the branch's own
-  commits is looked for first. Without that, when a branch is behind, the
-  merge queue checks a new merge commit, which has no waiver, compares it with
-  the base's count, and stops again on every pass.
+  its counts and the command they came from, and a waiver with counts on the
+  branch's own commits is the first thing compared with.
+- **A person's waiver on the head clears a hold on the queue's merge of that
+  head, counts or not.** When a branch is behind, the merge queue checks a
+  merge commit it makes again on each pass, and asks a person to waive a hold
+  on the head. A builder never runs the full check there, so that waiver
+  usually has no counts, and comparing alone found nothing: the queue merged,
+  held and stopped again on every pass, for good. Now `checkCommit` tells
+  `runGates` the head it merged the base into, and a hold on that merge where a
+  person waived the gate on the head is written as their waiver: a skip, by
+  them, with their reason, naming the head, keeping the merge's counts and the
+  hold it was. It covers a zero-run hold as well as more skipped. Only a hold:
+  a fail or an error on the merge still needs a person, since a waiver holds for
+  its own commit (D-031) and a fail there is a new finding, not the one they
+  accepted. Refresh's merge (D-058) goes through the same `checkCommit`.
 - **Which checks are compared.** The person decided: only those whose test set
   doesn't depend on the change, "not one acc gives ACC_NEAR_TESTS, not
   lwc-tests, not validate", so that in this repo `check` is compared in the
@@ -4441,8 +4452,7 @@ line. It extends D-024 (what a receipt proves) and D-031 (waiving).
   check, and `acc gate run` and `acc gate list` print it. The ticket page's
   check look moved from the webview's ternaries, where an unknown status fell
   through to another's icon, into the model, where a test covers every status.
-- Not done here: a waiver doesn't carry a zero-run hold onto a merge commit
-  the queue makes (only a skipped count is compared); an empty ACC_NEAR_TESTS
+- Not done here: an empty ACC_NEAR_TESTS
   list is still a pass with no counts, not a skip; a gate whose output reports
   failed tests but exits 0 still passes; GitHub's own checks (D-076); and the
   release-only plugin bundle (D-042), which takes this at the next
