@@ -15,6 +15,7 @@ import { type AwakeDeps, holdAwake, keepAwakeFor } from './awake.ts';
 import { sessionName } from './names.ts';
 import { claimHeld, holdTask, releaseHeld, startingNow } from './holding.ts';
 import { builderSettings, renderPacket } from './packet.ts';
+import { rulesText } from './rules.ts';
 
 // ---------------------------------------------------------------- names and places (D-013)
 
@@ -309,7 +310,8 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
     const reused = ensureWorktree(run, main, wt, branch, env);
     setupWorktree(run, config, env, main, wt);
 
-    const rules = existsSync(join(wt, '.acc', 'rules.md')) ? readFileSync(join(wt, '.acc', 'rules.md'), 'utf8') : null;
+    // The worktree's own copies only (GH-108): a source elsewhere is never read here.
+    const rules = rulesText(wt, config.profile);
     const rework = found.state === 'rework';
     // Sent back for failing checks on GitHub (D-076), or from the merge queue (GH-73): what they found about
     // the branch's latest commit. Only then: a review's or a person's rework at the same commit has its own

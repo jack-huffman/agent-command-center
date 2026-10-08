@@ -262,6 +262,18 @@ template, without asking you anything.
 - **Result:**
 - **Fixed in / filed as:**
 
+### B0.rules: Copied-in rules are current
+
+Look for: whether **Import rules…** was there even with nothing copied in, and
+whether its preview made clear that you review `.acc/rules/<name>.md` and
+commit it yourself.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
 ### B2.identity: Commit identity
 
 - **Showed:**

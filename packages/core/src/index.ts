@@ -39,6 +39,7 @@ export * from './receipts.ts';
 export * from './refresh.ts';
 export * from './resume.ts';
 export * from './review.ts';
+export * from './rules.ts';
 export * from './runtime.ts';
 export * from './semaphore.ts';
 export * from './setup.ts';

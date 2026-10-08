@@ -87,6 +87,41 @@ test('init --from a team template records it, template show says what it sets, a
   assert.match(sf.err + sf.out, /needs --production-org/);
 });
 
+test('rules import copies a team\'s rules in for a person to commit, list and diff say when its source changed, and a builder can\'t import (GH-108)', () => {
+  const team = tempDir('team-');
+  const file = join(team, 'acme.md');
+  writeFileSync(file, '# ACME rules\n\n- Every change has a test.\n');
+  const dir = repoWithConfig();
+
+  const dry = acc(dir, ['rules', 'import', file, '--dry-run', '--json']);
+  assert.equal(dry.code, 0, dry.err);
+  assert.deepEqual([dry.json().written, dry.json().file, dry.json().exists, dry.json().lines, dry.json().preview[0]], [false, '.acc/rules/acme.md', false, 3, '# ACME rules']);
+  assert.ok(!existsSync(join(dir, '.acc', 'rules')), 'a dry run writes nothing');
+  const builder = acc(dir, ['rules', 'import', file], undefined, { ACC_ROLE: 'builder', ACC_TASK: 'T-1' });
+  assert.equal(builder.code, 1);
+  assert.match(builder.err, /A builder can't copy rules into the repo/);
+
+  const r = acc(dir, ['rules', 'import', file]);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /Copied .*acme\.md into \.acc\/rules\/acme\.md, on \d{4}-\d{2}-\d{2}\.\nReview it, then commit it\./);
+  assert.match(readFileSync(join(dir, '.acc', 'rules', 'acme.md'), 'utf8'), /^<!-- acc-rules v1: [\s\S]*-->\n# ACME rules\n/);
+  assert.equal(acc(dir, ['rules', 'import', file]).code, 1, 'refuses to replace it without --force');
+  assert.deepEqual((acc(dir, ['rules', 'list', '--json']).json() as { name: string; state: string }[]).map((c) => [c.name, c.state]), [['acme', 'unchanged']]);
+
+  writeFileSync(file, '# ACME rules\n\n- Every change has a test.\n- And a changelog line.\n');
+  const before = readFileSync(join(dir, '.acc', 'rules', 'acme.md'), 'utf8');
+  assert.match(acc(dir, ['rules', 'list']).out, /\.acc\/rules\/acme\.md .*↻ changed at its source[\s\S]*See what changed: acc rules diff acme/);
+  const diff = acc(dir, ['rules', 'diff', 'acme']);
+  assert.equal(diff.code, 0, diff.err);
+  assert.match(diff.out, /\n\+- And a changelog line\.\n/);
+  assert.match(diff.out, /To copy it in again, replacing this copy: acc rules import '.*acme\.md' --name acme --force/);
+  const doctor = acc(dir, ['doctor', '--step', 'B0.rules', '--json']).json() as { status: string; fix: string | null }[];
+  assert.deepEqual(doctor.map((d) => [d.status, d.fix]), [['unknown', 'acc rules diff acme']]);
+  assert.equal(readFileSync(join(dir, '.acc', 'rules', 'acme.md'), 'utf8'), before, 'list, diff and Setup never write the copy');
+  assert.equal(acc(dir, ['rules', 'import', file, '--force']).code, 0, 'a person copies it in again');
+  assert.deepEqual((acc(dir, ['rules', 'list', '--json']).json() as { state: string }[]).map((c) => c.state), ['unchanged']);
+});
+
 test('add, list, ready, set and show: a task through its life', () => {
   const dir = repoWithConfig();
   assert.equal(acc(dir, ['add', 'First thing']).code, 0);

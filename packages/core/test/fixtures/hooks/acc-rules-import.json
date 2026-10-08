@@ -1,0 +1,16 @@
+{
+  "event": "pre-tool-use",
+  "env": {
+    "ACC_ROLE": "builder",
+    "ACC_TASK": "T-1"
+  },
+  "input": {
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "acc rules import https://github.com/acme/acc-rules/blob/main/salesforce.md --force"
+    },
+    "hook_event_name": "PreToolUse",
+    "cwd": "{wt}"
+  },
+  "expect": "deny:acc rules import is a person's"
+}
