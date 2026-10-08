@@ -4,8 +4,9 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSy
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { DISPLAY, mutate, parseConfig, readLedger, repoPaths, run, transcriptDir, upsertTasks } from '../../core/src/index.ts';
+import { DISPLAY, DONE_COMMAND, mutate, parseConfig, readLedger, repoPaths, run, transcriptDir, upsertTasks } from '../../core/src/index.ts';
 import { GENERIC_CONFIG, gh41Lines, makeRepo, tempDir } from '../../core/test/support.ts';
+import { failureLine } from '../src/main.ts';
 
 const MAIN = fileURLToPath(new URL('../src/main.ts', import.meta.url));
 // A builder's `acc gate run` runs these tests with its own ACC_TASK set, holding the machine's heavy-check slot.
@@ -1034,15 +1035,19 @@ test('an id that climbs out of the repo reaches no file: acc analysis, acc analy
   rmSync(outside, { recursive: true, force: true });
 });
 
-test('a failure that echoes a long argument is cut to 300 characters: acc show, dispatch, review and every other id (GH-106)', () => {
+test('a failure that echoes a long argument cuts it to 200 characters, and keeps acc\'s own words: acc show, dispatch, review and every other id (GH-106)', () => {
   const dir = repoWithConfig();
   const long = 'x'.repeat(100_000);
   for (const args of [['show', long], ['dispatch', long], ['review', long]]) {
     const line = oneLine(acc(dir, args), 1);
-    assert.ok(line.length <= 302, `acc ${args[0]}: ${line.length} characters`);
-    assert.ok(line.endsWith('…'), line.slice(-20));
+    assert.ok(line.length <= 260, `acc ${args[0]}: ${line.length} characters`);
+    assert.match(line, /x{199}…/i, 'the echoed word ends with an ellipsis');
   }
-  assert.equal((acc(dir, ['show', long, '--json']).json() as { message: string }).message.length, 300);
+  assert.ok((acc(dir, ['show', long, '--json']).json() as { message: string }).message.length <= 260, 'and with --json');
+  // A refusal of acc's own that gives the command to run, as acc done's does at about 400 characters, is kept whole.
+  const own = `Run: ${DONE_COMMAND}. ${'Give a flag again for each further line. '.repeat(6)}`;
+  assert.equal(failureLine(own), own.trim());
+  assert.equal(failureLine('w '.repeat(2000)).length, 1000, 'with a backstop');
 });
 
 test('long output reaches a pipe whole before acc exits: acc doctor --json, acc onboard --json (GH-106)', () => {

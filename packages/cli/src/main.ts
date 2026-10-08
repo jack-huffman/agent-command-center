@@ -70,13 +70,19 @@ export function helpOf(areas: readonly CommandArea[]): string {
   ].join('\n\n');
 }
 
-/** The longest message a failure prints. One that echoes junk back, such as a 100 KB id, stops here (GH-106). */
-export const MESSAGE_MAX = 300;
+/**
+ * How much of a failure's message prints (GH-106). A message that echoes junk back, such as a 100 KB id, has
+ * that word cut to WORD_MAX characters; acc's own refusals, which can run past 300 characters to give the
+ * exact command to run, are kept whole up to MESSAGE_MAX.
+ */
+export const WORD_MAX = 200;
+export const MESSAGE_MAX = 1000;
 
-/** A failure's message, cut to MESSAGE_MAX characters with an ellipsis. */
+const cut = (s: string, max: number): string => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
+
+/** A failure's message, each over-long word and then the whole cut short with an ellipsis. */
 export function failureLine(message: string): string {
-  const m = message.trim();
-  return m.length > MESSAGE_MAX ? `${m.slice(0, MESSAGE_MAX - 1)}…` : m;
+  return cut(message.trim().replace(/\S{201,}/g, (w) => cut(w, WORD_MAX)), MESSAGE_MAX);
 }
 
 const OPTIONS = optionsOf(AREAS);

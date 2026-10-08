@@ -4302,9 +4302,12 @@ junk tests read the registries and run in `npm run check`, never skipped.
   in arguments; the extension's in-process calls get the full 1 MB.
 - **What passes.** For acc, exit 0, 1 or 2 within 20 seconds; exit 3 fails (a
   person decided), as it means an error acc didn't expect, such as a raw
-  ENOENT. A failure prints one line, with no stack, no longer than 400
-  characters: main.ts cuts a message to 300 and ends it with an ellipsis, in
-  both human and `--json` output (a person decided). For the extension, each
+  ENOENT. A failure prints one line, with no stack. A person decided main.ts
+  cuts a message to 300 characters, in both human and `--json` output. Built,
+  that cut `acc done`'s own refusal, about 400 characters, before the exact
+  command a builder must run (D-106's test caught it). So main.ts cuts each
+  word over 200 characters, which is where echoed junk lands, with an
+  ellipsis, and the whole message only past 1,000. For the extension, each
   call settles within 10 seconds without throwing, with no unhandled
   rejection.
 - **The sandbox.** Every acc call gets a fresh copy of the repo, so one that

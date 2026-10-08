@@ -15,7 +15,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import type { ParseArgsOptionsConfig } from 'node:util';
 import { AREAS } from '../src/commands/index.ts';
-import { commandsOf, entryPointsOf } from '../src/main.ts';
+import { commandsOf, entryPointsOf, MESSAGE_MAX } from '../src/main.ts';
 import type { CommandArea } from '../src/shared.ts';
 import { changes, GENERIC_CONFIG, makeRepo, snapshot, tempDir } from '../../core/test/support.ts';
 
@@ -24,8 +24,8 @@ const COMMANDS_DIR = fileURLToPath(new URL('../src/commands/', import.meta.url))
 /** How long one call may take, and how many run at once. */
 const LIMIT_MS = 20_000;
 const AT_ONCE = 3;
-/** The longest line a failure may print: main.ts cuts its message to 300 characters. */
-const LONGEST_LINE = 400;
+/** The longest line a failure may print: main.ts cuts its message, with its mark in front. */
+const LONGEST_LINE = MESSAGE_MAX + 2;
 const MB = 1024 * 1024;
 const LONG_ARG = 'x'.repeat(100 * 1024);
 
@@ -229,9 +229,9 @@ test('the verdict fails each way a call can go wrong, and passes a plain refusal
   fails({ code: null, signal: 'SIGSEGV' }, /killed by SIGSEGV/);
   fails({ stderr: '✗ one\n✗ two\n' }, /2 lines/);
   fails({ code: 0, stderr: 'TypeError: x\n    at f (main.ts:1:1)\n' }, /stack trace/);
-  fails({ stderr: `✗ No task ${'x'.repeat(500)}\n` }, /over 400 characters/);
+  fails({ stderr: `✗ No task ${'x'.repeat(LONGEST_LINE)}\n` }, new RegExp(`over ${LONGEST_LINE} characters`));
   fails({ json: true, stdout: 'not json\n', stderr: '' }, /isn't JSON/);
-  fails({ json: true, stdout: JSON.stringify({ error: 'usage', message: 'x'.repeat(500) }), stderr: '' }, /message over/);
+  fails({ json: true, stdout: JSON.stringify({ error: 'usage', message: 'x'.repeat(LONGEST_LINE + 1) }), stderr: '' }, /message over/);
   assert.deepEqual(judge({ ...ok, json: true, code: 0, stdout: '{\n  "a": 1\n}\n', stderr: '' }), [], 'pretty JSON is JSON');
   assert.deepEqual(judge({ ...ok, json: true, code: 0, stdout: '{"pass":1}\n{"pass":2}\n', stderr: '' }), [], 'a line a pass is JSON');
 });

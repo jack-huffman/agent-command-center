@@ -1272,7 +1272,8 @@ its own: its launcher falls back to VSCode's runtime (§13).
     sandbox, and fake `gh`, `claude` and `sf` that fail at once come first on
     PATH. A call must exit 0, 1 or 2 within 20 seconds (3 is an error acc
     didn't expect), print at most one line on stderr when it fails, no line
-    longer than 400 characters and no stack, and only JSON with `--json`.
+    longer than main.ts lets a message be and no stack, and only JSON with
+    `--json`.
     Nothing outside its repo may change: home, the bait a `../` id would
     reach, and the template are hashed before and after each command.
   - A command that compares a subcommand it doesn't declare fails the test.
