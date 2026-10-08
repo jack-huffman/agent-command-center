@@ -10,7 +10,7 @@
  * - Each setting in extension/package.json's contributes.configuration is read with
  *   getConfiguration('agentCommandCenter').get('<name>') in extension/src, and named in README.md.
  * - Every agentCommandCenter setting extension/src names is contributed, and every key read from a raw
- *   parse of .acc/config.json, at the places RAW_READS names, is one parseConfig knows.
+ *   parse of .acc/config.json, at the places RAW_READS names, a skill's among them, is one parseConfig knows.
  *
  * Reads are found in the source text, not by the compiler: TypeScript 7 has no language-service API to ask.
  * scripts/test/settings.test.ts runs it on the repo, and on small repos of its own for each finding.
@@ -99,8 +99,9 @@ export interface RawRead {
 }
 
 /**
- * Every place that reads .acc/config.json raw (GH-107). The compiler checks reads of a parsed Config; these it
- * can't, so the check reads them here. Each must still find a read, so a place that moves can't pass empty.
+ * Every place that reads .acc/config.json raw (GH-107), in code or in a skill an agent follows. The compiler
+ * checks reads of a parsed Config; these it can't, so the check reads them here. Each must still find a read,
+ * so a place that moves can't pass empty.
  */
 export const RAW_READS: RawRead[] = [
   {
@@ -120,6 +121,11 @@ export const RAW_READS: RawRead[] = [
     file: 'scripts/packaging.ts',
     why: 'packaging and releasing read the repo\'s own account and identity, even from a config that doesn\'t parse',
     reads: [{ pattern: /\bfield\(config, '(\w+)', '(\w+)'\)/g, keys: (m) => [`${m[1]}.${m[2]}`] }],
+  },
+  {
+    file: 'plugin/skills/intake/SKILL.md',
+    why: 'a session reads the tracker\'s place, its repo and labels or its project and epic, before asking a connector for tickets',
+    reads: [{ pattern: /\b(?:tracker's|its|it names) `(\w+)`/g, keys: (m) => [`trackers[].${m[1]}`] }],
   },
 ];
 
@@ -372,11 +378,13 @@ export function checkSettings(over: Partial<SettingsInputs> = {}): SettingsResul
     findings.push({ key: `${SECTION}.${name}`, missing: 'contributed', where: `is read in ${at}, but ${PACKAGE} doesn't contribute it`, fix: `Add it to contributes.configuration in ${PACKAGE}, with a description, or stop reading it.` });
   }
 
-  // Every key read raw is one parseConfig knows.
+  // Every key read raw is one parseConfig knows. A skill isn't source, so it's read from disk, whole: its
+  // prose is what an agent follows.
   for (const r of i.rawReads) {
-    const s = files.find((f) => f.file === r.file);
+    const abs = join(i.root, r.file);
+    const lines = files.find((f) => f.file === r.file)?.code ?? (existsSync(abs) ? readFileSync(abs, 'utf8').split('\n') : undefined);
     let found = 0;
-    s?.code.forEach((l, n) => {
+    lines?.forEach((l, n) => {
       for (const { pattern, keys } of r.reads) {
         for (const m of l.matchAll(pattern)) {
           for (const key of keys(m)) {
@@ -387,7 +395,7 @@ export function checkSettings(over: Partial<SettingsInputs> = {}): SettingsResul
       }
     });
     counted.rawReads += found;
-    if (!found) findings.push({ key: r.file, missing: 'pointer', where: `is on RAW_READS, but no read of .acc/config.json is found there${s ? '' : ' (it isn\'t there)'}`, fix: 'Point RAW_READS in scripts/settings.ts at where the config is read raw now, or take the place off.' });
+    if (!found) findings.push({ key: r.file, missing: 'pointer', where: `is on RAW_READS, but no read of .acc/config.json is found there${lines ? '' : ' (it isn\'t there)'}`, fix: 'Point RAW_READS in scripts/settings.ts at where the config is read raw now, or take the place off.' });
   }
   return { findings, counted };
 }

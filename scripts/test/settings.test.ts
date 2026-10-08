@@ -209,6 +209,24 @@ test('a raw read of .acc/config.json that names a key parseConfig doesn\'t know 
   assert.equal(empty[0]!.missing, 'pointer');
 });
 
+test('the intake skill\'s raw reads of the tracker\'s place are pinned, so a renamed key it still names fails', () => {
+  const skill = RAW_READS.find((r) => r.file === 'plugin/skills/intake/SKILL.md');
+  assert.ok(skill, 'the intake skill is on RAW_READS');
+  const text = readFileSync(join(ROOT, skill.file), 'utf8');
+  const named = skill.reads.flatMap(({ pattern, keys }) => [...text.matchAll(pattern)].flatMap(keys));
+  for (const k of ['trackers[].repo', 'trackers[].labels']) assert.ok(named.includes(k), `the skill reads ${k}`);
+
+  // The real skill on a repo of its own: as written, every key it reads is known; with `repo` renamed, that
+  // line is named; gone, the place fails.
+  const raw = (files: Record<string, string | null>) => check(files, { keys: CONFIG_KEYS, rawReads: [skill] }).filter((f) => f.missing === 'known' || f.missing === 'pointer').map(say);
+  assert.deepEqual(raw({ [skill.file]: text }), []);
+  const renamed = text.replace('tracker\'s `repo`', 'tracker\'s `repository`');
+  assert.notEqual(renamed, text);
+  const line = renamed.split('\n').findIndex((l) => l.includes('`repository`')) + 1;
+  assert.deepEqual(raw({ [skill.file]: renamed }), [`trackers[].repository is read raw in ${skill.file}:${line}, but parseConfig doesn't know it. Add it to Config and CONFIG_KEYS in packages/core/src/config.ts, or stop reading it.`]);
+  assert.deepEqual(raw({}), [`${skill.file} is on RAW_READS, but no read of .acc/config.json is found there (it isn't there). Point RAW_READS in scripts/settings.ts at where the config is read raw now, or take the place off.`]);
+});
+
 test('a NOT_READS declaration that isn\'t there fails, so the list can\'t outlive what it names', () => {
   const findings = check({ 'packages/core/src/config.ts': 'export function parseConfig() {}\n' }, { notReads: { 'packages/core/src/config.ts': ['parseConfig', 'parseConfigs'], 'packages/core/src/gone.ts': ['x'] } });
   assert.deepEqual(findings.map(say), [
