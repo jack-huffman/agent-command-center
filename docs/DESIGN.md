@@ -90,6 +90,15 @@ only its own:
 | The commands the extension contributes | `extension/commands/<module>.json`, named for the module in `extension/src/` that registers them. npm run build writes package.json's `contributes.commands` from them, by file name; `extension/test/areas.test.ts` checks each is in the right file | add it to its registering module's file, then run npm run build |
 | Core's exports | `packages/core/src/index.ts`, written by `scripts/areas.ts` | nothing, for a new module |
 
+**A new kind of per-area file** that tests read through a script, not by
+import, adds a row to `READS` in `scripts/near-reads.ts`: the files, and the
+script that reads them (GH-117). The near-tests gate (§9) then runs the tests
+near that script whenever one of the files changes, as it does for the
+stylesheets (`extension/scripts/styles.ts`), the commands files and
+`extension/package.json` (`extension/scripts/generate.ts`).
+scripts/test/near-tests.test.ts checks that every file of each kind is near
+the test that reads it.
+
 ## 3. Where state lives
 
 | Path | In git? | Holds |
@@ -482,21 +491,29 @@ repo can then give its builders lighter ones in `gates.builder`, such as a
 typecheck and the tests near what changed: `acc gate run` with no names runs
 them, and `acc done`, `acc review` and `acc land` take them. The full check
 passing on a commit covers them. Left out, or where auto-merge doesn't cover the
-environment, builders run `gates.required`, as before. A command gate is told
-what the branch changed, and the tests near those changes, one path a line, in
-`ACC_CHANGED` and `ACC_NEAR_TESTS`: the test files it changed, and, in the same
-package, the tests named for each other file it changed (`merge.ts` →
-`merge.test.ts`, `test_merge.py`) or that import it. A file a folder's index
-gathers is near the tests of that index and of what loads it (GH-95): an index
-imports the file and most of the other code in its folder, so
-`packages/cli/src/commands/tasks.ts` is near the tests that run
-`packages/cli/src/main.ts`. A package starts at its `src`, `lib` or `app`
-folder, else at the nearest folder with a `package.json`, so the page's modules
-in `extension/webview/` are near `extension/test/`. Only a gate whose command
-names `ACC_NEAR_TESTS`, or names a file in the checkout that does, is given it;
-acc reads each file once to work it out. This repo's builders run `typecheck`
-and `near-tests` (`scripts/near-tests.mjs`, which fails if it isn't given the
-list).
+environment, builders run `gates.required`, as before. Every command gate is
+told what the branch changed, and the tests near those changes, one path a
+line, in `ACC_CHANGED` and `ACC_NEAR_TESTS` (GH-117): acc can't tell whether
+`npm run test:near` reads the list, and a script given none would run nothing
+and pass. acc works the list out once a run, reading each file once. It holds
+the test files the branch changed, and, in the same package, the tests named
+for each other file it changed (`merge.ts` → `merge.test.ts`, `test_merge.py`)
+or that import it. A file a folder's index gathers is near the tests of that
+index and of what loads it (GH-95): an index imports the file and most of the
+other code in its folder, so `packages/cli/src/commands/tasks.ts` is near the
+tests that run `packages/cli/src/main.ts`. A file named `index` is named for
+its folder, so its tests are those that load it by its path or its folder's
+(GH-117): core's modules are near `lock.test.ts`, which loads core's index,
+and not `gates.test.ts`, which only quotes index paths as data. Any other
+index, such as `extension.ts`, is still found by its name, since its tests
+may load its build. A package starts at its `src`, `lib` or `app` folder,
+else at the nearest folder with a `package.json`, so the page's modules in
+`extension/webview/` are near `extension/test/`. This repo's builders run
+`typecheck` and `near-tests` (`scripts/near-tests.mjs`, which fails if it
+isn't given the list). That gate also runs the tests near what reads a
+per-area file the branch changed, from `scripts/near-reads.ts` (§2): an
+area's stylesheet brings `screenshot.test.ts`, and a commands file or
+`extension/package.json` brings `areas.test.ts`.
 
 **Agents validate; they never deploy (D-011).** Parallel branches deploying to
 one shared sandbox would overwrite each other's work. A deploy happens after
