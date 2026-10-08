@@ -6,6 +6,7 @@
 
 import { intervalWords, POLL_INTERVALS, POLL_KEYS } from '../logic/polls.ts';
 import { AGENT_SETTINGS } from './agents.ts';
+import type { LimitsModel } from './limits.ts';
 import type { HomeSection, ModelArea } from './shared.ts';
 
 // ---------------------------------------------------------------- the theme
@@ -71,12 +72,16 @@ export interface SettingsModel {
   theme: ThemeChoice;
   themes: { key: ThemeChoice; label: string; icon: string; meaning: string }[];
   parts: SettingsPartModel[];
+  /** Limits and checks (GH-111): the caps, what a change means, the heavy-check slots and each project's checks. Null until read. */
+  limits: LimitsModel | null;
 }
 
 export interface SettingsInput {
   theme: ThemeChoice;
   /** Agents shows How agents run behind its Settings button: there's an onboarded project. */
   agentSettings: boolean;
+  /** Limits and checks, as read from this machine and each project (GH-111). */
+  limits?: LimitsModel | null;
 }
 
 /** How often each thing refreshes today, in words. */
@@ -92,8 +97,7 @@ export function settingsModel(i: SettingsInput): SettingsModel {
     later('agents', 'How agents run', 'hubot', 'What builders and reviewers run with: model, effort and fallback, and what autopilot may do on its own.',
       i.agentSettings ? 'On Agents for now, behind its Settings button.' : 'On Agents for now, behind its Settings button, once this workspace has an onboarded project.',
       i.agentSettings ? [{ label: 'Open How agents run', icon: 'settings-gear', section: 'agents', open: AGENT_SETTINGS }] : []),
-    later('limits', 'Limits and checks', 'dashboard', 'How many heavy checks this machine runs at once, how many builders each project runs, and the checks a task must pass.',
-      'Set outside the Command Center for now: this machine\'s heavy-check slots with acc machine heavy-slots in a terminal, and each project\'s builder cap (agents.max) and checks (gates) in its .acc/config.json.'),
+    { id: 'limits', title: 'Limits and checks', icon: 'dashboard', summary: 'How many builders run at once, this project\'s cap and this machine\'s total, what a change means, the heavy checks this machine runs at once, and the checks a task must pass. Each change goes through acc.', built: true, today: null, details: [], links: [] },
     later('trackers', 'Trackers and sign-ins', 'issues', 'Each project\'s trackers, their place and board, and the account each signs in as.',
       'On Tasks for now, on each tracker\'s board: its sign-in, its place, and connecting another.', [{ label: 'Open Tasks', icon: 'project', section: 'tasks' }]),
     later('slack', 'Notices in Slack', 'bell', 'Whether acc\'s notices go to Slack, and which.',
@@ -105,7 +109,7 @@ export function settingsModel(i: SettingsInput): SettingsModel {
     later('about', 'About', 'info', 'The versions of acc, the extension and the plugin, and whether a newer release is out.',
       'On Setup for now: its checklist checks the acc plugin in Claude Code.', [{ label: 'Open Setup', icon: 'checklist', section: 'setup' }]),
   ];
-  return { kind: 'settings', theme: i.theme, themes: THEME_CHOICES.map((key) => ({ key, ...THEMES[key] })), parts };
+  return { kind: 'settings', theme: i.theme, themes: THEME_CHOICES.map((key) => ({ key, ...THEMES[key] })), parts, limits: i.limits ?? null };
 }
 
 export const area: ModelArea = {
@@ -113,6 +117,6 @@ export const area: ModelArea = {
   home: {
     // Last in the rail, after every other area's.
     order: 90,
-    nav: () => ({ section: 'settings', label: 'Settings', icon: 'settings-gear', count: null, attention: false, hint: 'Appearance, and where each other setting lives' }),
+    nav: () => ({ section: 'settings', label: 'Settings', icon: 'settings-gear', count: null, attention: false, hint: 'Appearance, limits and checks, and where each other setting lives' }),
   },
 };

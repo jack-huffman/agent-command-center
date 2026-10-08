@@ -12,6 +12,7 @@ import type { Update } from '../../../packages/core/src/updates.ts';
 import type { AgentSession, TaskRow, Tone } from '../logic/shared.ts';
 import { displayName, ownsSession } from '../logic/agents.ts';
 import type { HeavyState } from '../../../packages/core/src/semaphore.ts';
+import type { LimitsFacts } from './limits.ts';
 import type { RepoJobs } from '../progress.ts';
 import type { LastStep } from '../transcript.ts';
 import type { HomeArea } from './home.ts';
@@ -105,6 +106,8 @@ export interface HubLike {
   jobsOf?(root: string): RepoJobs;
   /** A running builder's latest step and model, by its session. */
   stepOf?(sessionId: string): LastStep | null;
+  /** This machine's limits and each project's, for Settings (GH-111). */
+  limits?(): LimitsFacts | null;
 }
 
 /** The key a session goes by in refs: its session id, else its background id. */

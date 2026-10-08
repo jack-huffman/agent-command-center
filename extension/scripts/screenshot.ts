@@ -30,6 +30,7 @@ import { sampleBoards, sampleMondayBoards } from './fixtures/boards.ts';
 import { type ConnectSample, sampleConnect } from './fixtures/connect.ts';
 import { sampleIdentity } from './fixtures/environments.ts';
 import { sampleHub } from './fixtures/hub.ts';
+import { sampleLimitsOther } from './fixtures/limits.ts';
 import { sampleQueueHub } from './fixtures/overview.ts';
 import { sampleAnalyzeRun, sampleBusyHub, sampleIdleHub } from './fixtures/progress.ts';
 import { sampleRuns } from './fixtures/runs.ts';
@@ -52,7 +53,7 @@ import { PALETTE_THEMES, type PaletteTheme, palettes, vscodeDefaults } from './s
  * project whose merge queue holds three pull requests, with autopilot on and the head running its full
  * check, with autopilot off, and with the head held on GitHub, in that wait's own words (GH-73).
  */
-export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-settings', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held'] as const;
+export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-settings', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-limits'] as const;
 export type Page = (typeof PAGES)[number];
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -94,10 +95,11 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
     homeModel({ ...base, hub: sampleBusyHub(now, true), runs, finished, autopilot: () => 'on', now: now - 20_000 });
     return homeModel({ ...base, hub: sampleBusyHub(now), runs, finished, autopilot: () => 'on', now });
   }
-  const hub = sampleHub(now);
+  // Settings' Limits and checks in their other states (GH-111): no total, slots from the environment, two projects.
+  const hub = kind === 'settings-limits' ? { ...sampleHub(now), limits: () => sampleLimitsOther() } : sampleHub(now);
   const connect = kind.startsWith('connect-') ? sampleConnect(kind.slice('connect-'.length) as ConnectSample) : null;
   const slack = sampleSlack(kind.startsWith('slack-') ? kind.slice('slack-'.length) as SlackSample : 'on', now);
-  const section = (kind === 'output' ? 'setup' : connect || kind === 'tasks-monday' ? 'tasks' : kind.startsWith('slack-') ? 'environments' : kind === 'agents-settings' || kind === 'agents-path' ? 'agents' : kind) as HomeSection;
+  const section = (kind === 'output' ? 'setup' : connect || kind === 'tasks-monday' ? 'tasks' : kind.startsWith('slack-') ? 'environments' : kind === 'agents-settings' || kind === 'agents-path' ? 'agents' : kind === 'settings-limits' ? 'settings' : kind) as HomeSection;
   const boards = kind === 'tasks-monday' ? sampleMondayBoards : sampleBoards;
   return homeModel({ hub, section, boards: () => boards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: sampleRuns(now), edited: sampleEdited, connect, slack, whereView: kind === 'agents-path' ? 'path' : 'folder', theme });
 }
@@ -126,7 +128,7 @@ const DEFAULT_HEIGHT = 900;
  * the Overview, and taller still at narrow widths, where the Overview's columns stack (D-092). So is the
  * Merge queue panel, below In progress and the tiles (GH-73), and the last of Settings' parts (GH-109).
  */
-export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 3600, 'overview-idle': 3200, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 2600 };
+export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 3600, 'overview-idle': 3200, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 3000, 'settings-limits': 3000 };
 
 /** The colour properties the colour check compares, on every element and its ::before and ::after. */
 export const COLOUR_PROPERTIES = [

@@ -3,6 +3,7 @@
 
 import type { SettingsLink, SettingsModel, SettingsPartModel } from '../src/model/settings.ts';
 import { button, el, header, icon, segmented } from './dom.ts';
+import { renderLimits } from './limits.ts';
 import { api, go, type PageArea, remember } from './state.ts';
 
 /** The theme: Match VSCode, Light or Dark. The extension keeps the pick, and every open page follows it. */
@@ -32,7 +33,7 @@ function today(p: SettingsPartModel): HTMLElement {
 }
 
 export function renderSettings(m: SettingsModel): Node[] {
-  const out: Node[] = [header('Settings', 'How the Command Center looks on this machine. Each part below gathers an area\'s settings; until it does, it says where they are.')];
+  const out: Node[] = [header('Settings', 'How the Command Center looks on this machine, and the limits and checks agents run under. Each part below gathers an area\'s settings; until it does, it says where they are.')];
   for (const p of m.parts) {
     // Its heading is where another page opens Settings at this part.
     const h = el('h2', '', icon(p.icon), p.title);
@@ -42,6 +43,7 @@ export function renderSettings(m: SettingsModel): Node[] {
     const part = el('section', `block settings-part${p.built ? '' : ' later'}`, h, el('p', 'muted settings-summary', p.summary));
     part.setAttribute('aria-labelledby', h.id);
     if (p.id === 'appearance') part.append(appearance(m));
+    if (p.id === 'limits') part.append(...renderLimits(m.limits));
     if (!p.built) part.append(today(p));
     out.push(part);
   }

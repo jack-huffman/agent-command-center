@@ -37,13 +37,13 @@ test('the theme is a VSCode setting kept on this machine, Match VSCode until cha
 test('Settings is a section like the others, last in the rail with a gear', () => {
   assert.deepEqual([VIEW_KINDS.at(-1), VIEW_TITLES.settings, HOME_SECTIONS.includes('settings')], ['settings', 'Settings', true]);
   const m = home();
-  assert.deepEqual(m.nav.at(-1), { section: 'settings', label: 'Settings', icon: 'settings-gear', count: null, attention: false, hint: 'Appearance, and where each other setting lives' });
+  assert.deepEqual(m.nav.at(-1), { section: 'settings', label: 'Settings', icon: 'settings-gear', count: null, attention: false, hint: 'Appearance, limits and checks, and where each other setting lives' });
   assert.deepEqual(m.nav.map((n) => n.section), ['overview', 'tasks', 'agents', 'worktrees', 'environments', 'setup', 'settings']);
   const orders = AREAS.flatMap((a) => (a.home ? [a.home.order] : []));
   const own = settingsArea.home!.order;
   assert.ok(AREAS.includes(settingsArea));
   assert.ok(orders.every((o) => o <= own) && orders.filter((o) => o === own).length === 1, 'its turn comes after every other area\'s');
-  // The page may ask for the theme, and nothing else of Settings' yet: its Refresh is the header's.
+  // The page may ask for the theme, and the limits' changes (GH-111): its Refresh is the header's.
   assert.ok(PAGE_COMMANDS.includes('acc.settings.theme'));
   assert.ok(!PAGE_COMMANDS.includes('acc.settings.refresh'));
   assert.match(readFileSync(join(root, 'src', 'panels.ts'), 'utf8'), /settings: \['acc\.settings\.refresh'\]/);
@@ -53,15 +53,16 @@ test('each part of Settings is built here or says where its settings live today,
   const m = home().settings;
   assert.deepEqual(m.parts.map((p) => p.id), [...SETTINGS_PARTS]);
   assert.deepEqual(SETTINGS_PARTS, ['appearance', 'agents', 'limits', 'trackers', 'slack', 'github', 'page', 'about']);
-  assert.deepEqual(m.parts.filter((p) => p.built).map((p) => p.id), ['appearance'], 'Appearance is the only part built yet');
+  assert.deepEqual(m.parts.filter((p) => p.built).map((p) => p.id), ['appearance', 'limits'], 'Appearance, and Limits and checks (GH-111)');
   for (const p of m.parts) {
     assert.ok(p.title && p.icon && p.summary, `${p.id} has a title, an icon and a summary`);
     assert.equal(!!p.today, !p.built, `${p.id}: ${p.built ? 'built, so nothing about today' : 'says where its settings live today'}`);
     for (const l of p.links) assert.ok((HOME_SECTIONS as readonly string[]).includes(l.section) && l.label && l.icon, `${p.id}'s ${l.label} goes to a section`);
   }
-  // Every part not built has a way there, but the limits, set outside the Command Center today, and How
-  // agents run while no project has its settings (this hub's project has none).
-  assert.deepEqual(m.parts.filter((p) => !p.built && !p.links.length).map((p) => p.id), ['agents', 'limits']);
+  // Every part not built has a way there, but How agents run while no project has its settings (this hub's
+  // project has none). Limits and checks are here, though this hub reads none, so the part says it's reading.
+  assert.deepEqual(m.parts.filter((p) => !p.built && !p.links.length).map((p) => p.id), ['agents']);
+  assert.equal(m.limits, null);
   assert.deepEqual(m.themes.map((t) => [t.key, t.label]), [['vscode', 'Match VSCode'], ['light', 'Light'], ['dark', 'Dark']]);
   assert.equal(settingsKey('agents'), 'settings:agents');
 });

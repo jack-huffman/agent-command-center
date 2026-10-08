@@ -133,8 +133,8 @@ export function setMachineAgents(n: number | null, env: NodeJS.ProcessEnv = proc
 /** Where acc notes each repo on this machine that has run a builder, a file each, so the total can count them all. */
 export const ledgersDir = (env: NodeJS.ProcessEnv = process.env): string | null => (machineDir(env) ? join(machineDir(env)!, 'ledgers') : null);
 
-/** A ledger however it's reached, so one repo is one entry. */
-function samePath(file: string): string {
+/** A ledger however it's reached, so one repo is one entry, and the Command Center counts it once. */
+export function realLedger(file: string): string {
   try {
     return join(realpathSync(dirname(file)), basename(file));
   } catch {
@@ -152,7 +152,7 @@ const entryName = (ledger: string): string => `${createHash('sha256').update(led
 export function registerLedger(ledger: string, project: string, env: NodeJS.ProcessEnv = process.env): void {
   const dir = ledgersDir(env);
   if (!dir) return;
-  const path = samePath(ledger);
+  const path = realLedger(ledger);
   const file = join(dir, entryName(path));
   try {
     statSync(file);
@@ -190,7 +190,7 @@ export function machineRepos(env: NodeJS.ProcessEnv = process.env, except?: stri
   } catch {
     return [];
   }
-  const skip = except ? samePath(except) : null;
+  const skip = except ? realLedger(except) : null;
   const out: RepoBuilders[] = [];
   for (const n of names.sort()) {
     let entry: { ledger?: unknown; project?: unknown };
