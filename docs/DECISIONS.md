@@ -4258,9 +4258,13 @@ by deleting cases. A person raises those floors by hand, so they lag (620 while
   raised: a person decided a second full `acc gate run` wasn't worth it.
 - **Only a person relaxes a floor, with a reason, as only a person waives a
   check (D-031).** A floor worse on the branch than where it began fails unless
-  acc has a person's record of relaxing it to that number or a worse one: a
-  floor acc raised again after a person relaxed it is still theirs to back,
-  or the commit recording the raise would fail its own check. `acc gate relax`
+  acc has a person's record of relaxing it, from the floor the branch began
+  at, to that number or a worse one: a floor acc raised again after a person
+  relaxed it is still theirs to back, or the commit recording the raise would
+  fail its own check. A record only counts from the floor it relaxed: records
+  are kept for the clone and never pruned, so one from another task or time,
+  matched on its number alone, would let a builder lower today's floor by
+  hand down to any number a person once relaxed to. `acc gate relax`
   writes that record, refuses builders and agents, and is denied in builders'
   settings. The file's own `relaxed` note is for people to read; the record in
   acc's state is what counts, since a builder can edit the file.

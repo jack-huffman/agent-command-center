@@ -56,7 +56,7 @@ test('where acc may raise it, a better number is raised, and satisfies nothing u
   assert.deepEqual(brief(judge(TESTS, 674, held({}))), ['pass', 'tests 674. No floor yet.'], 'elsewhere it passes, and writes nothing');
 });
 
-test('a floor the branch made worse by hand fails, unless a person relaxed it to that number or a worse one; one it dropped fails too', () => {
+test('a floor the branch made worse by hand fails, unless a person relaxed it, from the floor the branch began at, to that number or a worse one; one it dropped fails too', () => {
   const lowered = held({ tests: { floor: 640 } }, { tests: { floor: 669 } });
   assert.deepEqual(brief(judge(TESTS, 650, lowered)), ['fail', '.acc/floors.json lowers tests\'s floor to 640, from 669 on main, and no person relaxed it. Put it back to 669: only a person relaxes a floor, with acc gate relax.']);
   const record = { ratchet: 'tests', limit: 'floor' as const, to: 640, was: 669, by: 'human:jordan', reason: 'a slow suite moved out', at: '', root: '/r' };
@@ -64,6 +64,9 @@ test('a floor the branch made worse by hand fails, unless a person relaxed it to
   assert.equal(judge(TESTS, 650, { ...lowered, relaxed: [{ ...record, to: 645 }] }).status, 'fail', 'to a better number: it doesn\'t count');
   assert.equal(judge(TESTS, 650, { ...lowered, relaxed: [{ ...record, to: 630 }] }).status, 'pass', 'to a worse one, which acc then raised: it backs the raise');
   assert.equal(judge(TESTS, 635, { ...lowered, relaxed: [record] }).status, 'fail', 'and the relaxed floor still holds');
+  assert.equal(judge(TESTS, 650, { ...lowered, relaxed: [{ ...record, was: 700 }] }).status, 'fail', 'relaxed from another floor: it backs nothing here');
+  const moved = held({ tests: { floor: 690 } }, { tests: { floor: 700 } });
+  assert.match(judge(TESTS, 690, { ...moved, relaxed: [record] }).summary, /lowers tests's floor to 690, from 700 on main, and no person relaxed it/, 'an old relax from 669 never lets a builder lower today\'s 700');
   assert.match(judge(TESTS, 680, held({}, { tests: { floor: 669 } })).summary, /drops tests's floor, from 669 on main, and no person relaxed it/);
   // Raised on the branch: held to the branch's.
   assert.deepEqual(brief(judge(TESTS, 672, held({ tests: { floor: 674 } }, { tests: { floor: 669 } }))), ['fail', 'tests 672 is below its floor 674, by 2. Make it 674 or better. If this change has to make it worse, block and say why: only a person relaxes a floor.']);

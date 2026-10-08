@@ -776,6 +776,22 @@ test('a floor a person relaxed, raised again by acc but still below the environm
   assert.match(r.gate(true).results[1]!.summary, /^\.acc\/floors\.json lowers tests's floor to 630, from 669 on main, and no person relaxed it\./);
 });
 
+test('a person\'s old relax backs no other floor: once the environment\'s floor moves on, a floor lowered by hand fails (GH-99)', () => {
+  const r = ratchetRepo();
+  // Long ago, on T-1, a person relaxed tests from 669 to 640.
+  relaxFloor(r.paths.relaxed, r.paths.floors, r.dir, r.c, { ratchet: 'tests', to: 640, reason: 'the slow suite moved to its own job', by: 'human:jordan', now, task: 'T-1' });
+  gitIn(r.dir, 'checkout', '-q', '--', '.acc/floors.json');
+  // Since then main's floor rose to 700, and T-9 began there.
+  gitIn(r.dir, 'checkout', '-q', 'main');
+  r.set({ 'count.txt': '700\n', '.acc/floors.json': formatFloors({ tests: { floor: 700 } }) }, 'main: the floor is 700');
+  gitIn(r.dir, 'checkout', '-q', '-b', 'task/T-9');
+  r.set({ 'count.txt': '690\n', '.acc/floors.json': formatFloors({ tests: { floor: 690 } }) }, 'T-9: drop ten tests, and lower the bar');
+  const ran = r.gate(true);
+  assert.equal(ran.results[1]!.status, 'fail');
+  assert.equal(ran.results[1]!.summary, '.acc/floors.json lowers tests\'s floor to 690, from 700 on main, and no person relaxed it. Put it back to 700: only a person relaxes a floor, with acc gate relax.');
+  assert.deepEqual([ran.raised, r.floorsText()], [[], formatFloors({ tests: { floor: 690 } })]);
+});
+
 test('a ratchet can\'t be waived: a person relaxes its floor instead (GH-99)', () => {
   const r = ratchetRepo();
   const sha = r.set({ 'count.txt': '660\n' });

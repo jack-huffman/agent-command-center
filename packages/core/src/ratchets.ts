@@ -152,7 +152,7 @@ export function judgeRatchet(name: string, spec: RatchetSpec, value: number, flo
     ratchet: { label, limit, value, floor, base, diff: base === null ? null : value - base, ...(raised ? { raised } : {}) } satisfies RatchetDetails,
   });
   // Made worse on the branch, by hand: only a person relaxes a floor, and acc keeps a record when one does.
-  if (base !== null && (head === null || isWorse(limit, head, base)) && !(head !== null && relaxedTo(floors.relaxed, name, limit, head))) {
+  if (base !== null && (head === null || isWorse(limit, head, base)) && !(head !== null && relaxedTo(floors.relaxed, name, limit, head, base))) {
     const what = head === null ? `drops ${name}'s ${w.limit}` : `${w.lowers} ${name}'s ${w.limit} to ${num(head)}`;
     return { status: 'fail', summary: `${FLOORS_FILE} ${what}, from ${num(base)} on ${env}, and no person relaxed it. Put it back to ${num(base)}: only a person relaxes a ${w.limit}, with acc gate relax.`, details: details(base) };
   }
@@ -273,11 +273,13 @@ export function readRelaxed(file: string): RelaxRecord[] {
 }
 
 /**
- * Whether a person relaxed this ratchet to this number or a worse one. A floor acc raised again after a
- * person relaxed it is still backed by that record, so the commit that records the raise passes.
+ * Whether a person relaxed this ratchet, from the floor the branch began at, to this number or a worse one.
+ * A floor acc raised again after a person relaxed it is still backed by that record, so the commit that
+ * records the raise passes. A record relaxed from any other floor backs nothing here: an old relax, from
+ * another task or another time, never lets a builder lower today's floor by hand.
  */
-export const relaxedTo = (records: RelaxRecord[], name: string, limit: RatchetLimit, value: number): boolean =>
-  records.some((r) => r.ratchet === name && r.limit === limit && (r.to === value || isWorse(limit, r.to, value)));
+export const relaxedTo = (records: RelaxRecord[], name: string, limit: RatchetLimit, value: number, base: number): boolean =>
+  records.some((r) => r.ratchet === name && r.limit === limit && r.was === base && (r.to === value || isWorse(limit, r.to, value)));
 
 export interface RelaxRequest {
   ratchet: string;

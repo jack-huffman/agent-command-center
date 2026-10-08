@@ -593,8 +593,9 @@ not heavy.
   with uncommitted changes, or in a refresh's or the merge queue's check: those
   say `beats the floor … by N` and leave it.
 - **Only a person relaxes a floor.** A branch whose floor is worse than its
-  environment's where it began fails, unless a person relaxed it to that number
-  or a worse one (so acc can raise a relaxed floor again):
+  environment's where it began fails, unless a person relaxed it from that same
+  floor to that number or a worse one (so acc can raise a relaxed floor again,
+  and an old relax from another floor backs nothing):
   `acc gate relax <ratchet> --to <n> --reason "<why>" [--task <id>]` writes the
   worse number into the floors file (in the task's worktree with `--task`), with
   who, why, when and what it was, and acc keeps a record in its state, beside
