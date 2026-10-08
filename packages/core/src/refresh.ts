@@ -251,7 +251,8 @@ export interface CheckDeps {
  * Runs the gates on the worktree's commit, `sha`, with the tests the commit before named, before anything
  * else happens. A failure is a CheckFailure, and one that couldn't run, such as a heavy-check slot that
  * stayed taken (D-069), an AccError with its code. Either way the branch goes back to `from` (D-058).
- * A waiver is for its own commit (D-031), so a merge commit starts with none.
+ * A waiver holds for its own commit (D-031), except that a person's waiver on the head clears a hold, not a
+ * fail or an error, on the merge of that head (GH-100).
  */
 export function checkCommit(paths: RepoPaths, config: Config, place: MergePlace, sha: string, gates: string[], deps: CheckDeps): void {
   const { env, wt, from } = place;
@@ -260,7 +261,7 @@ export function checkCommit(paths: RepoPaths, config: Config, place: MergePlace,
   let failed: GateResult[] = [];
   try {
     if (gates.length) {
-      const ran = runGates(repoPaths(wt, run), config, env, gates, priorTests(paths, config, from), { run, now: deps.now, slots: deps.slots, task: place.id, onWait: deps.onWait, onStart: deps.onStart });
+      const ran = runGates(repoPaths(wt, run), config, env, gates, priorTests(paths, config, from), { run, now: deps.now, slots: deps.slots, task: place.id, onWait: deps.onWait, onStart: deps.onStart, waivedOn: from });
       failed = ran.results.filter((r) => !r.recorded || !satisfies(r.receipt));
     }
   } catch (e) {
@@ -268,7 +269,7 @@ export function checkCommit(paths: RepoPaths, config: Config, place: MergePlace,
     throw new AccError(err.code ?? 'refresh', `${what} couldn't run: ${err.message} ${putBack(config, place, run, ['reset', '--hard', from])}`);
   }
   if (failed.length) {
-    const said = failed.map((r) => `${r.gate} ${!r.recorded ? 'wasn\'t recorded' : r.status === 'fail' ? 'failed' : 'couldn\'t run'}: ${r.summary.replace(/[.!?]$/, '')}${r.receipt.log ? ` (log ${r.receipt.log})` : ''}`);
+    const said = failed.map((r) => `${r.gate} ${!r.recorded ? 'wasn\'t recorded' : r.status === 'fail' ? 'failed' : r.status === 'hold' ? 'needs a person' : 'couldn\'t run'}: ${r.summary.replace(/[.!?]$/, '')}${r.receipt.log ? ` (log ${r.receipt.log})` : ''}`);
     throw new CheckFailure(`${what} failed on ${short(sha)}: ${said.join('; ')}. ${putBack(config, place, run, ['reset', '--hard', from])}`, failed);
   }
 }
@@ -314,7 +315,8 @@ function refreshNow(paths: RepoPaths, config: Config, id: string, deps: RefreshD
   if (!made) return settled(); // already up to date
   const { sha, resolved } = made;
 
-  // Its checks, on the merge commit, before anything else happens. A waiver is for its own commit (D-031).
+  // Its checks, on the merge commit, before anything else happens. A waiver holds for its own commit (D-031),
+  // except that a person's waiver on the head clears a hold on this merge of it (GH-100).
   const required = config.gates.required;
   checkCommit(paths, config, place, sha, required, { run, now, slots: deps.slots });
 

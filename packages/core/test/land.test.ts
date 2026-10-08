@@ -9,10 +9,11 @@ import { runGates, waiveGates } from '../src/gates.ts';
 import { land, prBody } from '../src/land.ts';
 import { displayState, mutate, readLedger, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
-import { receiptsAt } from '../src/receipts.ts';
+import { type Receipt, receiptsAt } from '../src/receipts.ts';
 import { reviewPath, type Verdict } from '../src/review.ts';
 import { listUpdates, readUpdate } from '../src/updates.ts';
 import { ciOf, failingOf, sync } from '../src/sync.ts';
+import { NO_COUNTS } from '../src/test-counts.ts';
 import { bad, fakeBin, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, tempDir } from './support.ts';
 
 const now = () => new Date('2026-10-02T12:00:00Z');
@@ -228,6 +229,33 @@ test('the pull request says what it does, ticks its acceptance criteria, and sho
   const note = { landed: ['sum(a, b)'], moved: ['1 test added'], open: [], at: '2026-10-01T12:00:00Z', by: 'builder:T-1', ended: 'review' as const };
   const noted = prBody({ ...task, run: { ...task.run, note } }, s.config.environments[0]!, s.sha, passReview(s.paths, s.id, s.sha, s.base), receiptsAt(s.paths, s.sha));
   assert.match(noted, /## Review\n[\s\S]*## Builder's note\n\nIn its builder's own words, as it finished\. The review above is what checked the change\.\n\n\*\*What landed\*\*\n\n- sum\(a, b\)\n\n\*\*Numbers that moved\*\*\n\n- 1 test added\n\n\*\*Still open\*\*\n\n- none\n\n---\n/);
+});
+
+test('the pull request\'s checks say what each test check ran, "not read" where acc couldn\'t tell, and a hold as needing a person (GH-100)', () => {
+  const s = setup();
+  const at = { sha: s.sha, env: 'main', startedAt: now().toISOString(), finishedAt: now().toISOString(), durationMs: 1, log: null };
+  const receipts: Record<string, Receipt> = {
+    check: { ...at, gate: 'check', status: 'pass', summary: 'Passed.', command: 'npm run check', counts: { run: 312, passed: 312, failed: 0, skipped: 2, todo: 0, runner: 'node:test' } },
+    near: { ...at, gate: 'near', status: 'hold', summary: 'Ran no tests, so it can\'t vouch for the change.', command: 'npm run near', counts: { run: 0, passed: 0, failed: 0, skipped: 0, todo: 0, runner: 'node:test' } },
+    e2e: { ...at, gate: 'e2e', status: 'fail', summary: '1 failing', command: 'npm run e2e', counts: { run: 21, passed: 20, failed: 1, skipped: 0, todo: 3, runner: 'jest' } },
+    smoke: { ...at, gate: 'smoke', status: 'pass', summary: 'Passed.', command: 'make smoke', countsNote: NO_COUNTS },
+    lint: { ...at, gate: 'lint', status: 'pass', summary: 'Passed.', command: 'eslint .' },
+  };
+  const task = readLedger(s.paths.ledger).tasks[0]!;
+  const body = prBody(task, s.config.environments[0]!, s.sha, passReview(s.paths, s.id, s.sha, s.base), receipts);
+  const table = body.split('\n').filter((l) => l.startsWith('|'));
+  assert.deepEqual(table, [
+    '| Check | Result | Tests | Detail |',
+    '|---|---|---|---|',
+    '| `check` | Passed | 312 run, 2 skipped | Passed. |',
+    '| `near` | Needs a person | 0 run, 0 skipped | Ran no tests, so it can\'t vouch for the change. |',
+    '| `e2e` | Failed | 21 run, 1 failed, 0 skipped, 3 todo | 1 failing |',
+    '| `smoke` | Passed | not read | Passed. |',
+    '| `lint` | Passed |  | Passed. |',
+  ]);
+  // With no test check, the table is as it was.
+  const plain = prBody(task, s.config.environments[0]!, s.sha, passReview(s.paths, s.id, s.sha, s.base), { lint: receipts.lint! });
+  assert.deepEqual(plain.split('\n').filter((l) => l.startsWith('|')), ['| Check | Result | Detail |', '|---|---|---|', '| `lint` | Passed | Passed. |']);
 });
 
 // ---------------------------------------------------------------- acc sync

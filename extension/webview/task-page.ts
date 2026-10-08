@@ -149,13 +149,16 @@ export function renderTicket(m: TicketModel): Node[] {
         ...(a.worktree ? field('Worktree', clippedSpan(a.worktree.split('/').slice(-2).join('/'))) : []),
       ),
       a.checks.length ? el('div', 'checks', el('h3', '', 'Checks'), ...a.checks.map((c) => el('div', 'check',
-        status({ label: c.waived ? 'waived' : c.status === 'skip' ? (c.summary.startsWith('Not run') ? 'not run' : 'skip') : c.status, icon: c.waived ? 'debug-step-over' : c.status === 'pass' ? 'pass' : c.status === 'fail' ? 'error' : c.status === 'error' ? 'warning' : 'circle-slash', tone: c.status === 'pass' ? 'blue' : c.status === 'skip' ? 'neutral' : 'orange' }),
-        // A builder's lighter check, or the full one the merge queue runs once (GH-73).
-        el('span', 'check-gate', el('span', 'mono', c.gate),
-          c.scope ? Object.assign(el('span', 'chip', c.scope === 'builder' ? 'builder' : 'merge queue'), { title: c.scope === 'builder' ? 'One of the lighter checks a builder runs before acc done' : 'The full check, run once in the merge queue before the merge' }) : null),
+        // Its state and name on a line of their own, so a long state such as "needs a person" leaves room (GH-100).
+        el('span', 'check-head', status(c.look),
+          // A builder's lighter check, or the full one the merge queue runs once (GH-73).
+          el('span', 'check-gate', el('span', 'mono', c.gate),
+            c.scope ? Object.assign(el('span', 'chip', c.scope === 'builder' ? 'builder' : 'merge queue'), { title: c.scope === 'builder' ? 'One of the lighter checks a builder runs before acc done' : 'The full check, run once in the merge queue before the merge' }) : null)),
+        // Its summary under them, beside Waive…, then what its tests ran.
         Object.assign(el('span', 'muted small check-sum', c.summary), { title: c.summary }),
-        // A person can set a failing check aside, with a reason (D-031).
-        (c.status === 'fail' || c.status === 'error') && a.branch ? Object.assign(button('Waive…', 'debug-step-over', () => ticketAction('waive', c.gate), 'ghost small check-waive'), { title: `Set ${c.gate} aside on this commit, with a reason` }) : null))) : null,
+        // A person can set a failing check, or one that needs them, aside, with a reason (D-031).
+        c.waivable ? Object.assign(button('Waive…', 'debug-step-over', () => ticketAction('waive', c.gate), 'ghost small check-waive'), { title: `Set ${c.gate} aside on this commit, with a reason` }) : null,
+        c.counts ? Object.assign(el('span', 'muted small check-tests', icon('beaker'), `Tests: ${c.counts}`), { title: c.countsNote ?? `Tests: ${c.counts}` }) : null))) : null,
       el('div', 'actions', ...a.actions.map(actionButton))));
   } else if (m.trackable) {
     // Tracking… while it's on its way, from here or its card, so a second click starts nothing (D-074).

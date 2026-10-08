@@ -80,7 +80,9 @@ export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12'):
     checks: [
       { gate: 'format', status: 'pass', summary: '3 changed files formatted.' },
       { gate: 'static', status: 'skip', summary: 'Waived by jordan: the 2 violations predate this change', waived: true },
-      { gate: 'validate', status: 'fail', summary: '4 of 21 tests failed in Acme Dev: CaseRoutingTest.premiumEscalates' },
+      { gate: 'validate', status: 'fail', summary: '4 of 21 tests failed in Acme Dev: CaseRoutingTest.premiumEscalates', counts: '21 run, 4 failed, 0 skipped' },
+      // A test check that skipped more than dev's last count: a person decides (GH-100).
+      { gate: 'flow-tests', status: 'hold', summary: '2 skipped, up from 0 on 4f2a9c1: OrderFlowTest.discount, OrderFlowTest.tax newly skipped.', counts: '38 run, 2 skipped' },
       { gate: 'lwc-tests', status: 'skip', summary: 'Not run on this commit' },
     ],
   });
@@ -136,7 +138,7 @@ function sampleChecksTicket(now: number): TicketModel {
     trackerEdits: false, updates: [], boards: sampleBoards(), github: 'jordan-kim', now,
     checks: [
       { gate: 'format', status: 'pass', summary: '2 changed files formatted.' },
-      { gate: 'validate', status: 'pass', summary: 'Validated in Acme Dev: LeadScoringTest, 12 of 12 passing.' },
+      { gate: 'validate', status: 'pass', summary: 'Validated in Acme Dev: LeadScoringTest, 12 of 12 passing.', counts: '12 run, 0 skipped' },
     ],
   });
 }

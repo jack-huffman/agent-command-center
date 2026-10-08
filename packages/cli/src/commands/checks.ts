@@ -1,6 +1,6 @@
 // acc's Checks commands: gate run, list and waive, and drift.
 
-import { AccError, type ApexTest, autoMergeFor, builderGatesFor, type Config, drift, gatesFor, gateTarget, loadConfig, readLedger, receiptsAt, requiredGates, run, runGates, satisfies, setBuilderGates, setRequiredGates, waiveGates } from '../../../core/src/index.ts';
+import { AccError, type ApexTest, autoMergeFor, builderGatesFor, type Config, drift, gatesFor, gateTarget, loadConfig, readLedger, receiptsAt, requiredGates, run, runGates, satisfies, setBuilderGates, setRequiredGates, testsText, waiveGates } from '../../../core/src/index.ts';
 import { gateLabel, table, tone } from '../format.ts';
 import { actorFrom, type CommandArea, noAgent, now, type Opts, out, project } from '../shared.ts';
 
@@ -37,11 +37,19 @@ function cmdGateRun(o: Opts, names: string[]): number {
     onWait: (g) => say(tone(`  … ${g.name} is waiting for another heavy check on this machine to finish`, 'dim')),
   });
   const bad = r.results.filter((x) => !satisfies(x));
+  // A hold is cleared by more tests, or by a person (GH-100), not by fixing the change.
+  const held = bad.filter((x) => x.status === 'hold');
+  const fix = bad.filter((x) => x.status !== 'hold');
   out(o, () => [
     `${branch ?? 'HEAD'} at ${r.sha.slice(0, 7)}, against ${r.env.name}${r.env.org ? ` (${r.env.org})` : ''}`,
-    ...r.results.map((x) => `  ${gateLabel(x.status)}${x.gate.padEnd(11)} ${x.summary}`),
+    ...r.results.flatMap((x) => [
+      `  ${gateLabel(x.status)}${x.gate.padEnd(11)} ${x.summary}${testsText(x) ? tone(` · tests: ${testsText(x)}`, 'dim') : ''}`,
+      ...(x.countsNote ? [tone(`      ${x.countsNote}`, 'dim')] : []),
+    ]),
     r.dirty ? tone('Not recorded: there are uncommitted changes, so these results can\'t vouch for a commit. Commit, then run acc gate run again.', 'orange') : '',
-    bad.length ? `${bad.length} to fix: ${bad.map((x) => x.gate).join(', ')}.` : r.dirty ? '' : 'All recorded. acc done will accept this commit.',
+    fix.length ? `${fix.length} to fix: ${fix.map((x) => x.gate).join(', ')}.` : '',
+    held.length ? `${held.length} ${held.length === 1 ? 'needs' : 'need'} a person: ${held.map((x) => x.gate).join(', ')}. Add the tests, or un-skip them. If the task asks for the skip, say so with acc block "<why>": only a person can waive it.` : '',
+    bad.length || r.dirty ? '' : 'All recorded. acc done will accept this commit.',
   ].filter(Boolean).join('\n'), r);
   return bad.length ? 1 : 0;
 }
@@ -78,9 +86,11 @@ function cmdGateList(o: Opts): number {
   const lighter = builderGatesFor(config, env.branch);
   const builder = requiredGates(config, env.branch, 'builder');
   const gates = gatesFor(config).map((g) => ({ name: g.name, about: g.about, required: config.gates.required.includes(g.name), builder: builder.includes(g.name), heavy: g.heavy, receipt: receipts[g.name] ?? null }));
+  // What each check's tests ran on this commit, where any counted (GH-100).
+  const counted = gates.some((g) => g.receipt && testsText(g.receipt));
   out(o, () => gates.length
-    ? [`${branch ?? 'HEAD'} at ${head.slice(0, 7)}, against ${env.name}`, '', table([['Gate', 'Required', ...(lighter ? ['Builder'] : []), 'Heavy', 'This commit', 'Checks'], ...gates.map((g) => [
-      g.name, g.required ? 'yes' : '', ...(lighter ? [g.builder ? 'yes' : ''] : []), g.heavy ? 'yes' : '', g.receipt ? gateLabel(g.receipt.status).trimEnd() : tone('not run', 'dim'), g.about,
+    ? [`${branch ?? 'HEAD'} at ${head.slice(0, 7)}, against ${env.name}`, '', table([['Gate', 'Required', ...(lighter ? ['Builder'] : []), 'Heavy', 'This commit', ...(counted ? ['Tests'] : []), 'Checks'], ...gates.map((g) => [
+      g.name, g.required ? 'yes' : '', ...(lighter ? [g.builder ? 'yes' : ''] : []), g.heavy ? 'yes' : '', g.receipt ? gateLabel(g.receipt.status).trimEnd() : tone('not run', 'dim'), ...(counted ? [g.receipt ? testsText(g.receipt) : ''] : []), g.about,
     ])]), ...(lighter ? ['', tone(`Builders run ${builder.join(', ')}, and acc done takes them. The required ones run once, in the merge queue, before the merge.`, 'dim')] : [])].join('\n')
     : 'No gates. List commands under "gates.commands" in .acc/config.json, and the required ones under "gates.required".', { sha: head, env: env.branch, gates });
   return 0;

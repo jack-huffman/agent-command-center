@@ -208,7 +208,7 @@ doesn't know, at any level (GH-107).
 | `dispatch.shared` | Files, or folders, that every task edits, such as the docs. Like `autopilot.appendOnly`, they never make one task wait for another's files. Left out, there are none ([section 7](#7-dispatch)) |
 | `worktrees.root` | Where task worktrees go. The default is `.claude/worktrees/` inside the repo, where a background agent started from the trusted main checkout can enter one without a trust prompt (D-022, [section 7](#7-dispatch)) |
 | `worktrees.setup` | Commands run in each new task worktree, in order, once it's made and `node_modules` is linked in from the main checkout, such as `npm ci`. One that fails stops the dispatch |
-| `gates` | Which checks are required, plus per-check overrides ([section 9](#9-gates-and-receipts)). `gates.required` names the checks a commit needs before review and landing, and `gates.commands` gives each check its command. `gates.heavy` names those that take the machine-wide slot, one at a time across every repo (D-024); left out, `build`, `test` and `check`, or in Salesforce `static`, `lwc-tests` and `validate`. `gates.severity` is the Code Analyzer level that fails `static`, from 1 (only the worst problems) to 5 (everything), default 2. `gates.builder` names a builder's lighter checks, where the merge queue runs the required ones. `acc gate required` and `acc gate builder` change the two lists, as Settings does (GH-111) |
+| `gates` | Which checks are required, plus per-check overrides ([section 9](#9-gates-and-receipts)). `gates.required` names the checks a commit needs before review and landing, and `gates.commands` gives each check its command. `gates.heavy` names those that take the machine-wide slot, one at a time across every repo (D-024); left out, `build`, `test` and `check`, or in Salesforce `static`, `lwc-tests` and `validate`. `gates.severity` is the Code Analyzer level that fails `static`, from 1 (only the worst problems) to 5 (everything), default 2. `gates.builder` names a builder's lighter checks, where the merge queue runs the required ones. `acc gate required` and `acc gate builder` change the two lists, as Settings does (GH-111). `gates.tests` names the checks that run tests, besides `test` and Salesforce's `lwc-tests`: their receipts count what ran, and one that ran none needs a person (GH-100) |
 | `secretScan.paths`, `secretScan.exclude` | Where setup's B3.secrets step looks for credentials in tracked files, and what it skips there. By default the whole repo, or in Salesforce `force-app`, `config` and `scripts`, skipping nothing |
 | `analysis.required` | Whether a task needs an analysis before it's built (D-052). Left out, a Salesforce project's do and a generic one's don't |
 | `template` | The team template the project was started from, written by `acc init --from`: its `name`, its `source` (a GitHub file URL, `<git-url>#<path>`, or a path inside the repo, under `~/`, or an absolute path elsewhere) and its `digest` (`sha256:` of its JSON with sorted keys). Setup's B0.template step says when the template has changed and the project now differs; nothing re-applies it ([docs/TEMPLATES.md](TEMPLATES.md), D-097) |
@@ -563,21 +563,80 @@ config.
   environment-specific files.
 - **Deletions** are out of scope for agents in v1. A task that needs destructive
   changes goes to a person.
-- **Receipts** record the gate, commit, pass or fail, timings, a summary, the log
-  path, and any Salesforce job id, org id and tests run. They're tied to a
-  commit, so a new commit makes them stale.
+- **Receipts** record the gate, commit, its status, timings, a summary, the log
+  path, what its tests ran (below), and any Salesforce job id, org and the Apex
+  tests the builder named. They're tied to a commit, so a new commit makes them
+  stale.
 - **Heavy gates** take a slot in a machine-wide semaphore (one at a time by
   default). Every gate runs under `nice -n 15`.
 - **A gate that doesn't apply** records `skip`, which satisfies `acc done`. A
   run with uncommitted changes records nothing. `error` (couldn't run) is kept
-  apart from `fail` (the change is wrong). See D-024.
+  apart from `fail` (the change is wrong). See D-024. `hold` ("needs a person")
+  is a test check that ran, but that acc can't vouch for (below): like `fail`,
+  it satisfies nothing, so `acc done`, `acc review`, `acc land` and the merge
+  queue all stop.
 
 - **A waived gate** (D-031) is a skip a person chose, with a reason:
   `acc gate waive <gate>... --reason "<why>" [--task <id>]`, or **Waive…** beside
-  a failing check on the ticket page. Its receipt keeps who waived it, why, and
-  what it had been. It holds for that commit only, and `acc gate run` leaves it
-  alone. Builders can't waive: the CLI refuses them, and their settings deny the
-  command.
+  a failing check, or one that needs a person, on the ticket page. Its receipt
+  keeps who waived it, why, and what it had been, and a test check's counts. It
+  holds for that commit only, and `acc gate run` leaves it alone. Builders can't
+  waive: the CLI refuses them, and their settings deny the command.
+
+**What a test check ran** (GH-100). A check that ran nothing looks the same as
+one that passed, unless something counts. Each gate's receipt keeps `counts`
+(run, passed, failed, skipped and todo) wherever its output holds a test
+summary acc can read: node:test's spec or TAP reporter, Jest's `Tests:` line
+(and `No tests found`), or, for `validate` with Apex tests, the deploy's
+`numTestsRun` and `numFailures`. `run` is the tests that ran to a result,
+passed or failed; skipped and todo are counted apart. Every complete summary in
+the output counts once, so a command that runs its tests in parts is added up,
+and a summary-like line a test prints, indented or incomplete, counts for
+nothing. Where the runner names its skipped tests, the receipt keeps the names.
+
+- **A test check** is one `gates.tests` names, a gate called `test`,
+  Salesforce's `lwc-tests`, or `validate` when it runs Apex tests (`NoTestRun`
+  runs none on purpose). Its output with no summary acc can read gives no
+  counts and a note saying so ("not read"); acc never guesses from the exit
+  code. This repo names `check` and `near-tests`.
+- **None run is a hold.** A would-be pass that ran no tests, such as
+  `lwc-tests` passing `--passWithNoTests` with no Jest test near the change,
+  needs a person. This is not `skip`, which still means the check didn't apply.
+- **More skipped than before is a hold.** acc compares the skipped count with
+  the nearest earlier receipt with counts for the same gate and command: first
+  one a person waived on the branch's own commits (a count they accepted, which
+  the merge queue's merge of the branch is compared with), else the nearest at
+  or before the branch's merge base with its environment's branch, walking back
+  up to 500 commits. The tip isn't used, since it can hold changes the branch
+  doesn't. The summary gives both counts and that receipt's commit, and names
+  the newly skipped tests where both receipts name them. With nothing earlier,
+  the receipt says so and the check isn't held; receipts from before this have
+  no counts, so a gate's first counted run is its baseline. A repo that squashes
+  or rebases its pull requests loses the ancestry, so it always has nothing to
+  compare with.
+- **What isn't compared:** a check whose tests are chosen by the change, as
+  they differ commit to commit. That's `lwc-tests` (related tests), `validate`
+  (the tests the builder named), and a builder's lighter check, one
+  `gates.builder` names that `gates.required` doesn't, such as this repo's
+  `near-tests`. They still record counts, and the reviewer catches a new skip
+  in the diff (§10). This repo compares `check`, in the merge queue.
+- **Only a person clears a hold.** A fail or an error keeps its own status,
+  with its counts. `acc gate run` tells a builder to add the tests or un-skip
+  them, or to `acc block "<why>"` if the task asks for the skip. The merge
+  queue stops for a person rather than sending the task back, and asks them to
+  waive it on the branch's head.
+- **A person's waiver on the head clears a hold on the merge of that head,**
+  counts or not. When the branch is behind, the queue checks a merge commit of
+  its own, made again on each pass, and a builder never runs the full check on
+  the head, so a waiver there usually has no counts to compare with. A hold on
+  a merge of the base into a head where a person waived that gate is recorded
+  as waived: a skip, by them, with their reason, naming the head, and keeping
+  the counts the merge ran and the hold it was. A fail or an error on the merge
+  isn't cleared that way: a waiver holds for its own commit (D-031).
+
+The ticket page, `acc gate run` and `acc gate list`, the pull request's check
+table (§11) and the reviewer's list of checks (§10) all show the counts: "312
+run, 2 skipped", with failed and todo only when there are some.
 
 `acc gate run [<gate>...]` runs the required gates, or the ones named, on the
 current commit. `acc gate list` shows each gate and its result on this commit,
@@ -644,6 +703,12 @@ session can be watched like any agent's.
 - **It checks:** whether the acceptance criteria are met, whether the project
   rules are followed, whether the change strayed outside the ticket, and whether
   the tests actually exercise the change.
+- **A newly added `skip`, `only` or `todo` in a test** (`it.skip`, `xit`,
+  `describe.skip`, `test.only`, `fit`, `it.todo`, `{ skip: true }`, `t.skip()`,
+  `t.todo()`) is a finding that must be fixed, unless the task asks for it: a
+  skipped test passes having checked nothing (GH-100). Its list of the commit's
+  checks says what each test check ran, what that was compared with, and any
+  newly skipped tests by name (§9).
 - **It reads the builder's note as a claim.** Its instructions say the note is
   the builder's own account of what landed, which numbers moved and what's
   still open, to check against the diff rather than trust, and to say where
@@ -670,7 +735,10 @@ review, and passing receipts for every required check. Then it:
    `gh pr create --base <branch> --title "<id>: <title>"`. The generated body
    holds a summary, an acceptance checklist, the check table, the review
    verdict, the builder's note under **Builder's note**, labelled as its own
-   words, or "_Its builder left no note._" (D-106), and the ticket link.
+   words, or "_Its builder left no note._" (D-106), and the ticket link. Where a
+   check counted its tests, or tried to, the table has a Tests column: "312
+   run, 2 skipped", "not read" where acc couldn't tell, or nothing for a check
+   that runs none (GH-100). A hold reads "Needs a person".
 3. Drafts an update for the ticket (D-066): the pull request's link and one
    plain sentence for the client, which the review writes (`client`), or the
    task's title when it has none. It posts nothing. The draft is kept in

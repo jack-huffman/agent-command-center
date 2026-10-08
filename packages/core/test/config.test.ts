@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { autoMergeFor, autoMergeOn, branchFor, builderGatesFor, CONFIG_KEYS, defaultEnvironment, keyShown, loadConfig, parseConfig, requiredGates, saveTracker, skippedOnRoute, trackerForKey, UNREAD_KEYS, VALIDATOR_ONLY, withTracker, writeConfig } from '../src/config.ts';
+import { autoMergeFor, autoMergeOn, branchFor, builderGatesFor, CONFIG_KEYS, defaultEnvironment, isTestGate, keyShown, loadConfig, parseConfig, requiredGates, saveTracker, skippedOnRoute, trackerForKey, UNREAD_KEYS, VALIDATOR_ONLY, withTracker, writeConfig } from '../src/config.ts';
 import { GENERIC_CONFIG, SF_CONFIG, tempDir } from './support.ts';
 
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x));
@@ -161,6 +161,8 @@ test('this repo lists its decision log as append-only, and lets autopilot merge 
   // Its builders run the typecheck and the tests near what they changed; the full check runs in the merge queue (GH-73).
   assert.deepEqual([config.gates.builder, config.gates.required, requiredGates(config, 'main', 'builder')], [['typecheck', 'near-tests'], ['check'], ['typecheck', 'near-tests']]);
   assert.deepEqual(Object.keys(config.gates.commands).sort(), ['check', 'near-tests', 'typecheck']);
+  // Its full check and the tests near a change run tests, so their receipts count what ran (GH-100); the typecheck doesn't.
+  assert.deepEqual(['check', 'near-tests', 'typecheck'].map((g) => isTestGate(config, g)), [true, true, false]);
 });
 
 test('gates.builder: a list of gate names, kept as written, for builders only where the merge queue runs the full check (GH-73)', () => {
@@ -173,6 +175,19 @@ test('gates.builder: a list of gate names, kept as written, for builders only wh
   const dir = tempDir();
   writeConfig(join(dir, 'config.json'), c);
   assert.deepEqual(loadConfig(join(dir, 'config.json')).config.gates.builder, ['typecheck'], 'written back as it was');
+});
+
+test('gates.tests: a list of gate names whose receipts count the tests they ran, besides test and Salesforce\'s lwc-tests (GH-100)', () => {
+  const raw = { ...clone(GENERIC_CONFIG), gates: { required: ['check'], tests: ['check'], commands: { check: 'npm run check', test: 'npm test', lint: 'eslint .' } } };
+  const c = parseConfig(raw).config!;
+  assert.deepEqual(c.gates.tests, ['check']);
+  assert.deepEqual(['check', 'test', 'lint', 'lwc-tests'].map((g) => isTestGate(c, g)), [true, true, false, false]);
+  assert.equal(isTestGate(parseConfig(clone(SF_CONFIG)).config!, 'lwc-tests'), true, 'Salesforce\'s Jest gate runs tests');
+  assert.equal(parseConfig(clone(GENERIC_CONFIG)).config!.gates.tests, undefined, 'left out, only those acc knows');
+  for (const bad of ['check', [''], [1], {}]) assert.match(errorsOf({ ...raw, gates: { ...raw.gates, tests: bad } }), /"gates\.tests" must be a list of gate names/, JSON.stringify(bad));
+  const dir = tempDir();
+  writeConfig(join(dir, 'config.json'), c);
+  assert.deepEqual(loadConfig(join(dir, 'config.json')).config.gates.tests, ['check'], 'written back as it was');
 });
 
 test('autopilot.autoMerge: off unless it\'s true, a boolean, never in a Salesforce project, and never into a protected environment (GH-67)', () => {
@@ -393,7 +408,7 @@ const EVERY_KEY = {
   },
   autonomy: 'review',
   worktrees: { root: '.claude/worktrees', setup: ['npm ci'] },
-  gates: { required: ['check'], commands: { check: 'npm run check', typecheck: 'npm run typecheck' }, heavy: ['check'], severity: 3, builder: ['typecheck'] },
+  gates: { required: ['check'], commands: { check: 'npm run check', typecheck: 'npm run typecheck' }, heavy: ['check'], severity: 3, builder: ['typecheck'], tests: ['check'] },
   secretScan: { paths: ['.'], exclude: ['fixtures'] },
   analysis: { required: true },
   autopilot: { appendOnly: ['docs/DECISIONS.md'], autoMerge: true },

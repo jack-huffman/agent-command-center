@@ -7,7 +7,7 @@ import type { TaskRow } from '../src/logic/shared.ts';
 import type { Analysis } from '../../packages/core/src/analyze.ts';
 import { type BoardInput, initials, priorityIcon, trackerBoard, typeIcon } from '../src/model/boards.ts';
 import { isFromWebview } from '../src/model/messages.ts';
-import { ticketActionRefusal, ticketModel } from '../src/model/task-page.ts';
+import { type CheckIn, checkLook, ticketActionRefusal, ticketModel } from '../src/model/task-page.ts';
 import { updateAbout } from '../src/model/updates.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
 import { type Ticket, TrackerError } from '../../packages/core/src/trackers/types.ts';
@@ -227,6 +227,35 @@ test('a ticket page: the tracker\'s ticket takes comments, and its fields change
   assert.equal(ticketModel({ ...base, ticket, row: row('ACME-1', 'done', 'done', { pr: { ...pr, state: 'merged' } }), task }).acc!.conflicts, null, 'a merged one no longer conflicts');
   const onBoard = trackerBoard(board(), [row('ACME-3', 'review', 'needs-you', { pr })], '/r').columns[1]!.cards[0]!.acc!;
   assert.deepEqual([onBoard.needsYou, onBoard.conflicts], [true, 'Conflicts with dev: docs/DECISIONS.md, bin/acc, a.ts and 1 more'], 'the tracker\'s card says why too');
+});
+
+test('a task\'s checks carry what their tests ran, and one that needs a person has its own icon and words, and Waive… (GH-100)', () => {
+  const task = (branch: string | null) => ({ id: 'ACME-1', title: 'Built', brief: '', source: { kind: 'jira', key: 'ACME-1', url: null }, environment: 'dev', deps: [], labels: [], state: 'review', blocker: null, run: branch ? { branch } : null, pr: null, history: [], createdAt: '', updatedAt: '' } as never);
+  const checks: CheckIn[] = [
+    { gate: 'check', status: 'pass', summary: 'Passed.', counts: '312 run, 2 skipped', countsNote: 'Compared with 2 skipped on abc1234, the nearest earlier count on dev.' },
+    { gate: 'lwc-tests', status: 'hold', summary: 'Ran no tests, so it can\'t vouch for the change.', counts: '0 run, 0 skipped' },
+    { gate: 'validate', status: 'fail', summary: '1 problem', counts: '21 run, 4 failed, 0 skipped' },
+    { gate: 'smoke', status: 'error', summary: 'sh: make: not found', counts: 'not read' },
+    { gate: 'static', status: 'skip', summary: 'Waived by jordan: known', waived: true },
+    { gate: 'format', status: 'skip', summary: 'Not run on this commit' },
+  ];
+  const base = { project: '/r', tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira' as const, key: 'ACME-1', ticket, loading: false, error: null, connect: null, checks, row: row('ACME-1', 'review', 'review') };
+  const rows = ticketModel({ ...base, task: task('task/ACME-1-built') }).acc!.checks;
+  assert.deepEqual(rows.map((c) => [c.gate, c.look.label, c.look.icon, c.look.tone, c.counts ?? null, c.waivable]), [
+    ['check', 'pass', 'pass', 'blue', '312 run, 2 skipped', false],
+    ['lwc-tests', 'needs a person', 'person', 'orange', '0 run, 0 skipped', true],
+    ['validate', 'fail', 'error', 'orange', '21 run, 4 failed, 0 skipped', true],
+    ['smoke', 'error', 'warning', 'orange', 'not read', true],
+    ['static', 'waived', 'debug-step-over', 'neutral', null, false],
+    ['format', 'not run', 'circle-slash', 'neutral', null, false],
+  ]);
+  assert.equal(rows[0]!.countsNote, 'Compared with 2 skipped on abc1234, the nearest earlier count on dev.');
+  // Every status has a look of its own: none falls through to another's.
+  const looks = (['pass', 'fail', 'error', 'skip', 'hold'] as const).map((status) => checkLook({ gate: 'g', status, summary: 's' }));
+  assert.equal(new Set(looks.map((l) => `${l.icon} ${l.label}`)).size, 5);
+  assert.ok(looks.every((l) => l.label && l.icon), 'each has words and an icon');
+  // With no branch there's no commit to waive on.
+  assert.ok(ticketModel({ ...base, task: task(null) }).acc!.checks.every((c) => !c.waivable));
 });
 
 test('a task\'s page shows its analysis gist first: the verdict, the summary, its questions to answer, then the rest folded (D-052)', () => {

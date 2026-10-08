@@ -3,12 +3,13 @@ import { dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { builderGatesFor, requiredGates } from '../../packages/core/src/config.ts';
 import type { RepoPaths } from '../../packages/core/src/paths.ts';
-import { receiptsAt } from '../../packages/core/src/receipts.ts';
+import { type Receipt, receiptsAt } from '../../packages/core/src/receipts.ts';
+import { testsText } from '../../packages/core/src/test-counts.ts';
 import { signInLabel, type Ticket, type TrackerClient } from '../../packages/core/src/trackers/types.ts';
 import type { Hub, Project } from './hub.ts';
 import { type FromWebview, isFromWebview } from './model/messages.ts';
 import type { Ref } from './model/shared.ts';
-import { type TicketAcc, ticketActionRefusal, ticketModel, type TicketModel } from './model/task-page.ts';
+import { type CheckIn, ticketActionRefusal, ticketModel, type TicketModel } from './model/task-page.ts';
 import { htmlFor, isWebLink, TabTheme } from './panels.ts';
 import type { ThemeChoice } from './model/settings.ts';
 import { runFile } from './run.ts';
@@ -176,7 +177,7 @@ export class TicketPanels implements vscode.Disposable {
    * Each required check and any other recorded on the task branch's latest commit. Where the merge queue
    * runs the full check, a builder's lighter ones come first, then the full one, each saying which it is (GH-73).
    */
-  private async checks(p: Project, branch: string | null, environment: string): Promise<TicketAcc['checks']> {
+  private async checks(p: Project, branch: string | null, environment: string): Promise<CheckIn[]> {
     const lighter = builderGatesFor(p.config, environment);
     const builder = requiredGates(p.config, environment, 'builder');
     const required = [...new Set([...builder, ...p.config.gates.required])];
@@ -186,7 +187,9 @@ export class TicketPanels implements vscode.Disposable {
     const sha = await runFile('git', ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], p.root);
     const receipts = sha.code === 0 ? receiptsAt({ receipts: join(dirname(p.ledgerPath), 'receipts') } as RepoPaths, sha.stdout.trim()) : {};
     const gates = [...new Set([...required, ...Object.keys(receipts)])];
-    return gates.map((gate) => receipts[gate] ? { gate, status: receipts[gate]!.status, summary: receipts[gate]!.summary, waived: !!receipts[gate]!.waived, ...scope(gate) } : { gate, status: 'skip' as const, summary: unrun(gate), ...scope(gate) });
+    // What each test check ran, as the pull request says it (GH-100).
+    const counted = (r: Receipt) => ({ ...(testsText(r) ? { counts: testsText(r) } : {}), ...(r.countsNote ? { countsNote: r.countsNote } : {}) });
+    return gates.map((gate) => receipts[gate] ? { gate, status: receipts[gate]!.status, summary: receipts[gate]!.summary, waived: !!receipts[gate]!.waived, ...scope(gate), ...counted(receipts[gate]!) } : { gate, status: 'skip' as const, summary: unrun(gate), ...scope(gate) });
   }
 
   private async post(o: Open): Promise<void> {

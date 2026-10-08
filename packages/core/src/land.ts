@@ -6,9 +6,10 @@ import { AccError, type Runner } from './exec.ts';
 import { withJob } from './jobs.ts';
 import { type Actor, type CarriedReview, mutate, noteMarkdown, type PullRequest, readLedger, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
-import { type Receipt, receiptHooks, receiptsAt } from './receipts.ts';
+import { type GateStatus, type Receipt, receiptHooks, receiptsAt } from './receipts.ts';
 import { carriedVerdict, readVerdict, type Verdict } from './review.ts';
 import { conflictsOf, FETCH_TIMEOUT_MS, fetchBranches } from './sync.ts';
+import { testsText } from './test-counts.ts';
 import { draftUpdate } from './updates.ts';
 
 /**
@@ -50,7 +51,7 @@ export interface LandResult {
   updateError?: string;
 }
 
-const STATUS_WORD: Record<string, string> = { pass: 'Passed', fail: 'Failed', error: 'Couldn\'t run', skip: 'Didn\'t apply' };
+const STATUS_WORD: Record<GateStatus, string> = { pass: 'Passed', fail: 'Failed', error: 'Couldn\'t run', skip: 'Didn\'t apply', hold: 'Needs a person' };
 const cell = (s: string) => s.replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ').trim();
 
 /** How a pull request merges, as its description ends: by a person, or by autopilot where auto-merge covers its environment (GH-67). */
@@ -62,10 +63,12 @@ export function mergesWords(autoMerge: boolean): string {
 
 /**
  * The pull request's description: what it does, its acceptance criteria, its checks and its review. A merge
- * commit the merge queue made says the review it carries is of the commit it was made on (GH-73).
+ * commit the merge queue made says the review it carries is of the commit it was made on (GH-73). Where a
+ * check counted its tests, or tried to, the table says what ran (GH-100).
  */
 export function prBody(task: Task, env: Environment, sha: string, verdict: Verdict, receipts: Record<string, Receipt>, autoMerge = false, carried: CarriedReview | null = null): string {
   const ticket = task.source.url ? `[${task.source.key ?? task.id}](${task.source.url})` : null;
+  const counted = Object.values(receipts).some((r) => testsText(r));
   const lines = [
     verdict.summary.trim(),
     '',
@@ -76,9 +79,9 @@ export function prBody(task: Task, env: Environment, sha: string, verdict: Verdi
     '',
     `## Checks on ${sha.slice(0, 7)}`,
     '',
-    '| Check | Result | Detail |',
-    '|---|---|---|',
-    ...Object.values(receipts).map((r) => `| \`${r.gate}\` | ${r.waived ? `Waived by ${r.waived.by.replace(/^human:/, '')}` : STATUS_WORD[r.status] ?? r.status} | ${cell(r.waived ? r.waived.reason : r.summary)} |`),
+    counted ? '| Check | Result | Tests | Detail |' : '| Check | Result | Detail |',
+    counted ? '|---|---|---|---|' : '|---|---|---|',
+    ...Object.values(receipts).map((r) => `| \`${r.gate}\` | ${r.waived ? `Waived by ${r.waived.by.replace(/^human:/, '')}` : STATUS_WORD[r.status] ?? r.status} |${counted ? ` ${testsText(r)} |` : ''} ${cell(r.waived ? r.waived.reason : r.summary)} |`),
     '',
     '## Review',
     '',
