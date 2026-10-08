@@ -92,7 +92,7 @@ const OWN = 'belongs to a project\'s own .acc/config.json, not a team template';
 const PROJECT_ONLY: Record<'top' | 'environment' | 'agents' | 'tracker', Record<string, string>> = {
   top: {
     project: OWN, github: `${OWN}: acc init finds the repo and the account it pushes as`, commitIdentity: `${OWN}: it's each repo's own`,
-    environmentSpecific: OWN, knownDrift: OWN, worktrees: OWN, secretScan: OWN, analysis: OWN, autopilot: OWN, template: `${OWN}: acc init records it`,
+    environmentSpecific: OWN, knownDrift: OWN, worktrees: OWN, secretScan: OWN, strayFiles: OWN, analysis: OWN, autopilot: OWN, template: `${OWN}: acc init records it`,
     trackers: 'isn\'t a template key: a template names one tracker, under "tracker"',
   },
   environment: { org: `${OWN}: an org alias is each person's own, and acc init finds it` },

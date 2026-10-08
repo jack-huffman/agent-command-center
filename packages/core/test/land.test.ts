@@ -16,7 +16,8 @@ import { ciOf, failingOf, sync } from '../src/sync.ts';
 import { bad, fakeBin, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, tempDir } from './support.ts';
 
 const now = () => new Date('2026-10-02T12:00:00Z');
-const RAW = { ...GENERIC_CONFIG, github: { repo: 'acme/tool', account: 'jordan-kim' }, gates: { required: ['test'], commands: { test: 'true' } } };
+// Its tasks add files at the root; stray-files has its own tests (GH-103).
+const RAW = { ...GENERIC_CONFIG, github: { repo: 'acme/tool', account: 'jordan-kim' }, gates: { required: ['test'], commands: { test: 'true' } }, strayFiles: { required: false } };
 
 /** A repo whose origin is a local bare repo, with T-1 in review on its own branch. */
 function setup(source: { kind: 'github' | 'jira' | 'azure' | 'manual'; key: string | null; url?: string } = { kind: 'jira', key: 'ACME-7', url: 'https://acme.atlassian.net/browse/ACME-7' }) {

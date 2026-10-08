@@ -107,9 +107,10 @@ test('what belongs to one project\'s config is refused as that, and anything lik
   t.tracker.edits = true;
   t.tracker.epic = 'ACME-3';
   t.environments[0].org = 'ACME Dev';
+  t.strayFiles = { allow: ['notes.md'] };
   t.trackers = [];
   const errors = errorsOf(t);
-  for (const at of ['github', 'commitIdentity', 'agents.permissionMode', 'tracker.edits', 'tracker.epic', 'environments[0].org']) {
+  for (const at of ['github', 'commitIdentity', 'agents.permissionMode', 'tracker.edits', 'tracker.epic', 'environments[0].org', 'strayFiles']) {
     assert.match(errors, new RegExp(`"${at.replace(/[[\].]/g, '\\$&')}" belongs to a project's own \\.acc/config\\.json`), at);
   }
   assert.match(errors, /can't loosen what builders may do/);

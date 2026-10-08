@@ -52,6 +52,8 @@ function trustingHome(...repos: string[]): string {
 }
 
 const IGNORE = { '.gitignore': '.claude/worktrees/\n' };
+/** For a test of a builder's run, not its checks: stray-files off, so acc done needs none (GH-103). */
+const QUIET = { strayFiles: { required: false } };
 
 function acc(cwd: string, args: string[], env: NodeJS.ProcessEnv = {}) {
   const r = spawnSync(process.execPath, ['--no-warnings', MAIN, ...args], { cwd, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', ACC_ROLE: '', ACC_TASK: '', CLAUDE_CONFIG_DIR: '', ...env } });
@@ -145,14 +147,14 @@ test('where the merge queue runs the full check, the packet and the short one na
   const task = { ...l.tasks[0]!, run: { worktree: '/w/GH-73', branch: 'task/GH-73-a-queue' } };
   const env = config.environments[0]!;
   const p = renderPacket({ task, config, env, worktree: '/w/GH-73', branch: 'task/GH-73-a-queue', rules: null, environmentSpecific: [] });
-  assert.ok(p.includes('It runs the required checks (`typecheck`, `near-tests`) on your latest commit'), p);
+  assert.ok(p.includes('It runs the required checks (`typecheck`, `near-tests`, `stray-files`) on your latest commit'), p);
   assert.ok(p.includes('These are the lighter checks, such as the tests near what you changed. The full check (`check`) runs once, in the merge queue, before your pull request merges'));
   assert.ok(p.includes('- push, merge a pull request, or open one (a person, `acc land` and autopilot do that)'), 'merging the base in isn\'t forbidden');
   assert.match(shortPacket(task, ['typecheck', 'near-tests'], ['check']), /run exactly `acc gate run` \(typecheck, near-tests\), then finish with your note, all on one line: `acc done --landed .*\nThe full check \(check\) runs once, in the merge queue, before the merge\.\nNever push, merge a pull request, open one, or deploy\./s);
   // Elsewhere, as before: the required checks, and nothing about a queue.
   const off = parseConfig({ ...raw, autopilot: { autoMerge: false } }).config!;
   const plain = renderPacket({ task, config: off, env, worktree: '/w/GH-73', branch: 'task/GH-73-a-queue', rules: null, environmentSpecific: [] });
-  assert.ok(plain.includes('It runs the required checks (`check`)') && !plain.includes('merge queue'));
+  assert.ok(plain.includes('It runs the required checks (`check`, `stray-files`)') && !plain.includes('merge queue'));
   assert.ok(!shortPacket(task, ['check']).includes('merge queue'));
   // A builder may bring its own base in, as the queue asks when it conflicts, with flags or without: only
   // where the queue runs, and no other branch.
@@ -211,7 +213,7 @@ test('a builder nobody chose a model for runs acc\'s default, and its run says s
 });
 
 test('a model picked for a task reaches claude --bg over the project\'s and the clone\'s, and a rework keeps it (D-086)', () => {
-  const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, agents: { builder: { model: 'opus', fallbackModel: 'sonnet' } } }), ...IGNORE }));
+  const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, ...QUIET, agents: { builder: { model: 'opus', fallbackModel: 'sonnet' } } }), ...IGNORE }));
   gitIn(repo, 'config', 'acc.builder.model', 'haiku');
   const claude = fakeClaude();
   const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
@@ -241,7 +243,7 @@ test('a model picked for a task reaches claude --bg over the project\'s and the 
 });
 
 test('a task nobody picked a model for follows the clone\'s choice as it is at each re-dispatch (D-086)', () => {
-  const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, agents: { builder: { model: 'opus' } } }), ...IGNORE }));
+  const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, ...QUIET, agents: { builder: { model: 'opus' } } }), ...IGNORE }));
   const claude = fakeClaude();
   const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
   acc(repo, ['add', 'Write the changelog']);
@@ -308,6 +310,15 @@ test('dispatch end to end: worktree from the environment branch, packet, backgro
   assert.equal(task.run!.name, 'Tool · T-1 Write the changelog · builder', 'the name is recorded, so the session is found by it');
   assert.equal(task.run!.n, 1);
 
+  // stray-files is required with nothing in gates.required (GH-103): acc done waits for it, and acc gate run
+  // runs it, a skip here since the branch adds nothing.
+  const early = acc(out.worktree, ['done', ...NOTE], { ...env, ACC_ROLE: 'builder', ACC_TASK: 'T-1' });
+  assert.equal(early.code, 1);
+  assert.match(early.err, /stray-files/);
+  const gate = acc(out.worktree, ['gate', 'run', '--json'], { ...env, ACC_ROLE: 'builder', ACC_TASK: 'T-1' });
+  assert.equal(gate.code, 0, gate.err);
+  assert.deepEqual(gate.json().results.map((x: { gate: string; status: string }) => [x.gate, x.status]), [['stray-files', 'skip']]);
+
   // The builder finishes from inside its worktree, identified by its session environment.
   const done = acc(out.worktree, ['done', ...NOTE, '--json'], { ...env, ACC_ROLE: 'builder', ACC_TASK: 'T-1' });
   assert.equal(done.code, 0, done.err);
@@ -373,7 +384,7 @@ test('a builder can block with a reason, but can\'t mark work done or move other
 });
 
 test('a builder finishes with a note that its next run, a task that depends on it and acc show read (D-106)', () => {
-  const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG), ...IGNORE }));
+  const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, ...QUIET }), ...IGNORE }));
   const claude = fakeClaude();
   const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
   acc(repo, ['add', 'Write the changelog']);
@@ -426,7 +437,7 @@ test('a builder finishes with a note that its next run, a task that depends on i
 });
 
 test('a re-dispatch after a run that left no note tells its builder to check the tree first (D-106)', () => {
-  const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG), ...IGNORE }));
+  const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, ...QUIET }), ...IGNORE }));
   const claude = fakeClaude();
   const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
   acc(repo, ['add', 'Write the changelog']);
@@ -461,7 +472,7 @@ test('Salesforce dispatch points the worktree at the environment\'s org', () => 
 });
 
 test('cleanup keeps a worktree with uncommitted or unmerged work, and removes it once merged', () => {
-  const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG), ...IGNORE }));
+  const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, ...QUIET }), ...IGNORE }));
   const claude = fakeClaude();
   const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
   acc(repo, ['add', 'Docs']);

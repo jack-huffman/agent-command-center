@@ -18,6 +18,9 @@ function acc(cwd: string, args: string[], input?: string, env: NodeJS.ProcessEnv
   return { code: r.status ?? 1, out: r.stdout, err: r.stderr, json: () => JSON.parse(r.stdout) };
 }
 
+/** For a test of moving tasks by hand, not their checks: stray-files off, so a task needs none (GH-103). */
+const UNCHECKED = { ...GENERIC_CONFIG, strayFiles: { required: false } };
+
 function repoWithConfig(config: unknown = GENERIC_CONFIG): string {
   return makeRepo({ '.acc/config.json': JSON.stringify(config) });
 }
@@ -158,7 +161,7 @@ test('init --from copies the rules a team template names into .acc/rules/, and -
 });
 
 test('add, list, ready, set and show: a task through its life', () => {
-  const dir = repoWithConfig();
+  const dir = repoWithConfig(UNCHECKED);
   assert.equal(acc(dir, ['add', 'First thing']).code, 0);
   assert.equal(acc(dir, ['add', 'Second thing', '--dep', 'T-1', '--brief', 'Needs the first']).code, 0);
   const ready = acc(dir, ['ready', '--json']).json() as { id: string }[];
@@ -655,10 +658,22 @@ test('gate run records receipts on the commit, exits 1 while a required check fa
   assert.equal(passing.code, 0, passing.err);
   assert.match(passing.out, /All recorded\. acc done will accept this commit\./);
   const list = acc(dir, ['gate', 'list', '--json']).json() as { gates: { name: string; required: boolean; heavy: boolean; receipt: { status: string } | null }[] };
-  assert.deepEqual(list.gates.map((g) => [g.name, g.required, g.heavy, g.receipt?.status]), [['lint', true, false, 'pass'], ['test', true, true, 'pass']]);
+  // stray-files is built in and required (GH-103), and skips: the commit is main's own, so it adds nothing.
+  assert.deepEqual(list.gates.map((g) => [g.name, g.required, g.heavy, g.receipt?.status]), [['stray-files', true, false, 'skip'], ['lint', true, false, 'pass'], ['test', true, true, 'pass']]);
   assert.equal(acc(dir, ['gate', 'run', 'nope']).code, 2, 'an unknown gate is a usage error');
   assert.equal(acc(dir, ['gate', 'run', 'lint', '--test', 'not a class']).code, 2);
   assert.match(acc(dir, ['drift', 'main']).err, /no orgs/);
+});
+
+test('acc gate run on a branch that commits a log exits 1, naming the file and the fix (GH-103)', () => {
+  const dir = repoWithConfig();
+  spawnSync('git', ['checkout', '-q', '-b', 'task/T-1-thing'], { cwd: dir });
+  writeFileSync(join(dir, 'debug.log'), 'scratch\n');
+  spawnSync('git', ['add', '-A'], { cwd: dir });
+  spawnSync('git', ['commit', '-qm', 'add a log'], { cwd: dir });
+  const r = acc(dir, ['gate', 'run', '--env', 'main']);
+  assert.equal(r.code, 1, r.err);
+  assert.match(r.out, /✗ fail\s+stray-files\s+This change adds a file that shouldn't be committed: debug\.log \(a log, temp file or merge leftover\)\. Take each out of the commit with git rm --cached debug\.log and add it to \.gitignore, or, if it belongs in the repo, list it under "strayFiles\.allow" in \.acc\/config\.json\./);
 });
 
 test('acc gate waive: a person waives a task\'s failing check with a reason; a builder never can (D-031)', () => {
@@ -745,7 +760,7 @@ test('acc autopilot runs on a repo where no task was ever added, which has no st
 });
 
 test('a task in review whose pull request was closed shows as needs you, and acc show names the pull request (D-063)', () => {
-  const dir = repoWithConfig();
+  const dir = repoWithConfig(UNCHECKED);
   assert.equal(acc(dir, ['add', 'Add a sum function']).code, 0);
   assert.equal(acc(dir, ['set', 'T-1', 'running']).code, 0);
   assert.equal(acc(dir, ['set', 'T-1', 'review']).code, 0);
@@ -767,7 +782,7 @@ test('a task in review whose pull request was closed shows as needs you, and acc
 });
 
 test('a task autopilot couldn\'t move on shows as needs you, and acc show says why (D-055)', () => {
-  const dir = repoWithConfig();
+  const dir = repoWithConfig(UNCHECKED);
   assert.equal(acc(dir, ['add', 'Add a sum function']).code, 0);
   assert.equal(acc(dir, ['set', 'T-1', 'running']).code, 0);
   assert.equal(acc(dir, ['set', 'T-1', 'review']).code, 0);

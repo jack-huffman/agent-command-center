@@ -1,6 +1,6 @@
 // The builder's packet and its session's settings: what acc writes into a task's worktree when it dispatches it.
 
-import { autoMergeFor, builderGatesFor, type Config, type Environment, requiredGates } from './config.ts';
+import { autoMergeFor, builderGatesFor, type Config, type Environment, fullGates, requiredGates } from './config.ts';
 import { DONE_COMMAND, NOTE_LIMITS, noteMarkdown, type Task } from './ledger.ts';
 import { permissionHook } from './questions.ts';
 import { type Analysis, analysisSection } from './analyze.ts';
@@ -177,8 +177,10 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean }): stri
     lines.push(
       `2. **Checks:** run exactly \`acc gate run\`. It runs the required checks (${required.map((g) => `\`${g}\``).join(', ')}) on your latest commit and records each result; \`acc done\` refuses until every one has passed. If one fails, fix it, commit, and run \`acc gate run\` again. If a check can't run at all (it says error), block and quote its message.`,
     );
-    if (lighter && config.gates.required.length) {
-      lines.push(`   These are the lighter checks, such as the tests near what you changed. The full check (${config.gates.required.map((g) => `\`${g}\``).join(', ')}) runs once, in the merge queue, before your pull request merges, so you needn't run it, though \`acc gate run ${config.gates.required[0]}\` does if you want to.`);
+    // The full check's own: stray-files is a builder's too (GH-103).
+    const queued = fullGates(config).filter((g) => !required.includes(g));
+    if (lighter && queued.length) {
+      lines.push(`   These are the lighter checks, such as the tests near what you changed. The full check (${queued.map((g) => `\`${g}\``).join(', ')}) runs once, in the merge queue, before your pull request merges, so you needn't run it, though \`acc gate run ${queued[0]}\` does if you want to.`);
     }
     if (sf) {
       lines.push('   If you changed Apex, add `--test <TestClass>="<why it covers the change>"` once per test class, for example `acc gate run --test AccountServiceTest="covers the new discount rule"`. Those flags are the only thing to add.');

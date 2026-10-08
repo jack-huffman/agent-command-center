@@ -5,18 +5,21 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, posix } from 'node:path';
-import { type Config, type Environment, requiredGates } from './config.ts';
+import { type Config, type Environment, requiredGates, STRAY_FILES } from './config.ts';
 import { AccError, parseJsonOutput, type RunResult, type Runner, sfEnv } from './exec.ts';
 import type { Ledger, Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
 import { type GateStatus, readReceipt, type Receipt, writeReceipt } from './receipts.ts';
 import { type SlotOptions, withSlot } from './semaphore.ts';
+import { strayFilesGate } from './stray-files.ts';
 
 export interface Changes {
   /** The commit the branch grew from: its merge base with the environment's branch. */
   base: string;
   /** Files added or changed since then, minus environment-specific ones. */
   files: string[];
+  /** Of those, the files added since then, which weren't on the environment's branch (GH-103). A rename's new path is one. */
+  added: string[];
   /** Files deleted since then. A rename counts as a deletion. */
   deleted: string[];
   /** Environment-specific files the branch touched, which a task must never do (D-016). */
@@ -39,6 +42,13 @@ export interface GateInput {
   scratch: string;
   /** The tests near what the branch changed (nearTests), worked out when a gate asks. */
   near: () => string[];
+  /**
+   * Why what the branch changed couldn't be worked out, such as no environment branch to compare with, or
+   * null. A generic project's command gates run anyway; a gate that checks only the changes can't (GH-103).
+   */
+  unknownBase: string | null;
+  /** Runs git in the checkout, for a gate that decides from what's committed, such as stray-files. */
+  git: (args: string[], input?: string) => RunResult;
 }
 
 export interface Outcome {
@@ -380,10 +390,13 @@ const validate: Gate = {
 
 const SALESFORCE_GATES = [format, lint, staticGate, lwcTests, validate];
 
-/** The project's gates: the profile's built-ins, then `gates.commands`, which can replace a built-in by name. */
+/**
+ * The project's gates: every profile's built-in stray-files (GH-103), the profile's own built-ins, then
+ * `gates.commands`, which can replace a built-in by name.
+ */
 export function gatesFor(config: Config): Gate[] {
   const heavy = (name: string) => config.gates.heavy.includes(name);
-  const builtIn = config.profile === 'salesforce' ? SALESFORCE_GATES.map((g) => ({ ...g, heavy: heavy(g.name) })) : [];
+  const builtIn = [strayFilesGate, ...(config.profile === 'salesforce' ? SALESFORCE_GATES : [])].map((g) => ({ ...g, heavy: heavy(g.name) }));
   const custom = Object.entries(config.gates.commands).map(([name, cmd]) => commandGate(name, cmd, heavy(name)));
   return [...builtIn.filter((g) => !config.gates.commands[g.name]), ...custom];
 }
@@ -446,14 +459,18 @@ export function changesFor(run: Runner, root: string, config: Config, env: Envir
   const base = baseFor(run, root, env);
   const specific = readList(root, config.environmentSpecific);
   const files: string[] = [];
+  const added: string[] = [];
   const deleted: string[] = [];
   const envSpecific: string[] = [];
   for (const { status, path } of changedPaths(run, root, base, 'HEAD')) {
     if (listed(path, specific)) envSpecific.push(path);
     else if (status.startsWith('D')) deleted.push(path);
-    else files.push(path);
+    else {
+      files.push(path);
+      if (status.startsWith('A')) added.push(path);
+    }
   }
-  return { base, files, deleted, envSpecific };
+  return { base, files, added, deleted, envSpecific };
 }
 
 // ---------------------------------------------------------------- what to check against
@@ -519,13 +536,14 @@ export const niced = (cmd: string, args: string[]): [string, string[]] => (proce
 /**
  * Runs gates in a checkout and records a receipt for each on its current commit. With no names it
  * runs the required gates, a builder's where the merge queue runs the full ones (GH-73), or every gate
- * when none is required.
+ * when none is required but the built-in stray-files (GH-103), so a generic project that requires nothing
+ * still runs its commands.
  */
 export function runGates(paths: RepoPaths, config: Config, env: Environment, names: string[], tests: ApexTest[], deps: GateRunDeps): GateRun {
   const root = paths.root;
   const all = gatesFor(config);
   const required = requiredGates(config, env.branch, 'builder');
-  const wanted = names.length ? names : required.length ? required : all.map((g) => g.name);
+  const wanted = names.length ? names : required.some((g) => g !== STRAY_FILES) ? required : all.map((g) => g.name);
   const unknownNames = wanted.filter((n) => !all.some((g) => g.name === n));
   if (unknownNames.length) {
     const known = all.map((g) => g.name).join(', ') || 'none yet';
@@ -536,15 +554,19 @@ export function runGates(paths: RepoPaths, config: Config, env: Environment, nam
   const sha = head.stdout.trim();
   const dirty = git(deps.run, root, ['status', '--porcelain']).stdout.trim() !== '';
   let changes: Changes | null = null;
+  let unknownBase: string | null = null;
   try {
     changes = changesFor(deps.run, root, config, env);
   } catch (e) {
     if (config.profile === 'salesforce') throw e;
+    unknownBase = (e as Error).message;
   }
   let near: string[] | null = null;
   const input: GateInput = {
     root, config, env, tests,
-    changes: changes ?? { base: sha, files: [], deleted: [], envSpecific: [] },
+    changes: changes ?? { base: sha, files: [], added: [], deleted: [], envSpecific: [] },
+    unknownBase,
+    git: (args, gitInput) => deps.run('git', args, { cwd: root, ...(gitInput === undefined ? {} : { input: gitInput }) }),
     scratch: join(paths.logs, 'gates', sha),
     near: () => (near ??= nearTests(input.changes.files, git(deps.run, root, ['ls-files', '-z']).stdout.split('\0').filter(Boolean), (f) => {
       try {

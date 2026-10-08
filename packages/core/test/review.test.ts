@@ -13,7 +13,8 @@ import { rulesText } from '../src/rules.ts';
 import { fakeAwake, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo } from './support.ts';
 
 const now = () => new Date('2026-10-02T12:00:00Z');
-const RAW = { ...GENERIC_CONFIG, gates: { required: ['test'], commands: { test: 'true' } } };
+// Its tasks add files at the root; stray-files has its own tests (GH-103).
+const RAW = { ...GENERIC_CONFIG, gates: { required: ['test'], commands: { test: 'true' } }, strayFiles: { required: false } };
 
 /** A repo with one task in review on a branch with a commit, its checks passed. */
 function setup(state = 'review') {

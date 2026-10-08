@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import * as vscode from 'vscode';
-import { builderGatesFor, requiredGates } from '../../packages/core/src/config.ts';
+import { builderGatesFor, fullGates, requiredGates } from '../../packages/core/src/config.ts';
 import type { RepoPaths } from '../../packages/core/src/paths.ts';
 import { receiptsAt } from '../../packages/core/src/receipts.ts';
 import { signInLabel, type Ticket, type TrackerClient } from '../../packages/core/src/trackers/types.ts';
@@ -179,8 +179,9 @@ export class TicketPanels implements vscode.Disposable {
   private async checks(p: Project, branch: string | null, environment: string): Promise<TicketAcc['checks']> {
     const lighter = builderGatesFor(p.config, environment);
     const builder = requiredGates(p.config, environment, 'builder');
-    const required = [...new Set([...builder, ...p.config.gates.required])];
-    const scope = (gate: string): { scope?: 'builder' | 'merge' } => (!lighter ? {} : builder.includes(gate) ? { scope: 'builder' } : p.config.gates.required.includes(gate) ? { scope: 'merge' } : {});
+    const full = fullGates(p.config);
+    const required = [...new Set([...builder, ...full])];
+    const scope = (gate: string): { scope?: 'builder' | 'merge' } => (!lighter ? {} : builder.includes(gate) ? { scope: 'builder' } : full.includes(gate) ? { scope: 'merge' } : {});
     const unrun = (gate: string) => (lighter && scope(gate).scope === 'merge' ? 'Not run on this commit: it runs once, in the merge queue' : 'Not run on this commit');
     if (!branch) return required.map((gate) => ({ gate, status: 'skip' as const, summary: lighter && scope(gate).scope === 'merge' ? unrun(gate) : 'Not run yet', ...scope(gate) }));
     const sha = await runFile('git', ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], p.root);
@@ -409,7 +410,7 @@ export class TicketPanels implements vscode.Disposable {
   /** A person sets a failing check aside on the task's latest commit, with a reason (D-031). */
   private async waive(o: Open, p: Project, gate: string): Promise<void> {
     const task = this.hub.ledger(p.root)?.tasks.find((t) => t.id === o.key);
-    if (!task?.run?.branch || !p.config.gates.required.concat(requiredGates(p.config, task.environment, 'builder'), Object.keys(await this.receiptsFor(p, task.run.branch))).includes(gate)) return;
+    if (!task?.run?.branch || !fullGates(p.config).concat(requiredGates(p.config, task.environment, 'builder'), Object.keys(await this.receiptsFor(p, task.run.branch))).includes(gate)) return;
     const reason = await vscode.window.showInputBox({
       title: `Waive ${gate} for ${task.id}?`,
       prompt: 'Why is it fine to set this check aside? The reason is kept with the commit\'s checks. A new commit needs its checks again.',

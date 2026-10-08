@@ -1,7 +1,7 @@
 // acc's Agents commands for builders and how they run: dispatch, done, block, resume, cleanup, agents
 // and machine.
 
-import { AccError, AGENT_ROLES, type AgentRole, autoMergeOn, autopilotDoes, cleanup, clipSaid, type Config, dispatch, filesOf, heavySlots, loadConfig, machineFile, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, resume, run, setAutoMerge, setAutonomy, setHeavySlots, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList } from '../../../core/src/index.ts';
+import { AccError, AGENT_ROLES, type AgentRole, autoMergeOn, autopilotDoes, cleanup, clipSaid, type Config, dispatch, filesOf, fullGates, heavySlots, loadConfig, machineFile, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, resume, run, setAutoMerge, setAutonomy, setHeavySlots, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList, withStrayFiles } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
 import { accBinDir, accCommand, actorFrom, type CommandArea, now, type Opts, out, personOnly, project, taskIdFrom } from '../shared.ts';
 import { cmdSet } from './tasks.ts';
@@ -90,7 +90,7 @@ function autoMergeLines(config: Config): string {
   const kept = config.environments.filter((e) => e.protected).map((e) => e.branch);
   return [
     `auto-merge on (project): a pull request into ${covered.join(', ') || 'no environment'} whose review and checks passed, with nothing waiting on a person and nothing changed under .acc/, joins the repo's merge queue, and they merge in turn: at its turn its base is merged in, the full check runs once, and it merges once GitHub says it can.`,
-    config.gates.builder?.length ? `Builders run ${config.gates.builder.join(', ')}; the full check (${config.gates.required.join(', ') || 'none'}) runs in the queue.` : '',
+    config.gates.builder?.length ? `Builders run ${withStrayFiles(config, config.gates.builder).join(', ')}; the full check (${fullGates(config).join(', ') || 'none'}) runs in the queue.` : '',
     kept.length ? `Never into ${kept.join(', ')}: protected, so a person merges.` : '',
     config.autonomy === 'review' ? 'It merges while autopilot is on.' : `autonomy is "${config.autonomy}", so autopilot doesn't run and nothing merges on its own.`,
   ].filter(Boolean).join(' ');

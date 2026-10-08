@@ -82,6 +82,7 @@ export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12'):
       { gate: 'static', status: 'skip', summary: 'Waived by jordan: the 2 violations predate this change', waived: true },
       { gate: 'validate', status: 'fail', summary: '4 of 21 tests failed in Acme Dev: CaseRoutingTest.premiumEscalates' },
       { gate: 'lwc-tests', status: 'skip', summary: 'Not run on this commit' },
+      { gate: 'stray-files', status: 'fail', summary: 'This change adds 2 files that shouldn\'t be committed: fb-test.log (a log, temp file or merge leftover), exports/accounts.csv (a data export). Take each out of the commit with git rm --cached fb-test.log exports/accounts.csv and add it to .gitignore, or, if it belongs in the repo, list it under "strayFiles.allow" in .acc/config.json, or a data file\'s folder under "strayFiles.data".' },
     ],
   });
 }

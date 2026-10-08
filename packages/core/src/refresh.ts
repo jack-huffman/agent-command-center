@@ -1,5 +1,5 @@
 import { existsSync, realpathSync } from 'node:fs';
-import { type Config, type Environment, environmentByBranch } from './config.ts';
+import { type Config, type Environment, environmentByBranch, fullGates } from './config.ts';
 import { mainCheckout } from './dispatch.ts';
 import { AccError, type RunResult, type Runner } from './exec.ts';
 import { type Gate, type GateResult, listed, priorTests, runGates } from './gates.ts';
@@ -315,7 +315,7 @@ function refreshNow(paths: RepoPaths, config: Config, id: string, deps: RefreshD
   const { sha, resolved } = made;
 
   // Its checks, on the merge commit, before anything else happens. A waiver is for its own commit (D-031).
-  const required = config.gates.required;
+  const required = fullGates(config);
   checkCommit(paths, config, place, sha, required, { run, now, slots: deps.slots });
 
   const refreshed = { base: env.branch, from, to: sha, resolved };

@@ -1,6 +1,6 @@
 // acc's Checks commands: gate run, list and waive, and drift.
 
-import { AccError, type ApexTest, builderGatesFor, drift, gatesFor, gateTarget, readLedger, receiptsAt, requiredGates, run, runGates, satisfies, waiveGates } from '../../../core/src/index.ts';
+import { AccError, type ApexTest, builderGatesFor, drift, fullGates, gatesFor, gateTarget, readLedger, receiptsAt, requiredGates, run, runGates, satisfies, waiveGates } from '../../../core/src/index.ts';
 import { gateLabel, table, tone } from '../format.ts';
 import { actorFrom, type CommandArea, now, type Opts, out, project } from '../shared.ts';
 
@@ -77,7 +77,8 @@ function cmdGateList(o: Opts): number {
   // Where the merge queue runs the full check, builders run the lighter ones (GH-73).
   const lighter = builderGatesFor(config, env.branch);
   const builder = requiredGates(config, env.branch, 'builder');
-  const gates = gatesFor(config).map((g) => ({ name: g.name, about: g.about, required: config.gates.required.includes(g.name), builder: builder.includes(g.name), heavy: g.heavy, receipt: receipts[g.name] ?? null }));
+  const full = fullGates(config);
+  const gates = gatesFor(config).map((g) => ({ name: g.name, about: g.about, required: full.includes(g.name), builder: builder.includes(g.name), heavy: g.heavy, receipt: receipts[g.name] ?? null }));
   out(o, () => gates.length
     ? [`${branch ?? 'HEAD'} at ${head.slice(0, 7)}, against ${env.name}`, '', table([['Gate', 'Required', ...(lighter ? ['Builder'] : []), 'Heavy', 'This commit', 'Checks'], ...gates.map((g) => [
       g.name, g.required ? 'yes' : '', ...(lighter ? [g.builder ? 'yes' : ''] : []), g.heavy ? 'yes' : '', g.receipt ? gateLabel(g.receipt.status).trimEnd() : tone('not run', 'dim'), g.about,
