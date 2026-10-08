@@ -81,8 +81,9 @@ export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12'):
       { gate: 'format', status: 'pass', summary: '3 changed files formatted.' },
       { gate: 'static', status: 'skip', summary: 'Waived by jordan: the 2 violations predate this change', waived: true },
       { gate: 'validate', status: 'fail', summary: '4 of 21 tests failed in Acme Dev: CaseRoutingTest.premiumEscalates', counts: '21 run, 4 failed, 0 skipped' },
-      // An LWC change with no Jest tests near it: it ran none, so a person decides (GH-100).
-      { gate: 'lwc-tests', status: 'hold', summary: 'Ran no tests, so it can\'t vouch for the change.', counts: '0 run, 0 skipped' },
+      // A test check that skipped more than dev's last count: a person decides (GH-100).
+      { gate: 'flow-tests', status: 'hold', summary: '2 skipped, up from 0 on 4f2a9c1: OrderFlowTest.discount, OrderFlowTest.tax newly skipped.', counts: '38 run, 2 skipped' },
+      { gate: 'lwc-tests', status: 'skip', summary: 'Not run on this commit' },
     ],
   });
 }
