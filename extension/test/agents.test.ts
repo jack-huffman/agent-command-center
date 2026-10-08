@@ -389,9 +389,9 @@ test('How agents run shows the project\'s autonomy, where it\'s set, and a way t
   };
   p.config = { ...p.config, autonomy: 'review' };
   const s = agentsModel(h).settings[0]!;
-  assert.deepEqual(s.autonomy, { value: 'review', from: 'project', meaning: 'Autopilot reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, merges the base into a pull request that conflicts with it, and starts a task a person dispatched once the files it waits for are free. It never merges a pull request.' });
+  assert.deepEqual(s.autonomy, { key: 'autonomy', value: 'review', from: 'project', meaning: 'Autopilot reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, merges the base into a pull request that conflicts with it, and starts a task a person dispatched once the files it waits for are free. It never merges a pull request.' });
   p.config = { ...p.config, autonomy: 'manual' };
-  assert.deepEqual(agentsModel(h).settings[0]!.autonomy, { value: 'manual', from: 'project', meaning: 'Nothing happens on its own.' });
+  assert.deepEqual(agentsModel(h).settings[0]!.autonomy, { key: 'autonomy', value: 'manual', from: 'project', meaning: 'Nothing happens on its own.' });
   // The page asks acc to change it: the webview never writes the config.
   const page = pageSource();
   assert.match(page, /argButton\('acc\.agents\.autonomy', 'Change…', 'edit', s\.root\)/);
@@ -408,19 +408,19 @@ test('How agents run has an Auto-merge row: on or off, what it means, and Change
     reviewer: { model: null, effort: null, fallbackModel: null, from: { model: 'default', effort: 'default', fallbackModel: 'default' } },
   };
   p.config = { ...p.config, profile: 'generic', autonomy: 'review' };
-  assert.deepEqual(agentsModel(h).settings[0]!.autoMerge, { value: 'off', from: 'project', meaning: 'Autopilot never merges a pull request: a person merges each one.', settable: true });
+  assert.deepEqual(agentsModel(h).settings[0]!.autoMerge, { key: 'autopilot.autoMerge', value: 'off', from: 'project', meaning: 'Autopilot never merges a pull request: a person merges each one.', settable: true });
   // Its environments include Production, which is protected.
   assert.ok(p.config.environments.some((e) => e.name === 'Production' && e.protected));
   p.config = { ...p.config, autopilot: { autoMerge: true } };
   const s = agentsModel(h).settings[0]!;
-  assert.deepEqual(s.autoMerge, { value: 'on', from: 'project', settable: true, meaning: 'A pull request whose review and checks passed, with nothing waiting on you, joins the merge queue, and they merge in turn: its base merged in, the full check run once, then merged once GitHub says it can. Never into Production: protected.' });
+  assert.deepEqual(s.autoMerge, { key: 'autopilot.autoMerge', value: 'on', from: 'project', settable: true, meaning: 'A pull request whose review and checks passed, with nothing waiting on you, joins the merge queue, and they merge in turn: its base merged in, the full check run once, then merged once GitHub says it can. Never into Production: protected.' });
   assert.match(s.autonomy!.meaning, /Auto-merge is on: a pull request whose review and checks passed, .* joins the repo's merge queue, .* It never merges into a protected environment\.$/);
   assert.doesNotMatch(s.autonomy!.meaning, /It never merges a pull request/);
   p.config = { ...p.config, autonomy: 'manual' };
   assert.match(agentsModel(h).settings[0]!.autoMerge!.meaning, /Autonomy is manual, so nothing merges on its own\.$/);
   // A Salesforce project never auto-merges, so there's nothing to change.
   p.config = { ...p.config, profile: 'salesforce' };
-  assert.deepEqual(agentsModel(h).settings[0]!.autoMerge, { value: 'off', from: 'project', meaning: 'A Salesforce project never auto-merges: a person merges every pull request.', settable: false });
+  assert.deepEqual(agentsModel(h).settings[0]!.autoMerge, { key: 'autopilot.autoMerge', value: 'off', from: 'project', meaning: 'A Salesforce project never auto-merges: a person merges every pull request.', settable: false });
 
   // The page asks acc to change it, with an icon beside the words; the webview never writes the config.
   const page = pageSource();
@@ -444,6 +444,26 @@ test('How agents run names acc\'s default model, apart from Claude Code\'s defau
     reviewer: { model: 'claude-sonnet-5-5', effort: 'high', fallbackModel: null, from: { model: 'clone', effort: 'project', fallbackModel: 'default' } },
   };
   const [builder, reviewer] = agentsModel(h).settings[0]!.roles;
-  assert.deepEqual(builder!.parts, [{ name: 'Model', value: 'claude-opus-5-5', from: 'acc\'s default' }, { name: 'Effort', value: 'default', from: 'Claude Code\'s default' }]);
+  assert.deepEqual(builder!.parts, [{ key: 'agents.builder.model', name: 'Model', value: 'claude-opus-5-5', from: 'acc\'s default' }, { key: 'agents.builder.effort', name: 'Effort', value: 'default', from: 'Claude Code\'s default' }]);
   assert.deepEqual(reviewer!.parts.map((p) => p.from), ['this clone', 'project default']);
+});
+
+test('How agents run shows no row for a config key nothing reads yet, and with none listed it shows them all (GH-107)', () => {
+  const h = hub();
+  const p = h.projects[0]!;
+  p.agents = {
+    builder: { model: 'opus', effort: 'high', fallbackModel: 'sonnet', from: { model: 'project', effort: 'project', fallbackModel: 'project' } },
+    reviewer: { model: 'opus', effort: null, fallbackModel: null, from: { model: 'project', effort: 'default', fallbackModel: 'default' } },
+  };
+  p.config = { ...p.config, profile: 'generic', autonomy: 'review' };
+  const keys = (s: ReturnType<typeof agentsModel>['settings'][number]) => [...s.roles.flatMap((r) => r.parts.map((x) => x.key)), s.autonomy?.key, s.autoMerge?.key];
+  const all = agentsModel(h).settings[0]!;
+  assert.deepEqual(keys(all), ['agents.builder.model', 'agents.builder.effort', 'agents.builder.fallbackModel', 'agents.reviewer.model', 'agents.reviewer.effort', 'autonomy', 'autopilot.autoMerge']);
+  assert.deepEqual(agentsModel(h, [], 'folder', {}).settings[0], all, 'the real list is empty today, so nothing is hidden');
+  const why = 'GH-1 will read it.';
+  const some = agentsModel(h, [], 'folder', { 'agents.builder.fallbackModel': why, 'autopilot.autoMerge': why }).settings[0]!;
+  assert.deepEqual(keys(some), ['agents.builder.model', 'agents.builder.effort', 'agents.reviewer.model', 'agents.reviewer.effort', 'autonomy', undefined]);
+  // A role with every part hidden has no row, and nor does autonomy.
+  const fewer = agentsModel(h, [], 'folder', { 'agents.reviewer.model': why, 'agents.reviewer.effort': why, autonomy: why }).settings[0]!;
+  assert.deepEqual([fewer.roles.map((r) => r.role), fewer.autonomy], [['builder'], null]);
 });

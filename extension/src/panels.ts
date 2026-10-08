@@ -11,7 +11,7 @@ import { homeModel } from './model/home.ts';
 import { runCard, type RunInput } from './model/runs.ts';
 import type { SlackCard } from './model/slack.ts';
 import { WHERE_VIEWS, type WhereView } from './model/agents.ts';
-import { THEME_SETTING, themeChoice, type ThemeChoice } from './model/settings.ts';
+import { themeChoice, type ThemeChoice } from './model/settings.ts';
 import type { Setup } from './setup.ts';
 
 /** Commands the page may ask for, from every area that draws them (D-099). Anything else from a webview is ignored. */
@@ -46,7 +46,8 @@ const REFRESH: Record<HomeSection, string[]> = {
 };
 
 /** The Command Center's theme, as Settings keeps it on this machine (GH-109). */
-export const currentTheme = (): ThemeChoice => themeChoice(vscode.workspace.getConfiguration(THEME_SETTING.section).get(THEME_SETTING.key));
+// Read by its literal name (THEME_SETTING's), so the settings check sees what reads it (D-103).
+export const currentTheme = (): ThemeChoice => themeChoice(vscode.workspace.getConfiguration('agentCommandCenter').get('theme'));
 
 /**
  * Keeps one tab in the Command Center's theme (GH-109). On screen, the tab is told, and restyles without

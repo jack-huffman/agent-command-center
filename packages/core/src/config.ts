@@ -137,11 +137,89 @@ export interface TemplateRecord {
 
 export const TEMPLATE_DIGEST = /^sha256:[0-9a-f]{64}$/;
 
-const TOP_KEYS = new Set([
-  'schema', 'project', 'profile', 'github', 'commitIdentity', 'environments', 'environmentSpecific',
-  'knownDrift', 'trackers', 'agents', 'autonomy', 'worktrees', 'gates', 'secretScan', 'analysis', 'autopilot', 'dispatch',
-  'template',
-]);
+/**
+ * Every key a Config has, by its path as .acc/config.json nests it: `gates.severity`, an environment's
+ * `environments[].org`, a tracker's `trackers[].team`, a role's `agents.builder.model`. A list of strings
+ * is one key, and so is a map such as `gates.commands`.
+ */
+type PathsOf<T> = {
+  [K in keyof T & string]-?: NonNullable<T[K]> extends infer V
+    ? V extends readonly (infer E)[] ? (E extends object ? `${K}[].${PathsOf<E>}` : K)
+      : V extends object ? (string extends keyof V ? K : `${K}.${PathsOf<V>}`) : K
+    : never;
+}[keyof T & string];
+export type ConfigPath = PathsOf<Config>;
+/** The keys one level holds: Under<'trackers[]'> is a tracker's. */
+type Under<P extends string, C = ConfigPath> = C extends `${P}.${infer L}` ? L : never;
+
+/**
+ * Every key parseConfig knows (GH-107), in the file's order. Its warnings about unknown keys come from this
+ * list, at every level, and scripts/test/settings.test.ts checks each key is read by code and described in
+ * DESIGN.md §4. tsc refuses a path here that isn't a Config's, and one a Config has that's left out.
+ */
+export const CONFIG_KEYS = [
+  'schema', 'project', 'profile', 'github.repo', 'github.account', 'commitIdentity.name', 'commitIdentity.email',
+  'environments[].name', 'environments[].branch', 'environments[].type', 'environments[].org', 'environments[].default',
+  'environments[].protected', 'environments[].promotesTo', 'environmentSpecific', 'knownDrift',
+  'trackers[].kind', 'trackers[].site', 'trackers[].project', 'trackers[].repo', 'trackers[].organization', 'trackers[].account',
+  'trackers[].team', 'trackers[].board', 'trackers[].statusColumn', 'trackers[].prefix', 'trackers[].skipLabels',
+  'trackers[].epic', 'trackers[].labels', 'trackers[].areaPath', 'trackers[].group', 'trackers[].edits',
+  'agents.max', 'agents.permissionMode', 'agents.builder.model', 'agents.builder.effort', 'agents.builder.fallbackModel',
+  'agents.reviewer.model', 'agents.reviewer.effort', 'agents.reviewer.fallbackModel', 'autonomy',
+  'worktrees.root', 'worktrees.setup', 'gates.required', 'gates.commands', 'gates.heavy', 'gates.severity', 'gates.builder',
+  'secretScan.paths', 'secretScan.exclude', 'analysis.required', 'autopilot.appendOnly', 'autopilot.autoMerge',
+  'dispatch.shared', 'template.name', 'template.source', 'template.digest',
+] as const satisfies readonly ConfigPath[];
+
+type LeftOut = Exclude<ConfigPath, (typeof CONFIG_KEYS)[number]>;
+/** tsc's check that CONFIG_KEYS has every key a Config has: one left out is named in its error. */
+const allKeys: [LeftOut] extends [never] ? true : LeftOut = true;
+void allKeys;
+
+/**
+ * Keys parseConfig accepts that no code reads yet, each with the ticket or decision that will read it
+ * (GH-107). The Command Center shows no setting for one, and scripts/test/settings.test.ts fails once one
+ * is read, so it comes off. A key nothing reads and nothing promises is taken out of CONFIG_KEYS instead.
+ */
+export const UNREAD_KEYS: Partial<Record<ConfigPath, string>> = {};
+
+/**
+ * Keys only parseConfig reads, and why that's all they need (GH-107). scripts/test/settings.test.ts pins
+ * this list to these two, so it can't grow quietly.
+ */
+export const VALIDATOR_ONLY: Partial<Record<ConfigPath, string>> = {
+  schema: 'The file\'s format. parseConfig refuses any but 1, so nothing after it has to look.',
+  'environments[].branch': 'Always the environment\'s name in lower case (D-015). parseConfig refuses any other, and code reads the branch it derives from the name.',
+};
+
+/** Whether the Command Center offers a setting for this key: not while nothing reads it (GH-107). */
+export const keyShown = (key: ConfigPath, unread: Partial<Record<ConfigPath, string>> = UNREAD_KEYS): boolean => unread[key] === undefined;
+
+/** The keys each level of the file holds, by its path: '' is the top, `trackers[]` a tracker, `agents.builder` a role. */
+const LEVELS = new Map<string, Set<string>>();
+for (const key of CONFIG_KEYS) {
+  const parts = key.split('.');
+  parts.forEach((part, i) => {
+    const at = parts.slice(0, i).join('.');
+    LEVELS.set(at, (LEVELS.get(at) ?? new Set()).add(part.replace(/\[\]$/, '')));
+  });
+}
+
+/** A warning for each key parseConfig doesn't know, at every level (GH-107), such as `gates.foo` or `trackers[0].foo`. */
+function unknownKeys(raw: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  const walk = (v: Record<string, unknown>, at: string, said: string) => {
+    for (const [k, x] of Object.entries(v)) {
+      const path = at ? `${at}.${k}` : k;
+      const name = said ? `${said}.${k}` : k;
+      if (!LEVELS.get(at)?.has(k)) out.push(`Unknown key "${name}" is ignored.`);
+      else if (Array.isArray(x) && LEVELS.has(`${path}[]`)) x.forEach((e, i) => { if (isObj(e)) walk(e, `${path}[]`, `${name}[${i}]`); });
+      else if (isObj(x) && LEVELS.has(path)) walk(x, path, name);
+    }
+  };
+  walk(raw, '', '');
+  return out;
+}
 
 /** Gates that take the machine-wide slot unless `gates.heavy` says otherwise (D-024). */
 export const DEFAULT_HEAVY: Record<Profile, string[]> = {
@@ -170,7 +248,7 @@ export function parseConfig(raw: unknown): ParseResult {
   const warnings: string[] = [];
   if (!isObj(raw)) return { config: null, errors: ['The config must be a JSON object.'], warnings };
 
-  for (const k of Object.keys(raw)) if (!TOP_KEYS.has(k)) warnings.push(`Unknown key "${k}" is ignored.`);
+  warnings.push(...unknownKeys(raw));
   if (raw.schema !== 1) errors.push('"schema" must be 1.');
   if (!isStr(raw.project)) errors.push('"project" must be a name.');
 
@@ -235,13 +313,13 @@ export function parseConfig(raw: unknown): ParseResult {
         warnings.push(`trackers[${i}]: "skipLabels" applies only to a GitHub tracker, so it's ignored.`);
       }
       // The tracker's place (D-072): each key belongs to one kind of tracker, and is ignored on another.
-      const placeKeys = [
+      const placeKeys: { key: Under<'trackers[]'>; kind: TrackerKind; on: string; ok: boolean; error: string }[] = [
         { key: 'epic', kind: 'jira', on: 'a Jira', ok: isStr(t.epic) && JIRA_ISSUE.test(t.epic.trim()), error: '"epic" must be a Jira epic\'s key, such as ACME-3.' },
         { key: 'labels', kind: 'github', on: 'a GitHub', ok: strList(t.labels), error: '"labels" must be a list of label names, such as ["billing"].' },
         { key: 'areaPath', kind: 'azure', on: 'an Azure DevOps', ok: isStr(t.areaPath), error: '"areaPath" must be an Azure DevOps area path, such as "CRM\\\\Billing".' },
         { key: 'group', kind: 'monday', on: 'a monday.com', ok: isStr(t.group), error: '"group" must be a monday.com group\'s id, such as "topics".' },
         { key: 'statusColumn', kind: 'monday', on: 'a monday.com', ok: isStr(t.statusColumn), error: '"statusColumn" must be a monday.com status column\'s id, such as "status".' },
-      ] as const;
+      ];
       const set = placeKeys.filter((p) => t[p.key] !== undefined && t[p.key] !== null);
       const bad = set.filter((p) => !p.ok);
       if (bad.length) {
@@ -352,7 +430,6 @@ export function parseConfig(raw: unknown): ParseResult {
     const ap = raw.autopilot;
     if (!isObj(ap)) errors.push('"autopilot" must be an object, such as { "appendOnly": ["docs/DECISIONS.md"] }.');
     else {
-      for (const k of Object.keys(ap)) if (k !== 'appendOnly' && k !== 'autoMerge') warnings.push(`Unknown key "autopilot.${k}" is ignored.`);
       const list = ap.appendOnly ?? [];
       const autoMerge = ap.autoMerge ?? false;
       // Paths inside the repo, as git names them: never absolute, never climbing out.
@@ -372,7 +449,6 @@ export function parseConfig(raw: unknown): ParseResult {
     const d = raw.dispatch;
     if (!isObj(d)) errors.push('"dispatch" must be an object, such as { "shared": ["README.md"] }.');
     else {
-      for (const k of Object.keys(d)) if (k !== 'shared') warnings.push(`Unknown key "dispatch.${k}" is ignored.`);
       const list = d.shared ?? [];
       if (!strList(list) || list.some((f) => f.startsWith('/') || f.split('/').includes('..'))) {
         errors.push('"dispatch.shared" must be a list of paths inside the repo, such as ["README.md", "docs"].');
