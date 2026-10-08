@@ -34,6 +34,8 @@ function fakeVscode(folder: string) {
     watched: [] as unknown[],
     /** What a quick pick answers, when a test wants it to. */
     pick: undefined as ((items: { value?: string }[]) => unknown) | undefined,
+    /** Which of a warning's buttons is clicked, such as a modal's, when a test wants one to be. */
+    warnPick: undefined as ((items: string[]) => string | undefined) | undefined,
     /** How many prompts at the top of VSCode were shown: input boxes and quick picks. */
     prompts: 0,
   };
@@ -81,7 +83,7 @@ function fakeVscode(folder: string) {
       state: { focused: true },
       withProgress: (_o: unknown, task: (p: unknown, t: unknown) => unknown) => task({ report() {} }, { onCancellationRequested: () => disposable }),
       showInformationMessage: async (m: string) => { calls.info.push(m); return undefined; },
-      showWarningMessage: async (m: string) => { calls.warn.push(m); return undefined; },
+      showWarningMessage: async (m: string, ...rest: unknown[]) => { calls.warn.push(m); return calls.warnPick?.(rest.filter((x): x is string => typeof x === 'string')); },
       showQuickPick: async (items: unknown) => { calls.prompts++; return calls.pick?.(await (items as Promise<{ value?: string }[]>)); },
       createTerminal: () => ({ show() {}, sendText: (t: string) => calls.terminal.push(t), exitStatus: undefined }),
       onDidEndTerminalShellExecution: event(),
@@ -158,6 +160,8 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     return request === 'vscode' ? api : load.call(this, request, ...rest);
   };
   const prepends: [string, string][] = [];
+  const secrets = new Map<string, string>();
+  const secretsAsked = new Set<string>();
   const extDir = join(dist, '..', '..');
   const ctx = {
     subscriptions: [] as unknown[],
@@ -166,8 +170,11 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     // Fresh machine results for this folder's profile, so the test doesn't call slow machine CLIs.
     globalState: memento({ 'acc.welcomed': true, 'acc.machineItems': { at: Date.now(), profile: 'generic', items: [{ id: 'A1.git', part: 'machine', title: 'git', status: 'pass', detail: 'git 2.54.0' }] } }),
     workspaceState: memento(),
-    // Tracker sign-ins: none, and a change from another window is listened for (GH-79).
-    secrets: { get: async () => undefined, store: async () => {}, delete: async () => {}, onDidChange: () => ({ dispose: () => {} }) },
+    // Tracker sign-ins, none to start with, and the keys asked for; a change from another window is listened for (GH-79).
+    secrets: {
+      get: async (k: string) => { secretsAsked.add(k); return secrets.get(k); }, store: async (k: string, v: string) => { secrets.set(k, v); },
+      delete: async (k: string) => { secrets.delete(k); }, onDidChange: () => ({ dispose: () => {} }),
+    },
     environmentVariableCollection: { description: '', prepend: (k: string, v: string) => prepends.push([k, v]) },
   };
   try {
@@ -398,6 +405,69 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
       await until(() => connectShown() === null);
     }
     assert.equal(calls.prompts, prompted, 'no input box or quick pick');
+
+    // Trackers and sign-ins in Settings (GH-112). acc writes a Jira tracker to the project's config, as the
+    // Connect page's Save asks it to. Nothing here is signed in when a board loads, so none is read over the network.
+    const jiraFile = join(mkdtempSync(join(tmpdir(), 'acc-tracker-')), 'jira.json');
+    writeFileSync(jiraFile, JSON.stringify({ kind: 'jira', site: 'acme.atlassian.net', project: 'ACME' }));
+    const setTracker = spawnSync(process.execPath, [accBin, 'trackers', 'set', '--file', jiraFile, '--json'], { cwd: repo, encoding: 'utf8' });
+    assert.equal(setTracker.status, 0, setTracker.stderr);
+    assert.equal(JSON.parse(setTracker.stdout).index, 1, 'after the GitHub tracker');
+    await calls.commands.get('acc.open.settings')!();
+    await calls.commands.get('acc.settings.refresh')!();
+    type TrackerShown = { title: string; signIn: { label: string; tone: string }; actions: { command: string; arg: string | null; disabled: string | null }[] };
+    type WithTrackers = { model?: { settings: { trackers: { projects: { project: string; trackers: TrackerShown[] }[]; connect: { command: string; arg: string | null } | null } } } };
+    const shownTrackers = () => (tab.posted.filter((x) => (x as WithTrackers).model).at(-1) as WithTrackers).model!.settings.trackers;
+    const jiraShown = () => shownTrackers().projects[0]?.trackers.find((t) => t.title === 'Jira · ACME');
+    await until(() => jiraShown()?.signIn.label === 'Not signed in');
+    assert.deepEqual(shownTrackers().projects.map((p) => [p.project, p.trackers.map((t) => t.title)]), [['Tool', ['GitHub · ?', 'Jira · ACME']]], 'one list, under the project\'s name');
+    assert.match(shownTrackers().projects[0]!.trackers[0]!.signIn.label, /needs the project's "github" section/, 'GitHub says why gh has no account to sign in as');
+    const jiraOut = jiraShown()!.actions.find((a) => a.command === 'acc.trackers.signOut')!;
+    assert.match(jiraOut.disabled ?? '', /isn't signed in/, 'nothing to sign out of yet');
+    // The board looked for this project's own sign-in first, then the site's (D-091).
+    const siteKey = 'acc.cred:site:jira:acme.atlassian.net';
+    const ownKey = [...secretsAsked].find((k) => k.endsWith(':jira:acme.atlassian.net') && k !== siteKey)!;
+    assert.ok(ownKey && secretsAsked.has(siteKey), [...secretsAsked].join(', '));
+
+    // Sign out: the page may ask for it now. This project's own sign-in goes with no question.
+    const asked = calls.executed.length;
+    tab.receive!({ type: 'toolbar', command: 'acc.trackers.signOut', arg: jiraOut.arg! });
+    assert.deepEqual(calls.executed.slice(asked), [['acc.trackers.signOut', [jiraOut.arg]]]);
+    secrets.set(ownKey, JSON.stringify({ kind: 'jira', method: 'token', email: 'jordan@acme.example', token: 'secret-token-0123456789' }));
+    const warnedAt = calls.warn.length;
+    await calls.commands.get('acc.trackers.signOut')!(jiraOut.arg);
+    assert.deepEqual([secrets.has(ownKey), calls.warn.length, calls.info.at(-1)], [false, warnedAt, 'Tool is signed out of Jira · ACME.']);
+    // The sign-in every project on the site shares asks: every project, or this one only (D-091).
+    secrets.set(siteKey, JSON.stringify({ kind: 'jira', method: 'token', email: 'team@acme.example', token: 'secret-token-0123456789' }));
+    let buttons: string[] = [];
+    calls.warnPick = (items) => { buttons = items; return 'This project only'; };
+    await calls.commands.get('acc.trackers.signOut')!(jiraOut.arg);
+    calls.warnPick = undefined;
+    assert.match(calls.warn[warnedAt] ?? '', /^Sign out of Jira on acme\.atlassian\.net\?/);
+    assert.deepEqual(buttons, ['Every project on acme.atlassian.net', 'This project only']);
+    assert.deepEqual([JSON.parse(secrets.get(ownKey)!), secrets.has(siteKey)], [{ kind: 'jira', signedOut: true }, true], 'this project stops using it, and every other keeps it');
+    assert.equal(calls.info.at(-1), 'Tool is signed out of Jira · ACME. Other projects on acme.atlassian.net still use the sign-in for every project there (team@acme.example).');
+    await until(() => jiraShown()?.signIn.label === 'Not signed in');
+
+    // Sign in again and Change place open the Connect page at that tracker, and its Back comes back here.
+    type ConnectBack = { model?: { connect: { id: string; title: string; back: { section: string; label: string; part: string | null }; fields: { key: string }[] } | null } };
+    const connectOpen = () => (tab.posted.filter((x) => (x as ConnectBack).model).at(-1) as ConnectBack).model!.connect;
+    for (const [command, fields] of [['acc.trackers.signIn', ['email', 'token']], ['acc.trackers.add', ['email', 'token']]] as const) {
+      const before = calls.executed.length;
+      tab.receive!({ type: 'toolbar', command, arg: jiraOut.arg! });
+      assert.deepEqual(calls.executed.slice(before), [[command, [jiraOut.arg]]], `the page asks for ${command}`);
+      await calls.commands.get(command)!(jiraOut.arg);
+      await until(() => !!connectOpen()?.fields.length);
+      const c = connectOpen()!;
+      assert.deepEqual([c.title, c.back, c.fields.map((f) => f.key)], ['Change Jira · ACME', { section: 'settings', label: 'Back to Settings', part: 'settings:trackers' }, fields], command);
+      tab.receive!({ type: 'connect-cancel', session: c.id });
+      await until(() => connectOpen() === null);
+    }
+    // Connect a tracker sends no tracker: the Connect page starts a new one.
+    assert.equal(shownTrackers().connect?.arg, null);
+    const before = calls.executed.length;
+    tab.receive!({ type: 'toolbar', command: 'acc.trackers.add' });
+    assert.deepEqual(calls.executed.slice(before), [['acc.trackers.add', [undefined]]]);
 
     // Settings (GH-109): a section like the others, its Refresh, and the theme every tab follows.
     await calls.commands.get('acc.open.settings')!();

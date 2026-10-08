@@ -7,11 +7,15 @@
 
 import { autopilotDoes } from '../../../packages/core/src/autopilot.ts';
 import { autoMergeOn, type ConfigPath, keyShown, UNREAD_KEYS } from '../../../packages/core/src/config.ts';
+import { describe } from '../../../packages/core/src/trackers/connect.ts';
+import type { TrackerKind } from '../../../packages/core/src/trackers/types.ts';
 import { FROM_WORDS } from '../logic/agents.ts';
+import { signInScope } from '../logic/connect.ts';
 import { intervalWords, POLL_INTERVALS, POLL_KEYS } from '../logic/polls.ts';
 import type { DoctorItem } from '../logic/setup.ts';
 import { billingLook } from './agents.ts';
-import type { HomeSection, Look, ModelArea, ProjectLike } from './shared.ts';
+import type { BoardInput } from './boards.ts';
+import { type HomeSection, type Look, LOOK, type ModelArea, type ProjectLike } from './shared.ts';
 
 // ---------------------------------------------------------------- the theme
 
@@ -157,6 +161,121 @@ export function howAgentsRun(projects: ProjectLike[], setup: DoctorItem[], unrea
   };
 }
 
+// ---------------------------------------------------------------- trackers and sign-ins (GH-112)
+
+/**
+ * Where a sign-in is kept: VSCode's secret storage on this machine, never a file (D-027, D-091). GitHub's is
+ * gh's own login, which gh keeps (D-007).
+ */
+export const SIGN_IN_KEPT: SettingFrom = { label: 'VSCode on this machine', icon: 'key' };
+export const GH_SIGN_IN_KEPT: SettingFrom = { label: 'gh on this machine', icon: 'terminal' };
+
+/**
+ * A tracker's button: one of the commands the page may ask for, with the tracker it's for. Disabled, it
+ * says why. The extension does the rest: the Connect page for a sign-in or a place, which asks acc to write
+ * the config, and VSCode's secret storage for a sign-out (D-064).
+ */
+export interface TrackerAction {
+  command: 'acc.trackers.signIn' | 'acc.trackers.signOut' | 'acc.trackers.add';
+  label: string;
+  icon: string;
+  /** The tracker, as each command takes it: `{"root": …, "index": …}`. Null for Connect a tracker, which needs none. */
+  arg: string | null;
+  /** What it does, to whose tracker, for a screen reader. */
+  name: string;
+  primary: boolean;
+  /** Why it can't be used now, or null. */
+  disabled: string | null;
+}
+
+/** One tracker as Settings lists it (GH-112): its kind, place and board (D-072), and its sign-in (D-091). */
+export interface TrackerSetting {
+  index: number;
+  kind: TrackerKind;
+  /** Its kind in words, with its icon: Jira, GitHub Issues, Azure DevOps, monday.com. */
+  name: string;
+  icon: string;
+  /** "Jira · ACME". */
+  title: string;
+  /** Where its tickets come from, such as "Jira · ACME · epic ACME-3 Premium Support". */
+  place: string;
+  /** Its board by name, once read, or why not yet. */
+  board: Look;
+  /** Who it signs in as, and for every project on its site or this project only, or why it isn't signed in. */
+  signIn: Look;
+  /** Where its place and board are set (the project's .acc/config.json), and where its sign-in is kept. */
+  from: SettingFrom;
+  signInFrom: SettingFrom;
+  actions: TrackerAction[];
+}
+
+/** One project's trackers, under its name. */
+export interface TrackerProject {
+  root: string;
+  project: string;
+  trackers: TrackerSetting[];
+  /** Its config names trackers that haven't been read yet. */
+  loading: boolean;
+}
+
+export interface TrackersAndSignIns {
+  projects: TrackerProject[];
+  /** Connect a tracker: the Connect page, which asks for the project when there are several. Null with none. */
+  connect: TrackerAction | null;
+}
+
+const kindOf = (kind: TrackerKind): { name: string; icon: string } => {
+  const d = describe(kind);
+  return { name: d?.name ?? kind, icon: d?.icon ?? 'issues' };
+};
+
+/**
+ * A tracker, from what its board knows (GH-112). A Jira, Azure DevOps or monday.com sign-in is blue, with
+ * a globe when every project on its site shares it and a repo when it's this project's only (D-091), or
+ * orange when there's none or its tracker refused it. GitHub signs in through gh as the project's account
+ * (D-007): it has no sign-in or sign-out here, only its place.
+ */
+export function trackerSetting(b: BoardInput, p: { root: string; name: string }): TrackerSetting {
+  const arg = JSON.stringify({ root: p.root, index: b.index });
+  const whose = `${b.title}, in ${p.name}`;
+  const scope = b.signInScope ? signInScope(b.signInScope.shared, b.signInScope.host) : 'for this project';
+  // A board that can't be read for want of a sign-in says so with a Sign in button (D-073): its sign-in failed.
+  const refused = !!b.error && !!b.connect;
+  const signIn: Look = b.kind === 'github'
+    ? b.error ? LOOK(b.error, 'warning', 'orange')
+      : b.signedInAs ? LOOK(`Signs in through gh as ${b.signedInAs}, the project's GitHub account`, 'github', 'blue')
+        : LOOK('No GitHub account: the project\'s "github" section names none', 'warning', 'orange')
+    : !b.signedInAs ? LOOK('Not signed in', 'plug', 'orange')
+      : refused ? LOOK(`Signed in as ${b.signedInAs}, ${scope}, but it didn't work: ${b.error}`, 'warning', 'orange')
+        : LOOK(`Signed in as ${b.signedInAs}, ${scope}`, b.signInScope?.shared ? 'globe' : 'repo', 'blue');
+  // The sign-in's line says what's wrong with it; the board's doesn't say it twice.
+  const board: Look = b.board ? LOOK(b.board.title, 'project', 'neutral')
+    : b.loading ? LOOK('Reading it', 'sync~spin', 'blue')
+      : b.error && signIn.tone === 'orange' ? LOOK(refused && b.signedInAs ? 'Shows once its sign-in works' : 'Shows once it\'s signed in', 'circle-outline', 'neutral')
+        : b.error ? LOOK(`Couldn't read it: ${b.error}`, 'warning', 'orange')
+          : LOOK('Not read yet', 'circle-outline', 'neutral');
+  const fix = signIn.tone === 'orange';
+  const actions: TrackerAction[] = [
+    ...(b.kind === 'github' ? [] : [
+      { command: 'acc.trackers.signIn' as const, label: b.signedInAs ? 'Sign in again' : 'Sign in', icon: 'sign-in', arg, name: `${b.signedInAs ? 'Sign in again to' : 'Sign in to'} ${whose}`, primary: fix, disabled: null },
+      { command: 'acc.trackers.signOut' as const, label: 'Sign out', icon: 'sign-out', arg, name: `Sign out of ${whose}`, primary: false, disabled: b.signedInAs ? null : 'It isn\'t signed in, so there\'s nothing to sign out of.' },
+    ]),
+    { command: 'acc.trackers.add', label: 'Change place…', icon: 'edit', arg, name: `Change where ${whose} gets its tickets, and its board`, primary: false, disabled: null },
+  ];
+  return { index: b.index, kind: b.kind, ...kindOf(b.kind), title: b.title, place: b.place ?? b.title, board, signIn, from: PROJECT, signInFrom: b.kind === 'github' ? GH_SIGN_IN_KEPT : SIGN_IN_KEPT, actions };
+}
+
+/** Every open project's trackers, under its name, and Connect a tracker (GH-112). */
+export function trackersAndSignIns(projects: ProjectLike[], boards: (root: string) => BoardInput[]): TrackersAndSignIns {
+  return {
+    projects: projects.map((p) => {
+      const list = boards(p.root);
+      return { root: p.root, project: p.name, trackers: list.map((b) => trackerSetting(b, { root: p.root, name: p.name })), loading: !list.length && !!p.config.trackers?.length };
+    }),
+    connect: projects.length ? { command: 'acc.trackers.add', label: 'Connect a tracker…', icon: 'add', arg: null, name: 'Connect a tracker to a project', primary: false, disabled: null } : null,
+  };
+}
+
 // ---------------------------------------------------------------- the parts
 
 /**
@@ -199,6 +318,8 @@ export interface SettingsModel {
   themes: { key: ThemeChoice; label: string; icon: string; meaning: string }[];
   /** How agents run (GH-110). */
   agents: HowAgentsRun;
+  /** Trackers and sign-ins (GH-112). */
+  trackers: TrackersAndSignIns;
   parts: SettingsPartModel[];
 }
 
@@ -208,6 +329,8 @@ export interface SettingsInput {
   projects: ProjectLike[];
   /** Setup's checks, for what agents bill. */
   setup: DoctorItem[];
+  /** What each project's tracker boards know: place, board and sign-in (GH-112). None unless given. */
+  boards?: (root: string) => BoardInput[];
 }
 
 /** How often each thing refreshes today, in words. */
@@ -218,6 +341,7 @@ export const refreshLines = (): string[] => POLL_KEYS.map((k) => {
 
 export function settingsModel(i: SettingsInput): SettingsModel {
   const agents = howAgentsRun(i.projects, i.setup);
+  const trackers = trackersAndSignIns(i.projects, i.boards ?? (() => []));
   const later = (id: SettingsPart, title: string, icon: string, summary: string, today: string, links: SettingsLink[] = [], details: string[] = []): SettingsPartModel => ({ id, title, icon, summary, built: false, today, details, links });
   const parts: SettingsPartModel[] = [
     { id: 'appearance', title: 'Appearance', icon: 'color-mode', summary: 'How the Command Center\'s pages look. Kept on this machine, for every window.', built: true, today: null, details: [], links: [] },
@@ -231,8 +355,15 @@ export function settingsModel(i: SettingsInput): SettingsModel {
     },
     later('limits', 'Limits and checks', 'dashboard', 'How many heavy checks this machine runs at once, how many builders each project runs, and the checks a task must pass.',
       'Set outside the Command Center for now: this machine\'s heavy-check slots with acc machine heavy-slots in a terminal, and each project\'s builder cap (agents.max) and checks (gates) in its .acc/config.json.'),
-    later('trackers', 'Trackers and sign-ins', 'issues', 'Each project\'s trackers, their place and board, and the account each signs in as.',
-      'On Tasks for now, on each tracker\'s board: its sign-in, its place, and connecting another.', [{ label: 'Open Tasks', icon: 'project', section: 'tasks' }]),
+    {
+      id: 'trackers', title: 'Trackers and sign-ins', icon: 'issues',
+      summary: 'Each project\'s trackers: where their tickets come from, the board, and the account each signs in as, for that project only or for every project on its site.',
+      built: true, today: null,
+      details: trackers.projects.length
+        ? ['A tracker\'s place and board are kept in its project\'s .acc/config.json: Change place… and Connect a tracker ask acc to write it, for you to commit. A Jira, Azure DevOps or monday.com sign-in stays in VSCode on this machine, never in a file; GitHub\'s is gh\'s.']
+        : ['No project in this workspace is onboarded yet. Once Setup onboards one, its trackers show here.'],
+      links: trackers.projects.length ? [] : [{ label: 'Open Setup', icon: 'checklist', section: 'setup' }],
+    },
     later('slack', 'Notices in Slack', 'bell', 'Whether acc\'s notices go to Slack, and which.',
       'On Environments for now, in its Notices in Slack card.', [{ label: 'Open Environments', icon: 'server-environment', section: 'environments' }]),
     later('github', 'GitHub accounts', 'github', 'The GitHub account each project\'s repo pushes as.',
@@ -242,12 +373,13 @@ export function settingsModel(i: SettingsInput): SettingsModel {
     later('about', 'About', 'info', 'The versions of acc, the extension and the plugin, and whether a newer release is out.',
       'On Setup for now: its checklist checks the acc plugin in Claude Code.', [{ label: 'Open Setup', icon: 'checklist', section: 'setup' }]),
   ];
-  return { kind: 'settings', theme: i.theme, themes: THEME_CHOICES.map((key) => ({ key, ...THEMES[key] })), agents, parts };
+  return { kind: 'settings', theme: i.theme, themes: THEME_CHOICES.map((key) => ({ key, ...THEMES[key] })), agents, trackers, parts };
 }
 
 export const area: ModelArea = {
   // How agents run's Change… buttons run the Agents area's commands, which this section draws now (GH-110).
-  commands: ['acc.settings.theme', 'acc.agents.configure', 'acc.agents.autonomy', 'acc.agents.autoMerge'],
+  // A tracker's Sign out is drawn only here (GH-112); its Sign in and Change place are the boards' too.
+  commands: ['acc.settings.theme', 'acc.agents.configure', 'acc.agents.autonomy', 'acc.agents.autoMerge', 'acc.trackers.signOut'],
   home: {
     // Last in the rail, after every other area's.
     order: 90,

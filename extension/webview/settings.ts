@@ -1,8 +1,8 @@
 // The Settings section (GH-109): Appearance, How agents run (GH-110), then a part for each area that will
 // gather its settings here, each saying where its settings live until then, with a way there.
 
-import type { AgentRunProject, SettingFrom, SettingsLink, SettingsModel, SettingsPartModel } from '../src/model/settings.ts';
-import { argButton, button, el, header, icon, segmented, status } from './dom.ts';
+import type { AgentRunProject, SettingFrom, SettingsLink, SettingsModel, SettingsPartModel, TrackerAction, TrackerProject, TrackerSetting } from '../src/model/settings.ts';
+import { argButton, button, el, header, icon, segmented, status, toolbarButton } from './dom.ts';
 import { api, go, type PageArea } from './state.ts';
 
 /** The theme: Match VSCode, Light or Dark. The extension keeps the pick, and every open page follows it. */
@@ -64,6 +64,57 @@ function howAgentsRun(m: SettingsModel): Node[] {
   return [...m.agents.projects.map(agentProject), billing];
 }
 
+/**
+ * A tracker's button (GH-112): one of the commands the page may ask for, with its tracker, named for what it
+ * does and to whose. One that can't be used now is disabled, and says why.
+ */
+function trackerButton(a: TrackerAction): HTMLElement {
+  const b = (a.arg === null ? toolbarButton(a.command, a.label, a.icon, undefined, a.primary) : argButton(a.command, a.label, a.icon, a.arg, a.primary)) as HTMLButtonElement;
+  b.setAttribute('aria-label', a.name);
+  if (a.disabled) {
+    b.disabled = true;
+    b.title = a.disabled;
+    b.setAttribute('aria-description', a.disabled);
+  }
+  return b;
+}
+
+/**
+ * One tracker (GH-112): its kind and name with its buttons, then its place, its board and its sign-in, each
+ * with where it's kept: the project's .acc/config.json, or VSCode on this machine.
+ */
+function tracker(t: TrackerSetting): HTMLElement {
+  const box = el('div', 'settings-tracker');
+  box.setAttribute('role', 'group');
+  box.setAttribute('aria-label', t.title);
+  const line = (name: string, iconName: string, value: HTMLElement, f: SettingFrom) =>
+    el('div', 'settings-row settings-tracker-row', el('span', 'settings-name', icon(iconName), el('span', 'strong', name)), el('div', 'settings-value settings-now', value, from(f)));
+  box.append(
+    el('div', 'settings-tracker-head', el('h4', 'settings-tracker-name', icon(t.icon), el('span', '', t.title)), el('div', 'actions settings-tracker-actions', ...t.actions.map(trackerButton))),
+    line('Place', 'location', el('span', 'settings-place', t.place), t.from),
+    line('Board', 'layout', status(t.board), t.from),
+    line('Sign-in', 'account', status(t.signIn), t.signInFrom),
+  );
+  return box;
+}
+
+/** A project's trackers, under its name, or that it has none yet. */
+function trackerProject(p: TrackerProject): HTMLElement {
+  const box = el('div', 'settings-project');
+  box.setAttribute('role', 'group');
+  box.setAttribute('aria-label', p.project);
+  box.append(el('h3', 'settings-project-name', icon('repo'), el('span', '', p.project)));
+  if (p.loading) box.append(el('p', 'settings-tracker-none', status({ label: 'Reading its trackers', icon: 'sync~spin', tone: 'blue' })));
+  else if (!p.trackers.length) box.append(el('p', 'settings-tracker-none', status({ label: 'No tracker yet', icon: 'circle-outline', tone: 'neutral' })));
+  box.append(...p.trackers.map(tracker));
+  return box;
+}
+
+/** Trackers and sign-ins (GH-112): every open project's trackers, then Connect a tracker. */
+function trackersPart(m: SettingsModel): Node[] {
+  return [...m.trackers.projects.map(trackerProject), ...(m.trackers.connect ? [el('div', 'actions settings-links', trackerButton(m.trackers.connect))] : [])];
+}
+
 /** A part not built here yet: where its settings live today, and a way there. */
 function today(p: SettingsPartModel): HTMLElement {
   return el('div', 'settings-today',
@@ -84,6 +135,7 @@ export function renderSettings(m: SettingsModel): Node[] {
     part.setAttribute('aria-labelledby', h.id);
     if (p.id === 'appearance') part.append(appearance(m));
     if (p.id === 'agents') part.append(...howAgentsRun(m));
+    if (p.id === 'trackers') part.append(...trackersPart(m));
     if (p.built && p.details.length) part.append(...p.details.map((d) => el('p', 'muted small settings-note', d)));
     if (p.built && p.links.length) part.append(el('div', 'actions settings-links', ...p.links.map(linkButton)));
     if (!p.built) part.append(today(p));
