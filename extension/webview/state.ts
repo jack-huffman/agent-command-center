@@ -115,6 +115,10 @@ export function go(s: HomeSection, part?: string): void {
 export function jumpTo(part: string): boolean {
   const heading = document.querySelector<HTMLElement>(`[data-part="${CSS.escape(part)}"]`);
   if (!heading) return false;
+  // Under 820 px the rail is a strip stuck over the top of the page: the heading stops below it, not under it.
+  const rail = document.querySelector<HTMLElement>('.rail');
+  const strip = rail && getComputedStyle(rail).position === 'sticky' ? rail.getBoundingClientRect().height : 0;
+  heading.style.scrollMarginTop = strip ? `${Math.ceil(strip) + 12}px` : '';
   heading.scrollIntoView({ block: 'start' });
   heading.focus({ preventScroll: true });
   return true;

@@ -178,6 +178,9 @@ test('Agents\' Settings button and the status bar\'s Auto-merge open Settings at
   // The page goes to a part's heading as the extension asks, or as a button of its own does.
   const state = pageSource('state.ts');
   assert.ok(state.includes('if (!part || !jumpTo(part))') && state.includes('[data-part="${CSS.escape(part)}"]'));
+  // Under 820 px the rail is a sticky strip: the heading stops below it, not under it.
+  assert.ok(state.includes("getComputedStyle(rail).position === 'sticky'") && state.includes('heading.style.scrollMarginTop = strip ?'));
+  assert.match(source('webview', 'styles.css'), /\.rail \{[^}]*position: sticky; top: 0;/, 'the strip the jump allows for');
   assert.ok(pageSource('main.ts').includes('if (msg.open) jumpTo(msg.open);'));
   // Autopilot's own words send you there too.
   assert.equal((source('src', 'autopilot.ts').match(/Change it in Settings, under How agents run\./g) ?? []).length, 2);
