@@ -1254,8 +1254,37 @@ its own: its launcher falls back to VSCode's runtime (§13).
   fixtures.
 - **Plugin:** `claude plugin validate --strict`, and each hook run against
   fixture payloads.
-- **Extension:** the logic lives in core and is tested there. The UI is checked
-  by hand at first.
+- **Extension:** the logic lives in core and is tested there. The built
+  extension is loaded with a stand-in for the vscode API
+  (`extension/test/vscode.ts`), which throws on an API it lacks, so a gap in
+  it reads as one.
+- **Junk (D-???):** every command is called with junk, and the lists come from
+  the registries, so a new command is covered without anyone adding it.
+  - `packages/cli/test/junk.test.ts` calls each of acc's ways in from
+    `entryPointsOf`: every command, and every subcommand its group declares
+    (35 and 33 today). Each gets no arguments, empty strings, wrong types, a
+    100 KB string, an unknown id, paths outside the repo and `../` ids, then
+    every string option its group declares set to junk (empty, a wrong type,
+    long, a 1 MB file, a folder, a missing `../` path), with junk on stdin up
+    to 1 MB. About 900 calls, about 2 minutes.
+  - Each call runs the built acc in a fresh copy of a throwaway repo, three at
+    once. HOME, TMPDIR, Claude Code's state and acc's machine files are in a
+    sandbox, and fake `gh`, `claude` and `sf` that fail at once come first on
+    PATH. A call must exit 0, 1 or 2 within 20 seconds (3 is an error acc
+    didn't expect), print at most one line on stderr when it fails, no line
+    longer than 400 characters and no stack, and only JSON with `--json`.
+    Nothing outside its repo may change: home, the bait a `../` id would
+    reach, and the template are hashed before and after each command.
+  - A command that compares a subcommand it doesn't declare fails the test.
+  - `extension/test/junk.test.ts` calls each command in `contributes.commands`
+    (87 today) with 19 values: none, undefined, null, `''`, 0, -1, NaN, a 1 MB
+    string, objects of the wrong shape, a menu row for a task that isn't there,
+    and paths outside the repo. Each must settle within 10 seconds without
+    throwing, and no promise may reject unhandled. About 1,650 calls, under a
+    minute.
+  - Both prove their checks can fail, assert they called as many commands as
+    the registry holds, and run in `npm run check`, never skipped. Each failure
+    they found has its own test, naming the commands it covers.
 
 ## 18. Build order
 
