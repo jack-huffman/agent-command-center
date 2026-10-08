@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { autoMergeFor, autoMergeOn, branchFor, builderGatesFor, CONFIG_KEYS, defaultEnvironment, keyShown, loadConfig, parseConfig, requiredGates, skippedOnRoute, trackerForKey, UNREAD_KEYS, VALIDATOR_ONLY, withTracker, writeConfig } from '../src/config.ts';
+import { autoMergeFor, autoMergeOn, branchFor, builderGatesFor, CONFIG_KEYS, defaultEnvironment, keyShown, loadConfig, parseConfig, requiredGates, saveTracker, skippedOnRoute, trackerForKey, UNREAD_KEYS, VALIDATOR_ONLY, withTracker, writeConfig } from '../src/config.ts';
 import { GENERIC_CONFIG, SF_CONFIG, tempDir } from './support.ts';
 
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x));
@@ -301,6 +301,33 @@ test('re-adding a tracker keeps the settings it had, in its place; a new one goe
   assert.deepEqual(withTracker(list, { kind: 'github' }), [{ kind: 'github', skipLabels: ['milestone'] }, list[1]], 'skipLabels survive');
   assert.deepEqual(withTracker(list, { kind: 'jira', site: 'acme.atlassian.net', project: 'CRM', board: 7 }), [list[0], { ...list[1], board: 7 }]);
   assert.deepEqual(withTracker(list, { kind: 'jira', site: 'acme.atlassian.net', project: 'OPS' }).map((t) => t.project), [undefined, 'CRM', 'OPS'], 'another project is another tracker');
+});
+
+test('saveTracker connects a tracker or changes one in .acc/config.json, keeping the rest, and writes nothing that wouldn\'t load (GH-112)', () => {
+  const file = join(tempDir('acc-save-'), 'config.json');
+  const start = { ...clone(GENERIC_CONFIG), github: { repo: 'acme/tool', account: 'jordan' }, trackers: [{ kind: 'github', skipLabels: ['milestone'] }] };
+  writeFileSync(file, JSON.stringify(start));
+  const read = () => JSON.parse(readFileSync(file, 'utf8'));
+  // Added last, with the rest of the file as it was.
+  assert.deepEqual(saveTracker(file, null, { kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', board: 7, epic: 'ACME-3' }), { index: 1, warnings: [] });
+  assert.deepEqual(read(), { ...start, trackers: [start.trackers[0], { kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', board: 7, epic: 'ACME-3' }] });
+  assert.ok(readFileSync(file, 'utf8').endsWith('}\n'));
+  // Re-added, it's the same tracker, in its place: the index withTracker put it at.
+  assert.equal(saveTracker(file, null, { kind: 'github', labels: ['billing'] }).index, 0);
+  assert.deepEqual(read().trackers[0], { kind: 'github', skipLabels: ['milestone'], labels: ['billing'] }, 'skipLabels kept');
+  // Changed at its place: a key named null is taken out, and the rest kept.
+  assert.deepEqual(saveTracker(file, 1, { kind: 'jira', epic: null, board: 9 }), { index: 1, warnings: [] });
+  assert.deepEqual(read().trackers[1], { kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', board: 9 });
+  // Refused, with the file as it was: another kind at that place, a config that wouldn't load, no kind.
+  const before = readFileSync(file, 'utf8');
+  assert.throws(() => saveTracker(file, 0, { kind: 'jira', board: 3 }), /changed since this page opened/);
+  assert.throws(() => saveTracker(file, null, { kind: 'jira', project: 'OPS' }), /would leave .* with problems, so nothing was written:\n- .*needs "site" and "project"/);
+  assert.throws(() => saveTracker(file, null, { kind: 'linear' }), /needs a "kind": /);
+  assert.throws(() => saveTracker(file, -1, { kind: 'jira' }), /place in the list, from 0/);
+  assert.equal(readFileSync(file, 'utf8'), before);
+  // A key the kind doesn't use is a warning, as parseConfig says.
+  assert.match(saveTracker(file, 0, { kind: 'github', epic: 'X-1' }).warnings.join(' '), /epic/);
+  assert.throws(() => saveTracker(join(tempDir('acc-none-'), 'config.json'), null, { kind: 'github' }), /Run "acc init" first/);
 });
 
 test('a tracker names its place: a Jira epic, GitHub labels or an Azure area path; a wrong type is an error, the wrong kind a warning (D-072)', () => {
