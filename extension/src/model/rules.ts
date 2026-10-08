@@ -88,7 +88,7 @@ const text = (v: unknown, max: number): boolean => typeof v === 'string' && !!v.
 
 export const area: ModelArea = {
   home: {
-    order: 50,
+    order: 60,
     attention(c, p) {
       // Neutral, after the orange items, and never in the badge (GH-102): nothing is waiting on a suggestion.
       for (const s of c.hub.suggestions?.(p.root) ?? []) {
