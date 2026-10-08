@@ -143,7 +143,11 @@ export class ConnectSession {
     for (const [k, v] of Object.entries(from?.values ?? {})) if (typeof v === 'string' && v && this.s.pickers[k]) this.s.pickers[k]!.selected = [v];
     this.bump();
     if (this.method.via === 'gh') this.autoTest();
-    else void this.sharedHost().then(() => this.resume());
+    else {
+      // The page can close, or open again, while sharedHost looks: then this page's sign-in isn't checked.
+      const epoch = this.epoch;
+      void this.sharedHost().then(() => (epoch === this.epoch ? this.resume() : false));
+    }
     return true;
   }
 
@@ -294,9 +298,9 @@ export class ConnectSession {
    * the person ticks or unticks it. True when one was found, whether or not it still works.
    */
   private async resume(): Promise<boolean> {
-    const s = this.s!;
+    const s = this.s;
     const p = this.project;
-    if (!s.root || !s.host || !p) return false;
+    if (!s?.root || !s.host || !p) return false;
     const epoch = this.epoch;
     const host = s.host;
     try {

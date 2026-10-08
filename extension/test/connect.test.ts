@@ -394,6 +394,34 @@ test('From a Jira epic: the site every project shares fills in signed in, the ep
   assert.deepEqual([left.started, left.writes, left.saved, left.session.model()], [[], 0, [], null]);
 });
 
+test('From a Jira epic: closing or cancelling the page while it looks for a shared site leaves nothing running and nothing thrown (GH-81)', async () => {
+  const thrown: unknown[] = [];
+  const caught = (e: unknown) => thrown.push(e);
+  process.on('unhandledRejection', caught);
+  try {
+    const repos = [other('acme-billing', 'github:acme/billing', [{ kind: 'jira', site: SITE, project: 'OPS' }])];
+    let checked = 0;
+    for (const leave of [(h: ReturnType<typeof harness>) => h.session.close(), (h: ReturnType<typeof harness>) => h.send({ type: 'connect-cancel' })]) {
+      const h = harness({ secrets: JIRA_SITE_SIGN_IN(), repos });
+      assert.equal(await h.session.open({ start: RENEWALS, from: 'setup' }), true);
+      leave(h); // before the shared site's sign-in has been read
+      await settle();
+      assert.deepEqual([h.session.model(), h.started, h.signedIn], [null, [], []]);
+      checked++;
+    }
+    assert.equal(checked, 2);
+    // And opened again meanwhile: the first look's sign-in check doesn't run on the second page.
+    const h = harness({ secrets: JIRA_SITE_SIGN_IN(), repos });
+    await h.session.open({ start: RENEWALS, from: 'setup' });
+    await h.session.open({ start: RENEWALS, from: 'setup' });
+    await settle();
+    assert.deepEqual([h.model().host.value, h.model().signIn.look.label], [SITE, 'Signed in as Jordan Kim, for every project on acme.atlassian.net']);
+  } finally {
+    process.off('unhandledRejection', caught);
+  }
+  assert.deepEqual(thrown, []);
+});
+
 test('From a Jira epic: acc init\'s refusal stays beside Start the project, in its own words, and the page stays open (GH-81)', async () => {
   const h = harness({ secrets: JIRA_SITE_SIGN_IN(), repos: [other('acme-billing', 'github:acme/billing', [{ kind: 'jira', site: SITE, project: 'OPS' }])], start: () => { throw new Error('"Acme Production" isn\'t logged in: No authorization information found.'); } });
   await h.session.open({ start: { ...RENEWALS, args: ['--profile', 'salesforce', '--production-org', 'Acme Production'] }, from: 'setup' });
