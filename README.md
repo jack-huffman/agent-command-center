@@ -51,8 +51,8 @@ Salesforce. Project types plug in as profiles.
   the two lists and the README's environments table each have a **Do it** in
   the walkthrough. No terminal needed.
 - **How agents run:** builders and reviewers each have a model, effort and
-  fallback, for this clone or the whole project, changed from **Settings** on
-  the Agents section.
+  fallback, for this clone or the whole project, changed in the Command
+  Center's **Settings**, with each project's autonomy and auto-merge.
 - **History:** what agents asked and what you answered stays on the page: in
   each agent's timeline, and in the Overview's History with the task moves and
   commands.
