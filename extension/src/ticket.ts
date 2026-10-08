@@ -14,6 +14,7 @@ import type { ThemeChoice } from './model/settings.ts';
 import { runFile } from './run.ts';
 import type { Trackers } from './trackers.ts';
 import type { ExtensionArea } from './area.ts';
+import { addTaskArgs, draftFromOpen } from './logic/tasks.ts';
 
 type AccRun = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
 type Reply = { ok: boolean; error?: string };
@@ -283,6 +284,7 @@ export class TicketPanels implements vscode.Disposable {
     if (action === 'refresh') return this.load(o);
     if (action === 'track') return this.track(o, p);
     if (action === 'waive') return this.waive(o, p, text ?? '');
+    if (action === 'task') return this.makeTask(o, p, text ?? '');
     if (o.tracker === null || !o.ticket) return;
     const index = o.tracker;
     const done = (ok: boolean, error?: string) => void o.panel.webview.postMessage({ type: 'done', action, ok, error });
@@ -423,6 +425,42 @@ export class TicketPanels implements vscode.Disposable {
       void vscode.window.showWarningMessage(`Couldn't waive ${gate}: ${msg}`);
     } else {
       void vscode.window.showInformationMessage(`${gate} is waived on ${task.id}'s latest commit.${task.state === 'blocked' ? ' Move it to In review when you\'re ready.' : ''}`);
+    }
+    await this.hub.loadTasks(true);
+    await this.post(o);
+  }
+
+  /**
+   * A person drafts a task from a still-open line of the task's note (D-???): the title and brief come
+   * prefilled, to edit, and Esc creates nothing. It's an acc task in the same environment, waiting on this
+   * one while it isn't done. Nothing is written to a tracker.
+   */
+  private async makeTask(o: Open, p: Project, line: string): Promise<void> {
+    const task = this.hub.ledger(p.root)?.tasks.find((t) => t.id === o.key);
+    const draft = task ? draftFromOpen(task, line) : null;
+    if (!task || !draft) return;
+    const title = await vscode.window.showInputBox({
+      title: `A task from ${task.id}'s note`,
+      prompt: `Its title. It goes in ${draft.env}${draft.deps.length ? `, after ${task.id}` : ''}. Press Esc to make nothing.`,
+      value: draft.title,
+      ignoreFocusOut: true,
+      validateInput: (v) => (v.trim() ? undefined : 'A task needs a title.'),
+    });
+    if (!title) return;
+    const brief = await vscode.window.showInputBox({
+      title: `A task from ${task.id}'s note`,
+      prompt: 'Its details, for whoever builds it. Press Enter to make it, or Esc to make nothing.',
+      value: draft.brief,
+      ignoreFocusOut: true,
+    });
+    if (brief === undefined) return;
+    const r = await this.acc(addTaskArgs({ ...draft, title: title.trim(), brief: brief.trim() }), p.root);
+    let out: { added?: string[]; message?: string } = {};
+    try { out = JSON.parse(r.stdout) as typeof out; } catch { /* plain text */ }
+    if (r.code !== 0 || !out.added?.length) {
+      void vscode.window.showWarningMessage(`Couldn't make the task: ${out.message ?? ((r.stderr || r.stdout).trim().split('\n')[0] ?? '')}`);
+    } else {
+      void vscode.window.showInformationMessage(`Added ${out.added.join(', ')}${draft.deps.length ? `, after ${task.id}` : ''}.`);
     }
     await this.hub.loadTasks(true);
     await this.post(o);

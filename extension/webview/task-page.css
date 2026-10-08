@@ -58,6 +58,18 @@ body[data-view="ticket"] { padding-top: 18px; }
 .check-waive { padding: 0 6px; }
 .check-sum { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .side-panel .actions { margin-top: 12px; }
+/* A builder's handoff note (D-???): three labelled parts, each line wrapping, and Make a task beside each
+   still-open line, dropping below it where the tab is narrow. */
+.note-who { margin: 0 0 4px; }
+.ticket-main .note-part h3 { display: flex; align-items: center; gap: 6px; margin: 12px 0 4px; }
+.note-lines { margin: 0; padding-left: 22px; }
+.note-lines li { padding: 2px 0; overflow-wrap: anywhere; }
+.note-none { margin: 0 0 0 22px; }
+.note-open .note-lines { list-style: none; padding-left: 22px; }
+.note-open .note-lines li { display: flex; align-items: flex-start; gap: 4px 10px; flex-wrap: wrap; padding: 4px 0; }
+.note-open .note-lines li + li { border-top: 1px solid var(--line); }
+.note-line { flex: 1 1 240px; min-width: 0; }
+.note-task { flex: none; padding: 0 6px; }
 .related { list-style: none; margin: 0; padding: 0; }
 .related li { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; }
 .related .rel { min-width: 90px; font-size: 0.9em; }

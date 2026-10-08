@@ -43,7 +43,8 @@ import { PALETTE_THEMES, type PaletteTheme, palettes, vscodeDefaults } from './s
 /**
  * Every page the screenshot script can draw: each section of the Command Center, a ticket's page (being
  * built, two to do whose analysis has questions or says to split it, one whose builder stopped, one that
- * waits for other tasks' files, and one acc doesn't keep yet, being tracked), an agent's page, Setup with
+ * waits for other tasks' files, one acc doesn't keep yet, being tracked, and one in review with its
+ * builder's note), an agent's page, Setup with
  * the output panel open on a command that's asking something, the Connect page at each of its steps (D-073),
  * Environments with the Slack card at each of its states (GH-58): sending on Environments itself, then not
  * set up, off and paused, the Tasks tab with a monday.com board in place of the Jira one (GH-70), Agents
@@ -52,7 +53,7 @@ import { PALETTE_THEMES, type PaletteTheme, palettes, vscodeDefaults } from './s
  * project whose merge queue holds three pull requests, with autopilot on and the head running its full
  * check, with autopilot off, and with the head held on GitHub, in that wait's own words (GH-73).
  */
-export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-settings', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held'] as const;
+export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-settings', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held'] as const;
 export type Page = (typeof PAGES)[number];
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -79,6 +80,7 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
   if (kind === 'ticket-track') return sampleTicket(now, 'ACME-31');
   if (kind === 'ticket-checks') return sampleTicket(now, 'ACME-33');
   if (kind === 'ticket-waits') return sampleTicket(now, 'ACME-35');
+  if (kind === 'ticket-note') return sampleTicket(now, 'ACME-20');
   if (kind === 'agent') return sampleAgent(now);
   if (kind === 'queue' || kind === 'queue-off' || kind === 'queue-held') {
     // Held, the head says why in the wait's own words, which can be long.
@@ -124,9 +126,10 @@ const DEFAULT_HEIGHT = 900;
 /**
  * Pages whose part sits below the fold at the default height, shot taller: In progress is below Needs you on
  * the Overview, and taller still at narrow widths, where the Overview's columns stack (D-092). So is the
- * Merge queue panel, below In progress and the tiles (GH-73), and the last of Settings' parts (GH-109).
+ * Merge queue panel, below In progress and the tiles (GH-73), and the last of Settings' parts (GH-109). A
+ * builder's note sits below the description, under the side panels where a narrow tab stacks them (D-???).
  */
-export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 3600, 'overview-idle': 3200, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 2600 };
+export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 3600, 'overview-idle': 3200, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 2600, 'ticket-note': 1600 };
 
 /** The colour properties the colour check compares, on every element and its ::before and ::after. */
 export const COLOUR_PROPERTIES = [
