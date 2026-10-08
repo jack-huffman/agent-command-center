@@ -93,7 +93,11 @@ export function setSection(s: HomeSection, tell = true): void {
   if (tell) api.postMessage({ type: 'nav', section: s });
 }
 
-export function go(s: HomeSection): void {
+/**
+ * Moves to a section. With part, it goes to the heading of that name there, such as Settings' How agents
+ * run from Agents' Settings button (GH-110); otherwise the section takes focus.
+ */
+export function go(s: HomeSection, part?: string): void {
   setSection(s);
   // Leaving the Connect page for a section closes it, as Back does.
   if (state.last?.kind === 'home' && state.last.connect) {
@@ -101,5 +105,21 @@ export function go(s: HomeSection): void {
     state.last = { ...state.last, connect: null };
   }
   if (state.last) state.draw(state.last);
-  document.querySelector<HTMLElement>('.home-main')?.focus({ preventScroll: true });
+  if (!part || !jumpTo(part)) document.querySelector<HTMLElement>('.home-main')?.focus({ preventScroll: true });
+}
+
+/**
+ * Scrolls to the heading a part names with data-part, and focuses it, so a screen reader starts there too.
+ * False when the page has no such heading.
+ */
+export function jumpTo(part: string): boolean {
+  const heading = document.querySelector<HTMLElement>(`[data-part="${CSS.escape(part)}"]`);
+  if (!heading) return false;
+  // Under 820 px the rail is a strip stuck over the top of the page: the heading stops below it, not under it.
+  const rail = document.querySelector<HTMLElement>('.rail');
+  const strip = rail && getComputedStyle(rail).position === 'sticky' ? rail.getBoundingClientRect().height : 0;
+  heading.style.scrollMarginTop = strip ? `${Math.ceil(strip) + 12}px` : '';
+  heading.scrollIntoView({ block: 'start' });
+  heading.focus({ preventScroll: true });
+  return true;
 }

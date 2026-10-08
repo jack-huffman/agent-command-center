@@ -1,8 +1,8 @@
-// The Agents section: sessions by where they run, and how agents run.
+// The Agents section: sessions by where they run, and what they bill. How agents run is in Settings (GH-110).
 
 import type { AgentsModel, WhereView } from '../src/model/agents.ts';
-import { argButton, button, el, empty, header, icon, menuButton, openable, plural, segmented, since, span, status, titled, toolbarButton, withMenu, wrap } from './dom.ts';
-import { api, memory, type PageArea, remember, state, view } from './state.ts';
+import { button, el, empty, header, icon, menuButton, openable, plural, segmented, since, span, status, titled, toolbarButton, withMenu, wrap } from './dom.ts';
+import { api, go, type PageArea, state } from './state.ts';
 
 /** A model's name short enough for a table cell: claude-opus-5-5 is opus-5-5, and a dated snapshot drops its date. */
 const shortModel = (m: string): string => m.replace(/^claude-/, '').replace(/-\d{8}(?=\[|$)/, '');
@@ -24,53 +24,22 @@ function slashBreaks(text: string): Node[] {
   return out;
 }
 
-/** Where the Agents page remembers How agents run is open: model.ts's AGENT_SETTINGS, which the extension opens. */
-const AGENT_SETTINGS = 'agents:settings';
+/** Settings' How agents run, by its heading: model/settings.ts's settingsKey('agents'), which a test pins. */
+const HOW_AGENTS_RUN = 'settings:agents';
 
 export function renderAgents(m: AgentsModel): Node[] {
   const all = m.places.flatMap((p) => p.agents);
   const needs = all.filter((a) => a.needsYou).length;
   // Sessions whose work is over (D-095): counted apart from what needs you, and stopped together.
   const finished = all.filter((a) => a.finished).length;
-  // How agents run is behind Settings, closed until you open it, and remembered for the tab.
-  const open = memory().opened.includes(AGENT_SETTINGS);
-  const settings = m.settings.length ? button(open ? 'Hide settings' : 'Settings', 'settings-gear', () => {
-    remember((x) => { x.opened = open ? x.opened.filter((y) => y !== AGENT_SETTINGS) : [...x.opened, AGENT_SETTINGS]; });
-    if (state.last) state.draw(state.last);
-  }, 'ghost') : null;
-  settings?.setAttribute('aria-expanded', String(open));
+  // How agents run is in Settings now (GH-110): Settings goes to it there.
+  const settings = button('Settings', 'settings-gear', () => go('settings', HOW_AGENTS_RUN), 'ghost');
+  settings.title = 'Settings: How agents run';
+  settings.setAttribute('aria-label', 'Settings: How agents run');
   const stop = m.stopFinished ? toolbarButton('acc.agents.stopFinished', `Stop finished sessions (${m.stopFinished})`, 'debug-stop') : null;
   const out: Node[] = [header('Agents', m.error ?? `${plural(all.length, 'session')} on this machine${needs ? `, ${needs} need${needs === 1 ? 's' : ''} you` : ''}${finished ? `, ${finished} finished` : ''}.`, settings, stop, toolbarButton('acc.agent.new', 'Start a background agent', 'add', m.places.find((p) => p.root)?.root ?? undefined, true))];
-  // Closed, a billing problem still shows: per-token billing costs money while you're not looking (D-036).
-  if (!open) for (const s of m.settings) if (s.billing?.tone === 'orange') out.push(el('div', 'setting-billing', status(s.billing)));
-  // What builders and reviewers run with, and what they bill (D-036).
-  for (const s of open ? m.settings : []) {
-    const box = el('section', 'agent-settings', el('h2', '', icon('settings-gear'), m.settings.length > 1 ? `How agents run · ${s.project}` : 'How agents run'));
-    for (const r of s.roles) {
-      box.append(el('div', 'setting-row',
-        el('span', 'setting-name', icon(r.icon), el('span', 'strong', r.label)),
-        el('span', 'setting-parts', ...r.parts.map((p) => el('span', 'setting-part', el('span', 'muted', `${p.name} `), el('span', 'mono strong', p.value), el('span', 'muted small', ` · ${p.from}`)))),
-        argButton('acc.agents.configure', 'Change…', 'edit', `${r.role}|${s.root}`)));
-    }
-    // What autopilot may do on its own (D-055), set for the project through acc (D-064).
-    if (s.autonomy) {
-      box.append(el('div', 'setting-row',
-        el('span', 'setting-name', icon('rocket'), el('span', 'strong', 'Autonomy')),
-        el('span', 'setting-parts', el('span', 'setting-part', el('span', 'mono strong', s.autonomy.value), el('span', 'muted small', ` · ${s.autonomy.from}`)),
-          s.autonomy.meaning ? el('span', 'setting-meaning muted small', s.autonomy.meaning) : null),
-        argButton('acc.agents.autonomy', 'Change…', 'edit', s.root)));
-    }
-    // Whether autopilot merges a reviewed, green pull request (GH-67), set for the project through acc.
-    if (s.autoMerge) {
-      box.append(el('div', 'setting-row',
-        el('span', 'setting-name', icon(s.autoMerge.value === 'on' ? 'git-merge' : 'circle-slash'), el('span', 'strong', 'Auto-merge')),
-        el('span', 'setting-parts', el('span', 'setting-part', el('span', 'mono strong', s.autoMerge.value), el('span', 'muted small', ` · ${s.autoMerge.from}`)),
-          el('span', 'setting-meaning muted small', s.autoMerge.meaning)),
-        s.autoMerge.settable ? argButton('acc.agents.autoMerge', 'Change…', 'edit', s.root) : el('span', '')));
-    }
-    if (s.billing) box.append(el('div', 'setting-billing', status(s.billing)));
-    out.push(box);
-  }
+  // Per-token billing shows here as well as in Settings: it costs money while nobody looks (D-036, D-089).
+  if (m.billing?.tone === 'orange') out.push(el('div', 'setting-billing', status(m.billing)));
   if (!all.length) {
     out.push(empty('No Claude Code sessions are running. Background agents keep working when the terminal closes, and edit in their own worktree.'));
     return out;
