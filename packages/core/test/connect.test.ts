@@ -134,6 +134,21 @@ test('every tracker the page offers is described, and its keys are declared for 
   assert.deepEqual(DESCRIPTIONS.map((d) => d.pickers.filter((p) => p.identifies).map((p) => p.key)), [['project'], [], ['project'], ['board']]);
 });
 
+test('every description says which of its lists stands in for an epic, in words the page shows (GH-81)', () => {
+  let checked = 0;
+  for (const d of DESCRIPTIONS) {
+    const p = d.pickers.find((x) => x.key === d.place.key);
+    assert.ok(p, `${d.name}'s place, ${d.place.key}, is one of its lists`);
+    assert.ok(p.whole, `${d.name}'s place is the list that narrows the whole project`);
+    assert.match(d.place.words, /\bepic\b/, `${d.name}'s words say what stands in for an epic`);
+    checked++;
+  }
+  assert.equal(checked, 4);
+  assert.deepEqual(DESCRIPTIONS.map((d) => d.place.key), ['epic', 'labels', 'areaPath', 'group']);
+  assert.match(AZURE.place.words, /^In Azure DevOps, an area path stands in for an epic/);
+  assert.match(GITHUB.place.words, /^In GitHub, labels stand in for an epic/);
+});
+
 /** monday.com's GraphQL API, answering only this token, by what each query asks for. */
 const MONDAY_TOKEN = 'monday-token-0123456789abcdef';
 function mondayApi(o: { account?: string } = {}) {

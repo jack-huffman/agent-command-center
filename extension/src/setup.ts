@@ -5,7 +5,8 @@ import * as vscode from 'vscode';
 import { type Config, parseConfig } from '../../packages/core/src/config.ts';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import type { Step } from '../../packages/core/src/onboarding/types.ts';
-import { activeGhAccount, afterFullCheck, afterStepCheck, COMMANDS, contextKey, type DoctorItem, type EnvLike, expectedOrgUrl, EXTENSION_ID, hasPlaceholder, importRulesCommand, initCommand, isComplete, machineCache, type MachineCache, productionOrgs, type RecentTemplate, rememberTemplate, reusableMachine, rulesDetail, setupOrgChoices, sfOpenCommand, shownRules, shownTemplate, statusText, summarize, templateDetail, WALKTHROUGHS } from './logic/setup.ts';
+import { activeGhAccount, afterFullCheck, afterStepCheck, COMMANDS, contextKey, type DoctorItem, type EnvLike, expectedOrgUrl, EXTENSION_ID, hasPlaceholder, importRulesCommand, initArgs, type InitChoice, initCommand, initOutput, isComplete, machineCache, type MachineCache, pendingProject, productionOrgs, type RecentTemplate, rememberTemplate, reusableMachine, rulesDetail, setupOrgChoices, sfOpenCommand, shownRules, shownTemplate, statusText, summarize, templateDetail, WALKTHROUGHS } from './logic/setup.ts';
+import type { StartProject } from './connect.ts';
 import { needsTerminal } from './logic/runs.ts';
 import { shq } from './logic/shared.ts';
 import { parseOrgUrl } from '../../packages/core/src/onboarding/helpers.ts';
@@ -28,6 +29,9 @@ const PROJECT_KINDS = [
   { label: '$(cloud) Salesforce project', description: 'Finds every org from Production\'s sandbox list', profile: 'salesforce' as const },
   { label: '$(folder) Other project', description: 'One branch, no orgs', profile: 'generic' as const },
 ];
+const FROM_TEMPLATE = { label: '$(repo) From a team template…', description: 'Your team\'s settings, from a file, a GitHub file or a git repo', profile: 'template' as const };
+/** A project run from an epic in a shared tracker (GH-81): or an Azure DevOps area path, or GitHub labels. */
+const FROM_EPIC = { label: '$(issues) From a Jira epic…', description: 'Its tickets from one epic, an Azure DevOps area path or GitHub labels, picked on the Connect page', profile: 'epic' as const };
 
 export class Setup implements vscode.Disposable {
   readonly log = vscode.window.createOutputChannel('Agent Command Center', { log: true });
@@ -442,21 +446,80 @@ export class Setup implements vscode.Disposable {
     void vscode.window.showInformationMessage(`Sign in to ${e.name} in the browser that opens. The step re-checks itself when you're done.`);
   }
 
-  /** B0.config's "Do it": choose the profile and, for Salesforce, the Production org, then run acc init. Or start from a team template. */
+  /**
+   * B0.config's "Do it": choose the profile and, for Salesforce, the Production org, then run acc init. Or
+   * start from a team template, or from a Jira epic, an Azure area path or GitHub labels (GH-81).
+   */
   async initFlow(): Promise<void> {
     if (!this.folder()) {
       void vscode.window.showWarningMessage('Open the project\'s folder first (File → Open Folder).');
       return;
     }
-    const kind = await vscode.window.showQuickPick([
-      ...PROJECT_KINDS,
-      { label: '$(repo) From a team template…', description: 'Your team\'s settings, from a file, a GitHub file or a git repo', profile: 'template' as const },
-    ], { title: 'What kind of project is this?' });
+    const kind = await vscode.window.showQuickPick([...PROJECT_KINDS, FROM_TEMPLATE, FROM_EPIC], { title: 'What kind of project is this?' });
     if (!kind) return;
-    if (kind.profile === 'template') return this.templateFlow();
-    if (kind.profile === 'generic') return this.runCommand(initCommand({ profile: 'generic' }), 'B0.config');
-    const prod = await this.pickProductionOrg();
-    if (prod) this.runCommand(initCommand({ profile: 'salesforce', productionOrg: prod }), 'B0.config');
+    if (kind.profile === 'epic') return this.epicFlow();
+    const choice = await this.choose(kind.profile);
+    if (choice) this.runCommand(initCommand(choice.init), 'B0.config');
+  }
+
+  /**
+   * Where a new project's settings come from, as acc init's options, or undefined when the person backed out:
+   * Other, Salesforce with its Production org, or a team template, read and confirmed (GH-80). Nothing runs.
+   */
+  private async choose(kind: 'salesforce' | 'generic' | 'template'): Promise<{ init: InitChoice; templateTracker: Record<string, unknown> | null } | undefined> {
+    if (kind === 'template') return this.templateChoice();
+    if (kind === 'generic') return { init: { profile: 'generic' }, templateTracker: null };
+    const productionOrg = await this.pickProductionOrg();
+    return productionOrg ? { init: { profile: 'salesforce', productionOrg }, templateTracker: null } : undefined;
+  }
+
+  /** Starts a project on the Connect page (GH-81): the extension opens it there. */
+  private starter: ((p: StartProject) => Promise<void>) | null = null;
+
+  useStarter(fn: (p: StartProject) => Promise<void>): void {
+    this.starter = fn;
+  }
+
+  /**
+   * "From a Jira epic…" (GH-81): where the rest of the settings come from, then the Connect page, where the
+   * person picks the site, project, epic (or an area path, or labels) and board. acc init's dry run gives
+   * the project's name and GitHub first, writing nothing. acc init itself runs once, on the page's Start the
+   * project, with the tracker: leaving the page writes nothing.
+   */
+  private async epicFlow(): Promise<void> {
+    const base = await vscode.window.showQuickPick([...PROJECT_KINDS, FROM_TEMPLATE], { title: 'Where do the rest of its settings come from?', placeHolder: 'The tracker comes next, on the Connect page' });
+    if (!base) return;
+    const choice = await this.choose(base.profile);
+    if (!choice) return;
+    const args = initArgs(choice.init);
+    const root = this.cwd();
+    const [dry, common] = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Reading what acc init would write…' }, (_p, token) => Promise.all([
+      this.acc(['init', ...args, '--dry-run', '--json'], token),
+      runFile('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], root),
+    ]));
+    const plan = initOutput(dry.stdout, dry.stderr);
+    if (!plan.ok || common.code !== 0) {
+      const why = plan.ok ? `git couldn't find this folder's repository: ${(common.stderr || common.stdout).trim()}` : plan.error;
+      this.log.warn(`Starting a project from an epic: ${why}`);
+      void vscode.window.showErrorMessage('✗ acc init can\'t start this project. Nothing was written.', { modal: true, detail: why });
+      return;
+    }
+    await this.starter?.(pendingProject({ root, dry: plan, commonDir: common.stdout.trim(), args, tracker: choice.templateTracker }));
+  }
+
+  /**
+   * The Connect page's Start the project (GH-81): acc init, once, with the tracker picked. It throws acc's own
+   * words when it refuses, and then nothing was written.
+   */
+  async startProject(p: StartProject, tracker: Record<string, unknown>): Promise<void> {
+    const r = await runFile(process.execPath, [this.accScript, 'init', ...p.args, ...initArgs({ tracker }), '--json'], p.root, { ...process.env, ELECTRON_RUN_AS_NODE: '1', NO_COLOR: '1' });
+    const done = initOutput(r.stdout, r.stderr);
+    if (r.code !== 0 || !done.ok) {
+      const why = done.ok ? (r.stderr || r.stdout).trim().split('\n')[0] || `acc init exited ${r.code}.` : done.error;
+      this.log.warn(`acc init didn't start ${p.name}: ${why}`);
+      throw new Error(why);
+    }
+    this.log.info(`acc init started ${p.name} in ${p.root}, with its tracker: ${JSON.stringify(tracker)}`);
   }
 
   /** Which logged-in org is Production. Undefined when the person backed out, or went to log in to another. */
@@ -481,15 +544,16 @@ export class Setup implements vscode.Disposable {
 
   /**
    * "From a team template…" (GH-80): a source used before on this machine, or a new one; acc reads it, a bad
-   * one's problems are shown and nothing is written, and a good one is confirmed before acc init runs.
+   * one's problems are shown and nothing is written, and a good one is confirmed. Then acc init's options, and
+   * the template's tracker, which a project started from an epic fills in on the Connect page (GH-81).
    */
-  private async templateFlow(): Promise<void> {
+  private async templateChoice(): Promise<{ init: InitChoice; templateTracker: Record<string, unknown> | null } | undefined> {
     const recent = this.ctx.globalState.get<RecentTemplate[]>(RECENT_TEMPLATES) ?? [];
     let source: string | undefined;
     if (recent.length) {
       const another = { label: '$(add) Another path or URL…', description: '', source: undefined as string | undefined };
       const pick = await vscode.window.showQuickPick([...recent.map((r) => ({ label: `$(repo) ${r.name}`, description: r.source, source: r.source as string | undefined })), another], { title: 'Which team template?' });
-      if (!pick) return;
+      if (!pick) return undefined;
       source = pick.source;
     }
     source ??= (await vscode.window.showInputBox({
@@ -499,30 +563,30 @@ export class Setup implements vscode.Disposable {
       ignoreFocusOut: true,
       validateInput: (v) => sourceProblem(v),
     }))?.trim();
-    if (!source) return;
+    if (!source) return undefined;
     const r = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Reading the team template…' },
       (_p, token) => this.acc(['template', 'show', source, '--json'], token));
     const shown = shownTemplate(r.stdout, r.stderr);
     if (!shown.ok) {
       this.log.warn(`${source} can't be used as a team template: ${shown.errors.join(' ')}`);
       void vscode.window.showErrorMessage(`✗ That team template can't be used. Nothing was written.`, { modal: true, detail: shown.errors.map((e) => `• ${e}`).join('\n') });
-      return;
+      return undefined;
     }
     await this.ctx.globalState.update(RECENT_TEMPLATES, rememberTemplate(recent, { source, name: shown.name }));
     const start = 'Start the project';
     const go = await vscode.window.showInformationMessage(`Start this project from ${shown.name}?`, { modal: true, detail: templateDetail(shown) }, start);
-    if (go !== start) return;
+    if (go !== start) return undefined;
     // A template that sets no profile leaves it to the person, and acc init gets it as --profile.
     let picked: 'salesforce' | 'generic' | undefined;
     if (!shown.profile) {
       const kind = await vscode.window.showQuickPick(PROJECT_KINDS, { title: `${shown.name} sets no profile. What kind of project is this?` });
-      if (!kind) return;
+      if (!kind) return undefined;
       picked = kind.profile;
     }
     const profile = shown.profile ?? picked;
     const productionOrg = profile === 'salesforce' ? await this.pickProductionOrg() : undefined;
-    if (profile === 'salesforce' && !productionOrg) return;
-    this.runCommand(initCommand({ from: source, profile: picked, productionOrg }), 'B0.config');
+    if (profile === 'salesforce' && !productionOrg) return undefined;
+    return { init: { from: source, profile: picked, productionOrg }, templateTracker: shown.tracker };
   }
 
   /**

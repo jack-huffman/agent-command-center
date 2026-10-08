@@ -8,6 +8,7 @@ import { parseJsonOutput } from '../exec.ts';
 import { gatesFor } from '../gates.ts';
 import { credentialHelper } from '../github.ts';
 import { rulesStatus } from '../rules.ts';
+import { readmePlaces } from '../setup.ts';
 import { parseSource } from '../source.ts';
 import { previewCommand, type ReadTemplate, readTemplate, templateDifferences } from '../template.ts';
 import { orList } from '../trackers/types.ts';
@@ -664,11 +665,17 @@ export const STEPS: Step[] = [
     check(ctx) {
       const need = needsProject(ctx);
       if (need) return need;
-      if (ctx.config!.environments.length < 2) return skip('Only one environment, so there\'s no map to document.');
+      // A tracker narrowed to an epic, an area path, labels or a group is named too, even with one environment (GH-81).
+      const places = readmePlaces(ctx.config!);
+      const map = ctx.config!.environments.length >= 2;
+      if (!map && !places.length) return skip('Only one environment, so there\'s no map to document.');
       const text = readText(ctx.paths!.root, 'README.md');
       if (!text) return fail('There\'s no README.md.');
-      const missing = ctx.config!.environments.filter((e) => !text.includes(`\`${e.branch}\``)).map((e) => e.branch);
-      return missing.length ? fail(`README.md doesn't mention ${missing.join(', ')}.`) : pass('Every environment is in the README.');
+      const missing = map ? ctx.config!.environments.filter((e) => !text.includes(`\`${e.branch}\``)).map((e) => e.branch) : [];
+      if (missing.length) return fail(`README.md doesn't mention ${missing.join(', ')}.`);
+      const unnamed = places.filter((p) => !p.needs.every((n) => text.includes(n)));
+      if (unnamed.length) return fail(`README.md doesn't link ${orList(unnamed.map((p) => p.words))}, where this repo's tickets come from.`);
+      return pass(map ? `Every environment is in the README${places.length ? ', and where its tickets come from' : ''}.` : 'The README says where this repo\'s tickets come from.');
     },
   },
   {

@@ -10,10 +10,12 @@ import { GENERIC_CONFIG, gh41Lines, makeRepo, tempDir } from '../../core/test/su
 const MAIN = fileURLToPath(new URL('../src/main.ts', import.meta.url));
 // A builder's `acc gate run` runs these tests with its own ACC_TASK set, holding the machine's heavy-check slot.
 const HEAVY_DIR = join(tempDir('acc-heavy-'), 'slots');
+// acc init lists the repo it writes in this machine's repos (GH-81): here, never the real ~/.acc.
+const REPOS_FILE = join(tempDir('acc-repos-'), 'repos.json');
 
 function acc(cwd: string, args: string[], input?: string, env: NodeJS.ProcessEnv = {}) {
   const r = spawnSync(process.execPath, ['--no-warnings', MAIN, ...args], {
-    cwd, input, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', ACC_ROLE: '', ACC_TASK: '', ACC_HEAVY_DIR: HEAVY_DIR, ...env },
+    cwd, input, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', ACC_ROLE: '', ACC_TASK: '', ACC_HEAVY_DIR: HEAVY_DIR, ACC_REPOS_FILE: REPOS_FILE, ...env },
   });
   return { code: r.status ?? 1, out: r.stdout, err: r.stderr, json: () => JSON.parse(r.stdout) };
 }
@@ -43,6 +45,30 @@ test('init --profile generic writes a config that doctor accepts', () => {
   assert.equal(acc(dir, ['init', '--profile', 'generic']).code, 1, 'refuses to overwrite without --force');
   const doctor = acc(dir, ['doctor', '--part', 'project', '--json']).json() as { id: string; status: string }[];
   assert.equal(doctor.find((d) => d.id === 'B0.config')!.status, 'pass');
+});
+
+test('init --tracker writes the tracker picked on the Connect page, narrowed to its epic, and lists the repo on this machine (GH-81)', () => {
+  const dir = makeRepo();
+  const tracker = { kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', board: 7, epic: 'ACME-3' };
+  const dry = acc(dir, ['init', '--profile', 'generic', '--tracker', JSON.stringify(tracker), '--dry-run', '--json']);
+  assert.equal(dry.code, 0, dry.err);
+  assert.deepEqual(dry.json().config.trackers.map((t: Record<string, unknown>) => [t.kind, t.site, t.project, t.board, t.epic]), [['jira', 'acme.atlassian.net', 'ACME', 7, 'ACME-3']]);
+  assert.equal(existsSync(join(dir, '.acc', 'config.json')), false, 'a dry run writes nothing');
+  assert.ok(!existsSync(REPOS_FILE) || !readFileSync(REPOS_FILE, 'utf8').includes(dir), 'nor lists the repo');
+
+  const r = acc(dir, ['init', '--profile', 'generic', '--project', 'acme-portal', '--tracker', JSON.stringify({ kind: 'github', repo: null, labels: ['billing'] }), '--json']);
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, '.acc', 'config.json'), 'utf8')).trackers, [{ kind: 'github', labels: ['billing'] }]);
+  assert.ok((JSON.parse(readFileSync(REPOS_FILE, 'utf8')) as { repos: string[] }).repos.includes(realpathSync(dir)), 'listed for the Connect page\'s "used by"');
+
+  for (const bad of ['not json', '[1]', 'null']) {
+    const refused = acc(makeRepo(), ['init', '--profile', 'generic', '--tracker', bad]);
+    assert.deepEqual([refused.code, /--tracker must be one tracker as JSON/.test(refused.err)], [2, true], bad);
+  }
+  const unknown = acc(makeRepo(), ['init', '--profile', 'generic', '--tracker', '{"kind":"trello"}']);
+  assert.equal(unknown.code, 1);
+  assert.match(unknown.err, /trackers\[0\]: "kind" must be/);
+  assert.match(acc(dir, ['help']).out, /\n {2}acc init \.\.\. --tracker <json> {9}One tracker, as the Connect page picks it: a Jira epic, an Azure area path or\n {40}GitHub labels\. It replaces the template's tracker and --jira-\*\n/);
 });
 
 test('init --from a team template records it, template show says what it sets, and a bad one writes nothing (GH-80)', () => {

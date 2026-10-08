@@ -55,7 +55,7 @@ gathers them.
 | `extension/src/logic/` | Pure decisions, a module per area: setup and the walkthrough, tasks, agents, worktrees, environments, connect and trackers, runs, notices, autopilot, the status bar, polls (how often each thing is looked at again, which Settings says); `shared.ts` holds a task's row and an agent's session | nothing: nothing names every area here |
 | `extension/src/` | Each area's VS Code side: tasks, agents, worktrees and environments (their commands, subclasses of `sidebar.ts`'s shared base), setup, trackers and the Connect page, identity, slack, notices (the status bar's menu), autopilot, progress (In progress's Stop), ticket (a task's page), questions, runs, settings (the theme every tab follows, and Settings' Refresh). `extension.ts` builds the extension's parts and hands them to every area; `hub.ts` loads, polls and caches (`task-rows.ts` reads a task's row); `panels.ts` handles the page's own messages | `register(parts)`: its commands, and with `receive` the page's messages it takes |
 | `extension/webview/` | The page, flat so its tsconfig and the screenshot harness's staleness check see every file: overview, progress, tasks, task-page, updates, analysis, questions, agents, agent-page, dock, connect, worktrees, environments, slack, setup, settings, and theme (the page's `data-theme`). `main.ts` is the entry; `state.ts` owns the page's state, `dom.ts` builds elements, `boards.ts` holds what boards share, `rail.ts` draws the rail | the sections and tabs it draws, what it draws over a section, its hooks around a draw, and the extension's messages it takes |
-| `packages/core/src/` | dispatch.ts (the start and cleanup), packet.ts, held.ts and holding.ts (D-093); autopilot.ts (its mode and pass), autopilot-rules.ts, autopilot-log.ts. `index.ts` is generated: `export *` from each module by file name, then onboarding's (GH-95) | nothing: a module the index takes only some names from is in `scripts/areas.ts`'s `CORE_INDEX`, with why |
+| `packages/core/src/` | dispatch.ts (the start and cleanup), packet.ts, held.ts and holding.ts (D-093); autopilot.ts (its mode and pass), autopilot-rules.ts, autopilot-log.ts; repos.ts (the repos acc set up on this machine, and which place each uses, GH-81). `index.ts` is generated: `export *` from each module by file name, then onboarding's (GH-95) | nothing: a module the index takes only some names from is in `scripts/areas.ts`'s `CORE_INDEX`, with why |
 
 **A new command, message or section.** Add it to its area's module: a CLI
 command to its group's `commands`, its help line to `lines` and any options to
@@ -113,7 +113,7 @@ the test that reads it.
 | `<git-common-dir>/acc/reviews/<task>-<sha>.json` | no | Reviewer verdicts |
 | `<git-common-dir>/acc/packets/<task>.md` | no | The rendered instructions each builder got |
 | `<git-common-dir>/acc/logs/` | no | Full check output |
-| `~/.acc/` | n/a | Machine-wide: list of managed repos, the heavy-check semaphore |
+| `~/.acc/` | n/a | Machine-wide: `repos.json`, the roots of the repos acc set up here and nothing else, each one's config read when it's needed (GH-81); the heavy-check semaphore (`heavy/`) and how many it allows (`machine.json`); the runtime acc's launcher falls back to (`runtime`); Slack notices already sent (`slack/sent/`) |
 | `~/.acc/questions/` | n/a | Agents' questions waiting for the Command Center, and which windows are listening (D-030) |
 
 **Why the git common directory (D-008).** `git rev-parse --git-common-dir`

@@ -46,7 +46,8 @@ import { PALETTE_THEMES, type PaletteTheme, palettes, vscodeDefaults } from './s
  * built, two to do whose analysis has questions or says to split it, one whose builder stopped, one that
  * waits for other tasks' files, one acc doesn't keep yet, being tracked, and one in review with its
  * builder's note), an agent's page, Setup with
- * the output panel open on a command that's asking something, the Connect page at each of its steps (D-073),
+ * the output panel open on a command that's asking something, the Connect page at each of its steps (D-073)
+ * and starting a project from a Jira epic, an Azure DevOps area path or GitHub labels (GH-81),
  * Environments with the Slack card at each of its states (GH-58): sending on Environments itself, then not
  * set up, off and paused, the Tasks tab with a monday.com board in place of the Jira one (GH-70), Agents
  * with agents that would bill per token (D-089), Agents with its Where column showing full paths (GH-83),
@@ -56,7 +57,7 @@ import { PALETTE_THEMES, type PaletteTheme, palettes, vscodeDefaults } from './s
  * at How agents run, as Agents' Settings and the status bar's Auto-merge open it, with two projects and
  * per-token billing (GH-110). Last, Agents with each repo's finished sessions opened (GH-119).
  */
-export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'agents-finished'] as const;
+export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'agents-finished'] as const;
 export type Page = (typeof PAGES)[number];
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -106,7 +107,8 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
   const hub = perToken || agents ? sampleSettingsHub(now) : sampleHub(now);
   const connect = kind.startsWith('connect-') ? sampleConnect(kind.slice('connect-'.length) as ConnectSample) : null;
   const slack = sampleSlack(kind.startsWith('slack-') ? kind.slice('slack-'.length) as SlackSample : 'on', now);
-  const section = (kind === 'output' ? 'setup' : connect || kind === 'tasks-monday' ? 'tasks' : kind.startsWith('slack-') ? 'environments' : kind === 'agents-billing' || kind === 'agents-path' || kind === 'agents-finished' ? 'agents' : kind === 'settings-agents' ? 'settings' : kind) as HomeSection;
+  // A project started from an epic opens the Connect page over Setup, where "From a Jira epic…" is (GH-81).
+  const section = (kind === 'output' || kind.startsWith('connect-epic') ? 'setup' : connect || kind === 'tasks-monday' ? 'tasks' : kind.startsWith('slack-') ? 'environments' : kind === 'agents-billing' || kind === 'agents-path' || kind === 'agents-finished' ? 'agents' : kind === 'settings-agents' ? 'settings' : kind) as HomeSection;
   const boards = kind === 'tasks-monday' ? sampleMondayBoards : sampleBoards;
   return homeModel({ hub, section, boards: () => boards(), identity: () => sampleIdentity(), setup: perToken ? samplePerTokenSetup() : sampleSetup(), runs: sampleRuns(now), edited: sampleEdited, connect, slack, whereView: kind === 'agents-path' ? 'path' : 'folder', theme });
 }

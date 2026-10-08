@@ -37,6 +37,7 @@ export * from './questions.ts';
 export * from './queue.ts';
 export * from './receipts.ts';
 export * from './refresh.ts';
+export * from './repos.ts';
 export * from './resume.ts';
 export * from './review.ts';
 export * from './rules.ts';

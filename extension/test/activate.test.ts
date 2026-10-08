@@ -19,6 +19,9 @@ const RUNTIME_FILE = join(mkdtempSync(join(tmpdir(), 'acc-runtime-')), 'runtime'
 process.env.ACC_RUNTIME_FILE = RUNTIME_FILE;
 // And Slack's claims (GH-58), which it prunes at start.
 process.env.ACC_SLACK_DIR = mkdtempSync(join(tmpdir(), 'acc-slack-'));
+// And this machine's repos, which it adds each project it loads to (GH-81).
+const REPOS_FILE = join(mkdtempSync(join(tmpdir(), 'acc-repos-')), 'repos.json');
+process.env.ACC_REPOS_FILE = REPOS_FILE;
 // The extension runs acc as the person at VSCode, even when these tests run in a builder's session.
 delete process.env.ACC_ROLE;
 delete process.env.ACC_TASK;
@@ -201,6 +204,8 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     // The sidebar is one launcher listing the page's sections (D-029).
     assert.deepEqual([...trees.keys()], ['acc.home']);
     await until(() => calls.contexts.get('acc.hasProject') === true);
+    // The project it loaded is on this machine's list, for the Connect page's "used by" (GH-81).
+    assert.deepEqual((JSON.parse(readFileSync(REPOS_FILE, 'utf8')) as { repos: string[] }).repos, [repo]);
     const launcher = trees.get('acc.home')!;
     assert.deepEqual((launcher.getChildren() as { section: string }[]).map((n) => n.section), ['overview', 'tasks', 'agents', 'worktrees', 'environments', 'setup', 'settings'], 'Settings last (GH-109)');
     // The extension runs the bundle itself; terminals get the launcher beside it.

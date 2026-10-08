@@ -7,6 +7,7 @@ import type { Answer } from '../../packages/core/src/questions.ts';
 import { agentArgs, withCloneAgents } from '../../packages/core/src/agents.ts';
 import { run as runSync } from '../../packages/core/src/exec.ts';
 import { resumeCommand } from '../../packages/core/src/resume.ts';
+import { reposInUse } from '../../packages/core/src/repos.ts';
 import { recordRuntime } from '../../packages/core/src/runtime.ts';
 import { AgentPages } from './activity.ts';
 import { AutopilotHost } from './autopilot.ts';
@@ -298,23 +299,31 @@ export function activate(context: vscode.ExtensionContext): void {
     projects: () => hub.projects,
     trackers: (root) => { const p = hub.project(root); return p ? trackers.trackers(p) : []; },
     title: (t) => trackers.title(t),
-    storedSignIn: (root, kind, host) => trackers.storedSignIn(root, kind, host),
-    ownSignIn: (root, kind, host) => trackers.ownSignIn(root, kind, host),
-    storeSignIn: (root, kind, host, cred, shared) => trackers.storeSignIn(root, kind, host, cred, shared),
+    storedSignIn: (p, kind, host) => trackers.storedSignIn(p, kind, host),
+    ownSignIn: (p, kind, host) => trackers.ownSignIn(p, kind, host),
+    storeSignIn: (p, kind, host, cred, shared) => trackers.storeSignIn(p, kind, host, cred, shared),
     gitEmail: (root) => trackers.gitEmail(root),
     ghToken: (root, account) => trackers.ghToken(root, account),
     microsoft: (host, spec) => trackers.microsoft(host, spec),
     write: (root, index, record) => trackers.write(root, index, record),
     // A sign-in for every project on a site lets their boards load too (GH-79).
     signedIn: async (root, kind, host) => { await trackers.reload(root, { kind, host }); tickets.refresh(); await setup.recheck('B14.tickets'); },
-    saved: async (root, name) => {
+    saved: async (root, name, started) => {
       await hub.loadProjects();
       await trackers.reload(root);
       tickets.refresh();
       panels.show('tasks');
-      void vscode.window.showInformationMessage(`${name} for ${hub.project(root)?.name ?? 'the project'} is saved in .acc/config.json, and its tickets are on the Tasks tab. Commit the file on each environment's branch, so every checkout shows the same board.`);
-      await setup.recheck('B14.tickets');
+      const project = hub.project(root)?.name ?? 'the project';
+      void vscode.window.showInformationMessage(started
+        ? `${project} is started: acc init wrote .acc/config.json with ${name}, and its tickets are on the Tasks tab. Review the file and commit it; Setup's B10 writes the README's line for where its tickets come from.`
+        : `${name} for ${project} is saved in .acc/config.json, and its tickets are on the Tasks tab. Commit the file on each environment's branch, so every checkout shows the same board.`);
+      if (started) await setup.refresh('a project started on the Connect page');
+      else await setup.recheck('B14.tickets');
     },
+    // A project started from an epic, an area path or labels (GH-81): acc init, once, with the tracker.
+    start: (p, record) => setup.startProject(p, record),
+    confirm: async (message, detail, go) => (await vscode.window.showWarningMessage(message, { modal: true, detail }, go)) === go,
+    repos: () => reposInUse(),
     changed: () => changed(),
     log: (line) => setup.log.warn(line),
     exec,

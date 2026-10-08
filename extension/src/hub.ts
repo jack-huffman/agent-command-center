@@ -11,6 +11,7 @@ import { CLONE_ACCOUNT_KEY } from '../../packages/core/src/github.ts';
 import { type Ledger, readLedger, readRuns, type RepoAgents, type RunsLog, type SessionTie, tieSession } from '../../packages/core/src/ledger.ts';
 import type { RepoPaths } from '../../packages/core/src/paths.ts';
 import { type HistoryRecord, listeners, type Question, questionsDir } from '../../packages/core/src/questions.ts';
+import { rememberRepo } from '../../packages/core/src/repos.ts';
 import { reviewing } from '../../packages/core/src/review.ts';
 import { type HeavyState, heavyState } from '../../packages/core/src/semaphore.ts';
 import { claudeProjectsDir, lastModelIn, lastSaidIn, transcriptFile } from '../../packages/core/src/transcript.ts';
@@ -190,6 +191,9 @@ export class Hub implements vscode.Disposable {
       found.push({ name: config.project, root, config, githubFrom: config.github ? (chosen ? 'clone' : 'config') : null, ledgerPath: join(common.stdout.trim(), 'acc', 'ledger.json'), branch: old?.branch ?? null, worktrees: old?.worktrees ?? [], agents });
     }
     this.projects = found;
+    // This machine's repos, so the Connect page can say which epic another repo uses (GH-81). A repo set up
+    // before the list existed joins it the first time it's open here.
+    for (const p of found) rememberRepo(p.root);
     this.forgetTies(true);
     await vscode.commands.executeCommand('setContext', 'acc.hasProject', found.length > 0);
     this.emitter.fire('projects');
