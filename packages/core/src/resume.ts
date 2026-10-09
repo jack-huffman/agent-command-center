@@ -3,8 +3,9 @@ import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSyn
 import { dirname, join } from 'node:path';
 import { agentArgs, withCloneAgents } from './agents.ts';
 import { type AwakeDeps, keepAwakeFor, releaseAwake } from './awake.ts';
-import type { Config } from './config.ts';
+import type { Config, Effort } from './config.ts';
 import { builderModel } from './dispatch.ts';
+import { builderEffort } from './efforts.ts';
 import { builderSettings } from './packet.ts';
 import { AccError, parseJsonOutput, type Runner } from './exec.ts';
 import { remindedPath } from './hooks.ts';
@@ -106,19 +107,21 @@ export interface ResumeCommandInput {
 /**
  * The resumed builder's claude: its session carried on with a message, and the rules it was dispatched
  * with: the builder's settings (its allow and deny lists, and its hooks), its role and task, the
- * project's permission mode, and the builder's model and effort, with the model picked for the task if
- * one was (D-086). Pass the config with this clone's choices in it (withCloneAgents, D-036). D-060's
+ * project's permission mode, and the builder's model and effort, with the model and effort picked for the task
+ * if they were (D-086, D-???). Pass the config with this clone's choices in it (withCloneAgents, D-036). D-060's
  * reply runs the same. It keeps the name its run recorded (D-087): resumed without one, Claude Code
  * lists the session under a name of its own.
  */
-export function resumeCommand(task: Task, config: Config, i: ResumeCommandInput): { args: string[]; env: Record<string, string>; model: string } {
+export function resumeCommand(task: Task, config: Config, i: ResumeCommandInput): { args: string[]; env: Record<string, string>; model: string; effort: Effort | null } {
   const settings = JSON.stringify(builderSettings(task, config, i.accBinDir, i.basePath, i.accCommand));
   const { model } = builderModel(task, config);
+  const { effort } = builderEffort(task, config);
   const name = task.run?.name ? ['--name', task.run.name] : [];
   return {
-    args: ['-p', i.message, '--resume', i.sessionId, ...name, '--permission-mode', config.agents.permissionMode, ...agentArgs({ ...config.agents.builder, model }), '--settings', settings],
+    args: ['-p', i.message, '--resume', i.sessionId, ...name, '--permission-mode', config.agents.permissionMode, ...agentArgs({ ...config.agents.builder, model, effort }), '--settings', settings],
     env: { ACC_ROLE: 'builder', ACC_TASK: task.id },
     model,
+    effort,
   };
 }
 
@@ -276,6 +279,8 @@ function resumeClaimed(paths: RepoPaths, config: Config, id: string, deps: Resum
       if (!t?.run || t.state !== 'running') throw new AccError('refused', `${id} left running meanwhile, so its resume was stopped.`);
       t.run.resumes = [...(t.run.resumes ?? []), { at, actor: opts.actor, by: opts.by }];
       t.run.model = cmd.model;
+      if (cmd.effort) t.run.effort = cmd.effort;
+      else delete t.run.effort;
       // Done by hand or by autopilot, it clears what autopilot couldn't do (D-055).
       if (t.autopilot?.failed) t.autopilot.failed = null;
       t.updatedAt = at;

@@ -1,7 +1,7 @@
 // acc's Agents commands for builders and how they run: dispatch, done, block, resume, cleanup, agents
 // and machine.
 
-import { AccError, AGENT_ROLES, type AgentRole, agentsMaxSet, autoMergeOn, autopilotDoes, builders, cleanup, clipSaid, type Config, DEFAULT_AGENTS, dispatch, filesOf, fullGates, heavySlots, loadConfig, machineAgents, machineJson, machineRepos, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, readLedger, resume, run, setAgentsMax, setAutoMerge, setAutonomy, setHeavySlots, setMachineAgents, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList, withStrayFiles } from '../../../core/src/index.ts';
+import { AccError, AGENT_ROLES, type AgentRole, agentsMaxSet, autoMergeOn, autopilotDoes, builders, cleanup, clipSaid, type Config, DEFAULT_AGENTS, dispatch, type Effort, filesOf, fullGates, heavySlots, loadConfig, machineAgents, machineJson, machineRepos, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, readLedger, resume, run, setAgentsMax, setAutoMerge, setAutonomy, setHeavySlots, setMachineAgents, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList, withStrayFiles } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
 import { accBinDir, accCommand, actorFrom, type CommandArea, followingCards, noAgent, now, type Opts, out, personOnly, project, taskIdFrom } from '../shared.ts';
 import { cmdSet } from './tasks.ts';
@@ -180,7 +180,7 @@ function cmdDispatch(o: Opts, id: string | undefined): number {
     out(o, () => heldLines(r).join('\n'), r);
     return 0;
   }
-  if (!id) throw new AccError('usage', 'acc dispatch <id> [--foreground] [--without-analysis] [--anyway] [--model <m>], acc dispatch --held, or acc dispatch <id> --stop-waiting');
+  if (!id) throw new AccError('usage', 'acc dispatch <id> [--foreground] [--without-analysis] [--anyway] [--model <m>] [--effort <level>], acc dispatch --held, or acc dispatch <id> --stop-waiting');
   if (o['stop-waiting']) {
     const t = stopWaiting(paths, now, id.toUpperCase(), actor, by);
     out(o, () => `${t.id} stopped waiting. It stays to do, and nothing starts it on its own.`, t);
@@ -188,7 +188,8 @@ function cmdDispatch(o: Opts, id: string | undefined): number {
   }
   if (o.foreground && !o.json) process.stdout.write(`Starting ${id.toUpperCase()} in this terminal. Leave the session when it's done.\n`);
   const model = typeof o.model === 'string' ? o.model : undefined;
-  const r = followingCards(paths, config, () => dispatch(paths, config, id.toUpperCase(), deps, { actor, by, foreground: o.foreground === true, withoutAnalysis: o['without-analysis'] === true, anyway: o.anyway === true, model }));
+  const effort = typeof o.effort === 'string' ? o.effort as Effort : undefined;
+  const r = followingCards(paths, config, () => dispatch(paths, config, id.toUpperCase(), deps, { actor, by, foreground: o.foreground === true, withoutAnalysis: o['without-analysis'] === true, anyway: o.anyway === true, model, effort }));
   if (r.held) {
     // Held, not refused: the dispatch is kept, and the task starts on its own (D-093).
     const blockers = r.waitsFor.map((w) => w.task);
@@ -206,6 +207,7 @@ function cmdDispatch(o: Opts, id: string | undefined): number {
     `  branch:   ${r.branch}`,
     `  name:     ${r.name}`,
     `  model:    ${r.task.run?.model ?? ''}${r.task.run?.modelPicked ? ' (picked for this task)' : ''}`,
+    `  effort:   ${r.task.run?.effort ?? 'the model\'s default'}${r.task.run?.effortPicked ? ' (picked for this task)' : ''}`,
     `  agent:    ${r.bgId ? `background session ${r.bgId}. Watch it with: claude attach ${r.bgId}` : o.foreground ? 'ran in this terminal' : 'started; it will appear in claude agents shortly'}`,
     `  packet:   ${r.packetPath}`,
     r.shares.length ? tone(`  ${sharesWords(r.shares)}. The second pull request to merge may conflict there.`, 'dim') : '',
@@ -263,11 +265,13 @@ export const area: CommandArea = {
     section: 'Agents',
     order: 30,
     lines: `  acc dispatch <id> [--foreground] [--without-analysis] [--anyway] [--model <m>]
+                [--effort <low|medium|high|xhigh|max>]
                                         Worktree, setup, instructions, and a background builder session. A task
                                         whose analysis shares files with work in flight waits while another
-                                        Ready task shares none; --anyway starts it now. --model picks the
-                                        builder's model for this task: a re-dispatch and a resume keep it.
-                                        Without one, the builder's model (acc agents)
+                                        Ready task shares none; --anyway starts it now. --model and --effort
+                                        pick the builder's model and effort for this task: a re-dispatch and a
+                                        resume keep them. Without them, the builder's own (acc agents). A level
+                                        the model doesn't take is refused before anything starts
   acc dispatch --held                   Start the tasks that wait for others' files and may go now
   acc dispatch <id> --stop-waiting      It stops waiting, and stays to do
   acc done [<id>] --landed "<line>"... --moved "<line>"... --open "<line>"...

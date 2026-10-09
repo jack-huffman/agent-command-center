@@ -1,7 +1,7 @@
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { releaseAwake } from './awake.ts';
-import { autoMergeFor, type Config, defaultEnvironment, environmentByBranch, type GateScope } from './config.ts';
+import { autoMergeFor, type Config, defaultEnvironment, environmentByBranch, type Effort, type GateScope } from './config.ts';
 import { AccError } from './exec.ts';
 import { withLock } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
@@ -54,6 +54,10 @@ export interface Run {
    * picked. Without it, the next dispatch follows the clone's, the project's or acc's default.
    */
   modelPicked?: true;
+  /** The effort its builder was started with, or last resumed with (D-???), when one was named: none is Claude Code's default. */
+  effort?: Effort;
+  /** A person picked that effort for this task (D-???): kept as modelPicked is, until another is picked. */
+  effortPicked?: true;
   /** What its builder is called (D-087): its session is found by this when no id was recorded. Older runs have none. */
   name?: string;
   /** Which of the task's dispatches this is: the second is "builder 2". Older runs count as 1. */
@@ -108,6 +112,8 @@ export interface Hold {
   failed?: { reason: string; at: string; by: string } | null;
   /** The model a person picked for its builder when they dispatched it (D-086), which its start launches with. */
   model?: string;
+  /** The effort a person picked for its builder when they dispatched it (D-???), which its start launches with. */
+  effort?: Effort;
 }
 
 export interface PullRequest {

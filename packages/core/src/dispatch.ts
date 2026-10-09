@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
-import { type Config, type Environment, environmentByBranch } from './config.ts';
+import { type Config, type Effort, type Environment, environmentByBranch } from './config.ts';
 import { AccError, type Runner } from './exec.ts';
 import { type Actor, applyMove, checkMove, type FileShare, mutate, noGateHooks, readLedger, reworkCause, type ReworkCause, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
@@ -11,6 +11,7 @@ import { plannedFiles, startLook, waits } from './overlap.ts';
 import { readChecksReport, readQueueReport } from './checks.ts';
 import { latestVerdict } from './review.ts';
 import { agentArgs, checkModelName, modelOf } from './agents.ts';
+import { builderEffort, checkEffortName, checkModelEffort } from './efforts.ts';
 import { type AwakeDeps, holdAwake, keepAwakeFor } from './awake.ts';
 import { sessionName } from './names.ts';
 import { claimHeld, holdTask, releaseHeld, startingNow } from './holding.ts';
@@ -247,6 +248,8 @@ export interface DispatchOptions {
   fromHold?: { shares: FileShare[] };
   /** The model a person picked for this task's builder, kept on its run for a re-dispatch and a resume (D-086). */
   model?: string;
+  /** The effort a person picked for this task's builder, kept on its run as the model is (D-???). */
+  effort?: Effort;
 }
 
 /**
@@ -267,9 +270,14 @@ export function builderModel(task: Pick<Task, 'run'>, config: Config, chosen?: s
 export function dispatch(paths: RepoPaths, config: Config, id: string, deps: DispatchDeps, opts: DispatchOptions): DispatchOutcome {
   const { run, now } = deps;
   if (opts.model !== undefined) checkModelName(opts.model);
+  if (opts.effort !== undefined) checkEffortName(opts.effort);
   const before = readLedger(paths.ledger);
   const found = before.tasks.find((t) => t.id === id);
   if (!found) throw new AccError('no-task', `No task ${id}.`);
+  // A level the model doesn't take is refused before anything starts (D-???), when this dispatch picks either.
+  if (opts.model !== undefined || opts.effort !== undefined) {
+    checkModelEffort(builderModel(found, config, opts.model ?? found.held?.model).model, builderEffort(found, config, opts.effort ?? found.held?.effort).effort);
+  }
   const req = { to: 'running' as const, actor: opts.actor, by: opts.by };
   // Beside the project's cap, this machine's total across every repo (GH-111), which no one ledger knows.
   const machine = machineLoad(paths, config.project, deps.env);
@@ -340,10 +348,11 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
     // from before dispatches were counted was its first.
     const n = (found.run?.n ?? (found.run ? 1 : 0)) + 1;
     const name = sessionName({ project: config.project, key: found.id, title: found.title, role: 'builder', n });
-    // The builder's model and effort (D-036): the model picked for this task, if one was (D-086), when it was
-    // dispatched or when it began to wait for others' files (D-093).
+    // The builder's model and effort (D-036): the model and effort picked for this task, if they were (D-086,
+    // D-???), when it was dispatched or when it began to wait for others' files (D-093).
     const { model, picked } = builderModel(found, config, opts.model ?? found.held?.model);
-    const base = ['--name', name, '--permission-mode', config.agents.permissionMode, ...agentArgs({ ...config.agents.builder, model }), '--settings', settings];
+    const { effort, picked: effortPicked } = builderEffort(found, config, opts.effort ?? found.held?.effort);
+    const base = ['--name', name, '--permission-mode', config.agents.permissionMode, ...agentArgs({ ...config.agents.builder, model, effort }), '--settings', settings];
 
     const record = (bgId: string | null, sessionId: string | null) => mutate(paths, now, (ledger, emit) => {
       const task = ledger.tasks.find((t) => t.id === id)!;
@@ -360,7 +369,7 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
       applyMove(task, { ...req, reason: reused ? `re-dispatched in ${basename(wt)}` : null }, emit, now, data);
       // The last run's note, or that it left none (D-106): the run it was is replaced here.
       const last = task.run ? { before: task.run.note ?? null } : {};
-      task.run = { worktree: wt, branch, startedAt: now().toISOString(), model, ...(picked ? { modelPicked: true as const } : {}), ...(bgId ? { bgId } : {}), ...(sessionId ? { sessionId } : {}), name, n, ...(shares.length ? { shares } : {}), ...last };
+      task.run = { worktree: wt, branch, startedAt: now().toISOString(), model, ...(picked ? { modelPicked: true as const } : {}), ...(effort ? { effort } : {}), ...(effortPicked ? { effortPicked: true as const } : {}), ...(bgId ? { bgId } : {}), ...(sessionId ? { sessionId } : {}), name, n, ...(shares.length ? { shares } : {}), ...last };
       emit({ type: 'task.updated', task: id, actor: opts.actor, by: opts.by, data: { run: task.run } });
       return task;
     });
