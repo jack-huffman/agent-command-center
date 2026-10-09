@@ -2,7 +2,7 @@
 // folder opens, the first open lands on Setup once per folder, and the walkthroughs open when asked for.
 // The decisions are tested here, then the built extension against the vscode stand-in. Run after npm run build.
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -83,6 +83,9 @@ async function inFolder(files: Record<string, string>, machine: DoctorItem['stat
   try {
     // Started, its whole setup pass done.
     await until(() => fake.calls.contexts.get('acc.profile') === profile && fake.calls.contexts.has('acc.step.A1.git'), 60_000);
+    // And listening for agents' questions, which starts once the projects load: started after stop(), its
+    // file watcher would outlive the test and keep the process from exiting.
+    await until(() => readdirSync(at('state', 'questions')).length > 0, 60_000);
     await fn({ fake, started, repo });
   } finally {
     started.stop();

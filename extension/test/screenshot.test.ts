@@ -42,6 +42,8 @@ test('every section of the page, and a ticket, has sample data built by the real
     // Settings' Limits and checks in their other states: two projects' caps beside a machine with no total (GH-111).
     // Settings' About behind, and with a look that failed (GH-114): the newer release's state, orange or neutral.
     else if (kind.startsWith('settings-about')) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).settings.about?.release.look.tone], ['home', 'settings', kind === 'settings-about' ? 'orange' : 'neutral']);
+    // Setup as first shown in a folder that isn't set up (GH-138): the question, and the machine's steps left.
+    else if (kind.startsWith('setup-first')) assert.deepEqual([m.kind, (m as HomeModel).section, !!(m as HomeModel).setup.start, (m as HomeModel).setup.parts.map((p) => [p.part, p.todo])], ['home', 'setup', true, [['machine', kind === 'setup-first' ? 0 : 2], ['project', 0]]]);
     else if (kind === 'settings-limits') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).settings.limits?.caps.map((c) => c.value)], ['home', 'settings', ['1', '16', 'None']]);
     else assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).connect], ['home', kind === 'output' ? 'setup' : kind, null]);
   }
