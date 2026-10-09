@@ -38,6 +38,8 @@ export function fakeVscode(folder: string) {
     prompts: 0,
     /** Every link opened outside VSCode. */
     opened: [] as string[],
+    /** The account VSCode's GitHub sign-in comes back as, when a test wants one to; else the person closes it. */
+    signsInAs: undefined as string | undefined,
   };
   type Item = { text: string; tooltip: string; command: unknown; name: string; shown: boolean; show(): void; hide(): void; dispose(): void };
   const item = (): Item => ({ text: '', tooltip: '', command: undefined, name: '', shown: false, show() { this.shown = true; }, hide() { this.shown = false; }, dispose() {} });
@@ -149,8 +151,14 @@ export function fakeVscode(folder: string) {
     },
     // No other extension is installed, and no account is signed in.
     extensions: { getExtension: () => undefined },
-    // Asked to sign in, the person closes it, which VSCode reports by rejecting; asked quietly, there's none.
-    authentication: { getSession: async (_p: string, _s: string[], o?: { createIfNone?: boolean }) => { if (o?.createIfNone) throw new Error('User did not consent to login.'); return undefined; } },
+    // Asked to sign in, the person closes it, which VSCode reports by rejecting, or signs in as calls.signsInAs; asked quietly, there's none.
+    authentication: {
+      getSession: async (_p: string, scopes: string[], o?: { createIfNone?: boolean }) => {
+        if (!o?.createIfNone) return undefined;
+        if (calls.signsInAs === undefined) throw new Error('User did not consent to login.');
+        return { id: 'session', accessToken: 'token', account: { id: calls.signsInAs, label: calls.signsInAs }, scopes };
+      },
+    },
     env: { uriScheme: 'vscode', openExternal: async (u: { toString(): string }) => { calls.opened.push(String(u)); return true; }, clipboard: { writeText: async () => {}, readText: async () => '' } },
   };
   return { api: strict(api), calls, status, trees, panels, autopilot, settings };

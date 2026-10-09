@@ -469,6 +469,12 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     await calls.commands.get('acc.slack.connect')!();
     const toSlack = reopened.posted.at(-1) as Prefs;
     assert.deepEqual([toSlack.jump, toSlack.open, toSlack.model!.section], [true, 'settings:slack', 'settings']);
+    // GitHub accounts' Sign in asks for the account it names: signed in as another, it says which it wanted (GH-150).
+    const signInWarned = calls.warn.length;
+    calls.signsInAs = 'someone-else';
+    await calls.commands.get('acc.github.signIn')!('jordan-kim');
+    calls.signsInAs = undefined;
+    assert.deepEqual(calls.warn.slice(signInWarned), ['That\'s someone-else, but this repo works as jordan-kim.']);
 
     await calls.commands.get(COMMANDS.check)!('B0.repo');
     assert.match(calls.info.at(-1) ?? '', /^✓ Inside the project's repo: Repo at /);
