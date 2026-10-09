@@ -5,6 +5,25 @@ extension, the plugin and acc share one version. Each release is a GitHub
 Release of this repo, with the extension's `.vsix` attached and its entry here
 as the notes.
 
+## 0.39.0
+
+- Depth in light and dark: the board's columns sit in wells set into the page,
+  and cards and panels are raised on it, with a firmer edge and a soft shadow.
+  A tracker column named Blocked, Stuck, On hold or Waiting is orange with a
+  blocked icon, not blue and under way.
+- The Tasks tab's header says each thing once, on one line under the board's
+  name. Its switch names a tracker's board by its kind, **GitHub board** or
+  **Jira board**, and says on hover what each board shows.
+- Pick a task's builder effort as you pick its model: `acc dispatch <id>
+  --effort <level>`, or the effort step in **Re-dispatch with…**. It's kept on
+  a re-dispatch and a resume, `--effort default` drops it, and a level the
+  model doesn't take is refused before anything starts. Reviewers in this repo
+  run at high effort.
+- Claude Haiku 5.5 replaces Haiku 4.5 in the model choices.
+- Two leaks fixed: a first open still waiting when the window closed opened a
+  page whose polls outlived it, and the questions listener could start after
+  the extension stopped.
+
 ## 0.38.0
 
 - A Settings page, last in the rail: Appearance (Match VSCode, Light or Dark,

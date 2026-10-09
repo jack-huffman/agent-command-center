@@ -690,6 +690,67 @@ function saveTracker(file, index, record2) {
   return { index: index ?? trackers.findIndex((t, k2) => was[k2] !== t), warnings: checked.warnings };
 }
 
+// packages/core/src/efforts.ts
+var EFFORT_SOURCE = { url: "https://platform.claude.com/docs/en/build-with-claude/effort", read: "2026-10-09" };
+var ALL = EFFORTS;
+var NO_XHIGH = ["low", "medium", "high", "max"];
+var MODEL_EFFORTS = {
+  "claude-fable-5-1": { levels: ALL, default: "high" },
+  "claude-mythos-5-1": { levels: ALL, default: "high" },
+  "claude-fable-5": { levels: ALL, default: "high" },
+  "claude-mythos-5": { levels: ALL, default: "high" },
+  "claude-mythos-preview": { levels: NO_XHIGH, default: "high" },
+  "claude-opus-5-5": { levels: ALL, default: "medium" },
+  "claude-opus-5": { levels: ALL, default: "high" },
+  "claude-opus-4-8": { levels: ALL, default: "high" },
+  "claude-opus-4-7": { levels: ALL, default: "high" },
+  "claude-opus-4-6": { levels: NO_XHIGH, default: "high" },
+  "claude-opus-4-5": { levels: ["low", "medium", "high"], default: "high" },
+  "claude-sonnet-5-5": { levels: ALL, default: "high" },
+  "claude-sonnet-5": { levels: ALL, default: "high" },
+  "claude-sonnet-4-6": { levels: NO_XHIGH, default: "high" },
+  "claude-haiku-5-5": { levels: ALL, default: "medium" },
+  "claude-haiku-4-5": { levels: [], default: null }
+};
+function modelEfforts(model) {
+  const base = model.replace(/\[[^\]]*\]$/, "").replace(/-\d{8}$/, "");
+  return Object.hasOwn(MODEL_EFFORTS, base) ? MODEL_EFFORTS[base] : null;
+}
+var effortSourceWords = () => `acc's list of each model's levels is from ${EFFORT_SOURCE.url}, read ${EFFORT_SOURCE.read}`;
+function checkEffortName(v, also = "") {
+  if (!EFFORTS.includes(v)) throw new AccError("usage", `"${v}" isn't an effort level. Effort is one of ${EFFORTS.join(", ")}${also}.`);
+}
+function checkEffortPick(v) {
+  if (v !== "default") checkEffortName(v, ", or default for the builder's own");
+}
+var modelTakes = (model, effort) => modelEfforts(model)?.levels.includes(effort) ?? true;
+function checkModelEffort(model, effort, fix) {
+  if (!effort || modelTakes(model, effort)) return;
+  const m = modelEfforts(model);
+  const takes = m.levels.length ? `It takes ${m.levels.join(", ")}.` : "It takes no effort level: leave effort unset for it.";
+  throw new AccError("usage", `${model} doesn't take effort ${effort}. ${takes}${fix ? ` ${fix}` : ""} (${effortSourceWords()}.)`);
+}
+function effortFixWords(id, picked, model, on = "dispatch") {
+  const another = (modelEfforts(model)?.levels.length ?? 1) > 0;
+  if (on === "resume") {
+    return picked ? `It was picked for ${id}, and the builder's model has changed since: set it back with acc agents set builder --model <m>.` : `It's the builder's own: change it with acc agents set builder ${another ? "--effort <level> or " : ""}--clear effort.`;
+  }
+  return picked ? `It was picked for ${id}: ${another ? `pick another with acc dispatch ${id} --effort <level>, or ` : ""}drop it with acc dispatch ${id} --effort default.` : `It's the builder's own: ${another ? `pick one for ${id} with acc dispatch ${id} --effort <level>, or ` : ""}clear it with acc agents set builder --clear effort.`;
+}
+function builderEffort(task, config, chosen) {
+  const picked = chosen ?? (task.run?.effortPicked ? task.run.effort : void 0);
+  return picked && picked !== "default" ? { effort: picked, picked: true } : { effort: config.agents.builder.effort, picked: false };
+}
+var effortDroppedWords = (effort, model) => `Its effort ${effort}, picked for it before, was dropped: ${model} doesn't take it. The builder's own applies.`;
+function dispatchEffort(task, config, model, opts) {
+  const earlier = task.held?.effort ?? (task.run?.effortPicked ? task.run.effort : void 0);
+  if (opts.effort === void 0 && earlier && earlier !== "default" && opts.modelPicked && !modelTakes(model, earlier)) {
+    return { ...builderEffort(task, config, "default"), keep: "default", dropped: earlier };
+  }
+  const keep = opts.effort ?? earlier;
+  return { ...builderEffort(task, config, keep ?? "default"), keep, dropped: null };
+}
+
 // packages/core/src/agents.ts
 var KEYS = { model: "model", effort: "effort", fallbackModel: "fallbackmodel" };
 var gitKey = (role, field) => `acc.${role}.${KEYS[field]}`;
@@ -736,7 +797,7 @@ function check(change2) {
     const v = change2[f];
     if (v != null) checkModelName(v);
   }
-  if (change2.effort != null && !EFFORTS.includes(change2.effort)) throw new AccError("usage", `Effort is one of ${EFFORTS.join(", ")}.`);
+  if (change2.effort != null) checkEffortName(change2.effort);
 }
 function setProfile(run2, root, configFile, role, change2, scope) {
   check(change2);
@@ -3646,7 +3707,8 @@ function holdTask(paths, now2, id, opts, look2) {
     const at2 = now2().toISOString();
     const kept = task.held && !task.held.failed ? task.held : null;
     const model = opts.model ?? task.held?.model;
-    task.held = { at: kept?.at ?? at2, actor: kept?.actor ?? opts.actor, by: kept?.by ?? opts.by, waitsFor: look2.shares, first: look2.first, ...model ? { model } : {} };
+    const effort = opts.effort ?? task.held?.effort;
+    task.held = { at: kept?.at ?? at2, actor: kept?.actor ?? opts.actor, by: kept?.by ?? opts.by, waitsFor: look2.shares, first: look2.first, ...model ? { model } : {}, ...effort ? { effort } : {} };
     task.updatedAt = at2;
     emit({ type: "task.updated", task: id, actor: opts.actor, by: opts.by, data: { held: task.held } });
     return { held: true, task, waitsFor: look2.shares, first: look2.first };
@@ -4701,9 +4763,14 @@ function builderModel(task, config, chosen) {
 function dispatch(paths, config, id, deps, opts) {
   const { run: run2, now: now2 } = deps;
   if (opts.model !== void 0) checkModelName(opts.model);
+  if (opts.effort !== void 0) checkEffortPick(opts.effort);
   const before = readLedger(paths.ledger);
   const found = before.tasks.find((t) => t.id === id);
   if (!found) throw new AccError("no-task", `No task ${id}.`);
+  const { model, picked } = builderModel(found, config, opts.model ?? found.held?.model);
+  const { effort, picked: effortPicked, keep, dropped } = dispatchEffort(found, config, model, { effort: opts.effort, modelPicked: opts.model !== void 0 });
+  checkModelEffort(model, effort, effortFixWords(id, effortPicked, model));
+  const effortDropped = dropped ? { effortDropped: dropped } : {};
   const req = { to: "running", actor: opts.actor, by: opts.by };
   const machine = machineLoad(paths, config.project, deps.env);
   const overMachine = (l3) => {
@@ -4725,7 +4792,7 @@ function dispatch(paths, config, id, deps, opts) {
     const look2 = startLook(paths, config, before, run2, id, { fetch: true, files: planned });
     shares = look2.shares;
     if (waits(look2)) {
-      if (!(opts.anyway && opts.actor === "human")) return holdTask(paths, now2, id, opts, look2);
+      if (!(opts.anyway && opts.actor === "human")) return { ...holdTask(paths, now2, id, { ...opts, effort: keep }, look2), ...effortDropped };
       overrode = true;
     }
   }
@@ -4774,8 +4841,7 @@ function dispatch(paths, config, id, deps, opts) {
 ${packet}`;
     const n = (found.run?.n ?? (found.run ? 1 : 0)) + 1;
     const name = sessionName({ project: config.project, key: found.id, title: found.title, role: "builder", n });
-    const { model, picked } = builderModel(found, config, opts.model ?? found.held?.model);
-    const base = ["--name", name, "--permission-mode", config.agents.permissionMode, ...agentArgs({ ...config.agents.builder, model }), "--settings", settings];
+    const base = ["--name", name, "--permission-mode", config.agents.permissionMode, ...agentArgs({ ...config.agents.builder, model, effort }), "--settings", settings];
     const record2 = (bgId2, sessionId2) => mutate(paths, now2, (ledger, emit) => {
       const task = ledger.tasks.find((t) => t.id === id);
       const again = [...checkMove(ledger, config, task, req, noGateHooks), ...overMachine(ledger)];
@@ -4790,7 +4856,7 @@ ${packet}`;
       };
       applyMove(task, { ...req, reason: reused ? `re-dispatched in ${basename5(wt2)}` : null }, emit, now2, data);
       const last = task.run ? { before: task.run.note ?? null } : {};
-      task.run = { worktree: wt2, branch, startedAt: now2().toISOString(), model, ...picked ? { modelPicked: true } : {}, ...bgId2 ? { bgId: bgId2 } : {}, ...sessionId2 ? { sessionId: sessionId2 } : {}, name, n, ...shares.length ? { shares } : {}, ...last };
+      task.run = { worktree: wt2, branch, startedAt: now2().toISOString(), model, ...picked ? { modelPicked: true } : {}, ...effort ? { effort } : {}, ...effortPicked ? { effortPicked: true } : {}, ...bgId2 ? { bgId: bgId2 } : {}, ...sessionId2 ? { sessionId: sessionId2 } : {}, name, n, ...shares.length ? { shares } : {}, ...last };
       emit({ type: "task.updated", task: id, actor: opts.actor, by: opts.by, data: { run: task.run } });
       return task;
     });
@@ -4802,7 +4868,7 @@ ${packet}`;
       } finally {
         awake?.release();
       }
-      return { held: false, task, worktree: wt2, branch, reused, packetPath, bgId: null, sessionId: null, name, shares };
+      return { held: false, task, worktree: wt2, branch, reused, packetPath, bgId: null, sessionId: null, name, shares, ...effortDropped };
     }
     const since = Date.now() - LAUNCH_SLACK_MS;
     const launched = run2("claude", ["--bg", ...base, prompt], { cwd: launchDir, env: deps.env, timeoutMs: 6e4 });
@@ -4811,7 +4877,7 @@ ${packet}`;
     try {
       const task = record2(bgId, sessionId);
       if (pid) keepAwakeFor(paths, id, pid, deps.awake);
-      return { held: false, task, worktree: wt2, branch, reused, packetPath, bgId, sessionId, name, shares };
+      return { held: false, task, worktree: wt2, branch, reused, packetPath, bgId, sessionId, name, shares, ...effortDropped };
     } catch (e) {
       if (bgId) run2("claude", ["stop", bgId], { cwd: wt2 });
       throw e;
@@ -7867,11 +7933,14 @@ function resumeMessage(task, said2, head) {
 function resumeCommand(task, config, i) {
   const settings = JSON.stringify(builderSettings(task, config, i.accBinDir, i.basePath, i.accCommand));
   const { model } = builderModel(task, config);
+  const { effort, picked } = builderEffort(task, config);
+  checkModelEffort(model, effort, effortFixWords(task.id, picked, model, "resume"));
   const name = task.run?.name ? ["--name", task.run.name] : [];
   return {
-    args: ["-p", i.message, "--resume", i.sessionId, ...name, "--permission-mode", config.agents.permissionMode, ...agentArgs({ ...config.agents.builder, model }), "--settings", settings],
+    args: ["-p", i.message, "--resume", i.sessionId, ...name, "--permission-mode", config.agents.permissionMode, ...agentArgs({ ...config.agents.builder, model, effort }), "--settings", settings],
     env: { ACC_ROLE: "builder", ACC_TASK: task.id },
-    model
+    model,
+    effort
   };
 }
 var launchDetached = (cmd, args, o) => {
@@ -7946,6 +8015,7 @@ function resumeClaimed(paths, config, id, deps, opts, c) {
   const said2 = lastSaid(projectsDir, sessionId, [folder]);
   const head = run2("git", ["log", "-1", "--format=%h"], { cwd: worktree }).stdout.trim() || null;
   const message = opts.message?.trim() || resumeMessage(task, said2, head);
+  const cmd = resumeCommand(task, withCloneAgents(config, paths.root, run2), { sessionId, message, accBinDir: deps.accBinDir, basePath: deps.env.PATH ?? "", accCommand: deps.accCommand });
   let stopped = null;
   for (const s of mine) {
     if (s.kind !== "background" || !s.id || !s.pid) continue;
@@ -7953,7 +8023,6 @@ function resumeClaimed(paths, config, id, deps, opts, c) {
     if (r.code !== 0) throw new AccError("refused", `${id}'s background session ${s.id} wouldn't stop: ${(r.stderr || r.stdout).trim().split("\n")[0]}`);
     stopped = s.id;
   }
-  const cmd = resumeCommand(task, withCloneAgents(config, paths.root, run2), { sessionId, message, accBinDir: deps.accBinDir, basePath: deps.env.PATH ?? "", accCommand: deps.accCommand });
   mkdirSync20(dirname9(log), { recursive: true });
   const at2 = now2().toISOString();
   appendFileSync3(log, `
@@ -7970,6 +8039,8 @@ function resumeClaimed(paths, config, id, deps, opts, c) {
       if (!t?.run || t.state !== "running") throw new AccError("refused", `${id} left running meanwhile, so its resume was stopped.`);
       t.run.resumes = [...t.run.resumes ?? [], { at: at2, actor: opts.actor, by: opts.by }];
       t.run.model = cmd.model;
+      if (cmd.effort) t.run.effort = cmd.effort;
+      else delete t.run.effort;
       if (t.autopilot?.failed) t.autopilot.failed = null;
       t.updatedAt = at2;
       emit({ type: "task.updated", task: id, actor: opts.actor, by: opts.by, data: { resumed: { said: said2 ? clipSaid(said2) : null } } });
@@ -11698,7 +11769,7 @@ import { readFileSync as readFileSync33, realpathSync as realpathSync6 } from "n
 import { dirname as dirname13 } from "node:path";
 
 // package.json
-var package_default = { version: "0.38.0" };
+var package_default = { version: "0.39.0" };
 
 // packages/cli/src/shared.ts
 var VERSION = package_default.version;
@@ -12182,7 +12253,7 @@ function cmdDispatch(o, id) {
     out(o, () => heldLines(r2).join("\n"), r2);
     return 0;
   }
-  if (!id) throw new AccError("usage", "acc dispatch <id> [--foreground] [--without-analysis] [--anyway] [--model <m>], acc dispatch --held, or acc dispatch <id> --stop-waiting");
+  if (!id) throw new AccError("usage", "acc dispatch <id> [--foreground] [--without-analysis] [--anyway] [--model <m>] [--effort <level|default>], acc dispatch --held, or acc dispatch <id> --stop-waiting");
   if (o["stop-waiting"]) {
     const t = stopWaiting(paths, now, id.toUpperCase(), actor, by);
     out(o, () => `${t.id} stopped waiting. It stays to do, and nothing starts it on its own.`, t);
@@ -12191,15 +12262,18 @@ function cmdDispatch(o, id) {
   if (o.foreground && !o.json) process.stdout.write(`Starting ${id.toUpperCase()} in this terminal. Leave the session when it's done.
 `);
   const model = typeof o.model === "string" ? o.model : void 0;
-  const r = followingCards(paths, config, () => dispatch(paths, config, id.toUpperCase(), deps, { actor, by, foreground: o.foreground === true, withoutAnalysis: o["without-analysis"] === true, anyway: o.anyway === true, model }));
+  const effort = typeof o.effort === "string" ? o.effort : void 0;
+  const r = followingCards(paths, config, () => dispatch(paths, config, id.toUpperCase(), deps, { actor, by, foreground: o.foreground === true, withoutAnalysis: o["without-analysis"] === true, anyway: o.anyway === true, model, effort }));
+  const dropped = r.effortDropped ? tone(`  ${effortDroppedWords(r.effortDropped, model ?? "")}`, "orange") : "";
   if (r.held) {
     const blockers = r.waitsFor.map((w) => w.task);
     out(o, () => [
       tone(`${r.task.id} waits for ${filesOf(r.waitsFor)}.`, "blue"),
+      dropped,
       `  ${taskList(r.first)} ${r.first.length === 1 ? "shares" : "share"} no files with work in flight, so ${r.first.length === 1 ? "it goes" : "they go"} first.`,
       `  ${r.task.id} starts on its own once ${taskList(blockers)} ${blockers.length === 1 ? "merges" : "merge"}, or once nothing else is ready to start: the Command Center or autopilot starts it.`,
       `  Start it now: acc dispatch ${r.task.id} --anyway`
-    ].join("\n"), r);
+    ].filter(Boolean).join("\n"), r);
     return 0;
   }
   out(o, () => [
@@ -12208,6 +12282,8 @@ function cmdDispatch(o, id) {
     `  branch:   ${r.branch}`,
     `  name:     ${r.name}`,
     `  model:    ${r.task.run?.model ?? ""}${r.task.run?.modelPicked ? " (picked for this task)" : ""}`,
+    `  effort:   ${r.task.run?.effort ?? "the model's default"}${r.task.run?.effortPicked ? " (picked for this task)" : ""}`,
+    dropped,
     `  agent:    ${r.bgId ? `background session ${r.bgId}. Watch it with: claude attach ${r.bgId}` : o.foreground ? "ran in this terminal" : "started; it will appear in claude agents shortly"}`,
     `  packet:   ${r.packetPath}`,
     r.shares.length ? tone(`  ${sharesWords(r.shares)}. The second pull request to merge may conflict there.`, "dim") : ""
@@ -12257,11 +12333,15 @@ var area2 = {
     section: "Agents",
     order: 30,
     lines: `  acc dispatch <id> [--foreground] [--without-analysis] [--anyway] [--model <m>]
+                [--effort <low|medium|high|xhigh|max|default>]
                                         Worktree, setup, instructions, and a background builder session. A task
                                         whose analysis shares files with work in flight waits while another
-                                        Ready task shares none; --anyway starts it now. --model picks the
-                                        builder's model for this task: a re-dispatch and a resume keep it.
-                                        Without one, the builder's model (acc agents)
+                                        Ready task shares none; --anyway starts it now. --model and --effort
+                                        pick the builder's model and effort for this task: a re-dispatch and a
+                                        resume keep them. Without them, the builder's own (acc agents);
+                                        --effort default drops the task's. A level the model doesn't take is
+                                        refused before anything starts, and a model picked drops an effort
+                                        picked before that it doesn't take
   acc dispatch --held                   Start the tasks that wait for others' files and may go now
   acc dispatch <id> --stop-waiting      It stops waiting, and stays to do
   acc done [<id>] --landed "<line>"... --moved "<line>"... --open "<line>"...
