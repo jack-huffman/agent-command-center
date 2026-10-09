@@ -3,6 +3,8 @@
  * newer GitHub Release is out, with a link to its notes. A plugin older than the extension is said with
  * Setup's A4 fix, through the comparison A4 fails on (pluginBehind, D-088).
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
+ * Each state is its own LOOK with its icon and tone written out: looks.test matches every one to a state
+ * its walk reaches (GH-147).
  */
 
 import { pluginBehind } from '../../../packages/core/src/onboarding/helpers.ts';
@@ -151,8 +153,7 @@ function pluginRow(f: AboutFacts): AboutRow {
       'Its hooks may not know what this acc asks of builders. Setup\'s A4 updates it; sessions already running keep the old one.',
       fixA4('Update the plugin', `Update the acc plugin to ${f.extension}, as Setup's A4 does`));
   }
-  const same = p.value.version === f.extension;
-  return row(LOOK(same ? `${v}, the same as the extension` : `${v}, for every Claude Code session`, 'pass', 'blue'), null);
+  return row(p.value.version === f.extension ? LOOK(`${v}, the same as the extension`, 'pass', 'blue') : LOOK(`${v}, for every Claude Code session`, 'pass', 'blue'), null);
 }
 
 /** About, from what's been read: each version with where it's read from, then the latest release. */
@@ -163,7 +164,7 @@ export function aboutModel(f: AboutFacts, now: number): AboutModel {
       : f.acc.ok ? { look: LOOK(f.acc.value, 'pass', 'blue'), meaning: f.acc.value === f.extension ? null : `The extension is ${f.extension}: reload VSCode's window to run the acc it brings.` }
         : { look: LOOK(`Couldn't run it: ${f.acc.error}`, 'circle-outline', 'neutral'), meaning: null }),
   };
-  const extension: AboutRow = { key: 'extension', name: 'The extension', icon: 'extensions', look: LOOK(f.extension || 'Unknown', f.extension ? 'pass' : 'circle-outline', f.extension ? 'blue' : 'neutral'), from: FROM.extension, meaning: null, action: null };
+  const extension: AboutRow = { key: 'extension', name: 'The extension', icon: 'extensions', look: f.extension ? LOOK(f.extension, 'pass', 'blue') : LOOK('Unknown', 'circle-outline', 'neutral'), from: FROM.extension, meaning: null, action: null };
   const r = f.release;
   const newer = r?.ok && r.value && releaseNewer(r.value.version, f.extension) ? r.value : null;
   const look: Look = f.checking ? LOOK('Looking on GitHub for a newer release', 'sync~spin', 'blue')

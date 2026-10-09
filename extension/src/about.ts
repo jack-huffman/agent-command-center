@@ -4,8 +4,7 @@
 // (D-064), and the plugin's update is Setup's own A4 fix. VS Code's API comes from the parts activate()
 // hands every area, so a test can drive it with stand-ins (D-099).
 
-import { parseJsonOutput } from '../../packages/core/src/exec.ts';
-import { userPlugin } from '../../packages/core/src/onboarding/steps.ts';
+import { parsePluginList, PLUGIN_LIST_ARGS, userPlugin } from '../../packages/core/src/onboarding/steps.ts';
 import type { ExtensionArea } from './area.ts';
 import { type AboutFacts, parseAccVersion, parseRelease, RELEASE_ARGS, releaseDue } from './model/about.ts';
 import type { RunResult } from './run.ts';
@@ -33,17 +32,11 @@ export const activeAccountEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
   return rest;
 };
 
-/** `claude plugin list --json`'s acc, as A4 reads it (userPlugin). */
+/** `claude plugin list --json`'s acc, read through A4's own reader (parsePluginList, then userPlugin; GH-147). */
 export function parsePlugins(r: RunResult): NonNullable<AboutFacts['plugin']> {
-  if (r.code === 127) return { ok: false, error: 'claude isn\'t installed', missing: true };
-  if (r.code !== 0) return { ok: false, error: (r.stderr || r.stdout).trim().split('\n')[0] || `claude exited ${r.code}` };
-  try {
-    const list = parseJsonOutput<unknown>(r.stdout);
-    if (Array.isArray(list) && list.every((x) => x && typeof x === 'object')) return { ok: true, value: userPlugin(list as Record<string, unknown>[]) };
-  } catch {
-    // said below
-  }
-  return { ok: false, error: 'claude printed something other than a list' };
+  const read = parsePluginList(r);
+  if (read.ok) return { ok: true, value: userPlugin(read.list) };
+  return read.missing ? { ok: false, error: read.error, missing: true } : { ok: false, error: read.error };
 }
 
 export class About {
@@ -80,7 +73,7 @@ export class About {
   private readVersions(): Promise<void> {
     if (this.reading) return this.reading;
     this.reading = (async () => {
-      const [acc, plugins] = await Promise.all([this.d.acc(), this.d.run('claude', ['plugin', 'list', '--json'], this.d.env)]);
+      const [acc, plugins] = await Promise.all([this.d.acc(), this.d.run('claude', PLUGIN_LIST_ARGS, this.d.env)]);
       this.acc = parseAccVersion(acc);
       this.plugin = parsePlugins(plugins);
     })().finally(() => {

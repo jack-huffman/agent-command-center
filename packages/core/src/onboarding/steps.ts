@@ -4,7 +4,7 @@ import { dirname, join, sep } from 'node:path';
 import { branchFor, type Environment, fullGates } from '../config.ts';
 import { isTrusted, mainCheckout } from '../dispatch.ts';
 import { type DriftResult, driftReportPath } from '../drift.ts';
-import { parseJsonOutput } from '../exec.ts';
+import { parseJsonOutput, type RunResult } from '../exec.ts';
 import { gatesFor } from '../gates.ts';
 import { credentialHelper } from '../github.ts';
 import { rulesStatus } from '../rules.ts';
@@ -141,22 +141,38 @@ export function userPlugin(list: Record<string, unknown>[]): { version: string |
   return user ? { version: typeof user.version === 'string' ? user.version : null, enabled: user.enabled === true } : null;
 }
 
+/** What lists Claude Code's plugins, which A4.plugin and Settings' About both read. */
+export const PLUGIN_LIST_ARGS = ['plugin', 'list', '--json'];
+
 /**
- * A list `claude … --json` prints, such as `claude plugin list --json`. 127 when claude isn't installed,
- * and a reason when it didn't run or printed something else.
+ * What a `claude … --json` that prints a list answered: the list; or claude isn't installed (missing); or why
+ * it can't be read, in words that follow "Couldn't read Claude Code's plugins: ".
  */
-function claudeJson(ctx: CheckContext, args: string[]): Record<string, unknown>[] | 127 | string {
-  const r = ctx.run('claude', args, { env: ctx.env });
-  if (r.code === 127) return 127;
-  if (r.code !== 0) return `claude ${args.slice(0, 2).join(' ')} didn't run: ${(r.stderr || r.stdout).trim().split('\n')[0] || `exit ${r.code}`}`;
+export type ClaudeList = { ok: true; list: Record<string, unknown>[] } | { ok: false; missing: boolean; error: string };
+
+/**
+ * A list `claude … --json` printed, such as `claude plugin list --json` (args). Pure: it reads a run's result
+ * and runs nothing. A4.plugin and Settings' About read the plugin list only through it, so each says a
+ * failure in the same words (GH-147).
+ */
+export function parseClaudeList(r: RunResult, args: string[]): ClaudeList {
+  const what = `claude ${args.slice(0, 2).join(' ')}`;
+  if (r.code === 127) return { ok: false, missing: true, error: 'claude isn\'t installed.' };
+  if (r.code !== 0) return { ok: false, missing: false, error: `${what} didn't run: ${(r.stderr || r.stdout).trim().split('\n')[0] || `exit ${r.code}`}` };
   try {
     const list = parseJsonOutput<unknown>(r.stdout);
-    if (Array.isArray(list) && list.every((x) => x && typeof x === 'object')) return list as Record<string, unknown>[];
+    if (Array.isArray(list) && list.every((x) => x && typeof x === 'object')) return { ok: true, list: list as Record<string, unknown>[] };
   } catch {
     // said below
   }
-  return `claude ${args.slice(0, 2).join(' ')} printed something other than a list.`;
+  return { ok: false, missing: false, error: `${what} printed something other than a list.` };
 }
+
+/** `claude plugin list --json`'s result, as A4.plugin and About read it. */
+export const parsePluginList = (r: RunResult): ClaudeList => parseClaudeList(r, PLUGIN_LIST_ARGS);
+
+/** A list `claude … --json` prints, run now. */
+const claudeList = (ctx: CheckContext, args: string[]): ClaudeList => parseClaudeList(ctx.run('claude', args, { env: ctx.env }), args);
 
 function versionStep(id: string, title: string, why: string, cmd: string, args: string[], min: string | null, fix: string, profiles?: Step['profiles']): Step {
   return {
@@ -255,10 +271,11 @@ export const STEPS: Step[] = [
       text: 'Claude Code clones this private repo with your own git credentials, so accept the invitation to it first. Sessions already running don\'t load the plugin: start a new one.',
     },
     check(ctx) {
-      const list = claudeJson(ctx, ['plugin', 'list', '--json']);
+      const read = claudeList(ctx, PLUGIN_LIST_ARGS);
       // Its Do it installs Claude Code itself: the plugin's own commands would only say claude isn't found.
-      if (list === 127) return fail('claude isn\'t installed. Do A1.claude first.', 'brew install --cask claude-code');
-      if (typeof list === 'string') return unknown(`Couldn't read Claude Code's plugins: ${list}`);
+      if (!read.ok && read.missing) return fail(`${read.error} Do A1.claude first.`, 'brew install --cask claude-code');
+      if (!read.ok) return unknown(`Couldn't read Claude Code's plugins: ${read.error}`);
+      const list = read.list;
       const mine = list.filter((p) => p.id === PLUGIN_ID);
       const user = userPlugin(list);
       const version = user?.version ?? '(unknown version)';
@@ -272,8 +289,8 @@ export const STEPS: Step[] = [
       if (user) return fail(`acc ${version} is installed but disabled.`, `claude plugin enable ${PLUGIN_ID} --scope user`);
       const scopes = [...new Set(mine.map((p) => String(p.scope)))];
       const only = scopes.length ? ` It's installed for one project only (${scopes.join(', ')} scope), not for every session.` : '';
-      const markets = claudeJson(ctx, ['plugin', 'marketplace', 'list', '--json']);
-      if (Array.isArray(markets) && markets.some((m) => m.name === PLUGIN.marketplace)) return fail(`acc isn't installed in Claude Code.${only}`, PLUGIN_INSTALL);
+      const markets = claudeList(ctx, ['plugin', 'marketplace', 'list', '--json']);
+      if (markets.ok && markets.list.some((m) => m.name === PLUGIN.marketplace)) return fail(`acc isn't installed in Claude Code.${only}`, PLUGIN_INSTALL);
       return fail(`acc isn't installed in Claude Code, and its marketplace isn't added.${only}`, `${MARKETPLACE_ADD} && ${PLUGIN_INSTALL}`);
     },
   },
