@@ -1403,6 +1403,22 @@ gone is left for acc's own commands to drop. It runs its commands there too;
 cap and required checks each say whether its `.acc/config.json` sets them or
 they're acc's default.
 
+**About** (GH-114): the versions of acc (`acc --version`, from the bundle the
+extension runs), the extension (its own `package.json`) and the plugin
+(`claude plugin list --json`, read as A4 reads it), each with where it's read
+from, read again each time Settings is arrived at and at its Refresh. A
+plugin older than the extension is orange, and its **Update the plugin** is
+Setup's own A4 fix (`acc.step.fix A4.plugin`): one comparison,
+`pluginBehind` in core, decides both, and a test holds About to A4 over the
+same versions. The latest GitHub Release is read with `gh release view`, as
+gh's active account (a token in the environment is left out), once when
+Settings first shows in a session, then at most every six hours, or at
+**Check now**. A newer one is orange, with a link to its notes; a look that
+fails is neutral. `extension/src/about.ts` reads, `model/about.ts` words it,
+`webview/about.ts` draws it; nothing there writes. Setup's saved machine
+results (`acc.machineItems`) carry the version that checked them, so an
+upgrade checks the machine again.
+
 The page is a webview under a nonce content security policy. It renders text
 only and accepts only allow-listed `acc.*` commands. Ticket pages stay their
 own tabs, since each is a document.

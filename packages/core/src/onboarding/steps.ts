@@ -14,7 +14,7 @@ import { parseSource } from '../source.ts';
 import { previewCommand, type ReadTemplate, readTemplate, templateDifferences } from '../template.ts';
 import { orList } from '../trackers/types.ts';
 import {
-  cached, fail, firstVersion, ghEnv, LICENSE_TO_TYPE, parseOrgUrl, pass, readText, SECRET_PATTERN, sfJson, skip, unknown, versionAtLeast,
+  cached, fail, firstVersion, ghEnv, LICENSE_TO_TYPE, parseOrgUrl, pass, pluginBehind, readText, SECRET_PATTERN, sfJson, skip, unknown, versionAtLeast,
 } from './helpers.ts';
 import type { CheckContext, CheckResult, Step, StepResult } from './types.ts';
 
@@ -130,7 +130,16 @@ const MARKETPLACE_ADD = `claude plugin marketplace add ${PLUGIN.repo}`;
 const PLUGIN_INSTALL = `claude plugin install ${PLUGIN_ID} --scope user`;
 /** A private marketplace doesn't update itself (D-081), so the plugin is updated by hand after a release. */
 const PLUGIN_UPDATE = `claude plugin marketplace update ${PLUGIN.marketplace} && claude plugin update ${PLUGIN_ID} --scope user`;
-const SEMVER = /^\d+\.\d+\.\d+$/;
+
+/**
+ * The acc plugin as `claude plugin list --json` lists it for every session (user scope): its version, when
+ * it names one, and whether it's on. Null when it isn't installed there. A4.plugin and Settings' About
+ * (GH-114) both read it this way.
+ */
+export function userPlugin(list: Record<string, unknown>[]): { version: string | null; enabled: boolean } | null {
+  const user = list.find((p) => p.id === PLUGIN_ID && p.scope === 'user');
+  return user ? { version: typeof user.version === 'string' ? user.version : null, enabled: user.enabled === true } : null;
+}
 
 /**
  * A list `claude … --json` prints, such as `claude plugin list --json`. 127 when claude isn't installed,
@@ -251,11 +260,11 @@ export const STEPS: Step[] = [
       if (list === 127) return fail('claude isn\'t installed. Do A1.claude first.', 'brew install --cask claude-code');
       if (typeof list === 'string') return unknown(`Couldn't read Claude Code's plugins: ${list}`);
       const mine = list.filter((p) => p.id === PLUGIN_ID);
-      const user = mine.find((p) => p.scope === 'user');
-      const version = typeof user?.version === 'string' ? user.version : '(unknown version)';
-      if (user?.enabled === true) {
+      const user = userPlugin(list);
+      const version = user?.version ?? '(unknown version)';
+      if (user?.enabled) {
         // Only an older plugin fails: its hooks may not know what this acc asks of builders. A newer one is fine (GH-62).
-        if (ctx.version && SEMVER.test(version) && SEMVER.test(ctx.version) && !versionAtLeast(version, ctx.version)) {
+        if (pluginBehind(user.version, ctx.version)) {
           return fail(`acc ${version} is installed, older than this acc (${ctx.version}).`, PLUGIN_UPDATE);
         }
         return pass(`acc ${version}, for every Claude Code session.`);

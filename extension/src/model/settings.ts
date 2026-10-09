@@ -15,6 +15,7 @@ import { intervalWords, POLL_INTERVALS, POLL_KEYS } from '../logic/polls.ts';
 import type { DoctorItem } from '../logic/setup.ts';
 import { billingLook } from './agents.ts';
 import type { BoardInput } from './boards.ts';
+import type { AboutModel } from './about.ts';
 import type { LimitsModel } from './limits.ts';
 import { type HomeSection, type Look, LOOK, type ModelArea, type ProjectLike } from './shared.ts';
 
@@ -287,7 +288,7 @@ export function trackersAndSignIns(projects: ProjectLike[], boards: (root: strin
 /**
  * Settings' parts, in the order their tasks come: Appearance (GH-109), How agents run (GH-110), Limits and
  * checks (GH-111), Trackers and sign-ins (GH-112), Notices in Slack, GitHub accounts and the page's own
- * preferences (GH-113), and About (GH-114). Each has a heading another page can open Settings at, with
+ * preferences (GH-113), and About (GH-114), built here. Each has a heading another page can open Settings at, with
  * show('settings', settingsKey(part)).
  */
 export const SETTINGS_PARTS = ['appearance', 'agents', 'limits', 'trackers', 'slack', 'github', 'page', 'about'] as const;
@@ -329,6 +330,8 @@ export interface SettingsModel {
   parts: SettingsPartModel[];
   /** Limits and checks (GH-111): the caps, what a change means, the heavy-check slots and each project's checks. Null until read. */
   limits: LimitsModel | null;
+  /** About (GH-114): the versions of acc, the extension and the plugin, and the latest release. Null until the extension reads them. */
+  about: AboutModel | null;
 }
 
 export interface SettingsInput {
@@ -341,6 +344,8 @@ export interface SettingsInput {
   boards?: (root: string) => BoardInput[];
   /** Limits and checks, as read from this machine and each project (GH-111), while Settings shows. */
   limits?: LimitsModel | null;
+  /** About, from what the extension has read (GH-114). */
+  about?: AboutModel | null;
 }
 
 /** How often each thing refreshes today, in words. */
@@ -379,10 +384,14 @@ export function settingsModel(i: SettingsInput): SettingsModel {
       'On Environments for now, in each project\'s account card, and at the foot of the rail.', [{ label: 'Open Environments', icon: 'server-environment', section: 'environments' }]),
     later('page', 'The Command Center', 'window', 'Which section it opens on, how Agents shows where sessions run, and how often it refreshes.',
       'Not a choice yet. It opens where you left it, and Agents\' Where view switches above its table. It refreshes:', [{ label: 'Open Agents', icon: 'hubot', section: 'agents' }], refreshLines()),
-    later('about', 'About', 'info', 'The versions of acc, the extension and the plugin, and whether a newer release is out.',
-      'On Setup for now: its checklist checks the acc plugin in Claude Code.', [{ label: 'Open Setup', icon: 'checklist', section: 'setup' }]),
+    {
+      id: 'about', title: 'About', icon: 'info', summary: 'The versions of acc, the extension and the plugin, read fresh each time Settings shows, and whether a newer release is out.',
+      built: true, today: null,
+      details: ['A newer release installs as the README says, from its page. The plugin updates as Setup\'s A4 does: this page changes nothing itself.'],
+      links: [],
+    },
   ];
-  return { kind: 'settings', theme: i.theme, themes: THEME_CHOICES.map((key) => ({ key, ...THEMES[key] })), agents, trackers, parts, limits: i.limits ?? null };
+  return { kind: 'settings', theme: i.theme, themes: THEME_CHOICES.map((key) => ({ key, ...THEMES[key] })), agents, trackers, parts, limits: i.limits ?? null, about: i.about ?? null };
 }
 
 export const area: ModelArea = {
@@ -392,6 +401,6 @@ export const area: ModelArea = {
   home: {
     // Last in the rail, after every other area's.
     order: 90,
-    nav: () => ({ section: 'settings', label: 'Settings', icon: 'settings-gear', count: null, attention: false, hint: 'Appearance, how agents run, limits and checks, trackers and sign-ins, and where each other setting lives' }),
+    nav: () => ({ section: 'settings', label: 'Settings', icon: 'settings-gear', count: null, attention: false, hint: 'Appearance, how agents run, limits and checks, trackers and sign-ins, the versions, and where each other setting lives' }),
   },
 };

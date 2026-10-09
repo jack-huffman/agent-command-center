@@ -37,11 +37,13 @@ test('every section of the page, and a ticket, has sample data built by the real
     // The Overview of a project with a merge queue, autopilot on and off, and its head held (GH-73).
     else if (kind.startsWith('queue')) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).overview.queue[0]?.rows.length, (m as HomeModel).overview.queue[0]?.off, !!(m as HomeModel).overview.queue[0]?.rows[0]?.tip], ['home', 'overview', 3, kind === 'queue-off', kind === 'queue-held']);
     // Settings' Limits and checks in their other states: two projects' caps beside a machine with no total (GH-111).
+    // Settings' About behind, and with a look that failed (GH-114): the newer release's state, orange or neutral.
+    else if (kind.startsWith('settings-about')) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).settings.about?.release.look.tone], ['home', 'settings', kind === 'settings-about' ? 'orange' : 'neutral']);
     else if (kind === 'settings-limits') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).settings.limits?.caps.map((c) => c.value)], ['home', 'settings', ['1', '16', 'None']]);
     else assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).connect], ['home', kind === 'output' ? 'setup' : kind, null]);
   }
   assert.equal((sampleModel('agents') as HomeModel).agents.whereView, 'folder');
-  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept']);
+  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed']);
   assert.equal((sampleModel('environments') as HomeModel).environments.slack?.state, 'on');
   // monday.com's Connect page: its token page, its board picked by name, and two status columns to choose from.
   const monday = (sampleModel('connect-monday') as HomeModel).connect!;
@@ -170,7 +172,7 @@ test('the colour check reads what a page gathered, and finds where two drawings 
   assert.deepEqual(colourDiffs(rows, other), [{ what: 'span::before', property: 'background-color', a: 'rgb(1, 1, 1)', b: 'rgb(9, 9, 9)' }]);
   assert.deepEqual(colourDiffs(rows, rows.slice(1)), [{ what: 'the page, from element 0', property: 'its elements', a: '2 elements, div.a there', b: '1 elements, span::before there' }], 'different elements differ as a whole');
   assert.deepEqual(colourDiffs(rows, rows.slice(0, 1)).map((d) => d.what), ['the page, from element 1'], 'and so does one with fewer');
-  assert.deepEqual(COLOUR_PAGES, ['overview', 'tasks', 'settings', 'settings-agents', 'settings-trackers', 'settings-limits', 'ticket', 'agent']);
+  assert.deepEqual(COLOUR_PAGES, ['overview', 'tasks', 'settings', 'settings-agents', 'settings-trackers', 'settings-limits', 'settings-about', 'ticket', 'agent']);
 });
 
 test('the page\'s styles: what every area shares first, then each area\'s own by file name, each named for a module of the page (GH-95)', () => {

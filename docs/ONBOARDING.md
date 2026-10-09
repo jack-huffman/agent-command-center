@@ -100,6 +100,12 @@ purpose, mark the step done.
   claude plugin update acc@agent-command-center --scope user
   ```
 
+  The Command Center's **Settings → About** shows the versions of acc, the
+  extension and the plugin. It says when the plugin is older than the
+  extension, with the same fix as this step, and when a newer release is out,
+  with a link to its notes. It looks for one as gh's active account, so that
+  account needs read access to the repo.
+
 ### Optional: acc's notices in Slack
 
 For hearing what needs you when you're away from VSCode. Nothing checks this,

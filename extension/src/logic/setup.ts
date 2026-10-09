@@ -126,24 +126,30 @@ export interface DoctorItem {
   open?: string | null;
 }
 
-/** Machine results kept for every window, with the profile of the folder they were checked in. */
+/**
+ * Machine results kept for every window, with the profile of the folder they were checked in and the
+ * extension's version that checked them (GH-114).
+ */
 export interface MachineCache {
   at: number;
   profile?: string;
+  /** The extension's version, and so its acc's. An upgrade checks the machine again: A4 compares the plugin with it. */
+  version?: string;
   items: DoctorItem[];
 }
 
 /**
- * The machine results a refresh may reuse instead of calling slow CLIs: fresh enough, and checked in a
+ * The machine results a refresh may reuse instead of calling slow CLIs: fresh enough, checked in a
  * folder with the same profile, since the profile decides which machine steps apply (A1.node and A1.sf
- * are Salesforce's). An empty list, which 0.35.0 and earlier could save when acc failed, is never reused.
+ * are Salesforce's), and by this version of the extension, since a new acc may fail a plugin the old one
+ * passed (GH-114). An empty list, which 0.35.0 and earlier could save when acc failed, is never reused.
  */
-export const reusableMachine = (cached: MachineCache | undefined, profile: string, now: number, freshMs: number): DoctorItem[] | null =>
-  cached?.items.length && cached.profile === profile && now - cached.at < freshMs ? cached.items : null;
+export const reusableMachine = (cached: MachineCache | undefined, profile: string, version: string, now: number, freshMs: number): DoctorItem[] | null =>
+  cached?.items.length && cached.profile === profile && !!version && cached.version === version && now - cached.at < freshMs ? cached.items : null;
 
 /** What a full machine check saves for startup to reuse. An empty list means acc failed, and isn't kept (GH-62). */
-export const machineCache = (items: DoctorItem[], profile: string, now: number): MachineCache | null =>
-  items.length ? { at: now, profile, items } : null;
+export const machineCache = (items: DoctorItem[], profile: string, version: string, now: number): MachineCache | null =>
+  items.length ? { at: now, profile, version, items } : null;
 
 /**
  * Setup's rows after a full check (GH-62). Each part the check listed replaces that part's rows, so a step

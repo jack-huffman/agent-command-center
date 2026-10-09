@@ -50,6 +50,16 @@ export function versionAtLeast(version: string, min: string): boolean {
   return true;
 }
 
+const SEMVER = /^\d+\.\d+\.\d+$/;
+
+/**
+ * Whether the acc plugin is older than acc: the one comparison A4.plugin fails on (GH-62) and Settings'
+ * About says (GH-114). Only `x.y.z` against `x.y.z`: anything else, or a version not known, isn't older, so
+ * nothing fails for want of a number. A newer plugin isn't older either: it does no harm.
+ */
+export const pluginBehind = (plugin: string | null | undefined, acc: string | null | undefined): boolean =>
+  !!plugin && !!acc && SEMVER.test(plugin) && SEMVER.test(acc) && !versionAtLeast(plugin, acc);
+
 export const firstVersion = (text: string): string | null => /(\d+\.\d+(?:\.\d+)?)/.exec(text)?.[1] ?? null;
 
 export interface SfJson {
