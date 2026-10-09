@@ -5330,9 +5330,15 @@ no `.acc/config.json` (`acc.projectWalkthroughShown`).
   unfinished, it lands at **What kind of project is this?**, not **This
   machine**, so the one first open isn't spent on a machine that may well be
   ready; This machine's rows fill in when the check ends, and the status bar
-  shows any step to do. `Setup.checked()` and `whenChecked()` say whether it
-  has finished; `waitsForMachine` decides when to wait. Only a first open
+  shows any step to do. A full check that got no machine rows, as when
+  `acc doctor` fails and returns nothing, hasn't checked the machine either:
+  it counts only when the check returned the machine's rows.
+  `Setup.checked()` says whether one has, and `whenChecked()` waits for the
+  first full check; `waitsForMachine` decides when to wait. Only a first open
   waits: one sent somewhere, a second open or a set-up folder opens at once.
+  A click while it waits is that same first open, so a second click doesn't
+  clear the jump to its part; something sent somewhere meanwhile, such as
+  Connect a tracker, opens there, and the waiting open then leaves it be.
   `Setup.setUp()`, `isProject()` and `config()` now find `.acc/config.json`
   through one helper, `configFile()`. Checked in `first-open.test.ts`: the
   decision for an unchecked machine; the status bar menu's **Open the Command
@@ -5340,4 +5346,7 @@ no `.acc/config.json` (`acc.projectWalkthroughShown`).
   first open (the vscode stand-in now keeps a tree view's visibility
   listeners); and, through the built extension with an older version's ready
   results and a `claude` that answers after the wait, an early open opens no
-  tab while it waits, then lands at the question with the checks still running.
+  tab while it waits, a second click meanwhile shares it, and it lands at the
+  question, jump and all, with the checks still running; with a `claude` that
+  answers inside the wait, it lands at This machine, since `claude` fails; and
+  with every `acc doctor` printing nothing, it lands at the question.
