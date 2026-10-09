@@ -10,6 +10,7 @@ import { receiptHooks } from '../../packages/core/src/receipts.ts';
 import { endResume } from '../../packages/core/src/resume.ts';
 import type { Project } from './hub.ts';
 import { dispatchModelArgs, dispatchModelItems, displayName, sessionFor } from './logic/agents.ts';
+import { dispatchEffortArgs, dispatchEffortItems } from './logic/efforts.ts';
 import { anywayQuestion, type HeldAsk, heldAskDue, heldAsked, heldAskKey, heldDue, landMessage, sizeLine, startedNotice, waitLine, waitQuestion, waitsForFiles } from './logic/tasks.ts';
 import { laneMove } from './model/tasks.ts';
 import { sessionKey } from './model/shared.ts';
@@ -194,8 +195,9 @@ class TaskCommands extends Sidebar {
   }
 
   /**
-   * Dispatch with…: the model for this task's builder, picked by a person (D-086). The analysis's size is
-   * shown beside the models to weigh the choice by; it picks nothing. A re-dispatch and a resume keep it.
+   * Dispatch with…: the model for this task's builder, then its effort, picked by a person (D-086, D-???).
+   * The analysis's size is shown beside the models to weigh the choice by; it picks nothing. Only the levels
+   * the model takes are offered, and none for a model that takes none. A re-dispatch and a resume keep both.
    */
   private async dispatchWith(n: TaskNode): Promise<void> {
     if (n?.kind !== 'task') return;
@@ -205,7 +207,14 @@ class TaskCommands extends Sidebar {
     if (!pick) return;
     const model = pick.value ?? await this.askModelName(`${verb} ${task.id}: model name`);
     if (!model) return;
-    await this.dispatchTask(n, dispatchModelArgs(task, project.agents.builder, model));
+    const efforts = dispatchEffortItems(task, project.agents.builder, model);
+    let effort: string[] = [];
+    if (efforts.length) {
+      const level = await vscode.window.showQuickPick(efforts, { title: `${verb} ${task.id} on ${model} at which effort?`, placeHolder: 'More effort thinks harder: slower, and uses more of your plan' });
+      if (!level) return;
+      effort = dispatchEffortArgs(task, project.agents.builder, level.value);
+    }
+    await this.dispatchTask(n, [...dispatchModelArgs(task, project.agents.builder, model), ...effort]);
   }
 
   /**

@@ -3,8 +3,9 @@
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 
-import type { SessionTie } from '../../../packages/core/src/ledger.ts';
+import { sessionsOf, type SessionTie } from '../../../packages/core/src/ledger.ts';
 import { agentLook, finishedSession, ownsSession, stopFinishedPlan } from '../logic/agents.ts';
+import { effortShown } from '../logic/efforts.ts';
 import { type AgentSession, isUnder, tildePath } from '../logic/shared.ts';
 import type { DoctorItem } from '../logic/setup.ts';
 import { type HubLike, type Look, type ModelArea, nameOf, type ProjectLike, sessionKey } from './shared.ts';
@@ -140,6 +141,8 @@ export interface AgentLine {
   startedAt: number;
   /** The model it runs with (D-086), or null when that isn't known yet. */
   model: string | null;
+  /** A builder's effort, beside its model, only when one was named and isn't the model's default (D-???). */
+  effort: string | null;
   /** A question it waits on in the Command Center (D-030), which Answer goes to. */
   question: string | null;
   /** Whether Open in Claude Code can open its conversation: Claude Code gave it a session id (D-040). */
@@ -237,12 +240,15 @@ export function agentsModel(hub: HubLike, setupItems: DoctorItem[] = [], whereVi
     const own = ownTree || (!!task && !!row?.run?.worktree && isUnder(s.cwd, row.run.worktree));
     const place = own ? (ownTree ? f.worktree!.rest : '') || null : f.inRepo;
     const title = row?.title ?? tie?.title ?? null;
+    const model = hub.modelFor?.(s) ?? null;
+    // The effort its task's run started its builder with: a review or analysis runs with the reviewer's own.
+    const effort = role === 'builder' && row && sessionsOf(row, [s]).length ? effortShown(model, row.run?.effort) : null;
     const line: AgentLine = {
       key: sessionKey(s), background: !!s.id, kind: s.kind, name, label, task: task ? { key: task, title } : null,
       look: { label: look.label, icon: look.icon, tone: look.tone }, needsYou: look.needsYou, finished: finishedSession(s, tie, askingOf(s)), working: !!look.working,
       // A session named for its folder, as Claude Code names some, doesn't say it twice.
       where: place === label || place === `worktree ${label}` ? null : place,
-      path: f.full, startedAt: s.startedAt, model: hub.modelFor?.(s) ?? null,
+      path: f.full, startedAt: s.startedAt, model, effort,
       question: sid ? hub.questions?.find((q) => q.sessionId === sid)?.id ?? null : null, conversation: !!sid,
     };
     return { line, task, title, project: p && row ? p.root : null };

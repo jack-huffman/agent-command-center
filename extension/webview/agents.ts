@@ -135,7 +135,7 @@ function agentRow(a: AgentLine, view: WhereView): HTMLElement {
     ? el('span', 'agent-label', el('span', 'tcard-key', a.task.key), a.task.title ? el('span', 'task-title', a.task.title) : null, el('span', 'role', `· ${a.label}`))
     : el('span', 'agent-label', a.task ? el('span', 'role', a.label) : el('span', 'session-name', ...slashBreaks(a.label)));
   // Its whole name on hover, its model where a narrow tab has no room for that column, and its whole folder.
-  said.title = [a.name, a.model, a.path].filter(Boolean).join('\n');
+  said.title = [a.name, a.model && a.effort ? `${a.model}, ${a.effort} effort` : a.model, a.path].filter(Boolean).join('\n');
   openable(said, { type: 'run', command: 'acc.agent.watch', ref: { session: a.key } });
   // Where, only when it isn't its task's own worktree: its folder, or its full path, with the full path on hover (D-090).
   const where = a.where === null ? null : view === 'path'
@@ -147,8 +147,9 @@ function agentRow(a: AgentLine, view: WhereView): HTMLElement {
   // A finished agent's state is its fold's heading: its name takes the State column too.
   const cells = a.finished ? [span(who, 2)] : [who, el('td', 'state', status(a.look))];
   const row = el('tr', `agent${a.needsYou ? ' attention' : ''}${a.finished ? ' finished' : ''}`, ...cells,
-    // The model it runs with (D-086), short, with its full name on hover; a dash until it's known.
-    Object.assign(el('td', 'nowrap mono muted model', a.model ? shortModel(a.model) : '—'), { title: a.model ?? 'Not known until it first answers' }),
+    // The model it runs with (D-086), short, with its full name on hover; a dash until it's known. A builder's
+    // effort beside it when it isn't the model's default (D-???).
+    Object.assign(el('td', 'nowrap mono muted model', a.model ? shortModel(a.model) : '—', a.model && a.effort ? ` · ${a.effort}` : ''), { title: a.model ? `${a.model}${a.effort ? `, ${a.effort} effort` : ''}` : 'Not known until it first answers' }),
     Object.assign(el('td', 'nowrap muted ran', ran(a.startedAt)), { title: `Started ${since(a.startedAt)}` }),
     el('td', 'actions', ...(a.needsYou ? needsYouButtons(a) : []), menuButton(a.name)));
   return withMenu(row, 'agent', { session: a.key }, { agentBackground: a.background });

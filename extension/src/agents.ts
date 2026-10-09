@@ -4,6 +4,7 @@ import { basename } from 'node:path';
 import * as vscode from 'vscode';
 import { autoMergeOn, DEFAULT_MODEL, EFFORTS } from '../../packages/core/src/config.ts';
 import { agentName, MODEL_CHOICES, stopFinishedPlan } from './logic/agents.ts';
+import { EFFORT_WORDS } from './logic/efforts.ts';
 import { nameOf, sessionKey } from './model/shared.ts';
 import { sessionFolders } from './model/agents.ts';
 import { runFile } from './run.ts';
@@ -98,8 +99,7 @@ class AgentCommands extends Sidebar {
       const flag = what.key === 'model' ? 'model' : 'fallback-model';
       args.push(...(value ? [`--${flag}`, value] : ['--clear', flag]));
     } else if (what.key === 'effort') {
-      const words: Record<string, string> = { low: 'Quickest, the least thinking', medium: 'Balanced', high: 'Thinks it through', xhigh: 'Thinks hard', max: 'The most thinking: slowest, uses the most' };
-      const pick = await vscode.window.showQuickPick([{ label: 'Default', description: 'Claude Code\'s own', value: null as string | null }, ...EFFORTS.map((e) => ({ label: e, description: words[e], value: e as string | null }))]
+      const pick = await vscode.window.showQuickPick([{ label: 'Default', description: 'Claude Code\'s own', value: null as string | null }, ...EFFORTS.map((e) => ({ label: e, description: EFFORT_WORDS[e], value: e as string | null }))]
         .map((x) => ({ ...x, description: x.value === now.effort ? `${x.description} · now` : x.description })), { title: `${label}: how much effort?` });
       if (!pick) return;
       args.push(...(pick.value ? ['--effort', pick.value] : ['--clear', 'effort']));
