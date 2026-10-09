@@ -739,18 +739,24 @@ not heavy.
   acc never writes the file on an environment's branch, in the main checkout,
   with uncommitted changes, or in a refresh's or the merge queue's check: those
   say `beats the floor … by N` and leave it.
-- **Only a person relaxes a floor.** A branch whose floor is worse than its
-  environment's where it began fails, unless a person relaxed it from that same
-  floor to that number or a worse one, or relaxed it again from the floor they
-  set (so acc can raise a relaxed floor again, and an old relax from another
-  floor backs nothing):
+- **Only a person relaxes a floor, and for one task.** A branch whose floor is
+  worse than its environment's where it began fails, unless a person relaxed it
+  for that task, from that same floor to that number or a worse one, or relaxed
+  it again from the floor they set (so acc can raise a relaxed floor again, and
+  an old relax from another floor backs nothing):
   `acc gate relax <ratchet> --to <n> --reason "<why>" [--task <id>]` writes the
-  worse number into the floors file (in the task's worktree with `--task`), with
+  worse number into the task's worktree's floors file (the task named, or the
+  one whose worktree this is; a checkout that isn't a task's is refused), with
   who, why, when and what it was, and acc keeps a record in its state, beside
-  the receipts. Builders can't: the CLI refuses them, and their settings deny
-  the command. A ratchet can't be waived, since a waived one could merge below
-  its floor and fail every task after it. The ticket page shows a ratchet's
-  numbers and offers no Waive… beside one.
+  the receipts, naming the task. The record backs a floor only on that task's
+  branch and in the merge queue's merge of it: another task that began at the
+  same floor can't lower its own by hand. Once the task is done or leaves the
+  board the record counts for nothing, and `acc gate run` and `acc gate relax`
+  drop it; the Command Center only reads (D-012). Builders can't relax one: the
+  CLI refuses them, and their settings deny the command. A ratchet can't be
+  waived, since a waived one could merge below its floor and fail every task
+  after it. The ticket page shows a ratchet's numbers and offers no Waive…
+  beside one.
 - **Two tasks that both raised a floor** never wait for each other at dispatch:
   the floors file is always shared. Where their floors conflict, autopilot keeps
   the better of each, for a refresh and the merge queue alike. Where one side
