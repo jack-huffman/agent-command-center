@@ -58,6 +58,7 @@ export const area: CommandArea = {
     lines: `  acc hook permission                   Claude Code's PermissionRequest hook: puts an agent's prompt in the
                                         Command Center, when one is open, and waits for the answer`,
   },
+  subcommands: { hook: ['permission', 'session-start', 'pre-tool-use', 'stop'] },
   commands: {
     hook: (_o, rest) => {
       if (rest[0] === 'permission') return cmdHookPermission();

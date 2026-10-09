@@ -10,16 +10,18 @@ import { area as limits } from './limits.ts';
 import { area as overview } from './overview.ts';
 import { area as page } from './page.ts';
 import { area as questions } from './questions.ts';
+import { area as rules } from './rules.ts';
 import { area as runs } from './runs.ts';
 import { area as settings } from './settings.ts';
 import { area as setup } from './setup.ts';
 import { area as slack } from './slack.ts';
 import { area as taskPage } from './task-page.ts';
 import { area as tasks } from './tasks.ts';
+import { area as tidy } from './tidy.ts';
 import { area as updates } from './updates.ts';
 import { area as worktrees } from './worktrees.ts';
 
-export const AREAS = [about, agentPage, agents, boards, connect, environments, limits, overview, page, questions, runs, settings, setup, slack, taskPage, tasks, updates, worktrees];
+export const AREAS = [about, agentPage, agents, boards, connect, environments, limits, overview, page, questions, rules, runs, settings, setup, slack, taskPage, tasks, tidy, updates, worktrees];
 export type Message =
   | import('./agent-page.ts').Message
   | import('./agents.ts').Message
@@ -27,6 +29,7 @@ export type Message =
   | import('./connect.ts').Message
   | import('./page.ts').Message
   | import('./questions.ts').Message
+  | import('./rules.ts').Message
   | import('./runs.ts').Message
   | import('./slack.ts').Message
   | import('./task-page.ts').Message

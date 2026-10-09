@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type * as vscode from 'vscode';
-import { autoMergeFor, type Config } from '../../packages/core/src/config.ts';
+import { autoMergeFor, type Config, fullGates, STRAY_FILES } from '../../packages/core/src/config.ts';
 import { gatesFor } from '../../packages/core/src/gates.ts';
 import { builders, type Ledger } from '../../packages/core/src/ledger.ts';
 import { agentsMaxSet, configSets, machineAgents, machineRepos, MAX_AGENTS, MAX_MACHINE_AGENTS, realLedger, recentWork } from '../../packages/core/src/limits.ts';
@@ -76,8 +76,8 @@ export function readLimits(projects: LimitsProject[], ledgerOf: (root: string) =
         name: p.name, root: p.root, repo: p.ledgerPath,
         max: p.config.agents.max, maxFrom: agentsMaxSet(join(p.root, '.acc', 'config.json')) ? 'project' : 'acc',
         running: builders(ledger, ''),
-        required: p.config.gates.required, requiredFrom: configSets(join(p.root, '.acc', 'config.json'), ['gates', 'required']) ? 'project' : 'acc', builder: p.config.gates.builder?.length ? p.config.gates.builder : null,
-        gates: gatesFor(p.config).map((g) => ({ name: g.name, about: g.about })),
+        required: fullGates(p.config), requiredFrom: configSets(join(p.root, '.acc', 'config.json'), ['gates', 'required']) ? 'project' : 'acc', builder: p.config.gates.builder?.length ? p.config.gates.builder : null,
+        gates: gatesFor(p.config).filter((g) => g.name !== STRAY_FILES).map((g) => ({ name: g.name, about: g.about })),
         queue: queueOf(p.config),
         model: p.agents.builder.model, modelFrom: p.agents.builder.from.model,
         recent: first ? recentWork({ reviews: join(state, 'reviews'), analyses: join(state, 'analyses') }, ledger) : { builds: [], reviews: [], analyses: [] },
@@ -205,11 +205,13 @@ export function limitCommands(vs: Vscode, d: LimitsDeps): Record<string, (arg?: 
     async requiredGates(arg) {
       const p = await pickProject(typeof arg === 'string' ? arg : undefined);
       if (!p) return;
-      const gates = gatesFor(p.config);
+      // stray-files is on or off by strayFiles.required, not by being picked here (GH-103).
+      const gates = gatesFor(p.config).filter((g) => g.name !== STRAY_FILES);
       if (!gates.length) {
         void vs.window.showInformationMessage(`${p.name} has no checks to choose from yet: add commands under "gates.commands" in its .acc/config.json.`);
         return;
       }
+      // The picker edits the project's own list; stray-files is required beside it unless it's off (GH-103).
       const was = p.config.gates.required;
       const queue = queueOf(p.config);
       const picked = await vs.window.showQuickPick(gates.map((g) => ({ label: g.name, description: g.about, picked: was.includes(g.name), value: g.name })), {
@@ -230,7 +232,8 @@ export function limitCommands(vs: Vscode, d: LimitsDeps): Record<string, (arg?: 
     async builderGates(arg) {
       const p = await pickProject(typeof arg === 'string' ? arg : undefined);
       if (!p) return;
-      const gates = gatesFor(p.config);
+      // stray-files is on or off by strayFiles.required, not by being picked here (GH-103).
+      const gates = gatesFor(p.config).filter((g) => g.name !== STRAY_FILES);
       if (!gates.length) {
         void vs.window.showInformationMessage(`${p.name} has no checks to choose from yet: add commands under "gates.commands" in its .acc/config.json.`);
         return;

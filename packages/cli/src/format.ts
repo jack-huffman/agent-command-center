@@ -41,6 +41,8 @@ const GATE: Record<GateStatus, { glyph: string; label: string; tone: keyof typeo
   fail: { glyph: '✗', label: 'fail', tone: 'orange' },
   error: { glyph: '!', label: 'error', tone: 'orange' },
   skip: { glyph: '–', label: 'skip', tone: 'dim' },
+  // It ran, but ran no tests or skipped more than before: a person decides (GH-100).
+  hold: { glyph: '?', label: 'needs a person', tone: 'orange' },
 };
 const GATE_WIDTH = Math.max(...Object.values(GATE).map((c) => `${c.glyph} ${c.label}`.length)) + 2;
 

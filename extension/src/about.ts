@@ -76,9 +76,10 @@ export class About {
     return Promise.all([this.readVersions(), this.lookForRelease()]).then(() => undefined);
   }
 
+  // Each look is stored before the page redraws, so the redraw shows it under way (GH-114).
   private readVersions(): Promise<void> {
-    this.reading ??= (async () => {
-      this.d.changed();
+    if (this.reading) return this.reading;
+    this.reading = (async () => {
       const [acc, plugins] = await Promise.all([this.d.acc(), this.d.run('claude', ['plugin', 'list', '--json'], this.d.env)]);
       this.acc = parseAccVersion(acc);
       this.plugin = parsePlugins(plugins);
@@ -86,12 +87,13 @@ export class About {
       this.reading = null;
       this.d.changed();
     });
+    this.d.changed();
     return this.reading;
   }
 
   private lookForRelease(): Promise<void> {
-    this.checking ??= (async () => {
-      this.d.changed();
+    if (this.checking) return this.checking;
+    this.checking = (async () => {
       this.release = parseRelease(await this.d.run('gh', RELEASE_ARGS, activeAccountEnv(this.d.env)));
     })().catch((e: unknown) => {
       // A look that fails reads neutral, and is looked for again next time.
@@ -101,6 +103,7 @@ export class About {
       this.checking = null;
       this.d.changed();
     });
+    this.d.changed();
     return this.checking;
   }
 }

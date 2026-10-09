@@ -1,6 +1,6 @@
 // The builder's packet and its session's settings: what acc writes into a task's worktree when it dispatches it.
 
-import { autoMergeFor, builderGatesFor, type Config, type Environment, requiredGates } from './config.ts';
+import { autoMergeFor, builderGatesFor, type Config, type Environment, fullGates, requiredGates } from './config.ts';
 import { DONE_COMMAND, NOTE_LIMITS, noteMarkdown, type Task } from './ledger.ts';
 import { permissionHook } from './questions.ts';
 import { type Analysis, analysisSection } from './analyze.ts';
@@ -177,8 +177,15 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean }): stri
     lines.push(
       `2. **Checks:** run exactly \`acc gate run\`. It runs the required checks (${required.map((g) => `\`${g}\``).join(', ')}) on your latest commit and records each result; \`acc done\` refuses until every one has passed. If one fails, fix it, commit, and run \`acc gate run\` again. If a check can't run at all (it says error), block and quote its message.`,
     );
-    if (lighter && config.gates.required.length) {
-      lines.push(`   These are the lighter checks, such as the tests near what you changed. The full check (${config.gates.required.map((g) => `\`${g}\``).join(', ')}) runs once, in the merge queue, before your pull request merges, so you needn't run it, though \`acc gate run ${config.gates.required[0]}\` does if you want to.`);
+    // The full check's own: stray-files is a builder's too (GH-103).
+    const queued = fullGates(config).filter((g) => !required.includes(g));
+    if (lighter && queued.length) {
+      lines.push(`   These are the lighter checks, such as the tests near what you changed. The full check (${queued.map((g) => `\`${g}\``).join(', ')}) runs once, in the merge queue, before your pull request merges, so you needn't run it, though \`acc gate run ${queued[0]}\` does if you want to.`);
+    }
+    // A number that may only get better (GH-99): acc raises its floor, the builder commits it, and only a person relaxes one.
+    const ratchets = required.filter((g) => config.gates.ratchets?.[g]);
+    if (ratchets.length) {
+      lines.push(`   ${ratchets.map((g) => `\`${g}\``).join(', ')} ${ratchets.length === 1 ? 'is a ratchet' : 'are ratchets'}: a number that may only get better. When yours beats its floor, \`acc gate run\` writes the new floor to \`.acc/floors.json\`: commit that file, then run \`acc gate run\` again. Never make the number, or a floor in that file, worse by hand. If this change has to make one worse, block and say why: only a person relaxes a floor.`);
     }
     if (sf) {
       lines.push('   If you changed Apex, add `--test <TestClass>="<why it covers the change>"` once per test class, for example `acc gate run --test AccountServiceTest="covers the new discount rule"`. Those flags are the only thing to add.');
@@ -207,7 +214,7 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean }): stri
   if (p.environmentSpecific.length) {
     lines.push('- edit an environment-specific file (D-016). Each org keeps its own version of these:', ...p.environmentSpecific.map((f) => `  - \`${f}\``));
   }
-  // The profile's rules, then rules copied in, then the repo's own, which win (GH-108): rulesText's order.
+  // Every project's rules (GH-104), the profile's, then rules copied in, then the repo's own, which win (GH-108): rulesText's order.
   if (p.rules?.trim()) lines.push('', '## Rules', '', p.rules.trim());
   return lines.join('\n') + '\n';
 }
@@ -235,7 +242,7 @@ export function builderSettings(task: Task, config: Config, accBinDir: string, b
   ];
   const deny = [
     'Bash(git push*)', 'Bash(gh pr *)', 'Bash(git checkout *)', 'Bash(git switch *)', 'Bash(git worktree *)', 'Bash(git reset --hard*)',
-    'Bash(acc set *)', 'Bash(acc dispatch *)', 'Bash(acc init*)', 'Bash(acc gate waive*)', 'Bash(acc land*)', 'Bash(acc review*)', 'Bash(acc autopilot*)', 'Bash(acc agents set*)', 'Bash(acc agents autonomy*)', 'Bash(acc agents auto-merge*)', 'Bash(acc agents max*)', 'Bash(acc gate required*)', 'Bash(acc gate builder*)', 'Bash(acc analyze*)', 'Bash(acc analysis answer*)', 'Bash(acc rules import*)', 'Bash(acc trackers set*)', 'Bash(acc promote*)', 'Bash(acc deploy*)', 'Bash(acc update*)', 'Bash(acc resume*)', 'Bash(acc machine*)', 'Bash(acc sync --close-done*)',
+    'Bash(acc set *)', 'Bash(acc dispatch *)', 'Bash(acc init*)', 'Bash(acc gate waive*)', 'Bash(acc gate relax*)', 'Bash(acc land*)', 'Bash(acc review*)', 'Bash(acc autopilot*)', 'Bash(acc agents set*)', 'Bash(acc agents autonomy*)', 'Bash(acc agents auto-merge*)', 'Bash(acc agents max*)', 'Bash(acc gate required*)', 'Bash(acc gate builder*)', 'Bash(acc analyze*)', 'Bash(acc analysis answer*)', 'Bash(acc rules import*)', 'Bash(acc rules accept*)', 'Bash(acc rules dismiss*)', 'Bash(acc trackers set*)', 'Bash(acc tidy add*)', 'Bash(acc tidy skip*)', 'Bash(acc promote*)', 'Bash(acc deploy*)', 'Bash(acc update*)', 'Bash(acc resume*)', 'Bash(acc machine*)', 'Bash(acc sync --close-done*)',
     // Releases are a person's (D-079): npm run * is allowed above, and deny beats allow.
     'Bash(gh release create*)', 'Bash(gh release upload*)', 'Bash(gh release edit*)', 'Bash(gh release delete*)', 'Bash(npm run release*)', 'Bash(nice -n 15 npm run release*)',
     ...(sf ? ['Bash(sf project deploy start*)', 'Bash(sf project deploy quick*)', 'Bash(sf org delete *)'] : []),

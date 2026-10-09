@@ -8,7 +8,7 @@ import { type Actor, applyMove, checkMove, inQueue, type Ledger, mutate, noGateH
 import { mergePr } from './merge.ts';
 import type { RepoPaths } from './paths.ts';
 import { readReceipt, satisfies } from './receipts.ts';
-import { CheckFailure, checkCommit, MergeConflict, mergeBaseIn, mergePlace, type MergePlace, undoMerge } from './refresh.ts';
+import { CheckFailure, checkCommit, MergeConflict, mergeBaseIn, mergePlace, type MergePlace, resolvedWords, undoMerge } from './refresh.ts';
 import type { SlotOptions } from './semaphore.ts';
 import { fetchBranches } from './sync.ts';
 
@@ -236,7 +236,7 @@ export function queueTurn(paths: RepoPaths, config: Config, id: string, deps: Qu
     // Pushed to the same pull request. It carries the review of the commit it was made on: no reviewer reads
     // a clean merge again (a person decided), and the full check passed on it.
     const p = place!;
-    const kept = made.resolved.length ? `, keeping both sides' additions to ${made.resolved.join(', ')}` : '';
+    const kept = made.resolved.length ? `, ${resolvedWords(made.resolved, 'keeping')}` : '';
     mutate(paths, now, (l, emit) => {
       const t = l.tasks.find((x) => x.id === id);
       if (!t) return;
@@ -301,11 +301,16 @@ const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 /**
  * Sends the head back to its builder with what the queue found, kept for its packet at
  * `<state>/queue/<task>-<sha>.json`, as the orchestrator, review → rework (D-076). It shares D-076's limits:
- * once a commit, and 3 times a task with GitHub's checks. Past them, or where a check that failed was waived
- * on its own commit (D-031), it's an AccError, so the task needs you.
+ * once a commit, and 3 times a task with GitHub's checks. Past them, where a check that failed was waived
+ * on its own commit (D-031), or where one needs a person (GH-100), it's an AccError, so the task needs you.
  */
 function sendBackFromQueue(paths: RepoPaths, config: Config, task: Task, deps: QueueDeps, who: Who, f: Found, base: string, head: string): QueueTurn {
   const pr = task.pr!;
+  // A check that ran no tests, or skipped more than before, is a person's call, not its builder's (GH-100).
+  const held = f.kind === 'check' ? f.failed.filter((r) => r.status === 'hold') : [];
+  if (held.length) {
+    throw new AccError('queue', `The full check${f.kind === 'check' && f.merge ? ` with ${base} merged in` : ''} needs a person: ${held.map((r) => `${r.gate}: ${r.summary.replace(/[.!?]$/, '')}`).join('; ')}. A person decides: waive it on ${short(head)}, with a reason, or ask its builder for changes.`);
+  }
   const names = f.kind === 'check' ? f.failed.map((r) => r.gate) : [];
   const why = f.kind === 'conflict'
     ? `merging ${base} in conflicts in ${f.conflicts.join(', ')}`

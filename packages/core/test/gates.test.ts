@@ -3,16 +3,18 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { builderGatesFor, parseConfig, type Config, requiredGates } from '../src/config.ts';
+import { BUILT_IN_GATES, builderGatesFor, parseConfig, type Config, requiredGates } from '../src/config.ts';
 import { drift, driftReportPath } from '../src/drift.ts';
 import type { RunOptions, RunResult, Runner } from '../src/exec.ts';
 import {
-  assertCheckOnly, changesFor, checkEnv, gatesFor, gateTarget, nearTests, priorTests, readAnalyzer, readDeploy, runGates, validateArgs, waiveGates,
+  assertCheckOnly, changesFor, checkEnv, gatesFor, gateTarget, nearTests, priorTests, readAnalyzer, readDeploy, runGates, settle, validateArgs, waiveGates,
 } from '../src/gates.ts';
 import { checkMove, emptyLedger, type Task } from '../src/ledger.ts';
 import { builderSettings } from '../src/packet.ts';
 import { repoPaths } from '../src/paths.ts';
-import { readReceipt, receiptHooks, writeReceipt } from '../src/receipts.ts';
+import { formatFloors, relaxFloor } from '../src/ratchets.ts';
+import { readReceipt, type Receipt, receiptHooks, satisfies, writeReceipt } from '../src/receipts.ts';
+import { NO_COUNTS, type TestCounts } from '../src/test-counts.ts';
 import { withSlot } from '../src/semaphore.ts';
 import { run } from '../src/exec.ts';
 import { fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, SF_CONFIG, tempDir } from './support.ts';
@@ -87,15 +89,28 @@ test('changes are measured from the environment\'s branch: renames count as dele
   assert.deepEqual(ch.files.sort(), ['force-app/main/default/classes/Account.cls', 'force-app/main/default/classes/New.cls', 'force-app/main/default/lwc/card/card.js']);
   assert.deepEqual(ch.deleted, ['force-app/main/default/classes/Old.cls']);
   assert.deepEqual(ch.envSpecific, ['force-app/main/default/emailservices/EmailToCase.xml-meta.xml']);
+  // What it adds is kept apart from what it modifies (GH-103): a rename's new path is added.
+  assert.deepEqual(ch.added.sort(), ['force-app/main/default/classes/New.cls', 'force-app/main/default/lwc/card/card.js']);
 });
 
-test('the gates: Salesforce built-ins, replaced by name from gates.commands; generic projects have only their commands', () => {
+test('a generic project that requires nothing runs every gate on a bare acc gate run, its commands and stray-files (GH-103)', () => {
+  const dir = makeRepo();
+  gitIn(dir, 'checkout', '-q', '-b', 'task/T-1-thing');
+  write(dir, 'src/a.ts', 'export {};\n');
+  commitAll(dir);
+  const c = config({ ...GENERIC_CONFIG, gates: { commands: { lint: 'true', test: 'true' } } });
+  assert.deepEqual(requiredGates(c, 'main', 'builder'), ['stray-files'], 'only the built-in is required');
+  const ran = runGates(repoPaths(dir, run), c, c.environments[0]!, [], [], { run, now, slots: slots() });
+  assert.deepEqual(ran.results.map((r) => [r.gate, r.status]), [['stray-files', 'pass'], ['lint', 'pass'], ['test', 'pass']]);
+});
+
+test('the gates: Salesforce built-ins, replaced by name from gates.commands; generic projects have only their commands; both have stray-files (GH-103)', () => {
   const sf = gatesFor(sfConfig({ required: ['format'], commands: { format: 'npm run prettier:verify', extra: 'true' } }));
-  assert.deepEqual(sf.map((g) => g.name), ['lint', 'static', 'lwc-tests', 'validate', 'format', 'extra']);
+  assert.deepEqual(sf.map((g) => g.name), ['stray-files', 'lint', 'static', 'lwc-tests', 'validate', 'format', 'extra']);
   assert.equal(sf.find((g) => g.name === 'format')!.about, 'npm run prettier:verify');
   assert.deepEqual(sf.filter((g) => g.heavy).map((g) => g.name), ['static', 'lwc-tests', 'validate']);
   const generic = gatesFor(config({ ...GENERIC_CONFIG, gates: { commands: { check: 'npm run check', lint: 'true' }, heavy: ['lint'] } }));
-  assert.deepEqual(generic.map((g) => [g.name, g.heavy]), [['check', false], ['lint', true]], 'gates.heavy replaces the defaults');
+  assert.deepEqual(generic.map((g) => [g.name, g.heavy]), [['stray-files', false], ['check', false], ['lint', true]], 'gates.heavy replaces the defaults');
   assert.deepEqual(config({ ...GENERIC_CONFIG }).gates.heavy, ['build', 'test', 'check']);
   assert.match(parseConfig({ ...GENERIC_CONFIG, gates: { severity: 9 } }).errors.join(), /severity/);
 });
@@ -158,7 +173,7 @@ test('the Salesforce gates decide from the changes, run under nice, and leave re
   const runner = fakeRunner({ [`nice -n 15 ${join(bin, 'prettier')} --check`]: ok('Checking formatting...\nAll matched files use Prettier code style!'), 'nice -n 15 sf project deploy start --dry-run': deployOk }, calls);
 
   const first = runGates(paths, c, dev(c), [], [], { run: runner, now, slots: slots() });
-  assert.deepEqual(first.results.map((r) => [r.gate, r.status]), [['format', 'pass'], ['lint', 'skip'], ['validate', 'fail']]);
+  assert.deepEqual(first.results.map((r) => [r.gate, r.status]), [['format', 'pass'], ['lint', 'skip'], ['validate', 'fail'], ['stray-files', 'skip']]);
   assert.match(first.results[2]!.summary, /Apex changed .*--test <TestClass>=/);
   assert.ok(!calls.some((l) => l.includes('deploy start')), 'no validation without the tests that cover the Apex');
 
@@ -170,6 +185,7 @@ test('the Salesforce gates decide from the changes, run under nice, and leave re
   const sha = gitIn(dir, 'rev-parse', 'HEAD');
   const receipt = readReceipt(paths, sha, 'validate')!;
   assert.equal(receipt.status, 'pass');
+  assert.deepEqual([receipt.counts, receipt.countsNote], [undefined, NO_COUNTS], 'it ran Apex tests, and sf\'s result didn\'t say how many (GH-100)');
   assert.equal(receipt.env, 'dev');
   assert.deepEqual(receipt.details!.tests, [{ name: 'AccountTest', reason: 'covers Account' }]);
   assert.deepEqual(priorTests(paths, c, sha), [{ name: 'AccountTest', reason: 'covers Account' }], 'what a commit made from this one is validated with');
@@ -181,7 +197,7 @@ test('the Salesforce gates decide from the changes, run under nice, and leave re
   assert.deepEqual(receiptHooks(paths, c, run).missingGates(task), []);
   write(dir, 'force-app/main/default/classes/Account.cls', 'public class Account {  }\n');
   commitAll(dir, 'again');
-  assert.deepEqual(receiptHooks(paths, c, run).missingGates(task), ['format', 'lint', 'validate'], 'a new commit needs new receipts');
+  assert.deepEqual(receiptHooks(paths, c, run).missingGates(task), ['format', 'lint', 'validate', 'stray-files'], 'a new commit needs new receipts');
 });
 
 test('prior tests come from the salesforce profile: a commit\'s validate receipt, minus entries that aren\'t tests; none on a generic project', () => {
@@ -203,7 +219,7 @@ test('a missing tool is an error, not a failure, and validate refuses deletions 
   const paths = repoPaths(dir, run);
   const deployOk = ok(JSON.stringify({ status: 0, result: { id: '0Af9', success: true } }));
   const r = runGates(paths, c, dev(c), [], [], { run: fakeRunner({ 'nice -n 15 sf project deploy start': deployOk }), now, slots: slots() });
-  assert.deepEqual(r.results.map((x) => [x.gate, x.status]), [['format', 'error'], ['lint', 'error'], ['lwc-tests', 'error'], ['validate', 'pass']]);
+  assert.deepEqual(r.results.map((x) => [x.gate, x.status]), [['format', 'error'], ['lint', 'error'], ['lwc-tests', 'error'], ['validate', 'pass'], ['stray-files', 'pass']]);
   assert.match(r.results[0]!.summary, /prettier isn't installed .*npm install/);
 
   gitIn(dir, 'rm', '-q', 'force-app/main/default/classes/Old.cls');
@@ -219,14 +235,14 @@ test('uncommitted changes: the gates run but record nothing, and an unknown gate
   const c = config(JSON.parse(readFileSync(join(dir, '.acc/config.json'), 'utf8')));
   const paths = repoPaths(dir, run);
   const deps = { run, now, slots: slots() };
-  assert.deepEqual(runGates(paths, c, c.environments[0]!, [], [], deps).results.map((x) => [x.gate, x.status, x.recorded]), [['lint', 'pass', true]], 'the required gates by default');
+  assert.deepEqual(runGates(paths, c, c.environments[0]!, [], [], deps).results.map((x) => [x.gate, x.status, x.recorded]), [['lint', 'pass', true], ['stray-files', 'skip', true]], 'the required gates by default, and stray-files (GH-103)');
   assert.equal(runGates(paths, c, c.environments[0]!, ['test'], [], deps).results[0]!.status, 'fail');
   writeFileSync(join(dir, 'scratch.txt'), 'wip');
   const dirty = runGates(paths, c, c.environments[0]!, ['lint'], [], deps);
   assert.equal(dirty.dirty, true);
   assert.equal(dirty.results[0]!.recorded, false);
   rmSync(join(dir, 'scratch.txt'));
-  assert.throws(() => runGates(paths, c, c.environments[0]!, ['nope'], [], deps), /No gate nope\. This project's gates: lint, test/);
+  assert.throws(() => runGates(paths, c, c.environments[0]!, ['nope'], [], deps), /No gate nope\. This project's gates: stray-files, lint, test/);
 });
 
 test('a check runs without a builder\'s identity, so it gives the same answer inside a builder as outside one', () => {
@@ -237,7 +253,7 @@ test('a check runs without a builder\'s identity, so it gives the same answer in
   const was = { ACC_ROLE: process.env.ACC_ROLE, ACC_TASK: process.env.ACC_TASK, ACC_HEAVY_DIR: process.env.ACC_HEAVY_DIR };
   Object.assign(process.env, { ACC_ROLE: 'builder', ACC_TASK: 'GH-13', ACC_HEAVY_DIR: '/outer' });
   try {
-    assert.deepEqual(runGates(repoPaths(dir, run), c, c.environments[0]!, [], [], { run, now, slots: slots() }).results.map((r) => [r.gate, r.status]), [['who', 'pass'], ['nested', 'pass']]);
+    assert.deepEqual(runGates(repoPaths(dir, run), c, c.environments[0]!, [], [], { run, now, slots: slots() }).results.map((r) => [r.gate, r.status]), [['who', 'pass'], ['nested', 'pass'], ['stray-files', 'skip']]);
   } finally {
     for (const [k, v] of Object.entries(was)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
   }
@@ -439,7 +455,129 @@ test('a person waives a failing gate on one commit, with a reason: it satisfies 
   writeFileSync(join(dir, 'next.txt'), 'more');
   gitIn(dir, 'add', '-A');
   gitIn(dir, 'commit', '-q', '-m', 'next');
-  assert.deepEqual(hooks.missingGates(task), ['lint', 'test'], 'a new commit starts with no checks, waived or not');
+  assert.deepEqual(hooks.missingGates(task), ['lint', 'test', 'stray-files'], 'a new commit starts with no checks, waived or not');
+});
+
+// ---------------------------------------------------------------- what a test check ran (GH-100)
+
+/** node:test's spec summary, as `npm test` prints it at the end, with each skipped test's line before it. */
+const summary = (pass: number, skipped: string[] = [], fail = 0) => [
+  ...skipped.map((n) => `﹣ ${n} (0.1ms) # SKIP`),
+  `ℹ tests ${pass + fail + skipped.length}`, 'ℹ suites 0', `ℹ pass ${pass}`, `ℹ fail ${fail}`, 'ℹ cancelled 0', `ℹ skipped ${skipped.length}`, 'ℹ todo 0', 'ℹ duration_ms 12.5', '',
+].join('\n');
+const counted = (run: number, skipped: string[] = []): TestCounts => ({ run, passed: run, failed: 0, skipped: skipped.length, todo: 0, ...(skipped.length ? { skippedNames: skipped } : {}), runner: 'node:test' });
+
+test('a test check\'s outcome, given what it ran: none run, or more skipped than before, needs a person; a fail stays a fail (GH-100)', () => {
+  const passed = { status: 'pass' as const, summary: 'Passed.' };
+  const check = { tests: true, compared: false, earlier: null, env: 'main' };
+  // It ran tests: a pass, with nothing to add.
+  assert.deepEqual(settle({ ...passed, counts: counted(312, ['a']) }, check), { ...passed, counts: counted(312, ['a']) });
+  // It ran none: a hold, which satisfies nothing.
+  const none = settle({ ...passed, counts: counted(0) }, check);
+  assert.deepEqual([none.status, none.summary, satisfies(none)], ['hold', 'Ran no tests, so it can\'t vouch for the change.', false]);
+  assert.equal(settle({ ...passed, counts: counted(0, ['a', 'b']) }, check).summary, 'Ran no tests (0 run, 2 skipped), so it can\'t vouch for the change.');
+  // A fail or an error keeps its status, with what it ran.
+  assert.equal(settle({ status: 'fail', summary: 'x', counts: counted(0) }, check).status, 'fail');
+  // Output acc can't read: a test check says so, and passes; a check that runs no tests says nothing.
+  assert.deepEqual(settle(passed, check), { ...passed, countsNote: NO_COUNTS });
+  assert.deepEqual(settle({ status: 'error', summary: 'sh: npm: not found' }, check).countsNote, NO_COUNTS);
+  assert.deepEqual(settle(passed, { ...check, tests: false }), passed);
+  assert.deepEqual(settle({ status: 'skip', summary: 'No LWC has changed.' }, check), { status: 'skip', summary: 'No LWC has changed.' }, 'one that didn\'t apply ran nothing to count');
+
+  // Compared: with nothing earlier it says so; with fewer skipped before, it's a hold naming the new ones.
+  const compared = { ...check, compared: true };
+  assert.equal(settle({ ...passed, counts: counted(10, ['a']) }, compared).countsNote, 'Nothing earlier on main to compare its skipped tests with.');
+  const earlier = { sha: 'b'.repeat(40), counts: counted(9, ['a']) } as Receipt;
+  const more = settle({ ...passed, counts: counted(10, ['a', 'flaky sync']) }, { ...compared, earlier });
+  assert.deepEqual([more.status, more.summary, more.countsNote], ['hold', '2 skipped, up from 1 on bbbbbbb: flaky sync newly skipped.', 'Compared with 1 skipped on bbbbbbb, the nearest earlier count on main. Newly skipped: flaky sync.']);
+  const same = settle({ ...passed, counts: counted(10, ['b']) }, { ...compared, earlier });
+  assert.deepEqual([same.status, same.countsNote], ['pass', 'Compared with 1 skipped on bbbbbbb, the nearest earlier count on main. Newly skipped: b.'], 'as many as before passes, naming the swap');
+  assert.equal(settle({ ...passed, counts: counted(10, []) }, { ...compared, earlier }).status, 'pass', 'fewer passes');
+});
+
+test('a test check counts what ran on its receipt: zero run is a hold, unreadable output says so, and a check that runs no tests says nothing (GH-100)', () => {
+  const gates = {
+    required: ['test'], tests: ['listed'],
+    commands: { test: 'cat summary.txt', none: `printf '${summary(0).replace(/\n/g, '\\n')}'`, listed: 'echo all good', typecheck: 'echo no errors' },
+  };
+  const dir = makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, gates }), 'summary.txt': summary(3, ['slow one']) });
+  const c = config(JSON.parse(readFileSync(join(dir, '.acc/config.json'), 'utf8')));
+  const paths = repoPaths(dir, run);
+  const r = runGates(paths, c, c.environments[0]!, ['test', 'none', 'listed', 'typecheck'], [], { run, now, slots: slots() });
+  assert.deepEqual(r.results.map((x) => [x.gate, x.status]), [['test', 'pass'], ['none', 'hold'], ['listed', 'pass'], ['typecheck', 'pass']]);
+  const sha = gitIn(dir, 'rev-parse', 'HEAD');
+  const test = readReceipt(paths, sha, 'test')!;
+  assert.deepEqual(test.counts, counted(3, ['slow one']));
+  assert.equal(test.countsNote, 'Nothing earlier on main to compare its skipped tests with.');
+  // Ran none: needs a person, which acc done won't take.
+  const none = readReceipt(paths, sha, 'none')!;
+  assert.deepEqual([none.status, none.summary, none.counts?.run, satisfies(none)], ['hold', 'Ran no tests, so it can\'t vouch for the change.', 0, false]);
+  // A test gate whose output holds no summary: no counts, and a note saying so. A typecheck: neither.
+  const listed = readReceipt(paths, sha, 'listed')!;
+  assert.deepEqual([listed.status, listed.counts, listed.countsNote], ['pass', undefined, NO_COUNTS]);
+  const typecheck = readReceipt(paths, sha, 'typecheck')!;
+  assert.deepEqual([typecheck.counts, typecheck.countsNote], [undefined, undefined]);
+});
+
+test('more skipped than the nearest earlier count on the environment\'s branch is a hold; a builder\'s lighter check isn\'t compared; a person\'s waiver keeps the counts and stands for the branch (GH-100)', () => {
+  const gates = { required: ['check'], builder: ['near'], tests: ['check', 'near'], commands: { check: 'cat summary.txt', near: 'cat summary.txt' } };
+  // Its repo adds summary.txt at the root; stray-files has its own tests (GH-103).
+  const raw = { ...GENERIC_CONFIG, autonomy: 'review', autopilot: { autoMerge: true }, gates, strayFiles: { required: false } };
+  const dir = makeRepo({ '.acc/config.json': JSON.stringify(raw), 'summary.txt': summary(5, ['old one']) });
+  const c = config(raw);
+  const paths = repoPaths(dir, run);
+  const env = c.environments[0]!;
+  const deps = { run, now, slots: slots() };
+  const status = (names: string[]) => runGates(paths, c, env, names, [], deps).results.map((x) => [x.gate, x.status]);
+  // On main: nothing earlier to compare with.
+  assert.deepEqual(status(['check', 'near']), [['check', 'pass'], ['near', 'pass']]);
+  const m0 = gitIn(dir, 'rev-parse', 'HEAD');
+
+  // A task skips one more test.
+  gitIn(dir, 'checkout', '-q', '-b', 'task/T-1');
+  writeFileSync(join(dir, 'summary.txt'), summary(4, ['old one', 'sync retries']));
+  commitAll(dir, 'T-1: skip a test');
+  const t1 = gitIn(dir, 'rev-parse', 'HEAD');
+  assert.deepEqual(status(['check', 'near']), [['check', 'hold'], ['near', 'pass']], 'the lighter check runs the tests near the change, so it isn\'t compared');
+  const held = readReceipt(paths, t1, 'check')!;
+  assert.equal(held.summary, `2 skipped, up from 1 on ${m0.slice(0, 7)}: sync retries newly skipped.`);
+  assert.equal(held.countsNote, `Compared with 1 skipped on ${m0.slice(0, 7)}, the nearest earlier count on main. Newly skipped: sync retries.`);
+  assert.equal(readReceipt(paths, t1, 'near')!.countsNote, undefined);
+  assert.deepEqual(receiptHooks(paths, c, run).missingGates({ id: 'T-1', run: { branch: 'task/T-1' } } as Task, 'merge'), ['check']);
+  // Running it again on the same commit doesn't compare it with itself.
+  assert.deepEqual(status(['check']), [['check', 'hold']]);
+
+  // As many skipped as before, but another test: it passes, naming the swap.
+  gitIn(dir, 'checkout', '-q', '-b', 'task/T-2', m0);
+  writeFileSync(join(dir, 'summary.txt'), summary(5, ['other one']));
+  commitAll(dir, 'T-2: swap a skip');
+  assert.deepEqual(status(['check']), [['check', 'pass']]);
+  assert.match(readReceipt(paths, gitIn(dir, 'rev-parse', 'HEAD'), 'check')!.countsNote!, /^Compared with 1 skipped on [0-9a-f]{7}, .* Newly skipped: other one\.$/);
+
+  // A person waives T-1's hold: the waiver keeps its counts, and what they came from.
+  gitIn(dir, 'checkout', '-q', 'task/T-1');
+  const [waived] = waiveGates(paths, c, { sha: t1, env, gates: ['check'], reason: 'sync retries are flaky until GH-9', by: 'human:jordan', now });
+  assert.deepEqual([waived!.status, waived!.waived?.was, waived!.counts, waived!.command], ['skip', 'hold', held.counts, held.command]);
+  assert.equal(held.command, 'sh -c \'cat summary.txt\'');
+  // main moves on, and the merge queue merges it into T-1: compared with the count the person accepted on the branch, it passes.
+  gitIn(dir, 'checkout', '-q', 'main');
+  writeFileSync(join(dir, 'other.txt'), 'more\n');
+  commitAll(dir, 'Another task');
+  gitIn(dir, 'checkout', '-q', 'task/T-1');
+  gitIn(dir, 'merge', '-q', '--no-edit', 'main');
+  assert.deepEqual(status(['check']), [['check', 'pass']]);
+  assert.match(readReceipt(paths, gitIn(dir, 'rev-parse', 'HEAD'), 'check')!.countsNote!, new RegExp(`^Compared with 2 skipped on ${t1.slice(0, 7)}, `));
+});
+
+test('validate counts Apex\'s tests only when it runs some: NoTestRun has none and is never held (GH-100)', () => {
+  const apex = JSON.parse(readFileSync(join(import.meta.dirname, 'fixtures', 'test-counts', 'apex-deploy.json'), 'utf8'));
+  const failed = readDeploy({ code: 1, stderr: '', stdout: JSON.stringify(apex) }, 'Acme Dev', [{ name: 'CaseRoutingTest', reason: '' }], 3);
+  assert.deepEqual([failed.status, failed.counts], ['fail', { run: 21, passed: 17, failed: 4, skipped: 0, todo: 0, runner: 'apex' }]);
+  const passing = { status: 0, result: { ...apex.result, success: true, numberTestErrors: 0, numberTestsCompleted: 21, details: { runTestResult: { numTestsRun: '21', numFailures: '0' } } } };
+  assert.deepEqual(readDeploy(ok(JSON.stringify(passing)), 'Acme Dev', [{ name: 'CaseRoutingTest', reason: '' }], 3).counts?.run, 21);
+  const noTests = readDeploy(ok(JSON.stringify({ status: 0, result: { id: '0Af1', success: true, numberComponentsTotal: 2, numberTestsTotal: 0 } })), 'Acme Dev', [], 2);
+  assert.deepEqual([noTests.status, noTests.counts], ['pass', undefined]);
+  assert.deepEqual(settle(noTests, { tests: false, compared: false, earlier: null, env: 'dev' }), noTests, 'not a test run: no note, no hold');
 });
 
 // ---------------------------------------------------------------- a builder's lighter checks (GH-73)
@@ -557,7 +695,7 @@ test('every command gate is given ACC_NEAR_TESTS, worked out once a run, though 
   process.env.ACC_NEAR_TESTS = 'from/outside.test.ts';
   try {
     const ran = runGates(repoPaths(dir, run), c, c.environments[0]!, [], [], { run: counted, now, slots: slots() });
-    assert.deepEqual(ran.results.map((r) => [r.gate, r.status]), gates.map((g) => [g, 'pass']));
+    assert.deepEqual(ran.results.map((r) => [r.gate, r.status]), [...gates.map((g) => [g, 'pass']), ['stray-files', 'skip']]);
   } finally {
     if (was === undefined) delete process.env.ACC_NEAR_TESTS;
     else process.env.ACC_NEAR_TESTS = was;
@@ -592,7 +730,7 @@ test('where the merge queue runs the full check, builders run gates.builder, whi
 
   // acc gate run with no names: the builder's checks, told what changed and the tests near it.
   const ran = runGates(paths, c, env, [], [], { run, now, slots: slots() });
-  assert.deepEqual(ran.results.map((r) => [r.gate, r.status]), [['typecheck', 'pass'], ['near', 'pass']]);
+  assert.deepEqual(ran.results.map((r) => [r.gate, r.status]), [['typecheck', 'pass'], ['near', 'pass'], ['stray-files', 'skip']]);
   assert.equal(readFileSync(out, 'utf8'), 'src/merge.ts|test/merge.test.ts');
   assert.deepEqual([hooks.missingGates(task), hooks.missingGates(task, 'builder'), hooks.missingGates(task, 'merge')], [[], [], ['check']]);
   // acc done takes them: running → review.
@@ -603,19 +741,20 @@ test('where the merge queue runs the full check, builders run gates.builder, whi
   writeFileSync(join(dir, 'src/merge.ts'), 'a, again\n');
   gitIn(dir, 'commit', '-q', '-am', 'T-1: again');
   const next = gitIn(dir, 'rev-parse', 'HEAD');
-  assert.deepEqual(hooks.missingGates(task), ['typecheck', 'near']);
-  writeReceipt(paths, { gate: 'check', sha: next, env: 'main', status: 'pass', startedAt: '', finishedAt: '', durationMs: 0, summary: 'Passed.', command: null, log: null });
+  assert.deepEqual(hooks.missingGates(task), ['typecheck', 'near', 'stray-files']);
+  // The queue's full check is gates.required and stray-files (GH-103).
+  for (const gate of ['check', 'stray-files']) writeReceipt(paths, { gate, sha: next, env: 'main', status: 'pass', startedAt: '', finishedAt: '', durationMs: 0, summary: 'Passed.', command: null, log: null });
   assert.deepEqual([hooks.missingGates(task), hooks.missingGates(task, 'merge')], [[], []]);
 
   // Auto-merge off, a protected environment or no builder gates: both scopes are the required ones, as before.
   for (const other of [config({ ...raw, autopilot: { autoMerge: false } }), config({ ...raw, autonomy: 'manual' }), config({ ...raw, gates: { ...raw.gates, builder: [] } })]) {
     const h = receiptHooks(paths, other, run);
-    assert.deepEqual([requiredGates(other, 'main', 'builder'), requiredGates(other, 'main', 'merge'), builderGatesFor(other, 'main')], [['check'], ['check'], false]);
+    assert.deepEqual([requiredGates(other, 'main', 'builder'), requiredGates(other, 'main', 'merge'), builderGatesFor(other, 'main')], [['check', 'stray-files'], ['check', 'stray-files'], false]);
     writeFileSync(join(dir, 'src/merge.ts'), `${Math.random()}\n`);
     gitIn(dir, 'commit', '-q', '-am', 'T-1: once more');
     runGates(paths, other, env, ['typecheck', 'near'], [], { run, now, slots: slots() });
-    assert.deepEqual(h.missingGates(task), ['check'], 'its lighter checks aren\'t enough here');
-    assert.deepEqual(runGates(paths, other, env, [], [], { run, now, slots: slots() }).results.map((r) => r.gate), ['check']);
+    assert.deepEqual(h.missingGates(task), ['check', 'stray-files'], 'its lighter checks aren\'t enough here');
+    assert.deepEqual(runGates(paths, other, env, [], [], { run, now, slots: slots() }).results.map((r) => r.gate), ['check', 'stray-files']);
   }
 });
 
@@ -630,4 +769,176 @@ test('blocked work whose checks are settled goes to review by a person; a builde
   assert.match(checkMove(ledger, c, task, { to: 'review', actor: 'builder', by: 'builder:T-1' }, settled).join(' '), /can't move/);
   const deny = (builderSettings({ id: 'T-1' } as never, c, '/acc/bin', '/usr/bin') as { permissions: { deny: string[] } }).permissions.deny;
   assert.ok(deny.includes('Bash(acc gate waive*)'));
+  assert.ok(deny.includes('Bash(acc gate relax*)'), 'nor relax a floor (GH-99)');
+});
+
+// ---------------------------------------------------------------- ratchets (GH-99)
+
+/**
+ * A repo on main whose ratchets read numbers from files, with T-1's branch checked out. The commands log
+ * that they ran, outside the repo, so a carried check is seen not to run.
+ */
+function ratchetRepo(floors: Record<string, unknown> | null = { tests: { floor: 669 } }) {
+  const ran = join(tempDir('ran-'), 'ran.log');
+  const raw = {
+    ...GENERIC_CONFIG,
+    // These are about a ratchet; stray-files has its own tests (GH-103).
+    strayFiles: { required: false },
+    gates: {
+      required: ['typecheck', 'tests'],
+      commands: { typecheck: `echo typecheck >> '${ran}'` },
+      ratchets: { tests: { command: `echo tests >> '${ran}'; cat count.txt`, limit: 'floor', label: 'tests' }, violations: { command: 'cat violations.txt', limit: 'ceiling', label: 'violations' } },
+    },
+  };
+  const dir = makeRepo({ '.acc/config.json': JSON.stringify(raw), 'count.txt': '669\n', 'violations.txt': '10\n', ...(floors ? { '.acc/floors.json': formatFloors(floors as never) } : {}) });
+  gitIn(dir, 'checkout', '-q', '-b', 'task/T-1');
+  const c = config(raw);
+  const paths = repoPaths(dir, run);
+  const env = c.environments[0]!;
+  const task = { id: 'T-1', state: 'running', environment: 'main', deps: [], run: { branch: 'task/T-1' } } as unknown as Task;
+  const set = (files: Record<string, string>, msg = 'T-1: change') => {
+    for (const [rel, text] of Object.entries(files)) write(dir, rel, text);
+    commitAll(dir, msg);
+    return gitIn(dir, 'rev-parse', 'HEAD');
+  };
+  const gate = (raise: boolean, names: string[] = []) => runGates(paths, c, env, names, [], { run, now, slots: slots(), raise });
+  const floorsText = () => readFileSync(join(dir, '.acc/floors.json'), 'utf8');
+  const runs = () => (existsSync(ran) ? readFileSync(ran, 'utf8').trim().split('\n') : []);
+  return { dir, c, paths, env, task, set, gate, floorsText, runs, hooks: receiptHooks(paths, c, run) };
+}
+
+test('a ratchet is a gate: listed after the commands, heavy when gates.heavy says, and its name can\'t be a built-in\'s (GH-99)', () => {
+  const c = config({ ...GENERIC_CONFIG, gates: { commands: { check: 'npm run check' }, ratchets: { tests: { command: 'node scripts/count-tests.mjs', limit: 'floor', label: 'tests' } }, heavy: ['tests'] } });
+  assert.deepEqual(gatesFor(c).map((g) => [g.name, g.heavy]), [['stray-files', false], ['check', false], ['tests', true]], 'after the built-in stray-files (GH-103) and the commands');
+  assert.equal(gatesFor(c)[2]!.about, 'node scripts/count-tests.mjs (tests, which may only go up)');
+  // The names config.ts keeps a ratchet from taking are the Salesforce gates' own.
+  assert.deepEqual(gatesFor(sfConfig({ required: [] })).map((g) => g.name).sort(), [...BUILT_IN_GATES.salesforce].sort());
+  assert.deepEqual(BUILT_IN_GATES.generic, ['stray-files'], 'and in every profile, stray-files (GH-103)');
+});
+
+test('a ratchet that beats its floor in a clean task worktree writes the new floor there; acc done waits for it, and the commit that records it carries its checks (GH-99)', () => {
+  const r = ratchetRepo();
+  const sha = r.set({ 'count.txt': '674\n' }, 'T-1: five more tests');
+  const ran = r.gate(true);
+  assert.deepEqual(ran.results.map((x) => [x.gate, x.status, x.summary]), [['typecheck', 'pass', 'Passed.'], ['tests', 'pass', 'tests 674 beats the floor 669: raised it in .acc/floors.json. Commit that file, then run acc gate run again.']]);
+  assert.deepEqual(ran.raised, [{ gate: 'tests', label: 'tests', from: 669, to: 674 }]);
+  assert.equal(r.floorsText(), formatFloors({ tests: { floor: 674 } }), 'written in the worktree');
+  assert.equal(gitIn(r.dir, 'status', '--porcelain'), 'M .acc/floors.json', 'and nothing else');
+  assert.deepEqual(readReceipt(r.paths, sha, 'tests')?.details?.ratchet, { label: 'tests', limit: 'floor', value: 674, floor: 669, base: 669, diff: 5, raised: { from: 669, to: 674 } });
+  assert.deepEqual(r.hooks.missingGates(r.task), ['tests'], 'acc done waits for the raise to be committed');
+  assert.deepEqual(r.runs(), ['typecheck', 'tests']);
+
+  // Committed, alone: its checks carry over from the commit that measured them, and nothing runs again.
+  commitAll(r.dir, 'T-1: raise the tests floor');
+  const next = gitIn(r.dir, 'rev-parse', 'HEAD');
+  const again = r.gate(true);
+  assert.deepEqual(again.raised, []);
+  assert.deepEqual(again.results.map((x) => [x.gate, x.status, x.summary]), [['typecheck', 'pass', 'Passed.'], ['tests', 'pass', 'tests 674, at its floor.']]);
+  assert.deepEqual(r.runs(), ['typecheck', 'tests'], 'carried, not run');
+  const carried = readReceipt(r.paths, next, 'tests')!;
+  assert.deepEqual([carried.carried, carried.sha, carried.details?.ratchet], [{ from: sha }, next, { label: 'tests', limit: 'floor', value: 674, floor: 674, base: 669, diff: 5 }]);
+  assert.deepEqual(readReceipt(r.paths, next, 'typecheck')?.carried, { from: sha });
+  assert.deepEqual(r.hooks.missingGates(r.task), []);
+  assert.equal(gitIn(r.dir, 'status', '--porcelain'), '');
+
+  // Anything else in the commit, and every check runs again.
+  r.set({ 'count.txt': '675\n', '.acc/floors.json': formatFloors({ tests: { floor: 675 } }) }, 'T-1: a hand-made raise and a test');
+  r.gate(false);
+  assert.deepEqual(r.runs(), ['typecheck', 'tests', 'typecheck', 'tests']);
+});
+
+test('acc writes no floor where it may not raise one: with raise off, as a refresh\'s and the merge queue\'s checks run, or with uncommitted changes (GH-99)', () => {
+  const r = ratchetRepo();
+  r.set({ 'count.txt': '674\n' });
+  const before = r.floorsText();
+  const off = r.gate(false);
+  assert.deepEqual([off.results[1]!.status, off.results[1]!.summary, off.raised], ['pass', 'tests 674 beats the floor 669 by 5.', []]);
+  assert.deepEqual([r.floorsText(), gitIn(r.dir, 'status', '--porcelain')], [before, ''], 'byte for byte the same, and the worktree clean');
+  assert.deepEqual(r.hooks.missingGates(r.task), [], 'nothing to commit, so it satisfies acc done');
+
+  write(r.dir, 'scratch.txt', 'wip');
+  const dirty = r.gate(true);
+  assert.deepEqual([dirty.dirty, dirty.results[1]!.summary, dirty.raised, r.floorsText()], [true, 'tests 674 beats the floor 669 by 5.', [], before]);
+});
+
+test('below its floor fails; a ceiling fails above it, and is raised by going down (GH-99)', () => {
+  const r = ratchetRepo({ tests: { floor: 669 }, violations: { ceiling: 10 } });
+  r.set({ 'count.txt': '660\n', 'violations.txt': '12\n' });
+  const ran = r.gate(true);
+  assert.deepEqual(ran.results.map((x) => [x.gate, x.status]), [['typecheck', 'pass'], ['tests', 'fail']]);
+  assert.match(ran.results[1]!.summary, /^tests 660 is below its floor 669, by 9\./);
+  assert.deepEqual(r.hooks.missingGates(r.task), ['tests']);
+  assert.match(r.gate(true, ['violations']).results[0]!.summary, /^violations 12 is above its ceiling 10, by 2\./);
+  r.set({ 'violations.txt': '10\n' });
+  assert.equal(r.gate(true, ['violations']).results[0]!.summary, 'violations 10, at its ceiling.');
+  r.set({ 'violations.txt': '8\n' });
+  assert.deepEqual(r.gate(true, ['violations']).raised, [{ gate: 'violations', label: 'violations', from: 10, to: 8 }]);
+  assert.equal(r.floorsText(), formatFloors({ tests: { floor: 669 }, violations: { ceiling: 8 } }), 'the other ratchet\'s entry is kept as it was');
+});
+
+test('a floor the builder lowered by hand fails; one a person relaxed, with a reason, passes at that number (GH-99)', () => {
+  const r = ratchetRepo();
+  r.set({ 'count.txt': '650\n', '.acc/floors.json': formatFloors({ tests: { floor: 640 } }) }, 'T-1: lower the bar');
+  const low = r.gate(true);
+  assert.equal(low.results[1]!.status, 'fail');
+  assert.equal(low.results[1]!.summary, '.acc/floors.json lowers tests\'s floor to 640, from 669 on main, and no person relaxed it. Put it back to 669: only a person relaxes a floor, with acc gate relax.');
+  assert.deepEqual([low.raised, r.floorsText()], [[], formatFloors({ tests: { floor: 640 } })], 'nothing raised on a failure');
+
+  // A person puts it back, then relaxes it, saying why.
+  r.set({ '.acc/floors.json': formatFloors({ tests: { floor: 669 } }), 'count.txt': '640\n' }, 'T-1: put the floor back');
+  relaxFloor(r.paths.relaxed, r.paths.floors, r.dir, r.c, { ratchet: 'tests', to: 640, reason: 'the slow suite moved to its own job', by: 'human:jordan', now, task: 'T-1' });
+  commitAll(r.dir, 'T-1: relax the tests floor');
+  const relaxed = r.gate(true);
+  assert.deepEqual([relaxed.results[1]!.status, relaxed.results[1]!.summary, relaxed.raised], ['pass', 'tests 640, at its floor.', []]);
+  assert.deepEqual(relaxed.results[1]!.details?.ratchet, { label: 'tests', limit: 'floor', value: 640, floor: 640, base: 669, diff: -29 });
+});
+
+test('a floor a person relaxed, raised again by acc but still below the environment\'s, passes once the raise is committed (GH-99)', () => {
+  const r = ratchetRepo();
+  relaxFloor(r.paths.relaxed, r.paths.floors, r.dir, r.c, { ratchet: 'tests', to: 640, reason: 'the slow suite moved to its own job', by: 'human:jordan', now, task: 'T-1' });
+  const sha = r.set({ 'count.txt': '650\n' }, 'T-1: relax the tests floor, and ten tests back');
+  const ran = r.gate(true);
+  assert.deepEqual([ran.results[1]!.status, ran.raised], ['pass', [{ gate: 'tests', label: 'tests', from: 640, to: 650 }]]);
+  assert.equal(r.floorsText(), formatFloors({ tests: { floor: 650 } }));
+
+  // Committed as the packet says: 650 is still below main's 669, and the person's relax to 640 backs it.
+  commitAll(r.dir, 'T-1: raise the tests floor');
+  const next = gitIn(r.dir, 'rev-parse', 'HEAD');
+  const again = r.gate(true);
+  assert.deepEqual([again.results[1]!.status, again.results[1]!.summary, again.raised], ['pass', 'tests 650, at its floor.', []]);
+  assert.deepEqual(readReceipt(r.paths, next, 'tests')?.carried, { from: sha });
+  assert.deepEqual(r.hooks.missingGates(r.task), []);
+
+  // A fresh run on a later commit passes too; a floor below the one the person relaxed to still fails.
+  r.set({ 'note.txt': 'x' }, 'T-1: a change');
+  assert.equal(r.gate(true).results[1]!.summary, 'tests 650, at its floor.');
+  r.set({ '.acc/floors.json': formatFloors({ tests: { floor: 630 } }), 'count.txt': '630\n' }, 'T-1: lower it again, by hand');
+  assert.match(r.gate(true).results[1]!.summary, /^\.acc\/floors\.json lowers tests's floor to 630, from 669 on main, and no person relaxed it\./);
+});
+
+test('a person\'s old relax backs no other floor: once the environment\'s floor moves on, a floor lowered by hand fails (GH-99)', () => {
+  const r = ratchetRepo();
+  // Long ago, on T-1, a person relaxed tests from 669 to 640.
+  relaxFloor(r.paths.relaxed, r.paths.floors, r.dir, r.c, { ratchet: 'tests', to: 640, reason: 'the slow suite moved to its own job', by: 'human:jordan', now, task: 'T-1' });
+  gitIn(r.dir, 'checkout', '-q', '--', '.acc/floors.json');
+  // Since then main's floor rose to 700, and T-9 began there.
+  gitIn(r.dir, 'checkout', '-q', 'main');
+  r.set({ 'count.txt': '700\n', '.acc/floors.json': formatFloors({ tests: { floor: 700 } }) }, 'main: the floor is 700');
+  gitIn(r.dir, 'checkout', '-q', '-b', 'task/T-9');
+  r.set({ 'count.txt': '690\n', '.acc/floors.json': formatFloors({ tests: { floor: 690 } }) }, 'T-9: drop ten tests, and lower the bar');
+  const ran = r.gate(true);
+  assert.equal(ran.results[1]!.status, 'fail');
+  assert.equal(ran.results[1]!.summary, '.acc/floors.json lowers tests\'s floor to 690, from 700 on main, and no person relaxed it. Put it back to 700: only a person relaxes a floor, with acc gate relax.');
+  assert.deepEqual([ran.raised, r.floorsText()], [[], formatFloors({ tests: { floor: 690 } })]);
+});
+
+test('a ratchet can\'t be waived: a person relaxes its floor instead (GH-99)', () => {
+  const r = ratchetRepo();
+  const sha = r.set({ 'count.txt': '660\n' });
+  r.gate(true);
+  assert.throws(
+    () => waiveGates(r.paths, r.c, { sha, env: r.env, gates: ['tests'], reason: 'flaky', by: 'human:jordan', now }),
+    (e: Error & { code?: string }) => e.code === 'refused' && e.message === 'tests is a ratchet: waived, its number could merge below its floor and fail every task after it. A person relaxes the floor instead: acc gate relax tests --to <n> --reason "<why>".',
+  );
+  assert.equal(readReceipt(r.paths, sha, 'tests')?.status, 'fail', 'its receipt is as it was');
 });

@@ -5,6 +5,7 @@ import type { Action, Look, Ref } from '../src/model/shared.ts';
 import type { PersonChip } from '../src/model/boards.ts';
 import type { Block, Doc, Inline } from '../../packages/core/src/trackers/doc.ts';
 import { api, go, memory, remember, state } from './state.ts';
+import { panelLook } from './looks.ts';
 
 export type Child = Node | string | null | undefined | false;
 
@@ -93,12 +94,6 @@ function renderInlines(c: Inline[]): Node[] {
   });
 }
 
-/** Jira's panels: orange for the ones that ask for care, blue for the rest, and each with its own icon. */
-const PANEL: Record<string, { icon: string; tone: string }> = {
-  Info: { icon: 'info', tone: 'blue' }, Note: { icon: 'note', tone: 'blue' }, Tip: { icon: 'lightbulb', tone: 'blue' }, Success: { icon: 'pass', tone: 'blue' },
-  Warning: { icon: 'warning', tone: 'orange' }, Error: { icon: 'error', tone: 'orange' }, Details: { icon: 'chevron-right', tone: 'neutral' },
-};
-
 /** An icon and its words, kept on one line and centred together. */
 export const iconed = (name: string, text: string): HTMLElement => el('span', 'iconed', icon(name), text);
 
@@ -125,7 +120,7 @@ function renderBlocks(bs: Block[]): Node[] {
       }
       case 'code': return el('div', 'code', b.lang ? el('div', 'code-lang', b.lang) : null, el('pre', '', el('code', '', b.text)));
       case 'quote': {
-        const kind = PANEL[b.label ?? ''] ?? { icon: 'info', tone: 'blue' };
+        const kind = panelLook(b.label ?? '');
         return el('blockquote', b.label ? `panel tone-edge-${kind.tone}` : '', b.label ? el('div', 'panel-label', icon(kind.icon, kind.tone), b.label) : null, ...renderBlocks(b.c));
       }
       case 'hr': return el('hr');

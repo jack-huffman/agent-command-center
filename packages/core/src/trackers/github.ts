@@ -163,7 +163,8 @@ export class GithubClient implements TrackerClient {
       cards,
       notice: this.projectsReadable
         ? 'These issues aren\'t on a GitHub Project, so the columns are Open and Closed. Add them to a Project with a Status field to use its columns.'
-        : `To use your GitHub Project's columns, give ${this.o.account} access to Projects: gh auth refresh -s project (while ${this.o.account} is the active account).`,
+        // gh refreshes only its active account, so the commands say to switch to this one first, and back.
+        : `To use your GitHub Project's columns, give ${this.o.account} access to Projects. gh refreshes only its active account, so run gh auth switch -u ${this.o.account}, then gh auth refresh -h github.com -s project and sign in as ${this.o.account}, then switch back to the account you use.`,
       place: this.place,
     };
   }

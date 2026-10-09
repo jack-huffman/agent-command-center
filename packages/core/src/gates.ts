@@ -5,18 +5,23 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, posix } from 'node:path';
-import { type Config, type Environment, requiredGates } from './config.ts';
+import { type Config, type Environment, fullGates, isTestGate, requiredGates, STRAY_FILES } from './config.ts';
 import { AccError, parseJsonOutput, type RunResult, type Runner, sfEnv } from './exec.ts';
 import type { Ledger, Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
-import { type GateStatus, readReceipt, type Receipt, writeReceipt } from './receipts.ts';
+import { carriesOver, FLOORS_FILE, floorsAt, judgeRatchet, type RatchetFloors, ratchetGate, readFloors, readRelaxed, withRaises, writeFloors } from './ratchets.ts';
+import { earlierCounts, type GateStatus, ratchetOf, readReceipt, type Receipt, receiptsAt, writeReceipt } from './receipts.ts';
 import { type SlotOptions, withSlot } from './semaphore.ts';
+import { apexCounts, countsLine, newlySkipped, NO_COUNTS, readTestCounts, type TestCounts } from './test-counts.ts';
+import { strayFilesGate } from './stray-files.ts';
 
 export interface Changes {
   /** The commit the branch grew from: its merge base with the environment's branch. */
   base: string;
   /** Files added or changed since then, minus environment-specific ones. */
   files: string[];
+  /** Of those, the files added since then, which weren't on the environment's branch (GH-103). A rename's new path is one. */
+  added: string[];
   /** Files deleted since then. A rename counts as a deletion. */
   deleted: string[];
   /** Environment-specific files the branch touched, which a task must never do (D-016). */
@@ -39,22 +44,43 @@ export interface GateInput {
   scratch: string;
   /** The tests near what the branch changed (nearTests), worked out when a gate asks. */
   near: () => string[];
+  /**
+   * Why what the branch changed couldn't be worked out, such as no environment branch to compare with, or
+   * null. A generic project's command gates run anyway; a gate that checks only the changes can't (GH-103).
+   */
+  unknownBase: string | null;
+  /** Runs git in the checkout, for a gate that decides from what's committed, such as stray-files. */
+  git: (args: string[], input?: string) => RunResult;
+  /** What a ratchet is held to (GH-99), read when one asks: the floors here and where the branch began, or why they couldn't be. */
+  floors?: () => RatchetFloors | { problem: string };
 }
 
 export interface Outcome {
   status: GateStatus;
   summary: string;
   details?: Record<string, unknown>;
+  /** What a test check ran, as its runner reported it (GH-100). */
+  counts?: TestCounts;
+  /** That acc couldn't read what a test check ran, or what its count was compared with. */
+  countsNote?: string;
 }
 
-/** What a gate will do: decide without running anything, or run a command and read its result. */
-export type Plan = { outcome: Outcome } | { cmd: string; args: string[]; read?: (r: RunResult) => Outcome; env?: Record<string, string> };
+/**
+ * What a gate will do: decide without running anything, or run a command and read its result. `tests` says
+ * whether the run runs tests where the gate's name doesn't, as validate does when it's given Apex tests.
+ */
+export type Plan = { outcome: Outcome } | { cmd: string; args: string[]; read?: (r: RunResult) => Outcome; env?: Record<string, string>; tests?: boolean };
 
 export interface Gate {
   name: string;
   heavy: boolean;
   /** What it checks, in a few words, for `acc gate list`. */
   about: string;
+  /**
+   * Which tests it runs depends on the change, as the tests related to it or named for it, so its skipped
+   * count isn't compared with another commit's (GH-100): lwc-tests, validate and a builder's lighter checks.
+   */
+  changeBound?: boolean;
   plan(input: GateInput): Plan;
 }
 
@@ -98,9 +124,9 @@ export function checkEnv(env: NodeJS.ProcessEnv = process.env, heavyDir?: string
  * `npm run test:near` reads the list, and a script given none would run nothing and pass. The list is
  * worked out once a run, reading each file once.
  */
-function commandGate(name: string, command: string, heavy: boolean): Gate {
+function commandGate(name: string, command: string, heavy: boolean, changeBound: boolean): Gate {
   return {
-    name, heavy, about: command,
+    name, heavy, about: command, changeBound,
     plan: ({ changes, near }) => ({
       cmd: 'sh', args: ['-c', command], read: exitRead,
       env: { ACC_CHANGED: changes.files.join('\n'), ACC_NEAR_TESTS: near().join('\n') },
@@ -262,7 +288,7 @@ const lint: Gate = {
 };
 
 const lwcTests: Gate = {
-  name: 'lwc-tests', heavy: true, about: 'Jest tests related to changed LWC',
+  name: 'lwc-tests', heavy: true, about: 'Jest tests related to changed LWC', changeBound: true,
   plan({ root, changes }) {
     const files = changes.files.filter((f) => LWC.test(f));
     if (!files.length) return { outcome: skip('No LWC has changed.') };
@@ -330,8 +356,8 @@ export function validateArgs(org: string, source: string[], tests: ApexTest[]): 
 const asList = <T>(x: T | T[] | undefined | null): T[] => (x == null ? [] : Array.isArray(x) ? x : [x]);
 
 interface DeployResult {
-  id?: string; success?: boolean; status?: string; numberComponentsTotal?: number; numberTestsCompleted?: number;
-  details?: { componentFailures?: unknown; runTestResult?: { failures?: unknown } };
+  id?: string; success?: boolean; status?: string; numberComponentsTotal?: number; numberTestsCompleted?: number; numberTestsTotal?: number; numberTestErrors?: number;
+  details?: { componentFailures?: unknown; runTestResult?: { failures?: unknown; numTestsRun?: unknown; numFailures?: unknown } };
 }
 
 /** Reads `sf project deploy start --json`, which reports on stdout whether or not the deploy worked. */
@@ -346,19 +372,22 @@ export function readDeploy(r: RunResult, org: string, tests: ApexTest[], sourceC
   if (!res?.id) return error(j.message?.trim() || lastLine(r.stderr) || 'sf returned no deploy result.');
   const details = { jobId: res.id, org, testLevel: tests.length ? 'RunSpecifiedTests' : 'NoTestRun', tests };
   const n = res.numberComponentsTotal ?? sourceCount;
+  // What Apex ran, where the builder named tests (GH-100). NoTestRun ran none on purpose, so it has no counts.
+  const counts = tests.length ? apexCounts(res) : null;
+  const withCounts = (o: Outcome): Outcome => (counts ? { ...o, counts } : o);
   if (res.success) {
     const ran = tests.length ? `, ${plural(res.numberTestsCompleted ?? 0, 'test')} passed` : '';
-    return pass(`Validated ${plural(n, 'component')} against ${org}${ran}. Nothing was saved (job ${res.id}).`, details);
+    return withCounts(pass(`Validated ${plural(n, 'component')} against ${org}${ran}. Nothing was saved (job ${res.id}).`, details));
   }
   const problems = [
     ...asList(res.details?.componentFailures as { fileName?: string; fullName?: string; lineNumber?: number; problem?: string }[]).map((f) => `${f.fileName ?? f.fullName ?? '?'}${f.lineNumber ? `:${f.lineNumber}` : ''}: ${f.problem ?? 'failed'}`),
     ...asList(res.details?.runTestResult?.failures as { name?: string; methodName?: string; message?: string }[]).map((f) => `${f.name}.${f.methodName}: ${f.message}`),
   ];
-  return fail(problems.length ? `${plural(problems.length, 'problem')}: ${listOf(problems, 2)}` : (j.message?.trim() || `The validation ${res.status ?? 'failed'}.`), { ...details, problems });
+  return withCounts(fail(problems.length ? `${plural(problems.length, 'problem')}: ${listOf(problems, 2)}` : (j.message?.trim() || `The validation ${res.status ?? 'failed'}.`), { ...details, problems }));
 }
 
 const validate: Gate = {
-  name: 'validate', heavy: true, about: 'a check-only deploy of changed source to the environment\'s org',
+  name: 'validate', heavy: true, about: 'a check-only deploy of changed source to the environment\'s org', changeBound: true,
   plan({ root, env, changes, tests }) {
     if (!env.org) return { outcome: error(`${env.name} has no org alias in .acc/config.json.`) };
     if (env.protected) return { outcome: error(`${env.name} is protected. Tasks are checked against their own environment, never a protected one.`) };
@@ -374,18 +403,26 @@ const validate: Gate = {
     if (apex.length && !tests.length) {
       return { outcome: fail(`Apex changed (${listOf(apex)}). Name the test classes that cover it: acc gate run validate --test <TestClass>="<why it covers the change>"`) };
     }
-    return { cmd: 'sf', args: validateArgs(env.org, source, tests), read: (r) => readDeploy(r, env.org!, tests, source.length) };
+    return { cmd: 'sf', args: validateArgs(env.org, source, tests), read: (r) => readDeploy(r, env.org!, tests, source.length), tests: tests.length > 0 };
   },
 };
 
 const SALESFORCE_GATES = [format, lint, staticGate, lwcTests, validate];
 
-/** The project's gates: the profile's built-ins, then `gates.commands`, which can replace a built-in by name. */
+/**
+ * The project's gates: every profile's built-in stray-files (GH-103), the profile's own built-ins, then
+ * `gates.commands`, which can replace a built-in by name, then `gates.ratchets` (GH-99), whose names are
+ * their own. A builder's lighter check, one `gates.builder`
+ * names that the full check doesn't, is bound to the change.
+ */
 export function gatesFor(config: Config): Gate[] {
   const heavy = (name: string) => config.gates.heavy.includes(name);
-  const builtIn = config.profile === 'salesforce' ? SALESFORCE_GATES.map((g) => ({ ...g, heavy: heavy(g.name) })) : [];
-  const custom = Object.entries(config.gates.commands).map(([name, cmd]) => commandGate(name, cmd, heavy(name)));
-  return [...builtIn.filter((g) => !config.gates.commands[g.name]), ...custom];
+  const full = fullGates(config);
+  const lighter = (name: string) => !!config.gates.builder?.includes(name) && !full.includes(name);
+  const builtIn = [strayFilesGate, ...(config.profile === 'salesforce' ? SALESFORCE_GATES : [])].map((g) => ({ ...g, heavy: heavy(g.name) }));
+  const custom = Object.entries(config.gates.commands).map(([name, cmd]) => commandGate(name, cmd, heavy(name), lighter(name)));
+  const ratchets = Object.entries(config.gates.ratchets ?? {}).map(([name, spec]) => ratchetGate(name, spec, heavy(name)));
+  return [...builtIn.filter((g) => !config.gates.commands[g.name]), ...custom, ...ratchets];
 }
 
 /**
@@ -446,14 +483,18 @@ export function changesFor(run: Runner, root: string, config: Config, env: Envir
   const base = baseFor(run, root, env);
   const specific = readList(root, config.environmentSpecific);
   const files: string[] = [];
+  const added: string[] = [];
   const deleted: string[] = [];
   const envSpecific: string[] = [];
   for (const { status, path } of changedPaths(run, root, base, 'HEAD')) {
     if (listed(path, specific)) envSpecific.push(path);
     else if (status.startsWith('D')) deleted.push(path);
-    else files.push(path);
+    else {
+      files.push(path);
+      if (status.startsWith('A')) added.push(path);
+    }
   }
-  return { base, files, deleted, envSpecific };
+  return { base, files, added, deleted, envSpecific };
 }
 
 // ---------------------------------------------------------------- what to check against
@@ -495,6 +536,17 @@ export interface GateRunDeps {
   /** Told before each gate starts, and when a heavy gate has to wait for the machine's slot. */
   onStart?: (gate: Gate) => void;
   onWait?: (gate: Gate) => void;
+  /**
+   * Whether a ratchet that beats its floor writes the new floor in this checkout (GH-99): only acc gate run,
+   * in a task's own worktree on its branch, and then only with nothing uncommitted. Never a refresh's or
+   * the merge queue's check, whose worktree must stay clean.
+   */
+  raise?: boolean;
+  /**
+   * The branch's head, when this commit merges its base into it: a person's waiver of a gate there clears
+   * a hold here, counts or not, so the queue's next merge of a waived head doesn't stop again (GH-100).
+   */
+  waivedOn?: string;
 }
 
 export interface GateRun {
@@ -503,6 +555,8 @@ export interface GateRun {
   dirty: boolean;
   changes: Changes | null;
   results: GateResult[];
+  /** The floors this run wrote in `.acc/floors.json`, for the builder to commit (GH-99). */
+  raised: { gate: string; label: string; from: number | null; to: number }[];
 }
 
 /** A deploy that isn't check-only never runs from a gate (D-011, D-024). */
@@ -513,19 +567,53 @@ export function assertCheckOnly(cmd: string, args: string[]): void {
   }
 }
 
+export interface SettleCheck {
+  /** Whether the run runs tests: it's a test gate, or its plan says so. */
+  tests: boolean;
+  /** Whether its skipped count is compared: a test set that doesn't depend on the change, with a base to look back from. */
+  compared: boolean;
+  /** The nearest earlier receipt with counts for the same gate and command on the environment's branch, if any. */
+  earlier: Receipt | null;
+  /** The environment's branch, as the receipt's note names it. */
+  env: string;
+}
+
+/**
+ * What a gate's outcome comes to, given what its tests ran (GH-100). A would-be pass that ran no tests, or
+ * skipped more than its nearest earlier count, is a hold: a person decides. A fail or an error keeps its
+ * status. A test check whose output acc couldn't read says so; one compared says with what.
+ */
+export function settle(outcome: Outcome, check: SettleCheck): Outcome {
+  const c = outcome.counts;
+  if (!c) return check.tests && outcome.status !== 'skip' ? { ...outcome, countsNote: NO_COUNTS } : outcome;
+  if (outcome.status !== 'pass') return outcome;
+  if (c.run === 0) {
+    return { ...outcome, status: 'hold', summary: `Ran no tests${c.skipped || c.todo ? ` (${countsLine(c)})` : ''}, so it can't vouch for the change.` };
+  }
+  if (!check.compared) return outcome;
+  const before = check.earlier?.counts;
+  if (!check.earlier || !before) return { ...outcome, countsNote: `Nothing earlier on ${check.env} to compare its skipped tests with.` };
+  const at = check.earlier.sha.slice(0, 7);
+  const fresh = newlySkipped(c, before);
+  const note = `Compared with ${before.skipped} skipped on ${at}, the nearest earlier count on ${check.env}.${fresh.length ? ` Newly skipped: ${fresh.join(', ')}.` : ''}`;
+  if (c.skipped <= before.skipped) return { ...outcome, countsNote: note };
+  return { ...outcome, status: 'hold', summary: `${c.skipped} skipped, up from ${before.skipped} on ${at}${fresh.length ? `: ${listOf(fresh)} newly skipped` : ''}.`, countsNote: note };
+}
+
 /** Every gate runs under nice, so checks don't make the machine stutter. */
 export const niced = (cmd: string, args: string[]): [string, string[]] => (process.platform === 'win32' ? [cmd, args] : ['nice', ['-n', '15', cmd, ...args]]);
 
 /**
  * Runs gates in a checkout and records a receipt for each on its current commit. With no names it
  * runs the required gates, a builder's where the merge queue runs the full ones (GH-73), or every gate
- * when none is required.
+ * when none is required but the built-in stray-files (GH-103), so a generic project that requires nothing
+ * still runs its commands.
  */
 export function runGates(paths: RepoPaths, config: Config, env: Environment, names: string[], tests: ApexTest[], deps: GateRunDeps): GateRun {
   const root = paths.root;
   const all = gatesFor(config);
   const required = requiredGates(config, env.branch, 'builder');
-  const wanted = names.length ? names : required.length ? required : all.map((g) => g.name);
+  const wanted = names.length ? names : required.some((g) => g !== STRAY_FILES) ? required : all.map((g) => g.name);
   const unknownNames = wanted.filter((n) => !all.some((g) => g.name === n));
   if (unknownNames.length) {
     const known = all.map((g) => g.name).join(', ') || 'none yet';
@@ -536,15 +624,19 @@ export function runGates(paths: RepoPaths, config: Config, env: Environment, nam
   const sha = head.stdout.trim();
   const dirty = git(deps.run, root, ['status', '--porcelain']).stdout.trim() !== '';
   let changes: Changes | null = null;
+  let unknownBase: string | null = null;
   try {
     changes = changesFor(deps.run, root, config, env);
   } catch (e) {
     if (config.profile === 'salesforce') throw e;
+    unknownBase = (e as Error).message;
   }
   let near: string[] | null = null;
   const input: GateInput = {
     root, config, env, tests,
-    changes: changes ?? { base: sha, files: [], deleted: [], envSpecific: [] },
+    changes: changes ?? { base: sha, files: [], added: [], deleted: [], envSpecific: [] },
+    unknownBase,
+    git: (args, gitInput) => deps.run('git', args, { cwd: root, ...(gitInput === undefined ? {} : { input: gitInput }) }),
     scratch: join(paths.logs, 'gates', sha),
     near: () => (near ??= nearTests(input.changes.files, git(deps.run, root, ['ls-files', '-z']).stdout.split('\0').filter(Boolean), (f) => {
       try {
@@ -554,7 +646,18 @@ export function runGates(paths: RepoPaths, config: Config, env: Environment, nam
       }
     })),
   };
+  // What a ratchet is held to (GH-99): this commit's floors, the environment's where the branch began, and
+  // the ones people relaxed. A better number is written as the new floor only where the caller allows it.
+  let floors: RatchetFloors | { problem: string } | null = null;
+  input.floors = () => (floors ??= (() => {
+    try {
+      return { head: floorsAt(deps.run, root, sha), base: floorsAt(deps.run, root, input.changes.base), relaxed: readRelaxed(paths.relaxed), raise: !!deps.raise && !dirty };
+    } catch (e) {
+      return { problem: (e as Error).message };
+    }
+  })());
   mkdirSync(input.scratch, { recursive: true });
+  const carryFrom = carriedFrom(paths, config, deps.run, sha);
 
   const results: GateResult[] = [];
   for (const name of wanted) {
@@ -562,7 +665,18 @@ export function runGates(paths: RepoPaths, config: Config, env: Environment, nam
     // A person waived it on this commit (D-031): that stands until there's a new commit.
     const kept = readReceipt(paths, sha, gate.name);
     if (kept?.waived) {
-      results.push({ status: 'skip', summary: kept.summary, gate: gate.name, recorded: true, receipt: kept });
+      results.push({ status: 'skip', summary: kept.summary, ...(kept.counts ? { counts: kept.counts } : {}), gate: gate.name, recorded: true, receipt: kept });
+      continue;
+    }
+    // This commit only records the floors acc raised on the one before, which measured them (GH-99).
+    const carried = carryFrom ? carryReceipt(paths, config, input, gate.name, carryFrom, sha) : null;
+    if (carried) {
+      if (!dirty) writeReceipt(paths, carried);
+      results.push({
+        status: carried.status, summary: carried.summary, ...(carried.details ? { details: carried.details } : {}),
+        ...(carried.counts ? { counts: carried.counts } : {}), ...(carried.countsNote ? { countsNote: carried.countsNote } : {}),
+        gate: gate.name, recorded: !dirty, receipt: carried,
+      });
       continue;
     }
     deps.onStart?.(gate);
@@ -585,17 +699,73 @@ export function runGates(paths: RepoPaths, config: Config, env: Environment, nam
       log = join(input.scratch, `${gate.name}.log`);
       writeFileSync(log, `$ ${command}\n# exit ${r.code}\n\n${r.stdout}${r.stderr ? `\n--- stderr ---\n${r.stderr}` : ''}`);
       outcome = (plan.read ?? exitRead)(r);
+      // Any gate's output that holds a test summary is counted; a test gate's that doesn't says so (GH-100).
+      const counts = outcome.counts ?? readTestCounts(r.stdout, r.stderr);
+      if (counts) outcome = { ...outcome, counts };
+      const compared = !gate.changeBound && !!changes;
+      const earlier = compared && counts && outcome.status === 'pass' ? earlierCounts(paths, deps.run, changes!.base, gate.name, command, sha) : null;
+      outcome = settle(outcome, { tests: plan.tests ?? isTestGate(config, gate.name), compared, earlier, env: env.branch });
     }
     const finished = deps.now();
+    // A person waived this gate on the head this merges its base into: a hold is theirs to clear, and they did.
+    const waiver = outcome.status === 'hold' && deps.waivedOn && deps.waivedOn !== sha ? readReceipt(paths, deps.waivedOn, gate.name)?.waived : undefined;
+    const held = outcome.summary;
+    if (waiver) outcome = { ...outcome, status: 'skip', summary: `Waived by ${waiver.by.replace(/^human:/, '')} on ${deps.waivedOn!.slice(0, 7)}, the branch's head: ${waiver.reason}` };
     const receipt: Receipt = {
       gate: gate.name, sha, env: env.branch, status: outcome.status,
       startedAt: started.toISOString(), finishedAt: finished.toISOString(), durationMs: finished.getTime() - started.getTime(),
       summary: outcome.summary, command, log, ...(outcome.details ? { details: outcome.details } : {}),
+      ...(outcome.counts ? { counts: outcome.counts } : {}), ...(outcome.countsNote ? { countsNote: outcome.countsNote } : {}),
+      ...(waiver ? { waived: { ...waiver, was: 'hold' as const, wasSummary: held } } : {}),
     };
     if (!dirty) writeReceipt(paths, receipt);
     results.push({ ...outcome, gate: gate.name, recorded: !dirty, receipt });
   }
-  return { sha, env, dirty, changes, results };
+  // The floors the ratchets beat, written once every gate has run, for the builder to commit (GH-99).
+  const raised = results.flatMap((r) => {
+    const d = ratchetOf(r.receipt);
+    return d?.raised ? [{ gate: r.gate, label: d.label, limit: d.limit, from: d.raised.from, to: d.raised.to }] : [];
+  });
+  if (raised.length) writeFloors(paths.floors, withRaises(readFloors(paths.floors), raised));
+  return { sha, env, dirty, changes, results, raised: raised.map(({ limit: _limit, ...r }) => r) };
+}
+
+/**
+ * The commit a commit's checks carry over from (GH-99): its only parent, when all it changes is
+ * `.acc/floors.json`, setting each ratchet it changes to what that parent's receipt measured and acc raised.
+ * So committing a raise doesn't run every check again. Null when anything else differs.
+ */
+function carriedFrom(paths: RepoPaths, config: Config, run: Runner, sha: string): string | null {
+  if (!Object.keys(config.gates.ratchets ?? {}).length) return null;
+  const parents = git(run, paths.root, ['rev-list', '--parents', '-n', '1', sha]).stdout.trim().split(/\s+/).slice(1);
+  if (parents.length !== 1) return null;
+  const parent = parents[0]!;
+  const diff = git(run, paths.root, ['diff', '--name-only', '--no-renames', parent, sha]);
+  if (diff.code !== 0 || diff.stdout.trim() !== FLOORS_FILE) return null;
+  try {
+    return carriesOver(floorsAt(run, paths.root, parent), floorsAt(run, paths.root, sha), receiptsAt(paths, parent)) ? parent : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A gate's receipt on the parent, carried to this commit: only one that passed, or didn't apply, and that
+ * no person waived, since a waiver is for its own commit (D-031). A ratchet is judged again, against this
+ * commit's floors, with the number its parent measured. Null when there's nothing to carry.
+ */
+function carryReceipt(paths: RepoPaths, config: Config, input: GateInput, gate: string, from: string, sha: string): Receipt | null {
+  const before = readReceipt(paths, from, gate);
+  if (!before || before.waived || (before.status !== 'pass' && before.status !== 'skip')) return null;
+  const { details: _details, ...rest } = before;
+  const spec = config.gates.ratchets?.[gate];
+  if (!spec) return { ...before, sha, carried: { from } };
+  const measured = ratchetOf(before);
+  const floors = input.floors?.();
+  if (!measured || !floors || 'problem' in floors) return null;
+  const outcome = judgeRatchet(gate, spec, measured.value, { ...floors, raise: false }, input.env.branch);
+  if (outcome.status !== 'pass') return null;
+  return { ...rest, sha, status: outcome.status, summary: outcome.summary, ...(outcome.details ? { details: outcome.details } : {}), carried: { from } };
 }
 
 // ---------------------------------------------------------------- waiving (D-031)
@@ -621,6 +791,9 @@ export function waiveGates(paths: RepoPaths, config: Config, req: WaiveRequest):
   if (!req.gates.length) throw new AccError('usage', `Name the gates to waive. This project's gates: ${all.map((g) => g.name).join(', ') || 'none'}.`);
   const unknown = req.gates.filter((n) => !all.some((g) => g.name === n));
   if (unknown.length) throw new AccError('usage', `No gate ${unknown.join(', ')}. This project's gates: ${all.map((g) => g.name).join(', ')}.`);
+  // Waived and merged, a ratchet's number would sit below its floor, and fail every task after it (GH-99).
+  const ratchet = req.gates.find((n) => config.gates.ratchets?.[n]);
+  if (ratchet) throw new AccError('refused', `${ratchet} is a ratchet: waived, its number could merge below its floor and fail every task after it. A person relaxes the floor instead: acc gate relax ${ratchet} --to <n> --reason "<why>".`);
   const at = req.now().toISOString();
   const out: Receipt[] = [];
   for (const gate of [...new Set(req.gates)]) {
@@ -628,10 +801,12 @@ export function waiveGates(paths: RepoPaths, config: Config, req: WaiveRequest):
     if (before?.status === 'pass') throw new AccError('refused', `${gate} already passes on ${req.sha.slice(0, 7)}, so there's nothing to waive.`);
     const was = before?.waived ? before.waived.was : before?.status ?? null;
     const wasSummary = before?.waived ? before.waived.wasSummary : before?.summary ?? null;
+    // What its tests ran stays, with the command it came from: a waived hold is the count the next commit is compared with (GH-100).
     const receipt: Receipt = {
       gate, sha: req.sha, env: req.env.branch, status: 'skip', startedAt: at, finishedAt: at, durationMs: 0,
-      summary: `Waived by ${req.by.replace(/^human:/, '')}: ${reason}`, command: null, log: before?.log ?? null,
+      summary: `Waived by ${req.by.replace(/^human:/, '')}: ${reason}`, command: before?.counts ? before.command : null, log: before?.log ?? null,
       ...(before?.details ? { details: before.details } : {}),
+      ...(before?.counts ? { counts: before.counts } : {}), ...(before?.countsNote ? { countsNote: before.countsNote } : {}),
       waived: { by: req.by, reason, at, was, wasSummary },
     };
     writeReceipt(paths, receipt);

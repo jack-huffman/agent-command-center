@@ -8,6 +8,7 @@ import { run } from '../src/exec.ts';
 import { commandsOf, expands, guardBash, shortPacket } from '../src/hooks.ts';
 import { DONE_COMMAND, mutate, readLedger, type Task, upsertTasks } from '../src/ledger.ts';
 import { parseConfig, type Config } from '../src/config.ts';
+import { builderSettings } from '../src/packet.ts';
 import { repoPaths } from '../src/paths.ts';
 import { GENERIC_CONFIG, gitIn, makeRepo, tempDir } from './support.ts';
 
@@ -102,4 +103,20 @@ test('the short instructions give the finish command word for word, and a note t
   // acc by its path, as the packet says to use when acc isn't found, is acc.
   assert.match(guardBash(b, '/opt/acc/bin/acc done --landed "Saves $5"')!, /backtick or \$/);
   assert.match(guardBash(b, '/opt/acc/bin/acc set T-1 done')!, /acc set is a person's/);
+  // Relaxing a ratchet's floor is a person's (GH-99); the CLI and the deny list refuse it too.
+  assert.match(guardBash(b, 'acc gate relax tests 640 --reason "slow suite"')!, /acc gate relax is a person's/);
+  // Adding or skipping a tidy-up is a person's (GH-104); looking at it isn't.
+  assert.match(guardBash(b, 'acc tidy add')!, /acc tidy add is a person's/);
+  assert.match(guardBash(b, 'acc tidy skip --json')!, /acc tidy skip is a person's/);
+  assert.equal(guardBash(b, 'acc tidy --json'), null);
+});
+
+test('a builder can list suggested rules, but accepting or dismissing one is a person\'s, in the guard and the deny list (GH-102)', () => {
+  const b = { task: { id: 'T-1', run: { branch: 'task/T-1-a' } } } as never;
+  const lines = ['acc rules accept r-3631c5', 'acc rules dismiss r-3631c5 --json', '/opt/acc/bin/acc rules accept r-3631c5 --check lint'];
+  assert.ok(lines.length > 0);
+  for (const line of lines) assert.match(guardBash(b, line) ?? '', /^acc rules (accept|dismiss) is a person's/, line);
+  assert.equal(guardBash(b, 'acc rules suggested --all'), null, 'listing only reads');
+  const s = builderSettings({ id: 'T-1' } as never, parseConfig(JSON.parse(JSON.stringify(GENERIC_CONFIG))).config!, '/acc/bin', '/usr/bin') as { permissions: { deny: string[] } };
+  for (const d of ['Bash(acc rules accept*)', 'Bash(acc rules dismiss*)']) assert.ok(s.permissions.deny.includes(d), d);
 });

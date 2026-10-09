@@ -49,6 +49,7 @@ test('a project\'s cap and checks are set one key at a time, and a name it doesn
   assert.deepEqual(setRequiredGates(file, ['lint', 'test', 'lint', ' ']), ['lint', 'test'], 'each once, in the order given');
   assert.equal(readFileSync(file, 'utf8'), before.replace('"required": [\n      "test"\n    ]', '"required": [\n      "lint",\n      "test"\n    ]'));
   assert.throws(() => setRequiredGates(file, ['deploy']), /deploy isn't a check this project has\. Name the required checks from: test, lint, build\./);
+  assert.throws(() => setRequiredGates(file, ['stray-files']), /stray-files is required unless "strayFiles": \{ "required": false \} turns it off/, 'it isn\'t named in the list (GH-103)');
   assert.throws(() => setRequiredGates(file, []), /Name at least one check/);
 
   const mid = readFileSync(file, 'utf8');

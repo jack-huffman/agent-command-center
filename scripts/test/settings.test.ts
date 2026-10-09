@@ -2,7 +2,7 @@
 // described for a person, and code reads no key or setting that isn't one (GH-107). A setting that does
 // nothing is worse than a missing one.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, test } from 'node:test';
@@ -104,6 +104,31 @@ test('a key read through a variable is found only in the files READ_IN names, an
   assert.match(say(none!), /^trackers\[\]\.team has no read found: it's read through a variable, and READ_IN in scripts\/settings\.ts names no file that reads it\./);
 });
 
+test('a READ_IN entry that pins the read counts only a read of the config, not the same name on something else', () => {
+  const pinned = { readIn: { 'trackers[].team': [{ file: 'extension/src/trackers.ts', via: /\bt\.team\b/g }] } };
+  const issueOnly = { 'extension/src/trackers.ts': 'export const team = (issue: Issue) => issue.team;\n' };
+  assert.deepEqual(check({}, pinned), [], 't.team reads it, and a global pattern is tested a line at a time all the same');
+  assert.deepEqual(check(issueOnly), [], 'unpinned, any .team counts');
+  const [other, ...rest] = check(issueOnly, pinned);
+  assert.equal(rest.length, 0);
+  assert.ok(say(other!).startsWith('trackers[].team has no read: no /\\bt\\.team\\b/g in extension/src/trackers.ts. '), say(other!));
+
+  // The real entries, on the real files with the config's read taken out: an issue's labels, or another
+  // .name, isn't a read of trackers[].labels or environments[].name.
+  for (const [key, file, read, unrelated] of [
+    ['trackers[].labels', 'packages/core/src/intake.ts', /\btracker\?\.labels\b/g, /\bi\.labels\b/],
+    ['environments[].name', 'packages/core/src/packet.ts', /\benv\.name\b/g, /\btask\.name\b/],
+  ] as const) {
+    const real = `${readFileSync(join(ROOT, file), 'utf8')}export const shown = (task: { name: string }) => task.name;\n`;
+    const without = real.replace(read, 'undefined');
+    assert.notEqual(without, real, `${file} reads ${key}`);
+    assert.match(without, unrelated, `${file} still reads .${key.split('.').pop()} off something else`);
+    const unreadIn = (text: string) => check({ [file]: text }, { keys: [key], readIn: { [key]: READ_IN[key]! } }).filter((f) => f.missing === 'read').map((f) => f.key);
+    assert.deepEqual(unreadIn(real), [], `${key} is read in ${file}`);
+    assert.deepEqual(unreadIn(without), [key], `only ${read.source} reads ${key}`);
+  }
+});
+
 test('a key DESIGN §4 doesn\'t describe is named, with the row to add or the parent row to extend', () => {
   const [inParent] = check({ 'docs/DESIGN.md': DESIGN('| `gates` | Checks |', '| `trackers` | Where tickets come from. An Azure one may name a `team` |') });
   assert.equal(inParent!.missing, 'design');
@@ -147,6 +172,28 @@ test('a key on the unread list that something reads fails, so it comes off the l
   assert.match(say(pointed[0]!), /^trackers\[\]\.team is listed as not read, but READ_IN points at extension\/src\/trackers\.ts\./);
 });
 
+test('a listed key read through a variable, in a file READ_IN names for its siblings, fails the list too', () => {
+  const keys = ['gates.severity', 'trackers[].team', 'agents.builder.model', 'agents.builder.fallbackModel'];
+  const docs = DESIGN('| `gates` | `severity` |', '| `trackers` | `team` |', '| `agents` | A role\'s `model` and `fallbackModel` |');
+  const over = { keys, readIn: { 'trackers[].team': ['extension/src/trackers.ts'], 'agents.builder.model': ['packages/core/src/agents.ts'] }, unread: { 'agents.builder.fallbackModel': 'GH-1 will read it.' } };
+  const agents = (files: Record<string, string>) => check({ 'docs/DESIGN.md': docs, ...files }, over);
+  assert.deepEqual(agents({ 'packages/core/src/agents.ts': 'export const flags = (p?: Profile) => [p?.model];\n' }), []);
+  assert.deepEqual(agents({ 'packages/core/src/agents.ts': 'export const flags = (p?: Profile) => [p?.model, p?.fallbackModel];\n' }).map(say), [
+    'agents.builder.fallbackModel is read in packages/core/src/agents.ts:1; take it off the unread list. Take it out of UNREAD_KEYS in packages/core/src/config.ts: something reads it now.',
+  ]);
+  // Away from its siblings' files, .fallbackModel on a variable isn't its read; builder.fallbackModel is, anywhere.
+  const elsewhere = (text: string) => agents({ 'packages/core/src/agents.ts': 'export const flags = (p?: Profile) => [p?.model];\n', 'packages/core/src/other.ts': text }).map((f) => `${f.key} ${f.missing}`);
+  assert.deepEqual(elsewhere('export const f = (x: Profile) => x.fallbackModel;\n'), []);
+  assert.deepEqual(elsewhere('export const f = (agents: Agents) => agents.builder?.fallbackModel;\n'), ['agents.builder.fallbackModel listed']);
+
+  // On the repo: agentArgs reads p?.fallbackModel for every role, so listing the builder's fails.
+  const key = 'agents.builder.fallbackModel';
+  const readIn = Object.fromEntries(Object.entries(READ_IN).filter(([k]) => k !== key));
+  const real = checkSettings({ unread: { [key]: 'GH-1 will read it.' }, readIn }).findings;
+  assert.deepEqual(real.map((f) => `${f.key} ${f.missing}`), [`${key} listed`]);
+  assert.match(say(real[0]!), /^agents\.builder\.fallbackModel is read in packages\/core\/src\/agents\.ts:\d+; take it off the unread list\./);
+});
+
 test('a raw read of .acc/config.json that names a key parseConfig doesn\'t know is named, and a raw-read place that finds no read fails', () => {
   const rawReads = [{ file: 'scripts/packaging.ts', why: 'release', reads: [{ pattern: /\bfield\(config, '(\w+)', '(\w+)'\)/g, keys: (m: RegExpMatchArray) => [`${m[1]}.${m[2]}`] }] }];
   const keys = ['gates.severity', 'trackers[].team', 'github.repo'];
@@ -160,6 +207,24 @@ test('a raw read of .acc/config.json that names a key parseConfig doesn\'t know 
   const empty = check({ 'scripts/packaging.ts': 'export {};\n' }, { rawReads });
   assert.deepEqual(empty.map(say), ['scripts/packaging.ts is on RAW_READS, but no read of .acc/config.json is found there. Point RAW_READS in scripts/settings.ts at where the config is read raw now, or take the place off.']);
   assert.equal(empty[0]!.missing, 'pointer');
+});
+
+test('the intake skill\'s raw reads of the tracker\'s place are pinned, so a renamed key it still names fails', () => {
+  const skill = RAW_READS.find((r) => r.file === 'plugin/skills/intake/SKILL.md');
+  assert.ok(skill, 'the intake skill is on RAW_READS');
+  const text = readFileSync(join(ROOT, skill.file), 'utf8');
+  const named = skill.reads.flatMap(({ pattern, keys }) => [...text.matchAll(pattern)].flatMap(keys));
+  for (const k of ['trackers[].repo', 'trackers[].labels']) assert.ok(named.includes(k), `the skill reads ${k}`);
+
+  // The real skill on a repo of its own: as written, every key it reads is known; with `repo` renamed, that
+  // line is named; gone, the place fails.
+  const raw = (files: Record<string, string | null>) => check(files, { keys: CONFIG_KEYS, rawReads: [skill] }).filter((f) => f.missing === 'known' || f.missing === 'pointer').map(say);
+  assert.deepEqual(raw({ [skill.file]: text }), []);
+  const renamed = text.replace('tracker\'s `repo`', 'tracker\'s `repository`');
+  assert.notEqual(renamed, text);
+  const line = renamed.split('\n').findIndex((l) => l.includes('`repository`')) + 1;
+  assert.deepEqual(raw({ [skill.file]: renamed }), [`trackers[].repository is read raw in ${skill.file}:${line}, but parseConfig doesn't know it. Add it to Config and CONFIG_KEYS in packages/core/src/config.ts, or stop reading it.`]);
+  assert.deepEqual(raw({}), [`${skill.file} is on RAW_READS, but no read of .acc/config.json is found there (it isn't there). Point RAW_READS in scripts/settings.ts at where the config is read raw now, or take the place off.`]);
 });
 
 test('a NOT_READS declaration that isn\'t there fails, so the list can\'t outlive what it names', () => {

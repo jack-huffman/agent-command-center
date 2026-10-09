@@ -1,0 +1,14 @@
+[
+  {
+    "command": "acc.tidy.draft",
+    "title": "Draft a tidy-up…",
+    "category": "Agent Command Center",
+    "icon": "$(wand)"
+  },
+  {
+    "command": "acc.tidy.skip",
+    "title": "Skip the tidy-up…",
+    "category": "Agent Command Center",
+    "icon": "$(close)"
+  }
+]

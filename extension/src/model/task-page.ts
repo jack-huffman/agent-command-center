@@ -5,18 +5,81 @@
 
 import type { Analysis } from '../../../packages/core/src/analyze.ts';
 import { type RunNote, shownNote, type Task } from '../../../packages/core/src/ledger.ts';
-import type { GateStatus } from '../../../packages/core/src/receipts.ts';
+import type { RatchetLimit, RatchetSpec } from '../../../packages/core/src/config.ts';
+import { num, ratchetLine, signed } from '../../../packages/core/src/ratchets.ts';
+import { type GateStatus, ratchetOf, type Receipt } from '../../../packages/core/src/receipts.ts';
+import { testsText } from '../../../packages/core/src/test-counts.ts';
 import { type Doc, fromMarkdown } from '../../../packages/core/src/trackers/doc.ts';
 import type { Ticket, TrackerKind } from '../../../packages/core/src/trackers/types.ts';
 import type { Update } from '../../../packages/core/src/updates.ts';
 import { type AnalysisAsk, questionsWord, type TaskRow, type Tone } from '../logic/shared.ts';
 import { conflictLine, failedChecksLine } from '../logic/tasks.ts';
-import { accLook, type BoardInput, CATEGORY_TONE, chip, type PersonChip, priorityIcon, typeIcon } from './boards.ts';
-import { type Action, KEY, type Look, type ModelArea, type Ref, short } from './shared.ts';
+import { accLook, type BoardInput, CATEGORY_LOOK, chip, type PersonChip, priorityIcon, typeIcon } from './boards.ts';
+import { type Action, displayLook, KEY, type Look, type ModelArea, type Ref, short } from './shared.ts';
 import { cardActions, filesLook } from './cards.ts';
 import { hasTicket, type UpdateCard, updateCards, withClient } from './updates.ts';
 
 // ---------------------------------------------------------------- a ticket's page (D-026)
+
+/**
+ * A ratchet's numbers on the page (GH-99): from the environment's floor where the branch began to this
+ * commit's. `numbers` is what the row shows beside the gate's name, "669 → 674 (+5)", and `line` says it
+ * with its label, as the pull request does, "tests 669 → 674 (+5)". Null until it's measured.
+ */
+export interface TicketRatchet {
+  label: string;
+  limit: RatchetLimit;
+  from: number | null;
+  to: number | null;
+  diff: number | null;
+  numbers: string | null;
+  line: string | null;
+}
+
+/**
+ * A check on the task branch's latest commit, as the page is given it. waived: a person set it aside on this
+ * commit (D-031). scope: where the merge queue runs the full check, whether it's one of a builder's lighter
+ * checks or the full one, run once in the queue (GH-73). counts: what its tests ran, "312 run, 2 skipped" or
+ * "not read", and countsNote what that was compared with (GH-100). ratchet: a number that may only get
+ * better, from the environment's floor to this commit's (GH-99).
+ */
+export interface CheckIn {
+  gate: string;
+  status: GateStatus;
+  summary: string;
+  waived?: boolean;
+  scope?: 'builder' | 'merge';
+  counts?: string;
+  countsNote?: string;
+  ratchet?: TicketRatchet;
+}
+
+/**
+ * A check as the page is given it, from its receipt on the branch's latest commit, or `unrun` when there's
+ * none: what its tests ran, as the pull request says it (GH-100), and a ratchet's numbers (GH-99).
+ */
+export function ticketCheck(gate: string, receipt: Pick<Receipt, 'status' | 'summary' | 'waived' | 'details' | 'counts' | 'countsNote'> | null, unrun: string, scope: { scope?: 'builder' | 'merge' }, ratchet?: RatchetSpec): CheckIn {
+  const counted = receipt ? { ...(testsText(receipt) ? { counts: testsText(receipt) } : {}), ...(receipt.countsNote ? { countsNote: receipt.countsNote } : {}) } : {};
+  const check: CheckIn = receipt ? { gate, status: receipt.status, summary: receipt.summary, waived: !!receipt.waived, ...scope, ...counted } : { gate, status: 'skip', summary: unrun, ...scope };
+  if (!ratchet) return check;
+  const d = ratchetOf(receipt);
+  if (!d) return { ...check, ratchet: { label: ratchet.label, limit: ratchet.limit, from: null, to: null, diff: null, numbers: null, line: null } };
+  const numbers = d.base === null ? `${num(d.value)}, the first ${d.limit}` : `${num(d.base)} → ${num(d.value)} (${signed(d.diff ?? d.value - d.base)})`;
+  return { ...check, ratchet: { label: d.label, limit: d.limit, from: d.base, to: d.value, diff: d.diff, numbers, line: ratchetLine(d) } };
+}
+
+/** A check as the page shows it: its look, always with words, and whether a person can waive it here. */
+export interface CheckRow extends CheckIn {
+  look: Look;
+  waivable: boolean;
+}
+
+/**
+ * The checks with their looks. A person can set aside a failing one, or one that needs them, with a reason
+ * (D-031). Not a ratchet: a person relaxes its floor instead, with acc gate relax (GH-99).
+ */
+export const checkRows = (checks: CheckIn[], branch: string | null): CheckRow[] =>
+  checks.map((c) => ({ ...c, look: checkLook(c), waivable: !!branch && !c.waived && !c.ratchet && (c.status === 'fail' || c.status === 'error' || c.status === 'hold') }));
 
 export interface TicketAcc {
   look: Look;
@@ -36,12 +99,10 @@ export interface TicketAcc {
   agentName: string | null;
   worktree: string | null;
   branch: string | null;
-  /**
-   * waived: a person set it aside on this commit (D-031). scope: where the merge queue runs the full check,
-   * whether it's one of a builder's lighter checks or the full one, run once in the queue (GH-73).
-   */
-  checks: { gate: string; status: GateStatus; summary: string; waived?: boolean; scope?: 'builder' | 'merge' }[];
-  history: { at: string; from: string | null; to: string; by: string; reason: string | null }[];
+  /** acc's checks on its commit, each with how its result shows (GH-105) and whether a person can waive it. */
+  checks: CheckRow[];
+  /** Each move, with the state it reached as core's DISPLAY shows it (GH-105). */
+  history: { at: string; from: string | null; to: string; by: string; reason: string | null; look: Look }[];
   actions: Action[];
   /**
    * Its builder's handoff note (D-106): its run's, or while a new run is under way, the last run's
@@ -68,7 +129,7 @@ export interface TicketModel {
   connect: { command: string; label: string; arg: string } | null;
   type: string | null;
   typeIcon: string;
-  status: { name: string; tone: Tone } | null;
+  status: { name: string; icon: string; tone: Tone } | null;
   assignees: PersonChip[];
   reporter: PersonChip | null;
   labels: { name: string; color: string | null }[];
@@ -142,7 +203,7 @@ export interface TicketInput {
   connect: TicketModel['connect'];
   row: TaskRow | null;
   task: Task | null;
-  checks: TicketAcc['checks'];
+  checks: CheckIn[];
   signedInAs?: string | null;
   /** Its analysis, read whole (D-052). */
   analysis?: Analysis | null;
@@ -201,13 +262,32 @@ function ticketNote(task: Task): Pick<TicketAcc, 'note' | 'noteMissing'> {
   };
 }
 
+/**
+ * How a check's result shows (GH-105): a pass in blue, a skip or a waiver neutral, anything a person should
+ * look at orange, each with its own icon and words. A hold is one that ran no tests, or skipped more than
+ * before, so a person decides (GH-100).
+ */
+export const CHECK_LOOK: Record<GateStatus | 'waived' | 'not run', Look> = {
+  pass: { label: 'pass', icon: 'pass', tone: 'blue' },
+  fail: { label: 'fail', icon: 'error', tone: 'orange' },
+  error: { label: 'error', icon: 'warning', tone: 'orange' },
+  hold: { label: 'needs a person', icon: 'person', tone: 'orange' },
+  skip: { label: 'skip', icon: 'circle-slash', tone: 'neutral' },
+  'not run': { label: 'not run', icon: 'circle-slash', tone: 'neutral' },
+  waived: { label: 'waived', icon: 'debug-step-over', tone: 'neutral' },
+};
+
+/** A check's look: waived, or a skip that never ran, before its status. */
+export const checkLook = (c: Pick<CheckIn, 'status' | 'summary'> & Partial<CheckIn>): Look =>
+  CHECK_LOOK[c.waived ? 'waived' : c.status === 'skip' && c.summary.startsWith('Not run') ? 'not run' : c.status];
+
 export function ticketModel(i: TicketInput): TicketModel {
   const t = i.ticket;
   const live = i.tracker !== null;
   const acc: TicketAcc | null = i.row && i.task ? {
     look: accLook(i.row, true), environment: i.task.environment, waitingOn: i.row.deps, blocker: i.task.blocker, conflicts: conflictLine(i.row, true), failedChecks: failedChecksLine(i.row), files: filesLook(i.row, true),
-    agent: i.row.stopped ? null : i.row.agent ?? null, model: i.row.model ?? null, agentName: i.task.run?.name ?? null, worktree: i.task.run?.worktree ?? null, branch: i.task.run?.branch ?? null, checks: i.checks,
-    history: i.task.history.map((h) => ({ at: h.at, from: h.from, to: h.to, by: h.by, reason: h.reason ?? null })).reverse(),
+    agent: i.row.stopped ? null : i.row.agent ?? null, model: i.row.model ?? null, agentName: i.task.run?.name ?? null, worktree: i.task.run?.worktree ?? null, branch: i.task.run?.branch ?? null, checks: checkRows(i.checks, i.task.run?.branch ?? null),
+    history: i.task.history.map((h) => ({ at: h.at, from: h.from, to: h.to, by: h.by, reason: h.reason ?? null, look: displayLook(h.to) })).reverse(),
     // Its analysis has its own section, with its own buttons.
     actions: cardActions(i.row, { project: i.project, task: i.row.id }).filter((a) => !['acc.task.show', 'acc.task.openTicket', 'acc.task.analyze', 'acc.task.watchAnalysis'].includes(a.command)),
     ...ticketNote(i.task),
@@ -219,7 +299,7 @@ export function ticketModel(i: TicketInput): TicketModel {
     sourceLabel: i.trackerTitle ?? 'Task kept by acc', sourceKind: t?.kind ?? i.trackerKind ?? 'acc',
     loading: i.loading, error: i.error, outside: i.outside ?? null, connect: i.connect,
     type: t?.type ?? null, typeIcon: typeIcon(t?.type ?? null),
-    status: t ? { name: t.status.name, tone: CATEGORY_TONE[t.status.category] } : acc ? { name: acc.look.label, tone: acc.look.tone } : null,
+    status: t ? { name: t.status.name, ...CATEGORY_LOOK[t.status.category] } : acc ? { name: acc.look.label, icon: acc.look.icon, tone: acc.look.tone } : null,
     assignees: (t?.assignees ?? []).map(chip), reporter: t?.reporter ? chip(t.reporter) : null,
     labels: t?.labels ?? (i.task?.labels ?? []).map((name) => ({ name, color: null })),
     priority: t?.priority ?? null, priorityIcon: priorityIcon(t?.priority ?? null),

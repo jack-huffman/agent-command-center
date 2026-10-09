@@ -217,3 +217,14 @@ test('About is a built part of Settings, drawn from what the extension read, wit
     looksRight(m.release.look, `release: ${m.release.look.label}`);
   }
 });
+
+test('Check now shows that it\'s looking while it looks: the first redraw already has it under way (GH-114)', async () => {
+  const s = stand();
+  const seen: [boolean, boolean][] = [];
+  // Each redraw, what the page would draw from.
+  (s.about as unknown as { d: { changed: () => void } }).d.changed = () => { const f = s.about.facts(); seen.push([f.reading, f.checking]); };
+  await s.about.checkNow();
+  assert.deepEqual(seen[0], [true, false], 'reading the versions');
+  assert.deepEqual(seen[1], [true, true], 'and looking on GitHub');
+  assert.deepEqual(seen.at(-1), [false, false], 'then done');
+});

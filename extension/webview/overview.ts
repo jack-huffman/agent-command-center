@@ -4,10 +4,11 @@ import type { HistoryItem } from '../src/model/history.ts';
 import type { HomeModel } from '../src/model/home.ts';
 import type { QueuePanel } from '../src/model/overview.ts';
 import { analysisQuestion } from './analysis.ts';
-import { actionButton, argButton, button, type Child, el, foldable, icon, linkTo, openable, sectionTitle, status, toolbarButton, when } from './dom.ts';
+import { actionButton, argButton, button, type Child, el, foldable, icon, linkTo, openable, sectionTitle, status, titled, toolbarButton, when } from './dom.ts';
 import { renderInProgress } from './progress.ts';
 import { questionCard } from './questions.ts';
 import { api, go, memory, type PageArea, remember, state } from './state.ts';
+import { ruleButtons, ruleDetail } from './rules.ts';
 import { overviewUpdateButtons, posterLine, updateKey, updateNotes } from './updates.ts';
 
 export function renderOverview(m: HomeModel): Node[] {
@@ -41,7 +42,7 @@ export function renderOverview(m: HomeModel): Node[] {
     }
     const u = a.update;
     // An update posts as acc drafted it, or opens its task's page to edit it first (D-066).
-    const buttons: Child[] = u ? overviewUpdateButtons(u, a.actions) : a.actions.map(actionButton);
+    const buttons: Child[] = u ? overviewUpdateButtons(u, a.actions) : a.rule ? ruleButtons(a.rule) : a.actions.map(actionButton);
     if (a.extra) buttons.push(argButton(a.extra.command, a.extra.label, a.extra.icon, a.extra.arg, true));
     if (a.go) {
       const g = a.go;
@@ -50,10 +51,12 @@ export function renderOverview(m: HomeModel): Node[] {
       b.addEventListener('click', () => go(g.section));
       buttons.push(b);
     }
-    inbox.append(el('div', `inbox-row tone-row-${a.look.tone}`, status(a.look), el('div', 'inbox-text', el('div', 'strong inbox-title', a.title), Object.assign(el('div', 'muted small', a.detail), a.tip ? { title: a.tip } : {})), el('div', 'actions', ...buttons)));
+    inbox.append(el('div', `inbox-row tone-row-${a.look.tone}`, status(a.look), el('div', 'inbox-text', titled(el('div', 'strong inbox-title', a.title), a.title), Object.assign(el('div', 'muted small', a.detail), a.tip ? { title: a.tip } : {})), el('div', 'actions', ...buttons)));
     // An update's text, two lines then Show all, with who it posts as (D-066).
     // Edited on its task's page, it shows that edit: the text Post there would send (GH-46).
     if (u) inbox.append(el('div', 'inbox-update', foldable(`${updateKey(u.project, u.id)}:text`, el('div', 'inbox-update-text', u.edited ?? u.text), null, 2), posterLine(u), ...updateNotes(u)));
+    // A rule or check suggested by a finding that keeps coming back, with each review it came from (GH-102).
+    if (a.rule) inbox.append(ruleDetail(a.rule));
     // A task's analysis's questions, answered right here (D-052).
     const an = a.analysis;
     if (an) inbox.append(el('div', 'inbox-analysis', ...an.questions.map((q) => analysisQuestion(an.project, an.task, q, an.canAsk))));
@@ -77,7 +80,7 @@ export function renderOverview(m: HomeModel): Node[] {
   const ready = el('section', 'panel-box', el('h2', '', icon('rocket'), 'Ready for an agent', o.ready.length ? el('span', 'count', String(o.ready.length)) : null));
   if (!o.ready.length) ready.append(el('p', 'muted quiet', 'Nothing is ready to dispatch. Track a ticket from a board, or add a task.'));
   for (const r of o.ready.slice(0, 8)) {
-    ready.append(el('div', 'list-row', openable(el('div', 'list-text', el('span', 'tcard-key', r.id), el('span', '', r.title)), { type: 'run', command: 'acc.task.show', ref: r.action.ref }),
+    ready.append(el('div', 'list-row', openable(titled(el('div', 'list-text', el('span', 'tcard-key', r.id), el('span', '', r.title)), `${r.id} ${r.title}`), { type: 'run', command: 'acc.task.show', ref: r.action.ref }),
       el('span', 'chip', r.environment), actionButton(r.action)));
   }
   // Ready work, then the full history below it, with the width to read it.
@@ -98,7 +101,7 @@ function renderQueue(queues: QueuePanel[], manyProjects: boolean): HTMLElement {
     const list = el('ol', 'queue-list');
     list.setAttribute('aria-label', `${q.project}'s merge queue, next to merge first`);
     for (const r of q.rows) {
-      const text = openable(el('div', 'list-text', el('span', 'tcard-key', r.id), el('span', '', r.title)), { type: 'run', command: 'acc.task.show', ref: r.ref });
+      const text = openable(titled(el('div', 'list-text', el('span', 'tcard-key', r.id), el('span', '', r.title)), `${r.id} ${r.title}`), { type: 'run', command: 'acc.task.show', ref: r.ref });
       list.append(el('li', 'list-row queue-row',
         Object.assign(el('span', 'queue-place', String(r.place)), { title: r.place === 1 ? 'Next to merge' : `${r.place} in line` }),
         text,

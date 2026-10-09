@@ -1,7 +1,7 @@
 // In progress on the Overview: every job under way, a group a task.
 
 import type { ProgressAction, ProgressGroup, ProgressModel } from '../src/progress.ts';
-import { el, icon, openable, status } from './dom.ts';
+import { el, icon, openable, status, titled } from './dom.ts';
 import { api, memory, remember, state } from './state.ts';
 
 /**
@@ -35,7 +35,7 @@ export function renderInProgress(p: ProgressModel): HTMLElement {
 
 function progressGroup(g: ProgressGroup): HTMLElement {
   const key = el('span', 'tcard-key', g.id);
-  const head = el('div', 'pg-head', el('div', 'pg-name', key, el('span', 'pg-title', g.title), g.project ? el('span', 'chip', g.project) : null),
+  const head = el('div', 'pg-head', el('div', 'pg-name', key, titled(el('span', 'pg-title', g.title), g.title), g.project ? el('span', 'chip', g.project) : null),
     el('div', 'pg-state', status(g.look), g.since ? el('span', 'muted small pg-since', icon('watch'), g.since) : null));
   if (g.ref) openable(key, { type: 'run', command: 'acc.task.show', ref: g.ref }).title = `Open ${g.id}'s page`;
   const box = el('div', 'progress-group', head);

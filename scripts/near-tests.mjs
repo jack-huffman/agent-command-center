@@ -1,9 +1,10 @@
 // This repo's near-tests gate (GH-73): a builder's lighter check runs only the tests near what it
 // changed, as acc gives them in ACC_NEAR_TESTS, one path a line, and the tests of what reads a per-area
 // file it changed in ACC_CHANGED, as scripts/near-reads.ts lists them (GH-117). The full check, npm run
-// check, runs once, in the merge queue. Tests that read the build (the extension's, the packaging's and the
-// launcher's) get one first. With none near the change, there's nothing to run. acc gives every command
-// gate ACC_NEAR_TESTS (GH-117); run without it, as by hand, this fails rather than pass having run nothing.
+// check, runs once, in the merge queue. Tests that read the build (the extension's, the packaging's, the
+// launcher's and acc's junk test, GH-106) get one first. With none near the change, there's nothing to run.
+// acc gives every command gate ACC_NEAR_TESTS (GH-117); run without it, as by hand, this fails rather than
+// pass having run nothing.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { nearReaders } from './near-reads.ts';
@@ -27,7 +28,7 @@ if (!tests.length) {
   process.exit(0);
 }
 console.log(`Tests near the change: ${tests.join(', ')}`);
-if (tests.some((t) => /^(extension\/test|scripts\/test)\//.test(t) || t === 'packages/cli/test/launcher.test.ts')) {
+if (tests.some((t) => /^(extension\/test|scripts\/test)\//.test(t) || t === 'packages/cli/test/launcher.test.ts' || t === 'packages/cli/test/junk.test.ts')) {
   const build = spawnSync('npm', ['run', 'build'], { stdio: 'inherit' });
   if (build.status !== 0) process.exit(build.status ?? 1);
 }

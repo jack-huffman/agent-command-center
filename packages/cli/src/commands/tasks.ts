@@ -1,15 +1,14 @@
 // acc's Tasks commands: add, import, intake, status, list, ready, show and set.
 
-import { readFileSync } from 'node:fs';
 import { AccError, autopilotFailure, builderStopped, claudeProjectsDir, clipSaid, closedPr, type Config, DISPLAY, displayState, type DisplayState, draftUpdate, failedChecks, filesOf, holdWords, inFlight, intakeGithub, intakeOutside, type IntakeResult, isReady, lastSaid, listSessions, moveTask, mutate, NOTE_LABELS, type NoteInput, ordinal, phaseWords, plannedFiles, queuePlaces, readAnalysis, readLedger, receiptHooks, repoPaths, resuming, run, shownNote, type Task, sharesWords, startLook, type StartLook, type State, type TaskInput, trackerForKey, type UpsertResult, upsertTasks, waits } from '../../../core/src/index.ts';
 import { type Outside, TRACKER_KINDS, type TrackerKind, trackerName } from '../../../core/src/trackers/types.ts';
 import { stateLabel, table, tone } from '../format.ts';
-import { actorFrom, type CommandArea, now, type Opts, out, project, stepWords } from '../shared.ts';
+import { actorFrom, type CommandArea, now, type Opts, out, project, readFileArg, stepWords } from '../shared.ts';
 
 // ---------------------------------------------------------------- tasks
 
 function readInput(file: string | undefined): unknown {
-  const text = file ? readFileSync(file, 'utf8') : readFileSync(0, 'utf8');
+  const text = readFileArg(file ?? 0);
   try {
     return JSON.parse(text);
   } catch (e) {
@@ -246,6 +245,7 @@ export const area: CommandArea = {
     label: { type: 'string' },
     client: { type: 'string' },
   },
+  subcommands: { intake: ['github', ...SIGNED_IN_KINDS] },
   commands: {
     add: (o, rest) => {
       const title = rest.join(' ').trim();

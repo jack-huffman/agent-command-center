@@ -103,3 +103,26 @@ export function sampleMondayBoards(): BoardInput[] {
     },
   }];
 }
+
+/**
+ * A GitHub repo's issues with no Project (the Tasks header's cleanup): its columns are Open and Closed, its
+ * place is the whole repo, which its title already names, and its account can't read Projects yet.
+ */
+export function sampleGithubBoards(): BoardInput[] {
+  const OPEN = { id: 'OPEN', name: 'Open' };
+  const CLOSED = { id: 'CLOSED', name: 'Closed' };
+  const card = (n: number, title: string, s: { id: string; name: string }, labels: string[] = []) =>
+    ({ key: `GH-${n}`, title, url: `https://github.com/acme/tool/issues/${n}`, status: s, type: null, assignees: [], labels: labels.map((name) => ({ name, color: null })), priority: null });
+  return [{
+    index: 0, kind: 'github', title: 'GitHub · acme/tool', error: null, connect: null, loading: false, signedInAs: 'jordan-kim', place: 'GitHub · acme/tool', left: [],
+    board: {
+      source: 'github-state', title: 'Issues · acme/tool', url: 'https://github.com/acme/tool/issues',
+      notice: 'To use your GitHub Project\'s columns, give jordan-kim access to Projects. gh refreshes only its active account, so run gh auth switch -u jordan-kim, then gh auth refresh -h github.com -s project and sign in as jordan-kim, then switch back to the account you use.',
+      columns: [{ id: 'OPEN', name: 'Open', category: 'todo', statusIds: ['OPEN'] }, { id: 'CLOSED', name: 'Closed', category: 'done', statusIds: ['CLOSED'] }],
+      cards: [
+        card(41, 'Export the case history as CSV', OPEN, ['enhancement']), card(42, 'The sync retries forever when the API is down', OPEN, ['bug']),
+        card(43, 'Document the release steps', OPEN), card(38, 'Add a dark theme to the report', CLOSED),
+      ],
+    },
+  }];
+}

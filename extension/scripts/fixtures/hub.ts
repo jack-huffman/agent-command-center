@@ -10,6 +10,7 @@ import { sampleLimits } from './limits.ts';
 import { sampleAnswers, sampleQuestions } from './questions.ts';
 import { CLIENTS, ROOT, wt } from './shared.ts';
 import { sampleTasks } from './tasks.ts';
+import { sampleTidy } from './tidy.ts';
 import { sampleUpdates } from './updates.ts';
 
 export function sampleHub(now = Date.now()): HubLike {
@@ -56,6 +57,7 @@ export function sampleHub(now = Date.now()): HubLike {
     otherWindows: [CLIENTS, `${CLIENTS}/.claude/worktrees/ACME-42`],
     autopilotLog: () => sampleAutopilot(now),
     updates: () => sampleUpdates(now),
+    tidy: sampleTidy,
     history: () => sampleHistory(now),
     limits: () => sampleLimits(),
   };

@@ -2,7 +2,7 @@
 
 import type { Look } from '../src/model/shared.ts';
 import type { PersonChip } from '../src/model/boards.ts';
-import type { TicketModel } from '../src/model/task-page.ts';
+import type { TicketModel, TicketRatchet } from '../src/model/task-page.ts';
 import { renderAnalysis } from './analysis.ts';
 import { actionButton, avatar, button, type Child, clippedSpan, el, foldable, icon, iconed, labelChip, linkTo, openable, renderDoc, status, when } from './dom.ts';
 import { api, memory, type PageArea, remember, state } from './state.ts';
@@ -13,6 +13,17 @@ import { updateDraft } from './updates.ts';
 
 function ticketAction(action: string, text?: string): void {
   api.postMessage({ type: 'ticket-action', action, ...(text !== undefined ? { text } : {}) });
+}
+
+/**
+ * A ratchet's numbers (GH-99), "669 → 674 (+5)" beside its name, with an arrow for the way it went: blue
+ * when it got better or held, orange when it got worse. The numbers say it; the arrow and its colour only
+ * add to them. Hovered, it says them with its label, then what the check said.
+ */
+function ratchetNumbers(r: TicketRatchet, summary: string): HTMLElement {
+  const diff = r.diff ?? 0;
+  const better = r.limit === 'floor' ? diff >= 0 : diff <= 0;
+  return Object.assign(el('span', 'small check-sum check-ratchet', icon(diff > 0 ? 'arrow-up' : diff < 0 ? 'arrow-down' : 'arrow-right', better ? 'blue' : 'orange'), r.numbers ?? ''), { title: `${r.line}. ${summary}` });
 }
 
 function editButton(label: string, action: string): HTMLElement {
@@ -56,7 +67,7 @@ function composer(m: TicketModel): HTMLElement {
 export function renderTicket(m: TicketModel): Node[] {
   const sourceIcon = KIND_ICON[m.sourceKind] ?? 'checklist';
   const crumbs = el('div', 'crumbs', icon(sourceIcon), el('span', '', m.sourceLabel), el('span', 'muted', '/'), m.url ? linkTo(m.url, m.key) : el('span', '', m.key));
-  const statusEl = m.status ? el('span', `pill tone-${m.status.tone}`, m.status.name) : null;
+  const statusEl = m.status ? el('span', `pill tone-${m.status.tone}`, icon(m.status.icon, m.status.tone), m.status.name) : null;
   let statusCtl: Child = statusEl;
   if (statusEl && m.can.status) {
     const b = el('button', 'btn status-btn', statusEl, icon('chevron-down')) as HTMLButtonElement;
@@ -123,7 +134,7 @@ export function renderTicket(m: TicketModel): Node[] {
   // The side column: the ticket's fields, then acc's side of it.
   const people = (list: PersonChip[]) => (list.length ? el('span', 'people', ...list.map((p) => el('span', 'person', avatar(p), p.name))) : el('span', 'muted', 'Unassigned'));
   const details = el('dl', 'fields',
-    ...field('Status', m.status ? el('span', `pill tone-${m.status.tone}`, m.status.name) : el('span', 'muted', '—')),
+    ...field('Status', m.status ? el('span', `pill tone-${m.status.tone}`, icon(m.status.icon, m.status.tone), m.status.name) : el('span', 'muted', '—')),
     ...field(m.assignees.length > 1 ? 'Assignees' : 'Assignee', people(m.assignees), m.can.assign ? editButton('Change', 'assign') : null),
     ...(m.reporter ? field('Reporter', el('span', 'person', avatar(m.reporter), m.reporter.name)) : []),
     ...field('Labels', m.labels.length ? el('span', 'labels', ...m.labels.map(labelChip)) : el('span', 'muted', 'None'), m.can.labels ? editButton('Edit', 'labels') : null),
@@ -149,13 +160,17 @@ export function renderTicket(m: TicketModel): Node[] {
         ...(a.worktree ? field('Worktree', clippedSpan(a.worktree.split('/').slice(-2).join('/'))) : []),
       ),
       a.checks.length ? el('div', 'checks', el('h3', '', 'Checks'), ...a.checks.map((c) => el('div', 'check',
-        status({ label: c.waived ? 'waived' : c.status === 'skip' ? (c.summary.startsWith('Not run') ? 'not run' : 'skip') : c.status, icon: c.waived ? 'debug-step-over' : c.status === 'pass' ? 'pass' : c.status === 'fail' ? 'error' : c.status === 'error' ? 'warning' : 'circle-slash', tone: c.status === 'pass' ? 'blue' : c.status === 'skip' ? 'neutral' : 'orange' }),
-        // A builder's lighter check, or the full one the merge queue runs once (GH-73).
-        el('span', 'check-gate', el('span', 'mono', c.gate),
-          c.scope ? Object.assign(el('span', 'chip', c.scope === 'builder' ? 'builder' : 'merge queue'), { title: c.scope === 'builder' ? 'One of the lighter checks a builder runs before acc done' : 'The full check, run once in the merge queue before the merge' }) : null),
-        Object.assign(el('span', 'muted small check-sum', c.summary), { title: c.summary }),
-        // A person can set a failing check aside, with a reason (D-031).
-        (c.status === 'fail' || c.status === 'error') && a.branch ? Object.assign(button('Waive…', 'debug-step-over', () => ticketAction('waive', c.gate), 'ghost small check-waive'), { title: `Set ${c.gate} aside on this commit, with a reason` }) : null))) : null,
+        // Its state and name on a line of their own, so a long state such as "needs a person" leaves room (GH-100).
+        el('span', 'check-head', status(c.look),
+          // A builder's lighter check, or the full one the merge queue runs once (GH-73).
+          el('span', 'check-gate', el('span', 'mono', c.gate),
+            c.scope ? Object.assign(el('span', 'chip', c.scope === 'builder' ? 'builder' : 'merge queue'), { title: c.scope === 'builder' ? 'One of the lighter checks a builder runs before acc done' : 'The full check, run once in the merge queue before the merge' }) : null)),
+        // Its summary under them, beside Waive…, then what its tests ran. A ratchet shows its numbers (GH-99).
+        c.ratchet?.numbers ? ratchetNumbers(c.ratchet, c.summary) : Object.assign(el('span', 'muted small check-sum', c.summary), { title: c.summary }),
+        // A person can set a failing check, or one that needs them, aside, with a reason (D-031). Not a ratchet:
+        // a person relaxes its floor instead (GH-99).
+        c.waivable ? Object.assign(button('Waive…', 'debug-step-over', () => ticketAction('waive', c.gate), 'ghost small check-waive'), { title: `Set ${c.gate} aside on this commit, with a reason` }) : null,
+        c.counts ? Object.assign(el('span', 'muted small check-tests', icon('beaker'), `Tests: ${c.counts}`), { title: c.countsNote ?? `Tests: ${c.counts}` }) : null))) : null,
       el('div', 'actions', ...a.actions.map(actionButton))));
   } else if (m.trackable) {
     // Tracking… while it's on its way, from here or its card, so a second click starts nothing (D-074).
@@ -201,18 +216,11 @@ function renderNote(m: TicketModel): HTMLElement | null {
     part('open', 'issues', n.open.length ? 'orange' : undefined, 'Still open', n.open, makeTask));
 }
 
-/** How each state reads in the feed: its word, its icon, and orange or blue (never red against green). */
-const STATE_LOOK: Record<string, Look> = {
-  todo: { label: 'To do', icon: 'circle-outline', tone: 'neutral' },
-  running: { label: 'Running', icon: 'sync', tone: 'blue' },
-  review: { label: 'In review', icon: 'eye', tone: 'blue' },
-  rework: { label: 'Rework', icon: 'debug-restart', tone: 'orange' },
-  blocked: { label: 'Blocked', icon: 'circle-slash', tone: 'orange' },
-  done: { label: 'Done', icon: 'check', tone: 'blue' },
-};
-
-/** What a move did, as the feed's icon and verb: the state it reached shows as a pill after the verb. */
-function moveFeed(h: { from: string | null; to: string; by: string }): { icon: string; tone: Look['tone']; verb: string; pill: boolean } {
+/**
+ * What a move did, as the feed's icon and verb: the state it reached shows as a pill after the verb, as core's
+ * DISPLAY shows it, which the model sends with each move (GH-105).
+ */
+function moveFeed(h: { from: string | null; to: string; by: string; look: Look }): { icon: string; tone: Look['tone']; verb: string; pill: boolean } {
   const sync = /^sync|^acc sync/.test(h.by);
   if (!h.from) return { icon: 'add', tone: 'neutral', verb: 'added it', pill: false };
   if (h.to === 'running') return h.from === 'rework' ? { icon: 'debug-restart', tone: 'blue', verb: 'sent it back to its agent', pill: false } : { icon: 'rocket', tone: 'blue', verb: 'started its agent', pill: false };
@@ -222,8 +230,7 @@ function moveFeed(h: { from: string | null; to: string; by: string }): { icon: s
   if (h.to === 'rework') return { icon: 'request-changes', tone: 'orange', verb: 'asked for changes', pill: false };
   if (h.to === 'blocked') return { icon: 'circle-slash', tone: 'orange', verb: 'blocked it', pill: false };
   if (h.to === 'done') return { icon: sync ? 'git-merge' : 'check', tone: 'blue', verb: sync ? 'merged its pull request:' : 'moved it to', pill: true };
-  const look = STATE_LOOK[h.to];
-  return { icon: look?.icon ?? 'arrow-right', tone: look?.tone ?? 'neutral', verb: 'moved it to', pill: true };
+  return { icon: h.look.icon, tone: h.look.tone, verb: 'moved it to', pill: true };
 }
 
 /** "Today", "Yesterday", or the date: the feed's day headings. */
@@ -256,11 +263,10 @@ function renderActivity(m: TicketModel): HTMLElement | null {
   }
   for (const h of m.acc?.history ?? []) {
     const f = moveFeed(h);
-    const look = STATE_LOOK[h.to];
     // A long reason shows its first two lines, fading, with Show all under it; a short one shows whole.
     const reason = h.reason ? foldable(`reason:${m.project}#${m.key}@${h.at}`, el('div', 'act-reason', el('div', 'act-reason-text', h.reason)), 'act-reason-text', 2) : null;
     items.push({ at: h.at, node: feedItem(el('span', `act-icon tone-${f.tone}`, icon(f.icon, f.tone)),
-      [el('strong', '', whoMoved(h.by)), el('span', '', f.verb), f.pill && look ? status(look) : null, el('span', 'muted', '·'), when(h.at)], reason) });
+      [el('strong', '', whoMoved(h.by)), el('span', '', f.verb), f.pill ? status(h.look) : null, el('span', 'muted', '·'), when(h.at)], reason) });
   }
   if (!items.length && !m.can.comment && !m.updates.length) return null;
   const section = el('section', 'block activity', el('h2', '', 'Activity'));

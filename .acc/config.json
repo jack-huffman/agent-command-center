@@ -61,20 +61,33 @@
   },
   "gates": {
     "required": [
-      "check"
+      "check",
+      "tests"
     ],
     "builder": [
       "typecheck",
-      "near-tests"
+      "near-tests",
+      "tests"
     ],
     "commands": {
       "check": "npm run check",
       "typecheck": "npm run typecheck",
       "near-tests": "node --no-warnings scripts/near-tests.mjs"
     },
+    "ratchets": {
+      "tests": {
+        "command": "node --no-warnings scripts/count-tests.mjs",
+        "limit": "floor",
+        "label": "tests"
+      }
+    },
     "heavy": [
       "check",
       "typecheck",
+      "near-tests"
+    ],
+    "tests": [
+      "check",
       "near-tests"
     ]
   },

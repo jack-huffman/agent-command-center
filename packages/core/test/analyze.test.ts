@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { analysisProblems, analysisSection, analyze, analyzing, answerAnalysis, openQuestions, parseAnalysis, readAnalysis } from '../src/analyze.ts';
+import { analysisPath, analysisProblems, analysisSection, analyze, analyzing, answerAnalysis, openQuestions, parseAnalysis, readAnalysis } from '../src/analyze.ts';
 import { parseConfig, type Config } from '../src/config.ts';
 import { dispatch } from '../src/dispatch.ts';
 import { renderPacket } from '../src/packet.ts';
@@ -176,4 +176,14 @@ test('the Mac stays awake while the analyst runs, for acc\'s own process, and no
   const linux = fakeAwake('linux');
   assert.throws(() => analyze(paths, config, id, { run: fakeRunner({ claude: { code: 127, stdout: '', stderr: 'spawnSync claude ENOENT' } }), now, env: {}, awake: linux.deps }), /Claude Code didn't start/);
   assert.deepEqual(linux.spawned, []);
+});
+
+test('an analysis\'s file is named by a task id, never by a path out of .git/acc/analyses (GH-106)', () => {
+  const paths = repoPaths(makeRepo(), run);
+  assert.match(analysisPath(paths, 'GH-106'), /\/\.git\/acc\/analyses\/GH-106\.json$/);
+  for (const id of ['../../X', '../../../../OUTSIDE/X', '/etc/passwd', 'a/b', '', '.', 'X..Y']) {
+    assert.throws(() => analysisPath(paths, id), /isn't a task id/, id);
+    assert.equal(readAnalysis(paths, id), null, `${id} reads as not analyzed`);
+  }
+  assert.throws(() => answerAnalysis(paths, '../../X', 'q1', 'hi', 'human:me', () => new Date()), /hasn't been analyzed yet/);
 });

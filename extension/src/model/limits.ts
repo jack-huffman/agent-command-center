@@ -147,7 +147,7 @@ export function modelWords(model: string, from: string): string {
 }
 
 /** A cap's state: how many run of how many, and whether the next start waits. Blue while builders work, neutral while none do. */
-function capLook(running: number, max: number | null, where: string): Look {
+export function capLook(running: number, max: number | null, where: string): Look {
   if (max === null) return running ? { label: `${builders(running)} running ${where}, and no total`, icon: 'hubot', tone: 'blue' } : { label: 'No total: each project\'s cap is the only limit', icon: 'circle-large-outline', tone: 'neutral' };
   if (running >= max) return { label: `Full: ${running} of ${max} running ${where}, so the next start waits`, icon: 'clock', tone: 'blue' };
   if (!running) return { label: `None running ${where}: room for ${max}`, icon: 'circle-large-outline', tone: 'neutral' };

@@ -1,7 +1,7 @@
 // The output panel: the commands acc runs for you, under every section.
 
 import type { RunCard } from '../src/model/runs.ts';
-import { button, el, icon, keepFocus, keptInput, status } from './dom.ts';
+import { button, el, icon, keepFocus, keptInput, status, titled } from './dom.ts';
 import { api, memory, type PageArea, remember, state, view } from './state.ts';
 
 // ---------------------------------------------------------------- the output panel (D-030)
@@ -33,7 +33,7 @@ export function renderDock(list: RunCard[]): HTMLElement | null {
   const bar = el('div', 'dock-bar');
   const head = el('button', 'dock-title', icon('terminal'), el('span', 'strong dock-label', run.label), status(run.look), open || run.prompt ? null : el('span', 'muted mono dock-last', lastLine)) as HTMLButtonElement;
   head.type = 'button';
-  head.title = `${run.command}\n\n${open ? 'Hide' : 'Show'} the output`;
+  head.title = `${run.label}\n${run.command}\n\n${open ? 'Hide' : 'Show'} the output`;
   head.setAttribute('aria-expanded', String(open));
   head.addEventListener('click', toggle);
   bar.append(head, el('span', 'spacer'));
@@ -67,7 +67,7 @@ export function renderDock(list: RunCard[]): HTMLElement | null {
     out.tabIndex = 0;
     out.setAttribute('aria-label', `Output of ${run.command}`);
     out.setAttribute('aria-live', 'polite');
-    dock.append(el('div', 'dock-cmd mono muted', `$ ${run.command}`), out);
+    dock.append(titled(el('div', 'dock-cmd mono muted', `$ ${run.command}`), `$ ${run.command}`), out);
   }
   if (run.prompt) {
     const p = run.prompt;

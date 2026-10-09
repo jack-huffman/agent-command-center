@@ -148,7 +148,10 @@ export function fetchSource(run: Runner, source: string, kind: CopyKindName, opt
   const env = opts.env ?? process.env;
   if (src.kind === 'file') {
     if (!existsSync(src.path)) throw new AccError(k.missing, `There's no ${k.noun} at ${source}.`);
-    if (statSync(src.path).size > k.maxBytes) throw tooBig();
+    const stat = statSync(src.path);
+    // A folder, a device or a pipe isn't a file to copy, and reading one would fail with a raw EISDIR (GH-106).
+    if (!stat.isFile()) throw new AccError(k.bad, `${source} isn't a file, so it can't be ${a(k.noun)}.`);
+    if (stat.size > k.maxBytes) throw tooBig();
     return { text: readFileSync(src.path, 'utf8'), commit: null };
   }
   if (src.kind === 'github') {

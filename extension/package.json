@@ -524,6 +524,18 @@
         "icon": "$(trash)"
       },
       {
+        "command": "acc.tidy.draft",
+        "title": "Draft a tidy-up…",
+        "category": "Agent Command Center",
+        "icon": "$(wand)"
+      },
+      {
+        "command": "acc.tidy.skip",
+        "title": "Skip the tidy-up…",
+        "category": "Agent Command Center",
+        "icon": "$(close)"
+      },
+      {
         "command": "acc.trackers.refresh",
         "title": "Refresh tracker boards",
         "category": "Agent Command Center",

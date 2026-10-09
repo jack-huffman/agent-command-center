@@ -138,7 +138,7 @@ test('the part reads its limits from the machine and each project, and counts ev
   const project: LimitsProject = { name: 'Tool', root: dir, config, ledgerPath: paths.ledger, agents: { builder: { model: 'claude-opus-5-5', from: { model: 'acc' } } } };
   const f = readLimits([project], () => readLedger(paths.ledger), { dir: '', slots: 2, held: [{ pid: 1 }], waiting: [] } as never, env, '/nowhere');
   assert.deepEqual(f.machine, { slots: 2, slotsFrom: 'machine', inUse: 1, waiting: 0, total: 5, running: 3, repos: 2, file: machine });
-  assert.deepEqual([f.projects[0]!.max, f.projects[0]!.maxFrom, f.projects[0]!.running, f.projects[0]!.required, f.projects[0]!.requiredFrom, f.projects[0]!.builder, f.projects[0]!.queue], [3, 'acc', 1, ['check'], 'project', ['quick'], ['main']]);
+  assert.deepEqual([f.projects[0]!.max, f.projects[0]!.maxFrom, f.projects[0]!.running, f.projects[0]!.required, f.projects[0]!.requiredFrom, f.projects[0]!.builder, f.projects[0]!.queue], [3, 'acc', 1, ['check', 'stray-files'], 'project', ['quick'], ['main']], 'stray-files is required beside what the project names (GH-103)');
   // A config that names no required checks has acc's default.
   const bareRaw = { ...GENERIC_CONFIG, project: 'Bare' };
   const bareDir = makeRepo({ '.acc/config.json': JSON.stringify(bareRaw) });

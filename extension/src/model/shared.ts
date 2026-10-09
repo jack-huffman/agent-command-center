@@ -5,9 +5,11 @@
  */
 
 import type { AutopilotRecord } from '../../../packages/core/src/autopilot-log.ts';
-import type { SessionTie } from '../../../packages/core/src/ledger.ts';
+import { DISPLAY, type DisplayState, type SessionTie } from '../../../packages/core/src/ledger.ts';
 import type { Environment, Tracker } from '../../../packages/core/src/config.ts';
 import type { HistoryRecord, Question } from '../../../packages/core/src/questions.ts';
+import type { Suggestion } from '../../../packages/core/src/rule-suggestions.ts';
+import type { TidyStatus } from '../../../packages/core/src/tidy.ts';
 import type { Update } from '../../../packages/core/src/updates.ts';
 import type { AgentSession, TaskRow, Tone } from '../logic/shared.ts';
 import { displayName, ownsSession } from '../logic/agents.ts';
@@ -82,6 +84,10 @@ export interface HubLike {
   autopilotLog?(root: string): AutopilotRecord[];
   /** The updates acc drafted for a project's tickets, posted or not (D-066). */
   updates?(root: string): Update[];
+  /** Whether a project's repo has a tidy-up due, and the ledger it's counted from, which projects of one repo share (GH-104). */
+  tidy?(root: string): (Pick<TidyStatus, 'due' | 'count' | 'every'> & { ledger: string }) | null;
+  /** The rules suggested by a project's review findings that keep coming back, not yet accepted or dismissed (GH-102). */
+  suggestions?(root: string): Suggestion[];
   /** Agents' questions waiting in the Command Center (D-030). */
   questions?: Question[];
   /** How earlier questions ended (D-037). */
@@ -122,6 +128,9 @@ export function nameOf(hub: Pick<HubLike, 'projectFor' | 'taskRows'>, s: AgentSe
 }
 
 export const LOOK = (label: string, icon: string, tone: Tone): Look => ({ label, icon, tone });
+
+/** A task's state as core's DISPLAY shows it, and DESIGN.md's table: every page that shows a task's state reads it here (GH-105). */
+export const displayLook = (d: DisplayState): Look => ({ label: DISPLAY[d].label, icon: DISPLAY[d].icon, tone: DISPLAY[d].tone });
 
 export const HOME_SECTIONS = ['overview', ...VIEW_KINDS] as const;
 export type HomeSection = (typeof HOME_SECTIONS)[number];

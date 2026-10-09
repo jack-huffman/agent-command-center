@@ -109,10 +109,21 @@ export interface Config {
   /**
    * heavy: gates that take the machine-wide slot (D-024). severity: Code Analyzer's failing level, 1 to 5.
    * builder: the lighter checks builders run where the merge queue runs `required` once before each merge
-   * (GH-73). Left out, builders run `required`, as everywhere else.
+   * (GH-73). Left out, builders run `required`, as everywhere else. tests: the checks that run tests, whose
+   * receipts count what ran and which need a person when none did (GH-100), besides those acc knows.
+   * ratchets: checks whose command prints a number that may only get better, kept against a floor or a
+   * ceiling in `.acc/floors.json` (GH-99).
    */
-  gates: { required: string[]; commands: Record<string, string>; heavy: string[]; severity: number; builder?: string[] };
+  gates: {
+    required: string[]; commands: Record<string, string>; heavy: string[]; severity: number; builder?: string[]; tests?: string[];
+    ratchets?: Record<string, RatchetSpec>;
+  };
   secretScan: { paths: string[]; exclude: string[] };
+  /**
+   * The stray-files check (GH-103): whether it's required, the files or folders a change may add that it
+   * would otherwise fail (`allow`), and in Salesforce the folders where data files belong (`data`).
+   */
+  strayFiles: { required: boolean; allow: string[]; data: string[] };
   /** Whether a task needs an analysis before it's built (D-052). Salesforce projects do unless they say not. */
   analysis?: { required: boolean };
   /**
@@ -123,9 +134,28 @@ export interface Config {
   autopilot?: { appendOnly: string[]; autoMerge?: true };
   /** shared: files, or folders, that never make two tasks wait for each other, such as docs every task edits (D-093). */
   dispatch?: { shared: string[] };
+  /**
+   * every: how many tasks merge in a repo before the Command Center offers a tidy-up task (GH-104), which a
+   * person confirms. Left out, 8; 0 never offers one.
+   */
+  tidy?: { every: number };
   /** The team template the project was started from, and its digest then, so Setup can say when it changed (GH-80). */
   template?: TemplateRecord;
 }
+
+/** Which way a ratchet's number may go (GH-99): a floor's only up, a ceiling's only down. */
+export const RATCHET_LIMITS = ['floor', 'ceiling'] as const;
+export type RatchetLimit = (typeof RATCHET_LIMITS)[number];
+
+/** A ratchet (GH-99): a command whose last line is a number, which way it may go, and how pages name it. */
+export interface RatchetSpec {
+  command: string;
+  limit: RatchetLimit;
+  label: string;
+}
+
+/** A ratchet's name: its gate's name too, and its receipt's file name. */
+export const RATCHET_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/;
 
 export interface TemplateRecord {
   name: string;
@@ -166,9 +196,10 @@ export const CONFIG_KEYS = [
   'trackers[].epic', 'trackers[].labels', 'trackers[].areaPath', 'trackers[].group', 'trackers[].edits',
   'agents.max', 'agents.permissionMode', 'agents.builder.model', 'agents.builder.effort', 'agents.builder.fallbackModel',
   'agents.reviewer.model', 'agents.reviewer.effort', 'agents.reviewer.fallbackModel', 'autonomy',
-  'worktrees.root', 'worktrees.setup', 'gates.required', 'gates.commands', 'gates.heavy', 'gates.severity', 'gates.builder',
-  'secretScan.paths', 'secretScan.exclude', 'analysis.required', 'autopilot.appendOnly', 'autopilot.autoMerge',
-  'dispatch.shared', 'template.name', 'template.source', 'template.digest',
+  'worktrees.root', 'worktrees.setup', 'gates.required', 'gates.commands', 'gates.heavy', 'gates.severity', 'gates.builder', 'gates.tests',
+  'gates.ratchets',
+  'secretScan.paths', 'secretScan.exclude', 'strayFiles.required', 'strayFiles.allow', 'strayFiles.data', 'analysis.required', 'autopilot.appendOnly', 'autopilot.autoMerge',
+  'dispatch.shared', 'tidy.every', 'template.name', 'template.source', 'template.digest',
 ] as const satisfies readonly ConfigPath[];
 
 type LeftOut = Exclude<ConfigPath, (typeof CONFIG_KEYS)[number]>;
@@ -227,6 +258,13 @@ export const DEFAULT_HEAVY: Record<Profile, string[]> = {
   salesforce: ['static', 'lwc-tests', 'validate'],
 };
 
+/** The gates each profile has built in, by name, so a ratchet can't take one's name (GH-99). gates.ts has them. */
+export const BUILT_IN_GATES: Record<Profile, string[]> = {
+  // Every profile has stray-files (GH-103), STRAY_FILES below, so a ratchet can't take its name.
+  generic: ['stray-files'],
+  salesforce: ['format', 'lint', 'static', 'lwc-tests', 'validate', 'stray-files'],
+};
+
 /** The branch for an environment: its name in lower case (D-015). */
 export function branchFor(name: string): string {
   return name.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
@@ -235,6 +273,8 @@ export function branchFor(name: string): string {
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isStr = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '';
 const strList = (v: unknown): v is string[] => Array.isArray(v) && v.every(isStr);
+/** Paths inside the repo, as git names them: never absolute, never climbing out. */
+const inRepo = (v: unknown): v is string[] => strList(v) && !v.some((f) => f.startsWith('/') || f.split('/').includes('..'));
 const JIRA_ISSUE = /^[A-Za-z][A-Za-z0-9_]*-\d+$/;
 
 export interface ParseResult {
@@ -412,14 +452,39 @@ export function parseConfig(raw: unknown): ParseResult {
   }
   if (g.heavy !== undefined && !strList(g.heavy)) errors.push('"gates.heavy" must be a list of gate names.');
   if (g.builder !== undefined && !(Array.isArray(g.builder) && g.builder.every(isStr))) errors.push('"gates.builder" must be a list of gate names: the lighter checks builders run where the merge queue runs the required ones.');
+  if (g.tests !== undefined && !strList(g.tests)) errors.push('"gates.tests" must be a list of gate names: the checks that run tests, whose receipts count what ran.');
   if (g.severity !== undefined && !(Number.isInteger(g.severity) && (g.severity as number) >= 1 && (g.severity as number) <= 5)) {
     errors.push('"gates.severity" must be a whole number from 1 (only the worst problems fail) to 5 (everything fails).');
+  }
+  // Ratchets (GH-99): each is a gate of its own, so its name can't be another gate's.
+  const ratchets: Record<string, RatchetSpec> = {};
+  if (g.ratchets !== undefined) {
+    if (!isObj(g.ratchets)) errors.push('"gates.ratchets" must map names to { "command", "limit", "label" }, such as { "tests": { "command": "node scripts/count-tests.mjs", "limit": "floor", "label": "tests" } }.');
+    else for (const [name, r] of Object.entries(g.ratchets)) {
+      const at = `gates.ratchets.${name}`;
+      if (!RATCHET_NAME.test(name)) errors.push(`"${at}": a ratchet's name is letters, digits, dots, dashes and underscores, up to 40 of them.`);
+      else if (!isObj(r) || !isStr(r.command)) errors.push(`"${at}" needs "command": one whose last line of output is the number.`);
+      else if (!(RATCHET_LIMITS as readonly unknown[]).includes(r.limit)) errors.push(`"${at}.limit" must be "floor" (the number may only go up) or "ceiling" (it may only go down).`);
+      else if (!isStr(r.label) || r.label.trim().length > 24) errors.push(`"${at}.label" must be a short name for the number, up to 24 characters, such as "tests".`);
+      else if (commands[name] !== undefined || (BUILT_IN_GATES[profile] ?? []).includes(name)) errors.push(`"${at}": ${name} is already a gate${commands[name] !== undefined ? ' in "gates.commands"' : `, built into the ${profile} profile`}. Give the ratchet a name of its own.`);
+      else {
+        for (const k of Object.keys(r)) if (!['command', 'limit', 'label'].includes(k)) warnings.push(`Unknown key "${at}.${k}" is ignored.`);
+        ratchets[name] = { command: r.command, limit: r.limit as RatchetLimit, label: r.label.trim() };
+      }
+    }
   }
 
   const s = isObj(raw.secretScan) ? raw.secretScan : {};
   if (s.paths !== undefined && !strList(s.paths)) errors.push('"secretScan.paths" must be a list.');
   if (s.exclude !== undefined && !strList(s.exclude)) errors.push('"secretScan.exclude" must be a list.');
   const defaultScan = profile === 'salesforce' ? ['force-app', 'config', 'scripts'] : ['.'];
+
+  const sf = isObj(raw.strayFiles) ? raw.strayFiles : {};
+  if (raw.strayFiles !== undefined && !isObj(raw.strayFiles)) errors.push('"strayFiles" must be an object, such as { "allow": ["LICENSE"] }.');
+  if (sf.required !== undefined && typeof sf.required !== 'boolean') errors.push('"strayFiles.required" must be true or false: whether a change must pass the stray-files check.');
+  if (sf.allow !== undefined && !inRepo(sf.allow)) errors.push('"strayFiles.allow" must be a list of paths inside the repo, such as ["LICENSE", "fixtures"].');
+  if (sf.data !== undefined && !inRepo(sf.data)) errors.push('"strayFiles.data" must be a list of folders inside the repo, such as ["data/samples"].');
+  if (profile !== 'salesforce' && Array.isArray(sf.data) && sf.data.length) warnings.push('"strayFiles.data" applies only to a Salesforce project, so it\'s ignored.');
 
   const an = isObj(raw.analysis) ? raw.analysis : {};
   if (raw.analysis !== undefined && !isObj(raw.analysis)) errors.push('"analysis" must be an object, such as { "required": true }.');
@@ -432,8 +497,7 @@ export function parseConfig(raw: unknown): ParseResult {
     else {
       const list = ap.appendOnly ?? [];
       const autoMerge = ap.autoMerge ?? false;
-      // Paths inside the repo, as git names them: never absolute, never climbing out.
-      if (!strList(list) || list.some((f) => f.startsWith('/') || f.split('/').includes('..'))) {
+      if (!inRepo(list)) {
         errors.push('"autopilot.appendOnly" must be a list of paths inside the repo, such as ["docs/DECISIONS.md"].');
       } else if (typeof autoMerge !== 'boolean') {
         errors.push('"autopilot.autoMerge" must be true or false: whether autopilot merges a reviewed pull request whose checks passed.');
@@ -450,9 +514,20 @@ export function parseConfig(raw: unknown): ParseResult {
     if (!isObj(d)) errors.push('"dispatch" must be an object, such as { "shared": ["README.md"] }.');
     else {
       const list = d.shared ?? [];
-      if (!strList(list) || list.some((f) => f.startsWith('/') || f.split('/').includes('..'))) {
+      if (!inRepo(list)) {
         errors.push('"dispatch.shared" must be a list of paths inside the repo, such as ["README.md", "docs"].');
       } else dispatch = { shared: list };
+    }
+  }
+
+  let tidy: Config['tidy'];
+  if (raw.tidy !== undefined) {
+    const t = raw.tidy;
+    if (!isObj(t)) errors.push('"tidy" must be an object, such as { "every": 8 }.');
+    else if (t.every !== undefined) {
+      if (typeof t.every !== 'number' || !Number.isInteger(t.every) || t.every < 0 || t.every > 100) {
+        errors.push('"tidy.every" must be a whole number from 0 to 100: how many tasks merge before a tidy-up is offered, or 0 for never.');
+      } else tidy = { every: t.every };
     }
   }
 
@@ -485,14 +560,22 @@ export function parseConfig(raw: unknown): ParseResult {
         heavy: strList(g.heavy) ? g.heavy : DEFAULT_HEAVY[profile],
         severity: (g.severity as number | undefined) ?? 2,
         ...(Array.isArray(g.builder) && g.builder.every(isStr) ? { builder: g.builder as string[] } : {}),
+        ...(g.ratchets !== undefined ? { ratchets } : {}),
+        ...(strList(g.tests) ? { tests: g.tests } : {}),
       },
       secretScan: {
         paths: strList(s.paths) ? s.paths : defaultScan,
         exclude: strList(s.exclude) ? s.exclude : [],
       },
+      strayFiles: {
+        required: sf.required !== false,
+        allow: inRepo(sf.allow) ? sf.allow : [],
+        data: inRepo(sf.data) ? sf.data : [],
+      },
       ...(typeof an.required === 'boolean' ? { analysis: { required: an.required } } : {}),
       ...(autopilot ? { autopilot } : {}),
       ...(dispatch ? { dispatch } : {}),
+      ...(tidy ? { tidy } : {}),
       ...(template ? { template } : {}),
     },
     errors,
@@ -620,6 +703,12 @@ export function writeConfig(file: string, config: Config): void {
   writeFileSync(file, JSON.stringify(out, null, 2) + '\n');
 }
 
+/** How many tasks merge in a repo before a tidy-up is offered, when the config doesn't say (GH-104). */
+export const TIDY_EVERY = 8;
+
+/** How many tasks merge before the Command Center offers a tidy-up (GH-104). 0 never offers one. */
+export const tidyEvery = (config: Pick<Config, 'tidy'>): number => config.tidy?.every ?? TIDY_EVERY;
+
 export function defaultEnvironment(config: Config): Environment {
   const env = config.environments.find((e) => e.default);
   if (!env) throw new AccError('bad-config', 'No default environment.');
@@ -656,12 +745,35 @@ export function builderGatesFor(config: Pick<Config, 'profile' | 'autonomy' | 'e
   return !!config.gates.builder?.length && autoMergeFor(config, branch);
 }
 
+/** The built-in check every project has, that a change adds no logs, temp files, new root files, big files or data exports (GH-103). */
+export const STRAY_FILES = 'stray-files';
+
+/** A list of checks with stray-files added, unless `strayFiles.required` turns it off (GH-103). */
+export const withStrayFiles = (config: Pick<Config, 'strayFiles'>, gates: string[]): string[] =>
+  config.strayFiles.required && !gates.includes(STRAY_FILES) ? [...gates, STRAY_FILES] : gates;
+
 /**
- * The checks a commit on this environment needs, by scope (GH-73). merge: `gates.required`, always. builder:
- * `gates.builder` where the merge queue runs the required ones before each merge, else `gates.required`.
+ * The full check: `gates.required`, and stray-files unless the project turned it off (GH-103). It's what the
+ * merge queue runs, and what code asks for, never `gates.required` itself, so every place names the same list.
  */
-export function requiredGates(config: Pick<Config, 'profile' | 'autonomy' | 'environments' | 'autopilot' | 'gates'>, branch: string, scope: GateScope): string[] {
-  return scope === 'builder' && builderGatesFor(config, branch) ? config.gates.builder! : config.gates.required;
+export const fullGates = (config: Pick<Config, 'gates' | 'strayFiles'>): string[] => withStrayFiles(config, config.gates.required);
+
+/**
+ * The checks a commit on this environment needs, by scope (GH-73). merge: the full check, always. builder:
+ * `gates.builder` where the merge queue runs the full one before each merge, else the full one. Both have
+ * stray-files unless the project turned it off (GH-103), as it's cheap and the builder can fix what it finds.
+ */
+export function requiredGates(config: Pick<Config, 'profile' | 'autonomy' | 'environments' | 'autopilot' | 'gates' | 'strayFiles'>, branch: string, scope: GateScope): string[] {
+  return scope === 'builder' && builderGatesFor(config, branch) ? withStrayFiles(config, config.gates.builder!) : fullGates(config);
+}
+
+/**
+ * Whether a gate runs tests (GH-100): one `gates.tests` names, a gate called `test`, or Salesforce's
+ * `lwc-tests`. Its receipt says when acc couldn't read what ran, and it needs a person when none did.
+ * validate is one only when it runs Apex tests, which it says itself.
+ */
+export function isTestGate(config: Pick<Config, 'profile' | 'gates'>, name: string): boolean {
+  return !!config.gates.tests?.includes(name) || name === 'test' || (config.profile === 'salesforce' && name === 'lwc-tests');
 }
 
 /**

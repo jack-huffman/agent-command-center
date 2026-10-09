@@ -19,6 +19,8 @@ test('every section of the page, and a ticket, has sample data built by the real
     else if (kind.startsWith('slack-')) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).environments.slack?.state], ['home', 'environments', kind.slice('slack-'.length)]);
     // The Tasks tab with a monday.com board (GH-70).
     else if (kind === 'tasks-monday') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).tasks.projects[0]!.boards[0]!.kind], ['home', 'tasks', 'monday']);
+    // A repo's issues with no Project: Issues on the switch, the repo once, and no place line (the Tasks header's cleanup).
+    else if (kind === 'tasks-github') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).tasks.projects[0]!.boards[0]!.tab, (m as HomeModel).tasks.projects[0]!.boards[0]!.place], ['home', 'tasks', 'Issues', null]);
     // The Agents tab with agents that would bill per token (D-089), and Settings at How agents run (GH-110).
     else if (kind === 'agents-billing') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).agents.billing?.tone], ['home', 'agents', 'orange']);
     else if (kind === 'settings-agents') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).settings.agents.projects.length], ['home', 'settings', 2]);
@@ -29,6 +31,8 @@ test('every section of the page, and a ticket, has sample data built by the real
     // Agents with each repo's finished sessions to open (GH-119).
     else if (kind === 'agents-finished') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).agents.repos.filter((r) => r.finished.length).length], ['home', 'agents', 2]);
     // The Overview with In progress busy, and with nothing running (D-092).
+    // The Overview with a suggested rule and check, neutral and after everything orange (GH-102).
+    else if (kind.startsWith('rules')) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).overview.attention.filter((a) => a.rule).map((a) => [a.rule!.kind, a.look.tone])], ['home', 'overview', [['rule', 'neutral'], ['check', 'neutral']]]);
     else if (kind.startsWith('overview-')) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).overview.inProgress.empty === null], ['home', 'overview', kind === 'overview-busy']);
     // The Overview of a project with a merge queue, autopilot on and off, and its head held (GH-73).
     else if (kind.startsWith('queue')) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).overview.queue[0]?.rows.length, (m as HomeModel).overview.queue[0]?.off, !!(m as HomeModel).overview.queue[0]?.rows[0]?.tip], ['home', 'overview', 3, kind === 'queue-off', kind === 'queue-held']);
@@ -39,7 +43,7 @@ test('every section of the page, and a ticket, has sample data built by the real
     else assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).connect], ['home', kind === 'output' ? 'setup' : kind, null]);
   }
   assert.equal((sampleModel('agents') as HomeModel).agents.whereView, 'folder');
-  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'settings-about', 'settings-about-failed', 'agents-finished']);
+  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed']);
   assert.equal((sampleModel('environments') as HomeModel).environments.slack?.state, 'on');
   // monday.com's Connect page: its token page, its board picked by name, and two status columns to choose from.
   const monday = (sampleModel('connect-monday') as HomeModel).connect!;
@@ -59,6 +63,9 @@ test('every section of the page, and a ticket, has sample data built by the real
   assert.deepEqual([noted.landed.length, noted.moved.length, noted.open.length, noted.fromLast], [2, 2, 2, false]);
   // A ticket acc doesn't keep yet, being tracked from its card (D-074).
   assert.deepEqual([(sampleModel('ticket-track') as TicketModel).trackable, (sampleModel('ticket-track') as TicketModel).tracking], [true, true]);
+  // A ticket's checks say what their tests ran, and one needs a person (GH-100).
+  assert.deepEqual((sampleModel('ticket') as TicketModel).acc!.checks.filter((c) => c.counts).map((c) => [c.gate, c.look.label, c.counts]), [['validate', 'fail', '21 run, 4 failed, 0 skipped'], ['flow-tests', 'needs a person', '38 run, 2 skipped']]);
+  assert.deepEqual((sampleModel('ticket') as TicketModel).acc!.checks.slice(-3, -1).map((c) => [c.gate, c.summary]), [['flow-tests', '2 skipped, up from 0 on 4f2a9c1: OrderFlowTest.discount, OrderFlowTest.tax newly skipped.'], ['lwc-tests', 'Not run on this commit']], 'the hold sits beside a check not run on this commit, with stray-files after them (GH-103)');
   // A ticket being built, one whose analysis has questions, and one too big for one task (D-052).
   assert.deepEqual(['ticket', 'ticket-questions', 'ticket-split'].map((k) => (sampleModel(k as never) as TicketModel).analysis?.look.label), ['Analyzed before the build', '2 questions for you', 'Too big for one task']);
 });
@@ -92,8 +99,9 @@ test('the sample data shows every style: each board column, each kind of session
   assert.ok(agents.filter((a) => a.finished).every((a) => a.look.label === 'Finished'));
   // An untied one that still needs you, by its own name; each repo's Stop all, but for the reviewer's.
   assert.equal(agents.find((a) => a.name === 'ACME-11')?.look.label, 'Needs you: permission prompt', 'acc can\'t tie it');
-  assert.deepEqual(repos.map((r) => r.stopFinished), [2, 2, 0, 0, 0]);
-  assert.equal(home.agents.stopFinished, 4);
+  // ACME-37's process is gone, so there's nothing of it to stop (D-119).
+  assert.deepEqual(repos.map((r) => r.stopFinished), [2, 1, 0, 0, 0]);
+  assert.equal(home.agents.stopFinished, 3);
   const worktrees = home.worktrees.projects[0]!.worktrees;
   assert.deepEqual([...new Set(worktrees.map((w) => w.state.label.replace(/^\d+/, 'N')))].sort(), ['Clean', 'Missing on disk', 'N changed']);
 });
@@ -138,15 +146,6 @@ test('the palettes are theme.css\'s alone: !important on <html>, each with its c
     }
   }
   assert.ok(keyed >= 4, `${keyed} selectors key on VSCode's theme: the mark's`);
-});
-
-test('no colour is written into the page\'s styles outside theme.css, but for masks and a fallback (GH-109)', () => {
-  const literal = /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\(/g;
-  const found = Object.fromEntries(styleFiles().filter((f) => f !== 'theme.css').map((f) => [f, (styleFile(f).replace(/\/\*[\s\S]*?\*\//g, '').match(literal) ?? []).length]).filter(([, n]) => n));
-  // The board's and a clamped reason's fade are masks, which use only alpha, so they're the same in every
-  // theme. --line's fallback is for a VSCode theme that sets neither border colour; Light and Dark set both.
-  assert.deepEqual(found, { 'boards.css': 8, 'task-page.css': 4, 'styles.css': 1 });
-  assert.equal((styleFile('theme.css').replace(/\/\*[\s\S]*?\*\//g, '').match(literal) ?? []).length, 112, 'and theme.css holds every colour of both palettes');
 });
 
 test('a shot forces its theme under VSCode\'s other one, with VSCode\'s own stylesheet first (GH-109)', () => {

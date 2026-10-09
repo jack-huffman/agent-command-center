@@ -135,15 +135,14 @@ export function agentLook(s: AgentSession, asking?: string | null, tie?: Session
 }
 
 /**
- * The sessions Stop finished sessions stops (D-095): background sessions whose work is over, that Claude
- * Code still holds. A builder left at its prompt can have lost its process and still be listed, blocked,
- * until it's stopped; one that's done, stopped or failed with no process has ended already. Never a
- * session acc can't tie, its task's current builder while the task isn't done, a review or analysis
- * under way, an interactive session, or one that's busy or has a question waiting.
+ * The sessions Stop finished sessions stops (D-095, D-119): background sessions whose work is over and
+ * whose process still runs. One with no process has nothing left to stop, whatever state it's listed in:
+ * claude stop can't confirm stopping it, so it stays in the Finished fold, marked as ended. Never a session
+ * acc can't tie, its task's current builder while the task isn't done, a review or analysis under way, an
+ * interactive session, or one that's busy or has a question waiting.
  */
 export function stopFinishedPlan(sessions: AgentSession[], tieFor: (s: AgentSession) => SessionTie | null | undefined, askingFor: (s: AgentSession) => string | null | undefined): AgentSession[] {
-  const held = (s: AgentSession) => !!s.pid || !(s.state === 'done' || s.state === 'stopped' || s.state === 'failed');
-  return sessions.filter((s) => s.kind === 'background' && !!s.id && held(s) && finishedSession(s, tieFor(s), askingFor(s)));
+  return sessions.filter((s) => s.kind === 'background' && !!s.id && !!s.pid && finishedSession(s, tieFor(s), askingFor(s)));
 }
 
 /** Claude Code for VSCode (D-040): its documented link opens a session's conversation in a tab. */

@@ -23,7 +23,7 @@ export function renderTasks(m: TasksModel): Node[] {
       const toggle = el('div', 'segmented');
       toggle.setAttribute('role', 'group');
       toggle.setAttribute('aria-label', 'Which board');
-      for (const [m, label, ic] of [['tracker', p.boards.length === 1 ? p.boards[0]!.title : 'Tracker boards', KIND_ICON[p.boards[0]!.kind] ?? 'issues'], ['agents', 'Agent board', 'hubot']] as const) {
+      for (const [m, label, ic] of [['tracker', p.boards.length === 1 ? p.boards[0]!.tab : 'Tracker boards', KIND_ICON[p.boards[0]!.kind] ?? 'issues'], ['agents', 'Agent board', 'hubot']] as const) {
         const b = el('button', `seg${mode === m ? ' on' : ''}`, icon(ic), label) as HTMLButtonElement;
         b.type = 'button';
         b.setAttribute('aria-pressed', String(mode === m));
@@ -115,7 +115,7 @@ export function renderTasks(m: TasksModel): Node[] {
   });
 }
 
-const SOURCE_LABEL: Record<string, string> = { 'jira-board': 'Jira board', 'github-project': 'GitHub Project', 'github-state': 'Open and closed', 'azure-board': 'Azure board', 'monday-board': 'monday.com board' };
+const SOURCE_LABEL: Record<string, string> = { 'jira-board': 'Jira board', 'github-project': 'GitHub Project', 'github-state': 'Open and closed columns', 'azure-board': 'Azure board', 'monday-board': 'monday.com board' };
 export const KIND_ICON: Record<string, string> = { github: 'github', jira: 'issues', azure: 'azure-devops', monday: 'table', acc: 'checklist' };
 export const KIND_NAME: Record<string, string> = { github: 'GitHub', jira: 'Jira', azure: 'Azure DevOps', monday: 'monday.com' };
 
@@ -183,12 +183,16 @@ function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
   tools.push(change);
   const out = el('section', 'tracker',
     el('div', 'tracker-head',
-      el('h2', '', icon(KIND_ICON[b.kind] ?? 'issues'), b.title, b.source ? el('span', 'chip', SOURCE_LABEL[b.source] ?? b.source) : null, b.signedInAs && !b.signIn ? el('span', 'acting', icon('account'), `as ${b.signedInAs}`) : null, b.loading ? el('span', 'muted loading', icon('sync~spin'), 'Loading') : null),
+      el('h2', '', icon(KIND_ICON[b.kind] ?? 'issues'), b.title, b.loading ? el('span', 'muted loading', icon('sync~spin'), 'Loading') : null),
       el('div', 'toolbar', ...tools)));
-  // Where its tickets come from (D-072): only these are shown, tracked or taken in.
-  if (b.place) out.append(el('p', 'tracker-place', icon('filter'), el('span', '', 'Tickets from ', el('strong', '', b.place))));
-  // Who it's signed in as, and whether every project on the site shares that sign-in (GH-79).
-  if (b.signIn) out.append(el('p', 'tracker-place tracker-signin', icon(b.signIn.icon, b.signIn.tone), el('span', '', b.signIn.label)));
+  // One quiet line under its name, each fact once: what its columns are; where its tickets come from (D-072),
+  // when that narrows it; and who it's signed in as, with whether every project on the site shares that (GH-79).
+  const meta: HTMLElement[] = [];
+  if (b.source) meta.push(el('span', 'meta-item', icon(b.source === 'github-state' ? 'list-flat' : 'project'), SOURCE_LABEL[b.source] ?? b.source));
+  if (b.place) meta.push(el('span', 'meta-item', icon('filter'), el('span', '', 'Tickets from ', el('strong', '', b.place))));
+  if (b.signIn) meta.push(el('span', 'meta-item', icon(b.signIn.icon, b.signIn.tone), b.signIn.label));
+  else if (b.signedInAs) meta.push(el('span', 'meta-item', icon('account'), `as ${b.signedInAs}`));
+  if (meta.length) out.append(el('div', 'tracker-meta', ...meta));
   if (b.left.length) {
     out.append(el('div', 'notice attention left-place', icon('warning', 'orange'),
       el('div', 'left-text', el('strong', '', `Left this repo's place after work started: ${plural(b.left.length, 'task')}`),
@@ -200,14 +204,14 @@ function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
     if (fix && b.connect) { fix.type = 'button'; const c = b.connect; fix.addEventListener('click', () => api.postMessage({ type: 'toolbar', command: c.command, arg: c.arg })); }
     out.append(el('div', 'notice attention', icon('warning', 'orange'), el('span', '', b.error), fix));
   }
-  if (b.notice) out.append(el('div', 'notice', icon('info'), el('span', '', b.notice)));
+  if (b.notice) out.append(el('div', 'notice info', icon('info', 'blue'), el('span', '', b.notice)));
   if (!b.columns.length) {
     if (!b.error) out.append(el('p', 'muted', b.loading ? 'Loading the board…' : 'This board has no columns.'));
     return out;
   }
   const board = el('div', 'board');
   for (const c of b.columns) {
-    const col = el('section', `column tone-edge-${c.tone}${c.done ? ' done-col' : ''}`, el('h2', '', c.name, el('span', 'count', String(c.cards.length))));
+    const col = el('section', `column tone-edge-${c.tone}${c.done ? ' done-col' : ''}`, el('h2', '', icon(c.icon, c.tone), c.name, el('span', 'count', String(c.cards.length))));
     col.setAttribute('aria-label', `${c.name}: ${plural(c.cards.length, 'ticket')}`);
     col.dataset.col = c.id;
     for (const card of c.cards) col.append(trackerCard(root, b, card));

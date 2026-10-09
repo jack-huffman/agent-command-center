@@ -31,6 +31,15 @@ export const COMMANDS = {
   chooseFolder: 'acc.chooseFolder',
 } as const;
 
+/**
+ * The step a step command is about: a step id from a walkthrough button, or a Setup view item from a menu.
+ * Anything else, or an id no step has, is undefined, so the command says so instead of throwing (GH-106).
+ */
+export function stepIdOf(a: unknown, ids: readonly string[]): string | undefined {
+  const id = typeof a === 'string' ? a : (a as { item?: { id?: unknown } } | null | undefined)?.item?.id;
+  return typeof id === 'string' && ids.includes(id) ? id : undefined;
+}
+
 export const contextKey = (stepId: string): string => `acc.step.${stepId}`;
 
 /** A command link. On a line of its own, VSCode shows it as a button. */

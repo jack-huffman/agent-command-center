@@ -8,7 +8,7 @@ import { parseConfig } from '../../packages/core/src/config.ts';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import { makeRepo, tempDir } from '../../packages/core/test/support.ts';
 import { repoKey } from '../src/logic/connect.ts';
-import { afterFullCheck, afterStepCheck, buildWalkthroughs, commandLink, COMMANDS, contextKey, type DoctorItem, EXTENSION_ID, hasPlaceholder, importRulesCommand, initArgs, initCommand, initOutput, isComplete, machineCache, mediaPath, pendingProject, productionOrgs, rememberTemplate, reusableMachine, rulesDetail, setupOrgChoices, shownRules, shownTemplate, startTracker, statusText, stepDescription, stepMedia, summarize, templateDetail } from '../src/logic/setup.ts';
+import { afterFullCheck, afterStepCheck, buildWalkthroughs, commandLink, COMMANDS, contextKey, type DoctorItem, EXTENSION_ID, hasPlaceholder, importRulesCommand, initArgs, initCommand, initOutput, isComplete, machineCache, mediaPath, pendingProject, productionOrgs, rememberTemplate, reusableMachine, rulesDetail, setupOrgChoices, shownRules, shownTemplate, startTracker, statusText, stepDescription, stepIdOf, stepMedia, summarize, templateDetail } from '../src/logic/setup.ts';
 import { needsTerminal } from '../src/logic/runs.ts';
 import { staleFiles } from '../scripts/generate.ts';
 import { setupModel } from '../src/model/setup.ts';
@@ -372,4 +372,12 @@ test('setup reads in the order things are set up, a section for each thing, what
   assert.deepEqual(m.parts.find((p) => p.part === 'machine')!.steps.map((s) => s.id), ['A1.git', 'A1.claude-billing', 'A2.gh-login'], 'a step this build doesn\'t know goes at the end of its group');
   assert.deepEqual(project.steps.map((s) => [s.look.label, s.done]), [['Done', true], ['Done', true], ['Doesn\'t apply', true], ['To do', false], ['Done', true], ['Done', true], ['Doesn\'t apply', true], ['Check by hand', false]]);
   assert.deepEqual([m.done, m.total], [9, 11]);
+});
+
+test('a step command names a step that\'s there, or none: acc.step.check, acc.step.fix, acc.step.openSetup, acc.step.confirm, acc.openGuide (GH-106)', () => {
+  const ids = STEPS.map((s) => s.id);
+  assert.equal(stepIdOf('B0.repo', ids), 'B0.repo', 'a walkthrough button');
+  assert.equal(stepIdOf({ item: { id: 'A1.git' } }, ids), 'A1.git', 'a Setup row');
+  // Each of these threw "Unknown step", so the command rejected.
+  for (const junk of [undefined, null, '', '../x', 'B99.nope', 0, {}, { item: null }, { item: { id: 5 } }, ['B0.repo']]) assert.equal(stepIdOf(junk, ids), undefined, JSON.stringify(junk));
 });

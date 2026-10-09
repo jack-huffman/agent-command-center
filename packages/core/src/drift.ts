@@ -38,6 +38,8 @@ export interface DriftDeps {
   now: () => Date;
   slots?: SlotOptions;
   onWait?: () => void;
+  /** Called once the environment and its baseline are found, just before the org is read. */
+  onRetrieve?: (env: Environment) => void;
 }
 
 export function environmentNamed(config: Config, name: string): Environment {
@@ -121,6 +123,7 @@ export function drift(paths: RepoPaths, config: Config, envName: string, deps: D
   const base = git(['rev-parse', ref]).stdout.trim();
   if (git(['cat-file', '-e', `${base}:${manifest}`]).code !== 0) throw new AccError('usage', `${ref} has no ${manifest}. Make the baseline manifest first (ONBOARDING.md, B5), or pass --manifest.`);
 
+  deps.onRetrieve?.(env);
   const dir = join(paths.stateDir, 'drift', `${env.branch}-${deps.now().getTime()}`);
   mkdirSync(join(paths.stateDir, 'drift'), { recursive: true });
   const add = git(['worktree', 'add', '--detach', '--quiet', dir, base]);

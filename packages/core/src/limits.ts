@@ -6,7 +6,7 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { loadConfig } from './config.ts';
+import { loadConfig, STRAY_FILES } from './config.ts';
 import { writeJsonKey } from './config-edit.ts';
 import { AccError } from './exec.ts';
 import { gatesFor } from './gates.ts';
@@ -47,8 +47,10 @@ export const agentsMaxSet = (configFile: string): boolean => configSets(configFi
 /** Names, each once, in the order given; every one a check the project has. */
 function gateNames(configFile: string, names: string[], what: string): string[] {
   const { config } = loadConfig(configFile);
-  const known = gatesFor(config).map((g) => g.name);
+  // stray-files is on unless strayFiles.required turns it off (GH-103): it isn't named in either list.
+  const known = gatesFor(config).map((g) => g.name).filter((n) => n !== STRAY_FILES);
   const list = [...new Set(names.map((n) => n.trim()).filter(Boolean))];
+  if (list.includes(STRAY_FILES)) throw new AccError('usage', `${STRAY_FILES} is required unless "strayFiles": { "required": false } turns it off in .acc/config.json, so it isn't named here. ${what} from: ${known.join(', ') || 'none yet'}.`);
   const unknown = list.filter((n) => !known.includes(n));
   if (unknown.length) {
     throw new AccError('usage', `${unknown.join(', ')} ${unknown.length === 1 ? 'isn\'t a check' : 'aren\'t checks'} this project has. ${what} from: ${known.join(', ') || 'none yet. Add commands under "gates.commands" in .acc/config.json'}.`);

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { parseConfig, type Config } from '../src/config.ts';
@@ -8,12 +8,16 @@ import { run, type RunOptions, type RunResult } from '../src/exec.ts';
 import { runGates, waiveGates } from '../src/gates.ts';
 import { mutate, readLedger, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
-import { latestVerdict, parseReview, readVerdict, review, reviewing, reviewPrompt } from '../src/review.ts';
+import type { Receipt } from '../src/receipts.ts';
+import { checkLine, DUPLICATE_HELPER, latestVerdict, parseReview, readVerdict, review, reviewing, reviewPrompt } from '../src/review.ts';
 import { rulesText } from '../src/rules.ts';
+import { NO_COUNTS } from '../src/test-counts.ts';
 import { fakeAwake, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo } from './support.ts';
 
-const now = () => new Date('2026-10-02T12:00:00Z');
-const RAW = { ...GENERIC_CONFIG, gates: { required: ['test'], commands: { test: 'true' } } };
+const NOW = '2026-10-02T12:00:00Z';
+const now = () => new Date(NOW);
+// Its tasks add files at the root; stray-files has its own tests (GH-103).
+const RAW = { ...GENERIC_CONFIG, gates: { required: ['test'], commands: { test: 'true' } }, strayFiles: { required: false } };
 
 /** A repo with one task in review on a branch with a commit, its checks passed. */
 function setup(state = 'review') {
@@ -144,10 +148,44 @@ test('the reviewer is told to judge each criterion and skip style, and Salesforc
   assert.match(sf.system, /acceptance criterion/);
   assert.match(sf.system, /Skip formatting/);
   assert.ok(!sf.system.includes('bulk-safe'), 'the profile\'s rules are said once, among the rules, not again here');
-  assert.match(sf.prompt, /## Rules\n\n.*this repo's own rules win over the others\.\n\n### The Salesforce profile's rules\n\n- Apex is bulk-safe/);
+  assert.match(sf.prompt, /## Rules\n\n.*this repo's own rules win over the others\.\n\n### Every project's rules\n\n- Put new behaviour in its own file\.[^#]*\n\n### The Salesforce profile's rules\n\n- Apex is bulk-safe/);
   const generic = reviewPrompt({ ...base, config: { profile: 'generic' } as never, rules: rulesText(dir, 'generic') });
   assert.ok(!generic.system.includes('Apex') && !generic.prompt.includes('Apex'), 'the core stays project-agnostic');
   assert.match(reviewPrompt({ ...base, config: { profile: 'generic' } as never, diff: 'x'.repeat(200_000) }).prompt, /too long to include/);
+});
+
+test('the reviewer is told a newly added skip, only or todo is a must-fix finding unless the task asks for it, and reads what each check\'s tests ran (GH-100)', () => {
+  const base = { task: { id: 'T-1', title: 'x' } as never, envName: 'Dev', envBranch: 'dev', sha: 'abcdef1234', packet: 'p', diff: 'd', stat: 's', rules: null };
+  for (const profile of ['generic', 'salesforce']) {
+    const { system } = reviewPrompt({ ...base, checks: [], config: { profile } as never });
+    assert.match(system, /^- Did it add a skip, only or todo to a test \(it\.skip, xit, describe\.skip, test\.only, fit, it\.todo, \{ skip: true \}, t\.skip\(\), t\.todo\(\)\)\? Each is a finding with must: true, unless the task asks for it/m, profile);
+  }
+  const at = { sha: 'a'.repeat(40), env: 'main', startedAt: NOW, finishedAt: NOW, durationMs: 1, log: null };
+  const counted: Receipt = { ...at, gate: 'check', status: 'hold', summary: '3 skipped, up from 1 on bbbbbbb: slow sync newly skipped.', command: 'npm run check', counts: { run: 312, passed: 312, failed: 0, skipped: 3, todo: 0, skippedNames: ['a', 'b', 'slow sync'], runner: 'node:test' }, countsNote: 'Compared with 1 skipped on bbbbbbb, the nearest earlier count on main. Newly skipped: slow sync.' };
+  const unread: Receipt = { ...at, gate: 'test', status: 'pass', summary: 'Passed.', command: 'make test', countsNote: NO_COUNTS };
+  const plain: Receipt = { ...at, gate: 'lint', status: 'pass', summary: 'Passed.', command: 'eslint .' };
+  assert.deepEqual([counted, unread, plain].map(checkLine), [
+    '- check: hold. 3 skipped, up from 1 on bbbbbbb: slow sync newly skipped. Tests: 312 run, 3 skipped. Compared with 1 skipped on bbbbbbb, the nearest earlier count on main. Newly skipped: slow sync.',
+    `- test: pass. Passed. Tests: not read. ${NO_COUNTS}`,
+    '- lint: pass. Passed.',
+  ]);
+  const { prompt } = reviewPrompt({ ...base, checks: [counted].map(checkLine), config: { profile: 'generic' } as never });
+  assert.match(prompt, /## The checks on this commit\n\n- check: hold\. .* Tests: 312 run, 3 skipped\./);
+});
+
+test('in every profile, the reviewer looks for a new helper that duplicates an existing one, and names both (GH-104)', () => {
+  const base = { task: { id: 'T-1', title: 'x' } as never, envName: 'Dev', envBranch: 'dev', sha: 'abcdef1234', packet: 'p', diff: 'd', stat: 's', checks: [], rules: null };
+  for (const profile of ['generic', 'salesforce'] as const) {
+    const { system } = reviewPrompt({ ...base, config: { profile } as never });
+    assert.ok(system.includes(`\n- ${DUPLICATE_HELPER}\n`), profile);
+    assert.match(system, /helper that does what an existing one already does\? Search for one/, profile);
+    assert.match(system, /name both in the finding's message, each as file:line/, profile);
+    assert.match(system, /exported, the finding must be fixed \(must: true\): use it instead\. A near-copy of a local, unexported one is must: false/, profile);
+  }
+  // The plugin's reviewer says the same.
+  const md = readFileSync(join(import.meta.dirname, '..', '..', '..', 'plugin', 'agents', 'reviewer.md'), 'utf8');
+  assert.match(md, /- Does it add a helper that does what an existing one already does\? .* each as file:line\. When the existing one is exported, it must be fixed/);
+  assert.match(md, /- In every project, also: new behaviour is in its own file, registered with one line .* temp file then a rename\./);
 });
 
 test('the reviewer reads the builder\'s note as its own account, to check against the diff, or that it left none (D-106)', () => {
