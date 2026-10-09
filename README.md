@@ -28,7 +28,15 @@ Salesforce. Project types plug in as profiles.
   a GitHub tracker, `"edits"` also lets `acc sync` close a task's issue when its
   work merges, with a comment naming the pull request; `acc sync --close-done`
   closes the issues of tasks done before that.
-- **Ticket updates are yours to post:** apart from that close, acc never posts
+- **A GitHub Project's columns follow the task:** under `"edits": true`, as acc
+  moves a task, its issue's card moves on the Project to the column of that
+  name: Todo for to do and ready, In Progress for running and rework, Testing
+  (or In Review) for review, Blocked, and Done. `statusFor` in the tracker's
+  record names other columns, such as `{ "review": "QA" }`. A Project without
+  the column is left alone, a card you drag stays put until the task moves
+  again, and a move that fails is named on the task without holding it up.
+- **Ticket updates are yours to post:** apart from that close and those card
+  moves, acc never posts
   on a ticket. When a pull request is ready for review, merges, or deploys, or
   a builder needs the client's answer, acc drafts an update in plain words. It
   waits in Needs you and on the task's page, where you edit it and post it as

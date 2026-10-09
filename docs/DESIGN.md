@@ -210,7 +210,7 @@ doesn't know, at any level (GH-107).
 | `environments` | Every org the project has, whether or not it's on a promotion path. Each has a `name`; a `branch`, always the lower-cased name, which can be left out (D-015); a `type` (`production`, `full`, `partial`, `developer`, `developer_pro`, or `none` outside Salesforce) and, in the `salesforce` profile, an `org` alias. Exactly one is the `default`, the one day-to-day work starts from. A task builds from one environment's branch, and its pull request goes back into it. **Protected** environments (`protected`, and Production always) never receive agent work. `promotesTo` lists where it can promote to, usual step first ([section 11](#11-landing)) |
 | `environmentSpecific` | A list of files that differ by design in every environment, such as email service addresses, SSO and org settings. These are never edited by a task, never deployed, and never promoted (D-016) |
 | `knownDrift` | Files that a drift check should expect to differ, such as features a sandbox lacks or ordering noise. They can still be edited and promoted |
-| `trackers` | Where intake reads from. Several are allowed, each of a `kind`: `jira`, `github`, `azure` or `monday`. A Jira tracker names its `site` and `project` key; a GitHub one its `repo`, the project's own by default; an Azure DevOps one its `organization` and `project`, and may name the `team` whose board to show; a monday.com one its `account` and `board`, and may name a `statusColumn` (D-085). An Azure DevOps or monday.com tracker's keys start with its `prefix`, `AB` or `MON` by default, so two trackers never give the same keys. A GitHub tracker's `skipLabels` lists labels whose issues aren't tasks, such as `["milestone"]` (D-048). Each tracker's place holds every read to this repo's tickets: its project, repo or monday.com `board`, narrowed by a Jira `epic`, GitHub `labels` (any one counts), an Azure `areaPath` or a monday.com `group` (D-072). Elsewhere, `board` is the board the Tasks tab shows: a Jira board id, a GitHub Project number or an Azure board's name. `edits`, when `true`, lets the task page change a ticket's status, assignee and labels, and `acc sync` close a GitHub issue when its work merges; it's off by default (D-066, D-082) |
+| `trackers` | Where intake reads from. Several are allowed, each of a `kind`: `jira`, `github`, `azure` or `monday`. A Jira tracker names its `site` and `project` key; a GitHub one its `repo`, the project's own by default; an Azure DevOps one its `organization` and `project`, and may name the `team` whose board to show; a monday.com one its `account` and `board`, and may name a `statusColumn` (D-085). An Azure DevOps or monday.com tracker's keys start with its `prefix`, `AB` or `MON` by default, so two trackers never give the same keys. A GitHub tracker's `skipLabels` lists labels whose issues aren't tasks, such as `["milestone"]` (D-048). Each tracker's place holds every read to this repo's tickets: its project, repo or monday.com `board`, narrowed by a Jira `epic`, GitHub `labels` (any one counts), an Azure `areaPath` or a monday.com `group` (D-072). Elsewhere, `board` is the board the Tasks tab shows: a Jira board id, a GitHub Project number or an Azure board's name. `edits`, when `true`, lets the task page change a ticket's status, assignee and labels, `acc sync` close a GitHub issue when its work merges, and acc move a task's card on its GitHub Project as the task changes state; it's off by default (D-066, D-082, D-126). A GitHub tracker's `statusFor` names the Project column a task's card moves to for each state, such as `{ "review": "QA" }`: its keys are `todo`, `ready`, `running`, `review`, `rework`, `blocked` and `done`, and a state it leaves out goes to its usual column ([section 11](#11-landing)) |
 | `agents.max` | Most builder sessions at once, default 3. `acc agents max <n>` and Settings' Limits and checks change it; this machine's total, if it has one (`acc machine agents`), caps every repo's builders together (GH-111) |
 | `agents.permissionMode` | The permission mode builders run in: `default`, `acceptEdits` (the default), `plan`, `auto` or `dontAsk`. `bypassPermissions` is never allowed |
 | `agents.builder`, `agents.reviewer` | The `model`, `effort` and `fallbackModel` builders and reviewers run with (D-036). A `model` is an alias, such as `opus`, or a full name; left out, acc's default, `claude-opus-5-5` (D-086). `effort` is `low`, `medium`, `high`, `xhigh` or `max`, and `fallbackModel` is the model Claude Code turns to when the first is overloaded; either left out is Claude Code's own default. A clone's own choice, made with `acc agents set`, wins over these ([section 7](#7-dispatch)) |
@@ -958,6 +958,33 @@ post or discard.
   tickets are never changed: their status is the client's workflow.
   `acc sync --close-done [--plan]` is a person's one-off tidy for tasks done
   before this, under the same rule, listing each.
+- **A GitHub Project's columns follow the task** (GH-146, D-126). Where the
+  GitHub tracker says `"edits": true`, each time acc moves a task from one of
+  its issues to another state, it sets the issue's card on the board's Project
+  (the tracker's `board`, else the repo's first open Project with a Status
+  field) to the column for the new state, matched by name, ignoring case:
+
+  | State | Column |
+  |---|---|
+  | todo, ready | Todo |
+  | running, rework | In Progress |
+  | review | Testing, or In Review where the Project has no Testing |
+  | blocked | Blocked |
+  | done | Done |
+
+  The tracker's `statusFor` names another column for a state, such as
+  `{ "review": "QA" }`; ready takes todo's when it names none of its own. A
+  Project with no such column, or an issue not on it, is left alone. The one
+  write is the card's Status field, as the repo's account (D-007), after the
+  command's own move: `acc set`, `done`, `block`, `dispatch`, `review`, `land`,
+  `sync`, `intake github` and each autopilot pass follow the tasks they moved.
+  Nothing that only reads moves a card, the Command Center's reads among them
+  (D-012). acc moves a card once per state the task enters, so a card a person
+  drags on the Tasks tab stays where they put it until the task moves again.
+  The outcome is kept on the task (`card`: the state, the column, when, or why
+  it failed). A failed move is said once, by the command that tried, and
+  `acc show` names it while the task stays in that state; it never undoes or
+  blocks the task's move.
 - `acc cleanup <id>` removes the worktree and local branch, but only once the
   pull request is merged and the worktree is clean.
 
@@ -1323,7 +1350,9 @@ The extension handles every workspace folder that has `.acc/config.json`.
   `"edits": true` in `.acc/config.json`, as this repo's own GitHub tracker does
   (D-066). A client's tracker is theirs. Comments stay. On a GitHub tracker,
   `"edits"` also lets acc sync close a task's issue when its work merges
-  (D-082).
+  (D-082), and acc move a task's card to the column for its state as acc
+  moves the task (D-126, [section 11](#11-landing)). A drag is a person's
+  move: acc leaves the card there until the task changes state again.
 - **Updates acc drafted** for the ticket come first in its Activity, each in a
   box to edit, with who it posts as, Post and Discard. With no sign-in for its
   tracker, Post waits and offers the sign-in. The Overview's Needs you lists

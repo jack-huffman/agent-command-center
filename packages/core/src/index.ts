@@ -7,6 +7,7 @@ export * from './autopilot-log.ts';
 export { type AutopilotOutcome, type Decision, type FactsGitHub, failedChecks, inQueueAt, nextStep, resumedByAutopilot, reworkedByAutopilot, type StepConfig, type TaskFacts, taskFacts } from './autopilot-rules.ts';
 export * from './autopilot.ts';
 export * from './awake.ts';
+export * from './cards.ts';
 export * from './carried.ts';
 export * from './checks.ts';
 export * from './closing.ts';

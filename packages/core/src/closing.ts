@@ -31,15 +31,19 @@ export interface IssueClose {
 }
 
 /** How long each gh call may take, as acc sync's others do. */
-const GH_CALL_MS = 60_000;
+/** How long one gh call may take, for closing an issue and moving its card (GH-146). */
+export const GH_CALL_MS = 60_000;
 
 const ALREADY_CLOSED = 'it was already closed';
 
 /** The drafts a close stands in for: its comment says the change merged, so they'd say it again. */
 const STOOD_IN = new Set<UpdateEvent>(['pr-opened', 'pr-updated', 'merged']);
 
-/** The GitHub tracker that owns GH- keys (trackerForKey: the first), when it lets acc change its tickets. */
-function editsTracker(config: Config): Config['trackers'][number] | null {
+/**
+ * The GitHub tracker that owns GH- keys (trackerForKey: the first), when it lets acc change its tickets:
+ * the one rule for both changes acc makes to them, closing an issue and moving its card (GH-146).
+ */
+export function editsTracker(config: Config): Config['trackers'][number] | null {
   const tracker = config.trackers.find((t) => t.kind === 'github');
   return tracker?.edits && config.github ? tracker : null;
 }
@@ -70,7 +74,8 @@ export function closeText(config: Config, task: Pick<Task, 'environment'> & { pr
 }
 
 /** What gh said, in one line. */
-const firstLine = (r: RunResult): string => (r.stderr || r.stdout).trim().split('\n')[0] || `gh exited with ${r.code}.`;
+/** gh's first line of complaint, or how it exited. */
+export const firstLine = (r: RunResult): string => (r.stderr || r.stdout).trim().split('\n')[0] || `gh exited with ${r.code}.`;
 
 type Look = { close: true } | { close: false; outcome: 'left' | 'failed'; reason: string };
 

@@ -1,9 +1,9 @@
 // acc's Tasks commands: add, import, intake, status, list, ready, show and set.
 
-import { AccError, autopilotFailure, builderStopped, claudeProjectsDir, clipSaid, closedPr, type Config, DISPLAY, displayState, type DisplayState, draftUpdate, failedChecks, filesOf, holdWords, inFlight, intakeGithub, intakeOutside, type IntakeResult, isReady, lastSaid, listSessions, moveTask, mutate, NOTE_LABELS, type NoteInput, ordinal, phaseWords, plannedFiles, queuePlaces, readAnalysis, readLedger, receiptHooks, repoPaths, resuming, run, shownNote, type Task, sharesWords, startLook, type StartLook, type State, type TaskInput, trackerForKey, type UpsertResult, upsertTasks, waits } from '../../../core/src/index.ts';
+import { AccError, autopilotFailure, builderStopped, cardFailure, claudeProjectsDir, clipSaid, closedPr, type Config, DISPLAY, displayState, type DisplayState, draftUpdate, failedChecks, filesOf, holdWords, inFlight, intakeGithub, intakeOutside, type IntakeResult, isReady, lastSaid, listSessions, moveTask, mutate, NOTE_LABELS, type NoteInput, ordinal, phaseWords, plannedFiles, queuePlaces, readAnalysis, readLedger, receiptHooks, repoPaths, resuming, run, shownNote, type Task, sharesWords, startLook, type StartLook, type State, type TaskInput, trackerForKey, type UpsertResult, upsertTasks, waits } from '../../../core/src/index.ts';
 import { type Outside, TRACKER_KINDS, type TrackerKind, trackerName } from '../../../core/src/trackers/types.ts';
 import { stateLabel, table, tone } from '../format.ts';
-import { actorFrom, type CommandArea, now, type Opts, out, project, readFileArg, stepWords } from '../shared.ts';
+import { actorFrom, type CommandArea, followingCards, now, type Opts, out, project, readFileArg, stepWords } from '../shared.ts';
 
 // ---------------------------------------------------------------- tasks
 
@@ -69,7 +69,7 @@ const intakeLines = (res: IntakeResult): string[] => {
 function cmdIntakeGithub(o: Opts): number {
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
-  const res = intakeGithub(paths, config, { run, now, env: process.env }, { label: o.label as string | undefined, actor, by });
+  const res = followingCards(paths, config, () => intakeGithub(paths, config, { run, now, env: process.env }, { label: o.label as string | undefined, actor, by }));
   out(o, () => [...upsertLines(res), ...intakeLines(res)].filter(Boolean).join('\n') || 'Nothing to do.', res);
   return res.errors.length ? 1 : 0;
 }
@@ -159,6 +159,8 @@ function cmdShow(o: Opts, id: string): number {
   if (!t) throw new AccError('no-task', `No task ${id}.`);
   const failed = autopilotFailure(t);
   const closed = closedPr(t);
+  // acc couldn't move its card on the GitHub Project as it entered this state (GH-146).
+  const card = cardFailure(t)?.replace(/[.\s]+$/, '');
   // Its pull request's checks failed on GitHub, or autopilot sent it back for them (D-076).
   const checks = failedChecks(t);
   // Its place in the repo's merge queue, and what it waits on (GH-73).
@@ -181,6 +183,7 @@ function cmdShow(o: Opts, id: string): number {
     failed ? tone(`! Autopilot couldn't ${stepWords(failed.step, failed.sha || 'it')}: ${failed.reason}`, 'orange') : '',
     checks ? tone(`! Checks failed on GitHub: ${checks.join(', ')}`, 'orange') : '',
     place ? tone(`In the merge queue: ${place.ahead ? `${ordinal(place.place)} of ${place.of}, behind ${place.ahead}` : place.phase === 'held' ? `first of ${place.of}, waiting: ${phaseWords(place.phase, t.environment, place.why)}` : `first of ${place.of}: ${phaseWords(place.phase, t.environment).toLowerCase()}`}.`, 'blue') : '',
+    card ? tone(`! Its card couldn't move on its GitHub Project: ${card}.`, 'orange') : '',
     closed ? tone(`! Pull request #${closed.number} was closed without merging. Reopen it on GitHub and land to update it, or land to open a new one.`, 'orange') : '',
     stopped ? tone(`! Its agent stopped: ${quote ?? 'its turn ended before acc done or acc block.'}${quote && !/[.!?…]$/.test(quote) ? '.' : ''} Resume it with acc resume ${t.id}.`, 'orange') : '',
     ...files.lines,
@@ -199,9 +202,9 @@ export function cmdSet(o: Opts, id: string, to: string, note: NoteInput | null =
   if (o.client !== undefined && !client) throw new AccError('usage', 'acc block --client "<the question, for the client>"');
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
-  const { task, entry } = moveTask(paths, config, id.toUpperCase(), {
+  const { task, entry } = followingCards(paths, config, () => moveTask(paths, config, id.toUpperCase(), {
     to: to as State, actor, by, reason: (o.reason as string | undefined) ?? (client ? `Waiting on the client: ${client}` : null), force: o.force === true, note,
-  }, receiptHooks(paths, config, run), now);
+  }, receiptHooks(paths, config, run), now));
   // Only the client can answer it: the ticket gets a draft, which a person reads before it's posted (D-066).
   const update = client ? draftUpdate(paths, task, { event: 'blocked', context: { question: client } }, by, now) : null;
   out(o, () => [

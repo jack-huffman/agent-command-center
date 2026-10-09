@@ -233,6 +233,17 @@ export interface AutopilotFailure {
   at: string;
 }
 
+/**
+ * acc's last move of the task's card on its GitHub Project (GH-146): the state it moved the card for, the
+ * column, and when, or why the move failed. A failure is shown on the task while it stays in that state.
+ */
+export interface CardMove {
+  state: State;
+  column: string | null;
+  at: string;
+  failed?: string;
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -255,6 +266,8 @@ export interface Task {
   autopilot?: { failed: AutopilotFailure | null; sentBack?: SentBack | null; merged?: AutopilotMerge | null; queued?: Queued | null; carried?: CarriedReview | null };
   /** It waits for another task's files, since a person dispatched it (D-093). Any move ends it. */
   held?: Hold | null;
+  /** Where acc last moved its card on the GitHub Project, or why it couldn't (GH-146). */
+  card?: CardMove | null;
   history: HistoryEntry[];
   createdAt: string;
   updatedAt: string;

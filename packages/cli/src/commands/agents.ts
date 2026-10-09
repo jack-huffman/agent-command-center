@@ -3,7 +3,7 @@
 
 import { AccError, AGENT_ROLES, type AgentRole, agentsMaxSet, autoMergeOn, autopilotDoes, builders, cleanup, clipSaid, type Config, DEFAULT_AGENTS, dispatch, filesOf, fullGates, heavySlots, loadConfig, machineAgents, machineJson, machineRepos, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, readLedger, resume, run, setAgentsMax, setAutoMerge, setAutonomy, setHeavySlots, setMachineAgents, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList, withStrayFiles } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
-import { accBinDir, accCommand, actorFrom, type CommandArea, noAgent, now, type Opts, out, personOnly, project, taskIdFrom } from '../shared.ts';
+import { accBinDir, accCommand, actorFrom, type CommandArea, followingCards, noAgent, now, type Opts, out, personOnly, project, taskIdFrom } from '../shared.ts';
 import { cmdSet } from './tasks.ts';
 
 /** "1 builder", "3 builders". */
@@ -176,7 +176,7 @@ function cmdDispatch(o: Opts, id: string | undefined): number {
   // The tasks that wait for others' files, started once they may (D-093): the Command Center runs this.
   if (o.held) {
     if (id) throw new AccError('usage', 'acc dispatch --held starts every waiting task that may go: give it no id.');
-    const r = startHeld(paths, config, deps, { actor, by });
+    const r = followingCards(paths, config, () => startHeld(paths, config, deps, { actor, by }));
     out(o, () => heldLines(r).join('\n'), r);
     return 0;
   }
@@ -188,7 +188,7 @@ function cmdDispatch(o: Opts, id: string | undefined): number {
   }
   if (o.foreground && !o.json) process.stdout.write(`Starting ${id.toUpperCase()} in this terminal. Leave the session when it's done.\n`);
   const model = typeof o.model === 'string' ? o.model : undefined;
-  const r = dispatch(paths, config, id.toUpperCase(), deps, { actor, by, foreground: o.foreground === true, withoutAnalysis: o['without-analysis'] === true, anyway: o.anyway === true, model });
+  const r = followingCards(paths, config, () => dispatch(paths, config, id.toUpperCase(), deps, { actor, by, foreground: o.foreground === true, withoutAnalysis: o['without-analysis'] === true, anyway: o.anyway === true, model }));
   if (r.held) {
     // Held, not refused: the dispatch is kept, and the task starts on its own (D-093).
     const blockers = r.waitsFor.map((w) => w.task);

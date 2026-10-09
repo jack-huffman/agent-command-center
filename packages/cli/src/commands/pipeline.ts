@@ -3,17 +3,17 @@
 
 import { AccError, alive, type Analysis, analyze, answerAnalysis, autoMergeFor, autoMergeOn, AUTOPILOT_MIN_EVERY_S, autopilotDoes, autopilotMode, autopilotPass, type AutopilotResult, type AutopilotStepName, closesIssues, closeWords, ghToken, holdAutopilot, land, mergesWords, openQuestions, readAnalysis, review, run, settleCloses, sleep, sync } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
-import { accBinDir, accCommand, actorFrom, type CommandArea, now, type Opts, out, personOnly, project, stepWords } from '../shared.ts';
+import { accBinDir, accCommand, actorFrom, type CommandArea, followingCards, now, type Opts, out, personOnly, project, stepWords } from '../shared.ts';
 import { personOnlyUpdate } from './updates.ts';
 
 function cmdReview(o: Opts, id: string): number {
   const { paths, config } = project(process.cwd());
   const { by } = actorFrom(o);
   const say = (line: string) => { if (!o.json) process.stderr.write(line + '\n'); };
-  const r = review(paths, config, id.toUpperCase(), {
+  const r = followingCards(paths, config, () => review(paths, config, id.toUpperCase(), {
     run, now, env: process.env,
     onStart: (session, sha, name) => say(tone(`Reviewing ${id.toUpperCase()} at ${sha.slice(0, 7)}. The reviewer reads and changes nothing. Session ${session}, named ${name}.`, 'dim')),
-  }, { by: `reviewer:${id.toUpperCase()} for ${by}` });
+  }, { by: `reviewer:${id.toUpperCase()} for ${by}` }));
   const v = r.verdict;
   const where = (f: { file?: string; line?: number }) => (f.file ? `${f.file}${f.line ? `:${f.line}` : ''}  ` : '');
   out(o, () => [
@@ -80,7 +80,7 @@ function cmdLand(o: Opts, id: string): number {
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
   if (actor === 'builder') throw new AccError('refused', 'A builder never lands its own work. A person does, once it\'s reviewed.');
-  const r = land(paths, config, id.toUpperCase(), { run, now, env: process.env }, { actor, by });
+  const r = followingCards(paths, config, () => land(paths, config, id.toUpperCase(), { run, now, env: process.env }, { actor, by }));
   out(o, () => [
     `${r.task.id}: ${r.opened ? 'opened' : 'updated'} pull request #${r.pr.number}  ${r.pr.url}`,
     r.update ? `  Drafted an update for ${r.update.key} (${r.update.id}). Nothing is posted until a person posts it: acc updates.` : '',
@@ -154,10 +154,10 @@ function cmdAutopilot(o: Opts): number {
         say(closed);
         return 0;
       }
-      const r = autopilotPass(paths, config, {
+      const r = followingCards(paths, config, () => autopilotPass(paths, config, {
         run, now, env: process.env, accBinDir: accBinDir(), accCommand: accCommand(), stop: orphaned,
         onStep: (task, step, sha) => say(`… ${doing[step]} ${task}${sha ? ` at ${sha.slice(0, 7)}` : ''}${after[step]}`),
-      });
+      }));
       const data = { autonomy: mode.autonomy, warnings: mode.warnings, steps: r.steps, updates: r.updates };
       if (!every) {
         out(o, () => autopilotLines(r).join('\n'), data);
@@ -188,7 +188,7 @@ function cmdSync(o: Opts): number {
   const by = closeDone ? personOnlyUpdate(o, 'close the issues of tasks already done') : null;
   const { paths, config } = project(process.cwd());
   // --plan only looks, so it doesn't sync either: a sync writes the ledger, and may close an issue.
-  const r = closeDone && plan ? { checked: 0, changes: [] } : sync(paths, config, { run, now, env: process.env });
+  const r = closeDone && plan ? { checked: 0, changes: [] } : followingCards(paths, config, () => sync(paths, config, { run, now, env: process.env }));
   const lines = [
     ...(r.checked ? [`Checked ${r.checked} open pull request${r.checked === 1 ? '' : 's'}.`] : []),
     ...r.changes.map((c) => `  ${c.task}: ${c.note}${c.moved ? ` → ${stateLabel(c.moved.to)}` : ''}${c.update ? `. Drafted an update for ${c.update.key} (${c.update.id})` : ''}`),
