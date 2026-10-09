@@ -28,6 +28,10 @@ body {
   --edge: color-mix(in srgb, var(--vscode-foreground) 14%, transparent);
   --lift: 0 1px 2px var(--vscode-widget-shadow, transparent), 0 4px 12px color-mix(in srgb, var(--vscode-widget-shadow, transparent) 60%, transparent);
   --card: var(--raised);
+  /* The accent, VSCode's link blue, as a tint for what a person can act on or read as a token. */
+  --accent: var(--vscode-textLink-foreground);
+  --accent-soft: color-mix(in srgb, var(--accent) 13%, transparent);
+  --accent-edge: color-mix(in srgb, var(--accent) 40%, transparent);
 }
 html[data-theme="light"] body, html[data-theme="vscode"] body.vscode-light, html[data-theme="vscode"] body.vscode-high-contrast-light {
   --well: color-mix(in srgb, var(--vscode-editor-background) 94%, var(--vscode-foreground) 6%);
@@ -62,19 +66,24 @@ h3 { font-size: 0.95em; font-weight: 600; margin: 4px 0 6px; color: var(--vscode
 .toolbar { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .project + .project { margin-top: 28px; }
 
+/* A button is a raised surface with a blue icon, tinted blue under the pointer, not a grey slab. */
 .btn {
   display: inline-flex; align-items: center; gap: 5px;
-  padding: 3px 9px; border-radius: 3px; cursor: pointer;
+  padding: 3px 9px; border-radius: 5px; cursor: pointer;
   font: inherit; line-height: 1.6;
-  color: var(--vscode-button-secondaryForeground);
-  background: var(--vscode-button-secondaryBackground);
-  border: 1px solid var(--vscode-button-border, transparent);
+  color: var(--vscode-foreground);
+  background: var(--raised);
+  border: 1px solid var(--edge);
+  box-shadow: 0 1px 1px var(--vscode-widget-shadow, transparent);
+  transition: background-color 0.12s, border-color 0.12s;
 }
-.btn:hover { background: var(--vscode-button-secondaryHoverBackground); }
-.btn.primary { color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
+.btn .codicon { color: var(--accent); }
+.btn:hover { background: var(--accent-soft); border-color: var(--accent-edge); }
+.btn.primary { color: var(--vscode-button-foreground); background: var(--vscode-button-background); border-color: transparent; }
+.btn.primary .codicon { color: inherit; }
 .btn.primary:hover { background: var(--vscode-button-hoverBackground); }
-.btn.ghost { background: transparent; color: var(--vscode-textLink-foreground); }
-.btn.ghost:hover { background: var(--vscode-toolbar-hoverBackground); }
+.btn.ghost { background: transparent; box-shadow: none; color: var(--accent); }
+.btn.ghost:hover { background: var(--accent-soft); border-color: var(--accent-edge); }
 .btn.danger:hover { color: var(--orange); }
 .btn:focus-visible, button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
 
@@ -87,7 +96,7 @@ h3 { font-size: 0.95em; font-weight: 600; margin: 4px 0 6px; color: var(--vscode
 .muted { color: var(--vscode-descriptionForeground); }
 .strong { font-weight: 600; }
 .mono { font-family: var(--vscode-editor-font-family); font-size: 0.92em; }
-.count { margin-left: 4px; padding: 0 7px; border-radius: 10px; font-size: 0.85em; font-weight: 500; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+.count { margin-left: 4px; padding: 0 7px; border-radius: 10px; font-size: 0.85em; font-weight: 600; background: var(--accent-soft); color: var(--accent); }
 .chip { margin-left: 6px; padding: 0 6px; border-radius: 3px; font-size: 0.85em; font-weight: 400; border: 1px solid var(--line); color: var(--vscode-descriptionForeground); }
 .badge { padding: 1px 7px; border-radius: 10px; font-size: 0.85em; border: 1px solid var(--line); }
 .badge.tone-blue { border-color: var(--blue); }
@@ -140,6 +149,8 @@ table.grid { width: 100%; border-collapse: collapse; }
 .grid tr:hover td.actions { background: linear-gradient(var(--vscode-list-hoverBackground), var(--vscode-list-hoverBackground)), var(--vscode-editor-background); }
 .btn.icon-only { width: 24px; height: 24px; padding: 0; justify-content: center; border-color: transparent; border-radius: 4px; vertical-align: middle; }
 .btn.icon-only .codicon { margin: 0; font-size: 16px; }
+.btn.icon-only { background: transparent; box-shadow: none; }
+.btn.menu-caret .codicon { color: inherit; }
 .btn.menu-caret { background: transparent; color: var(--vscode-descriptionForeground); }
 .grid tr:hover .btn.menu-caret, .btn.menu-caret:focus-visible { color: var(--vscode-foreground); }
 .btn.menu-caret:hover { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
@@ -149,7 +160,7 @@ table.grid { width: 100%; border-collapse: collapse; }
 .segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
 .segmented .seg { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; font: inherit; cursor: pointer; border: 0; background: transparent; color: var(--vscode-foreground); }
 .segmented .seg + .seg { border-left: 1px solid var(--line); }
-.segmented .seg.on { background: var(--vscode-button-secondaryBackground); font-weight: 600; }
+.segmented .seg.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .segmented .seg:hover { background: var(--vscode-toolbar-hoverBackground); }
 
 .loading { display: inline-flex; align-items: center; gap: 4px; font-size: 0.88em; font-weight: 400; }
@@ -163,7 +174,7 @@ table.grid { width: 100%; border-collapse: collapse; }
 
 .openable:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
 
-.avatar { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; font-size: 9.5px; font-weight: 600; letter-spacing: 0.02em; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); flex: none; }
+.avatar { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; font-size: 9.5px; font-weight: 600; letter-spacing: 0.02em; background: var(--accent-soft); color: var(--accent); flex: none; }
 
 /* Long text shows its first lines; Show all opens the rest. */
 .clamped { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--lines, 4); overflow: hidden; }
@@ -195,7 +206,7 @@ table.grid { width: 100%; border-collapse: collapse; }
 .doc li.task > :not(.codicon) { grid-column: 2; }
 .doc li.task.done > p { color: var(--vscode-descriptionForeground); }
 /* Inline code is a chip, as in Slack: VSCode's own inline-code colours, with an edge so it reads on any panel. */
-:is(.doc, .md) code, .tool-code, .q-rule { font-family: var(--vscode-editor-font-family); font-size: 0.92em; padding: 1px 5px; border-radius: 4px; border: 1px solid var(--edge); background: var(--vscode-textPreformat-background); color: var(--vscode-textPreformat-foreground); }
+:is(.doc, .md) code, .tool-code, .q-rule { font-family: var(--vscode-editor-font-family); font-size: 0.92em; padding: 1px 5px; border-radius: 4px; border: 1px solid var(--accent-edge); background: var(--accent-soft); color: color-mix(in srgb, var(--vscode-foreground) 72%, var(--accent)); }
 .doc .code { margin: 0 0 12px; border-radius: var(--radius); background: var(--vscode-textCodeBlock-background); overflow: hidden; }
 .doc .code-lang { font-size: 0.8em; padding: 3px 10px; color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--line); }
 .doc pre { margin: 0; padding: 10px 12px; overflow-x: auto; }
@@ -211,7 +222,7 @@ table.grid { width: 100%; border-collapse: collapse; }
 .doc .doc-table th, .doc .doc-table td { border: 1px solid var(--line); padding: 5px 9px; text-align: left; vertical-align: top; }
 .doc .doc-table th { background: var(--card); font-weight: 600; }
 .doc .media, .doc .media-inline { display: inline-flex; align-items: center; gap: 5px; }
-.doc .mention { padding: 0 4px; border-radius: 3px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); font-size: 0.93em; }
+.doc .mention { padding: 0 4px; border-radius: 3px; background: var(--accent-soft); color: var(--accent); font-size: 0.93em; }
 a.ext { color: var(--vscode-textLink-foreground); text-decoration: none; cursor: pointer; }
 a.ext:hover { text-decoration: underline; }
 .iconed { display: inline-flex; align-items: center; gap: 5px; }
@@ -241,7 +252,7 @@ html[data-theme="light"] .logo-light, html[data-theme="vscode"] body.vscode-ligh
 .nav-item:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
 .nav-item .codicon { font-size: 16px; }
 .nav-label { flex: 1; }
-.nav-count { min-width: 20px; padding: 0 6px; border-radius: 10px; font-size: 0.82em; font-weight: 600; text-align: center; line-height: 1.6; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+.nav-count { min-width: 20px; padding: 0 6px; border-radius: 10px; font-size: 0.82em; font-weight: 600; text-align: center; line-height: 1.6; background: var(--accent-soft); color: var(--accent); }
 .nav-count.attention { background: transparent; color: var(--orange); border: 1px solid var(--orange); }
 .rail-foot { margin-top: auto; display: flex; flex-direction: column; gap: 4px; padding-top: 10px; border-top: 1px solid var(--line); }
 .rail-account { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 0; border-radius: 5px; background: transparent; color: var(--vscode-foreground); font: inherit; cursor: pointer; text-align: left; flex-wrap: wrap; }

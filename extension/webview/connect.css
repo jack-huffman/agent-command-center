@@ -9,7 +9,7 @@
 .connect-choose .segmented { flex-wrap: wrap; max-width: 100%; }
 .connect-step { border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); padding: 12px 14px 4px; margin: 0 0 14px; }
 .connect-step h2 { margin-bottom: 10px; }
-.step-n { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; font-size: 0.85em; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+.step-n { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; font-size: 0.85em; background: var(--accent-soft); color: var(--accent); }
 .connect-hint { margin: 0 0 10px; }
 .cfield { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 4px 14px; align-items: start; margin: 0 0 12px; }
 .cfield-label { padding-top: 4px; font-weight: 600; }

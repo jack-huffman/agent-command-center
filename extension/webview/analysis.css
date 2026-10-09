@@ -29,7 +29,7 @@
 .an-questions > .aq:first-child, .inbox-analysis > .aq:first-child { border-top: 0; padding-top: 4px; }
 .aq-q { display: flex; align-items: baseline; gap: 8px; }
 .aq-q .strong { min-width: 0; overflow-wrap: anywhere; }
-.aq-id { flex: none; padding: 0 5px; border-radius: 4px; font-size: 0.8em; font-weight: 600; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+.aq-id { flex: none; padding: 0 5px; border-radius: 4px; font-size: 0.8em; font-weight: 600; background: var(--accent-soft); color: var(--accent); }
 .aq-why { margin-top: 2px; overflow-wrap: anywhere; }
 .aq-suggest { display: flex; align-items: flex-start; gap: 8px; width: 100%; margin: 8px 0 6px; padding: 6px 10px; text-align: left; border-radius: 5px; cursor: pointer; font: inherit; color: var(--vscode-foreground); background: var(--vscode-editor-background); border: 1px solid var(--line); }
 .aq-suggest:hover, .aq-suggest:focus-visible { background: var(--vscode-list-hoverBackground); border-color: var(--vscode-focusBorder); }

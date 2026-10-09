@@ -20,7 +20,7 @@
 .cap-card .actions { margin-top: auto; }
 /* A control that can't act here: in view, in the tab order, saying why on hover. */
 .btn.is-disabled { opacity: 0.5; cursor: not-allowed; }
-.btn.is-disabled:hover { background: var(--vscode-button-secondaryBackground); }
+.btn.is-disabled:hover { background: var(--raised); border-color: var(--edge); }
 .limit-meaning { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-width: 76ch; }
 .limit-meaning li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; align-items: start; }
 .limit-meaning li .codicon { margin-top: 2px; color: var(--vscode-descriptionForeground); }

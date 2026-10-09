@@ -5595,3 +5595,8 @@ open side by side as tabs.
   dark, at 1000, 620 and 500 px, and in the colour check.
 - Not chosen: a second panel beside the board, which would still leave the board; navigating between
   tasks inside the modal, or several modals at once.
+
+Note (D-127, 2026-10-09): the accent lifts what was grey. A button is a raised surface with an edge and a
+blue icon, tinted blue under the pointer; a primary one stays solid blue. Counts, code chips, question and
+step numbers, mentions and avatars take a soft blue tint (`--accent-soft`, `--accent-edge`, mixed from
+VSCode's link colour), not the theme's grey badge. Orange stays for what needs a person.

@@ -23,7 +23,7 @@
 .q-choice.primary { border-color: var(--vscode-button-background); }
 .q-choice .codicon { flex: none; }
 .q-rule { font-size: 0.9em; padding: 0 4px; }
-.q-num { flex: none; width: 18px; height: 18px; margin-top: 1px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.8em; font-weight: 600; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+.q-num { flex: none; width: 18px; height: 18px; margin-top: 1px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.8em; font-weight: 600; background: var(--accent-soft); color: var(--accent); }
 .q-choice.primary .q-num { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
 .q-choice-text { min-width: 0; overflow-wrap: anywhere; }
 .q-sending { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 0.92em; }
