@@ -96,7 +96,7 @@ export class About {
     this.checking = (async () => {
       this.release = parseRelease(await this.d.run('gh', RELEASE_ARGS, activeAccountEnv(this.d.env)));
     })().catch((e: unknown) => {
-      // A look that fails reads neutral, and is looked for again next time.
+      // A look that fails reads neutral. It counts as a look, so the next waits its six hours; Check now asks again.
       this.release = { ok: false, error: (e as Error).message };
     }).finally(() => {
       this.checkedAt = this.d.now();

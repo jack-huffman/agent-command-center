@@ -5,8 +5,9 @@
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 
-import { pluginBehind, versionAtLeast } from '../../../packages/core/src/onboarding/helpers.ts';
+import { pluginBehind } from '../../../packages/core/src/onboarding/helpers.ts';
 import { PLUGIN } from '../../../packages/core/src/onboarding/steps.ts';
+import { COMMANDS } from '../logic/setup.ts';
 import { durationWords } from './limits.ts';
 import type { SettingFrom } from './settings.ts';
 import { LOOK, type Look, type ModelArea } from './shared.ts';
@@ -14,7 +15,7 @@ import { LOOK, type Look, type ModelArea } from './shared.ts';
 /** The repo whose Releases are acc's: the marketplace's own, as owner/name. */
 export const RELEASES_REPO = PLUGIN.repo.replace(/^https:\/\/github\.com\//, '');
 
-/** How often a newer release is looked for while Settings shows, after the first look in a session. */
+/** How often a newer release is looked for when Settings opens, after the first look in a session. */
 export const RELEASE_EVERY_MS = 6 * 60 * 60 * 1000;
 
 /** Whether to look for a newer release now: never yet in this session, or not for RELEASE_EVERY_MS. */
@@ -93,14 +94,13 @@ export interface AboutModel {
 }
 
 /** The commands About runs: Check now, and Setup's own fix for A4 (D-088). */
-export const ABOUT_COMMANDS = { check: 'acc.about.check', fix: 'acc.step.fix' } as const;
+export const ABOUT_COMMANDS = { check: 'acc.about.check', fix: COMMANDS.fix } as const;
 
 /** A release's tag as a version: v0.38.0 is 0.38.0. */
 export const tagVersion = (tag: string): string => tag.replace(/^v(?=\d)/, '');
 
 /** Whether a release is newer than this extension. Only x.y.z against x.y.z: anything else isn't said to be newer. */
-export const releaseNewer = (release: string, current: string): boolean =>
-  /^\d+\.\d+\.\d+$/.test(release) && /^\d+\.\d+\.\d+$/.test(current) && !versionAtLeast(current, release);
+export const releaseNewer = (release: string, current: string): boolean => pluginBehind(current, release);
 
 /** gh's answer to RELEASE_ARGS. "release not found" is a repo with no release yet, not a failure. */
 export function parseRelease(r: { code: number; stdout: string; stderr: string }): Read<Release | null> {
@@ -179,7 +179,7 @@ export function aboutModel(f: AboutFacts, now: number): AboutModel {
     release: {
       look,
       notes: newer ? { label: `Read ${newer.name}'s notes`, url: newer.url } : null,
-      when: `${ago ? `Looked ${ago}, as gh's active account.` : 'Looked for as gh\'s active account.'} Looked for again at most every ${durationWords(RELEASE_EVERY_MS)} while Settings shows.`,
+      when: `${ago ? `Looked ${ago}, as gh's active account.` : 'Looked for as gh\'s active account.'} Looked for again when Settings opens, at most every ${durationWords(RELEASE_EVERY_MS)}, or now with Check now.`,
       check: { command: ABOUT_COMMANDS.check, label: 'Check now', icon: 'refresh', arg: null, name: 'Check now for a newer release, and read the versions again', primary: false, disabled: f.checking ? 'It\'s looking now.' : null },
     },
   };

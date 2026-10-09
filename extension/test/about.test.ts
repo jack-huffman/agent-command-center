@@ -37,7 +37,7 @@ test('About lists acc, the extension and the plugin, each with where it\'s read 
     ['plugin', 'The acc plugin', '0.37.0, the same as the extension', 'blue', 'Claude Code on this machine, for every session'],
   ]);
   assert.deepEqual([m.release.look.label, m.release.look.tone, m.release.notes], ['Up to date: 0.37.0 is the latest release', 'blue', null]);
-  assert.equal(m.release.when, 'Looked 12 min ago, as gh\'s active account. Looked for again at most every 6 h while Settings shows.');
+  assert.equal(m.release.when, 'Looked 12 min ago, as gh\'s active account. Looked for again when Settings opens, at most every 6 h, or now with Check now.');
   assert.deepEqual([m.release.check.command, m.release.check.label, m.release.check.disabled], ['acc.about.check', 'Check now', null]);
   assert.ok(m.rows.every((r) => r.action === null), 'nothing to do when everything is current');
 });

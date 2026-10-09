@@ -5090,7 +5090,7 @@ The author pressed Stop finished on nine such sessions and got all nine back as 
 - Not chosen: `claude rm`, which also lists a session as gone. It deletes the session's worktree, and
   Stop finished promises to keep worktrees.
 
-## D-120 Settings' About shows the versions, says a newer release and an older plugin, and Setup's machine results are kept per version (2026-10-08)
+## D-??? Settings' About shows the versions, says a newer release and an older plugin, and Setup's machine results are kept per version (2026-10-08)
 
 GH-114, the last of GH-109's six tasks. The author asked for a Settings page;
 its About part was to show the versions of acc, the extension and the plugin,
@@ -5118,7 +5118,7 @@ and say when a newer release is out.
   is signed in to gh, not a project's account; `GH_TOKEN`, `GITHUB_TOKEN` and
   the enterprise tokens are left out of its environment, since they'd win.
   It's looked for once when Settings first shows in a session (a window's
-  run of the extension), then at most every six hours while Settings shows,
+  run of the extension), then when Settings opens, at most every six hours,
   and whenever **Check now** is clicked. A newer release is orange with a link
   to its notes on GitHub (only a github.com page is linked); up to date is
   blue; a look that fails, no release yet, and not looked for yet are
