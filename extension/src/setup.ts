@@ -64,6 +64,10 @@ export class Setup implements vscode.Disposable {
   private readonly changed = new vscode.EventEmitter<void>();
   /** Fires when check results or confirmations change, for the Setup view. */
   readonly onDidChange = this.changed.event;
+  /** Whether this window's first full check has finished, and a promise that settles when it does (GH-149). */
+  private fullyChecked = false;
+  private firstChecked!: () => void;
+  private readonly firstCheck = new Promise<void>((resolve) => { this.firstChecked = resolve; });
 
   constructor(ctx: vscode.ExtensionContext) {
     this.ctx = ctx;
@@ -101,29 +105,33 @@ export class Setup implements vscode.Disposable {
     return this.folder()?.uri.fsPath ?? homedir();
   }
 
+  /** The folder's .acc/config.json, there or not: setUp(), isProject() and config() all find it here. Null with no folder open. */
+  private configFile(): string | null {
+    const f = this.folder();
+    return f ? join(f.uri.fsPath, '.acc', 'config.json') : null;
+  }
+
   /**
    * Whether the folder is set up: it has a .acc/config.json. Null with no folder open. The Command Center's
    * first open in a folder that isn't lands on Setup (GH-138), and Setup asks what kind of project it is.
    */
   setUp(): boolean | null {
-    const f = this.folder();
-    return f ? existsSync(join(f.uri.fsPath, '.acc', 'config.json')) : null;
+    const file = this.configFile();
+    return file ? existsSync(file) : null;
   }
 
   /** Project checks only run where they mean something: a configured repo or a Salesforce project. */
   private isProject(): boolean {
     const f = this.folder();
-    if (!f) return false;
-    return existsSync(join(f.uri.fsPath, '.acc', 'config.json')) || existsSync(join(f.uri.fsPath, 'sfdx-project.json'));
+    return !!f && (!!this.setUp() || existsSync(join(f.uri.fsPath, 'sfdx-project.json')));
   }
 
   /** The project config, read through core's parser so defaults (like profile = generic) match acc exactly. */
   private config(): Config | null {
-    const f = this.folder();
-    if (!f) return null;
-    const file = join(f.uri.fsPath, '.acc', 'config.json');
+    const file = this.configFile();
+    if (!file || !this.setUp()) return null;
     try {
-      return existsSync(file) ? parseConfig(JSON.parse(readFileSync(file, 'utf8'))).config : null;
+      return parseConfig(JSON.parse(readFileSync(file, 'utf8'))).config;
     } catch {
       return null;
     }
@@ -204,6 +212,23 @@ export class Setup implements vscode.Disposable {
     return [...this.items.values()];
   }
 
+  /** Whether this window's first full check has finished, so results() has the machine's rows (GH-149). */
+  checked(): boolean {
+    return this.fullyChecked;
+  }
+
+  /** Waits for this window's first full check, up to ms: true once it has finished, false if it hasn't by then. */
+  async whenChecked(ms: number): Promise<boolean> {
+    if (this.fullyChecked) return true;
+    let timer: NodeJS.Timeout | undefined;
+    const late = new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), ms); });
+    try {
+      return await Promise.race([this.firstCheck.then(() => true), late]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   /** Where setup is, for the one status bar item (D-065): done of total, how many to do, and whether it's checking. */
   look(): { done: number; total: number; todo: number; checking: boolean } {
     const all = [...this.items.values()];
@@ -241,6 +266,8 @@ export class Setup implements vscode.Disposable {
         })();
       } finally {
         this.running = undefined;
+        this.fullyChecked = true;
+        this.firstChecked();
         this.changed.fire();
       }
     })();
