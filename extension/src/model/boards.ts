@@ -101,6 +101,8 @@ export interface TrackerBoard {
   index: number;
   kind: TrackerKind;
   title: string;
+  /** Its name on the Tasks tab's board switch: a repo's issues are "Issues", since its heading names the repo. */
+  tab: string;
   source: string | null;
   url: string | null;
   notice: string | null;
@@ -113,7 +115,10 @@ export interface TrackerBoard {
    * jordan@acme.example, for every project on acme.atlassian.net". Null for GitHub, which says who in its title.
    */
   signIn: Look | null;
-  /** Where its tickets come from (D-072), drawn under its name. */
+  /**
+   * Where its tickets come from (D-072), drawn under its name, or null when it says nothing the name doesn't,
+   * as a whole repo's issues under "Issues · <repo>".
+   */
   place: string | null;
   /**
    * Tasks whose tickets left the place after work on them started (D-072). They're off this board, but
@@ -149,6 +154,12 @@ export function accLook(row: TaskRow, full = false): Look {
 /** The steps a tracker's card offers for its task: start it, its analysis (D-052), or watch its agent. */
 const NEXT_STEPS = ['acc.task.dispatch', 'acc.task.dispatchAnyway', 'acc.task.analyze', 'acc.task.watchAnalysis', 'acc.task.show', 'acc.task.watch', 'acc.task.openInClaude', 'acc.task.resume'];
 
+/** Whether a place names more than the board's title already does: its parts after the tracker's name. */
+export function placeAdds(place: string, title: string): boolean {
+  const parts = place.split(' · ').slice(1);
+  return !parts.length || parts.some((part) => !title.includes(part));
+}
+
 export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): TrackerBoard {
   const byId = new Map(rows.map((r) => [r.id, r]));
   const columns: TrackerColumn[] = (b.board?.columns ?? []).map((c) => ({
@@ -165,11 +176,12 @@ export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): Trac
       };
     }),
   }));
+  const title = b.board?.title ?? b.title;
   return {
-    index: b.index, kind: b.kind, title: b.board?.title ?? b.title, source: b.board?.source ?? null, url: b.board?.url ?? null,
+    index: b.index, kind: b.kind, title, tab: b.board?.source === 'github-state' ? 'Issues' : title, source: b.board?.source ?? null, url: b.board?.url ?? null,
     notice: b.board?.notice ?? null, error: b.error, connect: b.connect, loading: b.loading, signedInAs: b.signedInAs ?? null,
     signIn: b.signedInAs && b.signInScope ? LOOK(`Signed in as ${b.signedInAs}, ${signInScope(b.signInScope.shared, b.signInScope.host)}`, b.signInScope.shared ? 'globe' : 'repo', 'blue') : null,
-    place: b.place ?? null, left: b.left ?? [], columns,
+    place: b.place && placeAdds(b.place, title) ? b.place : null, left: b.left ?? [], columns,
   };
 }
 

@@ -123,6 +123,10 @@ table.grid { width: 100%; border-collapse: collapse; }
 .notice { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; margin-bottom: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); color: var(--vscode-descriptionForeground); }
 .notice.attention { border-left: 3px solid var(--orange); color: var(--vscode-foreground); }
 .notice > span { flex: 1; min-width: 200px; }
+/* Its icon sits beside the words, not in a column of its own: a codicon is a span too. */
+.notice > .codicon { flex: none; min-width: 0; }
+.notice.info { border-left: 3px solid var(--blue); color: var(--vscode-foreground); align-items: flex-start; }
+.notice.info > .codicon { margin-top: 2px; }
 
 .openable:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
 
