@@ -92,19 +92,23 @@ const read = (f: string): string | null => {
   }
 };
 
-test('after the split (D-099), every area module has tests near it: the CLI\'s are cli.test.ts, and an extension area\'s include its entry\'s', () => {
-  // What loads each folder's index, whose tests count for every module in it.
-  const entry: Record<string, string> = {
-    'packages/cli/src/commands': 'packages/cli/test/cli.test.ts',
-    'extension/src': 'extension/test/activate.test.ts',
-    'extension/webview': 'extension/test/screenshot.test.ts',
+test('after the split (D-099), every area module has tests near it: the CLI\'s are every command group\'s file, and an extension area\'s include its entry\'s', () => {
+  // What loads each folder's index, whose tests count for every module in it. The CLI's tests are a file per
+  // command group, named for its module (GH-131): each runs main.ts, so each is near every module.
+  const commands = FOLDERS.find((f) => f.dir === 'packages/cli/src/commands')!;
+  const cliTests = areaFiles(commands).map((f) => `packages/cli/test/${f.replace(/\.ts$/, '.test.ts')}`).filter((t) => tracked.includes(t));
+  assert.ok(cliTests.length >= 10, `${cliTests.length} command groups with tests of their own`);
+  const entry: Record<string, string[]> = {
+    'packages/cli/src/commands': cliTests,
+    'extension/src': ['extension/test/activate.test.ts'],
+    'extension/webview': ['extension/test/screenshot.test.ts'],
   };
   let checked = 0;
   for (const folder of FOLDERS) {
     for (const file of areaFiles(folder).map((f) => `${folder.dir}/${f}`)) {
       const near = nearTests([file], tracked, read);
       assert.ok(near.length, `${file} has tests near it`);
-      if (entry[folder.dir]) assert.ok(near.includes(entry[folder.dir]!), `${file}: ${near.join(', ')}`);
+      for (const t of entry[folder.dir] ?? []) assert.ok(near.includes(t), `${file}: ${t} isn't in ${near.join(', ')}`);
       checked++;
     }
   }

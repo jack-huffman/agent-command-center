@@ -1,5 +1,5 @@
 // What the junk test (GH-106, junk.test.ts) found acc doing with bad arguments, one test a cause, each naming
-// the commands it covers. They run acc from its source, as cli.test.ts does, in throwaway repos.
+// the commands it covers. They run acc from its source, as the command groups' tests do, in throwaway repos.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
