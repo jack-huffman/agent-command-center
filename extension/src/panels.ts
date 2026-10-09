@@ -144,6 +144,8 @@ export class Panels implements vscode.Disposable {
   private tab: TabTheme | null = null;
   /** A part of the section to go to with the next jump, such as Settings' How agents run. */
   private opening: string | null = null;
+  /** A first open waiting for the machine checks (GH-149): a click meanwhile is that same open. */
+  private firstOpening: Promise<void> | null = null;
   private section: HomeSection = 'overview';
   /** What the Agents tab's Where column shows, remembered for the window (GH-83). */
   private whereView: WhereView = 'folder';
@@ -214,12 +216,24 @@ export class Panels implements vscode.Disposable {
    * was sent, through show().
    */
   async open(section?: ViewKind | HomeSection): Promise<void> {
+    // Clicked again while a first open waits, it's that first open, so the jump to its part isn't lost (GH-149).
+    if (!section && this.firstOpening) return this.firstOpening;
     const now = (): FirstOpenInput => ({
       asked: !!section, open: !!this.panel, shown: !!this.ctx.workspaceState.get(FIRST_OPEN_STATE), setUp: this.setup.setUp(),
       machineChecked: this.setup.checked(), machineDone: machineDone(this.setup.results(), this.setup.allConfirmed()),
     });
-    if (waitsForMachine(now())) await this.setup.whenChecked(FIRST_OPEN_WAIT_MS);
-    const first = firstOpen(now());
+    if (!waitsForMachine(now())) return this.opened(now(), section);
+    this.firstOpening = (async () => {
+      await this.setup.whenChecked(FIRST_OPEN_WAIT_MS);
+      // Something asked for meanwhile, such as Connect a tracker, opened it already: that open stands.
+      if (!this.panel) this.opened(now(), section);
+    })().finally(() => { this.firstOpening = null; });
+    return this.firstOpening;
+  }
+
+  /** Opens it as open() decided: on Setup at its part for a first open, else as GH-113 says. */
+  private opened(i: FirstOpenInput, section?: ViewKind | HomeSection): void {
+    const first = firstOpen(i);
     if (first) {
       void this.ctx.workspaceState.update(FIRST_OPEN_STATE, true);
       return this.show(first.section, first.part);

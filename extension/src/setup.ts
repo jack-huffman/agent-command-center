@@ -64,8 +64,11 @@ export class Setup implements vscode.Disposable {
   private readonly changed = new vscode.EventEmitter<void>();
   /** Fires when check results or confirmations change, for the Setup view. */
   readonly onDidChange = this.changed.event;
-  /** Whether this window's first full check has finished, and a promise that settles when it does (GH-149). */
-  private fullyChecked = false;
+  /**
+   * Whether the latest full check returned the machine's rows (GH-149). One that got none, as when acc doctor
+   * fails, hasn't checked the machine. The promise settles when the window's first full check finishes.
+   */
+  private machineChecked = false;
   private firstChecked!: () => void;
   private readonly firstCheck = new Promise<void>((resolve) => { this.firstChecked = resolve; });
 
@@ -212,21 +215,25 @@ export class Setup implements vscode.Disposable {
     return [...this.items.values()];
   }
 
-  /** Whether this window's first full check has finished, so results() has the machine's rows (GH-149). */
+  /** Whether a full check has returned the machine's rows, so results() says how the machine is (GH-149). */
   checked(): boolean {
-    return this.fullyChecked;
+    return this.machineChecked;
   }
 
-  /** Waits for this window's first full check, up to ms: true once it has finished, false if it hasn't by then. */
+  /**
+   * Waits for this window's first full check, up to ms, then says whether the machine was checked: false if
+   * it hasn't finished by then, or finished with no machine rows.
+   */
   async whenChecked(ms: number): Promise<boolean> {
-    if (this.fullyChecked) return true;
+    if (this.machineChecked) return true;
     let timer: NodeJS.Timeout | undefined;
-    const late = new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), ms); });
+    const late = new Promise<void>((resolve) => { timer = setTimeout(resolve, ms); });
     try {
-      return await Promise.race([this.firstCheck.then(() => true), late]);
+      await Promise.race([this.firstCheck, late]);
     } finally {
       clearTimeout(timer);
     }
+    return this.machineChecked;
   }
 
   /** Where setup is, for the one status bar item (D-065): done of total, how many to do, and whether it's checking. */
@@ -259,6 +266,7 @@ export class Setup implements vscode.Disposable {
           if (cache) await this.ctx.globalState.update('acc.machineItems', cache);
           const project = this.isProject() ? await this.doctor(['--part', 'project']) : null;
           await this.applyFull(machine, project);
+          this.machineChecked = machine.length > 0;
           const items = [...machine, ...(project ?? [])];
           const fails = items.filter((i) => i.status === 'fail');
           this.log.info(`Checked ${items.length} steps (${reason}${reused ? ', machine results reused' : ''}) in ${((Date.now() - started) / 1000).toFixed(1)} s: ${fails.length} failing.`);
@@ -266,7 +274,6 @@ export class Setup implements vscode.Disposable {
         })();
       } finally {
         this.running = undefined;
-        this.fullyChecked = true;
         this.firstChecked();
         this.changed.fire();
       }
