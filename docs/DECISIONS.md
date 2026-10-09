@@ -5143,6 +5143,17 @@ and say when a newer release is out.
   always runs its own bundle and a mismatch only means the window needs a
   reload, which About says in words.
 
+Note (GH-147, 2026-10-09): A4 and About read the plugin list one way. Core's
+`parsePluginList` (over `parseClaudeList`, which A4's marketplace check uses
+too) takes the run's result and runs nothing; it replaced A4's private
+`claudeJson` and About's copy of it. A list About can't read now says A4's
+words in its neutral row, such as "Couldn't read Claude Code's plugins: claude
+plugin list didn't run: …", where it said claude's first line alone; no
+screenshot shows that state, and A4 reads as before. About's states are walked
+in `looks.test.ts`'s TABLES, and since its rows aren't looks by type, a test
+there matches every `LOOK` in `model/about.ts` to a state the walk reaches, so a
+new one it doesn't walk fails. Each state is written as its own `LOOK` for that.
+
 ## D-121 Slack, each repo's GitHub account and the Command Center's own preferences are in Settings; switching an account is a person's (2026-10-08)
 
 GH-113, the fifth of GH-109's six tasks. It amends D-078, which put Slack's

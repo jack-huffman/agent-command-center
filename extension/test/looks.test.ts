@@ -11,6 +11,7 @@ import { AUTOPILOT_STEPS, DISPLAY, QUEUE_PHASES, type SessionTie } from '../../p
 import { GATE_STATUSES } from '../../packages/core/src/receipts.ts';
 import { agentLook } from '../src/logic/agents.ts';
 import { type AgentSession, TASK_GROUPS, type TaskRow, type Tone } from '../src/logic/shared.ts';
+import { type AboutAction, type AboutFacts, aboutModel } from '../src/model/about.ts';
 import { billingLook } from '../src/model/agents.ts';
 import { accLook, CATEGORY_LOOK } from '../src/model/boards.ts';
 import { analysisLook, autopilotLook, closedPrLook, filesLook, stoppedLook } from '../src/model/cards.ts';
@@ -25,6 +26,7 @@ import { worktreeLook } from '../src/model/worktrees.ts';
 import { loadWord, taskLook } from '../src/progress.ts';
 import { SLACK_KIND_WORDS, SLACK_KINDS, slackCard } from '../src/slack.ts';
 import { PANEL, panelLook } from '../webview/looks.ts';
+import { sampleAbout } from '../scripts/fixtures/about.ts';
 import { cssRules, PALETTE_THEMES, type PaletteTheme, pageStyles, palettes } from '../scripts/styles.ts';
 import { root, row } from './support.ts';
 
@@ -136,6 +138,30 @@ export const TABLES: Table[] = [
   {
     name: 'how agents are billed', sources: ['extension/src/model/agents.ts#billingLook'],
     states: () => (['pass', 'fail', 'unknown'] as const).map((status): [string, Shown] => [status, billingLook([{ id: 'A1.claude-billing', part: 'machine', title: 'Billing', status, detail: 'API key set' }])!]),
+  },
+  {
+    // Its rows and release line aren't looks by type, so the scan doesn't find a new one: LOOKS_WALKED_BY's
+    // test matches every LOOK its source writes to a state walked here (GH-147).
+    name: 'Settings\' About', sources: ['extension/src/model/about.ts#pluginRow', 'extension/src/model/about.ts#aboutModel'],
+    states: () => {
+      const now = 1_800_000_000_000;
+      const base = sampleAbout(now);
+      const release = (version: string) => ({ ok: true as const, value: { version, tag: `v${version}`, name: `v${version}`, url: 'https://github.com/x/y' } });
+      const facts: Record<string, Partial<AboutFacts>> = {
+        'all current': {}, 'reading': { acc: null, plugin: null, reading: true }, 'checking': { checking: true }, 'never looked': { release: null, checkedAt: null },
+        'acc behind': { acc: { ok: true, value: '0.36.0' } }, 'acc won\'t run': { acc: { ok: false, error: 'boom' } }, 'no extension version': { extension: '' },
+        'no Claude Code': { plugin: { ok: false, error: 'claude isn\'t installed.', missing: true } }, 'plugins unread': { plugin: { ok: false, error: 'claude plugin list printed something other than a list.' } },
+        'no plugin': { plugin: { ok: true, value: null } }, 'plugin off': { plugin: { ok: true, value: { version: '0.37.0', enabled: false } } },
+        'plugin behind': { plugin: { ok: true, value: { version: '0.36.0', enabled: true } } }, 'plugin ahead': { plugin: { ok: true, value: { version: '0.38.0', enabled: true } } },
+        'plugin with no version': { plugin: { ok: true, value: { version: null, enabled: true } } },
+        'look failed': { release: { ok: false, error: 'offline' } }, 'no release yet': { release: { ok: true, value: null } }, 'newer release': { release: release('0.38.0') }, 'older release': { release: release('0.36.0') },
+      };
+      return Object.entries(facts).flatMap(([k, o]) => {
+        const m = aboutModel({ ...base, ...o }, now);
+        const action = (a: AboutAction | null): [string, Shown][] => (a ? [[`${k}: ${a.label}`, { label: a.label, icon: a.icon }]] : []);
+        return [...m.rows.flatMap((r): [string, Shown][] => [[`${k}: ${r.key}`, r.look], ...action(r.action)]), [`${k}: release`, m.release.look], ...action(m.release.check)];
+      });
+    },
   },
 ];
 
@@ -363,6 +389,92 @@ test('every table or function that shows a state is walked, or listed with why i
   t.diagnostic(`found ${declared.length} declarations`);
   assert.ok(declared.length >= 28, `found ${declared.length} declarations`);
   assert.deepEqual(declaredLooks('x.ts', 'export const T: Record<string, Look> = {};\nfunction f(a: (b: string) => void): Look | null {\n}\nconst g = (x: string): { look: Look } => ({});\nconst h = (): string => \'\';\nfunction k(): { a: string } | null { return { look: 1 as unknown as Look }; }\nexport function m(r: R): { look: Look; detail: string } {\n}\n'), ['x.ts#T', 'x.ts#f', 'x.ts#g', 'x.ts#m'], 'and the scan finds a table, a function and an arrow, and reads a type, not a body');
+});
+
+/**
+ * Files whose states aren't looks by type, so the scan above can't find a new one, each with the table in
+ * TABLES that walks it. Every LOOK such a file writes must be a state that table's walk reaches (GH-147).
+ */
+export const LOOKS_WALKED_BY: Record<string, string> = {
+  'extension/src/model/about.ts': 'Settings\' About',
+};
+
+/** The arguments of a call, from just inside its ( to its ), split at its own commas: strings and brackets are skipped whole. */
+function callArgs(text: string, at: number): { args: string[]; end: number } {
+  const args: string[] = [];
+  let depth = 0;
+  let start = at;
+  for (let i = at; i < text.length; i++) {
+    const c = text[i]!;
+    if (c === '\'' || c === '"') {
+      while (++i < text.length && text[i] !== c) if (text[i] === '\\') i++;
+    } else if (c === '`') {
+      while (++i < text.length && text[i] !== '`') {
+        if (text[i] === '\\') i++;
+        else if (text.startsWith('${', i)) i = callArgs(text, i + 2).end;
+      }
+    } else if ('([{'.includes(c)) depth++;
+    else if (')]}'.includes(c)) {
+      if (!depth) return { args: [...args, text.slice(start, i).trim()], end: i };
+      depth--;
+    } else if (c === ',' && !depth) {
+      args.push(text.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  return { args, end: text.length };
+}
+
+const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Each LOOK(label, icon, tone) a source writes, by its line: its label as a pattern (a template's ${…}, or a
+ * label that's an expression, matches any words), and its icon and tone, null where they aren't written out.
+ */
+export function writtenLooks(text: string): { line: number; label: RegExp; icon: string | null; tone: string | null }[] {
+  const word = (a: string | undefined): string | null => (a && /^'(?:[^'\\]|\\.)*'$/.test(a) ? a.slice(1, -1).replace(/\\(.)/g, '$1') : null);
+  return [...text.matchAll(/\bLOOK\(/g)].map((m) => {
+    const [label = '', icon, tone] = callArgs(text, m.index! + m[0].length).args;
+    const literal = word(label);
+    const pattern = literal !== null ? escapeRe(literal)
+      : label.startsWith('`') ? label.slice(1, -1).split(/\$\{(?:[^{}]|\{[^{}]*\})*\}/).map((p) => escapeRe(p.replace(/\\(.)/g, '$1'))).join('.+')
+        : '.+';
+    return { line: text.slice(0, m.index).split('\n').length, label: new RegExp(`^${pattern}$`), icon: word(icon), tone: word(tone) };
+  });
+}
+
+/** What a file writes that no walked state shows: a LOOK no walk reaches, or one whose icon or tone isn't written out. */
+export function unwalked(file: string, text: string, table: string, states: Shown[]): string[] {
+  return writtenLooks(text).flatMap((w) => !w.icon || !w.tone ? [`${file}:${w.line}: a LOOK whose icon or tone is an expression: write each state as its own LOOK`]
+    : states.some((s) => s.icon === w.icon && s.tone === w.tone && w.label.test(s.label ?? '')) ? []
+      : [`${file}:${w.line}: ${w.label.source} (${w.icon}, ${w.tone}) is a state ${table} doesn't walk`]);
+}
+
+test('every LOOK a file of looks by another name writes is a state its table walks (GH-147)', (t) => {
+  let written = 0;
+  const found: string[] = [];
+  for (const [file, name] of Object.entries(LOOKS_WALKED_BY)) {
+    const table = TABLES.find((x) => x.name === name);
+    assert.ok(table, `${name} is in TABLES`);
+    assert.ok(table.sources.some((s) => s.startsWith(`${file}#`)), `${name} names ${file} among its sources`);
+    const text = readFileSync(join(repo, file), 'utf8');
+    const looks = writtenLooks(text).length;
+    assert.ok(looks, `${file} writes no LOOK`);
+    written += looks;
+    found.push(...unwalked(file, text, name, table.states().map(([, s]) => s)));
+  }
+  assert.deepEqual(found, []);
+  t.diagnostic(`matched ${written} LOOKs in ${Object.keys(LOOKS_WALKED_BY).length} files`);
+  assert.ok(written >= 18, `matched ${written} LOOKs`);
+});
+
+test('the match finds a LOOK no walk reaches, and one whose tone is an expression (GH-147)', () => {
+  const text = 'const a = LOOK(\'Reading it\', \'sync~spin\', \'blue\');\nconst b = LOOK(`${v}, turned off (${f(x, y)})`, \'warning\', \'orange\');\nconst c = LOOK(f.value, \'pass\', \'blue\');\nconst d = LOOK(\'New\', \'pass\', \'blue\');\nconst e = LOOK(\'Odd\', \'pass\', ok ? \'blue\' : \'orange\');\n';
+  assert.deepEqual(writtenLooks(text).map((w) => [w.line, w.label.source, w.icon, w.tone]), [
+    [1, '^Reading it$', 'sync~spin', 'blue'], [2, '^.+, turned off \\(.+\\)$', 'warning', 'orange'], [3, '^.+$', 'pass', 'blue'], [4, '^New$', 'pass', 'blue'], [5, '^Odd$', 'pass', null],
+  ]);
+  const states: Shown[] = [{ label: 'Reading it', icon: 'sync~spin', tone: 'blue' }, { label: '0.3.0, turned off (now)', icon: 'warning', tone: 'orange' }, { label: '0.3.0', icon: 'pass', tone: 'blue' }];
+  assert.deepEqual(unwalked('x.ts', text, 'X', states), ['x.ts:4: ^New$ (pass, blue) is a state X doesn\'t walk', 'x.ts:5: a LOOK whose icon or tone is an expression: write each state as its own LOOK']);
 });
 
 test('every icon a look, an action or the page names is one the codicon font draws, and no label is empty (GH-105)', (t) => {
