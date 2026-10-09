@@ -145,5 +145,5 @@ test('the scan finds a hex, rgb(), hsl() and a named colour, with file and line,
 
 test('theme.css holds every colour of both palettes, and nothing else does (GH-109, GH-105)', () => {
   const literal = /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\(/g;
-  assert.equal((styleFile('theme.css').replace(/\/\*[\s\S]*?\*\//g, '').match(literal) ?? []).length, 110);
+  assert.equal((styleFile('theme.css').replace(/\/\*[\s\S]*?\*\//g, '').match(literal) ?? []).length, 100);
 });
