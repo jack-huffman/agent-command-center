@@ -2,7 +2,7 @@
 // keys are tested without a VSCode window. Run after npm run build.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -28,6 +28,19 @@ process.env.ACC_REPOS_FILE = REPOS_FILE;
 // And this machine's limits (GH-111): its total and slots, and the repos it counts, which Settings reads and changes.
 const MACHINE_FILE = join(mkdtempSync(join(tmpdir(), 'acc-machine-')), 'machine.json');
 process.env.ACC_MACHINE_FILE = MACHINE_FILE;
+// About's two looks (GH-114) answered here, so opening Settings stays offline: gh release view and claude
+// plugin list go to these stand-ins, which log each call; anything else goes on to the real gh or claude.
+const STANDIN_BIN = mkdtempSync(join(tmpdir(), 'acc-standin-'));
+const STANDIN_LOG = join(STANDIN_BIN, 'calls.log');
+const real = (cmd: string) => spawnSync('sh', ['-c', `command -v ${cmd}`], { encoding: 'utf8' }).stdout.trim();
+const standIn = (cmd: string, when: string, answer: string) => writeFileSync(join(STANDIN_BIN, cmd), [
+  '#!/bin/sh',
+  `if ${when}; then echo "${cmd} $*" >> '${STANDIN_LOG}'; printf '%s\\n' '${answer}'; exit 0; fi`,
+  real(cmd) ? `exec '${real(cmd)}' "$@"` : 'exit 127',
+].join('\n'), { mode: 0o755 });
+standIn('gh', '[ "$1" = release ] && [ "$2" = view ]', JSON.stringify({ tagName: 'v0.1.0', name: 'v0.1.0', url: 'https://github.com/jack-huffman/agent-command-center/releases/tag/v0.1.0', publishedAt: '2026-01-01T00:00:00Z' }));
+standIn('claude', '[ "$1" = plugin ] && [ "$2" = list ]', '[]');
+process.env.PATH = `${STANDIN_BIN}:${process.env.PATH}`;
 delete process.env.ACC_HEAVY_SLOTS;
 // The extension runs acc as the person at VSCode, even when these tests run in a builder's session.
 delete process.env.ACC_ROLE;
@@ -284,6 +297,9 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     assert.equal(JSON.parse(setTracker.stdout).index, 1, 'after the GitHub tracker');
     await calls.commands.get('acc.open.settings')!();
     await calls.commands.get('acc.settings.refresh')!();
+    // About looked, offline: its release and plugin list came from the stand-ins (GH-114).
+    const standInCalls = () => (existsSync(STANDIN_LOG) ? readFileSync(STANDIN_LOG, 'utf8') : '');
+    await until(() => standInCalls().includes('gh release view') && standInCalls().includes('claude plugin list'));
     type TrackerShown = { title: string; signIn: { label: string; tone: string }; actions: { command: string; arg: string | null; disabled: string | null }[] };
     type WithTrackers = { model?: { settings: { trackers: { projects: { project: string; trackers: TrackerShown[] }[]; connect: { command: string; arg: string | null } | null } } } };
     const shownTrackers = () => (tab.posted.filter((x) => (x as WithTrackers).model).at(-1) as WithTrackers).model!.settings.trackers;

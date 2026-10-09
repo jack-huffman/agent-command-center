@@ -25,7 +25,7 @@ import { accShellCommand, Questions, sessionSettings } from './questions.ts';
 import { Runs } from './runs.ts';
 import { accRunner, runFile } from './run.ts';
 import { claudeProjectsDir, savedFolder } from './transcript.ts';
-import { extensionVersion, Setup } from './setup.ts';
+import { Setup } from './setup.ts';
 import { About } from './about.ts';
 import { Sidebar } from './sidebar.ts';
 import { RepoIdentity } from './identity.ts';
@@ -337,7 +337,8 @@ export function activate(context: vscode.ExtensionContext): void {
   });
   // Settings' About (GH-114): the versions, read fresh, and the latest release, read as gh's active account.
   const about = new About({
-    extension: () => extensionVersion(context.asAbsolutePath('package.json')),
+    // Read once, as Setup has it: it can't change without a window reload.
+    extension: () => setup.version,
     acc: () => accRunner(accScript)(['--version'], homedir()),
     run: (cmd, args, env) => runFile(cmd, args, homedir(), env),
     now: () => Date.now(),
