@@ -27,6 +27,7 @@
    one, such as a dated model's, widens only its own. */
 .settings-parts { display: grid; grid-template-columns: minmax(6.5em, max-content) minmax(9.5em, max-content) minmax(0, 1fr); align-items: center; gap: 3px 12px; padding-top: 4px; }
 .settings-setting { overflow-wrap: anywhere; }
+.settings-older { grid-column: 2 / -1; display: flex; gap: 4px; align-items: baseline; }
 .settings-from { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
 .settings-now { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding-top: 4px; }
 /* A long state, such as per-token billing's reason, wraps rather than running off a narrow tab. */

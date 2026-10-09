@@ -15,7 +15,8 @@ import { blankSlack, slackCard } from '../src/slack.ts';
 import { homeModel, type HomeModel } from '../src/model/home.ts';
 import { PAGE_COMMANDS } from '../src/model/messages.ts';
 import { WHERE_VIEWS } from '../src/model/agents.ts';
-import { agentSettings, area as settingsArea, autoMergeSetting, autonomySetting, GH_SIGN_IN_KEPT, githubAccount, githubAccounts, howAgentsRun, MACHINE_KEPT, OPENS_ON_CHOICES, opensOnChoice, pagePreferences, refreshLines, settingFrom, SETTINGS_PARTS, settingsKey, settingsModel, SIGN_IN_KEPT, THEME_CHOICES, THEME_SETTING, themeChoice, THEMES, trackerSetting, trackersAndSignIns, WHERE_WORDS, WINDOW_KEPT } from '../src/model/settings.ts';
+import { MODEL_CHOICES, OLDER_MODELS } from '../src/logic/agents.ts';
+import { agentSettings, area as settingsArea, autoMergeSetting, autonomySetting, GH_SIGN_IN_KEPT, githubAccount, githubAccounts, howAgentsRun, MACHINE_KEPT, olderModelWords, OPENS_ON_CHOICES, opensOnChoice, pagePreferences, refreshLines, settingFrom, SETTINGS_PARTS, settingsKey, settingsModel, SIGN_IN_KEPT, THEME_CHOICES, THEME_SETTING, themeChoice, THEMES, trackerSetting, trackersAndSignIns, WHERE_WORDS, WINDOW_KEPT } from '../src/model/settings.ts';
 import { area as boardsArea, type BoardInput } from '../src/model/boards.ts';
 import type { DoctorItem } from '../src/logic/setup.ts';
 import type { ProjectLike } from '../src/model/shared.ts';
@@ -101,7 +102,7 @@ test('How agents run says, for each part, its value and where it\'s set, in word
   assert.deepEqual(builder!.parts, [
     { key: 'agents.builder.model', name: 'Model', value: 'claude-sonnet-5-5', from: { label: 'this clone', icon: 'device-desktop' } },
     { key: 'agents.builder.effort', name: 'Effort', value: 'default', from: { label: 'Claude Code\'s default', icon: 'circle-outline' } },
-    { key: 'agents.builder.fallbackModel', name: 'Falls back to', value: 'claude-haiku-4-5-20251001', from: { label: 'project default', icon: 'repo' } },
+    { key: 'agents.builder.fallbackModel', name: 'Falls back to', value: 'claude-haiku-4-5-20251001', from: { label: 'project default', icon: 'repo' }, older: 'Claude Haiku 4.5 is an older model. It still runs; acc now offers claude-haiku-5-5 in its place.' },
   ]);
   // acc's default model, apart from Claude Code's default effort; no fallback, no line for one.
   assert.deepEqual(reviewer!.parts.map((p) => `${p.name} ${p.value} · ${p.from.label}`), ['Model claude-opus-5-5 · acc\'s default', 'Effort high · project default']);
@@ -109,6 +110,18 @@ test('How agents run says, for each part, its value and where it\'s set, in word
   for (const f of ['clone', 'project', 'acc', 'default']) assert.ok(settingFrom(f).label && settingFrom(f).icon, f);
   assert.notEqual(settingFrom('clone').icon, settingFrom('project').icon);
   assert.deepEqual(agentSettings(hub().projects[0]!), [], 'a project without its agents\' settings has none');
+});
+
+test('How agents run says a model acc no longer offers is an older one, which still runs (D-128)', () => {
+  const p = withAgents();
+  const older: ProjectLike = { ...p, agents: { ...p.agents!, builder: { ...p.agents!.builder, model: 'claude-haiku-4-5-20251001', fallbackModel: null } } };
+  const [builder] = agentSettings(older);
+  assert.equal(builder!.parts[0]!.value, 'claude-haiku-4-5-20251001', 'still what builders run with');
+  assert.equal(builder!.parts[0]!.older, 'Claude Haiku 4.5 is an older model. It still runs; acc now offers claude-haiku-5-5 in its place.');
+  assert.equal(olderModelWords('claude-haiku-5-5'), undefined);
+  assert.equal(olderModelWords(null), undefined);
+  for (const m of MODEL_CHOICES) assert.equal(olderModelWords(m.name), undefined, `${m.name} is offered, so not older`);
+  for (const m of OLDER_MODELS) assert.ok(MODEL_CHOICES.some((c) => c.name === m.instead), `${m.name}'s replacement is offered`);
 });
 
 test('How agents run shows the project\'s autonomy, with an icon, and orange for a level autopilot refuses (D-064)', () => {

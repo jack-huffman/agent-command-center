@@ -9,6 +9,7 @@ import { queuePlaces } from '../../packages/core/src/queue.ts';
 import { latestVerdict, reviewCurrent, reviewing } from '../../packages/core/src/review.ts';
 import { resuming } from '../../packages/core/src/resume.ts';
 import { agentLook, rowSession } from './logic/agents.ts';
+import { effortShown } from './logic/efforts.ts';
 import { byAutopilot } from '../../packages/core/src/autopilot-log.ts';
 import { failedChecks } from '../../packages/core/src/autopilot-rules.ts';
 import { envOpen, IN_FLIGHT_STATES, inFlight, nulPaths, plannedFiles, sharedFiles, type StartCandidate, startOrder } from '../../packages/core/src/overlap.ts';
@@ -80,6 +81,7 @@ export function deriveRows(hub: Hub, ledger: Ledger, p?: Project): TaskRow[] {
       run: t.run,
       agent: look ? { label: look.label, icon: look.icon, tone: look.tone } : null,
       model,
+      effort: model ? effortShown(model, t.run?.effort) : null,
       asking: !!asking,
       // Current on its latest commit, or carried there by the merge queue's merge commit (GH-73).
       review: verdict ? { verdict: verdict.verdict, summary: verdict.summary, current: !!head && !!reviews && reviewCurrent(reviews, t, verdict, head), at: verdict.at } : null,

@@ -15,7 +15,15 @@ export const MODEL_CHOICES: readonly { name: string; about: string }[] = [
   { name: 'claude-opus-5-5', about: 'Claude Opus 5.5' },
   { name: 'claude-fable-5-1', about: 'Claude Fable 5.1' },
   { name: 'claude-sonnet-5-5', about: 'Claude Sonnet 5.5: lighter on your plan' },
-  { name: 'claude-haiku-4-5-20251001', about: 'Claude Haiku 4.5: the lightest' },
+  { name: 'claude-haiku-5-5', about: 'Claude Haiku 5.5: the lightest' },
+];
+
+/**
+ * Models acc offered once and no longer does (D-128): a clone or project that names one still runs with it,
+ * and Settings says it's an older model, and which replaced it.
+ */
+export const OLDER_MODELS: readonly { name: string; about: string; instead: string }[] = [
+  { name: 'claude-haiku-4-5-20251001', about: 'Claude Haiku 4.5', instead: 'claude-haiku-5-5' },
 ];
 
 /** Where a model, effort or fallback is set, in words. A model's default is acc's own, the rest Claude Code's. */

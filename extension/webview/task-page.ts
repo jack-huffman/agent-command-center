@@ -157,7 +157,8 @@ export function renderTicket(m: TicketModel): Node[] {
         ...(a.waitingOn.length ? field('Waiting on', a.waitingOn.join(', ')) : []),
 
         ...(a.agent && a.agent.label !== a.look.label ? field('Session', status(a.agent)) : []),
-        ...(a.agent && a.model ? field('Model', el('span', 'mono', a.model)) : []),
+        // Its effort beside it, when it isn't the model's default (D-128).
+        ...(a.agent && a.model ? field('Model', el('span', '', el('span', 'mono', a.model), a.effort ? el('span', 'muted', ` · ${a.effort} effort`) : null)) : []),
         // What its builder is called, in Claude Code and the Command Center alike (D-087).
         ...(a.agentName ? field('Builder', el('span', 'agent-name', a.agentName)) : []),
         ...(a.branch ? field('Branch', clippedSpan(a.branch)) : []),

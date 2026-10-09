@@ -4,6 +4,7 @@
  */
 
 import type { Approach } from '../../../packages/core/src/analyze.ts';
+import type { Effort } from '../../../packages/core/src/config.ts';
 import type { AutopilotStepName, FileShare, QueuePhase } from '../../../packages/core/src/ledger.ts';
 
 // ---------------------------------------------------------------- sidebar (views)
@@ -31,13 +32,16 @@ export interface TaskRow {
   source: { kind: string; url: string | null };
   /**
    * Its builder's run: its session's ids, the name it was given (D-087), which older runs don't have, the
-   * model its builder was started with, and modelPicked when a person picked it for this task (D-086).
+   * model its builder was started with, and modelPicked when a person picked it for this task (D-086); its
+   * effort, when one was named, and effortPicked likewise (D-128).
    */
-  run?: { bgId?: string; sessionId?: string; worktree?: string; branch?: string; name?: string; model?: string; modelPicked?: true } | null;
+  run?: { bgId?: string; sessionId?: string; worktree?: string; branch?: string; name?: string; model?: string; modelPicked?: true; effort?: Effort; effortPicked?: true } | null;
   /** The live state of the task's agent session, when one is known. */
   agent?: { label: string; icon: string; tone: Tone } | null;
   /** The model its agent runs with (D-086): what its transcript last answered with, else what acc started it with. */
   model?: string | null;
+  /** Its builder's effort, shown beside its model only when one was named and isn't the model's default (D-128). */
+  effort?: string | null;
   /** Its agent's question is waiting in the Command Center (D-030), not in the agent's own terminal. */
   asking?: boolean;
   /** Its newest review (D-032): current when it's for the branch's latest commit. When it was made, so Slack can tell one from the next. */

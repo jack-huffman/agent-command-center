@@ -304,7 +304,20 @@ test('a running card, its task page and its Agents row name the model its agent 
   assert.deepEqual(rows.map((r) => [r.name, r.model]), [['av-2', 'claude-sonnet-5-5'], ['other', null]]);
   const main = pageSource();
   assert.match(main, /\['Model', 'model'\]/, 'a Model column');
-  assert.match(main, /el\('td', 'nowrap mono muted model', a\.model \? shortModel\(a\.model\) : '—'\), \{ title: a\.model/, 'a dash until it\'s known, in neutral mono text, its full name on hover');
+  assert.match(main, /el\('td', 'nowrap mono muted model', a\.model \? shortModel\(a\.model\) : '—', a\.model && a\.effort \? ` · \$\{a\.effort\}` : ''\), \{ title: a\.model \?/, 'a dash until it\'s known, in neutral mono text, its full name on hover, and an effort beside it (D-128)');
   assert.match(main, /card\.agent && card\.model \? el\('div', 'card-where card-model'/);
-  assert.match(main, /field\('Model', el\('span', 'mono', a\.model\)\)/);
+  assert.match(main, /field\('Model', el\('span', '', el\('span', 'mono', a\.model\), a\.effort \? el\('span', 'muted', ` · \$\{a\.effort\} effort`\) : null\)\)/);
+});
+
+test('a task page and its Agents row show a builder\'s effort beside its model only when it isn\'t the model\'s default (D-128)', () => {
+  const h = hub();
+  const at = (effort: 'xhigh' | 'high', model = 'claude-sonnet-5-5'): TaskRow => ({ ...row('AV-1', 'running', 'running'), run: { bgId: 'bg1', model, effort, effortPicked: true }, agent: { label: 'Working', icon: 'sync~spin', tone: 'blue' }, model, effort: effort === 'high' ? null : effort });
+  const task = { id: 'AV-1', title: 'Task AV-1', brief: '', source: { kind: 'jira', key: 'AV-1', url: null }, environment: 'devbox', deps: [], labels: [], state: 'running', blocker: null, history: [], createdAt: '', updatedAt: '' };
+  const page = (r: TaskRow) => ticketModel({ project: '/r', tracker: null, trackerTitle: null, trackerKind: null, key: 'AV-1', ticket: null, loading: false, error: null, connect: null, checks: [], row: r, task: { ...task, run: r.run } as never });
+  assert.equal(page(at('xhigh')).acc!.effort, 'xhigh');
+  assert.equal(page(at('high')).acc!.effort, null, 'Sonnet 5.5\'s default');
+  h.modelFor = (s) => (s.id === 'bg1' ? 'claude-sonnet-5-5' : null);
+  const lines = (r: TaskRow) => { h.taskRows = () => [r]; return agentsModel(h).repos.flatMap((x) => x.tasks.flatMap((t) => t.agents)).filter((a) => a.model); };
+  assert.deepEqual(lines(at('xhigh')).map((a) => [a.model, a.effort]), [['claude-sonnet-5-5', 'xhigh']]);
+  assert.deepEqual(lines(at('high')).map((a) => [a.model, a.effort]), [['claude-sonnet-5-5', null]]);
 });

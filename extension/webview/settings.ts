@@ -42,7 +42,9 @@ function agentProject(s: AgentRunProject): HTMLElement {
   box.setAttribute('aria-label', s.project);
   box.append(el('h3', 'settings-project-name', icon('repo'), el('span', '', s.project)));
   for (const r of s.roles) {
-    const parts = el('div', 'settings-parts', ...r.parts.flatMap((p) => [el('span', 'muted', p.name), el('span', 'mono strong settings-setting', p.value), from(p.from)]));
+    // A model acc no longer offers says so on a line of its own, under its value (D-128).
+    const parts = el('div', 'settings-parts', ...r.parts.flatMap((p) => [el('span', 'muted', p.name), el('span', 'mono strong settings-setting', p.value), from(p.from),
+      ...(p.older ? [el('span', 'settings-older muted small', icon('history'), el('span', '', p.older))] : [])]));
     box.append(row(r.label, r.icon, parts, argButton('acc.agents.configure', 'Change…', 'edit', `${r.role}|${s.root}`), `${r.label.toLowerCase()}' model, effort or fallback, in ${s.project}`));
   }
   if (s.autonomy) {

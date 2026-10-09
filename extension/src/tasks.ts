@@ -8,8 +8,10 @@ import { run as runSync } from '../../packages/core/src/exec.ts';
 import { repoPaths } from '../../packages/core/src/paths.ts';
 import { receiptHooks } from '../../packages/core/src/receipts.ts';
 import { endResume } from '../../packages/core/src/resume.ts';
+import { effortDroppedWords } from '../../packages/core/src/efforts.ts';
 import type { Project } from './hub.ts';
 import { dispatchModelArgs, dispatchModelItems, displayName, sessionFor } from './logic/agents.ts';
+import { dispatchEffortArgs, dispatchEffortItems, noEffortArgs } from './logic/efforts.ts';
 import { anywayQuestion, type HeldAsk, heldAskDue, heldAsked, heldAskKey, heldDue, landMessage, sizeLine, startedNotice, waitLine, waitQuestion, waitsForFiles } from './logic/tasks.ts';
 import { laneMove } from './model/tasks.ts';
 import { sessionKey } from './model/shared.ts';
@@ -194,8 +196,10 @@ class TaskCommands extends Sidebar {
   }
 
   /**
-   * Dispatch with…: the model for this task's builder, picked by a person (D-086). The analysis's size is
-   * shown beside the models to weigh the choice by; it picks nothing. A re-dispatch and a resume keep it.
+   * Dispatch with…: the model for this task's builder, then its effort, picked by a person (D-086, D-128).
+   * The analysis's size is shown beside the models to weigh the choice by; it picks nothing. Only the levels
+   * the model takes are offered, and none for a model that takes none, which drops a level picked for the
+   * task and says so. A re-dispatch and a resume keep both.
    */
   private async dispatchWith(n: TaskNode): Promise<void> {
     if (n?.kind !== 'task') return;
@@ -205,16 +209,27 @@ class TaskCommands extends Sidebar {
     if (!pick) return;
     const model = pick.value ?? await this.askModelName(`${verb} ${task.id}: model name`);
     if (!model) return;
-    await this.dispatchTask(n, dispatchModelArgs(task, project.agents.builder, model));
+    const efforts = dispatchEffortItems(task, project.agents.builder, model);
+    let effort: string[] = [];
+    let dropped: string | null = null;
+    if (efforts.length) {
+      const level = await vscode.window.showQuickPick(efforts, { title: `${task.id} on ${model}: which effort?`, placeHolder: 'Higher thinks harder: slower, uses more' });
+      if (!level) return;
+      effort = dispatchEffortArgs(task, project.agents.builder, level.value);
+    } else {
+      ({ args: effort, dropped } = noEffortArgs(task));
+    }
+    await this.dispatchTask(n, [...dispatchModelArgs(task, project.agents.builder, model), ...effort], false, dropped ? effortDroppedWords(dropped, model) : undefined);
   }
 
   /**
    * Dispatch (D-009, D-013): worktree, setup, packet, background session, task → Running. A first dispatch
    * that would wait for others' files asks first, naming each task and its files (D-093): wait, and it
    * starts on its own, or dispatch anyway. acc decides, and a hold it records is said so. `extra` is
-   * acc dispatch's other arguments, such as the model Dispatch with… picked (D-086).
+   * acc dispatch's other arguments, such as the model Dispatch with… picked (D-086). `dropped` says a level
+   * picked for the task was dropped (D-128), as acc says it when it drops one itself.
    */
-  private async dispatchTask(n: TaskNode, extra: string[] = [], anyway = false): Promise<void> {
+  private async dispatchTask(n: TaskNode, extra: string[] = [], anyway = false, dropped?: string): Promise<void> {
     if (n?.kind !== 'task') return;
     const { project, task } = n;
     if (!anyway && task.state === 'todo' && waitsForFiles(task) && task.files) {
@@ -223,7 +238,7 @@ class TaskCommands extends Sidebar {
       if (!pick) return;
       anyway = pick === 'Dispatch anyway';
     }
-    type Out = { held?: boolean; waitsFor?: { task: string; files: string[] }[]; first?: string[]; worktree?: string; bgId?: string | null; reused?: boolean; name?: string };
+    type Out = { held?: boolean; waitsFor?: { task: string; files: string[] }[]; first?: string[]; worktree?: string; bgId?: string | null; reused?: boolean; name?: string; effortDropped?: string; task?: { run?: { model?: string } | null; held?: { model?: string } | null } };
     let result: Out | null = null;
     await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Dispatching ${task.id}`, cancellable: false }, async (progress) => {
       progress.report({ message: 'creating the worktree and starting the agent…' });
@@ -234,8 +249,10 @@ class TaskCommands extends Sidebar {
     });
     if (!result) return;
     const r = result as Out;
+    const said = dropped ?? (r.effortDropped ? effortDroppedWords(r.effortDropped, r.task?.run?.model ?? r.task?.held?.model ?? 'the model') : null);
+    const also = said ? ` ${said}` : '';
     if (r.held) {
-      const pick = await vscode.window.showInformationMessage(`${task.id} ${waitLine(r.waitsFor ?? [], false, r.first ?? []).replace(/^Waits/, 'waits')}. It starts on its own once they're free, or once nothing else is ready.`, 'Dispatch anyway');
+      const pick = await vscode.window.showInformationMessage(`${task.id} ${waitLine(r.waitsFor ?? [], false, r.first ?? []).replace(/^Waits/, 'waits')}. It starts on its own once they're free, or once nothing else is ready.${also}`, 'Dispatch anyway');
       // What acc just reported it waits for, which the board may not have foreseen, so the confirmation names it.
       if (pick) await this.dispatchAnyway(n, extra, r.waitsFor);
       return;
@@ -243,7 +260,7 @@ class TaskCommands extends Sidebar {
     await Promise.all([this.hub.loadAgents(), this.hub.loadWorktrees()]);
     const where = r.worktree ? basename(r.worktree) : 'its worktree';
     const pick = await vscode.window.showInformationMessage(
-      `${task.id} is running: an agent is working in ${where}${r.reused ? ' (reused)' : ''}. It will finish with acc done, or block if it needs you.`,
+      `${task.id} is running: an agent is working in ${where}${r.reused ? ' (reused)' : ''}. It will finish with acc done, or block if it needs you.${also}`,
       ...(r.bgId ? ['Watch', 'Open in Claude Code'] : []), 'Open worktree');
     const terminal = `claude: ${r.name ?? task.id}`;
     if (pick === 'Watch' && r.bgId && !this.helpers.watch?.(r.bgId)) this.send(r.worktree ?? project.root, `claude attach ${r.bgId}`, terminal);

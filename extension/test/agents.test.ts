@@ -70,13 +70,13 @@ test('a task\'s agent is found by its session, else by the name its run recorded
 test('Dispatch with… offers the model the builder runs with anyway first, saying where it\'s set, then the rest once, then another (D-086)', () => {
   const builder = (model: string, from: string) => ({ model, from: { model: from } });
   const labels = (items: { label: string; description: string }[]) => items.map((i) => `${i.label} · ${i.description}`);
-  assert.deepEqual(MODEL_CHOICES.map((m) => m.name), ['claude-opus-5-5', 'claude-fable-5-1', 'claude-sonnet-5-5', 'claude-haiku-4-5-20251001'], 'pinned names, one list for Dispatch with… and Change…');
+  assert.deepEqual(MODEL_CHOICES.map((m) => m.name), ['claude-opus-5-5', 'claude-fable-5-1', 'claude-sonnet-5-5', 'claude-haiku-5-5'], 'pinned names, one list for Dispatch with… and Change…');
   assert.deepEqual(labels(dispatchModelItems({}, builder('claude-opus-5-5', 'acc'))), [
     'claude-opus-5-5 · acc\'s default', 'claude-fable-5-1 · Claude Fable 5.1', 'claude-sonnet-5-5 · Claude Sonnet 5.5: lighter on your plan',
-    'claude-haiku-4-5-20251001 · Claude Haiku 4.5: the lightest', 'Another model… · an alias or a full model name, as claude --model takes it',
+    'claude-haiku-5-5 · Claude Haiku 5.5: the lightest', 'Another model… · an alias or a full model name, as claude --model takes it',
   ]);
   const clone = dispatchModelItems({}, builder('claude-sonnet-5-5', 'clone'));
-  assert.deepEqual(clone.map((i) => i.value), ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-fable-5-1', 'claude-haiku-4-5-20251001', null], 'never repeated, and Another model… last');
+  assert.deepEqual(clone.map((i) => i.value), ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-fable-5-1', 'claude-haiku-5-5', null], 'never repeated, and Another model… last');
   assert.equal(clone[0]!.description, 'this clone');
   assert.equal(dispatchModelItems({}, builder('opus', 'project'))[0]!.description, 'project default');
   assert.equal(dispatchModelItems({}, builder('opus', 'project')).length, 6, 'an alias isn\'t one of the pinned names, so all four follow it');

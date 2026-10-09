@@ -16,6 +16,7 @@ export * from './config.ts';
 export * from './deploy.ts';
 export * from './dispatch.ts';
 export * from './drift.ts';
+export * from './efforts.ts';
 export * from './exec.ts';
 export * from './gates.ts';
 export * from './github.ts';

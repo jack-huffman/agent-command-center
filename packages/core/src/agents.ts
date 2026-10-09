@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { AccError, type Runner } from './exec.ts';
 import { type AgentProfile, type AgentRole, type Config, DEFAULT_MODEL, EFFORTS, type Effort, MODEL_NAME, noProfile } from './config.ts';
+import { checkEffortName } from './efforts.ts';
 
 /**
  * The model and effort each kind of agent runs with (D-036). The project can set a default in
@@ -82,7 +83,7 @@ function check(change: ProfileChange): void {
     const v = change[f];
     if (v != null) checkModelName(v);
   }
-  if (change.effort != null && !(EFFORTS as readonly string[]).includes(change.effort)) throw new AccError('usage', `Effort is one of ${EFFORTS.join(', ')}.`);
+  if (change.effort != null) checkEffortName(change.effort);
 }
 
 /**
