@@ -11,6 +11,7 @@ import { writeJsonKey } from './config-edit.ts';
 import { AccError } from './exec.ts';
 import { gatesFor } from './gates.ts';
 import { builders, type Ledger, readLedger } from './ledger.ts';
+import { machineDir, machineJson, machineJsonToWrite } from './machine.ts';
 import type { RepoPaths } from './paths.ts';
 
 // ---------------------------------------------------------------- this project's (.acc/config.json)
@@ -89,26 +90,6 @@ export function setBuilderGates(configFile: string, names: string[] | null): str
 /** The most builders a machine may be set to run at once, across every repo on it. */
 export const MAX_MACHINE_AGENTS = 64;
 
-/**
- * This machine's own folder, from the environment acc runs in: beside ACC_MACHINE_FILE when it's set, else
- * ~/.acc under HOME. An environment with no home has none, so nothing machine-wide is read or written: a
- * test's made-up environment never reaches the machine it runs on.
- */
-export function machineDir(env: NodeJS.ProcessEnv = process.env): string | null {
-  if (env.ACC_MACHINE_FILE) return dirname(env.ACC_MACHINE_FILE);
-  const home = env.HOME || env.USERPROFILE;
-  return home ? join(home, '.acc') : null;
-}
-
-/**
- * This machine's machine.json, as its total is read and written: ACC_MACHINE_FILE, else machine.json in
- * machineDir. None without a home, so the total is neither read nor written there.
- */
-export function machineJson(env: NodeJS.ProcessEnv = process.env): string | null {
-  const dir = machineDir(env);
-  return env.ACC_MACHINE_FILE || (dir ? join(dir, 'machine.json') : null);
-}
-
 const agentCount = (v: unknown): number | null => (Number.isInteger(v) && (v as number) >= 1 ? Math.min(MAX_MACHINE_AGENTS, v as number) : null);
 
 /**
@@ -133,8 +114,7 @@ export function setMachineAgents(n: number | null, env: NodeJS.ProcessEnv = proc
   if (n !== null && (!Number.isInteger(n) || n < 1 || n > MAX_MACHINE_AGENTS)) {
     throw new AccError('usage', `This machine's total is a whole number from 1 to ${MAX_MACHINE_AGENTS}, or --none for no total.`);
   }
-  const file = machineJson(env);
-  if (!file) throw new AccError('refused', 'acc can\'t tell where this machine\'s settings are kept: its environment has no HOME. Set HOME, or ACC_MACHINE_FILE, and try again.');
+  const file = machineJsonToWrite(env);
   let current: Record<string, unknown> = {};
   try { current = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>; } catch { /* a new file */ }
   const { agents: _was, ...rest } = current;

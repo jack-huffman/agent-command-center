@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { AccError } from './exec.ts';
 import { alive, sleep } from './lock.ts';
+import { machineJson, machineJsonToWrite } from './machine.ts';
 
 /**
  * What holds a slot, or waits for one, written beside its pid, so the Command Center can say which task or
@@ -32,8 +33,6 @@ export interface SlotOptions {
 }
 
 export const heavyDir = (env: NodeJS.ProcessEnv = process.env): string => env.ACC_HEAVY_DIR || join(homedir(), '.acc', 'heavy');
-/** This machine's own settings, shared by every repo and worktree on it (D-080). */
-export const machineFile = (env: NodeJS.ProcessEnv = process.env): string => env.ACC_MACHINE_FILE || join(homedir(), '.acc', 'machine.json');
 
 /** The most heavy checks a machine may run at once, whatever it's set to. */
 export const MAX_HEAVY_SLOTS = 8;
@@ -43,22 +42,27 @@ const slotCount = (v: unknown): number | null => {
   return Number.isFinite(n) && n >= 1 ? Math.min(MAX_HEAVY_SLOTS, n) : null;
 };
 
-/** How many heavy checks may run at once on this machine: ACC_HEAVY_SLOTS, else machine.json's heavySlots, else one (D-024, D-080). */
+/**
+ * How many heavy checks may run at once on this machine: ACC_HEAVY_SLOTS, else machine.json's heavySlots, else
+ * one (D-024, D-080). With no home there's no machine.json to read (GH-131), so it's one.
+ */
 export function heavySlots(env: NodeJS.ProcessEnv = process.env): number {
   const fromEnv = slotCount(env.ACC_HEAVY_SLOTS);
   if (fromEnv) return fromEnv;
+  const file = machineJson(env);
+  if (!file) return 1;
   try {
-    return slotCount((JSON.parse(readFileSync(machineFile(env), 'utf8')) as { heavySlots?: unknown }).heavySlots) ?? 1;
+    return slotCount((JSON.parse(readFileSync(file, 'utf8')) as { heavySlots?: unknown }).heavySlots) ?? 1;
   } catch {
     return 1;
   }
 }
 
-/** Sets this machine's heavy-check slots in machine.json, keeping what else it holds. */
+/** Sets this machine's heavy-check slots in machine.json, keeping what else it holds, and refuses with no home (GH-131). */
 export function setHeavySlots(n: number, env: NodeJS.ProcessEnv = process.env): number {
   const slots = slotCount(n);
   if (!slots || slots !== n) throw new AccError('usage', `Heavy-check slots are a whole number from 1 to ${MAX_HEAVY_SLOTS}.`);
-  const file = machineFile(env);
+  const file = machineJsonToWrite(env);
   let current: Record<string, unknown> = {};
   try { current = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>; } catch { /* a new file */ }
   mkdirSync(join(file, '..'), { recursive: true });

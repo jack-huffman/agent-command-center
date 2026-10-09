@@ -3,6 +3,7 @@ import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { machineAgents, setMachineAgents } from '../src/limits.ts';
 import { heavySlots, heavyState, MAX_HEAVY_SLOTS, setHeavySlots, withSlot } from '../src/semaphore.ts';
 import { tempDir } from './support.ts';
 
@@ -21,6 +22,17 @@ test('a machine runs one heavy check at once unless it says more: ACC_HEAVY_SLOT
   assert.equal(setHeavySlots(4, env), 4);
   assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { heavySlots: 4, other: 'kept' }, 'the rest of the file stays');
   for (const bad of [0, 2.5, 9, Number.NaN]) assert.throws(() => setHeavySlots(bad, env), /whole number from 1 to 8/, String(bad));
+});
+
+test('the heavy-check slots are read and written where the machine\'s total is, and with no home a write is refused (GH-131)', () => {
+  // A made-up environment with no home reaches nothing on the machine running the test: one slot, and no write.
+  assert.equal(heavySlots({}), 1, 'no home: one');
+  assert.throws(() => setHeavySlots(2, {}), (e: Error & { code?: string }) => e.code === 'refused' && /no HOME\. Set HOME, or ACC_MACHINE_FILE/.test(e.message));
+  const home = tempDir('home-');
+  assert.equal(setHeavySlots(3, { HOME: home }), 3);
+  assert.equal(setMachineAgents(5, { HOME: home }), 5);
+  assert.deepEqual(JSON.parse(readFileSync(join(home, '.acc', 'machine.json'), 'utf8')), { heavySlots: 3, agents: 5 }, 'one file, under HOME');
+  assert.deepEqual([heavySlots({ HOME: home }), machineAgents({ HOME: home })], [3, 5], 'each read where it was written');
 });
 
 const deadPid = (): number => Number(spawnSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8' }).stdout);
