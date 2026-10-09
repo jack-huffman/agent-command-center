@@ -62,6 +62,18 @@ export const issueNumber = (key: string): number => {
 
 interface ProjectInfo { id: string; number: number; title: string; url: string; fieldId: string; options: { id: string; name: string }[] }
 
+/** A repo's Project as GitHub lists it, with its Status field when it has one. */
+export interface ProjectNode { id: string; number: number; closed: boolean; field: { id: string; options: { id: string; name: string }[] } | null }
+
+/**
+ * The Project a board's columns come from, and a task's card moves on (GH-146): the one numbered `board`,
+ * else the repo's first open Project with a Status field. Null when there's none.
+ */
+export function pickProject<P extends ProjectNode>(nodes: P[], board: number | null | undefined): P | null {
+  const all = nodes.filter((p) => p.field?.options?.length);
+  return (board != null ? all.find((x) => x.number === board) : all.find((x) => !x.closed)) ?? null;
+}
+
 const PROJECTS_QUERY = `query($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
     projectsV2(first: 10) { nodes { id number title url closed
@@ -134,9 +146,8 @@ export class GithubClient implements TrackerClient {
   private project(): Promise<ProjectInfo | null> {
     this.projectCache ??= (async () => {
       try {
-        const d = await this.graphql<{ repository: { projectsV2: { nodes: (Omit<ProjectInfo, 'fieldId' | 'options'> & { closed: boolean; field: { id: string; options: { id: string; name: string }[] } | null })[] } } }>(PROJECTS_QUERY, { owner: this.owner, name: this.name });
-        const all = d.repository.projectsV2.nodes.filter((p) => p.field?.options?.length);
-        const p = this.o.project != null ? all.find((x) => x.number === this.o.project) : all.find((x) => !x.closed);
+        const d = await this.graphql<{ repository: { projectsV2: { nodes: (Omit<ProjectInfo, 'fieldId' | 'options'> & ProjectNode)[] } } }>(PROJECTS_QUERY, { owner: this.owner, name: this.name });
+        const p = pickProject(d.repository.projectsV2.nodes, this.o.project);
         return p ? { id: p.id, number: p.number, title: p.title, url: p.url, fieldId: p.field!.id, options: p.field!.options } : null;
       } catch (e) {
         if (e instanceof TrackerError && e.kind === 'scope') {

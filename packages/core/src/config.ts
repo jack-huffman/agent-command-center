@@ -50,6 +50,10 @@ export interface Environment {
   promotesTo: string[];
 }
 
+/** The states a GitHub Project's card follows (GH-146): a task's, and ready, a task to do whose deps are done. */
+export const CARD_STATES = ['todo', 'ready', 'running', 'review', 'rework', 'blocked', 'done'] as const;
+export type CardState = (typeof CARD_STATES)[number];
+
 export interface Tracker {
   kind: TrackerKind;
   /** Jira: the site, such as acme.atlassian.net. */
@@ -91,6 +95,12 @@ export interface Tracker {
    * and acc only drafts updates for a person to post (D-066). Your own repo can opt in.
    */
   edits: boolean;
+  /**
+   * GitHub: the Project column a task's card moves to as the task enters each state (GH-146), by the
+   * column's name, such as { "review": "QA" }. A state left out goes to its usual column: In Progress,
+   * Testing or In Review, Blocked, Done, Todo. Only where "edits" is true.
+   */
+  statusFor: Record<string, string> | null;
 }
 
 export interface Config {
@@ -194,6 +204,7 @@ export const CONFIG_KEYS = [
   'trackers[].kind', 'trackers[].site', 'trackers[].project', 'trackers[].repo', 'trackers[].organization', 'trackers[].account',
   'trackers[].team', 'trackers[].board', 'trackers[].statusColumn', 'trackers[].prefix', 'trackers[].skipLabels',
   'trackers[].epic', 'trackers[].labels', 'trackers[].areaPath', 'trackers[].group', 'trackers[].edits',
+  'trackers[].statusFor',
   'agents.max', 'agents.permissionMode', 'agents.builder.model', 'agents.builder.effort', 'agents.builder.fallbackModel',
   'agents.reviewer.model', 'agents.reviewer.effort', 'agents.reviewer.fallbackModel', 'autonomy',
   'worktrees.root', 'worktrees.setup', 'gates.required', 'gates.commands', 'gates.heavy', 'gates.severity', 'gates.builder', 'gates.tests',
@@ -374,6 +385,16 @@ export function parseConfig(raw: unknown): ParseResult {
         errors.push(`trackers[${i}]: "edits" must be true or false: whether the task page may change a ticket's status, assignee and labels, and on GitHub, whether acc sync closes an issue when its work merges.`);
         return;
       }
+      // Which column each state's card goes to (GH-146): a state's name, and a column's.
+      if (t.statusFor !== undefined && t.statusFor !== null) {
+        const sf = t.statusFor;
+        const bad = !isObj(sf) || Object.entries(sf).some(([k, v]) => !(CARD_STATES as readonly string[]).includes(k) || !isStr(v));
+        if (bad) {
+          errors.push(`trackers[${i}]: "statusFor" names a GitHub Project column for each state, such as { "review": "QA" }. Its states: ${CARD_STATES.join(', ')}.`);
+          return;
+        }
+        if (t.kind !== 'github') warnings.push(`trackers[${i}]: "statusFor" applies only to a GitHub tracker, so it's ignored.`);
+      }
       const boardOk = t.board === undefined || t.board === null || (t.kind === 'azure' ? isStr(t.board) : Number.isSafeInteger(t.board) && (t.board as number) > 0);
       if (!boardOk) {
         errors.push(`trackers[${i}]: "board" must be ${t.kind === 'azure' ? 'an Azure board\'s name, such as Stories' : 'a Jira board id or a GitHub Project number'}.`);
@@ -396,6 +417,8 @@ export function parseConfig(raw: unknown): ParseResult {
         areaPath: t.kind === 'azure' && isStr(t.areaPath) ? t.areaPath.trim() : null,
         group: t.kind === 'monday' && isStr(t.group) ? t.group.trim() : null,
         edits: t.edits === true,
+        statusFor: t.kind === 'github' && isObj(t.statusFor) && Object.keys(t.statusFor).length
+          ? Object.fromEntries(Object.entries(t.statusFor).map(([k, v]) => [k, String(v).trim()])) : null,
       });
     });
     // Two trackers whose keys start the same: a ticket's key finds only the first, so the second's can't post.

@@ -76,6 +76,7 @@ export const READ_IN: Partial<Record<ConfigPath, ReadPlace[]>> = {
   'trackers[].areaPath': TRACKER_CLIENTS,
   'trackers[].group': TRACKER_CLIENTS,
   'trackers[].edits': ['packages/core/src/closing.ts'],
+  'trackers[].statusFor': ['packages/core/src/cards.ts'],
   'agents.builder.model': AGENT_FLAGS,
   'agents.builder.effort': AGENT_FLAGS,
   'agents.builder.fallbackModel': AGENT_FLAGS,

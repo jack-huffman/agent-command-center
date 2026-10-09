@@ -4,7 +4,7 @@ import { replaceTracker, type Tracker, withTracker } from '../src/config.ts';
 import { AZURE, declaredKeys, DESCRIPTIONS, describe, GITHUB, JIRA, MONDAY, parseHost, parseRepo, type SignIn } from '../src/trackers/connect.ts';
 import { TrackerError } from '../src/trackers/types.ts';
 
-const tracker = (t: Partial<Tracker> & Pick<Tracker, 'kind'>): Tracker => ({ site: null, project: null, repo: null, organization: null, account: null, team: null, board: null, statusColumn: null, prefix: null, skipLabels: [], epic: null, labels: [], areaPath: null, group: null, edits: false, ...t });
+const tracker = (t: Partial<Tracker> & Pick<Tracker, 'kind'>): Tracker => ({ site: null, project: null, repo: null, organization: null, account: null, team: null, board: null, statusColumn: null, prefix: null, skipLabels: [], epic: null, labels: [], areaPath: null, group: null, edits: false, statusFor: null, ...t });
 const SITE = 'acme.atlassian.net';
 
 test('a Jira tracker is written as the config keeps it, and the whole project takes its epic out', () => {
