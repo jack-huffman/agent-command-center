@@ -22,8 +22,8 @@ test('every section of the page, and a ticket, has sample data built by the real
     else if (kind === 'settings-page') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).settings.page.preferences.map((p) => p.choices.find((c) => c.on)?.key)], ['home', 'settings', ['tasks', 'path', 'relaxed']]);
     // The Tasks tab with a monday.com board (GH-70).
     else if (kind === 'tasks-monday') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).tasks.projects[0]!.boards[0]!.kind], ['home', 'tasks', 'monday']);
-    // A repo's issues with no Project: Issues on the switch, the repo once, and no place line (the Tasks header's cleanup).
-    else if (kind === 'tasks-github') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).tasks.projects[0]!.boards[0]!.tab, (m as HomeModel).tasks.projects[0]!.boards[0]!.place], ['home', 'tasks', 'Issues', null]);
+    // A repo's issues with no Project: GitHub board on the switch, the repo once, and no place line (the Tasks header's cleanup).
+    else if (kind === 'tasks-github') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).tasks.projects[0]!.boards[0]!.tab, (m as HomeModel).tasks.projects[0]!.boards[0]!.place], ['home', 'tasks', 'GitHub board', null]);
     // The Agents tab with agents that would bill per token (D-089), and Settings at How agents run (GH-110).
     else if (kind === 'agents-billing') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).agents.billing?.tone], ['home', 'agents', 'orange']);
     else if (kind === 'settings-agents') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).settings.agents.projects.length], ['home', 'settings', 2]);

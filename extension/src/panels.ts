@@ -151,6 +151,8 @@ export class Panels implements vscode.Disposable {
   private whereView: WhereView = 'folder';
   /** The section the Command Center opens on in this window: where it was left, or a named one (GH-113). */
   private opens: OpensOn = 'left';
+  /** Disposed with the extension: a first open still waiting then opens nothing (GH-149). */
+  private disposed = false;
   private readonly ctx: vscode.ExtensionContext;
   private readonly hub: Hub;
   private readonly setup: Setup;
@@ -199,6 +201,7 @@ export class Panels implements vscode.Disposable {
   }
 
   dispose(): void {
+    this.disposed = true;
     this.panel?.dispose();
   }
 
@@ -220,6 +223,9 @@ export class Panels implements vscode.Disposable {
     if (!waitsForMachine(now())) return this.opened(now(), section);
     this.firstOpening = (async () => {
       await this.setup.whenChecked(FIRST_OPEN_WAIT_MS);
+      // The window closed or the extension stopped while it waited: there's nothing to open, and a page and
+      // its polls started now would outlive the extension.
+      if (this.disposed) return;
       // Something asked for meanwhile, such as Connect a tracker, opened it already: that open stands.
       if (!this.panel) this.opened(now(), section);
     })().finally(() => { this.firstOpening = null; });

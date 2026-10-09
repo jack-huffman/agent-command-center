@@ -1,7 +1,7 @@
 // Tracker boards: who a board is signed in as.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { type BoardInput, placeAdds, trackerBoard } from '../src/model/boards.ts';
+import { type BoardInput, columnLook, placeAdds, trackerBoard } from '../src/model/boards.ts';
 import { sampleBoards, sampleGithubBoards, sampleMondayBoards } from '../scripts/fixtures/boards.ts';
 
 test('a board says who it\'s signed in as, and whether every project on the site shares that sign-in (GH-79)', () => {
@@ -18,13 +18,24 @@ test('a board says who it\'s signed in as, and whether every project on the site
 test('a board says each thing once: a repo\'s issues are "Issues" on the switch, and a place shows only when it narrows the board', () => {
   // The whole repo, which "Issues · acme/tool" already names: no place line, and the switch says Issues.
   const gh = trackerBoard(sampleGithubBoards()[0]!, [], '/r');
-  assert.deepEqual([gh.title, gh.tab, gh.place, gh.signedInAs], ['Issues · acme/tool', 'Issues', null, 'jordan-kim']);
+  assert.deepEqual([gh.title, gh.tab, gh.place, gh.signedInAs], ['Issues · acme/tool', 'GitHub board', null, 'jordan-kim']);
   // Narrowed to labels, or another board's name: the place stays, and the switch says the board's name.
   assert.equal(placeAdds('GitHub · acme/tool · labels billing or invoices', 'Issues · acme/tool'), true);
   assert.equal(placeAdds('GitHub · acme/tool', 'Issues · acme/tool'), false);
+  // A GitHub Project over the whole repo, named for the app: the repo alone narrows nothing.
+  assert.equal(placeAdds('GitHub · acme/tool', 'Agent Command Center'), false);
+  assert.equal(placeAdds('Jira · ACME', 'ACME board'), false, 'a whole Jira project, too');
   assert.equal(placeAdds('GitHub', 'Issues · acme/tool'), true, 'a place with nothing after the tracker says it');
   const jira = trackerBoard(sampleBoards()[0]!, [], '/r');
-  assert.equal(jira.tab, jira.title);
+  assert.equal(jira.tab, 'Jira board', 'named by its kind on the switch, beside the Agent board, never by its title');
   assert.ok(jira.place, 'a Jira epic narrows its board');
   assert.ok(trackerBoard(sampleMondayBoards()[0]!, [], '/r').place, 'and so does a monday.com group');
+});
+
+test('a tracker column whose name says its work waits is orange and blocked, not under way', () => {
+  for (const name of ['Blocked', 'On hold', 'Stuck', 'Waiting on client', 'Impeded']) assert.deepEqual(columnLook(name, 'doing'), { icon: 'circle-slash', tone: 'orange' }, name);
+  assert.deepEqual(columnLook('In Progress', 'doing'), { icon: 'sync', tone: 'blue' });
+  assert.deepEqual(columnLook('Testing', 'doing'), { icon: 'sync', tone: 'blue' });
+  assert.deepEqual(columnLook('Unblocked', 'doing'), { icon: 'sync', tone: 'blue' }, 'a word, not part of one');
+  assert.deepEqual(columnLook('Done', 'done'), { icon: 'check', tone: 'neutral' });
 });

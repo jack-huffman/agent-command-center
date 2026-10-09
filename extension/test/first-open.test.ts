@@ -303,3 +303,17 @@ test('a first check that gets no results from acc doctor hasn\'t checked the mac
     assert.equal(started.ctx.workspaceState.get(FIRST_OPEN_STATE), true);
   }, { doctorFails: true });
 });
+
+test('a first open still waiting when the extension stops opens nothing, so no page or poll outlives it (GH-149)', { timeout: 120_000 }, async () => {
+  await inFolder(sfdx, 'pass', 'none', async ({ fake, started }) => {
+    // Opened early, it waits for the checks; the window closes during that wait.
+    void fake.calls.commands.get('acc.open.home')!();
+    await new Promise((r) => setTimeout(r, FIRST_OPEN_WAIT_MS / 4));
+    assert.equal(fake.panels.length, 0, 'still waiting');
+    started.stop();
+    // Past the wait: nothing was opened by an extension that had stopped.
+    await new Promise((r) => setTimeout(r, FIRST_OPEN_WAIT_MS + 1000));
+    assert.equal(fake.panels.length, 0, 'nothing opened after it stopped');
+  }, { early: SLOW_CHECK_S });
+});
+

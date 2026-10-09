@@ -26,6 +26,8 @@ export function renderTasks(m: TasksModel): Node[] {
       for (const [m, label, ic] of [['tracker', p.boards.length === 1 ? p.boards[0]!.tab : 'Tracker boards', KIND_ICON[p.boards[0]!.kind] ?? 'issues'], ['agents', 'Agent board', 'hubot']] as const) {
         const b = el('button', `seg${mode === m ? ' on' : ''}`, icon(ic), label) as HTMLButtonElement;
         b.type = 'button';
+        // What each board shows: the tracker's tickets in its own columns, or acc's tasks by where their agents are.
+        b.title = m === 'tracker' ? 'The tickets as the tracker has them, in its own columns' : 'acc\'s tasks by where their agents are: Ready, Running, Review, Rework, Blocked, Done';
         b.setAttribute('aria-pressed', String(mode === m));
         b.addEventListener('click', () => { remember((s) => { s.modes[p.root] = m; }); if (state.last) state.draw(state.last); });
         toggle.append(b);

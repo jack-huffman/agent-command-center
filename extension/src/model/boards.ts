@@ -16,6 +16,14 @@ import { analysisLook, autopilotLook, CARD_SAID, cardActions, closedPrLook, file
 /** A tracker's status by its category (GH-105): an icon beside the tracker's own name for it, and its tone, as acc's own states show. */
 export const CATEGORY_LOOK: Record<StatusCategory, { icon: string; tone: Tone }> = { todo: { icon: 'circle-outline', tone: 'neutral' }, doing: { icon: 'sync', tone: 'blue' }, done: { icon: 'check', tone: 'neutral' } };
 
+/** A tracker's column that holds work waiting on someone, by its name: under way to the tracker, but not moving. */
+const WAITING = /\b(block|blocked|stuck|on hold|waiting|impeded)\b/i;
+
+/** A column's look: orange and blocked when its name says the work waits, else its category's. */
+export function columnLook(name: string, category: StatusCategory): { icon: string; tone: Tone } {
+  return category !== 'done' && WAITING.test(name) ? { icon: 'circle-slash', tone: 'orange' } : CATEGORY_LOOK[category];
+}
+
 export interface PersonChip {
   name: string;
   initials: string;
@@ -154,16 +162,24 @@ export function accLook(row: TaskRow, full = false): Look {
 /** The steps a tracker's card offers for its task: start it, its analysis (D-052), or watch its agent. */
 const NEXT_STEPS = ['acc.task.dispatch', 'acc.task.dispatchAnyway', 'acc.task.analyze', 'acc.task.watchAnalysis', 'acc.task.show', 'acc.task.watch', 'acc.task.openInClaude', 'acc.task.resume'];
 
-/** Whether a place names more than the board's title already does: its parts after the tracker's name. */
+/**
+ * Whether a place narrows its board, and so is worth a line: labels, an epic, a group or an area, past the
+ * tracker's own repo, project or account, and not already in the board's title. A whole repo or project
+ * says nothing the board's heading and Open in doesn't.
+ */
 export function placeAdds(place: string, title: string): boolean {
   const parts = place.split(' · ').slice(1);
-  return !parts.length || parts.some((part) => !title.includes(part));
+  if (!parts.length) return true;
+  return parts.length > 1 && parts.slice(1).some((part) => !title.includes(part));
 }
+
+/** What a tracker's board is called on the Tasks tab's switch, beside the Agent board: by its kind, never its title. */
+export const BOARD_WORD: Record<TrackerKind, string> = { github: 'GitHub board', jira: 'Jira board', azure: 'Azure DevOps board', monday: 'monday.com board' };
 
 export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): TrackerBoard {
   const byId = new Map(rows.map((r) => [r.id, r]));
   const columns: TrackerColumn[] = (b.board?.columns ?? []).map((c) => ({
-    id: c.id, name: c.name, ...CATEGORY_LOOK[c.category], done: c.category === 'done',
+    id: c.id, name: c.name, ...columnLook(c.name, c.category), done: c.category === 'done',
     cards: (b.board?.cards ?? []).filter((card) => c.statusIds.includes(card.status.id)).map((card): TrackerCard => {
       const row = byId.get(card.key);
       const next = row ? cardActions(row, { project: root, task: row.id }).find((a) => a.primary && NEXT_STEPS.includes(a.command)) ?? null : null;
@@ -178,7 +194,7 @@ export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): Trac
   }));
   const title = b.board?.title ?? b.title;
   return {
-    index: b.index, kind: b.kind, title, tab: b.board?.source === 'github-state' ? 'Issues' : title, source: b.board?.source ?? null, url: b.board?.url ?? null,
+    index: b.index, kind: b.kind, title, tab: BOARD_WORD[b.kind] ?? title, source: b.board?.source ?? null, url: b.board?.url ?? null,
     notice: b.board?.notice ?? null, error: b.error, connect: b.connect, loading: b.loading, signedInAs: b.signedInAs ?? null,
     signIn: b.signedInAs && b.signInScope ? LOOK(`Signed in as ${b.signedInAs}, ${signInScope(b.signInScope.shared, b.signInScope.host)}`, b.signInScope.shared ? 'globe' : 'repo', 'blue') : null,
     place: b.place && placeAdds(b.place, title) ? b.place : null, left: b.left ?? [], columns,

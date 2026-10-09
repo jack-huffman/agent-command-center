@@ -23,7 +23,7 @@ const ACC = fileURLToPath(new URL('../../../dist/acc.mjs', import.meta.url));
 const COMMANDS_DIR = fileURLToPath(new URL('../src/commands/', import.meta.url));
 /** How long one call may take, and how many run at once. */
 const LIMIT_MS = 20_000;
-const AT_ONCE = 2;
+const AT_ONCE = 4;
 /** The longest line a failure may print: main.ts cuts its message, with its mark in front. */
 const LONGEST_LINE = MESSAGE_MAX + 2;
 const MB = 1024 * 1024;

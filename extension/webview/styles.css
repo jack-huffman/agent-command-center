@@ -16,6 +16,31 @@
   --card: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
 }
 
+/*
+ * Depth: the page, wells set into it (board columns), and raised surfaces on it (cards and panels), each
+ * mixed from the theme's own colours so Match VSCode works with any theme. Dark first: wells darker than the
+ * page, raised lighter. Light: wells a soft grey, raised the page's own white, with a firmer edge and a
+ * shadow. Light is Settings' Light, or Match VSCode while VSCode's theme is light (its class on body).
+ */
+body {
+  --well: var(--vscode-sideBar-background, var(--vscode-editor-background));
+  --raised: color-mix(in srgb, var(--vscode-editor-background) 92%, var(--vscode-foreground) 8%);
+  --edge: color-mix(in srgb, var(--vscode-foreground) 14%, transparent);
+  --lift: 0 1px 2px var(--vscode-widget-shadow, transparent), 0 4px 12px color-mix(in srgb, var(--vscode-widget-shadow, transparent) 60%, transparent);
+  --card: var(--raised);
+}
+html[data-theme="light"] body, html[data-theme="vscode"] body.vscode-light, html[data-theme="vscode"] body.vscode-high-contrast-light {
+  --well: color-mix(in srgb, var(--vscode-editor-background) 94%, var(--vscode-foreground) 6%);
+  --raised: var(--vscode-editor-background);
+  --edge: color-mix(in srgb, var(--vscode-foreground) 18%, transparent);
+  --lift: 0 1px 2px var(--vscode-widget-shadow, transparent), 0 3px 10px color-mix(in srgb, var(--vscode-widget-shadow, transparent) 45%, transparent);
+}
+/* The surfaces a person reads as things on the page: raised, with an edge and the lift. */
+.card, .inbox, .in-progress, .panel-box, .tile, .settings-part, .side-panel, .env-card, .identity, .connect-step, .notice {
+  border-color: var(--edge);
+  box-shadow: var(--lift);
+}
+
 * { box-sizing: border-box; }
 
 body {

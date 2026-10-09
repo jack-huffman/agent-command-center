@@ -13,7 +13,7 @@ import { agentLook } from '../src/logic/agents.ts';
 import { type AgentSession, TASK_GROUPS, type TaskRow, type Tone } from '../src/logic/shared.ts';
 import { type AboutAction, type AboutFacts, aboutModel } from '../src/model/about.ts';
 import { billingLook } from '../src/model/agents.ts';
-import { accLook, CATEGORY_LOOK } from '../src/model/boards.ts';
+import { accLook, CATEGORY_LOOK, columnLook } from '../src/model/boards.ts';
 import { analysisLook, autopilotLook, closedPrLook, filesLook, stoppedLook } from '../src/model/cards.ts';
 import { autopilotStepLook, OUTCOME_LOOK, outcomeLook } from '../src/model/history.ts';
 import { capLook } from '../src/model/limits.ts';
@@ -59,6 +59,7 @@ const product = <A, B>(as: readonly A[], bs: readonly B[]): [A, B][] => as.flatM
 
 /** Every table and function that maps a state to how it shows, with every value it takes. */
 export const TABLES: Table[] = [
+  { name: 'a tracker column, by its name', sources: ['extension/src/model/boards.ts#columnLook'], states: () => ([['Blocked', 'doing'], ['On hold', 'doing'], ['Stuck', 'doing'], ['In Progress', 'doing'], ['Todo', 'todo'], ['Done', 'done']] as const).map(([n, c]): [string, Shown] => [n, { label: n, ...columnLook(n, c) }]) },
   { name: 'a cap on builders, a project\'s or this machine\'s', sources: ['extension/src/model/limits.ts#capLook'], states: () => [['no total, some running', capLook(2, null, 'here')], ['no total, none running', capLook(0, null, 'here')], ['full', capLook(3, 3, 'here')], ['none running', capLook(0, 3, 'here')], ['room for more', capLook(1, 3, 'here')]] },
   { name: 'a suggested rule or check', sources: ['extension/src/model/rules.ts#RULE_LOOK'], states: () => Object.entries(RULE_LOOK) },
   { name: 'core\'s DISPLAY', sources: ['packages/core/src/ledger.ts#DISPLAY'], task: true, states: () => TASK_GROUPS.map((d) => [d, DISPLAY[d]]) },

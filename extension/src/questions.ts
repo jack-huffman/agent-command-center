@@ -35,6 +35,8 @@ export class Questions implements vscode.Disposable {
   private readonly slack: SlackSink | null;
   private readonly timers: NodeJS.Timeout[] = [];
   private watcher: FSWatcher | null = null;
+  /** Disposed with the extension: a start that comes after, once projects finish loading, starts nothing. */
+  private disposed = false;
   private soon: NodeJS.Timeout | undefined;
   private readonly told = new Set<string>();
   /** For each question, the agent snapshots since it was asked that showed its session working again. */
@@ -52,6 +54,7 @@ export class Questions implements vscode.Disposable {
   }
 
   dispose(): void {
+    this.disposed = true;
     for (const t of this.timers) clearInterval(t);
     clearTimeout(this.soon);
     this.watcher?.close();
@@ -65,6 +68,8 @@ export class Questions implements vscode.Disposable {
   }
 
   start(): void {
+    // Projects can finish loading after the window closed: listening then would leave a watcher behind.
+    if (this.disposed) return;
     try {
       mkdirSync(this.dir, { recursive: true, mode: 0o700 });
     } catch (e) {
@@ -83,6 +88,8 @@ export class Questions implements vscode.Disposable {
     // fs.watch is quick but can miss events on some file systems, so a slow poll backs it up.
     try {
       if (existsSync(this.dir)) this.watcher = watch(this.dir, () => this.scanSoon());
+      // Like the timers: the watcher alone never keeps the process alive.
+      this.watcher?.unref();
     } catch {
       this.watcher = null;
     }

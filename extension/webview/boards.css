@@ -9,8 +9,8 @@
 .board.more-right { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); }
 .board.more-left { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 36px), transparent); mask-image: linear-gradient(to left, #000 calc(100% - 36px), transparent); }
 .board.more-left.more-right { -webkit-mask-image: linear-gradient(to right, transparent, #000 36px, #000 calc(100% - 36px), transparent); mask-image: linear-gradient(to right, transparent, #000 36px, #000 calc(100% - 36px), transparent); }
-.column { flex: 0 0 var(--lane); width: var(--lane); max-height: max(320px, calc(100vh - 230px)); overflow-y: auto; scroll-snap-align: start; background: var(--vscode-sideBar-background); border: 1px solid var(--line); border-top: 3px solid var(--line); border-radius: var(--radius); padding: 0 10px 10px; min-height: 120px; }
-.column > h2 { position: sticky; top: 0; z-index: 1; margin: 0 -10px 2px; padding: 10px 10px 6px; background: var(--vscode-sideBar-background); }
+.column { flex: 0 0 var(--lane); width: var(--lane); max-height: max(320px, calc(100vh - 230px)); overflow-y: auto; scroll-snap-align: start; background: var(--well); border: 1px solid var(--edge); border-top: 3px solid var(--edge); border-radius: var(--radius); padding: 0 10px 10px; min-height: 120px; }
+.column > h2 { position: sticky; top: 0; z-index: 1; margin: 0 -10px 2px; padding: 10px 10px 6px; background: var(--well); }
 @media (max-width: 820px) { .board { scroll-snap-type: x proximity; } .column { max-height: none; } }
 
 /* A page with one board: the board takes the rest of the page's height, and its lanes run full height. */
@@ -25,7 +25,7 @@
 .column.tone-edge-orange { border-top-color: var(--orange); }
 .column.tone-edge-blue { border-top-color: var(--blue); }
 .column > p { margin: 6px 0 0; font-size: 0.92em; }
-.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 9px 10px; margin-top: 8px; }
+.card { background: var(--raised); border: 1px solid var(--edge); border-radius: var(--radius); padding: 9px 10px; margin-top: 8px; }
 .card:hover { border-color: var(--vscode-focusBorder); }
 .card.done { opacity: 0.75; }
 .card-id { font-family: var(--vscode-editor-font-family); font-size: 0.88em; color: var(--vscode-descriptionForeground); display: flex; align-items: center; }
