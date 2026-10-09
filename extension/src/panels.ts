@@ -14,6 +14,7 @@ import type { SlackCard } from './model/slack.ts';
 import { WHERE_VIEWS, type WhereView } from './model/agents.ts';
 import { type OpensOn, opensOnChoice, themeChoice, type ThemeChoice } from './model/settings.ts';
 import { type Pace, paceChoice } from './logic/polls.ts';
+import { FIRST_OPEN_STATE, firstOpen, machineDone } from './logic/first-open.ts';
 import type { Setup } from './setup.ts';
 
 /** Commands the page may ask for, from every area that draws them (D-099). Anything else from a webview is ignored. */
@@ -205,11 +206,21 @@ export class Panels implements vscode.Disposable {
    * (settingsKey, GH-109).
    */
   /**
-   * A person opening the Command Center, from the activity bar or acc.open.home: opened afresh with no
-   * section asked for, it opens on the one Settings names for this window (GH-113). Anything else that shows
-   * it, such as Connect a tracker or a run's output, goes where it was sent, through show().
+   * A person opening the Command Center, from the activity bar, the status bar or acc.open.home. The first
+   * time in a folder that isn't set up, it opens on Setup, at the part to start from (GH-138), once per
+   * folder. Otherwise, opened afresh with no section asked for, it opens on the one Settings names for this
+   * window (GH-113). Anything else that shows it, such as Connect a tracker or a run's output, goes where it
+   * was sent, through show().
    */
   open(section?: ViewKind | HomeSection): void {
+    const first = firstOpen({
+      asked: !!section, open: !!this.panel, shown: !!this.ctx.workspaceState.get(FIRST_OPEN_STATE),
+      setUp: this.setup.setUp(), machineDone: machineDone(this.setup.results(), this.setup.allConfirmed()),
+    });
+    if (first) {
+      void this.ctx.workspaceState.update(FIRST_OPEN_STATE, true);
+      return this.show(first.section, first.part);
+    }
     if (!section && !this.panel && this.opens !== 'left') this.remember(this.opens);
     this.show(section);
   }
@@ -290,7 +301,7 @@ export class Panels implements vscode.Disposable {
   model() {
     return homeModel({
       hub: this.hub, section: this.section, boards: (r) => this.deps.boards(r), identity: (r) => this.deps.identity(r),
-      setup: { items: this.setup.results(), confirmed: this.setup.allConfirmed() }, runs: this.deps.runs(),
+      setup: { items: this.setup.results(), confirmed: this.setup.allConfirmed(), setUp: this.setup.setUp() }, runs: this.deps.runs(),
       edited: (root, id, replaces) => this.deps.edited(root, id, replaces), connect: this.deps.connect.model(), slack: this.deps.slack?.card() ?? null,
       whereView: this.whereView, theme: this.tab?.theme ?? currentTheme(), pace: currentPace(), opensOn: this.opens,
       finished: this.finished, autopilot: (root) => this.deps.autopilot?.(root) ?? null, now: Date.now(), about: this.deps.about?.facts() ?? null,

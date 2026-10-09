@@ -484,7 +484,8 @@ export function activate(context: vscode.ExtensionContext): void {
     pagePolls(panels.visible());
   });
   void openPendingConversation(context);
-  void setup.refresh('startup', { reuseMachine: true }).then(() => setup.maybeOpenWalkthroughs());
+  // Nothing opens on its own (GH-138): the first open of the Command Center in a folder that isn't set up lands on Setup.
+  void setup.refresh('startup', { reuseMachine: true });
 }
 
 const OPEN_LATER = 'acc.openInClaude.pending';
