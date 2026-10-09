@@ -4,7 +4,8 @@
 import { readFileSync, realpathSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { ParseArgsOptionsConfig } from 'node:util';
-import { AccError, type Actor, ACTORS, type AutopilotStepName, loadConfig, repoPaths, run, withCloneAccount, withCloneAgents } from '../../core/src/index.ts';
+import { AccError, type Actor, ACTORS, type AutopilotStepName, cardWords, type Config, followCards, followsCards, loadConfig, readLedger, type RepoPaths, repoPaths, run, withCloneAccount, withCloneAgents } from '../../core/src/index.ts';
+import { tone } from './format.ts';
 import pkg from '../../../package.json' with { type: 'json' };
 
 // One version for acc, the extension, the plugin and the marketplace: the root package.json's (D-079).
@@ -75,6 +76,27 @@ export function project(cwd: string) {
   // This clone's own choice of GitHub account, when it made one (D-028).
   // This clone's own choices of agent model and effort (D-036).
   return { paths, config: withCloneAgents(withCloneAccount(loaded, paths.root, run), paths.root, run) };
+}
+
+/**
+ * Runs a command that may move tasks, then moves the cards of the tasks it moved on their GitHub Project
+ * (GH-146): set, done, block, dispatch, review, land, sync, intake and autopilot. A card that couldn't move
+ * is said once, on stderr, and kept on its task; the command's own outcome stands either way. Where no
+ * GitHub tracker says "edits": true, it only runs the command.
+ */
+export function followingCards<T>(paths: RepoPaths, config: Config, fn: () => T): T {
+  const before = followsCards(config) ? new Map(readLedger(paths.ledger).tasks.map((t) => [t.id, t.history.length])) : null;
+  const result = fn();
+  if (!before) return result;
+  try {
+    const moved = readLedger(paths.ledger).tasks.filter((t) => before.has(t.id) && t.history.length > before.get(t.id)!).map((t) => t.id);
+    for (const r of followCards(paths, config, moved, { run, now, env: process.env })) {
+      if (r.outcome === 'failed') process.stderr.write(tone(`! ${cardWords(r)}`, 'orange') + '\n');
+    }
+  } catch (e) {
+    process.stderr.write(tone(`! Couldn't move the cards of the tasks this moved on their GitHub Project: ${(e as Error).message}`, 'orange') + '\n');
+  }
+  return result;
 }
 
 /** Builders are identified by ACC_ROLE, set when they're dispatched. Everyone else is a person. */
