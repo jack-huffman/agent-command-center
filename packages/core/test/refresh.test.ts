@@ -8,8 +8,8 @@ import { run, type RunOptions, type RunResult } from '../src/exec.ts';
 import { displayState, mutate, type PullRequest, readLedger, type Task, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
 import { readReceipt, writeReceipt } from '../src/receipts.ts';
-import { formatFloors } from '../src/ratchets.ts';
-import { appendOnlyMerge, MergeConflict, refresh } from '../src/refresh.ts';
+import { FLOORS_FILE, formatFloors, relaxFloor } from '../src/ratchets.ts';
+import { appendOnlyMerge, CheckFailure, checkCommit, mergeBaseIn, MergeConflict, mergePlace, refresh } from '../src/refresh.ts';
 import { reviewPath, type Verdict } from '../src/review.ts';
 import { bad, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, tempDir } from './support.ts';
 
@@ -361,6 +361,31 @@ test('two tasks that both raised a floor: autopilot keeps the better, and the ch
   relaxed.opened(sha, ['.acc/floors.json']);
   assert.throws(() => refresh(relaxed.paths, relaxed.config, 'T-1', deps([], ok('680\n')), { actor: 'orchestrator', by: 'test' }), (e: Error) => e instanceof MergeConflict && /can't resolve: \.acc\/floors\.json\. The branch is as it was/.test(e.message));
   assert.deepEqual([head(relaxed.dir), gitIn(relaxed.wt, 'status', '--porcelain'), merging(relaxed.wt)], [sha, '', false]);
+});
+
+test('the merge queue\'s merge of the task a person relaxed a floor for still passes; a record for another task backs nothing (GH-130)', () => {
+  const ratchet = { config: { gates: { required: ['tests'], ratchets: { tests: { command: 'node scripts/count-tests.mjs', limit: 'floor', label: 'tests' } } } }, files: { '.acc/floors.json': formatFloors({ tests: { floor: 669 } }) } };
+  const queued = (relaxedFor: string) => {
+    const s = setup(ratchet);
+    relaxFloor(s.paths.relaxed, join(s.wt, FLOORS_FILE), s.wt, s.config, { ratchet: 'tests', to: 640, reason: 'the slow suite moved', by: 'human:jordan', now, task: relaxedFor });
+    const before = s.onBranch({ 'docs/DECISIONS.md': DECISIONS + BRANCH_ENTRY });
+    s.onMain({ 'docs/DECISIONS.md': DECISIONS + MAIN_ENTRY });
+    s.opened(before, []);
+    // As the queue does: main merged in, in T-1's worktree, then the full check on the merge.
+    const d = deps([], ok('640\n'));
+    const place = mergePlace(s.paths, s.config, first(s.paths), d.run);
+    const made = mergeBaseIn(s.config, place, d.run)!;
+    const check = () => checkCommit(s.paths, s.config, place, made.sha, ['tests'], { run: d.run, now, slots: d.slots });
+    return { s, made, check };
+  };
+  const mine = queued('T-1');
+  mine.check();
+  const receipt = readReceipt(mine.s.paths, mine.made.sha, 'tests')!;
+  assert.deepEqual([receipt.status, receipt.summary], ['pass', 'tests 640, at its floor.'], 'T-1\'s relax backs the merge of T-1');
+  assert.equal(head(mine.s.dir), mine.made.sha);
+
+  const theirs = queued('T-9');
+  assert.throws(theirs.check, (e: Error) => e instanceof CheckFailure && /tests failed: \.acc\/floors\.json lowers tests's floor to 640, from 669 on main, and no person relaxed it/.test(e.message));
 });
 
 test('a conflict acc saw earlier that\'s gone now: nothing is merged, and the pull request is marked clean', () => {

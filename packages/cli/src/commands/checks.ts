@@ -4,7 +4,7 @@ import { existsSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   AccError, type ApexTest, autoMergeFor, builderGatesFor, type Config, drift, FLOORS_FILE, fullGates, gatesFor, gateTarget, loadConfig, mainCheckout, mutate, num, ratchetOf, readFloors, readLedger,
-  receiptsAt, relaxFloor, requiredGates, run, runGates, satisfies, setBuilderGates, setRequiredGates, STRAY_FILES, type Task, testsText, valueOf, waiveGates,
+  pruneRelaxed, receiptsAt, relaxFloor, type RepoPaths, requiredGates, run, runGates, satisfies, setBuilderGates, setRequiredGates, STRAY_FILES, type Task, testsText, valueOf, waiveGates,
 } from '../../../core/src/index.ts';
 import { gateLabel, table, tone } from '../format.ts';
 import { actorFrom, type CommandArea, noAgent, now, type Opts, out, project } from '../shared.ts';
@@ -50,6 +50,7 @@ function raisesHere(root: string, config: Config, branch: string | null, task: T
 function cmdGateRun(o: Opts, names: string[]): number {
   const { paths, config, env, branch, task } = checkTarget(o);
   const say = (line: string) => { if (!o.json) process.stderr.write(line + '\n'); };
+  pruneRelaxes(paths);
   const r = runGates(paths, config, env, names, apexTests(o), {
     run, now, ...(task ? { task: task.id } : {}), raise: raisesHere(paths.root, config, branch, task),
     onStart: (g) => say(tone(`  … ${g.name}${g.heavy ? ' (heavy)' : ''}`, 'dim')),
@@ -99,8 +100,18 @@ function cmdGateWaive(o: Opts, names: string[]): number {
 }
 
 /**
- * A person relaxes a ratchet's floor, with a reason (GH-99): in the task's worktree with --task, else in
- * this checkout. A builder never can, as it can't waive (D-031): it would be lowering its own bar.
+ * Drops the relax records that can't back a floor any more, as acc's own commands start (GH-130), under the
+ * ledger's lock, so a relax written at the same moment isn't lost. The Command Center never does (D-012).
+ */
+function pruneRelaxes(paths: RepoPaths): void {
+  if (existsSync(paths.relaxed)) mutate(paths, now, (l) => pruneRelaxed(paths.relaxed, l));
+}
+
+/**
+ * A person relaxes a ratchet's floor for one task, with a reason (GH-99): the task named with --task, or the
+ * one whose branch this is, in its worktree. The record names the task, and backs a floor only on its branch
+ * and in the merge queue's merge of it, until it's done (GH-130). A builder never can, as it can't waive
+ * (D-031): it would be lowering its own bar.
  */
 function cmdGateRelax(o: Opts, names: string[]): number {
   if (process.env.ACC_ROLE === 'builder') throw new AccError('refused', 'A builder can\'t relax a floor. If this change has to make a number worse, say why with acc block "<why>", and a person decides.');
@@ -111,23 +122,26 @@ function cmdGateRelax(o: Opts, names: string[]): number {
   const to = typeof o.to === 'string' && o.to.trim() ? Number(o.to) : NaN;
   if (!Number.isFinite(to)) throw new AccError('usage', `--to takes the new floor, a number: acc gate relax ${name} --to <n> --reason "<why>".`);
   const { paths, config, task } = checkTarget(o);
-  const where = o.task ? task?.run?.worktree : paths.root;
-  if (!where || !existsSync(where)) throw new AccError('usage', `${task?.id ?? String(o.task)} has no worktree on disk, so there's no floors file to relax.`);
-  const record = relaxFloor(paths.relaxed, join(where, FLOORS_FILE), where, config, { ratchet: name, to, reason: (o.reason as string | undefined) ?? '', by, now, ...(o.task && task ? { task: task.id } : {}) });
-  if (o.task && task) {
-    mutate(paths, now, (l, emit) => {
-      const t = l.tasks.find((x) => x.id === task.id);
-      if (!t) return;
+  if (!task) throw new AccError('usage', `A relax is for one task, and this checkout isn't a task's. Name it: acc gate relax ${name} --to <n> --reason "<why>" --task <id>.`);
+  if (task.state === 'done') throw new AccError('refused', `${task.id} is done, and a relax counts only while its task is open.`);
+  const where = task.run?.worktree;
+  if (!where || !existsSync(where)) throw new AccError('usage', `${task.id} has no worktree on disk, so there's no floors file to relax.`);
+  const record = mutate(paths, now, (l, emit) => {
+    pruneRelaxed(paths.relaxed, l);
+    const r = relaxFloor(paths.relaxed, join(where, FLOORS_FILE), where, config, { ratchet: name, to, reason: (o.reason as string | undefined) ?? '', by, now, task: task.id });
+    const t = l.tasks.find((x) => x.id === task.id);
+    if (t) {
       t.updatedAt = now().toISOString();
-      emit({ type: 'task.updated', task: task.id, actor, by, data: { relaxed: { ratchet: record.ratchet, limit: record.limit, to: record.to, was: record.was, reason: record.reason } } });
-    });
-  }
+      emit({ type: 'task.updated', task: task.id, actor, by, data: { relaxed: { ratchet: r.ratchet, limit: r.limit, to: r.to, was: r.was, reason: r.reason } } });
+    }
+    return r;
+  });
   out(o, () => [
-    `Relaxed ${name}'s ${record.limit} from ${record.was === null ? 'nothing' : num(record.was)} to ${num(record.to)} in ${join(where, FLOORS_FILE)}: ${record.reason}`,
-    // As DESIGN §9 has it: a worse floor passes at the number relaxed to or a better one, from the floor relaxed.
-    tone(`Commit that file with the change. ${record.was === null
-      ? `A branch with no ${record.limit} where it began passes at ${num(record.to)} or a better number.`
-      : `A branch that began at ${record.limit} ${num(record.was)} now passes with its ${record.limit} at ${num(record.to)} or a better one, as acc's record of this relax says. One that began at another ${record.limit} isn't backed by it.`}`, 'dim'),
+    `Relaxed ${name}'s ${record.limit} for ${task.id}, from ${record.was === null ? 'nothing' : num(record.was)} to ${num(record.to)}, in ${join(where, FLOORS_FILE)}: ${record.reason}`,
+    // As DESIGN §9 has it: for this task alone, a worse floor passes at the number relaxed to or a better one, from the floor relaxed.
+    tone(`Commit that file with ${task.id}'s change. The relax is for ${task.id} alone: ${record.was === null
+      ? `where its branch began with no ${record.limit}, it passes at ${num(record.to)} or a better number`
+      : `where its branch began at ${record.limit} ${num(record.was)}, it passes with its ${record.limit} at ${num(record.to)} or a better one`}, on that branch and in the merge queue's merge of it, until ${task.id} is done. Another task's branch isn't backed by it, even one that began at the same ${record.limit}.`, 'dim'),
   ].join('\n'), record);
   return 0;
 }
@@ -260,7 +274,7 @@ export const area: CommandArea = {
   acc gate waive <gate>... --reason "<why>" [--task <id>]
                                         A person sets checks aside on this commit (or the task's), with a reason
   acc gate relax <ratchet> --to <n> --reason "<why>" [--task <id>]
-                                        A person relaxes a ratchet's floor here (or in the task's worktree), with a reason
+                                        A person relaxes a ratchet's floor for one task, in its worktree, with a reason
   acc gate required [<gate>...]         The checks every task must pass; with names, set them in .acc/config.json.
                                         Where the merge queue runs, they run once in it, before each merge
   acc gate builder [<gate>...|--none]   Builders' lighter checks where the merge queue runs the required ones; with

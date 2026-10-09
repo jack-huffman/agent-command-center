@@ -939,11 +939,27 @@ test('acc gate run raises a ratchet\'s floor only in a task\'s own worktree; acc
   assert.deepEqual([record.ratchet, record.to, record.was, record.task, realpathSync(record.root)], ['tests', 640, 674, 'T-1', realpathSync(wt)]);
   const event = readFileSync(join(dir, '.git', 'acc', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).at(-1);
   assert.deepEqual([event.task, event.actor, event.data.relaxed.to], ['T-1', 'human', 640]);
-  // It says what passes now, as DESIGN §9 does: the relaxed number or a better one, from the floor it relaxed.
+  // It says what passes now, as DESIGN §9 does: for this task alone, the relaxed number or a better one, from the floor it relaxed.
   const said = acc(dir, ['gate', 'relax', 'tests', '--to', '630', '--reason', 'and the flaky one', '--task', 'T-1']);
   assert.equal(said.code, 0, said.err);
-  assert.match(said.out, /A branch that began at floor 640 now passes with its floor at 630 or a better one, as acc's record of this relax says\. One that began at another floor isn't backed by it\./);
+  assert.match(said.out, /^Relaxed tests's floor for T-1, from 640 to 630, in /);
+  assert.match(said.out, /Commit that file with T-1's change\. The relax is for T-1 alone: where its branch began at floor 640, it passes with its floor at 630 or a better one, on that branch and in the merge queue's merge of it, until T-1 is done\. Another task's branch isn't backed by it, even one that began at the same floor\./);
   assert.match(acc(dir, ['gate', 'waive', 'tests', '--reason', 'flaky']).err, /tests is a ratchet: .*acc gate relax tests/);
+
+  // A relax is for one task (GH-130): none from a checkout that isn't a task's, or for a task that's done.
+  git(dir, 'checkout', '-q', 'main');
+  const records = () => readFileSync(join(dir, '.git', 'acc', 'relaxed.jsonl'), 'utf8').split('\n').filter(Boolean).length;
+  const none = acc(dir, ['gate', 'relax', 'tests', '--to', '620', '--reason', 'why']);
+  assert.deepEqual([none.code, /A relax is for one task, and this checkout isn't a task's\. Name it: acc gate relax tests --to <n> --reason "<why>" --task <id>\./.test(none.err), records()], [2, true, 2]);
+  const finished = JSON.parse(readFileSync(ledgerPath, 'utf8'));
+  finished.tasks[0].state = 'done';
+  writeFileSync(ledgerPath, JSON.stringify(finished));
+  const late = acc(dir, ['gate', 'relax', 'tests', '--to', '620', '--reason', 'why', '--task', 'T-1']);
+  assert.deepEqual([late.code, late.err.trim()], [1, '✗ T-1 is done, and a relax counts only while its task is open.']);
+  // acc gate run drops T-1's records now it's done; the Command Center never does (D-012).
+  assert.equal(records(), 2);
+  assert.equal(acc(dir, ['gate', 'run'], undefined, heavy).code, 0);
+  assert.equal(records(), 0, 'pruned by acc\'s own command');
 });
 
 test('acc autopilot: manual does nothing; dispatch isn\'t built yet, and full is read as it; usage, roles and the lock (D-055)', () => {
