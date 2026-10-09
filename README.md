@@ -22,8 +22,9 @@ Salesforce. Project types plug in as profiles.
   since its branch.
 - **Boards and tickets:** the Tasks tab shows each tracker's own board: a
   Jira board's columns, an Azure DevOps team board's, or a GitHub Project's. Drag a card to move the real
-  ticket. Click one for a ticket page, with the description, comments, status,
-  assignee and labels, plus acc's agent, checks and history. Status, assignee
+  ticket. Click one and its ticket page opens over the board: the description,
+  comments, status, assignee and labels, plus acc's agent, checks and history.
+  **Open as tab** gives it a tab of its own. Status, assignee
   and labels change from there only when the tracker says `"edits": true`. On
   a GitHub tracker, `"edits"` also lets `acc sync` close a task's issue when its
   work merges, with a comment naming the pull request; `acc sync --close-done`
