@@ -5456,3 +5456,7 @@ opt-in (D-066).
   question, jump and all, with the checks still running; with a `claude` that
   answers inside the wait, it lands at This machine, since `claude` fails; and
   with every `acc doctor` printing nothing, it lands at the question.
+
+Note (D-126, 2026-10-09): a card acc couldn't move also shows on the Command Center's task page, as an
+orange notice with the Project's icon beside "Checks failed on GitHub", in acc show's words, while the
+task is still in the state the move was for.

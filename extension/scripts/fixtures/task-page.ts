@@ -128,7 +128,10 @@ function sampleChecksTicket(now: number): TicketModel {
     markdown: '', comments: [], related: [],
   };
   const task = {
-    id: 'ACME-33', title: row.title, brief: '', source: { kind: 'jira', key: 'ACME-33', url: ticket.url }, environment: 'dev', deps: [], labels: [], state: 'rework', blocker: null, run: row.run, pr: row.pr,
+    id: 'ACME-33', title: row.title, brief: '', source: { kind: 'jira', key: 'ACME-33', url: ticket.url }, environment: 'dev', deps: [], labels: [], state: 'rework', blocker: null,
+    // Its card couldn't follow it to In Progress (D-126).
+    card: { state: 'rework', column: 'In Progress', at: new Date(now - 300_000).toISOString(), failed: 'gh couldn\'t read the Project: give jordan-kim access to Projects with gh auth refresh -h github.com -s project.' },
+    run: row.run, pr: row.pr,
     history: [
       { at: new Date(now - 2 * 86_400_000).toISOString(), from: null, to: 'todo', by: 'human:jordan' },
       { at: new Date(now - 26 * 60 * MIN).toISOString(), from: 'todo', to: 'running', by: 'human:jordan' },

@@ -6,6 +6,7 @@ import { addTaskArgs, draftFromOpen, rowAnalysis } from '../src/logic/tasks.ts';
 import type { TaskRow } from '../src/logic/shared.ts';
 import type { Analysis } from '../../packages/core/src/analyze.ts';
 import { type BoardInput, initials, priorityIcon, trackerBoard, typeIcon } from '../src/model/boards.ts';
+import { sampleTicket } from '../scripts/fixtures/task-page.ts';
 import { isFromWebview } from '../src/model/messages.ts';
 import { type CheckIn, checkLook, checkRows, ticketActionRefusal, ticketCheck, ticketModel } from '../src/model/task-page.ts';
 import { updateAbout } from '../src/model/updates.ts';
@@ -510,4 +511,15 @@ test('a ratchet\'s check carries its numbers, from the environment\'s floor to t
   const failing = ticketCheck('tests', { ...receipt, status: 'fail', summary: 'tests 660 is below its floor 669, by 9.' }, '', {}, spec);
   const rows = checkRows([failing, { gate: 'lint', status: 'fail', summary: '2 problems.' }], 'task/T-1');
   assert.deepEqual(rows.map((r) => [r.gate, r.look.label, r.waivable]), [['tests', 'fail', false], ['lint', 'fail', true]]);
+});
+
+test('a card acc couldn\'t move on its GitHub Project shows on the task page, while the task is still in that state (D-126)', () => {
+  const m = sampleTicket(Date.now(), 'ACME-33');
+  assert.equal(m.acc!.cardFailed, 'gh couldn\'t read the Project: give jordan-kim access to Projects with gh auth refresh -h github.com -s project', 'its words, without the closing stop');
+  // The page draws it as an orange notice, with an icon, beside the checks that failed on GitHub.
+  const page = readFileSync(new URL('../webview/task-page.ts', import.meta.url), 'utf8');
+  assert.ok(page.includes("if (m.acc?.cardFailed) {") && page.includes("icon('project', 'orange')") && page.includes("'Its card couldn\\'t move on its GitHub Project: '"));
+  // Moved on to another state, the failure is the last state's, so it no longer shows.
+  const model = readFileSync(new URL('../src/model/task-page.ts', import.meta.url), 'utf8');
+  assert.ok(model.includes('cardFailed: cardFailure(i.task)'), 'read through core\'s cardFailure, which checks the state');
 });

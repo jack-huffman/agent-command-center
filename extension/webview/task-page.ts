@@ -110,6 +110,10 @@ export function renderTicket(m: TicketModel): Node[] {
     const [head, ...names] = m.acc.failedChecks.split(': ');
     top.append(foldable(`checks:${m.project}#${m.key}`, el('div', 'notice attention why', icon('github-action', 'orange'), el('div', 'why-text conflict', el('strong', '', `${head}: `), names.join(': '))), 'why-text', 2));
   }
+  // acc couldn't move its card on its GitHub Project as it entered this state (D-126): orange, with why.
+  if (m.acc?.cardFailed) {
+    top.append(foldable(`card:${m.project}#${m.key}`, el('div', 'notice attention why', icon('project', 'orange'), el('div', 'why-text conflict', el('strong', '', 'Its card couldn\'t move on its GitHub Project: '), m.acc.cardFailed)), 'why-text', 2));
+  }
   // Its files beside other tasks', each file in full (D-093): the icon and the words, in the look's tone.
   if (m.acc?.files) {
     const f = m.acc.files;

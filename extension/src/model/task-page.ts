@@ -6,6 +6,7 @@
 import type { Analysis } from '../../../packages/core/src/analyze.ts';
 import { type RunNote, shownNote, type Task } from '../../../packages/core/src/ledger.ts';
 import type { RatchetLimit, RatchetSpec } from '../../../packages/core/src/config.ts';
+import { cardFailure } from '../../../packages/core/src/cards.ts';
 import { num, ratchetLine, signed } from '../../../packages/core/src/ratchets.ts';
 import { type GateStatus, ratchetOf, type Receipt } from '../../../packages/core/src/receipts.ts';
 import { testsText } from '../../../packages/core/src/test-counts.ts';
@@ -90,6 +91,8 @@ export interface TicketAcc {
   conflicts: string | null;
   /** "Checks failed on GitHub: …", or null (D-076). Not `checks`: those are acc's own, on its commit. */
   failedChecks: string | null;
+  /** Why acc couldn't move its card on its GitHub Project as it entered this state (D-126), or null. */
+  cardFailed: string | null;
   /** Its files beside other tasks', each file in full (D-093), or null. */
   files: Look | null;
   agent: Look | null;
@@ -285,7 +288,7 @@ export function ticketModel(i: TicketInput): TicketModel {
   const t = i.ticket;
   const live = i.tracker !== null;
   const acc: TicketAcc | null = i.row && i.task ? {
-    look: accLook(i.row, true), environment: i.task.environment, waitingOn: i.row.deps, blocker: i.task.blocker, conflicts: conflictLine(i.row, true), failedChecks: failedChecksLine(i.row), files: filesLook(i.row, true),
+    look: accLook(i.row, true), environment: i.task.environment, waitingOn: i.row.deps, blocker: i.task.blocker, conflicts: conflictLine(i.row, true), failedChecks: failedChecksLine(i.row), cardFailed: cardFailure(i.task)?.replace(/[.\s]+$/, '') ?? null, files: filesLook(i.row, true),
     agent: i.row.stopped ? null : i.row.agent ?? null, model: i.row.model ?? null, agentName: i.task.run?.name ?? null, worktree: i.task.run?.worktree ?? null, branch: i.task.run?.branch ?? null, checks: checkRows(i.checks, i.task.run?.branch ?? null),
     history: i.task.history.map((h) => ({ at: h.at, from: h.from, to: h.to, by: h.by, reason: h.reason ?? null, look: displayLook(h.to) })).reverse(),
     // Its analysis has its own section, with its own buttons.
