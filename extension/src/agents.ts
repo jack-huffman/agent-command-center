@@ -229,7 +229,9 @@ class AgentCommands extends Sidebar {
       stopped.length ? `Stopped ${stopped.length === 1 ? stopped[0] : `${stopped.length} finished sessions`}.` : '',
       left ? `${left === 1 ? '1 was' : `${left} were`} left: no longer finished.` : '',
     ].filter(Boolean).join(' ');
-    if (failed.length) void vscode.window.showWarningMessage(`${said ? `${said} ` : ''}Couldn't stop ${failed.length === 1 ? 'one' : failed.length}: ${failed.join('; ')}`);
+    // Each failure in the log; the notice says how many, in one line (D-119).
+    for (const f of failed) this.log.warn(`Stop finished sessions: ${f}`);
+    if (failed.length) void vscode.window.showWarningMessage(`${said ? `${said} ` : ''}Couldn't stop ${failed.length === 1 ? 'one' : `${failed.length} of ${first.length}`}: ${failed.length === 1 ? failed[0] : 'the Command Center\'s log has each one\'s reason.'}`);
     else if (said) void vscode.window.showInformationMessage(said);
   }
 }

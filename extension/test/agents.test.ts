@@ -167,7 +167,7 @@ test('Stop finished sessions takes background sessions whose work is over, and n
     bg('1'), // its task is done
     bg('2a'), // an earlier run, while its task runs again
     bg('2b'), bg('3'), bg('4'), // the current builders of tasks running, in review and in rework
-    bg('5', { pid: undefined, status: undefined }), // its task is done, its process gone, still listed blocked
+    bg('5', { pid: undefined, status: undefined }), // its task is done, its process gone, still listed blocked: nothing to stop
     bg('6', { state: 'working', status: 'busy' }), // carried on by someone
     bg('7'), // a question waiting in the Command Center
     bg('8', { pid: undefined, status: undefined, state: 'done' }), // ended already
@@ -176,7 +176,7 @@ test('Stop finished sessions takes background sessions whose work is over, and n
     { cwd: '/r', kind: 'interactive', startedAt: 0, sessionId: 'review-4', status: 'busy', pid: 3 }, // a review under way
   ];
   const plan = stopFinishedPlan(sessions, (s) => tieSession(s, repo), (s) => (s.id === 'bg-7' ? 'has a question' : null));
-  assert.deepEqual(plan.map((s) => s.id), ['bg-1', 'bg-2a', 'bg-5']);
+  assert.deepEqual(plan.map((s) => s.id), ['bg-1', 'bg-2a'], 'not bg-5: with no process, claude stop can\'t confirm stopping it');
   assert.deepEqual(stopFinishedPlan(sessions, () => null, () => null), [], 'nothing acc can\'t tie');
 });
 
@@ -357,8 +357,8 @@ test('a finished session reads as Finished and never needs you: not on its row, 
   const page = (h: HubLike, key: string) => agentModel({ hub: h, key, seen: null, entries: [], readable: false, lastAt: null });
   assert.deepEqual(page(tied, 's-38').look, { label: 'Finished', icon: 'check', tone: 'neutral' });
   assert.equal(page(untied, 's-38').look.label, 'Needs you');
-  // Both can be stopped together; its row menu still offers Stop.
-  assert.equal(m.agents.stopFinished, 2);
+  // Only the one whose process still runs is stopped (D-119): the other has nothing left to stop.
+  assert.equal(m.agents.stopFinished, 1);
   assert.equal(was.agents.stopFinished, 0);
   assert.ok(menuFor('acc.home', { webviewSection: 'agent', agentBackground: row('s-4').background }).includes('acc.agent.stop'));
 });
@@ -482,7 +482,7 @@ test('under its repo, each task heads its agents, those needing you first, then 
   assert.deepEqual(other!.agents.map((a) => [a.label, a.task]), [['acme-dev', null]], 'by its own name');
   // Its done task's builder, folded away, naming its task since no task line heads it.
   assert.deepEqual(acme.finished.map((a) => [a.key, a.label, a.task, a.look.label]), [['s3', 'builder', { key: 'AC-3', title: 'Old work' }, 'Finished']]);
-  assert.equal(acme.stopFinished, 1, 'Stop all stops it');
+  assert.equal(acme.stopFinished, 0, 'its process is gone, so Stop all has nothing to stop (D-119)');
   // A task elsewhere: its title from its repo's ledger, and no page here to open.
   const billing = agentsModel(busyMachine()).repos[2]!;
   assert.deepEqual(billing.tasks.map((t) => [t.key, t.title, t.project]), [['BL-7', 'Invoice export', null]]);
