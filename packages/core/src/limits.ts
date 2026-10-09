@@ -11,7 +11,7 @@ import { writeJsonKey } from './config-edit.ts';
 import { AccError } from './exec.ts';
 import { gatesFor } from './gates.ts';
 import { builders, type Ledger, readLedger } from './ledger.ts';
-import { machineDir, machineJson, machineJsonToWrite } from './machine.ts';
+import { machineDir, machineJson, setMachineKey } from './machine.ts';
 import type { RepoPaths } from './paths.ts';
 
 // ---------------------------------------------------------------- this project's (.acc/config.json)
@@ -114,13 +114,7 @@ export function setMachineAgents(n: number | null, env: NodeJS.ProcessEnv = proc
   if (n !== null && (!Number.isInteger(n) || n < 1 || n > MAX_MACHINE_AGENTS)) {
     throw new AccError('usage', `This machine's total is a whole number from 1 to ${MAX_MACHINE_AGENTS}, or --none for no total.`);
   }
-  const file = machineJsonToWrite(env);
-  let current: Record<string, unknown> = {};
-  try { current = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>; } catch { /* a new file */ }
-  const { agents: _was, ...rest } = current;
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(`${file}.tmp`, JSON.stringify(n === null ? rest : { ...rest, agents: n }, null, 2) + '\n');
-  renameSync(`${file}.tmp`, file);
+  setMachineKey('agents', n ?? undefined, env);
   return n;
 }
 

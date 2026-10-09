@@ -1,9 +1,9 @@
-import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { AccError } from './exec.ts';
 import { alive, sleep } from './lock.ts';
-import { machineJson, machineJsonToWrite } from './machine.ts';
+import { machineJson, setMachineKey } from './machine.ts';
 
 /**
  * What holds a slot, or waits for one, written beside its pid, so the Command Center can say which task or
@@ -62,12 +62,7 @@ export function heavySlots(env: NodeJS.ProcessEnv = process.env): number {
 export function setHeavySlots(n: number, env: NodeJS.ProcessEnv = process.env): number {
   const slots = slotCount(n);
   if (!slots || slots !== n) throw new AccError('usage', `Heavy-check slots are a whole number from 1 to ${MAX_HEAVY_SLOTS}.`);
-  const file = machineJsonToWrite(env);
-  let current: Record<string, unknown> = {};
-  try { current = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>; } catch { /* a new file */ }
-  mkdirSync(join(file, '..'), { recursive: true });
-  writeFileSync(`${file}.tmp`, JSON.stringify({ ...current, heavySlots: slots }, null, 2) + '\n');
-  renameSync(`${file}.tmp`, file);
+  setMachineKey('heavySlots', slots, env);
   return slots;
 }
 

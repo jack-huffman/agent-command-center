@@ -35,6 +35,43 @@ test('the heavy-check slots are read and written where the machine\'s total is, 
   assert.deepEqual([heavySlots({ HOME: home }), machineAgents({ HOME: home })], [3, 5], 'each read where it was written');
 });
 
+/**
+ * Another process setting one of machine.json's keys 300 times through its setter, from `start`, counting 1 to
+ * `top` and round again, so it ends on `top`. After each change it reads its key back, and prints how many it
+ * found lost: only the other process writes the file meanwhile, and that one sets its own key.
+ */
+function setter(file: string, start: number, module: string, call: string, key: string, top: number): Promise<{ code: number | null; out: string }> {
+  const url = new URL(`../src/${module}`, import.meta.url).href;
+  const code = `import { readFileSync } from 'node:fs';
+import * as m from ${JSON.stringify(url)};
+const env = { ACC_MACHINE_FILE: process.env.FILE };
+while (Date.now() < ${start});
+let lost = 0;
+for (let i = 0; i < 300; i++) {
+  const n = (i % ${top}) + 1;
+  m.${call}(n, env);
+  if (JSON.parse(readFileSync(env.ACC_MACHINE_FILE, 'utf8')).${key} !== n) lost++;
+}
+process.stdout.write(String(lost));`;
+  const child = spawn(process.execPath, ['--no-warnings', '--input-type=module', '-e', code], { env: { ...process.env, FILE: file }, stdio: ['ignore', 'pipe', 'inherit'] });
+  let out = '';
+  child.stdout!.on('data', (b: Buffer) => { out += b.toString(); });
+  return new Promise((resolve) => child.on('close', (code) => resolve({ code, out })));
+}
+
+test('a slots change and a total change made at once both survive in machine.json, through its one writer (GH-148)', async () => {
+  const dir = tempDir('acc-machine-');
+  const file = join(dir, 'machine.json');
+  writeFileSync(file, JSON.stringify({ other: 'kept' }));
+  // Two processes, each setting its own key many times while the other does, from the same moment: with a
+  // read, merge and write that weren't one at a time, each would write over the other's key now and then.
+  const start = Date.now() + 1_500;
+  const runs = await Promise.all([setter(file, start, 'semaphore.ts', 'setHeavySlots', 'heavySlots', 6), setter(file, start, 'limits.ts', 'setMachineAgents', 'agents', 50)]);
+  assert.deepEqual(runs, [{ code: 0, out: '0' }, { code: 0, out: '0' }], 'both ran to the end, and neither lost a change to the other');
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { other: 'kept', heavySlots: 6, agents: 50 }, 'each kept the other\'s key, and the rest');
+  assert.deepEqual(readdirSync(dir), ['machine.json'], 'no temp file or lock left beside it');
+});
+
 const deadPid = (): number => Number(spawnSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8' }).stdout);
 const hold = (dir: string, slot: number, owner: Record<string, unknown>) => {
   mkdirSync(join(dir, `slot-${slot}`), { recursive: true });
