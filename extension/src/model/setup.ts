@@ -5,6 +5,7 @@
 
 import { GROUP_TITLES, STEPS } from '../../../packages/core/src/onboarding/steps.ts';
 import type { CheckStatus } from '../../../packages/core/src/onboarding/types.ts';
+import { KIND_QUESTION, SETUP_PARTS } from '../logic/first-open.ts';
 import type { DoctorItem } from '../logic/setup.ts';
 import { type Action, type Look, LOOK, type ModelArea, type Ref } from './shared.ts';
 
@@ -30,11 +31,23 @@ export interface SetupSection {
   steps: SetupRow[];
 }
 
+/** A folder that isn't set up (GH-138): the question it starts from, with B0.config's Do it to answer it. */
+export interface SetupStart {
+  /** The data-part its heading carries, where the first open lands. */
+  part: string;
+  question: string;
+  detail: string;
+  actions: Action[];
+}
+
 export interface SetupModel {
   kind: 'setup';
   done: number;
   total: number;
-  parts: { part: 'machine' | 'project'; label: string; todo: number; steps: SetupRow[]; sections: SetupSection[] }[];
+  /** In a folder with no .acc/config.json, what kind of project it is, asked at the top of This project. */
+  start: SetupStart | null;
+  /** jump: the data-part its heading carries, for a jump such as the first open's (GH-138). */
+  parts: { part: 'machine' | 'project'; jump: string; label: string; todo: number; steps: SetupRow[]; sections: SetupSection[] }[];
 }
 
 /** How a setup step's check shows, and a step a person confirmed by hand. */
@@ -61,7 +74,22 @@ function stepOrder(id: string): number {
   return last >= 0 ? last + 0.5 : STEPS.length;
 }
 
-export function setupModel(items: DoctorItem[], confirmed: Set<string>): SetupModel {
+/** What Setup asks in a folder that isn't set up, whatever its profile will be (GH-138). */
+export function setupStart(): SetupStart {
+  return {
+    part: SETUP_PARTS.kind,
+    question: KIND_QUESTION,
+    detail: 'This folder has no .acc/config.json yet. Choose a Salesforce project, another kind, a team template or a Jira epic, and acc init writes it.',
+    actions: [
+      { command: 'acc.step.fix', label: 'Choose…', icon: 'wrench', ref: { step: 'B0.config' }, primary: true },
+      { command: 'acc.openGuide', label: 'Guide', icon: 'book', ref: { step: 'B0.config' } },
+    ],
+  };
+}
+
+/** setUp: whether the folder has a .acc/config.json, null with no folder open. Only false asks what kind of project it is. */
+export function setupModel(items: DoctorItem[], confirmed: Set<string>, setUp: boolean | null = true): SetupModel {
+  const start = setUp === false ? setupStart() : null;
   const visible = [...items].sort((a, b) => stepOrder(a.id) - stepOrder(b.id));
   const rows = (part: 'machine' | 'project') => visible.filter((i) => i.part === part).map((i): SetupRow => {
     const step = STEPS.find((s) => s.id === i.id);
@@ -94,10 +122,10 @@ export function setupModel(items: DoctorItem[], confirmed: Set<string>): SetupMo
   };
   const parts = (['machine', 'project'] as const).map((part) => {
     const steps = rows(part);
-    return { part, label: part === 'machine' ? 'This machine' : 'This project', todo: steps.filter((s) => !s.done).length, steps, sections: sectionsOf(steps) };
-  }).filter((p) => p.steps.length);
+    return { part, jump: part === 'machine' ? SETUP_PARTS.machine : SETUP_PARTS.project, label: part === 'machine' ? 'This machine' : 'This project', todo: steps.filter((s) => !s.done).length, steps, sections: sectionsOf(steps) };
+  }).filter((p) => p.steps.length || (p.part === 'project' && start));
   const all = parts.flatMap((p) => p.steps);
-  return { kind: 'setup', done: all.filter((s) => s.done).length, total: all.length, parts };
+  return { kind: 'setup', done: all.filter((s) => s.done).length, total: all.length, start, parts };
 }
 
 /** Steps still to do, and those failing. */
@@ -109,7 +137,7 @@ function counts(setup: SetupModel): { todo: number; failing: number } {
 
 export const area: ModelArea = {
   commands: [
-    'acc.step.check', 'acc.step.fix', 'acc.step.openSetup', 'acc.step.confirm', 'acc.openGuide', 'acc.openProjectWalkthrough', 'acc.importRules',
+    'acc.step.check', 'acc.step.fix', 'acc.step.openSetup', 'acc.step.confirm', 'acc.openGuide', 'acc.openMachineWalkthrough', 'acc.openProjectWalkthrough', 'acc.importRules',
   ],
   home: {
     order: 50,

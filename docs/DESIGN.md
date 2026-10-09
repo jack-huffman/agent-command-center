@@ -1476,8 +1476,7 @@ own tabs, since each is a document.
 ### Walkthrough
 
 The extension's first feature is a guided setup, built on VSCode's walkthroughs
-(the **Get Started** pages). It opens on its own the first time a folder has no
-`.acc/config.json`. There are two walkthroughs:
+(the **Get Started** pages). There are two walkthroughs:
 
 1. **Set up this machine:** steps A1 to A4 in [ONBOARDING.md](ONBOARDING.md):
    the tools, GitHub, agents' billing, and the acc plugin in Claude Code (§13).
@@ -1497,6 +1496,28 @@ When a check passes, the extension sets that step's context key, and the step
 ticks itself (`completionEvents: ["onContext:acc.step.<id>"]`). The extension
 re-runs every check when a folder opens, so the walkthrough always reflects the
 real state, not what was clicked.
+
+**How a folder is first set up (GH-138, D-124).** Nothing opens on its own when
+a folder opens: no walkthrough tab, no notification. The extension still starts
+with VSCode, so the status bar and the rail's badges work. The first time a
+person opens the Command Center in a folder with no `.acc/config.json`, from the
+activity bar, the status bar's menu or **Open Command Center**, it opens on
+**Setup**, whatever kind of project the folder will be:
+
+- on a machine whose checks haven't all passed, at **This machine**, in place
+  of the machine walkthrough tab that used to open;
+- otherwise at **What kind of project is this?**, at the top of **This
+  project**. Its **Choose…** is B0.config's **Do it**: a Salesforce project,
+  another kind, a team template or a Jira epic, then `acc init`.
+
+That first open is kept in the folder's workspaceState (`acc.home.firstOpened`),
+so it happens once. After it, the Command Center opens where it was left, or on
+the section Settings names (GH-113). A folder that's already set up never gets
+it, and the Command Center sent somewhere, such as Connect a tracker's Tasks or
+a run's output, goes there. `logic/first-open.ts` decides it. The walkthroughs
+open only when asked for: Setup's **Machine walkthrough** and **Project
+walkthrough** buttons, the Command Palette, and VSCode's Get Started page, which
+lists them as before.
 
 **One list of steps drives everything (D-017).** Steps are data in `core`. Each
 one has:

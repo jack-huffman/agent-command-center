@@ -10,12 +10,15 @@ Command Palette:
 
 - **Agent Command Center: set up this machine** (**Agent Command Center: Set up
   this machine**). Tools, GitHub accounts, agents' billing, and the acc plugin
-  in Claude Code. It opens by itself the first time the extension runs.
+  in Claude Code.
 - **Agent Command Center: onboard a project** (**Agent Command Center: Onboard
   this project**). Config, the repo's GitHub account, a branch per environment,
   source tracking, safe defaults and the ticket source.
 
-The Command Center's **Setup** page shows the same steps, with what's left.
+Neither opens by itself. The first time you open the Command Center in a
+folder that isn't set up, it opens on its **Setup** page, which shows the same
+steps, with what's left, and asks what kind of project it is. Its
+**Machine walkthrough** and **Project walkthrough** buttons open these.
 
 Every step has buttons:
 

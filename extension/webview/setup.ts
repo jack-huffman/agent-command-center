@@ -2,7 +2,7 @@
 
 import type { Action } from '../src/model/shared.ts';
 import type { RunCard } from '../src/model/runs.ts';
-import type { SetupModel, SetupRow } from '../src/model/setup.ts';
+import type { SetupModel, SetupRow, SetupStart } from '../src/model/setup.ts';
 import { redrawDock } from './dock.ts';
 import { actionButton, button, el, header, icon, plural, status, titled, toolbarButton } from './dom.ts';
 import { api, memory, type PageArea, remember } from './state.ts';
@@ -45,10 +45,24 @@ function iconButton(a: Action): HTMLElement {
   return b;
 }
 
+/**
+ * A folder that isn't set up (GH-138): what kind of project it is, the first thing This project asks. Its
+ * heading is where the Command Center's first open in the folder lands, once this machine is ready.
+ */
+function startCard(s: SetupStart): HTMLElement {
+  const h = el('h3', 'start-question', icon('question'), s.question);
+  h.dataset.part = s.part;
+  h.tabIndex = -1;
+  return el('div', 'setup-start', h, el('p', 'detail', s.detail), el('div', 'actions', ...s.actions.map(actionButton)));
+}
+
 export function renderSetup(m: SetupModel, live: RunCard[] = []): Node[] {
   const todo = m.total - m.done;
-  const out: Node[] = [header('Setup', m.total ? `${m.done} of ${m.total} steps done${todo ? `. ${plural(todo, 'step')} to do.` : '. Everything is set up.'}` : 'Checking…',
-    toolbarButton('acc.openProjectWalkthrough', 'Walkthrough', 'checklist'))];
+  const summary = m.total ? `${m.done} of ${m.total} steps done${todo ? `. ${plural(todo, 'step')} to do.` : m.start ? '.' : '. Everything is set up.'}` : 'Checking…';
+  // The walkthroughs open only when asked for, from here or VSCode's Get Started page (GH-138).
+  const out: Node[] = [header('Setup', m.start ? `${summary} This folder isn't set up yet.` : summary,
+    toolbarButton('acc.openMachineWalkthrough', 'Machine walkthrough', 'device-desktop'),
+    toolbarButton('acc.openProjectWalkthrough', 'Project walkthrough', 'repo'))];
   if (m.total) {
     const bar = el('div', 'progress');
     bar.setAttribute('role', 'progressbar');
@@ -73,7 +87,13 @@ export function renderSetup(m: SetupModel, live: RunCard[] = []): Node[] {
         el('ul', 'steps', ...sec.steps.map((s) => setupStep(s, live))));
       return d;
     });
-    out.push(el('section', 'block', el('h2', '', icon(part.part === 'machine' ? 'device-desktop' : 'repo'), part.label, el('span', 'count', part.todo ? `${part.todo} to do` : 'all done')), ...sections));
+    const start = part.part === 'project' && m.start ? startCard(m.start) : null;
+    const count = part.todo ? `${part.todo} to do` : start ? 'not set up' : 'all done';
+    const h = el('h2', '', icon(part.part === 'machine' ? 'device-desktop' : 'repo'), part.label, el('span', 'count', count));
+    // The first open in a folder that isn't set up lands on the machine's while it has steps to do (GH-138).
+    h.dataset.part = part.jump;
+    h.tabIndex = -1;
+    out.push(el('section', 'block', h, start, ...sections));
   }
   return out;
 }

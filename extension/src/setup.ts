@@ -7,6 +7,7 @@ import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import type { Step } from '../../packages/core/src/onboarding/types.ts';
 import { activeGhAccount, afterFullCheck, afterStepCheck, COMMANDS, contextKey, type DoctorItem, type EnvLike, expectedOrgUrl, EXTENSION_ID, hasPlaceholder, importRulesCommand, initArgs, type InitChoice, initCommand, initOutput, isComplete, machineCache, type MachineCache, pendingProject, productionOrgs, type RecentTemplate, rememberTemplate, reusableMachine, rulesDetail, setupOrgChoices, sfOpenCommand, shownRules, shownTemplate, statusText, stepIdOf, summarize, templateDetail, WALKTHROUGHS } from './logic/setup.ts';
 import type { StartProject } from './connect.ts';
+import { KIND_QUESTION } from './logic/first-open.ts';
 import { needsTerminal } from './logic/runs.ts';
 import { shq } from './logic/shared.ts';
 import { parseOrgUrl } from '../../packages/core/src/onboarding/helpers.ts';
@@ -98,6 +99,15 @@ export class Setup implements vscode.Disposable {
 
   private cwd(): string {
     return this.folder()?.uri.fsPath ?? homedir();
+  }
+
+  /**
+   * Whether the folder is set up: it has a .acc/config.json. Null with no folder open. The Command Center's
+   * first open in a folder that isn't lands on Setup (GH-138), and Setup asks what kind of project it is.
+   */
+  setUp(): boolean | null {
+    const f = this.folder();
+    return f ? existsSync(join(f.uri.fsPath, '.acc', 'config.json')) : null;
   }
 
   /** Project checks only run where they mean something: a configured repo or a Salesforce project. */
@@ -469,7 +479,7 @@ export class Setup implements vscode.Disposable {
       void vscode.window.showWarningMessage('Open the project\'s folder first (File → Open Folder).');
       return;
     }
-    const kind = await vscode.window.showQuickPick([...PROJECT_KINDS, FROM_TEMPLATE, FROM_EPIC], { title: 'What kind of project is this?' });
+    const kind = await vscode.window.showQuickPick([...PROJECT_KINDS, FROM_TEMPLATE, FROM_EPIC], { title: KIND_QUESTION });
     if (!kind) return;
     if (kind.profile === 'epic') return this.epicFlow();
     const choice = await this.choose(kind.profile);
@@ -673,22 +683,6 @@ export class Setup implements vscode.Disposable {
   async doctorInTerminal(): Promise<void> {
     this.runCommand('acc doctor');
     await this.refresh('acc doctor');
-  }
-
-  /** Opens a walkthrough once: the machine one on first use, the project one in a Salesforce folder that isn't set up. */
-  async maybeOpenWalkthroughs(): Promise<void> {
-    if (!this.ctx.globalState.get('acc.welcomed')) {
-      await this.ctx.globalState.update('acc.welcomed', true);
-      await openWalkthrough(WALKTHROUGHS.machine.id);
-      return;
-    }
-    const f = this.folder();
-    if (!f || this.ctx.workspaceState.get('acc.projectWalkthroughShown')) return;
-    const root = f.uri.fsPath;
-    if (existsSync(join(root, 'sfdx-project.json')) && !existsSync(join(root, '.acc', 'config.json'))) {
-      await this.ctx.workspaceState.update('acc.projectWalkthroughShown', true);
-      await openWalkthrough(WALKTHROUGHS.project.id);
-    }
   }
 
   /** In a multi-root workspace, the project follows the active editor. */

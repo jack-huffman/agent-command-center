@@ -152,9 +152,12 @@ installs the same way, over the old one.
 
 ### The first run
 
-1. **This machine.** After the reload, the walkthrough **Agent Command Center:
-   set up this machine** opens by itself, once. To open it again: **Agent
-   Command Center: Set up this machine** in the Command Palette. Each step has
+1. **This machine.** After the reload, nothing opens by itself. Click the
+   Command Center's icon in the activity bar: the first time in a folder that
+   isn't set up, it opens on **Setup**, at **This machine** while any of its
+   steps are left. Its **Machine walkthrough** button, or **Agent Command
+   Center: Set up this machine** in the Command Palette, opens the same steps
+   as VSCode's walkthrough. Each step has
    **Check** and, for most, **Do it**, which runs the fix in a terminal or an
    output panel you can watch. A step ticks itself when its check passes. It
    covers the tools, GitHub, agents' billing, and the acc plugin in Claude
@@ -174,12 +177,15 @@ installs the same way, over the old one.
    `claude plugin update acc@agent-command-center --scope user`. Until you
    do, A4 fails on a plugin older than the extension, and its **Do it** runs
    both.
-3. **A project.** Open the project's repo folder. In a Salesforce folder with
-   no `.acc/config.json`, the walkthrough **Agent Command Center: onboard a
-   project** opens by itself; anywhere else, run **Agent Command Center:
-   Onboard this project**. Its **Project config** step writes
-   `.acc/config.json`: review it and commit it. The rest set up the repo's
-   GitHub account, branches, orgs and ticket source.
+3. **A project.** Open the project's repo folder, and open the Command Center.
+   The first time in a folder with no `.acc/config.json`, of any kind, it opens
+   on **Setup** at **What kind of project is this?**. **Choose…** asks
+   whether it's a Salesforce project, another kind, one from a team template
+   or one from a Jira epic, and writes `.acc/config.json`: review it and
+   commit it. After that first time, the Command Center opens where you left
+   it. Setup's other steps set up the repo's GitHub account, branches, orgs
+   and ticket source; its **Project walkthrough** button, or **Agent Command
+   Center: Onboard this project**, opens them as VSCode's walkthrough.
 4. **The Command Center.** Click its icon in the activity bar. **Setup** shows
    every step and what's left, and `acc doctor` in any VSCode terminal runs the
    same checks.

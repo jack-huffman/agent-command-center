@@ -66,7 +66,8 @@ export interface HomeInput {
   section: HomeSection;
   boards: (root: string) => BoardInput[];
   identity: (root: string) => IdentityCard | null;
-  setup: { items: DoctorItem[]; confirmed: Set<string> };
+  /** setUp: whether the folder has a .acc/config.json (GH-138); left out, it's taken as set up. */
+  setup: { items: DoctorItem[]; confirmed: Set<string>; setUp?: boolean | null };
   runs?: RunInput[];
   /** The edit a task's page holds for an update, unsent, following the drafts it replaced. */
   edited?: (root: string, id: string, replaces: string[]) => string | null;
@@ -140,7 +141,7 @@ export function homeModel(i: HomeInput): HomeModel {
   const agents = agentsModel(hub, i.setup.items, i.whereView ?? 'folder');
   const worktrees = worktreesModel(hub);
   const environments = environmentsModel(hub, i.identity);
-  const setup = setupModel(i.setup.items, i.setup.confirmed);
+  const setup = setupModel(i.setup.items, i.setup.confirmed, i.setup.setUp ?? true);
   // Limits read every repo's ledger acc noted on this machine, so only while Settings shows (GH-111).
   const limits = i.section === 'settings' ? hub.limits?.() ?? null : null;
   const settings = settingsModel({

@@ -94,7 +94,7 @@ export const area: ExtensionArea = {
       const account = identity.account();
       type Item = vscode.QuickPickItem & { go: () => unknown };
       const items: Item[] = [
-        { label: '$(home) Open the Command Center', go: () => panels.show('overview') },
+        { label: '$(home) Open the Command Center', go: () => panels.open() },
         ...autopilot.looks().filter((a) => a.state !== 'refused').map((a): Item => ({
           label: a.state === 'on' ? '$(hubot) Turn autopilot off' : '$(hubot) Turn autopilot on',
           description: `${a.project}${a.state === 'elsewhere' ? ' · on in another window' : ''}`,

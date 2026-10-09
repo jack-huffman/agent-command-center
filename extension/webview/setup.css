@@ -35,3 +35,10 @@
 /* A setup step's fix while it runs. */
 .step-run { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0 2px; padding: 5px 8px; border-radius: 4px; background: var(--vscode-textCodeBlock-background); }
 .step-run-cmd { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* A folder that isn't set up (GH-138): what kind of project it is, asked first in This project. */
+.setup-start { padding: 10px 12px; border: 1px solid var(--line); border-left: 3px solid var(--orange); border-radius: var(--radius); margin: 0 0 10px; background: var(--card); }
+.setup-start .start-question { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 1.05em; color: var(--vscode-foreground); }
+.setup-start .start-question .codicon { color: var(--orange); }
+.setup-start .detail { margin: 4px 0 0; }
+.setup-start .actions { margin-top: 8px; }
