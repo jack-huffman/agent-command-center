@@ -326,7 +326,7 @@ test('turned off after a refusal, the card says off and Settings no longer needs
   assert.deepEqual([card.state, card.look.tone, card.look.icon, card.look.label], ['off', 'neutral', 'debug-pause', 'Off: turned off on this machine']);
   // The badge followed the card to Settings (GH-113): Environments never turns orange for Slack.
   const nav = (c: typeof card, section: string) => homeModel({ hub: { projects: [], agents: [], agentsError: null, taskRows: () => [], projectFor: () => undefined }, section: 'environments', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() }, slack: c }).nav.find((n) => n.section === section)!;
-  assert.deepEqual([nav(card, 'settings').attention, nav(card, 'settings').hint], [false, 'Appearance, agents, limits, trackers, Slack, GitHub accounts and the Command Center\'s own preferences']);
+  assert.deepEqual([nav(card, 'settings').attention, nav(card, 'settings').hint], [false, 'Appearance, agents, limits, trackers, Slack, GitHub accounts, the Command Center\'s own preferences and the versions']);
   await w.slack.on();
   const paused = slackCard(w.slack.state());
   assert.equal(paused.state, 'paused', 'still paused until a test goes through');

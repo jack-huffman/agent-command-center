@@ -297,7 +297,7 @@ test('the section it opens on is kept per window, and used only when the Command
   assert.ok(panels.includes("if (!section && !this.panel && this.opens !== 'left') this.remember(this.opens);"), 'only when it opens afresh, with no section asked for');
   // Only a person opening it, from the activity bar or acc.open.home; anything else that shows it goes where it was sent.
   const open = panels.slice(panels.indexOf('  open(section?: ViewKind | HomeSection): void {'), panels.indexOf('  show(section?: ViewKind | HomeSection, open?: string): void {'));
-  assert.ok(open.includes('this.remember(this.opens)') && !panels.slice(panels.indexOf('  show(section?')).split('\n  }\n')[0].includes('this.opens'), 'open applies it, show doesn\'t');
+  assert.ok(open.includes('this.remember(this.opens)') && !panels.slice(panels.indexOf('  show(section?')).split('\n  }\n')[0]?.includes('this.opens'), 'open applies it, show doesn\'t');
   const ext = source('src', 'extension.ts');
   assert.ok(ext.includes("if (!e.visible) return;\n    panels.open();") && ext.includes("reg('acc.open.home', (section?: unknown) => panels.open("), 'the activity bar and acc.open.home open it');
   // Agents' toggle and Settings both set the Where view through one path.
