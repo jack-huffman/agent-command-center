@@ -1,26 +1,17 @@
 // What the junk test (GH-106, junk.test.ts) found acc doing with bad arguments, one test a cause, each naming
-// the commands it covers. They run acc from its source, as the command groups' tests do, in throwaway repos.
+// the commands it covers. They run acc from its source through cli() in support.ts, as the command groups'
+// tests do, in throwaway repos.
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { DONE_COMMAND } from '../../core/src/index.ts';
-import { GENERIC_CONFIG, makeRepo, tempDir } from '../../core/test/support.ts';
+import { makeRepo, tempDir } from '../../core/test/support.ts';
 import { failureLine } from '../src/main.ts';
+import { cli, repoWithConfig } from './support.ts';
 
-const MAIN = fileURLToPath(new URL('../src/main.ts', import.meta.url));
-const HEAVY_DIR = join(tempDir('acc-heavy-'), 'slots');
-
-function acc(cwd: string, args: string[]) {
-  const r = spawnSync(process.execPath, ['--no-warnings', MAIN, ...args], {
-    cwd, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', ACC_ROLE: '', ACC_TASK: '', ACC_HEAVY_DIR: HEAVY_DIR },
-  });
-  return { code: r.status ?? 1, out: r.stdout, err: r.stderr, json: () => JSON.parse(r.stdout) };
-}
-
-const repoWithConfig = (): string => makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG) });
+const acc = cli(fileURLToPath(new URL('../src/main.ts', import.meta.url)));
 
 /** A refusal in one line on stderr, with no stack: what every junk call must get. */
 const oneLine = (r: { code: number; err: string }, code: number): string => {

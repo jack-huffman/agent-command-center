@@ -3,7 +3,7 @@
 // (D-099), so the near-tests gate finds a module's tests by name. Each file names '../src/main.ts' itself,
 // which is how the gate finds every CLI test for a change to main.ts or anything it loads.
 
-import { spawnSync } from 'node:child_process';
+import { spawnSync, type SpawnSyncOptions } from 'node:child_process';
 import { join } from 'node:path';
 import { GENERIC_CONFIG, makeRepo, tempDir } from '../../core/test/support.ts';
 
@@ -22,11 +22,18 @@ export interface AccRun {
   json: () => any;
 }
 
-/** acc as the file at `main` runs it: `acc(cwd, args, input?, env?)`, with what the environment adds over the tests' own. */
+/** How else to spawn acc, such as a timeout (GH-148): its folder, input and environment are cli()'s own arguments. */
+export type SpawnOptions = Omit<SpawnSyncOptions, 'cwd' | 'input' | 'env' | 'encoding'>;
+
+/**
+ * acc as the file at `main` runs it: `acc(cwd, args, input?, env?, spawn?)`, with what the environment adds
+ * over the tests' own, and how else to spawn it. Every CLI test runs acc through this, so none builds its
+ * environment by hand.
+ */
 export function cli(main: string) {
-  return (cwd: string, args: string[], input?: string, env: NodeJS.ProcessEnv = {}): AccRun => {
+  return (cwd: string, args: string[], input?: string, env: NodeJS.ProcessEnv = {}, spawn: SpawnOptions = {}): AccRun => {
     const r = spawnSync(process.execPath, ['--no-warnings', main, ...args], {
-      cwd, input, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', ACC_ROLE: '', ACC_TASK: '', ACC_HEAVY_DIR: HEAVY_DIR, ACC_REPOS_FILE: REPOS_FILE, ACC_MACHINE_FILE: MACHINE_FILE, ...env },
+      ...spawn, cwd, input, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', ACC_ROLE: '', ACC_TASK: '', ACC_HEAVY_DIR: HEAVY_DIR, ACC_REPOS_FILE: REPOS_FILE, ACC_MACHINE_FILE: MACHINE_FILE, ...env },
     });
     return { code: r.status ?? 1, out: r.stdout, err: r.stderr, json: () => JSON.parse(r.stdout) };
   };

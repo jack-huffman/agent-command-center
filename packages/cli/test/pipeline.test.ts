@@ -8,10 +8,9 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { mutate, parseConfig, readLedger, repoPaths, run, upsertTasks } from '../../core/src/index.ts';
 import { GENERIC_CONFIG } from '../../core/test/support.ts';
-import { cli, HEAVY_DIR, MACHINE_FILE, REPOS_FILE, repoWithConfig, UNCHECKED } from './support.ts';
+import { cli, repoWithConfig, UNCHECKED } from './support.ts';
 
-const MAIN = fileURLToPath(new URL('../src/main.ts', import.meta.url));
-const acc = cli(MAIN);
+const acc = cli(fileURLToPath(new URL('../src/main.ts', import.meta.url)));
 
 // ---------------------------------------------------------------- closing issues (D-082)
 
@@ -218,14 +217,11 @@ test('acc autopilot --every stops by itself once the Command Center that started
   const pid = host.stdout.trim();
   assert.match(pid, /^\d+$/);
   const started = Date.now();
-  const r = spawnSync(process.execPath, ['--no-warnings', MAIN, 'autopilot', '--every', '30'], {
-    cwd: dir, encoding: 'utf8', timeout: 20_000,
-    env: { ...process.env, NO_COLOR: '1', ACC_ROLE: '', ACC_TASK: '', ACC_HEAVY_DIR: HEAVY_DIR, ACC_REPOS_FILE: REPOS_FILE, ACC_MACHINE_FILE: MACHINE_FILE, ACC_AUTOPILOT_PARENT: pid },
-  });
+  const r = acc(dir, ['autopilot', '--every', '30'], undefined, { ACC_AUTOPILOT_PARENT: pid }, { timeout: 20_000 });
   const took = Date.now() - started;
-  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.code, 0, r.err);
   assert.ok(took < 10_000, `stopped ${took} ms after it started, not at the end of its 30-second wait`);
-  assert.match(r.stdout, /Nothing for autopilot to do\./, 'it did its pass first');
-  assert.match(r.stderr, /The Command Center that started autopilot closed, so it stops\./);
+  assert.match(r.out, /Nothing for autopilot to do\./, 'it did its pass first');
+  assert.match(r.err, /The Command Center that started autopilot closed, so it stops\./);
   assert.ok(!existsSync(join(dir, '.git', 'acc', 'autopilot.lock')), 'and let go of its lock');
 });
