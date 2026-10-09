@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { FIRST_OPEN_STATE, firstOpen, type FirstOpenInput, KIND_QUESTION, machineDone, SETUP_PARTS } from '../src/logic/first-open.ts';
+import { FIRST_OPEN_STATE, FIRST_OPEN_WAIT_MS, firstOpen, type FirstOpenInput, KIND_QUESTION, machineDone, SETUP_PARTS, waitsForMachine } from '../src/logic/first-open.ts';
 import { COMMANDS, type DoctorItem, EXTENSION_ID, WALKTHROUGHS } from '../src/logic/setup.ts';
 import { setupModel } from '../src/model/setup.ts';
 import { makeRepo, tempDir } from '../../packages/core/test/support.ts';
@@ -18,7 +18,7 @@ const dist = fileURLToPath(new URL('../dist/extension.js', import.meta.url));
 const item = (id: string, part: 'machine' | 'project', status: DoctorItem['status']): DoctorItem => ({ id, part, title: id, status, detail: '' });
 
 test('the first open lands on Setup only in a folder that isn\'t set up, with nothing asked for, once', () => {
-  const base: FirstOpenInput = { asked: false, open: false, shown: false, setUp: false, machineDone: true };
+  const base: FirstOpenInput = { asked: false, open: false, shown: false, setUp: false, machineChecked: true, machineDone: true };
   assert.deepEqual(firstOpen(base), { section: 'setup', part: SETUP_PARTS.kind }, 'at what kind of project it is');
   assert.deepEqual(firstOpen({ ...base, machineDone: false }), { section: 'setup', part: SETUP_PARTS.machine }, 'at the machine part while it has steps to do');
   const not: [string, Partial<FirstOpenInput>][] = [
@@ -30,6 +30,17 @@ test('the first open lands on Setup only in a folder that isn\'t set up, with no
   ];
   for (const [why, change] of not) assert.equal(firstOpen({ ...base, ...change }), null, why);
   assert.equal(not.length, 5);
+});
+
+test('a first open before the machine is checked waits for it, and still unchecked lands at the question, not This machine', () => {
+  const early: FirstOpenInput = { asked: false, open: false, shown: false, setUp: false, machineChecked: false, machineDone: false };
+  assert.equal(waitsForMachine(early), true);
+  assert.deepEqual(firstOpen(early), { section: 'setup', part: SETUP_PARTS.kind }, 'the machine may well be ready');
+  assert.equal(waitsForMachine({ ...early, machineChecked: true }), false, 'checked: no wait, and its results decide');
+  // Only a first open waits: an open that wouldn't land on Setup goes at once.
+  const not: Partial<FirstOpenInput>[] = [{ asked: true }, { open: true }, { shown: true }, { setUp: true }, { setUp: null }];
+  for (const change of not) assert.equal(waitsForMachine({ ...early, ...change }), false, JSON.stringify(change));
+  assert.ok(FIRST_OPEN_WAIT_MS >= 2000 && FIRST_OPEN_WAIT_MS <= 5000, 'a few seconds');
 });
 
 test('the machine is done when every one of its steps passed, doesn\'t apply or was done by hand, and not before it\'s checked', () => {
@@ -57,14 +68,17 @@ type Started = { fake: ReturnType<typeof fakeVscode>; started: ReturnType<typeof
 /**
  * The built extension in a folder of its own, in a sandbox: its own home, gh, claude and sf that fail at
  * once, and this machine's results given, so no machine check runs. Each run loads the extension afresh.
+ * Early (GH-149), the results given are an older version's, as in the first window after an upgrade, so the
+ * checks run again, and claude --version takes early seconds to answer: fn runs while they're running. With
+ * doctorFails, the results are as old and every acc doctor prints none, and fn runs once that check is over.
  */
-async function inFolder(files: Record<string, string>, machine: DoctorItem['status'], profile: string, fn: (s: Started & { repo: string }) => Promise<void>): Promise<void> {
+async function inFolder(files: Record<string, string>, machine: DoctorItem['status'], profile: string, fn: (s: Started & { repo: string }) => Promise<void>, opts: { early?: number; doctorFails?: boolean } = {}): Promise<void> {
   const sandbox = realpathSync(tempDir('acc-first-open-'));
   const at = (...p: string[]) => join(sandbox, ...p);
   for (const d of ['home/.claude', 'state/questions', 'state/heavy', 'state/slack', 'bin']) mkdirSync(at(d), { recursive: true });
   writeFileSync(at('home', '.claude.json'), '{"projects":{}}\n');
   for (const name of ['gh', 'claude', 'sf', 'code', 'open', 'osascript', 'caffeinate']) {
-    writeFileSync(at('bin', name), '#!/bin/sh\nexit 1\n');
+    writeFileSync(at('bin', name), name === 'claude' && opts.early ? `#!/bin/sh\n[ "$1" = --version ] && sleep ${opts.early}\nexit 1\n` : '#!/bin/sh\nexit 1\n');
     chmodSync(at('bin', name), 0o755);
   }
   const saved = { ...process.env };
@@ -73,20 +87,27 @@ async function inFolder(files: Record<string, string>, machine: DoctorItem['stat
     ACC_QUESTIONS_DIR: at('state', 'questions'), ACC_HEAVY_DIR: at('state', 'heavy'), ACC_MACHINE_FILE: at('state', 'machine.json'), ACC_REPOS_FILE: at('state', 'repos.json'),
     ACC_RUNTIME_FILE: at('state', 'runtime'), ACC_SLACK_DIR: at('state', 'slack'),
   });
+  // Node reads NODE_OPTIONS as it starts, so only the acc runs started from here on load this.
+  writeFileSync(at('bin', 'no-doctor.cjs'), "if (process.argv.includes('doctor')) { process.stdout.write('acc broke'); process.exit(1); }\n");
+  if (opts.doctorFails) process.env.NODE_OPTIONS = `${process.env.NODE_OPTIONS ?? ''} --require ${at('bin', 'no-doctor.cjs')}`.trim();
   delete process.env.ACC_ROLE;
   delete process.env.ACC_TASK;
   const repo = makeRepo(files);
   const fake = fakeVscode(repo);
   const version = (JSON.parse(readFileSync(join(dist, '..', '..', 'package.json'), 'utf8')) as { version: string }).version;
   // No acc.welcomed: before GH-138, a machine's first window opened the machine walkthrough.
-  const started = activate(dist, fake, { 'acc.machineItems': { at: Date.now(), profile, version, items: [item('A1.git', 'machine', machine)] } });
-  try {
-    // Started, its whole setup pass done.
-    await until(() => fake.calls.contexts.get('acc.profile') === profile && fake.calls.contexts.has('acc.step.A1.git'), 60_000);
+  const started = activate(dist, fake, { 'acc.machineItems': { at: Date.now(), profile, version: opts.early || opts.doctorFails ? `${version}-older` : version, items: [item('A1.git', 'machine', machine)] } });
+  const ready = async () => {
+    // Started, its whole setup pass done: with acc doctor failing, there are no steps to show.
+    await until(() => fake.calls.contexts.get('acc.profile') === profile && (opts.doctorFails || fake.calls.contexts.has('acc.step.A1.git')), 60_000);
     // And listening for agents' questions, which starts once the projects load: started after stop(), its
     // file watcher would outlive the test and keep the process from exiting.
     await until(() => readdirSync(at('state', 'questions')).length > 0, 60_000);
+  };
+  try {
+    if (!opts.early) await ready();
     await fn({ fake, started, repo });
+    if (opts.early) await ready();
   } finally {
     started.stop();
     delete createRequire(import.meta.url).cache[dist];
@@ -94,6 +115,10 @@ async function inFolder(files: Record<string, string>, machine: DoctorItem['stat
     Object.assign(process.env, saved);
   }
 }
+
+/** How long an early run's machine check takes, longer than a first open waits, or well inside it. */
+const SLOW_CHECK_S = Math.ceil(FIRST_OPEN_WAIT_MS / 1000) + 4;
+const QUICK_CHECK_S = 1;
 
 const walkthroughs = (fake: Started['fake']) => fake.calls.executed.filter(([id]) => id === 'workbench.action.openWalkthrough');
 const lastState = (tab: { posted: unknown[] }) => (tab.posted as Posted[]).filter((x) => x.model).at(-1)!;
@@ -180,4 +205,101 @@ test('a folder that\'s set up opens as it did: the section it was left at, never
     assert.equal(opened.model!.setup.start, null, 'and Setup asks nothing');
     assert.equal(started.ctx.workspaceState.get(FIRST_OPEN_STATE), undefined);
   });
+});
+
+const sfdx = { 'sfdx-project.json': '{"packageDirectories":[{"path":"force-app","default":true}]}\n' };
+const OPEN_ITEM = '$(home) Open the Command Center';
+
+test('the status bar menu\'s Open the Command Center is a first open too: it lands on Setup', { timeout: 120_000 }, async () => {
+  await inFolder(sfdx, 'pass', 'none', async ({ fake, started }) => {
+    const offered: string[] = [];
+    fake.calls.pick = (items) => {
+      const all = items as unknown as { label: string }[];
+      offered.push(...all.map((i) => i.label));
+      return all.find((i) => i.label === OPEN_ITEM);
+    };
+    await fake.calls.commands.get('acc.status.menu')!();
+    assert.ok(offered.includes(OPEN_ITEM), 'the menu offers it');
+    assert.equal(fake.panels.length, 1);
+    const tab = fake.panels[0]!;
+    tab.receive!({ type: 'ready' });
+    const landed = lastState(tab);
+    assert.deepEqual([landed.model!.section, landed.open], ['setup', SETUP_PARTS.kind]);
+    assert.equal(started.ctx.workspaceState.get(FIRST_OPEN_STATE), true);
+  });
+});
+
+test('the launcher view becoming visible, as the activity bar icon makes it, is a first open: it lands on Setup', { timeout: 120_000 }, async () => {
+  await inFolder(sfdx, 'pass', 'none', async ({ fake, started }) => {
+    const shown = fake.treeShown.get('acc.home')!;
+    assert.equal(shown.length, 1, 'the launcher listens');
+    // Hidden, it opens nothing.
+    for (const l of shown) l({ visible: false });
+    await new Promise((r) => setTimeout(r, 100));
+    assert.equal(fake.panels.length, 0);
+    for (const l of shown) l({ visible: true });
+    await until(() => fake.panels.length === 1);
+    const tab = fake.panels[0]!;
+    tab.receive!({ type: 'ready' });
+    const landed = lastState(tab);
+    assert.deepEqual([landed.model!.section, landed.open], ['setup', SETUP_PARTS.kind]);
+    assert.equal(started.ctx.workspaceState.get(FIRST_OPEN_STATE), true);
+    assert.ok(fake.calls.executed.some(([id]) => id === 'workbench.action.closeSidebar'), 'and the sidebar closes, as openFromActivityBar says');
+  });
+});
+
+test('an early first open on a ready machine waits for the checks a few seconds, then lands at the question, not This machine', { timeout: 120_000 }, async () => {
+  await inFolder(sfdx, 'pass', 'none', async ({ fake, started }) => {
+    const { calls, panels } = fake;
+    const asked = Date.now();
+    const opening = calls.commands.get('acc.open.home')!() as Promise<void>;
+    // It waits: no tab yet, and the first open isn't spent.
+    await new Promise((r) => setTimeout(r, FIRST_OPEN_WAIT_MS / 2));
+    assert.equal(panels.length, 0, 'waiting for the checks');
+    assert.equal(started.ctx.workspaceState.get(FIRST_OPEN_STATE), undefined);
+    // Clicked again meanwhile, it's the same first open: one tab, and the jump to its part isn't lost.
+    const again = calls.commands.get('acc.open.home')!() as Promise<void>;
+    await Promise.all([opening, again]);
+    assert.equal(panels.length, 1);
+    const waited = Date.now() - asked;
+    assert.ok(waited >= FIRST_OPEN_WAIT_MS - 100 && waited < SLOW_CHECK_S * 1000, `waited ${waited} ms, up to the limit and no longer`);
+    assert.equal(calls.contexts.has('acc.step.A1.git'), false, 'the checks still haven\'t finished');
+    const tab = panels[0]!;
+    tab.receive!({ type: 'ready' });
+    const landed = lastState(tab);
+    assert.deepEqual([landed.model!.section, landed.jump, landed.open], ['setup', true, SETUP_PARTS.kind], 'the question, not a machine it couldn\'t check');
+    assert.equal(started.ctx.workspaceState.get(FIRST_OPEN_STATE), true);
+  }, { early: SLOW_CHECK_S });
+});
+
+test('an early first open whose checks finish inside the wait, with a step failing, lands at This machine', { timeout: 120_000 }, async () => {
+  await inFolder(sfdx, 'pass', 'none', async ({ fake }) => {
+    const { calls, panels } = fake;
+    assert.equal(calls.contexts.has('acc.step.A1.git'), false, 'opened while the checks run');
+    const asked = Date.now();
+    await calls.commands.get('acc.open.home')!();
+    const waited = Date.now() - asked;
+    assert.ok(waited >= QUICK_CHECK_S * 1000 - 100 && waited < FIRST_OPEN_WAIT_MS, `waited ${waited} ms, as long as the checks took`);
+    assert.ok(calls.contexts.has('acc.step.A1.git'), 'the checks finished first');
+    const tab = panels[0]!;
+    tab.receive!({ type: 'ready' });
+    const landed = lastState(tab);
+    // The sandbox's claude fails, so the machine has a step to do, whatever the older results said.
+    assert.deepEqual([landed.model!.section, landed.open], ['setup', SETUP_PARTS.machine]);
+  }, { early: QUICK_CHECK_S });
+});
+
+test('a first check that gets no results from acc doctor hasn\'t checked the machine: the first open lands at the question', { timeout: 120_000 }, async () => {
+  await inFolder({ 'README.md': '# A repo\n' }, 'pass', 'none', async ({ fake, started }) => {
+    const { calls, panels } = fake;
+    assert.equal(calls.contexts.has('acc.step.A1.git'), false, 'the check finished, with no machine rows');
+    const asked = Date.now();
+    await calls.commands.get('acc.open.home')!();
+    assert.ok(Date.now() - asked < FIRST_OPEN_WAIT_MS / 2, 'the check is over, so it doesn\'t wait');
+    const tab = panels[0]!;
+    tab.receive!({ type: 'ready' });
+    const landed = lastState(tab);
+    assert.deepEqual([landed.model!.section, landed.open], ['setup', SETUP_PARTS.kind], 'not a machine it couldn\'t check');
+    assert.equal(started.ctx.workspaceState.get(FIRST_OPEN_STATE), true);
+  }, { doctorFails: true });
 });

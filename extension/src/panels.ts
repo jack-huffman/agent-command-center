@@ -14,7 +14,7 @@ import type { SlackCard } from './model/slack.ts';
 import { WHERE_VIEWS, type WhereView } from './model/agents.ts';
 import { type OpensOn, opensOnChoice, themeChoice, type ThemeChoice } from './model/settings.ts';
 import { type Pace, paceChoice } from './logic/polls.ts';
-import { FIRST_OPEN_STATE, firstOpen, machineDone } from './logic/first-open.ts';
+import { FIRST_OPEN_STATE, FIRST_OPEN_WAIT_MS, firstOpen, type FirstOpenInput, machineDone, waitsForMachine } from './logic/first-open.ts';
 import type { Setup } from './setup.ts';
 
 /** Commands the page may ask for, from every area that draws them (D-099). Anything else from a webview is ignored. */
@@ -144,6 +144,8 @@ export class Panels implements vscode.Disposable {
   private tab: TabTheme | null = null;
   /** A part of the section to go to with the next jump, such as Settings' How agents run. */
   private opening: string | null = null;
+  /** A first open waiting for the machine checks (GH-149): a click meanwhile is that same open. */
+  private firstOpening: Promise<void> | null = null;
   private section: HomeSection = 'overview';
   /** What the Agents tab's Where column shows, remembered for the window (GH-83). */
   private whereView: WhereView = 'folder';
@@ -201,22 +203,32 @@ export class Panels implements vscode.Disposable {
   }
 
   /**
-   * Opens the page, or brings it forward, at a section: the one asked for, else where it was left. With
-   * open, the part with a heading of that name is scrolled to and focused, such as one of Settings'
-   * (settingsKey, GH-109).
-   */
-  /**
    * A person opening the Command Center, from the activity bar, the status bar or acc.open.home. The first
    * time in a folder that isn't set up, it opens on Setup, at the part to start from (GH-138), once per
-   * folder. Otherwise, opened afresh with no section asked for, it opens on the one Settings names for this
+   * folder. Opened before the window's first check has finished, that first open waits for it a few seconds
+   * (GH-149). Otherwise, opened afresh with no section asked for, it opens on the one Settings names for this
    * window (GH-113). Anything else that shows it, such as Connect a tracker or a run's output, goes where it
    * was sent, through show().
    */
-  open(section?: ViewKind | HomeSection): void {
-    const first = firstOpen({
-      asked: !!section, open: !!this.panel, shown: !!this.ctx.workspaceState.get(FIRST_OPEN_STATE),
-      setUp: this.setup.setUp(), machineDone: machineDone(this.setup.results(), this.setup.allConfirmed()),
+  async open(section?: ViewKind | HomeSection): Promise<void> {
+    // Clicked again while a first open waits, it's that first open, so the jump to its part isn't lost (GH-149).
+    if (!section && this.firstOpening) return this.firstOpening;
+    const now = (): FirstOpenInput => ({
+      asked: !!section, open: !!this.panel, shown: !!this.ctx.workspaceState.get(FIRST_OPEN_STATE), setUp: this.setup.setUp(),
+      machineChecked: this.setup.checked(), machineDone: machineDone(this.setup.results(), this.setup.allConfirmed()),
     });
+    if (!waitsForMachine(now())) return this.opened(now(), section);
+    this.firstOpening = (async () => {
+      await this.setup.whenChecked(FIRST_OPEN_WAIT_MS);
+      // Something asked for meanwhile, such as Connect a tracker, opened it already: that open stands.
+      if (!this.panel) this.opened(now(), section);
+    })().finally(() => { this.firstOpening = null; });
+    return this.firstOpening;
+  }
+
+  /** Opens it as open() decided: on Setup at its part for a first open, else as GH-113 says. */
+  private opened(i: FirstOpenInput, section?: ViewKind | HomeSection): void {
+    const first = firstOpen(i);
     if (first) {
       void this.ctx.workspaceState.update(FIRST_OPEN_STATE, true);
       return this.show(first.section, first.part);
@@ -225,6 +237,11 @@ export class Panels implements vscode.Disposable {
     this.show(section);
   }
 
+  /**
+   * Opens the page, or brings it forward, at a section: the one asked for, else where it was left. With
+   * open, the part with a heading of that name is scrolled to and focused, such as one of Settings'
+   * (settingsKey, GH-109).
+   */
   show(section?: ViewKind | HomeSection, open?: string): void {
     if (section && (HOME_SECTIONS as readonly string[]).includes(section)) this.remember(section as HomeSection);
     this.opening = open ?? null;

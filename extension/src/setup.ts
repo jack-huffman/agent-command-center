@@ -64,6 +64,13 @@ export class Setup implements vscode.Disposable {
   private readonly changed = new vscode.EventEmitter<void>();
   /** Fires when check results or confirmations change, for the Setup view. */
   readonly onDidChange = this.changed.event;
+  /**
+   * Whether the latest full check returned the machine's rows (GH-149). One that got none, as when acc doctor
+   * fails, hasn't checked the machine. The promise settles when the window's first full check finishes.
+   */
+  private machineChecked = false;
+  private firstChecked!: () => void;
+  private readonly firstCheck = new Promise<void>((resolve) => { this.firstChecked = resolve; });
 
   constructor(ctx: vscode.ExtensionContext) {
     this.ctx = ctx;
@@ -101,29 +108,33 @@ export class Setup implements vscode.Disposable {
     return this.folder()?.uri.fsPath ?? homedir();
   }
 
+  /** The folder's .acc/config.json, there or not: setUp(), isProject() and config() all find it here. Null with no folder open. */
+  private configFile(): string | null {
+    const f = this.folder();
+    return f ? join(f.uri.fsPath, '.acc', 'config.json') : null;
+  }
+
   /**
    * Whether the folder is set up: it has a .acc/config.json. Null with no folder open. The Command Center's
    * first open in a folder that isn't lands on Setup (GH-138), and Setup asks what kind of project it is.
    */
   setUp(): boolean | null {
-    const f = this.folder();
-    return f ? existsSync(join(f.uri.fsPath, '.acc', 'config.json')) : null;
+    const file = this.configFile();
+    return file ? existsSync(file) : null;
   }
 
   /** Project checks only run where they mean something: a configured repo or a Salesforce project. */
   private isProject(): boolean {
     const f = this.folder();
-    if (!f) return false;
-    return existsSync(join(f.uri.fsPath, '.acc', 'config.json')) || existsSync(join(f.uri.fsPath, 'sfdx-project.json'));
+    return !!f && (!!this.setUp() || existsSync(join(f.uri.fsPath, 'sfdx-project.json')));
   }
 
   /** The project config, read through core's parser so defaults (like profile = generic) match acc exactly. */
   private config(): Config | null {
-    const f = this.folder();
-    if (!f) return null;
-    const file = join(f.uri.fsPath, '.acc', 'config.json');
+    const file = this.configFile();
+    if (!file || !this.setUp()) return null;
     try {
-      return existsSync(file) ? parseConfig(JSON.parse(readFileSync(file, 'utf8'))).config : null;
+      return parseConfig(JSON.parse(readFileSync(file, 'utf8'))).config;
     } catch {
       return null;
     }
@@ -204,6 +215,26 @@ export class Setup implements vscode.Disposable {
     return [...this.items.values()];
   }
 
+  /** Whether a full check has returned the machine's rows, so results() says how the machine is (GH-149). */
+  checked(): boolean {
+    return this.machineChecked;
+  }
+
+  /**
+   * Waits for this window's first full check, up to ms. The caller reads what it found after: the machine
+   * isn't checked if it hasn't finished by then, or finished with no machine rows.
+   */
+  async whenChecked(ms: number): Promise<void> {
+    if (this.machineChecked) return;
+    let timer: NodeJS.Timeout | undefined;
+    const late = new Promise<void>((resolve) => { timer = setTimeout(resolve, ms); });
+    try {
+      await Promise.race([this.firstCheck, late]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   /** Where setup is, for the one status bar item (D-065): done of total, how many to do, and whether it's checking. */
   look(): { done: number; total: number; todo: number; checking: boolean } {
     const all = [...this.items.values()];
@@ -234,6 +265,7 @@ export class Setup implements vscode.Disposable {
           if (cache) await this.ctx.globalState.update('acc.machineItems', cache);
           const project = this.isProject() ? await this.doctor(['--part', 'project']) : null;
           await this.applyFull(machine, project);
+          this.machineChecked = machine.length > 0;
           const items = [...machine, ...(project ?? [])];
           const fails = items.filter((i) => i.status === 'fail');
           this.log.info(`Checked ${items.length} steps (${reason}${reused ? ', machine results reused' : ''}) in ${((Date.now() - started) / 1000).toFixed(1)} s: ${fails.length} failing.`);
@@ -241,6 +273,7 @@ export class Setup implements vscode.Disposable {
         })();
       } finally {
         this.running = undefined;
+        this.firstChecked();
         this.changed.fire();
       }
     })();

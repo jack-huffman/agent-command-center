@@ -5308,7 +5308,7 @@ no `.acc/config.json` (`acc.projectWalkthroughShown`).
   Command Center in a folder with no `.acc/config.json`, from the activity bar,
   the status bar menu's **Open the Command Center** or `acc.open.home` with no
   section, it opens on Setup: at **This machine** while the machine's steps
-  haven't all passed (or haven't been checked), in place of the machine
+  haven't all passed (a machine not checked yet: see GH-149 below), in place of the machine
   walkthrough; otherwise at **What kind of project is this?**. Every profile
   gets it: a folder that isn't a Salesforce project has no project checks yet,
   so This project shows the question alone. Its **Choose…** is B0.config's
@@ -5427,3 +5427,32 @@ opt-in (D-066).
   a sync that moves nothing call no gh and write nothing, and a dragged card
   stays put until the next move; a failed write is said once and shown by
   acc show; no `"edits"` asks gh nothing.
+
+- **A first open before the checks finish waits for them (GH-149).** Until
+  the window's first full check finishes, Setup has no machine results, most
+  often in the first window after an upgrade, when GH-114's per-version cache
+  makes the machine checks run again. A first open then waits for that check
+  up to `FIRST_OPEN_WAIT_MS` (4 s), and lands where its results say. Still
+  unfinished, it lands at **What kind of project is this?**, not **This
+  machine**, so the one first open isn't spent on a machine that may well be
+  ready; This machine's rows fill in when the check ends, and the status bar
+  shows any step to do. A full check that got no machine rows, as when
+  `acc doctor` fails and returns nothing, hasn't checked the machine either:
+  it counts only when the check returned the machine's rows.
+  `Setup.checked()` says whether one has, and `whenChecked()` waits for the
+  first full check; `waitsForMachine` decides when to wait. Only a first open
+  waits: one sent somewhere, a second open or a set-up folder opens at once.
+  A click while it waits is that same first open, so a second click doesn't
+  clear the jump to its part; something sent somewhere meanwhile, such as
+  Connect a tracker, opens there, and the waiting open then leaves it be.
+  `Setup.setUp()`, `isProject()` and `config()` now find `.acc/config.json`
+  through one helper, `configFile()`. Checked in `first-open.test.ts`: the
+  decision for an unchecked machine; the status bar menu's **Open the Command
+  Center** and the launcher view becoming visible each land on Setup on a
+  first open (the vscode stand-in now keeps a tree view's visibility
+  listeners); and, through the built extension with an older version's ready
+  results and a `claude` that answers after the wait, an early open opens no
+  tab while it waits, a second click meanwhile shares it, and it lands at the
+  question, jump and all, with the checks still running; with a `claude` that
+  answers inside the wait, it lands at This machine, since `claude` fails; and
+  with every `acc doctor` printing nothing, it lands at the question.

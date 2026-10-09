@@ -418,7 +418,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(launcherView, launcher);
   context.subscriptions.push(launcherView.onDidChangeVisibility((e) => {
     if (!e.visible) return;
-    panels.open();
+    void panels.open();
     if (vscode.workspace.getConfiguration('agentCommandCenter').get<boolean>('openFromActivityBar', true)) void vscode.commands.executeCommand('workbench.action.closeSidebar');
   }));
   /** Everything the page shows changed: redraw it, and the launcher's counts and badge. */

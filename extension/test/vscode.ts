@@ -47,6 +47,8 @@ export function fakeVscode(folder: string) {
   const autopilot: Item[] = [];
   const status = { text: '', tooltip: '', command: '', backgroundColor: undefined as unknown, name: '', shown: false, show() { this.shown = true; }, hide() { this.shown = false; }, dispose() {} };
   const trees = new Map<string, { getChildren(e?: unknown): unknown[]; getTreeItem(e: unknown): { label: string; description?: string } }>();
+  /** Who listens for each tree view being shown or hidden, such as the launcher's (GH-149): a test fires them. */
+  const treeShown = new Map<string, ((e: { visible: boolean }) => void)[]>();
   class EventEmitter { private ls: ((e: unknown) => void)[] = []; event = (l: (e: unknown) => void) => { this.ls.push(l); return disposable; }; fire(e?: unknown) { for (const l of this.ls) l(e); } dispose() {} }
   class TreeItem { label: string; collapsibleState: number; [k: string]: unknown; constructor(label: string, state = 0) { this.label = label; this.collapsibleState = state; } }
   class MarkdownString { value: string; supportThemeIcons = false; constructor(v = '') { this.value = v; } }
@@ -110,7 +112,12 @@ export function fakeVscode(folder: string) {
       onDidChangeActiveTextEditor: event(),
       activeTextEditor: undefined,
       terminals: [] as unknown[],
-      createTreeView: (id: string, o: { treeDataProvider: never }) => { trees.set(id, o.treeDataProvider); return { visible: false, onDidChangeVisibility: event(), badge: undefined, dispose() {} }; },
+      createTreeView: (id: string, o: { treeDataProvider: never }) => {
+        trees.set(id, o.treeDataProvider);
+        const shown: ((e: { visible: boolean }) => void)[] = [];
+        treeShown.set(id, shown);
+        return { visible: false, onDidChangeVisibility: (l: (e: { visible: boolean }) => void) => { shown.push(l); return disposable; }, badge: undefined, dispose() {} };
+      },
       showInputBox: async () => { calls.prompts++; return undefined; },
       createWebviewPanel: () => {
         const panel = {
@@ -161,7 +168,7 @@ export function fakeVscode(folder: string) {
     },
     env: { uriScheme: 'vscode', openExternal: async (u: { toString(): string }) => { calls.opened.push(String(u)); return true; }, clipboard: { writeText: async () => {}, readText: async () => '' } },
   };
-  return { api: strict(api), calls, status, trees, panels, autopilot, settings };
+  return { api: strict(api), calls, status, trees, treeShown, panels, autopilot, settings };
 }
 
 export function memento(initial: Record<string, unknown> = {}) {
