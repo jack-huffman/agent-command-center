@@ -27,7 +27,7 @@ export function holdTask(paths: RepoPaths, now: () => Date, id: string, opts: Di
     const kept = task.held && !task.held.failed ? task.held : null;
     // A model picked for it (D-086) is kept for its start, until another is picked.
     const model = opts.model ?? task.held?.model;
-    // So is an effort (D-???).
+    // So is an effort (D-???), and `default`, which dropped one.
     const effort = opts.effort ?? task.held?.effort;
     task.held = { at: kept?.at ?? at, actor: kept?.actor ?? opts.actor, by: kept?.by ?? opts.by, waitsFor: look.shares, first: look.first, ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
     task.updatedAt = at;

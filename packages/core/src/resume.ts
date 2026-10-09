@@ -5,7 +5,7 @@ import { agentArgs, withCloneAgents } from './agents.ts';
 import { type AwakeDeps, keepAwakeFor, releaseAwake } from './awake.ts';
 import type { Config, Effort } from './config.ts';
 import { builderModel } from './dispatch.ts';
-import { builderEffort } from './efforts.ts';
+import { builderEffort, checkModelEffort, effortFixWords } from './efforts.ts';
 import { builderSettings } from './packet.ts';
 import { AccError, parseJsonOutput, type Runner } from './exec.ts';
 import { remindedPath } from './hooks.ts';
@@ -110,12 +110,15 @@ export interface ResumeCommandInput {
  * project's permission mode, and the builder's model and effort, with the model and effort picked for the task
  * if they were (D-086, D-???). Pass the config with this clone's choices in it (withCloneAgents, D-036). D-060's
  * reply runs the same. It keeps the name its run recorded (D-087): resumed without one, Claude Code
- * lists the session under a name of its own.
+ * lists the session under a name of its own. A level the model doesn't take is refused in acc's words
+ * (D-???), before anything is stopped or started: the clone's or the project's model may have changed
+ * since the task's effort was picked.
  */
 export function resumeCommand(task: Task, config: Config, i: ResumeCommandInput): { args: string[]; env: Record<string, string>; model: string; effort: Effort | null } {
   const settings = JSON.stringify(builderSettings(task, config, i.accBinDir, i.basePath, i.accCommand));
   const { model } = builderModel(task, config);
-  const { effort } = builderEffort(task, config);
+  const { effort, picked } = builderEffort(task, config);
+  checkModelEffort(model, effort, effortFixWords(task.id, picked, model, 'resume'));
   const name = task.run?.name ? ['--name', task.run.name] : [];
   return {
     args: ['-p', i.message, '--resume', i.sessionId, ...name, '--permission-mode', config.agents.permissionMode, ...agentArgs({ ...config.agents.builder, model, effort }), '--settings', settings],
@@ -251,6 +254,8 @@ function resumeClaimed(paths: RepoPaths, config: Config, id: string, deps: Resum
   const said = lastSaid(projectsDir, sessionId, [folder]);
   const head = run('git', ['log', '-1', '--format=%h'], { cwd: worktree }).stdout.trim() || null;
   const message = opts.message?.trim() || resumeMessage(task, said, head);
+  // Before anything is stopped: a model and effort that don't fit are refused here (D-???).
+  const cmd = resumeCommand(task, withCloneAgents(config, paths.root, run), { sessionId, message, accBinDir: deps.accBinDir, basePath: deps.env.PATH ?? '', accCommand: deps.accCommand });
 
   // One place at a time (D-060): an idle background session still holds the conversation.
   let stopped: string | null = null;
@@ -261,7 +266,6 @@ function resumeClaimed(paths: RepoPaths, config: Config, id: string, deps: Resum
     stopped = s.id;
   }
 
-  const cmd = resumeCommand(task, withCloneAgents(config, paths.root, run), { sessionId, message, accBinDir: deps.accBinDir, basePath: deps.env.PATH ?? '', accCommand: deps.accCommand });
   mkdirSync(dirname(log), { recursive: true });
   const at = now().toISOString();
   appendFileSync(log, `\n--- ${at}: ${id} resumed by ${opts.by}, in ${folder} ---\n`);

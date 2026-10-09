@@ -44,7 +44,7 @@ export function modelEfforts(model: string): { levels: readonly Effort[]; defaul
   return Object.hasOwn(MODEL_EFFORTS, base) ? MODEL_EFFORTS[base]! : null;
 }
 
-/** Where the list came from, in words, for a refusal and for acc show. */
+/** Where the list came from, in words, for a refusal. */
 export const effortSourceWords = (): string => `acc's list of each model's levels is from ${EFFORT_SOURCE.url}, read ${EFFORT_SOURCE.read}`;
 
 /** Refuses what isn't an effort level, before anything is set or started with it. */
@@ -53,23 +53,71 @@ export function checkEffortName(v: string): asserts v is Effort {
 }
 
 /**
- * Refuses an effort the model doesn't take, in words, with the levels it does and where acc's list came
- * from. A model acc doesn't know isn't refused.
+ * What acc dispatch --effort takes (D-???): a level, or `default`, which drops the level picked for the task
+ * so the builder's own (the clone's or the project's) applies again.
  */
-export function checkModelEffort(model: string, effort: Effort | null): void {
-  if (!effort) return;
-  const m = modelEfforts(model);
-  if (!m || m.levels.includes(effort)) return;
+export type EffortPick = Effort | 'default';
+
+/** Refuses what isn't a level or `default`, before anything is started with it. */
+export function checkEffortPick(v: string): asserts v is EffortPick {
+  if (v !== 'default' && !(EFFORTS as readonly string[]).includes(v)) throw new AccError('usage', `"${v}" isn't an effort level. Effort is one of ${EFFORTS.join(', ')}, or default for the builder's own.`);
+}
+
+/** Whether the model takes the level: true for one acc doesn't know, which isn't checked. */
+export const modelTakes = (model: string, effort: Effort): boolean => modelEfforts(model)?.levels.includes(effort) ?? true;
+
+/**
+ * Refuses an effort the model doesn't take, in words, with the levels it does and where acc's list came
+ * from. A model acc doesn't know isn't refused. `fix`, when given, says where the effort is set and how to
+ * change it (effortFixWords), so a pair that no longer fits is refused in acc's words, not Claude Code's.
+ */
+export function checkModelEffort(model: string, effort: Effort | null, fix?: string): void {
+  if (!effort || modelTakes(model, effort)) return;
+  const m = modelEfforts(model)!;
   const takes = m.levels.length ? `It takes ${m.levels.join(', ')}.` : 'It takes no effort level: leave effort unset for it.';
-  throw new AccError('usage', `${model} doesn't take effort ${effort}. ${takes} (${effortSourceWords()}.)`);
+  throw new AccError('usage', `${model} doesn't take effort ${effort}. ${takes}${fix ? ` ${fix}` : ''} (${effortSourceWords()}.)`);
+}
+
+/**
+ * Where a builder's effort is set and how to change it, for a refusal: the task's own pick, or the builder's
+ * own. A resume can't pick again, so a pick that meets a model changed since is put right in acc agents.
+ */
+export function effortFixWords(id: string, picked: boolean, model: string, on: 'dispatch' | 'resume' = 'dispatch'): string {
+  const another = (modelEfforts(model)?.levels.length ?? 1) > 0;
+  if (on === 'resume') {
+    return picked
+      ? `It was picked for ${id}, and the builder's model has changed since: set it back with acc agents set builder --model <m>.`
+      : `It's the builder's own: change it with acc agents set builder ${another ? '--effort <level> or ' : ''}--clear effort.`;
+  }
+  return picked
+    ? `It was picked for ${id}: ${another ? `pick another with acc dispatch ${id} --effort <level>, or ` : ''}drop it with acc dispatch ${id} --effort default.`
+    : `It's the builder's own: ${another ? `pick one for ${id} with acc dispatch ${id} --effort <level>, or ` : ''}clear it with acc agents set builder --clear effort.`;
 }
 
 /**
  * The effort a task's builder starts with (D-???): one picked for it now, else one picked on an earlier
  * dispatch, else the builder's own (the clone's or the project's), or null for Claude Code's default.
- * `picked` says it was a person's choice for this task, so the run keeps it.
+ * `picked` says it was a person's choice for this task, so the run keeps it. `default` picks none.
  */
-export function builderEffort(task: Pick<Task, 'run'>, config: Config, chosen?: Effort): { effort: Effort | null; picked: boolean } {
+export function builderEffort(task: Pick<Task, 'run'>, config: Config, chosen?: EffortPick): { effort: Effort | null; picked: boolean } {
   const picked = chosen ?? (task.run?.effortPicked ? task.run.effort : undefined);
-  return picked ? { effort: picked, picked: true } : { effort: config.agents.builder.effort, picked: false };
+  return picked && picked !== 'default' ? { effort: picked, picked: true } : { effort: config.agents.builder.effort, picked: false };
+}
+
+/** That a level picked for a task was dropped for a model that doesn't take it: acc dispatch and Dispatch with… say it alike. */
+export const effortDroppedWords = (effort: string, model: string): string => `Its effort ${effort}, picked for it before, was dropped: ${model} doesn't take it. The builder's own applies.`;
+
+/**
+ * The effort a dispatch starts a task's builder with, and what its hold keeps (D-???): the level picked
+ * now, or `default` to drop a pick, else the task's earlier pick, held or on its run. A model picked now
+ * that doesn't take the earlier pick drops it, and `dropped` says which it was, so acc can say so; the
+ * builder's own applies instead. The caller checks what results against the model.
+ */
+export function dispatchEffort(task: Pick<Task, 'run' | 'held'>, config: Config, model: string, opts: { effort?: EffortPick; modelPicked: boolean }): { effort: Effort | null; picked: boolean; keep: EffortPick | undefined; dropped: Effort | null } {
+  const earlier = task.held?.effort ?? (task.run?.effortPicked ? task.run.effort : undefined);
+  if (opts.effort === undefined && earlier && earlier !== 'default' && opts.modelPicked && !modelTakes(model, earlier)) {
+    return { ...builderEffort(task, config, 'default'), keep: 'default', dropped: earlier };
+  }
+  const keep = opts.effort ?? earlier;
+  return { ...builderEffort(task, config, keep ?? 'default'), keep, dropped: null };
 }

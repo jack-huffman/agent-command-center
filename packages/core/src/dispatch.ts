@@ -11,7 +11,7 @@ import { plannedFiles, startLook, waits } from './overlap.ts';
 import { readChecksReport, readQueueReport } from './checks.ts';
 import { latestVerdict } from './review.ts';
 import { agentArgs, checkModelName, modelOf } from './agents.ts';
-import { builderEffort, checkEffortName, checkModelEffort } from './efforts.ts';
+import { checkEffortPick, checkModelEffort, dispatchEffort, effortFixWords, type EffortPick } from './efforts.ts';
 import { type AwakeDeps, holdAwake, keepAwakeFor } from './awake.ts';
 import { sessionName } from './names.ts';
 import { claimHeld, holdTask, releaseHeld, startingNow } from './holding.ts';
@@ -120,7 +120,11 @@ export interface HeldResult {
   first: string[];
 }
 
-export type DispatchOutcome = DispatchResult | HeldResult;
+/**
+ * Either outcome, with the effort picked for the task before that the model picked now doesn't take, when
+ * one was dropped for it (D-???): the builder's own applies instead.
+ */
+export type DispatchOutcome = (DispatchResult | HeldResult) & { effortDropped?: Effort };
 
 const git = (run: Runner, cwd: string, ...args: string[]) => run('git', args, { cwd });
 
@@ -248,8 +252,8 @@ export interface DispatchOptions {
   fromHold?: { shares: FileShare[] };
   /** The model a person picked for this task's builder, kept on its run for a re-dispatch and a resume (D-086). */
   model?: string;
-  /** The effort a person picked for this task's builder, kept on its run as the model is (D-???). */
-  effort?: Effort;
+  /** The effort a person picked for this task's builder, kept on its run as the model is (D-???): `default` drops an earlier pick. */
+  effort?: EffortPick;
 }
 
 /**
@@ -270,14 +274,18 @@ export function builderModel(task: Pick<Task, 'run'>, config: Config, chosen?: s
 export function dispatch(paths: RepoPaths, config: Config, id: string, deps: DispatchDeps, opts: DispatchOptions): DispatchOutcome {
   const { run, now } = deps;
   if (opts.model !== undefined) checkModelName(opts.model);
-  if (opts.effort !== undefined) checkEffortName(opts.effort);
+  if (opts.effort !== undefined) checkEffortPick(opts.effort);
   const before = readLedger(paths.ledger);
   const found = before.tasks.find((t) => t.id === id);
   if (!found) throw new AccError('no-task', `No task ${id}.`);
-  // A level the model doesn't take is refused before anything starts (D-???), when this dispatch picks either.
-  if (opts.model !== undefined || opts.effort !== undefined) {
-    checkModelEffort(builderModel(found, config, opts.model ?? found.held?.model).model, builderEffort(found, config, opts.effort ?? found.held?.effort).effort);
-  }
+  // The builder's model and effort (D-036): the model and effort picked for this task, if they were (D-086,
+  // D-???), when it was dispatched or when it began to wait for others' files (D-093). A model picked now
+  // drops an earlier picked effort it doesn't take. On every dispatch, a level the model doesn't take is
+  // refused before anything starts, wherever either is set: a clone's model may have changed since.
+  const { model, picked } = builderModel(found, config, opts.model ?? found.held?.model);
+  const { effort, picked: effortPicked, keep, dropped } = dispatchEffort(found, config, model, { effort: opts.effort, modelPicked: opts.model !== undefined });
+  checkModelEffort(model, effort, effortFixWords(id, effortPicked, model));
+  const effortDropped = dropped ? { effortDropped: dropped } : {};
   const req = { to: 'running' as const, actor: opts.actor, by: opts.by };
   // Beside the project's cap, this machine's total across every repo (GH-111), which no one ledger knows.
   const machine = machineLoad(paths, config.project, deps.env);
@@ -298,7 +306,7 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
     const look = startLook(paths, config, before, run, id, { fetch: true, files: planned });
     shares = look.shares;
     if (waits(look)) {
-      if (!(opts.anyway && opts.actor === 'human')) return holdTask(paths, now, id, opts, look);
+      if (!(opts.anyway && opts.actor === 'human')) return { ...holdTask(paths, now, id, { ...opts, effort: keep }, look), ...effortDropped };
       overrode = true;
     }
   }
@@ -348,10 +356,6 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
     // from before dispatches were counted was its first.
     const n = (found.run?.n ?? (found.run ? 1 : 0)) + 1;
     const name = sessionName({ project: config.project, key: found.id, title: found.title, role: 'builder', n });
-    // The builder's model and effort (D-036): the model and effort picked for this task, if they were (D-086,
-    // D-???), when it was dispatched or when it began to wait for others' files (D-093).
-    const { model, picked } = builderModel(found, config, opts.model ?? found.held?.model);
-    const { effort, picked: effortPicked } = builderEffort(found, config, opts.effort ?? found.held?.effort);
     const base = ['--name', name, '--permission-mode', config.agents.permissionMode, ...agentArgs({ ...config.agents.builder, model, effort }), '--settings', settings];
 
     const record = (bgId: string | null, sessionId: string | null) => mutate(paths, now, (ledger, emit) => {
@@ -383,7 +387,7 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
       } finally {
         awake?.release();
       }
-      return { held: false, task, worktree: wt, branch, reused, packetPath, bgId: null, sessionId: null, name, shares };
+      return { held: false, task, worktree: wt, branch, reused, packetPath, bgId: null, sessionId: null, name, shares, ...effortDropped };
     }
 
     const since = Date.now() - LAUNCH_SLACK_MS;
@@ -394,7 +398,7 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
       const task = record(bgId, sessionId);
       // acc exits now, so the Mac is kept awake for the background session's own process (D-067).
       if (pid) keepAwakeFor(paths, id, pid, deps.awake);
-      return { held: false, task, worktree: wt, branch, reused, packetPath, bgId, sessionId, name, shares };
+      return { held: false, task, worktree: wt, branch, reused, packetPath, bgId, sessionId, name, shares, ...effortDropped };
     } catch (e) {
       if (bgId) run('claude', ['stop', bgId], { cwd: wt });
       throw e;

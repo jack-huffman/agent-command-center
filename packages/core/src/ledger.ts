@@ -2,6 +2,7 @@ import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSyn
 import { dirname } from 'node:path';
 import { releaseAwake } from './awake.ts';
 import { autoMergeFor, type Config, defaultEnvironment, environmentByBranch, type Effort, type GateScope } from './config.ts';
+import type { EffortPick } from './efforts.ts';
 import { AccError } from './exec.ts';
 import { withLock } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
@@ -112,8 +113,8 @@ export interface Hold {
   failed?: { reason: string; at: string; by: string } | null;
   /** The model a person picked for its builder when they dispatched it (D-086), which its start launches with. */
   model?: string;
-  /** The effort a person picked for its builder when they dispatched it (D-???), which its start launches with. */
-  effort?: Effort;
+  /** The effort a person picked for its builder when they dispatched it (D-???), which its start launches with: `default` dropped an earlier pick. */
+  effort?: EffortPick;
 }
 
 export interface PullRequest {

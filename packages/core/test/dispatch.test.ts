@@ -356,7 +356,7 @@ test('dispatch refuses a level the model doesn\'t take, in words, with the level
   // Claude Haiku 4.5 takes none: the effort picked meets the model this clone names.
   gitIn(repo, 'config', 'acc.builder.model', 'claude-haiku-4-5-20251001');
   assert.match(acc(repo, ['dispatch', 'T-1', '--effort', 'low'], env).err, /claude-haiku-4-5-20251001 doesn't take effort low\. It takes no effort level/);
-  assert.match(acc(repo, ['dispatch', 'T-1', '--effort', 'huge'], env).err, /"huge" isn't an effort level\. Effort is one of low, medium, high, xhigh, max\./);
+  assert.match(acc(repo, ['dispatch', 'T-1', '--effort', 'huge'], env).err, /"huge" isn't an effort level\. Effort is one of low, medium, high, xhigh, max, or default for the builder's own\./);
   assert.equal(existsSync(join(repo, '.claude', 'worktrees', 'T-1')), false, 'no worktree was made');
   assert.equal(claude.calls().length, 0);
   assert.equal(tasksOf(repo)[0]!.state, 'todo');
@@ -364,6 +364,74 @@ test('dispatch refuses a level the model doesn\'t take, in words, with the level
   gitIn(repo, 'config', '--unset', 'acc.builder.model');
   const alias = acc(repo, ['dispatch', 'T-1', '--model', 'opus', '--effort', 'xhigh'], env);
   assert.equal(alias.code, 0, alias.err);
+});
+
+test('an effort picked for a task can be cleared: --effort default drops it, and a model picked that doesn\'t take it drops it and says so (D-???)', () => {
+  const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, ...QUIET }), ...IGNORE }));
+  const claude = fakeClaude();
+  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  const launches = () => claude.calls().filter((c) => c.args[0] === '--bg');
+  const rework = (why: string) => {
+    acc(join(repo, '.claude', 'worktrees', 'T-1'), ['done', ...NOTE], { ...env, ACC_ROLE: 'builder', ACC_TASK: 'T-1' });
+    assert.equal(acc(repo, ['set', 'T-1', 'rework', '--reason', why]).code, 0);
+  };
+  acc(repo, ['add', 'Write the changelog']);
+  assert.equal(acc(repo, ['dispatch', 'T-1', '--effort', 'xhigh'], env).code, 0);
+
+  // Claude Haiku 4.5 takes no level: picking it drops the task's xhigh, says so, and names no effort.
+  rework('needs a date');
+  const haiku = acc(repo, ['dispatch', 'T-1', '--model', 'claude-haiku-4-5-20251001'], env);
+  assert.equal(haiku.code, 0, haiku.err);
+  assert.match(haiku.out, /Its effort xhigh, picked for it before, was dropped: claude-haiku-4-5-20251001 doesn't take it\. The builder's own applies\./);
+  assert.match(haiku.out, /effort: {3}the model's default\n/);
+  assert.equal(effortOfLaunch(launches()[1]!.args), null);
+  assert.deepEqual([tasksOf(repo)[0]!.run!.effort, tasksOf(repo)[0]!.run!.effortPicked, tasksOf(repo)[0]!.run!.modelPicked], [undefined, undefined, true]);
+
+  // Picked again on another model, then dropped by hand: the clone's effort applies, and the model stays picked.
+  rework('and a heading');
+  assert.equal(acc(repo, ['dispatch', 'T-1', '--model', 'claude-opus-5-5', '--effort', 'max'], env).code, 0);
+  assert.equal(effortOfLaunch(launches()[2]!.args), 'max');
+  rework('shorter');
+  gitIn(repo, 'config', 'acc.builder.effort', 'low');
+  const cleared = acc(repo, ['dispatch', 'T-1', '--effort', 'default'], env);
+  assert.equal(cleared.code, 0, cleared.err);
+  assert.doesNotMatch(cleared.out, /was dropped/, 'asked for, so not news');
+  assert.match(cleared.out, /effort: {3}low\n/);
+  assert.equal(effortOfLaunch(launches()[3]!.args), 'low');
+  assert.deepEqual([tasksOf(repo)[0]!.run!.effort, tasksOf(repo)[0]!.run!.effortPicked, tasksOf(repo)[0]!.run!.model], ['low', undefined, 'claude-opus-5-5']);
+  // A later re-dispatch follows the clone, as a task never picked for does.
+  rework('once more');
+  gitIn(repo, 'config', 'acc.builder.effort', 'high');
+  assert.equal(acc(repo, ['dispatch', 'T-1'], env).code, 0);
+  assert.equal(effortOfLaunch(launches()[4]!.args), 'high');
+});
+
+test('every dispatch checks the model and effort pair, not only one that picks either: a pick meeting a changed clone model is refused in acc\'s words (D-???)', () => {
+  const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, ...QUIET }), ...IGNORE }));
+  const claude = fakeClaude();
+  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  acc(repo, ['add', 'Write the changelog']);
+  assert.equal(acc(repo, ['dispatch', 'T-1', '--effort', 'xhigh'], env).code, 0);
+  acc(join(repo, '.claude', 'worktrees', 'T-1'), ['done', ...NOTE], { ...env, ACC_ROLE: 'builder', ACC_TASK: 'T-1' });
+  acc(repo, ['set', 'T-1', 'rework', '--reason', 'needs a date']);
+  // This clone's builder model changes to one that takes max but not xhigh; the re-dispatch names neither.
+  gitIn(repo, 'config', 'acc.builder.model', 'claude-opus-4-6');
+  const r = acc(repo, ['dispatch', 'T-1'], env);
+  assert.equal(r.code, 2, 'a usage error');
+  assert.match(r.err, /claude-opus-4-6 doesn't take effort xhigh\. It takes low, medium, high, max\. It was picked for T-1: pick another with acc dispatch T-1 --effort <level>, or drop it with acc dispatch T-1 --effort default\./);
+  assert.match(r.err, /from https:\/\/platform\.claude\.com\/docs\/en\/build-with-claude\/effort, read 2026-10-09/);
+  assert.equal(claude.calls().filter((c) => c.args[0] === '--bg').length, 1, 'nothing more started');
+  assert.equal(tasksOf(repo)[0]!.state, 'rework');
+  // The builder's own effort meeting the clone's model says where that's set.
+  acc(repo, ['add', 'Second']);
+  gitIn(repo, 'config', 'acc.builder.effort', 'xhigh');
+  assert.match(acc(repo, ['dispatch', 'T-2'], env).err, /claude-opus-4-6 doesn't take effort xhigh\. It takes low, medium, high, max\. It's the builder's own: pick one for T-2 with acc dispatch T-2 --effort <level>, or clear it with acc agents set builder --clear effort\./);
+  assert.equal(existsSync(join(repo, '.claude', 'worktrees', 'T-2')), false, 'no worktree was made');
+  // As the refusal says, the task's pick is dropped, and it starts.
+  gitIn(repo, 'config', '--unset', 'acc.builder.effort');
+  const dropped = acc(repo, ['dispatch', 'T-1', '--effort', 'default'], env);
+  assert.equal(dropped.code, 0, dropped.err);
+  assert.equal(effortOfLaunch(claude.calls().filter((c) => c.args[0] === '--bg')[1]!.args), null);
 });
 
 test('dispatch end to end: worktree from the environment branch, packet, background session, ledger', () => {
@@ -924,6 +992,22 @@ test('a held task keeps the effort a person picked when they dispatched it, and 
   s.finish('T-1');
   assert.deepEqual(s.held().started.map((x) => x.task), ['T-2']);
   assert.deepEqual([s.task('T-2').run?.effort, s.task('T-2').run?.effortPicked], ['xhigh', true]);
+});
+
+test('a held task\'s picked effort is dropped by --effort default, or by a model picked that doesn\'t take it, and its start keeps none (D-093, D-???)', () => {
+  const s = swarm({ 'T-1': ['src/a.ts'], 'T-2': ['src/a.ts'], 'T-3': ['src/c.ts'], 'T-4': ['src/a.ts'] });
+  s.go('T-1');
+  assert.ok(s.go('T-2', { effort: 'xhigh' }).held);
+  const r = s.go('T-2', { model: 'claude-haiku-4-5-20251001' });
+  assert.ok(r.held);
+  assert.equal(r.effortDropped, 'xhigh', 'said, so acc can say so');
+  assert.deepEqual([s.task('T-2').held?.model, s.task('T-2').held?.effort], ['claude-haiku-4-5-20251001', 'default']);
+  assert.ok(s.go('T-4', { effort: 'max' }).held);
+  assert.equal(s.go('T-4', { effort: 'default' }).effortDropped, undefined, 'asked for, so not news');
+  assert.equal(s.task('T-4').held?.effort, 'default');
+  s.finish('T-1');
+  assert.deepEqual(s.held().started.map((x) => x.task), ['T-2'], 'T-4 now waits for T-2');
+  assert.deepEqual([s.task('T-2').run?.model, s.task('T-2').run?.effort, s.task('T-2').run?.effortPicked], ['claude-haiku-4-5-20251001', undefined, undefined]);
 });
 
 test('a person\'s dispatch of a held task claims it first, and lets go of the claim if the launch fails (D-093)', () => {

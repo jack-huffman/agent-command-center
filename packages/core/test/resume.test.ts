@@ -228,6 +228,22 @@ test('an effort picked for the task carries on in a resume and a reply, over the
   assert.deepEqual([run.effort, run.effortPicked], ['xhigh', true]);
 });
 
+test('a resume or a reply whose picked effort meets a model changed since is refused in acc\'s words, before anything is stopped (D-???)', () => {
+  const s = setup({ run: { effort: 'xhigh', effortPicked: true } });
+  // This clone's builder model has changed since: Claude Opus 4.6 takes max but not xhigh.
+  gitIn(s.dir, 'config', 'acc.builder.model', 'claude-opus-4-6');
+  assert.throws(() => resume(s.paths, s.config, 'GH-41', s.deps, { actor: 'human', by: 'human:jack' }),
+    /claude-opus-4-6 doesn't take effort xhigh\. It takes low, medium, high, max\. It was picked for GH-41, and the builder's model has changed since: set it back with acc agents set builder --model <m>\. \(acc's list of each model's levels is from https:\/\/platform\.claude\.com\/docs\/en\/build-with-claude\/effort, read \d{4}-\d{2}-\d{2}\.\)/);
+  assert.equal(s.launched.length, 0, 'nothing started');
+  assert.ok(!s.calls.includes('claude stop 5018b73a'), 'its background session wasn\'t stopped');
+  assert.equal(existsSync(resumingPath(s.paths, 'GH-41')), false, 'the claim is let go');
+  // D-060's reply runs the same command, so it's refused alike; the builder's own effort says where to change it.
+  const task = readLedger(s.paths.ledger).tasks[0]!;
+  const haiku = parseConfig({ ...RAW, agents: { builder: { model: 'claude-haiku-4-5-20251001', effort: 'low' } } }).config as Config;
+  assert.throws(() => resumeCommand({ ...task, run: { ...task.run!, effortPicked: undefined } }, haiku, { sessionId: SID, message: 'Carry on.', accBinDir: '/acc/bin', basePath: '/usr/bin' }),
+    /claude-haiku-4-5-20251001 doesn't take effort low\. It takes no effort level: leave effort unset for it\. It's the builder's own: change it with acc agents set builder --clear effort\./);
+});
+
 test('a task nobody picked an effort for resumes with the builder\'s as it is now, and the run records it (D-???)', () => {
   const s = setup({ run: { effort: 'low' } });
   resume(s.paths, s.config, 'GH-41', s.deps, { actor: 'human', by: 'human:jack' });
