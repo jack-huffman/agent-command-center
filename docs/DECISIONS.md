@@ -5550,3 +5550,7 @@ Overview and Tasks. A `.grid` table's wrapper takes the raised surface, edge and
 are a band in a well, and Agents' repo headings are the same band, so each repo reads as a section. Sticky
 action cells take the table's colour, not the page's. Environments' promotion paths sit in a panel of
 their own, their branches in wells.
+
+Note (D-127, 2026-10-09): a task's own page matches. The main column's sections (Description, Related,
+the builder's note, Activity) are raised panels like the Details and Agent panels beside them, and an
+analysis takes the same lift.
