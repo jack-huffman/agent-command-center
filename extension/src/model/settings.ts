@@ -9,7 +9,7 @@ import { autopilotDoes } from '../../../packages/core/src/autopilot.ts';
 import { autoMergeOn, type ConfigPath, keyShown, UNREAD_KEYS } from '../../../packages/core/src/config.ts';
 import { describe } from '../../../packages/core/src/trackers/connect.ts';
 import type { TrackerKind } from '../../../packages/core/src/trackers/types.ts';
-import { FROM_WORDS } from '../logic/agents.ts';
+import { FROM_WORDS, OLDER_MODELS } from '../logic/agents.ts';
 import { signInScope } from '../logic/connect.ts';
 import { intervalWords, type Pace, PACE_WORDS, PACES, POLL_INTERVALS, POLL_KEYS, pollEvery } from '../logic/polls.ts';
 import type { DoctorItem } from '../logic/setup.ts';
@@ -62,8 +62,17 @@ export interface AgentSetting {
   role: 'builder' | 'reviewer';
   label: string;
   icon: string;
-  /** Each part in words, with where it's set, and the config key it is (GH-107). */
-  parts: { key: ConfigPath; name: string; value: string; from: SettingFrom }[];
+  /**
+   * Each part in words, with where it's set, and the config key it is (GH-107). A model acc no longer
+   * offers says so (D-???): it still runs.
+   */
+  parts: { key: ConfigPath; name: string; value: string; from: SettingFrom; older?: string }[];
+}
+
+/** What Settings says of a model acc no longer offers (D-???), or nothing. */
+export function olderModelWords(model: string | null): string | undefined {
+  const o = OLDER_MODELS.find((m) => m.name === model);
+  return o ? `${o.about} is an older model. It still runs; acc now offers ${o.instead} in its place.` : undefined;
 }
 
 /** What autopilot may do on its own in a project (D-055), changed through acc (D-064). */
@@ -113,10 +122,10 @@ export function agentSettings(p: ProjectLike, unread: Unread = UNREAD_KEYS): Age
   const role = (r: 'builder' | 'reviewer'): AgentSetting | null => {
     const v = p.agents![r];
     const parts = [
-      { key: `agents.${r}.model` as const, name: 'Model', value: v.model ?? 'default', from: settingFrom(v.from.model) },
+      { key: `agents.${r}.model` as const, name: 'Model', value: v.model ?? 'default', from: settingFrom(v.from.model), older: olderModelWords(v.model) },
       { key: `agents.${r}.effort` as const, name: 'Effort', value: v.effort ?? 'default', from: settingFrom(v.from.effort) },
-      ...(v.fallbackModel ? [{ key: `agents.${r}.fallbackModel` as const, name: 'Falls back to', value: v.fallbackModel, from: settingFrom(v.from.fallbackModel) }] : []),
-    ].filter((x) => keyShown(x.key, unread));
+      ...(v.fallbackModel ? [{ key: `agents.${r}.fallbackModel` as const, name: 'Falls back to', value: v.fallbackModel, from: settingFrom(v.from.fallbackModel), older: olderModelWords(v.fallbackModel) }] : []),
+    ].map(({ older, ...x }) => (older ? { ...x, older } : x)).filter((x) => keyShown(x.key, unread));
     return parts.length ? { role: r, label: r === 'builder' ? 'Builders' : 'Reviewers', icon: r === 'builder' ? 'tools' : 'checklist', parts } : null;
   };
   return [role('builder'), role('reviewer')].filter((x) => x !== null);
