@@ -6,6 +6,7 @@ import type { PersonChip } from '../src/model/boards.ts';
 import type { Block, Doc, Inline } from '../../packages/core/src/trackers/doc.ts';
 import { api, go, memory, remember, state } from './state.ts';
 import { panelLook } from './looks.ts';
+import { inlineMarks } from './inline.ts';
 
 export type Child = Node | string | null | undefined | false;
 
@@ -93,6 +94,9 @@ function renderInlines(c: Inline[]): Node[] {
     return i.href ? linkTo(i.href, node) : node;
   });
 }
+
+/** A plain line drawn with its `code` and **bold** marks (inline.ts). */
+export const md = (s: string): HTMLElement => el('span', 'md', ...renderInlines(inlineMarks(s)));
 
 /** An icon and its words, kept on one line and centred together. */
 export const iconed = (name: string, text: string): HTMLElement => el('span', 'iconed', icon(name), text);

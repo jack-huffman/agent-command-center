@@ -4,7 +4,7 @@ import type { Look } from '../src/model/shared.ts';
 import type { PersonChip } from '../src/model/boards.ts';
 import type { TicketModel, TicketRatchet } from '../src/model/task-page.ts';
 import { renderAnalysis } from './analysis.ts';
-import { actionButton, avatar, button, type Child, clippedSpan, el, foldable, icon, iconed, labelChip, linkTo, openable, renderDoc, status, when } from './dom.ts';
+import { actionButton, avatar, button, type Child, clippedSpan, el, foldable, icon, iconed, labelChip, linkTo, md, openable, renderDoc, status, when } from './dom.ts';
 import { api, memory, type PageArea, remember, state } from './state.ts';
 import { KIND_ICON, KIND_NAME } from './tasks.ts';
 import { updateDraft } from './updates.ts';
@@ -207,7 +207,7 @@ function renderNote(m: TicketModel): HTMLElement | null {
   const n = a.note;
   const part = (key: string, iconName: string, tone: string | undefined, label: string, lines: string[], tool?: (line: string) => HTMLElement) =>
     el('div', `note-part note-${key}`, el('h3', '', icon(iconName, tone), label),
-      lines.length ? el('ul', 'note-lines', ...lines.map((l) => el('li', '', el('span', 'note-line', l), tool?.(l) ?? null))) : el('p', 'muted note-none', 'None'));
+      lines.length ? el('ul', 'note-lines', ...lines.map((l) => el('li', '', el('span', 'note-line', md(l)), tool?.(l) ?? null))) : el('p', 'muted note-none', 'None'));
   const makeTask = (line: string) => {
     const b = button('Make a task', 'add', () => ticketAction('task', line), 'ghost small note-task');
     b.title = 'Draft a task from this line, to edit and confirm before it\'s added';

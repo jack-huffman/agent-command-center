@@ -169,7 +169,7 @@ function sampleNoteTicket(now: number): TicketModel {
     run: {
       ...row.run, n: 1, name: 'Acme Service · ACME-20 Show the renewal date on the Account page · builder',
       note: {
-        landed: ['The Account page shows the renewal date beside the contract end date', 'Renewal_Date__c is read-only for everyone but Sales Ops'],
+        landed: ['The Account page shows the renewal date beside the contract end date', '`Renewal_Date__c` is read-only for everyone but Sales Ops'],
         moved: ['Apex tests: 41 of 41 passing, 2 added', 'validate passes in Acme Dev'],
         open: [
           'The renewal date isn\'t on the Account list views yet',

@@ -1,7 +1,7 @@
 // A task's analysis: its questions, answered on the page or sent to the client.
 
 import type { TicketAnalysis, TicketModel } from '../src/model/task-page.ts';
-import { actionButton, button, type Child, el, foldable, icon, keptInput, status, when } from './dom.ts';
+import { actionButton, button, type Child, el, foldable, icon, keptInput, md, status, when } from './dom.ts';
 import { api, memory, remember, state } from './state.ts';
 import { answerKey, askKey, pending, sendUpdate } from './updates.ts';
 
@@ -20,7 +20,7 @@ export function analysisQuestion(project: string, task: string, q: AnalysisAsk, 
     api.postMessage({ type: 'analysis-answer', project, task, question: q.id, text: text.trim() });
     if (state.last) state.draw(state.last);
   };
-  const box = el('div', 'aq', el('div', 'aq-q', el('span', 'aq-id', q.id), el('span', 'strong', q.question)), q.why ? el('div', 'muted small aq-why', q.why) : null, clientLine(project, task, q, canAsk));
+  const box = el('div', 'aq', el('div', 'aq-q', el('span', 'aq-id', q.id), el('span', 'strong', md(q.question))), q.why ? el('div', 'muted small aq-why', md(q.why)) : null, clientLine(project, task, q, canAsk));
   box.setAttribute('role', 'group');
   box.setAttribute('aria-label', q.question);
   if (pending.what(key)) {
@@ -31,7 +31,7 @@ export function analysisQuestion(project: string, task: string, q: AnalysisAsk, 
   const error = pending.error(key);
   if (error) box.append(el('div', 'aq-error', icon('warning'), el('span', '', `Your answer wasn't recorded: ${error}`)));
   if (q.suggested.trim() && q.suggested.length <= 4000) {
-    const use = el('button', 'aq-suggest', icon('lightbulb'), el('span', 'aq-suggest-text', el('span', 'muted', 'Use the suggestion: '), q.suggested)) as HTMLButtonElement;
+    const use = el('button', 'aq-suggest', icon('lightbulb'), el('span', 'aq-suggest-text', el('span', 'muted', 'Use the suggestion: '), md(q.suggested))) as HTMLButtonElement;
     use.type = 'button';
     use.title = 'Answer with what the analyst would assume';
     use.addEventListener('click', () => send(q.suggested));
@@ -74,7 +74,7 @@ function analysisFold(key: string, title: string, items: Child[], ordered = fals
 }
 
 /** "Area: detail", with where it came from muted after it. */
-const pair = (head: string, rest: string, source = ''): HTMLElement => el('span', '', head ? el('strong', '', `${head}: `) : null, rest, source ? el('span', 'muted mono an-source', ` ${source}`) : null);
+const pair = (head: string, rest: string, source = ''): HTMLElement => el('span', '', head ? el('strong', '', `${head}: `) : null, md(rest), source ? el('span', 'muted mono an-source', ` ${source}`) : null);
 
 /**
  * A task's Analysis section, gist first like the rest of the page: the verdict in words, the summary,
@@ -86,21 +86,21 @@ export function renderAnalysis(m: TicketModel, a: TicketAnalysis): HTMLElement {
     el('div', 'an-head', el('h2', '', 'Analysis'), status(a.look), a.size ? el('span', 'chip an-size', `Size ${a.size}`) : null, el('span', 'spacer'), a.at ? when(a.at) : null));
   sec.setAttribute('aria-label', `Analysis: ${a.look.label}`);
   if (a.note) sec.append(el('p', 'muted an-note', a.note));
-  if (a.summary) sec.append(foldable(`${key}:summary`, el('p', 'an-summary', a.summary), null, 4));
-  if (a.split.length) sec.append(el('div', 'an-split', el('div', 'strong', 'Split it into'), el('ol', 'an-list', ...a.split.map((x) => el('li', '', x)))));
+  if (a.summary) sec.append(foldable(`${key}:summary`, el('p', 'an-summary', md(a.summary)), null, 4));
+  if (a.split.length) sec.append(el('div', 'an-split', el('div', 'strong', 'Split it into'), el('ol', 'an-list', ...a.split.map((x) => el('li', '', md(x))))));
   if (a.open.length) sec.append(el('div', 'an-questions', ...a.open.map((q) => analysisQuestion(m.project, a.task, q, a.canAsk))));
   if (a.actions.length) sec.append(el('div', 'actions an-actions', ...a.actions.map(actionButton)));
   const folds = [
-    analysisFold(`${key}:decided`, 'Decided', a.decided.map((d) => el('span', '', el('span', '', `${d.question} `), el('strong', '', d.answer), d.assumed ? el('span', 'muted', ' (assumed: nobody answered)') : null))),
-    analysisFold(`${key}:criteria`, 'Acceptance criteria', a.criteria),
-    analysisFold(`${key}:assumptions`, 'Assumptions', a.assumptions),
-    analysisFold(`${key}:out`, 'Out of scope', a.outOfScope),
+    analysisFold(`${key}:decided`, 'Decided', a.decided.map((d) => el('span', '', md(d.question), ' ', el('strong', '', md(d.answer)), d.assumed ? el('span', 'muted', ' (assumed: nobody answered)') : null))),
+    analysisFold(`${key}:criteria`, 'Acceptance criteria', a.criteria.map(md)),
+    analysisFold(`${key}:assumptions`, 'Assumptions', a.assumptions.map(md)),
+    analysisFold(`${key}:out`, 'Out of scope', a.outOfScope.map(md)),
     analysisFold(`${key}:findings`, 'What\'s there now', a.findings.map((f) => pair(f.area, f.detail, f.source))),
-    analysisFold(`${key}:plan`, 'The approach', a.plan, true),
+    analysisFold(`${key}:plan`, 'The approach', a.plan.map(md), true),
     analysisFold(`${key}:refactors`, 'Refactors first', a.refactors.map((r) => pair(r.what, r.why))),
-    analysisFold(`${key}:risks`, 'Risks', a.risks),
-    analysisFold(`${key}:tests`, 'Tests', a.tests),
-    analysisFold(`${key}:files`, 'Files', a.files.map((f) => el('span', '', el('span', `chip an-change an-${f.change}`, f.change), el('span', 'mono an-path', f.path), f.why ? el('span', 'muted', ` ${f.why}`) : null))),
+    analysisFold(`${key}:risks`, 'Risks', a.risks.map(md)),
+    analysisFold(`${key}:tests`, 'Tests', a.tests.map(md)),
+    analysisFold(`${key}:files`, 'Files', a.files.map((f) => el('span', '', el('span', `chip an-change an-${f.change}`, f.change), el('span', 'mono an-path', f.path), f.why ? el('span', 'muted', ' ', md(f.why)) : null))),
   ].filter((x): x is HTMLElement => !!x);
   if (folds.length) sec.append(el('div', 'an-folds', ...folds));
   return sec;

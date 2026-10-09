@@ -73,7 +73,7 @@ export function sampleAnalyses(now = Date.now()): Record<string, Analysis> {
       requirements: { goal: 'Premium cases reach Tier 2 before they breach their SLA.', criteria: ['High premium cases escalate after 2 business hours', 'The account owner is notified', 'No change for Standard-tier cases'], assumptions: [], outOfScope: [] },
       questions: [{ id: 'q1', question: 'Which queue gets premium cases?', why: 'Decides the rule\'s assignee.', suggested: 'Tier 2', answer: { text: 'Premium Support', by: 'jordan', at: at(4 * 24 * 60 - 20) } }],
       findings: [{ area: 'Escalation rules', detail: 'One active rule with three entries, none for the premium tier.', source: 'force-app/main/default/escalationRules/Case.escalationRules-meta.xml' }],
-      approach: { plan: ['Add the premium rule entry', 'Notify the owner with an email alert'], files: [{ path: 'force-app/main/default/escalationRules/Case.escalationRules-meta.xml', change: 'update', why: 'The premium entry' }], refactors: [], risks: [], tests: ['CaseRoutingTest.premiumEscalates'], size: 'S' },
+      approach: { plan: ['Add the premium rule entry to `Case.escalationRules-meta.xml`', 'Notify the owner with an email alert'], files: [{ path: 'force-app/main/default/escalationRules/Case.escalationRules-meta.xml', change: 'update', why: 'The premium entry' }], refactors: [], risks: [], tests: ['`CaseRoutingTest.premiumEscalates` passes in **Acme Dev**'], size: 'S' },
     }),
   };
 }
