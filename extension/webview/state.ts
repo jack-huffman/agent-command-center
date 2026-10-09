@@ -4,6 +4,7 @@
 import type { HomeSection, ViewKind } from '../src/model/shared.ts';
 import type { HomeModel, Model } from '../src/model/home.ts';
 import type { RunCard } from '../src/model/runs.ts';
+import type { TicketModel } from '../src/model/task-page.ts';
 import type { EditBase } from './pending.ts';
 
 declare function acquireVsCodeApi(): { postMessage(m: unknown): void; getState(): unknown; setState(s: unknown): void };
@@ -63,7 +64,9 @@ export const state: {
   scrolledTo: boolean;
   /** Draws a model on the page: main.ts sets it, so any part of the page can redraw it. */
   draw: (model: Model) => void;
-} = { last: null, runs: [], section: memory().section ?? null, scrolledTo: false, draw: () => {} };
+  /** The task page in the modal over the Tasks board, while it's open (GH-158). */
+  modal: TicketModel | null;
+} = { last: null, runs: [], section: memory().section ?? null, scrolledTo: false, draw: () => {}, modal: null };
 
 /**
  * What one area draws and handles on the page, declared in its own module as `export const area` (D-099).

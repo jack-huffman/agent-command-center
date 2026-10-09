@@ -123,7 +123,7 @@ export interface Render { page: string; theme: string; width: number; verdict: V
  * The least a run of every page, both themes and all three widths examines, per check. Raised as the
  * pages grow, never lowered: a run below one has stopped looking.
  */
-export const RUN_FLOOR: Record<Check, number> = { overlap: 9360, clipped: 27000, tab: 258, sideways: 900 };
+export const RUN_FLOOR: Record<Check, number> = { overlap: 9540, clipped: 27000, tab: 264, sideways: 900 };
 
 /**
  * What fails a run: each finding, by page, theme, width and check. A whole run (full) also fails below

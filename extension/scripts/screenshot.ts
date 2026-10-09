@@ -70,8 +70,9 @@ import { CHECKS, COLLECT_GEOMETRY, dumpedGeometry, geometrySummary, judge, type 
  * isn't signed in as, and at the Command Center's own preferences, each set to other than its default (GH-113).
  * Last, Setup as the Command Center first opens on it in a folder that isn't set up: at what kind of project
  * it is, and, on a machine with steps still to do, at the machine's part (GH-138).
+ * Last, the Tasks board with a task opened over it in the modal, as a card's click opens it (GH-158).
  */
-export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine'] as const;
+export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal'] as const;
 export type Page = (typeof PAGES)[number];
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -131,7 +132,7 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
   const connect = kind.startsWith('connect-') ? sampleConnect(kind.slice('connect-'.length) as ConnectSample) : null;
   const slack = sampleSlack(kind.startsWith('slack-') ? kind.slice('slack-'.length) as SlackSample : 'on', now);
   // A project started from an epic opens the Connect page over Setup, where "From a Jira epic…" is (GH-81).
-  const section = (kind === 'output' || kind.startsWith('connect-epic') ? 'setup' : connect || kind === 'tasks-monday' || kind === 'tasks-github' ? 'tasks' : kind.startsWith('slack-') ? 'settings' : kind === 'agents-billing' || kind === 'agents-path' || kind === 'agents-finished' ? 'agents' : kind.startsWith('settings-') ? 'settings' : kind) as HomeSection;
+  const section = (kind === 'output' || kind.startsWith('connect-epic') ? 'setup' : connect || kind === 'tasks-monday' || kind === 'tasks-github' || kind === 'tasks-modal' ? 'tasks' : kind.startsWith('slack-') ? 'settings' : kind === 'agents-billing' || kind === 'agents-path' || kind === 'agents-finished' ? 'agents' : kind.startsWith('settings-') ? 'settings' : kind) as HomeSection;
   // Settings' trackers are each project's own (GH-112); every other page shows the sample board for each.
   const boards = kind === 'settings-trackers' ? sampleTrackerBoards : kind === 'tasks-monday' ? sampleMondayBoards : kind === 'tasks-github' ? sampleGithubBoards : sampleBoards;
   // The Command Center's own preferences, each set to other than its default (GH-113).
@@ -155,6 +156,12 @@ const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ? JSON.p
   : kind === 'agents-finished' ? { opened: [ROOT, CLIENTS].map((r) => `agents-finished:${r}`) }
   : kind === 'ticket-split' ? { opened: ['files', 'findings'].map((f) => `an:/Users/me/code/acme-service#ACME-23:${f}`) }
     : kind === 'ticket' ? { drafts: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: SAMPLE_EDIT.text }, bases: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: { text: SAMPLE_EDIT.base } } } : undefined);
+/**
+ * What the extension sends after the page's model: the task a card's click opened in the modal over the
+ * Tasks board, and what its Open as tab sends (GH-158).
+ */
+export const afterModel = (kind: Page, now = Date.now()): Record<string, unknown>[] => (kind === 'tasks-modal'
+  ? [{ type: 'task-modal', model: sampleTicket(now), tab: { type: 'ticket', project: ROOT, tracker: 0, key: 'ACME-12' } }] : []);
 export const viewOf = (kind: Page): string => (kind.startsWith('ticket') ? 'ticket' : kind === 'agent' ? kind : 'home');
 /** A part the extension asks the page to go to as it opens, as the status bar's Auto-merge does (GH-110). */
 export const openAt = (kind: Page): string | null => (kind === 'settings-agents' ? settingsKey('agents') : kind === 'settings-trackers' ? settingsKey('trackers')
@@ -226,10 +233,11 @@ function collectColours() {
  * with measure, its geometry for the geometry checks (GH-105), once its fonts have loaded and two frames
  * have drawn.
  */
-export function pageFor(kind: Page, theme: ThemeChoice, model: Model, under: Theme = theme === 'light' ? 'dark' : 'light', collect = false, measure = false): string {
+export function pageFor(kind: Page, theme: ThemeChoice, model: Model, under: Theme = theme === 'light' ? 'dark' : 'light', collect = false, measure = false, after: Record<string, unknown>[] = afterModel(kind)): string {
   const vars = Object.entries({ ...palettes()[under], ...FONTS }).map(([k, v]) => `--vscode-${k}: ${v};`).join(' ');
   // `<` escaped, so no string in the model can close the script tag.
   const json = JSON.stringify(model).replace(/</g, '\\u003c');
+  const then = JSON.stringify(after).replace(/</g, '\\u003c');
   const open = openAt(kind);
   return `<!DOCTYPE html>
 <html lang="en" data-theme="${theme}" style="${vars.replace(/"/g, '&quot;')}"><head><meta charset="UTF-8">
@@ -238,6 +246,7 @@ export function pageFor(kind: Page, theme: ThemeChoice, model: Model, under: The
 <link rel="stylesheet" href="webview/styles.css">
 <script>
 const MODEL = ${json};
+const AFTER = ${then};
 function forceHover() {
   for (const sheet of document.styleSheets) {
     let rules; try { rules = [...sheet.cssRules]; } catch { continue; }
@@ -246,7 +255,7 @@ function forceHover() {
   (document.querySelector('tbody tr:not(.group):not(.none)') ?? document.querySelector('.card'))?.classList.add('acc-hover');
 }${collect || measure ? COLLECT : ''}${collect ? COLLECT_COLOURS : ''}${measure ? COLLECT_GEOMETRY : ''}
 window.acquireVsCodeApi = () => ({
-  postMessage(m) { if (m.type === 'ready') setTimeout(() => { window.postMessage({ type: 'state', model: MODEL${open ? `, jump: true, open: ${JSON.stringify(open)}` : ''} }, '*'); setTimeout(forceHover, 50);${collect ? ' setTimeout(collectColours, 500);' : ''}${measure ? ' setTimeout(() => document.fonts.ready.then(() => requestAnimationFrame(() => requestAnimationFrame(collectGeometry))), 300);' : ''} }); },
+  postMessage(m) { if (m.type === 'ready') setTimeout(() => { window.postMessage({ type: 'state', model: MODEL${open ? `, jump: true, open: ${JSON.stringify(open)}` : ''} }, '*'); for (const m of AFTER) window.postMessage(m, '*'); setTimeout(forceHover, 50);${collect ? ' setTimeout(collectColours, 500);' : ''}${measure ? ' setTimeout(() => document.fonts.ready.then(() => requestAnimationFrame(() => requestAnimationFrame(collectGeometry))), 300);' : ''} }); },
   getState() { return ${JSON.stringify(startState(kind)) ?? 'undefined'}; }, setState() {},
 });
 </script>
@@ -287,8 +296,8 @@ function chromeRun(chrome: string, args: string[], dump = false): ReturnType<typ
   return spawnSync(cmd, cmdArgs, dump ? { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], timeout: 30_000 } : { stdio: 'ignore', timeout: 30_000 });
 }
 
-/** The pages the colour check draws (GH-109): the busiest sections, Settings, a task's page and an agent's. */
-export const COLOUR_PAGES: Page[] = ['overview', 'tasks', 'settings', 'settings-agents', 'settings-trackers', 'settings-limits', 'settings-about', 'slack-paused', 'settings-github', 'settings-page', 'ticket', 'agent'];
+/** The pages the colour check draws (GH-109): the busiest sections, Settings, a task's page and an agent's, and a task in the modal over the board (GH-158). */
+export const COLOUR_PAGES: Page[] = ['overview', 'tasks', 'settings', 'settings-agents', 'settings-trackers', 'settings-limits', 'settings-about', 'slack-paused', 'settings-github', 'settings-page', 'ticket', 'agent', 'tasks-modal'];
 
 /** A page's computed colours, as its collector gathered them: what each element is, and its colours in COLOUR_PROPERTIES' order. */
 export type Colours = [string, string[]][];
@@ -327,7 +336,7 @@ function colourCheck(chrome: string, work: string, views: Page[]): number {
       for (const under of PALETTE_THEMES) {
         const page = join(work, `${view}-${theme}-under-${under}.html`);
         // One model for every drawing, so only the theme differs between them.
-        writeFileSync(page, pageFor(view, theme, sampleModel(view, now), under, true));
+        writeFileSync(page, pageFor(view, theme, sampleModel(view, now), under, true, false, afterModel(view, now)));
         const r = chromeRun(chrome, ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--allow-file-access-from-files',
           '--virtual-time-budget=3000', '--window-size=1000,900', '--dump-dom', pathToFileURL(page).href], true);
         if (r.error) return fail(`Chrome didn't finish ${view} (${theme} under ${under}) within 30 s: ${r.error.message}`);
@@ -402,7 +411,7 @@ function main(argv: string[]): number {
         // Forced, under VSCode's other theme: a colour still taken from VSCode's would show (GH-109). Each
         // shot also measures its geometry, which Chrome prints with the page (GH-105).
         const page = join(work, `${view}-${theme}.html`);
-        writeFileSync(page, pageFor(view, theme, sampleModel(view, now, theme), other(theme), false, true));
+        writeFileSync(page, pageFor(view, theme, sampleModel(view, now, theme), other(theme), false, true, afterModel(view, now)));
         for (const width of widths) {
           const png = join(out, `${view}-${theme}-${width}.png`);
           // A page whose part sits low on it is shot taller unless --height says otherwise (D-092).

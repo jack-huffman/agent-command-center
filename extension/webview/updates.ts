@@ -31,8 +31,10 @@ export function onDone(msg: { action?: string; ok?: boolean; error?: string; pro
     return;
   }
   if (msg.action !== 'comment') return;
-  const box = document.querySelector<HTMLTextAreaElement>('.comment-box');
-  if (msg.ok && state.last?.kind === 'ticket') { const m = state.last; remember((s) => { delete s.drafts[`${m.project}#${m.key}`]; }); if (box) box.value = ''; }
+  // The composer's own box, not an update's above it: on the task's tab, or in the modal over the board (GH-158).
+  const box = document.querySelector<HTMLTextAreaElement>('.composer .comment-box');
+  const page = state.last?.kind === 'ticket' ? state.last : state.modal;
+  if (msg.ok && page) { const m = page; remember((s) => { delete s.drafts[`${m.project}#${m.key}`]; }); if (box) box.value = ''; }
   if (box) box.disabled = false;
   const send = document.querySelector<HTMLButtonElement>('.composer .btn.primary');
   if (send) { send.replaceChildren(icon('comment'), 'Comment'); send.disabled = !box?.value.trim(); }
@@ -123,6 +125,16 @@ function tellEdit(project: string, id: string, text: string | null, pause = fals
 }
 
 /**
+ * A task's page just opened in the modal over the board (GH-158): the extension knows none of its edits
+ * yet, since a closed modal's went with it, so it's told them all again.
+ */
+export function tellAfresh(): void {
+  for (const t of telling.values()) clearTimeout(t);
+  telling.clear();
+  told.clear();
+}
+
+/**
  * After each redraw the extension hears of every edit this page holds, carried ones too, and of each that
  * ended. A page brought back from hidden starts afresh, so it says them all again.
  */
@@ -202,22 +214,28 @@ export function updateDraft(c: UpdateCard): HTMLElement {
  * "Sending…", no half-written answer (D-052).
  */
 export function forgetAnswered(model: Model): void {
-  const shown = model.kind === 'home' ? model.overview.attention.flatMap((a) => (a.analysis ? a.analysis.questions.map((q) => answerKey(a.analysis!.project, a.analysis!.task, q.id)) : []))
-    : model.kind === 'ticket' ? (model.analysis?.open ?? []).map((q) => answerKey(model.project, model.analysis!.task, q.id)) : null;
-  if (!shown) return;
+  if (model.kind !== 'home' && model.kind !== 'ticket') return;
+  // A task's page in the modal over the board is on the page too (GH-158).
+  const pages = model.kind === 'ticket' ? [model] : state.modal ? [state.modal] : [];
+  const shown = [
+    ...(model.kind === 'home' ? model.overview.attention.flatMap((a) => (a.analysis ? a.analysis.questions.map((q) => answerKey(a.analysis!.project, a.analysis!.task, q.id)) : [])) : []),
+    ...pages.flatMap((t) => (t.analysis?.open ?? []).map((q) => answerKey(t.project, t.analysis!.task, q.id))),
+  ];
   const keep = new Set(shown);
   if (Object.keys(memory().drafts).some((k) => k.startsWith('analysis:') && !keep.has(k))) remember((x) => { for (const k of Object.keys(x.drafts)) if (k.startsWith('analysis:') && !keep.has(k)) delete x.drafts[k]; });
   // So do updates that have gone: posted, discarded, or replaced by a newer draft (D-066).
-  const updates = model.kind === 'home' ? model.overview.attention.flatMap((a) => (a.update ? [a.update] : [])) : model.kind === 'ticket' ? model.updates : [];
-  const asks = (model.kind === 'home' ? model.overview.attention.flatMap((a) => (a.analysis ? a.analysis.questions.map((q) => askKey(a.analysis!.project, a.analysis!.task, q.id)) : []))
-    : model.kind === 'ticket' ? (model.analysis?.open ?? []).map((q) => askKey(model.project, model.analysis!.task, q.id)) : []);
+  const updates = [...(model.kind === 'home' ? model.overview.attention.flatMap((a) => (a.update ? [a.update] : [])) : []), ...pages.flatMap((t) => t.updates)];
+  const asks = [
+    ...(model.kind === 'home' ? model.overview.attention.flatMap((a) => (a.analysis ? a.analysis.questions.map((q) => askKey(a.analysis!.project, a.analysis!.task, q.id)) : [])) : []),
+    ...pages.flatMap((t) => (t.analysis?.open ?? []).map((q) => askKey(t.project, t.analysis!.task, q.id))),
+  ];
   const live = new Set([...updates.map((u) => updateKey(u.project, u.id)), ...asks]);
   pending.forget(new Set([...keep, ...live]));
   // An edit typed for a draft that a newer one replaced moves to the newer one first; then the edits for
   // drafts that have gone are dropped (GH-46).
-  if (model.kind === 'ticket') {
-    const mine = `update:${model.project}#${model.key}.`;
-    const kept = keepEdits(memory(), model.updates.map(draftKeys), (k) => k.startsWith(mine));
+  for (const t of pages) {
+    const mine = `update:${t.project}#${t.key}.`;
+    const kept = keepEdits(memory(), t.updates.map(draftKeys), (k) => k.startsWith(mine));
     if (kept) remember((x) => { x.drafts = kept.drafts; x.bases = kept.bases; });
   }
 }
@@ -226,6 +244,7 @@ export const area: PageArea = {
   before(model) {
     forgetAnswered(model);
     if (model.kind === 'ticket') tellEdits(model);
+    else if (model.kind === 'home' && state.modal) tellEdits(state.modal);
   },
   receive: { done: onDone },
 };

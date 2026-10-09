@@ -37,6 +37,16 @@ export interface BoardDeps {
   about?: { facts(): AboutFacts; arrive(): Promise<void> };
 }
 
+/** Something drawn over the page, such as a task in a modal over the Tasks board (GH-158). */
+export interface Cover {
+  /** Takes the page's messages that are its own, before anything else does: true when it took one. */
+  take(m: FromWebview): boolean;
+  /** The page was drawn afresh, as when its tab comes back on screen: it draws itself over it again. */
+  ready(): void;
+  /** The tab closed, and it went with it. */
+  close(): void;
+}
+
 export const isWebLink = (url: string): boolean => /^(https?:|mailto:)/i.test(url);
 
 /** The refresh behind each section's Refresh button. */
@@ -163,6 +173,8 @@ export class Panels implements vscode.Disposable {
   private readonly finished = new FinishedJobs();
   /** Each area's taker of the page's messages of a type (D-099). */
   private readonly takers = new Map<string, (m: never) => void>();
+  /** What's drawn over the page, which sees its messages first (GH-158). */
+  private cover: Cover | null = null;
 
   constructor(ctx: vscode.ExtensionContext, hub: Hub, setup: Setup, resolve: (command: string, ref: Ref) => unknown, onVisible: (visible: boolean) => void, deps: BoardDeps) {
     this.ctx = ctx;
@@ -274,8 +286,9 @@ export class Panels implements vscode.Disposable {
       this.panel = null;
       this.tab = null;
       this.onVisible(false);
-      // A Connect page closes with its tab: reopened, the Command Center shows its section.
+      // A Connect page closes with its tab: reopened, the Command Center shows its section. So does a task's modal (GH-158).
       this.deps.connect.close();
+      this.cover?.close();
     });
     this.panel = panel;
     this.onVisible(true);
@@ -293,6 +306,12 @@ export class Panels implements vscode.Disposable {
     this.takers.set(type, fn as (m: never) => void);
   }
 
+  /** Something drawn over the page takes its own messages first (GH-158). There's room for one. */
+  over(cover: Cover): void {
+    if (this.cover) throw new Error('Two areas draw over the page.');
+    this.cover = cover;
+  }
+
   /** Tells the page how something it sent went. */
   reply(msg: Record<string, unknown>): void {
     void this.panel?.webview.postMessage(msg);
@@ -300,6 +319,11 @@ export class Panels implements vscode.Disposable {
 
   isOpen(): boolean {
     return !!this.panel;
+  }
+
+  /** Its tab is on screen, so what's posted to it is drawn, whether or not the window has focus. */
+  showing(): boolean {
+    return !!this.panel?.visible;
   }
 
   /** On screen right now, so what it shows needs no notification. */
@@ -346,7 +370,9 @@ export class Panels implements vscode.Disposable {
 
   private receive(m: unknown): void {
     if (!isFromWebview(m)) return;
-    if (m.type === 'ready') { this.tab?.ready(); this.arrived(); return this.post(true); }
+    // A task in the modal over the board sends what its tab would: those are its own (GH-158).
+    if (this.cover?.take(m)) return;
+    if (m.type === 'ready') { this.tab?.ready(); this.arrived(); this.post(true); this.cover?.ready(); return; }
     if (m.type === 'nav') {
       this.remember(m.section);
       // Settings' limits are read only while it shows (GH-111), so arriving there reads them, and About's versions (GH-114).
@@ -367,7 +393,7 @@ export class Panels implements vscode.Disposable {
     }
     // The rest are each area's, which takes them in its own module (D-099). None here takes update-edit,
     // which only a task's own page sends (D-066), agent-reply, only an agent's own page's (D-060), or
-    // ticket-action, a ticket page's.
+    // ticket-action, a ticket page's: from this page, those are the modal's, taken above (GH-158).
     const take = this.takers.get(m.type);
     if (take) return take(m as never);
     if (m.type !== 'run' && m.type !== 'toolbar') return;
