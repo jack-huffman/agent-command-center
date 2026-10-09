@@ -1,3 +1,4 @@
+import { editsTracker, issueToClose } from './closing.ts';
 import type { CardState, Config, Tracker } from './config.ts';
 import type { Runner, RunResult } from './exec.ts';
 import { ghToken } from './land.ts';
@@ -49,15 +50,6 @@ export function columnFor(state: CardState, options: StatusOption[], statusFor: 
   }
   return null;
 }
-
-/** The GitHub tracker whose cards follow their tasks: the one that owns GH- keys, where it says "edits" and the repo has an account. */
-function cardTracker(config: Config): Tracker | null {
-  const tracker = config.trackers.find((t) => t.kind === 'github');
-  return tracker?.edits && config.github ? tracker : null;
-}
-
-/** Whether acc moves cards here at all. */
-export const followsCards = (config: Config): boolean => !!cardTracker(config);
 
 /** What became of one card. */
 export interface CardResult {
@@ -138,29 +130,31 @@ function moveCard(run: Runner, env: NodeJS.ProcessEnv, repo: string, tracker: Tr
 
 /**
  * Moves the cards of these tasks, which acc just moved, to the columns for their states now, and keeps on
- * each task where its card went, or why it couldn't (`card`). Only tasks from the card tracker's issues
- * count: any other is skipped, as is every task where no GitHub tracker says "edits": true, without a call
- * to gh. A failure never undoes the task's move. `env` is the process's: gh's token for the repo's account
+ * each task where its card went, or why it couldn't (`card`). Only the tasks whose issues acc would close
+ * count (issueToClose, so the two changes acc makes to a ticket share one opt-in): any other is skipped,
+ * as is every task where no GitHub tracker says "edits": true, without a call to gh. A failure never undoes the task's move. `env` is the process's: gh's token for the repo's account
  * is added here, once there's a card to move.
  */
 export function followCards(paths: RepoPaths, config: Config, ids: string[], deps: { run: Runner; now: () => Date; env: NodeJS.ProcessEnv }): CardResult[] {
-  const tracker = cardTracker(config);
+  const tracker = editsTracker(config);
   if (!tracker || !ids.length) return [];
   const ledger = readLedger(paths.ledger);
-  const due = ledger.tasks.filter((t) => ids.includes(t.id) && t.source.kind === 'github' && /^GH-\d+$/.test(t.id));
+  const due = ledger.tasks.flatMap((t) => {
+    const issue = ids.includes(t.id) ? issueToClose(config, t) : null;
+    return issue ? [{ t, issue }] : [];
+  });
   if (!due.length) return [];
-  const repo = tracker.repo ?? config.github!.repo;
   let env: NodeJS.ProcessEnv | { error: string };
   try {
     env = { ...deps.env, GH_TOKEN: ghToken(deps.run, config.github!.account) };
   } catch (e) {
     env = { error: (e as Error).message };
   }
-  const results: (CardResult & { from: Task['state'] })[] = due.map((t) => {
+  const results: (CardResult & { from: Task['state'] })[] = due.map(({ t, issue }) => {
     const state = cardState(ledger, t);
     const base = { task: t.id, state, from: t.state };
     if ('error' in env) return { ...base, outcome: 'failed' as const, reason: env.error };
-    return { ...base, ...moveCard(deps.run, env as NodeJS.ProcessEnv, repo, tracker, Number(t.id.slice(3)), state) };
+    return { ...base, ...moveCard(deps.run, env as NodeJS.ProcessEnv, issue.repo, tracker, issue.number, state) };
   });
   const at = deps.now().toISOString();
   mutate(paths, deps.now, (l, emit) => {

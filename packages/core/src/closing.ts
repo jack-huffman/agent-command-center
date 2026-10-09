@@ -38,8 +38,11 @@ const ALREADY_CLOSED = 'it was already closed';
 /** The drafts a close stands in for: its comment says the change merged, so they'd say it again. */
 const STOOD_IN = new Set<UpdateEvent>(['pr-opened', 'pr-updated', 'merged']);
 
-/** The GitHub tracker that owns GH- keys (trackerForKey: the first), when it lets acc change its tickets. */
-function editsTracker(config: Config): Config['trackers'][number] | null {
+/**
+ * The GitHub tracker that owns GH- keys (trackerForKey: the first), when it lets acc change its tickets:
+ * the one rule for both changes acc makes to them, closing an issue and moving its card (GH-146).
+ */
+export function editsTracker(config: Config): Config['trackers'][number] | null {
   const tracker = config.trackers.find((t) => t.kind === 'github');
   return tracker?.edits && config.github ? tracker : null;
 }

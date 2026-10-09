@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { CARD_COLUMNS, cardFailure, cardWords, columnFor, followCards, followsCards } from '../src/cards.ts';
+import { CARD_COLUMNS, cardFailure, cardWords, columnFor, followCards } from '../src/cards.ts';
+import { closesIssues } from '../src/closing.ts';
 import { CARD_STATES, type CardState, loadConfig, parseConfig, type Config, writeConfig } from '../src/config.ts';
 import { run, type RunOptions } from '../src/exec.ts';
 import { moveTask, mutate, noGateHooks, readLedger, type State, upsertTasks } from '../src/ledger.ts';
@@ -159,7 +160,7 @@ test('no card moves without "edits", for a task not from an issue, or for a task
     const s = repo(tracker);
     const gh = project();
     s.move('running');
-    assert.equal(followsCards(s.config), false);
+    assert.equal(closesIssues(s.config), false);
     assert.deepEqual(followCards(s.paths, s.config, ['GH-9'], { run: gh.fake, now, env: {} }), []);
     assert.deepEqual(gh.calls, []);
   }

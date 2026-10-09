@@ -4,7 +4,7 @@
 import { readFileSync, realpathSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { ParseArgsOptionsConfig } from 'node:util';
-import { AccError, type Actor, ACTORS, type AutopilotStepName, cardWords, type Config, followCards, followsCards, loadConfig, readLedger, type RepoPaths, repoPaths, run, withCloneAccount, withCloneAgents } from '../../core/src/index.ts';
+import { AccError, type Actor, ACTORS, type AutopilotStepName, cardWords, closesIssues, type Config, followCards, loadConfig, readLedger, type RepoPaths, repoPaths, run, withCloneAccount, withCloneAgents } from '../../core/src/index.ts';
 import { tone } from './format.ts';
 import pkg from '../../../package.json' with { type: 'json' };
 
@@ -85,7 +85,7 @@ export function project(cwd: string) {
  * GitHub tracker says "edits": true, it only runs the command.
  */
 export function followingCards<T>(paths: RepoPaths, config: Config, fn: () => T): T {
-  const before = followsCards(config) ? new Map(readLedger(paths.ledger).tasks.map((t) => [t.id, t.history.length])) : null;
+  const before = closesIssues(config) ? new Map(readLedger(paths.ledger).tasks.map((t) => [t.id, t.history.length])) : null;
   const result = fn();
   if (!before) return result;
   try {
