@@ -2,6 +2,8 @@
 
 /* A repo's heading: its name, its count, and whether another window has it open. */
 .agents-grid tr.group th { white-space: normal; }
+/* Each repo starts a section: its heading a band, as the table's column headings are (D-127). */
+.agents-grid tr.group > th { background: var(--well); border-top: 1px solid var(--edge); }
 .agents-grid tr.group .chip.window { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; vertical-align: middle; }
 .agents-grid tr.group .chip.window .codicon { margin: 0; font-size: 13px; }
 /* A repo with no agents is one quiet line. */

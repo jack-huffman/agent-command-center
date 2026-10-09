@@ -115,6 +115,11 @@ table.grid { width: 100%; border-collapse: collapse; }
 .grid th.wide { width: 100%; }
 .grid td.clip { max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .table-wrap { overflow-x: auto; }
+/* A table is a raised panel, as the Overview's and Tasks' are (D-127): its column headings a band in a well,
+   and no hairline under its last row, where the panel's own edge is. */
+.table-wrap:has(> table.grid) { background: var(--raised); border: 1px solid var(--edge); border-radius: 8px; box-shadow: var(--lift); margin-bottom: 16px; }
+.table-wrap > table.grid thead th { background: var(--well); }
+.table-wrap > table.grid > tbody:last-child > tr:last-child > :is(td, th) { border-bottom: 0; }
 .quiet { margin: 2px 0 0; font-size: 0.93em; }
 
 /* Grouped tables: one heading row per group keeps every group's columns aligned. */
@@ -129,6 +134,9 @@ table.grid { width: 100%; border-collapse: collapse; }
 /* The row menu: a quiet icon button, like VSCode's own list actions. It sticks to the right edge, so a
    narrow tab scrolls the table under it rather than hiding it. Opaque, so text never shows through. */
 .grid td.actions { padding-top: 3px; padding-bottom: 3px; position: sticky; right: 0; background: var(--vscode-editor-background); }
+/* In a raised table, the sticky actions cover the row in the table's own colour, not the page's (D-127). */
+.table-wrap > table.grid td.actions { background: var(--raised); }
+.table-wrap > table.grid tr:hover td.actions { background: var(--vscode-list-hoverBackground); }
 .grid tr:hover td.actions { background: linear-gradient(var(--vscode-list-hoverBackground), var(--vscode-list-hoverBackground)), var(--vscode-editor-background); }
 .btn.icon-only { width: 24px; height: 24px; padding: 0; justify-content: center; border-color: transparent; border-radius: 4px; vertical-align: middle; }
 .btn.icon-only .codicon { margin: 0; font-size: 16px; }

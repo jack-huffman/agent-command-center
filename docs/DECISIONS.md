@@ -5544,3 +5544,9 @@ per-task effort" out; this adds it.
   fallback model; asking the guide at run time; dropping a pick that meets a clone's or project's model
   changed since, which a person didn't ask for, rather than refusing it; checking the pair in acc agents
   set, where no task's model is known.
+
+Note (D-127, 2026-10-09): tables are raised panels too, so Agents, Worktrees and the rest match the
+Overview and Tasks. A `.grid` table's wrapper takes the raised surface, edge and lift; its column headings
+are a band in a well, and Agents' repo headings are the same band, so each repo reads as a section. Sticky
+action cells take the table's colour, not the page's. Environments' promotion paths sit in a panel of
+their own, their branches in wells.
