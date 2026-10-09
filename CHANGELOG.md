@@ -5,6 +5,34 @@ extension, the plugin and acc share one version. Each release is a GitHub
 Release of this repo, with the extension's `.vsix` attached and its entry here
 as the notes.
 
+## 0.38.0
+
+- A Settings page, last in the rail: Appearance (Match VSCode, Light or Dark,
+  for the Command Center only), How agents run, Limits and checks, Trackers and
+  sign-ins, Notices in Slack, GitHub accounts, the Command Center's own
+  preferences, and About. About shows the versions of acc, the extension and
+  the plugin, and says when a newer release is out.
+- Raise or lower how many builders run at once: each project's cap and this
+  machine's total across every repo, with what a change means for usage.
+- The Agents page is grouped by repo, then by task, and says nothing twice.
+  **Stop finished** stops only sessions still running, and says what failed in
+  one line.
+- Start a project from a Jira epic, an Azure DevOps area path or GitHub labels.
+- A GitHub repo's board takes its columns from its GitHub Project, and acc moves
+  a task's card as the task goes: In Progress, Testing, Blocked, Done. The
+  Tasks tab's header says each thing once.
+- Nothing opens on its own when a folder opens. The first time the Command
+  Center opens in a folder that isn't set up, it lands on Setup.
+- New checks a project can rely on: a test check counts what ran, and one that
+  ran none or skipped more needs a person; a ratchet holds a number to a floor
+  that only goes up (this repo's test count is one); and a built-in stray-files
+  check stops logs, temp files, new root files and data exports from landing.
+- A builder ends with a note that the reviewer, the next builder and the pull
+  request read. A review finding that keeps coming back is offered as a rule,
+  then as a check. After a run of merges, a tidy-up task is offered.
+- Projects share rules by copying them in, with where they came from.
+- Every acc and extension command survives missing, empty and wrong arguments.
+
 ## 0.37.0
 
 - Team templates: start a project from a team's settings with `acc init
