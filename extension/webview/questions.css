@@ -22,7 +22,7 @@
 .q-choice:hover, .q-choice:focus-visible { background: var(--vscode-list-hoverBackground); border-color: var(--vscode-focusBorder); }
 .q-choice.primary { border-color: var(--vscode-button-background); }
 .q-choice .codicon { flex: none; }
-.q-rule { font-family: var(--vscode-editor-font-family); font-size: 0.9em; padding: 0 4px; border-radius: 3px; background: var(--vscode-textCodeBlock-background); }
+.q-rule { font-size: 0.9em; padding: 0 4px; }
 .q-num { flex: none; width: 18px; height: 18px; margin-top: 1px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.8em; font-weight: 600; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
 .q-choice.primary .q-num { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
 .q-choice-text { min-width: 0; overflow-wrap: anywhere; }

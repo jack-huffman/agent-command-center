@@ -194,11 +194,12 @@ table.grid { width: 100%; border-collapse: collapse; }
 .doc li.task > .codicon { margin-top: 0.3em; }
 .doc li.task > :not(.codicon) { grid-column: 2; }
 .doc li.task.done > p { color: var(--vscode-descriptionForeground); }
-:is(.doc, .md) code { font-family: var(--vscode-editor-font-family); font-size: 0.92em; padding: 1px 4px; border-radius: 3px; background: var(--vscode-textCodeBlock-background); }
+/* Inline code is a chip, as in Slack: VSCode's own inline-code colours, with an edge so it reads on any panel. */
+:is(.doc, .md) code, .tool-code, .q-rule { font-family: var(--vscode-editor-font-family); font-size: 0.92em; padding: 1px 5px; border-radius: 4px; border: 1px solid var(--edge); background: var(--vscode-textPreformat-background); color: var(--vscode-textPreformat-foreground); }
 .doc .code { margin: 0 0 12px; border-radius: var(--radius); background: var(--vscode-textCodeBlock-background); overflow: hidden; }
 .doc .code-lang { font-size: 0.8em; padding: 3px 10px; color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--line); }
 .doc pre { margin: 0; padding: 10px 12px; overflow-x: auto; }
-.doc pre code { padding: 0; background: none; font-size: 0.9em; }
+.doc pre code { padding: 0; border: 0; background: none; color: inherit; font-size: 0.9em; }
 .doc blockquote { margin: 0 0 12px; padding: 4px 12px; border-left: 3px solid var(--line); color: var(--vscode-descriptionForeground); }
 .doc blockquote.panel { border-left-color: var(--line); background: var(--card); padding: 8px 12px; color: var(--vscode-foreground); }
 .doc blockquote.panel.tone-edge-blue { border-left-color: var(--blue); }

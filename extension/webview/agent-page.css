@@ -41,7 +41,7 @@ body[data-view="agent"] .agent-asks { max-height: 50vh; overflow-y: auto; }
 .tool-details > summary:hover { background: var(--vscode-list-hoverBackground); color: var(--vscode-foreground); }
 .tool-details[open] > summary { color: var(--vscode-foreground); }
 .tool-title { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tool-code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--vscode-editor-font-family); font-size: 0.88em; padding: 0 5px; border-radius: 3px; background: var(--vscode-textCodeBlock-background); }
+.tool-code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--vscode-editor-font-family); font-size: 0.88em; padding: 0 5px; }
 .tool.failed .tool-line { color: var(--vscode-foreground); }
 .tool-pre { margin: 4px 0 6px 50px; padding: 8px 10px; border-radius: 4px; background: var(--vscode-textCodeBlock-background); font-family: var(--vscode-editor-font-family); font-size: 0.88em; white-space: pre-wrap; word-break: break-word; max-height: 360px; overflow: auto; }
 .tool-pre.result.failed { border-left: 3px solid var(--orange); }
