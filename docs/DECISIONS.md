@@ -5243,7 +5243,7 @@ again.
 - Not chosen: tying a record to the floor's merge into the environment, which
   needs GitHub; a done task is the same moment as acc sees it, and it's local.
 
-## D-??? The heavy-check slots find machine.json as the total does, and the CLI's tests are a file per command group (2026-10-08)
+## D-123 The heavy-check slots find machine.json as the total does, and the CLI's tests are a file per command group (2026-10-08)
 
 GH-131, two points GH-111's review (D-110) left.
 
