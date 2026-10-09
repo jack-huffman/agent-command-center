@@ -7,9 +7,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, posix } from 'node:path';
 import { type Config, type Environment, fullGates, isTestGate, requiredGates, STRAY_FILES } from './config.ts';
 import { AccError, parseJsonOutput, type RunResult, type Runner, sfEnv } from './exec.ts';
-import type { Ledger, Task } from './ledger.ts';
+import { type Ledger, readLedger, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
-import { carriesOver, FLOORS_FILE, floorsAt, judgeRatchet, type RatchetFloors, ratchetGate, readFloors, readRelaxed, withRaises, writeFloors } from './ratchets.ts';
+import { carriesOver, FLOORS_FILE, floorsAt, judgeRatchet, type RatchetFloors, ratchetGate, readFloors, readRelaxed, relaxesFor, withRaises, writeFloors } from './ratchets.ts';
 import { earlierCounts, type GateStatus, ratchetOf, readReceipt, type Receipt, receiptsAt, writeReceipt } from './receipts.ts';
 import { type SlotOptions, withSlot } from './semaphore.ts';
 import { apexCounts, countsLine, newlySkipped, NO_COUNTS, readTestCounts, type TestCounts } from './test-counts.ts';
@@ -531,7 +531,10 @@ export interface GateRunDeps {
   run: Runner;
   now: () => Date;
   slots?: SlotOptions;
-  /** The task the checks are for, named on the heavy-check slot each heavy gate holds or waits for (D-092). */
+  /**
+   * The task the checks are for, named on the heavy-check slot each heavy gate holds or waits for (D-092).
+   * A person's relax of a floor for it counts here, on its own branch (GH-130).
+   */
   task?: string;
   /** Told before each gate starts, and when a heavy gate has to wait for the machine's slot. */
   onStart?: (gate: Gate) => void;
@@ -647,11 +650,14 @@ export function runGates(paths: RepoPaths, config: Config, env: Environment, nam
     })),
   };
   // What a ratchet is held to (GH-99): this commit's floors, the environment's where the branch began, and
-  // the ones people relaxed. A better number is written as the new floor only where the caller allows it.
+  // the ones people relaxed for this task, which count only on its own branch (GH-130). A better number is
+  // written as the new floor only where the caller allows it.
   let floors: RatchetFloors | { problem: string } | null = null;
   input.floors = () => (floors ??= (() => {
     try {
-      return { head: floorsAt(deps.run, root, sha), base: floorsAt(deps.run, root, input.changes.base), relaxed: readRelaxed(paths.relaxed), raise: !!deps.raise && !dirty };
+      const on = git(deps.run, root, ['symbolic-ref', '--quiet', '--short', 'HEAD']).stdout.trim() || null;
+      const relaxed = relaxesFor(readRelaxed(paths.relaxed), readLedger(paths.ledger), deps.task, on);
+      return { head: floorsAt(deps.run, root, sha), base: floorsAt(deps.run, root, input.changes.base), relaxed, raise: !!deps.raise && !dirty };
     } catch (e) {
       return { problem: (e as Error).message };
     }

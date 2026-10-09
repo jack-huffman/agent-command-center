@@ -11,6 +11,7 @@ import { dirname } from 'node:path';
 import type { Config, RatchetLimit, RatchetSpec } from './config.ts';
 import { AccError, type RunResult, type Runner } from './exec.ts';
 import type { Gate, GateInput, Outcome } from './gates.ts';
+import { type Ledger, writeAtomic } from './ledger.ts';
 import type { RatchetDetails, Receipt } from './receipts.ts';
 
 /** Where the floors live, from the checkout's top: committed, beside the config. */
@@ -128,7 +129,7 @@ export interface RatchetFloors {
   head: Floors;
   /** The floors on the environment's branch at the merge base. */
   base: Floors;
-  /** The floors people relaxed, from acc's records. */
+  /** The floors people relaxed for the task being checked, from acc's records (relaxesFor). */
   relaxed: RelaxRecord[];
   /** Whether a better number is written as the new floor: a task's own worktree, clean, from acc gate run. */
   raise: boolean;
@@ -256,7 +257,7 @@ export interface RelaxRecord {
   by: string;
   reason: string;
   at: string;
-  /** The task it was relaxed for, if one. */
+  /** The task it was relaxed for: it backs a floor only on that task's branch (GH-130). A record from before GH-130 has none, and backs nothing. */
   task?: string;
   /** The checkout whose floors file it changed. */
   root: string;
@@ -275,12 +276,44 @@ export function readRelaxed(file: string): RelaxRecord[] {
   });
 }
 
+/** Whether a record can still back a floor: its task is still on the board, and not done (GH-130). */
+export function relaxCounts(r: RelaxRecord, ledger: Ledger): boolean {
+  const task = r.task ? ledger.tasks.find((t) => t.id === r.task) : undefined;
+  return !!task && task.state !== 'done';
+}
+
+/**
+ * The records that back a floor on this run (GH-130): the ones made for the task being checked, while it's
+ * still open, and only on that task's own branch, where its builder's checks and the merge queue's merge
+ * of it both run. Another task's branch, even one that began at the same floor, gets none: a relax is for
+ * one task, and its builder alone can't lower a floor a person relaxed for someone else.
+ */
+export function relaxesFor(records: RelaxRecord[], ledger: Ledger, task: string | undefined, branch: string | null): RelaxRecord[] {
+  const t = task ? ledger.tasks.find((x) => x.id === task) : undefined;
+  if (!t || !branch || t.run?.branch !== branch) return [];
+  return records.filter((r) => r.task === t.id && relaxCounts(r, ledger));
+}
+
+/**
+ * Drops the records that can't back a floor any more: their task is done or left the board, or they name
+ * none (GH-130). The file is written whole. Only acc's own commands call this, holding the ledger's lock,
+ * never the Command Center as it reads (D-012). How many it dropped.
+ */
+export function pruneRelaxed(file: string, ledger: Ledger): number {
+  const all = readRelaxed(file);
+  const kept = all.filter((r) => relaxCounts(r, ledger));
+  const lines = existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(Boolean).length : 0;
+  if (kept.length === lines) return 0;
+  writeAtomic(file, kept.map((r) => `${JSON.stringify(r)}\n`).join(''));
+  return lines - kept.length;
+}
+
 /**
  * Whether a person relaxed this ratchet, from the floor the branch began at, to this number or a worse one.
- * A floor acc raised again after a person relaxed it is still backed by that record, so the commit that
- * records the raise passes. A person who relaxes it again relaxes from the floor they set, so the chain of
- * relaxes that starts at the branch's floor backs the last one. A record relaxed from any other floor backs
- * nothing here: an old relax, from another task or another time, never lets a builder lower today's floor by hand.
+ * The records are this task's own (relaxesFor). A floor acc raised again after a person relaxed it is still
+ * backed by that record, so the commit that records the raise passes. A person who relaxes it again relaxes
+ * from the floor they set, so the chain of relaxes that starts at the branch's floor backs the last one. A
+ * record relaxed from any other floor backs nothing here: the environment's floor moved on since.
  */
 export function relaxedTo(records: RelaxRecord[], name: string, limit: RatchetLimit, value: number, base: number): boolean {
   const mine = records.filter((r) => r.ratchet === name && r.limit === limit);
@@ -298,13 +331,15 @@ export interface RelaxRequest {
   reason: string;
   by: string;
   now: () => Date;
-  task?: string;
+  /** The task it's for: the record backs a floor only on that task's branch (GH-130). */
+  task: string;
 }
 
 /**
- * A person relaxes a ratchet's floor (or ceiling) in a checkout, with a reason (GH-99): the worse number goes
- * in its floors file with who, why, when and what it was, and acc keeps a record, which is what lets a
- * branch's worse floor pass. The CLI refuses builders, as it does waivers (D-031). Nothing is committed.
+ * A person relaxes a ratchet's floor (or ceiling) for a task, in a checkout, with a reason (GH-99): the worse
+ * number goes in its floors file with who, why, when and what it was, and acc keeps a record naming the
+ * task, which is what lets that task's worse floor pass (GH-130). The CLI refuses builders, as it does
+ * waivers (D-031). Nothing is committed.
  */
 export function relaxFloor(relaxedFile: string, floorsFile: string, root: string, config: Pick<Config, 'gates'>, req: RelaxRequest): RelaxRecord {
   const ratchets = config.gates.ratchets ?? {};
@@ -320,7 +355,7 @@ export function relaxFloor(relaxedFile: string, floorsFile: string, root: string
   if (!isWorse(spec.limit, req.to, was)) throw new AccError('refused', `${num(req.to)} isn't ${w.worse} ${req.ratchet}'s ${w.limit}, ${num(was)}, so it doesn't relax it. acc raises a ${w.limit} itself when a change beats it.`);
   const at = req.now().toISOString();
   writeFloors(floorsFile, { ...floors, [req.ratchet]: { [spec.limit]: req.to, relaxed: { by: req.by, reason, at, was } } });
-  const record: RelaxRecord = { ratchet: req.ratchet, limit: spec.limit, to: req.to, was, by: req.by, reason, at, ...(req.task ? { task: req.task } : {}), root };
+  const record: RelaxRecord = { ratchet: req.ratchet, limit: spec.limit, to: req.to, was, by: req.by, reason, at, task: req.task, root };
   mkdirSync(dirname(relaxedFile), { recursive: true });
   appendFileSync(relaxedFile, `${JSON.stringify(record)}\n`);
   return record;

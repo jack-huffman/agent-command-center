@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { BUILT_IN_GATES, builderGatesFor, parseConfig, type Config, requiredGates } from '../src/config.ts';
@@ -12,7 +12,7 @@ import {
 import { checkMove, emptyLedger, type Task } from '../src/ledger.ts';
 import { builderSettings } from '../src/packet.ts';
 import { repoPaths } from '../src/paths.ts';
-import { formatFloors, relaxFloor } from '../src/ratchets.ts';
+import { formatFloors, pruneRelaxed, readRelaxed, relaxesFor, relaxFloor } from '../src/ratchets.ts';
 import { readReceipt, type Receipt, receiptHooks, satisfies, writeReceipt } from '../src/receipts.ts';
 import { NO_COUNTS, type TestCounts } from '../src/test-counts.ts';
 import { withSlot } from '../src/semaphore.ts';
@@ -796,15 +796,24 @@ function ratchetRepo(floors: Record<string, unknown> | null = { tests: { floor: 
   const paths = repoPaths(dir, run);
   const env = c.environments[0]!;
   const task = { id: 'T-1', state: 'running', environment: 'main', deps: [], run: { branch: 'task/T-1' } } as unknown as Task;
+  // The ledger: T-1, and T-9, which a test may start from main as T-1's neighbour (GH-130).
+  const tasks = (states: Record<string, string> = {}) => {
+    mkdirSync(paths.stateDir, { recursive: true });
+    const t9 = { ...task, id: 'T-9', run: { branch: 'task/T-9' } };
+    writeFileSync(paths.ledger, JSON.stringify({ ...emptyLedger(), tasks: [task, t9].map((t) => ({ ...t, state: states[t.id] ?? t.state })) }));
+  };
+  tasks();
   const set = (files: Record<string, string>, msg = 'T-1: change') => {
     for (const [rel, text] of Object.entries(files)) write(dir, rel, text);
     commitAll(dir, msg);
     return gitIn(dir, 'rev-parse', 'HEAD');
   };
-  const gate = (raise: boolean, names: string[] = []) => runGates(paths, c, env, names, [], { run, now, slots: slots(), raise });
+  // For the task whose branch is checked out, as acc gate run finds it, unless a test names another.
+  const gate = (raise: boolean, names: string[] = [], forTask: string | null = gitIn(dir, 'branch', '--show-current').replace(/^task\//, '')) =>
+    runGates(paths, c, env, names, [], { run, now, slots: slots(), raise, ...(forTask ? { task: forTask } : {}) });
   const floorsText = () => readFileSync(join(dir, '.acc/floors.json'), 'utf8');
   const runs = () => (existsSync(ran) ? readFileSync(ran, 'utf8').trim().split('\n') : []);
-  return { dir, c, paths, env, task, set, gate, floorsText, runs, hooks: receiptHooks(paths, c, run) };
+  return { dir, c, paths, env, task, tasks, set, gate, floorsText, runs, hooks: receiptHooks(paths, c, run) };
 }
 
 test('a ratchet is a gate: listed after the commands, heavy when gates.heavy says, and its name can\'t be a built-in\'s (GH-99)', () => {
@@ -930,6 +939,44 @@ test('a person\'s old relax backs no other floor: once the environment\'s floor 
   assert.equal(ran.results[1]!.status, 'fail');
   assert.equal(ran.results[1]!.summary, '.acc/floors.json lowers tests\'s floor to 690, from 700 on main, and no person relaxed it. Put it back to 700: only a person relaxes a floor, with acc gate relax.');
   assert.deepEqual([ran.raised, r.floorsText()], [[], formatFloors({ tests: { floor: 690 } })]);
+});
+
+test('a relax is for one task: another task that began at the same floor can\'t lower it by hand, even naming the relaxed task (GH-130)', () => {
+  const r = ratchetRepo();
+  // A person relaxes tests from 669 to 640 for T-1, which commits it.
+  relaxFloor(r.paths.relaxed, r.paths.floors, r.dir, r.c, { ratchet: 'tests', to: 640, reason: 'the slow suite moved to its own job', by: 'human:jordan', now, task: 'T-1' });
+  r.set({ 'count.txt': '640\n' }, 'T-1: relax the tests floor');
+  assert.equal(r.gate(true).results[1]!.summary, 'tests 640, at its floor.', 'T-1\'s own branch is backed');
+  // T-9 also began on main at 669, and its builder lowers the floor by hand.
+  gitIn(r.dir, 'checkout', '-q', '-b', 'task/T-9', 'main');
+  r.set({ 'count.txt': '650\n', '.acc/floors.json': formatFloors({ tests: { floor: 650 } }) }, 'T-9: drop some tests, and lower the bar');
+  const lowered = '.acc/floors.json lowers tests\'s floor to 650, from 669 on main, and no person relaxed it. Put it back to 669: only a person relaxes a floor, with acc gate relax.';
+  assert.deepEqual([r.gate(true).results[1]!.status, r.gate(true).results[1]!.summary], ['fail', lowered]);
+  assert.equal(r.gate(false, [], 'T-1').results[1]!.summary, lowered, 'naming T-1 on T-9\'s branch backs nothing: the record counts only on T-1\'s branch');
+  assert.equal(r.gate(false, [], null).results[1]!.status, 'fail', 'nor with no task named');
+  assert.equal(readRelaxed(r.paths.relaxed).length, 1, 'the record is kept for T-1');
+});
+
+test('a relax stops counting once its task is done or leaves the board, and acc prunes it (GH-130)', () => {
+  const r = ratchetRepo();
+  relaxFloor(r.paths.relaxed, r.paths.floors, r.dir, r.c, { ratchet: 'tests', to: 640, reason: 'the slow suite moved to its own job', by: 'human:jordan', now, task: 'T-1' });
+  r.set({ 'count.txt': '640\n' }, 'T-1: relax the tests floor');
+  assert.equal(r.gate(false).results[1]!.status, 'pass');
+  const records = readRelaxed(r.paths.relaxed);
+  // Later, main is at 669 again, and T-1's branch is checked once more after T-1 was done.
+  r.tasks({ 'T-1': 'done' });
+  assert.match(r.gate(false).results[1]!.summary, /^\.acc\/floors\.json lowers tests's floor to 640, from 669 on main, and no person relaxed it\./, 'done: it backs nothing');
+  assert.deepEqual(relaxesFor(records, { ...emptyLedger(), tasks: [] }, 'T-1', 'task/T-1'), [], 'nor once T-1 has left the ledger');
+  assert.equal(relaxesFor(records, { ...emptyLedger(), tasks: [r.task] }, 'T-1', 'task/T-1').length, 1, 'and while it\'s open, it does');
+
+  // acc drops it, and the records of an open task, written whole, stay.
+  const t9 = { ...records[0]!, task: 'T-9', to: 650 };
+  const old = { ...records[0]!, task: undefined };
+  writeFileSync(r.paths.relaxed, [records[0], t9, old].map((x) => `${JSON.stringify(x)}\n`).join(''));
+  assert.equal(pruneRelaxed(r.paths.relaxed, { ...emptyLedger(), tasks: [{ ...r.task, state: 'done' }, { ...r.task, id: 'T-9' }] }), 2, 'T-1\'s, done, and one that names no task');
+  assert.deepEqual(readRelaxed(r.paths.relaxed), [t9]);
+  assert.equal(pruneRelaxed(r.paths.relaxed, { ...emptyLedger(), tasks: [{ ...r.task, id: 'T-9' }] }), 0, 'nothing more to drop');
+  assert.deepEqual(readdirSync(r.paths.stateDir).filter((f) => f.endsWith('.tmp')), [], 'no temp file left');
 });
 
 test('a ratchet can\'t be waived: a person relaxes its floor instead (GH-99)', () => {
