@@ -294,8 +294,8 @@ export function trackersAndSignIns(projects: ProjectLike[], boards: (root: strin
 
 // ---------------------------------------------------------------- GitHub accounts (GH-113)
 
-/** The account each repo pushes as: this clone's choice, in its git config, or the project's, in .acc/config.json (D-028). */
-const CLONE: SettingFrom = { label: 'this clone', icon: 'device-desktop' };
+/** The account each repo pushes as: this clone's choice, in its git config, or the project's, in .acc/config.json (D-028). A clone's words are FROM_WORDS'. */
+const CLONE = settingFrom('clone');
 
 /** One project's GitHub account, under its name: who it pushes as, whether that works, and where it's chosen. */
 export interface GithubAccountSetting {

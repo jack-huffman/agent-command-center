@@ -14,7 +14,8 @@ import type { IdentityCard } from '../src/model/environments.ts';
 import { blankSlack, slackCard } from '../src/slack.ts';
 import { homeModel, type HomeModel } from '../src/model/home.ts';
 import { PAGE_COMMANDS } from '../src/model/messages.ts';
-import { agentSettings, area as settingsArea, autoMergeSetting, autonomySetting, GH_SIGN_IN_KEPT, githubAccount, githubAccounts, howAgentsRun, MACHINE_KEPT, OPENS_ON_CHOICES, opensOnChoice, pagePreferences, refreshLines, settingFrom, SETTINGS_PARTS, settingsKey, settingsModel, SIGN_IN_KEPT, THEME_CHOICES, THEME_SETTING, themeChoice, THEMES, trackerSetting, trackersAndSignIns, WINDOW_KEPT } from '../src/model/settings.ts';
+import { WHERE_VIEWS } from '../src/model/agents.ts';
+import { agentSettings, area as settingsArea, autoMergeSetting, autonomySetting, GH_SIGN_IN_KEPT, githubAccount, githubAccounts, howAgentsRun, MACHINE_KEPT, OPENS_ON_CHOICES, opensOnChoice, pagePreferences, refreshLines, settingFrom, SETTINGS_PARTS, settingsKey, settingsModel, SIGN_IN_KEPT, THEME_CHOICES, THEME_SETTING, themeChoice, THEMES, trackerSetting, trackersAndSignIns, WHERE_WORDS, WINDOW_KEPT } from '../src/model/settings.ts';
 import { area as boardsArea, type BoardInput } from '../src/model/boards.ts';
 import type { DoctorItem } from '../src/logic/setup.ts';
 import type { ProjectLike } from '../src/model/shared.ts';
@@ -290,6 +291,18 @@ test('the Command Center\'s preferences: the section it opens on and Agents\' Wh
   assert.ok(source('src', 'panels.ts').includes('whereView: this.whereView, theme: this.tab?.theme ?? currentTheme(), pace: currentPace(), opensOn: this.opens,'));
 });
 
+test('Agents\' Where toggle names each view as Settings does: WHERE_WORDS\' labels and icons, in its order (GH-150)', () => {
+  const page = pageSource('agents.ts');
+  const block = page.match(/const WHERE_WORDS: Record<WhereView, \{ label: string; icon: string \}> = \{\n([\s\S]*?)\n\};/)?.[1];
+  assert.ok(block, 'the page keeps its copy of WHERE_WORDS');
+  const copy = [...block.matchAll(/^ {2}(\w+): \{ label: '([^']+)', icon: '([^']+)' \},$/gm)].map(([, key, label, icon]) => [key, label, icon]);
+  assert.equal(copy.length, block.split('\n').length, 'every line of the copy is a view');
+  assert.deepEqual(copy, WHERE_VIEWS.map((w) => [w, WHERE_WORDS[w].label, WHERE_WORDS[w].icon]));
+  // The toggle draws each view from the copy, and nothing else names one.
+  assert.ok(page.includes("segmented('Where shows', (Object.keys(WHERE_WORDS) as WhereView[]).map((w) => ({ key: w, ...WHERE_WORDS[w], on: view === w }))"));
+  for (const w of WHERE_VIEWS) assert.equal(page.split(`'${WHERE_WORDS[w].label}'`).length, 2, `only the copy names ${w}`);
+});
+
 test('the section it opens on is kept per window, and used only when the Command Center opens with no section asked for', () => {
   const panels = source('src', 'panels.ts');
   assert.ok(panels.includes("export const OPENS_ON_STATE = 'acc.home.opensOn';") && panels.includes('this.opens = opensOnChoice(ctx.workspaceState.get(OPENS_ON_STATE));'));
@@ -329,6 +342,8 @@ test('Notices in Slack is Settings\' part now: its card, its badge and its toast
   const m = homeModel({ hub: hub(), section: 'environments', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() }, slack: card });
   assert.equal(m.settings.slack, card);
   assert.deepEqual(m.environments.slackMoved, { label: 'Open Notices in Slack', icon: 'settings-gear', section: 'settings', part: 'settings:slack' });
+  assert.equal(m.environments.slackMoved.part, settingsKey('slack'));
+  assert.ok(source('src', 'model', 'environments.ts').includes("part: settingsKey('slack') }"), 'Environments builds the part as every other way to it does (GH-150)');
   assert.ok(!('slack' in m.environments), 'Environments no longer holds the card');
   // The badge: Settings is orange while Slack is paused; Environments isn't, for Slack.
   const nav = (s: string) => m.nav.find((n) => n.section === s)!;
@@ -364,6 +379,9 @@ test('GitHub accounts names each project, who its repo pushes as, and whether th
   // This clone's choice says so, and whose the project's is.
   const clone = githubAccount(gh, identity({ from: 'clone', projectAccount: 'acme-bot', projects: false }));
   assert.deepEqual(clone.from, { label: 'this clone', icon: 'device-desktop' });
+  // How agents run's words for a clone, from one place (GH-150).
+  assert.deepEqual(clone.from, settingFrom('clone'));
+  assert.ok(source('src', 'model', 'settings.ts').includes("const CLONE = settingFrom('clone');"));
   assert.deepEqual(clone.lines.map((l) => l.label), ['The project\'s account is acme-bot. Switch… goes back to it.', 'gh is signed in as jordan-kim, without GitHub Projects access', 'Commits as Jordan Kim <jordan@acme.example>']);
   assert.deepEqual(clone.actions.map((a) => [a.command, a.label, a.primary]), [['acc.github.switch', 'Switch…', false], ['acc.github.signIn', 'Add Projects access', false]]);
   // Not signed in: orange, with a warning and why, said once, and Sign in leads.
