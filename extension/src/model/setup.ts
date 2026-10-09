@@ -4,6 +4,7 @@
  */
 
 import { GROUP_TITLES, STEPS } from '../../../packages/core/src/onboarding/steps.ts';
+import type { CheckStatus } from '../../../packages/core/src/onboarding/types.ts';
 import type { DoctorItem } from '../logic/setup.ts';
 import { type Action, type Look, LOOK, type ModelArea, type Ref } from './shared.ts';
 
@@ -36,7 +37,8 @@ export interface SetupModel {
   parts: { part: 'machine' | 'project'; label: string; todo: number; steps: SetupRow[]; sections: SetupSection[] }[];
 }
 
-const STATUS: Record<string, Look> = {
+/** How a setup step's check shows, and a step a person confirmed by hand. */
+export const STATUS: Record<CheckStatus | 'confirmed', Look> = {
   pass: { label: 'Done', icon: 'pass', tone: 'blue' },
   fail: { label: 'To do', icon: 'warning', tone: 'orange' },
   unknown: { label: 'Check by hand', icon: 'question', tone: 'orange' },
@@ -73,7 +75,7 @@ export function setupModel(items: DoctorItem[], confirmed: Set<string>): SetupMo
     if (open && step?.fix?.setupPath) actions.push({ command: 'acc.step.openSetup', label: 'Open in Salesforce', icon: 'globe', ref });
     if (status === 'unknown') actions.push({ command: 'acc.step.confirm', label: 'I\'ve done this', icon: 'check', ref });
     if (step?.fix?.docs) actions.push({ command: 'acc.openGuide', label: 'Guide', icon: 'book', ref });
-    const look = STATUS[status] ?? STATUS.skip!;
+    const look = STATUS[status] ?? STATUS.skip;
     // A fix that's a VSCode command runs from Do it; only terminal commands are shown to copy.
     return { id: i.id, title: i.title, look, done: look.tone !== 'orange', detail: i.detail, why: step?.why ?? '', fix: step?.fix?.vscode ? null : i.fix ?? null, actions };
   });

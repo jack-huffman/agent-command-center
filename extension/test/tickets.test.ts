@@ -33,7 +33,7 @@ const board = (): BoardInput => ({
 test('a tracker board keeps the tracker\'s columns, places cards by status, and shows acc\'s side where it has a task', () => {
   const rows = [row('ACME-1', 'todo', 'ready'), row('ACME-3', 'running', 'needs-you', { run: { bgId: 'bg3' }, agent: { label: 'Needs you: permission prompt', icon: 'bell-dot', tone: 'orange' } })];
   const b = trackerBoard(board(), rows, '/r');
-  assert.deepEqual(b.columns.map((c) => [c.name, c.tone, c.done, c.cards.map((x) => x.key)]), [['To Do', 'neutral', false, ['ACME-1', 'ACME-2']], ['Doing', 'blue', false, ['ACME-3']], ['Done', 'neutral', true, ['ACME-4']]]);
+  assert.deepEqual(b.columns.map((c) => [c.name, c.icon, c.tone, c.done, c.cards.map((x) => x.key)]), [['To Do', 'circle-outline', 'neutral', false, ['ACME-1', 'ACME-2']], ['Doing', 'sync', 'blue', false, ['ACME-3']], ['Done', 'check', 'neutral', true, ['ACME-4']]]);
   const [ready, untracked] = b.columns[0]!.cards;
   assert.equal(ready!.acc!.look.label, 'Ready');
   assert.equal(ready!.acc!.action!.command, 'acc.task.dispatch', 'a ready ticket offers Dispatch right on its card');
@@ -207,7 +207,7 @@ test('a ticket page: the tracker\'s ticket takes comments, and its fields change
     assert.equal(ticketActionRefusal(action, true), null, action);
   }
   assert.equal(ticketActionRefusal('comment', false), null, 'comments stay');
-  assert.deepEqual([tracked.status, tracked.sourceKind, tracked.trackable], [{ name: 'In Progress', tone: 'blue' }, 'jira', false]);
+  assert.deepEqual([tracked.status, tracked.sourceKind, tracked.trackable], [{ name: 'In Progress', icon: 'sync', tone: 'blue' }, 'jira', false]);
   assert.equal(tracked.acc!.history[0]!.to, 'running', 'newest history first');
   assert.ok(!tracked.acc!.actions.some((a) => a.command === 'acc.task.show'), 'no Details button on the details page');
   assert.equal(ticketModel({ ...base, ticket, row: null, task: null }).trackable, true);
@@ -215,7 +215,7 @@ test('a ticket page: the tracker\'s ticket takes comments, and its fields change
   const local = ticketModel({ ...base, tracker: null, trackerTitle: null, trackerKind: null, ticket: null, row: row('ACME-1', 'todo', 'ready'), task });
   assert.deepEqual([local.sourceKind, local.sourceLabel, local.can.comment, local.trackable], ['acc', 'Task kept by acc', false, false]);
   assert.deepEqual(local.body, { blocks: [{ t: 'p', c: [{ t: 'text', text: 'Brief' }] }] }, 'a task acc alone keeps shows its brief, rendered');
-  assert.deepEqual(local.status, { name: 'Ready', tone: 'blue' });
+  assert.deepEqual(local.status, { name: 'Ready', icon: 'play-circle', tone: 'blue' });
   assert.equal(local.acc!.conflicts, null);
 
   // Its open pull request conflicts with its base: the page names every file (D-049).

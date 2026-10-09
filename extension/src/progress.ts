@@ -9,7 +9,7 @@ import type { AutopilotStepName, Ledger } from '../../packages/core/src/ledger.t
 import type { HeavyState, SlotHolder, SlotWaiter } from '../../packages/core/src/semaphore.ts';
 import { isUnder, type TaskRow, type Tone } from './logic/shared.ts';
 import { sessionFor } from './logic/agents.ts';
-import type { HubLike, Look, ProjectLike, Ref } from './model/shared.ts';
+import { displayLook, type HubLike, type Look, type ProjectLike, type Ref } from './model/shared.ts';
 import type { RunInput } from './model/runs.ts';
 import type { ExtensionArea } from './area.ts';
 import { runFile } from './run.ts';
@@ -154,18 +154,8 @@ export const STEP_DOING: Record<AutopilotStepName, string> = {
 const STEP_DONE: Record<AutopilotStepName, string> = { review: 'reviewed it', land: 'landed it', dispatch: 're-dispatched it', refresh: 'merged its base in', resume: 'resumed its builder', checks: 'sent it back for its failing checks', merge: 'merged its pull request', start: 'started it', queue: 'took its turn in the merge queue' };
 const STEP_VERB: Record<AutopilotStepName, string> = { review: 'review it', land: 'land it', dispatch: 're-dispatch it', refresh: 'merge its base in', resume: 'resume its builder', checks: 'send it back', merge: 'merge its pull request', start: 'start it', queue: 'take its turn in the merge queue' };
 
-/** A task's state at the head of its group. Needs you is orange, as everywhere. */
-function taskLook(r: TaskRow): Look {
-  switch (r.display) {
-    case 'needs-you': return LOOK('Needs you', 'bell', 'orange');
-    case 'running': return LOOK('Running', 'sync', 'blue');
-    case 'review': return LOOK('In review', 'eye', 'blue');
-    case 'rework': return LOOK('Rework', 'tools', 'neutral');
-    case 'blocked': return LOOK('Blocked', 'circle-slash', 'orange');
-    case 'done': return LOOK('Done', 'pass', 'neutral');
-    default: return LOOK('To do', 'circle-outline', 'neutral');
-  }
-}
+/** A task's state at the head of its group, as everywhere: core's DISPLAY (GH-105). */
+export const taskLook = (r: Pick<TaskRow, 'display'>): Look => displayLook(r.display);
 
 /** What a heavy check is for, in words: "check for GH-76", "Deploy dev", or an older acc's. */
 function slotWhat(h: Partial<SlotHolder & SlotWaiter>): string {
@@ -494,7 +484,7 @@ export function inProgress(i: ProgressInput): ProgressModel {
     if (!b) {
       const p = hub.projects.find((x) => x.root === g.group.root);
       const r = p && g.group.task ? hub.taskRows(p.root).find((x) => x.id === g.group.task) : undefined;
-      b = { root: g.group.root, task: g.group.task, at: g.endedAt, group: { key: g.group.key, id: g.group.id, title: r?.title ?? g.group.title, look: r ? taskLook(r) : LOOK('Done', 'pass', 'neutral'), since: '', project: g.group.project, ref: g.group.ref, note: null, jobs: [], done: [] } };
+      b = { root: g.group.root, task: g.group.task, at: g.endedAt, group: { key: g.group.key, id: g.group.id, title: r?.title ?? g.group.title, look: r ? taskLook(r) : displayLook('done'), since: '', project: g.group.project, ref: g.group.ref, note: null, jobs: [], done: [] } };
       groups.set(g.group.key, b);
     }
     const p = hub.projects.find((x) => x.root === g.group.root);

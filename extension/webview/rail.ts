@@ -54,6 +54,23 @@ export function renderNav(m: HomeModel, current: HomeSection): HTMLElement {
     b.addEventListener('click', () => api.postMessage({ type: 'toolbar', command: 'acc.github.switch', arg: p.root }));
     return b;
   });
-  return el('nav', 'rail', el('div', 'brand', logo(), el('div', 'brand-text', el('span', 'brand-name', 'Command Center'),
+  const rail = el('nav', 'rail', el('div', 'brand', logo(), el('div', 'brand-text', el('span', 'brand-name', 'Command Center'),
     el('span', 'muted small', m.overview.projects.map((p) => p.name).join(', ') || 'No project yet'))), list, el('div', 'rail-foot', ...people));
+  // Again once the icon font has loaded, which widens every tab.
+  requestAnimationFrame(() => showSelected(rail));
+  void document.fonts.ready.then(() => showSelected(rail));
+  return rail;
+}
+
+/**
+ * Under 820 px the rail is a strip that scrolls sideways, and a later section's tab starts out past its
+ * edge: the selected one is scrolled into the strip's view, and the page itself never moves (GH-105).
+ */
+function showSelected(rail: HTMLElement): void {
+  const on = rail.querySelector<HTMLElement>('.nav-item.on');
+  if (!on || rail.scrollWidth <= rail.clientWidth) return;
+  const r = rail.getBoundingClientRect();
+  const t = on.getBoundingClientRect();
+  if (t.right > r.right) rail.scrollLeft += t.right - r.right + 12;
+  else if (t.left < r.left) rail.scrollLeft -= r.left - t.left + 12;
 }
