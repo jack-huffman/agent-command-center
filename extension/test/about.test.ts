@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { makeContext } from '../../packages/core/src/onboarding/helpers.ts';
-import { runSteps } from '../../packages/core/src/onboarding/steps.ts';
+import { type ClaudeList, parsePluginList, runSteps, userPlugin } from '../../packages/core/src/onboarding/steps.ts';
 import { fakeRunner, ok, tempDir } from '../../packages/core/test/support.ts';
 import { sampleAbout, sampleAboutBehind, sampleAboutFailed } from '../scripts/fixtures/about.ts';
 import { About, type AboutDeps, activeAccountEnv, area as aboutArea, parsePlugins } from '../src/about.ts';
@@ -124,8 +124,47 @@ test('gh\'s and claude\'s answers, read as A4 reads them', () => {
   const list = (l: unknown): RunResult => ({ code: 0, stdout: JSON.stringify(l), stderr: '' });
   assert.deepEqual(parsePlugins(list([{ id: 'acc@agent-command-center', scope: 'project', version: '0.1.0', enabled: true }, { id: 'acc@agent-command-center', scope: 'user', version: '0.37.0', enabled: true }])), { ok: true, value: { version: '0.37.0', enabled: true } });
   assert.deepEqual(parsePlugins(list([{ id: 'acc@agent-command-center', scope: 'project' }])), { ok: true, value: null }, 'one project\'s install isn\'t every session\'s');
-  assert.deepEqual(parsePlugins({ code: 127, stdout: '', stderr: '' }), { ok: false, error: 'claude isn\'t installed', missing: true });
+  assert.deepEqual(parsePlugins({ code: 127, stdout: '', stderr: '' }), { ok: false, error: 'claude isn\'t installed.', missing: true });
   assert.equal(parsePlugins({ code: 0, stdout: '{}', stderr: '' }).ok, false);
+});
+
+test('About and A4 read the plugin list through one parser, and say each way it fails in the same words (GH-147)', () => {
+  const ACC = { id: 'acc@agent-command-center', scope: 'user', version: '0.37.0', enabled: true };
+  const a4 = (r: RunResult) => runSteps(makeContext(tempDir(), fakeRunner({ 'claude plugin list --json': r, 'claude plugin marketplace list --json': ok('[]') }), { ...process.env, CLAUDE_CONFIG_DIR: tempDir('claude-state-') }, '0.37.0'), 'machine', ['A4.plugin'])[0]!.result;
+  const cases: [string, RunResult, ClaudeList][] = [
+    ['claude isn\'t installed', { code: 127, stdout: '', stderr: 'not found' }, { ok: false, missing: true, error: 'claude isn\'t installed.' }],
+    ['exits with an error', { code: 1, stdout: '', stderr: 'error: unknown option \'--json\'\nmore' }, { ok: false, missing: false, error: 'claude plugin list didn\'t run: error: unknown option \'--json\'' }],
+    ['exits, saying it on stdout', { code: 2, stdout: 'Not logged in\n', stderr: '' }, { ok: false, missing: false, error: 'claude plugin list didn\'t run: Not logged in' }],
+    ['exits, saying nothing', { code: 3, stdout: '', stderr: '' }, { ok: false, missing: false, error: 'claude plugin list didn\'t run: exit 3' }],
+    ['prints text', ok('Installed plugins:\n  acc'), { ok: false, missing: false, error: 'claude plugin list printed something other than a list.' }],
+    ['prints an object', ok('{"id":"acc@agent-command-center"}'), { ok: false, missing: false, error: 'claude plugin list printed something other than a list.' }],
+    ['prints a list of numbers', ok('[1, 2]'), { ok: false, missing: false, error: 'claude plugin list printed something other than a list.' }],
+    ['prints a list of nulls', ok('[null]'), { ok: false, missing: false, error: 'claude plugin list printed something other than a list.' }],
+    ['lists no plugins', ok('[]'), { ok: true, list: [] }],
+    ['lists acc', ok(JSON.stringify([ACC])), { ok: true, list: [ACC] }],
+  ];
+  let ran = 0;
+  for (const [name, r, want] of cases) {
+    assert.deepEqual(parsePluginList(r), want, name);
+    const setup = a4(r);
+    const about = parsePlugins(r);
+    const row = pluginRow(facts({ plugin: about }));
+    if (want.ok) {
+      assert.deepEqual(about, { ok: true, value: userPlugin(want.list) }, name);
+      assert.notEqual(setup.status, 'unknown', name);
+    } else if (want.missing) {
+      // Both send the person to install Claude Code: A4 as its fix, About as A4's.
+      assert.deepEqual([setup.status, setup.detail, about], ['fail', `${want.error} Do A1.claude first.`, { ok: false, missing: true, error: want.error }], name);
+      assert.deepEqual([row.look.label, row.action?.arg], ['Claude Code isn\'t installed', 'A4.plugin'], name);
+    } else {
+      // The same words in Setup's A4 and in About's row.
+      assert.deepEqual([setup.status, setup.detail], ['unknown', `Couldn't read Claude Code's plugins: ${want.error}`], name);
+      assert.deepEqual([row.look.label, row.look.tone, row.action], [setup.detail, 'neutral', null], name);
+    }
+    ran++;
+  }
+  assert.equal(ran, cases.length);
+  assert.ok(cases.some(([, , w]) => !w.ok && !w.missing) && cases.some(([, , w]) => !w.ok && w.missing) && cases.some(([, , w]) => w.ok), 'every way it reads is a case');
 });
 
 test('gh is asked as its active account: a token in the environment, which would win, is left out', () => {
