@@ -7,6 +7,7 @@ import type { GithubIdentity } from '../../../packages/core/src/github.ts';
 import { ENV_ICON } from '../logic/environments.ts';
 import type { Action, HubLike, ModelArea, Ref } from './shared.ts';
 import { promotionPaths } from '../../../packages/core/src/promote.ts';
+import { settingsKey } from './settings.ts';
 
 export { promotionPaths };
 
@@ -73,7 +74,7 @@ export interface EnvironmentsModel {
 export function environmentsModel(hub: HubLike, identity: (root: string) => IdentityCard | null = () => null): EnvironmentsModel {
   return {
     kind: 'environments',
-    slackMoved: { label: 'Open Notices in Slack', icon: 'settings-gear', section: 'settings', part: 'settings:slack' },
+    slackMoved: { label: 'Open Notices in Slack', icon: 'settings-gear', section: 'settings', part: settingsKey('slack') },
     projects: hub.projects.map((p) => ({
       name: p.name, root: p.root,
       github: p.config.github ? `${p.config.github.repo} as ${p.config.github.account}` : null,

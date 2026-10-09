@@ -36,6 +36,11 @@ function slashBreaks(text: string): Node[] {
 
 /** Settings' How agents run, by its heading: model/settings.ts's settingsKey('agents'), which a test pins. */
 const HOW_AGENTS_RUN = 'settings:agents';
+/** Where's views, as Settings names them: model/settings.ts's WHERE_WORDS, in its order, which a test pins. */
+const WHERE_WORDS: Record<WhereView, { label: string; icon: string }> = {
+  folder: { label: 'Folder', icon: 'folder' },
+  path: { label: 'Full path', icon: 'list-tree' },
+};
 /** Agent, State, Model, Running, and the actions. */
 const COLUMNS = 5;
 
@@ -175,10 +180,7 @@ function needsYouButtons(a: AgentLine): HTMLElement[] {
  * extension remembers the choice for the window.
  */
 function whereBar(view: WhereView): HTMLElement {
-  const pick = segmented('Where shows', [
-    { key: 'folder', label: 'Folder', icon: 'folder', on: view === 'folder' },
-    { key: 'path', label: 'Full path', icon: 'list-tree', on: view === 'path' },
-  ], (key) => {
+  const pick = segmented('Where shows', (Object.keys(WHERE_WORDS) as WhereView[]).map((w) => ({ key: w, ...WHERE_WORDS[w], on: view === w })), (key) => {
     const v = key as WhereView;
     if (state.last?.kind === 'home') state.last = { ...state.last, agents: { ...state.last.agents, whereView: v } };
     else if (state.last?.kind === 'agents') state.last = { ...state.last, whereView: v };
