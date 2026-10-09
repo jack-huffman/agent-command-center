@@ -28,3 +28,17 @@ export function sampleSetup(): { items: DoctorItem[]; confirmed: Set<string> } {
   if (!items.some((i) => i.id === 'A1.claude-billing')) items.push({ id: 'A1.claude-billing', part: 'machine', title: 'Agents bill your Claude subscription', status: 'pass', detail: 'Agents use your Claude subscription.' });
   return { items, confirmed: new Set() };
 }
+
+/**
+ * Setup as it's first shown in a folder that isn't set up (GH-138): a folder of no profile yet, so only this
+ * machine's steps are checked. Ready, every one passes and the page opens at what kind of project it is;
+ * not, two are still to do, and it opens at the machine's part.
+ */
+export function sampleFirstSetup(machineReady: boolean): { items: DoctorItem[]; confirmed: Set<string>; setUp: false } {
+  const todo: Record<string, Partial<DoctorItem>> = machineReady ? {} : {
+    'A1.gh': { status: 'fail', detail: 'gh isn\'t installed.', fix: 'brew install gh' },
+    'A4.plugin': { status: 'fail', detail: 'acc isn\'t installed in Claude Code, and its marketplace isn\'t added.', fix: 'claude plugin marketplace add https://github.com/jack-huffman/agent-command-center && claude plugin install acc@agent-command-center --scope user' },
+  };
+  const items = STEPS.filter((s) => s.part === 'machine').map((s): DoctorItem => ({ id: s.id, part: s.part, title: s.title, status: 'pass', detail: 'Looks right.', ...todo[s.id] }));
+  return { items, confirmed: new Set(), setUp: false };
+}
