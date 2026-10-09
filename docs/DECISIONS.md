@@ -5213,6 +5213,18 @@ card on Environments, and D-090, whose Where view only Agents switched.
   and push problems are seen there; refusing `acc github status` to builders;
   a refresh pace per window, since the load it eases is the machine's; slowing
   hidden polls, questions or autopilot.
+- **Each label in one place (GH-150).** GitHub accounts' "this clone" is
+  `settingFrom('clone')`, FROM_WORDS' words, as How agents run says it.
+  Environments' moved line opens `settingsKey('slack')`, as Slack's commands
+  and toast do. Agents' Folder / Full path toggle draws each view from a copy
+  of `WHERE_WORDS` in `webview/agents.ts`, in its order: the page imports no
+  values from `src`, which would bundle the extension's code into it, so a
+  `settings.test.ts` test pins the copy to `model/settings.ts`'s and fails if
+  they name a view differently, as `HOW_AGENTS_RUN` is pinned to
+  `settingsKey('agents')`. `activate.test.ts` runs
+  `acc.github.signIn('jordan-kim')` with VSCode's sign-in coming back as
+  another account, and checks it says it wanted jordan-kim. Nothing on screen
+  changes.
 
 ## D-122 A relaxed floor counts only for the task a person relaxed it for (2026-10-08)
 
