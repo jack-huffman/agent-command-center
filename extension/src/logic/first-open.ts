@@ -24,18 +24,32 @@ export interface FirstOpenInput {
   shown: boolean;
   /** The folder has a .acc/config.json; null with no folder open. */
   setUp: boolean | null;
+  /** The window's first full check has finished, so the machine's results are in (GH-149). */
+  machineChecked: boolean;
   /** Every one of this machine's steps is done. False before they've been checked. */
   machineDone: boolean;
 }
 
 /**
+ * How long a first open waits for the window's first full check (GH-149). Until it finishes the machine has
+ * no results, as in the first window after an upgrade, when the checks run again (GH-114).
+ */
+export const FIRST_OPEN_WAIT_MS = 4000;
+
+/**
  * Setup, at the part to start from, when this is the folder's first open and it isn't set up: the machine
- * part while its checks haven't all passed, else "What kind of project is this?". Null otherwise, and the
- * Command Center opens where it was left, or on the section Settings names (GH-113).
+ * part while its checks haven't all passed, else "What kind of project is this?". A machine not checked yet
+ * starts at the question, so the one first open isn't spent on a machine that may be ready (GH-149). Null
+ * otherwise, and the Command Center opens where it was left, or on the section Settings names (GH-113).
  */
 export function firstOpen(i: FirstOpenInput): { section: 'setup'; part: string } | null {
   if (i.asked || i.open || i.shown || i.setUp !== false) return null;
-  return { section: 'setup', part: i.machineDone ? SETUP_PARTS.kind : SETUP_PARTS.machine };
+  return { section: 'setup', part: i.machineChecked && !i.machineDone ? SETUP_PARTS.machine : SETUP_PARTS.kind };
+}
+
+/** A first open before the machine's results are in waits for them, up to FIRST_OPEN_WAIT_MS (GH-149). */
+export function waitsForMachine(i: FirstOpenInput): boolean {
+  return !i.machineChecked && firstOpen(i) !== null;
 }
 
 /** This machine's steps have all passed, or been done by hand. None checked yet isn't done. */

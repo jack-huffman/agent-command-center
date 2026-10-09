@@ -14,7 +14,7 @@ import type { SlackCard } from './model/slack.ts';
 import { WHERE_VIEWS, type WhereView } from './model/agents.ts';
 import { type OpensOn, opensOnChoice, themeChoice, type ThemeChoice } from './model/settings.ts';
 import { type Pace, paceChoice } from './logic/polls.ts';
-import { FIRST_OPEN_STATE, firstOpen, machineDone } from './logic/first-open.ts';
+import { FIRST_OPEN_STATE, FIRST_OPEN_WAIT_MS, firstOpen, type FirstOpenInput, machineDone, waitsForMachine } from './logic/first-open.ts';
 import type { Setup } from './setup.ts';
 
 /** Commands the page may ask for, from every area that draws them (D-099). Anything else from a webview is ignored. */
@@ -208,15 +208,18 @@ export class Panels implements vscode.Disposable {
   /**
    * A person opening the Command Center, from the activity bar, the status bar or acc.open.home. The first
    * time in a folder that isn't set up, it opens on Setup, at the part to start from (GH-138), once per
-   * folder. Otherwise, opened afresh with no section asked for, it opens on the one Settings names for this
+   * folder. Opened before the window's first check has finished, that first open waits for it a few seconds
+   * (GH-149). Otherwise, opened afresh with no section asked for, it opens on the one Settings names for this
    * window (GH-113). Anything else that shows it, such as Connect a tracker or a run's output, goes where it
    * was sent, through show().
    */
-  open(section?: ViewKind | HomeSection): void {
-    const first = firstOpen({
-      asked: !!section, open: !!this.panel, shown: !!this.ctx.workspaceState.get(FIRST_OPEN_STATE),
-      setUp: this.setup.setUp(), machineDone: machineDone(this.setup.results(), this.setup.allConfirmed()),
+  async open(section?: ViewKind | HomeSection): Promise<void> {
+    const now = (): FirstOpenInput => ({
+      asked: !!section, open: !!this.panel, shown: !!this.ctx.workspaceState.get(FIRST_OPEN_STATE), setUp: this.setup.setUp(),
+      machineChecked: this.setup.checked(), machineDone: machineDone(this.setup.results(), this.setup.allConfirmed()),
     });
+    if (waitsForMachine(now())) await this.setup.whenChecked(FIRST_OPEN_WAIT_MS);
+    const first = firstOpen(now());
     if (first) {
       void this.ctx.workspaceState.update(FIRST_OPEN_STATE, true);
       return this.show(first.section, first.part);

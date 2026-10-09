@@ -1514,7 +1514,10 @@ That first open is kept in the folder's workspaceState (`acc.home.firstOpened`),
 so it happens once. After it, the Command Center opens where it was left, or on
 the section Settings names (GH-113). A folder that's already set up never gets
 it, and the Command Center sent somewhere, such as Connect a tracker's Tasks or
-a run's output, goes there. `logic/first-open.ts` decides it. The walkthroughs
+a run's output, goes there. Opened before the window's first checks have
+finished, as in the first window after an upgrade, that first open waits a few
+seconds for them (GH-149); still unfinished, it lands at the question rather
+than at a machine it couldn't check. `logic/first-open.ts` decides it. The walkthroughs
 open only when asked for: Setup's **Machine walkthrough** and **Project
 walkthrough** buttons, the Command Palette, and VSCode's Get Started page, which
 lists them as before.
