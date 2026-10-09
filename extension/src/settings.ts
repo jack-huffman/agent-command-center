@@ -7,7 +7,7 @@ import { WHERE_VIEWS, type WhereView } from './model/agents.ts';
 import { OPENS_ON_CHOICES, type OpensOn, opensOnWords, THEME_CHOICES, THEME_SETTING, themeChoice, THEMES, WHERE_WORDS } from './model/settings.ts';
 
 export const area: ExtensionArea = {
-  register({ vscode, reg, subscribe, hub, identity, panels, tickets, pages }) {
+  register({ vscode, reg, subscribe, hub, identity, panels, tickets, pages, about }) {
     const setting = () => vscode.workspace.getConfiguration(THEME_SETTING.section);
     /**
      * Sets the theme: the one given, or the one picked. It's a VSCode setting of machine scope, so it stays
@@ -66,10 +66,10 @@ export const area: ExtensionArea = {
         void vscode.window.showWarningMessage(`Couldn't keep the refresh pace: ${(e as Error).message}`);
       }
     });
-    // Settings' Refresh: the projects, and who each repo is on GitHub, read again.
+    // Settings' Refresh: the projects, who each repo is on GitHub, and About's versions read again, and a
+    // newer release looked for if it's due (GH-114): Check now looks whenever it's asked.
     reg('acc.settings.refresh', async () => {
-      await hub.loadProjects();
-      await identity.refresh();
+      await Promise.all([hub.loadProjects().then(() => identity.refresh()), about.arrive()]);
     });
     // Every Command Center, task page and agent page in every window follows the theme, without reloading.
     // A new pace is shown in Settings; extension.ts polls by it.

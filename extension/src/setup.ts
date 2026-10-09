@@ -5,7 +5,7 @@ import * as vscode from 'vscode';
 import { type Config, parseConfig } from '../../packages/core/src/config.ts';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import type { Step } from '../../packages/core/src/onboarding/types.ts';
-import { activeGhAccount, afterFullCheck, afterStepCheck, COMMANDS, contextKey, type DoctorItem, type EnvLike, expectedOrgUrl, EXTENSION_ID, hasPlaceholder, importRulesCommand, initArgs, type InitChoice, initCommand, initOutput, isComplete, machineCache, type MachineCache, pendingProject, productionOrgs, type RecentTemplate, rememberTemplate, reusableMachine, rulesDetail, setupOrgChoices, sfOpenCommand, shownRules, shownTemplate, statusText, summarize, templateDetail, WALKTHROUGHS } from './logic/setup.ts';
+import { activeGhAccount, afterFullCheck, afterStepCheck, COMMANDS, contextKey, type DoctorItem, type EnvLike, expectedOrgUrl, EXTENSION_ID, hasPlaceholder, importRulesCommand, initArgs, type InitChoice, initCommand, initOutput, isComplete, machineCache, type MachineCache, pendingProject, productionOrgs, type RecentTemplate, rememberTemplate, reusableMachine, rulesDetail, setupOrgChoices, sfOpenCommand, shownRules, shownTemplate, statusText, stepIdOf, summarize, templateDetail, WALKTHROUGHS } from './logic/setup.ts';
 import type { StartProject } from './connect.ts';
 import { needsTerminal } from './logic/runs.ts';
 import { shq } from './logic/shared.ts';
@@ -17,6 +17,17 @@ import { exec } from './trackers.ts';
 import type { ExtensionArea } from './area.ts';
 
 const TERMINAL_NAME = 'acc setup';
+
+/** The extension's version, as its package.json says, read now. Unknown, it's '', which no saved result has. */
+export function extensionVersion(file: string): string {
+  try {
+    const v = (JSON.parse(readFileSync(file, 'utf8')) as { version?: unknown }).version;
+    return typeof v === 'string' ? v : '';
+  } catch {
+    return '';
+  }
+}
+
 /** Machine checks change rarely and call slow CLIs, so startup reuses results this fresh. */
 const MACHINE_FRESH_MS = 12 * 60 * 60 * 1000;
 const CONFIRMED = { machine: 'acc.confirmed.machine', project: 'acc.confirmed.project' } as const;
@@ -47,6 +58,8 @@ export class Setup implements vscode.Disposable {
   private readonly guide: string;
   private readonly ctx: vscode.ExtensionContext;
   private lastFolder: string | undefined;
+  /** The extension's version, from its own package.json: the machine's saved results are this version's (GH-114). */
+  readonly version: string;
   private readonly changed = new vscode.EventEmitter<void>();
   /** Fires when check results or confirmations change, for the Setup view. */
   readonly onDidChange = this.changed.event;
@@ -55,6 +68,7 @@ export class Setup implements vscode.Disposable {
     this.ctx = ctx;
     this.accScript = ctx.asAbsolutePath(join('dist', 'bin', 'acc.mjs'));
     this.guide = ctx.asAbsolutePath(join('dist', 'ONBOARDING.md'));
+    this.version = extensionVersion(ctx.asAbsolutePath('package.json'));
     this.status.name = 'Agent Command Center setup';
     this.status.command = COMMANDS.project;
     this.disposables.push(this.log, this.status, this.changed);
@@ -204,9 +218,9 @@ export class Setup implements vscode.Disposable {
         await (async () => {
           const started = Date.now();
           const profile = this.config()?.profile ?? 'none';
-          const reused = opts.reuseMachine ? reusableMachine(this.ctx.globalState.get<MachineCache>('acc.machineItems'), profile, Date.now(), MACHINE_FRESH_MS) : null;
+          const reused = opts.reuseMachine ? reusableMachine(this.ctx.globalState.get<MachineCache>('acc.machineItems'), profile, this.version, Date.now(), MACHINE_FRESH_MS) : null;
           const machine: DoctorItem[] = reused ? [...reused] : await this.doctor(['--part', 'machine']);
-          const cache = reused ? null : machineCache(machine, profile, Date.now());
+          const cache = reused ? null : machineCache(machine, profile, this.version, Date.now());
           if (cache) await this.ctx.globalState.update('acc.machineItems', cache);
           const project = this.isProject() ? await this.doctor(['--part', 'project']) : null;
           await this.applyFull(machine, project);
@@ -710,16 +724,20 @@ export function openWalkthrough(id: string): Thenable<unknown> {
   return vscode.commands.executeCommand('workbench.action.openWalkthrough', `${EXTENSION_ID}#${id}`, false);
 }
 
-/** Step commands get a step id from walkthrough buttons, or a Setup view item from menus. */
-const stepId = (a: unknown): string => (typeof a === 'string' ? a : (a as { item?: { id: string } })?.item?.id ?? '');
+const STEP_IDS = STEPS.map((s) => s.id);
 
 export const area: ExtensionArea = {
   register({ reg, setup }) {
-    reg(COMMANDS.check, (a: unknown) => setup.check(stepId(a)));
-    reg(COMMANDS.fix, (a: unknown) => setup.fix(stepId(a)));
-    reg(COMMANDS.openSetup, (a: unknown) => setup.openSetup(stepId(a)));
-    reg(COMMANDS.confirm, (a: unknown) => setup.confirm(stepId(a)));
-    reg(COMMANDS.guide, (a?: unknown) => setup.openGuide(a ? stepId(a) || undefined : undefined));
+    /** A step command on a step that isn't there says so in one line, and does nothing. */
+    const onStep = (f: (id: string) => Promise<unknown>) => (a: unknown) => {
+      const id = stepIdOf(a, STEP_IDS);
+      return id ? f(id) : vscode.window.showWarningMessage('That isn\'t one of the setup steps, so there\'s nothing to do.');
+    };
+    reg(COMMANDS.check, onStep((id) => setup.check(id)));
+    reg(COMMANDS.fix, onStep((id) => setup.fix(id)));
+    reg(COMMANDS.openSetup, onStep((id) => setup.openSetup(id)));
+    reg(COMMANDS.confirm, onStep((id) => setup.confirm(id)));
+    reg(COMMANDS.guide, (a?: unknown) => setup.openGuide(stepIdOf(a, STEP_IDS)));
     reg(COMMANDS.doctor, () => setup.doctorInTerminal());
     reg(COMMANDS.machine, () => openWalkthrough(WALKTHROUGHS.machine.id));
     reg(COMMANDS.project, () => openWalkthrough(WALKTHROUGHS.project.id));

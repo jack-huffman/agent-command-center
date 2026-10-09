@@ -47,6 +47,7 @@ export const area: CommandArea = {
   options: {
     default: { type: 'boolean', default: false },
   },
+  subcommands: { github: ['status', 'use'] },
   commands: {
     github: (o, rest) => cmdGithub(o, rest[0], rest[1]),
   },

@@ -47,7 +47,7 @@ test('the theme is a VSCode setting kept on this machine, Match VSCode until cha
 test('Settings is a section like the others, last in the rail with a gear', () => {
   assert.deepEqual([VIEW_KINDS.at(-1), VIEW_TITLES.settings, HOME_SECTIONS.includes('settings')], ['settings', 'Settings', true]);
   const m = home();
-  assert.deepEqual(m.nav.at(-1), { section: 'settings', label: 'Settings', icon: 'settings-gear', count: null, attention: false, hint: 'Appearance, agents, limits, trackers, Slack, GitHub accounts and the Command Center\'s own preferences' });
+  assert.deepEqual(m.nav.at(-1), { section: 'settings', label: 'Settings', icon: 'settings-gear', count: null, attention: false, hint: 'Appearance, agents, limits, trackers, Slack, GitHub accounts, the Command Center\'s own preferences and the versions' });
   assert.deepEqual(m.nav.map((n) => n.section), ['overview', 'tasks', 'agents', 'worktrees', 'environments', 'setup', 'settings']);
   const orders = AREAS.flatMap((a) => (a.home ? [a.home.order] : []));
   const own = settingsArea.home!.order;
@@ -67,7 +67,7 @@ test('each part of Settings is built here or says where its settings live today,
   const m = home().settings;
   assert.deepEqual(m.parts.map((p) => p.id), [...SETTINGS_PARTS]);
   assert.deepEqual(SETTINGS_PARTS, ['appearance', 'agents', 'limits', 'trackers', 'slack', 'github', 'page', 'about']);
-  assert.deepEqual(m.parts.filter((p) => p.built).map((p) => p.id), ['appearance', 'agents', 'limits', 'trackers', 'slack', 'github', 'page'], 'every part but About is built (GH-113)');
+  assert.deepEqual(m.parts.filter((p) => p.built).map((p) => p.id), ['appearance', 'agents', 'limits', 'trackers', 'slack', 'github', 'page', 'about'], 'every part is built (GH-113, GH-114)');
   for (const p of m.parts) {
     assert.ok(p.title && p.icon && p.summary, `${p.id} has a title, an icon and a summary`);
     assert.equal(!!p.today, !p.built, `${p.id}: ${p.built ? 'built, so nothing about today' : 'says where its settings live today'}`);
@@ -157,10 +157,11 @@ test('How agents run is a built part, or says no project is onboarded yet, with 
   assert.deepEqual([none.built, none.links], [true, [{ label: 'Open Setup', icon: 'checklist', section: 'setup' }]]);
   assert.match(none.details[0]!, /^No project in this workspace is onboarded yet\./);
   // The Command Center passes the hub's projects, Setup's checks, the limits while Settings shows (GH-111) and
-  // what the trackers' boards know; and Slack's card, each repo's GitHub identity, and the page's own preferences (GH-113).
+  // what the trackers' boards know; and Slack's card, each repo's GitHub identity, and the page's own preferences (GH-113), and what About read (GH-114).
   const home = source('src', 'model', 'home.ts');
   assert.match(home, /settingsModel\(\{\n {4}theme: i\.theme \?\? 'vscode', projects: hub\.projects, setup: i\.setup\.items, limits: .*, boards: i\.boards,\n/);
   assert.ok(home.includes('slack: i.slack ?? null, identity: i.identity, opensOn: i.opensOn, whereView: i.whereView, pace: i.pace,'));
+  assert.ok(home.includes('about: i.about ? aboutModel(i.about, i.now ?? Date.now()) : null,'));
 });
 
 test('each Change… asks acc through a command the page may ask for, named for what and whose it changes (D-064)', () => {
@@ -293,7 +294,12 @@ test('the section it opens on is kept per window, and used only when the Command
   const panels = source('src', 'panels.ts');
   assert.ok(panels.includes("export const OPENS_ON_STATE = 'acc.home.opensOn';") && panels.includes('this.opens = opensOnChoice(ctx.workspaceState.get(OPENS_ON_STATE));'));
   assert.ok(panels.includes('await this.ctx.workspaceState.update(OPENS_ON_STATE, choice);'), 'kept in the window\'s workspaceState');
-  assert.ok(panels.includes("else if (!section && !this.panel && this.opens !== 'left') this.remember(this.opens);"), 'only when it opens afresh, with no section asked for');
+  assert.ok(panels.includes("if (!section && !this.panel && this.opens !== 'left') this.remember(this.opens);"), 'only when it opens afresh, with no section asked for');
+  // Only a person opening it, from the activity bar or acc.open.home; anything else that shows it goes where it was sent.
+  const open = panels.slice(panels.indexOf('  open(section?: ViewKind | HomeSection): void {'), panels.indexOf('  show(section?: ViewKind | HomeSection, open?: string): void {'));
+  assert.ok(open.includes('this.remember(this.opens)') && !panels.slice(panels.indexOf('  show(section?')).split('\n  }\n')[0].includes('this.opens'), 'open applies it, show doesn\'t');
+  const ext = source('src', 'extension.ts');
+  assert.ok(ext.includes("if (!e.visible) return;\n    panels.open();") && ext.includes("reg('acc.open.home', (section?: unknown) => panels.open("), 'the activity bar and acc.open.home open it');
   // Agents' toggle and Settings both set the Where view through one path.
   assert.ok(panels.includes("if (m.type === 'agents-where') {\n      void this.setWhere(m.view);") && panels.includes("await this.ctx.workspaceState.update('acc.agents.where', view);"));
 });

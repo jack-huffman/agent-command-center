@@ -131,7 +131,7 @@ test('GitHub without Projects access says how to grant it, instead of failing', 
   ]);
   const b = await new GithubClient({ repo: 'o/r', token: 't', account: 'me', exec }).board();
   assert.equal(b.source, 'github-state');
-  assert.match(b.notice!, /give me access to Projects: gh auth refresh -s project/);
+  assert.match(b.notice!, /give me access to Projects\. gh refreshes only its active account, so run gh auth switch -u me, then gh auth refresh -h github\.com -s project and sign in as me, then switch back/);
 });
 
 test('GitHub with a Project: its Status options are the columns, in order, and a move edits the card there', async () => {

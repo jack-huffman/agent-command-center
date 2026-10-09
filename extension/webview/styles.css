@@ -12,7 +12,7 @@
   --radius: 6px;
   --orange: var(--vscode-charts-orange);
   --blue: var(--vscode-charts-blue);
-  --line: var(--vscode-panel-border, var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
+  --line: var(--vscode-panel-border, var(--vscode-widget-border, color-mix(in srgb, var(--vscode-foreground) 35%, transparent)));
   --card: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
 }
 
@@ -50,7 +50,7 @@ h3 { font-size: 0.95em; font-weight: 600; margin: 4px 0 6px; color: var(--vscode
 .btn.primary:hover { background: var(--vscode-button-hoverBackground); }
 .btn.ghost { background: transparent; color: var(--vscode-textLink-foreground); }
 .btn.ghost:hover { background: var(--vscode-toolbar-hoverBackground); }
-.btn.danger:hover { color: var(--vscode-errorForeground); }
+.btn.danger:hover { color: var(--orange); }
 .btn:focus-visible, button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
 
 .codicon { font-size: 15px; }
@@ -123,6 +123,10 @@ table.grid { width: 100%; border-collapse: collapse; }
 .notice { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; margin-bottom: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); color: var(--vscode-descriptionForeground); }
 .notice.attention { border-left: 3px solid var(--orange); color: var(--vscode-foreground); }
 .notice > span { flex: 1; min-width: 200px; }
+/* Its icon sits beside the words, not in a column of its own: a codicon is a span too. */
+.notice > .codicon { flex: none; min-width: 0; }
+.notice.info { border-left: 3px solid var(--blue); color: var(--vscode-foreground); align-items: flex-start; }
+.notice.info > .codicon { margin-top: 2px; }
 
 .openable:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
 

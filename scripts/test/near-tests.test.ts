@@ -34,8 +34,8 @@ function gate(near: string | undefined, files: Record<string, string> = {}, npmE
   return { code: r.status, out: r.stdout + r.stderr, npm: existsSync(log) ? readFileSync(log, 'utf8') : '' };
 }
 
-test('the gate builds first when a test near the change reads the build: the extension\'s, the scripts\' or the launcher\'s', () => {
-  for (const t of ['extension/test/tabs.test.mjs', 'scripts/test/docs.test.mjs', 'packages/cli/test/launcher.test.ts']) {
+test('the gate builds first when a test near the change reads the build: the extension\'s, the scripts\', the launcher\'s or acc\'s junk test', () => {
+  for (const t of ['extension/test/tabs.test.mjs', 'scripts/test/docs.test.mjs', 'packages/cli/test/launcher.test.ts', 'packages/cli/test/junk.test.ts']) {
     const r = gate(`${t}\npackages/core/test/ledger.test.mjs`, { [t]: PASS, 'packages/core/test/ledger.test.mjs': PASS });
     assert.equal(r.code, 0, r.out);
     assert.equal(r.npm, 'run build\n', t);

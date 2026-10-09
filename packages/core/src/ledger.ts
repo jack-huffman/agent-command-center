@@ -190,7 +190,7 @@ export interface CarriedReview {
   from: string;
   to: string;
   base: string;
-  /** Append-only files whose additions on both sides were kept. */
+  /** Files autopilot resolved: append-only ones, keeping both sides' additions, and the floors file, keeping the better floors (GH-99). */
   resolved: string[];
   at: string;
 }
@@ -289,7 +289,8 @@ export function readLedger(file: string): Ledger {
   return l;
 }
 
-function writeAtomic(file: string, text: string): void {
+/** Writes a file whole: a temp file beside it, then a rename, so a reader never sees it half-written. */
+export function writeAtomic(file: string, text: string): void {
   const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(tmp, text);
   renameSync(tmp, file);

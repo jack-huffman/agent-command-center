@@ -14,10 +14,10 @@ class EnvironmentCommands extends Sidebar {
   }
 
   register(reg: (id: string, fn: (...args: any[]) => unknown) => void): void {
-    reg('acc.env.openOrg', (n: EnvNode) => n.kind === 'env' && n.env.org && this.output(n.project.root, `sf org open -o "${n.env.org}"`, `Open ${n.env.name}`));
-    reg('acc.env.openGithub', (n: EnvNode) => n.kind === 'env' && n.project.config.github && vscode.env.openExternal(vscode.Uri.parse(githubBranchUrl(n.project.config.github.repo, n.env.branch))));
+    reg('acc.env.openOrg', (n: EnvNode) => n?.kind === 'env' && n.env.org && this.output(n.project.root, `sf org open -o "${n.env.org}"`, `Open ${n.env.name}`));
+    reg('acc.env.openGithub', (n: EnvNode) => n?.kind === 'env' && n.project.config.github && vscode.env.openExternal(vscode.Uri.parse(githubBranchUrl(n.project.config.github.repo, n.env.branch))));
     reg('acc.env.compare', (n: EnvNode) => this.compare(n));
-    reg('acc.env.copyBranch', (n: EnvNode) => n.kind === 'env' && vscode.env.clipboard.writeText(n.env.branch));
+    reg('acc.env.copyBranch', (n: EnvNode) => n?.kind === 'env' && vscode.env.clipboard.writeText(n.env.branch));
     reg('acc.env.promote', (n: EnvNode) => this.promoteEnv(n));
     reg('acc.env.deploy', (n: EnvNode) => this.deployEnv(n));
   }
@@ -117,7 +117,7 @@ class EnvironmentCommands extends Sidebar {
   }
 
   private compare(n: EnvNode): void {
-    if (n.kind !== 'env') return;
+    if (n?.kind !== 'env') return;
     const prod = n.project.config.environments.find((e) => e.type === 'production' || e.protected);
     const base = prod && prod.branch !== n.env.branch ? prod.branch : n.project.config.environments.find((e) => e.default && e.branch !== n.env.branch)?.branch;
     if (!base) return void vscode.window.showInformationMessage('There\'s no other environment to compare with.');

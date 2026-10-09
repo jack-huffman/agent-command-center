@@ -1,6 +1,7 @@
-import { chmodSync, mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { chmodSync, existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { delimiter, dirname, join } from 'node:path';
+import { delimiter, dirname, join, relative } from 'node:path';
 import { run, type Runner, type RunOptions, type RunResult } from '../src/exec.ts';
 
 export const ok = (stdout = ''): RunResult => ({ code: 0, stdout, stderr: '' });
@@ -135,4 +136,29 @@ export function writePlan(analyses: string, task: string, files: string[], extra
     questions: [], findings: [], approach: { plan: [], files: files.map((path) => ({ path, change: 'update', why: '' })), refactors: [], risks: [], tests: [], size: 'S' },
     split: [], orgs: [], sessionId: 's', at: '2026-10-06T10:00:00.000Z', durationMs: 1, costUsd: null, ...extra,
   }));
+}
+
+/** Every file under a folder: its path, size and hash. Links are recorded, never followed. */
+export function snapshot(dir: string): Map<string, string> {
+  const all = new Map<string, string>();
+  const walk = (d: string) => {
+    for (const name of readdirSync(d)) {
+      const p = join(d, name);
+      const s = lstatSync(p);
+      const rel = relative(dir, p);
+      if (s.isDirectory()) { all.set(`${rel}/`, 'dir'); walk(p); }
+      else if (s.isSymbolicLink()) all.set(rel, 'link');
+      else all.set(rel, `${s.size} ${createHash('sha256').update(readFileSync(p)).digest('hex')}`);
+    }
+  };
+  if (existsSync(dir)) walk(dir);
+  return all;
+}
+
+/** What changed between two snapshots, a line each. */
+export function changes(before: Map<string, string>, after: Map<string, string>): string[] {
+  const out: string[] = [];
+  for (const [p, v] of after) if (!before.has(p)) out.push(`added ${p}`); else if (before.get(p) !== v) out.push(`changed ${p}`);
+  for (const p of before.keys()) if (!after.has(p)) out.push(`removed ${p}`);
+  return out;
 }

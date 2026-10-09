@@ -25,13 +25,15 @@ import { HOME_SECTIONS, type HomeSection } from '../src/model/shared.ts';
 import { homeModel, type Model } from '../src/model/home.ts';
 import { FinishedJobs } from '../src/progress.ts';
 import { sampleAgent } from './fixtures/agent-page.ts';
-import { sampleBoards, sampleMondayBoards } from './fixtures/boards.ts';
+import { sampleBoards, sampleGithubBoards, sampleMondayBoards } from './fixtures/boards.ts';
 import { type ConnectSample, sampleConnect } from './fixtures/connect.ts';
 import { sampleIdentities, sampleIdentity } from './fixtures/environments.ts';
 import { sampleHub } from './fixtures/hub.ts';
 import { sampleLimitsOther } from './fixtures/limits.ts';
+import { sampleAbout, sampleAboutBehind, sampleAboutFailed } from './fixtures/about.ts';
 import { sampleQueueHub } from './fixtures/overview.ts';
 import { sampleAnalyzeRun, sampleBusyHub, sampleIdleHub } from './fixtures/progress.ts';
+import { sampleRulesHub } from './fixtures/rules.ts';
 import { sampleRuns } from './fixtures/runs.ts';
 import { CLIENTS, ROOT } from './fixtures/shared.ts';
 import { samplePerTokenSetup, sampleSettingsHub, sampleTrackerBoards } from './fixtures/settings.ts';
@@ -41,6 +43,7 @@ import { sampleTicket } from './fixtures/task-page.ts';
 import { SAMPLE_EDIT, sampleEdited } from './fixtures/updates.ts';
 import { settingsKey, type ThemeChoice } from '../src/model/settings.ts';
 import { PALETTE_THEMES, type PaletteTheme, palettes, vscodeDefaults } from './styles.ts';
+import { CHECKS, COLLECT_GEOMETRY, dumpedGeometry, geometrySummary, judge, type Render, runFailures } from './geometry.ts';
 
 /**
  * Every page the screenshot script can draw: each section of the Command Center, a ticket's page (being
@@ -58,11 +61,14 @@ import { PALETTE_THEMES, type PaletteTheme, palettes, vscodeDefaults } from './s
  * at How agents run, as Agents' Settings and the status bar's Auto-merge open it, with two projects and
  * per-token billing (GH-110), and at Trackers and sign-ins, with a tracker in every state its sign-in and
  * board can be in (GH-112); Settings' Limits and checks in their other states: no total across repos,
- * slots set by the environment, and two projects, one building through the merge queue (GH-111). Then Agents with each repo's finished sessions opened (GH-119).
+ * slots set by the environment, and two projects, one building through the merge queue (GH-111); and About
+ * behind, with a newer release and an older plugin, and with a look that failed (GH-114). Last, Agents with each repo's finished sessions opened (GH-119). Then the
+ * Overview with a suggested rule and a suggested check under Needs you, and with the rule's draft task open
+ * after Accept (GH-102).
  * Last, Settings at GitHub accounts, one project pushing as this clone's choice and one whose account gh
  * isn't signed in as, and at the Command Center's own preferences, each set to other than its default (GH-113).
  */
-export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'settings-github', 'settings-page'] as const;
+export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page'] as const;
 export type Page = (typeof PAGES)[number];
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -96,6 +102,10 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
     const hub = kind === 'queue-held' ? sampleQueueHub(now, 'held', 'GitHub is still working out whether pull request #141 can merge.') : sampleQueueHub(now);
     return homeModel({ hub, section: 'overview', boards: () => [], identity: () => sampleIdentity(), setup: { items: [], confirmed: new Set() }, runs: [], autopilot: () => (kind === 'queue-off' ? null : 'on'), now });
   }
+  // Rules suggested by review findings that keep coming back, on the quiet Overview (GH-102).
+  if (kind === 'rules' || kind === 'rules-accept') {
+    return homeModel({ hub: sampleRulesHub(now), section: 'overview', boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: [], edited: sampleEdited, slack: sampleSlack('on', now), now });
+  }
   if (kind === 'overview-busy' || kind === 'overview-idle') {
     const base = { section: 'overview' as const, boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), edited: sampleEdited, slack: sampleSlack('on', now) };
     if (kind === 'overview-idle') return homeModel({ ...base, hub: sampleIdleHub(now), runs: sampleRuns(now), now });
@@ -114,14 +124,16 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
   const connect = kind.startsWith('connect-') ? sampleConnect(kind.slice('connect-'.length) as ConnectSample) : null;
   const slack = sampleSlack(kind.startsWith('slack-') ? kind.slice('slack-'.length) as SlackSample : 'on', now);
   // A project started from an epic opens the Connect page over Setup, where "From a Jira epic…" is (GH-81).
-  const section = (kind === 'output' || kind.startsWith('connect-epic') ? 'setup' : connect || kind === 'tasks-monday' ? 'tasks' : kind.startsWith('slack-') ? 'settings' : kind === 'agents-billing' || kind === 'agents-path' || kind === 'agents-finished' ? 'agents' : kind.startsWith('settings-') ? 'settings' : kind) as HomeSection;
+  const section = (kind === 'output' || kind.startsWith('connect-epic') ? 'setup' : connect || kind === 'tasks-monday' || kind === 'tasks-github' ? 'tasks' : kind.startsWith('slack-') ? 'settings' : kind === 'agents-billing' || kind === 'agents-path' || kind === 'agents-finished' ? 'agents' : kind.startsWith('settings-') ? 'settings' : kind) as HomeSection;
   // Settings' trackers are each project's own (GH-112); every other page shows the sample board for each.
-  const boards = kind === 'settings-trackers' ? sampleTrackerBoards : kind === 'tasks-monday' ? sampleMondayBoards : sampleBoards;
+  const boards = kind === 'settings-trackers' ? sampleTrackerBoards : kind === 'tasks-monday' ? sampleMondayBoards : kind === 'tasks-github' ? sampleGithubBoards : sampleBoards;
   // The Command Center's own preferences, each set to other than its default (GH-113).
   const prefs = kind === 'settings-page' ? { pace: 'relaxed' as const, opensOn: 'tasks' as const } : {};
   return homeModel({
     hub, section, boards: (root) => boards(root), identity: kind === 'settings-github' ? sampleIdentities : () => sampleIdentity(), setup: perToken ? samplePerTokenSetup() : sampleSetup(),
     runs: sampleRuns(now), edited: sampleEdited, connect, slack, whereView: kind === 'agents-path' || kind === 'settings-page' ? 'path' : 'folder', theme, ...prefs,
+    // About (GH-114): up to date, or behind with a newer release and an older plugin, or a look that failed.
+    about: kind === 'settings-about' ? sampleAboutBehind(now) : kind === 'settings-about-failed' ? sampleAboutFailed(now) : sampleAbout(now), now,
   });
 }
 
@@ -132,13 +144,14 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
  */
 // ACC_SHOT_STATE, a JSON object, starts every page with that state instead: for checking what a page restores.
 const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ? JSON.parse(process.env.ACC_SHOT_STATE) : kind === 'output' ? { dock: { open: true, run: 'r-login' } }
+  : kind === 'rules-accept' ? { opened: ['rule:/Users/me/code/acme-service#r-4c0f1e:draft'] }
   : kind === 'agents-finished' ? { opened: [ROOT, CLIENTS].map((r) => `agents-finished:${r}`) }
   : kind === 'ticket-split' ? { opened: ['files', 'findings'].map((f) => `an:/Users/me/code/acme-service#ACME-23:${f}`) }
     : kind === 'ticket' ? { drafts: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: SAMPLE_EDIT.text }, bases: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: { text: SAMPLE_EDIT.base } } } : undefined);
-const viewOf = (kind: Page): string => (kind.startsWith('ticket') ? 'ticket' : kind === 'agent' ? kind : 'home');
+export const viewOf = (kind: Page): string => (kind.startsWith('ticket') ? 'ticket' : kind === 'agent' ? kind : 'home');
 /** A part the extension asks the page to go to as it opens, as the status bar's Auto-merge does (GH-110). */
 export const openAt = (kind: Page): string | null => (kind === 'settings-agents' ? settingsKey('agents') : kind === 'settings-trackers' ? settingsKey('trackers')
-  : kind.startsWith('slack-') ? settingsKey('slack') : kind === 'settings-github' ? settingsKey('github') : kind === 'settings-page' ? settingsKey('page') : null);
+  : kind.startsWith('slack-') ? settingsKey('slack') : kind === 'settings-github' ? settingsKey('github') : kind === 'settings-page' ? settingsKey('page') : kind.startsWith('settings-about') ? settingsKey('about') : null);
 
 /**
  * A page that loads the built webview the way VSCode does: a stub API answers `ready` with the model.
@@ -159,7 +172,7 @@ const DEFAULT_HEIGHT = 900;
  * Command Center's preferences is shot tall enough not to scroll at 500 px, and Environments tall enough to
  * show This machine's line saying Slack moved (GH-113).
  */
-export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 3600, 'overview-idle': 3200, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 3800, 'settings-agents': 3800, 'settings-limits': 3800, 'ticket-note': 1600, agents: 2000, 'agents-path': 2300, 'agents-finished': 2300, 'settings-trackers': 5000, 'slack-none': 5000, 'slack-off': 5000, 'slack-paused': 5000, 'settings-github': 5800, 'settings-page': 5000, environments: 1400 };
+export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 3600, 'overview-idle': 3200, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 3800, 'settings-agents': 3800, 'settings-limits': 3800, 'ticket-note': 1600, agents: 2000, 'agents-path': 2300, 'agents-finished': 2300, 'settings-trackers': 5000, 'slack-none': 5000, 'slack-off': 5000, 'slack-paused': 5000, 'settings-github': 5800, 'settings-page': 5000, environments: 1400, rules: 1500, 'rules-accept': 1900, 'settings-about': 7200, 'settings-about-failed': 7200 };
 
 /** The colour properties the colour check compares, on every element and its ::before and ::after. */
 export const COLOUR_PROPERTIES = [
@@ -201,9 +214,11 @@ function collectColours() {
  * A page as VSCode would show it with `under`'s theme (GH-109): VSCode's own webview stylesheet first in
  * the head, that theme's colours inline on <html> and its class on <body>, and the page's theme in
  * data-theme. A shot forces Light or Dark under VSCode's other theme, so a colour that still comes from
- * VSCode's shows in it. With collect, the page also gathers its computed colours for the colour check.
+ * VSCode's shows in it. With collect, the page also gathers its computed colours for the colour check;
+ * with measure, its geometry for the geometry checks (GH-105), once its fonts have loaded and two frames
+ * have drawn.
  */
-export function pageFor(kind: Page, theme: ThemeChoice, model: Model, under: Theme = theme === 'light' ? 'dark' : 'light', collect = false): string {
+export function pageFor(kind: Page, theme: ThemeChoice, model: Model, under: Theme = theme === 'light' ? 'dark' : 'light', collect = false, measure = false): string {
   const vars = Object.entries({ ...palettes()[under], ...FONTS }).map(([k, v]) => `--vscode-${k}: ${v};`).join(' ');
   // `<` escaped, so no string in the model can close the script tag.
   const json = JSON.stringify(model).replace(/</g, '\\u003c');
@@ -221,9 +236,9 @@ function forceHover() {
     for (const r of rules) if (r.selectorText && r.selectorText.includes(':hover')) sheet.insertRule(r.cssText.replaceAll(':hover', '.acc-hover'), sheet.cssRules.length);
   }
   (document.querySelector('tbody tr:not(.group):not(.none)') ?? document.querySelector('.card'))?.classList.add('acc-hover');
-}${collect ? COLLECT + COLLECT_COLOURS : ''}
+}${collect || measure ? COLLECT : ''}${collect ? COLLECT_COLOURS : ''}${measure ? COLLECT_GEOMETRY : ''}
 window.acquireVsCodeApi = () => ({
-  postMessage(m) { if (m.type === 'ready') setTimeout(() => { window.postMessage({ type: 'state', model: MODEL${open ? `, jump: true, open: ${JSON.stringify(open)}` : ''} }, '*'); setTimeout(forceHover, 50);${collect ? ' setTimeout(collectColours, 500);' : ''} }); },
+  postMessage(m) { if (m.type === 'ready') setTimeout(() => { window.postMessage({ type: 'state', model: MODEL${open ? `, jump: true, open: ${JSON.stringify(open)}` : ''} }, '*'); setTimeout(forceHover, 50);${collect ? ' setTimeout(collectColours, 500);' : ''}${measure ? ' setTimeout(() => document.fonts.ready.then(() => requestAnimationFrame(() => requestAnimationFrame(collectGeometry))), 300);' : ''} }); },
   getState() { return ${JSON.stringify(startState(kind)) ?? 'undefined'}; }, setState() {},
 });
 </script>
@@ -265,7 +280,7 @@ function chromeRun(chrome: string, args: string[], dump = false): ReturnType<typ
 }
 
 /** The pages the colour check draws (GH-109): the busiest sections, Settings, a task's page and an agent's. */
-export const COLOUR_PAGES: Page[] = ['overview', 'tasks', 'settings', 'settings-agents', 'settings-trackers', 'settings-limits', 'slack-paused', 'settings-github', 'settings-page', 'ticket', 'agent'];
+export const COLOUR_PAGES: Page[] = ['overview', 'tasks', 'settings', 'settings-agents', 'settings-trackers', 'settings-limits', 'settings-about', 'slack-paused', 'settings-github', 'settings-page', 'ticket', 'agent'];
 
 /** A page's computed colours, as its collector gathered them: what each element is, and its colours in COLOUR_PROPERTIES' order. */
 export type Colours = [string, string[]][];
@@ -370,14 +385,16 @@ function main(argv: string[]): number {
   const out = resolve(values.out ?? join(extensionDir, '..', 'dist', 'screenshots'));
   mkdirSync(out, { recursive: true });
   const work = mkdtempSync(join(tmpdir(), 'acc-screenshots-'));
+  const renders: Render[] = [];
   try {
     cpSync(join(extensionDir, 'dist', 'webview'), join(work, 'webview'), { recursive: true });
     const now = Date.now();
     for (const view of views as Page[]) {
       for (const theme of themes as Theme[]) {
-        // Forced, under VSCode's other theme: a colour still taken from VSCode's would show (GH-109).
+        // Forced, under VSCode's other theme: a colour still taken from VSCode's would show (GH-109). Each
+        // shot also measures its geometry, which Chrome prints with the page (GH-105).
         const page = join(work, `${view}-${theme}.html`);
-        writeFileSync(page, pageFor(view, theme, sampleModel(view, now, theme), other(theme)));
+        writeFileSync(page, pageFor(view, theme, sampleModel(view, now, theme), other(theme), false, true));
         for (const width of widths) {
           const png = join(out, `${view}-${theme}-${width}.png`);
           // A page whose part sits low on it is shot taller unless --height says otherwise (D-092).
@@ -388,17 +405,29 @@ function main(argv: string[]): number {
             // hang after writing the shot.
             '--headless=new', '--disable-gpu', '--hide-scrollbars', '--no-first-run', '--no-default-browser-check',
             '--allow-file-access-from-files', '--force-device-scale-factor=2',
-            '--virtual-time-budget=3000', `--window-size=${width},${tall}`, `--screenshot=${png}`, pathToFileURL(page).href,
+            '--virtual-time-budget=3000', `--window-size=${width},${tall}`, `--screenshot=${png}`, '--dump-dom', pathToFileURL(page).href,
           ];
-          const r = chromeRun(chrome, args);
+          const r = chromeRun(chrome, args, true);
           if (r.error) return fail(`Chrome didn't finish ${view} (${theme}, ${width}px) within 30 s: ${r.error.message}`);
           if (!existsSync(png)) return fail(`Chrome didn't write ${png} (exit ${r.status ?? r.signal}).`);
-          console.log(png);
+          const shot = dumpedGeometry(String(r.stdout ?? ''));
+          if (!shot) return fail(`${view} (${theme}, ${width}px) measured no geometry (exit ${r.status ?? r.signal}).`);
+          const verdict = judge(shot, viewOf(view) === 'home');
+          renders.push({ page: view, theme, width, verdict });
+          console.log(`${png}  ${CHECKS.map((c) => `${c} ${verdict.examined[c]}`).join(', ')}${verdict.violations.length ? `, ${verdict.violations.length} found` : ''}`);
         }
       }
     }
   } finally {
     rmSync(work, { recursive: true, force: true });
+  }
+  // Exceptions and floors are a whole run's: a run of a few pages may not reach them.
+  const full = views.length === PAGES.length && themes.length === PALETTE_THEMES.length && values.width === '1000,620,500';
+  const failures = runFailures(renders, full);
+  console.log(geometrySummary(renders));
+  if (failures.length) {
+    for (const f of failures) console.error(f);
+    return fail(`${failures.length} geometry finding${failures.length === 1 ? '' : 's'}. Fix each, or list it in GEOMETRY_EXCEPTIONS (extension/scripts/geometry.ts) with why. The shots are written all the same.`);
   }
   return 0;
 }

@@ -1,13 +1,13 @@
 // acc's Ticket updates commands: acc drafts them, and only a person posts.
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AccError, claimUpdate, discardUpdate, draftUpdate, EVENT_WORDS, GH_TIMEOUT_MS, ghToken, githubIssue, isOpenUpdate, listUpdates, markPosted, readAnalysis, readLedger, readUpdate, releaseUpdate, run, stalePosting, type Update, UPDATE_TEXT_MAX, updateText } from '../../../core/src/index.ts';
 import { issueRepo } from '../../../core/src/trackers/github.ts';
 import { trackerName } from '../../../core/src/trackers/types.ts';
 import { tone } from '../format.ts';
-import { type CommandArea, now, type Opts, out, personOnly, project } from '../shared.ts';
+import { type CommandArea, now, type Opts, out, personOnly, project, readFileArg } from '../shared.ts';
 
 // ---------------------------------------------------------------- ticket updates (D-066)
 
@@ -42,7 +42,7 @@ function cmdUpdates(o: Opts): number {
 /** The text to post: the file a person edited it in, or the draft as acc wrote it. */
 function postText(o: Opts, u: Update): string {
   const file = o['text-file'] as string | undefined;
-  const text = (file ? readFileSync(file, 'utf8') : u.text).trim();
+  const text = (file ? readFileArg(file) : u.text).trim();
   if (!text) throw new AccError('usage', 'There\'s nothing to post: the text is empty.');
   if (text.length > UPDATE_TEXT_MAX) throw new AccError('usage', `The text is ${text.length} characters, more than a post takes (${UPDATE_TEXT_MAX}).`);
   return text;
@@ -174,6 +174,7 @@ export const area: CommandArea = {
     again: { type: 'boolean', default: false },
     url: { type: 'string' },
   },
+  subcommands: { update: ['post', 'discard', 'ask', 'posting', 'posted', 'release'] },
   commands: {
     updates: (o) => cmdUpdates(o),
     update: (o, rest) => cmdUpdate(o, rest[0], rest.slice(1)),

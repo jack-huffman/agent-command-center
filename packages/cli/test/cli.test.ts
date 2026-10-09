@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { builderSettings, DISPLAY, guardAnalyst, guardBash, mutate, parseConfig, readLedger, registerLedger, repoPaths, run, transcriptDir, upsertTasks } from '../../core/src/index.ts';
-import { GENERIC_CONFIG, gh41Lines, makeRepo, tempDir } from '../../core/test/support.ts';
+import { GENERIC_CONFIG, gh41Lines, gitIn, makeRepo, tempDir } from '../../core/test/support.ts';
 
 const MAIN = fileURLToPath(new URL('../src/main.ts', import.meta.url));
 // A builder's `acc gate run` runs these tests with its own ACC_TASK set, holding the machine's heavy-check slot.
@@ -22,6 +22,9 @@ function acc(cwd: string, args: string[], input?: string, env: NodeJS.ProcessEnv
   });
   return { code: r.status ?? 1, out: r.stdout, err: r.stderr, json: () => JSON.parse(r.stdout) };
 }
+
+/** For a test of moving tasks by hand, not their checks: stray-files off, so a task needs none (GH-103). */
+const UNCHECKED = { ...GENERIC_CONFIG, strayFiles: { required: false } };
 
 function repoWithConfig(config: unknown = GENERIC_CONFIG): string {
   return makeRepo({ '.acc/config.json': JSON.stringify(config) });
@@ -184,6 +187,114 @@ test('trackers set connects a tracker or changes one in .acc/config.json for a p
   assert.match(acc(dir, ['help']).out, /acc trackers set --file <tracker\.json> \[--index <n>\]/);
 });
 
+test('acc tidy shows the count and the draft and changes nothing; only a person adds or skips it (GH-104)', () => {
+  const dir = repoWithConfig();
+  gitIn(dir, 'checkout', '-q', '-b', 'task/T-1');
+  mkdirSync(join(dir, 'src'));
+  writeFileSync(join(dir, 'src', 'a.ts'), 'export const a = 1;\n');
+  gitIn(dir, 'add', '-A');
+  gitIn(dir, 'commit', '-q', '-m', 'T-1: a');
+  gitIn(dir, 'checkout', '-q', 'main');
+  gitIn(dir, 'merge', '-q', '--no-ff', '-m', 'Merge T-1', 'task/T-1');
+  const mergeSha = gitIn(dir, 'rev-parse', 'HEAD');
+  const config = parseConfig(GENERIC_CONFIG).config!;
+  const paths = repoPaths(dir, run);
+  mutate(paths, () => new Date(), (l, emit) => {
+    upsertTasks(l, config, Array.from({ length: 8 }, (_, i) => ({ source: { kind: 'manual' as const }, title: `Task ${i + 1}` })), 'human', 'human:test', emit, () => new Date());
+    l.tasks.forEach((t, i) => {
+      t.state = 'done';
+      t.pr = { number: i + 1, url: `https://github.com/acme/tool/pull/${i + 1}`, state: 'merged', mergeSha };
+      t.history.push({ at: new Date(Date.UTC(2026, 9, 1, 0, i)).toISOString(), actor: 'sync', by: 'acc sync', from: 'review', to: 'done', reason: 'merged' });
+    });
+  });
+  const shown = acc(dir, ['tidy', '--json']);
+  assert.equal(shown.code, 0, shown.err);
+  const s = shown.json();
+  assert.deepEqual([s.every, s.count, s.due, s.open, s.draft.title, s.draft.files, s.draft.covered.length], [8, 8, true, null, 'Tidy up after 8 merges', ['src/a.ts'], 8]);
+  assert.match(acc(dir, ['tidy']).out, /8 tasks merged since the last tidy-up; one is offered every 8\. A tidy-up is due\.[\s\S]*src\/a\.ts[\s\S]*acc tidy add adds it as a task/);
+  assert.equal(readLedger(paths.ledger).tasks.length, 8, 'showing it adds nothing');
+
+  // Each role refused adding; skipping goes through the same check, shown once. The hook's guard has its own test.
+  for (const [role, sub] of [['builder', 'add'], ['reviewer', 'add'], ['analyst', 'add'], ['analyst', 'skip']] as const) {
+    const r = acc(dir, ['tidy', sub], undefined, { ACC_ROLE: role, ACC_TASK: 'T-1' });
+    assert.notEqual(r.code, 0, `${role} ${sub}`);
+    assert.match(r.err, new RegExp(`An? ${role} can't ${sub} a tidy-up\\. A person does that\\.`), `${role} ${sub}`);
+  }
+  assert.equal(readLedger(paths.ledger).tasks.length, 8, 'refused: nothing added');
+  const deny = (builderSettings({ id: 'T-1' } as never, config, '/acc/bin', '/usr/bin') as { permissions: { deny: string[] } }).permissions.deny;
+  assert.ok(deny.includes('Bash(acc tidy add*)') && deny.includes('Bash(acc tidy skip*)'));
+  assert.ok(!deny.some((d) => d === 'Bash(acc tidy*)'), 'acc tidy alone only reads');
+
+  const added = acc(dir, ['tidy', 'add', '--json']);
+  assert.equal(added.code, 0, added.err);
+  assert.equal(added.json().task, 'T-9');
+  const t = readLedger(paths.ledger).tasks.find((x) => x.id === 'T-9')!;
+  assert.deepEqual([t.state, t.labels, t.title], ['todo', ['tidy-up'], 'Tidy up after 8 merges']);
+  const after = acc(dir, ['tidy', '--json']).json();
+  assert.deepEqual([after.count, after.open], [0, 'T-9']);
+  assert.match(acc(dir, ['tidy', 'skip']).err, /Nothing has merged since the last tidy-up/);
+  assert.equal(acc(dir, ['tidy', 'now']).code, 2, 'a usage error');
+});
+
+test('rules suggested lists a finding that keeps coming back; only a person accepts it, adding one To do task, or dismisses it (GH-102)', () => {
+  const dir = repoWithConfig();
+  const reviews = repoPaths(dir, run).reviews;
+  mkdirSync(reviews, { recursive: true });
+  // Three reviews of two tasks cite the same rule, two ways.
+  const cites: [string, string, string, string][] = [
+    ['T-1', 'a'.repeat(40), 'src/a.css', 'Never hard-code a colour'], ['T-1', 'b'.repeat(40), 'src/b.css', 'Never hard-code a colour (team rules)'], ['T-2', 'c'.repeat(40), 'src/c.css', 'Rule: never hard-code a colour'],
+  ];
+  cites.forEach(([task, sha, file, rule], i) => writeFileSync(join(reviews, `${task}-${sha}.json`), JSON.stringify({
+    v: 1, task, sha, env: 'main', verdict: 'pass', summary: 's', criteria: [], findings: [{ message: `A colour literal in ${file}.`, must: i === 0, file, line: 3, rule }],
+    sessionId: `sess-${i}`, name: `Review ${task}`, at: `2026-10-0${i + 1}T10:00:00.000Z`, durationMs: 1, costUsd: null,
+  })));
+  const list = acc(dir, ['rules', 'suggested', '--json']);
+  assert.equal(list.code, 0, list.err);
+  const [s] = list.json() as { id: string; kind: string; findings: number; tasks: number; must: number; sources: { sessionId: string }[] }[];
+  assert.deepEqual([s!.kind, s!.findings, s!.tasks, s!.must, s!.sources.map((x) => x.sessionId)], ['rule', 3, 2, 1, ['sess-0', 'sess-1', 'sess-2']]);
+  assert.match(acc(dir, ['rules', 'suggested']).out, new RegExp(`^${s!.id}  Rule suggested  3 findings across 2 tasks \\(1 must\\)\\n    Never hard-code a colour\\.`));
+
+  // Never an agent: refused by role and by actor, and nothing is added or recorded.
+  for (const [role, args] of [['builder', []], ['reviewer', []], ['analyst', []], ['', ['--as', 'orchestrator']]] as const) {
+    for (const verb of ['accept', 'dismiss']) {
+      const r = acc(dir, ['rules', verb, s!.id, ...args], undefined, { ACC_ROLE: role });
+      assert.equal(r.code, 1, `${verb} as ${role || args.join(' ')}`);
+      assert.match(r.err, /can't (accept|dismiss) a suggested rule|Only a person can/);
+    }
+  }
+  assert.equal(existsSync(join(dir, '.git', 'acc', 'rules')), false, 'no record');
+  assert.equal(existsSync(join(dir, '.git', 'acc', 'ledger.json')), false, 'no task');
+
+  assert.equal(acc(dir, ['rules', 'accept', s!.id, '--check', 'fuzz']).code, 2);
+  const ok = acc(dir, ['rules', 'accept', s!.id, '--check', 'lint', '--line', 'Colours come from theme tokens', '--json']);
+  assert.equal(ok.code, 0, ok.err);
+  const tasks = readLedger(repoPaths(dir, run).ledger).tasks;
+  assert.deepEqual(tasks.map((t) => [t.id, t.state, t.title]), [[ok.json().task, 'todo', 'Add the rule: Colours come from theme tokens']]);
+  assert.match(tasks[0]!.brief, /^> Colours come from theme tokens\.$/m);
+  assert.match(tasks[0]!.brief, /A lint checks the rule/);
+  assert.match(tasks[0]!.brief, /T-2, review of ccccccc on 2026-10-03, src\/c\.css:3/);
+  assert.deepEqual(acc(dir, ['rules', 'suggested', '--json']).json(), [], 'accepted, it\'s gone');
+  assert.equal(existsSync(join(dir, '.acc', 'rules.md')), false, 'acc never writes .acc/rules.md');
+  assert.equal(acc(dir, ['rules', 'dismiss', s!.id]).code, 1, 'nothing to dismiss now');
+  assert.match(acc(dir, ['rules', 'suggested', '--all']).out, /accepted by .*: back after 3 more/);
+});
+
+test('rules dismiss sets a suggestion aside, and it\'s listed only with --all (GH-102)', () => {
+  const dir = repoWithConfig();
+  const reviews = repoPaths(dir, run).reviews;
+  mkdirSync(reviews, { recursive: true });
+  ['T-1', 'T-2', 'T-3'].forEach((task, i) => writeFileSync(join(reviews, `${task}-${String(i).repeat(40)}.json`), JSON.stringify({
+    v: 1, task, sha: String(i).repeat(40), env: 'main', verdict: 'pass', summary: 's', criteria: [], findings: [{ message: 'm', must: false, file: 'x.ts', rule: 'Every command has a help line' }],
+    sessionId: `s${i}`, at: `2026-10-0${i + 1}T10:00:00.000Z`, durationMs: 1, costUsd: null,
+  })));
+  const [s] = acc(dir, ['rules', 'suggested', '--json']).json() as { id: string }[];
+  const r = acc(dir, ['rules', 'dismiss', s!.id]);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /Dismissed .*until its finding comes back 3 more times/);
+  assert.deepEqual(acc(dir, ['rules', 'suggested', '--json']).json(), []);
+  assert.equal((acc(dir, ['rules', 'suggested', '--all', '--json']).json() as { hidden: { outcome: string } }[])[0]!.hidden.outcome, 'dismissed');
+});
+
 test('init --from copies the rules a team template names into .acc/rules/, and --dry-run lists them and copies nothing (GH-108)', () => {
   const team = tempDir('team-');
   const rules = join(team, 'acme-apex.md');
@@ -220,7 +331,7 @@ test('init --from copies the rules a team template names into .acc/rules/, and -
 });
 
 test('add, list, ready, set and show: a task through its life', () => {
-  const dir = repoWithConfig();
+  const dir = repoWithConfig(UNCHECKED);
   assert.equal(acc(dir, ['add', 'First thing']).code, 0);
   assert.equal(acc(dir, ['add', 'Second thing', '--dep', 'T-1', '--brief', 'Needs the first']).code, 0);
   const ready = acc(dir, ['ready', '--json']).json() as { id: string }[];
@@ -717,10 +828,39 @@ test('gate run records receipts on the commit, exits 1 while a required check fa
   assert.equal(passing.code, 0, passing.err);
   assert.match(passing.out, /All recorded\. acc done will accept this commit\./);
   const list = acc(dir, ['gate', 'list', '--json']).json() as { gates: { name: string; required: boolean; heavy: boolean; receipt: { status: string } | null }[] };
-  assert.deepEqual(list.gates.map((g) => [g.name, g.required, g.heavy, g.receipt?.status]), [['lint', true, false, 'pass'], ['test', true, true, 'pass']]);
+  // stray-files is built in and required (GH-103), and skips: the commit is main's own, so it adds nothing.
+  assert.deepEqual(list.gates.map((g) => [g.name, g.required, g.heavy, g.receipt?.status]), [['stray-files', true, false, 'skip'], ['lint', true, false, 'pass'], ['test', true, true, 'pass']]);
   assert.equal(acc(dir, ['gate', 'run', 'nope']).code, 2, 'an unknown gate is a usage error');
   assert.equal(acc(dir, ['gate', 'run', 'lint', '--test', 'not a class']).code, 2);
   assert.match(acc(dir, ['drift', 'main']).err, /no orgs/);
+});
+
+test('gate run prints what each test check ran and how a hold is cleared; gate list shows the counts (GH-100)', () => {
+  const heavy = { ACC_HEAVY_DIR: join(makeRepo(), 'slots') };
+  const block = (pass: number, skipped: number) => `ℹ tests ${pass + skipped}\\nℹ pass ${pass}\\nℹ fail 0\\nℹ cancelled 0\\nℹ skipped ${skipped}\\nℹ todo 0\\n`;
+  const cfg = { ...GENERIC_CONFIG, gates: { required: ['test', 'none', 'lint'], tests: ['none'], commands: { test: `printf '${block(312, 2)}'`, none: `printf '${block(0, 0)}'`, lint: 'true' } } };
+  const dir = repoWithConfig(cfg);
+  const r = acc(dir, ['gate', 'run'], undefined, heavy);
+  assert.equal(r.code, 1, r.err);
+  assert.match(r.out, /✓ pass\s+test\s+Passed\. · tests: 312 run, 2 skipped\n\s+Nothing earlier on main to compare its skipped tests with\./);
+  assert.match(r.out, /\? needs a person\s*none\s+Ran no tests, so it can't vouch for the change\. · tests: 0 run, 0 skipped/);
+  assert.match(r.out, /✓ pass\s+lint\s+Passed\.\n/);
+  assert.match(r.out, /1 needs a person: none\. Add the tests, or un-skip them\. If the task asks for the skip, say so with acc block "<why>": only a person can waive it\./);
+  assert.ok(!/to fix/.test(r.out), 'a hold isn\'t a failure to fix');
+  const list = acc(dir, ['gate', 'list']);
+  assert.match(list.out, /^Gate\s+Required\s+Heavy\s+This commit\s+Tests\s+Checks$/m);
+  assert.match(list.out, /^test\s+yes\s+yes\s+✓ pass\s+312 run, 2 skipped\s+printf/m);
+});
+
+test('acc gate run on a branch that commits a log exits 1, naming the file and the fix (GH-103)', () => {
+  const dir = repoWithConfig();
+  spawnSync('git', ['checkout', '-q', '-b', 'task/T-1-thing'], { cwd: dir });
+  writeFileSync(join(dir, 'debug.log'), 'scratch\n');
+  spawnSync('git', ['add', '-A'], { cwd: dir });
+  spawnSync('git', ['commit', '-qm', 'add a log'], { cwd: dir });
+  const r = acc(dir, ['gate', 'run', '--env', 'main']);
+  assert.equal(r.code, 1, r.err);
+  assert.match(r.out, /✗ fail\s+stray-files\s+This change adds a file that shouldn't be committed: debug\.log \(a log, temp file or merge leftover\)\. Take each out of the commit with git rm --cached debug\.log and add it to \.gitignore, or, if it belongs in the repo, list it under "strayFiles\.allow" in \.acc\/config\.json\./);
 });
 
 test('acc gate waive: a person waives a task\'s failing check with a reason; a builder never can (D-031)', () => {
@@ -744,6 +884,66 @@ test('acc gate waive: a person waives a task\'s failing check with a reason; a b
   assert.equal(r.json().waived[0].waived.was, 'fail');
   const list = acc(dir, ['gate', 'list', '--json']).json();
   assert.equal(list.gates[0].receipt.status, 'skip');
+});
+
+test('acc gate run raises a ratchet\'s floor only in a task\'s own worktree; acc gate relax is a person\'s, with a reason, and gate list shows the floor (GH-99)', () => {
+  // About a ratchet; stray-files has its own tests (GH-103).
+  const cfg = { ...GENERIC_CONFIG, strayFiles: { required: false }, gates: { required: ['tests'], ratchets: { tests: { command: 'cat count.txt', limit: 'floor', label: 'tests' } } } };
+  const dir = makeRepo({ '.acc/config.json': JSON.stringify(cfg), '.acc/floors.json': '{\n  "tests": {\n    "floor": 669\n  }\n}\n', 'count.txt': '674\n' });
+  const git = (cwd: string, ...a: string[]) => spawnSync('git', a, { cwd, encoding: 'utf8' }).stdout.trim();
+  const heavy = { ACC_HEAVY_DIR: join(makeRepo(), 'slots') };
+  const floors = (root: string) => JSON.parse(readFileSync(join(root, '.acc', 'floors.json'), 'utf8'));
+  assert.equal(acc(dir, ['add', 'More tests']).code, 0);
+  assert.equal(acc(dir, ['add', 'Elsewhere']).code, 0);
+  const wt = join(tempDir('wt-'), 'T-1');
+  git(dir, 'worktree', 'add', '-q', '-b', 'task/T-1', wt, 'main');
+  const ledgerPath = join(dir, '.git', 'acc', 'ledger.json');
+  const ledger = JSON.parse(readFileSync(ledgerPath, 'utf8'));
+  ledger.tasks[0].run = { branch: 'task/T-1', worktree: wt };
+  ledger.tasks[1].run = { branch: 'task/T-2', worktree: dir };
+  writeFileSync(ledgerPath, JSON.stringify(ledger));
+
+  // On the environment's branch, and in the main checkout on a task's branch: it says so, and writes nothing.
+  const onMain = acc(dir, ['gate', 'run'], undefined, heavy);
+  assert.equal(onMain.code, 0, onMain.err);
+  assert.match(onMain.out, /tests 674 beats the floor 669 by 5\./);
+  git(dir, 'checkout', '-q', '-b', 'task/T-2');
+  assert.match(acc(dir, ['gate', 'run'], undefined, heavy).out, /tests 674 beats the floor 669 by 5\./);
+  assert.deepEqual([floors(dir), git(dir, 'status', '--porcelain')], [{ tests: { floor: 669 } }, '']);
+
+  // In the task's own worktree: written there, and acc gate run asks for it to be committed.
+  const raised = acc(wt, ['gate', 'run'], undefined, { ...heavy, ACC_ROLE: 'builder', ACC_TASK: 'T-1' });
+  assert.equal(raised.code, 1, 'not done until the floor is committed');
+  assert.match(raised.out, /tests 674 beats the floor 669: raised it in \.acc\/floors\.json/);
+  assert.match(raised.out, /Raised in \.acc\/floors\.json: tests 669 → 674\. Commit that file, then run acc gate run again: acc done takes the commit that records it\./);
+  assert.doesNotMatch(raised.out, /to fix/);
+  assert.deepEqual([floors(wt), floors(dir)], [{ tests: { floor: 674 } }, { tests: { floor: 669 } }], 'in the worktree, and nowhere else');
+  git(wt, 'commit', '-qam', 'T-1: raise the tests floor');
+  const again = acc(wt, ['gate', 'run'], undefined, { ...heavy, ACC_ROLE: 'builder', ACC_TASK: 'T-1' });
+  assert.equal(again.code, 0, again.out);
+  assert.match(again.out, /tests 674, at its floor\.\nAll recorded\./);
+  assert.match((acc(wt, ['gate', 'list', '--json']).json() as { gates: { name: string; about: string }[] }).gates.find((g) => g.name === 'tests')!.about, /cat count\.txt \(tests, which may only go up\); floor 674$/);
+
+  // Relaxing: never a builder's, always with a reason and a number.
+  const builder = acc(dir, ['gate', 'relax', 'tests', '--to', '640', '--reason', 'mine', '--task', 'T-1', '--as', 'human'], undefined, { ACC_ROLE: 'builder', ACC_TASK: 'T-1' });
+  assert.deepEqual([builder.code, /A builder can't relax a floor/.test(builder.err)], [1, true]);
+  assert.equal(acc(dir, ['gate', 'relax', 'tests', '--to', '640', '--task', 'T-1', '--as', 'reviewer']).code, 1, 'nor an agent');
+  assert.match(acc(dir, ['gate', 'relax', 'tests', '--to', '640', '--task', 'T-1']).err, /Say why it's relaxed/);
+  assert.equal(acc(dir, ['gate', 'relax', 'tests', '--reason', 'why', '--task', 'T-1']).code, 2, '--to is needed');
+  assert.deepEqual([floors(wt), existsSync(join(dir, '.git', 'acc', 'relaxed.jsonl'))], [{ tests: { floor: 674 } }, false], 'nothing changed by a refusal');
+  const r = acc(dir, ['gate', 'relax', 'tests', '--to', '640', '--reason', 'the slow suite moved to its own job', '--task', 'T-1', '--json']);
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual(floors(wt).tests.floor, 640);
+  assert.deepEqual([floors(wt).tests.relaxed.reason, floors(wt).tests.relaxed.was], ['the slow suite moved to its own job', 674]);
+  const record = JSON.parse(readFileSync(join(dir, '.git', 'acc', 'relaxed.jsonl'), 'utf8').trim());
+  assert.deepEqual([record.ratchet, record.to, record.was, record.task, realpathSync(record.root)], ['tests', 640, 674, 'T-1', realpathSync(wt)]);
+  const event = readFileSync(join(dir, '.git', 'acc', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).at(-1);
+  assert.deepEqual([event.task, event.actor, event.data.relaxed.to], ['T-1', 'human', 640]);
+  // It says what passes now, as DESIGN §9 does: the relaxed number or a better one, from the floor it relaxed.
+  const said = acc(dir, ['gate', 'relax', 'tests', '--to', '630', '--reason', 'and the flaky one', '--task', 'T-1']);
+  assert.equal(said.code, 0, said.err);
+  assert.match(said.out, /A branch that began at floor 640 now passes with its floor at 630 or a better one, as acc's record of this relax says\. One that began at another floor isn't backed by it\./);
+  assert.match(acc(dir, ['gate', 'waive', 'tests', '--reason', 'flaky']).err, /tests is a ratchet: .*acc gate relax tests/);
 });
 
 test('acc autopilot: manual does nothing; dispatch isn\'t built yet, and full is read as it; usage, roles and the lock (D-055)', () => {
@@ -807,7 +1007,7 @@ test('acc autopilot runs on a repo where no task was ever added, which has no st
 });
 
 test('a task in review whose pull request was closed shows as needs you, and acc show names the pull request (D-063)', () => {
-  const dir = repoWithConfig();
+  const dir = repoWithConfig(UNCHECKED);
   assert.equal(acc(dir, ['add', 'Add a sum function']).code, 0);
   assert.equal(acc(dir, ['set', 'T-1', 'running']).code, 0);
   assert.equal(acc(dir, ['set', 'T-1', 'review']).code, 0);
@@ -829,7 +1029,7 @@ test('a task in review whose pull request was closed shows as needs you, and acc
 });
 
 test('a task autopilot couldn\'t move on shows as needs you, and acc show says why (D-055)', () => {
-  const dir = repoWithConfig();
+  const dir = repoWithConfig(UNCHECKED);
   assert.equal(acc(dir, ['add', 'Add a sum function']).code, 0);
   assert.equal(acc(dir, ['set', 'T-1', 'running']).code, 0);
   assert.equal(acc(dir, ['set', 'T-1', 'review']).code, 0);
@@ -1092,17 +1292,17 @@ test('acc machine agents shows this machine\'s total across every repo and how m
 test('acc gate required and acc gate builder show and set a project\'s checks, one key each; a name it doesn\'t have is refused (GH-111)', () => {
   const dir = makeRepo({ '.acc/config.json': LIMITS_CONFIG });
   const file = join(dir, '.acc', 'config.json');
-  assert.deepEqual(acc(dir, ['gate', 'required', '--json']).json(), { required: ['check'], gates: ['check', 'typecheck', 'near-tests'], queue: ['main'] });
-  assert.equal(acc(dir, ['gate', 'required']).out, 'Required checks: check. Where the merge queue runs (main), they run once in it, before each merge.\n');
-  assert.equal(acc(dir, ['gate', 'builder']).out, 'Builders run the required checks (check): no lighter ones are named.\n');
+  assert.deepEqual(acc(dir, ['gate', 'required', '--json']).json(), { required: ['check', 'stray-files'], gates: ['check', 'typecheck', 'near-tests'], queue: ['main'] }, 'stray-files is required beside them, and never named (GH-103)');
+  assert.equal(acc(dir, ['gate', 'required']).out, 'Required checks: check, stray-files. Where the merge queue runs (main), they run once in it, before each merge.\n');
+  assert.equal(acc(dir, ['gate', 'builder']).out, 'Builders run the required checks (check, stray-files): no lighter ones are named.\n');
 
   const lighter = acc(dir, ['gate', 'builder', 'typecheck', 'near-tests']);
   assert.equal(lighter.code, 0, lighter.err);
-  assert.equal(lighter.out, 'Builders now run typecheck, near-tests where the merge queue runs (main), and the required checks (check) run once in it, before each merge. Set in .acc/config.json: commit it to share it.\n');
+  assert.equal(lighter.out, 'Builders now run typecheck, near-tests where the merge queue runs (main), and the required checks (check, stray-files) run once in it, before each merge. Set in .acc/config.json: commit it to share it.\n');
   const withBuilder = LIMITS_CONFIG.replace('"near-tests": "true"\n    }\n  }', '"near-tests": "true"\n    },\n    "builder": [\n      "typecheck",\n      "near-tests"\n    ]\n  }');
   assert.equal(readFileSync(file, 'utf8'), withBuilder);
   // acc gate list marks them, as it did when a person edited the file by hand (D-096).
-  assert.match(acc(dir, ['gate', 'list']).out, /Builders run typecheck, near-tests, and acc done takes them\./);
+  assert.match(acc(dir, ['gate', 'list']).out, /Builders run typecheck, near-tests, stray-files, and acc done takes them\./);
 
   assert.equal(acc(dir, ['gate', 'required', 'check', 'typecheck']).code, 0);
   assert.equal(readFileSync(file, 'utf8'), withBuilder.replace('"required": [\n      "check"\n    ]', '"required": [\n      "check",\n      "typecheck"\n    ]'));
@@ -1116,7 +1316,7 @@ test('acc gate required and acc gate builder show and set a project\'s checks, o
   // Named where no merge queue runs, they're named, and builders still run the required checks.
   const manual = makeRepo({ '.acc/config.json': LIMITS_CONFIG.replace('"autonomy": "review"', '"autonomy": "manual"') });
   assert.equal(acc(manual, ['gate', 'builder', 'typecheck']).code, 0);
-  assert.match(acc(manual, ['gate', 'builder']).out, /^gates\.builder names typecheck, but no environment's pull requests go through the merge queue .*so builders run the required checks \(check\)\./);
+  assert.match(acc(manual, ['gate', 'builder']).out, /^gates\.builder names typecheck, but no environment's pull requests go through the merge queue .*so builders run the required checks \(check, stray-files\)\./);
 });
 
 test('limits and checks are a person\'s at all three layers: the CLI, the hook and the builder\'s deny list, for every command that sets one (GH-111)', () => {

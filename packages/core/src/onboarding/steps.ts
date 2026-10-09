@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, sep } from 'node:path';
-import { branchFor, type Environment } from '../config.ts';
+import { branchFor, type Environment, fullGates } from '../config.ts';
 import { isTrusted, mainCheckout } from '../dispatch.ts';
 import { type DriftResult, driftReportPath } from '../drift.ts';
 import { parseJsonOutput } from '../exec.ts';
@@ -9,17 +9,17 @@ import { gatesFor } from '../gates.ts';
 import { credentialHelper } from '../github.ts';
 import { rulesStatus } from '../rules.ts';
 import { readmePlaces } from '../setup.ts';
+import { DATA_EXT } from '../stray-files.ts';
 import { parseSource } from '../source.ts';
 import { previewCommand, type ReadTemplate, readTemplate, templateDifferences } from '../template.ts';
 import { orList } from '../trackers/types.ts';
 import {
-  cached, fail, firstVersion, ghEnv, LICENSE_TO_TYPE, parseOrgUrl, pass, readText, SECRET_PATTERN, sfJson, skip, unknown, versionAtLeast,
+  cached, fail, firstVersion, ghEnv, LICENSE_TO_TYPE, parseOrgUrl, pass, pluginBehind, readText, SECRET_PATTERN, sfJson, skip, unknown, versionAtLeast,
 } from './helpers.ts';
 import type { CheckContext, CheckResult, Step, StepResult } from './types.ts';
 
 const DOCS = 'docs/ONBOARDING.md';
 const GH_SIGN_IN = '"Do it" opens VSCode\'s GitHub sign-in: pick this repo\'s account, or add it, and gh gets that login, with access to GitHub Projects for the board. gh\'s active account stays as it was. In a terminal: gh auth login.';
-const DATA_EXT = /\.(csv|xls|xlsx|eml)$/i;
 const BACKSTOP = ['/*.csv', '/*.xls', '/*.xlsx', '/*.eml'];
 
 /** Project steps need a repo and a valid config. This returns the reason they can't run yet, if any. */
@@ -130,7 +130,16 @@ const MARKETPLACE_ADD = `claude plugin marketplace add ${PLUGIN.repo}`;
 const PLUGIN_INSTALL = `claude plugin install ${PLUGIN_ID} --scope user`;
 /** A private marketplace doesn't update itself (D-081), so the plugin is updated by hand after a release. */
 const PLUGIN_UPDATE = `claude plugin marketplace update ${PLUGIN.marketplace} && claude plugin update ${PLUGIN_ID} --scope user`;
-const SEMVER = /^\d+\.\d+\.\d+$/;
+
+/**
+ * The acc plugin as `claude plugin list --json` lists it for every session (user scope): its version, when
+ * it names one, and whether it's on. Null when it isn't installed there. A4.plugin and Settings' About
+ * (GH-114) both read it this way.
+ */
+export function userPlugin(list: Record<string, unknown>[]): { version: string | null; enabled: boolean } | null {
+  const user = list.find((p) => p.id === PLUGIN_ID && p.scope === 'user');
+  return user ? { version: typeof user.version === 'string' ? user.version : null, enabled: user.enabled === true } : null;
+}
 
 /**
  * A list `claude … --json` prints, such as `claude plugin list --json`. 127 when claude isn't installed,
@@ -251,11 +260,11 @@ export const STEPS: Step[] = [
       if (list === 127) return fail('claude isn\'t installed. Do A1.claude first.', 'brew install --cask claude-code');
       if (typeof list === 'string') return unknown(`Couldn't read Claude Code's plugins: ${list}`);
       const mine = list.filter((p) => p.id === PLUGIN_ID);
-      const user = mine.find((p) => p.scope === 'user');
-      const version = typeof user?.version === 'string' ? user.version : '(unknown version)';
-      if (user?.enabled === true) {
+      const user = userPlugin(list);
+      const version = user?.version ?? '(unknown version)';
+      if (user?.enabled) {
         // Only an older plugin fails: its hooks may not know what this acc asks of builders. A newer one is fine (GH-62).
-        if (ctx.version && SEMVER.test(version) && SEMVER.test(ctx.version) && !versionAtLeast(version, ctx.version)) {
+        if (pluginBehind(user.version, ctx.version)) {
           return fail(`acc ${version} is installed, older than this acc (${ctx.version}).`, PLUGIN_UPDATE);
         }
         return pass(`acc ${version}, for every Claude Code session.`);
@@ -702,14 +711,14 @@ export const STEPS: Step[] = [
       const need = needsProject(ctx);
       if (need) return need;
       const config = ctx.config!;
-      const required = config.gates.required;
-      if (!required.length) return skip('No checks are required ("gates.required" is empty).');
+      const required = fullGates(config);
+      if (!required.length) return skip('No checks are required ("gates.required" is empty, and "strayFiles.required" is false).');
       const defined = gatesFor(config).map((g) => g.name);
       const undefinedGates = required.filter((n) => !defined.includes(n));
-      if (undefinedGates.length) return fail(`Required, but with no command: ${undefinedGates.join(', ')}. Give each one under "gates.commands" in .acc/config.json.`);
+      if (undefinedGates.length) return fail(`Required, but with no command: ${undefinedGates.join(', ')}. Give each one under "gates.commands", or "gates.ratchets" for a number that may only get better, in .acc/config.json.`);
       // A builder's lighter checks, where the merge queue runs the required ones (GH-73).
       const builderOnly = (config.gates.builder ?? []).filter((n) => !defined.includes(n));
-      if (builderOnly.length) return fail(`Listed for builders, but with no command: ${builderOnly.join(', ')}. Give each one under "gates.commands" in .acc/config.json.`);
+      if (builderOnly.length) return fail(`Listed for builders, but with no command: ${builderOnly.join(', ')}. Give each one under "gates.commands", or "gates.ratchets" for a number that may only get better, in .acc/config.json.`);
       let main = ctx.paths!.root;
       try {
         main = mainCheckout(ctx.run, ctx.paths!.root);

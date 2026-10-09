@@ -4,7 +4,7 @@ import type { Action } from '../src/model/shared.ts';
 import type { RunCard } from '../src/model/runs.ts';
 import type { SetupModel, SetupRow } from '../src/model/setup.ts';
 import { redrawDock } from './dock.ts';
-import { actionButton, button, el, header, icon, plural, status, toolbarButton } from './dom.ts';
+import { actionButton, button, el, header, icon, plural, status, titled, toolbarButton } from './dom.ts';
 import { api, memory, type PageArea, remember } from './state.ts';
 
 /** A step's fix while it runs, or how it ended: one line, and a way to its output. */
@@ -12,7 +12,7 @@ function stepRun(r: RunCard | undefined, open: boolean): HTMLElement | null {
   // A failed run matters only while its step is still to do.
   if (!r || (!r.running && !(open && r.look.tone === 'orange'))) return null;
   const show = button('Show output', 'output', () => { remember((x) => { x.dock = { open: true, run: r.id }; }); redrawDock(); }, 'ghost small');
-  return el('div', `step-run tone-row-${r.look.tone}`, status(r.look), el('span', 'muted mono step-run-cmd', r.command), show);
+  return el('div', `step-run tone-row-${r.look.tone}`, status(r.look), titled(el('span', 'muted mono step-run-cmd', r.command), r.command), show);
 }
 
 /**
@@ -25,7 +25,7 @@ function setupStep(s: SetupRow, live: RunCard[]): HTMLElement {
   const run = stepRun(live.find((r) => r.step === s.id), !s.done);
   if (s.done) {
     const again = s.actions.find((a) => a.command === 'acc.step.check');
-    return el('li', 'step done', status(s.look), title, el('span', 'muted step-line', s.detail), run, again ? iconButton(again) : null);
+    return el('li', 'step done', status(s.look), title, titled(el('span', 'muted step-line', s.detail), s.detail), run, again ? iconButton(again) : null);
   }
   return el('li', 'step attention',
     el('div', 'step-head', status(s.look), title),

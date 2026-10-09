@@ -17,6 +17,7 @@ import type { SlackCard } from '../slack.ts';
 import { billingLook, WHERE_VIEWS, type WhereView } from './agents.ts';
 import type { BoardInput } from './boards.ts';
 import type { IdentityCard } from './environments.ts';
+import type { AboutModel } from './about.ts';
 import type { LimitsModel } from './limits.ts';
 import { HOME_SECTIONS, type HomeSection, type Look, LOOK, type ModelArea, type ProjectLike, VIEW_TITLES } from './shared.ts';
 
@@ -333,7 +334,7 @@ export function githubAccount(p: ProjectLike, id: IdentityCard | null): GithubAc
   if (id.signedIn) lines.push(LOOK(`gh is signed in as ${id.account}${id.projects ? '' : ', without GitHub Projects access'}`, 'pass', 'blue'));
   lines.push(id.commit ? LOOK(`Commits as ${id.commit}`, 'git-commit', 'neutral') : LOOK('No commit identity set for this repo', 'warning', 'orange'));
   const actions = [switchTo(null, !!id.problem && id.signedIn)];
-  if (!id.signedIn || !id.projects) actions.push({ command: 'acc.github.signIn', label: id.signedIn ? 'Add Projects access' : 'Sign in', icon: 'github', arg: p.root, name: `${id.signedIn ? 'Add GitHub Projects access for' : 'Sign in to GitHub as'} ${id.account}, for ${p.name}`, primary: !id.signedIn, disabled: null });
+  if (!id.signedIn || !id.projects) actions.push({ command: 'acc.github.signIn', label: id.signedIn ? 'Add Projects access' : 'Sign in', icon: 'github', arg: id.account, name: `${id.signedIn ? 'Add GitHub Projects access for' : 'Sign in to GitHub as'} ${id.account}, for ${p.name}`, primary: !id.signedIn, disabled: null });
   return {
     ...base,
     // Its row is named Pushes as, so the account stands alone, or with what's wrong.
@@ -436,7 +437,7 @@ export function pagePreferences(i: { opensOn: OpensOn; whereView: WhereView; pac
 /**
  * Settings' parts, in the order their tasks come: Appearance (GH-109), How agents run (GH-110), Limits and
  * checks (GH-111), Trackers and sign-ins (GH-112), Notices in Slack, GitHub accounts and the page's own
- * preferences (GH-113), and About (GH-114). Each has a heading another page can open Settings at, with
+ * preferences (GH-113), and About (GH-114), built here. Each has a heading another page can open Settings at, with
  * show('settings', settingsKey(part)).
  */
 export const SETTINGS_PARTS = ['appearance', 'agents', 'limits', 'trackers', 'slack', 'github', 'page', 'about'] as const;
@@ -484,6 +485,8 @@ export interface SettingsModel {
   github: GithubAccounts;
   /** The Command Center's own preferences (GH-113). */
   page: PagePreferences;
+  /** About (GH-114): the versions of acc, the extension and the plugin, and the latest release. Null until the extension reads them. */
+  about: AboutModel | null;
 }
 
 export interface SettingsInput {
@@ -504,6 +507,8 @@ export interface SettingsInput {
   boards?: (root: string) => BoardInput[];
   /** Limits and checks, as read from this machine and each project (GH-111), while Settings shows. */
   limits?: LimitsModel | null;
+  /** About, from what the extension has read (GH-114). */
+  about?: AboutModel | null;
 }
 
 export function settingsModel(i: SettingsInput): SettingsModel {
@@ -549,10 +554,14 @@ export function settingsModel(i: SettingsInput): SettingsModel {
       id: 'page', title: 'The Command Center', icon: 'window', built: true, today: null, links: [], details: [],
       summary: 'Which section it opens on, how Agents shows where sessions run, and how often it refreshes. VSCode keeps each, for this window or this machine.',
     },
-    later('about', 'About', 'info', 'The versions of acc, the extension and the plugin, and whether a newer release is out.',
-      'On Setup for now: its checklist checks the acc plugin in Claude Code.', [{ label: 'Open Setup', icon: 'checklist', section: 'setup' }]),
+    {
+      id: 'about', title: 'About', icon: 'info', summary: 'The versions of acc, the extension and the plugin, read fresh each time Settings shows, and whether a newer release is out.',
+      built: true, today: null,
+      details: ['A newer release installs as the README says, from its page. The plugin updates as Setup\'s A4 does: this page changes nothing itself.'],
+      links: [],
+    },
   ];
-  return { kind: 'settings', theme: i.theme, themes: THEME_CHOICES.map((key) => ({ key, ...THEMES[key] })), agents, trackers, parts, limits: i.limits ?? null, slack: i.slack ?? null, github, page };
+  return { kind: 'settings', theme: i.theme, themes: THEME_CHOICES.map((key) => ({ key, ...THEMES[key] })), agents, trackers, parts, limits: i.limits ?? null, slack: i.slack ?? null, github, page, about: i.about ?? null };
 }
 
 export const area: ModelArea = {
@@ -566,7 +575,7 @@ export const area: ModelArea = {
     // Slack paused because it refused a message needs you (GH-58): its badge came with it (GH-113).
     nav: ({ i }) => ({
       section: 'settings', label: 'Settings', icon: 'settings-gear', count: null, attention: i.slack?.state === 'paused',
-      hint: i.slack?.state === 'paused' ? 'Notices to Slack are paused' : 'Appearance, agents, limits, trackers, Slack, GitHub accounts and the Command Center\'s own preferences',
+      hint: i.slack?.state === 'paused' ? 'Notices to Slack are paused' : 'Appearance, agents, limits, trackers, Slack, GitHub accounts, the Command Center\'s own preferences and the versions',
     }),
   },
 };

@@ -25,7 +25,9 @@ function setup(opts: { raw?: Record<string, unknown>; files?: Record<string, str
   const RAW = {
     ...GENERIC_CONFIG, github: { repo: 'acme/tool', account: 'jordan-kim' }, autonomy: 'review',
     environments: [{ name: 'main', default: true }, { name: 'release', protected: true }],
-    gates: { required: ['test'], commands: { test: 'true' } }, autopilot: { autoMerge: true }, ...opts.raw,
+    gates: { required: ['test'], commands: { test: 'true' } }, autopilot: { autoMerge: true },
+    // Its tasks add files at the root; stray-files has its own tests (GH-103).
+    strayFiles: { required: false }, ...opts.raw,
   };
   const origin = tempDir('origin-');
   run('git', ['init', '-q', '--bare', origin]);

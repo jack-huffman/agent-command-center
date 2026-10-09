@@ -4590,6 +4590,559 @@ slots out of the Command Center: a terminal was the only place to set them.
   across repos, so two repos dispatching in the same instant can both pass a
   total by one.
 
+## D-111 The settings check matches only real reads: variables, the config's own reads, and the intake skill (2026-10-08)
+
+GH-122, from GH-107's review. It amends D-103. Its check could pass in three
+ways it shouldn't, each a gap in how strictly it matched a read, not a key left
+unread today.
+
+- **A listed key read through a variable still fails the list.** A key on
+  `UNREAD_KEYS` was looked for only by its qualified name, such as
+  `builder.fallbackModel`, while agentArgs reads `p?.fallbackModel` for every
+  role. The check now also looks for `.<key>` in the files `READ_IN` names for
+  the key's siblings, as the read check does: listing
+  `agents.builder.fallbackModel` fails, pointing at agents.ts. This errs
+  towards failing the list, the safe side.
+- **A `READ_IN` entry can pin the config's read.** An entry is a file or
+  `{ file, via }`, where `via` is the read itself. `trackers[].labels` is pinned
+  to `tracker?.labels` in intake.ts, where an issue's `i.labels` satisfied it
+  before, and `environments[].name` to `env.name` in packet.ts. A finding names
+  the pattern it looked for. A sibling search uses only the entry's file.
+- **The intake skill is on `RAW_READS`.** It tells a session to read the
+  tracker's place from `.acc/config.json`, so each tracker key it names in
+  backticks, after "tracker's", "its" or "it names" (`repo`, `labels`,
+  `skipLabels`, `project`, `epic`, `areaPath`, `board`, `group`, `prefix`),
+  must be one parseConfig knows. A place that isn't source is read from disk,
+  whole, comments and all. This closes part of D-103's "the plugin's skills".
+- Not done here: pinning the other `READ_IN` entries whose `.<key>` also
+  matches unrelated reads in the same file, such as `.repo` in intake.ts, which
+  `gh.repo` would satisfy; the other skills that name config keys.
+
+## D-112 A test check counts what ran; none run, or more skipped, needs a person (2026-10-07)
+
+GH-100. A check that ran nothing looked the same as one that passed:
+PhotoCraft's two worst false greens were a fuzz test nothing ran and GPU tests
+that print "skipping" and pass, and a builder that marks a failing test skip
+to get green is the same failure. acc kept only an exit code and a summary
+line. It extends D-024 (what a receipt proves) and D-031 (waiving).
+
+- **A receipt counts what its tests ran,** where its output holds a summary
+  acc can read: run, passed, failed, skipped and todo, from node:test's spec
+  or TAP reporter, Jest's `Tests:` line (`No tests found` is none), or Apex's
+  `numTestsRun` and `numFailures` in validate's deploy result. `run` is passed
+  plus failed (node's cancelled counts as failed); Apex has no skip or todo.
+  The skipped tests' names are kept where the runner prints them. Counts live
+  in their own `counts` field: `details.tests` already holds the Apex tests a
+  builder named, which `priorTests` reads back.
+- **Every complete summary counts once.** The analysis proposed the last
+  block per runner. A command that runs its tests in parts, such as
+  `npm test --workspaces` or `node --test a && node --test b`, prints one
+  summary per part, and taking the last would undercount, which is the false
+  green this ticket is about. A test's own output can't fake one: node's TAP
+  reporter prints it behind `# `, Jest indents it, and a summary in a
+  failure's message is indented; a block must be unindented and complete
+  (tests, pass, fail, skipped and todo; Jest's `Test Suites:` line just
+  before `Tests:`). What's left is a test that prints a complete, unindented
+  spec summary of a run of its own, which would be added in: an overcount, not
+  a false green.
+- **Output acc can't read is never guessed at.** A test check, one
+  `gates.tests` names, a gate called `test`, Salesforce's `lwc-tests`, or
+  validate when it runs Apex tests, records no counts and a note saying so
+  ("not read"). Counts are read from any gate's output, as the person decided;
+  only a test check gets the note.
+- **A new status, `hold`: "needs a person".** A would-be pass that ran no tests,
+  or skipped more than the count it's compared with, is a hold. Like `fail`
+  it satisfies nothing, so done, review, land and the merge queue all stop,
+  with no change to `satisfies()`'s callers. Unlike `fail` the builder can't
+  fix it by fixing the change, so `acc gate run` tells it to add or un-skip
+  tests, or `acc block` if the task asks for the skip, and the merge queue
+  stops for a person instead of sending the task back. A fail or an error
+  keeps its status. `skip` keeps its meaning: the check didn't apply. Orange,
+  a person icon and the words "needs a person", never colour alone.
+- **What a count is compared with.** The nearest earlier receipt with counts
+  for the same gate and the same command, at or before the branch's merge base
+  with its environment's branch, walking back up to 500 commits from it. Not
+  the tip, which can hold changes the branch doesn't, and never the commit's
+  own receipt, so running a held check again doesn't compare it with itself.
+  With nothing earlier the check isn't held, and its receipt says there was
+  nothing to compare with. Receipts from before this have no counts, so the
+  first counted run of each gate is its baseline. A repo that squashes or
+  rebases loses the ancestry, and always has nothing to compare with.
+- **A person's waiver is a count they accepted.** The waived receipt keeps
+  its counts and the command they came from, and a waiver with counts on the
+  branch's own commits is the first thing compared with.
+- **A person's waiver on the head clears a hold on the queue's merge of that
+  head, counts or not.** When a branch is behind, the merge queue checks a
+  merge commit it makes again on each pass, and asks a person to waive a hold
+  on the head. A builder never runs the full check there, so that waiver
+  usually has no counts, and comparing alone found nothing: the queue merged,
+  held and stopped again on every pass, for good. Now `checkCommit` tells
+  `runGates` the head it merged the base into, and a hold on that merge where a
+  person waived the gate on the head is written as their waiver: a skip, by
+  them, with their reason, naming the head, keeping the merge's counts and the
+  hold it was. It covers a zero-run hold as well as more skipped. Only a hold:
+  a fail or an error on the merge still needs a person, since a waiver holds for
+  its own commit (D-031) and a fail there is a new finding, not the one they
+  accepted. Refresh's merge (D-058) goes through the same `checkCommit`.
+- **Which checks are compared.** The person decided: only those whose test set
+  doesn't depend on the change, "not one acc gives ACC_NEAR_TESTS, not
+  lwc-tests, not validate", so that in this repo `check` is compared in the
+  merge queue. Since D-102 every command gate is given ACC_NEAR_TESTS, so that
+  test no longer tells them apart. The rule is the one the config already
+  holds: a builder's lighter check, one `gates.builder` names that
+  `gates.required` doesn't, isn't compared, nor are the built-in `lwc-tests`
+  and `validate` (`changeBound` on the gate). It gives the decided outcome:
+  `check` is compared, `near-tests` isn't. Those still record counts, and the
+  reviewer catches a new skip in the diff.
+- **The reviewer is told** that a newly added skip, only or todo in a test is
+  a finding that must be fixed unless the task asks for it, and reads each
+  check's counts. acc doesn't scan the diff for them itself.
+- **Shown everywhere a check is:** the pull request's check table gains a
+  Tests column where any check counted ("312 run, 2 skipped"; failed and todo
+  only when there are some; "not read"), the ticket page shows it under each
+  check, and `acc gate run` and `acc gate list` print it. The ticket page's
+  check look moved from the webview's ternaries, where an unknown status fell
+  through to another's icon, into the model, where a test covers every status.
+- Not done here: an empty ACC_NEAR_TESTS
+  list is still a pass with no counts, not a skip; a gate whose output reports
+  failed tests but exits 0 still passes; GitHub's own checks (D-076); and the
+  release-only plugin bundle (D-042), which takes this at the next
+  `npm run package`.
+
+## D-113 Changes that add scratch files, root files, big files or data exports fail a built-in check (2026-10-08)
+
+Agents commit their scratch output. PhotoCraft's main branch got
+`fb-test.log` and `fb-clippy.log` from one agent's pull request and a 1,929-line
+`test.tmp` from another, and a Salesforce project's root often holds client
+data exports. The doctor's B3 steps only look at the root, and only when a
+person runs setup. So `stray-files` checks every change (GH-103).
+
+- **What fails.** A change that adds a log, temp file or merge leftover
+  (`*.log`, `*.tmp`, `*.orig`, `*.rej`, case-insensitive, or `.DS_Store`, by a
+  file's name at any depth); a new file at the repo root (a path with no `/`; a
+  new top-level folder isn't one); or a file whose committed blob is over 1 MB
+  (1,048,576 bytes, from `git cat-file`, so an LFS pointer passes and a dirty
+  tree doesn't matter). In Salesforce, also a data file outside the folders
+  `strayFiles.data` lists. A data file is `.csv`, `.xls`, `.xlsx` or `.eml`
+  (a person decided `.eml` counts): `DATA_EXT` in stray-files.ts, which the
+  doctor's B3.gitignore and B3.data-files now share, so there's one definition
+  of client data. Each file is named with the first rule it breaks, in that
+  order, with the fix: `git rm --cached <file>` and add it to `.gitignore`,
+  or list it under `strayFiles`.
+- **Only what the change adds.** Status `A` in the diff from the merge base
+  that every gate uses (D-024), minus environment-specific files: `Changes`
+  now keeps `added` apart. A file already on the environment's branch never
+  counts, however it's changed. A rename's new path is added, so moving a big
+  file or moving one to the root fails until it's listed. A change that adds
+  nothing records `skip`. A generic repo with no environment branch to compare
+  with records `error`, not a pass on nothing: `GateInput.unknownBase` says
+  why, where runGates used to swallow it.
+- **Allowances** are `strayFiles.allow` (paths or folders, matched as
+  `dispatch.shared` is, no globs) and `strayFiles.data`, beside `secretScan`.
+  Both are repo paths, never absolute or climbing out; `data` warns outside
+  Salesforce. They're project-only: a team template that sets `strayFiles` is
+  refused. They're read from the checked commit's own `.acc/config.json` (a
+  person decided), so a builder's run and the merge queue's give one answer.
+  That means a change can allow its own file. The listing shows in the pull
+  request's diff, where the reviewer (D-032) and the person merging see it;
+  nothing else guards it.
+- **Required by default, everywhere** (a person decided). In both profiles,
+  in a builder's scope and the merge queue's, unless `strayFiles.required` is
+  `false`, as analysis is on by default (D-052). `gates.required` needn't name
+  it: `fullGates(config)` is `gates.required` with stray-files added, and
+  `requiredGates` adds it to `gates.builder` too, since it's cheap and the
+  builder can fix what it finds. Code reads the required list only through
+  those two now. Before, about ten places read `gates.required` directly, and
+  an implicit gate would have been enforced by some (`acc done`, the queue)
+  and invisible to others (the task page, the packet, refresh). A test in
+  config.test.ts pins it: `config.gates.required` is read only in config.ts
+  and in template.ts, where B0.template compares the raw list with a
+  template's. A per-commit waiver (D-031) covers a one-off.
+- **A bare `acc gate run`** in a project that requires nothing but
+  stray-files still runs every gate, as before: the fallback asks whether
+  anything but stray-files is required.
+- **Built in, replaceable.** It's first in `gatesFor` for both profiles, not
+  heavy, and runs only git. A `gates.commands` entry named `stray-files`
+  replaces it, as for the Salesforce built-ins.
+- **On upgrade**, tasks already done or in review have no stray-files
+  receipt, so `acc done`, `acc review` and `acc land` refuse them until
+  `acc gate run`; the merge queue runs it itself. `writeConfig` writes the
+  `strayFiles` defaults into `.acc/config.json` the next time acc saves it, as
+  it does `secretScan`'s.
+- Not done here: flagging files already tracked; editing `.gitignore` or
+  untracking anything (it only reads); globs in allowances; a setting on the
+  Settings page.
+
+## D-114 Every project's rules keep parallel work mergeable, and a burst of merges offers a tidy-up (2026-10-08)
+
+GH-104. GH-94 split this repo's hub files so parallel builders rarely touch the
+same file; the same lesson belongs in what acc tells every project's builders.
+PhotoCraft's agents kept many builders going at once with three rules, and
+showed the cost of nobody tidying: 44 local copies of one helper, and comments
+that contradict other files ("Check Spelling is not implemented"; it is,
+elsewhere).
+
+- **Every project's rules, in every profile** (a person decided). rules.ts's
+  `BASE_RULES` come first in the Rules section, under their own heading, then
+  the profile's: new behaviour in its own file, registered with one line where
+  a list must name every area; if another task's change breaks your build,
+  block with the reason and don't edit its files; write a manifest or config
+  file whole, temp file then rename. Salesforce keeps them too, since
+  package.xml is a manifest; its own rules follow unchanged. Builders,
+  reviewers and analysts all get them, as rulesText always did, and the
+  SessionStart short packet names them in one line. rulesText never returns
+  null now.
+- **The reviewer looks for a duplicated helper**, in every profile, and names
+  both as file:line in the finding's message, since a finding holds one place.
+  It must be fixed when the existing helper is exported (a person decided); a
+  near-copy of a local one is must: false. The plugin's reviewer.md says the
+  same. It's prompt-only: tests pin the words, not the model.
+- **A tidy-up after `tidy.every` merges** (8 by default, 0 for never, whole
+  numbers to 100), per repo ledger. "Since the last tidy-up" means since a
+  person added or skipped one, kept in `<git-common-dir>/acc/tidy.json` and
+  written whole. With none on record, only the newest `every` merged tasks
+  count (a person decided), so a busy repo gets an offer at once and older work
+  isn't swept in. Tasks labelled `tidy-up` don't count, and an open one holds
+  the offer back.
+- **Its scope is the files those merges touched** that still exist on the
+  default environment's branch, fetched first: each task's merge commit against
+  its first parent, else the merge that took its branch in, else its branch
+  against where it left. Append-only, environment-specific and `.acc/` files
+  are left out. 16 of this repo's 44 merged tasks have no recorded merge
+  commit, so a task whose files can't be found is named in the draft with why,
+  never dropped.
+- **Drafted for a person, never created on its own.** Sync and autopilot add
+  nothing; a test runs both over 8 merges. The Overview's blue item (an offer,
+  so not counted in the badge) drafts it through `acc tidy --json` and adds it
+  only on a person's Add task (`acc tidy add`: a manual T-n, labelled
+  `tidy-up`, in To do; no GitHub issue, D-066). Not now (`acc tidy skip`)
+  records a skip with who and when, which resets the count (a person decided)
+  rather than snoozing. Both refuse builders, reviewers and analysts; builders'
+  settings and the PreToolUse hook deny them too.
+- The ledger's `writeAtomic` is exported for tidy.json rather than copied.
+- Not done here: acc finding duplicates itself (a same-name scan or lint); a
+  check that enforces the three rules, such as no non-atomic config writes
+  (writeConfig still writes in place); autopilot dispatching the tidy-up;
+  team templates setting `tidy`.
+
+## D-115 Every command survives junk arguments (2026-10-08)
+
+GH-106. PhotoCraft's `panic_hunt` runs every command in its registry with junk,
+so a new command is covered without anyone remembering it; but it's marked
+ignored, and nothing runs it. acc keeps the first half and not the second: two
+junk tests read the registries and run in `npm run check`, never skipped.
+
+- **The lists are the registries.** acc's is `entryPointsOf(AREAS)`: each
+  command, and each subcommand its group declares in `subcommands` (a person
+  decided subcommands count: before, they lived only in `if (sub === …)`). A
+  command that compares a word it doesn't declare fails the test. The
+  extension's is `contributes.commands`. Each test asserts it called as many as
+  the registry holds.
+- **The junk.** No arguments, empty strings, wrong types, an unknown id, paths
+  outside the repo and `../` ids, every option set to junk, and objects of the
+  wrong shape for the extension. A 1 MB string can't be an argument: macOS caps
+  arguments and environment at 1 MiB together, and Linux one argument at
+  128 KiB. So a person decided acc gets 1 MB on stdin and in files, and 100 KB
+  in arguments; the extension's in-process calls get the full 1 MB.
+- **What passes.** For acc, exit 0, 1 or 2 within 20 seconds; exit 3 fails (a
+  person decided), as it means an error acc didn't expect, such as a raw
+  ENOENT. A failure prints one line, with no stack. A person decided main.ts
+  cuts a message to 300 characters, in both human and `--json` output. Built,
+  that cut `acc done`'s own refusal, about 400 characters, before the exact
+  command a builder must run (D-106's test caught it). So main.ts cuts each
+  word over 200 characters, which is where echoed junk lands, with an
+  ellipsis, and the whole message only past 1,000. For the extension, each
+  call settles within 10 seconds without throwing, with no unhandled
+  rejection.
+- **The sandbox.** Every acc call gets a fresh copy of the repo, so one that
+  succeeds can't change another's start. HOME, TMPDIR, CLAUDE_CONFIG_DIR and
+  acc's machine files point inside it; fake `gh`, `claude` and `sf` fail at
+  once. Home, the template and an OUTSIDE folder, with bait a `../` id would
+  reach, are hashed before and after each command. It runs the built acc,
+  two calls at once, as spawning the source took a second a call; the
+  near-tests gate builds first.
+- **Its cost.** At three calls at once, cli.test.ts ran past its 300-second
+  limit in `npm run check`. So two run at once, cases that overlapped were
+  merged, and the regression tests run in their own file, refusals.test.ts.
+- **What it found.** acc: a file it can't read exited 3 with a raw ENOENT or
+  EISDIR; a folder named as a template or rules file did too; `acc analysis
+  answer ../…` rewrote a JSON file outside the repo; long `--json` output was
+  cut at 8 KB on a pipe, as acc exited before it drained; `acc drift` printed a
+  progress line before refusing; messages echoed a 100 KB id. The extension:
+  30 task and agent commands threw on an object that wasn't a row, and others
+  on nothing; the step commands rejected an unknown step; In progress's Stop
+  threw on `null`; Jira's import threw on a string. Each is fixed, with one
+  test a cause (a person decided), naming every command it covers.
+- **No catch-all in `reg()`.** Wrapping every handler in a try/catch would
+  hide exactly what this test exists to find, so each handler checks what it
+  gets: `nodeArg` drops an object that isn't a row and keeps a string, as some
+  commands take a root.
+- Not done here: the Command Center page's webview messages as an input
+  surface; a real id with junk after it, which needs each command's argument
+  shapes; running outside a git repo; kernel-level write sandboxing.
+
+## D-116 A review finding that keeps coming back is offered as a rule, then as a check (2026-10-08)
+
+GH-102. A rule written only in prose decays; a rule a tool checks holds.
+acc keeps every reviewer verdict, so it can see the same finding turn up in
+task after task and offer the path from finding to rule to check. Before the
+change, nothing read the verdicts across tasks.
+
+- **What it reads.** Every verdict in the clone's reviews folder, for any
+  environment and any task state, through one `readVerdicts` that skips a
+  review under way and any file it can't read. `latestVerdict` uses it too.
+  Only reviewer findings count, not the analyst's, GitHub's checks or the merge
+  queue's send-backs.
+- **How it groups.** By the rule a finding cites, or by close wording where it
+  cites none. A cite loses its source tags (`CLAUDE.md:`, `(CLAUDE.md)`,
+  `Task:`), its parentheticals, and anything after the first `:` or `;`, so a
+  cite joining two rules keeps the first. A cite that starts with a decision id
+  groups by the id. What's left is compared by its words: a finding joins the
+  group whose first finding shares 0.6 of its words (0.5 for wording), oldest
+  first. Wording uses the finding's new optional `kind`, else its first sentence
+  without paths, identifiers, code or numbers. No embeddings and no agent call:
+  the result is the same every time, and a test pins it.
+- **When it offers.** At 3 or more findings across at least 2 tasks, counting a
+  finding once per task and file (decided by a person): a later review of the
+  same task saying it again on the same file isn't a new finding. Both blocking
+  and non-blocking findings count, since only 10 of 282 are must; the card
+  says how many were.
+- **Rule or check** (decided by a person). A rule already written in
+  `.acc/rules.md`, `.acc/rules/`, `CLAUDE.md`, `AGENTS.md`, a decision, or the
+  file the cite names, is offered as a check, with no new line: "Already a rule
+  (CLAUDE.md). It keeps coming back: add a check". One accepted as a rule that
+  comes back 3 more times is offered again as a check.
+- **A person decides, and acc only drafts.** Accept opens a draft of the task
+  (line, title, Ask for a check too, notes); Confirm runs `acc rules accept`,
+  which adds one manual task in To do and records the suggestion as accepted.
+  Dismiss records the findings the group had; it's hidden until 3 more join.
+  Records match a group by its findings, not its id. Both refuse builders,
+  reviewers, analysts and autopilot, and guardBash and the builder's deny list
+  block them (`acc rules suggested` only reads, so a builder may list).
+  Working out the offers writes nothing, and acc never writes `.acc/rules.md`:
+  the task's pull request does, and it changes `.acc/`, which a person merges.
+- **Never in the badge** (decided by a person). An offer is neutral, with an
+  icon and a label (Rule suggested, Check suggested), after the orange items.
+  Nothing waits on it.
+- **The kind of a finding** (decided by a person). The verdict schema gains an
+  optional `kind`, and the reviewer is shown the kinds earlier reviews named,
+  most used first, to reuse. Older verdicts keep working from their first
+  sentence; none is rewritten.
+- **Per clone.** Reviews, offers and records are in the git common directory
+  (D-008), beside reviews and ticket updates: a teammate's clone sees its own.
+- **Proved on this repo's own reviews** (2026-10-08): 82 verdicts, 282
+  findings, 36 citing a rule, 10 must, in 258 groups. It offers one: "Look at
+  UI changes before shipping them", 13 findings in 8 wordings, counted as 12
+  across 10 tasks (2 must), as a check, since it's in CLAUDE.md. It doesn't
+  offer `D-072` (3 findings, all GH-70), "Keep changes to what the task asks"
+  (4 findings, counted as 2: GH-9's and GH-12's reviews repeated it on the
+  same file), or the closest wording group (2 findings, GH-52 and GH-58).
+- Not chosen: acc writing `.acc/rules.md` or building the check; tracker
+  tickets; sharing offers across clones; similarity by embeddings or an agent;
+  counting only must findings; listing suggestions under `acc rules list`,
+  which GH-108 gave to the copies.
+
+## D-117 The UI rules in CLAUDE.md are tests: an icon and a label, theme colours only, no overlaps (2026-10-07)
+
+GH-105. CLAUDE.md asked for an icon and a label on every state, orange against
+blue, and screenshots read before shipping, because the author is colourblind
+and "tests can't see a broken layout". Nothing checked any of it.
+
+- **Every state has an icon and a label** (`extension/test/looks.test.ts`). It
+  walks 23 tables and functions that map a state to how it shows, through every
+  value each takes: 616 states. It fails, naming the table and the state, on an
+  empty label, an icon the codicon font the page ships doesn't draw, or a tone
+  that isn't orange, blue or neutral. A source scan finds every top-level
+  `Record<…, Look>` and function returning a look or a tone in the extension
+  and the page (28), and fails on one neither walked nor in `NOT_TABLES` with
+  why. Every icon name written in a look, an action or the page's `icon()`
+  (432) is checked against codicon.css too.
+- **Task states read core's DISPLAY everywhere**, and the test fails on a table
+  of task states that differs from it or from DESIGN.md. In progress showed
+  rework as a neutral wrench and done as a pass; the task feed showed done in
+  blue. Now `displayLook` serves both, and the feed's look comes with each move
+  from the model. A check's result is a table (`CHECK_LOOK`) in the model, not
+  a ternary in the page. Jira's panels moved to `webview/looks.ts`, which has
+  no DOM, since every other page module reaches the VSCode API as it loads.
+- **A tracker's columns and the ticket's status pill gained an icon**, by
+  status category (`CATEGORY_LOOK`): they had only a name and a coloured edge.
+- **No red against green.** Each tone resolves through the page's styles and
+  Light's and Dark's palettes to a hue; a table with a red and a green state
+  fails. So does any colour the page's styles read that is red or green (774
+  read). That found the one red: a delete button's hover read VSCode's error
+  colour. It reads `--orange` now, and the palettes no longer set
+  errorForeground. Hues come from Light and Dark, so a user's own theme isn't
+  proven.
+- **Colours come from the theme** (`extension/test/colours.test.ts`). It scans
+  every declaration value in the page's stylesheets, but theme.css, and every
+  string in its modules, for hex, rgb(), hsl() and named colours, with file and
+  line. Two exceptions, each with why: mask alpha, and a tracker label's own
+  colour. One that matches nothing fails. --line's last fallback is mixed from
+  the foreground instead of a grey of its own.
+- **The screenshot run checks geometry** (`extension/scripts/geometry.ts`). One
+  Chrome launch writes the PNG and dumps the DOM, where the page wrote what it
+  measured once its fonts loaded and two frames drew, so the run takes no more
+  launches. A pure judge decides, unit-tested on made-up drawings: no two
+  controls overlap, unless one is inside the other or floats in a sticky
+  layer; no text is cut off, and an ellipsis passes only with its whole text in
+  a title or aria-label; the rail's selected tab is in the rail's view; nothing
+  scrolls sideways but a board, a wide table, the rail, code and a doc's table.
+  Each check says how many it examined, a drawing with no controls or no text
+  fails, and a whole run fails below its floors (examined on 41 pages × 2
+  themes × 3 widths: 8760 controls, 27086 texts, 192 selected tabs, 918
+  scrollers). It exits 1 naming page, theme, width and element; the shots are
+  written either way. A planted negative margin on toolbar buttons fails it.
+- **What it found, fixed:** at 620 and 500 px the selected tab of a later
+  section (Environments, Setup, Settings) was past the rail strip's edge in 50
+  drawings; the rail now scrolls it into view after each draw and again once
+  the icon font loads. 34 labels cut with an ellipsis had no title holding
+  them: the dock's run and command, Setup's command and detail lines, the
+  agent page's tool lines, the Overview's inbox and lists, In progress's
+  titles. Each now has one. `GEOMETRY_EXCEPTIONS` is empty.
+- **It stays in `npm run screenshot`**, not `npm run check`: Chrome is slow and
+  not in every gate's slot. The check runs the looks and colours tests and the
+  judge's tests. A webview-only gate is a follow-up. CLAUDE.md says what the
+  checks catch, and that the PNGs still need reading: spacing, alignment and a
+  page that reads badly are beyond them.
+- Not chosen: golden images or pixel diffs; the DevTools protocol; checking the
+  sidebar, tree items and status bar, which draw with VSCode's own icons and
+  colours; contrast ratios.
+
+## D-118 A number that may only get better: acc raises its floor, and only a person relaxes it (2026-10-07)
+
+GH-99. Agents trade quality for speed when nothing stops them. PhotoCraft holds
+its numbers with floors in its test source that may only go up, so a change can
+land partial progress but never a regression, and an agent can't pass a check
+by deleting cases. A person raises those floors by hand, so they lag (620 while
+626 run) and stop guarding the gap. acc can raise them itself.
+
+- **A ratchet is a kind of check.** `gates.ratchets` names its command, whose
+  last line is one number, its limit (`floor`, which may only go up, or
+  `ceiling`, which may only go down) and a label. Its name is a gate's, and
+  can't be another gate's, so it's required, a builder's or heavy like any
+  other. No number, or a command that fails, is `error`, never `pass`.
+- **The floors are committed,** in `.acc/floors.json`, one entry a ratchet, so
+  they travel with branches, a person can read them, and two raises of
+  different ratchets merge as text. The receipt keeps the number, the floor,
+  the environment's floor where the branch began, and the difference; the pull
+  request and the ticket page show `tests 669 → 674 (+5)`.
+- **acc raises a floor in the task's worktree, and nowhere else.** Only `acc
+  gate run`, on the task's own branch in its own worktree, with nothing
+  uncommitted: never an environment's branch, the main checkout, or a refresh's
+  or the merge queue's check, whose worktree must stay clean for the next
+  merge. The raise satisfies nothing until it's committed, so it can't be left
+  behind. The commit that only records it carries its parent's receipts,
+  marked `carried`, when every number in it is one the parent measured and acc
+  raised: a person decided a second full `acc gate run` wasn't worth it.
+- **Only a person relaxes a floor, with a reason, as only a person waives a
+  check (D-031).** A floor worse on the branch than where it began fails unless
+  acc has a person's record of relaxing it, from the floor the branch began
+  at, to that number or a worse one: a floor acc raised again after a person
+  relaxed it is still theirs to back, or the commit recording the raise would
+  fail its own check. A record only counts from the floor it relaxed: records
+  are kept for the clone and never pruned, so one from another task or time,
+  matched on its number alone, would let a builder lower today's floor by
+  hand down to any number a person once relaxed to. `acc gate relax`
+  writes that record, refuses builders and agents, and is denied in builders'
+  settings. The file's own `relaxed` note is for people to read; the record in
+  acc's state is what counts, since a builder can edit the file.
+- **This narrows D-031: a ratchet can't be waived.** A waived ratchet that
+  merged would leave its environment's number below its floor and fail every
+  task after it. `acc gate waive` refuses one and names `acc gate relax`, and
+  the ticket page offers no Waive… beside one.
+- **A floors conflict keeps the better of each, unless a side relaxed one.**
+  Autopilot resolves it in a refresh and in the merge queue alike (D-058,
+  GH-73), and the floors file never makes two tasks wait at dispatch (D-093).
+  Where one side relaxed a floor, keeping the better value would quietly undo
+  what a person chose, so that conflict is left for a person: narrower than
+  "both raised", by design.
+- **This repo's one ratchet is the number of tests `npm test` runs,** required
+  and a builder's, not heavy. Running the whole suite again in every builder's
+  check would undo GH-73's lighter checks, so a person chose a fast counter:
+  `scripts/count-tests.mjs` loads every test file with node:test, each test
+  marked skipped, so no body runs and node:test still counts it. Its test pins
+  it to a full run's own count over a fixture, and it fails rather than count
+  none or count around a file that didn't load. Against `npm test`'s own
+  summary on this branch it counted the same.
+- **The records of who relaxed a floor live in this clone's git directory,** as
+  receipts do. On another clone, a relaxed floor reads as no one's until it's
+  relaxed there too. acc runs on one machine a repo.
+- **A repo turns a ratchet on with an acc that knows them.** An older acc
+  ignores `gates.ratchets` and reads `tests` in `gates.required` as a gate with
+  no command, so it refuses to run the checks. This repo's own config lists
+  one, so the acc that checks and merges this change has to be built from it.
+- Not done here: a Relax floor… button on the ticket page (the CLI only, a
+  person decided), ratchets in team templates, and the Salesforce profile's
+  coverage and Code Analyzer ratchets, which are config a project writes.
+
+## D-119 Stop finished sessions stops only a session whose process still runs (2026-10-08)
+
+D-095 counted a finished background session with no process, still listed as blocked, as one to stop,
+on the belief that `claude stop` clears it. It doesn't. Claude Code answers "couldn't confirm <id> was
+stopped — the background service may be restarting" in under a second, and the session stays listed.
+The author pressed Stop finished on nine such sessions and got all nine back as a wall of reasons.
+
+- **A session counts only while its process runs** (`pid`). One without has nothing to stop: it costs
+  nothing, and stays in its repo's Finished fold. When no session in a fold can be stopped, the fold
+  has no Stop all, and the header has no Stop finished.
+- **A failure is one line.** The notice says how many of how many couldn't be stopped, and the
+  Command Center's log has each one's reason.
+- Not chosen: `claude rm`, which also lists a session as gone. It deletes the session's worktree, and
+  Stop finished promises to keep worktrees.
+
+## D-120 Settings' About shows the versions, says a newer release and an older plugin, and Setup's machine results are kept per version (2026-10-08)
+
+GH-114, the last of GH-109's six tasks. The author asked for a Settings page;
+its About part was to show the versions of acc, the extension and the plugin,
+and say when a newer release is out.
+
+- **Three versions, read fresh, each with where it's read from.** acc's from
+  `acc --version`, run from the bundle the extension runs (the acc on its
+  terminals' PATH is the same bundle); the extension's from its own
+  `package.json`; the plugin's from `claude plugin list --json`, the user-scope
+  install A4 reads. They're read each time Settings is arrived at (the rail,
+  `acc.open.settings`, the tab coming back on screen, the page loading on
+  Settings) and at Settings' Refresh, never on the polls' redraws, so sitting on
+  Settings runs nothing.
+- **One comparison for A4 and About** (D-088). `pluginBehind` in core's
+  onboarding helpers is the only test of "older": `x.y.z` against `x.y.z`, an
+  older plugin only, and nothing for a version it can't read. A4 fails on it
+  against acc's version; About says it in orange against the extension's,
+  which ships the same acc. `userPlugin` reads the list for both. A test runs
+  A4 itself over the same pairs and checks About is orange exactly when A4
+  fails. About's **Update the plugin** (or Install, or Turn on) is Setup's own
+  fix, `acc.step.fix A4.plugin`, which checks again and runs what the check
+  names, in a terminal like any `claude` subcommand.
+- **A newer release, as gh's active account.** The repo is private, so
+  `gh release view --repo jack-huffman/agent-command-center` runs as whoever
+  is signed in to gh, not a project's account; `GH_TOKEN`, `GITHUB_TOKEN` and
+  the enterprise tokens are left out of its environment, since they'd win.
+  It's looked for once when Settings first shows in a session (a window's
+  run of the extension), then when Settings opens, at most every six hours,
+  and whenever **Check now** is clicked. A newer release is orange with a link
+  to its notes on GitHub (only a github.com page is linked); up to date is
+  blue; a look that fails, no release yet, and not looked for yet are
+  neutral. A failed look counts as a look, so a machine offline isn't asked
+  again on every visit; Check now asks at once.
+- **`acc.machineItems` carries the version that checked it.** Startup reused
+  the machine's results for 12 hours whatever had changed, so after an
+  upgrade A4 could pass a plugin the new acc would fail. Saved results now
+  hold the extension's version and are reused only by that version; results
+  saved before this, or with no version read, are checked again.
+- **Nothing here writes** (D-064). The versions and the release are reads,
+  the plugin's update is Setup's fix, and a release installs by hand, as the
+  README says. None of About's values is a project's, so none names one.
+- **Every state has an icon and words,** orange for what needs you, blue for
+  current or under way, neutral for unknown. Light, Dark and Match VSCode drew
+  the same colours on every page the colour check reads, About behind among
+  them (5,350 elements on nine pages).
+- Not chosen: keeping the last release look across sessions, which would skip
+  the first-open look the task asked for; installing a newer release from the
+  page, since the VSIX comes from a private release and the README's steps
+  stand; comparing acc with the extension in orange, since the extension
+  always runs its own bundle and a mismatch only means the window needs a
+  reload, which About says in words.
+
 ## D-??? Slack, each repo's GitHub account and the Command Center's own preferences are in Settings; switching an account is a person's (2026-10-08)
 
 GH-113, the fifth of GH-109's six tasks. It amends D-078, which put Slack's

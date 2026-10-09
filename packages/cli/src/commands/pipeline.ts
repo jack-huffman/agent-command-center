@@ -242,6 +242,7 @@ export const area: CommandArea = {
     plan: { type: 'boolean', default: false },
     'close-done': { type: 'boolean', default: false },
   },
+  subcommands: { analysis: ['answer'] },
   commands: {
     analyze: (o, rest) => {
       if (!rest[0]) throw new AccError('usage', 'acc analyze <id>');

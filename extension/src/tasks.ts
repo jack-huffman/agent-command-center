@@ -29,7 +29,7 @@ class TaskCommands extends Sidebar {
     reg('acc.task.importGithub', (n?: TaskNode) => this.importGithub(n));
     // Jira, connected on the Command Center's Connect page (site, sign-in, project, epic, board), never by editing a file.
     reg('acc.task.importJira', (n?: TaskNode) => {
-      const p = n && 'project' in n ? n.project : this.hub.projects[0];
+      const p = (typeof n === 'object' && n?.project) || this.hub.projects[0];
       if (p?.config.trackers.some((t) => t.kind === 'jira')) return vscode.commands.executeCommand('acc.open.tasks');
       return vscode.commands.executeCommand('acc.trackers.add', { root: p?.root, kind: 'jira' });
     });
@@ -39,8 +39,8 @@ class TaskCommands extends Sidebar {
     reg('acc.task.move', (n: TaskNode) => this.moveTask(n));
     reg('acc.task.block', (n: TaskNode) => this.setState(n, 'blocked'));
     reg('acc.task.unblock', (n: TaskNode) => this.setState(n, 'todo'));
-    reg('acc.task.openTicket', (n: TaskNode) => n.kind === 'task' && n.task.source.url && vscode.env.openExternal(vscode.Uri.parse(n.task.source.url)));
-    reg('acc.task.copyId', (n: TaskNode) => n.kind === 'task' && vscode.env.clipboard.writeText(n.task.id));
+    reg('acc.task.openTicket', (n: TaskNode) => n?.kind === 'task' && n.task.source.url && vscode.env.openExternal(vscode.Uri.parse(n.task.source.url)));
+    reg('acc.task.copyId', (n: TaskNode) => n?.kind === 'task' && vscode.env.clipboard.writeText(n.task.id));
     reg('acc.tasks.refresh', () => this.hub.loadTasks(true));
     reg('acc.task.dispatch', (n: TaskNode) => this.dispatchTask(n));
     reg('acc.task.dispatchAnyway', (n: TaskNode) => this.dispatchAnyway(n));
@@ -55,8 +55,8 @@ class TaskCommands extends Sidebar {
     reg('acc.task.land', (n: TaskNode) => this.landTask(n));
     reg('acc.task.openPr', (n: TaskNode) => n?.kind === 'task' && n.task.pr && vscode.env.openExternal(vscode.Uri.parse(n.task.pr.url)));
     // A terminal is named for the agent it attaches to (D-087).
-    reg('acc.task.attach', (n: TaskNode) => n.kind === 'task' && n.task.run?.bgId && this.send(n.task.run.worktree ?? n.project.root, `claude attach ${n.task.run.bgId}`, `claude: ${displayName(undefined, n.task)}`));
-    reg('acc.task.openWorktree', (n: TaskNode) => n.kind === 'task' && n.task.run?.worktree && vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(n.task.run.worktree), { forceNewWindow: true }));
+    reg('acc.task.attach', (n: TaskNode) => n?.kind === 'task' && n.task.run?.bgId && this.send(n.task.run.worktree ?? n.project.root, `claude attach ${n.task.run.bgId}`, `claude: ${displayName(undefined, n.task)}`));
+    reg('acc.task.openWorktree', (n: TaskNode) => n?.kind === 'task' && n.task.run?.worktree && vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(n.task.run.worktree), { forceNewWindow: true }));
     reg('acc.task.abandon', (n: TaskNode) => this.abandonTask(n));
     reg('acc.task.cleanup', (n: TaskNode) => this.cleanupTask(n));
     reg('acc.task.openInClaude', (n: TaskNode) => {
@@ -124,7 +124,7 @@ class TaskCommands extends Sidebar {
   }
 
   private async showTask(n: TaskNode): Promise<void> {
-    if (n.kind !== 'task') return;
+    if (n?.kind !== 'task') return;
     if (this.openTicket) return this.openTicket(n.project.root, n.task.id);
     const ledger = this.hub.ledger(n.project.root);
     const t = ledger?.tasks.find((x) => x.id === n.task.id);
@@ -166,7 +166,7 @@ class TaskCommands extends Sidebar {
   }
 
   private async moveTask(n: TaskNode): Promise<void> {
-    if (n.kind !== 'task') return;
+    if (n?.kind !== 'task') return;
     const ledger = this.hub.ledger(n.project.root);
     const task = ledger?.tasks.find((t) => t.id === n.task.id);
     if (!ledger || !task) return;
@@ -184,7 +184,7 @@ class TaskCommands extends Sidebar {
   }
 
   private async setState(n: TaskNode, to: State, askReason = to === 'blocked'): Promise<void> {
-    if (n.kind !== 'task') return;
+    if (n?.kind !== 'task') return;
     let reason: string | undefined;
     if (askReason) {
       reason = await vscode.window.showInputBox({ title: `${n.task.id} → ${DISPLAY[to].label}`, prompt: 'Why? This is recorded in the task\'s history.', validateInput: (v) => (v.trim() ? undefined : 'A reason is required.') });
@@ -198,7 +198,7 @@ class TaskCommands extends Sidebar {
    * shown beside the models to weigh the choice by; it picks nothing. A re-dispatch and a resume keep it.
    */
   private async dispatchWith(n: TaskNode): Promise<void> {
-    if (n.kind !== 'task') return;
+    if (n?.kind !== 'task') return;
     const { project, task } = n;
     const verb = task.state === 'rework' ? 'Re-dispatch' : 'Dispatch';
     const pick = await vscode.window.showQuickPick(dispatchModelItems(task, project.agents.builder), { title: `${verb} ${task.id} with which model?`, placeHolder: sizeLine(task) });
@@ -215,7 +215,7 @@ class TaskCommands extends Sidebar {
    * acc dispatch's other arguments, such as the model Dispatch with… picked (D-086).
    */
   private async dispatchTask(n: TaskNode, extra: string[] = [], anyway = false): Promise<void> {
-    if (n.kind !== 'task') return;
+    if (n?.kind !== 'task') return;
     const { project, task } = n;
     if (!anyway && task.state === 'todo' && waitsForFiles(task) && task.files) {
       const q = waitQuestion({ id: task.id, files: task.files });
@@ -261,7 +261,7 @@ class TaskCommands extends Sidebar {
    * `shares`, when acc has just said what it waits for, names the overlap over the board's guess.
    */
   private async dispatchAnyway(n: TaskNode, extra: string[] = [], shares?: { task: string; files: string[] }[]): Promise<void> {
-    if (n.kind !== 'task') return;
+    if (n?.kind !== 'task') return;
     const row = this.hub.taskRows(n.project.root).find((t) => t.id === n.task.id) ?? n.task;
     const q = anywayQuestion(shares?.length ? { id: row.id, files: { shares } } : row);
     const ok = await vscode.window.showWarningMessage(q.message, { modal: true, detail: q.detail }, 'Dispatch anyway');
@@ -270,13 +270,13 @@ class TaskCommands extends Sidebar {
 
   /** It stops waiting for others' files, and stays to do (D-093). */
   private async stopWaiting(n: TaskNode): Promise<void> {
-    if (n.kind !== 'task') return;
+    if (n?.kind !== 'task') return;
     await this.runAcc(n.project, ['dispatch', n.task.id, '--stop-waiting'], () => `${n.task.id} stopped waiting. It stays in Ready, and nothing starts it on its own.`);
   }
 
   /** Stops the task's agent and moves it back to To do. The worktree and its commits are kept. */
   private async abandonTask(n: TaskNode): Promise<void> {
-    if (n.kind !== 'task') return;
+    if (n?.kind !== 'task') return;
     const reason = await vscode.window.showInputBox({ title: `Abandon ${n.task.id}?`, prompt: 'Why? Its agent stops, the task goes back to To do, and the worktree and commits are kept.', validateInput: (v) => (v.trim() ? undefined : 'A reason is required.') });
     if (!reason) return;
     const session = this.hub.agents.find((s) => s.id && s.id === n.task.run?.bgId);
@@ -310,7 +310,7 @@ class TaskCommands extends Sidebar {
   }
 
   private async cleanupTask(n: TaskNode): Promise<void> {
-    if (n.kind !== 'task' || !n.task.run?.worktree) return;
+    if (n?.kind !== 'task' || !n.task.run?.worktree) return;
     const ok = await vscode.window.showWarningMessage(`Clean up ${n.task.id}'s worktree?`, { modal: true, detail: `${n.task.run.worktree}\n\nacc removes it only if nothing would be lost: no uncommitted changes, and every commit already merged.` }, 'Clean up');
     if (ok !== 'Clean up') return;
     const r = await this.acc(['cleanup', n.task.id, '--json'], n.project.root);

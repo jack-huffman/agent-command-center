@@ -13,7 +13,7 @@ import { renderPacket } from '../src/packet.ts';
 import { repoPaths } from '../src/paths.ts';
 import { reviewPrompt } from '../src/review.ts';
 import {
-  importedRules, importRules, parseRulesFile, PROFILE_RULES, renderHeader, RULES_ORDER, rulesDiff, rulesDigest, rulesStatus, rulesText, templateRulesProblem, withoutHeader,
+  BASE_RULES, importedRules, importRules, parseRulesFile, PROFILE_RULES, renderHeader, RULES_ORDER, rulesDiff, rulesDigest, rulesStatus, rulesText, templateRulesProblem, withoutHeader,
 } from '../src/rules.ts';
 import { bad, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, SF_CONFIG, tempDir } from './support.ts';
 
@@ -194,7 +194,9 @@ test('the packet has one Rules section: the profile\'s, then each copy by file n
 
   const generic = rulesText(rulesRepo(GENERIC_CONFIG).repo, 'generic')!;
   assert.ok(!generic.includes('profile\'s rules\n') && !generic.includes('Apex is') && generic.startsWith(RULES_ORDER), 'a generic project has no profile rules');
-  assert.equal(rulesText(makeRepo(), 'generic'), null, 'nothing at all: no section');
+  // Every project's rules come before the profile's, in every profile (GH-104).
+  assert.ok(rules.indexOf('### Every project\'s rules') < rules.indexOf('### The Salesforce profile\'s rules'));
+  assert.equal(rulesText(makeRepo(), 'generic'), [RULES_ORDER, '', '### Every project\'s rules', '', ...BASE_RULES.map((r) => `- ${r}`)].join('\n'), 'with nothing else, every project\'s rules');
 });
 
 test('a source that moves changes nothing for the repo: the packet is the same, and dispatch reads no source', () => {

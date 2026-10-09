@@ -4,7 +4,7 @@
  */
 
 import { type AutopilotRecord, byAutopilot } from '../../../packages/core/src/autopilot-log.ts';
-import type { HistoryRecord } from '../../../packages/core/src/questions.ts';
+import type { HistoryRecord, QuestionOutcome } from '../../../packages/core/src/questions.ts';
 import { isUnder, taskNames } from '../logic/shared.ts';
 import { queueWhy } from '../logic/autopilot.ts';
 import { describePermission, questionsOf } from './questions.ts';
@@ -32,31 +32,40 @@ export interface Decision {
 
 const PAST: Record<string, string> = { 'wants to': 'wanted to', 'has a plan for you to approve': 'had a plan for you to approve', 'has a question for you': 'asked you' };
 
+/** What happened to a question, as History shows it (GH-105). A question's "denied" is OUTCOME_LOOK.decided. */
+export const OUTCOME_LOOK: Record<QuestionOutcome | 'decided', Look> = {
+  allowed: LOOK('You allowed it', 'pass', 'blue'),
+  'allowed-for-session': LOOK('You allowed it for the session', 'check-all', 'blue'),
+  'allowed-for-project': LOOK('You always allow it in this project', 'repo', 'blue'),
+  'allowed-edited': LOOK('You edited the command, and allowed it', 'edit', 'blue'),
+  'allowed-auto-mode': LOOK('You allowed it, and switched it to auto mode', 'sparkle', 'blue'),
+  'allowed-accept-edits': LOOK('You approved the plan, with edits accepted', 'check-all', 'blue'),
+  'denied-stopped': LOOK('You said no, and stopped it', 'debug-stop', 'neutral'),
+  denied: LOOK('You said no', 'circle-slash', 'neutral'),
+  decided: LOOK('You let it decide', 'sparkle', 'neutral'),
+  answered: LOOK('You answered', 'comment', 'blue'),
+  terminal: LOOK('Handed to its own terminal', 'terminal', 'neutral'),
+  'no-window': LOOK('Asked in its own terminal: no Command Center was open for its folder', 'terminal', 'neutral'),
+  'window-closed': LOOK('The Command Center closed, so it asked in its terminal', 'terminal', 'neutral'),
+  'timed-out': LOOK('No answer within the hour, so it asked in its terminal', 'clock', 'neutral'),
+  stopped: LOOK('Answered in its own terminal, or the session stopped', 'debug-stop', 'neutral'),
+};
+
+/** An outcome's look; one a newer acc wrote, which this build doesn't know, shows in its own word. */
+export function outcomeLook(outcome: string, ask: boolean): Look {
+  if (ask && outcome === 'denied') return OUTCOME_LOOK.decided;
+  return outcome !== 'decided' && Object.hasOwn(OUTCOME_LOOK, outcome) ? OUTCOME_LOOK[outcome as QuestionOutcome] : LOOK(outcome, 'question', 'neutral');
+}
+
 export function decisionOf(h: HistoryRecord): Decision {
   const ask = h.tool === 'AskUserQuestion';
   const d = ask ? { icon: 'comment-discussion', title: 'asked you', code: null as string | null, detail: null } : describePermission(h.tool, h.input, h.cwd);
   const asked = Object.entries(PAST).reduce((t, [now, then]) => t.replace(now, then), d.title);
   const questions = ask ? questionsOf(h.input).map((q) => q.question) : [];
   const answers = h.answers ? Object.entries(h.answers).map(([q, a]) => `${q} → ${a}`).join('\n') : null;
-  const look: Record<string, Look> = {
-    allowed: LOOK('You allowed it', 'pass', 'blue'),
-    'allowed-for-session': LOOK('You allowed it for the session', 'check-all', 'blue'),
-    'allowed-for-project': LOOK('You always allow it in this project', 'repo', 'blue'),
-    'allowed-edited': LOOK('You edited the command, and allowed it', 'edit', 'blue'),
-    'allowed-auto-mode': LOOK('You allowed it, and switched it to auto mode', 'sparkle', 'blue'),
-    'allowed-accept-edits': LOOK('You approved the plan, with edits accepted', 'check-all', 'blue'),
-    'denied-stopped': LOOK('You said no, and stopped it', 'debug-stop', 'neutral'),
-    denied: ask ? LOOK('You let it decide', 'sparkle', 'neutral') : LOOK('You said no', 'circle-slash', 'neutral'),
-    answered: LOOK('You answered', 'comment', 'blue'),
-    terminal: LOOK('Handed to its own terminal', 'terminal', 'neutral'),
-    'no-window': LOOK('Asked in its own terminal: no Command Center was open for its folder', 'terminal', 'neutral'),
-    'window-closed': LOOK('The Command Center closed, so it asked in its terminal', 'terminal', 'neutral'),
-    'timed-out': LOOK('No answer within the hour, so it asked in its terminal', 'clock', 'neutral'),
-    stopped: LOOK('Answered in its own terminal, or the session stopped', 'debug-stop', 'neutral'),
-  };
   return {
     id: h.id, at: h.endedAt, askedAt: h.askedAt, sessionId: h.sessionId, icon: d.icon, asked: ask && questions.length ? `asked: ${questions.join(' · ')}` : asked,
-    code: d.code, look: look[h.outcome] ?? LOOK(h.outcome, 'question', 'neutral'),
+    code: d.code, look: outcomeLook(h.outcome, ask),
     detail: answers ?? (h.command ? `Ran instead: ${h.command}` : h.message ? `"${h.message}"` : null),
   };
 }

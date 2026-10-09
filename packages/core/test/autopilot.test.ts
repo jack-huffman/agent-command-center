@@ -32,6 +32,8 @@ type Source = { kind: 'manual' | 'jira'; key: string; url?: string };
 function setup(opts: { state?: State; source?: Source; max?: number; raw?: Record<string, unknown> } = {}) {
   const RAW = {
     ...GENERIC_CONFIG, github: { repo: 'acme/tool', account: 'jordan-kim' }, gates: { required: ['test'], commands: { test: 'true' } },
+    // Its tasks add files at the root; stray-files has its own tests (GH-103).
+    strayFiles: { required: false },
     autonomy: 'review', agents: { max: opts.max ?? 3 }, worktrees: { root: tempDir('worktrees-') }, ...opts.raw,
   };
   const origin = tempDir('origin-');

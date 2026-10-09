@@ -240,7 +240,8 @@ installs the same way, over the old one.
   machine's slots. **Settings → Limits and checks** raises or lowers each, and
   says what a change means in this machine's own numbers.
 - **Readable without colour.** Every state has an icon and a label. Where colour
-  helps, it is orange against blue, never red against green.
+  helps, it is orange against blue, never red against green. Tests check both,
+  and that every colour comes from the theme.
 
 ## Planned layout
 
@@ -314,7 +315,7 @@ npm run check            # type-check, build, run the tests
 npm run acc -- doctor    # run the CLI from source
 ./dist/acc doctor        # run the bundle the last build made
 npm run validate-plugin  # claude plugin validate --strict, on the plugin and the marketplace
-npm run screenshot       # render the editor tabs with sample data, into dist/screenshots/
+npm run screenshot       # render the editor tabs with sample data, into dist/screenshots/, and check their geometry
 npm run set-version -- 0.36.0  # the one way to change the version, everywhere it's written
 npm run package          # check, package the extension into dist/, scan it for personal data, refresh plugin/bin/
 npm run release          # on main, in a terminal: a GitHub Release with the .vsix and its CHANGELOG entry
@@ -354,5 +355,11 @@ lays out no narrower than 500, so a narrower `--width` is refused. Name tabs to
 shoot only those (`npm run screenshot -- agents worktrees`), or pass `--width`,
 `--theme`, `--height` and `--out`. It renders the built webview, so run
 `npm run build` after a change. Set `CHROME` if Chrome isn't found.
+
+Each shot also measures itself, and the run exits 1, naming the page, theme,
+width and element, when two controls overlap, a label is cut off, the selected
+tab is out of the rail's view, or something scrolls sideways that shouldn't. It
+prints how many elements each check examined; a page with none fails. The shots
+are written either way, and still need reading.
 
 Run builds and tests one at a time, under `nice -n 15`.

@@ -12,9 +12,17 @@
 - Run builds and tests one at a time, under `nice -n 15`. Parallel compiles make
   the author's machine stutter.
 - Look at UI changes before shipping them: `npm run build`, then
-  `npm run screenshot`, then read the PNGs in `dist/screenshots/`. Tests can't
-  see a broken layout.
+  `npm run screenshot`, then read the PNGs in `dist/screenshots/`. The run
+  measures every page at 1000, 620 and 500 px, dark and light, and exits 1 when
+  two controls overlap, a label is cut off (an ellipsis needs its full text in a
+  title), the selected tab is out of view, or the page scrolls sideways
+  (`extension/scripts/geometry.ts`). It can't see spacing, alignment or a page
+  that reads badly, so the PNGs still need reading.
 - UI states use an icon and a label. Use orange against blue, never red against
-  green. The author is colourblind.
+  green. The author is colourblind. `extension/test/looks.test.ts` walks every
+  table that shows a state, and fails on a missing label, an icon the codicon
+  font doesn't draw, a red and a green state in one table, or a new table it
+  doesn't walk. `extension/test/colours.test.ts` fails on any colour the page
+  writes outside the theme.
 - Commit as `jack-huffman <jack.huffman17@gmail.com>`. This is set in the repo's
   local git config, so don't change it.

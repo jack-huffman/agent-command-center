@@ -100,6 +100,12 @@ purpose, mark the step done.
   claude plugin update acc@agent-command-center --scope user
   ```
 
+  The Command Center's **Settings → About** shows the versions of acc, the
+  extension and the plugin. It says when the plugin is older than the
+  extension, with the same fix as this step, and when a newer release is out,
+  with a link to its notes. It looks for one as gh's active account, so that
+  account needs read access to the repo.
+
 ### Optional: acc's notices in Slack
 
 For hearing what needs you when you're away from VSCode. Nothing checks this,
@@ -593,7 +599,9 @@ commit.
     account through `gh`, with nothing to type: the page signs in as soon as
     it knows the repo, and lists its labels to tick. To use a GitHub
     Project's columns rather than Open and Closed, give the account Projects
-    access once: `gh auth refresh -s project` while it's the active account.
+    access once. gh refreshes only its active account, so switch to it first
+    and back after: `gh auth switch -u <account>`, then
+    `gh auth refresh -h github.com -s project`, signing in as that account.
     Add `"board": <project number>` to pick a Project, `"repo": "owner/name"`
     for another repo's issues, and `"labels": ["billing"]` for only issues
     with one of those labels. `acc intake github` reads the same place.

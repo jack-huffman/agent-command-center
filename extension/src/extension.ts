@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { Hub } from './hub.ts';
@@ -11,7 +11,7 @@ import { reposInUse } from '../../packages/core/src/repos.ts';
 import { recordRuntime } from '../../packages/core/src/runtime.ts';
 import { AgentPages } from './activity.ts';
 import { AutopilotHost } from './autopilot.ts';
-import { type AgentSession, isWebviewMenuContext, shq } from './logic/shared.ts';
+import { type AgentSession, isWebviewMenuContext, nodeArg, shq } from './logic/shared.ts';
 import { analysisAnswerArgs, followsPullRequests } from './logic/tasks.ts';
 import { CLAUDE_EXTENSION, claudeSessionUri, isSessionId } from './logic/agents.ts';
 import { PACE_SETTING, POLL_KEYS, pollEvery, type PollKey } from './logic/polls.ts';
@@ -26,6 +26,7 @@ import { Runs } from './runs.ts';
 import { accRunner, runFile } from './run.ts';
 import { claudeProjectsDir, savedFolder } from './transcript.ts';
 import { Setup } from './setup.ts';
+import { About } from './about.ts';
 import { Sidebar } from './sidebar.ts';
 import { RepoIdentity } from './identity.ts';
 import { TicketPanels, type UpdateActions } from './ticket.ts';
@@ -151,6 +152,8 @@ export function activate(context: vscode.ExtensionContext): void {
       const env = project?.config.environments.find((e) => e.branch === ref.env);
       return env ? { kind: 'env', project, env } : undefined;
     }
+    // A project's own, such as its tidy-up (GH-104).
+    if (project) return { kind: 'project', project };
     return undefined;
   };
   const resolve = (command: string, ref: Ref): unknown => {
@@ -158,7 +161,7 @@ export function activate(context: vscode.ExtensionContext): void {
     return arg === undefined ? undefined : vscode.commands.executeCommand(command, arg);
   };
   // Commands run from a tab's native context menu get the row's data-vscode-context; turn it into the node.
-  const regNode = (id: string, fn: (...args: any[]) => unknown) => reg(id, (a: unknown, ...rest: unknown[]) => fn(isWebviewMenuContext(a) ? nodeFor(a.accRef as Ref) : a, ...rest));
+  const regNode = (id: string, fn: (...args: any[]) => unknown) => reg(id, (a: unknown, ...rest: unknown[]) => fn(isWebviewMenuContext(a) ? nodeFor(a.accRef as Ref) : nodeArg(a), ...rest));
   /**
    * A person's answer to one of a task's analysis's questions, from either page (D-052). acc records it
    * (D-012): the page never writes the analysis itself. What acc refuses, it says why.
@@ -339,7 +342,18 @@ export function activate(context: vscode.ExtensionContext): void {
     log: (line) => setup.log.warn(line),
     exec,
   });
+  // Settings' About (GH-114): the versions, read fresh, and the latest release, read as gh's active account.
+  const about = new About({
+    // Read once, as Setup has it: it can't change without a window reload.
+    extension: () => setup.version,
+    acc: () => accRunner(accScript)(['--version'], homedir()),
+    run: (cmd, args, env) => runFile(cmd, args, homedir(), env),
+    now: () => Date.now(),
+    changed: () => panels.post(),
+    env: process.env,
+  });
   const panels = new Panels(context, hub, setup, resolve, (visible) => pagePolls(visible), {
+    about,
     connect: { model: () => connect.model(), close: () => connect.close() },
     boards: (root) => trackers.boardStates(root),
     identity: (root) => identity.card(root),
@@ -404,7 +418,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(launcherView, launcher);
   context.subscriptions.push(launcherView.onDidChangeVisibility((e) => {
     if (!e.visible) return;
-    panels.show();
+    panels.open();
     if (vscode.workspace.getConfiguration('agentCommandCenter').get<boolean>('openFromActivityBar', true)) void vscode.commands.executeCommand('workbench.action.closeSidebar');
   }));
   /** Everything the page shows changed: redraw it, and the launcher's counts and badge. */
@@ -421,13 +435,13 @@ export function activate(context: vscode.ExtensionContext): void {
   identity.onDidChange(changed);
   // An edit on a task's page changes what the Overview shows for its update, and whether it offers Post.
   tickets.onDidEdit(changed);
-  reg('acc.open.home', (section?: unknown) => panels.show(typeof section === 'string' ? (section as ViewKind) : undefined));
+  reg('acc.open.home', (section?: unknown) => panels.open(typeof section === 'string' ? (section as ViewKind) : undefined));
   for (const kind of VIEW_KINDS) reg(`acc.open.${kind}`, () => panels.show(kind));
 
 
   // Each area registers its commands, and takes the page's messages that are its own (D-099).
   const parts: Parts = {
-    vscode, hub, setup, runs, panels, tickets, pages, trackers, identity, connect, slack, autopilot, sidebar, accScript,
+    vscode, hub, setup, runs, panels, tickets, pages, trackers, identity, connect, slack, autopilot, sidebar, about, accScript,
     reg, subscribe: (d) => context.subscriptions.push(d), regNode, resolve, accSays, answer, answerAnalysis, updates, showRun,
     receive: (type, fn) => panels.take(type, fn),
   };

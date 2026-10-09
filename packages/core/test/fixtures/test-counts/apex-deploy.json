@@ -1,0 +1,35 @@
+{
+  "status": 1,
+  "result": {
+    "checkOnly": true,
+    "id": "0Af5g00000AbCdE",
+    "numberComponentErrors": 0,
+    "numberComponentsDeployed": 3,
+    "numberComponentsTotal": 3,
+    "numberTestErrors": 4,
+    "numberTestsCompleted": 17,
+    "numberTestsTotal": 21,
+    "runTestsEnabled": true,
+    "status": "Failed",
+    "success": false,
+    "details": {
+      "componentFailures": [],
+      "runTestResult": {
+        "codeCoverage": [],
+        "failures": [
+          { "id": "01p5g00000AaAaA", "message": "System.AssertException: Assertion Failed", "methodName": "premiumEscalates", "name": "CaseRoutingTest", "packageName": "CaseRoutingTest", "stackTrace": "Class.CaseRoutingTest.premiumEscalates: line 41, column 1", "time": "88", "type": "Class" },
+          { "id": "01p5g00000AaAaA", "message": "System.AssertException: Assertion Failed", "methodName": "premiumKeepsOwner", "name": "CaseRoutingTest", "packageName": "CaseRoutingTest", "stackTrace": "Class.CaseRoutingTest.premiumKeepsOwner: line 58, column 1", "time": "61", "type": "Class" },
+          { "id": "01p5g00000BbBbB", "message": "System.DmlException: Insert failed", "methodName": "highGoesFirst", "name": "EscalationRulesTest", "packageName": "EscalationRulesTest", "stackTrace": "Class.EscalationRulesTest.highGoesFirst: line 12, column 1", "time": "40", "type": "Class" },
+          { "id": "01p5g00000BbBbB", "message": "System.DmlException: Insert failed", "methodName": "mediumWaits", "name": "EscalationRulesTest", "packageName": "EscalationRulesTest", "stackTrace": "Class.EscalationRulesTest.mediumWaits: line 30, column 1", "time": "35", "type": "Class" }
+        ],
+        "numFailures": "4",
+        "numTestsRun": "21",
+        "successes": [
+          { "id": "01p5g00000AaAaA", "methodName": "standardStays", "name": "CaseRoutingTest", "time": "52" }
+        ],
+        "totalTime": "2310"
+      }
+    }
+  },
+  "warnings": []
+}

@@ -15,9 +15,10 @@ body[data-view="ticket"] { padding-top: 18px; }
 .openable.crumb-name { color: var(--vscode-textLink-foreground); cursor: pointer; }
 .ticket-title { font-size: 1.65em; line-height: 1.25; margin: 0 0 10px; word-break: break-word; }
 .ticket-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.pill { display: inline-flex; align-items: center; padding: 0 8px; border-radius: 3px; font-size: 0.85em; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; line-height: 1.8; border: 1px solid var(--line); background: var(--card); color: var(--vscode-foreground); }
+.pill { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border-radius: 3px; font-size: 0.85em; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; line-height: 1.8; border: 1px solid var(--line); background: var(--card); color: var(--vscode-foreground); }
 .pill.tone-blue { border-color: var(--blue); color: var(--blue); }
 .pill.tone-orange { border-color: var(--orange); color: var(--orange); }
+.pill .codicon { font-size: 13px; }
 .btn.status-btn { padding: 2px 6px 2px 2px; gap: 4px; background: transparent; }
 .btn.status-btn:hover { background: var(--vscode-toolbar-hoverBackground); }
 .chip-lg { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border-radius: 3px; border: 1px solid var(--line); font-size: 0.92em; color: var(--vscode-descriptionForeground); }
@@ -54,9 +55,15 @@ body[data-view="ticket"] { padding-top: 18px; }
 .clip-inline { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; display: inline-block; }
 .checks { margin-top: 12px; }
 .checks h3 { font-size: 0.93em; margin: 0 0 6px; color: var(--vscode-descriptionForeground); }
-.check { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 4px 8px; align-items: center; padding: 3px 0; }
-.check-waive { padding: 0 6px; }
-.check-sum { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A check: its state and name on one line; its summary and Waive… under them; then what its tests ran (GH-100). */
+.check { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; padding: 4px 0; }
+.check-head { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.check-gate { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.check-sum { grid-column: 1; padding-left: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.check-waive { grid-column: 2; padding: 0 6px; }
+.check-tests { grid-column: 1 / -1; display: flex; gap: 4px; align-items: center; min-width: 0; white-space: nowrap; }
+/* A ratchet's numbers (GH-99): the arrow sits on the line of text it adds to. */
+.check-ratchet .codicon { font-size: 12px; vertical-align: -2px; margin-right: 4px; }
 .side-panel .actions { margin-top: 12px; }
 /* A builder's handoff note (D-106): three labelled parts, each line wrapping, and Make a task beside each
    still-open line, dropping below it where the tab is narrow. */

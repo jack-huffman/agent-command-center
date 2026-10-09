@@ -8,7 +8,7 @@ import { type RepoAgents, type SessionTie, tieSession } from '../../packages/cor
 import { gitIn, makeRepo, tempDir } from '../../packages/core/test/support.ts';
 import { agentLook, commonDirOf, dispatchModelArgs, dispatchModelItems, finishedSession, MODEL_CHOICES, repoRoot, sessionLedger, stopFinishedPlan } from '../src/logic/agents.ts';
 import { sizeLine } from '../src/logic/tasks.ts';
-import { type AgentSession, tildePath } from '../src/logic/shared.ts';
+import { type AgentSession, nodeArg, tildePath } from '../src/logic/shared.ts';
 import { agentsModel, sessionFolders } from '../src/model/agents.ts';
 import { howAgentsRun, settingsKey } from '../src/model/settings.ts';
 import { tasksModel } from '../src/model/tasks.ts';
@@ -167,7 +167,7 @@ test('Stop finished sessions takes background sessions whose work is over, and n
     bg('1'), // its task is done
     bg('2a'), // an earlier run, while its task runs again
     bg('2b'), bg('3'), bg('4'), // the current builders of tasks running, in review and in rework
-    bg('5', { pid: undefined, status: undefined }), // its task is done, its process gone, still listed blocked
+    bg('5', { pid: undefined, status: undefined }), // its task is done, its process gone, still listed blocked: nothing to stop
     bg('6', { state: 'working', status: 'busy' }), // carried on by someone
     bg('7'), // a question waiting in the Command Center
     bg('8', { pid: undefined, status: undefined, state: 'done' }), // ended already
@@ -176,7 +176,7 @@ test('Stop finished sessions takes background sessions whose work is over, and n
     { cwd: '/r', kind: 'interactive', startedAt: 0, sessionId: 'review-4', status: 'busy', pid: 3 }, // a review under way
   ];
   const plan = stopFinishedPlan(sessions, (s) => tieSession(s, repo), (s) => (s.id === 'bg-7' ? 'has a question' : null));
-  assert.deepEqual(plan.map((s) => s.id), ['bg-1', 'bg-2a', 'bg-5']);
+  assert.deepEqual(plan.map((s) => s.id), ['bg-1', 'bg-2a'], 'not bg-5: with no process, claude stop can\'t confirm stopping it');
   assert.deepEqual(stopFinishedPlan(sessions, () => null, () => null), [], 'nothing acc can\'t tie');
 });
 
@@ -357,8 +357,8 @@ test('a finished session reads as Finished and never needs you: not on its row, 
   const page = (h: HubLike, key: string) => agentModel({ hub: h, key, seen: null, entries: [], readable: false, lastAt: null });
   assert.deepEqual(page(tied, 's-38').look, { label: 'Finished', icon: 'check', tone: 'neutral' });
   assert.equal(page(untied, 's-38').look.label, 'Needs you');
-  // Both can be stopped together; its row menu still offers Stop.
-  assert.equal(m.agents.stopFinished, 2);
+  // Only the one whose process still runs is stopped (D-119): the other has nothing left to stop.
+  assert.equal(m.agents.stopFinished, 1);
   assert.equal(was.agents.stopFinished, 0);
   assert.ok(menuFor('acc.home', { webviewSection: 'agent', agentBackground: row('s-4').background }).includes('acc.agent.stop'));
 });
@@ -482,7 +482,7 @@ test('under its repo, each task heads its agents, those needing you first, then 
   assert.deepEqual(other!.agents.map((a) => [a.label, a.task]), [['acme-dev', null]], 'by its own name');
   // Its done task's builder, folded away, naming its task since no task line heads it.
   assert.deepEqual(acme.finished.map((a) => [a.key, a.label, a.task, a.look.label]), [['s3', 'builder', { key: 'AC-3', title: 'Old work' }, 'Finished']]);
-  assert.equal(acme.stopFinished, 1, 'Stop all stops it');
+  assert.equal(acme.stopFinished, 0, 'its process is gone, so Stop all has nothing to stop (D-119)');
   // A task elsewhere: its title from its repo's ledger, and no page here to open.
   const billing = agentsModel(busyMachine()).repos[2]!;
   assert.deepEqual(billing.tasks.map((t) => [t.key, t.title, t.project]), [['BL-7', 'Invoice export', null]]);
@@ -553,4 +553,23 @@ test('Stop all stops one repo\'s finished sessions: the command takes the repo t
     assert.equal(inIt.length, r.sessions, r.label);
   }
   assert.ok(isFromWebview({ type: 'toolbar', command: 'acc.agents.stopFinished', arg: '/Users/me/clients/Billing' }), 'the page may ask for it with a repo');
+});
+
+test('a node command gets a node of the right shape, its own string, or nothing (GH-106)', () => {
+  // Given an object that isn't a row, such as { kind: 'task' }, each of these read a field it lacked and threw:
+  // acc.agent.attach, logs, openFolder, openInClaude, stop, watch; acc.task.abandon, analyze, attach, block,
+  // cleanup, copyId, dispatch, dispatchAnyway, dispatchWith, land, move, openInClaude, openPacket, openPr,
+  // openTicket, openWorktree, resume, review, show, stopWaiting, unblock, watch, watchAnalysis, watchReview.
+  // Given nothing or null, these read n.kind and threw, until it became n?.kind: acc.agent.openFolder;
+  // acc.env.openOrg, openGithub, copyBranch, compare; acc.task.openTicket, copyId, attach, openWorktree and the
+  // task methods behind them; acc.worktree.open, terminal, reveal, remove.
+  const project = { root: '/repo', config: { environments: [] } };
+  const task = { kind: 'task', project, task: { id: 'T-1', source: { kind: 'manual' } } };
+  const nodes = [task, { kind: 'project', project }, { kind: 'group', project, group: 'ready', tasks: [] }, { kind: 'place', label: 'x', root: null, sessions: [] }, { kind: 'agent', session: { cwd: '/repo' }, project }, { kind: 'worktree', project, worktree: { path: '/repo/w' } }, { kind: 'env', project, env: { branch: 'main' } }];
+  for (const n of nodes) assert.equal(nodeArg(n), n, n.kind);
+  // A root or an id still reaches the commands that take one, as acc.agents.autonomy(root) does.
+  for (const v of [undefined, '/repo', 'builder|/repo', 0]) assert.equal(nodeArg(v), v);
+  for (const junk of [null, {}, [], { kind: 'task' }, { kind: 'task', project }, { kind: 'task', project: '/repo', task: { id: 'T-1' } }, { kind: 'agent', session: null }, { kind: 'env', project, env: {} }, { kind: 'worktree', project: {}, worktree: { path: '/w' } }, { kind: 'nope', project }, { root: '/outside' }]) {
+    assert.equal(nodeArg(junk), undefined, JSON.stringify(junk));
+  }
 });

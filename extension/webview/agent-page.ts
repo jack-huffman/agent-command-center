@@ -14,7 +14,7 @@ function toolEntry(e: Extract<EntryView, { k: 'tool' }>): HTMLElement {
   // Done is the usual case and needs no mark; running and failed say so, in words for screen readers.
   const mark = e.status === 'done' ? null : status({ label: look.label, icon: look.icon, tone: look.tone as Look['tone'] });
   const more = !!(e.code?.includes('\n') || e.result || (e.code && e.code.length > 80));
-  const line = (...lead: Child[]) => [...lead, icon(e.icon), el('span', 'tool-title', e.title), e.code && !e.code.includes('\n') ? el('code', 'tool-code', e.code) : null, el('span', 'spacer'), mark];
+  const line = (...lead: Child[]) => [...lead, icon(e.icon), titled(el('span', 'tool-title', e.title), e.title), e.code && !e.code.includes('\n') ? titled(el('code', 'tool-code', e.code), e.code) : null, el('span', 'spacer'), mark];
   if (!more) return el('li', `entry tool static${e.status === 'error' ? ' failed' : ''}`, el('div', 'tool-line', ...line(el('span', 'tool-chev'))));
   const summary = el('summary', 'tool-line', ...line(el('span', 'tool-chev', icon('chevron-right'))));
   const details = el('details', 'tool-details', summary,
@@ -84,7 +84,7 @@ export function renderAgent(m: AgentModel): Node[] {
       const loud = e.items.filter((t) => t.status !== 'done');
       if (e === lastSteps || e.items.length <= 2) { for (const t of e.items) list.append(toolEntry(t)); continue; }
       const d = el('details', 'steps-details', el('summary', 'tool-line', el('span', 'tool-chev', icon('chevron-right')), icon('list-flat'),
-        el('span', 'tool-title', stepsSummary(e.items)), el('span', 'spacer'), loud.length ? status({ label: loud.some((t) => t.status === 'error') ? `${loud.length} failed` : 'Running', icon: loud.some((t) => t.status === 'error') ? 'warning' : 'sync~spin', tone: loud.some((t) => t.status === 'error') ? 'orange' : 'blue' }) : null)) as HTMLDetailsElement;
+        titled(el('span', 'tool-title', stepsSummary(e.items)), stepsSummary(e.items)), el('span', 'spacer'), loud.length ? status({ label: loud.some((t) => t.status === 'error') ? `${loud.length} failed` : 'Running', icon: loud.some((t) => t.status === 'error') ? 'warning' : 'sync~spin', tone: loud.some((t) => t.status === 'error') ? 'orange' : 'blue' }) : null)) as HTMLDetailsElement;
       d.open = memory().opened.includes(e.id);
       d.addEventListener('toggle', () => remember((x) => { x.opened = d.open ? [...new Set([...x.opened, e.id])] : x.opened.filter((y) => y !== e.id); }));
       d.addEventListener('toggle', () => { if (d.open && !d.querySelector('ol')) d.append(el('ol', 'steps-list', ...e.items.map(toolEntry))); });

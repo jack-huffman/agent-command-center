@@ -21,6 +21,7 @@ import { type QuestionCard, questionCards } from './questions.ts';
 import { runCard, type RunCard, type RunInput } from './runs.ts';
 import { limitsModel } from './limits.ts';
 import type { Pace } from '../logic/polls.ts';
+import { type AboutFacts, aboutModel } from './about.ts';
 import { type OpensOn, settingsModel, type SettingsModel, type ThemeChoice } from './settings.ts';
 import { setupModel, type SetupModel } from './setup.ts';
 import { type Action, type HomeSection, type HubLike, LOOK, nameOf, type ProjectLike, type Ref, sessionKey } from './shared.ts';
@@ -88,6 +89,8 @@ export interface HomeInput {
   /** How often it refreshes on screen, kept on this machine, and the section it opens on in this window (GH-113). */
   pace?: Pace;
   opensOn?: OpensOn;
+  /** What Settings' About has read: the versions and the latest release (GH-114). */
+  about?: AboutFacts | null;
 }
 
 /** What homeModel has worked out, for each area's part of the page. Areas add to attention and ready as they go. */
@@ -143,6 +146,7 @@ export function homeModel(i: HomeInput): HomeModel {
   const settings = settingsModel({
     theme: i.theme ?? 'vscode', projects: hub.projects, setup: i.setup.items, limits: limits ? limitsModel(limits, billingLook(i.setup.items)) : null, boards: i.boards,
     slack: i.slack ?? null, identity: i.identity, opensOn: i.opensOn, whereView: i.whereView, pace: i.pace,
+    about: i.about ? aboutModel(i.about, i.now ?? Date.now()) : null,
   });
   const questions = questionCards(hub);
   const asked = new Set(questions.map((q) => q.sessionId));

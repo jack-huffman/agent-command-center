@@ -1,8 +1,9 @@
-// The Settings section (GH-109): Appearance, How agents run (GH-110), Limits and checks (GH-111), then a part
+// The Settings section (GH-109): Appearance, How agents run (GH-110), Limits and checks (GH-111), About (GH-114), then a part
 // for each area that will gather its settings here, each saying where its settings live until then, with a way there.
 
 import type { AgentRunProject, GithubAccountSetting, PagePreference, SettingFrom, SettingsAction, SettingsLink, SettingsModel, SettingsPartModel, TrackerProject, TrackerSetting } from '../src/model/settings.ts';
 import { argButton, button, el, header, icon, segmented, status, toolbarButton } from './dom.ts';
+import { renderAbout } from './about.ts';
 import { renderLimits } from './limits.ts';
 import { slackCardView } from './slack.ts';
 import { api, go, type PageArea } from './state.ts';
@@ -191,7 +192,7 @@ function today(p: SettingsPartModel): HTMLElement {
 }
 
 export function renderSettings(m: SettingsModel): Node[] {
-  const out: Node[] = [header('Settings', 'How the Command Center looks and behaves on this machine, how agents run in each project and the limits they run under, each project\'s trackers and GitHub account, and notices in Slack. A part not here yet says where its settings are.')];
+  const out: Node[] = [header('Settings', 'How the Command Center looks and behaves on this machine, how agents run in each project and the limits they run under, each project\'s trackers and GitHub account, notices in Slack, and the versions installed.')];
   for (const p of m.parts) {
     // Its heading is where another page opens Settings at this part.
     const h = el('h2', '', icon(p.icon), p.title);
@@ -207,6 +208,7 @@ export function renderSettings(m: SettingsModel): Node[] {
     if (p.id === 'slack') part.append(...slackPart(m));
     if (p.id === 'github') part.append(...githubPart(m));
     if (p.id === 'page') part.append(...pagePart(m));
+    if (p.id === 'about') part.append(...renderAbout(m.about));
     if (p.built && p.details.length) part.append(...p.details.map((d) => el('p', 'muted small settings-note', d)));
     if (p.built && p.links.length) part.append(el('div', 'actions settings-links', ...p.links.map(linkButton)));
     if (!p.built) part.append(today(p));

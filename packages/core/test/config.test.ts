@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { autoMergeFor, autoMergeOn, branchFor, builderGatesFor, CONFIG_KEYS, defaultEnvironment, keyShown, loadConfig, parseConfig, requiredGates, saveTracker, skippedOnRoute, trackerForKey, UNREAD_KEYS, VALIDATOR_ONLY, withTracker, writeConfig } from '../src/config.ts';
+import { autoMergeFor, autoMergeOn, branchFor, builderGatesFor, CONFIG_KEYS, defaultEnvironment, fullGates, isTestGate, keyShown, loadConfig, parseConfig, requiredGates, saveTracker, skippedOnRoute, TIDY_EVERY, tidyEvery, trackerForKey, UNREAD_KEYS, VALIDATOR_ONLY, withTracker, writeConfig } from '../src/config.ts';
+import { parseFloors } from '../src/ratchets.ts';
 import { GENERIC_CONFIG, SF_CONFIG, tempDir } from './support.ts';
 
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x));
@@ -159,20 +160,112 @@ test('this repo lists its decision log as append-only, and lets autopilot merge 
   assert.equal(config.autonomy, 'review');
   assert.equal(autoMergeFor(config, 'main'), true);
   // Its builders run the typecheck and the tests near what they changed; the full check runs in the merge queue (GH-73).
-  assert.deepEqual([config.gates.builder, config.gates.required, requiredGates(config, 'main', 'builder')], [['typecheck', 'near-tests'], ['check'], ['typecheck', 'near-tests']]);
+  // Both count the tests npm test runs, a number that may only go up, and quickly enough not to be heavy (GH-99),
+  // and both have stray-files, which its config doesn't name (GH-103).
+  assert.deepEqual([config.gates.builder, config.gates.required, requiredGates(config, 'main', 'builder'), requiredGates(config, 'main', 'merge')], [['typecheck', 'near-tests', 'tests'], ['check', 'tests'], ['typecheck', 'near-tests', 'tests', 'stray-files'], ['check', 'tests', 'stray-files']]);
   assert.deepEqual(Object.keys(config.gates.commands).sort(), ['check', 'near-tests', 'typecheck']);
+  assert.deepEqual(config.gates.ratchets, { tests: { command: 'node --no-warnings scripts/count-tests.mjs', limit: 'floor', label: 'tests' } });
+  assert.ok(!config.gates.heavy.includes('tests'));
+  const floors = parseFloors(readFileSync(join(import.meta.dirname, '..', '..', '..', '.acc', 'floors.json'), 'utf8'));
+  assert.ok(floors && Object.keys(floors).length === 1 && (floors.tests?.floor ?? 0) > 0, 'its floors file holds the one floor, measured');
+  // Its full check and the tests near a change run tests, so their receipts count what ran (GH-100); the typecheck doesn't.
+  assert.deepEqual(['check', 'near-tests', 'typecheck'].map((g) => isTestGate(config, g)), [true, true, false]);
 });
 
 test('gates.builder: a list of gate names, kept as written, for builders only where the merge queue runs the full check (GH-73)', () => {
   const raw = { ...clone(GENERIC_CONFIG), autonomy: 'review', autopilot: { autoMerge: true }, gates: { required: ['check'], builder: ['typecheck'], commands: { check: 'npm run check', typecheck: 'tsc' } } };
   const c = parseConfig(raw).config!;
-  assert.deepEqual([c.gates.builder, builderGatesFor(c, 'main'), requiredGates(c, 'main', 'builder'), requiredGates(c, 'main', 'merge')], [['typecheck'], true, ['typecheck'], ['check']]);
+  assert.deepEqual([c.gates.builder, builderGatesFor(c, 'main'), requiredGates(c, 'main', 'builder'), requiredGates(c, 'main', 'merge')], [['typecheck'], true, ['typecheck', 'stray-files'], ['check', 'stray-files']]);
   assert.equal(parseConfig({ ...clone(GENERIC_CONFIG) }).config!.gates.builder, undefined, 'left out: builders run the required checks');
   assert.match(errorsOf({ ...raw, gates: { ...raw.gates, builder: 'typecheck' } }), /"gates\.builder" must be a list of gate names/);
   assert.match(errorsOf({ ...raw, gates: { ...raw.gates, builder: [''] } }), /"gates\.builder" must be a list of gate names/);
   const dir = tempDir();
   writeConfig(join(dir, 'config.json'), c);
   assert.deepEqual(loadConfig(join(dir, 'config.json')).config.gates.builder, ['typecheck'], 'written back as it was');
+});
+
+test('gates.ratchets: a command, which way its number may go, and a short label; a name of its own, and written back as it was (GH-99)', () => {
+  const tests = { command: 'node scripts/count-tests.mjs', limit: 'floor', label: 'tests' };
+  const raw = { ...clone(GENERIC_CONFIG), gates: { required: ['tests'], commands: { check: 'npm run check' }, ratchets: { tests, violations: { command: 'sf code-analyzer run', limit: 'ceiling', label: ' violations ' } } } };
+  const c = parseConfig(raw).config!;
+  assert.deepEqual(c.gates.ratchets, { tests, violations: { command: 'sf code-analyzer run', limit: 'ceiling', label: 'violations' } });
+  assert.equal(parseConfig({ ...clone(GENERIC_CONFIG) }).config!.gates.ratchets, undefined, 'left out: none, and none written');
+  const bad = (ratchets: unknown) => errorsOf({ ...raw, gates: { ...raw.gates, ratchets } });
+  assert.match(bad([]), /"gates\.ratchets" must map names to \{ "command", "limit", "label" \}/);
+  assert.match(bad({ tests: { ...tests, limit: 'up' } }), /"gates\.ratchets\.tests\.limit" must be "floor" \(the number may only go up\) or "ceiling" \(it may only go down\)/);
+  assert.match(bad({ tests: { ...tests, command: ' ' } }), /"gates\.ratchets\.tests" needs "command": one whose last line of output is the number/);
+  assert.match(bad({ tests: { ...tests, label: '' } }), /"gates\.ratchets\.tests\.label" must be a short name/);
+  assert.match(bad({ tests: { ...tests, label: 'the number of tests npm test runs' } }), /up to 24 characters/);
+  assert.match(bad({ 'no spaces': tests }), /a ratchet's name is letters, digits/);
+  assert.match(bad({ check: tests }), /"gates\.ratchets\.check": check is already a gate in "gates\.commands"\. Give the ratchet a name of its own\./);
+  assert.match(errorsOf({ ...clone(SF_CONFIG), gates: { ratchets: { validate: tests } } }), /"gates\.ratchets\.validate": validate is already a gate, built into the salesforce profile/);
+  assert.match(parseConfig({ ...raw, gates: { ratchets: { tests: { ...tests, extra: 1 } } } }).warnings.join(), /Unknown key "gates\.ratchets\.tests\.extra" is ignored/);
+  const dir = tempDir();
+  writeConfig(join(dir, 'config.json'), c);
+  assert.deepEqual(loadConfig(join(dir, 'config.json')).config.gates, c.gates, 'written back as it was');
+});
+
+test('gates.tests: a list of gate names whose receipts count the tests they ran, besides test and Salesforce\'s lwc-tests (GH-100)', () => {
+  const raw = { ...clone(GENERIC_CONFIG), gates: { required: ['check'], tests: ['check'], commands: { check: 'npm run check', test: 'npm test', lint: 'eslint .' } } };
+  const c = parseConfig(raw).config!;
+  assert.deepEqual(c.gates.tests, ['check']);
+  assert.deepEqual(['check', 'test', 'lint', 'lwc-tests'].map((g) => isTestGate(c, g)), [true, true, false, false]);
+  assert.equal(isTestGate(parseConfig(clone(SF_CONFIG)).config!, 'lwc-tests'), true, 'Salesforce\'s Jest gate runs tests');
+  assert.equal(parseConfig(clone(GENERIC_CONFIG)).config!.gates.tests, undefined, 'left out, only those acc knows');
+  for (const bad of ['check', [''], [1], {}]) assert.match(errorsOf({ ...raw, gates: { ...raw.gates, tests: bad } }), /"gates\.tests" must be a list of gate names/, JSON.stringify(bad));
+  const dir = tempDir();
+  writeConfig(join(dir, 'config.json'), c);
+  assert.deepEqual(loadConfig(join(dir, 'config.json')).config.gates.tests, ['check'], 'written back as it was');
+});
+
+test('stray-files is required in both profiles and both scopes with nothing set, and strayFiles.required: false turns it off (GH-103)', () => {
+  const lighter = { autonomy: 'review', autopilot: { autoMerge: true }, gates: { required: ['check'], builder: ['typecheck'], commands: { check: 'x', typecheck: 'y' } } };
+  for (const raw of [clone(GENERIC_CONFIG), { ...clone(GENERIC_CONFIG), ...lighter }, clone(SF_CONFIG)]) {
+    const c = parseConfig(raw).config!;
+    const env = defaultEnvironment(c).branch;
+    assert.deepEqual(c.strayFiles, { required: true, allow: [], data: [] });
+    assert.ok(requiredGates(c, env, 'builder').includes('stray-files'), `${c.profile} builder`);
+    assert.ok(requiredGates(c, env, 'merge').includes('stray-files'), `${c.profile} merge`);
+    assert.ok(fullGates(c).includes('stray-files'));
+    const off = parseConfig({ ...raw, strayFiles: { required: false } }).config!;
+    assert.ok(![...requiredGates(off, env, 'builder'), ...requiredGates(off, env, 'merge'), ...fullGates(off)].includes('stray-files'), `${c.profile} off`);
+  }
+  assert.deepEqual(fullGates(parseConfig(clone(SF_CONFIG)).config!), ['format', 'validate', 'stray-files'], 'after the ones the project names');
+  assert.deepEqual(fullGates(parseConfig({ ...clone(GENERIC_CONFIG), gates: { required: ['stray-files', 'check'] } }).config!), ['stray-files', 'check'], 'named once');
+});
+
+test('strayFiles: allow and data are repo paths, required a boolean, data a warning outside Salesforce, and a team template can\'t set it (GH-103)', () => {
+  const sf = parseConfig({ ...clone(SF_CONFIG), strayFiles: { allow: ['LICENSE', 'fixtures/'], data: ['data/samples'] } });
+  assert.deepEqual([sf.errors, sf.warnings, sf.config!.strayFiles], [[], [], { required: true, allow: ['LICENSE', 'fixtures/'], data: ['data/samples'] }]);
+  assert.match(errorsOf({ ...clone(GENERIC_CONFIG), strayFiles: { allow: ['/etc/passwd'] } }), /"strayFiles\.allow" must be a list of paths inside the repo/);
+  assert.match(errorsOf({ ...clone(GENERIC_CONFIG), strayFiles: { allow: ['../x'] } }), /"strayFiles\.allow" must be a list of paths inside the repo/);
+  assert.match(errorsOf({ ...clone(SF_CONFIG), strayFiles: { data: 'exports' } }), /"strayFiles\.data" must be a list of folders inside the repo/);
+  assert.match(errorsOf({ ...clone(GENERIC_CONFIG), strayFiles: { required: 'no' } }), /"strayFiles\.required" must be true or false/);
+  assert.match(errorsOf({ ...clone(GENERIC_CONFIG), strayFiles: ['LICENSE'] }), /"strayFiles" must be an object/);
+  const generic = parseConfig({ ...clone(GENERIC_CONFIG), strayFiles: { data: ['exports'] } });
+  assert.deepEqual([generic.errors, generic.warnings], [[], ['"strayFiles.data" applies only to a Salesforce project, so it\'s ignored.']]);
+});
+
+test('code reads the required checks through fullGates and requiredGates, never gates.required itself, but where a template is compared with what the project sets (GH-103)', () => {
+  const root = join(import.meta.dirname, '..', '..', '..');
+  const files: string[] = [];
+  const walk = (rel: string) => {
+    for (const e of readdirSync(join(root, rel), { withFileTypes: true })) {
+      const r = `${rel}/${e.name}`;
+      if (e.isDirectory()) walk(r);
+      else if (/\.ts$/.test(e.name)) files.push(r);
+    }
+  };
+  for (const pkg of readdirSync(join(root, 'packages'))) walk(`packages/${pkg}/src`);
+  walk('extension/src');
+  assert.ok(files.length > 50, `${files.length} files scanned`);
+  // fullGates's own read, and the exceptions, with how far each reaches: in template.ts, B0.template's
+  // comparison of the project's raw list with a template's, where stray-files would always differ, and the
+  // template's own list as it's shown; and Settings' picker for the required checks, which edits the
+  // project's own list (GH-111).
+  const EXCEPTIONS: Record<string, number> = { 'packages/core/src/config.ts': 1, 'packages/core/src/template.ts': 2, 'extension/src/limits.ts': 1 };
+  const reads = (f: string) => readFileSync(join(root, f), 'utf8').split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l) && /\.gates\.required\b/.test(l)).length;
+  assert.deepEqual(Object.fromEntries(files.map((f) => [f, reads(f)]).filter(([, n]) => n)), EXCEPTIONS);
 });
 
 test('autopilot.autoMerge: off unless it\'s true, a boolean, never in a Salesforce project, and never into a protected environment (GH-67)', () => {
@@ -197,6 +290,29 @@ test('autopilot.autoMerge: off unless it\'s true, a boolean, never in a Salesfor
   const dir = tempDir();
   writeConfig(join(dir, 'config.json'), on.config!);
   assert.deepEqual(loadConfig(join(dir, 'config.json')).config.autopilot, { appendOnly: [], autoMerge: true }, 'written back as it was');
+});
+
+test('tidy.every: left out, 8; a whole number from 0 to 100, or an error; it round-trips (GH-104)', () => {
+  const plain = parseConfig(clone(GENERIC_CONFIG));
+  assert.deepEqual([plain.config!.tidy, tidyEvery(plain.config!), TIDY_EVERY], [undefined, 8, 8]);
+  assert.doesNotMatch(JSON.stringify(plain.config), /tidy/, 'writeConfig adds nothing to a config that didn\'t say');
+  assert.equal(tidyEvery(parseConfig({ ...clone(GENERIC_CONFIG), tidy: {} }).config!), 8);
+  for (const every of [0, 3, 100]) {
+    const r = parseConfig({ ...clone(GENERIC_CONFIG), tidy: { every } });
+    assert.deepEqual([r.errors, r.warnings, tidyEvery(r.config!)], [[], [], every]);
+  }
+  let refused = 0;
+  for (const every of [-1, 101, 2.5, 'x', null, true]) {
+    assert.match(errorsOf({ ...clone(GENERIC_CONFIG), tidy: { every } }), /"tidy\.every" must be a whole number from 0 to 100: how many tasks merge before a tidy-up is offered, or 0 for never\./, JSON.stringify(every));
+    refused++;
+  }
+  assert.equal(refused, 6);
+  assert.match(errorsOf({ ...clone(GENERIC_CONFIG), tidy: 8 }), /"tidy" must be an object, such as \{ "every": 8 \}\./);
+  assert.deepEqual(parseConfig({ ...clone(GENERIC_CONFIG), tidy: { every: 3, often: 1 } }).warnings, ['Unknown key "tidy.often" is ignored.']);
+  const set = parseConfig({ ...clone(GENERIC_CONFIG), tidy: { every: 5 } }).config!;
+  const file = join(tempDir(), '.acc', 'config.json');
+  writeConfig(file, set);
+  assert.deepEqual(loadConfig(file).config.tidy, { every: 5 }, 'written back as it was');
 });
 
 test('loadConfig explains a missing or broken file', () => {
@@ -393,11 +509,15 @@ const EVERY_KEY = {
   },
   autonomy: 'review',
   worktrees: { root: '.claude/worktrees', setup: ['npm ci'] },
-  gates: { required: ['check'], commands: { check: 'npm run check', typecheck: 'npm run typecheck' }, heavy: ['check'], severity: 3, builder: ['typecheck'] },
+  gates: { required: ['check'], commands: { check: 'npm run check', typecheck: 'npm run typecheck' }, heavy: ['check'], severity: 3, builder: ['typecheck'], tests: ['check'],
+    ratchets: { tests: { command: 'node scripts/count-tests.mjs', limit: 'floor', label: 'tests' } } },
   secretScan: { paths: ['.'], exclude: ['fixtures'] },
+  // A generic project's data folders are ignored, with a warning when it names any.
+  strayFiles: { required: true, allow: ['LICENSE', 'fixtures'], data: [] },
   analysis: { required: true },
   autopilot: { appendOnly: ['docs/DECISIONS.md'], autoMerge: true },
   dispatch: { shared: ['README.md'] },
+  tidy: { every: 12 },
   template: { name: 'Acme', source: '~/templates/acme.json', digest: `sha256:${'a'.repeat(64)}` },
 };
 

@@ -2,16 +2,19 @@
 // keys are tested without a VSCode window. Run after npm run build.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import Module, { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { COMMANDS } from '../src/logic/setup.ts';
 import { makeRepo } from '../../packages/core/test/support.ts';
+import { activate, fakeVscode, until } from './vscode.ts';
 
 const dist = fileURLToPath(new URL('../dist/extension.js', import.meta.url));
+/** The extension's folder, as VSCode gives it: its package.json, media/ and dist/. */
+const extDir = join(dist, '..', '..');
+
 // The extension says it's listening for agents' questions (D-030); keep that out of the real ~/.acc.
 process.env.ACC_QUESTIONS_DIR = mkdtempSync(join(tmpdir(), 'acc-questions-'));
 // It records its runtime for acc's launcher (D-077); that goes here too, not in the real ~/.acc.
@@ -25,134 +28,23 @@ process.env.ACC_REPOS_FILE = REPOS_FILE;
 // And this machine's limits (GH-111): its total and slots, and the repos it counts, which Settings reads and changes.
 const MACHINE_FILE = join(mkdtempSync(join(tmpdir(), 'acc-machine-')), 'machine.json');
 process.env.ACC_MACHINE_FILE = MACHINE_FILE;
+// About's two looks (GH-114) answered here, so opening Settings stays offline: gh release view and claude
+// plugin list go to these stand-ins, which log each call; anything else goes on to the real gh or claude.
+const STANDIN_BIN = mkdtempSync(join(tmpdir(), 'acc-standin-'));
+const STANDIN_LOG = join(STANDIN_BIN, 'calls.log');
+const real = (cmd: string) => spawnSync('sh', ['-c', `command -v ${cmd}`], { encoding: 'utf8' }).stdout.trim();
+const standIn = (cmd: string, when: string, answer: string) => writeFileSync(join(STANDIN_BIN, cmd), [
+  '#!/bin/sh',
+  `if ${when}; then echo "${cmd} $*" >> '${STANDIN_LOG}'; printf '%s\\n' '${answer}'; exit 0; fi`,
+  real(cmd) ? `exec '${real(cmd)}' "$@"` : 'exit 127',
+].join('\n'), { mode: 0o755 });
+standIn('gh', '[ "$1" = release ] && [ "$2" = view ]', JSON.stringify({ tagName: 'v0.1.0', name: 'v0.1.0', url: 'https://github.com/jack-huffman/agent-command-center/releases/tag/v0.1.0', publishedAt: '2026-01-01T00:00:00Z' }));
+standIn('claude', '[ "$1" = plugin ] && [ "$2" = list ]', '[]');
+process.env.PATH = `${STANDIN_BIN}:${process.env.PATH}`;
 delete process.env.ACC_HEAVY_SLOTS;
 // The extension runs acc as the person at VSCode, even when these tests run in a builder's session.
 delete process.env.ACC_ROLE;
 delete process.env.ACC_TASK;
-const disposable = { dispose() {} };
-const event = () => () => disposable;
-
-function fakeVscode(folder: string) {
-  const calls = {
-    commands: new Map<string, (...a: unknown[]) => unknown>(), contexts: new Map<string, unknown>(), info: [] as string[], warn: [] as string[], terminal: [] as string[],
-    /** Every command the extension ran, with what it passed. */
-    executed: [] as [string, unknown[]][],
-    /** Every file watcher's pattern. */
-    watched: [] as unknown[],
-    /** What a quick pick answers, when a test wants it to. */
-    pick: undefined as ((items: { value?: string }[]) => unknown) | undefined,
-    /** Which of a warning's buttons is clicked, such as a modal's, when a test wants one to be. */
-    warnPick: undefined as ((items: string[]) => string | undefined) | undefined,
-    /** How many prompts at the top of VSCode were shown: input boxes and quick picks. */
-    prompts: 0,
-  };
-  type Item = { text: string; tooltip: string; command: unknown; name: string; shown: boolean; show(): void; hide(): void; dispose(): void };
-  const item = (): Item => ({ text: '', tooltip: '', command: undefined, name: '', shown: false, show() { this.shown = true; }, hide() { this.shown = false; }, dispose() {} });
-  /** Autopilot's switches (D-064), one a repo, apart from the setup item the test checks. */
-  const autopilot: Item[] = [];
-  const status = { text: '', tooltip: '', command: '', backgroundColor: undefined as unknown, name: '', shown: false, show() { this.shown = true; }, hide() { this.shown = false; }, dispose() {} };
-  const trees = new Map<string, { getChildren(e?: unknown): unknown[]; getTreeItem(e: unknown): { label: string; description?: string } }>();
-  class EventEmitter { private ls: ((e: unknown) => void)[] = []; event = (l: (e: unknown) => void) => { this.ls.push(l); return disposable; }; fire(e?: unknown) { for (const l of this.ls) l(e); } dispose() {} }
-  class TreeItem { label: string; collapsibleState: number; [k: string]: unknown; constructor(label: string, state = 0) { this.label = label; this.collapsibleState = state; } }
-  class MarkdownString { value: string; supportThemeIcons = false; constructor(v = '') { this.value = v; } }
-  /**
-   * Each editor tab: what it was sent, what it says back, and closing it. Hiding it tells its listeners, as
-   * VSCode does when another tab covers it, and its HTML is what VSCode would rebuild it from.
-   */
-  type Tab = { html: string; htmlSets: number; posted: unknown[]; visible: boolean; receive?: (m: unknown) => void; close?: () => void; views: ((e: unknown) => void)[]; hide(): void };
-  const panels: Tab[] = [];
-  /** VSCode's settings, by full name, and who listens for a change (GH-109). */
-  const settings = new Map<string, unknown>();
-  const configListeners: ((e: { affectsConfiguration(s: string): boolean }) => void)[] = [];
-  const api = {
-    EventEmitter, TreeItem, MarkdownString,
-    RelativePattern: class { base: unknown; pattern: string; constructor(base: unknown, pattern: string) { this.base = base; this.pattern = pattern; } },
-    ViewColumn: { Active: -1 },
-    TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 },
-    StatusBarAlignment: { Left: 1, Right: 2 },
-    ProgressLocation: { SourceControl: 1, Window: 10, Notification: 15 },
-    ThemeIcon: class { id: string; constructor(id: string) { this.id = id; } },
-    ThemeColor: class { id: string; constructor(id: string) { this.id = id; } },
-    Uri: {
-      file: (p: string) => ({ fsPath: p, toString: () => `file://${p}` }),
-      parse: (p: string) => ({ fsPath: p }),
-      joinPath: (u: { fsPath: string }, ...parts: string[]) => ({ fsPath: join(u.fsPath, ...parts), toString: () => `file://${join(u.fsPath, ...parts)}` }),
-    },
-    window: {
-      createOutputChannel: () => ({ info() {}, warn() {}, error() {}, show() {}, dispose() {} }),
-      // The setup item is the one checked; GitHub and the tasks summary (D-044) are items of their own.
-      createStatusBarItem: (id?: unknown) => {
-        if (id === 'acc.github' || id === 'acc.summary') return { show() {}, hide() {}, dispose() {} };
-        if (typeof id === 'string' && id.startsWith('acc.autopilot')) { const it = item(); autopilot.push(it); return it; }
-        return status;
-      },
-      onDidChangeWindowState: () => disposable,
-      state: { focused: true },
-      withProgress: (_o: unknown, task: (p: unknown, t: unknown) => unknown) => task({ report() {} }, { onCancellationRequested: () => disposable }),
-      showInformationMessage: async (m: string) => { calls.info.push(m); return undefined; },
-      showWarningMessage: async (m: string, ...rest: unknown[]) => { calls.warn.push(m); return calls.warnPick?.(rest.filter((x): x is string => typeof x === 'string')); },
-      showQuickPick: async (items: unknown) => { calls.prompts++; return calls.pick?.(await (items as Promise<{ value?: string }[]>)); },
-      createTerminal: () => ({ show() {}, sendText: (t: string) => calls.terminal.push(t), exitStatus: undefined }),
-      onDidEndTerminalShellExecution: event(),
-      onDidCloseTerminal: event(),
-      onDidChangeActiveTextEditor: event(),
-      activeTextEditor: undefined,
-      createTreeView: (id: string, o: { treeDataProvider: never }) => { trees.set(id, o.treeDataProvider); return { visible: false, onDidChangeVisibility: event(), badge: undefined, dispose() {} }; },
-      showInputBox: async () => { calls.prompts++; return undefined; },
-      createWebviewPanel: () => {
-        const panel = {
-          get visible() { return rec.visible; }, iconPath: undefined, reveal() {}, dispose() {},
-          onDidChangeViewState: (l: (e: unknown) => void) => { rec.views.push(l); return disposable; }, onDidDispose: (l: () => void) => { rec.close = l; return disposable; },
-          webview: {
-            cspSource: 'vscode-resource:', asWebviewUri: (u: { toString(): string }) => u,
-            set html(v: string) { rec.html = v; rec.htmlSets++; }, get html() { return rec.html; },
-            postMessage: async (m: unknown) => { rec.posted.push(m); return true; },
-            onDidReceiveMessage: (l: (m: unknown) => void) => { rec.receive = l; return disposable; },
-          },
-        };
-        const rec: Tab = { html: '', htmlSets: 0, posted: [], visible: true, views: [], hide() { rec.visible = false; for (const l of rec.views) l({ webviewPanel: panel }); } };
-        panels.push(rec);
-        return panel;
-      },
-      showTextDocument: async () => undefined,
-    },
-    workspace: {
-      workspaceFolders: [{ uri: { fsPath: folder }, name: 'repo', index: 0 }],
-      getWorkspaceFolder: () => undefined,
-      createFileSystemWatcher: (pattern: unknown) => { calls.watched.push(pattern); return { onDidChange: event(), onDidCreate: event(), onDidDelete: event(), dispose() {} }; },
-      onDidChangeWorkspaceFolders: event(),
-      openTextDocument: async () => ({}),
-      getConfiguration: (section: string) => ({
-        get: (key: string, fallback?: unknown) => settings.get(`${section}.${key}`) ?? fallback,
-        update: async (key: string, value: unknown) => {
-          settings.set(`${section}.${key}`, value);
-          for (const l of configListeners) l({ affectsConfiguration: (s: string) => s === section || s === `${section}.${key}` });
-        },
-      }),
-      onDidChangeConfiguration: (l: (typeof configListeners)[number]) => { configListeners.push(l); return disposable; },
-    },
-    ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
-    commands: {
-      registerCommand: (id: string, fn: (...a: unknown[]) => unknown) => { calls.commands.set(id, fn); return disposable; },
-      executeCommand: async (id: string, ...args: unknown[]) => { calls.executed.push([id, args]); if (id === 'setContext') calls.contexts.set(args[0] as string, args[1]); return undefined; },
-    },
-    env: { openExternal: async () => true, clipboard: { writeText: async () => {} } },
-  };
-  return { api, calls, status, trees, panels, autopilot, settings };
-}
-
-function memento(initial: Record<string, unknown> = {}) {
-  const m = new Map(Object.entries(initial));
-  return { get: (k: string) => m.get(k), update: async (k: string, v: unknown) => { m.set(k, v); }, keys: () => [...m.keys()] };
-}
-
-async function until(fn: () => boolean, ms = 20_000): Promise<void> {
-  const end = Date.now() + ms;
-  while (!fn()) {
-    if (Date.now() > end) throw new Error('timed out');
-    await new Promise((r) => setTimeout(r, 50));
-  }
-}
 
 test('activation registers the commands, adds acc to PATH, and ticks the steps that pass', { timeout: 60_000 }, async () => {
   const repo = makeRepo({ '.acc/config.json': JSON.stringify({ schema: 1, project: 'Tool', environments: [{ name: 'main', default: true }], trackers: [{ kind: 'github' }] }), '.gitignore': '.claude/worktrees/\n' });
@@ -161,32 +53,13 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
   writeFileSync(join(claudeDir, '.claude.json'), JSON.stringify({ projects: { [realpathSync(repo)]: { hasTrustDialogAccepted: true } } }));
   const savedClaudeDir = process.env.CLAUDE_CONFIG_DIR;
   process.env.CLAUDE_CONFIG_DIR = claudeDir;
-  const { api, calls, status, trees, panels, autopilot, settings } = fakeVscode(repo);
-  const load = (Module as unknown as { _load: (r: string, ...a: unknown[]) => unknown })._load;
-  (Module as unknown as { _load: unknown })._load = function (request: string, ...rest: unknown[]) {
-    return request === 'vscode' ? api : load.call(this, request, ...rest);
-  };
-  const prepends: [string, string][] = [];
-  const secrets = new Map<string, string>();
-  const secretsAsked = new Set<string>();
-  const extDir = join(dist, '..', '..');
-  const ctx = {
-    subscriptions: [] as unknown[],
-    asAbsolutePath: (p: string) => join(extDir, p),
-    extensionUri: { fsPath: extDir, toString: () => `file://${extDir}` },
-    // Fresh machine results for this folder's profile, so the test doesn't call slow machine CLIs.
-    globalState: memento({ 'acc.welcomed': true, 'acc.machineItems': { at: Date.now(), profile: 'generic', items: [{ id: 'A1.git', part: 'machine', title: 'git', status: 'pass', detail: 'git 2.54.0' }] } }),
-    workspaceState: memento(),
-    // Tracker sign-ins, none to start with, and the keys asked for; a change from another window is listened for (GH-79).
-    secrets: {
-      get: async (k: string) => { secretsAsked.add(k); return secrets.get(k); }, store: async (k: string, v: string) => { secrets.set(k, v); },
-      delete: async (k: string) => { secrets.delete(k); }, onDidChange: () => ({ dispose: () => {} }),
-    },
-    environmentVariableCollection: { description: '', prepend: (k: string, v: string) => prepends.push([k, v]) },
-  };
+  const fake = fakeVscode(repo);
+  const { calls, status, trees, panels, autopilot, settings } = fake;
+  // Fresh machine results for this folder's profile, checked by this version (GH-114), so the test doesn't call slow machine CLIs.
+  const version = (JSON.parse(readFileSync(join(dist, '..', '..', 'package.json'), 'utf8')) as { version: string }).version;
+  const started = activate(dist, fake, { 'acc.welcomed': true, 'acc.machineItems': { at: Date.now(), profile: 'generic', version, items: [{ id: 'A1.git', part: 'machine', title: 'git', status: 'pass', detail: 'git 2.54.0' }] } });
+  const { ctx, prepends, secrets, secretsAsked } = started;
   try {
-    const ext = createRequire(import.meta.url)(dist) as { activate(c: unknown): void };
-    ext.activate(ctx);
     for (const c of Object.values(COMMANDS)) assert.ok(calls.commands.has(c), `${c} registered`);
     // The Agents tab's Stop finished sessions (D-095), beside a single agent's Stop.
     for (const c of ['acc.agent.stop', 'acc.agents.stopFinished']) assert.ok(calls.commands.has(c), `${c} registered`);
@@ -424,6 +297,9 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     assert.equal(JSON.parse(setTracker.stdout).index, 1, 'after the GitHub tracker');
     await calls.commands.get('acc.open.settings')!();
     await calls.commands.get('acc.settings.refresh')!();
+    // About looked, offline: its release and plugin list came from the stand-ins (GH-114).
+    const standInCalls = () => (existsSync(STANDIN_LOG) ? readFileSync(STANDIN_LOG, 'utf8') : '');
+    await until(() => standInCalls().includes('gh release view') && standInCalls().includes('claude plugin list'));
     type TrackerShown = { title: string; signIn: { label: string; tone: string }; actions: { command: string; arg: string | null; disabled: string | null }[] };
     type WithTrackers = { model?: { settings: { trackers: { projects: { project: string; trackers: TrackerShown[] }[]; connect: { command: string; arg: string | null } | null } } } };
     const shownTrackers = () => (tab.posted.filter((x) => (x as WithTrackers).model).at(-1) as WithTrackers).model!.settings.trackers;
@@ -483,6 +359,10 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     type Themed = { model: { section: string; settings: { theme: string } } };
     const lastState = (t: (typeof panels)[number]) => (t.posted.filter((x) => (x as Themed).model).at(-1) as Themed).model;
     assert.deepEqual([lastState(tab).section, lastState(tab).settings.theme], ['settings', 'vscode']);
+    // About (GH-114): the extension's own version, from its package.json, and Check now, which the page may ask for.
+    type WithAbout = { settings: { about: { rows: { key: string; look: { label: string } }[]; release: { check: { command: string } } } | null } };
+    const about = (lastState(tab) as unknown as WithAbout).settings.about!;
+    assert.deepEqual([about.rows.find((r) => r.key === 'extension')!.look.label, about.release.check.command], [(JSON.parse(readFileSync(join(extDir, 'package.json'), 'utf8')) as { version: string }).version, 'acc.about.check']);
     const executed = calls.executed.length;
     tab.receive!({ type: 'refresh' });
     assert.deepEqual(calls.executed.slice(executed).map(([id]) => id), ['acc.settings.refresh']);
@@ -593,8 +473,7 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     await calls.commands.get(COMMANDS.check)!('B0.repo');
     assert.match(calls.info.at(-1) ?? '', /^✓ Inside the project's repo: Repo at /);
   } finally {
-    for (const s of ctx.subscriptions as { dispose?: () => void }[]) s.dispose?.();
+    started.stop();
     if (savedClaudeDir === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = savedClaudeDir;
-    (Module as unknown as { _load: unknown })._load = load;
   }
 });

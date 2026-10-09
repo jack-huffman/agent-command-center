@@ -89,7 +89,7 @@ a typo in a file the whole team uses would otherwise quietly drop a rule. If a
 template was written for a newer acc, update acc.
 
 What belongs to one project is refused too: `github`, `commitIdentity`, an
-environment's `org`, `worktrees`, `secretScan`, `autopilot`,
+environment's `org`, `worktrees`, `secretScan`, `strayFiles`, `autopilot`,
 `agents.permissionMode`, and a tracker's `edits`, `epic`, `labels` and
 `areaPath`. So is anything that looks like a sign-in, such as `token`,
 `apiToken`, `password` or `email`, at any level. Each person signs in to a

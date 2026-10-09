@@ -30,6 +30,12 @@
   "contributes": {
     "commands": [
       {
+        "command": "acc.about.check",
+        "title": "Check now for a newer release of Agent Command Center",
+        "category": "Agent Command Center",
+        "icon": "$(refresh)"
+      },
+      {
         "command": "acc.agent.new",
         "title": "Start a background agent…",
         "category": "Agent Command Center",
@@ -534,6 +540,18 @@
         "title": "Clean up its worktree…",
         "category": "Agent Command Center",
         "icon": "$(trash)"
+      },
+      {
+        "command": "acc.tidy.draft",
+        "title": "Draft a tidy-up…",
+        "category": "Agent Command Center",
+        "icon": "$(wand)"
+      },
+      {
+        "command": "acc.tidy.skip",
+        "title": "Skip the tidy-up…",
+        "category": "Agent Command Center",
+        "icon": "$(close)"
       },
       {
         "command": "acc.trackers.refresh",

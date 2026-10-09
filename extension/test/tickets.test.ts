@@ -7,11 +7,12 @@ import type { TaskRow } from '../src/logic/shared.ts';
 import type { Analysis } from '../../packages/core/src/analyze.ts';
 import { type BoardInput, initials, priorityIcon, trackerBoard, typeIcon } from '../src/model/boards.ts';
 import { isFromWebview } from '../src/model/messages.ts';
-import { ticketActionRefusal, ticketModel } from '../src/model/task-page.ts';
+import { type CheckIn, checkLook, checkRows, ticketActionRefusal, ticketCheck, ticketModel } from '../src/model/task-page.ts';
 import { updateAbout } from '../src/model/updates.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
 import { type Ticket, TrackerError } from '../../packages/core/src/trackers/types.ts';
 import { Pending } from '../webview/pending.ts';
+import { pageSource } from './support.ts';
 
 const row = (id: string, state: string, display: TaskRow['display'], extra: Partial<TaskRow> = {}): TaskRow =>
   ({ id, title: `Task ${id}`, state, display, environment: 'dev', deps: [], source: { kind: 'jira', url: null }, ...extra });
@@ -33,7 +34,7 @@ const board = (): BoardInput => ({
 test('a tracker board keeps the tracker\'s columns, places cards by status, and shows acc\'s side where it has a task', () => {
   const rows = [row('ACME-1', 'todo', 'ready'), row('ACME-3', 'running', 'needs-you', { run: { bgId: 'bg3' }, agent: { label: 'Needs you: permission prompt', icon: 'bell-dot', tone: 'orange' } })];
   const b = trackerBoard(board(), rows, '/r');
-  assert.deepEqual(b.columns.map((c) => [c.name, c.tone, c.done, c.cards.map((x) => x.key)]), [['To Do', 'neutral', false, ['ACME-1', 'ACME-2']], ['Doing', 'blue', false, ['ACME-3']], ['Done', 'neutral', true, ['ACME-4']]]);
+  assert.deepEqual(b.columns.map((c) => [c.name, c.icon, c.tone, c.done, c.cards.map((x) => x.key)]), [['To Do', 'circle-outline', 'neutral', false, ['ACME-1', 'ACME-2']], ['Doing', 'sync', 'blue', false, ['ACME-3']], ['Done', 'check', 'neutral', true, ['ACME-4']]]);
   const [ready, untracked] = b.columns[0]!.cards;
   assert.equal(ready!.acc!.look.label, 'Ready');
   assert.equal(ready!.acc!.action!.command, 'acc.task.dispatch', 'a ready ticket offers Dispatch right on its card');
@@ -207,7 +208,7 @@ test('a ticket page: the tracker\'s ticket takes comments, and its fields change
     assert.equal(ticketActionRefusal(action, true), null, action);
   }
   assert.equal(ticketActionRefusal('comment', false), null, 'comments stay');
-  assert.deepEqual([tracked.status, tracked.sourceKind, tracked.trackable], [{ name: 'In Progress', tone: 'blue' }, 'jira', false]);
+  assert.deepEqual([tracked.status, tracked.sourceKind, tracked.trackable], [{ name: 'In Progress', icon: 'sync', tone: 'blue' }, 'jira', false]);
   assert.equal(tracked.acc!.history[0]!.to, 'running', 'newest history first');
   assert.ok(!tracked.acc!.actions.some((a) => a.command === 'acc.task.show'), 'no Details button on the details page');
   assert.equal(ticketModel({ ...base, ticket, row: null, task: null }).trackable, true);
@@ -215,7 +216,7 @@ test('a ticket page: the tracker\'s ticket takes comments, and its fields change
   const local = ticketModel({ ...base, tracker: null, trackerTitle: null, trackerKind: null, ticket: null, row: row('ACME-1', 'todo', 'ready'), task });
   assert.deepEqual([local.sourceKind, local.sourceLabel, local.can.comment, local.trackable], ['acc', 'Task kept by acc', false, false]);
   assert.deepEqual(local.body, { blocks: [{ t: 'p', c: [{ t: 'text', text: 'Brief' }] }] }, 'a task acc alone keeps shows its brief, rendered');
-  assert.deepEqual(local.status, { name: 'Ready', tone: 'blue' });
+  assert.deepEqual(local.status, { name: 'Ready', icon: 'play-circle', tone: 'blue' });
   assert.equal(local.acc!.conflicts, null);
 
   // Its open pull request conflicts with its base: the page names every file (D-049).
@@ -227,6 +228,35 @@ test('a ticket page: the tracker\'s ticket takes comments, and its fields change
   assert.equal(ticketModel({ ...base, ticket, row: row('ACME-1', 'done', 'done', { pr: { ...pr, state: 'merged' } }), task }).acc!.conflicts, null, 'a merged one no longer conflicts');
   const onBoard = trackerBoard(board(), [row('ACME-3', 'review', 'needs-you', { pr })], '/r').columns[1]!.cards[0]!.acc!;
   assert.deepEqual([onBoard.needsYou, onBoard.conflicts], [true, 'Conflicts with dev: docs/DECISIONS.md, bin/acc, a.ts and 1 more'], 'the tracker\'s card says why too');
+});
+
+test('a task\'s checks carry what their tests ran, and one that needs a person has its own icon and words, and Waive… (GH-100)', () => {
+  const task = (branch: string | null) => ({ id: 'ACME-1', title: 'Built', brief: '', source: { kind: 'jira', key: 'ACME-1', url: null }, environment: 'dev', deps: [], labels: [], state: 'review', blocker: null, run: branch ? { branch } : null, pr: null, history: [], createdAt: '', updatedAt: '' } as never);
+  const checks: CheckIn[] = [
+    { gate: 'check', status: 'pass', summary: 'Passed.', counts: '312 run, 2 skipped', countsNote: 'Compared with 2 skipped on abc1234, the nearest earlier count on dev.' },
+    { gate: 'lwc-tests', status: 'hold', summary: 'Ran no tests, so it can\'t vouch for the change.', counts: '0 run, 0 skipped' },
+    { gate: 'validate', status: 'fail', summary: '1 problem', counts: '21 run, 4 failed, 0 skipped' },
+    { gate: 'smoke', status: 'error', summary: 'sh: make: not found', counts: 'not read' },
+    { gate: 'static', status: 'skip', summary: 'Waived by jordan: known', waived: true },
+    { gate: 'format', status: 'skip', summary: 'Not run on this commit' },
+  ];
+  const base = { project: '/r', tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira' as const, key: 'ACME-1', ticket, loading: false, error: null, connect: null, checks, row: row('ACME-1', 'review', 'review') };
+  const rows = ticketModel({ ...base, task: task('task/ACME-1-built') }).acc!.checks;
+  assert.deepEqual(rows.map((c) => [c.gate, c.look.label, c.look.icon, c.look.tone, c.counts ?? null, c.waivable]), [
+    ['check', 'pass', 'pass', 'blue', '312 run, 2 skipped', false],
+    ['lwc-tests', 'needs a person', 'person', 'orange', '0 run, 0 skipped', true],
+    ['validate', 'fail', 'error', 'orange', '21 run, 4 failed, 0 skipped', true],
+    ['smoke', 'error', 'warning', 'orange', 'not read', true],
+    ['static', 'waived', 'debug-step-over', 'neutral', null, false],
+    ['format', 'not run', 'circle-slash', 'neutral', null, false],
+  ]);
+  assert.equal(rows[0]!.countsNote, 'Compared with 2 skipped on abc1234, the nearest earlier count on dev.');
+  // Every status has a look of its own: none falls through to another's.
+  const looks = (['pass', 'fail', 'error', 'skip', 'hold'] as const).map((status) => checkLook({ gate: 'g', status, summary: 's' }));
+  assert.equal(new Set(looks.map((l) => `${l.icon} ${l.label}`)).size, 5);
+  assert.ok(looks.every((l) => l.label && l.icon), 'each has words and an icon');
+  // With no branch there's no commit to waive on.
+  assert.ok(ticketModel({ ...base, task: task(null) }).acc!.checks.every((c) => !c.waivable));
 });
 
 test('a task\'s page shows its analysis gist first: the verdict, the summary, its questions to answer, then the rest folded (D-052)', () => {
@@ -459,4 +489,25 @@ test('a monday.com item\'s page: a field edit is refused before monday hears of 
   assert.deepEqual(trackInput(item), [{ source: { kind: 'monday', key: 'MON-101', url: 'https://acme.monday.com/boards/111/pulses/101' }, title: 'Escalate premium cases', brief: '## Description\n\nPremium cases escalate.', labels: [] }]);
   const model = ticketModel({ project: '/r', tracker: 0, trackerTitle: 'monday.com · acme', trackerKind: 'monday', key: 'MON-101', ticket: item, loading: false, error: null, connect: null, row: null, task: null, checks: [] });
   assert.deepEqual([model.sourceKind, model.sourceLabel, model.trackable, model.can], ['monday', 'monday.com · acme', true, { status: false, assign: false, labels: false, comment: true }]);
+});
+
+test('a ratchet\'s check carries its numbers, from the environment\'s floor to this commit\'s; one not yet measured carries none (GH-99)', () => {
+  const spec = { command: 'node scripts/count-tests.mjs', limit: 'floor' as const, label: 'tests' };
+  const receipt = { status: 'pass' as const, summary: 'tests 674, at its floor.', details: { ratchet: { label: 'tests', limit: 'floor', value: 674, floor: 674, base: 669, diff: 5 } } };
+  assert.deepEqual(ticketCheck('tests', receipt, 'Not run on this commit', { scope: 'builder' }, spec), {
+    gate: 'tests', status: 'pass', summary: 'tests 674, at its floor.', waived: false, scope: 'builder',
+    ratchet: { label: 'tests', limit: 'floor', from: 669, to: 674, diff: 5, numbers: '669 → 674 (+5)', line: 'tests 669 → 674 (+5)' },
+  });
+  const first = { ...receipt, details: { ratchet: { label: 'tests', limit: 'floor', value: 674, floor: null, base: null, diff: null } } };
+  assert.deepEqual([ticketCheck('tests', first, '', {}, spec).ratchet?.numbers, ticketCheck('tests', first, '', {}, spec).ratchet?.line], ['674, the first floor', 'tests 674 (first floor)']);
+  assert.deepEqual(ticketCheck('tests', null, 'Not run on this commit', {}, spec), { gate: 'tests', status: 'skip', summary: 'Not run on this commit', ratchet: { label: 'tests', limit: 'floor', from: null, to: null, diff: null, numbers: null, line: null } }, 'not measured: no numbers, but still a ratchet, so the page offers no Waive…');
+  assert.deepEqual(ticketCheck('tests', { status: 'error', summary: 'tests couldn\'t be measured.' }, '', {}, spec).ratchet?.to, null);
+  assert.deepEqual(ticketCheck('lint', { status: 'pass', summary: 'Passed.' }, '', {}), { gate: 'lint', status: 'pass', summary: 'Passed.', waived: false }, 'any other check is as it was');
+  // The page shows the line, with an arrow, and never offers Waive… on a ratchet, failing or not.
+  const page = pageSource('task-page.ts');
+  assert.match(page, /c\.ratchet\?\.numbers \? ratchetNumbers\(c\.ratchet, c\.summary\)/);
+  assert.match(page, /c\.waivable \? Object\.assign\(button\('Waive…'/);
+  const failing = ticketCheck('tests', { ...receipt, status: 'fail', summary: 'tests 660 is below its floor 669, by 9.' }, '', {}, spec);
+  const rows = checkRows([failing, { gate: 'lint', status: 'fail', summary: '2 problems.' }], 'task/T-1');
+  assert.deepEqual(rows.map((r) => [r.gate, r.look.label, r.waivable]), [['tests', 'fail', false], ['lint', 'fail', true]]);
 });
