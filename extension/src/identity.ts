@@ -172,7 +172,8 @@ export class RepoIdentity implements vscode.Disposable {
 
 export const area: ExtensionArea = {
   register({ reg, setup, identity }) {
-    reg('acc.github.signIn', async () => { await setup.githubSignIn(); await identity.refresh(undefined, true); });
+    // The account a button names (Settings' GitHub accounts), or this clone's, as before (GH-113).
+    reg('acc.github.signIn', async (account?: unknown) => { await setup.githubSignIn(typeof account === 'string' && account.trim() ? account.trim() : undefined); await identity.refresh(undefined, true); });
     reg('acc.github.switch', (arg?: unknown) => identity.switch(arg));
   },
 };

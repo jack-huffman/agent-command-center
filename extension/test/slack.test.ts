@@ -316,7 +316,7 @@ test('a refusal pauses sending with Slack\'s reason until a test goes through; o
   assert.equal(w.slack.state().tail, 'zzzz');
 });
 
-test('turned off after a refusal, the card says off and Environments no longer needs you; turned on again, it stays paused', async () => {
+test('turned off after a refusal, the card says off and Settings no longer needs you; turned on again, it stays paused', async () => {
   const w = window(on(), () => new Response('no_service', { status: 404 }));
   w.slack.offer(ev('one'));
   await w.slack.settled();
@@ -324,11 +324,14 @@ test('turned off after a refusal, the card says off and Environments no longer n
   await w.slack.off();
   const card = slackCard(w.slack.state());
   assert.deepEqual([card.state, card.look.tone, card.look.icon, card.look.label], ['off', 'neutral', 'debug-pause', 'Off: turned off on this machine']);
-  const env = (c: typeof card) => homeModel({ hub: { projects: [], agents: [], agentsError: null, taskRows: () => [], projectFor: () => undefined }, section: 'environments', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() }, slack: c }).nav.find((n) => n.section === 'environments')!;
-  assert.deepEqual([env(card).attention, env(card).hint], [false, 'Branches, orgs, your GitHub account and Slack']);
+  // The badge followed the card to Settings (GH-113): Environments never turns orange for Slack.
+  const nav = (c: typeof card, section: string) => homeModel({ hub: { projects: [], agents: [], agentsError: null, taskRows: () => [], projectFor: () => undefined }, section: 'environments', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() }, slack: c }).nav.find((n) => n.section === section)!;
+  assert.deepEqual([nav(card, 'settings').attention, nav(card, 'settings').hint], [false, 'Appearance, agents, limits, trackers, Slack, GitHub accounts, the Command Center\'s own preferences and the versions']);
   await w.slack.on();
-  assert.equal(slackCard(w.slack.state()).state, 'paused', 'still paused until a test goes through');
-  assert.equal(env(slackCard(w.slack.state())).attention, true);
+  const paused = slackCard(w.slack.state());
+  assert.equal(paused.state, 'paused', 'still paused until a test goes through');
+  assert.deepEqual([nav(paused, 'settings').attention, nav(paused, 'settings').hint], [true, 'Notices to Slack are paused']);
+  assert.deepEqual([nav(paused, 'environments').attention, nav(paused, 'environments').hint], [false, 'Branches, orgs and your GitHub account']);
 });
 
 test('a 429, a 5xx, a timeout or a network error loses that one message, says why, and is never retried', async () => {
@@ -406,7 +409,7 @@ test('the webhook is kept only in secret storage: the state, the card and the pa
   const card = slackCard(s);
   assert.deepEqual([card.state, card.look.tone, card.look.icon, card.look.label], ['on', 'blue', 'pass', 'On: notices go to Slack']);
   const home = homeModel({ hub: { projects: [], agents: [], agentsError: null, taskRows: () => [], projectFor: () => undefined }, section: 'environments', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() }, slack: card });
-  assert.equal(home.environments.slack?.tail, 'UVWX');
+  assert.equal(home.settings.slack?.tail, 'UVWX');
   for (const where of [JSON.stringify(home), JSON.stringify(m.state), w.logs.join('\n')]) assert.ok(!where.includes('hooks.slack.com') && !where.includes('abcdEFGH'), where.slice(0, 200));
   await w.slack.setKinds(['draft', 'needs-you']);
   assert.deepEqual(w.slack.state().kinds, ['needs-you', 'draft']);

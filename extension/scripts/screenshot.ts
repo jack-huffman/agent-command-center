@@ -27,7 +27,7 @@ import { FinishedJobs } from '../src/progress.ts';
 import { sampleAgent } from './fixtures/agent-page.ts';
 import { sampleBoards, sampleGithubBoards, sampleMondayBoards } from './fixtures/boards.ts';
 import { type ConnectSample, sampleConnect } from './fixtures/connect.ts';
-import { sampleIdentity } from './fixtures/environments.ts';
+import { sampleIdentities, sampleIdentity } from './fixtures/environments.ts';
 import { sampleHub } from './fixtures/hub.ts';
 import { sampleLimitsOther } from './fixtures/limits.ts';
 import { sampleAbout, sampleAboutBehind, sampleAboutFailed } from './fixtures/about.ts';
@@ -52,8 +52,8 @@ import { CHECKS, COLLECT_GEOMETRY, dumpedGeometry, geometrySummary, judge, type 
  * builder's note), an agent's page, Setup with
  * the output panel open on a command that's asking something, the Connect page at each of its steps (D-073)
  * and starting a project from a Jira epic, an Azure DevOps area path or GitHub labels (GH-81),
- * Environments with the Slack card at each of its states (GH-58): sending on Environments itself, then not
- * set up, off and paused, the Tasks tab with a monday.com board in place of the Jira one (GH-70), Agents
+ * Settings at Notices in Slack with the card at each of its states (GH-58, GH-113): sending on Settings
+ * itself, then not set up, off and paused, the Tasks tab with a monday.com board in place of the Jira one (GH-70), Agents
  * with agents that would bill per token (D-089), Agents with its Where column showing full paths (GH-83),
  * and the Overview with In progress busy, and with nothing running (D-092). Then the Overview of a project
  * whose merge queue holds three pull requests, with autopilot on and the head running its full check, with
@@ -65,8 +65,10 @@ import { CHECKS, COLLECT_GEOMETRY, dumpedGeometry, geometrySummary, judge, type 
  * behind, with a newer release and an older plugin, and with a look that failed (GH-114). Last, Agents with each repo's finished sessions opened (GH-119). Then the
  * Overview with a suggested rule and a suggested check under Needs you, and with the rule's draft task open
  * after Accept (GH-102).
+ * Last, Settings at GitHub accounts, one project pushing as this clone's choice and one whose account gh
+ * isn't signed in as, and at the Command Center's own preferences, each set to other than its default (GH-113).
  */
-export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed'] as const;
+export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page'] as const;
 export type Page = (typeof PAGES)[number];
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -118,16 +120,21 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
   // Agents, on a busy machine: this window's two projects, one with no agents, and repos elsewhere (GH-119).
   const agents = kind === 'agents' || kind === 'agents-path' || kind === 'agents-finished';
   // Settings' Limits and checks in their other states (GH-111): no total, slots from the environment, two projects.
-  const hub = kind === 'settings-limits' ? { ...sampleHub(now), limits: () => sampleLimitsOther() } : perToken || agents || kind === 'settings-trackers' ? sampleSettingsHub(now) : sampleHub(now);
+  const hub = kind === 'settings-limits' ? { ...sampleHub(now), limits: () => sampleLimitsOther() } : perToken || agents || kind === 'settings-trackers' || kind === 'settings-github' ? sampleSettingsHub(now) : sampleHub(now);
   const connect = kind.startsWith('connect-') ? sampleConnect(kind.slice('connect-'.length) as ConnectSample) : null;
   const slack = sampleSlack(kind.startsWith('slack-') ? kind.slice('slack-'.length) as SlackSample : 'on', now);
   // A project started from an epic opens the Connect page over Setup, where "From a Jira epic…" is (GH-81).
-  const section = (kind === 'output' || kind.startsWith('connect-epic') ? 'setup' : connect || kind === 'tasks-monday' || kind === 'tasks-github' ? 'tasks' : kind.startsWith('slack-') ? 'environments' : kind === 'agents-billing' || kind === 'agents-path' || kind === 'agents-finished' ? 'agents' : kind.startsWith('settings-') ? 'settings' : kind) as HomeSection;
+  const section = (kind === 'output' || kind.startsWith('connect-epic') ? 'setup' : connect || kind === 'tasks-monday' || kind === 'tasks-github' ? 'tasks' : kind.startsWith('slack-') ? 'settings' : kind === 'agents-billing' || kind === 'agents-path' || kind === 'agents-finished' ? 'agents' : kind.startsWith('settings-') ? 'settings' : kind) as HomeSection;
   // Settings' trackers are each project's own (GH-112); every other page shows the sample board for each.
   const boards = kind === 'settings-trackers' ? sampleTrackerBoards : kind === 'tasks-monday' ? sampleMondayBoards : kind === 'tasks-github' ? sampleGithubBoards : sampleBoards;
-  return homeModel({ hub, section, boards: (root) => boards(root), identity: () => sampleIdentity(), setup: perToken ? samplePerTokenSetup() : sampleSetup(), runs: sampleRuns(now), edited: sampleEdited, connect, slack, whereView: kind === 'agents-path' ? 'path' : 'folder', theme,
+  // The Command Center's own preferences, each set to other than its default (GH-113).
+  const prefs = kind === 'settings-page' ? { pace: 'relaxed' as const, opensOn: 'tasks' as const } : {};
+  return homeModel({
+    hub, section, boards: (root) => boards(root), identity: kind === 'settings-github' ? sampleIdentities : () => sampleIdentity(), setup: perToken ? samplePerTokenSetup() : sampleSetup(),
+    runs: sampleRuns(now), edited: sampleEdited, connect, slack, whereView: kind === 'agents-path' || kind === 'settings-page' ? 'path' : 'folder', theme, ...prefs,
     // About (GH-114): up to date, or behind with a newer release and an older plugin, or a look that failed.
-    about: kind === 'settings-about' ? sampleAboutBehind(now) : kind === 'settings-about-failed' ? sampleAboutFailed(now) : sampleAbout(now), now });
+    about: kind === 'settings-about' ? sampleAboutBehind(now) : kind === 'settings-about-failed' ? sampleAboutFailed(now) : sampleAbout(now), now,
+  });
 }
 
 /**
@@ -143,7 +150,8 @@ const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ? JSON.p
     : kind === 'ticket' ? { drafts: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: SAMPLE_EDIT.text }, bases: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: { text: SAMPLE_EDIT.base } } } : undefined);
 export const viewOf = (kind: Page): string => (kind.startsWith('ticket') ? 'ticket' : kind === 'agent' ? kind : 'home');
 /** A part the extension asks the page to go to as it opens, as the status bar's Auto-merge does (GH-110). */
-export const openAt = (kind: Page): string | null => (kind === 'settings-agents' ? settingsKey('agents') : kind === 'settings-trackers' ? settingsKey('trackers') : kind.startsWith('settings-about') ? settingsKey('about') : null);
+export const openAt = (kind: Page): string | null => (kind === 'settings-agents' ? settingsKey('agents') : kind === 'settings-trackers' ? settingsKey('trackers')
+  : kind.startsWith('slack-') ? settingsKey('slack') : kind === 'settings-github' ? settingsKey('github') : kind === 'settings-page' ? settingsKey('page') : kind.startsWith('settings-about') ? settingsKey('about') : null);
 
 /**
  * A page that loads the built webview the way VSCode does: a stub API answers `ready` with the model.
@@ -160,9 +168,11 @@ const DEFAULT_HEIGHT = 900;
  * document itself, which headless Chrome draws as a blank band above the tab strip. A builder's note sits
  * below the description, under the side panels where a narrow tab stacks them (D-106). Agents is shot
  * tall enough to show every repo on the busy machine, down to Other folders (GH-119), and so is Settings at
- * Trackers and sign-ins, further down (GH-112).
+ * Trackers and sign-ins, further down (GH-112). Settings opened at Notices in Slack, GitHub accounts or the
+ * Command Center's preferences is shot tall enough not to scroll at 500 px, and Environments tall enough to
+ * show This machine's line saying Slack moved (GH-113).
  */
-export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 3600, 'overview-idle': 3200, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 3800, 'settings-agents': 3800, 'settings-limits': 3800, 'ticket-note': 1600, agents: 2000, 'agents-path': 2300, 'agents-finished': 2300, 'settings-trackers': 5000, rules: 1500, 'rules-accept': 1900, 'settings-about': 4600, 'settings-about-failed': 4600 };
+export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 3600, 'overview-idle': 3200, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 3800, 'settings-agents': 3800, 'settings-limits': 3800, 'ticket-note': 1600, agents: 2000, 'agents-path': 2300, 'agents-finished': 2300, 'settings-trackers': 5000, 'slack-none': 5000, 'slack-off': 5000, 'slack-paused': 5000, 'settings-github': 5800, 'settings-page': 5000, environments: 1400, rules: 1500, 'rules-accept': 1900, 'settings-about': 7200, 'settings-about-failed': 7200 };
 
 /** The colour properties the colour check compares, on every element and its ::before and ::after. */
 export const COLOUR_PROPERTIES = [
@@ -270,7 +280,7 @@ function chromeRun(chrome: string, args: string[], dump = false): ReturnType<typ
 }
 
 /** The pages the colour check draws (GH-109): the busiest sections, Settings, a task's page and an agent's. */
-export const COLOUR_PAGES: Page[] = ['overview', 'tasks', 'settings', 'settings-agents', 'settings-trackers', 'settings-limits', 'settings-about', 'ticket', 'agent'];
+export const COLOUR_PAGES: Page[] = ['overview', 'tasks', 'settings', 'settings-agents', 'settings-trackers', 'settings-limits', 'settings-about', 'slack-paused', 'settings-github', 'settings-page', 'ticket', 'agent'];
 
 /** A page's computed colours, as its collector gathered them: what each element is, and its colours in COLOUR_PROPERTIES' order. */
 export type Colours = [string, string[]][];

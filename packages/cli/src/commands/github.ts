@@ -2,7 +2,7 @@
 
 import { AccError, githubIdentity, loadConfig, repoPaths, run, useGithubAccount } from '../../../core/src/index.ts';
 import { tone } from '../format.ts';
-import { type CommandArea, type Opts, out } from '../shared.ts';
+import { type CommandArea, noAgent, type Opts, out } from '../shared.ts';
 
 // ---------------------------------------------------------------- GitHub identity (D-028)
 
@@ -27,6 +27,8 @@ function cmdGithub(o: Opts, sub: string | undefined, arg: string | undefined): n
     return id.signedIn && id.pushesAs?.toLowerCase() === id.account.toLowerCase() ? 0 : 1;
   }
   if (sub === 'use') {
+    // Which account a clone pushes as is a person's to change (GH-113): never a builder's, a reviewer's or an analyst's.
+    noAgent(o, 'switch the GitHub account this clone works as');
     if (!arg && !o.default) throw new AccError('usage', 'acc github use <account>, or --default for the project\'s account');
     const id = useGithubAccount(config, paths.root, run, o.default ? null : arg!);
     out(o, () => renderIdentity(id), id);

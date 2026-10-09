@@ -251,6 +251,9 @@ html[data-theme="light"] .logo-light, html[data-theme="vscode"] body.vscode-ligh
 .select-input:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
 .select-input:disabled, .ticks input:disabled { opacity: 0.55; cursor: not-allowed; }
 .ticks { display: flex; flex-wrap: wrap; gap: 6px; }
+/* A tick's own colour follows the page's text, not the browser's colour scheme, so Match VSCode under a dark
+   theme draws it as Dark does (GH-113). */
+.ticks input { color: inherit; }
 .tick { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px 2px 5px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; overflow-wrap: anywhere; }
 .tick.on { border-color: var(--blue); }
 .tick input { margin: 0; accent-color: var(--blue); }

@@ -28,3 +28,6 @@
 .scope { font-family: var(--vscode-editor-font-family); font-size: 0.82em; padding: 0 6px; border-radius: 3px; border: 1px solid var(--line); color: var(--vscode-descriptionForeground); }
 .scope.scope-on { border-color: var(--blue); color: var(--blue); }
 .identity .actions { margin-top: 12px; }
+/* Notices in Slack moved to Settings (GH-113): a line saying so, and its button, wrapping under it when narrow. */
+.moved { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.moved .status { white-space: normal; }

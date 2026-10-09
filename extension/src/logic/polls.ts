@@ -33,3 +33,35 @@ export function intervalWords(ms: number): string {
   const m = Math.floor(s / 60);
   return s % 60 ? `${m} min ${s % 60} s` : `${m} min`;
 }
+
+// ---------------------------------------------------------------- the refresh pace (GH-113)
+
+/**
+ * How often the Command Center refreshes while it's on screen: Normal, the intervals above; Relaxed, each one
+ * twice as long; Slow, four times. While it's hidden, each stays as it is, and so do agents' questions and
+ * autopilot's timers, which aren't the page's polls: a slower page never makes acc slower to notice what
+ * needs you.
+ */
+export const PACES = ['normal', 'relaxed', 'slow'] as const;
+export type Pace = (typeof PACES)[number];
+
+/**
+ * Where it's kept: a VSCode setting of machine scope, as the theme is (D-101), so it stays on this machine
+ * and every window hears when it changes.
+ */
+export const PACE_SETTING = { section: 'agentCommandCenter', key: 'refreshPace' } as const;
+
+/** A pace as the setting holds it. Anything else, or nothing, is Normal. */
+export const paceChoice = (v: unknown): Pace => ((PACES as readonly unknown[]).includes(v) ? (v as Pace) : 'normal');
+
+export const PACE_WORDS: Record<Pace, { label: string; icon: string; times: number; meaning: string }> = {
+  normal: { label: 'Normal', icon: 'pulse', times: 1, meaning: 'Each part refreshes as often as it always has while the Command Center is on screen.' },
+  relaxed: { label: 'Relaxed', icon: 'coffee', times: 2, meaning: 'Each part refreshes half as often while the Command Center is on screen, so VSCode does less.' },
+  slow: { label: 'Slow', icon: 'watch', times: 4, meaning: 'Each part refreshes a quarter as often while the Command Center is on screen, for a machine that feels the load.' },
+};
+
+/** How often a part is looked at: on screen, its interval at the pace; hidden, its own hidden interval or none, whatever the pace. */
+export function pollEvery(key: PollKey, visible: boolean, pace: Pace = 'normal'): number | undefined {
+  const p = POLL_INTERVALS[key];
+  return visible ? p.everyMs * PACE_WORDS[pace].times : p.hiddenMs;
+}

@@ -15,8 +15,11 @@ test('every section of the page, and a ticket, has sample data built by the real
     if (kind.startsWith('ticket') || kind === 'agent') assert.equal(m.kind, kind.startsWith('ticket') ? 'ticket' : kind);
     // The Connect page opens over the section it came from (GH-51): a project started from an epic, over Setup (GH-81).
     else if (kind.startsWith('connect-')) assert.deepEqual([m.kind, (m as HomeModel).section, !!(m as HomeModel).connect, (m as HomeModel).connect?.back.label], ['home', kind.startsWith('connect-epic') ? 'setup' : 'tasks', true, kind.startsWith('connect-epic') ? 'Back to Setup' : 'Back to Tasks']);
-    // The Slack card at each of its states, on Environments (GH-58).
-    else if (kind.startsWith('slack-')) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).environments.slack?.state], ['home', 'environments', kind.slice('slack-'.length)]);
+    // The Slack card at each of its states, in Settings (GH-58, GH-113).
+    else if (kind.startsWith('slack-')) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).settings.slack?.state], ['home', 'settings', kind.slice('slack-'.length)]);
+    // Settings at GitHub accounts and at the Command Center's own preferences (GH-113).
+    else if (kind === 'settings-github') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).settings.github.projects.map((p) => p.look.tone)], ['home', 'settings', ['blue', 'orange']]);
+    else if (kind === 'settings-page') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).settings.page.preferences.map((p) => p.choices.find((c) => c.on)?.key)], ['home', 'settings', ['tasks', 'path', 'relaxed']]);
     // The Tasks tab with a monday.com board (GH-70).
     else if (kind === 'tasks-monday') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).tasks.projects[0]!.boards[0]!.kind], ['home', 'tasks', 'monday']);
     // A repo's issues with no Project: Issues on the switch, the repo once, and no place line (the Tasks header's cleanup).
@@ -43,8 +46,8 @@ test('every section of the page, and a ticket, has sample data built by the real
     else assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).connect], ['home', kind === 'output' ? 'setup' : kind, null]);
   }
   assert.equal((sampleModel('agents') as HomeModel).agents.whereView, 'folder');
-  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed']);
-  assert.equal((sampleModel('environments') as HomeModel).environments.slack?.state, 'on');
+  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page']);
+  assert.equal((sampleModel('settings') as HomeModel).settings.slack?.state, 'on');
   // monday.com's Connect page: its token page, its board picked by name, and two status columns to choose from.
   const monday = (sampleModel('connect-monday') as HomeModel).connect!;
   assert.deepEqual([monday.kind, monday.fields[0]?.help?.url, monday.pickers.map((p) => [p.key, p.hidden])], ['monday', 'https://acme.monday.com/apps/manage/tokens', [['board', false], ['group', false], ['statusColumn', false]]]);
@@ -172,7 +175,7 @@ test('the colour check reads what a page gathered, and finds where two drawings 
   assert.deepEqual(colourDiffs(rows, other), [{ what: 'span::before', property: 'background-color', a: 'rgb(1, 1, 1)', b: 'rgb(9, 9, 9)' }]);
   assert.deepEqual(colourDiffs(rows, rows.slice(1)), [{ what: 'the page, from element 0', property: 'its elements', a: '2 elements, div.a there', b: '1 elements, span::before there' }], 'different elements differ as a whole');
   assert.deepEqual(colourDiffs(rows, rows.slice(0, 1)).map((d) => d.what), ['the page, from element 1'], 'and so does one with fewer');
-  assert.deepEqual(COLOUR_PAGES, ['overview', 'tasks', 'settings', 'settings-agents', 'settings-trackers', 'settings-limits', 'settings-about', 'ticket', 'agent']);
+  assert.deepEqual(COLOUR_PAGES, ['overview', 'tasks', 'settings', 'settings-agents', 'settings-trackers', 'settings-limits', 'settings-about', 'slack-paused', 'settings-github', 'settings-page', 'ticket', 'agent']);
 });
 
 test('the page\'s styles: what every area shares first, then each area\'s own by file name, each named for a module of the page (GH-95)', () => {

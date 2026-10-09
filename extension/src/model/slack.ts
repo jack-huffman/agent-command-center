@@ -1,7 +1,7 @@
 import { isSlackWebhook, SLACK_KINDS, type SlackKind } from '../slack.ts';
 import type { ModelArea } from './shared.ts';
 /**
- * acc's notices in Slack: the Environments card's buttons.
+ * acc's notices in Slack: the buttons of its card in Settings (GH-113).
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 

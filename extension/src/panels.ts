@@ -12,7 +12,8 @@ import { homeModel } from './model/home.ts';
 import { runCard, type RunInput } from './model/runs.ts';
 import type { SlackCard } from './model/slack.ts';
 import { WHERE_VIEWS, type WhereView } from './model/agents.ts';
-import { themeChoice, type ThemeChoice } from './model/settings.ts';
+import { type OpensOn, opensOnChoice, themeChoice, type ThemeChoice } from './model/settings.ts';
+import { type Pace, paceChoice } from './logic/polls.ts';
 import type { Setup } from './setup.ts';
 
 /** Commands the page may ask for, from every area that draws them (D-099). Anything else from a webview is ignored. */
@@ -51,6 +52,12 @@ const REFRESH: Record<HomeSection, string[]> = {
 /** The Command Center's theme, as Settings keeps it on this machine (GH-109). */
 // Read by its literal name (THEME_SETTING's), so the settings check sees what reads it (D-103).
 export const currentTheme = (): ThemeChoice => themeChoice(vscode.workspace.getConfiguration('agentCommandCenter').get('theme'));
+
+/** How often the Command Center refreshes while it's on screen, kept on this machine (GH-113). Read by its literal name too. */
+export const currentPace = (): Pace => paceChoice(vscode.workspace.getConfiguration('agentCommandCenter').get('refreshPace'));
+
+/** Where this window keeps the section the Command Center opens on (GH-113), and the section it was left at. */
+export const OPENS_ON_STATE = 'acc.home.opensOn';
 
 /**
  * Keeps one tab in the Command Center's theme (GH-109). On screen, the tab is told, and restyles without
@@ -139,6 +146,8 @@ export class Panels implements vscode.Disposable {
   private section: HomeSection = 'overview';
   /** What the Agents tab's Where column shows, remembered for the window (GH-83). */
   private whereView: WhereView = 'folder';
+  /** The section the Command Center opens on in this window: where it was left, or a named one (GH-113). */
+  private opens: OpensOn = 'left';
   private readonly ctx: vscode.ExtensionContext;
   private readonly hub: Hub;
   private readonly setup: Setup;
@@ -160,6 +169,30 @@ export class Panels implements vscode.Disposable {
     this.section = ctx.workspaceState.get<HomeSection>('acc.home.section') ?? 'overview';
     const where = ctx.workspaceState.get<string>('acc.agents.where');
     if ((WHERE_VIEWS as readonly (string | undefined)[]).includes(where)) this.whereView = where as WhereView;
+    this.opens = opensOnChoice(ctx.workspaceState.get(OPENS_ON_STATE));
+  }
+
+  /** The section the Command Center opens on in this window (GH-113). */
+  opensOn(): OpensOn {
+    return this.opens;
+  }
+
+  /** Keeps the section it opens on, for this window only, in its workspaceState. */
+  async setOpensOn(choice: OpensOn): Promise<void> {
+    this.opens = choice;
+    await this.ctx.workspaceState.update(OPENS_ON_STATE, choice);
+    this.post();
+  }
+
+  /** What the Agents tab's Where column shows (GH-83), set from Agents' toggle or Settings (GH-113), for this window. */
+  where(): WhereView {
+    return this.whereView;
+  }
+
+  async setWhere(view: WhereView): Promise<void> {
+    this.whereView = view;
+    await this.ctx.workspaceState.update('acc.agents.where', view);
+    this.post();
   }
 
   dispose(): void {
@@ -171,6 +204,16 @@ export class Panels implements vscode.Disposable {
    * open, the part with a heading of that name is scrolled to and focused, such as one of Settings'
    * (settingsKey, GH-109).
    */
+  /**
+   * A person opening the Command Center, from the activity bar or acc.open.home: opened afresh with no
+   * section asked for, it opens on the one Settings names for this window (GH-113). Anything else that shows
+   * it, such as Connect a tracker or a run's output, goes where it was sent, through show().
+   */
+  open(section?: ViewKind | HomeSection): void {
+    if (!section && !this.panel && this.opens !== 'left') this.remember(this.opens);
+    this.show(section);
+  }
+
   show(section?: ViewKind | HomeSection, open?: string): void {
     if (section && (HOME_SECTIONS as readonly string[]).includes(section)) this.remember(section as HomeSection);
     this.opening = open ?? null;
@@ -249,7 +292,7 @@ export class Panels implements vscode.Disposable {
       hub: this.hub, section: this.section, boards: (r) => this.deps.boards(r), identity: (r) => this.deps.identity(r),
       setup: { items: this.setup.results(), confirmed: this.setup.allConfirmed() }, runs: this.deps.runs(),
       edited: (root, id, replaces) => this.deps.edited(root, id, replaces), connect: this.deps.connect.model(), slack: this.deps.slack?.card() ?? null,
-      whereView: this.whereView, theme: this.tab?.theme ?? currentTheme(),
+      whereView: this.whereView, theme: this.tab?.theme ?? currentTheme(), pace: currentPace(), opensOn: this.opens,
       finished: this.finished, autopilot: (root) => this.deps.autopilot?.(root) ?? null, now: Date.now(), about: this.deps.about?.facts() ?? null,
     });
   }
@@ -277,9 +320,8 @@ export class Panels implements vscode.Disposable {
       return;
     }
     if (m.type === 'agents-where') {
-      this.whereView = m.view;
-      void this.ctx.workspaceState.update('acc.agents.where', m.view);
-      return this.post();
+      void this.setWhere(m.view);
+      return;
     }
     if (m.type === 'refresh') {
       for (const c of REFRESH[this.section]) void vscode.commands.executeCommand(c);

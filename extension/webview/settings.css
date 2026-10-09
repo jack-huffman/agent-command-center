@@ -54,7 +54,22 @@
 .settings-tracker-row .settings-now { padding-top: 0; }
 .settings-place { overflow-wrap: anywhere; }
 .settings-tracker-none { margin: 6px 0 0; }
+/* GitHub accounts (GH-113): a project's name with its Switch… beside it, then who it pushes as. */
+.settings-github .settings-project-name { margin: 0; }
+.settings-github .settings-state { padding-top: 2px; }
+/* The Command Center's own preferences (GH-113): a choice, where VSCode keeps it, and what it means. A
+   segmented row wraps on a narrow tab rather than running off it. */
+.settings-now > .segmented { flex-wrap: wrap; max-width: 100%; }
+.settings-pick { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
+.settings-select { width: auto; max-width: 100%; }
+.settings-chosen { display: inline-flex; align-items: center; gap: 5px; color: var(--vscode-descriptionForeground); }
+.settings-refresh { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); list-style: none; padding-left: 0; }
+/* Notices in Slack (GH-113): its card, as Environments drew it, inside the part. */
+.settings-part .identity.slack { margin: 4px 0 2px; max-width: none; }
 @media (max-width: 620px) {
   /* Its rows' names are short, so they stay beside their values, and a tracker stays a few lines tall. */
   .settings-tracker-row { grid-template-columns: 5.5em minmax(0, 1fr); gap: 8px; }
+  /* GitHub accounts' row is named Pushes as, which needs a little more to stay on one line (GH-113). */
+  .settings-github .settings-tracker-row { grid-template-columns: 7em minmax(0, 1fr); }
+  .settings-github .settings-name { white-space: nowrap; }
 }

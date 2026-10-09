@@ -262,6 +262,24 @@
         "icon": "$(color-mode)"
       },
       {
+        "command": "acc.settings.opensOn",
+        "title": "Choose the section the Command Center opens on in this window",
+        "category": "Agent Command Center",
+        "icon": "$(home)"
+      },
+      {
+        "command": "acc.settings.where",
+        "title": "Choose what Agents' Where column shows in this window",
+        "category": "Agent Command Center",
+        "icon": "$(folder)"
+      },
+      {
+        "command": "acc.settings.pace",
+        "title": "Choose how often the Command Center refreshes",
+        "category": "Agent Command Center",
+        "icon": "$(sync)"
+      },
+      {
         "command": "acc.settings.refresh",
         "title": "Refresh settings",
         "category": "Agent Command Center",
@@ -1281,7 +1299,7 @@
         "agentCommandCenter.notifications": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Say when a task changes in a way that needs you or is news: a builder finished, a review passed or asked for changes, a pull request's checks failed or it merged. Quiet while the Command Center shows that board. Notices to Slack have their own switch, on the Environments section's Notices in Slack card."
+          "markdownDescription": "Say when a task changes in a way that needs you or is news: a builder finished, a review passed or asked for changes, a pull request's checks failed or it merged. Quiet while the Command Center shows that board. Notices to Slack have their own switch, in the Settings section's Notices in Slack."
         },
         "agentCommandCenter.theme": {
           "type": "string",
@@ -1298,6 +1316,22 @@
           "default": "vscode",
           "scope": "machine",
           "markdownDescription": "The Command Center's theme, also on its Settings section. Only acc's own pages change: VSCode keeps its own theme. Kept on this machine: Settings Sync leaves it out."
+        },
+        "agentCommandCenter.refreshPace": {
+          "type": "string",
+          "enum": [
+            "normal",
+            "relaxed",
+            "slow"
+          ],
+          "enumDescriptions": [
+            "Normal: each part refreshes as often as it always has while the Command Center is on screen.",
+            "Relaxed: each interval while the Command Center is on screen is twice as long.",
+            "Slow: each interval while the Command Center is on screen is four times as long."
+          ],
+          "default": "normal",
+          "scope": "machine",
+          "markdownDescription": "How often the Command Center refreshes while it's on screen, also on its Settings section. While it's hidden, and for agents' questions and autopilot, nothing changes. Kept on this machine: Settings Sync leaves it out."
         }
       }
     }

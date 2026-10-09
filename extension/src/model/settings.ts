@@ -11,13 +11,15 @@ import { describe } from '../../../packages/core/src/trackers/connect.ts';
 import type { TrackerKind } from '../../../packages/core/src/trackers/types.ts';
 import { FROM_WORDS } from '../logic/agents.ts';
 import { signInScope } from '../logic/connect.ts';
-import { intervalWords, POLL_INTERVALS, POLL_KEYS } from '../logic/polls.ts';
+import { intervalWords, type Pace, PACE_WORDS, PACES, POLL_INTERVALS, POLL_KEYS, pollEvery } from '../logic/polls.ts';
 import type { DoctorItem } from '../logic/setup.ts';
-import { billingLook } from './agents.ts';
+import type { SlackCard } from '../slack.ts';
+import { billingLook, WHERE_VIEWS, type WhereView } from './agents.ts';
 import type { BoardInput } from './boards.ts';
+import type { IdentityCard } from './environments.ts';
 import type { AboutModel } from './about.ts';
 import type { LimitsModel } from './limits.ts';
-import { type HomeSection, type Look, LOOK, type ModelArea, type ProjectLike } from './shared.ts';
+import { HOME_SECTIONS, type HomeSection, type Look, LOOK, type ModelArea, type ProjectLike, VIEW_TITLES } from './shared.ts';
 
 // ---------------------------------------------------------------- the theme
 
@@ -172,22 +174,29 @@ export function howAgentsRun(projects: ProjectLike[], setup: DoctorItem[], unrea
 export const SIGN_IN_KEPT: SettingFrom = { label: 'VSCode on this machine', icon: 'key' };
 export const GH_SIGN_IN_KEPT: SettingFrom = { label: 'gh on this machine', icon: 'terminal' };
 
+/** A button in Settings: one of the commands the page may ask for, with what it's for. Disabled, it says why. */
+export interface SettingsAction {
+  command: string;
+  label: string;
+  icon: string;
+  /** What it's for, as the command takes it, or null for none. */
+  arg: string | null;
+  /** What it does, to whose, for a screen reader. */
+  name: string;
+  primary: boolean;
+  /** Why it can't be used now, or null. */
+  disabled: string | null;
+}
+
 /**
  * A tracker's button: one of the commands the page may ask for, with the tracker it's for. Disabled, it
  * says why. The extension does the rest: the Connect page for a sign-in or a place, which asks acc to write
  * the config, and VSCode's secret storage for a sign-out (D-064).
  */
-export interface TrackerAction {
+export interface TrackerAction extends SettingsAction {
   command: 'acc.trackers.signIn' | 'acc.trackers.signOut' | 'acc.trackers.add';
-  label: string;
-  icon: string;
   /** The tracker, as each command takes it: `{"root": …, "index": …}`. Null for Connect a tracker, which needs none. */
   arg: string | null;
-  /** What it does, to whose tracker, for a screen reader. */
-  name: string;
-  primary: boolean;
-  /** Why it can't be used now, or null. */
-  disabled: string | null;
 }
 
 /** One tracker as Settings lists it (GH-112): its kind, place and board (D-072), and its sign-in (D-091). */
@@ -283,6 +292,146 @@ export function trackersAndSignIns(projects: ProjectLike[], boards: (root: strin
   };
 }
 
+// ---------------------------------------------------------------- GitHub accounts (GH-113)
+
+/** The account each repo pushes as: this clone's choice, in its git config, or the project's, in .acc/config.json (D-028). */
+const CLONE: SettingFrom = { label: 'this clone', icon: 'device-desktop' };
+
+/** One project's GitHub account, under its name: who it pushes as, whether that works, and where it's chosen. */
+export interface GithubAccountSetting {
+  root: string;
+  project: string;
+  /** owner/name, or null when its .acc/config.json names no GitHub repo. */
+  repo: string | null;
+  /** The account, with an icon: blue when gh and git push agree, orange with what's wrong, or why there's none. */
+  look: Look;
+  /** This clone or the project, once read. */
+  from: SettingFrom | null;
+  /** Each a line: whose the project's account is when this clone chose another, gh's sign-in, and the commit identity. */
+  lines: Look[];
+  actions: SettingsAction[];
+}
+
+export interface GithubAccounts {
+  projects: GithubAccountSetting[];
+}
+
+/**
+ * A project's GitHub account (GH-113), from the identity Environments' card shows. Switch runs
+ * acc.github.switch for it, which picks among gh's accounts and asks acc github use to make the change in this
+ * clone's git config: nothing committed changes, and a builder can never make it (D-028).
+ */
+export function githubAccount(p: ProjectLike, id: IdentityCard | null): GithubAccountSetting {
+  const base = { root: p.root, project: p.name, repo: p.config.github?.repo ?? null };
+  const switchTo = (disabled: string | null, primary = false): SettingsAction => ({ command: 'acc.github.switch', label: 'Switch…', icon: 'arrow-swap', arg: p.root, name: `Switch the GitHub account ${p.name} pushes as, in this clone`, primary, disabled });
+  if (!p.config.github) {
+    return { ...base, look: LOOK('No GitHub repo: its .acc/config.json has no "github" section', 'circle-slash', 'neutral'), from: null, lines: [], actions: [switchTo('It names no GitHub repo, so there\'s no account to switch.')] };
+  }
+  if (!id) return { ...base, look: LOOK(`Checking which account it pushes as: the project's is ${p.config.github.account}`, 'sync~spin', 'blue'), from: null, lines: [], actions: [switchTo(null)] };
+  const lines: Look[] = [];
+  if (id.from === 'clone') lines.push(LOOK(`The project's account is ${id.projectAccount}. Switch… goes back to it.`, 'repo', 'neutral'));
+  // Not signed in is the account's own line: it isn't said twice.
+  if (id.signedIn) lines.push(LOOK(`gh is signed in as ${id.account}${id.projects ? '' : ', without GitHub Projects access'}`, 'pass', 'blue'));
+  lines.push(id.commit ? LOOK(`Commits as ${id.commit}`, 'git-commit', 'neutral') : LOOK('No commit identity set for this repo', 'warning', 'orange'));
+  const actions = [switchTo(null, !!id.problem && id.signedIn)];
+  if (!id.signedIn || !id.projects) actions.push({ command: 'acc.github.signIn', label: id.signedIn ? 'Add Projects access' : 'Sign in', icon: 'github', arg: id.account, name: `${id.signedIn ? 'Add GitHub Projects access for' : 'Sign in to GitHub as'} ${id.account}, for ${p.name}`, primary: !id.signedIn, disabled: null });
+  return {
+    ...base,
+    // Its row is named Pushes as, so the account stands alone, or with what's wrong.
+    look: id.problem ? LOOK(`${id.account}, but ${id.problem}`, 'warning', 'orange') : LOOK(id.account, 'github', 'blue'),
+    from: id.from === 'clone' ? CLONE : PROJECT, lines, actions,
+  };
+}
+
+export function githubAccounts(projects: ProjectLike[], identity: (root: string) => IdentityCard | null): GithubAccounts {
+  return { projects: projects.map((p) => githubAccount(p, identity(p.root))) };
+}
+
+// ---------------------------------------------------------------- the Command Center's own preferences (GH-113)
+
+/** The section the Command Center opens on: where it was left (the default), or always one named section. */
+export type OpensOn = 'left' | HomeSection;
+export const OPENS_ON_CHOICES: readonly OpensOn[] = ['left', ...HOME_SECTIONS];
+export const opensOnChoice = (v: unknown): OpensOn => ((OPENS_ON_CHOICES as readonly unknown[]).includes(v) ? (v as OpensOn) : 'left');
+
+const SECTION_WORDS: Record<HomeSection, { label: string; icon: string }> = {
+  overview: { label: 'Overview', icon: 'home' }, tasks: { label: VIEW_TITLES.tasks, icon: 'tasklist' }, agents: { label: VIEW_TITLES.agents, icon: 'hubot' },
+  worktrees: { label: VIEW_TITLES.worktrees, icon: 'list-tree' }, environments: { label: VIEW_TITLES.environments, icon: 'server-environment' },
+  setup: { label: VIEW_TITLES.setup, icon: 'checklist' }, settings: { label: VIEW_TITLES.settings, icon: 'settings-gear' },
+};
+export const opensOnWords = (o: OpensOn): { label: string; icon: string } => (o === 'left' ? { label: 'Where I left it', icon: 'history' } : SECTION_WORDS[o]);
+
+export const WHERE_WORDS: Record<WhereView, { label: string; icon: string; meaning: string }> = {
+  folder: { label: 'Folder', icon: 'folder', meaning: 'Agents names each session\'s folder in context: its project and worktree, or its repo (D-090).' },
+  path: { label: 'Full path', icon: 'list-tree', meaning: 'Agents shows each session\'s whole folder, with ~ for your home folder.' },
+};
+
+/** A preference's choices. Few show side by side; many, as a list. */
+export interface PreferenceChoice {
+  key: string;
+  label: string;
+  icon: string;
+  on: boolean;
+}
+
+/** One of the Command Center's own preferences: its choices, what the one chosen means, and where it's kept. */
+export interface PagePreference {
+  id: 'opensOn' | 'where' | 'pace';
+  name: string;
+  icon: string;
+  /** The command the page asks for with a choice's key; asked with none, it offers the choices itself. */
+  command: 'acc.settings.opensOn' | 'acc.settings.where' | 'acc.settings.pace';
+  control: 'segmented' | 'list';
+  choices: PreferenceChoice[];
+  meaning: string;
+  from: SettingFrom;
+}
+
+/** Kept by VSCode for this window: its workspaceState, which no other window shares. */
+export const WINDOW_KEPT: SettingFrom = { label: 'this window', icon: 'window' };
+/** Kept by VSCode for this machine: a setting of machine scope, which Settings Sync leaves alone (D-101). */
+export const MACHINE_KEPT: SettingFrom = { label: 'VSCode on this machine', icon: 'device-desktop' };
+
+export interface PagePreferences {
+  preferences: PagePreference[];
+  /** How often each part refreshes at the pace chosen, a line each. */
+  refresh: string[];
+}
+
+/** How often each thing refreshes at a pace, in words: on screen at the pace, hidden as it always is. */
+export const refreshLines = (pace: Pace = 'normal'): string[] => POLL_KEYS.map((k) => {
+  const shown = pollEvery(k, true, pace)!;
+  const hidden = pollEvery(k, false, pace);
+  return `${POLL_INTERVALS[k].label}: every ${intervalWords(shown)} while the Command Center is on screen, ${hidden ? `every ${intervalWords(hidden)}` : 'not at all'} while it isn't.`;
+});
+
+/** The section it opens on and the Where view, for this window; the refresh pace, for this machine (GH-113). */
+export function pagePreferences(i: { opensOn: OpensOn; whereView: WhereView; pace: Pace }): PagePreferences {
+  const opens = opensOnWords(i.opensOn);
+  return {
+    preferences: [
+      {
+        id: 'opensOn', name: 'Opens on', icon: 'home', command: 'acc.settings.opensOn', control: 'list',
+        choices: OPENS_ON_CHOICES.map((o) => ({ key: o, ...opensOnWords(o), on: o === i.opensOn })),
+        meaning: i.opensOn === 'left' ? 'Opened from its icon in the activity bar, the Command Center shows the section you left it at. A link to a section still opens that section.'
+          : `Opened from its icon in the activity bar, the Command Center shows ${opens.label}, wherever you left it. A link to a section still opens that section.`,
+        from: WINDOW_KEPT,
+      },
+      {
+        id: 'where', name: 'Agents\' Where', icon: 'folder', command: 'acc.settings.where', control: 'segmented',
+        choices: WHERE_VIEWS.map((w) => ({ key: w, label: WHERE_WORDS[w].label, icon: WHERE_WORDS[w].icon, on: w === i.whereView })),
+        meaning: `${WHERE_WORDS[i.whereView].meaning} The toggle above Agents' table changes it too.`, from: WINDOW_KEPT,
+      },
+      {
+        id: 'pace', name: 'Refresh pace', icon: 'sync', command: 'acc.settings.pace', control: 'segmented',
+        choices: PACES.map((p) => ({ key: p, label: PACE_WORDS[p].label, icon: PACE_WORDS[p].icon, on: p === i.pace })),
+        meaning: `${PACE_WORDS[i.pace].meaning} Hidden, it refreshes as it always does, and agents' questions and autopilot are never slowed.`, from: MACHINE_KEPT,
+      },
+    ],
+    refresh: refreshLines(i.pace),
+  };
+}
+
 // ---------------------------------------------------------------- the parts
 
 /**
@@ -330,11 +479,25 @@ export interface SettingsModel {
   parts: SettingsPartModel[];
   /** Limits and checks (GH-111): the caps, what a change means, the heavy-check slots and each project's checks. Null until read. */
   limits: LimitsModel | null;
+  /** Notices in Slack (GH-58), moved here from Environments (GH-113). Never the webhook: only its last four characters. */
+  slack: SlackCard | null;
+  /** GitHub accounts (GH-113). */
+  github: GithubAccounts;
+  /** The Command Center's own preferences (GH-113). */
+  page: PagePreferences;
   /** About (GH-114): the versions of acc, the extension and the plugin, and the latest release. Null until the extension reads them. */
   about: AboutModel | null;
 }
 
 export interface SettingsInput {
+  /** The Slack card, for this machine (GH-58). */
+  slack?: SlackCard | null;
+  /** Each project's GitHub identity, once read (D-028). None unless given. */
+  identity?: (root: string) => IdentityCard | null;
+  /** This window's choices and this machine's pace (GH-113). The defaults unless given. */
+  opensOn?: OpensOn;
+  whereView?: WhereView;
+  pace?: Pace;
   theme: ThemeChoice;
   /** The workspace's onboarded projects, whose agents' settings How agents run shows. */
   projects: ProjectLike[];
@@ -348,15 +511,11 @@ export interface SettingsInput {
   about?: AboutModel | null;
 }
 
-/** How often each thing refreshes today, in words. */
-export const refreshLines = (): string[] => POLL_KEYS.map((k) => {
-  const p = POLL_INTERVALS[k];
-  return `${p.label}: every ${intervalWords(p.everyMs)} while the Command Center is on screen, ${p.hiddenMs ? `every ${intervalWords(p.hiddenMs)}` : 'not at all'} while it isn't.`;
-});
-
 export function settingsModel(i: SettingsInput): SettingsModel {
   const agents = howAgentsRun(i.projects, i.setup);
   const trackers = trackersAndSignIns(i.projects, i.boards ?? (() => []));
+  const github = githubAccounts(i.projects, i.identity ?? (() => null));
+  const page = pagePreferences({ opensOn: i.opensOn ?? 'left', whereView: i.whereView ?? 'folder', pace: i.pace ?? 'normal' });
   const later = (id: SettingsPart, title: string, icon: string, summary: string, today: string, links: SettingsLink[] = [], details: string[] = []): SettingsPartModel => ({ id, title, icon, summary, built: false, today, details, links });
   const parts: SettingsPartModel[] = [
     { id: 'appearance', title: 'Appearance', icon: 'color-mode', summary: 'How the Command Center\'s pages look. Kept on this machine, for every window.', built: true, today: null, details: [], links: [] },
@@ -378,12 +537,23 @@ export function settingsModel(i: SettingsInput): SettingsModel {
         : ['No project in this workspace is onboarded yet. Once Setup onboards one, its trackers show here.'],
       links: trackers.projects.length ? [] : [{ label: 'Open Setup', icon: 'checklist', section: 'setup' }],
     },
-    later('slack', 'Notices in Slack', 'bell', 'Whether acc\'s notices go to Slack, and which.',
-      'On Environments for now, in its Notices in Slack card.', [{ label: 'Open Environments', icon: 'server-environment', section: 'environments' }]),
-    later('github', 'GitHub accounts', 'github', 'The GitHub account each project\'s repo pushes as.',
-      'On Environments for now, in each project\'s account card, and at the foot of the rail.', [{ label: 'Open Environments', icon: 'server-environment', section: 'environments' }]),
-    later('page', 'The Command Center', 'window', 'Which section it opens on, how Agents shows where sessions run, and how often it refreshes.',
-      'Not a choice yet. It opens where you left it, and Agents\' Where view switches above its table. It refreshes:', [{ label: 'Open Agents', icon: 'hubot', section: 'agents' }], refreshLines()),
+    {
+      id: 'slack', title: 'Notices in Slack', icon: 'bell', built: true, today: null, links: [],
+      summary: 'Whether acc\'s notices go to Slack from this machine, and which: one incoming webhook for every project open here.',
+      details: [],
+    },
+    {
+      id: 'github', title: 'GitHub accounts', icon: 'github', built: true, today: null,
+      summary: 'The GitHub account each project\'s repo pushes as from this clone. Switch… picks another account gh is signed in to, or goes back to the project\'s.',
+      details: github.projects.length
+        ? ['acc github use makes the switch, in this clone\'s git config: nobody else sees it, nothing committed changes, and no agent may make it. The project\'s account is in its .acc/config.json.']
+        : ['No project in this workspace is onboarded yet. Once Setup onboards one, the account its repo pushes as shows here.'],
+      links: github.projects.length ? [] : [{ label: 'Open Setup', icon: 'checklist', section: 'setup' }],
+    },
+    {
+      id: 'page', title: 'The Command Center', icon: 'window', built: true, today: null, links: [], details: [],
+      summary: 'Which section it opens on, how Agents shows where sessions run, and how often it refreshes. VSCode keeps each, for this window or this machine.',
+    },
     {
       id: 'about', title: 'About', icon: 'info', summary: 'The versions of acc, the extension and the plugin, read fresh each time Settings shows, and whether a newer release is out.',
       built: true, today: null,
@@ -391,16 +561,21 @@ export function settingsModel(i: SettingsInput): SettingsModel {
       links: [],
     },
   ];
-  return { kind: 'settings', theme: i.theme, themes: THEME_CHOICES.map((key) => ({ key, ...THEMES[key] })), agents, trackers, parts, limits: i.limits ?? null, about: i.about ?? null };
+  return { kind: 'settings', theme: i.theme, themes: THEME_CHOICES.map((key) => ({ key, ...THEMES[key] })), agents, trackers, parts, limits: i.limits ?? null, slack: i.slack ?? null, github, page, about: i.about ?? null };
 }
 
 export const area: ModelArea = {
   // How agents run's Change… buttons run the Agents area's commands, which this section draws now (GH-110).
   // A tracker's Sign out is drawn only here (GH-112); its Sign in and Change place are the boards' too.
-  commands: ['acc.settings.theme', 'acc.agents.configure', 'acc.agents.autonomy', 'acc.agents.autoMerge', 'acc.trackers.signOut'],
+  // GitHub accounts' Switch… and Sign in are Environments' commands, which its account cards draw too (GH-113).
+  commands: ['acc.settings.theme', 'acc.agents.configure', 'acc.agents.autonomy', 'acc.agents.autoMerge', 'acc.trackers.signOut', 'acc.settings.opensOn', 'acc.settings.where', 'acc.settings.pace'],
   home: {
     // Last in the rail, after every other area's.
     order: 90,
-    nav: () => ({ section: 'settings', label: 'Settings', icon: 'settings-gear', count: null, attention: false, hint: 'Appearance, how agents run, limits and checks, trackers and sign-ins, the versions, and where each other setting lives' }),
+    // Slack paused because it refused a message needs you (GH-58): its badge came with it (GH-113).
+    nav: ({ i }) => ({
+      section: 'settings', label: 'Settings', icon: 'settings-gear', count: null, attention: i.slack?.state === 'paused',
+      hint: i.slack?.state === 'paused' ? 'Notices to Slack are paused' : 'Appearance, agents, limits, trackers, Slack, GitHub accounts, the Command Center\'s own preferences and the versions',
+    }),
   },
 };

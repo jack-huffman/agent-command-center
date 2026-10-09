@@ -1345,12 +1345,12 @@ count; under 820 px wide, it becomes a tab strip along the top.
 | **Tasks** | The tracker's own board, or acc's agent board (D-026) |
 | **Agents** | Sessions by repo, then by task (GH-119): this window's projects, then every other repo on the machine by name, saying when another window has one open, then Other folders. Under each task, a line per agent: its role, its state, the model it runs with (D-086), how long it has run, and a menu (D-023), with Answer, Watch and Open in Claude Code while it needs you. Where shows only when an agent isn't in its task's own worktree. Finished sessions fold into one Finished (N) under each repo, with Stop all (D-095). **Settings** in the header opens Settings at **How agents run** (GH-110). Per-token billing shows above the sessions, since it costs money while nobody looks (D-036, D-089) |
 | **Worktrees** | Every checkout, with a menu on each row |
-| **Environments** | The GitHub identity card (D-028), promotion paths, and one card per environment |
+| **Environments** | The GitHub identity card (D-028), promotion paths, and one card per environment. Under **This machine**, a line saying Notices in Slack moved to Settings, with a button to it (GH-113) |
 | **Setup** | The checklist, with Do it on each step |
-| **Settings** | Last in the rail, with a gear (GH-109). **Appearance** first, then **How agents run** (GH-110), then **Limits and checks** (GH-111) and **Trackers and sign-ins** (GH-112), then a part for each area whose settings move there: Notices in Slack, GitHub accounts, the Command Center, and About. Each part has a heading another page can open Settings at; until its settings move, it says where they live today, with a button there when there is one |
+| **Settings** | Last in the rail, with a gear (GH-109). **Appearance** first, then **How agents run** (GH-110), **Limits and checks** (GH-111), **Trackers and sign-ins** (GH-112), **Notices in Slack**, **GitHub accounts** and **The Command Center** (GH-113), then **About** (GH-114). Each part has a heading another page can open Settings at. Orange in the rail while Slack is paused |
 
-The page polls only while it's visible. The section you leave it on is where it
-opens next. The sidebar keeps a single launcher view listing the sections; set
+The page polls only while it's visible, at the pace Settings sets (GH-113). It
+opens where you left it, unless Settings names a section for the window. The sidebar keeps a single launcher view listing the sections; set
 `agentCommandCenter.openFromActivityBar` to false to keep it open instead. The
 icon's badge counts what needs you.
 
@@ -1375,6 +1375,31 @@ for a site's sign-in; GitHub has only Change place…. **Connect a tracker…**
 starts a new one. Opened from Settings, the Connect page's Back and Save come
 back to this part. Save asks `acc trackers set` to write the tracker, so the
 Command Center writes no config itself (D-064).
+
+**Notices in Slack** (GH-113): the card D-078 put on Environments, moved here
+whole, with its badge (Settings turns orange in the rail while Slack is paused)
+and its toast (**Open Settings** opens this part). Environments keeps a line
+saying it moved. **Send notices to Slack…** and a test with no webhook open it
+here too.
+
+**GitHub accounts** (GH-113): every open project under its name, the account its
+repo pushes as, from this clone (its git config) or the project (its
+`.acc/config.json`), and whether gh is signed in as it and git push agrees, in
+words with an icon, blue or orange. **Switch…** is `acc.github.switch` for that
+project, which asks `acc github use`; **Sign in** or **Add Projects access**
+shows when gh needs it. `acc github use` is a person's: the CLI refuses
+builders, reviewers and analysts, the hook's `PERSON_ONLY_ACC` names `github
+use`, and the builder's deny list has `Bash(acc github use*)`. `acc github
+status`, which only reads, stays a builder's.
+
+**The Command Center** (GH-113): the section it opens on (Where I left it, the
+default, or a named section) and Agents' Where view (D-090), each kept in the
+window's workspaceState; and the refresh pace, `agentCommandCenter.refreshPace`,
+a machine setting like the theme: Normal, Relaxed (each on-screen interval ×2)
+or Slow (×4). `pollEvery` in `logic/polls.ts` is the one place it applies, so
+hidden intervals, agents' questions and autopilot's timers don't change. Each
+is a command (`acc.settings.opensOn`, `acc.settings.where`, `acc.settings.pace`)
+that takes a choice or asks, and refuses one it doesn't know.
 
 **Appearance** (GH-109): the Command Center, task pages and agent pages are
 Match VSCode (the default), Light or Dark; VSCode keeps its own theme. The pick
