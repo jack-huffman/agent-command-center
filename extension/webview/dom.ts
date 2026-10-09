@@ -221,6 +221,18 @@ export function openable(e: HTMLElement, msg: unknown): HTMLElement {
   return e;
 }
 
+/** What marks a card that opens a task in the modal over the board, so focus goes back to it (GH-158). */
+export const peekKey = (project: string, key: string): string => `${project}#${key.toUpperCase()}`;
+
+/**
+ * A card that opens its task in the modal over the board, not in a tab (GH-158). tracker is the tracker
+ * board's; the agent board gives none, so the key decides, as acc.task.show does.
+ */
+export function peekable(e: HTMLElement, project: string, key: string, tracker?: number | null): HTMLElement {
+  e.dataset.peek = peekKey(project, key);
+  return openable(e, { type: 'task-modal-open', project, key, ...(tracker === undefined ? {} : { tracker }) });
+}
+
 /**
  * Shows the first few lines of something long, with Show all to open the rest. `inner` names the part
  * that's cut, when it isn't the whole element. Remembered per tab, by key.

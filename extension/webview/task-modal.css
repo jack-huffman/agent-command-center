@@ -1,0 +1,43 @@
+/* ---------------------------------------------------------------- a task over the Tasks board (GH-158) */
+/* The task's page in a modal: a raised surface over the board, with the depth tokens' edge and lift
+   (D-127), and the board dimmed under it. The backdrop is mixed from the theme too: darker in dark, a grey
+   veil in light. */
+body { --backdrop: color-mix(in srgb, var(--vscode-sideBar-background, var(--vscode-editor-background)) 72%, transparent); }
+html[data-theme="light"] body, html[data-theme="vscode"] body.vscode-light, html[data-theme="vscode"] body.vscode-high-contrast-light {
+  --backdrop: color-mix(in srgb, var(--vscode-foreground) 30%, transparent);
+}
+.task-modal {
+  width: min(1100px, calc(100vw - 48px));
+  height: calc(100vh - 48px);
+  max-width: none;
+  max-height: none;
+  margin: auto;
+  padding: 0;
+  overflow: hidden;
+  color: var(--vscode-foreground);
+  background: var(--raised);
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  box-shadow: var(--lift), 0 12px 40px var(--vscode-widget-shadow, transparent);
+}
+.task-modal[open] { display: flex; flex-direction: column; }
+.task-modal::backdrop { background: var(--backdrop); }
+/* Open as tab and Close, in its top-right corner, above the page, which scrolls under them. */
+.task-modal-bar { flex: none; display: flex; justify-content: flex-end; align-items: center; gap: 4px; padding: 6px 10px; border-bottom: 1px solid var(--edge); }
+.task-modal-body { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 18px 24px 28px; outline: none; }
+/* Its panels stand on it as they do on the tab's page: in dark, where the modal is raised itself, a level
+   higher again; in light, the page's white, with their edges. */
+.task-modal-body {
+  --raised: color-mix(in srgb, var(--vscode-editor-background) 85%, var(--vscode-foreground) 15%);
+  --card: var(--raised);
+}
+html[data-theme="light"] .task-modal-body, html[data-theme="vscode"] body.vscode-light .task-modal-body, html[data-theme="vscode"] body.vscode-high-contrast-light .task-modal-body {
+  --raised: var(--vscode-editor-background);
+}
+/* The page's line under its heading is the page's colour in dark, so on the raised modal it's drawn as an edge. */
+.task-modal-body .ticket-head { border-bottom-color: var(--edge); }
+/* A narrow panel: it fills it, less a small margin. */
+@media (max-width: 760px) {
+  .task-modal { width: calc(100vw - 24px); height: calc(100vh - 24px); }
+  .task-modal-body { padding: 14px 14px 24px; }
+}

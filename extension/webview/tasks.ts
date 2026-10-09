@@ -3,7 +3,7 @@
 import type { TrackerBoard, TrackerCard } from '../src/model/boards.ts';
 import type { TasksModel } from '../src/model/tasks.ts';
 import { cardFoot, cardMenu, moreMenu } from './boards.ts';
-import { actionButton, avatar, button, type Child, el, empty, header, icon, labelChip, openable, plural, status, titled, toolbarButton } from './dom.ts';
+import { actionButton, avatar, button, type Child, el, empty, header, icon, labelChip, peekable, plural, status, titled, toolbarButton } from './dom.ts';
 import { api, go, memory, type PageArea, remember, state } from './state.ts';
 
 export function renderTasks(m: TasksModel): Node[] {
@@ -49,7 +49,8 @@ export function renderTasks(m: TasksModel): Node[] {
         // Drag a card to another lane to move it (D-041), so the cards need no Move button.
         const art = el('article', `card${c.group === 'done' ? ' done' : ''}`,
           el('div', 'card-id', card.id, el('span', 'chip', card.environment)),
-          openable(el('div', 'card-title', card.title), { type: 'run', command: 'acc.task.show', ref: { project: p.root, task: card.id } }),
+          // A click opens it over the board; the modal's Open as tab opens its tab (GH-158).
+          peekable(el('div', 'card-title', card.title), p.root, card.id),
           card.waitingOn.length ? el('div', 'card-note', icon('clock'), `Waiting on ${card.waitingOn.join(', ')}`) : null,
           // Its pull request won't merge into its base (D-049): an icon and the words, in orange.
           card.conflicts ? el('div', 'card-note conflict', icon('warning'), el('span', '', card.conflicts)) : null,
@@ -145,7 +146,7 @@ function trackerCard(root: string, b: TrackerBoard, c: TrackerCard): HTMLElement
     card.classList.add('dragging');
   });
   card.addEventListener('dragend', () => card.classList.remove('dragging'));
-  return openable(card, { type: 'ticket', project: root, tracker: b.index, key: c.key });
+  return peekable(card, root, c.key, b.index);
 }
 
 /**

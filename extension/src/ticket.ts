@@ -9,7 +9,8 @@ import type { Hub, Project } from './hub.ts';
 import { type FromWebview, isFromWebview } from './model/messages.ts';
 import type { Ref } from './model/shared.ts';
 import { type CheckIn, ticketActionRefusal, ticketCheck, ticketModel, type TicketModel } from './model/task-page.ts';
-import { htmlFor, isWebLink, TabTheme } from './panels.ts';
+import { htmlFor, isWebLink, type Panels, TabTheme } from './panels.ts';
+import { modalTakes } from './model/task-modal.ts';
 import type { ThemeChoice } from './model/settings.ts';
 import { runFile } from './run.ts';
 import type { Trackers } from './trackers.ts';
@@ -27,8 +28,31 @@ export interface UpdateActions {
   ask(root: string, task: string, question: string): Promise<Reply>;
 }
 
-interface Open {
+/** Where a task's page is drawn (GH-158): its own tab, or the modal over the Command Center's Tasks board. */
+interface TicketView {
+  /** On screen, so a model posted now is drawn. */
+  readonly visible: boolean;
+  /** Draws the page from its model. */
+  draw(model: TicketModel): void;
+  /** Tells the page how something it sent went. */
+  say(msg: Record<string, unknown>): void;
+  /** Names it, as a tab's title. The modal names itself from the model. */
+  name(text: string): void;
+}
+
+/** The Command Center's tab, as the modal over its Tasks board draws on it (GH-158). */
+export type ModalHost = Pick<Panels, 'reply' | 'showing'>;
+
+/** A task page's own tab, and the theme it keeps (GH-109). */
+interface Tab {
   panel: vscode.WebviewPanel;
+  theme: TabTheme;
+}
+
+interface Open {
+  view: TicketView;
+  /** Its own tab, or null for the modal. */
+  tab: Tab | null;
   project: string;
   tracker: number | null;
   key: string;
@@ -40,8 +64,6 @@ interface Open {
   connect: TicketModel['connect'];
   /** Its updates' unsent edits, by update id, as the page last said (GH-46). */
   edits: Map<string, string>;
-  /** Keeps it in the Command Center's theme (GH-109). */
-  theme: TabTheme;
 }
 
 /** Commands a ticket page may run, the same ones its task's card offers. */
@@ -53,7 +75,9 @@ const ALLOWED = new Set(['acc.task.dispatch', 'acc.task.dispatchWith', 'acc.task
  * fields change only where the tracker opts in; acc's updates for it are drafts a person posts (D-066).
  */
 export class TicketPanels implements vscode.Disposable {
-  private readonly open = new Map<string, Open>();
+  private readonly open = new Map<string, Open & { tab: Tab }>();
+  /** The task in the modal over the Command Center's Tasks board, if any (GH-158). */
+  private modal: Open | null = null;
   private readonly ctx: vscode.ExtensionContext;
   private readonly hub: Hub;
   private readonly trackers: Trackers;
@@ -81,7 +105,7 @@ export class TicketPanels implements vscode.Disposable {
   }
 
   dispose(): void {
-    for (const o of this.open.values()) o.panel.dispose();
+    for (const o of this.open.values()) o.tab.panel.dispose();
     this.editsChanged.dispose();
   }
 
@@ -90,7 +114,7 @@ export class TicketPanels implements vscode.Disposable {
    * replaced too: what Post on that page would send. Only this window's pages, and only while open (GH-46).
    */
   edited(root: string, id: string, replaces: readonly string[] = []): string | null {
-    for (const o of this.open.values()) {
+    for (const o of this.pages()) {
       if (o.project !== root) continue;
       for (const x of [id, ...replaces]) {
         const text = o.edits.get(x);
@@ -108,7 +132,7 @@ export class TicketPanels implements vscode.Disposable {
     const id = `${root}#${key.toUpperCase()}`;
     const existing = this.open.get(id);
     if (existing) {
-      existing.panel.reveal();
+      existing.tab.panel.reveal();
       void this.load(existing);
       return;
     }
@@ -117,7 +141,13 @@ export class TicketPanels implements vscode.Disposable {
     const icon = (theme: 'light' | 'dark') => vscode.Uri.joinPath(this.ctx.extensionUri, 'dist', 'media', `acc-${theme}.svg`);
     panel.iconPath = { light: icon('light'), dark: icon('dark') };
     const theme = new TabTheme(panel, (t) => htmlFor(panel.webview, base, 'ticket', randomBytes(16).toString('base64'), key, t));
-    const o: Open = { panel, project: root, tracker: index, key: key.toUpperCase(), ticket: null, loading: index !== null, error: null, outside: null, connect: null, edits: new Map(), theme };
+    const view: TicketView = {
+      get visible() { return panel.visible; },
+      draw: (model) => void panel.webview.postMessage({ type: 'state', model }),
+      say: (msg) => void panel.webview.postMessage(msg),
+      name: (text) => { panel.title = text; },
+    };
+    const o = { ...this.fresh(view, root, index, key), tab: { panel, theme } };
     this.open.set(id, o);
     // Closing the page drops its edits (D-066), and the Overview goes back to acc's text.
     panel.onDidDispose(() => {
@@ -129,14 +159,72 @@ export class TicketPanels implements vscode.Disposable {
     void this.load(o);
   }
 
-  /** Settings changed the theme (GH-109): every task page restyles. */
-  retheme(theme: ThemeChoice): void {
-    for (const o of this.open.values()) o.theme.set(theme);
+  /**
+   * Opens a task's page in the modal over the Command Center's Tasks board (GH-158), in place of the one it
+   * showed. It's the tab's page: the same model, drawn by the same renderer, and its messages handled here
+   * as the tab's are. Open as tab there sends what the card sent before: acc.task.show from the agent
+   * board, which gives no tracker, or the ticket from a tracker's. With no tracker given, the key decides.
+   */
+  peek(host: ModalHost, root: string, tracker: number | null | undefined, key: string): void {
+    const project = this.hub.project(root);
+    if (!project) return;
+    const index = tracker === undefined ? this.trackers.trackerFor(project, key) : tracker;
+    const tab = tracker === undefined ? { type: 'run', command: 'acc.task.show', ref: { project: root, task: key } } : { type: 'ticket', project: root, tracker, key };
+    this.closeModal();
+    const view: TicketView = {
+      get visible() { return host.showing(); },
+      // A model that arrives after the modal closed, or another opened, would open it again.
+      draw: (model) => { if (this.modal?.view === view) host.reply({ type: 'task-modal', model, tab }); },
+      say: (msg) => host.reply(msg),
+      name: () => {},
+    };
+    const o = this.fresh(view, root, index, key);
+    this.modal = o;
+    void this.load(o);
   }
 
-  /** Re-draws every open page, for instance after the ledger or an agent changed. */
+  /** The modal closed, or the tab under it did (GH-158): its edits go with it, as a closed tab's do. With a task named, only if it's that one. */
+  closeModal(project?: string, key?: string): void {
+    const o = this.modal;
+    if (!o || (key !== undefined && (o.project !== project || o.key !== key.toUpperCase()))) return;
+    this.modal = null;
+    if (o.edits.size) this.editsChanged.fire();
+  }
+
+  /**
+   * A message from the Command Center's page that's the modal's (GH-158), handled here as its tab's would
+   * be. False for the rest, which are the page's own.
+   */
+  fromModal(m: FromWebview): boolean {
+    const o = this.modal;
+    if (!o || !modalTakes(o, m, ALLOWED)) return false;
+    void this.receive(o, m);
+    return true;
+  }
+
+  /** The Command Center's page was drawn afresh, as when its tab comes back: the modal it showed is drawn over it again. */
+  modalReady(): void {
+    if (this.modal) void this.post(this.modal);
+  }
+
+  /** A page that hasn't loaded yet. */
+  private fresh(view: TicketView, root: string, tracker: number | null, key: string): Open {
+    return { view, tab: null, project: root, tracker, key: key.toUpperCase(), ticket: null, loading: tracker !== null, error: null, outside: null, connect: null, edits: new Map() };
+  }
+
+  /** Every page shown: each tab, and the modal (GH-158). */
+  private pages(): Open[] {
+    return [...this.open.values(), ...(this.modal ? [this.modal] : [])];
+  }
+
+  /** Settings changed the theme (GH-109): every task page restyles. The modal is in the Command Center's. */
+  retheme(theme: ThemeChoice): void {
+    for (const o of this.open.values()) o.tab.theme.set(theme);
+  }
+
+  /** Re-draws every open page, the modal too, for instance after the ledger or an agent changed. */
   refresh(root?: string): void {
-    for (const o of this.open.values()) if (!root || o.project === root) void this.post(o);
+    for (const o of this.pages()) if (!root || o.project === root) void this.post(o);
   }
 
   private project(o: Open): Project | undefined {
@@ -168,7 +256,7 @@ export class TicketPanels implements vscode.Disposable {
     } finally {
       o.loading = false;
     }
-    o.panel.title = o.ticket ? `${o.key} ${o.ticket.title}`.slice(0, 60) : o.key;
+    o.view.name(o.ticket ? `${o.key} ${o.ticket.title}`.slice(0, 60) : o.key);
     await this.post(o);
   }
 
@@ -194,7 +282,7 @@ export class TicketPanels implements vscode.Disposable {
 
   private async post(o: Open): Promise<void> {
     const p = this.project(o);
-    if (!p || !o.panel.visible) return;
+    if (!p || !o.view.visible) return;
     const row = this.hub.taskRows(p.root).find((r) => r.id === o.key) ?? null;
     const task = this.hub.ledger(p.root)?.tasks.find((t) => t.id === o.key) ?? null;
     const tracker = o.tracker !== null ? this.trackers.trackers(p)[o.tracker] : undefined;
@@ -206,7 +294,7 @@ export class TicketPanels implements vscode.Disposable {
       trackerEdits: this.edits(o, p), updates: this.hub.updates(p.root), boards: this.trackers.boardStates(p.root), github: p.config.github?.account ?? null,
       tracking: this.trackers.trackState(p.root, o.key).busy,
     });
-    void o.panel.webview.postMessage({ type: 'state', model });
+    o.view.draw(model);
   }
 
   private async receive(o: Open, m: unknown): Promise<void> {
@@ -218,7 +306,7 @@ export class TicketPanels implements vscode.Disposable {
     const p = this.project(o);
     if (!p) return;
     switch (m.type) {
-      case 'ready': o.theme.ready(); return this.post(o);
+      case 'ready': o.tab?.theme.ready(); return this.post(o);
       case 'refresh': return this.load(o);
       case 'open': if (isWebLink(m.url)) void vscode.env.openExternal(vscode.Uri.parse(m.url)); return;
       case 'ticket': return this.show(m.project, m.tracker, m.key);
@@ -238,7 +326,7 @@ export class TicketPanels implements vscode.Disposable {
    * until the question goes, so every answer gets a reply: done, or why it wasn't recorded.
    */
   private async answer(o: Open, m: Extract<FromWebview, { type: 'analysis-answer' }>): Promise<void> {
-    const done = (r: { ok: boolean; error?: string }) => void o.panel.webview.postMessage({ type: 'done', action: 'analysis-answer', project: m.project, task: m.task, question: m.question, ...r });
+    const done = (r: { ok: boolean; error?: string }) => o.view.say({ type: 'done', action: 'analysis-answer', project: m.project, task: m.task, question: m.question, ...r });
     if (m.project !== o.project || m.task !== o.key) return done({ ok: false, error: 'That answer isn\'t for this task.' });
     if (!this.answerAnalysis) return done({ ok: false, error: 'This page can\'t record answers.' });
     done(await this.answerAnalysis(m.project, m.task, m.question, m.text).catch((e: unknown) => ({ ok: false, error: (e as Error).message })));
@@ -252,7 +340,7 @@ export class TicketPanels implements vscode.Disposable {
    */
   private async update(o: Open, m: Extract<FromWebview, { type: 'update-post' | 'update-discard' | 'update-ask' }>): Promise<void> {
     const which = m.type === 'update-ask' ? { task: m.task, question: m.question } : { id: m.id };
-    const done = (r: Reply) => void o.panel.webview.postMessage({ type: 'done', action: m.type, project: m.project, ...which, ...r });
+    const done = (r: Reply) => o.view.say({ type: 'done', action: m.type, project: m.project, ...which, ...r });
     const task = m.type === 'update-ask' ? m.task : m.id.slice(0, m.id.lastIndexOf('.'));
     if (m.project !== o.project || task !== o.key) return done({ ok: false, error: 'That update isn\'t for this task.' });
     if (!this.updates) return done({ ok: false, error: 'This page can\'t post updates.' });
@@ -290,7 +378,7 @@ export class TicketPanels implements vscode.Disposable {
     if (action === 'task') return this.makeTask(o, p, text ?? '');
     if (o.tracker === null || !o.ticket) return;
     const index = o.tracker;
-    const done = (ok: boolean, error?: string) => void o.panel.webview.postMessage({ type: 'done', action, ok, error });
+    const done = (ok: boolean, error?: string) => o.view.say({ type: 'done', action, ok, error });
     // A client's tracker is theirs: its fields change from here only where it opts in (D-066). Comments stay.
     const refused = ticketActionRefusal(action, this.edits(o, p));
     if (refused) return done(false, refused);
