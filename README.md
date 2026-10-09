@@ -66,10 +66,12 @@ Salesforce. Project types plug in as profiles.
   `acc dispatch <id> --model <m> --effort <low|medium|high|xhigh|max>`, or
   **Dispatch with…** (**Re-dispatch with…** on a rework), which offers the
   model, then the levels it takes, saying which is its default and where the
-  current one is set. A re-dispatch and a resume keep the pick. A level the
-  model doesn't take is refused before anything starts, citing acc's list of
-  each model's levels, copied from Anthropic's effort guide with the date it
-  was read. The task page and Agents show an effort beside the model when it
+  current one is set. A re-dispatch and a resume keep the pick;
+  `--effort default`, or the builder's own level in the picker, drops it, and
+  a model picked that doesn't take it drops it and says so. On every dispatch
+  and resume, a level the model doesn't take is refused before anything
+  starts, citing acc's list of each model's levels, copied from Anthropic's
+  effort guide with the date it was read. The task page and Agents show an effort beside the model when it
   isn't the model's default.
 - **History:** what agents asked and what you answered stays on the page: in
   each agent's timeline, and in the Overview's History with the task moves and

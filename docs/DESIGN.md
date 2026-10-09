@@ -449,17 +449,22 @@ analysis's size beside the models (D-086).
 `acc dispatch --effort <low|medium|high|xhigh|max>` picks the builder's effort
 for this task the same way (D-???): kept on the run (`run.effort`,
 `run.effortPicked`) and on a hold, so a re-dispatch, a held start and a resume
-use it until another is picked. Without one, the clone's or the project's
-effort applies, and with none set, `--effort` is left out and the model's own
-default applies. A level the model doesn't take is refused before anything
-starts, with the levels it does take and where acc's list came from:
-`MODEL_EFFORTS` in core's `efforts.ts`, copied from Anthropic's effort guide,
-with the URL and the date it was read in `EFFORT_SOURCE`. A model the list
-doesn't name, such as an alias, isn't checked. **Dispatch with…** asks for the
-effort after the model, offering only the levels that model takes: the one the
-builder would run with anyway first, saying where it's set in the model
-choice's words (`FROM_WORDS`), then each other level with its words, the
-model's default marked. The task page's Model and the Agents line show the
+use it until another is picked. `--effort default` drops the pick, and a
+model picked that doesn't take it drops it and says so. Without one, the
+clone's or the project's effort applies, and with none set, `--effort` is left
+out and the model's own default applies. On every dispatch, re-dispatch,
+resume and reply, wherever the model and effort are set, a level the model
+doesn't take is refused before anything starts or is stopped, with the levels
+it does take, where the effort is set and how to change it, and where acc's
+list came from: `MODEL_EFFORTS` in core's `efforts.ts`, copied from
+Anthropic's effort guide, with the URL and the date it was read in
+`EFFORT_SOURCE`. A model the list doesn't name, such as an alias, isn't
+checked. **Dispatch with…** asks for the effort after the model, offering only
+the levels that model takes: the task's pick first, then the builder's own
+(the clone's, the project's, or the model's default), saying where each is set
+in the model choice's words (`FROM_WORDS`), which after a pick drops it, then
+each other level with its words, the model's default marked. For a model that
+takes no level the step is skipped, and a pick is dropped and said. The task page's Model and the Agents line show the
 builder's effort beside its model when it isn't the model's default.
 
 `acc dispatch --foreground` runs the same session in the current terminal
