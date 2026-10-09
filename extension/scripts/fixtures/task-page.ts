@@ -81,6 +81,9 @@ export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12'):
       { gate: 'format', status: 'pass', summary: '3 changed files formatted.' },
       { gate: 'static', status: 'skip', summary: 'Waived by jordan: the 2 violations predate this change', waived: true },
       { gate: 'validate', status: 'fail', summary: '4 of 21 tests failed in Acme Dev: CaseRoutingTest.premiumEscalates', counts: '21 run, 4 failed, 0 skipped' },
+      // Ratchets (GH-99): one that got better, and one that got worse, which has no Waive….
+      { gate: 'apex-coverage', status: 'pass', summary: 'Apex coverage 81, at its floor.', ratchet: { label: 'Apex coverage', limit: 'floor', from: 78, to: 81, diff: 3, numbers: '78 → 81 (+3)', line: 'Apex coverage 78 → 81 (+3)' } },
+      { gate: 'violations', status: 'fail', summary: 'violations 6 is above its ceiling 4, by 2. Make it 4 or better. If this change has to make it worse, block and say why: only a person relaxes a ceiling.', ratchet: { label: 'violations', limit: 'ceiling', from: 4, to: 6, diff: 2, numbers: '4 → 6 (+2)', line: 'violations 4 → 6 (+2)' } },
       // A test check that skipped more than dev's last count: a person decides (GH-100).
       { gate: 'flow-tests', status: 'hold', summary: '2 skipped, up from 0 on 4f2a9c1: OrderFlowTest.discount, OrderFlowTest.tax newly skipped.', counts: '38 run, 2 skipped' },
       { gate: 'lwc-tests', status: 'skip', summary: 'Not run on this commit' },

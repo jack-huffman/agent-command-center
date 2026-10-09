@@ -3,13 +3,12 @@ import { dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { builderGatesFor, fullGates, requiredGates } from '../../packages/core/src/config.ts';
 import type { RepoPaths } from '../../packages/core/src/paths.ts';
-import { type Receipt, receiptsAt } from '../../packages/core/src/receipts.ts';
-import { testsText } from '../../packages/core/src/test-counts.ts';
+import { receiptsAt } from '../../packages/core/src/receipts.ts';
 import { signInLabel, type Ticket, type TrackerClient } from '../../packages/core/src/trackers/types.ts';
 import type { Hub, Project } from './hub.ts';
 import { type FromWebview, isFromWebview } from './model/messages.ts';
 import type { Ref } from './model/shared.ts';
-import { type CheckIn, ticketActionRefusal, ticketModel, type TicketModel } from './model/task-page.ts';
+import { type CheckIn, ticketActionRefusal, ticketCheck, ticketModel, type TicketModel } from './model/task-page.ts';
 import { htmlFor, isWebLink, TabTheme } from './panels.ts';
 import type { ThemeChoice } from './model/settings.ts';
 import { runFile } from './run.ts';
@@ -184,13 +183,13 @@ export class TicketPanels implements vscode.Disposable {
     const required = [...new Set([...builder, ...full])];
     const scope = (gate: string): { scope?: 'builder' | 'merge' } => (!lighter ? {} : builder.includes(gate) ? { scope: 'builder' } : full.includes(gate) ? { scope: 'merge' } : {});
     const unrun = (gate: string) => (lighter && scope(gate).scope === 'merge' ? 'Not run on this commit: it runs once, in the merge queue' : 'Not run on this commit');
-    if (!branch) return required.map((gate) => ({ gate, status: 'skip' as const, summary: lighter && scope(gate).scope === 'merge' ? unrun(gate) : 'Not run yet', ...scope(gate) }));
+    // A ratchet carries its numbers, from the environment's floor to this commit's (GH-99).
+    const ratchet = (gate: string) => p.config.gates.ratchets?.[gate];
+    if (!branch) return required.map((gate) => ticketCheck(gate, null, lighter && scope(gate).scope === 'merge' ? unrun(gate) : 'Not run yet', scope(gate), ratchet(gate)));
     const sha = await runFile('git', ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], p.root);
     const receipts = sha.code === 0 ? receiptsAt({ receipts: join(dirname(p.ledgerPath), 'receipts') } as RepoPaths, sha.stdout.trim()) : {};
     const gates = [...new Set([...required, ...Object.keys(receipts)])];
-    // What each test check ran, as the pull request says it (GH-100).
-    const counted = (r: Receipt) => ({ ...(testsText(r) ? { counts: testsText(r) } : {}), ...(r.countsNote ? { countsNote: r.countsNote } : {}) });
-    return gates.map((gate) => receipts[gate] ? { gate, status: receipts[gate]!.status, summary: receipts[gate]!.summary, waived: !!receipts[gate]!.waived, ...scope(gate), ...counted(receipts[gate]!) } : { gate, status: 'skip' as const, summary: unrun(gate), ...scope(gate) });
+    return gates.map((gate) => ticketCheck(gate, receipts[gate] ?? null, unrun(gate), scope(gate), ratchet(gate)));
   }
 
   private async post(o: Open): Promise<void> {

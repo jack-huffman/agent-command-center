@@ -9,7 +9,8 @@ import { type Config, type Environment, fullGates, isTestGate, requiredGates, ST
 import { AccError, parseJsonOutput, type RunResult, type Runner, sfEnv } from './exec.ts';
 import type { Ledger, Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
-import { earlierCounts, type GateStatus, readReceipt, type Receipt, writeReceipt } from './receipts.ts';
+import { carriesOver, FLOORS_FILE, floorsAt, judgeRatchet, type RatchetFloors, ratchetGate, readFloors, readRelaxed, withRaises, writeFloors } from './ratchets.ts';
+import { earlierCounts, type GateStatus, ratchetOf, readReceipt, type Receipt, receiptsAt, writeReceipt } from './receipts.ts';
 import { type SlotOptions, withSlot } from './semaphore.ts';
 import { apexCounts, countsLine, newlySkipped, NO_COUNTS, readTestCounts, type TestCounts } from './test-counts.ts';
 import { strayFilesGate } from './stray-files.ts';
@@ -50,6 +51,8 @@ export interface GateInput {
   unknownBase: string | null;
   /** Runs git in the checkout, for a gate that decides from what's committed, such as stray-files. */
   git: (args: string[], input?: string) => RunResult;
+  /** What a ratchet is held to (GH-99), read when one asks: the floors here and where the branch began, or why they couldn't be. */
+  floors?: () => RatchetFloors | { problem: string };
 }
 
 export interface Outcome {
@@ -408,7 +411,8 @@ const SALESFORCE_GATES = [format, lint, staticGate, lwcTests, validate];
 
 /**
  * The project's gates: every profile's built-in stray-files (GH-103), the profile's own built-ins, then
- * `gates.commands`, which can replace a built-in by name. A builder's lighter check, one `gates.builder`
+ * `gates.commands`, which can replace a built-in by name, then `gates.ratchets` (GH-99), whose names are
+ * their own. A builder's lighter check, one `gates.builder`
  * names that the full check doesn't, is bound to the change.
  */
 export function gatesFor(config: Config): Gate[] {
@@ -417,7 +421,8 @@ export function gatesFor(config: Config): Gate[] {
   const lighter = (name: string) => !!config.gates.builder?.includes(name) && !full.includes(name);
   const builtIn = [strayFilesGate, ...(config.profile === 'salesforce' ? SALESFORCE_GATES : [])].map((g) => ({ ...g, heavy: heavy(g.name) }));
   const custom = Object.entries(config.gates.commands).map(([name, cmd]) => commandGate(name, cmd, heavy(name), lighter(name)));
-  return [...builtIn.filter((g) => !config.gates.commands[g.name]), ...custom];
+  const ratchets = Object.entries(config.gates.ratchets ?? {}).map(([name, spec]) => ratchetGate(name, spec, heavy(name)));
+  return [...builtIn.filter((g) => !config.gates.commands[g.name]), ...custom, ...ratchets];
 }
 
 /**
@@ -532,6 +537,12 @@ export interface GateRunDeps {
   onStart?: (gate: Gate) => void;
   onWait?: (gate: Gate) => void;
   /**
+   * Whether a ratchet that beats its floor writes the new floor in this checkout (GH-99): only acc gate run,
+   * in a task's own worktree on its branch, and then only with nothing uncommitted. Never a refresh's or
+   * the merge queue's check, whose worktree must stay clean.
+   */
+  raise?: boolean;
+  /**
    * The branch's head, when this commit merges its base into it: a person's waiver of a gate there clears
    * a hold here, counts or not, so the queue's next merge of a waived head doesn't stop again (GH-100).
    */
@@ -544,6 +555,8 @@ export interface GateRun {
   dirty: boolean;
   changes: Changes | null;
   results: GateResult[];
+  /** The floors this run wrote in `.acc/floors.json`, for the builder to commit (GH-99). */
+  raised: { gate: string; label: string; from: number | null; to: number }[];
 }
 
 /** A deploy that isn't check-only never runs from a gate (D-011, D-024). */
@@ -633,7 +646,18 @@ export function runGates(paths: RepoPaths, config: Config, env: Environment, nam
       }
     })),
   };
+  // What a ratchet is held to (GH-99): this commit's floors, the environment's where the branch began, and
+  // the ones people relaxed. A better number is written as the new floor only where the caller allows it.
+  let floors: RatchetFloors | { problem: string } | null = null;
+  input.floors = () => (floors ??= (() => {
+    try {
+      return { head: floorsAt(deps.run, root, sha), base: floorsAt(deps.run, root, input.changes.base), relaxed: readRelaxed(paths.relaxed), raise: !!deps.raise && !dirty };
+    } catch (e) {
+      return { problem: (e as Error).message };
+    }
+  })());
   mkdirSync(input.scratch, { recursive: true });
+  const carryFrom = carriedFrom(paths, config, deps.run, sha);
 
   const results: GateResult[] = [];
   for (const name of wanted) {
@@ -642,6 +666,17 @@ export function runGates(paths: RepoPaths, config: Config, env: Environment, nam
     const kept = readReceipt(paths, sha, gate.name);
     if (kept?.waived) {
       results.push({ status: 'skip', summary: kept.summary, ...(kept.counts ? { counts: kept.counts } : {}), gate: gate.name, recorded: true, receipt: kept });
+      continue;
+    }
+    // This commit only records the floors acc raised on the one before, which measured them (GH-99).
+    const carried = carryFrom ? carryReceipt(paths, config, input, gate.name, carryFrom, sha) : null;
+    if (carried) {
+      if (!dirty) writeReceipt(paths, carried);
+      results.push({
+        status: carried.status, summary: carried.summary, ...(carried.details ? { details: carried.details } : {}),
+        ...(carried.counts ? { counts: carried.counts } : {}), ...(carried.countsNote ? { countsNote: carried.countsNote } : {}),
+        gate: gate.name, recorded: !dirty, receipt: carried,
+      });
       continue;
     }
     deps.onStart?.(gate);
@@ -686,7 +721,51 @@ export function runGates(paths: RepoPaths, config: Config, env: Environment, nam
     if (!dirty) writeReceipt(paths, receipt);
     results.push({ ...outcome, gate: gate.name, recorded: !dirty, receipt });
   }
-  return { sha, env, dirty, changes, results };
+  // The floors the ratchets beat, written once every gate has run, for the builder to commit (GH-99).
+  const raised = results.flatMap((r) => {
+    const d = ratchetOf(r.receipt);
+    return d?.raised ? [{ gate: r.gate, label: d.label, limit: d.limit, from: d.raised.from, to: d.raised.to }] : [];
+  });
+  if (raised.length) writeFloors(paths.floors, withRaises(readFloors(paths.floors), raised));
+  return { sha, env, dirty, changes, results, raised: raised.map(({ limit: _limit, ...r }) => r) };
+}
+
+/**
+ * The commit a commit's checks carry over from (GH-99): its only parent, when all it changes is
+ * `.acc/floors.json`, setting each ratchet it changes to what that parent's receipt measured and acc raised.
+ * So committing a raise doesn't run every check again. Null when anything else differs.
+ */
+function carriedFrom(paths: RepoPaths, config: Config, run: Runner, sha: string): string | null {
+  if (!Object.keys(config.gates.ratchets ?? {}).length) return null;
+  const parents = git(run, paths.root, ['rev-list', '--parents', '-n', '1', sha]).stdout.trim().split(/\s+/).slice(1);
+  if (parents.length !== 1) return null;
+  const parent = parents[0]!;
+  const diff = git(run, paths.root, ['diff', '--name-only', '--no-renames', parent, sha]);
+  if (diff.code !== 0 || diff.stdout.trim() !== FLOORS_FILE) return null;
+  try {
+    return carriesOver(floorsAt(run, paths.root, parent), floorsAt(run, paths.root, sha), receiptsAt(paths, parent)) ? parent : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A gate's receipt on the parent, carried to this commit: only one that passed, or didn't apply, and that
+ * no person waived, since a waiver is for its own commit (D-031). A ratchet is judged again, against this
+ * commit's floors, with the number its parent measured. Null when there's nothing to carry.
+ */
+function carryReceipt(paths: RepoPaths, config: Config, input: GateInput, gate: string, from: string, sha: string): Receipt | null {
+  const before = readReceipt(paths, from, gate);
+  if (!before || before.waived || (before.status !== 'pass' && before.status !== 'skip')) return null;
+  const { details: _details, ...rest } = before;
+  const spec = config.gates.ratchets?.[gate];
+  if (!spec) return { ...before, sha, carried: { from } };
+  const measured = ratchetOf(before);
+  const floors = input.floors?.();
+  if (!measured || !floors || 'problem' in floors) return null;
+  const outcome = judgeRatchet(gate, spec, measured.value, { ...floors, raise: false }, input.env.branch);
+  if (outcome.status !== 'pass') return null;
+  return { ...rest, sha, status: outcome.status, summary: outcome.summary, ...(outcome.details ? { details: outcome.details } : {}), carried: { from } };
 }
 
 // ---------------------------------------------------------------- waiving (D-031)
@@ -712,6 +791,9 @@ export function waiveGates(paths: RepoPaths, config: Config, req: WaiveRequest):
   if (!req.gates.length) throw new AccError('usage', `Name the gates to waive. This project's gates: ${all.map((g) => g.name).join(', ') || 'none'}.`);
   const unknown = req.gates.filter((n) => !all.some((g) => g.name === n));
   if (unknown.length) throw new AccError('usage', `No gate ${unknown.join(', ')}. This project's gates: ${all.map((g) => g.name).join(', ')}.`);
+  // Waived and merged, a ratchet's number would sit below its floor, and fail every task after it (GH-99).
+  const ratchet = req.gates.find((n) => config.gates.ratchets?.[n]);
+  if (ratchet) throw new AccError('refused', `${ratchet} is a ratchet: waived, its number could merge below its floor and fail every task after it. A person relaxes the floor instead: acc gate relax ${ratchet} --to <n> --reason "<why>".`);
   const at = req.now().toISOString();
   const out: Receipt[] = [];
   for (const gate of [...new Set(req.gates)]) {

@@ -37,6 +37,7 @@ export * from './paths.ts';
 export * from './promote.ts';
 export * from './questions.ts';
 export * from './queue.ts';
+export * from './ratchets.ts';
 export * from './receipts.ts';
 export * from './refresh.ts';
 export * from './repos.ts';

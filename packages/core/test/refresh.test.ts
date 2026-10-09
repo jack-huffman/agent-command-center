@@ -8,7 +8,8 @@ import { run, type RunOptions, type RunResult } from '../src/exec.ts';
 import { displayState, mutate, type PullRequest, readLedger, type Task, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
 import { readReceipt, writeReceipt } from '../src/receipts.ts';
-import { appendOnlyMerge, refresh } from '../src/refresh.ts';
+import { formatFloors } from '../src/ratchets.ts';
+import { appendOnlyMerge, MergeConflict, refresh } from '../src/refresh.ts';
 import { reviewPath, type Verdict } from '../src/review.ts';
 import { bad, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, tempDir } from './support.ts';
 
@@ -334,6 +335,32 @@ test('it won\'t merge into a worktree with changes, one that\'s gone, or a branc
   at(s.wt);
   assert.deepEqual([head(s.dir), merging(s.wt), gitIn(s.dir, 'rev-parse', 'HEAD')], [before, false, gitIn(s.dir, 'rev-parse', 'main')], 'nothing was merged anywhere');
   assert.equal(attempt().sha?.length, 40, 'and with all that put right, it merges');
+});
+
+test('two tasks that both raised a floor: autopilot keeps the better, and the check on the merge writes nothing; a floor a person relaxed is left for a person (GH-99)', () => {
+  const ratchet = { config: { gates: { required: ['tests'], ratchets: { tests: { command: 'node scripts/count-tests.mjs', limit: 'floor', label: 'tests' } } } }, files: { '.acc/floors.json': formatFloors({ tests: { floor: 669 } }) } };
+  const s = setup(ratchet);
+  const before = s.onBranch({ '.acc/floors.json': formatFloors({ tests: { floor: 672 } }), 'sum.test.js': 'three tests\n' });
+  s.onMain({ '.acc/floors.json': formatFloors({ tests: { floor: 674 } }), 'other.test.js': 'five tests\n' });
+  s.opened(before, ['.acc/floors.json']);
+  const calls: string[] = [];
+  const r = refresh(s.paths, s.config, 'T-1', deps(calls, ok('680\n')), { actor: 'orchestrator', by: 'test' });
+  const merge = head(s.dir);
+  assert.deepEqual([r.sha, r.resolved], [merge, ['.acc/floors.json']]);
+  assert.equal(r.reason, `Merged main into ${before.slice(0, 7)} as ${merge.slice(0, 7)}, keeping the better of each ratchet's floors in .acc/floors.json. Its checks passed. It's reviewed next pass, then landed.`);
+  assert.equal(gitIn(s.wt, 'show', `${merge}:.acc/floors.json`) + '\n', formatFloors({ tests: { floor: 674 } }), 'the better floor, committed');
+  assert.match(gitIn(s.wt, 'log', '-1', '--format=%B', merge), /^Merge main into task\/T-1-add-sum\n\nAutopilot kept the better of each ratchet's floors in \.acc\/floors\.json\.$/);
+  const receipt = readReceipt(s.paths, merge, 'tests')!;
+  assert.deepEqual([receipt.status, receipt.summary], ['pass', 'tests 680 beats the floor 674 by 6.'], 'checked against the merged floor');
+  assert.deepEqual([gitIn(s.wt, 'status', '--porcelain'), readFileSync(join(s.wt, '.acc/floors.json'), 'utf8')], ['', formatFloors({ tests: { floor: 674 } })], 'the check raised nothing: the worktree stays clean for the next merge');
+
+  // main's floor was relaxed by a person, and the branch raised it: that's for a person to decide.
+  const relaxed = setup(ratchet);
+  const sha = relaxed.onBranch({ '.acc/floors.json': formatFloors({ tests: { floor: 672 } }) });
+  relaxed.onMain({ '.acc/floors.json': formatFloors({ tests: { floor: 640, relaxed: { by: 'human:jordan', reason: 'the slow suite moved', at: '2026-10-06T09:00:00.000Z', was: 669 } } }) });
+  relaxed.opened(sha, ['.acc/floors.json']);
+  assert.throws(() => refresh(relaxed.paths, relaxed.config, 'T-1', deps([], ok('680\n')), { actor: 'orchestrator', by: 'test' }), (e: Error) => e instanceof MergeConflict && /can't resolve: \.acc\/floors\.json\. The branch is as it was/.test(e.message));
+  assert.deepEqual([head(relaxed.dir), gitIn(relaxed.wt, 'status', '--porcelain'), merging(relaxed.wt)], [sha, '', false]);
 });
 
 test('a conflict acc saw earlier that\'s gone now: nothing is merged, and the pull request is marked clean', () => {

@@ -8,7 +8,7 @@ import { type Actor, applyMove, checkMove, inQueue, type Ledger, mutate, noGateH
 import { mergePr } from './merge.ts';
 import type { RepoPaths } from './paths.ts';
 import { readReceipt, satisfies } from './receipts.ts';
-import { CheckFailure, checkCommit, MergeConflict, mergeBaseIn, mergePlace, type MergePlace, undoMerge } from './refresh.ts';
+import { CheckFailure, checkCommit, MergeConflict, mergeBaseIn, mergePlace, type MergePlace, resolvedWords, undoMerge } from './refresh.ts';
 import type { SlotOptions } from './semaphore.ts';
 import { fetchBranches } from './sync.ts';
 
@@ -236,7 +236,7 @@ export function queueTurn(paths: RepoPaths, config: Config, id: string, deps: Qu
     // Pushed to the same pull request. It carries the review of the commit it was made on: no reviewer reads
     // a clean merge again (a person decided), and the full check passed on it.
     const p = place!;
-    const kept = made.resolved.length ? `, keeping both sides' additions to ${made.resolved.join(', ')}` : '';
+    const kept = made.resolved.length ? `, ${resolvedWords(made.resolved, 'keeping')}` : '';
     mutate(paths, now, (l, emit) => {
       const t = l.tasks.find((x) => x.id === id);
       if (!t) return;

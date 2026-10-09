@@ -111,8 +111,13 @@ export interface Config {
    * builder: the lighter checks builders run where the merge queue runs `required` once before each merge
    * (GH-73). Left out, builders run `required`, as everywhere else. tests: the checks that run tests, whose
    * receipts count what ran and which need a person when none did (GH-100), besides those acc knows.
+   * ratchets: checks whose command prints a number that may only get better, kept against a floor or a
+   * ceiling in `.acc/floors.json` (GH-99).
    */
-  gates: { required: string[]; commands: Record<string, string>; heavy: string[]; severity: number; builder?: string[]; tests?: string[] };
+  gates: {
+    required: string[]; commands: Record<string, string>; heavy: string[]; severity: number; builder?: string[]; tests?: string[];
+    ratchets?: Record<string, RatchetSpec>;
+  };
   secretScan: { paths: string[]; exclude: string[] };
   /**
    * The stray-files check (GH-103): whether it's required, the files or folders a change may add that it
@@ -137,6 +142,20 @@ export interface Config {
   /** The team template the project was started from, and its digest then, so Setup can say when it changed (GH-80). */
   template?: TemplateRecord;
 }
+
+/** Which way a ratchet's number may go (GH-99): a floor's only up, a ceiling's only down. */
+export const RATCHET_LIMITS = ['floor', 'ceiling'] as const;
+export type RatchetLimit = (typeof RATCHET_LIMITS)[number];
+
+/** A ratchet (GH-99): a command whose last line is a number, which way it may go, and how pages name it. */
+export interface RatchetSpec {
+  command: string;
+  limit: RatchetLimit;
+  label: string;
+}
+
+/** A ratchet's name: its gate's name too, and its receipt's file name. */
+export const RATCHET_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/;
 
 export interface TemplateRecord {
   name: string;
@@ -178,6 +197,7 @@ export const CONFIG_KEYS = [
   'agents.max', 'agents.permissionMode', 'agents.builder.model', 'agents.builder.effort', 'agents.builder.fallbackModel',
   'agents.reviewer.model', 'agents.reviewer.effort', 'agents.reviewer.fallbackModel', 'autonomy',
   'worktrees.root', 'worktrees.setup', 'gates.required', 'gates.commands', 'gates.heavy', 'gates.severity', 'gates.builder', 'gates.tests',
+  'gates.ratchets',
   'secretScan.paths', 'secretScan.exclude', 'strayFiles.required', 'strayFiles.allow', 'strayFiles.data', 'analysis.required', 'autopilot.appendOnly', 'autopilot.autoMerge',
   'dispatch.shared', 'tidy.every', 'template.name', 'template.source', 'template.digest',
 ] as const satisfies readonly ConfigPath[];
@@ -236,6 +256,13 @@ function unknownKeys(raw: Record<string, unknown>): string[] {
 export const DEFAULT_HEAVY: Record<Profile, string[]> = {
   generic: ['build', 'test', 'check'],
   salesforce: ['static', 'lwc-tests', 'validate'],
+};
+
+/** The gates each profile has built in, by name, so a ratchet can't take one's name (GH-99). gates.ts has them. */
+export const BUILT_IN_GATES: Record<Profile, string[]> = {
+  // Every profile has stray-files (GH-103), STRAY_FILES below, so a ratchet can't take its name.
+  generic: ['stray-files'],
+  salesforce: ['format', 'lint', 'static', 'lwc-tests', 'validate', 'stray-files'],
 };
 
 /** The branch for an environment: its name in lower case (D-015). */
@@ -429,6 +456,23 @@ export function parseConfig(raw: unknown): ParseResult {
   if (g.severity !== undefined && !(Number.isInteger(g.severity) && (g.severity as number) >= 1 && (g.severity as number) <= 5)) {
     errors.push('"gates.severity" must be a whole number from 1 (only the worst problems fail) to 5 (everything fails).');
   }
+  // Ratchets (GH-99): each is a gate of its own, so its name can't be another gate's.
+  const ratchets: Record<string, RatchetSpec> = {};
+  if (g.ratchets !== undefined) {
+    if (!isObj(g.ratchets)) errors.push('"gates.ratchets" must map names to { "command", "limit", "label" }, such as { "tests": { "command": "node scripts/count-tests.mjs", "limit": "floor", "label": "tests" } }.');
+    else for (const [name, r] of Object.entries(g.ratchets)) {
+      const at = `gates.ratchets.${name}`;
+      if (!RATCHET_NAME.test(name)) errors.push(`"${at}": a ratchet's name is letters, digits, dots, dashes and underscores, up to 40 of them.`);
+      else if (!isObj(r) || !isStr(r.command)) errors.push(`"${at}" needs "command": one whose last line of output is the number.`);
+      else if (!(RATCHET_LIMITS as readonly unknown[]).includes(r.limit)) errors.push(`"${at}.limit" must be "floor" (the number may only go up) or "ceiling" (it may only go down).`);
+      else if (!isStr(r.label) || r.label.trim().length > 24) errors.push(`"${at}.label" must be a short name for the number, up to 24 characters, such as "tests".`);
+      else if (commands[name] !== undefined || (BUILT_IN_GATES[profile] ?? []).includes(name)) errors.push(`"${at}": ${name} is already a gate${commands[name] !== undefined ? ' in "gates.commands"' : `, built into the ${profile} profile`}. Give the ratchet a name of its own.`);
+      else {
+        for (const k of Object.keys(r)) if (!['command', 'limit', 'label'].includes(k)) warnings.push(`Unknown key "${at}.${k}" is ignored.`);
+        ratchets[name] = { command: r.command, limit: r.limit as RatchetLimit, label: r.label.trim() };
+      }
+    }
+  }
 
   const s = isObj(raw.secretScan) ? raw.secretScan : {};
   if (s.paths !== undefined && !strList(s.paths)) errors.push('"secretScan.paths" must be a list.');
@@ -516,6 +560,7 @@ export function parseConfig(raw: unknown): ParseResult {
         heavy: strList(g.heavy) ? g.heavy : DEFAULT_HEAVY[profile],
         severity: (g.severity as number | undefined) ?? 2,
         ...(Array.isArray(g.builder) && g.builder.every(isStr) ? { builder: g.builder as string[] } : {}),
+        ...(g.ratchets !== undefined ? { ratchets } : {}),
         ...(strList(g.tests) ? { tests: g.tests } : {}),
       },
       secretScan: {

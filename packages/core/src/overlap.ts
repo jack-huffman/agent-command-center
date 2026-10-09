@@ -6,6 +6,7 @@ import type { Runner } from './exec.ts';
 import { baseFor, changedPaths, listed } from './gates.ts';
 import { type FileShare, isReady, type Ledger, type State, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
+import { FLOORS_FILE } from './ratchets.ts';
 
 /**
  * Conflict-aware dispatch (D-093). Before a task to do starts, the files its analysis plans to change are
@@ -48,8 +49,8 @@ export function plannedFiles(analysis: Pick<Analysis, 'approach'> | null, root: 
 /** Whether two repo paths are the same file, or one is a folder holding the other. */
 export const sameFile = (a: string, b: string): boolean => listed(a, [b]) || listed(b, [a]);
 
-/** What never makes two tasks wait for each other: autopilot.appendOnly (D-058) and dispatch.shared. */
-export const sharedFiles = (config: Pick<Config, 'autopilot' | 'dispatch'>): string[] => [...(config.autopilot?.appendOnly ?? []), ...(config.dispatch?.shared ?? [])];
+/** What never makes two tasks wait for each other: autopilot.appendOnly (D-058), dispatch.shared, and the floors file, whose conflicts keep the better floors (GH-99). */
+export const sharedFiles = (config: Pick<Config, 'autopilot' | 'dispatch'>): string[] => [...(config.autopilot?.appendOnly ?? []), ...(config.dispatch?.shared ?? []), FLOORS_FILE];
 
 /**
  * The files `own` shares with each of `others`, without the shared ones, named as the file when one side

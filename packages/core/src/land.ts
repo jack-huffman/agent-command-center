@@ -6,7 +6,9 @@ import { AccError, type Runner } from './exec.ts';
 import { withJob } from './jobs.ts';
 import { type Actor, type CarriedReview, mutate, noteMarkdown, type PullRequest, readLedger, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
-import { type GateStatus, type Receipt, receiptHooks, receiptsAt } from './receipts.ts';
+import { ratchetLine } from './ratchets.ts';
+import { type GateStatus, ratchetOf, type Receipt, receiptHooks, receiptsAt } from './receipts.ts';
+import { resolvedWords } from './refresh.ts';
 import { carriedVerdict, readVerdict, type Verdict } from './review.ts';
 import { conflictsOf, FETCH_TIMEOUT_MS, fetchBranches } from './sync.ts';
 import { testsText } from './test-counts.ts';
@@ -81,12 +83,13 @@ export function prBody(task: Task, env: Environment, sha: string, verdict: Verdi
     '',
     counted ? '| Check | Result | Tests | Detail |' : '| Check | Result | Detail |',
     counted ? '|---|---|---|---|' : '|---|---|---|',
-    ...Object.values(receipts).map((r) => `| \`${r.gate}\` | ${r.waived ? `Waived by ${r.waived.by.replace(/^human:/, '')}` : STATUS_WORD[r.status] ?? r.status} |${counted ? ` ${testsText(r)} |` : ''} ${cell(r.waived ? r.waived.reason : r.summary)} |`),
+    // A ratchet shows its numbers, from the environment's floor to this commit's: tests 669 → 674 (+5) (GH-99).
+    ...Object.values(receipts).map((r) => `| \`${r.gate}\` | ${r.waived ? `Waived by ${r.waived.by.replace(/^human:/, '')}` : STATUS_WORD[r.status] ?? r.status} |${counted ? ` ${testsText(r)} |` : ''} ${cell(r.waived ? r.waived.reason : ratchetOf(r) ? ratchetLine(ratchetOf(r)!) : r.summary)} |`),
     '',
     '## Review',
     '',
     carried
-      ? `Passed on ${carried.from.slice(0, 7)} by a reviewer agent that read the change and couldn't edit it. The merge queue then merged \`${carried.base}\` in as ${sha.slice(0, 7)}${carried.resolved.length ? `, keeping both sides' additions to ${carried.resolved.map((f) => `\`${f}\``).join(', ')}` : ''}, and ran the full check on it: the review carries over.`
+      ? `Passed on ${carried.from.slice(0, 7)} by a reviewer agent that read the change and couldn't edit it. The merge queue then merged \`${carried.base}\` in as ${sha.slice(0, 7)}${carried.resolved.length ? `, ${resolvedWords(carried.resolved, 'keeping', (f) => `\`${f}\``)}` : ''}, and ran the full check on it: the review carries over.`
       : `Passed by a reviewer agent that read the change and couldn't edit it.`,
     ...(verdict.findings.length ? ['', 'Worth a look, not blocking:', '', ...verdict.findings.map((f) => `- ${f.file ? `\`${f.file}${f.line ? `:${f.line}` : ''}\`: ` : ''}${f.message}`)] : []),
     '',

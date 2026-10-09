@@ -3,6 +3,7 @@ import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { autoMergeFor, autoMergeOn, branchFor, builderGatesFor, CONFIG_KEYS, defaultEnvironment, fullGates, isTestGate, keyShown, loadConfig, parseConfig, requiredGates, saveTracker, skippedOnRoute, TIDY_EVERY, tidyEvery, trackerForKey, UNREAD_KEYS, VALIDATOR_ONLY, withTracker, writeConfig } from '../src/config.ts';
+import { parseFloors } from '../src/ratchets.ts';
 import { GENERIC_CONFIG, SF_CONFIG, tempDir } from './support.ts';
 
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x));
@@ -159,9 +160,14 @@ test('this repo lists its decision log as append-only, and lets autopilot merge 
   assert.equal(config.autonomy, 'review');
   assert.equal(autoMergeFor(config, 'main'), true);
   // Its builders run the typecheck and the tests near what they changed; the full check runs in the merge queue (GH-73).
-  // Both have stray-files, which its config doesn't name (GH-103).
-  assert.deepEqual([config.gates.builder, config.gates.required, requiredGates(config, 'main', 'builder'), requiredGates(config, 'main', 'merge')], [['typecheck', 'near-tests'], ['check'], ['typecheck', 'near-tests', 'stray-files'], ['check', 'stray-files']]);
+  // Both count the tests npm test runs, a number that may only go up, and quickly enough not to be heavy (GH-99),
+  // and both have stray-files, which its config doesn't name (GH-103).
+  assert.deepEqual([config.gates.builder, config.gates.required, requiredGates(config, 'main', 'builder'), requiredGates(config, 'main', 'merge')], [['typecheck', 'near-tests', 'tests'], ['check', 'tests'], ['typecheck', 'near-tests', 'tests', 'stray-files'], ['check', 'tests', 'stray-files']]);
   assert.deepEqual(Object.keys(config.gates.commands).sort(), ['check', 'near-tests', 'typecheck']);
+  assert.deepEqual(config.gates.ratchets, { tests: { command: 'node --no-warnings scripts/count-tests.mjs', limit: 'floor', label: 'tests' } });
+  assert.ok(!config.gates.heavy.includes('tests'));
+  const floors = parseFloors(readFileSync(join(import.meta.dirname, '..', '..', '..', '.acc', 'floors.json'), 'utf8'));
+  assert.ok(floors && Object.keys(floors).length === 1 && (floors.tests?.floor ?? 0) > 0, 'its floors file holds the one floor, measured');
   // Its full check and the tests near a change run tests, so their receipts count what ran (GH-100); the typecheck doesn't.
   assert.deepEqual(['check', 'near-tests', 'typecheck'].map((g) => isTestGate(config, g)), [true, true, false]);
 });
@@ -176,6 +182,27 @@ test('gates.builder: a list of gate names, kept as written, for builders only wh
   const dir = tempDir();
   writeConfig(join(dir, 'config.json'), c);
   assert.deepEqual(loadConfig(join(dir, 'config.json')).config.gates.builder, ['typecheck'], 'written back as it was');
+});
+
+test('gates.ratchets: a command, which way its number may go, and a short label; a name of its own, and written back as it was (GH-99)', () => {
+  const tests = { command: 'node scripts/count-tests.mjs', limit: 'floor', label: 'tests' };
+  const raw = { ...clone(GENERIC_CONFIG), gates: { required: ['tests'], commands: { check: 'npm run check' }, ratchets: { tests, violations: { command: 'sf code-analyzer run', limit: 'ceiling', label: ' violations ' } } } };
+  const c = parseConfig(raw).config!;
+  assert.deepEqual(c.gates.ratchets, { tests, violations: { command: 'sf code-analyzer run', limit: 'ceiling', label: 'violations' } });
+  assert.equal(parseConfig({ ...clone(GENERIC_CONFIG) }).config!.gates.ratchets, undefined, 'left out: none, and none written');
+  const bad = (ratchets: unknown) => errorsOf({ ...raw, gates: { ...raw.gates, ratchets } });
+  assert.match(bad([]), /"gates\.ratchets" must map names to \{ "command", "limit", "label" \}/);
+  assert.match(bad({ tests: { ...tests, limit: 'up' } }), /"gates\.ratchets\.tests\.limit" must be "floor" \(the number may only go up\) or "ceiling" \(it may only go down\)/);
+  assert.match(bad({ tests: { ...tests, command: ' ' } }), /"gates\.ratchets\.tests" needs "command": one whose last line of output is the number/);
+  assert.match(bad({ tests: { ...tests, label: '' } }), /"gates\.ratchets\.tests\.label" must be a short name/);
+  assert.match(bad({ tests: { ...tests, label: 'the number of tests npm test runs' } }), /up to 24 characters/);
+  assert.match(bad({ 'no spaces': tests }), /a ratchet's name is letters, digits/);
+  assert.match(bad({ check: tests }), /"gates\.ratchets\.check": check is already a gate in "gates\.commands"\. Give the ratchet a name of its own\./);
+  assert.match(errorsOf({ ...clone(SF_CONFIG), gates: { ratchets: { validate: tests } } }), /"gates\.ratchets\.validate": validate is already a gate, built into the salesforce profile/);
+  assert.match(parseConfig({ ...raw, gates: { ratchets: { tests: { ...tests, extra: 1 } } } }).warnings.join(), /Unknown key "gates\.ratchets\.tests\.extra" is ignored/);
+  const dir = tempDir();
+  writeConfig(join(dir, 'config.json'), c);
+  assert.deepEqual(loadConfig(join(dir, 'config.json')).config.gates, c.gates, 'written back as it was');
 });
 
 test('gates.tests: a list of gate names whose receipts count the tests they ran, besides test and Salesforce\'s lwc-tests (GH-100)', () => {
@@ -482,7 +509,8 @@ const EVERY_KEY = {
   },
   autonomy: 'review',
   worktrees: { root: '.claude/worktrees', setup: ['npm ci'] },
-  gates: { required: ['check'], commands: { check: 'npm run check', typecheck: 'npm run typecheck' }, heavy: ['check'], severity: 3, builder: ['typecheck'], tests: ['check'] },
+  gates: { required: ['check'], commands: { check: 'npm run check', typecheck: 'npm run typecheck' }, heavy: ['check'], severity: 3, builder: ['typecheck'], tests: ['check'],
+    ratchets: { tests: { command: 'node scripts/count-tests.mjs', limit: 'floor', label: 'tests' } } },
   secretScan: { paths: ['.'], exclude: ['fixtures'] },
   // A generic project's data folders are ignored, with a warning when it names any.
   strayFiles: { required: true, allow: ['LICENSE', 'fixtures'], data: [] },

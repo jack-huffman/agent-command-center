@@ -5,7 +5,10 @@
 
 import type { Analysis } from '../../../packages/core/src/analyze.ts';
 import { type RunNote, shownNote, type Task } from '../../../packages/core/src/ledger.ts';
-import type { GateStatus } from '../../../packages/core/src/receipts.ts';
+import type { RatchetLimit, RatchetSpec } from '../../../packages/core/src/config.ts';
+import { num, ratchetLine, signed } from '../../../packages/core/src/ratchets.ts';
+import { type GateStatus, ratchetOf, type Receipt } from '../../../packages/core/src/receipts.ts';
+import { testsText } from '../../../packages/core/src/test-counts.ts';
 import { type Doc, fromMarkdown } from '../../../packages/core/src/trackers/doc.ts';
 import type { Ticket, TrackerKind } from '../../../packages/core/src/trackers/types.ts';
 import type { Update } from '../../../packages/core/src/updates.ts';
@@ -19,10 +22,26 @@ import { hasTicket, type UpdateCard, updateCards, withClient } from './updates.t
 // ---------------------------------------------------------------- a ticket's page (D-026)
 
 /**
+ * A ratchet's numbers on the page (GH-99): from the environment's floor where the branch began to this
+ * commit's. `numbers` is what the row shows beside the gate's name, "669 → 674 (+5)", and `line` says it
+ * with its label, as the pull request does, "tests 669 → 674 (+5)". Null until it's measured.
+ */
+export interface TicketRatchet {
+  label: string;
+  limit: RatchetLimit;
+  from: number | null;
+  to: number | null;
+  diff: number | null;
+  numbers: string | null;
+  line: string | null;
+}
+
+/**
  * A check on the task branch's latest commit, as the page is given it. waived: a person set it aside on this
  * commit (D-031). scope: where the merge queue runs the full check, whether it's one of a builder's lighter
  * checks or the full one, run once in the queue (GH-73). counts: what its tests ran, "312 run, 2 skipped" or
- * "not read", and countsNote what that was compared with (GH-100).
+ * "not read", and countsNote what that was compared with (GH-100). ratchet: a number that may only get
+ * better, from the environment's floor to this commit's (GH-99).
  */
 export interface CheckIn {
   gate: string;
@@ -32,6 +51,21 @@ export interface CheckIn {
   scope?: 'builder' | 'merge';
   counts?: string;
   countsNote?: string;
+  ratchet?: TicketRatchet;
+}
+
+/**
+ * A check as the page is given it, from its receipt on the branch's latest commit, or `unrun` when there's
+ * none: what its tests ran, as the pull request says it (GH-100), and a ratchet's numbers (GH-99).
+ */
+export function ticketCheck(gate: string, receipt: Pick<Receipt, 'status' | 'summary' | 'waived' | 'details' | 'counts' | 'countsNote'> | null, unrun: string, scope: { scope?: 'builder' | 'merge' }, ratchet?: RatchetSpec): CheckIn {
+  const counted = receipt ? { ...(testsText(receipt) ? { counts: testsText(receipt) } : {}), ...(receipt.countsNote ? { countsNote: receipt.countsNote } : {}) } : {};
+  const check: CheckIn = receipt ? { gate, status: receipt.status, summary: receipt.summary, waived: !!receipt.waived, ...scope, ...counted } : { gate, status: 'skip', summary: unrun, ...scope };
+  if (!ratchet) return check;
+  const d = ratchetOf(receipt);
+  if (!d) return { ...check, ratchet: { label: ratchet.label, limit: ratchet.limit, from: null, to: null, diff: null, numbers: null, line: null } };
+  const numbers = d.base === null ? `${num(d.value)}, the first ${d.limit}` : `${num(d.base)} → ${num(d.value)} (${signed(d.diff ?? d.value - d.base)})`;
+  return { ...check, ratchet: { label: d.label, limit: d.limit, from: d.base, to: d.value, diff: d.diff, numbers, line: ratchetLine(d) } };
 }
 
 /** A check as the page shows it: its look, always with words, and whether a person can waive it here. */
@@ -40,9 +74,12 @@ export interface CheckRow extends CheckIn {
   waivable: boolean;
 }
 
-/** The checks with their looks. A person can set aside a failing one, or one that needs them, with a reason (D-031). */
+/**
+ * The checks with their looks. A person can set aside a failing one, or one that needs them, with a reason
+ * (D-031). Not a ratchet: a person relaxes its floor instead, with acc gate relax (GH-99).
+ */
 export const checkRows = (checks: CheckIn[], branch: string | null): CheckRow[] =>
-  checks.map((c) => ({ ...c, look: checkLook(c), waivable: !!branch && !c.waived && (c.status === 'fail' || c.status === 'error' || c.status === 'hold') }));
+  checks.map((c) => ({ ...c, look: checkLook(c), waivable: !!branch && !c.waived && !c.ratchet && (c.status === 'fail' || c.status === 'error' || c.status === 'hold') }));
 
 export interface TicketAcc {
   look: Look;

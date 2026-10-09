@@ -103,6 +103,8 @@ test('the short instructions give the finish command word for word, and a note t
   // acc by its path, as the packet says to use when acc isn't found, is acc.
   assert.match(guardBash(b, '/opt/acc/bin/acc done --landed "Saves $5"')!, /backtick or \$/);
   assert.match(guardBash(b, '/opt/acc/bin/acc set T-1 done')!, /acc set is a person's/);
+  // Relaxing a ratchet's floor is a person's (GH-99); the CLI and the deny list refuse it too.
+  assert.match(guardBash(b, 'acc gate relax tests 640 --reason "slow suite"')!, /acc gate relax is a person's/);
   // Adding or skipping a tidy-up is a person's (GH-104); looking at it isn't.
   assert.match(guardBash(b, 'acc tidy add')!, /acc tidy add is a person's/);
   assert.match(guardBash(b, 'acc tidy skip --json')!, /acc tidy skip is a person's/);

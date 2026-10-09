@@ -886,6 +886,66 @@ test('acc gate waive: a person waives a task\'s failing check with a reason; a b
   assert.equal(list.gates[0].receipt.status, 'skip');
 });
 
+test('acc gate run raises a ratchet\'s floor only in a task\'s own worktree; acc gate relax is a person\'s, with a reason, and gate list shows the floor (GH-99)', () => {
+  // About a ratchet; stray-files has its own tests (GH-103).
+  const cfg = { ...GENERIC_CONFIG, strayFiles: { required: false }, gates: { required: ['tests'], ratchets: { tests: { command: 'cat count.txt', limit: 'floor', label: 'tests' } } } };
+  const dir = makeRepo({ '.acc/config.json': JSON.stringify(cfg), '.acc/floors.json': '{\n  "tests": {\n    "floor": 669\n  }\n}\n', 'count.txt': '674\n' });
+  const git = (cwd: string, ...a: string[]) => spawnSync('git', a, { cwd, encoding: 'utf8' }).stdout.trim();
+  const heavy = { ACC_HEAVY_DIR: join(makeRepo(), 'slots') };
+  const floors = (root: string) => JSON.parse(readFileSync(join(root, '.acc', 'floors.json'), 'utf8'));
+  assert.equal(acc(dir, ['add', 'More tests']).code, 0);
+  assert.equal(acc(dir, ['add', 'Elsewhere']).code, 0);
+  const wt = join(tempDir('wt-'), 'T-1');
+  git(dir, 'worktree', 'add', '-q', '-b', 'task/T-1', wt, 'main');
+  const ledgerPath = join(dir, '.git', 'acc', 'ledger.json');
+  const ledger = JSON.parse(readFileSync(ledgerPath, 'utf8'));
+  ledger.tasks[0].run = { branch: 'task/T-1', worktree: wt };
+  ledger.tasks[1].run = { branch: 'task/T-2', worktree: dir };
+  writeFileSync(ledgerPath, JSON.stringify(ledger));
+
+  // On the environment's branch, and in the main checkout on a task's branch: it says so, and writes nothing.
+  const onMain = acc(dir, ['gate', 'run'], undefined, heavy);
+  assert.equal(onMain.code, 0, onMain.err);
+  assert.match(onMain.out, /tests 674 beats the floor 669 by 5\./);
+  git(dir, 'checkout', '-q', '-b', 'task/T-2');
+  assert.match(acc(dir, ['gate', 'run'], undefined, heavy).out, /tests 674 beats the floor 669 by 5\./);
+  assert.deepEqual([floors(dir), git(dir, 'status', '--porcelain')], [{ tests: { floor: 669 } }, '']);
+
+  // In the task's own worktree: written there, and acc gate run asks for it to be committed.
+  const raised = acc(wt, ['gate', 'run'], undefined, { ...heavy, ACC_ROLE: 'builder', ACC_TASK: 'T-1' });
+  assert.equal(raised.code, 1, 'not done until the floor is committed');
+  assert.match(raised.out, /tests 674 beats the floor 669: raised it in \.acc\/floors\.json/);
+  assert.match(raised.out, /Raised in \.acc\/floors\.json: tests 669 → 674\. Commit that file, then run acc gate run again: acc done takes the commit that records it\./);
+  assert.doesNotMatch(raised.out, /to fix/);
+  assert.deepEqual([floors(wt), floors(dir)], [{ tests: { floor: 674 } }, { tests: { floor: 669 } }], 'in the worktree, and nowhere else');
+  git(wt, 'commit', '-qam', 'T-1: raise the tests floor');
+  const again = acc(wt, ['gate', 'run'], undefined, { ...heavy, ACC_ROLE: 'builder', ACC_TASK: 'T-1' });
+  assert.equal(again.code, 0, again.out);
+  assert.match(again.out, /tests 674, at its floor\.\nAll recorded\./);
+  assert.match((acc(wt, ['gate', 'list', '--json']).json() as { gates: { name: string; about: string }[] }).gates.find((g) => g.name === 'tests')!.about, /cat count\.txt \(tests, which may only go up\); floor 674$/);
+
+  // Relaxing: never a builder's, always with a reason and a number.
+  const builder = acc(dir, ['gate', 'relax', 'tests', '--to', '640', '--reason', 'mine', '--task', 'T-1', '--as', 'human'], undefined, { ACC_ROLE: 'builder', ACC_TASK: 'T-1' });
+  assert.deepEqual([builder.code, /A builder can't relax a floor/.test(builder.err)], [1, true]);
+  assert.equal(acc(dir, ['gate', 'relax', 'tests', '--to', '640', '--task', 'T-1', '--as', 'reviewer']).code, 1, 'nor an agent');
+  assert.match(acc(dir, ['gate', 'relax', 'tests', '--to', '640', '--task', 'T-1']).err, /Say why it's relaxed/);
+  assert.equal(acc(dir, ['gate', 'relax', 'tests', '--reason', 'why', '--task', 'T-1']).code, 2, '--to is needed');
+  assert.deepEqual([floors(wt), existsSync(join(dir, '.git', 'acc', 'relaxed.jsonl'))], [{ tests: { floor: 674 } }, false], 'nothing changed by a refusal');
+  const r = acc(dir, ['gate', 'relax', 'tests', '--to', '640', '--reason', 'the slow suite moved to its own job', '--task', 'T-1', '--json']);
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual(floors(wt).tests.floor, 640);
+  assert.deepEqual([floors(wt).tests.relaxed.reason, floors(wt).tests.relaxed.was], ['the slow suite moved to its own job', 674]);
+  const record = JSON.parse(readFileSync(join(dir, '.git', 'acc', 'relaxed.jsonl'), 'utf8').trim());
+  assert.deepEqual([record.ratchet, record.to, record.was, record.task, realpathSync(record.root)], ['tests', 640, 674, 'T-1', realpathSync(wt)]);
+  const event = readFileSync(join(dir, '.git', 'acc', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).at(-1);
+  assert.deepEqual([event.task, event.actor, event.data.relaxed.to], ['T-1', 'human', 640]);
+  // It says what passes now, as DESIGN §9 does: the relaxed number or a better one, from the floor it relaxed.
+  const said = acc(dir, ['gate', 'relax', 'tests', '--to', '630', '--reason', 'and the flaky one', '--task', 'T-1']);
+  assert.equal(said.code, 0, said.err);
+  assert.match(said.out, /A branch that began at floor 640 now passes with its floor at 630 or a better one, as acc's record of this relax says\. One that began at another floor isn't backed by it\./);
+  assert.match(acc(dir, ['gate', 'waive', 'tests', '--reason', 'flaky']).err, /tests is a ratchet: .*acc gate relax tests/);
+});
+
 test('acc autopilot: manual does nothing; dispatch isn\'t built yet, and full is read as it; usage, roles and the lock (D-055)', () => {
   const GH = { ...GENERIC_CONFIG, github: { repo: 'acme/tool', account: 'jordan-kim' } };
   const dir = repoWithConfig(GH);

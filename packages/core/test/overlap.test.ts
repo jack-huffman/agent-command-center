@@ -38,7 +38,9 @@ test('two plans overlap on the same file, or a folder holding one, and never on 
   assert.deepEqual(overlaps(['docs/DECISIONS.md', 'docs/x.md'], [{ task: 'T-4', files: ['docs/x.md', 'docs/DECISIONS.md'] }], ['docs']), [], 'nor does anything in a listed folder');
   assert.deepEqual(overlaps(null, others, []), [], 'files not known share nothing');
   const config = parseConfig({ ...GENERIC_CONFIG, autopilot: { appendOnly: ['docs/DECISIONS.md'] }, dispatch: { shared: ['README.md', 'docs/DESIGN.md'] } }).config!;
-  assert.deepEqual(sharedFiles(config), ['docs/DECISIONS.md', 'README.md', 'docs/DESIGN.md'], 'autopilot.appendOnly and dispatch.shared both count');
+  assert.deepEqual(sharedFiles(config), ['docs/DECISIONS.md', 'README.md', 'docs/DESIGN.md', '.acc/floors.json'], 'autopilot.appendOnly and dispatch.shared both count, and the floors file always does (GH-99)');
+  assert.deepEqual(sharedFiles(parseConfig({ ...GENERIC_CONFIG }).config!), ['.acc/floors.json'], 'two tasks that both raise a floor never wait for each other');
+  assert.deepEqual(overlaps(['.acc/floors.json', 'src/a.ts'], [{ task: 'T-1', files: ['.acc/floors.json'] }], sharedFiles(parseConfig({ ...GENERIC_CONFIG }).config!)), []);
   assert.deepEqual(overlaps(['README.md', 'docs/DECISIONS.md'], others, sharedFiles(config)), []);
   assert.equal(waitWords([{ task: 'T-1', files: ['a.ts', 'b.ts'] }, { task: 'T-2', files: ['c.ts'] }]), 'Waits for T-1\'s files: a.ts, b.ts, and T-2\'s: c.ts');
   assert.equal(filesOf([{ task: 'T-1', files: ['a.ts'] }]), 'T-1\'s files: a.ts');
