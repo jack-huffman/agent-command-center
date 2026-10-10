@@ -294,8 +294,17 @@ class TaskCommands extends Sidebar {
   /** Stops the task's agent and moves it back to To do. The worktree and its commits are kept. */
   private async abandonTask(n: TaskNode): Promise<void> {
     if (n?.kind !== 'task') return;
-    const reason = await vscode.window.showInputBox({ title: `Abandon ${n.task.id}?`, prompt: 'Why? Its agent stops, the task goes back to To do, and the worktree and commits are kept.', validateInput: (v) => (v.trim() ? undefined : 'A reason is required.') });
+    // A cloud builder can't be stopped from here (GH-69): the task is set aside, and its page offered, to archive it there.
+    const cloud = n.task.run?.where === 'cloud' ? n.task.run.cloud?.url ?? null : null;
+    const reason = await vscode.window.showInputBox({ title: `Abandon ${n.task.id}?`, prompt: cloud ? 'Why? The task goes back to To do, and the worktree and commits are kept. Its cloud session isn\'t stopped: archive it on claude.ai.' : 'Why? Its agent stops, the task goes back to To do, and the worktree and commits are kept.', validateInput: (v) => (v.trim() ? undefined : 'A reason is required.') });
     if (!reason) return;
+    if (cloud) {
+      const done = await this.runAcc(n.project, ['set', n.task.id, 'todo', '--reason', reason], () => undefined);
+      if (!done) return;
+      const pick = await vscode.window.showInformationMessage(`${n.task.id} is back in To do. Its worktree is kept, and its cloud session is still on claude.ai.`, 'Open the session to archive it');
+      if (pick) await vscode.env.openExternal(vscode.Uri.parse(cloud));
+      return;
+    }
     const session = this.hub.agents.find((s) => s.id && s.id === n.task.run?.bgId);
     if (session?.id && session.pid) await runFile('claude', ['stop', session.id], n.project.root, process.env, undefined, 30_000);
     // A resumed builder isn't a background session: its own process is ended (D-067).
@@ -430,6 +439,8 @@ class TaskCommands extends Sidebar {
   /** A task's agent: its activity page, found by the session the task records. */
   private watchTask(n: TaskNode): void {
     if (n?.kind !== 'task') return;
+    // A cloud builder's session lives on claude.ai (GH-69): Watch opens it there.
+    if (n.task.run?.where === 'cloud' && n.task.run.cloud?.url) return void vscode.env.openExternal(vscode.Uri.parse(n.task.run.cloud.url));
     const session = sessionFor(n.task, this.hub.agents);
     if (session && this.helpers.watch?.(sessionKey(session))) return;
     // Its session has ended: its transcript still says what it did.

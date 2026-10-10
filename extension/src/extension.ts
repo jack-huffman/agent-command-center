@@ -109,7 +109,8 @@ export function activate(context: vscode.ExtensionContext): void {
     // And an issue acc hasn't closed yet, so a failed close is tried again (D-082).
     prs: async () => {
       for (const p of hub.projects) {
-        if (!hub.taskRows(p.root).some(followsPullRequests)) continue;
+        // A cloud builder's branch is followed the same way (GH-69): acc sync reads it on GitHub.
+        if (!hub.taskRows(p.root).some((r) => followsPullRequests(r) || (r.state === 'running' && r.run?.where === 'cloud'))) continue;
         const r = await accRunner(accScript)(['sync', '--json'], p.root);
         if (r.code !== 0) setup.log.warn(`acc sync in ${p.name}: ${(r.stderr || r.stdout).trim().split('\n')[0]}`);
       }
@@ -307,6 +308,7 @@ export function activate(context: vscode.ExtensionContext): void {
     run: (command, cwd, label, onExit, ok) => void runs.start(command, { cwd, label, onExit, ok }),
     watch: (key, ended, active) => pages.open(key, ended, active),
     sessionSettings: sessionSettings(accScript),
+    accScript,
     accCommand: accShellCommand(accScript),
     openLater: async (folder, sessionId) => { await context.globalState.update(OPEN_LATER, { folder, sessionId, at: Date.now() }); },
   });

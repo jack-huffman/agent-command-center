@@ -10,7 +10,7 @@ import { type BoardInput, trackerBoard, type TrackerBoard } from './boards.ts';
 import { type Action, type HubLike, KEY, type Look, LOOK, type ModelArea, type Ref, short } from './shared.ts';
 import { hasTicket, withClient } from './updates.ts';
 import { autoMergeOn } from '../../../packages/core/src/config.ts';
-import { analysisLook, autopilotLook, canDispatch, cardActions, closedPrLook, filesLook, stoppedLook } from './cards.ts';
+import { analysisLook, autopilotLook, canDispatch, cardActions, closedPrLook, filesLook, placeLook, stoppedLook } from './cards.ts';
 
 // ---------------------------------------------------------------- tasks: the board
 
@@ -25,6 +25,8 @@ export interface Card {
   model: string | null;
   /** What its builder is called (D-087), shown when its agent line is hovered. Older runs have none. */
   agentName: string | null;
+  /** Where its builder runs (GH-69): This Mac or Cloud, with an icon. Null before it has run. */
+  place: Look | null;
   worktree: string | null;
   /** "Conflicts with dev: …" when its open pull request won't merge into its base (D-049). */
   conflicts: string | null;
@@ -89,8 +91,8 @@ export function tasksModel(hub: HubLike, boards: (root: string) => BoardInput[] 
             id: t.id, title: t.title, environment: t.environment, waitingOn: t.deps, url: t.source.url,
             // A stopped builder's line says it all: its old session's own state would only repeat it.
             agent: t.stopped ? null : t.agent ?? null, model: t.stopped || !t.agent ? null : t.model ?? null, agentName: t.run?.name ?? null, worktree: t.run?.worktree ?? null, conflicts: conflictLine(t), failedChecks: failedChecksLine(t), analysis: analysisLook(t), autopilot: autopilotLook(t), closedPr: closedPrLook(t),
-            stopped: t.autopilot ? null : stoppedLook(t), files: filesLook(t),
-            actions: cardActions(t, { project: p.root, task: t.id }), drops: dropLanes(t),
+            stopped: t.autopilot ? null : stoppedLook(t), files: filesLook(t), place: placeLook(t),
+            actions: cardActions(t, { project: p.root, task: t.id }, p.config), drops: dropLanes(t),
           })),
         };
       });
@@ -105,7 +107,7 @@ export type Message =
 
 export const area: ModelArea = {
   commands: [
-    'acc.task.dispatch', 'acc.task.dispatchWith', 'acc.task.dispatchAnyway', 'acc.task.stopWaiting', 'acc.task.attach', 'acc.task.openWorktree', 'acc.task.abandon', 'acc.task.cleanup',
+    'acc.task.dispatch', 'acc.task.dispatchWith', 'acc.task.dispatchCloud', 'acc.task.message', 'acc.task.collect', 'acc.task.dispatchAnyway', 'acc.task.stopWaiting', 'acc.task.attach', 'acc.task.openWorktree', 'acc.task.abandon', 'acc.task.cleanup',
     'acc.task.add', 'acc.task.importGithub', 'acc.task.importJira', 'acc.task.show', 'acc.task.move', 'acc.task.block', 'acc.task.unblock', 'acc.task.openTicket',
     'acc.task.watch', 'acc.task.resume', 'acc.task.openInClaude', 'acc.task.review', 'acc.task.watchReview', 'acc.task.land', 'acc.task.openPr',
     'acc.task.analyze', 'acc.task.watchAnalysis',

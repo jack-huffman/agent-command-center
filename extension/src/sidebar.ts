@@ -22,6 +22,8 @@ export interface SidebarHelpers {
   openLater?: (folder: string, sessionId: string) => Promise<void>;
   /** --settings for a background agent started here, so its questions come to the page. */
   sessionSettings?: string;
+  /** acc's bundle, for a command that must run acc with something in its environment, such as a token (GH-69). */
+  accScript?: string;
 }
 
 /**

@@ -66,7 +66,7 @@ test('acc sync --close-done closes the issues of tasks already done, listing eac
   assert.deepEqual(tasks.map((t) => [t.id, t.pr?.issue?.state, t.pr?.issue?.reason]), [['GH-3', 'closed', undefined], ['GH-4', 'left', 'it was already closed']]);
 
   const again = acc(dir, ['sync', '--close-done', '--json'], undefined, env);
-  assert.deepEqual(again.json(), { checked: 0, changes: [], closeDone: [] }, 'a second run does nothing');
+  assert.deepEqual(again.json(), { checked: 0, changes: [], cloud: [], branches: [], closeDone: [] }, 'a second run does nothing');
   assert.match(acc(dir, ['sync', '--close-done'], undefined, env).out, /No done task's issue is waiting to close\./);
 });
 

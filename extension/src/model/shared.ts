@@ -6,7 +6,7 @@
 
 import type { AutopilotRecord } from '../../../packages/core/src/autopilot-log.ts';
 import { DISPLAY, type DisplayState, type SessionTie } from '../../../packages/core/src/ledger.ts';
-import type { Environment, Tracker } from '../../../packages/core/src/config.ts';
+import type { Environment, Tracker, CloudAgents } from '../../../packages/core/src/config.ts';
 import type { HistoryRecord, Question } from '../../../packages/core/src/questions.ts';
 import type { Suggestion } from '../../../packages/core/src/rule-suggestions.ts';
 import type { TidyStatus } from '../../../packages/core/src/tidy.ts';
@@ -43,6 +43,8 @@ export interface Action {
   ref: Ref;
   primary?: boolean;
   danger?: boolean;
+  /** Why it can't be used now (GH-69): shown disabled, with the reason, never left to do nothing. */
+  disabled?: string;
 }
 
 export interface Look {
@@ -67,7 +69,7 @@ export interface ProjectLike {
    * autonomy: what autopilot may do on its own (D-055), when the config says. autopilot.autoMerge: whether
    * it merges pull requests (GH-67). trackers: which owns a ticket's key (D-066).
    */
-  config: { github: { repo: string; account: string } | null; environments: Environment[]; profile: string; autonomy?: string; autopilot?: { autoMerge?: boolean }; trackers?: Pick<Tracker, 'kind' | 'project' | 'prefix'>[] };
+  config: { github: { repo: string; account: string } | null; environments: Environment[]; profile: string; autonomy?: string; autopilot?: { autoMerge?: boolean }; trackers?: Pick<Tracker, 'kind' | 'project' | 'prefix'>[]; agents?: { cloud?: CloudAgents | null } };
   branch: string | null;
   worktrees: { path: string; head: string; branch: string | null; main: boolean; changed: number; locked: boolean; prunable: boolean }[];
 }

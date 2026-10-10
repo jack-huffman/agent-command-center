@@ -7,6 +7,7 @@
 
 import { autopilotDoes } from '../../../packages/core/src/autopilot.ts';
 import { autoMergeOn, type ConfigPath, keyShown, UNREAD_KEYS } from '../../../packages/core/src/config.ts';
+import { BUILDER_PLACE_LOOK, type CloudNeed, cloudOffered, cloudReason } from '../../../packages/core/src/cloud.ts';
 import { describe } from '../../../packages/core/src/trackers/connect.ts';
 import type { TrackerKind } from '../../../packages/core/src/trackers/types.ts';
 import { FROM_WORDS, OLDER_MODELS } from '../logic/agents.ts';
@@ -96,12 +97,31 @@ export interface AutoMergeSetting {
 }
 
 /** One project's settings for its agents, under its name: a project setting always says whose it is. */
+/**
+ * Cloud builders for a project (GH-69): the switch, a person's choice, what it needs and what's still
+ * missing, and where a plain dispatch goes. Never on by default.
+ */
+export interface CloudSetting {
+  key: 'agents.cloud.routine';
+  /** On or off, with an icon; orange while it's on but something it needs is missing. */
+  look: Look;
+  from: SettingFrom;
+  meaning: string;
+  /** Each need from the config: the repo on GitHub, the opt-in, the routine. The token and sign-in are Setup's checks. */
+  needs: { label: string; ok: boolean; fix: string }[];
+  /** Where a plain dispatch goes, with an icon, while it's on. */
+  defaultPlace: Look | null;
+  /** The buttons: turn on or off, the routine prompt, the token, the default. Disabled, each says why. */
+  actions: SettingsAction[];
+}
+
 export interface AgentRunProject {
   root: string;
   project: string;
   roles: AgentSetting[];
   autonomy: AutonomySetting | null;
   autoMerge: AutoMergeSetting | null;
+  cloud: CloudSetting | null;
 }
 
 export interface HowAgentsRun {
@@ -162,12 +182,40 @@ export function autoMergeSetting(p: ProjectLike, unread: Unread = UNREAD_KEYS): 
   return { key, look: { label: 'on', icon: 'git-merge', tone: 'neutral' }, from: PROJECT, meaning, settable: true };
 }
 
+/** Cloud builders (GH-69): off unless the project opted in, with what it still needs and the buttons to change it. */
+export function cloudSetting(p: ProjectLike, unread: Unread = UNREAD_KEYS): CloudSetting | null {
+  if (!keyShown('agents.cloud.routine', unread)) return null;
+  const cloud = p.config.agents?.cloud ?? null;
+  const needs: CloudNeed[] = cloudOffered({ github: p.config.github, agents: { cloud } });
+  const reason = cloudReason(needs);
+  const github = !!p.config.github;
+  const on = !!cloud;
+  const look: Look = !on ? { label: 'off', icon: 'circle-slash', tone: 'neutral' } : reason ? { label: 'on, not ready', icon: 'warning', tone: 'orange' } : { label: 'on', icon: 'cloud', tone: 'blue' };
+  const meaning = !on
+    ? github ? 'A local builder is the default everywhere. Turn this on to offer Dispatch to the cloud for each task: a Claude Code cloud session the project\'s routine starts, followed through its branch on GitHub.' : 'Cloud builders need the repo on GitHub: a cloud session clones it from there and pushes its branch back.'
+    : `Each task can go to the cloud (acc dispatch --cloud) or stay on this Mac (--local). ${reason ? `${reason}.` : 'Setup checks the routine\'s token, the claude.ai sign-in and the push guard.'} Checks that need an org login run on this Mac when acc collects the branch.`;
+  const action = (command: string, label: string, icon: string, name: string, primary = false, disabled: string | null = null): SettingsAction => ({ command, label, icon, arg: p.root, name, primary, disabled });
+  const actions: SettingsAction[] = !on
+    ? [action('acc.cloud.enable', 'Turn on…', 'cloud', `Turn cloud builders on for ${p.name}`, false, github ? null : 'Cloud builders need the repo on GitHub')]
+    : [
+      action('acc.cloud.routine', 'Routine prompt', 'clippy', `Copy the routine prompt for ${p.name}`),
+      action('acc.cloud.enable', cloud?.routine ? 'Change routine…' : 'Add the routine…', 'edit', `Give acc ${p.name}'s routine`, !cloud?.routine),
+      action('acc.cloud.token', 'Token…', 'key', `Keep the routine's token for ${p.name}`),
+      action('acc.cloud.default', 'Default…', 'arrow-swap', `Choose where ${p.name}'s builders go by default`),
+      action('acc.cloud.disable', 'Turn off', 'circle-slash', `Turn cloud builders off for ${p.name}`),
+    ];
+  return {
+    key: 'agents.cloud.routine', look, from: PROJECT, meaning, needs: needs.map((n) => ({ label: n.label, ok: n.ok, fix: n.fix })),
+    defaultPlace: cloud ? { ...BUILDER_PLACE_LOOK[cloud.default], tone: 'neutral' } : null, actions,
+  };
+}
+
 /** How agents run in each onboarded project, and what they bill on this machine. */
 export function howAgentsRun(projects: ProjectLike[], setup: DoctorItem[], unread: Unread = UNREAD_KEYS): HowAgentsRun {
   const billing = billingLook(setup);
   const toSetup: SettingsLink = { label: 'Open Setup', icon: 'checklist', section: 'setup' };
   return {
-    projects: projects.filter((p) => p.agents).map((p) => ({ root: p.root, project: p.name, roles: agentSettings(p, unread), autonomy: autonomySetting(p, unread), autoMerge: autoMergeSetting(p, unread) })),
+    projects: projects.filter((p) => p.agents).map((p) => ({ root: p.root, project: p.name, roles: agentSettings(p, unread), autonomy: autonomySetting(p, unread), autoMerge: autoMergeSetting(p, unread), cloud: cloudSetting(p, unread) })),
     billing: billing
       ? { look: billing, link: billing.tone === 'blue' ? null : toSetup }
       : { look: { label: 'Not checked yet: Setup checks it', icon: 'circle-outline', tone: 'neutral' }, link: toSetup },
@@ -577,7 +625,7 @@ export const area: ModelArea = {
   // How agents run's Change… buttons run the Agents area's commands, which this section draws now (GH-110).
   // A tracker's Sign out is drawn only here (GH-112); its Sign in and Change place are the boards' too.
   // GitHub accounts' Switch… and Sign in are Environments' commands, which its account cards draw too (GH-113).
-  commands: ['acc.settings.theme', 'acc.agents.configure', 'acc.agents.autonomy', 'acc.agents.autoMerge', 'acc.trackers.signOut', 'acc.settings.opensOn', 'acc.settings.where', 'acc.settings.pace'],
+  commands: ['acc.settings.theme', 'acc.agents.configure', 'acc.agents.autonomy', 'acc.agents.autoMerge', 'acc.trackers.signOut', 'acc.settings.opensOn', 'acc.settings.where', 'acc.settings.pace', 'acc.cloud.enable', 'acc.cloud.disable', 'acc.cloud.token', 'acc.cloud.default', 'acc.cloud.routine'],
   home: {
     // Last in the rail, after every other area's.
     order: 90,

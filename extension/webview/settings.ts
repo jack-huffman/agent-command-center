@@ -56,6 +56,17 @@ function agentProject(s: AgentRunProject): HTMLElement {
     // A Salesforce project never auto-merges, so it has no Change… (D-083): its meaning says why.
     box.append(row('Auto-merge', 'git-merge', value, s.autoMerge.settable ? argButton('acc.agents.autoMerge', 'Change…', 'edit', s.root) : null, `whether autopilot merges pull requests, in ${s.project}`));
   }
+  if (s.cloud) {
+    // Cloud builders (GH-69): the switch, its meaning, what it needs and what's missing, and where a plain dispatch goes.
+    const c = s.cloud;
+    const needs = el('ul', 'settings-needs', ...c.needs.map((n) => el('li', `settings-need${n.ok ? ' ok' : ''}`, status({ label: n.label, icon: n.ok ? 'pass' : 'circle-large-outline', tone: n.ok ? 'blue' : 'orange' }), n.ok ? null : el('span', 'muted small', ` ${n.fix}`))));
+    const value = el('div', '',
+      el('div', 'settings-now', status(c.look), from(c.from), c.defaultPlace ? el('span', 'settings-from muted small', icon(c.defaultPlace.icon), `plain dispatch: ${c.defaultPlace.label}`) : null),
+      el('p', 'muted small settings-meaning', c.meaning),
+      c.look.label === 'off' ? null : needs,
+      el('div', 'actions settings-tracker-actions', ...c.actions.map(trackerButton)));
+    box.append(row('Cloud builders', 'cloud', value, null, `cloud builders, in ${s.project}`));
+  }
   return box;
 }
 

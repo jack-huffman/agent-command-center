@@ -374,6 +374,64 @@ keep tasks in acc alone, and which was clearer.
 - **Result:**
 - **Fixed in / filed as:**
 
+### B15.cloud-github-app: Claude can clone the repo from the cloud
+
+Look for: these five steps only once the project opts in to cloud builders
+(`acc cloud enable`, GH-69); before that Setup should skip them, and say so.
+Then whether the check finds the Claude GitHub App on the repo, or says to
+tick it yourself after `/web-setup`.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### B15.cloud-routine: A routine for the repo
+
+Look for: whether the guide got you through making the routine at
+claude.ai/code/routines, pasting the prompt `acc cloud` shows, and giving acc
+the trigger id.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### B15.cloud-token: The routine's token is in the keychain
+
+Look for: `acc cloud token` taking the token on stdin, and the check passing
+once it's in the keychain, with nothing written to `.acc/config.json`.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### B15.cloud-login: Claude Code is signed in to claude.ai
+
+Look for: whether the check says which account, and what it says with an API
+key instead.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### B15.cloud-guard: The push guard is committed
+
+Look for: `acc cloud enable` writing `.claude/hooks/acc-push-guard.mjs` and
+`.claude/settings.json`, and the check passing once they're there.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
 ### Dispatch
 
 Add a small task: **Agent Command Center: Add task** from the Command Palette,

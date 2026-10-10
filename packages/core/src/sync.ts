@@ -6,6 +6,8 @@ import { AccError, type Runner } from './exec.ts';
 import { applyMove, checkMove, mutate, noGateHooks, type PullRequest, readLedger, type State } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
 import { discardUpdate, draftUpdate, listUpdates } from './updates.ts';
+import { type BranchMove, followBranches } from './branches.ts';
+import { type FollowChange, followCloud } from './cloud.ts';
 
 /**
  * Keeps tasks in step with their pull requests (D-033): merged is done, closed without merging is
@@ -88,15 +90,37 @@ export function conflictsOf(run: Runner, root: string, base: string, head: strin
   return r.code === 0 ? [] : [...new Set(files.filter(Boolean))];
 }
 
-export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now: () => Date; env: NodeJS.ProcessEnv }): { checked: number; changes: SyncChange[] } {
+export interface SyncResult {
+  checked: number;
+  changes: SyncChange[];
+  /** Each cloud builder's branch followed on GitHub (GH-69): pushed, collected, blocked, or nothing new. */
+  cloud: FollowChange[];
+  /** Environment branches that moved by anything but acc's own merges since the last sync (GH-69). */
+  branches: BranchMove[];
+}
+
+/**
+ * Besides the pull requests: each running cloud builder's branch, and each environment's, on GitHub (GH-69).
+ * A repo with no GitHub section has neither to follow.
+ */
+function followGithub(paths: RepoPaths, config: Config, deps: { run: Runner; now: () => Date; env: NodeJS.ProcessEnv }): Pick<SyncResult, 'cloud' | 'branches'> {
+  if (!config.github) return { cloud: [], branches: [] };
+  const ledger = readLedger(paths.ledger);
+  const cloud = ledger.tasks.some((t) => t.state === 'running' && t.run?.where === 'cloud') ? followCloud(paths, config, deps) : [];
+  const branches = followBranches(paths, config, ledger, deps);
+  return { cloud, branches };
+}
+
+export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now: () => Date; env: NodeJS.ProcessEnv }): SyncResult {
   const { run, now } = deps;
+  const github = followGithub(paths, config, deps);
   const tasks = readLedger(paths.ledger).tasks;
   const open = tasks.filter((t) => t.pr?.state === 'open');
   // A promotion carries several tasks: each open one is read once (D-075).
   const promotions = [...new Set(tasks.flatMap((t) => (t.promotions ?? []).filter((p) => p.state === 'open').map((p) => p.pr.number)))];
   // An issue whose close failed is tried again, even with no pull request left open (D-082).
   const closing = tasks.some((t) => t.pr?.issue?.state === 'pending');
-  if (!open.length && !promotions.length && !closing) return { checked: 0, changes: [] };
+  if (!open.length && !promotions.length && !closing) return { checked: 0, changes: [], ...github };
   const gh = config.github;
   if (!gh) throw new AccError('no-github', 'This project has no "github" section in .acc/config.json, so there are no pull requests to follow.');
   const token = run('gh', ['auth', 'token', '-u', gh.account]);
@@ -276,5 +300,5 @@ export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now:
       c.note += `; ${closeWords(r)}`;
     } else changes.push({ task: r.task, pr: r.pr, moved: null, note: closeWords(r), issue });
   }
-  return { checked: seen.size + promoted.size, changes };
+  return { checked: seen.size + promoted.size, changes, ...github };
 }

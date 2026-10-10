@@ -7,6 +7,17 @@ as the notes.
 
 ## 0.39.0
 
+- Cloud builders, for a project on GitHub that opts in (GH-69, D-???): `acc
+  cloud enable` with a routine from claude.ai/code/routines and its token in
+  the keychain, then `acc dispatch <id> --cloud`, or **Dispatch to the cloud**
+  on a card, pushes the task branch and fires the routine. `acc sync` follows
+  the branch on GitHub and collects it into the worktree when its last commit
+  says `Acc-Done`, running the checks on this Mac; a quiet builder needs you,
+  with its session's page. Cards and task pages say where each builder runs,
+  **This Mac** or **Cloud**, and Settings has the switch with what it still
+  needs. A local builder stays the default everywhere, and a project that
+  hasn't opted in sees no change. Every sync also flags an environment branch
+  that moved by anything but acc's own merges.
 - Depth in light and dark: the board's columns sit in wells set into the page,
   and cards and panels are raised on it, with a firmer edge and a soft shadow.
   A tracker column named Blocked, Stuck, On hold or Waiting is orange with a
