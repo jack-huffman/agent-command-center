@@ -28,7 +28,7 @@ export const OLDER = [
 
 /** The names of the tests a file declares with test(...) or it(...), each as written in its first argument. */
 export function testNames(source: string): string[] {
-  return [...source.matchAll(/\b(?:test|it)(?:\.(?:skip|todo|only))?\(\s*(['"`])((?:\\.|(?!\1)[^\\])*)\1/g)].map((m) => m[2].replace(/\\(.)/g, '$1'));
+  return [...source.matchAll(/\b(?:test|it)(?:\.(?:skip|todo|only))?\(\s*(['"`])((?:\\.|(?!\1)[^\\])*)\1/g)].map((m) => (m[2] ?? '').replace(/\\(.)/g, '$1'));
 }
 
 /** Whether a file has a test whose name says it covers an edge case. */
@@ -37,7 +37,7 @@ export const coversEdge = (source: string): boolean => testNames(source).some((n
 /** The test files npm test runs: the quoted globs in package.json's test script, expanded. */
 function testFiles(): string[] {
   const script = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).scripts.test as string;
-  const globs = [...script.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  const globs = [...script.matchAll(/"([^"]+)"/g)].map((m) => m[1] ?? '');
   return [...new Set(globs.flatMap((g) => globSync(g, { cwd: ROOT })))].sort();
 }
 
