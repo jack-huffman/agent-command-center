@@ -202,7 +202,7 @@ function checkoutProblem(sub, rest, record) {
 /** Why merging, rebasing onto, cherry-picking or reverting these refs may not run: one of them changes the guard. */
 function touchProblem(sub, rest, ctx) {
   for (const ref of rest.filter((a) => !a.startsWith('-'))) {
-    const args = sub === 'cherry-pick' || sub === 'revert' ? ['diff-tree', '--no-commit-id', '--name-only', '-r', ref, '--', ...GUARD_FILES] : ['diff', '--name-only', 'HEAD', ref, '--', ...GUARD_FILES];
+    const args = sub === 'cherry-pick' || sub === 'revert' ? ['diff-tree', '--root', '--no-commit-id', '--name-only', '-r', ref, '--', ...GUARD_FILES] : ['diff', '--name-only', 'HEAD', ref, '--', ...GUARD_FILES];
     let out;
     try {
       out = execFileSync('git', args, { cwd: ctx.projectDir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
@@ -346,9 +346,12 @@ export function guard(line, record, ctx, depth = 0, wrappedOuter = false) {
     const { words, wrapped } = unwrap(raw);
     const [first, ...rest] = words;
     if (!first) {
-      if (raw.length) return \`\${raw[0]} runs nothing by itself here: run the command plainly.\`;
+      // Assignments alone set a variable and run nothing; a wrapper alone would read commands the guard can't see.
+      if (raw.length && !raw.every((w) => /^[A-Za-z_][A-Za-z0-9_]*=/.test(w))) return \`\${raw[0]} runs nothing by itself here: run the command plainly.\`;
       continue;
     }
+    // A \`$\` left over from \`$( … )\`: what's inside is read as its own command, and the \`$\` runs nothing.
+    if (first === '$') continue;
     if (first.includes('$')) return \`The guard can't tell what \${first} runs: write the program's name, plainly.\`;
     const prog = name(first);
     const viaPath = first !== prog;
