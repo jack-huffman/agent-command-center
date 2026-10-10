@@ -85,28 +85,85 @@ export function guardEdit(b: Builder, filePath: string, envSpecific: string[]): 
 
 // ---------------------------------------------------------------- PreToolUse: Bash
 
-/** A command line split into its commands, and each into words, as far as matters for these rules. */
+/**
+ * A command line split into its commands, and each into words, as far as matters for these rules: quotes
+ * kept together, separators cut, a `$( )` or backtick read as its own command even inside double quotes
+ * (only single quotes are literal), a heredoc's body skipped. The cloud guard's rawCommandsOf splits the
+ * same way (GH-69), and cloud-guard.test.ts keeps the two the same.
+ */
 export function commandsOf(line: string): string[][] {
   const out: string[][] = [];
   let words: string[] = [];
   let word = '';
   let quote: '"' | "'" | null = null;
   let any = false;
-  const end = () => { if (any) words.push(word); word = ''; any = false; };
+  // What to go back to when a `$( )` or a backtick pair closes: the quote it opened inside, if any.
+  const stack: { back: '"' | null; tick: boolean }[] = [];
+  // Heredoc terminators still to skip, in order; a `<<` alone takes the next word as its terminator.
+  const heredocs: string[] = [];
+  let delimiterNext = false;
+  const end = () => {
+    if (any) {
+      if (delimiterNext) { heredocs.push(word.replace(/^['"]|['"]$/g, '')); delimiterNext = false; }
+      else if (word === '<<' || word === '<<-') delimiterNext = true;
+      else if (/^<<-?./.test(word)) heredocs.push(word.replace(/^<<-?/, '').replace(/^['"]|['"]$/g, ''));
+      words.push(word);
+    }
+    word = '';
+    any = false;
+  };
   const next = () => { end(); if (words.length) out.push(words); words = []; };
+  const open = (back: '"' | null, tick: boolean) => { if (!word) any = false; next(); stack.push({ back, tick }); quote = null; };
   for (let i = 0; i < line.length; i++) {
     const c = line[i]!;
-    if (quote) {
-      if (c === quote) quote = null;
-      else if (c === '\\' && quote === '"' && i + 1 < line.length) word += line[++i];
-      else word += c;
+    if (quote === "'") {
+      if (c === "'") quote = null;
+      else { word += c; any = true; }
+      continue;
+    }
+    if (quote === '"') {
+      if (c === '"') { quote = null; continue; }
+      if (c === '\\' && i + 1 < line.length) { word += line[++i]; any = true; continue; }
+      if (c === '`') { open('"', true); continue; }
+      if (c === '$' && line[i + 1] === '(') { open('"', false); i++; continue; }
+      word += c;
+      any = true;
       continue;
     }
     if (c === '"' || c === "'") { quote = c; any = true; continue; }
     if (c === '\\' && i + 1 < line.length) { word += line[++i]; any = true; continue; }
-    if (/\s/.test(c) && c !== '\n') { end(); continue; }
-    // A backtick cuts too (GH-69): what's inside it runs, so it's read as its own command.
-    if (c === '\n' || c === ';' || c === '|' || c === '&' || c === '(' || c === ')' || c === '`') { next(); continue; }
+    if (c === '`') {
+      next();
+      const top = stack[stack.length - 1];
+      if (top && top.tick) { stack.pop(); quote = top.back; }
+      else stack.push({ back: null, tick: true });
+      continue;
+    }
+    if (c === '$' && line[i + 1] === '(') { open(null, false); i++; continue; }
+    if (c === '(') { next(); stack.push({ back: null, tick: false }); continue; }
+    if (c === ')') {
+      next();
+      const top = stack.pop();
+      if (top && top.back) quote = top.back;
+      continue;
+    }
+    if (c === '\n') {
+      next();
+      // A heredoc's body is the command's input, not commands: skip to its terminator line.
+      while (heredocs.length && i < line.length) {
+        const term = heredocs.shift();
+        let j = i + 1;
+        for (;;) {
+          const nl = line.indexOf('\n', j);
+          const l = nl < 0 ? line.slice(j) : line.slice(j, nl);
+          if (l.replace(/^\t+/, '') === term || nl < 0) { i = nl < 0 ? line.length : nl; break; }
+          j = nl + 1;
+        }
+      }
+      continue;
+    }
+    if (/\s/.test(c)) { end(); continue; }
+    if (c === ';' || c === '|' || c === '&') { next(); continue; }
     word += c;
     any = true;
   }

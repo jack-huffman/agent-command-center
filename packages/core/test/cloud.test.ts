@@ -517,6 +517,7 @@ test('an environment branch moved by acc\'s own merge passes by its recorded com
   assert.deepEqual(followBranches(paths, config, ledger(), deps), [], 'by the squash\'s recorded sha');
   assert.deepEqual(unexplained(r, root, mergeCommit, squash, [{ number: 13 }]).commits, [], 'or, sync not yet there, by GitHub\'s squash subject naming a pull request the ledger knows');
   assert.deepEqual(unexplained(r, root, mergeCommit, squash, [{ number: 14 }]).commits.map((c) => c.subject), ['Second thing (#13)'], 'but not another number');
+  assert.deepEqual(unexplained(r, root, mergeCommit, squash, [{ number: 13, mergeSha: mergeCommit }]).commits.map((c) => c.subject), ['Second thing (#13)'], 'and not a pull request whose merge sync did record, as another commit: the subject stands in only where the sha is unknown');
   assert.deepEqual([squashOf('Second thing (#13)'), squashOf('Hotfix, see #12'), squashOf('Merge pull request #12 from x'), squashOf('Tidy (#13) later')], [13, null, null, null]);
   // A rebase: the branch's commits copied onto main with new shas. GitHub records the last as the merge's;
   // git cherry finds the rest by their patches, against the branch the Mac's clone still has.
@@ -542,6 +543,12 @@ test('an environment branch moved by acc\'s own merge passes by its recorded com
   assert.deepEqual(followBranches(paths, config, ledger(), deps), []);
   assert.deepEqual(sync(paths, config, deps).branches.map((m) => m.to), [hot]);
   assert.deepEqual(sync(paths, config, deps).branches.map((m) => m.to), [hot], 'and again');
+  // A second move nobody explains, while the first waits: one item, from the earliest head, with both commits, newest first.
+  const hot2 = commitAndPush(other, 'main', 'hot2.txt', 'Another by hand');
+  const second = followBranches(paths, config, ledger(), deps);
+  assert.deepEqual(second.map((m) => [m.from, m.to, m.commits]), [[rebased, hot2, [`${hot2.slice(0, 7)} Another by hand`, `${hot.slice(0, 7)} Hotfix, see #12`]]], 'the earliest from is kept, and the new commit added');
+  assert.equal(branchMoves(paths).length, 1);
+  assert.match(moveWords(second[0]!), /by 2 commits that aren't acc's merges: \w{7} Another by hand, \w{7} Hotfix, see #12\./);
   // Another of acc's merges after it: the branch moves on, the earlier move still waits.
   gitIn(other, 'merge', '-q', '--no-ff', '-m', 'Merge pull request #16 from acme/task/T-4', 'origin/task/T-2-second');
   const later = gitIn(other, 'rev-parse', 'HEAD');
@@ -549,14 +556,22 @@ test('an environment branch moved by acc\'s own merge passes by its recorded com
   record('T-4', { number: 16, url: 'https://x/16', state: 'merged', mergeSha: later }, 'task/T-4');
   assert.deepEqual(followBranches(paths, config, ledger(), deps), []);
   assert.equal(readBranches(paths).main?.head, later);
-  assert.equal(readBranches(paths).main?.moved?.to, hot, 'the earlier move still waits for a person');
-  // A force push back: git can't list what came in, and that's flagged as a rewrite.
-  gitIn(other, 'reset', '-q', '--hard', 'HEAD~2');
+  assert.equal(readBranches(paths).main?.moved?.to, hot2, 'the earlier move still waits for a person');
+  // A force push back: git can't list what came in, and that's flagged as a rewrite on top of the move still waiting.
+  gitIn(other, 'reset', '-q', '--hard', 'HEAD~3');
   gitIn(other, 'push', '-q', '--force', 'origin', 'main');
   const back = gitIn(other, 'rev-parse', 'HEAD');
   const rewrite = followBranches(paths, config, ledger(), deps);
-  assert.deepEqual([rewrite[0]?.to, rewrite[0]?.commits], [back, []]);
-  assert.match(moveWords(rewrite[0]!), /git couldn't list how: a force push or a rewrite/);
+  assert.deepEqual([rewrite[0]?.from, rewrite[0]?.to, rewrite[0]?.commits.length, rewrite[0]?.rewritten], [rebased, back, 2, true]);
+  assert.match(moveWords(rewrite[0]!), /then moved again in a way git couldn't list: a force push or a rewrite/);
+  // A rewrite with nothing waiting: flagged on its own.
+  assert.deepEqual(clearBranchMoves(paths), ['main']);
+  gitIn(other, 'reset', '-q', '--hard', 'HEAD~1');
+  gitIn(other, 'push', '-q', '--force', 'origin', 'main');
+  const back2 = gitIn(other, 'rev-parse', 'HEAD');
+  const alone = followBranches(paths, config, ledger(), deps);
+  assert.deepEqual([alone[0]?.from, alone[0]?.to, alone[0]?.commits], [back, back2, []]);
+  assert.match(moveWords(alone[0]!), /git couldn't list how: a force push or a rewrite/);
   // A person clears it.
   assert.deepEqual(clearBranchMoves(paths), ['main']);
   assert.deepEqual(branchMoves(paths), []);

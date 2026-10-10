@@ -25,6 +25,8 @@ export interface BranchMove {
   at: string;
   /** Each commit that came in and isn't acc's merge, newest first, as `abc1234 subject`; empty when git couldn't list them. */
   commits: string[];
+  /** A later move, while this one waited, that git couldn't list: a force push or a rewrite on top of it. */
+  rewritten?: boolean;
 }
 
 export interface BranchRecord {
@@ -114,7 +116,8 @@ export function unexplained(run: Runner, root: string, prev: string, head: strin
   });
   const merges = new Set(known.flatMap((k) => (k.mergeSha ? [k.mergeSha] : [])));
   const heads = new Set(known.flatMap((k) => (k.head ? [k.head] : [])));
-  const numbers = new Set(known.map((k) => k.number));
+  // The squash subject stands in only for a merge whose commit sync hasn't recorded; one recorded is known by its sha alone.
+  const numbers = new Set(known.filter((k) => !k.mergeSha).map((k) => k.number));
   const explained = new Set<string>();
   for (const c of commits) {
     // Its sha is what sync read as the merge's commit, or it merges a head acc landed.
@@ -173,7 +176,9 @@ export function followBranches(paths: RepoPaths, config: Pick<Config, 'environme
     const fetched = fetchBranches(run, paths.root, [e.branch], { ...env, GIT_TERMINAL_PROMPT: '0' });
     const found = fetched ? unexplained(run, paths.root, prev.head, head, known) : { listed: false, commits: [] };
     const ours = found.listed && found.commits.length === 0;
-    const move: BranchMove | null = ours ? prev.moved : { branch: e.branch, from: prev.head, to: head, at, commits: found.commits.map(commitWords) };
+    // A second move nobody explains, while an earlier one waits, keeps the earliest from and adds what came in.
+    const fresh: BranchMove = { branch: e.branch, from: prev.moved?.from ?? prev.head, to: head, at, commits: [...found.commits.map(commitWords), ...(prev.moved?.commits ?? [])], ...(prev.moved?.rewritten || (prev.moved && !found.listed) ? { rewritten: true } : {}) };
+    const move: BranchMove | null = ours ? prev.moved : fresh;
     if (move && move !== prev.moved) moves.push(move);
     records[e.branch] = { head, at, moved: move };
     changed = true;
@@ -199,8 +204,9 @@ export function clearBranchMoves(paths: Pick<RepoPaths, 'stateDir'>, branch?: st
 export function moveWords(m: BranchMove): string {
   const n = m.commits.length;
   const list = m.commits.slice(0, 3).join(', ');
+  const rewrite = m.rewritten ? ', then moved again in a way git couldn\'t list: a force push or a rewrite' : '';
   return n
-    ? `${m.branch} moved from ${m.from.slice(0, 7)} to ${m.to.slice(0, 7)} by ${n} commit${n === 1 ? '' : 's'} that ${n === 1 ? 'isn\'t' : 'aren\'t'} acc's merges: ${list}${n > 3 ? ` and ${n - 3} more` : ''}. Look before anything builds on it.`
+    ? `${m.branch} moved from ${m.from.slice(0, 7)} to ${m.to.slice(0, 7)} by ${n} commit${n === 1 ? '' : 's'} that ${n === 1 ? 'isn\'t' : 'aren\'t'} acc's merges: ${list}${n > 3 ? ` and ${n - 3} more` : ''}${rewrite}. Look before anything builds on it.`
     : `${m.branch} moved from ${m.from.slice(0, 7)} to ${m.to.slice(0, 7)}, and git couldn't list how: a force push or a rewrite. Look before anything builds on it.`;
 }
 

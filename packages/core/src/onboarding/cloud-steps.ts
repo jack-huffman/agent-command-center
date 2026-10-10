@@ -83,14 +83,14 @@ export const CLOUD_STEPS: Step[] = [
   },
   {
     id: 'B15.cloud-guard', part: 'project', group: 'B15', title: 'The push guard is committed',
-    why: 'A cloud session runs the repo\'s own .claude/settings.json hooks and not acc\'s plugin, so the guard that refuses a push to any branch but the task\'s is a script the repo carries, and only what\'s committed reaches the cloud (GH-69).',
-    fix: { command: 'acc cloud enable', text: 'acc cloud enable writes .claude/hooks/acc-push-guard.mjs and its PreToolUse hook into .claude/settings.json. Commit both, and merge them into every branch a cloud session starts from.' },
+    why: 'A cloud session runs the repo\'s own .claude/settings.json hooks and not acc\'s plugin, so the guard that refuses a push to any branch but the task\'s, and the git pre-push hook it installs in the clone to check the push itself, are scripts the repo carries, and only what\'s committed reaches the cloud (GH-69).',
+    fix: { command: 'acc cloud enable', text: 'acc cloud enable writes .claude/hooks/acc-push-guard.mjs, .claude/hooks/acc-pre-push beside it, and their hooks into .claude/settings.json. Commit all three, and merge them into every branch a cloud session starts from.' },
     check(ctx) {
       const need = optedIn(ctx);
       if (need) return need;
       // The commit's tree, not the files on disk: a guard written and not committed never reaches the cloud.
       const committed = guardCommitted(ctx.run, ctx.paths!.root, 'HEAD');
-      return committed.ok ? pass('The push guard and its hook are committed on HEAD.') : fail(committed.why ?? 'The push guard isn\'t committed.', 'acc cloud enable');
+      return committed.ok ? pass('The push guard, its pre-push hook and their settings are committed on HEAD.') : fail(committed.why ?? 'The push guard isn\'t committed.', 'acc cloud enable');
     },
   },
 ];

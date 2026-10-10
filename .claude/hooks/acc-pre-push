@@ -1,0 +1,38 @@
+#!/bin/sh
+# acc's cloud pre-push hook (GH-69). Written by acc cloud enable beside the push guard, committed under
+# .claude/hooks/, and installed into the clone's .git/hooks/pre-push by the guard when a cloud session
+# starts, and again before any push passes. Git runs it on every push, however git was invoked: a wrapper,
+# an alias, a renamed or copied binary, a script in any language. It reads the refs git is about to update
+# on stdin and refuses any update other than the task's own branch, any deletion, and any update that isn't
+# a fast-forward. The task's branch is in .git/acc-task-branch, written by the guard from the record acc
+# put in the fire's text. It fails closed: no record, no push. --no-verify and core.hooksPath would skip
+# it, which is why the guard refuses both before the command runs.
+refuse() {
+  echo "acc's pre-push hook: $1" >&2
+  exit 1
+}
+record=$(git rev-parse --git-path acc-task-branch 2>/dev/null) || refuse "git couldn't say where the record is: no push."
+if [ -z "$record" ] || [ ! -s "$record" ]; then
+  refuse "no record of the task's branch (acc-task-branch in the git dir), so no push. Commit your work and stop: a person collects it."
+fi
+branch=$(sed -n 1p "$record" | tr -d '\r')
+case "$branch" in
+  task/*) ;;
+  *) refuse "the record names no task branch ($branch): no push." ;;
+esac
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -n "$remote_ref" ] || continue
+  if [ "$remote_ref" != "refs/heads/$branch" ]; then
+    refuse "push only your task branch, $branch, not $remote_ref. A person lands it."
+  fi
+  case "$local_sha" in
+    *[!0]*) ;;
+    *) refuse "never delete a branch ($remote_ref)." ;;
+  esac
+  case "$remote_sha" in
+    *[!0]*)
+      git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null || refuse "never force-push: $branch on origin ($remote_sha) isn't behind what you'd push ($local_sha). Fetch it and merge, then push again."
+      ;;
+  esac
+done
+exit 0

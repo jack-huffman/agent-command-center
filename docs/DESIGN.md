@@ -495,13 +495,21 @@ counts cloud runs alone; `agents.max` and the machine's total count only this
 Mac's. A cloud session runs the repo's own `.claude/settings.json` hooks and
 not acc's plugin, so opting in commits a push guard there
 (`.claude/hooks/acc-push-guard.mjs`, run on Bash and the editing tools from
-`$CLAUDE_PROJECT_DIR`): in a cloud session it allows `git push origin
-<branch>` and `git push origin HEAD:<branch>` of the task's own branch alone,
-plainly written, with the branch from the `Acc-Branch` line acc puts at the
-top of the fire's text (read from the session's first message, never from the
-checkout), and refuses everything else that could push, a write under
-`.claude/`, and a checkout, reset, merge or revert that would change it. It
-fails closed. A dispatch refuses `--cloud` until the guard is committed on
+`$CLAUDE_PROJECT_DIR` as `node … || exit 2`, and at SessionStart) with a git
+pre-push hook beside it (`.claude/hooks/acc-pre-push`), which the guard
+installs into the clone's `.git/hooks/`. In a cloud session the guard allows
+`git push origin <branch>` and `git push origin HEAD:<branch>` of the task's
+own branch alone, plainly written, with the branch from the `Acc-Branch` line
+acc puts at the top of the fire's text (read from the session's first message,
+never from the checkout), and refuses everything else that could push, by
+allow-lists for `git config` and `gh`, with `--no-verify`, `core.hooksPath`,
+a Bash write anywhere under `.claude/` or `.git/` (globs and symlinks
+resolved), an Edit or Write of the hooks, any `.claude/settings*.json` or
+anything under `.git/`, a patch or `git checkout <ref> -- <paths>` that would
+touch them, and a checkout, reset, merge or revert that would change the
+guard. The pre-push hook then reads the refs the push would update, whatever
+ran git, and refuses any but the task's branch, a deletion or a non-fast-forward.
+Both fail closed. A dispatch refuses `--cloud` until the guard is committed on
 the branch the cloud clones and on the task branch, read from the commits.
 GitHub's rules are the line behind it: where it enforces no protection or
 ruleset on an environment branch, the dispatch and Settings warn that a push
