@@ -17,9 +17,11 @@ import { accLook, CATEGORY_LOOK, columnLook } from '../src/model/boards.ts';
 import { analysisLook, autopilotLook, closedPrLook, filesLook, placeLook, stoppedLook } from '../src/model/cards.ts';
 import { BUILDER_PLACE_LOOK } from '../../packages/core/src/cloud.ts';
 import { cloudSetting, protectionLook } from '../src/model/settings.ts';
-import { moveLook } from '../src/model/branches.ts';
+import { moveLook as branchMoveLook } from '../src/model/branches.ts';
 import { autopilotStepLook, OUTCOME_LOOK, outcomeLook } from '../src/model/history.ts';
+import { LANDING_LOOK, moveLook, updatesLook } from '../src/model/landing.ts';
 import { capLook } from '../src/model/limits.ts';
+import type { UpdateCard } from '../src/model/updates.ts';
 import { queueLook } from '../src/model/overview.ts';
 import { RULE_LOOK } from '../src/model/rules.ts';
 import { STATUS } from '../src/model/setup.ts';
@@ -65,6 +67,17 @@ export const TABLES: Table[] = [
   { name: 'a tracker column, by its name', sources: ['extension/src/model/boards.ts#columnLook'], states: () => ([['Blocked', 'doing'], ['On hold', 'doing'], ['Stuck', 'doing'], ['In Progress', 'doing'], ['Todo', 'todo'], ['Done', 'done']] as const).map(([n, c]): [string, Shown] => [n, { label: n, ...columnLook(n, c) }]) },
   { name: 'a cap on builders, a project\'s or this machine\'s', sources: ['extension/src/model/limits.ts#capLook'], states: () => [['no total, some running', capLook(2, null, 'here')], ['no total, none running', capLook(0, null, 'here')], ['full', capLook(3, 3, 'here')], ['none running', capLook(0, 3, 'here')], ['room for more', capLook(1, 3, 'here')]] },
   { name: 'a suggested rule or check', sources: ['extension/src/model/rules.ts#RULE_LOOK'], states: () => Object.entries(RULE_LOOK) },
+  {
+    name: 'a line on the Overview of its own', sources: ['extension/src/model/landing.ts#LANDING_LOOK', 'extension/src/model/landing.ts#updatesLook', 'extension/src/model/landing.ts#moveLook'],
+    states: () => {
+      const update = (state: 'draft' | 'posting', stale = false) => ({ update: { state, stale } as UpdateCard });
+      return [
+        ...Object.entries(LANDING_LOOK),
+        ['update drafts', updatesLook([update('draft'), update('posting')])], ['one may have posted', updatesLook([update('draft'), update('posting', true)])], ['all posting', updatesLook([update('posting')])],
+        ...[...TASK_GROUPS, 'abandoned'].map((to): [string, Shown] => [`moved to ${to}`, moveLook(to)]),
+      ];
+    },
+  },
   { name: 'core\'s DISPLAY', sources: ['packages/core/src/ledger.ts#DISPLAY'], task: true, states: () => TASK_GROUPS.map((d) => [d, DISPLAY[d]]) },
   { name: 'a task\'s state, as the feed and the model show it', sources: ['extension/src/model/shared.ts#displayLook'], task: true, states: () => TASK_GROUPS.map((d) => [d, displayLook(d)]) },
   { name: 'In progress\'s task heading', sources: ['extension/src/progress.ts#taskLook'], task: true, states: () => TASK_GROUPS.map((d) => [d, taskLook({ display: d })]) },
@@ -132,7 +145,7 @@ export const TABLES: Table[] = [
   // GitHub's rules behind the cloud guard, per branch (GH-69): enforced in blue, anything else in orange.
   { name: 'what GitHub enforces on a branch, in Settings', sources: ['extension/src/model/settings.ts#protectionLook'], states: () => (['enforced', 'none', 'unavailable', 'unknown'] as const).map((state) => [state, protectionLook({ branch: 'main', state })]) },
   // An environment branch moved by anything but acc's merge (GH-69): orange, on the Overview, until a person has seen it.
-  { name: 'a moved environment branch', sources: ['extension/src/model/branches.ts#moveLook'], states: () => [0, 1, 2].map((n) => [`${n} commits`, moveLook({ branch: 'main', from: 'a', to: 'b', at: '', commits: Array.from({ length: n }, (_, i) => `sha${i} x`) })]) },
+  { name: 'a moved environment branch', sources: ['extension/src/model/branches.ts#moveLook'], states: () => [0, 1, 2].map((n) => [`${n} commits`, branchMoveLook({ branch: 'main', from: 'a', to: 'b', at: '', commits: Array.from({ length: n }, (_, i) => `sha${i} x`) })]) },
   {
     name: 'a task\'s files', sources: ['extension/src/model/cards.ts#filesLook'],
     states: () => ([

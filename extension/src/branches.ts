@@ -6,8 +6,8 @@ import type { ExtensionArea } from './area.ts';
 import type { Project } from './hub.ts';
 import { Sidebar } from './sidebar.ts';
 
-/** What the page sends with the item: the project, and the branch that moved. */
-interface MoveRef { project?: Project; env?: string }
+/** What the page sends with the item: the project, and the environment whose branch moved. */
+interface MoveRef { project?: Project; env?: { branch: string } }
 
 class BranchCommands extends Sidebar {
   constructor(from: Sidebar) {
@@ -23,8 +23,8 @@ class BranchCommands extends Sidebar {
   private async open(n?: MoveRef): Promise<void> {
     const project = await this.pickProject(n);
     if (!project?.config.github) return;
-    const move = this.hub.branchMoves(project.root).find((m) => !n?.env || m.branch === n.env);
-    if (!move) return void vscode.window.showInformationMessage(`No move is waiting on ${n?.env ?? 'any branch'} in ${project.name}.`);
+    const move = this.hub.branchMoves(project.root).find((m) => !n?.env || m.branch === n.env?.branch);
+    if (!move) return void vscode.window.showInformationMessage(`No move is waiting on ${n?.env?.branch ?? 'any branch'} in ${project.name}.`);
     await vscode.env.openExternal(vscode.Uri.parse(moveUrl(project.config.github.repo, move)));
   }
 

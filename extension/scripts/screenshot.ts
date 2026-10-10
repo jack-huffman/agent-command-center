@@ -31,6 +31,7 @@ import { sampleIdentities, sampleIdentity } from './fixtures/environments.ts';
 import { sampleHub } from './fixtures/hub.ts';
 import { sampleLimitsOther } from './fixtures/limits.ts';
 import { sampleAbout, sampleAboutBehind, sampleAboutFailed } from './fixtures/about.ts';
+import { sampleLandingHub, sampleLandingRuns } from './fixtures/landing.ts';
 import { sampleQueueHub } from './fixtures/overview.ts';
 import { sampleAnalyzeRun, sampleBusyHub, sampleIdleHub } from './fixtures/progress.ts';
 import { sampleRulesHub } from './fixtures/rules.ts';
@@ -71,8 +72,11 @@ import { CHECKS, COLLECT_GEOMETRY, dumpedGeometry, geometrySummary, judge, type 
  * Last, Setup as the Command Center first opens on it in a folder that isn't set up: at what kind of project
  * it is, and, on a machine with steps still to do, at the machine's part (GH-138).
  * Last, the Tasks board with a task opened over it in the modal, as a card's click opens it (GH-158).
+ * Last, the Overview as a landing page when everything is busy at once (GH-160): ten suggested rules, six
+ * tasks building with their checks, three questions, two update drafts and twelve things in History; then
+ * the same with a question opened over it, its update drafts, and History opened at an answer.
  */
-export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'tasks-agents', 'ticket-cloud'] as const;
+export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'tasks-agents', 'ticket-cloud'] as const;
 export type Page = (typeof PAGES)[number];
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -121,6 +125,10 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
     homeModel({ ...base, hub: sampleBusyHub(now, true), runs, finished, autopilot: () => 'on', now: now - 20_000 });
     return homeModel({ ...base, hub: sampleBusyHub(now), runs, finished, autopilot: () => 'on', now });
   }
+  // The Overview when everything is busy at once, and with a detail opened over it (GH-160).
+  if (kind === 'overview-landing' || kind === 'overview-answer' || kind === 'overview-drafts' || kind === 'overview-history') {
+    return homeModel({ hub: sampleLandingHub(now), section: 'overview', boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: sampleLandingRuns(), edited: sampleEdited, slack: sampleSlack('on', now), autopilot: () => 'on', now });
+  }
   // Setup as it's first shown in a folder that isn't set up, which no project is loaded from (GH-138).
   if (kind === 'setup-first' || kind === 'setup-first-machine') {
     return homeModel({ hub: { ...sampleHub(now), projects: [], agents: [], questions: [] }, section: 'setup', boards: () => [], identity: () => null, setup: sampleFirstSetup(kind === 'setup-first'), runs: [], theme, now });
@@ -154,7 +162,11 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
  */
 // ACC_SHOT_STATE, a JSON object, starts every page with that state instead: for checking what a page restores.
 export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ? JSON.parse(process.env.ACC_SHOT_STATE) : kind === 'output' ? { dock: { open: true, run: 'r-login' } }
-  : kind === 'rules-accept' ? { opened: ['rule:/Users/me/code/acme-service#r-4c0f1e:draft'] }
+  : kind === 'rules' ? { detail: { kind: 'rules' } }
+  : kind === 'rules-accept' ? { opened: ['rule:/Users/me/code/acme-service#r-4c0f1e:draft'], detail: { kind: 'rules' } }
+  : kind === 'overview-answer' ? { detail: { kind: 'question', id: 'm1-aaaa0002' } }
+  : kind === 'overview-drafts' ? { detail: { kind: 'updates' } }
+  : kind === 'overview-history' ? { detail: { kind: 'history', item: 3 } }
   : kind === 'agents-finished' ? { opened: [ROOT, CLIENTS].map((r) => `agents-finished:${r}`) }
   // The agent board, with two builders in the cloud (GH-69): the Tasks tab remembers which board shows.
   : kind === 'tasks-agents' ? { modes: { [ROOT]: 'agents' } }
@@ -180,8 +192,9 @@ export const openAt = (kind: Page): string | null => (kind === 'settings-agents'
 const DEFAULT_HEIGHT = 900;
 
 /**
- * Pages whose part sits below the fold at the default height, shot taller: In progress is below Needs you on
- * the Overview, and taller still at narrow widths, where the Overview's columns stack (D-092). So is the
+ * Pages whose part sits below the fold at the default height, shot taller: the Overview, a landing page of
+ * short lists (GH-160), is shot tall enough to show its last, History, and with a detail open over it, tall
+ * enough for the modal to hold all of it, since the panel's height sets the modal's. So is the
  * Merge queue panel, below In progress and the tiles (GH-73), and the last of Settings' parts (GH-109).
  * Settings at How agents run is shot tall enough not to scroll (GH-110): under 820 px its jump scrolls the
  * document itself, which headless Chrome draws as a blank band above the tab strip. A builder's note sits
@@ -191,7 +204,7 @@ const DEFAULT_HEIGHT = 900;
  * Command Center's preferences is shot tall enough not to scroll at 500 px, and Environments tall enough to
  * show This machine's line saying Slack moved (GH-113).
  */
-export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 3600, 'overview-idle': 3200, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 3800, 'settings-agents': 3800, 'settings-limits': 3800, 'ticket-note': 1600, agents: 2000, 'agents-path': 2300, 'agents-finished': 2300, 'settings-trackers': 5000, 'slack-none': 5000, 'slack-off': 5000, 'slack-paused': 5000, 'settings-github': 5800, 'settings-page': 5000, environments: 1400, rules: 1500, 'rules-accept': 1900, 'settings-about': 7200, 'settings-about-failed': 7200 };
+export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 1900, 'overview-idle': 1700, 'overview-landing': 1900, 'overview-answer': 1100, 'overview-drafts': 1100, 'overview-history': 1300, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 3800, 'settings-agents': 3800, 'settings-limits': 3800, 'ticket-note': 1600, agents: 2000, 'agents-path': 2300, 'agents-finished': 2300, 'settings-trackers': 5000, 'slack-none': 5000, 'slack-off': 5000, 'slack-paused': 5000, 'settings-github': 5800, 'settings-page': 5000, environments: 1400, rules: 1300, 'rules-accept': 1500, 'settings-about': 7200, 'settings-about-failed': 7200 };
 
 /** The colour properties the colour check compares, on every element and its ::before and ::after. */
 export const COLOUR_PROPERTIES = [
@@ -300,8 +313,8 @@ function chromeRun(chrome: string, args: string[], dump = false): ReturnType<typ
   return spawnSync(cmd, cmdArgs, dump ? { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], timeout: 30_000 } : { stdio: 'ignore', timeout: 30_000 });
 }
 
-/** The pages the colour check draws (GH-109): the busiest sections, Settings, a task's page and an agent's, and a task in the modal over the board (GH-158). */
-export const COLOUR_PAGES: Page[] = ['overview', 'tasks', 'settings', 'settings-agents', 'settings-trackers', 'settings-limits', 'settings-about', 'slack-paused', 'settings-github', 'settings-page', 'ticket', 'agent', 'tasks-modal', 'tasks-agents', 'ticket-cloud'];
+/** The pages the colour check draws (GH-109): the busiest sections, Settings, a task's page and an agent's, a task in the modal over the board (GH-158), and the busy Overview with its update drafts open over it (GH-160). */
+export const COLOUR_PAGES: Page[] = ['overview', 'tasks', 'settings', 'settings-agents', 'settings-trackers', 'settings-limits', 'settings-about', 'slack-paused', 'settings-github', 'settings-page', 'ticket', 'agent', 'tasks-modal', 'overview-landing', 'overview-drafts', 'tasks-agents', 'ticket-cloud'];
 
 /** A page's computed colours, as its collector gathered them: what each element is, and its colours in COLOUR_PROPERTIES' order. */
 export type Colours = [string, string[]][];

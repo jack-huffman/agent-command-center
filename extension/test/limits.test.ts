@@ -41,8 +41,8 @@ test('the two caps sit side by side, each with − and + and its number, and whe
   assert.deepEqual([project!.lower.label, machine!.raise.label], ['Lower Acme Service\'s cap to 2', 'Raise this machine\'s total to 7']);
   assert.ok([project!.lower, project!.raise, machine!.lower, machine!.raise].every((s) => s.why === null));
   // Its project, and whether the project or acc's default sets it.
-  assert.match(project!.from, /^Set in Acme Service's \.acc\/config\.json \(agents\.max\), shared with everyone who works on the repo/);
-  assert.match(machine!.from, /^Set in ~\/\.acc\/machine\.json, beside the heavy-check slots, for every repo on this machine: usage limits belong to your Claude account, not a project\.$/);
+  assert.match(project!.from, /^Set in Acme Service's settings \(agents\.max\), shared with everyone who works on the repo/);
+  assert.match(machine!.from, /^Set in this machine's settings, beside the heavy-check slots, for every repo on this machine: usage limits belong to your Claude account, not a project\.$/);
   // How many run now, beside each.
   assert.deepEqual(project!.look, { label: 'Full: 3 of 3 running in Acme Service, so the next start waits', icon: 'clock', tone: 'blue' });
   assert.deepEqual(machine!.look, { label: '4 of 6 running across 2 repos: room for 2 more', icon: 'hubot', tone: 'blue' });
@@ -53,7 +53,7 @@ test('a − or + that can\'t move says why; no total has neither, and Change… 
   const [acme, tool, machine] = m.caps;
   assert.deepEqual([acme!.title, acme!.lower.arg, acme!.lower.why, acme!.raise.arg], ['Acme Service\'s cap', null, 'One is the least: a project runs at least one builder.', '/Users/me/code/acme-service|2']);
   assert.deepEqual([tool!.raise.arg, tool!.raise.why], [null, '16 is the most a project runs at once.']);
-  assert.match(acme!.from, /^acc's default: Acme Service's \.acc\/config\.json sets none \(agents\.max\)\./);
+  assert.match(acme!.from, /^acc's default: Acme Service's settings set none \(agents\.max\)\./);
   assert.deepEqual([machine!.value, machine!.lower.arg, machine!.raise.arg], ['None', null, null]);
   assert.equal(machine!.lower.why, 'There\'s no total to lower: Change… sets one.');
   assert.deepEqual(machine!.look, { label: 'No total: each project\'s cap is the only limit', icon: 'circle-large-outline', tone: 'neutral' });
@@ -66,7 +66,7 @@ test('what a change means is in this machine\'s own numbers, and says so when th
   const words = (m: ReturnType<typeof limitsModel>) => Object.fromEntries(m.meaning.map((x) => [x.key, x.text]));
   const busy = words(limitsModel(sampleLimits()));
   assert.equal(busy.usage, 'Each agent is a Claude Code session on your account. Builders here run Opus 5.5 (claude-opus-5-5), acc\'s default unless set. More at once uses your plan\'s limits that many times faster, and at the limit Claude Code pauses them until it resets. On per-token billing, each one costs as it runs. Lately a review cost about $0.88 and an analysis about $1.23, as Claude Code estimates at API prices (the last 4 reviews and 2 analyses).');
-  assert.equal(busy.slots, 'Each builder\'s checks wait for this machine\'s heavy-check slots, 2 at once: with 3 builders at once, up to one waits in line for a slot rather than finish sooner. Lately a builder here took about 45 min from its dispatch to acc done (the middle of its last 6).');
+  assert.equal(busy.slots, 'Each builder\'s checks wait for this machine\'s heavy-check slots, 2 at once: with 3 builders at once, up to one waits in line for a slot rather than finish sooner. Lately a builder here took about 45 min from its dispatch to finishing its task (the middle of its last 6).');
   assert.equal(busy.files, 'More at once means more tasks touching the same files. They take turns, and conflicts at merge get likelier. 3 builders running now in Acme Service, 4 across this machine.');
   const none = words(limitsModel(sampleLimitsOther()));
   assert.match(none.usage!, /Builders run Opus 5\.5 \(claude-opus-5-5\), acc's default unless set in Acme Service; Sonnet 5\.5 \(claude-sonnet-5-5\), set for the project in Tool\./);
@@ -92,11 +92,11 @@ test('the heavy-check slots and each project\'s checks: value, where set, state,
   assert.match(other.slots.why!, /^ACC_HEAVY_SLOTS sets it for this VSCode/);
   assert.deepEqual(other.slots.look, { label: 'None in use', icon: 'circle-large-outline', tone: 'neutral' });
   assert.deepEqual(other.checks.map((c) => c.project), ['Acme Service', 'Tool']);
-  assert.deepEqual(other.checks[0]!.rows[0]!.look, { label: 'None: acc done takes any commit', icon: 'warning', tone: 'orange' });
+  assert.deepEqual(other.checks[0]!.rows[0]!.look, { label: 'None: a task can finish on any commit', icon: 'warning', tone: 'orange' });
   // Where the required checks come from: the project's file when it names them, else acc's default (GH-111).
-  assert.match(required!.from, /^Set in Acme Service's \.acc\/config\.json, for everyone/);
-  assert.match(other.checks[0]!.rows[0]!.from, /^acc's default: Acme Service's \.acc\/config\.json sets none \(gates\.required\)\. A change sets it there/);
-  assert.match(other.checks[1]!.rows[0]!.from, /^Set in Tool's \.acc\/config\.json/);
+  assert.match(required!.from, /^Set in Acme Service's settings, for everyone/);
+  assert.match(other.checks[0]!.rows[0]!.from, /^acc's default: Acme Service's settings set none \(gates\.required\)\. A change sets it there/);
+  assert.match(other.checks[1]!.rows[0]!.from, /^Set in Tool's settings/);
   const tool = other.checks[1]!.rows;
   assert.deepEqual(tool.map((r) => r.value), ['check', 'typecheck, near-tests']);
   assert.match(tool[1]!.from, /builders run these where the merge queue runs \(main\), and the required checks run once in it\./);
@@ -136,8 +136,8 @@ test('the part reads its limits from the machine and each project, and counts ev
   registerLedger(paths.ledger, 'Tool', env);
   setMachineAgents(5, env);
   const project: LimitsProject = { name: 'Tool', root: dir, config, ledgerPath: paths.ledger, agents: { builder: { model: 'claude-opus-5-5', from: { model: 'acc' } } } };
-  const f = readLimits([project], () => readLedger(paths.ledger), { dir: '', slots: 2, held: [{ pid: 1 }], waiting: [] } as never, env, '/nowhere');
-  assert.deepEqual(f.machine, { slots: 2, slotsFrom: 'machine', inUse: 1, waiting: 0, total: 5, running: 3, repos: 2, file: machine });
+  const f = readLimits([project], () => readLedger(paths.ledger), { dir: '', slots: 2, held: [{ pid: 1 }], waiting: [] } as never, env);
+  assert.deepEqual(f.machine, { slots: 2, slotsFrom: 'machine', inUse: 1, waiting: 0, total: 5, running: 3, repos: 2 });
   assert.deepEqual([f.projects[0]!.max, f.projects[0]!.maxFrom, f.projects[0]!.running, f.projects[0]!.required, f.projects[0]!.requiredFrom, f.projects[0]!.builder, f.projects[0]!.queue], [3, 'acc', 1, ['check', 'stray-files'], 'project', ['quick'], ['main']], 'stray-files is required beside what the project names (GH-103)');
   // A config that names no required checks has acc's default.
   const bareRaw = { ...GENERIC_CONFIG, project: 'Bare' };
@@ -214,7 +214,7 @@ test('each command runs acc once, with the value − or + sent or the one picked
   ]);
   assert.equal(changed(), 4, 'each change is read again');
   assert.deepEqual(said.info, [
-    'Tool now runs at most 4 builders at once. Changed in .acc/config.json: commit it to share it.',
+    'Tool now runs at most 4 builders at once. Changed in the project\'s settings: commit the change to share it.',
     'This machine now runs at most 7 builders at once, across every repo on it.',
     'This machine has no total now: each project\'s cap is the only limit.',
     'This machine now runs 3 heavy checks at once, for every repo on it.',
@@ -264,14 +264,14 @@ test('the checks are picked many at a time, at least one required; none for buil
   assert.ok(said.picks.every((p) => p.canPickMany), 'many at a time');
   assert.deepEqual(said.picks[0]!.items.map((i) => [i.label, i.description, i.picked]), [['check', 'npm run check', true], ['typecheck', 'tsc', false], ['lint', 'eslint', false]]);
   assert.match(said.picks[0]!.title, /^Tool: which checks must every task pass\?$/);
-  assert.equal(said.warn[0], 'Pick at least one check: with none, acc done would take any commit.');
+  assert.equal(said.warn[0], 'Pick at least one check: with none, a builder could finish a task on any commit.');
   // None picked for builders, where none are named: nothing to change. Named, none picked takes them out.
   const named = deps();
   named.tool.config.gates.builder = ['typecheck'];
   const n = stand([names()]);
   await limitCommands(n.vs, named.d).builderGates!('/code/tool');
   assert.deepEqual(named.ran.map((r) => r.args.join(' ')), ['gate builder --none --json']);
-  assert.equal(n.said.info[0], 'Tool\'s builders now run the required checks. Changed in .acc/config.json: commit it to share it.');
+  assert.equal(n.said.info[0], 'Tool\'s builders now run the required checks. Changed in the project\'s settings: commit the change to share it.');
   // A project with no checks says so, and asks nothing.
   const b = stand();
   const bd = deps();

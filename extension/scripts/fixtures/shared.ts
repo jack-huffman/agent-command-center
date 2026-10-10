@@ -16,6 +16,8 @@ export const wt = (id: string) => `${ROOT}/.claude/worktrees/${id}`;
 
 /** What GH-41's builder last said when the Mac slept (D-067). */
 export const SLEPT = 'API Error: Your computer went to sleep mid-response. The response above may be incomplete.';
+/** Why autopilot couldn't review ACME-25, as acc's review refuses it: in acc's words, with its command (GH-163). */
+export const ACME_25_REFUSED = 'ACME-25\'s checks aren\'t settled on e7f8a9b: validate. Run acc gate run in its worktree, or waive them, then review.';
 /** A builder that ended its turn with a question in its own words, instead of acc block. */
 export const ASKED = 'I\'ve added the reassignment flow and its test. Before I finish: when the leaving owner\'s manager is also inactive, should the cases go to the queue named on the account, or to the support team\'s default queue? I\'ve left both paths in until someone decides.';
 

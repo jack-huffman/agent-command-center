@@ -6,7 +6,7 @@ import type { CheckAsk } from '../../packages/core/src/rule-suggestions.ts';
 import type { Model } from '../src/model/home.ts';
 import type { RuleCard } from '../src/model/rules.ts';
 import { Pending } from './pending.ts';
-import { button, type Child, el, icon } from './dom.ts';
+import { button, type Child, el, icon, work } from './dom.ts';
 import { api, memory, type PageArea, remember, state } from './state.ts';
 
 /** Accepts and dismissals on their way to acc, by card; a refusal stays, saying why, until it's tried again (D-059). */
@@ -119,12 +119,12 @@ function ruleDraft(c: RuleCard): HTMLElement {
 
   const box = el('div', 'rule-draft',
     el('div', 'rule-draft-head strong', icon('tasklist'), 'The task Confirm adds'),
-    field(c, 'line', c.kind === 'check' ? 'The rule it checks' : 'The line for .acc/rules.md', d.line, 2, ready),
+    field(c, 'line', c.kind === 'check' ? 'The rule it checks' : 'The line for the project\'s rules', d.line, 2, ready),
     field(c, 'title', 'Task title', d.title, 1, ready),
     el('div', 'rule-check-row', el('div', 'ticks', tickLabel), on ? kind : null),
     field(c, 'note', 'Anything else for the builder (optional)', d.note, 2, () => undefined),
     el('p', 'muted small rule-draft-note', icon('info'),
-      el('span', '', `Confirm adds one task in To do, holding the rule${on ? ', the check it asks for' : ''} and the ${reviewsOf(c)} reviews it came from. acc never writes .acc/rules.md: the task does, and a person merges it.`)),
+      el('span', '', `Confirm adds one task in To do, holding the rule${on ? ', the check it asks for' : ''} and the ${reviewsOf(c)} reviews it came from. acc never writes the project\'s rules: the task does, and a person merges it.`)),
     el('div', 'rule-draft-bar', cancel, confirm));
   box.setAttribute('role', 'group');
   box.setAttribute('aria-label', `Draft task for ${c.id}`);
@@ -145,10 +145,10 @@ function sourceList(c: RuleCard): HTMLElement {
     link.title = `Open ${s.task}'s review of ${s.sha.slice(0, 7)}: its reviewer's session`;
     link.addEventListener('click', (e) => { e.stopPropagation(); api.postMessage({ type: 'rule-open-review', project: c.project, task: s.task, sha: s.sha }); });
     list.append(el('li', 'rule-source', link,
-      s.where ? el('span', 'mono rule-where', s.where) : null,
+      s.where ? work(el('span', 'mono rule-where', s.where), 'files') : null,
       s.must ? el('span', 'chip rule-must', icon('warning'), 'must fix') : null,
       s.counted ? null : el('span', 'chip', 'said again, not counted'),
-      el('div', 'muted small rule-message', s.message)));
+      work(el('div', 'muted small rule-message', s.message), 'transcript')));
   }
   if (c.sources.length <= SOURCES_SHOWN) return list;
   const toggle = button(all ? 'Show less' : `Show all ${c.sources.length}`, all ? 'chevron-up' : 'chevron-down', () => {
@@ -163,7 +163,7 @@ export function ruleDetail(c: RuleCard): HTMLElement {
   const error = pending.error(ruleKey(c));
   const again = c.again ? el('p', 'muted small rule-again', icon('history'), `It came back after ${c.again.by.replace(/^human:/, '')} ${c.again.outcome === 'accepted' ? `accepted it${c.again.task ? ` as ${c.again.task}` : ''}` : 'dismissed it'} on ${c.again.at.slice(0, 10)}.`) : null;
   const d = el('div', 'inbox-rule',
-    el('blockquote', 'rule-line', c.line),
+    work(el('blockquote', 'rule-line', c.line), 'agent-text'),
     again,
     el('div', 'rule-sources-head muted small', `From ${reviewsOf(c)} reviews · ${c.findings} findings across ${c.tasks} tasks${c.must ? ` (${c.must} must)` : ''}`),
     sourceList(c),

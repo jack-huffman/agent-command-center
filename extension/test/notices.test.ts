@@ -74,7 +74,7 @@ test('an analysis that comes back after the build is news: it asks for nothing t
   const analysis = (at: string, verdict: 'ready' | 'questions' | 'split', open = 0) => ({ analysis: { verdict, at, open: ['q1', 'q2', 'q3'].slice(0, open).map(ask), split: verdict === 'split' ? ['One', 'Two'] : [] } });
   for (const state of ['review', 'rework', 'blocked'] as const) {
     const news = (a: Partial<Row>) => taskNotices([row(state, analysis('t1', 'ready'))], [row(state, a)]);
-    assert.deepEqual(news(analysis('t2', 'questions', 2)).map((n) => [n.kind, n.urgent, n.text]), [['analysis-back', false, 'T-1\'s analysis is back. Its 2 questions can be answered with acc analysis answer.']], state);
+    assert.deepEqual(news(analysis('t2', 'questions', 2)).map((n) => [n.kind, n.urgent, n.text]), [['analysis-back', false, 'T-1\'s analysis is back. Its 2 questions can be answered on its page.']], state);
     assert.deepEqual(news(analysis('t2', 'split')).map((n) => [n.kind, n.urgent, n.text]), [['analysis-back', false, 'T-1\'s analysis is back.']], `${state}: too big`);
     assert.deepEqual(news(analysis('t2', 'ready')).map((n) => [n.kind, n.urgent]), [['analysis-back', false]], `${state}: ready`);
     for (const n of news(analysis('t2', 'questions', 1))) assert.deepEqual(noticeActions(n), [['Show', 'acc.task.show']], `${state}: no Answer, no Dispatch`);

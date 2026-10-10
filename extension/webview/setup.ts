@@ -12,7 +12,7 @@ function stepRun(r: RunCard | undefined, open: boolean): HTMLElement | null {
   // A failed run matters only while its step is still to do.
   if (!r || (!r.running && !(open && r.look.tone === 'orange'))) return null;
   const show = button('Show output', 'output', () => { remember((x) => { x.dock = { open: true, run: r.id }; }); redrawDock(); }, 'ghost small');
-  return el('div', `step-run tone-row-${r.look.tone}`, status(r.look), titled(el('span', 'muted mono step-run-cmd', r.command), r.command), show);
+  return el('div', `step-run tone-row-${r.look.tone}`, status(r.look), titled(el('span', 'muted step-run-cmd', r.label), r.label), show);
 }
 
 /**
@@ -30,6 +30,7 @@ function setupStep(s: SetupRow, live: RunCard[]): HTMLElement {
   return el('li', 'step attention',
     el('div', 'step-head', status(s.look), title),
     el('p', 'detail', s.detail),
+    s.does ? el('p', 'muted small step-does', icon('wrench'), `Do it: ${s.does}.`) : null,
     s.fix ? el('pre', 'fix', s.fix) : null,
     run,
     el('div', 'actions', ...s.actions.map(actionButton)));

@@ -1,7 +1,7 @@
 // The Environments section: the repo's GitHub identity, and a card per environment.
 
 import type { EnvironmentsModel, IdentityCard } from '../src/model/environments.ts';
-import { actionButton, argButton, button, type Child, el, empty, header, icon, toolbarButton } from './dom.ts';
+import { actionButton, argButton, button, type Child, el, empty, header, icon, toolbarButton, work } from './dom.ts';
 import { api, go, type PageArea } from './state.ts';
 
 /**
@@ -12,7 +12,7 @@ function identityCard(root: string, repo: string, id: IdentityCard): HTMLElement
   const big = el('span', 'avatar avatar-lg', id.initials);
   big.setAttribute('aria-hidden', 'true');
   const where = el('span', `chip${id.from === 'clone' ? ' chip-blue' : ''}`, id.from === 'clone' ? 'This clone' : 'Project default');
-  where.title = id.from === 'clone' ? `Chosen for this clone only, in git config. The project's account is ${id.projectAccount}.` : 'From .acc/config.json';
+  where.title = id.from === 'clone' ? `Chosen for this clone only, in git config. The project's account is ${id.projectAccount}.` : 'From the project\'s settings';
   const line = (iconName: string, tone: string | undefined, ...text: Child[]) => el('div', 'id-line', icon(iconName, tone), el('span', '', ...text));
   const pushOk = !id.pushesAs || id.pushesAs.toLowerCase() === id.account.toLowerCase();
   const profile = el('button', 'btn ghost', icon('link-external'), 'Profile') as HTMLButtonElement;
@@ -66,7 +66,7 @@ export function renderEnvironments(m: EnvironmentsModel): Node[] {
       cards.append(el('article', `env-card${e.current ? ' current' : ''}`,
         el('div', 'env-head', icon(e.icon, e.current ? 'blue' : 'neutral'), el('span', 'strong', e.name), el('span', 'chip', e.type === 'none' ? 'branch' : e.type.replace('_', ' '))),
         el('dl', '',
-          el('dt', '', 'Branch'), el('dd', 'mono', e.branch),
+          el('dt', '', 'Branch'), work(el('dd', 'mono', e.branch), 'branch'),
           el('dt', '', 'Org'), el('dd', 'mono', e.org ?? (e.type === 'none' ? '–' : 'no alias')),
           el('dt', '', 'Promotes to'), el('dd', 'mono', e.promotesTo.length ? e.promotesTo.join(', ') : '–')),
         e.badges.length ? el('div', 'badges', ...e.badges.map((b) => el('span', `badge${b === 'checked out' ? ' tone-blue' : ''}`, b))) : null,

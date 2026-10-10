@@ -380,8 +380,8 @@ export class ConnectSession {
     if (Object.keys(errors).length) return this.bump();
     if (method.via === 'gh' && !s.ghAccount) {
       s.hostError = this.start
-        ? 'acc init found no GitHub repo and account for this folder (its origin, and the account it pushes as), so gh has no account to sign in as.'
-        : 'This project has no "github" section in .acc/config.json (its repo and account), so gh has no account to sign in as.';
+        ? 'Setting up this project found no GitHub repo and account for this folder (its origin, and the account it pushes as), so gh has no account to sign in as.'
+        : 'This project names no GitHub repo and account in its settings, so gh has no account to sign in as.';
       s.signIn = { state: 'failed', who: null, error: null, again: s.signIn.again };
       return this.bump();
     }

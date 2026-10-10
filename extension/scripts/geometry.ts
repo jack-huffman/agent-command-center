@@ -9,7 +9,9 @@
  * nothing can't pass.
  */
 
-export const CHECKS = ['overlap', 'clipped', 'tab', 'sideways'] as const;
+import { COLLECT_WORDS, type GeoSaid, judgeWords, WORK_DATA } from './words.ts';
+
+export const CHECKS = ['overlap', 'clipped', 'tab', 'sideways', 'overview', 'words'] as const;
 export type Check = (typeof CHECKS)[number];
 
 /** A box in the page's coordinates, in CSS pixels. */
@@ -50,7 +52,21 @@ export interface GeoSnapshot {
   doc: { scroll: number; view: number };
   /** Every element that may scroll sideways, how wide its content is against itself, and whether it's one that's meant to. */
   scrollers: { what: string; scroll: number; client: number; allowed: boolean }[];
+  /**
+   * The Overview's lists and the box of each line in them (GH-160), as the page marks them: a group with
+   * data-overview-group, a line with data-overview-row. Null on any other page.
+   */
+  overview?: { groups: { what: string; rows: Box[] }[] } | null;
+  /** Every string a person can read on the page, for the words check (GH-163, words.ts). */
+  said?: GeoSaid[];
 }
+
+/**
+ * The Overview is a landing page (GH-160): each line is one line high, no list shows more than five, and
+ * each line stands apart from the next. The height is pinned for a line at the page's font size, with its
+ * buttons, at every width the run draws.
+ */
+export const OVERVIEW_LINES = { maxHeight: 44, minGap: 4, maxRows: 5 } as const;
 
 /** The elements that scroll sideways by design: a board's lanes, a wide table, the rail's strip, code. */
 export const SIDEWAYS = ['.board', '.table-wrap', '.rail', '.doc pre', '.table-scroll'];
@@ -69,6 +85,8 @@ export interface Verdict {
   violations: Violation[];
   /** How many findings each exception excused, by its name. */
   excused: Record<string, number>;
+  /** How many strings each work-data region held, by its name (GH-163). */
+  held: Record<string, number>;
 }
 
 /** The two boxes overlap by more than a pixel each way. */
@@ -81,7 +99,8 @@ const quote = (s: string): string => (s ? ` "${s.length > 40 ? `${s.slice(0, 39)
  * Judges one drawing of a page. home: it's one of the Command Center's sections, which have the rail.
  * No two controls overlap, unless one sits inside the other or one floats in a sticky layer. No text is
  * cut off: an ellipsis passes only with the full text in a title or aria-label. The rail's selected tab
- * is on screen. Nothing scrolls sideways but SIDEWAYS.
+ * is on screen. Nothing scrolls sideways but SIDEWAYS. On the Overview, its lines keep OVERVIEW_LINES.
+ * And no string outside work data names an acc command or path (words.ts, GH-163).
  */
 export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEPTIONS): Verdict {
   const found: Violation[] = [];
@@ -100,10 +119,24 @@ export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEP
     found.push({ check: 'clipped', what: t.what, detail: t.ellipsis ? `${quote(t.text).trim()} is cut short with an ellipsis, and no title or aria-label holds it whole` : `${quote(t.text).trim()} is cut off by ${Math.round(t.over)} px` });
   }
   if (s.tab && !within(s.tab.box, s.tab.rail)) found.push({ check: 'tab', what: s.tab.what, detail: 'the selected tab is outside the rail\'s visible part' });
+  const lines = s.overview?.groups ?? [];
+  for (const g of lines) {
+    if (g.rows.length > OVERVIEW_LINES.maxRows) found.push({ check: 'overview', what: g.what, detail: `shows ${g.rows.length} lines, more than ${OVERVIEW_LINES.maxRows}` });
+    const rows = [...g.rows].sort((a, b) => a.y - b.y);
+    rows.forEach((r, i) => {
+      if (r.h > OVERVIEW_LINES.maxHeight) found.push({ check: 'overview', what: g.what, detail: `line ${i + 1} is ${r.h} px high, more than one line's ${OVERVIEW_LINES.maxHeight}` });
+      const next = rows[i + 1];
+      if (next && next.y - (r.y + r.h) < OVERVIEW_LINES.minGap) found.push({ check: 'overview', what: g.what, detail: `lines ${i + 1} and ${i + 2} are ${next.y - (r.y + r.h)} px apart, less than ${OVERVIEW_LINES.minGap}` });
+    });
+  }
   if (s.doc.scroll > s.doc.view + 1) found.push({ check: 'sideways', what: 'the page', detail: `scrolls sideways by ${s.doc.scroll - s.doc.view} px` });
   for (const x of s.scrollers) if (!x.allowed && x.scroll > x.client + 1) found.push({ check: 'sideways', what: x.what, detail: `scrolls sideways by ${x.scroll - x.client} px` });
 
-  const examined: Record<Check, number> = { overlap: cs.length, clipped: s.texts.length, tab: s.tab ? 1 : 0, sideways: 1 + s.scrollers.length };
+  // The words a person reads name processes, not acc's commands or paths (GH-163).
+  const said = judgeWords(s.said ?? []);
+  for (const f of said.findings) found.push({ check: 'words', what: f.what, detail: f.detail });
+
+  const examined: Record<Check, number> = { overlap: cs.length, clipped: s.texts.length, tab: s.tab ? 1 : 0, sideways: 1 + s.scrollers.length, overview: lines.reduce((n, g) => n + g.rows.length, 0), words: said.examined };
   const excused: Record<string, number> = Object.fromEntries(exceptions.map((e) => [e.name, 0]));
   const violations = found.filter((v) => {
     const e = exceptions.find((x) => x.check === v.check && x.what.test(v.what));
@@ -113,7 +146,9 @@ export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEP
   if (!examined.overlap) violations.push({ check: 'overlap', what: 'the page', detail: 'examined no controls' });
   if (!examined.clipped) violations.push({ check: 'clipped', what: 'the page', detail: 'examined no text' });
   if (home && !examined.tab) violations.push({ check: 'tab', what: 'the page', detail: 'has no selected tab in the rail' });
-  return { examined, violations, excused };
+  if (s.overview && !examined.overview) violations.push({ check: 'overview', what: 'the page', detail: 'is the Overview, and examined no lines on it' });
+  if (!examined.words) violations.push({ check: 'words', what: 'the page', detail: 'gathered no words' });
+  return { examined, violations, excused, held: said.held };
 }
 
 /** One drawing's verdict: its page, theme and width. */
@@ -123,19 +158,20 @@ export interface Render { page: string; theme: string; width: number; verdict: V
  * The least a run of every page, both themes and all three widths examines, per check. Raised as the
  * pages grow, never lowered: a run below one has stopped looking.
  */
-export const RUN_FLOOR: Record<Check, number> = { overlap: 9900, clipped: 27000, tab: 270, sideways: 900 };
+export const RUN_FLOOR: Record<Check, number> = { overlap: 13700, clipped: 41700, tab: 294, sideways: 1100, overview: 1200, words: 76400 };
 
 /**
  * What fails a run: each finding, by page, theme, width and check. A whole run (full) also fails below
- * RUN_FLOOR, and on an exception that excused nothing.
+ * RUN_FLOOR, on an exception that excused nothing, and on a kind of work data no page drew (GH-163).
  */
-export function runFailures(renders: Render[], full: boolean, exceptions = GEOMETRY_EXCEPTIONS, floor = RUN_FLOOR): string[] {
+export function runFailures(renders: Render[], full: boolean, exceptions = GEOMETRY_EXCEPTIONS, floor = RUN_FLOOR, regions = WORK_DATA): string[] {
   const out = renders.flatMap((r) => r.verdict.violations.map((v) => `${r.page} ${r.theme} ${r.width}px: ${v.check}: ${v.what}: ${v.detail}`));
   if (!renders.length) out.push('No page was drawn.');
   if (!full) return out;
   const total = examinedIn(renders);
   for (const c of CHECKS) if (total[c] < floor[c]) out.push(`The run examined ${total[c]} for ${c}, below its floor of ${floor[c]}.`);
   for (const e of exceptions) if (!renders.some((r) => r.verdict.excused[e.name])) out.push(`The exception for ${e.name} excused nothing: take it off GEOMETRY_EXCEPTIONS.`);
+  for (const w of regions) if (!renders.some((r) => r.verdict.held?.[w.name])) out.push(`Work data "${w.name}" held no words on any page: draw it in a fixture, or take it off WORK_DATA.`);
   return out;
 }
 
@@ -145,7 +181,8 @@ const examinedIn = (renders: Render[]): Record<Check, number> => Object.fromEntr
 export function geometrySummary(renders: Render[]): string {
   const total = examinedIn(renders);
   const excused = GEOMETRY_EXCEPTIONS.map((e) => `${e.name} ${renders.reduce((n, r) => n + (r.verdict.excused[e.name] ?? 0), 0)}`);
-  return `Geometry of ${renders.length} drawings: ${CHECKS.map((c) => `${c} examined ${total[c]}`).join(', ')}.${excused.length ? ` Excused: ${excused.join(', ')}.` : ''}`;
+  const held = WORK_DATA.map((w) => `${w.name} ${renders.reduce((n, r) => n + (r.verdict.held?.[w.name] ?? 0), 0)}`);
+  return `Geometry of ${renders.length} drawings: ${CHECKS.map((c) => `${c} examined ${total[c]}`).join(', ')}.${excused.length ? ` Excused: ${excused.join(', ')}.` : ''} Work data held: ${held.join(', ')}.`;
 }
 
 /** The geometry a --dump-dom of a measuring page holds, or null when it never measured. */
@@ -237,9 +274,16 @@ function collectGeometry() {
     scrollers.push({ what: what(e), scroll: e.scrollWidth, client: e.clientWidth, allowed: SIDEWAYS.some((s) => e.matches(s)) });
   }
   const doc = { scroll: document.documentElement.scrollWidth, view: vw };
+  // The Overview's lists, and each line's box, as the page marks them (GH-160).
+  const home = document.querySelector('.home-main[data-section="overview"]');
+  const overview = home ? { groups: [...home.querySelectorAll('[data-overview-group]')].filter(visible).map((g) => ({
+    what: g.dataset.overviewGroup,
+    rows: [...g.querySelectorAll('[data-overview-row]')].filter((r) => r.closest('[data-overview-group]') === g && visible(r)).map((r) => { const b = r.getBoundingClientRect(); return box(b.left, b.top, b.right, b.bottom); }),
+  })) } : null;
+  // Every string a person can read, for the words check (GH-163).${COLLECT_WORDS}
   const out = document.createElement('script');
   out.type = 'application/json';
   out.id = 'acc-geometry';
-  out.textContent = JSON.stringify({ controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers }).replace(/</g, '\\\\u003c');
+  out.textContent = JSON.stringify({ controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, said }).replace(/</g, '\\\\u003c');
   document.body.append(out);
 }`;

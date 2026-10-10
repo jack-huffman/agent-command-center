@@ -50,6 +50,7 @@ export function sampleBoards(): BoardInput[] {
         card(15, 'Rename the Region picklist values', REVIEW, 'Task', { priority: 'Low', assignees: [{ name: 'Pat Lee' }] }),
         card(27, 'Recalculate lead scores only when a scoring field changes', REVIEW, 'Story', { assignees: [{ name: 'Pat Lee' }] }),
         card(34, 'Close stale cases after 30 days without a reply', REVIEW, 'Story', { assignees: [{ name: 'Pat Lee' }] }),
+        card(25, 'Merge duplicate contacts on import', REVIEW, 'Story', { assignees: [{ name: 'Pat Lee' }] }),
         card(33, 'Score new leads by the size of their company', REVIEW, 'Story', { labels: [{ name: 'sales', color: null }] }),
         card(19, 'Fix the flow that double-sends welcome emails', QA, 'Bug', { priority: 'High' }),
         card(10, 'Add a CHANGELOG', DONE, 'Task', { priority: 'Lowest' }),

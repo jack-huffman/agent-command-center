@@ -1,6 +1,6 @@
 /** Commands acc ran from the Command Center, for Setup's output panel. */
 import type { RunInput } from '../../src/model/runs.ts';
-import { MIN } from './shared.ts';
+import { ACME_25_REFUSED, MIN } from './shared.ts';
 
 /** Commands acc ran from Setup: one asking a question, one that failed, one that worked. */
 export function sampleRuns(now = Date.now()): RunInput[] {
@@ -12,6 +12,6 @@ export function sampleRuns(now = Date.now()): RunInput[] {
     { id: 'r-open', label: 'Open Dev', command: 'sf org open -o "Acme Dev"', startedAt: now - 9 * MIN, endedAt: now - 9 * MIN + 4000, code: 0, stopped: false, step: null, lines: ['Opening org Acme Dev as jordan@acme.example.dev…'], prompt: null },
     // Autopilot, switched on in the status bar (D-064): it runs as long as the window, and is never shown first.
     { id: 'r-autopilot', label: 'Autopilot · Acme Service', command: 'acc autopilot --every 60', startedAt: now - 2 * 60 * MIN, endedAt: null, code: null, stopped: false, step: null, background: true,
-      lines: ['Autopilot pass at 10:41:07', '✓ ACME-20  Review passed: Adds the field to the layout.', '… ACME-25  Waiting: Autopilot couldn\'t land d4e5f6a: git push refused. It waits for a person, or a new commit.', '9 other tasks: nothing to do.'], prompt: null },
+      lines: ['Autopilot pass at 10:41:07', '✓ ACME-20  Review passed: Adds the field to the layout.', `! ACME-25  Couldn't review e7f8a9b: ${ACME_25_REFUSED}`, '    It isn\'t tried again on this commit. Do it by hand, or a new commit lets autopilot try again.', '9 other tasks: nothing to do.'], prompt: null },
   ];
 }

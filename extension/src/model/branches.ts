@@ -35,6 +35,9 @@ export const area: ModelArea = {
             ...(p.config.github ? [{ command: 'acc.branches.open', label: 'Compare on GitHub', icon: 'github', ref, primary: true }] : []),
             { command: 'acc.branches.seen', label: 'Seen', icon: 'eye', ref, primary: !p.config.github },
           ],
+          // On the Overview's one line (GH-160), Compare is the button and Seen sits in its ⋯ menu; with no
+          // GitHub to compare on, Seen is the button and there's no menu.
+          ...(p.config.github ? { menu: { section: 'branch' as const, ref, flags: {} } } : {}),
         });
       }
     },

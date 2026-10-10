@@ -225,8 +225,8 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
   return {
     id: s.id, rev: s.rev,
     title: s.start ? `Start ${s.projectName} from ${placeName} in ${name}` : s.existing ? `Change ${s.existing.title}` : 'Connect a tracker',
-    summary: s.start ? `acc init writes ${s.projectName}'s .acc/config.json when you start it, with its tickets from the ${placeLabel} you pick. Until then nothing is written, and picking only reads ${name}: nothing is ever written to it. The sign-in stays in VSCode on this machine.`
-      : s.root ? `For ${s.projectName}. acc writes it to that repo's .acc/config.json, and the sign-in stays in VSCode on this machine, never in the file.` : 'Choose the project to connect a tracker to.',
+    summary: s.start ? `Starting the project writes ${s.projectName}'s settings, with its tickets from the ${placeLabel} you pick. Until then nothing is written, and picking only reads ${name}: nothing is ever written to it. The sign-in stays in VSCode on this machine.`
+      : s.root ? `For ${s.projectName}. acc writes it to the project's settings, and the sign-in stays in VSCode on this machine, never in the settings.` : 'Choose the project to connect a tracker to.',
     back: { section: s.from, label: `Back to ${SECTION_WORD[s.from]}`, part: s.from === 'settings' ? settingsKey('trackers') : null },
     projects: s.existing || s.projects.length < 2 ? [] : s.projects.map((p) => ({ ...p, on: p.root === s.root })),
     kinds: s.existing ? [] : list.map((x) => ({ kind: x.kind, name: x.name, icon: x.icon, on: x.kind === d.kind })),

@@ -1,7 +1,7 @@
 // What every board shares: a card's footer and its ⋯ menu, and scrolling a board sideways.
 
 import type { Action } from '../src/model/shared.ts';
-import { actionButton, el, icon, wrap } from './dom.ts';
+import { actionButton, el, icon, work, wrap } from './dom.ts';
 import { api } from './state.ts';
 
 /**
@@ -70,7 +70,7 @@ export function cardFoot(card: { worktree: string | null; actions: Action[] }): 
   }
   return el('div', 'card-foot',
     // The worktree's last two folders, with the whole path on hover, since a narrow card cuts it short.
-    el('div', 'card-meta', card.worktree ? Object.assign(el('span', 'card-where mono muted', icon('git-branch'), card.worktree.split('/').slice(-2).join('/')), { title: card.worktree }) : null, prLink),
+    el('div', 'card-meta', card.worktree ? Object.assign(work(el('span', 'card-where mono muted', icon('git-branch'), card.worktree.split('/').slice(-2).join('/')), 'branch'), { title: card.worktree }) : null, prLink),
     primary ? actionButton(primary) : null);
 }
 

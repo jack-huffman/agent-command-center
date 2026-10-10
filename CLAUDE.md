@@ -18,6 +18,15 @@
   title), the selected tab is out of view, or the page scrolls sideways
   (`extension/scripts/geometry.ts`). It can't see spacing, alignment or a page
   that reads badly, so the PNGs still need reading.
+- The Command Center speaks in processes, not commands or paths (D-???): "Run the
+  checks", "the project's settings", never `acc gate run` or `.acc/config.json`.
+  The names are in `extension/src/logic/processes.ts`, and what acc says goes
+  through its `inProcessWords` on the way to a person; what acc recorded (a
+  step's reason, a hold, a blocker) goes through `extension/src/logic/relayed.ts`
+  where the extension reads it. The screenshot run's words
+  check (`extension/scripts/words.ts`) fails on an acc command, `npm run`, a
+  `.acc/` path or a `docs/` page on any page, outside elements marked as work
+  data with `work()`; `extension/test/words.test.ts` pins where those are.
 - UI states use an icon and a label. Use orange against blue, never red against
   green. The author is colourblind. `extension/test/looks.test.ts` walks every
   table that shows a state, and fails on a missing label, an icon the codicon

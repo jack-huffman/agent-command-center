@@ -320,6 +320,8 @@ export const area: ModelArea = {
               : s.id ? [{ command: 'acc.agent.attach', label: 'Attach', icon: 'terminal', ref: { session: key }, primary: true }] : []),
             { command: 'acc.agent.watch', label: 'Watch', icon: 'pulse', ref: { session: key } },
           ],
+          // Its ⋯ menu on the Overview is the one its row has on Agents (GH-160).
+          menu: { section: 'agent', ref: { session: key }, flags: { agentBackground: s.kind === 'background' } },
         });
       }
     },

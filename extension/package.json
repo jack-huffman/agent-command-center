@@ -120,6 +120,18 @@
         "icon": "$(output)"
       },
       {
+        "command": "acc.branches.open",
+        "title": "Compare the branch move on GitHub",
+        "category": "Agent Command Center",
+        "icon": "$(github)"
+      },
+      {
+        "command": "acc.branches.seen",
+        "title": "Mark the branch move as seen…",
+        "category": "Agent Command Center",
+        "icon": "$(eye)"
+      },
+      {
         "command": "acc.task.dispatchCloud",
         "title": "Dispatch to the cloud",
         "category": "Agent Command Center",
@@ -335,7 +347,7 @@
       },
       {
         "command": "acc.doctor",
-        "title": "Check setup",
+        "title": "Check the setup",
         "category": "Agent Command Center",
         "icon": "$(checklist)"
       },
@@ -896,6 +908,51 @@
           "command": "acc.worktree.remove",
           "when": "webviewId == 'acc.home' && webviewSection == 'worktree' && worktreeLinked",
           "group": "9_remove@1"
+        },
+        {
+          "command": "acc.task.watch",
+          "when": "webviewId == 'acc.home' && webviewSection == 'task' && taskWatch",
+          "group": "1_watch@0"
+        },
+        {
+          "command": "acc.task.watchReview",
+          "when": "webviewId == 'acc.home' && webviewSection == 'task' && taskReview",
+          "group": "1_watch@1"
+        },
+        {
+          "command": "acc.task.watchAnalysis",
+          "when": "webviewId == 'acc.home' && webviewSection == 'task' && taskAnalysis",
+          "group": "1_watch@2"
+        },
+        {
+          "command": "acc.autopilot.output",
+          "when": "webviewId == 'acc.home' && webviewSection == 'task' && taskOutput",
+          "group": "1_watch@3"
+        },
+        {
+          "command": "acc.task.openInClaude",
+          "when": "webviewId == 'acc.home' && webviewSection == 'task' && taskClaude",
+          "group": "2_open@0"
+        },
+        {
+          "command": "acc.task.openPr",
+          "when": "webviewId == 'acc.home' && webviewSection == 'task' && taskPr",
+          "group": "2_open@1"
+        },
+        {
+          "command": "acc.job.stop",
+          "when": "webviewId == 'acc.home' && webviewSection == 'task' && taskStop",
+          "group": "9_stop@0"
+        },
+        {
+          "command": "acc.tidy.skip",
+          "when": "webviewId == 'acc.home' && webviewSection == 'tidy'",
+          "group": "1_tidy@0"
+        },
+        {
+          "command": "acc.branches.seen",
+          "when": "webviewId == 'acc.home' && webviewSection == 'branch'",
+          "group": "1_branch@0"
         }
       ],
       "view/title": [
@@ -1006,7 +1063,7 @@
           {
             "id": "A4.plugin",
             "title": "The acc plugin in Claude Code",
-            "description": "Its hooks keep each builder inside its own worktree and away from pushes, merges and deploys, and send it back to the finish line if it stops early. It also gives agents acc's skills and the reviewer. It's installed once, for every Claude Code session, and does nothing in a repo without .acc/config.json.\n\n[Check](command:acc.step.check?%5B%22A4.plugin%22%5D)\n[Do it](command:acc.step.fix?%5B%22A4.plugin%22%5D)",
+            "description": "Its hooks keep each builder inside its own worktree and away from pushes, merges and deploys, and send it back to the finish line if it stops early. It also gives agents acc's skills and the reviewer. It's installed once, for every Claude Code session, and does nothing in a repo without the project's settings.\n\n[Check](command:acc.step.check?%5B%22A4.plugin%22%5D)\n[Do it](command:acc.step.fix?%5B%22A4.plugin%22%5D)",
             "media": {
               "markdown": "media/steps/A4.plugin.md"
             },
@@ -1039,7 +1096,7 @@
           {
             "id": "B0.config",
             "title": "Project config",
-            "description": "`.acc/config.json` names the environments, GitHub account and checks.\n\n[Check](command:acc.step.check?%5B%22B0.config%22%5D)\n[Do it](command:acc.step.fix?%5B%22B0.config%22%5D)",
+            "description": "The project's settings name the environments, GitHub account and checks.\n\n[Check](command:acc.step.check?%5B%22B0.config%22%5D)\n[Do it](command:acc.step.fix?%5B%22B0.config%22%5D)",
             "media": {
               "markdown": "media/steps/B0.config.md"
             },
@@ -1050,7 +1107,7 @@
           {
             "id": "B0.template",
             "title": "The team template is current",
-            "description": "A project started from a team template records which one. This says when the team has changed it since, and where this project now differs. It never changes .acc/config.json: applying a change is yours to do.\n\n[Check](command:acc.step.check?%5B%22B0.template%22%5D)\n[Do it](command:acc.step.fix?%5B%22B0.template%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B0.template%22%5D)",
+            "description": "A project started from a team template records which one. This says when the team has changed it since, and where this project now differs. It never changes the project's settings: applying a change is yours to do.\n\n[Check](command:acc.step.check?%5B%22B0.template%22%5D)\n[Do it](command:acc.step.fix?%5B%22B0.template%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B0.template%22%5D)",
             "media": {
               "markdown": "media/steps/B0.template.md"
             },
@@ -1061,7 +1118,7 @@
           {
             "id": "B0.rules",
             "title": "Copied-in rules are current",
-            "description": "A team's shared rules are copied into .acc/rules/, each with where it came from (GH-108), and agents read only those copies. This says when a source has changed since its copy. It never copies one in again: that is yours to choose.\n\n[Check](command:acc.step.check?%5B%22B0.rules%22%5D)\n[Do it](command:acc.step.fix?%5B%22B0.rules%22%5D)\n[Import rules…](command:acc.importRules?%5B%22B0.rules%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B0.rules%22%5D)",
+            "description": "A team's shared rules are copied into the project's rules folder, each with where it came from (GH-108), and agents read only those copies. This says when a source has changed since its copy. It never copies one in again: that is yours to choose.\n\n[Check](command:acc.step.check?%5B%22B0.rules%22%5D)\n[Do it](command:acc.step.fix?%5B%22B0.rules%22%5D)\n[Import rules…](command:acc.importRules?%5B%22B0.rules%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B0.rules%22%5D)",
             "media": {
               "markdown": "media/steps/B0.rules.md"
             },
@@ -1291,7 +1348,7 @@
           {
             "id": "B13.gate-tools",
             "title": "The required checks can run",
-            "description": "acc done waits for every required check to pass, and a check whose tool is missing can only report an error.\n\n[Check](command:acc.step.check?%5B%22B13.gate-tools%22%5D)\n[Do it](command:acc.step.fix?%5B%22B13.gate-tools%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B13.gate-tools%22%5D)",
+            "description": "\"Finish the task\" waits for every required check to pass, and a check whose tool is missing can only report an error.\n\n[Check](command:acc.step.check?%5B%22B13.gate-tools%22%5D)\n[Do it](command:acc.step.fix?%5B%22B13.gate-tools%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B13.gate-tools%22%5D)",
             "media": {
               "markdown": "media/steps/B13.gate-tools.md"
             },
@@ -1335,7 +1392,7 @@
           {
             "id": "B15.cloud-token",
             "title": "The routine's token is in the keychain",
-            "description": "acc fires the routine with its bearer token, kept in this Mac's keychain and never in .acc/config.json or git (GH-69). The token is shown once, on the routine's page.\n\n[Check](command:acc.step.check?%5B%22B15.cloud-token%22%5D)\n[I've done this](command:acc.step.confirm?%5B%22B15.cloud-token%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B15.cloud-token%22%5D)",
+            "description": "acc fires the routine with its bearer token, kept in this Mac's keychain and never in the project's settings or git (GH-69). The token is shown once, on the routine's page.\n\n[Check](command:acc.step.check?%5B%22B15.cloud-token%22%5D)\n[I've done this](command:acc.step.confirm?%5B%22B15.cloud-token%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B15.cloud-token%22%5D)",
             "media": {
               "markdown": "media/steps/B15.cloud-token.md"
             },

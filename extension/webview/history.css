@@ -1,0 +1,29 @@
+/* History in full (D-037), in the Overview's History detail (GH-160): newest first, with filters. */
+.feed { list-style: none; margin: 4px 0 0; padding: 0; position: relative; }
+.feed li { display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 10px; padding: 6px 0; position: relative; }
+.feed li::before { content: ''; position: absolute; left: 4px; top: 22px; bottom: -6px; width: 1px; background: var(--line); }
+.feed li:last-child::before { display: none; }
+.feed-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 6px; background: var(--card); border: 2px solid var(--vscode-descriptionForeground); }
+.history-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.history-filters { flex-wrap: wrap; }
+.history-filters .seg { font-size: 0.88em; padding: 2px 8px; white-space: nowrap; }
+.history-line { display: flex; align-items: baseline; gap: 4px; min-width: 0; flex-wrap: wrap; }
+.history-line > strong, .history-line > span { flex: none; white-space: nowrap; }
+.history-line .tool-code { margin-left: 6px; flex: 0 1 auto; min-width: 0; max-width: 100%; }
+.history-meta { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.history-meta .sep { margin: 0 2px; }
+.history-feed { margin: 0; }
+.feed-icon { flex: none; display: inline-flex; margin-top: 2px; }
+.feed-icon.tone-neutral { color: var(--vscode-descriptionForeground); }
+.history-item { min-width: 0; flex: 1; }
+.history-item > summary { cursor: pointer; list-style: none; }
+.history-item > summary::-webkit-details-marker { display: none; }
+.history-item > summary:hover { color: var(--vscode-textLink-foreground); }
+.history-body { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin: 6px 0 4px; }
+.history-body .q-code, .history-body .history-out { margin: 0; width: 100%; max-height: 220px; }
+.history-detail { white-space: pre-wrap; padding: 6px 10px; border-left: 3px solid var(--line); color: var(--vscode-foreground); }
+/* A step autopilot took (D-064): what it did on one line, and why under it. */
+.history-step { min-width: 0; }
+.history-note { margin-top: 2px; overflow-wrap: anywhere; }
+/* The item a History line opened at: brought into view, and marked. */
+.feed li[data-at] { background: var(--accent-soft); border-radius: 4px; }

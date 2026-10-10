@@ -51,10 +51,10 @@ gathers them.
 | Folder | What's in it | An area declares |
 |---|---|---|
 | `packages/cli/src/commands/` | One module per group of acc's commands: setup, tasks, agents (dispatch, done, block, resume, cleanup, agents, machine), pipeline (analyze, review, land, autopilot, sync), updates, environments, hooks, github, checks. `main.ts` is the entry, `shared.ts` what every group uses | its help lines (`section`, `order`, `lines`), the options it reads, its commands, and any argv a command needs changed first |
-| `extension/src/model/` | The page's view models, a module per area: overview, history, tasks (the agent board), cards (what a task's card says), boards (tracker boards), task-page, updates, agents, questions, agent-page, runs, connect, worktrees, environments, setup, slack, settings (its parts, the theme's choices, and How agents run: each project's builders, reviewers, autonomy and auto-merge), and page (the page's own messages). `home.ts` builds the page from the areas' parts, `messages.ts` gathers their messages, `shared.ts` holds what several use | the messages its parts send with their checks (`messages`, and its `Message` type), the acc.* commands they may ask for (`commands`), and what it adds to the page (`home`: Needs you for each project or once, stat tiles, its item in the rail, in its `order`) |
-| `extension/src/logic/` | Pure decisions, a module per area: setup and the walkthrough, tasks, agents, worktrees, environments, connect and trackers, runs, notices, autopilot, the status bar, polls (how often each thing is looked at again, which Settings says), efforts (Dispatch with…'s effort step); `shared.ts` holds a task's row and an agent's session | nothing: nothing names every area here |
+| `extension/src/model/` | The page's view models, a module per area: overview, landing (the Overview as a landing page: its lines, five to a list, GH-160), history, tasks (the agent board), cards (what a task's card says), boards (tracker boards), task-page, updates, agents, questions, agent-page, runs, connect, worktrees, environments, setup, slack, settings (its parts, the theme's choices, and How agents run: each project's builders, reviewers, autonomy and auto-merge), and page (the page's own messages). `home.ts` builds the page from the areas' parts, `messages.ts` gathers their messages, `shared.ts` holds what several use | the messages its parts send with their checks (`messages`, and its `Message` type), the acc.* commands they may ask for (`commands`), and what it adds to the page (`home`: Needs you for each project or once, stat tiles, its item in the rail, in its `order`) |
+| `extension/src/logic/` | Pure decisions, a module per area: setup and the walkthrough, tasks, agents, worktrees, environments, connect and trackers, runs, notices, autopilot, the status bar, polls (how often each thing is looked at again, which Settings says), efforts (Dispatch with…'s effort step), processes (the words for acc's commands and files, and the translator for what acc says, GH-163), relayed (what acc recorded, put in those words where the extension reads it, GH-163); `shared.ts` holds a task's row and an agent's session | nothing: nothing names every area here |
 | `extension/src/` | Each area's VS Code side: tasks, agents, worktrees and environments (their commands, subclasses of `sidebar.ts`'s shared base), setup, trackers and the Connect page, identity, slack, notices (the status bar's menu), autopilot, progress (In progress's Stop), ticket (a task's page, in its own tab or over the Tasks board), task-modal (wires that modal to the Command Center), questions, runs, settings (the theme every tab follows, and Settings' Refresh). `extension.ts` builds the extension's parts and hands them to every area; `hub.ts` loads, polls and caches (`task-rows.ts` reads a task's row); `panels.ts` handles the page's own messages | `register(parts)`: its commands, and with `receive` the page's messages it takes |
-| `extension/webview/` | The page, flat so its tsconfig and the screenshot harness's staleness check see every file: overview, progress, tasks, task-page, task-modal (a task's page over the Tasks board), updates, analysis, questions, agents, agent-page, dock, connect, worktrees, environments, slack, setup, settings, and theme (the page's `data-theme`). `main.ts` is the entry; `state.ts` owns the page's state, `dom.ts` builds elements, `boards.ts` holds what boards share, `rail.ts` draws the rail, `looks.ts` holds the page's own tables of how a state shows, with no DOM, so the looks test can walk them (GH-105) | the sections and tabs it draws, what it draws over a section, its hooks around a draw, and the extension's messages it takes |
+| `extension/webview/` | The page, flat so its tsconfig and the screenshot harness's staleness check see every file: overview, landing (the Overview's lines), detail (what a line opens, in the modal), history (History in full), progress, tasks, task-page, task-modal (a task's page over the Tasks board), modal (the modal both open in), updates, analysis, questions, agents, agent-page, dock, connect, worktrees, environments, slack, setup, settings, and theme (the page's `data-theme`). `main.ts` is the entry; `state.ts` owns the page's state, `dom.ts` builds elements, `boards.ts` holds what boards share, `rail.ts` draws the rail, `looks.ts` holds the page's own tables of how a state shows, with no DOM, so the looks test can walk them (GH-105) | the sections and tabs it draws, what it draws over a section, its hooks around a draw, and the extension's messages it takes |
 | `packages/core/src/` | dispatch.ts (the start and cleanup), packet.ts, held.ts and holding.ts (D-093), efforts.ts (each model's effort levels, and a task's builder effort, D-128); autopilot.ts (its mode and pass), autopilot-rules.ts, autopilot-log.ts; repos.ts (the repos acc set up on this machine, and which place each uses, GH-81). `index.ts` is generated: `export *` from each module by file name, then onboarding's (GH-95) | nothing: a module the index takes only some names from is in `scripts/areas.ts`'s `CORE_INDEX`, with why |
 
 **A new command, message or section.** Add it to its area's module: a CLI
@@ -84,7 +84,7 @@ only its own:
 
 | What | Where | Adding one |
 |---|---|---|
-| The screenshots' sample data | `extension/scripts/fixtures/`, a module per area: tasks, agents (their sessions and ledgers), questions, history (and autopilot's steps), updates, analysis, boards, connect, task-page, agent-page, setup, runs, slack, environments, progress (In progress), overview (the merge queue), settings (a second project and per-token billing, for How agents run). `hub.ts` puts the sample project together; `shared.ts` holds its paths and its builders' names | add it to its area's module; the screenshot script imports the module it draws from |
+| The screenshots' sample data | `extension/scripts/fixtures/`, a module per area: tasks, agents (their sessions and ledgers), questions, history (and autopilot's steps), updates, analysis, boards, connect, task-page, agent-page, setup, runs, slack, environments, progress (In progress), landing (the busy Overview, GH-160), overview (the merge queue), settings (a second project and per-token billing, for How agents run). `hub.ts` puts the sample project together; `shared.ts` holds its paths and its builders' names | add it to its area's module; the screenshot script imports the module it draws from |
 | The page's styles | `extension/webview/styles.css` holds what every area shares; `<module>.css` beside a module of the page holds that area's own. `theme.css` holds the Light and Dark palettes: no other file writes a colour, but for the masks and a tracker label's own colour, which `colours.test.ts` lists with why (GH-109, GH-105). npm run build writes styles.css first, then the rest by file name, into one `dist/webview/styles.css`; `extension/scripts/styles.ts` gives the tests the same | a rule two areas need goes in styles.css, since the areas' order is only their names. A `.css` named for no module of the page fails the build |
 | The extension's tests | `extension/test/<area>.test.ts`, named for what they test: setup, page, notices, tasks, cards, autopilot, agents, trackers, worktrees, environments, overview, updates, history, boards, and connect, progress, slack, tickets and the rest from before. `support.ts` holds what several share | put it in its area's file, so the near-tests gate (§9) finds it by name as well as by import |
 | The CLI's tests | `packages/cli/test/<module>.test.ts`, a file per command group, named for its module in `packages/cli/src/commands/`: setup (and main.ts's own help), rules, trackers, tidy, tasks, updates, pipeline, checks, agents, github. Each names `../src/main.ts` itself and runs it through `cli()` in `support.ts`, which holds what they share (GH-131), as `refusals.test.ts` does. `cli()` builds acc's environment and takes spawn options, such as a timeout, so no test spawns acc with an environment of its own; only `junk.test.ts` (the built acc, in its own sandbox) and `launcher.test.ts` (the launcher script) run something else (GH-148) | put it in its command's file, so the near-tests gate (§9) finds it by name; `scripts/test/near-tests.test.ts` checks every command module is near each group's file, and `support.test.ts` that every file runs main.ts through `cli()` |
@@ -1445,7 +1445,7 @@ count; under 820 px wide, it becomes a tab strip along the top.
 
 | Section | What it holds |
 |---|---|
-| **Overview** | **Needs you:** agents waiting on a prompt, blocked tasks, steps autopilot couldn't take (with why, and the step to take by hand), missing tracker sign-ins and setup still to do, each with its button. Then, apart, work waiting for review. Stat tiles open their sections. **Ready for an agent** has Dispatch buttons, and **History** lists your answers, every task's moves, each step autopilot took, wherever it ran, and the commands acc ran (D-064) |
+| **Overview** | A landing page (GH-160): a line per item, each a card with its state, its task, two short facts and one button, the rest in its ⋯ menu, five to a list with Show all. **Needs you:** questions, update drafts as one line, agents waiting on a prompt, blocked tasks, steps autopilot couldn't take, missing tracker sign-ins and setup still to do. **When you have a moment:** suggested rules as one line, work waiting for review, the tidy-up. **In progress**, a line per task. Stat tiles open their sections. **Ready for an agent**, its top five, and **History**, its last five. A click opens the detail: a question with its answers, the rules or drafts one at a time, a task's page over the Overview, History in full |
 | **Tasks** | The tracker's own board, or acc's agent board (D-026) |
 | **Agents** | Sessions by repo, then by task (GH-119): this window's projects, then every other repo on the machine by name, saying when another window has one open, then Other folders. Under each task, a line per agent: its role, its state, the model it runs with (D-086), how long it has run, and a menu (D-023), with Answer, Watch and Open in Claude Code while it needs you. Where shows only when an agent isn't in its task's own worktree. Finished sessions fold into one Finished (N) under each repo, with Stop all (D-095). **Settings** in the header opens Settings at **How agents run** (GH-110). Per-token billing shows above the sessions, since it costs money while nobody looks (D-036, D-089) |
 | **Worktrees** | Every checkout, with a menu on each row |
@@ -1457,6 +1457,23 @@ The page polls only while it's visible, at the pace Settings sets (GH-113). It
 opens where you left it, unless Settings names a section for the window. The sidebar keeps a single launcher view listing the sections; set
 `agentCommandCenter.openFromActivityBar` to false to keep it open instead. The
 icon's badge counts what needs you.
+
+**It speaks in processes (GH-163, D-132).** The page, the sidebar, notices and
+the status bar name what a person runs, not acc's command lines or its paths:
+**Run the checks**, **Finish the task**, **Open its pull request**, the
+project's settings, the first-run checklist. `extension/src/logic/processes.ts`
+holds the words: `PROCESSES` names every command acc has, and `FILES` each file
+a person is told about. What acc itself says (a refusal, a Setup step's words, a
+hook's reason) goes through `inProcessWords` on its way to a person. What it
+recorded goes through `extension/src/logic/relayed.ts` where the extension reads
+it: each step in autopilot's log, the reasons on each task's row (why autopilot
+couldn't take a step, why a held task couldn't start, the review's summary, what
+a stopped builder last said), and a task's blocked and move reasons on its page.
+Work data stays as it is, in regions the page marks with `data-work`: changed
+files, branches, an agent's transcript and the commands it ran, check and
+command output, and text written for agents. The screenshot run's `words` check reads every string each drawing
+holds and fails on an acc command, `npm run`, a `.acc/` path, a `docs/` page or
+the packet outside those regions.
 
 **How agents run** (GH-110): each onboarded project under its name, with its
 builders' and reviewers' model, effort and fallback (D-036, D-086), its autonomy
@@ -1558,9 +1575,9 @@ which opens the page over the board, with Open as tab (D-129).
 - **Questions.** `acc hook permission`, the PermissionRequest hook acc gives
   the sessions it starts, leaves each permission prompt and AskUserQuestion in
   `~/.acc/questions/` and waits.
-  - The Overview shows it first under **Needs you**, as a card with Allow,
-    "don't ask again this session" and Deny, or the question's options. A
-    notification offers the same.
+  - The Overview shows it first under **Needs you**, as a line with Answer,
+    which opens it as a card with Allow, "don't ask again this session" and
+    Deny, or the question's options (GH-160). A notification offers the same.
   - The hook waits only while a window listens for the agent's folder. With
     none, the window closed, or **In the terminal** chosen, Claude Code asks in
     its own prompt as usual.
@@ -1583,8 +1600,10 @@ The extension's first feature is a guided setup, built on VSCode's walkthroughs
 
 Each step explains why it matters and has up to three buttons:
 
-- **Do it:** runs the `acc` command in a visible terminal, so you see exactly
-  what runs.
+- **Do it:** runs the step's fix in a visible terminal, so you see exactly
+  what runs. The page names one of acc's fixes as its process ("Do it: Set up
+  this project"), and shows another tool's command, such as `brew install gh`,
+  to copy (GH-163).
 - **Open in Salesforce:** opens the right Setup page with `sf org open --path`.
   Some steps are clicks only a person can make, such as switching on source
   tracking.

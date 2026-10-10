@@ -4,7 +4,7 @@ import type { Look } from '../src/model/shared.ts';
 import type { PersonChip } from '../src/model/boards.ts';
 import type { TicketModel, TicketRatchet } from '../src/model/task-page.ts';
 import { renderAnalysis } from './analysis.ts';
-import { actionButton, avatar, button, type Child, clippedSpan, el, foldable, icon, iconed, labelChip, linkTo, md, openable, renderDoc, status, when } from './dom.ts';
+import { actionButton, avatar, button, type Child, clippedSpan, el, foldable, icon, iconed, labelChip, linkTo, md, openable, renderDoc, status, when, work } from './dom.ts';
 import { api, memory, type PageArea, remember, state } from './state.ts';
 import { KIND_ICON, KIND_NAME } from './tasks.ts';
 import { updateDraft } from './updates.ts';
@@ -103,7 +103,7 @@ export function renderTicket(m: TicketModel): Node[] {
   if (m.acc?.blocker) top.append(foldable(`blocker:${m.project}#${m.key}`, el('div', 'notice attention why', icon('circle-slash', 'orange'), el('div', 'why-text', el('strong', '', 'Why it\'s blocked: '), m.acc.blocker)), 'why-text', 2));
   if (m.acc?.conflicts) {
     const [head, ...files] = m.acc.conflicts.split(': ');
-    top.append(foldable(`conflicts:${m.project}#${m.key}`, el('div', 'notice attention why', icon('warning', 'orange'), el('div', 'why-text conflict', el('strong', '', `${head}: `), files.join(': '))), 'why-text', 2));
+    top.append(foldable(`conflicts:${m.project}#${m.key}`, el('div', 'notice attention why', icon('warning', 'orange'), el('div', 'why-text conflict', el('strong', '', `${head}: `), work(el('span', '', files.join(': ')), 'files'))), 'why-text', 2));
   }
   // Its checks failed on GitHub, or autopilot sent it back for them (D-076), in orange with an icon.
   if (m.acc?.failedChecks) {
@@ -119,7 +119,7 @@ export function renderTicket(m: TicketModel): Node[] {
     const f = m.acc.files;
     const [head, ...rest] = f.label.split(': ');
     const tone = f.tone === 'orange' ? ' attention' : f.tone === 'blue' ? ' waits' : '';
-    top.append(foldable(`files:${m.project}#${m.key}`, el('div', `notice${tone} why`, icon(f.icon, f.tone), el('div', 'why-text', el('strong', '', rest.length ? `${head}: ` : head), rest.join(': '))), 'why-text', 2));
+    top.append(foldable(`files:${m.project}#${m.key}`, el('div', `notice${tone} why`, icon(f.icon, f.tone), el('div', 'why-text', el('strong', '', rest.length ? `${head}: ` : head), work(el('span', '', rest.join(': ')), 'files'))), 'why-text', 2));
   }
   if (m.analysis) top.append(renderAnalysis(m, m.analysis));
   const main = el('div', 'ticket-main');
@@ -163,17 +163,17 @@ export function renderTicket(m: TicketModel): Node[] {
         ...(a.agentName ? field('Builder', el('span', 'agent-name', a.agentName)) : []),
         // Where it runs (GH-69): This Mac or Cloud, and a cloud builder's page on claude.ai.
         ...(a.place ? field('Runs on', a.cloudUrl ? el('span', '', status(a.place), ' ', linkTo(a.cloudUrl, 'its session on claude.ai')) : status(a.place)) : []),
-        ...(a.branch ? field('Branch', clippedSpan(a.branch)) : []),
-        ...(a.worktree ? field('Worktree', clippedSpan(a.worktree.split('/').slice(-2).join('/'))) : []),
+        ...(a.branch ? field('Branch', work(clippedSpan(a.branch), 'branch')) : []),
+        ...(a.worktree ? field('Worktree', work(clippedSpan(a.worktree.split('/').slice(-2).join('/')), 'branch')) : []),
       ),
       a.checks.length ? el('div', 'checks', el('h3', '', 'Checks'), ...a.checks.map((c) => el('div', 'check',
         // Its state and name on a line of their own, so a long state such as "needs a person" leaves room (GH-100).
         el('span', 'check-head', status(c.look),
           // A builder's lighter check, or the full one the merge queue runs once (GH-73).
           el('span', 'check-gate', el('span', 'mono', c.gate),
-            c.scope ? Object.assign(el('span', 'chip', c.scope === 'builder' ? 'builder' : 'merge queue'), { title: c.scope === 'builder' ? 'One of the lighter checks a builder runs before acc done' : 'The full check, run once in the merge queue before the merge' }) : null)),
+            c.scope ? Object.assign(el('span', 'chip', c.scope === 'builder' ? 'builder' : 'merge queue'), { title: c.scope === 'builder' ? 'One of the lighter checks a builder runs before it finishes the task' : 'The full check, run once in the merge queue before the merge' }) : null)),
         // Its summary under them, beside Waive…, then what its tests ran. A ratchet shows its numbers (GH-99).
-        c.ratchet?.numbers ? ratchetNumbers(c.ratchet, c.summary) : Object.assign(el('span', 'muted small check-sum', c.summary), { title: c.summary }),
+        work(c.ratchet?.numbers ? ratchetNumbers(c.ratchet, c.summary) : Object.assign(el('span', 'muted small check-sum', c.summary), { title: c.summary }), 'output'),
         // A person can set a failing check, or one that needs them, aside, with a reason (D-031). Not a ratchet:
         // a person relaxes its floor instead (GH-99).
         c.waivable ? Object.assign(button('Waive…', 'debug-step-over', () => ticketAction('waive', c.gate), 'ghost small check-waive'), { title: `Set ${c.gate} aside on this commit, with a reason` }) : null,
@@ -209,7 +209,7 @@ function renderNote(m: TicketModel): HTMLElement | null {
   const n = a.note;
   const part = (key: string, iconName: string, tone: string | undefined, label: string, lines: string[], tool?: (line: string) => HTMLElement) =>
     el('div', `note-part note-${key}`, el('h3', '', icon(iconName, tone), label),
-      lines.length ? el('ul', 'note-lines', ...lines.map((l) => el('li', '', el('span', 'note-line', md(l)), tool?.(l) ?? null))) : el('p', 'muted note-none', 'None'));
+      lines.length ? el('ul', 'note-lines', ...lines.map((l) => el('li', '', work(el('span', 'note-line', md(l)), 'transcript'), tool?.(l) ?? null))) : el('p', 'muted note-none', 'None'));
   const makeTask = (line: string) => {
     const b = button('Make a task', 'add', () => ticketAction('task', line), 'ghost small note-task');
     b.title = 'Draft a task from this line, to edit and confirm before it\'s added';

@@ -177,7 +177,7 @@ test('a builder that stopped says so with what it last said, in orange with its 
   assert.deepEqual(card('AV-5').stopped, { label: `Needs you: its agent stopped: ${said}`, icon: 'debug-disconnect', tone: 'orange' });
   assert.equal(card('AV-5').agent, null, 'not "Agent: Needs you" as well');
   assert.ok(card('AV-6').stopped!.label.length < 160 && card('AV-6').stopped!.label.endsWith('…'), 'a long quote is clipped on a card');
-  assert.equal(card('AV-7').stopped!.label, 'Needs you: its agent stopped before acc done or acc block');
+  assert.equal(card('AV-7').stopped!.label, 'Needs you: its agent stopped before it finished or blocked');
   assert.deepEqual(cards.find((c) => c.group === 'needs-you')!.cards.map((c) => c.id), ['AV-5', 'AV-6', 'AV-7']);
   // Its one next step is Resume (D-062); Watch and Open in Claude Code wait behind ⋯.
   const acts = card('AV-5').actions;
@@ -193,7 +193,7 @@ test('a builder that stopped says so with what it last said, in orange with its 
   assert.equal(item.detail, `Acme · ${said}`);
   assert.doesNotMatch(item.detail, /terminal/, 'not an agent waiting in its terminal');
   assert.deepEqual(item.actions.map((a) => [a.label, !!a.primary]), [['Resume', true], ['Watch', false], ['Open', false]]);
-  assert.equal(m.overview.attention.find((a) => a.title === 'AV-7 Task AV-7')!.detail, 'Acme · its turn ended before acc done or acc block');
+  assert.equal(m.overview.attention.find((a) => a.title === 'AV-7 Task AV-7')!.detail, 'Acme · its turn ended before it finished or blocked');
   assert.ok(needsYouCount(m.overview) >= 3, 'counted in the badge and the status bar');
 
   const board: BoardInput = {

@@ -16,7 +16,7 @@ export const ROUTINE_PROMPT = [
 ].join(' ');
 
 /** The guide every cloud step shares: how to make the routine, as the docs describe it. */
-const ROUTINE_GUIDE = `At ${ROUTINES_URL}, make a routine for this repo: paste acc's routine prompt as its instructions (acc cloud shows it), pick the repo and the model, keep the Default environment (Trusted network access reaches npm and GitHub; no org), and add an API trigger. Save it, copy its trigger id (trig_…) into: acc cloud enable --routine trig_…. Then click Generate token, copy the token once, and keep it with: acc cloud token (paste it on stdin).`;
+const ROUTINE_GUIDE = `At ${ROUTINES_URL}, make a routine for this repo: paste acc's routine prompt as its instructions (acc cloud shows it), pick the repo and the model, keep the Default environment (Trusted network access reaches npm and GitHub; no org), and add an API trigger. Save it and copy its trigger id (trig_…): acc cloud enable --routine <id> records it. Then click Generate token and copy the token once: acc cloud token keeps it in the keychain, pasted when it asks.`;
 
 const GITHUB_APP = 'https://github.com/apps/claude';
 
@@ -63,7 +63,7 @@ export const CLOUD_STEPS: Step[] = [
   {
     id: 'B15.cloud-token', part: 'project', group: 'B15', title: 'The routine\'s token is in the keychain',
     why: 'acc fires the routine with its bearer token, kept in this Mac\'s keychain and never in .acc/config.json or git (GH-69). The token is shown once, on the routine\'s page.',
-    fix: { text: 'On the routine\'s page, under its API trigger, click Generate token and copy it. Then, in a terminal: acc cloud token, and paste the token. It goes to the keychain under acc-cloud-routine, for this repo.', docs: 'https://code.claude.com/docs/en/routines#add-an-api-trigger' },
+    fix: { text: 'On the routine\'s page, under its API trigger, click Generate token and copy it. Then, in a terminal, acc cloud token keeps it in the keychain under acc-cloud-routine, for this repo: paste the token when it asks.', docs: 'https://code.claude.com/docs/en/routines#add-an-api-trigger' },
     check(ctx) {
       const need = optedIn(ctx);
       if (need) return need;

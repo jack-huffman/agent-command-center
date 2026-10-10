@@ -90,11 +90,11 @@ class CloudCommands extends Sidebar {
   private async enable(root?: string): Promise<void> {
     const project = await this.projectOf(root);
     if (!project) return;
-    if (!project.config.github) return void vscode.window.showWarningMessage(`Cloud builders need the repo on GitHub: ${project.name} has no "github" section in .acc/config.json.`);
+    if (!project.config.github) return void vscode.window.showWarningMessage(`Cloud builders need the repo on GitHub: ${project.name}'s settings name no GitHub repo.`);
     const current = project.config.agents.cloud?.routine ?? '';
     const routine = await vscode.window.showInputBox({ title: `Cloud builders for ${project.name}: the routine's trigger id`, prompt: `From the routine's API trigger at ${ROUTINES_URL} (trig_…). Leave empty to opt in now and add it later.`, value: current, validateInput: (v) => (!v.trim() || ROUTINE_ID.test(v.trim()) ? undefined : 'A trigger id looks like trig_01ABC…') });
     if (routine === undefined) return;
-    await this.runAcc(project, ['cloud', 'enable', ...(routine.trim() ? ['--routine', routine.trim()] : [])], (o) => `Cloud builders are on for ${project.name}. ${o?.guard?.length ? `Commit ${o.guard.join(' and ')} with .acc/config.json.` : ''} A local builder stays the default.`);
+    await this.runAcc(project, ['cloud', 'enable', ...(routine.trim() ? ['--routine', routine.trim()] : [])], (o) => `Cloud builders are on for ${project.name}. ${o?.guard?.length ? `Commit ${o.guard.join(' and ')} with the project's settings.` : ''} A local builder stays the default.`);
     await this.hub.loadProjects();
   }
 
@@ -123,7 +123,7 @@ class CloudCommands extends Sidebar {
     const project = await this.projectOf(root);
     if (!project?.config.agents.cloud) return;
     const now = project.config.agents.cloud.default;
-    const pick = await vscode.window.showQuickPick(BUILDER_PLACES.map((w) => ({ label: w === 'local' ? '$(device-desktop) This Mac' : '$(cloud) Cloud', description: w === now ? 'Now' : undefined, detail: w === 'local' ? 'A plain dispatch runs the builder here; Dispatch to the cloud sends one task there.' : 'A plain dispatch fires the routine; acc dispatch --local keeps a task here.', value: w as BuilderPlace })), { title: `Where ${project.name}'s builders go by default` });
+    const pick = await vscode.window.showQuickPick(BUILDER_PLACES.map((w) => ({ label: w === 'local' ? '$(device-desktop) This Mac' : '$(cloud) Cloud', description: w === now ? 'Now' : undefined, detail: w === 'local' ? 'A plain dispatch runs the builder here; Dispatch to the cloud sends one task there.' : 'A plain dispatch fires the routine; Dispatch to this Mac keeps a task here.', value: w as BuilderPlace })), { title: `Where ${project.name}'s builders go by default` });
     if (!pick || pick.value === now) return;
     await this.runAcc(project, ['cloud', 'enable', '--default-place', pick.value], () => `${project.name}'s builders go to ${pick.value === 'cloud' ? 'the cloud' : 'this Mac'} unless a dispatch says otherwise.`);
     await this.hub.loadProjects();

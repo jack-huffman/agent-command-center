@@ -148,7 +148,7 @@ export const area: ModelArea = {
           if (r.stopped) {
             const resume = acts.find((a) => a.command === 'acc.task.resume');
             const watch = acts.find((a) => a.command === 'acc.task.watch');
-            const said = r.stopped.said ? saidLine(r.stopped.said, 140) : 'its turn ended before acc done or acc block';
+            const said = r.stopped.said ? saidLine(r.stopped.said, 140) : 'its turn ended before it finished or blocked';
             attention.push({ key: `t:${p.root}:${r.id}`, look: LOOK('Its agent stopped', 'debug-disconnect', 'orange'), title: `${r.id} ${r.title}`, detail: `${p.name} · ${said}`, ...(r.stopped.said ? { tip: r.stopped.said } : {}), project: p.name, actions: [...(resume ? [resume] : []), ...(watch ? [{ ...watch, primary: false }] : []), details] });
             continue;
           }

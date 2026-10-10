@@ -2,6 +2,7 @@
 import type { Environment } from '../../../packages/core/src/config.ts';
 import { tieSession } from '../../../packages/core/src/ledger.ts';
 import { askingLabel, repoRoot } from '../../src/logic/agents.ts';
+import { rowInWords, stepInWords } from '../../src/logic/relayed.ts';
 import { isUnder } from '../../src/logic/shared.ts';
 import type { HubLike, ProjectLike } from '../../src/model/shared.ts';
 import { REPOS, SESSION_MODELS, sampleAgents, sampleLedgers } from './agents.ts';
@@ -39,7 +40,8 @@ export function sampleHub(now = Date.now()): HubLike {
       { path: wt('ACME-9'), head: 'd4e5f6a', branch: 'task/ACME-9-retired', main: false, changed: 0, locked: false, prunable: true },
     ],
   };
-  const tasks = sampleTasks(now);
+  // Their reasons in acc's words, put in the Command Center's as the hub hands rows and steps on (GH-163).
+  const tasks = sampleTasks(now).map(rowInWords);
   const agents = sampleAgents(now);
   const { here, clients } = sampleLedgers(now, tasks);
   const questions = sampleQuestions(now, wt);
@@ -56,7 +58,7 @@ export function sampleHub(now = Date.now()): HubLike {
     repoFor: (p: string) => repoRoot(p, '/Users/me', (d) => REPOS.has(d)),
     // Another window's Command Center shows ~/clients/Acme Service (GH-119).
     otherWindows: [CLIENTS, `${CLIENTS}/.claude/worktrees/ACME-42`],
-    autopilotLog: () => sampleAutopilot(now),
+    autopilotLog: () => sampleAutopilot(now).map(stepInWords),
     updates: () => sampleUpdates(now),
     tidy: sampleTidy,
     history: () => sampleHistory(now),

@@ -1,8 +1,7 @@
-/* A rule or check suggested by a review finding that keeps coming back (GH-102), under its Needs you row:
-   the drafted line, each review it came from, and the task's draft once Accept opens it. Neutral: nothing
-   waits on it, so it never takes orange. */
-.inbox-rule { margin: -6px 0 10px 224px; min-width: 0; }
-@media (max-width: 620px) { .inbox-rule { margin-left: 0; } }
+/* A rule or check suggested by a review finding that keeps coming back (GH-102), in the Overview's Suggested
+   rules detail (GH-160): the drafted line, each review it came from, and the task's draft once Accept opens
+   it. Neutral: nothing waits on it, so it never takes orange. */
+.inbox-rule { margin: 10px 0 0; min-width: 0; }
 .rule-line { margin: 0 0 6px; padding: 2px 10px; border-left: 2px solid var(--blue); white-space: pre-wrap; overflow-wrap: anywhere; }
 .rule-again { display: flex; align-items: flex-start; gap: 6px; margin: 0 0 6px 10px; }
 .rule-again .codicon { flex: none; margin-top: 2px; }

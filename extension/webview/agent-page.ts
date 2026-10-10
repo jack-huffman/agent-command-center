@@ -3,7 +3,7 @@
 import type { Look } from '../src/model/shared.ts';
 import type { AgentModel, EntryView } from '../src/model/agent-page.ts';
 import type { Block } from '../../packages/core/src/trackers/doc.ts';
-import { actionButton, button, type Child, el, empty, foldable, icon, openable, plural, renderDoc, since, status, titled, when } from './dom.ts';
+import { actionButton, button, type Child, el, empty, foldable, icon, openable, plural, renderDoc, since, status, titled, when, work } from './dom.ts';
 import { questionCard } from './questions.ts';
 import { api, memory, type PageArea, remember, state } from './state.ts';
 
@@ -14,12 +14,12 @@ function toolEntry(e: Extract<EntryView, { k: 'tool' }>): HTMLElement {
   // Done is the usual case and needs no mark; running and failed say so, in words for screen readers.
   const mark = e.status === 'done' ? null : status({ label: look.label, icon: look.icon, tone: look.tone as Look['tone'] });
   const more = !!(e.code?.includes('\n') || e.result || (e.code && e.code.length > 80));
-  const line = (...lead: Child[]) => [...lead, icon(e.icon), titled(el('span', 'tool-title', e.title), e.title), e.code && !e.code.includes('\n') ? titled(el('code', 'tool-code', e.code), e.code) : null, el('span', 'spacer'), mark];
+  const line = (...lead: Child[]) => [...lead, icon(e.icon), titled(el('span', 'tool-title', e.title), e.title), e.code && !e.code.includes('\n') ? work(titled(el('code', 'tool-code', e.code), e.code), 'transcript') : null, el('span', 'spacer'), mark];
   if (!more) return el('li', `entry tool static${e.status === 'error' ? ' failed' : ''}`, el('div', 'tool-line', ...line(el('span', 'tool-chev'))));
   const summary = el('summary', 'tool-line', ...line(el('span', 'tool-chev', icon('chevron-right'))));
   const details = el('details', 'tool-details', summary,
-    e.code ? el('pre', 'tool-pre', e.code) : null,
-    e.result ? el('pre', `tool-pre result${e.status === 'error' ? ' failed' : ''}`, e.result) : null,
+    e.code ? work(el('pre', 'tool-pre', e.code), 'transcript') : null,
+    e.result ? work(el('pre', `tool-pre result${e.status === 'error' ? ' failed' : ''}`, e.result), 'output') : null,
     e.more ? el('div', 'muted small', `… ${plural(e.more, 'more line')}`) : null) as HTMLDetailsElement;
   details.open = memory().opened.includes(e.id);
   details.addEventListener('toggle', () => remember((m) => { m.opened = details.open ? [...new Set([...m.opened, e.id])].slice(-200) : m.opened.filter((x) => x !== e.id); }));
@@ -97,17 +97,17 @@ export function renderAgent(m: AgentModel): Node[] {
       const d = e.decision;
       list.append(el('li', `entry decision tone-row-${d.look.tone}`,
         el('div', 'entry-who', icon('account'), el('span', 'strong', 'You'), e.at ? when(e.at) : null),
-        el('div', 'decision-body', el('div', 'muted small', `It ${d.asked}`), d.code ? el('pre', 'q-code', d.code) : null, status(d.look), d.detail ? el('div', 'history-detail', d.detail) : null)));
+        el('div', 'decision-body', el('div', 'muted small', `It ${d.asked}`), d.code ? work(el('pre', 'q-code', d.code), 'transcript') : null, status(d.look), d.detail ? el('div', 'history-detail', d.detail) : null)));
       continue;
     }
     if (e.k === 'prompt' && e.instructions) {
-      const d = el('details', 'prompt-details', el('summary', '', icon('note'), el('strong', '', 'Task instructions'), el('span', 'muted small', ' · what it was given to do')), renderDoc(e.body, '')) as HTMLDetailsElement;
+      const d = el('details', 'prompt-details', el('summary', '', icon('note'), el('strong', '', 'Task instructions'), el('span', 'muted small', ' · what it was given to do')), work(renderDoc(e.body, ''), 'agent-text')) as HTMLDetailsElement;
       d.open = memory().opened.includes(e.id);
       d.addEventListener('toggle', () => remember((x) => { x.opened = d.open ? [...new Set([...x.opened, e.id])] : x.opened.filter((y) => y !== e.id); }));
       list.append(el('li', 'entry prompt', d));
       continue;
     }
-    list.append(el('li', `entry ${e.k}`, el('div', 'entry-who', icon(e.k === 'prompt' ? 'account' : 'hubot'), el('span', 'strong', e.k === 'prompt' ? 'Asked' : 'Agent'), e.at ? when(e.at) : null), renderDoc(e.body, '')));
+    list.append(el('li', `entry ${e.k}`, el('div', 'entry-who', icon(e.k === 'prompt' ? 'account' : 'hubot'), el('span', 'strong', e.k === 'prompt' ? 'Asked' : 'Agent'), e.at ? when(e.at) : null), work(renderDoc(e.body, ''), 'transcript')));
   }
   const tail = m.look.tone === 'blue' && m.live ? el('li', 'entry live', icon('sync~spin', 'blue'), el('span', '', 'Working…'))
     : m.look.tone === 'orange' && !m.questions.length ? el('li', 'entry live', icon('bell', 'orange'), el('span', '', `${m.look.label}. It's waiting in its own terminal.`), ...m.actions.filter((a) => a.command === 'acc.agent.attach').map(actionButton))

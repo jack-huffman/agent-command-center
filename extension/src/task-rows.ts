@@ -16,6 +16,7 @@ import { envOpen, IN_FLIGHT_STATES, inFlight, nulPaths, plannedFiles, sharedFile
 import { runFile } from './run.ts';
 import { analysisWait, rowAnalysis } from './logic/tasks.ts';
 import { cloudWait } from '../../packages/core/src/cloud.ts';
+import { rowInWords } from './logic/relayed.ts';
 // The Tasks area's rows as the hub reads them (D-099): each task's agent, analysis, review, pull request, place
 // in the merge queue, and files beside other tasks'.
 
@@ -72,7 +73,8 @@ export function deriveRows(hub: Hub, ledger: Ledger, p?: Project): TaskRow[] {
     // A cloud builder (GH-69): no local session to read; its branch on GitHub says whether it's quiet.
     const cloud = t.run?.where === 'cloud' && t.run.cloud ? { url: t.run.cloud.url, wait: p ? cloudWait(t, p.config, now) : null, finished: !!t.run.cloud.finished } : null;
     const cloudInfo: SessionInfo | undefined = cloud ? { quiet: !!cloud.wait } : undefined;
-    return {
+    // What acc and its agents wrote in it reaches a person in process words (GH-163).
+    return rowInWords({
       id: t.id,
       title: t.title,
       state: t.state,
@@ -107,7 +109,7 @@ export function deriveRows(hub: Hub, ledger: Ledger, p?: Project): TaskRow[] {
       since: t.state === 'running' ? runStartedAt(t) : null,
       branchStats: tree?.branchStats ? { ...tree.branchStats, uncommitted: Math.max(0, tree.changed) } : null,
       files: filesOf(t),
-    };
+    });
   });
 }
 

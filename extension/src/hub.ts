@@ -24,6 +24,7 @@ import { readUpdate, type Update, UPDATE_ID } from '../../packages/core/src/upda
 import { type AgentSession, isUnder, type TaskRow } from './logic/shared.ts';
 import { askingLabel, commonDirOf, repoRoot, sessionFor, sessionLedger } from './logic/agents.ts';
 import { parseWorktrees, type Worktree } from './logic/worktrees.ts';
+import { stepInWords } from './logic/relayed.ts';
 import { loadWord, readRepoJobs, readSteps, type RepoJobs } from './progress.ts';
 import { runFile } from './run.ts';
 import { branchStats as readBranchStats } from './worktrees.ts';
@@ -248,10 +249,10 @@ export class Hub implements vscode.Disposable {
     return this.tasks.get(root)?.ledger;
   }
 
-  /** The steps autopilot took in a project's repo, oldest first, wherever it ran (D-064). */
+  /** The steps autopilot took in a project's repo, oldest first, wherever it ran (D-064), each reason in process words (GH-163). */
   autopilotLog(root: string): AutopilotRecord[] {
     const p = this.project(root);
-    return (p && this.steps.get(p.ledgerPath)?.records) || [];
+    return (p && this.steps.get(p.ledgerPath)?.records.map(stepInWords)) || [];
   }
 
   /** Every move every task made, for the Overview's activity. */

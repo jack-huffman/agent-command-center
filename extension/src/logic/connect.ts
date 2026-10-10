@@ -10,6 +10,7 @@ import { dirname, join } from 'node:path';
 import type { TaskInput } from '../../../packages/core/src/ledger.ts';
 import type { Ticket } from '../../../packages/core/src/trackers/types.ts';
 import type { Pending } from '../../webview/pending.ts';
+import { inProcessWords } from './processes.ts';
 
 /**
  * Which of a repo's tasks to ask a Jira or Azure DevOps tracker about once its board has loaded (D-072):
@@ -225,9 +226,9 @@ export function accRefusal(r: { code: number; stdout: string; stderr: string }):
   let said: Said = null;
   try { said = JSON.parse(r.stdout) as Said; } catch { /* plain text */ }
   const first = Array.isArray(said?.errors) ? said.errors.find((e): e is string => typeof e === 'string' && !!e.trim()) : undefined;
-  if (first) return first;
-  if (typeof said?.message === 'string' && said.message.trim()) return said.message;
-  return (r.stderr || r.stdout).trim().split('\n')[0] || `acc exited ${r.code}`;
+  if (first) return inProcessWords(first);
+  if (typeof said?.message === 'string' && said.message.trim()) return inProcessWords(said.message);
+  return inProcessWords((r.stderr || r.stdout).trim().split('\n')[0] ?? '') || `acc exited ${r.code}`;
 }
 
 /** Track's reply: done, why not, or that this ticket is already on its way and nothing more was started. */
