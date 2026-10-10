@@ -1,7 +1,7 @@
 // acc's Agents commands that take a task on from its build: analyze, analysis, review, land, autopilot
 // and sync.
 
-import { AccError, alive, type Analysis, analyze, answerAnalysis, autoMergeFor, autoMergeOn, AUTOPILOT_MIN_EVERY_S, autopilotDoes, autopilotMode, autopilotPass, type AutopilotResult, type AutopilotStepName, clearBranchMoves, closesIssues, closeWords, ghToken, holdAutopilot, land, mergesWords, moveWords, openQuestions, readAnalysis, review, run, settleCloses, sleep, sync } from '../../../core/src/index.ts';
+import { AccError, alive, type Analysis, analyze, answerAnalysis, autoMergeFor, autoMergeOn, AUTOPILOT_MIN_EVERY_S, autopilotDoes, autopilotMode, autopilotPass, type AutopilotResult, type AutopilotStepName, clearBranchMoves, closesIssues, closeWords, ghToken, holdAutopilot, land, mergesWords, moveUrl, moveWords, openQuestions, readAnalysis, review, run, settleCloses, sleep, sync } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
 import { accBinDir, accCommand, actorFrom, type CommandArea, followingCards, now, type Opts, out, personOnly, project, stepWords } from '../shared.ts';
 import { personOnlyUpdate } from './updates.ts';
@@ -201,7 +201,8 @@ function cmdSync(o: Opts): number {
     ...r.changes.map((c) => `  ${c.task}: ${c.note}${c.moved ? ` → ${stateLabel(c.moved.to)}` : ''}${c.update ? `. Drafted an update for ${c.update.key} (${c.update.id})` : ''}`),
     // Each cloud builder's branch (GH-69), and each environment branch that moved by anything but acc's merges.
     ...r.cloud.filter((c) => c.outcome !== 'unchanged').map((c) => tone(`  ${c.task} (cloud): ${c.note}`, c.outcome === 'collect-failed' || c.outcome === 'unreachable' ? 'orange' : 'blue')),
-    ...r.branches.map((m) => tone(`! ${moveWords(m)} Once you have: acc sync --branches-seen`, 'orange')),
+    // Every move still waiting for a person, each run, until acc sync --branches-seen (GH-69).
+    ...r.branches.map((m) => tone(`! ${moveWords(m)}${config.github ? ` ${moveUrl(config.github.repo, m)}` : ''} Once you have: acc sync --branches-seen`, 'orange')),
   ];
   if (!by) {
     out(o, () => (lines.length ? lines.join('\n') : 'No open pull requests, cloud builders or branch moves to follow.'), r);

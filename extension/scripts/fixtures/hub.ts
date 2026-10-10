@@ -30,7 +30,8 @@ export function sampleHub(now = Date.now()): HubLike {
     // Autopilot may review, land, re-dispatch a rework once (D-055), resume a stopped builder once (D-067) and
     // merge the base into a conflicting pull request (D-058); it runs while a person has it on (D-064).
     // Its one tracker, the board below: which tracker owns a ticket's key is who its update posts as (D-066).
-    config: { github: { repo: 'acme/service', account: 'jordan-kim' }, environments, profile: 'salesforce', autonomy: 'review', trackers: [{ kind: 'jira', project: 'ACME', prefix: null }] },
+    // Opted in to cloud builders (GH-69): a task may go to the cloud, and its environment branches are watched.
+    config: { github: { repo: 'acme/service', account: 'jordan-kim' }, environments, profile: 'salesforce', autonomy: 'review', trackers: [{ kind: 'jira', project: 'ACME', prefix: null }], agents: { cloud: { routine: 'trig_01HQACMESERVICE', default: 'local', quietMinutes: 120, max: 3 } } },
     worktrees: [
       { path: root, head: 'a1b2c3d', branch: 'dev', main: true, changed: 0, locked: false, prunable: false },
       { path: wt('ACME-12'), head: 'b2c3d4e', branch: 'task/ACME-12-case-escalation-rules', main: false, changed: 4, locked: false, prunable: false },
@@ -60,5 +61,13 @@ export function sampleHub(now = Date.now()): HubLike {
     tidy: sampleTidy,
     history: () => sampleHistory(now),
     limits: () => sampleLimits(),
+    // qa moved by a hand push that names a pull request (GH-69): flagged until a person has seen it.
+    branchMoves: () => [{ branch: 'qa', from: 'e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4', to: 'f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5', at: new Date(now - 40 * 60_000).toISOString(), commits: ['f6a7b8c Hotfix the escalation timer, see #41'] }],
+    // GitHub protects production; qa and dev have no protection, so a push past the guard would be caught after the fact.
+    cloudProtection: () => [
+      { branch: 'production', state: 'enforced', why: 'GitHub protects production: a pull request with reviews, passing checks, no force pushes.' },
+      { branch: 'qa', state: 'none', why: 'GitHub enforces no protection and no ruleset on qa: a push the guard didn\'t catch would be caught by acc\'s next sync, after the fact, not prevented. Add protection or a ruleset on GitHub to prevent it.' },
+      { branch: 'dev', state: 'none', why: 'GitHub enforces no protection and no ruleset on dev: a push the guard didn\'t catch would be caught by acc\'s next sync, after the fact, not prevented. Add protection or a ruleset on GitHub to prevent it.' },
+    ],
   };
 }

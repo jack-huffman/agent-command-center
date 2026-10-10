@@ -16,6 +16,8 @@ import { reviewing } from '../../packages/core/src/review.ts';
 import { type Suggestion, suggestRules, WRITTEN_RULE_FILES } from '../../packages/core/src/rule-suggestions.ts';
 import { RULES_DIR } from '../../packages/core/src/rules.ts';
 import { readTidy, tidyDue, tidyFile, type TidyRecord, type TidyStatus } from '../../packages/core/src/tidy.ts';
+import { type BranchMove, branchMoves as readBranchMoves, branchesPath } from '../../packages/core/src/branches.ts';
+import type { Protection } from '../../packages/core/src/protection.ts';
 import { type HeavyState, heavyState } from '../../packages/core/src/semaphore.ts';
 import { claudeProjectsDir, lastModelIn, lastSaidIn, transcriptFile } from '../../packages/core/src/transcript.ts';
 import { readUpdate, type Update, UPDATE_ID } from '../../packages/core/src/updates.ts';
@@ -138,6 +140,10 @@ export class Hub implements vscode.Disposable {
   private readonly repoUpdates = new Map<string, Update[]>();
   /** Each repo's last tidy-up a person added or skipped, by ledger, as of the last load (GH-104). */
   private readonly repoTidy = new Map<string, TidyRecord | null>();
+  /** Each repo's environment branches that moved by anything but acc's merge, by ledger, as of the last load (GH-69). */
+  private readonly repoBranches = new Map<string, BranchMove[]>();
+  /** What GitHub enforces on each environment branch, by project root, once the cloud area has read it (GH-69). */
+  private readonly protection = new Map<string, Protection[]>();
   /** Each project's suggested rules, by root, kept until its reviews, its records or its written rules change (GH-102). */
   private readonly ruleSuggestions = new Map<string, { stamp: string; suggestions: Suggestion[] }>();
   /** The last thing each stopped builder said, by session, kept until its transcript changes (D-067). */
@@ -264,7 +270,8 @@ export class Hub implements vscode.Disposable {
     for (const p of this.projects) {
       // A verdict on a task that moved meanwhile writes no event, so the reviews folder is watched too (GH-102).
       const store = suggestionsOf(p);
-      const stamp = [p.ledgerPath, analysesOf(p).analyses, updatesOf(p).updates, tidyFile({ stateDir: dirname(p.ledgerPath) }), store.reviews, store.suggestions].map((f) => stampOf(f) ?? 0).join('|');
+      // acc sync writes a moved environment branch beside the ledger too (GH-69), which the ledger doesn't see.
+      const stamp = [p.ledgerPath, analysesOf(p).analyses, updatesOf(p).updates, tidyFile({ stateDir: dirname(p.ledgerPath) }), branchesPath({ stateDir: dirname(p.ledgerPath) }), store.reviews, store.suggestions].map((f) => stampOf(f) ?? 0).join('|');
       const cached = this.tasks.get(p.root);
       if (!force && cached && cached.stamp === stamp) continue;
       // A task that moved can finish its agents (D-095).
@@ -283,6 +290,7 @@ export class Hub implements vscode.Disposable {
         else this.steps.delete(p.ledgerPath);
         this.repoUpdates.set(p.ledgerPath, this.readUpdates(p));
         this.repoTidy.set(p.ledgerPath, readTidy({ stateDir: dirname(p.ledgerPath) }));
+        this.repoBranches.set(p.ledgerPath, readBranchMoves({ stateDir: dirname(p.ledgerPath) }));
       }
       const rows = deriveRows(this, ledger, p);
       this.tasks.set(p.root, { stamp, ledger, rows });
@@ -327,6 +335,24 @@ export class Hub implements vscode.Disposable {
     const ledger = this.ledger(root);
     if (!p || !ledger) return null;
     return { ...tidyDue(ledger, p.config, this.repoTidy.get(p.ledgerPath) ?? null), ledger: p.ledgerPath };
+  }
+
+  /** The environment branches of a project's repo that moved by anything but acc's own merge, until a person has seen them (GH-69). */
+  branchMoves(root: string): BranchMove[] {
+    const p = this.project(root);
+    return (p && this.repoBranches.get(p.ledgerPath)) || [];
+  }
+
+  /** What GitHub enforces on each environment branch (GH-69), as the cloud area last read it; null until it has. */
+  cloudProtection(root: string): Protection[] | null {
+    return this.protection.get(root) ?? null;
+  }
+
+  /** The cloud area read it: kept for Settings, and the page redraws. */
+  setCloudProtection(root: string, found: Protection[] | null): void {
+    if (found) this.protection.set(root, found);
+    else this.protection.delete(root);
+    this.emitter.fire('projects');
   }
 
   /** Every update in the repo's folder, each file read again only when it has changed. */

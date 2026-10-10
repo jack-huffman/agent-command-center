@@ -377,7 +377,7 @@ test('acc sync follows an open promotion: once it merges, each ticket hears its 
 
   assert.deepEqual(sync(paths, c, { run: ghView('MERGED', calls, merge), now, env: {} }), { checked: 0, changes: [], cloud: [], branches: [] }, 'followed until it merged, and no further');
   assert.equal(listUpdates(paths).length, 2);
-  assert.deepEqual([...new Set(calls.map((x) => x.split(' ').slice(0, 3).join(' ')))], ['git ls-remote --heads', 'gh auth token', 'gh pr view'], 'nothing is posted');
+  assert.deepEqual([...new Set(calls.map((x) => x.split(' ').slice(0, 3).join(' ')))], ['gh auth token', 'gh pr view'], 'nothing is posted, and a project not opted in to cloud builders looks at no branch (GH-69)');
 });
 
 test('a promotion closed without merging sets its unposted drafts aside, and the next promotion carries its tasks again (D-075)', () => {

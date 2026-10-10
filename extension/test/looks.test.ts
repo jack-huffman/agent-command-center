@@ -16,7 +16,8 @@ import { billingLook } from '../src/model/agents.ts';
 import { accLook, CATEGORY_LOOK, columnLook } from '../src/model/boards.ts';
 import { analysisLook, autopilotLook, closedPrLook, filesLook, placeLook, stoppedLook } from '../src/model/cards.ts';
 import { BUILDER_PLACE_LOOK } from '../../packages/core/src/cloud.ts';
-import { cloudSetting } from '../src/model/settings.ts';
+import { cloudSetting, protectionLook } from '../src/model/settings.ts';
+import { moveLook } from '../src/model/branches.ts';
 import { autopilotStepLook, OUTCOME_LOOK, outcomeLook } from '../src/model/history.ts';
 import { capLook } from '../src/model/limits.ts';
 import { queueLook } from '../src/model/overview.ts';
@@ -128,6 +129,10 @@ export const TABLES: Table[] = [
       return [['no github', cloudSetting(p(false, null))!.look], ['off', cloudSetting(p(true, null))!.look], ['on, no routine', cloudSetting(p(true, { ...cloud, routine: null }))!.look], ['on', cloudSetting(p(true, cloud))!.look], ['default cloud', cloudSetting(p(true, { ...cloud, default: 'cloud' }))!.defaultPlace!]];
     },
   },
+  // GitHub's rules behind the cloud guard, per branch (GH-69): enforced in blue, anything else in orange.
+  { name: 'what GitHub enforces on a branch, in Settings', sources: ['extension/src/model/settings.ts#protectionLook'], states: () => (['enforced', 'none', 'unavailable', 'unknown'] as const).map((state) => [state, protectionLook({ branch: 'main', state })]) },
+  // An environment branch moved by anything but acc's merge (GH-69): orange, on the Overview, until a person has seen it.
+  { name: 'a moved environment branch', sources: ['extension/src/model/branches.ts#moveLook'], states: () => [0, 1, 2].map((n) => [`${n} commits`, moveLook({ branch: 'main', from: 'a', to: 'b', at: '', commits: Array.from({ length: n }, (_, i) => `sha${i} x`) })]) },
   {
     name: 'a task\'s files', sources: ['extension/src/model/cards.ts#filesLook'],
     states: () => ([

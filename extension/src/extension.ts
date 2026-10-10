@@ -109,8 +109,10 @@ export function activate(context: vscode.ExtensionContext): void {
     // And an issue acc hasn't closed yet, so a failed close is tried again (D-082).
     prs: async () => {
       for (const p of hub.projects) {
-        // A cloud builder's branch is followed the same way (GH-69): acc sync reads it on GitHub.
-        if (!hub.taskRows(p.root).some((r) => followsPullRequests(r) || (r.state === 'running' && r.run?.where === 'cloud'))) continue;
+        // A cloud builder's branch is followed the same way (GH-69): acc sync reads it on GitHub. A project
+        // that opted in to cloud builders syncs anyway: its environment branches are watched for a move
+        // that isn't acc's merge, which the Overview shows until a person has seen it.
+        if (!hub.taskRows(p.root).some((r) => followsPullRequests(r) || (r.state === 'running' && r.run?.where === 'cloud')) && !(p.config.agents.cloud && p.config.github)) continue;
         const r = await accRunner(accScript)(['sync', '--json'], p.root);
         if (r.code !== 0) setup.log.warn(`acc sync in ${p.name}: ${(r.stderr || r.stdout).trim().split('\n')[0]}`);
       }
