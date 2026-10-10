@@ -20,7 +20,7 @@ export interface Process {
   name: string;
   /** The name with what it's done to, where a mention names it: {arg} is the environment or task. */
   named?: string;
-  /** The acc.* command that does it from VSCode, where there is one, for a notice's button. */
+  /** The acc.* command that does it from VSCode, where there is one; processes.test.ts checks it's declared. */
   command?: string;
 }
 

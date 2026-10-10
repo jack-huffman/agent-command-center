@@ -103,7 +103,7 @@ export function renderTicket(m: TicketModel): Node[] {
   if (m.acc?.blocker) top.append(foldable(`blocker:${m.project}#${m.key}`, el('div', 'notice attention why', icon('circle-slash', 'orange'), el('div', 'why-text', el('strong', '', 'Why it\'s blocked: '), m.acc.blocker)), 'why-text', 2));
   if (m.acc?.conflicts) {
     const [head, ...files] = m.acc.conflicts.split(': ');
-    top.append(foldable(`conflicts:${m.project}#${m.key}`, el('div', 'notice attention why', icon('warning', 'orange'), el('div', 'why-text conflict', el('strong', '', `${head}: `), files.join(': '))), 'why-text', 2));
+    top.append(foldable(`conflicts:${m.project}#${m.key}`, el('div', 'notice attention why', icon('warning', 'orange'), el('div', 'why-text conflict', el('strong', '', `${head}: `), work(el('span', '', files.join(': ')), 'files'))), 'why-text', 2));
   }
   // Its checks failed on GitHub, or autopilot sent it back for them (D-076), in orange with an icon.
   if (m.acc?.failedChecks) {
@@ -119,7 +119,7 @@ export function renderTicket(m: TicketModel): Node[] {
     const f = m.acc.files;
     const [head, ...rest] = f.label.split(': ');
     const tone = f.tone === 'orange' ? ' attention' : f.tone === 'blue' ? ' waits' : '';
-    top.append(foldable(`files:${m.project}#${m.key}`, el('div', `notice${tone} why`, icon(f.icon, f.tone), el('div', 'why-text', el('strong', '', rest.length ? `${head}: ` : head), rest.join(': '))), 'why-text', 2));
+    top.append(foldable(`files:${m.project}#${m.key}`, el('div', `notice${tone} why`, icon(f.icon, f.tone), el('div', 'why-text', el('strong', '', rest.length ? `${head}: ` : head), work(el('span', '', rest.join(': ')), 'files'))), 'why-text', 2));
   }
   if (m.analysis) top.append(renderAnalysis(m, m.analysis));
   const main = el('div', 'ticket-main');

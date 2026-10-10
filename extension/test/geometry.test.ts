@@ -94,6 +94,7 @@ test('a whole run fails below its floors, and on an exception that excused nothi
   assert.deepEqual(runFailures([], false), ['No page was drawn.']);
   const renders198 = PAGES.length * 2 * 3;
   assert.ok(RUN_FLOOR.overlap >= 30 * renders198, `a full run examines at least 30 controls a drawing (${RUN_FLOOR.overlap})`);
+  assert.ok(RUN_FLOOR.words >= 100 * renders198, `and reads at least 100 strings a drawing (${RUN_FLOOR.words}, GH-163)`);
   assert.equal(RUN_FLOOR.tab, PAGES.filter((p) => viewOf(p) === 'home').length * 6, 'and the selected tab on every section, in every drawing');
 });
 

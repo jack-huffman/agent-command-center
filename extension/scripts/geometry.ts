@@ -100,6 +100,7 @@ const quote = (s: string): string => (s ? ` "${s.length > 40 ? `${s.slice(0, 39)
  * No two controls overlap, unless one sits inside the other or one floats in a sticky layer. No text is
  * cut off: an ellipsis passes only with the full text in a title or aria-label. The rail's selected tab
  * is on screen. Nothing scrolls sideways but SIDEWAYS. On the Overview, its lines keep OVERVIEW_LINES.
+ * And no string outside work data names an acc command or path (words.ts, GH-163).
  */
 export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEPTIONS): Verdict {
   const found: Violation[] = [];
@@ -157,7 +158,7 @@ export interface Render { page: string; theme: string; width: number; verdict: V
  * The least a run of every page, both themes and all three widths examines, per check. Raised as the
  * pages grow, never lowered: a run below one has stopped looking.
  */
-export const RUN_FLOOR: Record<Check, number> = { overlap: 13700, clipped: 41700, tab: 288, sideways: 1100, overview: 1200, words: 0 };
+export const RUN_FLOOR: Record<Check, number> = { overlap: 13700, clipped: 41700, tab: 288, sideways: 1100, overview: 1200, words: 76400 };
 
 /**
  * What fails a run: each finding, by page, theme, width and check. A whole run (full) also fails below
