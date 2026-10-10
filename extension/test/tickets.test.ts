@@ -516,7 +516,7 @@ test('a ratchet\'s check carries its numbers, from the environment\'s floor to t
 
 test('a card acc couldn\'t move on its GitHub Project shows on the task page, while the task is still in that state (D-126)', () => {
   const m = sampleTicket(Date.now(), 'ACME-33');
-  assert.equal(m.acc!.cardFailed, 'gh couldn\'t read the Project: give jordan-kim access to Projects with gh auth refresh -h github.com -s project', 'its words, without the closing stop');
+  assert.equal(m.acc!.cardFailed, 'gh couldn\'t read the Project: give jordan-kim access to Projects', 'its words, without the closing stop');
   // The page draws it as an orange notice, with an icon, beside the checks that failed on GitHub.
   const page = readFileSync(new URL('../webview/task-page.ts', import.meta.url), 'utf8');
   assert.ok(page.includes("if (m.acc?.cardFailed) {") && page.includes("icon('project', 'orange')") && page.includes("'Its card couldn\\'t move on its GitHub Project: '"));
