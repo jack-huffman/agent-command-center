@@ -33,7 +33,7 @@ export const WORD_RULES: readonly { name: string; pattern: RegExp }[] = [
 export const WORK_DATA: readonly { name: string; reason: string }[] = [
   { name: 'files', reason: 'The files a task changes or shares with another, that its analysis names, or where a review finding is: their paths are the work itself, and a task that changes .acc/config.json changed that file.' },
   { name: 'branch', reason: 'A branch, worktree or ref as git names it, which a person copies, compares or looks up.' },
-  { name: 'transcript', reason: 'What an agent said, wrote or ran, in its own words: its transcript, the last thing it said, its note, its questions and its findings. The commands a builder ran are what it did.' },
+  { name: 'transcript', reason: 'What an agent wrote or ran, in its own words: its transcript, the command it ran or asks to run, its note and a review\'s findings. The commands a builder ran are what it did.' },
   { name: 'output', reason: 'What a check or a command printed, as it printed it: CLI output stays literal, in a terminal or in the output panel.' },
   { name: 'agent-text', reason: 'Text written for agents, who read it literally: a rule\'s line for the project\'s rules, a draft task\'s brief for its builder.' },
 ];

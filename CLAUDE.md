@@ -21,7 +21,9 @@
 - The Command Center speaks in processes, not commands or paths (D-???): "Run the
   checks", "the project's settings", never `acc gate run` or `.acc/config.json`.
   The names are in `extension/src/logic/processes.ts`, and what acc says goes
-  through its `inProcessWords` on the way to a person. The screenshot run's words
+  through its `inProcessWords` on the way to a person; what acc recorded (a
+  step's reason, a hold, a blocker) goes through `extension/src/logic/relayed.ts`
+  where the extension reads it. The screenshot run's words
   check (`extension/scripts/words.ts`) fails on an acc command, `npm run`, a
   `.acc/` path or a `docs/` page on any page, outside elements marked as work
   data with `work()`; `extension/test/words.test.ts` pins where those are.

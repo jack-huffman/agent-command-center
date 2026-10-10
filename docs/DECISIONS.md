@@ -5704,20 +5704,36 @@ person runs, and the file by what it is.
   command a message names into its process ("Run acc gate run first." reads "Run the checks first.";
   "acc land does that" reads '"Open its pull request" does that') and each path into its name, with the
   verb agreeing ("the project's settings name the checks"). "acc" as the tool's name, as in "acc drafted
-  it", stays. It runs where acc's words reach a person: `accSays` and every other place the extension
-  shows acc's refusal, Setup's step details and reasons, the walkthrough, a hook's reason in History and
-  on an agent's page, autopilot's refusal in the status bar, and a tracker's error on its board or a
-  task's page. Chosen over a
+  it", stays. It runs where acc's words reach a person: `accSays` and the other places the extension
+  shows a command's refusal, Setup's step details and reasons, the walkthrough, a hook's reason in
+  History and on an agent's page, autopilot's refusal and the last line it printed (in its notice and
+  the status bar), and a tracker's error on its board or a task's page. Chosen over a
   person-facing form for each of core's messages because those messages are also what the CLI prints in
   a terminal and what agents read, both out of scope here; there are hundreds of them, and a second form
   beside each would drift from the first. One translator keyed off the same table keeps one mapping, and
   a command acc adds is covered as soon as it has a row, which `processes.test.ts` requires. The cost is
   grammar: a process named mid-sentence reads in quotes.
+- **What acc recorded is translated where the extension reads it.** acc writes reasons into the ledger
+  and its events with its commands in them: a step autopilot couldn't take ("Run acc gate run in its
+  worktree, or waive them, then review."), a held task that couldn't start, a builder's block. These
+  reach a person through many views (a notice, History, a card, the Overview, a task's page), so
+  each kind is put in process words once, where it's read, by `extension/src/logic/relayed.ts`: the
+  hub's `autopilotLog` hands out each step through `stepInWords`; `deriveRows` builds each task's row
+  through `rowInWords` (why autopilot couldn't take a step, why a held task couldn't start, why the merge
+  queue holds it, its review's summary, what its stopped builder last said); a task's page and its
+  document put its blocked reason, its moves' reasons and its card's failure through `reasonInWords`;
+  and a held dispatch's failure is said that way in its notice. Chosen over translating in each view,
+  which is a dozen places, and a new view would have to remember. The screenshot fixtures pass their
+  sample rows and steps through the same functions, so the words check reads what the boundary makes:
+  ACME-25's review refusal and ACME-12's builder's block name `acc gate run` as acc writes them. A
+  reason is translated whoever wrote it, acc, autopilot, a reviewer, a builder or a person, since it's
+  the line a person acts on, and the translator rewrites only acc's commands and paths. The record the
+  log keeps is left as acc wrote it: `stepInWords` returns a copy, once for each record.
 - **What stays literal, by name.** On the page, work data, in regions marked `data-work`
   (`work()` in `dom.ts`): `files` (the files a task conflicts on or shares with another, an analysis's
   files, a finding's place), `branch`
-  (branches and worktrees), `transcript` (what an agent said, wrote or ran, its note, its findings, the
-  command it asked to run), `output` (check and command output, and the output panel), and `agent-text`
+  (branches and worktrees), `transcript` (an agent's transcript on its page, the command it ran or asked
+  to run, its note, a review's findings), `output` (check and command output, and the output panel), and `agent-text`
   (a rule's line, the builder's instructions on its page). `WORK_DATA` in `extension/scripts/words.ts`
   says why each stays; `MARKS` in `extension/test/words.test.ts` pins every place the page marks one, by
   file and kind. In the extension's code, `LITERAL` in the same test names the lines that may still hold
@@ -5730,11 +5746,21 @@ person runs, and the file by what it is.
   followed by one of acc's commands, `npm run`, a `.acc/` path, a `docs/` page or the packet, outside
   work data. It counts what it read, fails a drawing that gathered none, fails a run in which a kind of
   work data held nothing, and has a floor (`RUN_FLOOR.words`, 76400). It failed on the pages before this
-  change, with 177 findings dark at 1000 px alone, and passes now: all 342 drawings read 76458 strings
-  with no finding. `processes.test.ts`: every command acc has has
+  change, with 177 findings dark at 1000 px alone, and passes now: all 342 drawings read 76564 strings
+  with no finding, drawn in seven groups of pages since Chrome hit its 30 s limit on a loaded machine,
+  with each check's total over its floor. `processes.test.ts`: every command acc has has
   a name; no name is empty, a command line, a path or another's; the ticket's names; each process's
   command is declared; a sample of core's messages comes through with no command or path left.
   `words.test.ts`: the rules, work data counted and never judged, `MARKS`, a scan of every line of the
   extension's code against `LITERAL`, the walkthrough, and the commands and settings VSCode lists.
+  `relayed.test.ts`: core's own refusals (review's, land's, autopilot's, a dispatch held for its
+  analysis) and a builder's block come through with no command or path left; a failed autopilot step
+  reaches its notice, History, its card and the Overview in process words, and so do a hold, a review's
+  summary and a stopped builder's last words; `deriveRows` and the task page translate; a step with no
+  reason, an empty one and text naming no command are left as they were, as are a row's files and
+  branch; and the hub and the screenshot fixtures read through the boundary. A boundary that does
+  nothing fails three of them. The words check found five strings naming `acc gate run` in four
+  drawings at 1000 px dark (ACME-25's card on the Tasks page and in its modal, ACME-12's move there and
+  on its page, and History) before the boundary, and none after.
 - Not chosen: translating the whole model as it's sent to the page, which would rewrite the work data;
   renaming acc's commands; a person-facing form for each of core's messages.
