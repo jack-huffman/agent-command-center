@@ -276,7 +276,7 @@ test('acc follows a cloud builder through its branch: a push is noted, no push f
   // project), and moves it to review with the trailers' note, as acc done would.
   const done = commitAndPush(clone, branch, 'b.txt', `T-1: finish\n\n${DONE_TRAILER}: T-1\nAcc-Landed: The thing, in a.txt and b.txt\nAcc-Moved: none\nAcc-Open: Tidy a.txt\n`);
   const collected = followCloud(paths, config, { ...follow, now: () => hours });
-  assert.equal(collected[0]?.outcome, 'collected', collected[0]?.note);
+  assert.equal(collected[0]?.outcome, 'collected', collected[0]?.note ?? 'nothing followed');
   assert.equal(collected[0]?.head, done);
   const t = task(paths);
   assert.equal(t.state, 'review');
