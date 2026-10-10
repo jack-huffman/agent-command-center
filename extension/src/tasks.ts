@@ -13,6 +13,7 @@ import type { Project } from './hub.ts';
 import { dispatchModelArgs, dispatchModelItems, displayName, sessionFor } from './logic/agents.ts';
 import { dispatchEffortArgs, dispatchEffortItems, noEffortArgs } from './logic/efforts.ts';
 import { inProcessWords } from './logic/processes.ts';
+import { reasonInWords } from './logic/relayed.ts';
 import { anywayQuestion, type HeldAsk, heldAskDue, heldAsked, heldAskKey, heldDue, landMessage, sizeLine, startedNotice, waitLine, waitQuestion, waitsForFiles } from './logic/tasks.ts';
 import { laneMove } from './model/tasks.ts';
 import { sessionKey } from './model/shared.ts';
@@ -136,10 +137,10 @@ class TaskCommands extends Sidebar {
       `# ${t.id}: ${t.title}`, '',
       `**${DISPLAY[n.task.display].label}** · environment \`${t.environment}\` · ${t.source.kind}${t.source.url ? ` · [ticket](${t.source.url})` : ''}`, '',
       t.deps.length ? `Depends on: ${t.deps.join(', ')}\n` : '',
-      t.blocker ? `> Blocked: ${t.blocker}\n` : '',
+      t.blocker ? `> Blocked: ${reasonInWords(t.blocker)}\n` : '',
       t.brief || '_No details._', '',
       '## History', '',
-      ...t.history.map((h) => `- ${h.at.replace('T', ' ').slice(0, 16)}: ${h.from ?? '–'} → **${h.to}** by ${h.by}${h.reason ? `: ${h.reason}` : ''}${h.override ? ' (override)' : ''}`),
+      ...t.history.map((h) => `- ${h.at.replace('T', ' ').slice(0, 16)}: ${h.from ?? '–'} → **${h.to}** by ${h.by}${h.reason ? `: ${reasonInWords(h.reason)}` : ''}${h.override ? ' (override)' : ''}`),
     ];
     const doc = await vscode.workspace.openTextDocument({ content: lines.join('\n'), language: 'markdown' });
     await vscode.window.showTextDocument(doc, { preview: true });
@@ -476,7 +477,7 @@ export const area: ExtensionArea = {
             void vscode.window.showInformationMessage(startedNotice(`${s.task} started`, s), 'Watch').then((pick) => pick && resolve('acc.task.watch', { project: p.root, task: s.task }));
           }
           for (const f of out.failed) {
-            void vscode.window.showWarningMessage(`${f.task} couldn't start: ${f.reason}`, 'Dispatch anyway').then((pick) => pick && resolve('acc.task.dispatchAnyway', { project: p.root, task: f.task }));
+            void vscode.window.showWarningMessage(`${f.task} couldn't start: ${reasonInWords(f.reason)}`, 'Dispatch anyway').then((pick) => pick && resolve('acc.task.dispatchAnyway', { project: p.root, task: f.task }));
           }
         } catch (e) {
           setup.log.warn(`acc dispatch --held in ${p.name}: ${(e as Error).message}`);

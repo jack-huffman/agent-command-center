@@ -522,5 +522,5 @@ test('a card acc couldn\'t move on its GitHub Project shows on the task page, wh
   assert.ok(page.includes("if (m.acc?.cardFailed) {") && page.includes("icon('project', 'orange')") && page.includes("'Its card couldn\\'t move on its GitHub Project: '"));
   // Moved on to another state, the failure is the last state's, so it no longer shows.
   const model = readFileSync(new URL('../src/model/task-page.ts', import.meta.url), 'utf8');
-  assert.ok(model.includes('cardFailed: cardFailure(i.task)'), 'read through core\'s cardFailure, which checks the state');
+  assert.ok(model.includes('cardFailed: reasonInWords(cardFailure(i.task)'), 'read through core\'s cardFailure, which checks the state, and said in process words (GH-163)');
 });

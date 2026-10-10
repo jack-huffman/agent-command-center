@@ -6,6 +6,7 @@ import { autoMergeOn } from '../../packages/core/src/config.ts';
 import { alive } from '../../packages/core/src/lock.ts';
 import type { Hub, Project } from './hub.ts';
 import { autopilotStatus, type AutopilotStatusInput } from './logic/autopilot.ts';
+import { inProcessWords } from './logic/processes.ts';
 import { isWebviewMenuContext } from './logic/shared.ts';
 import type { Runs } from './runs.ts';
 import type { ExtensionArea } from './area.ts';
@@ -168,7 +169,8 @@ export class AutopilotHost implements vscode.Disposable {
     const m = this.mine.get(repo.key);
     if (m && !m.stopping) return { state: 'on', last: this.lastLine(m.id) };
     const mode = autopilotMode(config);
-    if (mode.refusal) return { state: 'refused', refusal: mode.refusal };
+    // acc's refusal, in process words: its notice and its tooltip both show it (GH-163).
+    if (mode.refusal) return { state: 'refused', refusal: inProcessWords(mode.refusal) };
     if (!config.github) return { state: 'refused', refusal: NO_GITHUB };
     // Its own, on its way out, still holds the lock for a moment.
     const pid = m ? null : this.owners.get(repo.key);
@@ -221,9 +223,10 @@ export class AutopilotHost implements vscode.Disposable {
     }
   }
 
+  /** The last line autopilot printed, in process words: a notice and the tooltip quote it, not a terminal (GH-163). */
   private lastLine(id: string): string | null {
     const lines = this.runs.views().find((r) => r.id === id)?.lines ?? [];
-    for (let i = lines.length - 1; i >= 0; i--) if (lines[i]!.trim()) return lines[i]!.trim();
+    for (let i = lines.length - 1; i >= 0; i--) if (lines[i]!.trim()) return inProcessWords(lines[i]!.trim());
     return null;
   }
 }

@@ -15,6 +15,7 @@ import { failedChecks } from '../../packages/core/src/autopilot-rules.ts';
 import { envOpen, IN_FLIGHT_STATES, inFlight, nulPaths, plannedFiles, sharedFiles, type StartCandidate, startOrder } from '../../packages/core/src/overlap.ts';
 import { runFile } from './run.ts';
 import { analysisWait, rowAnalysis } from './logic/tasks.ts';
+import { rowInWords } from './logic/relayed.ts';
 // The Tasks area's rows as the hub reads them (D-099): each task's agent, analysis, review, pull request, place
 // in the merge queue, and files beside other tasks'.
 
@@ -68,7 +69,8 @@ export function deriveRows(hub: Hub, ledger: Ledger, p?: Project): TaskRow[] {
     const model = look && t.run ? (t.run.sessionId ? hub.lastModel(t.run.sessionId, [t.run.worktree, session?.cwd, p?.root]) : null) ?? t.run.model ?? null : null;
     const failed = autopilotFailure(t);
     const queued = places.find((x) => x.id === t.id);
-    return {
+    // What acc and its agents wrote in it reaches a person in process words (GH-163).
+    return rowInWords({
       id: t.id,
       title: t.title,
       state: t.state,
@@ -101,7 +103,7 @@ export function deriveRows(hub: Hub, ledger: Ledger, p?: Project): TaskRow[] {
       since: t.state === 'running' ? runStartedAt(t) : null,
       branchStats: tree?.branchStats ? { ...tree.branchStats, uncommitted: Math.max(0, tree.changed) } : null,
       files: filesOf(t),
-    };
+    });
   });
 }
 
