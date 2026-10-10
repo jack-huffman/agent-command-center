@@ -2,7 +2,7 @@
 import { rowAnalysis } from '../../src/logic/tasks.ts';
 import type { TaskRow } from '../../src/logic/shared.ts';
 import { sampleAnalyses } from './analysis.ts';
-import { ASKED, MIN, N10, N12, N13, N14, N28, N29, SLEPT, wt } from './shared.ts';
+import { ACME_25_REFUSED, ASKED, MIN, N10, N12, N13, N14, N28, N29, SLEPT, wt } from './shared.ts';
 
 export function sampleTasks(now = Date.now()): TaskRow[] {
   const source = (n: number) => ({ kind: 'jira', url: `https://acme.atlassian.net/browse/ACME-${n}` });
@@ -28,8 +28,9 @@ export function sampleTasks(now = Date.now()): TaskRow[] {
     task('ACME-12', 'Case escalation rules for the premium tier', 'running', 'needs-you', { run: { bgId: 'bg12', sessionId: 's-acme-12', worktree: wt('ACME-12'), model: 'claude-sonnet-5-5', modelPicked: true, effort: 'xhigh', effortPicked: true, name: N12 }, agent: { label: 'Needs you: has a question', icon: 'bell', tone: 'orange' }, model: 'claude-sonnet-5-5', effort: 'xhigh', asking: true, ...analyzed('ACME-12'), since: ago(12), branchStats: { commits: 3, files: 6, uncommitted: 4 } }),
     // Built beside ACME-15, which touched the same layout: its pull request won't merge into dev.
     task('ACME-22', 'Add a Region field to the Lead page', 'review', 'needs-you', { run: { worktree: wt('ACME-22'), branch: 'task/ACME-22-lead-region' }, review: { verdict: 'pass', summary: 'Adds Region__c and puts it on the Lead layout.', current: true }, pr: { number: 44, url: 'https://github.com/acme/service/pull/44', state: 'open', ci: 'passing', changesRequested: false, conflicts: ['force-app/main/default/layouts/Lead-Lead Layout.layout-meta.xml', 'force-app/main/default/objects/Lead/fields/Region__c.field-meta.xml'] } }),
-    // Autopilot reviewed it, then couldn't land it: someone pushed to its branch on GitHub (D-055).
-    task('ACME-25', 'Merge duplicate contacts on import', 'review', 'needs-you', { run: { worktree: wt('ACME-25'), branch: 'task/ACME-25-merge-duplicate-contacts' }, review: { verdict: 'pass', summary: 'Merges on email, keeping the older record.', current: true }, autopilot: { step: 'land', reason: 'git push refused task/ACME-25-merge-duplicate-contacts: ! [rejected] (fetch first) error: failed to push some refs' } }),
+    // A person committed to its branch after its builder finished, so autopilot couldn't review it: acc's
+    // refusal names the command that runs its checks, which the Command Center says as the process (GH-163).
+    task('ACME-25', 'Merge duplicate contacts on import', 'review', 'needs-you', { run: { worktree: wt('ACME-25'), branch: 'task/ACME-25-merge-duplicate-contacts' }, review: null, autopilot: { step: 'review', reason: ACME_25_REFUSED } }),
     // Its base moved on, and autopilot couldn't merge it in: both sides edited the same Apex (D-058).
     task('ACME-26', 'Default the case owner from the product line', 'review', 'needs-you', { run: { worktree: wt('ACME-26'), branch: 'task/ACME-26-default-case-owner' }, review: { verdict: 'pass', summary: 'Sets the owner in the case trigger handler.', current: true }, pr: { number: 46, url: 'https://github.com/acme/service/pull/46', state: 'open', ci: 'passing', changesRequested: false, conflicts: ['force-app/main/default/classes/CaseTriggerHandler.cls'] }, autopilot: { step: 'refresh', reason: 'Conflicts with dev that autopilot can\'t resolve: force-app/main/default/classes/CaseTriggerHandler.cls. The branch is as it was, at 3f9c2ab, and nothing was pushed.' } }),
     // Someone closed its pull request, then moved it back to review: autopilot won't open another (D-063).

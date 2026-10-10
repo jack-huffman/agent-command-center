@@ -5,6 +5,7 @@
  */
 import type { Question } from '../../../packages/core/src/questions.ts';
 import type { Suggestion } from '../../../packages/core/src/rule-suggestions.ts';
+import { stepInWords } from '../../src/logic/relayed.ts';
 import type { TaskRow } from '../../src/logic/shared.ts';
 import type { HubLike } from '../../src/model/shared.ts';
 import type { RunInput } from '../../src/model/runs.ts';
@@ -88,7 +89,7 @@ export function sampleLandingHub(now = Date.now()): HubLike {
   };
   const held = (slot: number, what: string, task: string, min: number) => ({ slot, pid: 7000 + slot, at: now - min * MIN, what, task, project: 'Acme Service', cwd: wt(task) });
   const suggestions = [...sampleSuggestions(now), ...moreSuggestions(now)];
-  const autopilot = sampleAutopilot(now).filter((r) => [203, 210, 219, 221].includes(r.seq));
+  const autopilot = sampleAutopilot(now).filter((r) => [203, 210, 219, 221].includes(r.seq)).map(stepInWords);
   const answers = (hub.answers ?? []).filter((a) => ['h1', 'h3', 'h4'].includes(a.id));
   return {
     ...hub,

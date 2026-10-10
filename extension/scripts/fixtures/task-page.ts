@@ -66,6 +66,9 @@ export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12'):
     history: [
       { at: new Date(now - 4 * 86_400_000).toISOString(), from: null, to: 'todo', by: 'human:me' },
       { at: new Date(now - 3 * 86_400_000).toISOString(), from: 'todo', to: 'running', by: 'human:me' },
+      // Its builder blocked in its own words, naming acc's commands; the page says them as processes (GH-163).
+      { at: new Date(now - 2.5 * 86_400_000).toISOString(), from: 'running', to: 'blocked', by: 'builder:ACME-12', reason: 'acc gate run errors on validate: the Acme Dev login has expired. Log in to Acme Dev again, then I can run acc gate run.' },
+      { at: new Date(now - 2.4 * 86_400_000).toISOString(), from: 'blocked', to: 'running', by: 'human:me' },
       { at: new Date(now - 2 * 86_400_000).toISOString(), from: 'running', to: 'review', by: 'builder:ACME-12' },
       { at: new Date(now - 30 * 60_000).toISOString(), from: 'review', to: 'rework', by: 'human:me', reason: 'Pull request #38 conflicts with dev in the Case escalation rules. The rule entries for High and Medium both changed on dev since this branch started: dev added a Low entry and reordered the criteria, so the merge needs a person. Checks on 4f2a9c1: format passed; static found the 2 known sev-2 violations in CaseRouting.cls; validate ran CaseRoutingTest and EscalationRulesTest in Acme Dev, 19 of 21 passing, with the 2 known failures in premiumEscalates.' },
       { at: new Date(now - 12 * 60_000).toISOString(), from: 'rework', to: 'running', by: 'human:me' },
