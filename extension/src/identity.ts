@@ -3,6 +3,7 @@ import type { GithubIdentity } from '../../packages/core/src/github.ts';
 import type { Hub, Project } from './hub.ts';
 import { type IdentityCard, lookOf } from './model/environments.ts';
 import { initials } from './model/boards.ts';
+import { inProcessWords } from './logic/processes.ts';
 import type { ExtensionArea } from './area.ts';
 
 type AccRun = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
@@ -83,7 +84,7 @@ export class RepoIdentity implements vscode.Disposable {
     md.appendMarkdown(`**${p.name}** works as **${id.account}** on GitHub\n\n`);
     md.appendMarkdown(id.from === 'clone'
       ? `$(device-desktop) This clone's choice. The project's is ${id.projectAccount}.\n\n`
-      : '$(file-code) The project\'s account, from .acc/config.json.\n\n');
+      : '$(file-code) The project\'s account, from the project\'s settings.\n\n');
     md.appendMarkdown(id.signedIn
       ? `$(pass) gh is signed in${look.scopes.length ? `: ${look.scopes.join(', ')}` : ''}${look.projects ? '' : '. No GitHub Projects access yet'}\n\n`
       : `$(warning) gh isn't signed in as ${id.account}. [Sign in](command:acc.github.signIn)\n\n`);
@@ -110,7 +111,7 @@ export class RepoIdentity implements vscode.Disposable {
   async switch(arg?: unknown): Promise<void> {
     const p = (typeof arg === 'string' ? this.hub.project(arg) : undefined) ?? this.active();
     if (!p?.config.github) {
-      void vscode.window.showInformationMessage('This folder isn\'t a project with a GitHub repo in .acc/config.json.');
+      void vscode.window.showInformationMessage('This folder isn\'t a project with a GitHub repo in its settings.');
       return;
     }
     await this.refresh(p.root, true);
@@ -146,7 +147,7 @@ export class RepoIdentity implements vscode.Disposable {
     if (r.code !== 0) {
       let msg = (r.stderr || r.stdout).trim();
       try { msg = (JSON.parse(r.stdout) as { message?: string }).message ?? msg; } catch { /* plain text */ }
-      void vscode.window.showErrorMessage(`Couldn't switch: ${msg.split('\n')[0]}`);
+      void vscode.window.showErrorMessage(`Couldn't switch: ${inProcessWords(msg.split('\n')[0] ?? '')}`);
       return;
     }
     const now = login ?? id.projectAccount;

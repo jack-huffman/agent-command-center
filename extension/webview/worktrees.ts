@@ -1,7 +1,7 @@
 // The Worktrees section: every checkout.
 
 import type { WorktreesModel } from '../src/model/worktrees.ts';
-import { clipped, el, empty, header, icon, menuButton, span, status, toolbarButton, withMenu, wrap } from './dom.ts';
+import { clipped, el, empty, header, icon, menuButton, span, status, toolbarButton, withMenu, work, wrap } from './dom.ts';
 import type { PageArea } from './state.ts';
 
 export function renderWorktrees(m: WorktreesModel): Node[] {
@@ -14,7 +14,7 @@ export function renderWorktrees(m: WorktreesModel): Node[] {
     const body = el('tbody');
     body.append(el('tr', 'group', span(el('th', '', icon('repo'), p.name, el('span', 'count', String(p.worktrees.length))), 4)));
     for (const w of p.worktrees) {
-      const branch = el('td', 'clip name strong', icon(w.main ? 'repo' : 'git-branch'), w.branch);
+      const branch = work(el('td', 'clip name strong', icon(w.main ? 'repo' : 'git-branch'), w.branch), 'branch');
       branch.title = w.branch;
       const row = el('tr', w.state.tone === 'orange' ? 'attention' : '',
         branch, clipped(w.place, 'mono'), el('td', 'nowrap', status(w.state)), el('td', 'actions', menuButton(w.branch)));

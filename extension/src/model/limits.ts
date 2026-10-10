@@ -10,6 +10,10 @@ import { DEFAULT_MODEL } from '../../../packages/core/src/config.ts';
 import { MAX_AGENTS, MAX_MACHINE_AGENTS, median, type RecentWork } from '../../../packages/core/src/limits.ts';
 import { MODEL_CHOICES } from '../logic/agents.ts';
 import type { Look, ModelArea } from './shared.ts';
+import { fileName } from '../logic/processes.ts';
+
+/** Where this machine's limits are kept, by what it is (GH-163). */
+const MACHINE = fileName('~/.acc/machine.json');
 
 // ---------------------------------------------------------------- what the extension reads
 
@@ -53,8 +57,6 @@ export interface LimitsFacts {
     /** Builders running across every repo on this machine acc knows of, and in how many repos. */
     running: number;
     repos: number;
-    /** machine.json, as a person reads its path. */
-    file: string;
   };
   projects: ProjectLimits[];
 }
@@ -177,8 +179,8 @@ export function limitsModel(f: LimitsFacts, billing: Look | null = null): Limits
     value: String(p.max),
     unit: `${p.max === 1 ? 'builder' : 'builders'} at once`,
     from: p.maxFrom === 'project'
-      ? `Set in ${p.name}'s .acc/config.json (agents.max), shared with everyone who works on the repo once it's committed.`
-      : `acc's default: ${p.name}'s .acc/config.json sets none (agents.max). A change sets it there, for everyone on the repo once it's committed.`,
+      ? `Set in ${p.name}'s settings (agents.max), shared with everyone who works on the repo once it's committed.`
+      : `acc's default: ${p.name}'s settings set none (agents.max). A change sets it there, for everyone on the repo once it's committed.`,
     look: capLook(p.running, p.max, `in ${p.name}`),
     lower: p.max > 1 ? step(`Lower ${p.name}'s cap to ${p.max - 1}`, `${p.root}|${p.max - 1}`, null) : step(`Lower ${p.name}'s cap`, null, 'One is the least: a project runs at least one builder.'),
     raise: p.max < MAX_AGENTS ? step(`Raise ${p.name}'s cap to ${p.max + 1}`, `${p.root}|${p.max + 1}`, null) : step(`Raise ${p.name}'s cap`, null, `${MAX_AGENTS} is the most a project runs at once.`),
@@ -193,8 +195,8 @@ export function limitsModel(f: LimitsFacts, billing: Look | null = null): Limits
     value: t === null ? 'None' : String(t),
     unit: t === null ? 'no total across repos' : `${t === 1 ? 'builder' : 'builders'} at once, across every repo`,
     from: t === null
-      ? `Not set in ${m.file}: usage limits belong to your Claude account, so a total keeps every repo on this machine under one.`
-      : `Set in ${m.file}, beside the heavy-check slots, for every repo on this machine: usage limits belong to your Claude account, not a project.`,
+      ? `Not set in ${MACHINE}: usage limits belong to your Claude account, so a total keeps every repo on this machine under one.`
+      : `Set in ${MACHINE}, beside the heavy-check slots, for every repo on this machine: usage limits belong to your Claude account, not a project.`,
     look: capLook(m.running, t, m.repos > 1 ? `across ${m.repos} repos` : 'on this machine'),
     lower: t === null ? step('Lower this machine\'s total', null, 'There\'s no total to lower: Change… sets one.') : t > 1 ? step(`Lower this machine's total to ${t - 1}`, String(t - 1), null) : step('Lower this machine\'s total', null, 'One is the least: Change… takes the total out instead.'),
     raise: t === null ? step('Raise this machine\'s total', null, 'There\'s no total to raise: Change… sets one.') : t < MAX_MACHINE_AGENTS ? step(`Raise this machine's total to ${t + 1}`, String(t + 1), null) : step('Raise this machine\'s total', null, `${MAX_MACHINE_AGENTS} is the most it can be set to.`),
@@ -223,7 +225,7 @@ export function limitsModel(f: LimitsFacts, billing: Look | null = null): Limits
   const atOnce = t === null ? capSum : Math.min(t, capSum || t);
   const middle = median(builds);
   const slotsLine = `Each builder's checks wait for this machine's heavy-check slots, ${m.slots} at once${atOnce > m.slots ? `: with ${builders(atOnce)} at once, up to ${atOnce - m.slots === 1 ? 'one waits' : `${atOnce - m.slots} wait`} in line for a slot rather than finish sooner` : atOnce === 1 ? ', so a builder never waits for another\'s checks' : atOnce ? `, so ${builders(atOnce)} at once never wait for each other's checks` : ''}.`;
-  const timeLine = middle === null ? 'No builder here has finished yet, so there\'s no time to go by.' : `Lately a builder here took about ${durationWords(middle)} from its dispatch to acc done (the middle of its last ${builds.length}).`;
+  const timeLine = middle === null ? 'No builder here has finished yet, so there\'s no time to go by.' : `Lately a builder here took about ${durationWords(middle)} from its dispatch to finishing its task (the middle of its last ${builds.length}).`;
   const here = repos.reduce((n, p) => n + p.running, 0);
   const nowLine = `${builders(here)} running now${f.projects.length ? ` in ${names(f.projects.map((p) => p.name))}` : ''}${m.running > here ? `, ${m.running} across this machine` : ''}.`;
   const meaning: Meaning[] = [
@@ -233,8 +235,8 @@ export function limitsModel(f: LimitsFacts, billing: Look | null = null): Limits
   ];
 
   const slotsFrom: Record<LimitsFacts['machine']['slotsFrom'], string> = {
-    machine: `Set in ${m.file}, for every repo on this machine.`,
-    default: `acc's default: ${m.file} sets none. A change sets it there, for every repo on this machine.`,
+    machine: `Set in ${MACHINE}, for every repo on this machine.`,
+    default: `acc's default: ${MACHINE} set none. A change sets it there, for every repo on this machine.`,
     env: 'Set by ACC_HEAVY_SLOTS where VSCode started, which wins over this machine\'s own setting.',
   };
   const slots: LimitRow = {
@@ -247,12 +249,12 @@ export function limitsModel(f: LimitsFacts, billing: Look | null = null): Limits
   };
 
   const checks = f.projects.map((p) => {
-    const config = `${p.name}'s .acc/config.json`;
+    const config = `${p.name}'s settings`;
     const queue = p.queue.length ? names(p.queue) : null;
     const required: LimitRow = {
       key: `required:${p.root}`, name: 'Required checks', icon: 'checklist', value: p.required.join(', ') || 'None',
-      from: `${p.requiredFrom === 'project' ? `Set in ${config}, for everyone on the repo once it's committed.` : `acc's default: ${config} sets none (gates.required). A change sets it there, for everyone on the repo once it's committed.`}${queue ? ` Where the merge queue runs (${queue}), they run once in it, before each merge.` : ' acc done, review and land take them.'}`,
-      look: p.required.length ? null : { label: 'None: acc done takes any commit', icon: 'warning', tone: 'orange' },
+      from: `${p.requiredFrom === 'project' ? `Set in ${config}, for everyone on the repo once it's committed.` : `acc's default: ${config} set none (gates.required). A change sets it there, for everyone on the repo once it's committed.`}${queue ? ` Where the merge queue runs (${queue}), they run once in it, before each merge.` : ' A task must pass them to finish, to be reviewed and to open its pull request.'}`,
+      look: p.required.length ? null : { label: 'None: a task can finish on any commit', icon: 'warning', tone: 'orange' },
       command: LIMIT_COMMANDS.requiredGates, arg: p.root,
       why: p.gates.length ? null : `${p.name} has no checks to choose from yet: add commands under "gates.commands" in ${config}.`,
     };

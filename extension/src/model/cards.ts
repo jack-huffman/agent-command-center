@@ -52,7 +52,7 @@ export const CARD_SAID = 120;
 export function stoppedLook(t: Pick<TaskRow, 'stopped'>, max = CARD_SAID): Look | null {
   if (!t.stopped) return null;
   const said = t.stopped.said ? (Number.isFinite(max) ? saidLine(t.stopped.said, max) : t.stopped.said.trim()) : null;
-  return { label: `Needs you: its agent stopped${said ? `: ${said}` : ' before acc done or acc block'}`, icon: 'debug-disconnect', tone: 'orange' };
+  return { label: `Needs you: its agent stopped${said ? `: ${said}` : ' before it finished or blocked'}`, icon: 'debug-disconnect', tone: 'orange' };
 }
 
 /**

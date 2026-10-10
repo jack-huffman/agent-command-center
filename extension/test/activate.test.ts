@@ -221,7 +221,7 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     await calls.commands.get('acc.agents.autonomy')!(root);
     calls.pick = undefined;
     assert.equal(JSON.parse(readFileSync(join(repo, '.acc', 'config.json'), 'utf8')).autonomy, 'review');
-    assert.match(calls.info.at(-1) ?? '', /^Autonomy is review\. Changed in \.acc\/config\.json: commit it to share it\./);
+    assert.match(calls.info.at(-1) ?? '', /^Autonomy is review\. Changed in the project's settings: commit the change to share it\./);
     // No "github" section, so it can't land anything: the menu offers no switch for it.
     let offered: { label: string }[] = [];
     calls.pick = (items) => { offered = items as { label: string }[]; return undefined; };
@@ -231,7 +231,7 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     assert.ok(!offered.some((i) => /Turn autopilot/.test(i.label)), 'a repo whose autopilot can\'t run offers no switch');
     const warned = calls.warn.length;
     await calls.commands.get('acc.autopilot.toggle')!();
-    assert.match(calls.warn[warned] ?? '', /no "github" section/, 'a click says why, and starts nothing');
+    assert.match(calls.warn[warned] ?? '', /settings name no GitHub repo/, 'a click says why, and starts nothing');
 
     // How agents run is in Settings (GH-110). Each Change… asks acc, which writes this clone's git config or
     // the project's .acc/config.json; the page writes neither.
@@ -248,7 +248,7 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     await calls.commands.get('acc.agents.autoMerge')!(root);
     calls.pick = undefined;
     assert.equal(config().autopilot.autoMerge, true);
-    assert.match(calls.info.at(-1) ?? '', /^Auto-merge is on\. Changed in \.acc\/config\.json: commit it to share it\./);
+    assert.match(calls.info.at(-1) ?? '', /^Auto-merge is on\. Changed in the project's settings: commit the change to share it\./);
     // The status bar's Auto-merge opens Settings at How agents run, which shows each change under the
     // project's name, with where it's set.
     calls.pick = (items) => (items as { label: string }[]).find((i) => /Auto-merge: on/.test(i.label));
@@ -306,7 +306,7 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     const jiraShown = () => shownTrackers().projects[0]?.trackers.find((t) => t.title === 'Jira · ACME');
     await until(() => jiraShown()?.signIn.label === 'Not signed in');
     assert.deepEqual(shownTrackers().projects.map((p) => [p.project, p.trackers.map((t) => t.title)]), [['Tool', ['GitHub · ?', 'Jira · ACME']]], 'one list, under the project\'s name');
-    assert.match(shownTrackers().projects[0]!.trackers[0]!.signIn.label, /needs the project's "github" section/, 'GitHub says why gh has no account to sign in as');
+    assert.match(shownTrackers().projects[0]!.trackers[0]!.signIn.label, /needs the project's GitHub repo and account, in its settings/, 'GitHub says why gh has no account to sign in as');
     const jiraOut = jiraShown()!.actions.find((a) => a.command === 'acc.trackers.signOut')!;
     assert.match(jiraOut.disabled ?? '', /isn't signed in/, 'nothing to sign out of yet');
     // The board looked for this project's own sign-in first, then the site's (D-091).
@@ -408,7 +408,7 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     calls.pick = undefined;
     // How agents run's steps above set the reviewer's effort here (GH-110): kept, with max beside it.
     assert.deepEqual(JSON.parse(readFileSync(configFile, 'utf8')).agents, { ...JSON.parse(configWas).agents, max: 4 });
-    assert.match(calls.info.at(-1) ?? '', /^Tool now runs at most 4 builders at once\. Changed in \.acc\/config\.json: commit it to share it\.$/);
+    assert.match(calls.info.at(-1) ?? '', /^Tool now runs at most 4 builders at once\. Changed in the project's settings: commit the change to share it\.$/);
     await calls.commands.get('acc.settings.machineAgents')!('5');
     assert.deepEqual(JSON.parse(readFileSync(MACHINE_FILE, 'utf8')), { agents: 5 });
     await calls.commands.get('acc.settings.heavySlots')!('2');

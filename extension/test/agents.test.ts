@@ -61,7 +61,7 @@ test('a task\'s agent is found by its session, else by the name its run recorded
   // A notice about the agent names it in place of "GH-44's agent"; a run from before names keeps those words.
   const said = 'API Error: Your computer went to sleep mid-response.';
   assert.equal(taskNotices([named], [{ ...named, display: 'needs-you', stopped: { said } }])[0]!.text, `${name} stopped: ${said}`);
-  assert.equal(taskNotices([named], [{ ...named, display: 'needs-you', stopped: { said: null } }])[0]!.text, `${name} stopped before acc done or acc block.`);
+  assert.equal(taskNotices([named], [{ ...named, display: 'needs-you', stopped: { said: null } }])[0]!.text, `${name} stopped before it finished or blocked.`);
   assert.equal(taskNotices([named], [{ ...named, display: 'needs-you' }])[0]!.text, `${name} is waiting for you in its own prompt.`);
   assert.equal(taskNotices([row()], [row({ display: 'needs-you' })])[0]!.text, 'GH-44\'s agent is waiting for you in its own prompt.');
   assert.equal(taskNotices([named], [{ ...named, state: 'review', display: 'review' }])[0]!.text, 'GH-44 is ready for review: Case escalation rules', 'news about the task names the task');

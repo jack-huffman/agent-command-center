@@ -119,9 +119,10 @@ test('Track reads the ticket again and imports its title, description and labels
   assert.deepEqual(said, ['changed', 'changed'], 'nothing imported, nothing reloaded');
   assert.equal(pending.error('/r#ACME-9'), outside, 'the card keeps why until the next try');
 
-  // acc refuses: its own reason, from --json, not the first line of its plain output.
+  // acc refuses: its own reason, from --json, not the first line of its plain output, with its file named
+  // for what it is (GH-163).
   const refused = 'ACME-1: no Jira tracker in .acc/config.json owns it, so it isn\'t one of this repo\'s tickets.';
-  assert.deepEqual(await trackTicket('/r#ACME-1', pending, steps({ importTasks: async () => ({ code: 1, stdout: JSON.stringify({ added: [], updated: [], unchanged: [], errors: [refused] }), stderr: '' }) })), { ok: false, error: refused });
+  assert.deepEqual(await trackTicket('/r#ACME-1', pending, steps({ importTasks: async () => ({ code: 1, stdout: JSON.stringify({ added: [], updated: [], unchanged: [], errors: [refused] }), stderr: '' }) })), { ok: false, error: 'ACME-1: no Jira tracker in the project\'s settings owns it, so it isn\'t one of this repo\'s tickets.' });
   assert.deepEqual(await trackTicket('/r#ACME-1', pending, steps({ importTasks: async () => ({ code: 1, stdout: '{"error":"usage","message":"The input isn\'t valid JSON: oops"}\n', stderr: '' }) })), { ok: false, error: 'The input isn\'t valid JSON: oops' });
   assert.deepEqual(await trackTicket('/r#ACME-1', pending, steps({ importTasks: async () => ({ code: 127, stdout: '', stderr: 'node: not found\nmore' }) })), { ok: false, error: 'node: not found' });
   // Tried again and done: the old reason goes.

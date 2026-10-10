@@ -84,6 +84,6 @@ export function renderLimits(m: LimitsModel | null): Node[] {
   for (const c of m.checks) {
     out.push(el('h3', 'limit-heading', m.checks.length > 1 ? `Checks · ${c.project}` : 'Checks'), ...c.rows.map(row));
   }
-  if (!m.checks.length) out.push(el('h3', 'limit-heading', 'Checks'), el('p', 'muted', 'Checks are a project\'s: open a folder with an .acc/config.json to see and change them.'));
+  if (!m.checks.length) out.push(el('h3', 'limit-heading', 'Checks'), el('p', 'muted', 'Checks are a project\'s: open a project that\'s set up to see and change them.'));
   return out;
 }

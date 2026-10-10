@@ -195,7 +195,7 @@ test('a line about an agent names it as acc named its builder, escaped, and says
   const line = (e: SlackEvent | null) => slackMessage(e!).text.split('\n')[2];
   const told = (before: TaskRow, after: TaskRow) => line(taskEvent(p(after), taskNotices([before], [after])[0]!, T0 + 50));
   assert.equal(told(named(), named({ display: 'needs-you' })), `${name} is waiting for you in its own prompt.`);
-  assert.equal(told(named(), named({ display: 'needs-you', stopped: { said: SENTINEL.said } })), `${name} stopped before acc done or acc block. It can be resumed from the Command Center.`);
+  assert.equal(told(named(), named({ display: 'needs-you', stopped: { said: SENTINEL.said } })), `${name} stopped before it finished or blocked. It can be resumed from the Command Center.`);
   const asked = (tool: string, r = named()) => line(questionEvent({ id: 'q', tool, at: T0 + 1 }, p(r), 'ACME-12'));
   assert.equal(asked('AskUserQuestion'), `${name} has a question for you.`);
   assert.equal(asked('ExitPlanMode'), `${name} has a plan for you to approve.`);

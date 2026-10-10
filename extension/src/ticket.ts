@@ -16,6 +16,7 @@ import { runFile } from './run.ts';
 import type { Trackers } from './trackers.ts';
 import type { ExtensionArea } from './area.ts';
 import { addTaskArgs, draftFromOpen } from './logic/tasks.ts';
+import { inProcessWords } from './logic/processes.ts';
 
 type AccRun = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
 type Reply = { ok: boolean; error?: string };
@@ -248,8 +249,8 @@ export class TicketPanels implements vscode.Disposable {
       // Outside the repo's place (D-072): not shown, nor tracked, and said plainly rather than as a failure.
       const outside = (e as { kind?: string }).kind === 'outside';
       if (outside) o.ticket = null;
-      o.outside = outside ? (e as Error).message : null;
-      o.error = outside ? null : (e as Error).message;
+      o.outside = outside ? inProcessWords((e as Error).message) : null;
+      o.error = outside ? null : inProcessWords((e as Error).message);
       const t = this.trackers.trackers(p)[o.tracker];
       o.connect = (e as { kind?: string }).kind === 'auth' && t && t.kind !== 'github'
         ? { command: 'acc.trackers.signIn', label: signInLabel(t.kind), arg: JSON.stringify({ root: p.root, index: o.tracker }) } : null;
@@ -401,7 +402,7 @@ export class TicketPanels implements vscode.Disposable {
         void this.trackers.loadBoards(p.root);
       }
     } catch (e) {
-      const msg = (e as Error).message;
+      const msg = inProcessWords((e as Error).message);
       done(false, msg);
       void vscode.window.showErrorMessage(`${o.key}: ${msg}`);
     }
@@ -513,7 +514,7 @@ export class TicketPanels implements vscode.Disposable {
     if (r.code !== 0) {
       let msg = (r.stderr || r.stdout).trim().split('\n')[0] ?? '';
       try { msg = (JSON.parse(r.stdout) as { message?: string }).message ?? msg; } catch { /* plain text */ }
-      void vscode.window.showWarningMessage(`Couldn't waive ${gate}: ${msg}`);
+      void vscode.window.showWarningMessage(`Couldn't waive ${gate}: ${inProcessWords(msg)}`);
     } else {
       void vscode.window.showInformationMessage(`${gate} is waived on ${task.id}'s latest commit.${task.state === 'blocked' ? ' Move it to In review when you\'re ready.' : ''}`);
     }
@@ -549,7 +550,7 @@ export class TicketPanels implements vscode.Disposable {
     let out: { added?: string[]; message?: string } = {};
     try { out = JSON.parse(r.stdout) as typeof out; } catch { /* plain text */ }
     if (r.code !== 0 || !out.added?.length) {
-      void vscode.window.showWarningMessage(`Couldn't make the task: ${out.message ?? ((r.stderr || r.stdout).trim().split('\n')[0] ?? '')}`);
+      void vscode.window.showWarningMessage(`Couldn't make the task: ${inProcessWords(out.message ?? ((r.stderr || r.stdout).trim().split('\n')[0] ?? ''))}`);
     } else {
       void vscode.window.showInformationMessage(`Added ${out.added.join(', ')}${draft.deps.length ? `, after ${task.id}` : ''}.`);
     }

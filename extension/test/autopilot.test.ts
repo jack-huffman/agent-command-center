@@ -54,7 +54,7 @@ test('a builder that stopped is told once, with what it last said, and Resume; n
   assert.deepEqual(news.map((n) => [n.kind, n.urgent, n.text]), [['stopped', true, `GH-41's agent stopped: ${said}`]]);
   assert.deepEqual(noticeActions(news[0]!), [['Resume', 'acc.task.resume'], ['Show', 'acc.task.show']], 'Resume, not Open in Claude Code');
   assert.deepEqual(taskNotices([stopped], [stopped]), [], 'said once');
-  assert.equal(taskNotices([row()], [row({ display: 'needs-you', stopped: { said: null } })])[0]!.text, 'GH-41\'s agent stopped before acc done or acc block.');
+  assert.equal(taskNotices([row()], [row({ display: 'needs-you', stopped: { said: null } })])[0]!.text, 'GH-41\'s agent stopped before it finished or blocked.');
   assert.match(taskNotices([row()], [row({ display: 'needs-you', stopped: { said: 'x'.repeat(500) } })])[0]!.text, /^GH-41's agent stopped: x{150,}…$/, 'a long quote is clipped');
 
   // A resumed conversation is listed beside its old background session: the one with a process is the agent.
@@ -175,7 +175,9 @@ test('the autopilot switch says on or off with an icon and the words, and its to
   assert.match(refusal, /^autonomy "dispatch" \(autopilot also starting Ready tasks\) is not built yet\. Set "autonomy" to "review" in \.acc\/config\.json: autopilot then reviews finished work, [^]*, and starts a task a person dispatched once the files it waits for are free\.$/);
   const refused = autopilotStatus({ project: 'Tool', many: false, state: 'refused', refusal });
   assert.equal(refused.text, '$(circle-slash) Autopilot: off');
-  assert.equal(refused.tooltip, `Autopilot can't run for Tool: ${refusal}`);
+  // In the Command Center's words: the settings file is named for what it is (GH-163).
+  assert.equal(refused.tooltip, `Autopilot can't run for Tool: ${refusal.replace('.acc/config.json', 'the project\'s settings')}`);
+  assert.ok(!refused.tooltip.includes('.acc/'), 'no path reaches the status bar');
   const noGithub = autopilotStatus({ project: 'Tool', many: false, state: 'refused', refusal: 'Autopilot lands reviewed work as pull requests on GitHub, and this project has no "github" section in .acc/config.json.' });
   assert.match(noGithub.tooltip, /no "github" section/);
 
@@ -205,7 +207,7 @@ test('a pull request autopilot merged is a notice and a History item; one it cou
   assert.deepEqual(say(failed), [[`Autopilot couldn't merge GH-67: ${reason}`, true, [pr, show]]]);
 
   // History: what it merged, with its link; and what it couldn't, in orange with a warning icon.
-  assert.deepEqual(autopilotStepLook(merged), { look: { label: 'Autopilot merged pull request #72', icon: 'git-merge', tone: 'blue' }, detail: 'acc sync moves it to done.', url: 'https://github.com/acme/tool/pull/72' });
+  assert.deepEqual(autopilotStepLook(merged), { look: { label: 'Autopilot merged pull request #72', icon: 'git-merge', tone: 'blue' }, detail: 'It moves to done at the next refresh from GitHub.', url: 'https://github.com/acme/tool/pull/72' });
   assert.deepEqual(autopilotStepLook(failed), { look: { label: 'Autopilot couldn\'t merge it', icon: 'warning', tone: 'orange' }, detail: reason, url: null });
   // The card: Needs you, with the bell.
   assert.deepEqual(autopilotLook({ autopilot: { step: 'merge', reason } }), { label: `Needs you: autopilot couldn't merge it: ${reason}`, icon: 'bell', tone: 'orange' });

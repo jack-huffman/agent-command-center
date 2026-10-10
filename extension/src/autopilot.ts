@@ -11,7 +11,7 @@ import type { Runs } from './runs.ts';
 import type { ExtensionArea } from './area.ts';
 
 /** acc's own words for a project autopilot can't land in. */
-const NO_GITHUB = 'Autopilot lands reviewed work as pull requests on GitHub, and this project has no "github" section in .acc/config.json.';
+const NO_GITHUB = 'Autopilot lands reviewed work as pull requests on GitHub, and this project\'s settings name no GitHub repo.';
 /** How often the switch looks for an autopilot another window or a terminal started. */
 const LOCK_LOOK_MS = 10_000;
 

@@ -166,7 +166,7 @@ test('How agents run is a built part, or says no project is onboarded yet, with 
   const some = part([withAgents({ autonomy: 'review' })]);
   assert.deepEqual([some.built, some.today, some.links], [true, null, []]);
   assert.match(some.summary, /Each Change… asks acc to make the change\.$/);
-  assert.deepEqual(some.details, ['This clone\'s choice is kept in its git config, where nobody else sees it. A project\'s is kept in its .acc/config.json, for you to commit and share.']);
+  assert.deepEqual(some.details, ['This clone\'s choice is kept in its git config, where nobody else sees it. A project\'s is kept in the project\'s settings, for you to commit and share.']);
   const none = part([]);
   assert.deepEqual([none.built, none.links], [true, [{ label: 'Open Setup', icon: 'checklist', section: 'setup' }]]);
   assert.match(none.details[0]!, /^No project in this workspace is onboarded yet\./);
@@ -420,7 +420,7 @@ test('GitHub accounts lists every open project from what Environments read, is b
   assert.equal(m.github.projects.length, projects.length);
   const part = m.parts.find((p) => p.id === 'github')!;
   assert.deepEqual([part.built, part.links], [true, []]);
-  assert.match(part.details[0]!, /^acc github use makes the switch, in this clone's git config: nobody else sees it, nothing committed changes, and no agent may make it\./);
+  assert.match(part.details[0]!, /^Switch… makes the change in this clone's git config: nobody else sees it, nothing committed changes, and no agent may make it\./);
   assert.deepEqual(settingsModel({ theme: 'vscode', projects: [], setup: [] }).parts.find((p) => p.id === 'github')!.links, [{ label: 'Open Setup', icon: 'checklist', section: 'setup' }]);
   assert.deepEqual(githubAccounts(projects, () => null).projects.map((g) => g.root), projects.map((p) => p.root));
   // Switch… is the status bar's and Environments' acc.github.switch, which asks acc github use.
@@ -489,7 +489,7 @@ test('each tracker says its kind, place and board, and who it signs in as, for e
   const checking = trackerSetting(tracked(10, 'jira', 'Jira · NEW', { loading: true }), ACME);
   assert.deepEqual(checking.signIn, { label: 'Checking its sign-in', icon: 'sync~spin', tone: 'blue' });
   assert.ok(!checking.actions.some((x) => x.primary), 'no button leads while it checks');
-  assert.deepEqual(trackerSetting(tracked(8, 'github', 'GitHub · ?'), ACME).signIn, { label: 'No GitHub account: the project\'s "github" section names none', icon: 'warning', tone: 'orange' });
+  assert.deepEqual(trackerSetting(tracked(8, 'github', 'GitHub · ?'), ACME).signIn, { label: 'No GitHub account: the project\'s settings name none', icon: 'warning', tone: 'orange' });
 
   // Every state has words and an icon, and colour only adds to them: blue or orange, never red or green.
   for (const t of [shared, own, none, refused, down, gh]) {
@@ -545,7 +545,7 @@ test('Trackers and sign-ins lists every open project under its name, says when o
   const part = (projects: ProjectLike[]) => settingsModel({ theme: 'vscode', projects, setup: [], boards }).parts.find((x) => x.id === 'trackers')!;
   const some = part([p('Acme', '/a')]);
   assert.deepEqual([some.built, some.today, some.links, some.title, some.icon], [true, null, [], 'Trackers and sign-ins', 'issues']);
-  assert.match(some.details[0]!, /Change place… and Connect a tracker ask acc to write it, for you to commit\. A Jira, Azure DevOps or monday\.com sign-in stays in VSCode on this machine, never in a file; GitHub's is gh's\.$/);
+  assert.match(some.details[0]!, /Change place… and Connect a tracker ask acc to write them, for you to commit\. A Jira, Azure DevOps or monday\.com sign-in stays in VSCode on this machine, never in a file; GitHub's is gh's\.$/);
   const none = part([]);
   assert.deepEqual(none.links, [{ label: 'Open Setup', icon: 'checklist', section: 'setup' }]);
   assert.match(none.details[0]!, /^No project in this workspace is onboarded yet\./);

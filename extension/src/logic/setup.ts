@@ -8,6 +8,7 @@ import type { Tracker } from '../../../packages/core/src/config.ts';
 import type { CheckStatus, Step } from '../../../packages/core/src/onboarding/types.ts';
 import { describe } from '../../../packages/core/src/trackers/connect.ts';
 import type { StartProject } from '../connect.ts';
+import { inProcessWords, processLine, processName } from './processes.ts';
 import { shq } from './shared.ts';
 
 export const PUBLISHER = 'JackHuffman';
@@ -54,7 +55,7 @@ export const needsConfirmation = (step: Step): boolean => (!!step.fix?.text && !
 export const hasRunnableFix = (step: Step): boolean => !!step.fix?.command || !!step.fix?.fromCheck || !!step.fix?.vscode;
 
 export function stepDescription(step: Step): string {
-  const lines = [step.why, ''];
+  const lines = [inProcessWords(step.why), ''];
   lines.push(commandLink('Check', COMMANDS.check, [step.id]));
   if (hasRunnableFix(step)) lines.push(commandLink('Do it', COMMANDS.fix, [step.id]));
   if (step.fix?.setupPath) lines.push(commandLink('Open in Salesforce', COMMANDS.openSetup, [step.id]));
@@ -66,16 +67,19 @@ export function stepDescription(step: Step): string {
 
 /** The page shown beside the step: what it is, why it matters, and exactly what fixing it involves. */
 export function stepMedia(step: Step): string {
-  const out = [`# ${step.title}`, '', `\`${step.id}\``, '', step.why, ''];
+  const out = [`# ${step.title}`, '', `\`${step.id}\``, '', inProcessWords(step.why), ''];
   if (step.offer) out.push(`**${step.offer.label}** is here whatever the step shows.`, '');
   const f = step.fix;
   if (f?.command || f?.fromCheck || f?.vscode || f?.text || f?.setupPath || f?.docs) out.push('## How to fix it', '');
-  if (f?.command) out.push('**Do it** runs this in a terminal, so you see exactly what happens:', '', '```bash', f.command, '```', '');
+  // acc's own fix is named as its process (GH-163); another tool's command is shown as it runs.
+  const does = f?.command ? processLine(f.command) : null;
+  if (does) out.push(`**Do it**: ${does}. It runs in a terminal, so you see exactly what happens.`, '');
+  else if (f?.command) out.push('**Do it** runs this in a terminal, so you see exactly what happens:', '', '```bash', f.command, '```', '');
   if (f?.fromCheck) out.push('**Do it** runs the exact command the check works out for this repo, in a terminal you can see.', '');
-  if (f?.text) out.push(f.text, '');
+  if (f?.text) out.push(inProcessWords(f.text), '');
   if (f?.setupPath) out.push('**Open in Salesforce** opens Setup in the right org.', '');
   if (f?.docs) out.push(`More detail: ${f.docs.startsWith('http') ? `[Salesforce docs](${f.docs})` : 'the onboarding guide (**Read the guide**).'}`, '');
-  out.push('---', '', 'The step ticks itself when its check passes. **Check** re-runs it at any time, and so does `acc doctor` in a terminal.');
+  out.push('---', '', `The step ticks itself when its check passes. **Check** re-runs it at any time, and so does **${processName('doctor')}**, from the command palette.`);
   return out.join('\n') + '\n';
 }
 
@@ -262,11 +266,11 @@ export function initOutput(stdout: string, stderr = ''): InitOutput {
       const g = c.github;
       return { ok: true, project: c.project, github: g && typeof g.repo === 'string' && typeof g.account === 'string' ? { repo: g.repo, account: g.account } : null };
     }
-    if (typeof j.message === 'string') return { ok: false, error: j.message };
+    if (typeof j.message === 'string') return { ok: false, error: inProcessWords(j.message) };
   } catch {
     // said below
   }
-  return { ok: false, error: (stderr || stdout).trim().split('\n')[0] || 'acc init printed nothing.' };
+  return { ok: false, error: inProcessWords((stderr || stdout).trim().split('\n')[0] ?? '') || 'acc said nothing.' };
 }
 
 /**
@@ -328,12 +332,12 @@ export function shownTemplate(stdout: string, stderr = ''): ShownTemplate {
         tracker: trackerOf(j.template),
       };
     }
-    if (Array.isArray(j.errors) && j.errors.length) return { ok: false, errors: j.errors.map(String) };
-    if (typeof j.message === 'string') return { ok: false, errors: [j.message] };
+    if (Array.isArray(j.errors) && j.errors.length) return { ok: false, errors: j.errors.map((e) => inProcessWords(String(e))) };
+    if (typeof j.message === 'string') return { ok: false, errors: [inProcessWords(j.message)] };
   } catch {
     // said below
   }
-  return { ok: false, errors: [(stderr || stdout).trim().split('\n')[0] || 'acc template show printed nothing.'] };
+  return { ok: false, errors: [inProcessWords((stderr || stdout).trim().split('\n')[0] ?? '') || 'acc said nothing.'] };
 }
 
 /** The confirmation's detail: what the template is, what it sets, and the commands it would run on this machine. */
@@ -345,7 +349,7 @@ export const templateDetail = (t: Extract<ShownTemplate, { ok: true }>): string 
     ...(t.profile ? [] : ['It sets no profile, so you choose Salesforce or Other next.']),
     ...(commands.length ? ['', 'Check commands it runs on this machine:', ...commands.map(([gate, cmd]) => `${gate}: ${cmd}`)] : []),
     '',
-    'You review .acc/config.json and commit it yourself.',
+    'You review the project\'s settings and commit them yourself.',
   ].join('\n');
 };
 
@@ -373,11 +377,11 @@ export function shownRules(stdout: string, stderr = ''): ShownRules {
         replaces: r && typeof r === 'object' ? { source: typeof r.source === 'string' ? r.source : null, copied: typeof r.copied === 'string' ? r.copied : null, edited: r.edited === true } : null,
       };
     }
-    if (typeof j.message === 'string') return { ok: false, errors: [j.message] };
+    if (typeof j.message === 'string') return { ok: false, errors: [inProcessWords(j.message)] };
   } catch {
     // said below
   }
-  return { ok: false, errors: [(stderr || stdout).trim().split('\n')[0] || 'acc rules import printed nothing.'] };
+  return { ok: false, errors: [inProcessWords((stderr || stdout).trim().split('\n')[0] ?? '') || 'acc said nothing.'] };
 }
 
 /** The confirmation's detail: where the copy goes, where it's from, its first lines, and that a person commits it. */
@@ -388,7 +392,7 @@ export const rulesDetail = (r: Extract<ShownRules, { ok: true }>): string => [
   ...r.preview.slice(0, 10),
   ...(r.lines > 10 ? ['…'] : []),
   '',
-  `You review ${r.file} and commit it yourself. acc never updates it on its own: Setup says when its source changes.`,
+  `You review the rules file ${r.name} and commit it yourself. acc never updates it on its own: Setup says when its source changes.`,
 ].join('\n');
 
 /** The org URL an environment should have (D-015): Production at <domain>.my.salesforce.com, a sandbox named after its branch. */

@@ -15,6 +15,7 @@ import { type Board, type Exec, movesInto, placeText, signInLabel, type Ticket, 
 import { Pending } from '../webview/pending.ts';
 import type { Hub, Project } from './hub.ts';
 import { accImport, accSetTracker, cardTracking, credInUse, credSite, credWrites, type CredWrites, liveTrackKeys, outsideKeys, placeCandidates, readCreds, reloadRoots, repoKey, signOutPlan, type StoredCreds, trackerHost, type TrackReply, type TrackState, trackTicket } from './logic/connect.ts';
+import { inProcessWords } from './logic/processes.ts';
 import { runFile } from './run.ts';
 import type { ExtensionArea } from './area.ts';
 
@@ -207,7 +208,7 @@ export class Trackers implements vscode.Disposable {
 
   client(p: Project, index: number): Promise<TrackerClient> {
     const t = this.trackers(p)[index];
-    if (!t) return Promise.reject(new TrackerError('not-found', 'That tracker is no longer in .acc/config.json.'));
+    if (!t) return Promise.reject(new TrackerError('not-found', 'That tracker is no longer in the project\'s settings.'));
     // The account is part of the key: switching it (D-028) must never reuse the old one's client.
     const key = `${p.root}#${index}#${JSON.stringify(t)}#${p.config.github?.account ?? ''}`;
     let c = this.clients.get(key);
@@ -222,7 +223,7 @@ export class Trackers implements vscode.Disposable {
   private async makeClient(p: Project, t: Tracker): Promise<TrackerClient> {
     if (t.kind === 'github') {
       const account = p.config.github?.account;
-      if (!t.repo || !account) throw new TrackerError('other', 'A GitHub tracker needs the project\'s "github" section (repo and account) in .acc/config.json.');
+      if (!t.repo || !account) throw new TrackerError('other', 'A GitHub tracker needs the project\'s GitHub repo and account, in its settings.');
       return new GithubClient({ repo: t.repo, token: await this.ghToken(p.root, account), account, exec, project: typeof t.board === 'number' ? t.board : null, labels: t.labels });
     }
     const found = await this.credFor(p, t);
@@ -281,7 +282,7 @@ export class Trackers implements vscode.Disposable {
           s.error = null;
           await this.followPlace(p, s, client);
         } catch (e) {
-          s.error = (e as Error).message;
+          s.error = inProcessWords((e as Error).message);
           if (e instanceof TrackerError && e.kind === 'auth') s.connect = this.signInButton(p, s.index, list[s.index]!);
           this.log.warn(`[trackers] ${s.title}: ${s.error}`);
         } finally {
@@ -318,7 +319,7 @@ export class Trackers implements vscode.Disposable {
       const file = join(dir, 'outside.json');
       writeFileSync(file, JSON.stringify({ outside }));
       const r = await this.acc(['intake', s.kind, '--file', file, '--json'], p.root);
-      if (r.code !== 0) throw new Error((r.stderr || r.stdout).trim().split('\n')[0] || `acc intake ${s.kind} failed`);
+      if (r.code !== 0) throw new Error(inProcessWords((r.stderr || r.stdout).trim().split('\n')[0] ?? '') || 'acc said nothing.');
       const res = JSON.parse(r.stdout) as IntakeResult;
       s.left = res.leftAlone.map((l) => l.note);
       if (res.removed.length) {

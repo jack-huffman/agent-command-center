@@ -1,7 +1,7 @@
 [
   {
     "command": "acc.doctor",
-    "title": "Check setup",
+    "title": "Check the setup",
     "category": "Agent Command Center",
     "icon": "$(checklist)"
   },

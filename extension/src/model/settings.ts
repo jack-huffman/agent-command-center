@@ -263,11 +263,11 @@ export function trackerSetting(b: BoardInput, p: { root: string; name: string })
   const refused = !!b.error && !!b.connect;
   // GitHub's error is its sign-in's only when it's about gh's account, or the project naming none; an outage
   // or a repo it can't read is the board's.
-  const ghAccount = b.kind === 'github' && !!b.error && (!!b.connect || /\bgh\b.*\b(log(ged)? ?in|auth)|"github" section/i.test(b.error));
+  const ghAccount = b.kind === 'github' && !!b.error && (!!b.connect || /\bgh\b.*\b(log(ged)? ?in|auth)|"github" section|GitHub repo and account/i.test(b.error));
   const signIn: Look = b.kind === 'github'
     ? ghAccount ? LOOK(b.error!, 'warning', 'orange')
       : b.signedInAs ? LOOK(`Signs in through gh as ${b.signedInAs}, the project's GitHub account`, 'github', 'blue')
-        : LOOK('No GitHub account: the project\'s "github" section names none', 'warning', 'orange')
+        : LOOK('No GitHub account: the project\'s settings name none', 'warning', 'orange')
     // Its credentials not read yet: checking, not a warning that flashes while the page loads.
     : !b.signedInAs && b.loading ? LOOK('Checking its sign-in', 'sync~spin', 'blue')
     : !b.signedInAs ? LOOK('Not signed in', 'plug', 'orange')
@@ -334,7 +334,7 @@ export function githubAccount(p: ProjectLike, id: IdentityCard | null): GithubAc
   const base = { root: p.root, project: p.name, repo: p.config.github?.repo ?? null };
   const switchTo = (disabled: string | null, primary = false): SettingsAction => ({ command: 'acc.github.switch', label: 'Switch…', icon: 'arrow-swap', arg: p.root, name: `Switch the GitHub account ${p.name} pushes as, in this clone`, primary, disabled });
   if (!p.config.github) {
-    return { ...base, look: LOOK('No GitHub repo: its .acc/config.json has no "github" section', 'circle-slash', 'neutral'), from: null, lines: [], actions: [switchTo('It names no GitHub repo, so there\'s no account to switch.')] };
+    return { ...base, look: LOOK('No GitHub repo: the project\'s settings name none', 'circle-slash', 'neutral'), from: null, lines: [], actions: [switchTo('It names no GitHub repo, so there\'s no account to switch.')] };
   }
   if (!id) return { ...base, look: LOOK(`Checking which account it pushes as: the project's is ${p.config.github.account}`, 'sync~spin', 'blue'), from: null, lines: [], actions: [switchTo(null)] };
   const lines: Look[] = [];
@@ -532,7 +532,7 @@ export function settingsModel(i: SettingsInput): SettingsModel {
       id: 'agents', title: 'How agents run', icon: 'hubot', summary: 'What builders and reviewers run with in each project: model, effort and fallback, and what autopilot may do on its own. Each Change… asks acc to make the change.',
       built: true, today: null,
       details: agents.projects.length
-        ? ['This clone\'s choice is kept in its git config, where nobody else sees it. A project\'s is kept in its .acc/config.json, for you to commit and share.']
+        ? ['This clone\'s choice is kept in its git config, where nobody else sees it. A project\'s is kept in the project\'s settings, for you to commit and share.']
         : ['No project in this workspace is onboarded yet. Once Setup onboards one, its builders and reviewers show here.'],
       links: agents.projects.length ? [] : [{ label: 'Open Setup', icon: 'checklist', section: 'setup' }],
     },
@@ -542,7 +542,7 @@ export function settingsModel(i: SettingsInput): SettingsModel {
       summary: 'Each project\'s trackers: where their tickets come from, the board, and the account each signs in as, for that project only or for every project on its site.',
       built: true, today: null,
       details: trackers.projects.length
-        ? ['A tracker\'s place and board are kept in its project\'s .acc/config.json: Change place… and Connect a tracker ask acc to write it, for you to commit. A Jira, Azure DevOps or monday.com sign-in stays in VSCode on this machine, never in a file; GitHub\'s is gh\'s.']
+        ? ['A tracker\'s place and board are kept in its project\'s settings: Change place… and Connect a tracker ask acc to write them, for you to commit. A Jira, Azure DevOps or monday.com sign-in stays in VSCode on this machine, never in a file; GitHub\'s is gh\'s.']
         : ['No project in this workspace is onboarded yet. Once Setup onboards one, its trackers show here.'],
       links: trackers.projects.length ? [] : [{ label: 'Open Setup', icon: 'checklist', section: 'setup' }],
     },
@@ -555,7 +555,7 @@ export function settingsModel(i: SettingsInput): SettingsModel {
       id: 'github', title: 'GitHub accounts', icon: 'github', built: true, today: null,
       summary: 'The GitHub account each project\'s repo pushes as from this clone. Switch… picks another account gh is signed in to, or goes back to the project\'s.',
       details: github.projects.length
-        ? ['acc github use makes the switch, in this clone\'s git config: nobody else sees it, nothing committed changes, and no agent may make it. The project\'s account is in its .acc/config.json.']
+        ? ['Switch… makes the change in this clone\'s git config: nobody else sees it, nothing committed changes, and no agent may make it. The project\'s account is in the project\'s settings.']
         : ['No project in this workspace is onboarded yet. Once Setup onboards one, the account its repo pushes as shows here.'],
       links: github.projects.length ? [] : [{ label: 'Open Setup', icon: 'checklist', section: 'setup' }],
     },

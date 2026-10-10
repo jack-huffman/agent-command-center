@@ -64,7 +64,7 @@ export function updateAbout(u: Pick<Update, 'event' | 'env' | 'pr'>): string {
  * and Azure DevOps through this repo's sign-in (D-027). Without one, Post waits for it.
  */
 export function updatePoster(tracker: UpdateCard['tracker'], index: number | null, root: string, github: string | null, boards: BoardInput[]): Pick<UpdateCard, 'postAs' | 'blocked' | 'signIn'> {
-  if (tracker === 'github') return github ? { postAs: github, blocked: null, signIn: null } : { postAs: null, blocked: 'This project has no GitHub account in .acc/config.json to post as.', signIn: null };
+  if (tracker === 'github') return github ? { postAs: github, blocked: null, signIn: null } : { postAs: null, blocked: 'This project\'s settings name no GitHub account to post as.', signIn: null };
   const name = trackerName(tracker);
   // The tracker that owns the ticket's key, not the first of its kind: a repo can have two Jira sites.
   const b = index === null ? undefined : boards.find((x) => x.index === index && x.kind === tracker);
