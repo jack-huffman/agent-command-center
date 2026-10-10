@@ -1,0 +1,1 @@
+- Words that describe the code say what it does on this branch, no more. Before you commit a doc row, label, comment or note, check each claim against the code: what calls what, how often something runs, what is built and what is "still to come". Where the code and the words disagree, change the words, and fix every copy (DESIGN, DECISIONS, the UI) in the same change.
