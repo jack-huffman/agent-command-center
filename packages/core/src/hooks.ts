@@ -105,7 +105,8 @@ export function commandsOf(line: string): string[][] {
     if (c === '"' || c === "'") { quote = c; any = true; continue; }
     if (c === '\\' && i + 1 < line.length) { word += line[++i]; any = true; continue; }
     if (/\s/.test(c) && c !== '\n') { end(); continue; }
-    if (c === '\n' || c === ';' || c === '|' || c === '&' || c === '(' || c === ')') { next(); continue; }
+    // A backtick cuts too (GH-69): what's inside it runs, so it's read as its own command.
+    if (c === '\n' || c === ';' || c === '|' || c === '&' || c === '(' || c === ')' || c === '`') { next(); continue; }
     word += c;
     any = true;
   }
@@ -113,7 +114,7 @@ export function commandsOf(line: string): string[][] {
   // Leading environment assignments and wrappers don't change what runs.
   return out.map((w) => {
     let i = 0;
-    while (i < w.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w[i]!) || ['nice', 'env', 'time', 'command', 'npx'].includes(w[i]!) || (w[i - 1] === 'nice' && /^-n$|^-\d+$/.test(w[i]!)) || (w[i - 2] === 'nice' && w[i - 1] === '-n'))) i++;
+    while (i < w.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w[i]!) || ['nice', 'env', 'time', 'command', 'npx', 'sudo'].includes(w[i]!) || (w[i - 1] === 'nice' && /^-n$|^-\d+$/.test(w[i]!)) || (w[i - 2] === 'nice' && w[i - 1] === '-n'))) i++;
     return w.slice(i);
   }).filter((w) => w.length);
 }

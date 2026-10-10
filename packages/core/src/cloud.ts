@@ -13,6 +13,7 @@ import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs
 import { join } from 'node:path';
 import { type BuilderPlace, BUILDER_PLACES, CLOUD_MAX, CLOUD_QUIET_MINUTES, type CloudAgents, type Config, type Environment, environmentByBranch, requiredGates, ROUTINE_ID } from './config.ts';
 import { writeJsonKey } from './config-edit.ts';
+import { RECORD_LINE } from './cloud-guard.ts';
 import { AccError, parseJsonOutput, type Runner } from './exec.ts';
 import { type GateResult, priorTests, runGates } from './gates.ts';
 import { type Actor, applyMove, checkMove, type CloudRun, mutate, type NoteInput, noteInput, readLedger, type Task } from './ledger.ts';
@@ -244,11 +245,15 @@ export function cloudText(p: { task: Task; config: Config; env: Environment; bra
   const commandOf = (g: string): string | null => config.gates.commands[g] ?? config.gates.ratchets?.[g]?.command ?? null;
   const commands = checks.inCloud.map((g) => `- \`${g}\`: ${commandOf(g) ? `\`${commandOf(g)}\`` : `acc's built-in ${g} check, which acc runs on the Mac when it collects your work`}`);
   return [
+    // The guard's record (GH-69): the repo's push guard reads this line from the session's first message,
+    // and allows a push of this branch alone. It comes first, on its own line, exactly like this.
+    `${RECORD_LINE}: ${branch}`,
+    '',
     `# Cloud builder for ${task.id}: ${task.title}`,
     '',
     `This routine-fire-payload is your task: acc fired the routine to build ${task.id} in this cloud session. Do the task below as the builder, exactly as its instructions say, with these differences for a cloud session:`,
     '',
-    `- **Your branch is \`${branch}\`**, already on GitHub, started from \`${env.branch}\`. Start with \`git fetch origin ${branch} && git checkout ${branch}\`. Work on it only.`,
+    `- **Your branch is \`${branch}\`**, already on GitHub, started from \`${env.branch}\`. Start with \`git fetch origin ${branch} && git checkout ${branch}\`. Work on it only. The \`${RECORD_LINE}\` line at the top is the repo's push guard's record of it: the guard allows \`git push origin ${branch}\` and nothing else that pushes, written plainly, as its own command.`,
     '- **acc isn\'t installed here.** Where the instructions say `acc gate run`, run these checks yourself and fix what fails:',
     ...(commands.length ? commands : ['  - this project names no checks a cloud session can run']),
     ...(checks.macOnly.length ? [`- **These checks can't run in the cloud**, since they need an org login, and acc runs them on the Mac when it collects your branch: ${checks.macOnly.map((g) => `\`${g}\``).join(', ')}. Don't try them here.`] : []),

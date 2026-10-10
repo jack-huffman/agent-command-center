@@ -424,7 +424,10 @@ key instead.
 ### B15.cloud-guard: The push guard is committed
 
 Look for: `acc cloud enable` writing `.claude/hooks/acc-push-guard.mjs` and
-`.claude/settings.json`, and the check passing once they're there.
+`.claude/settings.json`, the check still failing until both are committed (it
+reads HEAD's tree), and passing once they are. `acc cloud` should also say, per
+environment branch, whether GitHub enforces protection, as a warning where it
+doesn't.
 
 - **Showed:**
 - **Unclear:**

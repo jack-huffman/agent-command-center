@@ -4,7 +4,7 @@
  * cloud is never the default, and nothing here nags about it.
  */
 import { claudeLogin, readCloudToken, ROUTINES_URL } from '../cloud.ts';
-import { guardInstalled } from '../cloud-guard.ts';
+import { guardCommitted } from '../cloud-guard.ts';
 import { fail, pass, skip, unknown } from './helpers.ts';
 import type { CheckContext, CheckResult, Step } from './types.ts';
 
@@ -83,12 +83,14 @@ export const CLOUD_STEPS: Step[] = [
   },
   {
     id: 'B15.cloud-guard', part: 'project', group: 'B15', title: 'The push guard is committed',
-    why: 'A cloud session runs the repo\'s own .claude/settings.json hooks and not acc\'s plugin, so the guard that refuses a push to any branch but the task\'s is a script the repo carries (GH-69).',
-    fix: { command: 'acc cloud enable', text: 'acc cloud enable writes .claude/hooks/acc-push-guard.mjs and its PreToolUse hook into .claude/settings.json. Commit both.' },
+    why: 'A cloud session runs the repo\'s own .claude/settings.json hooks and not acc\'s plugin, so the guard that refuses a push to any branch but the task\'s is a script the repo carries, and only what\'s committed reaches the cloud (GH-69).',
+    fix: { command: 'acc cloud enable', text: 'acc cloud enable writes .claude/hooks/acc-push-guard.mjs and its PreToolUse hook into .claude/settings.json. Commit both, and merge them into every branch a cloud session starts from.' },
     check(ctx) {
       const need = optedIn(ctx);
       if (need) return need;
-      return guardInstalled(ctx.paths!.root) ? pass('The push guard and its hook are in the repo.') : fail('The push guard isn\'t in .claude/settings.json.', 'acc cloud enable');
+      // The commit's tree, not the files on disk: a guard written and not committed never reaches the cloud.
+      const committed = guardCommitted(ctx.run, ctx.paths!.root, 'HEAD');
+      return committed.ok ? pass('The push guard and its hook are committed on HEAD.') : fail(committed.why ?? 'The push guard isn\'t committed.', 'acc cloud enable');
     },
   },
 ];

@@ -2,12 +2,12 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "node .claude/hooks/acc-push-guard.mjs",
-            "timeout": 10
+            "command": "node \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/acc-push-guard.mjs",
+            "timeout": 20
           }
         ]
       }

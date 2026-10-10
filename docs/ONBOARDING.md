@@ -662,8 +662,14 @@ Setup skips them.
 - [ ] **The push guard is committed** (`B15.cloud-guard`). A cloud session runs
   the repo's own `.claude/settings.json` hooks and not acc's plugin, so
   `acc cloud enable` writes `.claude/hooks/acc-push-guard.mjs` and a
-  PreToolUse hook that refuses a push to any branch but the task's, a force
-  push, a pull request and a deploy, in cloud sessions only. Commit both.
+  PreToolUse hook on Bash and the editing tools that allows a plain push of
+  the task's branch alone and refuses everything else that could push, a write
+  under `.claude/`, and a deploy, in cloud sessions only, failing closed.
+  Commit both: the check reads HEAD's tree, not the files on disk, since only
+  what's committed reaches the cloud, and a dispatch refuses `--cloud` until
+  the branch the cloud clones and the task branch both carry it. Where GitHub
+  enforces no protection on an environment branch, `acc cloud` and the
+  dispatch warn, without refusing: a private repo on the free plan has none.
 
 ### B11. Drift check (any time)
 
