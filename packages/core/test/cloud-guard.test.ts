@@ -140,7 +140,7 @@ test('in a cloud session, the guard allows a plain push of the recorded branch a
     ['eval "git push origin main"', /Push plainly/],
     [`eval git push origin ${BRANCH}`, /Push plainly/],
     [`exec git push origin ${BRANCH}`, /Push plainly/],
-    ['nice -n 15 git push origin main', /never push main/],
+    ['nice -n 15 git push origin main', /Push plainly/],
     // shells: -c lines are guarded, script files and bare shells refused
     ['sh -c "git push origin main"', /never push main/],
     ['bash -lc "git push origin main"', /never push main/],

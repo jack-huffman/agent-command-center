@@ -17,7 +17,8 @@ export function moveLook(m: BranchMove): Look {
 
 export const area: ModelArea = {
   home: {
-    order: 12,
+    // After the tasks' own items, before the ticket updates: a moved base matters to what builds on it.
+    order: 11,
     attention(c, p) {
       const moves = c.hub.branchMoves?.(p.root) ?? [];
       for (const m of moves) {
