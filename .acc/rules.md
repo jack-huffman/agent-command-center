@@ -8,3 +8,9 @@
   at least one test whose name says which edge case it covers. Checked by
   `scripts/test/edge-cases.test.ts`, whose `OLDER` list names the test files that predate this rule. That
   list may only shrink.
+- Test coverage: test what the change adds, not only that it runs. Each acceptance criterion, and each case
+  a guard or branch handles (every form a guard catches, a step that finishes during a wait, a message
+  reaching the handler meant for it, a dialog's keys and clicks driven in a browser), gets a test that fails
+  without it. Every function, constant or class a source module exports is named by a test. That export half is
+  checked by `scripts/test/coverage.test.ts`, whose `OLDER` list names the exports that predate this rule. That list
+  may only shrink. Reviewers judge the first half: each criterion and each guarded case has its test.
