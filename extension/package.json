@@ -1414,7 +1414,7 @@
           {
             "id": "B15.cloud-guard",
             "title": "The push guard is committed",
-            "description": "A cloud session runs the repo's own .claude/settings.json hooks and not acc's plugin, so the guard that refuses a push to any branch but the task's is a script the repo carries, and only what's committed reaches the cloud (GH-69).\n\n[Check](command:acc.step.check?%5B%22B15.cloud-guard%22%5D)\n[Do it](command:acc.step.fix?%5B%22B15.cloud-guard%22%5D)",
+            "description": "A cloud session runs the repo's own .claude/settings.json hooks and not acc's plugin, so the guard that refuses a push to any branch but the task's, and the git pre-push hook it installs in the clone to check the push itself, are scripts the repo carries, and only what's committed reaches the cloud (GH-69).\n\n[Check](command:acc.step.check?%5B%22B15.cloud-guard%22%5D)\n[Do it](command:acc.step.fix?%5B%22B15.cloud-guard%22%5D)",
             "media": {
               "markdown": "media/steps/B15.cloud-guard.md"
             },

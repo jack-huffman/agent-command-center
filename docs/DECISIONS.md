@@ -5859,54 +5859,107 @@ opted in sees no change, and a local dispatch passes exactly the arguments it di
   guard step reads HEAD's tree the same way, never the files on disk, since a guard written and not
   committed never reaches the cloud. A cloud dispatch skips this machine's total (GH-111), which counts
   this Mac's builders: the project's own cloud cap is the only limit.
-- **Guardrails.** A cloud session runs the repo's committed `.claude/settings.json` hooks and not the
-  plugin's (D-042), so opting in writes `.claude/hooks/acc-push-guard.mjs` and a PreToolUse hook into
-  the repo, to commit (this repo commits them). The hook runs on `Bash|Edit|Write|MultiEdit|NotebookEdit`
-  as `node "$CLAUDE_PROJECT_DIR"/.claude/hooks/acc-push-guard.mjs`, so a `cd` in the session can't make
-  it fail to load. **The guard is an allow-list that fails closed** (the rework of 2026-10-10, after a
-  guardrails-only review; the author decided). In a cloud session (`CLAUDE_CODE_REMOTE=true`, or the
-  documented `CLAUDE_CODE_REMOTE_SESSION_ID` set) only `git push origin <branch>` and `git push origin
-  HEAD:<branch>` pass, with `-u` or `--set-upstream` before origin if wanted, where `<branch>` is the
-  task's from **the guard's own record**: the `Acc-Branch` line acc puts first in the fire's text, which
-  the guard reads from the session's first user message in the transcript Claude Code names in the
-  hook's input (`transcript_path`), before the first assistant turn, so a tool result or a later message
-  can never set it. It is never the checkout's branch, which a builder could switch, and never any
-  `task/*`. Without a record, no push and no checkout passes. Everything else that could push is
-  refused: a bare `git push`; any push with a flag, a `+` or an empty refspec, another remote or another
-  branch; git reached through its global options (`-C`, `-c`, `--git-dir`, `--work-tree`, `--no-pager`
-  and the rest), a path to git, a wrapper (`timeout`, `env`, `nohup`, `xargs`, `eval`, `exec`, `nice`
-  and the like), which otherwise pass through to the command they wrap; a shell with `-c`, whose inner
-  line is guarded the same way, or a bare shell, a script file, or `source`; a program named by a `$`
-  variable; an interpreter's inline code that mentions git or a push; a git alias (read with `git config
-  --get alias.<sub>`) and `git config` or `git -c` setting `alias.*`, `push.*`, `remote.*`, `url.*`,
-  `credential.*`, `include*` or `core.hooksPath`; `git remote add|set-url|rename|remove`;
-  `git send-pack`; `gh api` with any method but GET or a field (`-f`, `-F`, `--input`, which post), any
-  `git/refs` path, a merge path, or `graphql` with a mutation (queries pass); `gh pr merge|create|close|
-  ready|reopen`; `curl` or `wget` writing to github.com; and `sf project deploy start|quick|resume`. It
-  also refuses what could remove or weaken it: an Edit, Write, MultiEdit or NotebookEdit under
-  `.claude/hooks/`, of `.claude/settings.json` or of the transcript, and a Bash line that names anything
-  under `.claude/` or the transcript unless every command in it only reads (no redirect, no tee); `git
-  checkout` or `switch` to anything but the recorded branch (`-- <files>` restores pass), a new branch,
-  `reset --hard`, `restore --source`, `pull`, `worktree`, `rm -r` of the checkout or `.git`, and a
-  `merge`, `rebase`, `cherry-pick` or `revert` whose ref would change the guard's files (`git diff
-  --name-only`), which a person does instead. Malformed input, a Bash call with no command, or an error
-  of the guard's own (git not answering the alias check) blocks the call with exit 2 and the reason on
-  stderr; a refusal is a `permissionDecision: deny` with its reason. Outside a cloud session it prints
-  nothing, so a person on main and a local builder with the plugin's guards see nothing from it. The
-  builder never merges or deploys: the packet forbids it, the guard refuses it, the GitHub proxy refuses
-  `gh pr` outright, and the checks run under the profile's gates. **GitHub's rules are the line behind
-  the guard, and acc warns rather than refuses where there are none** (the author decided): the dispatch
-  and Settings read, through `gh api repos/{repo}/branches/{branch}/protection` and
-  `rules/branches/{branch}` as the repo's account, whether GitHub enforces protection or a ruleset on the
-  default branch and each environment branch. Enforced passes quietly; none, unknown (gh offline or not
-  signed in), or unavailable warn that a push the guard didn't catch would be caught by acc's next sync,
-  after the fact, rather than prevented. This repo is private on GitHub's free plan, where both calls
-  answer 403 "Upgrade to GitHub Pro or make this repository public", so protection can't be set at all:
-  refusing would have ruled out the real run here. **What a cloud builder can and can't check:** it runs
-  the project's command gates itself, by their commands (`gates.commands`, a ratchet's command); acc's
-  built-in checks (`stray-files`) and any gate that needs an org login, Salesforce `validate` and `drift`,
-  run only on the Mac, when acc collects the branch. The packet names both lists. No org credential or
-  secret ever goes to a cloud session.
+- **Guardrails: two lines, both failing closed** (the rework of 2026-10-10, after a guardrails-only
+  review, and the second rework the same day, after a guardrails re-check; the author decided). A cloud
+  session runs the repo's committed `.claude/settings.json` hooks and not the plugin's (D-042), so opting
+  in writes three files into the repo, to commit (this repo commits them): `.claude/hooks/acc-push-guard.mjs`,
+  `.claude/hooks/acc-pre-push` beside it, and in `.claude/settings.json` a PreToolUse hook on
+  `Bash|Edit|Write|MultiEdit|NotebookEdit` that runs the guard as `node
+  "$CLAUDE_PROJECT_DIR"/.claude/hooks/acc-push-guard.mjs || exit 2`, and a SessionStart hook that runs
+  it with `--session-start`. The path is from the project root Claude Code gives the hook, so a `cd` in
+  the session can't make it fail to load, and `|| exit 2` denies the call when the guard is missing or
+  can't be parsed. The dispatch refuses `--cloud` unless the three are committed as this acc writes
+  them on origin's default branch and the task branch, read from the commits with `git show`; Setup's
+  guard step reads HEAD's tree the same way. **The first line reads the command before it runs.** In a
+  cloud session (`CLAUDE_CODE_REMOTE=true`, or the documented `CLAUDE_CODE_REMOTE_SESSION_ID` set) only
+  `git push origin <branch>` and `git push origin HEAD:<branch>` pass, with `-u` or `--set-upstream`
+  before origin if wanted and nothing after the branch, where `<branch>` is the task's from **the
+  guard's own record**: the `Acc-Branch` line acc puts first in the fire's text, read from the session's
+  first user message in the transcript Claude Code names in the hook's input, before the first assistant
+  turn, so a tool result or a later message can never set it. It is never the checkout's branch, and
+  never any `task/*`. Without a record, no push and no checkout passes. The guard reads the words the
+  shell will run, after quotes and escapes are removed (`'g'it`, `g""it` and `g\it` are `git`), reads a
+  `$( )` or a backtick as its own command even inside double quotes (only single quotes are literal), and
+  skips a heredoc's body, so a commit message that mentions a push stays a message; there is no quick
+  pre-check any more, every Bash line goes through it. Everything else that could push is refused: a bare
+  `git push`; any push with a flag, a `+`, an empty refspec, a redirect after the branch, another remote
+  or another branch; git reached through its global options, a path to git, a wrapper (`timeout`, `env`,
+  `nohup`, `xargs`, `eval`, `exec`, `nice` and the like), an assignment before the command of `GIT_*`,
+  `HOME`, `PATH`, `XDG_*`, `LD_*`, `DYLD_*`, `EDITOR`, `VISUAL`, `SHELL`, `BASH_ENV` or `ENV` (alone, or
+  with `export`, such an assignment is refused outright, since the session's shell keeps it), or a program
+  that runs another from its arguments (`find -exec`, `npm exec`, `watch`, `flock`, `script`, `parallel`,
+  `make`, `if`, `{ }`: what it would run is guarded as if wrapped); a shell with `-c`, whose inner line is
+  guarded the same way, or a bare shell, a script file, or `source`; a program named by a `$` variable; a
+  redirect or a `tee`, `cp`, `mv`, `ln` whose target holds a `$`; an interpreter's inline code that
+  mentions git or a push; **and, as a backstop, `git` followed by `push` or `send-pack` anywhere else in a
+  command's words**, however it got there. A git alias is refused (read with `git config --get
+  alias.<sub>`); `git config` and `git -c` keys are an **allow-list** (`user.name`, `user.email`,
+  `commit.gpgsign`, `tag.gpgsign`, `safe.directory`, `init.defaultBranch`, `pull.rebase`, `merge.ff`,
+  `rerere.enabled`, `fetch.prune`, `advice.*`, `color.*` and a few more that run nothing and send nothing
+  elsewhere; `core.editor`, `diff.external`, `filter.*`, `sequence.editor`, `gpg.program`, `core.pager`,
+  `core.sshCommand`, `alias.*`, `push.*`, `remote.*`, `url.*`, `credential.*`, `include*` and `http.*` are
+  not on it), with the new `git config set|unset` forms read the same way; `git remote
+  add|set-url|rename|remove` is refused; **`--no-verify` on any git command and `core.hooksPath` set by any
+  means** (`git -c`, `git config`, `GIT_CONFIG_*`, `export`) are refused, since each would switch the
+  second line off. `gh` is an **allow-list** too: `pr view|list|diff|checks`, `issue view`, `run
+  view|list`, `api <path>` with GET and no field, `auth status`, `--version` and `help`; everything else
+  is refused, `gh api graphql` among them (it posts, and GitHub's proxy refuses it in the cloud anyway),
+  `workflow run`, `pr review|comment|merge|create|close`, `release`, `secret`, `issue close`, `repo
+  delete`. `curl` or `wget` writing to github.com and `sf project deploy start|quick|resume` are refused.
+  The guard also refuses what could change it or its hooks: from Bash, a line that names anything under
+  `.claude/` or `.git/`, the hooks, the record or the transcript, or whose words would land there once
+  globs (`.cl*`, `.claud?`) and symlinks (`ln -s .git g`, then `g/hooks/pre-push`) are resolved, unless
+  every command in it only reads (`find` isn't a reader: `-delete`, `-exec`); from Edit, Write, MultiEdit
+  or NotebookEdit, `.claude/hooks/*`, any `.claude/settings*.json` (the home's too, since a settings file
+  could carry `disableAllHooks`), anything under `.git/` and the transcript, resolved the same way; `git
+  checkout <ref> -- <paths>` where a path reaches `.claude/` or `.git/` (`.`, `:/`, a glob, a parent)
+  and the ref's guard files differ from HEAD's (`git diff --name-only`), `git apply`, `git am` and
+  `patch` whose patch names `.claude/` or `.git/` (the headers read, and for `git apply` its own
+  `--numstat`), or that would read the patch from a pipe the guard can't see (a dry run, `--check`,
+  `--numstat`, `--dry-run`, passes); `git checkout` or `switch` to anything but the recorded branch, a
+  new branch, `reset --hard|--merge|--keep`, `restore --source`, `pull`, `worktree`, `update-index`,
+  `read-tree`, `checkout-index`, `rm -r` of the checkout or `.git`, and a `merge`, `rebase`,
+  `cherry-pick` or `revert` whose ref would change the guard's files. Malformed input, a Bash call with
+  no command, or an error of the guard's own blocks the call with exit 2 and the reason on stderr; a
+  refusal is a `permissionDecision: deny` with its reason. **The second line checks the push itself.**
+  `acc-pre-push` is a `#!/bin/sh` git pre-push hook. The guard installs it into the clone's
+  `.git/hooks/pre-push`, executable, when the session starts (the SessionStart hook, committed with the
+  guard, which the cloud runs before the builder's first turn; not the routine's setup script, which is a
+  person's and not in the repo), and again on every call and before any push passes: a hook changed by
+  hand is put back, `core.hooksPath` set anywhere means no push until a person unsets it, and the
+  script missing beside the guard means no push. The hook reads the refs git is about to update on
+  stdin and refuses any update other than `refs/heads/<branch>`, any deletion, and any update that
+  isn't a fast-forward (`git merge-base --is-ancestor`), whatever ran git: a wrapper, an alias, a
+  renamed or copied binary, a script in any language, `find -exec`. Its `<branch>` is
+  `.git/acc-task-branch`, which the guard writes from its record on every call, so it's in place before
+  any push, and which the guard keeps a builder from writing; no record, no push. The test pins that
+  `--no-verify` and `core.hooksPath` do skip it, which is why the first line refuses both. Outside a
+  cloud session the guard prints nothing and installs nothing: a person on main and a local builder with
+  the plugin's guards see nothing from it. The builder never merges or deploys: the packet forbids it,
+  the guard refuses it, the GitHub proxy refuses `gh pr` outright, and the checks run under the profile's
+  gates. **What this stops, and what it can't.** A plausible thing an agent would type, which the review
+  and the re-check listed and which a builder trying to finish its task might well reach for, is now
+  refused: every form above, each pinned by a test. A deliberate adversarial escape, by a builder that
+  sets out to push past the guard, isn't prevented by a guard that runs on the builder's own machine:
+  raw HTTP to GitHub with the session's git credentials, read from the proxy's configuration, or
+  obfuscated code that writes `.git/hooks/` through an interpreter, a script the builder writes to a
+  file and runs with `node` or `python` without inline code, a binary it builds, or a shell variable
+  assembled from pieces. The moved-branch notice below is the backstop for these: every sync of an
+  opted-in project flags an environment branch that moved by anything but acc's own merge, and a person
+  looks before anything builds on it. **Enforced branch protection on GitHub is the only full
+  prevention,** and acc warns rather than refuses where there is none (the author decided): the
+  dispatch and Settings read, through `gh api repos/{repo}/branches/{branch}/protection` and
+  `rules/branches/{branch}` as the repo's account, whether GitHub enforces protection or a ruleset on
+  the default branch and each environment branch. Enforced passes quietly; none, unknown (gh offline or
+  not signed in), or unavailable warn that a push the guard didn't catch would be caught by acc's next
+  sync, after the fact, rather than prevented. This repo is private on GitHub's free plan, where both
+  calls answer 403 "Upgrade to GitHub Pro or make this repository public", so protection can't be set at
+  all: refusing would have ruled out the real run here. **What a cloud builder can and can't check:** it
+  runs the project's command gates itself, by their commands (`gates.commands`, a ratchet's command);
+  acc's built-in checks (`stray-files`) and any gate that needs an org login, Salesforce `validate` and
+  `drift`, run only on the Mac, when acc collects the branch. The packet names both lists, and says
+  what the hooks refuse under `.claude/` and `.git/`. No org credential or secret ever goes to a cloud
+  session.
 - **Following, through GitHub,** since Claude Code reports no state: on every `acc sync`, and so on the
   Command Center's poll while a cloud task runs, `git ls-remote` reads each running cloud task's branch
   head. A new head is fetched and written on the run with the time (`run.cloud.head`, `lastPushAt`); the
@@ -5944,13 +5997,24 @@ opted in sees no change, and a local dispatch passes exactly the arguments it di
   (`autopilot.merged.sha`), or it's a rebase's copy of the branch's commits, which `git cherry <branch>
   head prev` finds by their patches against the task branch the Mac's clone still has. GitHub's squash
   subject, "Title (#N)" with N a pull request the ledger knows, is kept only as a fallback for a squash
-  sync hasn't recorded; a merge commit's subject never explains it, and a pushed commit that merely
-  mentions a number ("Hotfix, see #12") is flagged. A head the old one doesn't lead to is a rewrite,
-  flagged as such. Every move still waiting is in `acc sync`'s output each run, with its compare page,
+  whose merge sync hasn't recorded: a pull request with a `mergeSha` is known by that sha alone, so a
+  pushed commit naming its number is flagged (the second rework); a merge commit's subject never
+  explains it, and a pushed commit that merely mentions a number ("Hotfix, see #12") is flagged. A head
+  the old one doesn't lead to is a rewrite, flagged as such. A second move nobody explains, while an
+  earlier one waits, keeps the earliest `from` and adds the new commits, newest first, as one item; a
+  rewrite on top of a waiting move keeps its commits and says it moved again in a way git couldn't
+  list. Every move still waiting is in `acc sync`'s output each run, with its compare page,
   and on the Overview as an orange item needing you, with Compare on GitHub and Seen, until `acc sync
   --branches-seen` clears it; the Command Center syncs an opted-in project on its pull-request poll even
   with nothing else to follow, so a move is seen.
-- **Not chosen:** `claude --cloud` from a terminal (interactive only, so autopilot can't re-dispatch and
+- **Not chosen:** installing the pre-push hook from the routine's setup script (a person's, and not in
+  the repo: the SessionStart hook is committed with the guard, and the guard puts the hook back before
+  any push anyway); a quick pre-check on the raw line (it let a quoted `'g'it` through unchecked, so it's
+  gone: every Bash line is read); allowing a redirect after the branch in the one plain push (harmless,
+  but not plain: the refusal says exactly what to type); refusing every `git commit` that mentions a
+  push in its message (a heredoc's body is skipped instead); a deny-list of git config keys (each new
+  key that runs code would have had to be found first: an allow-list of what a builder needs);
+  `claude --cloud` from a terminal (interactive only, so autopilot can't re-dispatch and
   nothing captures the session id); `--on-branch`, hidden and tied to `--cloud`; teleport as the way
   back (a person's, not acc's); counting cloud builders against `agents.max`; refusing `--cloud` on an
   unprotected environment branch (a warning instead, by the author's decision: this repo can't have
@@ -5972,12 +6036,22 @@ opted in sees no change, and a local dispatch passes exactly the arguments it di
   and the task branch; what GitHub enforces, read from fixtures of each answer, and the dispatch's
   warning), `cloud-guard.test.ts` (the committed script run as Claude Code runs it, with a transcript
   carrying the record: the two allowed pushes pass, and a refusal is pinned for every form named above,
-  through the guard's own function for the long list and through the hook for a few of each kind; the
-  record read from the first message only; junk input, no command and an error of its own exit 2; a
-  tool it doesn't guard and a session outside the cloud pass; the editing tools refused under
-  `.claude/`; the guard's command splitter and hooks.ts's `commandsOf` kept the same on shared cases;
-  install, replacing an older entry; `guardCommitted` reading commits, not disk; this repo's HEAD
-  carrying both files), `config.test.ts` (every key), `branches.test.ts` and `cloud-cards.test.ts` in
+  through the guard's own function for the long list and through the hook for the quoted names, the
+  launchers, the substitution in quotes, the patch, the hooks-path assignment and a few of each other
+  kind; a real `git push` through the installed pre-push hook against a local bare origin, installed by
+  `--session-start` as the cloud runs it: the task branch lands, and main, `HEAD:main`, another task
+  branch, a delete, a force push, a push from a renamed copy of git and one from inside `find -exec` are
+  refused with origin unmoved, no record refuses even the task branch, `--no-verify` and
+  `core.hooksPath` are shown to skip the hook, a hook changed by hand is put back, and `core.hooksPath`
+  set or the script missing means no push; the record read from the first message only; junk input, no
+  command, an error of its own, and a guard that's missing or can't be parsed, run through the settings'
+  own `|| exit 2` command, exit 2; a tool it doesn't guard and a session outside the cloud pass, and a
+  clone on a Mac gets no pre-push hook; the editing tools refused for the hooks, any `.claude`
+  settings file, anything under `.git/` and the transcript, through a symlink too, and allowed for
+  another file under `.claude/`; the guard's command splitter and hooks.ts's `commandsOf` kept the same
+  on shared cases with substitutions in quotes and heredocs; install, replacing older entries;
+  `guardCommitted` reading commits, not disk, the pre-push hook among them; this repo's HEAD carrying
+  all three files), `config.test.ts` (every key), `branches.test.ts` and `cloud-cards.test.ts` in
   the extension (the Overview's moved-branch item, orange and counted, with its buttons; Dispatch to
   the cloud disabled with each reason or enabled; a running cloud task's Watch, Send a message, Collect
   and Open in Claude Code disabled with why, and Abandon's label), `looks.test.ts` (the place, the
@@ -5994,4 +6068,6 @@ opted in sees no change, and a local dispatch passes exactly the arguments it di
   usage, and name any step above the run proves wrong: in particular whether the fire's text lands in
   the transcript's first user message as the guard reads it (if not, the guard allows no push, fails
   closed, and the session's page shows its refusal), and whether the file watcher loads the task
-  branch's hooks after the checkout.
+  branch's hooks after the checkout, and whether the SessionStart hook ran in the cloud and installed
+  `.git/hooks/pre-push` before the builder's first command (the builder can `ls .git/hooks`, which the
+  guard allows; the session's page shows the hook's output).

@@ -599,13 +599,14 @@ function isRead(raw) {
  */
 function namesGuard(line, commands, ctx) {
   const says = (what) => `Nothing under ${what} is changed from Bash: the guard, its hooks and the session's settings live there. Read them if you like; for another file under .claude/, use the Edit or Write tool.`;
-  if (/(^|[^A-Za-z0-9_.-])\.claude(\/|$|[^A-Za-z0-9_.-])/.test(line) || /\bacc-push-guard\.mjs\b|\bacc-pre-push\b|\bacc-task-branch\b/.test(line)) return says('.claude/');
   if (/(^|[^A-Za-z0-9_.-])\.git(\/|$|[^A-Za-z0-9_.-])/.test(line)) return says('.git/');
+  if (/(^|[^A-Za-z0-9_.-])\.claude(\/|$|[^A-Za-z0-9_.-])/.test(line) || /\bacc-push-guard\.mjs\b|\bacc-pre-push\b|\bacc-task-branch\b/.test(line)) return says('.claude/');
   if (ctx.transcript && line.includes(basename(ctx.transcript))) return says('.claude/');
   for (const words of commands) {
-    for (const w of words) {
+    // Every word but the program and its flags: a bare name lands somewhere too, when the shell's cwd is inside .claude/ or .git/.
+    for (const w of words.slice(1)) {
       const word = w.replace(/^\d*>>?/, '').replace(/^&>/, '');
-      if (!word || word.startsWith('-') || !/[/*?[]|^\./.test(word)) continue;
+      if (!word || word.startsWith('-') || isAssignment(word)) continue;
       const paths = /[*?[]/.test(word) ? globbed(word, ctx) : [word];
       for (const p of paths) if (isGuarded(p, ctx, 'any')) return says(/\.git(\/|$)/.test(realDeep(resolve(ctx.cwd, p))) ? '.git/' : '.claude/');
     }
