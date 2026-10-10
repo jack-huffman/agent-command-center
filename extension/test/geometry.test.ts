@@ -102,7 +102,7 @@ test('a page measures its geometry only when the run asks, and the run reads it 
   const model = sampleModel('agents');
   assert.ok(!pageFor('agents', 'dark', model).includes('collectGeometry'), 'a page drawn for the colour check doesn\'t measure');
   const page = pageFor('agents', 'dark', model, 'light', false, true);
-  assert.ok(page.includes(COLLECT_GEOMETRY) && page.includes('document.fonts.ready.then(() => requestAnimationFrame(() => requestAnimationFrame(collectGeometry)))'), 'measured once its fonts have loaded and two frames have drawn');
+  assert.ok(page.includes(COLLECT_GEOMETRY) && page.includes('document.fonts.ready.then(() => requestAnimationFrame(() => requestAnimationFrame(() => settle(selectedTab, requestAnimationFrame, collectGeometry))))'), 'measured once its fonts have loaded, two frames have drawn and the selected tab has settled (GH-167)');
   assert.ok(page.includes('window.requestAnimationFrame = '), 'with frame callbacks run on a timer, as the colour check does');
   assert.doesNotThrow(() => new Function(COLLECT_GEOMETRY), 'the collector is valid script');
   assert.equal(dumpedGeometry('<html><body><main></main></body></html>'), null);

@@ -1489,7 +1489,11 @@ pages and VSCode's own webview stylesheet read, which a test checks both ways.
 A tab on screen restyles in place; a hidden one's HTML is written again, since
 VSCode rebuilds it from that. `npm run screenshot` shoots each page forced
 under VSCode's other theme, and `npm run screenshot -- --colours` compares
-every element's computed colours across themes.
+every element's computed colours across themes. A drawing Chrome doesn't
+finish in `ACC_SHOT_TIMEOUT` seconds (60 unless set) is drawn once more, and
+the run's summary line counts and names each; a second timeout fails the run.
+A page measures its geometry once the rail's selected tab has held still for
+three frames (D-133).
 
 **Limits and checks** (GH-111): each project's builder cap and this machine's
 total across every repo side by side, each with −, its number, + and Change…,

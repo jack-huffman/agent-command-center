@@ -6,6 +6,7 @@
  *   npm run screenshot -- agents worktrees   just these tabs
  *   npm run screenshot -- --width 800 --theme dark --height 600 --out /tmp/shots
  *   npm run screenshot -- --colours          check no colour leaks from VSCode's theme into Light or Dark
+ *   ACC_SHOT_TIMEOUT=90 npm run screenshot   allow each drawing 90 s, not 60 (GH-167)
  *
  * It renders the built webview (extension/dist/webview), so run `npm run build` after changing it. The
  * first data row or card is shown hovered. Chrome runs one shot at a time, under nice.
@@ -46,6 +47,7 @@ import { settingsKey, type ThemeChoice } from '../src/model/settings.ts';
 import { SETUP_PARTS } from '../src/logic/first-open.ts';
 import { PALETTE_THEMES, type PaletteTheme, palettes, vscodeDefaults } from './styles.ts';
 import { CHECKS, COLLECT_GEOMETRY, dumpedGeometry, geometrySummary, judge, type Render, runFailures } from './geometry.ts';
+import { drawRetrying, retriedSummary, SETTLE, shotTimeout } from './steady.ts';
 
 /**
  * Every page the screenshot script can draw: each section of the Command Center, a ticket's page (being
@@ -243,8 +245,8 @@ function collectColours() {
  * the head, that theme's colours inline on <html> and its class on <body>, and the page's theme in
  * data-theme. A shot forces Light or Dark under VSCode's other theme, so a colour that still comes from
  * VSCode's shows in it. With collect, the page also gathers its computed colours for the colour check;
- * with measure, its geometry for the geometry checks (GH-105), once its fonts have loaded and two frames
- * have drawn.
+ * with measure, its geometry for the geometry checks (GH-105), once its fonts have loaded, two frames
+ * have drawn and the rail's selected tab has stopped moving (GH-167).
  */
 export function pageFor(kind: Page, theme: ThemeChoice, model: Model, under: Theme = theme === 'light' ? 'dark' : 'light', collect = false, measure = false, after: Record<string, unknown>[] = afterModel(kind)): string {
   const vars = Object.entries({ ...palettes()[under], ...FONTS }).map(([k, v]) => `--vscode-${k}: ${v};`).join(' ');
@@ -266,9 +268,9 @@ function forceHover() {
     for (const r of rules) if (r.selectorText && r.selectorText.includes(':hover')) sheet.insertRule(r.cssText.replaceAll(':hover', '.acc-hover'), sheet.cssRules.length);
   }
   (document.querySelector('tbody tr:not(.group):not(.none)') ?? document.querySelector('.card'))?.classList.add('acc-hover');
-}${collect || measure ? COLLECT : ''}${collect ? COLLECT_COLOURS : ''}${measure ? COLLECT_GEOMETRY : ''}
+}${collect || measure ? COLLECT : ''}${collect ? COLLECT_COLOURS : ''}${measure ? COLLECT_GEOMETRY + SETTLE : ''}
 window.acquireVsCodeApi = () => ({
-  postMessage(m) { if (m.type === 'ready') setTimeout(() => { window.postMessage({ type: 'state', model: MODEL${open ? `, jump: true, open: ${JSON.stringify(open)}` : ''} }, '*'); for (const m of AFTER) window.postMessage(m, '*'); setTimeout(forceHover, 50);${collect ? ' setTimeout(collectColours, 500);' : ''}${measure ? ' setTimeout(() => document.fonts.ready.then(() => requestAnimationFrame(() => requestAnimationFrame(collectGeometry))), 300);' : ''} }); },
+  postMessage(m) { if (m.type === 'ready') setTimeout(() => { window.postMessage({ type: 'state', model: MODEL${open ? `, jump: true, open: ${JSON.stringify(open)}` : ''} }, '*'); for (const m of AFTER) window.postMessage(m, '*'); setTimeout(forceHover, 50);${collect ? ' setTimeout(collectColours, 500);' : ''}${measure ? ' setTimeout(() => document.fonts.ready.then(() => requestAnimationFrame(() => requestAnimationFrame(() => settle(selectedTab, requestAnimationFrame, collectGeometry)))), 300);' : ''} }); },
   getState() { return ${JSON.stringify(startState(kind)) ?? 'undefined'}; }, setState() {},
 });
 </script>
@@ -303,10 +305,10 @@ function staleBuild(): string | null {
   return newest > statSync(built).mtimeMs ? 'the built webview is older than its source' : null;
 }
 
-/** Runs Chrome under nice, so the machine stays usable. */
+/** Runs Chrome under nice, so the machine stays usable, for at most shotTimeout() (GH-167). */
 function chromeRun(chrome: string, args: string[], dump = false): ReturnType<typeof spawnSync> {
   const [cmd, cmdArgs] = process.platform === 'win32' ? [chrome, args] : ['nice', ['-n', '15', chrome, ...args]];
-  return spawnSync(cmd, cmdArgs, dump ? { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], timeout: 30_000 } : { stdio: 'ignore', timeout: 30_000 });
+  return spawnSync(cmd, cmdArgs, dump ? { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], timeout: shotTimeout() } : { stdio: 'ignore', timeout: shotTimeout() });
 }
 
 /** The pages the colour check draws (GH-109): the busiest sections, Settings, a task's page and an agent's, a task in the modal over the board (GH-158), and the busy Overview with its update drafts open over it (GH-160). */
@@ -341,6 +343,7 @@ export function colourDiffs(a: Colours, b: Colours): ColourDiff[] {
  */
 function colourCheck(chrome: string, work: string, views: Page[]): number {
   const now = Date.now();
+  const retried: string[] = [];
   let elements = 0;
   let differences = 0;
   for (const view of views) {
@@ -350,9 +353,11 @@ function colourCheck(chrome: string, work: string, views: Page[]): number {
         const page = join(work, `${view}-${theme}-under-${under}.html`);
         // One model for every drawing, so only the theme differs between them.
         writeFileSync(page, pageFor(view, theme, sampleModel(view, now), under, true, false, afterModel(view, now)));
-        const r = chromeRun(chrome, ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--allow-file-access-from-files',
-          '--virtual-time-budget=3000', '--window-size=1000,900', '--dump-dom', pathToFileURL(page).href], true);
-        if (r.error) return fail(`Chrome didn't finish ${view} (${theme} under ${under}) within 30 s: ${r.error.message}`);
+        const what = `${view} (${theme} under ${under})`;
+        // A drawing that timed out is drawn once more, and the run says so (GH-167).
+        const r = drawRetrying(() => chromeRun(chrome, ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--allow-file-access-from-files',
+          '--virtual-time-budget=3000', '--window-size=1000,900', '--dump-dom', pathToFileURL(page).href], true), what, retried);
+        if (r.error) return fail(`Chrome didn't finish ${what} within ${shotTimeout() / 1000} s: ${r.error.message}`);
         const colours = dumpedColours(String(r.stdout ?? ''));
         if (!colours?.length) return fail(`${view} (${theme} under VSCode's ${under}) gathered no colours (exit ${r.status ?? r.signal}).`);
         drawn.set(`${theme}/${under}`, colours);
@@ -372,6 +377,7 @@ function colourCheck(chrome: string, work: string, views: Page[]): number {
     elements += n;
     differences += found;
   }
+  console.log(retriedSummary(retried).trim());
   if (!elements) return fail('The colour check compared no elements.');
   if (differences) return fail(`${differences} colour difference${differences === 1 ? '' : 's'}: a colour comes from VSCode's theme while Light or Dark is forced.`);
   console.log(`Compared ${elements} elements' colours on ${views.length} page${views.length === 1 ? '' : 's'}: no differences.`);
@@ -416,6 +422,7 @@ function main(argv: string[]): number {
   mkdirSync(out, { recursive: true });
   const work = mkdtempSync(join(tmpdir(), 'acc-screenshots-'));
   const renders: Render[] = [];
+  const retried: string[] = [];
   try {
     cpSync(join(extensionDir, 'dist', 'webview'), join(work, 'webview'), { recursive: true });
     const now = Date.now();
@@ -437,8 +444,10 @@ function main(argv: string[]): number {
             '--allow-file-access-from-files', '--force-device-scale-factor=2',
             '--virtual-time-budget=3000', `--window-size=${width},${tall}`, `--screenshot=${png}`, '--dump-dom', pathToFileURL(page).href,
           ];
-          const r = chromeRun(chrome, args, true);
-          if (r.error) return fail(`Chrome didn't finish ${view} (${theme}, ${width}px) within 30 s: ${r.error.message}`);
+          const what = `${view} (${theme}, ${width}px)`;
+          // A drawing that timed out is drawn once more, and the run says so (GH-167).
+          const r = drawRetrying(() => chromeRun(chrome, args, true), what, retried);
+          if (r.error) return fail(`Chrome didn't finish ${what} within ${shotTimeout() / 1000} s: ${r.error.message}`);
           if (!existsSync(png)) return fail(`Chrome didn't write ${png} (exit ${r.status ?? r.signal}).`);
           const shot = dumpedGeometry(String(r.stdout ?? ''));
           if (!shot) return fail(`${view} (${theme}, ${width}px) measured no geometry (exit ${r.status ?? r.signal}).`);
@@ -454,7 +463,7 @@ function main(argv: string[]): number {
   // Exceptions and floors are a whole run's: a run of a few pages may not reach them.
   const full = views.length === PAGES.length && themes.length === PALETTE_THEMES.length && values.width === '1000,620,500';
   const failures = runFailures(renders, full);
-  console.log(geometrySummary(renders));
+  console.log(geometrySummary(renders) + retriedSummary(retried));
   if (failures.length) {
     for (const f of failures) console.error(f);
     return fail(`${failures.length} geometry finding${failures.length === 1 ? '' : 's'}. Fix each, or list it in GEOMETRY_EXCEPTIONS (extension/scripts/geometry.ts) with why. The shots are written all the same.`);

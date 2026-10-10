@@ -10,6 +10,7 @@
  */
 
 import { COLLECT_WORDS, type GeoSaid, judgeWords, WORK_DATA } from './words.ts';
+import { SELECTED_TAB } from './steady.ts';
 
 export const CHECKS = ['overlap', 'clipped', 'tab', 'sideways', 'overview', 'words'] as const;
 export type Check = (typeof CHECKS)[number];
@@ -261,7 +262,7 @@ function collectGeometry() {
 
   const vw = document.documentElement.clientWidth;
   const vh = window.innerHeight;
-  const sel = document.querySelector('.rail [role=tab][aria-selected="true"]');
+  const sel = document.querySelector('${SELECTED_TAB}');
   let tab = null;
   if (sel) {
     const t = sel.getBoundingClientRect();
