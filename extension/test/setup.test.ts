@@ -360,7 +360,7 @@ test('setup shows the acc plugin under its own section, with Do it while it fail
   assert.deepEqual(machine.sections.map((s) => [s.title, s.todo]), [['Accounts', 0], ['The acc plugin', 1]]);
   const a4 = machine.steps.find((s) => s.id === 'A4.plugin')!;
   assert.deepEqual(a4.actions.map((a) => a.label), ['Do it', 'Check']);
-  assert.deepEqual([a4.fix, a4.does], [add, null], 'another tool\'s command is shown to copy, as it is');
+  assert.deepEqual([a4.fix, a4.does], [add, 'Install the acc plugin in Claude Code'], 'the step says what Do it does in words, and keeps the command line to show on request (GH-168)');
   assert.deepEqual([a4.look.label, a4.look.tone], ['To do', 'orange']);
 });
 

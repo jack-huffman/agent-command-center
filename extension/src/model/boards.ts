@@ -7,6 +7,7 @@ import type { StatusCategory, TrackerKind } from '../../../packages/core/src/tra
 import { conflictLine, failedChecksLine, waitsForFiles, whileFirst } from '../logic/tasks.ts';
 import { taskNames, type TaskRow, type Tone } from '../logic/shared.ts';
 import { signInScope } from '../logic/connect.ts';
+import { inProcessWords } from '../logic/processes.ts';
 import { type Action, displayLook, KEY, type Look, LOOK, type ModelArea, short } from './shared.ts';
 import { analysisLook, autopilotLook, CARD_SAID, cardActions, closedPrLook, filesLook, stoppedLook } from './cards.ts';
 
@@ -195,7 +196,7 @@ export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): Trac
   const title = b.board?.title ?? b.title;
   return {
     index: b.index, kind: b.kind, title, tab: BOARD_WORD[b.kind] ?? title, source: b.board?.source ?? null, url: b.board?.url ?? null,
-    notice: b.board?.notice ?? null, error: b.error, connect: b.connect, loading: b.loading, signedInAs: b.signedInAs ?? null,
+    notice: b.board?.notice ? inProcessWords(b.board.notice) : null, error: b.error, connect: b.connect, loading: b.loading, signedInAs: b.signedInAs ?? null,
     signIn: b.signedInAs && b.signInScope ? LOOK(`Signed in as ${b.signedInAs}, ${signInScope(b.signInScope.shared, b.signInScope.host)}`, b.signInScope.shared ? 'globe' : 'repo', 'blue') : null,
     place: b.place && placeAdds(b.place, title) ? b.place : null, left: b.left ?? [], columns,
   };

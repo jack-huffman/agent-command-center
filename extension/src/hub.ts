@@ -555,7 +555,7 @@ export class Hub implements vscode.Disposable {
         this.agentsError = null;
         this.agentsAt = Date.now();
       } catch {
-        this.agentsError = (r.stderr || r.stdout).trim().split('\n')[0] || 'claude agents didn\'t answer.';
+        this.agentsError = (r.stderr || r.stdout).trim().split('\n')[0] || 'Claude Code\'s list of background sessions didn\'t answer.';
       }
     }
     this.emitter.fire('agents');

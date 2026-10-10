@@ -251,7 +251,7 @@ export const STEPS: Step[] = [
   },
   {
     id: 'A2.gh-login', part: 'machine', group: 'A2', title: 'Logged in to GitHub',
-    why: 'Each repo uses its own account through `gh auth token -u`. Never `gh auth switch`, which changes every session.',
+    why: 'Each repo uses its own GitHub account, asked for by name each time. The account gh has active is never switched, because that changes every session.',
     fix: { vscode: 'acc.github.signIn', text: GH_SIGN_IN },
     check(ctx) {
       const r = ctx.run('gh', ['auth', 'status'], { env: ctx.env });

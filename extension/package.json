@@ -975,7 +975,7 @@
           {
             "id": "A2.gh-login",
             "title": "Logged in to GitHub",
-            "description": "Each repo uses its own account through `gh auth token -u`. Never `gh auth switch`, which changes every session.\n\n[Check](command:acc.step.check?%5B%22A2.gh-login%22%5D)\n[Do it](command:acc.step.fix?%5B%22A2.gh-login%22%5D)",
+            "description": "Each repo uses its own GitHub account, asked for by name each time. The account gh has active is never switched, because that changes every session.\n\n[Check](command:acc.step.check?%5B%22A2.gh-login%22%5D)\n[Do it](command:acc.step.fix?%5B%22A2.gh-login%22%5D)",
             "media": {
               "markdown": "media/steps/A2.gh-login.md"
             },

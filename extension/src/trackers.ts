@@ -500,7 +500,7 @@ export class Trackers implements vscode.Disposable {
   async ghToken(root: string, account: string): Promise<string> {
     const tok = await runFile('gh', ['auth', 'token', '-u', account], root, process.env, undefined, 20_000);
     if (tok.code === 127) throw new TrackerError('other', 'The GitHub CLI (gh) isn\'t installed.');
-    if (tok.code !== 0 || !tok.stdout.trim()) throw new TrackerError('auth', `gh isn't logged in as ${account}. Run: gh auth login`);
+    if (tok.code !== 0 || !tok.stdout.trim()) throw new TrackerError('auth', `gh isn't logged in as ${account}. Sign in to GitHub from Setup.`);
     return tok.stdout.trim();
   }
 

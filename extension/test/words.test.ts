@@ -70,6 +70,7 @@ const MARKS: Record<string, Record<string, number>> = {
   'history.ts': { transcript: 2, output: 1 },
   'questions.ts': { transcript: 1 },
   'rules.ts': { files: 1, transcript: 1, 'agent-text': 1 },
+  'setup.ts': { output: 1 },
   'task-page.ts': { files: 2, branch: 2, output: 1, transcript: 1 },
   'worktrees.ts': { branch: 1 },
 };
@@ -97,7 +98,9 @@ function sources(dir: string): string[] {
  * Each must still match a line, so the list only shrinks.
  */
 const LITERAL: { name: string; file: RegExp; line: RegExp; reason: string }[] = [
-  { name: 'the vocabulary itself', file: /^src\/logic\/processes\.ts$/, line: /./, reason: 'PROCESSES and FILES are where a command or a path becomes words, and the translator reads them there.' },
+  { name: 'the vocabulary itself', file: /^src\/logic\/(processes|config-words)\.ts$/, line: /./, reason: 'PROCESSES and FILES are where a command or a path becomes words, CONFIG_WORDS is where a config key does, and the translators read them there.' },
+  { name: 'a line that sorts a command by what it needs', file: /^src\/logic\/runs\.ts$/, line: /needsTerminal = /, reason: 'The pattern tells which commands need a terminal to type into, so Do it opens one: it matches command lines and no person reads it.' },
+  { name: 'a setting looked up by its key', file: /^src\/model\/settings\.ts$/, line: /autopilot\.autoMerge/, reason: 'The key the code finds a setting by, and checks acc still reads: what the page shows is the setting\'s own label.' },
   { name: 'a name looked up by its path', file: /^src\//, line: /\bfileName\('/, reason: 'The vocabulary is asked for a file\'s name by the path it\'s kept under; the person reads the name it gives.' },
   { name: 'a command line run in a terminal or the output panel', file: /^src\/(setup|tasks|autopilot|logic\/setup)\.ts$/, line: /runCommand\('acc |this\.send\(|'acc init', \.\.\.initArgs|\['acc rules import'|accCommand\} autopilot|\$\{acc\} (review|analyze)/, reason: 'What runs is the CLI itself, which a terminal and the output panel show as it runs: CLI output stays literal.' },
   { name: 'a file the extension reads or watches', file: /^src\/(extension|setup|tasks|logic\/setup)\.ts$/, line: /RelativePattern\(folder, '\.acc\/config\.json'\)|const files = '\{\.acc\/config\.json|featuredFor: \['sfdx-project\.json', '\.acc\/config\.json'\]|'packets', `\$\{n\.task\.id\}\.md`/, reason: 'A path the code opens or watches, or VSCode matches a folder against, which no person reads.' },
