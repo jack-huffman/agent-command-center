@@ -5,6 +5,7 @@ import type { HomeSection, ViewKind } from '../src/model/shared.ts';
 import type { HomeModel, Model } from '../src/model/home.ts';
 import type { RunCard } from '../src/model/runs.ts';
 import type { TicketModel } from '../src/model/task-page.ts';
+import type { Detail } from '../src/model/landing.ts';
 import type { EditBase } from './pending.ts';
 
 declare function acquireVsCodeApi(): { postMessage(m: unknown): void; getState(): unknown; setState(s: unknown): void };
@@ -37,11 +38,13 @@ interface Memory {
    * comes back (VSCode doesn't keep it), so this is how it returns to where you were.
    */
   scroll?: Record<string, SavedScroll>;
+  /** The Overview's detail open over the page, drawn again from each model until it's closed (GH-160). */
+  detail?: Detail;
 }
 interface SavedScroll { y: number; boards: { x: number; lanes: number[] }[] }
 export function memory(): Memory {
   const s = (api.getState() as Partial<Memory> | undefined) ?? {};
-  return { modes: s.modes ?? {}, drafts: s.drafts ?? {}, bases: s.bases ?? {}, section: s.section, answers: s.answers ?? {}, dock: s.dock ?? { open: false, run: null }, opened: s.opened ?? [], history: s.history, sections: s.sections ?? {}, scroll: s.scroll ?? {} };
+  return { modes: s.modes ?? {}, drafts: s.drafts ?? {}, bases: s.bases ?? {}, section: s.section, answers: s.answers ?? {}, dock: s.dock ?? { open: false, run: null }, opened: s.opened ?? [], history: s.history, sections: s.sections ?? {}, scroll: s.scroll ?? {}, detail: s.detail };
 }
 export function remember(change: (m: Memory) => void): void {
   const m = memory();

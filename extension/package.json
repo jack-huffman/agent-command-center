@@ -836,6 +836,46 @@
           "command": "acc.worktree.remove",
           "when": "webviewId == 'acc.home' && webviewSection == 'worktree' && worktreeLinked",
           "group": "9_remove@1"
+        },
+        {
+          "command": "acc.task.watch",
+          "when": "webviewId == 'acc.home' && webviewSection == 'task' && taskWatch",
+          "group": "1_watch@0"
+        },
+        {
+          "command": "acc.task.watchReview",
+          "when": "webviewId == 'acc.home' && webviewSection == 'task' && taskReview",
+          "group": "1_watch@1"
+        },
+        {
+          "command": "acc.task.watchAnalysis",
+          "when": "webviewId == 'acc.home' && webviewSection == 'task' && taskAnalysis",
+          "group": "1_watch@2"
+        },
+        {
+          "command": "acc.autopilot.output",
+          "when": "webviewId == 'acc.home' && webviewSection == 'task' && taskOutput",
+          "group": "1_watch@3"
+        },
+        {
+          "command": "acc.task.openInClaude",
+          "when": "webviewId == 'acc.home' && webviewSection == 'task' && taskClaude",
+          "group": "2_open@0"
+        },
+        {
+          "command": "acc.task.openPr",
+          "when": "webviewId == 'acc.home' && webviewSection == 'task' && taskPr",
+          "group": "2_open@1"
+        },
+        {
+          "command": "acc.job.stop",
+          "when": "webviewId == 'acc.home' && webviewSection == 'task' && taskStop",
+          "group": "9_stop@0"
+        },
+        {
+          "command": "acc.tidy.skip",
+          "when": "webviewId == 'acc.home' && webviewSection == 'tidy'",
+          "group": "1_tidy@0"
         }
       ],
       "view/title": [

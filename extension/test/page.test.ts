@@ -30,7 +30,13 @@ test('row menus: every item is a declared command, and the rows set the keys the
   const src = pageSource('agents.ts', 'worktrees.ts', 'environments.ts', 'dom.ts');
   assert.ok(src.includes("withMenu(row, 'agent', { session: a.key }, { agentBackground: a.background })"));
   assert.ok(src.includes("withMenu(row, 'worktree', { project: p.root, worktree: w.path }, { worktreeLinked: !w.main })"));
-  for (const section of new Set(menu.map((i) => /webviewSection == '(\w+)'/.exec(i.when)?.[1]))) assert.ok(src.includes(`withMenu(row, '${section}'`), `some row opens the ${section} menu`);
+  // The Overview's lines open the menu their model names (GH-160): a task's, an agent's or the tidy-up's.
+  assert.ok(pageSource('landing.ts').includes('if (r.menu) withMenu(row, r.menu.section, r.menu.ref, r.menu.flags);'));
+  const model = readFileSync(join(root, 'src', 'model', 'landing.ts'), 'utf8');
+  const overview = new Set([...model.matchAll(/section: '(\w+)'/g)].map((m) => m[1]!).filter((s) => s !== 'tasks'));
+  assert.deepEqual([...overview].sort(), ['task'], 'the landing model makes task menus; agents and the tidy-up name their own');
+  overview.add('tidy');
+  for (const section of new Set(menu.map((i) => /webviewSection == '(\w+)'/.exec(i.when)?.[1]))) assert.ok(src.includes(`withMenu(row, '${section}'`) || overview.has(section!), `some row opens the ${section} menu`);
   assert.ok(src.includes("new MouseEvent('contextmenu'"), 'the caret opens the same menu');
   for (const [from, to] of [['function renderAgents', 'function renderWorktrees'], ['function renderWorktrees', 'function renderEnvironments']] as const) {
     assert.ok(!/\.actions\.map/.test(src.slice(src.indexOf(from), src.indexOf(to))), `no inline buttons left in ${from.slice(9)}`);

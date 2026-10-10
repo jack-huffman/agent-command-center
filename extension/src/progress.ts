@@ -7,11 +7,11 @@
 import { type Job, jobsUnderWay } from '../../packages/core/src/jobs.ts';
 import type { AutopilotStepName, Ledger } from '../../packages/core/src/ledger.ts';
 import type { HeavyState, SlotHolder, SlotWaiter } from '../../packages/core/src/semaphore.ts';
-import { isUnder, type TaskRow, type Tone } from './logic/shared.ts';
+import { isUnder, isWebviewMenuContext, type TaskRow, type Tone } from './logic/shared.ts';
 import { sessionFor } from './logic/agents.ts';
 import { displayLook, type HubLike, type Look, type ProjectLike, type Ref } from './model/shared.ts';
 import type { RunInput } from './model/runs.ts';
-import type { ExtensionArea } from './area.ts';
+import type { ExtensionArea, Parts } from './area.ts';
 import { runFile } from './run.ts';
 import { endResume, resuming } from '../../packages/core/src/resume.ts';
 import { dirname, join } from 'node:path';
@@ -573,11 +573,26 @@ export function readSteps(hub: Pick<Hub, 'projects' | 'taskRows'>, builderSteps:
   for (const k of [...builderSteps.keys()]) if (!live.has(k)) builderSteps.delete(k);
 }
 
+/**
+ * The stop a line's ⋯ menu means (GH-160): its jobs' stops, as the line wrote them, each a label, what it
+ * does and its argument. One is that one; several are picked from; none, or anything else, is nothing.
+ */
+export async function pickStop(vscode: Pick<Parts['vscode'], 'window'>, stops: unknown): Promise<string | undefined> {
+  let list: unknown;
+  try { list = JSON.parse(String(stops)); } catch { return undefined; }
+  const items = (Array.isArray(list) ? list : []).filter((s): s is { label: string; tip: string; arg: string } => !!s && typeof s === 'object' && typeof s.label === 'string' && typeof s.arg === 'string');
+  if (items.length < 2) return items[0]?.arg;
+  const pick = await vscode.window.showQuickPick(items.map((s) => ({ label: s.label, detail: typeof s.tip === 'string' ? s.tip : undefined, arg: s.arg })), { placeHolder: 'Which job to stop?' });
+  return pick?.arg;
+}
+
 export const area: ExtensionArea = {
   register({ vscode, reg, hub, runs, autopilot }) {
     // In progress's Stop (D-092): each kind of job stops its own way, after a person says so. A builder is
     // paused, not abandoned: its task stays Running and shows its agent stopped, with Resume (D-067).
     reg('acc.job.stop', async (raw?: unknown) => {
+      // From a line's ⋯ menu on the Overview (GH-160): the line names its jobs' stops, and one is picked when there are several.
+      if (isWebviewMenuContext(raw)) raw = await pickStop(vscode, raw.accRef.stops);
       let a: { kind?: unknown; project?: unknown; task?: unknown; run?: unknown } = {};
       try { a = JSON.parse(String(raw)) as typeof a; } catch { return; }
       // JSON that isn't an object, such as null or 5, names no job.

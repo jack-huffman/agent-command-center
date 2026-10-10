@@ -26,7 +26,7 @@
 
 /* One of its questions: the suggestion in one click, or your own words. */
 .aq { border-top: 1px solid var(--line); padding: 10px 0 8px; }
-.an-questions > .aq:first-child, .inbox-analysis > .aq:first-child { border-top: 0; padding-top: 4px; }
+.an-questions > .aq:first-child { border-top: 0; padding-top: 4px; }
 .aq-q { display: flex; align-items: baseline; gap: 8px; }
 .aq-q .strong { min-width: 0; overflow-wrap: anywhere; }
 .aq-id { flex: none; padding: 0 5px; border-radius: 4px; font-size: 0.8em; font-weight: 600; background: var(--accent-soft); color: var(--accent); }

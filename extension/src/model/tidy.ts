@@ -23,6 +23,8 @@ export const area: ModelArea = {
           { command: 'acc.tidy.draft', label: 'Draft tidy-up', icon: 'wand', ref, primary: true },
           { command: 'acc.tidy.skip', label: 'Not now', icon: 'close', ref },
         ],
+        // Not now, in its line's ⋯ menu on the Overview (GH-160).
+        menu: { section: 'tidy', ref, flags: {} },
       });
     },
   },

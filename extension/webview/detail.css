@@ -1,0 +1,19 @@
+/* The Overview's details (GH-160), in the page's modal (modal.ts): sized to what they hold, up to the panel's
+   height, with their title in the bar beside Close. */
+.task-modal.detail-modal { width: min(860px, calc(100vw - 48px)); height: fit-content; max-height: calc(100vh - 48px); }
+.detail-modal .task-modal-bar { justify-content: space-between; gap: 12px; padding-left: 18px; }
+.detail-title { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.detail-modal .task-modal-body { padding: 16px 20px 22px; }
+/* Previous, which of how many, and Next. */
+.detail-pager { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.detail-place { flex: 1; text-align: center; font-variant-numeric: tabular-nums; }
+/* One rule or update draft: a raised card, its state and name, what it is, then all of it. */
+.detail-card { padding: 14px 16px; border: 1px solid var(--edge); border-radius: 8px; background: var(--raised); box-shadow: var(--lift); min-width: 0; }
+.detail-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+.detail-name { min-width: 0; overflow-wrap: anywhere; }
+.detail-actions { margin-top: 12px; justify-content: flex-end; flex-wrap: wrap; }
+.detail-update-text { margin: 12px 0 8px; padding: 6px 12px; border-left: 3px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; }
+.detail-poster { display: flex; }
+.detail-modal .question { margin: 0; }
+.detail-modal .lp-rows { margin: 0; }
+@media (max-width: 760px) { .task-modal.detail-modal { width: calc(100vw - 24px); max-height: calc(100vh - 24px); } .detail-modal .task-modal-body { padding: 12px 12px 18px; } }

@@ -12,6 +12,7 @@ import { type Action, type HomeSection, type HubLike, type Look, LOOK, type Mode
 import type { RuleCard } from './rules.ts';
 import type { UpdateCard } from './updates.ts';
 import type { HomeInput } from './home.ts';
+import type { LandingGroup, RowMenu } from './landing.ts';
 import { autoMergeOn } from '../../../packages/core/src/config.ts';
 
 export interface AttentionItem {
@@ -33,6 +34,8 @@ export interface AttentionItem {
   update?: UpdateCard;
   /** A rule or check suggested by a review finding that keeps coming back, to accept or dismiss right here (GH-102). */
   rule?: RuleCard;
+  /** Its line's ⋯ menu on the Overview, where its area names one (GH-160): an agent's, as on Agents, or the tidy-up's. */
+  menu?: RowMenu;
 }
 
 export interface StatTile {
@@ -57,6 +60,8 @@ export interface OverviewModel {
   history: HistoryItem[];
   /** Every job under way, grouped by task, below Needs you (D-092). It never adds to the badge. */
   inProgress: ProgressModel;
+  /** The page's lists, a line per item and five to a list, worked out from the rest (GH-160). */
+  landing: LandingGroup[];
 }
 
 /** A project's merge queue on the Overview (GH-73): head first, each with its place and what it waits on. */

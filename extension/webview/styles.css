@@ -40,7 +40,7 @@ html[data-theme="light"] body, html[data-theme="vscode"] body.vscode-light, html
   --lift: 0 1px 2px var(--vscode-widget-shadow, transparent), 0 3px 10px color-mix(in srgb, var(--vscode-widget-shadow, transparent) 45%, transparent);
 }
 /* The surfaces a person reads as things on the page: raised, with an edge and the lift. */
-.card, .inbox, .in-progress, .panel-box, .tile, .settings-part, .side-panel, .env-card, .identity, .connect-step, .notice, .analysis {
+.card, .lp-row, .tile, .settings-part, .side-panel, .env-card, .identity, .connect-step, .notice, .analysis {
   border-color: var(--edge);
   box-shadow: var(--lift);
 }
