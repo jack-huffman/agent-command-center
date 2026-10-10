@@ -494,11 +494,24 @@ task as needing you, with its session's page. The cloud cap, `agents.cloud.max`,
 counts cloud runs alone; `agents.max` and the machine's total count only this
 Mac's. A cloud session runs the repo's own `.claude/settings.json` hooks and
 not acc's plugin, so opting in commits a push guard there
-(`.claude/hooks/acc-push-guard.mjs`): in a cloud session it refuses a push to
-any branch but the task branch checked out, a force push, a branch deleted, a
-pull request merged, opened or closed, and a deploy. Every sync also flags an
-environment branch that moved by anything but a merge acc knows of, until a
-person clears it with `acc sync --branches-seen`.
+(`.claude/hooks/acc-push-guard.mjs`, run on Bash and the editing tools from
+`$CLAUDE_PROJECT_DIR`): in a cloud session it allows `git push origin
+<branch>` and `git push origin HEAD:<branch>` of the task's own branch alone,
+plainly written, with the branch from the `Acc-Branch` line acc puts at the
+top of the fire's text (read from the session's first message, never from the
+checkout), and refuses everything else that could push, a write under
+`.claude/`, and a checkout, reset, merge or revert that would change it. It
+fails closed. A dispatch refuses `--cloud` until the guard is committed on
+the branch the cloud clones and on the task branch, read from the commits.
+GitHub's rules are the line behind it: where it enforces no protection or
+ruleset on an environment branch, the dispatch and Settings warn that a push
+past the guard would be caught after the fact, without refusing. Every sync
+of a project that opted in also reads each environment branch on origin,
+after the pull requests, and flags a move whose first-parent commits aren't
+acc's own merges, by their commit (sync's `mergeCommit.oid`, a landed head as a
+merge's second parent, a rebase's copies by `git cherry`, and GitHub's squash
+subject as a fallback), on the Overview until a person has seen it (`acc sync
+--branches-seen`).
 
 **Why background sessions (D-009).** Claude Code's supervisor keeps them running
 after the terminal closes. They report `working`, `blocked`, `done`, `failed` or

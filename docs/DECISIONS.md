@@ -5643,6 +5643,23 @@ opted in sees no change, and a local dispatch passes exactly the arguments it di
     among them; plugins don't, user settings don't. `CLAUDE_CODE_REMOTE=true` is set in a cloud session
     (docs, and the binary). Permission modes are a session's own; a routine's run has none to pick.
   - **Billing.** Usage counts against the subscription's limits; no separate charge.
+  - **Read again on 2026-10-10,** for the rework, through the fetch tool on the same three pages, `claude
+    --version` (2.1.296 at /opt/homebrew/bin, a symlink to the package's bin/claude.exe), `claude -p
+    --help` and `grep -a` on that binary: the fire endpoint, headers, body, reply, limits (30 an hour per
+    routine, shared with Run now; 100 an hour per account for API fires) and the `routine-fire-payload`
+    wrapping hold; the routine's model is picked on the routine and used on every run, so a fire can't
+    set it; each repository is cloned from its **default branch** and the prompt names another, so the
+    session loads the repo's `.claude/settings.json` hooks from the default branch first and from the task
+    branch once it checks that out (the hooks docs say edits to hooks in settings files are picked up by
+    the file watcher); `.claude/settings.json` hooks and permission rules load in a one-repo session, plugins
+    don't; Ubuntu 24.04, Node 20, 21 and 22 with 22 on PATH; the GitHub proxy rejects branch deletions and
+    pushes of anything but a branch, doesn't limit which branches a push updates, and **rejects GraphQL,
+    so `gh pr` and `gh issue` get a 403 in a cloud session**; GitHub's branch rules apply to the connected
+    access, so a rule that access can bypass doesn't block a run's push; `CLAUDE_CODE_REMOTE_SESSION_ID`
+    is the documented mark of a cloud session, and the binary tests `CLAUDE_CODE_REMOTE==="true"` too; a
+    hook's input carries `session_id`, `transcript_path`, `cwd` and `permission_mode`, exit 2 blocks the
+    call with stderr as the message, and `$CLAUDE_PROJECT_DIR` is the project root the session started
+    in; `claude -p "<msg>" --cloud <session> --output-format json` answers `{ok, session_id, url}`.
 - **Opting in.** `agents.cloud` in `.acc/config.json`: `routine` (the trigger id), `default` (`local`,
   or `cloud`), `quietMinutes` (120) and `max` (3). `acc cloud enable [--routine trig_…]
   [--default-place local|cloud] [--max n] [--quiet-minutes n]` writes it, key by key, and the push
@@ -5667,24 +5684,65 @@ opted in sees no change, and a local dispatch passes exactly the arguments it di
   pushes the task branch alone to origin as the repo's account (`git push --set-upstream origin
   <branch>:<branch>` from the main checkout), never an environment branch, and only then fires. A push
   that fails keeps the worktree and says why; nothing is fired. The fire's `text` is the builder's packet
-  (D-012) wrapped for a cloud session (`cloudText`): the branch to fetch and check out, that acc isn't
-  installed there, the checks to run by their commands, the ones only the Mac can run, the finish line
-  of trailers, and the guard's rules. Nothing depends on the local ledger or the plugin.
+  (D-012) wrapped for a cloud session (`cloudText`): an `Acc-Branch: <branch>` line first, the guard's
+  record of the task's branch, then the branch to fetch and check out, that acc isn't installed there,
+  the checks to run by their commands, the ones only the Mac can run, the finish line of trailers, and
+  the guard's rules. The Mac's worktree path and acc's path, which name the home folder, stay out of a
+  cloud packet. Nothing depends on the local ledger or the plugin. Before the push, the dispatch reads
+  the commits a cloud session would load its hooks from, `refs/remotes/origin/<default branch>` (origin's
+  HEAD, else the environment's branch) and the task branch, with `git show <ref>:<path>`, and refuses
+  `--cloud` unless both carry the current guard script and its settings entry, naming the fix; Setup's
+  guard step reads HEAD's tree the same way, never the files on disk, since a guard written and not
+  committed never reaches the cloud. A cloud dispatch skips this machine's total (GH-111), which counts
+  this Mac's builders: the project's own cloud cap is the only limit.
 - **Guardrails.** A cloud session runs the repo's committed `.claude/settings.json` hooks and not the
-  plugin's (D-042), so opting in writes `.claude/hooks/acc-push-guard.mjs` and a PreToolUse hook on
-  Bash into the repo, to commit (this repo commits them). In a cloud session (`CLAUDE_CODE_REMOTE=true`)
-  it refuses a push to any branch but the task branch checked out, which must be `task/…`, a push with
-  `--force`, `-f`, `--force-with-lease`, `--delete`, `-d`, `--all`, `--tags` or `--mirror` or a `+` or
-  empty refspec, a push to any remote but origin, `gh pr merge|create|close|ready`, a merge through
-  `gh api`, and `sf project deploy start|quick|resume`. Outside a cloud session it prints nothing, so a
-  person on main and a local builder with the plugin's guards see nothing from it. It never blocks by
-  failing. GitHub's branch protection is the second line, as the docs say; acc doesn't check it. The
-  builder never merges or deploys: the packet forbids it, the guard refuses it, and the checks run under
-  the profile's gates. **What a cloud builder can and can't check:** it runs the project's command gates
-  itself, by their commands (`gates.commands`, a ratchet's command); acc's built-in checks
-  (`stray-files`) and any gate that needs an org login, Salesforce `validate` and `drift`, run only on the
-  Mac, when acc collects the branch. The packet names both lists. No org credential or secret ever goes
-  to a cloud session.
+  plugin's (D-042), so opting in writes `.claude/hooks/acc-push-guard.mjs` and a PreToolUse hook into
+  the repo, to commit (this repo commits them). The hook runs on `Bash|Edit|Write|MultiEdit|NotebookEdit`
+  as `node "$CLAUDE_PROJECT_DIR"/.claude/hooks/acc-push-guard.mjs`, so a `cd` in the session can't make
+  it fail to load. **The guard is an allow-list that fails closed** (the rework of 2026-10-10, after a
+  guardrails-only review; the author decided). In a cloud session (`CLAUDE_CODE_REMOTE=true`, or the
+  documented `CLAUDE_CODE_REMOTE_SESSION_ID` set) only `git push origin <branch>` and `git push origin
+  HEAD:<branch>` pass, with `-u` or `--set-upstream` before origin if wanted, where `<branch>` is the
+  task's from **the guard's own record**: the `Acc-Branch` line acc puts first in the fire's text, which
+  the guard reads from the session's first user message in the transcript Claude Code names in the
+  hook's input (`transcript_path`), before the first assistant turn, so a tool result or a later message
+  can never set it. It is never the checkout's branch, which a builder could switch, and never any
+  `task/*`. Without a record, no push and no checkout passes. Everything else that could push is
+  refused: a bare `git push`; any push with a flag, a `+` or an empty refspec, another remote or another
+  branch; git reached through its global options (`-C`, `-c`, `--git-dir`, `--work-tree`, `--no-pager`
+  and the rest), a path to git, a wrapper (`timeout`, `env`, `nohup`, `xargs`, `eval`, `exec`, `nice`
+  and the like), which otherwise pass through to the command they wrap; a shell with `-c`, whose inner
+  line is guarded the same way, or a bare shell, a script file, or `source`; a program named by a `$`
+  variable; an interpreter's inline code that mentions git or a push; a git alias (read with `git config
+  --get alias.<sub>`) and `git config` or `git -c` setting `alias.*`, `push.*`, `remote.*`, `url.*`,
+  `credential.*`, `include*` or `core.hooksPath`; `git remote add|set-url|rename|remove`;
+  `git send-pack`; `gh api` with any method but GET or a field (`-f`, `-F`, `--input`, which post), any
+  `git/refs` path, a merge path, or `graphql` with a mutation (queries pass); `gh pr merge|create|close|
+  ready|reopen`; `curl` or `wget` writing to github.com; and `sf project deploy start|quick|resume`. It
+  also refuses what could remove or weaken it: an Edit, Write, MultiEdit or NotebookEdit under
+  `.claude/hooks/`, of `.claude/settings.json` or of the transcript, and a Bash line that names anything
+  under `.claude/` or the transcript unless every command in it only reads (no redirect, no tee); `git
+  checkout` or `switch` to anything but the recorded branch (`-- <files>` restores pass), a new branch,
+  `reset --hard`, `restore --source`, `pull`, `worktree`, `rm -r` of the checkout or `.git`, and a
+  `merge`, `rebase`, `cherry-pick` or `revert` whose ref would change the guard's files (`git diff
+  --name-only`), which a person does instead. Malformed input, a Bash call with no command, or an error
+  of the guard's own (git not answering the alias check) blocks the call with exit 2 and the reason on
+  stderr; a refusal is a `permissionDecision: deny` with its reason. Outside a cloud session it prints
+  nothing, so a person on main and a local builder with the plugin's guards see nothing from it. The
+  builder never merges or deploys: the packet forbids it, the guard refuses it, the GitHub proxy refuses
+  `gh pr` outright, and the checks run under the profile's gates. **GitHub's rules are the line behind
+  the guard, and acc warns rather than refuses where there are none** (the author decided): the dispatch
+  and Settings read, through `gh api repos/{repo}/branches/{branch}/protection` and
+  `rules/branches/{branch}` as the repo's account, whether GitHub enforces protection or a ruleset on the
+  default branch and each environment branch. Enforced passes quietly; none, unknown (gh offline or not
+  signed in), or unavailable warn that a push the guard didn't catch would be caught by acc's next sync,
+  after the fact, rather than prevented. This repo is private on GitHub's free plan, where both calls
+  answer 403 "Upgrade to GitHub Pro or make this repository public", so protection can't be set at all:
+  refusing would have ruled out the real run here. **What a cloud builder can and can't check:** it runs
+  the project's command gates itself, by their commands (`gates.commands`, a ratchet's command); acc's
+  built-in checks (`stray-files`) and any gate that needs an org login, Salesforce `validate` and `drift`,
+  run only on the Mac, when acc collects the branch. The packet names both lists. No org credential or
+  secret ever goes to a cloud session.
 - **Following, through GitHub,** since Claude Code reports no state: on every `acc sync`, and so on the
   Command Center's poll while a cloud task runs, `git ls-remote` reads each running cloud task's branch
   head. A new head is fetched and written on the run with the time (`run.cloud.head`, `lastPushAt`); the
@@ -5703,33 +5761,73 @@ opted in sees no change, and a local dispatch passes exactly the arguments it di
   naming the check, and the next push to the branch collects it again. From review on, the task is a
   local builder's: review, land and the merge queue as before.
 - **Caps.** Cloud runs count against `agents.cloud.max` only; `agents.max` and the machine's total (GH-111)
-  count this Mac's builders only, since usage limits aren't CPU. No caffeinate for a cloud run (D-067).
+  count this Mac's builders only, since usage limits aren't CPU, so a cloud dispatch is never refused for
+  the machine's total, at the first check or the ledger's second. No caffeinate for a cloud run (D-067).
 - **The Command Center** shows where each builder runs on its card and page, an icon and a label, **This
   Mac** (`device-desktop`) or **Cloud** (`cloud`), and acc show says it too. For a cloud builder, Watch
   opens the session on claude.ai; **Send a message** queues one with `claude -p "<text>" --cloud
   <session>`; **Collect** runs acc collect; Attach and Open in Claude Code are disabled with the reason;
   Abandon sets the task aside without stopping the session, which it offers to open and archive. A
   `disabled` action is drawn disabled, with its reason, never left to do nothing.
-- **Environment branches that move.** Every sync looks at each environment's branch on origin and keeps
-  where it stood (`<git-common-dir>/acc/branches.json`). A move whose every commit names a pull request
-  the ledger knows, a task's or a promotion's, is acc's own merge and passes; any other, or one git can't
-  list, is kept as a notice needing a person, in `acc sync`'s output, until `acc sync --branches-seen`.
+- **Environment branches that move.** Every sync of a project that opted in looks at each environment's
+  branch on origin, after the pull requests, so a merge sync has just recorded explains the move it
+  made, and keeps where each stood (`<git-common-dir>/acc/branches.json`). A project that hasn't opted
+  in looks at none: its syncs run exactly as before. **A move is acc's only by its merge's commit** (the
+  rework): `git log --first-parent prev..head` lists what came in, so a merge counts once, as its merge
+  commit, and never as the branch's own commits, which name no pull request; a commit passes when its
+  sha is one sync recorded as a merge's (`mergeCommit.oid`, a task's `pr.mergeSha` or a promotion's), or
+  it's a merge commit whose second parent is a head acc landed (`pr.sha`) or autopilot merged
+  (`autopilot.merged.sha`), or it's a rebase's copy of the branch's commits, which `git cherry <branch>
+  head prev` finds by their patches against the task branch the Mac's clone still has. GitHub's squash
+  subject, "Title (#N)" with N a pull request the ledger knows, is kept only as a fallback for a squash
+  sync hasn't recorded; a merge commit's subject never explains it, and a pushed commit that merely
+  mentions a number ("Hotfix, see #12") is flagged. A head the old one doesn't lead to is a rewrite,
+  flagged as such. Every move still waiting is in `acc sync`'s output each run, with its compare page,
+  and on the Overview as an orange item needing you, with Compare on GitHub and Seen, until `acc sync
+  --branches-seen` clears it; the Command Center syncs an opted-in project on its pull-request poll even
+  with nothing else to follow, so a move is seen.
 - **Not chosen:** `claude --cloud` from a terminal (interactive only, so autopilot can't re-dispatch and
   nothing captures the session id); `--on-branch`, hidden and tied to `--cloud`; teleport as the way
   back (a person's, not acc's); counting cloud builders against `agents.max`; refusing `--cloud` on an
-  unprotected environment branch (the guard and the moved-branch notice cover it; a person sets
-  protection on GitHub); cloud reviewers or analysts; sharing the ledger (D-008, DESIGN §19).
+  unprotected environment branch (a warning instead, by the author's decision: this repo can't have
+  protection on its plan, and the guard and the moved-branch notice cover it); a guard that reads the
+  task's branch from the checkout (a builder can switch it) or from a file committed on the task branch
+  (two cloud tasks from one base would conflict on it); a guard that allows a push through a wrapper or
+  a shell's `-c` that pins the branch (not plain, so not on the allow-list; a shell's `-c` line is
+  guarded, a wrapper's push isn't allowed); explaining a branch move by its subject alone (a hand-pushed
+  commit can say anything); cloud reviewers or analysts; sharing the ledger (D-008, DESIGN §19).
 - **Checked:** `cloud.test.ts` (off by default and the reasons; `agents.cloud` parsing and round trip; the
   token from the environment and the keychain, written through stdin; the fire's headers, body, cleanup
   and refusals; the finish marker; the fire's text; a cloud dispatch's push before fire, its run, no
   caffeinate, the caps, and its refusals; following a branch on a bare origin from fired through pushed,
   quiet, blocked, a failed collect and a collect, with the note; collect's refusals; the moved-branch
-  notice and acc's own merges; sync carrying both), `cloud-guard.test.ts` (the committed script run as
-  Claude Code runs it, in and out of a cloud session; its install), `config.test.ts` (every key),
-  `looks.test.ts` (the place and the Settings switch, every state with an icon and a label, no red
-  against green), the screenshot run with two cloud builders on the board, and `acc gate run`.
-- **The real run.** Not done in this change: firing needs a routine and its API token, which only a person
-  can make at claude.ai/code/routines, and this repo had none when the change was built. What's ready for
-  it: this repo's guard is committed, `acc cloud enable --routine trig_…` and `acc cloud token` take the
-  rest, and `acc dispatch <id> --cloud` on the next small task is the run. Write up here what worked,
-  what didn't, the time and the usage, and name any step above the run proves wrong.
+  notice: a real `git merge --no-ff` of a task branch, a squash, a rebase by cherry-pick, a hand-pushed
+  "Hotfix, see #12" flagged, a force push flagged as a rewrite, the moves carried by every sync until
+  cleared, and no look at origin for a project not opted in; a cloud dispatch skipping the machine's
+  total; `--cloud` refused with nothing pushed until the guard is committed on origin's default branch
+  and the task branch; what GitHub enforces, read from fixtures of each answer, and the dispatch's
+  warning), `cloud-guard.test.ts` (the committed script run as Claude Code runs it, with a transcript
+  carrying the record: the two allowed pushes pass, and a refusal is pinned for every form named above,
+  through the guard's own function for the long list and through the hook for a few of each kind; the
+  record read from the first message only; junk input, no command and an error of its own exit 2; a
+  tool it doesn't guard and a session outside the cloud pass; the editing tools refused under
+  `.claude/`; the guard's command splitter and hooks.ts's `commandsOf` kept the same on shared cases;
+  install, replacing an older entry; `guardCommitted` reading commits, not disk; this repo's HEAD
+  carrying both files), `config.test.ts` (every key), `branches.test.ts` and `cloud-cards.test.ts` in
+  the extension (the Overview's moved-branch item, orange and counted, with its buttons; Dispatch to
+  the cloud disabled with each reason or enabled; a running cloud task's Watch, Send a message, Collect
+  and Open in Claude Code disabled with why, and Abandon's label), `looks.test.ts` (the place, the
+  Settings switch, what GitHub enforces per branch, and a moved branch, every state with an icon and a
+  label, no red against green), the screenshot run with two cloud builders on the board, a moved branch
+  on the Overview and the protection rows in Settings, and `acc gate run`.
+- **The real run.** Not done in this change, nor in its rework of 2026-10-10: firing needs a routine and
+  its API token, which only a person can make at claude.ai/code/routines, and this repo had none either
+  time (`acc cloud` on 2026-10-10: not opted in, no routine, no token). What's ready for it: this repo's
+  guard is committed on this branch and reaches main with it, which the dispatch requires, since the
+  cloud clones main first; `acc cloud enable --routine trig_…` and `acc cloud token` take the rest, and
+  `acc dispatch <id> --cloud` on the next small task is the run. The dispatch will warn that GitHub
+  enforces no protection here, and go on. Write up here what worked, what didn't, the time and the
+  usage, and name any step above the run proves wrong: in particular whether the fire's text lands in
+  the transcript's first user message as the guard reads it (if not, the guard allows no push, fails
+  closed, and the session's page shows its refusal), and whether the file watcher loads the task
+  branch's hooks after the checkout.
