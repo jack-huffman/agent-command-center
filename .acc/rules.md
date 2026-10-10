@@ -8,3 +8,7 @@
   at least one test whose name says which edge case it covers. Checked by
   `scripts/test/edge-cases.test.ts`, whose `OLDER` list names the test files that predate this rule. That
   list may only shrink.
+- Every rule gets a check before anyone relies on it. A rule here names the test that checks it, and that
+  test reads this file, counts what it checked and fails on none. Checked by
+  `scripts/test/rules.test.ts`, whose `UNCHECKED` list names the rules that predate this one. That list
+  may only shrink.

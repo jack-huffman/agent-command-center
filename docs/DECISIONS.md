@@ -5764,3 +5764,15 @@ person runs, and the file by what it is.
   on its page, and History) before the boundary, and none after.
 - Not chosen: translating the whole model as it's sent to the page, which would rewrite the work data;
   renaming acc's commands; a person-facing form for each of core's messages.
+
+## D-??? Every rule in the repo's own rules names its check (2026-10-10)
+
+From repeated review findings (a test meant to stop a split from dropping a command read source text with
+a regex, a per-area check hard-coded its kinds instead of reading the list it claimed to check, a pinning
+test matched one variable name only), the repo's own rules gain: every rule gets a check before anyone
+relies on it. `scripts/test/rules.test.ts` reads each rule in `.acc/rules.md`, counts them, fails on none,
+and fails a rule that doesn't name its check beside it ("Checked by" a test file) where that file is one
+`npm test` runs and reads `.acc/rules.md` itself. Its `UNCHECKED` list names the two rules that predate
+this one (the words rule and the finishing-note rule) and may only shrink: each must still be in the file
+and still name no check. The check sees that a rule names a test, not that the test is a strong one; the
+findings behind it were weak checks, which stays a reviewer's call.
