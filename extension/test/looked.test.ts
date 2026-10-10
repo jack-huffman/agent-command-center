@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import { tempDir } from '../../packages/core/test/support.ts';
 import { addedClasses, cssClasses, judgeShots, UI_PATHS, uiChanges, UNDRAWN } from '../scripts/looked.ts';
 import { expectedShots, fingerprint, noteShots, PAGES, readShots, SHOTS_FILE, type ShotNote, type ShotsRecord, webviewSource, WIDTHS } from '../scripts/screenshot.ts';
-import { PALETTE_THEMES } from '../scripts/styles.ts';
+import { pageStyles, PALETTE_THEMES } from '../scripts/styles.ts';
 import { COLLECT_GEOMETRY } from '../scripts/geometry.ts';
 
 const PRINT = 'f'.repeat(64);
@@ -87,7 +87,7 @@ test('no usual shots to expect fails rather than pass having checked none', () =
 });
 
 test('UNDRAWN names only classes the stylesheets hold, each with why', () => {
-  const held = new Set(webviewSource().filter(([f]) => f.endsWith('.css')).flatMap(([, b]) => [...cssClasses(b.toString())]));
+  const held = cssClasses(pageStyles());
   assert.ok(held.size > 100, `read ${held.size} classes from the stylesheets`);
   for (const u of UNDRAWN) {
     assert.ok(held.has(u.name), `.${u.name} is in UNDRAWN but no stylesheet has it: take it off`);

@@ -17,10 +17,11 @@
  *   node --no-warnings extension/scripts/looked.ts
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expectedShots, fingerprint, readShots, sha256Of, type ShotsRecord } from './screenshot.ts';
+import { pageStyles } from './styles.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -103,10 +104,9 @@ function base(): string {
   throw new Error('There\'s no main or origin/main branch here to compare with.');
 }
 
-/** The webview's stylesheets: now, from the working tree, and where the branch began. */
+/** The webview's stylesheets: now, as the build joins them, and where the branch began. */
 function stylesheets(at: string): { now: string[]; before: string[] } {
-  const dir = join(ROOT, 'extension', 'webview');
-  const now = readdirSync(dir).filter((f) => f.endsWith('.css')).sort().map((f) => readFileSync(join(dir, f), 'utf8'));
+  const now = [pageStyles()];
   const before = git(['ls-tree', '--name-only', at, 'extension/webview/']).split('\n').filter((f) => f.endsWith('.css')).map((f) => git(['show', `${at}:${f}`]));
   return { now, before };
 }
