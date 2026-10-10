@@ -110,7 +110,8 @@ Salesforce. Project types plug in as profiles.
   `.acc/config.json`. `acc dispatch <id> --anyway` starts it now,
   `acc dispatch --held` starts whatever may go, and `--stop-waiting` ends a
   wait.
-- **Next:** M8, the pilots.
+- **Next:** M8, the pilots. [ROADMAP.md](docs/ROADMAP.md) says what's done,
+  what's under way and what waits on a person, each with its date and evidence.
 
 ## Install and first run
 
