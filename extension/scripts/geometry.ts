@@ -59,6 +59,11 @@ export interface GeoSnapshot {
   overview?: { groups: { what: string; rows: Box[] }[] } | null;
   /** Every string a person can read on the page, for the words check (GH-163, words.ts). */
   said?: GeoSaid[];
+  /**
+   * Every class on a visible element drawn at least partly inside the window, which is what the shot
+   * holds, for the screenshots gate (T-5, looked.ts): a class a branch adds must be drawn in some shot.
+   */
+  drawn?: string[];
 }
 
 /**
@@ -281,9 +286,17 @@ function collectGeometry() {
     rows: [...g.querySelectorAll('[data-overview-row]')].filter((r) => r.closest('[data-overview-group]') === g && visible(r)).map((r) => { const b = r.getBoundingClientRect(); return box(b.left, b.top, b.right, b.bottom); }),
   })) } : null;
   // Every string a person can read, for the words check (GH-163).${COLLECT_WORDS}
+  // The classes drawn inside the window, which the shot holds, for the screenshots gate (T-5).
+  const drawn = new Set();
+  for (const e of document.querySelectorAll('body *')) {
+    if (!e.classList.length || !visible(e)) continue;
+    const r = e.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1 || r.bottom <= 0 || r.right <= 0 || r.top >= vh || r.left >= vw) continue;
+    for (const c of e.classList) drawn.add(c);
+  }
   const out = document.createElement('script');
   out.type = 'application/json';
   out.id = 'acc-geometry';
-  out.textContent = JSON.stringify({ controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, said }).replace(/</g, '\\\\u003c');
+  out.textContent = JSON.stringify({ controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, said, drawn: [...drawn] }).replace(/</g, '\\\\u003c');
   document.body.append(out);
 }`;

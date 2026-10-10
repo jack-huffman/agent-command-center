@@ -14,9 +14,15 @@
  * (GH-109): a colour that still came from VSCode's theme would show in it. --colours checks the same
  * thing by number: each page's computed colours with Light or Dark forced are the same whichever theme
  * VSCode has, and Match VSCode under a theme is that theme forced.
+ *
+ * Each shot it takes at the usual heights is noted in the folder's shots.json (SHOTS_FILE, T-5): the PNG's
+ * hash, the fingerprint of the code and sample data it drew, its geometry findings, and the classes drawn
+ * on screen in it. The screenshots gate (looked.ts) reads it to tell whether a branch's pages were looked
+ * at as they are now.
  */
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -81,6 +87,8 @@ export type Page = (typeof PAGES)[number];
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');
 export const MIN_WIDTH = 500;
+/** The widths every page is shot at unless --width says. */
+export const WIDTHS = [1000, 620, 500] as const;
 
 /**
  * The fonts VSCode would set, the same in either theme: the page's colours are theme.css's palettes (GH-109),
@@ -185,7 +193,7 @@ export const openAt = (kind: Page): string | null => (kind === 'settings-agents'
  * Screenshots can't hover, so each :hover rule is copied to a class put on the first row or card.
  */
 /** How tall a shot is unless --height says. */
-const DEFAULT_HEIGHT = 900;
+export const DEFAULT_HEIGHT = 900;
 
 /**
  * Pages whose part sits below the fold at the default height, shot taller: the Overview, a landing page of
@@ -378,10 +386,74 @@ function colourCheck(chrome: string, work: string, views: Page[]): number {
   return 0;
 }
 
+/** The file in a screenshots folder that notes each shot taken there (T-5). */
+export const SHOTS_FILE = 'shots.json';
+
+/** What the run noted of one shot: what it drew, what it found, and the classes on screen in it. */
+export interface ShotNote {
+  /** fingerprint() when it was taken: the code and sample data it drew. */
+  fingerprint: string;
+  /** The PNG's sha256, so a shot taken again or changed since isn't taken for this one. */
+  sha256: string;
+  takenAt: string;
+  /** How many geometry findings it had. */
+  findings: number;
+  /** Every class on an element drawn inside the shot's window, sorted. */
+  drawn: string[];
+}
+export interface ShotsRecord { schema: 1; shots: Record<string, ShotNote> }
+
+/** The usual shots of every page: each theme at each of WIDTHS, by file name. */
+export const expectedShots = (): string[] => PAGES.flatMap((p) => PALETTE_THEMES.flatMap((t) => WIDTHS.map((w) => `${p}-${t}-${w}.png`)));
+
+/** The clock fingerprint() draws the sample data at, so the same code always gives the same fingerprint. */
+export const FINGERPRINT_NOW = Date.UTC(2026, 0, 1);
+
+/**
+ * The fingerprint of what the screenshots draw: every file of the webview's source, the pages, widths and
+ * heights, and each page as it's handed to Chrome in each theme, its sample model, starting state and
+ * geometry collector included, at a still clock. A change to the page, its model, its fixtures or the
+ * run's checks changes it; a change the pages don't draw from leaves it alone.
+ */
+export function fingerprint(webview: [string, Buffer | string][] = webviewSource()): string {
+  const h = createHash('sha256');
+  for (const [name, body] of webview) h.update(`file ${name} ${body.length}\n`).update(body);
+  h.update(JSON.stringify({ PAGES, WIDTHS, DEFAULT_HEIGHT, PAGE_HEIGHT }));
+  for (const view of PAGES) {
+    for (const theme of PALETTE_THEMES) h.update(pageFor(view, theme, sampleModel(view, FINGERPRINT_NOW, theme), other(theme), false, true, afterModel(view, FINGERPRINT_NOW)));
+  }
+  return h.digest('hex');
+}
+
+/** The webview's source files, by name, sorted. */
+export function webviewSource(dir = join(extensionDir, 'webview')): [string, Buffer][] {
+  return readdirSync(dir).sort().filter((f) => statSync(join(dir, f)).isFile()).map((f) => [f, readFileSync(join(dir, f))]);
+}
+
+/** The shots noted in a folder: none when it has no note yet, or one that can't be read. */
+export function readShots(dir: string): ShotsRecord {
+  try {
+    const r = JSON.parse(readFileSync(join(dir, SHOTS_FILE), 'utf8')) as ShotsRecord;
+    if (r.schema === 1 && r.shots && typeof r.shots === 'object') return r;
+  } catch { /* none yet, or unreadable: start again */ }
+  return { schema: 1, shots: {} };
+}
+
+/** Notes these shots in the folder's record, over any earlier note of the same file, written whole. */
+export function noteShots(dir: string, taken: Record<string, ShotNote>): void {
+  if (!Object.keys(taken).length) return;
+  const shots = Object.fromEntries(Object.entries({ ...readShots(dir).shots, ...taken }).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+  const file = join(dir, SHOTS_FILE);
+  writeFileSync(`${file}.tmp`, `${JSON.stringify({ schema: 1, shots } satisfies ShotsRecord)}\n`);
+  renameSync(`${file}.tmp`, file);
+}
+
+export const sha256Of = (file: string): string => createHash('sha256').update(readFileSync(file)).digest('hex');
+
 function main(argv: string[]): number {
   const { values, positionals } = parseArgs({
     args: argv, allowPositionals: true,
-    options: { width: { type: 'string', default: '1000,620,500' }, theme: { type: 'string', default: 'dark,light' }, height: { type: 'string' }, out: { type: 'string' }, colours: { type: 'boolean', default: false } },
+    options: { width: { type: 'string', default: WIDTHS.join(',') }, theme: { type: 'string', default: 'dark,light' }, height: { type: 'string' }, out: { type: 'string' }, colours: { type: 'boolean', default: false } },
   });
   const views = positionals.length ? positionals : values.colours ? [...COLOUR_PAGES] : [...PAGES];
   const bad = views.filter((v) => !(PAGES as readonly string[]).includes(v));
@@ -416,6 +488,10 @@ function main(argv: string[]): number {
   mkdirSync(out, { recursive: true });
   const work = mkdtempSync(join(tmpdir(), 'acc-screenshots-'));
   const renders: Render[] = [];
+  // The screenshots gate counts shots at the usual heights only, and not ones started in a given state.
+  const noting = values.height === undefined && !process.env.ACC_SHOT_STATE;
+  const print = noting ? fingerprint() : '';
+  const taken: Record<string, ShotNote> = {};
   try {
     cpSync(join(extensionDir, 'dist', 'webview'), join(work, 'webview'), { recursive: true });
     const now = Date.now();
@@ -444,15 +520,18 @@ function main(argv: string[]): number {
           if (!shot) return fail(`${view} (${theme}, ${width}px) measured no geometry (exit ${r.status ?? r.signal}).`);
           const verdict = judge(shot, viewOf(view) === 'home');
           renders.push({ page: view, theme, width, verdict });
+          if (noting) taken[`${view}-${theme}-${width}.png`] = { fingerprint: print, sha256: sha256Of(png), takenAt: new Date().toISOString(), findings: verdict.violations.length, drawn: [...new Set(shot.drawn ?? [])].sort() };
           console.log(`${png}  ${CHECKS.map((c) => `${c} ${verdict.examined[c]}`).join(', ')}${verdict.violations.length ? `, ${verdict.violations.length} found` : ''}`);
         }
       }
     }
   } finally {
     rmSync(work, { recursive: true, force: true });
+    // Noted even when Chrome stops partway, so the shots it did take count.
+    noteShots(out, taken);
   }
   // Exceptions and floors are a whole run's: a run of a few pages may not reach them.
-  const full = views.length === PAGES.length && themes.length === PALETTE_THEMES.length && values.width === '1000,620,500';
+  const full = views.length === PAGES.length && themes.length === PALETTE_THEMES.length && values.width === WIDTHS.join(',');
   const failures = runFailures(renders, full);
   console.log(geometrySummary(renders));
   if (failures.length) {
