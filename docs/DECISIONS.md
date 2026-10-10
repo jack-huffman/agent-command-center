@@ -5674,3 +5674,67 @@ Tasks board does).
   fixtures (219 of them) is still a line's button, its ⋯ menu, or what the detail it opens holds.
 - Not chosen: a page of its own for In progress or History, which the ticket left to the modal; dropping
   the In progress fold; an in-page menu in place of VSCode's own, which the rest of the page uses.
+
+## D-??? The Command Center speaks in processes, not commands (2026-10-09)
+
+The Command Center talked to people in its own internals: "run `acc gate run`", a task that "ended before
+acc done or acc block", "see `.acc/config.json`" (GH-163). The author: "I don't want to see 'run acc do
+xxx', but rather 'finalize deployment' or whatever applicable language." Now it names the process a
+person runs, and the file by what it is.
+
+- **One vocabulary.** `extension/src/logic/processes.ts` holds it, and it's the only place the extension
+  maps a command to words. `PROCESSES` gives every command and subcommand acc's own registry lists (its
+  `entryPointsOf`) a name, a verb first, in the button's words where a button does it: Run the checks,
+  Finish the task, Mark it blocked, Open its pull request, Refresh from GitHub, Deploy to <env>, Promote,
+  Bring in tickets, Check the setup, Set up this project, Import the team's rules. Where the extension has
+  an acc.* command that does it, the row names it. `FILES` names each file a person is told about: the
+  project's settings, this machine's settings, the project's rules, the first-run checklist, the
+  onboarding guide. The table is TypeScript in `logic/`, not a file in `extension/commands/`, which the
+  build reads as package.json's contributions: the models, the page, the notices and the tests all import
+  it. It sits beside the command registry by naming, for each process, the registered command that runs
+  it. `acc.doctor`'s title is now "Check the setup", its process's name.
+- **The extension's own words use it.** Every notice, quick pick, tooltip, empty state, Setup step, error
+  and status line that named a command or a path now says the process or the thing: "Changed in the
+  project's settings: commit the change to share it", "its turn ended before it finished or blocked", "It
+  moves to done at the next refresh from GitHub". Where it asks a person to act it offers the button: a
+  Setup step whose fix is acc's shows "Do it: Compare the rules with their source." beside **Do it**, not
+  the line it runs; another tool's line, such as `brew install gh`, is still shown to copy. The
+  walkthrough's pages say the same. A run in the output panel is labelled by its process.
+- **What acc says is translated at the boundary, by one translator.** `inProcessWords` rewrites each acc
+  command a message names into its process ("Run acc gate run first." reads "Run the checks first.";
+  "acc land does that" reads '"Open its pull request" does that') and each path into its name, with the
+  verb agreeing ("the project's settings name the checks"). "acc" as the tool's name, as in "acc drafted
+  it", stays. It runs where acc's words reach a person: `accSays` and every other place the extension
+  shows acc's refusal, Setup's step details and reasons, the walkthrough, a hook's reason in History and
+  on an agent's page, autopilot's refusal in the status bar, and a tracker's error on its board or a
+  task's page. Chosen over a
+  person-facing form for each of core's messages because those messages are also what the CLI prints in
+  a terminal and what agents read, both out of scope here; there are hundreds of them, and a second form
+  beside each would drift from the first. One translator keyed off the same table keeps one mapping, and
+  a command acc adds is covered as soon as it has a row, which `processes.test.ts` requires. The cost is
+  grammar: a process named mid-sentence reads in quotes.
+- **What stays literal, by name.** On the page, work data, in regions marked `data-work`
+  (`work()` in `dom.ts`): `files` (the files a task conflicts on or shares with another, an analysis's
+  files, a finding's place), `branch`
+  (branches and worktrees), `transcript` (what an agent said, wrote or ran, its note, its findings, the
+  command it asked to run), `output` (check and command output, and the output panel), and `agent-text`
+  (a rule's line, the builder's instructions on its page). `WORK_DATA` in `extension/scripts/words.ts`
+  says why each stays; `MARKS` in `extension/test/words.test.ts` pins every place the page marks one, by
+  file and kind. In the extension's code, `LITERAL` in the same test names the lines that may still hold
+  a command or a path: the vocabulary itself, a name looked up by its path, a command line run in a
+  terminal or the output panel, a file the code reads or watches, who acc records made a change, and the
+  extension's own log. Text for agents (packets, the finish line, rules, review prompts) and the CLI's
+  terminal output are core's, and unchanged.
+- **Checked.** The screenshot run gains a `words` check: each drawing gathers every string it holds,
+  shown or folded away, with each element's title, aria-label, placeholder and alt, and fails on `acc`
+  followed by one of acc's commands, `npm run`, a `.acc/` path, a `docs/` page or the packet, outside
+  work data. It counts what it read, fails a drawing that gathered none, fails a run in which a kind of
+  work data held nothing, and has a floor (`RUN_FLOOR.words`, 76400). It failed on the pages before this
+  change, with 177 findings dark at 1000 px alone, and passes now: all 342 drawings read 76458 strings
+  with no finding. `processes.test.ts`: every command acc has has
+  a name; no name is empty, a command line, a path or another's; the ticket's names; each process's
+  command is declared; a sample of core's messages comes through with no command or path left.
+  `words.test.ts`: the rules, work data counted and never judged, `MARKS`, a scan of every line of the
+  extension's code against `LITERAL`, the walkthrough, and the commands and settings VSCode lists.
+- Not chosen: translating the whole model as it's sent to the page, which would rewrite the work data;
+  renaming acc's commands; a person-facing form for each of core's messages.
