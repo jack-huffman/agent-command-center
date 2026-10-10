@@ -41,6 +41,7 @@ export * from './overlap.ts';
 export * from './packet.ts';
 export * from './paths.ts';
 export * from './promote.ts';
+export * from './protection.ts';
 export * from './questions.ts';
 export * from './queue.ts';
 export * from './ratchets.ts';

@@ -219,6 +219,8 @@ function cmdDispatch(o: Opts, id: string | undefined): number {
     `  agent:    ${r.cloud ? 'a cloud session, started by the routine; acc sync follows its branch on GitHub and collects it once its last commit says Acc-Done' : r.bgId ? `background session ${r.bgId}. Watch it with: claude attach ${r.bgId}` : o.foreground ? 'ran in this terminal' : 'started; it will appear in claude agents shortly'}`,
     `  packet:   ${r.packetPath}`,
     r.shares.length ? tone(`  ${sharesWords(r.shares)}. The second pull request to merge may conflict there.`, 'dim') : '',
+    // GitHub's rules behind the guard (GH-69): a warning, never a refusal, where it enforces none.
+    ...(r.warnings ?? []).map((w) => tone(`  ! ${w}`, 'orange')),
   ].filter(Boolean).join('\n'), r);
   return 0;
 }

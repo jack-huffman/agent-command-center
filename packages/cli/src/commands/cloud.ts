@@ -1,7 +1,7 @@
 // acc's Cloud commands (GH-69): opting a project in to cloud builders, the routine's token, what the cloud
 // still needs, and collecting a cloud builder's work. A person's, never an agent's.
 
-import { AccError, BUILDER_PLACE_LOOK, type BuilderPlace, cloudNeeds, cloudReason, cloudWait, collect, deleteCloudToken, disableCloud, enableCloud, guardInstalled, installGuard, loadConfig, readLedger, run, ROUTINES_URL, writeCloudToken } from '../../../core/src/index.ts';
+import { AccError, BUILDER_PLACE_LOOK, type BuilderPlace, cloudNeeds, cloudReason, cloudWait, collect, deleteCloudToken, disableCloud, enableCloud, environmentProtection, guardCommitted, installGuard, loadConfig, readLedger, run, ROUTINES_URL, writeCloudToken } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
 import { actorFrom, type CommandArea, followingCards, noAgent, now, type Opts, out, project, readFileArg } from '../shared.ts';
 
@@ -17,15 +17,20 @@ function cmdStatus(o: Opts): number {
   const ledger = readLedger(paths.ledger);
   const running = ledger.tasks.filter((t) => t.state === 'running' && t.run?.where === 'cloud');
   const reason = cloudReason(needs);
+  // The guard as a cloud session would see it: in HEAD's tree, not the files on disk (GH-69).
+  const guard = guardCommitted(run, paths.root, 'HEAD');
+  // GitHub's rules behind the guard, per environment branch: a warning where it enforces none, never a refusal.
+  const protection = cloud && config.github ? environmentProtection(run, config.github.repo, config.github.account, config.environments.map((e) => e.branch), process.env) : [];
   out(o, () => [
     cloud
       ? `Cloud builders: on for this project. Default ${BUILDER_PLACE_LOOK[cloud.default].label}${cloud.default === 'cloud' ? ' (acc dispatch --local keeps a task on this Mac)' : ' (acc dispatch --cloud sends a task to the cloud)'}; up to ${cloud.max} at once; a task needs you after ${cloud.quietMinutes} minutes with no push.`
       : 'Cloud builders: off for this project. A local builder is the default everywhere: acc cloud enable opts in.',
     reason ? tone(`  ${reason}.`, 'orange') : tone('  Everything the cloud needs is there.', 'blue'),
-    guardInstalled(paths.root) ? tone('  The push guard is committed in .claude/settings.json.', 'dim') : cloud ? tone('  ! The push guard isn\'t in .claude/settings.json: run acc cloud enable again, and commit what it writes.', 'orange') : '',
+    guard.ok ? tone('  The push guard is committed on HEAD, in .claude/hooks/ and .claude/settings.json.', 'dim') : cloud ? tone(`  ! ${guard.why}`, 'orange') : '',
     ...needLines(needs),
+    ...protection.map((p) => (p.state === 'enforced' ? tone(`  ✓ ${p.why}`, 'blue') : tone(`  ! ${p.why}${p.state === 'unknown' ? ' Whether a push the guard didn\'t catch would be prevented isn\'t known.' : ''}`, 'orange'))),
     ...running.map((t) => tone(`  ${t.id} runs in the cloud: ${t.run?.cloud?.url ?? ''}${cloudWait(t, config, now()) ? ` (${cloudWait(t, config, now())})` : ''}`, 'blue')),
-  ].filter(Boolean).join('\n'), { cloud, needs, reason, guard: guardInstalled(paths.root), running: running.map((t) => ({ id: t.id, url: t.run?.cloud?.url ?? null, wait: cloudWait(t, config, now()) })) });
+  ].filter(Boolean).join('\n'), { cloud, needs, reason, guard: guard.ok, guardWhy: guard.why, protection, running: running.map((t) => ({ id: t.id, url: t.run?.cloud?.url ?? null, wait: cloudWait(t, config, now()) })) });
   return 0;
 }
 

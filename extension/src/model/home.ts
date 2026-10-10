@@ -148,6 +148,8 @@ export function homeModel(i: HomeInput): HomeModel {
     theme: i.theme ?? 'vscode', projects: hub.projects, setup: i.setup.items, limits: limits ? limitsModel(limits, billingLook(i.setup.items)) : null, boards: i.boards,
     slack: i.slack ?? null, identity: i.identity, opensOn: i.opensOn, whereView: i.whereView, pace: i.pace,
     about: i.about ? aboutModel(i.about, i.now ?? Date.now()) : null,
+    // What GitHub enforces on each environment branch, for the cloud builders card (GH-69), once read.
+    cloudProtection: hub.cloudProtection ? (root) => hub.cloudProtection!(root) : undefined,
   });
   const questions = questionCards(hub);
   const asked = new Set(questions.map((q) => q.sessionId));

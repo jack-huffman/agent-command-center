@@ -8,6 +8,7 @@
 import { autopilotDoes } from '../../../packages/core/src/autopilot.ts';
 import { autoMergeOn, type ConfigPath, keyShown, UNREAD_KEYS } from '../../../packages/core/src/config.ts';
 import { BUILDER_PLACE_LOOK, type CloudNeed, cloudOffered, cloudReason } from '../../../packages/core/src/cloud.ts';
+import type { Protection } from '../../../packages/core/src/protection.ts';
 import { describe } from '../../../packages/core/src/trackers/connect.ts';
 import type { TrackerKind } from '../../../packages/core/src/trackers/types.ts';
 import { FROM_WORDS, OLDER_MODELS } from '../logic/agents.ts';
@@ -111,8 +112,22 @@ export interface CloudSetting {
   needs: { label: string; ok: boolean; fix: string }[];
   /** Where a plain dispatch goes, with an icon, while it's on. */
   defaultPlace: Look | null;
+  /**
+   * What GitHub enforces on each environment branch, while it's on (GH-69): a row per branch, orange where
+   * nothing is enforced, since a push the guard didn't catch would then be caught after the fact, not
+   * prevented. Empty until read.
+   */
+  protection: { branch: string; look: Look; why: string }[];
   /** The buttons: turn on or off, the routine prompt, the token, the default. Disabled, each says why. */
   actions: SettingsAction[];
+}
+
+/** How a branch's protection shows (GH-69): enforced in blue, anything else in orange, each with an icon. */
+export function protectionLook(p: Pick<Protection, 'branch' | 'state'>): Look {
+  if (p.state === 'enforced') return { label: `${p.branch}: GitHub enforces its rules`, icon: 'shield', tone: 'blue' };
+  if (p.state === 'none') return { label: `${p.branch}: no protection or ruleset`, icon: 'warning', tone: 'orange' };
+  if (p.state === 'unavailable') return { label: `${p.branch}: protection isn't on this plan`, icon: 'warning', tone: 'orange' };
+  return { label: `${p.branch}: protection not known`, icon: 'question', tone: 'orange' };
 }
 
 export interface AgentRunProject {
@@ -183,7 +198,7 @@ export function autoMergeSetting(p: ProjectLike, unread: Unread = UNREAD_KEYS): 
 }
 
 /** Cloud builders (GH-69): off unless the project opted in, with what it still needs and the buttons to change it. */
-export function cloudSetting(p: ProjectLike, unread: Unread = UNREAD_KEYS): CloudSetting | null {
+export function cloudSetting(p: ProjectLike, unread: Unread = UNREAD_KEYS, protection: Protection[] | null = null): CloudSetting | null {
   if (!keyShown('agents.cloud.routine', unread)) return null;
   const cloud = p.config.agents?.cloud ?? null;
   const needs: CloudNeed[] = cloudOffered({ github: p.config.github, agents: { cloud } });
@@ -206,16 +221,18 @@ export function cloudSetting(p: ProjectLike, unread: Unread = UNREAD_KEYS): Clou
     ];
   return {
     key: 'agents.cloud.routine', look, from: PROJECT, meaning, needs: needs.map((n) => ({ label: n.label, ok: n.ok, fix: n.fix })),
-    defaultPlace: cloud ? { ...BUILDER_PLACE_LOOK[cloud.default], tone: 'neutral' } : null, actions,
+    defaultPlace: cloud ? { ...BUILDER_PLACE_LOOK[cloud.default], tone: 'neutral' } : null,
+    protection: on ? (protection ?? []).map((x) => ({ branch: x.branch, look: protectionLook(x), why: x.why })) : [],
+    actions,
   };
 }
 
 /** How agents run in each onboarded project, and what they bill on this machine. */
-export function howAgentsRun(projects: ProjectLike[], setup: DoctorItem[], unread: Unread = UNREAD_KEYS): HowAgentsRun {
+export function howAgentsRun(projects: ProjectLike[], setup: DoctorItem[], unread: Unread = UNREAD_KEYS, protection: (root: string) => Protection[] | null = () => null): HowAgentsRun {
   const billing = billingLook(setup);
   const toSetup: SettingsLink = { label: 'Open Setup', icon: 'checklist', section: 'setup' };
   return {
-    projects: projects.filter((p) => p.agents).map((p) => ({ root: p.root, project: p.name, roles: agentSettings(p, unread), autonomy: autonomySetting(p, unread), autoMerge: autoMergeSetting(p, unread), cloud: cloudSetting(p, unread) })),
+    projects: projects.filter((p) => p.agents).map((p) => ({ root: p.root, project: p.name, roles: agentSettings(p, unread), autonomy: autonomySetting(p, unread), autoMerge: autoMergeSetting(p, unread), cloud: cloudSetting(p, unread, protection(p.root)) })),
     billing: billing
       ? { look: billing, link: billing.tone === 'blue' ? null : toSetup }
       : { look: { label: 'Not checked yet: Setup checks it', icon: 'circle-outline', tone: 'neutral' }, link: toSetup },
@@ -566,10 +583,12 @@ export interface SettingsInput {
   limits?: LimitsModel | null;
   /** About, from what the extension has read (GH-114). */
   about?: AboutModel | null;
+  /** What GitHub enforces on each environment branch of a project that opted in to cloud builders (GH-69), once read. None unless given. */
+  cloudProtection?: (root: string) => Protection[] | null;
 }
 
 export function settingsModel(i: SettingsInput): SettingsModel {
-  const agents = howAgentsRun(i.projects, i.setup);
+  const agents = howAgentsRun(i.projects, i.setup, UNREAD_KEYS, i.cloudProtection ?? (() => null));
   const trackers = trackersAndSignIns(i.projects, i.boards ?? (() => []));
   const github = githubAccounts(i.projects, i.identity ?? (() => null));
   const page = pagePreferences({ opensOn: i.opensOn ?? 'left', whereView: i.whereView ?? 'folder', pace: i.pace ?? 'normal' });

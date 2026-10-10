@@ -3,8 +3,9 @@
 // Center never writes the config or the keychain itself.
 import * as vscode from 'vscode';
 import { BUILDER_PLACES, type BuilderPlace, ROUTINE_ID } from '../../packages/core/src/config.ts';
-import { ROUTINES_URL } from '../../packages/core/src/cloud.ts';
+import { CLOUD_TOKEN, ROUTINES_URL } from '../../packages/core/src/cloud.ts';
 import { ROUTINE_PROMPT } from '../../packages/core/src/onboarding/cloud-steps.ts';
+import type { Protection } from '../../packages/core/src/protection.ts';
 import type { ExtensionArea } from './area.ts';
 import type { Project } from './hub.ts';
 import type { TaskNode } from './nodes.ts';
@@ -110,7 +111,7 @@ class CloudCommands extends Sidebar {
   private async token(root?: string): Promise<void> {
     const project = await this.projectOf(root);
     if (!project) return;
-    const token = await vscode.window.showInputBox({ title: `The routine's API token for ${project.name}`, prompt: 'Generated once on the routine\'s page. It goes to this Mac\'s keychain, never to a file.', password: true, validateInput: (v) => (/^[A-Za-z0-9_-]{20,}$/.test(v.trim()) ? undefined : 'A token is letters, digits, dashes and underscores, 20 or more.') });
+    const token = await vscode.window.showInputBox({ title: `The routine's API token for ${project.name}`, prompt: 'Generated once on the routine\'s page. It goes to this Mac\'s keychain, never to a file.', password: true, validateInput: (v) => (CLOUD_TOKEN.test(v.trim()) ? undefined : 'A token is letters, digits, dashes and underscores, 20 or more.') });
     if (!token) return;
     const r = await runFile(process.execPath, [this.helpers.accScript ?? '', 'cloud', 'token', '--from-env', '--json'], project.root, { ...process.env, ELECTRON_RUN_AS_NODE: '1', NO_COLOR: '1', ACC_CLOUD_TOKEN_NEW: token.trim() });
     if (r.code !== 0) return void vscode.window.showWarningMessage(`Couldn't keep the token: ${(r.stderr || r.stdout).trim().split('\n')[0]}`);
@@ -138,8 +139,54 @@ class CloudCommands extends Sidebar {
   }
 }
 
+/** How long what GitHub enforces on a branch is kept before it's read again (GH-69): a person changes it rarely. */
+const PROTECTION_MS = 10 * 60_000;
+
+/**
+ * What GitHub enforces on each environment branch, for the cloud builders card in Settings (GH-69): read
+ * through acc cloud --json for each project that opted in, when the projects load and at most every ten
+ * minutes after. The warning it feeds says a guard bypass would be caught after the fact, not prevented.
+ */
+class CloudProtection {
+  private readonly read = new Map<string, { at: number; key: string }>();
+  private readonly hub: Sidebar['hub'];
+  private readonly acc: Sidebar['acc'];
+
+  constructor(from: Sidebar) {
+    this.hub = from.hub;
+    this.acc = from.acc;
+  }
+
+  async refresh(): Promise<void> {
+    for (const p of this.hub.projects) {
+      const cloud = p.config.agents.cloud && p.config.github ? p.config : null;
+      if (!cloud) {
+        if (this.read.delete(p.root)) this.hub.setCloudProtection(p.root, null);
+        continue;
+      }
+      const key = `${cloud.github!.repo}|${cloud.environments.map((e) => e.branch).join(',')}`;
+      const hit = this.read.get(p.root);
+      if (hit && hit.key === key && Date.now() - hit.at < PROTECTION_MS) continue;
+      // Noted before the read, so the redraw it causes doesn't read again.
+      this.read.set(p.root, { at: Date.now(), key });
+      const r = await this.acc(['cloud', '--json'], p.root);
+      let found: Protection[] | null = null;
+      try {
+        const j = JSON.parse(r.stdout) as { protection?: Protection[] };
+        found = r.code === 0 && Array.isArray(j.protection) ? j.protection : null;
+      } catch {
+        found = null;
+      }
+      this.hub.setCloudProtection(p.root, found);
+    }
+  }
+}
+
 export const area: ExtensionArea = {
-  register({ sidebar, regNode, reg }) {
+  register({ sidebar, regNode, reg, hub }) {
     new CloudCommands(sidebar).register(regNode, reg);
+    const protection = new CloudProtection(sidebar);
+    hub.onDidChange((part) => { if (part === 'projects') void protection.refresh(); });
+    void protection.refresh();
   },
 };

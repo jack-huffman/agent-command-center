@@ -6,14 +6,17 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { branchMoves, clearBranchMoves, explained, followBranches, moveWords, readBranches } from '../src/branches.ts';
+import { branchMoves, clearBranchMoves, followBranches, knownMerges, moveUrl, moveWords, readBranches, squashOf, unexplained } from '../src/branches.ts';
 import { BLOCKED_TRAILER, CLOUD_TOKEN_ENV, cloudChecks, cloudNeeds, cloudOffered, cloudQuiet, cloudReason, cloudText, cloudWait, collect, DONE_TRAILER, fireRoutine, followCloud, parseFinish, readCloudToken, remoteHead, ROUTINE_BETA, writeCloudToken } from '../src/cloud.ts';
+import { GUARD_PATH, installGuard, RECORD_LINE } from '../src/cloud-guard.ts';
 import { parseConfig } from '../src/config.ts';
 import { builderPlace, dispatch } from '../src/dispatch.ts';
 import { run } from '../src/exec.ts';
 import { builders, checkMove, emptyLedger, mutate, noGateHooks, readLedger, sessionsOf, type Task, upsertTasks } from '../src/ledger.ts';
+import { machineCapWords, setMachineAgents } from '../src/limits.ts';
 import { renderPacket } from '../src/packet.ts';
 import { repoPaths } from '../src/paths.ts';
+import { branchProtection, environmentProtection, protectionWarnings } from '../src/protection.ts';
 import { sync } from '../src/sync.ts';
 import { bad, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, tempDir } from './support.ts';
 
@@ -34,12 +37,19 @@ const CLOUD_FIXTURES = {
  * A repo whose origin is a local bare repo, as a dispatch leaves it: the config committed, T-1 to do. A
  * second clone stands in for the cloud session, which pushes to origin.
  */
-function repoWithOrigin(raw: Record<string, unknown> = RAW) {
+function repoWithOrigin(raw: Record<string, unknown> = RAW, opts: { guard?: boolean } = {}) {
   const origin = join(tempDir('origin-'), 'repo.git');
   run('git', ['init', '-q', '--bare', origin]);
   const root = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify(raw, null, 2), '.gitignore': '.claude/worktrees/\n' }));
+  // The push guard, committed as acc cloud enable leaves it to commit (GH-69): the cloud loads it from the commit.
+  if (opts.guard !== false) {
+    installGuard(root);
+    gitIn(root, 'add', '-A');
+    gitIn(root, 'commit', '-q', '-m', 'the push guard');
+  }
   gitIn(root, 'remote', 'add', 'origin', origin);
   gitIn(root, 'push', '-q', '-u', 'origin', 'main');
+  gitIn(root, 'remote', 'set-head', 'origin', 'main');
   const config = cfg(raw);
   const paths = repoPaths(root, run);
   mutate(paths, now, (l, emit) => upsertTasks(l, config, [{ source: { kind: 'manual', key: 'T-1' }, title: 'A thing', brief: 'Do it.' }], 'human', 'h', emit, now));
@@ -171,9 +181,15 @@ test('the fire\'s text wraps the packet: the branch on GitHub, the checks by com
   assert.deepEqual(checks, { inCloud: ['format'], macOnly: ['validate'] });
   const withStray = cloudChecks(cfg({ ...RAW, strayFiles: { required: true } }), cfg().environments[0]!);
   assert.deepEqual(withStray, { inCloud: ['stray-files'], macOnly: [] }, 'a built-in check runs on the Mac at collect');
-  const packet = renderPacket({ task: l.tasks[0]!, config: sf, env, worktree: '/w/ACME-7', branch: 'task/ACME-7-add-a-field', rules: 'Use the selector pattern.', environmentSpecific: [], cloud: true });
+  const packet = renderPacket({ task: l.tasks[0]!, config: sf, env, worktree: '/Users/someone/w/ACME-7', branch: 'task/ACME-7-add-a-field', rules: 'Use the selector pattern.', environmentSpecific: [], cloud: true });
   assert.ok(packet.includes('this cloud session\'s clone of the repo') && packet.includes('It\'s on GitHub already') && !packet.includes('EnterWorktree'));
+  // The Mac's paths stay out of the cloud's instructions: the worktree names the home folder, and so would acc's path.
+  assert.ok(!packet.includes('/Users/someone') && !packet.includes('its full path is'), 'no Mac path in a cloud packet');
+  assert.ok(renderPacket({ task: l.tasks[0]!, config: sf, env, worktree: '/Users/someone/w/ACME-7', branch: 'task/ACME-7-add-a-field', rules: '', environmentSpecific: [], accPath: '/Users/someone/acc/dist/acc' }).includes('its full path is `/Users/someone/acc/dist/acc`'), 'a local packet still names it');
   const text = cloudText({ task: l.tasks[0]!, config: sf, env, branch: 'task/ACME-7-add-a-field', packet, checks });
+  // The guard's record comes first, on its own line, exactly as the guard reads it.
+  assert.equal(text.split('\n')[0], `${RECORD_LINE}: task/ACME-7-add-a-field`);
+  assert.ok(!text.includes('/Users/someone'));
   for (const must of [
     'routine-fire-payload is your task', '`git fetch origin task/ACME-7-add-a-field && git checkout task/ACME-7-add-a-field`', 'acc isn\'t installed here',
     '- `format`: `npx prettier --check .`',
@@ -235,6 +251,86 @@ test('acc dispatch --cloud pushes the task branch, fires the routine with the pa
   assert.ok(!calls.slice(before).some((c) => c.startsWith('git push') || c.startsWith('curl')));
   // A missing token or sign-in is refused the same way, naming it.
   assert.throws(() => dispatch(paths, config, 'T-2', { ...deps, run: fakeRunner({ ...CLOUD_FIXTURES, 'security find-generic-password': bad() }) }, { actor: 'human', by: 'h', where: 'cloud' }), /The routine's token is in this Mac's keychain: Generate the API trigger's token/);
+  // GitHub's rules behind the guard: gh couldn't say here (no fixture signs it in), so the dispatch warned, and went on.
+  assert.ok(out.warnings?.some((w) => /gh couldn't read main's protection: gh isn't logged in as acme-bot/.test(w) && /isn't known/.test(w)), `warned, didn't refuse: ${JSON.stringify(out.warnings)}`);
+});
+
+test('a cloud dispatch skips this machine\'s total, which counts this Mac\'s builders only; a local one still waits for it (GH-69, GH-111)', () => {
+  const { paths, config } = repoWithOrigin();
+  const env = { ...process.env, PATH: '/usr/bin', ACC_MACHINE_FILE: join(tempDir('machine-'), 'machine.json') } as NodeJS.ProcessEnv;
+  setMachineAgents(1, env);
+  mutate(paths, now, (l, emit) => {
+    upsertTasks(l, config, [{ source: { kind: 'manual', key: 'T-2' }, title: 'Second' }, { source: { kind: 'manual', key: 'T-3' }, title: 'Third' }], 'human', 'h', emit, now);
+    // One builder on this Mac already: the machine's total of 1 is reached.
+    const t = l.tasks.find((x) => x.id === 'T-2')!;
+    t.state = 'running';
+    t.run = { worktree: '/w', branch: 'task/T-2-second' };
+    emit({ type: 'task.updated', task: 'T-2', actor: 'human', by: 'h', data: {} });
+  });
+  const deps = { run: fakeRunner(CLOUD_FIXTURES), now, accBinDir: '/acc/bin', env, awake: { platform: 'darwin' as const, spawn: () => ({ pid: 4_100_003, unref: () => undefined }), kill: () => undefined } };
+  assert.throws(() => dispatch(paths, config, 'T-1', deps, { actor: 'human', by: 'h', where: 'local' }), (e: Error & { code?: string }) => e.code === 'move-refused' && e.message.includes(machineCapWords(1, 1)), 'a local builder waits for the machine');
+  const out = dispatch(paths, config, 'T-1', deps, { actor: 'human', by: 'h', where: 'cloud' });
+  assert.equal(out.held, false, 'the cloud needs none of this Mac');
+  assert.equal(task(paths).state, 'running');
+});
+
+test('a cloud dispatch refuses, pushing and firing nothing, unless the guard is committed on the branch the cloud clones and on the task branch; it reads the commits, not the files on disk', () => {
+  // The repo never committed the guard: writing it on disk isn't enough.
+  const { root, paths, config } = repoWithOrigin(RAW, { guard: false });
+  installGuard(root);
+  const calls: string[] = [];
+  const deps = { run: fakeRunner(CLOUD_FIXTURES, calls), now, accBinDir: '/acc/bin', env: { ...process.env, PATH: '/usr/bin' } as NodeJS.ProcessEnv, awake: { platform: 'darwin' as const, spawn: () => ({ pid: 4_100_004, unref: () => undefined }), kill: () => undefined } };
+  assert.throws(() => dispatch(paths, config, 'T-1', deps, { actor: 'human', by: 'h', where: 'cloud' }), (e: Error & { code?: string }) => e.code === 'cloud-unguarded' && /push guard isn't committed where the cloud session would load it. refs\/remotes\/origin\/main doesn't carry \.claude\/hooks\/acc-push-guard\.mjs: run acc cloud enable, commit/.test(e.message));
+  assert.ok(!calls.some((c) => c.startsWith('git push') || c.startsWith('curl')), 'nothing pushed or fired');
+  assert.equal(task(paths).state, 'todo');
+  assert.equal(run('git', ['rev-parse', '--verify', '--quiet', 'refs/heads/task/T-1-a-thing'], { cwd: root }).code, 0, 'the worktree and branch are kept');
+  // Committed on main, but origin's main doesn't have it yet: the cloud clones origin's.
+  gitIn(root, 'add', '-A');
+  gitIn(root, 'commit', '-q', '-m', 'guard');
+  assert.throws(() => dispatch(paths, config, 'T-1', deps, { actor: 'human', by: 'h', where: 'cloud' }), /refs\/remotes\/origin\/main doesn't carry/);
+  gitIn(root, 'push', '-q', 'origin', 'main');
+  // origin has it; the task branch, made before, doesn't: it started from the older main.
+  assert.throws(() => dispatch(paths, config, 'T-1', deps, { actor: 'human', by: 'h', where: 'cloud' }), /refs\/heads\/task\/T-1-a-thing doesn't carry/);
+  // Merged into the task branch, the dispatch goes.
+  const wt = task(paths).run?.worktree ?? join(root, '.claude', 'worktrees', 'T-1');
+  gitIn(wt, 'merge', '-q', 'main');
+  const out = dispatch(paths, config, 'T-1', deps, { actor: 'human', by: 'h', where: 'cloud' });
+  assert.equal(out.held, false);
+  assert.ok(calls.some((c) => c.startsWith('git push')) && calls.some((c) => c.startsWith('curl')));
+});
+
+test('what GitHub enforces on a branch, through gh api: protection, a ruleset, none, not offered on the plan, or unknown; dispatch and Settings warn on all but enforced', () => {
+  const page = (status: number, body: unknown) => ok(`HTTP/2.0 ${status} X\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(body)}`);
+  const upgrade = page(403, { message: 'Upgrade to GitHub Pro or make this repository public to enable this feature.' });
+  const at = (fixtures: Record<string, ReturnType<typeof ok>>) => branchProtection(fakeRunner(fixtures), 'acme/tool', 'main', {});
+  const protectedBranch = at({ 'gh api repos/acme/tool/branches/main/protection': page(200, { required_pull_request_reviews: {}, required_status_checks: {}, enforce_admins: { enabled: true }, allow_force_pushes: { enabled: false } }) });
+  assert.deepEqual([protectedBranch.state, protectedBranch.why], ['enforced', 'GitHub protects main: a pull request with reviews, passing checks, no admin bypass, no force pushes.']);
+  const ruleset = at({ 'gh api repos/acme/tool/branches/main/protection': page(404, { message: 'Branch not protected' }), 'gh api repos/acme/tool/rules/branches/main': page(200, [{ type: 'pull_request' }, { type: 'deletion' }]) });
+  assert.deepEqual([ruleset.state, ruleset.why], ['enforced', 'A ruleset applies to main: pull request, deletion.']);
+  const none = at({ 'gh api repos/acme/tool/branches/main/protection': page(404, { message: 'Branch not protected' }), 'gh api repos/acme/tool/rules/branches/main': page(200, []) });
+  assert.equal(none.state, 'none');
+  assert.match(none.why, /enforces no protection and no ruleset on main: a push the guard didn't catch would be caught by acc's next sync, after the fact, not prevented/);
+  const free = at({ 'gh api repos/acme/tool/branches/main/protection': upgrade });
+  assert.equal(free.state, 'unavailable');
+  assert.match(free.why, /a private repo on the free plan. A push the guard didn't catch would be caught by acc's next sync, after the fact, not prevented/);
+  const offline = at({ 'gh api': bad('connection refused') });
+  assert.equal(offline.state, 'unknown');
+  assert.match(offline.why, /gh couldn't read main's protection: connection refused/);
+  // Each environment branch, as the repo's account; the warnings leave out what's enforced.
+  const fixtures = { 'gh auth token -u acme-bot': ok('ghs_x\n'), 'gh api repos/acme/tool/branches/main/protection': upgrade, 'gh api repos/acme/tool/branches/dev/protection': page(200, {}) };
+  const found = environmentProtection(fakeRunner(fixtures), 'acme/tool', 'acme-bot', ['main', 'dev'], {});
+  assert.deepEqual(found.map((p) => [p.branch, p.state]), [['main', 'unavailable'], ['dev', 'enforced']]);
+  assert.deepEqual(protectionWarnings(found).length, 1);
+  assert.match(protectionWarnings(found)[0]!, /free plan/);
+  assert.match(protectionWarnings([offline])[0]!, /Whether a push the guard didn't catch would be prevented isn't known/);
+  assert.deepEqual(environmentProtection(fakeRunner({}), 'acme/tool', 'acme-bot', ['main'], {}).map((p) => p.state), ['unknown'], 'gh not signed in: unknown, never a throw');
+  // A dispatch carries the warning, and goes on.
+  const { paths, config } = repoWithOrigin();
+  const out = dispatch(paths, config, 'T-1', { run: fakeRunner({ ...CLOUD_FIXTURES, ...fixtures }), now, accBinDir: '/acc/bin', env: { ...process.env, PATH: '/usr/bin' } as NodeJS.ProcessEnv, awake: { platform: 'darwin' as const, spawn: () => ({ pid: 4_100_005, unref: () => undefined }), kill: () => undefined } }, { actor: 'human', by: 'h', where: 'cloud' });
+  assert.equal(out.held, false);
+  if (out.held) return;
+  assert.deepEqual(out.warnings?.map((w) => /free plan/.test(w)), [true]);
+  assert.equal(task(paths).state, 'running');
 });
 
 // ---------------------------------------------------------------- following by branch, and collecting
@@ -358,41 +454,119 @@ test('collect refuses a dirty or diverged worktree with nothing changed, a local
 
 // ---------------------------------------------------------------- environment branches that move
 
-test('on every sync, an environment branch that moved by anything but a merge acc knows is flagged until a person clears it; acc\'s own merges pass quietly', () => {
+/** A task branch in the Mac's clone with two commits, pushed to origin, as a dispatch and a cloud builder leave it. */
+function taskBranch(root: string, branch: string, stem: string): string[] {
+  gitIn(root, 'switch', '-q', '-c', branch, 'main');
+  const shas: string[] = [];
+  for (const n of [1, 2]) {
+    writeFileSync(join(root, `${stem}-${n}.txt`), `${stem} ${n}\n`);
+    gitIn(root, 'add', '-A');
+    gitIn(root, 'commit', '-q', '-m', `${stem}: part ${n}`);
+    shas.push(gitIn(root, 'rev-parse', 'HEAD'));
+  }
+  gitIn(root, 'push', '-q', 'origin', branch);
+  gitIn(root, 'switch', '-q', 'main');
+  return shas;
+}
+
+test('an environment branch moved by acc\'s own merge passes by its recorded commit, as a merge commit, a squash or a rebase; a hand-pushed commit that merely names a number is flagged until a person clears it (GH-69)', () => {
   const { root, origin, paths, config } = repoWithOrigin();
   const r = fakeRunner({ ...CLOUD_FIXTURES, gh: bad('offline') });
   const deps = { run: r, now, env: process.env };
+  const ledger = () => readLedger(paths.ledger);
+  const record = (id: string, pr: Record<string, unknown>, branch: string, merged?: { sha: string; number: number }) => mutate(paths, now, (l, emit) => {
+    if (!l.tasks.some((x) => x.id === id)) upsertTasks(l, config, [{ source: { kind: 'manual', key: id }, title: id }], 'human', 'h', emit, now);
+    const t = l.tasks.find((x) => x.id === id)!;
+    t.pr = pr as never;
+    t.run = { ...t.run, branch };
+    if (merged) t.autopilot = { failed: null, merged: { sha: merged.sha, pr: { number: merged.number, url: 'https://x' }, method: 'merge', at: now().toISOString() } };
+    emit({ type: 'task.updated', task: id, actor: 'human', by: 'h', data: {} });
+  });
   // The first look only records where main stands.
-  assert.deepEqual(followBranches(paths, config, readLedger(paths.ledger), deps), []);
+  assert.deepEqual(followBranches(paths, config, ledger(), deps), []);
   const main0 = gitIn(root, 'rev-parse', 'main');
   assert.equal(readBranches(paths).main?.head, main0);
   assert.equal(remoteHead(r, root, 'main', process.env), main0);
-  // Someone pushes a commit to main that isn't a pull request's merge: flagged, naming it.
+  // A person's clone, which merges on GitHub's behalf: a merge commit, as autopilot's first choice makes (merge.ts).
   const other = cloudClone(origin, 'main');
-  const hot = commitAndPush(other, 'main', 'hot.txt', 'Hotfix straight to main');
-  const moves = followBranches(paths, config, readLedger(paths.ledger), deps);
+  const t1 = taskBranch(root, 'task/T-1-a-thing', 'T-1');
+  gitIn(other, 'fetch', '-q', 'origin', 'task/T-1-a-thing');
+  gitIn(other, 'merge', '-q', '--no-ff', '-m', 'Merge pull request #12 from acme/task/T-1-a-thing', 'origin/task/T-1-a-thing');
+  const mergeCommit = gitIn(other, 'rev-parse', 'HEAD');
+  gitIn(other, 'push', '-q', 'origin', 'main');
+  // The task's commits came in with it, "T-1: part 1" and "T-1: part 2", which name no pull request:
+  // read along the first-parent line, the move is the one merge commit, explained by the sha sync recorded.
+  record('T-1', { number: 12, url: 'https://x/12', state: 'merged', mergeSha: mergeCommit }, 'task/T-1-a-thing');
+  assert.deepEqual(followBranches(paths, config, ledger(), deps), [], 'acc\'s merge commit passes');
+  assert.equal(readBranches(paths).main?.head, mergeCommit);
+  // The same move, explained other ways: the merge commit's second parent is the head acc landed (pr.sha),
+  // or the head autopilot merged, before sync has recorded the merge's own sha; the subject alone never does.
+  const known = (k: Parameters<typeof unexplained>[4]) => unexplained(r, root, main0, mergeCommit, k).commits.map((c) => c.subject);
+  assert.deepEqual(known([{ number: 12, head: t1[1]! }]), [], 'by the landed head');
+  assert.deepEqual(known(knownMerges({ tasks: [{ id: 'T-1', autopilot: { merged: { sha: t1[1]!, pr: { number: 12, url: 'https://x/12' } } }, run: { branch: 'task/T-1-a-thing' } }] } as never)), [], 'by autopilot\'s merged head, before sync has seen the merge');
+  assert.deepEqual(known([{ number: 12 }]), ['Merge pull request #12 from acme/task/T-1-a-thing'], 'a merge commit is never explained by its subject');
+  assert.deepEqual(known([]), ['Merge pull request #12 from acme/task/T-1-a-thing']);
+  // A squash: one commit on main, as GitHub writes it, "Title (#13)".
+  taskBranch(root, 'task/T-2-second', 'T-2');
+  gitIn(other, 'fetch', '-q', 'origin', 'task/T-2-second');
+  gitIn(other, 'merge', '-q', '--squash', 'origin/task/T-2-second');
+  gitIn(other, 'commit', '-q', '-m', 'Second thing (#13)');
+  const squash = gitIn(other, 'rev-parse', 'HEAD');
+  gitIn(other, 'push', '-q', 'origin', 'main');
+  record('T-2', { number: 13, url: 'https://x/13', state: 'merged', mergeSha: squash }, 'task/T-2-second');
+  assert.deepEqual(followBranches(paths, config, ledger(), deps), [], 'by the squash\'s recorded sha');
+  assert.deepEqual(unexplained(r, root, mergeCommit, squash, [{ number: 13 }]).commits, [], 'or, sync not yet there, by GitHub\'s squash subject naming a pull request the ledger knows');
+  assert.deepEqual(unexplained(r, root, mergeCommit, squash, [{ number: 14 }]).commits.map((c) => c.subject), ['Second thing (#13)'], 'but not another number');
+  assert.deepEqual([squashOf('Second thing (#13)'), squashOf('Hotfix, see #12'), squashOf('Merge pull request #12 from x'), squashOf('Tidy (#13) later')], [13, null, null, null]);
+  // A rebase: the branch's commits copied onto main with new shas. GitHub records the last as the merge's;
+  // git cherry finds the rest by their patches, against the branch the Mac's clone still has.
+  const t3 = taskBranch(root, 'task/T-3-third', 'T-3');
+  gitIn(other, 'fetch', '-q', 'origin', 'task/T-3-third');
+  gitIn(other, 'cherry-pick', ...t3);
+  const rebased = gitIn(other, 'rev-parse', 'HEAD');
+  assert.notEqual(rebased, t3[1], 'new shas');
+  gitIn(other, 'push', '-q', 'origin', 'main');
+  record('T-3', { number: 15, url: 'https://x/15', state: 'merged', mergeSha: rebased }, 'task/T-3-third');
+  assert.deepEqual(followBranches(paths, config, ledger(), deps), [], 'a rebase merge passes');
+  assert.deepEqual(unexplained(r, root, squash, rebased, [{ number: 15, mergeSha: rebased }]).commits.map((c) => c.subject), ['T-3: part 1'], 'without the branch, only the recorded commit is known');
+  assert.deepEqual(unexplained(r, root, squash, rebased, [{ number: 15, branch: 'task/T-3-third' }]).commits, [], 'with it, every copied commit is');
+  // A hand-pushed commit that names a pull request isn't acc's merge, whatever it says: flagged, naming it.
+  const hot = commitAndPush(other, 'main', 'hot.txt', 'Hotfix, see #12');
+  const moves = followBranches(paths, config, ledger(), deps);
   assert.equal(moves.length, 1);
-  assert.deepEqual([moves[0]!.branch, moves[0]!.from, moves[0]!.to], ['main', main0, hot]);
-  assert.match(moveWords(moves[0]!), /main moved from \w{7} to \w{7} by 1 commit that isn't acc's merges: \w{7} Hotfix straight to main\. Look before anything builds on it\./);
+  assert.deepEqual([moves[0]!.branch, moves[0]!.from, moves[0]!.to, moves[0]!.commits], ['main', rebased, hot, [`${hot.slice(0, 7)} Hotfix, see #12`]]);
+  assert.match(moveWords(moves[0]!), /^main moved from \w{7} to \w{7} by 1 commit that isn't acc's merges: \w{7} Hotfix, see #12\. Look before anything builds on it\.$/);
+  assert.equal(moveUrl('acme/tool', moves[0]!), `https://github.com/acme/tool/compare/${rebased}...${hot}`);
   assert.equal(branchMoves(paths).length, 1);
-  // Seen again: still flagged, not again; sync carries it too, with nothing else to follow.
-  assert.deepEqual(followBranches(paths, config, readLedger(paths.ledger), deps), []);
-  const s = sync(paths, config, deps);
-  assert.deepEqual(s.branches, []);
-  assert.equal(branchMoves(paths).length, 1);
-  // A merge of a pull request the ledger knows explains itself.
-  mutate(paths, now, (l, emit) => { l.tasks[0]!.pr = { number: 12, url: 'https://x/12', state: 'merged' } as never; emit({ type: 'task.updated', task: 'T-1', actor: 'human', by: 'h', data: {} }); });
-  const merged = commitAndPush(other, 'main', 'm.txt', 'Merge pull request #12 from acme/task/T-1-a-thing');
-  assert.deepEqual(followBranches(paths, config, readLedger(paths.ledger), deps), []);
-  assert.equal(readBranches(paths).main?.head, merged);
+  // Seen again: still waiting, found once; sync carries every move still waiting, each run, until a person clears it.
+  assert.deepEqual(followBranches(paths, config, ledger(), deps), []);
+  assert.deepEqual(sync(paths, config, deps).branches.map((m) => m.to), [hot]);
+  assert.deepEqual(sync(paths, config, deps).branches.map((m) => m.to), [hot], 'and again');
+  // Another of acc's merges after it: the branch moves on, the earlier move still waits.
+  gitIn(other, 'merge', '-q', '--no-ff', '-m', 'Merge pull request #16 from acme/task/T-4', 'origin/task/T-2-second');
+  const later = gitIn(other, 'rev-parse', 'HEAD');
+  gitIn(other, 'push', '-q', 'origin', 'main');
+  record('T-4', { number: 16, url: 'https://x/16', state: 'merged', mergeSha: later }, 'task/T-4');
+  assert.deepEqual(followBranches(paths, config, ledger(), deps), []);
+  assert.equal(readBranches(paths).main?.head, later);
   assert.equal(readBranches(paths).main?.moved?.to, hot, 'the earlier move still waits for a person');
-  assert.equal(explained('Merge pull request #12 from x', new Set([12])), true);
-  assert.equal(explained('Tidy (#13)', new Set([12])), false);
-  assert.equal(explained('No number', new Set([12])), false);
+  // A force push back: git can't list what came in, and that's flagged as a rewrite.
+  gitIn(other, 'reset', '-q', '--hard', 'HEAD~2');
+  gitIn(other, 'push', '-q', '--force', 'origin', 'main');
+  const back = gitIn(other, 'rev-parse', 'HEAD');
+  const rewrite = followBranches(paths, config, ledger(), deps);
+  assert.deepEqual([rewrite[0]?.to, rewrite[0]?.commits], [back, []]);
+  assert.match(moveWords(rewrite[0]!), /git couldn't list how: a force push or a rewrite/);
   // A person clears it.
   assert.deepEqual(clearBranchMoves(paths), ['main']);
   assert.deepEqual(branchMoves(paths), []);
+  assert.deepEqual(sync(paths, config, deps).branches, []);
   assert.deepEqual(clearBranchMoves(paths), []);
+  // A project that hasn't opted in looks at no branch: nothing is read, and nothing is flagged.
+  const off = cfg({ ...RAW, agents: { max: 2 } });
+  const calls: string[] = [];
+  assert.deepEqual(sync(paths, off, { ...deps, run: fakeRunner({ ...CLOUD_FIXTURES, gh: bad('offline') }, calls) }).branches, []);
+  assert.ok(!calls.some((c) => c.startsWith('git ls-remote')), 'off by default: no look at origin');
 });
 
 test('sync follows a running cloud builder\'s branch too, and a project with no GitHub section has nothing to follow', () => {

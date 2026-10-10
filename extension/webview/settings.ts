@@ -60,10 +60,13 @@ function agentProject(s: AgentRunProject): HTMLElement {
     // Cloud builders (GH-69): the switch, its meaning, what it needs and what's missing, and where a plain dispatch goes.
     const c = s.cloud;
     const needs = el('ul', 'settings-needs', ...c.needs.map((n) => el('li', `settings-need${n.ok ? ' ok' : ''}`, status({ label: n.label, icon: n.ok ? 'pass' : 'circle-large-outline', tone: n.ok ? 'blue' : 'orange' }), n.ok ? null : el('span', 'muted small', ` ${n.fix}`))));
+    // What GitHub enforces behind the guard, a row per environment branch, with why in full on hover (GH-69).
+    const protection = c.protection.length ? el('ul', 'settings-needs', ...c.protection.map((p) => Object.assign(el('li', `settings-need${p.look.tone === 'blue' ? ' ok' : ''}`, status(p.look), p.look.tone === 'blue' ? null : el('span', 'muted small', ` ${p.why}`)), { title: p.why }))) : null;
     const value = el('div', '',
       el('div', 'settings-now', status(c.look), from(c.from), c.defaultPlace ? el('span', 'settings-from muted small', icon(c.defaultPlace.icon), `plain dispatch: ${c.defaultPlace.label}`) : null),
       el('p', 'muted small settings-meaning', c.meaning),
       c.look.label === 'off' ? null : needs,
+      protection,
       el('div', 'actions settings-tracker-actions', ...c.actions.map(trackerButton)));
     box.append(row('Cloud builders', 'cloud', value, null, `cloud builders, in ${s.project}`));
   }
