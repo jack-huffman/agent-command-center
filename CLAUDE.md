@@ -17,7 +17,12 @@
   two controls overlap, a label is cut off (an ellipsis needs its full text in a
   title), the selected tab is out of view, or the page scrolls sideways
   (`extension/scripts/geometry.ts`). It can't see spacing, alignment or a page
-  that reads badly, so the PNGs still need reading.
+  that reads badly, so the PNGs still need reading. Checked by the builder's
+  `screenshots` gate (`extension/scripts/looked.ts`, D-???): a branch that
+  changes `extension/webview/`, `extension/src/` or `extension/scripts/` fails
+  unless every page, theme and width was shot of its last commit with no
+  geometry findings, and every CSS class it adds is drawn on screen in some
+  shot (or named in `UNDRAWN` with why). It counts the shots it checked.
 - The Command Center speaks in processes, not commands or paths (D-???): "Run the
   checks", "the project's settings", never `acc gate run` or `.acc/config.json`.
   The names are in `extension/src/logic/processes.ts`, and what acc says goes
