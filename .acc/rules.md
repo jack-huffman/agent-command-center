@@ -8,3 +8,4 @@
   at least one test whose name says which edge case it covers. Checked by
   `scripts/test/edge-cases.test.ts`, whose `OLDER` list names the test files that predate this rule. That
   list may only shrink.
+- duplicated constant.
