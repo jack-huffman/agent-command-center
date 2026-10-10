@@ -47,6 +47,8 @@ function renderHome(m: HomeModel): Node[] {
   const main = el('div', 'home-main', ...content);
   main.tabIndex = -1;
   main.setAttribute('role', 'tabpanel');
+  // Which section it shows, so the screenshot run knows the Overview's lines (GH-160).
+  main.dataset.section = covers.some((c) => c !== null) ? 'cover' : current;
   // One board on the page: it fills the height below its heading, so all of it scrolls sideways.
   if (section?.fill && main.querySelectorAll('.board').length === 1) main.classList.add('fill-board');
   // The output panel sits under the section, on every section, while there's output to show.

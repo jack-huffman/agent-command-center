@@ -31,9 +31,10 @@ export function renderOverview(m: HomeModel): Node[] {
   // What needs a person, first and alone at the top. Work waiting for review follows, as its own group.
   const inbox = el('section', `inbox${people ? ' attention' : ''}`, el('h2', '', icon(people ? 'bell-dot' : 'pass', people ? 'orange' : 'blue'), people ? 'Needs you' : 'All clear',
     people ? el('span', 'count', String(people)) : null));
+  inbox.dataset.overviewGroup = 'needs-you';
   if (!people) inbox.append(el('p', 'muted quiet', 'No agent is waiting, nothing is blocked, and setup is done.'));
   // Questions first, each answered right here.
-  for (const q of o.questions) inbox.append(questionCard(q, { watch: true }));
+  for (const q of o.questions) inbox.append(line(questionCard(q, { watch: true })));
   let captioned = false;
   for (const a of o.attention) {
     if (a.look.tone !== 'orange' && !captioned) {
@@ -51,7 +52,7 @@ export function renderOverview(m: HomeModel): Node[] {
       b.addEventListener('click', () => go(g.section));
       buttons.push(b);
     }
-    inbox.append(el('div', `inbox-row tone-row-${a.look.tone}`, status(a.look), el('div', 'inbox-text', titled(el('div', 'strong inbox-title', a.title), a.title), Object.assign(el('div', 'muted small', a.detail), a.tip ? { title: a.tip } : {})), el('div', 'actions', ...buttons)));
+    inbox.append(line(el('div', `inbox-row tone-row-${a.look.tone}`, status(a.look), el('div', 'inbox-text', titled(el('div', 'strong inbox-title', a.title), a.title), Object.assign(el('div', 'muted small', a.detail), a.tip ? { title: a.tip } : {})), el('div', 'actions', ...buttons))));
     // An update's text, two lines then Show all, with who it posts as (D-066).
     // Edited on its task's page, it shows that edit: the text Post there would send (GH-46).
     if (u) inbox.append(el('div', 'inbox-update', foldable(`${updateKey(u.project, u.id)}:text`, el('div', 'inbox-update-text', u.edited ?? u.text), null, 2), posterLine(u), ...updateNotes(u)));
@@ -78,10 +79,11 @@ export function renderOverview(m: HomeModel): Node[] {
 
   // Ready work beside what just happened.
   const ready = el('section', 'panel-box', el('h2', '', icon('rocket'), 'Ready for an agent', o.ready.length ? el('span', 'count', String(o.ready.length)) : null));
+  ready.dataset.overviewGroup = 'ready';
   if (!o.ready.length) ready.append(el('p', 'muted quiet', 'Nothing is ready to dispatch. Track a ticket from a board, or add a task.'));
   for (const r of o.ready.slice(0, 8)) {
-    ready.append(el('div', 'list-row', openable(titled(el('div', 'list-text', el('span', 'tcard-key', r.id), el('span', '', r.title)), `${r.id} ${r.title}`), { type: 'run', command: 'acc.task.show', ref: r.action.ref }),
-      el('span', 'chip', r.environment), actionButton(r.action)));
+    ready.append(line(el('div', 'list-row', openable(titled(el('div', 'list-text', el('span', 'tcard-key', r.id), el('span', '', r.title)), `${r.id} ${r.title}`), { type: 'run', command: 'acc.task.show', ref: r.action.ref }),
+      el('span', 'chip', r.environment), actionButton(r.action))));
   }
   // Ready work, then the full history below it, with the width to read it.
   out.push(ready, renderHistory(o.history, o.projects.length > 1));
@@ -95,6 +97,7 @@ export function renderOverview(m: HomeModel): Node[] {
 function renderQueue(queues: QueuePanel[], manyProjects: boolean): HTMLElement {
   const n = queues.reduce((k, q) => k + q.rows.length, 0);
   const box = el('section', 'panel-box queue', el('h2', '', icon('git-merge'), 'Merge queue', el('span', 'count', String(n))));
+  box.dataset.overviewGroup = 'queue';
   for (const q of queues) {
     if (manyProjects || queues.length > 1) box.append(el('div', 'queue-project muted small', q.project));
     if (q.off) box.append(el('p', 'muted small queue-off', 'Autopilot is off, so the queue waits. Turn it on from the status bar.'));
@@ -102,12 +105,12 @@ function renderQueue(queues: QueuePanel[], manyProjects: boolean): HTMLElement {
     list.setAttribute('aria-label', `${q.project}'s merge queue, next to merge first`);
     for (const r of q.rows) {
       const text = openable(titled(el('div', 'list-text', el('span', 'tcard-key', r.id), el('span', '', r.title)), `${r.id} ${r.title}`), { type: 'run', command: 'acc.task.show', ref: r.ref });
-      list.append(el('li', 'list-row queue-row',
+      list.append(line(el('li', 'list-row queue-row',
         Object.assign(el('span', 'queue-place', String(r.place)), { title: r.place === 1 ? 'Next to merge' : `${r.place} in line` }),
         text,
         r.pr ? linkTo(r.pr.url, el('span', 'chip', icon('git-pull-request'), ` #${r.pr.number}`)) : null,
         // A wait in its own words can be long: it ends in an ellipsis, and says it all on hover.
-        r.tip ? Object.assign(el('span', `status tone-${r.look.tone} queue-why`, icon(r.look.icon, r.look.tone), el('span', 'queue-why-text', r.look.label)), { title: r.tip }) : status(r.look)));
+        r.tip ? Object.assign(el('span', `status tone-${r.look.tone} queue-why`, icon(r.look.icon, r.look.tone), el('span', 'queue-why-text', r.look.label)), { title: r.tip }) : status(r.look))));
     }
     box.append(list);
   }
@@ -136,6 +139,7 @@ function renderHistory(items: HistoryItem[], manyProjects: boolean): HTMLElement
     filters.append(b);
   }
   const box = el('section', 'panel-box history', el('div', 'history-head', el('h2', '', icon('history'), 'History'), filters));
+  box.dataset.overviewGroup = 'history';
   const shown = items.filter((i) => kind === 'all' || historyKind(i) === kind);
   if (!shown.length) {
     box.append(el('p', 'muted quiet', kind === 'answer' ? 'When you answer an agent, it\'s kept here.' : kind === 'run' ? 'Commands acc runs for you are kept here.' : 'What agents and tasks do shows up here.'));
@@ -173,8 +177,15 @@ function renderHistory(items: HistoryItem[], manyProjects: boolean): HTMLElement
         el('div', 'history-body', el('div', 'mono muted small', `$ ${it.command}`), it.lines.length ? el('pre', 'tool-pre history-out', it.lines.join('\n')) : null))));
     }
   }
+  for (const li of feed.children) line(li as HTMLElement);
   box.append(feed);
   return box;
+}
+
+/** Marks one of the Overview's lines, for the screenshot run's measure (GH-160). */
+function line(e: HTMLElement): HTMLElement {
+  e.dataset.overviewRow = '';
+  return e;
 }
 
 /** A note under a History line, two lines at most; hovering it shows all of it. */

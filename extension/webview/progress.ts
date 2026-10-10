@@ -20,6 +20,7 @@ export function renderInProgress(p: ProgressModel): HTMLElement {
     if (state.last) state.draw(state.last);
   });
   const box = el('section', `in-progress${open ? ' open' : ''}`, el('h2', '', toggle));
+  box.dataset.overviewGroup = 'progress';
   if (!open) return box;
   if (p.empty) {
     box.append(el('p', 'muted quiet', p.empty));
@@ -39,6 +40,7 @@ function progressGroup(g: ProgressGroup): HTMLElement {
     el('div', 'pg-state', status(g.look), g.since ? el('span', 'muted small pg-since', icon('watch'), g.since) : null));
   if (g.ref) openable(key, { type: 'run', command: 'acc.task.show', ref: g.ref }).title = `Open ${g.id}'s page`;
   const box = el('div', 'progress-group', head);
+  box.dataset.overviewRow = '';
   if (g.note) box.append(el('div', 'muted small pg-note', g.note));
   for (const j of g.jobs) {
     box.append(el('div', `pg-row tone-row-${j.look.tone}`, status(j.look),
