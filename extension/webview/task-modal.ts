@@ -5,7 +5,8 @@
 
 import type { Model } from '../src/model/home.ts';
 import type { TicketModel } from '../src/model/task-page.ts';
-import { button, el, keepFocus, peekKey } from './dom.ts';
+import { button, keepFocus, peekKey } from './dom.ts';
+import { makeModal } from './modal.ts';
 import { api, type PageArea, state } from './state.ts';
 import { renderTicket } from './task-page.ts';
 import { forgetAnswered, tellAfresh, tellEdits } from './updates.ts';
@@ -18,16 +19,7 @@ let asTab: Record<string, unknown> | null = null;
 /** The model the page last drew under the modal. A draw of the same one is the page's own, such as a fold opened in the modal. */
 let under: Model | null = null;
 
-/** A mouse event on the backdrop, outside the modal's box: the dialog itself gets those. */
-const onBackdrop = (e: MouseEvent): boolean => {
-  if (!dialog || e.target !== dialog) return false;
-  const r = dialog.getBoundingClientRect();
-  return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
-};
-
 function make(): HTMLDialogElement {
-  const d = document.createElement('dialog');
-  d.className = 'task-modal';
   // Closed first, so the extension hears it closed before what the card sent opens the tab.
   const tab = button('Open as tab', 'empty-window', () => {
     const msg = asTab;
@@ -36,20 +28,13 @@ function make(): HTMLDialogElement {
   }, 'ghost task-modal-tab');
   tab.title = 'Open this task in its own editor tab, as a click on its card did, and close this';
   const close = button('Close', 'close', () => shut(), 'ghost task-modal-close');
-  close.title = 'Close it, back to the board (Escape)';
-  body = el('div', 'task-modal-body');
-  body.tabIndex = -1;
-  d.append(el('div', 'task-modal-bar', tab, close), body);
-  // A click that began and ended on the backdrop closes it, so a drag out of a text box doesn't.
-  let downOnBackdrop = false;
-  d.addEventListener('mousedown', (e) => { downOnBackdrop = onBackdrop(e); });
-  d.addEventListener('click', (e) => { if (downOnBackdrop && onBackdrop(e)) shut(); downOnBackdrop = false; });
-  // Escape: closed here, at once, as Close does. The browser's close event comes later, after the next
-  // open sometimes, so it only catches a close made some other way.
-  d.addEventListener('cancel', (e) => { e.preventDefault(); shut(); });
-  d.addEventListener('close', () => { if (!d.open && state.modal) closed(); });
-  document.body.append(d);
-  return d;
+  close.title = 'Close it (Escape)';
+  // Escape and the backdrop close it as Close does (modal.ts). The browser's close event only catches a
+  // close made some other way.
+  const m = makeModal('', [tab, close], shut);
+  body = m.body;
+  m.dialog.addEventListener('close', () => { if (!m.dialog.open && state.modal) closed(); });
+  return m.dialog;
 }
 
 /** Closes the modal, whichever way it was asked to. */

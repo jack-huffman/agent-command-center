@@ -244,11 +244,11 @@ test('In progress sits on the Overview and never changes the badge, which counts
   const overview = (m: typeof busy) => m.nav.find((n) => n.section === 'overview')!;
   assert.deepEqual([overview(busy).count, overview(busy).attention], [overview(quiet).count, overview(quiet).attention], 'the rail\'s Overview badge');
   assert.ok(!busy.nav.some((n) => (n.section as string) === 'in-progress'), 'no page of its own');
-  // On the page: right after Needs you, folded by its heading, remembered for the tab.
-  const page = ['overview.ts', 'progress.ts'].map((f) => readFileSync(join(root, 'webview', f), 'utf8')).join('\n');
-  assert.match(page, /out\.push\(inbox, renderInProgress\(o\.inProgress\)\);/);
+  // On the page: after what needs you, a line per task (GH-160), folded by its heading, remembered for the tab.
+  const page = ['overview.ts', 'progress.ts', 'landing.ts'].map((f) => readFileSync(join(root, 'webview', f), 'utf8')).join('\n');
+  assert.match(page, /out\.push\(renderInProgress\(group\('progress'\), o\.inProgress\)\);/);
   assert.match(page, /memory\(\)\.sections\?\.\['in-progress'\]/);
-  assert.match(page, /line\.style\.animationDelay = `-\$\{d\.age\}s`/, 'the fade starts as far in as the line is old');
+  assert.match(page, /row\.style\.animationDelay = `-\$\{r\.fading\}s`/, 'the fade starts as far in as the line is old');
 });
 
 test('acc.job.stop may be asked for from the page, is declared, hidden from the palette, and asks before it stops anything (D-092)', () => {

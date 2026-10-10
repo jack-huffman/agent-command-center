@@ -16,7 +16,9 @@ import { billingLook } from '../src/model/agents.ts';
 import { accLook, CATEGORY_LOOK, columnLook } from '../src/model/boards.ts';
 import { analysisLook, autopilotLook, closedPrLook, filesLook, stoppedLook } from '../src/model/cards.ts';
 import { autopilotStepLook, OUTCOME_LOOK, outcomeLook } from '../src/model/history.ts';
+import { LANDING_LOOK, moveLook, updatesLook } from '../src/model/landing.ts';
 import { capLook } from '../src/model/limits.ts';
+import type { UpdateCard } from '../src/model/updates.ts';
 import { queueLook } from '../src/model/overview.ts';
 import { RULE_LOOK } from '../src/model/rules.ts';
 import { STATUS } from '../src/model/setup.ts';
@@ -62,6 +64,17 @@ export const TABLES: Table[] = [
   { name: 'a tracker column, by its name', sources: ['extension/src/model/boards.ts#columnLook'], states: () => ([['Blocked', 'doing'], ['On hold', 'doing'], ['Stuck', 'doing'], ['In Progress', 'doing'], ['Todo', 'todo'], ['Done', 'done']] as const).map(([n, c]): [string, Shown] => [n, { label: n, ...columnLook(n, c) }]) },
   { name: 'a cap on builders, a project\'s or this machine\'s', sources: ['extension/src/model/limits.ts#capLook'], states: () => [['no total, some running', capLook(2, null, 'here')], ['no total, none running', capLook(0, null, 'here')], ['full', capLook(3, 3, 'here')], ['none running', capLook(0, 3, 'here')], ['room for more', capLook(1, 3, 'here')]] },
   { name: 'a suggested rule or check', sources: ['extension/src/model/rules.ts#RULE_LOOK'], states: () => Object.entries(RULE_LOOK) },
+  {
+    name: 'a line on the Overview of its own', sources: ['extension/src/model/landing.ts#LANDING_LOOK', 'extension/src/model/landing.ts#updatesLook', 'extension/src/model/landing.ts#moveLook'],
+    states: () => {
+      const update = (state: 'draft' | 'posting', stale = false) => ({ update: { state, stale } as UpdateCard });
+      return [
+        ...Object.entries(LANDING_LOOK),
+        ['update drafts', updatesLook([update('draft'), update('posting')])], ['one may have posted', updatesLook([update('draft'), update('posting', true)])], ['all posting', updatesLook([update('posting')])],
+        ...[...TASK_GROUPS, 'abandoned'].map((to): [string, Shown] => [`moved to ${to}`, moveLook(to)]),
+      ];
+    },
+  },
   { name: 'core\'s DISPLAY', sources: ['packages/core/src/ledger.ts#DISPLAY'], task: true, states: () => TASK_GROUPS.map((d) => [d, DISPLAY[d]]) },
   { name: 'a task\'s state, as the feed and the model show it', sources: ['extension/src/model/shared.ts#displayLook'], task: true, states: () => TASK_GROUPS.map((d) => [d, displayLook(d)]) },
   { name: 'In progress\'s task heading', sources: ['extension/src/progress.ts#taskLook'], task: true, states: () => TASK_GROUPS.map((d) => [d, taskLook({ display: d })]) },

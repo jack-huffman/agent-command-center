@@ -6,6 +6,7 @@ import { autoMergeOn } from '../../packages/core/src/config.ts';
 import { alive } from '../../packages/core/src/lock.ts';
 import type { Hub, Project } from './hub.ts';
 import { autopilotStatus, type AutopilotStatusInput } from './logic/autopilot.ts';
+import { isWebviewMenuContext } from './logic/shared.ts';
 import type { Runs } from './runs.ts';
 import type { ExtensionArea } from './area.ts';
 
@@ -230,6 +231,7 @@ export class AutopilotHost implements vscode.Disposable {
 export const area: ExtensionArea = {
   register({ reg, autopilot }) {
     reg('acc.autopilot.toggle', (arg?: unknown) => autopilot.toggle(arg));
-    reg('acc.autopilot.output', (arg?: unknown) => autopilot.showOutput(arg));
+    // From an In progress line's ⋯ menu on the Overview, the line's project (GH-160).
+    reg('acc.autopilot.output', (arg?: unknown) => autopilot.showOutput(isWebviewMenuContext(arg) ? arg.accRef.project : arg));
   },
 };
