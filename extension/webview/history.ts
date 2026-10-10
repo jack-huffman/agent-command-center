@@ -2,7 +2,7 @@
 // autopilot took and command acc ran, newest first, with filters.
 
 import type { HistoryItem } from '../src/model/history.ts';
-import { button, el, icon, linkTo, status, when } from './dom.ts';
+import { button, el, icon, linkTo, status, when, work } from './dom.ts';
 import { api, memory, remember, state } from './state.ts';
 
 /** History filters: everything, or one kind. Remembered for the tab. Autopilot's steps are Tasks (D-064). */
@@ -54,17 +54,17 @@ export function renderHistory(items: HistoryItem[], manyProjects: boolean, at?: 
     } else if (it.kind === 'answer') {
       const d = it.decision;
       // What it asked and what you decided, on the line itself; the full command and your words open below.
-      const summary = el('summary', '', el('div', 'history-line', el('strong', '', it.who), el('span', '', ` ${d.asked}`), d.code ? el('code', 'tool-code', d.code.split('\n')[0]!) : null),
+      const summary = el('summary', '', el('div', 'history-line', el('strong', '', it.who), el('span', '', ` ${d.asked}`), d.code ? work(el('code', 'tool-code', d.code.split('\n')[0]!), 'transcript') : null),
         el('div', 'muted small history-meta', when(it.at), where(it.project), el('span', 'sep', '·'), status(d.look)));
       const body = el('div', 'history-body',
-        d.code ? el('pre', 'q-code', d.code) : null,
+        d.code ? work(el('pre', 'q-code', d.code), 'transcript') : null,
         d.detail ? el('div', 'history-detail', d.detail) : null,
         button('Watch', 'pulse', () => api.postMessage({ type: 'run', command: 'acc.agent.watch', ref: { session: it.session } }), 'ghost small'));
       li = el('li', 'history-answer', el('span', `feed-icon tone-${d.look.tone}`, icon(d.icon)), el('details', 'history-item', summary, body));
     } else {
       const summary = el('summary', '', el('span', '', el('strong', '', it.label)), el('div', 'muted small', when(it.at), ' · ', status(it.look)));
       li = el('li', 'history-run', el('span', `feed-icon tone-${it.look.tone}`, icon('terminal')), el('details', 'history-item', summary,
-        el('div', 'history-body', el('div', 'mono muted small', `$ ${it.command}`), it.lines.length ? el('pre', 'tool-pre history-out', it.lines.join('\n')) : null)));
+        work(el('div', 'history-body', el('div', 'mono muted small', `$ ${it.command}`), it.lines.length ? el('pre', 'tool-pre history-out', it.lines.join('\n')) : null), 'output')));
     }
     if (it === target) {
       li.dataset.at = '';

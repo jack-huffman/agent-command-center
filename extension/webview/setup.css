@@ -6,6 +6,7 @@
 .step.attention { border-left: 3px solid var(--orange); }
 .step-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .step .detail { margin: 4px 0 0; }
+.step .step-does { display: flex; align-items: center; gap: 6px; margin: 6px 0 0; }
 .step .why { margin: 4px 0 0; color: var(--vscode-descriptionForeground); font-size: 0.93em; }
 .step .fix { margin: 6px 0 0; padding: 6px 8px; border-radius: 3px; background: var(--vscode-textCodeBlock-background); font-family: var(--vscode-editor-font-family); font-size: 0.9em; white-space: pre-wrap; word-break: break-all; }
 .step .actions { margin-top: 8px; }

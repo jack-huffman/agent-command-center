@@ -289,7 +289,9 @@ test('the copied-in rules row offers Import rules… whatever it shows, after Ch
   assert.deepEqual(actions('skip'), [['Check', 'acc.step.check'], importRules, ['Guide', 'acc.openGuide']], 'nothing copied in yet: Import rules… is how one starts');
   assert.deepEqual(actions('pass'), [['Check', 'acc.step.check'], importRules, ['Guide', 'acc.openGuide']]);
   assert.deepEqual(actions('unknown'), [['Do it', 'acc.step.fix'], ['Check', 'acc.step.check'], importRules, ['I\'ve done this', 'acc.step.confirm'], ['Guide', 'acc.openGuide']], 'Do it shows the difference, and writes nothing');
-  assert.equal(setupModel([item('unknown')], new Set()).parts[0]!.steps[0]!.fix, 'acc rules diff acme');
+  // acc's fix is named as its process, not shown as a line to type (GH-163).
+  const unknown = setupModel([item('unknown')], new Set()).parts[0]!.steps[0]!;
+  assert.deepEqual([unknown.fix, unknown.does], [null, 'Compare the rules with their source']);
   assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === 'acc.importRules'), 'contributed');
   assert.ok(stepMedia(STEPS.find((s) => s.id === 'B0.rules')!).includes('**Import rules…** is here whatever the step shows.'));
 });
@@ -303,7 +305,7 @@ test('what acc rules import --dry-run --json said is read as the copy it would w
   const detail = rulesDetail(shown);
   assert.match(detail, /^From ~\/team\/acme\.md: 12 lines\.\nIt replaces the copy from ~\/team\/old\.md, copied on 2026-09-01, and the edits made to it here\.\n\n- Rule 1\./);
   assert.ok(detail.includes('- Rule 10.\n…') && !detail.includes('Rule 11'), 'ten lines, then more');
-  assert.match(detail, /You review \.acc\/rules\/acme\.md and commit it yourself\. acc never updates it on its own/);
+  assert.match(detail, /You review the rules file acme and commit it yourself\. acc never updates it on its own/);
   assert.match(rulesDetail(shownRules(JSON.stringify({ ...dry, commit: 'c0ffee'.padEnd(40, '0'), replaces: null, lines: 1, preview: ['x'] })) as Extract<ReturnType<typeof shownRules>, { ok: true }>), /^From ~\/team\/acme\.md, at commit c0ffee0: 1 line\.\n\nx\n/);
   assert.deepEqual(shownRules(JSON.stringify({ error: 'bad-rules', message: 'Use https://: acc doesn\'t fetch a rules file over plain http.' })), { ok: false, errors: ['Use https://: acc doesn\'t fetch a rules file over plain http.'] });
   assert.deepEqual(shownRules('', 'node: not found'), { ok: false, errors: ['node: not found'] });
@@ -358,7 +360,7 @@ test('setup shows the acc plugin under its own section, with Do it while it fail
   assert.deepEqual(machine.sections.map((s) => [s.title, s.todo]), [['Accounts', 0], ['The acc plugin', 1]]);
   const a4 = machine.steps.find((s) => s.id === 'A4.plugin')!;
   assert.deepEqual(a4.actions.map((a) => a.label), ['Do it', 'Check']);
-  assert.equal(a4.fix, add, 'the command is shown to copy');
+  assert.deepEqual([a4.fix, a4.does], [add, null], 'another tool\'s command is shown to copy, as it is');
   assert.deepEqual([a4.look.label, a4.look.tone], ['To do', 'orange']);
 });
 

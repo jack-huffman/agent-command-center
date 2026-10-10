@@ -153,7 +153,7 @@ export function taskEvent(p: SlackProject, n: TaskNotice, now: number): SlackEve
   const agent = row.run?.name;
   const by: Record<string, { d: string; what: string; at: number }> = {
     waiting: { d: run, what: `${agent ?? 'Its agent'} is waiting for you in its own prompt.`, at: now },
-    stopped: { d: run, what: `${agent ?? 'Its builder'} stopped before acc done or acc block. It can be resumed from the Command Center.`, at: now },
+    stopped: { d: run, what: `${agent ?? 'Its builder'} stopped before it finished or blocked. It can be resumed from the Command Center.`, at: now },
     blocked: { d: moved ?? '', what: 'It\'s blocked.', at: at(moved) },
     'ci-failed': { d: `${pr}:${run}`, what: `Checks failed on pull request #${pr}.`, at: now },
     changes: { d: `${pr}:${run}`, what: `A reviewer asked for changes on pull request #${pr}.`, at: now },

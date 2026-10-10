@@ -10,6 +10,7 @@ import type { StartProject } from './connect.ts';
 import { KIND_QUESTION } from './logic/first-open.ts';
 import { needsTerminal } from './logic/runs.ts';
 import { shq } from './logic/shared.ts';
+import { inProcessWords, processLine } from './logic/processes.ts';
 import { parseOrgUrl } from '../../packages/core/src/onboarding/helpers.ts';
 import { sourceProblem } from '../../packages/core/src/source.ts';
 import { type RunResult, runFile } from './run.ts';
@@ -17,7 +18,7 @@ import type { Runs } from './runs.ts';
 import { exec } from './trackers.ts';
 import type { ExtensionArea } from './area.ts';
 
-const TERMINAL_NAME = 'acc setup';
+const TERMINAL_NAME = 'Command Center setup';
 
 /** The extension's version, as its package.json says, read now. Unknown, it's '', which no saved result has. */
 export function extensionVersion(file: string): string {
@@ -290,7 +291,8 @@ export class Setup implements vscode.Disposable {
   /** Runs a fix's command in the page's output panel, or in a terminal when it needs one (D-030). */
   private runCommand(command: string, checkAfter?: string): void {
     if (this.runs && !needsTerminal(command)) {
-      const label = checkAfter ? this.step(checkAfter).title : command.split(' ').slice(0, 3).join(' ');
+      // acc's own command is named as its process (GH-163); another tool's by its step, or its first words.
+      const label = processLine(command) ?? (checkAfter ? this.step(checkAfter).title : command.split(' ').slice(0, 3).join(' '));
       const after = () => { if (checkAfter) void this.check(checkAfter, true).then(() => this.refreshSoon('after a setup command')); else this.refreshSoon('after a setup command'); };
       this.runs.start(command, { cwd: this.cwd(), label, step: checkAfter, onExit: after });
       return;
@@ -385,7 +387,7 @@ export class Setup implements vscode.Disposable {
     if (!path) return;
     const choices: EnvLike[] = setupOrgChoices(id, this.config()?.environments ?? []);
     if (!choices.length) {
-      void vscode.window.showWarningMessage('No environment in .acc/config.json has an org alias for this step.');
+      void vscode.window.showWarningMessage('No environment in the project\'s settings has an org alias for this step.');
       return;
     }
     const env = choices.length === 1 ? choices[0] : (await vscode.window.showQuickPick(
@@ -472,7 +474,7 @@ export class Setup implements vscode.Disposable {
   async sfLogin(): Promise<void> {
     const envs = (this.config()?.environments ?? []).filter((e) => e.org && e.type !== 'none');
     if (!envs.length) {
-      void vscode.window.showInformationMessage('No environment in .acc/config.json has an org alias. Run step B1 first.');
+      void vscode.window.showInformationMessage('No environment in the project\'s settings has an org alias. Do step B1 first.');
       return;
     }
     const looks = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Checking each environment\'s org…' }, () => Promise.all(envs.map(async (e) => {
@@ -550,7 +552,7 @@ export class Setup implements vscode.Disposable {
     if (!choice) return;
     const args = initArgs(choice.init);
     const root = this.cwd();
-    const [dry, common] = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Reading what acc init would write…' }, (_p, token) => Promise.all([
+    const [dry, common] = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Reading what setting up this project would write…' }, (_p, token) => Promise.all([
       this.acc(['init', ...args, '--dry-run', '--json'], token),
       runFile('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], root),
     ]));
@@ -558,7 +560,7 @@ export class Setup implements vscode.Disposable {
     if (!plan.ok || common.code !== 0) {
       const why = plan.ok ? `git couldn't find this folder's repository: ${(common.stderr || common.stdout).trim()}` : plan.error;
       this.log.warn(`Starting a project from an epic: ${why}`);
-      void vscode.window.showErrorMessage('✗ acc init can\'t start this project. Nothing was written.', { modal: true, detail: why });
+      void vscode.window.showErrorMessage('✗ This project can\'t be set up. Nothing was written.', { modal: true, detail: why });
       return;
     }
     await this.starter?.(pendingProject({ root, dry: plan, commonDir: common.stdout.trim(), args, tracker: choice.templateTracker }));
@@ -572,7 +574,7 @@ export class Setup implements vscode.Disposable {
     const r = await runFile(process.execPath, [this.accScript, 'init', ...p.args, ...initArgs({ tracker }), '--json'], p.root, { ...process.env, ELECTRON_RUN_AS_NODE: '1', NO_COLOR: '1' });
     const done = initOutput(r.stdout, r.stderr);
     if (r.code !== 0 || !done.ok) {
-      const why = done.ok ? (r.stderr || r.stdout).trim().split('\n')[0] || `acc init exited ${r.code}.` : done.error;
+      const why = done.ok ? inProcessWords((r.stderr || r.stdout).trim().split('\n')[0] ?? '') || `acc exited ${r.code}.` : done.error;
       this.log.warn(`acc init didn't start ${p.name}: ${why}`);
       throw new Error(why);
     }
@@ -653,7 +655,7 @@ export class Setup implements vscode.Disposable {
    */
   async importRules(): Promise<void> {
     if (!this.folder()) {
-      void vscode.window.showWarningMessage('Open the project\'s repo first (File → Open Folder): rules are copied into its .acc/rules/.');
+      void vscode.window.showWarningMessage('Open the project\'s repo first (File → Open Folder): rules are copied into its rules folder.');
       return;
     }
     const recent = this.ctx.globalState.get<RecentTemplate[]>(RECENT_RULES) ?? [];
@@ -691,7 +693,7 @@ export class Setup implements vscode.Disposable {
         { modal: true, detail: rulesDetail(shown) }, ...(shown.replaces ? [replace, rename] : [copy]),
       );
       if (go === rename) {
-        name = (await vscode.window.showInputBox({ title: 'A name for this copy', prompt: 'Lower-case letters, digits, dots, dashes and underscores. It becomes .acc/rules/<name>.md.', value: `${shown.name}-2`, ignoreFocusOut: true, validateInput: (v) => (/^[a-z0-9][a-z0-9._-]{0,59}$/i.test(v.trim().replace(/\.md$/i, '')) ? null : 'Such as acme-salesforce') }))?.trim();
+        name = (await vscode.window.showInputBox({ title: 'A name for this copy', prompt: 'Lower-case letters, digits, dots, dashes and underscores. It names the copy in the project\'s rules folder.', value: `${shown.name}-2`, ignoreFocusOut: true, validateInput: (v) => (/^[a-z0-9][a-z0-9._-]{0,59}$/i.test(v.trim().replace(/\.md$/i, '')) ? null : 'Such as acme-salesforce') }))?.trim();
         if (!name) return;
         continue;
       }
@@ -715,7 +717,7 @@ export class Setup implements vscode.Disposable {
 
   async doctorInTerminal(): Promise<void> {
     this.runCommand('acc doctor');
-    await this.refresh('acc doctor');
+    await this.refresh('a full check');
   }
 
   /** In a multi-root workspace, the project follows the active editor. */

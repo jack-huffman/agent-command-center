@@ -26,9 +26,6 @@ export interface LimitsProject {
   agents: { builder: { model: string; from: { model: string } } };
 }
 
-/** Where a path is under the home folder, as ~/… */
-const tilde = (p: string, home: string): string => (p === home || p.startsWith(`${home}/`) ? `~${p.slice(home.length)}` : p);
-
 /** The environments whose pull requests go through the merge queue (D-096). */
 export const queueOf = (config: Config): string[] => config.environments.filter((e) => autoMergeFor(config, e.branch)).map((e) => e.name);
 
@@ -37,7 +34,7 @@ export const queueOf = (config: Config): string[] => config.environments.filter(
  * with how many builders run on it now; and each project's cap, checks, builder's model and recent work. All
  * reads: small files, and every repo's ledger acc noted on this machine.
  */
-export function readLimits(projects: LimitsProject[], ledgerOf: (root: string) => Ledger | undefined, heavy: HeavyState | null, env: NodeJS.ProcessEnv = process.env, home = homedir()): LimitsFacts {
+export function readLimits(projects: LimitsProject[], ledgerOf: (root: string) => Ledger | undefined, heavy: HeavyState | null, env: NodeJS.ProcessEnv = process.env): LimitsFacts {
   // The file the slots and the total are read from, as acc finds it; with no home there's none, and acc refuses to set either.
   const file = machineJson(env);
   let saved: { heavySlots?: unknown } = {};
@@ -67,7 +64,7 @@ export function readLimits(projects: LimitsProject[], ledgerOf: (root: string) =
   return {
     machine: {
       slots: heavySlots(env), slotsFrom, inUse: heavy?.held.length ?? 0, waiting: heavy?.waiting.length ?? 0,
-      total: machineAgents(env), running, repos, file: file ? tilde(file, home) : '~/.acc/machine.json',
+      total: machineAgents(env), running, repos,
     },
     projects: projects.map((p) => {
       const ledger = ledgerOf(p.root) ?? { schema: 1, seq: 0, tasks: [] };
@@ -149,12 +146,12 @@ export function limitCommands(vs: Vscode, d: LimitsDeps): Record<string, (arg?: 
         const pick = await vs.window.showQuickPick(range(1, MAX_AGENTS).map((k) => ({
           label: String(k), description: now(k === was), value: k,
           detail: k > slots ? `Past this machine's ${slots} heavy-check slot${slots === 1 ? '' : 's'}, ${k - slots} wait${k - slots === 1 ? 's' : ''} in line for checks.` : 'Each runs its checks without waiting for another builder\'s.',
-        })), { title: `${p.name}: how many builders at once?`, placeHolder: `Now ${was}. Set in .acc/config.json, for everyone on the repo once it's committed.` });
+        })), { title: `${p.name}: how many builders at once?`, placeHolder: `Now ${was}. Set in the project's settings, for everyone on the repo once it's committed.` });
         if (!pick) return;
         n = pick.value;
       }
       if (n === was) return;
-      await run(['agents', 'max', String(n)], p.root, `${p.name} now runs at most ${n} builder${n === 1 ? '' : 's'} at once. Changed in .acc/config.json: commit it to share it.`);
+      await run(['agents', 'max', String(n)], p.root, `${p.name} now runs at most ${n} builder${n === 1 ? '' : 's'} at once. Changed in the project\'s settings: commit the change to share it.`);
     },
 
     /** This machine's total across every repo, in ~/.acc/machine.json, or none. */
@@ -167,7 +164,7 @@ export function limitCommands(vs: Vscode, d: LimitsDeps): Record<string, (arg?: 
           { label: 'No total', description: now(was === null), detail: 'Each project\'s cap is the only limit.', value: null as number | null | 'more' },
           ...range(1, 16).map((k) => ({ label: String(k), description: now(k === was), detail: `At most ${k} builder${k === 1 ? '' : 's'} at once, across every repo on this machine.`, value: k as number | null | 'more' })),
           { label: 'Another number…', description: was !== null && was > 16 ? `now ${was}` : undefined, detail: `Up to ${MAX_MACHINE_AGENTS}.`, value: 'more' as const },
-        ], { title: 'This machine: how many builders at once, across every repo?', placeHolder: 'Usage limits belong to your Claude account, not a project. Kept in ~/.acc/machine.json.' });
+        ], { title: 'This machine: how many builders at once, across every repo?', placeHolder: 'Usage limits belong to your Claude account, not a project. Kept in this machine\'s settings.' });
         if (!pick) return;
         if (pick.value === 'more') {
           const typed = await vs.window.showInputBox({ title: 'This machine\'s total', prompt: `How many builders at once, across every repo: 1 to ${MAX_MACHINE_AGENTS}`, value: was !== null ? String(was) : '', validateInput: (v) => (whole(v.trim(), MAX_MACHINE_AGENTS) === null ? `A whole number from 1 to ${MAX_MACHINE_AGENTS}` : undefined) });
@@ -195,7 +192,7 @@ export function limitCommands(vs: Vscode, d: LimitsDeps): Record<string, (arg?: 
         const pick = await vs.window.showQuickPick(range(1, MAX_HEAVY_SLOTS).map((k) => ({
           label: String(k), description: now(k === was), value: k,
           detail: k === 1 ? 'One build or test run at a time: the machine stays calm, and builders wait in line.' : `${k} builds or test runs at once, from every repo on this machine. If it stutters, set fewer.`,
-        })), { title: 'This machine: how many heavy checks at once?', placeHolder: 'Builds, tests and validations, for every repo on this machine. Kept in ~/.acc/machine.json.' });
+        })), { title: 'This machine: how many heavy checks at once?', placeHolder: 'Builds, tests and validations, for every repo on this machine. Kept in this machine\'s settings.' });
         if (!pick) return;
         n = pick.value;
       }
@@ -210,7 +207,7 @@ export function limitCommands(vs: Vscode, d: LimitsDeps): Record<string, (arg?: 
       // stray-files is on or off by strayFiles.required, not by being picked here (GH-103).
       const gates = gatesFor(p.config).filter((g) => g.name !== STRAY_FILES);
       if (!gates.length) {
-        void vs.window.showInformationMessage(`${p.name} has no checks to choose from yet: add commands under "gates.commands" in its .acc/config.json.`);
+        void vs.window.showInformationMessage(`${p.name} has no checks to choose from yet: add commands under "gates.commands" in the project's settings.`);
         return;
       }
       // The picker edits the project's own list; stray-files is required beside it unless it's off (GH-103).
@@ -218,16 +215,16 @@ export function limitCommands(vs: Vscode, d: LimitsDeps): Record<string, (arg?: 
       const queue = queueOf(p.config);
       const picked = await vs.window.showQuickPick(gates.map((g) => ({ label: g.name, description: g.about, picked: was.includes(g.name), value: g.name })), {
         title: `${p.name}: which checks must every task pass?`, canPickMany: true,
-        placeHolder: queue.length ? `Where the merge queue runs (${queue.join(', ')}), they run once in it, before each merge.` : 'acc done, review and land take them.',
+        placeHolder: queue.length ? `Where the merge queue runs (${queue.join(', ')}), they run once in it, before each merge.` : 'A task must pass them to finish, to be reviewed and to open its pull request.',
       });
       if (!picked) return;
       const names = picked.map((x) => x.value);
       if (!names.length) {
-        void vs.window.showWarningMessage('Pick at least one check: with none, acc done would take any commit.');
+        void vs.window.showWarningMessage('Pick at least one check: with none, a builder could finish a task on any commit.');
         return;
       }
       if (names.join('\n') === was.join('\n')) return;
-      await run(['gate', 'required', ...names], p.root, `${p.name}'s required checks are now ${names.join(', ')}. Changed in .acc/config.json: commit it to share it.`);
+      await run(['gate', 'required', ...names], p.root, `${p.name}'s required checks are now ${names.join(', ')}. Changed in the project\'s settings: commit the change to share it.`);
     },
 
     /** Builders' lighter checks where the merge queue runs the required ones (gates.builder, D-096), or none. */
@@ -237,7 +234,7 @@ export function limitCommands(vs: Vscode, d: LimitsDeps): Record<string, (arg?: 
       // stray-files is on or off by strayFiles.required, not by being picked here (GH-103).
       const gates = gatesFor(p.config).filter((g) => g.name !== STRAY_FILES);
       if (!gates.length) {
-        void vs.window.showInformationMessage(`${p.name} has no checks to choose from yet: add commands under "gates.commands" in its .acc/config.json.`);
+        void vs.window.showInformationMessage(`${p.name} has no checks to choose from yet: add commands under "gates.commands" in the project's settings.`);
         return;
       }
       const was = p.config.gates.builder?.length ? p.config.gates.builder : [];
@@ -250,8 +247,8 @@ export function limitCommands(vs: Vscode, d: LimitsDeps): Record<string, (arg?: 
       const names = picked.map((x) => x.value);
       if (names.join('\n') === was.join('\n')) return;
       await run(['gate', 'builder', ...(names.length ? names : ['--none'])], p.root, names.length
-        ? `${p.name}'s builders now run ${names.join(', ')}${queue.length ? '' : ' once a merge queue runs there'}. Changed in .acc/config.json: commit it to share it.`
-        : `${p.name}'s builders now run the required checks. Changed in .acc/config.json: commit it to share it.`);
+        ? `${p.name}'s builders now run ${names.join(', ')}${queue.length ? '' : ' once a merge queue runs there'}. Changed in the project\'s settings: commit the change to share it.`
+        : `${p.name}'s builders now run the required checks. Changed in the project\'s settings: commit the change to share it.`);
     },
   };
 }

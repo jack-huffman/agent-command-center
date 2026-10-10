@@ -15,6 +15,7 @@ import { type AgentSession, isWebviewMenuContext, nodeArg, shq } from './logic/s
 import { analysisAnswerArgs, followsPullRequests } from './logic/tasks.ts';
 import { CLAUDE_EXTENSION, claudeSessionUri, isSessionId } from './logic/agents.ts';
 import { PACE_SETTING, POLL_KEYS, pollEvery, type PollKey } from './logic/polls.ts';
+import { inProcessWords } from './logic/processes.ts';
 import type { NavItem } from './model/home.ts';
 import { needsYouCount } from './model/overview.ts';
 import { settingsKey } from './model/settings.ts';
@@ -172,16 +173,15 @@ export function activate(context: vscode.ExtensionContext): void {
     const r = await accRunner(accScript)(analysisAnswerArgs(task, question, text), p.root);
     await hub.loadTasks(true);
     if (r.code === 0) return { ok: true };
-    let error = (r.stderr || r.stdout).trim().split('\n')[0] || `acc exited ${r.code}`;
-    try { error = (JSON.parse(r.stdout) as { message?: string }).message ?? error; } catch { /* plain text */ }
+    const error = accSays(r);
     void vscode.window.showWarningMessage(`Couldn't answer ${task}'s question: ${error}`);
     return { ok: false, error };
   };
-  /** What acc said when it refused, in its own words. */
+  /** What acc said when it refused, in the Command Center's words: its commands as processes, its files by name (GH-163). */
   const accSays = (r: { code: number; stdout: string; stderr: string }): string => {
     let error = (r.stderr || r.stdout).trim().split('\n')[0] || `acc exited ${r.code}`;
     try { error = (JSON.parse(r.stdout) as { message?: string }).message ?? error; } catch { /* plain text */ }
-    return error;
+    return inProcessWords(error);
   };
   /**
    * A ticket's updates, posted as you, set aside, or drafted from an analysis's question, all through acc
@@ -335,8 +335,8 @@ export function activate(context: vscode.ExtensionContext): void {
       else panels.show('tasks');
       const project = hub.project(root)?.name ?? 'the project';
       void vscode.window.showInformationMessage(started
-        ? `${project} is started: acc init wrote .acc/config.json with ${name}, and its tickets are on the Tasks tab. Review the file and commit it; Setup's B10 writes the README's line for where its tickets come from.`
-        : `${name} for ${project} is saved in .acc/config.json, and its tickets are on the Tasks tab${settings ? ': Settings lists it under Trackers and sign-ins' : ''}. Commit the file on each environment's branch, so every checkout shows the same board.`);
+        ? `${project} is started: its settings now hold ${name}, and its tickets are on the Tasks tab. Review the project's settings and commit them; Setup's B10 writes the README's line for where its tickets come from.`
+        : `${name} for ${project} is saved in the project's settings, and its tickets are on the Tasks tab${settings ? ': Settings lists it under Trackers and sign-ins' : ''}. Commit the settings on each environment's branch, so every checkout shows the same board.`);
       if (started) await setup.refresh('a project started on the Connect page');
       else await setup.recheck('B14.tickets');
     },

@@ -1,7 +1,7 @@
 // Agents' questions: a permission prompt or a question, answered in place.
 
 import type { QuestionCard } from '../src/model/questions.ts';
-import { button, type Child, el, icon, keptInput, when } from './dom.ts';
+import { button, type Child, el, icon, keptInput, when, work } from './dom.ts';
 import { api, type Draft, memory, type PageArea, remember, state } from './state.ts';
 import { pending } from './updates.ts';
 
@@ -45,7 +45,7 @@ export function questionCard(q: QuestionCard, opts: { watch: boolean }): HTMLEle
 
   if (q.kind === 'permission') {
     if (q.detail && q.code) card.append(el('p', 'q-detail', q.detail));
-    if (q.code) card.append(el('pre', 'q-code', q.code));
+    if (q.code) card.append(work(el('pre', 'q-code', q.code), 'transcript'));
     else if (q.detail) card.append(el('div', 'q-detail q-plan', q.detail));
     // Every answer its own prompt offers, numbered as there: click one, or press its number (D-038).
     const pending = q.choices.find((c) => c.key === d.choice && c.needs);

@@ -336,7 +336,7 @@ export function inProgress(i: ProgressInput): ProgressModel {
       const model = step?.model ?? (setting ? `${setting} (its setting)` : null);
       const b = r.branchStats;
       const branch = b ? `${plural(b.commits, 'commit')}, ${plural(b.files, 'file')} changed${b.uncommitted ? `, ${b.uncommitted} not committed` : ''}` : null;
-      const doing = r.stopped ? (r.stopped.said ? `its turn ended: ${clip(r.stopped.said.replace(/\s+/g, ' '), 90)}` : 'its turn ended before acc done or acc block')
+      const doing = r.stopped ? (r.stopped.said ? `its turn ended: ${clip(r.stopped.said.replace(/\s+/g, ' '), 90)}` : 'its turn ended before it finished or blocked')
         : !r.asking && r.agent?.tone === 'orange' && r.agent.label !== 'Failed' ? 'waiting in its own terminal'
           : step?.step ? clip(step.step.title, 90) : null;
       const live = session?.kind === 'background' && !!session.id && !!session.pid && !['done', 'stopped', 'failed'].includes(session.state ?? '');
@@ -504,7 +504,7 @@ export function inProgress(i: ProgressInput): ProgressModel {
     const waiting = heavy.waiting.length;
     machine.push({
       key: 'slots', look: LOOK(`Heavy checks: ${used} of ${heavy.slots} in use, ${free ? `${free} free` : 'none free'}${waiting ? `, ${waiting} waiting` : ''}`, 'server-process', used ? 'blue' : 'neutral'),
-      tip: slotTip.length ? slotTip.join('\n') : `No heavy check is running. This machine runs ${plural(heavy.slots, 'heavy check')} at once (acc machine heavy-slots).`,
+      tip: slotTip.length ? slotTip.join('\n') : `No heavy check is running. This machine runs ${plural(heavy.slots, 'heavy check')} at once. Change it in Settings, under Limits and checks.`,
     });
   }
   let builders = 0;

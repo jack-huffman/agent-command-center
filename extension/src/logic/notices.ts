@@ -62,7 +62,7 @@ export function taskNotices(before: TaskRow[], after: TaskRow[]): TaskNotice[] {
     // A new analysis, not an answer to one of its questions: an answer keeps its time (D-052).
     const a = t.analysis;
     if (a && a.at !== p.analysis?.at) {
-      if (t.state !== 'todo') say('analysis-back', `${t.id}'s analysis is back.${a.open.length ? ` Its ${questionsWord(a.open.length)} can be answered with acc analysis answer.` : ''}`, false);
+      if (t.state !== 'todo') say('analysis-back', `${t.id}'s analysis is back.${a.open.length ? ` Its ${questionsWord(a.open.length)} can be answered on its page.` : ''}`, false);
       else if (a.verdict === 'split') say('analysis-split', `${t.id}'s analysis says it's too big for one task.`, true);
       else if (a.open.length) say('analysis-questions', `${t.id}'s analysis has ${questionsWord(a.open.length)} for you.`, true);
       else say('analysis-ready', `${t.id}'s analysis is ready.`, false);
@@ -73,7 +73,7 @@ export function taskNotices(before: TaskRow[], after: TaskRow[]): TaskNotice[] {
 
 /** "Acme · GH-41 Ticket updates · builder stopped: API Error: Your computer went to sleep mid-response. …" (D-067, D-087). */
 export const stoppedNotice = (agent: string, said: string | null): string =>
-  said ? `${agent} stopped: ${endSentence(saidLine(said))}` : `${agent} stopped before acc done or acc block.`;
+  said ? `${agent} stopped: ${endSentence(saidLine(said))}` : `${agent} stopped before it finished or blocked.`;
 
 /** The buttons a notice offers, as [label, command] pairs. The task's page is always the last. */
 export function noticeActions(n: TaskNotice): [label: string, command: string][] {

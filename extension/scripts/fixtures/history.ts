@@ -1,7 +1,7 @@
 /** History (D-037): moves the ledger recorded, and the steps autopilot took. */
 import type { AutopilotRecord } from '../../../packages/core/src/autopilot-log.ts';
 import type { ActivityItem } from '../../src/model/shared.ts';
-import { MIN, SLEPT } from './shared.ts';
+import { ACME_25_REFUSED, MIN, SLEPT } from './shared.ts';
 
 /** Moves the sample project's tasks made, newest first. */
 export function sampleHistory(now = Date.now()): ActivityItem[] {
@@ -16,7 +16,7 @@ export function sampleHistory(now = Date.now()): ActivityItem[] {
 
 /**
  * Steps autopilot took, as its ledger events tell them (D-064): it reviewed and landed ACME-15, couldn't
- * land ACME-25 or merge dev into ACME-26, and reviewed ACME-20, which it lands next. It sent ACME-34 back
+ * review ACME-25 or merge dev into ACME-26, and reviewed ACME-20, which it lands next. It sent ACME-34 back
  * for its failing checks and re-dispatched it, then wrote down that they failed again; it has just sent
  * ACME-33 back (D-076).
  */
@@ -25,7 +25,7 @@ export function sampleAutopilot(now = Date.now()): AutopilotRecord[] {
   return [
     { seq: 201, at: at(93), task: 'ACME-15', step: 'review', outcome: 'done', verdict: 'pass' },
     { seq: 203, at: at(92), task: 'ACME-15', step: 'land', outcome: 'done', pr: { number: 42, url: 'https://github.com/acme/service/pull/42', opened: true } },
-    { seq: 210, at: at(48), task: 'ACME-25', step: 'land', outcome: 'failed', reason: 'git push refused task/ACME-25-merge-duplicate-contacts: ! [rejected] (fetch first) error: failed to push some refs' },
+    { seq: 210, at: at(48), task: 'ACME-25', step: 'review', outcome: 'failed', reason: ACME_25_REFUSED },
     { seq: 214, at: at(20), task: 'ACME-26', step: 'refresh', outcome: 'failed', reason: 'Conflicts with dev that autopilot can\'t resolve: force-app/main/default/classes/CaseTriggerHandler.cls. The branch is as it was, at 3f9c2ab, and nothing was pushed.' },
     { seq: 205, at: at(80), task: 'ACME-34', step: 'checks', outcome: 'done', checks: ['Apex tests'], reason: 'Checks failed on GitHub on 7d3e1f0: Apex tests.' },
     { seq: 206, at: at(79), task: 'ACME-34', step: 'dispatch', outcome: 'done', cause: 'checks' },

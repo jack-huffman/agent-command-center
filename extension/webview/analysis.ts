@@ -1,7 +1,7 @@
 // A task's analysis: its questions, answered on the page or sent to the client.
 
 import type { TicketAnalysis, TicketModel } from '../src/model/task-page.ts';
-import { actionButton, button, type Child, el, foldable, icon, keptInput, md, status, when } from './dom.ts';
+import { actionButton, button, type Child, el, foldable, icon, keptInput, md, status, when, work } from './dom.ts';
 import { api, memory, remember, state } from './state.ts';
 import { answerKey, askKey, pending, sendUpdate } from './updates.ts';
 
@@ -100,7 +100,7 @@ export function renderAnalysis(m: TicketModel, a: TicketAnalysis): HTMLElement {
     analysisFold(`${key}:refactors`, 'Refactors first', a.refactors.map((r) => pair(r.what, r.why))),
     analysisFold(`${key}:risks`, 'Risks', a.risks.map(md)),
     analysisFold(`${key}:tests`, 'Tests', a.tests.map(md)),
-    analysisFold(`${key}:files`, 'Files', a.files.map((f) => el('span', '', el('span', `chip an-change an-${f.change}`, f.change), el('span', 'mono an-path', f.path), f.why ? el('span', 'muted', ' ', md(f.why)) : null))),
+    analysisFold(`${key}:files`, 'Files', a.files.map((f) => el('span', '', el('span', `chip an-change an-${f.change}`, f.change), work(el('span', 'mono an-path', f.path), 'files'), f.why ? el('span', 'muted', ' ', md(f.why)) : null))),
   ].filter((x): x is HTMLElement => !!x);
   if (folds.length) sec.append(el('div', 'an-folds', ...folds));
   return sec;

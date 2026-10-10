@@ -119,9 +119,10 @@ test('Track reads the ticket again and imports its title, description and labels
   assert.deepEqual(said, ['changed', 'changed'], 'nothing imported, nothing reloaded');
   assert.equal(pending.error('/r#ACME-9'), outside, 'the card keeps why until the next try');
 
-  // acc refuses: its own reason, from --json, not the first line of its plain output.
+  // acc refuses: its own reason, from --json, not the first line of its plain output, with its file named
+  // for what it is (GH-163).
   const refused = 'ACME-1: no Jira tracker in .acc/config.json owns it, so it isn\'t one of this repo\'s tickets.';
-  assert.deepEqual(await trackTicket('/r#ACME-1', pending, steps({ importTasks: async () => ({ code: 1, stdout: JSON.stringify({ added: [], updated: [], unchanged: [], errors: [refused] }), stderr: '' }) })), { ok: false, error: refused });
+  assert.deepEqual(await trackTicket('/r#ACME-1', pending, steps({ importTasks: async () => ({ code: 1, stdout: JSON.stringify({ added: [], updated: [], unchanged: [], errors: [refused] }), stderr: '' }) })), { ok: false, error: 'ACME-1: no Jira tracker in the project\'s settings owns it, so it isn\'t one of this repo\'s tickets.' });
   assert.deepEqual(await trackTicket('/r#ACME-1', pending, steps({ importTasks: async () => ({ code: 1, stdout: '{"error":"usage","message":"The input isn\'t valid JSON: oops"}\n', stderr: '' }) })), { ok: false, error: 'The input isn\'t valid JSON: oops' });
   assert.deepEqual(await trackTicket('/r#ACME-1', pending, steps({ importTasks: async () => ({ code: 127, stdout: '', stderr: 'node: not found\nmore' }) })), { ok: false, error: 'node: not found' });
   // Tried again and done: the old reason goes.
@@ -521,5 +522,5 @@ test('a card acc couldn\'t move on its GitHub Project shows on the task page, wh
   assert.ok(page.includes("if (m.acc?.cardFailed) {") && page.includes("icon('project', 'orange')") && page.includes("'Its card couldn\\'t move on its GitHub Project: '"));
   // Moved on to another state, the failure is the last state's, so it no longer shows.
   const model = readFileSync(new URL('../src/model/task-page.ts', import.meta.url), 'utf8');
-  assert.ok(model.includes('cardFailed: cardFailure(i.task)'), 'read through core\'s cardFailure, which checks the state');
+  assert.ok(model.includes('cardFailed: reasonInWords(cardFailure(i.task)'), 'read through core\'s cardFailure, which checks the state, and said in process words (GH-163)');
 });

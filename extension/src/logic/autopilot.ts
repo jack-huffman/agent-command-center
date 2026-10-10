@@ -9,6 +9,7 @@ import { reworkedByAutopilot } from '../../../packages/core/src/autopilot-rules.
 import type { AutopilotStepName } from '../../../packages/core/src/ledger.ts';
 import { isTrackerKind } from '../../../packages/core/src/trackers/types.ts';
 import { endSentence, type TaskNotice } from './notices.ts';
+import { inProcessWords } from './processes.ts';
 import { saidLine } from './shared.ts';
 import { startedNotice } from './tasks.ts';
 
@@ -144,6 +145,6 @@ export function autopilotStatus(s: AutopilotStatusInput): { text: string; toolti
       tooltip: `Autopilot is on for ${s.project} in another window or a terminal (pid ${s.pid ?? 'unknown'}): ${AUTOPILOT_DOES}\n\nStop it there to run it in this window.`,
     };
   }
-  if (s.state === 'refused') return { text: `$(circle-slash) Autopilot: off${name}`, tooltip: `Autopilot can't run for ${s.project}: ${s.refusal ?? 'acc refused it.'}` };
+  if (s.state === 'refused') return { text: `$(circle-slash) Autopilot: off${name}`, tooltip: `Autopilot can't run for ${s.project}: ${s.refusal ? inProcessWords(s.refusal) : 'acc refused it.'}` };
   return { text: `$(debug-pause) Autopilot: off${name}`, tooltip: `Autopilot is off for ${s.project}. When it's on, ${AUTOPILOT_DOES}\n\nClick to turn it on until VSCode closes.` };
 }

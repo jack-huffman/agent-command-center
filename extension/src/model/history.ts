@@ -7,6 +7,7 @@ import { type AutopilotRecord, byAutopilot } from '../../../packages/core/src/au
 import type { HistoryRecord, QuestionOutcome } from '../../../packages/core/src/questions.ts';
 import { isUnder, taskNames } from '../logic/shared.ts';
 import { queueWhy } from '../logic/autopilot.ts';
+import { inProcessWords } from '../logic/processes.ts';
 import { describePermission, questionsOf } from './questions.ts';
 import { runCard, type RunInput } from './runs.ts';
 import { type HubLike, type Look, LOOK, sessionKey } from './shared.ts';
@@ -66,7 +67,8 @@ export function decisionOf(h: HistoryRecord): Decision {
   return {
     id: h.id, at: h.endedAt, askedAt: h.askedAt, sessionId: h.sessionId, icon: d.icon, asked: ask && questions.length ? `asked: ${questions.join(' · ')}` : asked,
     code: d.code, look: outcomeLook(h.outcome, ask),
-    detail: answers ?? (h.command ? `Ran instead: ${h.command}` : h.message ? `"${h.message}"` : null),
+    // What was said back, in the Command Center's words: a hook's reason names acc's processes (GH-163).
+    detail: answers ?? (h.command ? `Ran instead: ${h.command}` : h.message ? `"${inProcessWords(h.message)}"` : null),
   };
 }
 
@@ -100,7 +102,7 @@ export function autopilotStepLook(r: AutopilotRecord): { look: Look; detail: str
       : { look: LOOK(`Autopilot started it${r.waitedFor?.length ? `: ${taskNames(r.waitedFor)}'s files are free` : ''}`, 'rocket', 'blue'), detail: null, url: null };
   }
   // Merged where the repo turns auto-merge on (GH-67): acc sync moves it to done.
-  if (r.step === 'merge') return { look: LOOK(r.pr ? `Autopilot merged pull request #${r.pr.number}` : 'Autopilot merged its pull request', 'git-merge', 'blue'), detail: 'acc sync moves it to done.', url: r.pr?.url || null };
+  if (r.step === 'merge') return { look: LOOK(r.pr ? `Autopilot merged pull request #${r.pr.number}` : 'Autopilot merged its pull request', 'git-merge', 'blue'), detail: 'It moves to done at the next refresh from GitHub.', url: r.pr?.url || null };
   // The merge queue's own, at its turn: it carries its review, is pushed, and merges once GitHub's checks pass (GH-73).
   if (r.base && r.queue) return { look: LOOK(`The merge queue merged ${r.base} into it`, 'git-merge', 'blue'), detail: 'Its full check passed on the merge. It merges once GitHub\'s checks pass.', url: null };
   if (r.base) return { look: LOOK(`Autopilot merged ${r.base} into it`, 'git-merge', 'blue'), detail: 'Its checks passed on the merge. It\'s reviewed next, then landed.', url: null };

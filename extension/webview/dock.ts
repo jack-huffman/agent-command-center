@@ -1,7 +1,7 @@
 // The output panel: the commands acc runs for you, under every section.
 
 import type { RunCard } from '../src/model/runs.ts';
-import { button, el, icon, keepFocus, keptInput, status, titled } from './dom.ts';
+import { button, el, icon, keepFocus, keptInput, status, titled, work } from './dom.ts';
 import { api, memory, type PageArea, remember, state, view } from './state.ts';
 
 // ---------------------------------------------------------------- the output panel (D-030)
@@ -31,9 +31,9 @@ export function renderDock(list: RunCard[]): HTMLElement | null {
   const toggle = () => { remember((x) => { x.dock.open = !open; x.dock.run = run.id; }); redrawDock(); };
   const lastLine = [...run.lines].reverse().find((l) => l.trim()) ?? (run.running ? 'Starting…' : 'No output');
   const bar = el('div', 'dock-bar');
-  const head = el('button', 'dock-title', icon('terminal'), el('span', 'strong dock-label', run.label), status(run.look), open || run.prompt ? null : el('span', 'muted mono dock-last', lastLine)) as HTMLButtonElement;
+  const head = el('button', 'dock-title', icon('terminal'), el('span', 'strong dock-label', run.label), status(run.look), open || run.prompt ? null : work(el('span', 'muted mono dock-last', lastLine), 'output')) as HTMLButtonElement;
   head.type = 'button';
-  head.title = `${run.label}\n${run.command}\n\n${open ? 'Hide' : 'Show'} the output`;
+  head.title = `${run.label}\n\n${open ? 'Hide' : 'Show'} the output`;
   head.setAttribute('aria-expanded', String(open));
   head.addEventListener('click', toggle);
   bar.append(head, el('span', 'spacer'));
@@ -62,18 +62,18 @@ export function renderDock(list: RunCard[]): HTMLElement | null {
   const dock = el('section', `dock${open ? ' open' : ''}${run.prompt ? ' asking' : ''}`, bar);
   dock.setAttribute('aria-label', 'Command output');
   if (open) {
-    const out = el('pre', 'dock-out', run.lines.join('\n'));
+    const out = work(el('pre', 'dock-out', run.lines.join('\n')), 'output');
     out.dataset.run = run.id;
     out.tabIndex = 0;
-    out.setAttribute('aria-label', `Output of ${run.command}`);
+    out.setAttribute('aria-label', `Output of ${run.label}`);
     out.setAttribute('aria-live', 'polite');
-    dock.append(titled(el('div', 'dock-cmd mono muted', `$ ${run.command}`), `$ ${run.command}`), out);
+    dock.append(work(titled(el('div', 'dock-cmd mono muted', `$ ${run.command}`), `$ ${run.command}`), 'output'), out);
   }
   if (run.prompt) {
     const p = run.prompt;
     const key = `run:${run.id}`;
     const send = (text: string) => { remember((x) => { delete x.drafts[key]; }); api.postMessage({ type: 'run-input', run: run.id, text }); };
-    const row = el('div', 'dock-ask', icon('bell', 'orange'), el('span', 'dock-ask-text', el('span', 'strong', 'It\'s asking: '), el('span', 'mono', p.text)));
+    const row = el('div', 'dock-ask', icon('bell', 'orange'), el('span', 'dock-ask-text', el('span', 'strong', 'It\'s asking: '), work(el('span', 'mono', p.text), 'output')));
     if (p.kind === 'yesno') {
       row.append(el('div', 'actions', button('Yes', 'check', () => send('y'), 'primary'), button('No', 'close', () => send('n'))));
     } else {

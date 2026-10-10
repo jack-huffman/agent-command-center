@@ -12,6 +12,8 @@ import { effortDroppedWords } from '../../packages/core/src/efforts.ts';
 import type { Project } from './hub.ts';
 import { dispatchModelArgs, dispatchModelItems, displayName, sessionFor } from './logic/agents.ts';
 import { dispatchEffortArgs, dispatchEffortItems, noEffortArgs } from './logic/efforts.ts';
+import { inProcessWords } from './logic/processes.ts';
+import { reasonInWords } from './logic/relayed.ts';
 import { anywayQuestion, type HeldAsk, heldAskDue, heldAsked, heldAskKey, heldDue, landMessage, sizeLine, startedNotice, waitLine, waitQuestion, waitsForFiles } from './logic/tasks.ts';
 import { laneMove } from './model/tasks.ts';
 import { sessionKey } from './model/shared.ts';
@@ -85,7 +87,7 @@ class TaskCommands extends Sidebar {
   private async importGithub(n?: TaskNode): Promise<void> {
     const project = await this.pickProject(n);
     if (!project) return;
-    if (!project.config.github) return void vscode.window.showWarningMessage(`${project.name} has no GitHub repo in .acc/config.json.`);
+    if (!project.config.github) return void vscode.window.showWarningMessage(`${project.name} names no GitHub repo in its settings.`);
     await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Reading open issues on ${project.config.github.repo}` }, () =>
       this.runAcc(project, ['intake', 'github'], (out) => {
         const parts = [
@@ -135,10 +137,10 @@ class TaskCommands extends Sidebar {
       `# ${t.id}: ${t.title}`, '',
       `**${DISPLAY[n.task.display].label}** · environment \`${t.environment}\` · ${t.source.kind}${t.source.url ? ` · [ticket](${t.source.url})` : ''}`, '',
       t.deps.length ? `Depends on: ${t.deps.join(', ')}\n` : '',
-      t.blocker ? `> Blocked: ${t.blocker}\n` : '',
+      t.blocker ? `> Blocked: ${reasonInWords(t.blocker)}\n` : '',
       t.brief || '_No details._', '',
       '## History', '',
-      ...t.history.map((h) => `- ${h.at.replace('T', ' ').slice(0, 16)}: ${h.from ?? '–'} → **${h.to}** by ${h.by}${h.reason ? `: ${h.reason}` : ''}${h.override ? ' (override)' : ''}`),
+      ...t.history.map((h) => `- ${h.at.replace('T', ' ').slice(0, 16)}: ${h.from ?? '–'} → **${h.to}** by ${h.by}${h.reason ? `: ${reasonInWords(h.reason)}` : ''}${h.override ? ' (override)' : ''}`),
     ];
     const doc = await vscode.workspace.openTextDocument({ content: lines.join('\n'), language: 'markdown' });
     await vscode.window.showTextDocument(doc, { preview: true });
@@ -260,7 +262,7 @@ class TaskCommands extends Sidebar {
     await Promise.all([this.hub.loadAgents(), this.hub.loadWorktrees()]);
     const where = r.worktree ? basename(r.worktree) : 'its worktree';
     const pick = await vscode.window.showInformationMessage(
-      `${task.id} is running: an agent is working in ${where}${r.reused ? ' (reused)' : ''}. It will finish with acc done, or block if it needs you.${also}`,
+      `${task.id} is running: an agent is working in ${where}${r.reused ? ' (reused)' : ''}. It finishes the task when its checks pass, or marks it blocked if it needs you.${also}`,
       ...(r.bgId ? ['Watch', 'Open in Claude Code'] : []), 'Open worktree');
     const terminal = `claude: ${r.name ?? task.id}`;
     if (pick === 'Watch' && r.bgId && !this.helpers.watch?.(r.bgId)) this.send(r.worktree ?? project.root, `claude attach ${r.bgId}`, terminal);
@@ -322,7 +324,7 @@ class TaskCommands extends Sidebar {
     });
     if (!resumed) return;
     await this.hub.loadAgents();
-    const pick = await vscode.window.showInformationMessage(`${task.id} is resumed: its builder carries on in its worktree, told its last turn ended early. It finishes with acc done, or blocks.`, 'Watch');
+    const pick = await vscode.window.showInformationMessage(`${task.id} is resumed: its builder carries on in its worktree, told its last turn ended early. It finishes the task, or marks it blocked.`, 'Watch');
     if (pick === 'Watch') this.watchTask(n);
   }
 
@@ -338,7 +340,7 @@ class TaskCommands extends Sidebar {
       out = {};
     }
     if (out.removed) void vscode.window.showInformationMessage(`Removed ${basename(n.task.run.worktree)}.`);
-    else void vscode.window.showWarningMessage(`Kept the worktree: ${(out.reasons ?? [(r.stderr || r.stdout).trim()]).join(' ')}`);
+    else void vscode.window.showWarningMessage(`Kept the worktree: ${inProcessWords((out.reasons ?? [(r.stderr || r.stdout).trim()]).join(' '))}`);
     await Promise.all([this.hub.loadTasks(true), this.hub.loadWorktrees()]);
   }
 
@@ -404,7 +406,7 @@ class TaskCommands extends Sidebar {
     if (n?.kind !== 'task') return;
     const { project, task } = n;
     const gh = project.config.github;
-    if (!gh) return void vscode.window.showWarningMessage(`${project.name} has no GitHub repo in .acc/config.json, so there's nowhere to open a pull request.`);
+    if (!gh) return void vscode.window.showWarningMessage(`${project.name} names no GitHub repo in its settings, so there's nowhere to open a pull request.`);
     const again = task.pr?.state === 'open';
     const ok = await vscode.window.showWarningMessage(again ? `Update pull request #${task.pr!.number} for ${task.id}?` : `Land ${task.id}?`, {
       modal: true,
@@ -475,7 +477,7 @@ export const area: ExtensionArea = {
             void vscode.window.showInformationMessage(startedNotice(`${s.task} started`, s), 'Watch').then((pick) => pick && resolve('acc.task.watch', { project: p.root, task: s.task }));
           }
           for (const f of out.failed) {
-            void vscode.window.showWarningMessage(`${f.task} couldn't start: ${f.reason}`, 'Dispatch anyway').then((pick) => pick && resolve('acc.task.dispatchAnyway', { project: p.root, task: f.task }));
+            void vscode.window.showWarningMessage(`${f.task} couldn't start: ${reasonInWords(f.reason)}`, 'Dispatch anyway').then((pick) => pick && resolve('acc.task.dispatchAnyway', { project: p.root, task: f.task }));
           }
         } catch (e) {
           setup.log.warn(`acc dispatch --held in ${p.name}: ${(e as Error).message}`);

@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { skippedOn } from '../../packages/core/src/promote.ts';
 import type { Project } from './hub.ts';
 import { githubBranchUrl } from './logic/environments.ts';
+import { inProcessWords } from './logic/processes.ts';
 import type { EnvNode } from './nodes.ts';
 import type { ExtensionArea } from './area.ts';
 import { Sidebar } from './sidebar.ts';
@@ -33,9 +34,9 @@ class EnvironmentCommands extends Sidebar {
       const message = (out.message ?? (r.stderr || r.stdout).trim()).replace(/^✗ /, '');
       // A refusal the caller handles itself, such as a first deploy needing its starting point.
       if (expected?.test(message)) return { refused: message };
-      void vscode.window.showWarningMessage(message);
+      void vscode.window.showWarningMessage(inProcessWords(message));
     } catch {
-      void vscode.window.showWarningMessage((r.stderr || r.stdout).trim().split('\n')[0] || `acc ${args[0]} didn't answer.`);
+      void vscode.window.showWarningMessage(inProcessWords((r.stderr || r.stdout).trim().split('\n')[0] ?? '') || 'acc didn\'t answer.');
     }
     return null;
   }

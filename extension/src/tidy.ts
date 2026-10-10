@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import type { TidyDraft, TidyScope } from '../../packages/core/src/tidy.ts';
 import type { ExtensionArea } from './area.ts';
 import type { Project } from './hub.ts';
+import { inProcessWords } from './logic/processes.ts';
 import { Sidebar } from './sidebar.ts';
 
 /** What `acc tidy --json` says. */
@@ -38,7 +39,8 @@ class TidyCommands extends Sidebar {
     } catch {
       shown = null;
     }
-    if (r.code !== 0 || !shown) return void vscode.window.showWarningMessage(`Couldn't draft the tidy-up: ${(r.stderr || r.stdout).trim().split('\n')[0] || `acc exited ${r.code}`}`);
+    // acc's refusal, in process words (GH-163).
+    if (r.code !== 0 || !shown) return void vscode.window.showWarningMessage(`Couldn't draft the tidy-up: ${inProcessWords((r.stderr || r.stdout).trim().split('\n')[0] ?? '') || `acc exited ${r.code}`}`);
     const { draft, scope } = shown;
     if (shown.open) return void vscode.window.showInformationMessage(`${shown.open}, a tidy-up, isn't done yet.`);
     if (!draft || !scope) return void vscode.window.showInformationMessage('Nothing has merged since the last tidy-up.');

@@ -339,7 +339,7 @@ test('GitHub signs in through gh as the project\'s account, with its labels to t
   await bare.session.open({ root: ROOT, kind: 'github', from: 'tasks' });
   bare.send({ type: 'connect-test', host: 'acme/service', fields: {} });
   await settle();
-  assert.match(bare.model().host.error ?? '', /no "github" section/);
+  assert.match(bare.model().host.error ?? '', /names no GitHub repo and account in its settings/);
 });
 
 test('Azure DevOps signs in with Microsoft, picks the default team and the stories board, and leaves the default team out', async () => {
@@ -386,7 +386,7 @@ test('From a Jira epic: the site every project shares fills in signed in, the ep
   let m = h.model();
   assert.deepEqual([m.title, m.back.label, m.projects, m.kind, m.host.value, m.host.fixed], ['Start acme-renewals from an epic in Jira', 'Back to Setup', [], 'jira', SITE, false]);
   assert.deepEqual([m.signIn.look.label, m.signIn.editing], ['Signed in as Jordan Kim, for every project on acme.atlassian.net', false], 'nothing typed (GH-79)');
-  assert.match(m.summary, /^acc init writes acme-renewals's \.acc\/config\.json when you start it, with its tickets from the epic you pick\. Until then nothing is written, and picking only reads Jira: nothing is ever written to it\./);
+  assert.match(m.summary, /^Starting the project writes acme-renewals's settings, with its tickets from the epic you pick\. Until then nothing is written, and picking only reads Jira: nothing is ever written to it\./);
   assert.deepEqual(m.place, { key: 'epic', words: DESCRIPTIONS[0]!.place.words });
   assert.deepEqual(m.kinds.map((k) => k.kind), ['jira', 'github', 'azure', 'monday'], 'Azure DevOps and GitHub start the same way');
   assert.deepEqual(picker(m, 'project').options.map((o) => o.value), ['ACME', 'OPS']);
@@ -561,7 +561,7 @@ test('From GitHub labels: gh as the account acc init found, at least one label t
   await bare.session.open({ start: { ...RENEWALS, config: { github: null } }, kind: 'github', from: 'setup' });
   bare.send({ type: 'connect-test', host: 'acme/renewals', fields: {} });
   await settle();
-  assert.match(bare.model().host.error ?? '', /^acc init found no GitHub repo and account for this folder/);
+  assert.match(bare.model().host.error ?? '', /^Setting up this project found no GitHub repo and account for this folder/);
 });
 
 test('a team template\'s tracker fills in the page: its kind, site and project, the place still the person\'s to pick (GH-81)', async () => {

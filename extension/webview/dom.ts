@@ -17,6 +17,20 @@ export function el(tag: string, cls = '', ...children: Child[]): HTMLElement {
   return e;
 }
 
+/**
+ * The kinds of work data (GH-163): words that are the work's own, and stay as they are, such as a changed
+ * file's path or the command a builder ran. Everything else on the page speaks in processes. WORK_DATA in
+ * extension/scripts/words.ts says why each kind stays literal; extension/test/words.test.ts pins where each
+ * is marked.
+ */
+export type WorkData = 'files' | 'branch' | 'transcript' | 'output' | 'agent-text';
+
+/** Marks an element as work data: the screenshot run's words check counts its words and leaves them as they are. */
+export function work<T extends HTMLElement>(e: T, kind: WorkData): T {
+  e.dataset.work = kind;
+  return e;
+}
+
 export function icon(name: string, tone?: string): HTMLElement {
   const i = el('span', `codicon codicon-${name.replace(/~spin$/, '')}${name.endsWith('~spin') ? ' codicon-modifier-spin' : ''}${tone && tone !== 'neutral' ? ` tone-${tone}` : ''}`);
   i.setAttribute('aria-hidden', 'true');

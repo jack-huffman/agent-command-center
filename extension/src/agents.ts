@@ -108,13 +108,13 @@ class AgentCommands extends Sidebar {
     }
     const scope = await vscode.window.showQuickPick([
       { label: '$(device-desktop) This clone only', description: 'git config: nobody else sees it', project: false },
-      { label: '$(repo) The project\'s default', description: 'edits .acc/config.json, for you to commit and share', project: true },
+      { label: '$(repo) The project\'s default', description: 'edits the project\'s settings, for you to commit and share', project: true },
     ], { title: `${label}: for whom?` });
     if (!scope) return;
     const ok = await this.runAcc(project, ['agents', 'set', role, ...args, ...(scope.project ? ['--project'] : [])], () => undefined);
     if (ok) {
       await this.hub.loadProjects();
-      void vscode.window.showInformationMessage(`${label} changed${scope.project ? ' in .acc/config.json: commit it to share it' : ' for this clone'}. The next one started uses it.`);
+      void vscode.window.showInformationMessage(`${label} changed${scope.project ? ' in the project\'s settings: commit the change to share it' : ' for this clone'}. The next one started uses it.`);
     }
   }
 
@@ -135,7 +135,7 @@ class AgentCommands extends Sidebar {
     const ok = await this.runAcc(project, ['agents', 'autonomy', pick.value], () => undefined);
     if (!ok) return;
     await this.hub.loadProjects();
-    void vscode.window.showInformationMessage(`Autonomy is ${pick.value}. Changed in .acc/config.json: commit it to share it.${pick.value === 'review' ? ' Autopilot stays off until you turn it on in the status bar.' : ''}`);
+    void vscode.window.showInformationMessage(`Autonomy is ${pick.value}. Changed in the project\'s settings: commit the change to share it.${pick.value === 'review' ? ' Autopilot stays off until you turn it on in the status bar.' : ''}`);
   }
 
   /**
@@ -157,7 +157,7 @@ class AgentCommands extends Sidebar {
     if (!ok) return;
     await this.hub.loadProjects();
     const runs = project.config.autonomy === 'review' ? ' It merges while autopilot is on in the status bar.' : ' Autonomy is manual, so nothing merges until it\'s review.';
-    void vscode.window.showInformationMessage(`Auto-merge is ${pick.value}. Changed in .acc/config.json: commit it to share it.${pick.value === 'on' ? runs : ''}`);
+    void vscode.window.showInformationMessage(`Auto-merge is ${pick.value}. Changed in the project\'s settings: commit the change to share it.${pick.value === 'on' ? runs : ''}`);
   }
 
   private watchAgent(n: AgentNode): void {

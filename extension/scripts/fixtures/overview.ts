@@ -1,5 +1,7 @@
 /** The Overview's merge queue (GH-73): a project where auto-merge is on. */
+import type { AutopilotRecord } from '../../../packages/core/src/autopilot-log.ts';
 import type { Environment } from '../../../packages/core/src/config.ts';
+import { rowInWords, stepInWords } from '../../src/logic/relayed.ts';
 import type { TaskRow } from '../../src/logic/shared.ts';
 import type { HubLike, ProjectLike } from '../../src/model/shared.ts';
 import { sampleHub } from './hub.ts';
@@ -36,16 +38,16 @@ export function sampleQueueHub(now = Date.now(), phase: NonNullable<TaskRow['que
   const at = (ago: number) => new Date(now - ago * MIN).toISOString();
   return {
     ...base, projects: [project], questions: [], answers: [], agents: [],
-    taskRows: () => tasks,
+    taskRows: () => tasks.map(rowInWords),
     projectFor: (p: string) => (p === root || p.startsWith(`${root}/`) ? project : undefined),
     updates: () => [],
-    autopilotLog: () => [
+    autopilotLog: () => ([
       { seq: 301, at: at(30), task: 'GH-38', step: 'merge', outcome: 'done', pr: { number: 138, url: 'https://github.com/acme/tools/pull/138', opened: false } },
       { seq: 302, at: at(22), task: 'GH-39', step: 'queue', outcome: 'done', checks: ['check'], reason: 'The merge queue sent it back: the full check failed with main merged in: check.' },
       { seq: 303, at: at(21), task: 'GH-39', step: 'dispatch', outcome: 'done', cause: 'queue' },
       { seq: 304, at: at(12), task: 'GH-40', step: 'refresh', outcome: 'done', base: 'main', queue: true },
       { seq: 305, at: at(9), task: 'GH-40', step: 'merge', outcome: 'done', pr: { number: 140, url: 'https://github.com/acme/tools/pull/140', opened: false } },
-    ],
+    ] satisfies AutopilotRecord[]).map(stepInWords),
     history: () => [],
   };
 }
