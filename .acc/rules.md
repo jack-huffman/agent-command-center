@@ -1,0 +1,1 @@
+- The note you finish with (`acc done`) says what is true at your last commit. Before you run it, check each number and claim against the branch: count the tests each file adds, count what a list holds (pages, checks, rows), and drop any open item a commit already did. A count in a decision entry gets the same check, and the note and the entry agree.
