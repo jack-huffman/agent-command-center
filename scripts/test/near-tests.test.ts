@@ -143,12 +143,14 @@ test('a module extension.ts gathers is near activate.test.ts, which loads its bu
 
 const inFolder = (dir: string, ext: string): string[] => readdirSync(join(ROOT, dir)).filter((f) => f.endsWith(ext)).map((f) => `${dir}/${f}`);
 
-test('each per-area file a test reads through a script is near it: every stylesheet screenshot.test.ts, every command list and package.json areas.test.ts (GH-117)', () => {
+test('each per-area file a test reads through a script is near it: every stylesheet screenshot.test.ts, every command list and package.json areas.test.ts (GH-117), every page module behaviour.test.ts (GH-170)', () => {
   const kinds = [
     // What styles.ts and generate.ts read: every .css beside the page's modules, every .json in commands/.
     { files: inFolder('extension/webview', '.css'), test: 'extension/test/screenshot.test.ts', least: 15 },
     { files: inFolder('extension/commands', '.json'), test: 'extension/test/areas.test.ts', least: 10 },
     { files: ['extension/package.json'], test: 'extension/test/areas.test.ts', least: 1 },
+    // What behaviour.ts's mutants change: every module of the page.
+    { files: inFolder('extension/webview', '.ts'), test: 'extension/test/behaviour.test.ts', least: 30 },
   ];
   for (const k of kinds) {
     for (const f of k.files) {
