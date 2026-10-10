@@ -1,5 +1,5 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { type Dir, existsSync, opendirSync, readFileSync, realpathSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join, sep } from 'node:path';
 import { branchFor, type Environment, fullGates } from '../config.ts';
 import { isTrusted, mainCheckout } from '../dispatch.ts';
@@ -29,23 +29,51 @@ function needsProject(ctx: CheckContext): CheckResult | null {
   return null;
 }
 
+/** The most of a folder's entries nearbyRepo reads, so a crowded parent stays quick (GH-174). */
+export const NEARBY_LIMIT = 200;
+
 /**
  * A repo near an old project folder: the folder itself, its siblings, or their parent. A repo that has
- * an acc config wins over one that only has sfdx-project.json. Only the filesystem is read.
+ * an acc config wins over one that only has sfdx-project.json. Only the filesystem is read: no more than
+ * NEARBY_LIMIT of the parent's entries, and none at all when the parent is the system temp directory,
+ * whose neighbours are other programs' scratch folders (GH-174).
  */
 export function nearbyRepo(cwd: string): string | null {
   const isRepo = (d: string) => existsSync(join(d, '.git'));
   const parent = dirname(cwd);
-  let siblings: string[] = [];
-  try {
-    siblings = readdirSync(parent, { withFileTypes: true }).filter((e) => e.isDirectory() && !e.name.startsWith('.')).map((e) => join(parent, e.name));
-  } catch {
-    siblings = [];
-  }
-  const candidates = [...siblings.filter((d) => d !== cwd), parent].filter(isRepo);
+  if (sameFolder(parent, tmpdir())) return null;
+  const candidates = [...nearbyFolders(parent).filter((d) => d !== cwd), parent].filter(isRepo);
   return candidates.find((d) => existsSync(join(d, '.acc', 'config.json')))
     ?? candidates.find((d) => existsSync(join(d, 'sfdx-project.json')))
     ?? null;
+}
+
+/** The folders, hidden ones left out, among the first NEARBY_LIMIT entries of a folder; none if it can't be read. */
+export function nearbyFolders(parent: string): string[] {
+  const folders: string[] = [];
+  let dir: Dir | undefined;
+  try {
+    dir = opendirSync(parent);
+    for (let read = 0; read < NEARBY_LIMIT; read++) {
+      const e = dir.readSync();
+      if (!e) break;
+      if (e.isDirectory() && !e.name.startsWith('.')) folders.push(join(parent, e.name));
+    }
+  } catch {
+    return [];
+  } finally {
+    dir?.closeSync();
+  }
+  return folders;
+}
+
+/** Whether two paths name one folder, through symlinks such as macOS's /var to /private/var. */
+function sameFolder(a: string, b: string): boolean {
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return a === b;
+  }
 }
 
 /** Every file on any environment's branch, local or as the remote has it. */
