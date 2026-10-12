@@ -33,6 +33,9 @@
 .icon-btn:hover { background: var(--vscode-toolbar-hoverBackground); }
 .icon-btn:focus-visible { outline: 1px solid var(--vscode-focusBorder); opacity: 1; }
 
+/* A step's command line, folded away until asked for (GH-168). */
+.step .fix-line { margin: 6px 0 0; }
+.step .fix-line summary { cursor: pointer; }
 /* A setup step's fix while it runs. */
 .step-run { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0 2px; padding: 5px 8px; border-radius: 4px; background: var(--vscode-textCodeBlock-background); }
 .step-run-cmd { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

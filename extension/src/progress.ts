@@ -512,7 +512,7 @@ export function inProgress(i: ProgressInput): ProgressModel {
     const running = rows.filter((r) => r.state === 'running').length;
     builders += running;
     if (!jobs.max) continue;
-    machine.push({ key: `builders:${jobs.repo}`, look: LOOK(`Builders: ${running} of ${jobs.max}${repos.length > 1 ? ` in ${p.name}` : ''}`, 'hubot', running ? 'blue' : 'neutral'), tip: `${plural(running, 'task')} running, of the ${jobs.max} ${p.name} runs at once (agents.max).` });
+    machine.push({ key: `builders:${jobs.repo}`, look: LOOK(`Builders: ${running} of ${jobs.max}${repos.length > 1 ? ` in ${p.name}` : ''}`, 'hubot', running ? 'blue' : 'neutral'), tip: `${plural(running, 'task')} running, of the ${jobs.max} ${p.name} runs at once.` });
   }
   const load = loadWord(hub.machine);
   if (load && hub.machine) machine.push({ key: 'load', look: { ...load, label: `Load: ${load.label.toLowerCase()}` }, tip: `Load over the last minute: ${hub.machine.load.toFixed(1)} on ${plural(hub.machine.cpus, 'core')}.` });

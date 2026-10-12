@@ -3,7 +3,8 @@
  * (Run the checks, Finish the task) and names files by what they are (the project's settings), never by
  * acc's command lines or its paths. Each drawing gathers every string a person can read on it, shown or
  * folded away: its text, and each element's title, aria-label, placeholder and alt. One that names an acc
- * command, npm run, a path under .acc/, a docs/ page or the packet is a finding, unless it sits in a region
+ * command, npm run, a path under .acc/, a docs/ page, the packet, a claude or gh command line or a dotted
+ * config key (GH-168) is a finding, unless it sits in a region
  * the page marks as work data (`data-work`), whose words are the work's own. WORK_DATA names each region,
  * with why; `extension/test/words.test.ts` pins where the page marks each one.
  *
@@ -11,19 +12,32 @@
  * unit-tested. A drawing that gathered no words fails: a page that drew nothing can't pass.
  */
 import { AREAS } from '../../packages/cli/src/commands/index.ts';
+import { DOTTED_KEYS, escapeRegExp } from '../src/logic/config-words.ts';
 
 /** acc's commands, from its own registry: the words that, after "acc ", make a command line. */
 export const ACC_COMMANDS: readonly string[] = AREAS.flatMap((a) => Object.keys(a.commands)).sort();
 
-const escape = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** The subcommands of Claude Code's CLI that a line to run would name (GH-168): "claude plugin install". */
+export const CLAUDE_COMMANDS: readonly string[] = ['agents', 'auth', 'config', 'doctor', 'install', 'logs', 'mcp', 'migrate-installer', 'plugin', 'project', 'setup-token', 'update'];
+
+/** The subcommands of the GitHub CLI that a line to run would name (GH-168): "gh auth login". */
+export const GH_COMMANDS: readonly string[] = [
+  'alias', 'api', 'attestation', 'auth', 'browse', 'cache', 'codespace', 'completion', 'config', 'extension', 'gist', 'gpg-key', 'issue', 'label', 'org',
+  'pr', 'project', 'release', 'repo', 'ruleset', 'run', 'search', 'secret', 'ssh-key', 'status', 'variable', 'workflow',
+];
 
 /** What a person-facing string may not hold, each by name. */
 export const WORD_RULES: readonly { name: string; pattern: RegExp }[] = [
-  { name: 'an acc command', pattern: new RegExp(`\\bacc (?:${ACC_COMMANDS.map(escape).join('|')})\\b`) },
+  { name: 'an acc command', pattern: new RegExp(`\\bacc (?:${ACC_COMMANDS.map(escapeRegExp).join('|')})\\b`) },
   { name: 'npm run', pattern: /\bnpm run\b/ },
   { name: 'a path under .acc/', pattern: /\.acc\/\S*/ },
   { name: 'a docs/ page', pattern: /\bdocs\/[\w.-]+\.md\b/ },
   { name: 'the packet', pattern: /\bpackets?\b/i },
+  { name: 'a claude command', pattern: new RegExp(`\\bclaude (?:${CLAUDE_COMMANDS.map(escapeRegExp).join('|')})(?![\\w-])`) },
+  { name: 'a gh command', pattern: new RegExp(`\\bgh (?:${GH_COMMANDS.map(escapeRegExp).join('|')})(?![\\w-])`) },
+  // Not after a dot, so code that reads config.gates.required isn't a finding; longest first, so a key that starts another is found whole.
+  { name: 'a config key', pattern: new RegExp(`(?<![\\w.-])(?:${[...DOTTED_KEYS].sort((a, b) => b.length - a.length).map(escapeRegExp).join('|')})(?![\\w-])`) },
 ];
 
 /**

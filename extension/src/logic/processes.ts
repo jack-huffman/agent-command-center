@@ -13,6 +13,8 @@
  * Like the rest of logic/, no `vscode` import: the page, the models and node:test all read it.
  */
 
+import { escapeRegExp, inConfigWords } from './config-words.ts';
+
 export interface Process {
   /** acc's commands this process is, as the CLI names them: a command, or a command and its subcommand. */
   acc: readonly string[];
@@ -147,10 +149,9 @@ export function fileName(path: string): string {
 
 const upper = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 const lower = (s: string): string => s.charAt(0).toLowerCase() + s.slice(1);
-const escape = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** acc's commands, longest first, so "gate run" is found before "gate". */
-const FORMS = PROCESSES.flatMap((p) => p.acc.map((a) => ({ a, p, at: new RegExp(`^${escape(a)}(?![\\w-])`) }))).sort((x, y) => y.a.length - x.a.length);
+const FORMS = PROCESSES.flatMap((p) => p.acc.map((a) => ({ a, p, at: new RegExp(`^${escapeRegExp(a)}(?![\\w-])`) }))).sort((x, y) => y.a.length - x.a.length);
 /** English that can follow a command line, and is never one of its arguments. */
 const ENGLISH = new Set(['a', 'after', 'again', 'an', 'and', 'any', 'as', 'at', 'before', 'but', 'by', 'first', 'for', 'from', 'if', 'in', 'instead', 'is', 'it', 'its', 'later', 'now', 'on', 'once', 'or', 'so', 'that', 'the', 'then', 'to', 'until', 'when', 'with']);
 const FLAG = /^--[\w-]+(?:=\S+)?$/;
@@ -197,7 +198,9 @@ function argsAfter(text: string): { args: string[]; length: number; thing: strin
  * refuses" reads '"Finish the task" refuses'; "in .acc/config.json" reads "in the project's settings".
  * Text with none of them comes back as it was, and "acc" followed by anything but a command stays.
  */
-export function inProcessWords(text: string): string {
+export function inProcessWords(input: string): string {
+  // A setting is told by what it is, not the key acc reads it under (GH-168); config-words.ts is that table.
+  const text = inConfigWords(input);
   let out = '';
   let from = 0;
   for (const m of text.matchAll(/(\b[Rr]un )?(`?)\bacc (?=[a-z])/g)) {
@@ -229,7 +232,7 @@ export function inProcessWords(text: string): string {
   }
   out += text.slice(from);
   for (const f of FILES) {
-    const path = escape(f.path);
+    const path = escapeRegExp(f.path);
     const bare = f.name.replace(/^(?:the project's|this machine's|the) /, '');
     // "its .acc/config.json", "Acme's .acc/config.json": its settings, Acme's settings.
     out = out.replace(new RegExp(String.raw`(\b(?:its|[\w-]+'s)) \`?${path}\`?`, 'g'), (_m, owner: string) => `${owner} ${bare}`);
@@ -250,11 +253,17 @@ export function inProcessWords(text: string): string {
   out = out.replace(/`?\bdocs\/([\w-]+)\.md`?/g, (_m, n: string) => `the ${n.toLowerCase().replace(/-/g, ' ')} guide`);
   // A project's script, and the builder's instructions.
   out = out.replace(/`npm run ([\w:.-]+)[^`]*`|\bnpm run ([\w:.-]+)/g, (_m, a: string | undefined, b: string | undefined) => `the project's ${a ?? b} script`);
+  // The GitHub command lines acc's messages carry, as what each does (GH-168).
+  out = out.replace(/\b([Rr])un:? `?gh auth login`?/g, (_m, r: string) => (r === 'R' ? 'Sign in to GitHub' : 'sign in to GitHub'));
+  out = out.replace(/`?gh auth login`?(?:   # as [\w-]+)?/g, 'sign in to GitHub');
+  out = out.replace(/\b[Rr]un `?gh auth switch -u ([\w-]+)`?/g, 'switch GitHub\'s active account to $1');
+  out = out.replace(/(Projects)(?:: | with )`?gh auth refresh -h github\.com -s project`?/g, '$1');
+  out = out.replace(/`?gh auth refresh -h github\.com -s project`?/g, 'give it access to Projects');
   out = out.replace(/\b(its|their) packets?\b/g, (_m, d: string) => `${d} instructions`);
   out = out.replace(/\b(?:[Tt]he |[Aa] )?packets\b/g, 'builders\' instructions');
   out = out.replace(/\b(?:[Tt]he |[Aa] )?packet\b/g, 'the builder\'s instructions');
   // A message that started with a path still starts with a capital.
-  return /^[a-z]/.test(out) && !/^[a-z]/.test(text) ? upper(out) : out;
+  return /^[a-z]/.test(out) && !/^[a-z]/.test(input) ? upper(out) : out;
 }
 
 /**
@@ -268,5 +277,43 @@ export function processLine(line: string): string | null {
   const said = inProcessWords(`\`${t}\``);
   if (!/^"[^"]+"$/.test(said)) return null;
   return `${said.slice(1, -1)}${/\s--(dry-run|plan)\b/.test(t) ? ', as a preview that changes nothing' : ''}`;
+}
+
+/**
+ * What another tool's command line does, as a process (GH-168): `claude plugin install acc@…` is "Install the
+ * acc plugin in Claude Code". Setup shows what Do it does in these words and keeps the line itself behind
+ * "Show the command", for someone who runs it by hand. A line none of these names comes back null, and the
+ * page shows it as it always has: extension/test/config-words.test.ts runs each line Setup's steps give.
+ */
+const TOOL_LINES: readonly { line: RegExp; does: string }[] = [
+  { line: /^claude plugin marketplace update\b.*&& claude plugin update\b/, does: 'Update the acc plugin in Claude Code' },
+  { line: /^claude plugin (?:marketplace add\b.*&& claude plugin )?install\b/, does: 'Install the acc plugin in Claude Code' },
+  { line: /^claude plugin enable\b/, does: 'Turn on the acc plugin in Claude Code' },
+  { line: /^claude update$/, does: 'Update Claude Code' },
+  { line: /^claude auth login$/, does: 'Sign in to Claude Code with your claude.ai account' },
+  { line: /^claude(?:\s+#.*)?$/, does: 'Open Claude Code in this folder, to trust it' },
+  { line: /^brew install --cask claude-code$/, does: 'Install Claude Code' },
+  { line: /^brew install git$/, does: 'Install git' },
+  { line: /^brew install node$/, does: 'Install Node' },
+  { line: /^brew install gh$/, does: 'Install the GitHub command line' },
+  { line: /^npm install -g @salesforce\/cli$/, does: 'Install the Salesforce command line' },
+  { line: /^sf plugins install code-analyzer$/, does: 'Install the Salesforce code analyzer' },
+  { line: /^gh auth login\b/, does: 'Sign in to GitHub as this repo\'s account' },
+  { line: /^gh repo edit\b.*--default-branch\b/, does: 'Set the repo\'s default branch on GitHub' },
+  { line: /^git config user\.name\b.*&& git config user\.email\b/, does: 'Set the name and email on this repo\'s commits' },
+  { line: /^git config user\.(?:name|email)\b/, does: 'Set the name or email on this repo\'s commits' },
+  { line: /^git config credential\.helper\b/, does: 'Make git push as this repo\'s GitHub account' },
+  { line: /^printf\b.*>> \.gitignore$/, does: 'Add the missing lines to the repo\'s ignore list' },
+  { line: /^git rm\b/, does: 'Stop tracking those files in git, and keep them on disk' },
+  { line: /^(?:cd "[^"]*" && )?npm install$/, does: 'Install the project\'s tools' },
+  { line: /^sf org login web\b/, does: 'Log in to the org' },
+  { line: /^sf org enable tracking\b/, does: 'Turn on source tracking in the org' },
+  { line: /^sf config set target-org\b/, does: 'Make this org the default for the repo' },
+];
+
+/** What another tool's command line does, as a process; null for a line that isn't one of these, or isn't a command. */
+export function toolLineDoes(line: string): string | null {
+  const t = line.trim();
+  return TOOL_LINES.find((l) => l.line.test(t))?.does ?? null;
 }
 

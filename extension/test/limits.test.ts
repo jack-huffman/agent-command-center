@@ -41,7 +41,7 @@ test('the two caps sit side by side, each with − and + and its number, and whe
   assert.deepEqual([project!.lower.label, machine!.raise.label], ['Lower Acme Service\'s cap to 2', 'Raise this machine\'s total to 7']);
   assert.ok([project!.lower, project!.raise, machine!.lower, machine!.raise].every((s) => s.why === null));
   // Its project, and whether the project or acc's default sets it.
-  assert.match(project!.from, /^Set in Acme Service's settings \(agents\.max\), shared with everyone who works on the repo/);
+  assert.match(project!.from, /^Set in Acme Service's settings, shared with everyone who works on the repo/);
   assert.match(machine!.from, /^Set in this machine's settings, beside the heavy-check slots, for every repo on this machine: usage limits belong to your Claude account, not a project\.$/);
   // How many run now, beside each.
   assert.deepEqual(project!.look, { label: 'Full: 3 of 3 running in Acme Service, so the next start waits', icon: 'clock', tone: 'blue' });
@@ -53,7 +53,7 @@ test('a − or + that can\'t move says why; no total has neither, and Change… 
   const [acme, tool, machine] = m.caps;
   assert.deepEqual([acme!.title, acme!.lower.arg, acme!.lower.why, acme!.raise.arg], ['Acme Service\'s cap', null, 'One is the least: a project runs at least one builder.', '/Users/me/code/acme-service|2']);
   assert.deepEqual([tool!.raise.arg, tool!.raise.why], [null, '16 is the most a project runs at once.']);
-  assert.match(acme!.from, /^acc's default: Acme Service's settings set none \(agents\.max\)\./);
+  assert.match(acme!.from, /^acc's default: Acme Service's settings set none\./);
   assert.deepEqual([machine!.value, machine!.lower.arg, machine!.raise.arg], ['None', null, null]);
   assert.equal(machine!.lower.why, 'There\'s no total to lower: Change… sets one.');
   assert.deepEqual(machine!.look, { label: 'No total: each project\'s cap is the only limit', icon: 'circle-large-outline', tone: 'neutral' });
@@ -95,7 +95,7 @@ test('the heavy-check slots and each project\'s checks: value, where set, state,
   assert.deepEqual(other.checks[0]!.rows[0]!.look, { label: 'None: a task can finish on any commit', icon: 'warning', tone: 'orange' });
   // Where the required checks come from: the project's file when it names them, else acc's default (GH-111).
   assert.match(required!.from, /^Set in Acme Service's settings, for everyone/);
-  assert.match(other.checks[0]!.rows[0]!.from, /^acc's default: Acme Service's settings set none \(gates\.required\)\. A change sets it there/);
+  assert.match(other.checks[0]!.rows[0]!.from, /^acc's default: Acme Service's settings set none\. A change sets it there/);
   assert.match(other.checks[1]!.rows[0]!.from, /^Set in Tool's settings/);
   const tool = other.checks[1]!.rows;
   assert.deepEqual(tool.map((r) => r.value), ['check', 'typecheck, near-tests']);

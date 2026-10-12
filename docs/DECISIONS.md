@@ -5765,6 +5765,53 @@ person runs, and the file by what it is.
 - Not chosen: translating the whole model as it's sent to the page, which would rewrite the work data;
   renaming acc's commands; a person-facing form for each of core's messages.
 
+Note (GH-168, 2026-10-10): Setup and the settings speak in processes too. The words check looked only for
+`acc <word>`, `npm run`, `.acc/` and `docs/*.md`, so two kinds of literal stayed: another tool's command line,
+and config keys. This note supersedes the line above that another tool's command, such as `brew install gh`, is
+"still shown to copy".
+- **A step says what Do it does, and keeps its command line to show on request.** `toolLineDoes` in
+  `processes.ts` names each line the steps give, as acc's own are named: `claude plugin marketplace add … &&
+  claude plugin install …` is "Install the acc plugin in Claude Code", `claude plugin enable …` is "Turn on
+  the acc plugin in Claude Code", `gh auth login` is "Sign in to GitHub as this repo's account". Setup shows
+  "Do it: <that>." beside the button, and the line itself behind a folded "Show the command", marked as
+  work data (`output`, one more place in `MARKS`), for someone who runs it by hand. Advice that isn't a
+  command ("Remove them, rotate the credential…") is still shown, since there's nothing to fold. A command
+  line with no entry in `TOOL_LINES` is shown as before and fails the words check if it's a claude or gh
+  command, so a new one gets its words when it's added; the test runs every fixed command a step carries and a line for each way a check works one out.
+- **Config keys are words, from one table.** `extension/src/logic/config-words.ts`, beside `processes.ts`,
+  names every key acc's schema knows (`CONFIG_KEYS`, 64 of them, 58 dotted): `gates.required` is "its required checks",
+  `agents.max` is "its builder limit", `gates.ratchets` is "its floors". It's typed over `CONFIG_KEYS`, so tsc
+  refuses a key with no name and a name for a key that's gone. `inProcessWords` calls `inConfigWords` first,
+  so every message from acc reaches a person with its keys in words ("differs on its required checks, its
+  builder limit"); a key in parentheses that only says where a setting is kept ("its cap is 6
+  (agents.max).") is dropped, since the sentence names where. The extension's own text no longer carries a
+  key. `agents.cloud`, which the ticket named, wasn't a key this acc read when this was built; GH-69 (D-140)
+  merged first, and at this merge its four keys got names: `agents.cloud.routine` is "its cloud routine",
+  `agents.cloud.default` "where its builders go by default", `agents.cloud.quietMinutes` "how long a cloud
+  builder may be quiet", `agents.cloud.max` "its cloud builder limit". Its `claude auth login` step is
+  "Sign in to Claude Code with your claude.ai account", and Settings' lookup of `agents.cloud.routine`
+  joins `autopilot.autoMerge` on `LITERAL`'s line for a setting looked up by its key.
+- **GitHub commands in acc's messages are said as what they do.** `gh auth login` reads "sign in to
+  GitHub"; `gh auth switch -u X` reads "switch GitHub's active account to X"; `gh auth refresh -s project`
+  reads "give it access to Projects". A GitHub Project's notice on a board now goes through `inProcessWords`
+  like the rest of what acc says; it reached the page as acc wrote it. The core messages stay as they are: the
+  CLI and agents read them literally.
+- **Checked.** The words check (`words.ts`) also fails on a `claude <subcommand>` line, a `gh
+  <subcommand>`, and a dotted config key taken from the schema, each outside work data. It failed on the
+  pages before this change, with 174 findings in 342 drawings (Setup's `claude plugin …` line and the
+  `gh auth` in a step's tooltip, the template step's `gates.required`, `agents.max` on Settings and the
+  Overview, and a Project notice's `gh` commands), and passes now: all 342 drawings read 76670 strings with
+  no finding. `config-words.test.ts` pins every key's name, how the words reach acc's text, what each tool
+  line is named, the Setup row, and the three rules with their edge cases. The walkthrough's pages
+  (`stepMedia`) still show another tool's command in a bash block, which `words.test.ts` has always
+  exempted: a page that opens beside the step, for someone following along in a terminal. A fix's text that
+  ends "In a terminal: <command>." keeps that command there too, in its own bash block: the GitHub sign-in
+  steps' pages had lost it to the `gh auth login` rewrite (found in review, fixed at merge).
+- **Two lines joined `LITERAL`** in `words.test.ts`, the list of source lines that may name a command or key
+  because no person reads them: `runs.ts`'s `needsTerminal`, which matches the claude lines that need a
+  terminal, and `settings.ts`'s `autopilot.autoMerge`, the key the code finds that setting by. The list is
+  meant only to shrink; these two are code, not words on a page.
+
 ## D-133 The screenshot run retries a drawing Chrome didn't finish, and measures a tab once it has settled (2026-10-10)
 
 While builders ran their checks, the screenshot run failed for reasons that weren't layout (GH-167):

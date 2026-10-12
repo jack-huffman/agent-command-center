@@ -97,6 +97,16 @@ test('the acc plugin is a machine step after the GitHub login, and installs in a
   assert.match(media, /start a new one/);
 });
 
+test('a fix that ends on a terminal command keeps that command on the step\'s page, in a bash block, and a fix without one is unchanged', () => {
+  const login = stepMedia(step('A2.gh-login'));
+  assert.ok(login.includes('In a terminal:\n\n```bash\ngh auth login\n```'), login);
+  assert.doesNotMatch(login, /In a terminal: sign in to GitHub/);
+  assert.match(login, /"Do it" opens VSCode's GitHub sign-in/);
+  const plain = stepMedia({ id: 'X1.test', title: 'A test step', why: 'Why it matters.', fix: { text: 'Open the page and press Save.' } } as never);
+  assert.match(plain, /Open the page and press Save\./);
+  assert.doesNotMatch(plain, /```bash/);
+});
+
 test('internal step commands are hidden from the Command Palette', () => {
   const hidden = new Set(manifest.contributes.menus.commandPalette.filter((m: { when: string }) => m.when === 'false').map((m: { command: string }) => m.command));
   for (const c of [COMMANDS.check, COMMANDS.fix, COMMANDS.openSetup, COMMANDS.confirm]) assert.ok(hidden.has(c), c);
@@ -360,7 +370,7 @@ test('setup shows the acc plugin under its own section, with Do it while it fail
   assert.deepEqual(machine.sections.map((s) => [s.title, s.todo]), [['Accounts', 0], ['The acc plugin', 1]]);
   const a4 = machine.steps.find((s) => s.id === 'A4.plugin')!;
   assert.deepEqual(a4.actions.map((a) => a.label), ['Do it', 'Check']);
-  assert.deepEqual([a4.fix, a4.does], [add, null], 'another tool\'s command is shown to copy, as it is');
+  assert.deepEqual([a4.fix, a4.does], [add, 'Install the acc plugin in Claude Code'], 'the step says what Do it does in words, and keeps the command line to show on request (GH-168)');
   assert.deepEqual([a4.look.label, a4.look.tone], ['To do', 'orange']);
 });
 

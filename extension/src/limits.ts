@@ -207,7 +207,7 @@ export function limitCommands(vs: Vscode, d: LimitsDeps): Record<string, (arg?: 
       // stray-files is on or off by strayFiles.required, not by being picked here (GH-103).
       const gates = gatesFor(p.config).filter((g) => g.name !== STRAY_FILES);
       if (!gates.length) {
-        void vs.window.showInformationMessage(`${p.name} has no checks to choose from yet: add commands under "gates.commands" in the project's settings.`);
+        void vs.window.showInformationMessage(`${p.name} has no checks to choose from yet: add a command for each check in the project's settings.`);
         return;
       }
       // The picker edits the project's own list; stray-files is required beside it unless it's off (GH-103).
@@ -234,7 +234,7 @@ export function limitCommands(vs: Vscode, d: LimitsDeps): Record<string, (arg?: 
       // stray-files is on or off by strayFiles.required, not by being picked here (GH-103).
       const gates = gatesFor(p.config).filter((g) => g.name !== STRAY_FILES);
       if (!gates.length) {
-        void vs.window.showInformationMessage(`${p.name} has no checks to choose from yet: add commands under "gates.commands" in the project's settings.`);
+        void vs.window.showInformationMessage(`${p.name} has no checks to choose from yet: add a command for each check in the project's settings.`);
         return;
       }
       const was = p.config.gates.builder?.length ? p.config.gates.builder : [];

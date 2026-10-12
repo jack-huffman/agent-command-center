@@ -4,7 +4,7 @@ import type { Action } from '../src/model/shared.ts';
 import type { RunCard } from '../src/model/runs.ts';
 import type { SetupModel, SetupRow, SetupStart } from '../src/model/setup.ts';
 import { redrawDock } from './dock.ts';
-import { actionButton, button, el, header, icon, plural, status, titled, toolbarButton } from './dom.ts';
+import { actionButton, button, el, header, icon, plural, status, titled, toolbarButton, work } from './dom.ts';
 import { api, memory, type PageArea, remember } from './state.ts';
 
 /** A step's fix while it runs, or how it ended: one line, and a way to its output. */
@@ -31,9 +31,19 @@ function setupStep(s: SetupRow, live: RunCard[]): HTMLElement {
     el('div', 'step-head', status(s.look), title),
     el('p', 'detail', s.detail),
     s.does ? el('p', 'muted small step-does', icon('wrench'), `Do it: ${s.does}.`) : null,
-    s.fix ? el('pre', 'fix', s.fix) : null,
+    fixLine(s),
     run,
     el('div', 'actions', ...s.actions.map(actionButton)));
+}
+
+/**
+ * A step's command line (GH-168). One the page names as a process is folded away, shown on request for
+ * someone who runs it by hand, and is work data: the line as the tool takes it. Advice with no process stays shown.
+ */
+function fixLine(s: SetupRow): HTMLElement | null {
+  if (!s.fix) return null;
+  if (!s.does) return el('pre', 'fix', s.fix);
+  return el('details', 'fix-line', el('summary', 'muted small', 'Show the command'), work(el('pre', 'fix', s.fix), 'output'));
 }
 
 /** An action as a small icon button, named for screen readers and on hover. */
