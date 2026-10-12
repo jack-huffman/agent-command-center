@@ -7,6 +7,10 @@
  *   npm run screenshot -- --width 800 --theme dark --height 600 --out /tmp/shots
  *   npm run screenshot -- --colours          check no colour leaks from VSCode's theme into Light or Dark
  *   ACC_SHOT_TIMEOUT=90 npm run screenshot   allow each drawing 90 s, not 60 (GH-167)
+ *   npm run screenshot -- --behaviour        the modals' behaviour cases and their mutants (GH-170)
+ *
+ * A full run (every tab, theme and width) also runs the behaviour cases and their mutants (behaviour.ts)
+ * after the shots.
  *
  * It renders the built webview (extension/dist/webview), so run `npm run build` after changing it. The
  * first data row or card is shown hovered. Chrome runs one shot at a time, under nice.
@@ -48,6 +52,7 @@ import { SETUP_PARTS } from '../src/logic/first-open.ts';
 import { PALETTE_THEMES, type PaletteTheme, palettes, vscodeDefaults } from './styles.ts';
 import { CHECKS, COLLECT_GEOMETRY, dumpedGeometry, geometrySummary, judge, type Render, runFailures } from './geometry.ts';
 import { drawRetrying, retriedSummary, SETTLE, shotTimeout } from './steady.ts';
+import { behaviourCheck } from './behaviour.ts';
 
 /**
  * Every page the screenshot script can draw: each section of the Command Center, a ticket's page (being
@@ -384,11 +389,36 @@ function colourCheck(chrome: string, work: string, views: Page[]): number {
   return 0;
 }
 
-function main(argv: string[]): number {
+/**
+ * The modals' behaviour (GH-170): each case in behaviour.ts on the built page, then each mutant's cases on
+ * the page built with its one change, which must fail them.
+ */
+async function behaviourRun(chrome: string): Promise<number> {
+  const work = mkdtempSync(join(tmpdir(), 'acc-behaviour-'));
+  try {
+    cpSync(join(extensionDir, 'dist', 'webview'), join(work, 'webview'), { recursive: true });
+    const now = Date.now();
+    const models = { tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark') };
+    const failures = await behaviourCheck({ chrome, work, models, now, fonts: FONTS, run: (c, args) => chromeRun(c, args, true), log: (line) => console.log(line) });
+    for (const f of failures) console.error(f);
+    return failures.length ? fail(`${failures.length} behaviour finding${failures.length === 1 ? '' : 's'}: a modal doesn't do what its case checks, or a case doesn't catch its mutant (extension/scripts/behaviour.ts).`) : 0;
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+}
+
+async function main(argv: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
     args: argv, allowPositionals: true,
-    options: { width: { type: 'string', default: '1000,620,500' }, theme: { type: 'string', default: 'dark,light' }, height: { type: 'string' }, out: { type: 'string' }, colours: { type: 'boolean', default: false } },
+    options: { width: { type: 'string', default: '1000,620,500' }, theme: { type: 'string', default: 'dark,light' }, height: { type: 'string' }, out: { type: 'string' }, colours: { type: 'boolean', default: false }, behaviour: { type: 'boolean', default: false } },
   });
+  if (values.behaviour) {
+    const stale = staleBuild();
+    if (stale) return fail(`Run \`npm run build\` first: ${stale}.`);
+    const chrome = findChrome();
+    if (!chrome) return fail('No Chrome, Chromium or Edge found. Set CHROME to its path.');
+    return behaviourRun(chrome);
+  }
   const views = positionals.length ? positionals : values.colours ? [...COLOUR_PAGES] : [...PAGES];
   const bad = views.filter((v) => !(PAGES as readonly string[]).includes(v));
   if (bad.length) return fail(`Unknown page: ${bad.join(', ')}. Pages: ${PAGES.join(', ')}.`);
@@ -464,11 +494,13 @@ function main(argv: string[]): number {
   const full = views.length === PAGES.length && themes.length === PALETTE_THEMES.length && values.width === '1000,620,500';
   const failures = runFailures(renders, full);
   console.log(geometrySummary(renders) + retriedSummary(retried));
+  // A full run checks the modals' behaviour too (GH-170); a run of a few pages, themes or widths doesn't.
+  const behaviour = full ? await behaviourRun(chrome) : 0;
   if (failures.length) {
     for (const f of failures) console.error(f);
     return fail(`${failures.length} geometry finding${failures.length === 1 ? '' : 's'}. Fix each, or list it in GEOMETRY_EXCEPTIONS (extension/scripts/geometry.ts) with why. The shots are written all the same.`);
   }
-  return 0;
+  return behaviour;
 }
 
 function fail(message: string): number {
@@ -476,4 +508,4 @@ function fail(message: string): number {
   return 1;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = main(process.argv.slice(2));
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main(process.argv.slice(2)).then((code) => { process.exitCode = code; });

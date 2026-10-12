@@ -20,6 +20,8 @@ export const READS: Reads[] = [
   // Each area's commands, and the package.json the build writes from them: generate.ts reads both.
   { files: /^extension\/commands\/[^/]+\.json$/, reader: 'extension/scripts/generate.ts' },
   { files: /^extension\/package\.json$/, reader: 'extension/scripts/generate.ts' },
+  // The page's source, which each of the modals' mutants changes in one place: behaviour.ts reads it (GH-170).
+  { files: /^extension\/webview\/[^/]+\.ts$/, reader: 'extension/scripts/behaviour.ts' },
 ];
 
 /** The tests near what reads the changed files. `tracked` lists the checkout's files, asked only if a reader is. */

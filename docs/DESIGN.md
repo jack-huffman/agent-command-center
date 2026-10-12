@@ -96,7 +96,9 @@ import, adds a row to `READS` in `scripts/near-reads.ts`: the files, and the
 script that reads them (GH-117). The near-tests gate (§9) then runs the tests
 near that script whenever one of the files changes, as it does for the
 stylesheets (`extension/scripts/styles.ts`), the commands files and
-`extension/package.json` (`extension/scripts/generate.ts`).
+`extension/package.json` (`extension/scripts/generate.ts`), and the page's
+modules, which the modals' mutants change (`extension/scripts/behaviour.ts`,
+GH-170).
 scripts/test/near-tests.test.ts checks that every file of each kind is near
 the test that reads it.
 
@@ -1494,6 +1496,16 @@ finish in `ACC_SHOT_TIMEOUT` seconds (60 unless set) is drawn once more, and
 the run's summary line counts and names each; a second timeout fails the run.
 A page measures its geometry once the rail's selected tab has held still for
 three frames (D-133).
+
+**The modals' behaviour** (GH-170): a full run of `npm run screenshot` (every page,
+theme and width), or `npm run screenshot -- --behaviour` alone, then opens the task modal and the
+Overview's detail modal in headless Chrome, case by case
+(`extension/scripts/behaviour.ts`): Escape, the backdrop, focus back to what
+opened them, a new model under them, a fold in them, Show all, the suggested
+rules' Previous and Next, and Accept. Each case posts what the extension would,
+checks the DOM, and fails on an element it can't find or on no checks. Each
+mutant builds the page with one change to its source that breaks a behaviour,
+and the run fails unless the cases it names fail on it.
 
 **Limits and checks** (GH-111): each project's builder cap and this machine's
 total across every repo side by side, each with −, its number, + and Change…,
