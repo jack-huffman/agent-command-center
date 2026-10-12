@@ -14,3 +14,4 @@
   without it. Every function, constant or class a source module exports is named by a test. That export half is
   checked by `scripts/test/coverage.test.ts`, whose `OLDER` list names the exports that predate this rule. That list
   may only shrink. Reviewers judge the first half: each criterion and each guarded case has its test.
+- Before adding a constant, search for one that holds the same value or meaning; use it, or export one shared one.
