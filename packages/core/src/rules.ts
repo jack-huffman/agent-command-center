@@ -222,7 +222,8 @@ export interface RulesImport {
   replaces: { source: string | null; copied: string | null; edited: boolean } | null;
 }
 
-const day = (d: Date): string => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+/** A date as yyyy-mm-dd in the machine's own time zone, not UTC. */
+export const localDay = (d: Date): string => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 /** Reads a rules file and makes its copy, writing nothing. It refuses what can't be rules, and a total too big to send. */
 export function prepareImport(run: Runner, root: string, source: string, opts: ImportOptions = {}): RulesImport {
@@ -238,7 +239,7 @@ export function prepareImport(run: Runner, root: string, source: string, opts: I
   const path = join(root, RULES_DIR, `${name}.md`);
   const copies = importedRules(root);
   const there = copies.find((c) => c.name === name);
-  const header: RulesHeader = { source: recordedSource(s, { base: opts.base, home: opts.home, root, kind: 'rules' }), commit: fetched.commit, copied: day((opts.now ?? (() => new Date()))()), sha256: rulesDigest(text) };
+  const header: RulesHeader = { source: recordedSource(s, { base: opts.base, home: opts.home, root, kind: 'rules' }), commit: fetched.commit, copied: localDay((opts.now ?? (() => new Date()))()), sha256: rulesDigest(text) };
   const imp = { name, file, path, header, text, replaces: there ? { source: there.header?.source ?? null, copied: there.header?.copied ?? null, edited: there.edited } : null };
   checkTotal(root, [imp], s);
   return imp;
