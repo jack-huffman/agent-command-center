@@ -94,7 +94,7 @@ test('what the cases expect comes from the same fixtures the pages draw: ten rul
   assert.ok(d.rules.every((r) => isFromWebview(r.accept)), 'every Accept the cases expect is one the extension takes');
   assert.deepEqual(Object.keys(d.rules[1]!.accept), ['type', 'project', 'id', 'line', 'title', 'check']);
   assert.ok((d.rules[1]?.sources ?? 0) > 4, 'the second rule has more reviews than its fold shows');
-  assert.deepEqual(d.list, { key: 'needs-you', title: 'Needs you', shown: 5, total: 17 });
+  assert.deepEqual(d.list, { key: 'needs-you', title: 'Needs you', shown: 5, total: 19 });
   assert.equal(d.rulesOpens, '{"kind":"rules"}');
   assert.deepEqual([d.task.key, (d.task.message.model as { kind: string }).kind, d.task.peek], ['ACME-12', 'ticket', '/Users/me/code/acme-service#ACME-12']);
   // The Tasks board the cases open holds the card they click.

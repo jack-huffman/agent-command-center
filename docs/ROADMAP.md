@@ -60,9 +60,8 @@ where each one's done-when is written out.
 ## Cloud builders
 
 - **Cloud builders as an option for a project on GitHub, never the default**:
-  under way. Checked 2026-10-10. Evidence: GH-69. The issue is open and its
-  work is on its own branch, in its second rework. It isn't on main, and there's
-  no decision for it in DECISIONS.md yet.
+  done. Checked 2026-10-12. Evidence: GH-69, D-140. Merged to main with its
+  push guard; the real run, below, still waits on a person.
 - **A real cloud run, on this repo's next small task**: waiting on a person.
   Checked 2026-10-10. Evidence: GH-69. Claude Code starts a cloud session from a
   routine, and a person makes the routine and its token at claude.ai. acc can't

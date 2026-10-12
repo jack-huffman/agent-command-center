@@ -5893,7 +5893,7 @@ a follow-up from GH-158's review). Now a script checks each, in headless Chrome,
   fold in it draws it again unfolded. The detail modal: Escape closes it, the tab forgets it, and focus
   goes back to Review; the backdrop the same, opened by the line itself, and focus goes back to the line;
   a new model leaves it open on the same rule, scrolled, with the rule draft's text and focus, and focus
-  then finds Review on the redrawn page; Show all on Needs you opens all 17 lines where the page shows 5;
+  then finds Review on the redrawn page; Show all on Needs you opens all 19 lines where the page shows 5;
   Previous and Next walk the ten rules to each end, off at each end; Accept and Confirm on the second rule
   send the message the inline Confirm sent (D-116), and its reviews' Show all draws it again with all
   five. What each case expects comes from the same fixtures (`behaviourData`): the rules' order and lines,
