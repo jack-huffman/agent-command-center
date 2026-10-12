@@ -49,7 +49,7 @@ export interface RowButton { label: string; icon: string; tip?: string; primary?
  * A line's ⋯ menu: VSCode's own, built from the row's context (package.json's webview/context). The commands
  * get the ref back. A task line's flags are TASK_MENU's; an agent's are its own (`agent`), as on Agents.
  */
-export interface RowMenu { section: 'task' | 'agent' | 'tidy'; ref: Record<string, string>; flags: Record<string, boolean> }
+export interface RowMenu { section: 'task' | 'agent' | 'tidy' | 'branch'; ref: Record<string, string>; flags: Record<string, boolean> }
 
 /** A short fact on a line, cut with an ellipsis where there's no room: all of it on hover. */
 export interface Fact { text: string }

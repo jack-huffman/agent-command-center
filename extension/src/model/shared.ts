@@ -6,10 +6,12 @@
 
 import type { AutopilotRecord } from '../../../packages/core/src/autopilot-log.ts';
 import { DISPLAY, type DisplayState, type SessionTie } from '../../../packages/core/src/ledger.ts';
-import type { Environment, Tracker } from '../../../packages/core/src/config.ts';
+import type { Environment, Tracker, CloudAgents } from '../../../packages/core/src/config.ts';
 import type { HistoryRecord, Question } from '../../../packages/core/src/questions.ts';
 import type { Suggestion } from '../../../packages/core/src/rule-suggestions.ts';
 import type { TidyStatus } from '../../../packages/core/src/tidy.ts';
+import type { BranchMove } from '../../../packages/core/src/branches.ts';
+import type { Protection } from '../../../packages/core/src/protection.ts';
 import type { Update } from '../../../packages/core/src/updates.ts';
 import type { AgentSession, TaskRow, Tone } from '../logic/shared.ts';
 import { displayName, ownsSession } from '../logic/agents.ts';
@@ -43,6 +45,8 @@ export interface Action {
   ref: Ref;
   primary?: boolean;
   danger?: boolean;
+  /** Why it can't be used now (GH-69): shown disabled, with the reason, never left to do nothing. */
+  disabled?: string;
 }
 
 export interface Look {
@@ -67,7 +71,7 @@ export interface ProjectLike {
    * autonomy: what autopilot may do on its own (D-055), when the config says. autopilot.autoMerge: whether
    * it merges pull requests (GH-67). trackers: which owns a ticket's key (D-066).
    */
-  config: { github: { repo: string; account: string } | null; environments: Environment[]; profile: string; autonomy?: string; autopilot?: { autoMerge?: boolean }; trackers?: Pick<Tracker, 'kind' | 'project' | 'prefix'>[] };
+  config: { github: { repo: string; account: string } | null; environments: Environment[]; profile: string; autonomy?: string; autopilot?: { autoMerge?: boolean }; trackers?: Pick<Tracker, 'kind' | 'project' | 'prefix'>[]; agents?: { cloud?: CloudAgents | null } };
   branch: string | null;
   worktrees: { path: string; head: string; branch: string | null; main: boolean; changed: number; locked: boolean; prunable: boolean }[];
 }
@@ -86,6 +90,10 @@ export interface HubLike {
   updates?(root: string): Update[];
   /** Whether a project's repo has a tidy-up due, and the ledger it's counted from, which projects of one repo share (GH-104). */
   tidy?(root: string): (Pick<TidyStatus, 'due' | 'count' | 'every'> & { ledger: string }) | null;
+  /** The environment branches of a project's repo that moved by anything but acc's own merge, each until a person has seen it (GH-69). */
+  branchMoves?(root: string): BranchMove[];
+  /** What GitHub enforces on each environment branch, once read, for a project that opted in to cloud builders (GH-69); null until read. */
+  cloudProtection?(root: string): Protection[] | null;
   /** The rules suggested by a project's review findings that keep coming back, not yet accepted or dismissed (GH-102). */
   suggestions?(root: string): Suggestion[];
   /** Agents' questions waiting in the Command Center (D-030). */

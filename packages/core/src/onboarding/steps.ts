@@ -17,6 +17,7 @@ import {
   cached, fail, firstVersion, ghEnv, LICENSE_TO_TYPE, parseOrgUrl, pass, pluginBehind, readText, SECRET_PATTERN, sfJson, skip, unknown, versionAtLeast,
 } from './helpers.ts';
 import type { CheckContext, CheckResult, Step, StepResult } from './types.ts';
+import { CLOUD_STEPS } from './cloud-steps.ts';
 
 const DOCS = 'docs/ONBOARDING.md';
 const GH_SIGN_IN = '"Do it" opens VSCode\'s GitHub sign-in: pick this repo\'s account, or add it, and gh gets that login, with access to GitHub Projects for the board. gh\'s active account stays as it was. In a terminal: gh auth login.';
@@ -225,7 +226,7 @@ export const GROUP_TITLES: Record<string, string> = {
   B0: 'The repo', B1: 'Orgs', B2: 'GitHub account', B3: 'Client data and secrets',
   B4: 'Salesforce project', B5: 'Salesforce project', B6: 'Environment branches', B8: 'Source tracking',
   B9: 'Environment differences', B10: 'Safe defaults', B12: 'Background agents', B13: 'Background agents',
-  B14: 'Tickets', B11: 'Drift',
+  B14: 'Tickets', B15: 'Cloud builders', B11: 'Drift',
 };
 
 export const STEPS: Step[] = [
@@ -801,6 +802,8 @@ export const STEPS: Step[] = [
       return pass(`Tickets come from ${names.join(' and ')}.`);
     },
   },
+  // Cloud builders (GH-69), only where the project opted in: in their own file, registered here.
+  ...CLOUD_STEPS,
   {
     id: 'B11.drift', part: 'project', group: 'B11', title: 'The day-to-day org matches its branch', profiles: ['salesforce'],
     why: 'A change made straight in an org is lost the next time its branch is deployed there. A drift check finds it first.',

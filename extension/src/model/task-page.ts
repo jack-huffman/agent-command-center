@@ -18,7 +18,7 @@ import { reasonInWords } from '../logic/relayed.ts';
 import { conflictLine, failedChecksLine } from '../logic/tasks.ts';
 import { accLook, type BoardInput, CATEGORY_LOOK, chip, type PersonChip, priorityIcon, typeIcon } from './boards.ts';
 import { type Action, displayLook, KEY, type Look, type ModelArea, type Ref, short } from './shared.ts';
-import { cardActions, filesLook } from './cards.ts';
+import { cardActions, filesLook, placeLook } from './cards.ts';
 import { hasTicket, type UpdateCard, updateCards, withClient } from './updates.ts';
 
 // ---------------------------------------------------------------- a ticket's page (D-026)
@@ -103,6 +103,9 @@ export interface TicketAcc {
   effort: string | null;
   /** What its latest builder was called (D-087). Older runs have none. */
   agentName: string | null;
+  /** Where its builder runs (GH-69): This Mac or Cloud, with an icon; and a cloud builder's page on claude.ai. */
+  place: Look | null;
+  cloudUrl: string | null;
   worktree: string | null;
   branch: string | null;
   /** acc's checks on its commit, each with how its result shows (GH-105) and whether a person can waive it. */
@@ -292,7 +295,7 @@ export function ticketModel(i: TicketInput): TicketModel {
   const live = i.tracker !== null;
   const acc: TicketAcc | null = i.row && i.task ? {
     look: accLook(i.row, true), environment: i.task.environment, waitingOn: i.row.deps, blocker: reasonInWords(i.task.blocker), conflicts: conflictLine(i.row, true), failedChecks: failedChecksLine(i.row), cardFailed: reasonInWords(cardFailure(i.task)?.replace(/[.\s]+$/, '')), files: filesLook(i.row, true),
-    agent: i.row.stopped ? null : i.row.agent ?? null, model: i.row.model ?? null, effort: i.row.effort ?? null, agentName: i.task.run?.name ?? null, worktree: i.task.run?.worktree ?? null, branch: i.task.run?.branch ?? null, checks: checkRows(i.checks, i.task.run?.branch ?? null),
+    agent: i.row.stopped ? null : i.row.agent ?? null, model: i.row.model ?? null, effort: i.row.effort ?? null, agentName: i.task.run?.name ?? null, place: placeLook(i.row), cloudUrl: i.row.cloud?.url ?? null, worktree: i.task.run?.worktree ?? null, branch: i.task.run?.branch ?? null, checks: checkRows(i.checks, i.task.run?.branch ?? null),
     // Why it blocked or moved, whoever wrote it, in process words (GH-163).
     history: i.task.history.map((h) => ({ at: h.at, from: h.from, to: h.to, by: h.by, reason: reasonInWords(h.reason), look: displayLook(h.to) })).reverse(),
     // Its analysis has its own section, with its own buttons.

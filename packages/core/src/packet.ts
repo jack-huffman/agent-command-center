@@ -118,7 +118,7 @@ function commitRef(task: Task): string {
   return '';
 }
 
-export function renderPacket(p: PacketInput & { enterWorktree?: boolean }): string {
+export function renderPacket(p: PacketInput & { enterWorktree?: boolean; cloud?: boolean }): string {
   const { task, config, env } = p;
   const sf = config.profile === 'salesforce';
   // A builder's checks: the lighter ones, where the merge queue runs the full one before the merge (GH-73).
@@ -154,8 +154,10 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean }): stri
     ...queueSection(p.queue),
     '## Where you are',
     '',
-    `- **Worktree:** \`${p.worktree}\`. This is your only workspace.`,
-    `- **Branch:** \`${p.branch}\`, started from \`${env.branch}\`, the ${env.name} environment's branch.`,
+    // A cloud builder's workspace is its session's clone (GH-69): the worktree is where acc collects its branch.
+    // The Mac's paths stay out of the cloud's instructions: they name the home folder, and mean nothing there.
+    ...(p.cloud ? ['- **Workspace:** this cloud session\'s clone of the repo. acc collects your branch into the task\'s worktree on the Mac.'] : [`- **Worktree:** \`${p.worktree}\`. This is your only workspace.`]),
+    `- **Branch:** \`${p.branch}\`, started from \`${env.branch}\`, the ${env.name} environment's branch.${p.cloud ? ' It\'s on GitHub already: check it out, and push only it.' : ''}`,
   );
   if (sf && env.org) lines.push(`- **Org:** \`${env.org}\` (${env.name}). It's already this worktree's default org.`);
   lines.push(
@@ -242,7 +244,7 @@ export function builderSettings(task: Task, config: Config, accBinDir: string, b
   ];
   const deny = [
     'Bash(git push*)', 'Bash(gh pr *)', 'Bash(git checkout *)', 'Bash(git switch *)', 'Bash(git worktree *)', 'Bash(git reset --hard*)',
-    'Bash(acc set *)', 'Bash(acc dispatch *)', 'Bash(acc init*)', 'Bash(acc gate waive*)', 'Bash(acc gate relax*)', 'Bash(acc land*)', 'Bash(acc review*)', 'Bash(acc autopilot*)', 'Bash(acc agents set*)', 'Bash(acc agents autonomy*)', 'Bash(acc agents auto-merge*)', 'Bash(acc agents max*)', 'Bash(acc gate required*)', 'Bash(acc gate builder*)', 'Bash(acc analyze*)', 'Bash(acc analysis answer*)', 'Bash(acc rules import*)', 'Bash(acc rules accept*)', 'Bash(acc rules dismiss*)', 'Bash(acc trackers set*)', 'Bash(acc github use*)', 'Bash(acc tidy add*)', 'Bash(acc tidy skip*)', 'Bash(acc promote*)', 'Bash(acc deploy*)', 'Bash(acc update*)', 'Bash(acc resume*)', 'Bash(acc machine*)', 'Bash(acc sync --close-done*)',
+    'Bash(acc set *)', 'Bash(acc dispatch *)', 'Bash(acc init*)', 'Bash(acc gate waive*)', 'Bash(acc gate relax*)', 'Bash(acc land*)', 'Bash(acc review*)', 'Bash(acc autopilot*)', 'Bash(acc agents set*)', 'Bash(acc agents autonomy*)', 'Bash(acc agents auto-merge*)', 'Bash(acc agents max*)', 'Bash(acc gate required*)', 'Bash(acc gate builder*)', 'Bash(acc analyze*)', 'Bash(acc analysis answer*)', 'Bash(acc rules import*)', 'Bash(acc rules accept*)', 'Bash(acc rules dismiss*)', 'Bash(acc trackers set*)', 'Bash(acc github use*)', 'Bash(acc tidy add*)', 'Bash(acc tidy skip*)', 'Bash(acc promote*)', 'Bash(acc deploy*)', 'Bash(acc update*)', 'Bash(acc resume*)', 'Bash(acc machine*)', 'Bash(acc sync --close-done*)', 'Bash(acc collect*)', 'Bash(acc cloud*)',
     // Releases are a person's (D-079): npm run * is allowed above, and deny beats allow.
     'Bash(gh release create*)', 'Bash(gh release upload*)', 'Bash(gh release edit*)', 'Bash(gh release delete*)', 'Bash(npm run release*)', 'Bash(nice -n 15 npm run release*)',
     ...(sf ? ['Bash(sf project deploy start*)', 'Bash(sf project deploy quick*)', 'Bash(sf org delete *)'] : []),

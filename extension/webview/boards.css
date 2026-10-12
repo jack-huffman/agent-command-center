@@ -99,6 +99,8 @@
 .card-link:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
 .card-foot > .btn { flex: none; }
 .card .card-id { padding-right: 26px; }
+/* The title's box stays clear of the ⋯ button in the corner, as the id does: a margin, since the geometry check compares boxes. */
+.card .card-title { margin-right: 26px; }
 .more { position: absolute; top: 6px; right: 6px; }
 .more-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--vscode-descriptionForeground); cursor: pointer; }
 .more-btn:hover, .more-btn[aria-expanded="true"] { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }

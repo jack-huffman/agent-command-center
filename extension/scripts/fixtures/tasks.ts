@@ -2,7 +2,7 @@
 import { rowAnalysis } from '../../src/logic/tasks.ts';
 import type { TaskRow } from '../../src/logic/shared.ts';
 import { sampleAnalyses } from './analysis.ts';
-import { ACME_25_REFUSED, ASKED, MIN, N10, N12, N13, N14, N28, N29, SLEPT, wt } from './shared.ts';
+import { ACME_25_REFUSED, ASKED, MIN, N10, N12, N13, N14, N28, N29, N43, N44, SLEPT, wt } from './shared.ts';
 
 export function sampleTasks(now = Date.now()): TaskRow[] {
   const source = (n: number) => ({ kind: 'jira', url: `https://acme.atlassian.net/browse/ACME-${n}` });
@@ -43,6 +43,9 @@ export function sampleTasks(now = Date.now()): TaskRow[] {
     task('ACME-29', 'Reassign open cases when an owner leaves', 'running', 'needs-you', { run: { bgId: 'bg29', sessionId: 's-acme-29', worktree: wt('ACME-29'), branch: 'task/ACME-29-reassign-open-cases', name: N29 }, stopped: { said: ASKED }, since: ago(70) }),
     // Nothing else was ready, so it started beside ACME-12, sharing a class (D-093).
     task('ACME-13', 'Close duplicate leads nightly', 'running', 'running', { run: { bgId: 'bg13', sessionId: 's-acme-13', worktree: wt('ACME-13'), model: 'claude-opus-5-5', name: N13 }, agent: { label: 'Working', icon: 'sync~spin', tone: 'blue' }, model: 'claude-opus-5-5', since: ago(14), branchStats: { commits: 5, files: 9, uncommitted: 0 }, files: { known: true, shares: [{ task: 'ACME-12', files: ['force-app/main/default/classes/CaseTriggerHandler.cls'] }], first: [], held: null } }),
+    // A builder in the cloud (GH-69): working while its branch moves on GitHub, and one quiet for too long.
+    task('ACME-43', 'Archive closed cases older than two years', 'running', 'running', { run: { worktree: wt('ACME-43'), branch: 'task/ACME-43-archive-closed-cases', model: 'claude-opus-5-5', name: N43, where: 'cloud', cloud: { sessionId: 'session_01HQ43', url: 'https://claude.ai/code/session_01HQ43', firedAt: ago(41), head: 'c0ffee1', lastPushAt: ago(9) } }, agent: { label: 'Working in the cloud', icon: 'cloud', tone: 'blue' }, cloud: { url: 'https://claude.ai/code/session_01HQ43', wait: null, finished: false }, since: ago(41), branchStats: { commits: 3, files: 5, uncommitted: 0 } }),
+    task('ACME-44', 'Round-robin new leads across the inside sales team', 'running', 'needs-you', { run: { worktree: wt('ACME-44'), branch: 'task/ACME-44-round-robin-leads', model: 'claude-opus-5-5', name: N44, where: 'cloud', cloud: { sessionId: 'session_01HQ44', url: 'https://claude.ai/code/session_01HQ44', firedAt: ago(200), head: 'c0ffee2', lastPushAt: ago(150) } }, agent: { label: 'Needs you: no word from its cloud builder for 150 minutes: it may be waiting for an answer on claude.ai', icon: 'bell', tone: 'orange' }, cloud: { url: 'https://claude.ai/code/session_01HQ44', wait: 'no word from its cloud builder for 150 minutes: it may be waiting for an answer on claude.ai', finished: false }, since: ago(200) }),
     task('ACME-15', 'Rename the Region picklist values', 'review', 'review', { run: { worktree: wt('ACME-15'), branch: 'task/ACME-15-a-very-long-branch-name-that-has-to-truncate-cleanly' }, review: { verdict: 'pass', summary: 'Renames the values and updates both record types.', current: true }, pr: { number: 42, url: 'https://github.com/acme/service/pull/42', state: 'open', ci: 'pending' } }),
     task('ACME-20', 'Show the renewal date on the Account page', 'review', 'review', { run: { worktree: wt('ACME-20'), branch: 'task/ACME-20-renewal-date' }, review: { verdict: 'pass', summary: 'Adds the field to the layout.', current: true } }),
     task('ACME-19', 'Fix the flow that double-sends welcome emails', 'rework', 'rework', { run: { worktree: wt('ACME-19') } }),

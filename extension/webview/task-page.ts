@@ -161,6 +161,8 @@ export function renderTicket(m: TicketModel): Node[] {
         ...(a.agent && a.model ? field('Model', el('span', '', el('span', 'mono', a.model), a.effort ? el('span', 'muted', ` · ${a.effort} effort`) : null)) : []),
         // What its builder is called, in Claude Code and the Command Center alike (D-087).
         ...(a.agentName ? field('Builder', el('span', 'agent-name', a.agentName)) : []),
+        // Where it runs (GH-69): This Mac or Cloud, and a cloud builder's page on claude.ai.
+        ...(a.place ? field('Runs on', a.cloudUrl ? el('span', '', status(a.place), ' ', linkTo(a.cloudUrl, 'its session on claude.ai')) : status(a.place)) : []),
         ...(a.branch ? field('Branch', work(clippedSpan(a.branch), 'branch')) : []),
         ...(a.worktree ? field('Worktree', work(clippedSpan(a.worktree.split('/').slice(-2).join('/')), 'branch')) : []),
       ),

@@ -1,7 +1,7 @@
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { releaseAwake } from './awake.ts';
-import { autoMergeFor, type Config, defaultEnvironment, environmentByBranch, type Effort, type GateScope } from './config.ts';
+import { autoMergeFor, type BuilderPlace, type Config, defaultEnvironment, environmentByBranch, type Effort, type GateScope } from './config.ts';
 import type { EffortPick } from './efforts.ts';
 import { AccError } from './exec.ts';
 import { withLock } from './lock.ts';
@@ -40,9 +40,31 @@ export interface Resume {
   by: string;
 }
 
+/**
+ * A cloud builder's run (GH-69): the session the routine's fire started, and what acc has seen of its branch
+ * on GitHub since, since Claude Code reports no state for a cloud session.
+ */
+export interface CloudRun {
+  /** The cloud session's id and its page on claude.ai, from the fire's reply. */
+  sessionId: string;
+  url: string;
+  firedAt: string;
+  /** origin's head of the task branch when acc last looked, and when it last moved: the fire counts as the first move. */
+  head: string;
+  lastPushAt: string;
+  /** The builder's finish marker landed (an Acc-Done trailer on the head), and acc is collecting, or collected, it. */
+  finished?: true;
+  /** Why acc's last collect didn't move it to review: a check that failed, or a worktree it couldn't fast-forward. */
+  collect?: { at: string; reason: string } | null;
+}
+
 export interface Run {
   bgId?: string;
   sessionId?: string;
+  /** Where its builder runs (GH-69): this Mac, or the cloud. Older runs, and runs that leave it out, are local. */
+  where?: BuilderPlace;
+  /** A cloud builder's session and what its branch has done, for a run whose `where` is cloud (GH-69). */
+  cloud?: CloudRun;
   worktree?: string;
   branch?: string;
   startedAt?: string;
@@ -545,6 +567,8 @@ export interface MoveRequest {
   force?: boolean;
   /** The builder's handoff note (D-106), kept on the run it ends: with acc done, or acc block. */
   note?: NoteInput | null;
+  /** For a move to running: where the builder goes (GH-69), so the right cap counts. Local when left out. */
+  where?: BuilderPlace;
 }
 
 export interface Hooks {
@@ -559,11 +583,21 @@ export function findRule(from: State, to: State): Rule | undefined {
     ?? RULES.find((r) => r.from === 'any' && r.to === to && from !== 'blocked' && from !== 'done');
 }
 
-/** The builders running in a repo, but `except`'s: its tasks in Running, whose builder may have stopped (D-067). */
-export const builders = (ledger: Pick<Ledger, 'tasks'>, except: string): number => ledger.tasks.filter((t) => t.state === 'running' && t.id !== except).length;
+/** Where a run's builder runs (GH-69): local unless its run says cloud. */
+export const runPlace = (run: Pick<Run, 'where'> | null | undefined): BuilderPlace => (run?.where === 'cloud' ? 'cloud' : 'local');
+
+/**
+ * The builders running in a repo, but `except`'s: its tasks in Running, whose builder may have stopped (D-067).
+ * Those on this Mac, unless asked for the cloud's (GH-69): each place has its own cap, and only this Mac's
+ * load counts against the machine's total.
+ */
+export const builders = (ledger: Pick<Ledger, 'tasks'>, except: string, where: BuilderPlace = 'local'): number => ledger.tasks.filter((t) => t.state === 'running' && t.id !== except && runPlace(t.run) === where).length;
 
 /** A start that would pass the project's cap, in words that name it, beside this machine's total (GH-111). */
 export const projectCapWords = (n: number, max: number): string => `${n} ${n === 1 ? 'builder is' : 'builders are'} running in this project, and its cap is ${max} (agents.max).`;
+
+/** A cloud start that would pass the project's cloud cap, in words that name it (GH-69). */
+export const cloudCapWords = (n: number, max: number): string => `${n} cloud ${n === 1 ? 'builder is' : 'builders are'} running for this project, and its cap is ${max} (agents.cloud.max).`;
 
 /** Everything that stops this move. Empty means it's allowed. */
 export function checkMove(ledger: Ledger, config: Config, task: Task, req: MoveRequest, hooks: Hooks): string[] {
@@ -599,8 +633,16 @@ export function checkMove(ledger: Ledger, config: Config, task: Task, req: MoveR
       }
     }
     if (r === 'underCap') {
-      const running = builders(ledger, task.id);
-      if (running >= config.agents.max) problems.push(projectCapWords(running, config.agents.max));
+      // A cloud builder counts against the cloud cap alone (GH-69): the Mac's CPU isn't what it uses.
+      if (req.where === 'cloud') {
+        const max = config.agents.cloud?.max ?? 0;
+        const running = builders(ledger, task.id, 'cloud');
+        if (!config.agents.cloud) problems.push('This project hasn\'t opted in to cloud builders (agents.cloud).');
+        else if (running >= max) problems.push(cloudCapWords(running, max));
+      } else {
+        const running = builders(ledger, task.id);
+        if (running >= config.agents.max) problems.push(projectCapWords(running, config.agents.max));
+      }
     }
     if (r === 'envNotProtected') {
       const env = environmentByBranch(config, task.environment);
@@ -697,6 +739,8 @@ export interface SessionInfo {
   status?: string;
   /** Its builder's session ended or went idle without acc done or acc block (builderStopped). */
   stopped?: boolean;
+  /** Its cloud builder has pushed nothing for longer than the project allows (GH-69): it may be waiting, or gone. */
+  quiet?: boolean;
 }
 
 /** A Claude Code session, as `claude agents --json` lists it. Background sessions have an id and a state. */
@@ -721,6 +765,8 @@ export interface ClaudeSession {
  */
 export function sessionsOf<S extends ClaudeSession>(task: { id: string; run?: Run | null }, sessions: S[]): S[] {
   const run = task.run;
+  // A cloud builder's session runs on claude.ai (GH-69): `claude agents` never lists it.
+  if (run?.where === 'cloud') return [];
   if (run?.bgId || run?.sessionId) return sessions.filter((s) => (!!run.bgId && s.id === run.bgId) || (!!run.sessionId && s.sessionId === run.sessionId));
   const name = run?.name ?? task.id;
   return sessions.filter((s) => s.kind === 'background' && s.name === name);
@@ -885,6 +931,8 @@ export function runStartedAt(task: Pick<Task, 'run'>): string | null {
  */
 export function builderStopped(task: Pick<Task, 'id' | 'state' | 'run'>, sessions: ClaudeSession[] | null, o: { resuming: boolean; now: Date; graceMs?: number }): boolean {
   if (task.state !== 'running' || !sessions || o.resuming) return false;
+  // A cloud builder isn't in `claude agents` (GH-69): its branch says whether it's quiet, never this.
+  if (task.run?.where === 'cloud') return false;
   const started = runStartedAt(task);
   if (!started || o.now.getTime() - Date.parse(started) < (o.graceMs ?? STOPPED_GRACE_MS)) return false;
   return !sessionsOf(task, sessions).some(sessionActive);
@@ -948,8 +996,9 @@ export function displayState(ledger: Ledger, task: Task, session?: SessionInfo, 
   if (task.state === 'todo' && isReady(ledger, task)) return 'ready';
   // A step autopilot couldn't take waits on you, or on a new commit (D-055).
   if (autopilotFailure(task)) return 'needs-you';
-  // Its builder stopped before acc done or acc block (D-067), or waits in its own prompt.
-  if (task.state === 'running' && (session?.stopped || session?.state === 'blocked' || session?.status === 'waiting')) return 'needs-you';
+  // Its builder stopped before acc done or acc block (D-067), or waits in its own prompt; or its cloud
+  // builder has pushed nothing for too long (GH-69).
+  if (task.state === 'running' && (session?.stopped || session?.quiet || session?.state === 'blocked' || session?.status === 'waiting')) return 'needs-you';
   // An open pull request whose checks fail, that a person asked to change, or that conflicts with its
   // base, waits on you (D-033, D-049). Checks that fail on a commit autopilot already sent back don't:
   // its fix is on the way, and a second failure there is recorded as autopilot's (D-076). Nor does a

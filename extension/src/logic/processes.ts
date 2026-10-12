@@ -60,6 +60,7 @@ export const PROCESSES: readonly Process[] = [
   { acc: ['done'], name: 'Finish the task' },
   { acc: ['block'], name: 'Mark it blocked', command: 'acc.task.block' },
   { acc: ['resume'], name: 'Resume its builder', named: 'Resume {arg}\'s builder', command: 'acc.task.resume' },
+  { acc: ['collect'], name: 'Collect its work from the cloud', named: 'Collect {arg}\'s work from the cloud', command: 'acc.task.collect' },
   { acc: ['cleanup'], name: 'Clean up its worktree', named: 'Clean up {arg}\'s worktree', command: 'acc.task.cleanup' },
   { acc: ['agents', 'agents show'], name: 'See what agents run with' },
   { acc: ['agents set'], name: 'Change what agents run with', command: 'acc.agents.configure' },
@@ -76,6 +77,11 @@ export const PROCESSES: readonly Process[] = [
   { acc: ['land'], name: 'Open its pull request', named: 'Open {arg}\'s pull request', command: 'acc.task.land' },
   { acc: ['autopilot'], name: 'Run autopilot', command: 'acc.autopilot.toggle' },
   { acc: ['sync'], name: 'Refresh from GitHub' },
+  // Cloud builders (GH-69)
+  { acc: ['cloud', 'cloud status'], name: 'See the cloud builders\' setup' },
+  { acc: ['cloud enable'], name: 'Turn cloud builders on', command: 'acc.cloud.enable' },
+  { acc: ['cloud disable'], name: 'Turn cloud builders off', command: 'acc.cloud.disable' },
+  { acc: ['cloud token'], name: 'Keep the routine\'s token', command: 'acc.cloud.token' },
   // Ticket updates
   { acc: ['updates', 'update'], name: 'See the update drafts' },
   { acc: ['update post', 'update posting', 'update posted', 'update release'], name: 'Post the update' },

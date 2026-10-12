@@ -631,6 +631,46 @@ If a repo keeps its tasks in acc alone, mark the step done. `acc doctor` checks
 that the config names a source. The walkthrough also checks that this repo is
 signed in to it, which a terminal can't see.
 
+### B15. Cloud builders (optional)
+
+A project may let a task's builder run as a Claude Code cloud session instead
+of on this Mac (GH-69). It's never the default: `acc cloud enable` opts the
+project in, and each task then chooses with `acc dispatch <id> --cloud` or
+`--local`. These steps apply only once a project has opted in; before that,
+Setup skips them.
+
+- [ ] **Claude can clone the repo from the cloud** (`B15.cloud-github-app`). A
+  cloud session clones the repo from GitHub and pushes its branch back through
+  the GitHub access connected to your claude.ai account: the Claude GitHub App
+  installed on the repo (https://github.com/apps/claude), or `/web-setup` in a
+  `claude` session, which sends gh's token to your account. acc can see only
+  the app, so after `/web-setup`, tick this yourself.
+- [ ] **A routine for the repo** (`B15.cloud-routine`). A script can start a
+  cloud session only by firing a routine's API trigger. At
+  https://claude.ai/code/routines, make a routine for this repo: paste acc's
+  routine prompt as its instructions (`acc cloud` shows it), pick the repo and
+  the model, keep the Default environment, and add an API trigger. Copy its
+  trigger id into `acc cloud enable --routine trig_…`.
+- [ ] **The routine's token is in the keychain** (`B15.cloud-token`). On the
+  routine's page, click Generate token, copy it once, and paste it on stdin to
+  `acc cloud token`. It goes to this Mac's keychain, under `acc-cloud-routine`
+  for this repo, and never into `.acc/config.json` or git.
+- [ ] **Claude Code is signed in to claude.ai** (`B15.cloud-login`). Sending a
+  cloud builder a message (`claude -p … --cloud <session>`) needs the CLI
+  signed in with the claude.ai account that owns the routine:
+  `claude auth login`.
+- [ ] **The push guard is committed** (`B15.cloud-guard`). A cloud session runs
+  the repo's own `.claude/settings.json` hooks and not acc's plugin, so
+  `acc cloud enable` writes `.claude/hooks/acc-push-guard.mjs` and a
+  PreToolUse hook on Bash and the editing tools that allows a plain push of
+  the task's branch alone and refuses everything else that could push, a write
+  under `.claude/`, and a deploy, in cloud sessions only, failing closed.
+  Commit both: the check reads HEAD's tree, not the files on disk, since only
+  what's committed reaches the cloud, and a dispatch refuses `--cloud` until
+  the branch the cloud clones and the task branch both carry it. Where GitHub
+  enforces no protection on an environment branch, `acc cloud` and the
+  dispatch warn, without refusing: a private repo on the free plan has none.
+
 ### B11. Drift check (any time)
 
 - [ ] **The day-to-day org matches its branch** (`B11.drift`). *Salesforce

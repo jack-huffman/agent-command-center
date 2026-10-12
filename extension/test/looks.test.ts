@@ -14,7 +14,10 @@ import { type AgentSession, TASK_GROUPS, type TaskRow, type Tone } from '../src/
 import { type AboutAction, type AboutFacts, aboutModel } from '../src/model/about.ts';
 import { billingLook } from '../src/model/agents.ts';
 import { accLook, CATEGORY_LOOK, columnLook } from '../src/model/boards.ts';
-import { analysisLook, autopilotLook, closedPrLook, filesLook, stoppedLook } from '../src/model/cards.ts';
+import { analysisLook, autopilotLook, closedPrLook, filesLook, placeLook, stoppedLook } from '../src/model/cards.ts';
+import { BUILDER_PLACE_LOOK } from '../../packages/core/src/cloud.ts';
+import { cloudSetting, protectionLook } from '../src/model/settings.ts';
+import { moveLook as branchMoveLook } from '../src/model/branches.ts';
 import { autopilotStepLook, OUTCOME_LOOK, outcomeLook } from '../src/model/history.ts';
 import { LANDING_LOOK, moveLook, updatesLook } from '../src/model/landing.ts';
 import { capLook } from '../src/model/limits.ts';
@@ -128,6 +131,21 @@ export const TABLES: Table[] = [
   { name: 'autopilot needs you', sources: ['extension/src/model/cards.ts#autopilotLook'], states: () => AUTOPILOT_STEPS.flatMap((step) => [true, false].map((why): [string, Shown] => [`${step}${why ? ', why' : ''}`, autopilotLook({ autopilot: { step, reason: 'no' } }, why)!])) },
   { name: 'a closed pull request', sources: ['extension/src/model/cards.ts#closedPrLook'], states: () => [['closed', closedPrLook({ state: 'review', pr: { number: 7, url: 'https://x/7', state: 'closed' } })!]] },
   { name: 'a stopped builder', sources: ['extension/src/model/cards.ts#stoppedLook'], states: () => [['said nothing', stoppedLook({ stopped: { said: null } })!], ['said something', stoppedLook({ stopped: { said: 'API Error' } })!]] },
+  // Where a builder runs (GH-69): on the card, the page and acc show alike.
+  { name: 'where a builder runs', sources: ['packages/core/src/cloud.ts#BUILDER_PLACE_LOOK'], states: () => Object.entries(BUILDER_PLACE_LOOK).map(([k, v]) => [k, { ...v, tone: 'neutral' }]) },
+  { name: 'where a task\'s builder runs, on its card', sources: ['extension/src/model/cards.ts#placeLook'], states: () => [['local', placeLook({ state: 'running', run: { where: 'local' } })!], ['cloud', placeLook({ state: 'running', run: { where: 'cloud' } })!], ['older run', placeLook({ state: 'review', run: {} })!]] },
+  {
+    name: 'cloud builders, in Settings', sources: ['extension/src/model/settings.ts#cloudSetting'],
+    states: () => {
+      const p = (github: boolean, cloud: { routine: string | null; default: 'local' | 'cloud'; quietMinutes: number; max: number } | null) => ({ name: 'P', root: '/p', branch: null, worktrees: [], config: { github: github ? { repo: 'o/r', account: 'a' } : null, environments: [], profile: 'generic', agents: { cloud } } });
+      const cloud = { routine: 'trig_0123456789', default: 'local' as const, quietMinutes: 120, max: 3 };
+      return [['no github', cloudSetting(p(false, null))!.look], ['off', cloudSetting(p(true, null))!.look], ['on, no routine', cloudSetting(p(true, { ...cloud, routine: null }))!.look], ['on', cloudSetting(p(true, cloud))!.look], ['default cloud', cloudSetting(p(true, { ...cloud, default: 'cloud' }))!.defaultPlace!]];
+    },
+  },
+  // GitHub's rules behind the cloud guard, per branch (GH-69): enforced in blue, anything else in orange.
+  { name: 'what GitHub enforces on a branch, in Settings', sources: ['extension/src/model/settings.ts#protectionLook'], states: () => (['enforced', 'none', 'unavailable', 'unknown'] as const).map((state) => [state, protectionLook({ branch: 'main', state })]) },
+  // An environment branch moved by anything but acc's merge (GH-69): orange, on the Overview, until a person has seen it.
+  { name: 'a moved environment branch', sources: ['extension/src/model/branches.ts#moveLook'], states: () => [0, 1, 2].map((n) => [`${n} commits`, branchMoveLook({ branch: 'main', from: 'a', to: 'b', at: '', commits: Array.from({ length: n }, (_, i) => `sha${i} x`) })]) },
   {
     name: 'a task\'s files', sources: ['extension/src/model/cards.ts#filesLook'],
     states: () => ([

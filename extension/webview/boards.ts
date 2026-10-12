@@ -69,7 +69,8 @@ export function cardFoot(card: { worktree: string | null; actions: Action[] }): 
     prLink.addEventListener('click', (e) => { e.stopPropagation(); api.postMessage({ type: 'run', command: pr.command, ref: pr.ref }); });
   }
   return el('div', 'card-foot',
-    el('div', 'card-meta', card.worktree ? work(el('span', 'card-where mono muted', icon('git-branch'), card.worktree.split('/').slice(-2).join('/')), 'branch') : null, prLink),
+    // The worktree's last two folders, with the whole path on hover, since a narrow card cuts it short.
+    el('div', 'card-meta', card.worktree ? Object.assign(work(el('span', 'card-where mono muted', icon('git-branch'), card.worktree.split('/').slice(-2).join('/')), 'branch'), { title: card.worktree }) : null, prLink),
     primary ? actionButton(primary) : null);
 }
 
@@ -93,6 +94,12 @@ export function moreMenu(key: string, name: string, actions: Action[]): HTMLElem
     const b = el('button', `more-item${a.danger ? ' danger' : ''}`, icon(a.icon), a.label) as HTMLButtonElement;
     b.type = 'button';
     b.setAttribute('role', 'menuitem');
+    // One that can't be used now is disabled, with its reason, never left to do nothing (GH-69).
+    if (a.disabled) {
+      b.disabled = true;
+      b.title = a.disabled;
+      b.setAttribute('aria-description', a.disabled);
+    }
     b.addEventListener('click', (e) => { e.stopPropagation(); openMenu = null; menu.hidden = true; api.postMessage({ type: 'run', command: a.command, ref: a.ref }); });
     return b;
   };

@@ -77,6 +77,9 @@ where each one's done-when is written out.
   the base (D-058), and a pull request whose checks fail goes back to its
   builder once a commit (D-076).
 - **A merge queue**: done. Checked 2026-10-10. Evidence: D-096.
+- **Cloud reviewers and analysts**: not started. Checked 2026-10-12. Evidence:
+  D-140. Cloud builders came first (GH-69); reviews and analyses still run on
+  the Mac.
 
 What version 1 leaves out on purpose is listed in
 [DESIGN.md section 19](DESIGN.md#19-left-out-of-v1).

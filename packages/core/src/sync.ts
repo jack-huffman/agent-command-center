@@ -6,6 +6,8 @@ import { AccError, type Runner } from './exec.ts';
 import { applyMove, checkMove, mutate, noGateHooks, type PullRequest, readLedger, type State } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
 import { discardUpdate, draftUpdate, listUpdates } from './updates.ts';
+import { type BranchMove, branchMoves, followBranches } from './branches.ts';
+import { type FollowChange, followCloud } from './cloud.ts';
 
 /**
  * Keeps tasks in step with their pull requests (D-033): merged is done, closed without merging is
@@ -88,7 +90,33 @@ export function conflictsOf(run: Runner, root: string, base: string, head: strin
   return r.code === 0 ? [] : [...new Set(files.filter(Boolean))];
 }
 
-export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now: () => Date; env: NodeJS.ProcessEnv }): { checked: number; changes: SyncChange[] } {
+export interface SyncResult {
+  checked: number;
+  changes: SyncChange[];
+  /** Each cloud builder's branch followed on GitHub (GH-69): pushed, collected, blocked, or nothing new. */
+  cloud: FollowChange[];
+  /**
+   * Every environment branch move still waiting for a person (GH-69): one that moved by anything but acc's
+   * own merges, found on this sync or an earlier one, until acc sync --branches-seen clears it.
+   */
+  branches: BranchMove[];
+}
+
+/**
+ * After the pull requests: each running cloud builder's branch, and each environment's, on GitHub (GH-69).
+ * Both belong to cloud builders, so a project that hasn't opted in sees neither: its syncs run exactly as
+ * before. The environment branches are read after the pull requests, so a merge sync has just recorded
+ * explains the move it made.
+ */
+function followGithub(paths: RepoPaths, config: Config, deps: { run: Runner; now: () => Date; env: NodeJS.ProcessEnv }): Pick<SyncResult, 'cloud' | 'branches'> {
+  if (!config.github || !config.agents.cloud) return { cloud: [], branches: [] };
+  const ledger = readLedger(paths.ledger);
+  const cloud = ledger.tasks.some((t) => t.state === 'running' && t.run?.where === 'cloud') ? followCloud(paths, config, deps) : [];
+  followBranches(paths, config, ledger, deps);
+  return { cloud, branches: branchMoves(paths) };
+}
+
+export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now: () => Date; env: NodeJS.ProcessEnv }): SyncResult {
   const { run, now } = deps;
   const tasks = readLedger(paths.ledger).tasks;
   const open = tasks.filter((t) => t.pr?.state === 'open');
@@ -96,7 +124,7 @@ export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now:
   const promotions = [...new Set(tasks.flatMap((t) => (t.promotions ?? []).filter((p) => p.state === 'open').map((p) => p.pr.number)))];
   // An issue whose close failed is tried again, even with no pull request left open (D-082).
   const closing = tasks.some((t) => t.pr?.issue?.state === 'pending');
-  if (!open.length && !promotions.length && !closing) return { checked: 0, changes: [] };
+  if (!open.length && !promotions.length && !closing) return { checked: 0, changes: [], ...followGithub(paths, config, deps) };
   const gh = config.github;
   if (!gh) throw new AccError('no-github', 'This project has no "github" section in .acc/config.json, so there are no pull requests to follow.');
   const token = run('gh', ['auth', 'token', '-u', gh.account]);
@@ -276,5 +304,5 @@ export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now:
       c.note += `; ${closeWords(r)}`;
     } else changes.push({ task: r.task, pr: r.pr, moved: null, note: closeWords(r), issue });
   }
-  return { checked: seen.size + promoted.size, changes };
+  return { checked: seen.size + promoted.size, changes, ...followGithub(paths, config, deps) };
 }

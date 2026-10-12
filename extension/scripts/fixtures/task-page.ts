@@ -17,11 +17,12 @@ const p = (text: string, marks?: string[]): AdfNode => ({ type: 'paragraph', con
  * ACME-35, which a person dispatched and which waits for other tasks' files (D-093), or ACME-20, in review
  * with its builder's note (D-106).
  */
-export type TicketSample = 'ACME-12' | 'ACME-20' | 'ACME-21' | 'ACME-23' | 'ACME-29' | 'ACME-31' | 'ACME-33' | 'ACME-35';
+export type TicketSample = 'ACME-12' | 'ACME-20' | 'ACME-21' | 'ACME-23' | 'ACME-29' | 'ACME-31' | 'ACME-33' | 'ACME-35' | 'ACME-44';
 
 /** A Jira ticket with everything a description can hold, and the acc task working on it. */
 export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12'): TicketModel {
   if (which === 'ACME-29') return sampleStoppedTicket(now);
+  if (which === 'ACME-44') return sampleCloudTicket(now);
   if (which === 'ACME-31') return sampleUntrackedTicket(now);
   if (which === 'ACME-33') return sampleChecksTicket(now);
   if (which === 'ACME-35') return sampleWaitingTicket(now);
@@ -96,6 +97,31 @@ export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12'):
 }
 
 /** A running task whose builder stopped before acc done (D-067): its page quotes it in full, and offers Resume. */
+/** A builder in the cloud, quiet for too long (GH-69): where it runs, its session's page, and the cloud's own actions. */
+function sampleCloudTicket(now: number): TicketModel {
+  const row = sampleHub(now).taskRows(ROOT).find((r) => r.id === 'ACME-44')!;
+  const ticket: Ticket = {
+    key: 'ACME-44', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-44', title: row.title, type: 'Story',
+    status: DOING, assignees: [{ id: 'a1', name: 'Jordan Kim' }], reporter: { id: 'a2', name: 'Pat Lee' }, labels: [{ name: 'sales', color: null }], priority: 'Medium',
+    created: new Date(now - 4 * 86_400_000).toISOString(), updated: new Date(now - 150 * MIN).toISOString(),
+    body: fromAdf({ type: 'doc', content: [p('New leads all land on one rep. Share them round the inside sales team in turn, skipping anyone out of office.')] }),
+    markdown: '', comments: [], related: [],
+  };
+  const task = {
+    id: 'ACME-44', title: row.title, brief: '', source: { kind: 'jira', key: 'ACME-44', url: ticket.url }, environment: 'dev', deps: [], labels: [], state: 'running', blocker: null, run: row.run, pr: null,
+    history: [
+      { at: new Date(now - 4 * 86_400_000).toISOString(), from: null, to: 'todo', by: 'human:jordan' },
+      { at: new Date(now - 200 * MIN).toISOString(), from: 'todo', to: 'running', by: 'human:jordan' },
+    ],
+    createdAt: new Date(now - 4 * 86_400_000).toISOString(), updatedAt: new Date(now - 150 * MIN).toISOString(),
+  } as unknown as Task;
+  return ticketModel({
+    project: ROOT, tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira', key: 'ACME-44', ticket, loading: false, error: null, connect: null, row, task, signedInAs: 'jordan@acme.example',
+    trackerEdits: false, updates: [], boards: sampleBoards(), github: 'jordan-kim', now,
+    checks: ['format', 'static', 'validate'].map((gate) => ({ gate, status: 'skip' as const, summary: 'Not run on this commit' })),
+  });
+}
+
 function sampleStoppedTicket(now: number): TicketModel {
   const row = sampleHub(now).taskRows(ROOT).find((r) => r.id === 'ACME-29')!;
   const ticket: Ticket = {
