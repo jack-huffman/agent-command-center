@@ -165,8 +165,8 @@ many tests run, is a ratchet under `gates.ratchets` ([section 9](#9-gates-and-re
 ```json
 "gates": {
   "required": ["check", "tests"],
-  "builder": ["typecheck", "near-tests", "tests"],
-  "commands": { "check": "npm run check", "typecheck": "npm run typecheck", "near-tests": "node --no-warnings scripts/near-tests.mjs" },
+  "builder": ["typecheck", "near-tests", "tests", "screenshots"],
+  "commands": { "check": "npm run check", "typecheck": "npm run typecheck", "near-tests": "node --no-warnings scripts/near-tests.mjs", "screenshots": "node --no-warnings extension/scripts/looked.ts" },
   "ratchets": { "tests": { "command": "node --no-warnings scripts/count-tests.mjs", "limit": "floor", "label": "tests" } }
 }
 ```
@@ -733,7 +733,14 @@ isn't given the list). That gate also runs the tests near what reads a
 per-area file the branch changed, from `scripts/near-reads.ts` (§2): an
 area's stylesheet brings `screenshot.test.ts`, and a commands file or
 `extension/package.json` brings `areas.test.ts`. They also run the `tests`
-ratchet below.
+ratchet below, and `screenshots` (`extension/scripts/looked.ts`, D-138): when
+the branch changes a file under `extension/webview/`, `extension/src/` or
+`extension/scripts/`, every page, theme and width must be noted in
+`dist/screenshots/shots.json` by a screenshot run of this commit's
+fingerprint (the webview's source and each page as handed to Chrome), with
+no geometry findings and the PNG unchanged since, and each CSS class the
+branch adds must be drawn inside some shot's window. The merge queue's
+checkout has no screenshots, so `check` doesn't run it.
 
 **Ratchets** (GH-99). A ratchet is a check whose command prints one number that
 may only get better: a test count, coverage, Apex coverage, or Code Analyzer's

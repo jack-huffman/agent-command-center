@@ -125,7 +125,7 @@ test('each case\'s page is script the browser can parse: its helpers and case, w
 
 test('a full run checks the modals\' behaviour too, a run of one theme or width doesn\'t, and --behaviour runs it alone', () => {
   const src = readFileSync(join(import.meta.dirname, '..', 'scripts', 'screenshot.ts'), 'utf8');
-  assert.match(src, /const full = views\.length === PAGES\.length && themes\.length === PALETTE_THEMES\.length && values\.width === '1000,620,500';/);
+  assert.match(src, /const full = views\.length === PAGES\.length && themes\.length === PALETTE_THEMES\.length && values\.width === WIDTHS\.join\(','\);/);
   assert.match(src, /const behaviour = full \? await behaviourRun\(chrome\) : 0;/);
   assert.match(src, /if \(values\.behaviour\) \{[\s\S]*?return behaviourRun\(chrome\);/);
   assert.match(src, /return behaviour;\n\}/);
