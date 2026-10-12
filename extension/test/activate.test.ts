@@ -2,13 +2,12 @@
 // keys are tested without a VSCode window. Run after npm run build.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { COMMANDS } from '../src/logic/setup.ts';
-import { makeRepo } from '../../packages/core/test/support.ts';
+import { makeRepo, tempDir } from '../../packages/core/test/support.ts';
 import { activate, fakeVscode, until } from './vscode.ts';
 
 const dist = fileURLToPath(new URL('../dist/extension.js', import.meta.url));
@@ -16,21 +15,21 @@ const dist = fileURLToPath(new URL('../dist/extension.js', import.meta.url));
 const extDir = join(dist, '..', '..');
 
 // The extension says it's listening for agents' questions (D-030); keep that out of the real ~/.acc.
-process.env.ACC_QUESTIONS_DIR = mkdtempSync(join(tmpdir(), 'acc-questions-'));
+process.env.ACC_QUESTIONS_DIR = tempDir('acc-questions-');
 // It records its runtime for acc's launcher (D-077); that goes here too, not in the real ~/.acc.
-const RUNTIME_FILE = join(mkdtempSync(join(tmpdir(), 'acc-runtime-')), 'runtime');
+const RUNTIME_FILE = join(tempDir('acc-runtime-'), 'runtime');
 process.env.ACC_RUNTIME_FILE = RUNTIME_FILE;
 // And Slack's claims (GH-58), which it prunes at start.
-process.env.ACC_SLACK_DIR = mkdtempSync(join(tmpdir(), 'acc-slack-'));
+process.env.ACC_SLACK_DIR = tempDir('acc-slack-');
 // And this machine's repos, which it adds each project it loads to (GH-81).
-const REPOS_FILE = join(mkdtempSync(join(tmpdir(), 'acc-repos-')), 'repos.json');
+const REPOS_FILE = join(tempDir('acc-repos-'), 'repos.json');
 process.env.ACC_REPOS_FILE = REPOS_FILE;
 // And this machine's limits (GH-111): its total and slots, and the repos it counts, which Settings reads and changes.
-const MACHINE_FILE = join(mkdtempSync(join(tmpdir(), 'acc-machine-')), 'machine.json');
+const MACHINE_FILE = join(tempDir('acc-machine-'), 'machine.json');
 process.env.ACC_MACHINE_FILE = MACHINE_FILE;
 // About's two looks (GH-114) answered here, so opening Settings stays offline: gh release view and claude
 // plugin list go to these stand-ins, which log each call; anything else goes on to the real gh or claude.
-const STANDIN_BIN = mkdtempSync(join(tmpdir(), 'acc-standin-'));
+const STANDIN_BIN = tempDir('acc-standin-');
 const STANDIN_LOG = join(STANDIN_BIN, 'calls.log');
 const real = (cmd: string) => spawnSync('sh', ['-c', `command -v ${cmd}`], { encoding: 'utf8' }).stdout.trim();
 const standIn = (cmd: string, when: string, answer: string) => writeFileSync(join(STANDIN_BIN, cmd), [
@@ -49,7 +48,7 @@ delete process.env.ACC_TASK;
 test('activation registers the commands, adds acc to PATH, and ticks the steps that pass', { timeout: 60_000 }, async () => {
   const repo = makeRepo({ '.acc/config.json': JSON.stringify({ schema: 1, project: 'Tool', environments: [{ name: 'main', default: true }], trackers: [{ kind: 'github' }] }), '.gitignore': '.claude/worktrees/\n' });
   // Claude Code state that trusts the repo, as accepting the prompt once leaves it (B12.trust).
-  const claudeDir = mkdtempSync(join(tmpdir(), 'claude-state-'));
+  const claudeDir = tempDir('claude-state-');
   writeFileSync(join(claudeDir, '.claude.json'), JSON.stringify({ projects: { [realpathSync(repo)]: { hasTrustDialogAccepted: true } } }));
   const savedClaudeDir = process.env.CLAUDE_CONFIG_DIR;
   process.env.CLAUDE_CONFIG_DIR = claudeDir;
@@ -290,7 +289,7 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
 
     // Trackers and sign-ins in Settings (GH-112). acc writes a Jira tracker to the project's config, as the
     // Connect page's Save asks it to. Nothing here is signed in when a board loads, so none is read over the network.
-    const jiraFile = join(mkdtempSync(join(tmpdir(), 'acc-tracker-')), 'jira.json');
+    const jiraFile = join(tempDir('acc-tracker-'), 'jira.json');
     writeFileSync(jiraFile, JSON.stringify({ kind: 'jira', site: 'acme.atlassian.net', project: 'ACME' }));
     const setTracker = spawnSync(process.execPath, [accBin, 'trackers', 'set', '--file', jiraFile, '--json'], { cwd: repo, encoding: 'utf8' });
     assert.equal(setTracker.status, 0, setTracker.stderr);

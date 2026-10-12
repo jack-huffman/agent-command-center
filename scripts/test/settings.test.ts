@@ -2,11 +2,11 @@
 // described for a person, and code reads no key or setting that isn't one (GH-107). A setting that does
 // nothing is worse than a missing one.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { after, test } from 'node:test';
 import { CONFIG_KEYS, UNREAD_KEYS, VALIDATOR_ONLY } from '../../packages/core/src/config.ts';
+import { tempDir } from '../../packages/core/test/support.ts';
 import { checkSettings, type Finding, NOT_READS, RAW_READS, READ_IN, ROOT, say, type SettingsInputs, sources } from '../settings.ts';
 
 test('every config key and extension setting is read by code and described, and code reads none that isn\'t one', () => {
@@ -59,7 +59,7 @@ const CLEAN: Record<string, string> = {
 };
 
 function check(files: Record<string, string | null>, over: Partial<SettingsInputs> = {}): Finding[] {
-  const root = mkdtempSync(join(tmpdir(), 'acc-settings-'));
+  const root = tempDir('acc-settings-');
   roots.push(root);
   for (const [f, text] of Object.entries({ ...CLEAN, ...files })) {
     if (text === null) continue;

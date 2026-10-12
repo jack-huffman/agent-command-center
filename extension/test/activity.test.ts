@@ -241,11 +241,11 @@ test('a session opens in Claude Code through its documented link, which takes th
 });
 
 test('a conversation is found where it is saved, from any window: likely folders first, then anywhere (D-046)', async () => {
-  const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
-  const { tmpdir } = await import('node:os');
+  const { mkdirSync, writeFileSync } = await import('node:fs');
+  const { tempDir } = await import('../../packages/core/test/support.ts');
   const { join } = await import('node:path');
   const { savedFolder } = await import('../src/transcript.ts');
-  const projects = mkdtempSync(join(tmpdir(), 'projects-'));
+  const projects = tempDir('projects-');
   const wt = '/Users/me/My Repo/.claude/worktrees/GH-13';
   const id = '7bc4abb5-b4aa-4b62-a376-eced9d81d05a';
   mkdirSync(transcriptDir(projects, wt), { recursive: true });
