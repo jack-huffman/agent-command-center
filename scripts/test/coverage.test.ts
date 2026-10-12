@@ -111,7 +111,7 @@ export const OLDER: Record<string, string[]> = {
   'packages/core/src/merge.ts': ['NO_CHECKS_GRACE_MS', 'BLOCKED_NO_CHECKS_MS', 'MERGE_METHODS'],
   'packages/core/src/names.ts': ['NAME_SEP'],
   'packages/core/src/onboarding/helpers.ts': ['versionAtLeast', 'firstVersion', 'sfJson', 'ghEnv', 'LICENSE_TO_TYPE', 'SECRET_PATTERN'],
-  'packages/core/src/onboarding/steps.ts': ['nearbyRepo', 'PLUGIN_LIST_ARGS', 'parseClaudeList', 'GROUP_TITLES'],
+  'packages/core/src/onboarding/steps.ts': ['PLUGIN_LIST_ARGS', 'parseClaudeList', 'GROUP_TITLES'],
   'packages/core/src/overlap.ts': ['IN_FLIGHT_STATES', 'nulPaths', 'startCandidates', 'startLook', 'sharesWords'],
   'packages/core/src/promote.ts': ['envByName', 'skipWarning'],
   'packages/core/src/questions.ts': ['questionsDir', 'ALLOWED_MODES', 'LISTENER_EVERY_MS', 'HOOK_TIMEOUT_S', 'askingUnder'],

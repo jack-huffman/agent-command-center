@@ -5,9 +5,10 @@
 // test, so the list only shrinks.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { globSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { npmTestFiles } from '../../packages/core/test/support.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..');
 
@@ -34,12 +35,7 @@ export function testNames(source: string): string[] {
 /** Whether a file has a test whose name says it covers an edge case. */
 export const coversEdge = (source: string): boolean => testNames(source).some((n) => EDGE.test(n));
 
-/** The test files npm test runs: the quoted globs in package.json's test script, expanded. */
-function testFiles(): string[] {
-  const script = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).scripts.test as string;
-  const globs = [...script.matchAll(/"([^"]+)"/g)].map((m) => m[1] ?? '');
-  return [...new Set(globs.flatMap((g) => globSync(g, { cwd: ROOT })))].sort();
-}
+const testFiles = (): string[] => npmTestFiles(ROOT);
 
 test('every test file npm test runs has a test named for an edge case, but the older ones OLDER names', () => {
   const files = testFiles();
