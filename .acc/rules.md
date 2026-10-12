@@ -16,3 +16,4 @@
   may only shrink. Reviewers judge the first half: each criterion and each guarded case has its test.
 - Before adding a constant, search for one that holds the same value or meaning; use it, or export one shared one.
 - A comment names the branch or failure path it explains. When a change moves or removes the code a comment sits above, move or delete the comment with it.
+- Before writing a helper, search for one that already does the job, and use the exported one. If you near-copy a local, unexported one instead, say so in the note you finish with.
