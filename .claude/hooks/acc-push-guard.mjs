@@ -468,7 +468,10 @@ export function gitProblem(args, record, ctx, wrapped, raw) {
   if (sub === 'clone' || sub === 'init') return `Work in this clone: a repo from git ${sub} has none of the guard's hooks, so nothing would check a push from it.`;
   if (sub === 'push') {
     if (wrapped) return `Push plainly, as its own command: ${allowedPush(record ?? '<your task branch>')}. Not through a wrapper, an assignment, a path to git, or git's own options.`;
-    return pushProblem(rest, record) ?? prePushProblem(ctx, record);
+    const why = pushProblem(rest, record);
+    // A push the guard allows: noted for the hook, which installs the pre-push hook before it lets it run.
+    if (!why) ctx.pushes = true;
+    return why;
   }
   if (sub === 'send-pack' || sub === 'request-pull') return `Push only with git push: ${allowedPush(record ?? '<your task branch>')}.`;
   if (isAlias(sub, ctx)) return `git ${sub} is an alias here, and a cloud builder runs no aliases: run the command it stands for, plainly.`;
@@ -720,7 +723,11 @@ function commandProblem(given, record, ctx, depth, wrappedOuter, line) {
   return null;
 }
 
-/** Why a cloud builder may not run this command line, or null. `record` is the task's branch; depth bounds shells within shells. */
+/**
+ * Why a cloud builder may not run this command line, or null. `record` is the task's branch; depth bounds
+ * shells within shells. It reads the line and writes no file: a push it allows sets ctx.pushes, and the hook
+ * installs the pre-push hook before that push runs.
+ */
 export function guard(line, record, ctx, depth = 0, wrappedOuter = false) {
   if (depth > 4) return 'Shells within shells: run the command plainly.';
   const commands = rawCommandsOf(line);
@@ -776,7 +783,7 @@ async function main() {
     return block('the hook\'s input wasn\'t JSON, so the guard couldn\'t read what would run. Nothing runs until it can.');
   }
   const cwd = typeof input?.cwd === 'string' && input.cwd ? input.cwd : process.cwd();
-  const ctx = { cwd, projectDir: process.env.CLAUDE_PROJECT_DIR || cwd, transcript: typeof input?.transcript_path === 'string' ? input.transcript_path : null, guardDir: dirname(fileURLToPath(import.meta.url)) };
+  const ctx = { cwd, pushes: false, projectDir: process.env.CLAUDE_PROJECT_DIR || cwd, transcript: typeof input?.transcript_path === 'string' ? input.transcript_path : null, guardDir: dirname(fileURLToPath(import.meta.url)) };
   let record = null;
   if (ctx.transcript) {
     try {
@@ -805,7 +812,12 @@ async function main() {
   const line = input.tool_input?.command;
   if (typeof line !== 'string') return block('the Bash call carried no command string.');
   const why = guard(line, record, ctx);
-  if (why) deny(why);
+  if (why) return deny(why);
+  // A push the guard allowed: the pre-push hook in place and the record written, or the push waits.
+  if (ctx.pushes) {
+    const hookWhy = prePushProblem(ctx, record);
+    if (hookWhy) deny(hookWhy);
+  }
 }
 
 /** Whether this file is the program run, not a module a test imported: by real paths, since a temp folder may be a symlink. */
