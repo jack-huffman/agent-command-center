@@ -1,11 +1,11 @@
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { type Config, type Environment, environmentByBranch, fullGates } from './config.ts';
 import { mainCheckout } from './dispatch.ts';
 import { AccError, type RunResult, type Runner } from './exec.ts';
 import { type Gate, type GateResult, listed, priorTests, runGates } from './gates.ts';
 import { withJob } from './jobs.ts';
 import { type Actor, mutate, readLedger, type Task } from './ledger.ts';
-import { type RepoPaths, repoPaths } from './paths.ts';
+import { type RepoPaths, repoPaths, samePath } from './paths.ts';
 import { FLOORS_FILE, mergeFloors } from './ratchets.ts';
 import { satisfies } from './receipts.ts';
 import type { SlotOptions } from './semaphore.ts';
@@ -124,14 +124,6 @@ export function resolvedWords(resolved: string[], verb: 'kept' | 'keeping' = 'ke
     ...(resolved.includes(FLOORS_FILE) ? [`${verb} the better of each ratchet's floors in ${file(FLOORS_FILE)}`] : []),
   ].join(', and ');
 }
-
-const samePath = (a: string, b: string): boolean => {
-  try {
-    return realpathSync(a) === realpathSync(b);
-  } catch {
-    return a === b;
-  }
-};
 
 // ---------------------------------------------------------------- the parts, which the merge queue takes one at a time (GH-73)
 

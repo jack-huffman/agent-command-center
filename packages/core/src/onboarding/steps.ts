@@ -1,4 +1,4 @@
-import { type Dir, existsSync, opendirSync, readFileSync, realpathSync } from 'node:fs';
+import { type Dir, existsSync, opendirSync, readFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, sep } from 'node:path';
 import { branchFor, type Environment, fullGates } from '../config.ts';
@@ -7,6 +7,7 @@ import { type DriftResult, driftReportPath } from '../drift.ts';
 import { parseJsonOutput, type RunResult } from '../exec.ts';
 import { gatesFor } from '../gates.ts';
 import { credentialHelper } from '../github.ts';
+import { samePath } from '../paths.ts';
 import { rulesStatus } from '../rules.ts';
 import { readmePlaces } from '../setup.ts';
 import { DATA_EXT } from '../stray-files.ts';
@@ -42,7 +43,7 @@ export const NEARBY_LIMIT = 200;
 export function nearbyRepo(cwd: string): string | null {
   const isRepo = (d: string) => existsSync(join(d, '.git'));
   const parent = dirname(cwd);
-  if (sameFolder(parent, tmpdir())) return null;
+  if (samePath(parent, tmpdir())) return null;
   const candidates = [...nearbyFolders(parent).filter((d) => d !== cwd), parent].filter(isRepo);
   return candidates.find((d) => existsSync(join(d, '.acc', 'config.json')))
     ?? candidates.find((d) => existsSync(join(d, 'sfdx-project.json')))
@@ -66,15 +67,6 @@ export function nearbyFolders(parent: string): string[] {
     dir?.closeSync();
   }
   return folders;
-}
-
-/** Whether two paths name one folder, through symlinks such as macOS's /var to /private/var. */
-function sameFolder(a: string, b: string): boolean {
-  try {
-    return realpathSync(a) === realpathSync(b);
-  } catch {
-    return a === b;
-  }
 }
 
 /** Every file on any environment's branch, local or as the remote has it. */
