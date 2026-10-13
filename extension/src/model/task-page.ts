@@ -198,9 +198,9 @@ export interface TicketAnalysis {
   files: { path: string; change: string; why: string }[];
   /**
    * The wording check's findings on its requirements (T-12), as advice: an orange state and each finding
-   * with the line it came from. Null when it has none, or an analysis older than the check.
+   * with the line it came from, and the words it caught unless they are the whole line (a dangling "and"). Null when it has none, or an analysis older than the check.
    */
-  wording: { look: Look; findings: { place: string; text: string; message: string; match: string }[] } | null;
+  wording: { look: Look; findings: { place: string; text: string; message: string; match: string | null }[] } | null;
   actions: Action[];
 }
 
@@ -243,7 +243,7 @@ export function wordingLook(n: number): Look | null {
 /** The wording findings as the page lists them, each with where it came from. Null when there are none. */
 export function ticketWording(findings: WordingFinding[] | undefined): TicketAnalysis['wording'] {
   const look = wordingLook(findings?.length ?? 0);
-  return look ? { look, findings: findings!.map((f) => ({ place: wordingPlace(f), text: f.text, message: f.message, match: f.match })) } : null;
+  return look ? { look, findings: findings!.map((f) => ({ place: wordingPlace(f), text: f.text, message: f.message, match: f.match.trim() === f.text.trim() ? null : f.match })) } : null;
 }
 
 /**

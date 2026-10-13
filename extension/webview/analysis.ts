@@ -92,7 +92,7 @@ export function renderAnalysis(m: TicketModel, a: TicketAnalysis): HTMLElement {
   // The wording check's findings (T-12): advice on how the requirements read. They never hold a dispatch.
   if (a.wording) {
     sec.append(el('div', 'an-wording', el('div', 'strong', 'How the requirements read'),
-      el('ul', 'an-list', ...a.wording.findings.map((f) => el('li', '', el('strong', '', `${f.place}: `), f.message, ' ', el('span', 'chip an-match', f.match), el('div', 'muted an-line', md(f.text)))))));
+      el('ul', 'an-list', ...a.wording.findings.map((f) => el('li', '', el('strong', '', `${f.place}: `), f.message, f.match ? ' ' : null, f.match ? el('span', 'chip an-match', f.match) : null, el('div', 'muted an-line', md(f.text)))))));
   }
   if (a.actions.length) sec.append(el('div', 'actions an-actions', ...a.actions.map(actionButton)));
   const folds = [
