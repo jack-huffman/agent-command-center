@@ -23,3 +23,7 @@
   reviewer's call. Checked by
   `scripts/test/rules.test.ts`, whose `UNCHECKED` list names the rules that predate this one. That list
   may only shrink.
+- Write each requirement that an agent reads in STE Strict mode (ASD-STE100 Simplified Technical
+  English): the goal, each criterion, each assumption and each out-of-scope item. The analyst's prompt
+  holds the rules. acc checks the wording of each requirement line it reads, and the task page shows each
+  finding. Checked by `packages/core/test/ste.test.ts`.
