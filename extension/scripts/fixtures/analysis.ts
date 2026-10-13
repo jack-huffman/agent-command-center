@@ -1,25 +1,30 @@
 /** A task's analysis (D-052), as acc analyze leaves it, for its row, its page and the Overview. */
 import type { Analysis } from '../../../packages/core/src/analyze.ts';
+import { requirementWording } from '../../../packages/core/src/ste.ts';
 import { MIN } from './shared.ts';
 
 /**
  * Analyses as acc analyze leaves them (D-052): one ready to build from, one with two questions for you
- * (and one answered), one too big for one task, and the one ACME-12 was built from.
+ * (and one answered) and two wording findings on its requirements (T-12), one too big for one task, and the
+ * one ACME-12 was built from. acc records the wording as it reads each, so the samples do too.
  */
 export function sampleAnalyses(now = Date.now()): Record<string, Analysis> {
   const at = (ago: number) => new Date(now - ago * MIN).toISOString();
-  const make = (task: string, verdict: Analysis['verdict'], ago: number, more: Partial<Analysis>): Analysis => ({
-    v: 1, task, env: 'dev', base: 'a1b2c3d', verdict, summary: '', requirements: { goal: '', criteria: [], assumptions: [], outOfScope: [] },
-    questions: [], findings: [], approach: { plan: [], files: [], refactors: [], risks: [], tests: [], size: 'M' }, split: [], orgs: ['Acme Dev'],
-    sessionId: `an-${task.toLowerCase()}`, at: at(ago), durationMs: 6 * MIN, costUsd: null, ...more,
-  });
+  const make = (task: string, verdict: Analysis['verdict'], ago: number, more: Partial<Analysis>): Analysis => {
+    const requirements = more.requirements ?? { goal: '', criteria: [], assumptions: [], outOfScope: [] };
+    return {
+      v: 1, task, env: 'dev', base: 'a1b2c3d', verdict, summary: '', requirements,
+      questions: [], findings: [], approach: { plan: [], files: [], refactors: [], risks: [], tests: [], size: 'M' }, split: [], orgs: ['Acme Dev'],
+      sessionId: `an-${task.toLowerCase()}`, at: at(ago), durationMs: 6 * MIN, costUsd: null, wording: requirementWording(requirements), ...more,
+    };
+  };
   return {
     'ACME-21': make('ACME-21', 'questions', 18, {
       summary: 'Converting a lead drops its contact roles: the conversion handler creates the opportunity but never an OpportunityContactRole. The fix belongs in the existing LeadConversionHandler, with a test for each role, and stays bulk-safe at 200 leads.',
       requirements: {
         goal: 'A lead converted with an opportunity keeps its contacts\' roles on that opportunity.',
-        criteria: ['A converted lead\'s primary contact has a contact role on the new opportunity', 'Converting 200 leads at once stays within limits', 'Leads converted without an opportunity are unchanged'],
-        assumptions: ['Every conversion runs through LeadConversionHandler', 'The role picklist keeps its standard values'],
+        criteria: ['A converted lead\'s primary contact has a contact role on the new opportunity', 'Converting 200 leads at once stays within limits; no flow fails', 'Leads converted without an opportunity are unchanged'],
+        assumptions: ['Every conversion runs through LeadConversionHandler and', 'The role picklist keeps its standard values'],
         outOfScope: ['Changing the lead conversion page layout'],
       },
       questions: [

@@ -203,9 +203,11 @@ test('requirementWording records each hard finding with its line, and none for c
     assumptions: ['The report was written by the admin.'],
     outOfScope: ['A seamless sign-in.'],
   });
-  assert.deepEqual(w.map((f) => [f.part, f.index, f.rule]), [['goal', 0, 'semicolon'], ['criteria', 1, 'phrasal-verb'], ['outOfScope', 0, 'marketing-adjective']]);
-  assert.equal(w[1]!.text, 'Spin up the job and', 'the line it came from');
-  assert.equal(w[1]!.match, 'Spin up');
+  // A criterion is a list item, so one that ends on "and" dangles; the goal is a sentence.
+  assert.deepEqual(w.map((f) => [f.part, f.index, f.rule]), [['goal', 0, 'semicolon'], ['criteria', 1, 'dangling-conjunction'], ['criteria', 1, 'phrasal-verb'], ['outOfScope', 0, 'marketing-adjective']]);
+  assert.equal(w[2]!.text, 'Spin up the job and', 'the line it came from');
+  assert.equal(w[2]!.match, 'Spin up');
+  assert.deepEqual(requirementWording({ goal: 'Start the job and', criteria: [], assumptions: [], outOfScope: [] }), [], 'a goal is no list item');
   assert.deepEqual(requirementWording({ goal: '', criteria: [], assumptions: [], outOfScope: [] }), [], 'nothing to check');
   assert.deepEqual(REQUIREMENT_PARTS, ['goal', 'criteria', 'assumptions', 'outOfScope']);
 });

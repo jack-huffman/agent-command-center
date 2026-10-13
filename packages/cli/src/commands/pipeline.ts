@@ -1,7 +1,7 @@
 // acc's Agents commands that take a task on from its build: analyze, analysis, review, land, autopilot
 // and sync.
 
-import { AccError, alive, type Analysis, analyze, answerAnalysis, autoMergeFor, autoMergeOn, AUTOPILOT_MIN_EVERY_S, autopilotDoes, autopilotMode, autopilotPass, type AutopilotResult, type AutopilotStepName, clearBranchMoves, closesIssues, closeWords, ghToken, holdAutopilot, land, mergesWords, moveUrl, moveWords, openQuestions, readAnalysis, review, run, settleCloses, sleep, sync } from '../../../core/src/index.ts';
+import { AccError, alive, type Analysis, analyze, answerAnalysis, autoMergeFor, autoMergeOn, AUTOPILOT_MIN_EVERY_S, autopilotDoes, autopilotMode, autopilotPass, type AutopilotResult, type AutopilotStepName, clearBranchMoves, closesIssues, closeWords, ghToken, holdAutopilot, land, mergesWords, moveUrl, moveWords, openQuestions, readAnalysis, review, run, settleCloses, sleep, sync, wordingPlace, wordingWords } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
 import { accBinDir, accCommand, actorFrom, type CommandArea, followingCards, now, type Opts, out, personOnly, project, stepWords } from '../shared.ts';
 import { personOnlyUpdate } from './updates.ts';
@@ -36,6 +36,8 @@ function analysisLines(a: Analysis): string[] {
     head,
     ...(a.questions.length ? ['', 'Questions', ...a.questions.map((q) => `  ${q.id}. ${q.question}${q.answer ? tone(`  → ${q.answer.text}`, 'blue') : tone(`  (suggested: ${q.suggested})`, 'dim')}`)] : []),
     ...list('Acceptance criteria', a.requirements.criteria),
+    // The wording check on its requirements (T-12): advice, never a hold.
+    ...(a.wording?.length ? ['', tone(`! ${wordingWords(a.wording.length)}`, 'orange'), ...a.wording.map((f) => `  - ${wordingPlace(f)}: ${f.message} [${f.match}]`)] : []),
     ...list('What is there now', a.findings.map((f) => `${f.area}: ${f.detail}${f.source ? tone(`  ${f.source}`, 'dim') : ''}`)),
     ...list('Approach', a.approach.plan),
     ...list('Refactors first', a.approach.refactors.map((r) => `${r.what}: ${r.why}`)),

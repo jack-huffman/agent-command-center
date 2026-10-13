@@ -352,9 +352,16 @@ export function requirementWording(r: { goal: string; criteria: string[]; assump
     ...(r.goal.trim() ? [['goal', 0, r.goal] as [RequirementPart, number, string]] : []),
     ...(['criteria', 'assumptions', 'outOfScope'] as const).flatMap((part) => r[part].map((text, i) => [part, i, text] as [RequirementPart, number, string])),
   ];
-  return lines.flatMap(([part, index, text]) => steLint(text).findings.filter((f) => f.level === 'hard')
+  // A criterion, an assumption or an out-of-scope item is a list item, so one that ends on "and" is caught.
+  return lines.flatMap(([part, index, text]) => steLint(part === 'goal' ? text : `- ${text}`).findings.filter((f) => f.level === 'hard')
     .map((f) => ({ part, index, text, rule: f.rule, match: f.match, message: f.message })));
 }
 
 /** "Wording: 2 findings", or nothing when there are none. */
 export const wordingWords = (n: number): string | null => (n ? `Wording: ${n} finding${n === 1 ? '' : 's'}` : null);
+
+/** What each part of the requirements is called where a person reads a finding. */
+export const PART_WORDS: Record<RequirementPart, string> = { goal: 'Goal', criteria: 'Criterion', assumptions: 'Assumption', outOfScope: 'Out of scope' };
+
+/** Where a finding came from, as a person reads it: "Goal", or "Criterion 2", counted from 1. */
+export const wordingPlace = (f: Pick<WordingFinding, 'part' | 'index'>): string => (f.part === 'goal' ? PART_WORDS.goal : `${PART_WORDS[f.part]} ${f.index + 1}`);

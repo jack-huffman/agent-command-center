@@ -83,12 +83,17 @@ const pair = (head: string, rest: string, source = ''): HTMLElement => el('span'
 export function renderAnalysis(m: TicketModel, a: TicketAnalysis): HTMLElement {
   const key = `an:${m.project}#${m.key}`;
   const sec = el('section', `analysis tone-edge-${a.look.tone}`,
-    el('div', 'an-head', el('h2', '', 'Analysis'), status(a.look), a.size ? el('span', 'chip an-size', `Size ${a.size}`) : null, el('span', 'spacer'), a.at ? when(a.at) : null));
+    el('div', 'an-head', el('h2', '', 'Analysis'), status(a.look), a.wording ? status(a.wording.look) : null, a.size ? el('span', 'chip an-size', `Size ${a.size}`) : null, el('span', 'spacer'), a.at ? when(a.at) : null));
   sec.setAttribute('aria-label', `Analysis: ${a.look.label}`);
   if (a.note) sec.append(el('p', 'muted an-note', a.note));
   if (a.summary) sec.append(foldable(`${key}:summary`, el('p', 'an-summary', md(a.summary)), null, 4));
   if (a.split.length) sec.append(el('div', 'an-split', el('div', 'strong', 'Split it into'), el('ol', 'an-list', ...a.split.map((x) => el('li', '', md(x))))));
   if (a.open.length) sec.append(el('div', 'an-questions', ...a.open.map((q) => analysisQuestion(m.project, a.task, q, a.canAsk))));
+  // The wording check's findings (T-12): advice on how the requirements read. They never hold a dispatch.
+  if (a.wording) {
+    sec.append(el('div', 'an-wording', el('div', 'strong', 'How the requirements read'),
+      el('ul', 'an-list', ...a.wording.findings.map((f) => el('li', '', el('strong', '', `${f.place}: `), f.message, ' ', el('span', 'chip an-match', f.match), el('div', 'muted an-line', md(f.text)))))));
+  }
   if (a.actions.length) sec.append(el('div', 'actions an-actions', ...a.actions.map(actionButton)));
   const folds = [
     analysisFold(`${key}:decided`, 'Decided', a.decided.map((d) => el('span', '', md(d.question), ' ', el('strong', '', md(d.answer)), d.assumed ? el('span', 'muted', ' (assumed: nobody answered)') : null))),

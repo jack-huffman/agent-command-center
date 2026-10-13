@@ -8,7 +8,8 @@ import type { Analysis } from '../../packages/core/src/analyze.ts';
 import { type BoardInput, initials, priorityIcon, trackerBoard, typeIcon } from '../src/model/boards.ts';
 import { sampleTicket } from '../scripts/fixtures/task-page.ts';
 import { isFromWebview } from '../src/model/messages.ts';
-import { type CheckIn, checkLook, checkRows, ticketActionRefusal, ticketCheck, ticketModel } from '../src/model/task-page.ts';
+import { type CheckIn, checkLook, checkRows, ticketActionRefusal, ticketCheck, ticketModel, ticketWording, wordingLook } from '../src/model/task-page.ts';
+import { requirementWording } from '../../packages/core/src/ste.ts';
 import { updateAbout } from '../src/model/updates.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
 import { type Ticket, TrackerError } from '../../packages/core/src/trackers/types.ts';
@@ -302,6 +303,33 @@ test('a task\'s page shows its analysis gist first: the verdict, the summary, it
   const acc = (key: string) => card.columns.flatMap((c) => c.cards).find((c) => c.key === key)!.acc!;
   assert.deepEqual([acc('ACME-1').look.label, acc('ACME-1').needsYou, acc('ACME-1').action!.label], ['Needs you: 1 question from its analysis', true, 'Answer']);
   assert.equal(acc('ACME-3').action!.command, 'acc.task.analyze', 'a tracker\'s card offers the analysis first, where it\'s wanted');
+});
+
+test('a task\'s page shows its analysis\'s wording findings as an orange state with each line, and none when there are none (T-12)', () => {
+  const task = { id: 'ACME-1', title: 'One', brief: '', source: { kind: 'jira', key: 'ACME-1', url: null }, environment: 'dev', deps: [], labels: [], state: 'todo', blocker: null, run: null, pr: null, history: [], createdAt: '', updatedAt: '' } as never;
+  const base = { project: '/r', tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira' as const, key: 'ACME-1', ticket, loading: false, error: null, connect: null, checks: [], task };
+  const requirements = { goal: 'Kick off the sync.', criteria: ['The sync runs; it logs.', 'The sync writes one line.'], assumptions: [], outOfScope: [] };
+  const a: Analysis = {
+    v: 1, task: 'ACME-1', env: 'dev', base: 'abc', verdict: 'ready', summary: 'S.', requirements, questions: [], findings: [],
+    approach: { plan: [], files: [], refactors: [], risks: [], tests: [], size: 'S' }, split: [], orgs: [], sessionId: 's', at: '2026-10-05T10:00:00.000Z', durationMs: 1, costUsd: null,
+    wording: requirementWording(requirements),
+  };
+  const page = (an: Analysis, display: TaskRow['display'] = 'ready') => ticketModel({ ...base, row: row('ACME-1', 'todo', display, { analysis: rowAnalysis(an) }), analysis: an }).analysis!;
+  const m = page(a);
+  assert.deepEqual(m.wording!.look, { label: 'Wording: 2 findings', icon: 'whole-word', tone: 'orange' });
+  assert.deepEqual(m.wording!.findings.map((f) => [f.place, f.match, f.text]), [['Goal', 'Kick off', 'Kick off the sync.'], ['Criterion 1', ';', 'The sync runs; it logs.']]);
+  assert.deepEqual(m.look, { label: 'Ready to build', icon: 'pass', tone: 'blue' }, 'a wording finding never holds the build: it is advice');
+  assert.deepEqual(wordingLook(1), { label: 'Wording: 1 finding', icon: 'whole-word', tone: 'orange' });
+  assert.equal(wordingLook(0), null);
+  // No finding, or an analysis older than the check: no wording state at all.
+  assert.equal(page({ ...a, wording: [] }).wording, null);
+  const { wording: _older, ...older } = a;
+  assert.equal(page(older as Analysis).wording, null);
+  assert.equal(ticketWording(undefined), null);
+  // The page draws the state beside the verdict, and each finding with its line.
+  const src = readFileSync(new URL('../webview/analysis.ts', import.meta.url), 'utf8');
+  assert.match(src, /status\(a\.look\), a\.wording \? status\(a\.wording\.look\) : null/);
+  assert.match(src, /el\('div', 'muted an-line', md\(f\.text\)\)/);
 });
 
 test('messages from the board and ticket pages are checked before anything acts on them', () => {
