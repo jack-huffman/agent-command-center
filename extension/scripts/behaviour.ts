@@ -2,7 +2,8 @@
  * The modals' behaviour in a browser (GH-170). The task modal over the Tasks board (D-129) and the
  * Overview's detail modal (D-131) were checked by hand: Escape and the backdrop closing them, focus going
  * back to what opened them, a redraw under them leaving them as they were, a fold redrawing them, Show all
- * and the suggested rules' Previous and Next. Each case here opens the built page from its fixture in
+ * and the suggested rules' Previous and Next. One case reads a task page as drawn: ACME-21's wording list
+ * (T-12, T-13), a line for each finding. Each case here opens the built page from its fixture in
  * headless Chrome, posts what the extension would post and dispatches what a person's keys and clicks
  * would, then checks the DOM, and writes what it found into a JSON script element Chrome's --dump-dom
  * prints. judgeBehaviour() decides, with no browser, so its rules are unit-tested.
@@ -75,10 +76,18 @@ export interface BehaviourData {
   rulesOpens: string;
   /** A list with more than its page shows: its key, its heading, how many it shows and how many it holds. */
   list: { key: string; title: string; shown: number; total: number };
+  /** The wording findings ACME-21's page lists (T-12), in its order: where each is, why, and its line. */
+  wording: { place: string; message: string; text: string }[];
 }
 
 /** One case: its name, the page it opens, and what it does there. */
-export interface Case { name: string; page: 'tasks' | 'overview-landing'; run: (t: Probe) => Promise<void> }
+export interface Case { name: string; page: 'tasks' | 'overview-landing' | 'ticket-questions'; run: (t: Probe) => Promise<void> }
+
+/** The pages the cases open: the Tasks board, the Overview, and ACME-21's task page. */
+export interface CaseModels { tasks: Model; overview: Model; ticket: Model }
+
+/** The model a case's page is drawn from. */
+export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : models.overview);
 
 // ---------------------------------------------------------------- helpers, run in the page
 
@@ -328,6 +337,20 @@ export const CASES: Case[] = [
       t.check('it shows every review', t.all('.rule-source', dialog).length === want, t.all('.rule-source', dialog).length);
     },
   },
+  {
+    name: 'task page: an analysis with wording findings shows its wording list, a line for each finding with its place and why',
+    page: 'ticket-questions',
+    async run(t) {
+      const box = t.find('.an-wording');
+      t.check('the list has its heading', t.find('.strong', box).textContent === 'How the requirements read', t.find('.strong', box).textContent);
+      const items = t.all('li', box);
+      t.check('a line for each finding', items.length === t.data.wording.length && items.length > 0, { shown: items.length, expected: t.data.wording.length });
+      for (const [i, f] of t.data.wording.entries()) {
+        const text = items[i]?.textContent ?? '';
+        t.check(`finding ${i + 1} shows its place, why, and its line`, text.startsWith(`${f.place}: ${f.message}`) && text.includes(f.text), text);
+      }
+    },
+  },
 ];
 
 // ---------------------------------------------------------------- mutants: the page with one behaviour broken
@@ -358,6 +381,8 @@ export const MUTANTS: Mutant[] = [
   { name: 'Previous stays put', file: 'detail.ts', find: "const prev = button('Previous', 'arrow-left', () => go(at - 1), 'ghost small');", replace: "const prev = button('Previous', 'arrow-left', () => go(at), 'ghost small');", kills: [caseNamed('detail modal: Previous and Next')] },
   { name: 'the detail shows the first rule whatever the pager says', file: 'detail.ts', find: 'card(items[at]!)', replace: 'card(items[0]!)', kills: [caseNamed('detail modal: Previous and Next'), caseNamed('detail modal: Accept')] },
   { name: 'Confirm leaves out the check it asks for', file: 'rules.ts', find: 'title: now.title.trim(), check: now.check,', replace: 'title: now.title.trim(),', kills: [caseNamed('detail modal: Accept')] },
+  { name: 'the task page shows no wording list', file: 'analysis.ts', find: 'if (a.wording) {', replace: 'if (a.wording && !a.wording) {', kills: [caseNamed('task page: an analysis with wording findings')] },
+  { name: 'the wording list leaves out where each finding is', file: 'analysis.ts', find: "el('strong', '', `${f.place}: `)", replace: "el('strong', '', '')", kills: [caseNamed('task page: an analysis with wording findings')] },
 ];
 
 /** How many times `find` is in `source`: a mutant applies only where it's there exactly once. */
@@ -366,7 +391,7 @@ export const occurrences = (source: string, find: string): number => (find ? sou
 // ---------------------------------------------------------------- what Node expects, and the page
 
 /** The oracle: what each case should see, from the fixtures the pages are drawn from. */
-export function behaviourData(models: { tasks: Model; overview: Model }, now: number): BehaviourData {
+export function behaviourData(models: CaseModels, now: number): BehaviourData {
   const ticket = sampleTicket(now);
   const o = (models.overview as HomeModel).overview;
   const rules = o.attention.flatMap((a) => (a.rule ? [a.rule] : []));
@@ -379,6 +404,7 @@ export function behaviourData(models: { tasks: Model; overview: Model }, now: nu
     rules: rules.map((r) => ({ id: r.id, line: r.line, sources: r.sources.length, accept: accept(r) })),
     rulesOpens: JSON.stringify({ kind: 'rules' }),
     list: { key: list.key, title: list.title, shown: list.rows.length, total: list.total },
+    wording: (sampleTicket(now, 'ACME-21').analysis?.wording?.findings ?? []).map((f) => ({ place: f.place, message: f.message, text: f.text })),
   };
 }
 
@@ -528,7 +554,7 @@ const MODEL = ${JSON.stringify(model).replace(/</g, '\\u003c')};
 ${harness(c, data)}
 </script>
 </head>
-<body class="vscode-light" data-view="home" data-logo-dark="webview/acc-dark.svg" data-logo-light="webview/acc-light.svg"><main id="app"></main><script src="${script}"></script></body></html>
+<body class="vscode-light" data-view="${model.kind === 'ticket' ? 'ticket' : 'home'}" data-logo-dark="webview/acc-dark.svg" data-logo-light="webview/acc-light.svg"><main id="app"></main><script src="${script}"></script></body></html>
 `;
 }
 
@@ -540,7 +566,7 @@ export interface BehaviourDeps {
   chrome: string;
   /** A folder holding the built webview at webview/. */
   work: string;
-  models: { tasks: Model; overview: Model };
+  models: CaseModels;
   now: number;
   fonts: Record<string, string>;
   run: (chrome: string, args: string[]) => ReturnType<typeof spawnSync>;
@@ -549,7 +575,7 @@ export interface BehaviourDeps {
 
 function runCase(d: BehaviourDeps, c: Case, data: BehaviourData, script?: string, tag = 'case'): BehaviourRun {
   const file = join(d.work, `behaviour-${tag}-${CASES.indexOf(c)}.html`);
-  writeFileSync(file, behaviourPage(c, c.page === 'tasks' ? d.models.tasks : d.models.overview, data, d.fonts, script));
+  writeFileSync(file, behaviourPage(c, caseModel(c, d.models), data, d.fonts, script));
   const r = d.run(d.chrome, ['--headless=new', '--disable-gpu', '--hide-scrollbars', '--no-first-run', '--no-default-browser-check', '--allow-file-access-from-files',
     '--virtual-time-budget=8000', `--window-size=${BEHAVIOUR_WINDOW.width},${BEHAVIOUR_WINDOW.height}`, '--dump-dom', pathToFileURL(file).href]);
   return { name: c.name, report: r.error ? null : dumpedBehaviour(String(r.stdout ?? '')) };

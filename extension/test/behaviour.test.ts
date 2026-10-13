@@ -5,12 +5,12 @@ import { test } from 'node:test';
 import { Script } from 'node:vm';
 import type { HomeModel } from '../src/model/home.ts';
 import { isFromWebview } from '../src/model/messages.ts';
-import { type BehaviourReport, behaviourData, behaviourPage, CASES, caseFailed, dumpedBehaviour, HELPERS, judgeBehaviour, judgeMutants, MUTANTS, occurrences } from '../scripts/behaviour.ts';
+import { type BehaviourReport, behaviourData, behaviourPage, CASES, caseModel, caseFailed, dumpedBehaviour, HELPERS, judgeBehaviour, judgeMutants, MUTANTS, occurrences } from '../scripts/behaviour.ts';
 import { FONTS, sampleModel } from '../scripts/screenshot.ts';
 
 const webview = join(import.meta.dirname, '..', 'webview');
 const now = Date.UTC(2026, 9, 10, 12);
-const models = () => ({ tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark') });
+const models = () => ({ tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark') });
 const ok = (n = 1): BehaviourReport => ({ checks: Array.from({ length: n }, (_, i) => ({ what: `check ${i}`, ok: true })), error: null, sent: [{ type: 'ready' }] });
 
 test('a case passes on a report whose every check held, and its checks are counted', () => {
@@ -101,6 +101,19 @@ test('what the cases expect comes from the same fixtures the pages draw: ten rul
   assert.ok(JSON.stringify(models().tasks).includes('"ACME-12"'));
 });
 
+test('the task page case opens ACME-21\'s page, whose analysis has wording findings, and expects each one: the edge case of a list the page could drop', () => {
+  const d = behaviourData(models(), now);
+  assert.deepEqual(d.wording.map((f) => f.place), ['Criterion 2', 'Assumption 1'], 'two findings, from the sample analysis');
+  assert.ok(d.wording.every((f) => f.message && f.text), 'each has why and its line');
+  const c = CASES.find((x) => x.page === 'ticket-questions');
+  assert.ok(c, 'a case opens the task page');
+  const m = caseModel(c, models()) as { kind: string; key: string };
+  assert.deepEqual([m.kind, m.key], ['ticket', 'ACME-21']);
+  assert.match(behaviourPage(c, m as never, d, FONTS), /<body class="vscode-light" data-view="ticket"/, 'the page takes the ticket model it is sent');
+  assert.match(behaviourPage(CASES[0]!, models().tasks, d, FONTS), /data-view="home"/);
+  assert.equal(MUTANTS.filter((x) => x.kills.includes(c.name)).length, 2, 'a mutant hides the list, another drops each place');
+});
+
 test('an Overview with no list longer than its page fails the oracle, not the cases', () => {
   const m = models();
   const home = m.overview as HomeModel;
@@ -111,7 +124,7 @@ test('an Overview with no list longer than its page fails the oracle, not the ca
 test('each case\'s page is script the browser can parse: its helpers and case, with no string from the model able to close it', () => {
   const d = behaviourData(models(), now);
   for (const c of CASES) {
-    const html = behaviourPage(c, c.page === 'tasks' ? models().tasks : models().overview, d, FONTS);
+    const html = behaviourPage(c, caseModel(c, models()), d, FONTS);
     const inline = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((x) => x[1]!);
     assert.equal(inline.length, 1, `${c.name}: one inline script`);
     assert.doesNotThrow(() => new Script(inline[0]!), `${c.name}: its script parses`);
