@@ -105,7 +105,7 @@ export function claudeLogin(run: Runner, env: NodeJS.ProcessEnv): { ok: boolean;
 // ---------------------------------------------------------------- the token, in the keychain
 
 /** The keychain item the routine's token is kept in, by repo: never in .acc/config.json or git (GH-69). */
-export const CLOUD_TOKEN_SERVICE = 'acc-cloud-routine';
+const CLOUD_TOKEN_SERVICE = 'acc-cloud-routine';
 /** For tests and CI: a token given in the environment stands in for the keychain's. */
 export const CLOUD_TOKEN_ENV = 'ACC_CLOUD_TOKEN';
 /** A routine's API token, as claude.ai shows it: a bearer token, letters, digits, dashes and underscores. */
@@ -139,11 +139,11 @@ export function deleteCloudToken(run: Runner, repo: string, env: NodeJS.ProcessE
 // ---------------------------------------------------------------- firing the routine
 
 /** The routine's fire endpoint and the beta it ships under, as the docs give them (D-140). */
-export const ROUTINE_FIRE_URL = (routine: string): string => `https://api.anthropic.com/v1/claude_code/routines/${routine}/fire`;
+const ROUTINE_FIRE_URL = (routine: string): string => `https://api.anthropic.com/v1/claude_code/routines/${routine}/fire`;
 export const ROUTINE_BETA = 'experimental-cc-routine-2026-04-01';
-export const ROUTINE_VERSION = '2023-06-01';
+const ROUTINE_VERSION = '2023-06-01';
 /** How long a fire may take: the reply comes once the session is made. */
-export const FIRE_TIMEOUT_MS = 60_000;
+const FIRE_TIMEOUT_MS = 60_000;
 
 export interface Fired {
   sessionId: string;
@@ -193,7 +193,7 @@ export function fireRoutine(paths: Pick<RepoPaths, 'stateDir'>, run: Runner, rou
 /** The trailer a cloud builder puts on its last commit in place of acc done (GH-69), and the note's parts. */
 export const DONE_TRAILER = 'Acc-Done';
 export const BLOCKED_TRAILER = 'Acc-Blocked';
-export const NOTE_TRAILERS = { landed: 'Acc-Landed', moved: 'Acc-Moved', open: 'Acc-Open' } as const;
+const NOTE_TRAILERS = { landed: 'Acc-Landed', moved: 'Acc-Moved', open: 'Acc-Open' } as const;
 
 export interface Finish {
   /** The commit says the task is done: `Acc-Done: <id>`. */
@@ -227,7 +227,7 @@ export function parseFinish(message: string, id: string): Finish {
  * needs an org login (Salesforce validate, drift) can't run in the cloud, whose network reaches package
  * registries and GitHub and no org. acc runs those when it collects.
  */
-export const ORG_GATES = ['validate', 'drift'];
+const ORG_GATES = ['validate', 'drift'];
 export function cloudChecks(config: Config, env: Environment): { inCloud: string[]; macOnly: string[] } {
   const required = requiredGates(config, env.branch, 'builder');
   const macOnly = required.filter((g) => config.profile === 'salesforce' && ORG_GATES.includes(g));

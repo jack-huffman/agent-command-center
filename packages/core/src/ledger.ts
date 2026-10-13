@@ -584,7 +584,7 @@ export function findRule(from: State, to: State): Rule | undefined {
 }
 
 /** Where a run's builder runs (GH-69): local unless its run says cloud. */
-export const runPlace = (run: Pick<Run, 'where'> | null | undefined): BuilderPlace => (run?.where === 'cloud' ? 'cloud' : 'local');
+const runPlace = (run: Pick<Run, 'where'> | null | undefined): BuilderPlace => (run?.where === 'cloud' ? 'cloud' : 'local');
 
 /**
  * The builders running in a repo, but `except`'s: its tasks in Running, whose builder may have stopped (D-067).
@@ -597,7 +597,7 @@ export const builders = (ledger: Pick<Ledger, 'tasks'>, except: string, where: B
 export const projectCapWords = (n: number, max: number): string => `${n} ${n === 1 ? 'builder is' : 'builders are'} running in this project, and its cap is ${max} (agents.max).`;
 
 /** A cloud start that would pass the project's cloud cap, in words that name it (GH-69). */
-export const cloudCapWords = (n: number, max: number): string => `${n} cloud ${n === 1 ? 'builder is' : 'builders are'} running for this project, and its cap is ${max} (agents.cloud.max).`;
+const cloudCapWords = (n: number, max: number): string => `${n} cloud ${n === 1 ? 'builder is' : 'builders are'} running for this project, and its cap is ${max} (agents.cloud.max).`;
 
 /** Everything that stops this move. Empty means it's allowed. */
 export function checkMove(ledger: Ledger, config: Config, task: Task, req: MoveRequest, hooks: Hooks): string[] {

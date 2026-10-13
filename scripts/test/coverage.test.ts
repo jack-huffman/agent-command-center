@@ -15,12 +15,7 @@ const ROOT = join(import.meta.dirname, '..', '..');
 const SOURCES = [':(glob)packages/*/src/**/*.ts', ':(glob)extension/src/**/*.ts', ':(glob)extension/webview/*.ts'];
 const TESTS = [':(glob)packages/*/test/*.ts', ':(glob)extension/test/*.ts', ':(glob)scripts/test/*.ts'];
 
-/**
- * The exports that predate the rule and no test names, by module. Only ever remove one. GH-69's cloud
- * exports joined at its merge (2026-10-12): it was built before the rule, and naming each is left to the
- * tidy-up. cloud-guard.ts's RECORD, PRE_PUSH, GUARD_FILES, pushProblem and gitProblem are the guard script's, in its
- * template, which exportsOf reads as the module's.
- */
+/** The exports that predate the rule and no test names, by module. Only ever remove one. */
 export const OLDER: Record<string, string[]> = {
   'extension/src/activity.ts': ['AgentPages'],
   'extension/src/autopilot.ts': ['AutopilotHost'],
@@ -91,13 +86,10 @@ export const OLDER: Record<string, string[]> = {
   'packages/core/src/analyze.ts': ['SIZE_MEANING', 'ANALYSIS_SCHEMA', 'ANALYST_COMMANDS'],
   'packages/core/src/autopilot-rules.ts': ['resumedByAutopilot', 'inQueueAt', 'firstLines'],
   'packages/core/src/autopilot.ts': ['AUTOPILOT_MIN_EVERY_S', 'AUTOPILOT_REVIEW_DOES', 'autopilotDoes', 'realSteps', 'startedWords'],
-  'packages/core/src/branches.ts': ['branchesPath', 'commitWords'],
   'packages/core/src/cards.ts': ['cardState'],
   'packages/core/src/checks.ts': ['MAX_LOGS', 'NO_ACTIONS_LOG', 'tailText', 'readChecksReport', 'queueReportPath', 'sendBack'],
   'packages/core/src/closing.ts': ['GH_CALL_MS', 'editsTracker', 'firstLine', 'closeWords'],
-  'packages/core/src/cloud-guard.ts': ['RECORD', 'PRE_PUSH', 'GUARD_FILES', 'pushProblem', 'gitProblem'],
-  'packages/core/src/cloud.ts': ['ROUTINES_URL', 'claudeLogin', 'CLOUD_TOKEN_SERVICE', 'CLOUD_TOKEN', 'deleteCloudToken', 'ROUTINE_FIRE_URL', 'ROUTINE_VERSION', 'FIRE_TIMEOUT_MS', 'NOTE_TRAILERS', 'ORG_GATES', 'cloudUrl', 'enableCloud', 'disableCloud'],
-  'packages/core/src/config.ts': ['PROFILES', 'ENV_TYPES', 'AUTONOMY', 'PERMISSION_MODES', 'MODEL_NAME', 'AGENT_ROLES', 'RATCHET_LIMITS', 'RATCHET_NAME', 'TEMPLATE_DIGEST', 'DEFAULT_HEAVY', 'parseEnvironments', 'environmentByBranch', 'STRAY_FILES', 'withStrayFiles', 'BUILDER_PLACES', 'ROUTINE_ID', 'CLOUD_QUIET_MINUTES', 'CLOUD_MAX'],
+  'packages/core/src/config.ts': ['PROFILES', 'ENV_TYPES', 'AUTONOMY', 'PERMISSION_MODES', 'MODEL_NAME', 'AGENT_ROLES', 'RATCHET_LIMITS', 'RATCHET_NAME', 'TEMPLATE_DIGEST', 'DEFAULT_HEAVY', 'parseEnvironments', 'environmentByBranch', 'STRAY_FILES', 'withStrayFiles'],
   'packages/core/src/deploy.ts': ['deployRecordPath'],
   'packages/core/src/dispatch.ts': ['mainCheckout', 'isClaudeWorktree', 'claudeStatePath', 'isTrusted', 'builderModel'],
   'packages/core/src/drift.ts': ['BASELINE_MANIFEST', 'environmentNamed'],
@@ -112,13 +104,12 @@ export const OLDER: Record<string, string[]> = {
   'packages/core/src/intake.ts': ['reconcileGithub'],
   'packages/core/src/jobs.ts': ['JOB_KINDS'],
   'packages/core/src/land.ts': ['LAND_TIMEOUT_MS', 'UPDATE_POST_TIMEOUT_MS', 'mergesWords'],
-  'packages/core/src/ledger.ts': ['SOURCE_KINDS', 'writeAtomic', 'isValidId', 'NOTE_LIMITS', 'NOTE_LABELS', 'noteGiven', 'noteProblems', 'sessionActive', 'STOPPED_GRACE_MS', 'runStartedAt', 'sentBackByAutopilot', 'SEND_BACKS', 'sendBacks', 'sentBackAt', 'inQueue', 'runPlace', 'cloudCapWords'],
+  'packages/core/src/ledger.ts': ['SOURCE_KINDS', 'writeAtomic', 'isValidId', 'NOTE_LIMITS', 'NOTE_LABELS', 'noteGiven', 'noteProblems', 'sessionActive', 'STOPPED_GRACE_MS', 'runStartedAt', 'sentBackByAutopilot', 'SEND_BACKS', 'sendBacks', 'sentBackAt', 'inQueue'],
   'packages/core/src/limits.ts': ['MAX_AGENTS', 'DEFAULT_AGENTS', 'realLedger'],
   'packages/core/src/lock.ts': ['alive'],
   'packages/core/src/machine.ts': ['machineJsonToWrite', 'setMachineKey'],
   'packages/core/src/merge.ts': ['NO_CHECKS_GRACE_MS', 'BLOCKED_NO_CHECKS_MS', 'MERGE_METHODS'],
   'packages/core/src/names.ts': ['NAME_SEP'],
-  'packages/core/src/onboarding/cloud-steps.ts': ['ROUTINE_PROMPT', 'CLOUD_STEPS'],
   'packages/core/src/onboarding/helpers.ts': ['versionAtLeast', 'firstVersion', 'sfJson', 'ghEnv', 'LICENSE_TO_TYPE', 'SECRET_PATTERN'],
   'packages/core/src/onboarding/steps.ts': ['PLUGIN_LIST_ARGS', 'parseClaudeList', 'GROUP_TITLES'],
   'packages/core/src/overlap.ts': ['IN_FLIGHT_STATES', 'nulPaths', 'startCandidates', 'startLook', 'sharesWords'],
@@ -150,11 +141,87 @@ export const OLDER: Record<string, string[]> = {
 };
 
 /**
+ * Source with the text inside template literals blanked, its lines kept: a script a module holds in a
+ * template (the cloud guard's) exports nothing of the module's. What a `${…}` holds is code and stays, and a
+ * backtick inside a quoted string or a comment starts no template.
+ */
+export const outsideTemplates = (source: string): string => {
+  let out = '';
+  // The brace depth outside each `${` we're in, so its closing brace goes back to the template.
+  const outer: number[] = [];
+  let depth = 0;
+  let inTemplate = false;
+  for (let i = 0; i < source.length; i++) {
+    const c = source[i]!;
+    if (inTemplate) {
+      if (c === '`') {
+        inTemplate = false;
+        out += c;
+      } else if (c === '$' && source[i + 1] === '{') {
+        outer.push(depth);
+        depth = 0;
+        inTemplate = false;
+        out += '${';
+        i++;
+      } else {
+        // An escape is blanked with the character it escapes; a newline stays, so lines keep their numbers.
+        const chars = c === '\\' ? c + (source[++i] ?? '') : c;
+        out += chars.replace(/[^\n]/g, ' ');
+      }
+      continue;
+    }
+    const end = c === '\'' || c === '"' ? lineStringEnd(source, i, c)
+      : c === '/' && source[i + 1] === '/' ? source.indexOf('\n', i)
+      : c === '/' && source[i + 1] === '*' ? source.indexOf('*/', i + 2) + 1
+      : c === '/' && /(^|[(,=:[!&|?{};+\-*%<>~^]|\breturn)\s*$/.test(out.slice(-40)) ? regexEnd(source, i)
+      : -2;
+    if (end !== -2) {
+      const stop = end <= 0 ? source.length : end + 1;
+      out += source.slice(i, stop);
+      i = stop - 1;
+      continue;
+    }
+    if (c === '`') inTemplate = true;
+    else if (c === '{') depth++;
+    else if (c === '}') {
+      if (depth === 0 && outer.length) { depth = outer.pop()!; inTemplate = true; }
+      else depth--;
+    }
+    out += c;
+  }
+  return out;
+};
+
+/** Where a quoted string that starts at `start` ends: its closing quote, or the end of its line. */
+function lineStringEnd(source: string, start: number, quote: string): number {
+  for (let i = start + 1; i < source.length; i++) {
+    if (source[i] === '\\') i++;
+    else if (source[i] === quote || source[i] === '\n') return i;
+  }
+  return source.length;
+}
+
+/** Where a regex literal that starts at `start` ends: its closing slash, past any in a [class], or the end of its line. */
+function regexEnd(source: string, start: number): number {
+  let inClass = false;
+  for (let i = start + 1; i < source.length; i++) {
+    const c = source[i];
+    if (c === '\\') i++;
+    else if (c === '\n') return i;
+    else if (c === '[') inClass = true;
+    else if (c === ']') inClass = false;
+    else if (c === '/' && !inClass) return i;
+  }
+  return source.length;
+}
+
+/**
  * The functions, constants and classes a module exports, by name, each once: an overloaded function's
  * signatures are one export. A local list (`export { a, b as c }`) counts by the name it exports. Types and
  * re-exports from another module (`export { x } from …`) aren't counted.
  */
 export const exportsOf = (source: string): string[] => {
+  source = outsideTemplates(source);
   const declared = [...source.matchAll(/^export\s+(?:default\s+)?(?:async\s+)?(?:function\*?|const|let|class|abstract\s+class)\s+([\w$]+)/gm)].map((m) => m[1] ?? '');
   const listed = [...source.matchAll(/^export\s*\{([^}]*)\}\s*;?[ \t]*$/gm)]
     .flatMap((m) => (m[1] ?? '').split(',').map((x) => x.trim()).filter((x) => x && !x.startsWith('type ')).map((x) => x.split(/\s+as\s+/).pop()!.trim()));
@@ -236,6 +303,17 @@ test('an export no test names fails the rule, and one named only in a comment do
   assert.equal(named('nearTests', uncommented('const u = \'https://x\'; nearTests();')), true, 'a // inside a string isn\'t a comment');
   assert.equal(named('nearTests', uncommented('ls(\'src/*.ts\', \'test/*/x\');\nnearTests();\n/* a */')), true, 'a /* in a glob doesn\'t start a comment');
   assert.equal(named('$x', 'run($x)'), true);
+});
+
+test('an export line inside a template literal is not an export, and the edge cases around one: an escaped backtick, a ${} with braces, a backtick in a string or a comment', () => {
+  const script = 'export const SCRIPT = `#!/usr/bin/env node\nexport const RECORD = \'x\';\nexport function pushProblem() { return \\`\\${RECORD}\\`; }\n`;\nexport const after = 1;';
+  assert.deepEqual(exportsOf(script), ['SCRIPT', 'after'], 'the template\'s own export lines are its text, not the module\'s');
+  assert.equal(outsideTemplates(script).split('\n').length, script.split('\n').length, 'lines keep their numbers');
+  assert.deepEqual(exportsOf('const t = `a ${ {b: 1}.b } c\nexport const inside = 1;\n`;\nexport const outside = 2;'), ['outside'], 'braces inside a ${} close it only at the right depth');
+  assert.deepEqual(exportsOf('const t = `${`\nexport const nested = 1;\n`}`;\nexport const outer = 2;'), ['outer'], 'a template inside a ${}');
+  assert.deepEqual(exportsOf('const q = \'`\';\n// a ` in a comment\nexport const real = 1;'), ['real'], 'a backtick in a string or a comment starts no template');
+  assert.deepEqual(exportsOf('const empty = ``;\nexport const next = 1;'), ['next'], 'an empty template');
+  assert.deepEqual(exportsOf('const re = /`?([^`/]+)`?/;\nexport const afterRegex = a / b / c;\nexport const last = 1;'), ['afterRegex', 'last'], 'a backtick in a regex literal starts no template, and a division is no regex');
 });
 
 test('.acc/rules.md holds the test-coverage rule and names this check beside it', () => {
