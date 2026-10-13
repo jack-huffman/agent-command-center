@@ -7,9 +7,9 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { tempDir } from '../../packages/core/test/support.ts';
-import { addedClasses, cssClasses, judgeShots, UI_PATHS, uiChanges, UNDRAWN } from '../scripts/looked.ts';
+import { addedClasses, cssClasses, judgeShots, stylesBefore, UI_PATHS, uiChanges, UNDRAWN } from '../scripts/looked.ts';
 import { expectedShots, fingerprint, noteShots, PAGES, readShots, SHOTS_FILE, type ShotNote, type ShotsRecord, webviewSource, WIDTHS } from '../scripts/screenshot.ts';
-import { pageStyles, PALETTE_THEMES } from '../scripts/styles.ts';
+import { pageStyles, PALETTE_THEMES, styleNames } from '../scripts/styles.ts';
 import { COLLECT_GEOMETRY } from '../scripts/geometry.ts';
 
 const PRINT = 'f'.repeat(64);
@@ -100,6 +100,18 @@ test('cssClasses reads selectors only: not declarations, comments, strings or nu
   assert.deepEqual([...cssClasses(css)].sort(), ['a', 'b', 'c', 'd', 'f', 'g', 'md']);
   assert.deepEqual([...cssClasses('')], [], 'an empty stylesheet has none');
   assert.deepEqual(addedClasses(['.a {} .b {}', '.c {}'], ['.a {}', '.c {} .gone {}']), ['b'], 'a class only moved between stylesheets, or removed, isn\'t new');
+});
+
+test('the stylesheets before the branch are the list styleFiles() gives: a stray .css no module is named for does not count, the edge case where one sat beside the page at the base', () => {
+  const files = ['styles.css', 'tasks.css', 'tasks.ts', 'notes.css', 'theme.css', 'theme.ts', 'index.html'];
+  assert.deepEqual(styleNames(files), { styles: ['styles.css', 'tasks.css', 'theme.css'], strays: ['notes.css'] });
+  const css: Record<string, string> = { 'styles.css': '.shared {}', 'tasks.css': '.task {}', 'theme.css': '.themed {}', 'notes.css': '.note {}' };
+  const read: string[] = [];
+  const before = stylesBefore(files, (f) => { read.push(f); return css[f]!; });
+  assert.deepEqual(read, ['styles.css', 'tasks.css', 'theme.css'], 'read in the build\'s order, the stray not at all');
+  assert.deepEqual(addedClasses(['.shared {} .task {} .themed {} .note {}'], before), ['note'], 'a class only the stray held is new on the branch');
+  assert.deepEqual(stylesBefore(['tasks.css', 'tasks.ts'], (f) => css[f]!), ['.task {}'], 'no styles.css at the base: none read');
+  assert.deepEqual(stylesBefore([], () => assert.fail('nothing to read')), [], 'an empty folder at the base');
 });
 
 test('the usual shots are every page in each theme at each width', () => {

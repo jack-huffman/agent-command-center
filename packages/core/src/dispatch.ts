@@ -10,7 +10,7 @@ import { PUSH_TIMEOUT_MS } from './land.ts';
 import { fetchBranches } from './sync.ts';
 import { AccError, type Runner } from './exec.ts';
 import { type Actor, applyMove, checkMove, type FileShare, mutate, noGateHooks, readLedger, reworkCause, type ReworkCause, type Task } from './ledger.ts';
-import type { RepoPaths } from './paths.ts';
+import { type RepoPaths, samePath } from './paths.ts';
 import { analysisProblems, readAnalysis } from './analyze.ts';
 import { plannedFiles, startLook, waits } from './overlap.ts';
 import { readChecksReport, readQueueReport } from './checks.ts';
@@ -196,16 +196,6 @@ function readList(wt: string, rel: string | null): string[] {
 
 const sleep = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
-/** The same folder, however it's spelled: Claude Code lists a session's real path. */
-function samePlace(a: string, b: string): boolean {
-  if (a === b) return true;
-  try {
-    return realpathSync(a) === realpathSync(b);
-  } catch {
-    return false;
-  }
-}
-
 export interface FindSessionOptions {
   /** Started at this time or later, in ms: an older session of the same name is another run's. */
   since?: number;
@@ -226,7 +216,7 @@ export function findSession(run: Runner, cwd: string, name: string, waitMs: numb
   const ours = (x: { name?: string; cwd?: string; kind?: string; startedAt?: number }): boolean =>
     x.name === name && x.kind === 'background'
     && (o.since === undefined || (x.startedAt ?? 0) >= o.since)
-    && (!o.places || !x.cwd || o.places.some((p) => samePlace(x.cwd!, p)));
+    && (!o.places || !x.cwd || o.places.some((p) => samePath(x.cwd!, p)));
   do {
     const r = run('claude', ['agents', '--json'], { cwd, timeoutMs: 20_000 });
     try {

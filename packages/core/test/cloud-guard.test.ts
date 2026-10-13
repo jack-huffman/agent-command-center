@@ -6,7 +6,7 @@
 // itself, whatever ran git. Both fail closed; outside a cloud session the script says nothing.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
@@ -449,18 +449,22 @@ test('the pre-push hook in the clone checks the push itself, whatever ran git: t
   git('add', '-A');
   git('commit', '-q', '-m', 'on main again');
   assert.equal(run('git', ['-c', 'core.hooksPath=/nonexistent', 'push', 'origin', 'main'], { cwd: root }).code, 0, 'core.hooksPath skipped the hook');
-  // The guard's own push path insists: core.hooksPath set means no push; a hook changed by hand is put back
+  // The hook's push path insists: core.hooksPath set means no push; a hook changed by hand is put back
   // before a push passes; without the committed script beside the guard, no push.
+  const push = `git push origin ${BRANCH}`;
   git('config', 'core.hooksPath', '.githooks');
-  assert.match(g.guard(`git push origin ${BRANCH}`, BRANCH, ctx) ?? '', /core\.hooksPath is set \(\.githooks\), so the clone's pre-push hook wouldn't run: no push/);
+  assert.match(bash(root, t, push).reason ?? '', /core\.hooksPath is set \(\.githooks\), so the clone's pre-push hook wouldn't run: no push/);
   git('config', '--unset', 'core.hooksPath');
   writeFileSync(hookFile, '#!/bin/sh\nexit 0\n');
-  assert.equal(g.guard(`git push origin ${BRANCH}`, BRANCH, ctx), null);
+  const passed = bash(root, t, push);
+  assert.deepEqual([passed.code, passed.out], [0, ''], passed.err);
   assert.equal(readFileSync(hookFile, 'utf8'), PRE_PUSH_SCRIPT, 'put back');
   assert.equal(readFileSync(join(root, '.git', g.PRE_PUSH_RECORD), 'utf8'), `${BRANCH}\n`);
   assert.equal(g.installPrePush(ctx, BRANCH), null);
   rmSync(join(root, PRE_PUSH_PATH));
-  assert.match(g.guard(`git push origin ${BRANCH}`, BRANCH, ctx) ?? '', /pre-push hook's script isn't beside the guard \(acc-pre-push\)/);
+  assert.match(bash(root, t, push).reason ?? '', /pre-push hook's script isn't beside the guard \(acc-pre-push\)/);
+  // guard() alone still allows that push: it reads the command, and the hook's entry point does the install.
+  assert.equal(g.guard(push, BRANCH, ctx), null);
   assert.match(hook(root, { hook_event_name: 'SessionStart', cwd: root }, { args: ['--session-start'] }).err, /pre-push hook isn't installed/);
 });
 
@@ -484,6 +488,30 @@ test('the record is the task\'s branch from the fire\'s text in the session\'s f
   gitIn(root, 'switch', '-q', 'main');
   assert.equal(bash(root, transcript(dir, fired()), `git push origin HEAD:${BRANCH}`).out, '');
   assert.match(bash(root, transcript(dir, fired()), 'git push origin main').reason ?? '', /never push main/);
+});
+
+/** Every file and folder under a dir, .git included, with its size and when it last changed. */
+function snapshot(dir: string): Map<string, string> {
+  const seen = new Map<string, string>();
+  for (const entry of readdirSync(dir, { recursive: true }) as string[]) {
+    const s = lstatSync(join(dir, entry));
+    seen.set(entry, `${s.size}:${s.mtimeMs}`);
+  }
+  return seen;
+}
+
+test('guard() on an allowed push writes no file in the repo, not even the pre-push hook: the edge case where a test calls it on a real checkout', async () => {
+  const { root, transcript } = repo();
+  const g = await guardModule(root);
+  const ctx = { cwd: root, projectDir: root, transcript };
+  const before = snapshot(root);
+  assert.ok(before.size > 0, 'the repo has files to compare');
+  assert.equal(existsSync(join(root, '.git', 'hooks', 'pre-push')), false, 'no pre-push hook yet');
+  for (const c of [`git push origin ${BRANCH}`, `git push -u origin HEAD:${BRANCH}`]) assert.equal(g.guard(c, BRANCH, ctx), null, `${c}: allowed`);
+  assert.deepEqual(snapshot(root), before, 'nothing written, changed or removed');
+  // The hook's entry point, on the same push, does install it.
+  assert.equal(bash(root, transcript, `git push origin ${BRANCH}`).out, '');
+  assert.equal(readFileSync(join(root, '.git', 'hooks', 'pre-push'), 'utf8'), PRE_PUSH_SCRIPT);
 });
 
 test('it fails closed: junk on stdin, no tool, a Bash call with no command, an error of its own, and a guard that can\'t load block the call with exit 2; a tool it doesn\'t guard passes; outside a cloud session it says nothing', () => {

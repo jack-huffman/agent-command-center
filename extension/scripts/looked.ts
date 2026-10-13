@@ -18,10 +18,10 @@
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expectedShots, fingerprint, readShots, sha256Of, type ShotsRecord } from './screenshot.ts';
-import { pageStyles } from './styles.ts';
+import { pageStyles, styleNames } from './styles.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -104,10 +104,20 @@ function base(): string {
   throw new Error('There\'s no main or origin/main branch here to compare with.');
 }
 
+/**
+ * The page's stylesheets where the branch began, by the list styleFiles() gives now: files is what the
+ * webview's folder held then, by name, and show reads one. A .css no module is named for was never part
+ * of the page, so its classes don't count as there before.
+ */
+export function stylesBefore(files: string[], show: (name: string) => string): string[] {
+  return styleNames(files).styles.filter((f) => files.includes(f)).map(show);
+}
+
 /** The webview's stylesheets: now, as the build joins them, and where the branch began. */
 function stylesheets(at: string): { now: string[]; before: string[] } {
   const now = [pageStyles()];
-  const before = git(['ls-tree', '--name-only', at, 'extension/webview/']).split('\n').filter((f) => f.endsWith('.css')).map((f) => git(['show', `${at}:${f}`]));
+  const files = git(['ls-tree', '--name-only', at, 'extension/webview/']).split('\n').filter(Boolean).map((f) => basename(f));
+  const before = stylesBefore(files, (f) => git(['show', `${at}:extension/webview/${f}`]));
   return { now, before };
 }
 

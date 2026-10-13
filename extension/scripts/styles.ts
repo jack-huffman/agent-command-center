@@ -1,19 +1,29 @@
 // The page's styles (GH-95): webview/styles.css, what every area shares, first, then each area's own .css,
 // named for its module, by file name. npm run build writes them into dist/webview/styles.css as one file,
 // and the tests read them from here. So do the Light and Dark palettes in webview/theme.css (GH-109).
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SCRIPTS = dirname(fileURLToPath(import.meta.url));
 const WEBVIEW = join(SCRIPTS, '..', 'webview');
 
+/**
+ * From the file names in the webview's folder: the page's stylesheets, in the order the build joins them,
+ * and the strays, a .css no module of the page is named for. styleFiles reads the folder on disk; the
+ * screenshots gate reads it at the commit the branch began from.
+ */
+export function styleNames(files: string[]): { styles: string[]; strays: string[] } {
+  const areas = files.filter((f) => f.endsWith('.css') && f !== 'styles.css').sort();
+  const strays = areas.filter((f) => !files.includes(f.replace(/\.css$/, '.ts')));
+  return { styles: ['styles.css', ...areas.filter((f) => !strays.includes(f))], strays };
+}
+
 /** The page's stylesheet files, in the order the build joins them. One no module of the page is named for is an error. */
 export function styleFiles(dir = WEBVIEW): string[] {
-  const areas = readdirSync(dir).filter((f) => f.endsWith('.css') && f !== 'styles.css').sort();
-  const strays = areas.filter((f) => !existsSync(join(dir, f.replace(/\.css$/, '.ts'))));
+  const { styles, strays } = styleNames(readdirSync(dir));
   if (strays.length) throw new Error(`No module of the page is named for ${strays.join(', ')}. An area's styles are named for its module; what two areas share goes in styles.css.`);
-  return ['styles.css', ...areas];
+  return styles;
 }
 
 /** The page's stylesheet, as the build writes it. */

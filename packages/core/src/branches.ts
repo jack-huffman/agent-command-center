@@ -98,7 +98,7 @@ export interface BaseCommit {
 }
 
 /** `abc1234 subject`, for a notice. */
-export const commitWords = (c: BaseCommit): string => `${c.sha.slice(0, 7)} ${c.subject}`;
+const commitWords = (c: BaseCommit): string => `${c.sha.slice(0, 7)} ${c.subject}`;
 
 /**
  * The commits between two heads of a base branch that aren't acc's merges, newest first, read along the

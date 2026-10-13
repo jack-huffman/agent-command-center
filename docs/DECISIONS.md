@@ -6000,6 +6000,10 @@ a PNG, but a gate can tell whether the PNGs there are to read show the branch as
   shots, since the gate asks only for changes under the three folders.
 - Not chosen: running the screenshots inside the gate, which takes Chrome tens of minutes; a hand-kept
   list of pages each change must show.
+- Note (T-13, 2026-10-13): the stylesheets the gate counts as there before the branch are read through
+  the same list as the page's (`styleNames`, which `styleFiles()` uses), at the commit the branch began
+  from. Before, any `.css` in the webview's folder counted, so a class held only by a stray stylesheet no
+  module is named for, and never part of the page, didn't count as new. `looked.test.ts` pins it.
 ## D-139 Every rule in the repo's own rules names its check (2026-10-10)
 
 From repeated review findings (a test meant to stop a split from dropping a command read source text with
@@ -6329,6 +6333,16 @@ opted in sees no change, and a local dispatch passes exactly the arguments it di
   runner or a wrapper could pass it on. `alias`, `hash -p`, `git clone` and `git init` are refused: the
   first two change the program a later name runs, and a new repo has none of the guard's hooks.
   `cloud-guard.test.ts` pins each, and its S1 case fails on the guard as the branch left it.
+- Note (T-13, 2026-10-13): what the guard allows and refuses is unchanged; where the pre-push hook is
+  installed moved. The script's `guard()` function reads a command and returns a reason or null, and
+  writes no file: before, it installed the pre-push hook when it allowed a push, so a test that called it
+  on a real checkout wrote `.git/hooks/pre-push` into this clone on 2026-10-12. A push it allows now sets
+  `ctx.pushes`, and the hook's entry point installs the pre-push hook and writes the record before it lets
+  that push run, refusing it when the install fails, as it does at session start and on every call. A
+  test calls `guard()` on two allowed pushes in a temporary repo and fails if any file under it, `.git`
+  included, is written, changed or removed. The coverage check (D-134) no longer reads the guard script's
+  own `export` lines, inside its template literal, as the module's, and every GH-69 export is named by a
+  test (`packages/core/test/cloud-names.test.ts`) or, used only in its own module, no longer exported.
 
 ## D-141 Requirements are written in Simplified Technical English, and acc checks their wording (2026-10-13)
 

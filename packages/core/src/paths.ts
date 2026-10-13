@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { AccError, type Runner } from './exec.ts';
 
@@ -62,4 +63,17 @@ export function repoPaths(cwd: string, run: Runner): RepoPaths {
     floors: join(root, '.acc', 'floors.json'),
     relaxed: join(stateDir, 'relaxed.jsonl'),
   };
+}
+
+/**
+ * Whether two paths name one folder, however each is spelled: through symlinks such as macOS's /var to
+ * /private/var, and as Claude Code lists a session's real path. A path that doesn't exist matches only itself.
+ */
+export function samePath(a: string, b: string): boolean {
+  if (a === b) return true;
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return false;
+  }
 }
