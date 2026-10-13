@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { RunResult } from '../src/exec.ts';
-import { firstLine, isObj, sentence } from '../src/text.ts';
+import { firstSaid, isObj, sentence } from '../src/text.ts';
 
 const ran = (stdout: string, stderr = '', code = 0): RunResult => ({ stdout, stderr, code }) as RunResult;
 
@@ -16,11 +16,11 @@ test('isObj takes a plain object and refuses null, an array and a scalar (config
   assert.equal(isObj(undefined), false);
 });
 
-test('firstLine says the first line of stderr, else stdout, else the exit code, with nothing said (checks, merge)', () => {
-  assert.equal(firstLine(ran('', 'gh: not found\nmore')), 'gh: not found', 'checks: stderr wins');
-  assert.equal(firstLine(ran('  one\ntwo  ')), 'one', 'merge: stdout trimmed, first line only');
-  assert.equal(firstLine(ran('', '', 3)), 'exit 3', 'nothing said');
-  assert.equal(firstLine(ran('\n\n', ' \n', 1)), 'exit 1', 'only blank space said');
+test('firstSaid says the first line of stderr, else stdout, else the exit code, with nothing said (checks, merge)', () => {
+  assert.equal(firstSaid(ran('', 'gh: not found\nmore')), 'gh: not found', 'checks: stderr wins');
+  assert.equal(firstSaid(ran('  one\ntwo  ')), 'one', 'merge: stdout trimmed, first line only');
+  assert.equal(firstSaid(ran('', '', 3)), 'exit 3', 'nothing said');
+  assert.equal(firstSaid(ran('\n\n', ' \n', 1)), 'exit 1', 'only blank space said');
 });
 
 test('sentence ends the text with a full stop unless it ends in . ! or ?, and empty text stays empty (checks, updates, rule-suggestions)', () => {
