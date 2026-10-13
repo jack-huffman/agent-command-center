@@ -10,7 +10,7 @@ import { test } from 'node:test';
 import { analysisPrompt, analysisProblems, parseAnalysis, STE_STRICT } from '../src/analyze.ts';
 import { parseConfig, type Config } from '../src/config.ts';
 import type { Task } from '../src/ledger.ts';
-import { REQUIREMENT_PARTS, requirementWording, SYNONYM_GROUPS, splitLines, STE_MAX_WORDS, STE_RULES, type SteFinding, steLine, steLint, wordingWords } from '../src/ste.ts';
+import { PART_WORDS, REQUIREMENT_PARTS, requirementWording, SYNONYM_GROUPS, splitLines, STE_MAX_WORDS, STE_RULES, type SteFinding, steLine, steLint, wordingPlace, wordingWords } from '../src/ste.ts';
 import { GENERIC_CONFIG, tempDir } from './support.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..');
@@ -220,6 +220,13 @@ test('wordingWords counts the findings, and says nothing for none', () => {
   assert.equal(wordingWords(0), null);
   assert.equal(wordingWords(1), 'Wording: 1 finding');
   assert.equal(wordingWords(2), 'Wording: 2 findings');
+});
+
+test('wordingPlace names the goal alone and counts the other parts from 1, in PART_WORDS\'s words', () => {
+  assert.equal(wordingPlace({ part: 'goal', index: 0 }), 'Goal');
+  assert.equal(wordingPlace({ part: 'criteria', index: 1 }), 'Criterion 2');
+  assert.equal(wordingPlace({ part: 'outOfScope', index: 0 }), 'Out of scope 1');
+  assert.deepEqual(Object.keys(PART_WORDS), [...REQUIREMENT_PARTS]);
 });
 
 test('acc records the wording of each requirement line as it reads an analysis, and none for clean lines', () => {

@@ -319,7 +319,7 @@ test('a task\'s page shows its analysis\'s wording findings as an orange state w
   assert.deepEqual(m.wording!.look, { label: 'Wording: 2 findings', icon: 'whole-word', tone: 'orange' });
   assert.deepEqual(m.wording!.findings.map((f) => [f.place, f.match, f.text]), [['Goal', 'Kick off', 'Kick off the sync.'], ['Criterion 1', ';', 'The sync runs; it logs.']]);
   const dangling = page({ ...a, wording: requirementWording({ goal: '', criteria: ['The sync runs and'], assumptions: [], outOfScope: [] }) }).wording!.findings;
-  assert.deepEqual(dangling.map((f) => [f.place, f.match]), [['Criterion 1', null]], 'no chip that repeats the whole line');
+  assert.deepEqual(dangling.map((f) => [f.place, f.match]), [['Criterion 1', null]], 'no match shown that repeats the whole line');
   assert.deepEqual(m.look, { label: 'Ready to build', icon: 'pass', tone: 'blue' }, 'a wording finding never holds the build: it is advice');
   assert.deepEqual(wordingLook(1), { label: 'Wording: 1 finding', icon: 'whole-word', tone: 'orange' });
   assert.equal(wordingLook(0), null);
