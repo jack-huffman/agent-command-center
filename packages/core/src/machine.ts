@@ -1,7 +1,7 @@
 // Where this machine's own settings live (D-080): ~/.acc/machine.json, shared by every repo and worktree on
 // it. Its heavy-check slots (semaphore.ts) and its total of builders (limits.ts) are both read and written
-// through machineJson here, so the two never disagree about which file is the machine's (GH-131), and both
-// are set through setMachineKey, the file's one writer (GH-148).
+// through machineJson here (each reads its key with readMachineKey), so the two never disagree about which
+// file is the machine's (GH-131), and both are set through setMachineKey, the file's one writer (GH-148).
 
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -26,6 +26,17 @@ export function machineDir(env: NodeJS.ProcessEnv = process.env): string | null 
 export function machineJson(env: NodeJS.ProcessEnv = process.env): string | null {
   const dir = machineDir(env);
   return env.ACC_MACHINE_FILE || (dir ? join(dir, 'machine.json') : null);
+}
+
+/** One key of this machine's machine.json as the file holds it, or undefined with no home, no file, or a file that isn't JSON. */
+export function readMachineKey(key: string, env: NodeJS.ProcessEnv = process.env): unknown {
+  const file = machineJson(env);
+  if (!file) return undefined;
+  try {
+    return (JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown> | null)?.[key];
+  } catch {
+    return undefined;
+  }
 }
 
 /** machine.json to write a setting to, or a refusal where machineJson finds none. */

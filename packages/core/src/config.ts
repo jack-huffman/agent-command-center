@@ -19,6 +19,9 @@ export const PERMISSION_MODES = ['default', 'acceptEdits', 'plan', 'auto', 'dont
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 export type Effort = (typeof EFFORTS)[number];
 
+/** Whether a value is one of the effort levels. */
+export const isEffort = (v: unknown): v is Effort => (EFFORTS as readonly unknown[]).includes(v);
+
 /**
  * The model and effort a kind of agent runs with (D-036). A model left out is acc's own default,
  * DEFAULT_MODEL (D-086); an effort or fallback left out is Claude Code's own default.
@@ -479,7 +482,7 @@ export function parseConfig(raw: unknown): ParseResult {
     };
     let effort: Effort | null = null;
     if (p.effort !== undefined && p.effort !== null) {
-      if ((EFFORTS as readonly unknown[]).includes(p.effort)) effort = p.effort as Effort;
+      if (isEffort(p.effort)) effort = p.effort;
       else errors.push(`"agents.${role}.effort" must be one of ${EFFORTS.join(', ')}.`);
     }
     return { model: model(p.model, 'model'), effort, fallbackModel: model(p.fallbackModel, 'fallbackModel') };

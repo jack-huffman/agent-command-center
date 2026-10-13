@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { AccError, type Runner } from './exec.ts';
-import { type AgentProfile, type AgentRole, type Config, DEFAULT_MODEL, EFFORTS, type Effort, MODEL_NAME, noProfile } from './config.ts';
+import { type AgentProfile, type AgentRole, type Config, DEFAULT_MODEL, type Effort, isEffort, MODEL_NAME, noProfile } from './config.ts';
 import { checkEffortName } from './efforts.ts';
 
 /**
@@ -21,7 +21,7 @@ export function cloneProfile(run: Runner, root: string, role: AgentRole): Partia
     const r = run('git', ['config', '--get', gitKey(role, field)], { cwd: root });
     const v = r.code === 0 ? r.stdout.trim() : '';
     if (!v) continue;
-    if (field === 'effort') { if ((EFFORTS as readonly string[]).includes(v)) out.effort = v as Effort; }
+    if (field === 'effort') { if (isEffort(v)) out.effort = v; }
     else if (MODEL_NAME.test(v)) out[field] = v;
   }
   return out;

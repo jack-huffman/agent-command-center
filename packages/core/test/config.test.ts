@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { autoMergeFor, autoMergeOn, branchFor, builderGatesFor, CONFIG_KEYS, defaultEnvironment, fullGates, isTestGate, keyShown, loadConfig, parseConfig, requiredGates, saveTracker, skippedOnRoute, TIDY_EVERY, tidyEvery, trackerForKey, UNREAD_KEYS, VALIDATOR_ONLY, withTracker, writeConfig } from '../src/config.ts';
+import { autoMergeFor, autoMergeOn, branchFor, builderGatesFor, CONFIG_KEYS, defaultEnvironment, fullGates, isEffort, isTestGate, keyShown, loadConfig, parseConfig, requiredGates, saveTracker, skippedOnRoute, TIDY_EVERY, tidyEvery, trackerForKey, UNREAD_KEYS, VALIDATOR_ONLY, withTracker, writeConfig } from '../src/config.ts';
 import { parseFloors } from '../src/ratchets.ts';
 import { GENERIC_CONFIG, SF_CONFIG, tempDir } from './support.ts';
 
@@ -582,5 +582,10 @@ test('the keys nothing reads are keys parseConfig knows, each with its reason, a
   assert.equal(keyShown('autonomy'), UNREAD_KEYS.autonomy === undefined);
   assert.equal(keyShown('autonomy', { autonomy: 'GH-1 will read it.' }), false);
   assert.equal(keyShown('autonomy', {}), true);
+});
+
+test('isEffort accepts each effort level and nothing else, including a missing value and a different case', () => {
+  for (const level of ['low', 'medium', 'high', 'xhigh', 'max']) assert.equal(isEffort(level), true, level);
+  for (const not of ['default', 'High', '', undefined, null, 3]) assert.equal(isEffort(not), false, String(not));
 });
 
