@@ -11,7 +11,7 @@ import { writeJsonKey } from './config-edit.ts';
 import { AccError } from './exec.ts';
 import { gatesFor } from './gates.ts';
 import { builders, type Ledger, readLedger } from './ledger.ts';
-import { machineDir, machineJson, setMachineKey } from './machine.ts';
+import { machineDir, readMachineKey, setMachineKey } from './machine.ts';
 import type { RepoPaths } from './paths.ts';
 
 // ---------------------------------------------------------------- this project's (.acc/config.json)
@@ -97,13 +97,7 @@ const agentCount = (v: unknown): number | null => (Number.isInteger(v) && (v as 
  * beside its heavy-check slots (D-080). Unset, there's no total, and each project's cap is the only limit.
  */
 export function machineAgents(env: NodeJS.ProcessEnv = process.env): number | null {
-  const file = machineJson(env);
-  if (!file) return null;
-  try {
-    return agentCount((JSON.parse(readFileSync(file, 'utf8')) as { agents?: unknown }).agents);
-  } catch {
-    return null;
-  }
+  return agentCount(readMachineKey('agents', env));
 }
 
 /**

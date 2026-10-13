@@ -1,7 +1,7 @@
 // The effort levels each model takes, and the effort a task's builder starts with (D-128).
 
 import { AccError } from './exec.ts';
-import { type Config, EFFORTS, type Effort } from './config.ts';
+import { type Config, EFFORTS, type Effort, isEffort } from './config.ts';
 import type { Task } from './ledger.ts';
 
 /**
@@ -49,7 +49,7 @@ export const effortSourceWords = (): string => `acc's list of each model's level
 
 /** Refuses what isn't an effort level, before anything is set or started with it. */
 export function checkEffortName(v: string, also = ''): asserts v is Effort {
-  if (!(EFFORTS as readonly string[]).includes(v)) throw new AccError('usage', `"${v}" isn't an effort level. Effort is one of ${EFFORTS.join(', ')}${also}.`);
+  if (!isEffort(v)) throw new AccError('usage', `"${v}" isn't an effort level. Effort is one of ${EFFORTS.join(', ')}${also}.`);
 }
 
 /**
