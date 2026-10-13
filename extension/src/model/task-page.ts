@@ -7,6 +7,7 @@ import type { Analysis } from '../../../packages/core/src/analyze.ts';
 import { type RunNote, shownNote, type Task } from '../../../packages/core/src/ledger.ts';
 import type { RatchetLimit, RatchetSpec } from '../../../packages/core/src/config.ts';
 import { cardFailure } from '../../../packages/core/src/cards.ts';
+import { type WordingFinding, wordingMatch, wordingPlace, wordingWords } from '../../../packages/core/src/ste.ts';
 import { num, ratchetLine, signed } from '../../../packages/core/src/ratchets.ts';
 import { type GateStatus, ratchetOf, type Receipt } from '../../../packages/core/src/receipts.ts';
 import { testsText } from '../../../packages/core/src/test-counts.ts';
@@ -195,6 +196,11 @@ export interface TicketAnalysis {
   risks: string[];
   tests: string[];
   files: { path: string; change: string; why: string }[];
+  /**
+   * The wording check's findings on its requirements (T-12), as advice: an orange state and each finding
+   * with the line it came from, and the words it caught unless they are the whole line (a dangling "and"). Null when it has none, or an analysis older than the check.
+   */
+  wording: { look: Look; findings: { place: string; text: string; message: string; match: string | null }[] } | null;
   actions: Action[];
 }
 
@@ -228,6 +234,18 @@ export interface TicketInput {
   now?: number;
 }
 
+/** How an analysis's wording findings show (T-12): orange, with an icon and their count. None shows nothing. */
+export function wordingLook(n: number): Look | null {
+  const label = wordingWords(n);
+  return label ? { label, icon: 'whole-word', tone: 'orange' } : null;
+}
+
+/** The wording findings as the page lists them, each with where it came from. Null when there are none. */
+export function ticketWording(findings: WordingFinding[] | undefined): TicketAnalysis['wording'] {
+  const look = wordingLook(findings?.length ?? 0);
+  return look ? { look, findings: findings!.map((f) => ({ place: wordingPlace(f), text: f.text, message: f.message, match: wordingMatch(f) })) } : null;
+}
+
 /**
  * The Analysis section of a task's page (D-052). A task to do shows it even with none yet, to start one;
  * a task past that shows the one it was built from, if it had one.
@@ -256,7 +274,7 @@ export function ticketAnalysis(row: TaskRow, a: Analysis | null, ref: Ref, updat
     task: row.id, look, note, summary: a?.summary ?? null, size: a?.approach.size ?? null, at: a?.at ?? null, open, canAsk: hasTicket(row.source.kind), decided, split: a?.verdict === 'split' ? a.split : [],
     goal: a?.requirements.goal || null, criteria: a?.requirements.criteria ?? [], assumptions: a?.requirements.assumptions ?? [], outOfScope: a?.requirements.outOfScope ?? [],
     findings: a?.findings ?? [], plan: a?.approach.plan ?? [], refactors: a?.approach.refactors ?? [], risks: a?.approach.risks ?? [], tests: a?.approach.tests ?? [], files: a?.approach.files ?? [],
-    actions,
+    wording: ticketWording(a?.wording), actions,
   };
 }
 

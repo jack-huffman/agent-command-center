@@ -26,7 +26,7 @@ import { queueLook } from '../src/model/overview.ts';
 import { RULE_LOOK } from '../src/model/rules.ts';
 import { STATUS } from '../src/model/setup.ts';
 import { displayLook } from '../src/model/shared.ts';
-import { CHECK_LOOK, checkLook } from '../src/model/task-page.ts';
+import { CHECK_LOOK, checkLook, wordingLook } from '../src/model/task-page.ts';
 import { worktreeLook } from '../src/model/worktrees.ts';
 import { loadWord, taskLook } from '../src/progress.ts';
 import { SLACK_KIND_WORDS, SLACK_KINDS, slackCard } from '../src/slack.ts';
@@ -120,6 +120,7 @@ export const TABLES: Table[] = [
     states: () => product(product(['working', 'blocked', 'done', 'failed', 'stopped', undefined], ['busy', 'waiting', 'idle', undefined]), product([null, 'has a question'], [null, finished]))
       .flatMap(([[state, status], [asking, tie]]) => [undefined, 4].map((pid): [string, Shown] => [`${state}/${status}${asking ? ', asking' : ''}${tie ? ', finished' : ''}${pid ? ', with a process' : ''}`, agentLook(session({ state, status, pid }), asking, tie)])),
   },
+  { name: 'the wording findings of a task\'s analysis, on its page (T-12)', sources: ['extension/src/model/task-page.ts#wordingLook'], states: () => [1, 2].map((n) => [`${n} findings`, wordingLook(n)!]) },
   {
     name: 'a task\'s analysis, on its card', sources: ['extension/src/model/cards.ts#analysisLook'],
     states: () => {

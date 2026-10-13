@@ -10,6 +10,10 @@
 .an-note { margin: 0 0 8px; }
 .an-summary { margin: 0; }
 .an-split { margin: 8px 0 4px; }
+/* The wording check's findings (T-12): each with its rule's words, the words it caught, and the line. */
+.an-wording { margin: 8px 0 4px; }
+.chip.an-match { margin: 0; overflow-wrap: anywhere; }
+.an-line { margin-top: 1px; overflow-wrap: anywhere; }
 .an-list { margin: 4px 0 2px; padding-left: 22px; }
 .an-list li { margin: 3px 0; overflow-wrap: anywhere; }
 .an-questions { margin-top: 4px; }

@@ -10,6 +10,7 @@ import { type Actor, mutate, readLedger, type Task } from './ledger.ts';
 import { alive } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
 import { rulesText } from './rules.ts';
+import { requirementWording, type WordingFinding } from './ste.ts';
 
 /**
  * The analysis (D-052): before a task is built, a read-only agent works out what it asks for, what's
@@ -63,6 +64,11 @@ export interface Analysis {
   approach: Approach;
   /** When the verdict is split: the smaller tasks it suggests. */
   split: string[];
+  /**
+   * The hard findings of the wording check on each requirement line (T-12), as advice for a person: they
+   * never hold a dispatch. Analyses written before the check have none.
+   */
+  wording?: WordingFinding[];
   /** The orgs it read, by alias. */
   orgs: string[];
   sessionId: string;
@@ -86,10 +92,10 @@ export const ANALYSIS_SCHEMA = {
     requirements: {
       type: 'object', additionalProperties: false, required: ['goal', 'criteria', 'assumptions', 'outOfScope'],
       properties: {
-        goal: { type: 'string', description: 'What the person asking wants, in a sentence' },
-        criteria: { ...strings, description: 'Acceptance criteria, each one testable' },
-        assumptions: { ...strings, description: 'What you assumed that the ticket does not say' },
-        outOfScope: { ...strings, description: 'What this task should not do' },
+        goal: { type: 'string', description: 'What the person asking wants, in a sentence. Write it in STE Strict mode' },
+        criteria: { ...strings, description: 'Acceptance criteria, each one testable. Write each in STE Strict mode' },
+        assumptions: { ...strings, description: 'What you assumed that the ticket does not say. Write each in STE Strict mode' },
+        outOfScope: { ...strings, description: 'What this task should not do. Write each in STE Strict mode' },
       },
     },
     questions: {
@@ -223,6 +229,25 @@ const SALESFORCE_FOCUS = [
   'Environment-specific files (D-016) and anything that would differ between orgs.',
 ];
 
+/**
+ * How the analyst writes the requirements (T-12): ASD-STE100 Simplified Technical English, Strict mode, so a
+ * builder can read each one in one way only. The rules are here in full, so the analyst needs no skill
+ * installed. acc checks the structural ones on each line it reads back (requirementWording, ste.ts).
+ */
+export const STE_STRICT = [
+  'Write the goal, each acceptance criterion, each assumption and each out-of-scope item in Simplified Technical English (ASD-STE100), Strict mode. A builder agent reads them, and each must have one meaning only:',
+  '- Use the active voice. Name who or what does the action: "acc writes the file", not "the file is written".',
+  '- Use one instruction or one statement in each sentence. Use no more than 20 words in an instruction and no more than 25 in a description.',
+  '- Do not use a semicolon. Write two sentences.',
+  '- Use simple tenses: the simple present, past or future. Do not use the present perfect ("has failed") or other compound tenses. Keep a hedge as it is ("may have failed" stays).',
+  '- Do not use phrasal verbs ("set up", "spin up", "carry out"). Use one plain verb (start, make, do).',
+  '- Use the verb for an action, not a noun made from it: "analyze the log", not "perform an analysis of the log".',
+  '- Use one word for one thing, and use it every time. Do not change between "check", "verify" and "confirm" for the same action.',
+  '- Do not use marketing adjectives (seamless, robust, powerful, cutting-edge). Give the measurement instead.',
+  '- Use no more than 3 nouns together as one name. Do not leave out the subject, the verb or the article to make a sentence shorter.',
+  '- Do not end an item on "and" or "or".',
+];
+
 export interface AnalysisInput {
   task: Task;
   config: Config;
@@ -247,6 +272,8 @@ export function analysisPrompt(i: AnalysisInput): { system: string; prompt: stri
     '- Ask only what a person must decide: business rules, priorities, trade-offs. Never ask what you could find out yourself. Give each question your suggested answer.',
     '- If it is too big for one task (more than a few days), say split and list the smaller tasks.',
     ...(sf ? ['', 'For a Salesforce project, also cover:', ...SALESFORCE_FOCUS.map((f) => `- ${f}`), '', ...SALESFORCE_COOKBOOK] : []),
+    '',
+    ...STE_STRICT,
     '',
     'Be concrete and brief: names, files, numbers. No filler.',
   ].join('\n');
@@ -308,7 +335,8 @@ export function parseAnalysis(stdout: string): { analysis: Omit<Analysis, 'v' | 
     },
     split: list(s.split),
   };
-  return { analysis, sessionId: typeof r.session_id === 'string' ? r.session_id : null, costUsd: typeof r.total_cost_usd === 'number' ? r.total_cost_usd : null };
+  // The wording check on each requirement line as acc reads it (T-12): advice, recorded with its line.
+  return { analysis: { ...analysis, wording: requirementWording(analysis.requirements) }, sessionId: typeof r.session_id === 'string' ? r.session_id : null, costUsd: typeof r.total_cost_usd === 'number' ? r.total_cost_usd : null };
 }
 
 // ---------------------------------------------------------------- running it
