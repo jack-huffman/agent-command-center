@@ -106,9 +106,10 @@ const quote = (s: string): string => (s ? ` "${s.length > 40 ? `${s.slice(0, 39)
  * No two controls overlap, unless one sits inside the other or one floats in a sticky layer. No text is
  * cut off: an ellipsis passes only with the full text in a title or aria-label. The rail's selected tab
  * is on screen. Nothing scrolls sideways but SIDEWAYS. On the Overview, its lines keep OVERVIEW_LINES.
- * And no string outside work data names an acc command or path (words.ts, GH-163).
+ * And no string outside work data names an acc command or path (words.ts, GH-163). controls: the page
+ * has controls, which every page but a still one, such as the loading screen, does (T-16).
  */
-export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEPTIONS): Verdict {
+export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEPTIONS, controls = true): Verdict {
   const found: Violation[] = [];
   const cs = s.controls;
   for (let i = 0; i < cs.length; i++) {
@@ -149,7 +150,8 @@ export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEP
     if (e) excused[e.name]!++;
     return !e;
   });
-  if (!examined.overlap) violations.push({ check: 'overlap', what: 'the page', detail: 'examined no controls' });
+  // A page with no controls by design, such as the loading screen (T-16), is judged without them.
+  if (controls && !examined.overlap) violations.push({ check: 'overlap', what: 'the page', detail: 'examined no controls' });
   if (!examined.clipped) violations.push({ check: 'clipped', what: 'the page', detail: 'examined no text' });
   if (home && !examined.tab) violations.push({ check: 'tab', what: 'the page', detail: 'has no selected tab in the rail' });
   if (s.overview && !examined.overview) violations.push({ check: 'overview', what: 'the page', detail: 'is the Overview, and examined no lines on it' });
