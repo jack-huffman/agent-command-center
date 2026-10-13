@@ -1,7 +1,7 @@
 # Roadmap
 
-Where each piece of the build stands, as of **2026-10-10**. Version 0.39.0 is
-the latest release (2026-10-09).
+Where each piece of the build stands, as of **2026-10-13**. Version 0.40.0 is
+the latest release (2026-10-13).
 
 Every bullet below is one status line, in this form:
 
