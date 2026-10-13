@@ -1,3 +1,4 @@
+import { isObj } from './text.ts';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { AccError } from './exec.ts';
@@ -312,7 +313,6 @@ export function branchFor(name: string): string {
   return name.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isStr = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '';
 const strList = (v: unknown): v is string[] => Array.isArray(v) && v.every(isStr);
 /** Paths inside the repo, as git names them: never absolute, never climbing out. */

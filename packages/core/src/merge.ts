@@ -1,6 +1,7 @@
+import { firstLine } from './text.ts';
 import { autoMergeFor, type Config, environmentByBranch } from './config.ts';
 import { type CheckRead, readChecks } from './checks.ts';
-import { AccError, parseJsonOutput, type RunResult, type Runner } from './exec.ts';
+import { AccError, parseJsonOutput, type Runner } from './exec.ts';
 import { GH_TIMEOUT_MS, ghToken } from './land.ts';
 import { type Actor, type AutopilotMerge, type MergeMethod, mutate, readLedger } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
@@ -61,7 +62,6 @@ interface GhPrState {
 }
 
 const short = (sha: string): string => sha.slice(0, 7) || 'no commit';
-const firstLine = (r: RunResult): string => (r.stderr || r.stdout).trim().split('\n')[0]?.trim() || `exit ${r.code}`;
 
 /** What GitHub says about the pull request now, or null when gh couldn't say. */
 function viewPr(run: Runner, repo: string, n: number, env: NodeJS.ProcessEnv): GhPrState | null {

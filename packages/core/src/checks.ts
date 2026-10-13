@@ -1,3 +1,5 @@
+import { sentence } from './text.ts';
+import { firstLine } from './text.ts';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Config } from './config.ts';
@@ -63,7 +65,6 @@ export interface CheckRead {
 }
 
 const short = (sha: string): string => sha.slice(0, 7) || 'no commit';
-const firstLine = (r: RunResult): string => (r.stderr || r.stdout).trim().split('\n')[0]?.trim() || `exit ${r.code}`;
 const said = (r: RunResult): string => `${r.stderr}\n${r.stdout}`;
 
 /** An Actions job's link: …/<owner>/<repo>/actions/runs/<run>/job/<job>. Its repo is host-qualified off github.com. */
@@ -206,7 +207,6 @@ export function readChecksReport(paths: Pick<RepoPaths, 'checks'>, task: string,
 
 /** A fence longer than any run of backticks in the text, so a log can't close it early. */
 const fence = (text: string): string => '`'.repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map((m) => m[0].length + 1)));
-const sentence = (text: string): string => text.trim().replace(/([^.!?])$/, '$1.');
 
 /** On a rework autopilot sent back: each failed check, its link, and the end of its log (D-076). */
 export function checksSection(r: ChecksReport | null | undefined): string[] {

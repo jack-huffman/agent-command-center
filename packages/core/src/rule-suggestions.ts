@@ -9,6 +9,7 @@
  * dismisses it; each writes one record here, and nothing else. acc never writes `.acc/rules.md`: the task
  * it adds does, and its pull request changes `.acc/`, which a person merges.
  */
+import { sentence } from './text.ts';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -384,11 +385,6 @@ export function checkHint(text: string): CheckKind | null {
   if (/\b(gates?|checks?|checked|screenshots?|builds?|ci|ratchets?|floors?|ship\w*|merg\w*|land\w*)\b/.test(t)) return 'gate';
   return null;
 }
-
-const sentence = (t: string): string => {
-  const s = t.trim();
-  return s && !/[.!?]$/.test(s) ? `${s}.` : s;
-};
 
 /**
  * The suggestions to show: each group with 3 or more findings across 2 or more tasks. One a person dismissed

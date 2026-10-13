@@ -1,3 +1,4 @@
+import { sentence } from './text.ts';
 import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { AccError } from './exec.ts';
@@ -96,7 +97,6 @@ export function githubIssue(u: Pick<Update, 'key' | 'url'>, repo: string | null)
   return n && repo ? { repo, number: n } : null;
 }
 
-const sentence = (text: string): string => text.trim().replace(/([^.!?])$/, '$1.');
 
 export interface UpdateContext {
   /** The pull request, for pr-opened, pr-updated and promotion-opened. */

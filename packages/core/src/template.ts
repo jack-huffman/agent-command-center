@@ -3,6 +3,7 @@
  * builds a project's config from. The template wins where it speaks, and discovery fills the rest. acc
  * ships none: docs/TEMPLATES.md shows ACME's.
  */
+import { isObj } from './text.ts';
 import { createHash } from 'node:crypto';
 import {
   type AgentProfile, AGENT_ROLES, type AgentRole, type Autonomy, branchFor, type Config, type EnvType, type Environment, parseConfig, parseEnvironments,
@@ -69,7 +70,6 @@ export interface TemplateParse {
   errors: string[];
 }
 
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isStr = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '';
 const given = (v: unknown) => v !== undefined && v !== null;
 
