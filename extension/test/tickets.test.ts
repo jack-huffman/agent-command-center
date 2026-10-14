@@ -93,6 +93,34 @@ const ticket: Ticket = {
   body: { blocks: [{ t: 'p', c: [{ t: 'text', text: 'Body' }] }] }, markdown: 'Body', comments: [], related: [],
 };
 
+test('a tracker with no fields: the page model shows no status, assignee or label control, and says why (T-28)', () => {
+  const page = (trackerFields?: Parameters<typeof ticketModel>[0]['trackerFields']) =>
+    ticketModel({ project: '/r', tracker: 0, trackerTitle: 'Slack · #support', trackerKind: 'jira', key: 'ACME-1', loading: false, error: null, connect: null, checks: [], row: null, task: null, ticket, trackerEdits: true, trackerFields });
+  const none = page([]);
+  assert.deepEqual(none.can, { status: false, assign: false, labels: false, comment: true }, 'the controls are gone though the tracker edits; comments stay');
+  assert.deepEqual(none.lacks, [
+    { field: 'status', line: 'Slack · #support has no statuses.' },
+    { field: 'assignee', line: 'Slack · #support has no people to assign.' },
+    { field: 'labels', line: 'Slack · #support has no labels.' },
+  ]);
+  // A tracker that has only some: the rest stay.
+  const some = page(['status']);
+  assert.deepEqual([some.can.status, some.can.assign, some.can.labels, some.lacks.map((l) => l.field)], [true, false, false, ['assignee', 'labels']]);
+  // The edge case of a tracker without `fields`: all three controls stay and nothing is lacking.
+  const all = page(undefined);
+  assert.deepEqual([all.can.status, all.can.assign, all.can.labels, all.lacks], [true, true, true, []]);
+  assert.equal(sampleTicket(Date.now(), 'ACME-12').lacks.length, 0, 'the existing sample is unchanged');
+  assert.equal(sampleTicket(Date.now(), 'ACME-50').lacks.length, 3, 'the no-fields sample lacks all three');
+});
+
+test('the task page draws a muted line, not a control, for each field a tracker lacks (T-28)', () => {
+  const src = pageSource('task-page.ts');
+  assert.ok(src.includes("lack('status') ? el('span', 'muted', lack('status')!.line)"));
+  assert.ok(src.includes("lack('assignee') ? el('span', 'muted', lack('assignee')!.line)"));
+  assert.ok(src.includes("lack('labels') ? el('span', 'muted', lack('labels')!.line)"));
+  assert.ok(src.includes("m.status && !lack('status')"), 'the status button in the head goes too');
+});
+
 test('Track reads the ticket again and imports its title, description and labels; outside the place it\'s refused before acc runs (D-074)', async () => {
   const jira = { ...ticket, markdown: 'Escalate after **2 hours**.', labels: [{ name: 'sla', color: 'ff0000' }, { name: 'service', color: null }] };
   assert.deepEqual(trackInput(jira), [{ source: { kind: 'jira', key: 'ACME-1', url: 'https://acme.atlassian.net/browse/ACME-1' }, title: 'Ready one', brief: 'Escalate after **2 hours**.', labels: ['sla', 'service'] }]);

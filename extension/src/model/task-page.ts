@@ -12,7 +12,7 @@ import { num, ratchetLine, signed } from '../../../packages/core/src/ratchets.ts
 import { type GateStatus, ratchetOf, type Receipt } from '../../../packages/core/src/receipts.ts';
 import { testsText } from '../../../packages/core/src/test-counts.ts';
 import { type Doc, fromMarkdown } from '../../../packages/core/src/trackers/doc.ts';
-import type { Ticket, TrackerKind } from '../../../packages/core/src/trackers/types.ts';
+import { FIELD_LACKS, type Ticket, type TrackerField, type TrackerKind, trackerHasField } from '../../../packages/core/src/trackers/types.ts';
 import type { Update } from '../../../packages/core/src/updates.ts';
 import { type AnalysisAsk, questionsWord, type TaskRow, type Tone } from '../logic/shared.ts';
 import { reasonInWords } from '../logic/relayed.ts';
@@ -155,6 +155,11 @@ export interface TicketModel {
    * assignee and labels only when its tracker says "edits": true; comments always (D-066).
    */
   can: { status: boolean; assign: boolean; labels: boolean; comment: boolean };
+  /**
+   * The fields its tracker doesn't have, each with the muted line the page shows in place of its control:
+   * "Slack · #support has no labels." A tracker that sets no fields has all three, so this is empty (T-28).
+   */
+  lacks: { field: TrackerField; line: string }[];
   /** Updates acc drafted for its ticket, waiting for a person to read, edit and post (D-066). */
   updates: UpdateCard[];
   acc: TicketAcc | null;
@@ -224,6 +229,8 @@ export interface TicketInput {
   analysis?: Analysis | null;
   /** Its tracker says "edits": true, so the page may change status, assignee and labels (D-066). */
   trackerEdits?: boolean;
+  /** Which of status, assignee and labels its tracker has; not set, all three (T-28). */
+  trackerFields?: readonly TrackerField[];
   /** The project's ticket updates; the page shows its task's. */
   updates?: Update[];
   /** The project's boards, for who an update posts as, and the project's GitHub account. */
@@ -308,8 +315,14 @@ export const CHECK_LOOK: Record<GateStatus | 'waived' | 'not run', Look> = {
 export const checkLook = (c: Pick<CheckIn, 'status' | 'summary'> & Partial<CheckIn>): Look =>
   CHECK_LOOK[c.waived ? 'waived' : c.status === 'skip' && c.summary.startsWith('Not run') ? 'not run' : c.status];
 
+/** The fields a tracker lacks, each with its line: the tracker's name, then what it has none of (T-28). */
+export const lackedFields = (fields: readonly TrackerField[] | undefined, trackerTitle: string | null): TicketModel['lacks'] =>
+  (['status', 'assignee', 'labels'] as const).filter((f) => !trackerHasField({ fields }, f)).map((field) => ({ field, line: `${trackerTitle ?? 'This tracker'} has no ${FIELD_LACKS[field]}.` }));
+
 export function ticketModel(i: TicketInput): TicketModel {
   const t = i.ticket;
+  const lacks = lackedFields(i.trackerFields, i.trackerTitle);
+  const has = (f: TrackerField) => !lacks.some((l) => l.field === f);
   const live = i.tracker !== null;
   const acc: TicketAcc | null = i.row && i.task ? {
     look: accLook(i.row, true), environment: i.task.environment, waitingOn: i.row.deps, blocker: reasonInWords(i.task.blocker), conflicts: conflictLine(i.row, true), failedChecks: failedChecksLine(i.row), cardFailed: reasonInWords(cardFailure(i.task)?.replace(/[.\s]+$/, '')), files: filesLook(i.row, true),
@@ -336,7 +349,8 @@ export function ticketModel(i: TicketInput): TicketModel {
     comments: (t?.comments ?? []).map((c) => ({ id: c.id, author: chip(c.author), created: c.created, body: c.body, url: c.url })),
     related: t?.related ?? (i.task?.deps ?? []).map((d) => ({ key: d, title: '', relation: 'depends on', url: null })),
     // A client's tracker is theirs: the page changes its fields only where the tracker opts in (D-066).
-    can: { status: !!t && !!i.trackerEdits, assign: !!t && !!i.trackerEdits, labels: !!t && !!i.trackerEdits, comment: !!t },
+    can: { status: !!t && !!i.trackerEdits && has('status'), assign: !!t && !!i.trackerEdits && has('assignee'), labels: !!t && !!i.trackerEdits && has('labels'), comment: !!t },
+    lacks,
     updates: i.task ? updateCards(i.project, (i.updates ?? []).filter((u) => u.task === i.task!.id), i.github ?? null, i.boards ?? [], () => i.tracker, i.now) : [],
     acc, analysis: i.row && i.task ? ticketAnalysis(i.row, i.analysis ?? null, { project: i.project, task: i.row.id }, i.updates ?? []) : null,
     trackable: !!t && !i.task, tracking: !!i.tracking, signedInAs: i.signedInAs ?? null,

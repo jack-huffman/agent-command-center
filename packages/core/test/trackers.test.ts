@@ -3,7 +3,17 @@ import { test } from 'node:test';
 import { type AdfNode, fromAdf, fromMarkdown, plainText, safeHref, toAdf } from '../src/trackers/doc.ts';
 import { categoryOf, GithubClient } from '../src/trackers/github.ts';
 import { JiraClient } from '../src/trackers/jira.ts';
-import { type Exec, movesInto, TrackerError } from '../src/trackers/types.ts';
+import { type Exec, FIELD_LACKS, movesInto, TRACKER_FIELDS, TrackerError, trackerHasField } from '../src/trackers/types.ts';
+
+test('trackerHasField: a tracker without fields has all three; one with a list has only those (T-28)', () => {
+  for (const f of TRACKER_FIELDS) {
+    assert.equal(trackerHasField({}, f), true);
+    assert.equal(trackerHasField({ fields: [] }, f), false, 'an empty list is a tracker with none');
+    assert.ok(FIELD_LACKS[f]);
+  }
+  assert.equal(trackerHasField({ fields: ['labels'] }, 'labels'), true);
+  assert.equal(trackerHasField({ fields: ['labels'] }, 'status'), false);
+});
 
 // ---------------------------------------------------------------- the document model
 

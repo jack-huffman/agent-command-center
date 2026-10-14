@@ -67,7 +67,9 @@ function composer(m: TicketModel): HTMLElement {
 export function renderTicket(m: TicketModel): Node[] {
   const sourceIcon = KIND_ICON[m.sourceKind] ?? 'checklist';
   const crumbs = el('div', 'crumbs', icon(sourceIcon), el('span', '', m.sourceLabel), el('span', 'muted', '/'), m.url ? linkTo(m.url, m.key) : el('span', '', m.key));
-  const statusEl = m.status ? el('span', `pill tone-${m.status.tone}`, icon(m.status.icon, m.status.tone), m.status.name) : null;
+  // A field its tracker lacks gets one muted line in place of its control (T-28).
+  const lack = (f: 'status' | 'assignee' | 'labels') => m.lacks.find((l) => l.field === f);
+  const statusEl = m.status && !lack('status') ? el('span', `pill tone-${m.status.tone}`, icon(m.status.icon, m.status.tone), m.status.name) : null;
   let statusCtl: Child = statusEl;
   if (statusEl && m.can.status) {
     const b = el('button', 'btn status-btn', statusEl, icon('chevron-down')) as HTMLButtonElement;
@@ -138,10 +140,10 @@ export function renderTicket(m: TicketModel): Node[] {
   // The side column: the ticket's fields, then acc's side of it.
   const people = (list: PersonChip[]) => (list.length ? el('span', 'people', ...list.map((p) => el('span', 'person', avatar(p), p.name))) : el('span', 'muted', 'Unassigned'));
   const details = el('dl', 'fields',
-    ...field('Status', m.status ? el('span', `pill tone-${m.status.tone}`, icon(m.status.icon, m.status.tone), m.status.name) : el('span', 'muted', '—')),
-    ...field(m.assignees.length > 1 ? 'Assignees' : 'Assignee', people(m.assignees), m.can.assign ? editButton('Change', 'assign') : null),
+    ...field('Status', lack('status') ? el('span', 'muted', lack('status')!.line) : m.status ? el('span', `pill tone-${m.status.tone}`, icon(m.status.icon, m.status.tone), m.status.name) : el('span', 'muted', '—')),
+    ...field(m.assignees.length > 1 ? 'Assignees' : 'Assignee', lack('assignee') ? el('span', 'muted', lack('assignee')!.line) : people(m.assignees), m.can.assign ? editButton('Change', 'assign') : null),
     ...(m.reporter ? field('Reporter', el('span', 'person', avatar(m.reporter), m.reporter.name)) : []),
-    ...field('Labels', m.labels.length ? el('span', 'labels', ...m.labels.map(labelChip)) : el('span', 'muted', 'None'), m.can.labels ? editButton('Edit', 'labels') : null),
+    ...field('Labels', lack('labels') ? el('span', 'muted', lack('labels')!.line) : m.labels.length ? el('span', 'labels', ...m.labels.map(labelChip)) : el('span', 'muted', 'None'), m.can.labels ? editButton('Edit', 'labels') : null),
     ...(m.priority ? field('Priority', m.priorityIcon ? iconed(m.priorityIcon, m.priority) : el('span', '', m.priority)) : []),
     ...(m.type ? field('Type', iconed(m.typeIcon, m.type)) : []),
     ...field('Created', when(m.created)),
