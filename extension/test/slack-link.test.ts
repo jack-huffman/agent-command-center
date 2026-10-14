@@ -44,7 +44,7 @@ function fakeSlack(messages: () => unknown[] | { error: string }) {
           : method === 'chat.getPermalink' ? { ok: true, permalink: LINK } : { ok: false, error: 'unknown_method' };
     return new Response(JSON.stringify(answer), { status: 200 });
   }) as unknown as typeof fetch;
-  return { client: new SlackClient({ ...PLACE, token: 'xoxb-test', fetch: f }), calls };
+  return { client: new SlackClient({ workspace: PLACE.workspace, channel: PLACE.channel, token: 'xoxb-test', fetch: f }), calls };
 }
 
 const ROOT = { ts: '1696512345.123456', user: 'U01', text: 'The invoice export drops the last row\nIt happens on every export.' };
