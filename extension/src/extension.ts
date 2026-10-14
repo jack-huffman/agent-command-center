@@ -24,6 +24,7 @@ import { Notices } from './notices.ts';
 import { currentPace, Panels } from './panels.ts';
 import { accShellCommand, Questions, sessionSettings } from './questions.ts';
 import { Runs } from './runs.ts';
+import { postClaimed } from './logic/post-update.ts';
 import { accRunner, runFile } from './run.ts';
 import { claudeProjectsDir, savedFolder } from './transcript.ts';
 import { Setup } from './setup.ts';
@@ -188,8 +189,8 @@ export function activate(context: vscode.ExtensionContext): void {
   };
   /**
    * A ticket's updates, posted as you, set aside, or drafted from an analysis's question, all through acc
-   * (D-066). GitHub posts through acc as the repo's account (D-028). Jira and Azure DevOps post through this
-   * repo's sign-in (D-027): acc claims the draft first, so a second window's Post can't send it again, and
+   * (D-066). GitHub posts through acc as the repo's account (D-028). Every other tracker posts through this repo's
+   * sign-in (D-027), a Slack draft as a reply in its thread: acc claims the draft first, so a second window's Post can't send it again, and
    * records it once it's gone, or puts it back with why.
    */
   const updates: UpdateActions = {
@@ -226,15 +227,8 @@ export function activate(context: vscode.ExtensionContext): void {
         }
         const away = (await client.outside([u.key], { project: true }))[0];
         if (away) return fail(`${u.key} isn't in this repo's ${name} ${u.tracker === 'monday' ? 'board' : 'project'} any more: ${away.why}. Discard the draft if it no longer applies.`);
-        const claimed = await acc(['update', 'posting', id, ...againArgs, '--json'], p.root);
-        if (claimed.code !== 0) return fail(accSays(claimed));
-        try {
-          await client.comment(u.key, text);
-        } catch (e) {
-          const why = (e as Error).message;
-          await acc(['update', 'release', id, `--reason=${why}`, '--json'], p.root);
-          return fail(why);
-        }
+        const sent = await postClaimed(client, acc, p.root, u.key, id, text, againArgs, accSays);
+        if (!sent.ok) return fail(sent.error);
         const recorded = await acc(['update', 'posted', id, `--text-file=${file}`, '--json'], p.root);
         if (recorded.code !== 0) return fail(`it posted, but acc couldn't record it: ${accSays(recorded)}`);
         return { ok: true };
