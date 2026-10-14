@@ -171,7 +171,11 @@ export async function slackAuth(workspace: string, token: string, f: typeof fetc
  * the workspace. When bots.info can't be read, the bot user's name from auth.test.
  */
 export async function slackApp(workspace: string, token: string, f: typeof fetch = fetch): Promise<Person> {
-  const d = await slackAuth(workspace, token, f);
+  return appOf(token, await slackAuth(workspace, token, f), f);
+}
+
+/** The app's name for a token auth.test has already checked: bots.info, else the bot user's name. */
+async function appOf(token: string, d: SlackAuth, f: typeof fetch): Promise<Person> {
   const name = d.bot_id
     ? await slackCall<{ bot?: { name?: string } }>(token, 'bots.info', { bot: d.bot_id }, f).then((b) => b.bot?.name?.trim() || null).catch(() => null)
     : null;
@@ -213,6 +217,8 @@ export class SlackClient implements TrackerClient {
   private readonly channel: string;
   /** The token's check against the workspace, made once. */
   private authCache: Promise<SlackAuth> | null = null;
+  /** The app's name, looked up once: the task page and update cards ask on every draw. */
+  private meCache: Promise<Person> | null = null;
   private readonly users = new Map<string, Promise<string>>();
 
   constructor(o: SlackOptions) {
@@ -362,10 +368,14 @@ export class SlackClient implements TrackerClient {
     await this.call('chat.postMessage', { channel, thread_ts: ts, text: slackEscape(text), unfurl_links: false, unfurl_media: false }, true);
   }
 
-  /** The app's own bot user, as auth.test names it. */
-  async me(): Promise<Person> {
-    const d = await this.authed();
-    return { id: d.user_id, name: d.user };
+  /** The app a reply posts as, named as slackApp names it: by bots.info, else by the bot user. */
+  me(): Promise<Person> {
+    if (!this.meCache) {
+      const p = this.authed().then((d) => appOf(this.o.token, d, this.o.fetch ?? fetch));
+      this.meCache = p;
+      p.catch(() => { if (this.meCache === p) this.meCache = null; });
+    }
+    return this.meCache;
   }
 
   async assignable(): Promise<Person[]> {

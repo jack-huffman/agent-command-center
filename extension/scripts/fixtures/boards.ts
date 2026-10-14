@@ -138,7 +138,7 @@ export function sampleSlackBoards(refused = false): BoardInput[] {
   const link = 'https://acme.slack.com/archives/C0999WXYZ/p1696512345123456';
   const read = slackLinkKey(link, place);
   return [{
-    index: 0, kind: 'slack', title: 'Slack · acme', error: null, connect: null, loading: false, signedInAs: 'a Slack app\'s bot token',
+    index: 0, kind: 'slack', title: 'Slack · acme', error: null, connect: null, loading: false, signedInAs: 'Acme Command Center',
     signInScope: { shared: false, host: 'acme' }, place: 'Slack · acme · channel C0123ABCD', left: [], board: null,
     paste: { ...place, ...(refused ? { link, busy: false, error: read.ok ? null : read.error, tracked: null } : NO_PASTE) },
   }];

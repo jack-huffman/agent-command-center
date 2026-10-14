@@ -8,6 +8,8 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { COMMANDS } from '../src/logic/setup.ts';
 import { makeRepo, tempDir } from '../../packages/core/test/support.ts';
+import { slackApp, SlackClient } from '../../packages/core/src/trackers/slack.ts';
+import { updatePoster } from '../src/model/updates.ts';
 import { activate, fakeVscode, until } from './vscode.ts';
 
 const dist = fileURLToPath(new URL('../dist/extension.js', import.meta.url));
@@ -370,9 +372,28 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     assert.deepEqual([slackBoard()!.error, slackBoard()!.connect?.command, slackBoard()!.connect?.label], ['Sign in to Slack (acme) for this repo to read its channel\'s threads.', 'acc.trackers.signIn', 'Sign in to Slack']);
     const slackToken = 'xoxb-0000-1111-slacktokenforthetest';
     secrets.set('acc.cred:site:slack:acme', JSON.stringify({ kind: 'slack', method: 'token', token: slackToken }));
-    await calls.commands.get('acc.trackers.refresh')!();
-    await until(() => !!slackBoard()?.signedInAs);
-    assert.deepEqual([slackBoard()!.signedInAs, slackBoard()!.error, slackBoard()!.connect], ['a Slack app\'s bot token', null, null], 'no sign-in to ask for, and not the client\'s refusal of a board');
+    // Slack answers as the app Acme Command Center (bots.info), as it does on the Connect page.
+    const realFetch = globalThis.fetch;
+    const slackApi = (async (url: string) => {
+      const m = new URL(url).pathname;
+      if (m === '/api/auth.test') return Response.json({ ok: true, url: 'https://acme.slack.com/', team: 'Acme', user: 'acc-bot', user_id: 'U0BOT', bot_id: 'B0APP' });
+      if (m === '/api/bots.info') return Response.json({ ok: true, bot: { id: 'B0APP', name: 'Acme Command Center' } });
+      return Response.json({ ok: false, error: 'unknown_method' });
+    }) as unknown as typeof fetch;
+    globalThis.fetch = slackApi;
+    try {
+      await calls.commands.get('acc.trackers.refresh')!();
+      await until(() => !!slackBoard()?.signedInAs);
+      // The same name three ways (T-32): the client's me, the Connect page's sign-in, and the board the task page and the update card's Post read.
+      const app = (await slackApp('acme', slackToken, slackApi)).name;
+      const me = (await new SlackClient({ workspace: 'acme', channel: 'C0123ABCD', prefix: 'SL', token: slackToken, fetch: slackApi }).me()).name;
+      const post = updatePoster('slack', slackBoard()!.index, '/r', null, [{ ...slackBoard()!, loading: false } as never]).postAs;
+      assert.deepEqual([me, slackBoard()!.signedInAs, post], [app, app, app], 'me, the task page\'s Commenting as, and the update card\'s Post');
+      assert.equal(app, 'Acme Command Center');
+      assert.deepEqual([slackBoard()!.error, slackBoard()!.connect], [null, null], 'no sign-in to ask for, and not the client\'s refusal of a board');
+    } finally {
+      globalThis.fetch = realFetch;
+    }
     assert.match(slackBoard()!.paste?.hint ?? '', /channel C0123ABCD of acme\.slack\.com/, 'a box for a thread\'s link, which says the channel');
     // Track from the box: a link to a thread in another channel is refused before Slack is asked, naming it.
     const slackRoot = (tab.posted.filter((x) => (x as WithBoards).model).at(-1) as WithBoards).model!.tasks.projects[0]!.root;
