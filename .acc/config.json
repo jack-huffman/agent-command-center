@@ -68,6 +68,7 @@
     "builder": [
       "typecheck",
       "near-tests",
+      "repo-rules",
       "tests",
       "screenshots"
     ],
@@ -75,6 +76,7 @@
       "check": "npm run check",
       "typecheck": "npm run typecheck",
       "near-tests": "node --no-warnings scripts/near-tests.mjs",
+      "repo-rules": "node --no-warnings --test \"scripts/test/*.test.ts\"",
       "screenshots": "node --no-warnings extension/scripts/looked.ts"
     },
     "ratchets": {
@@ -87,11 +89,13 @@
     "heavy": [
       "check",
       "typecheck",
-      "near-tests"
+      "near-tests",
+      "repo-rules"
     ],
     "tests": [
       "check",
-      "near-tests"
+      "near-tests",
+      "repo-rules"
     ]
   },
   "secretScan": {
