@@ -34,6 +34,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { HOME_SECTIONS, type HomeSection } from '../src/model/shared.ts';
 import { homeModel, type Model } from '../src/model/home.ts';
+import type { GroupKey } from '../src/model/landing.ts';
 import { FinishedJobs } from '../src/progress.ts';
 import { sampleAgent } from './fixtures/agent-page.ts';
 import { sampleBoards, sampleGithubBoards, sampleMondayBoards, sampleSlackBoards } from './fixtures/boards.ts';
@@ -91,7 +92,7 @@ import { behaviourCheck } from './behaviour.ts';
  * the same with a question opened over it, its update drafts, and History opened at an answer.
  * Last, the loading screen the Command Center shows while it opens, which no model replaces (T-16).
  */
-export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-slack', 'connect-slack-channel', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'tasks-slack', 'tasks-slack-refused', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'tasks-agents', 'ticket-cloud', 'ticket-nofields', 'loading'] as const;
+export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-slack', 'connect-slack-channel', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'tasks-slack', 'tasks-slack-refused', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'overview-needs', 'overview-progress', 'overview-ready', 'overview-moment', 'tasks-agents', 'ticket-cloud', 'ticket-nofields', 'loading'] as const;
 export type Page = (typeof PAGES)[number];
 
 /**
@@ -121,8 +122,11 @@ const other = (t: PaletteTheme): PaletteTheme => (t === 'dark' ? 'light' : 'dark
 /** The label of each Overview row's button in the page's model, by its row's title with its spaces collapsed as the drawn one's are (T-25); null for a page that isn't a section. */
 export function expectedButtons(model: Model): ExpectedButton[] | null {
   if (model.kind !== 'home') return null;
-  return model.overview.landing.flatMap((g) => g.all ?? g.rows).flatMap((r) => (r.action ? [{ row: r.title.replace(/\s+/g, ' ').trim(), label: r.action.label }] : []));
+  return model.overview.landing.flatMap((g) => g.all).flatMap((r) => (r.action ? [{ row: r.title.replace(/\s+/g, ' ').trim(), label: r.action.label }] : []));
 }
+
+/** The busy Overview with a list open over it in full (T-36): Needs you's Show all, or a card's list. */
+export const OVERVIEW_LISTS: Partial<Record<Page, GroupKey>> = { 'overview-needs': 'needs-you', 'overview-progress': 'progress', 'overview-ready': 'ready', 'overview-moment': 'moment' };
 
 /** A page's sample data. theme is what Settings shows chosen, as the shot forces it (GH-109). */
 export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = 'vscode'): Model {
@@ -159,7 +163,7 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
     return homeModel({ ...base, hub: sampleBusyHub(now), runs, finished, autopilot: () => 'on', now });
   }
   // The Overview when everything is busy at once, and with a detail opened over it (GH-160).
-  if (kind === 'overview-landing' || kind === 'overview-answer' || kind === 'overview-drafts' || kind === 'overview-history') {
+  if (kind === 'overview-landing' || kind === 'overview-answer' || kind === 'overview-drafts' || kind === 'overview-history' || OVERVIEW_LISTS[kind]) {
     return homeModel({ hub: sampleLandingHub(now), section: 'overview', boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: sampleLandingRuns(), edited: sampleEdited, slack: sampleSlack('on', now), autopilot: () => 'on', now });
   }
   // Setup as it's first shown in a folder that isn't set up, which no project is loaded from (GH-138).
@@ -202,6 +206,7 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   : kind === 'overview-answer' ? { detail: { kind: 'question', id: 'm1-aaaa0002' } }
   : kind === 'overview-drafts' ? { detail: { kind: 'updates' } }
   : kind === 'overview-history' ? { detail: { kind: 'history', item: 3 } }
+  : OVERVIEW_LISTS[kind] ? { detail: { kind: 'list', group: OVERVIEW_LISTS[kind] } }
   : kind === 'agents-finished' ? { opened: [ROOT, CLIENTS].map((r) => `agents-finished:${r}`) }
   // The agent board, with two builders in the cloud (GH-69): the Tasks tab remembers which board shows.
   : kind === 'tasks-agents' ? { modes: { [ROOT]: 'agents' } }
@@ -239,7 +244,7 @@ export const DEFAULT_HEIGHT = 900;
  * Command Center's preferences is shot tall enough not to scroll at 500 px, and Environments tall enough to
  * show This machine's line saying Slack moved (GH-113).
  */
-export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 1900, 'overview-idle': 1700, 'overview-landing': 1900, 'overview-answer': 1100, 'overview-drafts': 1100, 'overview-history': 1300, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 3800, 'settings-agents': 3800, 'settings-limits': 3800, 'ticket-note': 1600, agents: 2000, 'agents-path': 2300, 'agents-finished': 2300, 'settings-trackers': 5000, 'slack-none': 5000, 'slack-off': 5000, 'slack-paused': 5000, 'settings-github': 5800, 'settings-page': 5000, environments: 1400, rules: 1300, 'rules-accept': 1500, 'settings-about': 7200, 'settings-about-failed': 7200 };
+export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 1900, 'overview-idle': 1700, 'overview-landing': 1900, 'overview-answer': 1100, 'overview-drafts': 1100, 'overview-history': 1300, 'overview-needs': 1100, 'overview-progress': 1100, 'overview-ready': 1100, 'overview-moment': 1100, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 3800, 'settings-agents': 3800, 'settings-limits': 3800, 'ticket-note': 1600, agents: 2000, 'agents-path': 2300, 'agents-finished': 2300, 'settings-trackers': 5000, 'slack-none': 5000, 'slack-off': 5000, 'slack-paused': 5000, 'settings-github': 5800, 'settings-page': 5000, environments: 1400, rules: 1300, 'rules-accept': 1500, 'settings-about': 7200, 'settings-about-failed': 7200 };
 
 /** The colour properties the colour check compares, on every element and its ::before and ::after. */
 export const COLOUR_PROPERTIES = [
