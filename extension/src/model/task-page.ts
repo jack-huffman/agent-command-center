@@ -12,7 +12,7 @@ import { num, ratchetLine, signed } from '../../../packages/core/src/ratchets.ts
 import { type GateStatus, ratchetOf, type Receipt } from '../../../packages/core/src/receipts.ts';
 import { testsText } from '../../../packages/core/src/test-counts.ts';
 import { type Doc, fromMarkdown } from '../../../packages/core/src/trackers/doc.ts';
-import { FIELD_LACKS, type Ticket, type TrackerField, type TrackerKind, trackerHasField } from '../../../packages/core/src/trackers/types.ts';
+import { FIELD_LACKS, TRACKER_FIELDS, type Ticket, type TrackerField, type TrackerKind, trackerHasField } from '../../../packages/core/src/trackers/types.ts';
 import type { Update } from '../../../packages/core/src/updates.ts';
 import { type AnalysisAsk, questionsWord, type TaskRow, type Tone } from '../logic/shared.ts';
 import { reasonInWords } from '../logic/relayed.ts';
@@ -317,7 +317,7 @@ export const checkLook = (c: Pick<CheckIn, 'status' | 'summary'> & Partial<Check
 
 /** The fields a tracker lacks, each with its line: the tracker's name, then what it has none of (T-28). */
 export const lackedFields = (fields: readonly TrackerField[] | undefined, trackerTitle: string | null): TicketModel['lacks'] =>
-  (['status', 'assignee', 'labels'] as const).filter((f) => !trackerHasField({ fields }, f)).map((field) => ({ field, line: `${trackerTitle ?? 'This tracker'} has no ${FIELD_LACKS[field]}.` }));
+  TRACKER_FIELDS.filter((f) => !trackerHasField({ fields }, f)).map((field) => ({ field, line: `${trackerTitle ?? 'This tracker'} has no ${FIELD_LACKS[field]}.` }));
 
 export function ticketModel(i: TicketInput): TicketModel {
   const t = i.ticket;

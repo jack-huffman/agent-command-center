@@ -97,7 +97,6 @@ export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12'):
   });
 }
 
-/** A running task whose builder stopped before acc done (D-067): its page quotes it in full, and offers Resume. */
 /** A thread in a tracker that has no status, assignee or labels (T-28): the page names the tracker where each control would be. */
 function sampleNoFieldsTicket(now: number): TicketModel {
   const ticket: Ticket = {
@@ -138,6 +137,7 @@ function sampleCloudTicket(now: number): TicketModel {
   });
 }
 
+/** A running task whose builder stopped before acc done (D-067): its page quotes it in full, and offers Resume. */
 function sampleStoppedTicket(now: number): TicketModel {
   const row = sampleHub(now).taskRows(ROOT).find((r) => r.id === 'ACME-29')!;
   const ticket: Ticket = {
