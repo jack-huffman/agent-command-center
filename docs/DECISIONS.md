@@ -6668,13 +6668,14 @@ open over the page), and In progress's fold (D-092), which has nothing left to f
 - **Checked:** the screenshot run's Overview check now fails on more than three lines in Needs you, and on
   cards out of their grid: another width, another height in one row, out of the first row's columns, or out
   of line with their row (`judgeCards`). It also measures the lines and buttons of a list a detail shows over
-  the page. It counts cards with lines and fails on none. The run adds four pages: `overview-needs`,
-  `overview-progress`, `overview-ready` and `overview-moment`, each list open in full. The behaviour run adds
+  the page. It counts cards with lines and fails on none. The run adds five pages: `overview-needs`,
+  `overview-progress`, `overview-ready` and `overview-moment`, each list open in full, and `overview-clear`,
+  the busy Overview with nothing that needs you. The behaviour run adds
   two cases (each card opens its list in full, In progress with its machine line, focus back; the header's
   one button and its menu's three messages) and four mutants. `landing.test.ts` adds four tests, among them
   one that walks the busy Overview and finds each list's lines on the page or in what its card opens.
 - **Floors lowered:** the page draws fewer lines and buttons, so the run's floors for overview (1200 to 800),
   buttons (1000 to 450) and overlap (13700 to 13600) were lowered to under what it now examines (816, 462,
-  13614). The tab floor rose to 342 for the four new pages. A person should confirm the lowered floors.
+  13614). The tab floor rose to 348 for the five new pages. A person should confirm the lowered floors.
 
 Out of scope: what each list holds, the detail itself, and the other tabs.
