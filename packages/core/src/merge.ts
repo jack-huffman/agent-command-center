@@ -1,6 +1,7 @@
+import { firstSaid } from './text.ts';
 import { autoMergeFor, type Config, environmentByBranch } from './config.ts';
 import { type CheckRead, readChecks } from './checks.ts';
-import { AccError, parseJsonOutput, type RunResult, type Runner } from './exec.ts';
+import { AccError, parseJsonOutput, type Runner } from './exec.ts';
 import { GH_TIMEOUT_MS, ghToken } from './land.ts';
 import { type Actor, type AutopilotMerge, type MergeMethod, mutate, readLedger } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
@@ -61,7 +62,6 @@ interface GhPrState {
 }
 
 const short = (sha: string): string => sha.slice(0, 7) || 'no commit';
-const firstLine = (r: RunResult): string => (r.stderr || r.stdout).trim().split('\n')[0]?.trim() || `exit ${r.code}`;
 
 /** What GitHub says about the pull request now, or null when gh couldn't say. */
 function viewPr(run: Runner, repo: string, n: number, env: NodeJS.ProcessEnv): GhPrState | null {
@@ -86,7 +86,7 @@ export function mergeMethod(run: Runner, repo: string, env: NodeJS.ProcessEnv): 
   } catch {
     allowed = null;
   }
-  if (!allowed) throw new AccError('merge', `gh couldn't read how ${repo} merges pull requests: ${firstLine(r)}`);
+  if (!allowed) throw new AccError('merge', `gh couldn't read how ${repo} merges pull requests: ${firstSaid(r)}`);
   const key: Record<MergeMethod, string> = { merge: 'mergeCommitAllowed', squash: 'squashMergeAllowed', rebase: 'rebaseMergeAllowed' };
   const method = MERGE_METHODS.find((m) => allowed[key[m]] === true);
   if (!method) throw new AccError('merge', `${repo} allows no way to merge a pull request.`);
@@ -135,7 +135,7 @@ export function mergePr(paths: RepoPaths, config: Config, id: string, deps: Merg
   const git = (...args: string[]) => run('git', args, { cwd: paths.root });
   if (git('merge-base', '--is-ancestor', `refs/remotes/origin/${env.branch}`, head).code !== 0) throw wait(`${env.branch} moved on since ${short(head)}: autopilot merges it in first.`);
   const changed = git('diff', '--name-only', '--no-renames', `refs/remotes/origin/${env.branch}...${head}`, '--', '.acc');
-  if (changed.code !== 0) throw new AccError('merge', `git couldn't list what pull request #${pr.number} changes: ${firstLine(changed)}`);
+  if (changed.code !== 0) throw new AccError('merge', `git couldn't list what pull request #${pr.number} changes: ${firstSaid(changed)}`);
   const acc = changed.stdout.split('\n').filter(Boolean);
   // acc's own config, such as whether a repo auto-merges, is a person's to change (a person decided).
   if (acc.length) throw new AccError('merge', `It changes .acc/, which a person merges: ${acc.join(', ')}.`);
@@ -191,7 +191,7 @@ export function mergePr(paths: RepoPaths, config: Config, id: string, deps: Merg
     const after = viewPr(run, gh.repo, pr.number, ghEnv);
     if (after?.state !== 'MERGED') {
       if (after?.headRefOid && after.headRefOid !== head) throw wait(`Pull request #${pr.number} moved on to ${short(after.headRefOid)} on GitHub while autopilot merged it.`);
-      throw new AccError('merge', `gh couldn't merge pull request #${pr.number}: ${firstLine(r)}${after ? '' : ' GitHub didn\'t say afterwards whether it merged.'}`);
+      throw new AccError('merge', `gh couldn't merge pull request #${pr.number}: ${firstSaid(r)}${after ? '' : ' GitHub didn\'t say afterwards whether it merged.'}`);
     }
   }
 

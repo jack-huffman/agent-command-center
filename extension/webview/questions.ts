@@ -7,11 +7,12 @@ import { pending } from './updates.ts';
 
 // ---------------------------------------------------------------- agents' questions (D-030)
 
+const emptyDraft = (): Draft => ({ picks: {}, other: {}, denying: false, reason: '', sent: false });
 function draftOf(id: string): Draft {
-  return memory().answers[id] ?? { picks: {}, other: {}, denying: false, reason: '', sent: false };
+  return memory().answers[id] ?? emptyDraft();
 }
 function saveDraft(id: string, change: (d: Draft) => void): void {
-  remember((m) => { const d = m.answers[id] ?? { picks: {}, other: {}, denying: false, reason: '', sent: false }; change(d); m.answers[id] = d; });
+  remember((m) => { const d = m.answers[id] ?? emptyDraft(); change(d); m.answers[id] = d; });
 }
 
 /** Sends an answer, and shows it's on its way until the question leaves the page. */

@@ -9,6 +9,7 @@
  * dismisses it; each writes one record here, and nothing else. acc never writes `.acc/rules.md`: the task
  * it adds does, and its pull request changes `.acc/`, which a person merges.
  */
+import { clip, sentence } from './text.ts';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -385,11 +386,6 @@ export function checkHint(text: string): CheckKind | null {
   return null;
 }
 
-const sentence = (t: string): string => {
-  const s = t.trim();
-  return s && !/[.!?]$/.test(s) ? `${s}.` : s;
-};
-
 /**
  * The suggestions to show: each group with 3 or more findings across 2 or more tasks. One a person dismissed
  * or accepted stays hidden until 3 more findings join it; one accepted as a rule that comes back is offered as
@@ -447,7 +443,6 @@ export const defaultCheck = (s: Pick<Suggestion, 'kind' | 'hint'>): CheckAsk => 
 
 const CHECK_WORDS: Record<Exclude<CheckAsk, 'none'>, string> = { lint: 'lint', test: 'test', gate: 'gate', any: 'lint, test or gate' };
 
-const clip = (t: string, n: number): string => (t.length > n ? `${t.slice(0, n - 1).trimEnd()}…` : t);
 
 export const draftTitle = (s: Pick<Suggestion, 'kind'>, line: string): string => clip(s.kind === 'check' ? `Add a check for the rule: ${line.replace(/\.$/, '')}` : `Add the rule: ${line.replace(/\.$/, '')}`, 120);
 

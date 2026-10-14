@@ -2,10 +2,15 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
-import { type Config, type Effort, type Environment, environmentByBranch } from './config.ts';
+import { type BuilderPlace, type Config, type Effort, type Environment, environmentByBranch } from './config.ts';
+import { cloudChecks, cloudNeeds, cloudText, type Fired, fireRoutine, readCloudToken } from './cloud.ts';
+import { guardCommitted } from './cloud-guard.ts';
+import { environmentProtection, protectionWarnings } from './protection.ts';
+import { PUSH_TIMEOUT_MS } from './land.ts';
+import { fetchBranches } from './sync.ts';
 import { AccError, type Runner } from './exec.ts';
 import { type Actor, applyMove, checkMove, type FileShare, mutate, noGateHooks, readLedger, reworkCause, type ReworkCause, type Task } from './ledger.ts';
-import type { RepoPaths } from './paths.ts';
+import { type RepoPaths, samePath } from './paths.ts';
 import { analysisProblems, readAnalysis } from './analyze.ts';
 import { plannedFiles, startLook, waits } from './overlap.ts';
 import { readChecksReport, readQueueReport } from './checks.ts';
@@ -108,6 +113,11 @@ export interface DispatchResult {
   name: string;
   /** The tasks in flight it shares files with, and those files, when it started anyway (D-093). */
   shares: FileShare[];
+  /** Where the builder runs (GH-69): this Mac, or a cloud session, with its id and page. */
+  where: BuilderPlace;
+  cloud?: Fired;
+  /** What a person should know but needn't act on now (GH-69): GitHub enforcing no protection on a branch the cloud builder could reach. */
+  warnings?: string[];
 }
 
 /** A dispatch that waits for other tasks' files instead of starting (D-093). Nothing was created or launched. */
@@ -186,16 +196,6 @@ function readList(wt: string, rel: string | null): string[] {
 
 const sleep = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
-/** The same folder, however it's spelled: Claude Code lists a session's real path. */
-function samePlace(a: string, b: string): boolean {
-  if (a === b) return true;
-  try {
-    return realpathSync(a) === realpathSync(b);
-  } catch {
-    return false;
-  }
-}
-
 export interface FindSessionOptions {
   /** Started at this time or later, in ms: an older session of the same name is another run's. */
   since?: number;
@@ -216,7 +216,7 @@ export function findSession(run: Runner, cwd: string, name: string, waitMs: numb
   const ours = (x: { name?: string; cwd?: string; kind?: string; startedAt?: number }): boolean =>
     x.name === name && x.kind === 'background'
     && (o.since === undefined || (x.startedAt ?? 0) >= o.since)
-    && (!o.places || !x.cwd || o.places.some((p) => samePlace(x.cwd!, p)));
+    && (!o.places || !x.cwd || o.places.some((p) => samePath(x.cwd!, p)));
   do {
     const r = run('claude', ['agents', '--json'], { cwd, timeoutMs: 20_000 });
     try {
@@ -254,6 +254,13 @@ export interface DispatchOptions {
   model?: string;
   /** The effort a person picked for this task's builder, kept on its run as the model is (D-128): `default` drops an earlier pick. */
   effort?: EffortPick;
+  /** Where the builder runs (GH-69): --cloud or --local. Left out, the project's agents.cloud.default, else local. */
+  where?: BuilderPlace;
+}
+
+/** Where a task's builder goes (GH-69): the flag, else the project's choice, else this Mac. */
+export function builderPlace(config: Pick<Config, 'agents'>, chosen?: BuilderPlace): BuilderPlace {
+  return chosen ?? config.agents.cloud?.default ?? 'local';
 }
 
 /**
@@ -286,9 +293,17 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
   const { effort, picked: effortPicked, keep, dropped } = dispatchEffort(found, config, model, { effort: opts.effort, modelPicked: opts.model !== undefined });
   checkModelEffort(model, effort, effortFixWords(id, effortPicked, model));
   const effortDropped = dropped ? { effortDropped: dropped } : {};
-  const req = { to: 'running' as const, actor: opts.actor, by: opts.by };
+  // Where it runs (GH-69): the cloud only where the project opted in and everything it needs is there.
+  const where = builderPlace(config, opts.where);
+  if (where === 'cloud' && opts.foreground) throw new AccError('usage', '--cloud starts the builder in a cloud session, so it can\'t run in this terminal: give --cloud or --foreground, not both.');
+  if (where === 'cloud') {
+    const unmet = cloudNeeds(config, run, deps.env).filter((n) => !n.ok);
+    if (unmet.length) throw new AccError('cloud-unavailable', `Can't dispatch ${id} to the cloud:\n- ${unmet.map((n) => `${n.label}: ${n.fix}`).join('\n- ')}`);
+  }
+  const req = { to: 'running' as const, actor: opts.actor, by: opts.by, where };
   // Beside the project's cap, this machine's total across every repo (GH-111), which no one ledger knows.
-  const machine = machineLoad(paths, config.project, deps.env);
+  // A cloud builder uses none of this Mac, so the machine's total never refuses it (GH-69).
+  const machine = where === 'cloud' ? null : machineLoad(paths, config.project, deps.env);
   const overMachine = (l: typeof before) => { const p = machineCapProblem(l, id, machine); return p ? [p] : []; };
   const problems = [...checkMove(before, config, found, req, noGateHooks), ...overMachine(before)];
   if (problems.length) throw new AccError('move-refused', `Can't dispatch ${id}:\n- ${problems.join('\n- ')}`);
@@ -323,7 +338,7 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
     const enter = isClaudeWorktree(main, wt);
     // Background sessions need a trusted folder (D-022): the main checkout when entering a .claude worktree.
     const launchDir = enter ? main : wt;
-    if (!opts.foreground && enter && !isTrusted(main, deps.env)) {
+    if (where === 'local' && !opts.foreground && enter && !isTrusted(main, deps.env)) {
       throw new AccError('not-trusted', `Claude Code doesn't trust ${main} yet, so it won't start a background agent there. Run \`claude\` once in that folder, accept the trust prompt, then type /exit and dispatch again.`);
     }
     const branch = found.run?.branch ?? taskBranch(found);
@@ -339,8 +354,9 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
     const cause = rework ? reworkCause(found) : null;
     const head = cause === 'checks' || cause === 'queue' ? git(run, paths.root, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`).stdout.trim() : '';
     const packet = renderPacket({
-      task: found, config, env, worktree: wt, branch, rules, environmentSpecific: readList(wt, config.environmentSpecific), enterWorktree: enter && !opts.foreground,
-      accPath: join(deps.accBinDir, 'acc'), review: rework ? latestVerdict(paths, found.id) : null, analysis: readAnalysis(paths, found.id),
+      task: found, config, env, worktree: wt, branch, rules, environmentSpecific: readList(wt, config.environmentSpecific), enterWorktree: where === 'local' && enter && !opts.foreground, cloud: where === 'cloud',
+      // The Mac's acc path names the home folder, and means nothing in the cloud (GH-69): only a local builder gets it.
+      ...(where === 'local' ? { accPath: join(deps.accBinDir, 'acc') } : {}), review: rework ? latestVerdict(paths, found.id) : null, analysis: readAnalysis(paths, found.id),
       checks: head && cause === 'checks' ? readChecksReport(paths, found.id, head) : null,
       queue: head && cause === 'queue' ? readQueueReport(paths, found.id, head) : null,
       // The notes the tasks it builds on left (D-106).
@@ -358,7 +374,7 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
     const name = sessionName({ project: config.project, key: found.id, title: found.title, role: 'builder', n });
     const base = ['--name', name, '--permission-mode', config.agents.permissionMode, ...agentArgs({ ...config.agents.builder, model, effort }), '--settings', settings];
 
-    const record = (bgId: string | null, sessionId: string | null) => mutate(paths, now, (ledger, emit) => {
+    const record = (bgId: string | null, sessionId: string | null, cloud: (Fired & { head: string }) | null = null) => mutate(paths, now, (ledger, emit) => {
       const task = ledger.tasks.find((t) => t.id === id)!;
       const again = [...checkMove(ledger, config, task, req, noGateHooks), ...overMachine(ledger)];
       if (again.length) throw new AccError('move-refused', `Can't dispatch ${id}:\n- ${again.join('\n- ')}`);
@@ -373,10 +389,40 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
       applyMove(task, { ...req, reason: reused ? `re-dispatched in ${basename(wt)}` : null }, emit, now, data);
       // The last run's note, or that it left none (D-106): the run it was is replaced here.
       const last = task.run ? { before: task.run.note ?? null } : {};
-      task.run = { worktree: wt, branch, startedAt: now().toISOString(), model, ...(picked ? { modelPicked: true as const } : {}), ...(effort ? { effort } : {}), ...(effortPicked ? { effortPicked: true as const } : {}), ...(bgId ? { bgId } : {}), ...(sessionId ? { sessionId } : {}), name, n, ...(shares.length ? { shares } : {}), ...last };
+      const at = now().toISOString();
+      // A cloud run says so, with its session and where its branch stood when the routine was fired (GH-69).
+      const place = cloud ? { where: 'cloud' as const, cloud: { sessionId: cloud.sessionId, url: cloud.url, firedAt: at, head: cloud.head, lastPushAt: at } } : {};
+      task.run = { worktree: wt, branch, startedAt: at, model, ...(picked ? { modelPicked: true as const } : {}), ...(effort ? { effort } : {}), ...(effortPicked ? { effortPicked: true as const } : {}), ...(bgId ? { bgId } : {}), ...(sessionId ? { sessionId } : {}), name, n, ...(shares.length ? { shares } : {}), ...place, ...last };
       emit({ type: 'task.updated', task: id, actor: opts.actor, by: opts.by, data: { run: task.run } });
       return task;
     });
+
+    if (where === 'cloud') {
+      // The guard must be in the trees the cloud session loads its hooks from (GH-69): the branch its clone
+      // starts on, the repo's default branch on origin, and the task branch it then checks out. Read from
+      // the commits, never the files on disk: an uncommitted guard never reaches the cloud.
+      const gitEnv = { ...deps.env, GIT_TERMINAL_PROMPT: '0' };
+      const head0 = git(run, main, 'symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD').stdout.trim();
+      const base = head0.startsWith('origin/') ? head0.slice('origin/'.length) : env.branch;
+      fetchBranches(run, main, [base], gitEnv);
+      const baseRef = git(run, main, 'rev-parse', '--verify', '--quiet', `refs/remotes/origin/${base}`).code === 0 ? `refs/remotes/origin/${base}` : `refs/heads/${base}`;
+      for (const ref of [baseRef, `refs/heads/${branch}`]) {
+        const committed = guardCommitted(run, main, ref);
+        if (!committed.ok) throw new AccError('cloud-unguarded', `Can't dispatch ${id} to the cloud: the push guard isn't committed where the cloud session would load it. ${committed.why} The worktree is kept at ${wt}, and nothing was pushed or started.`);
+      }
+      // GitHub's rules are the line behind the guard: where it enforces none, say so, and go on (a person decided).
+      const warnings = protectionWarnings(environmentProtection(run, config.github!.repo, config.github!.account, [...new Set([base, env.branch])], deps.env));
+      // The branch goes to GitHub first (GH-69): the cloud session clones from there, so nothing depends on
+      // this Mac. Only the task's branch, as the repo's account, and never an environment's.
+      const push = run('git', ['push', '--set-upstream', 'origin', `${branch}:${branch}`], { cwd: main, env: gitEnv, timeoutMs: PUSH_TIMEOUT_MS });
+      if (push.code !== 0) throw new AccError('dispatch', `git push refused ${branch}: ${(push.stderr || push.stdout).trim().split('\n').slice(-2).join(' ')}. The worktree is kept at ${wt}, and nothing was started.`);
+      const head = git(run, main, 'rev-parse', `refs/heads/${branch}`).stdout.trim();
+      const text = cloudText({ task: found, config, env, branch, packet, checks: cloudChecks(config, env) });
+      const fired = fireRoutine(paths, run, config.agents.cloud!.routine!, readCloudToken(run, config.github!.repo, deps.env)!, text, deps.env);
+      // No caffeinate (D-067): nothing runs on this Mac. The fire counts as the branch's first move.
+      const task = record(null, null, { ...fired, head });
+      return { held: false, task, worktree: wt, branch, reused, packetPath, bgId: null, sessionId: null, name, shares, where, cloud: fired, ...(warnings.length ? { warnings } : {}), ...effortDropped };
+    }
 
     if (opts.foreground) {
       const task = record(null, null);
@@ -387,7 +433,7 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
       } finally {
         awake?.release();
       }
-      return { held: false, task, worktree: wt, branch, reused, packetPath, bgId: null, sessionId: null, name, shares, ...effortDropped };
+      return { held: false, task, worktree: wt, branch, reused, packetPath, bgId: null, sessionId: null, name, shares, where, ...effortDropped };
     }
 
     const since = Date.now() - LAUNCH_SLACK_MS;
@@ -398,7 +444,7 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
       const task = record(bgId, sessionId);
       // acc exits now, so the Mac is kept awake for the background session's own process (D-067).
       if (pid) keepAwakeFor(paths, id, pid, deps.awake);
-      return { held: false, task, worktree: wt, branch, reused, packetPath, bgId, sessionId, name, shares, ...effortDropped };
+      return { held: false, task, worktree: wt, branch, reused, packetPath, bgId, sessionId, name, shares, where, ...effortDropped };
     } catch (e) {
       if (bgId) run('claude', ['stop', bgId], { cwd: wt });
       throw e;

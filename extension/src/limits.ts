@@ -3,7 +3,6 @@
 // which changes only its own key: the page never writes a file (D-064). VS Code's API comes from the parts
 // activate() hands every area, so a test can drive the commands with a stand-in (D-099).
 
-import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type * as vscode from 'vscode';
@@ -11,7 +10,7 @@ import { autoMergeFor, type Config, fullGates, STRAY_FILES } from '../../package
 import { gatesFor } from '../../packages/core/src/gates.ts';
 import { builders, type Ledger } from '../../packages/core/src/ledger.ts';
 import { agentsMaxSet, configSets, machineAgents, machineRepos, MAX_AGENTS, MAX_MACHINE_AGENTS, realLedger, recentWork } from '../../packages/core/src/limits.ts';
-import { machineJson } from '../../packages/core/src/machine.ts';
+import { readMachineKey } from '../../packages/core/src/machine.ts';
 import { heavySlots, type HeavyState, MAX_HEAVY_SLOTS } from '../../packages/core/src/semaphore.ts';
 import type { ExtensionArea } from './area.ts';
 import type { LimitsFacts } from './model/limits.ts';
@@ -35,12 +34,10 @@ export const queueOf = (config: Config): string[] => config.environments.filter(
  * reads: small files, and every repo's ledger acc noted on this machine.
  */
 export function readLimits(projects: LimitsProject[], ledgerOf: (root: string) => Ledger | undefined, heavy: HeavyState | null, env: NodeJS.ProcessEnv = process.env): LimitsFacts {
-  // The file the slots and the total are read from, as acc finds it; with no home there's none, and acc refuses to set either.
-  const file = machineJson(env);
-  let saved: { heavySlots?: unknown } = {};
-  try { if (file) saved = JSON.parse(readFileSync(file, 'utf8')) as { heavySlots?: unknown }; } catch { /* none yet */ }
+  // The slots saved in machine.json, read as acc reads them; with no home or no file there are none.
+  const saved = readMachineKey('heavySlots', env);
   const fromEnv = Math.floor(Number(env.ACC_HEAVY_SLOTS)) >= 1;
-  const slotsFrom = fromEnv ? 'env' : Math.floor(Number(saved.heavySlots)) >= 1 ? 'machine' : 'default';
+  const slotsFrom = fromEnv ? 'env' : Math.floor(Number(saved)) >= 1 ? 'machine' : 'default';
   // Builders on this machine: each open project's repo from its ledger, then every other repo acc noted.
   const counted = new Set<string>();
   let running = 0;
@@ -207,7 +204,7 @@ export function limitCommands(vs: Vscode, d: LimitsDeps): Record<string, (arg?: 
       // stray-files is on or off by strayFiles.required, not by being picked here (GH-103).
       const gates = gatesFor(p.config).filter((g) => g.name !== STRAY_FILES);
       if (!gates.length) {
-        void vs.window.showInformationMessage(`${p.name} has no checks to choose from yet: add commands under "gates.commands" in the project's settings.`);
+        void vs.window.showInformationMessage(`${p.name} has no checks to choose from yet: add a command for each check in the project's settings.`);
         return;
       }
       // The picker edits the project's own list; stray-files is required beside it unless it's off (GH-103).
@@ -234,7 +231,7 @@ export function limitCommands(vs: Vscode, d: LimitsDeps): Record<string, (arg?: 
       // stray-files is on or off by strayFiles.required, not by being picked here (GH-103).
       const gates = gatesFor(p.config).filter((g) => g.name !== STRAY_FILES);
       if (!gates.length) {
-        void vs.window.showInformationMessage(`${p.name} has no checks to choose from yet: add commands under "gates.commands" in the project's settings.`);
+        void vs.window.showInformationMessage(`${p.name} has no checks to choose from yet: add a command for each check in the project's settings.`);
         return;
       }
       const was = p.config.gates.builder?.length ? p.config.gates.builder : [];

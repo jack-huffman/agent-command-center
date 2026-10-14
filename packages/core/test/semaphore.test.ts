@@ -4,6 +4,7 @@ import { mkdirSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { machineAgents, setMachineAgents } from '../src/limits.ts';
+import { readMachineKey } from '../src/machine.ts';
 import { heavySlots, heavyState, MAX_HEAVY_SLOTS, setHeavySlots, withSlot } from '../src/semaphore.ts';
 import { tempDir } from './support.ts';
 
@@ -164,4 +165,17 @@ test('two checks waiting for one slot take it in the order they came, and each l
   assert.ok(ta! > 0 && tb! > 0, 'both ran');
   assert.ok(ta! < tb!, 'A came first, so A took the slot first');
   assert.deepEqual(heavyState({ dir, slots: 1 }), { dir, slots: 1, held: [], waiting: [] }, 'nobody holds it or waits');
+});
+
+test('readMachineKey gives a key as the file holds it, and undefined with no home, no file, a file that is not JSON, or no such key', () => {
+  const file = join(tempDir('acc-machine-key-'), 'machine.json');
+  const env = { ACC_MACHINE_FILE: file };
+  assert.equal(readMachineKey('agents', {}), undefined, 'no home');
+  assert.equal(readMachineKey('agents', env), undefined, 'no file yet');
+  writeFileSync(file, 'not json');
+  assert.equal(readMachineKey('agents', env), undefined, 'not JSON');
+  writeFileSync(file, 'null');
+  assert.equal(readMachineKey('agents', env), undefined, 'JSON null');
+  writeFileSync(file, JSON.stringify({ agents: 5, heavySlots: 2 }));
+  assert.deepEqual([readMachineKey('agents', env), readMachineKey('heavySlots', env), readMachineKey('other', env)], [5, 2, undefined]);
 });

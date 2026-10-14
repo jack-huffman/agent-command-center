@@ -74,7 +74,8 @@ export function render(model: Model): void {
   // Each board, and each of its lanes, keeps where it was scrolled to. A page just rebuilt (its tab was
   // hidden) starts from where it was saved instead.
   const pageKey = model.kind === 'home' ? (model.connect ? 'home:connect' : `home:${model.section}`) : model.kind;
-  const fresh = !app.hasChildNodes();
+  // The loading screen (T-16) is all a page holds before its first model, so that page is fresh too.
+  const fresh = !app.hasChildNodes() || !!app.querySelector(':scope > .opening');
   const saved = fresh ? memory().scroll?.[pageKey] : undefined;
   const boards = saved?.boards ?? [...document.querySelectorAll<HTMLElement>('.board')].map((b) => ({ x: b.scrollLeft, lanes: [...b.querySelectorAll<HTMLElement>('.column')].map((c) => c.scrollTop) }));
   const scroll = { y: saved?.y ?? scroller?.scrollTop ?? 0 };

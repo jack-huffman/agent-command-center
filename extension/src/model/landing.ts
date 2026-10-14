@@ -9,7 +9,9 @@
 
 import { DISPLAY, type DisplayState } from '../../../packages/core/src/ledger.ts';
 import type { Tone } from '../logic/shared.ts';
-import { elapsed, ordinal, plural, type ProgressAction, type ProgressGroup, type ProgressModel } from '../progress.ts';
+import { ordinal } from '../../../packages/core/src/queue.ts';
+import { plural } from '../../../packages/core/src/text.ts';
+import { elapsed, type ProgressAction, type ProgressGroup, type ProgressModel } from '../progress.ts';
 import type { HistoryItem } from './history.ts';
 import { type AttentionItem, needsYouCount, type OverviewModel, type QueuePanel } from './overview.ts';
 import type { QuestionCard } from './questions.ts';
@@ -49,7 +51,7 @@ export interface RowButton { label: string; icon: string; tip?: string; primary?
  * A line's ⋯ menu: VSCode's own, built from the row's context (package.json's webview/context). The commands
  * get the ref back. A task line's flags are TASK_MENU's; an agent's are its own (`agent`), as on Agents.
  */
-export interface RowMenu { section: 'task' | 'agent' | 'tidy'; ref: Record<string, string>; flags: Record<string, boolean> }
+export interface RowMenu { section: 'task' | 'agent' | 'tidy' | 'branch'; ref: Record<string, string>; flags: Record<string, boolean> }
 
 /** A short fact on a line, cut with an ellipsis where there's no room: all of it on hover. */
 export interface Fact { text: string }

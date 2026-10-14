@@ -4,8 +4,8 @@
  */
 
 import type { Approach } from '../../../packages/core/src/analyze.ts';
-import type { Effort } from '../../../packages/core/src/config.ts';
-import type { AutopilotStepName, FileShare, QueuePhase } from '../../../packages/core/src/ledger.ts';
+import type { BuilderPlace, Effort } from '../../../packages/core/src/config.ts';
+import type { AutopilotStepName, CloudRun, FileShare, QueuePhase } from '../../../packages/core/src/ledger.ts';
 
 // ---------------------------------------------------------------- sidebar (views)
 
@@ -35,7 +35,12 @@ export interface TaskRow {
    * model its builder was started with, and modelPicked when a person picked it for this task (D-086); its
    * effort, when one was named, and effortPicked likewise (D-128).
    */
-  run?: { bgId?: string; sessionId?: string; worktree?: string; branch?: string; name?: string; model?: string; modelPicked?: true; effort?: Effort; effortPicked?: true } | null;
+  run?: { bgId?: string; sessionId?: string; worktree?: string; branch?: string; name?: string; model?: string; modelPicked?: true; effort?: Effort; effortPicked?: true; where?: BuilderPlace; cloud?: CloudRun } | null;
+  /**
+   * Its cloud builder (GH-69), while its run is a cloud session: its page on claude.ai, and why it needs
+   * you, if it does (quiet for too long, or its collect failed). Null for a builder on this Mac.
+   */
+  cloud?: { url: string; wait: string | null; finished: boolean } | null;
   /** The live state of the task's agent session, when one is known. */
   agent?: { label: string; icon: string; tone: Tone } | null;
   /** The model its agent runs with (D-086): what its transcript last answered with, else what acc started it with. */

@@ -3,6 +3,8 @@
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 
+import { BUILDER_PLACE_LOOK, cloudOffered, cloudReason } from '../../../packages/core/src/cloud.ts';
+import type { BuilderPlace, CloudAgents } from '../../../packages/core/src/config.ts';
 import { analysisReady, analysisWait, filesUnknown, sharesLine, waitLine } from '../logic/tasks.ts';
 import { questionsWord, saidLine, taskNames, type TaskRow } from '../logic/shared.ts';
 import type { Action, Look, Ref } from './shared.ts';
@@ -41,6 +43,17 @@ export function closedPrLook(t: Pick<TaskRow, 'state' | 'pr'>): Look | null {
   if (t.state !== 'review' || t.pr?.state !== 'closed') return null;
   return { label: `Needs you: pull request #${t.pr.number} was closed without merging`, icon: 'git-pull-request-closed', tone: 'orange' };
 }
+
+/** Where a task's builder runs (GH-69), with an icon: This Mac, or Cloud. Null before it has run. */
+export function placeLook(t: Pick<TaskRow, 'state' | 'run'>): Look | null {
+  if (!t.run || t.state === 'todo') return null;
+  const where: BuilderPlace = t.run.where === 'cloud' ? 'cloud' : 'local';
+  return { ...BUILDER_PLACE_LOOK[where], tone: 'neutral' };
+}
+
+/** Why cloud builders aren't offered for a project (GH-69), or null when they are: from its config alone. */
+export const cloudDisabled = (config: { github: { repo: string } | null; agents?: { cloud?: CloudAgents | null } | null } | null | undefined): string | null =>
+  cloudReason(cloudOffered({ github: config?.github ?? null, agents: { cloud: config?.agents?.cloud ?? null } }));
 
 /** How much of what a stopped agent last said a card shows; its task page shows all of it. */
 export const CARD_SAID = 120;
@@ -81,9 +94,10 @@ export function filesLook(t: Pick<TaskRow, 'state' | 'display' | 'files' | 'anal
  * that's its analysis (D-052) while one runs, has questions or says to split it, or when the project wants
  * one and there's none; then Dispatch.
  */
-export function cardActions(t: TaskRow, ref: Ref): Action[] {
+export function cardActions(t: TaskRow, ref: Ref, config?: Parameters<typeof cloudDisabled>[0]): Action[] {
   const a: Action[] = [];
   const todo = t.state === 'todo';
+  const inCloud = t.run?.where === 'cloud' && (t.state === 'running' || t.state === 'review' || t.state === 'blocked');
   const dispatchable = canDispatch(t);
   const wait = analysisWait(t);
   if (todo && t.analyzing) a.push({ command: 'acc.task.watchAnalysis', label: 'Watch the analysis', icon: 'pulse', ref, primary: true });
@@ -95,6 +109,11 @@ export function cardActions(t: TaskRow, ref: Ref): Action[] {
   if (dispatchable) a.push(held ? { command: 'acc.task.dispatchAnyway', label: 'Dispatch anyway', icon: 'rocket', ref, primary: !a.some((x) => x.primary) } : { command: 'acc.task.dispatch', label: t.state === 'rework' ? 'Re-dispatch' : 'Dispatch', icon: 'rocket', ref, primary: !a.some((x) => x.primary) });
   // The same, with a model a person picks for this task (D-086): behind ⋯ on the card.
   if (dispatchable) a.push({ command: 'acc.task.dispatchWith', label: `${t.state === 'rework' ? 'Re-dispatch' : 'Dispatch'} with…`, icon: 'sparkle', ref });
+  // And in the cloud (GH-69), where the project opted in; disabled with the reason where it didn't.
+  if (dispatchable && config !== undefined) {
+    const why = cloudDisabled(config);
+    a.push({ command: 'acc.task.dispatchCloud', label: `${t.state === 'rework' ? 'Re-dispatch' : 'Dispatch'} to the cloud`, icon: 'cloud-upload', ref, ...(why ? { disabled: why } : {}) });
+  }
   if (todo && !t.analyzing && !t.analysis) a.push({ command: 'acc.task.analyze', label: 'Analyze', icon: 'telescope', ref, primary: !!t.analysisRequired && !a.some((x) => x.primary) });
   // In review (D-032, D-033): watch the reviewer, review it, land it, or follow its pull request.
   if (t.state === 'review') {
@@ -108,11 +127,19 @@ export function cardActions(t: TaskRow, ref: Ref): Action[] {
   // Its builder stopped before acc done or acc block (D-067): the next step is carrying it on.
   const stopped = t.state === 'running' && !!t.stopped && !t.resuming && !!t.run?.sessionId;
   if (stopped) a.push({ command: 'acc.task.resume', label: 'Resume', icon: 'debug-continue', ref, primary: true });
+  // A cloud builder (GH-69): Watch opens its session on claude.ai, Send a message queues one there with
+  // claude -p --cloud, Collect brings its branch in; Attach and Open in Claude Code can't reach it.
+  if (inCloud) {
+    a.push({ command: 'acc.task.watch', label: 'Watch', icon: 'pulse', ref, primary: !dispatchable && t.state === 'running' && !t.cloud?.wait });
+    if (t.state === 'running') a.push({ command: 'acc.task.message', label: 'Send a message', icon: 'comment', ref });
+    if (t.state === 'running') a.push({ command: 'acc.task.collect', label: 'Collect', icon: 'cloud-download', ref, primary: !!t.cloud?.wait || !!t.cloud?.finished });
+    if (t.state === 'running') a.push({ command: 'acc.task.openInClaude', label: 'Open in Claude Code', icon: 'comment-discussion', ref, disabled: 'Its conversation runs on claude.ai, not on this Mac: Watch opens it there.' });
+  }
   // Waiting in its own terminal, it's answered by attaching; anything else is seen on its page.
   const inTerminal = !stopped && t.display === 'needs-you' && !t.asking && !!t.run?.bgId;
-  if ((t.state === 'running' || t.state === 'review' || t.state === 'blocked') && (t.run?.bgId || t.run?.sessionId)) a.push({ command: 'acc.task.watch', label: 'Watch', icon: 'pulse', ref, primary: !dispatchable && t.state === 'running' && !inTerminal && !stopped });
+  if (!inCloud && (t.state === 'running' || t.state === 'review' || t.state === 'blocked') && (t.run?.bgId || t.run?.sessionId)) a.push({ command: 'acc.task.watch', label: 'Watch', icon: 'pulse', ref, primary: !dispatchable && t.state === 'running' && !inTerminal && !stopped });
   // Its conversation in a Claude Code tab (D-040); the terminal is the fallback when that isn't installed.
-  if (t.state === 'running' && (t.run?.bgId || t.run?.sessionId)) a.push({ command: 'acc.task.openInClaude', label: 'Open in Claude Code', icon: 'comment-discussion', ref, primary: inTerminal });
+  if (!inCloud && t.state === 'running' && (t.run?.bgId || t.run?.sessionId)) a.push({ command: 'acc.task.openInClaude', label: 'Open in Claude Code', icon: 'comment-discussion', ref, primary: inTerminal });
   if (t.run?.worktree && t.state !== 'todo') a.push({ command: 'acc.task.openWorktree', label: 'Worktree', icon: 'empty-window', ref });
   if (t.run?.worktree && t.state !== 'todo') a.push({ command: 'acc.task.openPacket', label: 'Instructions', icon: 'book', ref });
   // A finished task's next step is clearing its worktree away; otherwise Move is the fallback (D-062).
@@ -120,7 +147,8 @@ export function cardActions(t: TaskRow, ref: Ref): Action[] {
   a.push({ command: 'acc.task.move', label: 'Move', icon: 'arrow-swap', ref, primary: !tidy && !a.some((x) => x.primary) });
   if (t.pr && t.pr.state !== 'open') a.push({ command: 'acc.task.openPr', label: `Pull request #${t.pr.number}`, icon: 'git-pull-request', ref });
   if (held) a.push({ command: 'acc.task.stopWaiting', label: 'Stop waiting', icon: 'debug-pause', ref });
-  if (t.state === 'running') a.push({ command: 'acc.task.abandon', label: 'Abandon', icon: 'debug-stop', ref, danger: true });
+  // A cloud builder can't be stopped from here (GH-69): Abandon sets the task aside and offers its page to archive it.
+  if (t.state === 'running') a.push({ command: 'acc.task.abandon', label: inCloud ? 'Abandon (its session stays on claude.ai)' : 'Abandon', icon: 'debug-stop', ref, danger: true });
   else if (t.state === 'blocked') a.push({ command: 'acc.task.unblock', label: 'Unblock', icon: 'debug-restart', ref });
   else if (t.state !== 'done') a.push({ command: 'acc.task.block', label: 'Block', icon: 'circle-slash', ref });
   if ((t.state === 'done' || t.state === 'blocked' || t.state === 'todo') && t.run?.worktree) a.push({ command: 'acc.task.cleanup', label: 'Clean up', icon: 'trash', ref, primary: tidy && !a.some((x) => x.primary) });

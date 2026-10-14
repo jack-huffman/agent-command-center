@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { parseConfig } from '../src/config.ts';
 import { run, type RunResult } from '../src/exec.ts';
 import { makeContext, parseOrgUrl, pluginBehind } from '../src/onboarding/helpers.ts';
-import { PLUGIN, runSteps, STEPS, userPlugin } from '../src/onboarding/steps.ts';
+import { NEARBY_LIMIT, nearbyFolders, nearbyRepo, PLUGIN, runSteps, STEPS, userPlugin } from '../src/onboarding/steps.ts';
 import type { CheckStatus } from '../src/onboarding/types.ts';
 import { repoPaths } from '../src/paths.ts';
 import { importRules, renderHeader, rulesDigest } from '../src/rules.ts';
@@ -449,6 +450,28 @@ test('outside a repo, B0.repo points at the project repo next to an old folder',
   const none = runSteps(makeContext(lonely, fakeRunner({})), 'project').find((x) => x.step.id === 'B0.repo')!.result;
   assert.equal(none.open, undefined);
   assert.match(none.detail, /isn't a git repo yet. Onboarding starts with the client's repo/);
+});
+
+test('nearbyRepo reads no more than 200 of a crowded folder\'s 5,000 entries, so it finishes within a second (GH-174)', () => {
+  assert.equal(NEARBY_LIMIT, 200);
+  const parent = tempDir('crowded-');
+  for (let i = 0; i < 5000; i++) mkdirSync(join(parent, `sibling-${i}`));
+  assert.equal(nearbyFolders(parent).length, 200);
+  const start = performance.now();
+  const near = nearbyRepo(join(parent, 'sibling-0'));
+  const took = performance.now() - start;
+  assert.equal(near, null);
+  assert.ok(took < 1000, `took ${Math.round(took)} ms`);
+});
+
+test('nearbyRepo doesn\'t look among the system temp directory\'s folders, even with a repo there, and finds nothing in a missing folder (GH-174)', () => {
+  const repo = tempDir('near-repo-');
+  mkdirSync(join(repo, '.git'));
+  mkdirSync(join(repo, '.acc'));
+  writeFileSync(join(repo, '.acc', 'config.json'), '{}');
+  assert.equal(dirname(repo), tmpdir(), 'the repo sits in the temp directory');
+  assert.equal(nearbyRepo(tempDir('old-folder-')), null);
+  assert.equal(nearbyRepo(join(tempDir(), 'gone', 'old')), null);
 });
 
 test('B12.trust fails until Claude Code has been trusted in the main checkout, and B10 wants worktrees ignored', () => {

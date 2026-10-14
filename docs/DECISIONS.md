@@ -5765,6 +5765,53 @@ person runs, and the file by what it is.
 - Not chosen: translating the whole model as it's sent to the page, which would rewrite the work data;
   renaming acc's commands; a person-facing form for each of core's messages.
 
+Note (GH-168, 2026-10-10): Setup and the settings speak in processes too. The words check looked only for
+`acc <word>`, `npm run`, `.acc/` and `docs/*.md`, so two kinds of literal stayed: another tool's command line,
+and config keys. This note supersedes the line above that another tool's command, such as `brew install gh`, is
+"still shown to copy".
+- **A step says what Do it does, and keeps its command line to show on request.** `toolLineDoes` in
+  `processes.ts` names each line the steps give, as acc's own are named: `claude plugin marketplace add … &&
+  claude plugin install …` is "Install the acc plugin in Claude Code", `claude plugin enable …` is "Turn on
+  the acc plugin in Claude Code", `gh auth login` is "Sign in to GitHub as this repo's account". Setup shows
+  "Do it: <that>." beside the button, and the line itself behind a folded "Show the command", marked as
+  work data (`output`, one more place in `MARKS`), for someone who runs it by hand. Advice that isn't a
+  command ("Remove them, rotate the credential…") is still shown, since there's nothing to fold. A command
+  line with no entry in `TOOL_LINES` is shown as before and fails the words check if it's a claude or gh
+  command, so a new one gets its words when it's added; the test runs every fixed command a step carries and a line for each way a check works one out.
+- **Config keys are words, from one table.** `extension/src/logic/config-words.ts`, beside `processes.ts`,
+  names every key acc's schema knows (`CONFIG_KEYS`, 64 of them, 58 dotted): `gates.required` is "its required checks",
+  `agents.max` is "its builder limit", `gates.ratchets` is "its floors". It's typed over `CONFIG_KEYS`, so tsc
+  refuses a key with no name and a name for a key that's gone. `inProcessWords` calls `inConfigWords` first,
+  so every message from acc reaches a person with its keys in words ("differs on its required checks, its
+  builder limit"); a key in parentheses that only says where a setting is kept ("its cap is 6
+  (agents.max).") is dropped, since the sentence names where. The extension's own text no longer carries a
+  key. `agents.cloud`, which the ticket named, wasn't a key this acc read when this was built; GH-69 (D-140)
+  merged first, and at this merge its four keys got names: `agents.cloud.routine` is "its cloud routine",
+  `agents.cloud.default` "where its builders go by default", `agents.cloud.quietMinutes` "how long a cloud
+  builder may be quiet", `agents.cloud.max` "its cloud builder limit". Its `claude auth login` step is
+  "Sign in to Claude Code with your claude.ai account", and Settings' lookup of `agents.cloud.routine`
+  joins `autopilot.autoMerge` on `LITERAL`'s line for a setting looked up by its key.
+- **GitHub commands in acc's messages are said as what they do.** `gh auth login` reads "sign in to
+  GitHub"; `gh auth switch -u X` reads "switch GitHub's active account to X"; `gh auth refresh -s project`
+  reads "give it access to Projects". A GitHub Project's notice on a board now goes through `inProcessWords`
+  like the rest of what acc says; it reached the page as acc wrote it. The core messages stay as they are: the
+  CLI and agents read them literally.
+- **Checked.** The words check (`words.ts`) also fails on a `claude <subcommand>` line, a `gh
+  <subcommand>`, and a dotted config key taken from the schema, each outside work data. It failed on the
+  pages before this change, with 174 findings in 342 drawings (Setup's `claude plugin …` line and the
+  `gh auth` in a step's tooltip, the template step's `gates.required`, `agents.max` on Settings and the
+  Overview, and a Project notice's `gh` commands), and passes now: all 342 drawings read 76670 strings with
+  no finding. `config-words.test.ts` pins every key's name, how the words reach acc's text, what each tool
+  line is named, the Setup row, and the three rules with their edge cases. The walkthrough's pages
+  (`stepMedia`) still show another tool's command in a bash block, which `words.test.ts` has always
+  exempted: a page that opens beside the step, for someone following along in a terminal. A fix's text that
+  ends "In a terminal: <command>." keeps that command there too, in its own bash block: the GitHub sign-in
+  steps' pages had lost it to the `gh auth login` rewrite (found in review, fixed at merge).
+- **Two lines joined `LITERAL`** in `words.test.ts`, the list of source lines that may name a command or key
+  because no person reads them: `runs.ts`'s `needsTerminal`, which matches the claude lines that need a
+  terminal, and `settings.ts`'s `autopilot.autoMerge`, the key the code finds that setting by. The list is
+  meant only to shrink; these two are code, not words on a page.
+
 ## D-133 The screenshot run retries a drawing Chrome didn't finish, and measures a tab once it has settled (2026-10-10)
 
 While builders ran their checks, the screenshot run failed for reasons that weren't layout (GH-167):
@@ -5797,3 +5844,574 @@ nothing changed. Each cost a rerun of every drawing.
 - Not chosen: scaling the timeout with the heavy-check slots; retrying more than once, which would hide
   a page that really hangs; changing the rail's own `showSelected`, which is the page's behaviour, not
   the run's.
+
+## D-134 Every export is named by a test (2026-10-10)
+
+From repeated review findings (a criterion with no test, a guard tested for one of the forms it catches, a
+step that finishes during a wait, a dialog nothing drives in a browser: 7 findings across 6 tasks), the
+repo's own rules gain a test-coverage rule: each acceptance criterion, and each case a guard or branch
+handles, gets a test that fails without it, and every function, constant or class a source module exports
+is named by a test. `scripts/test/coverage.test.ts` checks the second half against every module in
+`packages/*/src`, `extension/src` and `extension/webview`, comparing git's list with the modules on disk.
+It walks 1303 exports in 195 modules, an overloaded function once and a local `export { … }` list by the
+names it exports. Its `OLDER` list names the 384 exports, in 121 modules, that no test named when the rule
+came in, and may only shrink. A comment that starts a line doesn't count as naming one.
+- Not chosen: line coverage from `node --test --experimental-test-coverage` as a floor, which would run the
+  whole suite under instrumentation in the lighter checks; it stays a possible follow-up. The criteria and
+  the cases a guard handles are left to the reviewer: no check reads a task's criteria yet.
+
+## D-135 Usage is spent where it pays: medium by default, up only for cause (2026-10-10)
+
+Once acc could pick each task's model and effort (D-128), usage rose sharply. Large tasks ran on Opus 5.5 at
+xhigh, cloud builders ran three times on Fable 5.1, every review ran at high effort (2026-10-09), extra
+Fable guardrail reviews ran on top, and five builders ran at once. The author asked to conserve it.
+
+- Reviews run at medium (`agents.reviewer.effort`), Opus 5.5's own default. A change to what agents may
+  do gets a high-effort review, picked for that task.
+- At most three builders run at once (`agents.max`), unless the author asks for more.
+- Builders default to Sonnet 5.5 at medium for small, well-specified tasks, and Opus 5.5 at medium for
+  the rest. xhigh is for a second rework, and Fable only for a change to what agents may do.
+- Whoever merges fixes a review's small findings at the merge, rather than sending the task back for a
+  builder run.
+## D-136 The modals' behaviour is checked in a browser, and each case is shown to catch a stub (2026-10-10)
+
+The task modal over the Tasks board (D-129) and the Overview's detail modal (D-131) were checked by hand:
+Escape and the backdrop closing them, focus going back to what opened them, a redraw under them leaving
+them as they were, a fold redrawing them, Show all, and the suggested rules' Previous and Next (GH-170,
+a follow-up from GH-158's review). Now a script checks each, in headless Chrome, beside the screenshots.
+
+- **Where it runs.** `extension/scripts/behaviour.ts`. A full run (every page, both themes and all
+  three widths, as `npm run screenshot` with no options draws) runs it after the shots; `npm run screenshot -- --behaviour` runs it alone. Like the
+  geometry collector (GH-105), each case is a page of the built webview from the screenshot fixtures
+  (the Tasks board, and the busy Overview of GH-160), dumped with `--dump-dom`, and the page writes what
+  it found into a JSON script element. The page's VSCode API keeps what the page sends and remembers, as
+  VSCode does; the screenshot pages' doesn't keep the tab's memory, which a fold needs.
+- **What it checks: 12 cases, 84 checks.** The task modal: Escape closes it, tells the extension once,
+  and sends focus back to its card; a backdrop click closes it, a click inside or a press inside released
+  on the backdrop doesn't; Close sends focus to its card on a board redrawn under it; a new board model
+  leaves it open, at the same `scrollTop`, with the comment box's text, focus, and element; Show all on a
+  fold in it draws it again unfolded. The detail modal: Escape closes it, the tab forgets it, and focus
+  goes back to Review; the backdrop the same, opened by the line itself, and focus goes back to the line;
+  a new model leaves it open on the same rule, scrolled, with the rule draft's text and focus, and focus
+  then finds Review on the redrawn page; Show all on Needs you opens all 19 lines where the page shows 5;
+  Previous and Next walk the ten rules to each end, off at each end; Accept and Confirm on the second rule
+  send the message the inline Confirm sent (D-116), and its reviews' Show all draws it again with all
+  five. What each case expects comes from the same fixtures (`behaviourData`): the rules' order and lines,
+  the list's count, each Accept's message.
+- **It proves it ran.** A case that wrote no report, checked nothing, or stopped on an element it couldn't
+  find fails, never skips; a run of no cases fails. Every message a page sent must pass the extension's
+  own check (`isFromWebview`).
+- **It catches stubs.** Each of 16 mutants builds the page with one change to its source (esbuild, the
+  file's text replaced where it's found exactly once), such as an Escape handler that does nothing, a
+  backdrop click that does nothing, a drag out of the modal that closes it, focus left where it falls,
+  the task modal drawn again with every board model or not with its own fold, the detail scrolled to
+  its top, a draft that forgets what's typed, Show all opening only the first five, Next or Previous
+  staying put, the first rule shown whatever the pager says, and Confirm leaving out the check. The run
+  fails unless every case a mutant names fails on it, and on a mutant whose change no longer matches its
+  source exactly once. All 16 are caught. `behaviour.test.ts` checks, with no browser, that each mutant
+  fits its source and that every case is named by one, so a change to the page that moves a mutant's text
+  fails near it (a row in `READS`, `scripts/near-reads.ts`).
+- **Escape and the backdrop as the browser sends them.** A page's script can't press a key, so Escape is
+  the cancel event Chrome fires on a modal dialog for it, followed by the browser's own close when nothing
+  prevented it; a backdrop click is a mousedown and a click on the dialog outside its box. Hence the
+  mutant is an Escape handler that does nothing rather than one taken out: with the cancel listener taken
+  out, the task modal still closes through its close listener, as it would for a person, and its Escape
+  case passes. The detail case fails on that one too: in the run, no close event reached the detail's
+  dialog, so the tab kept it open in its memory.
+- **What it found.** The detail modal sent focus to the first element marked as opening it, which is the
+  line, when its Review button had opened it. It now remembers which kind of element opened it and goes
+  back to that one, found again by its `data-opens` after a redraw (`detail.ts`). A task's description
+  doesn't fold in Chrome: the clamp on a document of blocks leaves it its full height, so its Show all
+  takes itself away. The fold case uses a step's reason in Activity, which folds; the description is
+  left for a task of its own.
+- Not chosen: driving Chrome through its DevTools protocol for trusted key presses, which would bring a
+  client and a second way to run Chrome for one event; running the cases in the unit tests, which run
+  without Chrome.
+## D-137 A test run removes the temp folders it makes, and B0.repo reads a crowded folder only in part (2026-10-10)
+
+On 2026-10-10 `packages/core/test/onboarding.test.ts` timed out at 300 s on every run (GH-174). The
+system temp directory held 347,799 entries, most of them folders the tests had made and never removed,
+and B0.repo's `nearbyRepo()` listed every one of them whenever a test handed it a fresh temp folder.
+
+- **Each test process makes one root and removes it on exit.** `packages/core/test/temp-root.ts` makes
+  `acc-run-<pid>-XXXXXX` under the system temp directory when a test file first imports it (through
+  `support.ts`), and removes it on `exit`, which a failed test still reaches, and on SIGINT, SIGTERM and
+  SIGHUP. After a signal it sends the signal again to end the process, unless the code under test listens
+  for it too; that listener then decides, and isn't reached twice. `tempDir()` makes its folders inside it. It also sets `TMPDIR` to the root, so the folders the
+  code under test and the programs it starts make with `tmpdir()` land inside it too.
+- **Tests make temp folders only through `tempDir()`.** The test files that called
+  `mkdtempSync(join(tmpdir(), …))` themselves (`extension/test/activate`, `activity`, `progress`, `slack`;
+  `scripts/test/areas`, `settings`) now call `tempDir()`. The scripts the tests run (screenshot,
+  packaging) and the source code already remove their own temp folders in a `finally`; they ship, so
+  they don't import test support, and under a test they now make them inside the root.
+- **`nearbyRepo()` reads at most 200 entries of the parent (`NEARBY_LIMIT`), and none when the parent is
+  the system temp directory** (compared through `realpath`, as macOS's `/var` is `/private/var`). It reads
+  with `opendirSync`, so a crowded folder is never listed whole. A project's old folder sits among a
+  person's folders, not among hundreds, so the limit doesn't hide a real neighbour; nothing in the temp
+  directory is a project's repo.
+- Evidence: `packages/core/test/temp-root.test.ts` adds 6 tests: the root's place and name; a child test
+  file run with `TMPDIR` set to an empty folder leaves it empty when its tests pass, when one fails, and
+  when the process is ended by SIGTERM, with or without its own SIGTERM listener; and a source check that fails on `mkdtempSync(join(tmpdir()` in
+  any test file but `temp-root.ts`, counting the files it read and failing unless there are more than 50. Turning off the
+  removal on exit fails two of them. `onboarding.test.ts` adds 2: a folder with 5,000 sibling folders
+  gives 200 to look at and is answered within a second; a repo in the temp directory isn't offered, and a
+  missing folder gives none.
+- Not chosen: a global setup file passed to `node --test` (`--import`), which every way of running a
+  single test file would have to repeat; removing old folders from the temp directory at start, which
+  would reach into other runs' and other programs' folders.
+## D-138 A builder's screenshots gate checks the UI was shot as it is (2026-10-10)
+
+From repeated review findings (13 across 11 tasks, 2 of them must-fix): CLAUDE.md asks that UI changes
+be looked at before they ship, and reviews kept finding shots on disk older than the change (GH-41,
+GH-83), shots that stop above the new part at 900 px (GH-41, GH-46, GH-76), a new line or state no shot
+draws (GH-32, GH-52), and one theme shot at one width only (GH-95). Nothing can tell whether a person read
+a PNG, but a gate can tell whether the PNGs there are to read show the branch as it is.
+
+- **The run notes each shot.** `npm run screenshot` writes `shots.json` beside the PNGs, written whole
+  through a temp file, merged with what earlier runs noted, so a run split into groups of pages counts:
+  for each shot, the PNG's sha256, the fingerprint of what it drew, its geometry findings, and every
+  class on a visible element drawn inside the window, which the page's geometry collector now gathers.
+  A shot at another `--height`, or started from `ACC_SHOT_STATE`, isn't noted.
+- **The fingerprint is what the pages draw from** (`fingerprint()` in `screenshot.ts`): every file of
+  the webview's source, the pages, widths and heights, and each page as it's handed to Chrome in each
+  theme, with its sample model and starting state, at a still clock. A change to the page, its model,
+  its fixtures or the run's checks changes it.
+- **The gate** (`screenshots`, a builder's check, `extension/scripts/looked.ts`). When the branch changes a
+  file under `extension/webview/`, `extension/src/` or `extension/scripts/`, every usual shot (each page,
+  dark and light, at 1000, 620 and 500 px) must be noted with this commit's fingerprint and no geometry
+  findings, and its PNG must still be the one noted. Every CSS class the branch adds to the webview's
+  stylesheets must be drawn on screen in one of them, or be named in `UNDRAWN` with why; a name there
+  that no stylesheet holds fails its test. It counts the shots and classes it checked, fails on a branch
+  that changed nothing, and fails run by hand without `ACC_CHANGED`. A branch that changes none of those
+  folders passes, saying how many files it checked. The merge queue's checkout has no screenshots, so
+  the full check doesn't run it.
+- **Checked.** `extension/test/looked.test.ts`: a branch shot as it is passes with its counts; no files
+  changed, no shots, a stale shot, a missing one, one with findings, a PNG gone or changed since, a new
+  class drawn nowhere (or only in a stale shot), and no usual shots each fail; `UNDRAWN` excuses by name;
+  a branch that changes nothing the pages draw from passes; the class reader skips declarations, comments
+  and strings; the fingerprint is the same twice and changes with one byte or a file taken away; notes
+  merge and an unreadable record starts empty. This branch changes the screenshot scripts, so its own
+  gate held it until a full run: one run took all 342 shots with no geometry findings, noting 572
+  classes drawn, and the gate passed, checking 342 shots. With a class added to `styles.css` by hand,
+  it failed on all 342 shots being of other code and on the class drawn in none.
+- Not checked: that a person read the PNGs, or that they look right (spacing, alignment). A class drawn
+  only by the extension's host (a notification, GH-28) can't be shot. A change in `packages/` that
+  reaches the page through the model is drawn into the fingerprint but doesn't make the gate ask for
+  shots, since the gate asks only for changes under the three folders.
+- Not chosen: running the screenshots inside the gate, which takes Chrome tens of minutes; a hand-kept
+  list of pages each change must show.
+- Note (T-13, 2026-10-13): the stylesheets the gate counts as there before the branch are read through
+  the same list as the page's (`styleNames`, which `styleFiles()` uses), at the commit the branch began
+  from. Before, any `.css` in the webview's folder counted, so a class held only by a stray stylesheet no
+  module is named for, and never part of the page, didn't count as new. `looked.test.ts` pins it.
+## D-139 Every rule in the repo's own rules names its check (2026-10-10)
+
+From repeated review findings (a test meant to stop a split from dropping a command read source text with
+a regex, a per-area check hard-coded its kinds instead of reading the list it claimed to check, a pinning
+test matched one variable name only), the repo's own rules gain: every rule gets a check before anyone
+relies on it. `scripts/test/rules.test.ts` reads each rule in `.acc/rules.md`, counts them, fails on none,
+and fails a rule that doesn't name its check beside it ("Checked by" a test file) where that file is one
+`npm test` runs and declares a test (`test(` or `it(`) named for `.acc/rules.md` whose body names that file's own path (a
+mention in a comment, or in another test's body, doesn't count). Its `UNCHECKED` list names the rules that predate
+this one and may only shrink: each must still be in the file and still name no check. At merge it held five:
+the words rule, the finishing-note rule, and the constant, comment and helper rules (T-8, T-9, T-6) that
+merged just before it. The check reads the named test's source: it sees that the test pins itself beside
+the rule, not that the test is a strong one; the
+findings behind it were weak checks, which stays a reviewer's call.
+## D-140 Cloud builders: an option for any project on GitHub, never the default (2026-10-09)
+
+A task's builder can run as a Claude Code cloud session instead of a `claude --bg` session on this Mac
+(GH-69). Builders here share the Mac's CPU, stop when it sleeps (D-067), and are capped at `agents.max`.
+This supersedes the issue's earlier block (2026-10-06), which asked for `claude --cloud` started from a
+terminal and followed by teleport: the author now wants the version acc can start and follow on its own,
+through GitHub, with the gaps named. A local builder stays the default everywhere; a project that hasn't
+opted in sees no change, and a local dispatch passes exactly the arguments it did before.
+
+- **What Claude Code allows, verified on 2026-10-09.** The docs at code.claude.com/docs/en/routines,
+  /claude-code-on-the-web and /cloud-environments were read that day through the fetch tool, and the
+  installed CLI (`claude --version`: 2.1.296, at /opt/homebrew/bin) was read through `claude --help` and
+  `claude -p --help`, `claude auth status` (signed in, claude.ai, a Team plan) and the strings of its
+  binary (`strings` on bin/claude.exe, grepped for the flags and messages below). What held:
+  - **Starting.** `claude --cloud "<task>"` creates a cloud session from the current folder's GitHub
+    remote and is interactive only; `--cloud <session>` without `-p` answers "Attaching to an existing
+    cloud session is not enabled for your account" (in the binary). The hidden `--on-branch <branch>`
+    exists, with the error "--on-branch resumes work on a branch in a cloud session; pass --cloud or
+    --environment". A script starts a session only by firing a routine's API trigger: `POST
+    https://api.anthropic.com/v1/claude_code/routines/<trig_id>/fire` with `Authorization: Bearer
+    <token>`, `anthropic-beta: experimental-cc-routine-2026-04-01` and `anthropic-version: 2023-06-01`,
+    an optional `text` in the body, and a reply of `{type, claude_code_session_id,
+    claude_code_session_url}`. The routine (repo, model, environment, setup script) and its token are
+    made by a person at claude.ai/code/routines; the token is shown once; the CLI can't make or revoke
+    one. There is no per-fire branch, model, effort or permission mode: a routine runs without a
+    permission picker. Limits: 30 fires an hour per routine, 100 per account. The `text` reaches the
+    session wrapped in a `routine-fire-payload` block marked untrusted, so the routine's own prompt must
+    say to act on it. The binary holds no routine-fire strings: the CLI doesn't fire routines itself.
+  - **State.** Nothing lists cloud sessions or their state. `claude agents --json` lists background and
+    interactive sessions on this machine only.
+  - **Messages.** `claude -p "<msg>" --cloud <session id or URL> --output-format json` queues one message
+    and returns `{ok, session_id, url}`; it needs `claude auth login` with a claude.ai account.
+    `claude --teleport <session>` pulls a session into a checkout of the same repo.
+  - **Work coming back.** The session pushes to GitHub through Anthropic's git proxy, which refuses only
+    tag pushes and branch deletions. A routine's session pushes a `claude/…` branch unless its prompt
+    names another; GitHub's branch rules apply to the connected GitHub access.
+  - **Environment.** Ubuntu 24.04 on x86_64, Node 20, 21 and 22 (22 on PATH) with npm, network access
+    None, Trusted (package registries, GitHub, cloud SDKs: no `*.my.salesforce.com`) or Full. The
+    repo's `.claude/settings.json` hooks and rules load in a one-repo session, SessionStart hooks
+    among them; plugins don't, user settings don't. `CLAUDE_CODE_REMOTE=true` is set in a cloud session
+    (docs, and the binary). Permission modes are a session's own; a routine's run has none to pick.
+  - **Billing.** Usage counts against the subscription's limits; no separate charge.
+  - **Read again on 2026-10-10,** for the rework, through the fetch tool on the same three pages, `claude
+    --version` (2.1.296 at /opt/homebrew/bin, a symlink to the package's bin/claude.exe), `claude -p
+    --help` and `grep -a` on that binary: the fire endpoint, headers, body, reply, limits (30 an hour per
+    routine, shared with Run now; 100 an hour per account for API fires) and the `routine-fire-payload`
+    wrapping hold; the routine's model is picked on the routine and used on every run, so a fire can't
+    set it; each repository is cloned from its **default branch** and the prompt names another, so the
+    session loads the repo's `.claude/settings.json` hooks from the default branch first and from the task
+    branch once it checks that out (the hooks docs say edits to hooks in settings files are picked up by
+    the file watcher); `.claude/settings.json` hooks and permission rules load in a one-repo session, plugins
+    don't; Ubuntu 24.04, Node 20, 21 and 22 with 22 on PATH; the GitHub proxy rejects branch deletions and
+    pushes of anything but a branch, doesn't limit which branches a push updates, and **rejects GraphQL,
+    so `gh pr` and `gh issue` get a 403 in a cloud session**; GitHub's branch rules apply to the connected
+    access, so a rule that access can bypass doesn't block a run's push; `CLAUDE_CODE_REMOTE_SESSION_ID`
+    is the documented mark of a cloud session, and the binary tests `CLAUDE_CODE_REMOTE==="true"` too; a
+    hook's input carries `session_id`, `transcript_path`, `cwd` and `permission_mode`, exit 2 blocks the
+    call with stderr as the message, and `$CLAUDE_PROJECT_DIR` is the project root the session started
+    in; `claude -p "<msg>" --cloud <session> --output-format json` answers `{ok, session_id, url}`.
+- **Opting in.** `agents.cloud` in `.acc/config.json`: `routine` (the trigger id), `default` (`local`,
+  or `cloud`), `quietMinutes` (120) and `max` (3). `acc cloud enable [--routine trig_…]
+  [--default-place local|cloud] [--max n] [--quiet-minutes n]` writes it, key by key, and the push
+  guard; `acc cloud disable` takes the section out; `acc cloud` says what's on and what's still missing.
+  Settings' **How agents run** has the switch per project, a person's choice, with what it needs and
+  what's missing, the routine prompt to copy, the token and the default. It's offered only where the
+  config has a `github` section; elsewhere the control is disabled with the reason, "Cloud builders need
+  the repo on GitHub". Setup's B15 steps check the rest, each with its guide: the Claude GitHub App on
+  the repo (or `/web-setup`, which acc can't see, so a person ticks it), the routine, its token, the
+  claude.ai sign-in and the committed guard.
+- **The token** lives in the macOS keychain (`security`, service `acc-cloud-routine`, account the repo),
+  written through `security -i`'s stdin so it never goes on a command line, never in
+  `.acc/config.json` or git. `acc cloud token` reads it from stdin; the Command Center hands it to acc
+  in its environment (`ACC_CLOUD_TOKEN_NEW`, `--from-env`). `ACC_CLOUD_TOKEN` stands in for tests.
+- **Each task chooses.** `acc dispatch <id> --cloud` or `--local`; neither follows
+  `agents.cloud.default`, local unless it says cloud. A card's ⋯ offers **Dispatch to the cloud**, disabled
+  with the reason where the cloud isn't offered. `--cloud` with `--foreground` is a usage error; `--cloud`
+  with any need unmet is refused naming each, before anything is made. Model and effort picks are kept
+  on the run for a re-dispatch here, but the routine's own model and effort apply in the cloud: a fire
+  can't set them, and the dispatch line says so.
+- **Before the fire** acc creates the worktree as for a local builder, so the work has somewhere to land,
+  pushes the task branch alone to origin as the repo's account (`git push --set-upstream origin
+  <branch>:<branch>` from the main checkout), never an environment branch, and only then fires. A push
+  that fails keeps the worktree and says why; nothing is fired. The fire's `text` is the builder's packet
+  (D-012) wrapped for a cloud session (`cloudText`): an `Acc-Branch: <branch>` line first, the guard's
+  record of the task's branch, then the branch to fetch and check out, that acc isn't installed there,
+  the checks to run by their commands, the ones only the Mac can run, the finish line of trailers, and
+  the guard's rules. The Mac's worktree path and acc's path, which name the home folder, stay out of a
+  cloud packet. Nothing depends on the local ledger or the plugin. Before the push, the dispatch reads
+  the commits a cloud session would load its hooks from, `refs/remotes/origin/<default branch>` (origin's
+  HEAD, else the environment's branch) and the task branch, with `git show <ref>:<path>`, and refuses
+  `--cloud` unless both carry the current guard script and its settings entry, naming the fix; Setup's
+  guard step reads HEAD's tree the same way, never the files on disk, since a guard written and not
+  committed never reaches the cloud. A cloud dispatch skips this machine's total (GH-111), which counts
+  this Mac's builders: the project's own cloud cap is the only limit.
+- **Guardrails: two lines, both failing closed** (the rework of 2026-10-10, after a guardrails-only
+  review, and the second rework the same day, after a guardrails re-check; the author decided). A cloud
+  session runs the repo's committed `.claude/settings.json` hooks and not the plugin's (D-042), so opting
+  in writes three files into the repo, to commit (this repo commits them): `.claude/hooks/acc-push-guard.mjs`,
+  `.claude/hooks/acc-pre-push` beside it, and in `.claude/settings.json` a PreToolUse hook on
+  `Bash|Edit|Write|MultiEdit|NotebookEdit` that runs the guard as `node
+  "$CLAUDE_PROJECT_DIR"/.claude/hooks/acc-push-guard.mjs || exit 2`, and a SessionStart hook that runs
+  it with `--session-start`. The path is from the project root Claude Code gives the hook, so a `cd` in
+  the session can't make it fail to load, and `|| exit 2` denies the call when the guard is missing or
+  can't be parsed. The dispatch refuses `--cloud` unless the three are committed as this acc writes
+  them on origin's default branch and the task branch, read from the commits with `git show`; Setup's
+  guard step reads HEAD's tree the same way. **The first line reads the command before it runs.** In a
+  cloud session (`CLAUDE_CODE_REMOTE=true`, or the documented `CLAUDE_CODE_REMOTE_SESSION_ID` set) only
+  `git push origin <branch>` and `git push origin HEAD:<branch>` pass, with `-u` or `--set-upstream`
+  before origin if wanted and nothing after the branch, where `<branch>` is the task's from **the
+  guard's own record**: the `Acc-Branch` line acc puts first in the fire's text, read from the session's
+  first user message in the transcript Claude Code names in the hook's input, before the first assistant
+  turn, so a tool result or a later message can never set it. It is never the checkout's branch, and
+  never any `task/*`. Without a record, no push and no checkout passes. The guard reads the words the
+  shell will run, after quotes and escapes are removed (`'g'it`, `g""it` and `g\it` are `git`), reads a
+  `$( )` or a backtick as its own command even inside double quotes (only single quotes are literal), and
+  skips a heredoc's body, so a commit message that mentions a push stays a message; there is no quick
+  pre-check any more, every Bash line goes through it. Everything else that could push is refused: a bare
+  `git push`; any push with a flag, a `+`, an empty refspec, a redirect after the branch, another remote
+  or another branch; git reached through its global options, a path to git, a wrapper (`timeout`, `env`,
+  `nohup`, `xargs`, `eval`, `exec`, `nice` and the like), an assignment before the command of `GIT_*`,
+  `HOME`, `PATH`, `XDG_*`, `LD_*`, `DYLD_*`, `EDITOR`, `VISUAL`, `SHELL`, `BASH_ENV` or `ENV` (alone, or
+  with `export`, such an assignment is refused outright, since the session's shell keeps it), or a program
+  that runs another from its arguments (`find -exec`, `npm exec`, `watch`, `flock`, `script`, `parallel`,
+  `make`, `if`, `{ }`: what it would run is guarded as if wrapped); a shell with `-c`, whose inner line is
+  guarded the same way, or a bare shell, a script file, or `source`; a program named by a `$` variable; a
+  redirect or a `tee`, `cp`, `mv`, `ln` whose target holds a `$`; an interpreter's inline code that
+  mentions git or a push; **and, as a backstop, `git` followed by `push` or `send-pack` anywhere else in a
+  command's words**, however it got there. A git alias is refused (read with `git config --get
+  alias.<sub>`); `git config` and `git -c` keys are an **allow-list** (`user.name`, `user.email`,
+  `commit.gpgsign`, `tag.gpgsign`, `safe.directory`, `init.defaultBranch`, `pull.rebase`, `merge.ff`,
+  `rerere.enabled`, `fetch.prune`, `advice.*`, `color.*` and a few more that run nothing and send nothing
+  elsewhere; `core.editor`, `diff.external`, `filter.*`, `sequence.editor`, `gpg.program`, `core.pager`,
+  `core.sshCommand`, `alias.*`, `push.*`, `remote.*`, `url.*`, `credential.*`, `include*` and `http.*` are
+  not on it), with the new `git config set|unset` forms read the same way; `git remote
+  add|set-url|rename|remove` is refused; **`--no-verify` with any program and `core.hooksPath` set by any
+  means** (`git -c`, `git config`, `GIT_CONFIG_*`, `export`) are refused, since each would switch the
+  second line off. `gh` is an **allow-list** too: `pr view|list|diff|checks`, `issue view`, `run
+  view|list`, `api <path>` with GET and no field, `auth status`, `--version` and `help`; everything else
+  is refused, `gh api graphql` among them (it posts, and GitHub's proxy refuses it in the cloud anyway),
+  `workflow run`, `pr review|comment|merge|create|close`, `release`, `secret`, `issue close`, `repo
+  delete`. `curl` or `wget` writing to github.com and `sf project deploy start|quick|resume` are refused.
+  The guard also refuses what could change it or its hooks: from Bash, a line that names anything under
+  `.claude/` or `.git/`, the hooks, the record or the transcript, or whose words would land there once
+  globs (`.cl*`, `.claud?`) and symlinks (`ln -s .git g`, then `g/hooks/pre-push`) are resolved, unless
+  every command in it only reads (`find` isn't a reader: `-delete`, `-exec`); from Edit, Write, MultiEdit
+  or NotebookEdit, `.claude/hooks/*`, any `.claude/settings*.json` (the home's too, since a settings file
+  could carry `disableAllHooks`), anything under `.git/` and the transcript, resolved the same way; `git
+  checkout <ref> -- <paths>` where a path reaches `.claude/` or `.git/` (`.`, `:/`, a glob, a parent)
+  and the ref's guard files differ from HEAD's (`git diff --name-only`), `git apply`, `git am` and
+  `patch` whose patch names `.claude/` or `.git/` (the headers read, and for `git apply` its own
+  `--numstat`), or that would read the patch from a pipe the guard can't see (a dry run, `--check`,
+  `--numstat`, `--dry-run`, passes); `git checkout` or `switch` to anything but the recorded branch, a
+  new branch, `reset --hard|--merge|--keep`, `restore --source`, `pull`, `worktree`, `update-index`,
+  `read-tree`, `checkout-index`, `rm -r` of the checkout or `.git`, and a `merge`, `rebase`,
+  `cherry-pick` or `revert` whose ref would change the guard's files. Malformed input, a Bash call with
+  no command, or an error of the guard's own blocks the call with exit 2 and the reason on stderr; a
+  refusal is a `permissionDecision: deny` with its reason. **The second line checks the push itself.**
+  `acc-pre-push` is a `#!/bin/sh` git pre-push hook. The guard installs it into the clone's
+  `.git/hooks/pre-push`, executable, when the session starts (the SessionStart hook, committed with the
+  guard, which the cloud runs before the builder's first turn; not the routine's setup script, which is a
+  person's and not in the repo), and again on every call and before any push passes: a hook changed by
+  hand is put back, `core.hooksPath` set anywhere means no push until a person unsets it, and the
+  script missing beside the guard means no push. The hook reads the refs git is about to update on
+  stdin and refuses any update other than `refs/heads/<branch>`, any deletion, and any update that
+  isn't a fast-forward (`git merge-base --is-ancestor`), whatever ran git: a wrapper, an alias, a
+  renamed or copied binary, a script in any language, `find -exec`. Its `<branch>` is
+  `.git/acc-task-branch`, which the guard writes from its record on every call, so it's in place before
+  any push, and which the guard keeps a builder from writing; no record, no push. The test pins that
+  `--no-verify` and `core.hooksPath` do skip it, which is why the first line refuses both. Outside a
+  cloud session the guard prints nothing and installs nothing: a person on main and a local builder with
+  the plugin's guards see nothing from it. The builder never merges or deploys: the packet forbids it,
+  the guard refuses it, the GitHub proxy refuses `gh pr` outright, and the checks run under the profile's
+  gates. **What this stops, and what it can't.** A plausible thing an agent would type, which the review
+  and the re-check listed and which a builder trying to finish its task might well reach for, is now
+  refused: every form above, each pinned by a test. A deliberate adversarial escape, by a builder that
+  sets out to push past the guard, isn't prevented by a guard that runs on the builder's own machine:
+  raw HTTP to GitHub with the session's git credentials, read from the proxy's configuration, or
+  obfuscated code that writes `.git/hooks/` through an interpreter, a script the builder writes to a
+  file and runs with `node` or `python` without inline code, a binary it builds, or a shell variable
+  assembled from pieces. The moved-branch notice below is the backstop for these: every sync of an
+  opted-in project flags an environment branch that moved by anything but acc's own merge, and a person
+  looks before anything builds on it. **Enforced branch protection on GitHub is the only full
+  prevention,** and acc warns rather than refuses where there is none (the author decided): the
+  dispatch and Settings read, through `gh api repos/{repo}/branches/{branch}/protection` and
+  `rules/branches/{branch}` as the repo's account, whether GitHub enforces protection or a ruleset on
+  the default branch and each environment branch. Enforced passes quietly; none, unknown (gh offline or
+  not signed in), or unavailable warn that a push the guard didn't catch would be caught by acc's next
+  sync, after the fact, rather than prevented. This repo is private on GitHub's free plan, where both
+  calls answer 403 "Upgrade to GitHub Pro or make this repository public", so protection can't be set at
+  all: refusing would have ruled out the real run here. **What a cloud builder can and can't check:** it
+  runs the project's command gates itself, by their commands (`gates.commands`, a ratchet's command);
+  acc's built-in checks (`stray-files`) and any gate that needs an org login, Salesforce `validate` and
+  `drift`, run only on the Mac, when acc collects the branch. The packet names both lists, and says
+  what the hooks refuse under `.claude/` and `.git/`. No org credential or secret ever goes to a cloud
+  session.
+- **Following, through GitHub,** since Claude Code reports no state: on every `acc sync`, and so on the
+  Command Center's poll while a cloud task runs, `git ls-remote` reads each running cloud task's branch
+  head. A new head is fetched and written on the run with the time (`run.cloud.head`, `lastPushAt`); the
+  fire counts as the first move. Its last commit's trailers decide: `Acc-Blocked: <why>` moves the task to
+  blocked as the builder's move, with the reason; `Acc-Done: <id>` marks the run finished and collects
+  it. No push for `quietMinutes` shows the task as **Needs you**, in orange with the bell, "no word from
+  its cloud builder for N minutes: it may be waiting for an answer on claude.ai", with Watch opening its
+  session; a builder's question can't be seen sooner, which is the gap this design accepts.
+- **Collect** (`acc collect <id>`, and what sync does on its own at any autonomy, since the finish line is
+  the builder's own): origin's branch is fetched and fast-forwarded into the task's worktree; a dirty or
+  diverged worktree is refused with nothing changed, and the reason written on the run, so the task
+  shows as needing you. The required checks then run on this Mac, in the heavy-check slot, as a refresh
+  runs them (D-058): the cloud's own runs don't count, receipts vouch for a commit here. All passing, the
+  task moves running → review under the same `gatesPassed` and note rules as `acc done`, with the note
+  the trailers gave (a part it left out says so). A check that fails leaves the task running, needing you,
+  naming the check, and the next push to the branch collects it again. From review on, the task is a
+  local builder's: review, land and the merge queue as before.
+- **Caps.** Cloud runs count against `agents.cloud.max` only; `agents.max` and the machine's total (GH-111)
+  count this Mac's builders only, since usage limits aren't CPU, so a cloud dispatch is never refused for
+  the machine's total, at the first check or the ledger's second. No caffeinate for a cloud run (D-067).
+- **The Command Center** shows where each builder runs on its card and page, an icon and a label, **This
+  Mac** (`device-desktop`) or **Cloud** (`cloud`), and acc show says it too. For a cloud builder, Watch
+  opens the session on claude.ai; **Send a message** queues one with `claude -p "<text>" --cloud
+  <session>`; **Collect** runs acc collect; Attach and Open in Claude Code are disabled with the reason;
+  Abandon sets the task aside without stopping the session, which it offers to open and archive. A
+  `disabled` action is drawn disabled, with its reason, never left to do nothing.
+- **Environment branches that move.** Every sync of a project that opted in looks at each environment's
+  branch on origin, after the pull requests, so a merge sync has just recorded explains the move it
+  made, and keeps where each stood (`<git-common-dir>/acc/branches.json`). A project that hasn't opted
+  in looks at none: its syncs run exactly as before. **A move is acc's only by its merge's commit** (the
+  rework): `git log --first-parent prev..head` lists what came in, so a merge counts once, as its merge
+  commit, and never as the branch's own commits, which name no pull request; a commit passes when its
+  sha is one sync recorded as a merge's (`mergeCommit.oid`, a task's `pr.mergeSha` or a promotion's), or
+  it's a merge commit whose second parent is a head acc landed (`pr.sha`) or autopilot merged
+  (`autopilot.merged.sha`), or it's a rebase's copy of the branch's commits, which `git cherry <branch>
+  head prev` finds by their patches against the task branch the Mac's clone still has. GitHub's squash
+  subject, "Title (#N)" with N a pull request the ledger knows, is kept only as a fallback for a squash
+  whose merge sync hasn't recorded: a pull request with a `mergeSha` is known by that sha alone, so a
+  pushed commit naming its number is flagged (the second rework); a merge commit's subject never
+  explains it, and a pushed commit that merely mentions a number ("Hotfix, see #12") is flagged. A head
+  the old one doesn't lead to is a rewrite, flagged as such. A second move nobody explains, while an
+  earlier one waits, keeps the earliest `from` and adds the new commits, newest first, as one item; a
+  rewrite on top of a waiting move keeps its commits and says it moved again in a way git couldn't
+  list. Every move still waiting is in `acc sync`'s output each run, with its compare page,
+  and on the Overview as an orange item needing you, with Compare on GitHub and Seen, until `acc sync
+  --branches-seen` clears it; the Command Center syncs an opted-in project on its pull-request poll even
+  with nothing else to follow, so a move is seen.
+- **Not chosen:** installing the pre-push hook from the routine's setup script (a person's, and not in
+  the repo: the SessionStart hook is committed with the guard, and the guard puts the hook back before
+  any push anyway); a quick pre-check on the raw line (it let a quoted `'g'it` through unchecked, so it's
+  gone: every Bash line is read); allowing a redirect after the branch in the one plain push (harmless,
+  but not plain: the refusal says exactly what to type); refusing every `git commit` that mentions a
+  push in its message (a heredoc's body is skipped instead); a deny-list of git config keys (each new
+  key that runs code would have had to be found first: an allow-list of what a builder needs);
+  `claude --cloud` from a terminal (interactive only, so autopilot can't re-dispatch and
+  nothing captures the session id); `--on-branch`, hidden and tied to `--cloud`; teleport as the way
+  back (a person's, not acc's); counting cloud builders against `agents.max`; refusing `--cloud` on an
+  unprotected environment branch (a warning instead, by the author's decision: this repo can't have
+  protection on its plan, and the guard and the moved-branch notice cover it); a guard that reads the
+  task's branch from the checkout (a builder can switch it) or from a file committed on the task branch
+  (two cloud tasks from one base would conflict on it); a guard that allows a push through a wrapper or
+  a shell's `-c` that pins the branch (not plain, so not on the allow-list; a shell's `-c` line is
+  guarded, a wrapper's push isn't allowed); explaining a branch move by its subject alone (a hand-pushed
+  commit can say anything); cloud reviewers or analysts; sharing the ledger (D-008, DESIGN §19).
+- **Checked:** `cloud.test.ts` (off by default and the reasons; `agents.cloud` parsing and round trip; the
+  token from the environment and the keychain, written through stdin; the fire's headers, body, cleanup
+  and refusals; the finish marker; the fire's text; a cloud dispatch's push before fire, its run, no
+  caffeinate, the caps, and its refusals; following a branch on a bare origin from fired through pushed,
+  quiet, blocked, a failed collect and a collect, with the note; collect's refusals; the moved-branch
+  notice: a real `git merge --no-ff` of a task branch, a squash, a rebase by cherry-pick, a hand-pushed
+  "Hotfix, see #12" flagged, a force push flagged as a rewrite, the moves carried by every sync until
+  cleared, and no look at origin for a project not opted in; a cloud dispatch skipping the machine's
+  total; `--cloud` refused with nothing pushed until the guard is committed on origin's default branch
+  and the task branch; what GitHub enforces, read from fixtures of each answer, and the dispatch's
+  warning), `cloud-guard.test.ts` (the committed script run as Claude Code runs it, with a transcript
+  carrying the record: the two allowed pushes pass, and a refusal is pinned for every form named above,
+  through the guard's own function for the long list and through the hook for the quoted names, the
+  launchers, the substitution in quotes, the patch, the hooks-path assignment and a few of each other
+  kind; a real `git push` through the installed pre-push hook against a local bare origin, installed by
+  `--session-start` as the cloud runs it: the task branch lands, and main, `HEAD:main`, another task
+  branch, a delete, a force push, a push from a renamed copy of git and one from inside `find -exec` are
+  refused with origin unmoved, no record refuses even the task branch, `--no-verify` and
+  `core.hooksPath` are shown to skip the hook, a hook changed by hand is put back, and `core.hooksPath`
+  set or the script missing means no push; the record read from the first message only; junk input, no
+  command, an error of its own, and a guard that's missing or can't be parsed, run through the settings'
+  own `|| exit 2` command, exit 2; a tool it doesn't guard and a session outside the cloud pass, and a
+  clone on a Mac gets no pre-push hook; the editing tools refused for the hooks, any `.claude`
+  settings file, anything under `.git/` and the transcript, through a symlink too, and allowed for
+  another file under `.claude/`; the guard's command splitter and hooks.ts's `commandsOf` kept the same
+  on shared cases with substitutions in quotes and heredocs; install, replacing older entries;
+  `guardCommitted` reading commits, not disk, the pre-push hook among them; this repo's HEAD carrying
+  all three files), `config.test.ts` (every key), `branches.test.ts` and `cloud-cards.test.ts` in
+  the extension (the Overview's moved-branch item, orange and counted, with its buttons; Dispatch to
+  the cloud disabled with each reason or enabled; a running cloud task's Watch, Send a message, Collect
+  and Open in Claude Code disabled with why, and Abandon's label), `looks.test.ts` (the place, the
+  Settings switch, what GitHub enforces per branch, and a moved branch, every state with an icon and a
+  label, no red against green), the screenshot run with two cloud builders on the board, a moved branch
+  on the Overview and the protection rows in Settings, and `acc gate run`.
+- **The real run.** Not done in this change, nor in its rework of 2026-10-10: firing needs a routine and
+  its API token, which only a person can make at claude.ai/code/routines, and this repo had none either
+  time (`acc cloud` on 2026-10-10: not opted in, no routine, no token). What's ready for it: this repo's
+  guard is committed on this branch and reaches main with it, which the dispatch requires, since the
+  cloud clones main first; `acc cloud enable --routine trig_…` and `acc cloud token` take the rest, and
+  `acc dispatch <id> --cloud` on the next small task is the run. The dispatch will warn that GitHub
+  enforces no protection here, and go on. Write up here what worked, what didn't, the time and the
+  usage, and name any step above the run proves wrong: in particular whether the fire's text lands in
+  the transcript's first user message as the guard reads it (if not, the guard allows no push, fails
+  closed, and the session's page shows its refusal), and whether the file watcher loads the task
+  branch's hooks after the checkout, and whether the SessionStart hook ran in the cloud and installed
+  `.git/hooks/pre-push` before the builder's first command (the builder can `ls .git/hooks`, which the
+  guard allows; the session's page shows the hook's output).
+- Note (at merge, 2026-10-12): three gaps both reviews named were closed at the merge rather than by
+  another builder run (D-135). The command splitter, the guard's and hooks.ts's alike, keeps the command
+  around a `$( )` or backtick pair whole, with `$(...)` (`SUBSTITUTED`) where the substitution stood, and
+  reads the substitution as its own command first: `git push origin "<branch>$(echo :main)"` was read as a
+  plain push of the task branch, and passed the first line (the Fable check's S1); it's now a push of
+  `<branch>$(...)`, refused. `--no-verify` is refused with any program, not only git, since npm, a script
+  runner or a wrapper could pass it on. `alias`, `hash -p`, `git clone` and `git init` are refused: the
+  first two change the program a later name runs, and a new repo has none of the guard's hooks.
+  `cloud-guard.test.ts` pins each, and its S1 case fails on the guard as the branch left it.
+- Note (T-13, 2026-10-13): what the guard allows and refuses is unchanged; where the pre-push hook is
+  installed moved. The script's `guard()` function reads a command and returns a reason or null, and
+  writes no file: before, it installed the pre-push hook when it allowed a push, so a test that called it
+  on a real checkout wrote `.git/hooks/pre-push` into this clone on 2026-10-12. A push it allows now sets
+  `ctx.pushes`, and the hook's entry point installs the pre-push hook and writes the record before it lets
+  that push run, refusing it when the install fails, as it does at session start and on every call. A
+  test calls `guard()` on two allowed pushes in a temporary repo and fails if any file under it, `.git`
+  included, is written, changed or removed. The coverage check (D-134) no longer reads the guard script's
+  own `export` lines, inside its template literal, as the module's, and every GH-69 export is named by a
+  test (`packages/core/test/cloud-names.test.ts`) or, used only in its own module, no longer exported.
+
+## D-141 Requirements are written in Simplified Technical English, and acc checks their wording (2026-10-13)
+
+A builder reads the analysis's requirements with no one to ask what they mean (T-12). The analyst now
+writes the goal, each acceptance criterion, each assumption and each out-of-scope item in ASD-STE100
+Simplified Technical English, Strict mode, so each reads one way only. The method is the MIT-licensed
+skill at https://github.com/danyuchn/asd-ste100-skill.
+
+- **The copy.** `plugin/skills/ste100/` holds the skill at commit
+  `32511c6992ecb5f1971e46a2943f2e6adceedafe`, taken from GitHub's archive of that commit (the builder's
+  session refuses git outside its worktree, so it couldn't clone). `LICENSE` is unchanged.
+  `SOURCE.md` names the URL, the commit, the date, each file's hash and each change: two edits to
+  `SKILL.md` so its linter step names `acc ste check`, and `README.md` left out. `docs/THIRD-PARTY.md`
+  has its row, and `scripts/test/third-party.test.ts` fails on a folder under `plugin/skills/` with a
+  `LICENSE` file and no full row.
+- **The port.** `packages/core/src/ste.ts` ports every structural rule of the skill's
+  `scripts/ste-lint.py`: semicolon, phrasal verb, marketing adjective, nominalization, long sentence,
+  synonym rotation and dangling conjunction (hard), and passive voice and present perfect (advisory), with
+  its protection of hedges ("may have failed" is never a present perfect). Python's `\b` and `\w` are
+  Unicode-aware and its columns count code points, so the port's patterns and columns do the same. The
+  Python's hard level, `advisory-free`, is `hard` here. Its `--baseline` and `--disable` options aren't
+  ported.
+- **The oracle.** The Python stays unchanged at `packages/core/test/fixtures/ste100/ste-lint.py`, never in
+  the plugin, and `SOURCE.md` pins its hash. `packages/core/test/ste.test.ts` ports each assertion of its
+  `selftest()`, then runs it and the port on the same texts (12 samples, and every Markdown file of the
+  plugin and the docs, `.acc/rules.md`, the README and CLAUDE.md) and compares every finding: rule and
+  line first, then column, level, match and message. It fails with a message when `python3` isn't there,
+  on no texts, and on fewer than 100 findings from the oracle. It runs the oracle's own `--selftest` too.
+- **The command.** `acc ste check [<file>...]` reads the files, or stdin, prints each finding as the Python
+  printed it, and exits 1 on a hard finding. `--json` gives the findings.
+- **The analyst.** Its prompt holds the STE Strict rules in full (`STE_STRICT` in `analyze.ts`), so it
+  needs no skill installed; the schema's descriptions of the four requirement parts say the same.
+- **The record.** `parseAnalysis` runs the port on each requirement line as acc reads the analysis, and
+  records each hard finding in the analysis's `wording`, with the part, its place and the line it came
+  from. Each line is checked on its own, so a synonym in one criterion never counts against another. A
+  criterion, assumption or out-of-scope item is checked as a list item, so one that ends on "and" is
+  caught; the goal is a sentence. Advisory findings aren't recorded. Analyses written before this have
+  no `wording`, and none is rewritten.
+- **Where it shows.** The task page's Analysis section shows an orange "Wording: 2 findings" state with the
+  whole-word icon beside the verdict, and lists each finding: where it came from ("Criterion 2"), the
+  rule's words, the words it caught and the line. `acc show <id>` and `acc analysis <id>` list them too.
+  No finding shows no state.
+- **Advice, not a hold.** A wording finding never stops a dispatch: `analysisProblems` doesn't read it, and
+  the verdict's state stays as it was.
+- **The rule.** `.acc/rules.md` gains: write each requirement that an agent reads in STE Strict mode,
+  checked by `packages/core/test/ste.test.ts`.
+
+Out of scope: the official STE dictionary, whose licence doesn't let us copy it; the builder's
+instructions, review findings, builder notes and the existing rules text; and rewriting older analyses.
+
+## D-142 A tab that is opening shows a loading screen at its center (2026-10-13)
+
+A Command Center tab showed "Loading…" in its top-left corner until its first model arrived. It now shows
+a loading screen at the tab's center (T-16).
+
+- **One function.** `loadingScreen` in `extension/src/logic/loading.ts`, with no vscode import, makes the
+  screen's HTML: the acc mark (the dark and light marks, as the rail draws them) in a 76 px ring, and one
+  line in the description colour, "Opening the Command Center", "Opening the task" or "Opening the agent".
+  `htmlFor` puts it in `#app`, and the page script draws the first model over it. The screen has
+  `role="status"` and `aria-live="polite"`, and the line names it.
+- **Motion.** A short arc in the accent turns once in 1.1 s, eased. The screen fades in after 150 ms, so a
+  fast load shows no flash. Under `prefers-reduced-motion: reduce`, nothing turns or fades. The classes are
+  `opening-*`: `.loading` was already the Tasks board's "Loading" chip.
+- **Still pages.** The screenshot run has a `loading` page, in `STILL`: it is drawn with no model sent, so
+  the screen stays. A still page has no rail and no controls, so `judge` takes `controls` and the run
+  passes false for it; the tab floor counts home pages that aren't still. Headless Chrome's virtual time
+  doesn't move animations, so a still page ends its fade itself before it is measured. The colour check
+  draws it too.
+- **Scroll on the first model.** The page script counts a page that holds only the loading screen as
+  fresh, so a rebuilt tab goes back to its saved scroll position on its first model. Before, the
+  "Loading…" paragraph made it not fresh, and the saved position was ignored. Found at review; only a
+  match on the source line pins it.

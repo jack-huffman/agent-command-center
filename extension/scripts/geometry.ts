@@ -60,6 +60,11 @@ export interface GeoSnapshot {
   overview?: { groups: { what: string; rows: Box[] }[] } | null;
   /** Every string a person can read on the page, for the words check (GH-163, words.ts). */
   said?: GeoSaid[];
+  /**
+   * Every class on a visible element drawn at least partly inside the window, which is what the shot
+   * holds, for the screenshots gate (T-5, looked.ts): a class a branch adds must be drawn in some shot.
+   */
+  drawn?: string[];
 }
 
 /**
@@ -101,9 +106,10 @@ const quote = (s: string): string => (s ? ` "${s.length > 40 ? `${s.slice(0, 39)
  * No two controls overlap, unless one sits inside the other or one floats in a sticky layer. No text is
  * cut off: an ellipsis passes only with the full text in a title or aria-label. The rail's selected tab
  * is on screen. Nothing scrolls sideways but SIDEWAYS. On the Overview, its lines keep OVERVIEW_LINES.
- * And no string outside work data names an acc command or path (words.ts, GH-163).
+ * And no string outside work data names an acc command or path (words.ts, GH-163). controls: the page
+ * has controls, which every page but a still one, such as the loading screen, does (T-16).
  */
-export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEPTIONS): Verdict {
+export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEPTIONS, controls = true): Verdict {
   const found: Violation[] = [];
   const cs = s.controls;
   for (let i = 0; i < cs.length; i++) {
@@ -144,7 +150,8 @@ export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEP
     if (e) excused[e.name]!++;
     return !e;
   });
-  if (!examined.overlap) violations.push({ check: 'overlap', what: 'the page', detail: 'examined no controls' });
+  // A page with no controls by design, such as the loading screen (T-16), is judged without them.
+  if (controls && !examined.overlap) violations.push({ check: 'overlap', what: 'the page', detail: 'examined no controls' });
   if (!examined.clipped) violations.push({ check: 'clipped', what: 'the page', detail: 'examined no text' });
   if (home && !examined.tab) violations.push({ check: 'tab', what: 'the page', detail: 'has no selected tab in the rail' });
   if (s.overview && !examined.overview) violations.push({ check: 'overview', what: 'the page', detail: 'is the Overview, and examined no lines on it' });
@@ -159,7 +166,7 @@ export interface Render { page: string; theme: string; width: number; verdict: V
  * The least a run of every page, both themes and all three widths examines, per check. Raised as the
  * pages grow, never lowered: a run below one has stopped looking.
  */
-export const RUN_FLOOR: Record<Check, number> = { overlap: 13700, clipped: 41700, tab: 288, sideways: 1100, overview: 1200, words: 76400 };
+export const RUN_FLOOR: Record<Check, number> = { overlap: 13700, clipped: 41700, tab: 294, sideways: 1100, overview: 1200, words: 76400 };
 
 /**
  * What fails a run: each finding, by page, theme, width and check. A whole run (full) also fails below
@@ -282,9 +289,17 @@ function collectGeometry() {
     rows: [...g.querySelectorAll('[data-overview-row]')].filter((r) => r.closest('[data-overview-group]') === g && visible(r)).map((r) => { const b = r.getBoundingClientRect(); return box(b.left, b.top, b.right, b.bottom); }),
   })) } : null;
   // Every string a person can read, for the words check (GH-163).${COLLECT_WORDS}
+  // The classes drawn inside the window, which the shot holds, for the screenshots gate (T-5).
+  const drawn = new Set();
+  for (const e of document.querySelectorAll('body *')) {
+    if (!e.classList.length || !visible(e)) continue;
+    const r = e.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1 || r.bottom <= 0 || r.right <= 0 || r.top >= vh || r.left >= vw) continue;
+    for (const c of e.classList) drawn.add(c);
+  }
   const out = document.createElement('script');
   out.type = 'application/json';
   out.id = 'acc-geometry';
-  out.textContent = JSON.stringify({ controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, said }).replace(/</g, '\\\\u003c');
+  out.textContent = JSON.stringify({ controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, said, drawn: [...drawn] }).replace(/</g, '\\\\u003c');
   document.body.append(out);
 }`;

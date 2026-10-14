@@ -7,6 +7,10 @@
  *   npm run screenshot -- --width 800 --theme dark --height 600 --out /tmp/shots
  *   npm run screenshot -- --colours          check no colour leaks from VSCode's theme into Light or Dark
  *   ACC_SHOT_TIMEOUT=90 npm run screenshot   allow each drawing 90 s, not 60 (GH-167)
+ *   npm run screenshot -- --behaviour        the modals' behaviour cases and their mutants (GH-170)
+ *
+ * A full run (every tab, theme and width) also runs the behaviour cases and their mutants (behaviour.ts)
+ * after the shots.
  *
  * It renders the built webview (extension/dist/webview), so run `npm run build` after changing it. The
  * first data row or card is shown hovered. Chrome runs one shot at a time, under nice.
@@ -15,9 +19,15 @@
  * (GH-109): a colour that still came from VSCode's theme would show in it. --colours checks the same
  * thing by number: each page's computed colours with Light or Dark forced are the same whichever theme
  * VSCode has, and Match VSCode under a theme is that theme forced.
+ *
+ * Each shot it takes at the usual heights is noted in the folder's shots.json (SHOTS_FILE, T-5): the PNG's
+ * hash, the fingerprint of the code and sample data it drew, its geometry findings, and the classes drawn
+ * on screen in it. The screenshots gate (looked.ts) reads it to tell whether a branch's pages were looked
+ * at as they are now.
  */
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -46,8 +56,10 @@ import { SAMPLE_EDIT, sampleEdited } from './fixtures/updates.ts';
 import { settingsKey, type ThemeChoice } from '../src/model/settings.ts';
 import { SETUP_PARTS } from '../src/logic/first-open.ts';
 import { PALETTE_THEMES, type PaletteTheme, palettes, vscodeDefaults } from './styles.ts';
-import { CHECKS, COLLECT_GEOMETRY, dumpedGeometry, geometrySummary, judge, type Render, runFailures } from './geometry.ts';
+import { loadingScreen } from '../src/logic/loading.ts';
+import { CHECKS, COLLECT_GEOMETRY, GEOMETRY_EXCEPTIONS, dumpedGeometry, geometrySummary, judge, type Render, runFailures } from './geometry.ts';
 import { drawRetrying, retriedSummary, SETTLE, shotTimeout } from './steady.ts';
+import { behaviourCheck } from './behaviour.ts';
 
 /**
  * Every page the screenshot script can draw: each section of the Command Center, a ticket's page (being
@@ -77,12 +89,22 @@ import { drawRetrying, retriedSummary, SETTLE, shotTimeout } from './steady.ts';
  * Last, the Overview as a landing page when everything is busy at once (GH-160): ten suggested rules, six
  * tasks building with their checks, three questions, two update drafts and twelve things in History; then
  * the same with a question opened over it, its update drafts, and History opened at an answer.
+ * Last, the loading screen the Command Center shows while it opens, which no model replaces (T-16).
  */
-export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history'] as const;
+export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'tasks-agents', 'ticket-cloud', 'loading'] as const;
 export type Page = (typeof PAGES)[number];
+
+/**
+ * Pages the run draws with no model sent, so what the tab shows before its first model stays (T-16). They
+ * have no rail and no controls, which the geometry check otherwise looks for on every page.
+ */
+export const STILL: readonly Page[] = ['loading'];
+const still = (kind: Page): boolean => STILL.includes(kind);
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');
 export const MIN_WIDTH = 500;
+/** The widths every page is shot at unless --width says. */
+export const WIDTHS = [1000, 620, 500] as const;
 
 /**
  * The fonts VSCode would set, the same in either theme: the page's colours are theme.css's palettes (GH-109),
@@ -98,10 +120,14 @@ const other = (t: PaletteTheme): PaletteTheme => (t === 'dark' ? 'light' : 'dark
 
 /** A page's sample data. theme is what Settings shows chosen, as the shot forces it (GH-109). */
 export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = 'vscode'): Model {
+  // The loading screen is drawn with the Overview's model held back (STILL): it never arrives.
+  if (kind === 'loading') return sampleModel('overview', now, theme);
   if (kind === 'ticket') return sampleTicket(now);
   if (kind === 'ticket-questions') return sampleTicket(now, 'ACME-21');
   if (kind === 'ticket-split') return sampleTicket(now, 'ACME-23');
   if (kind === 'ticket-stopped') return sampleTicket(now, 'ACME-29');
+  // A builder in the cloud, quiet for too long (GH-69).
+  if (kind === 'ticket-cloud') return sampleTicket(now, 'ACME-44');
   if (kind === 'ticket-track') return sampleTicket(now, 'ACME-31');
   if (kind === 'ticket-checks') return sampleTicket(now, 'ACME-33');
   if (kind === 'ticket-waits') return sampleTicket(now, 'ACME-35');
@@ -142,7 +168,7 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
   const connect = kind.startsWith('connect-') ? sampleConnect(kind.slice('connect-'.length) as ConnectSample) : null;
   const slack = sampleSlack(kind.startsWith('slack-') ? kind.slice('slack-'.length) as SlackSample : 'on', now);
   // A project started from an epic opens the Connect page over Setup, where "From a Jira epic…" is (GH-81).
-  const section = (kind === 'output' || kind.startsWith('connect-epic') ? 'setup' : connect || kind === 'tasks-monday' || kind === 'tasks-github' || kind === 'tasks-modal' ? 'tasks' : kind.startsWith('slack-') ? 'settings' : kind === 'agents-billing' || kind === 'agents-path' || kind === 'agents-finished' ? 'agents' : kind.startsWith('settings-') ? 'settings' : kind) as HomeSection;
+  const section = (kind === 'output' || kind.startsWith('connect-epic') ? 'setup' : connect || kind === 'tasks-monday' || kind === 'tasks-github' || kind === 'tasks-modal' || kind === 'tasks-agents' ? 'tasks' : kind.startsWith('slack-') ? 'settings' : kind === 'agents-billing' || kind === 'agents-path' || kind === 'agents-finished' ? 'agents' : kind.startsWith('settings-') ? 'settings' : kind) as HomeSection;
   // Settings' trackers are each project's own (GH-112); every other page shows the sample board for each.
   const boards = kind === 'settings-trackers' ? sampleTrackerBoards : kind === 'tasks-monday' ? sampleMondayBoards : kind === 'tasks-github' ? sampleGithubBoards : sampleBoards;
   // The Command Center's own preferences, each set to other than its default (GH-113).
@@ -161,13 +187,15 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
  * draft a newer one replaced (GH-46).
  */
 // ACC_SHOT_STATE, a JSON object, starts every page with that state instead: for checking what a page restores.
-const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ? JSON.parse(process.env.ACC_SHOT_STATE) : kind === 'output' ? { dock: { open: true, run: 'r-login' } }
+export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ? JSON.parse(process.env.ACC_SHOT_STATE) : kind === 'output' ? { dock: { open: true, run: 'r-login' } }
   : kind === 'rules' ? { detail: { kind: 'rules' } }
   : kind === 'rules-accept' ? { opened: ['rule:/Users/me/code/acme-service#r-4c0f1e:draft'], detail: { kind: 'rules' } }
   : kind === 'overview-answer' ? { detail: { kind: 'question', id: 'm1-aaaa0002' } }
   : kind === 'overview-drafts' ? { detail: { kind: 'updates' } }
   : kind === 'overview-history' ? { detail: { kind: 'history', item: 3 } }
   : kind === 'agents-finished' ? { opened: [ROOT, CLIENTS].map((r) => `agents-finished:${r}`) }
+  // The agent board, with two builders in the cloud (GH-69): the Tasks tab remembers which board shows.
+  : kind === 'tasks-agents' ? { modes: { [ROOT]: 'agents' } }
   : kind === 'ticket-split' ? { opened: ['files', 'findings'].map((f) => `an:/Users/me/code/acme-service#ACME-23:${f}`) }
     : kind === 'ticket' ? { drafts: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: SAMPLE_EDIT.text }, bases: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: { text: SAMPLE_EDIT.base } } } : undefined);
 /**
@@ -187,7 +215,7 @@ export const openAt = (kind: Page): string | null => (kind === 'settings-agents'
  * Screenshots can't hover, so each :hover rule is copied to a class put on the first row or card.
  */
 /** How tall a shot is unless --height says. */
-const DEFAULT_HEIGHT = 900;
+export const DEFAULT_HEIGHT = 900;
 
 /**
  * Pages whose part sits below the fold at the default height, shot taller: the Overview, a landing page of
@@ -254,6 +282,12 @@ export function pageFor(kind: Page, theme: ThemeChoice, model: Model, under: The
   const json = JSON.stringify(model).replace(/</g, '\\u003c');
   const then = JSON.stringify(after).replace(/</g, '\\u003c');
   const open = openAt(kind);
+  // A still page sends no model, but is hovered, collected and measured all the same.
+  const send = still(kind) ? '' : `window.postMessage({ type: 'state', model: MODEL${open ? `, jump: true, open: ${JSON.stringify(open)}` : ''} }, '*'); for (const m of AFTER) window.postMessage(m, '*'); `;
+  // The loading screen fades in (T-16), and a fade at opacity 0 reads as unseen. Headless Chrome's virtual time
+  // doesn't move animations, so a still page ends its fades itself before it's measured, as they'd have ended.
+  const faded = still(kind) ? 'document.getAnimations().filter((a) => a.effect.getTiming().iterations !== Infinity).forEach((a) => a.finish()); ' : '';
+  const opening = still(kind) ? loadingScreen('home', { dark: 'webview/acc-dark.svg', light: 'webview/acc-light.svg' }) : '';
   return `<!DOCTYPE html>
 <html lang="en" data-theme="${theme}" style="${vars.replace(/"/g, '&quot;')}"><head><meta charset="UTF-8">
 <style>${vscodeDefaults()}</style>
@@ -270,12 +304,12 @@ function forceHover() {
   (document.querySelector('tbody tr:not(.group):not(.none)') ?? document.querySelector('.card'))?.classList.add('acc-hover');
 }${collect || measure ? COLLECT : ''}${collect ? COLLECT_COLOURS : ''}${measure ? COLLECT_GEOMETRY + SETTLE : ''}
 window.acquireVsCodeApi = () => ({
-  postMessage(m) { if (m.type === 'ready') setTimeout(() => { window.postMessage({ type: 'state', model: MODEL${open ? `, jump: true, open: ${JSON.stringify(open)}` : ''} }, '*'); for (const m of AFTER) window.postMessage(m, '*'); setTimeout(forceHover, 50);${collect ? ' setTimeout(collectColours, 500);' : ''}${measure ? ' setTimeout(() => document.fonts.ready.then(() => requestAnimationFrame(() => requestAnimationFrame(() => settle(selectedTab, requestAnimationFrame, collectGeometry)))), 300);' : ''} }); },
+  postMessage(m) { if (m.type === 'ready') setTimeout(() => { ${send}setTimeout(forceHover, 50);${collect ? ' setTimeout(collectColours, 500);' : ''}${measure ? ` setTimeout(() => { ${faded}document.fonts.ready.then(() => requestAnimationFrame(() => requestAnimationFrame(() => settle(selectedTab, requestAnimationFrame, collectGeometry)))); }, 300);` : ''} }); },
   getState() { return ${JSON.stringify(startState(kind)) ?? 'undefined'}; }, setState() {},
 });
 </script>
 </head>
-<body class="vscode-${under}" data-view="${viewOf(kind)}" data-logo-dark="webview/acc-dark.svg" data-logo-light="webview/acc-light.svg"><main id="app"></main><script src="webview/main.js"></script></body></html>
+<body class="vscode-${under}" data-view="${viewOf(kind)}" data-logo-dark="webview/acc-dark.svg" data-logo-light="webview/acc-light.svg"><main id="app">${opening}</main><script src="webview/main.js"></script></body></html>
 `;
 }
 
@@ -311,8 +345,8 @@ function chromeRun(chrome: string, args: string[], dump = false): ReturnType<typ
   return spawnSync(cmd, cmdArgs, dump ? { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], timeout: shotTimeout() } : { stdio: 'ignore', timeout: shotTimeout() });
 }
 
-/** The pages the colour check draws (GH-109): the busiest sections, Settings, a task's page and an agent's, a task in the modal over the board (GH-158), and the busy Overview with its update drafts open over it (GH-160). */
-export const COLOUR_PAGES: Page[] = ['overview', 'tasks', 'settings', 'settings-agents', 'settings-trackers', 'settings-limits', 'settings-about', 'slack-paused', 'settings-github', 'settings-page', 'ticket', 'agent', 'tasks-modal', 'overview-landing', 'overview-drafts'];
+/** The pages the colour check draws (GH-109): the busiest sections, Settings, a task's page and an agent's, a task in the modal over the board (GH-158), and the busy Overview with its update drafts open over it (GH-160), and the loading screen (T-16). */
+export const COLOUR_PAGES: Page[] = ['overview', 'tasks', 'settings', 'settings-agents', 'settings-trackers', 'settings-limits', 'settings-about', 'slack-paused', 'settings-github', 'settings-page', 'ticket', 'agent', 'tasks-modal', 'overview-landing', 'overview-drafts', 'tasks-agents', 'ticket-cloud', 'loading'];
 
 /** A page's computed colours, as its collector gathered them: what each element is, and its colours in COLOUR_PROPERTIES' order. */
 export type Colours = [string, string[]][];
@@ -384,11 +418,100 @@ function colourCheck(chrome: string, work: string, views: Page[]): number {
   return 0;
 }
 
-function main(argv: string[]): number {
+/**
+ * The modals' behaviour (GH-170): each case in behaviour.ts on the built page, then each mutant's cases on
+ * the page built with its one change, which must fail them.
+ */
+async function behaviourRun(chrome: string): Promise<number> {
+  const work = mkdtempSync(join(tmpdir(), 'acc-behaviour-'));
+  try {
+    cpSync(join(extensionDir, 'dist', 'webview'), join(work, 'webview'), { recursive: true });
+    const now = Date.now();
+    const models = { tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark') };
+    const failures = await behaviourCheck({ chrome, work, models, now, fonts: FONTS, run: (c, args) => chromeRun(c, args, true), log: (line) => console.log(line) });
+    for (const f of failures) console.error(f);
+    return failures.length ? fail(`${failures.length} behaviour finding${failures.length === 1 ? '' : 's'}: a modal doesn't do what its case checks, or a case doesn't catch its mutant (extension/scripts/behaviour.ts).`) : 0;
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+}
+
+/** The file in a screenshots folder that notes each shot taken there (T-5). */
+export const SHOTS_FILE = 'shots.json';
+
+/** What the run noted of one shot: what it drew, what it found, and the classes on screen in it. */
+export interface ShotNote {
+  /** fingerprint() when it was taken: the code and sample data it drew. */
+  fingerprint: string;
+  /** The PNG's sha256, so a shot taken again or changed since isn't taken for this one. */
+  sha256: string;
+  takenAt: string;
+  /** How many geometry findings it had. */
+  findings: number;
+  /** Every class on an element drawn inside the shot's window, sorted. */
+  drawn: string[];
+}
+export interface ShotsRecord { schema: 1; shots: Record<string, ShotNote> }
+
+/** The usual shots of every page: each theme at each of WIDTHS, by file name. */
+export const expectedShots = (): string[] => PAGES.flatMap((p) => PALETTE_THEMES.flatMap((t) => WIDTHS.map((w) => `${p}-${t}-${w}.png`)));
+
+/** The clock fingerprint() draws the sample data at, so the same code always gives the same fingerprint. */
+export const FINGERPRINT_NOW = Date.UTC(2026, 0, 1);
+
+/**
+ * The fingerprint of what the screenshots draw: every file of the webview's source, the pages, widths and
+ * heights, and each page as it's handed to Chrome in each theme, its sample model, starting state and
+ * geometry collector included, at a still clock. A change to the page, its model, its fixtures or the
+ * run's checks changes it; a change the pages don't draw from leaves it alone.
+ */
+export function fingerprint(webview: [string, Buffer | string][] = webviewSource()): string {
+  const h = createHash('sha256');
+  for (const [name, body] of webview) h.update(`file ${name} ${body.length}\n`).update(body);
+  h.update(JSON.stringify({ PAGES, WIDTHS, DEFAULT_HEIGHT, PAGE_HEIGHT }));
+  for (const view of PAGES) {
+    for (const theme of PALETTE_THEMES) h.update(pageFor(view, theme, sampleModel(view, FINGERPRINT_NOW, theme), other(theme), false, true, afterModel(view, FINGERPRINT_NOW)));
+  }
+  return h.digest('hex');
+}
+
+/** The webview's source files, by name, sorted. */
+export function webviewSource(dir = join(extensionDir, 'webview')): [string, Buffer][] {
+  return readdirSync(dir).sort().filter((f) => statSync(join(dir, f)).isFile()).map((f) => [f, readFileSync(join(dir, f))]);
+}
+
+/** The shots noted in a folder: none when it has no note yet, or one that can't be read. */
+export function readShots(dir: string): ShotsRecord {
+  try {
+    const r = JSON.parse(readFileSync(join(dir, SHOTS_FILE), 'utf8')) as ShotsRecord;
+    if (r.schema === 1 && r.shots && typeof r.shots === 'object') return r;
+  } catch { /* none yet, or unreadable: start again */ }
+  return { schema: 1, shots: {} };
+}
+
+/** Notes these shots in the folder's record, over any earlier note of the same file, written whole. */
+export function noteShots(dir: string, taken: Record<string, ShotNote>): void {
+  if (!Object.keys(taken).length) return;
+  const shots = Object.fromEntries(Object.entries({ ...readShots(dir).shots, ...taken }).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+  const file = join(dir, SHOTS_FILE);
+  writeFileSync(`${file}.tmp`, `${JSON.stringify({ schema: 1, shots } satisfies ShotsRecord)}\n`);
+  renameSync(`${file}.tmp`, file);
+}
+
+export const sha256Of = (file: string): string => createHash('sha256').update(readFileSync(file)).digest('hex');
+
+async function main(argv: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
     args: argv, allowPositionals: true,
-    options: { width: { type: 'string', default: '1000,620,500' }, theme: { type: 'string', default: 'dark,light' }, height: { type: 'string' }, out: { type: 'string' }, colours: { type: 'boolean', default: false } },
+    options: { width: { type: 'string', default: WIDTHS.join(',') }, theme: { type: 'string', default: 'dark,light' }, height: { type: 'string' }, out: { type: 'string' }, colours: { type: 'boolean', default: false }, behaviour: { type: 'boolean', default: false } },
   });
+  if (values.behaviour) {
+    const stale = staleBuild();
+    if (stale) return fail(`Run \`npm run build\` first: ${stale}.`);
+    const chrome = findChrome();
+    if (!chrome) return fail('No Chrome, Chromium or Edge found. Set CHROME to its path.');
+    return behaviourRun(chrome);
+  }
   const views = positionals.length ? positionals : values.colours ? [...COLOUR_PAGES] : [...PAGES];
   const bad = views.filter((v) => !(PAGES as readonly string[]).includes(v));
   if (bad.length) return fail(`Unknown page: ${bad.join(', ')}. Pages: ${PAGES.join(', ')}.`);
@@ -423,6 +546,10 @@ function main(argv: string[]): number {
   const work = mkdtempSync(join(tmpdir(), 'acc-screenshots-'));
   const renders: Render[] = [];
   const retried: string[] = [];
+  // The screenshots gate counts shots at the usual heights only, and not ones started in a given state.
+  const noting = values.height === undefined && !process.env.ACC_SHOT_STATE;
+  const print = noting ? fingerprint() : '';
+  const taken: Record<string, ShotNote> = {};
   try {
     cpSync(join(extensionDir, 'dist', 'webview'), join(work, 'webview'), { recursive: true });
     const now = Date.now();
@@ -451,24 +578,29 @@ function main(argv: string[]): number {
           if (!existsSync(png)) return fail(`Chrome didn't write ${png} (exit ${r.status ?? r.signal}).`);
           const shot = dumpedGeometry(String(r.stdout ?? ''));
           if (!shot) return fail(`${view} (${theme}, ${width}px) measured no geometry (exit ${r.status ?? r.signal}).`);
-          const verdict = judge(shot, viewOf(view) === 'home');
+          const verdict = judge(shot, viewOf(view) === 'home' && !still(view), GEOMETRY_EXCEPTIONS, !still(view));
           renders.push({ page: view, theme, width, verdict });
+          if (noting) taken[`${view}-${theme}-${width}.png`] = { fingerprint: print, sha256: sha256Of(png), takenAt: new Date().toISOString(), findings: verdict.violations.length, drawn: [...new Set(shot.drawn ?? [])].sort() };
           console.log(`${png}  ${CHECKS.map((c) => `${c} ${verdict.examined[c]}`).join(', ')}${verdict.violations.length ? `, ${verdict.violations.length} found` : ''}`);
         }
       }
     }
   } finally {
     rmSync(work, { recursive: true, force: true });
+    // Noted even when Chrome stops partway, so the shots it did take count.
+    noteShots(out, taken);
   }
   // Exceptions and floors are a whole run's: a run of a few pages may not reach them.
-  const full = views.length === PAGES.length && themes.length === PALETTE_THEMES.length && values.width === '1000,620,500';
+  const full = views.length === PAGES.length && themes.length === PALETTE_THEMES.length && values.width === WIDTHS.join(',');
   const failures = runFailures(renders, full);
   console.log(geometrySummary(renders) + retriedSummary(retried));
+  // A full run checks the modals' behaviour too (GH-170); a run of a few pages, themes or widths doesn't.
+  const behaviour = full ? await behaviourRun(chrome) : 0;
   if (failures.length) {
     for (const f of failures) console.error(f);
     return fail(`${failures.length} geometry finding${failures.length === 1 ? '' : 's'}. Fix each, or list it in GEOMETRY_EXCEPTIONS (extension/scripts/geometry.ts) with why. The shots are written all the same.`);
   }
-  return 0;
+  return behaviour;
 }
 
 function fail(message: string): number {
@@ -476,4 +608,4 @@ function fail(message: string): number {
   return 1;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = main(process.argv.slice(2));
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main(process.argv.slice(2)).then((code) => { process.exitCode = code; });

@@ -66,6 +66,8 @@ export function renderTasks(m: TasksModel): Node[] {
           // bell, in orange), it shares them, or a Ready task's aren't known.
           card.files ? el('div', 'card-agent', status(card.files)) : null,
           card.agent ? titled(el('div', 'card-agent', el('span', 'muted', 'Agent: '), status(card.agent)), card.agentName) : null,
+          // Where its builder runs (GH-69): This Mac or Cloud, an icon and a label, beside the agent line.
+          card.place ? el('div', 'card-where card-place', icon(card.place.icon), el('span', 'muted', card.place.label)) : null,
           // The model it runs with (D-086), in plain mono text: a name, not a state.
           card.agent && card.model ? el('div', 'card-where card-model', icon('sparkle'), el('span', 'mono muted', card.model)) : null,
           // Its analysis (D-052), in its own words: under way, waiting on you, or ready to build from.

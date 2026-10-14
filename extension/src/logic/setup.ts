@@ -76,7 +76,13 @@ export function stepMedia(step: Step): string {
   if (does) out.push(`**Do it**: ${does}. It runs in a terminal, so you see exactly what happens.`, '');
   else if (f?.command) out.push('**Do it** runs this in a terminal, so you see exactly what happens:', '', '```bash', f.command, '```', '');
   if (f?.fromCheck) out.push('**Do it** runs the exact command the check works out for this repo, in a terminal you can see.', '');
-  if (f?.text) out.push(inProcessWords(f.text), '');
+  if (f?.text) {
+    // The by-hand path a fix ends on stays as the tool takes it, in a bash block like another tool's Do it,
+    // so someone in a terminal is told what to type, not only what it does (GH-168).
+    const byHand = /^([\s\S]*?)\s*In a terminal: `?([^`]+?)`?\.?$/.exec(f.text);
+    if (byHand) out.push(inProcessWords(byHand[1]!), '', 'In a terminal:', '', '```bash', byHand[2]!, '```', '');
+    else out.push(inProcessWords(f.text), '');
+  }
   if (f?.setupPath) out.push('**Open in Salesforce** opens Setup in the right org.', '');
   if (f?.docs) out.push(`More detail: ${f.docs.startsWith('http') ? `[Salesforce docs](${f.docs})` : 'the onboarding guide (**Read the guide**).'}`, '');
   out.push('---', '', `The step ticks itself when its check passes. **Check** re-runs it at any time, and so does **${processName('doctor')}**, from the command palette.`);

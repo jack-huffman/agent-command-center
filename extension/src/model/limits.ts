@@ -179,8 +179,8 @@ export function limitsModel(f: LimitsFacts, billing: Look | null = null): Limits
     value: String(p.max),
     unit: `${p.max === 1 ? 'builder' : 'builders'} at once`,
     from: p.maxFrom === 'project'
-      ? `Set in ${p.name}'s settings (agents.max), shared with everyone who works on the repo once it's committed.`
-      : `acc's default: ${p.name}'s settings set none (agents.max). A change sets it there, for everyone on the repo once it's committed.`,
+      ? `Set in ${p.name}'s settings, shared with everyone who works on the repo once it's committed.`
+      : `acc's default: ${p.name}'s settings set none. A change sets it there, for everyone on the repo once it's committed.`,
     look: capLook(p.running, p.max, `in ${p.name}`),
     lower: p.max > 1 ? step(`Lower ${p.name}'s cap to ${p.max - 1}`, `${p.root}|${p.max - 1}`, null) : step(`Lower ${p.name}'s cap`, null, 'One is the least: a project runs at least one builder.'),
     raise: p.max < MAX_AGENTS ? step(`Raise ${p.name}'s cap to ${p.max + 1}`, `${p.root}|${p.max + 1}`, null) : step(`Raise ${p.name}'s cap`, null, `${MAX_AGENTS} is the most a project runs at once.`),
@@ -253,10 +253,10 @@ export function limitsModel(f: LimitsFacts, billing: Look | null = null): Limits
     const queue = p.queue.length ? names(p.queue) : null;
     const required: LimitRow = {
       key: `required:${p.root}`, name: 'Required checks', icon: 'checklist', value: p.required.join(', ') || 'None',
-      from: `${p.requiredFrom === 'project' ? `Set in ${config}, for everyone on the repo once it's committed.` : `acc's default: ${config} set none (gates.required). A change sets it there, for everyone on the repo once it's committed.`}${queue ? ` Where the merge queue runs (${queue}), they run once in it, before each merge.` : ' A task must pass them to finish, to be reviewed and to open its pull request.'}`,
+      from: `${p.requiredFrom === 'project' ? `Set in ${config}, for everyone on the repo once it's committed.` : `acc's default: ${config} set none. A change sets it there, for everyone on the repo once it's committed.`}${queue ? ` Where the merge queue runs (${queue}), they run once in it, before each merge.` : ' A task must pass them to finish, to be reviewed and to open its pull request.'}`,
       look: p.required.length ? null : { label: 'None: a task can finish on any commit', icon: 'warning', tone: 'orange' },
       command: LIMIT_COMMANDS.requiredGates, arg: p.root,
-      why: p.gates.length ? null : `${p.name} has no checks to choose from yet: add commands under "gates.commands" in ${config}.`,
+      why: p.gates.length ? null : `${p.name} has no checks to choose from yet: add a command for each check in ${config}.`,
     };
     const builder: LimitRow = {
       key: `builder:${p.root}`, name: 'Builders\' checks', icon: 'tools',
@@ -266,7 +266,7 @@ export function limitsModel(f: LimitsFacts, billing: Look | null = null): Limits
         : 'Builders run the required checks: no environment\'s pull requests go through the merge queue here (auto-merge, under autonomy review).',
       look: p.builder && !queue ? { label: `Named (${p.builder.join(', ')}), but unused while no merge queue runs`, icon: 'info', tone: 'neutral' } : null,
       command: LIMIT_COMMANDS.builderGates, arg: p.root,
-      why: p.gates.length ? null : `${p.name} has no checks to choose from yet: add commands under "gates.commands" in ${config}.`,
+      why: p.gates.length ? null : `${p.name} has no checks to choose from yet: add a command for each check in ${config}.`,
     };
     return { project: p.name, root: p.root, rows: [required, builder] };
   });

@@ -1,7 +1,7 @@
 // acc's Agents commands that take a task on from its build: analyze, analysis, review, land, autopilot
 // and sync.
 
-import { AccError, alive, type Analysis, analyze, answerAnalysis, autoMergeFor, autoMergeOn, AUTOPILOT_MIN_EVERY_S, autopilotDoes, autopilotMode, autopilotPass, type AutopilotResult, type AutopilotStepName, closesIssues, closeWords, ghToken, holdAutopilot, land, mergesWords, openQuestions, readAnalysis, review, run, settleCloses, sleep, sync } from '../../../core/src/index.ts';
+import { AccError, alive, type Analysis, analyze, answerAnalysis, autoMergeFor, autoMergeOn, AUTOPILOT_MIN_EVERY_S, autopilotDoes, autopilotMode, autopilotPass, type AutopilotResult, type AutopilotStepName, clearBranchMoves, closesIssues, closeWords, ghToken, holdAutopilot, land, mergesWords, moveUrl, moveWords, openQuestions, readAnalysis, review, run, settleCloses, sleep, sync, wordingPlace, wordingWords } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
 import { accBinDir, accCommand, actorFrom, type CommandArea, followingCards, now, type Opts, out, personOnly, project, stepWords } from '../shared.ts';
 import { personOnlyUpdate } from './updates.ts';
@@ -36,6 +36,8 @@ function analysisLines(a: Analysis): string[] {
     head,
     ...(a.questions.length ? ['', 'Questions', ...a.questions.map((q) => `  ${q.id}. ${q.question}${q.answer ? tone(`  → ${q.answer.text}`, 'blue') : tone(`  (suggested: ${q.suggested})`, 'dim')}`)] : []),
     ...list('Acceptance criteria', a.requirements.criteria),
+    // The wording check on its requirements (T-12): advice, never a hold.
+    ...(a.wording?.length ? ['', tone(`! ${wordingWords(a.wording.length)}`, 'orange'), ...a.wording.map((f) => `  - ${wordingPlace(f)}: ${f.message} [${f.match}]`)] : []),
     ...list('What is there now', a.findings.map((f) => `${f.area}: ${f.detail}${f.source ? tone(`  ${f.source}`, 'dim') : ''}`)),
     ...list('Approach', a.approach.plan),
     ...list('Refactors first', a.approach.refactors.map((r) => `${r.what}: ${r.why}`)),
@@ -187,14 +189,25 @@ function cmdSync(o: Opts): number {
   // Closing the issues of tasks already done is a person's: never a builder's, reviewer's, analyst's or autopilot's (D-082).
   const by = closeDone ? personOnlyUpdate(o, 'close the issues of tasks already done') : null;
   const { paths, config } = project(process.cwd());
+  // A person has seen an environment branch's unexplained move (GH-69): it's cleared, and nothing else runs.
+  if (o['branches-seen'] === true) {
+    personOnlyUpdate(o, 'clear a branch\'s move');
+    const cleared = clearBranchMoves(paths);
+    out(o, () => (cleared.length ? `Cleared the move${cleared.length === 1 ? '' : 's'} on ${cleared.join(', ')}. The next sync starts from where each branch stands now.` : 'No environment branch has a move waiting for a person.'), { cleared });
+    return 0;
+  }
   // --plan only looks, so it doesn't sync either: a sync writes the ledger, and may close an issue.
-  const r = closeDone && plan ? { checked: 0, changes: [] } : followingCards(paths, config, () => sync(paths, config, { run, now, env: process.env }));
+  const r = closeDone && plan ? { checked: 0, changes: [], cloud: [], branches: [] } : followingCards(paths, config, () => sync(paths, config, { run, now, env: process.env }));
   const lines = [
     ...(r.checked ? [`Checked ${r.checked} open pull request${r.checked === 1 ? '' : 's'}.`] : []),
     ...r.changes.map((c) => `  ${c.task}: ${c.note}${c.moved ? ` → ${stateLabel(c.moved.to)}` : ''}${c.update ? `. Drafted an update for ${c.update.key} (${c.update.id})` : ''}`),
+    // Each cloud builder's branch (GH-69), and each environment branch that moved by anything but acc's merges.
+    ...r.cloud.filter((c) => c.outcome !== 'unchanged').map((c) => tone(`  ${c.task} (cloud): ${c.note}`, c.outcome === 'collect-failed' || c.outcome === 'unreachable' ? 'orange' : 'blue')),
+    // Every move still waiting for a person, each run, until acc sync --branches-seen (GH-69).
+    ...r.branches.map((m) => tone(`! ${moveWords(m)}${config.github ? ` ${moveUrl(config.github.repo, m)}` : ''} Once you have: acc sync --branches-seen`, 'orange')),
   ];
   if (!by) {
-    out(o, () => (lines.length ? lines.join('\n') : 'No open pull requests to follow.'), r);
+    out(o, () => (lines.length ? lines.join('\n') : 'No open pull requests, cloud builders or branch moves to follow.'), r);
     return 0;
   }
   if (!closesIssues(config)) {
@@ -233,6 +246,8 @@ export const area: CommandArea = {
   acc sync                              Follow open pull requests: merged → done, closed → blocked, failing checks or conflicts → needs you.
                                         Where the GitHub tracker says "edits": true, a task's issue closes when it
                                         merges to done, with a comment naming the pull request
+  acc sync --branches-seen              Clear the notice of an environment branch that moved by anything but acc's
+                                        own merges, once a person has looked
   acc sync --close-done [--plan]        A person's one-off tidy: close the issues of tasks done before acc closed
                                         them, under the same rule, listing each. --plan lists them, changing nothing`,
   },
@@ -241,6 +256,7 @@ export const area: CommandArea = {
     every: { type: 'string' },
     plan: { type: 'boolean', default: false },
     'close-done': { type: 'boolean', default: false },
+    'branches-seen': { type: 'boolean', default: false },
   },
   subcommands: { analysis: ['answer'] },
   commands: {

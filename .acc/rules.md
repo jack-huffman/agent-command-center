@@ -8,3 +8,22 @@
   at least one test whose name says which edge case it covers. Checked by
   `scripts/test/edge-cases.test.ts`, whose `OLDER` list names the test files that predate this rule. That
   list may only shrink.
+- Test coverage: test what the change adds, not only that it runs. Each acceptance criterion, and each case
+  a guard or branch handles (every form a guard catches, a step that finishes during a wait, a message
+  reaching the handler meant for it, a dialog's keys and clicks driven in a browser), gets a test that fails
+  without it. Every function, constant or class a source module exports is named by a test. That export half is
+  Checked by `scripts/test/coverage.test.ts`, whose `OLDER` list names the exports that predate this rule. That list
+  may only shrink. Reviewers judge the first half: each criterion and each guarded case has its test.
+- Before adding a constant, search for one that holds the same value or meaning; use it, or export one shared one.
+- A comment names the branch or failure path it explains. When a change moves or removes the code a comment sits above, move or delete the comment with it.
+- Before writing a helper, search for one that already does the job, and use the exported one. If you near-copy a local, unexported one instead, say so in the note you finish with.
+- Every rule gets a check before anyone relies on it. A rule here names the test that checks it, and that
+  test counts what it checked and fails on none. The check sees that the named test runs under npm test
+  and has a test, named for `.acc/rules.md`, that names its own path; whether the test is strong is a
+  reviewer's call. Checked by
+  `scripts/test/rules.test.ts`, whose `UNCHECKED` list names the rules that predate this one. That list
+  may only shrink.
+- Write each requirement that an agent reads in STE Strict mode (ASD-STE100 Simplified Technical
+  English): the goal, each criterion, each assumption and each out-of-scope item. The analyst's prompt
+  holds the rules. acc checks the wording of each requirement line it reads, and the task page shows each
+  finding. Checked by `packages/core/test/ste.test.ts`.

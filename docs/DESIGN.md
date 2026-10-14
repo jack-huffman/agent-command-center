@@ -50,12 +50,12 @@ gathers them.
 
 | Folder | What's in it | An area declares |
 |---|---|---|
-| `packages/cli/src/commands/` | One module per group of acc's commands: setup, tasks, agents (dispatch, done, block, resume, cleanup, agents, machine), pipeline (analyze, review, land, autopilot, sync), updates, environments, hooks, github, checks. `main.ts` is the entry, `shared.ts` what every group uses | its help lines (`section`, `order`, `lines`), the options it reads, its commands, and any argv a command needs changed first |
+| `packages/cli/src/commands/` | One module per group of acc's commands: setup, tasks, agents (dispatch, done, block, resume, cleanup, agents, machine), pipeline (analyze, review, land, autopilot, sync), updates, environments, hooks, github, checks, ste (the wording check, T-12). `main.ts` is the entry, `shared.ts` what every group uses | its help lines (`section`, `order`, `lines`), the options it reads, its commands, and any argv a command needs changed first |
 | `extension/src/model/` | The page's view models, a module per area: overview, landing (the Overview as a landing page: its lines, five to a list, GH-160), history, tasks (the agent board), cards (what a task's card says), boards (tracker boards), task-page, updates, agents, questions, agent-page, runs, connect, worktrees, environments, setup, slack, settings (its parts, the theme's choices, and How agents run: each project's builders, reviewers, autonomy and auto-merge), and page (the page's own messages). `home.ts` builds the page from the areas' parts, `messages.ts` gathers their messages, `shared.ts` holds what several use | the messages its parts send with their checks (`messages`, and its `Message` type), the acc.* commands they may ask for (`commands`), and what it adds to the page (`home`: Needs you for each project or once, stat tiles, its item in the rail, in its `order`) |
 | `extension/src/logic/` | Pure decisions, a module per area: setup and the walkthrough, tasks, agents, worktrees, environments, connect and trackers, runs, notices, autopilot, the status bar, polls (how often each thing is looked at again, which Settings says), efforts (Dispatch with…'s effort step), processes (the words for acc's commands and files, and the translator for what acc says, GH-163), relayed (what acc recorded, put in those words where the extension reads it, GH-163); `shared.ts` holds a task's row and an agent's session | nothing: nothing names every area here |
 | `extension/src/` | Each area's VS Code side: tasks, agents, worktrees and environments (their commands, subclasses of `sidebar.ts`'s shared base), setup, trackers and the Connect page, identity, slack, notices (the status bar's menu), autopilot, progress (In progress's Stop), ticket (a task's page, in its own tab or over the Tasks board), task-modal (wires that modal to the Command Center), questions, runs, settings (the theme every tab follows, and Settings' Refresh). `extension.ts` builds the extension's parts and hands them to every area; `hub.ts` loads, polls and caches (`task-rows.ts` reads a task's row); `panels.ts` handles the page's own messages | `register(parts)`: its commands, and with `receive` the page's messages it takes |
 | `extension/webview/` | The page, flat so its tsconfig and the screenshot harness's staleness check see every file: overview, landing (the Overview's lines), detail (what a line opens, in the modal), history (History in full), progress, tasks, task-page, task-modal (a task's page over the Tasks board), modal (the modal both open in), updates, analysis, questions, agents, agent-page, dock, connect, worktrees, environments, slack, setup, settings, and theme (the page's `data-theme`). `main.ts` is the entry; `state.ts` owns the page's state, `dom.ts` builds elements, `boards.ts` holds what boards share, `rail.ts` draws the rail, `looks.ts` holds the page's own tables of how a state shows, with no DOM, so the looks test can walk them (GH-105) | the sections and tabs it draws, what it draws over a section, its hooks around a draw, and the extension's messages it takes |
-| `packages/core/src/` | dispatch.ts (the start and cleanup), packet.ts, held.ts and holding.ts (D-093), efforts.ts (each model's effort levels, and a task's builder effort, D-128); autopilot.ts (its mode and pass), autopilot-rules.ts, autopilot-log.ts; repos.ts (the repos acc set up on this machine, and which place each uses, GH-81). `index.ts` is generated: `export *` from each module by file name, then onboarding's (GH-95) | nothing: a module the index takes only some names from is in `scripts/areas.ts`'s `CORE_INDEX`, with why |
+| `packages/core/src/` | dispatch.ts (the start and cleanup), packet.ts, held.ts and holding.ts (D-093), efforts.ts (each model's effort levels, and a task's builder effort, D-128); autopilot.ts (its mode and pass), autopilot-rules.ts, autopilot-log.ts; repos.ts (the repos acc set up on this machine, and which place each uses, GH-81); ste.ts (the wording check on an analysis's requirements: Simplified Technical English's structural rules, ported from the skill in `plugin/skills/ste100/`, T-12). `index.ts` is generated: `export *` from each module by file name, then onboarding's (GH-95) | nothing: a module the index takes only some names from is in `scripts/areas.ts`'s `CORE_INDEX`, with why |
 
 **A new command, message or section.** Add it to its area's module: a CLI
 command to its group's `commands`, its help line to `lines` and any options to
@@ -96,7 +96,9 @@ import, adds a row to `READS` in `scripts/near-reads.ts`: the files, and the
 script that reads them (GH-117). The near-tests gate (§9) then runs the tests
 near that script whenever one of the files changes, as it does for the
 stylesheets (`extension/scripts/styles.ts`), the commands files and
-`extension/package.json` (`extension/scripts/generate.ts`).
+`extension/package.json` (`extension/scripts/generate.ts`), and the page's
+modules, which the modals' mutants change (`extension/scripts/behaviour.ts`,
+GH-170).
 scripts/test/near-tests.test.ts checks that every file of each kind is near
 the test that reads it.
 
@@ -163,8 +165,8 @@ many tests run, is a ratchet under `gates.ratchets` ([section 9](#9-gates-and-re
 ```json
 "gates": {
   "required": ["check", "tests"],
-  "builder": ["typecheck", "near-tests", "tests"],
-  "commands": { "check": "npm run check", "typecheck": "npm run typecheck", "near-tests": "node --no-warnings scripts/near-tests.mjs" },
+  "builder": ["typecheck", "near-tests", "tests", "screenshots"],
+  "commands": { "check": "npm run check", "typecheck": "npm run typecheck", "near-tests": "node --no-warnings scripts/near-tests.mjs", "screenshots": "node --no-warnings extension/scripts/looked.ts" },
   "ratchets": { "tests": { "command": "node --no-warnings scripts/count-tests.mjs", "limit": "floor", "label": "tests" } }
 }
 ```
@@ -213,6 +215,7 @@ doesn't know, at any level (GH-107).
 | `trackers` | Where intake reads from. Several are allowed, each of a `kind`: `jira`, `github`, `azure` or `monday`. A Jira tracker names its `site` and `project` key; a GitHub one its `repo`, the project's own by default; an Azure DevOps one its `organization` and `project`, and may name the `team` whose board to show; a monday.com one its `account` and `board`, and may name a `statusColumn` (D-085). An Azure DevOps or monday.com tracker's keys start with its `prefix`, `AB` or `MON` by default, so two trackers never give the same keys. A GitHub tracker's `skipLabels` lists labels whose issues aren't tasks, such as `["milestone"]` (D-048). Each tracker's place holds every read to this repo's tickets: its project, repo or monday.com `board`, narrowed by a Jira `epic`, GitHub `labels` (any one counts), an Azure `areaPath` or a monday.com `group` (D-072). Elsewhere, `board` is the board the Tasks tab shows: a Jira board id, a GitHub Project number or an Azure board's name. `edits`, when `true`, lets the task page change a ticket's status, assignee and labels, `acc sync` close a GitHub issue when its work merges, and acc move a task's card on its GitHub Project as the task changes state; it's off by default (D-066, D-082, D-126). A GitHub tracker's `statusFor` names the Project column a task's card moves to for each state, such as `{ "review": "QA" }`: its keys are `todo`, `ready`, `running`, `review`, `rework`, `blocked` and `done`, and a state it leaves out goes to its usual column ([section 11](#11-landing)) |
 | `agents.max` | Most builder sessions at once, default 3. `acc agents max <n>` and Settings' Limits and checks change it; this machine's total, if it has one (`acc machine agents`), caps every repo's builders together (GH-111) |
 | `agents.permissionMode` | The permission mode builders run in: `default`, `acceptEdits` (the default), `plan`, `auto` or `dontAsk`. `bypassPermissions` is never allowed |
+| `agents.cloud` | Cloud builders (GH-69): present only once a person opted the project in, with `acc cloud enable` or Settings. `routine` is the API trigger id of the routine acc fires at claude.ai/code/routines; `default` is where a plain dispatch goes, `local` (the default) or `cloud`; `quietMinutes` (default 120) is how long a cloud builder may push nothing before its task needs you; `max` (default 3) is how many may run at once, counted apart from `agents.max`. The routine's token lives in the macOS keychain, never here. Left out, nothing offers the cloud ([section 7](#7-dispatch)) |
 | `agents.builder`, `agents.reviewer` | The `model`, `effort` and `fallbackModel` builders and reviewers run with (D-036). A `model` is an alias, such as `opus`, or a full name; left out, acc's default, `claude-opus-5-5` (D-086). `effort` is `low`, `medium`, `high`, `xhigh` or `max`, and `fallbackModel` is the model Claude Code turns to when the first is overloaded; either left out is Claude Code's own default. A clone's own choice, made with `acc agents set`, wins over these ([section 7](#7-dispatch)) |
 | `autonomy` | How much the loop does on its own ([section 12](#12-the-orchestrator-loop)) |
 | `autopilot.appendOnly` | Files, or folders, where autopilot may resolve a conflict with the base when both sides only added to the end, such as a decision log. Left out, there are none ([section 12](#12-the-orchestrator-loop)) |
@@ -469,6 +472,56 @@ builder's effort beside its model when it isn't the model's default.
 
 `acc dispatch --foreground` runs the same session in the current terminal
 instead. You can drop into any background session with `claude attach <id>`.
+
+**Cloud builders (GH-69, D-140).** Where a project has opted in (`agents.cloud`,
+with a routine at claude.ai/code/routines and its token in the keychain),
+`acc dispatch <id> --cloud` runs steps 1 to 4 as above, then pushes the task
+branch to origin as the repo's account, never an environment branch, and
+fires the routine's API trigger with the packet as the fire's text, wrapped
+in what a cloud session needs instead of acc: the branch to check out, the
+checks by their commands, the ones only the Mac can run (Salesforce
+`validate` and `drift`), and a finish line of commit trailers, `Acc-Done:
+<id>` with `Acc-Landed`, `Acc-Moved` and `Acc-Open` lines, or `Acc-Blocked:
+<why>`. The run records `where: "cloud"` and the session's id and page. No
+caffeinate: nothing runs on the Mac. `--local` keeps a task here, and
+neither flag follows `agents.cloud.default`, local unless it says cloud.
+Claude Code reports no state for a cloud session, so `acc sync` follows the
+task's branch on GitHub: a new head is noted, an `Acc-Blocked` head moves the
+task to blocked, an `Acc-Done` head is collected (`acc collect`): origin's
+branch fetched and fast-forwarded into the worktree, refusing one that is
+dirty or diverged, the required checks run on the Mac in the heavy-check
+slot, and the task moved running → review under the same `gatesPassed` rule
+as `acc done`, with the trailers' note. No push for `quietMinutes` shows the
+task as needing you, with its session's page. The cloud cap, `agents.cloud.max`,
+counts cloud runs alone; `agents.max` and the machine's total count only this
+Mac's. A cloud session runs the repo's own `.claude/settings.json` hooks and
+not acc's plugin, so opting in commits a push guard there
+(`.claude/hooks/acc-push-guard.mjs`, run on Bash and the editing tools from
+`$CLAUDE_PROJECT_DIR` as `node … || exit 2`, and at SessionStart) with a git
+pre-push hook beside it (`.claude/hooks/acc-pre-push`), which the guard
+installs into the clone's `.git/hooks/`. In a cloud session the guard allows
+`git push origin <branch>` and `git push origin HEAD:<branch>` of the task's
+own branch alone, plainly written, with the branch from the `Acc-Branch` line
+acc puts at the top of the fire's text (read from the session's first message,
+never from the checkout), and refuses everything else that could push, by
+allow-lists for `git config` and `gh`, with `--no-verify`, `core.hooksPath`,
+a Bash write anywhere under `.claude/` or `.git/` (globs and symlinks
+resolved), an Edit or Write of the hooks, any `.claude/settings*.json` or
+anything under `.git/`, a patch or `git checkout <ref> -- <paths>` that would
+touch them, and a checkout, reset, merge or revert that would change the
+guard. The pre-push hook then reads the refs the push would update, whatever
+ran git, and refuses any but the task's branch, a deletion or a non-fast-forward.
+Both fail closed. A dispatch refuses `--cloud` until the guard is committed on
+the branch the cloud clones and on the task branch, read from the commits.
+GitHub's rules are the line behind it: where it enforces no protection or
+ruleset on an environment branch, the dispatch and Settings warn that a push
+past the guard would be caught after the fact, without refusing. Every sync
+of a project that opted in also reads each environment branch on origin,
+after the pull requests, and flags a move whose first-parent commits aren't
+acc's own merges, by their commit (sync's `mergeCommit.oid`, a landed head as a
+merge's second parent, a rebase's copies by `git cherry`, and GitHub's squash
+subject as a fallback), on the Overview until a person has seen it (`acc sync
+--branches-seen`).
 
 **Why background sessions (D-009).** Claude Code's supervisor keeps them running
 after the terminal closes. They report `working`, `blocked`, `done`, `failed` or
@@ -731,7 +784,14 @@ isn't given the list). That gate also runs the tests near what reads a
 per-area file the branch changed, from `scripts/near-reads.ts` (§2): an
 area's stylesheet brings `screenshot.test.ts`, and a commands file or
 `extension/package.json` brings `areas.test.ts`. They also run the `tests`
-ratchet below.
+ratchet below, and `screenshots` (`extension/scripts/looked.ts`, D-138): when
+the branch changes a file under `extension/webview/`, `extension/src/` or
+`extension/scripts/`, every page, theme and width must be noted in
+`dist/screenshots/shots.json` by a screenshot run of this commit's
+fingerprint (the webview's source and each page as handed to Chrome), with
+no geometry findings and the PNG unchanged since, and each CSS class the
+branch adds must be drawn inside some shot's window. The merge queue's
+checkout has no screenshots, so `check` doesn't run it.
 
 **Ratchets** (GH-99). A ratchet is a check whose command prints one number that
 may only get better: a test count, coverage, Apex coverage, or Code Analyzer's
@@ -1495,6 +1555,16 @@ the run's summary line counts and names each; a second timeout fails the run.
 A page measures its geometry once the rail's selected tab has held still for
 three frames (D-133).
 
+**The modals' behaviour** (GH-170): a full run of `npm run screenshot` (every page,
+theme and width), or `npm run screenshot -- --behaviour` alone, then opens the task modal and the
+Overview's detail modal in headless Chrome, case by case
+(`extension/scripts/behaviour.ts`): Escape, the backdrop, focus back to what
+opened them, a new model under them, a fold in them, Show all, the suggested
+rules' Previous and Next, and Accept. Each case posts what the extension would,
+checks the DOM, and fails on an element it can't find or on no checks. Each
+mutant builds the page with one change to its source that breaks a behaviour,
+and the run fails unless the cases it names fail on it.
+
 **Limits and checks** (GH-111): each project's builder cap and this machine's
 total across every repo side by side, each with −, its number, + and Change…,
 how many run now and where it's set; what a change means, in this machine's
@@ -1739,7 +1809,8 @@ already exists.
 - destructive Salesforce changes
 - Slack as a ticket source (acc's notices can go to Slack: D-078 in
   DECISIONS.md)
-- cloud sessions
+- cloud reviewers and analysts: builders can run in the cloud where a project
+  opts in (GH-69, D-140); the rest stay local, as does the ledger
 - sharing a ledger across machines
 - a Developer sandbox for each agent
 

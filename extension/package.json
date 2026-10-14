@@ -2,7 +2,7 @@
   "name": "agent-command-center",
   "displayName": "Agent Command Center",
   "description": "Set up projects for parallel Claude Code agents, then run and watch them from VSCode.",
-  "version": "0.39.0",
+  "version": "0.40.0",
   "publisher": "JackHuffman",
   "private": true,
   "license": "UNLICENSED",
@@ -118,6 +118,66 @@
         "title": "Show autopilot's output",
         "category": "Agent Command Center",
         "icon": "$(output)"
+      },
+      {
+        "command": "acc.branches.open",
+        "title": "Compare the branch move on GitHub",
+        "category": "Agent Command Center",
+        "icon": "$(github)"
+      },
+      {
+        "command": "acc.branches.seen",
+        "title": "Mark the branch move as seen…",
+        "category": "Agent Command Center",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "acc.task.dispatchCloud",
+        "title": "Dispatch to the cloud",
+        "category": "Agent Command Center",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "acc.task.message",
+        "title": "Send its cloud builder a message…",
+        "category": "Agent Command Center",
+        "icon": "$(comment)"
+      },
+      {
+        "command": "acc.task.collect",
+        "title": "Collect its cloud builder's work",
+        "category": "Agent Command Center",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "acc.cloud.enable",
+        "title": "Turn cloud builders on for a project…",
+        "category": "Agent Command Center",
+        "icon": "$(cloud)"
+      },
+      {
+        "command": "acc.cloud.disable",
+        "title": "Turn cloud builders off for a project",
+        "category": "Agent Command Center",
+        "icon": "$(cloud)"
+      },
+      {
+        "command": "acc.cloud.token",
+        "title": "Keep the routine's token for cloud builders…",
+        "category": "Agent Command Center",
+        "icon": "$(key)"
+      },
+      {
+        "command": "acc.cloud.default",
+        "title": "Choose where a project's builders go by default…",
+        "category": "Agent Command Center",
+        "icon": "$(cloud)"
+      },
+      {
+        "command": "acc.cloud.routine",
+        "title": "Copy the routine prompt for cloud builders",
+        "category": "Agent Command Center",
+        "icon": "$(clippy)"
       },
       {
         "command": "acc.env.openOrg",
@@ -715,6 +775,10 @@
           "when": "false"
         },
         {
+          "command": "acc.task.dispatchCloud",
+          "when": "false"
+        },
+        {
           "command": "acc.task.dispatchAnyway",
           "when": "false"
         },
@@ -740,6 +804,14 @@
         },
         {
           "command": "acc.task.watch",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.message",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.collect",
           "when": "false"
         },
         {
@@ -876,6 +948,11 @@
           "command": "acc.tidy.skip",
           "when": "webviewId == 'acc.home' && webviewSection == 'tidy'",
           "group": "1_tidy@0"
+        },
+        {
+          "command": "acc.branches.seen",
+          "when": "webviewId == 'acc.home' && webviewSection == 'branch'",
+          "group": "1_branch@0"
         }
       ],
       "view/title": [
@@ -975,7 +1052,7 @@
           {
             "id": "A2.gh-login",
             "title": "Logged in to GitHub",
-            "description": "Each repo uses its own account through `gh auth token -u`. Never `gh auth switch`, which changes every session.\n\n[Check](command:acc.step.check?%5B%22A2.gh-login%22%5D)\n[Do it](command:acc.step.fix?%5B%22A2.gh-login%22%5D)",
+            "description": "Each repo uses its own GitHub account, asked for by name each time. The account gh has active is never switched, because that changes every session.\n\n[Check](command:acc.step.check?%5B%22A2.gh-login%22%5D)\n[Do it](command:acc.step.fix?%5B%22A2.gh-login%22%5D)",
             "media": {
               "markdown": "media/steps/A2.gh-login.md"
             },
@@ -1288,6 +1365,61 @@
             },
             "completionEvents": [
               "onContext:acc.step.B14.tickets"
+            ]
+          },
+          {
+            "id": "B15.cloud-github-app",
+            "title": "Claude can clone the repo from the cloud",
+            "description": "A cloud session clones the repo from GitHub and pushes its branch back, through the GitHub access connected to your claude.ai account: the Claude GitHub App on the repo, or /web-setup in a terminal (GH-69).\n\n[Check](command:acc.step.check?%5B%22B15.cloud-github-app%22%5D)\n[I've done this](command:acc.step.confirm?%5B%22B15.cloud-github-app%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B15.cloud-github-app%22%5D)",
+            "media": {
+              "markdown": "media/steps/B15.cloud-github-app.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B15.cloud-github-app"
+            ]
+          },
+          {
+            "id": "B15.cloud-routine",
+            "title": "A routine for the repo",
+            "description": "A script starts a cloud session only by firing a routine's API trigger (GH-69). The routine holds the repo, the model and the environment; acc sends each task in the fire's text.\n\n[Check](command:acc.step.check?%5B%22B15.cloud-routine%22%5D)\n[I've done this](command:acc.step.confirm?%5B%22B15.cloud-routine%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B15.cloud-routine%22%5D)",
+            "media": {
+              "markdown": "media/steps/B15.cloud-routine.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B15.cloud-routine"
+            ]
+          },
+          {
+            "id": "B15.cloud-token",
+            "title": "The routine's token is in the keychain",
+            "description": "acc fires the routine with its bearer token, kept in this Mac's keychain and never in the project's settings or git (GH-69). The token is shown once, on the routine's page.\n\n[Check](command:acc.step.check?%5B%22B15.cloud-token%22%5D)\n[I've done this](command:acc.step.confirm?%5B%22B15.cloud-token%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B15.cloud-token%22%5D)",
+            "media": {
+              "markdown": "media/steps/B15.cloud-token.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B15.cloud-token"
+            ]
+          },
+          {
+            "id": "B15.cloud-login",
+            "title": "Claude Code is signed in to claude.ai",
+            "description": "Sending a cloud builder a message (claude -p --cloud) needs the CLI signed in to the claude.ai account the routine belongs to (GH-69).\n\n[Check](command:acc.step.check?%5B%22B15.cloud-login%22%5D)\n[Do it](command:acc.step.fix?%5B%22B15.cloud-login%22%5D)",
+            "media": {
+              "markdown": "media/steps/B15.cloud-login.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B15.cloud-login"
+            ]
+          },
+          {
+            "id": "B15.cloud-guard",
+            "title": "The push guard is committed",
+            "description": "A cloud session runs the repo's own .claude/settings.json hooks and not acc's plugin, so the guard that refuses a push to any branch but the task's, and the git pre-push hook it installs in the clone to check the push itself, are scripts the repo carries, and only what's committed reaches the cloud (GH-69).\n\n[Check](command:acc.step.check?%5B%22B15.cloud-guard%22%5D)\n[Do it](command:acc.step.fix?%5B%22B15.cloud-guard%22%5D)",
+            "media": {
+              "markdown": "media/steps/B15.cloud-guard.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B15.cloud-guard"
             ]
           },
           {

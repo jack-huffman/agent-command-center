@@ -7,17 +7,19 @@
 import { type Job, jobsUnderWay } from '../../packages/core/src/jobs.ts';
 import type { AutopilotStepName, Ledger } from '../../packages/core/src/ledger.ts';
 import type { HeavyState, SlotHolder, SlotWaiter } from '../../packages/core/src/semaphore.ts';
-import { isUnder, isWebviewMenuContext, type TaskRow, type Tone } from './logic/shared.ts';
+import { isUnder, isWebviewMenuContext, type TaskRow } from './logic/shared.ts';
 import { sessionFor } from './logic/agents.ts';
-import { displayLook, type HubLike, type Look, type ProjectLike, type Ref } from './model/shared.ts';
+import { displayLook, type HubLike, LOOK, type Look, type ProjectLike, type Ref } from './model/shared.ts';
 import type { RunInput } from './model/runs.ts';
 import type { ExtensionArea, Parts } from './area.ts';
 import { runFile } from './run.ts';
 import { endResume, resuming } from '../../packages/core/src/resume.ts';
+import { clip, plural } from '../../packages/core/src/text.ts';
 import { dirname, join } from 'node:path';
 import type { Hub, Project } from './hub.ts';
 import { existsSync, readdirSync } from 'node:fs';
 import type { RepoPaths } from '../../packages/core/src/paths.ts';
+import { ordinal } from '../../packages/core/src/queue.ts';
 import { arrivedAt } from '../../packages/core/src/carried.ts';
 import { reviewing } from '../../packages/core/src/review.ts';
 import { analyzing } from '../../packages/core/src/analyze.ts';
@@ -119,9 +121,6 @@ export interface ProgressInput {
   now?: number;
 }
 
-const LOOK = (label: string, icon: string, tone: Tone): Look => ({ label, icon, tone });
-export const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
-const clip = (s: string, max: number): string => (s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s);
 const who = (by: string): string => (by === 'orchestrator:autopilot' || by.endsWith(' for orchestrator:autopilot') ? 'autopilot' : by.replace(/^human:/, ''));
 
 /** How long, in words: "under a minute", "12 min", "1 h 5 min", "3 days". */
@@ -133,8 +132,6 @@ export function elapsed(ms: number): string {
   if (h < 48) return m % 60 ? `${h} h ${m % 60} min` : `${h} h`;
   return `${Math.floor(h / 24)} days`;
 }
-
-export const ordinal = (n: number): string => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] ?? 'th')}`;
 
 /**
  * The machine's load in words, from the last minute's load average per core: below 0.7 calm, below 1.5
@@ -512,7 +509,7 @@ export function inProgress(i: ProgressInput): ProgressModel {
     const running = rows.filter((r) => r.state === 'running').length;
     builders += running;
     if (!jobs.max) continue;
-    machine.push({ key: `builders:${jobs.repo}`, look: LOOK(`Builders: ${running} of ${jobs.max}${repos.length > 1 ? ` in ${p.name}` : ''}`, 'hubot', running ? 'blue' : 'neutral'), tip: `${plural(running, 'task')} running, of the ${jobs.max} ${p.name} runs at once (agents.max).` });
+    machine.push({ key: `builders:${jobs.repo}`, look: LOOK(`Builders: ${running} of ${jobs.max}${repos.length > 1 ? ` in ${p.name}` : ''}`, 'hubot', running ? 'blue' : 'neutral'), tip: `${plural(running, 'task')} running, of the ${jobs.max} ${p.name} runs at once.` });
   }
   const load = loadWord(hub.machine);
   if (load && hub.machine) machine.push({ key: 'load', look: { ...load, label: `Load: ${load.label.toLowerCase()}` }, tip: `Load over the last minute: ${hub.machine.load.toFixed(1)} on ${plural(hub.machine.cpus, 'core')}.` });

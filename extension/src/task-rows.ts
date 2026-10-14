@@ -15,6 +15,7 @@ import { failedChecks } from '../../packages/core/src/autopilot-rules.ts';
 import { envOpen, IN_FLIGHT_STATES, inFlight, nulPaths, plannedFiles, sharedFiles, type StartCandidate, startOrder } from '../../packages/core/src/overlap.ts';
 import { runFile } from './run.ts';
 import { analysisWait, rowAnalysis } from './logic/tasks.ts';
+import { cloudWait } from '../../packages/core/src/cloud.ts';
 import { rowInWords } from './logic/relayed.ts';
 // The Tasks area's rows as the hub reads them (D-099): each task's agent, analysis, review, pull request, place
 // in the merge queue, and files beside other tasks'.
@@ -69,6 +70,9 @@ export function deriveRows(hub: Hub, ledger: Ledger, p?: Project): TaskRow[] {
     const model = look && t.run ? (t.run.sessionId ? hub.lastModel(t.run.sessionId, [t.run.worktree, session?.cwd, p?.root]) : null) ?? t.run.model ?? null : null;
     const failed = autopilotFailure(t);
     const queued = places.find((x) => x.id === t.id);
+    // A cloud builder (GH-69): no local session to read; its branch on GitHub says whether it's quiet.
+    const cloud = t.run?.where === 'cloud' && t.run.cloud ? { url: t.run.cloud.url, wait: p ? cloudWait(t, p.config, now) : null, finished: !!t.run.cloud.finished } : null;
+    const cloudInfo: SessionInfo | undefined = cloud ? { quiet: !!cloud.wait } : undefined;
     // What acc and its agents wrote in it reaches a person in process words (GH-163).
     return rowInWords({
       id: t.id,
@@ -76,12 +80,14 @@ export function deriveRows(hub: Hub, ledger: Ledger, p?: Project): TaskRow[] {
       state: t.state,
       // A question waiting in the Command Center makes the agent wait on you, though it reads as busy.
       // So does an analysis with questions for a person, or one that says it's too big for one task.
-      display: waits ? 'needs-you' : displayState(ledger, t, info, p?.config) as TaskRow['display'],
+      display: waits ? 'needs-you' : displayState(ledger, t, cloudInfo ?? info, p?.config) as TaskRow['display'],
       environment: t.environment,
       deps: t.deps.filter((d) => ledger.tasks.find((x) => x.id === d)?.state !== 'done'),
       source: { kind: t.source.kind, url: t.source.url },
       run: t.run,
-      agent: look ? { label: look.label, icon: look.icon, tone: look.tone } : null,
+      cloud,
+      // A cloud builder's state is its branch's (GH-69): working while it pushes, needs you when it's quiet.
+      agent: cloud ? (cloud.finished ? { label: 'Finished: collecting', icon: 'cloud-download', tone: 'blue' } : cloud.wait ? { label: `Needs you: ${cloud.wait}`, icon: 'bell', tone: 'orange' } : { label: 'Working in the cloud', icon: 'cloud', tone: 'blue' }) : look ? { label: look.label, icon: look.icon, tone: look.tone } : null,
       model,
       effort: model ? effortShown(model, t.run?.effort) : null,
       asking: !!asking,

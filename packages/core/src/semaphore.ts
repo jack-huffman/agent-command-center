@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { AccError } from './exec.ts';
 import { alive, sleep } from './lock.ts';
-import { machineJson, setMachineKey } from './machine.ts';
+import { readMachineKey, setMachineKey } from './machine.ts';
 
 /**
  * What holds a slot, or waits for one, written beside its pid, so the Command Center can say which task or
@@ -49,13 +49,7 @@ const slotCount = (v: unknown): number | null => {
 export function heavySlots(env: NodeJS.ProcessEnv = process.env): number {
   const fromEnv = slotCount(env.ACC_HEAVY_SLOTS);
   if (fromEnv) return fromEnv;
-  const file = machineJson(env);
-  if (!file) return 1;
-  try {
-    return slotCount((JSON.parse(readFileSync(file, 'utf8')) as { heavySlots?: unknown }).heavySlots) ?? 1;
-  } catch {
-    return 1;
-  }
+  return slotCount(readMachineKey('heavySlots', env)) ?? 1;
 }
 
 /** Sets this machine's heavy-check slots in machine.json, keeping what else it holds, and refuses with no home (GH-131). */

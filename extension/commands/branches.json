@@ -1,0 +1,14 @@
+[
+  {
+    "command": "acc.branches.open",
+    "title": "Compare the branch move on GitHub",
+    "category": "Agent Command Center",
+    "icon": "$(github)"
+  },
+  {
+    "command": "acc.branches.seen",
+    "title": "Mark the branch move as seen…",
+    "category": "Agent Command Center",
+    "icon": "$(eye)"
+  }
+]

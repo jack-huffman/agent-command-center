@@ -1,8 +1,17 @@
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, existsSync, globSync, lstatSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { delimiter, dirname, join, relative } from 'node:path';
 import { run, type Runner, type RunOptions, type RunResult } from '../src/exec.ts';
+import { tempDir } from './temp-root.ts';
+
+export { RUN_ROOT, tempDir } from './temp-root.ts';
+
+/** The test files npm test runs: the quoted globs in package.json's test script, expanded, sorted. */
+export function npmTestFiles(root: string): string[] {
+  const script = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).scripts.test as string;
+  const globs = [...script.matchAll(/"([^"]+)"/g)].map((m) => m[1] ?? '');
+  return [...new Set(globs.flatMap((g) => globSync(g, { cwd: root })))].sort();
+}
 
 export const ok = (stdout = ''): RunResult => ({ code: 0, stdout, stderr: '' });
 export const bad = (stderr = 'failed', code = 1): RunResult => ({ code, stdout: '', stderr });
@@ -25,10 +34,6 @@ export function fakeRunner(fixtures: Record<string, RunResult | ((opts?: RunOpti
     if (cmd === 'git') return run(cmd, args, opts);
     return { code: 127, stdout: '', stderr: `no fixture for: ${line}` };
   };
-}
-
-export function tempDir(prefix = 'acc-test-'): string {
-  return mkdtempSync(join(tmpdir(), prefix));
 }
 
 /** A stand-in program on PATH: a shell script, and the env that finds it first. */

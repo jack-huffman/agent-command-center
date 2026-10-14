@@ -1,0 +1,50 @@
+[
+  {
+    "command": "acc.task.dispatchCloud",
+    "title": "Dispatch to the cloud",
+    "category": "Agent Command Center",
+    "icon": "$(cloud-upload)"
+  },
+  {
+    "command": "acc.task.message",
+    "title": "Send its cloud builder a message…",
+    "category": "Agent Command Center",
+    "icon": "$(comment)"
+  },
+  {
+    "command": "acc.task.collect",
+    "title": "Collect its cloud builder's work",
+    "category": "Agent Command Center",
+    "icon": "$(cloud-download)"
+  },
+  {
+    "command": "acc.cloud.enable",
+    "title": "Turn cloud builders on for a project…",
+    "category": "Agent Command Center",
+    "icon": "$(cloud)"
+  },
+  {
+    "command": "acc.cloud.disable",
+    "title": "Turn cloud builders off for a project",
+    "category": "Agent Command Center",
+    "icon": "$(cloud)"
+  },
+  {
+    "command": "acc.cloud.token",
+    "title": "Keep the routine's token for cloud builders…",
+    "category": "Agent Command Center",
+    "icon": "$(key)"
+  },
+  {
+    "command": "acc.cloud.default",
+    "title": "Choose where a project's builders go by default…",
+    "category": "Agent Command Center",
+    "icon": "$(cloud)"
+  },
+  {
+    "command": "acc.cloud.routine",
+    "title": "Copy the routine prompt for cloud builders",
+    "category": "Agent Command Center",
+    "icon": "$(clippy)"
+  }
+]

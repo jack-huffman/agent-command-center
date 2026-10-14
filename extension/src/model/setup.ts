@@ -6,7 +6,7 @@
 import { GROUP_TITLES, STEPS } from '../../../packages/core/src/onboarding/steps.ts';
 import type { CheckStatus } from '../../../packages/core/src/onboarding/types.ts';
 import { KIND_QUESTION, SETUP_PARTS } from '../logic/first-open.ts';
-import { inProcessWords, processLine } from '../logic/processes.ts';
+import { inProcessWords, processLine, toolLineDoes } from '../logic/processes.ts';
 import type { DoctorItem } from '../logic/setup.ts';
 import { type Action, type Look, LOOK, type ModelArea, type Ref } from './shared.ts';
 
@@ -20,9 +20,9 @@ export interface SetupRow {
   done: boolean;
   detail: string;
   why: string;
-  /** A command line to copy, when the fix is another tool's, such as `brew install gh`. */
+  /** A command line to copy, when the fix is another tool's, such as `brew install gh`. With does, the page folds it away: it's shown on request (GH-168). */
   fix: string | null;
-  /** What Do it does, as its process, when the fix is one of acc's (GH-163): "Compare the rules with their source". */
+  /** What Do it does, as its process (GH-163): "Compare the rules with their source", "Install the acc plugin in Claude Code". */
   does: string | null;
   actions: Action[];
 }
@@ -108,11 +108,13 @@ export function setupModel(items: DoctorItem[], confirmed: Set<string>, setUp: b
     if (status === 'unknown') actions.push({ command: 'acc.step.confirm', label: 'I\'ve done this', icon: 'check', ref });
     if (step?.fix?.docs) actions.push({ command: 'acc.openGuide', label: 'Guide', icon: 'book', ref });
     const look = STATUS[status] ?? STATUS.skip;
-    // A fix that's a VSCode command runs from Do it; one of acc's is named as its process (GH-163); only
-    // another tool's command line is shown to copy. What acc says of the step is in process words too.
+    // A fix that's a VSCode command runs from Do it; one of acc's is named as its process (GH-163). Another
+    // tool's command line is named too, and kept to show on request, for someone who runs it by hand (GH-168).
+    // What acc says of the step is in process words as well.
     const fix = step?.fix?.vscode ? null : i.fix ?? null;
-    const does = fix ? processLine(fix) : null;
-    return { id: i.id, title: i.title, look, done: look.tone !== 'orange', detail: inProcessWords(i.detail), why: inProcessWords(step?.why ?? ''), fix: does ? null : fix, does, actions };
+    const accDoes = fix ? processLine(fix) : null;
+    const does = accDoes ?? (fix ? toolLineDoes(fix) : null);
+    return { id: i.id, title: i.title, look, done: look.tone !== 'orange', detail: inProcessWords(i.detail), why: inProcessWords(step?.why ?? ''), fix: accDoes ? null : fix, does, actions };
   });
   /** Neighbouring steps that set up the same thing make one section. */
   const sectionsOf = (steps: SetupRow[]): SetupSection[] => {

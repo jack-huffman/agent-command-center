@@ -6,7 +6,8 @@ import { tempDir } from '../../packages/core/test/support.ts';
 import { HOME_SECTIONS } from '../src/model/shared.ts';
 import type { HomeModel } from '../src/model/home.ts';
 import type { TicketModel } from '../src/model/task-page.ts';
-import { afterModel, COLOUR_PAGES, COLOUR_PROPERTIES, colourDiffs, type Colours, dumpedColours, findChrome, FONTS, PAGES, pageFor, sampleModel } from '../scripts/screenshot.ts';
+import { afterModel, COLOUR_PAGES, COLOUR_PROPERTIES, colourDiffs, type Colours, dumpedColours, findChrome, FONTS, PAGES, pageFor, sampleModel, startState } from '../scripts/screenshot.ts';
+import { ROOT } from '../scripts/fixtures/shared.ts';
 import { cssRules, pageStyles, palettes, readsVars, styleFile, styleFiles, vscodeDefaults } from '../scripts/styles.ts';
 
 test('every section of the page, and a ticket, has sample data built by the real model functions', () => {
@@ -27,6 +28,10 @@ test('every section of the page, and a ticket, has sample data built by the real
     else if (kind === 'tasks-modal') {
       const [after] = afterModel(kind);
       assert.deepEqual([m.kind, (m as HomeModel).section, after?.type, (after?.model as TicketModel).kind, (after?.tab as { type: string }).type], ['home', 'tasks', 'task-modal', 'ticket', 'ticket']);
+    } else if (kind === 'tasks-agents') {
+      // The agent board, with two builders in the cloud (GH-69): the page starts on it, and the cards say where each runs.
+      const cards = (m as HomeModel).tasks.projects[0]!.columns.flatMap((c) => c.cards);
+      assert.deepEqual([m.kind, (m as HomeModel).section, (startState(kind) as { modes: Record<string, string> }).modes[ROOT], cards.filter((c) => c.place?.label === 'Cloud').map((c) => c.id)], ['home', 'tasks', 'agents', ['ACME-43', 'ACME-44']]);
     } else if (kind === 'tasks-github') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).tasks.projects[0]!.boards[0]!.tab, (m as HomeModel).tasks.projects[0]!.boards[0]!.place], ['home', 'tasks', 'GitHub board', null]);
     // The Agents tab with agents that would bill per token (D-089), and Settings at How agents run (GH-110).
     else if (kind === 'agents-billing') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).agents.billing?.tone], ['home', 'agents', 'orange']);
@@ -47,6 +52,8 @@ test('every section of the page, and a ticket, has sample data built by the real
       assert.deepEqual([m.kind, (m as HomeModel).section, o.attention.filter((a) => a.rule).length, o.inProgress.groups.length, o.questions.length, o.attention.filter((a) => a.update).length, o.history.length], ['home', 'overview', 10, 6, 3, 2, 12]);
       assert.ok(o.inProgress.groups.every((g) => g.jobs.some((j) => j.kind === 'check')), 'each building task has its checks');
     }
+    // The loading screen (T-16) holds back the Overview's model, which the run never sends.
+    else if (kind === 'loading') assert.deepEqual([m.kind, (m as HomeModel).section], ['home', 'overview']);
     else if (kind.startsWith('overview-')) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).overview.inProgress.empty === null], ['home', 'overview', kind === 'overview-busy']);
     // The Overview of a project with a merge queue, autopilot on and off, and its head held (GH-73).
     else if (kind.startsWith('queue')) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).overview.queue[0]?.rows.length, (m as HomeModel).overview.queue[0]?.off, !!(m as HomeModel).overview.queue[0]?.rows[0]?.tip], ['home', 'overview', 3, kind === 'queue-off', kind === 'queue-held']);
@@ -59,7 +66,7 @@ test('every section of the page, and a ticket, has sample data built by the real
     else assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).connect], ['home', kind === 'output' ? 'setup' : kind, null]);
   }
   assert.equal((sampleModel('agents') as HomeModel).agents.whereView, 'folder');
-  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history']);
+  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'tasks-agents', 'ticket-cloud', 'loading']);
   assert.equal((sampleModel('settings') as HomeModel).settings.slack?.state, 'on');
   // monday.com's Connect page: its token page, its board picked by name, and two status columns to choose from.
   const monday = (sampleModel('connect-monday') as HomeModel).connect!;
@@ -188,7 +195,7 @@ test('the colour check reads what a page gathered, and finds where two drawings 
   assert.deepEqual(colourDiffs(rows, other), [{ what: 'span::before', property: 'background-color', a: 'rgb(1, 1, 1)', b: 'rgb(9, 9, 9)' }]);
   assert.deepEqual(colourDiffs(rows, rows.slice(1)), [{ what: 'the page, from element 0', property: 'its elements', a: '2 elements, div.a there', b: '1 elements, span::before there' }], 'different elements differ as a whole');
   assert.deepEqual(colourDiffs(rows, rows.slice(0, 1)).map((d) => d.what), ['the page, from element 1'], 'and so does one with fewer');
-  assert.deepEqual(COLOUR_PAGES, ['overview', 'tasks', 'settings', 'settings-agents', 'settings-trackers', 'settings-limits', 'settings-about', 'slack-paused', 'settings-github', 'settings-page', 'ticket', 'agent', 'tasks-modal', 'overview-landing', 'overview-drafts']);
+  assert.deepEqual(COLOUR_PAGES, ['overview', 'tasks', 'settings', 'settings-agents', 'settings-trackers', 'settings-limits', 'settings-about', 'slack-paused', 'settings-github', 'settings-page', 'ticket', 'agent', 'tasks-modal', 'overview-landing', 'overview-drafts', 'tasks-agents', 'ticket-cloud', 'loading']);
 });
 
 test('the page\'s styles: what every area shares first, then each area\'s own by file name, each named for a module of the page (GH-95)', () => {

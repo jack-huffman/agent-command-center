@@ -36,6 +36,8 @@ test('row menus: every item is a declared command, and the rows set the keys the
   const overview = new Set([...model.matchAll(/section: '(\w+)'/g)].map((m) => m[1]!).filter((s) => s !== 'tasks'));
   assert.deepEqual([...overview].sort(), ['task'], 'the landing model makes task menus; agents and the tidy-up name their own');
   overview.add('tidy');
+  // A moved environment branch's line names its own menu too (GH-69).
+  overview.add('branch');
   for (const section of new Set(menu.map((i) => /webviewSection == '(\w+)'/.exec(i.when)?.[1]))) assert.ok(src.includes(`withMenu(row, '${section}'`) || overview.has(section!), `some row opens the ${section} menu`);
   assert.ok(src.includes("new MouseEvent('contextmenu'"), 'the caret opens the same menu');
   for (const [from, to] of [['function renderAgents', 'function renderWorktrees'], ['function renderWorktrees', 'function renderEnvironments']] as const) {

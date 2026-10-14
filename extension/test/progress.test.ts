@@ -1,18 +1,18 @@
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import type { HeavyState } from '../../packages/core/src/semaphore.ts';
+import { tempDir } from '../../packages/core/test/support.ts';
 import { POLL_INTERVALS } from '../src/logic/polls.ts';
 import type { AgentSession, TaskRow } from '../src/logic/shared.ts';
 import { homeModel } from '../src/model/home.ts';
 import type { HubLike, ProjectLike } from '../src/model/shared.ts';
 import { needsYouCount } from '../src/model/overview.ts';
 import type { RunInput } from '../src/model/runs.ts';
-import { elapsed, FinishedJobs, inProgress, type JobRow, loadWord, ordinal, type ProgressGroup, type RepoJobs } from '../src/progress.ts';
+import { ordinal } from '../../packages/core/src/queue.ts';
+import { elapsed, FinishedJobs, inProgress, type JobRow, loadWord, type ProgressGroup, type RepoJobs } from '../src/progress.ts';
 import { lastStepIn } from '../src/transcript.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -270,7 +270,7 @@ test('acc.job.stop may be asked for from the page, is declared, hidden from the 
 });
 
 test('a builder\'s latest step and model come from its transcript\'s tail, skipping a helper agent\'s turns', () => {
-  const file = join(mkdtempSync(join(tmpdir(), 'acc-step-')), 's.jsonl');
+  const file = join(tempDir('acc-step-'), 's.jsonl');
   const rec = (r: Record<string, unknown>) => JSON.stringify({ sessionId: 's', cwd: '/wt', timestamp: '2026-10-06T11:59:00Z', ...r });
   writeFileSync(file, [
     rec({ type: 'assistant', message: { model: 'claude-opus-5-5', content: [{ type: 'tool_use', id: 't1', name: 'Edit', input: { file_path: '/wt/src/a.ts' } }] } }),

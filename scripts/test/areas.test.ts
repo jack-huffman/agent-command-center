@@ -2,13 +2,13 @@
 // are written by npm run build, and are never stale; no two areas claim the same command, option, message,
 // section or page command.
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { CORE_HEADER, CORE_INDEX, coreIndexText, FOLDERS, HEADER, indexText, writeAreas } from '../areas.ts';
 import { AREAS as COMMAND_AREAS } from '../../packages/cli/src/commands/index.ts';
 import { commandsOf, helpOf, optionsOf } from '../../packages/cli/src/main.ts';
+import { tempDir } from '../../packages/core/test/support.ts';
 
 test('every area index is as npm run build writes it, and says it\'s generated', () => {
   assert.deepEqual(writeAreas(true), [], 'run npm run build');
@@ -26,7 +26,7 @@ test('core\'s index exports each module here whole, by file name, but for the ex
     for (const name of names.map((n) => n.replace(/^type /, ''))) assert.match(text, new RegExp(`^export (const|function|type|interface|class) ${name}\\b`, 'm'), `${file} has ${name}`);
   }
   // A new module edits no list: it's exported whole, in its turn by name.
-  const root = mkdtempSync(join(tmpdir(), 'acc-core-'));
+  const root = tempDir('acc-core-');
   try {
     mkdirSync(join(root, CORE_INDEX.dir), { recursive: true });
     for (const f of ['b.ts', 'a.ts', 'holding.ts', 'index.ts']) writeFileSync(join(root, CORE_INDEX.dir, f), '');
@@ -39,7 +39,7 @@ test('core\'s index exports each module here whole, by file name, but for the ex
 });
 
 test('an index lists the modules that declare an area, by file name, and gathers the types they share', () => {
-  const root = mkdtempSync(join(tmpdir(), 'acc-areas-'));
+  const root = tempDir('acc-areas-');
   try {
     const dir = join(root, 'x');
     mkdirSync(dir);

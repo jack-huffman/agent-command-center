@@ -2,13 +2,13 @@
 // turn-on time, the kinds, failures and pacing. The sender runs with stand-ins for VSCode's secrets and
 // globalState, fetch and the clock, and a claim folder of its own.
 import assert from 'node:assert/strict';
-import { mkdtempSync, readdirSync, utimesSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import type { AutopilotRecord } from '../../packages/core/src/autopilot-log.ts';
 import { displayState, emptyLedger, type Task } from '../../packages/core/src/ledger.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
+import { tempDir } from '../../packages/core/test/support.ts';
 import type { AgentSession, TaskRow } from '../src/logic/shared.ts';
 import { autopilotNotices } from '../src/logic/autopilot.ts';
 import { rowSession } from '../src/logic/agents.ts';
@@ -36,7 +36,7 @@ const SENTINEL = {
 function machine(o: { webhook?: string | null; state?: Partial<SlackState> } = {}) {
   const secrets = new Map<string, string>();
   if (o.webhook !== null) secrets.set(SLACK_SECRET, o.webhook ?? HOOK);
-  return { secrets, state: (o.state ? { ...blankSlack(), ...o.state } : undefined) as unknown, dir: mkdtempSync(join(tmpdir(), 'acc-slack-')) };
+  return { secrets, state: (o.state ? { ...blankSlack(), ...o.state } : undefined) as unknown, dir: tempDir('acc-slack-') };
 }
 type Machine = ReturnType<typeof machine>;
 

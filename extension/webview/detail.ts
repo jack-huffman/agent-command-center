@@ -19,9 +19,16 @@ import { overviewUpdateButtons, posterLine, updateNotes } from './updates.ts';
 let modal: { dialog: HTMLDialogElement; body: HTMLElement; title: HTMLElement } | null = null;
 /** The detail last drawn, so a new one starts at its top and a redraw keeps its scroll. */
 let drawn: string | null = null;
+/**
+ * Which kind of element opened it: a line and its button both open the same detail, so focus goes back to
+ * the one used (GH-170), found again by its data-opens if the page redrew meanwhile.
+ */
+let openedBy: string | null = null;
 
 /** Opens a detail over the page. */
 export function openDetail(d: Detail): void {
+  const a = document.activeElement as HTMLElement | null;
+  if (!modal?.dialog.contains(a)) openedBy = a?.dataset?.opens === opensKey(d) ? a.tagName : null;
   remember((m) => { m.detail = d; });
   draw();
 }
@@ -34,7 +41,9 @@ export function closeDetail(): void {
   drawn = null;
   if (modal?.dialog.open) modal.dialog.close();
   modal?.body.replaceChildren();
-  document.querySelector<HTMLElement>(`[data-opens="${CSS.escape(opensKey(d))}"]`)?.focus();
+  const openers = [...document.querySelectorAll<HTMLElement>(`[data-opens="${CSS.escape(opensKey(d))}"]`)];
+  (openers.find((e) => e.tagName === openedBy) ?? openers[0])?.focus();
+  openedBy = null;
 }
 
 function make(): NonNullable<typeof modal> {

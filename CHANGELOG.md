@@ -5,6 +5,46 @@ extension, the plugin and acc share one version. Each release is a GitHub
 Release of this repo, with the extension's `.vsix` attached and its entry here
 as the notes.
 
+## 0.40.0
+
+- Cloud builders, for a project on GitHub that opts in (GH-69, D-140): `acc
+  cloud enable` with a routine from claude.ai/code/routines and its token in
+  the keychain, then `acc dispatch <id> --cloud`, or **Dispatch to the cloud**
+  on a card, pushes the task branch and fires the routine. `acc sync` follows
+  the branch on GitHub and collects it into the worktree when its last commit
+  says `Acc-Done`, running the checks on this Mac; a quiet builder needs you,
+  with its session's page. Cards and task pages say where each builder runs,
+  **This Mac** or **Cloud**, and Settings has the switch with what it still
+  needs. A local builder stays the default everywhere, and a project that
+  hasn't opted in sees no change. Every sync also flags an environment branch
+  that moved by anything but acc's own merges. A committed push guard and a git
+  pre-push hook keep a cloud builder to a plain push of its own branch.
+- Requirements in Simplified Technical English (D-141): the analyst writes a
+  task's goal, criteria, assumptions and out-of-scope in STE Strict, so a
+  builder can read each one in one way only. acc checks the wording, and the
+  task page and `acc show` list each finding as an orange **Wording** state.
+  It's advice: it never holds a dispatch. `acc ste check` checks any text, and
+  the plugin carries the ASD-STE100 skill, copied in with its MIT licence.
+- The Overview is a landing page: one line for each thing that needs you, with
+  the detail a click away in a modal (D-131). Clicking a task on the Tasks
+  board opens it over the board, with **Open as tab** and **Close** (D-129).
+- The Command Center speaks in processes, not commands or file paths: "Run the
+  checks", "the project's settings" (D-132). Setup says what **Do it** does and
+  keeps another tool's command behind **Show the command**, and settings keys
+  read as words.
+- Depth on every page: the task page, Agents, Worktrees and Environments use
+  raised panels; buttons, counts and code chips take the blue accent; inline
+  code reads as a chip; and a task's analysis and builder's note show `code`
+  and **bold** as marks.
+- Builders follow more of the repo's own rules, each with a check: a test file
+  names an edge case it covers, every export is named by a test, a UI change
+  needs screenshots of it, and each rule names its check. Reviews run at medium
+  effort, with at most three builders at once.
+- Fixed: the test suite left its temporary folders behind (about 350,000 of
+  them), which made the onboarding checks hang; a screenshot run that Chrome
+  didn't finish now draws again once; and checking a command with the cloud
+  guard no longer installs its pre-push hook into the checkout.
+
 ## 0.39.0
 
 - Depth in light and dark: the board's columns sit in wells set into the page,

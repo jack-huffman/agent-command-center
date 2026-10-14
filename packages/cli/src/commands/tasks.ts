@@ -1,6 +1,6 @@
 // acc's Tasks commands: add, import, intake, status, list, ready, show and set.
 
-import { AccError, autopilotFailure, builderStopped, cardFailure, claudeProjectsDir, clipSaid, closedPr, type Config, DISPLAY, displayState, type DisplayState, draftUpdate, failedChecks, filesOf, holdWords, inFlight, intakeGithub, intakeOutside, type IntakeResult, isReady, lastSaid, listSessions, moveTask, mutate, NOTE_LABELS, type NoteInput, ordinal, phaseWords, plannedFiles, queuePlaces, readAnalysis, readLedger, receiptHooks, repoPaths, resuming, run, shownNote, type Task, sharesWords, startLook, type StartLook, type State, type TaskInput, trackerForKey, type UpsertResult, upsertTasks, waits } from '../../../core/src/index.ts';
+import { AccError, autopilotFailure, BUILDER_PLACE_LOOK, builderStopped, cardFailure, claudeProjectsDir, clipSaid, closedPr, cloudWait, type Config, DISPLAY, displayState, type DisplayState, draftUpdate, failedChecks, filesOf, holdWords, inFlight, intakeGithub, intakeOutside, type IntakeResult, isReady, lastSaid, listSessions, moveTask, mutate, NOTE_LABELS, type NoteInput, ordinal, phaseWords, plannedFiles, queuePlaces, readAnalysis, readLedger, receiptHooks, repoPaths, resuming, run, shownNote, type Task, sharesWords, startLook, type StartLook, type State, type TaskInput, trackerForKey, type UpsertResult, upsertTasks, waits, wordingMatch, wordingPlace, wordingWords } from '../../../core/src/index.ts';
 import { type Outside, TRACKER_KINDS, type TrackerKind, trackerName } from '../../../core/src/trackers/types.ts';
 import { stateLabel, table, tone } from '../format.ts';
 import { actorFrom, type CommandArea, followingCards, now, type Opts, out, project, readFileArg, stepWords } from '../shared.ts';
@@ -174,10 +174,17 @@ function cmdShow(o: Opts, id: string): number {
   // A task that started beside others it shares files with, while they're still in flight.
   const flying = new Set(inFlight(ledger).map((x) => x.id));
   const shared = (t.run?.shares ?? []).filter((s) => flying.has(s.task));
+  // A cloud builder (GH-69): where it runs, its page on claude.ai, and why it needs you, if it does.
+  const cloud = t.run?.where === 'cloud' ? t.run.cloud ?? null : null;
+  const waiting = cloudWait(t, config, now());
+  // The wording check on its analysis's requirements (T-12): advice for a person, never a hold.
+  const wording = readAnalysis(paths, t.id)?.wording ?? [];
   out(o, () => [
-    `${t.id}  ${stateLabel(displayState(ledger, t, { stopped }, config))}  ${t.title}`,
+    `${t.id}  ${stateLabel(displayState(ledger, t, { stopped, quiet: !!waiting }, config))}  ${t.title}`,
     `Environment: ${t.environment}   Source: ${t.source.kind}${t.source.url ? ` ${t.source.url}` : ''}`,
-    t.run?.name ? `Agent: ${t.run.name}` : '',
+    t.run?.name ? `Agent: ${t.run.name}${t.run.where ? ` · runs on ${BUILDER_PLACE_LOOK[t.run.where].label}` : ''}` : '',
+    cloud ? `Cloud session: ${cloud.url}${t.state === 'running' ? ` (branch last moved ${cloud.lastPushAt}${cloud.finished ? ', finished' : ''})` : ''}` : '',
+    waiting ? tone(`! ${waiting.charAt(0).toUpperCase()}${waiting.slice(1)}. Open the session, or: acc collect ${t.id}`, 'orange') : '',
     t.deps.length ? `Depends on: ${t.deps.join(', ')}` : '',
     t.blocker ? `Blocked: ${t.blocker}` : '',
     failed ? tone(`! Autopilot couldn't ${stepWords(failed.step, failed.sha || 'it')}: ${failed.reason}`, 'orange') : '',
@@ -187,12 +194,13 @@ function cmdShow(o: Opts, id: string): number {
     closed ? tone(`! Pull request #${closed.number} was closed without merging. Reopen it on GitHub and land to update it, or land to open a new one.`, 'orange') : '',
     stopped ? tone(`! Its agent stopped: ${quote ?? 'its turn ended before acc done or acc block.'}${quote && !/[.!?…]$/.test(quote) ? '.' : ''} Resume it with acc resume ${t.id}.`, 'orange') : '',
     ...files.lines,
+    ...(wording.length ? [tone(`! ${wordingWords(wording.length)} in its analysis's requirements. They're advice: they never hold a dispatch.`, 'orange'), ...wording.flatMap((f) => [`  ${wordingPlace(f)}: ${f.message}${wordingMatch(f) ? ` [${f.match}]` : ''}`, tone(`    ${f.text}`, 'dim')])] : []),
     shared.length ? tone(`${sharesWords(shared)}.`, 'dim') : '',
     t.brief ? `\n${t.brief}\n` : '',
     ...noteShown(t),
     'History:',
     ...t.history.map((h) => `  ${h.at}  ${h.from ?? '–'} → ${h.to}  by ${h.by}${h.reason ? `: ${h.reason}` : ''}${h.override ? ' (override)' : ''}`),
-  ].filter(Boolean).join('\n'), { ...t, stopped: stopped ? { said } : null, files: files.data });
+  ].filter(Boolean).join('\n'), { ...t, stopped: stopped ? { said } : null, files: files.data, cloudWait: waiting, wording });
   return 0;
 }
 

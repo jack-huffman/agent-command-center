@@ -85,35 +85,100 @@ export function guardEdit(b: Builder, filePath: string, envSpecific: string[]): 
 
 // ---------------------------------------------------------------- PreToolUse: Bash
 
-/** A command line split into its commands, and each into words, as far as matters for these rules. */
+/** What a `$( )` or backtick pair leaves in the word it stood in. */
+export const SUBSTITUTED = '$(...)';
+
+/**
+ * A command line split into its commands, and each into words, as far as matters for these rules: quotes
+ * kept together, separators cut, a `$( )` or backtick read as its own command even inside double quotes
+ * (only single quotes are literal), a heredoc's body skipped. The command around a substitution stays
+ * whole, with SUBSTITUTED where the substitution stood; the substitution's own commands come first. The
+ * cloud guard's rawCommandsOf splits the same way (GH-69), and cloud-guard.test.ts keeps the two the same.
+ */
 export function commandsOf(line: string): string[][] {
   const out: string[][] = [];
   let words: string[] = [];
   let word = '';
   let quote: '"' | "'" | null = null;
   let any = false;
-  const end = () => { if (any) words.push(word); word = ''; any = false; };
+  // What to go back to when a `$( )` or a backtick pair closes: the command it opened in, its word so far
+  // with SUBSTITUTED added, and the quote it opened inside, if any. A `(` alone opens a group, which cuts.
+  const stack: ({ group: true } | { group: false; back: '"' | null; tick: boolean; words: string[]; word: string })[] = [];
+  // Heredoc terminators still to skip, in order; a `<<` alone takes the next word as its terminator.
+  const heredocs: string[] = [];
+  let delimiterNext = false;
+  const end = () => {
+    if (any) {
+      if (delimiterNext) { heredocs.push(word.replace(/^['"]|['"]$/g, '')); delimiterNext = false; }
+      else if (word === '<<' || word === '<<-') delimiterNext = true;
+      else if (/^<<-?./.test(word)) heredocs.push(word.replace(/^<<-?/, '').replace(/^['"]|['"]$/g, ''));
+      words.push(word);
+    }
+    word = '';
+    any = false;
+  };
   const next = () => { end(); if (words.length) out.push(words); words = []; };
+  const open = (back: '"' | null, tick: boolean) => { stack.push({ group: false, back, tick, words, word: word + SUBSTITUTED }); words = []; word = ''; any = false; quote = null; };
+  const close = (top: { back: '"' | null; words: string[]; word: string }) => { next(); words = top.words; word = top.word; any = true; quote = top.back; };
   for (let i = 0; i < line.length; i++) {
     const c = line[i]!;
-    if (quote) {
-      if (c === quote) quote = null;
-      else if (c === '\\' && quote === '"' && i + 1 < line.length) word += line[++i];
-      else word += c;
+    if (quote === "'") {
+      if (c === "'") quote = null;
+      else { word += c; any = true; }
+      continue;
+    }
+    if (quote === '"') {
+      if (c === '"') { quote = null; continue; }
+      if (c === '\\' && i + 1 < line.length) { word += line[++i]; any = true; continue; }
+      if (c === '`') { open('"', true); continue; }
+      if (c === '$' && line[i + 1] === '(') { open('"', false); i++; continue; }
+      word += c;
+      any = true;
       continue;
     }
     if (c === '"' || c === "'") { quote = c; any = true; continue; }
     if (c === '\\' && i + 1 < line.length) { word += line[++i]; any = true; continue; }
-    if (/\s/.test(c) && c !== '\n') { end(); continue; }
-    if (c === '\n' || c === ';' || c === '|' || c === '&' || c === '(' || c === ')') { next(); continue; }
+    if (c === '`') {
+      const top = stack[stack.length - 1];
+      if (top && !top.group && top.tick) { stack.pop(); close(top); }
+      else open(null, true);
+      continue;
+    }
+    if (c === '$' && line[i + 1] === '(') { open(null, false); i++; continue; }
+    if (c === '(') { next(); stack.push({ group: true }); continue; }
+    if (c === ')') {
+      const top = stack.pop();
+      if (top && !top.group) close(top);
+      else next();
+      continue;
+    }
+    if (c === '\n') {
+      next();
+      // A heredoc's body is the command's input, not commands: skip to its terminator line.
+      while (heredocs.length && i < line.length) {
+        const term = heredocs.shift();
+        let j = i + 1;
+        for (;;) {
+          const nl = line.indexOf('\n', j);
+          const l = nl < 0 ? line.slice(j) : line.slice(j, nl);
+          if (l.replace(/^\t+/, '') === term || nl < 0) { i = nl < 0 ? line.length : nl; break; }
+          j = nl + 1;
+        }
+      }
+      continue;
+    }
+    if (/\s/.test(c)) { end(); continue; }
+    if (c === ';' || c === '|' || c === '&') { next(); continue; }
     word += c;
     any = true;
   }
+  // A substitution left open at the end still leaves its command whole: the shell would refuse the line.
+  for (let top = stack.pop(); top; top = stack.pop()) if (!top.group) close(top);
   next();
   // Leading environment assignments and wrappers don't change what runs.
   return out.map((w) => {
     let i = 0;
-    while (i < w.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w[i]!) || ['nice', 'env', 'time', 'command', 'npx'].includes(w[i]!) || (w[i - 1] === 'nice' && /^-n$|^-\d+$/.test(w[i]!)) || (w[i - 2] === 'nice' && w[i - 1] === '-n'))) i++;
+    while (i < w.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w[i]!) || ['nice', 'env', 'time', 'command', 'npx', 'sudo'].includes(w[i]!) || (w[i - 1] === 'nice' && /^-n$|^-\d+$/.test(w[i]!)) || (w[i - 2] === 'nice' && w[i - 1] === '-n'))) i++;
     return w.slice(i);
   }).filter((w) => w.length);
 }
@@ -125,7 +190,7 @@ const CLOSING = /\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\b[\s:]+(#\d+|[A-Z][A-Z0
  * acc rules list is, but not copying rules in (GH-108), and acc github status is, but not switching the account a
  * clone pushes as (GH-113).
  */
-export const PERSON_ONLY_ACC = new Set(['set', 'dispatch', 'land', 'review', 'autopilot', 'analyze', 'promote', 'deploy', 'init', 'cleanup', 'agents', 'setup', 'update', 'updates', 'resume', 'machine', 'gate waive', 'gate relax', 'gate required', 'gate builder', 'rules import', 'trackers set', 'tidy add', 'tidy skip', 'rules accept', 'rules dismiss', 'github use']);
+export const PERSON_ONLY_ACC = new Set(['set', 'dispatch', 'land', 'review', 'autopilot', 'analyze', 'promote', 'deploy', 'init', 'cleanup', 'agents', 'setup', 'update', 'updates', 'resume', 'machine', 'collect', 'cloud', 'gate waive', 'gate relax', 'gate required', 'gate builder', 'rules import', 'trackers set', 'tidy add', 'tidy skip', 'rules accept', 'rules dismiss', 'github use']);
 
 /**
  * Whether a command line has a backtick or a $ the shell would act on: anywhere outside single quotes,

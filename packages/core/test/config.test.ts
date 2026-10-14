@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { autoMergeFor, autoMergeOn, branchFor, builderGatesFor, CONFIG_KEYS, defaultEnvironment, fullGates, isTestGate, keyShown, loadConfig, parseConfig, requiredGates, saveTracker, skippedOnRoute, TIDY_EVERY, tidyEvery, trackerForKey, UNREAD_KEYS, VALIDATOR_ONLY, withTracker, writeConfig } from '../src/config.ts';
+import { autoMergeFor, autoMergeOn, branchFor, builderGatesFor, CONFIG_KEYS, defaultEnvironment, fullGates, isEffort, isTestGate, keyShown, loadConfig, parseConfig, requiredGates, saveTracker, skippedOnRoute, TIDY_EVERY, tidyEvery, trackerForKey, UNREAD_KEYS, VALIDATOR_ONLY, withTracker, writeConfig } from '../src/config.ts';
 import { parseFloors } from '../src/ratchets.ts';
 import { GENERIC_CONFIG, SF_CONFIG, tempDir } from './support.ts';
 
@@ -161,9 +161,10 @@ test('this repo lists its decision log as append-only, and lets autopilot merge 
   assert.equal(autoMergeFor(config, 'main'), true);
   // Its builders run the typecheck and the tests near what they changed; the full check runs in the merge queue (GH-73).
   // Both count the tests npm test runs, a number that may only go up, and quickly enough not to be heavy (GH-99),
-  // and both have stray-files, which its config doesn't name (GH-103).
-  assert.deepEqual([config.gates.builder, config.gates.required, requiredGates(config, 'main', 'builder'), requiredGates(config, 'main', 'merge')], [['typecheck', 'near-tests', 'tests'], ['check', 'tests'], ['typecheck', 'near-tests', 'tests', 'stray-files'], ['check', 'tests', 'stray-files']]);
-  assert.deepEqual(Object.keys(config.gates.commands).sort(), ['check', 'near-tests', 'typecheck']);
+  // and both have stray-files, which its config doesn't name (GH-103). Builders also check their UI changes were
+  // shot as they are (T-5); the merge queue's checkout has no screenshots, so it doesn't.
+  assert.deepEqual([config.gates.builder, config.gates.required, requiredGates(config, 'main', 'builder'), requiredGates(config, 'main', 'merge')], [['typecheck', 'near-tests', 'tests', 'screenshots'], ['check', 'tests'], ['typecheck', 'near-tests', 'tests', 'screenshots', 'stray-files'], ['check', 'tests', 'stray-files']]);
+  assert.deepEqual(Object.keys(config.gates.commands).sort(), ['check', 'near-tests', 'screenshots', 'typecheck']);
   assert.deepEqual(config.gates.ratchets, { tests: { command: 'node --no-warnings scripts/count-tests.mjs', limit: 'floor', label: 'tests' } });
   assert.ok(!config.gates.heavy.includes('tests'));
   const floors = parseFloors(readFileSync(join(import.meta.dirname, '..', '..', '..', '.acc', 'floors.json'), 'utf8'));
@@ -506,6 +507,8 @@ const EVERY_KEY = {
     max: 4, permissionMode: 'acceptEdits',
     builder: { model: 'sonnet', effort: 'high', fallbackModel: 'haiku' },
     reviewer: { model: 'opus', effort: 'max', fallbackModel: 'sonnet' },
+    // Cloud builders (GH-69): opted in, with every key.
+    cloud: { routine: 'trig_01ABCDEFGHJKLMNOPQRSTUVW', default: 'local', quietMinutes: 90, max: 2 },
   },
   autonomy: 'review',
   worktrees: { root: '.claude/worktrees', setup: ['npm ci'] },
@@ -579,5 +582,10 @@ test('the keys nothing reads are keys parseConfig knows, each with its reason, a
   assert.equal(keyShown('autonomy'), UNREAD_KEYS.autonomy === undefined);
   assert.equal(keyShown('autonomy', { autonomy: 'GH-1 will read it.' }), false);
   assert.equal(keyShown('autonomy', {}), true);
+});
+
+test('isEffort accepts each effort level and nothing else, including a missing value and a different case', () => {
+  for (const level of ['low', 'medium', 'high', 'xhigh', 'max']) assert.equal(isEffort(level), true, level);
+  for (const not of ['default', 'High', '', undefined, null, 3]) assert.equal(isEffort(not), false, String(not));
 });
 

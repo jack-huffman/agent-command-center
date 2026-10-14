@@ -32,14 +32,14 @@
     }
   ],
   "agents": {
-    "max": 5,
+    "max": 3,
     "permissionMode": "auto",
     "builder": {
       "model": "claude-opus-5-5"
     },
     "reviewer": {
       "model": "claude-opus-5-5",
-      "effort": "high"
+      "effort": "medium"
     }
   },
   "autonomy": "review",
@@ -68,12 +68,14 @@
     "builder": [
       "typecheck",
       "near-tests",
-      "tests"
+      "tests",
+      "screenshots"
     ],
     "commands": {
       "check": "npm run check",
       "typecheck": "npm run typecheck",
-      "near-tests": "node --no-warnings scripts/near-tests.mjs"
+      "near-tests": "node --no-warnings scripts/near-tests.mjs",
+      "screenshots": "node --no-warnings extension/scripts/looked.ts"
     },
     "ratchets": {
       "tests": {

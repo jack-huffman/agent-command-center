@@ -1,5 +1,5 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { type Dir, existsSync, opendirSync, readFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join, sep } from 'node:path';
 import { branchFor, type Environment, fullGates } from '../config.ts';
 import { isTrusted, mainCheckout } from '../dispatch.ts';
@@ -7,6 +7,7 @@ import { type DriftResult, driftReportPath } from '../drift.ts';
 import { parseJsonOutput, type RunResult } from '../exec.ts';
 import { gatesFor } from '../gates.ts';
 import { credentialHelper } from '../github.ts';
+import { samePath } from '../paths.ts';
 import { rulesStatus } from '../rules.ts';
 import { readmePlaces } from '../setup.ts';
 import { DATA_EXT } from '../stray-files.ts';
@@ -17,6 +18,7 @@ import {
   cached, fail, firstVersion, ghEnv, LICENSE_TO_TYPE, parseOrgUrl, pass, pluginBehind, readText, SECRET_PATTERN, sfJson, skip, unknown, versionAtLeast,
 } from './helpers.ts';
 import type { CheckContext, CheckResult, Step, StepResult } from './types.ts';
+import { CLOUD_STEPS } from './cloud-steps.ts';
 
 const DOCS = 'docs/ONBOARDING.md';
 const GH_SIGN_IN = '"Do it" opens VSCode\'s GitHub sign-in: pick this repo\'s account, or add it, and gh gets that login, with access to GitHub Projects for the board. gh\'s active account stays as it was. In a terminal: gh auth login.';
@@ -29,23 +31,42 @@ function needsProject(ctx: CheckContext): CheckResult | null {
   return null;
 }
 
+/** The most of a folder's entries nearbyRepo reads, so a crowded parent stays quick (GH-174). */
+export const NEARBY_LIMIT = 200;
+
 /**
  * A repo near an old project folder: the folder itself, its siblings, or their parent. A repo that has
- * an acc config wins over one that only has sfdx-project.json. Only the filesystem is read.
+ * an acc config wins over one that only has sfdx-project.json. Only the filesystem is read: no more than
+ * NEARBY_LIMIT of the parent's entries, and none at all when the parent is the system temp directory,
+ * whose neighbours are other programs' scratch folders (GH-174).
  */
 export function nearbyRepo(cwd: string): string | null {
   const isRepo = (d: string) => existsSync(join(d, '.git'));
   const parent = dirname(cwd);
-  let siblings: string[] = [];
-  try {
-    siblings = readdirSync(parent, { withFileTypes: true }).filter((e) => e.isDirectory() && !e.name.startsWith('.')).map((e) => join(parent, e.name));
-  } catch {
-    siblings = [];
-  }
-  const candidates = [...siblings.filter((d) => d !== cwd), parent].filter(isRepo);
+  if (samePath(parent, tmpdir())) return null;
+  const candidates = [...nearbyFolders(parent).filter((d) => d !== cwd), parent].filter(isRepo);
   return candidates.find((d) => existsSync(join(d, '.acc', 'config.json')))
     ?? candidates.find((d) => existsSync(join(d, 'sfdx-project.json')))
     ?? null;
+}
+
+/** The folders, hidden ones left out, among the first NEARBY_LIMIT entries of a folder; none if it can't be read. */
+export function nearbyFolders(parent: string): string[] {
+  const folders: string[] = [];
+  let dir: Dir | undefined;
+  try {
+    dir = opendirSync(parent);
+    for (let read = 0; read < NEARBY_LIMIT; read++) {
+      const e = dir.readSync();
+      if (!e) break;
+      if (e.isDirectory() && !e.name.startsWith('.')) folders.push(join(parent, e.name));
+    }
+  } catch {
+    return [];
+  } finally {
+    dir?.closeSync();
+  }
+  return folders;
 }
 
 /** Every file on any environment's branch, local or as the remote has it. */
@@ -197,7 +218,7 @@ export const GROUP_TITLES: Record<string, string> = {
   B0: 'The repo', B1: 'Orgs', B2: 'GitHub account', B3: 'Client data and secrets',
   B4: 'Salesforce project', B5: 'Salesforce project', B6: 'Environment branches', B8: 'Source tracking',
   B9: 'Environment differences', B10: 'Safe defaults', B12: 'Background agents', B13: 'Background agents',
-  B14: 'Tickets', B11: 'Drift',
+  B14: 'Tickets', B15: 'Cloud builders', B11: 'Drift',
 };
 
 export const STEPS: Step[] = [
@@ -251,7 +272,7 @@ export const STEPS: Step[] = [
   },
   {
     id: 'A2.gh-login', part: 'machine', group: 'A2', title: 'Logged in to GitHub',
-    why: 'Each repo uses its own account through `gh auth token -u`. Never `gh auth switch`, which changes every session.',
+    why: 'Each repo uses its own GitHub account, asked for by name each time. The account gh has active is never switched, because that changes every session.',
     fix: { vscode: 'acc.github.signIn', text: GH_SIGN_IN },
     check(ctx) {
       const r = ctx.run('gh', ['auth', 'status'], { env: ctx.env });
@@ -773,6 +794,8 @@ export const STEPS: Step[] = [
       return pass(`Tickets come from ${names.join(' and ')}.`);
     },
   },
+  // Cloud builders (GH-69), only where the project opted in: in their own file, registered here.
+  ...CLOUD_STEPS,
   {
     id: 'B11.drift', part: 'project', group: 'B11', title: 'The day-to-day org matches its branch', profiles: ['salesforce'],
     why: 'A change made straight in an org is lost the next time its branch is deployed there. A drift check finds it first.',
