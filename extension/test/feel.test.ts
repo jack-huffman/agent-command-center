@@ -113,7 +113,7 @@ test('every kind of button the page draws shows a press at once, with no transit
 });
 
 test('a button kind with no :active style fails, and a press style on a child doesn\'t count', () => {
-  assert.deepEqual(buttonKinds(`el('button', 'btn primary'); el('button', \`seg\${on ? ' on' : ''}\`); el('span', 'chip')`), ['btn', 'seg']);
+  assert.deepEqual(buttonKinds(`el('button', 'btn primary'); el('button', \`seg\${on ? ' on' : ''}\`); el('span', 'tag')`), ['btn', 'seg']);
   assert.equal(pressRules('seg', '.seg:hover { color: inherit; }').length, 0);
   assert.equal(pressRules('seg', '.seg:active .codicon { color: inherit; }').length, 0);
   assert.equal(pressRules('seg', '.segmented .seg:active { transition: none; }').length, 1);
@@ -157,6 +157,8 @@ test('text converted from px keeps its size at VSCode\'s 13 px, with no size lef
   const was: Record<string, number> = { '.avatar': 9.5, '.comment .avatar': 10.5, '.act-avatar .avatar': 10.5, '.avatar.avatar-lg': 14, '.tracker-meta': 12 };
   const rules = cssRules(pageStyles());
   const em = (sel: string): number => parseFloat(rules.find((r) => selectors(r.selector).includes(sel) && r.declarations.some((d) => d.name === 'font-size'))!.declarations.find((d) => d.name === 'font-size')!.value);
+  // avatar() in dom.ts draws a person's initials as .avatar, the class these sizes are for.
+  assert.match(pageSource('dom.ts'), /export function avatar\(p: PersonChip\): HTMLElement \{\n  const a = el\('span', 'avatar', p\.initials\);/);
   for (const [sel, px] of Object.entries(was)) assert.ok(Math.abs(em(sel) * 13 - px) < 0.05, `${sel} is ${em(sel) * 13} px at 13 px, was ${px}`);
   // An avatar in a card's top line sits in text at 0.88em, so it sets its own size to stay at 9.5 px.
   assert.ok(Math.abs(em('.tcard-top') * em('.tcard-top .avatar') * 13 - 9.5) < 0.05);
