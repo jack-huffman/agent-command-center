@@ -126,12 +126,12 @@ export class Trackers implements vscode.Disposable {
   }
 
   title(t: Tracker): string {
-    return t.kind === 'github' ? `GitHub · ${t.repo ?? '?'}` : t.kind === 'monday' ? `monday.com · ${t.account}` : `${trackerName(t.kind)} · ${t.project}`;
+    return t.kind === 'github' ? `GitHub · ${t.repo ?? '?'}` : t.kind === 'monday' ? `monday.com · ${t.account}` : t.kind === 'slack' ? `Slack · ${t.workspace}` : `${trackerName(t.kind)} · ${t.project}`;
   }
 
   /** Where a tracker's tickets come from, as its config says (D-072). */
   place(t: Tracker): string {
-    return placeText({ kind: t.kind, project: t.project, repo: t.repo, team: t.team, epic: t.epic, labels: t.labels, areaPath: t.areaPath, account: t.account, board: t.board, group: t.group });
+    return placeText({ kind: t.kind, project: t.project, repo: t.repo, team: t.team, epic: t.epic, labels: t.labels, areaPath: t.areaPath, account: t.account, board: t.board, group: t.group, workspace: t.workspace, channel: t.channel });
   }
 
   /**
@@ -226,6 +226,8 @@ export class Trackers implements vscode.Disposable {
       if (!t.repo || !account) throw new TrackerError('other', 'A GitHub tracker needs the project\'s GitHub repo and account, in its settings.');
       return new GithubClient({ repo: t.repo, token: await this.ghToken(p.root, account), account, exec, project: typeof t.board === 'number' ? t.board : null, labels: t.labels });
     }
+    // A Slack tracker's sign-in, a Slack app's bot token, has no place on this machine yet (T-27), so it's never sent to another tracker's.
+    if (t.kind === 'slack') throw new TrackerError('other', `This repo's Slack tracker (${t.workspace}) can't be read here yet: signing in to a Slack app isn't built.`);
     const found = await this.credFor(p, t);
     const c = found?.cred ?? null;
     if (t.kind === 'jira') {
@@ -248,7 +250,7 @@ export class Trackers implements vscode.Disposable {
   }
 
   private signInButton(p: Project, index: number, t: Tracker): BoardState['connect'] {
-    return t.kind === 'github' ? null : { command: 'acc.trackers.signIn', label: signInLabel(t.kind), arg: JSON.stringify({ root: p.root, index }) };
+    return t.kind === 'github' || t.kind === 'slack' ? null : { command: 'acc.trackers.signIn', label: signInLabel(t.kind), arg: JSON.stringify({ root: p.root, index }) };
   }
 
   /** Loads every board, or just one project's. Boards load side by side; each shows its own error. */

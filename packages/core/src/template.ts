@@ -109,6 +109,8 @@ const TRACKER_KEYS: Record<TrackerKind, readonly string[]> = {
   jira: ['kind', 'site', 'project'],
   azure: ['kind', 'organization', 'project', 'prefix'],
   monday: ['kind', 'account', 'board', 'prefix'],
+  // A template never names a Slack tracker (refused below), so only its kind is known here.
+  slack: ['kind'],
 };
 /** Where each kind of tracker is: the key a template must give. */
 const PLACE: Partial<Record<TrackerKind, { key: 'site' | 'organization' | 'account'; example: string }>> = {
@@ -198,6 +200,8 @@ export function parseTemplate(raw: unknown): TemplateParse {
     if (!isObj(t)) errors.push('"tracker" must be an object, such as { "kind": "jira", "site": "acme.atlassian.net", "project": "ACME" }.');
     else if (!isTrackerKind(t.kind)) {
       errors.push(`"tracker.kind" must be ${orList([...TRACKER_KINDS])}.`);
+    } else if (t.kind === 'slack') {
+      errors.push('"tracker.kind" can\'t be slack in a team template: a Slack tracker\'s channel is each project\'s own, so each project names it in its own config.');
     } else {
       const kind = t.kind;
       const own = kind === 'monday' ? PROJECT_ONLY.tracker : { ...PROJECT_ONLY.tracker, board: `${OWN}: which board the Tasks tab shows is each project's own` };

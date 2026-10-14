@@ -2,6 +2,7 @@ import { isObj } from './text.ts';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { AccError } from './exec.ts';
+import { SLACK_CHANNEL, SLACK_PREFIX, SLACK_WORKSPACE } from './trackers/slack.ts';
 import { isTrackerKind, orList, TRACKER_KINDS, type TrackerKind } from './trackers/types.ts';
 
 export const PROFILES = ['generic', 'salesforce'] as const;
@@ -91,6 +92,10 @@ export interface Tracker {
   organization: string | null;
   /** monday.com: the account, as in acme.monday.com. */
   account: string | null;
+  /** Slack: the workspace, as in acme.slack.com. */
+  workspace: string | null;
+  /** Slack: the channel's id, such as C0123ABCD. Its threads are the tracker's tickets. */
+  channel: string | null;
   /** Azure DevOps: the team whose board to show. By default, the project's default team. */
   team: string | null;
   /**
@@ -100,7 +105,10 @@ export interface Tracker {
   board: number | string | null;
   /** monday.com: the status column whose labels are the board's columns. By default, the one called Status, or the first. */
   statusColumn: string | null;
-  /** Azure DevOps: the work item key prefix, AB by default (AB-123). monday.com: the item key prefix, MON by default (MON-123). */
+  /**
+   * Azure DevOps: the work item key prefix, AB by default (AB-123). monday.com: the item key prefix, MON by default
+   * (MON-123). Slack: the thread key prefix, SL by default (SL-1696512345123456).
+   */
   prefix: string | null;
   /** GitHub: issues with any of these labels aren't tasks, such as milestone. */
   skipLabels: string[];
@@ -233,7 +241,7 @@ export const CONFIG_KEYS = [
   'environments[].name', 'environments[].branch', 'environments[].type', 'environments[].org', 'environments[].default',
   'environments[].protected', 'environments[].promotesTo', 'environmentSpecific', 'knownDrift',
   'trackers[].kind', 'trackers[].site', 'trackers[].project', 'trackers[].repo', 'trackers[].organization', 'trackers[].account',
-  'trackers[].team', 'trackers[].board', 'trackers[].statusColumn', 'trackers[].prefix', 'trackers[].skipLabels',
+  'trackers[].workspace', 'trackers[].channel', 'trackers[].team', 'trackers[].board', 'trackers[].statusColumn', 'trackers[].prefix', 'trackers[].skipLabels',
   'trackers[].epic', 'trackers[].labels', 'trackers[].areaPath', 'trackers[].group', 'trackers[].edits',
   'trackers[].statusFor',
   'agents.max', 'agents.permissionMode', 'agents.builder.model', 'agents.builder.effort', 'agents.builder.fallbackModel',
@@ -375,6 +383,21 @@ export function parseConfig(raw: unknown): ParseResult {
         errors.push(`trackers[${i}]: a monday.com tracker needs "account" (as in acme.monday.com) and "board" (the board's id, a number).`);
         return;
       }
+      if (t.kind === 'slack') {
+        const missing = (['workspace', 'channel'] as const).filter((k) => !isStr(t[k]));
+        if (missing.length) {
+          errors.push(`trackers[${i}]: a Slack tracker needs ${missing.map((k) => `"${k}"`).join(' and ')}: "workspace" as in acme.slack.com, and "channel", a channel's id such as C0123ABCD.`);
+          return;
+        }
+        if (!SLACK_WORKSPACE.test(String(t.workspace).trim())) {
+          errors.push(`trackers[${i}]: "workspace" must be a Slack workspace's domain, as in acme.slack.com: letters, digits and hyphens.`);
+          return;
+        }
+        if (!SLACK_CHANNEL.test(String(t.channel).trim())) {
+          errors.push(`trackers[${i}]: "channel" must be a Slack channel's id, such as C0123ABCD, not its name.`);
+          return;
+        }
+      }
       if (t.kind === 'azure' && (!isStr(t.organization) || !isStr(t.project))) {
         errors.push(`trackers[${i}]: an Azure DevOps tracker needs "organization" and "project".`);
         return;
@@ -401,6 +424,8 @@ export function parseConfig(raw: unknown): ParseResult {
         { key: 'areaPath', kind: 'azure', on: 'an Azure DevOps', ok: isStr(t.areaPath), error: '"areaPath" must be an Azure DevOps area path, such as "CRM\\\\Billing".' },
         { key: 'group', kind: 'monday', on: 'a monday.com', ok: isStr(t.group), error: '"group" must be a monday.com group\'s id, such as "topics".' },
         { key: 'statusColumn', kind: 'monday', on: 'a monday.com', ok: isStr(t.statusColumn), error: '"statusColumn" must be a monday.com status column\'s id, such as "status".' },
+        { key: 'workspace', kind: 'slack', on: 'a Slack', ok: isStr(t.workspace), error: '"workspace" must be a Slack workspace\'s domain, as in acme.slack.com.' },
+        { key: 'channel', kind: 'slack', on: 'a Slack', ok: isStr(t.channel), error: '"channel" must be a Slack channel\'s id, such as C0123ABCD.' },
       ];
       const set = placeKeys.filter((p) => t[p.key] !== undefined && t[p.key] !== null);
       const bad = set.filter((p) => !p.ok);
@@ -438,6 +463,8 @@ export function parseConfig(raw: unknown): ParseResult {
         repo: isStr(t.repo) ? t.repo : null,
         organization: isStr(t.organization) ? t.organization : null,
         account: t.kind === 'monday' && isStr(t.account) ? t.account.trim().toLowerCase() : null,
+        workspace: t.kind === 'slack' && isStr(t.workspace) ? t.workspace.trim().toLowerCase() : null,
+        channel: t.kind === 'slack' && isStr(t.channel) ? t.channel.trim().toUpperCase() : null,
         team: isStr(t.team) ? t.team : null,
         board: Number.isInteger(t.board) || isStr(t.board) ? (t.board as number | string) : null,
         statusColumn: t.kind === 'monday' && isStr(t.statusColumn) ? t.statusColumn.trim() : null,
@@ -866,11 +893,12 @@ export function skippedOnRoute(config: Config, from: string, to: string): string
   return [];
 }
 
-/** What a tracker's ticket keys start with: GH, the Jira project, or the Azure DevOps or monday.com prefix. */
+/** What a tracker's ticket keys start with: GH, the Jira project, or the Azure DevOps, monday.com or Slack prefix. */
 export function keyPrefix(t: Pick<Tracker, 'kind' | 'project' | 'prefix'>): string | null {
   if (t.kind === 'github') return 'GH';
   if (t.kind === 'azure') return (t.prefix ?? 'AB').toUpperCase();
   if (t.kind === 'monday') return (t.prefix ?? 'MON').toUpperCase();
+  if (t.kind === 'slack') return (t.prefix ?? SLACK_PREFIX).toUpperCase();
   return t.project ? t.project.toUpperCase() : null;
 }
 

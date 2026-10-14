@@ -137,7 +137,7 @@ export const OLDER: Record<string, string[]> = {
   'packages/core/src/trackers/github.ts': ['issueRepo', 'hasPlaceLabel', 'githubOutside', 'issueNumber', 'pickProject'],
   'packages/core/src/trackers/jira.ts': ['jiraProjects', 'jiraBoards'],
   'packages/core/src/trackers/monday.ts': ['MONDAY_API', 'MONDAY_VERSION', 'mondayTokenPage', 'mondayCall', 'statusLabels', 'pickStatusColumn', 'mondayBoards', 'mondayGroups', 'mondayStatusColumns'],
-  'packages/core/src/trackers/types.ts': ['TRACKER_KINDS', 'isTrackerKind', 'trackerName', 'signInLabel', 'outsideError', 'orList', 'placeText', 'inBatches'],
+  'packages/core/src/trackers/types.ts': ['isTrackerKind', 'signInLabel', 'outsideError', 'orList', 'inBatches'],
   'packages/core/src/updates.ts': ['UPDATE_STATES', 'STALE_POSTING_MS', 'UPDATE_TEXT_MAX', 'UPDATE_ID', 'EVENT_WORDS', 'ticketOf', 'isOpenUpdate'],
 };
 

@@ -1,0 +1,338 @@
+/**
+ * A Slack channel as a tracker (T-27): each thread in it is a ticket, read and answered through a Slack app's
+ * bot token over the Web API. A thread has no statuses, people to assign or labels, so those are empty, and
+ * a change to them is refused. A reply posts as the app, with Slack's control characters escaped, so it can't
+ * mention a channel or a person. A writer is named by their Slack name, never their email.
+ */
+import { type Block, type Doc, type Inline, toMarkdown } from './doc.ts';
+import { clip, slackEscape } from '../text.ts';
+import {
+  type Board, inBatches, type Label, type Outside, outsideError, type Person, placeText, type Status, type Ticket, type TrackerClient, TrackerError,
+  type Transition,
+} from './types.ts';
+
+export const SLACK_API = 'https://slack.com/api';
+/** What a Slack tracker's keys start with when its config names no prefix: SL-1696512345123456. */
+export const SLACK_PREFIX = 'SL';
+/** A workspace's domain, the part before .slack.com. */
+export const SLACK_WORKSPACE = /^[a-z0-9][a-z0-9-]*$/i;
+/** A channel's id: a public (C), private (G) or direct (D) one, then letters and digits, with a digit, so a name like general isn't one. */
+export const SLACK_CHANNEL = /^[CGD](?=[A-Z0-9]*\d)[A-Z0-9]{6,}$/i;
+/** The most characters a thread's title holds: the first line of its first message. */
+export const SLACK_TITLE_MAX = 150;
+
+export interface SlackOptions {
+  /** The workspace, as in acme.slack.com. */
+  workspace: string;
+  /** The channel whose threads are the tracker's tickets, by its id. */
+  channel: string;
+  /** The key prefix for threads, SL by default. */
+  prefix?: string;
+  /** The Slack app's bot token. */
+  token: string;
+  fetch?: typeof fetch;
+}
+
+/** A thread: the channel it's in, and its first message's timestamp. A key names no channel, so it reads as null: the tracker's own. */
+export interface SlackThread {
+  channel: string | null;
+  ts: string;
+}
+
+interface SlackMessage {
+  ts: string;
+  text?: string;
+  user?: string;
+  bot_id?: string;
+  username?: string;
+  bot_profile?: { name?: string } | null;
+  subtype?: string;
+}
+interface SlackUser { id: string; name?: string; real_name?: string; deleted?: boolean; profile?: { display_name?: string; real_name?: string } }
+
+/** Replies read a page at a time, and the most a thread's body holds. */
+const PAGE = 200;
+const MAX_MESSAGES = 1000;
+/** Threads checked at once, so checking many never floods Slack. */
+const BATCH = 5;
+const NO_STATUS: Status = { id: 'none', name: 'No status', category: 'todo' };
+const NO_STATUSES = 'A Slack thread has no statuses to move between.';
+const NO_PEOPLE = 'A Slack thread has no people to assign.';
+const NO_LABELS = 'A Slack thread has no labels.';
+
+/** Slack's answers whose meaning is that the token is wrong, not the request. */
+const AUTH_ERRORS = new Set(['invalid_auth', 'not_authed', 'account_inactive', 'token_revoked', 'token_expired', 'no_permission']);
+/** Slack's answers that say the thing asked for isn't there, or isn't visible to the app. */
+const GONE_ERRORS = new Set(['channel_not_found', 'thread_not_found', 'message_not_found', 'user_not_found', 'not_in_channel']);
+
+/** A thread's key: the prefix, a hyphen, and its first message's timestamp without the dot. */
+export function slackKey(thread: SlackThread, prefix = SLACK_PREFIX): string {
+  return `${prefix.toUpperCase()}-${thread.ts.replace('.', '')}`;
+}
+
+/**
+ * The thread a key or a thread's link names, or null when it's neither. A key's thread is in the tracker's
+ * channel (null here); a link, https://acme.slack.com/archives/C0123ABCD/p1696512345123456, names its own.
+ * A link to a reply (?thread_ts=…) names the thread the reply is in.
+ */
+export function slackThread(ref: string, prefix = SLACK_PREFIX): SlackThread | null {
+  const s = ref.trim();
+  // The config takes a prefix of letters and digits only, so it's safe in a pattern as it is.
+  const key = new RegExp(`^${prefix}-(\\d{7,})$`, 'i').exec(s);
+  if (key) return { channel: null, ts: tsOf(key[1]!) };
+  const link = /^https:\/\/[a-z0-9-]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d{7,})(?:\?(.*))?$/i.exec(s);
+  if (!link) return null;
+  const parent = new URLSearchParams(link[3] ?? '').get('thread_ts');
+  return { channel: link[1]!.toUpperCase(), ts: parent && /^\d+\.\d{6}$/.test(parent) ? parent : tsOf(link[2]!) };
+}
+
+/** Slack's timestamps carry six digits after the dot. */
+const tsOf = (digits: string): string => `${digits.slice(0, -6)}.${digits.slice(-6)}`;
+const isoOf = (ts: string): string => new Date(Math.floor(Number(ts) * 1000)).toISOString();
+
+/** An email address in text, which a thread's body never carries. */
+const EMAIL = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
+const noEmail = (s: string): string => s.replace(EMAIL, '[email hidden]');
+
+/**
+ * Slack's message text as plain words: a mention as @name, a channel as #name, a link as its label and
+ * address, a mailto link as hidden, and Slack's three escapes undone. Mentions of people need their names,
+ * which `names` gives.
+ */
+export function slackText(text: string, names: Map<string, string>): string {
+  const plain = text.replace(/<([^<>]*)>/g, (_m, inner: string) => {
+    const [target = '', label] = inner.split('|');
+    if (target.startsWith('@')) return `@${names.get(target.slice(1)) ?? label ?? 'someone'}`;
+    if (target.startsWith('#')) return `#${label ?? target.slice(1)}`;
+    if (target.startsWith('!')) return `@${(label ?? target.slice(1)).replace(/^@/, '').split('^')[0]}`;
+    if (/^mailto:/i.test(target)) return '[email hidden]';
+    return label && label !== target ? `${label} (${target})` : target;
+  });
+  return noEmail(plain.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'));
+}
+
+/** A person's Slack name: their display name, else their full name, else their handle. Never their email. */
+export const slackName = (u: SlackUser): string =>
+  noEmail(u.profile?.display_name?.trim() || u.profile?.real_name?.trim() || u.real_name?.trim() || u.name?.trim() || 'Someone');
+
+/**
+ * One Web API call. A refused token is 'auth', a missing scope 'scope', and something gone or out of the app's
+ * sight 'not-found'. A rate limit says when Slack takes requests again (its Retry-After), and isn't tried
+ * again here.
+ */
+export async function slackCall<T>(token: string, method: string, params: Record<string, string | number | boolean>, f: typeof fetch = fetch, post = false): Promise<T> {
+  let res: Response;
+  try {
+    const query = new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)]));
+    res = post
+      ? await f(`${SLACK_API}/${method}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json; charset=utf-8' }, body: JSON.stringify(params) })
+      : await f(`${SLACK_API}/${method}?${query}`, { method: 'GET', headers: { Authorization: `Bearer ${token}` } });
+  } catch (e) {
+    throw new TrackerError('network', `Couldn't reach Slack: ${(e as Error).message}`);
+  }
+  const text = await res.text();
+  let json: ({ ok?: boolean; error?: string; needed?: string } & Record<string, unknown>) | null = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    json = null;
+  }
+  if (res.status === 429 || json?.error === 'ratelimited') {
+    const wait = Number(res.headers.get('retry-after') ?? NaN);
+    throw new TrackerError('other', `Slack's rate limit for this app was reached${Number.isFinite(wait) && wait > 0 ? `: try again in ${Math.ceil(wait)} seconds` : ': try again in a minute'}.`);
+  }
+  if (res.status === 401 || (json?.error && AUTH_ERRORS.has(json.error))) throw new TrackerError('auth', `Slack didn't accept this repo's app token (${json?.error ?? `HTTP ${res.status}`}). Connect the Slack app again.`);
+  if (json?.error === 'missing_scope') throw new TrackerError('scope', `The Slack app needs the ${json.needed ?? 'missing'} scope for ${method}. Add it to the app and install it again.`);
+  if (json?.error && GONE_ERRORS.has(json.error)) throw new TrackerError('not-found', `Slack: ${json.error}.`);
+  if (json && json.ok === false) throw new TrackerError('other', `Slack: ${json.error ?? 'an unknown error'}.`);
+  if (!res.ok || !json) throw new TrackerError('other', `Slack answered HTTP ${res.status}.`);
+  return json as T;
+}
+
+export class SlackClient implements TrackerClient {
+  readonly kind = 'slack' as const;
+  readonly title: string;
+  readonly place: string;
+  readonly prefix: string;
+  private readonly o: SlackOptions;
+  private readonly workspace: string;
+  private readonly channel: string;
+  /** The token's check against the workspace, made once. */
+  private authCache: Promise<{ user_id: string; user: string }> | null = null;
+  private readonly users = new Map<string, Promise<string>>();
+
+  constructor(o: SlackOptions) {
+    this.o = o;
+    this.prefix = (o.prefix ?? SLACK_PREFIX).toUpperCase();
+    this.workspace = o.workspace.trim().toLowerCase();
+    this.channel = o.channel.trim().toUpperCase();
+    this.title = `Slack · ${this.workspace}`;
+    this.place = placeText({ kind: 'slack', workspace: this.workspace, channel: this.channel });
+  }
+
+  private raw<T>(method: string, params: Record<string, string | number | boolean>, post = false): Promise<T> {
+    return slackCall<T>(this.o.token, method, params, this.o.fetch ?? fetch, post);
+  }
+
+  /** Every call but auth.test's own waits for it: a token from another workspace reads nothing. */
+  private async call<T>(method: string, params: Record<string, string | number | boolean>, post = false): Promise<T> {
+    await this.authed();
+    return this.raw<T>(method, params, post);
+  }
+
+  /** auth.test, which says which workspace the token is for. One from another workspace fails, naming it. */
+  private authed(): Promise<{ user_id: string; user: string }> {
+    if (!this.authCache) {
+      const p = this.raw<{ url?: string; team?: string; user_id: string; user: string }>('auth.test', {}).then((d) => {
+        const domain = /^https:\/\/([^./]+)\.slack\.com/i.exec(d.url ?? '')?.[1]?.toLowerCase() ?? null;
+        if (domain !== this.workspace) {
+          throw new TrackerError('auth', `This Slack app's token is for the workspace ${domain ?? d.team ?? 'that Slack didn\'t name'}, not ${this.workspace}. Connect the app installed in ${this.workspace}.`);
+        }
+        return d;
+      });
+      this.authCache = p;
+      p.catch(() => { if (this.authCache === p) this.authCache = null; });
+    }
+    return this.authCache;
+  }
+
+  /** The thread a key or link names. One that's neither is 'not-found'. */
+  private threadOf(key: string): { channel: string; ts: string } {
+    const t = slackThread(key, this.prefix);
+    if (!t) throw new TrackerError('not-found', `${key} isn't a Slack thread key (${this.prefix}-<timestamp>) or a thread's link.`);
+    return { channel: t.channel ?? this.channel, ts: t.ts };
+  }
+
+  /** The thread in this tracker's channel, or the 'outside' error that names the channel it's in. */
+  private ownThread(key: string): { channel: string; ts: string } {
+    const t = this.threadOf(key);
+    if (t.channel !== this.channel) throw outsideError({ key, why: `it's in channel ${t.channel}` }, this.place);
+    return t;
+  }
+
+  /** A person's Slack name by their id, read once. One that can't be read is Someone. */
+  private name(id: string): Promise<string> {
+    let p = this.users.get(id);
+    if (!p) {
+      p = this.call<{ user: SlackUser }>('users.info', { user: id }).then((d) => slackName(d.user)).catch(() => 'Someone');
+      this.users.set(id, p);
+    }
+    return p;
+  }
+
+  private async writer(m: SlackMessage): Promise<string> {
+    if (m.user) return this.name(m.user);
+    return noEmail(m.bot_profile?.name ?? m.username ?? 'A Slack app');
+  }
+
+  /** The thread's messages, oldest first: its first message, then every reply, a page at a time. */
+  private async messages(channel: string, ts: string): Promise<SlackMessage[]> {
+    const out: SlackMessage[] = [];
+    let cursor = '';
+    do {
+      const d = await this.call<{ messages?: SlackMessage[]; response_metadata?: { next_cursor?: string } }>('conversations.replies', {
+        channel, ts, limit: PAGE, ...(cursor ? { cursor } : {}),
+      });
+      out.push(...(d.messages ?? []));
+      cursor = d.response_metadata?.next_cursor ?? '';
+    } while (cursor && out.length < MAX_MESSAGES);
+    return out.slice(0, MAX_MESSAGES).sort((a, b) => Number(a.ts) - Number(b.ts));
+  }
+
+  async board(): Promise<Board> {
+    throw new TrackerError('refused', `A Slack channel has no board. Track a thread by its link instead.`);
+  }
+
+  /** The thread: its first message's first line is the title, and the body holds every message with its writer. */
+  async ticket(key: string): Promise<Ticket> {
+    const { channel, ts } = this.ownThread(key);
+    const k = slackKey({ channel, ts }, this.prefix);
+    const all = await this.messages(channel, ts);
+    const root = all.find((m) => m.ts === ts);
+    if (!root) throw new TrackerError('not-found', `${k} isn't a thread the Slack app can read. It may be too old for the workspace's plan, or in a channel the app isn't in.`);
+    if (root.subtype === 'tombstone') throw new TrackerError('not-found', `${k}'s first message was deleted in Slack, so the thread has no title.`);
+    const ids = new Set<string>();
+    for (const m of all) {
+      if (m.user) ids.add(m.user);
+      for (const [, id] of (m.text ?? '').matchAll(/<@([A-Z0-9]+)(?:\|[^>]*)?>/gi)) ids.add(id!);
+    }
+    const names = new Map<string, string>(await Promise.all([...ids].map(async (id) => [id, await this.name(id)] as [string, string])));
+    const blocks: Block[] = [];
+    for (const m of all.filter((x) => x.subtype !== 'tombstone')) {
+      const said = slackText(m.text ?? '', names);
+      const who: Inline[] = [{ t: 'text', text: await this.writer(m), marks: ['strong'] }, { t: 'text', text: ` · ${isoOf(m.ts)}` }];
+      blocks.push({ t: 'p', c: who }, ...said.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean).map((p): Block => ({
+        t: 'p', c: p.split('\n').flatMap((line, i): Inline[] => (i ? [{ t: 'br' }, { t: 'text', text: line }] : [{ t: 'text', text: line }])),
+      })));
+    }
+    const body: Doc = { blocks };
+    const first = slackText(root.text ?? '', names).split('\n').map((l) => l.trim()).find(Boolean) ?? 'A message with no text';
+    const permalink = await this.call<{ permalink?: string }>('chat.getPermalink', { channel, message_ts: ts }).then((d) => d.permalink ?? null).catch(() => null);
+    const last = all.at(-1)!;
+    return {
+      key: k, kind: 'slack', url: permalink ?? `https://${this.workspace}.slack.com/archives/${channel}/p${ts.replace('.', '')}`,
+      title: clip(first, SLACK_TITLE_MAX), type: null, status: NO_STATUS, assignees: [],
+      reporter: root.user ? { id: root.user, name: names.get(root.user) ?? 'Someone' } : { id: root.bot_id ?? '', name: await this.writer(root) },
+      labels: [], priority: null, created: isoOf(root.ts), updated: isoOf(last.ts), body, markdown: toMarkdown(body), comments: [], related: [],
+    };
+  }
+
+  /**
+   * The threads outside this tracker's channel, each naming the channel it's in. A key is always in the
+   * tracker's channel; only a thread's link can name another. A thread that can't be read (an error, a
+   * deleted first message, or one too old for the workspace's plan) is never outside (D-048).
+   */
+  async outside(keys: string[]): Promise<Outside[]> {
+    const elsewhere = keys.flatMap((key) => {
+      const t = slackThread(key, this.prefix);
+      return t?.channel && t.channel !== this.channel ? [{ key, channel: t.channel, ts: t.ts }] : [];
+    });
+    const seen = await inBatches(elsewhere, BATCH, async (t): Promise<Outside | null> => {
+      try {
+        const d = await this.call<{ messages?: SlackMessage[] }>('conversations.replies', { channel: t.channel, ts: t.ts, limit: 1 });
+        const root = d.messages?.find((m) => m.ts === t.ts);
+        return root && root.subtype !== 'tombstone' ? { key: t.key, why: `it's in channel ${t.channel}` } : null;
+      } catch {
+        return null; // it couldn't be read, which never counts as outside (D-048)
+      }
+    });
+    return seen.filter((o): o is Outside => o !== null);
+  }
+
+  async transitions(): Promise<Transition[]> {
+    return [];
+  }
+
+  async transition(): Promise<void> {
+    throw new TrackerError('refused', NO_STATUSES);
+  }
+
+  /** A reply in the thread, posted as the app, with Slack's control characters escaped so it mentions no one. */
+  async comment(key: string, text: string): Promise<void> {
+    if (!text.trim()) throw new TrackerError('refused', 'The reply is empty.');
+    const { channel, ts } = this.ownThread(key);
+    await this.call('chat.postMessage', { channel, thread_ts: ts, text: slackEscape(text), unfurl_links: false, unfurl_media: false }, true);
+  }
+
+  /** The app's own bot user, as auth.test names it. */
+  async me(): Promise<Person> {
+    const d = await this.authed();
+    return { id: d.user_id, name: d.user };
+  }
+
+  async assignable(): Promise<Person[]> {
+    return [];
+  }
+
+  async assign(): Promise<void> {
+    throw new TrackerError('refused', NO_PEOPLE);
+  }
+
+  async labels(): Promise<Label[]> {
+    return [];
+  }
+
+  async setLabels(): Promise<void> {
+    throw new TrackerError('refused', NO_LABELS);
+  }
+}

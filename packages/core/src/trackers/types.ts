@@ -5,14 +5,14 @@
 import type { Doc } from './doc.ts';
 
 /** Every tracker acc reads. The config, the ledger, updates and the Command Center all take their kinds from here. */
-export const TRACKER_KINDS = ['github', 'jira', 'azure', 'monday'] as const;
+export const TRACKER_KINDS = ['github', 'jira', 'azure', 'monday', 'slack'] as const;
 export type TrackerKind = (typeof TRACKER_KINDS)[number];
 
 export const isTrackerKind = (v: unknown): v is TrackerKind => (TRACKER_KINDS as readonly unknown[]).includes(v);
 
-const TRACKER_NAMES: Record<TrackerKind, string> = { github: 'GitHub', jira: 'Jira', azure: 'Azure DevOps', monday: 'monday.com' };
+const TRACKER_NAMES: Record<TrackerKind, string> = { github: 'GitHub', jira: 'Jira', azure: 'Azure DevOps', monday: 'monday.com', slack: 'Slack' };
 
-/** A tracker's name, for words a person reads: GitHub, Jira, Azure DevOps, monday.com. */
+/** A tracker's name, for words a person reads: GitHub, Jira, Azure DevOps, monday.com, Slack. */
 export const trackerName = (kind: TrackerKind): string => TRACKER_NAMES[kind];
 
 /** What a button that signs in to a tracker says. */
@@ -48,7 +48,10 @@ export interface Comment {
 }
 
 export interface Ticket {
-  /** GH-12 for a GitHub issue, the Jira key (MSP-7), AB-123 for an Azure work item, or MON-123 for a monday.com item. The same id acc's ledger uses. */
+  /**
+   * GH-12 for a GitHub issue, the Jira key (MSP-7), AB-123 for an Azure work item, MON-123 for a monday.com item, or
+   * SL-1696512345123456 for a Slack thread. The same id acc's ledger uses.
+   */
   key: string;
   kind: TrackerKind;
   url: string;
@@ -183,13 +186,16 @@ export const orList = (names: string[]): string => (names.length < 2 ? names.joi
 /**
  * Where a tracker's tickets come from, in words (D-072): "Jira · ACME · epic ACME-3 Premium Support",
  * "GitHub · acme/service · labels billing or invoices", "Azure DevOps · CRM · Sales · area CRM\Billing",
- * "monday.com · acme · Client work · group Topics". With no narrower place, just the project, repo or
- * board. A monday.com board and group are named by id until the board has loaded and said their names.
+ * "monday.com · acme · Client work · group Topics", "Slack · acme · channel C0123ABCD". With no narrower place, just
+ * the project, repo or board. A monday.com board and group are named by id until the board has loaded and said
+ * their names.
  */
 export function placeText(p: {
   kind: TrackerKind; project?: string | null; repo?: string | null; team?: string | null; epic?: string | null; epicName?: string | null; labels?: string[]; areaPath?: string | null;
   account?: string | null; board?: string | number | null; boardName?: string | null; group?: string | null; groupName?: string | null;
+  workspace?: string | null; channel?: string | null;
 }): string {
+  if (p.kind === 'slack') return `Slack · ${p.workspace ?? '?'} · channel ${p.channel ?? '?'}`;
   if (p.kind === 'monday') return `monday.com · ${p.account ?? '?'} · ${p.boardName ?? `board ${p.board ?? '?'}`}${p.group ? ` · group ${p.groupName ?? p.group}` : ''}`;
   if (p.kind === 'github') {
     const labels = p.labels ?? [];

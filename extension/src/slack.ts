@@ -12,6 +12,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { AutopilotRecord } from '../../packages/core/src/autopilot-log.ts';
 import { runStartedAt, type Task } from '../../packages/core/src/ledger.ts';
+import { slackEscape } from '../../packages/core/src/text.ts';
 import { isTrackerKind } from '../../packages/core/src/trackers/types.ts';
 import { EVENT_WORDS, type Update } from '../../packages/core/src/updates.ts';
 import type { NoticeKind, TaskNotice } from './logic/notices.ts';
@@ -45,9 +46,6 @@ export const SLACK_CLAIM_DAYS = 30;
 
 /** Only Slack's own incoming webhooks: a notice never goes to any other address. */
 export const isSlackWebhook = (url: string): boolean => url.length <= 300 && /^https:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+$/.test(url);
-
-/** Slack's three control characters, so a title like <!channel> is text, not a mention. */
-export const slackEscape = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 /** A title on one line, and short. */
 const oneLine = (s: string, max = 150): string => {

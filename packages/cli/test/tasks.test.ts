@@ -149,7 +149,7 @@ test('acc intake jira --file follows tickets that left the place: removes a task
 
   writeFileSync(file, '{"outside": [{"key": 7}]}');
   assert.equal(acc(dir, ['intake', 'azure', '--file', file]).code, 2, 'a report in the wrong shape');
-  assert.match(acc(dir, ['help']).out, /acc intake jira\|azure\|monday --file <report\.json>/);
+  assert.match(acc(dir, ['help']).out, /acc intake jira\|azure\|monday\|slack --file <report\.json>/);
 });
 
 test('acc intake monday --file follows items that left the board or its group: removes a task never started, names one that did (D-072)', () => {
