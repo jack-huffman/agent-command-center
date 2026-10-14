@@ -3,7 +3,7 @@
 import type { TrackerBoard, TrackerCard } from '../src/model/boards.ts';
 import type { TasksModel } from '../src/model/tasks.ts';
 import { cardFoot, cardMenu, moreMenu } from './boards.ts';
-import { actionButton, avatar, button, type Child, el, empty, header, icon, labelChip, peekable, plural, status, titled, toolbarButton } from './dom.ts';
+import { actionButton, avatar, button, type Child, el, empty, header, icon, keptInput, labelChip, peekable, plural, status, titled, toolbarButton } from './dom.ts';
 import { api, go, memory, type PageArea, remember, state } from './state.ts';
 
 export function renderTasks(m: TasksModel): Node[] {
@@ -35,7 +35,9 @@ export function renderTasks(m: TasksModel): Node[] {
       tools.unshift(toggle);
       if (mode === 'tracker') {
         const cards = p.boards.reduce((n, b) => n + b.columns.reduce((k, c) => k + c.cards.length, 0), 0);
-        const head = header(m.projects.length > 1 ? `Tasks · ${p.name}` : 'Tasks', `${p.name}: ${plural(cards, 'ticket')} on the board${ready ? `, ${ready} ready for an agent` : ''}${needs ? `, ${needs} need${needs === 1 ? 's' : ''} you` : ''}.`, ...tools);
+        // A Slack channel has no board to count (T-31): its tasks are counted instead.
+        const counted = p.boards.some((b) => !b.paste) ? `${p.name}: ${plural(cards, 'ticket')} on the board${ready ? `, ${ready} ready for an agent` : ''}${needs ? `, ${needs} need${needs === 1 ? 's' : ''} you` : ''}.` : summary;
+        const head = header(m.projects.length > 1 ? `Tasks · ${p.name}` : 'Tasks', counted, ...tools);
         return el('div', 'project', head, ...p.boards.map((b) => renderTrackerBoard(p.root, b)));
       }
     }
@@ -172,6 +174,48 @@ function trackButton(root: string, b: TrackerBoard, key: string, busy: boolean):
   return go;
 }
 
+/** What each Slack tracker's box holds as it's typed, by `${root}#${index}`, so a redraw keeps it. */
+const typedLinks = new Map<string, string>();
+
+/**
+ * A Slack tracker's box for a thread's link (T-31): Track reads the thread and gives it to acc. Track is off
+ * until there's a link, and says Tracking… while it goes. Under the box: which channel the thread must be
+ * in, then why the last Track didn't go (orange, with a warning icon), or the key it tracked (blue, with a check).
+ */
+function threadLink(root: string, b: TrackerBoard, paste: NonNullable<TrackerBoard['paste']>): HTMLElement {
+  const id = `${root}#${b.index}`;
+  // The link last sent stays in the box until something else is typed, so a refused one can be fixed.
+  if (!typedLinks.has(id) && paste.link) typedLinks.set(id, paste.link);
+  const send = () => {
+    const link = (typedLinks.get(id) ?? '').trim();
+    if (!link || go.disabled) return;
+    show(true);
+    api.postMessage({ type: 'track-link', project: root, tracker: b.index, link });
+  };
+  const input = keptInput(`thread-link:${id}`, typedLinks.get(id) ?? '', paste.example, (v) => { typedLinks.set(id, v); show(paste.busy); }, send, 'url');
+  input.id = `thread-link-${b.index}`;
+  input.spellcheck = false;
+  input.setAttribute('aria-label', 'Slack thread link');
+  if (paste.error) input.setAttribute('aria-invalid', 'true');
+  const go = button('Track', 'add', send, 'primary');
+  const show = (busy: boolean) => {
+    const empty = !(typedLinks.get(id) ?? '').trim();
+    go.replaceChildren(icon(busy ? 'sync~spin' : 'add'), busy ? 'Tracking…' : 'Track');
+    go.disabled = busy || empty;
+    go.title = busy ? 'Reading the thread from Slack' : empty ? 'Paste a thread\'s link first' : 'Add the thread to acc, to analyze or dispatch it. The thread isn\'t changed.';
+  };
+  show(paste.busy);
+  const label = el('label', 'cfield-label', 'Thread\'s link');
+  label.setAttribute('for', input.id);
+  return el('div', 'thread-link',
+    label,
+    el('div', 'cfield-control',
+      el('div', 'cfield-input', input, go),
+      el('p', 'cfield-hint muted', paste.hint),
+      paste.error ? el('div', 'cfield-status tone-orange', icon('warning', 'orange'), el('span', '', `Couldn't track it: ${paste.error}`)) : null,
+      paste.tracked && !paste.error && !paste.busy ? el('div', 'cfield-status', icon('check', 'blue'), el('span', '', `Tracked ${paste.tracked}. It's on the Agent board.`)) : null));
+}
+
 function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
   const tools: Child[] = [];
   if (b.url) {
@@ -210,6 +254,11 @@ function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
     out.append(el('div', 'notice attention', icon('warning', 'orange'), el('span', '', b.error), fix));
   }
   if (b.notice) out.append(el('div', 'notice info', icon('info', 'blue'), el('span', '', b.notice)));
+  // A Slack channel has no board (T-31): a box for a thread's link stands in its place.
+  if (b.paste) {
+    out.append(threadLink(root, b, b.paste));
+    return out;
+  }
   if (!b.columns.length) {
     if (!b.error) out.append(el('p', 'muted', b.loading ? 'Loading the board…' : 'This board has no columns.'));
     return out;

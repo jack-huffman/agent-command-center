@@ -17,6 +17,7 @@ import { Pending } from '../webview/pending.ts';
 import type { Hub, Project } from './hub.ts';
 import { accImport, accSetTracker, cardTracking, credInUse, credSite, credWrites, type CredWrites, liveTrackKeys, outsideKeys, placeCandidates, readCreds, reloadRoots, repoKey, signOutPlan, type StoredCreds, trackerHost, type TrackReply, type TrackState, trackTicket } from './logic/connect.ts';
 import { inProcessWords } from './logic/processes.ts';
+import { NO_PASTE, type PasteState, type SlackPlace, trackLink } from './logic/slack-link.ts';
 import { runFile } from './run.ts';
 import type { ExtensionArea } from './area.ts';
 
@@ -31,6 +32,8 @@ export type { TrackState };
 export interface BoardState extends Loaded {
   /** Its cards being tracked, or whose last Track didn't go, by key (D-074). */
   tracking: Record<string, TrackState>;
+  /** A Slack tracker's box for a thread's link (T-31), in place of a board: its channel, and its Track's state. Null for the rest. */
+  paste: (SlackPlace & PasteState) | null;
 }
 
 interface Loaded {
@@ -93,6 +96,8 @@ export class Trackers implements vscode.Disposable {
   readonly onDidChange = this.emitter.event;
   /** Tickets being tracked, and why each one's last try didn't go, by `${root}#${KEY}` (D-074). */
   private readonly tracking = new Pending<'track'>();
+  /** Each Slack tracker's box for a thread's link (T-31), by `${root}#${index}`: its last Track's state. */
+  private readonly pastes = new Map<string, PasteState>();
   private readonly trackEmitter = new vscode.EventEmitter<string>();
   /** Fires with a project root when one of its tickets starts or stops being tracked, so its pages say so. */
   readonly onDidTrack = this.trackEmitter.event;
@@ -198,10 +203,15 @@ export class Trackers implements vscode.Disposable {
   }
 
   boardStates(root: string): BoardState[] {
-    return (this.boards.get(root) ?? []).map((s) => ({
-      ...s,
-      tracking: cardTracking(s.board?.cards ?? [], (key) => this.trackState(root, key)),
-    }));
+    const p = this.hub.project(root);
+    return (this.boards.get(root) ?? []).map((s) => {
+      const t = p ? this.trackers(p)[s.index] : undefined;
+      return {
+        ...s,
+        tracking: cardTracking(s.board?.cards ?? [], (key) => this.trackState(root, key)),
+        paste: t?.kind === 'slack' ? { workspace: t.workspace, channel: t.channel, prefix: t.prefix, ...(this.pastes.get(`${root}#${s.index}`) ?? NO_PASTE) } : null,
+      };
+    });
   }
 
   /** Whether a ticket is being tracked now, and why its last Track didn't go (D-074). */
@@ -285,6 +295,8 @@ export class Trackers implements vscode.Disposable {
       await Promise.all(states.map(async (s) => {
         try {
           const client = await this.client(p, s.index);
+          // A Slack channel has no board (T-31): its box takes a thread's link, so its client's refusal isn't shown.
+          if (s.kind === 'slack') return;
           s.board = await client.board();
           s.place = s.board.place;
           s.error = null;
@@ -369,6 +381,21 @@ export class Trackers implements vscode.Disposable {
       },
       reload: () => this.hub.loadTasks(true),
       changed,
+    });
+  }
+
+  /**
+   * Track from a Slack tracker's box (T-31): the link is read before Track upper-cases it, so its case never
+   * matters, and one from another workspace or channel is refused, naming it. Track then reads the thread
+   * and gives it to acc; a second Track of one thread changes its task's text, never adding a second.
+   */
+  trackLink(p: Project, index: number, link: string): Promise<TrackReply> {
+    const t = this.trackers(p)[index];
+    const id = `${p.root}#${index}`;
+    if (t?.kind !== 'slack') return Promise.resolve({ ok: false, error: 'That tracker isn\'t a Slack channel.' });
+    return trackLink(link, t, (key) => this.track(p, index, key), (state) => {
+      this.pastes.set(id, state);
+      this.emitter.fire(p.root);
     });
   }
 
@@ -602,6 +629,11 @@ export const area: ExtensionArea = {
       if (p) await trackers.track(p, tracker, key);
     };
     receive('move', (m) => { if (hub.project(m.project)) void move(m.project, m.tracker, m.key, m.to); });
+    receive('track-link', (m) => {
+      const p = hub.project(m.project);
+      if (p) void trackers.trackLink(p, m.tracker, m.link);
+      else panels.post(); // the box stops saying Tracking…
+    });
     receive('track', (m) => {
       if (hub.project(m.project)) void track(m.project, m.tracker, m.key);
       else panels.post(); // the card stops saying Tracking…

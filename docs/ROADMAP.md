@@ -69,8 +69,10 @@ where each one's done-when is written out.
 
 ## Later
 
-- **Slack as a ticket source**: not started. Checked 2026-10-10. Evidence:
-  D-005, D-078. Slack is only a place acc's notices go to today (D-078).
+- **Slack as a ticket source**: under way. Checked 2026-10-14. Evidence:
+  D-145, D-146, D-148. A channel connects with a Slack app's bot token, and a
+  thread becomes a task when its link is pasted on the Tasks tab. A board of
+  Slack messages with a reaction is still to come.
 - **A pull request monitor that turns failing CI or a conflict into rework**:
   done. Checked 2026-10-10. Evidence: D-058, D-076. A conflict is merged from
   the base (D-058), and a pull request whose checks fail goes back to its

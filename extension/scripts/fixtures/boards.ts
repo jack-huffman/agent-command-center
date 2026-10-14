@@ -1,4 +1,5 @@
-/** Tracker boards (D-026): a Jira board and a monday.com board, with acc's tasks for some of their cards. */
+/** Tracker boards (D-026): a Jira board and a monday.com board, with acc's tasks for some of their cards, and a Slack channel's box. */
+import { NO_PASTE, slackLinkKey } from '../../src/logic/slack-link.ts';
 import type { BoardInput } from '../../src/model/boards.ts';
 
 const status = (id: string, name: string, category: 'todo' | 'doing' | 'done') => ({ id, name, category });
@@ -125,5 +126,20 @@ export function sampleGithubBoards(): BoardInput[] {
         card(43, 'Document the release steps', OPEN), card(38, 'Add a dark theme to the report', CLOSED),
       ],
     },
+  }];
+}
+
+/**
+ * A Slack channel (T-31): no board, so a box takes a thread's link in its place, and says which channel
+ * the thread must be in. Empty, or with a link to a thread in another channel, which Track refused.
+ */
+export function sampleSlackBoards(refused = false): BoardInput[] {
+  const place = { workspace: 'acme', channel: 'C0123ABCD', prefix: null };
+  const link = 'https://acme.slack.com/archives/C0999WXYZ/p1696512345123456';
+  const read = slackLinkKey(link, place);
+  return [{
+    index: 0, kind: 'slack', title: 'Slack · acme', error: null, connect: null, loading: false, signedInAs: 'a Slack app\'s bot token',
+    signInScope: { shared: false, host: 'acme' }, place: 'Slack · acme · channel C0123ABCD', left: [], board: null,
+    paste: { ...place, ...(refused ? { link, busy: false, error: read.ok ? null : read.error, tracked: null } : NO_PASTE) },
   }];
 }
