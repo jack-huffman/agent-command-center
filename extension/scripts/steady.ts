@@ -35,6 +35,24 @@ export function drawRetrying<T extends Drawn>(draw: () => T, what: string, retri
 /** The summary's words for the drawings drawn twice: how many, and which. Empty when none were. */
 export const retriedSummary = (retried: string[]): string => (retried.length ? ` Retried ${retried.length} drawing${retried.length === 1 ? '' : 's'} that timed out: ${retried.join('; ')}.` : ' Retried no drawings.');
 
+/**
+ * The page's side (T-21): loads every font its stylesheets name, then calls then. The page waits on it
+ * before it's sent its model, so the rail first draws with the icon font in place. The icon font loads only
+ * once a glyph needs it: drawn first, the rail scrolled its selected tab into view at the fallback font's
+ * widths, the font then widened every tab, and the tab sat past the strip's edge on a busy machine, where
+ * the font came late. Its count is kept in accFontsFirst, which the geometry carries: none means nothing waited.
+ * A font that fails to load leaves then uncalled, so the page measures nothing and the run fails it as measuring no geometry.
+ * Its error is kept in accFontsFailed for a person looking at the page; the run doesn't report it.
+ */
+export const FONTS_FIRST = `
+function fontsFirst(fonts, then) {
+  const faces = [...fonts];
+  Promise.all(faces.map((f) => f.load())).then(() => { window.accFontsFirst = faces.length; then(); }, (e) => { window.accFontsFailed = String(e); });
+}`;
+
+/** Why a drawing's measure can't be trusted when its page loaded no fonts before its model (T-21), else null. */
+export const fontsUnwaited = (what: string, fonts: number | undefined): string | null => (fonts ? null : `${what} loaded no fonts before its model, so a font that comes late could move what it measured.`);
+
 /** Frames in a row the selected tab must hold still before the page is measured. */
 export const SETTLE_FRAMES = 3;
 /** Frames to wait at most: a tab still moving then is measured where it is, so a real misplacement still fails. */

@@ -58,7 +58,7 @@ import { SETUP_PARTS } from '../src/logic/first-open.ts';
 import { PALETTE_THEMES, type PaletteTheme, palettes, vscodeDefaults } from './styles.ts';
 import { loadingScreen } from '../src/logic/loading.ts';
 import { CHECKS, COLLECT_GEOMETRY, GEOMETRY_EXCEPTIONS, dumpedGeometry, geometrySummary, judge, type Render, runFailures } from './geometry.ts';
-import { drawRetrying, retriedSummary, SETTLE, shotTimeout } from './steady.ts';
+import { drawRetrying, FONTS_FIRST, fontsUnwaited, retriedSummary, SETTLE, shotTimeout } from './steady.ts';
 import { behaviourCheck } from './behaviour.ts';
 
 /**
@@ -274,7 +274,8 @@ function collectColours() {
  * data-theme. A shot forces Light or Dark under VSCode's other theme, so a colour that still comes from
  * VSCode's shows in it. With collect, the page also gathers its computed colours for the colour check;
  * with measure, its geometry for the geometry checks (GH-105), once its fonts have loaded, two frames
- * have drawn and the rail's selected tab has stopped moving (GH-167).
+ * have drawn and the rail's selected tab has stopped moving (GH-167). Every page loads its fonts before
+ * it's sent its model, so a font that comes late on a busy machine can't move the rail's tab (T-21).
  */
 export function pageFor(kind: Page, theme: ThemeChoice, model: Model, under: Theme = theme === 'light' ? 'dark' : 'light', collect = false, measure = false, after: Record<string, unknown>[] = afterModel(kind)): string {
   const vars = Object.entries({ ...palettes()[under], ...FONTS }).map(([k, v]) => `--vscode-${k}: ${v};`).join(' ');
@@ -302,9 +303,9 @@ function forceHover() {
     for (const r of rules) if (r.selectorText && r.selectorText.includes(':hover')) sheet.insertRule(r.cssText.replaceAll(':hover', '.acc-hover'), sheet.cssRules.length);
   }
   (document.querySelector('tbody tr:not(.group):not(.none)') ?? document.querySelector('.card'))?.classList.add('acc-hover');
-}${collect || measure ? COLLECT : ''}${collect ? COLLECT_COLOURS : ''}${measure ? COLLECT_GEOMETRY + SETTLE : ''}
+}${FONTS_FIRST}${collect || measure ? COLLECT : ''}${collect ? COLLECT_COLOURS : ''}${measure ? COLLECT_GEOMETRY + SETTLE : ''}
 window.acquireVsCodeApi = () => ({
-  postMessage(m) { if (m.type === 'ready') setTimeout(() => { ${send}setTimeout(forceHover, 50);${collect ? ' setTimeout(collectColours, 500);' : ''}${measure ? ` setTimeout(() => { ${faded}document.fonts.ready.then(() => requestAnimationFrame(() => requestAnimationFrame(() => settle(selectedTab, requestAnimationFrame, collectGeometry)))); }, 300);` : ''} }); },
+  postMessage(m) { if (m.type === 'ready') fontsFirst(document.fonts, () => setTimeout(() => { ${send}setTimeout(forceHover, 50);${collect ? ' setTimeout(collectColours, 500);' : ''}${measure ? ` setTimeout(() => { ${faded}document.fonts.ready.then(() => requestAnimationFrame(() => requestAnimationFrame(() => settle(selectedTab, requestAnimationFrame, collectGeometry)))); }, 300);` : ''} })); },
   getState() { return ${JSON.stringify(startState(kind)) ?? 'undefined'}; }, setState() {},
 });
 </script>
@@ -578,6 +579,9 @@ async function main(argv: string[]): Promise<number> {
           if (!existsSync(png)) return fail(`Chrome didn't write ${png} (exit ${r.status ?? r.signal}).`);
           const shot = dumpedGeometry(String(r.stdout ?? ''));
           if (!shot) return fail(`${view} (${theme}, ${width}px) measured no geometry (exit ${r.status ?? r.signal}).`);
+          // A late font moves the rail's tab, so a page that loaded none first was measured by chance (T-21).
+          const unwaited = fontsUnwaited(what, shot.fonts);
+          if (unwaited) return fail(unwaited);
           const verdict = judge(shot, viewOf(view) === 'home' && !still(view), GEOMETRY_EXCEPTIONS, !still(view));
           renders.push({ page: view, theme, width, verdict });
           if (noting) taken[`${view}-${theme}-${width}.png`] = { fingerprint: print, sha256: sha256Of(png), takenAt: new Date().toISOString(), findings: verdict.violations.length, drawn: [...new Set(shot.drawn ?? [])].sort() };
