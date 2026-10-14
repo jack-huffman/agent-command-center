@@ -284,6 +284,16 @@ test('slackApp is the app\'s name from bots.info, and falls back to the bot user
   await assert.rejects(slackApp('acme', 'xoxb-test', other.fetch), /workspace globex/);
 });
 
+test('me is the app\'s name as slackApp gives it, once, and the bot user\'s name when bots.info fails or there is no bot', async () => {
+  const routes = { 'auth.test': { ...AUTH, bot_id: 'B0APP' }, 'bots.info': { ok: true, bot: { id: 'B0APP', name: 'Acme Command Center' } } };
+  const named = fakeSlack(routes);
+  const c = client(named.fetch);
+  assert.deepEqual([await c.me(), await c.me()], [await slackApp('acme', 'xoxb-test', fakeSlack(routes).fetch), { id: 'U0BOT', name: 'Acme Command Center' }]);
+  assert.equal(named.calls.filter((x) => x.method === 'bots.info').length, 1, 'asked once, not on every draw of a page');
+  const failed = fakeSlack({ 'auth.test': { ...AUTH, bot_id: 'B0APP' }, 'bots.info': { ok: false, error: 'missing_scope', needed: 'users:read' } });
+  assert.equal((await client(failed.fetch).me()).name, 'acc-bot', 'bots.info refused: the bot user\'s name, as slackApp gives it');
+});
+
 test('slackChannels lists the public and private channels the app is in, by name, a page at a time, and an empty workspace is an empty list', async () => {
   const pages: Record<string, unknown> = {
     '': { ok: true, channels: [

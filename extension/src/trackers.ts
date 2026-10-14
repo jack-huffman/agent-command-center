@@ -187,7 +187,10 @@ export class Trackers implements vscode.Disposable {
     if (!t) return null;
     if (t.kind === 'github') return p.config.github?.account ? { who: p.config.github.account, scope: null } : null;
     const c = await this.credFor(p, t);
-    return c ? { who: credWho(c.cred), scope: { shared: c.shared, host: hostOf(t) } } : null;
+    if (!c) return null;
+    // A Slack reply posts as the app, so it says the app's name, as the Connect page does; a client that can't say leaves the token's words.
+    const app = t.kind === 'slack' ? await this.client(p, index).then((x) => x.me()).then((m) => m.name).catch(() => null) : null;
+    return { who: app ?? credWho(c.cred), scope: { shared: c.shared, host: hostOf(t) } };
   }
 
   /** The trackers this repo names but hasn't signed in to yet. GitHub signs in through gh, so it's never listed. */
