@@ -1,13 +1,15 @@
 // The Overview as a landing page (GH-160): one line per item, things of a kind collapsed into one line,
-// five to a list with Show all, and every action the Overview had still a click or a menu away.
+// Needs you's first three with Show all, a card for each other list (T-36), and every action the Overview
+// had still a click or a menu away.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import type { HubLike, Ref } from '../src/model/shared.ts';
 import { type HomeModel, homeModel } from '../src/model/home.ts';
-import { CAP, checksFact, type Detail, type LandingGroup, type LandingRow, type RowDo, TASK_MENU } from '../src/model/landing.ts';
+import { CAP, checksFact, type Detail, landing, type LandingGroup, type LandingRow, type RowDo, TASK_MENU } from '../src/model/landing.ts';
 import type { OverviewModel } from '../src/model/overview.ts';
+import { CARD_ORDER, cardLine, overviewCards } from '../webview/pending.ts';
 import { cardActions } from '../src/model/cards.ts';
 import { pickStop } from '../src/progress.ts';
 import { sampleLandingHub } from '../scripts/fixtures/landing.ts';
@@ -22,7 +24,7 @@ import { manifest, menuFor, root } from './support.ts';
 const NOW = Date.parse('2026-10-09T12:00:00Z');
 const busy = (hub: HubLike = sampleLandingHub(NOW)): HomeModel => homeModel({ hub, section: 'overview', boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: [], edited: sampleEdited, autopilot: () => 'on', now: NOW });
 const group = (m: HomeModel, key: LandingGroup['key']): LandingGroup => m.overview.landing.find((g) => g.key === key)!;
-const every = (g: LandingGroup): LandingRow[] => g.all ?? g.rows;
+const every = (g: LandingGroup): LandingRow[] => g.all;
 
 test('suggested rules and update drafts each collapse into one line, with how many; questions come first (GH-160)', () => {
   const m = busy();
@@ -35,7 +37,7 @@ test('suggested rules and update drafts each collapse into one line, with how ma
   const drafts = needs.filter((r) => r.key === 'updates');
   assert.deepEqual(drafts.map((r) => [r.title, r.facts.map((f) => f.text), r.look.tone, r.action?.do]), [['2 update drafts waiting to post', ['ACME-10, ACME-12'], 'orange', { kind: 'detail', detail: { kind: 'updates' } }]]);
   assert.ok(!needs.some((r) => r.key.startsWith('u:')), 'no draft has a line of its own');
-  // Three questions first, then the drafts, so they show within the five.
+  // Three questions first, then the drafts: the questions are the three Needs you shows.
   assert.deepEqual(needs.slice(0, 4).map((r) => r.key), ['q:m1-aaaa0001', 'q:m1-aaaa0002', 'q:m1-aaaa0003', 'updates']);
   assert.equal(group(m, 'needs-you').count, m.overview.questions.length + m.overview.attention.filter((a) => a.look.tone === 'orange').length, 'the heading counts each thing, though drafts share a line');
   // One draft is still a line of its own kind; drafts only posting wait on nobody.
@@ -43,23 +45,25 @@ test('suggested rules and update drafts each collapse into one line, with how ma
   assert.equal(every(group(one, 'needs-you')).find((r) => r.key === 'updates')?.title, '1 update draft waiting to post');
 });
 
-test('no list shows more than five lines, and Show all says how many and where it goes (GH-160)', () => {
+test('Needs you shows three lines and Show all; every other list shows none on the page, and holds every line for its card (T-36)', () => {
   const m = busy();
-  for (const g of m.overview.landing) {
-    assert.ok(g.rows.length <= CAP, `${g.key} shows ${g.rows.length}`);
-    if (g.total > CAP) assert.equal(g.more?.label, `Show all ${g.total}`, g.key);
-    else assert.equal(g.more, null, g.key);
-  }
-  assert.equal(CAP, 5);
+  assert.equal(CAP, 3);
   const needs = group(m, 'needs-you');
-  assert.ok(needs.total > CAP && needs.all?.length === needs.total, 'every line, for the list in the modal');
+  assert.deepEqual([needs.shows, needs.rows.length, needs.more?.label], [3, 3, `Show all ${needs.total}`]);
+  assert.ok(needs.total > CAP && needs.all.length === needs.total, 'every line, for the list in the modal');
   assert.deepEqual(needs.more?.do, { kind: 'detail', detail: { kind: 'list', group: 'needs-you' } });
-  assert.deepEqual(needs.rows, needs.all!.slice(0, CAP));
-  // Ready goes to Tasks, and History opens in full over the page: each has a page or a detail of its own.
-  assert.deepEqual([group(m, 'ready').total, group(m, 'ready').more?.label, group(m, 'ready').more?.do, group(m, 'ready').all], [6, 'Show all 6', { kind: 'go', section: 'tasks' }, null]);
-  assert.deepEqual([group(m, 'history').total, group(m, 'history').rows.length, group(m, 'history').more?.label, group(m, 'history').more?.do], [12, 5, 'Show all 12', { kind: 'detail', detail: { kind: 'history' } }]);
-  assert.deepEqual([group(m, 'progress').total, group(m, 'progress').more?.label], [6, 'Show all 6']);
-  // Five or fewer: no Show all.
+  assert.deepEqual(needs.rows, needs.all.slice(0, CAP));
+  for (const g of m.overview.landing.filter((x) => x.key !== 'needs-you')) {
+    assert.deepEqual([g.shows, g.rows, g.more, g.all.length], [0, [], null, g.total], `${g.key}: a card, with every line`);
+    assert.deepEqual(g.opens, g.key === 'history' ? { kind: 'history' } : { kind: 'list', group: g.key }, g.key);
+  }
+  // Ready and In progress hold every line now, not their first five; History every item, which its detail draws in full.
+  assert.deepEqual([group(m, 'ready').total, group(m, 'progress').total, group(m, 'history').total, group(m, 'history').all.length], [6, 6, 12, m.overview.history.length]);
+  // Three or fewer in Needs you: no Show all. With nothing in it, its empty line says so.
+  const few = landing({ ...m.overview, questions: m.overview.questions.slice(0, 2), attention: [] }, NOW).find((g) => g.key === 'needs-you')!;
+  assert.deepEqual([few.rows.length, few.total, few.more], [2, 2, null]);
+  const none = landing({ ...m.overview, questions: [], attention: [] }, NOW).find((g) => g.key === 'needs-you')!;
+  assert.deepEqual([none.rows, none.more, none.title, none.empty], [[], null, 'All clear', 'No agent is waiting, nothing is blocked, and setup is done.']);
   const quiet = busy({ ...sampleLandingHub(NOW), history: () => [], autopilotLog: () => [], answers: [] });
   assert.deepEqual([group(quiet, 'history').total, group(quiet, 'history').more, group(quiet, 'history').empty], [0, null, 'What agents and tasks do shows up here.']);
   // Each line says two facts at most.
@@ -91,7 +95,7 @@ test('each line opens its detail with the actions it had before (GH-160)', () =>
   // Ready, the merge queue and History open their task; an answer in History opens History at it.
   const ready = every(group(m, 'ready'))[0]!;
   assert.deepEqual([ready.look.label, ready.action?.label, ready.open?.kind], ['Ready', 'Dispatch', 'task']);
-  const h = group(m, 'history').rows;
+  const h = group(m, 'history').all;
   assert.ok(h.some((r) => r.open?.kind === 'task') && h.some((r) => r.open?.kind === 'detail'));
   const queued = every(group(busy(sampleQueueHub(NOW)), 'queue'));
   assert.deepEqual(queued.map((r) => [r.id, r.facts[0]?.text, r.action?.label, r.open?.kind]), [['GH-41', 'next to merge', '#141', 'task'], ['GH-44', '2nd in line', '#144', 'task'], ['GH-47', '3rd in line', '#147', 'task']]);
@@ -226,10 +230,11 @@ function after(m: HomeModel, hub: HubLike): Set<string> {
       else out.add(`run ${command} ${refKey(r.menu.ref)}`);
     }
   };
-  for (const g of o.landing) {
-    for (const r of every(g)) line(r);
-    if (g.more) does(g.more.do);
-  }
+  // What the page draws: Needs you's lines and Show all, and a card for each other list, which opens it (T-36).
+  for (const r of group(m, 'needs-you').rows) line(r);
+  const needs = group(m, 'needs-you').more;
+  if (needs) does(needs.do);
+  for (const c of o.cards) does({ kind: 'detail', detail: c.opens });
   return out;
 }
 
@@ -286,8 +291,88 @@ test('only Needs you has primary buttons on the busy Overview; no other list, no
   const ready = buttons('ready');
   assert.ok(ready.filter((b) => b.label === 'Dispatch').length >= 4 && ready.every((b) => b.primary === false), 'Ready\'s Dispatch buttons are outlined');
   // Show all's full list says the same as the five the page shows.
-  const all = group(m, 'needs-you').all!;
+  const all = group(m, 'needs-you').all;
   assert.ok(all.length > CAP && all.every((r) => !r.action || r.action.primary));
   // The page draws primary from the model, and nothing else.
   assert.ok(readFileSync(join(root, 'webview', 'landing.ts'), 'utf8').includes('`btn lp-btn${b.primary ? \' primary\' : \'\'}`'));
+});
+
+test('every list the Overview had is on the page or one click away: Needs you\'s lines and Show all, and each other list\'s card opens all of it (T-36)', () => {
+  let walked = 0;
+  for (const [name, hub] of [['the busy Overview', sampleLandingHub(NOW)], ['a merge queue', sampleQueueHub(NOW)]] as const) {
+    const m = busy(hub);
+    const o = m.overview;
+    for (const g of o.landing) {
+      if (!g.all.length) continue;
+      if (g.key === 'needs-you') {
+        // On the page, or in the list Show all opens.
+        const shown = new Set([...g.rows, ...(g.more?.do.kind === 'detail' && g.more.do.detail.kind === 'list' ? g.all : [])].map((r) => r.key));
+        assert.deepEqual(g.all.filter((r) => !shown.has(r.key)).map((r) => r.key), [], `${name}: Needs you`);
+        walked += g.all.length;
+        continue;
+      }
+      const card = o.cards.find((c) => c.key === g.key);
+      assert.ok(card, `${name}: ${g.key} has a card`);
+      // What the card opens holds every line: the list's detail draws g.all, History's draws every item (detail.ts).
+      if (card.opens.kind === 'history') assert.equal(o.history.length, g.all.length, `${name}: History in full`);
+      else assert.deepEqual(card.opens, { kind: 'list', group: g.key }, `${name}: ${g.key}`);
+      walked += g.all.length;
+    }
+  }
+  assert.ok(walked >= 40, `walked ${walked} lines`);
+  // Each list the busy Overview shows today is among them: none slipped through as empty.
+  const lists = busy().overview.landing.filter((g) => g.all.length).map((g) => g.key);
+  assert.deepEqual(lists, ['needs-you', 'moment', 'progress', 'ready', 'history']);
+  assert.ok(busy(sampleQueueHub(NOW)).overview.cards.some((c) => c.key === 'queue'), 'the merge queue, when it holds something');
+});
+
+test('the model carries a card for each list but Needs you, in order, with its count and one line; an empty list has none (T-36)', () => {
+  const o = busy().overview;
+  assert.deepEqual(CARD_ORDER, ['progress', 'ready', 'moment', 'history', 'queue']);
+  assert.deepEqual(o.cards.map((c) => [c.key, c.title, c.count]), [
+    ['progress', 'In progress', group(busy(), 'progress').count], ['ready', 'Ready for an agent', 6], ['moment', 'When you have a moment', group(busy(), 'moment').count], ['history', 'History', 12],
+  ]);
+  assert.deepEqual(o.cards, overviewCards(o.landing), 'the model\'s cards are the page\'s helper\'s');
+  for (const c of o.cards) assert.ok(c.line.trim() && c.count > 0, `${c.key}: a line and a count`);
+  // The empty edge: no history, nothing ready, nothing running, no queue: no card for any of them.
+  const quiet = busy({ ...sampleLandingHub(NOW), history: () => [], autopilotLog: () => [], answers: [], taskRows: () => [], jobs: () => [] } as HubLike);
+  const keys = quiet.overview.cards.map((c) => c.key);
+  for (const k of ['ready', 'history', 'queue'] as const) assert.ok(!keys.includes(k), `no ${k} card: ${keys.join(', ')}`);
+  for (const c of quiet.overview.cards) assert.ok(group(quiet, c.key).all.length > 0, `${c.key}: a card only with lines`);
+  assert.deepEqual(overviewCards([]), [], 'no lists, no cards');
+});
+
+test('a card\'s line says what waits on you in it, or what\'s first: each kind, and an empty list\'s (T-36)', () => {
+  const row = (id: string | null, title: string, label: string, tone: 'orange' | 'blue' | 'neutral' = 'neutral', fact?: string): LandingRow => ({ key: title, look: { label, icon: 'circle', tone }, id, title, facts: fact ? [{ text: fact }] : [], action: null, menu: null, open: null, tip: null });
+  const line = (key: LandingGroup['key'], all: LandingRow[]) => cardLine({ key, all });
+  assert.equal(line('progress', [row('ACME-13', 'Login', 'Working', 'blue'), row('ACME-12', 'Sum', 'Asks a question', 'orange'), row('ACME-11', 'X', 'Stopped', 'orange')]), '2 waiting on you');
+  assert.equal(line('progress', [row('ACME-13', 'Login', 'Working', 'blue')]), 'ACME-13 working');
+  assert.equal(line('ready', [row('ACME-16', 'Export', 'Ready')]), 'ACME-16 next');
+  assert.equal(line('queue', [row('GH-41', 'Fix', 'Checks running')]), 'GH-41 next to merge');
+  assert.equal(line('history', [row('ACME-12', 'Sum', 'Done', 'neutral', '4 min ago')]), 'ACME-12, done, 4 min ago');
+  assert.equal(line('history', [row(null, 'Run the checks', 'Passed')]), 'Run the checks, passed');
+  assert.equal(line('moment', [row(null, '10 suggested rules, from repeated review findings', 'Rules suggested')]), '10 suggested rules, from repeated review findings');
+  assert.equal(line('ready', []), '', 'an empty list has no line, and no card');
+});
+
+test('the Overview\'s header has one button, Add task, and a ⋯ menu that reaches what its buttons did; each card is named with its count (T-36)', () => {
+  const page = readFileSync(join(root, 'webview', 'overview.ts'), 'utf8');
+  // The menu's items, each with its name and icon, as the header's buttons had them.
+  assert.match(page, /\{ command: 'acc\.agent\.new', label: 'Start an agent', icon: 'hubot' \}/);
+  assert.match(page, /\{ command: 'acc\.trackers\.add', label: 'Add a tracker', icon: 'plug' \}/);
+  assert.match(page, /\{ command: 'refresh', label: 'Refresh', icon: 'refresh' \}/);
+  assert.ok(page.includes('export const HEADER_MENU = ['), 'HEADER_MENU');
+  // Start an agent and Add a tracker go as toolbar messages on the project, as toolbarButton sent them; Refresh as Refresh did.
+  assert.ok(page.includes("(a.command === 'refresh' ? refreshPage() : api.postMessage({ type: 'toolbar', command: a.command, project: root }))"));
+  assert.equal((page.match(/toolbarButton\(/g) ?? []).length, 2, 'Add task, or Onboard this project where there is none');
+  assert.ok(page.includes('pageHeader(\'Overview\', summary, ...tools)'), 'the header without the Refresh button header() adds');
+  const dom = readFileSync(join(root, 'webview', 'dom.ts'), 'utf8');
+  assert.ok(dom.includes("export const refreshPage = (): void => api.postMessage({ type: 'refresh' });") && dom.includes('return pageHeader(title, summary, ...tools, refresh);'));
+  // Both commands are ones the extension runs from the page.
+  for (const c of ['acc.agent.new', 'acc.trackers.add']) assert.ok(manifest.contributes.commands.some((x: { command: string }) => x.command === c), c);
+  // A card's accessible name holds its count; the behaviour run reads it on the drawn page.
+  const cards = readFileSync(join(root, 'webview', 'landing.ts'), 'utf8');
+  assert.ok(cards.includes("b.setAttribute('aria-label', `${c.title}, ${c.count}: ${c.line}`);"), 'landingCard names it with its count');
+  // In progress's machine line heads its detail, not the page.
+  assert.ok(readFileSync(join(root, 'webview', 'detail.ts'), 'utf8').includes("const top = d.group === 'progress' ? machineLine(o.inProgress) : null;"));
 });

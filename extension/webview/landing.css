@@ -6,6 +6,12 @@
 .lp-group { margin: 0 0 20px; min-width: 0; }
 .lp-group > h2 { margin: 0 0 8px; }
 .lp-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+/* On the Overview itself (T-36): more room between Needs you and the cards, less on each line. */
+.home-main .lp-group { margin-bottom: 32px; }
+.home-main .lp-rows { gap: 5px; }
+.home-main .lp-row { min-height: 32px; padding-top: 1px; padding-bottom: 1px; }
+.lp-clear { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--vscode-descriptionForeground); }
+.lp-clear > .codicon { flex: none; }
 .lp-row {
   display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 36px;
   padding: 3px 6px 3px 10px;

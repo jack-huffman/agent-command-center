@@ -1,7 +1,8 @@
 // The Overview's lines (GH-160): each one line high, a raised card of its own, with its state, its task's
 // key and title, two short facts at most and one button, the rest in its ⋯ menu. A click opens its detail.
+// On the Overview itself a line drops its facts, and each list but Needs you is a quiet card (T-36).
 
-import type { Detail, LandingGroup, LandingRow, RowButton, RowDo } from '../src/model/landing.ts';
+import type { Detail, LandingGroup, LandingRow, OverviewCard, RowButton, RowDo } from '../src/model/landing.ts';
 import { type Child, el, icon, menuButton, peekKey, withMenu } from './dom.ts';
 import { closeDetail, openDetail } from './detail.ts';
 import { api, go } from './state.ts';
@@ -36,16 +37,20 @@ function rowButton(b: RowButton): HTMLElement {
   return btn;
 }
 
-/** One of the Overview's lines. All it says is on hover; Enter or a click opens it, where it opens anything. */
-export function landingRow(r: LandingRow): HTMLElement {
+/**
+ * One of the Overview's lines. All it says is on hover; Enter or a click opens it, where it opens anything.
+ * Calm, as on the Overview itself (T-36), it keeps its state, its task, its title and its button: its facts
+ * are in its title.
+ */
+export function landingRow(r: LandingRow, calm = false): HTMLElement {
   const state = el('span', `status tone-${r.look.tone} lp-state`, icon(r.look.icon, r.look.tone), el('span', 'lp-state-text', r.look.label));
   state.title = r.look.label;
-  const facts: Child[] = r.facts.map((f) => Object.assign(el('span', 'lp-fact', f.text), { title: f.text }));
+  const facts: Child[] = calm ? [] : r.facts.map((f) => Object.assign(el('span', 'lp-fact', f.text), { title: f.text }));
   const caret = r.menu ? menuButton(r.id ? `${r.id} ${r.title}` : r.title) : null;
   const row = el('li', `lp-row tone-row-${r.look.tone}`, state, r.id ? el('span', 'tcard-key lp-key', r.id) : null, el('span', 'lp-title', r.title), ...facts,
     el('span', 'lp-do', r.action ? rowButton(r.action) : null, caret));
   row.dataset.overviewRow = '';
-  row.title = r.tip?.includes(r.title) ? r.tip : [r.id ? `${r.id} ${r.title}` : r.title, r.tip].filter(Boolean).join('\n');
+  row.title = [r.tip?.includes(r.title) ? r.tip : [r.id ? `${r.id} ${r.title}` : r.title, r.tip].filter(Boolean).join('\n'), ...(calm ? r.facts.map((f) => f.text) : [])].join('\n');
   if (r.menu) withMenu(row, r.menu.section, r.menu.ref, r.menu.flags);
   if (r.fading !== undefined) {
     row.classList.add('lp-fading');
@@ -71,40 +76,55 @@ export function landingRow(r: LandingRow): HTMLElement {
   return row;
 }
 
-/** A list of lines, as the page or a detail shows it. */
-export function landingRows(rows: LandingRow[], label: string): HTMLElement {
-  const list = el('ol', 'lp-rows', ...rows.map(landingRow));
+/** A list of lines, as a detail shows it, or calm, as the Overview does. */
+export function landingRows(rows: LandingRow[], label: string, calm = false): HTMLElement {
+  const list = el('ol', 'lp-rows', ...rows.map((r) => landingRow(r, calm)));
   list.setAttribute('aria-label', label);
   return list;
 }
 
-/** Show all N: the list in the modal, or the section's own page. */
+/** Show all N: the list in the modal. */
 export function showAll(g: LandingGroup): HTMLElement | null {
   const more = g.more;
   if (!more) return null;
-  const b = el('button', 'btn ghost small lp-more', icon(more.do.kind === 'go' ? 'arrow-right' : 'list-flat'), more.label) as HTMLButtonElement;
+  const b = el('button', 'btn ghost small lp-more', icon('list-flat'), more.label) as HTMLButtonElement;
   b.type = 'button';
-  b.title = more.do.kind === 'go' ? `${more.label}, on its own page` : `${more.label}, over the page`;
+  b.title = `${more.label}, over the page`;
   if (more.do.kind === 'detail') b.dataset.opens = opensKey(more.do.detail);
   b.addEventListener('click', () => runDo(more.do));
   return b;
 }
 
 /**
- * One of the Overview's lists: its heading with its count, its first five lines, and Show all. `head`
- * takes the heading's place, as In progress's fold does; `top` goes under it, as its machine line does.
+ * Needs you on the Overview: its heading with its count, its first three lines, calm, and Show all. With
+ * nothing in it, one calm line says so, with no heading (T-36).
  */
-export function landingGroup(g: LandingGroup, head?: HTMLElement, top?: Child): HTMLElement {
-  const h = head ?? el('h2', '', icon(g.icon, g.tone), g.title, g.count ? el('span', 'count', String(g.count)) : null);
-  const box = el('section', `lp-group lp-${g.key}`, h, top ?? null);
+export function landingGroup(g: LandingGroup): HTMLElement {
+  const box = el('section', `lp-group lp-${g.key}`);
   box.dataset.overviewGroup = g.key;
   box.setAttribute('aria-label', g.title);
   if (!g.rows.length) {
-    if (g.empty) box.append(el('p', 'muted quiet', g.empty));
+    if (g.empty) box.append(el('p', 'lp-clear', icon(g.icon, g.tone), el('span', '', g.empty)));
     return box;
   }
-  box.append(landingRows(g.rows, g.title));
+  box.append(el('h2', '', icon(g.icon, g.tone), g.title, g.count ? el('span', 'count', String(g.count)) : null), landingRows(g.rows, g.title, true));
   const more = showAll(g);
   if (more) box.append(more);
   return box;
+}
+
+/**
+ * One of the other lists, as a quiet card (T-36): its name, its count and one muted line. A click, or Enter,
+ * opens it in full over the page; focus comes back to it when that closes. Its name says its count.
+ */
+export function landingCard(c: OverviewCard): HTMLElement {
+  const b = el('button', 'lp-card', el('span', 'lp-card-top', icon(c.icon, c.tone), el('span', 'lp-card-title', c.title), el('span', 'count', String(c.count))),
+    el('span', 'lp-card-line', c.line)) as HTMLButtonElement;
+  b.type = 'button';
+  b.dataset.overviewCard = c.key;
+  b.dataset.opens = opensKey(c.opens);
+  b.setAttribute('aria-label', `${c.title}, ${c.count}: ${c.line}`);
+  b.title = `${c.title}: ${c.line}`;
+  b.addEventListener('click', () => openDetail(c.opens));
+  return b;
 }

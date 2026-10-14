@@ -42,7 +42,7 @@ html[data-theme="light"] body, html[data-theme="vscode"] body.vscode-light, html
   --lift: 0 1px 2px var(--vscode-widget-shadow, transparent), 0 3px 10px color-mix(in srgb, var(--vscode-widget-shadow, transparent) 45%, transparent);
 }
 /* The surfaces a person reads as things on the page: raised, with an edge and the lift. */
-.card, .lp-row, .tile, .settings-part, .side-panel, .env-card, .identity, .connect-step, .notice, .analysis {
+.card, .lp-row, .lp-card, .settings-part, .side-panel, .env-card, .identity, .connect-step, .notice, .analysis {
   border-color: var(--edge);
   box-shadow: var(--lift);
 }
@@ -92,8 +92,8 @@ h3 { font-size: 0.95em; font-weight: 600; margin: 4px 0 6px; color: var(--vscode
    as its list darkens instead, as a wide row that shrinks seems to jump. feel.test.ts holds every kind of
    button the page draws to a rule here. */
 .btn:active, .segmented .seg:active, .card-link:active, .more-btn:active, .icon-btn:active, .rule-source-link:active,
-.progress-toggle:active, .dock-title:active, .rail-account:active { transform: scale(0.97); transition: none; }
-.nav-item:active, .more-item:active, .q-choice:active, .q-option:active, .aq-suggest:active, .tile:active { background-image: linear-gradient(var(--pressed), var(--pressed)); transition: none; }
+.dock-title:active, .rail-account:active { transform: scale(0.97); transition: none; }
+.nav-item:active, .more-item:active, .q-choice:active, .q-option:active, .aq-suggest:active, .lp-card:active { background-image: linear-gradient(var(--pressed), var(--pressed)); transition: none; }
 .btn:focus-visible, button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
 
 /* An icon keeps a px size: the codicon font is drawn on a 16 px grid, and a whole px keeps it sharp. */

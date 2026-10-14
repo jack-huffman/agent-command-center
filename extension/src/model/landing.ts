@@ -1,9 +1,8 @@
 /**
- * The Overview as a landing page (GH-160): it says what's going on and where to look, one line per item,
- * and the detail opens on a click. Each line is a card with its state, its task's key and title, two short
- * facts at most and one button; the rest of what it did is in its ⋯ menu or in the detail it opens. Things
- * of one kind collapse into one line: every suggested rule, every update draft. No list shows more than
- * CAP lines: Show all opens the rest, in the modal or on the section's own page.
+ * The Overview as a landing page (GH-160, T-36): Needs you first, its first CAP lines, then a quiet card for
+ * each other list, which opens it in full in the modal. Each line has its state, its task's key and title,
+ * two short facts at most and one button; the rest of what it did is in its ⋯ menu or in the detail it
+ * opens. Things of one kind collapse into one line: every suggested rule, every update draft.
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 
@@ -17,8 +16,8 @@ import { type AttentionItem, needsYouCount, type OverviewModel, type QueuePanel 
 import type { QuestionCard } from './questions.ts';
 import { displayLook, type HomeSection, type Look, LOOK, type Ref } from './shared.ts';
 
-/** The most lines a list shows on the Overview; Show all opens the rest. */
-export const CAP = 5;
+/** The most lines Needs you shows on the Overview (T-36); Show all opens the rest. Every other list is a card. */
+export const CAP = 3;
 
 export type GroupKey = 'needs-you' | 'moment' | 'progress' | 'queue' | 'ready' | 'history';
 
@@ -85,16 +84,35 @@ export interface LandingGroup {
   tone: Tone;
   /** The heading's number: what the list stands for, which a collapsed line can hold several of. */
   count: number;
-  /** The lines the page shows: CAP at most. */
+  /** The most lines the Overview shows in the list itself: CAP for Needs you, none for a list it shows as a card. */
+  shows: number;
+  /** The lines the page shows in the list itself: `shows` at most. */
   rows: LandingRow[];
   /** How many lines there are in all. */
   total: number;
-  /** Show all N, where there are more than CAP: the list in the modal, or the section's own page. */
+  /** Show all N, where there are more than `shows`: the list in the modal. */
   more: { label: string; do: RowDo } | null;
-  /** Every line, where Show all opens them in the modal. */
-  all: LandingRow[] | null;
+  /** Every line, which the list's detail holds. */
+  all: LandingRow[];
+  /** What its card, or Show all, opens: the list in full, or History with its filters. */
+  opens: Detail;
   /** What the list says with no lines, or null where it isn't shown then. */
   empty: string | null;
+}
+
+/**
+ * A list on the Overview as a quiet card (T-36): its name, its count, and one muted line about it. A click,
+ * or Enter, opens `opens`: the list in full, or History. A list with no lines has no card.
+ */
+export interface OverviewCard {
+  key: GroupKey;
+  title: string;
+  icon: string;
+  tone: Tone;
+  count: number;
+  /** One short line: what waits on you in it, or what's first ("ACME-16 next"). */
+  line: string;
+  opens: Detail;
 }
 
 /**
@@ -269,25 +287,25 @@ function historyRow(it: HistoryItem, index: number, now: number, roots: Map<stri
 }
 
 /**
- * A list, capped: its first CAP lines, and Show all N, which opens `all` in the modal or goes to `to`. Its
- * buttons are primary in Needs you only, so what needs you stands out; elsewhere they're outlined (D-147).
+ * A list: Needs you shows its first CAP lines, and Show all N opens every line in the modal; every other list
+ * shows as a card, which opens `opens`. Its buttons are primary in Needs you only, so what needs you stands
+ * out; elsewhere they're outlined (D-147).
  */
-function group(g: Omit<LandingGroup, 'rows' | 'total' | 'more' | 'all'>, listed: LandingRow[], total = listed.length, to?: RowDo): LandingGroup {
-  const over = total > CAP;
-  const rows = listed.map((r) => (r.action ? { ...r, action: { ...r.action, primary: g.key === 'needs-you' } } : r));
+function group(g: Omit<LandingGroup, 'shows' | 'rows' | 'total' | 'more' | 'all' | 'opens'>, listed: LandingRow[], opens: Detail = { kind: 'list', group: g.key }): LandingGroup {
+  const shows = g.key === 'needs-you' ? CAP : 0;
+  const all = listed.map((r) => (r.action ? { ...r, action: { ...r.action, primary: g.key === 'needs-you' } } : r));
   return {
-    ...g, rows: rows.slice(0, CAP), total,
-    more: over ? { label: `Show all ${total}`, do: to ?? detail({ kind: 'list', group: g.key }) } : null,
-    all: over && !to ? rows : null,
+    ...g, shows, rows: all.slice(0, shows), total: all.length, all, opens,
+    more: shows && all.length > shows ? { label: `Show all ${all.length}`, do: detail(opens) } : null,
   };
 }
 
 /**
- * The Overview's lists, in the order the page draws them: what needs you, what waits on you when you
- * have a moment, what's in progress, each merge queue, what's ready, and History. The tiles sit after In
- * progress. Questions come first in Needs you, then the collapsed lines, so they're seen within the cap.
+ * The Overview's lists: what needs you, what waits on you when you have a moment, what's in progress, each
+ * merge queue, what's ready, and History. Questions come first in Needs you, then the collapsed lines, so
+ * they're seen within the cap.
  */
-export function landing(o: Omit<OverviewModel, 'landing'>, now = Date.now()): LandingGroup[] {
+export function landing(o: Omit<OverviewModel, 'landing' | 'cards'>, now = Date.now()): LandingGroup[] {
   const many = o.projects.length > 1;
   const orange = (a: AttentionItem) => a.look.tone === 'orange';
   const updates = o.attention.filter((a) => a.update);
@@ -310,8 +328,8 @@ export function landing(o: Omit<OverviewModel, 'landing'>, now = Date.now()): La
     group({ key: 'moment', title: 'When you have a moment', icon: 'inbox', tone: 'neutral', count: o.attention.filter((a) => !orange(a)).length, empty: null }, moment),
     group({ key: 'progress', title: 'In progress', icon: 'pulse', tone: p.count ? 'blue' : 'neutral', count: p.count, empty: p.empty ?? 'No task here has anything under way.' }, p.groups.map(progressRow)),
     group({ key: 'queue', title: 'Merge queue', icon: 'git-merge', tone: 'neutral', count: queue.length, empty: null }, queue),
-    group({ key: 'ready', title: 'Ready for an agent', icon: 'rocket', tone: 'neutral', count: ready.length, empty: 'Nothing is ready to dispatch. Track a ticket from a board, or add a task.' }, ready, ready.length, { kind: 'go', section: 'tasks' }),
+    group({ key: 'ready', title: 'Ready for an agent', icon: 'rocket', tone: 'neutral', count: ready.length, empty: 'Nothing is ready to dispatch. Track a ticket from a board, or add a task.' }, ready),
     group({ key: 'history', title: 'History', icon: 'history', tone: 'neutral', count: o.history.length, empty: 'What agents and tasks do shows up here.' },
-      o.history.slice(0, CAP).map((it, i) => historyRow(it, i, now, roots, many)), o.history.length, detail({ kind: 'history' })),
+      o.history.map((it, i) => historyRow(it, i, now, roots, many)), { kind: 'history' }),
   ];
 }

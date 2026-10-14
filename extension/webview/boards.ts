@@ -80,8 +80,9 @@ let openMenu: string | null = ((api.getState() as { openMenu?: string } | undefi
 /**
  * A ⋯ button that opens a short menu of actions, each with its icon and label. It stays open while the
  * page redraws, and closes on a pick, a click elsewhere, or Escape. Null when there's nothing to put in it.
+ * A pick runs its command on its ref, or does what `send` says, as the Overview's header's does (T-36).
  */
-export function moreMenu(key: string, name: string, actions: Action[]): HTMLElement | null {
+export function moreMenu(key: string, name: string, actions: Action[], send: (a: Action) => void = (a) => api.postMessage({ type: 'run', command: a.command, ref: a.ref })): HTMLElement | null {
   if (!actions.length) return null;
   const btn = el('button', 'more-btn', icon('ellipsis')) as HTMLButtonElement;
   btn.type = 'button';
@@ -100,7 +101,7 @@ export function moreMenu(key: string, name: string, actions: Action[]): HTMLElem
       b.title = a.disabled;
       b.setAttribute('aria-description', a.disabled);
     }
-    b.addEventListener('click', (e) => { e.stopPropagation(); openMenu = null; menu.hidden = true; api.postMessage({ type: 'run', command: a.command, ref: a.ref }); });
+    b.addEventListener('click', (e) => { e.stopPropagation(); openMenu = null; menu.hidden = true; send(a); });
     return b;
   };
   const menu = el('div', 'more-menu', ...safe.map(item), danger.length && safe.length ? el('div', 'more-sep') : null, ...danger.map(item));

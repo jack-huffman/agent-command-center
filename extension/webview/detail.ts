@@ -1,7 +1,7 @@
 // The Overview's details (GH-160): what a line opens, in the modal over the page (modal.ts, as a task's page
 // over the board has, D-129). A question with its answers; the suggested rules one at a time, with the
 // reviews each came from, Accept and Dismiss; the update drafts one at a time, with Post, Edit and Discard;
-// a list in full; or History. Which one is open is kept in the tab's memory, so it's drawn again from each
+// a list in full, In progress with its machine line on top; or History. Which one is open is kept in the tab's memory, so it's drawn again from each
 // new model, and when the page is rebuilt; one whose items have all gone closes.
 
 import type { HomeModel, Model } from '../src/model/home.ts';
@@ -11,6 +11,7 @@ import { argButton, button, type Child, el, keepFocus, status } from './dom.ts';
 import { renderHistory } from './history.ts';
 import { landingRows, opensKey } from './landing.ts';
 import { makeModal } from './modal.ts';
+import { machineLine } from './progress.ts';
 import { questionCard } from './questions.ts';
 import { ruleButtons, ruleDetail } from './rules.ts';
 import { memory, type PageArea, remember, state } from './state.ts';
@@ -24,11 +25,19 @@ let drawn: string | null = null;
  * the one used (GH-170), found again by its data-opens if the page redrew meanwhile.
  */
 let openedBy: string | null = null;
+/**
+ * What the page opened first: a detail opened from inside another, as the suggested rules from the list a
+ * card opens (T-36), sends focus back to that card when it closes, as nothing on the page opens it.
+ */
+let from: string | null = null;
 
 /** Opens a detail over the page. */
 export function openDetail(d: Detail): void {
   const a = document.activeElement as HTMLElement | null;
-  if (!modal?.dialog.contains(a)) openedBy = a?.dataset?.opens === opensKey(d) ? a.tagName : null;
+  if (!modal?.dialog.contains(a)) {
+    openedBy = a?.dataset?.opens === opensKey(d) ? a.tagName : null;
+    from = opensKey(d);
+  }
   remember((m) => { m.detail = d; });
   draw();
 }
@@ -41,9 +50,10 @@ export function closeDetail(): void {
   drawn = null;
   if (modal?.dialog.open) modal.dialog.close();
   modal?.body.replaceChildren();
-  const openers = [...document.querySelectorAll<HTMLElement>(`[data-opens="${CSS.escape(opensKey(d))}"]`)];
+  const openers = [...document.querySelectorAll<HTMLElement>(`[data-opens="${CSS.escape(from ?? opensKey(d))}"]`)];
   (openers.find((e) => e.tagName === openedBy) ?? openers[0])?.focus();
   openedBy = null;
+  from = null;
 }
 
 function make(): NonNullable<typeof modal> {
@@ -112,8 +122,14 @@ function content(m: HomeModel, d: Detail): { title: string; nodes: Node[] } | nu
     }
     case 'list': {
       const g = o.landing.find((x) => x.key === d.group);
-      const rows = g ? g.all ?? g.rows : [];
-      return g && rows.length ? { title: `${g.title}: ${g.total}`, nodes: [landingRows(rows, g.title)] } : null;
+      const rows = g ? g.all : [];
+      // In progress's machine line (heavy-check slots, builders, load) heads its list (T-36).
+      const top = d.group === 'progress' ? machineLine(o.inProgress) : null;
+      if (!g || !rows.length) return null;
+      const list = landingRows(rows, g.title);
+      // Marked for the screenshot run's Overview check, which measures its lines as it does the page's (T-36).
+      list.dataset.overviewGroup = `detail:${g.key}`;
+      return { title: `${g.title}: ${g.total}`, nodes: [...(top ? [top] : []), list] };
     }
     case 'history':
       return { title: 'History', nodes: [renderHistory(o.history, o.projects.length > 1, d.item)] };

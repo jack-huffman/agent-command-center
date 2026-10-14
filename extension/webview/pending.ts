@@ -1,6 +1,7 @@
 // What a page is waiting on acc for. Kept apart from main.ts, which runs in the webview, so node's tests
 // can import it.
 
+import type { GroupKey, LandingGroup, LandingRow, OverviewCard } from '../src/model/landing.ts';
 import type { OverviewModel } from '../src/model/overview.ts';
 import type { RuleCard } from '../src/model/rules.ts';
 
@@ -136,13 +137,44 @@ export function hideSettled(o: OverviewModel, settled: ReadonlySet<string>, key:
     const left = rules.length
       ? all.map((r) => (r.key === 'rules' ? { ...r, title: rulesLineTitle(rules.length), facts: [{ text: `from ${reviews} review${reviews === 1 ? '' : 's'}` }], tip: rules.map((x) => x.line).join('\n') } : r))
       : all.filter((r) => r.key !== 'rules');
-    // A list over its cap shows its first few and holds the rest in `all`; one under it shows every line.
-    const cap = g.all ? g.rows.length : Infinity;
-    const over = left.length > cap;
+    // The list shows its first `shows` lines, and Show all while it holds more.
     return {
-      ...g, count: g.count - gone, total: left.length, rows: left.slice(0, cap),
-      more: over && g.more ? { ...g.more, label: `Show all ${left.length}` } : null, all: over ? left : null,
+      ...g, count: g.count - gone, total: left.length, rows: left.slice(0, g.shows), all: left,
+      more: g.more && left.length > g.shows ? { ...g.more, label: `Show all ${left.length}` } : null,
     };
   });
-  return { ...o, attention, landing };
+  return { ...o, attention, landing, cards: overviewCards(landing) };
+}
+
+// ---------------------------------------------------------------- the Overview's cards (T-36)
+
+// Here, with what the page waits on acc for, as both the extension's model and hideSettled build them: a
+// settled rule changes the When you have a moment card. The page imports no values from src (D-121).
+
+/** The lists the Overview shows as cards, in its order. Needs you is drawn as lines above them. */
+export const CARD_ORDER: GroupKey[] = ['progress', 'ready', 'moment', 'history', 'queue'];
+
+/** A line's task, or its title where it's no one task's. */
+const named = (r: LandingRow): string => r.id ?? r.title;
+
+/** A card's one line: In progress says how many wait on you, else what's first; each other list what's first. */
+export function cardLine(g: Pick<LandingGroup, 'key' | 'all'>): string {
+  const first = g.all[0];
+  if (!first) return '';
+  const waiting = g.all.filter((r) => r.look.tone === 'orange').length;
+  switch (g.key) {
+    case 'progress': return waiting ? `${waiting} waiting on you` : `${named(first)} ${first.look.label.toLowerCase()}`;
+    case 'ready': return `${named(first)} next`;
+    case 'queue': return `${named(first)} next to merge`;
+    case 'history': return [named(first), first.look.label.toLowerCase(), first.facts[0]?.text].filter(Boolean).join(', ');
+    default: return first.title;
+  }
+}
+
+/** A card for each list in CARD_ORDER that holds a line; none for an empty one. */
+export function overviewCards(landing: LandingGroup[]): OverviewCard[] {
+  return CARD_ORDER.flatMap((key) => {
+    const g = landing.find((x) => x.key === key);
+    return g?.all.length ? [{ key, title: g.title, icon: g.icon, tone: g.tone, count: g.count, line: cardLine(g), opens: g.opens }] : [];
+  });
 }

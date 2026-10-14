@@ -244,10 +244,12 @@ test('In progress sits on the Overview and never changes the badge, which counts
   const overview = (m: typeof busy) => m.nav.find((n) => n.section === 'overview')!;
   assert.deepEqual([overview(busy).count, overview(busy).attention], [overview(quiet).count, overview(quiet).attention], 'the rail\'s Overview badge');
   assert.ok(!busy.nav.some((n) => (n.section as string) === 'in-progress'), 'no page of its own');
-  // On the page: after what needs you, a line per task (GH-160), folded by its heading, remembered for the tab.
-  const page = ['overview.ts', 'progress.ts', 'landing.ts'].map((f) => readFileSync(join(root, 'webview', f), 'utf8')).join('\n');
-  assert.match(page, /out\.push\(renderInProgress\(group\('progress'\), o\.inProgress\)\);/);
-  assert.match(page, /memory\(\)\.sections\?\.\['in-progress'\]/);
+  // On the page: a card under what needs you (T-36), which opens a line per task with the machine's line on top.
+  assert.deepEqual(busy.overview.cards.find((c) => c.key === 'progress')?.count, 2);
+  assert.ok(!quiet.overview.cards.some((c) => c.key === 'progress'), 'nothing under way, no card');
+  const page = ['overview.ts', 'progress.ts', 'landing.ts', 'detail.ts'].map((f) => readFileSync(join(root, 'webview', f), 'utf8')).join('\n');
+  assert.match(page, /\.\.\.o\.cards\.map\(landingCard\)/);
+  assert.match(page, /const top = d\.group === 'progress' \? machineLine\(o\.inProgress\) : null;/);
   assert.match(page, /row\.style\.animationDelay = `-\$\{r\.fading\}s`/, 'the fade starts as far in as the line is old');
 });
 
