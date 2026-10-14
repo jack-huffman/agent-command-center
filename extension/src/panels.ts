@@ -16,6 +16,7 @@ import { type OpensOn, opensOnChoice, themeChoice, type ThemeChoice } from './mo
 import { type Pace, paceChoice } from './logic/polls.ts';
 import { FIRST_OPEN_STATE, FIRST_OPEN_WAIT_MS, firstOpen, type FirstOpenInput, machineDone, waitsForMachine } from './logic/first-open.ts';
 import type { Setup } from './setup.ts';
+import { loadingScreen, type TabKind } from './logic/loading.ts';
 
 /** Commands the page may ask for, from every area that draws them (D-099). Anything else from a webview is ignored. */
 const ALLOWED = new Set(PAGE_COMMANDS);
@@ -117,8 +118,8 @@ export class TabTheme {
   }
 }
 
-/** A tab's HTML. Its theme goes on <html data-theme>, where the palettes key on it: anything but the three choices is vscode (GH-109). */
-export function htmlFor(webview: Pick<vscode.Webview, 'cspSource' | 'asWebviewUri'>, base: vscode.Uri, kind: 'home' | 'ticket' | 'agent', nonce: string, title = kind === 'ticket' ? 'Ticket' : kind === 'agent' ? 'Agent' : 'Command Center', theme: unknown = 'vscode'): string {
+/** A tab's HTML, which shows the loading screen until the first model arrives (T-16). Its theme goes on <html data-theme>, where the palettes key on it: anything but the three choices is vscode (GH-109). */
+export function htmlFor(webview: Pick<vscode.Webview, 'cspSource' | 'asWebviewUri'>, base: vscode.Uri, kind: TabKind, nonce: string, title = kind === 'ticket' ? 'Ticket' : kind === 'agent' ? 'Agent' : 'Command Center', theme: unknown = 'vscode'): string {
   const res = (p: string) => webview.asWebviewUri(vscode.Uri.joinPath(base, p)).toString();
   const csp = [
     "default-src 'none'",
@@ -138,7 +139,7 @@ export function htmlFor(webview: Pick<vscode.Webview, 'cspSource' | 'asWebviewUr
 <title>${title.replace(/[<>&]/g, '')}</title>
 </head>
 <body data-view="${kind}" data-logo-dark="${res('acc-dark.svg')}" data-logo-light="${res('acc-light.svg')}">
-<main id="app"><p class="muted">Loading…</p></main>
+<main id="app">${loadingScreen(kind, { dark: res('acc-dark.svg'), light: res('acc-light.svg') })}</main>
 <script nonce="${nonce}" src="${res('main.js')}"></script>
 </body>
 </html>`;

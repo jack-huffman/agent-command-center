@@ -56,7 +56,8 @@ import { SAMPLE_EDIT, sampleEdited } from './fixtures/updates.ts';
 import { settingsKey, type ThemeChoice } from '../src/model/settings.ts';
 import { SETUP_PARTS } from '../src/logic/first-open.ts';
 import { PALETTE_THEMES, type PaletteTheme, palettes, vscodeDefaults } from './styles.ts';
-import { CHECKS, COLLECT_GEOMETRY, dumpedGeometry, geometrySummary, judge, type Render, runFailures } from './geometry.ts';
+import { loadingScreen } from '../src/logic/loading.ts';
+import { CHECKS, COLLECT_GEOMETRY, GEOMETRY_EXCEPTIONS, dumpedGeometry, geometrySummary, judge, type Render, runFailures } from './geometry.ts';
 import { drawRetrying, retriedSummary, SETTLE, shotTimeout } from './steady.ts';
 import { behaviourCheck } from './behaviour.ts';
 
@@ -88,9 +89,17 @@ import { behaviourCheck } from './behaviour.ts';
  * Last, the Overview as a landing page when everything is busy at once (GH-160): ten suggested rules, six
  * tasks building with their checks, three questions, two update drafts and twelve things in History; then
  * the same with a question opened over it, its update drafts, and History opened at an answer.
+ * Last, the loading screen the Command Center shows while it opens, which no model replaces (T-16).
  */
-export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'tasks-agents', 'ticket-cloud'] as const;
+export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'tasks-agents', 'ticket-cloud', 'loading'] as const;
 export type Page = (typeof PAGES)[number];
+
+/**
+ * Pages the run draws with no model sent, so what the tab shows before its first model stays (T-16). They
+ * have no rail and no controls, which the geometry check otherwise looks for on every page.
+ */
+export const STILL: readonly Page[] = ['loading'];
+const still = (kind: Page): boolean => STILL.includes(kind);
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');
 export const MIN_WIDTH = 500;
@@ -111,6 +120,8 @@ const other = (t: PaletteTheme): PaletteTheme => (t === 'dark' ? 'light' : 'dark
 
 /** A page's sample data. theme is what Settings shows chosen, as the shot forces it (GH-109). */
 export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = 'vscode'): Model {
+  // The loading screen is drawn with the Overview's model held back (STILL): it never arrives.
+  if (kind === 'loading') return sampleModel('overview', now, theme);
   if (kind === 'ticket') return sampleTicket(now);
   if (kind === 'ticket-questions') return sampleTicket(now, 'ACME-21');
   if (kind === 'ticket-split') return sampleTicket(now, 'ACME-23');
@@ -271,6 +282,12 @@ export function pageFor(kind: Page, theme: ThemeChoice, model: Model, under: The
   const json = JSON.stringify(model).replace(/</g, '\\u003c');
   const then = JSON.stringify(after).replace(/</g, '\\u003c');
   const open = openAt(kind);
+  // A still page sends no model, but is hovered, collected and measured all the same.
+  const send = still(kind) ? '' : `window.postMessage({ type: 'state', model: MODEL${open ? `, jump: true, open: ${JSON.stringify(open)}` : ''} }, '*'); for (const m of AFTER) window.postMessage(m, '*'); `;
+  // The loading screen fades in (T-16), and a fade at opacity 0 reads as unseen. Headless Chrome's virtual time
+  // doesn't move animations, so a still page ends its fades itself before it's measured, as they'd have ended.
+  const faded = still(kind) ? 'document.getAnimations().filter((a) => a.effect.getTiming().iterations !== Infinity).forEach((a) => a.finish()); ' : '';
+  const opening = still(kind) ? loadingScreen('home', { dark: 'webview/acc-dark.svg', light: 'webview/acc-light.svg' }) : '';
   return `<!DOCTYPE html>
 <html lang="en" data-theme="${theme}" style="${vars.replace(/"/g, '&quot;')}"><head><meta charset="UTF-8">
 <style>${vscodeDefaults()}</style>
@@ -287,12 +304,12 @@ function forceHover() {
   (document.querySelector('tbody tr:not(.group):not(.none)') ?? document.querySelector('.card'))?.classList.add('acc-hover');
 }${collect || measure ? COLLECT : ''}${collect ? COLLECT_COLOURS : ''}${measure ? COLLECT_GEOMETRY + SETTLE : ''}
 window.acquireVsCodeApi = () => ({
-  postMessage(m) { if (m.type === 'ready') setTimeout(() => { window.postMessage({ type: 'state', model: MODEL${open ? `, jump: true, open: ${JSON.stringify(open)}` : ''} }, '*'); for (const m of AFTER) window.postMessage(m, '*'); setTimeout(forceHover, 50);${collect ? ' setTimeout(collectColours, 500);' : ''}${measure ? ' setTimeout(() => document.fonts.ready.then(() => requestAnimationFrame(() => requestAnimationFrame(() => settle(selectedTab, requestAnimationFrame, collectGeometry)))), 300);' : ''} }); },
+  postMessage(m) { if (m.type === 'ready') setTimeout(() => { ${send}setTimeout(forceHover, 50);${collect ? ' setTimeout(collectColours, 500);' : ''}${measure ? ` setTimeout(() => { ${faded}document.fonts.ready.then(() => requestAnimationFrame(() => requestAnimationFrame(() => settle(selectedTab, requestAnimationFrame, collectGeometry)))); }, 300);` : ''} }); },
   getState() { return ${JSON.stringify(startState(kind)) ?? 'undefined'}; }, setState() {},
 });
 </script>
 </head>
-<body class="vscode-${under}" data-view="${viewOf(kind)}" data-logo-dark="webview/acc-dark.svg" data-logo-light="webview/acc-light.svg"><main id="app"></main><script src="webview/main.js"></script></body></html>
+<body class="vscode-${under}" data-view="${viewOf(kind)}" data-logo-dark="webview/acc-dark.svg" data-logo-light="webview/acc-light.svg"><main id="app">${opening}</main><script src="webview/main.js"></script></body></html>
 `;
 }
 
@@ -328,8 +345,8 @@ function chromeRun(chrome: string, args: string[], dump = false): ReturnType<typ
   return spawnSync(cmd, cmdArgs, dump ? { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], timeout: shotTimeout() } : { stdio: 'ignore', timeout: shotTimeout() });
 }
 
-/** The pages the colour check draws (GH-109): the busiest sections, Settings, a task's page and an agent's, a task in the modal over the board (GH-158), and the busy Overview with its update drafts open over it (GH-160). */
-export const COLOUR_PAGES: Page[] = ['overview', 'tasks', 'settings', 'settings-agents', 'settings-trackers', 'settings-limits', 'settings-about', 'slack-paused', 'settings-github', 'settings-page', 'ticket', 'agent', 'tasks-modal', 'overview-landing', 'overview-drafts', 'tasks-agents', 'ticket-cloud'];
+/** The pages the colour check draws (GH-109): the busiest sections, Settings, a task's page and an agent's, a task in the modal over the board (GH-158), and the busy Overview with its update drafts open over it (GH-160), and the loading screen (T-16). */
+export const COLOUR_PAGES: Page[] = ['overview', 'tasks', 'settings', 'settings-agents', 'settings-trackers', 'settings-limits', 'settings-about', 'slack-paused', 'settings-github', 'settings-page', 'ticket', 'agent', 'tasks-modal', 'overview-landing', 'overview-drafts', 'tasks-agents', 'ticket-cloud', 'loading'];
 
 /** A page's computed colours, as its collector gathered them: what each element is, and its colours in COLOUR_PROPERTIES' order. */
 export type Colours = [string, string[]][];
@@ -561,7 +578,7 @@ async function main(argv: string[]): Promise<number> {
           if (!existsSync(png)) return fail(`Chrome didn't write ${png} (exit ${r.status ?? r.signal}).`);
           const shot = dumpedGeometry(String(r.stdout ?? ''));
           if (!shot) return fail(`${view} (${theme}, ${width}px) measured no geometry (exit ${r.status ?? r.signal}).`);
-          const verdict = judge(shot, viewOf(view) === 'home');
+          const verdict = judge(shot, viewOf(view) === 'home' && !still(view), GEOMETRY_EXCEPTIONS, !still(view));
           renders.push({ page: view, theme, width, verdict });
           if (noting) taken[`${view}-${theme}-${width}.png`] = { fingerprint: print, sha256: sha256Of(png), takenAt: new Date().toISOString(), findings: verdict.violations.length, drawn: [...new Set(shot.drawn ?? [])].sort() };
           console.log(`${png}  ${CHECKS.map((c) => `${c} ${verdict.examined[c]}`).join(', ')}${verdict.violations.length ? `, ${verdict.violations.length} found` : ''}`);

@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { COLLECT_GEOMETRY, dumpedGeometry, type GeoControl, type GeoSnapshot, type GeoText, GEOMETRY_EXCEPTIONS, judge, OVERVIEW_LINES, type Render, RUN_FLOOR, runFailures, SIDEWAYS } from '../scripts/geometry.ts';
-import { pageFor, PAGES, sampleModel, viewOf } from '../scripts/screenshot.ts';
+import { pageFor, PAGES, sampleModel, STILL, viewOf } from '../scripts/screenshot.ts';
 
 const control = (what: string, x: number, y: number, o: Partial<GeoControl> = {}): GeoControl => ({ what, text: what, box: { x, y, w: 80, h: 24 }, inside: [], layer: null, ...o });
 const text = (what: string, o: Partial<GeoText> = {}): GeoText => ({ what, text: `${what}'s words`, over: 0, ellipsis: false, titled: false, folded: false, ...o });
@@ -95,7 +95,7 @@ test('a whole run fails below its floors, and on an exception that excused nothi
   const renders198 = PAGES.length * 2 * 3;
   assert.ok(RUN_FLOOR.overlap >= 30 * renders198, `a full run examines at least 30 controls a drawing (${RUN_FLOOR.overlap})`);
   assert.ok(RUN_FLOOR.words >= 100 * renders198, `and reads at least 100 strings a drawing (${RUN_FLOOR.words}, GH-163)`);
-  assert.equal(RUN_FLOOR.tab, PAGES.filter((p) => viewOf(p) === 'home').length * 6, 'and the selected tab on every section, in every drawing');
+  assert.equal(RUN_FLOOR.tab, PAGES.filter((p) => viewOf(p) === 'home' && !STILL.includes(p)).length * 6, 'and the selected tab on every section, in every drawing, but the loading screen, which has no rail (T-16)');
 });
 
 test('a page measures its geometry only when the run asks, and the run reads it from the dumped page (GH-105)', () => {
