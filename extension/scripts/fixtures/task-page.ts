@@ -97,18 +97,21 @@ export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12'):
   });
 }
 
-/** A thread in a tracker that has no status, assignee or labels (T-28): the page names the tracker where each control would be. */
+/**
+ * A Slack thread (T-28, T-29): Slack has no status, assignee or labels, so the page names it where each
+ * control would be, with Slack's name and icon. Its replies post as the app.
+ */
 function sampleNoFieldsTicket(now: number): TicketModel {
   const ticket: Ticket = {
-    key: 'ACME-50', kind: 'github', url: 'https://acme.example/threads/50', title: 'Customer asks why a premium case was not escalated', type: null,
+    key: 'SL-1696512345123456', kind: 'slack', url: 'https://acme.slack.com/archives/C0SUPPORT1/p1696512345123456', title: 'Customer asks why a premium case was not escalated', type: null,
     status: TODO, assignees: [], reporter: { id: 'a2', name: 'Pat Lee' }, labels: [], priority: null,
     created: new Date(now - 3 * 3_600_000).toISOString(), updated: new Date(now - 20 * MIN).toISOString(),
     body: fromAdf({ type: 'doc', content: [p('A customer wrote that their premium case sat for two hours with no reply. Find out why the escalation rule did not run.')] }),
     markdown: '', comments: [], related: [],
   };
   return ticketModel({
-    project: ROOT, tracker: 0, trackerTitle: 'Slack · #premium-support', trackerKind: 'github', key: 'ACME-50', ticket, loading: false, error: null, connect: null, row: null, task: null, checks: [],
-    signedInAs: 'jordan@acme.example', trackerEdits: true, trackerFields: [], boards: sampleBoards(), github: 'jordan-kim', now,
+    project: ROOT, tracker: 0, trackerTitle: 'Slack · acme', trackerKind: 'slack', key: 'SL-1696512345123456', ticket, loading: false, error: null, connect: null, row: null, task: null, checks: [],
+    signedInAs: 'a Slack app\'s bot token', trackerEdits: true, trackerFields: [], boards: sampleBoards(), github: 'jordan-kim', now,
   });
 }
 

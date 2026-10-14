@@ -135,6 +135,10 @@ test('a sign-in kept for a site reloads every open project with a tracker there,
   assert.equal(trackerHost({ kind: 'jira', site: 'https://ACME.atlassian.net/' }), 'acme.atlassian.net');
   assert.equal(trackerHost({ kind: 'azure', organization: 'acme' }), 'acme');
   assert.equal(trackerHost({ kind: 'monday', account: 'Acme' }), 'acme');
+  // A Slack tracker's host is its workspace (T-29), so its token is kept as acc.cred:<repo>:slack:acme.
+  assert.equal(trackerHost({ kind: 'slack', workspace: 'Acme', account: 'other' }), 'acme');
+  assert.equal(credKey(REPO_A, 'slack', trackerHost({ kind: 'slack', workspace: 'acme' })), 'acc.cred:github:acme/service:slack:acme');
+  assert.equal(trackerHost({ kind: 'slack' }), '', 'the edge case of a Slack tracker with no workspace');
   const projects = [
     { root: '/a', trackers: [{ kind: 'jira', site: 'acme.atlassian.net' }] },
     { root: '/b', trackers: [{ kind: 'github' }, { kind: 'jira', site: 'https://acme.atlassian.net' }] },

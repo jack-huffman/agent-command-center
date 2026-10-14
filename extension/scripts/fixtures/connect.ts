@@ -1,9 +1,9 @@
 /** The Connect page (GH-51) at each of its steps. */
-import { AZURE, GITHUB, JIRA, MONDAY } from '../../../packages/core/src/trackers/connect.ts';
+import { AZURE, GITHUB, JIRA, MONDAY, SLACK } from '../../../packages/core/src/trackers/connect.ts';
 import { blankConnect, connectModel, type ConnectModel, type ConnectState } from '../../src/model/connect.ts';
 
 /** Which Connect page to draw (GH-51). */
-export type ConnectSample = 'start' | 'shared' | 'jira' | 'azure' | 'github' | 'existing' | 'monday' | 'epic' | 'epic-used' | 'epic-azure' | 'epic-github';
+export type ConnectSample = 'start' | 'shared' | 'jira' | 'azure' | 'github' | 'existing' | 'monday' | 'slack' | 'slack-channel' | 'epic' | 'epic-used' | 'epic-azure' | 'epic-github';
 
 /**
  * The Connect page at each step: a new Jira tracker before signing in; its site given, with the tick for
@@ -11,7 +11,9 @@ export type ConnectSample = 'start' | 'shared' | 'jira' | 'azure' | 'github' | '
  * loading and its boards failing; Azure DevOps whose token was refused; GitHub with labels ticked; an
  * existing Jira tracker opened to change, signed in for this project only, its epic done now but kept; and
  * a monday.com board signed in for this project only, with Sign in again open, so its token field, token
- * page and the tick (off) show beside its board, group and two status columns (GH-70). Then a project
+ * page and the tick (off) show beside its board, group and two status columns (GH-70). A Slack workspace
+ * whose token isn't a bot token, and then signed in as the app for every project on it, a channel picked
+ * (T-29). Then a project
  * started from Setup (GH-81): from a Jira epic, signed in for every project on the site, its epics listed
  * and none picked yet; with an epic another repo here uses picked, marked; from an Azure DevOps area path
  * one over another repo's; and from GitHub labels, one of them another repo's.
@@ -51,6 +53,24 @@ export function sampleConnect(which: ConnectSample): ConnectModel {
     const s = blankConnect(GITHUB, { id: 'c-github', ...base });
     s.signIn = ok('jordan-kim');
     s.pickers.labels = ready(['billing', 'bug', 'documentation', 'enhancement', 'good first issue', 'invoices', 'milestone', 'question'].map((l) => ({ value: l, label: l })), ['billing', 'invoices']);
+    return connectModel(s);
+  }
+  if (which === 'slack') {
+    const s = blankConnect(SLACK, { id: 'c-slack', ...base });
+    s.host = 'acme';
+    s.fieldErrors = { token: 'A bot token starts with xoxb-. Copy it from the app\'s OAuth & Permissions page.' };
+    s.signIn = { state: 'failed', who: null, error: null, again: false };
+    return connectModel(s);
+  }
+  if (which === 'slack-channel') {
+    const s = blankConnect(SLACK, { id: 'c-slack-channel', ...base });
+    s.host = 'acme';
+    s.signIn = { ...ok('Acme Command Center'), shared: true };
+    s.pickers.channel = ready([
+      { value: 'G0BILLING1', label: '#billing', detail: 'private' },
+      { value: 'C0ESCALATE', label: '#premium-support-escalations-and-renewals', detail: 'public' },
+      { value: 'C0SUPPORT1', label: '#premium-support', detail: 'public' },
+    ], ['C0SUPPORT1']);
     return connectModel(s);
   }
   if (which === 'monday') {

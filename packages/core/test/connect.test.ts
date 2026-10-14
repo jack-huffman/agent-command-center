@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { replaceTracker, type Tracker, withTracker } from '../src/config.ts';
-import { AZURE, declaredKeys, DESCRIPTIONS, describe, GITHUB, JIRA, MONDAY, parseHost, parseRepo, type SignIn } from '../src/trackers/connect.ts';
+import { AZURE, declaredKeys, DESCRIPTIONS, describe, GITHUB, JIRA, MONDAY, parseHost, parseRepo, type SignIn, SLACK, SLACK_APPS, SLACK_BOT_TOKEN } from '../src/trackers/connect.ts';
 import { TrackerError } from '../src/trackers/types.ts';
 
 const tracker = (t: Partial<Tracker> & Pick<Tracker, 'kind'>): Tracker => ({ site: null, project: null, repo: null, organization: null, account: null, workspace: null, channel: null, team: null, board: null, statusColumn: null, prefix: null, skipLabels: [], epic: null, labels: [], areaPath: null, group: null, edits: false, statusFor: null, ...t });
@@ -46,6 +46,7 @@ test('an existing tracker opens with its own choices, and saves them back as the
     [GITHUB, tracker({ kind: 'github', labels: ['billing'] }), { kind: 'github', repo: null, labels: ['billing'] }],
     [AZURE, tracker({ kind: 'azure', organization: 'acme', project: 'CRM', team: 'Sales', board: 'Stories', areaPath: 'CRM\\Billing' }), { kind: 'azure', organization: 'acme', project: 'CRM', team: 'Sales', board: 'Stories', areaPath: 'CRM\\Billing' }],
     [MONDAY, tracker({ kind: 'monday', account: 'acme', board: 1234567890, group: 'topics', statusColumn: 'priority' }), { kind: 'monday', account: 'acme', board: 1234567890, group: 'topics', statusColumn: 'priority' }],
+    [SLACK, tracker({ kind: 'slack', workspace: 'acme', channel: 'C0123ABCD' }), { kind: 'slack', workspace: 'acme', channel: 'C0123ABCD' }],
   ];
   for (const [d, t, want] of cases) {
     const { host, values } = d.fromConfig(t, 'acme/service');
@@ -122,16 +123,17 @@ test('Azure DevOps lists the default team first, prefers the stories board, and 
 });
 
 test('every tracker the page offers is described, and its keys are declared for checking what a page sends', () => {
-  assert.deepEqual(DESCRIPTIONS.map((d) => d.kind), ['jira', 'github', 'azure', 'monday']);
+  assert.deepEqual(DESCRIPTIONS.map((d) => d.kind), ['jira', 'github', 'azure', 'monday', 'slack']);
   assert.equal(describe('azure'), AZURE);
   assert.equal(describe('monday'), MONDAY);
+  assert.equal(describe('slack'), SLACK);
   assert.equal(describe('linear'), undefined);
   const keys = declaredKeys();
-  assert.deepEqual([...keys.fields].sort(), ['account', 'email', 'organization', 'repo', 'site', 'token']);
-  assert.deepEqual([...keys.pickers].sort(), ['areaPath', 'board', 'epic', 'group', 'labels', 'project', 'statusColumn', 'team']);
+  assert.deepEqual([...keys.fields].sort(), ['account', 'email', 'organization', 'repo', 'site', 'token', 'workspace']);
+  assert.deepEqual([...keys.pickers].sort(), ['areaPath', 'board', 'channel', 'epic', 'group', 'labels', 'project', 'statusColumn', 'team']);
   assert.deepEqual([...keys.methods].sort(), ['gh', 'microsoft', 'pat', 'token']);
-  // Each tracker's project names which tracker it is, so an existing one shows it fixed. monday.com's is its board.
-  assert.deepEqual(DESCRIPTIONS.map((d) => d.pickers.filter((p) => p.identifies).map((p) => p.key)), [['project'], [], ['project'], ['board']]);
+  // Each tracker's project names which tracker it is, so an existing one shows it fixed. monday.com's is its board, and Slack's its channel.
+  assert.deepEqual(DESCRIPTIONS.map((d) => d.pickers.filter((p) => p.identifies).map((p) => p.key)), [['project'], [], ['project'], ['board'], ['channel']]);
 });
 
 test('every description says which of its lists stands in for an epic, in words the page shows (GH-81)', () => {
@@ -139,12 +141,14 @@ test('every description says which of its lists stands in for an epic, in words 
   for (const d of DESCRIPTIONS) {
     const p = d.pickers.find((x) => x.key === d.place.key);
     assert.ok(p, `${d.name}'s place, ${d.place.key}, is one of its lists`);
-    assert.ok(p.whole, `${d.name}'s place is the list that narrows the whole project`);
+    // Slack's channel is the whole tracker, as a project is: it has no whole to narrow, so it's the list that names the tracker.
+    assert.ok(p.whole || p.identifies, `${d.name}'s place is the list that narrows the whole project, or the one that names it`);
     assert.match(d.place.words, /\bepic\b/, `${d.name}'s words say what stands in for an epic`);
     checked++;
   }
-  assert.equal(checked, 4);
-  assert.deepEqual(DESCRIPTIONS.map((d) => d.place.key), ['epic', 'labels', 'areaPath', 'group']);
+  assert.equal(checked, 5);
+  assert.deepEqual(DESCRIPTIONS.map((d) => d.place.key), ['epic', 'labels', 'areaPath', 'group', 'channel']);
+  assert.match(SLACK.place.words, /^In Slack, the channel stands in for an epic/);
   assert.match(AZURE.place.words, /^In Azure DevOps, an area path stands in for an epic/);
   assert.match(GITHUB.place.words, /^In GitHub, labels stand in for an epic/);
 });
@@ -202,4 +206,72 @@ test('monday.com signs in with a personal API token for the account, then lists 
   // Save leaves out the whole board's group and the usual status column.
   assert.deepEqual(MONDAY.toConfig({ host: 'acme', values: { board: '111', group: null, statusColumn: 'status' }, defaults: ['statusColumn'], ownRepo: null }), { kind: 'monday', account: 'acme', board: 111, group: null, statusColumn: null });
   assert.deepEqual(withTracker([], MONDAY.toConfig({ host: 'acme', values: { board: '111', group: null, statusColumn: 'status' }, defaults: ['statusColumn'], ownRepo: null })), [{ kind: 'monday', account: 'acme', board: 111 }]);
+});
+
+/** Slack's Web API, answering only this bot token: the app, its workspace, and the channels it lists. */
+const SLACK_TOKEN = 'xoxb-1234-5678-abcdefghijkl';
+function slackApi(o: { workspace?: string } = {}) {
+  const asked: string[] = [];
+  const fetch = (async (url: string, init: { headers: Record<string, string> }) => {
+    const u = new URL(url);
+    asked.push(u.pathname);
+    if (init.headers.Authorization !== `Bearer ${SLACK_TOKEN}`) return Response.json({ ok: false, error: 'invalid_auth' });
+    if (u.pathname === '/api/auth.test') return Response.json({ ok: true, url: `https://${o.workspace ?? 'acme'}.slack.com/`, team: 'Acme', user: 'acc', user_id: 'U0BOT', bot_id: 'B0APP' });
+    if (u.pathname === '/api/bots.info') return Response.json({ ok: true, bot: { id: 'B0APP', name: 'Acme Command Center' } });
+    if (u.pathname === '/api/conversations.list') {
+      return Response.json({ ok: true, channels: [
+        { id: 'C0SUPPORT1', name: 'premium-support', is_member: true },
+        { id: 'G0BILLING1', name: 'billing', is_private: true, is_member: true },
+        { id: 'C0RANDOM01', name: 'random', is_member: false },
+      ] });
+    }
+    return Response.json({ ok: false, error: 'unknown_method' });
+  }) as unknown as typeof globalThis.fetch;
+  return { fetch, asked };
+}
+
+test('Slack: a workspace from any link, a bot token that starts xoxb-, and the channels the app is in', async () => {
+  for (const pasted of ['acme', 'Acme.slack.com', 'https://acme.slack.com/archives/C0123ABCD/p1696512345123456', 'acme.slack.com?x=1']) assert.equal(SLACK.host.parse(pasted), 'acme', pasted);
+  for (const bad of ['acme.monday.com', 'https://slack.com', 'not a workspace!', '']) assert.equal(SLACK.host.parse(bad), null, bad);
+  assert.match(SLACK.host.invalid, /such as acme, or a link from acme\.slack\.com/, 'the refusal gives an example');
+
+  const method = SLACK.methods[0]!;
+  const token = method.fields[0]!;
+  assert.deepEqual([SLACK.methods.length, method.via, token.key, token.type, token.help!.url(''), token.help!.url('acme')], [1, 'fields', 'token', 'secret', SLACK_APPS, SLACK_APPS], 'Slack\'s page for apps, with or without a workspace');
+  assert.equal(token.check!(SLACK_TOKEN), null);
+  assert.equal(SLACK_BOT_TOKEN, 'xoxb-');
+  for (const bad of ['xoxp-1234-5678-abcdefghijkl', 'abcdefghijklmnopqrstuvwxyz', '']) assert.match(token.check!(bad) ?? '', /starts with xoxb-/, `a token that isn't a bot token: ${bad || 'the empty edge case'}`);
+  assert.match(token.check!('xoxb-12') ?? '', /whole token/, 'a bot token cut short');
+  assert.match(method.hint, /stays in VSCode on this machine, never in the repo/);
+  assert.match(method.hint, /Invite the app to the channel/);
+
+  const api = slackApi();
+  const signIn: SignIn = { method: 'token', fields: { token: SLACK_TOKEN }, header: null, gh: null };
+  const ctx = { host: 'acme', signIn, values: {}, fetch: api.fetch, exec: async () => ({ code: 1, stdout: '', stderr: '' }) };
+  assert.deepEqual(await SLACK.verify(ctx), { id: 'U0BOT', name: 'Acme Command Center' }, 'who a reply posts as: the app');
+  assert.deepEqual(api.asked, ['/api/auth.test', '/api/bots.info']);
+  await assert.rejects(SLACK.verify({ ...ctx, fetch: slackApi({ workspace: 'globex' }).fetch }), (e: unknown) => e instanceof TrackerError && e.kind === 'auth' && /workspace globex, not acme/.test(e.message), 'a token for another workspace is refused, naming it');
+  await assert.rejects(SLACK.verify({ ...ctx, signIn: { ...signIn, fields: { token: 'xoxb-wrong-0000000000' } } }), (e: unknown) => e instanceof TrackerError && e.kind === 'auth');
+
+  assert.deepEqual(SLACK.pickers.map((p) => [p.key, p.dependsOn, !!p.identifies, !!p.idValues, !!p.whole]), [['channel', [], true, true, false]]);
+  assert.deepEqual(await SLACK.pickers[0]!.load(ctx), [
+    { value: 'G0BILLING1', label: '#billing', detail: 'private' },
+    { value: 'C0SUPPORT1', label: '#premium-support', detail: 'public' },
+  ], 'by name, and not a channel the app isn\'t in');
+  assert.deepEqual(SLACK.toConfig({ host: 'acme', values: { channel: 'C0SUPPORT1' }, defaults: [], ownRepo: null }), { kind: 'slack', workspace: 'acme', channel: 'C0SUPPORT1' });
+  assert.deepEqual(SLACK.fromConfig(tracker({ kind: 'slack', workspace: 'acme', channel: 'C0SUPPORT1' }), null), { host: 'acme', values: { channel: 'C0SUPPORT1' } });
+});
+
+test('Slack: a second channel is a second tracker with its own prefix, and the same channel again replaces the first, keeping its settings', () => {
+  const support = SLACK.toConfig({ host: 'acme', values: { channel: 'C0SUPPORT1' }, defaults: [], ownRepo: null });
+  const billing = SLACK.toConfig({ host: 'acme', values: { channel: 'G0BILLING1' }, defaults: [], ownRepo: null });
+  const one = withTracker([], support);
+  assert.deepEqual(one, [{ kind: 'slack', workspace: 'acme', channel: 'C0SUPPORT1' }]);
+  const two = withTracker(one, billing);
+  assert.deepEqual(two, [{ kind: 'slack', workspace: 'acme', channel: 'C0SUPPORT1' }, { kind: 'slack', workspace: 'acme', channel: 'G0BILLING1', prefix: 'SL2' }], 'its threads are SL2-, not the first channel\'s SL-');
+  assert.deepEqual(withTracker(two, SLACK.toConfig({ host: 'acme', values: { channel: 'C0OPS00001' }, defaults: [], ownRepo: null }))[2], { kind: 'slack', workspace: 'acme', channel: 'C0OPS00001', prefix: 'SL3' });
+  // The edge case of a channel id written in lower case by hand: it's still the same channel.
+  assert.deepEqual(withTracker([{ kind: 'slack', workspace: 'acme', channel: 'c0support1', edits: true }], support), [{ kind: 'slack', workspace: 'acme', channel: 'C0SUPPORT1', edits: true }]);
+  assert.equal(withTracker([{ kind: 'slack', workspace: 'globex', channel: 'C0SUPPORT1' }], support).length, 2, 'the same id in another workspace is another tracker');
+  assert.deepEqual(withTracker(one, { ...billing, prefix: 'BILL' })[1], { kind: 'slack', workspace: 'acme', channel: 'G0BILLING1', prefix: 'BILL' }, 'one that names its prefix keeps it');
 });

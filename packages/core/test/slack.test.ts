@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { keyPrefix, parseConfig, trackerForKey } from '../src/config.ts';
 import { slackEscape } from '../src/text.ts';
 import {
-  SLACK_API, SLACK_CHANNEL, SLACK_PREFIX, SLACK_TITLE_MAX, SLACK_WORKSPACE, slackCall, SlackClient, slackKey, slackName, type SlackOptions, slackText,
+  SLACK_API, SLACK_CHANNEL, SLACK_PREFIX, SLACK_TITLE_MAX, SLACK_WORKSPACE, slackApp, slackAuth, slackCall, slackChannels, SlackClient, slackKey, slackName, type SlackOptions, slackText,
   slackThread, type SlackThread,
 } from '../src/trackers/slack.ts';
 import { placeText, TRACKER_KINDS, TrackerError, trackerName } from '../src/trackers/types.ts';
@@ -258,4 +258,51 @@ test('slackText and slackName give words a person reads, with no email even when
   assert.equal(slackName({ id: 'U03', profile: { display_name: 'ana@example.com' } }), '[email hidden]');
   assert.equal(slackName({ id: 'U04', name: 'pat' }), 'pat');
   assert.equal(slackName({ id: 'U05' }), 'Someone');
+});
+
+// ---------------------------------------------------------------- connecting a channel (T-29)
+
+test('slackAuth checks the token\'s workspace with auth.test, and one for another workspace fails, naming it', async () => {
+  const { fetch: f, calls } = fakeSlack({ 'auth.test': AUTH });
+  assert.equal((await slackAuth('Acme', 'xoxb-test', f)).user_id, 'U0BOT');
+  assert.deepEqual(calls.map((c) => c.method), ['auth.test']);
+  const other = fakeSlack({ 'auth.test': { ...AUTH, url: 'https://globex.slack.com/', team: 'Globex' } });
+  await assert.rejects(slackAuth('acme', 'xoxb-test', other.fetch), (e: unknown) => e instanceof TrackerError && e.kind === 'auth' && /workspace globex, not acme/.test(e.message));
+  const unnamed = fakeSlack({ 'auth.test': { ...AUTH, url: undefined, team: 'Globex' } });
+  await assert.rejects(slackAuth('acme', 'xoxb-test', unnamed.fetch), /workspace Globex, not acme/, 'the edge case of no url: the team names it');
+});
+
+test('slackApp is the app\'s name from bots.info, and falls back to the bot user\'s name when bots.info fails or there is no bot', async () => {
+  const { fetch: f, calls } = fakeSlack({ 'auth.test': { ...AUTH, bot_id: 'B0APP' }, 'bots.info': (c: Call) => ({ ok: true, bot: { id: c.params.bot, name: 'Acme Command Center' } }) });
+  assert.deepEqual(await slackApp('acme', 'xoxb-test', f), { id: 'U0BOT', name: 'Acme Command Center' });
+  assert.deepEqual(calls.map((c) => [c.method, c.params.bot ?? null]), [['auth.test', null], ['bots.info', 'B0APP']]);
+  const failed = fakeSlack({ 'auth.test': { ...AUTH, bot_id: 'B0APP' }, 'bots.info': { ok: false, error: 'missing_scope', needed: 'users:read' } });
+  assert.deepEqual(await slackApp('acme', 'xoxb-test', failed.fetch), { id: 'U0BOT', name: 'acc-bot' }, 'bots.info refused: the bot user\'s name');
+  const noBot = fakeSlack({ 'auth.test': AUTH });
+  assert.deepEqual([(await slackApp('acme', 'xoxb-test', noBot.fetch)).name, noBot.calls.length], ['acc-bot', 1], 'no bot id: bots.info isn\'t asked');
+  const other = fakeSlack({ 'auth.test': { ...AUTH, url: 'https://globex.slack.com/' } });
+  await assert.rejects(slackApp('acme', 'xoxb-test', other.fetch), /workspace globex/);
+});
+
+test('slackChannels lists the public and private channels the app is in, by name, a page at a time, and an empty workspace is an empty list', async () => {
+  const pages: Record<string, unknown> = {
+    '': { ok: true, channels: [
+      { id: 'C0SUPPORT1', name: 'support', is_member: true },
+      { id: 'C0RANDOM01', name: 'random', is_member: false },
+    ], response_metadata: { next_cursor: 'next' } },
+    next: { ok: true, channels: [
+      { id: 'G0BILLING1', name: 'billing', is_private: true, is_member: true },
+      { id: 'C0OLD00001', name: 'old', is_member: true, is_archived: true },
+    ], response_metadata: { next_cursor: '' } },
+  };
+  const { fetch: f, calls } = fakeSlack({ 'conversations.list': (c: Call) => pages[c.params.cursor ?? ''] });
+  assert.deepEqual(await slackChannels('xoxb-test', f), [{ id: 'G0BILLING1', name: 'billing', private: true }, { id: 'C0SUPPORT1', name: 'support', private: false }], 'not one the app isn\'t in, nor an archived one');
+  assert.deepEqual(calls.map((c) => [c.params.types, c.params.exclude_archived, c.params.cursor ?? null]), [['public_channel,private_channel', 'true', null], ['public_channel,private_channel', 'true', 'next']]);
+  const empty = fakeSlack({ 'conversations.list': { ok: true, channels: [] } });
+  assert.deepEqual(await slackChannels('xoxb-test', empty.fetch), []);
+  const endless = fakeSlack({ 'conversations.list': { ok: true, channels: [], response_metadata: { next_cursor: 'again' } } });
+  await slackChannels('xoxb-test', endless.fetch);
+  assert.equal(endless.calls.length, 25, 'a cursor that never ends stops after 25 pages');
+  const scope = fakeSlack({ 'conversations.list': { ok: false, error: 'missing_scope', needed: 'groups:read' } });
+  await assert.rejects(slackChannels('xoxb-test', scope.fetch), (e: unknown) => e instanceof TrackerError && e.kind === 'scope' && /groups:read/.test(e.message));
 });

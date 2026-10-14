@@ -133,9 +133,9 @@ export function signOutWrites(p: Parameters<typeof repoKey>[0], kind: string, ho
 /** The two answers signing out of a site's sign-in offers (GH-79). VSCode's modal adds Cancel. */
 export const signOutAnswers = (host: string): { every: string; only: string } => ({ every: `Every project on ${host.toLowerCase()}`, only: 'This project only' });
 
-/** A tracker's host: a Jira site, an Azure organization or a monday.com account, the part a sign-in is for (GH-79). */
-export const trackerHost = (t: { kind: string; site?: string | null; organization?: string | null; account?: string | null }): string =>
-  (t.kind === 'jira' ? t.site ?? '' : t.kind === 'monday' ? t.account ?? '' : t.organization ?? '').replace(/^https?:\/\//, '').replace(/\/+$/, '').toLowerCase();
+/** A tracker's host: a Jira site, an Azure organization, a monday.com account or a Slack workspace, the part a sign-in is for (GH-79). */
+export const trackerHost = (t: { kind: string; site?: string | null; organization?: string | null; account?: string | null; workspace?: string | null }): string =>
+  (t.kind === 'jira' ? t.site ?? '' : t.kind === 'monday' ? t.account ?? '' : t.kind === 'slack' ? t.workspace ?? '' : t.organization ?? '').replace(/^https?:\/\//, '').replace(/\/+$/, '').toLowerCase();
 
 /**
  * The projects whose boards reload when a sign-in changes (GH-79): the one it changed in, and, for a sign-in

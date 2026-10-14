@@ -139,7 +139,7 @@ test('a new Jira tracker: the email from the repo, nothing to pick until it sign
   assert.equal(await h.session.open({ root: ROOT, kind: 'jira', from: 'tasks' }), true);
   let m = h.model();
   assert.deepEqual([m.kind, m.title, m.back.label], ['jira', 'Connect a tracker', 'Back to Tasks']);
-  assert.deepEqual(m.kinds.map((k) => k.kind), ['jira', 'github', 'azure', 'monday']);
+  assert.deepEqual(m.kinds.map((k) => k.kind), ['jira', 'github', 'azure', 'monday', 'slack']);
   assert.equal(field(m, 'email').value, EMAIL, 'the email is the repo\'s git user.email');
   assert.deepEqual([field(m, 'token').type, field(m, 'token').help?.url], ['secret', 'https://id.atlassian.com/manage-profile/security/api-tokens']);
   assert.ok(m.pickers.every((p) => p.disabled), 'nothing to pick before it signs in');
@@ -388,7 +388,7 @@ test('From a Jira epic: the site every project shares fills in signed in, the ep
   assert.deepEqual([m.signIn.look.label, m.signIn.editing], ['Signed in as Jordan Kim, for every project on acme.atlassian.net', false], 'nothing typed (GH-79)');
   assert.match(m.summary, /^Starting the project writes acme-renewals's settings, with its tickets from the epic you pick\. Until then nothing is written, and picking only reads Jira: nothing is ever written to it\./);
   assert.deepEqual(m.place, { key: 'epic', words: DESCRIPTIONS[0]!.place.words });
-  assert.deepEqual(m.kinds.map((k) => k.kind), ['jira', 'github', 'azure', 'monday'], 'Azure DevOps and GitHub start the same way');
+  assert.deepEqual(m.kinds.map((k) => k.kind), ['jira', 'github', 'azure', 'monday', 'slack'], 'Azure DevOps and GitHub start the same way');
   assert.deepEqual(picker(m, 'project').options.map((o) => o.value), ['ACME', 'OPS']);
 
   h.send({ type: 'connect-pick', key: 'project', value: 'ACME' });
@@ -846,7 +846,7 @@ test('the Connect page offers no picker for a tracker key nothing reads yet, and
   assert.equal(s.pickers.epic!.selected[0], 'ACME-3');
 });
 
-test('another tracker is a description, not another page: a fifth one gets its fields, sign-in and lists', () => {
+test('another tracker is a description, not another page: a sixth one gets its fields, sign-in and lists', () => {
   const LINEAR: TrackerDescription = {
     kind: 'linear', name: 'Linear', icon: 'calendar',
     host: { key: 'workspace', label: 'Workspace', placeholder: 'acme', hint: 'Your Linear workspace.', parse: (v) => v.trim() || null, invalid: 'A workspace name.' },
@@ -864,7 +864,7 @@ test('another tracker is a description, not another page: a fifth one gets its f
   const s = blankConnect(LINEAR, { id: 'p', root: ROOT, projectName: 'Acme Service', ownRepo: null, ghAccount: null, from: 'tasks' });
   s.host = 'acme';
   const m = connectModel(s, list);
-  assert.deepEqual(m.kinds.map((k) => k.kind), ['jira', 'github', 'azure', 'monday', 'linear']);
+  assert.deepEqual(m.kinds.map((k) => k.kind), ['jira', 'github', 'azure', 'monday', 'slack', 'linear']);
   assert.deepEqual([m.host.label, m.fields.map((f) => [f.key, f.type, f.value, f.help?.url]), m.method.test], ['Workspace', [['apiKey', 'secret', '', 'https://linear.app/acme/settings/api']], 'Test connection']);
   assert.deepEqual(m.pickers.map((p) => [p.key, p.whole, p.required, p.disabled]), [['team', null, true, true], ['cycle', 'Every cycle', false, true]]);
 });
@@ -1028,6 +1028,90 @@ test('monday.com: a token from another account is refused, naming it, and an exi
   assert.deepEqual(h.raw, [{ kind: 'monday', account: 'acme', board: 111, edits: true }], 'the whole board now, keeping edits');
 });
 
+/** Slack's Web API, answering only this bot token: the app, its workspace, and the channels it's in. */
+const SLACK_TOKEN = 'xoxb-1234-5678-slacktokenforconnect';
+function slack(o: { workspace?: string } = {}): typeof fetch {
+  return (async (url: string, init: { headers: Record<string, string> }) => {
+    const u = new URL(url);
+    if (init.headers.Authorization !== `Bearer ${SLACK_TOKEN}`) return Response.json({ ok: false, error: 'invalid_auth' });
+    if (u.pathname === '/api/auth.test') return Response.json({ ok: true, url: `https://${o.workspace ?? 'acme'}.slack.com/`, team: 'Acme', user: 'acc', user_id: 'U0BOT', bot_id: 'B0APP' });
+    if (u.pathname === '/api/bots.info') return Response.json({ ok: true, bot: { id: 'B0APP', name: 'Acme Command Center' } });
+    if (u.pathname === '/api/conversations.list') {
+      return Response.json({ ok: true, channels: [
+        { id: 'C0SUPPORT1', name: 'premium-support', is_member: true },
+        { id: 'G0BILLING1', name: 'billing', is_private: true, is_member: true },
+        { id: 'C0RANDOM01', name: 'random', is_member: false },
+      ] });
+    }
+    return Response.json({ ok: false, error: 'unknown_method' });
+  }) as unknown as typeof fetch;
+}
+
+test('Slack: a workspace from any link, a bot token kept only in secret storage, signed in as the app, and a channel the app is in', async () => {
+  const h = harness({ fetch: slack() });
+  await h.session.open({ root: ROOT, kind: 'slack', from: 'tasks' });
+  let m = h.model();
+  assert.deepEqual([m.kind, m.name, m.icon, m.host.label, m.methods.length, m.fields.map((f) => [f.key, f.type]), field(m, 'token').help], ['slack', 'Slack', 'comment-discussion', 'Workspace', 0, [['token', 'secret']], { label: 'Open your Slack apps', url: 'https://api.slack.com/apps' }]);
+  assert.match(m.method.hint, /never in the repo.*Invite the app to the channel/);
+  h.send({ type: 'connect-set', field: 'workspace', value: 'https://acme.slack.com/archives/C0SUPPORT1/p1696512345123456' });
+  assert.equal(h.model().host.value, 'acme');
+  h.send({ type: 'connect-set', field: 'workspace', value: 'acme.monday.com' });
+  assert.match(h.model().host.error ?? '', /such as acme, or a link from acme\.slack\.com/, 'another tracker\'s link is refused, with an example');
+
+  h.send({ type: 'connect-test', host: 'acme', fields: { token: 'xoxp-1234-5678-usertokenusertoken' } });
+  await settle();
+  assert.match(field(h.model(), 'token').error ?? '', /A bot token starts with xoxb-/, 'a user token is refused before Slack is asked');
+  assert.equal(h.secrets.size, 0, 'nothing is kept until it works');
+
+  h.send({ type: 'connect-test', host: 'acme', fields: { token: SLACK_TOKEN } });
+  await settle();
+  m = h.model();
+  assert.equal(m.signIn.look.label, 'Signed in as Acme Command Center, for every project on acme', 'who a reply posts as: the app');
+  assert.deepEqual(JSON.parse(h.secrets.get(siteCredKey('slack', 'acme'))!), { kind: 'slack', method: 'token', token: SLACK_TOKEN }, 'in secret storage, as acc.cred:site:slack:acme');
+  assert.deepEqual(picker(m, 'channel').options.map((o) => [o.value, o.label, o.detail]), [['G0BILLING1', '#billing', 'private'], ['C0SUPPORT1', '#premium-support', 'public']]);
+  assert.deepEqual([picker(m, 'channel').required, m.save.can], [true, false], 'a channel to choose before Save');
+  h.send({ type: 'connect-pick', key: 'channel', value: 'C0SUPPORT1' });
+  await settle();
+  assert.equal(h.model().save.label, 'Connect Slack');
+  h.send({ type: 'connect-save' });
+  await settle();
+  assert.deepEqual(h.raw, [{ kind: 'slack', workspace: 'acme', channel: 'C0SUPPORT1' }]);
+  assert.ok(![...h.posted, ...h.logs, JSON.stringify(h.raw)].some((x) => x.includes(SLACK_TOKEN)), 'never in the page model, the log or the project\'s settings');
+
+  // A second channel is a second tracker, whose threads have keys of their own.
+  await h.session.open({ root: ROOT, kind: 'slack', from: 'tasks' });
+  h.send({ type: 'connect-test', host: 'acme', fields: { token: SLACK_TOKEN } });
+  await settle();
+  h.send({ type: 'connect-pick', key: 'channel', value: 'G0BILLING1' });
+  h.send({ type: 'connect-save' });
+  await settle();
+  assert.deepEqual(h.raw, [{ kind: 'slack', workspace: 'acme', channel: 'C0SUPPORT1' }, { kind: 'slack', workspace: 'acme', channel: 'G0BILLING1', prefix: 'SL2' }]);
+});
+
+test('Slack: a token for another workspace is refused, naming it, and an existing tracker opens signed in with its channel fixed by name', async () => {
+  const other = harness({ fetch: slack({ workspace: 'globex' }) });
+  await other.session.open({ root: ROOT, kind: 'slack', from: 'tasks' });
+  other.send({ type: 'connect-test', host: 'acme', fields: { token: SLACK_TOKEN } });
+  await settle();
+  assert.match(field(other.model(), 'token').error ?? '', /token is for the workspace globex, not acme/);
+  assert.equal(other.secrets.size, 0);
+
+  const h = harness({ fetch: slack(), trackers: [{ kind: 'slack', workspace: 'acme', channel: 'C0SUPPORT1', edits: true }] });
+  h.secrets.set(credKey(ACME, 'slack', 'acme'), JSON.stringify({ kind: 'slack', method: 'token', token: SLACK_TOKEN }));
+  await h.session.open({ root: ROOT, index: 0, from: 'tasks' });
+  await settle();
+  const m = h.model();
+  assert.deepEqual([m.host.fixed, m.host.value, m.signIn.look.label], [true, 'acme', 'Signed in as Acme Command Center, for this project only']);
+  const channel = picker(m, 'channel');
+  assert.deepEqual([channel.fixed, channel.selected, channel.options.find((o) => o.value === 'C0SUPPORT1')?.label], [true, ['C0SUPPORT1'], '#premium-support'], 'fixed, by its name rather than its id');
+  h.send({ type: 'connect-pick', key: 'channel', value: 'G0BILLING1' });
+  assert.deepEqual(picker(h.model(), 'channel').selected, ['C0SUPPORT1'], 'another channel is another tracker');
+  h.send({ type: 'connect-save' });
+  await settle();
+  assert.deepEqual(h.raw, [{ kind: 'slack', workspace: 'acme', channel: 'C0SUPPORT1', edits: true }], 'saved in place, keeping edits');
+  assert.ok(!h.posted.some((x) => x.includes(SLACK_TOKEN)), 'a kept token is never sent to the page');
+});
+
 test('the prompts are gone, and the page draws every tracker without knowing one from another', () => {
   const trackers = readFileSync(join(root, 'src', 'trackers.ts'), 'utf8');
   for (const gone of ['showInputBox', 'Add a tracker to which project', ', 1 of ', 'addJira', 'addAzure', 'addGithub', 'listForPlace']) assert.ok(!trackers.includes(gone), `trackers.ts has no ${gone}`);
@@ -1035,5 +1119,5 @@ test('the prompts are gone, and the page draws every tracker without knowing one
   const start = main.indexOf('// ---------------------------------------------------------------- connecting a tracker (GH-51)');
   const end = main.length;
   assert.ok(start > 0 && end > start);
-  assert.doesNotMatch(main.slice(start, end), /jira|azure|github|monday/i, 'no tracker named in the Connect page\'s drawing');
+  assert.doesNotMatch(main.slice(start, end), /jira|azure|github|monday|slack/i, 'no tracker named in the Connect page\'s drawing');
 });

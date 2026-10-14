@@ -50,7 +50,7 @@ interface SlackMessage {
 }
 interface SlackUser { id: string; name?: string; real_name?: string; deleted?: boolean; profile?: { display_name?: string; real_name?: string } }
 
-/** Replies read a page at a time, and the most a thread's body holds. */
+/** Slack's lists (a thread's replies, the channels) read a page at a time; the most a thread's body holds. */
 const PAGE = 200;
 const MAX_MESSAGES = 1000;
 /** Threads checked at once, so checking many never floods Slack. */
@@ -149,6 +149,60 @@ export async function slackCall<T>(token: string, method: string, params: Record
   return json as T;
 }
 
+/** What auth.test says of a bot token: its bot user, and the app's bot. */
+export interface SlackAuth { user_id: string; user: string; bot_id?: string }
+
+/**
+ * auth.test, which says which workspace a token is for. One from another workspace fails, naming that
+ * workspace, so the token never reads another client's channels.
+ */
+export async function slackAuth(workspace: string, token: string, f: typeof fetch = fetch): Promise<SlackAuth> {
+  const want = workspace.trim().toLowerCase();
+  const d = await slackCall<SlackAuth & { url?: string; team?: string }>(token, 'auth.test', {}, f);
+  const domain = /^https:\/\/([^./]+)\.slack\.com/i.exec(d.url ?? '')?.[1]?.toLowerCase() ?? null;
+  if (domain !== want) {
+    throw new TrackerError('auth', `This Slack app's token is for the workspace ${domain ?? d.team ?? 'that Slack didn\'t name'}, not ${want}. Connect the app installed in ${want}.`);
+  }
+  return d;
+}
+
+/**
+ * The app a bot token posts as, by the name Slack shows on its replies (bots.info), once auth.test has checked
+ * the workspace. When bots.info can't be read, the bot user's name from auth.test.
+ */
+export async function slackApp(workspace: string, token: string, f: typeof fetch = fetch): Promise<Person> {
+  const d = await slackAuth(workspace, token, f);
+  const name = d.bot_id
+    ? await slackCall<{ bot?: { name?: string } }>(token, 'bots.info', { bot: d.bot_id }, f).then((b) => b.bot?.name?.trim() || null).catch(() => null)
+    : null;
+  return { id: d.user_id, name: noEmail(name ?? d.user) };
+}
+
+/** The most pages of channels read, so a large workspace never floods Slack. */
+const CHANNEL_PAGES = 25;
+
+/** A channel the app can read: its id, its name, and whether it's private. */
+export interface SlackChannel { id: string; name: string; private: boolean }
+
+/**
+ * The public and private channels the app can read (conversations.list), by name. The app reads only a
+ * channel it's in, so a channel it isn't in, and an archived one, are left out.
+ */
+export async function slackChannels(token: string, f: typeof fetch = fetch): Promise<SlackChannel[]> {
+  type Listed = { id: string; name?: string; is_private?: boolean; is_member?: boolean; is_archived?: boolean };
+  const out: SlackChannel[] = [];
+  let cursor = '';
+  let pages = 0;
+  do {
+    const d = await slackCall<{ channels?: Listed[]; response_metadata?: { next_cursor?: string } }>(token, 'conversations.list', {
+      types: 'public_channel,private_channel', exclude_archived: true, limit: PAGE, ...(cursor ? { cursor } : {}),
+    }, f);
+    for (const c of d.channels ?? []) if (c.is_member && !c.is_archived) out.push({ id: c.id, name: c.name ?? c.id, private: !!c.is_private });
+    cursor = d.response_metadata?.next_cursor ?? '';
+  } while (cursor && ++pages < CHANNEL_PAGES);
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 export class SlackClient implements TrackerClient {
   readonly kind = 'slack' as const;
   readonly title: string;
@@ -158,7 +212,7 @@ export class SlackClient implements TrackerClient {
   private readonly workspace: string;
   private readonly channel: string;
   /** The token's check against the workspace, made once. */
-  private authCache: Promise<{ user_id: string; user: string }> | null = null;
+  private authCache: Promise<SlackAuth> | null = null;
   private readonly users = new Map<string, Promise<string>>();
 
   constructor(o: SlackOptions) {
@@ -180,16 +234,10 @@ export class SlackClient implements TrackerClient {
     return this.raw<T>(method, params, post);
   }
 
-  /** auth.test, which says which workspace the token is for. One from another workspace fails, naming it. */
-  private authed(): Promise<{ user_id: string; user: string }> {
+  /** slackAuth, made once: a token from another workspace fails, naming it. */
+  private authed(): Promise<SlackAuth> {
     if (!this.authCache) {
-      const p = this.raw<{ url?: string; team?: string; user_id: string; user: string }>('auth.test', {}).then((d) => {
-        const domain = /^https:\/\/([^./]+)\.slack\.com/i.exec(d.url ?? '')?.[1]?.toLowerCase() ?? null;
-        if (domain !== this.workspace) {
-          throw new TrackerError('auth', `This Slack app's token is for the workspace ${domain ?? d.team ?? 'that Slack didn\'t name'}, not ${this.workspace}. Connect the app installed in ${this.workspace}.`);
-        }
-        return d;
-      });
+      const p = slackAuth(this.workspace, this.o.token, this.o.fetch ?? fetch);
       this.authCache = p;
       p.catch(() => { if (this.authCache === p) this.authCache = null; });
     }

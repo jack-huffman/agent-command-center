@@ -10,6 +10,7 @@ import { azureAreas, azureBoards, azureProjects, azureTeams, azureWhoAmI, tenant
 import { GithubClient } from './github.ts';
 import { JiraClient, jiraBoards, jiraEpics, jiraProjects } from './jira.ts';
 import { mondayBoards, mondayGroups, mondayMe, mondayStatusColumns, mondayTokenPage } from './monday.ts';
+import { slackApp, slackChannels } from './slack.ts';
 import { type Exec, type Person, TrackerError } from './types.ts';
 
 /** One thing to type: an email, or a token, which the page shows as a password field and never keeps. */
@@ -152,12 +153,14 @@ export interface TrackerDescription {
 
 /**
  * A tracker's host from anything a person pastes: a Jira site or any URL on it, an Azure DevOps
- * organization or any URL in it, a monday.com account or any URL in it. Null when it's none of them.
+ * organization or any URL in it, a monday.com account or a Slack workspace, or any URL in it. Null when
+ * it's none of them.
  */
-export function parseHost(kind: 'jira' | 'azure' | 'monday', input: string): string | null {
+export function parseHost(kind: 'jira' | 'azure' | 'monday' | 'slack', input: string): string | null {
   const s = input.trim().replace(/^https?:\/\//, '');
-  if (kind === 'monday') {
-    const m = /^([a-z0-9][a-z0-9-]*)\.monday\.com(?:[/?#]|$)/i.exec(s) ?? /^([a-z0-9][a-z0-9-]*)$/i.exec(s);
+  if (kind === 'monday' || kind === 'slack') {
+    const at = kind === 'monday' ? /^([a-z0-9][a-z0-9-]*)\.monday\.com(?:[/?#]|$)/i : /^([a-z0-9][a-z0-9-]*)\.slack\.com(?:[/?#]|$)/i;
+    const m = at.exec(s) ?? /^([a-z0-9][a-z0-9-]*)$/i.exec(s);
     return m ? m[1]!.toLowerCase() : null;
   }
   if (kind === 'azure') {
@@ -330,8 +333,41 @@ export const MONDAY: TrackerDescription = {
   fromConfig: (t) => ({ host: t.account ?? '', values: { board: t.board === null ? null : String(t.board), group: t.group, statusColumn: t.statusColumn } }),
 };
 
+/** Where a Slack app is made, and its bot token copied from (its OAuth & Permissions page). */
+export const SLACK_APPS = 'https://api.slack.com/apps';
+/** What a Slack app's bot token starts with. A user token (xoxp-) would post as the person, not the app. */
+export const SLACK_BOT_TOKEN = 'xoxb-';
+
+const slackToken = (ctx: Ctx): string => ctx.signIn.fields.token ?? '';
+
+export const SLACK: TrackerDescription = {
+  kind: 'slack', name: 'Slack', icon: 'comment-discussion',
+  host: {
+    key: 'workspace', label: 'Workspace', placeholder: 'acme', hint: 'The workspace, as in acme.slack.com, or any link from it.',
+    parse: (v) => parseHost('slack', v), invalid: 'A workspace name, such as acme, or a link from acme.slack.com.',
+  },
+  methods: [{
+    id: 'token', label: 'Bot token', icon: 'key', via: 'fields', test: 'Test connection',
+    hint: 'Slack takes the bot token of a Slack app installed in the workspace. Replies post as the app. The token stays in VSCode on this machine, never in the repo. Invite the app to the channel in Slack, or the channel is not in the list.',
+    fields: [{
+      key: 'token', label: 'Bot token', type: 'secret', placeholder: `Paste the token: ${SLACK_BOT_TOKEN}…`,
+      check: (v) => (!v.trim().startsWith(SLACK_BOT_TOKEN) ? `A bot token starts with ${SLACK_BOT_TOKEN}. Copy it from the app's OAuth & Permissions page.` : v.trim().length >= 20 ? null : 'Paste the whole token.'),
+      help: { label: 'Open your Slack apps', url: () => SLACK_APPS },
+    }],
+  }],
+  pickers: [{
+    key: 'channel', label: 'Channel', dependsOn: [], identifies: true, idValues: true,
+    hint: 'Its threads are the tracker\'s tickets. Only channels the app is in are listed.',
+    load: async (ctx) => (await slackChannels(slackToken(ctx), ctx.fetch)).map((c) => ({ value: c.id, label: `#${c.name}`, detail: c.private ? 'private' : 'public' })),
+  }],
+  place: { key: 'channel', words: 'In Slack, the channel stands in for an epic: only its threads are this project\'s.' },
+  verify: (ctx) => slackApp(ctx.host, slackToken(ctx), ctx.fetch),
+  toConfig: (c) => ({ kind: 'slack', workspace: c.host, channel: one(c.values.channel) }),
+  fromConfig: (t) => ({ host: t.workspace ?? '', values: { channel: t.channel } }),
+};
+
 /** Every tracker the Connect page offers, in the order it lists them. */
-export const DESCRIPTIONS: TrackerDescription[] = [JIRA, GITHUB, AZURE, MONDAY];
+export const DESCRIPTIONS: TrackerDescription[] = [JIRA, GITHUB, AZURE, MONDAY, SLACK];
 
 export const describe = (kind: string, list: TrackerDescription[] = DESCRIPTIONS): TrackerDescription | undefined => list.find((d) => d.kind === kind);
 

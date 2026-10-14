@@ -920,15 +920,18 @@ export function trackerForKey(trackers: Pick<Tracker, 'kind' | 'project' | 'pref
 /**
  * The raw trackers list with one tracker added, or put in place of the one it describes (same kind,
  * project and site, organization or repo; a monday.com one by its account and board, since a board is its
- * project). Settings the new one doesn't name, such as a GitHub tracker's
+ * project; a Slack one by its workspace and channel, since a channel is its project). Settings the new one
+ * doesn't name, such as a GitHub tracker's
  * skipLabels (D-048), are kept: re-adding a tracker never quietly drops them. A setting it names as null
  * is taken out, so re-adding one as the whole project clears its epic, labels or area path (D-072).
- * A new monday.com tracker whose keys another tracker already gives gets a prefix of its own.
+ * A new monday.com or Slack tracker whose keys another tracker already gives gets a prefix of its own.
  */
 export function withTracker(trackers: Record<string, unknown>[], tracker: Record<string, unknown>): Record<string, unknown>[] {
   // A repo left out and one named null are both the project's own.
-  const where = (t: Record<string, unknown>) => t.site ?? t.organization ?? t.account ?? t.repo ?? null;
-  const board = (t: Record<string, unknown>) => (t.kind === 'monday' && t.board !== undefined && t.board !== null ? String(t.board) : null);
+  const where = (t: Record<string, unknown>) => t.site ?? t.organization ?? t.account ?? t.workspace ?? t.repo ?? null;
+  // What stands for a project where the tracker has none: a monday.com board, or a Slack channel (by its id, as the config keeps it, upper-cased).
+  const board = (t: Record<string, unknown>) => (t.kind === 'monday' && t.board !== undefined && t.board !== null ? String(t.board)
+    : t.kind === 'slack' && isStr(t.channel) ? t.channel.trim().toUpperCase() : null);
   const i = trackers.findIndex((t) => t.kind === tracker.kind && (t.project ?? null) === (tracker.project ?? null) && where(t) === where(tracker) && board(t) === board(tracker));
   if (i < 0) return [...trackers, setKeys(ownPrefix(trackers, tracker))];
   return trackers.map((t, k) => (k === i ? setKeys({ ...t, ...tracker }) : t));
@@ -940,11 +943,12 @@ const rawPrefix = (t: Record<string, unknown>): string | null =>
 /**
  * A second board on a monday.com account would give its items MON keys too. Those go to the first board,
  * whose place check then takes the second's from the ledger (D-072), and their drafts can't post. So a new
- * one gets the first of MON2, MON3 and so on that no tracker uses. One that names its prefix keeps it.
+ * one gets the first of MON2, MON3 and so on that no tracker uses. A second Slack channel is the same: its
+ * threads get SL2 keys, not SL. One that names its prefix keeps it.
  */
 function ownPrefix(trackers: Record<string, unknown>[], tracker: Record<string, unknown>): Record<string, unknown> {
   const base = rawPrefix(tracker);
-  if (tracker.kind !== 'monday' || isStr(tracker.prefix) || !base) return tracker;
+  if ((tracker.kind !== 'monday' && tracker.kind !== 'slack') || isStr(tracker.prefix) || !base) return tracker;
   const used = new Set(trackers.map(rawPrefix));
   if (!used.has(base)) return tracker;
   let n = 2;
