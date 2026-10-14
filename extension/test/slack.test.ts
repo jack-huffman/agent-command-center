@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import type { AutopilotRecord } from '../../packages/core/src/autopilot-log.ts';
 import { displayState, emptyLedger, type Task } from '../../packages/core/src/ledger.ts';
+import { slackEscape } from '../../packages/core/src/text.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
 import { tempDir } from '../../packages/core/test/support.ts';
 import type { AgentSession, TaskRow } from '../src/logic/shared.ts';
@@ -17,7 +18,7 @@ import { homeModel } from '../src/model/home.ts';
 import { isFromWebview } from '../src/model/messages.ts';
 import { News, type NewsInput } from '../src/news.ts';
 import {
-  autopilotEvent, blankSlack, draftEvents, draftKey, isSlackWebhook, questionEvent, Slack, SLACK_KINDS, SLACK_SECRET, SLACK_SPACING_MS, slackCard, slackEscape, type SlackEvent, slackMessage,
+  autopilotEvent, blankSlack, draftEvents, draftKey, isSlackWebhook, questionEvent, Slack, SLACK_KINDS, SLACK_SECRET, SLACK_SPACING_MS, slackCard, type SlackEvent, slackMessage,
   type SlackPayload, type SlackProject, type SlackState, slackState, taskEvent, taskLink,
 } from '../src/slack.ts';
 
