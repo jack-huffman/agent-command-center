@@ -6,7 +6,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { HomeModel } from '../src/model/home.ts';
-import { showOnFontLoad } from '../webview/rail-fonts.ts';
 
 const STRIP = 500;
 /** The selected tab's right edge at scrollLeft 0: past the strip's edge once the icon font has widened the tabs. */
@@ -50,7 +49,7 @@ Object.assign(globalThis, {
   requestAnimationFrame: (cb: () => void) => frames.push(cb),
   acquireVsCodeApi: () => ({ postMessage() {}, getState: () => undefined, setState() {} }),
 });
-const { renderNav } = await import('../webview/rail.ts');
+const { renderNav, showOnFontLoad } = await import('../webview/rail.ts');
 
 const model = { nav: [{ section: 'overview', icon: 'home', label: 'Overview', hint: 'h', count: null, attention: false }, { section: 'settings', icon: 'gear', label: 'Settings', hint: 'h', count: null, attention: false }], overview: { projects: [] } } as unknown as HomeModel;
 
@@ -101,7 +100,7 @@ test('only the newest rail listens for fonts, so a replaced rail is left alone (
   assert.ok(newest.inView());
 });
 
-test('showOnFontLoad calls show on each loadingdone until it is stopped (T-24)', () => {
+test('showOnFontLoad calls show on each loadingdone, and nothing once it is stopped (T-24)', () => {
   const fonts = new FakeFonts();
   let shown = 0;
   const stop = showOnFontLoad(fonts, () => { shown++; });

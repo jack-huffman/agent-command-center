@@ -4,7 +4,6 @@ import type { HomeSection } from '../src/model/shared.ts';
 import type { HomeModel } from '../src/model/home.ts';
 import { el, icon, wrap } from './dom.ts';
 import { api, go } from './state.ts';
-import { showOnFontLoad } from './rail-fonts.ts';
 
 // The page draws a new rail on each render: only the latest one listens for fonts.
 let stopWatching: () => void = () => {};
@@ -80,4 +79,23 @@ function showSelected(rail: HTMLElement): void {
   const t = on.getBoundingClientRect();
   if (t.right > r.right) rail.scrollLeft += t.right - r.right + 12;
   else if (t.left < r.left) rail.scrollLeft -= r.left - t.left + 12;
+}
+
+// ---------------------------------------------------------------- a late font (T-24)
+
+/** What the rail needs of document.fonts: the event that says a font finished loading. */
+export interface FontEvents {
+  addEventListener: (type: 'loadingdone', fn: () => void) => void;
+  removeEventListener: (type: 'loadingdone', fn: () => void) => void;
+}
+
+/**
+ * Calls show each time a font finishes loading, and returns what stops it. document.fonts.ready resolves
+ * before the icon font starts to load (nothing has asked for it yet), so the tabs widen after it and the
+ * selected tab can end up past the strip's edge. loadingdone is used rather than fonts.load('codicon'): it
+ * needs no font name, and also covers a font that is asked for later than the rail's first frame.
+ */
+export function showOnFontLoad(fonts: FontEvents, show: () => void): () => void {
+  fonts.addEventListener('loadingdone', show);
+  return () => fonts.removeEventListener('loadingdone', show);
 }
