@@ -111,3 +111,11 @@
 .more-item:hover, .more-item:focus-visible { background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground)); color: var(--vscode-menu-selectionForeground, inherit); outline: none; }
 .more-item.danger { color: var(--orange); }
 .more-sep { height: 1px; margin: 4px 2px; background: var(--line); }
+
+/* A Slack tracker's box for a thread's link (T-31), in place of a board: its label beside the box, as on
+   the Connect page, and above it below 620 px. */
+.thread-link { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 4px 14px; align-items: start; max-width: 820px; margin: 12px 0 0; }
+@media (max-width: 620px) {
+  .thread-link { grid-template-columns: minmax(0, 1fr); }
+  .thread-link .cfield-label { padding-top: 0; }
+}

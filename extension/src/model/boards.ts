@@ -8,6 +8,7 @@ import { conflictLine, failedChecksLine, waitsForFiles, whileFirst } from '../lo
 import { taskNames, type TaskRow, type Tone } from '../logic/shared.ts';
 import { signInScope } from '../logic/connect.ts';
 import { inProcessWords } from '../logic/processes.ts';
+import { exampleLink, type PasteState, pasteHint, type SlackPlace } from '../logic/slack-link.ts';
 import { type Action, displayLook, KEY, type Look, LOOK, type ModelArea, short } from './shared.ts';
 import { analysisLook, autopilotLook, CARD_SAID, cardActions, closedPrLook, filesLook, stoppedLook } from './cards.ts';
 
@@ -76,6 +77,8 @@ export interface BoardInput {
   left?: string[];
   /** Its cards being tracked, or whose last Track didn't go, by key (D-074). */
   tracking?: Record<string, { busy: boolean; error: string | null }>;
+  /** A Slack tracker's box for a thread's link (T-31): its channel, and its Track's state. */
+  paste?: (SlackPlace & PasteState) | null;
 }
 
 export interface TrackerCard {
@@ -135,6 +138,12 @@ export interface TrackerBoard {
    */
   left: string[];
   columns: TrackerColumn[];
+  /**
+   * A Slack tracker's box for a thread's link, in place of a board (T-31): which channel the thread must be
+   * in, an example link, the link last sent, and its Track: on its way, why the last one didn't go, or the key it tracked. Null
+   * for every other tracker, and while the board shows why it can't be read, such as no sign-in.
+   */
+  paste: { hint: string; example: string; link: string | null; busy: boolean; error: string | null; tracked: string | null } | null;
 }
 
 /**
@@ -199,6 +208,7 @@ export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): Trac
     notice: b.board?.notice ? inProcessWords(b.board.notice) : null, error: b.error, connect: b.connect, loading: b.loading, signedInAs: b.signedInAs ?? null,
     signIn: b.signedInAs && b.signInScope ? LOOK(`Signed in as ${b.signedInAs}, ${signInScope(b.signInScope.shared, b.signInScope.host)}`, b.signInScope.shared ? 'globe' : 'repo', 'blue') : null,
     place: b.place && placeAdds(b.place, title) ? b.place : null, left: b.left ?? [], columns,
+    paste: b.paste && !b.error ? { hint: pasteHint(b.paste), example: exampleLink(b.paste), link: b.paste.link, busy: b.paste.busy, error: b.paste.error ? inProcessWords(b.paste.error) : null, tracked: b.paste.tracked } : null,
   };
 }
 
@@ -206,7 +216,9 @@ export type Message =
   /** A card dropped on another column of a tracker board. */
   | { type: 'move'; project: string; tracker: number; key: string; to: string }
   /** Track on a tracker board's card: acc keeps the ticket as a task (D-074). */
-  | { type: 'track'; project: string; tracker: number; key: string };
+  | { type: 'track'; project: string; tracker: number; key: string }
+  /** Track from a Slack tracker's box: the thread a pasted link names (T-31). */
+  | { type: 'track-link'; project: string; tracker: number; link: string };
 
 export const area: ModelArea = {
   commands: [
@@ -223,5 +235,6 @@ export const area: ModelArea = {
   messages: {
     move: (x) => short(x.project, 4096) && short(x.key, 100) && KEY.test(x.key as string) && Number.isInteger(x.tracker) && typeof x.to === 'string' && x.to.length <= 200,
     track: (x) => short(x.project, 4096) && short(x.key, 100) && KEY.test(x.key as string) && Number.isInteger(x.tracker),
+    'track-link': (x) => short(x.project, 4096) && short(x.link, 2000) && Number.isInteger(x.tracker),
   },
 };

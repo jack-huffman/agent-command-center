@@ -36,7 +36,7 @@ import { HOME_SECTIONS, type HomeSection } from '../src/model/shared.ts';
 import { homeModel, type Model } from '../src/model/home.ts';
 import { FinishedJobs } from '../src/progress.ts';
 import { sampleAgent } from './fixtures/agent-page.ts';
-import { sampleBoards, sampleGithubBoards, sampleMondayBoards } from './fixtures/boards.ts';
+import { sampleBoards, sampleGithubBoards, sampleMondayBoards, sampleSlackBoards } from './fixtures/boards.ts';
 import { type ConnectSample, sampleConnect } from './fixtures/connect.ts';
 import { sampleIdentities, sampleIdentity } from './fixtures/environments.ts';
 import { sampleHub } from './fixtures/hub.ts';
@@ -91,7 +91,7 @@ import { behaviourCheck } from './behaviour.ts';
  * the same with a question opened over it, its update drafts, and History opened at an answer.
  * Last, the loading screen the Command Center shows while it opens, which no model replaces (T-16).
  */
-export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-slack', 'connect-slack-channel', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'tasks-agents', 'ticket-cloud', 'ticket-nofields', 'loading'] as const;
+export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-slack', 'connect-slack-channel', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'tasks-slack', 'tasks-slack-refused', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'tasks-agents', 'ticket-cloud', 'ticket-nofields', 'loading'] as const;
 export type Page = (typeof PAGES)[number];
 
 /**
@@ -175,9 +175,11 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
   const connect = kind.startsWith('connect-') ? sampleConnect(kind.slice('connect-'.length) as ConnectSample) : null;
   const slack = sampleSlack(kind.startsWith('slack-') ? kind.slice('slack-'.length) as SlackSample : 'on', now);
   // A project started from an epic opens the Connect page over Setup, where "From a Jira epic…" is (GH-81).
-  const section = (kind === 'output' || kind.startsWith('connect-epic') ? 'setup' : connect || kind === 'tasks-monday' || kind === 'tasks-github' || kind === 'tasks-modal' || kind === 'tasks-agents' ? 'tasks' : kind.startsWith('slack-') ? 'settings' : kind === 'agents-billing' || kind === 'agents-path' || kind === 'agents-finished' ? 'agents' : kind.startsWith('settings-') ? 'settings' : kind) as HomeSection;
+  const section = (kind === 'output' || kind.startsWith('connect-epic') ? 'setup' : connect || kind === 'tasks-monday' || kind === 'tasks-github' || kind.startsWith('tasks-slack') || kind === 'tasks-modal' || kind === 'tasks-agents' ? 'tasks' : kind.startsWith('slack-') ? 'settings' : kind === 'agents-billing' || kind === 'agents-path' || kind === 'agents-finished' ? 'agents' : kind.startsWith('settings-') ? 'settings' : kind) as HomeSection;
   // Settings' trackers are each project's own (GH-112); every other page shows the sample board for each.
-  const boards = kind === 'settings-trackers' ? sampleTrackerBoards : kind === 'tasks-monday' ? sampleMondayBoards : kind === 'tasks-github' ? sampleGithubBoards : sampleBoards;
+  const boards = kind === 'settings-trackers' ? sampleTrackerBoards : kind === 'tasks-monday' ? sampleMondayBoards : kind === 'tasks-github' ? sampleGithubBoards
+    // A Slack channel's box for a thread's link (T-31): empty, or with a link Track refused.
+    : kind.startsWith('tasks-slack') ? () => sampleSlackBoards(kind === 'tasks-slack-refused') : sampleBoards;
   // The Command Center's own preferences, each set to other than its default (GH-113).
   const prefs = kind === 'settings-page' ? { pace: 'relaxed' as const, opensOn: 'tasks' as const } : {};
   return homeModel({

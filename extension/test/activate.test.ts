@@ -354,13 +354,16 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     assert.deepEqual(calls.executed.slice(before), [['acc.trackers.add', [undefined]]]);
 
     // A Slack channel (T-29): with no bot token kept, its board offers Sign in to Slack; with one, the
-    // extension makes a Slack client from it, which reads no board, and says so without the token.
+    // extension makes a Slack client from it, and shows a box for a thread's link in place of a board (T-31).
     const slackFile = join(tempDir('acc-tracker-'), 'slack.json');
     writeFileSync(slackFile, JSON.stringify({ kind: 'slack', workspace: 'acme', channel: 'C0123ABCD' }));
     const setSlack = spawnSync(process.execPath, [accBin, 'trackers', 'set', '--file', slackFile, '--json'], { cwd: repo, encoding: 'utf8' });
     assert.equal(setSlack.status, 0, setSlack.stderr);
-    type SlackBoard = { title: string; error: string | null; connect: { command: string; label: string; arg: string } | null; signedInAs: string | null };
-    type WithBoards = { model?: { tasks: { projects: { boards: SlackBoard[] }[] } } };
+    type SlackBoard = {
+      index: number; title: string; error: string | null; connect: { command: string; label: string; arg: string } | null; signedInAs: string | null;
+      paste: { hint: string; error: string | null } | null;
+    };
+    type WithBoards = { model?: { tasks: { projects: { root: string; boards: SlackBoard[] }[] } } };
     const slackBoard = () => (tab.posted.filter((x) => (x as WithBoards).model).at(-1) as WithBoards).model!.tasks.projects[0]?.boards.find((b) => b.title === 'Slack · acme');
     await calls.commands.get('acc.settings.refresh')!();
     await until(() => !!slackBoard()?.error);
@@ -369,7 +372,13 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     secrets.set('acc.cred:site:slack:acme', JSON.stringify({ kind: 'slack', method: 'token', token: slackToken }));
     await calls.commands.get('acc.trackers.refresh')!();
     await until(() => !!slackBoard()?.signedInAs);
-    assert.deepEqual([slackBoard()!.signedInAs, slackBoard()!.error, slackBoard()!.connect], ['a Slack app\'s bot token', 'A Slack channel has no board. Track a thread by its link instead.', null], 'the client\'s own refusal, not a sign-in');
+    assert.deepEqual([slackBoard()!.signedInAs, slackBoard()!.error, slackBoard()!.connect], ['a Slack app\'s bot token', null, null], 'no sign-in to ask for, and not the client\'s refusal of a board');
+    assert.match(slackBoard()!.paste?.hint ?? '', /channel C0123ABCD of acme\.slack\.com/, 'a box for a thread\'s link, which says the channel');
+    // Track from the box: a link to a thread in another channel is refused before Slack is asked, naming it.
+    const slackRoot = (tab.posted.filter((x) => (x as WithBoards).model).at(-1) as WithBoards).model!.tasks.projects[0]!.root;
+    tab.receive!({ type: 'track-link', project: slackRoot, tracker: slackBoard()!.index, link: 'https://acme.slack.com/archives/C0999WXYZ/p1696512345123456' });
+    await until(() => !!slackBoard()?.paste?.error);
+    assert.match(slackBoard()!.paste!.error!, /^That thread is in channel C0999WXYZ, not C0123ABCD\./);
     assert.ok(!tab.posted.some((x) => JSON.stringify(x).includes(slackToken)), 'the token is never in the page model');
     assert.ok(!readFileSync(join(repo, '.acc', 'config.json'), 'utf8').includes('xoxb-'), 'nor in the project\'s settings');
 
