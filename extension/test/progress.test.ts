@@ -11,7 +11,8 @@ import { homeModel } from '../src/model/home.ts';
 import type { HubLike, ProjectLike } from '../src/model/shared.ts';
 import { needsYouCount } from '../src/model/overview.ts';
 import type { RunInput } from '../src/model/runs.ts';
-import { elapsed, FinishedJobs, inProgress, type JobRow, loadWord, ordinal, type ProgressGroup, type RepoJobs } from '../src/progress.ts';
+import { ordinal } from '../../packages/core/src/queue.ts';
+import { elapsed, FinishedJobs, inProgress, type JobRow, loadWord, type ProgressGroup, type RepoJobs } from '../src/progress.ts';
 import { lastStepIn } from '../src/transcript.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');

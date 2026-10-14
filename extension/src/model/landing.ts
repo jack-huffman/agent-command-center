@@ -9,7 +9,8 @@
 
 import { DISPLAY, type DisplayState } from '../../../packages/core/src/ledger.ts';
 import type { Tone } from '../logic/shared.ts';
-import { elapsed, ordinal, plural, type ProgressAction, type ProgressGroup, type ProgressModel } from '../progress.ts';
+import { ordinal } from '../../../packages/core/src/queue.ts';
+import { elapsed, plural, type ProgressAction, type ProgressGroup, type ProgressModel } from '../progress.ts';
 import type { HistoryItem } from './history.ts';
 import { type AttentionItem, needsYouCount, type OverviewModel, type QueuePanel } from './overview.ts';
 import type { QuestionCard } from './questions.ts';
