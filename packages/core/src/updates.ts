@@ -17,6 +17,12 @@ import { isTrackerKind, type TrackerKind } from './trackers/types.ts';
 export const UPDATE_EVENTS = ['pr-opened', 'pr-updated', 'merged', 'promotion-opened', 'promoted', 'deployed', 'blocked', 'question'] as const;
 export type UpdateEvent = (typeof UPDATE_EVENTS)[number];
 
+/**
+ * The events a Slack task's ticket gets a draft for (D-145): a thread takes fewer, so only the news that a
+ * change is merged or deployed, and the client's questions. The other trackers get all of UPDATE_EVENTS.
+ */
+export const SLACK_UPDATE_EVENTS: readonly UpdateEvent[] = ['merged', 'deployed', 'blocked', 'question'];
+
 export const UPDATE_STATES = ['draft', 'posting', 'posted', 'discarded'] as const;
 export type UpdateState = (typeof UPDATE_STATES)[number];
 
@@ -209,7 +215,7 @@ export interface DraftInput {
 
 /**
  * Drafts an update for a task's ticket. It only writes a file: nothing is posted. A task with no tracker
- * key gets none (null). The same news drafted again before anyone posted it replaces the draft: a pull
+ * key gets none (null), and a Slack task gets one only for SLACK_UPDATE_EVENTS. The same news drafted again before anyone posted it replaces the draft: a pull
  * request updated three times is one draft, with the latest link. A pull request whose opened draft
  * still waits keeps saying it's ready for review, rather than updated. Later news replaces an unposted
  * draft it overtakes (D-071): merged stands in for ready for review. The new draft names the ones it
@@ -218,6 +224,7 @@ export interface DraftInput {
 export function draftUpdate(paths: UpdatePaths, task: Pick<Task, 'id' | 'source'>, input: DraftInput, by: string, now: () => Date): Update | null {
   const ticket = ticketOf(task);
   if (!ticket) return null;
+  if (ticket.tracker === 'slack' && !SLACK_UPDATE_EVENTS.includes(input.event)) return null;
   return locked(paths, () => {
     const all = listUpdates(paths);
     const mine = all.filter((u) => u.task === task.id);

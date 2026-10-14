@@ -4,7 +4,9 @@ import { test } from 'node:test';
 import type { TaskRow } from '../src/logic/shared.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
 import type { BoardInput } from '../src/model/boards.ts';
+import { postClaimed } from '../src/logic/post-update.ts';
 import { homeModel } from '../src/model/home.ts';
+import { updatePoster } from '../src/model/updates.ts';
 import { needsYouCount } from '../src/model/overview.ts';
 import { root, row, hub, asks } from './support.ts';
 
