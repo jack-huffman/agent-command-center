@@ -65,23 +65,45 @@ test('Setup asks what kind of project it is only in a folder that isn\'t set up,
 type Posted = { type?: string; jump?: boolean; open?: string; model?: { section: string; setup: { start: { question: string } | null } } };
 type Started = { fake: ReturnType<typeof fakeVscode>; started: ReturnType<typeof activate> };
 
+type WaitTimer = { requested: number; fire: () => void };
+
+/** Takes over the one timer the first open's wait sets (FIRST_OPEN_WAIT_MS); every other timer runs as it does. */
+function holdWaitTimer(): { waitTimer: WaitTimer; restore: () => void } {
+  const real = globalThis.setTimeout;
+  let fn: (() => void) | undefined;
+  const waitTimer: WaitTimer = { requested: 0, fire: () => { const f = fn; fn = undefined; f?.(); } };
+  globalThis.setTimeout = ((cb: () => void, ms?: number, ...rest: unknown[]) => {
+    if (ms !== FIRST_OPEN_WAIT_MS) return real(cb, ms, ...rest);
+    waitTimer.requested++;
+    fn = cb;
+    // A handle for clearTimeout, which never fires.
+    return real(() => {}, 2 ** 31 - 1).unref();
+  }) as typeof setTimeout;
+  return { waitTimer, restore: () => { globalThis.setTimeout = real; } };
+}
+
 /**
  * The built extension in a folder of its own, in a sandbox: its own home, gh, claude and sf that fail at
  * once, and this machine's results given, so no machine check runs. Each run loads the extension afresh.
  * Early (GH-149), the results given are an older version's, as in the first window after an upgrade, so the
- * checks run again, and claude --version takes early seconds to answer: fn runs while they're running. With
+ * checks run again, and claude --version doesn't answer until fn calls release(): fn runs while they're
+ * running. The wait's own timer is held too (waitTimer): it fires only when fn says so, so the machine's
+ * speed can't change which of the two ends the open first (T-20: the first check is two acc doctor runs
+ * one after the other, and a 1 s sleep on top, all racing a real 4 s timer; on a busy machine the timer won,
+ * "waited 4008 ms"). With
  * doctorFails, the results are as old and every acc doctor prints none, and fn runs once that check is over.
  */
-async function inFolder(files: Record<string, string>, machine: DoctorItem['status'], profile: string, fn: (s: Started & { repo: string }) => Promise<void>, opts: { early?: number; doctorFails?: boolean } = {}): Promise<void> {
+async function inFolder(files: Record<string, string>, machine: DoctorItem['status'], profile: string, fn: (s: Started & { repo: string; release: () => void; waitTimer: WaitTimer }) => Promise<void>, opts: { early?: boolean; doctorFails?: boolean } = {}): Promise<void> {
   const sandbox = realpathSync(tempDir('acc-first-open-'));
   const at = (...p: string[]) => join(sandbox, ...p);
   for (const d of ['home/.claude', 'state/questions', 'state/heavy', 'state/slack', 'bin']) mkdirSync(at(d), { recursive: true });
   writeFileSync(at('home', '.claude.json'), '{"projects":{}}\n');
   for (const name of ['gh', 'claude', 'sf', 'code', 'open', 'osascript', 'caffeinate']) {
-    writeFileSync(at('bin', name), name === 'claude' && opts.early ? `#!/bin/sh\n[ "$1" = --version ] && sleep ${opts.early}\nexit 1\n` : '#!/bin/sh\nexit 1\n');
+    writeFileSync(at('bin', name), name === 'claude' && opts.early ? `#!/bin/sh\n[ "$1" = --version ] && i=0; while [ ! -f '${at('release')}' ] && [ $i -lt 2400 ]; do sleep 0.05; i=$((i+1)); done\nexit 1\n` : '#!/bin/sh\nexit 1\n');
     chmodSync(at('bin', name), 0o755);
   }
   const saved = { ...process.env };
+  const held = opts.early || opts.doctorFails ? holdWaitTimer() : null;
   Object.assign(process.env, {
     HOME: at('home'), CLAUDE_CONFIG_DIR: at('home', '.claude'), PATH: `${at('bin')}:${process.env.PATH}`, NO_COLOR: '1',
     ACC_QUESTIONS_DIR: at('state', 'questions'), ACC_HEAVY_DIR: at('state', 'heavy'), ACC_MACHINE_FILE: at('state', 'machine.json'), ACC_REPOS_FILE: at('state', 'repos.json'),
@@ -106,19 +128,18 @@ async function inFolder(files: Record<string, string>, machine: DoctorItem['stat
   };
   try {
     if (!opts.early) await ready();
-    await fn({ fake, started, repo });
+    await fn({ fake, started, repo, release: () => writeFileSync(at('release'), ''), waitTimer: held?.waitTimer ?? { requested: 0, fire: () => {} } });
     if (opts.early) await ready();
   } finally {
+    // A test that fails before it releases the held check still lets the fake claude end.
+    writeFileSync(at('release'), '');
+    held?.restore();
     started.stop();
     delete createRequire(import.meta.url).cache[dist];
     for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
     Object.assign(process.env, saved);
   }
 }
-
-/** How long an early run's machine check takes, longer than a first open waits, or well inside it. */
-const SLOW_CHECK_S = Math.ceil(FIRST_OPEN_WAIT_MS / 1000) + 4;
-const QUICK_CHECK_S = 1;
 
 const walkthroughs = (fake: Started['fake']) => fake.calls.executed.filter(([id]) => id === 'workbench.action.openWalkthrough');
 const lastState = (tab: { posted: unknown[] }) => (tab.posted as Posted[]).filter((x) => x.model).at(-1)!;
@@ -248,54 +269,59 @@ test('the launcher view becoming visible, as the activity bar icon makes it, is 
   });
 });
 
-test('an early first open on a ready machine waits for the checks a few seconds, then lands at the question, not This machine', { timeout: 120_000 }, async () => {
-  await inFolder(sfdx, 'pass', 'none', async ({ fake, started }) => {
+test('an early first open on a ready machine waits for the checks, and when the wait ends first lands at the question, not This machine', { timeout: 120_000 }, async () => {
+  await inFolder(sfdx, 'pass', 'none', async ({ fake, started, release, waitTimer }) => {
     const { calls, panels } = fake;
-    const asked = Date.now();
     const opening = calls.commands.get('acc.open.home')!() as Promise<void>;
-    // It waits: no tab yet, and the first open isn't spent.
-    await new Promise((r) => setTimeout(r, FIRST_OPEN_WAIT_MS / 2));
+    // It waits: no tab yet, and the first open isn't spent. The checks are held, and so is the wait's timer.
+    await new Promise((r) => setTimeout(r, 500));
+    assert.equal(waitTimer.requested, 1, 'one wait, of FIRST_OPEN_WAIT_MS');
     assert.equal(panels.length, 0, 'waiting for the checks');
     assert.equal(started.ctx.workspaceState.get(FIRST_OPEN_STATE), undefined);
     // Clicked again meanwhile, it's the same first open: one tab, and the jump to its part isn't lost.
     const again = calls.commands.get('acc.open.home')!() as Promise<void>;
+    // The wait runs out with the checks still held: it's the wait that ended the open.
+    waitTimer.fire();
     await Promise.all([opening, again]);
     assert.equal(panels.length, 1);
-    const waited = Date.now() - asked;
-    assert.ok(waited >= FIRST_OPEN_WAIT_MS - 100 && waited < SLOW_CHECK_S * 1000, `waited ${waited} ms, up to the limit and no longer`);
     assert.equal(calls.contexts.has('acc.step.A1.git'), false, 'the checks still haven\'t finished');
     const tab = panels[0]!;
     tab.receive!({ type: 'ready' });
     const landed = lastState(tab);
     assert.deepEqual([landed.model!.section, landed.jump, landed.open], ['setup', true, SETUP_PARTS.kind], 'the question, not a machine it couldn\'t check');
     assert.equal(started.ctx.workspaceState.get(FIRST_OPEN_STATE), true);
-  }, { early: SLOW_CHECK_S });
+    release();
+  }, { early: true });
 });
 
 test('an early first open whose checks finish inside the wait, with a step failing, lands at This machine', { timeout: 120_000 }, async () => {
-  await inFolder(sfdx, 'pass', 'none', async ({ fake }) => {
+  await inFolder(sfdx, 'pass', 'none', async ({ fake, release, waitTimer }) => {
     const { calls, panels } = fake;
     assert.equal(calls.contexts.has('acc.step.A1.git'), false, 'opened while the checks run');
-    const asked = Date.now();
-    await calls.commands.get('acc.open.home')!();
-    const waited = Date.now() - asked;
-    assert.ok(waited >= QUICK_CHECK_S * 1000 - 100 && waited < FIRST_OPEN_WAIT_MS, `waited ${waited} ms, as long as the checks took`);
+    const opening = calls.commands.get('acc.open.home')!() as Promise<void>;
+    // The wait's timer never fires here, so only the checks finishing can end the open, however slow the
+    // machine is. An open that didn't wait for them would have a tab by now.
+    await new Promise((r) => setTimeout(r, 500));
+    assert.equal(waitTimer.requested, 1, 'one wait, of FIRST_OPEN_WAIT_MS');
+    assert.equal(panels.length, 0, 'it waits for the checks');
+    release();
+    await opening;
     assert.ok(calls.contexts.has('acc.step.A1.git'), 'the checks finished first');
     const tab = panels[0]!;
     tab.receive!({ type: 'ready' });
     const landed = lastState(tab);
     // The sandbox's claude fails, so the machine has a step to do, whatever the older results said.
     assert.deepEqual([landed.model!.section, landed.open], ['setup', SETUP_PARTS.machine]);
-  }, { early: QUICK_CHECK_S });
+  }, { early: true });
 });
 
 test('a first check that gets no results from acc doctor hasn\'t checked the machine: the first open lands at the question', { timeout: 120_000 }, async () => {
   await inFolder({ 'README.md': '# A repo\n' }, 'pass', 'none', async ({ fake, started }) => {
     const { calls, panels } = fake;
     assert.equal(calls.contexts.has('acc.step.A1.git'), false, 'the check finished, with no machine rows');
-    const asked = Date.now();
     await calls.commands.get('acc.open.home')!();
-    assert.ok(Date.now() - asked < FIRST_OPEN_WAIT_MS / 2, 'the check is over, so it doesn\'t wait');
+    // The wait's timer never fires here, so the open came back because the check was over, not on time:
+    // an open that waited for the timer would hang until the test's timeout.
     const tab = panels[0]!;
     tab.receive!({ type: 'ready' });
     const landed = lastState(tab);
@@ -305,15 +331,17 @@ test('a first check that gets no results from acc doctor hasn\'t checked the mac
 });
 
 test('a first open still waiting when the extension stops opens nothing, so no page or poll outlives it (GH-149)', { timeout: 120_000 }, async () => {
-  await inFolder(sfdx, 'pass', 'none', async ({ fake, started }) => {
+  await inFolder(sfdx, 'pass', 'none', async ({ fake, started, release, waitTimer }) => {
     // Opened early, it waits for the checks; the window closes during that wait.
     void fake.calls.commands.get('acc.open.home')!();
-    await new Promise((r) => setTimeout(r, FIRST_OPEN_WAIT_MS / 4));
+    await new Promise((r) => setTimeout(r, 500));
     assert.equal(fake.panels.length, 0, 'still waiting');
     started.stop();
-    // Past the wait: nothing was opened by an extension that had stopped.
-    await new Promise((r) => setTimeout(r, FIRST_OPEN_WAIT_MS + 1000));
+    // The wait runs out after the stop: nothing was opened by an extension that had stopped.
+    waitTimer.fire();
+    await new Promise((r) => setTimeout(r, 500));
     assert.equal(fake.panels.length, 0, 'nothing opened after it stopped');
-  }, { early: SLOW_CHECK_S });
+    release();
+  }, { early: true });
 });
 
