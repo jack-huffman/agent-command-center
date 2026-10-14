@@ -4,6 +4,10 @@ import type { HomeSection } from '../src/model/shared.ts';
 import type { HomeModel } from '../src/model/home.ts';
 import { el, icon, wrap } from './dom.ts';
 import { api, go } from './state.ts';
+import { showOnFontLoad } from './rail-fonts.ts';
+
+// The page draws a new rail on each render: only the latest one listens for fonts.
+let stopWatching: () => void = () => {};
 
 function logo(): HTMLElement {
   const wrap = el('span', 'brand-mark');
@@ -59,6 +63,8 @@ export function renderNav(m: HomeModel, current: HomeSection): HTMLElement {
   // Again once the icon font has loaded, which widens every tab.
   requestAnimationFrame(() => showSelected(rail));
   void document.fonts.ready.then(() => showSelected(rail));
+  stopWatching();
+  stopWatching = showOnFontLoad(document.fonts, () => showSelected(rail));
   return rail;
 }
 
