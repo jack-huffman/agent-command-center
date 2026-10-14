@@ -235,7 +235,7 @@ export const area: CommandArea = {
                                         tracker's repo, and its labels if it names some. A task not started yet
                                         leaves the board when its issue closes, has a skipLabels label, or leaves
                                         the place
-  acc intake jira|azure|monday --file <report.json>
+  acc intake jira|azure|monday|slack --file <report.json>
                                         Follow tickets the Command Center found outside the repo's place, from
                                         { "outside": [{ "key", "why" }] }: a task not started yet leaves the board
   acc status                            One line: how many tasks are in each state
@@ -271,7 +271,7 @@ export const area: CommandArea = {
     intake: (o, rest) => {
       if (rest[0] === 'github') return cmdIntakeGithub(o);
       if (isSignedInKind(rest[0])) return cmdIntakeOutside(o, rest[0]);
-      throw new AccError('usage', 'acc intake github [--label <label>], or acc intake jira|azure|monday --file <report.json>. Jira, Azure DevOps and monday.com tickets come in through the Command Center\'s Track in acc; Jira and Azure DevOps ones also through the plugin\'s skill.');
+      throw new AccError('usage', 'acc intake github [--label <label>], or acc intake jira|azure|monday|slack --file <report.json>. Jira, Azure DevOps and monday.com tickets come in through the Command Center\'s Track in acc; Jira and Azure DevOps ones also through the plugin\'s skill.');
     },
     status: (o) => cmdStatus(o),
     list: (o) => cmdList(o, false),
