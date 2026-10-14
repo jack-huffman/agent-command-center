@@ -25,7 +25,7 @@ export function runDo(d: RowDo): void {
 /** What marks the line or button that opened a detail, so focus goes back to it when the detail closes. */
 export const opensKey = (d: Detail): string => JSON.stringify({ ...d, at: undefined, item: undefined });
 
-/** A line's button: its words cut short where there's no room, all of them on hover and read out. */
+/** A line's button: its words cut short where there's no room, or its icon alone on a line under 600 px; all its words on hover and read out. */
 function rowButton(b: RowButton): HTMLElement {
   const btn = el('button', `btn lp-btn${b.primary ? ' primary' : ''}`, icon(b.icon), el('span', 'lp-btn-text', b.label)) as HTMLButtonElement;
   btn.type = 'button';
