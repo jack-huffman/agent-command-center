@@ -17,12 +17,13 @@ const p = (text: string, marks?: string[]): AdfNode => ({ type: 'paragraph', con
  * ACME-35, which a person dispatched and which waits for other tasks' files (D-093), or ACME-20, in review
  * with its builder's note (D-106).
  */
-export type TicketSample = 'ACME-12' | 'ACME-20' | 'ACME-21' | 'ACME-23' | 'ACME-29' | 'ACME-31' | 'ACME-33' | 'ACME-35' | 'ACME-44';
+export type TicketSample = 'ACME-12' | 'ACME-20' | 'ACME-21' | 'ACME-23' | 'ACME-29' | 'ACME-31' | 'ACME-33' | 'ACME-35' | 'ACME-44' | 'ACME-50';
 
 /** A Jira ticket with everything a description can hold, and the acc task working on it. */
 export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12'): TicketModel {
   if (which === 'ACME-29') return sampleStoppedTicket(now);
   if (which === 'ACME-44') return sampleCloudTicket(now);
+  if (which === 'ACME-50') return sampleNoFieldsTicket(now);
   if (which === 'ACME-31') return sampleUntrackedTicket(now);
   if (which === 'ACME-33') return sampleChecksTicket(now);
   if (which === 'ACME-35') return sampleWaitingTicket(now);
@@ -96,7 +97,21 @@ export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12'):
   });
 }
 
-/** A running task whose builder stopped before acc done (D-067): its page quotes it in full, and offers Resume. */
+/** A thread in a tracker that has no status, assignee or labels (T-28): the page names the tracker where each control would be. */
+function sampleNoFieldsTicket(now: number): TicketModel {
+  const ticket: Ticket = {
+    key: 'ACME-50', kind: 'github', url: 'https://acme.example/threads/50', title: 'Customer asks why a premium case was not escalated', type: null,
+    status: TODO, assignees: [], reporter: { id: 'a2', name: 'Pat Lee' }, labels: [], priority: null,
+    created: new Date(now - 3 * 3_600_000).toISOString(), updated: new Date(now - 20 * MIN).toISOString(),
+    body: fromAdf({ type: 'doc', content: [p('A customer wrote that their premium case sat for two hours with no reply. Find out why the escalation rule did not run.')] }),
+    markdown: '', comments: [], related: [],
+  };
+  return ticketModel({
+    project: ROOT, tracker: 0, trackerTitle: 'Slack · #premium-support', trackerKind: 'github', key: 'ACME-50', ticket, loading: false, error: null, connect: null, row: null, task: null, checks: [],
+    signedInAs: 'jordan@acme.example', trackerEdits: true, trackerFields: [], boards: sampleBoards(), github: 'jordan-kim', now,
+  });
+}
+
 /** A builder in the cloud, quiet for too long (GH-69): where it runs, its session's page, and the cloud's own actions. */
 function sampleCloudTicket(now: number): TicketModel {
   const row = sampleHub(now).taskRows(ROOT).find((r) => r.id === 'ACME-44')!;
@@ -122,6 +137,7 @@ function sampleCloudTicket(now: number): TicketModel {
   });
 }
 
+/** A running task whose builder stopped before acc done (D-067): its page quotes it in full, and offers Resume. */
 function sampleStoppedTicket(now: number): TicketModel {
   const row = sampleHub(now).taskRows(ROOT).find((r) => r.id === 'ACME-29')!;
   const ticket: Ticket = {

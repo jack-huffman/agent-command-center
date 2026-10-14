@@ -287,12 +287,14 @@ export class TicketPanels implements vscode.Disposable {
     const row = this.hub.taskRows(p.root).find((r) => r.id === o.key) ?? null;
     const task = this.hub.ledger(p.root)?.tasks.find((t) => t.id === o.key) ?? null;
     const tracker = o.tracker !== null ? this.trackers.trackers(p)[o.tracker] : undefined;
+    // The page's own load made this client, so it's cached; a client that failed to start says nothing of its fields, which is all three.
+    const client = o.tracker !== null ? await this.trackers.client(p, o.tracker).catch(() => null) : null;
     const model = ticketModel({
       project: p.root, tracker: o.tracker, trackerTitle: tracker ? this.trackers.title(tracker) : null, trackerKind: tracker?.kind ?? null, key: o.key,
       ticket: o.ticket, loading: o.loading, error: o.error, outside: o.outside, connect: o.connect, row, task, checks: task ? await this.checks(p, task.run?.branch ?? null, task.environment) : [],
       signedInAs: o.tracker !== null ? await this.trackers.signedInAs(p, o.tracker) : null,
       analysis: task ? this.hub.analysis(p.root, task.id) : null,
-      trackerEdits: this.edits(o, p), updates: this.hub.updates(p.root), boards: this.trackers.boardStates(p.root), github: p.config.github?.account ?? null,
+      trackerEdits: this.edits(o, p), trackerFields: client?.fields, updates: this.hub.updates(p.root), boards: this.trackers.boardStates(p.root), github: p.config.github?.account ?? null,
       tracking: this.trackers.trackState(p.root, o.key).busy,
     });
     o.view.draw(model);

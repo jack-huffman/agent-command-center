@@ -117,8 +117,20 @@ export interface Outside {
   why: string;
 }
 
+/** The fields of a ticket that a tracker may lack: a Slack thread has no status, no people to assign and no labels (T-23). */
+export const TRACKER_FIELDS = ['status', 'assignee', 'labels'] as const;
+export type TrackerField = (typeof TRACKER_FIELDS)[number];
+
+/** The words for a field a tracker lacks: "has no statuses". */
+export const FIELD_LACKS: Record<TrackerField, string> = { status: 'statuses', assignee: 'people to assign', labels: 'labels' };
+
+/** Whether the tracker has the field. A tracker that does not set `fields` has all three. */
+export const trackerHasField = (client: { fields?: readonly TrackerField[] }, field: TrackerField): boolean => !client.fields || client.fields.includes(field);
+
 export interface TrackerClient {
   readonly kind: TrackerKind;
+  /** Which of status, assignee and labels the tracker has. Not set: all three. */
+  readonly fields?: readonly TrackerField[];
   /** "GitHub · owner/repo", "Jira · MSP", "Azure DevOps · Project" or "monday.com · acme", for headings. */
   readonly title: string;
   /** Where its tickets come from (D-072), as far as it's known before the board loads: "Jira · ACME · epic ACME-3". */
