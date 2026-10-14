@@ -218,6 +218,9 @@ export function since(ms: number): string {
   return `${Math.round(h / 24)} days ago`;
 }
 
+// A copy of `plural` in packages/core/src/text.ts, on purpose: the page imports no values from outside
+// extension/webview, because that bundles host code into the page (D-121). extension/test/webview-imports.test.ts
+// gives both the same inputs and fails when the outputs differ.
 export const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** Makes an element open a ticket page on click or Enter, like a link. */
