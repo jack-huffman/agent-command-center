@@ -14,6 +14,7 @@ import type { RunInput } from './model/runs.ts';
 import type { ExtensionArea, Parts } from './area.ts';
 import { runFile } from './run.ts';
 import { endResume, resuming } from '../../packages/core/src/resume.ts';
+import { clip, plural } from '../../packages/core/src/text.ts';
 import { dirname, join } from 'node:path';
 import type { Hub, Project } from './hub.ts';
 import { existsSync, readdirSync } from 'node:fs';
@@ -120,8 +121,6 @@ export interface ProgressInput {
   now?: number;
 }
 
-export const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
-const clip = (s: string, max: number): string => (s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s);
 const who = (by: string): string => (by === 'orchestrator:autopilot' || by.endsWith(' for orchestrator:autopilot') ? 'autopilot' : by.replace(/^human:/, ''));
 
 /** How long, in words: "under a minute", "12 min", "1 h 5 min", "3 days". */

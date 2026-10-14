@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { RunResult } from '../src/exec.ts';
-import { firstSaid, isObj, sentence } from '../src/text.ts';
+import { clip, firstSaid, isObj, plural, sentence } from '../src/text.ts';
 
 const ran = (stdout: string, stderr = '', code = 0): RunResult => ({ stdout, stderr, code }) as RunResult;
 
@@ -30,4 +30,20 @@ test('sentence ends the text with a full stop unless it ends in . ! or ?, and em
   assert.equal(sentence('Done.'), 'Done.', 'rule-suggestions: already ends in .');
   assert.equal(sentence(''), '');
   assert.equal(sentence('   '), '');
+});
+
+test('clip leaves short text alone and cuts long text to max with an ellipsis (progress, rule suggestions)', () => {
+  assert.equal(clip('short', 90), 'short', 'progress: under the limit');
+  assert.equal(clip('abcde', 5), 'abcde', 'edge case: exactly the limit is not cut');
+  assert.equal(clip('abcdefgh', 5), 'abcd…', 'rule suggestions: cut to max characters in all');
+  assert.equal(clip('ab   cdefgh', 5), 'ab…', 'edge case: spaces before the cut are trimmed');
+  assert.equal(clip('', 5), '', 'edge case: empty text stays empty');
+});
+
+test('plural says one for 1 and the many form for any other count, 0 included (progress, gates)', () => {
+  assert.equal(plural(1, 'file'), '1 file');
+  assert.equal(plural(2, 'changed file'), '2 changed files', 'gates: a noun phrase');
+  assert.equal(plural(0, 'task'), '0 tasks', 'edge case: zero takes the many form');
+  assert.equal(plural(2, 'merged task', 'merged tasks!'), '2 merged tasks!', 'a third argument sets the many form');
+  assert.equal(plural(1, 'core', 'cores'), '1 core');
 });
