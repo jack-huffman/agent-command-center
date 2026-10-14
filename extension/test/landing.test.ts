@@ -262,7 +262,7 @@ test('the page draws each detail with the controls it had inline before (GH-160)
 test('every Overview row button is named by its label, so an icon-only button is never unnamed (GH-169)', () => {
   const dom = readFileSync(join(root, 'webview', 'landing.ts'), 'utf8');
   const css = readFileSync(join(root, 'webview', 'landing.css'), 'utf8');
-  assert.ok(dom.includes("btn.setAttribute('aria-label', b.label)") && dom.includes('btn.title = b.tip ?? b.label'), 'the button keeps its label as its name and title');
+  assert.ok(dom.includes('btn.title = b.tip ?? b.label'), 'the button keeps its label as its title (the screenshot run checks its aria-label on the drawn page, T-25)');
   assert.match(css, /@container \(max-width: \d+px\) \{[^}]*\.lp-btn-text \{ display: none; \}/, 'a narrow row hides the words');
   assert.match(css, /\.lp-row \{[^}]*container-type: inline-size/, 'the row is what the query measures');
   let checked = 0;

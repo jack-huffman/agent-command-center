@@ -12,7 +12,7 @@
 import { COLLECT_WORDS, type GeoSaid, judgeWords, WORK_DATA } from './words.ts';
 import { SELECTED_TAB } from './steady.ts';
 
-export const CHECKS = ['overlap', 'clipped', 'tab', 'sideways', 'overview', 'words'] as const;
+export const CHECKS = ['overlap', 'clipped', 'tab', 'sideways', 'overview', 'buttons', 'words'] as const;
 export type Check = (typeof CHECKS)[number];
 
 /** A box in the page's coordinates, in CSS pixels. */
@@ -58,6 +58,11 @@ export interface GeoSnapshot {
    * data-overview-group, a line with data-overview-row. Null on any other page.
    */
   overview?: { groups: { what: string; rows: Box[] }[] } | null;
+  /**
+   * Each row button the Overview draws (T-25): the title of its row and its aria-label, null when it has none.
+   * Null on any other page.
+   */
+  buttons?: DrawnButton[] | null;
   /** Every string a person can read on the page, for the words check (GH-163, words.ts). */
   said?: GeoSaid[];
   /**
@@ -67,6 +72,26 @@ export interface GeoSnapshot {
   drawn?: string[];
   /** How many fonts the page loaded before it was sent its model (T-21, steady.ts): none means nothing waited on them. */
   fonts?: number;
+}
+
+/** A row button as drawn on the Overview, and as its row's model says it should be named. */
+export interface DrawnButton { row: string; label: string | null }
+export interface ExpectedButton { row: string; label: string }
+
+/**
+ * The Overview's row buttons (T-25), judged as drawn: each has an aria-label that isn't empty and is its
+ * row's button label in the model. expected is null where the model isn't to hand (the label is then
+ * only checked for being there). Returns a finding for each button that fails.
+ */
+export function judgeButtons(drawn: DrawnButton[], expected: ExpectedButton[] | null): string[] {
+  const found: string[] = [];
+  for (const b of drawn) {
+    if (!b.label?.trim()) { found.push(`the button on "${b.row}" has no aria-label`); continue; }
+    if (!expected) continue;
+    const labels = expected.filter((e) => e.row === b.row).map((e) => e.label);
+    if (!labels.includes(b.label)) found.push(`the button on "${b.row}" is named "${b.label}", not ${labels.length ? labels.map((l) => `"${l}"`).join(' or ') : 'by any button in the model'}`);
+  }
+  return found;
 }
 
 /**
@@ -111,7 +136,7 @@ const quote = (s: string): string => (s ? ` "${s.length > 40 ? `${s.slice(0, 39)
  * And no string outside work data names an acc command or path (words.ts, GH-163). controls: the page
  * has controls, which every page but a still one, such as the loading screen, does (T-16).
  */
-export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEPTIONS, controls = true): Verdict {
+export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEPTIONS, controls = true, expected: ExpectedButton[] | null = null): Verdict {
   const found: Violation[] = [];
   const cs = s.controls;
   for (let i = 0; i < cs.length; i++) {
@@ -138,6 +163,8 @@ export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEP
       if (next && next.y - (r.y + r.h) < OVERVIEW_LINES.minGap) found.push({ check: 'overview', what: g.what, detail: `lines ${i + 1} and ${i + 2} are ${next.y - (r.y + r.h)} px apart, less than ${OVERVIEW_LINES.minGap}` });
     });
   }
+  const buttons = s.buttons ?? [];
+  for (const f of judgeButtons(buttons, expected)) found.push({ check: 'buttons', what: 'the Overview', detail: f });
   if (s.doc.scroll > s.doc.view + 1) found.push({ check: 'sideways', what: 'the page', detail: `scrolls sideways by ${s.doc.scroll - s.doc.view} px` });
   for (const x of s.scrollers) if (!x.allowed && x.scroll > x.client + 1) found.push({ check: 'sideways', what: x.what, detail: `scrolls sideways by ${x.scroll - x.client} px` });
 
@@ -145,7 +172,7 @@ export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEP
   const said = judgeWords(s.said ?? []);
   for (const f of said.findings) found.push({ check: 'words', what: f.what, detail: f.detail });
 
-  const examined: Record<Check, number> = { overlap: cs.length, clipped: s.texts.length, tab: s.tab ? 1 : 0, sideways: 1 + s.scrollers.length, overview: lines.reduce((n, g) => n + g.rows.length, 0), words: said.examined };
+  const examined: Record<Check, number> = { overlap: cs.length, clipped: s.texts.length, tab: s.tab ? 1 : 0, sideways: 1 + s.scrollers.length, overview: lines.reduce((n, g) => n + g.rows.length, 0), buttons: buttons.length, words: said.examined };
   const excused: Record<string, number> = Object.fromEntries(exceptions.map((e) => [e.name, 0]));
   const violations = found.filter((v) => {
     const e = exceptions.find((x) => x.check === v.check && x.what.test(v.what));
@@ -168,7 +195,7 @@ export interface Render { page: string; theme: string; width: number; verdict: V
  * The least a run of every page, both themes and all three widths examines, per check. Raised as the
  * pages grow, never lowered: a run below one has stopped looking.
  */
-export const RUN_FLOOR: Record<Check, number> = { overlap: 13700, clipped: 41700, tab: 294, sideways: 1100, overview: 1200, words: 76400 };
+export const RUN_FLOOR: Record<Check, number> = { overlap: 13700, clipped: 41700, tab: 294, sideways: 1100, overview: 1200, buttons: 1000, words: 76400 };
 
 /**
  * What fails a run: each finding, by page, theme, width and check. A whole run (full) also fails below
@@ -177,6 +204,9 @@ export const RUN_FLOOR: Record<Check, number> = { overlap: 13700, clipped: 41700
 export function runFailures(renders: Render[], full: boolean, exceptions = GEOMETRY_EXCEPTIONS, floor = RUN_FLOOR, regions = WORK_DATA): string[] {
   const out = renders.flatMap((r) => r.verdict.violations.map((v) => `${r.page} ${r.theme} ${r.width}px: ${v.check}: ${v.what}: ${v.detail}`));
   if (!renders.length) out.push('No page was drawn.');
+  // The Overview pages drew lines, and none of them gave a button to check (T-25).
+  const drewLines = renders.some((r) => r.verdict.examined.overview > 0);
+  if (drewLines && !renders.some((r) => r.verdict.examined.buttons > 0)) out.push('The Overview pages gave no row button to check.');
   if (!full) return out;
   const total = examinedIn(renders);
   for (const c of CHECKS) if (total[c] < floor[c]) out.push(`The run examined ${total[c]} for ${c}, below its floor of ${floor[c]}.`);
@@ -291,6 +321,8 @@ function collectGeometry() {
     rows: [...g.querySelectorAll('[data-overview-row]')].filter((r) => r.closest('[data-overview-group]') === g && visible(r)).map((r) => { const b = r.getBoundingClientRect(); return box(b.left, b.top, b.right, b.bottom); }),
   })) } : null;
   // Every string a person can read, for the words check (GH-163).${COLLECT_WORDS}
+  // The Overview's row buttons and the names they carry (T-25).
+  const buttons = home ? [...home.querySelectorAll('.lp-btn')].filter(visible).map((b) => ({ row: words(b.closest('[data-overview-row]')?.querySelector('.lp-title')?.textContent), label: b.getAttribute('aria-label') })) : null;
   // The classes drawn inside the window, which the shot holds, for the screenshots gate (T-5).
   const drawn = new Set();
   for (const e of document.querySelectorAll('body *')) {
@@ -302,6 +334,6 @@ function collectGeometry() {
   const out = document.createElement('script');
   out.type = 'application/json';
   out.id = 'acc-geometry';
-  out.textContent = JSON.stringify({ controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, said, drawn: [...drawn], fonts: window.accFontsFirst ?? 0 }).replace(/</g, '\\\\u003c');
+  out.textContent = JSON.stringify({ controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, buttons, said, drawn: [...drawn], fonts: window.accFontsFirst ?? 0 }).replace(/</g, '\\\\u003c');
   document.body.append(out);
 }`;

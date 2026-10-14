@@ -57,7 +57,7 @@ import { settingsKey, type ThemeChoice } from '../src/model/settings.ts';
 import { SETUP_PARTS } from '../src/logic/first-open.ts';
 import { PALETTE_THEMES, type PaletteTheme, palettes, vscodeDefaults } from './styles.ts';
 import { loadingScreen } from '../src/logic/loading.ts';
-import { CHECKS, COLLECT_GEOMETRY, GEOMETRY_EXCEPTIONS, dumpedGeometry, geometrySummary, judge, type Render, runFailures } from './geometry.ts';
+import { CHECKS, COLLECT_GEOMETRY, type ExpectedButton, GEOMETRY_EXCEPTIONS, dumpedGeometry, geometrySummary, judge, type Render, runFailures } from './geometry.ts';
 import { drawRetrying, FONTS_FIRST, fontsUnwaited, retriedSummary, SETTLE, shotTimeout } from './steady.ts';
 import { behaviourCheck } from './behaviour.ts';
 
@@ -117,6 +117,12 @@ export const FONTS: Record<string, string> = {
 /** A shot's theme: Light or Dark, forced, as Settings would force it. */
 export type Theme = PaletteTheme;
 const other = (t: PaletteTheme): PaletteTheme => (t === 'dark' ? 'light' : 'dark');
+
+/** The label of each Overview row's button in the page's model, by its row's title with its spaces collapsed as the drawn one's are (T-25); null for a page that isn't a section. */
+export function expectedButtons(model: Model): ExpectedButton[] | null {
+  if (model.kind !== 'home') return null;
+  return model.overview.landing.flatMap((g) => g.all ?? g.rows).flatMap((r) => (r.action ? [{ row: r.title.replace(/\s+/g, ' ').trim(), label: r.action.label }] : []));
+}
 
 /** A page's sample data. theme is what Settings shows chosen, as the shot forces it (GH-109). */
 export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = 'vscode'): Model {
@@ -559,7 +565,8 @@ async function main(argv: string[]): Promise<number> {
         // Forced, under VSCode's other theme: a colour still taken from VSCode's would show (GH-109). Each
         // shot also measures its geometry, which Chrome prints with the page (GH-105).
         const page = join(work, `${view}-${theme}.html`);
-        writeFileSync(page, pageFor(view, theme, sampleModel(view, now, theme), other(theme), false, true, afterModel(view, now)));
+        const model = sampleModel(view, now, theme);
+        writeFileSync(page, pageFor(view, theme, model, other(theme), false, true, afterModel(view, now)));
         for (const width of widths) {
           const png = join(out, `${view}-${theme}-${width}.png`);
           // A page whose part sits low on it is shot taller unless --height says otherwise (D-092).
@@ -582,7 +589,7 @@ async function main(argv: string[]): Promise<number> {
           // A late font moves the rail's tab, so a page that loaded none first was measured by chance (T-21).
           const unwaited = fontsUnwaited(what, shot.fonts);
           if (unwaited) return fail(unwaited);
-          const verdict = judge(shot, viewOf(view) === 'home' && !still(view), GEOMETRY_EXCEPTIONS, !still(view));
+          const verdict = judge(shot, viewOf(view) === 'home' && !still(view), GEOMETRY_EXCEPTIONS, !still(view), expectedButtons(model));
           renders.push({ page: view, theme, width, verdict });
           if (noting) taken[`${view}-${theme}-${width}.png`] = { fingerprint: print, sha256: sha256Of(png), takenAt: new Date().toISOString(), findings: verdict.violations.length, drawn: [...new Set(shot.drawn ?? [])].sort() };
           console.log(`${png}  ${CHECKS.map((c) => `${c} ${verdict.examined[c]}`).join(', ')}${verdict.violations.length ? `, ${verdict.violations.length} found` : ''}`);
