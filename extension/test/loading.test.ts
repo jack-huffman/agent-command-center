@@ -1,7 +1,6 @@
 // The loading screen a tab shows while it opens (T-16): one pure function makes it, the tab's HTML holds it
 // for each kind of tab, and the page's styles keep it still for a person who asks for reduced motion.
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import { test } from 'node:test';
 import { OPENING_WORDS_ID, loadingScreen, OPENING, type TabKind } from '../src/logic/loading.ts';
@@ -9,7 +8,6 @@ import { pageFor, PAGES, sampleModel, STILL } from '../scripts/screenshot.ts';
 import { cssRules, pageStyles } from '../scripts/styles.ts';
 import { cssClasses } from '../scripts/looked.ts';
 import { judge } from '../scripts/geometry.ts';
-import { root } from './support.ts';
 
 /** panels.ts imports vscode, which only VSCode has: this test hands it a stand-in with the one call htmlFor makes. */
 const STUB = `data:text/javascript,${encodeURIComponent('export const Uri = { joinPath: (u, ...p) => ({ toString: () => [u.toString(), ...p].join("/") }) }; export default {};')}`;
@@ -78,8 +76,6 @@ test('each class the loading screen adds is one the page\'s styles hold', () => 
   const used = [...loadingScreen('home', { dark: 'd', light: 'l' }).matchAll(/class="([^"]+)"/g)].flatMap((m) => m[1]!.split(' '));
   assert.deepEqual([...new Set(used)].filter((c) => !classes.has(c)), []);
   assert.ok(used.length >= 5);
-  // The page script treats a page holding only the loading screen as fresh, so a rebuilt tab scrolls back.
-  assert.match(readFileSync(`${root}/webview/main.ts`, 'utf8'), /const fresh = !app\.hasChildNodes\(\) \|\| !!app\.querySelector\(':scope > \.opening'\);/);
 });
 
 test('the loading page is measured with its fade ended, since a screen still at opacity 0 reads as unseen (edge case)', () => {

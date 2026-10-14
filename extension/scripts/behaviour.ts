@@ -31,6 +31,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { HomeModel, Model } from '../src/model/home.ts';
+import { loadingScreen } from '../src/logic/loading.ts';
 import { isFromWebview } from '../src/model/messages.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
 import { ROOT } from './fixtures/shared.ts';
@@ -81,7 +82,13 @@ export interface BehaviourData {
 }
 
 /** One case: its name, the page it opens, and what it does there. */
-export interface Case { name: string; page: 'tasks' | 'overview-landing' | 'ticket-questions'; run: (t: Probe) => Promise<void> }
+export interface Case {
+  name: string;
+  page: 'tasks' | 'overview-landing' | 'ticket-questions';
+  /** A tab rebuilt before its first model: its page holds the loading screen, and the tab remembers being scrolled this far down. */
+  opening?: { scroll: number };
+  run: (t: Probe) => Promise<void>;
+}
 
 /** The pages the cases open: the Tasks board, the Overview, and ACME-21's task page. */
 export interface CaseModels { tasks: Model; overview: Model; ticket: Model }
@@ -131,6 +138,17 @@ export const HELPERS = [openTask, openRules, shownRule, page];
 // ---------------------------------------------------------------- the cases
 
 export const CASES: Case[] = [
+  {
+    name: 'loading screen: a tab rebuilt with a saved scroll returns to it on its first model',
+    page: 'overview-landing',
+    opening: { scroll: 150 },
+    async run(t) {
+      const main = t.find('.home-main');
+      t.check('the page scrolls at this size, so the scroll is worth checking', main.scrollHeight - main.clientHeight > 150, { scroll: main.scrollHeight, client: main.clientHeight });
+      t.check('the first model replaced the loading screen', t.all('.opening').length === 0, t.all('.opening').length);
+      t.check('the page is at the saved scroll', main.scrollTop === 150, { now: main.scrollTop });
+    },
+  },
   {
     name: 'task modal: Escape closes it, tells the extension, and focus goes back to its card',
     page: 'tasks',
@@ -383,6 +401,7 @@ export const MUTANTS: Mutant[] = [
   { name: 'Confirm leaves out the check it asks for', file: 'rules.ts', find: 'title: now.title.trim(), check: now.check,', replace: 'title: now.title.trim(),', kills: [caseNamed('detail modal: Accept')] },
   { name: 'the task page shows no wording list', file: 'analysis.ts', find: 'if (a.wording) {', replace: 'if (a.wording && !a.wording) {', kills: [caseNamed('task page: an analysis with wording findings')] },
   { name: 'the wording list leaves out where each finding is', file: 'analysis.ts', find: "el('strong', '', `${f.place}: `)", replace: "el('strong', '', '')", kills: [caseNamed('task page: an analysis with wording findings')] },
+  { name: 'a page holding only the loading screen isn\'t fresh', file: 'main.ts', find: "const fresh = !app.hasChildNodes() || !!app.querySelector(':scope > .opening');", replace: 'const fresh = !app.hasChildNodes();', kills: [caseNamed('loading screen: a tab rebuilt')] },
 ];
 
 /** How many times `find` is in `source`: a mutant applies only where it's there exactly once. */
@@ -463,13 +482,16 @@ export function judgeMutants(results: { mutant: Mutant; applied: number; runs: B
 }
 
 /** The page's side: a VSCode API that keeps what the page sends and remembers, then the case, then its report. */
-function harness(c: Case, data: BehaviourData): string {
+function harness(c: Case, data: BehaviourData, model: Model): string {
+  // Where the page keeps a tab's scroll (the page script's pageKey), for a case whose tab remembers one. It remembers its section too, as a tab that was open does; with none the first model counts as a section change, which skips the scroll.
+  const key = model.kind === 'home' ? (model.connect ? 'home:connect' : `home:${model.section}`) : model.kind;
+  const seeded = c.opening ? { opened: [], drafts: {}, section: model.kind === 'home' ? model.section : undefined, scroll: { [key]: { y: c.opening.scroll, boards: [] } } } : undefined;
   const fns = [...HELPERS.map((f) => `const ${f.name} = ${f.toString().replace(/^async function \w+/, 'async function').replace(/^function \w+/, 'function')};`), `const RUN = ${c.run.toString().replace(/^async run/, 'async function')};`].join('\n');
   return `
 window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 16);
 const DATA = ${JSON.stringify(data).replace(/</g, '\\u003c')};
 const SENT = [];
-let MEMORY = undefined;
+let MEMORY = ${JSON.stringify(seeded)};
 const clone = (x) => (x === undefined ? undefined : JSON.parse(JSON.stringify(x)));
 ${fns}
 function report(out) {
@@ -551,10 +573,10 @@ export function behaviourPage(c: Case, model: Model, data: BehaviourData, fonts:
 <link rel="stylesheet" href="webview/styles.css">
 <script>
 const MODEL = ${JSON.stringify(model).replace(/</g, '\\u003c')};
-${harness(c, data)}
+${harness(c, data, model)}
 </script>
 </head>
-<body class="vscode-light" data-view="${model.kind === 'ticket' ? 'ticket' : 'home'}" data-logo-dark="webview/acc-dark.svg" data-logo-light="webview/acc-light.svg"><main id="app"></main><script src="${script}"></script></body></html>
+<body class="vscode-light" data-view="${model.kind === 'ticket' ? 'ticket' : 'home'}" data-logo-dark="webview/acc-dark.svg" data-logo-light="webview/acc-light.svg"><main id="app">${c.opening ? loadingScreen(model.kind === 'ticket' ? 'ticket' : 'home', { dark: 'webview/acc-dark.svg', light: 'webview/acc-light.svg' }) : ''}</main><script src="${script}"></script></body></html>
 `;
 }
 
