@@ -112,7 +112,10 @@ test('a tracker with no fields: the page model shows no status, assignee or labe
   assert.deepEqual(lackedFields(['assignee'], null).map((l) => l.line), ['This tracker has no statuses.', 'This tracker has no labels.'], 'a tracker with no name yet is "This tracker"');
   assert.deepEqual(lackedFields(undefined, 'Jira · ACME'), [], 'no fields set: nothing lacking');
   assert.equal(sampleTicket(Date.now(), 'ACME-12').lacks.length, 0, 'the existing sample is unchanged');
-  assert.equal(sampleTicket(Date.now(), 'ACME-50').lacks.length, 3, 'the no-fields sample lacks all three');
+  const slack = sampleTicket(Date.now(), 'ACME-50');
+  assert.equal(slack.lacks.length, 3, 'the no-fields sample lacks all three');
+  // It's a Slack thread now (T-29), so the page shows Slack's name and icon.
+  assert.deepEqual([slack.sourceKind, slack.sourceLabel, slack.lacks[0]!.line], ['slack', 'Slack · acme', 'Slack · acme has no statuses.']);
 });
 
 test('the task page draws a muted line, not a control, for each field a tracker lacks (T-28)', () => {
