@@ -52,7 +52,7 @@
 .tracker-head h2 { margin: 0; }
 /* Where the board's tickets come from (D-072), right under its name. */
 /* One quiet line under a board's name: each fact once, with its icon, spaced apart (a dot would start a wrapped line). */
-.tracker-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 18px; margin: -4px 0 12px; font-size: 12px; color: var(--vscode-descriptionForeground); }
+.tracker-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 18px; margin: -4px 0 12px; font-size: 0.923em; color: var(--vscode-descriptionForeground); }
 .tracker-meta .meta-item { display: inline-flex; align-items: baseline; gap: 5px; min-width: 0; overflow-wrap: anywhere; }
 .tracker-meta .meta-item > .codicon { flex: none; position: relative; top: 2px; font-size: 13px; }
 .tracker-meta strong { color: var(--vscode-foreground); font-weight: 600; }
@@ -73,6 +73,8 @@
 .tcard.dragging { opacity: 0.45; }
 
 .tcard-top { display: flex; align-items: center; gap: 6px; font-size: 0.88em; color: var(--vscode-descriptionForeground); }
+/* An avatar here keeps its 9.5 px at VSCode's 13 px, inside the line's smaller text. */
+.tcard-top .avatar { font-size: 0.83em; }
 .tcard-type, .tcard-prio { display: inline-flex; }
 .tcard-key { font-family: var(--vscode-editor-font-family); font-size: 0.95em; color: var(--vscode-descriptionForeground); }
 .openable.tcard-key { color: var(--vscode-textLink-foreground); cursor: pointer; }

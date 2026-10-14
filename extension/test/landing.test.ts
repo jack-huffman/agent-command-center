@@ -274,3 +274,20 @@ test('every Overview row button is named by its label, so an icon-only button is
   }
   assert.ok(checked > 0, 'checked no buttons');
 });
+
+test('only Needs you has primary buttons on the busy Overview; no other list, not even Ready\'s Dispatch lines, has one (D-???)', () => {
+  const m = busy();
+  const buttons = (key: LandingGroup['key']) => every(group(m, key)).flatMap((r) => (r.action ? [r.action] : []));
+  const needs = buttons('needs-you');
+  assert.ok(needs.length >= 1 && needs.every((b) => b.primary === true), 'each button in Needs you is primary, and there is one at least');
+  const theirs = m.overview.landing.filter((g) => g.key !== 'needs-you').flatMap((g) => every(g).flatMap((r) => (r.action ? [{ g: g.key, label: r.action.label, primary: r.action.primary }] : [])));
+  assert.ok(theirs.length > 5, `${theirs.length} buttons outside Needs you`);
+  assert.deepEqual(theirs.filter((b) => b.primary !== false), [], 'each list but Needs you uses the outlined button');
+  const ready = buttons('ready');
+  assert.ok(ready.filter((b) => b.label === 'Dispatch').length >= 4 && ready.every((b) => b.primary === false), 'Ready\'s Dispatch buttons are outlined');
+  // Show all's full list says the same as the five the page shows.
+  const all = group(m, 'needs-you').all!;
+  assert.ok(all.length > CAP && all.every((r) => !r.action || r.action.primary));
+  // The page draws primary from the model, and nothing else.
+  assert.ok(readFileSync(join(root, 'webview', 'landing.ts'), 'utf8').includes('`btn lp-btn${b.primary ? \' primary\' : \'\'}`'));
+});

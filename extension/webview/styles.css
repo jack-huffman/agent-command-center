@@ -32,6 +32,8 @@ body {
   --accent: var(--vscode-textLink-foreground);
   --accent-soft: color-mix(in srgb, var(--accent) 13%, transparent);
   --accent-edge: color-mix(in srgb, var(--accent) 40%, transparent);
+  /* A pressed row's fill, laid over its own background. */
+  --pressed: color-mix(in srgb, var(--vscode-foreground) 12%, transparent);
 }
 html[data-theme="light"] body, html[data-theme="vscode"] body.vscode-light, html[data-theme="vscode"] body.vscode-high-contrast-light {
   --well: color-mix(in srgb, var(--vscode-editor-background) 94%, var(--vscode-foreground) 6%);
@@ -57,7 +59,8 @@ body {
   line-height: 1.45;
 }
 
-h1 { font-size: 1.5em; font-weight: 600; margin: 0; }
+/* A large title sits a little tighter; body text keeps its own spacing. */
+h1 { font-size: 1.5em; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
 h2 { font-size: 1.05em; font-weight: 600; margin: 0 0 8px; display: flex; align-items: center; gap: 6px; }
 h3 { font-size: 0.95em; font-weight: 600; margin: 4px 0 6px; color: var(--vscode-descriptionForeground); }
 
@@ -85,8 +88,15 @@ h3 { font-size: 0.95em; font-weight: 600; margin: 4px 0 6px; color: var(--vscode
 .btn.ghost { background: transparent; box-shadow: none; color: var(--accent); }
 .btn.ghost:hover { background: var(--accent-soft); border-color: var(--accent-edge); }
 .btn.danger:hover { color: var(--orange); }
+/* A press shows at once, with no transition; hover keeps its fade. A button shrinks a little. A row as wide
+   as its list darkens instead, as a wide row that shrinks seems to jump. feel.test.ts holds every kind of
+   button the page draws to a rule here. */
+.btn:active, .segmented .seg:active, .card-link:active, .more-btn:active, .icon-btn:active, .rule-source-link:active,
+.progress-toggle:active, .dock-title:active, .rail-account:active { transform: scale(0.97); transition: none; }
+.nav-item:active, .more-item:active, .q-choice:active, .q-option:active, .aq-suggest:active, .tile:active { background-image: linear-gradient(var(--pressed), var(--pressed)); transition: none; }
 .btn:focus-visible, button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
 
+/* An icon keeps a px size: the codicon font is drawn on a 16 px grid, and a whole px keeps it sharp. */
 .codicon { font-size: 15px; }
 .tone-orange { color: var(--orange); }
 .tone-blue { color: var(--blue); }
@@ -174,7 +184,7 @@ table.grid { width: 100%; border-collapse: collapse; }
 
 .openable:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
 
-.avatar { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; font-size: 9.5px; font-weight: 600; letter-spacing: 0.02em; background: var(--accent-soft); color: var(--accent); flex: none; }
+.avatar { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; font-size: 0.731em; font-weight: 600; letter-spacing: 0.02em; background: var(--accent-soft); color: var(--accent); flex: none; }
 
 /* Long text shows its first lines; Show all opens the rest. */
 .clamped { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--lines, 4); overflow: hidden; }
@@ -315,4 +325,7 @@ html[data-theme="light"] .logo-light, html[data-theme="vscode"] body.vscode-ligh
 @keyframes opening-turn { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .opening, .opening-ring::after { animation: none; }
+  /* A spinner stands still: the word beside each one says the state. codicon.css turns it with two classes,
+     so this needs !important to win. */
+  .codicon-modifier-spin { animation: none !important; }
 }

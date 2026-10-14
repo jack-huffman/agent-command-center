@@ -45,6 +45,7 @@ export type Detail =
   | { kind: 'list'; group: GroupKey }
   | { kind: 'history'; item?: number };
 
+/** A line's button. Only Needs you's are primary, the blue fill; every other list's are outlined (D-???). */
 export interface RowButton { label: string; icon: string; tip?: string; primary?: boolean; do: RowDo }
 
 /**
@@ -144,7 +145,7 @@ function questionRow(q: QuestionCard, now: number, many: boolean): LandingRow {
   return {
     key: `q:${q.id}`, look: q.kind === 'question' ? LANDING_LOOK.question : LANDING_LOOK.permission, id: q.task, title,
     facts: facts(`${elapsed(now - q.askedAt)} ago`, many ? q.projectName : null),
-    action: { label: 'Answer', icon: 'reply', primary: true, tip: 'Open the question, with its answers', do: open }, menu: null, open, tip: title,
+    action: { label: 'Answer', icon: 'reply', tip: 'Open the question, with its answers', do: open }, menu: null, open, tip: title,
   };
 }
 
@@ -158,9 +159,9 @@ function attentionRow(a: AttentionItem, many: boolean): LandingRow {
   const rest = a.actions.filter((x) => x.command !== 'acc.task.show');
   const first = rest.find((x) => x.primary) ?? rest[0];
   let action: RowButton | null = null;
-  if (a.analysis && modal) action = { label: 'Answer', icon: 'question', primary: true, tip: 'Open the task, with its analysis\'s questions to answer', do: modal };
-  else if (first) action = { label: first.label, icon: first.icon, primary: true, tip: first.label, do: { kind: 'run', command: first.command, ref: first.ref } };
-  else if (a.extra) action = { label: a.extra.label, icon: a.extra.icon, primary: true, tip: a.extra.label, do: { kind: 'toolbar', command: a.extra.command, arg: a.extra.arg } };
+  if (a.analysis && modal) action = { label: 'Answer', icon: 'question', tip: 'Open the task, with its analysis\'s questions to answer', do: modal };
+  else if (first) action = { label: first.label, icon: first.icon, tip: first.label, do: { kind: 'run', command: first.command, ref: first.ref } };
+  else if (a.extra) action = { label: a.extra.label, icon: a.extra.icon, tip: a.extra.label, do: { kind: 'toolbar', command: a.extra.command, arg: a.extra.arg } };
   else if (a.go) action = { label: a.go.label, icon: 'arrow-right', tip: a.go.label, do: { kind: 'go', section: a.go.section } };
   else if (modal) action = { label: 'Open', icon: 'go-to-file', tip: 'Open the task over the page', do: modal };
   // The rest of a task's buttons in its ⋯ menu; an agent's and the tidy-up's say their own.
@@ -176,7 +177,7 @@ function updatesRow(items: AttentionItem[]): LandingRow {
   const title = `${plural(items.length, 'update draft')} waiting to post`;
   return {
     key: 'updates', look: updatesLook(items), id: null, title, facts: facts(keys.join(', ')),
-    action: { label: 'Review', icon: 'eye', primary: true, tip: 'Read each draft, then post, edit or discard it', do: open }, menu: null, open,
+    action: { label: 'Review', icon: 'eye', tip: 'Read each draft, then post, edit or discard it', do: open }, menu: null, open,
     tip: items.map((a) => `${a.title}: ${a.update!.about}`).join('\n'),
   };
 }
@@ -205,7 +206,7 @@ export function checksFact(g: Pick<ProgressGroup, 'jobs'>): string | null {
 /** A button from one of In progress's: Answer opens its question here; the rest run their command. */
 function progressButton(a: ProgressAction): RowButton {
   const run: RowDo = a.question ? detail({ kind: 'question', id: a.question }) : a.ref && a.command ? { kind: 'run', command: a.command, ref: a.ref } : { kind: 'toolbar', command: a.command ?? '', arg: a.arg ?? '' };
-  return { label: a.label, icon: a.icon, tip: a.question ? 'Open its question, with its answers' : a.tip, primary: !!a.question, do: run };
+  return { label: a.label, icon: a.icon, tip: a.question ? 'Open its question, with its answers' : a.tip, do: run };
 }
 
 /**
@@ -267,9 +268,13 @@ function historyRow(it: HistoryItem, index: number, now: number, roots: Map<stri
   }
 }
 
-/** A list, capped: its first CAP lines, and Show all N, which opens `all` in the modal or goes to `to`. */
-function group(g: Omit<LandingGroup, 'rows' | 'total' | 'more' | 'all'>, rows: LandingRow[], total = rows.length, to?: RowDo): LandingGroup {
+/**
+ * A list, capped: its first CAP lines, and Show all N, which opens `all` in the modal or goes to `to`. Its
+ * buttons are primary in Needs you only, so what needs you stands out; elsewhere they're outlined (D-???).
+ */
+function group(g: Omit<LandingGroup, 'rows' | 'total' | 'more' | 'all'>, listed: LandingRow[], total = listed.length, to?: RowDo): LandingGroup {
   const over = total > CAP;
+  const rows = listed.map((r) => (r.action ? { ...r, action: { ...r.action, primary: g.key === 'needs-you' } } : r));
   return {
     ...g, rows: rows.slice(0, CAP), total,
     more: over ? { label: `Show all ${total}`, do: to ?? detail({ kind: 'list', group: g.key }) } : null,
@@ -297,7 +302,7 @@ export function landing(o: Omit<OverviewModel, 'landing'>, now = Date.now()): La
   const queue = o.queue.flatMap((q) => queueRows(q, many || o.queue.length > 1));
   const ready = o.ready.map((r): LandingRow => ({
     key: `ready:${r.action.ref.project}:${r.id}`, look: displayLook('ready'), id: r.id, title: r.title, facts: facts(r.environment, many ? r.project : null),
-    action: { label: r.action.label, icon: r.action.icon, primary: true, tip: r.action.label, do: { kind: 'run', command: r.action.command, ref: r.action.ref } },
+    action: { label: r.action.label, icon: r.action.icon, tip: r.action.label, do: { kind: 'run', command: r.action.command, ref: r.action.ref } },
     menu: null, open: r.action.ref.project ? { kind: 'task', project: r.action.ref.project, key: r.id } : null, tip: `${r.id} ${r.title}`,
   }));
   return [

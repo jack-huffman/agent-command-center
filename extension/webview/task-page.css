@@ -13,7 +13,7 @@ body[data-view="ticket"] { padding-top: 18px; }
 /* An agent's name (D-087): one line, clipped with … in a narrow tab, in full on hover. */
 .crumb-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .openable.crumb-name { color: var(--vscode-textLink-foreground); cursor: pointer; }
-.ticket-title { font-size: 1.65em; line-height: 1.25; margin: 0 0 10px; word-break: break-word; }
+.ticket-title { font-size: 1.65em; line-height: 1.25; margin: 0 0 10px; word-break: break-word; letter-spacing: -0.01em; }
 .ticket-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .pill { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border-radius: 3px; font-size: 0.85em; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; line-height: 1.8; border: 1px solid var(--line); background: var(--card); color: var(--vscode-foreground); }
 .pill.tone-blue { border-color: var(--blue); color: var(--blue); }
@@ -86,7 +86,7 @@ body[data-view="ticket"] { padding-top: 18px; }
 .related .rel { min-width: 90px; font-size: 0.9em; }
 
 .comment { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
-.comment .avatar { width: 26px; height: 26px; font-size: 10.5px; }
+.comment .avatar { width: 26px; height: 26px; font-size: 0.808em; }
 .comment-head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
 .comment-head a.ext { color: var(--vscode-descriptionForeground); }
 
@@ -102,7 +102,7 @@ body[data-view="ticket"] { padding-top: 18px; }
 .act-icon.tone-orange { border-color: var(--orange); color: var(--orange); }
 .act-icon .codicon { font-size: 14px; }
 .act-avatar { border: 0; background: none; }
-.act-avatar .avatar { width: 28px; height: 28px; font-size: 10.5px; }
+.act-avatar .avatar { width: 28px; height: 28px; font-size: 0.808em; }
 .act-body { min-width: 0; }
 .act-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-height: 28px; }
 .act-line .status { font-weight: 600; }
