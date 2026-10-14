@@ -70,7 +70,6 @@ export const OLDER: Record<string, string[]> = {
   'extension/webview/limits.ts': ['renderLimits'],
   'extension/webview/modal.ts': ['makeModal'],
   'extension/webview/overview.ts': ['renderOverview'],
-  'extension/webview/rail.ts': ['renderNav'],
   'extension/webview/rules.ts': ['ruleKey'],
   'extension/webview/settings.ts': ['renderSettings'],
   'extension/webview/setup.ts': ['renderSetup'],
