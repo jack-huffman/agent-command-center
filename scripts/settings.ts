@@ -66,6 +66,8 @@ export const READ_IN: Partial<Record<ConfigPath, ReadPlace[]>> = {
   'trackers[].repo': ['packages/core/src/intake.ts'],
   'trackers[].organization': TRACKER_CLIENTS,
   'trackers[].account': TRACKER_CLIENTS,
+  'trackers[].workspace': TRACKER_CLIENTS,
+  'trackers[].channel': TRACKER_CLIENTS,
   'trackers[].team': TRACKER_CLIENTS,
   'trackers[].board': TRACKER_CLIENTS,
   'trackers[].statusColumn': TRACKER_CLIENTS,

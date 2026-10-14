@@ -175,7 +175,7 @@ export function placeAdds(place: string, title: string): boolean {
 }
 
 /** What a tracker's board is called on the Tasks tab's switch, beside the Agent board: by its kind, never its title. */
-export const BOARD_WORD: Record<TrackerKind, string> = { github: 'GitHub board', jira: 'Jira board', azure: 'Azure DevOps board', monday: 'monday.com board' };
+export const BOARD_WORD: Record<TrackerKind, string> = { github: 'GitHub board', jira: 'Jira board', azure: 'Azure DevOps board', monday: 'monday.com board', slack: 'Slack thread' };
 
 export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): TrackerBoard {
   const byId = new Map(rows.map((r) => [r.id, r]));

@@ -79,7 +79,7 @@ test('an unknown key is refused at every level, named by its dotted path', () =>
 });
 
 test('a wrong value is refused, naming its key, by the config\'s own rules', () => {
-  assert.match(errorsOf(withKey(['tracker', 'kind'], 'trello')), /"tracker\.kind" must be github, jira, azure or monday/);
+  assert.match(errorsOf(withKey(['tracker', 'kind'], 'trello')), /"tracker\.kind" must be github, jira, azure, monday or slack/);
   assert.match(errorsOf(withKey(['agents', 'builder', 'effort'], 'huge')), /"agents\.builder\.effort" must be one of low, medium, high, xhigh, max/);
   assert.match(errorsOf(withKey(['agents', 'max'], 40)), /"agents\.max" must be a whole number from 1 to 16/);
   assert.match(errorsOf(withKey(['gates', 'severity'], 9)), /"gates\.severity"/);
@@ -129,6 +129,11 @@ test('a tracker key for another kind says which kind takes it', () => {
   assert.match(errorsOf(withKey(['tracker'], { kind: 'jira', site: 'acme.atlassian.net', organization: 'acme' })), /"tracker\.organization" is for Azure DevOps trackers only, and this one is Jira/);
   assert.match(errorsOf(withKey(['tracker'], { kind: 'github', board: 3 })), /"tracker\.board" belongs to a project's own/);
   assert.deepEqual(parsed(withKey(['tracker'], { kind: 'monday', account: 'Acme', board: 12 })).tracker, { kind: 'monday', site: null, organization: null, account: 'acme', project: null, board: 12, prefix: null });
+});
+
+test('a team template that names a Slack tracker is refused, since its channel is each project\'s own (T-27)', () => {
+  assert.match(errorsOf(withKey(['tracker'], { kind: 'slack' })), /"tracker\.kind" can't be slack in a team template: a Slack tracker's channel is each project's own/);
+  assert.match(errorsOf(withKey(['tracker'], { kind: 'slack', workspace: 'acme', channel: 'C0123ABCD' })), /can't be slack in a team template/);
 });
 
 // ---------------------------------------------------------------- digest and record
