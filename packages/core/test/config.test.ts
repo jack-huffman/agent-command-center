@@ -163,8 +163,8 @@ test('this repo lists its decision log as append-only, and lets autopilot merge 
   // Both count the tests npm test runs, a number that may only go up, and quickly enough not to be heavy (GH-99),
   // and both have stray-files, which its config doesn't name (GH-103). Builders also check their UI changes were
   // shot as they are (T-5); the merge queue's checkout has no screenshots, so it doesn't.
-  assert.deepEqual([config.gates.builder, config.gates.required, requiredGates(config, 'main', 'builder'), requiredGates(config, 'main', 'merge')], [['typecheck', 'near-tests', 'tests', 'screenshots'], ['check', 'tests'], ['typecheck', 'near-tests', 'tests', 'screenshots', 'stray-files'], ['check', 'tests', 'stray-files']]);
-  assert.deepEqual(Object.keys(config.gates.commands).sort(), ['check', 'near-tests', 'screenshots', 'typecheck']);
+  assert.deepEqual([config.gates.builder, config.gates.required, requiredGates(config, 'main', 'builder'), requiredGates(config, 'main', 'merge')], [['typecheck', 'near-tests', 'repo-rules', 'tests', 'screenshots'], ['check', 'tests'], ['typecheck', 'near-tests', 'repo-rules', 'tests', 'screenshots', 'stray-files'], ['check', 'tests', 'stray-files']]);
+  assert.deepEqual(Object.keys(config.gates.commands).sort(), ['check', 'near-tests', 'repo-rules', 'screenshots', 'typecheck']);
   assert.deepEqual(config.gates.ratchets, { tests: { command: 'node --no-warnings scripts/count-tests.mjs', limit: 'floor', label: 'tests' } });
   assert.ok(!config.gates.heavy.includes('tests'));
   const floors = parseFloors(readFileSync(join(import.meta.dirname, '..', '..', '..', '.acc', 'floors.json'), 'utf8'));
