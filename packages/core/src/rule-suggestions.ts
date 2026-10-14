@@ -9,7 +9,7 @@
  * dismisses it; each writes one record here, and nothing else. acc never writes `.acc/rules.md`: the task
  * it adds does, and its pull request changes `.acc/`, which a person merges.
  */
-import { sentence } from './text.ts';
+import { clip, sentence } from './text.ts';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -443,7 +443,6 @@ export const defaultCheck = (s: Pick<Suggestion, 'kind' | 'hint'>): CheckAsk => 
 
 const CHECK_WORDS: Record<Exclude<CheckAsk, 'none'>, string> = { lint: 'lint', test: 'test', gate: 'gate', any: 'lint, test or gate' };
 
-const clip = (t: string, n: number): string => (t.length > n ? `${t.slice(0, n - 1).trimEnd()}…` : t);
 
 export const draftTitle = (s: Pick<Suggestion, 'kind'>, line: string): string => clip(s.kind === 'check' ? `Add a check for the rule: ${line.replace(/\.$/, '')}` : `Add the rule: ${line.replace(/\.$/, '')}`, 120);
 

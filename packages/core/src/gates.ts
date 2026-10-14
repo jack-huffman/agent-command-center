@@ -12,6 +12,7 @@ import type { RepoPaths } from './paths.ts';
 import { carriesOver, FLOORS_FILE, floorsAt, judgeRatchet, type RatchetFloors, ratchetGate, readFloors, readRelaxed, relaxesFor, withRaises, writeFloors } from './ratchets.ts';
 import { earlierCounts, type GateStatus, ratchetOf, readReceipt, type Receipt, receiptsAt, writeReceipt } from './receipts.ts';
 import { type SlotOptions, withSlot } from './semaphore.ts';
+import { plural } from './text.ts';
 import { apexCounts, countsLine, newlySkipped, NO_COUNTS, readTestCounts, type TestCounts } from './test-counts.ts';
 import { strayFilesGate } from './stray-files.ts';
 
@@ -88,7 +89,6 @@ const pass = (summary: string, details?: Record<string, unknown>): Outcome => ({
 const fail = (summary: string, details?: Record<string, unknown>): Outcome => ({ status: 'fail', summary, details });
 const error = (summary: string): Outcome => ({ status: 'error', summary });
 const skip = (summary: string): Outcome => ({ status: 'skip', summary });
-const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
 const listOf = (items: string[], max = 3): string => items.slice(0, max).join(', ') + (items.length > max ? ` and ${items.length - max} more` : '');
 
 /** The last line of output that says something, as a one-line summary. */

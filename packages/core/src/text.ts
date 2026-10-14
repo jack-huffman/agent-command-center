@@ -10,3 +10,9 @@ export const firstSaid = (r: RunResult): string => (r.stderr || r.stdout).trim()
 
 /** The text trimmed, with a full stop added when it doesn't end in . ! or ?. Empty text stays empty. */
 export const sentence = (text: string): string => text.trim().replace(/([^.!?])$/, '$1.');
+
+/** The text cut to at most `max` characters, ending in … when it was cut. */
+export const clip = (s: string, max: number): string => (s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s);
+
+/** A count with its noun: "1 file", "2 files". The third argument is the plural form when it isn't the noun and an s. */
+export const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;

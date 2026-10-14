@@ -1,5 +1,5 @@
 // The tidy-up's VS Code commands (GH-104): acc drafts it, a person reads the draft and adds it, or sets it aside.
-import { plural } from './progress.ts';
+import { plural } from '../../packages/core/src/text.ts';
 import * as vscode from 'vscode';
 import type { TidyDraft, TidyScope } from '../../packages/core/src/tidy.ts';
 import type { ExtensionArea } from './area.ts';
