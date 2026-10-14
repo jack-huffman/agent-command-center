@@ -35,7 +35,9 @@ export function renderTasks(m: TasksModel): Node[] {
       tools.unshift(toggle);
       if (mode === 'tracker') {
         const cards = p.boards.reduce((n, b) => n + b.columns.reduce((k, c) => k + c.cards.length, 0), 0);
-        const head = header(m.projects.length > 1 ? `Tasks · ${p.name}` : 'Tasks', `${p.name}: ${plural(cards, 'ticket')} on the board${ready ? `, ${ready} ready for an agent` : ''}${needs ? `, ${needs} need${needs === 1 ? 's' : ''} you` : ''}.`, ...tools);
+        // A Slack channel has no board to count (T-31): its tasks are counted instead.
+        const counted = p.boards.some((b) => !b.paste) ? `${p.name}: ${plural(cards, 'ticket')} on the board${ready ? `, ${ready} ready for an agent` : ''}${needs ? `, ${needs} need${needs === 1 ? 's' : ''} you` : ''}.` : summary;
+        const head = header(m.projects.length > 1 ? `Tasks · ${p.name}` : 'Tasks', counted, ...tools);
         return el('div', 'project', head, ...p.boards.map((b) => renderTrackerBoard(p.root, b)));
       }
     }
