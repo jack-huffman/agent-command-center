@@ -4,7 +4,7 @@
  * case never matters. No vscode import, so it's tested with stand-ins.
  */
 import { SLACK_PREFIX, slackKey, slackThread } from '../../../packages/core/src/trackers/slack.ts';
-import type { TrackReply } from './connect.ts';
+import { parseHost, type TrackReply } from './connect.ts';
 
 /** The Slack tracker a link must belong to: its workspace, its channel's id, and its key prefix. */
 export interface SlackPlace { workspace: string | null; channel: string | null; prefix?: string | null }
@@ -13,9 +13,6 @@ export interface SlackPlace { workspace: string | null; channel: string | null; 
 export interface PasteState { link: string | null; busy: boolean; error: string | null; tracked: string | null }
 
 export const NO_PASTE: PasteState = { link: null, busy: false, error: null, tracked: null };
-
-/** A Slack link's start, whose group is its workspace: acme for https://acme.slack.com/…. */
-const WORKSPACE = /^https:\/\/([a-z0-9-]+)\.slack\.com\//i;
 
 /** A link to a thread in this tracker's channel, as the box's example: what Copy link in Slack gives. */
 export const exampleLink = (s: SlackPlace): string => `https://${(s.workspace ?? 'acme').toLowerCase()}.slack.com/archives/${(s.channel ?? 'C0123ABCD').toUpperCase()}/p1696512345123456`;
@@ -30,11 +27,12 @@ export const pasteHint = (s: SlackPlace): string => `Paste the link to a thread 
  */
 export function slackLinkKey(link: string, s: SlackPlace): { ok: true; key: string } | { ok: false; error: string } {
   const text = link.trim();
-  const thread = WORKSPACE.test(text) ? slackThread(text, s.prefix ?? SLACK_PREFIX) : null;
+  // A key names no channel, so only a thread's link gets past here.
+  const thread = slackThread(text, s.prefix ?? SLACK_PREFIX);
   if (!thread?.channel) {
     return { ok: false, error: `That isn't a link to a Slack thread. One looks like ${exampleLink(s)}.` };
   }
-  const workspace = WORKSPACE.exec(text)![1]!.toLowerCase();
+  const workspace = parseHost('slack', text)!;
   const want = (s.workspace ?? '').toLowerCase();
   if (workspace !== want) return { ok: false, error: `That thread is in the workspace ${workspace}, not ${want}. Paste a link from ${want}.slack.com.` };
   const channel = (s.channel ?? '').toUpperCase();
