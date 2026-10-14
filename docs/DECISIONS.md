@@ -6619,7 +6619,7 @@ reply, not only on the next model.
   same title ("A rule you accepted keeps coming back"), the same question and the same Accept and Dismiss.
   Only its quoted line and the count changed. And the page never acted on the reply itself: it ended the
   wait and drew whatever model it held, so a model that still held the suggestion showed it again.
-- **The fix** (`extension/webview/settled.ts`, `extension/webview/rules.ts`): from acc's reply that it
+- **The fix** (`extension/webview/pending.ts`, `extension/webview/rules.ts`): from acc's reply that it
   accepted or dismissed a suggestion, the page takes it off: from what waits on you, from the detail, and
   from the suggested rules' line, which counts the rest and the reviews they came from, or goes when none
   are left. Its list counts one fewer. The detail shows the next one, or closes. It stays off while a model

@@ -8,7 +8,7 @@ import { CAP, landing } from '../src/model/landing.ts';
 import type { AttentionItem, OverviewModel } from '../src/model/overview.ts';
 import { LOOK } from '../src/model/shared.ts';
 import type { RuleCard } from '../src/model/rules.ts';
-import { hideSettled, rulesLineTitle } from '../webview/settled.ts';
+import { hideSettled, rulesLineTitle } from '../webview/pending.ts';
 import { sampleLandingHub } from '../scripts/fixtures/landing.ts';
 import { sampleRulesHub } from '../scripts/fixtures/rules.ts';
 import { sampleBoards } from '../scripts/fixtures/boards.ts';

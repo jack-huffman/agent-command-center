@@ -5,8 +5,7 @@
 import type { CheckAsk } from '../../packages/core/src/rule-suggestions.ts';
 import type { Model } from '../src/model/home.ts';
 import type { RuleCard } from '../src/model/rules.ts';
-import { Pending } from './pending.ts';
-import { hideSettled } from './settled.ts';
+import { hideSettled, Pending } from './pending.ts';
 import { button, type Child, el, icon, work } from './dom.ts';
 import { api, memory, type PageArea, remember, state } from './state.ts';
 
