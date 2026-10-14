@@ -22,6 +22,7 @@
 .agents-grid td.agent { padding-left: 26px; }
 .agent-cell { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 8px; min-width: 0; }
 .agent-cell .who { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; }
+/* An agent's kind is a codicon, as an image: it keeps a px size, as every icon does. */
 .agent-cell .kind { flex: none; color: var(--vscode-descriptionForeground); font-size: 14px; align-self: center; }
 .agent-label { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; font-weight: 600; }
 .agent-label .role { white-space: nowrap; }
