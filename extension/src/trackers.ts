@@ -11,6 +11,7 @@ import { AZURE_SCOPE, describe, type SignIn } from '../../packages/core/src/trac
 import { GithubClient } from '../../packages/core/src/trackers/github.ts';
 import { JiraClient } from '../../packages/core/src/trackers/jira.ts';
 import { MondayClient } from '../../packages/core/src/trackers/monday.ts';
+import { SLACK_PREFIX, SlackClient } from '../../packages/core/src/trackers/slack.ts';
 import { type Board, type Exec, movesInto, placeText, signInLabel, type Ticket, type TrackerClient, TrackerError, trackerName, type Transition } from '../../packages/core/src/trackers/types.ts';
 import { Pending } from '../webview/pending.ts';
 import type { Hub, Project } from './hub.ts';
@@ -68,12 +69,15 @@ const b64 = (s: string) => Buffer.from(s).toString('base64');
 type JiraCred = { kind: 'jira'; method?: 'token'; email: string; token: string };
 type AzureCred = { kind: 'azure'; method: 'microsoft'; account: vscode.AuthenticationSessionAccountInformation; tenant: string | null } | { kind: 'azure'; method: 'pat'; token: string };
 type MondayCred = { kind: 'monday'; method: 'token'; token: string };
-type Cred = JiraCred | AzureCred | MondayCred;
+/** A Slack app's bot token (T-29). */
+type SlackCred = { kind: 'slack'; method: 'token'; token: string };
+type Cred = JiraCred | AzureCred | MondayCred | SlackCred;
 
 const hostOf = trackerHost;
 
 /** Who a sign-in acts as: the Jira email, the Microsoft account, or a token. */
-const credWho = (c: Cred): string => (c.kind === 'jira' ? c.email : c.kind === 'monday' ? 'a personal API token' : c.method === 'microsoft' ? c.account.label : 'a personal access token');
+const credWho = (c: Cred): string => (c.kind === 'jira' ? c.email : c.kind === 'monday' ? 'a personal API token' : c.kind === 'slack' ? 'a Slack app\'s bot token'
+  : c.method === 'microsoft' ? c.account.label : 'a personal access token');
 
 /**
  * The trackers each repo names in .acc/config.json, with their clients and boards. A sign-in is a repo's
@@ -172,7 +176,7 @@ export class Trackers implements vscode.Disposable {
     return (await this.signedInFor(p, index))?.who ?? null;
   }
 
-  /** Who a tracker acts as, and for a Jira, Azure DevOps or monday.com tracker where its sign-in is kept (GH-79). */
+  /** Who a tracker acts as, and for a Jira, Azure DevOps, monday.com or Slack tracker where its sign-in is kept (GH-79). */
   async signedInFor(p: Project, index: number): Promise<{ who: string; scope: { shared: boolean; host: string } | null } | null> {
     const t = this.trackers(p)[index];
     if (!t) return null;
@@ -226,10 +230,12 @@ export class Trackers implements vscode.Disposable {
       if (!t.repo || !account) throw new TrackerError('other', 'A GitHub tracker needs the project\'s GitHub repo and account, in its settings.');
       return new GithubClient({ repo: t.repo, token: await this.ghToken(p.root, account), account, exec, project: typeof t.board === 'number' ? t.board : null, labels: t.labels });
     }
-    // A Slack tracker's sign-in, a Slack app's bot token, has no place on this machine yet (T-27), so it's never sent to another tracker's.
-    if (t.kind === 'slack') throw new TrackerError('other', `This repo's Slack tracker (${t.workspace}) can't be read here yet: signing in to a Slack app isn't built.`);
     const found = await this.credFor(p, t);
     const c = found?.cred ?? null;
+    if (t.kind === 'slack') {
+      if (!c || c.kind !== 'slack') throw new TrackerError('auth', `Sign in to Slack (${t.workspace}) for this repo to read its channel's threads.`);
+      return new SlackClient({ workspace: t.workspace!, channel: t.channel!, prefix: t.prefix ?? SLACK_PREFIX, token: c.token });
+    }
     if (t.kind === 'jira') {
       if (!c || c.kind !== 'jira') throw new TrackerError('auth', `Sign in to Jira (${t.site}) for this repo to see its board and tickets.`);
       return new JiraClient({ site: t.site!, project: t.project!, email: c.email, token: c.token, board: typeof t.board === 'number' ? t.board : null, epic: t.epic });
@@ -250,7 +256,7 @@ export class Trackers implements vscode.Disposable {
   }
 
   private signInButton(p: Project, index: number, t: Tracker): BoardState['connect'] {
-    return t.kind === 'github' || t.kind === 'slack' ? null : { command: 'acc.trackers.signIn', label: signInLabel(t.kind), arg: JSON.stringify({ root: p.root, index }) };
+    return t.kind === 'github' ? null : { command: 'acc.trackers.signIn', label: signInLabel(t.kind), arg: JSON.stringify({ root: p.root, index }) };
   }
 
   /** Loads every board, or just one project's. Boards load side by side; each shows its own error. */
@@ -427,7 +433,7 @@ export class Trackers implements vscode.Disposable {
   async signOut(arg?: unknown): Promise<void> {
     const chosen = await this.pickTracker(arg, 'Sign out of which tracker?');
     if (!chosen) {
-      void vscode.window.showInformationMessage('No project here has a Jira, Azure DevOps or monday.com tracker to sign out of.');
+      void vscode.window.showInformationMessage('No project here has a Jira, Azure DevOps, monday.com or Slack tracker to sign out of.');
       return;
     }
     const { p, t } = chosen;

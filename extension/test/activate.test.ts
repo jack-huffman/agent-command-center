@@ -353,6 +353,26 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     tab.receive!({ type: 'toolbar', command: 'acc.trackers.add' });
     assert.deepEqual(calls.executed.slice(before), [['acc.trackers.add', [undefined]]]);
 
+    // A Slack channel (T-29): with no bot token kept, its board offers Sign in to Slack; with one, the
+    // extension makes a Slack client from it, which reads no board, and says so without the token.
+    const slackFile = join(tempDir('acc-tracker-'), 'slack.json');
+    writeFileSync(slackFile, JSON.stringify({ kind: 'slack', workspace: 'acme', channel: 'C0123ABCD' }));
+    const setSlack = spawnSync(process.execPath, [accBin, 'trackers', 'set', '--file', slackFile, '--json'], { cwd: repo, encoding: 'utf8' });
+    assert.equal(setSlack.status, 0, setSlack.stderr);
+    type SlackBoard = { title: string; error: string | null; connect: { command: string; label: string; arg: string } | null; signedInAs: string | null };
+    type WithBoards = { model?: { tasks: { projects: { boards: SlackBoard[] }[] } } };
+    const slackBoard = () => (tab.posted.filter((x) => (x as WithBoards).model).at(-1) as WithBoards).model!.tasks.projects[0]?.boards.find((b) => b.title === 'Slack · acme');
+    await calls.commands.get('acc.settings.refresh')!();
+    await until(() => !!slackBoard()?.error);
+    assert.deepEqual([slackBoard()!.error, slackBoard()!.connect?.command, slackBoard()!.connect?.label], ['Sign in to Slack (acme) for this repo to read its channel\'s threads.', 'acc.trackers.signIn', 'Sign in to Slack']);
+    const slackToken = 'xoxb-0000-1111-slacktokenforthetest';
+    secrets.set('acc.cred:site:slack:acme', JSON.stringify({ kind: 'slack', method: 'token', token: slackToken }));
+    await calls.commands.get('acc.trackers.refresh')!();
+    await until(() => !!slackBoard()?.signedInAs);
+    assert.deepEqual([slackBoard()!.signedInAs, slackBoard()!.error, slackBoard()!.connect], ['a Slack app\'s bot token', 'A Slack channel has no board. Track a thread by its link instead.', null], 'the client\'s own refusal, not a sign-in');
+    assert.ok(!tab.posted.some((x) => JSON.stringify(x).includes(slackToken)), 'the token is never in the page model');
+    assert.ok(!readFileSync(join(repo, '.acc', 'config.json'), 'utf8').includes('xoxb-'), 'nor in the project\'s settings');
+
     // Settings (GH-109): a section like the others, its Refresh, and the theme every tab follows.
     await calls.commands.get('acc.open.settings')!();
     type Themed = { model: { section: string; settings: { theme: string } } };
