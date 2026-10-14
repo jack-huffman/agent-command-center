@@ -8,7 +8,7 @@ import type { Analysis } from '../../packages/core/src/analyze.ts';
 import { type BoardInput, initials, priorityIcon, trackerBoard, typeIcon } from '../src/model/boards.ts';
 import { sampleTicket } from '../scripts/fixtures/task-page.ts';
 import { isFromWebview } from '../src/model/messages.ts';
-import { type CheckIn, checkLook, checkRows, ticketActionRefusal, ticketCheck, ticketModel, ticketWording, wordingLook } from '../src/model/task-page.ts';
+import { type CheckIn, checkLook, checkRows, lackedFields, ticketActionRefusal, ticketCheck, ticketModel, ticketWording, wordingLook } from '../src/model/task-page.ts';
 import { requirementWording } from '../../packages/core/src/ste.ts';
 import { updateAbout } from '../src/model/updates.ts';
 import type { Update } from '../../packages/core/src/updates.ts';
@@ -109,6 +109,8 @@ test('a tracker with no fields: the page model shows no status, assignee or labe
   // The edge case of a tracker without `fields`: all three controls stay and nothing is lacking.
   const all = page(undefined);
   assert.deepEqual([all.can.status, all.can.assign, all.can.labels, all.lacks], [true, true, true, []]);
+  assert.deepEqual(lackedFields(['assignee'], null).map((l) => l.line), ['This tracker has no statuses.', 'This tracker has no labels.'], 'a tracker with no name yet is "This tracker"');
+  assert.deepEqual(lackedFields(undefined, 'Jira · ACME'), [], 'no fields set: nothing lacking');
   assert.equal(sampleTicket(Date.now(), 'ACME-12').lacks.length, 0, 'the existing sample is unchanged');
   assert.equal(sampleTicket(Date.now(), 'ACME-50').lacks.length, 3, 'the no-fields sample lacks all three');
 });
