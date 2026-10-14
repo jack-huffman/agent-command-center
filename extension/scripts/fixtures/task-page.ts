@@ -111,7 +111,7 @@ function sampleNoFieldsTicket(now: number): TicketModel {
   };
   return ticketModel({
     project: ROOT, tracker: 0, trackerTitle: 'Slack · acme', trackerKind: 'slack', key: 'SL-1696512345123456', ticket, loading: false, error: null, connect: null, row: null, task: null, checks: [],
-    signedInAs: 'a Slack app\'s bot token', trackerEdits: true, trackerFields: [], boards: sampleBoards(), github: 'jordan-kim', now,
+    signedInAs: 'Acme Command Center', trackerEdits: true, trackerFields: [], boards: sampleBoards(), github: 'jordan-kim', now,
   });
 }
 
