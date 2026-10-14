@@ -6675,7 +6675,7 @@ open over the page), and In progress's fold (D-092), which has nothing left to f
   one button and its menu's three messages) and four mutants. `landing.test.ts` adds four tests, among them
   one that walks the busy Overview and finds each list's lines on the page or in what its card opens.
 - **Floors lowered:** the page draws fewer lines and buttons, so the run's floors for overview (1200 to 800),
-  buttons (1000 to 450) and overlap (13700 to 13600) were lowered to under what it now examines (816, 462,
-  13614). The tab floor rose to 348 for the five new pages. A person should confirm the lowered floors.
+  buttons (1000 to 450) and overlap (13700 to 13600) were lowered to under what it now examines (834, 462,
+  13678). The tab floor rose to 348 for the five new pages. A person should confirm the lowered floors.
 
 Out of scope: what each list holds, the detail itself, and the other tabs.
