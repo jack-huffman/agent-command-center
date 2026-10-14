@@ -65,6 +65,8 @@ export interface GeoSnapshot {
    * holds, for the screenshots gate (T-5, looked.ts): a class a branch adds must be drawn in some shot.
    */
   drawn?: string[];
+  /** How many fonts the page loaded before it was sent its model (T-21, steady.ts): none means nothing waited on them. */
+  fonts?: number;
 }
 
 /**
@@ -300,6 +302,6 @@ function collectGeometry() {
   const out = document.createElement('script');
   out.type = 'application/json';
   out.id = 'acc-geometry';
-  out.textContent = JSON.stringify({ controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, said, drawn: [...drawn] }).replace(/</g, '\\\\u003c');
+  out.textContent = JSON.stringify({ controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, said, drawn: [...drawn], fonts: window.accFontsFirst ?? 0 }).replace(/</g, '\\\\u003c');
   document.body.append(out);
 }`;
