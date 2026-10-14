@@ -5,9 +5,11 @@
 // test, so the list only shrinks.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import * as esbuild from 'esbuild';
 
 const ROOT = join(import.meta.dirname, '..', '..');
 
@@ -173,7 +175,7 @@ export const outsideTemplates = (source: string): string => {
     const end = c === '\'' || c === '"' ? lineStringEnd(source, i, c)
       : c === '/' && source[i + 1] === '/' ? source.indexOf('\n', i)
       : c === '/' && source[i + 1] === '*' ? source.indexOf('*/', i + 2) + 1
-      : c === '/' && /(^|[(,=:[!&|?{};+\-*%<>~^]|\breturn)\s*$/.test(out.slice(-40)) ? regexEnd(source, i)
+      : c === '/' && (/(^|[(,=:[!&|?{};+\-*%<>~^]|\breturn)\s*$/.test(out.slice(-40)) || regexAfterClose(out)) ? regexEnd(source, i)
       : -2;
     if (end !== -2) {
       const stop = end <= 0 ? source.length : end + 1;
@@ -199,6 +201,23 @@ function lineStringEnd(source: string, start: number, quote: string): number {
     else if (source[i] === quote || source[i] === '\n') return i;
   }
   return source.length;
+}
+
+/**
+ * Whether a `/` after this code starts a regex although the code ends in `)` or `]`: it begins its line, or
+ * the `)` closes the head of an if, while, for or with. Anywhere else after `)` or `]` it's a division.
+ */
+function regexAfterClose(out: string): boolean {
+  const code = out.trimEnd();
+  if (!/[)\]]$/.test(code)) return false;
+  if (/\n\s*$/.test(out)) return true;
+  if (!code.endsWith(')')) return false;
+  let depth = 0;
+  for (let i = code.length - 1; i >= 0; i--) {
+    if (code[i] === ')') depth++;
+    else if (code[i] === '(' && --depth === 0) return /\b(?:if|while|for|with)\s*$/.test(code.slice(0, i));
+  }
+  return false;
 }
 
 /** Where a regex literal that starts at `start` ends: its closing slash, past any in a [class], or the end of its line. */
@@ -229,6 +248,48 @@ export const exportsOf = (source: string): string[] => {
 };
 
 /**
+ * The names a module exports with `export { a, b as c } from …` or `export * as ns from …`, as exportsOf
+ * doesn't count these. A type-only name is left out, as esbuild leaves it out.
+ */
+export const reexportedNames = (source: string): string[] => {
+  source = outsideTemplates(source);
+  const listed = [...source.matchAll(/^export\s*\{([^}]*)\}\s*from\b/gm)]
+    .flatMap((m) => (m[1] ?? '').split(',').map((x) => x.trim()).filter((x) => x && !x.startsWith('type ')).map((x) => x.split(/\s+as\s+/).pop()!.trim()));
+  const spaces = [...source.matchAll(/^export\s*\*\s*as\s+([\w$]+)\s+from\b/gm)].map((m) => m[1] ?? '');
+  return [...new Set([...listed, ...spaces])];
+};
+
+/**
+ * The exports esbuild finds in one module: the independent answer exportsOf is held to. It compiles the
+ * file (no bundling) and reads the exports of its output from the metafile, which leaves out types.
+ */
+export async function esbuildExportsOf(file: string): Promise<string[]> {
+  const built = await esbuild.build({ entryPoints: [file], bundle: false, format: 'esm', write: false, metafile: true, outdir: 'out', logLevel: 'silent' });
+  return Object.values(built.metafile.outputs).flatMap((o) => o.exports);
+}
+
+/**
+ * Why exportsOf and esbuild disagree about one module, or '' when they don't. Each name exportsOf finds must
+ * be in esbuild's list. A name only esbuild finds must be one the module re-exports with `export … from`; a
+ * default export is "default" to esbuild, and exportsOf counts one by the name of its function or class, so
+ * esbuild's "default" is matched by an `export default` statement in the source.
+ */
+export function exportsDisagree(source: string, found: string[], fromEsbuild: string[]): string {
+  const code = outsideTemplates(source);
+  const theirs = new Set(fromEsbuild);
+  const named = new Set([...code.matchAll(/^export\s+default\s+(?:async\s+)?(?:function\*?|class|abstract\s+class)\s+([\w$]+)/gm)].map((m) => m[1] ?? ''));
+  // A default that exportsOf names is esbuild's "default".
+  const missed = found.filter((n) => !(named.has(n) ? theirs.has('default') : theirs.has(n)));
+  const mine = new Set(found);
+  const again = new Set(reexportedNames(source));
+  const hasDefault = /^export\s+default\b/m.test(code);
+  const extra = fromEsbuild.filter((n) => !mine.has(n) && !again.has(n) && !(n === 'default' && hasDefault));
+  if (missed.length) return `exportsOf finds ${missed.join(', ')}, which esbuild does not`;
+  if (extra.length) return `esbuild finds ${extra.join(', ')}, which exportsOf misses and no export … from names`;
+  return '';
+}
+
+/**
  * Source with the comments that start a line taken out, as a comment checks nothing. One after code on its
  * line stays: telling it from a string or a glob such as `src/*.ts` needs a parser.
  */
@@ -248,26 +309,31 @@ const ls = (...globs: string[]): string[] =>
 const read = (f: string): string => readFileSync(join(ROOT, f), 'utf8');
 
 /** Each source module's exports no test names. */
-let walk: { walked: number; modules: string[]; missing: Record<string, string[]> } | undefined;
-function unnamed(): { walked: number; modules: string[]; missing: Record<string, string[]> } {
+let walk: { walked: number; modules: string[]; missing: Record<string, string[]>; compared: number } | undefined;
+async function unnamed(): Promise<{ walked: number; modules: string[]; missing: Record<string, string[]>; compared: number }> {
   if (walk) return walk;
   // This file names OLDER's exports, so it isn't one of the tests that names them.
   const tests = identifiers(ls(...TESTS).filter((f) => f !== 'scripts/test/coverage.test.ts').map(read).map(uncommented).join('\n'));
   const missing: Record<string, string[]> = {};
   let walked = 0;
+  let compared = 0;
   const modules = ls(...SOURCES);
   for (const f of modules) {
-    const names = exportsOf(read(f));
+    const source = read(f);
+    const names = exportsOf(source);
+    const why = exportsDisagree(source, names, await esbuildExportsOf(join(ROOT, f)));
+    assert.equal(why, '', `${f}: ${why}`);
+    compared++;
     walked += names.length;
     const gone = names.filter((n) => !named(n, tests));
     if (gone.length) missing[f] = gone;
   }
-  walk = { walked, modules, missing };
+  walk = { walked, modules, missing, compared };
   return walk;
 }
 
-test('every export a source module has is named by a test, but the older ones OLDER names', () => {
-  const { walked, modules, missing } = unnamed();
+test('every export a source module has is named by a test, but the older ones OLDER names', async () => {
+  const { walked, modules, missing } = await unnamed();
   // It ran: the modules on disk are the oracle for what was walked, and none walked is no check.
   const onDisk = [...readdirSync(join(ROOT, 'packages')).map((p) => `packages/${p}/src`), 'extension/src']
     .flatMap((d) => readdirSync(join(ROOT, d), { recursive: true, encoding: 'utf8' }).map((f) => `${d}/${f}`))
@@ -280,8 +346,14 @@ test('every export a source module has is named by a test, but the older ones OL
   assert.deepEqual(fresh, [], 'no test names these: add a test that fails without each');
 });
 
-test('OLDER only shrinks: each export it names still exists and is still named by no test', () => {
-  const { missing } = unnamed();
+test('exportsOf finds the same exports as esbuild in every module the check walks', async () => {
+  const { compared, modules } = await unnamed();
+  assert.ok(compared > 0, 'compared no modules');
+  assert.equal(compared, modules.length, 'every module walked should be compared');
+});
+
+test('OLDER only shrinks: each export it names still exists and is still named by no test', async () => {
+  const { missing } = await unnamed();
   const files = Object.keys(OLDER);
   assert.ok(files.length > 0, 'OLDER is empty: delete it and this test');
   assert.deepEqual([...files].sort(), files, 'OLDER\'s modules should stay sorted');
@@ -322,4 +394,34 @@ test('.acc/rules.md holds the test-coverage rule and names this check beside it'
   assert.ok(rule, '.acc/rules.md has no test-coverage rule');
   assert.match(rule, /scripts\/test\/coverage\.test\.ts/);
   assert.match(rule, /\bOLDER\b/);
+});
+
+test('an export line after a regex that follows ) or ] still counts, and esbuild agrees', async () => {
+  const afterParen = 'if (x) /`/.test(y);\nexport const a = 1;';
+  // In a type, `]` ends the statement at a line break, so the next line's `/` starts a regex.
+  const afterBracket = 'type M = number[]\n/`/.test(y);\nexport const c = 3;';
+  const division = 'const d = (a) / 2 / (b);\nconst e = f[1] / 2;\nexport const g = `x`;';
+  assert.deepEqual(exportsOf(afterParen), ['a']);
+  assert.deepEqual(exportsOf(afterBracket), ['c']);
+  assert.deepEqual(exportsOf(division), ['g'], 'a division after ) or ] is no regex');
+  for (const [name, source] of Object.entries({ afterParen, afterBracket, division })) {
+    const file = join(tmpdir(), `coverage-probe-${process.pid}-${name}.ts`);
+    writeFileSync(file, source);
+    try {
+      assert.equal(exportsDisagree(source, exportsOf(source), await esbuildExportsOf(file)), '', name);
+    } finally {
+      rmSync(file);
+    }
+  }
+});
+
+test('the comparison with esbuild names a module where the lists differ: a name esbuild lacks, a re-export, a default, an empty module', () => {
+  assert.match(exportsDisagree('export const a = 1;', ['a', 'b'], ['a']), /exportsOf finds b/);
+  assert.match(exportsDisagree('export const a = 1;', ['a'], ['a', 'z']), /esbuild finds z/);
+  assert.equal(exportsDisagree('export { z } from \'./z.ts\';\nexport const a = 1;', ['a'], ['a', 'z']), '', 'a re-export is only esbuild\'s');
+  assert.equal(exportsDisagree('export default function f() {}', ['f'], ['default']), '', 'a default export is "default" to esbuild and its name to exportsOf');
+  assert.match(exportsDisagree('const a = 1;', [], ['default']), /esbuild finds default/, 'a "default" with no export default statement is a difference');
+  assert.equal(exportsDisagree('', [], []), '', 'an empty module has no differences');
+  assert.deepEqual(reexportedNames('export { a, type B, c as d } from \'./x.ts\';\nexport * as ns from \'./y.ts\';\nexport * from \'./z.ts\';'), ['a', 'd', 'ns']);
+  assert.deepEqual(reexportedNames('export {\n  a,\n  b,\n} from \'./x.ts\';'), ['a', 'b'], 'a list over several lines');
 });
