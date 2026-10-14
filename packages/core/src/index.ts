@@ -61,6 +61,7 @@ export * from './stray-files.ts';
 export * from './sync.ts';
 export * from './template.ts';
 export * from './test-counts.ts';
+export * from './text.ts';
 export * from './tidy.ts';
 export * from './transcript.ts';
 export * from './updates.ts';

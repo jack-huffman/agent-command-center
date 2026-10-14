@@ -1,4 +1,5 @@
 // The tidy-up's VS Code commands (GH-104): acc drafts it, a person reads the draft and adds it, or sets it aside.
+import { plural } from './progress.ts';
 import * as vscode from 'vscode';
 import type { TidyDraft, TidyScope } from '../../packages/core/src/tidy.ts';
 import type { ExtensionArea } from './area.ts';
@@ -16,7 +17,6 @@ interface Shown {
   draft: TidyDraft | null;
 }
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 class TidyCommands extends Sidebar {
   constructor(from: Sidebar) {

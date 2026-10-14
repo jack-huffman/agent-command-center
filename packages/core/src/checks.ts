@@ -1,3 +1,4 @@
+import { firstSaid, sentence } from './text.ts';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Config } from './config.ts';
@@ -63,7 +64,6 @@ export interface CheckRead {
 }
 
 const short = (sha: string): string => sha.slice(0, 7) || 'no commit';
-const firstLine = (r: RunResult): string => (r.stderr || r.stdout).trim().split('\n')[0]?.trim() || `exit ${r.code}`;
 const said = (r: RunResult): string => `${r.stderr}\n${r.stdout}`;
 
 /** An Actions job's link: …/<owner>/<repo>/actions/runs/<run>/job/<job>. Its repo is host-qualified off github.com. */
@@ -84,7 +84,7 @@ export function headOf(run: Runner, repo: string, pr: number, env: NodeJS.Proces
   } catch {
     sha = '';
   }
-  if (r.code !== 0 || !/^[0-9a-f]{40,64}$/.test(sha)) throw new AccError('checks', `gh couldn't read pull request #${pr}: ${firstLine(r)}`);
+  if (r.code !== 0 || !/^[0-9a-f]{40,64}$/.test(sha)) throw new AccError('checks', `gh couldn't read pull request #${pr}: ${firstSaid(r)}`);
   return sha;
 }
 
@@ -116,7 +116,7 @@ export function readChecks(run: Runner, repo: string, pr: number, env: NodeJS.Pr
     required = false;
     list = [];
   }
-  if (!list) throw new AccError('checks', `gh couldn't read pull request #${pr}'s checks: ${firstLine(r)}`);
+  if (!list) throw new AccError('checks', `gh couldn't read pull request #${pr}'s checks: ${firstSaid(r)}`);
   const name = (c: GhCheck) => c.name || c.workflow || 'a check';
   const failed = list.filter((c) => c.bucket === 'fail').map((c): FailedCheck => ({ name: name(c), workflow: c.workflow ?? '', link: c.link ?? '', job: actionsJob(c.link ?? '') }));
   const pending = list.filter((c) => c.bucket === 'pending').map(name);
@@ -165,7 +165,7 @@ export function fetchLog(run: Runner, job: NonNullable<FailedCheck['job']>, env:
   let r = view('--log-failed');
   // A job that timed out or was stopped has no failed step: its whole log, then.
   if (r.code === 0 && !tailLog(r.stdout)) r = view('--log');
-  if (r.code !== 0) return { error: firstLine(r) };
+  if (r.code !== 0) return { error: firstSaid(r) };
   const log = tailLog(r.stdout);
   return log ? { log } : { error: 'GitHub gave an empty log.' };
 }
@@ -206,7 +206,6 @@ export function readChecksReport(paths: Pick<RepoPaths, 'checks'>, task: string,
 
 /** A fence longer than any run of backticks in the text, so a log can't close it early. */
 const fence = (text: string): string => '`'.repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map((m) => m[0].length + 1)));
-const sentence = (text: string): string => text.trim().replace(/([^.!?])$/, '$1.');
 
 /** On a rework autopilot sent back: each failed check, its link, and the end of its log (D-076). */
 export function checksSection(r: ChecksReport | null | undefined): string[] {

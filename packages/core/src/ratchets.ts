@@ -6,6 +6,7 @@
  * better floor in the task's worktree and the builder commits it with the change. acc never raises one
  * anywhere else, and only a person relaxes one, with a reason, as only a person waives a check (D-031).
  */
+import { isObj } from './text.ts';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { Config, RatchetLimit, RatchetSpec } from './config.ts';
@@ -35,7 +36,6 @@ export interface FloorEntry {
 /** Each ratchet's entry, by its name. */
 export type Floors = Record<string, FloorEntry>;
 
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isRelaxed = (v: unknown): v is Relaxed => isObj(v) && typeof v.by === 'string' && typeof v.reason === 'string' && typeof v.at === 'string' && (v.was === null || typeof v.was === 'number');
 
 /**
