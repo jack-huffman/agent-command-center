@@ -342,6 +342,56 @@ export const CASES: Case[] = [
     },
   },
   {
+    name: 'detail modal: a rule acc accepted leaves at once, though the next model still holds it; a refused one says why; the last one dismissed closes it',
+    page: 'overview-landing',
+    async run(t) {
+      const { dialog } = await openRules(t);
+      const n = t.data.rules.length;
+      const first = t.data.rules[0]!;
+      const line = () => t.find(`li[data-opens="${CSS.escape(t.data.rulesOpens)}"]`).textContent ?? '';
+      t.check('the rules\' line counts them all', line().includes(`${n} suggested rules`), line());
+      const accept = t.all<HTMLButtonElement>('.detail-actions button', dialog).find((b) => b.textContent?.trim() === 'Accept…');
+      if (!accept) throw new Error('not found: Accept… on the first rule');
+      await t.click(accept);
+      const confirm = t.all<HTMLButtonElement>('.rule-draft-bar button', dialog).find((b) => b.textContent?.trim() === 'Confirm');
+      if (!confirm) throw new Error('not found: Confirm in the draft');
+      await t.click(confirm);
+      t.check('Confirm sent its accept', t.sent('rule-accept').length === 1);
+      // acc's reply comes before any model without it.
+      await t.post({ type: 'rule-done', action: 'rule-accept', project: first.accept.project, id: first.id, ok: true, task: 'T-9' });
+      const gone = () => !t.all('.rule-line', dialog).some((e) => e.textContent === first.line) && !t.all<HTMLButtonElement>('button', dialog).some((b) => b.textContent?.trim() === 'Confirm');
+      t.check('from acc\'s reply, it and its Confirm are gone', gone(), shownRule(t, dialog));
+      t.check('the detail shows the next one, counting one fewer', shownRule(t, dialog).place === `1 of ${n - 1}` && shownRule(t, dialog).line === t.data.rules[1]?.line, shownRule(t, dialog));
+      t.check('its title counts one fewer', t.find('.detail-title', dialog).textContent === `Suggested rules: ${n - 1}`, t.find('.detail-title', dialog).textContent);
+      t.check('the rules\' line counts one fewer', line().includes(`${n - 1} suggested rules`), line());
+      await t.post({ type: 'state', model: t.model });
+      t.check('a model that still holds it doesn\'t bring it back', gone() && shownRule(t, dialog).place === `1 of ${n - 1}`, shownRule(t, dialog));
+      // The next one's accept, which acc refuses, as it does one another window already accepted: its reason shows, and it stays.
+      const second = t.data.rules[1]!;
+      const accept2 = t.all<HTMLButtonElement>('.detail-actions button', dialog).find((b) => b.textContent?.trim() === 'Accept…');
+      if (!accept2) throw new Error('not found: Accept… on the next rule');
+      await t.click(accept2);
+      const confirm2 = t.all<HTMLButtonElement>('.rule-draft-bar button', dialog).find((b) => b.textContent?.trim() === 'Confirm');
+      if (!confirm2) throw new Error('not found: Confirm in the next rule\'s draft');
+      await t.click(confirm2);
+      const why = `No rule is suggested as ${second.id} now. "See the suggested rules" lists them.`;
+      await t.post({ type: 'rule-done', action: 'rule-accept', project: second.accept.project, id: second.id, ok: false, error: why });
+      const said = dialog.querySelector('.aq-error')?.textContent ?? '';
+      t.check('a refused accept shows acc\'s reason in words', said === `The task wasn't added: ${why}`, said);
+      t.check('and the rule stays, to try again', shownRule(t, dialog).line === second.line && !!dialog.querySelector('.rule-draft'), shownRule(t, dialog));
+      // Dismiss the rest, each answered by acc: the last one closes the detail, and the line goes.
+      for (const r of t.data.rules.slice(1)) {
+        const dismiss = t.all<HTMLButtonElement>('.detail-actions button', dialog).find((b) => b.textContent?.trim() === 'Dismiss');
+        if (!dismiss) throw new Error(`not found: Dismiss on ${r.id}`);
+        await t.click(dismiss);
+        await t.post({ type: 'rule-done', action: 'rule-dismiss', project: r.accept.project, id: r.id, ok: true });
+      }
+      t.check('every one sent its dismiss', t.sent('rule-dismiss').length === n - 1, t.sent('rule-dismiss').length);
+      t.check('none left, the detail closes', !dialog.open);
+      t.check('and the rules\' line goes', !document.querySelector(`li[data-opens="${CSS.escape(t.data.rulesOpens)}"]`));
+    },
+  },
+  {
     name: 'detail modal: Show all on a rule\'s reviews, a fold, redraws it with every review',
     page: 'overview-landing',
     async run(t) {
@@ -399,6 +449,8 @@ export const MUTANTS: Mutant[] = [
   { name: 'Previous stays put', file: 'detail.ts', find: "const prev = button('Previous', 'arrow-left', () => go(at - 1), 'ghost small');", replace: "const prev = button('Previous', 'arrow-left', () => go(at), 'ghost small');", kills: [caseNamed('detail modal: Previous and Next')] },
   { name: 'the detail shows the first rule whatever the pager says', file: 'detail.ts', find: 'card(items[at]!)', replace: 'card(items[0]!)', kills: [caseNamed('detail modal: Previous and Next'), caseNamed('detail modal: Accept')] },
   { name: 'Confirm leaves out the check it asks for', file: 'rules.ts', find: 'title: now.title.trim(), check: now.check,', replace: 'title: now.title.trim(),', kills: [caseNamed('detail modal: Accept')] },
+  { name: 'a rule acc accepted stays until a model without it comes', file: 'rules.ts', find: '    settled.add(ruleKey(c));\n', replace: '', kills: [caseNamed('detail modal: a rule acc accepted leaves')] },
+  { name: 'a model that still holds an accepted rule brings it back', file: 'rules.ts', find: 'for (const k of [...settled]) if (!live.has(k)) settled.delete(k);', replace: 'settled.clear();', kills: [caseNamed('detail modal: a rule acc accepted leaves')] },
   { name: 'the task page shows no wording list', file: 'analysis.ts', find: 'if (a.wording) {', replace: 'if (a.wording && !a.wording) {', kills: [caseNamed('task page: an analysis with wording findings')] },
   { name: 'the wording list leaves out where each finding is', file: 'analysis.ts', find: "el('strong', '', `${f.place}: `)", replace: "el('strong', '', '')", kills: [caseNamed('task page: an analysis with wording findings')] },
   { name: 'a page holding only the loading screen isn\'t fresh', file: 'main.ts', find: "const fresh = !app.hasChildNodes() || !!app.querySelector(':scope > .opening');", replace: 'const fresh = !app.hasChildNodes();', kills: [caseNamed('loading screen: a tab rebuilt')] },

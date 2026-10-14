@@ -6,6 +6,7 @@ import type { CheckAsk } from '../../packages/core/src/rule-suggestions.ts';
 import type { Model } from '../src/model/home.ts';
 import type { RuleCard } from '../src/model/rules.ts';
 import { Pending } from './pending.ts';
+import { hideSettled } from './settled.ts';
 import { button, type Child, el, icon, work } from './dom.ts';
 import { api, memory, type PageArea, remember, state } from './state.ts';
 
@@ -172,20 +173,41 @@ export function ruleDetail(c: RuleCard): HTMLElement {
   return d;
 }
 
-/** acc said how a Confirm or Dismiss went: the card goes with the redraw, or comes back saying why not. */
+/**
+ * Suggestions acc said it accepted or dismissed, by card (T-35): off the page from its reply, whatever the
+ * models say, until one arrives without them. A model can still hold one: the one drawn while acc ran, or
+ * one from before acc wrote down what the person did.
+ */
+const settled = new Set<string>();
+/** The models the extension sent that were looked at already: drawing one again isn't a new model. */
+const seen = new WeakSet<Model>();
+
+/** acc said how a Confirm or Dismiss went: the card goes at once, or comes back saying why not. */
 function onRuleDone(msg: { action?: string; ok?: boolean; error?: string; project?: string; id?: string }): void {
   const c = { project: msg.project ?? '', id: msg.id ?? '' };
   const was = pending.what(ruleKey(c));
-  pending.settle(ruleKey(c), msg.ok ? null : `${was === 'dismiss' ? 'It wasn\'t dismissed' : 'The task wasn\'t added'}: ${msg.error?.trim() || 'acc didn\'t say why.'}`);
+  pending.settle(ruleKey(c), msg.ok ? null : `${was === 'dismiss' || msg.action === 'rule-dismiss' ? 'It wasn\'t dismissed' : 'The task wasn\'t added'}: ${msg.error?.trim() || 'acc didn\'t say why.'}`);
   // Accepted or dismissed, the card goes, and so does a draft typed into it.
-  if (msg.ok) forget(c as RuleCard);
+  if (msg.ok) {
+    settled.add(ruleKey(c));
+    forget(c as RuleCard);
+  }
   redraw();
 }
 
-/** Suggestions that have gone from the page leave nothing on its way. */
+/**
+ * Before each draw: a new model without a suggestion ends its wait and its hiding; then what acc settled
+ * comes off the page, the suggested rules' line and the detail's count with it.
+ */
 function forgetGone(model: Model): void {
   if (model.kind !== 'home') return;
-  pending.forget(new Set(model.overview.attention.flatMap((a) => (a.rule ? [ruleKey(a.rule)] : []))));
+  const live = new Set(model.overview.attention.flatMap((a) => (a.rule ? [ruleKey(a.rule)] : [])));
+  if (!seen.has(model)) {
+    seen.add(model);
+    for (const k of [...settled]) if (!live.has(k)) settled.delete(k);
+  }
+  pending.forget(live);
+  if (settled.size) model.overview = hideSettled(model.overview, settled, ruleKey);
 }
 
 export const area: PageArea = {
