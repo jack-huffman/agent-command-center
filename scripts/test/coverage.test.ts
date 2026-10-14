@@ -46,7 +46,7 @@ export const OLDER: Record<string, string[]> = {
   'extension/src/model/slack.ts': ['SLACK_ACTIONS'],
   'extension/src/model/task-modal.ts': ['taskOf'],
   'extension/src/model/task-page.ts': ['ticketAnalysis', 'TICKET_ACTIONS'],
-  'extension/src/model/updates.ts': ['hasTicket', 'updatePoster', 'updateCards', 'withClient'],
+  'extension/src/model/updates.ts': ['hasTicket', 'updateCards', 'withClient'],
   'extension/src/panels.ts': ['isWebLink', 'TabTheme', 'Panels'],
   'extension/src/progress.ts': ['STEP_DOING', 'readRepoJobs', 'readSteps'],
   'extension/src/questions.ts': ['accShellCommand', 'sessionSettings', 'Questions'],
