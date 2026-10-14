@@ -2,8 +2,8 @@
 // that stopped looking can't pass. The run itself measures the real pages in Chrome: npm run screenshot.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { COLLECT_GEOMETRY, dumpedGeometry, type GeoControl, type GeoSnapshot, type GeoText, GEOMETRY_EXCEPTIONS, judge, OVERVIEW_LINES, type Render, RUN_FLOOR, runFailures, SIDEWAYS } from '../scripts/geometry.ts';
-import { pageFor, PAGES, sampleModel, STILL, viewOf } from '../scripts/screenshot.ts';
+import { COLLECT_GEOMETRY, dumpedGeometry, type GeoControl, type GeoSnapshot, type GeoText, GEOMETRY_EXCEPTIONS, judge, judgeButtons, OVERVIEW_LINES, type Render, RUN_FLOOR, runFailures, SIDEWAYS } from '../scripts/geometry.ts';
+import { expectedButtons, pageFor, PAGES, sampleModel, STILL, viewOf } from '../scripts/screenshot.ts';
 
 const control = (what: string, x: number, y: number, o: Partial<GeoControl> = {}): GeoControl => ({ what, text: what, box: { x, y, w: 80, h: 24 }, inside: [], layer: null, ...o });
 const text = (what: string, o: Partial<GeoText> = {}): GeoText => ({ what, text: `${what}'s words`, over: 0, ellipsis: false, titled: false, folded: false, ...o });
@@ -17,7 +17,7 @@ const found = (s: GeoSnapshot, home = true) => judge(s, home, []).violations.map
 test('a drawing that breaks no rule passes, and says how much each check examined (GH-105)', () => {
   const v = judge(fine(), true, []);
   assert.deepEqual(v.violations, []);
-  assert.deepEqual(v.examined, { overlap: 2, clipped: 1, tab: 1, sideways: 1, overview: 0, words: 1 });
+  assert.deepEqual(v.examined, { overlap: 2, clipped: 1, tab: 1, sideways: 1, overview: 0, buttons: 0, words: 1 });
 });
 
 test('the Overview\'s lines are each one line high, five to a list at most, with a gap between each (GH-160)', () => {
@@ -85,7 +85,7 @@ test('an exception excuses only its own check on what it names, and counts what 
 test('a whole run fails below its floors, and on an exception that excused nothing; a run of a few pages doesn\'t (GH-105)', () => {
   const verdict = judge(fine(), true, []);
   const renders: Render[] = [{ page: 'tasks', theme: 'dark', width: 500, verdict: { ...verdict, violations: [{ check: 'overlap', what: 'button.a', detail: 'overlaps button.b' }] } }];
-  const floor = { overlap: 10, clipped: 0, tab: 0, sideways: 0, overview: 0, words: 0 };
+  const floor = { overlap: 10, clipped: 0, tab: 0, sideways: 0, overview: 0, buttons: 0, words: 0 };
   const unused = [{ name: 'the strip', check: 'sideways' as const, what: /strip/, reason: 'made up' }];
   assert.deepEqual(runFailures(renders, false, unused, floor, []), ['tasks dark 500px: overlap: button.a: overlaps button.b']);
   assert.deepEqual(runFailures(renders, true, unused, floor, []), [
@@ -109,4 +109,34 @@ test('a page measures its geometry only when the run asks, and the run reads it 
   const s = fine({ texts: [text('span', { text: '</script><b>' })] });
   const json = JSON.stringify(s).replace(/</g, '\\u003c');
   assert.deepEqual(dumpedGeometry(`<body><script type="application/json" id="acc-geometry">${json}</script></body>`), s, 'text from the page can\'t close the element');
+});
+
+test('each Overview row button is named by its label as drawn: a missing or wrong aria-label fails (T-25)', () => {
+  const expected = [{ row: 'Fix login', label: 'Open' }, { row: 'Add sum', label: 'Answer' }];
+  assert.deepEqual(judgeButtons([{ row: 'Fix login', label: 'Open' }, { row: 'Add sum', label: 'Answer' }], expected), []);
+  assert.deepEqual(judgeButtons([{ row: 'Fix login', label: null }], expected), ['the button on "Fix login" has no aria-label']);
+  assert.deepEqual(judgeButtons([{ row: 'Fix login', label: '  ' }], expected), ['the button on "Fix login" has no aria-label'], 'an empty name is none');
+  assert.deepEqual(judgeButtons([{ row: 'Fix login', label: 'Answer' }], expected), ['the button on "Fix login" is named "Answer", not "Open"']);
+  assert.deepEqual(judgeButtons([{ row: 'Gone', label: 'Open' }], expected), ['the button on "Gone" is named "Open", not by any button in the model']);
+  const drawn = fine({ overview: { groups: [{ what: 'needs-you', rows: [{ x: 0, y: 0, w: 900, h: 36 }] }] }, buttons: [{ row: 'Fix login', label: null }, { row: 'Add sum', label: 'Open' }] });
+  const v = judge(drawn, true, [], true, expected);
+  assert.deepEqual(v.violations.map((x) => `${x.check}: ${x.detail}`), ['buttons: the button on "Fix login" has no aria-label', 'buttons: the button on "Add sum" is named "Open", not "Answer"'], 'a drawn button that fails is found by judge');
+  assert.equal(v.examined.buttons, 2, 'and each is counted');
+});
+
+test('the run fails when the Overview pages give no button to check, and counts the buttons it checked (T-25)', () => {
+  const overview = fine({ overview: { groups: [{ what: 'needs-you', rows: [{ x: 0, y: 0, w: 900, h: 36 }] }] } });
+  const none: Render[] = [{ page: 'overview', theme: 'dark', width: 1000, verdict: judge(overview, true, []) }];
+  assert.deepEqual(runFailures(none, false), ['The Overview pages gave no row button to check.']);
+  const some: Render[] = [{ page: 'overview', theme: 'dark', width: 1000, verdict: judge({ ...overview, buttons: [{ row: 'a', label: 'Open' }] }, true, []) }];
+  assert.deepEqual(runFailures(some, false), []);
+  assert.deepEqual(runFailures([{ page: 'tasks', theme: 'dark', width: 1000, verdict: judge(fine(), true, []) }], false), [], 'a page that isn\'t the Overview has no buttons to find');
+  assert.ok(RUN_FLOOR.buttons > 0, 'a full run checks buttons');
+});
+
+test('the sample Overview models name a button for the rows that have one (T-25)', () => {
+  const expected = expectedButtons(sampleModel('overview-landing'));
+  assert.ok(expected && expected.length > 0 && expected.every((e) => e.row.trim() && e.label.trim()), 'a label for each');
+  assert.equal(expectedButtons(sampleModel('ticket')), null, 'a page that isn\'t a section has none');
+  assert.ok(COLLECT_GEOMETRY.includes('.lp-btn') && COLLECT_GEOMETRY.includes("getAttribute('aria-label')"), 'the page reports each button\'s aria-label');
 });
