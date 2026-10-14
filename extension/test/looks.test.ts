@@ -204,7 +204,6 @@ export const TABLES: Table[] = [
  */
 export const NOT_TABLES: Record<string, string> = {
   'extension/src/model/shared.ts#LOOK': 'builds a look from its three parts; the tables that call it are walked',
-  'extension/src/progress.ts#LOOK': 'builds a look from its three parts; the tables that call it are walked',
   'extension/src/progress.ts#doneLine': 'a finished job\'s line, Done with its kind\'s icon: each icon is a literal the icon scan checks',
   'extension/src/logic/shared.ts#TONE_COLOR': 'a tone\'s colour in the sidebar, which draws with VSCode\'s own theme colours, not a state',
   'extension/webview/task-page.ts#moveFeed': 'a move\'s icon in the feed, each a literal the icon scan checks; the state it reached is the model\'s DISPLAY look',
