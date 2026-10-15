@@ -219,6 +219,19 @@ test('gates.tests: a list of gate names whose receipts count the tests they ran,
   assert.deepEqual(loadConfig(join(dir, 'config.json')).config.gates.tests, ['check'], 'written back as it was');
 });
 
+test('gates.nearIndexes: a list of paths, kept as written; left out or empty, nothing is named; a path that isn\'t a string is refused (D-155)', () => {
+  const raw = { ...clone(GENERIC_CONFIG), gates: { required: ['check'], commands: { check: 'npm run check' }, nearIndexes: ['web/main.ts', 'src/cli/index.ts'] } };
+  const c = parseConfig(raw).config!;
+  assert.deepEqual(c.gates.nearIndexes, ['web/main.ts', 'src/cli/index.ts']);
+  assert.deepEqual(parseConfig(raw).warnings, [], 'a key parseConfig knows');
+  assert.equal(parseConfig(clone(GENERIC_CONFIG)).config!.gates.nearIndexes, undefined, 'left out, every folder\'s index is guessed');
+  assert.deepEqual(parseConfig({ ...raw, gates: { ...raw.gates, nearIndexes: [] } }).config!.gates.nearIndexes, [], 'an empty list names none');
+  for (const bad of ['web/main.ts', [1], ['web/main.ts', null], [''], ['  '], {}]) assert.match(errorsOf({ ...raw, gates: { ...raw.gates, nearIndexes: bad } }), /"gates\.nearIndexes" must be a list of paths/, JSON.stringify(bad));
+  const dir = tempDir();
+  writeConfig(join(dir, 'config.json'), c);
+  assert.deepEqual(loadConfig(join(dir, 'config.json')).config.gates.nearIndexes, ['web/main.ts', 'src/cli/index.ts'], 'written back as it was');
+});
+
 test('stray-files is required in both profiles and both scopes with nothing set, and strayFiles.required: false turns it off (GH-103)', () => {
   const lighter = { autonomy: 'review', autopilot: { autoMerge: true }, gates: { required: ['check'], builder: ['typecheck'], commands: { check: 'x', typecheck: 'y' } } };
   for (const raw of [clone(GENERIC_CONFIG), { ...clone(GENERIC_CONFIG), ...lighter }, clone(SF_CONFIG)]) {
@@ -513,7 +526,7 @@ const EVERY_KEY = {
   },
   autonomy: 'review',
   worktrees: { root: '.claude/worktrees', setup: ['npm ci'] },
-  gates: { required: ['check'], commands: { check: 'npm run check', typecheck: 'npm run typecheck' }, heavy: ['check'], severity: 3, builder: ['typecheck'], tests: ['check'],
+  gates: { required: ['check'], commands: { check: 'npm run check', typecheck: 'npm run typecheck' }, heavy: ['check'], severity: 3, builder: ['typecheck'], tests: ['check'], nearIndexes: ['web/main.ts'],
     ratchets: { tests: { command: 'node scripts/count-tests.mjs', limit: 'floor', label: 'tests' } } },
   secretScan: { paths: ['.'], exclude: ['fixtures'] },
   // A generic project's data folders are ignored, with a warning when it names any.

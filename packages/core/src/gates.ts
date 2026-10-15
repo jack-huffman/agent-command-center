@@ -167,10 +167,13 @@ const withoutExt = (path: string): string => path.replace(CODE, '');
  * code in the package that imports it by its path. An index named index has as its own tests those named
  * for it or that load it by its path or its folder's (GH-117), not any that quotes a path ending in index.
  *
- * `tracked` is every file in the checkout; `read` gives a file's text, and is asked once a file. Paths
- * are the repo's, sorted, each once.
+ * A project can name its folders' indexes instead, in `gates.nearIndexes` (D-155): a named index gathers
+ * every code file in its folder, whatever it imports, and a folder with one isn't guessed at.
+ *
+ * `tracked` is every file in the checkout; `read` gives a file's text, and is asked once a file; `indexes`
+ * are the named ones. Paths are the repo's, sorted, each once.
  */
-export function nearTests(changed: string[], tracked: string[], read: (path: string) => string | null): string[] {
+export function nearTests(changed: string[], tracked: string[], read: (path: string) => string | null, indexes: string[] = []): string[] {
   const files = new Set(tracked);
   const texts = new Map<string, string>();
   const text = (f: string): string => {
@@ -206,9 +209,13 @@ export function nearTests(changed: string[], tracked: string[], read: (path: str
   // instead, as activate.test.ts loads dist/extension.js, so they're found by name.
   const nearIndex = (index: string): string[] => (/^index\./.test(posix.basename(index)) ? nearOne(index, (t) => importsIndex(t, index)) : nearOne(index));
 
-  /** The indexes that gather a file: code in its folder that imports it and more than half the rest. */
+  // A named index that isn't code in the checkout (a typo, or a file since deleted) names nothing, so its folder is guessed at.
+  const named = indexes.filter((i) => code.includes(i));
+  /** The indexes that gather a file: its folder's named ones, else code in its folder that imports it and more than half the rest. */
   const indexesOf = (f: string): string[] => {
     if (!CODE.test(f)) return [];
+    const ownNamed = named.filter((i) => folderOf(i) === folderOf(f));
+    if (ownNamed.length) return ownNamed.filter((i) => i !== f);
     const folder = code.filter((c) => folderOf(c) === folderOf(f));
     return folder.filter((i) => {
       if (i === f || !pathsIn(i).has(withoutExt(f))) return false;
@@ -645,7 +652,7 @@ export function runGates(paths: RepoPaths, config: Config, env: Environment, nam
       } catch {
         return null;
       }
-    })),
+    }, config.gates.nearIndexes)),
   };
   // What a ratchet is held to (GH-99): this commit's floors, the environment's where the branch began, and
   // the ones people relaxed for this task, which count only on its own branch (GH-130). A better number is

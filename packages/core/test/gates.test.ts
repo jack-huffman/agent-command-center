@@ -662,6 +662,35 @@ test('a file named index has as its tests those that load it by its path, not an
   assert.deepEqual(near(['extension/src/hub.ts']), ['extension/test/activate.test.ts'], 'an index named for itself is still found by name');
 });
 
+// A folder whose index imports two of its five other modules: fewer than half, so the guess finds no index.
+const PAGE: Record<string, string> = {
+  'web/main.ts': 'import { AREAS } from \'./areas.ts\';\n',
+  'web/areas.ts': 'import { a } from \'./a.ts\';\nimport { b } from \'./b.ts\';\n',
+  'test/main.test.ts': 'const page = \'../web/main.ts\';\n',
+  'test/areas.test.ts': '',
+};
+const PAGE_TRACKED = [...Object.keys(PAGE), 'package.json', 'web/a.ts', 'web/b.ts', 'web/c.ts', 'web/d.ts', 'web/a.css', 'lib/x.ts', 'lib/y.ts', 'lib/z.ts', 'lib/index.ts'];
+
+test('a project names a folder\'s index in gates.nearIndexes: it gathers every code file in its folder, whatever it imports, where the guess finds none (D-155)', () => {
+  const near = (changed: string[], indexes?: string[]) => nearTests(changed, PAGE_TRACKED, (f) => PAGE[f] ?? '', indexes);
+  assert.deepEqual(near(['web/c.ts']), [], 'without the setting: areas.ts gathers two of five, so it isn\'t c.ts\'s index');
+  assert.deepEqual(near(['web/a.ts']), [], 'nor a.ts\'s, which it imports');
+  const named = ['web/areas.ts'];
+  for (const f of ['web/a.ts', 'web/c.ts', 'web/d.ts']) assert.deepEqual(near([f], named), ['test/areas.test.ts', 'test/main.test.ts'], `${f}: the named index's tests, and those of main.ts, which loads it`);
+  assert.deepEqual(near(['web/main.ts'], named), ['test/areas.test.ts', 'test/main.test.ts'], 'what loads the index is gathered too, as code in its folder');
+  assert.deepEqual(near(['web/areas.ts'], named), ['test/areas.test.ts'], 'the index isn\'t its own index');
+  assert.deepEqual(near(['web/a.css'], named), [], 'it gathers code only');
+});
+
+test('a named index reaches only its own folder, and one that isn\'t code in the checkout names nothing, so the folder is guessed at (D-155)', () => {
+  const text: Record<string, string> = { ...PAGE, 'lib/index.ts': 'export * from \'./x.ts\';\nexport * from \'./y.ts\';\n', 'test/all.test.ts': 'import { x } from \'../lib/index.ts\';\n' };
+  const tracked = [...PAGE_TRACKED, 'test/all.test.ts'];
+  const near = (changed: string[], indexes?: string[]) => nearTests(changed, tracked, (f) => text[f] ?? '', indexes);
+  assert.deepEqual(near(['lib/y.ts'], ['web/areas.ts']), ['test/all.test.ts'], 'another folder keeps the guess: lib/index.ts gathers both');
+  assert.deepEqual(near(['lib/y.ts'], ['lib/z.ts']), [], 'a folder with a named index isn\'t guessed at: z.ts imports nothing, and nothing loads it');
+  for (const gone of [['web/gone.ts'], ['web/areas.css'], ['other/areas.ts'], []]) assert.deepEqual(near(['web/c.ts'], gone), [], `${JSON.stringify(gone)} names nothing in web/`);
+});
+
 test('the tests near a change read each file once, however many files changed (GH-95)', () => {
   const tracked = ['src/a.ts', 'src/b.ts', 'src/c.ts', 'src/index.ts', 'test/a.test.ts', 'test/b.test.ts', 'test/all.test.ts'];
   const text: Record<string, string> = { 'src/index.ts': 'export * from \'./a.ts\';\nexport * from \'./b.ts\';\nexport * from \'./c.ts\';\n', 'test/all.test.ts': 'import { a } from \'../src/index.ts\';\n' };
@@ -709,6 +738,30 @@ test('every command gate is given ACC_NEAR_TESTS, worked out once a run, though 
     assert.ok(!lines.some((l) => l.includes('from/outside')), g);
   }
   assert.equal(lists.length, 1, `the checkout's files are listed once for ${gates.length} gates: ${JSON.stringify(lists)}`);
+});
+
+test('the project\'s gates.nearIndexes reaches the near tests a gate is told, and an empty list leaves the guess (D-155)', () => {
+  const told = (nearIndexes: string[] | undefined): string => {
+    const out = tempDir('near-index-');
+    const raw = { ...GENERIC_CONFIG, gates: { required: ['near'], commands: { near: `env > '${join(out, 'near')}'` }, ...(nearIndexes ? { nearIndexes } : {}) } };
+    const dir = makeRepo({ '.acc/config.json': JSON.stringify(raw), ...PAGE, ...Object.fromEntries(PAGE_TRACKED.filter((f) => !(f in PAGE)).map((f) => [f, f === 'package.json' ? '{}\n' : 'x\n'])) });
+    gitIn(dir, 'checkout', '-q', '-b', 'task/T-1');
+    writeFileSync(join(dir, 'web/c.ts'), 'export const c = 2;\n');
+    gitIn(dir, 'commit', '-q', '-am', 'T-1: change');
+    const c = config(raw);
+    const was = process.env.ACC_NEAR_TESTS;
+    delete process.env.ACC_NEAR_TESTS;
+    try {
+      assert.equal(runGates(repoPaths(dir, run), c, c.environments[0]!, [], [], { run, now, slots: slots() }).results[0]!.status, 'pass');
+    } finally {
+      if (was !== undefined) process.env.ACC_NEAR_TESTS = was;
+    }
+    // The list is one path a line, so it runs on until the next variable.
+    return readFileSync(join(out, 'near'), 'utf8').match(/^ACC_NEAR_TESTS=(.*(?:\n(?![A-Za-z_]\w*=).*)*)/m)![1]!;
+  };
+  assert.equal(told(['web/areas.ts']), 'test/areas.test.ts\ntest/main.test.ts');
+  assert.equal(told(undefined), '', 'left out: no index, so no tests');
+  assert.equal(told([]), '', 'an empty list names nothing');
 });
 
 test('where the merge queue runs the full check, builders run gates.builder, which acc done takes, and the full check covers; elsewhere both are gates.required (GH-73)', () => {
