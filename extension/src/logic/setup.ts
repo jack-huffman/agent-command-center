@@ -49,7 +49,6 @@ export function commandLink(label: string, command: string, args: unknown[] = []
   return `[${label}](command:${command}${args.length ? `?${encodeURIComponent(JSON.stringify(args))}` : ''})`;
 }
 
-/** Steps a person must confirm, because nothing on this machine can check them. */
 /** "I've done this" is for steps only a person can finish, or ones that say a person may decide (fix.confirm). */
 export const needsConfirmation = (step: Step): boolean => (!!step.fix?.text && !step.fix.command && !step.fix.setupPath && !step.fix.vscode) || !!step.fix?.confirm;
 

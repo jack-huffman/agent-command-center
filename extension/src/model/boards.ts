@@ -15,8 +15,10 @@ import { analysisLook, autopilotLook, CARD_SAID, cardActions, closedPrLook, file
 
 // ---------------------------------------------------------------- tracker boards (D-026)
 
-/** Blue while a ticket is moving; to-do and done stay neutral, so orange keeps meaning a person is needed. */
-/** A tracker's status by its category (GH-105): an icon beside the tracker's own name for it, and its tone, as acc's own states show. */
+/**
+ * A tracker's status by its category (GH-105): an icon beside the tracker's own name for it, and its tone, as acc's own states show.
+ * Blue while a ticket is moving; to-do and done stay neutral, so orange keeps meaning a person is needed.
+ */
 export const CATEGORY_LOOK: Record<StatusCategory, { icon: string; tone: Tone }> = { todo: { icon: 'circle-outline', tone: 'neutral' }, doing: { icon: 'sync', tone: 'blue' }, done: { icon: 'check', tone: 'neutral' } };
 
 /** A tracker's column that holds work waiting on someone, by its name: under way to the tracker, but not moving. */
@@ -114,7 +116,7 @@ export interface TrackerBoard {
   index: number;
   kind: TrackerKind;
   title: string;
-  /** Its name on the Tasks tab's board switch: a repo's issues are "Issues", since its heading names the repo. */
+  /** Its name on the Tasks tab's board switch: BOARD_WORD for its kind, such as "GitHub board", else its title. */
   tab: string;
   source: string | null;
   url: string | null;
@@ -191,7 +193,7 @@ export function placeAdds(place: string, title: string): boolean {
 /** What a tracker's board is called on the Tasks tab's switch, beside the Agent board: by its kind, never its title. */
 export const BOARD_WORD: Record<TrackerKind, string> = { github: 'GitHub board', jira: 'Jira board', azure: 'Azure DevOps board', monday: 'monday.com board', slack: 'Slack thread' };
 
-/** Change's title: the sign-in moved here from its own row, "Signed in as jordan@acme.example, shared across projects." (T-42). */
+/** Change's title: the sign-in moved here from its own row, "Signed in as jordan@acme.example, for every project on acme.atlassian.net." (T-42). */
 export function changeTitle(signIn: Look | null, signedInAs: string | null): string {
   const who = signIn?.label ?? (signedInAs ? `Signed in as ${signedInAs}` : null);
   return `Change where its tickets come from, its board, or its sign-in.${who ? ` ${who.replace(/\.$/, '')}.` : ''}`;

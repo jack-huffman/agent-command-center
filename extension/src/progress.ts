@@ -49,7 +49,7 @@ export interface ProgressAction {
   command?: string;
   ref?: Ref;
   arg?: string;
-  /** The question's id: Answer scrolls to its card in Needs you. */
+  /** The question's id: Answer opens the question, with its answers, in a dialog (the Overview's progressButton). */
   question?: string;
 }
 

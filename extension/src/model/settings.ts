@@ -97,7 +97,6 @@ export interface AutoMergeSetting {
   settable: boolean;
 }
 
-/** One project's settings for its agents, under its name: a project setting always says whose it is. */
 /**
  * Cloud builders for a project (GH-69): the switch, a person's choice, what it needs and what's still
  * missing, and where a plain dispatch goes. Never on by default.
@@ -130,6 +129,7 @@ export function protectionLook(p: Pick<Protection, 'branch' | 'state'>): Look {
   return { label: `${p.branch}: protection not known`, icon: 'question', tone: 'orange' };
 }
 
+/** One project's settings for its agents, under its name: a project setting always says whose it is. */
 export interface AgentRunProject {
   root: string;
   project: string;
