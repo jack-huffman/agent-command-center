@@ -14,6 +14,9 @@ import { testsText } from '../../../packages/core/src/test-counts.ts';
 import { type Doc, fromMarkdown } from '../../../packages/core/src/trackers/doc.ts';
 import { FIELD_LACKS, TRACKER_FIELDS, type Ticket, type TrackerField, type TrackerKind, trackerHasField } from '../../../packages/core/src/trackers/types.ts';
 import type { Update } from '../../../packages/core/src/updates.ts';
+import type { Verdict } from '../../../packages/core/src/review.ts';
+import { plural } from '../../../packages/core/src/text.ts';
+import type { Excerpt } from '../logic/review-excerpts.ts';
 import { type AnalysisAsk, questionsWord, type TaskRow, type Tone } from '../logic/shared.ts';
 import { reasonInWords } from '../logic/relayed.ts';
 import { conflictLine, failedChecksLine } from '../logic/tasks.ts';
@@ -165,6 +168,8 @@ export interface TicketModel {
   acc: TicketAcc | null;
   /** What its analysis found (D-052), gist first. Null for a ticket acc doesn't keep, or one past needing it. */
   analysis: TicketAnalysis | null;
+  /** Its latest review and each finding (T-53), under the Agent panel. Null when ticketReview shows none. */
+  review: TicketReview | null;
   /** A tracker ticket acc doesn't keep yet, which "Track in acc" adds to the ledger. */
   trackable: boolean;
   /** It's being tracked now, from this page or its card (D-074). */
@@ -238,7 +243,112 @@ export interface TicketInput {
   github?: string | null;
   /** It's being tracked now, from its page or its card (D-074). */
   tracking?: boolean;
+  /** Its latest review, with the excerpts the extension read for its findings (T-53). */
+  review?: ReviewIn | null;
   now?: number;
+}
+
+// ---------------------------------------------------------------- its review (T-53)
+
+/** A task's latest verdict as the page is given it: whether it's on the latest commit, whether its checkout is there, and each finding's excerpt, in the verdict's order. */
+export interface ReviewIn {
+  verdict: Pick<Verdict, 'task' | 'sha' | 'verdict' | 'summary' | 'findings' | 'sessionId' | 'name' | 'at'>;
+  current: boolean;
+  checkout: boolean;
+  excerpts: (Excerpt | null)[];
+}
+
+/** One finding as the page shows it: its state, its words, where it is, and the lines around it. */
+export interface ReviewFinding {
+  look: Look;
+  message: string;
+  /** The kind of problem, as the reviewer named it (GH-102), in a muted word. */
+  kind: string | null;
+  /** Its file and line, "src/a.ts:12", or its file alone. Null for a finding with neither. */
+  place: string | null;
+  /** What a click on its place sends: open the file at the line, in the task's checkout. Null when the link is off. */
+  opens: { project: string; task: string; file: string; line: number } | null;
+  /** Why its link is off, or null. */
+  off: string | null;
+  excerpt: Excerpt | null;
+  /** A muted line over its excerpt: unchanged code, a removed file, or why it has no lines. */
+  note: string | null;
+}
+
+/** A task's review on its page: the verdict, who gave it and when, its count, then each finding, must-fix ones first. */
+export interface TicketReview {
+  look: Look;
+  summary: string;
+  /** What the reviewer was called (D-087), or "The reviewer" for an older verdict. */
+  by: string;
+  at: string;
+  /** "3 findings, 1 must fix", or "No findings". */
+  count: string;
+  /** A muted line when the review is of an older commit than the task's latest, else null. */
+  stale: string | null;
+  /** That the task's checkout is gone, so no file opens and no lines show, else null. */
+  gone: string | null;
+  findings: ReviewFinding[];
+  /** What Open the review sends: the reviewer's session page, as a suggested rule's finding opens it. Null with no session. */
+  open: { project: string; task: string; sha: string } | null;
+}
+
+/** How a review and its findings show (T-53): a pass and a finding worth a look in blue, changes and a must-fix in orange. */
+export const REVIEW_LOOK: Record<'pass' | 'changes' | 'must' | 'worth', Look> = {
+  pass: { label: 'Passed', icon: 'pass', tone: 'blue' },
+  changes: { label: 'Changes asked', icon: 'request-changes', tone: 'orange' },
+  must: { label: 'Must fix', icon: 'warning', tone: 'orange' },
+  worth: { label: 'Worth a look', icon: 'eye', tone: 'blue' },
+};
+
+/** The muted line over an excerpt, by where its lines came from. A diff needs none; a gone checkout is said once, for the block. */
+const EXCERPT_NOTE: Record<Excerpt['kind'], string | null> = {
+  diff: null,
+  unchanged: 'Unchanged code: the change didn\'t touch this line, so these are the file\'s lines at the reviewed commit.',
+  removed: 'The change removed this file.',
+  outside: 'Its path is outside the task\'s checkout, so no lines show.',
+  gone: null,
+  unread: 'Its lines couldn\'t be read at the reviewed commit.',
+};
+
+/** Why a finding's link is off, by its excerpt's kind, or null when it opens. */
+const OFF: Partial<Record<Excerpt['kind'], string>> = {
+  outside: 'Its path is outside the task\'s checkout, so it doesn\'t open.',
+  gone: 'The task\'s checkout is gone, so its files don\'t open here.',
+  removed: 'The change removed this file, so it isn\'t in the checkout.',
+};
+
+/**
+ * The Review block (T-53): for a task in review or rework, or one whose latest verdict is on its latest
+ * commit. Must-fix findings come first, each keeping its excerpt; a link is off, with why, when the
+ * checkout is gone, the path leads out of it, or the change removed the file.
+ */
+export function ticketReview(project: string, state: string, r: ReviewIn | null | undefined): TicketReview | null {
+  if (!r || !(state === 'review' || state === 'rework' || r.current)) return null;
+  const v = r.verdict;
+  const must = v.findings.filter((f) => f.must).length;
+  const findings = v.findings.map((f, i): ReviewFinding => {
+    const excerpt = r.excerpts[i] ?? null;
+    const kind = r.checkout ? excerpt?.kind : 'gone';
+    const off = f.file ? (kind ? OFF[kind] ?? null : null) : null;
+    const line = typeof f.line === 'number' && Number.isInteger(f.line) && f.line >= 1 ? f.line : null;
+    return {
+      look: f.must ? REVIEW_LOOK.must : REVIEW_LOOK.worth, message: f.message, kind: f.kind?.trim() || null,
+      place: f.file ? (line ? `${f.file}:${line}` : f.file) : null,
+      opens: f.file && !off ? { project, task: v.task, file: f.file, line: line ?? 1 } : null, off,
+      excerpt: r.checkout && excerpt?.lines.length ? excerpt : null,
+      note: r.checkout && excerpt ? EXCERPT_NOTE[excerpt.kind] : null,
+    };
+  });
+  return {
+    look: REVIEW_LOOK[v.verdict], summary: v.summary, by: v.name ?? 'The reviewer', at: v.at,
+    count: v.findings.length ? `${plural(v.findings.length, 'finding')}, ${must} must fix` : 'No findings',
+    stale: r.current ? null : 'This review is of an older commit. The task has changed since.',
+    gone: r.checkout ? null : 'The task\'s checkout is gone, so its files don\'t open here and no lines show.',
+    // Must-fix first, each part in the reviewer's order.
+    findings: [...findings.filter((_, i) => v.findings[i]!.must), ...findings.filter((_, i) => !v.findings[i]!.must)],
+    open: v.sessionId ? { project, task: v.task, sha: v.sha } : null,
+  };
 }
 
 /** How an analysis's wording findings show (T-12): orange, with an icon and their count. None shows nothing. */
@@ -353,6 +463,7 @@ export function ticketModel(i: TicketInput): TicketModel {
     lacks,
     updates: i.task ? updateCards(i.project, (i.updates ?? []).filter((u) => u.task === i.task!.id), i.github ?? null, i.boards ?? [], () => i.tracker, i.now) : [],
     acc, analysis: i.row && i.task ? ticketAnalysis(i.row, i.analysis ?? null, { project: i.project, task: i.row.id }, i.updates ?? []) : null,
+    review: i.task ? ticketReview(i.project, i.task.state, i.review) : null,
     trackable: !!t && !i.task, tracking: !!i.tracking, signedInAs: i.signedInAs ?? null,
   };
 }
@@ -375,12 +486,15 @@ export type Message =
   | { type: 'ticket'; project: string; tracker: number | null; key: string }
   | { type: 'ticket-action'; action: TicketAction; text?: string }
   /** A person's answer to one of a task's analysis's questions (D-052). acc records it; the page never writes it. */
-  | { type: 'analysis-answer'; project: string; task: string; question: string; text: string };
+  | { type: 'analysis-answer'; project: string; task: string; question: string; text: string }
+  /** Open a review finding's file at its line, in the task's checkout (T-53). The extension refuses a path outside it. */
+  | { type: 'review-file'; project: string; task: string; file: string; line: number };
 
 export const area: ModelArea = {
   messages: {
     ticket: (x) => short(x.project, 4096) && short(x.key, 100) && KEY.test(x.key as string) && (x.tracker === null || Number.isInteger(x.tracker)),
     'ticket-action': (x) => (TICKET_ACTIONS as readonly string[]).includes(x.action as string) && (x.text === undefined || (typeof x.text === 'string' && x.text.length <= 65_536)),
+    'review-file': (x) => short(x.project, 4096) && short(x.task, 100) && KEY.test(x.task as string) && short(x.file, 4096) && Number.isInteger(x.line) && (x.line as number) >= 1,
     'analysis-answer': (x) => short(x.project, 4096) && short(x.task, 100) && KEY.test(x.task as string) && typeof x.question === 'string' && /^q\d{1,3}$/.test(x.question) && short(x.text, 4000) && !!(x.text as string).trim(),
   },
 };

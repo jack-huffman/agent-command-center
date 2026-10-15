@@ -4,13 +4,14 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { Script } from 'node:vm';
 import type { HomeModel } from '../src/model/home.ts';
+import type { TicketModel } from '../src/model/task-page.ts';
 import { isFromWebview } from '../src/model/messages.ts';
 import { type BehaviourReport, behaviourData, behaviourPage, CASES, caseModel, caseFailed, dumpedBehaviour, HELPERS, judgeBehaviour, judgeMutants, MUTANTS, occurrences } from '../scripts/behaviour.ts';
 import { FONTS, sampleModel } from '../scripts/screenshot.ts';
 
 const webview = join(import.meta.dirname, '..', 'webview');
 const now = Date.UTC(2026, 9, 10, 12);
-const models = () => ({ tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark'), connect: sampleModel('connect-start', now, 'dark'), agent: sampleModel('agent', now, 'dark') });
+const models = () => ({ tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), review: sampleModel('ticket-review', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark'), connect: sampleModel('connect-start', now, 'dark'), agent: sampleModel('agent', now, 'dark') });
 const ok = (n = 1): BehaviourReport => ({ checks: Array.from({ length: n }, (_, i) => ({ what: `check ${i}`, ok: true })), error: null, sent: [{ type: 'ready' }] });
 
 test('a case passes on a report whose every check held, and its checks are counted', () => {
@@ -116,6 +117,20 @@ test('the task page case opens ACME-21\'s page, whose analysis has wording findi
   assert.match(behaviourPage(c, m as never, d, FONTS), /<body class="vscode-light" data-view="ticket"/, 'the page takes the ticket model it is sent');
   assert.match(behaviourPage(CASES[0]!, models().tasks, d, FONTS), /data-view="home"/);
   assert.equal(MUTANTS.filter((x) => x.kills.includes(c.name)).length, 2, 'a mutant hides the list, another drops each place');
+});
+
+test('the review case opens ACME-19\'s page and expects its findings, must-fix first, and the click\'s message (T-53); edge case: a review with no file to open fails the oracle', () => {
+  const d = behaviourData(models(), now);
+  assert.deepEqual(d.review.findings.map((f) => f.label), ['Must fix', 'Worth a look', 'Worth a look']);
+  assert.deepEqual(d.review.click, { type: 'review-file', project: '/Users/me/code/acme-service', task: 'ACME-19', file: 'force-app/main/default/classes/WelcomeEmailService.cls', line: 31 });
+  const c = CASES.find((x) => x.page === 'ticket-review');
+  assert.ok(c, 'a case opens the review');
+  assert.equal((caseModel(c, models()) as { key: string }).key, 'ACME-19');
+  assert.deepEqual(MUTANTS.filter((x) => x.kills.includes(c.name)).map((x) => x.name), ['the review lists its findings in the reviewer\'s order', 'a finding\'s file and line sends nothing']);
+  const m = models();
+  const review = m.review as TicketModel;
+  const closed = { ...review, review: { ...review.review!, findings: review.review!.findings.map((f) => ({ ...f, opens: null })) } };
+  assert.throws(() => behaviourData({ ...m, review: closed }, now), /a file and line that opens/);
 });
 
 test('an Overview with no list longer than its page fails the oracle, not the cases', () => {

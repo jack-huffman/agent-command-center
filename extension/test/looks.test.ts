@@ -27,7 +27,7 @@ import { queueLook } from '../src/model/overview.ts';
 import { RULE_LOOK } from '../src/model/rules.ts';
 import { STATUS } from '../src/model/setup.ts';
 import { displayLook } from '../src/model/shared.ts';
-import { CHECK_LOOK, checkLook, wordingLook } from '../src/model/task-page.ts';
+import { CHECK_LOOK, checkLook, REVIEW_LOOK, ticketReview, wordingLook } from '../src/model/task-page.ts';
 import { worktreeLook } from '../src/model/worktrees.ts';
 import { loadWord, taskLook } from '../src/progress.ts';
 import { SLACK_KIND_WORDS, SLACK_KINDS, slackCard } from '../src/slack.ts';
@@ -101,6 +101,15 @@ export const TABLES: Table[] = [
     ],
   },
   { name: 'a setup step', sources: ['extension/src/model/setup.ts#STATUS'], states: () => Object.entries(STATUS) },
+  // The task page's Review block (T-53): its verdict and each finding's state, as the block shows them.
+  {
+    name: 'a review and its findings', sources: ['extension/src/model/task-page.ts#REVIEW_LOOK', 'extension/src/model/task-page.ts#ticketReview'],
+    states: () => {
+      const f = (must: boolean) => ({ message: 'm', must, file: 'a.ts', line: 1 });
+      const block = (verdict: 'pass' | 'changes') => ticketReview('/r', 'review', { verdict: { task: 'T-1', sha: 'abc1234', verdict, summary: 's', findings: [f(true), f(false)], sessionId: '', at: 't' }, current: true, checkout: true, excerpts: [] })!;
+      return [...Object.entries(REVIEW_LOOK), ...(['pass', 'changes'] as const).flatMap((v): [string, Shown][] => [[`a review that says ${v}`, block(v).look], ...block(v).findings.map((x): [string, Shown] => [`a finding: ${x.look.label}`, x.look])])];
+    },
+  },
   {
     name: 'a question\'s outcome', sources: ['extension/src/model/history.ts#OUTCOME_LOOK', 'extension/src/model/history.ts#outcomeLook'],
     states: () => [...Object.entries(OUTCOME_LOOK), ...product(Object.keys(OUTCOME_LOOK), [false, true]).map(([o, ask]): [string, Shown] => [`${o}${ask ? ', asked' : ''}`, outcomeLook(o, ask)]), ['one a newer acc wrote', outcomeLook('reconsidered', false)]],

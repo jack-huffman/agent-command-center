@@ -69,6 +69,7 @@ const MARKS: Record<string, Record<string, number>> = {
   'environments.ts': { branch: 1 },
   'history.ts': { transcript: 2, output: 1 },
   'questions.ts': { transcript: 1 },
+  'review.ts': { files: 2, transcript: 2 },
   'rules.ts': { files: 1, transcript: 1, 'agent-text': 1 },
   'setup.ts': { output: 1 },
   'task-page.ts': { files: 2, branch: 2, output: 1, transcript: 1 },

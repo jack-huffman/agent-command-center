@@ -6,7 +6,7 @@ import { ticketModel, type TicketModel } from '../../src/model/task-page.ts';
 import { sampleAnalyses } from './analysis.ts';
 import { DOING, DONE, REVIEW, sampleBoards, TODO } from './boards.ts';
 import { sampleHub } from './hub.ts';
-import { MIN, ROOT, wt } from './shared.ts';
+import { MIN, R19, ROOT, wt } from './shared.ts';
 import { sampleUpdates } from './updates.ts';
 
 const p = (text: string, marks?: string[]): AdfNode => ({ type: 'paragraph', content: [{ type: 'text', text, ...(marks ? { marks: marks.map((type) => ({ type })) } : {}) }] });
@@ -15,9 +15,9 @@ const p = (text: string, marks?: string[]): AdfNode => ({ type: 'paragraph', con
  * Which ticket page to draw: ACME-12 being built, a task to do whose analysis has questions or says to
  * split it, one whose builder stopped, ACME-31, which acc doesn't keep yet, being tracked from its card,
  * ACME-35, which a person dispatched and which waits for other tasks' files (D-093), or ACME-20, in review
- * with its builder's note (D-106).
+ * with its builder's note (D-106), or ACME-19, sent back by its review, with its findings (T-53).
  */
-export type TicketSample = 'ACME-12' | 'ACME-20' | 'ACME-21' | 'ACME-23' | 'ACME-29' | 'ACME-31' | 'ACME-33' | 'ACME-35' | 'ACME-44' | 'ACME-50';
+export type TicketSample = 'ACME-12' | 'ACME-19' | 'ACME-20' | 'ACME-21' | 'ACME-23' | 'ACME-29' | 'ACME-31' | 'ACME-33' | 'ACME-35' | 'ACME-44' | 'ACME-50';
 
 /** A Jira ticket with everything a description can hold, and the acc task working on it. */
 export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12'): TicketModel {
@@ -28,6 +28,7 @@ export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12'):
   if (which === 'ACME-33') return sampleChecksTicket(now);
   if (which === 'ACME-35') return sampleWaitingTicket(now);
   if (which === 'ACME-20') return sampleNoteTicket(now);
+  if (which === 'ACME-19') return sampleReviewTicket(now);
   if (which !== 'ACME-12') return sampleTodoTicket(now, which);
   const hub = sampleHub(now);
   // Back with its builder after its pull request stopped merging into dev.
@@ -302,5 +303,74 @@ function sampleTodoTicket(now: number, key: 'ACME-21' | 'ACME-23'): TicketModel 
   return ticketModel({
     project: ROOT, tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira', key, ticket, loading: false, error: null, connect: null, row, task, signedInAs: 'jordan@acme.example',
     analysis: sampleAnalyses(now)[key], trackerEdits: false, updates: sampleUpdates(now), boards: sampleBoards(), github: 'jordan-kim', now, checks: ['format', 'static', 'validate'].map((gate) => ({ gate, status: 'skip' as const, summary: 'Not run yet' })),
+  });
+}
+
+/**
+ * ACME-19, sent back by its review (T-53): the verdict asks for changes, with three findings. The must-fix
+ * one comes first on the page with the lines of the change around it; one is about unchanged code, with the
+ * file's lines at the reviewed commit; and one names no file.
+ */
+function sampleReviewTicket(now: number): TicketModel {
+  const row = sampleHub(now).taskRows(ROOT).find((r) => r.id === 'ACME-19')!;
+  const ticket: Ticket = {
+    key: 'ACME-19', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-19', title: row.title, type: 'Bug',
+    status: DOING, assignees: [{ id: 'a1', name: 'Jordan Kim' }], reporter: { id: 'a2', name: 'Pat Lee' }, labels: [{ name: 'marketing', color: null }], priority: 'High',
+    created: new Date(now - 3 * 86_400_000).toISOString(), updated: new Date(now - 26 * 60 * MIN).toISOString(),
+    body: fromAdf({ type: 'doc', content: [p('New contacts get the welcome email twice when the flow runs again within a day. Send it once.')] }),
+    markdown: '', comments: [], related: [],
+  };
+  const reviewed = new Date(now - 26 * 60 * MIN).toISOString();
+  const task = {
+    id: 'ACME-19', title: row.title, brief: '', source: { kind: 'jira', key: 'ACME-19', url: ticket.url }, environment: 'dev', deps: [], labels: [], state: 'rework', blocker: null,
+    run: { ...row.run, branch: 'task/ACME-19-welcome-email-once' }, pr: null,
+    history: [
+      { at: new Date(now - 3 * 86_400_000).toISOString(), from: null, to: 'todo', by: 'human:jordan' },
+      { at: new Date(now - 30 * 60 * MIN).toISOString(), from: 'todo', to: 'running', by: 'human:jordan' },
+      { at: new Date(now - 27 * 60 * MIN).toISOString(), from: 'running', to: 'review', by: 'builder:ACME-19' },
+      { at: reviewed, from: 'review', to: 'rework', by: 'reviewer:ACME-19' },
+    ],
+    createdAt: new Date(now - 3 * 86_400_000).toISOString(), updatedAt: reviewed,
+  } as unknown as Task;
+  const cls = 'force-app/main/default/classes/WelcomeEmailService.cls';
+  const line = (n: number | null, mark: 'add' | 'del' | 'same', text: string, at = false) => ({ n, mark, text, at });
+  return ticketModel({
+    project: ROOT, tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira', key: 'ACME-19', ticket, loading: false, error: null, connect: null, row, task, signedInAs: 'jordan@acme.example',
+    trackerEdits: false, updates: [], boards: sampleBoards(), github: 'jordan-kim', now,
+    checks: [
+      { gate: 'format', status: 'pass', summary: '2 changed files formatted.' },
+      { gate: 'validate', status: 'pass', summary: 'Validated in Acme Dev: WelcomeEmailServiceTest, 6 of 6 passing.', counts: '6 run, 0 skipped' },
+    ],
+    review: {
+      verdict: {
+        task: 'ACME-19', sha: '7c3e9a1', verdict: 'changes', sessionId: 'rv-acme-19', name: R19, at: reviewed,
+        summary: 'Marks each contact when its welcome email is sent, so a second run skips it. Contacts welcomed before this change have no mark, so they would get the email again.',
+        findings: [
+          { message: 'Name the 24-hour window once, so the flow and the class agree on it.', must: false, file: cls, line: 12, kind: 'magic number' },
+          { message: 'Contacts welcomed before this change have no Welcome_Sent_At__c, so they get a second email. Treat Welcome_Sent__c as sent too, and test a contact with only that set.', must: true, file: cls, line: 31, kind: 'untested edge case' },
+          { message: 'The builder\'s note says every flow test passes, but only WelcomeEmailServiceTest ran.', must: false, kind: 'note overstates' },
+        ],
+      },
+      current: true, checkout: true,
+      excerpts: [
+        { kind: 'unchanged', lines: [
+          line(10, 'same', '  public static List<Contact> due(List<Contact> contacts) {'),
+          line(11, 'same', '    List<Contact> queue = new List<Contact>();'),
+          line(12, 'same', '    Integer hours = 24;', true),
+          line(13, 'same', '    Datetime since = System.now().addHours(-hours);'),
+          line(14, 'same', '    for (Contact c : contacts) {'),
+        ] },
+        { kind: 'diff', lines: [
+          line(29, 'same', '    for (Contact c : contacts) {'),
+          line(null, 'del', '      if (c.Welcome_Sent__c) continue;'),
+          line(30, 'add', '      if (c.Welcome_Sent_At__c >= since) continue;'),
+          line(31, 'add', '      c.Welcome_Sent_At__c = System.now();', true),
+          line(32, 'same', '      queue.add(c);'),
+          line(33, 'same', '    }'),
+          line(34, 'same', '    return queue;'),
+        ] },
+        null,
+      ],
+    },
   });
 }
