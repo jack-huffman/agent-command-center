@@ -1,14 +1,17 @@
 import { randomBytes } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { builderGatesFor, fullGates, requiredGates } from '../../packages/core/src/config.ts';
+import type { Task } from '../../packages/core/src/ledger.ts';
 import type { RepoPaths } from '../../packages/core/src/paths.ts';
 import { receiptsAt } from '../../packages/core/src/receipts.ts';
+import { latestVerdict, reviewCurrent } from '../../packages/core/src/review.ts';
 import { signInLabel, type Ticket, type TrackerClient } from '../../packages/core/src/trackers/types.ts';
 import type { Hub, Project } from './hub.ts';
 import { type FromWebview, isFromWebview } from './model/messages.ts';
 import type { Ref } from './model/shared.ts';
-import { type CheckIn, ticketActionRefusal, ticketCheck, ticketModel, type TicketModel } from './model/task-page.ts';
+import { type CheckIn, type ReviewIn, ticketActionRefusal, ticketCheck, ticketModel, type TicketModel, ticketReview } from './model/task-page.ts';
 import { htmlFor, isWebLink, type Panels, TabTheme } from './panels.ts';
 import { modalTakes, taskOf } from './model/task-modal.ts';
 import type { ThemeChoice } from './model/settings.ts';
@@ -17,6 +20,8 @@ import type { Trackers } from './trackers.ts';
 import type { ExtensionArea } from './area.ts';
 import { addTaskArgs, draftFromOpen } from './logic/tasks.ts';
 import { inProcessWords } from './logic/processes.ts';
+import { type Excerpt, fileInCheckout, mergeBase, reviewExcerpts } from './logic/review-excerpts.ts';
+import { openReview } from './rules.ts';
 
 type AccRun = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
 type Reply = { ok: boolean; error?: string };
@@ -65,6 +70,8 @@ interface Open {
   connect: TicketModel['connect'];
   /** Its updates' unsent edits, by update id, as the page last said (GH-46). */
   edits: Map<string, string>;
+  /** Its review's excerpts as last read (T-53), by the checkout, branch and verdict they were read for: a commit's change doesn't change. */
+  excerpts: { key: string; value: (Excerpt | null)[] } | null;
 }
 
 /** Commands a ticket page may run, the same ones its task's card offers. */
@@ -87,6 +94,8 @@ export class TicketPanels implements vscode.Disposable {
   private readonly answerAnalysis: AnswerAnalysis | null;
   private readonly updates: UpdateActions | null;
   private readonly editsChanged = new vscode.EventEmitter<void>();
+  /** Opens a review's session page, as a suggested rule's finding does (T-53): set once the agent pages exist. */
+  openReview: ((m: { project: string; task: string; sha: string }) => void) | null = null;
   /** A page's unsent edit of an update began, changed or ended, so the Overview shows it. */
   readonly onDidEdit = this.editsChanged.event;
 
@@ -210,7 +219,7 @@ export class TicketPanels implements vscode.Disposable {
 
   /** A page that hasn't loaded yet. */
   private fresh(view: TicketView, root: string, tracker: number | null, key: string): Open {
-    return { view, tab: null, project: root, tracker, key: key.toUpperCase(), ticket: null, loading: tracker !== null, error: null, outside: null, connect: null, edits: new Map() };
+    return { view, tab: null, project: root, tracker, key: key.toUpperCase(), ticket: null, loading: tracker !== null, error: null, outside: null, connect: null, edits: new Map(), excerpts: null };
   }
 
   /** Every page shown: each tab, and the modal (GH-158). */
@@ -295,8 +304,57 @@ export class TicketPanels implements vscode.Disposable {
       analysis: task ? this.hub.analysis(p.root, task.id) : null,
       trackerEdits: this.edits(o, p), trackerFields: client?.fields, updates: this.hub.updates(p.root), boards: this.trackers.boardStates(p.root), github: p.config.github?.account ?? null,
       tracking: this.trackers.trackState(p.root, o.key).busy,
+      review: task ? await this.review(o, p, task) : null,
     });
     o.view.draw(model);
+  }
+
+  /**
+   * The task's latest review, as its page is given it (T-53): whether it's on the latest commit, whether its
+   * checkout is there, and each finding's excerpt, read in the checkout against the merge base with its
+   * environment's branch. Git isn't asked when the page shows no Review block, nor again for the same verdict.
+   */
+  private async review(o: Open, p: Project, task: Task): Promise<ReviewIn | null> {
+    const paths = { reviews: join(dirname(p.ledgerPath), 'reviews') } as RepoPaths;
+    const verdict = latestVerdict(paths, task.id);
+    if (!verdict) return null;
+    const head = p.worktrees.find((w) => w.branch === task.run?.branch)?.head ?? '';
+    const checkout = task.run?.worktree ?? null;
+    const there = !!checkout && existsSync(checkout);
+    const shell: ReviewIn = { verdict, current: reviewCurrent(paths, task, verdict, head), checkout: there, excerpts: [] };
+    if (!checkout || !there || !ticketReview(p.root, task.state, shell)) return shell;
+    const branch = p.config.environments.find((e) => e.name === task.environment)?.branch ?? task.environment;
+    const key = [checkout, branch, verdict.sha, verdict.at].join('\0');
+    if (o.excerpts?.key !== key) {
+      const git = (args: string[], cwd: string) => runFile('git', args, cwd);
+      const base = await mergeBase(git, checkout, branch, verdict.sha);
+      o.excerpts = { key, value: await reviewExcerpts(git, checkout, base, verdict.sha, verdict.findings) };
+    }
+    return { ...shell, excerpts: o.excerpts.value };
+  }
+
+  /**
+   * A click on a review finding's file and line (T-53): the file opens there, in the task's checkout. A path
+   * outside the checkout is refused, and so is a click for another task, or one whose checkout is gone.
+   */
+  private async openFile(o: Open, p: Project, m: Extract<FromWebview, { type: 'review-file' }>): Promise<void> {
+    if (m.project !== o.project || m.task.toUpperCase() !== o.key) return;
+    const checkout = this.hub.ledger(p.root)?.tasks.find((t) => t.id === o.key)?.run?.worktree;
+    if (!checkout || !existsSync(checkout)) {
+      void vscode.window.showWarningMessage(`${o.key}'s checkout is gone, so its files don't open here.`);
+      return;
+    }
+    const path = fileInCheckout(checkout, m.file);
+    if (!path) {
+      void vscode.window.showWarningMessage(`${m.file} isn't inside ${o.key}'s checkout, so it doesn't open.`);
+      return;
+    }
+    try {
+      const at = new vscode.Position(m.line - 1, 0);
+      await vscode.window.showTextDocument(vscode.Uri.file(path), { selection: new vscode.Range(at, at), preview: true });
+    } catch (e) {
+      void vscode.window.showWarningMessage(`Couldn't open ${m.file}: ${(e as Error).message}`);
+    }
   }
 
   private async receive(o: Open, m: unknown): Promise<void> {
@@ -319,6 +377,9 @@ export class TicketPanels implements vscode.Disposable {
         if (ALLOWED.has(m.command)) await vscode.commands.executeCommand(m.command, m.arg);
         return;
       case 'ticket-action': return this.act(o, p, m.action, m.text);
+      case 'review-file': return this.openFile(o, p, m);
+      // From the tab: the modal's goes to the Command Center's own handler, as a suggested rule's does.
+      case 'rule-open-review': this.openReview?.(m); return;
       default: return;
     }
   }
@@ -578,7 +639,8 @@ export class TicketPanels implements vscode.Disposable {
 }
 
 export const area: ExtensionArea = {
-  register({ hub, panels, tickets, answerAnalysis, updates, receive }) {
+  register({ hub, panels, pages, tickets, answerAnalysis, updates, receive }) {
+    tickets.openReview = (m) => openReview(hub, pages, m);
     receive('ticket', (m) => { if (hub.project(m.project)) tickets.show(m.project, m.tracker, m.key); });
     receive('analysis-answer', (m) => {
       // The page shows it's sending until the question goes. Every answer gets a reply: a refusal, or a

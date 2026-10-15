@@ -4,6 +4,7 @@ import type { Look } from '../src/model/shared.ts';
 import type { PersonChip } from '../src/model/boards.ts';
 import type { TicketModel, TicketRatchet } from '../src/model/task-page.ts';
 import { renderAnalysis } from './analysis.ts';
+import { renderReview } from './review.ts';
 import { actionButton, argButton, avatar, button, type Child, clippedSpan, el, foldable, icon, iconed, labelChip, linkTo, md, openable, renderDoc, status, when, work } from './dom.ts';
 import { api, memory, type PageArea, remember, state } from './state.ts';
 import { KIND_ICON, KIND_NAME } from './tasks.ts';
@@ -197,6 +198,8 @@ export function renderTicket(m: TicketModel): Node[] {
     });
     side.append(el('section', 'side-panel side-agent', el('h2', '', icon('hubot'), 'Agent'), el('p', 'muted', 'acc isn\'t keeping this ticket yet. Track it to dispatch an agent to it. The ticket itself isn\'t changed.'), el('div', 'actions', track)));
   }
+  // Its review's findings, under the Agent panel (T-53).
+  if (m.review) side.append(renderReview(m.review));
   out.push(el('div', 'ticket-grid', top.childElementCount ? top : null, main, side));
   return out;
 }

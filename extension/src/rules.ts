@@ -3,7 +3,9 @@
 import { dirname, join } from 'node:path';
 import type { RepoPaths } from '../../packages/core/src/paths.ts';
 import { readVerdict } from '../../packages/core/src/review.ts';
+import type { AgentPages } from './activity.ts';
 import type { ExtensionArea } from './area.ts';
+import type { Hub } from './hub.ts';
 import type { FromWebview } from './model/messages.ts';
 import { accRunner } from './run.ts';
 
@@ -39,14 +41,20 @@ export const area: ExtensionArea = {
     };
     receive('rule-accept', act);
     receive('rule-dismiss', act);
-    // A finding's review: its reviewer's session page, which keeps the name acc gave it (D-087), as Watch the review opens it.
-    receive('rule-open-review', (m) => {
-      const p = hub.project(m.project);
-      if (!p) return;
-      const v = readVerdict({ reviews: join(dirname(p.ledgerPath), 'reviews') } as RepoPaths, m.task, m.sha);
-      if (!v?.sessionId) return;
-      const cwd = hub.ledger(p.root)?.tasks.find((t) => t.id === m.task)?.run?.worktree ?? p.root;
-      pages.open(v.sessionId, { cwd, kind: 'background', startedAt: Date.parse(v.at) || Date.now(), sessionId: v.sessionId, name: v.name ?? `Review ${m.task}` }, () => false);
-    });
+    receive('rule-open-review', (m) => openReview(hub, pages, m));
   },
 };
+
+/**
+ * A finding's review: its reviewer's session page, which keeps the name acc gave it (D-087), as Watch the
+ * review opens it. A suggested rule's finding opens it, and so does a task page's Open the review (T-53).
+ * A project that isn't open, or a verdict with no session, opens nothing.
+ */
+export function openReview(hub: Pick<Hub, 'project' | 'ledger'>, pages: Pick<AgentPages, 'open'>, m: { project: string; task: string; sha: string }): void {
+  const p = hub.project(m.project);
+  if (!p) return;
+  const v = readVerdict({ reviews: join(dirname(p.ledgerPath), 'reviews') } as RepoPaths, m.task, m.sha);
+  if (!v?.sessionId) return;
+  const cwd = hub.ledger(p.root)?.tasks.find((t) => t.id === m.task)?.run?.worktree ?? p.root;
+  pages.open(v.sessionId, { cwd, kind: 'background', startedAt: Date.parse(v.at) || Date.now(), sessionId: v.sessionId, name: v.name ?? `Review ${m.task}` }, () => false);
+}

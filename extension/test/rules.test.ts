@@ -1,11 +1,14 @@
 // Rules suggested by review findings that keep coming back (GH-102), in Needs you.
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { homeModel } from '../src/model/home.ts';
 import { isFromWebview } from '../src/model/messages.ts';
 import { needsYouCount } from '../src/model/overview.ts';
 import { ruleCard } from '../src/model/rules.ts';
-import { ruleArgs } from '../src/rules.ts';
+import { openReview, ruleArgs } from '../src/rules.ts';
 import { sampleSuggestions } from '../scripts/fixtures/rules.ts';
 import { hub, pageSource, row } from './support.ts';
 
@@ -60,4 +63,25 @@ test('the card opens the draft on Accept, and only Confirm sends it (GH-102)', (
   assert.match(src, /button\('Accept…', 'check', \(\) => \{ remember\(/, 'Accept only opens the draft');
   assert.equal((src.match(/type: 'rule-accept'/g) ?? []).length, 1, 'one place sends an accept: Confirm');
   assert.match(src, /button\('Confirm', 'pass', \(\) => \{[\s\S]*?type: 'rule-accept'/);
+});
+
+test('a finding\'s Open the review opens its reviewer\'s session page, from a suggested rule or a task page (T-53); edge cases: no session, or a project not open, open nothing', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'acc-open-review-'));
+  mkdirSync(join(dir, 'reviews'));
+  const verdict = (task: string, sha: string, sessionId: string) => writeFileSync(join(dir, 'reviews', `${task}-${sha}.json`), JSON.stringify({ v: 1, task, sha, env: 'devbox', verdict: 'changes', summary: 's', criteria: [], findings: [], sessionId, name: `Acme · ${task} · review`, at: '2026-10-15T10:00:00Z', durationMs: 1, costUsd: null }));
+  verdict('T-9', 'abc1234', 'rv-9');
+  verdict('T-8', 'abc1234', '');
+  const project = { root: '/r', ledgerPath: join(dir, 'ledger.json') };
+  const h = { project: (r: string) => (r === '/r' ? project : undefined), ledger: () => ({ tasks: [{ id: 'T-9', run: { worktree: '/r.worktrees/T-9' } }] }) } as unknown as Parameters<typeof openReview>[0];
+  const opened: unknown[][] = [];
+  const pages = { open: (...a: unknown[]) => { opened.push(a); } } as unknown as Parameters<typeof openReview>[1];
+  openReview(h, pages, { project: '/r', task: 'T-9', sha: 'abc1234' });
+  assert.equal(opened.length, 1);
+  assert.equal(opened[0]![0], 'rv-9');
+  assert.deepEqual(opened[0]![1], { cwd: '/r.worktrees/T-9', kind: 'background', startedAt: Date.parse('2026-10-15T10:00:00Z'), sessionId: 'rv-9', name: 'Acme · T-9 · review' });
+  openReview(h, pages, { project: '/r', task: 'T-8', sha: 'abc1234' });
+  openReview(h, pages, { project: '/elsewhere', task: 'T-9', sha: 'abc1234' });
+  openReview(h, pages, { project: '/r', task: 'T-9', sha: 'fff0000' });
+  assert.equal(opened.length, 1, 'a verdict with no session, a project not open and a commit with no verdict open nothing');
+  rmSync(dir, { recursive: true, force: true });
 });

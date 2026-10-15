@@ -1,0 +1,31 @@
+/* ---------------------------------------------------------------- a task's review (T-53) */
+.rv-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rv-summary { margin: 8px 0 4px; overflow-wrap: anywhere; }
+.rv-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 10px; }
+.rv-finding { border-top: 1px solid var(--line); padding-top: 10px; min-width: 0; }
+.rv-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rv-kind { overflow-wrap: anywhere; }
+.rv-message { margin: 4px 0; overflow-wrap: anywhere; }
+/* A file and line read as a link, and wrap rather than clip: a long path stays whole. */
+.rv-place { display: inline-flex; align-items: flex-start; gap: 4px; max-width: 100%; padding: 0; border: 0; background: none; font: inherit; text-align: left; color: var(--vscode-textLink-foreground); cursor: pointer; }
+.rv-place .mono { word-break: break-all; }
+.rv-place .codicon { margin-top: 2px; flex: none; }
+.rv-place:hover:not(:disabled) .mono { text-decoration: underline; }
+.rv-place:disabled { color: var(--vscode-descriptionForeground); cursor: default; }
+.rv-note { margin: 4px 0; }
+/* The lines around a finding: a number, a mark, and the text, wrapped in the narrow side column. */
+.rv-excerpt { margin-top: 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--well); font-family: var(--vscode-editor-font-family, monospace); font-size: 0.85em; line-height: 1.45; overflow: hidden; }
+.rv-l { display: grid; grid-template-columns: 2.6em 1.2em minmax(0, 1fr); }
+.rv-n { padding-right: 6px; text-align: right; color: var(--vscode-descriptionForeground); user-select: none; }
+.rv-sign { text-align: center; user-select: none; }
+.rv-t { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+/* Added in blue, removed in orange, from the theme: the mark and its name say which, the colour only adds. */
+.rv-add { background: color-mix(in srgb, var(--blue) 16%, transparent); }
+.rv-add .rv-sign { color: var(--blue); }
+.rv-del { background: color-mix(in srgb, var(--orange) 16%, transparent); }
+.rv-del .rv-sign { color: var(--orange); }
+.rv-at .rv-n { color: var(--vscode-foreground); font-weight: 600; box-shadow: inset 2px 0 0 var(--vscode-foreground); }
+@media (max-width: 760px) {
+  /* On one column it follows the Agent panel, as both are what a person acts on. */
+  .side-review { order: -2; }
+}
