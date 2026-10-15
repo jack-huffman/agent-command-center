@@ -161,11 +161,12 @@ export interface Config {
    * (GH-73). Left out, builders run `required`, as everywhere else. tests: the checks that run tests, whose
    * receipts count what ran and which need a person when none did (GH-100), besides those acc knows.
    * ratchets: checks whose command prints a number that may only get better, kept against a floor or a
-   * ceiling in `.acc/floors.json` (GH-99).
+   * ceiling in `.acc/floors.json` (GH-99). nearIndexes: files that gather every code file in their folder,
+   * for the tests near a change, where the folder's index would otherwise be guessed (D-???).
    */
   gates: {
     required: string[]; commands: Record<string, string>; heavy: string[]; severity: number; builder?: string[]; tests?: string[];
-    ratchets?: Record<string, RatchetSpec>;
+    ratchets?: Record<string, RatchetSpec>; nearIndexes?: string[];
   };
   secretScan: { paths: string[]; exclude: string[] };
   /**
@@ -248,7 +249,7 @@ export const CONFIG_KEYS = [
   'agents.reviewer.model', 'agents.reviewer.effort', 'agents.reviewer.fallbackModel',
   'agents.cloud.routine', 'agents.cloud.default', 'agents.cloud.quietMinutes', 'agents.cloud.max', 'autonomy',
   'worktrees.root', 'worktrees.setup', 'gates.required', 'gates.commands', 'gates.heavy', 'gates.severity', 'gates.builder', 'gates.tests',
-  'gates.ratchets',
+  'gates.ratchets', 'gates.nearIndexes',
   'secretScan.paths', 'secretScan.exclude', 'strayFiles.required', 'strayFiles.allow', 'strayFiles.data', 'analysis.required', 'autopilot.appendOnly', 'autopilot.autoMerge',
   'dispatch.shared', 'tidy.every', 'template.name', 'template.source', 'template.digest',
 ] as const satisfies readonly ConfigPath[];
@@ -550,6 +551,7 @@ export function parseConfig(raw: unknown): ParseResult {
   if (g.heavy !== undefined && !strList(g.heavy)) errors.push('"gates.heavy" must be a list of gate names.');
   if (g.builder !== undefined && !(Array.isArray(g.builder) && g.builder.every(isStr))) errors.push('"gates.builder" must be a list of gate names: the lighter checks builders run where the merge queue runs the required ones.');
   if (g.tests !== undefined && !strList(g.tests)) errors.push('"gates.tests" must be a list of gate names: the checks that run tests, whose receipts count what ran.');
+  if (g.nearIndexes !== undefined && !strList(g.nearIndexes)) errors.push('"gates.nearIndexes" must be a list of paths from the repo\'s root, such as "src/web/main.ts": each gathers every code file in its folder.');
   if (g.severity !== undefined && !(Number.isInteger(g.severity) && (g.severity as number) >= 1 && (g.severity as number) <= 5)) {
     errors.push('"gates.severity" must be a whole number from 1 (only the worst problems fail) to 5 (everything fails).');
   }
@@ -659,6 +661,7 @@ export function parseConfig(raw: unknown): ParseResult {
         ...(Array.isArray(g.builder) && g.builder.every(isStr) ? { builder: g.builder as string[] } : {}),
         ...(g.ratchets !== undefined ? { ratchets } : {}),
         ...(strList(g.tests) ? { tests: g.tests } : {}),
+        ...(strList(g.nearIndexes) ? { nearIndexes: g.nearIndexes } : {}),
       },
       secretScan: {
         paths: strList(s.paths) ? s.paths : defaultScan,
