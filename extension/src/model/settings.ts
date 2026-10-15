@@ -143,9 +143,9 @@ export interface HowAgentsRun {
   projects: AgentRunProject[];
   /**
    * What this machine's agents bill (D-036), the same for every project, so said once. Per token, or not
-   * checked yet, it has a way to Setup, whose check says why and how to fix it.
+   * checked yet, it has a way to Setup, whose check says why and how to fix it. Its meaning is under its state.
    */
-  billing: { look: Look; link: SettingsLink | null };
+  billing: { look: Look; link: SettingsLink | null; meaning: string };
 }
 
 /** Keys nothing reads yet, which How agents run shows no row for (GH-107): UNREAD_KEYS, or a test's own. */
@@ -227,6 +227,9 @@ export function cloudSetting(p: ProjectLike, unread: Unread = UNREAD_KEYS, prote
   };
 }
 
+/** What Billing's row says under its state. */
+export const BILLING_MEANING = 'This machine\'s, for every project. Agents shows it too while it\'s per token.';
+
 /** How agents run in each onboarded project, and what they bill on this machine. */
 export function howAgentsRun(projects: ProjectLike[], setup: DoctorItem[], unread: Unread = UNREAD_KEYS, protection: (root: string) => Protection[] | null = () => null): HowAgentsRun {
   const billing = billingLook(setup);
@@ -234,8 +237,8 @@ export function howAgentsRun(projects: ProjectLike[], setup: DoctorItem[], unrea
   return {
     projects: projects.filter((p) => p.agents).map((p) => ({ root: p.root, project: p.name, roles: agentSettings(p, unread), autonomy: autonomySetting(p, unread), autoMerge: autoMergeSetting(p, unread), cloud: cloudSetting(p, unread, protection(p.root)) })),
     billing: billing
-      ? { look: billing, link: billing.tone === 'blue' ? null : toSetup }
-      : { look: { label: 'Not checked yet: Setup checks it', icon: 'circle-outline', tone: 'neutral' }, link: toSetup },
+      ? { look: billing, link: billing.tone === 'blue' ? null : toSetup, meaning: BILLING_MEANING }
+      : { look: { label: 'Not checked yet: Setup checks it', icon: 'circle-outline', tone: 'neutral' }, link: toSetup, meaning: BILLING_MEANING },
   };
 }
 
@@ -561,6 +564,48 @@ export interface SettingsModel {
   page: PagePreferences;
   /** About (GH-114): the versions of acc, the extension and the plugin, and the latest release. Null until the extension reads them. */
   about: AboutModel | null;
+  /** The guide under the page's title (T-40): a link to each part. */
+  guide: GuideLink[];
+  /** The ids of the rows' explanations that fold under "What this means" (T-40), as settingsMeanings names them. */
+  folded: string[];
+}
+
+// ---------------------------------------------------------------- the guide and What this means (T-40)
+
+/** The longest explanation a row keeps in view, in characters, when it is one sentence. */
+export const SHORT_MEANING = 90;
+
+/** True when an explanation goes into a closed "What this means": more than one sentence, or a long one. */
+export const foldsMeaning = (text: string): boolean => text.length > SHORT_MEANING || /[.!?]\s+\S/.test(text.trim());
+
+/** Where the page's tab remembers an explanation as opened (the page builds the same key). */
+export const meaningKey = (id: string): string => `settings-meaning:${id}`;
+
+/** A link of the guide: the part's title and icon, and the heading it opens, by its settingsKey. */
+export interface GuideLink { id: SettingsPart; label: string; icon: string; part: string }
+
+/** A link for each part of Settings, in the page's order. */
+export const settingsGuide = (parts: SettingsPartModel[]): GuideLink[] => parts.map((p) => ({ id: p.id, label: p.title, icon: p.icon, part: settingsKey(p.id) }));
+
+/**
+ * Every row's explanation the page draws, in its order, under the id it remembers it by: the theme's, each
+ * project's autonomy, auto-merge and cloud builders, Billing, each preference, and each version in About.
+ * An empty one isn't drawn.
+ */
+export function settingsMeanings(m: Pick<SettingsModel, 'theme' | 'themes' | 'agents' | 'page' | 'about'>): { id: string; text: string }[] {
+  const theme = m.themes.find((t) => t.key === m.theme) ?? m.themes[0];
+  const out = [
+    { id: 'theme', text: theme?.meaning ?? '' },
+    ...m.agents.projects.flatMap((s) => [
+      { id: `autonomy:${s.root}`, text: s.autonomy?.meaning ?? '' },
+      { id: `auto-merge:${s.root}`, text: s.autoMerge?.meaning ?? '' },
+      { id: `cloud:${s.root}`, text: s.cloud?.meaning ?? '' },
+    ]),
+    { id: 'billing', text: m.agents.billing.meaning },
+    ...m.page.preferences.map((p) => ({ id: `page:${p.id}`, text: p.meaning })),
+    ...(m.about?.rows ?? []).map((r) => ({ id: `about:${r.key}`, text: r.meaning ?? '' })),
+  ];
+  return out.filter((x) => x.text);
 }
 
 export interface SettingsInput {
@@ -637,7 +682,9 @@ export function settingsModel(i: SettingsInput): SettingsModel {
       links: [],
     },
   ];
-  return { kind: 'settings', theme: i.theme, themes: THEME_CHOICES.map((key) => ({ key, ...THEMES[key] })), agents, trackers, parts, limits: i.limits ?? null, slack: i.slack ?? null, github, page, about: i.about ?? null };
+  const drawn = { theme: i.theme, themes: THEME_CHOICES.map((key) => ({ key, ...THEMES[key] })), agents, page, about: i.about ?? null };
+  const folded = settingsMeanings(drawn).filter((x) => foldsMeaning(x.text)).map((x) => x.id);
+  return { kind: 'settings', ...drawn, trackers, parts, limits: i.limits ?? null, slack: i.slack ?? null, github, guide: settingsGuide(parts), folded };
 }
 
 export const area: ModelArea = {

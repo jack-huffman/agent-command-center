@@ -4,7 +4,7 @@
 
 import type { AboutAction, AboutModel, AboutRow } from '../src/model/about.ts';
 import type { SettingFrom } from '../src/model/settings.ts';
-import { argButton, el, icon, linkTo, status, toolbarButton } from './dom.ts';
+import { argButton, el, icon, linkTo, status, toolbarButton, whatThisMeans } from './dom.ts';
 
 /** A button for one of About's commands, named for what it does. One that can't be used now says why. */
 function aboutButton(a: AboutAction): HTMLElement {
@@ -21,16 +21,16 @@ function aboutButton(a: AboutAction): HTMLElement {
 const from = (f: SettingFrom): HTMLElement => el('span', 'settings-from muted small', icon(f.icon), f.label);
 
 /** A version: its name, its state in words with an icon, where it's read from, what it means, and its fix. */
-function versionRow(r: AboutRow): HTMLElement {
+function versionRow(r: AboutRow, folded: readonly string[]): HTMLElement {
   const row = el('div', 'settings-row has-change about-row',
     el('span', 'settings-name', icon(r.icon), el('span', 'strong', r.name)),
-    el('div', 'settings-value', el('div', 'settings-now', status(r.look), from(r.from)), r.meaning ? el('p', 'muted small settings-meaning', r.meaning) : null),
+    el('div', 'settings-value', el('div', 'settings-now', status(r.look), from(r.from)), whatThisMeans(`about:${r.key}`, r.meaning ?? '', folded)),
     r.action ? aboutButton(r.action) : null);
   row.dataset.about = r.key;
   return row;
 }
 
-export function renderAbout(m: AboutModel | null): Node[] {
+export function renderAbout(m: AboutModel | null, folded: readonly string[]): Node[] {
   if (!m) return [el('p', 'settings-tracker-none', status({ label: 'Reading the versions', icon: 'sync~spin', tone: 'blue' }))];
   const r = m.release;
   const release = el('div', 'settings-row has-change about-row about-release',
@@ -40,5 +40,5 @@ export function renderAbout(m: AboutModel | null): Node[] {
       el('p', 'muted small settings-meaning', r.when)),
     aboutButton(r.check));
   release.dataset.about = 'release';
-  return [...m.rows.map(versionRow), release];
+  return [...m.rows.map((r) => versionRow(r, folded)), release];
 }

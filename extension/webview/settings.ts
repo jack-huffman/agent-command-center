@@ -2,11 +2,11 @@
 // (GH-112), Notices in Slack, GitHub accounts and the Command Center's own preferences (GH-113), and About (GH-114).
 
 import type { AgentRunProject, GithubAccountSetting, PagePreference, SettingFrom, SettingsAction, SettingsLink, SettingsModel, SettingsPartModel, TrackerProject, TrackerSetting } from '../src/model/settings.ts';
-import { argButton, button, el, header, icon, segmented, status, toolbarButton } from './dom.ts';
+import { argButton, button, el, header, icon, segmented, status, toolbarButton, whatThisMeans } from './dom.ts';
 import { renderAbout } from './about.ts';
 import { renderLimits } from './limits.ts';
 import { slackCardView } from './slack.ts';
-import { api, go, type PageArea } from './state.ts';
+import { api, go, jumpTo, type PageArea } from './state.ts';
 
 /** The theme: Match VSCode, Light or Dark. The extension keeps the pick, and every open page follows it. */
 function appearance(m: SettingsModel): HTMLElement {
@@ -15,7 +15,7 @@ function appearance(m: SettingsModel): HTMLElement {
     (key) => api.postMessage({ type: 'toolbar', command: 'acc.settings.theme', arg: key }));
   pick.querySelectorAll('button').forEach((b, i) => { b.dataset.keep = `settings-theme:${i}`; });
   return el('div', 'settings-row', el('span', 'settings-name', icon('color-mode'), el('span', 'strong', 'Theme')),
-    el('div', 'settings-value', pick, el('p', 'muted small settings-meaning', now.meaning)));
+    el('div', 'settings-value', pick, whatThisMeans('theme', now.meaning, m.folded)));
 }
 
 /** A way to where a part's settings live today, or to what it needs first: its section. */
@@ -36,7 +36,7 @@ function row(name: string, iconName: string, value: HTMLElement, change: HTMLEle
  * One project's agents, under its name (GH-110): builders' and reviewers' model, effort and fallback, its
  * autonomy (D-064) and auto-merge (D-083), each with where it's set and its Change…, which asks acc.
  */
-function agentProject(s: AgentRunProject): HTMLElement {
+function agentProject(s: AgentRunProject, folded: readonly string[]): HTMLElement {
   const box = el('div', 'settings-project');
   box.setAttribute('role', 'group');
   box.setAttribute('aria-label', s.project);
@@ -48,11 +48,11 @@ function agentProject(s: AgentRunProject): HTMLElement {
     box.append(row(r.label, r.icon, parts, argButton('acc.agents.configure', 'Change…', 'edit', `${r.role}|${s.root}`), `${r.label.toLowerCase()}' model, effort or fallback, in ${s.project}`));
   }
   if (s.autonomy) {
-    const value = el('div', '', el('div', 'settings-now', status(s.autonomy.look), from(s.autonomy.from)), s.autonomy.meaning ? el('p', 'muted small settings-meaning', s.autonomy.meaning) : null);
+    const value = el('div', '', el('div', 'settings-now', status(s.autonomy.look), from(s.autonomy.from)), whatThisMeans(`autonomy:${s.root}`, s.autonomy.meaning, folded));
     box.append(row('Autonomy', 'rocket', value, argButton('acc.agents.autonomy', 'Change…', 'edit', s.root), `what autopilot may do on its own, in ${s.project}`));
   }
   if (s.autoMerge) {
-    const value = el('div', '', el('div', 'settings-now', status(s.autoMerge.look), from(s.autoMerge.from)), el('p', 'muted small settings-meaning', s.autoMerge.meaning));
+    const value = el('div', '', el('div', 'settings-now', status(s.autoMerge.look), from(s.autoMerge.from)), whatThisMeans(`auto-merge:${s.root}`, s.autoMerge.meaning, folded));
     // A Salesforce project never auto-merges, so it has no Change… (D-083): its meaning says why.
     box.append(row('Auto-merge', 'git-merge', value, s.autoMerge.settable ? argButton('acc.agents.autoMerge', 'Change…', 'edit', s.root) : null, `whether autopilot merges pull requests, in ${s.project}`));
   }
@@ -64,7 +64,7 @@ function agentProject(s: AgentRunProject): HTMLElement {
     const protection = c.protection.length ? el('ul', 'settings-needs', ...c.protection.map((p) => Object.assign(el('li', `settings-need${p.look.tone === 'blue' ? ' ok' : ''}`, status(p.look), p.look.tone === 'blue' ? null : el('span', 'muted small', ` ${p.why}`)), { title: p.why }))) : null;
     const value = el('div', '',
       el('div', 'settings-now', status(c.look), from(c.from), c.defaultPlace ? el('span', 'settings-from muted small', icon(c.defaultPlace.icon), `plain dispatch: ${c.defaultPlace.label}`) : null),
-      el('p', 'muted small settings-meaning', c.meaning),
+      whatThisMeans(`cloud:${s.root}`, c.meaning, folded),
       c.look.label === 'off' ? null : needs,
       protection,
       el('div', 'actions settings-tracker-actions', ...c.actions.map(trackerButton)));
@@ -78,9 +78,9 @@ function howAgentsRun(m: SettingsModel): Node[] {
   const b = m.agents.billing;
   const billing = el('div', 'settings-row has-change settings-billing',
     el('span', 'settings-name', icon('credit-card'), el('span', 'strong', 'Billing')),
-    el('div', 'settings-value', el('div', 'settings-state', status(b.look)), el('p', 'muted small settings-meaning', 'This machine\'s, for every project. Agents shows it too while it\'s per token.')),
+    el('div', 'settings-value', el('div', 'settings-state', status(b.look)), whatThisMeans('billing', b.meaning, m.folded)),
     b.link ? linkButton(b.link) : null);
-  return [...m.agents.projects.map(agentProject), billing];
+  return [...m.agents.projects.map((s) => agentProject(s, m.folded)), billing];
 }
 
 /**
@@ -161,7 +161,7 @@ function githubPart(m: SettingsModel): Node[] {
  * One of the Command Center's own preferences (GH-113): a few choices side by side, or many as a list, each
  * asking for its command with the choice; what the one chosen means; and where VSCode keeps it.
  */
-function preference(p: PagePreference): HTMLElement {
+function preference(p: PagePreference, folded: readonly string[]): HTMLElement {
   let pick: HTMLElement;
   if (p.control === 'segmented') {
     pick = segmented(p.name, p.choices, (key) => api.postMessage({ type: 'toolbar', command: p.command, arg: key }));
@@ -186,12 +186,12 @@ function preference(p: PagePreference): HTMLElement {
     pick = el('div', 'settings-pick', mark ? el('span', 'settings-chosen', mark) : null, select);
   }
   return el('div', 'settings-row', el('span', 'settings-name', icon(p.icon), el('span', 'strong', p.name)),
-    el('div', 'settings-value', el('div', 'settings-now', pick, from(p.from)), el('p', 'muted small settings-meaning', p.meaning)));
+    el('div', 'settings-value', el('div', 'settings-now', pick, from(p.from)), whatThisMeans(`page:${p.id}`, p.meaning, folded)));
 }
 
 /** The Command Center's own preferences (GH-113), then how often each part refreshes at the pace chosen. */
 function pagePart(m: SettingsModel): Node[] {
-  return [...m.page.preferences.map(preference), el('ul', 'settings-details settings-refresh muted small', ...m.page.refresh.map((d) => el('li', '', d)))];
+  return [...m.page.preferences.map((p) => preference(p, m.folded)), el('ul', 'settings-details settings-refresh muted small', ...m.page.refresh.map((d) => el('li', '', d)))];
 }
 
 /** Notices in Slack (GH-58), moved here from Environments (GH-113): the card it had there. */
@@ -207,8 +207,26 @@ function today(p: SettingsPartModel): HTMLElement {
     p.links.length ? el('div', 'actions', ...p.links.map(linkButton)) : null);
 }
 
+/**
+ * The guide under the title (T-40): a link to each part, which scrolls to its heading and focuses it, as a
+ * link from another page does. On a narrow tab the row wraps.
+ */
+function guide(m: SettingsModel): HTMLElement {
+  const nav = el('nav', 'settings-guide', ...m.guide.map((g) => {
+    const a = el('a', 'settings-guide-link', icon(g.icon), el('span', '', g.label)) as HTMLAnchorElement;
+    a.href = `#settings-${g.id}`;
+    a.dataset.guide = g.part;
+    a.addEventListener('click', (e) => { e.preventDefault(); jumpTo(g.part); });
+    return a;
+  }));
+  nav.setAttribute('aria-label', 'Parts of Settings');
+  return nav;
+}
+
 export function renderSettings(m: SettingsModel): Node[] {
-  const out: Node[] = [header('Settings', 'How the Command Center looks and behaves on this machine, how agents run in each project and the limits they run under, each project\'s trackers and GitHub account, notices in Slack, and the versions installed.')];
+  const head = header('Settings', '');
+  head.querySelector('.summary')!.replaceWith(guide(m));
+  const out: Node[] = [head];
   for (const p of m.parts) {
     // Its heading is where another page opens Settings at this part.
     const h = el('h2', '', icon(p.icon), p.title);
@@ -224,7 +242,7 @@ export function renderSettings(m: SettingsModel): Node[] {
     if (p.id === 'slack') part.append(...slackPart(m));
     if (p.id === 'github') part.append(...githubPart(m));
     if (p.id === 'page') part.append(...pagePart(m));
-    if (p.id === 'about') part.append(...renderAbout(m.about));
+    if (p.id === 'about') part.append(...renderAbout(m.about, m.folded));
     if (p.built && p.details.length) part.append(...p.details.map((d) => el('p', 'muted small settings-note', d)));
     if (p.built && p.links.length) part.append(el('div', 'actions settings-links', ...p.links.map(linkButton)));
     if (!p.built) part.append(today(p));

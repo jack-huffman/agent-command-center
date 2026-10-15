@@ -3,7 +3,8 @@
  * Overview's detail modal (D-131) were checked by hand: Escape and the backdrop closing them, focus going
  * back to what opened them, a redraw under them leaving them as they were, a fold redrawing them, Show all
  * and the suggested rules' Previous and Next. One case reads a task page as drawn: ACME-21's wording list
- * (T-12, T-13), a line for each finding. Each case here opens the built page from its fixture in
+ * (T-12, T-13), a line for each finding. One reads Settings as drawn (T-40): a guide link for each part, and
+ * a closed What this means for each long explanation, which stays open once opened. Each case here opens the built page from its fixture in
  * headless Chrome, posts what the extension would post and dispatches what a person's keys and clicks
  * would, then checks the DOM, and writes what it found into a JSON script element Chrome's --dump-dom
  * prints. judgeBehaviour() decides, with no browser, so its rules are unit-tested.
@@ -33,6 +34,7 @@ import { pathToFileURL } from 'node:url';
 import type { HomeModel, Model } from '../src/model/home.ts';
 import { loadingScreen } from '../src/logic/loading.ts';
 import { isFromWebview } from '../src/model/messages.ts';
+import { foldsMeaning, meaningKey, settingsGuide, settingsMeanings } from '../src/model/settings.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
 import { ROOT } from './fixtures/shared.ts';
 import { palettes, vscodeDefaults } from './styles.ts';
@@ -90,22 +92,27 @@ export interface BehaviourData {
   machine: number;
   /** The project the header's Start an agent and Add a tracker act on. */
   project: string;
+  /**
+   * Settings (T-40): the heading each guide link opens, in order; each explanation that folds, by its id and
+   * the key the tab remembers it by; and how many stay in view.
+   */
+  settings: { parts: string[]; folds: { id: string; key: string }[]; kept: number };
 }
 
 /** One case: its name, the page it opens, and what it does there. */
 export interface Case {
   name: string;
-  page: 'tasks' | 'overview-landing' | 'ticket-questions';
+  page: 'tasks' | 'overview-landing' | 'ticket-questions' | 'settings-agents';
   /** A tab rebuilt before its first model: its page holds the loading screen, and the tab remembers being scrolled this far down. */
   opening?: { scroll: number };
   run: (t: Probe) => Promise<void>;
 }
 
-/** The pages the cases open: the Tasks board, the Overview, and ACME-21's task page. */
-export interface CaseModels { tasks: Model; overview: Model; ticket: Model }
+/** The pages the cases open: the Tasks board, the Overview, ACME-21's task page, and Settings with two projects. */
+export interface CaseModels { tasks: Model; overview: Model; ticket: Model; settings: Model }
 
 /** The model a case's page is drawn from. */
-export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : models.overview);
+export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'settings-agents' ? models.settings : models.overview);
 
 // ---------------------------------------------------------------- helpers, run in the page
 
@@ -490,6 +497,30 @@ export const CASES: Case[] = [
       }
     },
   },
+  {
+    name: 'settings: a link for each part opens its heading, and each long explanation is a closed What this means that stays open once opened',
+    page: 'settings-agents',
+    async run(t) {
+      const want = t.data.settings;
+      const links = t.all('.settings-guide a[data-guide]');
+      t.check('a link for each part, in order', links.length === want.parts.length && links.every((a, i) => a.dataset.guide === want.parts[i]), links.map((a) => a.dataset.guide));
+      t.check('the guide is named for screen readers', t.find('nav.settings-guide').getAttribute('aria-label') === 'Parts of Settings');
+      const limits = links.find((a) => a.dataset.guide === 'settings:limits');
+      if (!limits) throw new Error('not found: the link to Limits and checks');
+      await t.click(limits);
+      t.check('the link focuses its part\'s heading', document.activeElement === t.find('[data-part="settings:limits"]'), document.activeElement?.outerHTML.slice(0, 80));
+      const folds = t.all<HTMLDetailsElement>('details.settings-fold');
+      t.check('a fold for each long explanation', folds.length === want.folds.length && want.folds.length > 0, { drawn: folds.map((d) => d.dataset.fold), expected: want.folds.map((f) => f.id) });
+      for (const f of want.folds) t.check(`${f.id} is closed at first`, !t.find<HTMLDetailsElement>(`details.settings-fold[data-fold="${CSS.escape(f.id)}"]`).open);
+      t.check('each short explanation stays in view, outside a fold', t.all('.settings-meaning').filter((p) => !p.closest('details')).length >= want.kept, t.all('.settings-meaning').length);
+      const first = want.folds[0]!;
+      await t.click(t.find(`details.settings-fold[data-fold="${CSS.escape(first.id)}"] > summary`));
+      t.check('a click opens it, and the tab remembers it', ((t.memory().opened as string[] | undefined) ?? []).includes(first.key), t.memory().opened);
+      await t.post({ type: 'state', model: t.model });
+      t.check('a redraw leaves it open', t.find<HTMLDetailsElement>(`details.settings-fold[data-fold="${CSS.escape(first.id)}"]`).open);
+      t.check('and the others closed', t.all<HTMLDetailsElement>('details.settings-fold[open]').length === 1, t.all('details.settings-fold[open]').length);
+    },
+  },
 ];
 
 // ---------------------------------------------------------------- mutants: the page with one behaviour broken
@@ -528,6 +559,9 @@ export const MUTANTS: Mutant[] = [
   { name: 'a model that still holds an accepted rule brings it back', file: 'rules.ts', find: 'for (const k of [...settled]) if (!live.has(k)) settled.delete(k);', replace: 'settled.clear();', kills: [caseNamed('detail modal: a rule acc accepted leaves')] },
   { name: 'the task page shows no wording list', file: 'analysis.ts', find: 'if (a.wording) {', replace: 'if (a.wording && !a.wording) {', kills: [caseNamed('task page: an analysis with wording findings')] },
   { name: 'the wording list leaves out where each finding is', file: 'analysis.ts', find: "el('strong', '', `${f.place}: `)", replace: "el('strong', '', '')", kills: [caseNamed('task page: an analysis with wording findings')] },
+  { name: 'a guide link goes nowhere', file: 'settings.ts', find: "a.addEventListener('click', (e) => { e.preventDefault(); jumpTo(g.part); });", replace: "a.addEventListener('click', (e) => { e.preventDefault(); });", kills: [caseNamed('settings: a link for each part')] },
+  { name: 'every explanation stays in view', file: 'dom.ts', find: 'if (!folded.includes(id)) return', replace: 'if (text) return', kills: [caseNamed('settings: a link for each part')] },
+  { name: 'an opened explanation closes on a redraw', file: 'dom.ts', find: 'd.open = memory().opened.includes(key);', replace: 'd.open = false;', kills: [caseNamed('settings: a link for each part')] },
   { name: 'a page holding only the loading screen isn\'t fresh', file: 'main.ts', find: "const fresh = !app.hasChildNodes() || !!app.querySelector(':scope > .opening');", replace: 'const fresh = !app.hasChildNodes();', kills: [caseNamed('loading screen: a tab rebuilt')] },
 ];
 
@@ -535,6 +569,17 @@ export const MUTANTS: Mutant[] = [
 export const occurrences = (source: string, find: string): number => (find ? source.split(find).length - 1 : 0);
 
 // ---------------------------------------------------------------- what Node expects, and the page
+
+/** What Settings' case expects (T-40): from the model, each part's heading and each explanation, folded or kept. */
+function settingsData(model: Model): BehaviourData['settings'] {
+  if (model.kind !== 'home') throw new Error('The Settings case needs a home model.');
+  const meanings = settingsMeanings(model.settings);
+  return {
+    parts: settingsGuide(model.settings.parts).map((g) => g.part),
+    folds: meanings.filter((x) => foldsMeaning(x.text)).map((x) => ({ id: x.id, key: meaningKey(x.id) })),
+    kept: meanings.filter((x) => !foldsMeaning(x.text)).length,
+  };
+}
 
 /** The oracle: what each case should see, from the fixtures the pages are drawn from. */
 export function behaviourData(models: CaseModels, now: number): BehaviourData {
@@ -557,6 +602,7 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     }),
     machine: o.inProgress.machine.length,
     project: ROOT,
+    settings: settingsData(models.settings),
     wording: (sampleTicket(now, 'ACME-21').analysis?.wording?.findings ?? []).map((f) => ({ place: f.place, message: f.message, text: f.text })),
   };
 }
