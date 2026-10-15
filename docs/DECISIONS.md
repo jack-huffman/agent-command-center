@@ -6898,9 +6898,10 @@ T-54. A card moved only by a drag, and the keyboard couldn't go from card to car
   `nextLane`, the looks of each step (`MOVE_LOOK`) and the line's words (`MOVE_WORDS`).
 - **The screenshot run's start state** may hold a card (`holding`), as it may open a card's menu, so
   the page `tasks-moving` shows ACME-16 held with In Progress chosen.
-- **Checked:** `board-keys.test.ts` adds 12 tests: each key, the end of a column, an empty column
+- **Checked:** `board-keys.test.ts` adds 13 tests: each key, the end of a column, an empty column
   between two, the edge columns, one card on the board, a card with no lanes, keys the functions don't
-  take, the looks and the words. The looks test walks `MOVE_LOOK`. The behaviour run adds 5 cases (one
+  take, the looks and the words, and that both boards call `boardKeys` under a `liveLine`, with the
+  same move a drop sends, and that a mutant catches each behaviour case. The looks test walks `MOVE_LOOK`. The behaviour run adds 5 cases (one
   card in the tab order and the arrows; Space, Right and Enter against a drop's message; Escape; a card
   no column takes, on the agent board; focus after a redraw, in the new column) and 6 mutants. Its click
   now focuses an element with any `tabindex`, as a browser does. The screenshot run adds `tasks-moving`.

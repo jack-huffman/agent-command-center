@@ -1,7 +1,11 @@
 // A board's keys (T-54): which card an arrow goes to, which lane a held card's choice goes to, how each step
 // shows and what the live line says. The page's side, in a browser, is the behaviour run's (behaviour.ts).
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { CASES, MUTANTS } from '../scripts/behaviour.ts';
 import { CARD_KEYS, LANE_KEYS, MOVE_LOOK, MOVE_WORDS, nextCard, nextLane } from '../webview/board-keys.ts';
 
 /** Three columns, the middle one empty, then a fourth: A-1 and A-2, nothing, B-1 to B-3, C-1. */
@@ -92,4 +96,21 @@ test('the live line says what Space, a choice, Enter, Escape and a card that can
   assert.equal(MOVE_WORDS.moved('ACME-16', 'In Progress'), 'Moved ACME-16 to In Progress');
   assert.equal(MOVE_WORDS.stays('ACME-16', 'To Do'), 'Put ACME-16 down. It stays in To Do.');
   assert.equal(MOVE_WORDS.cannot('ACME-12', 'Running'), 'ACME-12 can\'t move from Running. No other column takes it from here.');
+});
+
+const webview = join(dirname(fileURLToPath(import.meta.url)), '..', 'webview');
+
+// board-nav.ts reads the VS Code API as it loads, so node can't run it: the behaviour run drives it in a browser.
+test('edge case: both boards, the tracker\'s and the agent board, wire their cards to boardKeys under a liveLine, and the behaviour run drives them', () => {
+  const tasks = readFileSync(join(webview, 'tasks.ts'), 'utf8');
+  assert.equal(tasks.match(/boardKeys\(board, live, \{/g)?.length, 2, 'boardKeys on each board');
+  assert.equal(tasks.match(/const live = liveLine\(/g)?.length, 2, 'a liveLine above each');
+  // The drop and the held card's Enter call one move each, so they send the same message.
+  assert.match(tasks, /moveTask\(id, c\.group\);[\s\S]*move: moveTask,/);
+  assert.match(tasks, /moveCard\(key, c\.id\);[\s\S]*move: moveCard,/);
+  const cases = CASES.filter((c) => c.name.startsWith('board keys:'));
+  assert.equal(cases.length, 5);
+  const mutants = MUTANTS.filter((m) => m.file === 'board-nav.ts' || m.file === 'board-keys.ts');
+  assert.equal(mutants.length, 6);
+  for (const c of cases) assert.ok(mutants.some((m) => m.kills.includes(c.name)), `a mutant catches ${c.name}`);
 });
