@@ -7040,7 +7040,7 @@ until the page puts a space between them. The spaces are text nodes in flex rows
 3. **Faded task cards** (`boards.css`): a done card, and a card in a done lane, sits flat with no fill or
    lift, in place of opacity 0.75 and 0.92. Its text keeps its contrast; its lane's heading says Done.
 4. **The Overview's rows and cards** (`landing.ts`, `landing.css`): a line's link is its title, named
-   by the title, then its state and key (`lineName`). A click anywhere on the line still opens it, and the
+   by the title, then its state and key (`lineName`). Enter on the link opens the line, a click anywhere on it still does, and the
    line still shows the focus. A card puts spaces between its title, count and line.
 5. **The Overview's lists** (`landing.ts`): a line is a list item again, with no role of its own, so its
    `ol` holds list items.
@@ -7055,12 +7055,14 @@ until the page puts a space between them. The spaces are text nodes in flex rows
 - **The full screenshot run passes:** 450 drawings, no findings; a11y examined 204164, above its floor
   of 190000. Excused: charts-blue 1618, charts-orange 901, descriptionForeground 315, textLink-foreground
   249. Incomplete by rule: color-contrast 1071, label-content-name-mismatch 276, aria-prohibited-attr
-  264, th-has-data-cells 6. Behaviour: 35 cases, 279 checks; mutants 54, 54 caught.
+  264, th-has-data-cells 6. Behaviour: 36 cases, 286 checks; mutants 55, 55 caught.
 - **Checked:** `names.test.ts` adds six tests, which split a name into words as axe does: the rail's
   names, the Overview's lines and cards, tracker cards, every action's name on every sample page and in
   each cloud, GitHub and plugin state, Setup's bar, and no done card, lane or step faded below opacity 1.
   `a11y.test.ts` adds one: the list holds only the theme colours, and none of the 17 nodes the
   follow-ups excused is excused now. The detail modal's behaviour case opens a question from its line and
-  checks the line is a list item and focus comes back to its link.
+  checks the line is a list item and focus comes back to its link. A new behaviour case focuses the
+  line's link, presses Enter, and checks the question opens and Escape sends focus back to the link; its
+  mutant drops the link's Enter handler, and the case catches it.
 
 Out of scope: the four theme-colour exceptions, and axe's best-practice rules.

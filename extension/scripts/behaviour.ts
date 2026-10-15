@@ -378,6 +378,25 @@ export const CASES: Case[] = [
     },
   },
   {
+    name: 'detail modal: Enter on a line\'s link opens it, and Escape sends focus back to the link',
+    page: 'overview-landing',
+    async run(t) {
+      // The line's keyboard path (T-59): its title is the link that takes focus, and Enter on it opens the line.
+      const link = t.find(`li > .lp-title[role="link"][data-opens="${CSS.escape(t.data.questionOpens)}"]`);
+      t.check('the link is in the tab order', link.tabIndex === 0, link.tabIndex);
+      link.focus();
+      t.check('nothing is open before the press', !document.querySelector('dialog.detail-modal[open]'));
+      const enter = await press(t, link, 'Enter');
+      const dialog = t.find<HTMLDialogElement>('dialog.detail-modal');
+      t.check('Enter opens the line over the Overview', dialog.open);
+      t.check('the page takes the Enter', enter.defaultPrevented);
+      t.check('focus moves into it', dialog.contains(document.activeElement), document.activeElement?.className);
+      await t.escape(dialog);
+      t.check('Escape closes it', !dialog.open);
+      t.check('focus goes back to the line\'s link, not its Answer', document.activeElement === link, document.activeElement?.className);
+    },
+  },
+  {
     name: 'detail modal: a new model under it leaves it open on the same rule, scrolled and typed in, and focus finds the card that opened its list again',
     page: 'overview-landing',
     async run(t) {
@@ -988,6 +1007,7 @@ export const MUTANTS: Mutant[] = [
   { name: 'a rule\'s draft forgets what\'s typed', file: 'rules.ts', find: "box.addEventListener('input', () => { keep(c, name, box.value); onInput(); });", replace: "box.addEventListener('input', () => { onInput(); });", kills: [caseNamed('detail modal: a new model under it')] },
   { name: 'the detail doesn\'t draw again after the page does', file: 'detail.ts', find: "if (model.kind === 'home' && memory().detail) draw();", replace: "if (model.kind === 'home' && memory().detail && model !== state.last) draw();", kills: [caseNamed('detail modal: Show all on a rule'), caseNamed('detail modal: Accept')] },
   { name: 'Show all opens only what the page shows', file: 'detail.ts', find: 'const rows = g ? g.all : [];', replace: 'const rows = g ? g.rows : [];', kills: [caseNamed('detail modal: Show all opens'), caseNamed('overview: each card opens')] },
+  { name: 'Enter on a line\'s link opens nothing', file: 'landing.ts', find: "title.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(e); });", replace: '', kills: [caseNamed('detail modal: Enter on a line')] },
   { name: 'a card opens nothing', file: 'landing.ts', find: "b.addEventListener('click', () => openDetail(c.opens));", replace: "b.addEventListener('click', () => undefined);", kills: [caseNamed('overview: each card opens')] },
   { name: 'In progress\'s detail drops its machine line', file: 'detail.ts', find: "const top = d.group === 'progress' ? machineLine(o.inProgress) : null;", replace: 'const top = null;', kills: [caseNamed('overview: each card opens')] },
   { name: 'the header\'s menu runs each item as a task\'s action', file: 'overview.ts', find: "(a.command === 'refresh' ? refreshPage() : api.postMessage({ type: 'toolbar', command: a.command, project: root }))", replace: "api.postMessage({ type: 'run', command: a.command, ref: a.ref })", kills: [caseNamed('overview: the header')] },
