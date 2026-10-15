@@ -294,6 +294,24 @@ test('me is the app\'s name as slackApp gives it, once, and the bot user\'s name
   assert.equal((await client(failed.fetch).me()).name, 'acc-bot', 'bots.info refused: the bot user\'s name, as slackApp gives it');
 });
 
+test('me tries again after a failed auth.test: the second call gives the app\'s name (edge case: a failed first sign-in check)', async () => {
+  let asked = 0;
+  const { fetch: f, calls } = fakeSlack({
+    'auth.test': () => (++asked === 1 ? { ok: false, error: 'invalid_auth' } : { ...AUTH, bot_id: 'B0APP' }),
+    'bots.info': { ok: true, bot: { id: 'B0APP', name: 'Acme Command Center' } },
+  });
+  const c = client(f);
+  await assert.rejects(c.me(), (e: unknown) => e instanceof TrackerError && e.kind === 'auth');
+  assert.deepEqual(await c.me(), { id: 'U0BOT', name: 'Acme Command Center' });
+  assert.equal(calls.filter((x) => x.method === 'auth.test').length, 2, 'the failure was not kept');
+});
+
+test('me for a token with no bot gives the bot user\'s name and never calls bots.info (edge case: no bot_id)', async () => {
+  const { fetch: f, calls } = fakeSlack({ 'auth.test': AUTH, 'bots.info': { ok: true, bot: { name: 'Should not be asked' } } });
+  assert.deepEqual(await client(f).me(), { id: 'U0BOT', name: 'acc-bot' });
+  assert.equal(calls.filter((x) => x.method === 'bots.info').length, 0);
+});
+
 test('slackChannels lists the public and private channels the app is in, by name, a page at a time, and an empty workspace is an empty list', async () => {
   const pages: Record<string, unknown> = {
     '': { ok: true, channels: [
