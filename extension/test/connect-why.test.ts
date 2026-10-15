@@ -2,16 +2,15 @@
 // step 3 from the tracker's description.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { test } from 'node:test';
-import { fileURLToPath } from 'node:url';
 import { DESCRIPTIONS, JIRA, MONDAY, SLACK } from '../../packages/core/src/trackers/connect.ts';
 import { blankConnect, connectModel, LISTS_TITLE } from '../src/model/connect.ts';
 import { behaviourData, CASES, MUTANTS } from '../scripts/behaviour.ts';
 import { sampleConnect } from '../scripts/fixtures/connect.ts';
 import { sampleModel } from '../scripts/screenshot.ts';
+import { root } from './support.ts';
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const base = { root: '/Users/me/code/acme-service', projectName: 'Acme Service', ownRepo: 'acme/service', ghAccount: 'jordan-kim', from: 'tasks' as const, gitEmail: 'jordan.kim@example.com' };
 
 test('a disabled Connect button says why: sign in, then each choice, in the order a person does them', () => {
